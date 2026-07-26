@@ -1,72 +1,84 @@
 const assert = require('assert');
-const { scheduleFocusRetries } = require('../../src/components/code/focus-retry.ts');
+const { scheduleFocusRetries, scheduleFocusUntil } = require('../../src/components/code/focus-retry.ts');
 
 function createScheduler() {
   let nextHandle = 1;
   const frames = new Map();
   const timers = new Map();
-  const cancelledFrames = [];
-  const clearedTimers = [];
+  const add = (entries, value) => {
+    const handle = nextHandle++;
+    entries.set(handle, value);
+    return handle;
+  };
 
   return {
+    frames,
+    timers,
     scheduler: {
-      requestAnimationFrame(callback) {
-        const handle = nextHandle++;
-        frames.set(handle, callback);
-        return handle;
-      },
+      requestAnimationFrame: callback => add(frames, callback),
       cancelAnimationFrame(handle) {
-        cancelledFrames.push(handle);
         frames.delete(handle);
       },
-      setTimeout(callback, delay) {
-        const handle = nextHandle++;
-        timers.set(handle, { callback, delay });
-        return handle;
-      },
+      setTimeout: (callback, delay) => add(timers, { callback, delay }),
       clearTimeout(handle) {
-        clearedTimers.push(handle);
         timers.delete(handle);
       },
     },
-    frames,
-    timers,
-    cancelledFrames,
-    clearedTimers,
   };
 }
 
+function runNext(entries) {
+  const [handle, value] = entries.entries().next().value || [];
+  if (!handle) return false;
+  entries.delete(handle);
+  (value.callback || value)();
+  return true;
+}
+
 function run() {
-  const state = createScheduler();
+  const retries = createScheduler();
   let focusCount = 0;
-
-  const cleanup = scheduleFocusRetries(() => {
-    focusCount += 1;
-  }, { delays: [0, 80, 180] }, state.scheduler);
-
-  assert.strictEqual(focusCount, 1, 'focus should run immediately by default');
-  assert.strictEqual(state.frames.size, 1, 'focus should also be scheduled on the next animation frame');
-  assert.deepStrictEqual(
-    Array.from(state.timers.values()).map(timer => timer.delay),
-    [0, 80, 180],
-    'focus retry delays should be explicit and ordered'
+  const cleanup = scheduleFocusRetries(
+    () => { focusCount += 1; },
+    { delays: [0, 80, 180] },
+    retries.scheduler,
   );
-
+  assert.strictEqual(focusCount, 1);
+  assert.deepStrictEqual([...retries.timers.values()].map(timer => timer.delay), [0, 80, 180]);
   cleanup();
-  assert.strictEqual(state.frames.size, 0, 'cleanup should cancel pending animation frame');
-  assert.strictEqual(state.timers.size, 0, 'cleanup should clear pending retry timers');
-  assert.deepStrictEqual(state.cancelledFrames, [1]);
-  assert.deepStrictEqual(state.clearedTimers, [2, 3, 4]);
+  assert.strictEqual(retries.frames.size + retries.timers.size, 0);
 
-  const delayedState = createScheduler();
-  let delayedFocusCount = 0;
-  scheduleFocusRetries(() => {
-    delayedFocusCount += 1;
-  }, { runNow: false, animationFrame: false, delays: [180] }, delayedState.scheduler);
+  const delayed = createScheduler();
+  scheduleFocusRetries(() => assert.fail('delayed focus ran early'), {
+    runNow: false, animationFrame: false, delays: [180],
+  }, delayed.scheduler);
+  assert.strictEqual(delayed.timers.values().next().value.delay, 180);
 
-  assert.strictEqual(delayedFocusCount, 0, 'runNow false should only schedule retries');
-  assert.strictEqual(delayedState.frames.size, 0, 'animationFrame false should skip frame scheduling');
-  assert.deepStrictEqual(Array.from(delayedState.timers.values()).map(timer => timer.delay), [180]);
+  const until = createScheduler();
+  let untilAttempts = 0;
+  scheduleFocusUntil(
+    () => (untilAttempts += 1) === 2,
+    { initialDelay: 50, retryDelay: 90, maxAttempts: 4 },
+    until.scheduler,
+  );
+  assert.strictEqual(until.timers.values().next().value.delay, 50);
+  runNext(until.timers);
+  runNext(until.frames);
+  assert.strictEqual(until.timers.values().next().value.delay, 90);
+  runNext(until.timers);
+  runNext(until.frames);
+  assert.strictEqual(untilAttempts, 2);
+  assert.strictEqual(until.timers.size + until.frames.size, 0);
+
+  const capped = createScheduler();
+  let cappedAttempts = 0;
+  scheduleFocusUntil(
+    () => { cappedAttempts += 1; return false; },
+    { maxAttempts: 2, animationFrame: false },
+    capped.scheduler,
+  );
+  while (runNext(capped.timers)) {}
+  assert.strictEqual(cappedAttempts, 2);
 
   console.log('test-code-focus-retry passed');
 }

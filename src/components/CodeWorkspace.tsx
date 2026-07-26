@@ -139,7 +139,7 @@ import {
   type AgentComposerState,
 } from './code/composer-state'
 import { codeCopyForLanguage } from './code/copy'
-import { scheduleFocusRetries } from './code/focus-retry'
+import { scheduleFocusRetries, scheduleFocusUntil } from './code/focus-retry'
 import {
   DEFAULT_CLAUDE_SETTINGS,
   buildComposerControlState,
@@ -4663,35 +4663,16 @@ export function CodeWorkspace({
     if (activeView !== 'projects' || searchOpen) return
 
     restoreProjectListFocusRef.current = null
-    let retryTimer: number | undefined
-    let attempts = 0
-    const maxAttempts = restoreTarget === 'active-force' ? 4 : 12
-    const retryRestoreFocus = () => {
-      if (attempts >= maxAttempts) return
-      retryTimer = window.setTimeout(restoreFocus, 90)
-    }
-    const restoreFocus = () => {
-      attempts += 1
-      if (shouldSkipProjectFocusRestore()) {
-        retryRestoreFocus()
-        return
-      }
-      let focused = false
+    return scheduleFocusUntil(() => {
+      if (shouldSkipProjectFocusRestore()) return false
       if (restoreTarget === 'list') {
         projectListRef.current?.focus({ preventScroll: true })
-        focused = document.activeElement === projectListRef.current
-      } else {
-        focused = focusActiveProjectListTargetNow()
+        return document.activeElement === projectListRef.current
       }
-      if (!focused || restoreTarget === 'active-force') retryRestoreFocus()
-    }
-    const timer = window.setTimeout(() => {
-      restoreFocus()
-    }, restoreTarget === 'list' ? 0 : 50)
-    return () => {
-      window.clearTimeout(timer)
-      if (retryTimer !== undefined) window.clearTimeout(retryTimer)
-    }
+      const focused = focusActiveProjectListTargetNow()
+      return restoreTarget === 'active-force' ? false : focused
+    }, { initialDelay: restoreTarget === 'list' ? 0 : 50, retryDelay: 90,
+      maxAttempts: restoreTarget === 'active-force' ? 4 : 12, animationFrame: false })
   }, [activeTerminalId, activeView, focusActiveProjectListTargetNow, searchOpen, shouldSkipProjectFocusRestore])
 
   useEffect(() => {
@@ -4699,18 +4680,8 @@ export function CodeWorkspace({
     if (!archivedAgentId) return
     if (activeView !== 'projects' || searchOpen) return
 
-    let retryTimer: number | undefined
-    let attempts = 0
-    const retryRestoreFocus = () => {
-      if (attempts >= 12) return
-      retryTimer = window.setTimeout(restoreFocus, 90)
-    }
-    const restoreFocus = () => {
-      attempts += 1
-      if (shouldSkipProjectFocusRestore()) {
-        retryRestoreFocus()
-        return
-      }
+    return scheduleFocusUntil(() => {
+      if (shouldSkipProjectFocusRestore()) return false
       const focused = focusActiveProjectListTargetNow()
       const activeElement = document.activeElement
       if (
@@ -4719,18 +4690,10 @@ export function CodeWorkspace({
         && activeElement.dataset.agentId !== archivedAgentId
       ) {
         pendingArchivedFocusAgentRef.current = null
-        return
+        return true
       }
-      retryRestoreFocus()
-    }
-    const timer = window.setTimeout(() => {
-      restoreFocus()
-      retryTimer = window.setTimeout(restoreFocus, 180)
-    }, 50)
-    return () => {
-      window.clearTimeout(timer)
-      if (retryTimer !== undefined) window.clearTimeout(retryTimer)
-    }
+      return false
+    }, { initialDelay: 50, retryDelay: 90, maxAttempts: 12, animationFrame: false })
   }, [activeAgents.length, activeTerminalId, activeView, focusActiveProjectListTargetNow, searchOpen, shouldSkipProjectFocusRestore])
 
   useEffect(() => {
@@ -4740,25 +4703,10 @@ export function CodeWorkspace({
     if (!activeAgents.some(agent => agent.id === restoredAgentId)) return
 
     pendingRestoredFocusAgentRef.current = null
-    let retryTimer: number | undefined
-    let attempts = 0
-    const restoreFocus = () => {
-      attempts += 1
-      if (!shouldSkipProjectFocusRestore()) {
-        focusAgentRowNow(restoredAgentId)
-      }
-      if (attempts >= 60) return
-      retryTimer = window.setTimeout(() => {
-        window.requestAnimationFrame(restoreFocus)
-      }, 80)
-    }
-    const timer = window.setTimeout(() => {
-      window.requestAnimationFrame(restoreFocus)
-    }, 50)
-    return () => {
-      window.clearTimeout(timer)
-      if (retryTimer !== undefined) window.clearTimeout(retryTimer)
-    }
+    return scheduleFocusUntil(
+      () => !shouldSkipProjectFocusRestore() && focusAgentRowNow(restoredAgentId),
+      { initialDelay: 50, retryDelay: 80, maxAttempts: 60 },
+    )
   }, [activeAgents, activeView, focusAgentRowNow, searchOpen, shouldSkipProjectFocusRestore])
 
   useEffect(() => {

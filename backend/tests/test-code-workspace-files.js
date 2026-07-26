@@ -386,9 +386,9 @@ function run() {
       workspaceSource.includes('projectListRef.current?.focus({ preventScroll: true })') &&
       workspaceSource.includes('shouldSkipProjectFocusRestore') &&
       workspaceSource.includes("activeElement.closest('.code-context-menu')") &&
-      workspaceSource.includes('retryRestoreFocus') &&
-      workspaceSource.includes('retryTimer = window.setTimeout(restoreFocus, 90)') &&
-      workspaceSource.includes("}, restoreTarget === 'list' ? 0 : 50)") &&
+      workspaceSource.includes('return scheduleFocusUntil(() => {') &&
+      workspaceSource.includes("initialDelay: restoreTarget === 'list' ? 0 : 50") &&
+      workspaceSource.includes('retryDelay: 90') &&
       workspaceSource.includes("if (activeView !== 'search' && searchOpen)") &&
       workspaceSource.includes("if (activeView === 'projects') return") &&
       workspaceSource.includes('type WorkspaceContextMenu =') &&
@@ -551,7 +551,8 @@ function run() {
       workspaceSource.includes('const sessionHandle = contextMenuAgent.providerSessionKey || resumedAgentSessionIdFromSource(contextMenuAgent.source)') &&
       workspaceSource.includes('if (sessionHandle) removeMainPageAgentSession(sessionHandle)') &&
       workspaceSource.includes('pendingArchivedFocusAgentRef.current = agentId') &&
-      workspaceSource.includes('retryTimer = window.setTimeout(restoreFocus, 180)') &&
+      workspaceSource.includes('{ initialDelay: 50, retryDelay: 90, maxAttempts: 12, animationFrame: false }') &&
+      workspaceSource.includes('{ initialDelay: 50, retryDelay: 80, maxAttempts: 60 }') &&
       workspaceSource.includes('if (flags.archived !== true) focusAgentRow(agentId)') &&
       !workspaceSource.includes('buildAgentDeeplink') &&
       workspaceSource.includes('Fork into same worktree') &&
