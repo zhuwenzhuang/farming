@@ -1180,7 +1180,7 @@ function run() {
       editorShellKeyboardSource.includes('window.setTimeout(() => onFocusFilesSearch(agentId), 120)') &&
       !editorSource.includes('saveFileRef') &&
       editorSource.includes('WorkspaceFileOpenTarget') &&
-      editorHeaderSource.includes('WorkspaceFileOpenTarget') &&
+      editorHeaderSource.includes("interface FileEditorHeaderProps extends Omit<FileEditorTabsProps, 'actions'>") &&
       editorTabsComponentSource.includes('WorkspaceFileOpenTarget') &&
       editorTabsControllerSource.includes('WorkspaceFileOpenTarget') &&
       !editorSource.includes('lineNumber?: number; column?: number; endColumn?: number') &&

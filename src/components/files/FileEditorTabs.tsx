@@ -21,7 +21,7 @@ import {
 } from '@/lib/workspace-working-copy'
 import type { CodeCopy } from '../code/copy'
 
-interface FileEditorTabsProps {
+export interface FileEditorTabsProps {
   openFile: OpenWorkspaceFile
   openFiles: OpenWorkspaceFile[]
   copy: CodeCopy

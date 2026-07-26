@@ -1,28 +1,11 @@
-import { type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react'
 import { workspaceEditorActionState, type WorkspaceEditorFileMode } from '@/lib/workspace-editor-model'
-import type { OpenWorkspaceFile, WorkspaceFileOpenTarget } from '@/lib/workspace-open-files'
-import type { CodeCopy } from '../code/copy'
 import { FileEditorActions } from './FileEditorActions'
 import { FileEditorBreadcrumbs } from './FileEditorBreadcrumbs'
-import { FileEditorTabs } from './FileEditorTabs'
+import { FileEditorTabs, type FileEditorTabsProps } from './FileEditorTabs'
 
-interface FileEditorHeaderProps {
-  openFile: OpenWorkspaceFile
-  openFiles: OpenWorkspaceFile[]
+interface FileEditorHeaderProps extends Omit<FileEditorTabsProps, 'actions'> {
   editorMode: WorkspaceEditorFileMode
-  copy: CodeCopy
   statusText: string | null
-  onBackToAgent: (agentId: string) => void
-  onSelectOpenFile: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => boolean
-  canNavigateBack: boolean
-  canNavigateForward: boolean
-  onNavigateHistory: (direction: -1 | 1) => boolean
-  onSetTabRef: (key: string, element: HTMLDivElement | null) => void
-  onOpenTabContextMenu: (event: ReactMouseEvent<HTMLDivElement>, index: number) => void
-  onTabAuxClick: (event: ReactMouseEvent<HTMLDivElement>, index: number) => void
-  onTabKeyDown: (event: ReactKeyboardEvent<HTMLDivElement>, index: number) => void
-  onCloseTab: (index: number) => void
-  onReorderOpenFile: (sourceKey: string, targetKey: string, position: 'before' | 'after') => void
   onRevealInExplorer: (agentId: string, filePath: string, kind: 'directory' | 'file') => void
   onSave: (overwrite?: boolean) => void
   onReload: () => void
