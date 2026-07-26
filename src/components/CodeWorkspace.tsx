@@ -325,7 +325,11 @@ interface CodeWorkspaceProps {
   activeTerminalId: string | null
   permissionSwitchingAgentId: string | null
   agentSwitchingKind: 'permission' | 'runtime' | null
-  permissionSwitchReplacement: { originalAgentId: string; replacementAgentId: string } | null
+  permissionSwitchReplacement: {
+    originalAgentId: string
+    replacementAgentId: string
+    transitionFromAgentId?: string
+  } | null
   retainedAgentViewIds: string[]
   terminalFocusRequest: { agentId: string; nonce: number } | null
   remoteProjectWorkspaces: string[] | null

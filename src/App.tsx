@@ -1155,6 +1155,7 @@ export function App() {
           ? {
             originalAgentId: permissionSwitch.originalAgentId,
             replacementAgentId: permissionSwitch.replacementAgentId,
+            transitionFromAgentId: permissionSwitch.transitionFromAgentId,
           }
           : observedAgentReplacement ?? externalAgentReplacement}
         retainedAgentViewIds={effectiveRetainedAgentViewIds}
