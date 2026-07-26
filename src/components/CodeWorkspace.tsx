@@ -112,7 +112,7 @@ import {
   formatAttachedImage,
   formatAttachmentError,
   formatAttachmentFile,
-  formatComposerMessage,
+  formatComposerMessageForAgent,
   isImageFile,
   isAudioFile,
   revokeComposerAttachmentPreview,
@@ -1936,7 +1936,7 @@ export function CodeWorkspace({
       : composerMessageWithAttachments(latestDraft, composerAttachments)
     if (!text && nativeAttachments.length === 0) return
 
-    const message = formatComposerMessage(composerMode, text)
+    const message = formatComposerMessageForAgent(composerMode, text, activeAgent)
     let submitted: boolean | Promise<boolean> = true
     if (isCodexAgentWorking(activeAgent) && activeAgent.runtimeBinding.kind === 'terminal') {
       updateComposerStateForKey(activeComposerKey, state => {

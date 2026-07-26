@@ -258,7 +258,7 @@ export function CodeComposer({
   onToggleSpeechInput,
   copy,
 }: CodeComposerProps) {
-  const showPlusMenu = active && capabilities.plusMenu
+  const showPlusMenu = active && (capabilities.plusMenu || capabilities.goalMode)
   const showPermissionMode = active && capabilities.permissionMode
   const showModelPicker = active && capabilities.modelPicker
   const showServiceTierPicker = capabilities.serviceTier && currentServiceTierOptions.length > 0
@@ -732,18 +732,24 @@ export function CodeComposer({
                 onBlur={onComposerMenuBlur}
                 onMouseDown={event => event.preventDefault()}
               >
-                <button type="button" role="menuitem" data-testid="code-composer-attach-file" onClick={onChooseAttachmentFile}>
-                  <span>{copy.attachFile}</span>
-                  <small>{copy.fileContext}</small>
-                </button>
-                <button type="button" role="menuitem" data-testid="code-composer-goal-mode" onClick={() => onActivateComposerMode('goal')}>
-                  <span>{copy.goalMode}</span>
-                  <small>{copy.setObjective}</small>
-                </button>
-                <button type="button" role="menuitem" data-testid="code-composer-plan-mode" onClick={() => onActivateComposerMode('plan')}>
-                  <span>{copy.planMode}</span>
-                  <small>{copy.planFirst}</small>
-                </button>
+                {capabilities.plusMenu ? (
+                  <button type="button" role="menuitem" data-testid="code-composer-attach-file" onClick={onChooseAttachmentFile}>
+                    <span>{copy.attachFile}</span>
+                    <small>{copy.fileContext}</small>
+                  </button>
+                ) : null}
+                {capabilities.goalMode ? (
+                  <button type="button" role="menuitem" data-testid="code-composer-goal-mode" onClick={() => onActivateComposerMode('goal')}>
+                    <span>{copy.goalMode}</span>
+                    <small>{copy.setObjective}</small>
+                  </button>
+                ) : null}
+                {capabilities.plusMenu ? (
+                  <button type="button" role="menuitem" data-testid="code-composer-plan-mode" onClick={() => onActivateComposerMode('plan')}>
+                    <span>{copy.planMode}</span>
+                    <small>{copy.planFirst}</small>
+                  </button>
+                ) : null}
               </div>
             )}
             </div>

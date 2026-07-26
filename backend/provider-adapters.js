@@ -221,7 +221,13 @@ const PROVIDER_ADAPTERS = Object.freeze([
     terminalResumeArgs: (args, sessionId) => ['resume', sessionId, ...args],
     acp: { packageName: '@agentclientprotocol/codex-acp', version: '1.1.4' },
     prepareAcpEnvironment: codexAcpEnvironment,
-    capabilities: { runtimeSwitch: true, terminalProfile: true, goals: false, sessionFork: true },
+    capabilities: {
+      runtimeSwitch: true,
+      terminalProfile: true,
+      goals: false,
+      goalSubmission: { terminal: { kind: 'prompt' }, acp: { kind: 'prompt' } },
+      sessionFork: true,
+    },
   },
   {
     id: 'claude',
@@ -238,7 +244,13 @@ const PROVIDER_ADAPTERS = Object.freeze([
       version: '0.59.0',
       forkMode: 'target-process',
     },
-    capabilities: { runtimeSwitch: true, terminalProfile: false, goals: false, sessionFork: true },
+    capabilities: {
+      runtimeSwitch: true,
+      terminalProfile: false,
+      goals: false,
+      goalSubmission: { terminal: { kind: 'command', prefix: '/goal' }, acp: { kind: 'prompt' } },
+      sessionFork: true,
+    },
   },
   {
     id: 'opencode',
@@ -267,7 +279,13 @@ const PROVIDER_ADAPTERS = Object.freeze([
         args: ['acp', '--cwd', path.resolve(options.cwd || process.cwd())],
       }),
     },
-    capabilities: { runtimeSwitch: true, terminalProfile: false, goals: false, sessionFork: true },
+    capabilities: {
+      runtimeSwitch: true,
+      terminalProfile: false,
+      goals: false,
+      goalSubmission: { terminal: { kind: 'prompt' }, acp: { kind: 'prompt' } },
+      sessionFork: true,
+    },
   },
   {
     id: 'qoder',
@@ -283,7 +301,13 @@ const PROVIDER_ADAPTERS = Object.freeze([
       version: 'native',
       launch: options => ({ command: options.executable || 'qodercli', args: ['--acp'] }),
     },
-    capabilities: { runtimeSwitch: true, terminalProfile: false, goals: false, sessionFork: true },
+    capabilities: {
+      runtimeSwitch: true,
+      terminalProfile: false,
+      goals: false,
+      goalSubmission: { terminal: { kind: 'command', prefix: '/goal set' }, acp: { kind: 'prompt' } },
+      sessionFork: true,
+    },
   },
 ]);
 
@@ -313,6 +337,7 @@ function providerCapabilities(provider) {
     runtimeSwitch: adapter?.capabilities?.runtimeSwitch === true,
     terminalProfile: adapter?.capabilities?.terminalProfile === true,
     goals: adapter?.capabilities?.goals === true,
+    goalSubmission: adapter?.capabilities?.goalSubmission || null,
     sessionFork: adapter?.capabilities?.sessionFork === true,
     ...(adapter
       ? chatCapabilitiesForProvider(provider)

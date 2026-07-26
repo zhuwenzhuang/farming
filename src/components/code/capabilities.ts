@@ -18,6 +18,7 @@ export interface SlashCommandOption {
 
 export interface AgentComposerCapabilities {
   plusMenu: boolean
+  goalMode: boolean
   permissionMode: boolean
   modelPicker: boolean
   reasoningEffort: boolean
@@ -44,6 +45,7 @@ export interface AgentCapabilities {
 
 const BASIC_COMPOSER_CAPABILITIES: AgentComposerCapabilities = {
   plusMenu: false,
+  goalMode: false,
   permissionMode: false,
   modelPicker: false,
   reasoningEffort: false,
@@ -53,6 +55,7 @@ const BASIC_COMPOSER_CAPABILITIES: AgentComposerCapabilities = {
 
 const CODING_AGENT_COMPOSER_CAPABILITIES: AgentComposerCapabilities = {
   plusMenu: true,
+  goalMode: true,
   permissionMode: true,
   modelPicker: true,
   reasoningEffort: true,
@@ -238,7 +241,10 @@ export function capabilitiesForAgent(agent: Agent | null | undefined): AgentCapa
           modelPicker: false,
           reasoningEffort: false,
         }
-      : { ...BASIC_COMPOSER_CAPABILITIES }
+      : {
+          ...BASIC_COMPOSER_CAPABILITIES,
+          goalMode: Boolean(agent?.providerCapabilities.goalSubmission),
+        }
 
   return {
     kind,

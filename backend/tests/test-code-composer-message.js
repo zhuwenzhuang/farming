@@ -12,6 +12,7 @@ const {
   formatAttachedImage,
   formatAttachmentError,
   formatComposerMessage,
+  formatComposerMessageForAgent,
   isImageFile,
   isAudioFile,
 } = require('../../src/components/code/composer-message.ts');
@@ -105,6 +106,40 @@ function run() {
   assert(
     formatComposerMessage('goal', 'finish').startsWith('Goal mode: Treat the following as the working goal'),
     'goal mode should prefix the user message with terminal-friendly instructions'
+  );
+  const goalAgent = (runtimeKind, goalSubmission) => ({
+    runtimeBinding: { kind: runtimeKind },
+    providerCapabilities: { goalSubmission },
+  });
+  assert.strictEqual(
+    formatComposerMessageForAgent('goal', 'finish', goalAgent('terminal', {
+      terminal: { kind: 'command', prefix: '/goal' },
+      acp: { kind: 'prompt' },
+    })),
+    '/goal finish',
+    'Claude Terminal should use its native goal command'
+  );
+  assert.strictEqual(
+    formatComposerMessageForAgent('goal', 'finish', goalAgent('terminal', {
+      terminal: { kind: 'command', prefix: '/goal set' },
+      acp: { kind: 'prompt' },
+    })),
+    '/goal set finish',
+    'Qoder Terminal should use its native persistent goal command'
+  );
+  assert(
+    formatComposerMessageForAgent('goal', 'finish', goalAgent('terminal', {
+      terminal: { kind: 'prompt' },
+      acp: { kind: 'prompt' },
+    })).startsWith('Goal mode: Treat the following as the working goal'),
+    'OpenCode Terminal should use the portable goal prompt'
+  );
+  assert(
+    formatComposerMessageForAgent('goal', 'finish', goalAgent('acp', {
+      terminal: { kind: 'command', prefix: '/goal' },
+      acp: { kind: 'prompt' },
+    })).startsWith('Goal mode: Treat the following as the working goal'),
+    'ACP Chat should use the portable goal prompt until a native capability is negotiated'
   );
 
   const pngFile = makeFile({ name: 'paste.png', type: 'image/png' });

@@ -286,6 +286,7 @@ function run() {
     runtimeSwitch: true,
     terminalProfile: true,
     goals: false,
+    goalSubmission: { terminal: { kind: 'prompt' }, acp: { kind: 'prompt' } },
     sessionFork: true,
     chatRuntime: 'acp',
     supportsChat: true,
@@ -298,6 +299,7 @@ function run() {
       runtimeSwitch: true,
       terminalProfile: false,
       goals: false,
+      goalSubmission: { terminal: { kind: 'command', prefix: '/goal' }, acp: { kind: 'prompt' } },
       sessionFork: true,
       chatRuntime: 'acp',
       supportsChat: true,
@@ -311,12 +313,21 @@ function run() {
       runtimeSwitch: false,
       terminalProfile: false,
       goals: false,
+      goalSubmission: null,
       sessionFork: false,
       chatRuntime: '',
       supportsChat: false,
       supportsSteer: false,
     },
   );
+  assert.deepStrictEqual(providerCapabilities('opencode').goalSubmission, {
+    terminal: { kind: 'prompt' },
+    acp: { kind: 'prompt' },
+  });
+  assert.deepStrictEqual(providerCapabilities('qoder').goalSubmission, {
+    terminal: { kind: 'command', prefix: '/goal set' },
+    acp: { kind: 'prompt' },
+  });
   assert.strictEqual(providerSupportsRuntime('opencode', 'json'), true);
   assert.strictEqual(providerSupportsRuntime('claude', 'json'), false);
   assert.strictEqual(providerAcpForkMode('claude'), 'target-process');

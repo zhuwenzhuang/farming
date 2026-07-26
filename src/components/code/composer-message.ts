@@ -1,4 +1,5 @@
 import type { ComposerMode } from './types'
+import type { Agent } from '@/types/agent'
 
 const MAX_ATTACHED_FILE_CHARS = 50_000
 
@@ -196,4 +197,13 @@ export function clipboardMediaFiles(data: DataTransfer | null) {
 export function formatComposerMessage(mode: ComposerMode, text: string) {
   if (mode === 'default') return text
   return `${COMPOSER_MODE_INSTRUCTIONS[mode]}\n\n${text}`
+}
+
+export function formatComposerMessageForAgent(mode: ComposerMode, text: string, agent: Agent) {
+  if (mode !== 'goal' || agent.runtimeBinding.kind !== 'terminal') {
+    return formatComposerMessage(mode, text)
+  }
+  const goalSubmission = agent.providerCapabilities.goalSubmission?.terminal
+  if (goalSubmission?.kind !== 'command') return formatComposerMessage(mode, text)
+  return `${goalSubmission.prefix} ${text}`
 }

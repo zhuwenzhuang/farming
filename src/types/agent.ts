@@ -237,6 +237,10 @@ export interface ProviderCapabilities {
   runtimeSwitch: boolean
   terminalProfile: boolean
   goals: boolean
+  goalSubmission: {
+    terminal: { kind: 'prompt' } | { kind: 'command'; prefix: string }
+    acp: { kind: 'prompt' }
+  } | null
   sessionFork: boolean
   chatRuntime: 'acp' | ''
   supportsChat: boolean
