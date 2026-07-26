@@ -97,6 +97,8 @@ test('dark black-hole status stays readable and manual exit fully evaporates in 
     .toHaveAttribute('data-evaporation-phase', 'radiation')
   await expect(scene.locator('.code-pet-black-hole-canvas'))
     .toHaveAttribute('data-radiation-probe', 'sampled')
+  await expect(scene).toBeVisible()
+  await expect(page.locator('.code-pet-black-hole-compositor')).toHaveCount(1)
   await expect.poll(async () => {
     const radiationInk = await readBlackHoleOuterInk(
       scene.locator('.code-pet-black-hole-canvas'),
@@ -105,8 +107,6 @@ test('dark black-hole status stays readable and manual exit fully evaporates in 
       ? 'visible'
       : `ink=${radiationInk.inkPixels}, sectors=${radiationInk.coveredSectors}`
   }, { timeout: 2_000 }).toBe('visible')
-  await expect(scene).toBeVisible()
-  await expect(page.locator('.code-pet-black-hole-compositor')).toHaveCount(1)
   await expect(scene).toHaveCount(0, { timeout: 7_000 })
 })
 
