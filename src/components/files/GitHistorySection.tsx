@@ -13,6 +13,7 @@ import {
   type WorkspaceGitHistoryItem,
 } from '@/lib/workspace-files'
 import type { CodeCopy } from '../code/copy'
+import { useDismissiblePopover } from '../code/useDismissiblePopover'
 import { GitHistoryGraph, GitHistoryGraphPlaceholder } from './GitHistoryGraph'
 
 const GIT_HISTORY_PAGE_SIZE = 50
@@ -64,6 +65,7 @@ export function GitHistorySection({ agentId, copy, projectId, projectWorkspace }
   const [changesLoading, setChangesLoading] = useState(false)
   const [changesError, setChangesError] = useState('')
   const [scopeMenu, setScopeMenu] = useState<{ x: number; y: number } | null>(null)
+  const closeScopeMenu = useCallback(() => setScopeMenu(null), [])
   const historyRequestRef = useRef<AbortController | null>(null)
   const changesRequestRef = useRef<AbortController | null>(null)
   const changesCacheRef = useRef(new Map<string, WorkspaceGitHistoryChanges>())
@@ -103,26 +105,12 @@ export function GitHistorySection({ agentId, copy, projectId, projectWorkspace }
     }
   }, [agentId, projectId])
 
-  useEffect(() => {
-    if (!scopeMenu) return
-    const closeOnPointerDown = (event: PointerEvent) => {
-      const target = event.target as Node | null
-      if (target && (scopeButtonRef.current?.contains(target) || scopeMenuRef.current?.contains(target))) return
-      setScopeMenu(null)
-    }
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return
-      event.preventDefault()
-      setScopeMenu(null)
-      scopeButtonRef.current?.focus()
-    }
-    window.addEventListener('pointerdown', closeOnPointerDown, true)
-    window.addEventListener('keydown', closeOnEscape, true)
-    return () => {
-      window.removeEventListener('pointerdown', closeOnPointerDown, true)
-      window.removeEventListener('keydown', closeOnEscape, true)
-    }
-  }, [scopeMenu])
+  useDismissiblePopover(
+    scopeMenu !== null,
+    scopeMenuRef,
+    scopeButtonRef,
+    closeScopeMenu,
+  )
 
   const loadHistoryPage = useCallback(async (
     skip: number,

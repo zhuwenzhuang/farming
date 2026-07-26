@@ -59,6 +59,7 @@ import { projectFilesWorkspaceId } from '@/lib/project-workspaces'
 import { stableProjectSourceAgentId } from './workspace-derived'
 import { useAgentWithLiveState } from '@/lib/agent-live-state'
 import { useAgentReorder } from './useAgentReorder'
+import { useDismissiblePopover } from './useDismissiblePopover'
 import { UsagePanel } from './UsagePanel'
 
 declare const __FARMING_PACKAGE_VERSION__: string
@@ -1172,25 +1173,7 @@ export function ProjectWorktreePopover({
     return () => requestControllerRef.current?.abort()
   }, [loadWorktrees])
 
-  useEffect(() => {
-    const closeOnPointerDown = (event: PointerEvent) => {
-      const target = event.target as Node | null
-      if (target && (popoverRef.current?.contains(target) || anchorRef.current?.contains(target))) return
-      onClose()
-    }
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return
-      event.preventDefault()
-      onClose()
-      anchorRef.current?.focus()
-    }
-    window.addEventListener('pointerdown', closeOnPointerDown, true)
-    window.addEventListener('keydown', closeOnEscape, true)
-    return () => {
-      window.removeEventListener('pointerdown', closeOnPointerDown, true)
-      window.removeEventListener('keydown', closeOnEscape, true)
-    }
-  }, [anchorRef, onClose])
+  useDismissiblePopover(true, popoverRef, anchorRef, onClose)
 
   return (
     <div
@@ -1349,6 +1332,7 @@ function ProjectSection({
   const launchMenuRef = useRef<HTMLDivElement | null>(null)
   const worktreeButtonRef = useRef<HTMLButtonElement | null>(null)
   const [launchMenu, setLaunchMenu] = useState<{ x: number; y: number } | null>(null)
+  const closeLaunchMenu = useCallback(() => setLaunchMenu(null), [])
   const [worktreeMenu, setWorktreeMenu] = useState<{ x: number; y: number } | null>(null)
   const [repositoryWorktrees, setRepositoryWorktrees] = useState<WorkspaceGitWorktrees | null>(() => (
     agentWorktreeList(project.gitWorktree)
@@ -1497,28 +1481,12 @@ function ProjectSection({
     }
   }, [collapsed, project.id, showAgentsSection])
 
-  useEffect(() => {
-    if (!launchMenu) return
-
-    const closeOnPointerDown = (event: PointerEvent) => {
-      const target = event.target as Node | null
-      if (target && (launchMenuRef.current?.contains(target) || launchButtonRef.current?.contains(target))) return
-      setLaunchMenu(null)
-    }
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return
-      event.preventDefault()
-      setLaunchMenu(null)
-      launchButtonRef.current?.focus()
-    }
-
-    window.addEventListener('pointerdown', closeOnPointerDown, true)
-    window.addEventListener('keydown', closeOnEscape, true)
-    return () => {
-      window.removeEventListener('pointerdown', closeOnPointerDown, true)
-      window.removeEventListener('keydown', closeOnEscape, true)
-    }
-  }, [launchMenu])
+  useDismissiblePopover(
+    launchMenu !== null,
+    launchMenuRef,
+    launchButtonRef,
+    closeLaunchMenu,
+  )
 
   const openProjectLaunchMenu = (event: ReactMouseEvent<HTMLButtonElement>) => {
     event.preventDefault()
