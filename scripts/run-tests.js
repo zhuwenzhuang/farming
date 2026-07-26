@@ -16,6 +16,12 @@ const serverBackedTests = new Set([
   'test-final.js',
   'test-session-terminal-input-e2e.js',
 ]);
+const exclusiveTestFiles = new Set([
+  // This test intentionally replaces the native PTY host for its config root.
+  // Keep it continuously covered, but do not overlap it with other
+  // process-level native-host tests running under the same user.
+  'test-server-native-runtime-rotation.js',
+]);
 const DEFAULT_TEST_TIMEOUT_MS = 45_000;
 const DEFAULT_TEST_CONCURRENCY = Math.min(4, Math.max(1, os.availableParallelism?.() || os.cpus().length));
 const MAX_TEST_CONCURRENCY = 16;
@@ -46,8 +52,10 @@ const testRuns = [
 ];
 
 const requestedConcurrency = Number.parseInt(process.env.FARMING_TEST_CONCURRENCY || '', 10);
+const parallelTestRuns = testRuns.filter(testRun => !exclusiveTestFiles.has(testRun.label));
+const exclusiveTestRuns = testRuns.filter(testRun => exclusiveTestFiles.has(testRun.label));
 const testConcurrency = Math.min(
-  testRuns.length,
+  parallelTestRuns.length,
   MAX_TEST_CONCURRENCY,
   Number.isFinite(requestedConcurrency) && requestedConcurrency > 0
     ? requestedConcurrency
@@ -71,35 +79,42 @@ function runTest({ args, label, timeoutMs }) {
 }
 
 async function main() {
-  let nextIndex = 0;
   let passed = 0;
   let failed = 0;
   const failures = [];
 
-  console.log(`Running ${testRuns.length} tests with ${testConcurrency} workers...`);
+  console.log(
+    `Running ${testRuns.length} tests with ${testConcurrency} workers`
+      + ` and ${exclusiveTestRuns.length} exclusive process test(s)...`,
+  );
 
-  async function worker() {
-    while (nextIndex < testRuns.length) {
-      const testRun = testRuns[nextIndex++];
-      const result = await runTest(testRun);
-      if (!result.error) {
-        passed++;
-        console.log(`  \x1b[32m✓\x1b[0m ${result.label}`);
-        continue;
+  async function runBatch(runs, concurrency) {
+    let nextIndex = 0;
+    async function worker() {
+      while (nextIndex < runs.length) {
+        const testRun = runs[nextIndex++];
+        const result = await runTest(testRun);
+        if (!result.error) {
+          passed++;
+          console.log(`  \x1b[32m✓\x1b[0m ${result.label}`);
+          continue;
+        }
+
+        failed++;
+        failures.push({
+          file: result.label,
+          stderr: result.stderr,
+          stdout: result.stdout,
+          errorMessage: result.error.message ? String(result.error.message) : '',
+        });
+        console.log(`  \x1b[31m✗\x1b[0m ${result.label}`);
       }
-
-      failed++;
-      failures.push({
-        file: result.label,
-        stderr: result.stderr,
-        stdout: result.stdout,
-        errorMessage: result.error.message ? String(result.error.message) : '',
-      });
-      console.log(`  \x1b[31m✗\x1b[0m ${result.label}`);
     }
+    await Promise.all(Array.from({ length: Math.min(runs.length, concurrency) }, () => worker()));
   }
 
-  await Promise.all(Array.from({ length: testConcurrency }, () => worker()));
+  await runBatch(parallelTestRuns, testConcurrency);
+  await runBatch(exclusiveTestRuns, 1);
 
   console.log(`\n${passed + failed} tests, ${passed} passed, ${failed} failed`);
 
