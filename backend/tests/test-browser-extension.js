@@ -6,7 +6,10 @@ const { EventEmitter } = require('events');
 const WebSocket = require('ws');
 const { WebSocketServer } = WebSocket;
 const { CdpClient } = require('../../extensions/browser/backend/cdp-client');
-const { CdpBrowserRuntime } = require('../../extensions/browser/backend/cdp-browser-runtime');
+const {
+  CdpBrowserRuntime,
+  launchSystemBrowser,
+} = require('../../extensions/browser/backend/cdp-browser-runtime');
 const {
   applyBrowserResource,
   applyBrowserResourceDeletion,
@@ -129,6 +132,34 @@ async function testCdpClient() {
   } finally {
     client.close();
     await new Promise(resolve => server.close(resolve));
+  }
+}
+
+function testSystemBrowserLaunchFlags() {
+  const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-browser-launch-'));
+  const launches = [];
+  const spawn = (executablePath, args, options) => {
+    launches.push({ executablePath, args, options });
+    return { stderr: new EventEmitter() };
+  };
+  try {
+    launchSystemBrowser('/fake/chrome', profileDir, {
+      spawn,
+      platform: 'linux',
+      noSandbox: false,
+    });
+    launchSystemBrowser('/fake/chrome', profileDir, {
+      spawn,
+      platform: 'linux',
+      noSandbox: true,
+    });
+    assert(launches[0].args.includes('--disable-dev-shm-usage'));
+    assert(!launches[0].args.includes('--no-sandbox'));
+    assert(launches[1].args.includes('--no-sandbox'));
+    assert(launches[1].args.includes('--disable-setuid-sandbox'));
+    assert(launches.every(call => call.args.includes('--remote-debugging-port=0')));
+  } finally {
+    fs.rmSync(profileDir, { recursive: true, force: true });
   }
 }
 
@@ -423,6 +454,7 @@ function testBrowserUiAndPackagingWiring() {
 
 Promise.resolve()
   .then(testCdpClient)
+  .then(testSystemBrowserLaunchFlags)
   .then(testScreencastFrameRateBound)
   .then(testDeterministicViewerFrameCapture)
   .then(testBrowserResourceManager)

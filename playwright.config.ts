@@ -37,6 +37,7 @@ const playwrightServerEnv = {
   FARMING_E2E_FAKE_EXECUTABLES: useRealCodex ? '0' : '1',
   FARMING_E2E_FAKE_ACP_AGENT: useRealCodex ? '0' : '1',
   FARMING_BROWSER_EXECUTABLE: browserResourceExecutablePath,
+  FARMING_BROWSER_NO_SANDBOX: process.env.CI ? '1' : '0',
   VITE_FARMING_BLAME_AUTHOR_URL_TEMPLATE: 'https://example.invalid/users/{author}',
   NODE_ENV: 'test',
 }

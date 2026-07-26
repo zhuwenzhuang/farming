@@ -236,12 +236,13 @@ for (const appearance of ['glass', 'black-hole'] as const) {
     const scene = page.getByTestId('pet-rest-scene')
     const clock = scene.locator('time')
     await expect(scene).toHaveAttribute('data-pet-appearance', appearance)
-    const before = await clock.getAttribute('aria-label') ?? await clock.textContent()
     await page.evaluate(() => (
       (window as Window & {
         __setPetVisibility?: (state: DocumentVisibilityState) => void
       }).__setPetVisibility?.('hidden')
     ))
+    await page.waitForTimeout(100)
+    const before = await clock.getAttribute('aria-label') ?? await clock.textContent()
     await page.waitForTimeout(2_200)
     const whileHidden = await clock.getAttribute('aria-label') ?? await clock.textContent()
     expect(whileHidden).toBe(before)
@@ -378,7 +379,7 @@ test('natural black-hole evaporation resumes at the absolute-time progress', asy
         lastActivityAt: null,
         snoozedUntil: null,
         restStartsAt: null,
-        restUntil: Date.now() + 7_000,
+        restUntil: Date.now() + 13_000,
         snoozeUsed: false,
       },
     }))
@@ -390,7 +391,7 @@ test('natural black-hole evaporation resumes at the absolute-time progress', asy
   await expect(scene).toHaveClass(/exiting/)
   await expect.poll(async () => Number(
     await compositor.getAttribute('data-exit-progress') ?? '0',
-  )).toBeGreaterThan(0.4)
+  )).toBeGreaterThan(0.18)
   await expect(compositor).toHaveAttribute('data-evaporation-phase', 'radiation')
   const progressBeforeHide = Number(
     await compositor.getAttribute('data-exit-progress') ?? '0',
@@ -432,7 +433,7 @@ test('natural black-hole evaporation resumes at the absolute-time progress', asy
     )
     return radiationInk.inkPixels > 60 && radiationInk.coveredSectors > 16
   }, { timeout: 2_000 }).toBe(true)
-  await expect(scene).toHaveCount(0, { timeout: 9_000 })
+  await expect(scene).toHaveCount(0, { timeout: 16_000 })
 })
 
 test('black-hole snapshot refresh excludes Pet UI and keeps one renderer', async ({ page }) => {

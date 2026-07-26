@@ -104,11 +104,16 @@ async function waitForDevToolsPort(profileDir, child, timeoutMs = 15_000) {
 function launchSystemBrowser(executablePath, profileDir, options = {}) {
   fs.mkdirSync(profileDir, { recursive: true });
   fs.rmSync(path.join(profileDir, 'DevToolsActivePort'), { force: true });
+  const platform = options.platform || process.platform;
+  const noSandbox = options.noSandbox === true
+    || (options.noSandbox === undefined && process.env.FARMING_BROWSER_NO_SANDBOX === '1');
   const child = (options.spawn || spawn)(executablePath, [
     '--headless=new',
     '--remote-debugging-port=0',
     `--user-data-dir=${profileDir}`,
     `--window-size=${DEFAULT_VIEWPORT.width},${DEFAULT_VIEWPORT.height}`,
+    ...(platform === 'linux' ? ['--disable-dev-shm-usage'] : []),
+    ...(noSandbox ? ['--no-sandbox', '--disable-setuid-sandbox'] : []),
     '--no-first-run',
     '--no-default-browser-check',
     '--disable-sync',
