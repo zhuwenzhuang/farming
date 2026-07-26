@@ -73,6 +73,7 @@ const DEFAULT_PROJECT_SESSION_LIMIT = 5
 const PROJECT_AGENT_VISIBLE_LIMIT = 5
 const PROJECT_AGENT_DROP_END = '__project_agent_drop_end__'
 type AgentPreviewAnchorEvent = { currentTarget: HTMLElement }
+type ContextMenuTriggerEvent = ReactMouseEvent<HTMLElement> | ReactKeyboardEvent<HTMLElement>
 
 type AppInstallPromptEvent = Event & {
   prompt: () => Promise<void>
@@ -193,16 +194,13 @@ interface CodeSidebarProps {
   onToggleProject: (projectId: string) => void
   onToggleProjectSessions: (projectId: string) => void
   onMountProject: (workspace: string) => void
-  onOpenProjectContextMenu: (event: ReactMouseEvent<HTMLElement>, projectId: string) => void
-  onOpenProjectKeyboardMenu: (event: ReactKeyboardEvent<HTMLElement>, projectId: string) => void
+  onOpenProjectMenu: (event: ContextMenuTriggerEvent, projectId: string) => void
   onOpenAgent: (agentId: string) => void
   onUpdateAgentFlags: (agent: Agent, flags: Partial<Pick<Agent, 'pinned' | 'archived'>>) => void
   onReorderAgent: (agentId: string, beforeAgentId: string, afterAgentId: string) => void
-  onOpenAgentContextMenu: (event: ReactMouseEvent<HTMLElement>, agentId: string) => void
-  onOpenAgentKeyboardMenu: (event: ReactKeyboardEvent<HTMLElement>, agentId: string) => void
+  onOpenAgentMenu: (event: ContextMenuTriggerEvent, agentId: string) => void
   onResumeAgentSession: (provider: string, sessionId: string, providerHomeId?: string) => void
-  onOpenAgentSessionContextMenu: (event: ReactMouseEvent<HTMLElement>, provider: string, sessionId: string) => void
-  onOpenAgentSessionKeyboardMenu: (event: ReactKeyboardEvent<HTMLElement>, provider: string, sessionId: string) => void
+  onOpenAgentSessionMenu: (event: ContextMenuTriggerEvent, provider: string, sessionId: string) => void
   onOpenProjectFile: (agentId: string, file: OpenWorkspaceFile['file'], target?: WorkspaceFileOpenTarget) => void
   onSelectOpenWorkspaceFile: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => boolean
   onCloseOpenWorkspaceFile: (agentId: string, filePath: string, workspaceRoot?: string) => void
@@ -255,16 +253,13 @@ export function CodeSidebar({
   onToggleProject,
   onToggleProjectSessions,
   onMountProject,
-  onOpenProjectContextMenu,
-  onOpenProjectKeyboardMenu,
+  onOpenProjectMenu,
   onOpenAgent,
   onUpdateAgentFlags,
   onReorderAgent,
-  onOpenAgentContextMenu,
-  onOpenAgentKeyboardMenu,
+  onOpenAgentMenu,
   onResumeAgentSession,
-  onOpenAgentSessionContextMenu,
-  onOpenAgentSessionKeyboardMenu,
+  onOpenAgentSessionMenu,
   onOpenProjectFile,
   onSelectOpenWorkspaceFile,
   onCloseOpenWorkspaceFile,
@@ -590,11 +585,9 @@ export function CodeSidebar({
             onOpenAgent={onOpenAgent}
             onUpdateAgentFlags={onUpdateAgentFlags}
             onReorderAgent={onReorderAgent}
-            onOpenAgentContextMenu={onOpenAgentContextMenu}
-            onOpenAgentKeyboardMenu={onOpenAgentKeyboardMenu}
+            onOpenAgentMenu={onOpenAgentMenu}
             onResumeAgentSession={onResumeAgentSession}
-            onOpenAgentSessionContextMenu={onOpenAgentSessionContextMenu}
-            onOpenAgentSessionKeyboardMenu={onOpenAgentSessionKeyboardMenu}
+            onOpenAgentSessionMenu={onOpenAgentSessionMenu}
             onShowAgentPreview={showAgentPreview}
             onHideAgentPreview={hideAgentPreview}
             onToggleCollapsed={() => setPinnedCollapsed(collapsed => !collapsed)}
@@ -625,16 +618,13 @@ export function CodeSidebar({
             onMountProject={onMountProject}
             onNewAgent={onNewAgent}
             onStartAgent={onStartAgent}
-            onOpenProjectContextMenu={onOpenProjectContextMenu}
-            onOpenProjectKeyboardMenu={onOpenProjectKeyboardMenu}
+            onOpenProjectMenu={onOpenProjectMenu}
             onOpenAgent={onOpenAgent}
             onUpdateAgentFlags={onUpdateAgentFlags}
             onReorderAgent={onReorderAgent}
-            onOpenAgentContextMenu={onOpenAgentContextMenu}
-            onOpenAgentKeyboardMenu={onOpenAgentKeyboardMenu}
+            onOpenAgentMenu={onOpenAgentMenu}
             onResumeAgentSession={onResumeAgentSession}
-            onOpenAgentSessionContextMenu={onOpenAgentSessionContextMenu}
-            onOpenAgentSessionKeyboardMenu={onOpenAgentSessionKeyboardMenu}
+            onOpenAgentSessionMenu={onOpenAgentSessionMenu}
             onShowAgentPreview={showAgentPreview}
             onHideAgentPreview={hideAgentPreview}
             onOpenProjectFile={onOpenProjectFile}
@@ -2058,8 +2048,7 @@ function ProjectAgentCompactStrip({
   claimedAgentSessionKeyByAgentId,
   now,
   onOpenAgent,
-  onOpenAgentContextMenu,
-  onOpenAgentKeyboardMenu,
+  onOpenAgentMenu,
   onShowPreview,
   onHidePreview,
 }: {
@@ -2069,8 +2058,7 @@ function ProjectAgentCompactStrip({
   claimedAgentSessionKeyByAgentId: ReadonlyMap<string, string>
   now: number
   onOpenAgent: (agentId: string) => void
-  onOpenAgentContextMenu: (event: ReactMouseEvent<HTMLElement>, agentId: string) => void
-  onOpenAgentKeyboardMenu: (event: ReactKeyboardEvent<HTMLElement>, agentId: string) => void
+  onOpenAgentMenu: (event: ContextMenuTriggerEvent, agentId: string) => void
   onShowPreview: (event: AgentPreviewAnchorEvent, target: AgentPreviewTarget, compact?: boolean) => void
   onHidePreview: () => void
 }) {
@@ -2092,9 +2080,9 @@ function ProjectAgentCompactStrip({
             onClick={() => onOpenAgent(agent.id)}
             onMouseEnter={event => onShowPreview(event, previewTargetForAgent(agent, rowState), true)}
             onMouseLeave={onHidePreview}
-            onContextMenu={event => onOpenAgentContextMenu(event, agent.id)}
+            onContextMenu={event => onOpenAgentMenu(event, agent.id)}
             onKeyDown={event => {
-              onOpenAgentKeyboardMenu(event, agent.id)
+              onOpenAgentMenu(event, agent.id)
               if (event.defaultPrevented) return
               if (event.key === 'Enter' || event.key === ' ') {
                 event.preventDefault()
@@ -2122,11 +2110,9 @@ function PinnedItemCompactStrip({
   claimedAgentSessionKeyByAgentId,
   now,
   onOpenAgent,
-  onOpenAgentContextMenu,
-  onOpenAgentKeyboardMenu,
+  onOpenAgentMenu,
   onResumeAgentSession,
-  onOpenAgentSessionContextMenu,
-  onOpenAgentSessionKeyboardMenu,
+  onOpenAgentSessionMenu,
   onShowPreview,
   onHidePreview,
 }: {
@@ -2137,11 +2123,9 @@ function PinnedItemCompactStrip({
   claimedAgentSessionKeyByAgentId: ReadonlyMap<string, string>
   now: number
   onOpenAgent: (agentId: string) => void
-  onOpenAgentContextMenu: (event: ReactMouseEvent<HTMLElement>, agentId: string) => void
-  onOpenAgentKeyboardMenu: (event: ReactKeyboardEvent<HTMLElement>, agentId: string) => void
+  onOpenAgentMenu: (event: ContextMenuTriggerEvent, agentId: string) => void
   onResumeAgentSession: (provider: string, sessionId: string, providerHomeId?: string) => void
-  onOpenAgentSessionContextMenu: (event: ReactMouseEvent<HTMLElement>, provider: string, sessionId: string) => void
-  onOpenAgentSessionKeyboardMenu: (event: ReactKeyboardEvent<HTMLElement>, provider: string, sessionId: string) => void
+  onOpenAgentSessionMenu: (event: ContextMenuTriggerEvent, provider: string, sessionId: string) => void
   onShowPreview: (event: AgentPreviewAnchorEvent, target: AgentPreviewTarget, compact?: boolean) => void
   onHidePreview: () => void
 }) {
@@ -2191,16 +2175,16 @@ function PinnedItemCompactStrip({
             onMouseLeave={onHidePreview}
             onContextMenu={event => {
               if (agent) {
-                onOpenAgentContextMenu(event, agent.id)
+                onOpenAgentMenu(event, agent.id)
                 return
               }
-              if (session) onOpenAgentSessionContextMenu(event, session.provider, agentSessionId(session))
+              if (session) onOpenAgentSessionMenu(event, session.provider, agentSessionId(session))
             }}
             onKeyDown={event => {
               if (agent) {
-                onOpenAgentKeyboardMenu(event, agent.id)
+                onOpenAgentMenu(event, agent.id)
               } else if (session) {
-                onOpenAgentSessionKeyboardMenu(event, session.provider, agentSessionId(session))
+                onOpenAgentSessionMenu(event, session.provider, agentSessionId(session))
               }
               if (event.defaultPrevented) return
               if (event.key === 'Enter' || event.key === ' ') {
@@ -2239,11 +2223,9 @@ interface PinnedSectionProps {
   onOpenAgent: (agentId: string) => void
   onUpdateAgentFlags: (agent: Agent, flags: Partial<Pick<Agent, 'pinned' | 'archived'>>) => void
   onReorderAgent: (agentId: string, beforeAgentId: string, afterAgentId: string) => void
-  onOpenAgentContextMenu: (event: ReactMouseEvent<HTMLElement>, agentId: string) => void
-  onOpenAgentKeyboardMenu: (event: ReactKeyboardEvent<HTMLElement>, agentId: string) => void
+  onOpenAgentMenu: (event: ContextMenuTriggerEvent, agentId: string) => void
   onResumeAgentSession: (provider: string, sessionId: string, providerHomeId?: string) => void
-  onOpenAgentSessionContextMenu: (event: ReactMouseEvent<HTMLElement>, provider: string, sessionId: string) => void
-  onOpenAgentSessionKeyboardMenu: (event: ReactKeyboardEvent<HTMLElement>, provider: string, sessionId: string) => void
+  onOpenAgentSessionMenu: (event: ContextMenuTriggerEvent, provider: string, sessionId: string) => void
   onShowAgentPreview: (event: AgentPreviewAnchorEvent, target: AgentPreviewTarget, compact?: boolean) => void
   onHideAgentPreview: () => void
   onToggleCollapsed: () => void
@@ -2264,11 +2246,9 @@ function PinnedSection({
   onOpenAgent,
   onUpdateAgentFlags,
   onReorderAgent,
-  onOpenAgentContextMenu,
-  onOpenAgentKeyboardMenu,
+  onOpenAgentMenu,
   onResumeAgentSession,
-  onOpenAgentSessionContextMenu,
-  onOpenAgentSessionKeyboardMenu,
+  onOpenAgentSessionMenu,
   onShowAgentPreview,
   onHideAgentPreview,
   onToggleCollapsed,
@@ -2341,11 +2321,9 @@ function PinnedSection({
               claimedAgentSessionKeyByAgentId={claimedAgentSessionKeyByAgentId}
               now={now}
               onOpenAgent={onOpenAgent}
-              onOpenAgentContextMenu={onOpenAgentContextMenu}
-              onOpenAgentKeyboardMenu={onOpenAgentKeyboardMenu}
+              onOpenAgentMenu={onOpenAgentMenu}
               onResumeAgentSession={onResumeAgentSession}
-              onOpenAgentSessionContextMenu={onOpenAgentSessionContextMenu}
-              onOpenAgentSessionKeyboardMenu={onOpenAgentSessionKeyboardMenu}
+              onOpenAgentSessionMenu={onOpenAgentSessionMenu}
               onShowPreview={onShowAgentPreview}
               onHidePreview={onHideAgentPreview}
             />
@@ -2371,8 +2349,7 @@ function PinnedSection({
                     onAgentDragEnd={finishAgentDrag}
                     onAgentDragOver={updateAgentDropTarget}
                     onAgentDrop={dropAgent}
-                    onOpenAgentContextMenu={onOpenAgentContextMenu}
-                    onOpenAgentKeyboardMenu={onOpenAgentKeyboardMenu}
+                    onOpenAgentMenu={onOpenAgentMenu}
                     onShowPreview={onShowAgentPreview}
                     onHidePreview={onHideAgentPreview}
                     copy={copy}
@@ -2387,8 +2364,7 @@ function PinnedSection({
                   searchSelected={agentSessionId(item.session) === selectedSearchSessionHandle}
                   now={now}
                   onResume={onResumeAgentSession}
-                  onOpenSessionContextMenu={onOpenAgentSessionContextMenu}
-                  onOpenSessionKeyboardMenu={onOpenAgentSessionKeyboardMenu}
+                  onOpenSessionMenu={onOpenAgentSessionMenu}
                   onShowPreview={onShowAgentPreview}
                   onHidePreview={onHideAgentPreview}
                   copy={copy}
@@ -2570,16 +2546,13 @@ interface ProjectSectionProps {
   onMountProject: (workspace: string) => void
   onNewAgent: (workspace?: string, command?: string, returnFocusTarget?: HTMLElement | null) => void
   onStartAgent: (command: string, workspace: string, options?: { projectWorkspace?: string }) => void
-  onOpenProjectContextMenu: (event: ReactMouseEvent<HTMLElement>, projectId: string) => void
-  onOpenProjectKeyboardMenu: (event: ReactKeyboardEvent<HTMLElement>, projectId: string) => void
+  onOpenProjectMenu: (event: ContextMenuTriggerEvent, projectId: string) => void
   onOpenAgent: (agentId: string) => void
   onUpdateAgentFlags: (agent: Agent, flags: Partial<Pick<Agent, 'pinned' | 'archived'>>) => void
   onReorderAgent: (agentId: string, beforeAgentId: string, afterAgentId: string) => void
-  onOpenAgentContextMenu: (event: ReactMouseEvent<HTMLElement>, agentId: string) => void
-  onOpenAgentKeyboardMenu: (event: ReactKeyboardEvent<HTMLElement>, agentId: string) => void
+  onOpenAgentMenu: (event: ContextMenuTriggerEvent, agentId: string) => void
   onResumeAgentSession: (provider: string, sessionId: string, providerHomeId?: string) => void
-  onOpenAgentSessionContextMenu: (event: ReactMouseEvent<HTMLElement>, provider: string, sessionId: string) => void
-  onOpenAgentSessionKeyboardMenu: (event: ReactKeyboardEvent<HTMLElement>, provider: string, sessionId: string) => void
+  onOpenAgentSessionMenu: (event: ContextMenuTriggerEvent, provider: string, sessionId: string) => void
   onShowAgentPreview: (event: AgentPreviewAnchorEvent, target: AgentPreviewTarget, compact?: boolean) => void
   onHideAgentPreview: () => void
   onOpenProjectFile: (agentId: string, file: OpenWorkspaceFile['file'], target?: WorkspaceFileOpenTarget) => void
@@ -2613,16 +2586,13 @@ function ProjectSection({
   onMountProject,
   onNewAgent,
   onStartAgent,
-  onOpenProjectContextMenu,
-  onOpenProjectKeyboardMenu,
+  onOpenProjectMenu,
   onOpenAgent,
   onUpdateAgentFlags,
   onReorderAgent,
-  onOpenAgentContextMenu,
-  onOpenAgentKeyboardMenu,
+  onOpenAgentMenu,
   onResumeAgentSession,
-  onOpenAgentSessionContextMenu,
-  onOpenAgentSessionKeyboardMenu,
+  onOpenAgentSessionMenu,
   onShowAgentPreview,
   onHideAgentPreview,
   onOpenProjectFile,
@@ -2910,8 +2880,8 @@ function ProjectSection({
             data-project-id={project.id}
             aria-expanded={!collapsed}
             onClick={() => onToggleProject(project.id)}
-            onContextMenu={event => onOpenProjectContextMenu(event, project.id)}
-            onKeyDown={event => onOpenProjectKeyboardMenu(event, project.id)}
+            onContextMenu={event => onOpenProjectMenu(event, project.id)}
+            onKeyDown={event => onOpenProjectMenu(event, project.id)}
           >
             <span className={`code-folder-icon ${collapsed ? 'collapsed' : 'expanded'}`} aria-hidden="true">
               {collapsed ? <ChevronRightGlyph /> : <ChevronDownGlyph />}
@@ -2959,7 +2929,7 @@ function ProjectSection({
             data-testid="code-project-actions"
             aria-label={copy.openOptions}
             title={copy.openOptions}
-            onClick={event => onOpenProjectContextMenu(event, project.id)}
+            onClick={event => onOpenProjectMenu(event, project.id)}
           >
             <ProjectActionsIcon />
           </button>
@@ -3030,8 +3000,7 @@ function ProjectSection({
                         claimedAgentSessionKeyByAgentId={claimedAgentSessionKeyByAgentId}
                         now={now}
                         onOpenAgent={onOpenAgent}
-                        onOpenAgentContextMenu={onOpenAgentContextMenu}
-                        onOpenAgentKeyboardMenu={onOpenAgentKeyboardMenu}
+                        onOpenAgentMenu={onOpenAgentMenu}
                         onShowPreview={onShowAgentPreview}
                         onHidePreview={onHideAgentPreview}
                       />
@@ -3055,8 +3024,7 @@ function ProjectSection({
                             onAgentDragEnd={finishAgentDrag}
                             onAgentDragOver={updateAgentDropTarget}
                             onAgentDrop={dropAgent}
-                            onOpenAgentContextMenu={onOpenAgentContextMenu}
-                            onOpenAgentKeyboardMenu={onOpenAgentKeyboardMenu}
+                            onOpenAgentMenu={onOpenAgentMenu}
                             onShowPreview={onShowAgentPreview}
                             onHidePreview={onHideAgentPreview}
                             copy={copy}
@@ -3071,8 +3039,7 @@ function ProjectSection({
                         searchSelected={agentSessionId(session) === selectedSearchSessionHandle}
                         now={now}
                         onResume={onResumeAgentSession}
-                        onOpenSessionContextMenu={onOpenAgentSessionContextMenu}
-                        onOpenSessionKeyboardMenu={onOpenAgentSessionKeyboardMenu}
+                        onOpenSessionMenu={onOpenAgentSessionMenu}
                         onShowPreview={onShowAgentPreview}
                         onHidePreview={onHideAgentPreview}
                         copy={copy}
@@ -3369,11 +3336,9 @@ function AgentRow({
   onAgentDragEnd,
   onAgentDragOver,
   onAgentDrop,
-  onOpenAgentContextMenu,
-  onOpenAgentKeyboardMenu,
+  onOpenAgentMenu,
   onResume,
-  onOpenSessionContextMenu,
-  onOpenSessionKeyboardMenu,
+  onOpenSessionMenu,
   onShowPreview,
   onHidePreview,
   copy,
@@ -3393,11 +3358,9 @@ function AgentRow({
   onAgentDragEnd?: () => void
   onAgentDragOver?: (event: ReactDragEvent<HTMLElement>, agentId: string) => void
   onAgentDrop?: (event: ReactDragEvent<HTMLElement>, agentId: string) => void
-  onOpenAgentContextMenu?: (event: ReactMouseEvent<HTMLElement>, agentId: string) => void
-  onOpenAgentKeyboardMenu?: (event: ReactKeyboardEvent<HTMLElement>, agentId: string) => void
+  onOpenAgentMenu?: (event: ContextMenuTriggerEvent, agentId: string) => void
   onResume?: (provider: string, sessionId: string, providerHomeId?: string) => void
-  onOpenSessionContextMenu?: (event: ReactMouseEvent<HTMLElement>, provider: string, sessionId: string) => void
-  onOpenSessionKeyboardMenu?: (event: ReactKeyboardEvent<HTMLElement>, provider: string, sessionId: string) => void
+  onOpenSessionMenu?: (event: ContextMenuTriggerEvent, provider: string, sessionId: string) => void
   onShowPreview?: (event: AgentPreviewAnchorEvent, target: AgentPreviewTarget, compact?: boolean) => void
   onHidePreview?: () => void
   copy: CodeCopy
@@ -3445,10 +3408,10 @@ function AgentRow({
     event.stopPropagation()
     if (requiresResume) {
       onHidePreview?.()
-      if (sessionProvider && session) onOpenSessionContextMenu?.(event, sessionProvider, agentSessionId(session))
+      if (sessionProvider && session) onOpenSessionMenu?.(event, sessionProvider, agentSessionId(session))
       return
     }
-    if (liveAgentId) onOpenAgentContextMenu?.(event, liveAgentId)
+    if (liveAgentId) onOpenAgentMenu?.(event, liveAgentId)
   }
 
   return (
@@ -3494,16 +3457,16 @@ function AgentRow({
       onContextMenu={event => {
         if (requiresResume) {
           onHidePreview?.()
-          if (sessionProvider && session) onOpenSessionContextMenu?.(event, sessionProvider, agentSessionId(session))
+          if (sessionProvider && session) onOpenSessionMenu?.(event, sessionProvider, agentSessionId(session))
           return
         }
-        if (liveAgentId) onOpenAgentContextMenu?.(event, liveAgentId)
+        if (liveAgentId) onOpenAgentMenu?.(event, liveAgentId)
       }}
       onKeyDown={event => {
         if (requiresResume) {
-          if (sessionProvider && session) onOpenSessionKeyboardMenu?.(event, sessionProvider, agentSessionId(session))
+          if (sessionProvider && session) onOpenSessionMenu?.(event, sessionProvider, agentSessionId(session))
         } else if (liveAgentId) {
-          onOpenAgentKeyboardMenu?.(event, liveAgentId)
+          onOpenAgentMenu?.(event, liveAgentId)
         }
         if (event.defaultPrevented) return
         if (event.key === 'Enter' || event.key === ' ') {

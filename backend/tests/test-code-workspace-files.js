@@ -390,7 +390,11 @@ function run() {
       workspaceSource.includes("}, restoreTarget === 'list' ? 0 : 50)") &&
       workspaceSource.includes("if (activeView !== 'search' && searchOpen)") &&
       workspaceSource.includes("if (activeView === 'projects') return") &&
-      workspaceSource.includes('setAgentMenu(null)\n    setProjectMenu(null)\n    setAgentSessionMenu(null)\n    setOptionsMenu(null)\n    closeActiveComposerMenus()') &&
+      workspaceSource.includes('type WorkspaceContextMenu =') &&
+      workspaceSource.includes("| { kind: 'agent-session'; provider: string; sessionId: string; x: number; y: number }") &&
+      workspaceSource.includes('const [contextMenu, setContextMenu] = useState<WorkspaceContextMenu | null>(null)') &&
+      workspaceSource.includes("const agentMenu = contextMenu?.kind === 'agent' ? contextMenu : null") &&
+      workspaceSource.includes('setContextMenu(null)\n    closeActiveComposerMenus()') &&
       workspaceSource.includes('if (!dialogOpen) return') &&
       workspaceSource.includes('if (dialogOpen) return') &&
       workspaceSource.includes('onClick={onClearSearch} aria-label={copy.clearSearch}') &&
@@ -851,8 +855,9 @@ function run() {
       workspaceSource.includes('onToggleProjectSessions(project.id)') &&
       workspaceSource.includes('onClick={() => onResumeSession(session.provider, session.id, session.providerHomeId)}') &&
       workspaceSource.includes('onResume?.(sessionProvider, sessionId, session?.providerHomeId)') &&
-      workspaceSource.includes('onOpenSessionContextMenu?.(event, sessionProvider, agentSessionId(session))') &&
-      workspaceSource.includes('onOpenSessionKeyboardMenu?.(event, sessionProvider, agentSessionId(session))') &&
+      workspaceSource.includes('onOpenSessionMenu?.(event, sessionProvider, agentSessionId(session))') &&
+      !workspaceSource.includes('onOpenSessionContextMenu') &&
+      !workspaceSource.includes('onOpenSessionKeyboardMenu') &&
       workspaceSource.includes('Open Session') &&
       workspaceSource.includes('Pin chat') &&
       workspaceSource.includes('Unpin chat') &&

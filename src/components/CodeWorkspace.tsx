@@ -239,6 +239,12 @@ type RenameDialogState =
   | { kind: 'agent'; agentId: string; title: string }
   | { kind: 'project'; projectId: string; workspace: string; title: string }
 
+type WorkspaceContextMenu =
+  | { kind: 'agent'; agentId: string; x: number; y: number }
+  | { kind: 'project'; projectId: string; x: number; y: number }
+  | { kind: 'agent-session'; provider: string; sessionId: string; x: number; y: number }
+  | { kind: 'options'; x: number; y: number; returnFocusTarget: HTMLElement | null }
+
 type EmptyHomeSidebarActionRequest = {
   kind: 'share' | 'focus'
   nonce: number
@@ -665,10 +671,11 @@ export function CodeWorkspace({
   ))
   const [shareTargetRestoreTick, setShareTargetRestoreTick] = useState(0)
   const [lastProjectWorkspace, setLastProjectWorkspace] = useState<string | undefined>(undefined)
-  const [agentMenu, setAgentMenu] = useState<{ agentId: string; x: number; y: number } | null>(null)
-  const [projectMenu, setProjectMenu] = useState<{ projectId: string; x: number; y: number } | null>(null)
-  const [agentSessionMenu, setAgentSessionMenu] = useState<{ provider: string; sessionId: string; x: number; y: number } | null>(null)
-  const [optionsMenu, setOptionsMenu] = useState<{ x: number; y: number; returnFocusTarget: HTMLElement | null } | null>(null)
+  const [contextMenu, setContextMenu] = useState<WorkspaceContextMenu | null>(null)
+  const agentMenu = contextMenu?.kind === 'agent' ? contextMenu : null
+  const projectMenu = contextMenu?.kind === 'project' ? contextMenu : null
+  const agentSessionMenu = contextMenu?.kind === 'agent-session' ? contextMenu : null
+  const optionsMenu = contextMenu?.kind === 'options' ? contextMenu : null
   const [settingsPanelOpen, setSettingsPanelOpen] = useState(false)
   const [instanceName, setInstanceName] = useState('Farming')
   const [mobileShareUrl, setMobileShareUrl] = useState('')
@@ -2100,10 +2107,7 @@ export function CodeWorkspace({
   }, [activeAgents, composerByAgentKey, sendComposerMessageToAgent, updateExistingComposerStateForKey])
 
   const openSearch = useCallback(() => {
-    setAgentMenu(null)
-    setProjectMenu(null)
-    setAgentSessionMenu(null)
-    setOptionsMenu(null)
+    setContextMenu(null)
     closeActiveComposerMenus()
     expandSidebar()
     onWorkspaceViewChange('search')
@@ -2366,10 +2370,7 @@ export function CodeWorkspace({
   }, [activeView, closeSearchView, searchOpen])
 
   const openWorkspaceView = useCallback((view: WorkspaceView) => {
-    setAgentMenu(null)
-    setProjectMenu(null)
-    setAgentSessionMenu(null)
-    setOptionsMenu(null)
+    setContextMenu(null)
     if (view === 'projects') {
       expandSidebar()
       clearSearch()
@@ -2622,8 +2623,7 @@ export function CodeWorkspace({
       ...previous,
       [sessionId]: nextPinned,
     }))
-    setAgentSessionMenu(null)
-    setOptionsMenu(null)
+    setContextMenu(null)
     if (mainPageSessionKeys.has(sessionId)) {
       focusAgentSessionRow(contextMenuAgentSession.provider, sessionId)
     } else {
@@ -2669,8 +2669,7 @@ export function CodeWorkspace({
       [sessionId]: false,
     }))
     removeMainPageAgentSession(sessionId)
-    setAgentSessionMenu(null)
-    setOptionsMenu(null)
+    setContextMenu(null)
     window.requestAnimationFrame(() => projectListRef.current?.focus({ preventScroll: true }))
   }, [contextMenuAgentSession, removeMainPageAgentSession])
 
@@ -2683,10 +2682,7 @@ export function CodeWorkspace({
   }, [expandSidebar, updateSidebarWidth])
 
   const openTerminalFromWorkspace = useCallback((agentId: string, options?: { focusTerminal?: boolean }) => {
-    setAgentMenu(null)
-    setProjectMenu(null)
-    setAgentSessionMenu(null)
-    setOptionsMenu(null)
+    setContextMenu(null)
     clearSearch()
     setMainPaneMode('terminal')
     onWorkspaceViewChange('projects')
@@ -2735,10 +2731,7 @@ export function CodeWorkspace({
         return next
       })
     }
-    setAgentMenu(null)
-    setProjectMenu(null)
-    setAgentSessionMenu(null)
-    setOptionsMenu(null)
+    setContextMenu(null)
     clearSearch()
     onWorkspaceViewChange('projects')
     setMainPaneMode('editor')
@@ -2878,10 +2871,7 @@ export function CodeWorkspace({
         return next
       })
     }
-    setAgentMenu(null)
-    setProjectMenu(null)
-    setAgentSessionMenu(null)
-    setOptionsMenu(null)
+    setContextMenu(null)
     clearSearch()
     expandSidebar()
     onWorkspaceViewChange('projects')
@@ -2906,10 +2896,7 @@ export function CodeWorkspace({
         return next
       })
     }
-    setAgentMenu(null)
-    setProjectMenu(null)
-    setAgentSessionMenu(null)
-    setOptionsMenu(null)
+    setContextMenu(null)
     clearSearch()
     expandSidebar()
     onWorkspaceViewChange('projects')
@@ -3070,10 +3057,7 @@ export function CodeWorkspace({
       sourceAgentId: identity.sourceAgentId,
     }
     if (!workspaceOpenFiles.select(identity.filesId, filePath, openRequest)) return false
-    setAgentMenu(null)
-    setProjectMenu(null)
-    setAgentSessionMenu(null)
-    setOptionsMenu(null)
+    setContextMenu(null)
     clearSearch()
     onWorkspaceViewChange('projects')
     setMainPaneMode('editor')
@@ -3158,10 +3142,7 @@ export function CodeWorkspace({
     importSharedReadingAnchor(target.kind === 'agent' ? target.readingAnchor : undefined)
     if (target.kind === 'agent') {
       if (!workspaceNavigationAgentIds.has(target.agentId)) return false
-      setAgentMenu(null)
-      setProjectMenu(null)
-      setAgentSessionMenu(null)
-      setOptionsMenu(null)
+      setContextMenu(null)
       clearSearch()
       onWorkspaceViewChange('projects')
       setMainPaneMode('terminal')
@@ -3285,10 +3266,7 @@ export function CodeWorkspace({
       return false
     }
 
-    setAgentMenu(null)
-    setProjectMenu(null)
-    setAgentSessionMenu(null)
-    setOptionsMenu(null)
+    setContextMenu(null)
     clearSearch()
     onWorkspaceViewChange('projects')
 
@@ -3369,10 +3347,7 @@ export function CodeWorkspace({
     const nextFile = nextState?.activeFile
     if (!nextFile) return false
 
-    setAgentMenu(null)
-    setProjectMenu(null)
-    setAgentSessionMenu(null)
-    setOptionsMenu(null)
+    setContextMenu(null)
     clearSearch()
     onWorkspaceViewChange('projects')
     setMainPaneMode('editor')
@@ -3410,48 +3385,30 @@ export function CodeWorkspace({
     }
   }, [workspaceOpenFiles])
 
-  const openAgentContextMenu = useCallback((event: ReactMouseEvent<HTMLElement>, agentId: string) => {
+  const openAgentContextMenu = useCallback((event: ReactMouseEvent<HTMLElement> | ReactKeyboardEvent<HTMLElement>, agentId: string) => {
+    const keyboardEvent = 'key' in event
+    if (keyboardEvent && event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return
     event.preventDefault()
     event.stopPropagation()
     const agent = activeAgents.find(item => item.id === agentId)
-    const point = clampContextMenuPoint(
-      event.clientX,
-      event.clientY,
-      estimateAgentContextMenuHeight(agent)
-    )
-    setProjectMenu(null)
-    setAgentSessionMenu(null)
-    setOptionsMenu(null)
-    setAgentMenu({
+    const estimatedHeight = estimateAgentContextMenuHeight(agent)
+    let point
+    if (keyboardEvent) {
+      const rect = event.currentTarget.getBoundingClientRect()
+      point = clampContextMenuPoint(rect.left + 24, rect.top + rect.height, estimatedHeight)
+    } else {
+      point = clampContextMenuPoint(event.clientX, event.clientY, estimatedHeight)
+    }
+    setContextMenu({
+      kind: 'agent',
       agentId,
       x: point.x,
       y: point.y,
     })
   }, [activeAgents])
 
-  const openAgentKeyboardMenu = useCallback((event: ReactKeyboardEvent<HTMLElement>, agentId: string) => {
-    if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return
-
-    event.preventDefault()
-    event.stopPropagation()
-    const rect = event.currentTarget.getBoundingClientRect()
-    const agent = activeAgents.find(item => item.id === agentId)
-    const point = clampContextMenuPoint(
-      rect.left + 24,
-      rect.top + rect.height,
-      estimateAgentContextMenuHeight(agent)
-    )
-    setProjectMenu(null)
-    setAgentSessionMenu(null)
-    setOptionsMenu(null)
-    setAgentMenu({
-      agentId,
-      x: point.x,
-      y: point.y,
-    })
-  }, [activeAgents])
-
-  const openProjectContextMenu = useCallback((event: ReactMouseEvent<HTMLElement>, projectId: string) => {
+  const openProjectContextMenu = useCallback((event: ReactMouseEvent<HTMLElement> | ReactKeyboardEvent<HTMLElement>, projectId: string) => {
+    if ('key' in event && event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return
     event.preventDefault()
     event.stopPropagation()
     const rect = event.currentTarget.getBoundingClientRect()
@@ -3462,65 +3419,29 @@ export function CodeWorkspace({
     const point = isCompactViewport()
       ? mobileActionMenuPoint(rect, estimatedHeight, undefined, MOBILE_PROJECT_CONTEXT_MENU_WIDTH)
       : outwardContextMenuPoint(rect, estimatedHeight)
-    setAgentMenu(null)
-    setAgentSessionMenu(null)
-    setOptionsMenu(null)
-    setProjectMenu({
+    setContextMenu({
+      kind: 'project',
       projectId,
       x: point.x,
       y: point.y,
     })
   }, [projectListProjects])
 
-  const openProjectKeyboardMenu = useCallback((event: ReactKeyboardEvent<HTMLElement>, projectId: string) => {
-    if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return
-
+  const openAgentSessionContextMenu = useCallback((event: ReactMouseEvent<HTMLElement> | ReactKeyboardEvent<HTMLElement>, provider: string, sessionId: string) => {
+    const keyboardEvent = 'key' in event
+    if (keyboardEvent && event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return
     event.preventDefault()
     event.stopPropagation()
-    const rect = event.currentTarget.getBoundingClientRect()
-    const project = projectListProjects.find(item => item.id === projectId)
-    const itemCount = project?.hasMain ? 4 : projectCanDeleteWorktree(project) ? 8 : 7
-    const separatorCount = project?.hasMain ? 1 : 2
-    const estimatedHeight = estimateContextMenuHeight(itemCount, separatorCount) + itemCount * 8
-    const point = isCompactViewport()
-      ? mobileActionMenuPoint(rect, estimatedHeight, undefined, MOBILE_PROJECT_CONTEXT_MENU_WIDTH)
-      : outwardContextMenuPoint(rect, estimatedHeight)
-    setAgentMenu(null)
-    setAgentSessionMenu(null)
-    setOptionsMenu(null)
-    setProjectMenu({
-      projectId,
-      x: point.x,
-      y: point.y,
-    })
-  }, [projectListProjects])
-
-  const openAgentSessionContextMenu = useCallback((event: ReactMouseEvent<HTMLElement>, provider: string, sessionId: string) => {
-    event.preventDefault()
-    event.stopPropagation()
-    const point = clampContextMenuPoint(event.clientX, event.clientY, estimateContextMenuHeight(3))
-    setAgentMenu(null)
-    setProjectMenu(null)
-    setOptionsMenu(null)
-    setAgentSessionMenu({
-      provider,
-      sessionId,
-      x: point.x,
-      y: point.y,
-    })
-  }, [])
-
-  const openAgentSessionKeyboardMenu = useCallback((event: ReactKeyboardEvent<HTMLElement>, provider: string, sessionId: string) => {
-    if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return
-
-    event.preventDefault()
-    event.stopPropagation()
-    const rect = event.currentTarget.getBoundingClientRect()
-    const point = clampContextMenuPoint(rect.left + 24, rect.top + rect.height, estimateContextMenuHeight(3))
-    setAgentMenu(null)
-    setProjectMenu(null)
-    setOptionsMenu(null)
-    setAgentSessionMenu({
+    const estimatedHeight = estimateContextMenuHeight(3)
+    let point
+    if (keyboardEvent) {
+      const rect = event.currentTarget.getBoundingClientRect()
+      point = clampContextMenuPoint(rect.left + 24, rect.top + rect.height, estimatedHeight)
+    } else {
+      point = clampContextMenuPoint(event.clientX, event.clientY, estimatedHeight)
+    }
+    setContextMenu({
+      kind: 'agent-session',
       provider,
       sessionId,
       x: point.x,
@@ -3532,16 +3453,14 @@ export function CodeWorkspace({
     if (!contextMenuAgent) return
 
     const currentTitle = agentTitle(contextMenuAgent)
-    setAgentMenu(null)
-    setOptionsMenu(null)
+    setContextMenu(null)
     setRenameDialog({ kind: 'agent', agentId: contextMenuAgent.id, title: currentTitle })
   }, [contextMenuAgent])
 
   const renameContextMenuProject = useCallback(() => {
     if (!contextMenuProject) return
 
-    setProjectMenu(null)
-    setOptionsMenu(null)
+    setContextMenu(null)
     setRenameDialog({
       kind: 'project',
       projectId: contextMenuProject.id,
@@ -3600,10 +3519,7 @@ export function CodeWorkspace({
   }, [copy.copyFailed, focusAgentRow, focusProjectTitle, onRenameAgent, projectNames, renameDialog])
 
   const copyContextMenuValue = useCallback(async (value: string, focusTarget?: SearchTarget) => {
-    setAgentMenu(null)
-    setProjectMenu(null)
-    setAgentSessionMenu(null)
-    setOptionsMenu(null)
+    setContextMenu(null)
     const copied = await writeClipboardText(value)
     setCopyNotice({
       id: Date.now(),
@@ -3616,8 +3532,7 @@ export function CodeWorkspace({
 
   const killContextMenuAgent = useCallback(() => {
     if (!contextMenuAgent) return
-    setAgentMenu(null)
-    setOptionsMenu(null)
+    setContextMenu(null)
     setKillDialog({
       agentId: contextMenuAgent.id,
       title: agentTitle(contextMenuAgent),
@@ -3642,16 +3557,14 @@ export function CodeWorkspace({
 
   const forkContextMenuAgent = useCallback((mode: 'same-worktree' | 'new-worktree') => {
     if (!contextMenuAgent) return
-    setAgentMenu(null)
-    setOptionsMenu(null)
+    setContextMenu(null)
     onForkAgent(contextMenuAgent.id, mode)
   }, [contextMenuAgent, onForkAgent])
 
   const updateContextMenuAgentFlags = useCallback((flags: Partial<Pick<Agent, 'pinned' | 'unread' | 'archived'>>) => {
     if (!contextMenuAgent) return
     const agentId = contextMenuAgent.id
-    setAgentMenu(null)
-    setOptionsMenu(null)
+    setContextMenu(null)
     if (flags.archived === true) {
       const sessionHandle = contextMenuAgent.providerSessionKey || resumedAgentSessionIdFromSource(contextMenuAgent.source)
       if (sessionHandle) removeMainPageAgentSession(sessionHandle)
@@ -3664,8 +3577,7 @@ export function CodeWorkspace({
 
   const updateSidebarAgentFlags = useCallback((agent: Agent, flags: Partial<Pick<Agent, 'pinned' | 'archived'>>) => {
     const agentId = agent.id
-    setAgentMenu(null)
-    setOptionsMenu(null)
+    setContextMenu(null)
     if (flags.archived === true) {
       const sessionHandle = agent.providerSessionKey || resumedAgentSessionIdFromSource(agent.source)
       if (sessionHandle) removeMainPageAgentSession(sessionHandle)
@@ -3799,16 +3711,14 @@ export function CodeWorkspace({
   const openOptionsMenu = useCallback((event: ReactMouseEvent<HTMLElement>) => {
     event.preventDefault()
     event.stopPropagation()
-    setAgentMenu(null)
-    setProjectMenu(null)
-    setAgentSessionMenu(null)
     if (!isCompactViewport()) {
-      setOptionsMenu(null)
+      setContextMenu(null)
       setSettingsPanelOpen(true)
       return
     }
     const rect = event.currentTarget.getBoundingClientRect()
-    setOptionsMenu({
+    setContextMenu({
+      kind: 'options',
       x: Math.max(8, rect.right - 164),
       y: Math.min(window.innerHeight - 12, rect.bottom + 6),
       returnFocusTarget: event.currentTarget,
@@ -3816,7 +3726,7 @@ export function CodeWorkspace({
   }, [])
 
   const shareCurrentView = useCallback(async () => {
-    setOptionsMenu(null)
+    setContextMenu(null)
     try {
       const target = workspaceShareTargetWithCurrentReadingAnchor(shareTarget)
       const response = await fetch(appPath('/api/share/qr-ticket'), {
@@ -3836,24 +3746,24 @@ export function CodeWorkspace({
   }, [copy.shareLinkFailed, shareTarget])
 
   const updateLanguagePreference = useCallback((language: UiPreferences['language']) => {
-    setOptionsMenu(null)
+    setContextMenu(null)
     onUpdateUiPreferences({ language })
   }, [onUpdateUiPreferences])
 
   const updateAppearancePreference = useCallback((appearance: UiPreferences['appearance']) => {
-    setOptionsMenu(null)
+    setContextMenu(null)
     onUpdateUiPreferences({ appearance })
   }, [onUpdateUiPreferences])
 
   const openSettingsPanel = useCallback(() => {
-    setOptionsMenu(null)
+    setContextMenu(null)
     setSettingsPanelOpen(true)
   }, [])
 
   const openSettingsFromSidebar = useCallback((event: ReactMouseEvent<HTMLElement>) => {
     event.preventDefault()
     event.stopPropagation()
-    setOptionsMenu(null)
+    setContextMenu(null)
     setSettingsPanelOpen(true)
   }, [])
 
@@ -3984,8 +3894,7 @@ export function CodeWorkspace({
   const switchContextMenuAgentRuntime = useCallback((agentId: string, mode: 'terminal' | 'chat') => {
     const agent = activeAgents.find(item => item.id === agentId)
     if (permissionSwitchingAgentId || !canSwitchAgentRuntime(agent) || isAgentTurnActive(agent)) return
-    setAgentMenu(null)
-    setOptionsMenu(null)
+    setContextMenu(null)
     updateAgentRuntimeMode(agentId, mode)
   }, [activeAgents, permissionSwitchingAgentId, updateAgentRuntimeMode])
 
@@ -4188,8 +4097,7 @@ export function CodeWorkspace({
     if (!contextMenuProject?.workspace) return
     const projectId = contextMenuProject.id
     const workspace = contextMenuProject.workspace
-    setProjectMenu(null)
-    setOptionsMenu(null)
+    setContextMenu(null)
     try {
       const response = await fetch(appPath('/api/projects/pin'), {
         method: 'POST',
@@ -4214,8 +4122,7 @@ export function CodeWorkspace({
     if (!contextMenuProject?.workspace) return
     const projectId = contextMenuProject.id
     const rootId = projectFilesWorkspaceId(contextMenuProject.workspace)
-    setProjectMenu(null)
-    setOptionsMenu(null)
+    setContextMenu(null)
     try {
       const response = await fetch(appPath('/api/projects/reveal'), {
         method: 'POST',
@@ -4238,8 +4145,7 @@ export function CodeWorkspace({
     if (!contextMenuProject?.workspace) return
     const projectId = contextMenuProject.id
     const rootId = projectFilesWorkspaceId(contextMenuProject.workspace)
-    setProjectMenu(null)
-    setOptionsMenu(null)
+    setContextMenu(null)
     const requestKey = `create:${rootId}`
     const requestId = projectOperationRequestIdsRef.current.get(requestKey)
       || globalThis.crypto?.randomUUID?.()
@@ -4277,8 +4183,7 @@ export function CodeWorkspace({
     contextMenuProject.agents.forEach(agent => {
       if (agent.unread) markAgentReadIfNeeded(agent.id, true)
     })
-    setProjectMenu(null)
-    setOptionsMenu(null)
+    setContextMenu(null)
     focusProjectTitle(projectId)
   }, [contextMenuProject, focusProjectTitle, markAgentReadIfNeeded])
 
@@ -4289,8 +4194,7 @@ export function CodeWorkspace({
     const archivableAgents = contextMenuProject.agents.filter(agent => !agent.isMain)
     const projectSessions = mainPageAgentSessions.filter(session => agentSessionWorkspace(session) === workspace)
     if (archivableAgents.length === 0 && projectSessions.length === 0) {
-      setProjectMenu(null)
-      setOptionsMenu(null)
+      setContextMenu(null)
       restoreProjectListFocusRef.current = 'list'
       return
     }
@@ -4301,8 +4205,7 @@ export function CodeWorkspace({
 
     removeMainPageAgentSessions(projectSessions.map(agentSessionId))
 
-    setProjectMenu(null)
-    setOptionsMenu(null)
+    setContextMenu(null)
     restoreProjectListFocusRef.current = 'list'
   }, [mainPageAgentSessions, contextMenuProject, onUpdateAgentFlags, removeMainPageAgentSessions])
 
@@ -4331,15 +4234,13 @@ export function CodeWorkspace({
         message: error instanceof Error ? error.message : copy.copyFailed,
       })
     }
-    setProjectMenu(null)
-    setOptionsMenu(null)
+    setContextMenu(null)
     restoreProjectListFocusRef.current = 'list'
   }, [contextMenuProject, copy.copyFailed])
 
   const deleteContextWorktree = useCallback(() => {
     if (!contextMenuProject) return
-    setProjectMenu(null)
-    setOptionsMenu(null)
+    setContextMenu(null)
     setDeleteWorktreeDialog({
       projectId: contextMenuProject.id,
       workspace: contextMenuProject.workspace,
@@ -4365,25 +4266,18 @@ export function CodeWorkspace({
   }, [deleteWorktreeDialog, onDeleteForkWorktreeProject, removeMainPageAgentSessions])
 
   const closeContextMenuAndRestoreFocus = useCallback(() => {
-    const agentId = agentMenu?.agentId
-    const projectId = projectMenu?.projectId
-    const provider = agentSessionMenu?.provider
-    const sessionId = agentSessionMenu?.sessionId
-    const optionsReturnFocusTarget = optionsMenu?.returnFocusTarget ?? null
-    setAgentMenu(null)
-    setProjectMenu(null)
-    setAgentSessionMenu(null)
-    setOptionsMenu(null)
-    if (agentId) {
-      focusAgentRow(agentId)
-    } else if (projectId) {
-      focusProjectTitle(projectId)
-    } else if (provider && sessionId) {
-      focusAgentSessionRow(provider, sessionId)
-    } else if (optionsReturnFocusTarget) {
-      window.requestAnimationFrame(() => optionsReturnFocusTarget.focus({ preventScroll: true }))
+    const closingMenu = contextMenu
+    setContextMenu(null)
+    if (closingMenu?.kind === 'agent') {
+      focusAgentRow(closingMenu.agentId)
+    } else if (closingMenu?.kind === 'project') {
+      focusProjectTitle(closingMenu.projectId)
+    } else if (closingMenu?.kind === 'agent-session') {
+      focusAgentSessionRow(closingMenu.provider, closingMenu.sessionId)
+    } else if (closingMenu?.kind === 'options' && closingMenu.returnFocusTarget) {
+      window.requestAnimationFrame(() => closingMenu.returnFocusTarget?.focus({ preventScroll: true }))
     }
-  }, [agentMenu?.agentId, agentSessionMenu?.provider, agentSessionMenu?.sessionId, focusAgentRow, focusAgentSessionRow, focusProjectTitle, optionsMenu?.returnFocusTarget, projectMenu?.projectId])
+  }, [contextMenu, focusAgentRow, focusAgentSessionRow, focusProjectTitle])
 
   const handleContextMenuNavigation = useCallback((event: Pick<KeyboardEvent, 'key' | 'shiftKey' | 'preventDefault' | 'stopPropagation'>, menu: HTMLElement | null) => {
     if (!menu) return false
@@ -4456,7 +4350,7 @@ export function CodeWorkspace({
   }, [handleContextMenuNavigation])
 
   useLayoutEffect(() => {
-    if (!agentMenu && !projectMenu && !agentSessionMenu && !optionsMenu) return
+    if (!contextMenu) return
 
     const handleNativeContextMenuKeyDown = (event: KeyboardEvent) => {
       const menu = document.querySelector<HTMLElement>('.code-context-menu')
@@ -4467,7 +4361,7 @@ export function CodeWorkspace({
 
     document.addEventListener('keydown', handleNativeContextMenuKeyDown, true)
     return () => document.removeEventListener('keydown', handleNativeContextMenuKeyDown, true)
-  }, [agentMenu, agentSessionMenu, handleContextMenuNavigation, optionsMenu, projectMenu])
+  }, [contextMenu, handleContextMenuNavigation])
 
   const handleComposerMenuKeyDown = useCallback((event: ReactKeyboardEvent<HTMLDivElement>) => {
     const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'))
@@ -4537,7 +4431,7 @@ export function CodeWorkspace({
       if (dialogOpen) return
 
       const target = event.target
-      if (agentMenu || projectMenu || agentSessionMenu || optionsMenu) {
+      if (contextMenu) {
         if (handleContextMenuNavigation(event, contextMenuRef.current)) return
         if (
           event.key.length === 1
@@ -4630,36 +4524,16 @@ export function CodeWorkspace({
 
       if (event.key === 'Escape' && activeView !== 'projects') {
         event.preventDefault()
-        setAgentMenu(null)
-        setProjectMenu(null)
-        setAgentSessionMenu(null)
-        setOptionsMenu(null)
+        setContextMenu(null)
         clearSearch()
         onWorkspaceViewChange('projects')
         restoreProjectListFocusRef.current = 'active-force'
         return
       }
 
-      if (event.key === 'Escape' && (agentMenu || projectMenu || agentSessionMenu || optionsMenu)) {
+      if (event.key === 'Escape' && contextMenu) {
         event.preventDefault()
-        const agentId = agentMenu?.agentId
-        const projectId = projectMenu?.projectId
-        const provider = agentSessionMenu?.provider
-        const sessionId = agentSessionMenu?.sessionId
-        const optionsReturnFocusTarget = optionsMenu?.returnFocusTarget ?? null
-        setAgentMenu(null)
-        setProjectMenu(null)
-        setAgentSessionMenu(null)
-        setOptionsMenu(null)
-        if (agentId) {
-          focusAgentRow(agentId)
-        } else if (projectId) {
-          focusProjectTitle(projectId)
-        } else if (provider && sessionId) {
-          focusAgentSessionRow(provider, sessionId)
-        } else if (optionsReturnFocusTarget) {
-          window.requestAnimationFrame(() => optionsReturnFocusTarget.focus({ preventScroll: true }))
-        }
+        closeContextMenuAndRestoreFocus()
         return
       }
 
@@ -4685,7 +4559,7 @@ export function CodeWorkspace({
 
     window.addEventListener('keydown', handleKeyDown, true)
     return () => window.removeEventListener('keydown', handleKeyDown, true)
-  }, [activeView, agentMenu, approvalMenuOpen, closeActiveComposerMenus, closeDeleteWorktreeDialog, closeKillDialog, closeRenameDialog, agentSessionMenu, deleteWorktreeDialog, dialogOpen, focusAgentRow, focusAgentSessionRow, focusComposerTextarea, focusProjectTitle, focusWorkspaceFilesSearch, handleContextMenuNavigation, killDialog, keyboardShortcutsEnabled, modelMenuOpen, navigateWorkspaceHistory, optionsMenu, plusMenuOpen, projectFileSearchId, projectFileSearchIdForShortcutTarget, projectMenu, renameDialog, reopenLastClosedWorkspaceFile, clearSearch, onWorkspaceViewChange, openSearch, toggleSidebar])
+  }, [activeView, approvalMenuOpen, clearSearch, closeActiveComposerMenus, closeContextMenuAndRestoreFocus, closeDeleteWorktreeDialog, closeKillDialog, closeRenameDialog, contextMenu, deleteWorktreeDialog, dialogOpen, focusComposerTextarea, focusWorkspaceFilesSearch, handleContextMenuNavigation, keyboardShortcutsEnabled, killDialog, modelMenuOpen, navigateWorkspaceHistory, onWorkspaceViewChange, openSearch, plusMenuOpen, projectFileSearchId, projectFileSearchIdForShortcutTarget, renameDialog, reopenLastClosedWorkspaceFile, toggleSidebar])
 
   useEffect(() => {
     if (!renameDialog) return
@@ -4739,16 +4613,13 @@ export function CodeWorkspace({
     function closeMenuOnOutsidePointer(event: PointerEvent) {
       const target = event.target
       if (target instanceof Element && target.closest('.code-context-menu')) return
-      setAgentMenu(null)
-      setProjectMenu(null)
-      setAgentSessionMenu(null)
-      setOptionsMenu(null)
+      setContextMenu(null)
     }
 
-    if (!agentMenu && !projectMenu && !agentSessionMenu && !optionsMenu) return
+    if (!contextMenu) return
     window.addEventListener('pointerdown', closeMenuOnOutsidePointer)
     return () => window.removeEventListener('pointerdown', closeMenuOnOutsidePointer)
-  }, [agentMenu, agentSessionMenu, optionsMenu, projectMenu])
+  }, [contextMenu])
 
   useEffect(() => {
     function closeComposerPopover(event: PointerEvent) {
@@ -4763,7 +4634,7 @@ export function CodeWorkspace({
   }, [approvalMenuOpen, closeActiveComposerMenus, modelMenuOpen, plusMenuOpen])
 
   useLayoutEffect(() => {
-    if (!agentMenu && !projectMenu && !agentSessionMenu && !optionsMenu) return
+    if (!contextMenu) return
     contextMenuUserNavigatedRef.current = false
     contextMenuFocusIndexRef.current = 0
     const focusFirstMenuButton = () => {
@@ -4778,7 +4649,7 @@ export function CodeWorkspace({
       firstButton.focus()
     }
     return scheduleFocusRetries(focusFirstMenuButton, { delays: [0, 80, 180, 360] })
-  }, [agentMenu, agentSessionMenu, optionsMenu, projectMenu])
+  }, [contextMenu])
 
   useEffect(() => {
     if (!modelMenuOpen) return
@@ -4885,20 +4756,14 @@ export function CodeWorkspace({
 
     if (activeView === 'projects') return
 
-    setAgentMenu(null)
-    setProjectMenu(null)
-    setAgentSessionMenu(null)
-    setOptionsMenu(null)
+    setContextMenu(null)
     closeActiveComposerMenus()
   }, [activeView, clearSearch, closeActiveComposerMenus, searchOpen])
 
   useEffect(() => {
     if (!dialogOpen) return
 
-    setAgentMenu(null)
-    setProjectMenu(null)
-    setAgentSessionMenu(null)
-    setOptionsMenu(null)
+    setContextMenu(null)
     closeActiveComposerMenus()
   }, [closeActiveComposerMenus, dialogOpen])
 
@@ -5172,16 +5037,13 @@ export function CodeWorkspace({
         onToggleProject={toggleProject}
         onToggleProjectSessions={toggleProjectSessions}
         onMountProject={mountProject}
-        onOpenProjectContextMenu={openProjectContextMenu}
-        onOpenProjectKeyboardMenu={openProjectKeyboardMenu}
+        onOpenProjectMenu={openProjectContextMenu}
         onOpenAgent={openTerminalFromSidebar}
         onUpdateAgentFlags={updateSidebarAgentFlags}
         onReorderAgent={reorderSidebarAgent}
-        onOpenAgentContextMenu={openAgentContextMenu}
-        onOpenAgentKeyboardMenu={openAgentKeyboardMenu}
+        onOpenAgentMenu={openAgentContextMenu}
         onResumeAgentSession={resumeAgentSession}
-        onOpenAgentSessionContextMenu={openAgentSessionContextMenu}
-        onOpenAgentSessionKeyboardMenu={openAgentSessionKeyboardMenu}
+        onOpenAgentSessionMenu={openAgentSessionContextMenu}
         onOpenProjectFile={openProjectFile}
         onSelectOpenWorkspaceFile={selectOpenWorkspaceFile}
         onCloseOpenWorkspaceFile={closeOpenWorkspaceFile}
@@ -5550,8 +5412,7 @@ export function CodeWorkspace({
         onForkAgent={forkContextMenuAgent}
         onKillAgent={killContextMenuAgent}
         onOpenSession={(provider, sessionId) => {
-          setAgentSessionMenu(null)
-          setOptionsMenu(null)
+          setContextMenu(null)
           resumeAgentSession(provider, sessionId, contextMenuAgentSession?.providerHomeId)
           if (contextMenuAgentSession) focusAgentSessionRow(provider, agentSessionId(contextMenuAgentSession))
         }}
