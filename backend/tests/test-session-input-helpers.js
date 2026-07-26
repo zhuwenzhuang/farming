@@ -448,8 +448,8 @@ function run() {
     'xterm rows should keep pointer hit testing without forcing native browser text selection over xterm selection'
   );
   assert(
-    terminalPoolSource.includes("import { isCompactViewport, isTouchInputViewport } from '@/lib/responsive-mode'") &&
-      terminalPoolSource.includes('return isTouchInputViewport()') &&
+    terminalPoolSource.includes('isTouchInputViewport as isMobileViewport') &&
+      !terminalPoolSource.includes('function isMobileViewport()') &&
       terminalPoolSource.includes('TOUCH_MOMENTUM_MIN_VELOCITY') &&
       terminalPoolSource.includes('TOUCH_MOMENTUM_DECAY_PER_FRAME') &&
       terminalPoolSource.includes('TOUCH_VELOCITY_WINDOW_MS') &&
