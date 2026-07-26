@@ -149,6 +149,10 @@ test('shares one fixed Browser viewport across desktop, mobile, and Agent action
   const workspace = path.join(workspaceRoot, 'browser-project')
   fs.mkdirSync(workspace, { recursive: true })
   await testInfo.attach('target-url', { body: targetUrl, contentType: 'text/plain' })
+  const enableResponse = await page.request.post('/farming/api/settings', {
+    data: { browserExtensionEnabled: true },
+  })
+  expect(enableResponse.ok()).toBeTruthy()
   await page.request.post('/farming/api/projects/mount', { data: { workspace } })
   await openFarming(page)
 

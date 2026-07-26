@@ -23,6 +23,10 @@ test('keeps persistent project and pinned Agent order', async ({ page, workspace
   const projectDir = path.join(workspaceRoot, 'agent-ordering')
   fs.mkdirSync(projectDir, { recursive: true })
 
+  const enableBrowserResponse = await page.request.post('/farming/api/settings', {
+    data: { browserExtensionEnabled: true },
+  })
+  expect(enableBrowserResponse.ok()).toBeTruthy()
   await openFarming(page)
   const firstAgentId = await createControlAgent(page, projectDir)
   const secondAgentId = await createControlAgent(page, projectDir)

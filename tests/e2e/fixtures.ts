@@ -201,6 +201,7 @@ async function resetSettings(page: Page) {
         workspaceHistory: [],
         projectWorkspaces: [],
         defaultLaunchAgent: 'codex',
+        browserExtensionEnabled: false,
         instanceName: 'farming-e2e-host',
         appearance: 'light',
         language: 'en',
