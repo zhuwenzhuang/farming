@@ -151,6 +151,7 @@ export function BlackHolePetRestScene({
         ?? document.querySelector('.code-product-pet-anchor')
       ),
       onError: message => setRenderError(message),
+      onReady: () => setRenderError(null),
     })
     rendererRef.current = renderer
     renderer.setActive(active)

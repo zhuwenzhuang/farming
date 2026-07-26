@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useState,
+} from 'react'
 import type { UiAppearance, UiLanguage } from '@/lib/ui-preferences'
 import type { PetIntent } from '@/lib/pet/intents'
 import { isCompactViewport } from '@/lib/responsive-mode'
@@ -27,6 +33,39 @@ interface FarmingPetProps {
   appearancePreference: UiAppearance
   restReminderEntryBlocked?: boolean
   onboardingBlocked?: boolean
+}
+
+const PET_OWNER_ATTRIBUTE = 'data-farming-pet-owner'
+const PET_OWNER_EVENT = 'farming:pet-owner-change'
+
+export function FarmingPet(props: FarmingPetProps) {
+  const [ownerId] = useState(() => (
+    `pet-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
+  ))
+  const [ownsPet, setOwnsPet] = useState(false)
+
+  useLayoutEffect(() => {
+    const syncOwnership = () => {
+      setOwnsPet(
+        document.documentElement.getAttribute(PET_OWNER_ATTRIBUTE) === ownerId,
+      )
+    }
+    window.addEventListener(PET_OWNER_EVENT, syncOwnership)
+    document.documentElement.setAttribute(PET_OWNER_ATTRIBUTE, ownerId)
+    syncOwnership()
+    window.dispatchEvent(new Event(PET_OWNER_EVENT))
+    return () => {
+      window.removeEventListener(PET_OWNER_EVENT, syncOwnership)
+      if (
+        document.documentElement.getAttribute(PET_OWNER_ATTRIBUTE) === ownerId
+      ) {
+        document.documentElement.removeAttribute(PET_OWNER_ATTRIBUTE)
+        window.dispatchEvent(new Event(PET_OWNER_EVENT))
+      }
+    }
+  }, [ownerId])
+
+  return ownsPet ? <FarmingPetController {...props} /> : null
 }
 
 function formatActivityInterval(language: UiLanguage, seconds: number) {
@@ -95,7 +134,7 @@ function petCopy(language: UiLanguage) {
   }
 }
 
-export function FarmingPet({
+function FarmingPetController({
   language,
   appearancePreference,
   restReminderEntryBlocked = false,

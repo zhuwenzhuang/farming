@@ -10,6 +10,8 @@ const BLUR_OFFSET_PX = 2
 const SCENE_REFRESH_MIN_MS = 60_000
 const SCENE_REFRESH_BLEND_MS = 1_200
 const SCENE_REFRESH_MAX_MOTION = 0.40
+const INITIAL_SCENE_RETRY_MIN_MS = 1_000
+const INITIAL_SCENE_RETRY_MAX_MS = 10_000
 const PET_SNAPSHOT_EXCLUDE_SELECTOR = [
   '[data-pet-ui]',
   '[data-pet-snapshot-exclude]',
@@ -487,6 +489,7 @@ interface BlackHoleRendererElements {
   compositor: HTMLCanvasElement
   homeElement: () => Element | null
   onError: (message: string) => void
+  onReady: () => void
 }
 
 export interface BlackHolePetRenderer {
@@ -669,6 +672,20 @@ function createDisplacementMap(byte: 0 | 1) {
 }
 
 async function createSceneImage() {
+  const testWindow = window as Window & {
+    __FARMING_E2E__?: boolean
+    __farmingBlackHoleCaptureFailures?: number
+  }
+  if (
+    testWindow.__FARMING_E2E__
+    && (testWindow.__farmingBlackHoleCaptureFailures ?? 0) > 0
+  ) {
+    testWindow.__farmingBlackHoleCaptureFailures = Math.max(
+      0,
+      (testWindow.__farmingBlackHoleCaptureFailures ?? 0) - 1,
+    )
+    throw new Error('Synthetic initial black-hole snapshot failure.')
+  }
   const width = window.innerWidth
   const height = window.innerHeight
   const pixelRatio = Math.min(2, Math.max(1, window.devicePixelRatio || 1))
@@ -1124,6 +1141,7 @@ export function createBlackHolePetRenderer({
   compositor: compositorCanvas,
   homeElement,
   onError,
+  onReady,
 }: BlackHoleRendererElements): BlackHolePetRenderer {
   let display: DisplayRenderer
   let compositor: CompositorRenderer
@@ -1158,6 +1176,9 @@ export function createBlackHolePetRenderer({
   let diskClock = 18.5
   let nextSceneRefreshAt = Number.POSITIVE_INFINITY
   let sceneRefreshInFlight = false
+  let initialSceneInFlight = false
+  let initialSceneRetryId: number | null = null
+  let initialSceneFailures = 0
   const startedAt = performance.now()
   const roamSeed = crypto.getRandomValues(new Uint32Array(1))[0] ?? 0
 
@@ -1166,15 +1187,72 @@ export function createBlackHolePetRenderer({
     requestId = 0
   }
 
+  const completeExit = () => {
+    clearSchedule()
+    const complete = exitComplete
+    exitComplete = null
+    complete?.()
+  }
+
   const schedule = () => {
     if (
       destroyed
       || !active
-      || !sceneReady
+      || (!sceneReady && exitingAt === null)
       || document.hidden
       || requestId
     ) return
     requestId = requestAnimationFrame(frame)
+  }
+
+  const clearInitialSceneRetry = () => {
+    if (initialSceneRetryId === null) return
+    window.clearTimeout(initialSceneRetryId)
+    initialSceneRetryId = null
+  }
+
+  const loadInitialScene = () => {
+    if (
+      destroyed
+      || sceneReady
+      || initialSceneInFlight
+      || !active
+      || document.hidden
+    ) return
+    clearInitialSceneRetry()
+    initialSceneInFlight = true
+    compositorCanvas.dataset.refreshState = 'initial-capturing'
+    void createSceneImage()
+      .then(image => {
+        if (destroyed) return
+        compositor.setScene(image)
+        sceneReady = true
+        initialSceneFailures = 0
+        nextSceneRefreshAt = performance.now() + SCENE_REFRESH_MIN_MS
+        compositorCanvas.dataset.refreshState = 'idle'
+        delete compositorCanvas.dataset.refreshError
+        onReady()
+        schedule()
+      })
+      .catch(error => {
+        if (destroyed) return
+        initialSceneFailures += 1
+        const message = error instanceof Error ? error.message : String(error)
+        compositorCanvas.dataset.refreshState = 'initial-retry-wait'
+        compositorCanvas.dataset.refreshError = message
+        onError(message)
+        const retryDelay = Math.min(
+          INITIAL_SCENE_RETRY_MAX_MS,
+          INITIAL_SCENE_RETRY_MIN_MS * 2 ** Math.min(initialSceneFailures - 1, 4),
+        )
+        initialSceneRetryId = window.setTimeout(() => {
+          initialSceneRetryId = null
+          loadInitialScene()
+        }, retryDelay)
+      })
+      .finally(() => {
+        initialSceneInFlight = false
+      })
   }
 
   const applyPose = (pose: Pose) => {
@@ -1217,7 +1295,18 @@ export function createBlackHolePetRenderer({
 
   function frame(now: number) {
     requestId = 0
-    if (destroyed || !active || !sceneReady || document.hidden) return
+    if (destroyed || !active || document.hidden) return
+    if (!sceneReady) {
+      if (
+        exitingAt !== null
+        && now - exitingAt >= exitDuration * 1000
+      ) {
+        completeExit()
+        return
+      }
+      schedule()
+      return
+    }
     const elapsed = (now - startedAt) / 1000
     const look = macroAt(elapsed)
     if (
@@ -1258,10 +1347,7 @@ export function createBlackHolePetRenderer({
         lensOpacity: evaporation.lens * frozenLook.lens,
       }
       if (progress >= 1) {
-        clearSchedule()
-        const complete = exitComplete
-        exitComplete = null
-        complete?.()
+        completeExit()
         return
       }
     }
@@ -1281,25 +1367,14 @@ export function createBlackHolePetRenderer({
     schedule()
   }
 
-  void createSceneImage()
-    .then(image => {
-      if (destroyed) return
-      compositor.setScene(image)
-      sceneReady = true
-      nextSceneRefreshAt = performance.now() + SCENE_REFRESH_MIN_MS
-      compositorCanvas.dataset.refreshState = 'idle'
-      schedule()
-    })
-    .catch(error => {
-      if (destroyed) return
-      onError(error instanceof Error ? error.message : String(error))
-    })
+  loadInitialScene()
 
   const onVisibilityChange = () => {
     if (document.hidden) {
       clearSchedule()
       lastClockAt = 0
     } else if (active) {
+      loadInitialScene()
       schedule()
     }
   }
@@ -1320,6 +1395,7 @@ export function createBlackHolePetRenderer({
         clearSchedule()
         lastClockAt = 0
       } else {
+        loadInitialScene()
         schedule()
       }
     },
@@ -1340,6 +1416,7 @@ export function createBlackHolePetRenderer({
     destroy() {
       destroyed = true
       clearSchedule()
+      clearInitialSceneRetry()
       document.removeEventListener('visibilitychange', onVisibilityChange)
       if (testWindow.__farmingBlackHolePetTest === testApi) {
         delete testWindow.__farmingBlackHolePetTest

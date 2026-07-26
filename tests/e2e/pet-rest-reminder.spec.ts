@@ -263,6 +263,46 @@ for (const appearance of ['glass', 'black-hole'] as const) {
   })
 }
 
+test('reloading an active black-hole break keeps one Pet renderer', async ({ page }) => {
+  await page.addInitScript(({ settingsKey, runtimeKey }) => {
+    localStorage.setItem(settingsKey, JSON.stringify({
+      version: 1,
+      appearance: 'black-hole',
+      capabilities: { restReminder: { intervalSeconds: 50 * 60 } },
+    }))
+    if (sessionStorage.getItem(runtimeKey)) return
+    sessionStorage.setItem(runtimeKey, JSON.stringify({
+      version: 1,
+      state: {
+        phase: 'resting',
+        intervalSeconds: 50 * 60,
+        cycleStartedAt: null,
+        lastActivityAt: null,
+        snoozedUntil: null,
+        restStartsAt: null,
+        restUntil: Date.now() + 5 * 60_000,
+        snoozeUsed: false,
+      },
+    }))
+  }, { settingsKey: SETTINGS_KEY, runtimeKey: RUNTIME_KEY })
+
+  await openFarming(page)
+  const scene = page.getByTestId('pet-rest-scene')
+  await expect(scene).toHaveCount(1)
+  await expect(scene.locator('.code-pet-black-hole-canvas')).toHaveCount(1)
+  await expect(scene.locator('.code-pet-black-hole-compositor')).toHaveCount(1)
+  await expect(page.locator('html')).toHaveAttribute('data-farming-pet-owner', /.+/)
+
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await expect(page.getByTestId('app-shell')).toBeVisible()
+  await expect(scene).toHaveCount(1)
+  await expect(scene.locator('.code-pet-black-hole-canvas')).toHaveCount(1)
+  await expect(scene.locator('.code-pet-black-hole-compositor')).toHaveCount(1)
+
+  await scene.getByRole('button', { name: 'End break' }).click()
+  await expect(scene).toHaveCount(0, { timeout: 7_000 })
+})
+
 test('backend disconnect does not reset or duplicate an active black-hole break', async ({ page }) => {
   let outage = false
   let activeSocket: WebSocketRoute | null = null
@@ -449,6 +489,88 @@ test('black-hole snapshot refresh excludes Pet UI and keeps one renderer', async
 
   await settings.getByRole('button', { name: 'Close', exact: true }).click()
   await scene.getByRole('button', { name: 'End break' }).click()
+  await expect(scene).toHaveCount(0, { timeout: 7_000 })
+})
+
+test('initial black-hole snapshot failure retries and clears the visible error', async ({ page }) => {
+  await page.addInitScript(({ settingsKey, runtimeKey }) => {
+    localStorage.setItem(settingsKey, JSON.stringify({
+      version: 1,
+      appearance: 'black-hole',
+      capabilities: { restReminder: { intervalSeconds: 50 * 60 } },
+    }))
+    sessionStorage.setItem(runtimeKey, JSON.stringify({
+      version: 1,
+      state: {
+        phase: 'resting',
+        intervalSeconds: 50 * 60,
+        cycleStartedAt: null,
+        lastActivityAt: null,
+        snoozedUntil: null,
+        restStartsAt: null,
+        restUntil: Date.now() + 5 * 60_000,
+        snoozeUsed: false,
+      },
+    }))
+    ;(window as Window & {
+      __farmingBlackHoleCaptureFailures?: number
+    }).__farmingBlackHoleCaptureFailures = 3
+  }, { settingsKey: SETTINGS_KEY, runtimeKey: RUNTIME_KEY })
+
+  await openFarming(page)
+  const scene = page.getByTestId('pet-rest-scene')
+  const compositor = scene.locator('.code-pet-black-hole-compositor')
+  await expect(scene.locator('.code-pet-black-hole-error')).toHaveCount(1)
+  await expect(compositor).toHaveAttribute(
+    'data-refresh-state',
+    'initial-retry-wait',
+  )
+  await expect(compositor).toHaveAttribute(
+    'data-refresh-error',
+    'Synthetic initial black-hole snapshot failure.',
+  )
+  await expect(compositor).toHaveAttribute(
+    'data-refresh-state',
+    'idle',
+    { timeout: 15_000 },
+  )
+  await expect(scene.locator('.code-pet-black-hole-error')).toHaveCount(0)
+  await expect(scene.locator('.code-pet-black-hole-canvas')).toBeVisible()
+
+  await scene.getByRole('button', { name: 'End break' }).click()
+  await expect(scene).toHaveCount(0, { timeout: 7_000 })
+})
+
+test('ending a break remains bounded while the first snapshot is unavailable', async ({ page }) => {
+  await page.addInitScript(({ settingsKey, runtimeKey }) => {
+    localStorage.setItem(settingsKey, JSON.stringify({
+      version: 1,
+      appearance: 'black-hole',
+      capabilities: { restReminder: { intervalSeconds: 50 * 60 } },
+    }))
+    sessionStorage.setItem(runtimeKey, JSON.stringify({
+      version: 1,
+      state: {
+        phase: 'resting',
+        intervalSeconds: 50 * 60,
+        cycleStartedAt: null,
+        lastActivityAt: null,
+        snoozedUntil: null,
+        restStartsAt: null,
+        restUntil: Date.now() + 5 * 60_000,
+        snoozeUsed: false,
+      },
+    }))
+    ;(window as Window & {
+      __farmingBlackHoleCaptureFailures?: number
+    }).__farmingBlackHoleCaptureFailures = 100
+  }, { settingsKey: SETTINGS_KEY, runtimeKey: RUNTIME_KEY })
+
+  await openFarming(page)
+  const scene = page.getByTestId('pet-rest-scene')
+  await expect(scene.locator('.code-pet-black-hole-error')).toHaveCount(1)
+  await scene.getByRole('button', { name: 'End break' }).click()
+  await expect(scene).toHaveClass(/exiting/)
   await expect(scene).toHaveCount(0, { timeout: 7_000 })
 })
 

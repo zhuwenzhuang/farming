@@ -88,6 +88,12 @@ const path = require('path');
   assert(capabilitySource.includes("document.addEventListener('visibilitychange', syncVisibility)"));
   assert(capabilitySource.includes('if (!pageVisible || !state) return undefined'));
   assert(petSource.includes('active={pageVisible}'));
+  assert(
+    petSource.includes("const PET_OWNER_ATTRIBUTE = 'data-farming-pet-owner'")
+      && petSource.includes("const PET_OWNER_EVENT = 'farming:pet-owner-change'")
+      && petSource.includes('return ownsPet ? <FarmingPetController {...props} /> : null'),
+    'only the newest mounted Pet controller may own the page-level rest portal',
+  )
   assert(bubbleSource.includes('className="code-pet-bubble"'));
   assert(bubbleSource.includes('aria-modal="false"'));
   assert(!bubbleSource.includes('autoFocus'));
@@ -177,6 +183,18 @@ const path = require('path');
   assert(
     blackHoleRendererSource.includes('look.motion <= SCENE_REFRESH_MAX_MOTION'),
     'snapshot capture should wait for a low-motion black-hole phase',
+  )
+  assert(
+    blackHoleRendererSource.includes('const INITIAL_SCENE_RETRY_MIN_MS = 1_000')
+      && blackHoleRendererSource.includes("compositorCanvas.dataset.refreshState = 'initial-retry-wait'")
+      && blackHoleRendererSource.includes('loadInitialScene()')
+      && blackHoleSceneSource.includes('onReady: () => setRenderError(null)'),
+    'an unavailable first snapshot should retry and clear its visible failure after recovery',
+  )
+  assert(
+    blackHoleRendererSource.includes('if (!sceneReady) {')
+      && blackHoleRendererSource.includes('completeExit()'),
+    'a failed first snapshot must not prevent a bounded manual or natural exit',
   )
   assert(
     blackHoleRendererSource.includes('export const BLACK_HOLE_MANUAL_EXIT_SECONDS = 4.8'),
