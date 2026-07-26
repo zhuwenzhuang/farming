@@ -117,6 +117,14 @@ export function HandGlyph(props: IconGlyphProps) {
   )
 }
 
+export function SpeedGlyph(props: IconGlyphProps) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false" {...props}>
+      <path d="M8.85 1.35a.55.55 0 0 1 .55.68L8.28 6.1h3.07a.55.55 0 0 1 .42.9l-5.5 6.6a.55.55 0 0 1-.96-.48l1.12-4.2H3.65a.55.55 0 0 1-.44-.88l5.2-6.48a.55.55 0 0 1 .44-.21Z" />
+    </svg>
+  )
+}
+
 export function CopyGlyph(props: IconGlyphProps) {
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" focusable="false" {...props}>

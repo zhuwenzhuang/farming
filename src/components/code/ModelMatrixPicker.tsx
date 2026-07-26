@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent, type ReactNode } from 'react'
-import { ChevronDownGlyph } from '@/components/IconGlyphs'
+import { ChevronDownGlyph, SpeedGlyph } from '@/components/IconGlyphs'
 
 export interface ModelMatrixReasoningOption {
   value: string
@@ -46,14 +46,6 @@ export function modelMatrixFamily(models: ModelMatrixModelOption[], currentModel
     return [{ ...model, variant: variant as MatrixFamilyModel['variant'] }]
   }).sort((left, right) => VARIANT_ORDER.indexOf(left.variant) - VARIANT_ORDER.indexOf(right.variant))
   return familyModels.length >= 2 ? familyModels : null
-}
-
-function SpeedIcon() {
-  return (
-    <svg viewBox="0 0 16 16" aria-hidden="true">
-      <path d="M8.85 1.35a.55.55 0 0 1 .55.68L8.28 6.1h3.07a.55.55 0 0 1 .42.9l-5.5 6.6a.55.55 0 0 1-.96-.48l1.12-4.2H3.65a.55.55 0 0 1-.44-.88l5.2-6.48a.55.55 0 0 1 .44-.21Z" />
-    </svg>
-  )
 }
 
 function MatrixRocker({
@@ -163,7 +155,7 @@ function FastBoost({
         aria-hidden="true"
         onAnimationEnd={() => setKicking(false)}
       >
-        <SpeedIcon />
+        <SpeedGlyph />
       </span>
       <span>Fast</span>
       <small>{available ? (active ? 'ON' : 'OFF') : '—'}</small>

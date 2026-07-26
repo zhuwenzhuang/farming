@@ -1,4 +1,4 @@
-import { CheckGlyph, ChevronDownGlyph, ChevronRightGlyph, HandGlyph } from '@/components/IconGlyphs'
+import { CheckGlyph, ChevronDownGlyph, ChevronRightGlyph, HandGlyph, SpeedGlyph } from '@/components/IconGlyphs'
 import type { CodeCopy } from '../copy'
 import type {
   AcpSessionConfigBoolean,
@@ -91,14 +91,6 @@ function supportedModes(session: AcpSessionSnapshot, modes: AcpSessionMode[]) {
     return modes.filter(mode => mode.id !== 'plan')
   }
   return modes
-}
-
-function SpeedIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
-      <path d="M8.85 1.35a.55.55 0 0 1 .55.68L8.28 6.1h3.07a.55.55 0 0 1 .42.9l-5.5 6.6a.55.55 0 0 1-.96-.48l1.12-4.2H3.65a.55.55 0 0 1-.44-.88l5.2-6.48a.55.55 0 0 1 .44-.21Z" />
-    </svg>
-  )
 }
 
 function SelectOptions({
@@ -273,7 +265,7 @@ export function AcpModelControl({
         title={[currentModel?.name, currentReasoning?.name, fastMode?.currentValue ? fastMode.name : ''].filter(Boolean).join(' · ')}
         onClick={onToggle}
       >
-        {fastMode?.currentValue ? <span className="code-composer-speed-active" aria-hidden="true"><SpeedIcon /></span> : null}
+        {fastMode?.currentValue ? <span className="code-composer-speed-active" aria-hidden="true"><SpeedGlyph /></span> : null}
         <span className="code-composer-model-label desktop">{compactModelLabel(currentModel?.name || model?.currentValue || 'Model')}</span>
         <span className="code-composer-model-label mobile">{compactModelLabel(currentModel?.name || model?.currentValue || 'Model')}</span>
         {currentReasoning ? <span className="code-composer-model-picker-muted desktop">{currentReasoning.name}</span> : null}
@@ -358,7 +350,7 @@ export function AcpModelControl({
                     >
                       <span className="code-model-option-copy">
                         <span className="code-speed-option-label">
-                          {value ? <span className="code-speed-option-icon" aria-hidden="true"><SpeedIcon /></span> : null}
+                          {value ? <span className="code-speed-option-icon" aria-hidden="true"><SpeedGlyph /></span> : null}
                           <span>{value ? fastMode.name : copy.serviceTierLabel('default', 'Standard')}</span>
                         </span>
                         <small>{value ? (fastMode.description || copy.serviceTierDescription('priority', '')) : copy.serviceTierDescription('default', '')}</small>
