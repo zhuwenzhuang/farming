@@ -12,7 +12,7 @@ Project Files 现在通过同一个内部 Viewer Registry 解析内置的 Markdo
 
 用户显式打开的已知 Project Root 之外的可读文件仍然只读。对于精确打开的外部 HTML，临时 Preview Session 只授权该 HTML 所在目录，以便加载相对资源；它不会把这个目录加入 Files 浏览、Search、编辑或 Git Scope。
 
-基于系统浏览器的 Browser Extension 是第一种实时 Resource 实现，集成默认关闭；Agent Tool 和 MCP 挂载仍然按需进行。系统没有兼容的 Chromium 系浏览器时，Settings 明确提示所需浏览器类型，不展示开关，Project Browser 分组也保持隐藏。系统浏览器可用时，Settings 展示“系统浏览器”开关。只有“已启用且当前可用”时，Extension 才贡献 Browser UI，并接受 Browser API、EventSource、Viewer WebSocket、CLI 或 MCP 操作；因此只有启用 Extension 后才会建立实时事件订阅。关闭时必须先停止所有受管 Runtime；若无法证明清理完成，关闭失败且设置保持开启。
+基于系统浏览器的 Browser Extension 是第一种实时 Resource 实现，集成默认开启；Agent Tool 和 MCP 挂载仍然按需进行。系统没有兼容的 Chromium 系浏览器时，Settings 明确提示所需浏览器类型，不展示开关，Project Browser 分组也保持隐藏。系统浏览器可用时，Settings 展示“系统浏览器”开关。只有“已启用且当前可用”时，Extension 才贡献 Browser UI，并接受 Browser API、EventSource、Viewer WebSocket、CLI 或 MCP 操作。关闭时必须先停止所有受管 Runtime；若无法证明清理完成，关闭失败且设置保持开启。
 
 每个 Project 可以拥有多个身份稳定、可重命名的 Browser Row。每一行都有独立 Profile 和显式的 `stopped -> starting -> running -> stopping -> stopped` 生命周期；启动或运行失败进入 `failed`。同一个 Browser 身份上的操作串行执行，过期 Viewer Generation 会被拒绝；Farming 重启时，之前仍处于运行态的行会标记为失败，而不会猜测某个已经失去 Owner 的浏览器进程是否可以安全复用。
 

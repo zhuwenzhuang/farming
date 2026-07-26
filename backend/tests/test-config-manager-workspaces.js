@@ -44,7 +44,11 @@ function run() {
     assert.strictEqual(settings.appearance, 'system');
     assert.strictEqual(settings.language, 'en');
     assert.strictEqual(settings.crtSkinEffectsEnabled, true);
-    assert.strictEqual(settings.browserExtensionEnabled, false);
+    assert.strictEqual(settings.browserExtensionEnabled, true);
+    manager.updateSettings({ browserExtensionEnabled: false });
+    assert.strictEqual(manager.getSettings().browserExtensionEnabled, false);
+    manager.updateSettings({ browserExtensionEnabled: true });
+    assert.strictEqual(manager.getSettings().browserExtensionEnabled, true);
     assert.strictEqual(
       fs.readFileSync(path.join(farmingDir, 'farming-agent-bootstrap.zh_cn.md'), 'utf8').includes('farming capabilities'),
       true,
