@@ -8,7 +8,7 @@ const { discoverBrowserExecutable } = require('./executable-discovery');
 
 const MAX_VIEWER_BUFFER_BYTES = 2 * 1024 * 1024;
 
-function publicResource(resource) {
+function publicResource(resource, collectionRevision) {
   return {
     id: resource.id,
     projectRootId: resource.projectRootId,
@@ -17,6 +17,7 @@ function publicResource(resource) {
     status: resource.status,
     generation: resource.generation,
     revision: resource.revision,
+    collectionRevision,
     url: resource.url,
     title: resource.title,
     browserKind: resource.browserKind,
@@ -82,12 +83,19 @@ class BrowserResourceManager extends EventEmitter {
 
   list() {
     this.requireEnabled();
-    return this.store.list().map(publicResource);
+    return this.store.list().map(resource => publicResource(resource, this.store.revision));
+  }
+
+  snapshot() {
+    return {
+      collectionRevision: this.store.revision,
+      resources: this.list(),
+    };
   }
 
   get(id) {
     this.requireEnabled();
-    return publicResource(this.requireStored(id));
+    return publicResource(this.requireStored(id), this.store.revision);
   }
 
   create(input) {
@@ -100,7 +108,7 @@ class BrowserResourceManager extends EventEmitter {
       url: normalizeUrl(input.url),
     });
     this.emitResource(resource);
-    return publicResource(resource);
+    return publicResource(resource, this.store.revision);
   }
 
   rename(id, name) {
@@ -110,7 +118,7 @@ class BrowserResourceManager extends EventEmitter {
     const resource = this.requireStored(id);
     const next = this.store.update(resource.id, { name: title.slice(0, 120) });
     this.emitResource(next);
-    return publicResource(next);
+    return publicResource(next, this.store.revision);
   }
 
   start(id) {
@@ -118,7 +126,7 @@ class BrowserResourceManager extends EventEmitter {
     return this.enqueue(id, async () => {
       const resource = this.requireStored(id);
       const existing = this.runtimes.get(id);
-      if (resource.status === 'running' && existing) return publicResource(resource);
+      if (resource.status === 'running' && existing) return publicResource(resource, this.store.revision);
       if (existing) {
         throw browserError(
           'A previous Browser runtime still owns this resource; stop it before restarting',
@@ -168,7 +176,7 @@ class BrowserResourceManager extends EventEmitter {
         });
         this.emitResource(running);
         this.broadcastRuntimeState(runtime);
-        return publicResource(running);
+        return publicResource(running, this.store.revision);
       } catch (error) {
         let cleanupError = null;
         try {
@@ -204,7 +212,7 @@ class BrowserResourceManager extends EventEmitter {
       if (!runtime) {
         const stopped = this.store.update(id, { status: 'stopped', error: '' });
         this.emitResource(stopped);
-        return publicResource(stopped);
+        return publicResource(stopped, this.store.revision);
       }
       const stopping = this.store.update(id, { status: 'stopping', error: '' });
       this.emitResource(stopping);
@@ -215,7 +223,7 @@ class BrowserResourceManager extends EventEmitter {
       this.emitResource(stopped);
       this.broadcastRuntimeState(runtime);
       runtime.viewers?.clear?.();
-      return publicResource(stopped);
+      return publicResource(stopped, this.store.revision);
     });
   }
 
@@ -230,8 +238,8 @@ class BrowserResourceManager extends EventEmitter {
     if (resourceDir.startsWith(`${browsersDir}${path.sep}`) && RESOURCE_ID_RE.test(id)) {
       fs.rmSync(resourceDir, { recursive: true, force: true });
     }
-    this.emit('deleted', id);
-    return { id };
+    this.emit('deleted', { id, collectionRevision: this.store.revision });
+    return { id, collectionRevision: this.store.revision };
   }
 
   navigate(id, url) {
@@ -292,7 +300,10 @@ class BrowserResourceManager extends EventEmitter {
     this.requireEnabled();
     const resource = this.requireStored(id);
     const runtime = this.runtimes.get(id);
-    ws.send(JSON.stringify({ type: 'browser-state', resource: publicResource(resource) }));
+    ws.send(JSON.stringify({
+      type: 'browser-state',
+      resource: publicResource(resource, this.store.revision),
+    }));
     if (!runtime || resource.status !== 'running') return () => {};
     if (!runtime.viewers) runtime.viewers = new Set();
     runtime.viewers.add(ws);
@@ -319,7 +330,15 @@ class BrowserResourceManager extends EventEmitter {
     return detach;
   }
 
-  async handleViewerMessage(runtime, message) {
+  handleViewerMessage(runtime, message) {
+    const next = (runtime.actionChain || Promise.resolve())
+      .catch(() => {})
+      .then(() => this.performViewerMessage(runtime, message));
+    runtime.actionChain = next;
+    return next;
+  }
+
+  async performViewerMessage(runtime, message) {
     if (message.generation !== runtime.generation || this.runtimes.get(runtime.id) !== runtime) {
       throw browserError('Browser Viewer generation is stale', 409, 'BROWSER_STALE_GENERATION');
     }
@@ -456,13 +475,16 @@ class BrowserResourceManager extends EventEmitter {
   }
 
   emitResource(resource) {
-    this.emit('resource', publicResource(resource));
+    this.emit('resource', publicResource(resource, this.store.revision));
   }
 
   broadcastRuntimeState(runtime) {
     const resource = this.store.get(runtime.id);
     if (!resource) return;
-    const message = JSON.stringify({ type: 'browser-state', resource: publicResource(resource) });
+    const message = JSON.stringify({
+      type: 'browser-state',
+      resource: publicResource(resource, this.store.revision),
+    });
     for (const viewer of runtime.viewers || []) {
       if (viewer.readyState === 1) viewer.send(message);
     }

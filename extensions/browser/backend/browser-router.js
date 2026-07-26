@@ -17,7 +17,7 @@ function createBrowserRouter(manager, workspaceRootRegistry) {
 
   router.get('/', (_req, res) => {
     try {
-      res.json({ resources: manager.list() });
+      res.json(manager.snapshot());
     } catch (error) {
       sendError(res, error);
     }
@@ -36,17 +36,17 @@ function createBrowserRouter(manager, workspaceRootRegistry) {
       Connection: 'keep-alive',
       'X-Accel-Buffering': 'no',
     });
-    res.write(`event: resources\ndata: ${JSON.stringify({ resources: manager.list() })}\n\n`);
     const onResource = resource => {
       res.write(`event: resource\ndata: ${JSON.stringify(resource)}\n\n`);
     };
-    const onDeleted = id => {
-      res.write(`event: deleted\ndata: ${JSON.stringify({ id })}\n\n`);
+    const onDeleted = deletion => {
+      res.write(`event: deleted\ndata: ${JSON.stringify(deletion)}\n\n`);
     };
     const keepalive = setInterval(() => res.write(': keepalive\n\n'), 25_000);
     keepalive.unref?.();
     manager.on('resource', onResource);
     manager.on('deleted', onDeleted);
+    res.write(`event: resources\ndata: ${JSON.stringify(manager.snapshot())}\n\n`);
     req.on('close', () => {
       clearInterval(keepalive);
       manager.off('resource', onResource);

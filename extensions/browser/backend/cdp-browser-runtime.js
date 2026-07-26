@@ -295,6 +295,7 @@ class CdpBrowserRuntime extends EventEmitter {
       maxHeight: MAX_VIEWPORT.height,
       everyNthFrame: 1,
     }, session);
+    await this.captureViewerFrame();
     await this.publishMetadata();
   }
 
@@ -380,6 +381,7 @@ class CdpBrowserRuntime extends EventEmitter {
     if (result.errorText) throw new Error(result.errorText);
     await delay(50);
     const metadata = await this.metadata().catch(() => ({ url, title: '' }));
+    await this.captureViewerFrame();
     this.emit('metadata', metadata);
     return metadata;
   }
@@ -400,6 +402,7 @@ class CdpBrowserRuntime extends EventEmitter {
     await client.send('Page.navigateToHistoryEntry', { entryId: target.id }, sessionId);
     await delay(50);
     const metadata = await this.metadata().catch(() => ({ url: target.url, title: target.title || '' }));
+    await this.captureViewerFrame();
     this.emit('metadata', metadata);
     return metadata;
   }
@@ -408,6 +411,7 @@ class CdpBrowserRuntime extends EventEmitter {
     const { client, sessionId } = this.requireSession();
     await client.send('Page.reload', { ignoreCache: false }, sessionId);
     await delay(50);
+    await this.captureViewerFrame();
     return this.metadata();
   }
 
@@ -430,6 +434,24 @@ class CdpBrowserRuntime extends EventEmitter {
       fromSurface: true,
     }, sessionId);
     return { mimeType: 'image/png', data: result.data };
+  }
+
+  async captureViewerFrame() {
+    const { client, sessionId } = this.requireSession();
+    const result = await client.send('Page.captureScreenshot', {
+      format: 'jpeg',
+      quality: 80,
+      fromSurface: true,
+      captureBeyondViewport: false,
+    }, sessionId);
+    if (sessionId !== this.sessionId || !result.data) return;
+    const frame = {
+      type: 'browser-frame',
+      generation: this.generation,
+      data: result.data,
+    };
+    this.latestFrame = frame;
+    this.publishScreencastFrame(frame, sessionId);
   }
 
   async snapshot() {
@@ -527,6 +549,7 @@ class CdpBrowserRuntime extends EventEmitter {
     await this.focusElement(input, clear);
     const { client, sessionId } = this.requireSession();
     await client.send('Input.insertText', { text: String(input.text ?? '') }, sessionId);
+    await this.captureViewerFrame();
     return { ok: true };
   }
 
@@ -536,6 +559,7 @@ class CdpBrowserRuntime extends EventEmitter {
     if (!description.key) throw new Error('key is required');
     await client.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...description }, sessionId);
     await client.send('Input.dispatchKeyEvent', { type: 'keyUp', ...description }, sessionId);
+    await this.captureViewerFrame();
     return { ok: true };
   }
 
@@ -560,6 +584,7 @@ class CdpBrowserRuntime extends EventEmitter {
       clickCount: input.action === 'move' ? 0 : 1,
       modifiers: Number(input.modifiers) || 0,
     }, sessionId);
+    if (input.action === 'up') await this.captureViewerFrame();
   }
 
   async wheel(input) {
@@ -574,11 +599,13 @@ class CdpBrowserRuntime extends EventEmitter {
       deltaY: Number(input.deltaY) || 0,
       modifiers: Number(input.modifiers) || 0,
     }, sessionId);
+    await this.captureViewerFrame();
   }
 
   async insertText(text) {
     const { client, sessionId } = this.requireSession();
     await client.send('Input.insertText', { text: String(text || '') }, sessionId);
+    await this.captureViewerFrame();
   }
 
   async close() {

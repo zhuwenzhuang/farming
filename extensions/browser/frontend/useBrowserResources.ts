@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { appPath } from '@/lib/base-path'
 import { projectFilesWorkspaceId } from '@/lib/project-workspaces'
-import { mergeBrowserResource } from './browser-resource-state'
+import {
+  applyBrowserResource,
+  applyBrowserResourceDeletion,
+  applyBrowserResourceSnapshot,
+  type BrowserResourceCollection,
+  type BrowserResourceDeletion,
+} from './browser-resource-state'
 import type { BrowserCapability, BrowserResource } from './types'
 
 async function browserRequest<T>(pathname: string, init?: RequestInit): Promise<T> {
@@ -19,13 +25,16 @@ async function browserRequest<T>(pathname: string, init?: RequestInit): Promise<
 }
 
 export function useBrowserResources() {
-  const [resources, setResources] = useState<BrowserResource[]>([])
+  const [collection, setCollection] = useState<BrowserResourceCollection>({
+    collectionRevision: 0,
+    resources: [],
+  })
   const [capability, setCapability] = useState<BrowserCapability | null>(null)
   const [loading, setLoading] = useState(true)
   const [refreshVersion, setRefreshVersion] = useState(0)
 
   const mergeResource = useCallback((resource: BrowserResource) => {
-    setResources(current => mergeBrowserResource(current, resource))
+    setCollection(current => applyBrowserResource(current, resource))
   }, [])
 
   useEffect(() => {
@@ -35,13 +44,13 @@ export function useBrowserResources() {
       if (!active) return
       setCapability(nextCapability)
       if (!nextCapability.available) {
-        setResources([])
+        setCollection({ collectionRevision: 0, resources: [] })
         setLoading(false)
         return
       }
-      const list = await browserRequest<{ resources: BrowserResource[] }>('/api/browsers')
+      const list = await browserRequest<BrowserResourceCollection>('/api/browsers')
       if (!active) return
-      setResources(list.resources)
+      setCollection(current => applyBrowserResourceSnapshot(current, list))
       setLoading(false)
     }).catch(() => {
       if (active) setLoading(false)
@@ -57,8 +66,8 @@ export function useBrowserResources() {
     const events = new EventSource(appPath('/api/browsers/events'))
     events.addEventListener('resources', event => {
       if (!active) return
-      const payload = JSON.parse((event as MessageEvent<string>).data) as { resources: BrowserResource[] }
-      setResources(payload.resources)
+      const payload = JSON.parse((event as MessageEvent<string>).data) as BrowserResourceCollection
+      setCollection(current => applyBrowserResourceSnapshot(current, payload))
     })
     events.addEventListener('resource', event => {
       if (!active) return
@@ -66,8 +75,8 @@ export function useBrowserResources() {
     })
     events.addEventListener('deleted', event => {
       if (!active) return
-      const payload = JSON.parse((event as MessageEvent<string>).data) as { id: string }
-      setResources(current => current.filter(resource => resource.id !== payload.id))
+      const payload = JSON.parse((event as MessageEvent<string>).data) as BrowserResourceDeletion
+      setCollection(current => applyBrowserResourceDeletion(current, payload))
     })
     return () => {
       active = false
@@ -107,22 +116,25 @@ export function useBrowserResources() {
   }, [mergeResource])
 
   const remove = useCallback(async (id: string) => {
-    await browserRequest<{ id: string }>(`/api/browsers/${encodeURIComponent(id)}`, { method: 'DELETE' })
-    setResources(current => current.filter(resource => resource.id !== id))
+    const deletion = await browserRequest<BrowserResourceDeletion>(
+      `/api/browsers/${encodeURIComponent(id)}`,
+      { method: 'DELETE' },
+    )
+    setCollection(current => applyBrowserResourceDeletion(current, deletion))
   }, [])
 
   const byWorkspace = useMemo(() => {
     const result = new Map<string, BrowserResource[]>()
-    for (const resource of resources) {
+    for (const resource of collection.resources) {
       const current = result.get(resource.workspace) ?? []
       current.push(resource)
       result.set(resource.workspace, current)
     }
     return result
-  }, [resources])
+  }, [collection.resources])
 
   return {
-    resources,
+    resources: collection.resources,
     byWorkspace,
     capability,
     loading,

@@ -8,6 +8,7 @@ export interface BrowserResource {
   status: BrowserResourceStatus
   generation: number
   revision: number
+  collectionRevision: number
   url: string
   title: string
   browserKind: string

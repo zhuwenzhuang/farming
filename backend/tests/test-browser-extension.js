@@ -7,7 +7,12 @@ const WebSocket = require('ws');
 const { WebSocketServer } = WebSocket;
 const { CdpClient } = require('../../extensions/browser/backend/cdp-client');
 const { CdpBrowserRuntime } = require('../../extensions/browser/backend/cdp-browser-runtime');
-const { mergeBrowserResource } = require('../../extensions/browser/frontend/browser-resource-state.ts');
+const {
+  applyBrowserResource,
+  applyBrowserResourceDeletion,
+  applyBrowserResourceSnapshot,
+  mergeBrowserResource,
+} = require('../../extensions/browser/frontend/browser-resource-state.ts');
 const {
   BrowserResourceManager,
   normalizeUrl,
@@ -176,6 +181,42 @@ async function testScreencastFrameRateBound() {
   assert.strictEqual(frames.length, 2, 'A detached page must not publish a stale trailing frame');
 }
 
+async function testDeterministicViewerFrameCapture() {
+  const calls = [];
+  const runtime = new CdpBrowserRuntime({
+    id: 'browser_capture',
+    generation: 7,
+    executablePath: '/fake/chrome',
+    profileDir: '/tmp/fake-browser-profile',
+  });
+  runtime.sessionId = 'capture-session';
+  runtime.client = {
+    send: async (method, params, sessionId) => {
+      calls.push({ method, params, sessionId });
+      return { data: 'jpeg-frame' };
+    },
+  };
+  const frames = [];
+  runtime.on('frame', frame => frames.push(frame));
+  await runtime.captureViewerFrame();
+  assert.deepStrictEqual(calls, [{
+    method: 'Page.captureScreenshot',
+    params: {
+      format: 'jpeg',
+      quality: 80,
+      fromSurface: true,
+      captureBeyondViewport: false,
+    },
+    sessionId: 'capture-session',
+  }]);
+  assert.deepStrictEqual(frames, [{
+    type: 'browser-frame',
+    generation: 7,
+    data: 'jpeg-frame',
+  }]);
+  assert.deepStrictEqual(runtime.latestFrame, frames[0]);
+}
+
 async function testBrowserResourceManager() {
   const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-browser-extension-'));
   const runtimes = [];
@@ -226,6 +267,11 @@ async function testBrowserResourceManager() {
     assert.strictEqual(running.status, 'running');
     assert.strictEqual(running.generation, 1);
     assert.strictEqual(running.revision, 2);
+    assert.strictEqual(running.collectionRevision, manager.store.revision);
+    assert.deepStrictEqual(manager.snapshot(), {
+      collectionRevision: manager.store.revision,
+      resources: [running],
+    });
     assert.deepStrictEqual(transitions.slice(-2), ['starting', 'running']);
     assert.strictEqual(runtimes[0].startedUrl, 'http://localhost:3000/');
     assert.deepStrictEqual((await manager.action(created.id, { kind: 'snapshot' })).elements, [
@@ -318,6 +364,7 @@ function testBrowserResourceRevisionOrdering() {
     status: 'running',
     generation: 1,
     revision: 2,
+    collectionRevision: 3,
     url: 'about:blank',
     title: '',
     browserKind: 'chrome',
@@ -333,6 +380,29 @@ function testBrowserResourceRevisionOrdering() {
   );
   const newer = { ...current, status: 'failed', revision: 3, updatedAt: 3 };
   assert.deepStrictEqual(mergeBrowserResource([current], newer), [newer]);
+
+  const running = applyBrowserResource(
+    { collectionRevision: 0, resources: [] },
+    current,
+  );
+  assert.strictEqual(running.collectionRevision, 3);
+  assert.strictEqual(
+    applyBrowserResourceSnapshot(running, { collectionRevision: 1, resources: [] }),
+    running,
+    'A late empty bootstrap snapshot must not remove a Browser created by a newer HTTP response',
+  );
+  assert.strictEqual(
+    applyBrowserResource(running, stale),
+    running,
+    'A late starting event must not replace the running Resource collection',
+  );
+  assert.deepStrictEqual(
+    applyBrowserResourceDeletion(running, {
+      id: current.id,
+      collectionRevision: 4,
+    }),
+    { collectionRevision: 4, resources: [] },
+  );
 }
 
 function testBrowserUiAndPackagingWiring() {
@@ -354,6 +424,7 @@ function testBrowserUiAndPackagingWiring() {
 Promise.resolve()
   .then(testCdpClient)
   .then(testScreencastFrameRateBound)
+  .then(testDeterministicViewerFrameCapture)
   .then(testBrowserResourceManager)
   .then(testBrowserResourceRevisionOrdering)
   .then(testBrowserUiAndPackagingWiring)

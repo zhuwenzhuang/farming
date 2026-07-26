@@ -3,7 +3,7 @@ const crypto = require('crypto');
 const { atomicWriteJson } = require('../../../backend/atomic-json-store');
 const storageLayout = require('../../../backend/storage-layout');
 
-const STORE_VERSION = 1;
+const STORE_VERSION = 2;
 const RESOURCE_ID_RE = /^browser_[A-Za-z0-9_-]+$/;
 const STATUSES = new Set(['stopped', 'starting', 'running', 'stopping', 'failed']);
 
@@ -39,6 +39,7 @@ class BrowserResourceStore {
     this.file = storageLayout.browserResourcesFile(configDir);
     this.writeJson = options.writeJson || ((file, value) => atomicWriteJson(file, value, { mode: 0o600 }));
     this.resources = new Map();
+    this.revision = 0;
   }
 
   init() {
@@ -51,6 +52,9 @@ class BrowserResourceStore {
         console.warn('Failed to read Browser resources:', error?.message || error);
       }
     }
+    this.revision = Number.isSafeInteger(parsed?.revision) && parsed.revision >= 0
+      ? parsed.revision
+      : 0;
     const resources = Array.isArray(parsed?.resources) ? parsed.resources : [];
     for (const value of resources) {
       const resource = normalizeResource(value);
@@ -123,11 +127,19 @@ class BrowserResourceStore {
   }
 
   commit() {
-    this.writeJson(this.file, {
-      version: STORE_VERSION,
-      resources: this.list(),
-      updatedAt: Date.now(),
-    });
+    const previousRevision = this.revision;
+    this.revision += 1;
+    try {
+      this.writeJson(this.file, {
+        version: STORE_VERSION,
+        revision: this.revision,
+        resources: this.list(),
+        updatedAt: Date.now(),
+      });
+    } catch (error) {
+      this.revision = previousRevision;
+      throw error;
+    }
   }
 }
 
