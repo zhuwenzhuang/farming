@@ -2441,11 +2441,13 @@ test.describe('display-backed agent flows', () => {
       })
     })
 
-    await page.request.post('/farming/api/settings', {
+    const membershipResponse = await page.request.post('/farming/api/main-page-agent-sessions', {
       data: {
-        mainPageSessionKeys: ['agent-session:codex:019f0000-0000-7000-8000-000000000099'],
+        operation: 'add',
+        sessionKeys: ['agent-session:codex:019f0000-0000-7000-8000-000000000099'],
       },
     })
+    expect(membershipResponse.ok()).toBeTruthy()
 
     await openFarming(page)
     await openNewAgentDialog(page)

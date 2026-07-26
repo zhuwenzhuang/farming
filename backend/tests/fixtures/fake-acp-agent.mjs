@@ -49,6 +49,25 @@ let activeEffort = 'high';
 const cancelledSessions = new Map();
 let activeSteerTurn = null;
 
+function sessionScenarioMarker(sessionId, scenario) {
+  const configDir = String(process.env.FARMING_CONFIG_DIR || '').trim();
+  if (!configDir || !sessionId || !scenario) return '';
+  const key = crypto.createHash('sha256').update(String(sessionId)).digest('hex');
+  return path.join(configDir, 'fake-acp-session-state', `${key}.${scenario}`);
+}
+
+function markSessionScenario(sessionId, scenario) {
+  const marker = sessionScenarioMarker(sessionId, scenario);
+  if (!marker) return;
+  fs.mkdirSync(path.dirname(marker), { recursive: true });
+  fs.writeFileSync(marker, '1', { mode: 0o600 });
+}
+
+function hasSessionScenario(sessionId, scenario) {
+  const marker = sessionScenarioMarker(sessionId, scenario);
+  return Boolean(marker && fs.existsSync(marker));
+}
+
 function sessionConfigOptions() {
   return [
     { id: 'model', name: 'Model', type: 'select', currentValue: activeModel, options: [{ value: activeModel, name: activeModel }] },
@@ -115,7 +134,7 @@ class FakeAgent {
   async loadSession(params) {
     validateRequestedSessionScope(params);
     sessionId = params.sessionId;
-    if (sessionId === initialSessionId) {
+    if (sessionId === initialSessionId || hasSessionScenario(sessionId, 'rich-timeline')) {
       const replay = [
         ['user_message_chunk', 'history-rich-user', 'rich timeline'],
         ['agent_message_chunk', 'history-rich-progress', 'I found the display boundary and am checking the typed ACP content.'],
@@ -711,6 +730,7 @@ class FakeAgent {
           },
         },
       });
+      markSessionScenario(params.sessionId, 'rich-timeline');
       return { stopReason: 'end_turn' };
     }
     if (promptText.includes('live progress')) {

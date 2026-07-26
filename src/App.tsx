@@ -529,7 +529,10 @@ export function App() {
     activateTerminal(pendingTerminalOpen.agentId, pendingTerminalOpen.options)
   }, [activateTerminal, displayedAgents, pendingTerminalOpen])
 
-  const closeTerminals = useCallback((agentIds: Iterable<string>) => {
+  const closeTerminals = useCallback((
+    agentIds: Iterable<string>,
+    options: { focusNextTerminal?: boolean } = {},
+  ) => {
     const closingIds = new Set(agentIds)
     if (closingIds.size === 0) return
     const openIds = openTerminalIdsRef.current
@@ -551,7 +554,12 @@ export function App() {
       if (!current || !closingIds.has(current)) return current
       return nextActiveId
     })
-    if (activeTerminalId && closingIds.has(activeTerminalId) && nextActiveId) {
+    if (
+      options.focusNextTerminal !== false
+      && activeTerminalId
+      && closingIds.has(activeTerminalId)
+      && nextActiveId
+    ) {
       setTerminalFocusRequest(previous => ({
         agentId: nextActiveId,
         nonce: (previous?.nonce ?? 0) + 1,
@@ -559,8 +567,8 @@ export function App() {
     }
   }, [activeTerminalId])
 
-  const closeTerminal = useCallback((agentId: string) => {
-    closeTerminals([agentId])
+  const closeTerminal = useCallback((agentId: string, options?: { focusNextTerminal?: boolean }) => {
+    closeTerminals([agentId], options)
   }, [closeTerminals])
 
   const cycleOpenTerminal = useCallback((direction: 1 | -1) => {
@@ -808,7 +816,7 @@ export function App() {
       }
       if (data?.warning) notifyError(data.warning)
       if (flags.archived === true) {
-        closeTerminal(agentId)
+        closeTerminal(agentId, { focusNextTerminal: false })
       }
       if (data?.restartedAgentId) {
         const restartedAgentId = data.restartedAgentId

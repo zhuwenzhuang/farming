@@ -2366,13 +2366,6 @@ export function CodeWorkspace({
     return Boolean(activeElement.closest('.code-composer'))
   }, [dialogOpen])
 
-  const focusActiveProjectListTarget = useCallback((options?: { skipIfFocusMoved?: boolean }) => {
-    window.requestAnimationFrame(() => {
-      if (options?.skipIfFocusMoved && shouldSkipProjectFocusRestore()) return
-      focusActiveProjectListTargetNow()
-    })
-  }, [focusActiveProjectListTargetNow, shouldSkipProjectFocusRestore])
-
   const clearSearch = useCallback(() => {
     setSearchQuery('')
     setSearchOpen(false)
@@ -3692,14 +3685,11 @@ export function CodeWorkspace({
       const sessionHandle = contextMenuAgent.providerSessionKey || resumedAgentSessionIdFromSource(contextMenuAgent.source)
       if (sessionHandle) removeMainPageAgentSession(sessionHandle)
       pendingArchivedFocusAgentRef.current = agentId
-      window.setTimeout(() => focusActiveProjectListTargetNow(), 120)
-      window.setTimeout(() => focusActiveProjectListTargetNow(), 360)
-      window.setTimeout(() => focusActiveProjectListTargetNow(), 720)
     }
     const result = onUpdateAgentFlags(agentId, flags)
     if (flags.archived === true) syncRemovedMainPageSessionsFromAgentUpdate(result)
     if (flags.archived !== true) focusAgentRow(agentId)
-  }, [contextMenuAgent, focusActiveProjectListTargetNow, focusAgentRow, onUpdateAgentFlags, removeMainPageAgentSession, syncRemovedMainPageSessionsFromAgentUpdate])
+  }, [contextMenuAgent, focusAgentRow, onUpdateAgentFlags, removeMainPageAgentSession, syncRemovedMainPageSessionsFromAgentUpdate])
 
   const updateSidebarAgentFlags = useCallback((agent: Agent, flags: Partial<Pick<Agent, 'pinned' | 'archived'>>) => {
     const agentId = agent.id
@@ -3709,14 +3699,11 @@ export function CodeWorkspace({
       const sessionHandle = agent.providerSessionKey || resumedAgentSessionIdFromSource(agent.source)
       if (sessionHandle) removeMainPageAgentSession(sessionHandle)
       pendingArchivedFocusAgentRef.current = agentId
-      window.setTimeout(() => focusActiveProjectListTargetNow(), 120)
-      window.setTimeout(() => focusActiveProjectListTargetNow(), 360)
-      window.setTimeout(() => focusActiveProjectListTargetNow(), 720)
     }
     const result = onUpdateAgentFlags(agentId, flags)
     if (flags.archived === true) syncRemovedMainPageSessionsFromAgentUpdate(result)
     if (flags.archived !== true) focusAgentRow(agentId)
-  }, [focusActiveProjectListTargetNow, focusAgentRow, onUpdateAgentFlags, removeMainPageAgentSession, syncRemovedMainPageSessionsFromAgentUpdate])
+  }, [focusAgentRow, onUpdateAgentFlags, removeMainPageAgentSession, syncRemovedMainPageSessionsFromAgentUpdate])
 
   const reorderSidebarAgent = useCallback(async (
     agentId: string,
@@ -5068,7 +5055,6 @@ export function CodeWorkspace({
     if (!archivedAgentId) return
     if (activeView !== 'projects' || searchOpen) return
 
-    pendingArchivedFocusAgentRef.current = null
     let retryTimer: number | undefined
     let attempts = 0
     const retryRestoreFocus = () => {
@@ -5081,7 +5067,16 @@ export function CodeWorkspace({
         retryRestoreFocus()
         return
       }
-      focusActiveProjectListTarget({ skipIfFocusMoved: true })
+      const focused = focusActiveProjectListTargetNow()
+      const activeElement = document.activeElement
+      if (
+        focused
+        && activeElement instanceof HTMLElement
+        && activeElement.dataset.agentId !== archivedAgentId
+      ) {
+        pendingArchivedFocusAgentRef.current = null
+        return
+      }
       retryRestoreFocus()
     }
     const timer = window.setTimeout(() => {
@@ -5092,7 +5087,7 @@ export function CodeWorkspace({
       window.clearTimeout(timer)
       if (retryTimer !== undefined) window.clearTimeout(retryTimer)
     }
-  }, [activeAgents.length, activeTerminalId, activeView, focusActiveProjectListTarget, searchOpen, shouldSkipProjectFocusRestore])
+  }, [activeAgents.length, activeTerminalId, activeView, focusActiveProjectListTargetNow, searchOpen, shouldSkipProjectFocusRestore])
 
   useEffect(() => {
     const restoredAgentId = pendingRestoredFocusAgentRef.current

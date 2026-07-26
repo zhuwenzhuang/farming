@@ -53,7 +53,11 @@ test('shows the VS Code-derived commit graph and opens commit changes in Review'
   await page.mouse.up()
   await expect.poll(async () => (await sidebar.boundingBox())?.width ?? 0).toBeGreaterThan(600)
 
-  const files = page.getByTestId('code-files-section')
+  const activeProject = page.getByTestId('code-project-group').filter({
+    has: page.locator('[data-testid="code-agent-row"].active'),
+  })
+  await expect(activeProject).toHaveCount(1)
+  const files = activeProject.getByTestId('code-files-section')
   await files.getByRole('button', { name: 'Files', exact: true }).click()
   const history = files.getByTestId('code-git-history-section')
   await expect(history).toBeVisible()
