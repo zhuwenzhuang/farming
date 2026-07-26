@@ -3,7 +3,7 @@ const path = require('path');
 const { EventEmitter } = require('events');
 const storageLayout = require('../../../backend/storage-layout');
 const { BrowserResourceStore, RESOURCE_ID_RE } = require('./browser-resource-store');
-const { CdpBrowserRuntime, clampViewport } = require('./cdp-browser-runtime');
+const { CdpBrowserRuntime } = require('./cdp-browser-runtime');
 const { discoverBrowserExecutable } = require('./executable-discovery');
 
 const MAX_VIEWER_BUFFER_BYTES = 2 * 1024 * 1024;
@@ -308,7 +308,9 @@ class BrowserResourceManager extends EventEmitter {
       throw browserError('Browser Viewer generation is stale', 409, 'BROWSER_STALE_GENERATION');
     }
     if (message.type === 'resize') {
-      await runtime.resize(clampViewport(message));
+      // A Browser resource owns one authoritative viewport. Viewer layout is
+      // presentation-only: allowing each attached desktop or mobile Viewer to
+      // resize the page makes concurrent viewers fight over shared page state.
       return;
     }
     if (message.type === 'pointer') {

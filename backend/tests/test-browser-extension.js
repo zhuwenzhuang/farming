@@ -21,6 +21,7 @@ class FakeBrowserRuntime extends EventEmitter {
     this.closeFailures = 0;
     this.latestFrame = null;
     this.viewers = new Set();
+    this.resizeCalls = 0;
   }
 
   async start(url) {
@@ -75,7 +76,9 @@ class FakeBrowserRuntime extends EventEmitter {
 
   async wheel() {}
   async pointer() {}
-  async resize() {}
+  async resize() {
+    this.resizeCalls += 1;
+  }
   async insertText() {}
 }
 
@@ -163,6 +166,18 @@ async function testBrowserResourceManager() {
     const frame = { type: 'browser-frame', generation: 1, data: 'frame' };
     runtimes[0].emit('frame', frame);
     assert.deepStrictEqual(viewer.messages.at(-1), frame);
+    viewer.emit('message', Buffer.from(JSON.stringify({
+      type: 'resize',
+      generation: running.generation,
+      width: 390,
+      height: 800,
+    })));
+    await new Promise(resolve => setImmediate(resolve));
+    assert.strictEqual(
+      runtimes[0].resizeCalls,
+      0,
+      'Viewer layout must not mutate the authoritative Browser viewport',
+    );
 
     const navigated = await manager.navigate(created.id, 'https://example.com/path');
     assert.strictEqual(navigated.url, 'https://example.com/path');

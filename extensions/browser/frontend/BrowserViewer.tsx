@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { appPath } from '@/lib/base-path'
 import type { BrowserResource } from './types'
 import type { BrowserResourcesController } from './useBrowserResources'
@@ -19,7 +19,6 @@ export function BrowserViewer({
   onResource: (resource: BrowserResource) => void
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const viewportRef = useRef<HTMLDivElement>(null)
   const textInputRef = useRef<HTMLTextAreaElement>(null)
   const composingTextRef = useRef(false)
   const socketRef = useRef<WebSocket | null>(null)
@@ -97,19 +96,6 @@ export function BrowserViewer({
     if (!socket || socket.readyState !== WebSocket.OPEN) return
     socket.send(JSON.stringify({ ...message, generation: resource.generation }))
   }, [resource.generation])
-
-  useLayoutEffect(() => {
-    const viewport = viewportRef.current
-    if (!viewport || resource.status !== 'running') return undefined
-    const resize = () => {
-      const bounds = viewport.getBoundingClientRect()
-      send({ type: 'resize', width: bounds.width, height: bounds.height })
-    }
-    const observer = new ResizeObserver(resize)
-    observer.observe(viewport)
-    resize()
-    return () => observer.disconnect()
-  }, [resource.status, send])
 
   const point = (event: {
     currentTarget: HTMLCanvasElement
@@ -194,7 +180,7 @@ export function BrowserViewer({
           {resource.status === 'running' ? 'Stop' : 'Start'}
         </button>
       </header>
-      <div ref={viewportRef} className="farming-browser-viewport">
+      <div className="farming-browser-viewport">
         {resource.status === 'running' ? (
           <canvas
             ref={canvasRef}

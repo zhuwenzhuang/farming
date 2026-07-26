@@ -1,4 +1,4 @@
-import { defineConfig, devices } from '@playwright/test'
+import { chromium, defineConfig, devices } from '@playwright/test'
 import fs from 'node:fs'
 
 const port = Number(process.env.FARMING_PLAYWRIGHT_PORT || 4173)
@@ -8,6 +8,9 @@ const useRealCodex = process.env.FARMING_E2E_REAL_CODEX === '1'
 const localChromePath = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
 const executablePath = process.env.FARMING_PLAYWRIGHT_CHROME_PATH
   || (fs.existsSync(localChromePath) ? localChromePath : undefined)
+const browserResourceExecutablePath = process.env.FARMING_BROWSER_EXECUTABLE
+  || executablePath
+  || chromium.executablePath()
 const chromiumLaunchOptions = {
   executablePath,
   args: [
@@ -28,6 +31,7 @@ const playwrightServerEnv = {
   FARMING_E2E_REAL_CODEX: useRealCodex ? '1' : '0',
   FARMING_E2E_FAKE_EXECUTABLES: useRealCodex ? '0' : '1',
   FARMING_E2E_FAKE_ACP_AGENT: useRealCodex ? '0' : '1',
+  FARMING_BROWSER_EXECUTABLE: browserResourceExecutablePath,
   VITE_FARMING_BLAME_AUTHOR_URL_TEMPLATE: 'https://example.invalid/users/{author}',
   NODE_ENV: 'test',
 }
