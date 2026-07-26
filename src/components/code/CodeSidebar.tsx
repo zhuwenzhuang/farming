@@ -171,6 +171,7 @@ interface CodeSidebarProps {
   instanceName: string
   language: UiLanguage
   appearancePreference: UiAppearance
+  restReminderEntryBlocked: boolean
   shareTarget: WorkspaceShareTarget | null
   agentLaunchOptions: AgentLaunchOption[]
   agentCreationWorkspace?: string
@@ -232,6 +233,7 @@ export function CodeSidebar({
   instanceName,
   language,
   appearancePreference,
+  restReminderEntryBlocked,
   shareTarget,
   agentLaunchOptions,
   agentCreationWorkspace,
@@ -639,24 +641,31 @@ export function CodeSidebar({
       </div>
 
       <div className="code-sidebar-footer">
-        {!sidebarCollapsed && (
-          <button
-            ref={instanceNameEditRef}
-            type="button"
-            className="code-instance-name"
-            data-testid="code-instance-name-edit"
-            aria-label={copy.renameInstance}
-            title={instanceName}
-            onClick={() => setInstanceNameDialogOpen(true)}
-          >
-            <span className="code-instance-name-copy">{instanceName}</span>
-            <PencilGlyph />
-          </button>
-        )}
         <div className="code-product-pet-anchor">
+          {!sidebarCollapsed && (
+            <button
+              ref={instanceNameEditRef}
+              type="button"
+              className="code-instance-name"
+              data-testid="code-instance-name-edit"
+              aria-label={copy.renameInstance}
+              title={instanceName}
+              onClick={() => setInstanceNameDialogOpen(true)}
+            >
+              <span className="code-instance-name-copy">{instanceName}</span>
+              <PencilGlyph />
+            </button>
+          )}
           <FarmingPet
             language={language}
             appearancePreference={appearancePreference}
+            onboardingBlocked={hasProjectListItems || sidebarCollapsed}
+            restReminderEntryBlocked={
+              restReminderEntryBlocked
+              || brandDialogOpen
+              || instanceNameDialogOpen
+              || appModeDialogOpen
+            }
           />
           <div className="code-product-row">
             <button

@@ -3806,6 +3806,9 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
 .code-product-pet-anchor {
   min-width: 0;
   position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
 }
 
 .code-product-row {
@@ -3966,6 +3969,19 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
   z-index: 221;
   will-change: left, top, width, height, opacity;
   filter: drop-shadow(0 7px 16px rgba(8, 10, 9, 0.16));
+}
+
+body.code-mode[data-appearance='light'] .code-pet-black-hole-compositor {
+  filter: brightness(0.88) saturate(0.92);
+}
+
+body.code-mode[data-appearance='light'] .code-pet-black-hole-canvas {
+  filter:
+    brightness(0.84)
+    contrast(1.08)
+    saturate(1.28)
+    drop-shadow(0 8px 20px rgba(8, 10, 9, 0.28))
+    drop-shadow(0 0 1px rgba(8, 10, 9, 0.24));
 }
 
 .code-pet-black-hole-status {

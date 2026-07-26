@@ -158,6 +158,7 @@ export function InputDialog({
   const [startClickLocked, setStartClickLocked] = useState(false)
   const [workspacePreparation, setWorkspacePreparation] = useState<WorkspacePreparation | null>(null)
   const [workspaceDirectoryBrowserOpen, setWorkspaceDirectoryBrowserOpen] = useState(false)
+  const [workspaceDirectoryBrowserInitialPath, setWorkspaceDirectoryBrowserInitialPath] = useState('')
   const dialogRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const homeMenuRef = useRef<HTMLDivElement>(null)
@@ -194,6 +195,7 @@ export function InputDialog({
     setStartClickLocked(false)
     setWorkspacePreparation(null)
     setWorkspaceDirectoryBrowserOpen(false)
+    setWorkspaceDirectoryBrowserInitialPath('')
     if (startClickUnlockTimerRef.current !== null) {
       window.clearTimeout(startClickUnlockTimerRef.current)
       startClickUnlockTimerRef.current = null
@@ -845,7 +847,7 @@ export function InputDialog({
         {workspaceDirectoryBrowserOpen && (
           <WorkspaceDirectoryBrowser
             copy={copy}
-            initialPath={workspace || workspaceOptions[0] || '~'}
+            initialPath={workspaceDirectoryBrowserInitialPath || workspace || workspaceOptions[0] || '~'}
             onCancel={() => {
               setWorkspaceDirectoryBrowserOpen(false)
               requestAnimationFrame(() => inputRef.current?.focus())
@@ -1108,7 +1110,12 @@ export function InputDialog({
                 aria-label={copy.chooseWorkspaceDirectory}
                 title={copy.chooseWorkspaceDirectory}
                 disabled={workspacePreparation !== null}
-                onClick={() => setWorkspaceDirectoryBrowserOpen(true)}
+                onClick={() => {
+                  setWorkspaceDirectoryBrowserInitialPath(
+                    normalizeWorkspaceValue(inputRef.current?.value || workspace || workspaceOptions[0] || '~'),
+                  )
+                  setWorkspaceDirectoryBrowserOpen(true)
+                }}
               >
                 <FolderGlyph />
               </button>

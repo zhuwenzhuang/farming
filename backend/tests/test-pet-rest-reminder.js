@@ -31,6 +31,18 @@ const path = require('path');
     path.join(__dirname, '../../src/components/code/pet/useRestReminderCapability.ts'),
     'utf8',
   );
+  const sidebarSource = fs.readFileSync(
+    path.join(__dirname, '../../src/components/code/CodeSidebar.tsx'),
+    'utf8',
+  );
+  const workspaceSource = fs.readFileSync(
+    path.join(__dirname, '../../src/components/CodeWorkspace.tsx'),
+    'utf8',
+  );
+  const mainCssSource = fs.readFileSync(
+    path.join(__dirname, '../../src/styles/main.css'),
+    'utf8',
+  );
   assert(petSource.includes('需要长时使用休息提醒吗？'));
   assert(petSource.includes('之后可随时在设置的“Farming Pet”中调整或关闭。'));
   assert(petSource.includes("tryReminder: zh ? '试用一下'"));
@@ -49,8 +61,27 @@ const path = require('path');
   assert(petSource.includes("kind: 'onboarding', step: 'invitation'"));
   assert(petSource.includes("kind: 'capability'"));
   assert(petSource.includes("capability: 'rest-reminder'"));
-  assert(petSource.includes('useRestReminderCapability(intervalSeconds)'));
+  assert(petSource.includes(
+    'useRestReminderCapability(intervalSeconds, restReminderEntryBlocked)',
+  ));
+  assert(petSource.includes(
+    "if (restReminderEntryBlocked && restReminder?.phase !== 'resting') return null",
+  ));
   assert(capabilitySource.includes('const ACTIVITY_COMMIT_INTERVAL_MS = 1000'));
+  assert(capabilitySource.includes('entryBlockedRef.current = entryBlocked'));
+  assert(capabilitySource.includes("if (entryBlocked && state.phase !== 'resting') return undefined"));
+  assert(capabilitySource.includes(
+    "commit(reduceRestReminder(current, { type: 'activity', now: Date.now() }))",
+  ));
+  assert(sidebarSource.includes('restReminderEntryBlocked={'));
+  assert(sidebarSource.includes('|| brandDialogOpen'));
+  assert(sidebarSource.includes('|| instanceNameDialogOpen'));
+  assert(sidebarSource.includes('|| appModeDialogOpen'));
+  assert(workspaceSource.includes('settingsPanelOpen'));
+  assert(workspaceSource.includes('|| Boolean(mobileShareUrl)'));
+  assert(workspaceSource.includes('|| Boolean(renameDialog)'));
+  assert(workspaceSource.includes('|| Boolean(killDialog)'));
+  assert(workspaceSource.includes('|| Boolean(deleteWorktreeDialog)'));
   assert(capabilitySource.includes("window.addEventListener('pointerdown', recordActivity, true)"));
   assert(capabilitySource.includes('pendingActivityAtRef'));
   assert(capabilitySource.includes('readRestReminderRuntimeState(interval)'));
@@ -81,6 +112,11 @@ const path = require('path');
   assert(blackHoleSceneSource.includes("event.key !== 'Escape'"));
   assert(!blackHoleSceneSource.includes('code-pet-close'));
   assert(blackHoleRendererSource.includes("canvas.getContext('webgl2'"));
+  assert(
+    blackHoleRendererSource.includes('preserveDrawingBuffer: preserveForVisualRegression')
+      && blackHoleRendererSource.includes("window as Window & { __FARMING_E2E__?: boolean }"),
+    'pixel-level browser checks may preserve the rendered frame without changing production buffering',
+  )
   assert(blackHoleRendererSource.includes('requestAnimationFrame(frame)'));
   assert(blackHoleRendererSource.includes('document.hidden'));
   assert(blackHoleRendererSource.includes('const INTRO_SECONDS = 15'));
@@ -143,8 +179,14 @@ const path = require('path');
     'snapshot capture should wait for a low-motion black-hole phase',
   )
   assert(
-    blackHoleRendererSource.includes('export const BLACK_HOLE_MANUAL_EXIT_SECONDS = 2.8'),
+    blackHoleRendererSource.includes('export const BLACK_HOLE_MANUAL_EXIT_SECONDS = 4.8'),
     'manual dismissal should leave enough time for the full evaporation curve',
+  )
+  assert(
+    blackHoleRendererSource.includes("compositorCanvas.dataset.evaporationPhase = progress < 0.18")
+      && blackHoleRendererSource.includes("? 'radiation'")
+      && blackHoleRendererSource.includes('compositorCanvas.dataset.hawking = evaporation.hawking.toFixed(4)'),
+    'browser checks should be able to correlate visible frames with the outward Hawking phase',
   )
   assert(
     blackHoleRendererSource.includes('const returning = exitReturnsHome'),
@@ -170,6 +212,22 @@ const path = require('path');
   assert(blackHoleRendererSource.includes('radiationColor * radiation'));
   assert(blackHoleRendererSource.includes('? smoother((progress - 0.64) / 0.36)'));
   assert(blackHoleSceneSource.includes('className="code-pet-black-hole-compositor"'));
+  assert(
+    mainCssSource.includes(
+      "body.code-mode[data-appearance='light'] .code-pet-black-hole-compositor",
+    )
+      && mainCssSource.includes('filter: brightness(0.88) saturate(0.92);'),
+    'the light appearance should lower the frozen scene luminance so the white disk and Hawking radiation remain visible',
+  );
+  assert(
+    mainCssSource.includes(
+      "body.code-mode[data-appearance='light'] .code-pet-black-hole-canvas",
+    )
+      && mainCssSource.includes('brightness(0.84)')
+      && mainCssSource.includes('saturate(1.28)')
+      && mainCssSource.includes('drop-shadow(0 8px 20px rgba(8, 10, 9, 0.28))'),
+    'the light appearance should retain a defined body silhouette without changing the dark preset',
+  );
 
   const settingsSource = fs.readFileSync(
     path.join(__dirname, '../../src/components/code/AgentHomesSettingsPanel.tsx'),

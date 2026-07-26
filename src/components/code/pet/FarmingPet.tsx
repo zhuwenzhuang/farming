@@ -25,6 +25,8 @@ import { useRestReminderCapability } from './useRestReminderCapability'
 interface FarmingPetProps {
   language: UiLanguage
   appearancePreference: UiAppearance
+  restReminderEntryBlocked?: boolean
+  onboardingBlocked?: boolean
 }
 
 function formatActivityInterval(language: UiLanguage, seconds: number) {
@@ -93,7 +95,12 @@ function petCopy(language: UiLanguage) {
   }
 }
 
-export function FarmingPet({ language, appearancePreference }: FarmingPetProps) {
+export function FarmingPet({
+  language,
+  appearancePreference,
+  restReminderEntryBlocked = false,
+  onboardingBlocked = false,
+}: FarmingPetProps) {
   const copy = useMemo(() => petCopy(language), [language])
   const defaultAppearance = usePetDefaultAppearance(appearancePreference)
   const [compactViewport, setCompactViewport] = useState(isCompactViewport)
@@ -113,7 +120,7 @@ export function FarmingPet({ language, appearancePreference }: FarmingPetProps) 
     persistenceFailed,
     dismiss: dismissRestReminder,
     snooze: snoozeRestReminder,
-  } = useRestReminderCapability(intervalSeconds)
+  } = useRestReminderCapability(intervalSeconds, restReminderEntryBlocked)
 
   useEffect(() => {
     const syncCompactViewport = () => setCompactViewport(isCompactViewport())
@@ -202,7 +209,8 @@ export function FarmingPet({ language, appearancePreference }: FarmingPetProps) 
   }, [copy.settingsSaveFailed])
 
   const intent = useMemo<PetIntent | null>(() => {
-    if (onboarding === 'invitation' && !compactViewport) {
+    if (restReminderEntryBlocked && restReminder?.phase !== 'resting') return null
+    if (onboarding === 'invitation' && !compactViewport && !onboardingBlocked) {
       return { kind: 'onboarding', step: 'invitation' }
     }
     if (onboarding === 'appearance') return { kind: 'onboarding', step: 'appearance' }
@@ -223,7 +231,7 @@ export function FarmingPet({ language, appearancePreference }: FarmingPetProps) 
       }
     }
     return null
-  }, [compactViewport, restReminder, onboarding])
+  }, [compactViewport, onboarding, onboardingBlocked, restReminder, restReminderEntryBlocked])
 
   if (!intent) {
     if (!persistenceFailed || persistenceNoticeDismissed) return null

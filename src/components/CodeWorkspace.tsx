@@ -4779,6 +4779,14 @@ export function CodeWorkspace({
         instanceName={instanceName}
         language={uiPreferences.language}
         appearancePreference={uiPreferences.appearance}
+        restReminderEntryBlocked={
+          settingsPanelOpen
+          || Boolean(mobileShareUrl)
+          || Boolean(renameDialog)
+          || Boolean(killDialog)
+          || Boolean(deleteWorktreeDialog)
+          || dialogOpen
+        }
         shareTarget={shareTarget}
         agentLaunchOptions={agentLaunchOptions}
         agentCreationWorkspace={agentCreationWorkspace}

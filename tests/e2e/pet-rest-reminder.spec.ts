@@ -1,7 +1,51 @@
 import { expect, openFarming, test } from './fixtures'
+import type { Locator, WebSocketRoute } from '@playwright/test'
 
 const SETTINGS_KEY = 'farmingPetSettings'
 const RUNTIME_KEY = 'farmingPetRestReminderRuntime'
+
+async function readBlackHoleOuterInk(canvas: Locator) {
+  return canvas.evaluate(element => {
+    const source = element as HTMLCanvasElement
+    const sample = document.createElement('canvas')
+    sample.width = 420
+    sample.height = 420
+    const context = sample.getContext('2d', { willReadFrequently: true })
+    if (!context) throw new Error('2D canvas unavailable for Hawking-frame verification.')
+    context.clearRect(0, 0, sample.width, sample.height)
+    context.drawImage(source, 0, 0, sample.width, sample.height)
+    const pixels = context.getImageData(0, 0, sample.width, sample.height).data
+    const center = sample.width / 2
+    const innerRadius = sample.width * 0.09
+    const outerRadius = sample.width * 0.49
+    const sectors = new Uint16Array(48)
+    let inkPixels = 0
+    for (let y = 0; y < sample.height; y += 1) {
+      for (let x = 0; x < sample.width; x += 1) {
+        const dx = x + 0.5 - center
+        const dy = y + 0.5 - center
+        const radius = Math.hypot(dx, dy)
+        if (radius < innerRadius || radius > outerRadius) continue
+        const offset = (y * sample.width + x) * 4
+        const alpha = pixels[offset + 3] ?? 0
+        const luminance = (
+          (pixels[offset] ?? 0)
+          + (pixels[offset + 1] ?? 0)
+          + (pixels[offset + 2] ?? 0)
+        ) / 3
+        if (alpha < 18 || luminance < 28) continue
+        inkPixels += 1
+        const angle = Math.atan2(dy, dx) + Math.PI
+        const sector = Math.min(47, Math.floor(angle / (Math.PI * 2) * 48))
+        sectors[sector] += 1
+      }
+    }
+    return {
+      inkPixels,
+      coveredSectors: Array.from(sectors).filter(value => value >= 3).length,
+    }
+  })
+}
 
 test('narrow layouts do not proactively show the first-use invitation', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
@@ -79,10 +123,20 @@ test('dark black-hole status stays readable and manual exit fully evaporates in 
 
   await endBreak.click()
   await expect(scene).toHaveClass(/exiting/)
-  await page.waitForTimeout(1_400)
+  await expect.poll(async () => Number(
+    await scene.locator('.code-pet-black-hole-compositor')
+      .getAttribute('data-exit-progress') ?? '0',
+  )).toBeGreaterThan(0.52)
+  await expect(scene.locator('.code-pet-black-hole-compositor'))
+    .toHaveAttribute('data-evaporation-phase', 'radiation')
+  const radiationInk = await readBlackHoleOuterInk(
+    scene.locator('.code-pet-black-hole-canvas'),
+  )
+  expect(radiationInk.inkPixels).toBeGreaterThan(60)
+  expect(radiationInk.coveredSectors).toBeGreaterThan(16)
   await expect(scene).toBeVisible()
   await expect(page.locator('.code-pet-black-hole-compositor')).toHaveCount(1)
-  await expect(scene).toHaveCount(0, { timeout: 4_000 })
+  await expect(scene).toHaveCount(0, { timeout: 7_000 })
 })
 
 test('dark soft-glow rest scene stays readable and retains modal keyboard behavior', async ({ page }) => {
@@ -204,10 +258,68 @@ for (const appearance of ['glass', 'black-hole'] as const) {
     }
     await scene.getByRole('button', { name: 'End break' }).click()
     await expect(scene).toHaveCount(0, {
-      timeout: appearance === 'black-hole' ? 4_000 : 1_000,
+      timeout: appearance === 'black-hole' ? 7_000 : 1_000,
     })
   })
 }
+
+test('backend disconnect does not reset or duplicate an active black-hole break', async ({ page }) => {
+  let outage = false
+  let activeSocket: WebSocketRoute | null = null
+  await page.routeWebSocket(/\/farming\/ws(?:\?|$)/, async socket => {
+    if (outage) {
+      await socket.close({ code: 1012, reason: 'Pet reconnect regression' })
+      return
+    }
+    activeSocket = socket
+    socket.connectToServer()
+  })
+  await page.addInitScript(({ settingsKey, runtimeKey }) => {
+    localStorage.setItem(settingsKey, JSON.stringify({
+      version: 1,
+      appearance: 'black-hole',
+      capabilities: { restReminder: { intervalSeconds: 50 * 60 } },
+    }))
+    sessionStorage.setItem(runtimeKey, JSON.stringify({
+      version: 1,
+      state: {
+        phase: 'resting',
+        intervalSeconds: 50 * 60,
+        cycleStartedAt: null,
+        lastActivityAt: null,
+        snoozedUntil: null,
+        restStartsAt: null,
+        restUntil: Date.now() + 30_000,
+        snoozeUsed: false,
+      },
+    }))
+  }, { settingsKey: SETTINGS_KEY, runtimeKey: RUNTIME_KEY })
+
+  await openFarming(page)
+  const scene = page.getByTestId('pet-rest-scene')
+  const clock = scene.locator('time')
+  await expect(scene).toBeVisible()
+  await expect(scene.locator('.code-pet-black-hole-canvas')).toHaveCount(1)
+  await expect.poll(() => Boolean(activeSocket)).toBe(true)
+  const beforeDisconnect = await clock.getAttribute('aria-label') ?? await clock.textContent()
+
+  outage = true
+  await activeSocket?.close({ code: 1012, reason: 'Pet reconnect regression' })
+  await expect(page.getByTestId('connection-status')).toBeVisible()
+  await page.waitForTimeout(2_200)
+  const duringDisconnect = await clock.getAttribute('aria-label') ?? await clock.textContent()
+  expect(duringDisconnect).not.toBe(beforeDisconnect)
+  await expect(scene).toHaveCount(1)
+  await expect(scene.locator('.code-pet-black-hole-compositor')).toHaveCount(1)
+  await expect(scene.locator('.code-pet-black-hole-canvas')).toHaveCount(1)
+
+  outage = false
+  await expect(page.getByTestId('connection-status')).toHaveCount(0, { timeout: 7_000 })
+  await expect(scene).toHaveCount(1)
+  await expect(scene.locator('.code-pet-black-hole-canvas')).toHaveCount(1)
+  await scene.getByRole('button', { name: 'End break' }).click()
+  await expect(scene).toHaveCount(0, { timeout: 7_000 })
+})
 
 test('natural black-hole evaporation resumes at the absolute-time progress', async ({ page }) => {
   await page.addInitScript(({ settingsKey, runtimeKey }) => {
@@ -238,6 +350,47 @@ test('natural black-hole evaporation resumes at the absolute-time progress', asy
   await expect.poll(async () => Number(
     await compositor.getAttribute('data-exit-progress') ?? '0',
   )).toBeGreaterThan(0.4)
+  await expect(compositor).toHaveAttribute('data-evaporation-phase', 'radiation')
+  const progressBeforeHide = Number(
+    await compositor.getAttribute('data-exit-progress') ?? '0',
+  )
+  await page.evaluate(() => {
+    const testDocument = document as Document & {
+      __petVisibilityState?: DocumentVisibilityState
+    }
+    testDocument.__petVisibilityState = 'hidden'
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      get: () => testDocument.__petVisibilityState,
+    })
+    Object.defineProperty(document, 'hidden', {
+      configurable: true,
+      get: () => testDocument.__petVisibilityState === 'hidden',
+    })
+    document.dispatchEvent(new Event('visibilitychange'))
+  })
+  await page.waitForTimeout(1_200)
+  const progressWhileHidden = Number(
+    await compositor.getAttribute('data-exit-progress') ?? '0',
+  )
+  expect(progressWhileHidden).toBeLessThan(progressBeforeHide + 0.03)
+  await page.evaluate(() => {
+    const testDocument = document as Document & {
+      __petVisibilityState?: DocumentVisibilityState
+    }
+    testDocument.__petVisibilityState = 'visible'
+    document.dispatchEvent(new Event('visibilitychange'))
+  })
+  await expect.poll(async () => Number(
+    await compositor.getAttribute('data-exit-progress') ?? '0',
+  )).toBeGreaterThan(progressBeforeHide + 0.05)
+  await expect(compositor).toHaveAttribute('data-evaporation-phase', 'radiation')
+  await expect.poll(async () => {
+    const radiationInk = await readBlackHoleOuterInk(
+      scene.locator('.code-pet-black-hole-canvas'),
+    )
+    return radiationInk.inkPixels > 60 && radiationInk.coveredSectors > 16
+  }, { timeout: 2_000 }).toBe(true)
   await expect(scene).toHaveCount(0, { timeout: 9_000 })
 })
 
@@ -296,7 +449,7 @@ test('black-hole snapshot refresh excludes Pet UI and keeps one renderer', async
 
   await settings.getByRole('button', { name: 'Close', exact: true }).click()
   await scene.getByRole('button', { name: 'End break' }).click()
-  await expect(scene).toHaveCount(0, { timeout: 4_000 })
+  await expect(scene).toHaveCount(0, { timeout: 7_000 })
 })
 
 test('closing the first-use invitation keeps the reminder off after reload', async ({ page }) => {
@@ -364,6 +517,59 @@ test('appearance changes preserve the active cycle and reload restores it', asyn
   ), RUNTIME_KEY)
   expect(restored.phase).toBe('working')
   expect(restored.cycleStartedAt).toBe(originalCycleStartedAt)
+})
+
+test('Settings blocks rest entry and closing it starts a fresh entry countdown', async ({ page }) => {
+  await page.addInitScript(({ settingsKey, runtimeKey }) => {
+    const now = Date.now()
+    localStorage.setItem(settingsKey, JSON.stringify({
+      version: 1,
+      appearance: 'glass',
+      capabilities: { restReminder: { intervalSeconds: 5 } },
+    }))
+    sessionStorage.setItem(runtimeKey, JSON.stringify({
+      version: 1,
+      state: {
+        phase: 'working',
+        intervalSeconds: 5,
+        cycleStartedAt: now - 2_000,
+        lastActivityAt: now,
+        snoozedUntil: null,
+        restStartsAt: null,
+        restUntil: null,
+        snoozeUsed: false,
+      },
+    }))
+  }, { settingsKey: SETTINGS_KEY, runtimeKey: RUNTIME_KEY })
+
+  await openFarming(page)
+  await page.getByTestId('code-sidebar-options').click()
+  const settings = page.getByTestId('code-settings-panel')
+  const closeSettings = settings.getByRole('button', { name: 'Close', exact: true })
+  await expect(settings).toBeVisible()
+
+  await page.waitForTimeout(7_000)
+  await expect(page.getByTestId('pet-rest-scene')).toHaveCount(0)
+  await expect(page.getByTestId('pet-rest-reminder')).toHaveCount(0)
+  await expect(closeSettings).toBeVisible()
+  await expect(closeSettings).toBeEnabled()
+  expect(await page.locator('#root').evaluate(element => (element as HTMLElement).inert))
+    .toBe(false)
+
+  const closedAt = Date.now()
+  await closeSettings.click()
+  const reminder = page.getByTestId('pet-rest-reminder')
+  await expect(reminder).toBeVisible()
+  await expect(page.getByTestId('pet-rest-scene')).toHaveCount(0)
+  const restStartsAt = await page.evaluate(key => (
+    JSON.parse(sessionStorage.getItem(key) ?? 'null')?.state?.restStartsAt
+  ), RUNTIME_KEY)
+  expect(restStartsAt).toBeGreaterThanOrEqual(closedAt + 4_000)
+
+  const scene = page.getByTestId('pet-rest-scene')
+  await expect(scene).toBeVisible({ timeout: 7_000 })
+  await scene.getByRole('button', { name: 'End break' }).click()
+  await expect(scene).toHaveCount(0)
 })
 
 test('input bursts commit activity at most once per second', async ({ page }) => {

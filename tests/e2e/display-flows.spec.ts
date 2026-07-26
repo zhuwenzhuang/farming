@@ -1363,12 +1363,12 @@ test.describe('display-backed agent flows', () => {
     await expect(openEditorsTitle).toHaveAttribute('aria-expanded', 'false')
     await expect(openEditors.getByTestId('code-open-editor-row')).toHaveCount(0)
     const openEditorsBox = await openEditors.boundingBox()
-    const filesSectionBoxAfterOpen = await childFiles.boundingBox()
-    if (!openEditorsBox || !filesSectionBoxAfterOpen) {
+    const filesTitleBoxAfterOpen = await filesTitle.boundingBox()
+    if (!openEditorsBox || !filesTitleBoxAfterOpen) {
       throw new Error('Open Editors layout boxes are missing')
     }
     expect(openEditorsBox.y).toBeGreaterThan(agentRowBox.y)
-    expect(filesSectionBoxAfterOpen.y).toBeGreaterThan(openEditorsBox.y)
+    expect(filesTitleBoxAfterOpen.y).toBeGreaterThan(openEditorsBox.y)
     await openEditorsTitle.click()
     await expect(openEditorsTitle).toHaveAttribute('aria-expanded', 'true')
     const readmeOpenEditorRow = openEditors.getByTestId('code-open-editor-row').filter({ hasText: 'README.md' })

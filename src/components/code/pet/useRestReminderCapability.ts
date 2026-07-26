@@ -31,7 +31,10 @@ function initialState(intervalSeconds: number | null) {
   return readRestReminderRuntimeState(interval) ?? createRestReminderState(interval)
 }
 
-export function useRestReminderCapability(intervalSeconds: number | null) {
+export function useRestReminderCapability(
+  intervalSeconds: number | null,
+  entryBlocked = false,
+) {
   const [state, setState] = useState<RestReminderState | null>(() => (
     initialState(intervalSeconds)
   ))
@@ -40,9 +43,12 @@ export function useRestReminderCapability(intervalSeconds: number | null) {
   ))
   const [persistenceFailed, setPersistenceFailed] = useState(false)
   const stateRef = useRef(state)
+  const entryBlockedRef = useRef(entryBlocked)
+  const previousEntryBlockedRef = useRef(entryBlocked)
   const pendingActivityAtRef = useRef<number | null>(null)
   const activityTimerRef = useRef<number | null>(null)
   const persistenceFailedRef = useRef(false)
+  entryBlockedRef.current = entryBlocked
 
   const updatePersistenceStatus = useCallback((failed: boolean) => {
     if (persistenceFailedRef.current === failed) return
@@ -78,7 +84,12 @@ export function useRestReminderCapability(intervalSeconds: number | null) {
     const activityAt = pendingActivityAtRef.current
     pendingActivityAtRef.current = null
     const current = stateRef.current
-    if (activityAt === null || current === null || current.phase === 'resting') {
+    if (
+      activityAt === null
+      || current === null
+      || current.phase === 'resting'
+      || entryBlockedRef.current
+    ) {
       return current
     }
     return reduceRestReminder(current, { type: 'activity', now: activityAt })
@@ -122,10 +133,26 @@ export function useRestReminderCapability(intervalSeconds: number | null) {
   ])
 
   useEffect(() => {
+    const wasBlocked = previousEntryBlockedRef.current
+    previousEntryBlockedRef.current = entryBlocked
+    if (wasBlocked === entryBlocked) return
+
+    clearActivityTimer()
+    pendingActivityAtRef.current = null
+    const current = stateRef.current
+    if (!current || current.phase === 'resting') return
+
+    if (!entryBlocked) {
+      commit(reduceRestReminder(current, { type: 'activity', now: Date.now() }))
+    }
+  }, [clearActivityTimer, commit, entryBlocked])
+
+  useEffect(() => {
     if (state === null) return undefined
     const recordActivity = (event: Event) => {
       if (isPetUiEvent(event)) return
       if (event instanceof KeyboardEvent && !isMeaningfulKey(event)) return
+      if (entryBlockedRef.current) return
       if (stateRef.current?.phase === 'resting') return
       const now = Date.now()
       pendingActivityAtRef.current = Math.max(
@@ -160,7 +187,10 @@ export function useRestReminderCapability(intervalSeconds: number | null) {
       }
       setPageVisible(true)
       const current = stateWithPendingActivity()
-      if (current) {
+      if (
+        current
+        && (current.phase === 'resting' || !entryBlockedRef.current)
+      ) {
         commit(reduceRestReminder(current, { type: 'deadline', now: Date.now() }))
       }
     }
@@ -170,12 +200,16 @@ export function useRestReminderCapability(intervalSeconds: number | null) {
 
   useEffect(() => {
     if (!pageVisible || !state) return undefined
+    if (entryBlocked && state.phase !== 'resting') return undefined
     const deadline = nextRestReminderDeadline(state)
     if (deadline === null) return undefined
     const timeout = window.setTimeout(() => {
       clearActivityTimer()
       const current = stateWithPendingActivity()
-      if (current) {
+      if (
+        current
+        && (current.phase === 'resting' || !entryBlockedRef.current)
+      ) {
         commit(reduceRestReminder(current, { type: 'deadline', now: Date.now() }))
       }
     }, Math.max(0, deadline - Date.now()))
@@ -183,6 +217,7 @@ export function useRestReminderCapability(intervalSeconds: number | null) {
   }, [
     clearActivityTimer,
     commit,
+    entryBlocked,
     pageVisible,
     state,
     stateWithPendingActivity,

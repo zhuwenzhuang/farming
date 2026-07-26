@@ -21,7 +21,7 @@ const RENDER_SCALE = 1.25
 const INTRO_SECONDS = 15
 const MIDDLE_CYCLE_SECONDS = 90
 export const BLACK_HOLE_EXIT_SECONDS = 15
-export const BLACK_HOLE_MANUAL_EXIT_SECONDS = 2.8
+export const BLACK_HOLE_MANUAL_EXIT_SECONDS = 4.8
 const TOKEN_AREA_MIN = 0.01
 const TOKEN_AREA_MAX = 0.50
 const HOLE_SIZE_DIAL = 0.02
@@ -133,7 +133,7 @@ vec4 evaporation(vec2 point, float baseHorizon, float horizon) {
   float shimmer = 0.93 + 0.07 * sin(uTime * 8.0 + q * 4.0);
   vec3 thermalColor = mix(vec3(1.0, 0.22, 0.035), vec3(0.65, 0.84, 1.0), heat);
   float radiationEnvelope =
-    smoother(heat / 0.12) * (1.0 - smoother((heat - 0.90) / 0.10));
+    smoother(heat / 0.12) * (1.0 - smoother(burst));
   float angle = atan(point.y, point.x);
   float leadingRadius = baseHorizon * mix(1.12, 5.55, heat);
   float leadingWidth = baseHorizon * mix(0.10, 0.22, heat);
@@ -148,7 +148,7 @@ vec4 evaporation(vec2 point, float baseHorizon, float horizon) {
     2.0
   ));
   float angularPackets = mix(
-    0.58,
+    0.76,
     1.0,
     pow(
       0.5 + 0.5 * sin(angle * 23.0 + q * 1.7 - uTime * 1.8),
@@ -160,8 +160,8 @@ vec4 evaporation(vec2 point, float baseHorizon, float horizon) {
     8.0
   ) * smoothstep(1.1, 1.8, q) * (1.0 - smoothstep(5.2, 6.6, q));
   float radiation = radiationEnvelope * (
-    leadingShell * angularPackets * 0.72
-    + trailingShell * angularPackets * 0.34
+    leadingShell * angularPackets * 0.88
+    + trailingShell * angularPackets * 0.42
     + radialRays * exp(-q * 0.20) * 0.16
   );
   vec3 radiationColor = mix(
@@ -179,7 +179,7 @@ vec4 evaporation(vec2 point, float baseHorizon, float horizon) {
     + vec3(0.72, 0.88, 1.0) * flash * 2.4;
   return vec4(
     color,
-    clamp(thermal * 0.65 + radiation * 0.82 + flash * 0.88, 0.0, 1.0)
+    clamp(thermal * 0.65 + radiation * 0.95 + flash * 0.88, 0.0, 1.0)
   );
 }
 
@@ -582,11 +582,15 @@ function createProgram(gl: WebGL2RenderingContext, fragmentSource: string) {
 }
 
 function createDisplayRenderer(canvas: HTMLCanvasElement): DisplayRenderer {
+  const preserveForVisualRegression = Boolean((
+    window as Window & { __FARMING_E2E__?: boolean }
+  ).__FARMING_E2E__)
   const gl = canvas.getContext('webgl2', {
     alpha: true,
     antialias: false,
     premultipliedAlpha: true,
     powerPreference: 'high-performance',
+    preserveDrawingBuffer: preserveForVisualRegression,
   })
   if (!gl) throw new Error('WebGL 2 is required for the black-hole appearance.')
 
@@ -1229,6 +1233,13 @@ export function createBlackHolePetRenderer({
       const progress = clamp((now - exitingAt) / (exitDuration * 1000), 0, 1)
       compositorCanvas.dataset.exitProgress = progress.toFixed(4)
       evaporation = evaporationAt(progress)
+      compositorCanvas.dataset.evaporationPhase = progress < 0.18
+        ? 'disk-drain'
+        : progress < 0.87
+          ? 'radiation'
+          : 'final-burst'
+      compositorCanvas.dataset.hawking = evaporation.hawking.toFixed(4)
+      compositorCanvas.dataset.finalBurst = evaporation.burst.toFixed(4)
       const exitElapsed = (exitingAt - startedAt) / 1000
       const frozenTime =
         exitElapsed + 0.45 * (1 - Math.exp(-(now - exitingAt) / 450))
