@@ -49,6 +49,18 @@ function usageHistoryCacheFile(configDir) {
   return path.join(historyDir(configDir), 'usage-history-v2.sqlite3');
 }
 
+function browserResourcesDir(configDir) {
+  return path.join(configDir, 'browsers');
+}
+
+function browserResourcesFile(configDir) {
+  return path.join(browserResourcesDir(configDir), 'resources.json');
+}
+
+function browserProfileDir(configDir, browserId) {
+  return path.join(browserResourcesDir(configDir), browserId, 'profile');
+}
+
 function sessionIndexFile(configDir) {
   return path.join(sessionsDir(configDir), 'index.json');
 }
@@ -124,6 +136,9 @@ function farmingNetTrustFile(configDir) {
 module.exports = {
   acpCheckpointsDir,
   agentStateFile,
+  browserProfileDir,
+  browserResourcesDir,
+  browserResourcesFile,
   farmingNetInstancesFile,
   farmingNetServerLogFile,
   farmingNetServerStateFile,

@@ -43,7 +43,7 @@ farming url
 
 ## Farming Code
 
-Farming Code 是默认的桌面与手机界面。它按项目组织工作，把实时 Agent、可恢复的 History、文件和 Review 放在同一个浏览器工作区里。
+Farming Code 是默认的桌面与手机界面。它按项目组织工作，把实时 Agent、可恢复的 History、文件、浏览器和 Review 放在同一个浏览器工作区里。
 
 ### Agent、Chat 与 Terminal
 
@@ -56,6 +56,12 @@ Farming Code 是默认的桌面与手机界面。它按项目组织工作，把�
 浏览、搜索并轻量编辑 Project Files，不需要离开当前任务。检查 Git Changes、History、Diff 和 Blame，再把 Commit 或 Working Copy 修改打开到 Review。
 
 ![Farming Code 项目文件与 Blame](./docs/products/code/assets/04-files-editor-blame.png)
+
+### Browser Resource
+
+每个 Project 可以拥有多个可命名的 Browser Resource。Farming 使用系统已有的 Chrome、Brave、Edge 或 Chromium 可执行文件和独立 Profile 启动浏览器，把这个 Headless 页面流式展示在工作区中，并把人的输入和 Agent 操作发送给同一个 CDP Session。Farming 不下载 Chromium，也不依赖 Playwright。Agent 可以通过 `farming browser` 发现并操作这些 Resource；npm 安装还会提供 `farming-browser` 别名。
+
+第一版 Browser Viewer 面向网页展示与简单 Agent 操作，不替代浏览器完整窗口、DevTools、下载界面、浏览器扩展或 Computer Use。
 
 ## 支持的 Agent
 
@@ -87,7 +93,8 @@ Farming 承载的是已经能在同一台机器正常工作的 CLI，不替代 P
   Farming Server
   ├── Coding Agent 进程
   ├── 真实 Terminal
-  └── 代码仓库与项目文件
+  ├── 代码仓库与项目文件
+  └── 可选的系统浏览器进程
 ```
 
 浏览器断开或重新连接不会停止 Agent。Farming Server 正常重启后也可以重新连接受支持的实时 Terminal Session。桌面布局把项目、对话、文件和 Review 放在一起；手机布局一次聚焦一段对话、一个 Terminal 或一个文件。

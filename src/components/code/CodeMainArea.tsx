@@ -10,6 +10,9 @@ import type {
 import type { WorkspaceNavigationFileInput } from '@/lib/workspace-navigation-history'
 import { isCompactViewport, isTouchInputViewport } from '@/lib/responsive-mode'
 import { isWorkspaceHtmlFile, isWorkspaceMarkdownFile, isWorkspaceSvgFile } from '@/lib/workspace-editor-model'
+import { BrowserViewer } from '../../../extensions/browser/frontend/BrowserViewer'
+import type { BrowserResource } from '../../../extensions/browser/frontend/types'
+import type { BrowserResourcesController } from '../../../extensions/browser/frontend/useBrowserResources'
 import { AgentWorkPane } from './AgentWorkPane'
 import { CodeComposer } from './CodeComposer'
 import { AcpComposer } from './acp/AcpComposer'
@@ -231,6 +234,8 @@ function FileEditorFallback({
 
 interface CodeMainAreaProps {
   activeView: WorkspaceView
+  activeBrowserResource: BrowserResource | null
+  browserController: BrowserResourcesController
   showFileEditor: boolean
   openWorkspaceFile: OpenWorkspaceFile | null
   openWorkspaceFiles: OpenWorkspaceFile[]
@@ -457,6 +462,8 @@ function EmptyWorkspaceGuide({
 
 export function CodeMainArea({
   activeView,
+  activeBrowserResource,
+  browserController,
   showFileEditor,
   openWorkspaceFile,
   openWorkspaceFiles,
@@ -563,7 +570,9 @@ export function CodeMainArea({
   const activeAgent = activeTerminalId
     ? openAgents.find(agent => agent.id === activeTerminalId) || null
     : null
+  const browserWorkspaceVisible = activeView === 'projects' && activeBrowserResource !== null
   const agentWorkspaceVisible = activeView === 'projects'
+    && !browserWorkspaceVisible
     && !(showFileEditor && openWorkspaceFile)
   const acpComposerActive = isAcpRuntime(activeAgent)
   const terminalComposerActive = activeAgent?.runtimeBinding.kind === 'terminal'
@@ -689,6 +698,12 @@ export function CodeMainArea({
             <h2>{viewTitle(copy, activeView)}</h2>
           )}
         </section>
+      ) : browserWorkspaceVisible ? (
+        <BrowserViewer
+          resource={activeBrowserResource}
+          controller={browserController}
+          onResource={browserController.mergeResource}
+        />
       ) : showFileEditor && openWorkspaceFile ? (
         ReadyFileEditorPane ? (
           <ReadyFileEditorPane

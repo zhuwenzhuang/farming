@@ -1086,6 +1086,7 @@ function usage() {
 
 Agent control commands are also available:
   farming skills
+  farming browser <list|start|stop|snapshot|navigate|click|fill|type|press|scroll|screenshot> ...
   farming list [--json] [--parent <agentId>]
   farming spawn --workspace <repo> -- <command...>
   farming output <agentId> [--tail <chars>]
@@ -1123,6 +1124,11 @@ async function run(argv = process.argv.slice(2)) {
   if (process.env[SERVER_MODE_ENV] === '1' || argv[0] === SERVER_MODE_ARG) {
     runServerInCurrentProcess();
     return 0;
+  }
+
+  if (argv[0] === 'browser') {
+    const { run: runBrowserCli } = require('../extensions/browser/bin/farming-browser');
+    return runBrowserCli(argv.slice(1));
   }
 
   if (SERVER_BACKED_CONTROL_COMMANDS.has(argv[0])) {

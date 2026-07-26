@@ -29,6 +29,15 @@ function run() {
       storageLayout.usageHistoryCacheFile(configDir),
       path.join(configDir, 'history', 'usage-history-v2.sqlite3'),
     );
+    assert.strictEqual(storageLayout.browserResourcesDir(configDir), path.join(configDir, 'browsers'));
+    assert.strictEqual(
+      storageLayout.browserResourcesFile(configDir),
+      path.join(configDir, 'browsers', 'resources.json'),
+    );
+    assert.strictEqual(
+      storageLayout.browserProfileDir(configDir, 'browser_example'),
+      path.join(configDir, 'browsers', 'browser_example', 'profile'),
+    );
     assert.strictEqual(storageLayout.serverPidFile(configDir), path.join(configDir, 'farming-server.pid'));
     assert.strictEqual(storageLayout.serverStateFile(configDir), path.join(configDir, 'farming-server.json'));
     assert.strictEqual(storageLayout.serverLogFile(configDir), path.join(configDir, 'farming-server.log'));

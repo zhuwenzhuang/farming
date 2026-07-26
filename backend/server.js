@@ -42,6 +42,10 @@ const { createControlRouter } = require('./control-api');
 const { WorkspaceFileService, WorkspaceFileError } = require('./workspace-file-service');
 const { createWorkspaceFileRouter, resolveWorkspaceRoot } = require('./workspace-file-router');
 const { WorkspaceRootRegistry, rootIdForPath } = require('./workspace-root-registry');
+const {
+  BrowserResourceManager,
+  createBrowserRouter,
+} = require('../extensions/browser/backend');
 const { UsageMonitor } = require('./usage-monitor');
 const { CodexContextWindowReader } = require('./codex-context-window');
 const { DEFAULT_MAX_TURNS: DEFAULT_CODEX_TRANSCRIPT_MAX_TURNS, readCodexTranscript } = require('./codex-transcript');
@@ -129,6 +133,10 @@ async function requireAgentRecoveryForHttp(res) {
 const themeManager = new ThemeManager({ configDir: configManager.farmingDir });
 const workspaceFileService = new WorkspaceFileService();
 const workspaceRootRegistry = new WorkspaceRootRegistry(agentManager);
+const browserResourceManager = new BrowserResourceManager({
+  configDir: configManager.farmingDir,
+});
+browserResourceManager.init();
 const updateService = new FarmingUpdateService({
   rootDir: path.join(__dirname, '..'),
   configDir: configManager.farmingDir,
@@ -527,6 +535,7 @@ app.use(BASE_PATH || '/', express.static(staticAppDir, { index: false }));
 app.use(routePath(BASE_PATH, '/api/files'), createWorkspaceFileRouter(agentManager, workspaceFileService, {
   rootRegistry: workspaceRootRegistry,
 }));
+app.use(routePath(BASE_PATH, '/api/browsers'), createBrowserRouter(browserResourceManager, workspaceRootRegistry));
 
 app.use(routePath(BASE_PATH, '/api/review-sessions'), createReviewSessionRouter(reviewSessionService));
 app.use(routePath(BASE_PATH, '/api/reviews'), createReviewDiffRouter(reviewDiffService, reviewSessionService));
@@ -2261,6 +2270,20 @@ app.get(routePath(BASE_PATH, '/api/themes/:themeId'), (req, res) => {
 
 wss.on('connection', (ws, req) => {
   const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+  const viewerPrefix = routePath(BASE_PATH, '/api/browsers/');
+  if (url.pathname.startsWith(viewerPrefix) && url.pathname.endsWith('/viewer')) {
+    if (authEnabled && !tokenAuth.verifyWebSocket(req)) {
+      ws.close(4001, 'Authentication required');
+      return;
+    }
+    const encodedId = url.pathname.slice(viewerPrefix.length, -'/viewer'.length);
+    try {
+      browserResourceManager.attachViewer(decodeURIComponent(encodedId), ws);
+    } catch (error) {
+      ws.close(4004, error?.message || 'Browser resource not found');
+    }
+    return;
+  }
   if (url.pathname !== WS_PATH) {
     ws.close(1008, 'Invalid path');
     return;
@@ -3088,11 +3111,12 @@ async function shutdownServer(options = {}) {
     : process.env.FARMING_NATIVE_PTY_HOST_PERSIST !== '0';
 
   try {
+    await browserResourceManager.dispose();
     await agentManager.dispose({ preserveTerminalHost });
   } catch (error) {
     const teardownFrozen = agentManager.disposing === true;
     shutdownStarted = false;
-    console.error('Farming shutdown blocked because Agent runtime cleanup could not be verified:', error);
+    console.error('Farming shutdown blocked because runtime cleanup could not be verified:', error);
     if (teardownFrozen) {
       clearBroadcastTimers();
       tokenAuth.cleanup();
@@ -3104,7 +3128,7 @@ async function shutdownServer(options = {}) {
     }
     if (options.exit === true) process.exitCode = 1;
     return {
-      error: error?.message || 'Agent runtime cleanup could not be verified',
+      error: error?.message || 'Runtime cleanup could not be verified',
       ...(teardownFrozen ? { frozen: true } : {}),
     };
   }
@@ -3222,6 +3246,7 @@ module.exports = {
   server,
   wss,
   agentManager,
+  browserResourceManager,
   workspaceFileService,
   handleMessage,
   resolveCliBinDir,

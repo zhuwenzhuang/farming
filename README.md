@@ -43,7 +43,7 @@ For a new remote browser, use the authenticated **Network** URL printed when `fa
 
 ## Farming Code
 
-Farming Code is the default desktop and mobile interface. It groups work by project and keeps live Agents, resumable history, files, and review in the same browser workspace.
+Farming Code is the default desktop and mobile interface. It groups work by project and keeps live Agents, resumable history, files, browsers, and review in the same browser workspace.
 
 ### Agents, Chat, and Terminal
 
@@ -56,6 +56,12 @@ Start or resume Codex, Claude Code, OpenCode, Qoder, and other detected coding C
 Browse, search, and lightly edit Project Files without leaving the current task. Inspect Git Changes, History, Diff, and Blame, then open a commit or working-copy change in Review.
 
 ![Farming Code project files and blame](./docs/products/code/assets/04-files-editor-blame.png)
+
+### Browser Resources
+
+Each Project can own multiple named Browser Resources. Farming starts the system Chrome, Brave, Edge, or Chromium executable with an isolated profile, streams that exact headless page into the workspace, and sends both human input and Agent actions to the same CDP session. Farming does not download Chromium or depend on Playwright. Agents can discover and operate these resources with `farming browser`; npm installations also expose the `farming-browser` alias.
+
+This first Browser Viewer targets web pages and simple Agent interaction. It is not a replacement for the browser's full window chrome, DevTools, downloads UI, extensions, or Computer Use.
 
 ## Supported Agents
 
@@ -87,7 +93,8 @@ Development machine
   Farming server
   ├── coding Agent processes
   ├── real terminals
-  └── repositories and project files
+  ├── repositories and project files
+  └── optional system-browser processes
 ```
 
 The browser can disconnect and reconnect without stopping an Agent. A normal Farming server restart can also reconnect supported live terminal sessions. The desktop layout keeps projects, conversations, files, and review together; the mobile layout focuses one conversation, terminal, or file at a time.

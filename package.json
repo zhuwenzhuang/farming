@@ -4,7 +4,8 @@
   "description": "Farming Code is a self-hosted browser workspace for running and supervising AI coding agents",
   "main": "backend/server.js",
   "bin": {
-    "farming": "bin/farming"
+    "farming": "bin/farming",
+    "farming-browser": "extensions/browser/bin/farming-browser"
   },
   "files": [
     "backend/*.js",
@@ -20,6 +21,7 @@
     "frontend/skins/",
     "frontend/themes/",
     "frontend/vendor/ghostty-web/",
+    "extensions/browser/",
     "shared/",
     "LICENSE",
     "README.md",

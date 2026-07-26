@@ -36,7 +36,7 @@ export interface WorkspaceHistorySettings {
 export type CodexApprovalMode = 'ask' | 'approve' | 'full' | 'custom'
 export type ClaudePermissionMode = 'acceptEdits' | 'auto' | 'bypassPermissions' | 'default' | 'dontAsk' | 'plan'
 export type CodexModelPreset = string
-export type MainPaneMode = 'terminal' | 'editor'
+export type MainPaneMode = 'terminal' | 'editor' | 'browser'
 export type ComposerMode = 'default' | 'goal' | 'plan'
 export type CodeModelPickerPane = 'model' | 'speed' | null
 

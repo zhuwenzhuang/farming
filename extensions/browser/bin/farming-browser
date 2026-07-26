@@ -1,0 +1,147 @@
+#!/usr/bin/env node
+const fs = require('fs');
+const http = require('http');
+const https = require('https');
+const path = require('path');
+const storageLayout = require('../../../backend/storage-layout');
+
+function usage() {
+  return `Usage:
+  farming-browser list [--workspace <path>]
+  farming-browser start <browser-id>
+  farming-browser stop <browser-id>
+  farming-browser snapshot <browser-id>
+  farming-browser navigate <browser-id> <url>
+  farming-browser click <browser-id> <ref-or-selector>
+  farming-browser fill <browser-id> <ref-or-selector> <text>
+  farming-browser type <browser-id> <ref-or-selector> <text>
+  farming-browser press <browser-id> <key>
+  farming-browser scroll <browser-id> <delta-y> [delta-x]
+  farming-browser screenshot <browser-id> <output.png>
+
+Element refs come from snapshot. Prefix a CSS selector with "css=".
+`;
+}
+
+function readJson(file) {
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch {
+    return {};
+  }
+}
+
+function resolveConnection() {
+  const configDir = storageLayout.farmingConfigDir();
+  const state = readJson(storageLayout.serverStateFile(configDir));
+  const explicit = String(process.env.FARMING_BROWSER_URL || '').trim();
+  const basePath = String(state.basePath || '/').replace(/\/$/, '');
+  const origin = explicit || `http://127.0.0.1:${Number(state.port) || 3000}${basePath}`;
+  let token = String(process.env.FARMING_BROWSER_TOKEN || '').trim();
+  if (!token) {
+    try {
+      token = fs.readFileSync(storageLayout.sessionTokenFile(configDir), 'utf8').trim();
+    } catch {
+      token = '';
+    }
+  }
+  return { origin: origin.replace(/\/$/, ''), token };
+}
+
+function requestJson(method, pathname, body) {
+  const connection = resolveConnection();
+  const url = new URL(`${connection.origin}${pathname}`);
+  const transport = url.protocol === 'https:' ? https : http;
+  const payload = body === undefined ? null : Buffer.from(JSON.stringify(body));
+  return new Promise((resolve, reject) => {
+    const request = transport.request(url, {
+      method,
+      headers: {
+        Accept: 'application/json',
+        ...(payload ? { 'Content-Type': 'application/json', 'Content-Length': String(payload.length) } : {}),
+        ...(connection.token ? { Cookie: `farming_token=${encodeURIComponent(connection.token)}` } : {}),
+      },
+    }, response => {
+      const chunks = [];
+      response.on('data', chunk => chunks.push(chunk));
+      response.on('end', () => {
+        let value;
+        try {
+          value = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+        } catch {
+          reject(new Error(`Farming Browser returned HTTP ${response.statusCode}`));
+          return;
+        }
+        if ((response.statusCode || 500) >= 400) {
+          reject(new Error(value.error || `Farming Browser returned HTTP ${response.statusCode}`));
+          return;
+        }
+        resolve(value);
+      });
+    });
+    request.on('error', reject);
+    if (payload) request.write(payload);
+    request.end();
+  });
+}
+
+function locator(value) {
+  return value.startsWith('css=') ? { selector: value.slice(4) } : { ref: value };
+}
+
+async function run(argv = process.argv.slice(2)) {
+  const [command, ...args] = argv;
+  if (!command || command === '--help' || command === 'help') {
+    process.stdout.write(usage());
+    return 0;
+  }
+  if (command === 'list') {
+    const workspaceIndex = args.indexOf('--workspace');
+    const workspace = workspaceIndex >= 0 ? path.resolve(args[workspaceIndex + 1] || '') : '';
+    const result = await requestJson('GET', '/api/browsers');
+    const resources = workspace
+      ? result.resources.filter(resource => path.resolve(resource.workspace) === workspace)
+      : result.resources;
+    process.stdout.write(`${JSON.stringify({ resources }, null, 2)}\n`);
+    return 0;
+  }
+  const id = args[0];
+  if (!id) throw new Error(`Browser id is required\n\n${usage()}`);
+  if (command === 'start' || command === 'stop') {
+    const result = await requestJson('POST', `/api/browsers/${encodeURIComponent(id)}/${command}`);
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    return 0;
+  }
+  let action;
+  if (command === 'snapshot') action = { kind: 'snapshot' };
+  else if (command === 'navigate') action = { kind: 'navigate', url: args[1] };
+  else if (command === 'click') action = { kind: 'click', ...locator(args[1] || '') };
+  else if (command === 'fill' || command === 'type') {
+    action = { kind: command, ...locator(args[1] || ''), text: args.slice(2).join(' ') };
+  } else if (command === 'press') action = { kind: 'press', key: args[1] };
+  else if (command === 'scroll') {
+    action = { kind: 'scroll', deltaY: Number(args[1]) || 0, deltaX: Number(args[2]) || 0 };
+  } else if (command === 'screenshot') {
+    const output = path.resolve(args[1] || 'farming-browser.png');
+    const result = await requestJson('POST', `/api/browsers/${encodeURIComponent(id)}/action`, { kind: 'screenshot' });
+    fs.writeFileSync(output, Buffer.from(result.data, 'base64'));
+    process.stdout.write(`${output}\n`);
+    return 0;
+  } else {
+    throw new Error(`Unknown command: ${command}\n\n${usage()}`);
+  }
+  const result = await requestJson('POST', `/api/browsers/${encodeURIComponent(id)}/action`, action);
+  process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+  return 0;
+}
+
+if (require.main === module) {
+  run().catch(error => {
+    process.stderr.write(`${error.message}\n`);
+    process.exitCode = 1;
+  });
+}
+
+module.exports = {
+  run,
+};

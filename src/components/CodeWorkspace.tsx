@@ -85,6 +85,10 @@ import { acpComposerStateAliasKeysForAgent, acpComposerStateKeyForAgent } from '
 import { MobileShareSheet } from './code/MobileShareSheet'
 import { CodeOverlays, ContextMenuIcon } from './code/CodeOverlays'
 import { CodeSidebar } from './code/CodeSidebar'
+import { BrowserSidebarPortals } from '../../extensions/browser/frontend/BrowserSidebarPortals'
+import { useBrowserResources } from '../../extensions/browser/frontend/useBrowserResources'
+import type { BrowserResource } from '../../extensions/browser/frontend/types'
+import '../../extensions/browser/frontend/browser.css'
 import { AgentHomesSettingsPanel } from './code/AgentHomesSettingsPanel'
 import {
   canSwitchAgentRuntime,
@@ -480,6 +484,11 @@ function mobileWorkspaceLabel(workspace: string | undefined) {
   return normalized.split('/').filter(Boolean).pop() || normalized || 'workspace'
 }
 
+function initialBrowserResourceId() {
+  if (typeof window === 'undefined') return null
+  return new URL(window.location.href).searchParams.get('browser')
+}
+
 function openTargetForTerminalPath(target: TerminalPathOpenTarget): WorkspaceFileOpenTarget | undefined {
   if (!target.lineNumber) return undefined
   return {
@@ -580,7 +589,11 @@ export function CodeWorkspace({
   // in which a second prompt is sent before its `working` update arrives.
   const acpPromptStartFencesRef = useRef<Record<string, number>>({})
   const [, setTerminalFollowStates] = useState<Record<string, TerminalFollowState>>({})
-  const [mainPaneMode, setMainPaneMode] = useState<MainPaneMode>('terminal')
+  const [activeBrowserId, setActiveBrowserId] = useState<string | null>(initialBrowserResourceId)
+  const [mainPaneMode, setMainPaneMode] = useState<MainPaneMode>(() => (
+    initialBrowserResourceId() ? 'browser' : 'terminal'
+  ))
+  const browserResources = useBrowserResources()
   const [initialWorkspaceSurface] = useState<CodeWorkspaceSurface | undefined>(() => (
     loadCodeWorkspaceViewState().surface
   ))
@@ -599,6 +612,9 @@ export function CodeWorkspace({
   } = useWorkspaceNavigationHistory()
   const openWorkspaceFile = workspaceOpenFiles.activeFile
   const openWorkspaceFiles = workspaceOpenFiles.files
+  const activeBrowserResource = activeBrowserId
+    ? browserResources.resources.find(resource => resource.id === activeBrowserId) ?? null
+    : null
   const refreshProjectOpenFiles = useCallback(async (filesId: string, workspaceRoot: string) => {
     const filePaths = Array.from(new Set(workspaceOpenFiles.files
       .filter(file => file.workspaceRoot === workspaceRoot)
@@ -1093,6 +1109,25 @@ export function CodeWorkspace({
     openWorkspaceFile?.sourceAgentId,
     recordWorkspaceNavigationFile,
   ])
+
+  useEffect(() => {
+    if (browserResources.loading || !activeBrowserId || activeBrowserResource) return
+    setActiveBrowserId(null)
+    setMainPaneMode('terminal')
+  }, [activeBrowserId, activeBrowserResource, browserResources.loading])
+
+  useEffect(() => {
+    const url = new URL(window.location.href)
+    if (mainPaneMode === 'browser' && activeBrowserId) {
+      url.searchParams.set('browser', activeBrowserId)
+      for (const key of ['agent', 'file', 'folder', 'path', 'view', 'line', 'column', 'endColumn']) {
+        url.searchParams.delete(key)
+      }
+    } else {
+      url.searchParams.delete('browser')
+    }
+    if (url.href !== window.location.href) window.history.replaceState(window.history.state, '', url)
+  }, [activeBrowserId, mainPaneMode])
   const composerHasAttachmentMessage = composerAttachmentMessageBlocks(composerAttachments).length > 0
   const composerAttachmentsUploading = composerAttachments.some(attachment => attachment.status === 'uploading')
   const composerSubmitAction = activeCodexTerminalProfileApplying
@@ -1286,9 +1321,11 @@ export function CodeWorkspace({
     ? copy.search
     : activeView === 'history'
       ? copy.history
-      : showFileEditor && openWorkspaceFile
-    ? basename(openWorkspaceFile.file.path)
-    : activeAgent ? agentTitle(activeAgent) : copy.codex
+      : mainPaneMode === 'browser' && activeBrowserResource
+        ? activeBrowserResource.name
+        : showFileEditor && openWorkspaceFile
+          ? basename(openWorkspaceFile.file.path)
+          : activeAgent ? agentTitle(activeAgent) : copy.codex
   const mobileHeaderWorkspace = activeAgent?.isMain
     ? 'farming'
     : mobileWorkspaceLabel(activeAgent ? projectWorkspaceForAgent(activeAgent) : undefined)
@@ -2669,6 +2706,15 @@ export function CodeWorkspace({
     onWorkspaceViewChange('projects')
     onOpenTerminal(agentId, options)
   }, [clearSearch, onOpenTerminal, onWorkspaceViewChange])
+
+  const openBrowserFromSidebar = useCallback((resource: BrowserResource) => {
+    closeContextMenu()
+    clearSearch()
+    setActiveBrowserId(resource.id)
+    setMainPaneMode('browser')
+    onWorkspaceViewChange('projects')
+    closeSidebarForMobile()
+  }, [clearSearch, closeContextMenu, closeSidebarForMobile, onWorkspaceViewChange])
 
   const openTerminalFromSidebar = useCallback((agentId: string) => {
     openTerminalFromWorkspace(agentId)
@@ -4774,6 +4820,13 @@ export function CodeWorkspace({
         onRenameInstance={renameInstance}
         copy={copy}
       />
+      <BrowserSidebarPortals
+        projects={projects}
+        collapsedProjectIds={collapsedProjectIds}
+        activeBrowserId={mainPaneMode === 'browser' ? activeBrowserId : null}
+        controller={browserResources}
+        onOpen={openBrowserFromSidebar}
+      />
 
       <AgentHomesSettingsPanel
         open={settingsPanelOpen}
@@ -4876,6 +4929,8 @@ export function CodeWorkspace({
 
       <CodeMainArea
         activeView={activeView}
+        activeBrowserResource={mainPaneMode === 'browser' ? activeBrowserResource : null}
+        browserController={browserResources}
         showFileEditor={showFileEditor}
         openWorkspaceFile={openWorkspaceFile}
         openWorkspaceFiles={openWorkspaceFiles}

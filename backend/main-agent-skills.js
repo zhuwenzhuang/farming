@@ -58,6 +58,22 @@ const MAIN_AGENT_OPERATING_GUIDE = [
 
 const MAIN_AGENT_SKILLS = [
   {
+    id: 'browser-resource',
+    name: '共享浏览器操作',
+    trigger: '用户要求打开、查看或操作 Farming Project 下的 Browser Resource，或者需要绕过静态 HTML Viewer 限制验证真实网页时',
+    summary: '通过 Farming Browser ID 操作人和 Agent 共享的同一个 Headless 系统浏览器；先 Snapshot 获取当前 Ref，再进行点击或输入，页面变化后重新 Snapshot。',
+    commands: [
+      'farming browser list --workspace <repo>',
+      'farming browser start <browser-id>',
+      'farming browser snapshot <browser-id>',
+      'farming browser navigate <browser-id> <url>',
+      'farming browser click <browser-id> <ref-or-css=selector>',
+      'farming browser fill <browser-id> <ref-or-css=selector> <text>',
+      'farming browser screenshot <browser-id> <output.png>',
+      'farming browser stop <browser-id>',
+    ],
+  },
+  {
     id: 'memory-report',
     name: '记忆读取总结',
     trigger: '用户要求总结今日、昨日、本周做过什么，或需要先了解这台机器上各 agent 的近期工作记忆时',
@@ -137,6 +153,7 @@ function renderMainAgentSkills() {
   });
 
   lines.push('Rules:');
+  lines.push('- Use `farming browser` only for Browser Resources already in the user-selected Project scope; take a new snapshot after navigation or DOM-changing actions.');
   lines.push('- Use `farming memory report` when you need recent context from local agent memories.');
   lines.push('- Use “牧场除虫计划” when the user asks for systematic bug hunting across a directory or module tree.');
   lines.push('- Before spawning child agents for pest control, map modules and module protocols first; do not send overlapping or vague tasks.');

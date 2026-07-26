@@ -2,7 +2,7 @@
 
 > Chinese version: [extension-model.zh_cn.md](./extension-model.zh_cn.md)
 
-Status: the internal Viewer foundation is implemented; this is not yet a public third-party extension API.
+Status: the internal Viewer foundation and built-in Browser Resource MVP are implemented; this is not yet a public third-party extension API.
 
 ## Implemented Foundation
 
@@ -11,6 +11,10 @@ Project Files now resolves built-in Markdown, SVG, and HTML viewers through one 
 The static HTML viewer uses the existing file tab and Source / Preview interaction. A bounded in-memory Preview Session authorizes resources under the selected project root and serves them through Farming's existing authenticated HTTP service, so it opens no additional listening port. The browser renders the current unsaved draft in a sandboxed iframe, disables scripts, form submission, nested frames, and active network APIs, and resolves only authorized relative static assets through that Preview Session. Relative HTML navigation stays inside the same Session, including workspace-root-relative assets on the destination page. Closing the viewer deletes its session; expiration and capacity limits bound abandoned sessions.
 
 An explicitly opened readable file outside known project roots remains read-only. For exact external HTML preview, the temporary Preview Session authorizes only the HTML file's containing directory so its relative assets can load; it does not add that directory to Files browsing, search, editing, or Git scope.
+
+The built-in Browser Extension is the first live Resource implementation. Each Project may own multiple stable, renameable Browser rows. Every row has an isolated profile and an explicit `stopped -> starting -> running -> stopping -> stopped` lifecycle; startup or runtime failure ends in `failed`. Operations are serialized per Browser identity, stale Viewer generations are rejected, and a Farming restart marks previously live rows failed instead of guessing whether an unowned browser process is safe to reuse.
+
+The Extension discovers a compatible system Chrome, Brave, Edge, or Chromium executable. It launches that executable headlessly and connects through raw CDP over WebSocket. Farming does not ship Chromium and the Extension has no Playwright or Puppeteer runtime dependency. `Page.startScreencast` supplies the authenticated in-workspace Viewer; Viewer pointer, wheel, keyboard and resize messages return through the same CDP target. Agent operations use the same target through accessibility snapshots, stable snapshot refs, screenshots, navigation and CDP input. `farming browser` is the initial Agent-facing bridge, with `farming-browser` retained as an npm-installed alias.
 
 Farming Code should be able to grow through Extensions instead of adding every new resource and Agent capability directly to the core product. A browser is the motivating example, but it should not become a one-off browser subsystem.
 
@@ -54,18 +58,18 @@ Agents may still have native or user-installed tools of their own. Farming does 
 
 ## Browser As An Extension
 
-A Browser Extension can own a Browser Session, its profile and automation endpoint. The Extension viewer displays that exact Session, while the Extension's Agent tools operate on the same identity. This lets a human observe or take over without requiring provider-specific browser code inside every Agent implementation.
+The built-in Browser Extension owns a Browser Session, its profile and CDP endpoint. The Extension viewer displays that exact Session, while the Extension's Agent tools operate on the same identity. This lets a human observe or take over without requiring provider-specific browser code inside every Agent implementation.
 
-The Browser Extension may use CDP, Playwright, a native web view, a streamed remote display or another implementation internally. Those choices should remain behind the Extension boundary. Farming core needs only the generic resource identity, viewer lifecycle, capability inventory, authorization and Agent association.
+The MVP intentionally uses one implementation: a system Chromium-family executable plus raw CDP and CDP Screencast. It does not expose the browser's native window chrome, extensions, download UI, DevTools, arbitrary desktop interaction or Computer Use. Those are separate product capabilities rather than hidden fallback paths.
 
-For a remote Linux Browser, an initial implementation could combine Chromium, a virtual display and a browser-delivered observer surface while exposing automation through CDP or Playwright. That implementation is an Extension concern, not a new permanent browser branch in Farming core.
+Each Browser has a durable unique id, belongs to one Project workspace, and may be opened directly with the `browser` URL query parameter. Browser metadata and profiles live under the Farming config directory; deleting the row stops its exact runtime before removing its isolated profile.
 
 ## Open Design Questions
 
 The first implementation must resolve these before the Extension API is treated as stable:
 
-- whether Agent tools are projected primarily through MCP, an ACP/client-tool extension, or a Farming-specific tool bridge;
-- whether a live resource is owned by an Agent, Project or explicitly shared workspace scope;
+- how the current `farming browser` bridge should later project through MCP, an ACP/client-tool extension, or another Farming capability transport;
+- whether future live resource types also default to Project ownership or need Agent and explicitly shared scopes;
 - how tool-name collisions and provider-native equivalents are surfaced;
 - how Extension UI is isolated and authorized inside the Farming page;
 - which lifecycle and recovery guarantees Farming core requires from a live Extension runtime.

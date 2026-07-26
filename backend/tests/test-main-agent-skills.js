@@ -25,6 +25,7 @@ async function run() {
   assert(skills.includes('farming memory report'));
   assert(skills.includes('attention steward'));
   assert(skills.includes('farming list --json'));
+  assert(skills.includes('farming browser snapshot <browser-id>'));
   assert(skills.includes('Do not spawn child agents just because you can'));
   assert(skills.includes('Poll at a low frequency'));
   assert(skills.includes('Report in short status summaries'));
