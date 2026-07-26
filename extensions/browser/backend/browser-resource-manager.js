@@ -75,7 +75,7 @@ class BrowserResourceManager extends EventEmitter {
       browser: executable ? { kind: executable.kind, path: executable.path } : null,
       message: !enabled
         ? 'Browser extension is disabled'
-        : (executable ? '' : 'Install Chrome, Brave, Edge, or Chromium to use a system Browser in Farming'),
+        : (executable ? '' : 'Install a Chromium-based browser to use the system Browser in Farming'),
     };
   }
 
@@ -132,7 +132,7 @@ class BrowserResourceManager extends EventEmitter {
       if (!executable) {
         const failed = this.store.update(id, {
           status: 'failed',
-          error: 'Install Chrome, Brave, Edge, or Chromium to use a system Browser in Farming',
+          error: 'Install a Chromium-based browser to use the system Browser in Farming',
         });
         this.emitResource(failed);
         throw browserError(failed.error, 503, 'BROWSER_EXECUTABLE_NOT_FOUND');
@@ -383,7 +383,7 @@ class BrowserResourceManager extends EventEmitter {
     this.requireEnabled();
     if (!this.discoverExecutable()) {
       throw browserError(
-        'Install Chrome, Brave, Edge, or Chromium to use a system Browser in Farming',
+        'Install a Chromium-based browser to use the system Browser in Farming',
         503,
         'BROWSER_EXECUTABLE_NOT_FOUND',
       );

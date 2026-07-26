@@ -119,7 +119,7 @@ test('explains which system browser must be installed when none is available', a
       enabled: true,
       available: false,
       browser: null,
-      message: 'Install Chrome, Brave, Edge, or Chromium to use a system Browser in Farming',
+      message: 'Install a Chromium-based browser to use the system Browser in Farming',
     }),
   }))
   await openFarming(page)
@@ -128,10 +128,10 @@ test('explains which system browser must be installed when none is available', a
   const settingsPanel = page.getByTestId('code-settings-panel')
   await expect(settingsPanel.getByText('System browser', { exact: true })).toBeVisible()
   await expect(settingsPanel.getByText(
-    'Install Chrome, Brave, Edge, or Chromium to use a system browser in Farming.',
+    'Install a Chromium-based browser to use a system browser in Farming.',
     { exact: true },
   )).toBeVisible()
-  await expect(settingsPanel.getByText('Install required', { exact: true })).toBeVisible()
+  await expect(settingsPanel.getByText('Chromium required', { exact: true })).toBeVisible()
   await expect(settingsPanel.getByRole('button', { name: 'System browser' })).toHaveCount(0)
   const screenshot = testInfo.outputPath('browser-settings-install-required.png')
   await settingsPanel.locator('.code-settings-panel').screenshot({ path: screenshot })

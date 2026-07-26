@@ -187,7 +187,7 @@ async function testBrowserResourceManager() {
     enabled: true,
     available: false,
     browser: null,
-    message: 'Install Chrome, Brave, Edge, or Chromium to use a system Browser in Farming',
+    message: 'Install a Chromium-based browser to use the system Browser in Farming',
   });
   const manager = new BrowserResourceManager({
     configDir,

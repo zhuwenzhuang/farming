@@ -2213,7 +2213,7 @@ app.post(routePath(BASE_PATH, '/api/settings'), express.json(), async (req, res)
   const browserExtensionEnabled = settingsPatch.browserExtensionEnabled === true;
   if (changesBrowserExtension && browserExtensionEnabled && !browserResourceManager.capability().browser) {
     res.status(400).json({
-      error: 'Install Chrome, Brave, Edge, or Chromium to use a system Browser in Farming',
+      error: 'Install a Chromium-based browser to use the system Browser in Farming',
       code: 'BROWSER_EXECUTABLE_NOT_FOUND',
     });
     return;

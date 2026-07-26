@@ -120,9 +120,9 @@ function panelCopy(language: UiPreferences['language']) {
       ? '在 Farming 中显示系统已安装的 Chromium 浏览器，并允许 Agent 按需操作。'
       : 'Show an installed system Chromium browser in Farming and let Agents operate it on demand.',
     browserExtensionUnavailableHint: zh
-      ? '请先安装 Chrome、Brave、Edge 或 Chromium，才能在 Farming 中使用系统浏览器。'
-      : 'Install Chrome, Brave, Edge, or Chromium to use a system browser in Farming.',
-    browserExtensionUnavailableStatus: zh ? '需要安装浏览器' : 'Install required',
+      ? '请先安装 Chromium 系浏览器，才能在 Farming 中使用系统浏览器。'
+      : 'Install a Chromium-based browser to use a system browser in Farming.',
+    browserExtensionUnavailableStatus: zh ? '需要 Chromium 浏览器' : 'Chromium required',
     browserExtensionToggle: zh ? '系统浏览器' : 'System browser',
     browserExtensionSaveFailed: zh ? '系统浏览器设置保存失败' : 'Failed to save system browser setting',
     language: zh ? '语言' : 'Language',
