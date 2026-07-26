@@ -37,6 +37,21 @@ test('keeps composer state attached to a stable provider session across agent re
   )
 })
 
+test('keeps chained temporary-session replacements on the original composer key', () => {
+  const replacement = agent({
+    id: 'agent-final',
+    providerSessionTemporary: true,
+    providerSessionId: 'tmp_uuid_final',
+    restartedFromAgentId: 'agent-intermediate',
+    restartedFromAgentIds: ['agent-original', 'agent-intermediate'],
+  })
+  assert.equal(composerStateKeyForAgent(replacement), 'agent-original')
+  assert.deepEqual(
+    composerStateAliasKeysForAgent(replacement).sort(),
+    ['agent-final', 'agent-intermediate', 'agent-original', 'agent-session:codex:tmp_uuid_final'].sort(),
+  )
+})
+
 test('merges replacement composer state without discarding queued follow-up messages', () => {
   const primary = createDefaultAgentComposerState()
   primary.draft = 'new draft'

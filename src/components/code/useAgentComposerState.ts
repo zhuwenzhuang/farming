@@ -48,7 +48,11 @@ export function useAgentComposerState({
       }
 
       if (permissionSwitchReplacement) {
+        const replacementAgent = agents.find(agent => (
+          agent.id === permissionSwitchReplacement.replacementAgentId
+        ))
         const moveReplacementState = (sourceKey: string, replacementKey: string) => {
+          if (sourceKey === replacementKey) return
           const sourceState = next[sourceKey]
           if (!sourceState) return
           const nextStateByKey = mutable()
@@ -60,11 +64,15 @@ export function useAgentComposerState({
         }
         moveReplacementState(
           permissionSwitchReplacement.originalAgentId,
-          permissionSwitchReplacement.replacementAgentId,
+          replacementAgent
+            ? composerStateKeyForAgent(replacementAgent)
+            : permissionSwitchReplacement.replacementAgentId,
         )
         moveReplacementState(
           `acp:${permissionSwitchReplacement.originalAgentId}`,
-          `acp:${permissionSwitchReplacement.replacementAgentId}`,
+          replacementAgent
+            ? acpComposerStateKeyForAgent(replacementAgent)
+            : `acp:${permissionSwitchReplacement.replacementAgentId}`,
         )
       }
 
