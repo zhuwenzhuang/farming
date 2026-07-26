@@ -1,7 +1,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { CheckGlyph, ChevronLeftGlyph, CloseGlyph, ColorModeGlyph, PlusGlyph } from '@/components/IconGlyphs'
 import { appPath } from '@/lib/base-path'
+import {
+  PET_SETTINGS_EVENT,
+  REST_REMINDER_CUSTOM_MINUTES_MAX,
+  REST_REMINDER_CUSTOM_MINUTES_MIN,
+  REST_REMINDER_IDLE_RESET_MINUTES,
+  REST_REMINDER_INTERVAL_PRESETS_SECONDS,
+  REST_REMINDER_TEST_INTERVAL_SECONDS,
+  isPetSettingsStorageKey,
+  normalizeRestReminderIntervalSeconds,
+  readPetAppearance,
+  readRestReminderIntervalSeconds,
+  savePetAppearance,
+  saveRestReminderIntervalSeconds,
+  type PetAppearance,
+} from '@/lib/pet/rest-reminder'
 import type { UiPreferences } from '@/lib/ui-preferences'
+import { usePetDefaultAppearance } from './pet/usePetDefaultAppearance'
 import type { AgentHomeSetting, AgentHomesSettings, GlobalSettings } from './types'
 import type { AgentLaunchOption } from './agent-launch-options'
 import type { BrowserCapability } from '../../../extensions/browser/frontend/types'
@@ -125,6 +141,30 @@ function panelCopy(language: UiPreferences['language']) {
     browserExtensionUnavailableStatus: zh ? '需要 Chromium 浏览器' : 'Chromium required',
     browserExtensionToggle: zh ? '系统浏览器' : 'System browser',
     browserExtensionSaveFailed: zh ? '系统浏览器设置保存失败' : 'Failed to save system browser setting',
+    farmingPet: 'Farming Pet',
+    petAppearance: zh ? '提醒样式' : 'Reminder style',
+    softGlow: zh ? '柔光' : 'Soft glow',
+    blackHole: zh ? '黑洞' : 'Black hole',
+    breakReminder: zh ? '休息提醒' : 'Break reminder',
+    breakReminderHint: zh
+      ? `Pet 按当前标签页内的 Farming 点击和输入计时；连续 ${REST_REMINDER_IDLE_RESET_MINUTES} 分钟无操作后自动重置。档位：5 秒观察、25、30、40、50、60、90 分钟、2、3、4 小时。`
+      : `Pet counts Farming clicks and input in this tab; it resets after ${REST_REMINDER_IDLE_RESET_MINUTES} minutes without activity. Presets: 5-sec preview; 25, 30, 40, 50, 60, and 90 min; 2, 3, and 4 hr.`,
+    breakReminderValue: (seconds: number | null) => {
+      if (!seconds || seconds <= 0) return zh ? '关闭' : 'Off'
+      if (seconds === REST_REMINDER_TEST_INTERVAL_SECONDS) {
+        return zh ? '5 秒（仅用于观察效果）' : '5 sec (preview only)'
+      }
+      const minutes = seconds / 60
+      if (minutes % 60 === 0) {
+        const hours = minutes / 60
+        return zh ? `每 ${hours} 小时` : `Every ${hours} hr`
+      }
+      return zh ? `每 ${minutes} 分钟` : `Every ${minutes} min`
+    },
+    breakReminderOffMarker: zh ? '关闭' : 'Off',
+    customBreakReminder: zh ? '自定义' : 'Custom',
+    customBreakReminderMinutes: zh ? '自定义提醒间隔（分钟）' : 'Custom reminder interval in minutes',
+    customBreakReminderUnit: zh ? '分钟' : 'min',
     language: zh ? '语言' : 'Language',
     english: 'English',
     chinese: '中文',
@@ -331,6 +371,7 @@ export function AgentHomesSettingsPanel({
   onBrowserCapabilityChange,
 }: AgentHomesSettingsPanelProps) {
   const copy = useMemo(() => panelCopy(language), [language])
+  const defaultPetAppearance = usePetDefaultAppearance(uiPreferences.appearance)
   const closeButtonRef = useRef<HTMLButtonElement | null>(null)
   const searchTimeoutSaveTimerRef = useRef<number | null>(null)
   const upgradeTargetVersionRef = useRef('')
@@ -344,6 +385,12 @@ export function AgentHomesSettingsPanel({
   const [browserExtensionEnabled, setBrowserExtensionEnabled] = useState(false)
   const [browserCapability, setBrowserCapability] = useState<BrowserCapability | null>(null)
   const [browserSaving, setBrowserSaving] = useState(false)
+  const [restReminderIntervalSeconds, setRestReminderIntervalSecondsState] = useState<number | null>(
+    readRestReminderIntervalSeconds,
+  )
+  const [petAppearance, setPetAppearanceState] = useState<PetAppearance>(() => (
+    readPetAppearance(undefined, defaultPetAppearance)
+  ))
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null)
   const [selectedUpdateAsset, setSelectedUpdateAsset] = useState('')
   const [updateChecking, setUpdateChecking] = useState(false)
@@ -429,9 +476,41 @@ export function AgentHomesSettingsPanel({
   useEffect(() => {
     if (!open) return
     if (!homesSaveRequestRef.current) setSaving(false)
+    setRestReminderIntervalSecondsState(readRestReminderIntervalSeconds())
     loadSettings()
     window.requestAnimationFrame(() => closeButtonRef.current?.focus({ preventScroll: true }))
   }, [loadSettings, open])
+
+  useEffect(() => {
+    setPetAppearanceState(readPetAppearance(undefined, defaultPetAppearance))
+  }, [defaultPetAppearance, open])
+
+  useEffect(() => {
+    const onSetting = (event: Event) => {
+      const detail = (event as CustomEvent<{
+        intervalSeconds?: number
+        appearance?: PetAppearance
+      }>).detail
+      setRestReminderIntervalSecondsState(normalizeRestReminderIntervalSeconds(
+        detail?.intervalSeconds,
+      ))
+      setPetAppearanceState(
+        detail?.appearance ?? readPetAppearance(undefined, defaultPetAppearance),
+      )
+    }
+    const onStorage = (event: StorageEvent) => {
+      if (isPetSettingsStorageKey(event.key)) {
+        setRestReminderIntervalSecondsState(readRestReminderIntervalSeconds())
+        setPetAppearanceState(readPetAppearance(undefined, defaultPetAppearance))
+      }
+    }
+    window.addEventListener(PET_SETTINGS_EVENT, onSetting)
+    window.addEventListener('storage', onStorage)
+    return () => {
+      window.removeEventListener(PET_SETTINGS_EVENT, onSetting)
+      window.removeEventListener('storage', onStorage)
+    }
+  }, [defaultPetAppearance])
 
   useEffect(() => {
     if (!open) return undefined
@@ -561,6 +640,47 @@ export function AgentHomesSettingsPanel({
         .catch(error => setError(error instanceof Error ? error.message : copy.saveFailed))
     }, 120)
   }, [copy.saveFailed])
+
+  const setRestReminderIntervalSeconds = useCallback((seconds: number) => {
+    if (!saveRestReminderIntervalSeconds(seconds, undefined, defaultPetAppearance)) {
+      setError(copy.saveFailed)
+      return
+    }
+    setError('')
+    setRestReminderIntervalSecondsState(seconds)
+  }, [copy.saveFailed, defaultPetAppearance])
+
+  const setPetAppearance = useCallback((appearance: PetAppearance) => {
+    if (!savePetAppearance(appearance)) {
+      setError(copy.saveFailed)
+      return
+    }
+    setError('')
+    setPetAppearanceState(appearance)
+  }, [copy.saveFailed])
+
+  const restReminderSliderOptions = useMemo(() => {
+    const presets = [...REST_REMINDER_INTERVAL_PRESETS_SECONDS] as number[]
+    if (
+      restReminderIntervalSeconds === null
+      || presets.includes(restReminderIntervalSeconds)
+    ) return presets
+    return [...presets, restReminderIntervalSeconds].sort((left, right) => left - right)
+  }, [restReminderIntervalSeconds])
+
+  const commitCustomRestReminderMinutes = useCallback((input: HTMLInputElement) => {
+    const minutes = Number(input.value)
+    const valid = Number.isInteger(minutes)
+      && minutes >= REST_REMINDER_CUSTOM_MINUTES_MIN
+      && minutes <= REST_REMINDER_CUSTOM_MINUTES_MAX
+    if (valid) {
+      setRestReminderIntervalSeconds(minutes * 60)
+      return
+    }
+    input.value = restReminderIntervalSeconds && restReminderIntervalSeconds >= 60
+      ? String(restReminderIntervalSeconds / 60)
+      : ''
+  }, [restReminderIntervalSeconds, setRestReminderIntervalSeconds])
 
   const toggleBrowserExtension = useCallback(async () => {
     if (browserSaving) return
@@ -773,9 +893,14 @@ export function AgentHomesSettingsPanel({
         ? copy.updateToVersion(targetUpdateVersion)
         : copy.updateAction
   return (
-    <div className="code-settings-panel-overlay" data-testid="code-settings-panel" onPointerDown={event => {
-      if (event.target === event.currentTarget) onClose()
-    }}>
+    <div
+      className="code-settings-panel-overlay"
+      data-testid="code-settings-panel"
+      data-pet-snapshot-exclude
+      onPointerDown={event => {
+        if (event.target === event.currentTarget) onClose()
+      }}
+    >
       <aside className="code-settings-panel" aria-modal="true" role="dialog" aria-labelledby="code-settings-panel-title">
         <header className="code-settings-panel-header">
           <button type="button" className="code-settings-panel-back" onClick={onClose} aria-label={copy.back}><ChevronLeftGlyph /></button>
@@ -889,6 +1014,88 @@ export function AgentHomesSettingsPanel({
                   onChange={event => setSearchTimeout(SEARCH_TIMEOUT_OPTIONS_SECONDS[Number(event.target.value)] ?? 15)}
                 />
                 <output>{copy.searchTimeoutValue(searchTimeoutSeconds)}</output>
+              </div>
+            </div>
+          </section>
+
+          <section className="code-settings-section code-settings-group">
+            <div className="code-settings-section-heading">
+              <div><h3>{copy.farmingPet}</h3></div>
+            </div>
+            <div className="code-settings-card">
+              <div className="code-settings-choice-row code-settings-pet-appearance-row">
+                <div className="code-settings-row-copy">
+                  <strong>{copy.petAppearance}</strong>
+                </div>
+                <div className="code-settings-pet-appearance-options" role="group" aria-label={copy.petAppearance}>
+                  <button
+                    type="button"
+                    className={petAppearance === 'glass' ? 'selected' : undefined}
+                    aria-pressed={petAppearance === 'glass'}
+                    onClick={() => setPetAppearance('glass')}
+                  >
+                    <span className="code-pet-appearance-icon glass" aria-hidden="true" />
+                    <span>{copy.softGlow}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={petAppearance === 'black-hole' ? 'selected' : undefined}
+                    aria-pressed={petAppearance === 'black-hole'}
+                    onClick={() => setPetAppearance('black-hole')}
+                  >
+                    <span className="code-pet-appearance-icon black-hole" aria-hidden="true" />
+                    <span>{copy.blackHole}</span>
+                  </button>
+                </div>
+              </div>
+              <div className="code-settings-choice-row code-settings-pet-rest-row">
+                <div className="code-settings-row-copy">
+                  <strong>{copy.breakReminder}</strong>
+                  <small>{copy.breakReminderHint}</small>
+                </div>
+                <div className="code-settings-pet-rest-control">
+                  <input
+                    type="range"
+                    min="0"
+                    max={String(restReminderSliderOptions.length - 1)}
+                    step="1"
+                    value={Math.max(0, restReminderSliderOptions.indexOf(
+                      restReminderIntervalSeconds ?? 0,
+                    ))}
+                    aria-label={copy.breakReminder}
+                    aria-valuetext={copy.breakReminderValue(restReminderIntervalSeconds)}
+                    onChange={event => setRestReminderIntervalSeconds(
+                      restReminderSliderOptions[Number(event.target.value)] ?? 0,
+                    )}
+                  />
+                  <span className="code-settings-pet-rest-off-marker">{copy.breakReminderOffMarker}</span>
+                </div>
+                <div className="code-settings-pet-rest-value">
+                  <output>{copy.breakReminderValue(restReminderIntervalSeconds)}</output>
+                  <label className="code-settings-pet-rest-custom">
+                    <span>{copy.customBreakReminder}</span>
+                    <input
+                      key={restReminderIntervalSeconds ?? 'unset'}
+                      type="number"
+                      min={REST_REMINDER_CUSTOM_MINUTES_MIN}
+                      max={REST_REMINDER_CUSTOM_MINUTES_MAX}
+                      step="1"
+                      defaultValue={restReminderIntervalSeconds && restReminderIntervalSeconds >= 60
+                        ? restReminderIntervalSeconds / 60
+                        : ''}
+                      placeholder={`${REST_REMINDER_CUSTOM_MINUTES_MIN}–${REST_REMINDER_CUSTOM_MINUTES_MAX}`}
+                      aria-label={copy.customBreakReminderMinutes}
+                      onBlur={event => commitCustomRestReminderMinutes(event.currentTarget)}
+                      onKeyDown={event => {
+                        if (event.key === 'Enter') event.currentTarget.blur()
+                        if (event.key === 'Escape') {
+                          commitCustomRestReminderMinutes(event.currentTarget)
+                        }
+                      }}
+                    />
+                    <span>{copy.customBreakReminderUnit}</span>
+                  </label>
+                </div>
               </div>
             </div>
           </section>

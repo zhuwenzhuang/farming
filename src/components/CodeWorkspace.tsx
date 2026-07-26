@@ -4777,6 +4777,8 @@ export function CodeWorkspace({
         mainAgent={hiddenMainAgent}
         usageSummary={usageSummary}
         instanceName={instanceName}
+        language={uiPreferences.language}
+        appearancePreference={uiPreferences.appearance}
         shareTarget={shareTarget}
         agentLaunchOptions={agentLaunchOptions}
         agentCreationWorkspace={agentCreationWorkspace}

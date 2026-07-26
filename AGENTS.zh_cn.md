@@ -97,6 +97,7 @@
 - **测试命名**：`test-[功能].js`
 - **E2E 命名**：`*.spec.ts`
 - **测试覆盖**：每个核心功能至少有一个测试用例
+- **复杂真实场景优先**：简单合成夹具只用于首轮 Smoke。非平凡 UI 或运行时改动进入验收前，必须选取信息丰富的真实或生产形态场景，组合覆盖相关界面与状态，例如长 Agent 对话、工具过程、Markdown、代码、图片、实时 xterm 输出、主题切换和生命周期转换。优先用少量有代表性的复杂场景暴露交互问题，而不是堆积互不关联的玩具 case；发现的每个缺陷仍需补充可重复的确定性回归测试。
 - **Codex ACP patch 能力**：锁定版本的 patch 必须同时声明审阅过的 `_codex/session/steer` 扩展，以及由 Codex `thread/fork` 支撑的标准 `session/fork`；任一协商能力消失时发行 Smoke 必须失败
 - **ACP 子进程持有的 Fork**：当 provider 的 Fork Session 在子会话第一次 Prompt 前只存在于创建它的 adapter 进程时，必须让新的子 Agent 在自己的隔离 adapter 中加载经过 revision fence 的源 Session、执行 Fork、关闭该进程临时加载的源 Session，并继续承载精确的子 Session 身份。启动时还必须私下传递经过 fence 的精确 binding checkpoint（包括有界的子会话 transcript 与已提交的 patch decision），并在 Fork 成功后以返回的子 Session 身份安装它，避免 provider replay 延迟把用户点击时的 transcript revision 替换掉或丢失工具状态。第一次 Prompt 前若进程丢失，必须显式失败而不能静默重新 Fork；启动回滚也必须先证明子进程已经停止，才能删除精确 Fork 身份；provider 删除失败时则必须保留并报告该精确身份，供操作者清理，不能只返回不含身份的通用错误
 - **按状态转换派生测试**：不能只验证 happy path 的最终结果；应覆盖合法转换、危险的非法事件序列、安全性不变量，以及暂态的有界推进和恢复，并按风险纳入并发、乱序、重试、取消、断连和重启

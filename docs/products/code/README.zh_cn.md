@@ -128,7 +128,7 @@ History 使用有边界的显式分页，不再持续拉长同一个滚动面。
 
 ## 不离开 Workspace 就能配置服务
 
-Settings 把 Interface、Language、Search Timeout、Installation Aware Update、Agent Permission 和 Agent Homes 放在一起。Agent Homes 允许同一个 Provider 使用多个 Identity / Configuration Root，同时保留一个不可删除的 Default Home。
+Settings 把 Interface、Language、Search Timeout、Farming Pet、Installation Aware Update、Agent Permission 和 Agent Homes 放在一起。Farming Pet 的第一项能力是当前标签页内显式启用的休息提醒：第一次 Farming 点击或输入开始一轮计时，连续五分钟没有这两类操作就自动重置，Agent Output 永远不算人的操作。当前周期会在页面刷新后恢复，切换 Pet 外观也不会重置计时。Slider 包含关闭和多档工作时长；到时先保留 30 秒安静窗口，再进入五分钟休息，进入前可以延后十分钟一次或关闭本轮提醒。紧凑布局不会主动显示首次邀请，用户仍可在 Settings 中开启。用户尚未明确选择 Pet 时，浅色外观默认柔光，深色外观默认黑洞；一旦用户手动选择，就始终以用户选择为准。黑洞样式把 WebGL 本体和局部 DOM 折射与提醒计时分离，页面隐藏时停止渲染，并始终保留一枚不受折射影响的结束休息按钮。Agent Homes 允许同一个 Provider 使用多个 Identity / Configuration Root，同时保留一个不可删除的 Default Home。
 
 ![Farming Code Settings](assets/14-code-settings.png)
 

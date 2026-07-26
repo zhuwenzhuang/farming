@@ -128,7 +128,7 @@ Archiving a live Codex Agent completes Farming's local archive first, then async
 
 ## Configure The Service Without Leaving The Workspace
 
-Settings groups interface, language, search timeout, installation-aware updates, Agent permissions, and Agent Homes. Agent Homes let one Provider keep multiple identity/configuration roots while retaining a non-removable default home.
+Settings groups interface, language, search timeout, Farming Pet, installation-aware updates, Agent permissions, and Agent Homes. Farming Pet's first capability is an opt-in break reminder for the current tab: the first Farming click or input starts a cycle, five minutes without either resets it, and Agent output never counts as human activity. The current cycle survives a page reload, and changing the Pet appearance does not reset it. The slider includes Off and several work intervals; a due reminder enters a five-minute break after a 30-second quiet window, with one ten-minute postponement or dismissal available beforehand. The first-use invitation is not proactively shown in compact layouts; the reminder remains available in Settings. Until the user explicitly chooses a Pet, light appearance defaults to Soft glow and dark appearance defaults to Black hole. An explicit choice always wins over the theme default. The black-hole appearance keeps its WebGL body and local DOM refraction separate from the reminder clock, stops rendering while the page is hidden, and retains an undistorted end-break control. Agent Homes let one Provider keep multiple identity/configuration roots while retaining a non-removable default home.
 
 ![Farming Code Settings](assets/14-code-settings.png)
 

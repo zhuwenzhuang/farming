@@ -61,6 +61,8 @@ import { useAgentWithLiveState } from '@/lib/agent-live-state'
 import { useAgentReorder } from './useAgentReorder'
 import { useDismissiblePopover } from './useDismissiblePopover'
 import { UsagePanel } from './UsagePanel'
+import { FarmingPet } from './pet/FarmingPet'
+import type { UiAppearance, UiLanguage } from '@/lib/ui-preferences'
 
 declare const __FARMING_PACKAGE_VERSION__: string
 
@@ -167,6 +169,8 @@ interface CodeSidebarProps {
   mainAgent: Agent | null
   usageSummary: UsageSummary | null
   instanceName: string
+  language: UiLanguage
+  appearancePreference: UiAppearance
   shareTarget: WorkspaceShareTarget | null
   agentLaunchOptions: AgentLaunchOption[]
   agentCreationWorkspace?: string
@@ -226,6 +230,8 @@ export function CodeSidebar({
   mainAgent,
   usageSummary,
   instanceName,
+  language,
+  appearancePreference,
   shareTarget,
   agentLaunchOptions,
   agentCreationWorkspace,
@@ -647,42 +653,48 @@ export function CodeSidebar({
             <PencilGlyph />
           </button>
         )}
-        <div className="code-product-row">
-          <button
-            ref={productMarkRef}
-            type="button"
-            className="code-product-mark"
-            data-testid="code-product-mark"
-            title="Farming Code"
-            aria-label="Farming Code"
-            onClick={() => setBrandDialogOpen(true)}
-          >
-            <img
-              className="code-product-logo"
-              src={appPath('/farming-2/app-icon-v2-180.png')}
-              alt=""
-              aria-hidden="true"
-            />
-            <span className="code-product-mark-copy">
-              <span className="code-product-mark-main-slot">
-                <span className="code-product-mark-main code-product-mark-main-full">Farming Code</span>
-                <span className="code-product-mark-main code-product-mark-main-short" aria-hidden="true">Farming</span>
+        <div className="code-product-pet-anchor">
+          <FarmingPet
+            language={language}
+            appearancePreference={appearancePreference}
+          />
+          <div className="code-product-row">
+            <button
+              ref={productMarkRef}
+              type="button"
+              className="code-product-mark"
+              data-testid="code-product-mark"
+              title="Farming Code"
+              aria-label="Farming Code"
+              onClick={() => setBrandDialogOpen(true)}
+            >
+              <img
+                className="code-product-logo"
+                src={appPath('/farming-2/app-icon-v2-180.png')}
+                alt=""
+                aria-hidden="true"
+              />
+              <span className="code-product-mark-copy">
+                <span className="code-product-mark-main-slot">
+                  <span className="code-product-mark-main code-product-mark-main-full">Farming Code</span>
+                  <span className="code-product-mark-main code-product-mark-main-short" aria-hidden="true">Farming</span>
+                </span>
+                {currentVersionLabel && (
+                  <span className="code-product-mark-badge">{currentVersionLabel}</span>
+                )}
               </span>
-              {currentVersionLabel && (
-                <span className="code-product-mark-badge">{currentVersionLabel}</span>
-              )}
-            </span>
-          </button>
-          <button
-            type="button"
-            className="code-sidebar-options"
-            data-testid="code-sidebar-options"
-            aria-label={copy.openSettings}
-            title={copy.openSettings}
-            onClick={onOpenOptionsMenu}
-          >
-            <SettingsGlyph />
-          </button>
+            </button>
+            <button
+              type="button"
+              className="code-sidebar-options"
+              data-testid="code-sidebar-options"
+              aria-label={copy.openSettings}
+              title={copy.openSettings}
+              onClick={onOpenOptionsMenu}
+            >
+              <SettingsGlyph />
+            </button>
+          </div>
         </div>
         {!sidebarCollapsed && (
           <UsagePanel

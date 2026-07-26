@@ -26,6 +26,7 @@ function run() {
     xtermSource.includes("adapted.__farmingTerminalEngine = 'xterm'") &&
       xtermSource.includes('new Terminal({') &&
       xtermSource.includes("import { ClipboardAddon } from '@xterm/addon-clipboard'") &&
+      xtermSource.includes("import { SerializeAddon } from '@xterm/addon-serialize'") &&
       xtermSource.includes("import { WebglAddon } from '@xterm/addon-webgl'") &&
       xtermSource.includes('new ClipboardAddon(undefined, createTerminalClipboardProvider())') &&
       xtermSource.includes('const webglAddon = new WebglAddon()') &&
@@ -33,7 +34,7 @@ function run() {
       xtermSource.includes("rendererType = 'webgl'") &&
       !xtermSource.includes('falling back to the DOM renderer') &&
       xtermSource.includes('adapted.reattach = () =>') &&
-      xtermSource.includes('terminal: decorateXtermTerminal(terminal, searchAddon, themeOverride)') &&
+      xtermSource.includes('terminal: decorateXtermTerminal(terminal, searchAddon, serializeAddon, themeOverride)') &&
       xtermSource.includes('adapted.forceRedraw = () =>') &&
       xtermSource.includes('terminal.clearTextureAtlas()') &&
       xtermSource.includes('adapted.clearTerminalSelection = () => terminal.clearSelection()') &&
@@ -63,6 +64,7 @@ function run() {
       packageJson.dependencies['@xterm/xterm'] &&
       packageJson.dependencies['@xterm/addon-fit'] &&
       packageJson.dependencies['@xterm/addon-clipboard'] &&
+      packageJson.dependencies['@xterm/addon-serialize'] &&
       packageJson.dependencies['@xterm/addon-webgl'],
     'runtime dependencies should include xterm.js and its required product-path addons'
   );

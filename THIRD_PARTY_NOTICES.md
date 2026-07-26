@@ -31,6 +31,7 @@ preserved in bundled `node_modules` when bundled dependencies are enabled.
 | `express` | 4.22.2 | MIT | HTTP API server |
 | `ghostty-web` | 0.4.0 | MIT | Optional/debug terminal renderer assets |
 | `highlight.js` | 11.11.1 | BSD-3-Clause | Syntax highlighting |
+| `html2canvas` | 1.4.1 | MIT | Pet rest-scene snapshot capture |
 | `katex` | 0.17.0 | MIT | Mathematical notation rendering |
 | `material-icon-theme` | 5.36.1 | MIT | File and folder icons |
 | `mermaid` | 11.16.0 | MIT | Diagram rendering |

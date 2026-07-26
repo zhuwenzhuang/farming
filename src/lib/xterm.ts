@@ -2,6 +2,7 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { ClipboardAddon } from '@xterm/addon-clipboard'
 import { SearchAddon, type ISearchResultChangeEvent } from '@xterm/addon-search'
+import { SerializeAddon } from '@xterm/addon-serialize'
 import { WebglAddon } from '@xterm/addon-webgl'
 import '@xterm/xterm/css/xterm.css'
 
@@ -177,6 +178,67 @@ function getXtermViewportTopLine(terminal: Terminal) {
   return Math.max(0, terminal.buffer.active.viewportY)
 }
 
+type SnapshotTerminal = {
+  serializeAddon: SerializeAddon
+  terminal: Terminal
+}
+
+const snapshotTerminals = new Set<SnapshotTerminal>()
+
+export function createXtermSnapshotOverlays() {
+  const overlays: HTMLElement[] = []
+
+  snapshotTerminals.forEach(({ serializeAddon, terminal }) => {
+    const screen = getXtermScreenElement(terminal)
+    if (!screen || !screen.isConnected) return
+    const rect = screen.getBoundingClientRect()
+    if (rect.width <= 0 || rect.height <= 0) return
+
+    const viewportStart = getXtermViewportTopLine(terminal)
+    const serialized = serializeAddon.serializeAsHTML({
+      includeGlobalBackground: true,
+      range: {
+        startLine: viewportStart,
+        endLine: viewportStart + Math.max(0, terminal.rows - 1),
+        startCol: 0,
+      },
+    })
+    const parsed = new DOMParser().parseFromString(serialized, 'text/html')
+    const content = parsed.querySelector('pre > div')
+    if (!(content instanceof HTMLElement)) return
+
+    const overlay = document.createElement('div')
+    overlay.dataset.petXtermSnapshot = ''
+    overlay.setAttribute('aria-hidden', 'true')
+    Object.assign(overlay.style, {
+      position: 'fixed',
+      zIndex: '2147480000',
+      left: `${rect.left}px`,
+      top: `${rect.top}px`,
+      width: `${rect.width}px`,
+      height: `${rect.height}px`,
+      overflow: 'hidden',
+      pointerEvents: 'none',
+      visibility: 'hidden',
+      background: terminal.options.theme?.background ?? '#0d1117',
+    })
+
+    const rendered = content.cloneNode(true) as HTMLElement
+    Object.assign(rendered.style, {
+      width: 'max-content',
+      minWidth: '100%',
+      margin: '0',
+      lineHeight: String(terminal.options.lineHeight),
+      whiteSpace: 'pre',
+    })
+    overlay.append(rendered)
+    document.body.append(overlay)
+    overlays.push(overlay)
+  })
+
+  return () => overlays.forEach(overlay => overlay.remove())
+}
+
 function syncXtermViewportTopLine(terminal: Terminal, line: number) {
   void terminal
   void line
@@ -207,6 +269,7 @@ function xtermSearchDecorations() {
 function decorateXtermTerminal(
   terminal: Terminal,
   searchAddon: SearchAddon,
+  serializeAddon: SerializeAddon,
   themeOverride?: typeof DARK_THEME,
 ): XtermBackedTerminal {
   const adapted = terminal as unknown as XtermBackedTerminal
@@ -220,6 +283,8 @@ function decorateXtermTerminal(
   let rendererType: 'pending' | 'webgl' | 'failed' = 'pending'
   let rendererFailure: Error | null = null
   let contextLossSubscription: { dispose: () => void } | null = null
+  const snapshotTerminal = { serializeAddon, terminal }
+  snapshotTerminals.add(snapshotTerminal)
 
   const failRenderer = (error: Error) => {
     if (rendererType === 'failed') return
@@ -265,6 +330,7 @@ function decorateXtermTerminal(
   adapted.dispose = () => {
     contextLossSubscription?.dispose()
     contextLossSubscription = null
+    snapshotTerminals.delete(snapshotTerminal)
     rendererFailureHandlers.clear()
     nativeDispose()
   }
@@ -423,12 +489,14 @@ export async function createXtermTerminalInstance(options?: {
     },
   })
   const searchAddon = new SearchAddon({ highlightLimit: 2000 })
+  const serializeAddon = new SerializeAddon()
   terminal.loadAddon(new ClipboardAddon(undefined, createTerminalClipboardProvider()))
   terminal.loadAddon(searchAddon)
+  terminal.loadAddon(serializeAddon)
   watchXtermAppearance(terminal, themeOverride)
 
   return {
-    terminal: decorateXtermTerminal(terminal, searchAddon, themeOverride),
+    terminal: decorateXtermTerminal(terminal, searchAddon, serializeAddon, themeOverride),
     fitAddon: new FitAddon() as unknown as GhosttyFitAddon,
   }
 }
