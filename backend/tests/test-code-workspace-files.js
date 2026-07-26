@@ -1505,7 +1505,6 @@ function run() {
       workspaceSource.includes("src={appPath('/farming-2/app-icon-v2-180.png')}") &&
       workspaceSource.includes('className="code-product-logo"') &&
       stylesSource.includes('.code-product-mark-copy') &&
-      stylesSource.includes('.code-product-mark-meta') &&
       stylesSource.includes('.code-product-mark-badge') &&
       stylesSource.includes('.code-brand-dialog') &&
       stylesSource.includes('.code-brand-story') &&

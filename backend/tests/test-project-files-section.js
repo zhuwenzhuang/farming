@@ -1947,7 +1947,6 @@ function run() {
       editorMonacoControllerSource.includes('new MutationObserver(() => applyWorkspaceEditorMonacoTheme(editor))') &&
 	      darkStylesSource.includes("body.code-mode[data-appearance='dark'] .code-file-monaco") &&
 	      darkStylesSource.includes("body.code-mode[data-appearance='dark'] .code-file-editor-source-region") &&
-	      darkStylesSource.includes("body.code-mode[data-appearance='dark'] .code-file-editor-split") &&
 	      darkStylesSource.includes("body.code-mode[data-appearance='dark'] .code-file-diff-view") &&
       darkStylesSource.includes(".code-file-diff-monaco,\nbody.code-mode[data-appearance='dark'] .code-file-preview-panel") &&
       darkStylesSource.includes('.code-file-inline-blame') &&

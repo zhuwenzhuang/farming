@@ -191,8 +191,6 @@ body.code-mode[data-appearance='dark'] .workspace-input input,
 body.code-mode[data-appearance='dark'] .workspace-directory-picker,
 body.code-mode[data-appearance='dark'] .workspace-input select.workflow-select,
 body.code-mode[data-appearance='dark'] .workspace-input textarea.task-input,
-body.code-mode[data-appearance='dark'] .settings-input,
-body.code-mode[data-appearance='dark'] .settings-select,
 body.code-mode[data-appearance='dark'] .code-file-operation-dialog input {
   background: var(--code-dark-bg-panel);
   border-color: var(--code-dark-border);
@@ -423,7 +421,6 @@ body.code-mode[data-appearance='dark'] .code-open-editor-name,
 body.code-mode[data-appearance='dark'] .code-project-title-name,
 body.code-mode[data-appearance='dark'] .code-product-mark-main,
 body.code-mode[data-appearance='dark'] .code-usage-row strong,
-body.code-mode[data-appearance='dark'] .code-terminal-title,
 body.code-mode[data-appearance='dark'] .code-empty-workspace h2,
 body.code-mode[data-appearance='dark'] .code-search-panel-header h2,
 body.code-mode[data-appearance='dark'] .code-search-result-copy strong,
@@ -438,7 +435,6 @@ body.code-mode[data-appearance='dark'] .code-agent-fork-new-worktree,
 body.code-mode[data-appearance='dark'] .code-open-editor-path,
 body.code-mode[data-appearance='dark'] .code-file-search-preview,
 body.code-mode[data-appearance='dark'] .code-file-status,
-body.code-mode[data-appearance='dark'] .code-product-mark-meta,
 body.code-mode[data-appearance='dark'] .code-product-mark-badge,
 body.code-mode[data-appearance='dark'] .code-usage-panel,
 body.code-mode[data-appearance='dark'] .code-usage-header,
@@ -1922,7 +1918,6 @@ body.code-mode[data-appearance='dark'] .code-file-editor-fallback-textarea {
 }
 
 body.code-mode[data-appearance='dark'] .code-file-monaco,
-body.code-mode[data-appearance='dark'] .code-file-editor-split,
 body.code-mode[data-appearance='dark'] .code-file-editor-source-region,
 body.code-mode[data-appearance='dark'] .code-file-diff-view,
 body.code-mode[data-appearance='dark'] .code-file-diff-monaco,
@@ -1931,7 +1926,6 @@ body.code-mode[data-appearance='dark'] .code-file-preview-panel {
   color: var(--code-dark-text);
 }
 
-body.code-mode[data-appearance='dark'] .code-file-editor-split.markdown .code-file-monaco,
 body.code-mode[data-appearance='dark'] .code-file-editor-source-region.markdown-split .code-file-monaco {
   border-color: var(--code-dark-border);
 }
@@ -2421,16 +2415,13 @@ body.code-mode[data-appearance='dark'] .code-acp-request header span {
   color: var(--code-dark-text-muted);
 }
 
-body.code-mode[data-appearance='dark'] .code-acp-request-command code,
 body.code-mode[data-appearance='dark'] .code-acp-request input,
-body.code-mode[data-appearance='dark'] .code-acp-request-options button,
 body.code-mode[data-appearance='dark'] .code-acp-request-actions button {
   border-color: var(--code-dark-border);
   background: var(--code-dark-bg);
   color: var(--code-dark-text-soft);
 }
 
-body.code-mode[data-appearance='dark'] .code-acp-request-options button.active,
 body.code-mode[data-appearance='dark'] .code-acp-request-actions button.approve {
   border-color: #6f816b;
   background: #6f816b;
@@ -2656,7 +2647,6 @@ body.code-mode[data-appearance='dark'] .code-file-save-confirm-backdrop {
 }
 
 body.code-mode[data-appearance='dark'] .input-dialog,
-body.code-mode[data-appearance='dark'] .settings-dialog,
 body.code-mode[data-appearance='dark'] .code-rename-dialog,
 body.code-mode[data-appearance='dark'] .code-file-save-confirm-dialog,
 body.code-mode[data-appearance='dark'] .workspace-history,
@@ -2665,9 +2655,6 @@ body.code-mode[data-appearance='dark'] .agent-list,
 body.code-mode[data-appearance='dark'] .agent-item,
 body.code-mode[data-appearance='dark'] .agent-list-status,
 body.code-mode[data-appearance='dark'] .main-agent-resume-option,
-body.code-mode[data-appearance='dark'] .theme-option,
-body.code-mode[data-appearance='dark'] .settings-field,
-body.code-mode[data-appearance='dark'] .settings-checkbox,
 body.code-mode[data-appearance='dark'] .code-file-operation-dialog {
   background: var(--code-dark-bg-elevated);
   border-color: var(--code-dark-border);
@@ -2683,12 +2670,7 @@ body.code-mode[data-appearance='dark'] .input-dialog .dialog-header {
 body.code-mode[data-appearance='dark'] .dialog-header-title,
 body.code-mode[data-appearance='dark'] .group-label,
 body.code-mode[data-appearance='dark'] .workspace-field-copy,
-body.code-mode[data-appearance='dark'] .workspace-selected-agent strong,
-body.code-mode[data-appearance='dark'] .section-title,
-body.code-mode[data-appearance='dark'] .settings-field label,
-body.code-mode[data-appearance='dark'] .settings-checkbox span,
 body.code-mode[data-appearance='dark'] .agent-item-name,
-body.code-mode[data-appearance='dark'] .theme-name,
 body.code-mode[data-appearance='dark'] .main-agent-resume-title,
 body.code-mode[data-appearance='dark'] .code-rename-dialog label,
 body.code-mode[data-appearance='dark'] .code-kill-dialog h2,
@@ -2697,12 +2679,7 @@ body.code-mode[data-appearance='dark'] .code-file-save-confirm-dialog h2 {
 }
 
 body.code-mode[data-appearance='dark'] .agent-item-desc,
-body.code-mode[data-appearance='dark'] .theme-desc,
-body.code-mode[data-appearance='dark'] .settings-hint,
-body.code-mode[data-appearance='dark'] .settings-field .settings-hint,
-body.code-mode[data-appearance='dark'] .settings-checkbox .settings-checkbox-hint,
 body.code-mode[data-appearance='dark'] .main-agent-resume-detail,
-body.code-mode[data-appearance='dark'] .workspace-selected-agent,
 body.code-mode[data-appearance='dark'] .workspace-history-header .hint,
 body.code-mode[data-appearance='dark'] .workspace-history-index,
 body.code-mode[data-appearance='dark'] .workspace-path-suggestion-path,
@@ -2731,9 +2708,7 @@ body.code-mode[data-appearance='dark'] .agent-launch-icon-theme-dark {
 
 body.code-mode[data-appearance='dark'] .workspace-input select.workflow-select:focus,
 body.code-mode[data-appearance='dark'] .workspace-input textarea.task-input:focus,
-body.code-mode[data-appearance='dark'] .workspace-input input:focus,
-body.code-mode[data-appearance='dark'] .settings-input:focus,
-body.code-mode[data-appearance='dark'] .settings-select:focus {
+body.code-mode[data-appearance='dark'] .workspace-input input:focus {
   border-color: rgba(88, 166, 255, 0.58);
   box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.16);
 }
@@ -2853,8 +2828,6 @@ body.code-mode[data-appearance='dark'] .workspace-path-suggestion-name {
 
 body.code-mode[data-appearance='dark'] .agent-item:hover,
 body.code-mode[data-appearance='dark'] .agent-item:focus-visible,
-body.code-mode[data-appearance='dark'] .theme-option:hover,
-body.code-mode[data-appearance='dark'] .theme-option.active,
 body.code-mode[data-appearance='dark'] .workspace-history-item:hover,
 body.code-mode[data-appearance='dark'] .workspace-history-item.active,
 body.code-mode[data-appearance='dark'] .workspace-path-suggestion:hover,
@@ -3142,7 +3115,6 @@ body.code-mode[data-appearance='dark'] .code-settings-update-url > span {
 
 body.code-mode[data-appearance='dark'] .code-settings-row-copy small,
 body.code-mode[data-appearance='dark'] .code-settings-search-timeout-row output,
-body.code-mode[data-appearance='dark'] .code-settings-update-status dt,
 body.code-mode[data-appearance='dark'] .code-settings-update-summary,
 body.code-mode[data-appearance='dark'] .code-agent-home-provider-title span,
 body.code-mode[data-appearance='dark'] .code-settings-inline-choice > svg,
@@ -3172,8 +3144,7 @@ body.code-mode[data-appearance='dark'] .code-settings-panel-close {
   border-color: #30363d;
 }
 
-body.code-mode[data-appearance='dark'] .code-agent-home-form input,
-body.code-mode[data-appearance='dark'] .code-settings-search-timeout-card input[type='range'] {
+body.code-mode[data-appearance='dark'] .code-agent-home-form input {
   background: #11151a;
   color: #d8dee9;
 }

@@ -7,7 +7,7 @@ const workspaceSource = fs.readFileSync(path.join(__dirname, '../../src/componen
 
 function loadMutationHelper() {
   const start = workspaceSource.indexOf('export type MainPageSessionKeyMutation =');
-  const end = workspaceSource.indexOf('\nasync function writeClipboardText', start);
+  const end = workspaceSource.indexOf('\nexport function CodeWorkspace', start);
   assert(start >= 0 && end > start, 'main-page mutation helper should remain directly testable');
   const compiled = ts.transpileModule(workspaceSource.slice(start, end), {
     compilerOptions: {

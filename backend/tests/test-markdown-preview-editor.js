@@ -181,8 +181,6 @@ function run() {
       copySource.includes('mermaidEnterFullscreen') &&
       copySource.includes('mermaidRenderFailed') &&
       stylesSource.includes('.code-file-preview-panel.markdown') &&
-      stylesSource.includes('.code-file-editor-split.markdown') &&
-      stylesSource.includes('.code-file-editor-split.markdown .code-file-monaco') &&
       stylesSource.includes('.code-file-editor-source-region.markdown-split') &&
       stylesSource.includes('.code-file-editor-source-region.markdown-split .code-file-monaco') &&
       stylesSource.includes('.code-markdown-preview') &&
@@ -196,7 +194,6 @@ function run() {
       stylesSource.includes('.code-file-editor.markdown-reading .code-file-editor-tab-strip') &&
       stylesSource.includes('.code-file-editor.markdown-reading .code-file-editor-action.source-preview') &&
       stylesSource.includes('.code-file-editor.markdown-reading .code-file-editor-action.markdown-split') &&
-      stylesSource.includes('.code-file-editor.markdown-reading .code-file-editor-split.markdown .code-file-monaco') &&
       stylesSource.includes('.code-file-editor.markdown-reading .code-file-editor-source-region.markdown-split .code-file-monaco') &&
       stylesSource.includes('.code-file-editor.markdown-reading .code-file-editor-action.source-preview::after') &&
       stylesSource.includes('.code-markdown-mermaid') &&
