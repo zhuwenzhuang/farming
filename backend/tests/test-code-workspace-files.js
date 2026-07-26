@@ -15,6 +15,7 @@ function run() {
     'src/components/code/CodeMainArea.tsx',
     'src/components/code/CodeOverlays.tsx',
     'src/components/code/CodeSidebar.tsx',
+    'src/components/code/UsagePanel.tsx',
     'src/components/code/agent-list-state.ts',
     'src/components/code/agent-row-state.ts',
     'src/components/code/agent-terminal-inference.ts',
@@ -825,7 +826,7 @@ function run() {
 	      workspaceSource.includes('function formatCollapsedUsageSummary(') &&
 	      workspaceSource.includes('function formatRemainingPercent(value: number | null | undefined)') &&
 	      workspaceSource.includes('function formatQuotaRemaining(limit: ProviderQuotaLimit)') &&
-	      workspaceSource.includes('function formatQuotaLimitValue(limit: ProviderQuotaLimit)') &&
+	      (workspaceSource.match(/formatQuotaRemaining\((?:primary|secondary)\)/g) || []).length === 2 &&
 	      workspaceSource.includes('function formatQuotaLimitTitle(source: string, limit: ProviderQuotaLimit)') &&
 	      workspaceSource.includes('function formatQuotaReset(resetsAt: number | null | undefined, now: number)') &&
 	      workspaceSource.includes("if (remainingMinutes === 0) return 'reset now'") &&
