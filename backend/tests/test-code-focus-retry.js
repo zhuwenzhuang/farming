@@ -77,7 +77,9 @@ function run() {
     { maxAttempts: 2, animationFrame: false },
     capped.scheduler,
   );
-  while (runNext(capped.timers)) {}
+  while (runNext(capped.timers)) {
+    // Drain every scheduled retry.
+  }
   assert.strictEqual(cappedAttempts, 2);
 
   console.log('test-code-focus-retry passed');
