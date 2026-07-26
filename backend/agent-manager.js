@@ -67,6 +67,7 @@ const { inspectGitWorktree } = require('./git-worktree-info');
 const { deserializeTerminalState } = require('./terminal-state-serialization');
 const { compareNativePtyRuntimeEpochs } = require('./native-pty-controller-generation');
 const { canonicalWorkspacePath } = require('./workspace-root-registry');
+const { mergeBrowserMcpServer } = require('../extensions/browser/backend/agent-capability');
 const {
   TERMINAL_OPERATION_STATES,
   activeLifecycleOperation,
@@ -814,6 +815,7 @@ class AgentManager extends EventEmitter {
     this.controlUrl = options.controlUrl || '';
     this.tokenFile = options.tokenFile || '';
     this.authDisabled = options.authDisabled === true;
+    this.browserMcpEnabled = options.browserMcpEnabled === true;
     this.skipExecutablePreflight = options.skipExecutablePreflight === true;
     this.cliBinDir = options.cliBinDir || path.join(__dirname, '..', 'bin');
     this.agentShellEnvProvider = typeof options.agentShellEnvProvider === 'function'
@@ -2018,11 +2020,16 @@ class AgentManager extends EventEmitter {
             ? this.configManager.getCodexApprovalMode()
             : 'approve'
         );
+        const recoveryEnv = this.buildAgentEnv(agentId, agent);
+        const recoveryMcpServers = this.projectAcpMcpServers(
+          Array.isArray(record.acpMcpServers) ? record.acpMcpServers : [],
+          recoveryEnv,
+        );
         const prepared = await this.acpRuntime.prepareAgent({
           agentId,
           provider,
           executable,
-          env: this.buildAgentEnv(agentId, agent),
+          env: recoveryEnv,
           cwd: agent.cwd,
           sessionId,
           historyMode: 'checkpoint',
@@ -2034,7 +2041,7 @@ class AgentManager extends EventEmitter {
           reasoningEffort: 'config',
           serviceTier: 'config',
           additionalDirectories: Array.isArray(record.acpAdditionalDirectories) ? record.acpAdditionalDirectories : [],
-          mcpServers: Array.isArray(record.acpMcpServers) ? record.acpMcpServers : [],
+          mcpServers: recoveryMcpServers,
           onProcessStarted: async processIdentity => {
             agent.structuredRuntimeProcess = {
               kind: 'acp-process-group',
@@ -2049,13 +2056,21 @@ class AgentManager extends EventEmitter {
           prepared.sessionId,
           agent.providerHomeId || record.providerHomeId || 'default'
         );
-        this.acpSessionOptionsByKey.set(agent.providerSessionKey, {
+        let recoveredSessionOptions = {
           additionalDirectories: Array.isArray(record.acpAdditionalDirectories)
-            ? [...record.acpAdditionalDirectories]
+            ? record.acpAdditionalDirectories
             : [],
-          mcpServers: Array.isArray(record.acpMcpServers)
-            ? JSON.parse(JSON.stringify(record.acpMcpServers))
-            : [],
+          mcpServers: recoveryMcpServers,
+        };
+        try {
+          recoveredSessionOptions = this.acpRuntime.getSessionRequestOptions(agentId);
+        } catch {
+          // The live binding already validated these options. Retain the
+          // projected copy for custom runtimes that do not expose it.
+        }
+        this.acpSessionOptionsByKey.set(agent.providerSessionKey, {
+          additionalDirectories: [...recoveredSessionOptions.additionalDirectories],
+          mcpServers: JSON.parse(JSON.stringify(recoveredSessionOptions.mcpServers)),
         });
         agent.providerSessionTemporary = false;
         agent.providerSessionSource = `acp-${prepared.historyMode}`;
@@ -3142,6 +3157,14 @@ class AgentManager extends EventEmitter {
     return env;
   }
 
+  projectAcpMcpServers(mcpServers, agentEnv) {
+    if (!this.browserMcpEnabled) return Array.isArray(mcpServers) ? mcpServers : [];
+    return mergeBrowserMcpServer(mcpServers, {
+      cliBinDir: this.cliBinDir,
+      agentEnv,
+    });
+  }
+
   expandWorkspacePath(workspace) {
     if (typeof workspace !== 'string') return '';
     const value = workspace.trim();
@@ -4212,7 +4235,10 @@ class AgentManager extends EventEmitter {
         const requestedAdditionalDirectories = Array.isArray(options.additionalDirectories)
           ? options.additionalDirectories
           : [];
-        const requestedMcpServers = Array.isArray(options.mcpServers) ? options.mcpServers : [];
+        const requestedMcpServers = this.projectAcpMcpServers(
+          Array.isArray(options.mcpServers) ? options.mcpServers : [],
+          identityEnv,
+        );
         const created = await this.createProviderSessionIdentity({
           provider: providerSessionPlan.provider,
           executable: spawnProgram,
@@ -4366,14 +4392,16 @@ class AgentManager extends EventEmitter {
         const additionalDirectories = Array.isArray(options.additionalDirectories)
           ? options.additionalDirectories
           : rememberedSessionOptions.additionalDirectories || [];
-        const mcpServers = Array.isArray(options.mcpServers)
+        const requestedMcpServers = Array.isArray(options.mcpServers)
           ? options.mcpServers
           : rememberedSessionOptions.mcpServers || [];
+        const acpEnv = this.buildAgentEnv(agentId, agentRecord);
+        const mcpServers = this.projectAcpMcpServers(requestedMcpServers, acpEnv);
         const prepared = await this.acpRuntime.prepareAgent({
           agentId,
           provider: structuredRuntimeProvider,
           executable: spawnProgram,
-          env: this.buildAgentEnv(agentId, agentRecord),
+          env: acpEnv,
           cwd: workspace,
           sessionId: options.acpStartFresh === true || agentRecord.providerSessionTemporary || acpGeneratedFreshSession
             ? ''

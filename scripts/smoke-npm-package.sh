@@ -108,6 +108,7 @@ if (fs.realpathSync(launch.args.at(-1)) !== fs.realpathSync(vendorEntry)) {
 }
 NODE
 node "${PROJECT_ROOT}/scripts/smoke-codex-acp-process.js" --package-root "${PACKAGE_ROOT}"
+node "${PROJECT_ROOT}/scripts/smoke-browser-mcp-process.js" --package-root "${PACKAGE_ROOT}"
 "${PREFIX}/bin/farming" help >/dev/null
 FARMING_DISABLE_AUTH=1 FARMING_NATIVE_PTY_HOST_PERSIST=0 "${PREFIX}/bin/farming" daemon \
   --port "${PORT_VALUE}" \

@@ -17,6 +17,7 @@ preserved in bundled `node_modules` when bundled dependencies are enabled.
 | `@agentclientprotocol/sdk` | 1.2.1 | Apache-2.0 | ACP JSON-RPC client and protocol types |
 | `@agentclientprotocol/codex-acp` | 1.1.4 | Apache-2.0 | Codex ACP adapter |
 | `@agentclientprotocol/claude-agent-acp` | 0.59.0 | Apache-2.0 | Claude Code ACP adapter |
+| `@modelcontextprotocol/sdk` | 1.29.0 | MIT | Browser Extension MCP server and stdio transport |
 | `@xterm/addon-clipboard` | 0.2.0 | MIT | Browser terminal clipboard integration |
 | `@xterm/addon-fit` | 0.11.0 | MIT | Browser terminal sizing |
 | `@xterm/addon-search` | 0.16.0 | MIT | Browser terminal search |
@@ -47,6 +48,7 @@ preserved in bundled `node_modules` when bundled dependencies are enabled.
 | `ripgrep` | 0.3.1 | MIT | Node wrapper for file search support |
 | `ws` | 8.21.0 | MIT | WebSocket server/client support |
 | `yaml` | 2.9.0 | ISC | YAML parsing |
+| `zod` | 3.25.76 | MIT | MCP tool input schema validation |
 
 ## Vendored Assets
 

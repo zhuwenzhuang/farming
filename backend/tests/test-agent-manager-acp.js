@@ -34,7 +34,14 @@ async function run() {
     ...TEST_PROCESS_IDENTITY,
     resolveLaunch: () => ({ command: process.execPath, args: [fixture], version: 'test' }),
   });
-  const manager = new AgentManager(config(), { acpRuntime: runtime, skipExecutablePreflight: true });
+  const manager = new AgentManager(config(), {
+    acpRuntime: runtime,
+    skipExecutablePreflight: true,
+    browserMcpEnabled: true,
+    cliBinDir: '/opt/farming/bin',
+    controlUrl: 'http://127.0.0.1:6694/farming',
+    tokenFile: '/tmp/farming-test-token',
+  });
   let nativeMetadataUpdateCount = 0;
   manager.engineBridge.getEngine('native').updateSessionMetadata = async () => {
     nativeMetadataUpdateCount += 1;
@@ -61,6 +68,20 @@ async function run() {
     assert.deepStrictEqual(binding.sessionRequestOptions.additionalDirectories, [path.join(process.cwd(), 'docs')]);
     assert.deepStrictEqual(binding.sessionRequestOptions.mcpServers, [
       { name: 'docs', command: '/bin/docs-mcp', args: [], env: [] },
+      {
+        name: 'farming-browser',
+        command: '/opt/farming/bin/farming',
+        args: ['browser', 'mcp'],
+        env: [
+          { name: 'FARMING_AGENT_ID', value: agentId },
+          { name: 'FARMING_CONTROL_URL', value: 'http://127.0.0.1:6694/farming' },
+          { name: 'FARMING_PROJECT_WORKSPACE', value: process.cwd() },
+          { name: 'FARMING_TOKEN_FILE', value: '/tmp/farming-test-token' },
+        ],
+        _meta: {
+          'farming.dev/extension': 'browser',
+        },
+      },
     ]);
     const elicitationPromise = runtime.requestElicitation(binding, {
       sessionId: binding.sessionId,
@@ -132,11 +153,19 @@ async function run() {
       });
     });
     assert(resumedAgentId);
-    assert.deepStrictEqual(runtime.getSessionRequestOptions(resumedAgentId), {
-      cwd: process.cwd(),
-      additionalDirectories: [path.join(process.cwd(), 'docs')],
-      mcpServers: [{ name: 'docs', command: '/bin/docs-mcp', args: [], env: [] }],
+    const resumedOptions = runtime.getSessionRequestOptions(resumedAgentId);
+    assert.strictEqual(resumedOptions.cwd, process.cwd());
+    assert.deepStrictEqual(resumedOptions.additionalDirectories, [path.join(process.cwd(), 'docs')]);
+    assert.deepStrictEqual(resumedOptions.mcpServers[0], {
+      name: 'docs',
+      command: '/bin/docs-mcp',
+      args: [],
+      env: [],
     });
+    assert.strictEqual(resumedOptions.mcpServers[1].name, 'farming-browser');
+    assert(resumedOptions.mcpServers[1].env.some(entry => (
+      entry.name === 'FARMING_AGENT_ID' && entry.value === resumedAgentId
+    )));
   } finally {
     await manager.dispose();
   }

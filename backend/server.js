@@ -115,6 +115,7 @@ const agentManager = new AgentManager(configManager, {
   tokenFile: tokenAuth.getTokenFile(),
   authDisabled: !authEnabled,
   cliBinDir: resolveCliBinDir(),
+  browserMcpEnabled: true,
 });
 
 async function requireAgentRecoveryForHttp(res) {

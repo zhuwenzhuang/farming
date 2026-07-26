@@ -14,7 +14,9 @@ An explicitly opened readable file outside known project roots remains read-only
 
 The built-in Browser Extension is the first live Resource implementation. Each Project may own multiple stable, renameable Browser rows. Every row has an isolated profile and an explicit `stopped -> starting -> running -> stopping -> stopped` lifecycle; startup or runtime failure ends in `failed`. Operations are serialized per Browser identity, stale Viewer generations are rejected, and a Farming restart marks previously live rows failed instead of guessing whether an unowned browser process is safe to reuse.
 
-The Extension discovers a compatible system Chrome, Brave, Edge, or Chromium executable. It launches that executable headlessly and connects through raw CDP over WebSocket. Farming does not ship Chromium and the Extension has no Playwright or Puppeteer runtime dependency. `Page.startScreencast` supplies the authenticated in-workspace Viewer; Viewer pointer, wheel, keyboard and resize messages return through the same CDP target. Agent operations use the same target through accessibility snapshots, stable snapshot refs, screenshots, navigation and CDP input. `farming browser` is the initial Agent-facing bridge, with `farming-browser` retained as an npm-installed alias.
+The Extension discovers a compatible system Chrome, Brave, Edge, or Chromium executable. It launches that executable headlessly and connects through raw CDP over WebSocket. Farming does not ship Chromium and the Extension has no Playwright or Puppeteer runtime dependency. `Page.startScreencast` supplies the authenticated in-workspace Viewer; Viewer pointer, wheel, keyboard and resize messages return through the same CDP target. Agent operations use the same target through accessibility snapshots, stable snapshot refs, screenshots, navigation and CDP input.
+
+ACP Chat Agents discover these operations through the standard MCP `tools/list` contract. Farming attaches one local `farming-browser` stdio MCP Server when it creates, loads, resumes, or recovers the Agent Session. That small Server proxies the existing authenticated Browser HTTP API; it does not own CDP, launch another browser, or persist a credential value. Every tool call requires an explicit Browser id and is restricted to Browser Resources owned by the Agent's current Project. Terminal Agents retain the `farming browser` command bridge, with `farming-browser` available as an npm-installed alias.
 
 Farming Code should be able to grow through Extensions instead of adding every new resource and Agent capability directly to the core product. A browser is the motivating example, but it should not become a one-off browser subsystem.
 
@@ -38,7 +40,7 @@ Built-in Extensions and externally installed Extensions should use the same cont
 
 Extensions should publish Agent-facing tools through one Farming-owned capability contract. An Extension must not implement separate Codex, Claude, OpenCode and Qoder integrations.
 
-When Farming starts or resumes an Agent, the enabled Extension capabilities for that Agent are projected through the Provider Adapter at the session boundary. The concrete transport may differ by provider, but tool identity, schema, ownership, permission policy and result semantics remain defined by Farming's Extension contract.
+When Farming starts or resumes an Agent, the enabled Extension capabilities for that Agent are projected through the Provider Adapter at the session boundary. Browser currently uses a standard stdio MCP Server carried in ACP `mcpServers`; the ACP client discovers its schemas and descriptions through `tools/list`. Tool identity, schema, ownership, permission policy and result semantics remain defined by Farming's Extension contract.
 
 The intended relationship is:
 
@@ -68,7 +70,6 @@ Each Browser has a durable unique id, belongs to one Project workspace, and may 
 
 The first implementation must resolve these before the Extension API is treated as stable:
 
-- how the current `farming browser` bridge should later project through MCP, an ACP/client-tool extension, or another Farming capability transport;
 - whether future live resource types also default to Project ownership or need Agent and explicitly shared scopes;
 - how tool-name collisions and provider-native equivalents are surfaced;
 - how Extension UI is isolated and authorized inside the Farming page;

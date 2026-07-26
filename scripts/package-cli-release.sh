@@ -196,6 +196,7 @@ for target in "${TARGET_ARRAY[@]}"; do
     CODEX_PATH="${codex_bin}" node "${PROJECT_ROOT}/scripts/smoke-codex-acp-process.js" \
       --command "${out_bin}" \
       --arg --farming-codex-acp
+    node "${PROJECT_ROOT}/scripts/smoke-browser-mcp-process.js" --command "${out_bin}"
     if ! "${out_bin}" --farming-usage-history-smoke >/dev/null; then
       echo "Packaged CLI failed its Usage History worker + SQLite smoke: ${out_bin}" >&2
       exit 1

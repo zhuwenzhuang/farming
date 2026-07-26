@@ -113,6 +113,7 @@
     "@agentclientprotocol/claude-agent-acp": "0.59.0",
     "@agentclientprotocol/codex-acp": "1.1.4",
     "@agentclientprotocol/sdk": "1.2.1",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@xterm/addon-clipboard": "^0.2.0",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-search": "^0.16.0",
@@ -142,7 +143,8 @@
     "remark-math": "^6.0.0",
     "ripgrep": "^0.3.1",
     "ws": "^8.21.0",
-    "yaml": "^2.9.0"
+    "yaml": "^2.9.0",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

@@ -62,6 +62,11 @@ function run() {
     'native CLI targets must complete an ACP initialize handshake before their manifest is written',
   );
   assert(
+    packageScript.includes('smoke-browser-mcp-process.js')
+      && npmSmokeScript.includes('smoke-browser-mcp-process.js'),
+    'native CLI and npm packages must expose the Browser MCP tools/list contract',
+  );
+  assert(
     packageScript.includes('--farming-usage-history-smoke')
       && packageScript.includes('Usage History worker + SQLite smoke'),
     'native CLI targets must run the packaged Usage worker through SQLite before release',
