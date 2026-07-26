@@ -37,6 +37,7 @@ tarball="$({
   FARMING_RELEASE_ARCH=x64 \
   FARMING_RELEASE_NAME="${release_name}" \
   FARMING_RELEASE_PROFILE=linux-x64-glibc217 \
+  LDFLAGS="${LDFLAGS:-} -static-libstdc++ -static-libgcc" \
   npm_config_build_from_source=true \
     ./scripts/package-release.sh
 })"

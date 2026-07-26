@@ -6,7 +6,7 @@ const os = require('os');
 const path = require('path');
 const { verifyLinuxCompatRelease } = require('../../scripts/verify-linux-compat-release');
 
-function createBundle(root, glibcVersion) {
+function createBundle(root, glibcVersion, additionalNativeMarkers = '') {
   const bundleName = 'farming-2.2.5-linux-x64-glibc217';
   const bundleDir = path.join(root, bundleName);
   const ptyDir = path.join(bundleDir, 'node_modules/node-pty/build/Release');
@@ -18,7 +18,10 @@ function createBundle(root, glibcVersion) {
   fs.writeFileSync(path.join(bundleDir, 'scripts/install-release.sh'), '#!/bin/sh\n');
   fs.writeFileSync(path.join(bundleDir, 'shared/browser-protocol.js'), 'module.exports = {};\n');
   fs.writeFileSync(path.join(browserExtensionDir, 'index.js'), 'module.exports = {};\n');
-  fs.writeFileSync(path.join(ptyDir, 'pty.node'), `ELF fixture GLIBC_2.2.5 GLIBC_${glibcVersion}`);
+  fs.writeFileSync(
+    path.join(ptyDir, 'pty.node'),
+    `ELF fixture GLIBC_2.2.5 GLIBC_${glibcVersion} ${additionalNativeMarkers}`,
+  );
   fs.writeFileSync(path.join(bundleDir, 'RELEASE.json'), JSON.stringify({
     type: 'app-bundle',
     releaseVersion: '2.2.5',
@@ -42,12 +45,21 @@ function run() {
       () => verifyLinuxCompatRelease(createBundle(tempDir, '2.28')),
       /requires GLIBC_2\.28/,
     );
+    assert.throws(
+      () => verifyLinuxCompatRelease(createBundle(tempDir, '2.17', 'GLIBCXX_3.4.20')),
+      /requires GLIBCXX_3\.4\.20/,
+    );
+    assert.throws(
+      () => verifyLinuxCompatRelease(createBundle(tempDir, '2.17', 'CXXABI_1.3.8')),
+      /requires CXXABI_1\.3\.8/,
+    );
 
     const packageScript = fs.readFileSync(
       path.join(process.cwd(), 'scripts/package-linux-compat-release.sh'),
       'utf8',
     );
     assert(packageScript.includes('npm_config_build_from_source=true'));
+    assert(packageScript.includes('-static-libstdc++ -static-libgcc'));
     assert(packageScript.includes('FARMING_RELEASE_PROFILE=linux-x64-glibc217'));
     console.log('Linux compatibility release tests passed');
   } finally {
