@@ -73,7 +73,7 @@ async function run() {
     assert.strictEqual(archived.error, undefined);
     assert.deepStrictEqual(store.getMainPageSessionKeys(), []);
     const hiddenRecord = store.listAgentRecords().find(record => record.providerSessionKey === sessionKey);
-    assert.strictEqual(hiddenRecord.visibleOnMainPage, false);
+    assert.strictEqual(hiddenRecord.visibleOnMainPage, undefined);
     assert.strictEqual(hiddenRecord.customTitle, 'Persisted Claude name');
   } finally {
     await firstManager.dispose();

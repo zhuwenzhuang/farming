@@ -34,17 +34,18 @@
       },
 
       sendComposerMessage(agentId, message, attachments = [], options = {}) {
-        const requestId = options.onResult
-          ? `composer-${Date.now().toString(36)}-${++composerRequestSequence}`
-          : '';
+        const requestedId = typeof options.requestId === 'string' ? options.requestId.trim() : '';
+        const requestId = requestedId
+          || globalThis.crypto?.randomUUID?.()
+          || `composer-${Date.now().toString(36)}-${++composerRequestSequence}`;
         const sent = send({
           type: 'composer-input',
           agentId,
           message,
-          ...(requestId ? { requestId } : {}),
+          requestId,
           ...(attachments.length > 0 ? { attachments } : {}),
         });
-        if (sent && requestId) composerResults.set(requestId, options.onResult);
+        if (sent && options.onResult) composerResults.set(requestId, options.onResult);
         return sent;
       },
 
@@ -58,7 +59,7 @@
       },
 
       rejectPendingComposerMessages(message = 'Connection unavailable') {
-        composerResults.forEach(callback => callback({ accepted: false, message }));
+        composerResults.forEach(callback => callback({ accepted: false, message, uncertain: true }));
         composerResults.clear();
       },
 

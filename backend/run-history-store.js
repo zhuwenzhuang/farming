@@ -1,13 +1,6 @@
 const fs = require('fs');
-const path = require('path');
+const { atomicWriteJson } = require('./atomic-json-store');
 const storageLayout = require('./storage-layout');
-
-function atomicWriteJson(file, value) {
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const tmpFile = `${file}.${process.pid}.${Date.now()}.tmp`;
-  fs.writeFileSync(tmpFile, JSON.stringify(value, null, 2));
-  fs.renameSync(tmpFile, file);
-}
 
 class RunHistoryStore {
   constructor(configDir, options = {}) {
@@ -17,16 +10,18 @@ class RunHistoryStore {
     this.normalizeTaskHistory = typeof options.normalizeTaskHistory === 'function'
       ? options.normalizeTaskHistory
       : entries => (Array.isArray(entries) ? entries.slice(0, 200) : []);
+    this.writeJson = typeof options.writeJson === 'function' ? options.writeJson : atomicWriteJson;
     this.entries = null;
   }
 
   init({ legacyTaskHistory = [] } = {}) {
     fs.mkdirSync(this.historyDir, { recursive: true });
     const current = this.readEntries();
-    this.entries = current.length > 0
+    const nextEntries = current.length > 0
       ? current
       : this.normalizeTaskHistory(legacyTaskHistory);
-    this.writeEntries();
+    this.writeEntries(nextEntries);
+    this.entries = nextEntries;
   }
 
   readEntries() {
@@ -44,8 +39,8 @@ class RunHistoryStore {
     return this.entries;
   }
 
-  writeEntries() {
-    atomicWriteJson(this.runsFile, this.ensureEntries());
+  writeEntries(entries = this.ensureEntries()) {
+    this.writeJson(this.runsFile, entries);
   }
 
   getEntries() {
@@ -53,14 +48,16 @@ class RunHistoryStore {
   }
 
   setEntries(entries) {
-    this.entries = this.normalizeTaskHistory(entries);
-    this.writeEntries();
+    const nextEntries = this.normalizeTaskHistory(entries);
+    this.writeEntries(nextEntries);
+    this.entries = nextEntries;
     return this.getEntries();
   }
 
   appendEntry(entry) {
-    this.entries = this.normalizeTaskHistory([entry, ...this.ensureEntries()]);
-    this.writeEntries();
+    const nextEntries = this.normalizeTaskHistory([entry, ...this.ensureEntries()]);
+    this.writeEntries(nextEntries);
+    this.entries = nextEntries;
     return this.getEntries();
   }
 }

@@ -22,6 +22,8 @@ assert.strictEqual(validateClientMessage({ type: 'unknown' }).ok, false);
 assert.strictEqual(validateServerMessage({ type: 'state', state: { agents: [] } }).ok, true);
 assert.strictEqual(validateServerMessage({ type: 'state', state: {} }).ok, false);
 assert.strictEqual(validateServerMessage({ type: 'composer-input-result', requestId: 'request-1', agentId: 'a', accepted: true }).ok, true);
+assert.strictEqual(validateServerMessage({ type: 'composer-input-result', requestId: 'request-1', agentId: 'a', accepted: false, uncertain: true }).ok, true);
+assert.strictEqual(validateServerMessage({ type: 'composer-input-result', requestId: 'request-1', agentId: 'a', accepted: false, uncertain: 'true' }).ok, false);
 assert.strictEqual(validateServerMessage({ type: 'composer-input-result', requestId: 'request-1', agentId: 'a', accepted: 'true' }).ok, false);
 assert.strictEqual(validateServerMessage({
   type: 'agent-update',

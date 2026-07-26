@@ -101,7 +101,7 @@ function validateServerMessage(value) {
     case 'error': valid = stringField(value, 'message'); break;
     case 'command-ack': valid = stringField(value, 'requestId') && stringField(value, 'command'); break;
     case 'state': valid = objectMessage(value.state) && Array.isArray(value.state.agents); break;
-    case 'composer-input-result': valid = stringField(value, 'requestId') && stringField(value, 'agentId') && typeof value.accepted === 'boolean' && stringField(value, 'message', true); break;
+    case 'composer-input-result': valid = stringField(value, 'requestId') && stringField(value, 'agentId') && typeof value.accepted === 'boolean' && stringField(value, 'message', true) && (!Object.prototype.hasOwnProperty.call(value, 'uncertain') || typeof value.uncertain === 'boolean'); break;
     case 'agent-started': valid = stringField(value, 'agentId'); break;
     case 'session-output': valid = objectMessage(value.stream) && stringField(value.stream, 'agentId'); break;
     case 'session-preview': valid = objectMessage(value.preview) && stringField(value.preview, 'agentId'); break;

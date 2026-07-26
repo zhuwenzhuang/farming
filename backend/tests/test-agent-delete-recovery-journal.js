@@ -190,7 +190,7 @@ async function run() {
     assert.strictEqual(recoveredManager.agents.has(successfulAgent.id), false);
     const deletedRecord = recoveredStore.readRecord(successfulAgent.persistentSessionId);
     assert.strictEqual(latestLifecycleOperation(deletedRecord).state, 'succeeded');
-    assert.strictEqual(deletedRecord.visibleOnMainPage, false);
+    assert.strictEqual(deletedRecord.visibleOnMainPage, undefined);
     assert.strictEqual(deletedRecord.runtimeAgentId, '');
     assert.strictEqual(
       recoveredStore.getMainPageSessionKeys().includes(successfulAgent.providerSessionKey),

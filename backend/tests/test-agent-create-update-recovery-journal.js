@@ -401,7 +401,11 @@ async function run() {
       `agent-session:claude:${rollbackSessionId}`,
     );
     assert.strictEqual(rolledBackRecord.runtimeAgentId, rollbackOwner.id);
-    assert.strictEqual(rolledBackRecord.visibleOnMainPage, true);
+    assert.strictEqual(rolledBackRecord.visibleOnMainPage, undefined);
+    assert(
+      store.getMainPageSessionKeys().includes(`agent-session:claude:${rollbackSessionId}`),
+      'stable provider visibility must be restored through index membership',
+    );
     assert.strictEqual(rolledBackRecord.customTitle, 'Keep this title');
     assert.strictEqual(recoveredManager.agents.has(rollbackOwner.id), true);
 

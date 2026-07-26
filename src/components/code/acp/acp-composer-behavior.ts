@@ -21,7 +21,11 @@ interface SubmitAcpDraftInput {
   composerMode: ComposerMode
   turnActive: boolean
   supportsSteer: boolean
-  sendMessage: (agent: Agent, message: string, attachments?: ComposerPromptAttachment[]) => boolean
+  sendMessage: (
+    agent: Agent,
+    message: string,
+    attachments?: ComposerPromptAttachment[],
+  ) => boolean | Promise<boolean>
   updateComposerState: (
     key: string,
     updater: (state: AgentComposerState) => AgentComposerState,
@@ -57,26 +61,36 @@ export function submitAcpDraft({
   const text = formatComposerMessage(composerMode, composerMessageForNativeAttachments(draft, attachments).trim())
   if ((!text && promptAttachments.length === 0) || !agent || !isAcpComposerAvailable(agent) || !composerKey) return false
   const steerNow = turnActive && supportsSteer
-  if ((!turnActive || steerNow) && !sendMessage(agent, text, promptAttachments)) return false
-
-  updateComposerState(composerKey, state => ({
-    ...state,
-    draft: '',
-    attachments: [],
-    mode: 'default',
-    history: addComposerHistoryEntry(state.history, draft),
-    ...(turnActive && !steerNow ? {
-      pendingFollowUp: {
-        messages: [
-          ...(state.pendingFollowUp?.messages || []),
-          createPendingFollowUpMessage(text, promptAttachments),
-        ],
-        createdAt: state.pendingFollowUp?.createdAt || Date.now(),
-      },
-    } : {}),
-  }))
-  attachments.forEach(revokeComposerAttachmentPreview)
-  return true
+  const commitAccepted = () => {
+    updateComposerState(composerKey, state => {
+      const ownsDraft = state.draft === draft
+        && state.attachments.length === attachments.length
+        && state.attachments.every((attachment, index) => attachment.id === attachments[index]?.id)
+      if (!ownsDraft) return state
+      attachments.forEach(revokeComposerAttachmentPreview)
+      return {
+        ...state,
+        draft: '',
+        attachments: [],
+        mode: 'default',
+        history: addComposerHistoryEntry(state.history, draft),
+        ...(turnActive && !steerNow ? {
+          pendingFollowUp: {
+            messages: [
+              ...(state.pendingFollowUp?.messages || []),
+              createPendingFollowUpMessage(text, promptAttachments),
+            ],
+            createdAt: state.pendingFollowUp?.createdAt || Date.now(),
+          },
+        } : {}),
+      }
+    })
+    return true
+  }
+  if (turnActive && !steerNow) return commitAccepted()
+  const submitted = sendMessage(agent, text, promptAttachments)
+  if (typeof submitted === 'boolean') return submitted ? commitAccepted() : false
+  return submitted.then(accepted => accepted ? commitAccepted() : false)
 }
 
 export function respondToAcpPermission(

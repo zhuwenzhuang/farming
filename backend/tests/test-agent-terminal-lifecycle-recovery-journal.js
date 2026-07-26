@@ -64,7 +64,7 @@ async function run() {
   transitionLifecycleOperation(
     committedCreate,
     activeLifecycleOperation(committedCreate).id,
-    'succeeded',
+    'membership-pending',
   );
   const missingCreate = terminalAgent('agent-missing-create', configDir, 'create');
   const missingDelete = terminalAgent('agent-missing-delete', configDir, 'delete');
@@ -134,7 +134,7 @@ async function run() {
 
     assert(
       manager.agents.has(committedCreate.id),
-      'a committed visible Create must survive the membership-index crash window',
+      'a runtime-confirmed Create must survive the membership-index crash window',
     );
     assert(
       store.getMainPageSessionKeys().includes(committedCreate.providerSessionKey),

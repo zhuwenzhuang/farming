@@ -1,6 +1,7 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const { atomicWriteJson } = require('./atomic-json-store');
 const storageLayout = require('./storage-layout');
 
 const REVIEW_ID_PATTERN = /^review-[a-f0-9]{32}$/;
@@ -8,13 +9,6 @@ const OBJECT_ID_PATTERN = /^[a-f0-9]{40,64}$/;
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
-}
-
-function atomicWriteJson(file, value) {
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const temporaryFile = `${file}.${process.pid}.${Date.now()}.tmp`;
-  fs.writeFileSync(temporaryFile, `${JSON.stringify(value, null, 2)}\n`);
-  fs.renameSync(temporaryFile, file);
 }
 
 function validRevision(value) {
@@ -70,6 +64,9 @@ function normalizeState(value) {
 class ReviewSessionStore {
   constructor(configDir, options = {}) {
     this.file = options.file || storageLayout.reviewSessionsFile(configDir);
+    this.writeJson = typeof options.writeJson === 'function'
+      ? options.writeJson
+      : (file, value) => atomicWriteJson(file, value, { trailingNewline: true });
     this.state = null;
   }
 
@@ -100,8 +97,8 @@ class ReviewSessionStore {
     if (!REVIEW_ID_PATTERN.test(id) || !path.isAbsolute(root) || !OBJECT_ID_PATTERN.test(base) || !OBJECT_ID_PATTERN.test(tree)) {
       throw new TypeError('invalid review session');
     }
-    const state = this.ensureState();
-    if (state.sessions[id]) throw new TypeError('review session already exists');
+    const currentState = this.ensureState();
+    if (currentState.sessions[id]) throw new TypeError('review session already exists');
     const session = {
       base,
       createdAt,
@@ -113,27 +110,37 @@ class ReviewSessionStore {
       ...(Array.isArray(paths) ? { paths: [...paths] } : {}),
       updatedAt: createdAt,
     };
-    state.sessions[id] = session;
-    atomicWriteJson(this.file, state);
+    const nextState = {
+      sessions: { ...currentState.sessions, [id]: session },
+    };
+    this.writeJson(this.file, nextState);
+    this.state = nextState;
     return clone(session);
   }
 
   appendRevision(reviewId, tree, createdAt = new Date().toISOString()) {
     if (!OBJECT_ID_PATTERN.test(tree)) throw new TypeError('invalid review revision');
-    const state = this.ensureState();
-    const session = state.sessions[reviewId];
-    if (!session) throw new TypeError('review session not found');
-    const previous = session.revisions[session.revisions.length - 1];
-    if (previous.tree === tree) return { added: false, session: clone(session) };
-    session.revisions.push({
-      createdAt,
-      number: previous.number + 1,
-      previousTree: previous.tree,
-      tree,
-    });
-    session.updatedAt = createdAt;
-    atomicWriteJson(this.file, state);
-    return { added: true, session: clone(session) };
+    const currentState = this.ensureState();
+    const currentSession = currentState.sessions[reviewId];
+    if (!currentSession) throw new TypeError('review session not found');
+    const previous = currentSession.revisions[currentSession.revisions.length - 1];
+    if (previous.tree === tree) return { added: false, session: clone(currentSession) };
+    const nextSession = {
+      ...currentSession,
+      revisions: [...currentSession.revisions, {
+        createdAt,
+        number: previous.number + 1,
+        previousTree: previous.tree,
+        tree,
+      }],
+      updatedAt: createdAt,
+    };
+    const nextState = {
+      sessions: { ...currentState.sessions, [reviewId]: nextSession },
+    };
+    this.writeJson(this.file, nextState);
+    this.state = nextState;
+    return { added: true, session: clone(nextSession) };
   }
 }
 

@@ -185,7 +185,9 @@ function run() {
       'agent-session:codex:abc-123',
       'agent-session:claude:chat:with-colon',
     ]);
-    const codexSessionRecord = sessionIndex.providerSessionRecords['agent-session:codex:abc-123'];
+    assert.strictEqual(sessionIndex.version, 2);
+    assert.strictEqual(sessionIndex.providerSessionRecords, undefined);
+    const codexSessionRecord = manager.getAgentSessionRecordForProviderSessionKey('agent-session:codex:abc-123').id;
     assert(/^agent_/.test(codexSessionRecord), 'provider session should map to a stable Agent record id');
     assert(fs.existsSync(path.join(farmingDir, 'sessions', `${codexSessionRecord}.json`)));
     assert.strictEqual(JSON.parse(fs.readFileSync(path.join(farmingDir, 'settings.json'), 'utf8')).mainPageSessionKeys, undefined);

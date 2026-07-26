@@ -83,6 +83,7 @@ const AGENT_USAGE_RATE_REFRESH_MS = 5 * 1000;
 const ACTIVITY_UPDATE_INTERVAL_MS = 1000;
 const ACTIVITY_HOT_SEC = 30 * 60;
 const ACTIVITY_WARM_SEC = 3 * 60 * 60;
+const MAX_COMPOSER_COMMANDS = 64;
 const ACTIVITY_COOL_SEC = 12 * 60 * 60;
 const ZOMBIE_IDLE_MS = 72 * 60 * 60 * 1000;
 const ZOMBIE_SWEEP_INTERVAL_MS = 60 * 1000;
@@ -367,6 +368,41 @@ function normalizedComposerPrompt(message) {
     throw new Error('Composer message is empty');
   }
   return prompt;
+}
+
+function composerCommandHash(prompt) {
+  return crypto.createHash('sha256')
+    .update(JSON.stringify(stableJsonValue(prompt)))
+    .digest('hex');
+}
+
+function composerAdmissionError(message, uncertain = false) {
+  const error = new Error(message);
+  if (uncertain) error.uncertain = true;
+  return error;
+}
+
+function normalizedComposerCommands(commands) {
+  return (Array.isArray(commands) ? commands : [])
+    .filter(command => (
+      command
+      && typeof command === 'object'
+      && /^[A-Za-z0-9._:-]{1,160}$/.test(command.requestId)
+      && typeof command.contentHash === 'string'
+      && ['intent', 'accepted', 'unknown', 'failed'].includes(command.state)
+    ))
+    .slice(-MAX_COMPOSER_COMMANDS)
+    .map(command => ({
+      requestId: command.requestId,
+      contentHash: command.contentHash,
+      state: command.state,
+      result: command.result && typeof command.result === 'object'
+        ? JSON.parse(JSON.stringify(command.result))
+        : null,
+      error: typeof command.error === 'string' ? command.error.slice(0, 2000) : '',
+      createdAt: Number(command.createdAt) || 0,
+      updatedAt: Number(command.updatedAt) || 0,
+    }));
 }
 
 function isShellProgram(command) {
@@ -738,6 +774,27 @@ function timestampSlug(now = new Date()) {
   ].join('');
 }
 
+function projectOperationSignature(value) {
+  return crypto.createHash('sha256')
+    .update(JSON.stringify(stableJsonValue(value)))
+    .digest('hex');
+}
+
+function worktreesFromPorcelain(output) {
+  const worktrees = [];
+  let current = null;
+  for (const line of String(output || '').split(/\r?\n/)) {
+    if (line.startsWith('worktree ')) {
+      if (current) worktrees.push(current);
+      current = { workspace: path.resolve(line.slice('worktree '.length)), branch: '' };
+    } else if (current && line.startsWith('branch refs/heads/')) {
+      current.branch = line.slice('branch refs/heads/'.length);
+    }
+  }
+  if (current) worktrees.push(current);
+  return worktrees;
+}
+
 function isFarmingForkWorktreePath(workspace) {
   const basename = path.basename(String(workspace || '').replace(/[\\/]+$/, ''));
   return /-farming-fork-\d{8}-\d{6}(?:-\d+)?$/.test(basename);
@@ -780,6 +837,7 @@ class AgentManager extends EventEmitter {
     this.pendingResizeByAgent = new Map();
     this.resizeDrains = new Map();
     this.inputQueues = new Map();
+    this.composerAdmissions = new Map();
     this.codexTerminalProfileQueues = new Map();
     this.codexTerminalStartQueues = new Map();
     this.codexTerminalStartOutput = new Map();
@@ -787,6 +845,7 @@ class AgentManager extends EventEmitter {
     this.agentLifecycleOperations = new Map();
     this.agentStartAdmissions = new Map();
     this.createRequestAdmissions = new Map();
+    this.projectOperationAdmissions = new Map();
     this.projectWorkspaceDeleteAdmissions = new Map();
     this.activeInputOperations = new Set();
     this.verifiedStoppedAgentIds = new Set();
@@ -1427,9 +1486,12 @@ class AgentManager extends EventEmitter {
       const recoveredLifecycleOperation = activeLifecycleOperation(agentRecord);
       if (
         recoveredLifecycleOperation?.type === 'create'
-        && recoveredLifecycleOperation.state === 'pending'
+        && ['pending', 'membership-pending'].includes(recoveredLifecycleOperation.state)
       ) {
         try {
+          if (recoveredLifecycleOperation.state === 'membership-pending') {
+            this.rememberMainPageProviderSession(agentRecord);
+          }
           this.transitionPersistentAgentOperation(
             agentRecord,
             recoveredLifecycleOperation.id,
@@ -1482,7 +1544,7 @@ class AgentManager extends EventEmitter {
       changed = true;
     }
 
-    if (this.reconcileMissingTerminalLifecycleOperations(
+    if (await this.reconcileMissingTerminalLifecycleOperations(
       persistedRecords,
       recoveredRuntimeAgentIds,
     )) {
@@ -1519,7 +1581,7 @@ class AgentManager extends EventEmitter {
     }
   }
 
-  reconcileMissingTerminalLifecycleOperations(records, recoveredRuntimeAgentIds) {
+  async reconcileMissingTerminalLifecycleOperations(records, recoveredRuntimeAgentIds) {
     let changed = false;
     for (const record of Array.isArray(records) ? records : []) {
       const agentId = String(record?.runtimeAgentId || '').trim();
@@ -1553,7 +1615,7 @@ class AgentManager extends EventEmitter {
               operation.request?.previousRuntimeAgentId,
             ),
           );
-        } else {
+        } else if (operation.type === 'delete') {
           this.transitionPersistentAgentOperation(
             recoveredAgent,
             operation.id,
@@ -1567,7 +1629,27 @@ class AgentManager extends EventEmitter {
             },
           );
           this.removeMainPageProviderSessionsForAgents([recoveredAgent]);
-          if (operation.type === 'archive') this.scheduleCodexSessionArchive(recoveredAgent);
+        } else {
+          this.transitionPersistentAgentOperation(
+            recoveredAgent,
+            operation.id,
+            'provider-archive-pending',
+            '',
+            {
+              visibleOnMainPage: false,
+              archived: true,
+              archivedAt: Date.now(),
+              runtimeAgentId: '',
+            },
+          );
+          this.removeMainPageProviderSessionsForAgents([recoveredAgent]);
+          const providerArchive = await this.archiveCodexProviderSession(recoveredAgent);
+          this.transitionPersistentAgentOperation(
+            recoveredAgent,
+            operation.id,
+            providerArchive?.error ? 'blocked' : 'succeeded',
+            providerArchive?.error || '',
+          );
         }
         changed = true;
       } catch (error) {
@@ -2053,7 +2135,16 @@ class AgentManager extends EventEmitter {
       setAgentRecordId(staged, record.id || '');
       staged.structuredRuntimeProcess = null;
       try {
-        if (operation.type === 'create') {
+        if (operation.type === 'create' && operation.state === 'membership-pending') {
+          this.rememberMainPageProviderSession(staged);
+          this.transitionPersistentAgentOperation(
+            staged,
+            operation.id,
+            'succeeded',
+            '',
+            { archived: false },
+          );
+        } else if (operation.type === 'create') {
           this.transitionPersistentAgentOperation(
             staged,
             operation.id,
@@ -2061,7 +2152,7 @@ class AgentManager extends EventEmitter {
             'Create ACP process was stopped during restart recovery',
             createFailurePatch(operation, operation.request?.previousRuntimeAgentId),
           );
-        } else {
+        } else if (operation.type === 'delete') {
           this.transitionPersistentAgentOperation(
             staged,
             operation.id,
@@ -2076,7 +2167,28 @@ class AgentManager extends EventEmitter {
             },
           );
           this.removeMainPageProviderSessionsForAgents([staged]);
-          if (operation.type === 'archive') this.scheduleCodexSessionArchive(staged);
+        } else {
+          this.transitionPersistentAgentOperation(
+            staged,
+            operation.id,
+            'provider-archive-pending',
+            '',
+            {
+              visibleOnMainPage: false,
+              archived: true,
+              archivedAt: Date.now(),
+              runtimeAgentId: '',
+              structuredRuntimeProcess: null,
+            },
+          );
+          this.removeMainPageProviderSessionsForAgents([staged]);
+          const providerArchive = await this.archiveCodexProviderSession(staged);
+          this.transitionPersistentAgentOperation(
+            staged,
+            operation.id,
+            providerArchive?.error ? 'blocked' : 'succeeded',
+            providerArchive?.error || '',
+          );
         }
       } catch (error) {
         console.warn(
@@ -2201,6 +2313,7 @@ class AgentManager extends EventEmitter {
       category: metadata.category || 'coding',
       launchPermissionMode: metadata.launchPermissionMode || '',
       parentAgentId: metadata.parentAgentId || '',
+      forkRequestId: metadata.forkRequestId || '',
       task: metadata.task || '',
       workflowTemplate: metadata.workflowTemplate || '',
       source: metadata.source || 'recovered',
@@ -2241,6 +2354,7 @@ class AgentManager extends EventEmitter {
       agentRecordId,
       persistentSessionId: agentRecordId,
       lifecycleJournal: lifecycleJournal(metadata),
+      composerCommands: normalizedComposerCommands(metadata.composerCommands),
       customTitle: metadata.customTitle || '',
       terminalBusy: typeof state.terminalBusy === 'boolean' ? state.terminalBusy : null,
       shellCwd: state.shellCwd || metadata.cwd || '',
@@ -2466,6 +2580,26 @@ class AgentManager extends EventEmitter {
       else delete agent.lifecycleJournal;
       throw persistError;
     }
+    return operation;
+  }
+
+  completePersistentAgentOperation(agent, operationId, result, patch = {}) {
+    const staged = {
+      ...agent,
+      lifecycleJournal: lifecycleJournal(agent),
+    };
+    const operation = setLifecycleOperationResult(staged, operationId, result);
+    if (!operation) throw new Error(`Agent operation ${operationId} was not found`);
+    transitionLifecycleOperation(staged, operationId, 'succeeded');
+    const persistentSessionId = this.ensurePersistentAgentSession(staged, patch);
+    if (
+      typeof this.configManager?.ensureAgentSessionRecord === 'function'
+      && !persistentSessionId
+    ) {
+      throw new Error('Agent session store did not return a persistent id');
+    }
+    agent.lifecycleJournal = staged.lifecycleJournal;
+    setAgentRecordId(agent, staged.agentRecordId || staged.persistentSessionId || '');
     return operation;
   }
 
@@ -3253,6 +3387,7 @@ class AgentManager extends EventEmitter {
       category: agent.category,
       launchPermissionMode: agent.launchPermissionMode,
       parentAgentId: agent.parentAgentId || '',
+      forkRequestId: agent.forkRequestId || '',
       task: agent.task,
       workflowTemplate: agent.workflowTemplate,
       source: agent.source,
@@ -3863,6 +3998,7 @@ class AgentManager extends EventEmitter {
       category: resolution.spec ? resolution.spec.category : 'other',
       launchPermissionMode: launch.permissionMode || '',
       parentAgentId,
+      forkRequestId: typeof options.forkRequestId === 'string' ? options.forkRequestId : '',
       task: typeof options.task === 'string' ? options.task : '',
       workflowTemplate: typeof options.workflowTemplate === 'string' ? options.workflowTemplate : '',
       source: typeof options.source === 'string' ? options.source : 'ui',
@@ -4350,12 +4486,17 @@ class AgentManager extends EventEmitter {
           await startTerminal();
         }
       }
-      this.transitionPersistentAgentOperation(agentRecord, createOperationId, 'succeeded', '', {
+      this.transitionPersistentAgentOperation(agentRecord, createOperationId, 'membership-pending', '', {
         visibleOnMainPage: true,
         archived: false,
         ...(options.customTitleExplicit === true
           ? { customTitle: agentRecord.customTitle }
           : {}),
+      });
+      this.rememberMainPageProviderSession(agentRecord);
+      this.transitionPersistentAgentOperation(agentRecord, createOperationId, 'succeeded', '', {
+        visibleOnMainPage: true,
+        archived: false,
       });
       if (
         previousPersistentRuntimeAgentId
@@ -4576,7 +4717,171 @@ class AgentManager extends EventEmitter {
     return this.enqueueInputOperation(agentId, () => this.sendInputNow(agentId, input, options));
   }
 
-  async sendComposerMessage(agentId, message) {
+  commitComposerCommand(agent, command) {
+    const commands = normalizedComposerCommands(agent.composerCommands)
+      .filter(candidate => candidate.requestId !== command.requestId);
+    commands.push(command);
+    const staged = {
+      ...agent,
+      composerCommands: normalizedComposerCommands(commands),
+    };
+    const persistentSessionId = this.ensurePersistentAgentSession(staged);
+    if (
+      typeof this.configManager?.ensureAgentSessionRecord === 'function'
+      && !persistentSessionId
+    ) {
+      throw new Error('Agent session store did not return a persistent id');
+    }
+    agent.composerCommands = staged.composerCommands;
+    setAgentRecordId(agent, staged.agentRecordId || staged.persistentSessionId || '');
+    return command;
+  }
+
+  setComposerCommandInMemory(agent, command) {
+    agent.composerCommands = normalizedComposerCommands([
+      ...normalizedComposerCommands(agent.composerCommands)
+        .filter(candidate => candidate.requestId !== command.requestId),
+      command,
+    ]);
+  }
+
+  sendPersistentComposerMessage(agentId, message, requestId) {
+    const agent = this.agents.get(agentId);
+    if (!agent) return Promise.reject(new Error('Agent not found'));
+    if (runtimeKind(agent) === 'terminal') {
+      return Promise.reject(new Error('Persistent Composer admission requires a structured runtime'));
+    }
+    const prompt = normalizedComposerPrompt(message);
+    const contentHash = composerCommandHash(prompt);
+    const commands = normalizedComposerCommands(agent.composerCommands);
+    const existing = commands.find(command => command.requestId === requestId);
+    const admissionKey = `${agentId}:${requestId}`;
+    const inFlight = this.composerAdmissions.get(admissionKey);
+    if (existing?.contentHash && existing.contentHash !== contentHash) {
+      return Promise.reject(new Error(`Composer request ${requestId} was already used for different content`));
+    }
+    if (existing?.state === 'accepted') {
+      return Promise.resolve({ ...(existing.result || {}), accepted: true, deduplicated: true });
+    }
+    if (inFlight) return inFlight.promise;
+    if (existing?.state === 'unknown' || existing?.state === 'intent') {
+      const detail = existing.error || `Composer request ${requestId} has an uncertain outcome and will not be replayed automatically`;
+      if (existing.state === 'intent') {
+        const unknown = { ...existing, state: 'unknown', error: detail, updatedAt: Date.now() };
+        try {
+          this.commitComposerCommand(agent, unknown);
+        } catch {
+          this.setComposerCommandInMemory(agent, unknown);
+        }
+      }
+      return Promise.reject(composerAdmissionError(detail, true));
+    }
+    if (existing?.state === 'failed') {
+      return Promise.reject(new Error(existing.error || `Composer request ${requestId} was not accepted`));
+    }
+
+    const intent = {
+      requestId,
+      contentHash,
+      state: 'intent',
+      result: null,
+      error: '',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    try {
+      this.commitComposerCommand(agent, intent);
+    } catch (error) {
+      return Promise.reject(new Error(`Failed to persist Composer intent: ${error.message || error}`));
+    }
+
+    let resolveAdmission;
+    let rejectAdmission;
+    const admissionPromise = new Promise((resolve, reject) => {
+      resolveAdmission = resolve;
+      rejectAdmission = reject;
+    });
+    const entry = { contentHash, promise: admissionPromise };
+    this.composerAdmissions.set(admissionKey, entry);
+    let submitted = false;
+    const onSubmitted = (result = { kind: runtimeKind(agent) }) => {
+      if (submitted) return;
+      submitted = true;
+      const accepted = {
+        ...intent,
+        state: 'accepted',
+        result,
+        updatedAt: Date.now(),
+      };
+      try {
+        this.commitComposerCommand(agent, accepted);
+        resolveAdmission({ ...result, accepted: true });
+      } catch (error) {
+        const unknown = {
+          ...intent,
+          state: 'unknown',
+          error: `Provider accepted Composer request, but admission could not be saved: ${error.message || error}`,
+          updatedAt: Date.now(),
+        };
+        this.setComposerCommandInMemory(agent, unknown);
+        rejectAdmission(composerAdmissionError(unknown.error, true));
+      }
+    };
+
+    const completion = isAcpAgent(agent)
+      ? this.enqueueInputOperationUntilReleased(
+          agentId,
+          releaseInput => this.sendComposerMessageNow(agentId, prompt, {
+            onSubmitted: () => {
+              try {
+                onSubmitted({ kind: 'acp' });
+              } finally {
+                releaseInput();
+              }
+            },
+          }),
+        )
+      : this.enqueueInputOperation(
+          agentId,
+          () => this.sendComposerMessageNow(agentId, prompt, {
+            onSubmitted: result => onSubmitted(result),
+          }),
+        );
+    void Promise.resolve(completion).then(result => {
+      if (!submitted) onSubmitted(result);
+    }).catch(error => {
+      if (submitted) return;
+      const failed = {
+        ...intent,
+        state: 'failed',
+        error: error.message || String(error),
+        updatedAt: Date.now(),
+      };
+      let uncertain = false;
+      try {
+        this.commitComposerCommand(agent, failed);
+      } catch (persistError) {
+        failed.state = 'unknown';
+        failed.error = `${failed.error}; failed to persist rejection: ${persistError.message || persistError}`;
+        this.setComposerCommandInMemory(agent, failed);
+        uncertain = true;
+      }
+      rejectAdmission(composerAdmissionError(failed.error, uncertain));
+    });
+    void admissionPromise.finally(() => {
+      if (this.composerAdmissions.get(admissionKey) === entry) {
+        this.composerAdmissions.delete(admissionKey);
+      }
+    }).catch(() => {});
+    return admissionPromise;
+  }
+
+  async sendComposerMessage(agentId, message, options = {}) {
+    const requestId = String(options.requestId || '').trim();
+    if (requestId) {
+      if (!/^[A-Za-z0-9._:-]{1,160}$/.test(requestId)) throw new Error('Composer requestId is invalid');
+      return this.sendPersistentComposerMessage(agentId, message, requestId);
+    }
     const agent = this.agents.get(agentId);
     if (agent && isAcpAgent(agent)) {
       return this.enqueueInputOperationUntilReleased(
@@ -4695,13 +5000,15 @@ class AgentManager extends EventEmitter {
       agent.providerSessionId = result.sessionId || agent.providerSessionId;
       agent.providerSessionTemporary = !agent.providerSessionId;
       this.ensurePersistentAgentSession(agent);
-      return { kind: 'json', sessionId: agent.providerSessionId };
+      const submitted = { kind: 'json', sessionId: agent.providerSessionId };
+      options.onSubmitted?.(submitted);
+      return submitted;
     }
 
     if (isAcpAgent(agent)) {
       this.requireLiveAcpAgent(agentId);
       const result = await this.acpRuntime.submitMessage(agentId, prompt, {
-        onSubmitted: options.releaseInput,
+        onSubmitted: options.onSubmitted || options.releaseInput,
       });
       if (result.steered !== true) {
         const runtime = runtimeBindingOf(agent, 'acp');
@@ -4713,7 +5020,9 @@ class AgentManager extends EventEmitter {
     }
 
     await this.sendInputNow(agentId, [{ type: 'paste', text }, '\r']);
-    return { kind: 'terminal' };
+    const submitted = { kind: 'terminal' };
+    options.onSubmitted?.(submitted);
+    return submitted;
   }
 
   getJsonCliTranscript(agentId, options = {}) {
@@ -5942,6 +6251,104 @@ class AgentManager extends EventEmitter {
       : this.markAgentReadCursor(agentId);
   }
 
+  persistentProjectOperation(requestId, type, signature, request) {
+    if (
+      !requestId
+      || typeof this.configManager?.getProjectOperation !== 'function'
+      || typeof this.configManager?.commitProjectOperation !== 'function'
+    ) {
+      return { operation: null, created: true };
+    }
+    const existing = this.configManager.getProjectOperation(requestId);
+    if (existing) {
+      if (existing.type !== type || existing.signature !== signature) {
+        return { error: `Project operation request ${requestId} was already used for different parameters` };
+      }
+      return { operation: existing, created: false };
+    }
+    const operation = {
+      id: requestId,
+      type,
+      state: 'pending',
+      signature,
+      request,
+      result: null,
+      error: '',
+      startedAt: Date.now(),
+      updatedAt: Date.now(),
+      finishedAt: null,
+    };
+    try {
+      this.configManager.commitProjectOperation(operation);
+      return { operation, created: true };
+    } catch (error) {
+      return { error: `Failed to persist Project operation intent: ${error.message || error}` };
+    }
+  }
+
+  commitPersistentProjectOperation(operation, state, result = null, error = '', membership = {}) {
+    if (!operation || typeof this.configManager?.commitProjectOperation !== 'function') {
+      return { operation: null, projectWorkspaces: null, pinnedProjectWorkspaces: null };
+    }
+    const terminal = ['succeeded', 'failed', 'blocked'].includes(state);
+    const nextOperation = {
+      ...operation,
+      state,
+      result,
+      error,
+      updatedAt: Date.now(),
+      finishedAt: terminal ? Date.now() : null,
+    };
+    return this.configManager.commitProjectOperation(nextOperation, membership);
+  }
+
+  async listGitWorktrees(sourceWorkspace) {
+    const { stdout } = await execFileAsync('git', ['-C', sourceWorkspace, 'worktree', 'list', '--porcelain'], {
+      timeout: 15000,
+      maxBuffer: 1024 * 1024 * 4,
+    });
+    return worktreesFromPorcelain(stdout);
+  }
+
+  async inspectGitWorktreePostcondition(sourceWorkspace, workspace, branch = '') {
+    const target = path.resolve(workspace);
+    let worktrees;
+    try {
+      worktrees = await this.listGitWorktrees(sourceWorkspace);
+    } catch (error) {
+      return { proven: false, error: error.message || String(error) };
+    }
+    const registered = worktrees.find(entry => entry.workspace === target) || null;
+    let exists = false;
+    try {
+      exists = fs.statSync(target).isDirectory();
+    } catch {
+      exists = false;
+    }
+    let branchExists = false;
+    if (branch) {
+      try {
+        await execFileAsync('git', ['-C', sourceWorkspace, 'show-ref', '--verify', '--quiet', `refs/heads/${branch}`], {
+          timeout: 15000,
+          maxBuffer: 1024 * 1024,
+        });
+        branchExists = true;
+      } catch (error) {
+        if (error?.code !== 1) {
+          return { proven: false, error: error.message || String(error) };
+        }
+      }
+    }
+    return {
+      proven: true,
+      exists,
+      registered: Boolean(registered),
+      branchMatches: !branch || registered?.branch === branch,
+      branchExists,
+      worktree: registered,
+    };
+  }
+
   async resolveGitWorktreeSourceRoot(workspace) {
     const sourceWorkspace = this.expandWorkspacePath(workspace);
     if (!sourceWorkspace) {
@@ -5986,47 +6393,182 @@ class AgentManager extends EventEmitter {
     return target;
   }
 
-  async createPermanentWorktree(workspace) {
+  createPermanentWorktree(workspace, options = {}) {
+    const requestId = String(options.requestId || '').trim().slice(0, 160);
+    if (!requestId) return this.createPermanentWorktreeAdmitted(workspace, options);
+    const workspaceKey = canonicalWorkspacePath(this.expandWorkspacePath(workspace));
+    const current = this.projectOperationAdmissions.get(requestId);
+    if (current) {
+      if (current.workspaceKey === workspaceKey) return current.promise;
+      return Promise.reject(new Error(`Project operation request ${requestId} was already used for different parameters`));
+    }
+    const promise = this.createPermanentWorktreeAdmitted(workspace, options);
+    const admission = { workspaceKey, promise };
+    this.projectOperationAdmissions.set(requestId, admission);
+    void promise.finally(() => {
+      if (this.projectOperationAdmissions.get(requestId) === admission) {
+        this.projectOperationAdmissions.delete(requestId);
+      }
+    }).catch(() => {});
+    return promise;
+  }
+
+  async createPermanentWorktreeAdmitted(workspace, options = {}) {
     const root = await this.resolveGitWorktreeSourceRoot(workspace);
-    const parentDir = path.dirname(root);
-    const baseName = path.basename(root);
-    const slug = timestampSlug();
-    let suffix = 1;
-
-    while (suffix < 1000) {
-      const suffixText = suffix === 1 ? '' : `-${suffix}`;
-      const target = path.join(parentDir, `${baseName}-farming-worktree-${slug}${suffixText}`);
-      const branch = `farming/worktree-${slug}${suffixText}`;
-      let branchExists = false;
-      try {
-        await execFileAsync('git', ['-C', root, 'show-ref', '--verify', '--quiet', `refs/heads/${branch}`], {
-          timeout: 15000,
-          maxBuffer: 1024 * 1024,
-        });
-        branchExists = true;
-      } catch (error) {
-        if (error?.code !== 1) {
-          const message = error && error.stderr ? String(error.stderr).trim() : '';
-          throw new Error(message || 'Failed to inspect git branches', { cause: error });
-        }
-      }
-
-      if (!fs.existsSync(target) && !branchExists) {
-        try {
-          await execFileAsync('git', ['-C', root, 'worktree', 'add', '-b', branch, target, 'HEAD'], {
-            timeout: 60000,
-            maxBuffer: 1024 * 1024 * 4,
-          });
-        } catch (error) {
-          const message = error && error.stderr ? String(error.stderr).trim() : '';
-          throw new Error(message || 'Failed to create permanent git worktree', { cause: error });
-        }
-        return { workspace: target, branch, sourceWorkspace: root };
-      }
-      suffix += 1;
+    const requestId = String(options.requestId || '').trim().slice(0, 160);
+    const signature = projectOperationSignature({ sourceWorkspace: root, type: 'create-worktree' });
+    const existingOperation = requestId && typeof this.configManager?.getProjectOperation === 'function'
+      ? this.configManager.getProjectOperation(requestId)
+      : null;
+    const operationWasExisting = Boolean(existingOperation);
+    if (
+      existingOperation
+      && (
+        existingOperation.type !== 'create-worktree'
+        || existingOperation.signature !== signature
+      )
+    ) {
+      throw new Error(`Project operation request ${requestId} was already used for different parameters`);
+    }
+    if (existingOperation?.state === 'succeeded' && existingOperation.result) {
+      const settings = this.configManager.getSettings?.() || {};
+      return {
+        ...existingOperation.result,
+        deduplicated: true,
+        projectWorkspaces: settings.projectWorkspaces || [],
+        pinnedProjectWorkspaces: settings.pinnedProjectWorkspaces || [],
+      };
     }
 
-    throw new Error('Unable to allocate a permanent worktree name');
+    const parentDir = path.dirname(root);
+    const baseName = path.basename(root);
+    let target = String(existingOperation?.request?.workspace || '');
+    let branch = String(existingOperation?.request?.branch || '');
+    let operation = existingOperation;
+    if (!operation) {
+      const slug = timestampSlug();
+      let suffix = 1;
+      while (suffix < 1000) {
+        const suffixText = suffix === 1 ? '' : `-${suffix}`;
+        const candidateTarget = path.join(parentDir, `${baseName}-farming-worktree-${slug}${suffixText}`);
+        const candidateBranch = `farming/worktree-${slug}${suffixText}`;
+        let branchExists = false;
+        try {
+          await execFileAsync('git', ['-C', root, 'show-ref', '--verify', '--quiet', `refs/heads/${candidateBranch}`], {
+            timeout: 15000,
+            maxBuffer: 1024 * 1024,
+          });
+          branchExists = true;
+        } catch (error) {
+          if (error?.code !== 1) {
+            const message = error && error.stderr ? String(error.stderr).trim() : '';
+            throw new Error(message || 'Failed to inspect git branches', { cause: error });
+          }
+        }
+
+        if (!fs.existsSync(candidateTarget) && !branchExists) {
+          target = candidateTarget;
+          branch = candidateBranch;
+          break;
+        }
+        suffix += 1;
+      }
+      if (!target || !branch) throw new Error('Unable to allocate a permanent worktree name');
+      const admission = this.persistentProjectOperation(requestId, 'create-worktree', signature, {
+        sourceWorkspace: root,
+        workspace: target,
+        branch,
+      });
+      if (admission.error) throw new Error(admission.error);
+      operation = admission.operation;
+    }
+
+    const commitSuccess = () => {
+      const result = { workspace: target, branch, sourceWorkspace: root, ...(requestId ? { requestId } : {}) };
+      if (!operation) return result;
+      const committed = this.commitPersistentProjectOperation(
+        operation,
+        'succeeded',
+        result,
+        '',
+        { mountWorkspace: target },
+      );
+      return {
+        ...result,
+        projectWorkspaces: committed.projectWorkspaces,
+        pinnedProjectWorkspaces: committed.pinnedProjectWorkspaces,
+      };
+    };
+
+    if (operation && !['pending', 'unknown'].includes(operation.state)) {
+      throw new Error(operation.error || `Project operation ${requestId} already finished with state ${operation.state}`);
+    }
+    if (operation && operationWasExisting) {
+      const postcondition = await this.inspectGitWorktreePostcondition(root, target, branch);
+      if (
+        postcondition.proven
+        && postcondition.exists
+        && postcondition.registered
+        && postcondition.branchMatches
+      ) {
+        return commitSuccess();
+      }
+      if (operation.state === 'unknown') {
+        throw new Error(operation.error || 'Permanent worktree creation has an uncertain outcome and will not be replayed automatically');
+      }
+      if (
+        !postcondition.proven
+        || postcondition.exists
+        || postcondition.registered
+        || postcondition.branchExists
+      ) {
+        const detail = postcondition.error || 'Permanent worktree creation has a partial or unverifiable result';
+        this.commitPersistentProjectOperation(operation, 'unknown', null, detail);
+        throw new Error(`${detail}; the operation will not be replayed automatically`);
+      }
+    }
+
+    try {
+      await execFileAsync('git', ['-C', root, 'worktree', 'add', '-b', branch, target, 'HEAD'], {
+        timeout: 60000,
+        maxBuffer: 1024 * 1024 * 4,
+      });
+    } catch (error) {
+      const postcondition = await this.inspectGitWorktreePostcondition(root, target, branch);
+      if (
+        postcondition.proven
+        && postcondition.exists
+        && postcondition.registered
+        && postcondition.branchMatches
+      ) {
+        return commitSuccess();
+      }
+      const message = error && error.stderr ? String(error.stderr).trim() : '';
+      const detail = message || 'Failed to create permanent git worktree';
+      if (operation) {
+        const state = postcondition.proven
+          && !postcondition.exists
+          && !postcondition.registered
+          && !postcondition.branchExists
+          ? 'failed'
+          : 'unknown';
+        this.commitPersistentProjectOperation(operation, state, null, detail);
+      }
+      throw new Error(detail, { cause: error });
+    }
+
+    const postcondition = await this.inspectGitWorktreePostcondition(root, target, branch);
+    if (
+      !postcondition.proven
+      || !postcondition.exists
+      || !postcondition.registered
+      || !postcondition.branchMatches
+    ) {
+      const detail = postcondition.error || 'Permanent worktree creation could not be proven';
+      if (operation) this.commitPersistentProjectOperation(operation, 'unknown', null, detail);
+      throw new Error(`${detail}; the operation will not be replayed automatically`);
+    }
+    return commitSuccess();
   }
 
   async rollbackPermanentWorktree(created) {
@@ -6093,6 +6635,8 @@ class AgentManager extends EventEmitter {
     }
 
     try {
+      const worktrees = await this.listGitWorktrees(resolvedWorkspace);
+      const sourceWorkspace = worktrees[0]?.workspace || resolvedWorkspace;
       const { stdout } = await execFileAsync('git', ['-C', resolvedWorkspace, 'status', '--porcelain', '--untracked-files=all'], {
         timeout: 30000,
         maxBuffer: 1024 * 1024 * 4,
@@ -6100,6 +6644,7 @@ class AgentManager extends EventEmitter {
       const dirtyEntries = statusEntriesFromPorcelain(stdout);
       return {
         workspace: resolvedWorkspace,
+        sourceWorkspace,
         dirtyEntries,
         requiresForce: dirtyEntries.length > 0,
       };
@@ -6151,21 +6696,118 @@ class AgentManager extends EventEmitter {
     const workspaceKey = canonicalWorkspacePath(this.expandWorkspacePath(workspace));
     if (!workspaceKey) return this.deleteForkWorktreeProjectAdmitted(workspace, options);
     const inFlight = this.projectWorkspaceDeleteAdmissions.get(workspaceKey);
-    if (inFlight) return inFlight;
+    const requestId = String(options.requestId || '').trim();
+    if (inFlight) {
+      if (requestId && inFlight.requestId === requestId) return inFlight.promise;
+      return inFlight.promise
+        .catch(() => {})
+        .then(() => this.deleteForkWorktreeProject(workspace, options));
+    }
 
-    const operation = this.deleteForkWorktreeProjectAdmitted(workspace, options);
-    this.projectWorkspaceDeleteAdmissions.set(workspaceKey, operation);
-    void operation.finally(() => {
-      if (this.projectWorkspaceDeleteAdmissions.get(workspaceKey) === operation) {
+    const promise = this.deleteForkWorktreeProjectAdmitted(workspace, options);
+    const admission = { requestId, promise };
+    this.projectWorkspaceDeleteAdmissions.set(workspaceKey, admission);
+    void promise.finally(() => {
+      if (this.projectWorkspaceDeleteAdmissions.get(workspaceKey) === admission) {
         this.projectWorkspaceDeleteAdmissions.delete(workspaceKey);
       }
     }).catch(() => {});
-    return operation;
+    return promise;
   }
 
   async deleteForkWorktreeProjectAdmitted(workspace, options = {}) {
     await this.whenRecovered();
     const workspaceKey = canonicalWorkspacePath(this.expandWorkspacePath(workspace));
+    const requestId = String(options.requestId || '').trim().slice(0, 160);
+    const signature = projectOperationSignature({
+      force: options.force === true,
+      type: 'delete-worktree',
+      workspace: workspaceKey,
+    });
+    const existingOperation = requestId && typeof this.configManager?.getProjectOperation === 'function'
+      ? this.configManager.getProjectOperation(requestId)
+      : null;
+    if (
+      existingOperation
+      && (
+        existingOperation.type !== 'delete-worktree'
+        || existingOperation.signature !== signature
+      )
+    ) {
+      return { workspace: workspaceKey, error: `Project operation request ${requestId} was already used for different parameters` };
+    }
+    if (existingOperation?.state === 'succeeded' && existingOperation.result) {
+      const settings = this.configManager.getSettings?.() || {};
+      return {
+        ...existingOperation.result,
+        deduplicated: true,
+        projectWorkspaces: settings.projectWorkspaces || [],
+        pinnedProjectWorkspaces: settings.pinnedProjectWorkspaces || [],
+      };
+    }
+    let operation = existingOperation;
+    const storedSourceWorkspace = String(operation?.request?.sourceWorkspace || '');
+    const commitDeleted = (baseResult) => {
+      const result = { ...baseResult, ...(requestId ? { requestId } : {}) };
+      if (!operation) return result;
+      const committed = this.commitPersistentProjectOperation(
+        operation,
+        'succeeded',
+        result,
+        '',
+        { removeWorkspace: workspaceKey },
+      );
+      return {
+        ...result,
+        projectWorkspaces: committed.projectWorkspaces,
+        pinnedProjectWorkspaces: committed.pinnedProjectWorkspaces,
+      };
+    };
+    if (operation && ['pending', 'unknown'].includes(operation.state) && storedSourceWorkspace) {
+      const postcondition = await this.inspectGitWorktreePostcondition(
+        storedSourceWorkspace,
+        operation.request.workspace || workspaceKey,
+      );
+      if (postcondition.proven && !postcondition.exists && !postcondition.registered) {
+        try {
+          return commitDeleted({
+            workspace: workspaceKey,
+            deleted: true,
+            forced: operation.request.force === true,
+            archivedAgentIds: [],
+            removedMainPageSessionKeys: [],
+          });
+        } catch (error) {
+          return {
+            workspace: workspaceKey,
+            deleted: true,
+            retryable: true,
+            error: `Worktree was deleted, but Project operation commit failed: ${error.message || error}`,
+          };
+        }
+      }
+      if (operation.state === 'unknown') {
+        return {
+          workspace: workspaceKey,
+          error: operation.error || 'Worktree deletion has an uncertain outcome and will not be replayed automatically',
+          uncertain: true,
+        };
+      }
+      if (!postcondition.proven || postcondition.exists !== postcondition.registered) {
+        const detail = postcondition.error || 'Worktree deletion has a partial or unverifiable result';
+        try {
+          this.commitPersistentProjectOperation(operation, 'unknown', null, detail);
+        } catch {
+          // The previously persisted pending intent still prevents blind replay.
+        }
+        return { workspace: workspaceKey, error: `${detail}; the operation will not be replayed automatically`, uncertain: true };
+      }
+    } else if (operation && !['pending', 'unknown'].includes(operation.state)) {
+      return {
+        workspace: workspaceKey,
+        error: operation.error || `Project operation ${requestId} already finished with state ${operation.state}`,
+      };
+    }
     const relatedStarts = workspaceKey
       ? [...this.agentStartAdmissions.values()].filter(admission => (
           !admission.workspaceKey
@@ -6191,6 +6833,16 @@ class AgentManager extends EventEmitter {
         ...inspected,
         error: 'Worktree has uncommitted or untracked files',
       };
+    }
+
+    if (!operation) {
+      const admission = this.persistentProjectOperation(requestId, 'delete-worktree', signature, {
+        workspace: inspected.workspace,
+        sourceWorkspace: inspected.sourceWorkspace,
+        force: options.force === true,
+      });
+      if (admission.error) return { ...inspected, error: admission.error };
+      operation = admission.operation;
     }
 
     const archivedAgentIds = [];
@@ -6220,25 +6872,227 @@ class AgentManager extends EventEmitter {
         maxBuffer: 1024 * 1024 * 4,
       });
     } catch (error) {
+      const postcondition = await this.inspectGitWorktreePostcondition(
+        inspected.sourceWorkspace,
+        inspected.workspace,
+      );
+      if (postcondition.proven && !postcondition.exists && !postcondition.registered) {
+        try {
+          return commitDeleted({
+            workspace: inspected.workspace,
+            deleted: true,
+            forced: options.force === true,
+            archivedAgentIds,
+            removedMainPageSessionKeys: Array.from(new Set(removedMainPageSessionKeys)),
+          });
+        } catch (commitError) {
+          return {
+            ...inspected,
+            deleted: true,
+            retryable: true,
+            error: `Worktree was deleted, but Project operation commit failed: ${commitError.message || commitError}`,
+            archivedAgentIds,
+            removedMainPageSessionKeys: Array.from(new Set(removedMainPageSessionKeys)),
+          };
+        }
+      }
       const message = error && error.stderr ? String(error.stderr).trim() : '';
+      const detail = message || 'Failed to delete git worktree';
+      if (operation) {
+        const state = postcondition.proven && postcondition.exists && postcondition.registered
+          ? 'failed'
+          : 'unknown';
+        try {
+          this.commitPersistentProjectOperation(operation, state, null, detail);
+        } catch {
+          // Preserve the earlier durable pending intent when the result write fails.
+        }
+      }
       return {
         ...inspected,
-        error: message || 'Failed to delete git worktree',
+        error: detail,
+        ...(postcondition.proven && postcondition.exists && postcondition.registered
+          ? {}
+          : { uncertain: true }),
         archivedAgentIds,
         removedMainPageSessionKeys: Array.from(new Set(removedMainPageSessionKeys)),
       };
     }
 
-    return {
-      workspace: inspected.workspace,
-      deleted: true,
-      forced: options.force === true,
-      archivedAgentIds,
-      removedMainPageSessionKeys: Array.from(new Set(removedMainPageSessionKeys)),
-    };
+    const postcondition = await this.inspectGitWorktreePostcondition(
+      inspected.sourceWorkspace,
+      inspected.workspace,
+    );
+    if (!postcondition.proven || postcondition.exists || postcondition.registered) {
+      const detail = postcondition.error || 'Worktree deletion could not be proven';
+      if (operation) {
+        try {
+          this.commitPersistentProjectOperation(operation, 'unknown', null, detail);
+        } catch {
+          // Preserve the earlier durable pending intent when the result write fails.
+        }
+      }
+      return {
+        ...inspected,
+        error: `${detail}; the operation will not be replayed automatically`,
+        uncertain: true,
+        archivedAgentIds,
+        removedMainPageSessionKeys: Array.from(new Set(removedMainPageSessionKeys)),
+      };
+    }
+    try {
+      return commitDeleted({
+        workspace: inspected.workspace,
+        deleted: true,
+        forced: options.force === true,
+        archivedAgentIds,
+        removedMainPageSessionKeys: Array.from(new Set(removedMainPageSessionKeys)),
+      });
+    } catch (error) {
+      return {
+        ...inspected,
+        deleted: true,
+        retryable: true,
+        error: `Worktree was deleted, but Project operation commit failed: ${error.message || error}`,
+        archivedAgentIds,
+        removedMainPageSessionKeys: Array.from(new Set(removedMainPageSessionKeys)),
+      };
+    }
+  }
+
+  async replayPersistentForkRequest(agent, requestId, signature) {
+    const requestKey = `fork-request:${requestId}`;
+    const operation = lifecycleJournal(agent).entries.find(candidate => (
+      candidate.type === 'fork' && candidate.requestKey === requestKey
+    ));
+    if (!operation) return null;
+    if (operation.request?.signature && operation.request.signature !== signature) {
+      return { error: `Fork request ${requestId} was already used for different parameters` };
+    }
+    if (operation.state === 'succeeded' && operation.result) {
+      return { ...operation.result, deduplicated: true };
+    }
+    if (TERMINAL_OPERATION_STATES.has(operation.state)) {
+      return { error: operation.error || `Fork request ${requestId} finished with state ${operation.state}` };
+    }
+
+    const children = typeof this.configManager?.listAgentSessionRecords === 'function'
+      ? this.configManager.listAgentSessionRecords().filter(record => (
+          record?.parentAgentId === agent.id
+          && record?.forkRequestId === requestId
+          && record?.archived !== true
+        ))
+      : [];
+    if (children.length === 1) {
+      const child = children[0];
+      const request = operation.request || {};
+      const result = {
+        agentId: child.runtimeAgentId,
+        workspace: child.projectWorkspace || child.cwd || '',
+        mode: request.mode || 'same-worktree',
+        ...(request.targetRuntime ? { targetRuntime: request.targetRuntime } : {}),
+        ...(child.providerSessionId ? { providerSessionId: child.providerSessionId } : {}),
+        requestId,
+      };
+      try {
+        this.completePersistentAgentOperation(agent, operation.id, result);
+        return { ...result, deduplicated: true, reconciled: true };
+      } catch (error) {
+        return {
+          ...result,
+          error: `Fork exists, but its result could not be committed: ${error.message || error}`,
+          retryable: true,
+        };
+      }
+    }
+
+    const detail = children.length > 1
+      ? `Fork request ${requestId} has multiple child Agent records and cannot be reconciled safely`
+      : `Fork request ${requestId} has an uncertain outcome and will not be replayed automatically`;
+    if (operation.state !== 'blocked') {
+      try {
+        this.transitionPersistentAgentOperation(agent, operation.id, 'blocked', detail);
+      } catch (error) {
+        return { error: `${detail}; failed to persist blocked state: ${error.message || error}`, uncertain: true };
+      }
+    }
+    return { error: detail, uncertain: true };
   }
 
   async forkAgent(agentId, mode = 'same-worktree', options = {}) {
+    const requestId = String(options.requestId || '').trim().slice(0, 160);
+    if (!requestId) return this.forkAgentUntracked(agentId, mode, options);
+    if (!/^[A-Za-z0-9._:-]{1,160}$/.test(requestId)) {
+      return { error: 'Fork requires a valid requestId' };
+    }
+    await this.whenRecovered();
+    const agent = this.agents.get(agentId);
+    if (!agent) return { error: 'Agent not found' };
+    const signature = projectOperationSignature({
+      agentRecordId: agent.agentRecordId || agent.persistentSessionId || '',
+      expectedRevision: Number.isSafeInteger(options.expectedRevision) ? options.expectedRevision : null,
+      mode,
+      targetRuntime: options.targetRuntime || '',
+    });
+    const key = `fork:${requestId}:${signature}`;
+    const inFlight = this.agentLifecycleOperations.get(agentId);
+    if (inFlight?.key === key) return inFlight.promise;
+    const replay = await this.replayPersistentForkRequest(agent, requestId, signature);
+    if (replay) return replay;
+    return this.runAgentLifecycleOperation(
+      agentId,
+      key,
+      'fork',
+      'fork',
+      async lifecycleToken => {
+        const admission = this.beginPersistentAgentOperation(
+          agent,
+          'fork',
+          `fork-request:${requestId}`,
+          {
+            signature,
+            mode,
+            targetRuntime: options.targetRuntime || '',
+            expectedRevision: Number.isSafeInteger(options.expectedRevision) ? options.expectedRevision : null,
+          },
+        );
+        if (admission.error) return { error: admission.error };
+        const result = await this.forkAgentUntracked(agentId, mode, {
+          ...options,
+          requestId: '',
+          forkRequestId: requestId,
+          lifecycleToken,
+        });
+        if (result?.error) {
+          try {
+            this.transitionPersistentAgentOperation(
+              agent,
+              admission.operation.id,
+              'blocked',
+              result.error,
+            );
+          } catch (error) {
+            return { ...result, error: `${result.error}; failed to persist Fork outcome: ${error.message || error}` };
+          }
+          return { ...result, requestId, uncertain: true };
+        }
+        const committedResult = { ...result, requestId };
+        try {
+          this.completePersistentAgentOperation(agent, admission.operation.id, committedResult);
+          return committedResult;
+        } catch (error) {
+          return {
+            ...committedResult,
+            error: `Fork was created, but its result could not be committed: ${error.message || error}`,
+            retainedAgentId: result.agentId,
+            retryable: true,
+          };
+        }
+      },
+    );
+  }
+
+  async forkAgentUntracked(agentId, mode = 'same-worktree', options = {}) {
     await this.whenRecovered();
     if (this.disposing) {
       return { error: 'Farming is shutting down; Agent lifecycle changes are not accepted' };
@@ -6258,12 +7112,20 @@ class AgentManager extends EventEmitter {
       if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0) {
         return { error: 'Conversation Fork requires an exact transcript revision' };
       }
+      if (options.lifecycleToken) {
+        return this.performAcpConversationFork(
+          agentId,
+          expectedRevision,
+          options.lifecycleToken,
+          options.forkRequestId || '',
+        );
+      }
       return this.runAgentLifecycleOperation(
         agentId,
         `conversation-fork:${expectedRevision}`,
         'conversation-fork',
         'conversation fork',
-        lifecycleToken => this.performAcpConversationFork(agentId, expectedRevision, lifecycleToken),
+        lifecycleToken => this.performAcpConversationFork(agentId, expectedRevision, lifecycleToken, ''),
       );
     }
     if (agent.providerSessionProvider === 'codex' && agent.providerSessionTemporary === true) {
@@ -6319,6 +7181,7 @@ class AgentManager extends EventEmitter {
       }, {
         wantsMain: false,
         parentAgentId: agent.id,
+        forkRequestId: options.forkRequestId || '',
         task: agent.task ? `Fork: ${agent.task}` : `Fork of ${agent.command}`,
         workflowTemplate: agent.workflowTemplate || '',
         source: mode === 'new-worktree' ? 'ui-fork-new-worktree' : 'ui-fork-same-worktree',
@@ -6331,7 +7194,7 @@ class AgentManager extends EventEmitter {
     });
   }
 
-  async performAcpConversationFork(agentId, expectedRevision, lifecycleToken) {
+  async performAcpConversationFork(agentId, expectedRevision, lifecycleToken, forkRequestId = '') {
     const agent = this.agents.get(agentId);
     if (!agent) return { error: 'Agent not found' };
     if (runtimeKind(agent) !== 'acp') {
@@ -6360,6 +7223,7 @@ class AgentManager extends EventEmitter {
         expectedRevision,
         lifecycleToken,
         acpSessionOptions,
+        forkRequestId,
       });
     }
 
@@ -6423,6 +7287,7 @@ class AgentManager extends EventEmitter {
         const started = this.startAgent(command, workspace, finish, {
           wantsMain: false,
           parentAgentId: agent.id,
+          forkRequestId,
           task: agent.task ? `Fork: ${agent.task}` : `Fork of ${agent.command}`,
           workflowTemplate: agent.workflowTemplate || '',
           source: 'ui-fork-acp-chat',
@@ -6467,6 +7332,7 @@ class AgentManager extends EventEmitter {
       expectedRevision,
       lifecycleToken,
       acpSessionOptions,
+      forkRequestId,
     } = options;
     const command = getProviderAdapter(provider)?.executable || provider;
     let preparedSessionId = '';
@@ -6507,6 +7373,7 @@ class AgentManager extends EventEmitter {
               const started = this.startAgent(command, workspace, finish, {
                 wantsMain: false,
                 parentAgentId: agent.id,
+                forkRequestId,
                 task: agent.task ? `Fork: ${agent.task}` : `Fork of ${agent.command}`,
                 workflowTemplate: agent.workflowTemplate || '',
                 source: 'ui-fork-acp-chat',
@@ -6732,7 +7599,7 @@ class AgentManager extends EventEmitter {
     }
     let removedMainPageSessionKeys = [];
     try {
-      this.transitionPersistentAgentOperation(agent, operationId, 'succeeded', '', {
+      this.transitionPersistentAgentOperation(agent, operationId, 'provider-archive-pending', '', {
         visibleOnMainPage: false,
         archived: true,
         archivedAt: Date.now(),
@@ -6750,6 +7617,8 @@ class AgentManager extends EventEmitter {
         removedMainPageSessionKeys,
       };
     }
+    agent.archived = true;
+    agent.archivedAt = Date.now();
     let metadataWarning = '';
     try {
       removedMainPageSessionKeys = this.removeMainPageProviderSessionsForAgents([agent]);
@@ -6759,7 +7628,7 @@ class AgentManager extends EventEmitter {
     }
 
     let historyWarning = '';
-    if (options.recordHistory !== false && !isEphemeralShellAgent(agent)) {
+    if (!admission.joined && options.recordHistory !== false && !isEphemeralShellAgent(agent)) {
       const previousTaskHistory = this.taskHistory;
       try {
         this.recordTaskHistory(agent, {
@@ -6772,8 +7641,59 @@ class AgentManager extends EventEmitter {
         console.error(historyWarning);
       }
     }
+    if (options.scheduleProviderArchive !== false) {
+      const providerArchive = await this.archiveCodexProviderSession(agent);
+      if (providerArchive?.error) {
+        try {
+          this.transitionPersistentAgentOperation(agent, operationId, 'blocked', providerArchive.error, {
+            visibleOnMainPage: false,
+            archived: true,
+            runtimeAgentId: '',
+          });
+        } catch (error) {
+          return {
+            agentId,
+            archived: true,
+            stopped: true,
+            retryable: true,
+            operationId,
+            removedMainPageSessionKeys,
+            error: `Provider archive failed: ${providerArchive.error}; failed to persist blocked Archive: ${error.message || error}`,
+          };
+        }
+        this.emit('update');
+        return {
+          agentId,
+          archived: true,
+          stopped: true,
+          providerArchived: false,
+          retryable: true,
+          operationId,
+          removedMainPageSessionKeys,
+          error: `Provider archive failed: ${providerArchive.error}`,
+        };
+      }
+    }
+    try {
+      this.transitionPersistentAgentOperation(agent, operationId, 'succeeded', '', {
+        visibleOnMainPage: false,
+        archived: true,
+        runtimeAgentId: '',
+      });
+    } catch (error) {
+      this.emit('update');
+      return {
+        agentId,
+        archived: true,
+        stopped: true,
+        providerArchived: true,
+        retryable: true,
+        operationId,
+        removedMainPageSessionKeys,
+        error: `Provider archive succeeded, but terminal Archive result could not be saved: ${error.message || error}`,
+      };
+    }
     this.forgetStoppedAgentRecord(agentId);
-    if (options.scheduleProviderArchive !== false) this.scheduleCodexSessionArchive(agent);
     return {
       agentId,
       archived: true,
@@ -6788,14 +7708,14 @@ class AgentManager extends EventEmitter {
     };
   }
 
-  scheduleCodexSessionArchive(agent) {
+  async archiveCodexProviderSession(agent) {
     if (
       !agent
       || agent.providerSessionProvider !== 'codex'
       || !agent.providerSessionId
       || agent.providerSessionTemporary === true
     ) {
-      return;
+      return null;
     }
 
     const sessionId = agent.providerSessionId;
@@ -6805,26 +7725,23 @@ class AgentManager extends EventEmitter {
       workspace: agent.projectWorkspace || '',
       providerHomePath: agent.providerHomePath || '',
     };
-    void this.enqueueCodexSessionMutation(
-      sessionId,
-      {
-        providerHomeId: agent.providerHomeId || 'default',
-        providerHomePath: agent.providerHomePath || '',
-      },
-      'archive',
-      () => this.archiveCodexSession(sessionId, session),
-      true,
-    )
-      .then(result => {
-        if (result?.error) {
-          console.error(`Failed to archive Codex session ${sessionId}: ${result.error}`);
-        }
-      })
-      .catch(error => {
-        console.error(`Failed to archive Codex session ${sessionId}:`, error);
-      });
+    try {
+      const result = await this.enqueueCodexSessionMutation(
+        sessionId,
+        {
+          providerHomeId: agent.providerHomeId || 'default',
+          providerHomePath: agent.providerHomePath || '',
+        },
+        'archive',
+        () => this.archiveCodexSession(sessionId, session),
+        true,
+      );
+      return result?.error ? { error: result.error } : { archived: true };
+    } catch (error) {
+      return { error: error.message || String(error) };
+    }
   }
-  
+
   admitPersistentDelete(agent, options = {}) {
     const activeOperation = activeLifecycleOperation(agent);
     if (

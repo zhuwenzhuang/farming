@@ -1554,7 +1554,13 @@ app.post(routePath(BASE_PATH, '/api/agents/:agentId/fork'), express.json(), asyn
     res.status(400).json({ error: 'Unsupported Fork target runtime' });
     return;
   }
+  const requestId = typeof req.body?.requestId === 'string' ? req.body.requestId.trim() : '';
+  if (!/^[A-Za-z0-9._:-]{1,160}$/.test(requestId)) {
+    res.status(400).json({ error: 'Fork requires a valid requestId' });
+    return;
+  }
   const result = await agentManager.forkAgent(req.params.agentId, mode, {
+    requestId,
     ...(targetRuntime ? { targetRuntime } : {}),
     ...(Number.isSafeInteger(req.body?.expectedRevision)
       ? { expectedRevision: req.body.expectedRevision }
@@ -1562,7 +1568,7 @@ app.post(routePath(BASE_PATH, '/api/agents/:agentId/fork'), express.json(), asyn
   });
   if (result.error) {
     const status = result.error === 'Agent not found' ? 404 : 400;
-    res.status(status).json({ error: result.error });
+    res.status(status).json(result);
     return;
   }
 
@@ -1571,32 +1577,12 @@ app.post(routePath(BASE_PATH, '/api/agents/:agentId/fork'), express.json(), asyn
     result.projectWorkspaces = membership.projectWorkspaces;
     result.pinnedProjectWorkspaces = membership.pinnedProjectWorkspaces;
   } catch (error) {
-    let rollbackError = '';
-    try {
-      if (mode === 'new-worktree') {
-        const rollback = await agentManager.deleteForkWorktreeProject(result.workspace, { force: true });
-        if (!rollback?.deleted || rollback.cleanupError) {
-          rollbackError = rollback?.error || rollback?.cleanupError || 'Failed to delete the fork worktree';
-        }
-      } else {
-        const rollback = await agentManager.archiveAgent(result.agentId, {
-          reason: 'project-mount-failed',
-          recordHistory: false,
-          requireEngineExit: true,
-          scheduleProviderArchive: false,
-        });
-        if (rollback?.error) rollbackError = rollback.error;
-      }
-    } catch (cleanupError) {
-      rollbackError = cleanupError?.message || String(cleanupError);
-    }
     broadcastState();
     const mountError = error.message || 'Failed to create Project';
     res.status(500).json({
-      error: rollbackError
-        ? `${mountError}. Rollback failed: ${rollbackError}`
-        : mountError,
-      ...(rollbackError ? { rollbackError } : {}),
+      ...result,
+      error: `${mountError}. Retry the same Fork request to reconcile Project membership.`,
+      retryable: true,
     });
     return;
   }
@@ -1676,31 +1662,26 @@ app.patch(routePath(BASE_PATH, '/api/projects/name'), express.json(), (req, res)
 });
 
 app.post(routePath(BASE_PATH, '/api/projects/create-worktree'), express.json(), async (req, res) => {
-  let created = null;
+  const requestId = typeof req.body?.requestId === 'string' ? req.body.requestId.trim() : '';
+  if (!/^[A-Za-z0-9._:-]{1,160}$/.test(requestId)) {
+    res.status(400).json({ error: 'Project worktree creation requires a valid requestId' });
+    return;
+  }
   try {
     const root = resolveProjectActionRoot(req.body?.rootId);
-    created = await agentManager.createPermanentWorktree(root.canonicalPath);
-    const membership = configManager.mountProjectWorkspace(created.workspace);
+    const created = await agentManager.createPermanentWorktree(root.canonicalPath, { requestId });
     broadcastState();
     res.status(201).json({
-      workspace: created.workspace,
-      branch: created.branch,
-      projectWorkspaces: membership.projectWorkspaces,
-      pinnedProjectWorkspaces: membership.pinnedProjectWorkspaces,
+      ...created,
     });
   } catch (error) {
-    let rollbackError = '';
-    if (created) {
-      const rollback = await agentManager.rollbackPermanentWorktree(created);
-      if (rollback?.rolledBack === false) rollbackError = rollback.error || 'Unknown rollback failure';
-    }
     const status = error instanceof WorkspaceFileError ? error.statusCode : 400;
-    const createError = error.message || 'Failed to create permanent worktree';
+    const operation = configManager.getProjectOperation?.(requestId);
     res.status(status).json({
-      error: rollbackError
-        ? `${createError}. Rollback failed: ${rollbackError}`
-        : createError,
-      ...(rollbackError ? { rollbackError } : {}),
+      error: error.message || 'Failed to create permanent worktree',
+      requestId,
+      ...(operation?.state === 'pending' ? { retryable: true } : {}),
+      ...(['unknown', 'blocked'].includes(operation?.state) ? { uncertain: true } : {}),
     });
   }
 });
@@ -1709,45 +1690,26 @@ app.post(routePath(BASE_PATH, '/api/projects/delete-worktree'), express.json(), 
   if (!await requireAgentRecoveryForHttp(res)) return;
   const body = req.body || {};
   const workspace = typeof body.workspace === 'string' ? body.workspace : '';
-  const inspected = await agentManager.inspectForkWorktreeProject(workspace);
-  if (inspected.error || (inspected.requiresForce && body.force !== true)) {
-    if (inspected.requiresForce) {
-      res.status(409).json({
-        ...inspected,
-        error: 'Worktree has uncommitted or untracked files',
-      });
-      return;
-    }
-    const status = inspected.error === 'Workspace not found' || inspected.error === 'Workspace is required' ? 404 : 400;
-    res.status(status).json(inspected);
+  const requestId = typeof body.requestId === 'string' ? body.requestId.trim() : '';
+  if (!/^[A-Za-z0-9._:-]{1,160}$/.test(requestId)) {
+    res.status(400).json({ error: 'Project worktree deletion requires a valid requestId' });
     return;
   }
 
-  const result = await agentManager.deleteForkWorktreeProject(inspected.workspace, { force: body.force === true });
+  const result = await agentManager.deleteForkWorktreeProject(workspace, {
+    force: body.force === true,
+    requestId,
+  });
   if (result.error) {
     broadcastState();
-    const status = result.requiresForce ? 409 : 400;
+    const status = result.requiresForce
+      ? 409
+      : (result.error === 'Workspace not found' || result.error === 'Workspace is required' ? 404 : 400);
     res.status(status).json(result);
     return;
   }
-
-  let membership;
-  try {
-    membership = configManager.removeProjectWorkspace(inspected.workspace);
-  } catch (error) {
-    broadcastState();
-    res.status(500).json({
-      ...result,
-      error: `Worktree was deleted, but Project membership cleanup failed: ${error.message || error}`,
-    });
-    return;
-  }
   broadcastState();
-  res.json({
-    ...result,
-    projectWorkspaces: membership.projectWorkspaces,
-    pinnedProjectWorkspaces: membership.pinnedProjectWorkspaces,
-  });
+  res.json(result);
 });
 
 app.post(routePath(BASE_PATH, '/api/codex/sessions/:sessionId/resume'), express.json(), async (req, res) => {
@@ -2442,9 +2404,9 @@ async function sendInputMessage(ws, data) {
 
 async function sendComposerInputMessage(ws, data) {
   const targetAgentId = resolveInputTargetAgentId(ws, data);
-  const requestId = typeof data.requestId === 'string' ? data.requestId : '';
+  const requestId = typeof data.requestId === 'string' ? data.requestId.trim() : '';
   const responseAgentId = targetAgentId || (typeof data.agentId === 'string' ? data.agentId : '');
-  const respond = (accepted, message = '') => {
+  const respond = (accepted, message = '', uncertain = false) => {
     if (!requestId || !responseAgentId) return;
     ws.send(JSON.stringify({
       type: 'composer-input-result',
@@ -2452,9 +2414,22 @@ async function sendComposerInputMessage(ws, data) {
       agentId: responseAgentId,
       accepted,
       ...(message ? { message } : {}),
+      ...(uncertain ? { uncertain: true } : {}),
     }));
   };
   const message = typeof data.message === 'string' ? data.message : '';
+  if (!/^[A-Za-z0-9._:-]{1,160}$/.test(requestId)) {
+    if (responseAgentId) {
+      ws.send(JSON.stringify({
+        type: 'composer-input-result',
+        requestId: requestId || 'invalid-request',
+        agentId: responseAgentId,
+        accepted: false,
+        message: 'Structured Composer input requires a valid requestId',
+      }));
+    }
+    return;
+  }
   const content = [];
   if (message.trim()) content.push({ type: 'text', text: message });
   const attachmentsRoot = path.resolve(imageAttachmentsDir());
@@ -2496,11 +2471,11 @@ async function sendComposerInputMessage(ws, data) {
     return;
   }
   try {
-    await agentManager.sendComposerMessage(targetAgentId, content);
+    await agentManager.sendComposerMessage(targetAgentId, content, { requestId });
     respond(true);
   } catch (error) {
     const message = error && error.message ? error.message : 'Failed to send Composer message';
-    if (requestId) respond(false, message);
+    if (requestId) respond(false, message, error?.uncertain === true);
     else ws.send(JSON.stringify({ type: 'error', message }));
   }
 }

@@ -50,6 +50,8 @@ Composer 展示当前 ACP Session 协商出的 mode、model、reasoning、boolea
 
 ACP Composer 保留所有不依赖 PTY 输入的日常消息框行为：草稿与上下键历史、Enter/Shift+Enter 与中文输入法、文件选择、粘贴媒体预览、删除附件、语音输入、Agent 命令与 Skill、Goal/Plan 请求模式、排队的 follow-up、中断、存在精确 Codex 数据时的上下文窗口，以及 Agent 提供的权限和配置控件。`+` 菜单包含附件、目标和计划，并且只有 Agent 声明 ACP logout 时才出现退出登录；Agent 命令通过 `/` 搜索，`$` 则搜索 Agent 实际宣告的 Skill 子集。只有实时 Agent 声明对应 prompt capability 时，上传图片或音频才会作为原生 ACP content block 发送；否则 Farming 会把它转换成与现有文本降级一致的可读本地路径上下文，避免不支持的媒体类型被静默丢弃。文本文件仍嵌入消息。
 
+Structured Composer 提交使用 request-id 幂等语义。遇到断线或明确 UNKNOWN 响应时，两套浏览器皮肤都保留同一个 request id；Farming Code 在有界 Admission Timeout 后也沿用同一个 id。浏览器只有收到确定的 Admission ACK 才清理精确对应的已提交草稿，迟到 ACK 不能清除更新输入或抢夺焦点。调用 ACP 前，Farming 会在 Agent Sidecar 中持久化一条有界记录，只包含 request id 与内容 hash。Provider `onSubmitted` 回调是准入线性化点：Farming 先持久化 `accepted`，再向浏览器确认。相同 id 与 hash 会 Join 或返回已提交结果，同一 id 携带不同 hash 会被拒绝。只要 Provider 可能已接管、但 Farming 无法证明 accepted 状态，记录就进入 UNKNOWN，Prompt 或 Steer 绝不会自动重放。
+
 对 Codex，Farming 会把选中的启动配置映射到 ACP adapter 的 `CODEX_CONFIG` 和 `INITIAL_AGENT_MODE`。因此 Terminal 与 Chat 之间切换时，会继承模型、推理强度、速度层级和对应的初始权限模式，不再静默回到 adapter 默认值。
 
 在实时 ACP Session 中切换 Codex 模型时，Farming 会先让 adapter 选择兼容的推理强度回退值，再刷新模型目录并重新应用标准 config option。这样即使长时间运行的 Session 建立于 provider 或代理刷新模型元数据之前，Fast 等模型专属 capability 仍会与刷新后的模型元数据对齐。模型与推理强度可以作为一组 profile 原子更新。对于同时提供 Sol、Terra、Luna 的模型家族，Composer 默认提供一个可跨模型和普通推理强度连续拖动的平面、一根开启时会自动下拉的点击式红色 Ultra 摇杆，以及独立显示 `Fast OFF` / `Fast ON` 的速度按钮；**Advanced** 会连续变形回原有的逐级推理、模型与速度控件，并保留当前 profile。所有 provider 的 ACP 配置写入都会按实时 Session 串行执行；重复设置同一个目标值是幂等操作，Agent 返回的 config option 还必须明确确认目标值。浏览器在事务期间只保留一次乐观更新，忽略更早发起的旧刷新，之后再用确认后的 Session snapshot 校准，失败才回滚。Ultra 与 Fast 的位置在 capability 刷新前后保持稳定；实时 Session 没有宣告的控件会保留为灰色禁用态，而不是让菜单突然跳动。

@@ -53,7 +53,14 @@ export function useWebSocket() {
   const wsRef = useRef<WebSocket | null>(null)
   const agentStateSignaturesRef = useRef<Map<string, string>>(new Map())
   const composerRequestSequenceRef = useRef(0)
-  const composerRequestResolversRef = useRef(new Map<string, { resolve: (accepted: boolean) => void; timeout: number }>())
+  const composerRequestResolversRef = useRef(new Map<string, {
+    resolve: (accepted: boolean) => void
+    timeout: number
+    promise: Promise<boolean>
+  }>())
+  const composerRequestIdsRef = useRef(new Map<string, string>())
+  const composerRequestKeysRef = useRef(new Map<string, string>())
+  const composerAcceptedRequestsRef = useRef(new Set<string>())
   const [state, setState] = useState<WebSocketState>({
     agents: [],
     taskHistory: [],
@@ -94,8 +101,20 @@ export function useWebSocket() {
     return false
   }, [])
 
-  const settleComposerRequest = useCallback((requestId: string, accepted: boolean, message = '') => {
+  const settleComposerRequest = useCallback((requestId: string, accepted: boolean, message = '', definitive = true) => {
     const pending = composerRequestResolversRef.current.get(requestId)
+    const requestKey = composerRequestKeysRef.current.get(requestId)
+    if (!pending && accepted && requestKey) {
+      composerAcceptedRequestsRef.current.add(requestId)
+      return
+    }
+    if (definitive) {
+      if (requestKey && composerRequestIdsRef.current.get(requestKey) === requestId) {
+        composerRequestIdsRef.current.delete(requestKey)
+      }
+      composerRequestKeysRef.current.delete(requestId)
+      composerAcceptedRequestsRef.current.delete(requestId)
+    }
     if (!pending) return
     composerRequestResolversRef.current.delete(requestId)
     window.clearTimeout(pending.timeout)
@@ -135,27 +154,53 @@ export function useWebSocket() {
     message: string,
     agentId?: string,
     attachments: ComposerInputAttachment[] = [],
-    options?: { awaitResult?: boolean },
+    _options?: { awaitResult?: boolean },
   ) => {
+    const requestKey = JSON.stringify({
+      agentId: agentId || '',
+      message,
+      attachments: attachments.map(attachment => ({
+        kind: attachment.kind,
+        path: attachment.path,
+        type: attachment.type,
+      })),
+    })
+    const requestId = composerRequestIdsRef.current.get(requestKey)
+      || globalThis.crypto?.randomUUID?.()
+      || `composer-${Date.now().toString(36)}-${++composerRequestSequenceRef.current}`
+    composerRequestIdsRef.current.set(requestKey, requestId)
+    composerRequestKeysRef.current.set(requestId, requestKey)
+    if (composerAcceptedRequestsRef.current.delete(requestId)) {
+      composerRequestIdsRef.current.delete(requestKey)
+      composerRequestKeysRef.current.delete(requestId)
+      return Promise.resolve(true)
+    }
+    const pending = composerRequestResolversRef.current.get(requestId)
+    if (pending) return pending.promise
     const input: ComposerInputMessage = {
       type: 'composer-input',
+      requestId,
       message,
       agentId,
       ...(attachments.length > 0 ? { attachments } : {}),
     }
-    if (options?.awaitResult !== true) return sendMessage(input)
-
-    const requestId = `composer-${Date.now().toString(36)}-${++composerRequestSequenceRef.current}`
-    input.requestId = requestId
-    return new Promise<boolean>(resolve => {
-      const timeout = window.setTimeout(() => {
-        settleComposerRequest(requestId, false, 'Chat submission was not accepted by Farming. Your draft is still available.')
-      }, 15_000)
-      composerRequestResolversRef.current.set(requestId, { resolve, timeout })
-      if (!sendMessage(input)) {
-        settleComposerRequest(requestId, false, 'Farming backend is not connected. Your draft is still available.')
-      }
+    let resolveRequest: (accepted: boolean) => void = () => {}
+    const promise = new Promise<boolean>(resolve => {
+      resolveRequest = resolve
     })
+    const timeout = window.setTimeout(() => {
+        settleComposerRequest(
+          requestId,
+          false,
+          'Chat submission has an uncertain outcome. Your draft is still available; retrying will reconcile the same request.',
+          false,
+        )
+    }, 15_000)
+    composerRequestResolversRef.current.set(requestId, { resolve: resolveRequest, timeout, promise })
+    if (!sendMessage(input)) {
+      settleComposerRequest(requestId, false, 'Farming backend is not connected. Your draft is still available.')
+    }
+    return promise
   }, [sendMessage, settleComposerRequest])
 
   const focusAgent = useCallback((agentId: string) => {
@@ -375,7 +420,7 @@ export function useWebSocket() {
               setState(prev => ({ ...prev, error: msg.message, errorId: prev.errorId + 1 }))
               break
             case 'composer-input-result':
-              settleComposerRequest(msg.requestId, msg.accepted, msg.message || '')
+              settleComposerRequest(msg.requestId, msg.accepted, msg.message || '', msg.uncertain !== true)
               break
             case 'agent-started':
               setState(prev => ({ ...prev, lastStartedAgentId: msg.agentId }))

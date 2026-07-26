@@ -291,6 +291,8 @@ export interface DeleteForkWorktreeProjectResult {
   workspace?: string
   deleted?: boolean
   forced?: boolean
+  retryable?: boolean
+  uncertain?: boolean
   requiresForce?: boolean
   dirtyEntries?: string[]
   archivedAgentIds?: string[]
@@ -751,6 +753,7 @@ export function CodeWorkspace({
   const pendingArchivedFocusAgentRef = useRef<string | null>(null)
   const pendingRestoredFocusAgentRef = useRef<string | null>(null)
   const mainPageSessionKeysMutationRef = useRef(0)
+  const projectOperationRequestIdsRef = useRef(new Map<string, string>())
   const mainPageSessionKeysAuthoritativeRef = useRef(normalizeMainPageSessionKeys(remoteMainPageSessionKeys))
   const mainPageSessionKeysAuthoritativeRevisionRef = useRef(0)
   const mainPageSessionKeysPendingMutationsRef = useRef<MainPageSessionKeyMutation[]>([])
@@ -1910,9 +1913,7 @@ export function CodeWorkspace({
 
   const sendComposerMessageToAgent = useCallback((agent: Agent, message: string, attachments: ComposerPromptAttachment[] = []) => {
     if (isStructuredRuntime(agent)) {
-      return sendComposerInput(message, agent.id, attachments, {
-        awaitResult: false,
-      })
+      return sendComposerInput(message, agent.id, attachments, { awaitResult: true })
     }
     if (
       agentKindForCommand(agent.command) === 'shell'
@@ -1989,16 +1990,18 @@ export function CodeWorkspace({
       composerMode,
       turnActive: activeAgentTurnActive || promptStartFenced,
       supportsSteer: activeAgent?.providerCapabilities.supportsSteer === true,
-      sendMessage: (agent, message, attachments) => {
-        const submitted = sendComposerMessageToAgent(agent, message, attachments)
-        return typeof submitted === 'boolean' ? submitted : false
-      },
+      sendMessage: (agent, message, attachments) => sendComposerMessageToAgent(agent, message, attachments),
       updateComposerState: updateComposerStateForKey,
     })
-    if (submitted && activeAgent && activeAcpRuntime && !activeAgentTurnActive && !promptStartFenced) {
-      acpPromptStartFencesRef.current[activeAgent.id] = Number(activeAcpRuntime.sessionRevision) || 0
+    const commitAccepted = (accepted: boolean, restoreFocus: boolean) => {
+      if (!accepted) return
+      if (activeAgent && activeAcpRuntime && !activeAgentTurnActive && !promptStartFenced) {
+        acpPromptStartFencesRef.current[activeAgent.id] = Number(activeAcpRuntime.sessionRevision) || 0
+      }
+      if (restoreFocus) focusComposerTextarea()
     }
-    if (submitted) focusComposerTextarea()
+    if (typeof submitted === 'boolean') commitAccepted(submitted, true)
+    else void submitted.then(accepted => commitAccepted(accepted, false))
   }, [activeAcpRuntime, activeAgent, activeAgentTurnActive, activeComposerKey, composerAttachments, composerMode, draft, focusComposerTextarea, sendComposerMessageToAgent, updateComposerStateForKey])
 
   const interruptActiveAgent = useCallback(() => {
@@ -4269,15 +4272,25 @@ export function CodeWorkspace({
     const rootId = projectFilesWorkspaceId(contextMenuProject.workspace)
     setProjectMenu(null)
     setOptionsMenu(null)
+    const requestKey = `create:${rootId}`
+    const requestId = projectOperationRequestIdsRef.current.get(requestKey)
+      || globalThis.crypto?.randomUUID?.()
+      || `${Date.now()}-${Math.random()}`
+    projectOperationRequestIdsRef.current.set(requestKey, requestId)
     try {
       const response = await fetch(appPath('/api/projects/create-worktree'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rootId }),
+        body: JSON.stringify({ rootId, requestId }),
       })
       const result = await response.json().catch(() => null) as {
         error?: string
+        retryable?: boolean
+        uncertain?: boolean
       } | null
+      if (response.ok || (result?.retryable !== true && result?.uncertain !== true)) {
+        projectOperationRequestIdsRef.current.delete(requestKey)
+      }
       if (!response.ok) throw new Error(result?.error || copy.permanentWorktreeFailed)
       setCopyNotice({ id: Date.now(), kind: 'success', message: copy.permanentWorktreeCreated })
     } catch (error) {

@@ -101,6 +101,7 @@ let structuredComposerConfigId = '';
 let structuredComposerAttachments = [];
 const structuredComposerHistory = new Map();
 const structuredComposerPendingFollowUps = new Map();
+const structuredComposerRequestIds = new Map();
 let structuredComposerHistoryIndex = -1;
 let structuredComposerCompositionEndAt = 0;
 let structuredComposerRestoreFocusAfterInterrupt = false;
@@ -6962,6 +6963,27 @@ function structuredComposerPromptAttachments() {
   ));
 }
 
+function structuredComposerRequestKey(agentId, message, attachments = []) {
+  return JSON.stringify({
+    agentId,
+    message,
+    attachments: attachments.map((attachment) => ({
+      kind: attachment.kind,
+      path: attachment.path,
+      type: attachment.type,
+    })),
+  });
+}
+
+function structuredComposerRequestId(requestKey) {
+  const existing = structuredComposerRequestIds.get(requestKey);
+  if (existing) return existing;
+  const requestId = globalThis.crypto?.randomUUID?.()
+    || `composer-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  structuredComposerRequestIds.set(requestKey, requestId);
+  return requestId;
+}
+
 function structuredComposerHistoryFor(agentId) {
   if (!agentId) return [];
   return structuredComposerHistory.get(agentId) || [];
@@ -7580,10 +7602,17 @@ function setupStructuredSessionComposer() {
     const draft = input.value;
     const message = structuredComposerMessage(draft);
     const promptAttachments = structuredComposerPromptAttachments();
+    const submittedAttachmentIds = structuredComposerAttachments.map((attachment) => attachment.id);
     if (!message && promptAttachments.length === 0) return;
     const statusNode = document.getElementById('crt-structured-composer-status');
     const completeSubmission = () => {
       addStructuredComposerHistory(agentId, draft);
+      const ownsComposer = focusedAgentId === agentId
+        && structuredSessionGeneration === generation
+        && input.value === draft
+        && structuredComposerAttachments.length === submittedAttachmentIds.length
+        && structuredComposerAttachments.every((attachment, index) => attachment.id === submittedAttachmentIds[index]);
+      if (!ownsComposer) return;
       input.value = '';
       structuredComposerAttachments = [];
       renderStructuredComposerAttachments();
@@ -7595,17 +7624,48 @@ function setupStructuredSessionComposer() {
       updateStructuredComposerState(agent);
       setTimeout(() => void refreshStructuredSession(agentId, true, generation), 160);
     };
-    const sent = action === 'send' && structuredRuntimeStatus(agent) !== 'idle'
-      ? (queueStructuredComposerFollowUp(agentId, message, promptAttachments), true)
-      : getSessionClient()?.sendComposerMessage(agentId, message, promptAttachments);
+    if (action === 'send' && structuredRuntimeStatus(agent) !== 'idle') {
+      queueStructuredComposerFollowUp(agentId, message, promptAttachments);
+      completeSubmission();
+      return;
+    }
+    const requestKey = structuredComposerRequestKey(agentId, message, promptAttachments);
+    const requestId = structuredComposerRequestId(requestKey);
+    const sent = getSessionClient()?.sendComposerMessage(agentId, message, promptAttachments, {
+      requestId,
+      onResult(result) {
+        if (result?.accepted === true) {
+          if (structuredComposerRequestIds.get(requestKey) === requestId) {
+            structuredComposerRequestIds.delete(requestKey);
+          }
+          completeSubmission();
+          return;
+        }
+        if (result?.uncertain !== true && structuredComposerRequestIds.get(requestKey) === requestId) {
+          structuredComposerRequestIds.delete(requestKey);
+        }
+        if (focusedAgentId !== agentId || structuredSessionGeneration !== generation) return;
+        if (statusNode) {
+          statusNode.textContent = result?.message || 'Submission was not accepted';
+          statusNode.classList.add('error');
+        }
+        input.focus();
+      },
+    });
     if (!sent) {
+      if (structuredComposerRequestIds.get(requestKey) === requestId) {
+        structuredComposerRequestIds.delete(requestKey);
+      }
       if (statusNode) {
         statusNode.textContent = 'Connection unavailable';
         statusNode.classList.add('error');
       }
       return;
     }
-    completeSubmission();
+    if (statusNode) {
+      statusNode.textContent = 'SENDING...';
+      statusNode.classList.remove('error');
+    }
   });
 }
 

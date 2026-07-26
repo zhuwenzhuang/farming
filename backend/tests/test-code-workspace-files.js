@@ -113,6 +113,13 @@ function run() {
   );
 
   assert(
+    webSocketSource.includes('composerAcceptedRequestsRef')
+      && webSocketSource.includes('msg.uncertain !== true')
+      && webSocketSource.includes('return Promise.resolve(true)'),
+    'structured Composer retries should retain UNKNOWN request ids and consume late accepted ACKs without resubmitting',
+  );
+
+  assert(
     webSocketSource.includes("sendMessage({ type: 'focus-agent', agentId })") &&
       !webSocketSource.includes("sendMessage({ type: 'focus-agent', agentId, refreshState: true })") &&
       webSocketSource.includes('updateAgentLivePreview(msg.preview)') &&
@@ -605,14 +612,14 @@ function run() {
       !workspaceSource.includes("const activeLaunchPermissionMode = activeAgent?.launchPermissionMode || ''") &&
       !workspaceSource.includes('effectiveCodexApprovalModeForSession(Boolean(activeAgent), activeLaunchPermissionMode, codexApprovalMode)') &&
       !workspaceSource.includes('effectiveClaudePermissionModeForSession(Boolean(activeAgent), activeLaunchPermissionMode, claudePermissionMode)') &&
-      workspaceSource.includes('const showPermissionMode = active && capabilities.permissionMode') &&
-      workspaceSource.includes('const showModelPicker = active && capabilities.modelPicker') &&
-      workspaceSource.includes('const showPlusMenu = active && capabilities.plusMenu') &&
-      workspaceSource.includes('const showSpeechInput = active') &&
-      workspaceSource.includes('&& capabilities.speechInput') &&
-      workspaceSource.includes('&& (!mobileComposerViewport || speechSupported)') &&
-      workspaceSource.includes('const speechControlAvailable = speechSupported || mobileComposerViewport') &&
-      workspaceSource.includes("window.matchMedia('(max-width: 980px)')") &&
+      terminalComposerSource.includes('const showPermissionMode = active && capabilities.permissionMode') &&
+      terminalComposerSource.includes('const showModelPicker = active && capabilities.modelPicker') &&
+      terminalComposerSource.includes('const showPlusMenu = active && (capabilities.plusMenu || capabilities.goalMode)') &&
+      terminalComposerSource.includes('const showSpeechInput = active') &&
+      terminalComposerSource.includes('&& capabilities.speechInput') &&
+      terminalComposerSource.includes('&& (!mobileComposerViewport || speechSupported)') &&
+      terminalComposerSource.includes('const speechControlAvailable = speechSupported || mobileComposerViewport') &&
+      terminalComposerSource.includes("window.matchMedia('(max-width: 980px)')") &&
       workspaceSource.includes('if (activeAgentCapabilities.composer.permissionMode || activeAgentCapabilities.composer.modelPicker) return') &&
       workspaceSource.includes("return { ...closed, mode: 'default' }") &&
       workspaceSource.includes("fetch(appPath('/api/codex/models'))") &&
@@ -1113,7 +1120,9 @@ function run() {
       serverSource.includes('configManager.setProjectName(req.body?.workspace, req.body?.name)') &&
       serverSource.includes('delete settingsPatch.projectWorkspaces') &&
       serverSource.includes('delete settingsPatch.pinnedProjectWorkspaces') &&
-      serverSource.includes('Rollback failed: ${rollbackError}') &&
+      serverSource.includes('Retry the same Fork request to reconcile Project membership.') &&
+      serverSource.includes('createPermanentWorktree(root.canonicalPath, { requestId })') &&
+      serverSource.includes('configManager.getProjectOperation?.(requestId)') &&
       serverSource.includes('projectWorkspaces: settings.projectWorkspaces || []') &&
       serverSource.includes('pinnedProjectWorkspaces: settings.pinnedProjectWorkspaces || []'),
     'Project membership should be owned by backend CRUD transitions instead of frontend render-derived settings writes'

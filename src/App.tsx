@@ -178,6 +178,8 @@ export function App() {
   const pendingStartRef = useRef<{ beforeIds: Set<string> } | null>(null)
   const pendingMainRestartRef = useRef<{ beforeIds: Set<string> } | null>(null)
   const pendingForkAgentIdsRef = useRef(new Set<string>())
+  const forkRequestIdsRef = useRef(new Map<string, string>())
+  const projectOperationRequestIdsRef = useRef(new Map<string, string>())
   const permissionSwitchRequestRef = useRef<string | null>(null)
   const permissionSwitchStateRef = useRef<PermissionSwitchState | null>(null)
   const openTerminalIdsRef = useRef<string[]>([])
@@ -687,13 +689,26 @@ export function App() {
   ) => {
     if (pendingForkAgentIdsRef.current.has(agentId)) return
     pendingForkAgentIdsRef.current.add(agentId)
+    const requestKey = [agentId, mode, options?.targetRuntime || '', options?.expectedRevision ?? ''].join(':')
+    const requestId = forkRequestIdsRef.current.get(requestKey)
+      || globalThis.crypto?.randomUUID?.()
+      || `${Date.now()}-${Math.random()}`
+    forkRequestIdsRef.current.set(requestKey, requestId)
     try {
       const response = await fetch(appPath(`/api/agents/${agentId}/fork`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode, ...options }),
+        body: JSON.stringify({ mode, ...options, requestId }),
       })
-      const data = await response.json().catch(() => null) as { agentId?: string; error?: string } | null
+      const data = await response.json().catch(() => null) as {
+        agentId?: string
+        error?: string
+        retryable?: boolean
+        uncertain?: boolean
+      } | null
+      if (response.ok || (data?.retryable !== true && data?.uncertain !== true)) {
+        forkRequestIdsRef.current.delete(requestKey)
+      }
       if (!response.ok || !data?.agentId) {
         notifyError(data?.error || `Failed to fork agent (${response.status})`)
         return
@@ -710,13 +725,21 @@ export function App() {
     workspace: string,
     options?: { force?: boolean }
   ): Promise<DeleteForkWorktreeProjectResult> => {
+    const requestKey = `delete:${workspace}:${options?.force === true ? 'force' : 'safe'}`
+    const requestId = projectOperationRequestIdsRef.current.get(requestKey)
+      || globalThis.crypto?.randomUUID?.()
+      || `${Date.now()}-${Math.random()}`
+    projectOperationRequestIdsRef.current.set(requestKey, requestId)
     try {
       const response = await fetch(appPath('/api/projects/delete-worktree'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workspace, force: options?.force === true }),
+        body: JSON.stringify({ workspace, force: options?.force === true, requestId }),
       })
       const data = await response.json().catch(() => null) as DeleteForkWorktreeProjectResult | null
+      if (response.ok || (data?.retryable !== true && data?.uncertain !== true)) {
+        projectOperationRequestIdsRef.current.delete(requestKey)
+      }
       if (!response.ok && data?.requiresForce !== true) {
         notifyError(data?.error || `Failed to delete worktree (${response.status})`)
       }

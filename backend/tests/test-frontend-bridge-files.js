@@ -49,16 +49,21 @@ function run() {
   assert(runtimePaths.includes('FarmingRuntimePaths'), 'CRT runtime should expose base-path-aware URLs');
   assert(
     sessionBridge.includes('sendComposerMessage(agentId, message, attachments = [], options = {})') &&
+      sessionBridge.includes("typeof options.requestId === 'string'") &&
       sessionBridge.includes('...(attachments.length > 0 ? { attachments } : {})') &&
       sessionBridge.includes("type !== 'composer-input-result'") &&
-      sessionBridge.includes('rejectPendingComposerMessages'),
+      sessionBridge.includes('rejectPendingComposerMessages') &&
+      sessionBridge.includes('uncertain: true'),
     'structured runtimes should preserve ACP attachments and correlate Codex chat acceptance through the session bridge'
   );
   assert(
     crtApp.includes('getSessionClient()?.handleServerMessage(data)') &&
       crtApp.includes('getSessionClient()?.rejectPendingComposerMessages()') &&
       crtApp.includes('function structuredComposerPromptAttachments()') &&
-      crtApp.includes('sendComposerMessage(agentId, message, promptAttachments'),
+      crtApp.includes('sendComposerMessage(agentId, message, promptAttachments') &&
+      crtApp.includes('structuredComposerRequestIds') &&
+      crtApp.includes('onResult(result)') &&
+      crtApp.indexOf('completeSubmission();', crtApp.indexOf('onResult(result)')) > crtApp.indexOf('result?.accepted === true'),
     'CRT ACP submissions should preserve native image attachments and use the structured session bridge'
   );
   assert(

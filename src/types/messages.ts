@@ -155,6 +155,7 @@ export interface ComposerInputResultMessage {
   agentId: string
   accepted: boolean
   message?: string
+  uncertain?: boolean
 }
 
 export interface AgentStartedMessage {

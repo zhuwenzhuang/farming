@@ -15,9 +15,14 @@ function readyImage() {
   };
 }
 
-function run() {
+async function run() {
   const agent = { id: 'agent-1', status: 'running', runtimeBinding: { kind: 'acp' } };
-  let state = createDefaultAgentComposerState();
+  const queuedAttachment = readyImage();
+  let state = {
+    ...createDefaultAgentComposerState(),
+    draft: 'inspect this',
+    attachments: [queuedAttachment],
+  };
   const updateComposerState = (_key, updater) => {
     state = updater(state);
   };
@@ -31,7 +36,7 @@ function run() {
     agent,
     composerKey: 'acp:session-1',
     draft: 'inspect this',
-    attachments: [readyImage()],
+    attachments: [queuedAttachment],
     composerMode: 'plan',
     turnActive: true,
     supportsSteer: false,
@@ -45,12 +50,17 @@ function run() {
   assert.strictEqual(state.draft, '');
   assert.strictEqual(state.mode, 'default');
 
-  state = createDefaultAgentComposerState();
+  const directAttachment = readyImage();
+  state = {
+    ...createDefaultAgentComposerState(),
+    draft: 'send now',
+    attachments: [directAttachment],
+  };
   assert.strictEqual(submitAcpDraft({
     agent,
     composerKey: 'acp:session-1',
     draft: 'send now',
-    attachments: [readyImage()],
+    attachments: [directAttachment],
     composerMode: 'default',
     turnActive: false,
     supportsSteer: false,
@@ -61,12 +71,17 @@ function run() {
   assert.strictEqual(sent[0].text, 'send now');
   assert.strictEqual(sent[0].attachments[0].name, 'screen.png');
 
-  state = createDefaultAgentComposerState();
+  const steerAttachment = readyImage();
+  state = {
+    ...createDefaultAgentComposerState(),
+    draft: 'change direction now',
+    attachments: [steerAttachment],
+  };
   assert.strictEqual(submitAcpDraft({
     agent,
     composerKey: 'acp:session-1',
     draft: 'change direction now',
-    attachments: [readyImage()],
+    attachments: [steerAttachment],
     composerMode: 'default',
     turnActive: true,
     supportsSteer: true,
@@ -77,6 +92,36 @@ function run() {
   assert.strictEqual(sent[1].text, 'change direction now');
   assert.strictEqual(sent[1].attachments[0].path, '/tmp/screen.png');
   assert.strictEqual(state.pendingFollowUp, undefined);
+
+  let acceptDelayedSubmission;
+  const delayedSubmission = new Promise(resolve => {
+    acceptDelayedSubmission = resolve;
+  });
+  const delayedAttachment = readyImage();
+  state = {
+    ...createDefaultAgentComposerState(),
+    draft: 'submitted draft',
+    attachments: [delayedAttachment],
+  };
+  const delayedResult = submitAcpDraft({
+    agent,
+    composerKey: 'acp:session-1',
+    draft: state.draft,
+    attachments: state.attachments,
+    composerMode: 'default',
+    turnActive: false,
+    supportsSteer: false,
+    sendMessage: () => delayedSubmission,
+    updateComposerState,
+  });
+  state = {
+    ...state,
+    draft: 'newer draft',
+  };
+  acceptDelayedSubmission(true);
+  assert.strictEqual(await delayedResult, true);
+  assert.strictEqual(state.draft, 'newer draft', 'a late ACK must not clear a newer draft');
+  assert.strictEqual(state.attachments.length, 1, 'a late ACK must not revoke attachments owned by a newer draft');
 
   state = {
     ...createDefaultAgentComposerState(),
@@ -110,4 +155,7 @@ function run() {
   console.log('ACP composer behavior tests passed');
 }
 
-run();
+run().catch(error => {
+  console.error(error);
+  process.exitCode = 1;
+});

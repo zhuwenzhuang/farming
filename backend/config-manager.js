@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { atomicWriteJson } = require('./atomic-json-store');
 const { ensureMainAgentSkillFiles } = require('./main-agent-skills');
 const { normalizeClaudeModelValue } = require('./claude-settings');
 const { isTemporaryProviderSessionId } = require('./provider-session-id');
@@ -68,6 +69,8 @@ const DEFAULT_CRT_TERMINAL_FONT_SIZE = 15;
 const MIN_CRT_TERMINAL_FONT_SIZE = 10;
 const MAX_CRT_TERMINAL_FONT_SIZE = 20;
 const MAX_INSTANCE_NAME_LENGTH = 80;
+const MAX_PROJECT_OPERATIONS = 32;
+const PROJECT_OPERATION_ID_PATTERN = /^[A-Za-z0-9._:-]{1,160}$/;
 
 const PERSISTED_SETTING_KEYS = new Set([
   'workspace',
@@ -76,6 +79,7 @@ const PERSISTED_SETTING_KEYS = new Set([
   'projectWorkspaces',
   'pinnedProjectWorkspaces',
   'projectNames',
+  'projectOperations',
   'instanceName',
   'theme',
   'appearance',
@@ -113,8 +117,8 @@ function cloneAgentHomes(agentHomes) {
 }
 
 class ConfigManager {
-  constructor() {
-    this.farmingDir = storageLayout.farmingConfigDir();
+  constructor(options = {}) {
+    this.farmingDir = options.configDir || storageLayout.farmingConfigDir();
     this.settingsFile = storageLayout.settingsFile(this.farmingDir);
     this.sessionStore = new FarmingSessionStore(this.farmingDir, {
       normalizeMainPageSessionKeys: keys => this.normalizeMainPageSessionKeys(keys),
@@ -122,6 +126,7 @@ class ConfigManager {
     this.runHistoryStore = new RunHistoryStore(this.farmingDir, {
       normalizeTaskHistory: entries => this.normalizeTaskHistory(entries),
     });
+    this.writeJson = typeof options.writeJson === 'function' ? options.writeJson : atomicWriteJson;
     this.settings = null;
   }
 
@@ -305,6 +310,7 @@ class ConfigManager {
         projectWorkspaces: [],
         pinnedProjectWorkspaces: [],
         projectNames: {},
+        projectOperations: {},
         instanceName: '',
         theme: 'terminal',
         appearance: 'system',
@@ -329,7 +335,7 @@ class ConfigManager {
         codexModelPreset: 'gpt-5.5:xhigh',
         version: '2'
       };
-      fs.writeFileSync(this.settingsFile, JSON.stringify(defaultSettings, null, 2));
+      this.writeSettingsFile(defaultSettings);
       console.log('Created default settings:', this.settingsFile);
     }
     
@@ -341,6 +347,7 @@ class ConfigManager {
       projectWorkspaces: [],
       pinnedProjectWorkspaces: [],
       projectNames: {},
+      projectOperations: {},
       instanceName: '',
       theme: 'terminal',
       appearance: 'system',
@@ -391,6 +398,7 @@ class ConfigManager {
     this.settings.projectWorkspaces = this.normalizeProjectWorkspaces(this.settings.projectWorkspaces);
     this.settings.pinnedProjectWorkspaces = this.normalizeProjectWorkspaces(this.settings.pinnedProjectWorkspaces);
     this.settings.projectNames = this.normalizeProjectNames(this.settings.projectNames);
+    this.settings.projectOperations = this.normalizeProjectOperations(this.settings.projectOperations);
     this.settings.instanceName = this.normalizeInstanceName(this.settings.instanceName);
     this.settings.agentHomes = this.normalizeAgentHomes(this.settings.agentHomes);
     if (this.settings.updateUrl === LEGACY_DEFAULT_UPDATE_URL || this.settings.updateUrl === API_DEFAULT_UPDATE_URL) {
@@ -417,10 +425,10 @@ class ConfigManager {
     console.log('Loaded settings:', this.settings);
   }
 
-  pruneUnknownSettings() {
-    for (const key of Object.keys(this.settings || {})) {
+  pruneUnknownSettings(settings = this.settings) {
+    for (const key of Object.keys(settings || {})) {
       if (!PERSISTED_SETTING_KEYS.has(key)) {
-        delete this.settings[key];
+        delete settings[key];
       }
     }
   }
@@ -498,16 +506,59 @@ class ConfigManager {
     return normalized;
   }
 
+  normalizeProjectOperations(projectOperations) {
+    if (!projectOperations || typeof projectOperations !== 'object' || Array.isArray(projectOperations)) return {};
+    const entries = Object.entries(projectOperations)
+      .filter(([id, operation]) => (
+        PROJECT_OPERATION_ID_PATTERN.test(id)
+        && operation
+        && typeof operation === 'object'
+        && ['create-worktree', 'delete-worktree'].includes(operation.type)
+        && ['pending', 'unknown', 'succeeded', 'failed', 'blocked'].includes(operation.state)
+      ))
+      .sort((left, right) => (Number(right[1].updatedAt) || 0) - (Number(left[1].updatedAt) || 0))
+      .map(([id, operation]) => [id, {
+        id,
+        type: operation.type,
+        state: operation.state,
+        signature: typeof operation.signature === 'string' ? operation.signature.slice(0, 128) : '',
+        request: operation.request && typeof operation.request === 'object'
+          ? JSON.parse(JSON.stringify(operation.request))
+          : {},
+        result: operation.result && typeof operation.result === 'object'
+          ? JSON.parse(JSON.stringify(operation.result))
+          : null,
+        error: typeof operation.error === 'string' ? operation.error.slice(0, 2000) : '',
+        startedAt: Number(operation.startedAt) || 0,
+        updatedAt: Number(operation.updatedAt) || 0,
+        finishedAt: Number(operation.finishedAt) || null,
+      }]);
+    const unresolved = entries.filter(([, operation]) => (
+      ['pending', 'unknown', 'blocked'].includes(operation.state)
+    ));
+    const terminal = entries.filter(([, operation]) => (
+      !['pending', 'unknown', 'blocked'].includes(operation.state)
+    ));
+    return Object.fromEntries([
+      ...unresolved,
+      ...terminal.slice(0, Math.max(0, MAX_PROJECT_OPERATIONS - unresolved.length)),
+    ]);
+  }
+
   setProjectName(workspace, name) {
     const normalized = this.normalizeProjectNames({ [workspace]: name });
     const entry = Object.entries(normalized)[0];
     if (!entry) throw new Error('Project workspace and name are required');
     const [normalizedWorkspace, normalizedName] = entry;
-    this.settings.projectNames = {
-      ...this.settings.projectNames,
-      [normalizedWorkspace]: normalizedName,
+    const nextSettings = {
+      ...this.settings,
+      projectNames: {
+        ...this.settings.projectNames,
+        [normalizedWorkspace]: normalizedName,
+      },
     };
-    this.writeSettingsFile();
+    this.writeSettingsFile(nextSettings);
+    this.settings = nextSettings;
     return {
       workspace: normalizedWorkspace,
       name: normalizedName,
@@ -668,23 +719,23 @@ class ConfigManager {
     return merged;
   }
 
-  applyCodexProfileToLegacySettings(codexProfile) {
-    this.settings.codexApprovalMode = codexProfile.approvalMode;
-    this.settings.codexModel = codexProfile.model;
-    this.settings.codexReasoningEffort = codexProfile.reasoningEffort;
-    this.settings.codexServiceTier = codexProfile.serviceTier;
-    this.settings.codexModelPreset = codexProfile.modelPreset;
+  applyCodexProfileToLegacySettings(codexProfile, settings = this.settings) {
+    settings.codexApprovalMode = codexProfile.approvalMode;
+    settings.codexModel = codexProfile.model;
+    settings.codexReasoningEffort = codexProfile.reasoningEffort;
+    settings.codexServiceTier = codexProfile.serviceTier;
+    settings.codexModelPreset = codexProfile.modelPreset;
   }
 
-  normalizeAgentLaunchSettings(rawSettings = {}) {
+  normalizeAgentLaunchSettings(rawSettings = {}, settings = this.settings) {
     const changedProfiles = this.getChangedAgentLaunchProfiles(rawSettings);
-    const mergedProfiles = this.mergeAgentLaunchProfiles(this.settings.agentLaunchProfiles, changedProfiles);
-    this.settings.agentLaunchProfiles = {
+    const mergedProfiles = this.mergeAgentLaunchProfiles(settings.agentLaunchProfiles, changedProfiles);
+    settings.agentLaunchProfiles = {
       codex: this.normalizeCodexLaunchProfile(mergedProfiles.codex, changedProfiles.codex || {}),
       claude: this.normalizeClaudeLaunchProfile(mergedProfiles.claude),
     };
-    this.settings.defaultLaunchAgent = this.normalizeDefaultLaunchAgent(this.settings.defaultLaunchAgent);
-    this.applyCodexProfileToLegacySettings(this.settings.agentLaunchProfiles.codex);
+    settings.defaultLaunchAgent = this.normalizeDefaultLaunchAgent(settings.defaultLaunchAgent);
+    this.applyCodexProfileToLegacySettings(settings.agentLaunchProfiles.codex, settings);
   }
   
   getWorkspace() {
@@ -760,8 +811,10 @@ class ConfigManager {
   }
 
   getSettings() {
+    const publicSettings = { ...this.settings };
+    delete publicSettings.projectOperations;
     return {
-      ...this.settings,
+      ...publicSettings,
       instanceName: this.getInstanceName(),
       workspace: this.farmingDir,
       mainPageSessionKeys: this.getMainPageSessionKeys(),
@@ -859,6 +912,64 @@ class ConfigManager {
     }
   }
 
+  getProjectOperation(requestId) {
+    const id = String(requestId || '').trim();
+    if (!PROJECT_OPERATION_ID_PATTERN.test(id)) return null;
+    const operation = this.settings.projectOperations?.[id];
+    return operation ? JSON.parse(JSON.stringify(operation)) : null;
+  }
+
+  commitProjectOperation(operation, membership = {}) {
+    const normalized = this.normalizeProjectOperations({ [operation?.id]: operation });
+    const nextOperation = normalized[operation?.id];
+    if (!nextOperation) throw new Error('Project operation is invalid');
+    const existingOperation = this.settings.projectOperations?.[nextOperation.id];
+    const unresolvedCount = Object.values(this.settings.projectOperations || {})
+      .filter(candidate => ['pending', 'unknown', 'blocked'].includes(candidate.state)).length;
+    if (!existingOperation && nextOperation.state === 'pending' && unresolvedCount >= MAX_PROJECT_OPERATIONS) {
+      throw new Error('Too many unresolved Project operations require reconciliation');
+    }
+    const nextOperations = this.normalizeProjectOperations({
+      ...this.settings.projectOperations,
+      [nextOperation.id]: nextOperation,
+    });
+    const nextSettings = {
+      ...this.settings,
+      projectOperations: nextOperations,
+    };
+    if (membership.mountWorkspace) {
+      const mounted = this.normalizeProjectWorkspaces([
+        membership.mountWorkspace,
+        ...(this.settings.projectWorkspaces || []),
+      ]);
+      nextSettings.projectWorkspaces = mounted;
+      nextSettings.pinnedProjectWorkspaces = this.normalizeProjectWorkspaces(
+        this.settings.pinnedProjectWorkspaces,
+      );
+    }
+    if (membership.removeWorkspace) {
+      const expanded = this.expandWorkspacePath(membership.removeWorkspace);
+      const resolved = expanded ? path.resolve(expanded) : '';
+      const candidates = new Set([expanded, resolved].filter(Boolean));
+      try {
+        candidates.add(fs.realpathSync(resolved));
+      } catch {
+        // A deleted worktree is removed by its last canonical path.
+      }
+      nextSettings.projectWorkspaces = (this.settings.projectWorkspaces || [])
+        .filter(workspace => !candidates.has(workspace));
+      nextSettings.pinnedProjectWorkspaces = (this.settings.pinnedProjectWorkspaces || [])
+        .filter(workspace => !candidates.has(workspace));
+    }
+    this.writeSettingsFile(nextSettings);
+    this.settings = nextSettings;
+    return {
+      operation: JSON.parse(JSON.stringify(nextOperation)),
+      projectWorkspaces: [...(nextSettings.projectWorkspaces || [])],
+      pinnedProjectWorkspaces: [...(nextSettings.pinnedProjectWorkspaces || [])],
+    };
+  }
+
   getMainPageSessionKeys() {
     return this.sessionStore ? this.sessionStore.getMainPageSessionKeys() : [];
   }
@@ -903,19 +1014,8 @@ class ConfigManager {
     return this.runHistoryStore ? this.runHistoryStore.getEntries() : [];
   }
 
-  writeSettingsFile() {
-    fs.mkdirSync(this.farmingDir, { recursive: true });
-    const tempFile = `${this.settingsFile}.${process.pid}.${Date.now()}.tmp`;
-    try {
-      fs.writeFileSync(tempFile, JSON.stringify(this.settings, null, 2));
-      fs.renameSync(tempFile, this.settingsFile);
-    } finally {
-      try {
-        fs.unlinkSync(tempFile);
-      } catch {
-        // A successful rename already removed the temporary path.
-      }
-    }
+  writeSettingsFile(settings = this.settings) {
+    this.writeJson(this.settingsFile, settings);
   }
 
   appendTaskHistory(entry) {
@@ -929,6 +1029,7 @@ class ConfigManager {
       : undefined;
     const settingsPatch = { ...(newSettings || {}) };
     delete settingsPatch.mainPageSessionKeys;
+    delete settingsPatch.projectOperations;
     const incomingTaskHistory = Object.prototype.hasOwnProperty.call(settingsPatch, 'taskHistory')
       ? settingsPatch.taskHistory
       : undefined;
@@ -936,38 +1037,40 @@ class ConfigManager {
     const previousMainWorkspace = this.settings.lastMainWorkspace || this.farmingDir;
     const previousProfiles = this.settings.agentLaunchProfiles || {};
     const incomingProfiles = settingsPatch.agentLaunchProfiles || {};
-    this.settings = {
+    const nextSettings = {
       ...this.settings,
       ...settingsPatch,
       agentLaunchProfiles: this.mergeAgentLaunchProfiles(previousProfiles, incomingProfiles),
       workspace: this.farmingDir
     };
-    this.settings.lastMainWorkspace = this.normalizeMainWorkspace(this.settings.lastMainWorkspace, previousMainWorkspace);
-    this.settings.workspaceHistory = this.normalizeWorkspaceHistory(this.settings.workspaceHistory);
-    this.settings.projectWorkspaces = this.normalizeProjectWorkspaces(this.settings.projectWorkspaces);
-    this.settings.pinnedProjectWorkspaces = this.normalizeProjectWorkspaces(this.settings.pinnedProjectWorkspaces);
-    this.settings.projectNames = this.normalizeProjectNames(this.settings.projectNames);
-    this.settings.instanceName = this.normalizeInstanceName(this.settings.instanceName);
-    this.settings.agentHomes = this.normalizeAgentHomes(this.settings.agentHomes);
-    this.settings.updateUrl = this.normalizeUpdateUrl(this.settings.updateUrl);
-    this.settings.searchTimeoutMs = this.normalizeSearchTimeoutMs(this.settings.searchTimeoutMs);
-    delete this.settings.codexRuntimeMode;
-    delete this.settings.mainPageSessionKeys;
-    delete this.settings.taskHistory;
+    nextSettings.lastMainWorkspace = this.normalizeMainWorkspace(nextSettings.lastMainWorkspace, previousMainWorkspace);
+    nextSettings.workspaceHistory = this.normalizeWorkspaceHistory(nextSettings.workspaceHistory);
+    nextSettings.projectWorkspaces = this.normalizeProjectWorkspaces(nextSettings.projectWorkspaces);
+    nextSettings.pinnedProjectWorkspaces = this.normalizeProjectWorkspaces(nextSettings.pinnedProjectWorkspaces);
+    nextSettings.projectNames = this.normalizeProjectNames(nextSettings.projectNames);
+    nextSettings.projectOperations = this.normalizeProjectOperations(nextSettings.projectOperations);
+    nextSettings.instanceName = this.normalizeInstanceName(nextSettings.instanceName);
+    nextSettings.agentHomes = this.normalizeAgentHomes(nextSettings.agentHomes);
+    nextSettings.updateUrl = this.normalizeUpdateUrl(nextSettings.updateUrl);
+    nextSettings.searchTimeoutMs = this.normalizeSearchTimeoutMs(nextSettings.searchTimeoutMs);
+    delete nextSettings.codexRuntimeMode;
+    delete nextSettings.mainPageSessionKeys;
+    delete nextSettings.taskHistory;
     if (incomingMainPageSessionKeys !== undefined) {
       this.setMainPageSessionKeys(incomingMainPageSessionKeys);
     }
     if (incomingTaskHistory !== undefined && this.runHistoryStore) {
       this.runHistoryStore.setEntries(incomingTaskHistory);
     }
-    this.settings.appearance = this.normalizeAppearance(this.settings.appearance);
-    this.settings.language = this.normalizeLanguage(this.settings.language);
-    this.settings.crtSkinEffectsEnabled = this.settings.crtSkinEffectsEnabled !== false;
-    this.settings.crtDynamicHeatEnabled = this.settings.crtDynamicHeatEnabled === true;
-    this.settings.crtTerminalFontSize = this.normalizeCrtTerminalFontSize(this.settings.crtTerminalFontSize);
-    this.normalizeAgentLaunchSettings(settingsPatch);
-    this.pruneUnknownSettings();
-    this.writeSettingsFile();
+    nextSettings.appearance = this.normalizeAppearance(nextSettings.appearance);
+    nextSettings.language = this.normalizeLanguage(nextSettings.language);
+    nextSettings.crtSkinEffectsEnabled = nextSettings.crtSkinEffectsEnabled !== false;
+    nextSettings.crtDynamicHeatEnabled = nextSettings.crtDynamicHeatEnabled === true;
+    nextSettings.crtTerminalFontSize = this.normalizeCrtTerminalFontSize(nextSettings.crtTerminalFontSize);
+    this.normalizeAgentLaunchSettings(settingsPatch, nextSettings);
+    this.pruneUnknownSettings(nextSettings);
+    this.writeSettingsFile(nextSettings);
+    this.settings = nextSettings;
   }
 }
 

@@ -3,6 +3,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
+const { atomicWriteJson } = require('../atomic-json-store');
 const { FarmingSessionStore } = require('../farming-session-store');
 
 function normalizeMainPageSessionKeys(keys) {
@@ -37,7 +38,9 @@ function run() {
   assert.deepStrictEqual(store.getMainPageSessionKeys(), ['agent-session:codex:legacy-session']);
   const indexFile = path.join(root, 'sessions', 'index.json');
   let index = readJson(indexFile);
-  const legacyRecordId = index.providerSessionRecords['agent-session:codex:legacy-session'];
+  assert.strictEqual(index.version, 2);
+  assert.strictEqual(index.providerSessionRecords, undefined, 'index v2 should own membership only');
+  const legacyRecordId = store.getRecordForProviderSessionKey('agent-session:codex:legacy-session').id;
   assert(/^agent_/.test(legacyRecordId), 'legacy provider session should be mapped to a stable Agent record id');
   assert(fs.existsSync(path.join(root, 'sessions', `${legacyRecordId}.json`)));
 
@@ -46,14 +49,14 @@ function run() {
     runtimeAgentId: 'agent-live-1',
   });
   index = readJson(indexFile);
-  const claudeRecordId = index.providerSessionRecords['agent-session:claude:claude-session'];
+  const claudeRecordId = store.getRecordForProviderSessionKey('agent-session:claude:claude-session').id;
   assert(/^agent_/.test(claudeRecordId));
   const claudeRecord = readJson(path.join(root, 'sessions', `${claudeRecordId}.json`));
   assert.strictEqual(claudeRecord.id, claudeRecordId);
   assert.strictEqual(claudeRecord.provider, 'claude');
   assert.strictEqual(claudeRecord.providerSessionId, 'claude-session');
   assert.strictEqual(claudeRecord.runtimeAgentId, 'agent-live-1');
-  assert.strictEqual(claudeRecord.visibleOnMainPage, true);
+  assert.strictEqual(claudeRecord.visibleOnMainPage, undefined, 'stable membership belongs only to index v2');
   assert.deepStrictEqual(store.getMainPageSessionKeys(), [
     'agent-session:claude:claude-session',
     'agent-session:codex:legacy-session',
@@ -62,9 +65,8 @@ function run() {
   store.rememberMainPageSessionKey('agent-session:claude:claude-session', {
     runtimeAgentId: 'agent-live-2',
   });
-  index = readJson(indexFile);
   assert.strictEqual(
-    index.providerSessionRecords['agent-session:claude:claude-session'],
+    store.getRecordForProviderSessionKey('agent-session:claude:claude-session').id,
     claudeRecordId,
     'remembering the same provider session should reuse the stable Farming session file'
   );
@@ -76,7 +78,7 @@ function run() {
   assert.strictEqual(store.removeMainPageSessionKey('agent-session:claude:claude-session'), true);
   assert.deepStrictEqual(store.getMainPageSessionKeys(), ['agent-session:codex:legacy-session']);
   const hiddenClaudeRecord = readJson(path.join(root, 'sessions', `${claudeRecordId}.json`));
-  assert.strictEqual(hiddenClaudeRecord.visibleOnMainPage, false);
+  assert.strictEqual(hiddenClaudeRecord.visibleOnMainPage, undefined);
   assert(fs.existsSync(path.join(root, 'sessions', `${claudeRecordId}.json`)), 'history metadata should survive main-page removal');
   assert.strictEqual(
     store.setProviderSessionDisplayState('agent-session:claude:claude-session', { pinned: true }),
@@ -129,8 +131,10 @@ function run() {
     acpMcpServers: [{ name: 'docs', command: '/bin/docs-mcp', args: [], env: [] }],
   });
   assert.strictEqual(resolvedRecordId, tempRecordId, 'resolved provider id should keep the original Farming session file');
-  index = readJson(indexFile);
-  assert.strictEqual(index.providerSessionRecords['agent-session:codex:resolved-codex-session'], tempRecordId);
+  assert.strictEqual(
+    store.getRecordForProviderSessionKey('agent-session:codex:resolved-codex-session').id,
+    tempRecordId,
+  );
   const resolvedRecord = store.readRecord(tempRecordId);
   assert.strictEqual(resolvedRecord.providerSessionId, 'resolved-codex-session');
   assert.strictEqual(resolvedRecord.providerSessionTemporary, false);
@@ -296,8 +300,10 @@ function run() {
     engineName: 'native',
   });
   assert.notStrictEqual(workRecordId, resolvedRecordId, 'the same provider session id in another home needs its own Farming record');
-  index = readJson(indexFile);
-  assert.strictEqual(index.providerSessionRecords['agent-session:codex:home:work:resolved-codex-session'], workRecordId);
+  assert.strictEqual(
+    store.getRecordForProviderSessionKey('agent-session:codex:home:work:resolved-codex-session').id,
+    workRecordId,
+  );
   const workRecord = readJson(path.join(root, 'sessions', `${workRecordId}.json`));
   assert.strictEqual(workRecord.providerHomeId, 'work');
   assert.strictEqual(workRecord.providerHomePath, '/homes/codex-work');
@@ -444,10 +450,9 @@ function run() {
   });
   assert(/^agent_/.test(upgradedProviderId));
   assert.deepStrictEqual(fs.readFileSync(legacyProviderFile), legacyProviderBytes);
-  assert.strictEqual(
-    readJson(path.join(legacyProviderSessions, 'index.json')).providerSessionRecords[legacyProviderKey],
-    upgradedProviderId,
-  );
+  const upgradedIndex = readJson(path.join(legacyProviderSessions, 'index.json'));
+  assert.strictEqual(upgradedIndex.version, 2);
+  assert.strictEqual(upgradedIndex.providerSessionRecords, undefined);
   const restartedLegacyProviderStore = new FarmingSessionStore(
     legacyProviderRoot,
     { normalizeMainPageSessionKeys },
@@ -477,7 +482,6 @@ function run() {
   });
   const repairIndexFile = path.join(repairRoot, 'sessions', 'index.json');
   const brokenIndex = readJson(repairIndexFile);
-  delete brokenIndex.providerSessionRecords[repairKey];
   fs.writeFileSync(repairIndexFile, JSON.stringify(brokenIndex, null, 2));
   const repairedStore = new FarmingSessionStore(repairRoot, { normalizeMainPageSessionKeys });
   repairedStore.init();
@@ -551,6 +555,58 @@ function run() {
   );
   fs.rmSync(repairRoot, { recursive: true, force: true });
   fs.rmSync(duplicateRoot, { recursive: true, force: true });
+
+  const failedMembershipRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-session-membership-failure-'));
+  let failIndexWrite = false;
+  const membershipStore = new FarmingSessionStore(failedMembershipRoot, {
+    normalizeMainPageSessionKeys,
+    writeJson(file, value) {
+      if (failIndexWrite && file.endsWith(`${path.sep}index.json`)) {
+        throw new Error('simulated membership index failure');
+      }
+      atomicWriteJson(file, value, { mode: 0o600 });
+    },
+  });
+  membershipStore.init();
+  const failedMembershipIndex = path.join(failedMembershipRoot, 'sessions', 'index.json');
+  const indexBeforeFailedMembership = fs.readFileSync(failedMembershipIndex, 'utf8');
+  failIndexWrite = true;
+  const failedMembershipKey = 'agent-session:claude:record-survives-index-failure';
+  assert.throws(
+    () => membershipStore.rememberMainPageSessionKey(failedMembershipKey),
+    /membership index failure/,
+  );
+  assert.deepStrictEqual(membershipStore.getMainPageSessionKeys(), []);
+  assert.strictEqual(fs.readFileSync(failedMembershipIndex, 'utf8'), indexBeforeFailedMembership);
+  assert(
+    membershipStore.getRecordForProviderSessionKey(failedMembershipKey),
+    'a committed provider record should remain discoverable as History after membership commit fails',
+  );
+  failIndexWrite = false;
+  const restartedMembershipStore = new FarmingSessionStore(
+    failedMembershipRoot,
+    { normalizeMainPageSessionKeys },
+  );
+  restartedMembershipStore.init();
+  assert.deepStrictEqual(restartedMembershipStore.getMainPageSessionKeys(), []);
+  assert(restartedMembershipStore.getRecordForProviderSessionKey(failedMembershipKey));
+
+  restartedMembershipStore.setMainPageSessionKeys([
+    failedMembershipKey,
+    'agent-session:codex:second-membership',
+  ]);
+  const membershipBeforeFailedRemoval = restartedMembershipStore.getMainPageSessionKeys();
+  const removalIndexBytes = fs.readFileSync(failedMembershipIndex, 'utf8');
+  restartedMembershipStore.writeJson = () => {
+    throw new Error('simulated bulk membership removal failure');
+  };
+  assert.throws(
+    () => restartedMembershipStore.removeMainPageSessionKeys(membershipBeforeFailedRemoval),
+    /bulk membership removal failure/,
+  );
+  assert.deepStrictEqual(restartedMembershipStore.getMainPageSessionKeys(), membershipBeforeFailedRemoval);
+  assert.strictEqual(fs.readFileSync(failedMembershipIndex, 'utf8'), removalIndexBytes);
+  fs.rmSync(failedMembershipRoot, { recursive: true, force: true });
 
   console.log('test-farming-session-store passed');
 }

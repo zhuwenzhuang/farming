@@ -1,5 +1,5 @@
 const fs = require('fs');
-const path = require('path');
+const { atomicWriteJson } = require('./atomic-json-store');
 const storageLayout = require('./storage-layout');
 
 const MAX_KEY_LENGTH = 200;
@@ -9,13 +9,6 @@ const MAX_COMMENT_BODY_LENGTH = 20000;
 
 function ownValue(object, key) {
   return object && Object.prototype.hasOwnProperty.call(object, key) ? object[key] : undefined;
-}
-
-function atomicWriteJson(file, value) {
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const temporaryFile = `${file}.${process.pid}.${Date.now()}.tmp`;
-  fs.writeFileSync(temporaryFile, `${JSON.stringify(value, null, 2)}\n`);
-  fs.renameSync(temporaryFile, file);
 }
 
 function isSafeKey(value) {
@@ -141,6 +134,9 @@ class ReviewStateStore {
   constructor(configDir, options = {}) {
     this.file = options.file || storageLayout.reviewStateFile(configDir);
     this.seedReviews = normalizeReviews(options.seedReviews);
+    this.writeJson = typeof options.writeJson === 'function'
+      ? options.writeJson
+      : (file, value) => atomicWriteJson(file, value, { trailingNewline: true });
     this.state = null;
   }
 
@@ -270,13 +266,16 @@ class ReviewStateStore {
   }
 
   writePatchsetState(reviewId, patchset, patchsetState) {
-    const state = this.ensureState();
-    const review = ownValue(state.reviews, reviewId) || { patchsets: {} };
-    state.reviews[reviewId] = {
-      ...review,
-      patchsets: { ...review.patchsets, [patchset]: patchsetState },
+    const currentState = this.ensureState();
+    const review = ownValue(currentState.reviews, reviewId) || { patchsets: {} };
+    const nextState = {
+      reviews: { ...currentState.reviews, [reviewId]: {
+        ...review,
+        patchsets: { ...review.patchsets, [patchset]: patchsetState },
+      } },
     };
-    atomicWriteJson(this.file, state);
+    this.writeJson(this.file, nextState);
+    this.state = nextState;
   }
 }
 

@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { isDeepStrictEqual } = require('util');
+const { atomicWriteJson } = require('./atomic-json-store');
 const { legacyRuntimeMetadata } = require('./agent-runtime-binding');
 const { lifecycleJournal } = require('./agent-lifecycle-journal');
 const storageLayout = require('./storage-layout');
@@ -9,6 +10,7 @@ const storageLayout = require('./storage-layout');
 const AGENT_RECORD_ID_PREFIX = 'agent';
 const AGENT_RECORD_VERSION = 1;
 const AGENT_STATE_VERSION = 1;
+const SESSION_INDEX_VERSION = 2;
 const MAX_MAIN_PAGE_SESSION_KEYS = 50;
 const AGENT_STATE_FIELDS = [
   'acpState',
@@ -34,6 +36,7 @@ const AGENT_STATE_FIELDS = [
   'readOutputEpoch',
   'readOutputSeq',
   'unread',
+  'composerCommands',
 ];
 const AGENT_STATE_FIELD_SET = new Set(AGENT_STATE_FIELDS);
 const PRODUCT_STATE_FIELDS = [
@@ -100,14 +103,6 @@ function withoutUpdatedAt(value) {
   return copy;
 }
 
-function atomicWriteJson(file, value) {
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const tmpFile = `${file}.${process.pid}.${Date.now()}.tmp`;
-  fs.writeFileSync(tmpFile, JSON.stringify(value, null, 2), { mode: 0o600 });
-  fs.renameSync(tmpFile, file);
-  fs.chmodSync(file, 0o600);
-}
-
 function parseProviderSessionKey(key) {
   const match = String(key || '').match(/^agent-session:([^:]+):(.+)$/);
   if (!match) return null;
@@ -131,28 +126,38 @@ class FarmingSessionStore {
     this.normalizeMainPageSessionKeys = typeof options.normalizeMainPageSessionKeys === 'function'
       ? options.normalizeMainPageSessionKeys
       : keys => (Array.isArray(keys) ? keys : []).slice(0, MAX_MAIN_PAGE_SESSION_KEYS);
+    this.writeJson = typeof options.writeJson === 'function'
+      ? options.writeJson
+      : (file, value) => atomicWriteJson(file, value, { mode: 0o600 });
     this.index = null;
+    this.legacyProviderSessionRecords = {};
+    this.providerSessionRecords = new Map();
   }
 
   init({ legacyMainPageSessionKeys = [] } = {}) {
     fs.mkdirSync(this.sessionsDir, { recursive: true });
     this.index = this.readIndex();
     this.reconcileProviderSessionIndex();
+    let nextMainPageSessionKeys = this.index.mainPageSessionKeys;
     if (!Array.isArray(this.index.mainPageSessionKeys) || this.index.mainPageSessionKeys.length === 0) {
       const migrated = this.filterRecoverableMainPageSessionKeys(legacyMainPageSessionKeys);
       if (migrated.length > 0) {
-        this.setMainPageSessionKeys(migrated);
-        return;
+        nextMainPageSessionKeys = migrated;
       }
     }
-    this.index.mainPageSessionKeys = this.filterRecoverableMainPageSessionKeys(
-      this.index.mainPageSessionKeys,
-    );
-    this.writeIndex();
+    nextMainPageSessionKeys = this.filterRecoverableMainPageSessionKeys(nextMainPageSessionKeys);
+    nextMainPageSessionKeys.forEach(sessionKey => {
+      if (this.getRecordForProviderSessionKey(sessionKey)) return;
+      this.ensureRecordForProviderSessionKey(sessionKey, {
+        archived: false,
+        lastSeenAt: now(),
+      });
+    });
+    this.writeIndex({ ...this.index, mainPageSessionKeys: nextMainPageSessionKeys });
+    this.legacyProviderSessionRecords = {};
   }
 
   reconcileProviderSessionIndex() {
-    const index = this.ensureIndex();
     const recordsByProviderKey = new Map();
     const records = this.listStoredAgentRecords();
     const successors = this.legacySuccessors(records);
@@ -166,16 +171,23 @@ class FarmingSessionStore {
     }
 
     for (const [sessionKey, records] of recordsByProviderKey) {
-      const indexedId = index.providerSessionRecords[sessionKey];
-      const indexedRecord = indexedId ? records.find(record => record.id === indexedId) : null;
       if (records.length > 1) {
         const ids = records.map(record => record.id).sort().join(', ');
         throw new Error(`Conflicting Farming session records for ${sessionKey}: ${ids}`);
       }
-      if (!indexedRecord || isLegacySessionId(indexedId)) {
-        index.providerSessionRecords[sessionKey] = records[0].id;
-      }
+      recordsByProviderKey.set(sessionKey, records[0].id);
     }
+
+    for (const [sessionKey, id] of Object.entries(this.legacyProviderSessionRecords)) {
+      if (recordsByProviderKey.has(sessionKey)) continue;
+      const record = this.readRecord(id);
+      if (!record || successors.has(record.id)) continue;
+      if (record.providerSessionKey && record.providerSessionKey !== sessionKey) {
+        throw new Error(`Farming session ${id} is indexed as ${sessionKey} but bound to ${record.providerSessionKey}`);
+      }
+      recordsByProviderKey.set(sessionKey, record.id);
+    }
+    this.providerSessionRecords = recordsByProviderKey;
   }
 
   filterRecoverableMainPageSessionKeys(keys) {
@@ -197,6 +209,7 @@ class FarmingSessionStore {
     try {
       if (fs.existsSync(this.indexFile)) {
         const parsed = JSON.parse(fs.readFileSync(this.indexFile, 'utf8'));
+        this.legacyProviderSessionRecords = this.normalizeProviderSessionRecords(parsed?.providerSessionRecords);
         return this.normalizeIndex(parsed);
       }
     } catch (error) {
@@ -206,22 +219,25 @@ class FarmingSessionStore {
   }
 
   normalizeIndex(index) {
-    const providerSessionRecords = index && typeof index.providerSessionRecords === 'object' && !Array.isArray(index.providerSessionRecords)
-      ? index.providerSessionRecords
-      : {};
+    return {
+      version: SESSION_INDEX_VERSION,
+      mainPageSessionKeys: this.normalizeMainPageSessionKeys(index?.mainPageSessionKeys),
+      updatedAt: typeof index?.updatedAt === 'number' ? index.updatedAt : now(),
+    };
+  }
+
+  normalizeProviderSessionRecords(providerSessionRecords) {
     const normalizedProviderSessionRecords = {};
-    Object.entries(providerSessionRecords).forEach(([key, id]) => {
+    Object.entries(
+      providerSessionRecords && typeof providerSessionRecords === 'object' && !Array.isArray(providerSessionRecords)
+        ? providerSessionRecords
+        : {},
+    ).forEach(([key, id]) => {
       if (!parseProviderSessionKey(key)) return;
       if (!safeSessionFileName(id)) return;
       normalizedProviderSessionRecords[key] = id;
     });
-
-    return {
-      version: 1,
-      mainPageSessionKeys: this.normalizeMainPageSessionKeys(index?.mainPageSessionKeys),
-      providerSessionRecords: normalizedProviderSessionRecords,
-      updatedAt: typeof index?.updatedAt === 'number' ? index.updatedAt : now(),
-    };
+    return normalizedProviderSessionRecords;
   }
 
   ensureIndex() {
@@ -229,10 +245,11 @@ class FarmingSessionStore {
     return this.index;
   }
 
-  writeIndex() {
-    const index = this.ensureIndex();
-    index.updatedAt = now();
-    atomicWriteJson(this.indexFile, index);
+  writeIndex(index = this.ensureIndex()) {
+    const nextIndex = this.normalizeIndex({ ...index, updatedAt: now() });
+    this.writeJson(this.indexFile, nextIndex);
+    this.index = nextIndex;
+    return nextIndex;
   }
 
   sessionFile(id) {
@@ -308,10 +325,10 @@ class FarmingSessionStore {
   }
 
   promoteIndexRecordId(previousId, nextId) {
-    if (!this.index || !previousId || previousId === nextId) return;
-    Object.entries(this.index.providerSessionRecords).forEach(([key, id]) => {
-      if (id === previousId) this.index.providerSessionRecords[key] = nextId;
-    });
+    if (!previousId || previousId === nextId) return;
+    for (const [key, id] of this.providerSessionRecords) {
+      if (id === previousId) this.providerSessionRecords.set(key, nextId);
+    }
   }
 
   writeRecord(record) {
@@ -335,11 +352,11 @@ class FarmingSessionStore {
       || !sameJson(withoutUpdatedAt(existingState), withoutUpdatedAt(state));
     if (stateChanged) {
       state.updatedAt = now();
-      atomicWriteJson(this.agentStateFile(id), state);
+      this.writeJson(this.agentStateFile(id), state);
     }
     if (metadataChanged) {
       metadata.updatedAt = now();
-      atomicWriteJson(this.sessionFile(id), metadata);
+      this.writeJson(this.sessionFile(id), metadata);
     }
     if (promoted) this.promoteIndexRecordId(previousId, id);
     return id;
@@ -397,6 +414,8 @@ class FarmingSessionStore {
       projectWorkspace: typeof agent.projectWorkspace === 'string' ? agent.projectWorkspace : '',
       mainWorkspace: typeof agent.mainWorkspace === 'string' ? agent.mainWorkspace : '',
       source: typeof agent.source === 'string' ? agent.source : '',
+      parentAgentId: typeof agent.parentAgentId === 'string' ? agent.parentAgentId : '',
+      forkRequestId: typeof agent.forkRequestId === 'string' ? agent.forkRequestId : '',
       provider: parsed ? parsed.provider : (typeof agent.providerSessionProvider === 'string' ? agent.providerSessionProvider : ''),
       providerHomeId: parsed ? parsed.providerHomeId : (typeof agent.providerHomeId === 'string' ? agent.providerHomeId : ''),
       providerHomePath: typeof agent.providerHomePath === 'string' ? agent.providerHomePath : '',
@@ -407,6 +426,9 @@ class FarmingSessionStore {
       providerSessionResolvedAt: typeof agent.providerSessionResolvedAt === 'number' ? agent.providerSessionResolvedAt : null,
       providerSessionTitle: typeof agent.providerSessionTitle === 'string' ? agent.providerSessionTitle : '',
       providerSessionWorkspace: typeof agent.providerSessionWorkspace === 'string' ? agent.providerSessionWorkspace : '',
+      forkedFromProviderSessionId: typeof agent.forkedFromProviderSessionId === 'string'
+        ? agent.forkedFromProviderSessionId
+        : '',
       terminalInputReceived: agent.terminalInputReceived === true,
       structuredRuntimeProcess: agent.structuredRuntimeProcess
         && typeof agent.structuredRuntimeProcess === 'object'
@@ -435,6 +457,9 @@ class FarmingSessionStore {
       attentionOutputSeq: typeof agent.attentionOutputSeq === 'number' ? agent.attentionOutputSeq : null,
       readOutputEpoch: typeof agent.readOutputEpoch === 'string' ? agent.readOutputEpoch : '',
       readOutputSeq: typeof agent.readOutputSeq === 'number' ? agent.readOutputSeq : null,
+      composerCommands: Array.isArray(agent.composerCommands)
+        ? cloneJson(agent.composerCommands)
+        : [],
       archived: agent.archived === true,
       archivedAt: typeof agent.archivedAt === 'number' ? agent.archivedAt : null,
       ...(typeof agent.customTitle === 'string' && agent.customTitle
@@ -452,8 +477,8 @@ class FarmingSessionStore {
   ensureRecordForProviderSessionKey(sessionKey, patch = {}, preferredId = '') {
     const parsed = parseProviderSessionKey(sessionKey);
     if (!parsed) return '';
-    const index = this.ensureIndex();
-    const existingId = index.providerSessionRecords[sessionKey];
+    this.ensureIndex();
+    const existingId = this.providerSessionRecords.get(sessionKey);
     const normalizedPreferredId = safeSessionFileName(preferredId) ? preferredId : '';
     const preferredRecord = normalizedPreferredId ? this.readRecord(normalizedPreferredId) : null;
     if (
@@ -485,15 +510,15 @@ class FarmingSessionStore {
       providerSessionTemporary: false,
       updatedAt: now(),
     };
+    delete record.visibleOnMainPage;
     if (typeof record.customTitle === 'string' && record.customTitle) {
       record.title = record.customTitle;
     }
-    Object.entries(index.providerSessionRecords).forEach(([key, recordId]) => {
-      if (key !== sessionKey && recordId === id) delete index.providerSessionRecords[key];
-    });
     const writtenId = this.writeRecord(record);
-    index.providerSessionRecords[sessionKey] = writtenId;
-    this.writeIndex();
+    for (const [key, recordId] of this.providerSessionRecords) {
+      if (key !== sessionKey && recordId === writtenId) this.providerSessionRecords.delete(key);
+    }
+    this.providerSessionRecords.set(sessionKey, writtenId);
     return writtenId;
   }
 
@@ -536,7 +561,7 @@ class FarmingSessionStore {
             mergedInto: id,
             updatedAt: now(),
           });
-          if (mergedId && mergedId !== previousId) this.writeIndex();
+          if (mergedId && mergedId !== previousId) this.promoteIndexRecordId(previousId, mergedId);
         }
       }
       return id;
@@ -569,23 +594,21 @@ class FarmingSessionStore {
   rememberMainPageSessionKey(sessionKey, patch = {}) {
     const id = this.ensureRecordForProviderSessionKey(sessionKey, {
       ...patch,
-      visibleOnMainPage: true,
       archived: false,
       lastSeenAt: now(),
     });
     if (!id) return this.getMainPageSessionKeys();
     const index = this.ensureIndex();
-    index.mainPageSessionKeys = this.normalizeMainPageSessionKeys([
+    const nextIndex = this.writeIndex({ ...index, mainPageSessionKeys: this.normalizeMainPageSessionKeys([
       sessionKey,
       ...index.mainPageSessionKeys.filter(key => key !== sessionKey),
-    ]);
-    this.writeIndex();
-    return index.mainPageSessionKeys.slice();
+    ]) });
+    return nextIndex.mainPageSessionKeys.slice();
   }
 
   rememberAgent(agent) {
     const providerSessionKey = this.providerSessionKeyForAgent(agent);
-    const id = this.ensureRecordForAgent(agent, providerSessionKey ? { visibleOnMainPage: true, archived: false } : {});
+    const id = this.ensureRecordForAgent(agent, providerSessionKey ? { archived: false } : {});
     if (providerSessionKey) {
       this.rememberMainPageSessionKey(providerSessionKey, this.recordPatchFromAgent(agent));
     }
@@ -595,54 +618,33 @@ class FarmingSessionStore {
   setMainPageSessionKeys(keys) {
     const normalized = this.normalizeMainPageSessionKeys(keys);
     const index = this.ensureIndex();
-    const visible = new Set(normalized);
     normalized.forEach(key => {
       this.ensureRecordForProviderSessionKey(key, {
-        visibleOnMainPage: true,
         archived: false,
         lastSeenAt: now(),
       });
     });
-    index.mainPageSessionKeys.forEach(key => {
-      if (visible.has(key)) return;
-      const id = index.providerSessionRecords[key];
-      const existing = this.readRecord(id);
-      if (existing) {
-        const writtenId = this.writeRecord({
-          ...existing,
-          visibleOnMainPage: false,
-          updatedAt: now(),
-        });
-        if (writtenId) index.providerSessionRecords[key] = writtenId;
-      }
-    });
-    index.mainPageSessionKeys = normalized;
-    this.writeIndex();
-    return normalized.slice();
+    return this.writeIndex({ ...index, mainPageSessionKeys: normalized }).mainPageSessionKeys.slice();
   }
 
   removeMainPageSessionKey(sessionKey) {
     const index = this.ensureIndex();
     if (!index.mainPageSessionKeys.includes(sessionKey)) return false;
-    index.mainPageSessionKeys = index.mainPageSessionKeys.filter(key => key !== sessionKey);
-    const id = index.providerSessionRecords[sessionKey];
-    const existing = this.readRecord(id);
-    if (existing) {
-      const writtenId = this.writeRecord({
-        ...existing,
-        visibleOnMainPage: false,
-        updatedAt: now(),
-      });
-      if (writtenId) index.providerSessionRecords[sessionKey] = writtenId;
-    }
-    this.writeIndex();
+    this.writeIndex({
+      ...index,
+      mainPageSessionKeys: index.mainPageSessionKeys.filter(key => key !== sessionKey),
+    });
     return true;
   }
 
   removeMainPageSessionKeys(keys) {
-    const removed = [];
-    keys.forEach(key => {
-      if (this.removeMainPageSessionKey(key)) removed.push(key);
+    const index = this.ensureIndex();
+    const requested = new Set(Array.isArray(keys) ? keys : []);
+    const removed = index.mainPageSessionKeys.filter(key => requested.has(key));
+    if (removed.length === 0) return [];
+    this.writeIndex({
+      ...index,
+      mainPageSessionKeys: index.mainPageSessionKeys.filter(key => !requested.has(key)),
     });
     return removed;
   }
@@ -652,8 +654,8 @@ class FarmingSessionStore {
   }
 
   getRecordForProviderSessionKey(sessionKey) {
-    const index = this.ensureIndex();
-    const id = index.providerSessionRecords[sessionKey];
+    this.ensureIndex();
+    const id = this.providerSessionRecords.get(sessionKey);
     return safeSessionFileName(id) ? this.readRecord(id) : null;
   }
 
@@ -670,5 +672,6 @@ module.exports = {
   AGENT_STATE_VERSION,
   FarmingSessionStore,
   MAX_MAIN_PAGE_SESSION_KEYS,
+  SESSION_INDEX_VERSION,
   parseProviderSessionKey,
 };

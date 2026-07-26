@@ -133,7 +133,19 @@ async function run() {
     });
     manager.lastActivity.set('sub-archive', now);
 
-    const archived = await manager.archiveAgent('sub-archive');
+    const archivedPromise = manager.archiveAgent('sub-archive');
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepStrictEqual(codexArchiveCalls, [{
+      sessionId: 'archive-session',
+      session: {
+        cliVersion: '',
+        cwd: '/repo/deep',
+        workspace: '/repo',
+        providerHomePath: '/home/farming/.codex',
+      },
+    }], 'manual Codex archive should durably wait for provider archive');
+    resolveCodexArchive({ archived: true });
+    const archived = await archivedPromise;
     assert.strictEqual(archived.error, undefined);
     assert.strictEqual(archived.archived, true);
     assert.strictEqual(archived.removed, true);
@@ -168,19 +180,40 @@ async function run() {
     assert.strictEqual(manager.taskHistory[0].projectWorkspace, '/repo');
     assert.strictEqual(manager.taskHistory[0].title, 'Named archive run');
     assert.strictEqual(manager.taskHistory[0].customTitle, 'Named archive run');
-    await new Promise(resolve => setImmediate(resolve));
-    assert.deepStrictEqual(codexArchiveCalls, [{
-      sessionId: 'archive-session',
-      session: {
-        cliVersion: '',
-        cwd: '/repo/deep',
-        workspace: '/repo',
-        providerHomePath: '/home/farming/.codex',
-      },
-    }], 'manual Codex archive should asynchronously archive the provider session once');
-    resolveCodexArchive({ archived: true });
-    await new Promise(resolve => setImmediate(resolve));
-
+    const archiveCodexSession = manager.archiveCodexSession;
+    manager.archiveCodexSession = async () => ({ error: 'simulated provider archive failure' });
+    manager.agents.set('provider-archive-retry', {
+      id: 'provider-archive-retry',
+      command: 'codex',
+      cwd: '/repo',
+      projectWorkspace: '/repo',
+      output: '',
+      status: 'running',
+      engineName: 'local',
+      source: 'ui',
+      providerSessionProvider: 'codex',
+      providerSessionId: 'provider-archive-retry',
+      providerSessionKey: 'agent-session:codex:provider-archive-retry',
+      task: 'provider archive retry',
+    });
+    const historyBeforeProviderRetry = manager.taskHistory.length;
+    const failedProviderArchive = await manager.archiveAgent('provider-archive-retry', { recordHistory: false });
+    assert.strictEqual(failedProviderArchive.archived, true);
+    assert.strictEqual(failedProviderArchive.providerArchived, false);
+    assert.match(failedProviderArchive.error, /provider archive failure/i);
+    assert.strictEqual(manager.agents.has('provider-archive-retry'), true);
+    assert.strictEqual(activeLifecycleOperation(manager.agents.get('provider-archive-retry')).state, 'blocked');
+    manager.archiveCodexSession = async () => ({ archived: true });
+    const retriedProviderArchive = await manager.archiveAgent('provider-archive-retry');
+    assert.strictEqual(retriedProviderArchive.error, undefined);
+    assert.strictEqual(retriedProviderArchive.archived, true);
+    assert.strictEqual(manager.agents.has('provider-archive-retry'), false);
+    assert.strictEqual(
+      manager.taskHistory.length,
+      historyBeforeProviderRetry,
+      'retrying only the provider phase must not append duplicate run history',
+    );
+    manager.archiveCodexSession = archiveCodexSession;
     const providerMutationOrder = [];
     let releaseQueuedArchive;
     const queuedArchive = manager.enqueueCodexSessionMutation(
