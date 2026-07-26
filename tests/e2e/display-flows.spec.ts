@@ -1258,6 +1258,17 @@ test.describe('display-backed agent flows', () => {
       path.join(childWorkspace, 'icon.svg'),
       '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><circle cx="16" cy="16" r="12"/></svg>\n',
     )
+    fs.mkdirSync(path.join(childWorkspace, 'site', 'assets'), { recursive: true })
+    fs.writeFileSync(
+      path.join(childWorkspace, 'site', 'index.html'),
+      [
+        '<!doctype html>',
+        '<html><head><link rel="stylesheet" href="assets/site.css"></head>',
+        '<body><h1>HTML preview</h1><script>document.body.dataset.scriptRan = "yes"</script></body></html>',
+        '',
+      ].join('\n'),
+    )
+    fs.writeFileSync(path.join(childWorkspace, 'site', 'assets', 'site.css'), 'h1 { color: rgb(4, 5, 6); }\n')
     execFileSync('git', ['init'], { cwd: childWorkspace, stdio: 'ignore' })
     execFileSync('git', ['config', 'user.email', 'farming-e2e@example.test'], { cwd: childWorkspace })
     execFileSync('git', ['config', 'user.name', 'Farming E2E'], { cwd: childWorkspace })
@@ -1572,6 +1583,33 @@ test.describe('display-backed agent flows', () => {
     await page.getByRole('button', { name: 'Show source' }).click()
     await expect(page.getByTestId('code-file-monaco')).toBeVisible()
     await expect(page.getByTestId('code-file-editor-statusbar')).toBeVisible()
+    const previewSessionRequests: string[] = []
+    page.on('request', request => {
+      if (!request.url().includes('/api/files/previews')) return
+      previewSessionRequests.push(`${request.method()} ${new URL(request.url()).pathname}`)
+    })
+    const siteRow = childFiles.locator('[data-testid="code-file-row"][data-file-path="site"]')
+    await siteRow.click()
+    const htmlRow = childFiles.locator('[data-testid="code-file-row"][data-file-path="site/index.html"]')
+    await htmlRow.dblclick()
+    await expect(activeFileTabName(page)).toHaveText('index.html')
+    const htmlPreview = page.getByTestId('code-file-html-preview')
+    await expect(htmlPreview).toBeVisible()
+    const htmlFrame = page.frameLocator('[data-testid="code-file-html-preview"]')
+    await expect(htmlFrame.locator('h1')).toHaveText('HTML preview')
+    await expect.poll(() => htmlFrame.locator('h1').evaluate(element => getComputedStyle(element).color)).toBe('rgb(4, 5, 6)')
+    await expect(htmlFrame.locator('body')).not.toHaveAttribute('data-script-ran', 'yes')
+    await page.getByRole('button', { name: 'Show source' }).click()
+    await expect(page.getByTestId('code-file-monaco')).toBeVisible()
+    await expect.poll(() => previewSessionRequests.filter(request => request.startsWith('DELETE ')).length).toBeGreaterThan(0)
+    await page.evaluate(() => {
+      if (!window.__farmingFileEditorTest?.insertText('<p id="draft-preview">Draft update</p>')) {
+        throw new Error('Failed to update HTML draft')
+      }
+    })
+    await page.getByRole('button', { name: 'Open preview' }).click()
+    await expect(page.getByTestId('code-file-html-preview')).toBeVisible()
+    await expect(page.frameLocator('[data-testid="code-file-html-preview"]').locator('#draft-preview')).toHaveText('Draft update')
     const binaryRow = childFiles.locator('[data-testid="code-file-row"][data-file-path="binary.bin"]')
     await binaryRow.dblclick()
     await expect(activeFileTabName(page)).toHaveText('binary.bin')
