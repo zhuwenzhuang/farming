@@ -75,7 +75,7 @@ import {
   isTerminalHostAttached,
   parkTerminalHost,
 } from '@/lib/terminal-attachment'
-import { readTerminalClipboardText, writeTerminalClipboardText } from '@/lib/terminal-clipboard'
+import { readClipboardText, writeClipboardText } from '@/lib/clipboard'
 import {
   shouldBlockDetachedTerminalPaste,
   shouldHandleTerminalPasteEvent,
@@ -2765,7 +2765,7 @@ function showTerminalContextMenu(record: SessionRecord, event: MouseEvent, selec
 
   const copyButton = createTerminalContextMenuItem(terminalContextMenuLabel('copy'), () => {
     const focusRevision = terminalFocusRevision
-    writeTerminalClipboardText(selection).finally(() => {
+    writeClipboardText(selection).finally(() => {
       const restoreFocus = mayRestoreTerminalFocusAfterAsyncMenu(record, menu, focusRevision)
       hideTerminalContextMenu(record)
       if (!isMobileViewport() && restoreFocus) {
@@ -2776,7 +2776,7 @@ function showTerminalContextMenu(record: SessionRecord, event: MouseEvent, selec
 
   const pasteButton = createTerminalContextMenuItem(terminalContextMenuLabel('paste'), () => {
     const focusRevision = terminalFocusRevision
-    void readTerminalClipboardText().then(text => {
+    void readClipboardText().then(text => {
       pasteTerminalClipboardText(record, text)
     }).finally(() => {
       const restoreFocus = mayRestoreTerminalFocusAfterAsyncMenu(record, menu, focusRevision)
@@ -4203,7 +4203,7 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
     event.preventDefault()
     event.stopPropagation()
     event.stopImmediatePropagation()
-    void writeTerminalClipboardText(selection)
+    void writeClipboardText(selection)
   }
   document.addEventListener('keydown', copyKeyHandler, true)
   record.copyKeyHandler = copyKeyHandler

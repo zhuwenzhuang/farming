@@ -23,6 +23,7 @@ import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import { parse as parseYaml } from 'yaml'
 import 'katex/dist/katex.min.css'
+import { writeClipboardText } from '@/lib/clipboard'
 import { rawWorkspaceFileUrl } from '@/lib/workspace-files'
 import { decodeMermaidCharacterReferences } from '@/lib/mermaid-source'
 import { workspaceEditorBasename } from '@/lib/workspace-editor-model'
@@ -470,30 +471,6 @@ function MermaidControlIcon({ kind }: { kind: 'zoomIn' | 'zoomOut' | 'reset' | '
   )
 }
 
-async function copyTextToClipboard(text: string) {
-  if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text)
-    return
-  }
-  const textarea = document.createElement('textarea')
-  textarea.value = text
-  textarea.setAttribute('readonly', 'true')
-  textarea.setAttribute('autocomplete', 'off')
-  textarea.setAttribute('autocorrect', 'off')
-  textarea.setAttribute('autocapitalize', 'none')
-  textarea.setAttribute('spellcheck', 'false')
-  textarea.setAttribute('data-lpignore', 'true')
-  textarea.setAttribute('data-1p-ignore', 'true')
-  textarea.setAttribute('data-bwignore', 'true')
-  textarea.setAttribute('data-form-type', 'other')
-  textarea.style.position = 'fixed'
-  textarea.style.left = '-9999px'
-  document.body.appendChild(textarea)
-  textarea.select()
-  document.execCommand('copy')
-  textarea.remove()
-}
-
 export function MermaidBlock({ source, copy }: { source: string; copy: CodeCopy }) {
   const reactId = useId().replace(/[^a-zA-Z0-9_-]/g, '')
   const appearance = useMermaidAppearance()
@@ -683,14 +660,10 @@ export function MermaidBlock({ source, copy }: { source: string; copy: CodeCopy 
   }, [renderState.status, setNextZoom, zoom])
 
   const handleCopySource = useCallback(() => {
-    copyTextToClipboard(renderSource)
-      .then(() => {
-        setCopied(true)
-        window.setTimeout(() => setCopied(false), 1200)
-      })
-      .catch(() => {
-        setCopied(false)
-      })
+    void writeClipboardText(renderSource).then(copied => {
+      setCopied(copied)
+      if (copied) window.setTimeout(() => setCopied(false), 1200)
+    })
   }, [renderSource])
 
   if (!renderSource.trim() || renderState.status === 'empty') {

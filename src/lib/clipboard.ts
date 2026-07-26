@@ -3,9 +3,9 @@ export interface TerminalClipboardProvider {
   writeText: (selection: string, text: string) => Promise<void> | undefined
 }
 
-export async function readTerminalClipboardText() {
+export async function readClipboardText() {
   try {
-    if (navigator.clipboard?.readText) {
+    if (typeof navigator !== 'undefined' && navigator.clipboard?.readText) {
       return await navigator.clipboard.readText()
     }
   } catch {
@@ -14,17 +14,8 @@ export async function readTerminalClipboardText() {
   return ''
 }
 
-export async function writeTerminalClipboardText(text: string) {
-  if (!text) return false
-
-  try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(text)
-      return true
-    }
-  } catch {
-    // Fall through to the textarea copy path.
-  }
+export function fallbackCopyText(text: string) {
+  if (typeof document === 'undefined' || !text) return false
 
   const previousActiveElement = document.activeElement instanceof HTMLElement
     ? document.activeElement
@@ -51,11 +42,9 @@ export async function writeTerminalClipboardText(text: string) {
   textarea.focus()
   textarea.select()
   try {
-    if (document.execCommand('copy')) {
-      return true
-    }
+    return document.execCommand('copy')
   } catch {
-    // Fall through to the async clipboard API.
+    return false
   } finally {
     textarea.remove()
     if (selection) {
@@ -64,23 +53,30 @@ export async function writeTerminalClipboardText(text: string) {
     }
     previousActiveElement?.focus()
   }
+}
+
+export async function writeClipboardText(text: string) {
+  if (!text) return false
 
   try {
-    await navigator.clipboard?.writeText(text)
-    return true
+    if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text)
+      return true
+    }
   } catch {
-    // Best effort: clipboard failures should never break the terminal session.
+    // Fall through to the textarea copy path.
   }
-  return false
+
+  return fallbackCopyText(text)
 }
 
 export function createTerminalClipboardProvider(): TerminalClipboardProvider {
   return {
     readText(selection) {
-      return selection === 'c' ? readTerminalClipboardText() : ''
+      return selection === 'c' ? readClipboardText() : ''
     },
     writeText(selection, text) {
-      return selection === 'c' ? writeTerminalClipboardText(text).then(() => undefined) : undefined
+      return selection === 'c' ? writeClipboardText(text).then(() => undefined) : undefined
     },
   }
 }

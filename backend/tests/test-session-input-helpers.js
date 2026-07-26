@@ -83,7 +83,7 @@ function run() {
     'utf8'
   );
   const terminalClipboardSource = fs.readFileSync(
-    path.join(__dirname, '../../src/lib/terminal-clipboard.ts'),
+    path.join(__dirname, '../../src/lib/clipboard.ts'),
     'utf8'
   );
   const terminalInputSource = fs.readFileSync(
@@ -302,7 +302,7 @@ function run() {
     'terminal session pool should copy xterm selections through the xterm selection API'
   );
   assert(
-    terminalClipboardSource.includes('export async function writeTerminalClipboardText') &&
+    terminalClipboardSource.includes('export async function writeClipboardText') &&
       terminalClipboardSource.includes('navigator.clipboard?.writeText') &&
       terminalClipboardSource.includes("document.execCommand('copy')") &&
       terminalClipboardSource.includes('selection.removeAllRanges()') &&
@@ -311,15 +311,15 @@ function run() {
     'terminal clipboard helper should provide browser clipboard and textarea fallback behavior to xterm and Farming actions'
   );
   assert(
-    terminalPoolSource.includes("from '@/lib/terminal-clipboard'") &&
-      terminalPoolSource.includes('readTerminalClipboardText') &&
-      terminalPoolSource.includes('writeTerminalClipboardText(selection)') &&
+    terminalPoolSource.includes("from '@/lib/clipboard'") &&
+      terminalPoolSource.includes('readClipboardText') &&
+      terminalPoolSource.includes('writeClipboardText(selection)') &&
       !terminalPoolSource.includes('async function writeClipboardText'),
     'terminal session pool should use the shared terminal clipboard helper for copy and paste actions'
   );
   assert(
     xtermSource.includes("import { ClipboardAddon } from '@xterm/addon-clipboard'") &&
-      xtermSource.includes("from '@/lib/terminal-clipboard'") &&
+      xtermSource.includes("from '@/lib/clipboard'") &&
       xtermSource.includes('new ClipboardAddon(undefined, createTerminalClipboardProvider())'),
     'xterm adapter should keep the standard xterm clipboard addon wired to the shared Farming clipboard provider'
   );

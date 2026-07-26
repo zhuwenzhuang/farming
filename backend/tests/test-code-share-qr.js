@@ -31,7 +31,7 @@ function run() {
   assert(shareButtonSource.includes('const target = workspaceShareTargetWithCurrentReadingAnchor(shareTarget)'));
   assert(shareButtonSource.includes('JSON.stringify(target ? { target } : {})'));
   assert(shareButtonSource.includes("method: 'DELETE'"));
-  assert(shareButtonSource.includes('writeTerminalClipboardText(current.longUrl)'));
+  assert(shareButtonSource.includes('writeClipboardText(current.longUrl)'));
   assert(shareButtonSource.includes('ticket.shortUrl'), 'QR matrix should encode the short URL');
   assert(shareButtonSource.includes('className="code-share-qr-canvas"'));
   assert(shareButtonSource.includes("appPath('/farming-2/app-icon-v2-180.png')"), 'QR center should use the production-safe Farming icon');
@@ -82,7 +82,7 @@ function run() {
 
   assert(!mobileShareSource.includes('MobileSharePlatform'));
   assert(!mobileShareSource.includes('navigator.userAgent'));
-  assert(mobileShareSource.includes('writeTerminalClipboardText'));
+  assert(mobileShareSource.includes('writeClipboardText'));
   assert(!mobileShareSource.includes('code-mobile-share-system-action'));
   assert(mobileShareSource.includes('code-mobile-share-copy-action'));
   assert(mobileShareSource.includes('copy.mobileForwardTitle'));

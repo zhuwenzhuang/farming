@@ -2,7 +2,7 @@ import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useSta
 import type qrcode from 'qrcode-generator'
 import { appPath } from '@/lib/base-path'
 import { QrGlyph } from '@/components/IconGlyphs'
-import { writeTerminalClipboardText } from '@/lib/terminal-clipboard'
+import { writeClipboardText } from '@/lib/clipboard'
 import {
   workspaceShareTargetKey,
   workspaceShareTargetWithCurrentReadingAnchor,
@@ -330,7 +330,7 @@ export function ShareQrButton({
       ? ticketRef.current
       : await createTicket(true)
     if (!current) return
-    const ok = await writeTerminalClipboardText(current.longUrl)
+    const ok = await writeClipboardText(current.longUrl)
     if (!ok) {
       setError(copy.copyFailed)
       return

@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react'
 import { appPath } from '@/lib/base-path'
-import { writeTerminalClipboardText } from '@/lib/terminal-clipboard'
+import { writeClipboardText } from '@/lib/clipboard'
 import { workspaceShareAbsolutePath, workspaceShareProjectLabel } from '@/lib/workspace-share-target'
 import {
   workspaceFileContextMenuPosition,
@@ -107,7 +107,7 @@ export function useWorkspaceFileMenuController({
         body: JSON.stringify({ target }),
       })
       const body = await response.json() as { longUrl?: string; error?: string }
-      if (!response.ok || !body.longUrl || !await writeTerminalClipboardText(body.longUrl)) {
+      if (!response.ok || !body.longUrl || !await writeClipboardText(body.longUrl)) {
         throw new Error(body.error || shareLinkFailed)
       }
     } catch (error) {

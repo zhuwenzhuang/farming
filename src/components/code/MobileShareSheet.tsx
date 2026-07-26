@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { writeTerminalClipboardText } from '@/lib/terminal-clipboard'
+import { writeClipboardText } from '@/lib/clipboard'
 import type { CodeCopy } from './copy'
 
 function isStandaloneWebApp() {
@@ -67,7 +67,7 @@ export function MobileShareSheet({
   }, [copied, copyFailed])
 
   const copyLink = useCallback(async () => {
-    const success = await writeTerminalClipboardText(url)
+    const success = await writeClipboardText(url)
     setCopied(success)
     setCopyFailed(!success)
   }, [url])

@@ -17,6 +17,7 @@ import type {
 } from '@/types/agent'
 import { CheckGlyph } from '@/components/IconGlyphs'
 import { appPath } from '@/lib/base-path'
+import { writeClipboardText } from '@/lib/clipboard'
 import { isAcpRuntime, isStructuredRuntime } from '@/lib/agent-runtime'
 import { useAgentWithLiveRuntimeState } from '@/lib/agent-live-state'
 import { recordPerformanceTestRender } from '@/lib/performance-test-observer'
@@ -534,39 +535,6 @@ export function applyPendingMainPageSessionKeyMutations(
     })
   })
   return Array.from(projected)
-}
-
-async function writeClipboardText(text: string) {
-  try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(text)
-      return true
-    }
-  } catch {
-    // Fall through to the textarea copy path.
-  }
-
-  const textarea = document.createElement('textarea')
-  textarea.value = text
-  textarea.setAttribute('readonly', 'true')
-  textarea.setAttribute('autocomplete', 'off')
-  textarea.setAttribute('autocorrect', 'off')
-  textarea.setAttribute('autocapitalize', 'none')
-  textarea.setAttribute('spellcheck', 'false')
-  textarea.setAttribute('data-lpignore', 'true')
-  textarea.setAttribute('data-1p-ignore', 'true')
-  textarea.setAttribute('data-bwignore', 'true')
-  textarea.setAttribute('data-form-type', 'other')
-  textarea.style.position = 'fixed'
-  textarea.style.left = '-9999px'
-  textarea.style.top = '0'
-  document.body.appendChild(textarea)
-  textarea.select()
-  try {
-    return document.execCommand('copy')
-  } finally {
-    textarea.remove()
-  }
 }
 
 export function CodeWorkspace({

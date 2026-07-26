@@ -5,7 +5,7 @@ import { SearchAddon, type ISearchResultChangeEvent } from '@xterm/addon-search'
 import { WebglAddon } from '@xterm/addon-webgl'
 import '@xterm/xterm/css/xterm.css'
 
-import { createTerminalClipboardProvider } from '@/lib/terminal-clipboard'
+import { createTerminalClipboardProvider } from '@/lib/clipboard'
 import {
   DEFAULT_FONT_FAMILY,
   DEFAULT_FONT_SIZE,

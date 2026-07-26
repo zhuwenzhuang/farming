@@ -21,6 +21,7 @@ import remarkMath from 'remark-math'
 import { AgentGroupGlyph, ArrowDownGlyph, CheckGlyph, ChevronRightGlyph, CloseGlyph, CopyGlyph, ForkGlyph } from '@/components/IconGlyphs'
 import { MermaidBlock } from '@/components/files/FileEditorMarkdownPreview'
 import { appPath } from '@/lib/base-path'
+import { writeClipboardText } from '@/lib/clipboard'
 import { iconForFilePath } from '@/lib/file-icons'
 import { normalizeGlobalWorkspaceFilePath } from '@/lib/global-workspace-files'
 import {
@@ -1292,34 +1293,6 @@ function patchDiffLineClass(line: string) {
   return ''
 }
 
-function fallbackCopyText(text: string) {
-  const textarea = document.createElement('textarea')
-  textarea.value = text
-  textarea.setAttribute('readonly', 'true')
-  textarea.setAttribute('autocomplete', 'off')
-  textarea.setAttribute('autocorrect', 'off')
-  textarea.setAttribute('autocapitalize', 'none')
-  textarea.setAttribute('spellcheck', 'false')
-  textarea.setAttribute('data-lpignore', 'true')
-  textarea.setAttribute('data-1p-ignore', 'true')
-  textarea.setAttribute('data-bwignore', 'true')
-  textarea.setAttribute('data-form-type', 'other')
-  textarea.style.position = 'fixed'
-  textarea.style.left = '-9999px'
-  textarea.style.top = '0'
-  document.body.appendChild(textarea)
-  textarea.focus()
-  textarea.select()
-  let copied = false
-  try {
-    copied = document.execCommand('copy')
-  } catch {
-    copied = false
-  }
-  textarea.remove()
-  return copied
-}
-
 function toggleTranscriptDisclosureWithStableAnchor(anchor: HTMLElement, toggle: () => void) {
   const scroller = anchor.closest('.code-agent-transcript-scroll') as HTMLElement | null
   const beforeTop = anchor.getBoundingClientRect().top
@@ -1331,14 +1304,6 @@ function toggleTranscriptDisclosureWithStableAnchor(anchor: HTMLElement, toggle:
     if (Math.abs(delta) < 0.5) return
     scroller.scrollTop += delta
   })
-}
-
-async function writeClipboardText(text: string) {
-  if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text)
-    return true
-  }
-  return fallbackCopyText(text)
 }
 
 function AgentTranscriptSteerItem({ item }: { item: AgentTranscriptProcessItem }) {
