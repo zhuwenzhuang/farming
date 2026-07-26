@@ -58,7 +58,7 @@
 ├───────────────┤
 │ MAIN AGENT[0] │  ← Main Agent 面板标题
 │ ┌──────────┐  │
-│ │ 终端预览  │  │  ← 嵌入 AgentCard（compact 模式）
+│ │ 终端预览  │  │  ← Main Agent 紧凑预览
 │ └──────────┘  │
 └───────────────┘
 ```
@@ -72,7 +72,7 @@
 ### 3.4 Main Agent 面板
 
 - 位于菜单列表下方，`flex-shrink: 0`
-- 内容区嵌入一个 compact + hideTitle 的 AgentCard，`max-height: 120px`，溢出隐藏
+- 内容区渲染紧凑 Main Agent 预览，`max-height: 120px`，溢出隐藏
 
 ### 3.5 New Agent / Settings 对话框
 
@@ -138,7 +138,7 @@
 
 ### 4.3 Session 终端弹窗
 
-桌面端打开 Agent Terminal 时，`SessionModal` 使用 `4px 8px` 顶栏、细 **1px** 柔和边框（`--theme-border-soft`）且不显示外壳 CRT 发光；Kill/Close 使用更小字号。交互终端（Ghostty）画布默认 **`11px`**，与全局 CRT 小字号一致。完整规格见 `base_layout.zh_cn.md` §5.3。
+桌面端打开 Agent Terminal 时，Session 弹窗使用 `4px 8px` 顶栏、细 **1px** 柔和边框（`--theme-border-soft`）且不显示外壳 CRT 发光；Kill/Close 使用更小字号。交互终端（Ghostty）画布默认 **`11px`**，与全局 CRT 小字号一致。完整规格见 `base_layout.zh_cn.md` §5.3。
 
 ---
 
@@ -146,12 +146,8 @@
 
 | 文件 | 职责 |
 |------|------|
-| `src/components/TopBar.tsx` | 顶部状态栏 |
-| `src/components/Sidebar.tsx` | 右侧边栏（菜单 + Main Agent 面板） |
-| `src/components/InputDialog.tsx` | New Agent / Main Agent 启动对话框 |
-| `src/components/Settings.tsx` | Settings 对话框 |
-| `src/components/MapView.tsx` | Agents layout Grid 模板选择与渲染 |
-| `src/components/AgentCard.tsx` | Agent 卡片（Sidebar 中以 compact 模式复用） |
-| `src/components/SessionModal.tsx` | Session 终端弹窗 |
-| `src/App.tsx` | 页面整体 layout 组装 |
-| `src/styles/main.css` | 布局样式（`.top-bar`、`.sidebar`、`.map-area` 等） |
+| `frontend/skins/crt/index.html` | 桌面 CRT DOM 骨架 |
+| `frontend/skins/crt/app.js` | TopBar、Sidebar、Agents layout、Session 与键盘交互 |
+| `frontend/skins/crt/styles/monochrome-green.css` | 桌面布局和绿色单色样式 |
+| `frontend/skins/crt/styles/effects.css` | 扫描线和轻量扫描刷新效果 |
+| `frontend/session-modal-bridge.js` | Session 弹窗 terminal bridge |

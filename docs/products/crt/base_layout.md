@@ -14,7 +14,7 @@ The page has three persistent regions:
 | Agents Layout | central area showing working agents |
 | Sidebar | menu entries and Main Agent panel |
 
-`MapView.tsx` corresponds to the Agents Layout area.
+The supported implementation lives in `frontend/skins/crt/index.html`, `frontend/skins/crt/app.js`, and the adjacent CRT styles. The old React map/sidebar/modal component path has been removed rather than retained as an untested fallback.
 
 ## TopBar
 

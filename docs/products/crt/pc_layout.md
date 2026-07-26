@@ -4,6 +4,8 @@
 
 This document describes CRT desktop layout for viewports at least `981px` wide. Shared layout rules are in [base_layout.md](base_layout.md).
 
+The desktop implementation is owned by `frontend/skins/crt/index.html`, `frontend/skins/crt/app.js`, and `frontend/skins/crt/styles/monochrome-green.css`.
+
 ## Overall Structure
 
 ```text

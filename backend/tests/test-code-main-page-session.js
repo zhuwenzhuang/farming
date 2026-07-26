@@ -20,15 +20,6 @@ async function run() {
     mainPageAgentSessionKey,
     mainPageAgentSessionsToAutoResume,
   } = require('../main-page-session');
-  const {
-    mainPageSessionProviderForCommand,
-  } = importTsModule('src/components/code/main-page-session.ts');
-
-  assert.strictEqual(mainPageSessionProviderForCommand('env FOO=1 /usr/local/bin/codex --model gpt-5.5'), 'codex');
-  assert.strictEqual(mainPageSessionProviderForCommand('claude --resume abc'), 'claude');
-  assert.strictEqual(mainPageSessionProviderForCommand('opencode --session ses_example'), 'opencode');
-  assert.strictEqual(mainPageSessionProviderForCommand('/usr/local/bin/qodercli --resume abc'), 'qoder');
-  assert.strictEqual(mainPageSessionProviderForCommand('bash'), null);
   assert.strictEqual(mainPageAgentSessionKey('', ''), '');
   assert.strictEqual(mainPageAgentSessionKey('bash', 'shell-session'), '');
   assert.strictEqual(mainPageAgentSessionKey('codex', ''), '');

@@ -46,10 +46,10 @@
 - 尽量薄，为 agents layout 区域让出垂直空间
 - 信息密度不降低，仅缩小字号
 
-### 2.3 模态对话框（New Agent / Settings）
+### 2.3 对话框（New Agent / Settings）
 
-- 自底部滑上的 Sheet（`.dialog-overlay` + `.input-dialog` / `.settings-dialog`），顶栏与选项列表采用桌面端相同的细边框、扁平顶栏和字号规则，见 `base_layout.zh_cn.md` §5.4。
-- **Workspace 路径输入**：保持 **`font-size: 16px`** 与足够 **`min-height`**，避免 iOS 聚焦缩放页面；与 ghostty 画布 **10px**、底部 Main 输入条 **16px** 策略一致。
+- New Agent 与 Settings 以底部 Sheet 形式打开，沿用桌面端的紧凑标题、清晰焦点和键盘操作规则，见 `base_layout.zh_cn.md` §5.4。
+- Workspace 路径输入应保持足够字号与高度，避免 iOS 聚焦时缩放页面。
 
 ---
 
@@ -211,11 +211,9 @@
 
 | 文件 | 职责 |
 |------|------|
-| `src/components/TopBar.tsx` | 顶部状态栏组件 |
-| `src/components/Sidebar.tsx` | 菜单组件（移动端只显示快捷键字母，含 toggle 展开） |
-| `src/components/MobileMainAgentBar.tsx` | 移动端 Main Agent 底部输入条 |
-| `src/components/InputDialog.tsx` | New Agent / Main Agent 启动对话框 |
-| `src/components/Settings.tsx` | Settings 对话框 |
-| `src/components/MapView.tsx` | Agents layout 渲染（移动端纵向排列） |
-| `src/App.tsx` | 页面整体 layout 组装 |
-| `src/styles/main.css` | 布局样式（`@media (max-width: 980px)` 和 `@media (max-width: 640px)` 断点） |
+| `frontend/skins/crt/index.html` | CRT DOM 骨架；移动布局仍仅为概念设计 |
+| `frontend/skins/crt/app.js` | CRT 状态渲染和键盘交互 |
+| `frontend/skins/crt/styles/monochrome-green.css` | CRT 布局样式与响应式规则 |
+| `frontend/skins/crt/styles/effects.css` | CRT 专属视觉效果 |
+
+不再保留一套独立 React 移动 CRT 实现；手机端产品路径仍是 Farming Code。

@@ -394,7 +394,6 @@ farming/
 │       │   - Second agent creation
 │       │   - Main Agent kill
 │       │   - Other agent preservation
-│       ├── test-agent-card-task-display.js # 子 Agent task 展示静态测试
 │       ├── test-agent-manager-fork.js # Agent fork / git worktree 行为测试
 │       ├── test-agent-manager-interrupt.js # Agent interrupt fallback 行为测试
 │       ├── test-agent-manager-rename.js # Agent 自定义显示名行为测试
@@ -442,7 +441,6 @@ farming/
 │       ├── test-terminal-screen-state.js # headless terminal 屏幕状态测试
 │       ├── test-terminal-screen-worker.js # terminal screen worker 测试
 │       ├── test-terminal-screen-worker-pool.js # terminal screen worker 预热池测试
-│       ├── test-terminal-preview-layout.js # terminal snapshot 卡片布局测试
 │       ├── test-workspace-history-helpers.js # workspace 历史去重/截断测试
 │       ├── test-agent-manager-workspace-defaults.js # 主/子 agent 默认工作目录测试
 │       ├── test-backend-connection-status.js # 后端连接断开 / 心跳缺失页面提示接线测试
@@ -490,7 +488,6 @@ farming/
     │   │   ├── CodeOverlays.tsx # Agent/Project/session 右键菜单、rename/kill dialog、copy toast
     │   │   ├── agent-kind.ts # Agent command -> provider/kind 识别 helper
     │   │   ├── agent-working-state.ts # Codex / Claude terminal 当前 turn active 状态判断 helper
-    │   │   ├── main-page-session.ts # Codex / Claude 新建/恢复后进入主页面的 session membership helper
     │   │   ├── capabilities.ts # Agent 能力归一化（provider、composer 控件、菜单动作）
     │   │   ├── composer-message.ts # Composer 附件 / mode prefix / 剪贴板消息格式化 helper
     │   │   ├── composer-submit.ts # Composer 消息转换为 terminal input chunk 的 helper
@@ -507,24 +504,14 @@ farming/
     │   │   └── types.ts # Code-style 共享类型
     │   ├── AgentTerminalPane.tsx # 极简嵌入式 agent terminal pane，操作入口保留在左侧 Agent 行 / 右键菜单
     │   ├── files/         # Project 下 Files section 与 Monaco 编辑器
-    │   ├── TopBar.tsx
-    │   ├── Sidebar.tsx
-    │   ├── MapView.tsx
-    │   ├── AgentCard.tsx
-    │   ├── InputDialog.tsx
-    │   ├── SessionModal.tsx
-    │   └── TerminalSnapshotPreview.tsx # 只读 terminal 缩略图组件（cell snapshot 渲染）
+    │   └── InputDialog.tsx
     ├── hooks/
     │   ├── useWebSocket.ts # 状态与 session-output 订阅
     │   ├── useWorkspaceFiles.ts # Project Files section 目录树和文件变化状态
-    │   ├── useKeyboard.ts  # 全键盘交互
-    │   ├── useTerminal.ts  # terminal renderer 生命周期
-    │   └── useIMEBridge.ts # 文本输入与 IME bridge
+    │   └── useKeyboard.ts  # 全键盘交互
     ├── lib/
     │   ├── ghostty.ts      # ghostty-web renderer 封装
     │   ├── file-icons.ts   # Material Icon Theme manifest + 精选 SVG 文件类型 icon 映射
-    │   ├── terminal-preview.ts # terminal snapshot cell 渲染 / 缩放 helper
-    │   ├── terminal-keys.ts # terminal-first 键位策略
     │   ├── workspace-files.ts # `/api/files/*` 前端 API client
     │   ├── workspace-options.ts # Main/New Agent workspace 候选与默认值规则
     │   ├── format.ts       # 展示格式化

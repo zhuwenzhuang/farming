@@ -46,31 +46,6 @@ function run() {
   assert.strictEqual(isCrtNativeTerminalPasteTarget({ closest: () => null }), false);
   assert.strictEqual(isCrtNativeTerminalPasteTarget(null), false);
 
-  const sessionModalSource = fs.readFileSync(
-    path.join(__dirname, '../../src/components/SessionModal.tsx'),
-    'utf8'
-  );
-  const copyShortcutBranch = sessionModalSource.slice(
-    sessionModalSource.indexOf('if (isCopyShortcut(e))'),
-    sessionModalSource.indexOf('// Paste shortcut')
-  );
-  assert(
-    copyShortcutBranch.includes('getSelectionNow()'),
-    'React session copy shortcut should read terminal selection synchronously'
-  );
-  assert(
-    copyShortcutBranch.includes('e.preventDefault()'),
-    'React session copy shortcut should prevent the browser canvas copy default'
-  );
-  assert(
-    !copyShortcutBranch.includes('await '),
-    'React session copy shortcut must not await before preventing browser default copy'
-  );
-  assert(
-    sessionModalSource.includes("window.addEventListener('copy', handleCopy, true)"),
-    'React session modal should force copy events to text/plain selection data'
-  );
-
   const terminalPoolSource = fs.readFileSync(
     path.join(__dirname, '../../src/lib/terminal-session-pool.ts'),
     'utf8'
@@ -312,12 +287,6 @@ function run() {
     !repaintBody.includes('setTimeout') &&
       (repaintBody.match(/requestAnimationFrame/g) || []).length <= 1,
     'terminal repaint fallback should stay lightweight'
-  );
-  assert(
-    sessionModalSource.includes('shouldSuppressRendererCursorForAgent') &&
-      sessionModalSource.includes("'claude'") &&
-      sessionModalSource.includes('suppressRendererCursor: shouldSuppressRendererCursorForAgent(agent?.command)'),
-    'React session modal should suppress the renderer hardware cursor for coding-agent TUIs'
   );
   assert(
     !terminalPoolSource.includes("record.terminal.write('\\x1b[?25l'") &&

@@ -32,7 +32,6 @@ function run() {
     'src/components/code/copy.ts',
     'src/components/code/focus-retry.ts',
     'src/components/code/HistoryPanel.tsx',
-    'src/components/code/main-page-session.ts',
     'src/components/code/menu-model.ts',
     'src/components/code/menu-position.ts',
     'src/components/code/SearchPanel.tsx',
@@ -75,7 +74,6 @@ function run() {
   const usePooledTerminalSource = read('src/hooks/usePooledTerminal.ts');
   const xtermSource = read('src/lib/xterm.ts');
   const fileEditorMonacoSource = read('src/components/files/useFileEditorMonacoController.ts');
-  const sidebarSource = read('src/components/Sidebar.tsx');
   const inputDialogSource = read('src/components/InputDialog.tsx');
   const settingsFileExists = fs.existsSync(path.join(__dirname, '../..', 'src/components/Settings.tsx'));
   const stylesSource = read('src/styles/main.css');
@@ -1033,17 +1031,6 @@ function run() {
       stylesSource.includes('.code-terminal-grid[hidden]') &&
       stylesSource.includes('.code-agent-work-pane[hidden]'),
     'Chat DOM and pooled xterm views should share one bounded retained-Agent working set'
-  );
-
-  assert(
-    !sidebarSource.includes('Task List') &&
-      !sidebarSource.includes('Priority') &&
-      !sidebarSource.includes('Real-time') &&
-      !sidebarSource.includes('Logs') &&
-      !sidebarSource.includes('Warnings') &&
-      !sidebarSource.includes('Zombies') &&
-      !sidebarSource.includes('Billing'),
-    'Legacy Sidebar should not keep disabled placeholder buttons for unimplemented actions'
   );
 
   assert(

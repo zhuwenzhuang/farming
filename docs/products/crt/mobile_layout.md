@@ -6,6 +6,8 @@ This document describes CRT mobile layout for viewports up to `980px`. Shared la
 
 > Status: concept only. Farming CRT is currently supported on desktop; use Farming Code on a phone.
 
+The concept is documented against the independent CRT skin in `frontend/skins/crt/`; no separate React mobile CRT implementation is retained.
+
 ## Overall Structure
 
 ```text

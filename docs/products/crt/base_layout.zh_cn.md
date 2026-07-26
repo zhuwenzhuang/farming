@@ -16,7 +16,7 @@
 | Agents Layout | 中央区域，展示所有工作 agent 的状态 |
 | Sidebar | 菜单入口和 Main Agent 面板 |
 
-> 组件文件名 `MapView.tsx` 对应的是 Agents Layout 区域。
+> 支持的实现位于 `frontend/skins/crt/index.html`、`frontend/skins/crt/app.js` 及相邻 CRT 样式中。旧 React map/sidebar/modal 路径已删除，不作为未持续测试的备用实现保留。
 
 ---
 
@@ -153,36 +153,20 @@ Title bar 的文字和边框颜色跟随 `--agent-color`（由活跃度等级决
 - 工作目录路径（小字，非 compact 模式）
 - 输出预览（flex: 1，填满剩余空间，pre-wrap）
 
-### 5.3 Session 终端弹窗顶栏
+### 5.3 会话
 
-点击地图卡片打开的全屏/模态终端（`SessionModal`）使用扁平顶栏、柔和边框和无外壳发光的样式：
+CRT 会话窗口使用细边框、紧凑顶栏、终端优先焦点，以及符合整体 CRT 信息密度的小号等宽字体。受支持的会话实现位于 `frontend/skins/crt/`，不依赖已删除的 React modal 路径。
 
-| 项目 | 规则 |
-|------|------|
-| 外框 `.modal-content` | **1px** 边框，色 `--theme-border-soft`；去掉 `fx-crt-panel` 在外壳上的外发光，避免边框「视觉上像两条线」 |
-| 顶栏 padding | `4px 8px` |
-| 标题 `.session-title` | `11px`、`font-weight: 600`、偏柔和的 `--theme-fg-soft`；文案为命令名 + `(agentId)` |
-| Kill / Close | 再紧凑一档：`padding` 约 `3px 8px`、`font-size` `10px` |
-| 顶栏底部分割线 | **1px** `--theme-border-soft`（与地图卡片上亮绿边框区分，偏静） |
-| 终端内容区 `.terminal-container` | 内边距 `6px` |
-| **ghostty 画布字号** | 桌面 **`13px`**、视口 `max-width: 980px` 时 **`11px`**（`SESSION_TERMINAL_FONT_DESKTOP` / `SESSION_TERMINAL_FONT_MOBILE`；创建 session 时按断点选定，见 `src/lib/ghostty.ts`、`terminal-session-pool.ts`） |
+Agent 卡片使用剩余正文高度展示底部对齐的实时终端尾部，或紧凑的结构化 Chat 轨迹。Chat 轨迹从清洗后的 Transcript 中展示最近可见的用户输入、Agent 回复和当前 Activity，不重建或重排 ACP Entry。内容过多时裁剪，禁止压缩文字。只有 Live Pending / Running Agent 占据 Dashboard 机位；Stopped、Dead 与 Archived Record 离开实时 Grid，可恢复历史仍保留在 History。Terminal Card 仅在后端终端状态为 Working 时闪烁，Chat 使用紧凑的 Activity Signal。卡片和会话标题使用与 Farming Code 相同的 Agent 标题优先级，并保持单行省略。
 
-移动端 Menu 按钮与顶栏同密度（`min-height` 约 `28px`、`4px 8px` padding）；下拉菜单容器边框同为 **1px** `--theme-border-soft`。底部 **`mobile-terminal-input`** 仍为 **`16px`**，避免 iOS 聚焦放大页面，与终端画布字号分开处理。
+### 5.4 对话框
 
-### 5.4 New Agent / Settings 模态框
+New Agent 与 Settings 对话框遵循以下规则：
 
-`InputDialog`（快捷键 **N** / Start Main Agent）与 `Settings`（**S**）共用 **`.input-dialog`**、**`.settings-dialog`**、**`.dialog-header`**，并采用 **§5.3 Session** 的细边框、扁平顶栏和无外壳发光样式。
-
-| 项目 | 规则 |
-|------|------|
-| 外框 | **1px** `--theme-border-soft`；`fx-crt-panel` 在外壳上 **`box-shadow: none`** |
-| 顶栏 `.dialog-header` | `4px 8px`；标题 **11px**、`font-weight: 600`、`--theme-fg-soft`；底边 **1px** 柔和分割线 |
-| Esc | `.dialog-header .close-btn`：**10px** 字、紧凑 padding（与 Session Kill/Close 同档） |
-| Agent / 主题选项 `.agent-item`、`.theme-option` | 软边框、正文 **11px**、辅助描述 **10px**、padding **6px 8px**（桌面） |
-| Workspace 步骤 | 「Workspace:」与路径输入 **11px**；recent 列表 **11px**，与侧栏菜单密度接近 |
-| `.workspace-actions`（Start / Back） | 桌面：**11px**、扁按钮；移动端底部 sticky 条仍用较大 **`min-height`** 兼顾触控 |
-
-**移动端**：底部 sheet 布局不变；Workspace 路径 **`input`** 在 `max-width: 980px` 下仍为 **`font-size: 16px`** 与较高 **`min-height`**，避免 iOS 聚焦自动缩放整页（与 `mobile_layout` 输入策略一致）；列表项与按钮可略收紧，但路径输入遵循上述例外。
+- 标题区域紧凑；
+- 输入焦点状态清晰可见；
+- 操作可通过键盘确认；
+- 避免嵌套厚重卡片。
 
 ---
 
@@ -237,16 +221,12 @@ Agents layout 中的 agent 按 `attentionScore` 降序排列。最高分的 agen
 
 | 文件 | 职责 |
 |------|------|
-| `src/components/TopBar.tsx` | 顶部状态栏组件 |
-| `src/components/Sidebar.tsx` | 菜单组件 |
-| `src/components/MapView.tsx` | Agents layout 排序、布局 class 选择、grid area 分配 |
-| `src/components/AgentCard.tsx` | Agent 卡片组件（title bar + body） |
-| `src/components/SessionModal.tsx` | Session 终端弹窗（顶栏 + 终端区 + 移动端输入条） |
-| `src/components/InputDialog.tsx` | New Agent / Main Agent 启动对话框（agent 列表 + workspace） |
-| `src/components/Settings.tsx` | Settings 对话框 |
-| `src/App.tsx` | 页面整体 layout 组装 |
-| `src/styles/main.css` | 布局样式 |
+| `frontend/skins/crt/index.html` | CRT 页面 DOM 骨架与静态资源入口 |
+| `frontend/skins/crt/app.js` | TopBar、Sidebar、Agents layout、Session、键盘和状态渲染 |
+| `frontend/skins/crt/styles/monochrome-green.css` | CRT 主布局与绿色单色视觉样式 |
+| `frontend/skins/crt/styles/history.css` | History 视图样式 |
+| `frontend/skins/crt/styles/search.css` | Search 视图样式 |
+| `frontend/skins/crt/styles/billing.css` | Billing 视图样式 |
 | `frontend/skins/crt/styles/effects.css` | CRT 专属视觉效果（静态扫描线与轻量扫描刷新） |
-| `src/types/agent.ts` | Agent 类型定义（`attentionScore`、`isZombie`、`activityLevel`） |
-| `src/components/MapView.tsx` | Agents Layout 的排序入口（按 `attentionScore`） |
-| `src/App.tsx` | TopBar `Attn` 指示与最高关注 agent 选择 |
+| `frontend/session-modal-bridge.js` | CRT Session 弹窗使用的共享 terminal bridge |
+| `shared/browser-protocol.js` | Code / CRT 共用浏览器协议与消息校验 |

@@ -3,24 +3,11 @@ const { importTsModule } = require('./helpers/import-ts-module');
 
 (async () => {
   const {
-    stripAnsi,
-    extractMeaningfulPreview,
-    extractTerminalSnapshotPreview,
     agentDisplayName,
     agentRowTitle,
     agentTitle,
   } = importTsModule('src/lib/format.ts');
 
-  const rawClaudeOutput = [
-    '\u001b[?2026l',
-    '\u001b[32mTry "how do I log an error?"\u001b[0m',
-    '\u001b[31m━━━━━━━━━━━━━━━━━━━━━━━━━━━━\u001b[0m',
-    'bypass permissions on (shift+tab to cycle)',
-    'Auto-update failed · Try claude doctor',
-    'Meaningful final line',
-  ].join('\n');
-
-  assert.strictEqual(stripAnsi('\u001b[?2026lhello\u001b[0m'), 'hello');
   assert.strictEqual(agentDisplayName('claude'), 'Claude Code');
   assert.strictEqual(agentDisplayName('bash'), 'bash');
   assert.strictEqual(
@@ -125,24 +112,7 @@ const { importTsModule } = require('./helpers/import-ts-module');
     'main agent should not expose the internal .farming workspace as its title'
   );
 
-  const preview = extractMeaningfulPreview(rawClaudeOutput);
-  assert.ok(preview.includes('Try "how do I log an error?"'));
-  assert.ok(preview.includes('Meaningful final line'));
-  assert.ok(!preview.includes('Auto-update failed'));
-  assert.ok(!preview.includes('shift+tab to cycle'));
-  assert.ok(!preview.includes('━━━━━━━━'));
-
-  const terminalSnapshot = extractTerminalSnapshotPreview([
-    'Claude Code',
-    '',
-    'Working...',
-    '',
-    '$ echo done',
-    'done',
-  ].join('\n'), 4);
-  assert.strictEqual(terminalSnapshot, ['Working...', '', '$ echo done', 'done'].join('\n'));
-
-  console.log('✓ agent preview formatting strips terminal noise and uses friendly names');
+  console.log('✓ agent title formatting uses stable friendly names');
 })().catch((error) => {
   console.error(error);
   process.exit(1);
