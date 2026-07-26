@@ -93,7 +93,10 @@ import {
   terminalReadingAnchorFingerprint,
   type ReadingAnchor,
 } from '@/lib/reading-anchor'
-import { isCompactViewport, isTouchInputViewport } from '@/lib/responsive-mode'
+import {
+  isCompactViewport,
+  isTouchInputViewport as isMobileViewport,
+} from '@/lib/responsive-mode'
 import type { TerminalSearchOptions } from '@/lib/terminal-search'
 import { sendTerminalSessionMessage } from '@/lib/terminal-session-client'
 import type { TerminalInputPart } from '@/types/messages'
@@ -410,10 +413,6 @@ declare global {
       dispatchCopyFromTextarea: (agentId: string) => { prevented: boolean; text: string }
     }
   }
-}
-
-function isMobileViewport() {
-  return isTouchInputViewport()
 }
 
 function appendHost(record: SessionRecord, mountEl: HTMLElement) {

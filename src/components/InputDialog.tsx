@@ -3,7 +3,7 @@ import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { useKeyboard } from '@/hooks/useKeyboard'
 import { appPath } from '@/lib/base-path'
 import { agentDisplayName, formatRelativeAge } from '@/lib/format'
-import { isTouchInputViewport } from '@/lib/responsive-mode'
+import { isTouchInputViewport as isMobileViewport } from '@/lib/responsive-mode'
 import type { CodeCopy } from '@/components/code/copy'
 import { AgentLaunchIcon } from '@/components/code/AgentLaunchIcon'
 import { normalizeAgentLaunchOptions } from '@/components/code/agent-launch-options'
@@ -21,10 +21,6 @@ import {
   resolveWorkspaceToStart,
   shouldRememberWorkspace,
 } from '@/lib/workspace-options'
-
-function isMobileViewport() {
-  return isTouchInputViewport()
-}
 
 function normalizeDefaultLaunchAgent(agentName: string | undefined) {
   if (agentName === 'opencode') return 'opencode'

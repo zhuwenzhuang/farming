@@ -1410,8 +1410,8 @@ function run() {
     inputDialogSource.includes('initialWorkspace') &&
       inputDialogSource.includes('initialCommand') &&
       inputDialogSource.includes("normalizeWorkspaceValue(initialWorkspace || '')") &&
-      inputDialogSource.includes("import { isTouchInputViewport } from '@/lib/responsive-mode'") &&
-      inputDialogSource.includes('return isTouchInputViewport()') &&
+      inputDialogSource.includes("import { isTouchInputViewport as isMobileViewport } from '@/lib/responsive-mode'") &&
+      !inputDialogSource.includes('function isMobileViewport()') &&
       responsiveModeSource.includes("window.matchMedia('(any-pointer: coarse)').matches") &&
       responsiveModeSource.includes('navigator.maxTouchPoints > 0') &&
       inputDialogSource.includes('role="dialog"') &&

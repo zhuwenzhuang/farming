@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react'
 import type { Agent } from '@/types/agent'
 import { usePooledTerminal } from '@/hooks/usePooledTerminal'
-import { isTouchInputViewport } from '@/lib/responsive-mode'
+import { isTouchInputViewport as isMobileViewport } from '@/lib/responsive-mode'
 import type { TerminalPathOpenTarget, TerminalRecoveryStatus, TerminalSearchDirection, TerminalSearchResult } from '@/lib/terminal-session-pool'
 import type { TerminalSearchOptions } from '@/lib/terminal-search'
 import type { CodeCopy } from './code/copy'
@@ -50,10 +50,6 @@ function shouldSuppressRendererCursorForAgent(command?: string) {
     'github-copilot-cli',
     'amazon-q',
   ].includes(program)
-}
-
-function isMobileViewport() {
-  return isTouchInputViewport()
 }
 
 function isPrimaryFindShortcut(event: Pick<KeyboardEvent, 'metaKey' | 'ctrlKey' | 'altKey' | 'shiftKey' | 'key'>) {
