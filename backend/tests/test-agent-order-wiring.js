@@ -12,6 +12,7 @@ function run() {
   const sessionStore = read('backend/farming-session-store.js');
   const workspace = read('src/components/CodeWorkspace.tsx');
   const sidebar = read('src/components/code/CodeSidebar.tsx');
+  const reorderHook = read('src/components/code/useAgentReorder.ts');
   const model = read('src/components/code/model.ts');
   const styles = read('src/styles/main.css');
 
@@ -34,7 +35,8 @@ function run() {
   assert(sidebar.includes('draggable={reorderable || undefined}'));
   assert(sidebar.includes('if (draggedRef.current)'));
   assert(!sidebar.includes('code-agent-drag-handle'));
-  assert(sidebar.includes('onReorderAgent('));
+  assert(sidebar.includes('useAgentReorder('));
+  assert(reorderHook.includes('onReorder('));
   assert(sidebar.includes('const sortedAgents = project.agents.filter(agent => !agent.pinned)'));
   assert(sidebar.includes('(a.agent.pinnedOrder ?? 0) - (b.agent.pinnedOrder ?? 0)'));
   assert(model.includes('(b.projectOrder ?? 0) - (a.projectOrder ?? 0)'));

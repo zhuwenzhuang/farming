@@ -66,12 +66,12 @@ import { projectFilesWorkspaceId } from '@/lib/project-workspaces'
 import { stableProjectSourceAgentId } from './workspace-derived'
 import { useBackendSystemStats, useHasBackendSystemStats } from '@/lib/backend-live-status'
 import { useAgentWithLiveState } from '@/lib/agent-live-state'
+import { useAgentReorder } from './useAgentReorder'
 
 declare const __FARMING_PACKAGE_VERSION__: string
 
 const DEFAULT_PROJECT_SESSION_LIMIT = 5
 const PROJECT_AGENT_VISIBLE_LIMIT = 5
-const PROJECT_AGENT_DROP_END = '__project_agent_drop_end__'
 type AgentPreviewAnchorEvent = { currentTarget: HTMLElement }
 type ContextMenuTriggerEvent = ReactMouseEvent<HTMLElement> | ReactKeyboardEvent<HTMLElement>
 
@@ -2255,47 +2255,13 @@ function PinnedSection({
   copy,
 }: PinnedSectionProps) {
   const pinnedAgents = items.flatMap(item => item.kind === 'agent' ? [item.agent] : [])
-  const [agentDrag, setAgentDrag] = useState<{
-    agentId: string
-    targetAgentId: string
-    position: 'before' | 'after'
-  } | null>(null)
-  const beginAgentDrag = (event: ReactDragEvent<HTMLElement>, agentId: string) => {
-    event.dataTransfer.effectAllowed = 'move'
-    event.dataTransfer.setData('text/plain', agentId)
-    onHideAgentPreview()
-    setAgentDrag({ agentId, targetAgentId: '', position: 'before' })
-  }
-  const updateAgentDropTarget = (event: ReactDragEvent<HTMLElement>, targetAgentId: string) => {
-    if (!agentDrag || agentDrag.agentId === targetAgentId) return
-    event.preventDefault()
-    event.dataTransfer.dropEffect = 'move'
-    const rect = event.currentTarget.getBoundingClientRect()
-    const position = event.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
-    if (agentDrag.targetAgentId === targetAgentId && agentDrag.position === position) return
-    setAgentDrag(current => current ? { ...current, targetAgentId, position } : null)
-  }
-  const finishAgentDrag = () => setAgentDrag(null)
-  const dropAgent = (event: ReactDragEvent<HTMLElement>, targetAgentId: string) => {
-    event.preventDefault()
-    if (!agentDrag || agentDrag.agentId === targetAgentId) {
-      finishAgentDrag()
-      return
-    }
-    const candidates = pinnedAgents.filter(agent => agent.id !== agentDrag.agentId)
-    const targetIndex = candidates.findIndex(agent => agent.id === targetAgentId)
-    if (targetIndex < 0) {
-      finishAgentDrag()
-      return
-    }
-    const insertIndex = agentDrag.position === 'before' ? targetIndex : targetIndex + 1
-    onReorderAgent(
-      agentDrag.agentId,
-      insertIndex > 0 ? candidates[insertIndex - 1]?.id ?? '' : '',
-      insertIndex < candidates.length ? candidates[insertIndex]?.id ?? '' : '',
-    )
-    finishAgentDrag()
-  }
+  const {
+    agentDrag,
+    beginAgentDrag,
+    dropAgent,
+    finishAgentDrag,
+    updateAgentDropTarget,
+  } = useAgentReorder(pinnedAgents, onReorderAgent, onHideAgentPreview)
   return (
     <section className={`code-pinned-section ${collapsed ? 'collapsed' : ''}`} data-testid="code-pinned-section">
       <button
@@ -2617,11 +2583,6 @@ function ProjectSection({
   const [projectAgentsExpanded, setProjectAgentsExpanded] = useState(false)
   const [projectAgentsCollapsed, setProjectAgentsCollapsed] = useState(false)
   const [projectFilesExpanded, setProjectFilesExpanded] = useState(false)
-  const [agentDrag, setAgentDrag] = useState<{
-    agentId: string
-    targetAgentId: string
-    position: 'before' | 'after'
-  } | null>(null)
   const [projectSourceAgentId, setProjectSourceAgentId] = useState<string | null>(() => (
     stableProjectSourceAgentId(null, project.agents)
   ))
@@ -2709,60 +2670,16 @@ function ProjectSection({
     setProjectFilesExpanded(!filesCollapsed)
   }, [])
 
-  const beginAgentDrag = (event: ReactDragEvent<HTMLElement>, agentId: string) => {
-    event.dataTransfer.effectAllowed = 'move'
-    event.dataTransfer.setData('text/plain', agentId)
-    onHideAgentPreview()
-    setAgentDrag({ agentId, targetAgentId: '', position: 'before' })
-  }
-  const updateAgentDropTarget = (event: ReactDragEvent<HTMLElement>, targetAgentId: string) => {
-    if (!agentDrag || agentDrag.agentId === targetAgentId) return
-    event.preventDefault()
-    event.dataTransfer.dropEffect = 'move'
-    const rect = event.currentTarget.getBoundingClientRect()
-    const position = event.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
-    if (agentDrag.targetAgentId === targetAgentId && agentDrag.position === position) return
-    setAgentDrag(current => current ? { ...current, targetAgentId, position } : null)
-  }
-  const finishAgentDrag = () => setAgentDrag(null)
-  const dropAgent = (event: ReactDragEvent<HTMLElement>, targetAgentId: string) => {
-    event.preventDefault()
-    if (!agentDrag || agentDrag.agentId === targetAgentId) {
-      finishAgentDrag()
-      return
-    }
-    const candidates = sortedAgents.filter(agent => agent.id !== agentDrag.agentId)
-    const targetIndex = candidates.findIndex(agent => agent.id === targetAgentId)
-    if (targetIndex < 0) {
-      finishAgentDrag()
-      return
-    }
-    const insertIndex = agentDrag.position === 'before' ? targetIndex : targetIndex + 1
-    onReorderAgent(
-      agentDrag.agentId,
-      insertIndex > 0 ? candidates[insertIndex - 1]?.id ?? '' : '',
-      insertIndex < candidates.length ? candidates[insertIndex]?.id ?? '' : '',
-    )
-    finishAgentDrag()
-  }
-  const dropAgentAtProjectEnd = (event: ReactDragEvent<HTMLElement>) => {
-    event.preventDefault()
-    if (!agentDrag) return
-    const candidates = sortedAgents.filter(agent => agent.id !== agentDrag.agentId)
-    onReorderAgent(agentDrag.agentId, candidates[candidates.length - 1]?.id ?? '', '')
-    finishAgentDrag()
-  }
-  const updateProjectEndDropTarget = (event: ReactDragEvent<HTMLElement>) => {
-    if (!agentDrag) return
-    event.preventDefault()
-    event.dataTransfer.dropEffect = 'move'
-    if (agentDrag.targetAgentId === PROJECT_AGENT_DROP_END) return
-    setAgentDrag(current => current ? {
-      ...current,
-      targetAgentId: PROJECT_AGENT_DROP_END,
-      position: 'after',
-    } : null)
-  }
+  const {
+    agentDrag,
+    beginAgentDrag,
+    dropAgent,
+    dropAgentAtEnd: dropAgentAtProjectEnd,
+    droppingAtEnd: droppingAtProjectEnd,
+    finishAgentDrag,
+    updateAgentDropTarget,
+    updateAgentEndDropTarget: updateProjectEndDropTarget,
+  } = useAgentReorder(sortedAgents, onReorderAgent, onHideAgentPreview)
 
   useEffect(() => {
     if (sortedAgents.length <= PROJECT_AGENT_VISIBLE_LIMIT && projectAgentsExpanded) {
@@ -3082,7 +2999,7 @@ function ProjectSection({
                     {hiddenProjectAgentCount > 0 && (
                       <button
                         type="button"
-                        className={`code-agent-row code-session-show-more ${agentDrag?.targetAgentId === PROJECT_AGENT_DROP_END ? 'drop-after' : ''}`}
+                        className={`code-agent-row code-session-show-more ${droppingAtProjectEnd ? 'drop-after' : ''}`}
                         data-testid="code-agent-show-more"
                         onClick={() => setProjectAgentsExpanded(true)}
                         onDragOver={updateProjectEndDropTarget}
