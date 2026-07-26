@@ -79,18 +79,17 @@
     "check": "npm run typecheck && npm run lint && npm test"
   },
   "keywords": [
-    "ai-agent",
-    "ai-agent-workspace",
+    "coding-agent-workspace",
+    "agent-supervision",
+    "agent-orchestration",
+    "multi-agent",
     "browser-terminal",
-    "claude-code",
-    "coding-agent",
-    "codex",
-    "codex-cli",
-    "developer-tools",
-    "farming-code",
-    "remote-workspace",
+    "browser-workspace",
+    "remote-development",
     "self-hosted",
-    "terminal"
+    "codex",
+    "claude-code",
+    "opencode"
   ],
   "author": "",
   "license": "MIT",
