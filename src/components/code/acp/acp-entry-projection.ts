@@ -1,4 +1,5 @@
 import { createTwoFilesPatch, diffLines } from 'diff'
+import type { AcpTerminalDisplay } from './types'
 
 const MAX_RENDERED_DIFF_CHARS = 64 * 1024
 const MAX_INLINE_TOOL_DETAIL_CHARS = 4 * 1024
@@ -14,19 +15,7 @@ export interface AgentTranscriptAudio {
 
 export interface AgentTranscriptTerminal {
   terminalId: string
-  terminal?: {
-    command?: string
-    args?: string[]
-    cwd?: string
-    output?: string
-    truncated?: boolean
-    exitStatus?: { exitCode?: number | null; signal?: string | null } | null
-    released?: boolean
-    startedAt?: number
-    endedAt?: number | null
-    durationMs?: number
-    interactive?: boolean
-  }
+  terminal?: AcpTerminalDisplay
 }
 
 export interface AgentTranscriptPatchChange {
