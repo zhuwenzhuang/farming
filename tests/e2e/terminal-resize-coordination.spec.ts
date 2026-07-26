@@ -568,10 +568,9 @@ test('different-sized viewers converge after concurrent rapid Agent switching', 
         replayInProgress: false,
         needsReconnectOutputSync: false,
       })
-      const nonblankRows = await viewer.evaluate(id => (
+      await expect.poll(() => viewer.evaluate(id => (
         window.__farmingTerminalTest?.getRows(id, 120).filter(row => row.trim()).length ?? 0
-      ), firstAgentId)
-      expect(nonblankRows).toBeGreaterThan(0)
+      ), firstAgentId)).toBeGreaterThan(0)
     }
 
     const countMessages = async () => {

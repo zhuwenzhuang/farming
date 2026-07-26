@@ -20,12 +20,14 @@ type PermissionSwitchReplacement = {
 
 interface UseAgentComposerStateOptions {
   agents: Agent[]
+  permissionSwitchingAgentId?: string | null
   permissionSwitchReplacement: PermissionSwitchReplacement
   onDiscardAttachment: (attachment: AgentComposerState['attachments'][number]) => void
 }
 
 export function useAgentComposerState({
   agents,
+  permissionSwitchingAgentId,
   permissionSwitchReplacement,
   onDiscardAttachment,
 }: UseAgentComposerStateOptions) {
@@ -38,6 +40,10 @@ export function useAgentComposerState({
         .flatMap(agent => [composerStateKeyForAgent(agent), acpComposerStateKeyForAgent(agent)])
         .filter(Boolean)
     )
+    if (permissionSwitchingAgentId) {
+      retainedComposerKeys.add(permissionSwitchingAgentId)
+      retainedComposerKeys.add(`acp:${permissionSwitchingAgentId}`)
+    }
     setComposerByAgentKey(current => {
       let next = current
       let changed = false
@@ -110,7 +116,7 @@ export function useAgentComposerState({
       })
       return changed ? next : current
     })
-  }, [agents, onDiscardAttachment, permissionSwitchReplacement])
+  }, [agents, onDiscardAttachment, permissionSwitchingAgentId, permissionSwitchReplacement])
 
   const resolveComposerStateKey = useCallback((composerKey: string) => {
     if (!composerKey) return ''

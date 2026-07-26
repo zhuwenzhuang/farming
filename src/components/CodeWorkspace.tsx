@@ -580,6 +580,7 @@ export function CodeWorkspace({
     updateExistingComposerStateForKey,
   } = useAgentComposerState({
     agents,
+    permissionSwitchingAgentId,
     permissionSwitchReplacement,
     onDiscardAttachment: revokeComposerAttachmentPreview,
   })
