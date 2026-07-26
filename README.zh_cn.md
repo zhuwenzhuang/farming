@@ -59,7 +59,7 @@ Farming Code 是默认的桌面与手机界面。它按项目组织工作，把�
 
 ### Browser Resource
 
-每个 Project 可以拥有多个可命名的 Browser Resource。Farming 使用系统已有的 Chrome、Brave、Edge 或 Chromium 可执行文件和独立 Profile 启动浏览器，把这个 Headless 页面流式展示在工作区中，并把人的输入和 Agent 操作发送给同一个 CDP Session。Farming 不下载 Chromium，也不依赖 Playwright。Agent 可以通过 `farming browser` 发现并操作这些 Resource；npm 安装还会提供 `farming-browser` 别名。
+每个 Project 可以拥有多个可命名的 Browser Resource。Farming 使用兼容的 Chromium 系系统浏览器和独立 Profile 启动浏览器，把这个 Headless 页面流式展示在工作区中，并把人的输入和 Agent 操作发送给同一个 CDP Session。Farming 不下载 Chromium，也不依赖 Playwright。Agent 可以通过 `farming browser` 发现并操作这些 Resource；npm 安装还会提供 `farming-browser` 别名。
 
 第一版 Browser Viewer 面向网页展示与简单 Agent 操作，不替代浏览器完整窗口、DevTools、下载界面、浏览器扩展或 Computer Use。
 

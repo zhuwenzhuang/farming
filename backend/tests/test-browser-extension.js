@@ -297,7 +297,7 @@ async function testBrowserResourceManager() {
       createRuntime: options => new FakeBrowserRuntime(options),
     });
     restartedManager.init();
-    assert.strictEqual(restartedManager.capability().enabled, true, 'Built-in Browser should default to enabled');
+    assert.strictEqual(restartedManager.capability().enabled, true, 'System browser integration should default to enabled');
     assert.strictEqual(restartedManager.get(orphaned.id).status, 'failed');
     assert.match(restartedManager.get(orphaned.id).error, /restarted/);
     await restartedManager.dispose();
