@@ -263,6 +263,8 @@ const path = require('path');
   assert(settingsSource.includes("if (event.key === 'Escape')"));
   assert(settingsSource.includes('commitCustomRestReminderMinutes(event.currentTarget)'));
 
+  const importedRestReminder = await import('../../src/lib/pet/rest-reminder.ts');
+  const restReminder = importedRestReminder.default ?? importedRestReminder;
   const {
     PET_SETTINGS_STORAGE_KEY,
     PET_REST_REMINDER_RUNTIME_STORAGE_KEY,
@@ -284,7 +286,7 @@ const path = require('path');
     savePetAppearance,
     saveRestReminderRuntimeState,
     saveRestReminderIntervalSeconds,
-  } = await import('../../src/lib/pet/rest-reminder.ts');
+  } = restReminder;
 
   assert.strictEqual(normalizeRestReminderIntervalSeconds(null), null);
   assert.strictEqual(normalizeRestReminderIntervalSeconds('5'), 5);
