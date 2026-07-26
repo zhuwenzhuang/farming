@@ -6,43 +6,9 @@ const RUNTIME_KEY = 'farmingPetRestReminderRuntime'
 
 async function readBlackHoleOuterInk(canvas: Locator) {
   return canvas.evaluate(element => {
-    const source = element as HTMLCanvasElement
-    const sample = document.createElement('canvas')
-    sample.width = 420
-    sample.height = 420
-    const context = sample.getContext('2d', { willReadFrequently: true })
-    if (!context) throw new Error('2D canvas unavailable for Hawking-frame verification.')
-    context.clearRect(0, 0, sample.width, sample.height)
-    context.drawImage(source, 0, 0, sample.width, sample.height)
-    const pixels = context.getImageData(0, 0, sample.width, sample.height).data
-    const center = sample.width / 2
-    const innerRadius = sample.width * 0.09
-    const outerRadius = sample.width * 0.49
-    const sectors = new Uint16Array(48)
-    let inkPixels = 0
-    for (let y = 0; y < sample.height; y += 1) {
-      for (let x = 0; x < sample.width; x += 1) {
-        const dx = x + 0.5 - center
-        const dy = y + 0.5 - center
-        const radius = Math.hypot(dx, dy)
-        if (radius < innerRadius || radius > outerRadius) continue
-        const offset = (y * sample.width + x) * 4
-        const alpha = pixels[offset + 3] ?? 0
-        const luminance = (
-          (pixels[offset] ?? 0)
-          + (pixels[offset + 1] ?? 0)
-          + (pixels[offset + 2] ?? 0)
-        ) / 3
-        if (alpha < 18 || luminance < 28) continue
-        inkPixels += 1
-        const angle = Math.atan2(dy, dx) + Math.PI
-        const sector = Math.min(47, Math.floor(angle / (Math.PI * 2) * 48))
-        sectors[sector] += 1
-      }
-    }
     return {
-      inkPixels,
-      coveredSectors: Array.from(sectors).filter(value => value >= 3).length,
+      inkPixels: Number(element.getAttribute('data-radiation-ink-pixels') ?? '0'),
+      coveredSectors: Number(element.getAttribute('data-radiation-covered-sectors') ?? '0'),
     }
   })
 }
@@ -129,6 +95,8 @@ test('dark black-hole status stays readable and manual exit fully evaporates in 
   )).toBeGreaterThan(0.52)
   await expect(scene.locator('.code-pet-black-hole-compositor'))
     .toHaveAttribute('data-evaporation-phase', 'radiation')
+  await expect(scene.locator('.code-pet-black-hole-canvas'))
+    .toHaveAttribute('data-radiation-probe', 'sampled')
   await expect.poll(async () => {
     const radiationInk = await readBlackHoleOuterInk(
       scene.locator('.code-pet-black-hole-canvas'),

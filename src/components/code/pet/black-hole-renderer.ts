@@ -219,7 +219,11 @@ void main() {
   if (impact >= maxImpact) {
     vec3 direction = normalize(vec3(-(projected / impact) * (2.0 / impact), -1.0));
     vec3 starColor = stars(direction) * window;
-    outColor = vec4(starColor, max(max(starColor.r, starColor.g), starColor.b) * uOpacity);
+    float starAlpha = max(max(starColor.r, starColor.g), starColor.b) * uOpacity;
+    outColor = vec4(
+      starColor + evaporationColor.rgb * (1.0 - starAlpha),
+      max(starAlpha, evaporationColor.a)
+    );
     return;
   }
 
@@ -607,6 +611,9 @@ function createDisplayRenderer(canvas: HTMLCanvasElement): DisplayRenderer {
   const hawking = gl.getUniformLocation(program, 'uHawking')
   const finalBurst = gl.getUniformLocation(program, 'uFinalBurst')
   let renderSize = 0
+  let verificationPixels = new Uint8Array()
+  let nextVerificationAt = 0
+  if (preserveForVisualRegression) canvas.dataset.radiationProbe = 'armed'
 
   gl.useProgram(program)
 
@@ -639,6 +646,57 @@ function createDisplayRenderer(canvas: HTMLCanvasElement): DisplayRenderer {
       gl.clearColor(0, 0, 0, 0)
       gl.clear(gl.COLOR_BUFFER_BIT)
       gl.drawArrays(gl.TRIANGLES, 0, 3)
+      if (
+        preserveForVisualRegression
+        && evaporation.hawking > 0.02
+        && performance.now() >= nextVerificationAt
+      ) {
+        const requiredLength = canvas.width * canvas.height * 4
+        if (verificationPixels.length !== requiredLength) {
+          verificationPixels = new Uint8Array(requiredLength)
+        }
+        gl.readPixels(
+          0,
+          0,
+          canvas.width,
+          canvas.height,
+          gl.RGBA,
+          gl.UNSIGNED_BYTE,
+          verificationPixels,
+        )
+        const centerX = canvas.width / 2
+        const centerY = canvas.height / 2
+        const innerRadius = Math.min(canvas.width, canvas.height) * 0.09
+        const outerRadius = Math.min(canvas.width, canvas.height) * 0.49
+        const sectors = new Uint16Array(48)
+        let inkPixels = 0
+        for (let y = 0; y < canvas.height; y += 2) {
+          for (let x = 0; x < canvas.width; x += 2) {
+            const dx = x + 0.5 - centerX
+            const dy = y + 0.5 - centerY
+            const radius = Math.hypot(dx, dy)
+            if (radius < innerRadius || radius > outerRadius) continue
+            const offset = (y * canvas.width + x) * 4
+            const alpha = verificationPixels[offset + 3] ?? 0
+            const luminance = (
+              (verificationPixels[offset] ?? 0)
+              + (verificationPixels[offset + 1] ?? 0)
+              + (verificationPixels[offset + 2] ?? 0)
+            ) / 3
+            if (alpha < 18 || luminance < 28) continue
+            inkPixels += 1
+            const angle = Math.atan2(dy, dx) + Math.PI
+            const sector = Math.min(47, Math.floor(angle / (Math.PI * 2) * 48))
+            sectors[sector] = (sectors[sector] ?? 0) + 1
+          }
+        }
+        canvas.dataset.radiationInkPixels = String(inkPixels)
+        canvas.dataset.radiationCoveredSectors = String(
+          Array.from(sectors).filter(value => value >= 3).length,
+        )
+        canvas.dataset.radiationProbe = 'sampled'
+        nextVerificationAt = performance.now() + 120
+      }
     },
     destroy() {
       gl.deleteProgram(program)

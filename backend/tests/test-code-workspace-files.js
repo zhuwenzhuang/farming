@@ -259,9 +259,11 @@ function run() {
       workspaceSource.includes('message: copy.runtimeModeRestarting') &&
       workspaceSource.includes("runtimeModeRestarting: 'Restarting Agent…'") &&
       workspaceSource.includes('disabled={permissionModeDisabled}') &&
-      workspaceSource.includes('const sourceAgentId = permissionSwitchReplacement.transitionFromAgentId') &&
-      workspaceSource.includes('moveReplacementState(\n          sourceAgentId') &&
-      workspaceSource.includes('`acp:${sourceAgentId}`') &&
+      workspaceSource.includes('const sourceAgentIds = Array.from(new Set([') &&
+      workspaceSource.includes('...(replacementAgent?.restartedFromAgentIds ?? [])') &&
+      workspaceSource.includes('sourceAgentIds.forEach(sourceAgentId => {') &&
+      workspaceSource.includes('moveReplacementState(sourceAgentId, replacementTerminalKey)') &&
+      workspaceSource.includes('moveReplacementState(`acp:${sourceAgentId}`, replacementAcpKey)') &&
       !workspaceSource.includes('previousActiveTerminalIdRef') &&
       agentManagerSource.includes('agentLifecycleOperations') &&
       agentManagerSource.includes('restartedFromAgentId: agentId') &&

@@ -55,11 +55,18 @@ export function useAgentComposerState({
       }
 
       if (permissionSwitchReplacement) {
-        const sourceAgentId = permissionSwitchReplacement.transitionFromAgentId
-          || permissionSwitchReplacement.originalAgentId
         const replacementAgent = agents.find(agent => (
           agent.id === permissionSwitchReplacement.replacementAgentId
         ))
+        const sourceAgentIds = Array.from(new Set([
+          permissionSwitchReplacement.originalAgentId,
+          permissionSwitchReplacement.transitionFromAgentId,
+          ...(replacementAgent?.restartedFromAgentIds ?? []),
+          replacementAgent?.restartedFromAgentId,
+        ].filter((agentId): agentId is string => (
+          Boolean(agentId)
+          && agentId !== permissionSwitchReplacement.replacementAgentId
+        ))))
         const moveReplacementState = (sourceKey: string, replacementKey: string) => {
           if (sourceKey === replacementKey) return
           const sourceState = next[sourceKey]
@@ -71,18 +78,16 @@ export function useAgentComposerState({
             : sourceState
           delete nextStateByKey[sourceKey]
         }
-        moveReplacementState(
-          sourceAgentId,
-          replacementAgent
-            ? composerStateKeyForAgent(replacementAgent)
-            : permissionSwitchReplacement.replacementAgentId,
-        )
-        moveReplacementState(
-          `acp:${sourceAgentId}`,
-          replacementAgent
-            ? acpComposerStateKeyForAgent(replacementAgent)
-            : `acp:${permissionSwitchReplacement.replacementAgentId}`,
-        )
+        const replacementTerminalKey = replacementAgent
+          ? composerStateKeyForAgent(replacementAgent)
+          : permissionSwitchReplacement.replacementAgentId
+        const replacementAcpKey = replacementAgent
+          ? acpComposerStateKeyForAgent(replacementAgent)
+          : `acp:${permissionSwitchReplacement.replacementAgentId}`
+        sourceAgentIds.forEach(sourceAgentId => {
+          moveReplacementState(sourceAgentId, replacementTerminalKey)
+          moveReplacementState(`acp:${sourceAgentId}`, replacementAcpKey)
+        })
       }
 
       agents.forEach(agent => {

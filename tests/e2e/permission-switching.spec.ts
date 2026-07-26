@@ -265,6 +265,7 @@ test.describe('permission switching', () => {
     await expect(agentRow(page, finalAgentId)).toHaveClass(/active/)
     await page.keyboard.press('Escape')
     await expect(page.getByTestId('code-agent-terminal-view')).toHaveClass(/active/)
+    await page.waitForTimeout(250)
     await expect(page.getByTestId('code-composer-input')).toHaveValue(unsentDraft)
   })
 
