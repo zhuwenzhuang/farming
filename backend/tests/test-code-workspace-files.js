@@ -27,6 +27,7 @@ function run() {
     'src/components/code/composer-submit.ts',
     'src/components/code/composer-history.ts',
     'src/components/code/composer-keyboard.ts',
+    'src/components/code/composer-presentation.tsx',
     'src/components/code/composer-profile.ts',
     'src/components/code/composer-state.ts',
     'src/components/code/copy.ts',
@@ -937,6 +938,10 @@ function run() {
       workspaceSource.includes('transcript.trim()') &&
       workspaceSource.includes('function ComposerMicIcon') &&
       workspaceSource.includes('listening ? COMPOSER_MIC_FILLED_PATH : COMPOSER_MIC_REGULAR_PATH') &&
+      terminalComposerSource.includes("from './composer-presentation'") &&
+      acpComposerSource.includes("from '../composer-presentation'") &&
+      !terminalComposerSource.includes('function formatContextTokens') &&
+      !acpComposerSource.includes('function formatContextTokens') &&
       workspaceSource.includes('M8 10.9995C9.654 10.9995 11 9.65351 11 7.99951V3.99951') &&
       basicComposerCapabilities.includes('speechInput: true') &&
       workspaceSource.includes('focusComposerTextarea()\n    }') &&

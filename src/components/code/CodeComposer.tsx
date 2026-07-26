@@ -52,6 +52,7 @@ import type {
   ComposerHistoryDirection,
   ComposerHistoryNavigationInput,
 } from './composer-history'
+import { ComposerMicIcon, formatContextTokens } from './composer-presentation'
 
 interface PendingFollowUpMessage {
   id: string
@@ -86,13 +87,6 @@ function compactComposerReasoningLabel(effort: string, label: string) {
   return label
 }
 
-function formatContextTokens(value: number) {
-  if (!Number.isFinite(value) || value < 0) return '0'
-  if (value >= 1_000_000) return `${Math.round(value / 100_000) / 10}m`
-  if (value >= 1_000) return `${Math.round(value / 1_000)}k`
-  return String(Math.round(value))
-}
-
 function formatRecordingDuration(seconds: number) {
   const safeSeconds = Math.max(0, Math.floor(seconds))
   const minutes = Math.floor(safeSeconds / 60)
@@ -104,16 +98,6 @@ const COMPOSER_VOICE_WAVEFORM_BARS = [
   0.28, 0.5, 0.72, 0.46, 0.9, 0.36, 0.62, 0.82, 0.42, 0.68, 0.95, 0.52,
   0.33, 0.75, 0.57, 0.88, 0.4, 0.64, 0.93, 0.48, 0.7, 0.31, 0.58, 0.83,
 ]
-const COMPOSER_MIC_REGULAR_PATH = 'M8 10.9995C9.654 10.9995 11 9.65351 11 7.99951V3.99951C11 2.34551 9.654 0.999512 8 0.999512C6.346 0.999512 5 2.34551 5 3.99951V7.99951C5 9.65351 6.346 10.9995 8 10.9995ZM6 3.99951C6 2.89651 6.897 1.99951 8 1.99951C9.103 1.99951 10 2.89651 10 3.99951V7.99951C10 9.10251 9.103 9.99951 8 9.99951C6.897 9.99951 6 9.10251 6 7.99951V3.99951ZM13 7.49951V7.99951C13 10.5855 11.02 12.6935 8.5 12.9485V14.4995C8.5 14.7755 8.276 14.9995 8 14.9995C7.724 14.9995 7.5 14.7755 7.5 14.4995V12.9485C4.98 12.6935 3 10.5845 3 7.99951V7.49951C3 7.22351 3.224 6.99951 3.5 6.99951C3.776 6.99951 4 7.22351 4 7.49951V7.99951C4 10.2055 5.794 11.9995 8 11.9995C10.206 11.9995 12 10.2055 12 7.99951V7.49951C12 7.22351 12.224 6.99951 12.5 6.99951C12.776 6.99951 13 7.22351 13 7.49951Z'
-const COMPOSER_MIC_FILLED_PATH = 'M8 10.9995C9.654 10.9995 11 9.65351 11 7.99951V3.99951C11 2.34551 9.654 0.999512 8 0.999512C6.346 0.999512 5 2.34551 5 3.99951V7.99951C5 9.65351 6.346 10.9995 8 10.9995ZM13 7.49951V7.99951C13 10.5855 11.02 12.6935 8.5 12.9485V14.4995C8.5 14.7755 8.276 14.9995 8 14.9995C7.724 14.9995 7.5 14.7755 7.5 14.4995V12.9485C4.98 12.6935 3 10.5845 3 7.99951V7.49951C3 7.22351 3.224 6.99951 3.5 6.99951C3.776 6.99951 4 7.22351 4 7.49951V7.99951C4 10.2055 5.794 11.9995 8 11.9995C10.206 11.9995 12 10.2055 12 7.99951V7.49951C12 7.22351 12.224 6.99951 12.5 6.99951C12.776 6.99951 13 7.22351 13 7.49951Z'
-
-function ComposerMicIcon({ listening }: { listening: boolean }) {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
-      <path d={listening ? COMPOSER_MIC_FILLED_PATH : COMPOSER_MIC_REGULAR_PATH} />
-    </svg>
-  )
-}
 
 function ComposerSpeedIcon() {
   return (
