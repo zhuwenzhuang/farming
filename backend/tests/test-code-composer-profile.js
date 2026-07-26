@@ -50,7 +50,6 @@ function run() {
     codexModel: 'gpt-5.6-sol',
     codexReasoningEffort: 'ultra',
     codexServiceTier: 'priority',
-    codexModelPreset: 'gpt-5.6-sol:ultra',
     codexModelOptions: [],
     codexApprovalMode: 'approve',
     claudeModel: 'config',

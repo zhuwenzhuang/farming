@@ -34,7 +34,6 @@ export interface ComposerLaunchProfileState {
   codexModel: string
   codexReasoningEffort: string
   codexServiceTier: string
-  codexModelPreset: string
   claudePermissionMode: ClaudePermissionMode
   claudeModel: string
   claudeEffort: string
@@ -350,7 +349,6 @@ export function normalizeLaunchProfiles(settings: GlobalSettings): ComposerLaunc
     codexModel,
     codexReasoningEffort,
     codexServiceTier: codexProfile.serviceTier || settings.codexServiceTier || 'default',
-    codexModelPreset: `${codexModel}:${codexReasoningEffort}`,
     claudePermissionMode: isClaudePermissionMode(claudeProfile.permissionMode) ? claudeProfile.permissionMode : 'default',
     claudeModel: normalizeClaudeModel(claudeProfile.model),
     claudeEffort: normalizeClaudeEffort(claudeProfile.effort),
@@ -374,7 +372,6 @@ export function buildComposerControlState({
   codexModel,
   codexReasoningEffort,
   codexServiceTier,
-  codexModelPreset,
   codexModelOptions,
   codexApprovalMode,
   claudeModel,
@@ -386,7 +383,6 @@ export function buildComposerControlState({
   codexModel: string
   codexReasoningEffort: string
   codexServiceTier: string
-  codexModelPreset: string
   codexModelOptions: CodexModelOption[]
   codexApprovalMode: CodexApprovalMode
   claudeModel: string
@@ -404,9 +400,7 @@ export function buildComposerControlState({
   const agentModel = agentKind === 'claude' ? resolvedClaudeModel : codexModel
   const agentReasoningEffort = agentKind === 'claude' ? resolvedClaudeEffort : codexReasoningEffort
   const agentServiceTier = agentKind === 'claude' ? '' : codexServiceTier
-  const agentModelPreset = agentKind === 'claude'
-    ? `${agentModel}:${agentReasoningEffort}`
-    : codexModelPreset
+  const agentModelPreset = `${agentModel}:${agentReasoningEffort}`
   const currentModelOption = agentModelOptions.find(option => option.value === agentModel) ?? agentModelOptions[0]
   const currentReasoningOptions = agentKind === 'claude'
     ? claudeReasoningOptionsWithCurrent(agentReasoningEffort, claudeSettings)

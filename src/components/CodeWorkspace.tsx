@@ -159,7 +159,6 @@ import type {
   CodexApprovalMode,
   CodexModelOption,
   ComposerMode,
-  CodexModelPreset,
   GlobalSettings,
   LegacyCodexModelOption,
   MainPaneMode,
@@ -619,7 +618,6 @@ export function CodeWorkspace({
   const [agentLaunchOptions, setAgentLaunchOptions] = useState<AgentLaunchOption[]>([])
   const [mainPageSessionKeys, setMainPageSessionKeys] = useState<Set<string>>(() => new Set())
   const [codexApprovalMode, setCodexApprovalMode] = useState<CodexApprovalMode>('approve')
-  const [, setCodexModelPreset] = useState<CodexModelPreset>('gpt-5.5:xhigh')
   const [codexModel, setCodexModel] = useState('gpt-5.5')
   const [codexReasoningEffort, setCodexReasoningEffort] = useState('xhigh')
   const [codexServiceTier, setCodexServiceTier] = useState('default')
@@ -1048,7 +1046,6 @@ export function CodeWorkspace({
   const displayedCodexModel = displayedCodexProfile.model
   const displayedCodexReasoningEffort = displayedCodexProfile.reasoningEffort
   const displayedCodexServiceTier = displayedCodexProfile.serviceTier
-  const displayedCodexModelPreset = `${displayedCodexModel}:${displayedCodexReasoningEffort}`
   const activeAgentCanInterrupt = useMemo(
     () => activeAgentTurnActive || (
       Boolean(activeAgent)
@@ -1250,7 +1247,6 @@ export function CodeWorkspace({
     codexModel: displayedCodexModel,
     codexReasoningEffort: displayedCodexReasoningEffort,
     codexServiceTier: displayedCodexServiceTier,
-    codexModelPreset: displayedCodexModelPreset,
     codexModelOptions,
     codexApprovalMode: displayedCodexApprovalMode,
     claudeModel,
@@ -1265,7 +1261,6 @@ export function CodeWorkspace({
     displayedCodexApprovalMode,
     displayedCodexModel,
     codexModelOptions,
-    displayedCodexModelPreset,
     displayedCodexReasoningEffort,
     displayedCodexServiceTier,
     composerAgentKind,
@@ -1338,7 +1333,6 @@ export function CodeWorkspace({
     setCodexModel(profile.codexModel)
     setCodexReasoningEffort(profile.codexReasoningEffort)
     setCodexServiceTier(profile.codexServiceTier)
-    setCodexModelPreset(profile.codexModelPreset)
     setClaudePermissionMode(profile.claudePermissionMode)
     setClaudeModel(profile.claudeModel)
     setClaudeEffort(profile.claudeEffort)
@@ -3826,7 +3820,6 @@ export function CodeWorkspace({
     setCodexModel(model)
     setCodexReasoningEffort(effort)
     setCodexServiceTier(serviceTier)
-    setCodexModelPreset(`${model}:${effort}`)
     persistAgentLaunchProfile('codex', {
       model,
       reasoningEffort: effort,
