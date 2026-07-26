@@ -1,6 +1,6 @@
 import {
   createReviewState,
-  isReviewSpecialFilePath,
+  validReviewPath,
   type ReviewCatalog,
   type ReviewFile,
   type ReviewPatchRange,
@@ -106,17 +106,6 @@ export function reviewCatalogFromSnapshot(snapshot: ReviewDiffSnapshot): ReviewC
   return { [snapshot.patchset]: snapshot.files }
 }
 
-function validCatalogPath(path: unknown): path is string {
-  if (isReviewSpecialFilePath(path)) return true
-  return typeof path === 'string'
-    && path.length > 0
-    && path.length <= 4096
-    && !path.includes('\0')
-    && !path.startsWith('/')
-    && !path.startsWith('\\')
-    && path.split(/[\\/]/).every(segment => segment && segment !== '.' && segment !== '..')
-}
-
 function reviewUnmodifiedFile(path: string): ReviewFile {
   return {
     added: 0,
@@ -132,7 +121,7 @@ function reviewUnmodifiedFile(path: string): ReviewFile {
 export function reviewFilesWithUnmodifiedPaths(files: readonly ReviewFile[], paths: readonly string[]) {
   const next = [...files]
   for (const path of paths) {
-    if (!validCatalogPath(path)) continue
+    if (!validReviewPath(path)) continue
     if (next.some(file => file.path === path)) continue
     if (next.some(file => file.kind === 'renamed' && file.previousPath === path)) continue
     next.push(reviewUnmodifiedFile(path))
