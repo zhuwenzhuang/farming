@@ -6,6 +6,9 @@ const { CdpClient } = require('./cdp-client');
 
 const DEFAULT_VIEWPORT = Object.freeze({ width: 1280, height: 800 });
 const MAX_VIEWPORT = Object.freeze({ width: 4096, height: 4096 });
+// A Viewer may itself be captured by another Browser Resource, including the
+// Browser it displays. Bound that video-feedback loop while retaining its last frame.
+const VIEWER_FRAME_INTERVAL_MS = 1_000 / 15;
 const ACTIONABLE_ROLES = new Set([
   'button',
   'checkbox',
@@ -190,6 +193,13 @@ class CdpBrowserRuntime extends EventEmitter {
     this.closePromise = null;
     this.started = false;
     this.targetChange = Promise.resolve();
+    this.screencastFrameTimer = null;
+    this.screencastFrameEpoch = 0;
+    this.pendingScreencastFrame = null;
+    this.lastScreencastFrameAt = null;
+    this.now = options.now || Date.now;
+    this.scheduleTimeout = options.scheduleTimeout || setTimeout;
+    this.cancelTimeout = options.cancelTimeout || clearTimeout;
   }
 
   async start(initialUrl) {
@@ -261,7 +271,7 @@ class CdpBrowserRuntime extends EventEmitter {
           metadata: event.metadata,
         };
         this.latestFrame = frame;
-        this.emit('frame', frame);
+        this.publishScreencastFrame(frame, session);
       }, session),
       this.client.on('Page.frameNavigated', event => {
         if (event.frame?.parentId) return;
@@ -288,10 +298,38 @@ class CdpBrowserRuntime extends EventEmitter {
     await this.publishMetadata();
   }
 
+  publishScreencastFrame(frame, targetSession) {
+    const waitMs = this.lastScreencastFrameAt === null
+      ? 0
+      : Math.ceil(Math.max(0, VIEWER_FRAME_INTERVAL_MS - (this.now() - this.lastScreencastFrameAt)));
+    if (waitMs > 0) {
+      this.pendingScreencastFrame = frame;
+      if (this.screencastFrameTimer) return;
+      const epoch = this.screencastFrameEpoch;
+      this.screencastFrameTimer = this.scheduleTimeout(() => {
+        this.screencastFrameTimer = null;
+        if (epoch !== this.screencastFrameEpoch || targetSession !== this.sessionId) return;
+        const pending = this.pendingScreencastFrame;
+        this.pendingScreencastFrame = null;
+        if (!pending) return;
+        this.lastScreencastFrameAt = this.now();
+        this.emit('frame', pending);
+      }, waitMs);
+      return;
+    }
+    this.lastScreencastFrameAt = this.now();
+    this.emit('frame', frame);
+  }
+
   async detachActiveTarget() {
     const session = this.sessionId;
     this.sessionId = null;
     this.targetId = null;
+    if (this.screencastFrameTimer) this.cancelTimeout(this.screencastFrameTimer);
+    this.screencastFrameTimer = null;
+    this.screencastFrameEpoch += 1;
+    this.pendingScreencastFrame = null;
+    this.lastScreencastFrameAt = null;
     for (const off of this.sessionListeners.splice(0)) off();
     if (!this.client || !session) return;
     await this.client.send('Page.stopScreencast', {}, session).catch(() => {});

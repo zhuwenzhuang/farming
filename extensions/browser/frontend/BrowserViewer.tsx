@@ -23,6 +23,7 @@ export function BrowserViewer({
   const composingTextRef = useRef(false)
   const socketRef = useRef<WebSocket | null>(null)
   const imageSequenceRef = useRef(0)
+  const paintFrameRef = useRef<number | null>(null)
   const [address, setAddress] = useState(resource.url)
   const [connected, setConnected] = useState(false)
   const [viewerError, setViewerError] = useState('')
@@ -66,12 +67,17 @@ export function BrowserViewer({
         const image = new Image()
         image.onload = () => {
           if (sequence !== imageSequenceRef.current) return
-          const canvas = canvasRef.current
-          const context = canvas?.getContext('2d')
-          if (!canvas || !context) return
-          canvas.width = image.naturalWidth
-          canvas.height = image.naturalHeight
-          context.drawImage(image, 0, 0)
+          if (paintFrameRef.current !== null) window.cancelAnimationFrame(paintFrameRef.current)
+          paintFrameRef.current = window.requestAnimationFrame(() => {
+            paintFrameRef.current = null
+            if (sequence !== imageSequenceRef.current) return
+            const canvas = canvasRef.current
+            const context = canvas?.getContext('2d')
+            if (!canvas || !context) return
+            canvas.width = image.naturalWidth
+            canvas.height = image.naturalHeight
+            context.drawImage(image, 0, 0)
+          })
         }
         image.src = `data:image/jpeg;base64,${message.data}`
       }
@@ -86,6 +92,8 @@ export function BrowserViewer({
     return () => {
       cancelled = true
       window.clearTimeout(reconnectTimer)
+      if (paintFrameRef.current !== null) window.cancelAnimationFrame(paintFrameRef.current)
+      paintFrameRef.current = null
       socketRef.current?.close()
       socketRef.current = null
     }

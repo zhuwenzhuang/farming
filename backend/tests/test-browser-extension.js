@@ -6,6 +6,7 @@ const { EventEmitter } = require('events');
 const WebSocket = require('ws');
 const { WebSocketServer } = WebSocket;
 const { CdpClient } = require('../../extensions/browser/backend/cdp-client');
+const { CdpBrowserRuntime } = require('../../extensions/browser/backend/cdp-browser-runtime');
 const {
   BrowserResourceManager,
   normalizeUrl,
@@ -123,6 +124,55 @@ async function testCdpClient() {
     client.close();
     await new Promise(resolve => server.close(resolve));
   }
+}
+
+async function testScreencastFrameRateBound() {
+  let now = 1_000;
+  const scheduled = [];
+  const cancelled = [];
+  const runtime = new CdpBrowserRuntime({
+    id: 'browser_test',
+    generation: 1,
+    executablePath: '/fake/chrome',
+    profileDir: '/tmp/fake-browser-profile',
+    now: () => now,
+    scheduleTimeout: (callback, waitMs) => {
+      const timer = { callback, waitMs };
+      scheduled.push(timer);
+      return timer;
+    },
+    cancelTimeout: timer => cancelled.push(timer),
+  });
+  runtime.sessionId = 'target-session';
+  runtime.client = {
+    send: async () => ({}),
+  };
+  const frames = [];
+  runtime.on('frame', frame => frames.push(frame));
+
+  runtime.publishScreencastFrame({ data: 'frame-1' }, 'target-session');
+  assert.deepStrictEqual(frames, [{ data: 'frame-1' }], 'The first Browser frame should be visible immediately');
+
+  now += 1;
+  runtime.publishScreencastFrame({ data: 'frame-2' }, 'target-session');
+  runtime.publishScreencastFrame({ data: 'frame-3' }, 'target-session');
+  assert.strictEqual(frames.length, 1, 'Following Browser frames must wait for the frame-rate boundary');
+  assert.strictEqual(scheduled.length, 1, 'A burst should own only one trailing frame timer');
+  assert(scheduled[0].waitMs >= 65 && scheduled[0].waitMs <= 67);
+  now += scheduled[0].waitMs;
+  scheduled[0].callback();
+  assert.deepStrictEqual(
+    frames,
+    [{ data: 'frame-1' }, { data: 'frame-3' }],
+    'The trailing frame must be the newest frame from the burst',
+  );
+
+  now += 1;
+  runtime.publishScreencastFrame({ data: 'stale-frame' }, 'target-session');
+  await runtime.detachActiveTarget();
+  assert.strictEqual(cancelled.length, 1, 'Detaching a page must cancel its delayed Viewer frame');
+  scheduled[1].callback();
+  assert.strictEqual(frames.length, 2, 'A detached page must not publish a stale trailing frame');
 }
 
 async function testBrowserResourceManager() {
@@ -253,6 +303,7 @@ function testBrowserUiAndPackagingWiring() {
 
 Promise.resolve()
   .then(testCdpClient)
+  .then(testScreencastFrameRateBound)
   .then(testBrowserResourceManager)
   .then(testBrowserUiAndPackagingWiring)
   .then(() => console.log('browser extension tests passed'))
