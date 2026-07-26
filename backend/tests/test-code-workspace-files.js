@@ -39,6 +39,7 @@ function run() {
     'src/components/code/session-display.ts',
     'src/components/code/types.ts',
     'src/components/code/useAgentComposerState.ts',
+    'src/components/code/useWorkspaceContextMenu.ts',
     'src/components/code/useWorkspaceNavigationHistory.ts',
     'src/components/code/workspace-derived.ts',
     'src/components/code/workspace-file-view.ts',
@@ -393,8 +394,8 @@ function run() {
       workspaceSource.includes('type WorkspaceContextMenu =') &&
       workspaceSource.includes("| { kind: 'agent-session'; provider: string; sessionId: string; x: number; y: number }") &&
       workspaceSource.includes('const [contextMenu, setContextMenu] = useState<WorkspaceContextMenu | null>(null)') &&
-      workspaceSource.includes("const agentMenu = contextMenu?.kind === 'agent' ? contextMenu : null") &&
-      workspaceSource.includes('setContextMenu(null)\n    closeActiveComposerMenus()') &&
+      workspaceSource.includes("agentMenu: contextMenu?.kind === 'agent' ? contextMenu : null") &&
+      workspaceSource.includes('closeContextMenu()\n    closeActiveComposerMenus()') &&
       workspaceSource.includes('if (!dialogOpen) return') &&
       workspaceSource.includes('if (dialogOpen) return') &&
       workspaceSource.includes('onClick={onClearSearch} aria-label={copy.clearSearch}') &&
@@ -888,7 +889,7 @@ function run() {
       workspaceSource.includes('scheduleFocusRetries(focus, { delays: [60] })') &&
       workspaceSource.includes('scheduleFocusRetries(() => {\n      focusAgentRowNow(agentId)\n    }, { delays: [80, 180] })') &&
       workspaceSource.includes('scheduleFocusRetries(focusCancelButton, { runNow: false, delays: [180] })') &&
-      workspaceSource.includes('scheduleFocusRetries(focusFirstMenuButton, { delays: [0, 80, 180, 360] })') &&
+      workspaceSource.includes('}, { delays: [0, 80, 180, 360] })') &&
       workspaceSource.includes('const composerHasAttachmentMessage = composerAttachmentMessageBlocks(composerAttachments).length > 0') &&
       workspaceSource.includes('const composerSubmitAction = activeCodexTerminalProfileApplying') &&
       workspaceSource.includes("activeAgent && !composerAttachmentsUploading && (draft.trim() || composerHasAttachmentMessage)") &&

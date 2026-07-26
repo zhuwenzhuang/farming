@@ -1,0 +1,205 @@
+import { useCallback, useLayoutEffect, useRef, useState } from 'react'
+import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from 'react'
+import type { Agent } from '@/types/agent'
+import { isCompactViewport } from '@/lib/responsive-mode'
+import { projectCanDeleteWorktree } from './capabilities'
+import { scheduleFocusRetries } from './focus-retry'
+import {
+  clampContextMenuPoint,
+  estimateAgentContextMenuHeight,
+  estimateContextMenuHeight,
+  mobileActionMenuPoint,
+  outwardContextMenuPoint,
+} from './menu-position'
+import type { ProjectGroup } from './types'
+
+const MOBILE_PROJECT_CONTEXT_MENU_WIDTH = 286
+
+export type WorkspaceContextMenu =
+  | { kind: 'agent'; agentId: string; x: number; y: number }
+  | { kind: 'project'; projectId: string; x: number; y: number }
+  | { kind: 'agent-session'; provider: string; sessionId: string; x: number; y: number }
+  | { kind: 'options'; x: number; y: number; returnFocusTarget: HTMLElement | null }
+
+type WorkspaceContextMenuTriggerEvent = ReactMouseEvent<HTMLElement> | ReactKeyboardEvent<HTMLElement>
+
+interface UseWorkspaceContextMenuOptions {
+  agents: Agent[]
+  projects: ProjectGroup[]
+  focusAgent: (agentId: string) => void
+  focusAgentSession: (provider: string, sessionId: string) => void
+  focusProject: (projectId: string) => void
+}
+
+function isKeyboardMenuTrigger(event: WorkspaceContextMenuTriggerEvent) {
+  return 'key' in event
+}
+
+function acceptsKeyboardMenuTrigger(event: WorkspaceContextMenuTriggerEvent) {
+  return !isKeyboardMenuTrigger(event) || event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')
+}
+
+function prepareMenuTrigger(event: WorkspaceContextMenuTriggerEvent) {
+  if (!acceptsKeyboardMenuTrigger(event)) return false
+  event.preventDefault()
+  event.stopPropagation()
+  return true
+}
+
+function anchoredMenuPoint(event: WorkspaceContextMenuTriggerEvent, estimatedHeight: number) {
+  if (isKeyboardMenuTrigger(event)) {
+    const rect = event.currentTarget.getBoundingClientRect()
+    return clampContextMenuPoint(rect.left + 24, rect.top + rect.height, estimatedHeight)
+  }
+  return clampContextMenuPoint(event.clientX, event.clientY, estimatedHeight)
+}
+
+export function useWorkspaceContextMenu({
+  agents, projects, focusAgent, focusAgentSession, focusProject,
+}: UseWorkspaceContextMenuOptions) {
+  const [contextMenu, setContextMenu] = useState<WorkspaceContextMenu | null>(null)
+  const contextMenuRef = useRef<HTMLDivElement>(null)
+  const userNavigatedRef = useRef(false)
+  const focusIndexRef = useRef(0)
+  const closeContextMenu = useCallback(() => setContextMenu(null), [])
+  const closeContextMenuAndRestoreFocus = useCallback(() => {
+    const closingMenu = contextMenu
+    setContextMenu(null)
+    if (closingMenu?.kind === 'agent') focusAgent(closingMenu.agentId)
+    else if (closingMenu?.kind === 'project') focusProject(closingMenu.projectId)
+    else if (closingMenu?.kind === 'agent-session') focusAgentSession(closingMenu.provider, closingMenu.sessionId)
+    else if (closingMenu?.kind === 'options' && closingMenu.returnFocusTarget) {
+      window.requestAnimationFrame(() => closingMenu.returnFocusTarget?.focus({ preventScroll: true }))
+    }
+  }, [contextMenu, focusAgent, focusAgentSession, focusProject])
+  const openAgentMenu = useCallback((event: WorkspaceContextMenuTriggerEvent, agentId: string) => {
+    if (!prepareMenuTrigger(event)) return
+    const height = estimateAgentContextMenuHeight(agents.find(agent => agent.id === agentId))
+    const point = anchoredMenuPoint(event, height)
+    setContextMenu({ kind: 'agent', agentId, ...point })
+  }, [agents])
+  const openProjectMenu = useCallback((event: WorkspaceContextMenuTriggerEvent, projectId: string) => {
+    if (!prepareMenuTrigger(event)) return
+    const rect = event.currentTarget.getBoundingClientRect()
+    const project = projects.find(item => item.id === projectId)
+    const itemCount = project?.hasMain ? 4 : projectCanDeleteWorktree(project) ? 8 : 7
+    const separatorCount = project?.hasMain ? 1 : 2
+    const estimatedHeight = estimateContextMenuHeight(itemCount, separatorCount) + itemCount * 8
+    const point = isCompactViewport()
+      ? mobileActionMenuPoint(rect, estimatedHeight, undefined, MOBILE_PROJECT_CONTEXT_MENU_WIDTH)
+      : outwardContextMenuPoint(rect, estimatedHeight)
+    setContextMenu({ kind: 'project', projectId, ...point })
+  }, [projects])
+
+  const openAgentSessionMenu = useCallback((event: WorkspaceContextMenuTriggerEvent, provider: string, sessionId: string) => {
+    if (!prepareMenuTrigger(event)) return
+    const point = anchoredMenuPoint(event, estimateContextMenuHeight(3))
+    setContextMenu({ kind: 'agent-session', provider, sessionId, ...point })
+  }, [])
+  const openOptionsContextMenu = useCallback((event: ReactMouseEvent<HTMLElement>) => {
+    prepareMenuTrigger(event)
+    const rect = event.currentTarget.getBoundingClientRect()
+    setContextMenu({
+      kind: 'options',
+      x: Math.max(8, rect.right - 164),
+      y: Math.min(window.innerHeight - 12, rect.bottom + 6),
+      returnFocusTarget: event.currentTarget,
+    })
+  }, [])
+
+  const handleContextMenuNavigation = useCallback((
+    event: Pick<KeyboardEvent, 'key' | 'shiftKey' | 'preventDefault' | 'stopPropagation'>,
+    menu: HTMLElement | null,
+  ) => {
+    if (!menu) return false
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      event.stopPropagation()
+      closeContextMenuAndRestoreFocus()
+      return true
+    }
+    const buttons = Array.from(menu.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'))
+    if (buttons.length === 0) return false
+    const activeIndex = buttons.findIndex(button => button === document.activeElement)
+    const currentIndex = activeIndex !== -1
+      ? activeIndex
+      : Math.min(focusIndexRef.current, buttons.length - 1)
+    const focusMenuButton = (index: number) => {
+      userNavigatedRef.current = true
+      event.preventDefault()
+      event.stopPropagation()
+      focusIndexRef.current = index
+      buttons[index]?.focus()
+      return true
+    }
+
+    if (event.key === 'Tab') {
+      event.preventDefault()
+      event.stopPropagation()
+      const nextIndex = currentIndex + (event.shiftKey ? -1 : 1)
+      if (nextIndex < 0 || nextIndex >= buttons.length) {
+        closeContextMenuAndRestoreFocus()
+        return true
+      }
+      return focusMenuButton(nextIndex)
+    }
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      const direction = event.key === 'ArrowDown' ? 1 : -1
+      return focusMenuButton((currentIndex + direction + buttons.length) % buttons.length)
+    }
+    if (event.key === 'Home' || event.key === 'End') {
+      return focusMenuButton(event.key === 'Home' ? 0 : buttons.length - 1)
+    }
+    return false
+  }, [closeContextMenuAndRestoreFocus])
+
+  const handleContextMenuKeyDown = useCallback((event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.defaultPrevented) return
+    handleContextMenuNavigation(event.nativeEvent, event.currentTarget)
+  }, [handleContextMenuNavigation])
+
+  useLayoutEffect(() => {
+    if (!contextMenu) return
+    const handleNativeKeyDown = (event: KeyboardEvent) => {
+      if (handleContextMenuNavigation(event, contextMenuRef.current)) event.stopImmediatePropagation()
+    }
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      const target = event.target
+      if (target instanceof Element && target.closest('.code-context-menu')) return
+      closeContextMenu()
+    }
+    document.addEventListener('keydown', handleNativeKeyDown, true)
+    window.addEventListener('pointerdown', closeOnOutsidePointer)
+    return () => {
+      document.removeEventListener('keydown', handleNativeKeyDown, true)
+      window.removeEventListener('pointerdown', closeOnOutsidePointer)
+    }
+  }, [closeContextMenu, contextMenu, handleContextMenuNavigation])
+
+  useLayoutEffect(() => {
+    if (!contextMenu) return
+    userNavigatedRef.current = false
+    focusIndexRef.current = 0
+    return scheduleFocusRetries(() => {
+      if (userNavigatedRef.current) return
+      const menu = contextMenuRef.current
+      const activeElement = document.activeElement
+      if (!menu || (activeElement instanceof HTMLButtonElement && menu.contains(activeElement))) return
+      const firstButton = menu.querySelector<HTMLButtonElement>('button:not(:disabled)')
+      if (!firstButton) return
+      focusIndexRef.current = 0
+      firstButton.focus()
+    }, { delays: [0, 80, 180, 360] })
+  }, [contextMenu])
+
+  return {
+    contextMenu, contextMenuRef,
+    agentMenu: contextMenu?.kind === 'agent' ? contextMenu : null,
+    projectMenu: contextMenu?.kind === 'project' ? contextMenu : null,
+    agentSessionMenu: contextMenu?.kind === 'agent-session' ? contextMenu : null,
+    optionsMenu: contextMenu?.kind === 'options' ? contextMenu : null,
+    closeContextMenu, closeContextMenuAndRestoreFocus,
+    handleContextMenuKeyDown, handleContextMenuNavigation,
+    openAgentMenu, openAgentSessionMenu, openOptionsContextMenu, openProjectMenu,
+  }
+}

@@ -7325,6 +7325,7 @@ button.code-agent-transcript-result-summary:focus-visible {
   max-width: min(360px, 60vw);
   flex: 0 0 auto;
   min-height: 32px;
+  position: relative;
   display: grid;
   grid-template-columns: 16px minmax(0, 1fr) 22px;
   align-items: center;
