@@ -7,7 +7,6 @@ import {
   restoredTerminalViewportY,
   setFollowOutputState,
 } from '@/lib/terminal-viewport'
-import type { TerminalCursorPosition } from '@/lib/terminal-bootstrap'
 
 const QUIET_TERMINAL_WRITE_THRESHOLD = 512
 
@@ -179,19 +178,6 @@ function completeTerminalWrite(done: () => boolean, callback?: () => void) {
   }
 }
 
-function moveTerminalCursor(record: TerminalOutputRecord, cursor: TerminalCursorPosition | null, callback: () => void) {
-  if (!cursor || record.disposed || !isXtermTerminal(record.terminal)) {
-    callback()
-    return
-  }
-  if (Math.abs((record.terminal.cols || 0) - cursor.cols) > 1 || cursor.y >= (record.terminal.rows || 0)) {
-    callback()
-    return
-  }
-
-  record.terminal.write(`\x1b[${cursor.y + 1};${cursor.x + 1}H`, callback)
-}
-
 export function writeTerminalOutput(
   record: TerminalOutputRecord,
   data: string,
@@ -261,7 +247,6 @@ export function replaceTerminalOutput(
   record: TerminalOutputRecord,
   data: string,
   callback?: () => void,
-  options: { cursor?: TerminalCursorPosition | null } = {},
 ) {
   void enqueueTerminalWrite(record, done => {
     if (record.disposed) {
@@ -298,14 +283,8 @@ export function replaceTerminalOutput(
       if (!shouldFollowOutput && previousScrollbackLength === getTerminalScrollbackLength(record.terminal)) {
         forceTerminalRender(record)
       }
-      moveTerminalCursor(record, options.cursor ?? null, () => {
-        if (record.disposed) {
-          completeTerminalWrite(done, callback)
-          return
-        }
-        forceTerminalRender(record)
-        completeTerminalWrite(done, callback)
-      })
+      forceTerminalRender(record)
+      completeTerminalWrite(done, callback)
     })
   }, callback)
 }

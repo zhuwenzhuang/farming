@@ -272,11 +272,13 @@ function run() {
   assert(
     terminalBootstrapSource.includes('A checkpoint is opaque serialized xterm state') &&
       terminalBootstrapSource.includes('output: rawOutput') &&
-      terminalBootstrapSource.includes('textOutput: rawTextOutput') &&
-      terminalBootstrapSource.includes('cursor: null') &&
+      !terminalBootstrapSource.includes('textOutput') &&
+      !terminalBootstrapSource.includes('previewSnapshot') &&
+      !terminalBootstrapSource.includes('cursor:') &&
       terminalBootstrapSource.includes('stateRevision: parseSessionStateRevision(data)') &&
       terminalPoolSource.includes('return sessionBootstrapStateFromPayload(data)') &&
-      !terminalPoolSource.includes('output: state.textOutput'),
+      !terminalPoolSource.includes('output: state.textOutput') &&
+      !terminalOutputSource.includes('moveTerminalCursor'),
     'terminal bootstrap helper should install opaque serialized checkpoint bytes without text reconstruction'
   );
   const repaintBody = terminalOutputSource.slice(

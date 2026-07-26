@@ -865,8 +865,6 @@ function replayPendingSnapshot(record: SessionRecord, generation = record.attach
   installTerminalCheckpoint(record, {
     runtimeEpoch: record.snapshotRuntimeEpoch,
     output: record.snapshotOutput,
-    textOutput: '',
-    cursor: null,
     outputSeq: record.snapshotOutputSeq,
     stateRevision: record.snapshotStateRevision,
     cols: record.snapshotCols,
@@ -1205,8 +1203,6 @@ function applyTerminalOutputEvent(
     installTerminalCheckpoint(record, {
       runtimeEpoch,
       output: data,
-      textOutput: '',
-      cursor: null,
       outputSeq: Number.isFinite(outputSeq) ? outputSeq! : null,
       stateRevision: Number.isFinite(stateRevision) ? stateRevision! : null,
       cols: Number.isFinite(cols) ? cols! : null,

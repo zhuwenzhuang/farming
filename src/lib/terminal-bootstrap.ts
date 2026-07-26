@@ -1,5 +1,3 @@
-import type { TerminalPreviewSnapshot } from '@/types/agent'
-
 export interface SessionDataPayload {
   session?: {
     runtimeEpoch?: string
@@ -7,7 +5,6 @@ export interface SessionDataPayload {
     outputSeq?: number | null
     stateRevision?: number | null
     renderOutput?: string
-    previewSnapshot?: TerminalPreviewSnapshot | null
     previewCols?: number | null
     previewRows?: number | null
     cols?: number | null
@@ -18,32 +15,22 @@ export interface SessionDataPayload {
   outputSeq?: number | null
   stateRevision?: number | null
   renderOutput?: string
-  previewSnapshot?: TerminalPreviewSnapshot | null
   previewCols?: number | null
   previewRows?: number | null
   cols?: number | null
   rows?: number | null
 }
 
-export interface TerminalCursorPosition {
-  x: number
-  y: number
-  cols: number
-  rows: number
-}
-
 export interface SessionBootstrapState {
   runtimeEpoch: string
   output: string
-  textOutput: string
-  cursor: TerminalCursorPosition | null
   outputSeq: number | null
   stateRevision: number | null
   cols: number | null
   rows: number | null
 }
 
-export function parseSessionOutput(data: SessionDataPayload) {
+function parseSessionOutput(data: SessionDataPayload) {
   if (data.session && typeof data.session === 'object') {
     return data.session.renderOutput ?? data.session.output ?? ''
   }
@@ -56,7 +43,7 @@ export function parseSessionOutput(data: SessionDataPayload) {
   return data.output ?? ''
 }
 
-export function parseSessionOutputSeq(data: SessionDataPayload) {
+function parseSessionOutputSeq(data: SessionDataPayload) {
   const raw = data.session && typeof data.session === 'object'
     ? data.session.outputSeq
     : data.outputSeq
@@ -64,14 +51,14 @@ export function parseSessionOutputSeq(data: SessionDataPayload) {
   return Number.isFinite(seq) && seq >= 0 ? seq : null
 }
 
-export function parseSessionRuntimeEpoch(data: SessionDataPayload) {
+function parseSessionRuntimeEpoch(data: SessionDataPayload) {
   const raw = data.session && typeof data.session === 'object'
     ? data.session.runtimeEpoch
     : data.runtimeEpoch
   return typeof raw === 'string' ? raw : ''
 }
 
-export function parseSessionStateRevision(data: SessionDataPayload) {
+function parseSessionStateRevision(data: SessionDataPayload) {
   const raw = data.session && typeof data.session === 'object'
     ? data.session.stateRevision
     : data.stateRevision
@@ -79,34 +66,12 @@ export function parseSessionStateRevision(data: SessionDataPayload) {
   return Number.isFinite(revision) && revision >= 0 ? revision : null
 }
 
-export function trimLeadingBlankBootstrapRows(output: string) {
-  return output.replace(/^(?:[ \t]*\r?\n)+/, '')
-}
-
-export function countLeadingBlankBootstrapRows(output: string) {
-  const lines = output.split(/\r?\n/)
-  let count = 0
-  for (let index = 0; index < lines.length - 1; index += 1) {
-    if ((lines[index] ?? '').trim() !== '') break
-    count += 1
-  }
-  return count
-}
-
-export function parseSessionSnapshot(data: SessionDataPayload): TerminalPreviewSnapshot | null {
-  const snapshot = data.session && typeof data.session === 'object'
-    ? data.session.previewSnapshot
-    : data.previewSnapshot
-  if (!snapshot || !Array.isArray(snapshot.cells)) return null
-  return snapshot
-}
-
 function positiveInteger(value: unknown) {
   const n = Math.floor(Number(value))
   return Number.isFinite(n) && n > 0 ? n : null
 }
 
-export function parseSessionDimensions(data: SessionDataPayload) {
+function parseSessionDimensions(data: SessionDataPayload) {
   const session = data.session && typeof data.session === 'object' ? data.session : null
   return {
     cols: positiveInteger(session?.previewCols ?? session?.cols ?? data.previewCols ?? data.cols),
@@ -114,101 +79,17 @@ export function parseSessionDimensions(data: SessionDataPayload) {
   }
 }
 
-export function snapshotRowToText(row: TerminalPreviewSnapshot['cells'][number]) {
-  return row.map(cell => cell.char || ' ').join('').replace(/[ \t]+$/g, '')
-}
-
-export function countLeadingBlankSnapshotRows(snapshot: TerminalPreviewSnapshot | null) {
-  if (!snapshot) return 0
-  let count = 0
-  for (const row of snapshot.cells) {
-    if (snapshotRowToText(row).trim() !== '') break
-    count += 1
-  }
-  return count
-}
-
-export function sessionSnapshotToBootstrapText(snapshot: TerminalPreviewSnapshot | null) {
-  if (!snapshot) return ''
-
-  const rows = snapshot.cells.map(snapshotRowToText)
-  while (rows.length > 0 && (rows[0] ?? '').trim() === '') {
-    rows.shift()
-  }
-  while (rows.length > 0 && (rows[rows.length - 1] ?? '').trim() === '') {
-    rows.pop()
-  }
-
-  return rows.join('\r\n')
-}
-
-export function normalizedBootstrapRows(output: string) {
-  const rows = output.split(/\r?\n/).map(row => row.replace(/[ \t]+$/g, ''))
-  while (rows.length > 0 && (rows[0] ?? '').trim() === '') {
-    rows.shift()
-  }
-  while (rows.length > 0 && (rows[rows.length - 1] ?? '').trim() === '') {
-    rows.pop()
-  }
-  return rows
-}
-
-export function bootstrapCursorMatchesOutput(output: string, snapshotOutput: string) {
-  if (!output || !snapshotOutput) return false
-  const outputRows = normalizedBootstrapRows(output)
-  const snapshotRows = normalizedBootstrapRows(snapshotOutput)
-  if (outputRows.length !== snapshotRows.length) return false
-  return outputRows.every((row, index) => row === snapshotRows[index])
-}
-
-export function snapshotCursorPosition(snapshot: TerminalPreviewSnapshot | null): TerminalCursorPosition | null {
-  if (!snapshot) return null
-  const cursorX = Math.floor(Number(snapshot.cursorX))
-  const cursorY = Math.floor(Number(snapshot.cursorY))
-  const cols = Math.floor(Number(snapshot.cols))
-  const rows = Math.floor(Number(snapshot.rows))
-  if (!Number.isFinite(cursorX) || !Number.isFinite(cursorY)) return null
-  if (!Number.isFinite(cols) || !Number.isFinite(rows) || cols <= 0 || rows <= 0) return null
-
-  return {
-    x: Math.max(0, Math.min(cols - 1, cursorX)),
-    y: Math.max(0, Math.min(rows - 1, cursorY)),
-    cols,
-    rows,
-  }
-}
-
-export function shiftSnapshotCursor(cursor: TerminalCursorPosition | null, removedLeadingRows: number) {
-  if (!cursor || removedLeadingRows <= 0) return cursor
-  return {
-    ...cursor,
-    y: Math.max(0, cursor.y - removedLeadingRows),
-  }
-}
-
 export function sessionBootstrapStateFromPayload(data: SessionDataPayload): SessionBootstrapState {
   const rawOutput = parseSessionOutput(data)
-  const rawTextOutput = data.session && typeof data.session === 'object'
-    ? data.session.output ?? ''
-    : data.output ?? ''
   const dimensions = parseSessionDimensions(data)
   return {
     runtimeEpoch: parseSessionRuntimeEpoch(data),
     // A checkpoint is opaque serialized xterm state. Trimming rows, rebuilding
     // it from text, or moving the cursor would invalidate its revision proof.
     output: rawOutput,
-    textOutput: rawTextOutput,
-    cursor: null,
     outputSeq: parseSessionOutputSeq(data),
     stateRevision: parseSessionStateRevision(data),
     cols: dimensions.cols,
     rows: dimensions.rows,
   }
-}
-
-export function isSequencedOutputCovered(outputSeq: number | null | undefined, checkpointSeq: number | null) {
-  return typeof outputSeq === 'number'
-    && Number.isFinite(outputSeq)
-    && checkpointSeq !== null
-    && outputSeq <= checkpointSeq
 }
