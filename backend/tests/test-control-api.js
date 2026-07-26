@@ -329,6 +329,7 @@ async function run() {
     });
     assert.strictEqual(rejectedKill.response.status, 409);
     assert.match(rejectedKill.body.error, /could not be verified/);
+    assert.strictEqual(calls.at(-1).options.recordHistory, true);
     assert.strictEqual(agents.has(chatCreated.body.agentId), true);
 
     recoveryFailure = 'simulated recovery failure';

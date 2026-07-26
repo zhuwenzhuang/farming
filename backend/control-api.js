@@ -419,7 +419,7 @@ function createControlRouter(agentManager, options = {}) {
 
   router.delete('/agents/:agentId', async (req, res) => {
     const agentId = req.params.agentId;
-    const recordHistory = req.query.recordHistory !== '0';
+    const recordHistory = req.query?.recordHistory !== '0';
     let requested;
     try {
       requested = await agentManager.requestKillAgent(agentId, { recordHistory });
