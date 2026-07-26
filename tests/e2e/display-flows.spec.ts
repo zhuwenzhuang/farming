@@ -688,6 +688,29 @@ test.describe('display-backed agent flows', () => {
     await expect(activeFileTabName(page)).toHaveText('one.txt')
   })
 
+  test('shows the global root as a collapsible read-only Project', async ({ page }) => {
+    await openFarming(page)
+    const mount = await page.request.post('/farming/api/projects/mount', {
+      data: { workspace: '/' },
+    })
+    expect(mount.ok()).toBeTruthy()
+
+    const rootProjectTitle = page.locator('[data-testid="code-project-title"][data-project-id="/"]')
+    const rootProjectFiles = page.locator('[data-testid="code-files-section"][data-project-id="/"]')
+    const rootProjectGroup = rootProjectTitle.locator('xpath=ancestor::section[@data-testid="code-project-group"]')
+    await expect(rootProjectTitle).toHaveText('/')
+    await expect(rootProjectFiles).toBeVisible()
+    await expect(rootProjectGroup.getByTestId('code-project-new-agent')).toHaveCount(0)
+
+    await rootProjectTitle.click()
+    await expect(rootProjectFiles).toHaveCount(0)
+    await page.mouse.move(1, 1)
+    await expect(rootProjectFiles).toHaveCount(0)
+
+    await rootProjectTitle.click()
+    await expect(rootProjectFiles).toBeVisible()
+  })
+
   test('does not select file tree labels when they are double-clicked', async ({ page, workspaceRoot }) => {
     await mockCodexSessions(page)
     const projectDir = path.join(workspaceRoot, 'file-tree-selection')

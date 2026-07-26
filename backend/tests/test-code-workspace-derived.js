@@ -81,6 +81,7 @@ function run() {
   assert.match(filesId, /^wroot_[0-9a-f]{16}$/);
   assert.strictEqual(projectWorkspaceFromFilesId(filesId), '/repo with spaces');
   assert.strictEqual(isProjectFilesWorkspaceId(filesId), true);
+  assert.strictEqual(projectFilesWorkspaceId('/'), 'wroot_global');
 
   const projectList = projectListProjectsForAgents(
     [agent({ id: 'main', isMain: true, projectWorkspace: '/main', cwd: '/main' }), agent({ id: 'sub', projectWorkspace: '/repo' })],
@@ -136,6 +137,10 @@ function run() {
   assert.strictEqual(persistedEmptyProjects[0].agents.length, 0);
   assert.strictEqual(persistedEmptyProjects[0].hasOpenFile, undefined);
   assert.strictEqual(Object.hasOwn(persistedEmptyProjects[0], 'fileAgentId'), false);
+  const rootProject = projectListProjectsForAgents([], [], {}, [], [], ['/']);
+  assert.strictEqual(rootProject.length, 1);
+  assert.strictEqual(rootProject[0].workspace, '/');
+  assert.strictEqual(rootProject[0].name, '/');
   const pinnedProjects = projectListProjectsForAgents(
     [
       agent({ id: 'project-a', projectWorkspace: '/project-a', cwd: '/project-a' }),

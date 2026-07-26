@@ -48,7 +48,7 @@ export function projectListProjectsForAgents(
       : allAgents.find(agent => agent.id === file.agentId)
     const workspace = file.workspaceRoot
       || (fileSourceAgent ? projectWorkspaceForAgent(fileSourceAgent) : '')
-    if (!workspace || workspace === '/') return
+    if (!workspace) return
 
     const existing = projectsByWorkspace.get(workspace)
     if (existing) {
@@ -74,7 +74,7 @@ export function projectListProjectsForAgents(
   })
 
   projectWorkspaces.forEach(workspace => {
-    if (!workspace || workspace === '/') return
+    if (!workspace) return
     const existing = projectsByWorkspace.get(workspace)
     if (existing) return
 

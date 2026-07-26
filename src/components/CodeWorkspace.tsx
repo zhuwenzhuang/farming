@@ -2463,7 +2463,10 @@ export function CodeWorkspace({
   }, [applyProjectMembership, remotePinnedProjectWorkspaces])
 
   const mountProject = useCallback(async (workspace: string) => {
-    const normalizedWorkspace = workspace.trim().replace(/[\\/]+$/, '')
+    const trimmedWorkspace = workspace.trim()
+    const normalizedWorkspace = trimmedWorkspace === '/'
+      ? '/'
+      : trimmedWorkspace.replace(/[\\/]+$/, '')
     if (!normalizedWorkspace) return
     const response = await fetch(appPath('/api/projects/mount'), {
       method: 'POST',
@@ -2744,9 +2747,8 @@ export function CodeWorkspace({
 
   const openProjectFile = useCallback(async (agentId: string, file: OpenWorkspaceFile['file'], target?: WorkspaceFileOpenTarget) => {
     const identity = resolveWorkspaceFileIdentity(agentId, target?.sourceAgentId)
-    const globalFile = isGlobalWorkspaceFilesAgentId(identity.filesId)
     const projectWorkspace = projectWorkspaceFromFilesId(identity.filesId)
-    if (!globalFile && identity.workspaceRoot) {
+    if (identity.workspaceRoot) {
       try {
         await mountProject(identity.workspaceRoot)
       } catch (error) {
@@ -2758,7 +2760,7 @@ export function CodeWorkspace({
         throw error
       }
     }
-    if (!globalFile && (projectWorkspace || identity.sourceAgent)) {
+    if (projectWorkspace || identity.sourceAgent) {
       const projectId = projectWorkspace || (identity.sourceAgent?.isMain
         ? MAIN_AGENT_PROJECT_ID
         : projectWorkspaceForAgent(identity.sourceAgent!))
@@ -2901,7 +2903,7 @@ export function CodeWorkspace({
   const focusWorkspaceFilesSearch = useCallback((agentId: string, query?: string) => {
     const identity = resolveWorkspaceFileIdentity(agentId)
     const projectWorkspace = projectWorkspaceFromFilesId(identity.filesId)
-    if (!isGlobalWorkspaceFilesAgentId(identity.filesId) && (projectWorkspace || identity.sourceAgent)) {
+    if (projectWorkspace || identity.sourceAgent) {
       const projectId = projectWorkspace || (identity.sourceAgent?.isMain
         ? MAIN_AGENT_PROJECT_ID
         : projectWorkspaceForAgent(identity.sourceAgent!))
@@ -2929,7 +2931,7 @@ export function CodeWorkspace({
   const revealWorkspaceFileInExplorer = useCallback((agentId: string, filePath: string, kind: 'directory' | 'file') => {
     const identity = resolveWorkspaceFileIdentity(agentId)
     const projectWorkspace = projectWorkspaceFromFilesId(identity.filesId)
-    if (!isGlobalWorkspaceFilesAgentId(identity.filesId) && (projectWorkspace || identity.sourceAgent)) {
+    if (projectWorkspace || identity.sourceAgent) {
       const projectId = projectWorkspace || (identity.sourceAgent?.isMain
         ? MAIN_AGENT_PROJECT_ID
         : projectWorkspaceForAgent(identity.sourceAgent!))
@@ -3079,9 +3081,8 @@ export function CodeWorkspace({
 
   const selectOpenWorkspaceFile = useCallback((agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => {
     const identity = resolveWorkspaceFileIdentity(agentId, target?.sourceAgentId)
-    const globalFile = isGlobalWorkspaceFilesAgentId(identity.filesId)
     const projectWorkspace = projectWorkspaceFromFilesId(identity.filesId)
-    if (!globalFile && (projectWorkspace || identity.sourceAgent)) {
+    if (projectWorkspace || identity.sourceAgent) {
       const projectId = projectWorkspace || (identity.sourceAgent?.isMain
         ? MAIN_AGENT_PROJECT_ID
         : projectWorkspaceForAgent(identity.sourceAgent!))

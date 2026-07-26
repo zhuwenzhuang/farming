@@ -221,7 +221,7 @@ class ConfigManager {
       const expanded = this.expandWorkspacePath(entry);
       if (!expanded) continue;
       const resolved = path.resolve(expanded);
-      if (resolved === path.parse(resolved).root || this.isInternalWorkspace(resolved)) continue;
+      if (this.isInternalWorkspace(resolved)) continue;
       let canonical = resolved;
       try {
         canonical = fs.realpathSync(resolved);
@@ -783,7 +783,6 @@ class ConfigManager {
     }
     if (
       !canonicalWorkspace
-      || canonicalWorkspace === path.parse(canonicalWorkspace).root
       || this.isInternalWorkspace(canonicalWorkspace)
     ) {
       throw new Error('Project workspace is invalid or unavailable');

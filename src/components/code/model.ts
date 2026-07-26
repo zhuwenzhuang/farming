@@ -30,6 +30,7 @@ export function projectWorkspaceForAgent(agent: Agent) {
 }
 
 export function projectNameForWorkspace(workspace: string) {
+  if (workspace === '/') return '/'
   if (!workspace) return 'Farming'
   return basename(workspace)
 }

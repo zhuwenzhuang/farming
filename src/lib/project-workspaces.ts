@@ -9,6 +9,7 @@ function normalizeProjectWorkspace(workspace: string) {
 }
 
 function rootIdForWorkspace(workspace: string) {
+  if (workspace === '/') return 'wroot_global'
   const bytes = new TextEncoder().encode(workspace)
   let hash = 0xcbf29ce484222325n
   for (const byte of bytes) {
@@ -27,6 +28,7 @@ export function projectFilesWorkspaceId(workspace: string) {
 
 export function projectWorkspaceFromFilesId(filesId: string | null | undefined) {
   const value = String(filesId || '')
+  if (value === 'wroot_global') return '/'
   const registered = workspaceByRootId.get(value)
   if (registered) return registered
   if (!value.startsWith(LEGACY_PROJECT_FILES_WORKSPACE_PREFIX)) return ''
@@ -51,9 +53,9 @@ export function normalizeProjectWorkspaces(projects: unknown) {
   if (!Array.isArray(projects)) return []
   const seen = new Set<string>()
   return projects
-    .map(project => String(project || '').trim().replace(/[\/]+$/, ''))
+    .map(project => normalizeProjectWorkspace(String(project || '')))
     .filter(project => {
-      if (!project || project === '/' || seen.has(project)) return false
+      if (!project || seen.has(project)) return false
       seen.add(project)
       return true
     })

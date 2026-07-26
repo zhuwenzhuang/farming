@@ -262,7 +262,7 @@ export function CodeOverlays({
       id: 'reveal-project',
       label: copy.revealInFinder,
       icon: 'folder',
-      hidden: !contextMenuProject?.workspace || contextMenuProject.hasMain,
+      hidden: !contextMenuProject?.workspace || contextMenuProject.workspace === '/' || contextMenuProject.hasMain,
       onSelect: onRevealProject,
     },
     {
@@ -270,7 +270,7 @@ export function CodeOverlays({
       id: 'create-permanent-worktree',
       label: copy.createPermanentWorktree,
       icon: 'worktree',
-      hidden: !contextMenuProject?.workspace || contextMenuProject.hasMain,
+      hidden: !contextMenuProject?.workspace || contextMenuProject.workspace === '/' || contextMenuProject.hasMain,
       onSelect: onCreatePermanentWorktree,
     },
     { type: 'separator', id: 'project-primary-separator' },

@@ -94,7 +94,7 @@ function run() {
     assert.strictEqual(JSON.parse(fs.readFileSync(path.join(farmingDir, 'settings.json'), 'utf8')).crtDynamicHeatEnabled, true);
     assert.strictEqual(JSON.parse(fs.readFileSync(path.join(farmingDir, 'settings.json'), 'utf8')).crtTerminalFontSize, 16);
     assert.deepStrictEqual(settings.workspaceHistory, [projectA, projectB]);
-    assert.deepStrictEqual(settings.projectWorkspaces, [projectA, projectB, missingProject]);
+    assert.deepStrictEqual(settings.projectWorkspaces, [projectA, projectB, '/', missingProject]);
     assert.deepStrictEqual(settings.pinnedProjectWorkspaces, [projectB, projectA, missingProject]);
     assert.deepStrictEqual(settings.projectNames, { [projectA]: 'Project A' });
     assert.deepStrictEqual(
@@ -116,6 +116,13 @@ function run() {
     assert.strictEqual(settings.instanceName, 'Build Machine');
     assert.strictEqual(settings.lastMainWorkspace, projectMain);
     assert.strictEqual(settings.removedSetting, undefined);
+
+    let rootMembership = manager.removeProjectWorkspace('/');
+    assert.deepStrictEqual(rootMembership.projectWorkspaces, [projectA, projectB, missingProject]);
+    rootMembership = manager.mountProjectWorkspace('/');
+    assert.deepStrictEqual(rootMembership.projectWorkspaces, ['/', projectA, projectB, missingProject]);
+    rootMembership = manager.removeProjectWorkspace('/');
+    assert.deepStrictEqual(rootMembership.projectWorkspaces, [projectA, projectB, missingProject]);
 
     let projectMembership = manager.removeProjectWorkspace(missingProject);
     assert.deepStrictEqual(projectMembership.projectWorkspaces, [projectA, projectB]);

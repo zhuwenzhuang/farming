@@ -37,12 +37,7 @@ import {
 } from '@/lib/workspace-files'
 import { appPath } from '@/lib/base-path'
 import { agentDisplayName, agentTitle, formatRelativeAge } from '@/lib/format'
-import {
-  GLOBAL_WORKSPACE_FILES_AGENT_ID,
-  GLOBAL_WORKSPACE_FILES_PROJECT_ID,
-  GLOBAL_WORKSPACE_FILES_ROOT,
-  isGlobalWorkspaceFilesAgentId,
-} from '@/lib/global-workspace-files'
+import { GLOBAL_WORKSPACE_FILES_AGENT_ID } from '@/lib/global-workspace-files'
 import { workspaceOpenFileKey } from '@/lib/workspace-open-files'
 import type { OpenWorkspaceFile } from '@/lib/workspace-open-files'
 import type { WorkspaceShareTarget } from '@/lib/workspace-share-target'
@@ -302,7 +297,6 @@ export function CodeSidebar({
   const [appModeDialogOpen, setAppModeDialogOpen] = useState(false)
   const [appInstallPrompt, setAppInstallPrompt] = useState<AppInstallPromptEvent | null>(null)
   const handledEmptyHomeActionRef = useRef(0)
-  const [rootFilesCollapsed, setRootFilesCollapsed] = useState(false)
   const loadMoreNearProjectListEnd = useCallback((element: HTMLDivElement) => {
     if (!canLoadMoreAgentSessions) return
     const remaining = element.scrollHeight - element.scrollTop - element.clientHeight
@@ -453,22 +447,6 @@ export function CodeSidebar({
       .filter(agent => !agent.isMain)
       .map(agent => ({ agent, projectName: project.name })),
   ])
-  const globalWorkspaceOpenFiles = openWorkspaceFiles.filter(file => isGlobalWorkspaceFilesAgentId(file.agentId))
-  const activeGlobalWorkspaceFile = openWorkspaceFile && isGlobalWorkspaceFilesAgentId(openWorkspaceFile.agentId)
-    ? openWorkspaceFile
-    : null
-  const globalFilesRevealPending = fileRevealRequest?.agentId === GLOBAL_WORKSPACE_FILES_AGENT_ID
-  const showGlobalFilesSection = globalWorkspaceOpenFiles.length > 0 || globalFilesRevealPending
-
-  useEffect(() => {
-    if (!showGlobalFilesSection) {
-      setRootFilesCollapsed(false)
-    }
-  }, [showGlobalFilesSection])
-
-  useEffect(() => {
-    if (globalFilesRevealPending) setRootFilesCollapsed(false)
-  }, [globalFilesRevealPending])
   const currentVersion = compactProductVersion(__FARMING_PACKAGE_VERSION__ || '')
   const currentVersionLabel = currentVersion ? `v${currentVersion}` : ''
   // Keep the numeric agent rail for the collapsed sidebar only in this release.
@@ -622,56 +600,6 @@ export function CodeSidebar({
             onToggleCollapsed={() => setPinnedCollapsed(collapsed => !collapsed)}
             copy={copy}
           />
-        )}
-        {showGlobalFilesSection && (
-          <section className="code-project-group code-root-files-group" data-testid="code-root-files-group">
-            <div className="code-project-row code-root-files-row">
-              <button
-                type="button"
-                className="code-project-title"
-                data-testid="code-root-files-title"
-                aria-expanded={!rootFilesCollapsed}
-                onClick={() => setRootFilesCollapsed(collapsed => !collapsed)}
-              >
-                <span className={`code-folder-icon ${rootFilesCollapsed ? 'collapsed' : 'expanded'}`} aria-hidden="true">
-                  {rootFilesCollapsed ? <ChevronRightGlyph /> : <ChevronDownGlyph />}
-                </span>
-                <span>/</span>
-              </button>
-            </div>
-            {!rootFilesCollapsed && (
-              <div className="code-project-expanded">
-                <Suspense fallback={null}>
-                  <ProjectFilesSection
-                    projectId={GLOBAL_WORKSPACE_FILES_PROJECT_ID}
-                    projectWorkspace={GLOBAL_WORKSPACE_FILES_ROOT}
-                    agentId={GLOBAL_WORKSPACE_FILES_AGENT_ID}
-                    agentLaunchOptions={[]}
-                    activeFilePath={activeGlobalWorkspaceFile?.file.path}
-                    openFiles={globalWorkspaceOpenFiles
-                      .map(file => ({
-                        agentId: file.agentId,
-                        workspaceRoot: file.workspaceRoot,
-                        key: workspaceOpenFileKey(file),
-                        path: file.file.path,
-                        dirty: file.dirty,
-                        externalChanged: file.externalChanged,
-                      }))}
-                    revealRequest={fileRevealRequest?.agentId === GLOBAL_WORKSPACE_FILES_AGENT_ID ? fileRevealRequest : undefined}
-                    focusSearchRequest={fileSearchFocusRequest?.agentId === GLOBAL_WORKSPACE_FILES_AGENT_ID ? fileSearchFocusRequest : undefined}
-                    onOpenFile={onOpenProjectFile}
-                    onSelectOpenFile={onSelectOpenWorkspaceFile}
-                    onCloseOpenFile={onCloseOpenWorkspaceFile}
-                    onMoveEntries={onMoveWorkspaceEntries}
-                    onDeleteEntries={onDeleteWorkspaceEntries}
-                    onRefreshOpenFiles={onRefreshProjectOpenFiles}
-                    readOnly
-                    copy={copy}
-                  />
-                </Suspense>
-              </div>
-            )}
-          </section>
         )}
         {visibleProjectSections.map(project => (
           <ProjectSection
@@ -2741,6 +2669,7 @@ function ProjectSection({
   )) ?? null
   const filesWorkspaceId = project.workspace ? projectFilesWorkspaceId(project.workspace) : ''
   const showProjectFiles = project.id !== MAIN_AGENT_PROJECT_ID && Boolean(filesWorkspaceId)
+  const globalRootProject = filesWorkspaceId === GLOBAL_WORKSPACE_FILES_AGENT_ID
   const projectFileContextIds = new Set([
     filesWorkspaceId,
     ...project.agents.filter(agent => !agent.isMain).map(agent => agent.id),
@@ -3034,19 +2963,21 @@ function ProjectSection({
           >
             <ProjectActionsIcon />
           </button>
-          <button
-            ref={launchButtonRef}
-            type="button"
-            className="code-project-title-action"
-            data-testid="code-project-new-agent"
-            aria-label={copy.newAgent}
-            title={copy.newAgent}
-            aria-haspopup="menu"
-            aria-expanded={launchMenu ? true : undefined}
-            onClick={openProjectLaunchMenu}
-          >
-            <ProjectNewAgentIcon />
-          </button>
+          {!globalRootProject && (
+            <button
+              ref={launchButtonRef}
+              type="button"
+              className="code-project-title-action"
+              data-testid="code-project-new-agent"
+              aria-label={copy.newAgent}
+              title={copy.newAgent}
+              aria-haspopup="menu"
+              aria-expanded={launchMenu ? true : undefined}
+              onClick={openProjectLaunchMenu}
+            >
+              <ProjectNewAgentIcon />
+            </button>
+          )}
         </span>
         {launchMenu && typeof document !== 'undefined' && createPortal(
           <div
@@ -3245,6 +3176,7 @@ function ProjectSection({
                 onDeleteEntries={onDeleteWorkspaceEntries}
                 onRefreshOpenFiles={onRefreshProjectOpenFiles}
                 onFilesCollapsedChange={handleFilesCollapsedChange}
+                readOnly={globalRootProject}
                 copy={copy}
               />
             </Suspense>

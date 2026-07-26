@@ -27,6 +27,7 @@ function canonicalWorkspacePath(value) {
 function rootIdForPath(value) {
   const canonicalPath = canonicalWorkspacePath(value);
   if (!canonicalPath) return '';
+  if (canonicalPath === GLOBAL_WORKSPACE_FILES_ROOT) return GLOBAL_WORKSPACE_ROOT_ID;
   let hash = 0xcbf29ce484222325n;
   for (const byte of Buffer.from(canonicalPath, 'utf8')) {
     hash ^= BigInt(byte);
@@ -77,15 +78,16 @@ class WorkspaceRootRegistry {
     if (current && current.canonicalPath !== canonicalPath) {
       throw new WorkspaceFileError('workspace root identity collision', 409);
     }
+    const isGlobalRoot = rootId === GLOBAL_WORKSPACE_ROOT_ID;
     const root = Object.freeze({
       rootId,
-      kind: options.kind || current?.kind || 'directory',
+      kind: isGlobalRoot ? 'global' : (options.kind || current?.kind || 'directory'),
       canonicalPath,
       repositoryId: options.repositoryId || current?.repositoryId || '',
       accessPolicy: Object.freeze({
-        readOnly: options.accessPolicy?.readOnly === true,
-        watch: options.accessPolicy?.watch !== false,
-        externalReads: options.accessPolicy?.externalReads !== false,
+        readOnly: isGlobalRoot || options.accessPolicy?.readOnly === true,
+        watch: isGlobalRoot ? false : options.accessPolicy?.watch !== false,
+        externalReads: isGlobalRoot ? false : options.accessPolicy?.externalReads !== false,
       }),
     });
     this.roots.set(rootId, root);
