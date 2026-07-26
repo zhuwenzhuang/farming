@@ -1153,7 +1153,7 @@ export function App() {
         agentSwitchingKind={permissionSwitch?.kind ?? null}
         permissionSwitchReplacement={permissionSwitch?.replacementAgentId
           ? {
-            originalAgentId: permissionSwitch.transitionFromAgentId ?? permissionSwitch.originalAgentId,
+            originalAgentId: permissionSwitch.originalAgentId,
             replacementAgentId: permissionSwitch.replacementAgentId,
           }
           : observedAgentReplacement ?? externalAgentReplacement}
