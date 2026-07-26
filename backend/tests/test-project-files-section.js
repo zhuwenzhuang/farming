@@ -1869,8 +1869,8 @@ function run() {
       editorActionsSource.includes('M5.5 2H2.5C1.673 2 1 2.673 1 3.5V12.5') &&
       editorActionsSource.includes('<DiffIcon />') &&
       editorTabsComponentSource.includes('function BackToAgentIcon()') &&
-      editorTabsComponentSource.includes('function HistoryBackIcon()') &&
-      editorTabsComponentSource.includes('function HistoryForwardIcon()') &&
+      editorTabsComponentSource.includes('<ArrowLeftGlyph className="code-file-editor-action-svg" />') &&
+      editorTabsComponentSource.includes('<ArrowRightGlyph className="code-file-editor-action-svg" />') &&
       editorTabsComponentSource.includes('data-testid="code-file-editor-history-back"') &&
       editorTabsComponentSource.includes('data-testid="code-file-editor-history-forward"') &&
       stylesSource.includes('.code-file-editor-navigation') &&
