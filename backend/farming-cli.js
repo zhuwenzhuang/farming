@@ -314,8 +314,8 @@ function farmingCapabilities(browser) {
       id: 'browser',
       state,
       summary: state === 'available'
-        ? 'A shared system Browser can be created or attached on demand.'
-        : (browser?.message || 'Shared Browser is unavailable.'),
+        ? 'An installed system Chromium Browser can be created or attached in Farming on demand.'
+        : (browser?.message || 'System Browser integration is unavailable in Farming.'),
       commands: state === 'available'
         ? {
             list: 'farming browser list',

@@ -2,7 +2,7 @@
 
 > Chinese version: [extension-model.zh_cn.md](./extension-model.zh_cn.md)
 
-Status: the internal Viewer foundation and opt-in built-in Browser Resource MVP are implemented; this is not yet a public third-party extension API.
+Status: the internal Viewer foundation and system-browser-backed Browser Resource MVP are implemented; this is not yet a public third-party extension API.
 
 ## Implemented Foundation
 
@@ -12,7 +12,7 @@ The static HTML viewer uses the existing file tab and Source / Preview interacti
 
 An explicitly opened readable file outside known project roots remains read-only. For exact external HTML preview, the temporary Preview Session authorizes only the HTML file's containing directory so its relative assets can load; it does not add that directory to Files browsing, search, editing, or Git scope.
 
-The built-in Browser Extension is the first live Resource implementation. It is disabled by default. Farming shows neither its Settings row nor Project Browser sections when no compatible system browser is installed; when installed, Settings exposes the opt-in switch, and only an enabled and currently available Extension contributes Browser UI or accepts Browser API, EventSource, Viewer WebSocket, CLI, or MCP operations. Disabling first stops every owned runtime and fails visibly without changing the setting if cleanup cannot be proved.
+The system-browser-backed Browser Extension is the first live Resource implementation. Its integration is enabled by default, while Agent tool and MCP attachment remain on demand. When no compatible system browser is installed, Settings explains that Chrome, Brave, Edge, or Chromium is required and offers no toggle; Project Browser sections remain hidden. When a browser is installed, Settings exposes the System browser switch, and only an enabled and currently available Extension contributes Browser UI or accepts Browser API, EventSource, Viewer WebSocket, CLI, or MCP operations. Disabling first stops every owned runtime and fails visibly without changing the setting if cleanup cannot be proved.
 
 Each Project may own multiple stable, renameable Browser rows. Every row has an isolated profile and an explicit `stopped -> starting -> running -> stopping -> stopped` lifecycle; startup or runtime failure ends in `failed`. Operations are serialized per Browser identity, stale Viewer generations are rejected, and a Farming restart marks previously live rows failed instead of guessing whether an unowned browser process is safe to reuse.
 
@@ -42,7 +42,7 @@ Built-in Extensions and externally installed Extensions should use the same cont
 
 Extensions should publish Agent-facing tools through one Farming-owned capability contract. An Extension must not implement separate Codex, Claude, OpenCode and Qoder integrations.
 
-When Farming starts or resumes an Agent, it injects only the short Farming bootstrap through the Provider Adapter at the process or Session boundary. Live availability remains outside the prompt: `farming capabilities` reports whether Browser is disabled, unavailable, or available, and gives the narrow commands for activating it. This avoids paying MCP startup, schema-context and stability cost in every ACP Session. A user or Agent may still explicitly add the standard `farming browser mcp` stdio server when its tool schemas are useful. Tool identity, schema, ownership, permission policy and result semantics remain defined by Farming's Extension contract.
+When Farming starts or resumes an Agent, it injects only the short Farming bootstrap through the Provider Adapter at the process or Session boundary. Live availability remains outside the prompt: `farming capabilities` reports whether Browser is disabled, unavailable, or available and, when available, gives the commands for using it on demand. This avoids paying MCP startup, schema-context and stability cost in every ACP Session. A user or Agent may still explicitly add the standard `farming browser mcp` stdio server when its tool schemas are useful. Tool identity, schema, ownership, permission policy and result semantics remain defined by Farming's Extension contract.
 
 The intended relationship is:
 
@@ -62,7 +62,7 @@ Agents may still have native or user-installed tools of their own. Farming does 
 
 ## Browser As An Extension
 
-The built-in Browser Extension owns a Browser Session, its profile and CDP endpoint. The Extension viewer displays that exact Session, while the Extension's Agent tools operate on the same identity. This lets a human observe or take over without requiring provider-specific browser code inside every Agent implementation.
+Farming's Browser Extension owns a Browser Session, its profile and CDP endpoint while launching an installed system browser. The Extension viewer displays that exact Session, while the Extension's Agent tools operate on the same identity. This lets a human observe or take over without requiring provider-specific browser code inside every Agent implementation.
 
 The MVP intentionally uses one implementation: a system Chromium-family executable plus raw CDP and CDP Screencast. It does not expose the browser's native window chrome, extensions, download UI, DevTools, arbitrary desktop interaction or Computer Use. Those are separate product capabilities rather than hidden fallback paths.
 

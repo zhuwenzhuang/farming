@@ -5,6 +5,19 @@
   color: #343a34;
 }
 
+.code-settings-browser-row .code-settings-row-copy small {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+}
+
+.code-settings-browser-unavailable {
+  color: #747b72;
+  font-size: 12px;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
 .farming-browser-section > header {
   min-height: var(--code-files-header-height, 25px);
   display: flex;

@@ -59,9 +59,9 @@ const MAIN_AGENT_OPERATING_GUIDE = [
 const MAIN_AGENT_SKILLS = [
   {
     id: 'browser-resource',
-    name: '共享浏览器操作',
+    name: '系统浏览器操作',
     trigger: '用户要求打开、查看或操作 Farming Project 下的 Browser Resource，或者需要绕过静态 HTML Viewer 限制验证真实网页时',
-    summary: '通过 Farming Browser ID 操作人和 Agent 共享的同一个 Headless 系统浏览器；先 Snapshot 获取当前 Ref，再进行点击或输入，页面变化后重新 Snapshot。',
+    summary: '通过 Farming Browser ID 操作用户当前看到的同一个 Headless 系统浏览器；先 Snapshot 获取当前 Ref，再进行点击或输入，页面变化后重新 Snapshot。',
     commands: [
       'farming browser list --workspace <repo>',
       'farming browser start <browser-id>',

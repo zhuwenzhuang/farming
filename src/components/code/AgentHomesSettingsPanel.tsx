@@ -115,12 +115,16 @@ function panelCopy(language: UiPreferences['language']) {
     farmingCode: 'Farming Code',
     farmingCrt: 'Farming CRT',
     extensions: zh ? '扩展' : 'Extensions',
-    browserExtension: zh ? '共享浏览器' : 'Shared Browser',
+    browserExtension: zh ? '系统浏览器' : 'System browser',
     browserExtensionHint: zh
-      ? '使用系统已有的 Chromium 浏览器；用户和 Agent 操作同一个 Browser。'
-      : 'Uses an installed Chromium browser; the user and Agent operate the same Browser.',
-    browserExtensionToggle: zh ? '启用共享浏览器' : 'Enable shared Browser',
-    browserExtensionSaveFailed: zh ? '共享浏览器设置保存失败' : 'Failed to save shared Browser setting',
+      ? '在 Farming 中显示系统已安装的 Chromium 浏览器，并允许 Agent 按需操作。'
+      : 'Show an installed system Chromium browser in Farming and let Agents operate it on demand.',
+    browserExtensionUnavailableHint: zh
+      ? '请先安装 Chrome、Brave、Edge 或 Chromium，才能在 Farming 中使用系统浏览器。'
+      : 'Install Chrome, Brave, Edge, or Chromium to use a system browser in Farming.',
+    browserExtensionUnavailableStatus: zh ? '需要安装浏览器' : 'Install required',
+    browserExtensionToggle: zh ? '系统浏览器' : 'System browser',
+    browserExtensionSaveFailed: zh ? '系统浏览器设置保存失败' : 'Failed to save system browser setting',
     language: zh ? '语言' : 'Language',
     english: 'English',
     chinese: '中文',
@@ -830,27 +834,37 @@ export function AgentHomesSettingsPanel({
             </div>
           </section>
 
-          {(browserCapability?.browser || browserExtensionEnabled) && (
+          {browserCapability !== null && (
             <section className="code-settings-section code-settings-group">
               <div className="code-settings-section-heading">
                 <div><h3>{copy.extensions}</h3></div>
               </div>
               <div className="code-settings-card">
-                <div className="code-settings-choice-row code-settings-runtime-row">
+                <div className="code-settings-choice-row code-settings-runtime-row code-settings-browser-row">
                   <div className="code-settings-row-copy">
                     <strong>{copy.browserExtension}</strong>
-                    <small>{copy.browserExtensionHint}</small>
+                    <small>
+                      {browserCapability.browser
+                        ? copy.browserExtensionHint
+                        : copy.browserExtensionUnavailableHint}
+                    </small>
                   </div>
-                  <button
-                    type="button"
-                    className={`code-settings-permission-toggle ${browserExtensionEnabled ? 'active' : ''}`}
-                    aria-label={copy.browserExtensionToggle}
-                    aria-pressed={browserExtensionEnabled}
-                    disabled={browserSaving}
-                    onClick={() => void toggleBrowserExtension()}
-                  >
-                    <CheckGlyph />
-                  </button>
+                  {browserCapability.browser ? (
+                    <button
+                      type="button"
+                      className={`code-settings-permission-toggle ${browserExtensionEnabled ? 'active' : ''}`}
+                      aria-label={copy.browserExtensionToggle}
+                      aria-pressed={browserExtensionEnabled}
+                      disabled={browserSaving}
+                      onClick={() => void toggleBrowserExtension()}
+                    >
+                      <CheckGlyph />
+                    </button>
+                  ) : (
+                    <span className="code-settings-browser-unavailable">
+                      {copy.browserExtensionUnavailableStatus}
+                    </span>
+                  )}
                 </div>
               </div>
             </section>

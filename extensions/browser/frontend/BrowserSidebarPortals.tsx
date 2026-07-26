@@ -37,7 +37,7 @@ function browserCopy(language: UiPreferences['language']) {
   return {
     browsers: zh ? '浏览器' : 'Browsers',
     newBrowser: zh ? '新建浏览器' : 'New Browser',
-    createBrowser: zh ? '新建共享浏览器' : 'Create shared Browser',
+    createBrowser: zh ? '新建浏览器' : 'Create browser',
     browserName: zh ? '浏览器名称' : 'Browser name',
     renameBrowser: zh ? '重命名浏览器' : 'Rename Browser',
     startBrowser: zh ? '启动浏览器' : 'Start Browser',

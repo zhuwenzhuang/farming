@@ -179,6 +179,16 @@ async function testBrowserResourceManager() {
   const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-browser-extension-'));
   const runtimes = [];
   let enabled = false;
+  const unavailableManager = new BrowserResourceManager({
+    configDir,
+    discoverExecutable: () => null,
+  });
+  assert.deepStrictEqual(unavailableManager.capability(), {
+    enabled: true,
+    available: false,
+    browser: null,
+    message: 'Install Chrome, Brave, Edge, or Chromium to use a system Browser in Farming',
+  });
   const manager = new BrowserResourceManager({
     configDir,
     isEnabled: () => enabled,
@@ -283,11 +293,11 @@ async function testBrowserResourceManager() {
     manager.store.update(orphaned.id, { status: 'running' });
     const restartedManager = new BrowserResourceManager({
       configDir,
-      isEnabled: () => true,
       discoverExecutable: () => ({ kind: 'chrome', path: '/fake/chrome' }),
       createRuntime: options => new FakeBrowserRuntime(options),
     });
     restartedManager.init();
+    assert.strictEqual(restartedManager.capability().enabled, true, 'Built-in Browser should default to enabled');
     assert.strictEqual(restartedManager.get(orphaned.id).status, 'failed');
     assert.match(restartedManager.get(orphaned.id).error, /restarted/);
     await restartedManager.dispose();

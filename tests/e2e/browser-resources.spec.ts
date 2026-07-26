@@ -68,6 +68,23 @@ async function clickBrowserPoint(canvas: Locator, x: number, y: number) {
   })
 }
 
+async function completionResultPixels(canvas: Locator) {
+  return canvas.evaluate(element => {
+    const browserCanvas = element as HTMLCanvasElement
+    const context = browserCanvas.getContext('2d')
+    if (!context || browserCanvas.width < 600 || browserCanvas.height < 330) return 0
+    const pixels = context.getImageData(310, 260, 290, 70).data
+    let matches = 0
+    for (let index = 0; index < pixels.length; index += 4) {
+      const red = pixels[index]
+      const green = pixels[index + 1]
+      const blue = pixels[index + 2]
+      if (red < 80 && green > 70 && blue < 120 && green > red + 20) matches += 1
+    }
+    return matches
+  })
+}
+
 async function browserSnapshot(page: Page, browserId: string) {
   const response = await page.request.post(`/farming/api/browsers/${browserId}/action`, {
     data: { kind: 'snapshot' },
@@ -93,6 +110,37 @@ async function runBrowserCli(args: string[]) {
   })
 }
 
+test('explains which system browser must be installed when none is available', async ({
+  page,
+}, testInfo) => {
+  await page.route('**/api/browsers/capability', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      enabled: true,
+      available: false,
+      browser: null,
+      message: 'Install Chrome, Brave, Edge, or Chromium to use a system Browser in Farming',
+    }),
+  }))
+  await openFarming(page)
+  await expect(page.getByTestId('farming-browser-section')).toHaveCount(0)
+  await page.getByTestId('code-sidebar-options').click()
+  const settingsPanel = page.getByTestId('code-settings-panel')
+  await expect(settingsPanel.getByText('System browser', { exact: true })).toBeVisible()
+  await expect(settingsPanel.getByText(
+    'Install Chrome, Brave, Edge, or Chromium to use a system browser in Farming.',
+    { exact: true },
+  )).toBeVisible()
+  await expect(settingsPanel.getByText('Install required', { exact: true })).toBeVisible()
+  await expect(settingsPanel.getByRole('button', { name: 'System browser' })).toHaveCount(0)
+  const screenshot = testInfo.outputPath('browser-settings-install-required.png')
+  await settingsPanel.locator('.code-settings-panel').screenshot({ path: screenshot })
+  await testInfo.attach('browser-settings-install-required', {
+    path: screenshot,
+    contentType: 'image/png',
+  })
+})
+
 test('shares one fixed Browser viewport across desktop, mobile, and Agent actions', async ({
   browser,
   page,
@@ -104,22 +152,41 @@ test('shares one fixed Browser viewport across desktop, mobile, and Agent action
   await page.request.post('/farming/api/projects/mount', { data: { workspace } })
   await openFarming(page)
 
-  await expect(page.getByTestId('farming-browser-section')).toHaveCount(0)
+  await expect(page.getByTestId('farming-browser-section')).toBeVisible()
   await page.getByTestId('code-sidebar-options').click()
   const settingsPanel = page.getByTestId('code-settings-panel')
-  const browserToggle = settingsPanel.getByRole('button', { name: 'Enable shared Browser' })
-  await expect(settingsPanel.getByText('Shared Browser', { exact: true })).toBeVisible()
-  await expect(browserToggle).toHaveAttribute('aria-pressed', 'false')
-  const settingsScreenshot = testInfo.outputPath('browser-settings-default-off.png')
+  const browserToggle = settingsPanel.getByRole('button', { name: 'System browser' })
+  const browserHint = settingsPanel.getByText(
+    'Show an installed system Chromium browser in Farming and let Agents operate it on demand.',
+    { exact: true },
+  )
+  await expect(settingsPanel.getByText('System browser', { exact: true })).toBeVisible()
+  await expect(browserHint).toBeVisible()
+  expect(await browserHint.evaluate(element => ({
+    horizontallyClipped: element.scrollWidth > element.clientWidth,
+    verticallyClipped: element.scrollHeight > element.clientHeight,
+    textOverflow: getComputedStyle(element).textOverflow,
+    whiteSpace: getComputedStyle(element).whiteSpace,
+  }))).toEqual({
+    horizontallyClipped: false,
+    verticallyClipped: false,
+    textOverflow: 'clip',
+    whiteSpace: 'normal',
+  })
+  await expect(browserToggle).toHaveAttribute('aria-pressed', 'true')
+  const settingsScreenshot = testInfo.outputPath('browser-settings-system-browser.png')
   await settingsPanel.locator('.code-settings-panel').screenshot({ path: settingsScreenshot })
-  await testInfo.attach('browser-settings-default-off', {
+  await testInfo.attach('browser-settings-system-browser', {
     path: settingsScreenshot,
     contentType: 'image/png',
   })
   await browserToggle.click()
+  await expect(browserToggle).toHaveAttribute('aria-pressed', 'false')
+  await expect(page.getByTestId('farming-browser-section')).toHaveCount(0)
+  await browserToggle.click()
   await expect(browserToggle).toHaveAttribute('aria-pressed', 'true')
-  await settingsPanel.getByRole('button', { name: 'Close' }).click()
   await expect(page.getByTestId('farming-browser-section')).toBeVisible()
+  await settingsPanel.getByRole('button', { name: 'Close' }).click()
   await page.getByRole('button', { name: 'New Browser' }).click()
   const viewer = page.getByTestId('farming-browser-viewer')
   const desktopCanvas = viewer.locator('canvas')
@@ -146,6 +213,10 @@ test('shares one fixed Browser viewport across desktop, mobile, and Agent action
   await expect.poll(async () => (await browserSnapshot(page, browserId!)).title).toBe('Done ssh-human-e2e')
   await expect.poll(async () => (await browserSnapshot(page, browserId!)).accessibilityTree)
     .toContain('COMPLETED: ssh-human-e2e')
+  await expect.poll(
+    () => completionResultPixels(desktopCanvas),
+    { message: 'Browser Viewer should paint the completed page before screenshot capture' },
+  ).toBeGreaterThan(20)
 
   const desktopScreenshot = testInfo.outputPath('browser-desktop.png')
   await page.screenshot({ path: desktopScreenshot, fullPage: true })
@@ -202,6 +273,5 @@ test('shares one fixed Browser viewport across desktop, mobile, and Agent action
   await row.hover()
   await row.getByRole('button', { name: 'Delete Browser' }).click()
   await expect(page.getByTestId('farming-browser-row')).toHaveCount(0)
-  await page.request.post('/farming/api/settings', { data: { browserExtensionEnabled: false } })
   await page.request.post('/farming/api/projects/remove', { data: { workspace } })
 })

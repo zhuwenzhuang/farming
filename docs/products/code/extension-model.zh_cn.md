@@ -2,7 +2,7 @@
 
 > English version: [extension-model.md](./extension-model.md)
 
-状态：内部 Viewer 基础和默认关闭的内置 Browser Resource MVP 已经实现，但尚不是公开的第三方 Extension API。
+状态：内部 Viewer 基础和基于系统浏览器的 Browser Resource MVP 已经实现，但尚不是公开的第三方 Extension API。
 
 ## 已实现的基础
 
@@ -12,7 +12,7 @@ Project Files 现在通过同一个内部 Viewer Registry 解析内置的 Markdo
 
 用户显式打开的已知 Project Root 之外的可读文件仍然只读。对于精确打开的外部 HTML，临时 Preview Session 只授权该 HTML 所在目录，以便加载相对资源；它不会把这个目录加入 Files 浏览、Search、编辑或 Git Scope。
 
-内置 Browser Extension 是第一种实时 Resource 实现，默认关闭。系统没有兼容浏览器时，Farming 不展示它的 Settings 行或 Project Browser 分组；系统浏览器可用时，Settings 才提供显式启用开关。只有“已启用且当前可用”时，Extension 才贡献 Browser UI，并接受 Browser API、EventSource、Viewer WebSocket、CLI 或 MCP 操作。关闭时必须先停止所有受管 Runtime；若无法证明清理完成，关闭失败且设置保持开启。
+基于系统浏览器的 Browser Extension 是第一种实时 Resource 实现，集成默认开启；Agent Tool 和 MCP 挂载仍然按需进行。系统没有兼容浏览器时，Settings 明确提示需要先安装 Chrome、Brave、Edge 或 Chromium，不展示开关，Project Browser 分组也保持隐藏。系统浏览器可用时，Settings 展示“系统浏览器”开关。只有“已启用且当前可用”时，Extension 才贡献 Browser UI，并接受 Browser API、EventSource、Viewer WebSocket、CLI 或 MCP 操作。关闭时必须先停止所有受管 Runtime；若无法证明清理完成，关闭失败且设置保持开启。
 
 每个 Project 可以拥有多个身份稳定、可重命名的 Browser Row。每一行都有独立 Profile 和显式的 `stopped -> starting -> running -> stopping -> stopped` 生命周期；启动或运行失败进入 `failed`。同一个 Browser 身份上的操作串行执行，过期 Viewer Generation 会被拒绝；Farming 重启时，之前仍处于运行态的行会标记为失败，而不会猜测某个已经失去 Owner 的浏览器进程是否可以安全复用。
 
@@ -42,7 +42,7 @@ Files 已经体现了这一基础思想：文本、Markdown、图片、PDF、Dif
 
 Extension 应通过一份由 Farming 定义的 Capability Contract 发布 Agent Tools。Extension 不应分别实现 Codex、Claude、OpenCode 和 Qoder 接入。
 
-Farming 启动或恢复 Agent 时，只通过 Provider Adapter 在进程或 Session 边界注入简短的 Farming 启动提示。实时可用性不写死在提示词中：`farming capabilities` 会报告 Browser 是 Disabled、Unavailable 还是 Available，并给出最窄的启用命令。这样每个 ACP Session 不必默认承担 MCP 启动、Schema Context 和稳定性成本。用户或 Agent 仍可在确实需要 Tool Schema 时显式添加标准的 `farming browser mcp` stdio Server。Tool Identity、Schema、Ownership、Permission Policy 和 Result Semantics 仍由 Farming Extension Contract 定义。
+Farming 启动或恢复 Agent 时，只通过 Provider Adapter 在进程或 Session 边界注入简短的 Farming 启动提示。实时可用性不写死在提示词中：`farming capabilities` 会报告 Browser 是 Disabled、Unavailable 还是 Available，并在可用时给出按需使用命令。这样每个 ACP Session 不必默认承担 MCP 启动、Schema Context 和稳定性成本。用户或 Agent 仍可在确实需要 Tool Schema 时显式添加标准的 `farming browser mcp` stdio Server。Tool Identity、Schema、Ownership、Permission Policy 和 Result Semantics 仍由 Farming Extension Contract 定义。
 
 预期关系是：
 
@@ -62,7 +62,7 @@ Agent 仍然可以保留 Provider 原生或用户自行安装的工具。Farming
 
 ## Browser Extension 示例
 
-内置 Browser Extension 拥有 Browser Session、Profile 和 CDP Endpoint。Extension Viewer 展示这个精确 Session，Extension 提供的 Agent Tools 也操作同一个身份。这样用户可以观察或接管浏览器，而不需要在每一种 Agent 实现中加入 Provider 特有的浏览器代码。
+Farming 的 Browser Extension 启动系统已安装的浏览器，并拥有 Browser Session、Profile 和 CDP Endpoint。Extension Viewer 展示这个精确 Session，Extension 提供的 Agent Tools 也操作同一个身份。这样用户可以观察或接管浏览器，而不需要在每一种 Agent 实现中加入 Provider 特有的浏览器代码。
 
 MVP 有意只支持一条实现路径：系统 Chromium 系浏览器、原生 CDP 与 CDP Screencast。它不暴露浏览器原生窗口框架、Extension、下载界面、DevTools、任意桌面交互或 Computer Use。这些属于独立产品能力，不是隐藏的 Fallback Path。
 
