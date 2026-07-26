@@ -1,6 +1,4 @@
 import {
-  Children,
-  isValidElement,
   memo,
   useCallback,
   useEffect,
@@ -24,6 +22,7 @@ import { appPath } from '@/lib/base-path'
 import { writeClipboardText } from '@/lib/clipboard'
 import { iconForFilePath } from '@/lib/file-icons'
 import { normalizeGlobalWorkspaceFilePath } from '@/lib/global-workspace-files'
+import { markdownTextContent, mermaidCodeBlockSource } from '@/lib/react-markdown-content'
 import {
   clearReadingAnchor,
   readingAnchorAgentKey,
@@ -514,29 +513,6 @@ function hasQualifiedTranscriptFileReference(text: string) {
 function fileReferenceDisplayText(filePath: string, lineNumber?: number) {
   const basename = stripCandidateLocationSuffix(filePath.trim()).split(/[\\/]/).filter(Boolean).pop() || filePath.trim()
   return lineNumber && lineNumber > 1 ? `${basename}:${lineNumber}` : basename
-}
-
-function textContent(children: unknown): string {
-  if (children === null || children === undefined || typeof children === 'boolean') return ''
-  if (typeof children === 'string' || typeof children === 'number') return String(children)
-  if (Array.isArray(children)) return children.map(textContent).join('')
-  if (isValidElement(children)) {
-    const props = children.props as { children?: unknown }
-    return textContent(props.children)
-  }
-  return ''
-}
-
-function codeBlockSource(children: ReactNode) {
-  return textContent(children).replace(/\n$/, '')
-}
-
-function isMermaidCodeBlock(children: ReactNode) {
-  const child = Children.count(children) === 1 ? Children.only(children) : null
-  if (!isValidElement(child)) return null
-  const props = child.props as { className?: string; children?: ReactNode }
-  if (!/\blanguage-mermaid\b/i.test(props.className || '')) return null
-  return codeBlockSource(props.children)
 }
 
 function agentTranscriptUrlTransform(value: string, key: string) {
@@ -2225,7 +2201,7 @@ function AgentTranscriptTurnView({
       )
     },
     code: ({ className, children, ...props }) => {
-      const source = textContent(children)
+      const source = markdownTextContent(children)
       const looksLikeBlock = Boolean(className) || source.includes('\n')
       const target = !looksLikeBlock && hasQualifiedTranscriptFileReference(source)
         ? transcriptFileTargetFromText(source, workspaceRoot)
@@ -2251,7 +2227,7 @@ function AgentTranscriptTurnView({
       )
     },
     pre: ({ children, ...props }) => {
-      const mermaidSource = isMermaidCodeBlock(children)
+      const mermaidSource = mermaidCodeBlockSource(children)
       if (mermaidSource !== null) return <MermaidBlock source={mermaidSource} copy={copy} />
       return <pre {...props}>{children}</pre>
     },

@@ -1,6 +1,4 @@
 import {
-  Children,
-  isValidElement,
   memo,
   useEffect,
   useId,
@@ -8,7 +6,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type ReactNode,
 } from 'react'
 import { flushSync } from 'react-dom'
 import { createRoot, type Root } from 'react-dom/client'
@@ -18,6 +15,7 @@ import rehypeKatex from 'rehype-katex'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import 'katex/dist/katex.min.css'
+import { mermaidCodeBlockSource } from '@/lib/react-markdown-content'
 
 type CrtTranscriptTurn = {
   id?: string | null
@@ -73,25 +71,6 @@ const markdownComponents: Components = {
     if (mermaidSource !== null) return <MermaidBlock source={mermaidSource} />
     return <pre {...props}>{children}</pre>
   },
-}
-
-function textContent(children: unknown): string {
-  if (children === null || children === undefined || typeof children === 'boolean') return ''
-  if (typeof children === 'string' || typeof children === 'number') return String(children)
-  if (Array.isArray(children)) return children.map(textContent).join('')
-  if (isValidElement(children)) {
-    const props = children.props as { children?: unknown }
-    return textContent(props.children)
-  }
-  return ''
-}
-
-function mermaidCodeBlockSource(children: ReactNode) {
-  const child = Children.count(children) === 1 ? Children.only(children) : null
-  if (!isValidElement(child)) return null
-  const props = child.props as { className?: string; children?: ReactNode }
-  if (!/\blanguage-mermaid\b/i.test(props.className || '')) return null
-  return textContent(props.children).replace(/\n$/, '')
 }
 
 function hashMermaidSource(source: string) {

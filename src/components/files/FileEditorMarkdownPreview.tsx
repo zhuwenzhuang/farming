@@ -26,6 +26,7 @@ import 'katex/dist/katex.min.css'
 import { writeClipboardText } from '@/lib/clipboard'
 import { rawWorkspaceFileUrl } from '@/lib/workspace-files'
 import { decodeMermaidCharacterReferences } from '@/lib/mermaid-source'
+import { markdownTextContent, mermaidCodeBlockSource } from '@/lib/react-markdown-content'
 import { workspaceEditorBasename } from '@/lib/workspace-editor-model'
 import type { OpenWorkspaceFile, WorkspaceFileOpenTarget } from '@/lib/workspace-open-files'
 import type { CodeCopy } from '../code/copy'
@@ -113,29 +114,6 @@ function hashMermaidSource(source: string) {
   return Math.abs(hash).toString(36)
 }
 
-function textContent(children: ReactNode): string {
-  if (children === null || children === undefined || typeof children === 'boolean') return ''
-  if (typeof children === 'string' || typeof children === 'number') return String(children)
-  if (Array.isArray(children)) return children.map(textContent).join('')
-  if (isValidElement(children)) {
-    const props = children.props as { children?: ReactNode }
-    return textContent(props.children)
-  }
-  return ''
-}
-
-function codeBlockSource(children: ReactNode) {
-  return textContent(children).replace(/\n$/, '')
-}
-
-function isMermaidCodeBlock(children: ReactNode) {
-  const child = Children.count(children) === 1 ? Children.only(children) : null
-  if (!isValidElement(child)) return null
-  const props = child.props as { className?: string; children?: ReactNode }
-  if (!/\blanguage-mermaid\b/i.test(props.className || '')) return null
-  return codeBlockSource(props.children)
-}
-
 function codeBlockLanguage(children: ReactNode) {
   const child = Children.count(children) === 1 ? Children.only(children) : null
   if (!isValidElement(child)) return null
@@ -156,7 +134,7 @@ function slugifyHeading(value: string) {
 function createHeadingIdFactory() {
   const counts = new Map<string, number>()
   return (children: ReactNode) => {
-    const base = slugifyHeading(textContent(children))
+    const base = slugifyHeading(markdownTextContent(children))
     const count = counts.get(base) ?? 0
     counts.set(base, count + 1)
     return count === 0 ? base : `${base}-${count}`
@@ -359,7 +337,7 @@ const MarkdownImage: Components['img'] = ({ src, alt, ...props }) => {
 
 const MarkdownPre: Components['pre'] = ({ children, ...props }) => {
   const { copy } = useMarkdownPreviewContext()
-  const mermaidSource = isMermaidCodeBlock(children)
+  const mermaidSource = mermaidCodeBlockSource(children)
   if (mermaidSource !== null) return <MermaidBlock source={mermaidSource} copy={copy} />
   const language = codeBlockLanguage(children)
   return <pre {...props} data-language={language || undefined}>{children}</pre>

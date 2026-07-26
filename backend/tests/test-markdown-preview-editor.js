@@ -15,6 +15,7 @@ function run() {
   const editorActionsSource = read('src/components/files/FileEditorActions.tsx');
   const editorSurfaceSource = read('src/components/files/FileEditorSurface.tsx');
   const markdownPreviewSource = read('src/components/files/FileEditorMarkdownPreview.tsx');
+  const markdownContentSource = read('src/lib/react-markdown-content.ts');
   const codeMainAreaSource = read('src/components/code/CodeMainArea.tsx');
   const workspaceSource = read('src/components/CodeWorkspace.tsx');
   const copySource = read('src/components/code/copy.ts');
@@ -134,7 +135,8 @@ function run() {
       markdownPreviewSource.includes('code-markdown-heading-anchor') &&
       markdownPreviewSource.includes('data-language={language || undefined}') &&
       markdownPreviewSource.includes("import('mermaid')") &&
-      markdownPreviewSource.includes('language-mermaid') &&
+      markdownPreviewSource.includes('mermaidCodeBlockSource(children)') &&
+      markdownContentSource.includes('language-mermaid') &&
       markdownPreviewSource.includes("decodeMermaidCharacterReferences(source)") &&
       markdownPreviewSource.includes('mermaid.parse(renderSource)') &&
       markdownPreviewSource.includes('mermaid.render(renderId, renderSource)') &&
