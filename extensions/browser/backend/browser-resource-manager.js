@@ -16,6 +16,7 @@ function publicResource(resource) {
     name: resource.name,
     status: resource.status,
     generation: resource.generation,
+    revision: resource.revision,
     url: resource.url,
     title: resource.title,
     browserKind: resource.browserKind,

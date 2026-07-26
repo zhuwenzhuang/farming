@@ -23,6 +23,7 @@ function normalizeResource(value) {
     name: String(value.name || 'Browser').trim().slice(0, 120) || 'Browser',
     status: STATUSES.has(value.status) ? value.status : 'failed',
     generation: Number.isSafeInteger(value.generation) && value.generation >= 0 ? value.generation : 0,
+    revision: Number.isSafeInteger(value.revision) && value.revision >= 0 ? value.revision : 0,
     url: String(value.url || 'about:blank').slice(0, 8_192) || 'about:blank',
     title: String(value.title || '').slice(0, 512),
     browserKind: String(value.browserKind || ''),
@@ -83,6 +84,7 @@ class BrowserResourceStore {
       name: input.name || 'Browser',
       status: 'stopped',
       generation: 0,
+      revision: 0,
       url: input.url || 'about:blank',
       title: '',
       browserKind: '',
@@ -105,6 +107,7 @@ class BrowserResourceStore {
       id: current.id,
       projectRootId: current.projectRootId,
       workspace: current.workspace,
+      revision: current.revision + 1,
       updatedAt: Date.now(),
     });
     if (!next) throw new Error('Invalid Browser resource update');

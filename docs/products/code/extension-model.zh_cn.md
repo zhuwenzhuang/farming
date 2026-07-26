@@ -14,7 +14,7 @@ Project Files 现在通过同一个内部 Viewer Registry 解析内置的 Markdo
 
 基于系统浏览器的 Browser Extension 是第一种实时 Resource 实现，集成默认关闭；Agent Tool 和 MCP 挂载仍然按需进行。系统没有兼容的 Chromium 系浏览器时，Settings 明确提示所需浏览器类型，不展示开关，Project Browser 分组也保持隐藏。系统浏览器可用时，Settings 展示“系统浏览器”开关。只有“已启用且当前可用”时，Extension 才贡献 Browser UI，并接受 Browser API、EventSource、Viewer WebSocket、CLI 或 MCP 操作；因此只有启用 Extension 后才会建立实时事件订阅。关闭时必须先停止所有受管 Runtime；若无法证明清理完成，关闭失败且设置保持开启。
 
-每个 Project 可以拥有多个身份稳定、可重命名的 Browser Row。每一行都有独立 Profile 和显式的 `stopped -> starting -> running -> stopping -> stopped` 生命周期；启动或运行失败进入 `failed`。同一个 Browser 身份上的操作串行执行，过期 Viewer Generation 会被拒绝；Farming 重启时，之前仍处于运行态的行会标记为失败，而不会猜测某个已经失去 Owner 的浏览器进程是否可以安全复用。
+每个 Project 可以拥有多个身份稳定、可重命名的 Browser Row。每一行都有独立 Profile 和显式的 `stopped -> starting -> running -> stopping -> stopped` 生命周期；启动或运行失败进入 `failed`。同一个 Browser 身份上的操作串行执行，过期 Viewer Generation 会被拒绝；Farming 重启时，之前仍处于运行态的行会标记为失败，而不会猜测某个已经失去 Owner 的浏览器进程是否可以安全复用。每次持久化变更都会递增单调 Resource Revision，因此 HTTP、EventSource 与 Viewer 更新即使乱序到达，也不能让 UI 回退到旧状态。
 
 Extension 会发现兼容的 Chromium 系系统浏览器可执行文件，以 Headless 模式启动，并通过 WebSocket 直接连接原生 CDP。Farming 不携带 Chromium，Extension 也没有 Playwright 或 Puppeteer Runtime 依赖。`Page.startScreencast` 为受鉴权保护的工作区 Viewer 提供画面；Viewer 的 Pointer、Wheel、Keyboard 与 Resize 消息通过同一个 CDP Target 返回。Agent 操作也使用同一 Target，通过 Accessibility Snapshot、稳定的 Snapshot Ref、Screenshot、Navigation 和 CDP Input 工作。
 

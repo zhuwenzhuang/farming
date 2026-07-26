@@ -7,6 +7,7 @@ const WebSocket = require('ws');
 const { WebSocketServer } = WebSocket;
 const { CdpClient } = require('../../extensions/browser/backend/cdp-client');
 const { CdpBrowserRuntime } = require('../../extensions/browser/backend/cdp-browser-runtime');
+const { mergeBrowserResource } = require('../../extensions/browser/frontend/browser-resource-state.ts');
 const {
   BrowserResourceManager,
   normalizeUrl,
@@ -224,6 +225,7 @@ async function testBrowserResourceManager() {
     const running = await manager.start(created.id);
     assert.strictEqual(running.status, 'running');
     assert.strictEqual(running.generation, 1);
+    assert.strictEqual(running.revision, 2);
     assert.deepStrictEqual(transitions.slice(-2), ['starting', 'running']);
     assert.strictEqual(runtimes[0].startedUrl, 'http://localhost:3000/');
     assert.deepStrictEqual((await manager.action(created.id, { kind: 'snapshot' })).elements, [
@@ -307,6 +309,32 @@ async function testBrowserResourceManager() {
   }
 }
 
+function testBrowserResourceRevisionOrdering() {
+  const current = {
+    id: 'browser_revision',
+    projectRootId: 'wroot_project',
+    workspace: '/tmp/project',
+    name: 'Browser',
+    status: 'running',
+    generation: 1,
+    revision: 2,
+    url: 'about:blank',
+    title: '',
+    browserKind: 'chrome',
+    error: '',
+    createdAt: 1,
+    updatedAt: 2,
+  };
+  const stale = { ...current, status: 'starting', revision: 1, updatedAt: 1 };
+  assert.strictEqual(
+    mergeBrowserResource([current], stale)[0],
+    current,
+    'A late starting event must not replace the newer running response',
+  );
+  const newer = { ...current, status: 'failed', revision: 3, updatedAt: 3 };
+  assert.deepStrictEqual(mergeBrowserResource([current], newer), [newer]);
+}
+
 function testBrowserUiAndPackagingWiring() {
   const projectRoot = path.join(__dirname, '..', '..');
   const workspaceSource = fs.readFileSync(path.join(projectRoot, 'src', 'components', 'CodeWorkspace.tsx'), 'utf8');
@@ -327,6 +355,7 @@ Promise.resolve()
   .then(testCdpClient)
   .then(testScreencastFrameRateBound)
   .then(testBrowserResourceManager)
+  .then(testBrowserResourceRevisionOrdering)
   .then(testBrowserUiAndPackagingWiring)
   .then(() => console.log('browser extension tests passed'))
   .catch(error => {

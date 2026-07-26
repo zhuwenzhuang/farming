@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { appPath } from '@/lib/base-path'
 import { projectFilesWorkspaceId } from '@/lib/project-workspaces'
+import { mergeBrowserResource } from './browser-resource-state'
 import type { BrowserCapability, BrowserResource } from './types'
 
 async function browserRequest<T>(pathname: string, init?: RequestInit): Promise<T> {
@@ -24,13 +25,7 @@ export function useBrowserResources() {
   const [refreshVersion, setRefreshVersion] = useState(0)
 
   const mergeResource = useCallback((resource: BrowserResource) => {
-    setResources(current => {
-      const index = current.findIndex(item => item.id === resource.id)
-      if (index < 0) return [...current, resource].sort((left, right) => left.createdAt - right.createdAt)
-      const next = [...current]
-      next[index] = resource
-      return next
-    })
+    setResources(current => mergeBrowserResource(current, resource))
   }, [])
 
   useEffect(() => {
