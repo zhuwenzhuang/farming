@@ -242,6 +242,7 @@ test.describe('display-backed agent flows', () => {
     releaseExecutables?.()
     await expect(page.getByTestId('agent-option-codex')).toContainText('Codex')
     await expect(page.getByTestId('agent-option-codex')).toBeFocused()
+    await expect(page.getByTestId('agent-list-status')).toBeHidden()
     await page.keyboard.press('ArrowDown')
     await expect(page.getByTestId('agent-option-claude')).toBeFocused()
     await page.keyboard.press('End')
@@ -2441,7 +2442,7 @@ test.describe('display-backed agent flows', () => {
       title: 'Archived Codex Session',
       cwd: deepCodexCwd,
       workspace: childWorkspace,
-      updatedAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+      updatedAt: new Date().toISOString(),
       createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
       archived: true,
       pinned: false,

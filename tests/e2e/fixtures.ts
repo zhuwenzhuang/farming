@@ -149,7 +149,7 @@ async function cleanupAgent(page: Page, agent: CleanupAgent) {
     }).catch(() => null)
     if (response?.ok()) return
   }
-  await page.request.delete(`/farming/api/control/agents/${agent.id}`).catch(() => null)
+  await page.request.delete(`/farming/api/control/agents/${agent.id}?recordHistory=0`).catch(() => null)
 }
 
 async function cleanupAgents(page: Page) {
@@ -195,11 +195,21 @@ async function clearMainPageSessionKeys(page: Page) {
 
 async function resetSettings(page: Page) {
   try {
+    const currentSettingsResponse = await page.request.get('/farming/api/settings')
+    if (currentSettingsResponse.ok()) {
+      const currentSettingsData = await currentSettingsResponse.json() as {
+        settings?: { projectWorkspaces?: string[] }
+      }
+      for (const workspace of currentSettingsData.settings?.projectWorkspaces ?? []) {
+        await page.request.post('/farming/api/projects/remove', {
+          data: { workspace },
+        }).catch(() => null)
+      }
+    }
     await page.request.post('/farming/api/settings', {
       data: {
         lastMainWorkspace: '~/.farming',
         workspaceHistory: [],
-        projectWorkspaces: [],
         defaultLaunchAgent: 'codex',
         browserExtensionEnabled: false,
         instanceName: 'farming-e2e-host',

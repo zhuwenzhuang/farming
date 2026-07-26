@@ -99,8 +99,8 @@ async function run() {
     async getAgentSessionText(agentId) {
       return `output for ${agentId}`;
     },
-    async killAgent(agentId) {
-      calls.push({ type: 'killAgent', agentId });
+    async killAgent(agentId, options = {}) {
+      calls.push({ type: 'killAgent', agentId, options });
       if (agentId === killFailureAgentId) {
         return { agentId, error: 'runtime cleanup could not be verified' };
       }
@@ -108,9 +108,9 @@ async function run() {
       events.emit('update');
       return { agentId, killed: true };
     },
-    async requestKillAgent(agentId) {
+    async requestKillAgent(agentId, options = {}) {
       await this.whenRecovered();
-      const result = await this.killAgent(agentId);
+      const result = await this.killAgent(agentId, options);
       return { result, completion: Promise.resolve(result) };
     },
     recordCreateRequestResult(agentId, requestId, result) {
@@ -316,11 +316,12 @@ async function run() {
     assert.strictEqual(undurableCreate.body.createResultDurable, false);
     createResultPersistenceFailure = '';
 
-    const killed = await fetchJson(baseUrl, `/api/control/agents/${created.body.agentId}`, {
+    const killed = await fetchJson(baseUrl, `/api/control/agents/${created.body.agentId}?recordHistory=0`, {
       method: 'DELETE',
     });
     assert.strictEqual(killed.response.status, 200);
     assert.strictEqual(calls.at(-1).type, 'killAgent');
+    assert.strictEqual(calls.at(-1).options.recordHistory, false);
 
     killFailureAgentId = chatCreated.body.agentId;
     const rejectedKill = await fetchJson(baseUrl, `/api/control/agents/${chatCreated.body.agentId}`, {

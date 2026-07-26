@@ -169,7 +169,7 @@ test.describe('workspace path suggestions', () => {
     })
     expect(homeMenuMetrics.background).toBe('rgb(22, 27, 34)')
     expect(homeMenuMetrics.color).toBe('rgb(230, 237, 243)')
-    await page.keyboard.press('Escape')
+    await page.getByTestId('agent-home-select').click()
     await expect(homeMenu).toBeHidden()
 
     const runtimeMetrics = await page.getByTestId('agent-runtime-mode').locator('.workspace-runtime-options').evaluate(element => {

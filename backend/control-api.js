@@ -419,9 +419,10 @@ function createControlRouter(agentManager, options = {}) {
 
   router.delete('/agents/:agentId', async (req, res) => {
     const agentId = req.params.agentId;
+    const recordHistory = req.query.recordHistory !== '0';
     let requested;
     try {
-      requested = await agentManager.requestKillAgent(agentId);
+      requested = await agentManager.requestKillAgent(agentId, { recordHistory });
     } catch (error) {
       res.status(503).json({
         error: error?.message || 'Agent lifecycle recovery is unavailable',
