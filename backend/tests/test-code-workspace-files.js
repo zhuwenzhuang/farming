@@ -380,7 +380,7 @@ function run() {
       workspaceSource.includes('projectListRef.current?.focus({ preventScroll: true })') &&
       workspaceSource.includes('shouldSkipProjectFocusRestore') &&
       workspaceSource.includes("activeElement.closest('.code-context-menu')") &&
-      workspaceSource.includes('skipIfFocusMoved') &&
+      workspaceSource.includes('retryRestoreFocus') &&
       workspaceSource.includes('retryTimer = window.setTimeout(restoreFocus, 90)') &&
       workspaceSource.includes("}, restoreTarget === 'list' ? 0 : 50)") &&
       workspaceSource.includes("if (activeView !== 'search' && searchOpen)") &&
@@ -539,7 +539,7 @@ function run() {
       workspaceSource.includes('const sessionHandle = contextMenuAgent.providerSessionKey || resumedAgentSessionIdFromSource(contextMenuAgent.source)') &&
       workspaceSource.includes('if (sessionHandle) removeMainPageAgentSession(sessionHandle)') &&
       workspaceSource.includes('pendingArchivedFocusAgentRef.current = agentId') &&
-      workspaceSource.includes('window.setTimeout(() => focusActiveProjectListTargetNow(), 720)') &&
+      workspaceSource.includes('retryTimer = window.setTimeout(restoreFocus, 180)') &&
       workspaceSource.includes('if (flags.archived !== true) focusAgentRow(agentId)') &&
       !workspaceSource.includes('buildAgentDeeplink') &&
       workspaceSource.includes('Fork into same worktree') &&
