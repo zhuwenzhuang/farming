@@ -613,6 +613,8 @@ function createDisplayRenderer(canvas: HTMLCanvasElement): DisplayRenderer {
   let renderSize = 0
   let verificationPixels = new Uint8Array()
   let nextVerificationAt = 0
+  let maximumVerificationInkPixels = 0
+  let maximumVerificationCoveredSectors = 0
   if (preserveForVisualRegression) canvas.dataset.radiationProbe = 'armed'
 
   gl.useProgram(program)
@@ -690,10 +692,14 @@ function createDisplayRenderer(canvas: HTMLCanvasElement): DisplayRenderer {
             sectors[sector] = (sectors[sector] ?? 0) + 1
           }
         }
-        canvas.dataset.radiationInkPixels = String(inkPixels)
-        canvas.dataset.radiationCoveredSectors = String(
-          Array.from(sectors).filter(value => value >= 3).length,
+        const coveredSectors = Array.from(sectors).filter(value => value >= 3).length
+        maximumVerificationInkPixels = Math.max(maximumVerificationInkPixels, inkPixels)
+        maximumVerificationCoveredSectors = Math.max(
+          maximumVerificationCoveredSectors,
+          coveredSectors,
         )
+        canvas.dataset.radiationInkPixels = String(maximumVerificationInkPixels)
+        canvas.dataset.radiationCoveredSectors = String(maximumVerificationCoveredSectors)
         canvas.dataset.radiationProbe = 'sampled'
         nextVerificationAt = performance.now() + 120
       }

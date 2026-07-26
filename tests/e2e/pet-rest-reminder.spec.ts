@@ -101,11 +101,10 @@ test('dark black-hole status stays readable and manual exit fully evaporates in 
     const radiationInk = await readBlackHoleOuterInk(
       scene.locator('.code-pet-black-hole-canvas'),
     )
-    return Math.min(
-      radiationInk.inkPixels / 20,
-      radiationInk.coveredSectors / 8,
-    )
-  }, { timeout: 2_000 }).toBeGreaterThan(1)
+    return radiationInk.inkPixels > 20 && radiationInk.coveredSectors > 8
+      ? 'visible'
+      : `ink=${radiationInk.inkPixels}, sectors=${radiationInk.coveredSectors}`
+  }, { timeout: 2_000 }).toBe('visible')
   await expect(scene).toBeVisible()
   await expect(page.locator('.code-pet-black-hole-compositor')).toHaveCount(1)
   await expect(scene).toHaveCount(0, { timeout: 7_000 })

@@ -118,6 +118,20 @@ export function useAgentComposerState({
 
       Object.entries(next).forEach(([composerKey, state]) => {
         if (retainedComposerKeys.has(composerKey)) return
+        // Agent replacement is delivered as several authoritative updates. A
+        // chained restart can therefore make every member of the lineage
+        // briefly absent from `agents`. User-owned Composer state must survive
+        // that transport gap; a later lineage-bearing Agent will canonicalize
+        // the preserved key. Empty UI-only state is still safe to discard.
+        if (
+          state.draft
+          || state.attachments.length > 0
+          || state.mode !== 'default'
+          || state.history.entries.length > 0
+          || (state.pendingFollowUp?.messages.length ?? 0) > 0
+        ) {
+          return
+        }
         const nextStateByKey = mutable()
         state.attachments.forEach(onDiscardAttachment)
         delete nextStateByKey[composerKey]
