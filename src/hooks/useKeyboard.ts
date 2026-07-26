@@ -42,6 +42,17 @@ export function hasOpenOverlayShortcutTarget() {
   return Boolean(document.querySelector('[role="dialog"], [role="menu"], .code-context-menu, .code-file-context-menu'))
 }
 
+export function useEscapeKey(onEscape: () => void, enabled = true) {
+  useEffect(() => {
+    if (!enabled) return
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onEscape()
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [enabled, onEscape])
+}
+
 /**
  * Register global keyboard shortcuts.
  * Shortcuts are only active when `enabled` is true.

@@ -18,6 +18,7 @@ import type {
 import { appPath } from '@/lib/base-path'
 import { useBackendSystemStats, useHasBackendSystemStats } from '@/lib/backend-live-status'
 import { agentDisplayName, agentTitle } from '@/lib/format'
+import { useEscapeKey } from '@/hooks/useKeyboard'
 
 function formatUsageWindow(minutes: number | null | undefined) {
   const value = Number(minutes)
@@ -816,14 +817,7 @@ function UsageActivityDialog({
     histogramDay,
     Boolean(histogramDay && dailyPoints && histogramDay === dailyPoints[dailyPoints.length - 1]?.date),
   )
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [onClose])
+  useEscapeKey(onClose)
 
   if (typeof document === 'undefined') return null
 

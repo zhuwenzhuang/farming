@@ -1,6 +1,7 @@
 import { createPortal } from 'react-dom'
 import { useEffect, useRef, useState } from 'react'
 import type { RefObject } from 'react'
+import { useEscapeKey } from '@/hooks/useKeyboard'
 import type { CodeCopy } from './copy'
 
 const MAX_INSTANCE_NAME_LENGTH = 80
@@ -22,21 +23,12 @@ export function InstanceNameDialog({
   const [saving, setSaving] = useState(false)
   const [saveFailed, setSaveFailed] = useState(false)
   const inputRef = useRef<HTMLInputElement | null>(null)
-  const savingRef = useRef(false)
-
-  useEffect(() => {
-    savingRef.current = saving
-  }, [saving])
+  useEscapeKey(onClose, !saving)
 
   useEffect(() => {
     inputRef.current?.focus({ preventScroll: true })
     inputRef.current?.select()
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !savingRef.current) onClose()
-    }
-    document.addEventListener('keydown', handleKeyDown)
     return () => {
-      document.removeEventListener('keydown', handleKeyDown)
       returnFocusRef.current?.focus({ preventScroll: true })
     }
   }, [onClose, returnFocusRef])

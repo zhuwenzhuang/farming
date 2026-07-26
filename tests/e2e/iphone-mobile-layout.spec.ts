@@ -838,7 +838,8 @@ test.describe('iPhone mobile layout', () => {
     await expect(mobileShareSheet.locator('.code-mobile-install-step')).toHaveCount(2)
     await expect(mobileShareSheet.getByTestId('code-mobile-share-system-action')).toHaveCount(0)
     await expect(mobileShareSheet.locator('.code-mobile-share-sheet')).toHaveCSS('color', 'rgb(230, 237, 243)')
-    await mobileShareSheet.getByRole('button', { name: /Cancel|取消/ }).click()
+    await page.keyboard.press('Escape')
+    await expect(mobileShareSheet).toHaveCount(0)
     await page.evaluate(() => document.body.setAttribute('data-appearance', 'light'))
 
     await page.getByTestId('code-mobile-menu').click()

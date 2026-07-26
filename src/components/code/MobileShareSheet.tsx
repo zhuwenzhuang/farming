@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { writeClipboardText } from '@/lib/clipboard'
+import { useEscapeKey } from '@/hooks/useKeyboard'
 import type { CodeCopy } from './copy'
 
 function isStandaloneWebApp() {
@@ -48,14 +49,7 @@ export function MobileShareSheet({
   const standalone = isStandaloneWebApp()
   const [copied, setCopied] = useState(false)
   const [copyFailed, setCopyFailed] = useState(false)
-
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
-    }
-    document.addEventListener('keydown', handleKeyDown)
-    return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [onClose])
+  useEscapeKey(onClose)
 
   useEffect(() => {
     if (!copied && !copyFailed) return undefined

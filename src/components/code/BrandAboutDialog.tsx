@@ -2,6 +2,7 @@ import { createPortal } from 'react-dom'
 import { useEffect, useRef } from 'react'
 import type { RefObject } from 'react'
 import { appPath } from '@/lib/base-path'
+import { useEscapeKey } from '@/hooks/useKeyboard'
 import type { CodeCopy } from './copy'
 
 const FARMING_GITHUB_URL = 'https://github.com/zhuwenzhuang/farming'
@@ -18,15 +19,11 @@ export function BrandAboutDialog({
   returnFocusRef: RefObject<HTMLElement | null>
 }) {
   const closeButtonRef = useRef<HTMLButtonElement | null>(null)
+  useEscapeKey(onClose)
 
   useEffect(() => {
     closeButtonRef.current?.focus({ preventScroll: true })
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
-    }
-    document.addEventListener('keydown', handleKeyDown)
     return () => {
-      document.removeEventListener('keydown', handleKeyDown)
       returnFocusRef.current?.focus({ preventScroll: true })
     }
   }, [onClose, returnFocusRef])

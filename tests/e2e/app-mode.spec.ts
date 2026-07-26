@@ -63,6 +63,8 @@ test('explains when this deployment cannot be installed instead of showing manua
   await expect(dialog).toContainText('Browser app installation is unavailable')
   await expect(dialog).not.toContainText('Cast, save and share')
   await expect(dialog.getByTestId('code-app-mode-install')).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  await expect(dialog).toHaveCount(0)
 })
 
 test('does not show the app-mode entry inside an installed Farming window', async ({ page }) => {
