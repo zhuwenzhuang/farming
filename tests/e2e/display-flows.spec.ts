@@ -2201,7 +2201,7 @@ test.describe('display-backed agent flows', () => {
     const { agentId } = await getAgentIdFromRow(page)
     await expectTerminalCanvasToHaveInk(page, agentId)
 
-    await page.reload({ waitUntil: 'networkidle' })
+    await page.reload({ waitUntil: 'domcontentloaded' })
     await expect(page.getByTestId('app-shell')).toBeVisible()
     const { agentId: reloadedAgentId } = await getAgentIdFromRow(page)
     expect(reloadedAgentId).toBe(agentId)
@@ -3418,7 +3418,7 @@ test.describe('display-backed agent flows', () => {
     }
 
     await page.setViewportSize({ width: 390, height: 844 })
-    await page.reload({ waitUntil: 'networkidle' })
+    await page.reload({ waitUntil: 'domcontentloaded' })
     await expect(page.getByTestId('app-shell')).toBeVisible()
     await openCollapsedNavigation()
     const mobileProjectGroups = page.getByTestId('code-project-group')

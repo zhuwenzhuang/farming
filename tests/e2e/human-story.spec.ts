@@ -70,16 +70,16 @@ test.describe('human Farming Agent story', () => {
     await expect(page.getByTestId('code-composer-input')).toBeVisible()
     await expect(page.getByTestId('code-composer-restore')).toHaveCount(0)
 
-    await page.reload({ waitUntil: 'networkidle' })
+    await page.reload({ waitUntil: 'domcontentloaded' })
     await expect(page.getByTestId('code-composer-input')).toBeVisible()
     await page.locator('.code-composer-collapse-zone').hover()
     await page.getByTestId('code-composer-collapse').click()
     await expect(page.getByTestId('code-composer')).toHaveCount(0)
-    await page.reload({ waitUntil: 'networkidle' })
+    await page.reload({ waitUntil: 'domcontentloaded' })
     await expect(page.getByTestId('code-composer')).toHaveCount(0)
 
     await page.setViewportSize({ width: 390, height: 844 })
-    await page.reload({ waitUntil: 'networkidle' })
+    await page.reload({ waitUntil: 'domcontentloaded' })
     await expect(page.getByTestId('code-composer-input')).toBeVisible()
     await expect(page.getByTestId('code-composer-restore')).toHaveCount(0)
   })
@@ -96,7 +96,7 @@ test.describe('human Farming Agent story', () => {
     await expect(firstAgentRow).toHaveClass(/active/)
     await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${firstAgentId}"]`)).toBeVisible()
 
-    await page.reload({ waitUntil: 'networkidle' })
+    await page.reload({ waitUntil: 'domcontentloaded' })
     await expect(firstAgentRow).toHaveClass(/active/)
     await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${firstAgentId}"]`)).toBeVisible()
     await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${secondAgentId}"]`)).toBeHidden()
@@ -140,7 +140,7 @@ test.describe('human Farming Agent story', () => {
     expect(await sessionText(page, agentId)).not.toContain('add greeting to app.js')
     await expect.poll(() => sessionText(page, agentId)).toContain('Done · follow-up applied')
 
-    await page.reload({ waitUntil: 'networkidle' })
+    await page.reload({ waitUntil: 'domcontentloaded' })
     const reloadedAgentId = await page.getByTestId('code-agent-row').getAttribute('data-agent-id')
     expect(reloadedAgentId).toBe(agentId)
 
@@ -575,7 +575,7 @@ test.describe('human Farming Agent story', () => {
 
     await expect(firstRow).toBeVisible()
     await expect(secondRow).toBeVisible()
-    await page.goto(`/farming/?agent=${encodeURIComponent(secondAgentId)}`, { waitUntil: 'networkidle' })
+    await page.goto(`/farming/?agent=${encodeURIComponent(secondAgentId)}`, { waitUntil: 'domcontentloaded' })
     await expect(secondRow).toHaveClass(/active/)
     const inputResponse = await page.request.post(`/farming/api/control/agents/${firstAgentId}/input`, {
       data: { input: 'echo first-agent-output\r' },

@@ -259,7 +259,7 @@ async function runProfile(browser, target, outputDir, profile) {
 
   try {
     await installMobileViewportMock(page, profile);
-    await page.goto(target.url.toString(), { waitUntil: 'networkidle', timeout: 45_000 });
+    await page.goto(target.url.toString(), { waitUntil: 'domcontentloaded', timeout: 45_000 });
     try {
       await page.waitForSelector('[data-testid="app-shell"]', { timeout: 30_000 });
     } catch (error) {

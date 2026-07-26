@@ -18,6 +18,10 @@ function makeArchive(options = {}) {
     fs.mkdirSync(path.join(appDir, 'shared'), { recursive: true });
     fs.writeFileSync(path.join(appDir, 'shared', 'browser-protocol.js'), 'module.exports = {};\n');
   }
+  if (!options.missingBrowserExtension) {
+    fs.mkdirSync(path.join(appDir, 'extensions', 'browser', 'backend'), { recursive: true });
+    fs.writeFileSync(path.join(appDir, 'extensions', 'browser', 'backend', 'index.js'), 'module.exports = {};\n');
+  }
   fs.writeFileSync(path.join(appDir, 'RELEASE.json'), JSON.stringify({
     name: 'farming',
     type: 'app-bundle',
@@ -44,8 +48,12 @@ function run() {
     () => verifyReleaseBundle(makeArchive({ missingBrowserProtocol: true })),
     /missing shared\/browser-protocol\.js/,
   );
+  assert.throws(
+    () => verifyReleaseBundle(makeArchive({ missingBrowserExtension: true })),
+    /missing extensions\/browser\/backend\/index\.js/,
+  );
 
-  console.log('✓ release bundle verification requires clean metadata and runtime protocol files');
+  console.log('✓ release bundle verification requires clean metadata and Browser runtime files');
 }
 
 run();

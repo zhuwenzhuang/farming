@@ -150,6 +150,7 @@ git -C "${PROJECT_ROOT}" archive --format=tar HEAD -- \
   config/farming.deploy.env.example \
   config/farming.install.env.example \
   docs/products/code \
+  extensions \
   frontend \
   scripts/compute-node-heap-mb.sh \
   scripts/install-release.sh \

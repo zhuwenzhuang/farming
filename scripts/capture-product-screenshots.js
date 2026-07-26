@@ -258,7 +258,7 @@ function prepareRuntimeDirectories() {
 }
 
 async function ensureApp(page) {
-  await page.goto(`${basePath}/`, { waitUntil: 'networkidle' });
+  await page.goto(`${basePath}/`, { waitUntil: 'domcontentloaded' });
   await page.getByTestId('app-shell').waitFor({ state: 'visible', timeout: 30_000 });
   await page.addStyleTag({
     content: `
