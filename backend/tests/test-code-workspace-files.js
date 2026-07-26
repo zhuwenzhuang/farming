@@ -359,7 +359,9 @@ function run() {
       !workspaceSource.includes('code-nav-plugins') &&
       !workspaceSource.includes('code-nav-automations') &&
       workspaceSource.includes('/api/settings') &&
-      workspaceSource.includes('buildWorkspaceHistory') &&
+      !workspaceSource.includes('buildWorkspaceHistory') &&
+      workspaceSource.includes('const cancelSettings = loadGlobalSettings()') &&
+      workspaceSource.includes('const cancelSessions = loadAgentSessions(true)') &&
       workspaceSource.includes('code-history-panel') &&
       workspaceSource.includes('code-history-agents') &&
       workspaceSource.includes('AgentHomesSettingsPanel') &&

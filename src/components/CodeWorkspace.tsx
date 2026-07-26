@@ -59,7 +59,6 @@ import {
 } from '@/lib/workspace-share-target'
 import { importSharedReadingAnchor } from '@/lib/reading-anchor'
 import { isCompactViewport, isIOSLikeTouchViewport, isTouchInputViewport } from '@/lib/responsive-mode'
-import { buildWorkspaceHistory } from '@/lib/workspace-options'
 import {
   fetchWorkspaceFile,
   fetchWorkspaceTree,
@@ -613,7 +612,6 @@ export function CodeWorkspace({
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [searchSelectionIndex, setSearchSelectionIndex] = useState(0)
-  const [, setWorkspaceHistory] = useState<string[]>([])
   const [projectWorkspaces, setProjectWorkspaces] = useState<string[]>([])
   const [projectWorkspacesLoaded, setProjectWorkspacesLoaded] = useState(false)
   const [pinnedProjectWorkspaces, setPinnedProjectWorkspaces] = useState<string[]>([])
@@ -4571,31 +4569,14 @@ export function CodeWorkspace({
   }, [activeView, loadGlobalSettings])
 
   useEffect(() => {
-    if (activeView !== 'history') return
-
-    let cancelled = false
-    const loadMutationVersion = mainPageSessionKeysMutationRef.current
-    fetch(appPath('/api/settings'))
-      .then(response => response.json())
-      .then((data: { settings?: GlobalSettings }) => {
-        if (cancelled) return
-        const settings = data.settings ?? {}
-        setWorkspaceHistory(buildWorkspaceHistory(settings.lastMainWorkspace, settings.workspaceHistory ?? []))
-        setProjectNames(normalizeProjectNames(settings.projectNames))
-        if (loadMutationVersion === mainPageSessionKeysMutationRef.current) {
-          setMainPageSessionKeys(new Set(normalizeMainPageSessionKeys(settings.mainPageSessionKeys ?? [])))
-        }
-        applyLaunchSettings(settings)
-        loadAgentSessions(true)
-      })
-      .catch(() => {
-        if (!cancelled) setWorkspaceHistory([])
-      })
-
+    if (activeView !== 'history') return undefined
+    const cancelSettings = loadGlobalSettings()
+    const cancelSessions = loadAgentSessions(true)
     return () => {
-      cancelled = true
+      cancelSettings()
+      cancelSessions()
     }
-  }, [activeView, applyLaunchSettings, loadAgentSessions])
+  }, [activeView, loadAgentSessions, loadGlobalSettings])
 
   useEffect(() => {
     function handlePointerMove(event: PointerEvent) {
