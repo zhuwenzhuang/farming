@@ -22,6 +22,7 @@ interface FileEditorHeaderProps {
   onTabAuxClick: (event: ReactMouseEvent<HTMLDivElement>, index: number) => void
   onTabKeyDown: (event: ReactKeyboardEvent<HTMLDivElement>, index: number) => void
   onCloseTab: (index: number) => void
+  onReorderOpenFile: (sourceKey: string, targetKey: string, position: 'before' | 'after') => void
   onRevealInExplorer: (agentId: string, filePath: string, kind: 'directory' | 'file') => void
   onSave: (overwrite?: boolean) => void
   onReload: () => void
@@ -32,7 +33,7 @@ interface FileEditorHeaderProps {
   canPreviewMarkdown: boolean
   canPreviewSource: boolean
   diffOpen: boolean
-  markdownPreviewVisible: boolean
+  previewVisible: boolean
   markdownSplitOpen: boolean
   sourcePreviewOpen: boolean
   wordWrapEnabled: boolean
@@ -54,6 +55,7 @@ export function FileEditorHeader({
   onTabAuxClick,
   onTabKeyDown,
   onCloseTab,
+  onReorderOpenFile,
   onRevealInExplorer,
   onSave,
   onReload,
@@ -64,12 +66,12 @@ export function FileEditorHeader({
   canPreviewMarkdown,
   canPreviewSource,
   diffOpen,
-  markdownPreviewVisible,
+  previewVisible,
   markdownSplitOpen,
   sourcePreviewOpen,
   wordWrapEnabled,
 }: FileEditorHeaderProps) {
-  const showBreadcrumbs = Boolean(openFile.file.path) && !markdownPreviewVisible
+  const showBreadcrumbs = Boolean(openFile.file.path) && !previewVisible
   const actions = workspaceEditorActionState(openFile, editorMode, {
     canPreviewMarkdown,
     canPreviewSource,
@@ -93,6 +95,7 @@ export function FileEditorHeader({
         onTabAuxClick={onTabAuxClick}
         onTabKeyDown={onTabKeyDown}
         onCloseTab={onCloseTab}
+        onReorderOpenFile={onReorderOpenFile}
         actions={(
           <FileEditorActions
             actions={actions}

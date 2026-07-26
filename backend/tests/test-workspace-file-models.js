@@ -58,6 +58,7 @@ const {
   estimateWorkspaceBlameLabelWidth,
   formatWorkspaceBlameTime,
   isWorkspaceMarkdownFile,
+  isWorkspaceHtmlFile,
   isWorkspaceSvgFile,
   isWorkspaceEditorModelUri,
   isPermanentWorkspaceBlameFailureStatus,
@@ -103,6 +104,7 @@ const {
   deletedWorkspaceDiffPlaceholderFile,
   openWorkspaceFileFromRead,
   refreshWorkspaceOpenFilesFromReads,
+  reorderWorkspaceOpenFiles,
   selectWorkspaceOpenFile,
   shouldRefreshWorkspaceChangesAfterDirtyStateChange,
   shouldOpenMissingWorkspaceFileAsDiff,
@@ -296,6 +298,31 @@ function run() {
   assert.strictEqual(selectedThroughWorkspace.activeFile.sourceAgentId, 'agent-new');
   assert.strictEqual(selectedThroughWorkspace.files.length, 1);
   assert.strictEqual(selectedThroughWorkspace.files[0].agentId, stableFilesId);
+
+  const firstTab = workingCopy({ file: workspaceFile('src/First.tsx') });
+  const secondTab = workingCopy({ file: workspaceFile('src/Second.tsx') });
+  const thirdTab = workingCopy({ file: workspaceFile('src/Third.tsx') });
+  const tabState = {
+    activeFile: secondTab,
+    files: [firstTab, secondTab, thirdTab],
+    closedFileCache: new Map(),
+  };
+  const reorderedTabs = reorderWorkspaceOpenFiles(
+    tabState,
+    workspaceFileCacheKey('agent-1', 'src/First.tsx'),
+    workspaceFileCacheKey('agent-1', 'src/Third.tsx'),
+    'after',
+  );
+  assert.deepStrictEqual(reorderedTabs.files, [secondTab, thirdTab, firstTab]);
+  assert.strictEqual(reorderedTabs.activeFile, secondTab);
+  assert.strictEqual(reorderedTabs.closedFileCache, tabState.closedFileCache);
+  assert.strictEqual(reorderWorkspaceOpenFiles(
+    reorderedTabs,
+    workspaceFileCacheKey('agent-1', 'src/First.tsx'),
+    workspaceFileCacheKey('agent-1', 'src/Third.tsx'),
+    'after',
+  ), reorderedTabs);
+  assert.strictEqual(reorderWorkspaceOpenFiles(tabState, 'missing', 'src/Third.tsx', 'before'), tabState);
 
   const cleanOpenFile = {
     ...workingCopy({
@@ -548,6 +575,9 @@ function run() {
 	  assert.strictEqual(isWorkspaceMarkdownFile('src/main.ts'), false);
 	  assert.strictEqual(isWorkspaceSvgFile('assets/icon.svg'), true);
 	  assert.strictEqual(isWorkspaceSvgFile('assets/icon.svgz'), false);
+	  assert.strictEqual(isWorkspaceHtmlFile('site/index.html'), true);
+	  assert.strictEqual(isWorkspaceHtmlFile('site/INDEX.HTM'), true);
+	  assert.strictEqual(isWorkspaceHtmlFile('site/index.xhtml'), false);
 	  assert.deepStrictEqual(workspaceEditorSurfaceState({ diffOnly: false, diffOpen: false, visualPreview: false }), {
 	    showDiffView: false,
 	    showDiffOnlyPreview: false,

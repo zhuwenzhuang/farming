@@ -30,6 +30,57 @@ async function createControlAgent(
 }
 
 test.describe('iPhone mobile layout', () => {
+  test('opens and toggles a sandboxed HTML preview inside the mobile file surface', async ({ page, workspaceRoot }, testInfo) => {
+    test.skip(testInfo.project.name !== 'iphone-webkit', 'Runs only in the iPhone WebKit project')
+    const projectDir = path.join(workspaceRoot, 'iphone-html-preview')
+    fs.mkdirSync(path.join(projectDir, 'site'), { recursive: true })
+    fs.writeFileSync(
+      path.join(projectDir, 'site', 'index.html'),
+      [
+        '<!doctype html>',
+        '<meta name="viewport" content="width=device-width, initial-scale=1">',
+        '<style>body { margin: 0; } h1 { color: rgb(12, 13, 14); }</style>',
+        '<h1>Mobile HTML</h1><script>document.body.dataset.script = "ran"</script>',
+      ].join('\n'),
+    )
+
+    await openFarming(page)
+    await createControlAgent(page, 'bash', projectDir)
+    await page.getByTestId('code-mobile-menu').click()
+    const project = page.getByTestId('code-project-group').filter({ hasText: 'iphone-html-preview' })
+    const files = project.getByTestId('code-files-section')
+    const filesToggle = files.getByRole('button', { name: /^Files$/ })
+    if (await filesToggle.getAttribute('aria-expanded') === 'false') await filesToggle.tap()
+    const site = files.locator('[data-testid="code-file-row"][data-file-path="site"]')
+    await site.tap()
+    await files.locator('[data-testid="code-file-row"][data-file-path="site/index.html"]').tap()
+
+    const iframe = page.getByTestId('code-file-html-preview')
+    await expect(iframe).toBeVisible()
+    const frame = page.frameLocator('[data-testid="code-file-html-preview"]')
+    await expect(frame.locator('h1')).toHaveText('Mobile HTML')
+    await expect.poll(() => frame.locator('h1').evaluate(element => getComputedStyle(element).color)).toBe('rgb(12, 13, 14)')
+    await expect(frame.locator('body')).not.toHaveAttribute('data-script', 'ran')
+    const previewMetrics = await iframe.evaluate(element => {
+      const rect = element.getBoundingClientRect()
+      const main = document.querySelector<HTMLElement>('[data-testid="code-main"]')?.getBoundingClientRect()
+      return {
+        width: rect.width,
+        mainWidth: main?.width ?? 0,
+        rightOverflow: main ? rect.right - main.right : 0,
+      }
+    })
+    expect(previewMetrics.width).toBeGreaterThan(250)
+    expect(previewMetrics.width).toBeLessThanOrEqual(previewMetrics.mainWidth + 1)
+    expect(previewMetrics.rightOverflow).toBeLessThanOrEqual(1)
+
+    const showSource = page.getByRole('button', { name: 'Show source' })
+    await showSource.tap()
+    await expect(page.getByTestId('code-file-monaco')).toBeVisible()
+    await page.getByRole('button', { name: 'Open preview' }).tap()
+    await expect(page.getByTestId('code-file-html-preview')).toBeVisible()
+  })
+
   test('keeps a long ACP model label outside the iPhone send-button hit target', async ({ page, workspaceRoot }, testInfo) => {
     test.skip(testInfo.project.name !== 'iphone-webkit', 'Runs only in the iPhone WebKit project')
     const projectDir = path.join(workspaceRoot, 'iphone-long-model-label')

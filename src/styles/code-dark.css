@@ -1889,6 +1889,18 @@ body.code-mode[data-appearance='dark'] .code-file-editor-tab.active {
   color: var(--code-dark-text);
 }
 
+body.code-mode[data-appearance='dark'] .code-file-editor-tab.active::after {
+  background: rgba(240, 246, 252, 0.035);
+}
+
+body.code-mode[data-appearance='dark'] .code-file-editor-tab[data-drop-position='before'] {
+  box-shadow: inset 2px 0 var(--code-dark-text-muted);
+}
+
+body.code-mode[data-appearance='dark'] .code-file-editor-tab[data-drop-position='after'] {
+  box-shadow: inset -2px 0 var(--code-dark-text-muted);
+}
+
 body.code-mode[data-appearance='dark'] .code-file-editor-tab:hover:not(.active) {
   background: var(--code-dark-bg-hover);
 }

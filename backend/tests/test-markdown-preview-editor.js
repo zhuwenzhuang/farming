@@ -9,6 +9,7 @@ function read(relativePath) {
 function run() {
   const packageSource = read('package.json');
   const editorModelSource = read('src/lib/workspace-editor-model.ts');
+  const viewerRegistrySource = read('src/lib/workspace-viewer-registry.ts');
   const editorPaneSource = read('src/components/files/FileEditorPane.tsx');
   const editorHeaderSource = read('src/components/files/FileEditorHeader.tsx');
   const editorActionsSource = read('src/components/files/FileEditorActions.tsx');
@@ -34,7 +35,9 @@ function run() {
 
   assert(
     editorModelSource.includes('function isWorkspaceMarkdownFile') &&
-      editorModelSource.includes("'.markdown'") &&
+      editorModelSource.includes("workspaceFileSupportsViewer(filePath, 'markdown.preview')") &&
+      viewerRegistrySource.includes("id: 'markdown.preview'") &&
+      viewerRegistrySource.includes("'.markdown'") &&
       editorModelSource.includes('markdownSplitOpen?: boolean') &&
       editorModelSource.includes('markdownPreviewOpen?: boolean') &&
       editorModelSource.includes('showMarkdownSplit: boolean') &&
@@ -60,10 +63,11 @@ function run() {
       editorPaneSource.includes('const markdownSplitOpen = markdownReadingOpen') &&
       editorPaneSource.includes('const markdownPreviewOpen = markdownReadingOpen && !markdownSplitOpen') &&
       editorPaneSource.includes('const markdownPreviewVisible = markdownPreviewOpen && !diffState.open') &&
+      editorPaneSource.includes('const visualPreviewVisible = !diffState.open') &&
       editorPaneSource.includes('code-mobile-markdown-reading') &&
       editorPaneSource.includes("markdownReadingOpen ? 'markdown-reading' : ''") &&
       editorPaneSource.includes('toggleMarkdownSplit') &&
-      editorPaneSource.includes('markdownPreviewVisible={markdownPreviewVisible}') &&
+      editorPaneSource.includes('previewVisible={markdownPreviewVisible || visualPreviewVisible}') &&
       editorPaneSource.includes('markdownSplitOpen={markdownSplitOpen}') &&
       editorPaneSource.includes('onOpenFilePath={onOpenFilePath}') &&
       editorPaneSource.includes('canPreviewMarkdown={canPreviewMarkdown}') &&
@@ -72,11 +76,12 @@ function run() {
   );
 
   assert(
-    editorHeaderSource.includes('const showBreadcrumbs = Boolean(openFile.file.path) && !markdownPreviewVisible') &&
+    editorHeaderSource.includes('const showBreadcrumbs = Boolean(openFile.file.path) && !previewVisible') &&
       editorHeaderSource.includes('{showBreadcrumbs && (') &&
-      codeMainAreaSource.includes('const showBreadcrumbs = !isWorkspaceMarkdownFile(openFile.file.path)') &&
+      codeMainAreaSource.includes('const showBreadcrumbs = !openFile.file.preview') &&
+      codeMainAreaSource.includes('!isWorkspaceHtmlFile(openFile.file.path)') &&
       codeMainAreaSource.includes('{showBreadcrumbs && ('),
-    'Pure Markdown preview should omit the breadcrumb while source, split, and diff surfaces keep file context'
+    'Pure rendered previews should omit the breadcrumb while source, split, and diff surfaces keep file context'
   );
 
   assert(

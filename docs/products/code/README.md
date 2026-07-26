@@ -93,7 +93,7 @@ Each Project row keeps its title and actions on one baseline. Its eye control hi
 The editor is a lightweight intervention surface:
 
 - Monaco text editing with version checks;
-- Markdown and image preview;
+- Markdown, SVG, and sandboxed static HTML preview;
 - file create, rename, move, and delete inside the workspace root;
 - a bounded commit graph with branches, tags, merge-parent selection, changed files, and commit Review;
 - git status, diff, and blame;

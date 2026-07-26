@@ -269,6 +269,45 @@ export function rawWorkspaceFileUrl(rootId: string, filePath: string, sha1?: str
   return appPath(`/api/files/raw?${params.toString()}`)
 }
 
+export interface WorkspaceHtmlPreviewSession {
+  id: string
+  kind: 'static'
+  expiresAt: number
+}
+
+export async function createWorkspaceHtmlPreview(
+  rootId: string,
+  filePath: string,
+  options: { signal?: AbortSignal; exactExternal?: boolean } = {},
+) {
+  const response = await fetch(appPath('/api/files/previews'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      rootId,
+      path: filePath,
+      ...(options.exactExternal ? { exact: true } : {}),
+    }),
+    signal: options.signal,
+  })
+  const body = await readJson<{ preview: WorkspaceHtmlPreviewSession }>(response)
+  return body.preview
+}
+
+export function workspaceHtmlPreviewUrl(previewId: string, scope: 'base' | 'root', resourcePath = '') {
+  const pathPrefix = appPath(`/api/files/previews/${encodeURIComponent(previewId)}/${scope}/`)
+  return resourcePath ? `${pathPrefix}${resourcePath.replace(/^\/+/, '')}` : pathPrefix
+}
+
+export async function deleteWorkspaceHtmlPreview(previewId: string) {
+  const response = await fetch(appPath(`/api/files/previews/${encodeURIComponent(previewId)}`), {
+    method: 'DELETE',
+  })
+  if (!response.ok && response.status !== 404) {
+    throw new Error(`Failed to close HTML preview (${response.status})`)
+  }
+}
+
 export async function saveWorkspaceFile(rootId: string, filePath: string, content: string, baseSha1: string, overwrite = false) {
   const response = await fetch(appPath('/api/files/file'), {
     method: 'PUT',

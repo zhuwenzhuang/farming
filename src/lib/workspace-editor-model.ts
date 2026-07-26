@@ -1,4 +1,5 @@
 import type { WorkspaceFile, WorkspaceFileLineChanges } from './workspace-files'
+import { workspaceFileSupportsViewer } from './workspace-viewer-registry'
 import {
   shouldShowWorkspaceWorkingCopyOverwriteAction,
   shouldShowWorkspaceWorkingCopyReloadAction,
@@ -24,9 +25,6 @@ const FALLBACK_LANGUAGE_ASSOCIATIONS = new Map([
   ['.osql', 'sql'],
   ['.zsh', 'shell'],
 ])
-
-const MARKDOWN_FILE_EXTENSIONS = new Set(['.md', '.markdown', '.mdown', '.mkd'])
-const SVG_FILE_EXTENSIONS = new Set(['.svg'])
 
 export interface WorkspaceEditorFileReference {
   agentId: string
@@ -208,11 +206,15 @@ export function workspaceEditorExtension(filePath: string) {
 }
 
 export function isWorkspaceMarkdownFile(filePath: string) {
-  return MARKDOWN_FILE_EXTENSIONS.has(workspaceEditorExtension(filePath))
+  return workspaceFileSupportsViewer(filePath, 'markdown.preview')
 }
 
 export function isWorkspaceSvgFile(filePath: string) {
-  return SVG_FILE_EXTENSIONS.has(workspaceEditorExtension(filePath))
+  return workspaceFileSupportsViewer(filePath, 'svg.preview')
+}
+
+export function isWorkspaceHtmlFile(filePath: string) {
+  return workspaceFileSupportsViewer(filePath, 'html.preview')
 }
 
 export function workspaceEditorPathSegments(filePath: string) {

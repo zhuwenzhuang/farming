@@ -65,7 +65,11 @@ async function run() {
   const externalWorkspace = path.join(tmpRoot, 'external-workspace');
   const liveProjectWorkspace = path.join(tmpRoot, 'live-project');
   const projectWorkspaces = [projectWorkspace];
-  const service = new WorkspaceFileService({ maxFileSize: 64, maxWriteSize: 1024 * 32 });
+  const service = new WorkspaceFileService({
+    maxFileSize: 64,
+    maxWriteSize: 1024 * 32,
+    maxPreviewFileSize: 128,
+  });
 
   try {
     fs.mkdirSync(mainWorkspace, { recursive: true });
@@ -82,15 +86,29 @@ async function run() {
       'base64'
     ));
     fs.writeFileSync(path.join(projectWorkspace, 'icon.svg'), '<svg><rect/></svg>\n');
+    fs.mkdirSync(path.join(projectWorkspace, 'site', 'assets'), { recursive: true });
+    fs.writeFileSync(path.join(projectWorkspace, 'site', 'index.html'), '<!doctype html><link rel="stylesheet" href="assets/site.css"><h1>Preview</h1>\n');
+    fs.writeFileSync(path.join(projectWorkspace, 'site', 'assets', 'site.css'), 'h1 { color: rgb(1, 2, 3); }\n');
+    fs.writeFileSync(path.join(projectWorkspace, 'site', 'UPPER.HTML'), '<link href="/root.css"><img src="/root.png"><h1>Uppercase</h1>\n');
+    fs.writeFileSync(path.join(projectWorkspace, 'site', 'assets', 'space name.css'), 'body { color: purple; }\n');
+    fs.writeFileSync(path.join(projectWorkspace, 'site', 'assets', 'large.dat'), Buffer.alloc(256, 1));
+    fs.mkdirSync(path.join(projectWorkspace, 'site', 'folder.html'));
     const globalReadFile = path.join(projectWorkspace, 'global-note.md');
     fs.writeFileSync(globalReadFile, 'global file\n');
     const forbiddenGlobalReadFile = path.join(tmpRoot, 'outside-project.md');
     fs.writeFileSync(forbiddenGlobalReadFile, 'outside project\n');
+    fs.symlinkSync(forbiddenGlobalReadFile, path.join(projectWorkspace, 'site', 'escape-link.md'));
     const exactExternalPreviewFile = path.join(tmpRoot, 'outside-project.png');
     fs.writeFileSync(exactExternalPreviewFile, Buffer.from(
       'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgF/2l2fLwAAAABJRU5ErkJggg==',
       'base64'
     ));
+    const exactExternalHtmlRoot = path.join(tmpRoot, 'external-site');
+    fs.mkdirSync(path.join(exactExternalHtmlRoot, 'assets'), { recursive: true });
+    const exactExternalHtmlFile = path.join(exactExternalHtmlRoot, 'index.html');
+    fs.writeFileSync(exactExternalHtmlFile, '<link rel="stylesheet" href="assets/site.css"><h1>External preview</h1>\n');
+    fs.writeFileSync(path.join(exactExternalHtmlRoot, 'assets', 'site.css'), 'h1 { color: rgb(4, 5, 6); }\n');
+    fs.symlinkSync(forbiddenGlobalReadFile, path.join(exactExternalHtmlRoot, 'assets', 'escape.md'));
 
     const agentManager = {
       configManager: {
@@ -182,6 +200,31 @@ async function run() {
       const exactExternalRaw = await fetchRaw(baseUrl, `/api/files/raw?agentId=${GLOBAL_WORKSPACE_FILES_AGENT_ID}&path=${encodeURIComponent(exactExternalPreviewFile.replace(/^\/+/, ''))}&exact=1`);
       assert.strictEqual(exactExternalRaw.response.status, 200);
       assert(exactExternalRaw.response.headers.get('content-type').includes('image/png'));
+      const exactExternalHtmlPath = exactExternalHtmlFile.replace(/^\/+/, '');
+      const deniedExternalHtmlPreview = await fetchJson(baseUrl, '/api/files/previews', {
+        method: 'POST',
+        body: JSON.stringify({ agentId: GLOBAL_WORKSPACE_FILES_AGENT_ID, path: exactExternalHtmlPath }),
+      });
+      assert.strictEqual(deniedExternalHtmlPreview.response.status, 403);
+      const exactExternalHtmlPreview = await fetchJson(baseUrl, '/api/files/previews', {
+        method: 'POST',
+        body: JSON.stringify({
+          agentId: GLOBAL_WORKSPACE_FILES_AGENT_ID,
+          path: exactExternalHtmlPath,
+          exact: true,
+        }),
+      });
+      assert.strictEqual(exactExternalHtmlPreview.response.status, 201);
+      const exactExternalHtmlPreviewId = exactExternalHtmlPreview.body.preview.id;
+      const exactExternalHtmlCss = await fetchRaw(baseUrl, `/api/files/previews/${exactExternalHtmlPreviewId}/base/assets/site.css`);
+      assert.strictEqual(exactExternalHtmlCss.response.status, 200);
+      assert(exactExternalHtmlCss.buffer.toString('utf8').includes('rgb(4, 5, 6)'));
+      const exactExternalHtmlEscape = await fetchJson(baseUrl, `/api/files/previews/${exactExternalHtmlPreviewId}/base/..%2Foutside-project.md`);
+      assert.strictEqual(exactExternalHtmlEscape.response.status, 403);
+      const exactExternalHtmlSymlinkEscape = await fetchJson(baseUrl, `/api/files/previews/${exactExternalHtmlPreviewId}/base/assets/escape.md`);
+      assert.strictEqual(exactExternalHtmlSymlinkEscape.response.status, 403);
+      const exactExternalRootScopeEscape = await fetchJson(baseUrl, `/api/files/previews/${exactExternalHtmlPreviewId}/root/${forbiddenGlobalReadPath}`);
+      assert.strictEqual(exactExternalRootScopeEscape.response.status, 403);
       const globalWrite = await fetchJson(baseUrl, '/api/files/file', {
         method: 'PUT',
         body: JSON.stringify({
@@ -223,6 +266,71 @@ async function run() {
       assert(rawSvgPreview.buffer.toString('utf8').includes('<rect'));
       const rawEscaped = await fetchJson(baseUrl, '/api/files/raw?agentId=agent-main&path=../secret.png');
       assert.strictEqual(rawEscaped.response.status, 403);
+
+      const htmlPreview = await fetchJson(baseUrl, '/api/files/previews', {
+        method: 'POST',
+        body: JSON.stringify({ agentId: 'agent-main', path: 'site/index.html' }),
+      });
+      assert.strictEqual(htmlPreview.response.status, 201);
+      assert.strictEqual(htmlPreview.body.preview.kind, 'static');
+      assert(Number.isFinite(htmlPreview.body.preview.expiresAt));
+      const previewId = htmlPreview.body.preview.id;
+      const previewHtml = await fetchRaw(baseUrl, `/api/files/previews/${previewId}/base/index.html`);
+      assert.strictEqual(previewHtml.response.status, 200);
+      assert(previewHtml.response.headers.get('content-type').includes('text/html'));
+      assert(previewHtml.response.headers.get('content-security-policy').includes("script-src 'none'"));
+      assert.strictEqual(previewHtml.response.headers.get('cache-control'), 'no-store');
+      assert.strictEqual(previewHtml.response.headers.get('x-content-type-options'), 'nosniff');
+      assert.strictEqual(Number(previewHtml.response.headers.get('content-length')), previewHtml.buffer.length);
+      assert(previewHtml.buffer.toString('utf8').includes('<h1>Preview</h1>'));
+      const previewCss = await fetchRaw(baseUrl, `/api/files/previews/${previewId}/base/assets/site.css`);
+      assert.strictEqual(previewCss.response.status, 200);
+      assert(previewCss.response.headers.get('content-type').includes('text/css'));
+      assert(previewCss.buffer.toString('utf8').includes('rgb(1, 2, 3)'));
+      const previewCssWithSpace = await fetchRaw(baseUrl, `/api/files/previews/${previewId}/base/assets/space%20name.css`);
+      assert.strictEqual(previewCssWithSpace.response.status, 200);
+      assert(previewCssWithSpace.buffer.toString('utf8').includes('purple'));
+      const oversizedPreviewAsset = await fetchJson(baseUrl, `/api/files/previews/${previewId}/base/assets/large.dat`);
+      assert.strictEqual(oversizedPreviewAsset.response.status, 413);
+      const missingPreviewAsset = await fetchJson(baseUrl, `/api/files/previews/${previewId}/base/assets/missing.css`);
+      assert.strictEqual(missingPreviewAsset.response.status, 404);
+      const invalidPreviewScope = await fetchJson(baseUrl, `/api/files/previews/${previewId}/invalid/index.html`);
+      assert.strictEqual(invalidPreviewScope.response.status, 400);
+      const previewEscape = await fetchJson(baseUrl, `/api/files/previews/${previewId}/base/..%2F..%2Foutside-project.md`);
+      assert.strictEqual(previewEscape.response.status, 403);
+      const previewSymlinkEscape = await fetchJson(baseUrl, `/api/files/previews/${previewId}/base/escape-link.md`);
+      assert.strictEqual(previewSymlinkEscape.response.status, 403);
+      const deletedPreview = await fetchWithRetry(`${baseUrl}/api/files/previews/${previewId}`, { method: 'DELETE' });
+      assert.strictEqual(deletedPreview.status, 204);
+      const expiredPreview = await fetchJson(baseUrl, `/api/files/previews/${previewId}/base/index.html`);
+      assert.strictEqual(expiredPreview.response.status, 404);
+      const nonHtmlPreview = await fetchJson(baseUrl, '/api/files/previews', {
+        method: 'POST',
+        body: JSON.stringify({ agentId: 'agent-main', path: 'README.md' }),
+      });
+      assert.strictEqual(nonHtmlPreview.response.status, 415);
+      const uppercaseHtmlPreview = await fetchJson(baseUrl, '/api/files/previews', {
+        method: 'POST',
+        body: JSON.stringify({ agentId: 'agent-main', path: 'site/UPPER.HTML' }),
+      });
+      assert.strictEqual(uppercaseHtmlPreview.response.status, 201);
+      const uppercasePreviewId = uppercaseHtmlPreview.body.preview.id;
+      const rewrittenUppercaseHtml = await fetchRaw(baseUrl, `/api/files/previews/${uppercasePreviewId}/base/UPPER.HTML`);
+      assert.strictEqual(rewrittenUppercaseHtml.response.status, 200);
+      const rewrittenUppercaseSource = rewrittenUppercaseHtml.buffer.toString('utf8');
+      assert(rewrittenUppercaseSource.includes(`/api/files/previews/${uppercasePreviewId}/root/root.css`));
+      assert(rewrittenUppercaseSource.includes(`/api/files/previews/${uppercasePreviewId}/root/root.png`));
+      assert.strictEqual(Number(rewrittenUppercaseHtml.response.headers.get('content-length')), rewrittenUppercaseHtml.buffer.length);
+      const htmlDirectoryPreview = await fetchJson(baseUrl, '/api/files/previews', {
+        method: 'POST',
+        body: JSON.stringify({ agentId: 'agent-main', path: 'site/folder.html' }),
+      });
+      assert.strictEqual(htmlDirectoryPreview.response.status, 400);
+      const missingHtmlPreview = await fetchJson(baseUrl, '/api/files/previews', {
+        method: 'POST',
+        body: JSON.stringify({ agentId: 'agent-main', path: 'site/missing.html' }),
+      });
+      assert.strictEqual(missingHtmlPreview.response.status, 404);
 
       const saved = await fetchJson(baseUrl, '/api/files/file', {
         method: 'PUT',

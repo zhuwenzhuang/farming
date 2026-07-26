@@ -15,6 +15,7 @@ import {
   replaceOpenWorkspaceFile,
   reopenLastClosedWorkspaceOpenFile,
   refreshWorkspaceOpenFilesFromReads,
+  reorderWorkspaceOpenFiles,
   selectWorkspaceOpenFile,
   updateWorkspaceOpenFile,
   updateWorkspaceOpenFileDraft,
@@ -176,6 +177,12 @@ export function useWorkspaceOpenFiles() {
     })
   }, [commitState])
 
+  const reorder = useCallback((sourceKey: string, targetKey: string, position: 'before' | 'after') => {
+    const nextState = reorderWorkspaceOpenFiles(stateRef.current, sourceKey, targetKey, position)
+    if (nextState !== stateRef.current) commitState(nextState)
+    return nextState
+  }, [commitState])
+
   const move = useCallback((agentId: string, moves: readonly WorkspaceFileMove[]) => {
     const nextState = moveWorkspaceOpenFiles(stateRef.current, agentId, moves)
     if (nextState !== stateRef.current) commitState(nextState)
@@ -212,7 +219,8 @@ export function useWorkspaceOpenFiles() {
     update,
     refreshFromReads,
     updateDraft,
+    reorder,
     move,
     deleteEntries,
-  }), [closedFiles, close, deleteEntries, move, openFromRead, refreshFromReads, reopenLastClosed, select, state.activeFile, state.files, update, updateDraft])
+  }), [closedFiles, close, deleteEntries, move, openFromRead, refreshFromReads, reorder, reopenLastClosed, select, state.activeFile, state.files, update, updateDraft])
 }

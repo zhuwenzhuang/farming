@@ -1,8 +1,9 @@
 import { iconForFilePath } from '@/lib/file-icons'
-import { isWorkspaceSvgFile, workspaceEditorBasename as basename } from '@/lib/workspace-editor-model'
+import { isWorkspaceHtmlFile, isWorkspaceSvgFile, workspaceEditorBasename as basename } from '@/lib/workspace-editor-model'
 import type { OpenWorkspaceFile } from '@/lib/workspace-open-files'
 import { rawWorkspaceFileUrl } from '@/lib/workspace-files'
 import type { CodeCopy } from '../code/copy'
+import { FileEditorHtmlPreview } from './FileEditorHtmlPreview'
 
 interface FileEditorPreviewPanelProps {
   openFile: OpenWorkspaceFile
@@ -24,6 +25,16 @@ export function FileEditorPreviewPanel({
   const imagePreview = filePreview?.kind === 'image' ? filePreview : sourceImagePreview
   const pdfPreview = filePreview?.kind === 'pdf' ? filePreview : null
   const binaryPreview = filePreview?.kind === 'binary' ? filePreview : null
+
+  if (sourcePreviewOpen && isWorkspaceHtmlFile(openFile.file.path)) {
+    return (
+      <FileEditorHtmlPreview
+        activeTabDomId={activeTabDomId}
+        copy={copy}
+        openFile={openFile}
+      />
+    )
+  }
 
   if (imagePreview) {
     return (

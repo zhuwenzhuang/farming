@@ -91,7 +91,9 @@ Current implementation boundaries:
 - `FileEditorOverlays` owns editor floating UI composition, including `FileEditorContextMenu`, `FileEditorTabContextMenu`, `FileEditorSaveConfirmDialog`, and blame status toasts; `FileEditorPane` keeps only the action handlers and state transitions that affect Monaco or open-file state.
 - `FileEditorBlameDetail` and `FileEditorBlameToast` own blame detail/status presentation; `FileEditorPane` still owns blame loading, capability checks, and visible-range overlay placement.
 - `FileEditorMarkdownPreview` owns rendered Markdown source previews in the editor pane.
-- `FileEditorPreviewPanel` owns image, PDF, and binary preview rendering, and `FileEditorInlineBlameLayer` owns inline blame annotation rows. Absolute local PDF links from Chat resolve through the workspace-file boundary and open in this pane instead of becoming browser routes.
+- `workspace-viewer-registry.ts` is the internal built-in Viewer lookup for source files. It currently maps Markdown, SVG, and HTML extensions without exposing a public dynamic loading API.
+- `FileEditorHtmlPreview` owns the sandboxed HTML draft document and one backend Preview Session. Mount creates the session, unmount deletes it, late creation after cancellation is deleted immediately, and creation failure remains visible in the preview pane.
+- `FileEditorPreviewPanel` owns HTML, image, PDF, and binary preview composition, and `FileEditorInlineBlameLayer` owns inline blame annotation rows. Absolute local PDF links from Chat resolve through the workspace-file boundary and open in this pane instead of becoming browser routes.
 
 ## Visual Rules
 
@@ -136,13 +138,14 @@ The right pane is a lightweight editor surface:
 
 - Monaco for text files;
 - in-editor Markdown preview toggled from Markdown source files;
+- sandboxed static HTML preview toggled from HTML source files, using the current unsaved draft while relative CSS, image, font, and media resources load through a bounded project-scoped Preview Session; relative HTML navigation and destination-page root-relative resources remain inside that Session;
 - workspace links followed from a Markdown document inherit that document's source Agent, so the return-to-Agent control remains available across document navigation;
 - preview for image, PDF, and binary files;
 - readonly mode for oversized files;
-- tabs with mature `tablist` semantics;
+- tabs with mature `tablist` semantics, mouse drag reordering, and a lighter active-tab/content seam than the surrounding strip divider;
 - transient preview tabs for mouse clicks in the Explorer tree; search results, `path:line`, keyboard Enter, and review/diff opens create pinned tabs, and editing pins a transient tab;
 - per-file Monaco model and view state;
-- breadcrumb as lightweight context on source, split-preview, and diff surfaces; pure rendered Markdown preview omits it;
+- breadcrumb as lightweight context on source, split-preview, and diff surfaces; pure rendered Markdown, HTML, image, PDF, and binary preview surfaces omit it;
 - dirty close confirmation.
 - a project-scoped Changes list for working-tree review;
 - line-change inspection from the editor context menu;
@@ -169,6 +172,7 @@ The backend remains intentionally thin:
 - read / save with version checks;
 - create / rename / delete / move;
 - search through `rg` where available;
+- bounded static HTML Preview Sessions served through the existing authenticated HTTP listener, with no second preview port and no script-capable fallback;
 - bounded git history, commit changes, status, diff, blame, and line changes through `git`;
 - explicit refresh of the root, expanded directories, working-copy Changes, and currently open files from the stable Project Files id. The frontend does not subscribe to workspace watcher events until recursive coverage and bounded delivery are both correct.
 
@@ -179,6 +183,7 @@ Farming should reuse mature tools instead of building a full custom IDE backend.
 Large workspaces should stay usable through bounded operations:
 
 - file reads and writes keep size caps;
+- HTML Preview Sessions have fixed expiry and capacity bounds, and each resource read keeps the preview-file size cap;
 - directory trees load lazily by directory;
 - after the Code workspace first renders, it starts one shared non-blocking preload of the dynamic file-editor module, Monaco core, and common syntax tokenizers; opening a file reuses that promise, while language workers remain demand-loaded and a background preload failure never reloads the page on its own;
 - TypeScript and JavaScript keep Monaco syntax diagnostics but disable its semantic and suggestion diagnostics until Farming has a project-backed language service; virtual editor models do not load the workspace's compiler configuration, dependency declarations, or complete file graph, so project-level markers would be misleading;

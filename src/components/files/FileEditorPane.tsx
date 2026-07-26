@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import * as monaco from 'monaco-editor'
 import {
+  isWorkspaceHtmlFile,
   isWorkspaceMarkdownFile,
   isWorkspaceSvgFile,
   workspaceEditorFileMode,
@@ -48,6 +49,7 @@ interface FileEditorPaneProps {
   onNavigateHistory: (direction: -1 | 1) => boolean
   onCloseOpenFile: (agentId: string, filePath: string, workspaceRoot?: string) => void
   onCloseOpenFiles: (targets: WorkspaceOpenFileTarget[]) => void
+  onReorderOpenFile: (sourceKey: string, targetKey: string, position: 'before' | 'after') => void
   onRevealInExplorer: (agentId: string, filePath: string, kind: 'directory' | 'file') => void
   onFocusFilesSearch: (agentId: string) => void
   onRecordNavigationCursor?: (input: WorkspaceNavigationFileInput) => void
@@ -88,6 +90,7 @@ export function FileEditorPane({
   onNavigateHistory,
   onCloseOpenFile,
   onCloseOpenFiles,
+  onReorderOpenFile,
   onRevealInExplorer,
   onFocusFilesSearch,
   onRecordNavigationCursor,
@@ -103,7 +106,9 @@ export function FileEditorPane({
   const [wordWrapEnabled, setWordWrapEnabled] = useState(readWordWrapPreference)
   const activeFileKey = workspaceEditorModelKey(openFile)
   const canPreviewMarkdown = !editorMode.preview && !editorMode.diffOnly && isWorkspaceMarkdownFile(openFile.file.path)
-  const canPreviewSource = !editorMode.preview && !editorMode.diffOnly && isWorkspaceSvgFile(openFile.file.path)
+  const canPreviewSource = !editorMode.preview && !editorMode.diffOnly && (
+    isWorkspaceSvgFile(openFile.file.path) || isWorkspaceHtmlFile(openFile.file.path)
+  )
   const sourcePreviewPreference = sourcePreviewByFileKey[activeFileKey]
   const sourcePreviewOpen = canPreviewMarkdown || canPreviewSource
     ? sourcePreviewPreference !== false
@@ -221,6 +226,7 @@ export function FileEditorPane({
     onClearBlameDetail: clearBlameDetail,
   })
   const markdownPreviewVisible = markdownPreviewOpen && !diffState.open
+  const visualPreviewVisible = !diffState.open && (sourceVisualPreviewOpen || editorMode.visualPreview)
 
   const {
     blameOverlay,
@@ -332,6 +338,7 @@ export function FileEditorPane({
         onTabAuxClick={handleEditorTabAuxClick}
         onTabKeyDown={handleEditorTabKeyDown}
         onCloseTab={closeEditorTab}
+        onReorderOpenFile={onReorderOpenFile}
         onRevealInExplorer={onRevealInExplorer}
         onSave={saveFile}
         onReload={reloadFile}
@@ -342,7 +349,7 @@ export function FileEditorPane({
         canPreviewMarkdown={canPreviewMarkdown}
         canPreviewSource={canPreviewSource}
         diffOpen={diffState.open}
-        markdownPreviewVisible={markdownPreviewVisible}
+        previewVisible={markdownPreviewVisible || visualPreviewVisible}
         markdownSplitOpen={markdownSplitOpen}
         sourcePreviewOpen={sourcePreviewOpen}
         wordWrapEnabled={wordWrapEnabled}

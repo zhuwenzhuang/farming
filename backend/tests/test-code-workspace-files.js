@@ -436,6 +436,8 @@ function run() {
       workspaceSource.includes("kind: 'agent'") &&
       workspaceSource.includes('const restoreWorkspaceShareTarget = useCallback') &&
       workspaceSource.includes('workspaceFileOpenTargetFromShareTarget(target)') &&
+      workspaceSource.includes("resolvedPath.globalRoot ? { globalRoot: true, exactExternal: true } : {}") &&
+      workspaceSource.includes('exactExternal: resolvedPath.globalRoot') &&
       workspaceSource.includes("target.kind === 'folder'") &&
       workspaceSource.includes("revealWorkspaceFileInExplorer(identity.filesId, resolvedPath.filePath, 'directory')") &&
       workspaceSource.includes('resolveWorkspaceSharePath(') &&

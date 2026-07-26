@@ -4,6 +4,7 @@ const os = require('os');
 const path = require('path');
 const { inspectGitWorktree } = require('./git-worktree-info');
 const { WorkspaceFileError } = require('./workspace-file-service');
+const { PreviewSessionManager } = require('./preview-session-manager');
 const {
   GLOBAL_WORKSPACE_FILES_AGENT_ID,
   GLOBAL_WORKSPACE_FILES_ROOT,
@@ -55,6 +56,53 @@ function realPathIfPresent(value) {
 function isSameOrDescendantPath(root, target) {
   const relative = path.relative(root, target);
   return relative === '' || Boolean(relative) && !relative.startsWith('..') && !path.isAbsolute(relative);
+}
+
+function previewAuthorizedRootForTarget(allowedRoots, target) {
+  return allowedRoots
+    .filter(root => isSameOrDescendantPath(root, target))
+    .sort((left, right) => right.length - left.length)[0] || '';
+}
+
+function normalizePreviewAssetPath(value) {
+  const normalized = path.posix.normalize(String(value || '').replace(/\\/g, '/').replace(/^\/+/, ''));
+  if (!normalized || normalized === '.') return '';
+  if (normalized === '..' || normalized.startsWith('../') || path.posix.isAbsolute(normalized)) {
+    throw new WorkspaceFileError('preview path must stay inside the authorized root', 403);
+  }
+  return normalized;
+}
+
+function previewContentSecurityPolicy() {
+  return [
+    "default-src 'none'",
+    "script-src 'none'",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data:",
+    "font-src 'self' data:",
+    "media-src 'self' data:",
+    "connect-src 'none'",
+    "frame-src 'none'",
+    "object-src 'none'",
+    "base-uri 'none'",
+    "form-action 'none'",
+    "frame-ancestors 'self'",
+  ].join('; ');
+}
+
+function escapeHtmlAttribute(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function rewritePreviewHtmlRootReferences(source, rootUrl) {
+  const safeRootUrl = escapeHtmlAttribute(rootUrl);
+  return String(source || '')
+    .replace(/(\b(?:href|src|poster)\s*=\s*["'])\/(?!\/)/gi, `$1${safeRootUrl}`)
+    .replace(/(url\(\s*["']?)\/(?!\/)/gi, `$1${safeRootUrl}`);
 }
 
 function globalUserPathToAbsolute(userPath = '') {
@@ -222,6 +270,7 @@ function readOptionsForAgent(agentManager, agentId) {
 function createWorkspaceFileRouter(agentManager, fileService, options = {}) {
   const router = express.Router();
   const rootRegistry = options.rootRegistry || workspaceRootRegistryFor(agentManager);
+  const previewSessions = options.previewSessionManager || new PreviewSessionManager();
 
   router.use(express.json({ limit: '3mb' }));
 
@@ -285,6 +334,98 @@ function createWorkspaceFileRouter(agentManager, fileService, options = {}) {
     } catch (error) {
       sendWorkspaceFileError(res, error);
     }
+  });
+
+  router.post('/previews', async (req, res) => {
+    try {
+      const body = req.body || {};
+      const rootRef = workspaceRef(body);
+      let entryPath = String(body.path || '').trim();
+      if (!/\.html?$/i.test(entryPath)) {
+        throw new WorkspaceFileError('HTML preview requires an .html or .htm file', 415);
+      }
+
+      let authorizedRoot;
+      if (isGlobalWorkspaceFilesAgentId(rootRef)) {
+        if (body.exact === true) {
+          entryPath = assertExactExternalFileReadable(entryPath);
+          authorizedRoot = path.dirname(realPathIfPresent(globalUserPathToAbsolute(entryPath)));
+          if (authorizedRoot === path.parse(authorizedRoot).root) {
+            throw new WorkspaceFileError('external HTML preview directory cannot be the filesystem root', 403);
+          }
+        } else {
+          const authorization = assertGlobalWorkspacePathAllowed(agentManager, entryPath);
+          authorizedRoot = previewAuthorizedRootForTarget(authorization.allowedRoots, realPathIfPresent(authorization.target));
+          if (!authorizedRoot) throw new WorkspaceFileError('global file path is outside allowed workspaces', 403);
+        }
+      }
+
+      const { root, rootId } = resolveRequestRoot(body);
+      await fileService.readFile(root, entryPath, { allowedExternalRoots: [] });
+      const session = previewSessions.createStatic({
+        rootId,
+        workspaceRoot: root,
+        authorizedRoot: realPathIfPresent(authorizedRoot || root),
+        entryPath,
+        baseDirectory: path.posix.dirname(entryPath) === '.' ? '' : path.posix.dirname(entryPath),
+      });
+      res.status(201).json({
+        preview: {
+          id: session.id,
+          kind: session.kind,
+          expiresAt: session.expiresAt,
+        },
+      });
+    } catch (error) {
+      sendWorkspaceFileError(res, error);
+    }
+  });
+
+  router.get('/previews/:sessionId/:scope/*', async (req, res) => {
+    try {
+      const session = previewSessions.get(req.params.sessionId);
+      if (!session) throw new WorkspaceFileError('preview session not found or expired', 404);
+      const scope = req.params.scope;
+      if (scope !== 'base' && scope !== 'root') {
+        throw new WorkspaceFileError('preview scope is invalid', 400);
+      }
+      const assetPath = normalizePreviewAssetPath(req.params[0] || '');
+      const resourcePath = scope === 'base'
+        ? path.posix.join(session.baseDirectory, assetPath)
+        : assetPath;
+      if (!resourcePath) throw new WorkspaceFileError('preview resource path is required', 400);
+
+      const absoluteTarget = realPathIfPresent(path.resolve(session.workspaceRoot, resourcePath));
+      if (!isSameOrDescendantPath(session.authorizedRoot, absoluteTarget)) {
+        throw new WorkspaceFileError('preview path must stay inside the authorized root', 403);
+      }
+
+      const file = await fileService.readResourceFile(session.workspaceRoot, resourcePath, {
+        allowedExternalRoots: [],
+      });
+      const isHtml = /\.html?$/i.test(file.path);
+      const body = isHtml
+        ? Buffer.from(rewritePreviewHtmlRootReferences(
+          file.buffer.toString('utf8'),
+          `${req.baseUrl}/previews/${encodeURIComponent(session.id)}/root/`,
+        ))
+        : file.buffer;
+      res
+        .status(200)
+        .type(path.extname(file.path) || 'application/octet-stream')
+        .set('Cache-Control', 'no-store')
+        .set('X-Content-Type-Options', 'nosniff')
+        .set('Content-Length', String(body.length));
+      if (isHtml) res.set('Content-Security-Policy', previewContentSecurityPolicy());
+      res.send(body);
+    } catch (error) {
+      sendWorkspaceFileError(res, error);
+    }
+  });
+
+  router.delete('/previews/:sessionId', (req, res) => {
+    const deleted = previewSessions.delete(req.params.sessionId);
+    res.status(deleted ? 204 : 404).end();
   });
 
   router.put('/file', async (req, res) => {

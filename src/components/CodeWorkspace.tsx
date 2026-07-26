@@ -3185,12 +3185,15 @@ export function CodeWorkspace({
 
     const openTarget = {
       ...workspaceFileOpenTargetFromShareTarget(target),
+      ...(resolvedPath.globalRoot ? { globalRoot: true, exactExternal: true } : {}),
       sourceAgentId: identity.sourceAgentId,
     }
     if (selectOpenWorkspaceFile(identity.filesId, resolvedPath.filePath, openTarget)) return true
 
     try {
-      const file = await fetchWorkspaceFile(identity.filesId, resolvedPath.filePath)
+      const file = await fetchWorkspaceFile(identity.filesId, resolvedPath.filePath, {
+        exactExternal: resolvedPath.globalRoot,
+      })
       await openProjectFile(identity.filesId, file, openTarget)
       return true
     } catch {
@@ -3341,6 +3344,10 @@ export function CodeWorkspace({
   const closeOpenWorkspaceFile = useCallback((agentId: string, filePath: string, workspaceRoot?: string) => {
     closeOpenWorkspaceFiles([{ agentId, filePath, workspaceRoot }])
   }, [closeOpenWorkspaceFiles])
+
+  const reorderOpenWorkspaceFile = useCallback((sourceKey: string, targetKey: string, position: 'before' | 'after') => {
+    workspaceOpenFiles.reorder(sourceKey, targetKey, position)
+  }, [workspaceOpenFiles])
 
   const reopenLastClosedWorkspaceFile = useCallback(() => {
     const nextState = workspaceOpenFiles.reopenLastClosed(file => workspaceNavigationFileIds.has(file.agentId))
@@ -5375,6 +5382,7 @@ export function CodeWorkspace({
         onNavigateWorkspaceHistory={navigateWorkspaceHistory}
         onCloseOpenWorkspaceFile={closeOpenWorkspaceFile}
         onCloseOpenWorkspaceFiles={closeOpenWorkspaceFiles}
+        onReorderOpenWorkspaceFile={reorderOpenWorkspaceFile}
         onRevealWorkspaceFileInExplorer={revealWorkspaceFileInExplorer}
         onFocusWorkspaceFilesSearch={focusWorkspaceFilesSearch}
         onRecordWorkspaceNavigationCursor={recordWorkspaceNavigationFileCursor}

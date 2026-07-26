@@ -93,7 +93,7 @@ Agent Row 会逐级利用侧栏的可用宽度，同时保持紧凑行高：窄�
 Editor 是轻量介入 Surface：
 
 - 带版本检查的 Monaco 文本编辑；
-- Markdown 与图片 Preview；
+- Markdown、SVG 与沙箱化静态 HTML Preview；
 - Workspace Root 内的创建、重命名、移动和删除；
 - 有边界的 Commit Graph、Branch/Tag、Merge Parent 选择、变更文件与 Commit Review；
 - Git Status、Diff 和 Blame；

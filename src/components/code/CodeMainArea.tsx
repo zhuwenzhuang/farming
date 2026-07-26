@@ -9,7 +9,7 @@ import type {
 } from '@/lib/workspace-open-files'
 import type { WorkspaceNavigationFileInput } from '@/lib/workspace-navigation-history'
 import { isCompactViewport, isTouchInputViewport } from '@/lib/responsive-mode'
-import { isWorkspaceMarkdownFile } from '@/lib/workspace-editor-model'
+import { isWorkspaceHtmlFile, isWorkspaceMarkdownFile, isWorkspaceSvgFile } from '@/lib/workspace-editor-model'
 import { AgentWorkPane } from './AgentWorkPane'
 import { CodeComposer } from './CodeComposer'
 import { AcpComposer } from './acp/AcpComposer'
@@ -145,7 +145,10 @@ function FileEditorFallback({
 }) {
   const segments = pathSegments(openFile.file.path)
   const projectLabel = workspaceLabel(openFile.workspaceRoot)
-  const showBreadcrumbs = !isWorkspaceMarkdownFile(openFile.file.path)
+  const showBreadcrumbs = !openFile.file.preview
+    && !isWorkspaceMarkdownFile(openFile.file.path)
+    && !isWorkspaceHtmlFile(openFile.file.path)
+    && !isWorkspaceSvgFile(openFile.file.path)
   const breadcrumbTitle = openFile.workspaceRoot
     ? `${openFile.workspaceRoot.replace(/[\\/]+$/, '')}/${openFile.file.path}`
     : openFile.file.path
@@ -298,6 +301,7 @@ interface CodeMainAreaProps {
   onNavigateWorkspaceHistory: (direction: -1 | 1) => boolean
   onCloseOpenWorkspaceFile: (agentId: string, filePath: string, workspaceRoot?: string) => void
   onCloseOpenWorkspaceFiles: (targets: WorkspaceOpenFileTarget[]) => void
+  onReorderOpenWorkspaceFile: (sourceKey: string, targetKey: string, position: 'before' | 'after') => void
   onRevealWorkspaceFileInExplorer: (agentId: string, filePath: string, kind: 'directory' | 'file') => void
   onFocusWorkspaceFilesSearch: (agentId: string) => void
   onRecordWorkspaceNavigationCursor: (input: WorkspaceNavigationFileInput) => void
@@ -513,6 +517,7 @@ export function CodeMainArea({
   onNavigateWorkspaceHistory,
   onCloseOpenWorkspaceFile,
   onCloseOpenWorkspaceFiles,
+  onReorderOpenWorkspaceFile,
   onRevealWorkspaceFileInExplorer,
   onFocusWorkspaceFilesSearch,
   onRecordWorkspaceNavigationCursor,
@@ -698,6 +703,7 @@ export function CodeMainArea({
             onNavigateHistory={onNavigateWorkspaceHistory}
             onCloseOpenFile={onCloseOpenWorkspaceFile}
             onCloseOpenFiles={onCloseOpenWorkspaceFiles}
+            onReorderOpenFile={onReorderOpenWorkspaceFile}
             onRevealInExplorer={onRevealWorkspaceFileInExplorer}
             onFocusFilesSearch={onFocusWorkspaceFilesSearch}
             onRecordNavigationCursor={onRecordWorkspaceNavigationCursor}

@@ -2199,6 +2199,25 @@ class WorkspaceFileService {
     };
   }
 
+  async readResourceFile(workspaceRoot, userPath, options = {}) {
+    const { target, relativePath } = await this.resolvePath(workspaceRoot, userPath, options);
+    const stat = await fsp.stat(target);
+    if (!stat.isFile()) {
+      throw new WorkspaceFileError('path must be a file', 400);
+    }
+    if (stat.size > this.maxPreviewFileSize) {
+      throw new WorkspaceFileError('file is too large to preview', 413, { size: stat.size });
+    }
+    const buffer = await fsp.readFile(target);
+    return {
+      path: relativePath,
+      buffer,
+      size: stat.size,
+      mtimeMs: stat.mtimeMs,
+      sha1: sha1(buffer),
+    };
+  }
+
   async blameCapability(workspaceRoot, userPath, options = {}) {
     const { root, target, relativePath, actualRelativePath, external } = await this.resolvePath(workspaceRoot, userPath, options);
     const capability = (available, reason = '') => ({

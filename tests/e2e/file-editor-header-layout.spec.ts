@@ -9,6 +9,11 @@ import {
   test,
 } from './fixtures'
 
+function colorAlpha(value: string) {
+  const match = value.match(/rgba\([^,]+,[^,]+,[^,]+,\s*([\d.]+)\)/)
+  return match ? Number(match[1]) : value === 'transparent' ? 0 : 1
+}
+
 test('overlays right-side file actions on overflowing tabs and shows a seamless breadcrumb', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   const workspaceRoot = path.join(PLAYWRIGHT_WORKSPACE_ROOT, 'editor-header-project')
@@ -16,6 +21,8 @@ test('overlays right-side file actions on overflowing tabs and shows a seamless 
   fs.rmSync(workspaceRoot, { recursive: true, force: true })
   fs.mkdirSync(docsDir, { recursive: true })
   fs.writeFileSync(path.join(docsDir, 'report.md'), '# Report\n')
+  fs.writeFileSync(path.join(docsDir, 'alpha.md'), '# Alpha\n')
+  fs.writeFileSync(path.join(docsDir, 'beta.md'), '# Beta\n')
 
   await openFarming(page)
   await openNewAgentDialog(page)
@@ -31,10 +38,39 @@ test('overlays right-side file actions on overflowing tabs and shows a seamless 
   const docsRow = files.locator('[data-testid="code-file-row"][data-file-path="docs"]')
   await expect(docsRow).toBeVisible()
   await docsRow.click()
-  await files.locator('[data-testid="code-file-row"][data-file-path="docs/report.md"]').click()
-
   const editor = page.getByTestId('code-file-editor')
+  const pinMarkdownFile = async (filePath: string) => {
+    const fileName = path.basename(filePath)
+    await files.locator(`[data-testid="code-file-row"][data-file-path="${filePath}"]`).click()
+    await expect(editor.getByRole('tab', { selected: true }).locator('.code-file-editor-tab-name')).toHaveText(fileName)
+    const sourceToggle = editor.locator('.code-file-editor-action.source-preview')
+    await sourceToggle.click()
+    const monaco = editor.locator('.code-file-monaco')
+    await expect(monaco).toBeVisible()
+    await monaco.click()
+    await page.keyboard.type(' ')
+    await expect(editor.getByRole('tab', { selected: true }).locator('.code-file-editor-dirty')).toBeVisible()
+    await sourceToggle.click()
+    await expect(editor.getByTestId('code-file-markdown-preview')).toBeVisible()
+  }
+  await pinMarkdownFile('docs/report.md')
+  await pinMarkdownFile('docs/alpha.md')
+  await pinMarkdownFile('docs/beta.md')
+
   const tabStrip = editor.locator('.code-file-editor-tab-strip')
+  const tabNames = editor.locator('.code-file-editor-tab-name')
+  await expect(tabNames).toHaveText(['report.md', 'alpha.md', 'beta.md'])
+  const reportTab = editor.getByRole('tab', { name: /report\.md/ })
+  const betaTab = editor.getByRole('tab', { name: /beta\.md/ })
+  const betaBox = await betaTab.boundingBox()
+  if (!betaBox) throw new Error('beta tab bounds are missing')
+  await reportTab.dragTo(betaTab, {
+    targetPosition: { x: Math.max(1, betaBox.width - 2), y: betaBox.height / 2 },
+  })
+  await expect(tabNames).toHaveText(['alpha.md', 'beta.md', 'report.md'])
+  await expect(editor.getByRole('tab', { selected: true })).toContainText('beta.md')
+  await reportTab.click()
+  await expect(editor.getByRole('tab', { selected: true })).toContainText('report.md')
   const actions = editor.locator('.code-file-editor-actions')
   const breadcrumbBar = editor.locator('.code-file-editor-bar')
   await expect(breadcrumbBar).toHaveCount(0)
@@ -67,7 +103,7 @@ test('overlays right-side file actions on overflowing tabs and shows a seamless 
     const tabStrip = element.querySelector<HTMLElement>('.code-file-editor-tab-strip')!
     const actions = element.querySelector<HTMLElement>('.code-file-editor-actions')!
     const tabs = element.querySelector<HTMLElement>('.code-file-editor-tabs')!
-    const activeTab = tabs.querySelector<HTMLElement>('.code-file-editor-tab')!
+    const activeTab = tabs.querySelector<HTMLElement>('.code-file-editor-tab.active')!
     const breadcrumbs = element.querySelector<HTMLElement>('.code-file-editor-breadcrumbs')!
     const breadcrumbBar = element.querySelector<HTMLElement>('.code-file-editor-bar')!
     const content = element.querySelector<HTMLElement>('.code-file-monaco')!
@@ -97,6 +133,8 @@ test('overlays right-side file actions on overflowing tabs and shows a seamless 
       actionGap: getComputedStyle(actions).gap,
       actionBackground: getComputedStyle(actions).backgroundColor,
       tabStripBackground: getComputedStyle(tabStrip).backgroundColor,
+      tabStripBorderColor: getComputedStyle(tabStrip).borderBottomColor,
+      activeTabSeamColor: getComputedStyle(activeTab, '::after').backgroundColor,
       headerBorderBottomWidth: getComputedStyle(header).borderBottomWidth,
       breadcrumbBackground: getComputedStyle(breadcrumbBar).backgroundColor,
       contentBackground: getComputedStyle(content).backgroundColor,
@@ -114,6 +152,7 @@ test('overlays right-side file actions on overflowing tabs and shows a seamless 
   expect(headerLayout.actionBorderWidth).toBe('0px')
   expect(headerLayout.actionGap).toBe('2px')
   expect(headerLayout.actionBackground).toBe(headerLayout.tabStripBackground)
+  expect(colorAlpha(headerLayout.activeTabSeamColor)).toBeLessThan(colorAlpha(headerLayout.tabStripBorderColor))
   expect(headerLayout.headerBorderBottomWidth).toBe('0px')
   expect(headerLayout.breadcrumbBackground).toBe(headerLayout.contentBackground)
 

@@ -1,4 +1,11 @@
-import { type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
+import {
+  useRef,
+  useState,
+  type DragEvent as ReactDragEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
+  type ReactNode,
+} from 'react'
 import { iconForFilePath } from '@/lib/file-icons'
 import {
   workspaceEditorBasename as basename,
@@ -27,7 +34,19 @@ interface FileEditorTabsProps {
   onTabAuxClick: (event: ReactMouseEvent<HTMLDivElement>, index: number) => void
   onTabKeyDown: (event: ReactKeyboardEvent<HTMLDivElement>, index: number) => void
   onCloseTab: (index: number) => void
+  onReorderOpenFile: (sourceKey: string, targetKey: string, position: 'before' | 'after') => void
   actions: ReactNode
+}
+
+interface FileEditorTabDragState {
+  sourceKey: string
+  targetKey: string
+  position: 'before' | 'after'
+}
+
+function tabDropPosition(event: ReactDragEvent<HTMLDivElement>) {
+  const rect = event.currentTarget.getBoundingClientRect()
+  return event.clientX < rect.left + rect.width / 2 ? 'before' : 'after'
 }
 
 function HistoryBackIcon() {
@@ -68,8 +87,19 @@ export function FileEditorTabs({
   onTabAuxClick,
   onTabKeyDown,
   onCloseTab,
+  onReorderOpenFile,
   actions,
 }: FileEditorTabsProps) {
+  const [tabDrag, setTabDrag] = useState<FileEditorTabDragState | null>(null)
+  const draggedTabKeyRef = useRef<string | null>(null)
+
+  const finishTabDrag = () => {
+    setTabDrag(null)
+    window.setTimeout(() => {
+      draggedTabKeyRef.current = null
+    }, 0)
+  }
+
   return (
     <div className="code-file-editor-tab-strip">
       <div className="code-file-editor-navigation">
@@ -127,13 +157,50 @@ export function FileEditorTabs({
               key={tabKey}
               ref={element => onSetTabRef(tabKey, element)}
               className={`code-file-editor-tab ${active ? 'active' : ''} ${tabStateClass}`.trim()}
+              draggable
+              data-dragging={tabDrag?.sourceKey === tabKey ? 'true' : undefined}
+              data-drop-position={tabDrag?.targetKey === tabKey ? tabDrag.position : undefined}
               title={file.file.path}
               role="tab"
               aria-selected={active}
               aria-controls="code-file-editor-panel"
               aria-label={fileEditorTabLabel(file)}
               tabIndex={active ? 0 : -1}
-              onClick={() => onSelectOpenFile(file.agentId, file.file.path)}
+              onDragStart={event => {
+                if (event.target instanceof Element && event.target.closest('button')) {
+                  event.preventDefault()
+                  return
+                }
+                event.dataTransfer.effectAllowed = 'move'
+                event.dataTransfer.setData('text/plain', tabKey)
+                draggedTabKeyRef.current = tabKey
+                setTabDrag({ sourceKey: tabKey, targetKey: '', position: 'before' })
+              }}
+              onDragOver={event => {
+                if (!tabDrag || tabDrag.sourceKey === tabKey) return
+                event.preventDefault()
+                event.dataTransfer.dropEffect = 'move'
+                const position = tabDropPosition(event)
+                if (tabDrag.targetKey === tabKey && tabDrag.position === position) return
+                setTabDrag(current => current ? { ...current, targetKey: tabKey, position } : null)
+              }}
+              onDrop={event => {
+                event.preventDefault()
+                event.stopPropagation()
+                if (tabDrag && tabDrag.sourceKey !== tabKey) {
+                  onReorderOpenFile(tabDrag.sourceKey, tabKey, tabDropPosition(event))
+                }
+                finishTabDrag()
+              }}
+              onDragEnd={finishTabDrag}
+              onClick={event => {
+                if (draggedTabKeyRef.current === tabKey) {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  return
+                }
+                onSelectOpenFile(file.agentId, file.file.path)
+              }}
               onContextMenu={event => onOpenTabContextMenu(event, index)}
               onAuxClick={event => onTabAuxClick(event, index)}
               onKeyDown={event => onTabKeyDown(event, index)}

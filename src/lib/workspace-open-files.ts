@@ -99,6 +99,8 @@ export interface WorkspaceOpenFilesReopenOptions {
   canReopen?: (file: OpenWorkspaceFile) => boolean
 }
 
+export type WorkspaceOpenFileDropPosition = 'before' | 'after'
+
 export interface WorkspaceOpenFileDirtySnapshot {
   agentId: string
   path: string
@@ -272,6 +274,33 @@ export function replaceOpenWorkspaceFile(files: readonly OpenWorkspaceFile[], ne
   const nextFiles = [...files]
   nextFiles[index] = nextFile
   return nextFiles
+}
+
+export function reorderWorkspaceOpenFiles(
+  state: WorkspaceOpenFilesState,
+  sourceKey: string,
+  targetKey: string,
+  position: WorkspaceOpenFileDropPosition
+): WorkspaceOpenFilesState {
+  if (!sourceKey || !targetKey || sourceKey === targetKey) return state
+  const sourceIndex = state.files.findIndex(file => workspaceOpenFileKey(file) === sourceKey)
+  const targetIndex = state.files.findIndex(file => workspaceOpenFileKey(file) === targetKey)
+  if (sourceIndex < 0 || targetIndex < 0) return state
+
+  const sourceFile = state.files[sourceIndex]
+  if (!sourceFile) return state
+  const files = state.files.filter((_, index) => index !== sourceIndex)
+  const remainingTargetIndex = files.findIndex(file => workspaceOpenFileKey(file) === targetKey)
+  if (remainingTargetIndex < 0) return state
+  const insertIndex = position === 'before' ? remainingTargetIndex : remainingTargetIndex + 1
+  files.splice(insertIndex, 0, sourceFile)
+  if (files.every((file, index) => file === state.files[index])) return state
+
+  return {
+    activeFile: state.activeFile,
+    files,
+    closedFileCache: state.closedFileCache,
+  }
 }
 
 export function refreshOpenWorkspaceFileFromRead(openFile: OpenWorkspaceFile, file: OpenWorkspaceFile['file']) {

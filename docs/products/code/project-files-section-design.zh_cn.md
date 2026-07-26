@@ -130,7 +130,9 @@ Farming row renderer
 - `FileEditorOverlays`：editor 浮层组合层，负责组合 `FileEditorContextMenu`、`FileEditorTabContextMenu`、`FileEditorSaveConfirmDialog` 和 blame 状态提示；`FileEditorPane` 只保留会影响 Monaco 或 open-file 状态的 action handler。
 - `FileEditorBlameDetail` / `FileEditorBlameToast`：blame 详情和状态提示视图层；`FileEditorPane` 仍负责 blame 加载、能力探测和 visible-range overlay 定位。
 - `FileEditorMarkdownPreview`：Markdown 源文件在 editor 主区域里的渲染 preview，不改变文件 tab、保存和 diff 语义。
-- `FileEditorPreviewPanel` / `FileEditorInlineBlameLayer`：preview 和 inline blame annotation 视图层，分别负责图片、PDF、二进制 preview 以及可点击 blame 行渲染。Chat 中的绝对本地 PDF 链接必须先经过 workspace file 边界校验，并在此处打开，不能退化成浏览器路由。
+- `workspace-viewer-registry.ts`：源码文件的内部内置 Viewer 查询边界；当前映射 Markdown、SVG 和 HTML 扩展名，但不暴露公开的动态加载 API。
+- `FileEditorHtmlPreview`：负责沙箱化 HTML 草稿文档以及一个后端 Preview Session。Mount 创建 Session，Unmount 删除 Session；取消后才返回的创建结果会立即删除；创建失败保持在 Preview Pane 中可见。
+- `FileEditorPreviewPanel` / `FileEditorInlineBlameLayer`：preview 和 inline blame annotation 视图层，分别负责 HTML、图片、PDF、二进制 preview 以及可点击 blame 行渲染。Chat 中的绝对本地 PDF 链接必须先经过 workspace file 边界校验，并在此处打开，不能退化成浏览器路由。
 
 ---
 
@@ -301,10 +303,11 @@ Files
 
 - Monaco editor
 - Markdown 源文件可在同一 editor tab 内切换源码 / 渲染预览
+- HTML 源文件可在同一 editor tab 内切换源码 / 沙箱化静态预览；预览使用当前未保存草稿，相对 CSS、图片、字体和媒体资源通过有界且 Project-scoped 的 Preview Session 加载；相对 HTML 页面跳转及目标页面的 Root-relative 资源仍留在该 Session 内
 - 从 Markdown 文档点击 workspace 内部链接时，目标文档继承当前文档的来源 Agent，文档间跳转后仍保留返回 Agent 的入口
 - 图片 / PDF / 二进制只读 preview；大文本用只读 Monaco 展示文件开头内容
 - 紧凑 tab strip
-- 轻量多文件 tabs：打开过的文件保留 tab，可切换、关闭，并保留各自 dirty / external changed 状态；从目录树鼠标单击打开的是 transient preview tab，再单击另一个干净文件会复用该 tab；搜索结果、`path:line`、键盘 Enter、diff/review 打开是正式 tab；编辑后 transient tab 固定为正式 tab；tab strip 支持键盘切换和关闭，active tab 应自动滚入可见区域；editor 区域支持 `Ctrl/Cmd+PageUp` / `Ctrl/Cmd+PageDown` 切换 tab、`Ctrl/Cmd+W` 关闭当前 tab
+- 轻量多文件 tabs：打开过的文件保留 tab，可切换、关闭、鼠标拖动排序，并保留各自 dirty / external changed 状态；从目录树鼠标单击打开的是 transient preview tab，再单击另一个干净文件会复用该 tab；搜索结果、`path:line`、键盘 Enter、diff/review 打开是正式 tab；编辑后 transient tab 固定为正式 tab；tab strip 支持键盘切换和关闭，active tab 应自动滚入可见区域；active tab 与内容之间的底边应比其余 tab strip 分隔线更浅；editor 区域支持 `Ctrl/Cmd+PageUp` / `Ctrl/Cmd+PageDown` 切换 tab、`Ctrl/Cmd+W` 关闭当前 tab
 - editor tab 使用成熟 tablist 语义：只有 active tab 进入正常 Tab 顺序，左右方向键切换；tab 通过 `aria-controls` 关联 Monaco `tabpanel`，避免视觉 tab strip 和 DOM 语义脱节
 - editor tab 的可访问名称需要包含 basename、完整相对路径和 dirty / external changed 状态；close 按钮也使用完整相对路径，避免同名文件 tab 难以区分
 - tab strip 可水平滚动但不显示浏览器原生 scrollbar；大量文件时靠 active tab reveal、滚轮/触控板滚动和键盘切换保持可达性
@@ -312,7 +315,7 @@ Files
 - dirty tab 使用状态点表达未保存，不额外加粗文件名；避免 tab strip 同时靠颜色、点、字重重复提醒而变重
 - editor dirty / external changed 状态同步给左侧 Files tree，避免用户只从 tab strip 才能发现未保存文件
 - 关闭 dirty tab 不应在同一会话内直接丢失草稿；第一版采用轻量 hot-exit 缓存，重新打开同一文件时恢复未保存草稿，并在保存干净后清除缓存
-- 源码、分栏预览和 diff 使用轻量 breadcrumb 展示文件上下文，长路径保留最后文件名的可读性，不引入完整 command palette / breadcrumb menu；Markdown 纯渲染预览隐藏 breadcrumb
+- 源码、分栏预览和 diff 使用轻量 breadcrumb 展示文件上下文，长路径保留最后文件名的可读性，不引入完整 command palette / breadcrumb menu；Markdown、HTML、图片、PDF 和普通二进制的纯预览界面隐藏 breadcrumb
 - 保存状态默认不常驻显示 `Saved`；只在 `Unsaved` / `Saving` / `Changed on disk` 这类需要注意的状态出现时显示，避免 editor 顶部变重
 - 外部修改提示
 - 保存、刷新、覆盖等 editor action 使用紧凑图标按钮并保留 aria/title；状态文本独立显示，避免顶部 bar 堆满操作文案；Save action 只在 dirty/saving 时显示，clean 状态不常驻 disabled 保存按钮；Reload action 只在 external changed / error 时显示，避免 dirty 编辑时提供容易丢草稿的常驻刷新入口
@@ -336,6 +339,8 @@ Files
 |------|------|
 | 目录树 | `GET /api/files/tree?agentId=...&path=...` |
 | 读取文件 | `GET /api/files/file?agentId=...&path=...` |
+| 创建 / 关闭 HTML 预览 | `POST /api/files/previews` / `DELETE /api/files/previews/:sessionId` |
+| 读取 HTML 静态资源 | `GET /api/files/previews/:sessionId/:scope/*` |
 | 保存文件 | `PUT /api/files/file` |
 | 新建文件/目录 | `POST /api/files/entry` |
 | 重命名文件/目录 | `PATCH /api/files/entry` |
@@ -353,11 +358,12 @@ Files
 - `tree`
 - `file read`
 - `file raw preview`
+- `static HTML preview session`
 - `file save`
 - `move`
 - `changes`
 
-`search` 已作为 Files section 的内容搜索和行跳转入口接入。图片 preview 走受 workspace 边界保护的只读 raw 路由；普通二进制只打开元数据 viewer；过大文本在只读 Monaco 中展示文件开头内容，保留行号和编辑器滚动手感，但不进入文本保存链路。
+`search` 已作为 Files section 的内容搜索和行跳转入口接入。图片 preview 走受 workspace 边界保护的只读 raw 路由；HTML preview 走同一鉴权端口上的内存 Session，不新增监听端口，也不提供可执行 Script 的备用路径；普通二进制只打开元数据 viewer；过大文本在只读 Monaco 中展示文件开头内容，保留行号和编辑器滚动手感，但不进入文本保存链路。
 
 实现约束：
 
