@@ -52,6 +52,7 @@ export interface GlobalSettings extends WorkspaceHistorySettings {
   appearance?: UiAppearance
   language?: UiLanguage
   dangerouslySkipAgentPermissionsByDefault?: boolean
+  browserExtensionEnabled?: boolean
   updateUrl?: string
   searchTimeoutMs?: number
   agentHomes?: AgentHomesSettings

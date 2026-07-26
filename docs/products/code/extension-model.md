@@ -2,7 +2,7 @@
 
 > Chinese version: [extension-model.zh_cn.md](./extension-model.zh_cn.md)
 
-Status: the internal Viewer foundation and built-in Browser Resource MVP are implemented; this is not yet a public third-party extension API.
+Status: the internal Viewer foundation and opt-in built-in Browser Resource MVP are implemented; this is not yet a public third-party extension API.
 
 ## Implemented Foundation
 
@@ -12,11 +12,13 @@ The static HTML viewer uses the existing file tab and Source / Preview interacti
 
 An explicitly opened readable file outside known project roots remains read-only. For exact external HTML preview, the temporary Preview Session authorizes only the HTML file's containing directory so its relative assets can load; it does not add that directory to Files browsing, search, editing, or Git scope.
 
-The built-in Browser Extension is the first live Resource implementation. Each Project may own multiple stable, renameable Browser rows. Every row has an isolated profile and an explicit `stopped -> starting -> running -> stopping -> stopped` lifecycle; startup or runtime failure ends in `failed`. Operations are serialized per Browser identity, stale Viewer generations are rejected, and a Farming restart marks previously live rows failed instead of guessing whether an unowned browser process is safe to reuse.
+The built-in Browser Extension is the first live Resource implementation. It is disabled by default. Farming shows neither its Settings row nor Project Browser sections when no compatible system browser is installed; when installed, Settings exposes the opt-in switch, and only an enabled and currently available Extension contributes Browser UI or accepts Browser API, EventSource, Viewer WebSocket, CLI, or MCP operations. Disabling first stops every owned runtime and fails visibly without changing the setting if cleanup cannot be proved.
+
+Each Project may own multiple stable, renameable Browser rows. Every row has an isolated profile and an explicit `stopped -> starting -> running -> stopping -> stopped` lifecycle; startup or runtime failure ends in `failed`. Operations are serialized per Browser identity, stale Viewer generations are rejected, and a Farming restart marks previously live rows failed instead of guessing whether an unowned browser process is safe to reuse.
 
 The Extension discovers a compatible system Chrome, Brave, Edge, or Chromium executable. It launches that executable headlessly and connects through raw CDP over WebSocket. Farming does not ship Chromium and the Extension has no Playwright or Puppeteer runtime dependency. `Page.startScreencast` supplies the authenticated in-workspace Viewer; Viewer pointer, wheel, keyboard and resize messages return through the same CDP target. Agent operations use the same target through accessibility snapshots, stable snapshot refs, screenshots, navigation and CDP input.
 
-ACP Chat Agents discover these operations through the standard MCP `tools/list` contract. Farming attaches one local `farming-browser` stdio MCP Server when it creates, loads, resumes, or recovers the Agent Session. That small Server proxies the existing authenticated Browser HTTP API; it does not own CDP, launch another browser, or persist a credential value. Every tool call requires an explicit Browser id and is restricted to Browser Resources owned by the Agent's current Project. Terminal Agents retain the `farming browser` command bridge, with `farming-browser` available as an npm-installed alias.
+Farming does not auto-mount Browser MCP into ACP Sessions. Codex, Claude Code, OpenCode, and Qoder receive a small Farming startup bootstrap at process or Session creation time, without modifying the Project or provider-owned instruction files. The bootstrap tells the Agent to query `farming capabilities` instead of assuming a capability exists. When Browser is available, the Agent can list, create, start, attach and operate Project-owned Browser Resources on demand through `farming browser`; `farming-browser` remains the npm bin alias. `farming browser mcp` is an explicit stdio bridge for a caller that intentionally configures MCP at a Session boundary, not a default attachment.
 
 Farming Code should be able to grow through Extensions instead of adding every new resource and Agent capability directly to the core product. A browser is the motivating example, but it should not become a one-off browser subsystem.
 
@@ -40,7 +42,7 @@ Built-in Extensions and externally installed Extensions should use the same cont
 
 Extensions should publish Agent-facing tools through one Farming-owned capability contract. An Extension must not implement separate Codex, Claude, OpenCode and Qoder integrations.
 
-When Farming starts or resumes an Agent, the enabled Extension capabilities for that Agent are projected through the Provider Adapter at the session boundary. Browser currently uses a standard stdio MCP Server carried in ACP `mcpServers`; the ACP client discovers its schemas and descriptions through `tools/list`. Tool identity, schema, ownership, permission policy and result semantics remain defined by Farming's Extension contract.
+When Farming starts or resumes an Agent, it injects only the short Farming bootstrap through the Provider Adapter at the process or Session boundary. Live availability remains outside the prompt: `farming capabilities` reports whether Browser is disabled, unavailable, or available, and gives the narrow commands for activating it. This avoids paying MCP startup, schema-context and stability cost in every ACP Session. A user or Agent may still explicitly add the standard `farming browser mcp` stdio server when its tool schemas are useful. Tool identity, schema, ownership, permission policy and result semantics remain defined by Farming's Extension contract.
 
 The intended relationship is:
 
@@ -51,7 +53,7 @@ Extension runtime and viewer
           v
 Farming resource UI + Agent capability registry
           |
-          | Provider Adapter projection
+          | startup bootstrap + on-demand CLI or explicit MCP
           v
 Codex / Claude / OpenCode / Qoder
 ```

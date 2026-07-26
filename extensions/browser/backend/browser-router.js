@@ -16,10 +16,20 @@ function createBrowserRouter(manager, workspaceRootRegistry) {
   });
 
   router.get('/', (_req, res) => {
-    res.json({ resources: manager.list() });
+    try {
+      res.json({ resources: manager.list() });
+    } catch (error) {
+      sendError(res, error);
+    }
   });
 
   router.get('/events', (req, res) => {
+    try {
+      manager.requireEnabled();
+    } catch (error) {
+      sendError(res, error);
+      return;
+    }
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache, no-transform',

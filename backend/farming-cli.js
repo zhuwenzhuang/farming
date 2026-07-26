@@ -8,6 +8,7 @@ const storageLayout = require('./storage-layout');
 function usage() {
   return `Usage:
   farming skills
+  farming capabilities [--json]
   farming memory report [--period today|yesterday|week] [--since <time>] [--until <time>] [--home <path>] [--json]
   farming list [--json] [--parent <agentId>]
   farming spawn [--workspace <path>] [--task <text>] [--parent <agentId>] [--json] -- <command...>
@@ -20,6 +21,7 @@ Examples:
   farming memory report --period today
   farming memory report --period week --json
   farming skills
+  farming capabilities
   farming list --parent "$FARMING_AGENT_ID"
   farming output agent-123 --tail 2000
   farming send agent-123 "Please run the focused tests"`;
@@ -74,6 +76,13 @@ function parseArgs(argv) {
       throw new Error('skills does not accept arguments');
     }
     return { command };
+  }
+
+  if (command === 'capabilities') {
+    if (rest.some(arg => arg !== '--json')) {
+      throw new Error('capabilities accepts only --json');
+    }
+    return { command, options: { json: rest.includes('--json') } };
   }
 
   if (command === 'memory' || command === 'report') {
@@ -293,6 +302,42 @@ function formatAgent(agent) {
   return `${marker} ${agent.id} | ${agent.command} | ${agent.status} | ${agent.cwd}${parent}${task}`;
 }
 
+function farmingCapabilities(browser) {
+  const state = browser?.available === true
+    ? 'available'
+    : (browser?.enabled === true ? 'unavailable' : 'disabled');
+  return {
+    runtime: 'farming',
+    agentId: process.env.FARMING_AGENT_ID || '',
+    projectWorkspace: process.env.FARMING_PROJECT_WORKSPACE || '',
+    capabilities: [{
+      id: 'browser',
+      state,
+      summary: state === 'available'
+        ? 'A shared system Browser can be created or attached on demand.'
+        : (browser?.message || 'Shared Browser is unavailable.'),
+      commands: state === 'available'
+        ? {
+            list: 'farming browser list',
+            create: 'farming browser create',
+            help: 'farming browser --help',
+          }
+        : {},
+    }],
+  };
+}
+
+function formatCapabilities(report) {
+  const lines = ['Farming runtime capabilities:'];
+  for (const capability of report.capabilities) {
+    lines.push(`- ${capability.id}: ${capability.state} — ${capability.summary}`);
+    for (const [label, command] of Object.entries(capability.commands || {})) {
+      lines.push(`  ${label}: ${command}`);
+    }
+  }
+  return lines.join('\n');
+}
+
 async function run(argv = process.argv.slice(2), io = process) {
   const parsed = parseArgs(argv);
 
@@ -303,6 +348,14 @@ async function run(argv = process.argv.slice(2), io = process) {
 
   if (parsed.command === 'skills') {
     io.stdout.write(`${renderMainAgentSkills()}\n`);
+    return 0;
+  }
+
+  if (parsed.command === 'capabilities') {
+    const report = farmingCapabilities(await request('/api/browsers/capability'));
+    io.stdout.write(parsed.options.json
+      ? `${JSON.stringify(report, null, 2)}\n`
+      : `${formatCapabilities(report)}\n`);
     return 0;
   }
 
@@ -382,6 +435,8 @@ async function run(argv = process.argv.slice(2), io = process) {
 
 module.exports = {
   formatAgent,
+  farmingCapabilities,
+  formatCapabilities,
   getToken,
   httpRequest,
   isAuthDisabled,

@@ -31,6 +31,10 @@ function run() {
     );
     assert.strictEqual(storageLayout.browserResourcesDir(configDir), path.join(configDir, 'browsers'));
     assert.strictEqual(
+      storageLayout.farmingAgentBootstrapFile(configDir),
+      path.join(configDir, 'farming-agent-bootstrap.zh_cn.md'),
+    );
+    assert.strictEqual(
       storageLayout.browserResourcesFile(configDir),
       path.join(configDir, 'browsers', 'resources.json'),
     );

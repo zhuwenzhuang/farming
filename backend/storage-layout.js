@@ -61,6 +61,10 @@ function browserProfileDir(configDir, browserId) {
   return path.join(browserResourcesDir(configDir), browserId, 'profile');
 }
 
+function farmingAgentBootstrapFile(configDir) {
+  return path.join(configDir, 'farming-agent-bootstrap.zh_cn.md');
+}
+
 function sessionIndexFile(configDir) {
   return path.join(sessionsDir(configDir), 'index.json');
 }
@@ -139,6 +143,7 @@ module.exports = {
   browserProfileDir,
   browserResourcesDir,
   browserResourcesFile,
+  farmingAgentBootstrapFile,
   farmingNetInstancesFile,
   farmingNetServerLogFile,
   farmingNetServerStateFile,

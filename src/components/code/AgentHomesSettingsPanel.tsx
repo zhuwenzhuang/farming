@@ -4,6 +4,7 @@ import { appPath } from '@/lib/base-path'
 import type { UiPreferences } from '@/lib/ui-preferences'
 import type { AgentHomeSetting, AgentHomesSettings, GlobalSettings } from './types'
 import type { AgentLaunchOption } from './agent-launch-options'
+import type { BrowserCapability } from '../../../extensions/browser/frontend/types'
 
 type DraftState = { provider: string; id: string; path: string } | null
 
@@ -55,6 +56,7 @@ interface AgentHomesSettingsPanelProps {
   agentLaunchOptions: AgentLaunchOption[]
   onClose: () => void
   onUpdateUiPreferences: (preferences: Partial<UiPreferences>) => void
+  onBrowserCapabilityChange?: () => void
 }
 
 const KNOWN_PROVIDERS = ['codex', 'claude', 'opencode', 'qoder']
@@ -112,6 +114,13 @@ function panelCopy(language: UiPreferences['language']) {
     interfaceSkin: zh ? '界面皮肤' : 'Interface skin',
     farmingCode: 'Farming Code',
     farmingCrt: 'Farming CRT',
+    extensions: zh ? '扩展' : 'Extensions',
+    browserExtension: zh ? '共享浏览器' : 'Shared Browser',
+    browserExtensionHint: zh
+      ? '使用系统已有的 Chromium 浏览器；用户和 Agent 操作同一个 Browser。'
+      : 'Uses an installed Chromium browser; the user and Agent operate the same Browser.',
+    browserExtensionToggle: zh ? '启用共享浏览器' : 'Enable shared Browser',
+    browserExtensionSaveFailed: zh ? '共享浏览器设置保存失败' : 'Failed to save shared Browser setting',
     language: zh ? '语言' : 'Language',
     english: 'English',
     chinese: '中文',
@@ -315,6 +324,7 @@ export function AgentHomesSettingsPanel({
   agentLaunchOptions,
   onClose,
   onUpdateUiPreferences,
+  onBrowserCapabilityChange,
 }: AgentHomesSettingsPanelProps) {
   const copy = useMemo(() => panelCopy(language), [language])
   const closeButtonRef = useRef<HTMLButtonElement | null>(null)
@@ -327,6 +337,9 @@ export function AgentHomesSettingsPanel({
   const [dangerouslySkipPermissions, setDangerouslySkipPermissions] = useState(false)
   const [updateUrl, setUpdateUrl] = useState('')
   const [searchTimeoutSeconds, setSearchTimeoutSeconds] = useState(15)
+  const [browserExtensionEnabled, setBrowserExtensionEnabled] = useState(false)
+  const [browserCapability, setBrowserCapability] = useState<BrowserCapability | null>(null)
+  const [browserSaving, setBrowserSaving] = useState(false)
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null)
   const [selectedUpdateAsset, setSelectedUpdateAsset] = useState('')
   const [updateChecking, setUpdateChecking] = useState(false)
@@ -356,9 +369,16 @@ export function AgentHomesSettingsPanel({
     settingsLoadRequestRef.current = requestId
     setLoading(true)
     setError('')
-    fetchAgentHomesSettings(appPath('/api/settings'))
-      .then(response => response.json())
-      .then((data: { settings?: GlobalSettings }) => {
+    Promise.all([
+      fetchAgentHomesSettings(appPath('/api/settings')),
+      fetchAgentHomesSettings(appPath('/api/browsers/capability')),
+    ])
+      .then(async ([settingsResponse, capabilityResponse]) => {
+        if (!settingsResponse.ok) throw new Error(copy.loadFailed)
+        const data = await settingsResponse.json() as { settings?: GlobalSettings }
+        const capability = capabilityResponse.ok
+          ? await capabilityResponse.json() as BrowserCapability
+          : null
         if (
           settingsLoadRequestRef.current !== requestId
           || panelScopeRef.current.generation !== generation
@@ -369,6 +389,8 @@ export function AgentHomesSettingsPanel({
         setDangerouslySkipPermissions(data.settings?.dangerouslySkipAgentPermissionsByDefault === true)
         setUpdateUrl(String(data.settings?.updateUrl ?? ''))
         setSearchTimeoutSeconds(nearestSearchTimeoutSeconds(Number(data.settings?.searchTimeoutMs ?? 15000)))
+        setBrowserExtensionEnabled(data.settings?.browserExtensionEnabled === true)
+        setBrowserCapability(capability)
       })
       .catch(() => {
         if (
@@ -535,6 +557,40 @@ export function AgentHomesSettingsPanel({
         .catch(error => setError(error instanceof Error ? error.message : copy.saveFailed))
     }, 120)
   }, [copy.saveFailed])
+
+  const toggleBrowserExtension = useCallback(async () => {
+    if (browserSaving) return
+    const enabled = !browserExtensionEnabled
+    setBrowserSaving(true)
+    setError('')
+    try {
+      const response = await fetchAgentHomesSettings(appPath('/api/settings'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ browserExtensionEnabled: enabled }),
+      })
+      const data = await response.json().catch(() => ({})) as {
+        error?: string
+        settings?: GlobalSettings
+      }
+      if (!response.ok) throw new Error(data.error || copy.browserExtensionSaveFailed)
+      setBrowserExtensionEnabled(data.settings?.browserExtensionEnabled === true)
+      const capabilityResponse = await fetchAgentHomesSettings(appPath('/api/browsers/capability'))
+      if (capabilityResponse.ok) {
+        setBrowserCapability(await capabilityResponse.json() as BrowserCapability)
+      }
+      onBrowserCapabilityChange?.()
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : copy.browserExtensionSaveFailed)
+    } finally {
+      setBrowserSaving(false)
+    }
+  }, [
+    browserExtensionEnabled,
+    browserSaving,
+    copy.browserExtensionSaveFailed,
+    onBrowserCapabilityChange,
+  ])
 
   const startUpgrade = useCallback(() => {
     const restartPreparedUpdate = updateStatus?.state?.phase === 'ready-to-restart'
@@ -773,6 +829,32 @@ export function AgentHomesSettingsPanel({
               </div>
             </div>
           </section>
+
+          {(browserCapability?.browser || browserExtensionEnabled) && (
+            <section className="code-settings-section code-settings-group">
+              <div className="code-settings-section-heading">
+                <div><h3>{copy.extensions}</h3></div>
+              </div>
+              <div className="code-settings-card">
+                <div className="code-settings-choice-row code-settings-runtime-row">
+                  <div className="code-settings-row-copy">
+                    <strong>{copy.browserExtension}</strong>
+                    <small>{copy.browserExtensionHint}</small>
+                  </div>
+                  <button
+                    type="button"
+                    className={`code-settings-permission-toggle ${browserExtensionEnabled ? 'active' : ''}`}
+                    aria-label={copy.browserExtensionToggle}
+                    aria-pressed={browserExtensionEnabled}
+                    disabled={browserSaving}
+                    onClick={() => void toggleBrowserExtension()}
+                  >
+                    <CheckGlyph />
+                  </button>
+                </div>
+              </div>
+            </section>
+          )}
 
           <section className="code-settings-section code-settings-group">
             <div className="code-settings-section-heading">

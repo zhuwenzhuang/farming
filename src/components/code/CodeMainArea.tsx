@@ -9,6 +9,7 @@ import type {
 } from '@/lib/workspace-open-files'
 import type { WorkspaceNavigationFileInput } from '@/lib/workspace-navigation-history'
 import { isCompactViewport, isTouchInputViewport } from '@/lib/responsive-mode'
+import type { UiPreferences } from '@/lib/ui-preferences'
 import { isWorkspaceHtmlFile, isWorkspaceMarkdownFile, isWorkspaceSvgFile } from '@/lib/workspace-editor-model'
 import { BrowserViewer } from '../../../extensions/browser/frontend/BrowserViewer'
 import type { BrowserResource } from '../../../extensions/browser/frontend/types'
@@ -236,6 +237,7 @@ interface CodeMainAreaProps {
   activeView: WorkspaceView
   activeBrowserResource: BrowserResource | null
   browserController: BrowserResourcesController
+  language: UiPreferences['language']
   showFileEditor: boolean
   openWorkspaceFile: OpenWorkspaceFile | null
   openWorkspaceFiles: OpenWorkspaceFile[]
@@ -464,6 +466,7 @@ export function CodeMainArea({
   activeView,
   activeBrowserResource,
   browserController,
+  language,
   showFileEditor,
   openWorkspaceFile,
   openWorkspaceFiles,
@@ -702,6 +705,7 @@ export function CodeMainArea({
         <BrowserViewer
           resource={activeBrowserResource}
           controller={browserController}
+          language={language}
           onResource={browserController.mergeResource}
         />
       ) : showFileEditor && openWorkspaceFile ? (

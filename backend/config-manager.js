@@ -3,6 +3,7 @@ const path = require('path');
 const os = require('os');
 const { atomicWriteJson } = require('./atomic-json-store');
 const { ensureMainAgentSkillFiles } = require('./main-agent-skills');
+const { ensureFarmingAgentBootstrapFile } = require('./farming-agent-bootstrap');
 const { normalizeClaudeModelValue } = require('./claude-settings');
 const { isTemporaryProviderSessionId } = require('./provider-session-id');
 const { FarmingSessionStore, MAX_MAIN_PAGE_SESSION_KEYS } = require('./farming-session-store');
@@ -86,6 +87,7 @@ const PERSISTED_SETTING_KEYS = new Set([
   'language',
   'heartbeatInterval',
   'dangerouslySkipAgentPermissionsByDefault',
+  'browserExtensionEnabled',
   'crtSkinEffectsEnabled',
   'crtDynamicHeatEnabled',
   'crtTerminalFontSize',
@@ -317,6 +319,7 @@ class ConfigManager {
         language: 'en',
         heartbeatInterval: 1000,
         dangerouslySkipAgentPermissionsByDefault: false,
+        browserExtensionEnabled: false,
         crtSkinEffectsEnabled: true,
         crtDynamicHeatEnabled: false,
         crtTerminalFontSize: DEFAULT_CRT_TERMINAL_FONT_SIZE,
@@ -354,6 +357,7 @@ class ConfigManager {
       language: 'en',
       heartbeatInterval: 1000,
       dangerouslySkipAgentPermissionsByDefault: false,
+      browserExtensionEnabled: false,
       crtSkinEffectsEnabled: true,
       crtDynamicHeatEnabled: false,
       crtTerminalFontSize: DEFAULT_CRT_TERMINAL_FONT_SIZE,
@@ -415,12 +419,14 @@ class ConfigManager {
     this.runHistoryStore.init({ legacyTaskHistory });
     this.settings.appearance = this.normalizeAppearance(this.settings.appearance);
     this.settings.language = this.normalizeLanguage(this.settings.language);
+    this.settings.browserExtensionEnabled = this.settings.browserExtensionEnabled === true;
     this.settings.crtSkinEffectsEnabled = this.settings.crtSkinEffectsEnabled !== false;
     this.settings.crtDynamicHeatEnabled = this.settings.crtDynamicHeatEnabled === true;
     this.settings.crtTerminalFontSize = this.normalizeCrtTerminalFontSize(this.settings.crtTerminalFontSize);
     this.normalizeAgentLaunchSettings(launchRawSettings);
     this.pruneUnknownSettings();
     ensureMainAgentSkillFiles(this.farmingDir);
+    ensureFarmingAgentBootstrapFile(this.farmingDir);
     this.writeSettingsFile();
     console.log('Loaded settings:', this.settings);
   }
@@ -1064,6 +1070,7 @@ class ConfigManager {
     }
     nextSettings.appearance = this.normalizeAppearance(nextSettings.appearance);
     nextSettings.language = this.normalizeLanguage(nextSettings.language);
+    nextSettings.browserExtensionEnabled = nextSettings.browserExtensionEnabled === true;
     nextSettings.crtSkinEffectsEnabled = nextSettings.crtSkinEffectsEnabled !== false;
     nextSettings.crtDynamicHeatEnabled = nextSettings.crtDynamicHeatEnabled === true;
     nextSettings.crtTerminalFontSize = this.normalizeCrtTerminalFontSize(nextSettings.crtTerminalFontSize);

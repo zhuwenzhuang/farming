@@ -201,6 +201,12 @@ function codexAcpEnvironment(options = {}) {
   if (options.model && options.model !== 'config') config.model = options.model;
   if (options.reasoningEffort && options.reasoningEffort !== 'config') config.model_reasoning_effort = options.reasoningEffort;
   if (options.serviceTier && !['config', 'default'].includes(options.serviceTier)) config.service_tier = options.serviceTier;
+  if (typeof options.farmingSystemPrompt === 'string' && options.farmingSystemPrompt.trim()) {
+    config.developer_instructions = [
+      typeof config.developer_instructions === 'string' ? config.developer_instructions.trim() : '',
+      options.farmingSystemPrompt.trim(),
+    ].filter(Boolean).join('\n\n');
+  }
   if (Object.keys(config).length > 0) env.CODEX_CONFIG = JSON.stringify(config);
   const initialMode = { ask: 'read-only', approve: 'agent', full: 'agent-full-access' }[options.approvalMode];
   if (initialMode) env.INITIAL_AGENT_MODE = initialMode;
@@ -299,7 +305,15 @@ const PROVIDER_ADAPTERS = Object.freeze([
     planSession: (rawArgs, launchArgs) => explicitSessionPlan('qoder', rawArgs, launchArgs),
     acp: {
       version: 'native',
-      launch: options => ({ command: options.executable || 'qodercli', args: ['--acp'] }),
+      launch: options => ({
+        command: options.executable || 'qodercli',
+        args: [
+          ...(typeof options.farmingSystemPrompt === 'string' && options.farmingSystemPrompt.trim()
+            ? ['--append-system-prompt', options.farmingSystemPrompt.trim()]
+            : []),
+          '--acp',
+        ],
+      }),
     },
     capabilities: {
       runtimeSwitch: true,

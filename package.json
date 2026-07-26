@@ -9,6 +9,7 @@
   },
   "files": [
     "backend/*.js",
+    "backend/farming-agent-bootstrap.zh_cn.md",
     "backend/usage-history-scanner.ts",
     "backend/acp/",
     "backend/data/",

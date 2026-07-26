@@ -352,7 +352,9 @@ async function run() {
     assert.strictEqual(captured.at(-1).command, expectedClaudeCommand);
     assert.strictEqual(captured.at(-1).args[0], '--session-id');
     assert.notStrictEqual(captured.at(-1).args[1], claudeSessionId);
-    assert.deepStrictEqual(captured.at(-1).args.slice(2), ['--resume', claudeSessionId, '--fork-session']);
+    assert.deepStrictEqual(captured.at(-1).args.slice(2, 5), ['--resume', claudeSessionId, '--fork-session']);
+    assert.strictEqual(captured.at(-1).args[5], '--append-system-prompt');
+    assert.match(captured.at(-1).args[6], /farming capabilities/);
 
     const sourceClaudeAgent = manager.agents.get(resumedClaudeId);
     sourceClaudeAgent.runtimeBinding = {

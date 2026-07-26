@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { ArrowLeftGlyph, ArrowRightGlyph, CopyGlyph, SquareGlyph } from '@/components/IconGlyphs'
 import { appPath } from '@/lib/base-path'
+import type { UiPreferences } from '@/lib/ui-preferences'
 import type { BrowserResource } from './types'
 import type { BrowserResourcesController } from './useBrowserResources'
 
@@ -9,15 +11,59 @@ function viewerWebSocketUrl(resource: BrowserResource) {
   return url.href
 }
 
+function viewerCopy(language: UiPreferences['language']) {
+  const zh = language === 'zh'
+  return {
+    back: zh ? '后退' : 'Back',
+    forward: zh ? '前进' : 'Forward',
+    reload: zh ? '重新加载' : 'Reload',
+    address: zh ? '浏览器地址' : 'Browser address',
+    connected: zh ? 'Viewer 已连接' : 'Viewer connected',
+    disconnected: zh ? 'Viewer 未连接' : 'Viewer disconnected',
+    copyLink: zh ? '复制链接' : 'Copy link',
+    start: zh ? '启动' : 'Start',
+    stop: zh ? '停止' : 'Stop',
+    startBrowser: zh ? '启动浏览器' : 'Start Browser',
+    stoppedTitle: zh ? '浏览器已停止' : 'Browser stopped',
+    failedTitle: zh ? '浏览器失败' : 'Browser failed',
+    stoppedHint: zh ? '启动后，用户和 Agent 将操作同一个页面。' : 'Start it to share one page between the user and Agent.',
+    pageLabel: (name: string) => zh ? `${name} 浏览器页面` : `${name} browser page`,
+    textInput: zh ? '浏览器文本输入' : 'Browser text input',
+    viewerFailed: zh ? 'Browser Viewer 失败' : 'Browser Viewer failed',
+    connectionFailed: zh ? 'Browser Viewer 连接失败' : 'Browser Viewer connection failed',
+    navigationFailed: zh ? '导航失败' : 'Navigation failed',
+    transitionFailed: zh ? '浏览器状态切换失败' : 'Browser transition failed',
+  }
+}
+
+function ReloadGlyph() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+      <path d="M12.8 3.8V1.5a.5.5 0 0 1 1 0v3.6a.5.5 0 0 1-.5.5H9.7a.5.5 0 0 1 0-1h2.36A5.5 5.5 0 1 0 13.5 8a.5.5 0 0 1 1 0 6.5 6.5 0 1 1-1.7-4.2Z" />
+    </svg>
+  )
+}
+
+function PlayGlyph() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+      <path d="M4.5 2.6a.75.75 0 0 1 1.15-.63l7 4.9a.75.75 0 0 1 0 1.23l-7 4.9A.75.75 0 0 1 4.5 12.4V2.6Z" />
+    </svg>
+  )
+}
+
 export function BrowserViewer({
   resource,
   controller,
+  language,
   onResource,
 }: {
   resource: BrowserResource
   controller: BrowserResourcesController
+  language: UiPreferences['language']
   onResource: (resource: BrowserResource) => void
 }) {
+  const copy = viewerCopy(language)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const textInputRef = useRef<HTMLTextAreaElement>(null)
   const composingTextRef = useRef(false)
@@ -59,7 +105,7 @@ export function BrowserViewer({
           return
         }
         if (message.type === 'browser-error') {
-          setViewerError(message.message || 'Browser Viewer failed')
+          setViewerError(message.message || copy.viewerFailed)
           return
         }
         if (message.type !== 'browser-frame' || !message.data) return
@@ -86,7 +132,7 @@ export function BrowserViewer({
         setConnected(false)
         if (!cancelled) reconnectTimer = window.setTimeout(connect, 1_000)
       }
-      socket.onerror = () => setViewerError('Browser Viewer connection failed')
+      socket.onerror = () => setViewerError(copy.connectionFailed)
     }
     connect()
     return () => {
@@ -97,7 +143,7 @@ export function BrowserViewer({
       socketRef.current?.close()
       socketRef.current = null
     }
-  }, [onResource, resource.id, resource.status])
+  }, [copy.connectionFailed, copy.viewerFailed, onResource, resource.id, resource.status])
 
   const send = useCallback((message: Record<string, unknown>) => {
     const socket = socketRef.current
@@ -126,10 +172,10 @@ export function BrowserViewer({
         body: JSON.stringify({ url: normalized }),
       })
       const next = await response.json() as BrowserResource & { error?: string }
-      if (!response.ok) throw new Error(next.error || 'Navigation failed')
+      if (!response.ok) throw new Error(next.error || copy.navigationFailed)
       onResource(next)
     } catch (error) {
-      setViewerError(error instanceof Error ? error.message : 'Navigation failed')
+      setViewerError(error instanceof Error ? error.message : copy.navigationFailed)
     }
   }
   const browserAction = async (kind: 'back' | 'forward' | 'reload') => {
@@ -150,42 +196,46 @@ export function BrowserViewer({
   return (
     <section className="farming-browser-viewer" data-testid="farming-browser-viewer">
       <header className="farming-browser-toolbar">
-        <button type="button" aria-label="Back" title="Back" disabled={resource.status !== 'running'} onClick={() => void browserAction('back')}>‹</button>
-        <button type="button" aria-label="Forward" title="Forward" disabled={resource.status !== 'running'} onClick={() => void browserAction('forward')}>›</button>
-        <button type="button" aria-label="Reload" title="Reload" disabled={resource.status !== 'running'} onClick={() => void browserAction('reload')}>↻</button>
+        <button type="button" className="farming-browser-toolbar-icon" aria-label={copy.back} title={copy.back} disabled={resource.status !== 'running'} onClick={() => void browserAction('back')}><ArrowLeftGlyph /></button>
+        <button type="button" className="farming-browser-toolbar-icon" aria-label={copy.forward} title={copy.forward} disabled={resource.status !== 'running'} onClick={() => void browserAction('forward')}><ArrowRightGlyph /></button>
+        <button type="button" className="farming-browser-toolbar-icon" aria-label={copy.reload} title={copy.reload} disabled={resource.status !== 'running'} onClick={() => void browserAction('reload')}><ReloadGlyph /></button>
         <form onSubmit={event => {
           event.preventDefault()
           void navigate()
         }}>
           <input
             value={address}
-            aria-label="Browser address"
+            aria-label={copy.address}
             disabled={resource.status !== 'running'}
             onChange={event => setAddress(event.currentTarget.value)}
           />
         </form>
-        <span className={`farming-browser-connection ${connected ? 'connected' : ''}`} title={connected ? 'Viewer connected' : 'Viewer disconnected'} />
+        <span className={`farming-browser-connection ${connected ? 'connected' : ''}`} title={connected ? copy.connected : copy.disconnected} />
         <button
           type="button"
+          className="farming-browser-toolbar-action farming-browser-copy-link"
           onClick={() => {
             const stableUrl = new URL(window.location.href)
             stableUrl.searchParams.set('browser', resource.id)
             void navigator.clipboard.writeText(stableUrl.href)
           }}
         >
-          Copy link
+          <CopyGlyph />
+          <span>{copy.copyLink}</span>
         </button>
         <button
           type="button"
+          className="farming-browser-toolbar-action"
           disabled={resource.status === 'starting' || resource.status === 'stopping'}
           onClick={() => {
             const transition = resource.status === 'running'
               ? controller.stop(resource.id)
               : controller.start(resource.id)
-            void transition.catch(error => setViewerError(error instanceof Error ? error.message : 'Browser transition failed'))
+            void transition.catch(error => setViewerError(error instanceof Error ? error.message : copy.transitionFailed))
           }}
         >
-          {resource.status === 'running' ? 'Stop' : 'Start'}
+          {resource.status === 'running' ? <SquareGlyph /> : <PlayGlyph />}
+          <span>{resource.status === 'running' ? copy.stop : copy.start}</span>
         </button>
       </header>
       <div className="farming-browser-viewport">
@@ -193,7 +243,7 @@ export function BrowserViewer({
           <canvas
             ref={canvasRef}
             tabIndex={0}
-            aria-label={`${resource.name} browser page`}
+            aria-label={copy.pageLabel(resource.name)}
             onPointerMove={event => {
               const position = point(event)
               send({ type: 'pointer', action: 'move', ...position })
@@ -238,17 +288,18 @@ export function BrowserViewer({
           />
         ) : (
           <div className="farming-browser-placeholder">
-            <strong>{resource.status === 'failed' ? 'Browser failed' : 'Browser stopped'}</strong>
-            <p>{resource.error || 'Start this Browser to open the shared page.'}</p>
+            <strong>{resource.status === 'failed' ? copy.failedTitle : copy.stoppedTitle}</strong>
+            <p>{resource.error || copy.stoppedHint}</p>
             <button type="button" onClick={() => void controller.start(resource.id).catch(error => setViewerError(error.message))}>
-              Start Browser
+              <PlayGlyph />
+              <span>{copy.startBrowser}</span>
             </button>
           </div>
         )}
         <textarea
           ref={textInputRef}
           className="farming-browser-text-input-proxy"
-          aria-label="Browser text input"
+          aria-label={copy.textInput}
           autoCapitalize="none"
           autoCorrect="off"
           spellCheck={false}

@@ -49,7 +49,8 @@ const CLI_AGENTS = [
     permissions: {
       supportsDangerousSkip: true,
       dangerousSkipArgs: ['--dangerously-skip-permissions']
-    }
+    },
+    systemPromptArg: '--append-system-prompt'
   },
   {
     name: 'bash',
@@ -459,12 +460,13 @@ function resolveLaunchCommand(command, options = {}) {
     launchArgs.unshift('--permission-mode', claudePermissionMode);
   }
 
-  if (
-    options.mainAgentSystemPrompt &&
-    spec &&
-    typeof spec.systemPromptArg === 'string'
-  ) {
-    launchArgs.push(spec.systemPromptArg, options.mainAgentSystemPrompt);
+  const systemPrompt = [options.farmingSystemPrompt, options.mainAgentSystemPrompt]
+    .filter(value => typeof value === 'string' && value.trim())
+    .join('\n\n');
+  if (systemPrompt && spec && typeof spec.systemPromptArg === 'string') {
+    launchArgs.push(spec.systemPromptArg, systemPrompt);
+  } else if (systemPrompt && spec?.name === 'codex') {
+    launchArgs.unshift('-c', `developer_instructions=${JSON.stringify(systemPrompt)}`);
   }
 
   return {

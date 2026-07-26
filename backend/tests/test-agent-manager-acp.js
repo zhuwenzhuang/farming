@@ -463,10 +463,10 @@ async function run() {
     const recoveredBinding = recoveryRuntime.bindings.get('agent-acp-recovered');
     assert(recoveredBinding);
     assert.strictEqual(recoveredBinding.env.INITIAL_AGENT_MODE, 'agent-full-access');
-    assert.strictEqual(
-      recoveredBinding.env.CODEX_CONFIG,
-      undefined,
-      'ACP recovery must let Codex resolve its Home config instead of applying Farming launch defaults',
+    assert.deepStrictEqual(
+      Object.keys(JSON.parse(recoveredBinding.env.CODEX_CONFIG)),
+      ['developer_instructions'],
+      'ACP recovery may restore the Farming bootstrap but must let Codex resolve model settings from its Home',
     );
     assert.strictEqual(
       recoveryManager.agents.has('agent-acp-hidden-claude'),

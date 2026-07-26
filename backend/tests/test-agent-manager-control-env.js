@@ -72,6 +72,11 @@ async function run() {
     assert.strictEqual(captured[0].env.FARMING_CONTROL_URL, 'http://127.0.0.1:3000/farming');
     assert.strictEqual(captured[0].env.FARMING_TOKEN_FILE, path.join(farmingDir, '.session-token'));
     assert.strictEqual(captured[0].env.FARMING_SKILLS_COMMAND, 'farming skills');
+    assert.strictEqual(captured[0].env.FARMING_CAPABILITIES_COMMAND, 'farming capabilities');
+    assert.strictEqual(
+      captured[0].env.FARMING_STARTUP_PROMPT_FILE,
+      path.join(farmingDir, 'farming-agent-bootstrap.zh_cn.md'),
+    );
     assert.strictEqual(captured[0].cwd, mainWorkspace);
     assert.strictEqual(captured[0].env.FARMING_MAIN_WORKSPACE, mainWorkspace);
     assert.strictEqual(captured[0].env.FARMING_PROJECT_WORKSPACE, workspace);
@@ -81,6 +86,7 @@ async function run() {
     assert(captured[0].env.PATH.startsWith(`/repo/bin${path.delimiter}`));
     assert(captured[0].args.includes('--append-system-prompt'));
     assert(captured[0].args.some(arg => String(arg).includes('You are the Farming Main Agent.')));
+    assert(captured[0].args.some(arg => String(arg).includes('你由 Farming 启动并托管')));
 
     assert.strictEqual(captured[1].cwd, workspace, 'child should inherit parent project workspace by default');
     assert.strictEqual(captured[1].env.FARMING_AGENT_ID, childId);

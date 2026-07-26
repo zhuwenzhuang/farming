@@ -16,7 +16,12 @@ const { archiveCodexSession, unarchiveCodexSession } = require('./codex-session-
 const { buildAgentProviderSessionPlan, sessionFromExactResumeSource } = require('./agent-provider-session');
 const { resolveAgentExecutable, resolveCompatibleCodexExecutable } = require('./executable-discovery');
 const { ensureMainAgentSkillFiles, renderMainAgentBootstrap } = require('./main-agent-skills');
+const {
+  appendOpenCodeBootstrap,
+  renderFarmingAgentBootstrap,
+} = require('./farming-agent-bootstrap');
 const { mainPageAgentSessionKey, resumedAgentSource } = require('./main-page-session');
+const storageLayout = require('./storage-layout');
 const { isSafeProviderSessionId, isTemporaryProviderSessionId } = require('./provider-session-id');
 const { ProviderSessionService } = require('./provider-session-service');
 const {
@@ -2040,6 +2045,7 @@ class AgentManager extends EventEmitter {
           model: 'config',
           reasoningEffort: 'config',
           serviceTier: 'config',
+          farmingSystemPrompt: renderFarmingAgentBootstrap(),
           additionalDirectories: Array.isArray(record.acpAdditionalDirectories) ? record.acpAdditionalDirectories : [],
           mcpServers: recoveryMcpServers,
           onProcessStarted: async processIdentity => {
@@ -3124,6 +3130,7 @@ class AgentManager extends EventEmitter {
     env.FARMING_AGENT_ID = agentId;
     env.FARMING_IS_MAIN_AGENT = agent.wantsMain ? '1' : '0';
     env.FARMING_SKILLS_COMMAND = 'farming skills';
+    env.FARMING_CAPABILITIES_COMMAND = 'farming capabilities';
     env.FARMING_MAIN_WORKSPACE = agent.mainWorkspace || '';
     env.FARMING_PROJECT_WORKSPACE = effectiveAgentWorkspaceRoot(agent);
 
@@ -3141,6 +3148,7 @@ class AgentManager extends EventEmitter {
     }
     if (this.configManager && this.configManager.farmingDir) {
       env.FARMING_CONFIG_DIR = this.configManager.farmingDir;
+      env.FARMING_STARTUP_PROMPT_FILE = storageLayout.farmingAgentBootstrapFile(this.configManager.farmingDir);
     }
     if (agent.mainWorkspace) {
       env.FARMING_SKILLS_FILE = path.join(agent.mainWorkspace, 'FARMING_MAIN_AGENT_SKILLS.md');
@@ -3152,6 +3160,10 @@ class AgentManager extends EventEmitter {
         provider,
         agent.providerHomePath
       );
+    }
+    const provider = agent.providerSessionProvider || agentHomeProviderForProgram(agent.forkCommand || agent.command);
+    if (provider === 'opencode' && env.FARMING_STARTUP_PROMPT_FILE) {
+      Object.assign(env, appendOpenCodeBootstrap(env, env.FARMING_STARTUP_PROMPT_FILE));
     }
 
     return env;
@@ -3773,6 +3785,7 @@ class AgentManager extends EventEmitter {
       codexModel,
       codexReasoningEffort,
       codexServiceTier,
+      farmingSystemPrompt: renderFarmingAgentBootstrap(),
       mainAgentSystemPrompt: wantsMain ? renderMainAgentBootstrap() : '',
     });
     const program = launch.program;
@@ -4249,6 +4262,7 @@ class AgentManager extends EventEmitter {
           model: codexModel,
           reasoningEffort: codexReasoningEffort,
           serviceTier: codexServiceTier,
+          farmingSystemPrompt: renderFarmingAgentBootstrap(),
           additionalDirectories: requestedAdditionalDirectories,
           mcpServers: requestedMcpServers,
         });
@@ -4414,6 +4428,7 @@ class AgentManager extends EventEmitter {
           model: codexModel,
           reasoningEffort: codexReasoningEffort,
           serviceTier: codexServiceTier,
+          farmingSystemPrompt: renderFarmingAgentBootstrap(),
           additionalDirectories,
           mcpServers,
           forkSourceSessionId: options.acpForkSourceSessionId || '',

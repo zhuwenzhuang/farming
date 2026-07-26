@@ -14,6 +14,7 @@ module.exports = {
     assets: [
       'dist/**/*',
       'backend/data/**/*.json',
+      'backend/farming-agent-bootstrap.zh_cn.md',
       'backend/vendor/usage-parsers/**/*',
       'frontend/*.js',
       'frontend/skins/**/*',

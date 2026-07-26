@@ -104,6 +104,21 @@ test('shares one fixed Browser viewport across desktop, mobile, and Agent action
   await page.request.post('/farming/api/projects/mount', { data: { workspace } })
   await openFarming(page)
 
+  await expect(page.getByTestId('farming-browser-section')).toHaveCount(0)
+  await page.getByTestId('code-sidebar-options').click()
+  const settingsPanel = page.getByTestId('code-settings-panel')
+  const browserToggle = settingsPanel.getByRole('button', { name: 'Enable shared Browser' })
+  await expect(settingsPanel.getByText('Shared Browser', { exact: true })).toBeVisible()
+  await expect(browserToggle).toHaveAttribute('aria-pressed', 'false')
+  const settingsScreenshot = testInfo.outputPath('browser-settings-default-off.png')
+  await settingsPanel.locator('.code-settings-panel').screenshot({ path: settingsScreenshot })
+  await testInfo.attach('browser-settings-default-off', {
+    path: settingsScreenshot,
+    contentType: 'image/png',
+  })
+  await browserToggle.click()
+  await expect(browserToggle).toHaveAttribute('aria-pressed', 'true')
+  await settingsPanel.getByRole('button', { name: 'Close' }).click()
   await expect(page.getByTestId('farming-browser-section')).toBeVisible()
   await page.getByRole('button', { name: 'New Browser' }).click()
   const viewer = page.getByTestId('farming-browser-viewer')
@@ -187,5 +202,6 @@ test('shares one fixed Browser viewport across desktop, mobile, and Agent action
   await row.hover()
   await row.getByRole('button', { name: 'Delete Browser' }).click()
   await expect(page.getByTestId('farming-browser-row')).toHaveCount(0)
+  await page.request.post('/farming/api/settings', { data: { browserExtensionEnabled: false } })
   await page.request.post('/farming/api/projects/remove', { data: { workspace } })
 })

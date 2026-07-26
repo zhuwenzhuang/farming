@@ -56,6 +56,7 @@ class BrowserResourceManager extends EventEmitter {
     this.store = options.store || new BrowserResourceStore(options.configDir);
     this.discoverExecutable = options.discoverExecutable || (() => discoverBrowserExecutable(options));
     this.createRuntime = options.createRuntime || (input => new CdpBrowserRuntime(input));
+    this.isEnabled = typeof options.isEnabled === 'function' ? options.isEnabled : () => false;
     this.runtimes = new Map();
     this.operations = new Map();
     this.disposed = false;
@@ -67,22 +68,29 @@ class BrowserResourceManager extends EventEmitter {
 
   capability() {
     const executable = this.discoverExecutable();
+    const enabled = this.isEnabled() === true;
     return {
-      available: Boolean(executable),
+      enabled,
+      available: enabled && Boolean(executable),
       browser: executable ? { kind: executable.kind, path: executable.path } : null,
-      message: executable ? '' : 'No supported system browser found (Chrome, Brave, Edge, or Chromium)',
+      message: !enabled
+        ? 'Browser extension is disabled'
+        : (executable ? '' : 'No supported system browser found (Chrome, Brave, Edge, or Chromium)'),
     };
   }
 
   list() {
+    this.requireEnabled();
     return this.store.list().map(publicResource);
   }
 
   get(id) {
+    this.requireEnabled();
     return publicResource(this.requireStored(id));
   }
 
   create(input) {
+    this.requireAvailable();
     if (this.disposed) throw browserError('Browser manager is stopping', 503, 'BROWSER_MANAGER_STOPPING');
     const resource = this.store.create({
       projectRootId: input.projectRootId,
@@ -95,6 +103,7 @@ class BrowserResourceManager extends EventEmitter {
   }
 
   rename(id, name) {
+    this.requireEnabled();
     const title = String(name || '').trim();
     if (!title) throw browserError('Browser name is required');
     const resource = this.requireStored(id);
@@ -104,6 +113,7 @@ class BrowserResourceManager extends EventEmitter {
   }
 
   start(id) {
+    this.requireAvailable();
     return this.enqueue(id, async () => {
       const resource = this.requireStored(id);
       const existing = this.runtimes.get(id);
@@ -186,6 +196,7 @@ class BrowserResourceManager extends EventEmitter {
   }
 
   stop(id) {
+    this.requireEnabled();
     return this.enqueue(id, async () => {
       this.requireStored(id);
       const runtime = this.runtimes.get(id);
@@ -208,6 +219,7 @@ class BrowserResourceManager extends EventEmitter {
   }
 
   async delete(id) {
+    this.requireEnabled();
     await this.stop(id);
     this.requireStored(id);
     this.store.delete(id);
@@ -222,6 +234,7 @@ class BrowserResourceManager extends EventEmitter {
   }
 
   navigate(id, url) {
+    this.requireEnabled();
     const normalized = normalizeUrl(url);
     return this.withRuntime(id, async runtime => {
       const metadata = await runtime.navigate(normalized);
@@ -255,6 +268,7 @@ class BrowserResourceManager extends EventEmitter {
   }
 
   action(id, input) {
+    this.requireEnabled();
     const kind = String(input?.kind || '').trim();
     if (kind === 'snapshot') return this.withRuntime(id, runtime => runtime.snapshot());
     if (kind === 'screenshot') return this.withRuntime(id, runtime => runtime.screenshot());
@@ -274,6 +288,7 @@ class BrowserResourceManager extends EventEmitter {
   }
 
   attachViewer(id, ws) {
+    this.requireEnabled();
     const resource = this.requireStored(id);
     const runtime = this.runtimes.get(id);
     ws.send(JSON.stringify({ type: 'browser-state', resource: publicResource(resource) }));
@@ -341,6 +356,38 @@ class BrowserResourceManager extends EventEmitter {
       throw new Error(`Browser runtime cleanup failed: ${failures.join('; ')}`);
     }
     this.runtimes.clear();
+  }
+
+  async stopAll() {
+    const ids = [...this.runtimes.keys()];
+    const results = await Promise.allSettled(ids.map(id => this.stop(id)));
+    const failures = results
+      .filter(result => result.status === 'rejected')
+      .map(result => result.reason?.message || String(result.reason));
+    if (failures.length > 0) {
+      throw browserError(
+        `Browser extension could not stop every running Browser: ${failures.join('; ')}`,
+        500,
+        'BROWSER_DISABLE_FAILED',
+      );
+    }
+  }
+
+  requireEnabled() {
+    if (this.isEnabled() !== true) {
+      throw browserError('Browser extension is disabled', 409, 'BROWSER_EXTENSION_DISABLED');
+    }
+  }
+
+  requireAvailable() {
+    this.requireEnabled();
+    if (!this.discoverExecutable()) {
+      throw browserError(
+        'No supported system browser found (Chrome, Brave, Edge, or Chromium)',
+        503,
+        'BROWSER_EXECUTABLE_NOT_FOUND',
+      );
+    }
   }
 
   requireStored(id) {

@@ -193,6 +193,7 @@ async function run() {
     model: 'gpt-5.5',
     reasoningEffort: 'xhigh',
     serviceTier: 'priority',
+    farmingSystemPrompt: 'You are running in Farming.',
   });
   assert.strictEqual(codexEnv.KEEP, 'yes');
   assert.strictEqual(codexEnv.CODEX_PATH, '/opt/codex/bin/codex');
@@ -202,6 +203,7 @@ async function run() {
     model: 'gpt-5.5',
     model_reasoning_effort: 'xhigh',
     service_tier: 'priority',
+    developer_instructions: 'You are running in Farming.',
   });
   assert.strictEqual(codexAcpEnvironment({ env: {}, approvalMode: 'ask' }).INITIAL_AGENT_MODE, 'read-only');
   assert.deepStrictEqual(acpSessionRequestOptions({
@@ -211,6 +213,24 @@ async function run() {
     cwd: '/tmp/project',
     additionalDirectories: ['/tmp/shared', '/tmp/absolute'],
     mcpServers: [{ name: 'docs', command: '/bin/docs-mcp', args: ['--stdio'] }],
+  });
+  assert.deepStrictEqual(acpSessionRequestOptions({
+    provider: 'claude',
+    farmingSystemPrompt: 'You are running in Farming.',
+  }, '/tmp/project')._meta, {
+    systemPrompt: {
+      type: 'preset',
+      preset: 'claude_code',
+      append: 'You are running in Farming.',
+    },
+  });
+  assert.deepStrictEqual(resolveAcpLaunch('qoder', {
+    executable: '/bin/qodercli',
+    farmingSystemPrompt: 'You are running in Farming.',
+  }), {
+    command: '/bin/qodercli',
+    args: ['--append-system-prompt', 'You are running in Farming.', '--acp'],
+    version: 'native',
   });
   assert.deepStrictEqual(promptContentForCapabilities([
     { type: 'image', data: 'aW1hZ2U=', mimeType: 'image/png', path: '/tmp/screenshot.png' },

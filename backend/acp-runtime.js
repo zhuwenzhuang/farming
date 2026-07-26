@@ -254,7 +254,21 @@ function acpSessionRequestOptions(options = {}, cwd = process.cwd()) {
   const mcpServers = Array.isArray(options.mcpServers)
     ? clone(options.mcpServers.filter(server => server && typeof server === 'object' && !Array.isArray(server)))
     : [];
-  return { cwd: root, additionalDirectories, mcpServers };
+  const result = { cwd: root, additionalDirectories, mcpServers };
+  if (
+    options.provider === 'claude'
+    && typeof options.farmingSystemPrompt === 'string'
+    && options.farmingSystemPrompt.trim()
+  ) {
+    result._meta = {
+      systemPrompt: {
+        type: 'preset',
+        preset: 'claude_code',
+        append: options.farmingSystemPrompt.trim(),
+      },
+    };
+  }
+  return result;
 }
 
 function promptContentForCapabilities(content, capabilities = {}) {

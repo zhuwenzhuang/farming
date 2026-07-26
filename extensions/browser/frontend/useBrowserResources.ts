@@ -21,6 +21,7 @@ export function useBrowserResources() {
   const [resources, setResources] = useState<BrowserResource[]>([])
   const [capability, setCapability] = useState<BrowserCapability | null>(null)
   const [loading, setLoading] = useState(true)
+  const [refreshVersion, setRefreshVersion] = useState(0)
 
   const mergeResource = useCallback((resource: BrowserResource) => {
     setResources(current => {
@@ -34,18 +35,30 @@ export function useBrowserResources() {
 
   useEffect(() => {
     let active = true
-    void Promise.all([
-      browserRequest<{ resources: BrowserResource[] }>('/api/browsers'),
-      browserRequest<BrowserCapability>('/api/browsers/capability'),
-    ]).then(([list, nextCapability]) => {
+    setLoading(true)
+    void browserRequest<BrowserCapability>('/api/browsers/capability').then(async nextCapability => {
+      if (!active) return
+      setCapability(nextCapability)
+      if (!nextCapability.available) {
+        setResources([])
+        setLoading(false)
+        return
+      }
+      const list = await browserRequest<{ resources: BrowserResource[] }>('/api/browsers')
       if (!active) return
       setResources(list.resources)
-      setCapability(nextCapability)
       setLoading(false)
     }).catch(() => {
       if (active) setLoading(false)
     })
+    return () => {
+      active = false
+    }
+  }, [refreshVersion])
 
+  useEffect(() => {
+    if (capability?.available !== true) return undefined
+    let active = true
     const events = new EventSource(appPath('/api/browsers/events'))
     events.addEventListener('resources', event => {
       if (!active) return
@@ -65,7 +78,7 @@ export function useBrowserResources() {
       active = false
       events.close()
     }
-  }, [mergeResource])
+  }, [capability?.available, mergeResource])
 
   const create = useCallback(async (workspace: string, options: { name?: string; url?: string } = {}) => {
     const resource = await browserRequest<BrowserResource>('/api/browsers', {
@@ -124,6 +137,7 @@ export function useBrowserResources() {
     stop: (id: string) => transition(id, 'stop'),
     remove,
     mergeResource,
+    refreshCapability: () => setRefreshVersion(version => version + 1),
   }
 }
 

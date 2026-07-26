@@ -243,6 +243,25 @@ function run() {
   });
   assert.deepStrictEqual(qwenMain.args, ['--yolo']);
 
+  const codexFarming = resolveLaunchCommand('codex', {
+    farmingSystemPrompt: 'You are running in Farming.',
+  });
+  assert(codexFarming.args.includes('developer_instructions="You are running in Farming."'));
+  const claudeFarming = resolveLaunchCommand('claude', {
+    farmingSystemPrompt: 'You are running in Farming.',
+  });
+  assert.deepStrictEqual(claudeFarming.args.slice(-2), [
+    '--append-system-prompt',
+    'You are running in Farming.',
+  ]);
+  const qoderFarming = resolveLaunchCommand('qoder', {
+    farmingSystemPrompt: 'You are running in Farming.',
+  });
+  assert.deepStrictEqual(qoderFarming.args, [
+    '--append-system-prompt',
+    'You are running in Farming.',
+  ]);
+
   console.log('✓ Agent launch profiles resolve per-agent dangerous skip flags correctly');
 }
 

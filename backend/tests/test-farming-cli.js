@@ -1,6 +1,14 @@
 const assert = require('assert');
 const http = require('http');
-const { normalizeBaseUrl, parseArgs, formatAgent, request, run } = require('../farming-cli');
+const {
+  farmingCapabilities,
+  formatCapabilities,
+  normalizeBaseUrl,
+  parseArgs,
+  formatAgent,
+  request,
+  run,
+} = require('../farming-cli');
 
 function listen(server) {
   return new Promise((resolve) => {
@@ -43,6 +51,14 @@ async function test() {
   });
 
   assert.deepStrictEqual(parseArgs(['skills']), { command: 'skills' });
+  assert.deepStrictEqual(parseArgs(['capabilities', '--json']), {
+    command: 'capabilities',
+    options: { json: true },
+  });
+  assert.match(formatCapabilities(farmingCapabilities({
+    enabled: true,
+    available: true,
+  })), /browser: available/);
 
   assert.deepStrictEqual(parseArgs(['memory', 'report', '--period', 'week', '--json']), {
     command: 'memory-report',

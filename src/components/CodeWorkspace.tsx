@@ -4825,6 +4825,7 @@ export function CodeWorkspace({
         collapsedProjectIds={collapsedProjectIds}
         activeBrowserId={mainPaneMode === 'browser' ? activeBrowserId : null}
         controller={browserResources}
+        language={uiPreferences.language}
         onOpen={openBrowserFromSidebar}
       />
 
@@ -4836,6 +4837,7 @@ export function CodeWorkspace({
         agentLaunchOptions={agentLaunchOptions}
         onClose={() => setSettingsPanelOpen(false)}
         onUpdateUiPreferences={onUpdateUiPreferences}
+        onBrowserCapabilityChange={browserResources.refreshCapability}
       />
 
       {mobileShareUrl && (
@@ -4931,6 +4933,7 @@ export function CodeWorkspace({
         activeView={activeView}
         activeBrowserResource={mainPaneMode === 'browser' ? activeBrowserResource : null}
         browserController={browserResources}
+        language={uiPreferences.language}
         showFileEditor={showFileEditor}
         openWorkspaceFile={openWorkspaceFile}
         openWorkspaceFiles={openWorkspaceFiles}

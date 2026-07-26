@@ -115,7 +115,6 @@ const agentManager = new AgentManager(configManager, {
   tokenFile: tokenAuth.getTokenFile(),
   authDisabled: !authEnabled,
   cliBinDir: resolveCliBinDir(),
-  browserMcpEnabled: true,
 });
 
 async function requireAgentRecoveryForHttp(res) {
@@ -136,6 +135,7 @@ const workspaceFileService = new WorkspaceFileService();
 const workspaceRootRegistry = new WorkspaceRootRegistry(agentManager);
 const browserResourceManager = new BrowserResourceManager({
   configDir: configManager.farmingDir,
+  isEnabled: () => configManager.getSettings().browserExtensionEnabled === true,
 });
 browserResourceManager.init();
 const updateService = new FarmingUpdateService({
@@ -2204,11 +2204,35 @@ async function autoResumeMainPageAgentSessions() {
   }
 }
 
-app.post(routePath(BASE_PATH, '/api/settings'), express.json(), (req, res) => {
+app.post(routePath(BASE_PATH, '/api/settings'), express.json(), async (req, res) => {
   const settingsPatch = { ...(req.body || {}) };
   delete settingsPatch.mainPageSessionKeys;
   delete settingsPatch.projectWorkspaces;
   delete settingsPatch.pinnedProjectWorkspaces;
+  const changesBrowserExtension = Object.prototype.hasOwnProperty.call(settingsPatch, 'browserExtensionEnabled');
+  const browserExtensionEnabled = settingsPatch.browserExtensionEnabled === true;
+  if (changesBrowserExtension && browserExtensionEnabled && !browserResourceManager.capability().browser) {
+    res.status(400).json({
+      error: 'No supported system browser found (Chrome, Brave, Edge, or Chromium)',
+      code: 'BROWSER_EXECUTABLE_NOT_FOUND',
+    });
+    return;
+  }
+  if (
+    changesBrowserExtension
+    && !browserExtensionEnabled
+    && configManager.getSettings().browserExtensionEnabled === true
+  ) {
+    try {
+      await browserResourceManager.stopAll();
+    } catch (error) {
+      res.status(Number(error?.status) || 500).json({
+        error: error?.message || 'Browser extension could not be disabled',
+        code: error?.code || 'BROWSER_DISABLE_FAILED',
+      });
+      return;
+    }
+  }
   configManager.updateSettings(settingsPatch);
   agentSessionsCache.invalidate();
   res.json({

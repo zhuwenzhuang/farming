@@ -44,6 +44,11 @@ function run() {
     assert.strictEqual(settings.appearance, 'system');
     assert.strictEqual(settings.language, 'en');
     assert.strictEqual(settings.crtSkinEffectsEnabled, true);
+    assert.strictEqual(settings.browserExtensionEnabled, false);
+    assert.strictEqual(
+      fs.readFileSync(path.join(farmingDir, 'farming-agent-bootstrap.zh_cn.md'), 'utf8').includes('farming capabilities'),
+      true,
+    );
     assert.strictEqual(settings.crtDynamicHeatEnabled, false);
     assert.strictEqual(DEFAULT_CRT_TERMINAL_FONT_SIZE, 15);
     assert.strictEqual(settings.crtTerminalFontSize, DEFAULT_CRT_TERMINAL_FONT_SIZE);

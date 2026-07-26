@@ -1,6 +1,15 @@
 import { createPortal } from 'react-dom'
 import { useCallback, useEffect, useLayoutEffect, useState } from 'react'
+import {
+  ChevronDownGlyph,
+  ChevronRightGlyph,
+  CloseGlyph,
+  PencilGlyph,
+  PlusGlyph,
+  SquareGlyph,
+} from '@/components/IconGlyphs'
 import type { ProjectGroup } from '@/components/code/types'
+import type { UiPreferences } from '@/lib/ui-preferences'
 import type { BrowserResource } from './types'
 import type { BrowserResourcesController } from './useBrowserResources'
 
@@ -23,23 +32,60 @@ function writeCollapsed(values: Set<string>) {
   }
 }
 
-function resourceStatusLabel(resource: BrowserResource) {
+function browserCopy(language: UiPreferences['language']) {
+  const zh = language === 'zh'
+  return {
+    browsers: zh ? '浏览器' : 'Browsers',
+    newBrowser: zh ? '新建浏览器' : 'New Browser',
+    createBrowser: zh ? '新建共享浏览器' : 'Create shared Browser',
+    browserName: zh ? '浏览器名称' : 'Browser name',
+    renameBrowser: zh ? '重命名浏览器' : 'Rename Browser',
+    startBrowser: zh ? '启动浏览器' : 'Start Browser',
+    stopBrowser: zh ? '停止浏览器' : 'Stop Browser',
+    deleteBrowser: zh ? '删除浏览器' : 'Delete Browser',
+    deleteConfirm: (name: string) => zh
+      ? `删除浏览器“${name}”及其独立资料目录？`
+      : `Delete Browser “${name}” and its isolated profile?`,
+    failed: zh ? '浏览器失败' : 'Browser failed',
+    starting: zh ? '启动中…' : 'Starting…',
+    stopping: zh ? '停止中…' : 'Stopping…',
+    stopped: zh ? '已停止' : 'Stopped',
+    renameFailed: zh ? '浏览器重命名失败' : 'Failed to rename Browser',
+    transitionFailed: zh ? '浏览器状态切换失败' : 'Browser transition failed',
+    deleteFailed: zh ? '浏览器删除失败' : 'Failed to delete Browser',
+    createFailed: zh ? '浏览器创建失败' : 'Failed to create Browser',
+  }
+}
+
+type BrowserCopy = ReturnType<typeof browserCopy>
+
+function BrowserPlayGlyph() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+      <path d="M4.5 2.6a.75.75 0 0 1 1.15-.63l7 4.9a.75.75 0 0 1 0 1.23l-7 4.9A.75.75 0 0 1 4.5 12.4V2.6Z" />
+    </svg>
+  )
+}
+
+function resourceStatusLabel(resource: BrowserResource, copy: BrowserCopy) {
   if (resource.status === 'running') return resource.url.replace(/^https?:\/\//, '') || 'about:blank'
-  if (resource.status === 'failed') return resource.error || 'Browser failed'
-  if (resource.status === 'starting') return 'Starting…'
-  if (resource.status === 'stopping') return 'Stopping…'
-  return 'Stopped'
+  if (resource.status === 'failed') return resource.error || copy.failed
+  if (resource.status === 'starting') return copy.starting
+  if (resource.status === 'stopping') return copy.stopping
+  return copy.stopped
 }
 
 function BrowserRow({
   resource,
   active,
   controller,
+  copy,
   onOpen,
 }: {
   resource: BrowserResource
   active: boolean
   controller: BrowserResourcesController
+  copy: BrowserCopy
   onOpen: (resource: BrowserResource) => void
 }) {
   const [renaming, setRenaming] = useState(false)
@@ -54,7 +100,7 @@ function BrowserRow({
     }
     await controller.rename(resource.id, next).catch(error => {
       setName(resource.name)
-      window.alert(error instanceof Error ? error.message : 'Failed to rename Browser')
+      window.alert(error instanceof Error ? error.message : copy.renameFailed)
     })
   }
   return (
@@ -78,7 +124,7 @@ function BrowserRow({
           <input
             autoFocus
             value={name}
-            aria-label="Browser name"
+            aria-label={copy.browserName}
             onClick={event => event.stopPropagation()}
             onChange={event => setName(event.currentTarget.value)}
             onBlur={() => void submitRename()}
@@ -92,48 +138,50 @@ function BrowserRow({
             }}
           />
         ) : (
-          <strong>{resource.name}</strong>
+          <span className="farming-browser-row-name">{resource.name}</span>
         )}
-        <span title={resource.error || resource.url}>{resourceStatusLabel(resource)}</span>
+        <span className="farming-browser-row-detail" title={resource.error || resource.url}>
+          {resourceStatusLabel(resource, copy)}
+        </span>
       </span>
       <span className="farming-browser-row-actions">
         <button
           type="button"
-          title="Rename Browser"
-          aria-label="Rename Browser"
+          title={copy.renameBrowser}
+          aria-label={copy.renameBrowser}
           onClick={event => {
             event.stopPropagation()
             setRenaming(true)
           }}
         >
-          ✎
+          <PencilGlyph />
         </button>
         <button
           type="button"
           disabled={busy}
-          title={resource.status === 'running' ? 'Stop Browser' : 'Start Browser'}
-          aria-label={resource.status === 'running' ? 'Stop Browser' : 'Start Browser'}
+          title={resource.status === 'running' ? copy.stopBrowser : copy.startBrowser}
+          aria-label={resource.status === 'running' ? copy.stopBrowser : copy.startBrowser}
           onClick={event => {
             event.stopPropagation()
             const operation = resource.status === 'running' ? controller.stop(resource.id) : controller.start(resource.id)
-            void operation.catch(error => window.alert(error instanceof Error ? error.message : 'Browser transition failed'))
+            void operation.catch(error => window.alert(error instanceof Error ? error.message : copy.transitionFailed))
           }}
         >
-          {resource.status === 'running' ? '■' : '▶'}
+          {resource.status === 'running' ? <SquareGlyph /> : <BrowserPlayGlyph />}
         </button>
         <button
           type="button"
-          title="Delete Browser"
-          aria-label="Delete Browser"
+          title={copy.deleteBrowser}
+          aria-label={copy.deleteBrowser}
           onClick={event => {
             event.stopPropagation()
-            if (!window.confirm(`Delete Browser “${resource.name}” and its isolated profile?`)) return
+            if (!window.confirm(copy.deleteConfirm(resource.name))) return
             void controller.remove(resource.id).catch(error => {
-              window.alert(error instanceof Error ? error.message : 'Failed to delete Browser')
+              window.alert(error instanceof Error ? error.message : copy.deleteFailed)
             })
           }}
         >
-          ×
+          <CloseGlyph />
         </button>
       </span>
     </div>
@@ -145,6 +193,7 @@ function BrowserSection({
   resources,
   activeBrowserId,
   controller,
+  copy,
   collapsed,
   onToggle,
   onOpen,
@@ -153,6 +202,7 @@ function BrowserSection({
   resources: BrowserResource[]
   activeBrowserId: string | null
   controller: BrowserResourcesController
+  copy: BrowserCopy
   collapsed: boolean
   onToggle: () => void
   onOpen: (resource: BrowserResource) => void
@@ -163,7 +213,7 @@ function BrowserSection({
       const running = await controller.start(resource.id)
       onOpen(running)
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : 'Failed to create Browser')
+      window.alert(error instanceof Error ? error.message : copy.createFailed)
     }
   }
   return (
@@ -175,19 +225,20 @@ function BrowserSection({
           aria-expanded={!collapsed}
           onClick={onToggle}
         >
-          <span aria-hidden="true">{collapsed ? '›' : '⌄'}</span>
-          <strong>Browsers</strong>
+          <span className="farming-browser-section-chevron" aria-hidden="true">
+            {collapsed ? <ChevronRightGlyph /> : <ChevronDownGlyph />}
+          </span>
+          <span>{copy.browsers}</span>
           <small>{resources.length}</small>
         </button>
         <button
           type="button"
           className="farming-browser-new"
-          title="New Browser"
-          aria-label="New Browser"
-          disabled={controller.capability?.available === false}
+          title={copy.newBrowser}
+          aria-label={copy.newBrowser}
           onClick={() => void createBrowser()}
         >
-          +
+          <PlusGlyph />
         </button>
       </header>
       {!collapsed && (
@@ -198,6 +249,7 @@ function BrowserSection({
               resource={resource}
               active={resource.id === activeBrowserId}
               controller={controller}
+              copy={copy}
               onOpen={onOpen}
             />
           ))}
@@ -205,11 +257,10 @@ function BrowserSection({
             <button
               type="button"
               className="farming-browser-empty"
-              disabled={controller.capability?.available === false}
-              title={controller.capability?.message}
               onClick={() => void createBrowser()}
             >
-              {controller.capability?.available === false ? controller.capability.message : 'Open a real browser'}
+              <PlusGlyph />
+              <span>{copy.createBrowser}</span>
             </button>
           )}
         </div>
@@ -233,14 +284,18 @@ export function BrowserSidebarPortals({
   collapsedProjectIds,
   activeBrowserId,
   controller,
+  language,
   onOpen,
 }: {
   projects: ProjectGroup[]
   collapsedProjectIds: ReadonlySet<string>
   activeBrowserId: string | null
   controller: BrowserResourcesController
+  language: UiPreferences['language']
   onOpen: (resource: BrowserResource) => void
 }) {
+  const copy = browserCopy(language)
+  const available = controller.loading === false && controller.capability?.available === true
   const [targets, setTargets] = useState(new Map<string, HTMLElement>())
   const [collapsed, setCollapsed] = useState(readCollapsed)
   const refreshTargets = useCallback(() => {
@@ -256,12 +311,19 @@ export function BrowserSidebarPortals({
     })
   }, [collapsedProjectIds, projects])
 
-  useLayoutEffect(refreshTargets, [refreshTargets])
+  useLayoutEffect(() => {
+    if (available) {
+      refreshTargets()
+      return
+    }
+    setTargets(current => current.size === 0 ? current : new Map())
+  }, [available, refreshTargets])
   useEffect(() => {
+    if (!available) return undefined
     const observer = new MutationObserver(refreshTargets)
     observer.observe(document.body, { childList: true, subtree: true })
     return () => observer.disconnect()
-  }, [refreshTargets])
+  }, [available, refreshTargets])
 
   const toggle = (projectId: string) => {
     setCollapsed(current => {
@@ -272,6 +334,8 @@ export function BrowserSidebarPortals({
       return next
     })
   }
+
+  if (!available) return null
 
   return (
     <>
@@ -284,6 +348,7 @@ export function BrowserSidebarPortals({
             resources={controller.byWorkspace.get(project.workspace) ?? []}
             activeBrowserId={activeBrowserId}
             controller={controller}
+            copy={copy}
             collapsed={collapsed.has(project.id)}
             onToggle={() => toggle(project.id)}
             onOpen={onOpen}

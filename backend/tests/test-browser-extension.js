@@ -178,8 +178,10 @@ async function testScreencastFrameRateBound() {
 async function testBrowserResourceManager() {
   const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-browser-extension-'));
   const runtimes = [];
+  let enabled = false;
   const manager = new BrowserResourceManager({
     configDir,
+    isEnabled: () => enabled,
     discoverExecutable: () => ({ kind: 'chrome', path: '/fake/chrome' }),
     createRuntime: options => {
       const runtime = new FakeBrowserRuntime(options);
@@ -189,6 +191,14 @@ async function testBrowserResourceManager() {
   });
   try {
     manager.init();
+    assert.deepStrictEqual(manager.capability(), {
+      enabled: false,
+      available: false,
+      browser: { kind: 'chrome', path: '/fake/chrome' },
+      message: 'Browser extension is disabled',
+    });
+    assert.throws(() => manager.list(), /disabled/);
+    enabled = true;
     assert.strictEqual(manager.capability().available, true);
     const created = manager.create({
       projectRootId: 'wroot_project',
@@ -273,6 +283,7 @@ async function testBrowserResourceManager() {
     manager.store.update(orphaned.id, { status: 'running' });
     const restartedManager = new BrowserResourceManager({
       configDir,
+      isEnabled: () => true,
       discoverExecutable: () => ({ kind: 'chrome', path: '/fake/chrome' }),
       createRuntime: options => new FakeBrowserRuntime(options),
     });
@@ -299,6 +310,7 @@ function testBrowserUiAndPackagingWiring() {
   assert.strictEqual(packageJson.dependencies['playwright-core'], undefined);
   assert.strictEqual(packageJson.bin['farming-browser'], 'extensions/browser/bin/farming-browser');
   assert(packageJson.files.includes('extensions/browser/'));
+  assert(packageJson.files.includes('backend/farming-agent-bootstrap.zh_cn.md'));
 }
 
 Promise.resolve()

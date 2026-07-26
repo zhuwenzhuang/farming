@@ -16,6 +16,7 @@ export interface BrowserResource {
 }
 
 export interface BrowserCapability {
+  enabled: boolean
   available: boolean
   browser: { kind: string; path: string } | null
   message: string

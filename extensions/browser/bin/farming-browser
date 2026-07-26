@@ -2,9 +2,12 @@
 const fs = require('fs');
 const path = require('path');
 const { requestJson } = require('../backend/farming-browser-client');
+const { rootIdForPath } = require('../../../backend/workspace-root-registry');
 
 function usage() {
   return `Usage:
+  farming-browser capability
+  farming-browser create [--workspace <path>] [--name <name>] [--url <url>]
   farming-browser list [--workspace <path>]
   farming-browser start <browser-id>
   farming-browser stop <browser-id>
@@ -36,9 +39,35 @@ async function run(argv = process.argv.slice(2)) {
     await runBrowserMcpServer();
     return 0;
   }
+  if (command === 'capability') {
+    const result = await requestJson('GET', '/api/browsers/capability');
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    return 0;
+  }
+  if (command === 'create') {
+    const option = name => {
+      const index = args.indexOf(name);
+      return index >= 0 ? String(args[index + 1] || '') : '';
+    };
+    const requestedWorkspace = option('--workspace') || process.env.FARMING_PROJECT_WORKSPACE || '';
+    if (!requestedWorkspace) {
+      throw new Error('Browser create requires --workspace or FARMING_PROJECT_WORKSPACE');
+    }
+    const workspace = path.resolve(requestedWorkspace);
+    const result = await requestJson('POST', '/api/browsers', {
+      rootId: rootIdForPath(workspace),
+      name: option('--name') || undefined,
+      url: option('--url') || undefined,
+    });
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    return 0;
+  }
   if (command === 'list') {
     const workspaceIndex = args.indexOf('--workspace');
-    const workspace = workspaceIndex >= 0 ? path.resolve(args[workspaceIndex + 1] || '') : '';
+    const requestedWorkspace = workspaceIndex >= 0
+      ? args[workspaceIndex + 1] || ''
+      : process.env.FARMING_PROJECT_WORKSPACE || '';
+    const workspace = requestedWorkspace ? path.resolve(requestedWorkspace) : '';
     const result = await requestJson('GET', '/api/browsers');
     const resources = workspace
       ? result.resources.filter(resource => path.resolve(resource.workspace) === workspace)
