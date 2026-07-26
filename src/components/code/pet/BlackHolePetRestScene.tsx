@@ -134,7 +134,9 @@ export function BlackHolePetRestScene({
   useEffect(() => {
     if (!active) return undefined
     setNow(Date.now())
-    const interval = window.setInterval(() => setNow(Date.now()), 1000)
+    const interval = window.setInterval(() => {
+      if (document.visibilityState !== 'hidden') setNow(Date.now())
+    }, 1000)
     return () => window.clearInterval(interval)
   }, [active, restUntil])
 

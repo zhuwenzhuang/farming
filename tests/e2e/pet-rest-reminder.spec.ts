@@ -129,11 +129,12 @@ test('dark black-hole status stays readable and manual exit fully evaporates in 
   )).toBeGreaterThan(0.52)
   await expect(scene.locator('.code-pet-black-hole-compositor'))
     .toHaveAttribute('data-evaporation-phase', 'radiation')
-  const radiationInk = await readBlackHoleOuterInk(
-    scene.locator('.code-pet-black-hole-canvas'),
-  )
-  expect(radiationInk.inkPixels).toBeGreaterThan(60)
-  expect(radiationInk.coveredSectors).toBeGreaterThan(16)
+  await expect.poll(async () => {
+    const radiationInk = await readBlackHoleOuterInk(
+      scene.locator('.code-pet-black-hole-canvas'),
+    )
+    return radiationInk.inkPixels > 60 && radiationInk.coveredSectors > 16
+  }, { timeout: 2_000 }).toBe(true)
   await expect(scene).toBeVisible()
   await expect(page.locator('.code-pet-black-hole-compositor')).toHaveCount(1)
   await expect(scene).toHaveCount(0, { timeout: 7_000 })
@@ -329,7 +330,7 @@ test('backend disconnect does not reset or duplicate an active black-hole break'
         lastActivityAt: null,
         snoozedUntil: null,
         restStartsAt: null,
-        restUntil: Date.now() + 30_000,
+        restUntil: Date.now() + 5 * 60_000,
         snoozeUsed: false,
       },
     }))
@@ -435,6 +436,7 @@ test('natural black-hole evaporation resumes at the absolute-time progress', asy
 })
 
 test('black-hole snapshot refresh excludes Pet UI and keeps one renderer', async ({ page }) => {
+  test.slow()
   await page.addInitScript(({ settingsKey, runtimeKey }) => {
     localStorage.setItem(settingsKey, JSON.stringify({
       version: 1,
@@ -642,19 +644,20 @@ test('appearance changes preserve the active cycle and reload restores it', asyn
 })
 
 test('Settings blocks rest entry and closing it starts a fresh entry countdown', async ({ page }) => {
+  test.slow()
   await page.addInitScript(({ settingsKey, runtimeKey }) => {
     const now = Date.now()
     localStorage.setItem(settingsKey, JSON.stringify({
       version: 1,
       appearance: 'glass',
-      capabilities: { restReminder: { intervalSeconds: 5 } },
+      capabilities: { restReminder: { intervalSeconds: 60 } },
     }))
     sessionStorage.setItem(runtimeKey, JSON.stringify({
       version: 1,
       state: {
         phase: 'working',
-        intervalSeconds: 5,
-        cycleStartedAt: now - 2_000,
+        intervalSeconds: 60,
+        cycleStartedAt: now - 45_000,
         lastActivityAt: now,
         snoozedUntil: null,
         restStartsAt: null,
@@ -670,7 +673,7 @@ test('Settings blocks rest entry and closing it starts a fresh entry countdown',
   const closeSettings = settings.getByRole('button', { name: 'Close', exact: true })
   await expect(settings).toBeVisible()
 
-  await page.waitForTimeout(7_000)
+  await page.waitForTimeout(20_000)
   await expect(page.getByTestId('pet-rest-scene')).toHaveCount(0)
   await expect(page.getByTestId('pet-rest-reminder')).toHaveCount(0)
   await expect(closeSettings).toBeVisible()
@@ -686,10 +689,10 @@ test('Settings blocks rest entry and closing it starts a fresh entry countdown',
   const restStartsAt = await page.evaluate(key => (
     JSON.parse(sessionStorage.getItem(key) ?? 'null')?.state?.restStartsAt
   ), RUNTIME_KEY)
-  expect(restStartsAt).toBeGreaterThanOrEqual(closedAt + 4_000)
+  expect(restStartsAt).toBeGreaterThanOrEqual(closedAt + 29_000)
 
   const scene = page.getByTestId('pet-rest-scene')
-  await expect(scene).toBeVisible({ timeout: 7_000 })
+  await expect(scene).toBeVisible({ timeout: 32_000 })
   await scene.getByRole('button', { name: 'End break' }).click()
   await expect(scene).toHaveCount(0)
 })

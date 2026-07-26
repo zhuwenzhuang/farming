@@ -192,9 +192,10 @@ const path = require('path');
     'an unavailable first snapshot should retry and clear its visible failure after recovery',
   )
   assert(
-    blackHoleRendererSource.includes('if (!sceneReady) {')
+    !blackHoleRendererSource.includes('|| (!sceneReady && exitingAt === null)')
+      && blackHoleRendererSource.includes('if (sceneReady) compositor.draw(pose)')
       && blackHoleRendererSource.includes('completeExit()'),
-    'a failed first snapshot must not prevent a bounded manual or natural exit',
+    'the black hole and its bounded exit must render independently from the scene snapshot',
   )
   assert(
     blackHoleRendererSource.includes('export const BLACK_HOLE_MANUAL_EXIT_SECONDS = 4.8'),

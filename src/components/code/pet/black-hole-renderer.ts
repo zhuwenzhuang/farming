@@ -1198,7 +1198,6 @@ export function createBlackHolePetRenderer({
     if (
       destroyed
       || !active
-      || (!sceneReady && exitingAt === null)
       || document.hidden
       || requestId
     ) return
@@ -1296,21 +1295,11 @@ export function createBlackHolePetRenderer({
   function frame(now: number) {
     requestId = 0
     if (destroyed || !active || document.hidden) return
-    if (!sceneReady) {
-      if (
-        exitingAt !== null
-        && now - exitingAt >= exitDuration * 1000
-      ) {
-        completeExit()
-        return
-      }
-      schedule()
-      return
-    }
     const elapsed = (now - startedAt) / 1000
     const look = macroAt(elapsed)
     if (
-      now >= nextSceneRefreshAt
+      sceneReady
+      && now >= nextSceneRefreshAt
       && look.motion <= SCENE_REFRESH_MAX_MOTION
     ) {
       refreshScene()
@@ -1362,7 +1351,7 @@ export function createBlackHolePetRenderer({
     }
     lastClockAt = now
     applyPose(pose)
-    compositor.draw(pose)
+    if (sceneReady) compositor.draw(pose)
     display.draw(diskClock, pose.bodyOpacity, look, evaporation)
     schedule()
   }

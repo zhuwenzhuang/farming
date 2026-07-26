@@ -1,4 +1,5 @@
 import { chromium, defineConfig, devices } from '@playwright/test'
+import { registry } from 'playwright-core/lib/server/registry/index'
 import fs from 'node:fs'
 
 const port = Number(process.env.FARMING_PLAYWRIGHT_PORT || 4173)
@@ -8,8 +9,12 @@ const useRealCodex = process.env.FARMING_E2E_REAL_CODEX === '1'
 const localChromePath = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
 const executablePath = process.env.FARMING_PLAYWRIGHT_CHROME_PATH
   || (fs.existsSync(localChromePath) ? localChromePath : undefined)
+const headlessShellPath = registry
+  .findExecutable('chromium-headless-shell')
+  .executablePath()
 const browserResourceExecutablePath = process.env.FARMING_BROWSER_EXECUTABLE
   || executablePath
+  || headlessShellPath
   || chromium.executablePath()
 const chromiumLaunchOptions = {
   executablePath,
