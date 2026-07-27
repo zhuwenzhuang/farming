@@ -1,5 +1,11 @@
+export type PetNotificationIntent = {
+  kind: 'notification'
+  notification: 'rest-reminder-setup'
+  option: 'invitation' | 'appearance'
+}
+
 export type PetIntent =
-  | { kind: 'onboarding'; step: 'invitation' | 'appearance' }
+  | PetNotificationIntent
   | {
     kind: 'capability'
     capability: 'rest-reminder'
@@ -12,3 +18,24 @@ export type PetIntent =
     phase: 'resting'
     restUntil: number
   }
+
+export function resolvePetNotificationIntent(
+  restReminderIntervalSeconds: number | null,
+  restReminderSetupOption: 'appearance' | null,
+): PetNotificationIntent | null {
+  if (restReminderSetupOption === 'appearance') {
+    return {
+      kind: 'notification',
+      notification: 'rest-reminder-setup',
+      option: 'appearance',
+    }
+  }
+  if (restReminderIntervalSeconds === null) {
+    return {
+      kind: 'notification',
+      notification: 'rest-reminder-setup',
+      option: 'invitation',
+    }
+  }
+  return null
+}

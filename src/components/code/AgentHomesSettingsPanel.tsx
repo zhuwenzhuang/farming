@@ -6,6 +6,7 @@ import {
   REST_REMINDER_CUSTOM_MINUTES_MAX,
   REST_REMINDER_CUSTOM_MINUTES_MIN,
   REST_REMINDER_IDLE_RESET_MINUTES,
+  REST_REMINDER_INTERVAL_PRESETS_SECONDS,
   REST_REMINDER_TEST_INTERVAL_SECONDS,
   isPetSettingsStorageKey,
   normalizeRestReminderIntervalSeconds,
@@ -13,6 +14,8 @@ import {
   readRestReminderIntervalSeconds,
   savePetAppearance,
   saveRestReminderIntervalSeconds,
+  restReminderSliderIntervalSeconds,
+  restReminderSliderPosition,
   type PetAppearance,
 } from '@/lib/pet/rest-reminder'
 import type { UiPreferences } from '@/lib/ui-preferences'
@@ -657,20 +660,10 @@ export function AgentHomesSettingsPanel({
     setPetAppearanceState(appearance)
   }, [copy.saveFailed])
 
-  const restReminderSliderValue = restReminderIntervalSeconds === REST_REMINDER_TEST_INTERVAL_SECONDS
-    ? 1
-    : restReminderIntervalSeconds && restReminderIntervalSeconds >= 60
-      ? (restReminderIntervalSeconds / 60) + 1
-      : 0
+  const restReminderSliderValue = restReminderSliderPosition(restReminderIntervalSeconds)
 
   const setRestReminderSliderValue = useCallback((value: number) => {
-    if (value === 0) {
-      setRestReminderIntervalSeconds(0)
-      return
-    }
-    setRestReminderIntervalSeconds(
-      value === 1 ? REST_REMINDER_TEST_INTERVAL_SECONDS : (value - 1) * 60,
-    )
+    setRestReminderIntervalSeconds(restReminderSliderIntervalSeconds(value))
   }, [setRestReminderIntervalSeconds])
 
   const setCustomRestReminderMinutes = useCallback((value: string) => {
@@ -1058,8 +1051,8 @@ export function AgentHomesSettingsPanel({
                   <input
                     type="range"
                     min="0"
-                    max={String(REST_REMINDER_CUSTOM_MINUTES_MAX + 1)}
-                    step="1"
+                    max={String(REST_REMINDER_INTERVAL_PRESETS_SECONDS.length - 1)}
+                    step="any"
                     value={restReminderSliderValue}
                     aria-label={copy.breakReminder}
                     aria-valuetext={copy.breakReminderValue(restReminderIntervalSeconds)}

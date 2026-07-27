@@ -11,6 +11,10 @@ const path = require('path');
     path.join(__dirname, '../../src/components/code/pet/PetBubble.tsx'),
     'utf8',
   );
+  const intentSource = fs.readFileSync(
+    path.join(__dirname, '../../src/lib/pet/intents.ts'),
+    'utf8',
+  );
   const glassSceneSource = fs.readFileSync(
     path.join(__dirname, '../../src/components/code/pet/GlassPetRestScene.tsx'),
     'utf8',
@@ -47,18 +51,21 @@ const path = require('path');
   assert(petSource.includes('之后可随时在设置的“Farming Pet”中调整或关闭。'));
   assert(petSource.includes("tryReminder: zh ? '试用一下'"));
   assert(petSource.includes("disable: zh ? '关闭'"));
-  assert(petSource.includes("kind: 'onboarding', step: 'appearance'"));
+  assert(intentSource.includes("notification: 'rest-reminder-setup'"));
   assert(petSource.includes("softGlow: zh ? '柔光'"));
   assert(petSource.includes("blackHole: zh ? '黑洞'"));
   assert(petSource.includes('它只会在需要提醒休息时出现。'));
   assert(petSource.includes("restingBody: zh ? '让眼睛和注意力暂停片刻。'"));
   assert(petSource.includes("endBreak: zh ? '结束休息' : 'End break'"));
-  assert(petSource.includes("cancelBreak: zh ? '取消本次休息'"));
-  assert(petSource.includes('。<br />操作暂停'));
+  assert(petSource.includes("cancelBreak: zh ? '取消' : 'Cancel'"));
+  assert(petSource.includes("snooze: zh ? `${REST_REMINDER_SNOOZE_MINUTES} 分钟后` : `In ${REST_REMINDER_SNOOZE_MINUTES} min`"));
+  assert(petSource.includes('已专注 {formatActivityInterval(language, intervalSeconds)}。<br />暂停操作'));
   assert(petSource.includes('className="code-pet-countdown">{countdownSeconds} 秒</strong>'));
+  assert(petSource.includes('Focused for {formatActivityInterval(language, intervalSeconds)}.<br />Pause'));
+  assert(petSource.includes('className="code-pet-countdown">{countdownSeconds} sec</strong>'));
   assert(bubbleSource.includes('body: ReactNode'));
   assert(!petSource.includes('start-break'));
-  assert(petSource.includes("kind: 'onboarding', step: 'invitation'"));
+  assert(petSource.includes('resolvePetNotificationIntent('));
   assert(petSource.includes("kind: 'capability'"));
   assert(petSource.includes("capability: 'rest-reminder'"));
   assert(petSource.includes(
@@ -77,6 +84,7 @@ const path = require('path');
   assert(sidebarSource.includes('|| brandDialogOpen'));
   assert(sidebarSource.includes('|| instanceNameDialogOpen'));
   assert(sidebarSource.includes('|| appModeDialogOpen'));
+  assert(!sidebarSource.includes('onboardingBlocked='));
   assert(workspaceSource.includes('settingsPanelOpen'));
   assert(workspaceSource.includes('|| Boolean(mobileShareUrl)'));
   assert(workspaceSource.includes('|| Boolean(renameDialog)'));
@@ -119,21 +127,81 @@ const path = require('path');
   assert(!blackHoleSceneSource.includes('code-pet-close'));
   assert(blackHoleRendererSource.includes("canvas.getContext('webgl2'"));
   assert(
-    blackHoleRendererSource.includes('uniform float uFineStreakWeight;')
+    blackHoleRendererSource.includes('uniform float uFilamentDetail;')
       && blackHoleRendererSource.includes(
         'clamp((requestedSize / DISPLAY_CAP - 1) / 0.5, 0, 1)',
       )
       && blackHoleRendererSource.includes(
-        'fineStreakWeight = mix(0.65, 0.22, streakAA)',
+        'filamentDetail = mix(0.68, 0.52, cappedScale)',
       )
       && blackHoleRendererSource.includes(
-        'gl.uniform1f(fineStreakWeightUniform, fineStreakWeight)',
+        'gl.uniform1f(filamentDetailUniform, filamentDetail)',
       )
-      && blackHoleRendererSource.includes('* (1.0 - uFineStreakWeight);')
+      && blackHoleRendererSource.includes(
+        'float flow = mix(broadFilament, fineFilament, uFilamentDetail);',
+      )
+      && blackHoleRendererSource.includes('diskRadius * 2.8 + 0.24 * sin(')
+      && blackHoleRendererSource.includes('diskRadius * 1.35 + 0.38 * sin(')
+      && blackHoleRendererSource.includes(
+        'float streaks = mix(0.84, 1.12 + contrast * 0.04, filament);',
+      )
       && !blackHoleRendererSource.includes('wrappedNoiseAA(')
       && !blackHoleRendererSource.includes('fwidth(')
       && !blackHoleRendererSource.includes('wrappedNoise(p - 0.25'),
-    'large capped accretion disks should shift streak energy to the resolvable octave without derivatives or extra noise samples',
+    'large capped accretion disks should retain two flow-aligned noise samples without radial low-frequency banding',
+  )
+  assert(
+    !blackHoleRendererSource.includes('uniform float uLook;')
+      && blackHoleRendererSource.includes('uniform float uTemperature;')
+      && blackHoleRendererSource.includes('uniform float uInclination;')
+      && blackHoleRendererSource.includes('uniform float uOuterRadius;')
+      && blackHoleRendererSource.includes('uniform float uStarField;')
+      && blackHoleRendererSource.includes('float innerRadius = uInnerRadius;')
+      && blackHoleRendererSource.includes('vec3 color = blackbody(uTemperature'),
+    'the lifecycle should drive the full reference preset vector instead of one Gargantua-to-Inferno scalar',
+  )
+  assert(
+    blackHoleRendererSource.includes("phase: 'zen'")
+      && blackHoleRendererSource.includes("phase: 'm87'")
+      && blackHoleRendererSource.includes("phase: 'ember'")
+      && blackHoleRendererSource.includes("phase: 'gargantua'")
+      && blackHoleRendererSource.includes("phase: 'inferno'")
+      && blackHoleRendererSource.includes("phase: 'quasar'")
+      && blackHoleRendererSource.includes("phase: 'blazar'")
+      && blackHoleRendererSource.includes("phase: 'cooling'")
+      && blackHoleRendererSource.includes('temperature: 18000, inclination: 1.05, roll: 0.55')
+      && blackHoleRendererSource.includes('innerRadius: 3, outerRadius: 10, diskOpacity: 0.3'),
+    'the approved eight-state reference tour should retain a visible low-energy state instead of the diskless pure lens',
+  )
+  assert(
+    !blackHoleRendererSource.includes("phase: 'pure-lens'")
+      && blackHoleRendererSource.includes('float edge = fieldFade(pointLength);')
+      && blackHoleRendererSource.includes('pointLength / (7.0 * horizon)')
+      && blackHoleRendererSource.includes('radius >= ${FIELD_OUTER.toFixed(2)}')
+      && blackHoleRendererSource.includes('outColor = mix(sharp, soft, softness * 0.72);'),
+    'the lifecycle should exclude the pure-black state without weakening the full background UI lensing field',
+  )
+  assert(
+    !blackHoleRendererSource.includes('workAreaShield')
+      && blackHoleRendererSource.includes('float softness = high.b * uOpacity;')
+      && blackHoleRendererSource.includes('* uScale * uOpacity;'),
+    'the compositor should preserve full-screen background lensing without a protected bottom band',
+  )
+  assert(
+    blackHoleRendererSource.includes(
+      'float shadowPixel = max(0.004, 1.25 * projection / uResolution.x);',
+    )
+      && blackHoleRendererSource.includes('float shadowCoverage =')
+      && blackHoleRendererSource.includes(
+        'float skyBlock = mix(tracedCapture, shadowCoverage, analyticEdge);',
+      ),
+    'the numerical capture boundary should use analytic pixel coverage at the event-horizon edge',
+  )
+  assert(
+    blackHoleRendererSource.includes("gl.getExtension('EXT_disjoint_timer_query_webgl2')")
+      && blackHoleRendererSource.includes('canvas.dataset.gpuP95Ms = p95.toFixed(3)')
+      && blackHoleRendererSource.includes('gpuFrameTimes.length > 120'),
+    'E2E should expose a bounded GPU timing window for the 120 FPS frame budget',
   )
   assert(
     blackHoleRendererSource.includes('preserveDrawingBuffer: preserveForVisualRegression')
@@ -144,6 +212,22 @@ const path = require('path');
   assert(blackHoleRendererSource.includes('document.hidden'));
   assert(blackHoleRendererSource.includes('const INTRO_SECONDS = 15'));
   assert(blackHoleRendererSource.includes('const MIDDLE_CYCLE_SECONDS = 90'));
+  assert(
+    blackHoleRendererSource.includes('const birthVariation = seedValue(roamSeed, 0, 12)')
+      && blackHoleRendererSource.includes('canvas.dataset.cycleSeconds = String(MIDDLE_CYCLE_SECONDS)')
+      && blackHoleRendererSource.includes('function createEvolutionCycle(seed: number, cycleIndex: number)')
+      && blackHoleRendererSource.includes('const lowEnergy = seedValue(seed, cycleIndex, 20)')
+      && blackHoleRendererSource.includes('const warmDisk = seedValue(seed, cycleIndex, 21)')
+      && blackHoleRendererSource.includes('const highEnergy = seedValue(seed, cycleIndex, 22)')
+      && blackHoleRendererSource.includes(
+        'return [...lowEnergy, ...warmDisk, inferno, ...highEnergy, cooling] as const',
+      )
+      && blackHoleRendererSource.includes('const nextCycle = createEvolutionCycle(evolutionSeed, cycleIndex + 1)')
+      && blackHoleRendererSource.includes('? nextCycle[0]')
+      && blackHoleRendererSource.includes('canvas.dataset.cycleOrder = firstCycle.map')
+      && blackHoleRendererSource.includes('canvas.dataset.birthPreset = birthTarget.phase'),
+    'each 90-second cycle should follow a constrained low-to-high-to-cooling route and blend into the next randomized route',
+  );
   assert(blackHoleRendererSource.includes('export const BLACK_HOLE_EXIT_SECONDS = 15'));
   assert(blackHoleRendererSource.includes('crypto.getRandomValues'));
   assert(blackHoleRendererSource.includes('createCompositorRenderer'));
@@ -158,6 +242,14 @@ const path = require('path');
   assert(blackHoleRendererSource.includes('PET_SNAPSHOT_EXCLUDE_SELECTOR'));
   assert(blackHoleRendererSource.includes('excludedElements.forEach(element => element.remove())'));
   assert(blackHoleRendererSource.includes('image.dataset.remainingPetElements'));
+  assert(
+    blackHoleRendererSource.includes("const FILE_ICON_SELECTOR = 'img.code-file-type-icon'")
+      && blackHoleRendererSource.includes('function rasterizeVisibleFileIcons()')
+      && blackHoleRendererSource.includes("canvas.toDataURL('image/png')")
+      && blackHoleRendererSource.includes('image.src = rasterizedSource')
+      && blackHoleRendererSource.includes('image.dataset.rasterizedFileIcons'),
+    'the scene snapshot should rasterize loaded file SVGs before cloning them',
+  );
   assert(blackHoleRendererSource.includes('__farmingBlackHolePetTest'));
   assert(
     blackHoleRendererSource.includes('smoother(offsetPixels / ${BLUR_OFFSET_PX.toFixed(1)})'),
@@ -219,10 +311,12 @@ const path = require('path');
     'manual dismissal should leave enough time for the full evaporation curve',
   )
   assert(
-    blackHoleRendererSource.includes("compositorCanvas.dataset.evaporationPhase = progress < 0.18")
-      && blackHoleRendererSource.includes("? 'radiation'")
+    blackHoleRendererSource.includes("compositorCanvas.dataset.evaporationPhase = progress < 0.20")
+      && blackHoleRendererSource.includes("? 'blue-shift'")
+      && blackHoleRendererSource.includes("? 'photon-collapse'")
+      && blackHoleRendererSource.includes(": 'final-release'")
       && blackHoleRendererSource.includes('compositorCanvas.dataset.hawking = evaporation.hawking.toFixed(4)'),
-    'browser checks should be able to correlate visible frames with the outward Hawking phase',
+    'browser checks should be able to correlate visible frames with each bounded exit phase',
   )
   assert(
     blackHoleRendererSource.includes('const returning = exitReturnsHome'),
@@ -241,12 +335,17 @@ const path = require('path');
     'the renderer should jump to the resumed evaporation progress',
   )
   assert(!blackHoleRendererSource.includes('<foreignObject'));
-  assert(blackHoleRendererSource.includes('diskFeed: 1 - smoother(progress / 0.30)'));
-  assert(blackHoleRendererSource.includes('float leadingShell'));
-  assert(blackHoleRendererSource.includes('float trailingShell'));
-  assert(blackHoleRendererSource.includes('float radialRays'));
-  assert(blackHoleRendererSource.includes('radiationColor * radiation'));
-  assert(blackHoleRendererSource.includes('? smoother((progress - 0.64) / 0.36)'));
+  assert(
+    blackHoleRendererSource.includes('diskFeed: 1 - smoother(progress / 0.32)')
+      && blackHoleRendererSource.includes('hawking: smoother((progress - 0.12) / 0.78)'),
+    'disk quenching and the first thermal ring should overlap without a visually empty gap',
+  );
+  assert(blackHoleRendererSource.includes('float photonRing'));
+  assert(blackHoleRendererSource.includes('float secondaryRing'));
+  assert(blackHoleRendererSource.includes('float echoRing'));
+  assert(blackHoleRendererSource.includes('float flashEnvelope'));
+  assert(!blackHoleRendererSource.includes('float radialRays'));
+  assert(blackHoleRendererSource.includes('? smoother((progress - 0.80) / 0.14)'));
   assert(blackHoleSceneSource.includes('className="code-pet-black-hole-compositor"'));
   assert(
     mainCssSource.includes(
@@ -279,11 +378,16 @@ const path = require('path');
   assert(settingsSource.includes('aria-valuetext={copy.breakReminderValue(restReminderIntervalSeconds)}'));
   assert(settingsSource.includes('按本页点击和输入计时'));
   assert(settingsSource.includes('value={restReminderSliderValue}'));
+  assert(settingsSource.includes('step="any"'));
+  assert(settingsSource.includes('REST_REMINDER_INTERVAL_PRESETS_SECONDS.length - 1'));
+  assert(settingsSource.includes('restReminderSliderIntervalSeconds(value)'));
   assert(settingsSource.includes('onChange={event => setRestReminderSliderValue(Number(event.target.value))}'));
   assert(settingsSource.includes('onChange={event => setCustomRestReminderMinutes(event.currentTarget.value)}'));
 
   const importedRestReminder = await import('../../src/lib/pet/rest-reminder.ts');
   const restReminder = importedRestReminder.default ?? importedRestReminder;
+  const importedPetIntents = await import('../../src/lib/pet/intents.ts');
+  const petIntents = importedPetIntents.default ?? importedPetIntents;
   const {
     PET_SETTINGS_STORAGE_KEY,
     PET_REST_REMINDER_RUNTIME_STORAGE_KEY,
@@ -292,10 +396,13 @@ const path = require('path');
     REST_REMINDER_ENTRY_COUNTDOWN_SECONDS,
     REST_REMINDER_TEST_ENTRY_COUNTDOWN_SECONDS,
     REST_REMINDER_IDLE_RESET_MS,
+    REST_REMINDER_INTERVAL_PRESETS_SECONDS,
     REST_REMINDER_TEST_INTERVAL_SECONDS,
     createRestReminderState,
     nextRestReminderDeadline,
     normalizeRestReminderIntervalSeconds,
+    restReminderSliderIntervalSeconds,
+    restReminderSliderPosition,
     readPetAppearance,
     readRestReminderRuntimeState,
     readRestReminderIntervalSeconds,
@@ -306,6 +413,7 @@ const path = require('path');
     saveRestReminderRuntimeState,
     saveRestReminderIntervalSeconds,
   } = restReminder;
+  const { resolvePetNotificationIntent } = petIntents;
 
   assert.strictEqual(normalizeRestReminderIntervalSeconds(null), null);
   assert.strictEqual(normalizeRestReminderIntervalSeconds('5'), 5);
@@ -313,6 +421,18 @@ const path = require('path');
   assert.strictEqual(normalizeRestReminderIntervalSeconds(37 * 60), 37 * 60);
   assert.strictEqual(normalizeRestReminderIntervalSeconds(4 * 60 * 60), 4 * 60 * 60);
   assert.strictEqual(normalizeRestReminderIntervalSeconds(30), null);
+  assert.strictEqual(restReminderSliderPosition(0), 0);
+  assert.strictEqual(
+    restReminderSliderPosition(REST_REMINDER_TEST_INTERVAL_SECONDS),
+    1,
+  );
+  assert.strictEqual(restReminderSliderPosition(37 * 60), 3.7);
+  assert.strictEqual(restReminderSliderIntervalSeconds(3.4), 30 * 60);
+  assert.strictEqual(restReminderSliderIntervalSeconds(3.6), 40 * 60);
+  assert.strictEqual(
+    restReminderSliderIntervalSeconds(REST_REMINDER_INTERVAL_PRESETS_SECONDS.length - 1),
+    4 * 60 * 60,
+  );
   assert.strictEqual(
     restReminderEntryCountdownSeconds(REST_REMINDER_TEST_INTERVAL_SECONDS),
     REST_REMINDER_TEST_ENTRY_COUNTDOWN_SECONDS,
@@ -325,6 +445,18 @@ const path = require('path');
     normalizeRestReminderIntervalSeconds((REST_REMINDER_CUSTOM_MINUTES_MAX + 1) * 60),
     null,
   );
+  assert.deepStrictEqual(resolvePetNotificationIntent(null, null), {
+    kind: 'notification',
+    notification: 'rest-reminder-setup',
+    option: 'invitation',
+  });
+  assert.strictEqual(resolvePetNotificationIntent(0, null), null);
+  assert.strictEqual(resolvePetNotificationIntent(50 * 60, null), null);
+  assert.deepStrictEqual(resolvePetNotificationIntent(50 * 60, 'appearance'), {
+    kind: 'notification',
+    notification: 'rest-reminder-setup',
+    option: 'appearance',
+  });
 
   const values = new Map();
   const storage = {

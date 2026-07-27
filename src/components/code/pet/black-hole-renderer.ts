@@ -18,6 +18,7 @@ const PET_SNAPSHOT_EXCLUDE_SELECTOR = [
   '.code-pet-black-hole-rest',
   '.code-pet-glass-rest-overlay',
 ].join(', ')
+const FILE_ICON_SELECTOR = 'img.code-file-type-icon'
 const DISPLAY_CAP = 1792
 const RENDER_SCALE = 1.25
 const INTRO_SECONDS = 15
@@ -100,8 +101,21 @@ precision highp float;
 uniform vec2 uResolution;
 uniform float uTime;
 uniform float uOpacity;
-uniform float uLook;
-uniform float uFineStreakWeight;
+uniform float uTemperature;
+uniform float uInclination;
+uniform float uRoll;
+uniform float uInnerRadius;
+uniform float uOuterRadius;
+uniform float uDiskOpacity;
+uniform float uDoppler;
+uniform float uBeam;
+uniform float uGain;
+uniform float uContrast;
+uniform float uWind;
+uniform float uSpeed;
+uniform float uExposure;
+uniform float uStarField;
+uniform float uFilamentDetail;
 uniform float uMass;
 uniform float uDiskFeed;
 uniform float uHawking;
@@ -123,66 +137,65 @@ vec3 stars(vec3 direction) {
   float spark = smoothstep(0.10, 0.0, length(fract(grid) - 0.5 - offset));
   float twinkle = 0.82 + 0.18 * sin(uTime * (0.5 + 1.4 * hash21(id + 5.1)) + 40.0 * h);
   return mix(vec3(1.0, 0.82, 0.60), vec3(0.75, 0.85, 1.0), hash21(id + 2.9))
-    * spark * twinkle * ((h - 0.94) / 0.06) * 0.34;
+    * spark * twinkle * ((h - 0.94) / 0.06) * 0.34 * uStarField;
 }
 
 vec4 evaporation(vec2 point, float baseHorizon, float horizon) {
   if (uHawking <= 0.001 && uFinalBurst <= 0.001) return vec4(0.0);
   float heat = clamp(uHawking, 0.0, 1.0);
-  float burst = clamp(uFinalBurst, 0.0, 1.0);
+  float release = clamp(uFinalBurst, 0.0, 1.0);
   float distanceFromCenter = length(point);
-  float q = distanceFromCenter / max(horizon, baseHorizon * 0.012);
-  float thermal = exp(-q * 1.35) * pow(heat, 3.2) * (0.10 + 0.28 * heat);
-  float shimmer = 0.93 + 0.07 * sin(uTime * 8.0 + q * 4.0);
-  vec3 thermalColor = mix(vec3(1.0, 0.22, 0.035), vec3(0.65, 0.84, 1.0), heat);
-  float radiationEnvelope =
-    smoother(heat / 0.12) * (1.0 - smoother(burst));
-  float angle = atan(point.y, point.x);
-  float leadingRadius = baseHorizon * mix(1.12, 5.55, heat);
-  float leadingWidth = baseHorizon * mix(0.10, 0.22, heat);
-  float leadingShell = exp(-pow(
-    (distanceFromCenter - leadingRadius) / max(leadingWidth, 0.001),
-    2.0
-  ));
-  float trailingProgress = clamp((heat - 0.12) / 0.88, 0.0, 1.0);
-  float trailingRadius = baseHorizon * mix(1.0, 4.45, trailingProgress);
-  float trailingShell = exp(-pow(
-    (distanceFromCenter - trailingRadius) / max(baseHorizon * 0.17, 0.001),
-    2.0
-  ));
-  float angularPackets = mix(
-    0.76,
-    1.0,
-    pow(
-      0.5 + 0.5 * sin(angle * 23.0 + q * 1.7 - uTime * 1.8),
-      4.0
-    )
-  );
-  float radialRays = pow(
-    max(0.0, sin(angle * 17.0 - q * 2.2 + uTime * 1.15)),
-    8.0
-  ) * smoothstep(1.1, 1.8, q) * (1.0 - smoothstep(5.2, 6.6, q));
-  float radiation = radiationEnvelope * (
-    leadingShell * angularPackets * 0.88
-    + trailingShell * angularPackets * 0.42
-    + radialRays * exp(-q * 0.20) * 0.16
-  );
-  vec3 radiationColor = mix(
-    vec3(1.0, 0.36, 0.06),
-    vec3(0.62, 0.86, 1.0),
+  float pixel = 1.5 / uResolution.x;
+  float q = distanceFromCenter / max(horizon, baseHorizon * 0.018);
+  float heatEnvelope = smoother(heat / 0.10) * (1.0 - smoother(release));
+  vec3 heatColor = mix(
+    vec3(1.0, 0.48, 0.12),
+    vec3(0.72, 0.90, 1.0),
     smoother(heat)
   );
-  float pulse = sin(3.14159265 * burst);
-  float flashRadius = baseHorizon * mix(0.08, 0.72, burst);
-  float flash = exp(-pow(distanceFromCenter / max(flashRadius, 0.001), 2.0))
-    * pulse * pulse;
+
+  float photonRadius = horizon * mix(1.10, 1.34, heat);
+  float photonWidth = max(pixel, horizon * mix(0.075, 0.13, heat));
+  float photonRing = exp(-pow(
+    (distanceFromCenter - photonRadius) / photonWidth,
+    2.0
+  ));
+  float secondaryRing = exp(-pow(
+    (distanceFromCenter - photonRadius - photonWidth * 2.35)
+      / max(pixel, photonWidth * 0.55),
+    2.0
+  )) * mix(0.12, 0.34, heat);
+  float corona = exp(-q * 2.45) * pow(heat, 2.2) * 0.22;
+
+  float releaseProgress = smoother(release);
+  float echoRadius = baseHorizon * mix(0.12, 5.0, releaseProgress);
+  float echoWidth = max(pixel * 1.25, baseHorizon * mix(0.085, 0.026, releaseProgress));
+  float echoEnvelope =
+    smoother(release / 0.10) * pow(max(1.0 - release, 0.0), 0.72);
+  float echoRing = exp(-pow(
+    (distanceFromCenter - echoRadius) / echoWidth,
+    2.0
+  )) * echoEnvelope;
+
+  float flashEnvelope = exp(-pow((release - 0.16) / 0.12, 2.0));
+  float flashRadius = baseHorizon * mix(0.12, 0.42, smoother(release / 0.35));
+  float flash = exp(-pow(
+    distanceFromCenter / max(flashRadius, pixel),
+    2.0
+  )) * flashEnvelope;
   vec3 color =
-    thermalColor * thermal * shimmer
-    + radiationColor * radiation
-    + vec3(0.72, 0.88, 1.0) * flash * 2.4;
+    heatColor * heatEnvelope * (photonRing + secondaryRing + corona)
+    + vec3(0.76, 0.91, 1.0) * echoRing * 1.35
+    + vec3(0.90, 0.96, 1.0) * flash * 2.8;
   return vec4(
     color,
-    clamp(thermal * 0.65 + radiation * 0.95 + flash * 0.88, 0.0, 1.0)
+    clamp(
+      heatEnvelope * (photonRing * 0.90 + secondaryRing * 0.55 + corona)
+        + echoRing * 0.78
+        + flash * 0.92,
+      0.0,
+      1.0
+    )
   );
 }
 
@@ -199,18 +212,18 @@ void main() {
     return;
   }
 
-  float innerRadius = mix(2.2, 1.8, uLook);
-  float outerRadius = mix(7.0, 8.0, uLook);
-  float roll = mix(0.10, 0.35, uLook);
-  float inclination = mix(1.52, 1.50, uLook);
-  float diskOpacity = mix(0.85, 0.90, uLook);
-  float doppler = mix(0.35, 0.60, uLook);
-  float beam = mix(2.0, 2.5, uLook);
-  float gain = mix(1.4, 2.2, uLook);
-  float contrast = mix(0.5, 1.6, uLook);
-  float wind = 7.0;
-  float speed = 5.0;
-  float exposure = mix(1.2, 1.4, uLook);
+  float innerRadius = uInnerRadius;
+  float outerRadius = uOuterRadius;
+  float roll = uRoll;
+  float inclination = uInclination;
+  float diskOpacity = uDiskOpacity;
+  float doppler = uDoppler;
+  float beam = uBeam;
+  float gain = uGain;
+  float contrast = uContrast;
+  float wind = uWind;
+  float speed = uSpeed;
+  float exposure = uExposure;
   float projection = B_CRIT / horizon;
   vec2 projected = rotate2d(vec2(point.x, -point.y), roll) * projection;
   float impact = length(projected);
@@ -273,12 +286,23 @@ void main() {
         float kepler = pow(innerRadius / diskRadius, 1.5);
         float gravity = sqrt(max(1.0 - 1.5 / diskRadius, 0.02));
         float swirl = diskRadius * wind * 0.12 - uTime * kepler * gravity * speed * 0.38;
-        float streaks =
-          wrappedNoise(vec2(diskRadius * 2.8, turns * 19.0 + swirl * 3.0), 19.0)
-            * uFineStreakWeight
-          + wrappedNoise(vec2(diskRadius, turns * 9.0 + swirl * 1.5 + 7.0), 9.0)
-            * (1.0 - uFineStreakWeight);
-        streaks = 0.35 + contrast * streaks * streaks;
+        float fineFilament = wrappedNoise(
+          vec2(
+            diskRadius * 2.8 + 0.24 * sin(phi * 3.0 - swirl * 0.22),
+            turns * 19.0 + swirl * 3.0 + diskRadius * 0.72
+          ),
+          19.0
+        );
+        float broadFilament = wrappedNoise(
+          vec2(
+            diskRadius * 1.35 + 0.38 * sin(phi * 2.0 + swirl * 0.16),
+            turns * 8.0 + swirl * 1.35 - diskRadius * 0.55
+          ),
+          8.0
+        );
+        float flow = mix(broadFilament, fineFilament, uFilamentDetail);
+        float filament = smoother(flow);
+        float streaks = mix(0.84, 1.12 + contrast * 0.04, filament);
         vec3 gasDirection = normalize(cross(diskNormal, diskPoint));
         float beta = clamp(
           inversesqrt(max(2.0 * (diskRadius - 1.0), 0.2)),
@@ -293,7 +317,7 @@ void main() {
         float x = max(1.0 - sqrt(innerRadius / diskRadius), 0.0);
         float temperatureProfile =
           pow(innerRadius / diskRadius, 0.75) * pow(x, 0.25) / 0.488;
-        vec3 color = blackbody(mix(4500.0, 5500.0, uLook) * temperatureProfile * frequencyShift);
+        vec3 color = blackbody(uTemperature * temperatureProfile * frequencyShift);
         float density = band * streaks * uDiskFeed;
         emission += transmittance * color
           * (gain * 2.2 * density * temperatureProfile * temperatureProfile
@@ -307,11 +331,23 @@ void main() {
 
   if (!captured && dot(position, position) < 4.0) captured = true;
   vec3 starColor = vec3(0.0);
-  float skyBlock = captured ? 1.0 : 0.0;
+  float shadowPixel = max(0.004, 1.25 * projection / uResolution.x);
+  float shadowCoverage =
+    1.0 - smoothstep(B_CRIT - shadowPixel, B_CRIT + shadowPixel, impact);
+  float tracedCapture = captured ? 1.0 : 0.0;
+  float analyticEdge = 1.0 - smoothstep(
+    shadowPixel,
+    shadowPixel * 3.0,
+    abs(impact - B_CRIT)
+  );
+  float skyBlock = mix(tracedCapture, shadowCoverage, analyticEdge);
   if (!captured) {
     vec3 direction = normalize(velocity);
     starColor = stars(direction) * window;
-    skyBlock = 1.0 - smoothstep(0.05, 0.35, -direction.z);
+    skyBlock = max(
+      skyBlock,
+      1.0 - smoothstep(0.05, 0.35, -direction.z)
+    );
   }
   vec3 disk = vec3(1.0) - exp(-emission * exposure);
   float alpha = clamp(skyBlock + (1.0 - transmittance), 0.0, 1.0) * uOpacity;
@@ -521,7 +557,20 @@ interface EvaporationState {
 }
 
 interface DiskLook {
-  look: number
+  temperature: number
+  inclination: number
+  roll: number
+  innerRadius: number
+  outerRadius: number
+  diskOpacity: number
+  doppler: number
+  beam: number
+  gain: number
+  contrast: number
+  wind: number
+  speed: number
+  exposure: number
+  starField: number
   size: number
   motion: number
   lens: number
@@ -595,34 +644,80 @@ function createDisplayRenderer(canvas: HTMLCanvasElement): DisplayRenderer {
   const preserveForVisualRegression = Boolean((
     window as Window & { __FARMING_E2E__?: boolean }
   ).__FARMING_E2E__)
-  const gl = canvas.getContext('webgl2', {
+  const glContext = canvas.getContext('webgl2', {
     alpha: true,
     antialias: false,
-    premultipliedAlpha: true,
+    premultipliedAlpha: false,
     powerPreference: 'high-performance',
     preserveDrawingBuffer: preserveForVisualRegression,
   })
-  if (!gl) throw new Error('WebGL 2 is required for the black-hole appearance.')
+  if (!glContext) throw new Error('WebGL 2 is required for the black-hole appearance.')
+  const gl = glContext
 
   const program = createProgram(gl, DISPLAY_SHADER)
   const resolution = gl.getUniformLocation(program, 'uResolution')
   const time = gl.getUniformLocation(program, 'uTime')
   const opacity = gl.getUniformLocation(program, 'uOpacity')
-  const lookUniform = gl.getUniformLocation(program, 'uLook')
-  const fineStreakWeightUniform = gl.getUniformLocation(program, 'uFineStreakWeight')
+  const temperature = gl.getUniformLocation(program, 'uTemperature')
+  const inclination = gl.getUniformLocation(program, 'uInclination')
+  const roll = gl.getUniformLocation(program, 'uRoll')
+  const innerRadius = gl.getUniformLocation(program, 'uInnerRadius')
+  const outerRadius = gl.getUniformLocation(program, 'uOuterRadius')
+  const diskOpacity = gl.getUniformLocation(program, 'uDiskOpacity')
+  const doppler = gl.getUniformLocation(program, 'uDoppler')
+  const beam = gl.getUniformLocation(program, 'uBeam')
+  const gain = gl.getUniformLocation(program, 'uGain')
+  const contrast = gl.getUniformLocation(program, 'uContrast')
+  const wind = gl.getUniformLocation(program, 'uWind')
+  const speed = gl.getUniformLocation(program, 'uSpeed')
+  const exposure = gl.getUniformLocation(program, 'uExposure')
+  const starField = gl.getUniformLocation(program, 'uStarField')
+  const filamentDetailUniform = gl.getUniformLocation(program, 'uFilamentDetail')
   const mass = gl.getUniformLocation(program, 'uMass')
   const diskFeed = gl.getUniformLocation(program, 'uDiskFeed')
   const hawking = gl.getUniformLocation(program, 'uHawking')
   const finalBurst = gl.getUniformLocation(program, 'uFinalBurst')
   let renderSize = 0
-  let fineStreakWeight = 0.65
+  let filamentDetail = 0.68
   let verificationPixels = new Uint8Array()
   let nextVerificationAt = 0
   let maximumVerificationInkPixels = 0
   let maximumVerificationCoveredSectors = 0
-  if (preserveForVisualRegression) canvas.dataset.radiationProbe = 'armed'
+  const gpuTimer = preserveForVisualRegression
+    ? gl.getExtension('EXT_disjoint_timer_query_webgl2')
+    : null
+  const pendingGpuQueries: WebGLQuery[] = []
+  const gpuFrameTimes: number[] = []
+  if (preserveForVisualRegression) {
+    canvas.dataset.radiationProbe = 'armed'
+    canvas.dataset.gpuTimer = gpuTimer ? 'warming' : 'unavailable'
+  }
 
   gl.useProgram(program)
+
+  function resolveGpuQueries() {
+    if (!gpuTimer) return
+    while (pendingGpuQueries.length > 0) {
+      const query = pendingGpuQueries[0]
+      if (!query || !gl.getQueryParameter(query, gl.QUERY_RESULT_AVAILABLE)) break
+      pendingGpuQueries.shift()
+      const disjoint = gl.getParameter(gpuTimer.GPU_DISJOINT_EXT)
+      const elapsedNanoseconds = Number(gl.getQueryParameter(query, gl.QUERY_RESULT))
+      gl.deleteQuery(query)
+      if (disjoint || !Number.isFinite(elapsedNanoseconds)) continue
+      gpuFrameTimes.push(elapsedNanoseconds / 1_000_000)
+      if (gpuFrameTimes.length > 120) gpuFrameTimes.shift()
+    }
+    if (gpuFrameTimes.length < 24) return
+    const ordered = [...gpuFrameTimes].sort((left, right) => left - right)
+    const p95 = ordered[Math.ceil(ordered.length * 0.95) - 1] ?? 0
+    const mean = gpuFrameTimes.reduce((sum, value) => sum + value, 0)
+      / gpuFrameTimes.length
+    canvas.dataset.gpuTimer = 'sampled'
+    canvas.dataset.gpuSamples = String(gpuFrameTimes.length)
+    canvas.dataset.gpuMeanMs = mean.toFixed(3)
+    canvas.dataset.gpuP95Ms = p95.toFixed(3)
+  }
 
   return {
     resize(cssSize) {
@@ -633,10 +728,10 @@ function createDisplayRenderer(canvas: HTMLCanvasElement): DisplayRenderer {
       )
       const exact = Math.min(DISPLAY_CAP, requestedSize)
       const nextSize = Math.round(exact / 16) * 16
-      const streakAA = 0.72 * smoother(
+      const cappedScale = smoother(
         clamp((requestedSize / DISPLAY_CAP - 1) / 0.5, 0, 1),
       )
-      fineStreakWeight = mix(0.65, 0.22, streakAA)
+      filamentDetail = mix(0.68, 0.52, cappedScale)
       canvas.style.width = `${cssSize}px`
       canvas.style.height = `${cssSize}px`
       if (renderSize === nextSize) return
@@ -645,20 +740,44 @@ function createDisplayRenderer(canvas: HTMLCanvasElement): DisplayRenderer {
       canvas.height = nextSize
     },
     draw(clock, alpha, look, evaporation) {
+      resolveGpuQueries()
       gl.viewport(0, 0, canvas.width, canvas.height)
       gl.useProgram(program)
       gl.uniform2f(resolution, canvas.width, canvas.height)
       gl.uniform1f(time, clock)
       gl.uniform1f(opacity, alpha)
-      gl.uniform1f(lookUniform, look.look)
-      gl.uniform1f(fineStreakWeightUniform, fineStreakWeight)
+      gl.uniform1f(temperature, look.temperature)
+      gl.uniform1f(inclination, look.inclination)
+      gl.uniform1f(roll, look.roll)
+      gl.uniform1f(innerRadius, look.innerRadius)
+      gl.uniform1f(outerRadius, look.outerRadius)
+      gl.uniform1f(diskOpacity, look.diskOpacity)
+      gl.uniform1f(doppler, look.doppler)
+      gl.uniform1f(beam, look.beam)
+      gl.uniform1f(gain, look.gain)
+      gl.uniform1f(contrast, look.contrast)
+      gl.uniform1f(wind, look.wind)
+      gl.uniform1f(speed, look.speed)
+      gl.uniform1f(exposure, look.exposure)
+      gl.uniform1f(starField, look.starField)
+      gl.uniform1f(filamentDetailUniform, filamentDetail)
       gl.uniform1f(mass, evaporation.mass)
       gl.uniform1f(diskFeed, evaporation.diskFeed)
       gl.uniform1f(hawking, evaporation.hawking)
       gl.uniform1f(finalBurst, evaporation.burst)
       gl.clearColor(0, 0, 0, 0)
       gl.clear(gl.COLOR_BUFFER_BIT)
+      const gpuQuery = gpuTimer && pendingGpuQueries.length < 8
+        ? gl.createQuery()
+        : null
+      if (gpuQuery && gpuTimer) {
+        gl.beginQuery(gpuTimer.TIME_ELAPSED_EXT, gpuQuery)
+      }
       gl.drawArrays(gl.TRIANGLES, 0, 3)
+      if (gpuQuery && gpuTimer) {
+        gl.endQuery(gpuTimer.TIME_ELAPSED_EXT)
+        pendingGpuQueries.push(gpuQuery)
+      }
       if (
         preserveForVisualRegression
         && evaporation.hawking > 0.02
@@ -716,6 +835,7 @@ function createDisplayRenderer(canvas: HTMLCanvasElement): DisplayRenderer {
       }
     },
     destroy() {
+      for (const query of pendingGpuQueries) gl.deleteQuery(query)
       gl.deleteProgram(program)
       gl.getExtension('WEBGL_lose_context')?.loseContext()
     },
@@ -746,6 +866,49 @@ function createDisplacementMap(byte: 0 | 1) {
   return canvas
 }
 
+function rasterizeVisibleFileIcons() {
+  const pixelRatio = Math.min(2, Math.max(1, window.devicePixelRatio || 1))
+  const sources = new Map<string, string>()
+  let visibleCount = 0
+
+  document.querySelectorAll<HTMLImageElement>(FILE_ICON_SELECTOR).forEach(image => {
+    const rect = image.getBoundingClientRect()
+    if (
+      rect.width <= 0
+      || rect.height <= 0
+      || rect.right <= 0
+      || rect.bottom <= 0
+      || rect.left >= window.innerWidth
+      || rect.top >= window.innerHeight
+    ) return
+
+    visibleCount += 1
+    const source = image.currentSrc || image.src
+    if (
+      !source
+      || sources.has(source)
+      || !image.complete
+      || image.naturalWidth <= 0
+      || image.naturalHeight <= 0
+    ) return
+
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.max(1, Math.round(rect.width * pixelRatio))
+    canvas.height = Math.max(1, Math.round(rect.height * pixelRatio))
+    const context = canvas.getContext('2d')
+    if (!context) return
+
+    try {
+      context.drawImage(image, 0, 0, canvas.width, canvas.height)
+      sources.set(source, canvas.toDataURL('image/png'))
+    } catch {
+      // Keep the original source when a browser refuses to rasterize an image.
+    }
+  })
+
+  return { sources, visibleCount }
+}
+
 async function createSceneImage() {
   const testWindow = window as Window & {
     __FARMING_E2E__?: boolean
@@ -767,8 +930,10 @@ async function createSceneImage() {
   const captureStartedAt = performance.now()
   const { default: html2canvas } = await import('html2canvas')
   const removeXtermOverlays = createXtermSnapshotOverlays()
+  const fileIcons = rasterizeVisibleFileIcons()
   let excludedElementCount = 0
   let remainingExcludedElementCount = 0
+  let rasterizedFileIconCount = 0
   try {
     const image = await html2canvas(document.body, {
       allowTaint: false,
@@ -799,6 +964,16 @@ async function createSceneImage() {
         clonedBody.style.margin = '0'
         clonedBody.style.overflow = 'hidden'
         clonedDocument
+          .querySelectorAll<HTMLImageElement>(FILE_ICON_SELECTOR)
+          .forEach(image => {
+            const source = image.currentSrc || image.src
+            const rasterizedSource = fileIcons.sources.get(source)
+            if (!rasterizedSource) return
+            image.removeAttribute('srcset')
+            image.src = rasterizedSource
+            rasterizedFileIconCount += 1
+          })
+        clonedDocument
           .querySelectorAll<HTMLElement>('[data-pet-xterm-snapshot]')
           .forEach(overlay => {
             overlay.style.visibility = 'visible'
@@ -818,6 +993,8 @@ async function createSceneImage() {
     image.dataset.captureMs = String(Math.round(performance.now() - captureStartedAt))
     image.dataset.excludedPetElements = String(excludedElementCount)
     image.dataset.remainingPetElements = String(remainingExcludedElementCount)
+    image.dataset.visibleFileIcons = String(fileIcons.visibleCount)
+    image.dataset.rasterizedFileIcons = String(rasterizedFileIconCount)
     return image
   } finally {
     removeXtermOverlays()
@@ -888,6 +1065,8 @@ function createCompositorRenderer(
     startedAt: number
     durationMs: number
     captureMs: string
+    visibleFileIcons: string
+    rasterizedFileIcons: string
   } | null = null
   let sceneGeneration = 0
 
@@ -927,6 +1106,12 @@ function createCompositorRenderer(
       canvas.dataset.remainingPetElements = image instanceof HTMLCanvasElement
         ? (image.dataset.remainingPetElements ?? '')
         : ''
+      canvas.dataset.visibleFileIcons = image instanceof HTMLCanvasElement
+        ? (image.dataset.visibleFileIcons ?? '')
+        : ''
+      canvas.dataset.rasterizedFileIcons = image instanceof HTMLCanvasElement
+        ? (image.dataset.rasterizedFileIcons ?? '')
+        : ''
       canvas.style.opacity = '1'
     },
     transitionScene(image, durationMs) {
@@ -943,11 +1128,23 @@ function createCompositorRenderer(
       canvas.dataset.remainingPetElements = image instanceof HTMLCanvasElement
         ? (image.dataset.remainingPetElements ?? '')
         : ''
+      canvas.dataset.visibleFileIcons = image instanceof HTMLCanvasElement
+        ? (image.dataset.visibleFileIcons ?? '')
+        : ''
+      canvas.dataset.rasterizedFileIcons = image instanceof HTMLCanvasElement
+        ? (image.dataset.rasterizedFileIcons ?? '')
+        : ''
       transition = {
         startedAt: performance.now(),
         durationMs: Math.max(1, durationMs),
         captureMs: image instanceof HTMLCanvasElement
           ? (image.dataset.captureMs ?? '')
+          : '',
+        visibleFileIcons: image instanceof HTMLCanvasElement
+          ? (image.dataset.visibleFileIcons ?? '')
+          : '',
+        rasterizedFileIcons: image instanceof HTMLCanvasElement
+          ? (image.dataset.rasterizedFileIcons ?? '')
           : '',
       }
       canvas.dataset.refreshState = 'blending'
@@ -969,6 +1166,8 @@ function createCompositorRenderer(
           gl.activeTexture(gl.TEXTURE3)
           gl.bindTexture(gl.TEXTURE_2D, nextSceneTexture)
           canvas.dataset.captureMs = transition.captureMs
+          canvas.dataset.visibleFileIcons = transition.visibleFileIcons
+          canvas.dataset.rasterizedFileIcons = transition.rasterizedFileIcons
           canvas.dataset.refreshState = 'idle'
           transition = null
           transitionAmount = 0
@@ -1029,52 +1228,152 @@ function adaptiveScale(progress: number) {
   return horizon * window.innerHeight / SHADOW_PX
 }
 
-const BIRTH_STATE: DiskLook = {
-  phase: 'birth',
-  look: 0,
-  size: 0.72,
-  motion: 0.06,
-  lens: 0.58,
-  diskRate: 0.42,
-}
-
-const CYCLE_STATES = [
-  { phase: 'glide', progress: 0, look: 0.18, size: 0.94, motion: 0.34, lens: 0.88, diskRate: 0.72 },
-  { phase: 'warm', progress: 0.17, look: 0.42, size: 0.97, motion: 0.46, lens: 0.93, diskRate: 0.88 },
-  { phase: 'flare', progress: 0.35, look: 0.76, size: 1, motion: 0.72, lens: 1, diskRate: 1.20 },
-  { phase: 'inferno', progress: 0.53, look: 0.96, size: 0.99, motion: 0.84, lens: 1, diskRate: 1.38 },
-  { phase: 'cool', progress: 0.70, look: 0.48, size: 0.95, motion: 0.38, lens: 0.90, diskRate: 0.82 },
-  { phase: 'quiet', progress: 0.86, look: 0.08, size: 0.91, motion: 0.16, lens: 0.80, diskRate: 0.58 },
-  { phase: 'glide', progress: 1, look: 0.18, size: 0.94, motion: 0.34, lens: 0.88, diskRate: 0.72 },
+const CYCLE_STATES: readonly DiskLook[] = [
+  {
+    phase: 'zen',
+    temperature: 7000, inclination: 1.45, roll: 0.15,
+    innerRadius: 3.5, outerRadius: 7, diskOpacity: 0.4,
+    doppler: 0.5, beam: 2, gain: 0.5, contrast: 0.3,
+    wind: 3, speed: 1.5, exposure: 0.7, starField: 0,
+    size: 0.90, motion: 0.16, lens: 0.86, diskRate: 0.42,
+  },
+  {
+    phase: 'm87',
+    temperature: 3800, inclination: 0.55, roll: -0.30,
+    innerRadius: 2.2, outerRadius: 6, diskOpacity: 0.45,
+    doppler: 0.9, beam: 3.5, gain: 1.6, contrast: 0.4,
+    wind: 3, speed: 2.5, exposure: 1.1, starField: 0,
+    size: 0.93, motion: 0.24, lens: 0.92, diskRate: 0.58,
+  },
+  {
+    phase: 'ember',
+    temperature: 6500, inclination: 0.30, roll: 0,
+    innerRadius: 3, outerRadius: 10, diskOpacity: 0.5,
+    doppler: 0.8, beam: 2.5, gain: 1, contrast: 1.1,
+    wind: 7, speed: 5, exposure: 1, starField: 0,
+    size: 0.96, motion: 0.38, lens: 0.90, diskRate: 0.82,
+  },
+  {
+    phase: 'gargantua',
+    temperature: 4500, inclination: 1.52, roll: 0.10,
+    innerRadius: 2.2, outerRadius: 7, diskOpacity: 0.85,
+    doppler: 0.35, beam: 2, gain: 1.4, contrast: 0.5,
+    wind: 7, speed: 5, exposure: 1.2, starField: 0,
+    size: 0.98, motion: 0.44, lens: 0.93, diskRate: 0.88,
+  },
+  {
+    phase: 'inferno',
+    temperature: 5500, inclination: 1.50, roll: 0.35,
+    innerRadius: 1.8, outerRadius: 8, diskOpacity: 0.9,
+    doppler: 0.6, beam: 2.5, gain: 2.2, contrast: 1.6,
+    wind: 7, speed: 5, exposure: 1.4, starField: 0,
+    size: 1, motion: 0.72, lens: 1, diskRate: 1.20,
+  },
+  {
+    phase: 'quasar',
+    temperature: 15000, inclination: 1.30, roll: 0.35,
+    innerRadius: 3, outerRadius: 9, diskOpacity: 0.35,
+    doppler: 1, beam: 4, gain: 1.2, contrast: 1.3,
+    wind: 8, speed: 5, exposure: 0.8, starField: 0,
+    size: 0.98, motion: 0.78, lens: 1, diskRate: 1.30,
+  },
+  {
+    phase: 'blazar',
+    temperature: 18000, inclination: 1.05, roll: 0.55,
+    innerRadius: 3, outerRadius: 10, diskOpacity: 0.3,
+    doppler: 1, beam: 5, gain: 1, contrast: 1.5,
+    wind: 9, speed: 6, exposure: 0.75, starField: 0,
+    size: 0.96, motion: 0.84, lens: 1, diskRate: 1.38,
+  },
+  {
+    phase: 'cooling',
+    temperature: 5500, inclination: 1.50, roll: 0.35,
+    innerRadius: 1.8, outerRadius: 8, diskOpacity: 0.9,
+    doppler: 0.6, beam: 2.5, gain: 2.2, contrast: 1.6,
+    wind: 7, speed: 5, exposure: 1.4, starField: 0,
+    size: 0.94, motion: 0.32, lens: 0.90, diskRate: 0.68,
+  },
 ] as const
 
-function macroAt(elapsed: number): DiskLook {
+function interpolateLook(
+  first: DiskLook,
+  second: DiskLook,
+  amount: number,
+  phase: string,
+): DiskLook {
+  return {
+    phase,
+    temperature: mix(first.temperature, second.temperature, amount),
+    inclination: mix(first.inclination, second.inclination, amount),
+    roll: mix(first.roll, second.roll, amount),
+    innerRadius: mix(first.innerRadius, second.innerRadius, amount),
+    outerRadius: mix(first.outerRadius, second.outerRadius, amount),
+    diskOpacity: mix(first.diskOpacity, second.diskOpacity, amount),
+    doppler: mix(first.doppler, second.doppler, amount),
+    beam: mix(first.beam, second.beam, amount),
+    gain: mix(first.gain, second.gain, amount),
+    contrast: mix(first.contrast, second.contrast, amount),
+    wind: mix(first.wind, second.wind, amount),
+    speed: mix(first.speed, second.speed, amount),
+    exposure: mix(first.exposure, second.exposure, amount),
+    starField: mix(first.starField, second.starField, amount),
+    size: mix(first.size, second.size, amount),
+    motion: mix(first.motion, second.motion, amount),
+    lens: mix(first.lens, second.lens, amount),
+    diskRate: mix(first.diskRate, second.diskRate, amount),
+  }
+}
+
+function createEvolutionCycle(seed: number, cycleIndex: number) {
+  const zen = CYCLE_STATES[0]!
+  const m87 = CYCLE_STATES[1]!
+  const ember = CYCLE_STATES[2]!
+  const gargantua = CYCLE_STATES[3]!
+  const inferno = CYCLE_STATES[4]!
+  const quasar = CYCLE_STATES[5]!
+  const blazar = CYCLE_STATES[6]!
+  const cooling = CYCLE_STATES[7]!
+  const lowEnergy = seedValue(seed, cycleIndex, 20) >= 0
+    ? [zen, m87]
+    : [m87, zen]
+  const warmDisk = seedValue(seed, cycleIndex, 21) >= 0
+    ? [ember, gargantua]
+    : [gargantua, ember]
+  const highEnergy = seedValue(seed, cycleIndex, 22) >= 0
+    ? [quasar, blazar]
+    : [blazar, quasar]
+  return [...lowEnergy, ...warmDisk, inferno, ...highEnergy, cooling] as const
+}
+
+function macroAt(
+  elapsed: number,
+  birth: DiskLook,
+  evolutionSeed: number,
+): DiskLook {
+  const firstCycle = createEvolutionCycle(evolutionSeed, 0)
   const intro = clamp(elapsed / INTRO_SECONDS, 0, 1)
   if (intro < 1) {
     const amount = smoother(intro)
-    const target = CYCLE_STATES[0]!
-    return {
-      phase: 'birth',
-      look: mix(BIRTH_STATE.look, target.look, amount),
-      size: mix(BIRTH_STATE.size, target.size, amount),
-      motion: mix(BIRTH_STATE.motion, target.motion, amount),
-      lens: mix(BIRTH_STATE.lens, target.lens, amount),
-      diskRate: mix(BIRTH_STATE.diskRate, target.diskRate, amount),
-    }
+    const target = firstCycle[0]
+    return interpolateLook(birth, target, amount, 'birth')
   }
 
   const cycleTime = elapsed - INTRO_SECONDS
-  const progress = (cycleTime % MIDDLE_CYCLE_SECONDS) / MIDDLE_CYCLE_SECONDS
-  let index = 0
-  while (
-    index < CYCLE_STATES.length - 2
-    && progress > CYCLE_STATES[index + 1]!.progress
-  ) index += 1
-  const first = CYCLE_STATES[index]!
-  const second = CYCLE_STATES[index + 1]!
-  const amount = smoother(
-    (progress - first.progress) / (second.progress - first.progress),
-  )
+  const cycleIndex = Math.floor(cycleTime / MIDDLE_CYCLE_SECONDS)
+  const progress = (
+    cycleTime - cycleIndex * MIDDLE_CYCLE_SECONDS
+  ) / MIDDLE_CYCLE_SECONDS
+  const cycle = cycleIndex === 0
+    ? firstCycle
+    : createEvolutionCycle(evolutionSeed, cycleIndex)
+  const nextCycle = createEvolutionCycle(evolutionSeed, cycleIndex + 1)
+  const slot = progress * cycle.length
+  const slotIndex = Math.floor(slot)
+  const first = cycle[slotIndex]!
+  const second = slotIndex === cycle.length - 1
+    ? nextCycle[0]
+    : cycle[slotIndex + 1]!
+  const amount = smoother(slot - slotIndex)
   const theta = progress * Math.PI * 2
   const wave =
     0.70 * Math.sin(theta) ** 3
@@ -1082,14 +1381,17 @@ function macroAt(elapsed: number): DiskLook {
   const secondWave =
     0.65 * Math.sin(theta) ** 3
     + 0.35 * Math.sin(theta * 2) ** 3
-  return {
-    phase: amount < 0.5 ? first.phase : second.phase,
-    look: clamp(mix(first.look, second.look, amount) + wave * 0.025, 0, 1),
-    size: Math.min(1, mix(first.size, second.size, amount) * (1 + secondWave * 0.010)),
-    motion: clamp(mix(first.motion, second.motion, amount) + secondWave * 0.025, 0, 1),
-    lens: clamp(mix(first.lens, second.lens, amount) + wave * 0.012, 0, 1),
-    diskRate: mix(first.diskRate, second.diskRate, amount) * (1 + secondWave * 0.025),
-  }
+  const result = interpolateLook(
+    first,
+    second,
+    amount,
+    amount < 0.5 ? first.phase : second.phase,
+  )
+  result.size = Math.min(1, result.size * (1 + secondWave * 0.010))
+  result.motion = clamp(result.motion + secondWave * 0.025, 0, 1)
+  result.lens = clamp(result.lens + wave * 0.012, 0, 1)
+  result.diskRate *= 1 + secondWave * 0.025
+  return result
 }
 
 function seedValue(seed: number, point: number, channel: number) {
@@ -1132,15 +1434,15 @@ function evaporationAt(progress: number): EvaporationState {
       lens: 1,
     }
   }
-  const evaporation = clamp((progress - 0.18) / 0.72, 0, 1)
+  const evaporation = clamp((progress - 0.16) / 0.76, 0, 1)
   return {
     progress,
-    mass: Math.max(0.055, (1 - evaporation) ** (1 / 3)),
-    diskFeed: 1 - smoother(progress / 0.30),
-    hawking: smoother((progress - 0.18) / 0.69),
-    burst: clamp((progress - 0.87) / 0.13, 0, 1),
-    body: 1 - smoother((progress - 0.97) / 0.03),
-    lens: 1 - smoother((progress - 0.93) / 0.05),
+    mass: Math.max(0.035, (1 - evaporation) ** (1 / 3)),
+    diskFeed: 1 - smoother(progress / 0.32),
+    hawking: smoother((progress - 0.12) / 0.78),
+    burst: clamp((progress - 0.90) / 0.10, 0, 1),
+    body: 1 - smoother((progress - 0.955) / 0.035),
+    lens: 1 - smoother((progress - 0.82) / 0.12),
   }
 }
 
@@ -1254,8 +1556,37 @@ export function createBlackHolePetRenderer({
   let initialSceneInFlight = false
   let initialSceneRetryId: number | null = null
   let initialSceneFailures = 0
+  const testWindow = window as Window & {
+    __FARMING_E2E__?: boolean
+    __farmingBlackHoleElapsedSeconds?: number
+    __farmingBlackHoleEvolutionSeed?: number
+    __farmingBlackHolePetTest?: { refreshScene: () => void }
+  }
   const startedAt = performance.now()
   const roamSeed = crypto.getRandomValues(new Uint32Array(1))[0] ?? 0
+  const requestedEvolutionSeed = testWindow.__farmingBlackHoleEvolutionSeed
+  const evolutionSeed = testWindow.__FARMING_E2E__
+    && Number.isInteger(requestedEvolutionSeed)
+    ? Math.trunc(requestedEvolutionSeed!) >>> 0
+    : roamSeed
+  const firstCycle = createEvolutionCycle(evolutionSeed, 0)
+  const birthTarget = firstCycle[0]
+  const birthVariation = seedValue(roamSeed, 0, 12)
+  const birth: DiskLook = {
+    ...birthTarget,
+    phase: 'birth',
+    size: 0.72 + birthVariation * 0.04,
+    motion: 0.06,
+    lens: birthTarget.lens * (0.69 + birthVariation * 0.07),
+    diskRate: birthTarget.diskRate * (0.55 + birthVariation * 0.07),
+  }
+  canvas.dataset.introSeconds = String(INTRO_SECONDS)
+  canvas.dataset.cycleSeconds = String(MIDDLE_CYCLE_SECONDS)
+  canvas.dataset.cycleOrder = firstCycle.map(state => state.phase).join(',')
+  canvas.dataset.nextCycleOrder = createEvolutionCycle(evolutionSeed, 1)
+    .map(state => state.phase)
+    .join(',')
+  canvas.dataset.birthPreset = birthTarget.phase
 
   const clearSchedule = () => {
     if (requestId) cancelAnimationFrame(requestId)
@@ -1370,8 +1701,18 @@ export function createBlackHolePetRenderer({
   function frame(now: number) {
     requestId = 0
     if (destroyed || !active || document.hidden) return
-    const elapsed = (now - startedAt) / 1000
-    const look = macroAt(elapsed)
+    const testElapsed = testWindow.__FARMING_E2E__
+      ? testWindow.__farmingBlackHoleElapsedSeconds
+      : undefined
+    const elapsed = Number.isFinite(testElapsed)
+      ? Number(testElapsed)
+      : (now - startedAt) / 1000
+    const look = macroAt(elapsed, birth, evolutionSeed)
+    canvas.dataset.macroPhase = look.phase
+    canvas.dataset.macroSize = look.size.toFixed(4)
+    canvas.dataset.macroTemperature = look.temperature.toFixed(1)
+    canvas.dataset.macroInclination = look.inclination.toFixed(4)
+    canvas.dataset.macroOuterRadius = look.outerRadius.toFixed(3)
     if (
       sceneReady
       && now >= nextSceneRefreshAt
@@ -1386,21 +1727,23 @@ export function createBlackHolePetRenderer({
       const progress = clamp((now - exitingAt) / (exitDuration * 1000), 0, 1)
       compositorCanvas.dataset.exitProgress = progress.toFixed(4)
       evaporation = evaporationAt(progress)
-      compositorCanvas.dataset.evaporationPhase = progress < 0.18
-        ? 'disk-drain'
-        : progress < 0.87
-          ? 'radiation'
-          : 'final-burst'
+      compositorCanvas.dataset.evaporationPhase = progress < 0.20
+        ? 'disk-quench'
+        : progress < 0.82
+          ? 'blue-shift'
+          : progress < 0.90
+            ? 'photon-collapse'
+            : 'final-release'
       compositorCanvas.dataset.hawking = evaporation.hawking.toFixed(4)
       compositorCanvas.dataset.finalBurst = evaporation.burst.toFixed(4)
       const exitElapsed = (exitingAt - startedAt) / 1000
       const frozenTime =
         exitElapsed + 0.45 * (1 - Math.exp(-(now - exitingAt) / 450))
-      const frozenLook = macroAt(frozenTime)
+      const frozenLook = macroAt(frozenTime, birth, evolutionSeed)
       pose = activePose(frozenTime, frozenLook, roamSeed, homeElement)
       const home = homePoint(homeElement)
       const returning = exitReturnsHome
-        ? smoother((progress - 0.64) / 0.36)
+        ? smoother((progress - 0.80) / 0.14)
         : 0
       pose = {
         ...pose,
@@ -1443,10 +1786,6 @@ export function createBlackHolePetRenderer({
     }
   }
   document.addEventListener('visibilitychange', onVisibilityChange)
-  const testWindow = window as Window & {
-    __FARMING_E2E__?: boolean
-    __farmingBlackHolePetTest?: { refreshScene: () => void }
-  }
   const testApi = { refreshScene }
   if (testWindow.__FARMING_E2E__) {
     testWindow.__farmingBlackHolePetTest = testApi

@@ -659,7 +659,6 @@ export function CodeSidebar({
           <FarmingPet
             language={language}
             appearancePreference={appearancePreference}
-            onboardingBlocked={hasProjectListItems || sidebarCollapsed}
             restReminderEntryBlocked={
               restReminderEntryBlocked
               || brandDialogOpen

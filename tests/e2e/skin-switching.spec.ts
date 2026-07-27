@@ -85,11 +85,13 @@ test('keeps Code Usage to real token sources and renders a compact activity heat
       ? 2_000_000_000
       : index === 1
         ? 1_200_000_000
-      : index >= 52 * 7 - 7
-        ? 250_000_000
-        : index >= 52 * 7 - 14
-          ? 100_000_000
-          : 0
+        : index === 52 * 7 - 14
+          ? 1_300_000_000
+          : index >= 52 * 7 - 7
+            ? 250_000_000
+            : index >= 52 * 7 - 14
+              ? 100_000_000
+              : 0
     const cacheReadTokens = index >= 52 * 7 - 7 ? 50_000_000 : 0
     const cacheWriteTokens = index >= 52 * 7 - 7 ? 25_000_000 : 0
     dailyCursor.setDate(dailyCursor.getDate() + 1)
@@ -116,6 +118,7 @@ test('keeps Code Usage to real token sources and renders a compact activity heat
   const peakDailyPoint = dailyPoints.reduce((peak, point) => (
     point.totalTokens > peak.totalTokens ? point : peak
   ), dailyPoints[0]!)
+  const matrixFlameDailyPoint = dailyPoints.at(-14)!
   const requestedDayDates: string[] = []
 
   await page.route(/\/api\/usage\/day(?:\?|$)/, async route => {
@@ -271,12 +274,13 @@ test('keeps Code Usage to real token sources and renders a compact activity heat
   await expect(panel.getByText('unavailable', { exact: true })).toHaveCount(0)
   await expect(panel.getByText('Total local tokens', { exact: true })).toHaveCount(0)
 
-  const heatmap = panel.getByTestId('code-usage-heatmap')
-  await expect(heatmap).toBeVisible()
+  const sparkline = panel.getByTestId('code-usage-sparkline')
+  await expect(sparkline).toBeVisible()
   await expect(panel.getByText('1d · activity', { exact: true })).toBeVisible()
   await expect(panel.getByText('1h buckets', { exact: true })).toBeVisible()
-  await expect(heatmap.locator('.code-usage-heatmap-cell')).toHaveCount(24)
-  await expect(heatmap.locator(".code-usage-heatmap-cell[data-level='5']")).toHaveCount(1)
+  await expect(sparkline.locator('.code-usage-sparkline-line')).toHaveCount(1)
+  await expect(sparkline.locator('.code-usage-sparkline-hit')).toHaveCount(24)
+  await expect(sparkline.locator('.code-usage-sparkline-line')).toHaveAttribute('d', /^M .+ C /)
   await expect(panel.getByTestId('code-usage-time-axis').locator('span')).toHaveCount(5)
   await expect(panel.getByTestId('code-usage-time-axis').locator('span')).toHaveText([
     /^\d{2}:00$/,
@@ -285,39 +289,62 @@ test('keeps Code Usage to real token sources and renders a compact activity heat
     /^\d{2}:00$/,
     /^\d{2}:00$/,
   ])
-  await expect(panel.getByTestId('code-usage-activity-readout')).toHaveText('1d 1.5B · 7d 1.8B · 52w 5.7B')
+  await expect(panel.getByTestId('code-usage-activity-readout')).toHaveText('1d 1.5B · 7d 1.8B · 30d 3.7B')
   await expect.poll(() => panel.getByTestId('code-usage-activity-readout').evaluate(element => getComputedStyle(element).fontSize)).toBe('13px')
 
-  const peakHourCell = heatmap.locator(`[data-start="${points[18]!.startedAt}"]`)
-  await expect(peakHourCell).toHaveAttribute('title', /1,500,000,000 tokens/)
-  await peakHourCell.hover()
-  await expect(panel.getByTestId('code-usage-activity-readout')).toContainText('1,500,000,000 tokens')
+  const peakHourHit = sparkline.locator(`[data-start="${points[18]!.startedAt}"]`)
+  await expect(peakHourHit).toHaveAttribute('aria-label', /1,500,000,000 tokens/)
+  await peakHourHit.hover()
+  await expect(panel.getByTestId('code-usage-activity-readout')).toContainText('1.5B tokens')
 
   const dailyHeatmap = panel.getByTestId('code-usage-daily-heatmap')
   await expect(dailyHeatmap).toBeVisible()
-  await expect(dailyHeatmap.locator('.code-usage-daily-heatmap-cell')).toHaveCount(52 * 7)
+  await expect(dailyHeatmap).toHaveAttribute('data-layout', 'matrix')
+  await expect(dailyHeatmap.locator('.code-usage-daily-heatmap-cell')).toHaveCount(30)
   await expect(dailyHeatmap.locator(".code-usage-daily-heatmap-cell[data-recent='true']")).toHaveCount(7)
-  const peakDayCell = dailyHeatmap.locator(`[data-date="${peakDailyPoint.date}"]`)
-  await expect(peakDayCell).toHaveAttribute('title', `${peakDailyPoint.date} · 2,000,000,000 tokens · Token king`)
-  await expect(peakDayCell).toHaveAttribute('data-peak', 'true')
-  await peakDayCell.hover()
-  await expect(panel.getByTestId('code-usage-activity-readout')).toHaveText(`${peakDailyPoint.date} · 2,000,000,000 tokens`)
+  await expect.poll(() => dailyHeatmap.locator('.code-usage-daily-heatmap-cell').first().evaluate(element => (
+    getComputedStyle(element).height
+  ))).toBe('18px')
+  expect(await dailyHeatmap.locator('.code-usage-daily-heatmap-cell').first().evaluate(element => (
+    element.getBoundingClientRect().width
+  ))).toBeGreaterThan(18)
+  const matrixGeometry = await dailyHeatmap.locator('.code-usage-daily-heatmap-cell').evaluateAll(elements => ({
+    columns: new Set(elements.map(element => Math.round(element.getBoundingClientRect().left))).size,
+    rows: new Set(elements.map(element => Math.round(element.getBoundingClientRect().top))).size,
+  }))
+  expect(matrixGeometry).toEqual({ columns: 10, rows: 3 })
+  const matrixFlameCell = dailyHeatmap.locator(`[data-date="${matrixFlameDailyPoint.date}"]`)
+  await expect(matrixFlameCell).toHaveAttribute('data-shape', 'flame')
+  const matrixFlameMask = await matrixFlameCell.evaluate(element => {
+    const style = getComputedStyle(element)
+    return style.maskImage || style.getPropertyValue('-webkit-mask-image')
+  })
+  expect(matrixFlameMask).not.toBe('none')
+  const recentDayCell = dailyHeatmap.locator(`[data-date="${dailyPoints.at(-1)!.date}"]`)
+  await recentDayCell.hover()
+  await expect(panel.getByTestId('code-usage-activity-readout')).toHaveText(
+    `${dailyPoints.at(-1)!.date} · 250M tokens`,
+  )
 
-  await panel.getByTestId('code-usage-open-day').click()
+  await panel.getByTestId('code-usage-open-year').click()
   const detail = page.getByTestId('code-usage-detail-dialog')
   await expect(detail).toBeVisible()
-  await expect(detail.getByTestId('code-usage-detail-day-tab')).toHaveAttribute('aria-selected', 'true')
-  await expect(detail.getByText('24-hour tokens', { exact: true })).toBeVisible()
-  await expect(detail.getByText('Peak hour', { exact: true })).toBeVisible()
-  await expect.poll(() => detail.getByTestId('code-usage-heatmap').locator('.code-usage-heatmap-cell').first().evaluate(element => getComputedStyle(element).height)).toBe('28px')
-
-  await detail.getByTestId('code-usage-detail-year-tab').click()
-  await expect(detail.getByTestId('code-usage-detail-year-tab')).toHaveAttribute('aria-selected', 'true')
+  await expect(detail.getByRole('tablist')).toHaveCount(0)
+  await expect(detail.getByTestId('code-usage-detail-day-tab')).toHaveCount(0)
+  await expect(detail.getByTestId('code-usage-detail-year-tab')).toHaveCount(0)
   const dayHighlight = detail.getByTestId('code-usage-detail-day-highlight')
+  await page.mouse.move(0, 0)
   await expect(dayHighlight).toHaveAttribute('data-state', 'today')
   await expect(dayHighlight).not.toContainText('Top')
   await expect(dayHighlight).toContainText('250M')
   const detailDailyHeatmap = detail.getByTestId('code-usage-daily-heatmap')
+  await expect(detailDailyHeatmap.locator('.code-usage-daily-heatmap-cell')).toHaveCount(52 * 7)
+  await expect.poll(() => detailDailyHeatmap.locator('.code-usage-daily-heatmap-cell').first().evaluate(element => (
+    getComputedStyle(element).height
+  ))).toBe('12px')
+  expect(await detailDailyHeatmap.locator('.code-usage-daily-heatmap-cell').first().evaluate(element => (
+    element.getBoundingClientRect().width
+  ))).toBeGreaterThan(12)
   const crownDayCell = detailDailyHeatmap.locator(`[data-date="${peakDailyPoint.date}"]`)
   const flameDayCell = detailDailyHeatmap.locator(`[data-date="${dailyPoints[1]!.date}"]`)
   await expect(crownDayCell).toHaveAttribute('data-shape', 'crown')
@@ -364,10 +391,13 @@ test('keeps Code Usage to real token sources and renders a compact activity heat
   const dayRequestsBeforeQuickSweep = requestedDayDates.length
   await detailDailyHeatmap.locator(`[data-date="${emptyDailyPoint.date}"]`).hover()
   await detailDailyHeatmap.locator(`[data-date="${nextEmptyDailyPoint.date}"]`).hover()
-  await page.waitForTimeout(100)
+  await page.waitForTimeout(250)
   expect(requestedDayDates).toHaveLength(dayRequestsBeforeQuickSweep)
   await expect(detail.getByTestId('code-usage-day-histogram-loading')).toHaveCount(0)
   await expect(detail.getByTestId('code-usage-day-histogram-readout')).toContainText('250M tokens')
+  await expect(dayHighlight).toHaveAttribute('data-state', 'preview')
+  await expect(dayHighlight).toContainText('0')
+  await detailDailyHeatmap.locator(`[data-date="${nextEmptyDailyPoint.date}"]`).click()
   await expect.poll(() => requestedDayDates.at(-1)).toBe(nextEmptyDailyPoint.date)
   await expect(detail.getByTestId('code-usage-day-histogram-readout')).toContainText('0 tokens')
   const emptyDayGeometry = await detail.evaluate(element => {
@@ -385,13 +415,13 @@ test('keeps Code Usage to real token sources and renders a compact activity heat
   expect(emptyDayGeometry).toEqual(populatedDayGeometry)
   const selectedDailyPoint = dailyPoints.at(-1)!
   const selectedDayCell = detailDailyHeatmap.locator(`[data-date="${selectedDailyPoint.date}"]`)
-  await selectedDayCell.hover()
+  await selectedDayCell.click()
   await expect(selectedDayCell).toHaveAttribute('data-selected', 'true')
   await expect(dayHighlight).toHaveAttribute('data-state', 'selected')
   await expect(dayHighlight).toContainText('250M')
   await expect(dayHighlight).toContainText('tokens')
   await expect(detail.getByTestId('code-usage-detail-readout')).toHaveText(
-    `${selectedDailyPoint.date} · 250,000,000 tokens`,
+    `${selectedDailyPoint.date} · 250M tokens`,
   )
   await expect(detail.getByTestId('code-usage-day-histogram-readout')).toContainText('250M tokens')
   await page.setViewportSize({ width: 1100, height: 680 })
@@ -407,6 +437,9 @@ test('keeps Code Usage to real token sources and renders a compact activity heat
     }
   })).toEqual({ dialogFits: true, histogramFits: true })
   await page.setViewportSize({ width: 1440, height: 900 })
+  await expect.poll(() => detailDailyHeatmap.locator('.code-usage-daily-heatmap-cell').first().evaluate(element => (
+    getComputedStyle(element).height
+  ))).toBe('16px')
   await hourlyHistogram.locator('[data-hour="10"] .code-usage-day-histogram-segment').first().hover()
   await expect(detail.getByTestId('code-usage-day-histogram-readout')).toContainText('Codex')
   await expect(detail.getByText('Last 7 days', { exact: true })).toBeVisible()
@@ -415,11 +448,6 @@ test('keeps Code Usage to real token sources and renders a compact activity heat
   await expect(detail.getByText('30%', { exact: true })).toBeVisible()
   await page.keyboard.press('Escape')
   await expect(detail).toHaveCount(0)
-
-  await panel.getByTestId('code-usage-open-year').click()
-  await expect(page.getByTestId('code-usage-detail-year-tab')).toHaveAttribute('aria-selected', 'true')
-  await page.getByRole('button', { name: 'Close usage activity' }).click()
-  await expect(page.getByTestId('code-usage-detail-dialog')).toHaveCount(0)
 
   await page.setViewportSize({ width: 390, height: 844 })
   await page.getByTestId('code-mobile-menu').click()
@@ -430,7 +458,7 @@ test('keeps Code Usage to real token sources and renders a compact activity heat
 
   const mobileDetail = page.getByTestId('code-usage-detail-dialog')
   await expect(mobileDetail).toBeVisible()
-  await expect(mobileDetail.getByTestId('code-usage-detail-year-tab')).toHaveAttribute('aria-selected', 'true')
+  await expect(mobileDetail.getByRole('tablist')).toHaveCount(0)
   const mobileHistogram = mobileDetail.getByTestId('code-usage-day-histogram')
   await expect(mobileHistogram).toBeVisible()
   const mobileDatePicker = mobileDetail.getByTestId('code-usage-mobile-date-picker')

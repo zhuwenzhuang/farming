@@ -848,7 +848,7 @@ function run() {
 	      workspaceSource.includes('Total local tokens') &&
 	      workspaceSource.includes('function UsageActivityHeatmaps({ usageSummary }') &&
 	      workspaceSource.includes('function DailyUsageHeatmap({') &&
-	      workspaceSource.includes('data-testid="code-usage-heatmap"') &&
+	      workspaceSource.includes('data-testid="code-usage-sparkline"') &&
 	      workspaceSource.includes('data-testid="code-usage-time-axis"') &&
 	      workspaceSource.includes('data-testid="code-usage-daily-heatmap"') &&
 	      workspaceSource.includes('data-testid="code-usage-activity-readout"') &&

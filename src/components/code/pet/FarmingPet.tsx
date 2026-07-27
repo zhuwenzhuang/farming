@@ -6,8 +6,10 @@ import {
   useState,
 } from 'react'
 import type { UiAppearance, UiLanguage } from '@/lib/ui-preferences'
-import type { PetIntent } from '@/lib/pet/intents'
-import { isCompactViewport } from '@/lib/responsive-mode'
+import {
+  resolvePetNotificationIntent,
+  type PetIntent,
+} from '@/lib/pet/intents'
 import {
   PET_SETTINGS_EVENT,
   REST_REMINDER_BREAK_MINUTES,
@@ -32,7 +34,6 @@ interface FarmingPetProps {
   language: UiLanguage
   appearancePreference: UiAppearance
   restReminderEntryBlocked?: boolean
-  onboardingBlocked?: boolean
 }
 
 const PET_OWNER_ATTRIBUTE = 'data-farming-pet-owner'
@@ -101,14 +102,14 @@ function petCopy(language: UiLanguage) {
     dueAnnouncement: (intervalSeconds: number) => {
       const countdownSeconds = restReminderEntryCountdownSeconds(intervalSeconds)
       return zh
-        ? `休息提醒已出现。停止操作 ${countdownSeconds} 秒后，将进入 ${REST_REMINDER_BREAK_MINUTES} 分钟休息。`
-        : `Break reminder shown. After ${countdownSeconds} seconds without input, a ${REST_REMINDER_BREAK_MINUTES}-minute break will begin.`
+        ? `休息提醒已出现。暂停操作 ${countdownSeconds} 秒后，开始 ${REST_REMINDER_BREAK_MINUTES} 分钟休息。`
+        : `Break reminder shown. Pause for ${countdownSeconds} sec to start a ${REST_REMINDER_BREAK_MINUTES} min break.`
     },
     dueBody: (intervalSeconds: number, countdownSeconds: number) => zh
-      ? <>你已连续使用 Farming {formatActivityInterval(language, intervalSeconds)}。<br />操作暂停 <strong className="code-pet-countdown">{countdownSeconds} 秒</strong>后，将进入 {REST_REMINDER_BREAK_MINUTES} 分钟休息。</>
-      : <>You've used Farming continuously for {formatActivityInterval(language, intervalSeconds)}.<br />After <strong className="code-pet-countdown">{countdownSeconds} seconds</strong> without input, a {REST_REMINDER_BREAK_MINUTES}-minute break will begin.</>,
-    cancelBreak: zh ? '取消本次休息' : 'Cancel this break',
-    snooze: zh ? `${REST_REMINDER_SNOOZE_MINUTES} 分钟后提醒` : `Remind in ${REST_REMINDER_SNOOZE_MINUTES} min`,
+      ? <>已专注 {formatActivityInterval(language, intervalSeconds)}。<br />暂停操作 <strong className="code-pet-countdown">{countdownSeconds} 秒</strong>后，开始 {REST_REMINDER_BREAK_MINUTES} 分钟休息。</>
+      : <>Focused for {formatActivityInterval(language, intervalSeconds)}.<br />Pause <strong className="code-pet-countdown">{countdownSeconds} sec</strong> for a {REST_REMINDER_BREAK_MINUTES} min break.</>,
+    cancelBreak: zh ? '取消' : 'Cancel',
+    snooze: zh ? `${REST_REMINDER_SNOOZE_MINUTES} 分钟后` : `In ${REST_REMINDER_SNOOZE_MINUTES} min`,
     restingTitle: zh ? '休息一下' : 'Take a break',
     restingBody: zh ? '让眼睛和注意力暂停片刻。' : 'Pause for a moment and rest your eyes and attention.',
     restingStatus: zh ? '休息中' : 'Resting',
@@ -138,18 +139,14 @@ function FarmingPetController({
   language,
   appearancePreference,
   restReminderEntryBlocked = false,
-  onboardingBlocked = false,
 }: FarmingPetProps) {
   const copy = useMemo(() => petCopy(language), [language])
   const defaultAppearance = usePetDefaultAppearance(appearancePreference)
-  const [compactViewport, setCompactViewport] = useState(isCompactViewport)
   const [intervalSeconds, setIntervalSeconds] = useState<number | null>(readRestReminderIntervalSeconds)
   const [appearance, setAppearance] = useState<PetAppearance>(() => (
     readPetAppearance(undefined, defaultAppearance)
   ))
-  const [onboarding, setOnboarding] = useState<'invitation' | 'appearance' | null>(() => (
-    intervalSeconds === null ? 'invitation' : null
-  ))
+  const [restReminderSetupOption, setRestReminderSetupOption] = useState<'appearance' | null>(null)
   const [settingsError, setSettingsError] = useState('')
   const [persistenceNoticeDismissed, setPersistenceNoticeDismissed] = useState(false)
   const [countdownNow, setCountdownNow] = useState(Date.now)
@@ -162,17 +159,6 @@ function FarmingPetController({
   } = useRestReminderCapability(intervalSeconds, restReminderEntryBlocked)
 
   useEffect(() => {
-    const syncCompactViewport = () => setCompactViewport(isCompactViewport())
-    syncCompactViewport()
-    window.addEventListener('resize', syncCompactViewport)
-    window.visualViewport?.addEventListener('resize', syncCompactViewport)
-    return () => {
-      window.removeEventListener('resize', syncCompactViewport)
-      window.visualViewport?.removeEventListener('resize', syncCompactViewport)
-    }
-  }, [])
-
-  useEffect(() => {
     const syncSetting = (
       intervalValue: unknown,
       appearanceValue?: PetAppearance,
@@ -181,7 +167,7 @@ function FarmingPetController({
       const nextInterval = normalizeRestReminderIntervalSeconds(intervalValue)
       setIntervalSeconds(nextInterval)
       setAppearance(appearanceValue ?? readPetAppearance(undefined, defaultAppearance))
-      setOnboarding(nextInterval === null ? 'invitation' : null)
+      setRestReminderSetupOption(null)
       if (clearSaveError) setSettingsError('')
     }
     const onSetting = (event: Event) => {
@@ -225,7 +211,7 @@ function FarmingPetController({
       defaultAppearance,
     )) {
       setSettingsError('')
-      setOnboarding('appearance')
+      setRestReminderSetupOption('appearance')
     } else {
       setSettingsError(copy.settingsSaveFailed)
     }
@@ -244,15 +230,16 @@ function FarmingPetController({
     }
     setSettingsError('')
     setAppearance(nextAppearance)
-    setOnboarding(null)
+    setRestReminderSetupOption(null)
   }, [copy.settingsSaveFailed])
 
   const intent = useMemo<PetIntent | null>(() => {
     if (restReminderEntryBlocked && restReminder?.phase !== 'resting') return null
-    if (onboarding === 'invitation' && !compactViewport && !onboardingBlocked) {
-      return { kind: 'onboarding', step: 'invitation' }
-    }
-    if (onboarding === 'appearance') return { kind: 'onboarding', step: 'appearance' }
+    const notificationIntent = resolvePetNotificationIntent(
+      intervalSeconds,
+      restReminderSetupOption,
+    )
+    if (notificationIntent) return notificationIntent
     if (restReminder?.phase === 'due' && restReminder.restStartsAt !== null) {
       return {
         kind: 'capability',
@@ -270,7 +257,12 @@ function FarmingPetController({
       }
     }
     return null
-  }, [compactViewport, onboarding, onboardingBlocked, restReminder, restReminderEntryBlocked])
+  }, [
+    intervalSeconds,
+    restReminder,
+    restReminderEntryBlocked,
+    restReminderSetupOption,
+  ])
 
   if (!intent) {
     if (!persistenceFailed || persistenceNoticeDismissed) return null
@@ -355,7 +347,11 @@ function FarmingPetController({
     )
   }
 
-  if (intent.kind === 'onboarding' && intent.step === 'appearance') {
+  if (
+    intent.kind === 'notification'
+    && intent.notification === 'rest-reminder-setup'
+    && intent.option === 'appearance'
+  ) {
     return (
       <PetBubble
         title={copy.appearanceTitle}

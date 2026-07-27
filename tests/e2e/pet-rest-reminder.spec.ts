@@ -13,14 +13,61 @@ async function readBlackHoleOuterInk(canvas: Locator) {
   })
 }
 
-test('narrow layouts do not proactively show the first-use invitation', async ({ page }) => {
+test('unconfigured reminder shows its invitation in narrow layouts', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await openFarming(page)
 
-  await expect(page.getByTestId('pet-rest-invitation')).toHaveCount(0)
+  await expect(page.getByTestId('pet-rest-invitation')).toBeVisible()
   await page.getByTestId('code-mobile-menu').click()
   await expect(page.getByTestId('code-sidebar')).toBeVisible()
-  await expect(page.getByTestId('pet-rest-invitation')).toHaveCount(0)
+  await expect(page.getByTestId('pet-rest-invitation')).toBeVisible()
+})
+
+test('break reminder keeps its English status copy compact', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.addInitScript(({ settingsKey, runtimeKey }) => {
+    const now = Date.now()
+    localStorage.setItem(settingsKey, JSON.stringify({
+      version: 1,
+      appearance: 'glass',
+      capabilities: { restReminder: { intervalSeconds: 50 * 60 } },
+    }))
+    sessionStorage.setItem(runtimeKey, JSON.stringify({
+      version: 1,
+      state: {
+        phase: 'due',
+        intervalSeconds: 50 * 60,
+        cycleStartedAt: now - 50 * 60_000,
+        lastActivityAt: now,
+        snoozedUntil: null,
+        restStartsAt: now + 30_000,
+        restUntil: null,
+        snoozeUsed: false,
+      },
+    }))
+  }, { settingsKey: SETTINGS_KEY, runtimeKey: RUNTIME_KEY })
+
+  await openFarming(page)
+  const reminder = page.getByTestId('pet-rest-reminder')
+  const body = reminder.locator('p')
+  await expect(reminder).toBeVisible()
+  await expect(body).toContainText('Focused for 50 min.')
+  await expect(body).toContainText(/Pause \d+ sec for a 5 min break\./)
+  const cancelButton = reminder.getByRole('button', { name: 'Cancel', exact: true })
+  const snoozeButton = reminder.getByRole('button', { name: 'In 10 min', exact: true })
+  const [cancelBox, snoozeBox] = await Promise.all([
+    cancelButton.boundingBox(),
+    snoozeButton.boundingBox(),
+  ])
+  expect(cancelBox).not.toBeNull()
+  expect(snoozeBox).not.toBeNull()
+  expect(Math.abs(cancelBox!.y - snoozeBox!.y)).toBeLessThan(1)
+  expect(snoozeBox!.x).toBeGreaterThan(cancelBox!.x + cancelBox!.width)
+  const renderedLines = await body.evaluate(element => {
+    const style = getComputedStyle(element)
+    return element.getBoundingClientRect().height / Number.parseFloat(style.lineHeight)
+  })
+  expect(renderedLines).toBeLessThanOrEqual(2.05)
 })
 
 test('dark appearance defaults an unconfigured Pet to the black hole', async ({ page }) => {
@@ -48,6 +95,139 @@ test('dark appearance defaults an unconfigured Pet to the black hole', async ({ 
   await expect.poll(() => page.evaluate(key => (
     JSON.parse(localStorage.getItem(key) ?? 'null')?.appearance ?? null
   ), SETTINGS_KEY)).toBeNull()
+})
+
+test('black-hole lifecycle changes shape within the 120 FPS GPU budget', async ({ page }) => {
+  await page.setViewportSize({ width: 1920, height: 1200 })
+  await page.request.post('/farming/api/settings', {
+    data: { appearance: 'dark' },
+  })
+  await page.addInitScript(({ settingsKey, runtimeKey }) => {
+    localStorage.setItem(settingsKey, JSON.stringify({
+      version: 1,
+      appearance: 'black-hole',
+      capabilities: { restReminder: { intervalSeconds: 50 * 60 } },
+    }))
+    sessionStorage.setItem(runtimeKey, JSON.stringify({
+      version: 1,
+      state: {
+        phase: 'resting',
+        intervalSeconds: 50 * 60,
+        cycleStartedAt: null,
+        lastActivityAt: null,
+        snoozedUntil: null,
+        restStartsAt: null,
+        restUntil: Date.now() + 5 * 60_000,
+        snoozeUsed: false,
+      },
+    }))
+    ;(window as Window & {
+      __farmingBlackHoleElapsedSeconds?: number
+      __farmingBlackHoleEvolutionSeed?: number
+    }).__farmingBlackHoleEvolutionSeed = 1
+    ;(window as Window & {
+      __farmingBlackHoleElapsedSeconds?: number
+    }).__farmingBlackHoleElapsedSeconds = 82.55
+  }, { settingsKey: SETTINGS_KEY, runtimeKey: RUNTIME_KEY })
+
+  await openFarming(page)
+  const canvas = page.getByTestId('pet-rest-scene')
+    .locator('.code-pet-black-hole-canvas')
+  await expect(canvas).toHaveAttribute('data-intro-seconds', '15')
+  await expect(canvas).toHaveAttribute('data-cycle-seconds', '90')
+  const lifecycle = [
+    'zen',
+    'm87',
+    'ember',
+    'gargantua',
+    'inferno',
+    'quasar',
+    'blazar',
+    'cooling',
+  ] as const
+  const cycleOrder = (
+    await canvas.getAttribute('data-cycle-order') ?? ''
+  ).split(',')
+  const nextCycleOrder = (
+    await canvas.getAttribute('data-next-cycle-order') ?? ''
+  ).split(',')
+  const expectReasonableEvolution = (order: string[]) => {
+    expect(order).toHaveLength(lifecycle.length)
+    expect(new Set(order)).toEqual(new Set(lifecycle))
+    expect(new Set(order.slice(0, 2))).toEqual(new Set(['zen', 'm87']))
+    expect(new Set(order.slice(2, 4))).toEqual(new Set(['ember', 'gargantua']))
+    expect(order[4]).toBe('inferno')
+    expect(new Set(order.slice(5, 7))).toEqual(new Set(['quasar', 'blazar']))
+    expect(order[7]).toBe('cooling')
+  }
+  expectReasonableEvolution(cycleOrder)
+  expectReasonableEvolution(nextCycleOrder)
+  expect(nextCycleOrder).not.toEqual(cycleOrder)
+  expect(['zen', 'm87']).toContain(
+    await canvas.getAttribute('data-birth-preset'),
+  )
+  const blazarSlot = cycleOrder.indexOf('blazar')
+  const slotSeconds = 90 / lifecycle.length
+  await page.evaluate(value => {
+    ;(window as Window & {
+      __farmingBlackHoleElapsedSeconds?: number
+    }).__farmingBlackHoleElapsedSeconds = value
+  }, 15 + blazarSlot * slotSeconds + 0.05)
+  await expect(canvas).toHaveAttribute('data-macro-phase', 'blazar')
+  await expect(canvas).toHaveAttribute('data-gpu-timer', 'sampled', {
+    timeout: 5_000,
+  })
+  await expect.poll(() => canvas.evaluate(element => (
+    (element as HTMLCanvasElement).width
+  ))).toBe(1792)
+  const gpuTiming = await canvas.evaluate(element => ({
+    samples: Number((element as HTMLCanvasElement).dataset.gpuSamples),
+    p95Ms: Number((element as HTMLCanvasElement).dataset.gpuP95Ms),
+  }))
+  expect(gpuTiming.samples).toBeGreaterThanOrEqual(24)
+  expect(gpuTiming.p95Ms).toBeLessThan(1000 / 120)
+
+  const observedPhases: string[] = []
+  const observedTemperatures: number[] = []
+  const observedInclinations: number[] = []
+  const observedOuterRadii: number[] = []
+  for (let slot = 0; slot < lifecycle.length; slot += 1) {
+    const phase = cycleOrder[slot]!
+    const elapsed = 15 + slot * slotSeconds + 0.05
+    await page.evaluate(value => {
+      ;(window as Window & {
+        __farmingBlackHoleElapsedSeconds?: number
+      }).__farmingBlackHoleElapsedSeconds = value
+    }, elapsed)
+    await expect(canvas).toHaveAttribute('data-macro-phase', phase)
+    const preset = await canvas.evaluate(element => ({
+      temperature: Number((element as HTMLCanvasElement).dataset.macroTemperature),
+      inclination: Number((element as HTMLCanvasElement).dataset.macroInclination),
+      outerRadius: Number((element as HTMLCanvasElement).dataset.macroOuterRadius),
+    }))
+    observedPhases.push(phase)
+    observedTemperatures.push(preset.temperature)
+    observedInclinations.push(preset.inclination)
+    observedOuterRadii.push(preset.outerRadius)
+  }
+  expect(new Set(observedPhases)).toEqual(new Set(lifecycle))
+  expect(Math.max(...observedTemperatures) - Math.min(...observedTemperatures))
+    .toBeGreaterThan(14_000)
+  expect(Math.max(...observedInclinations) - Math.min(...observedInclinations))
+    .toBeGreaterThan(1.1)
+  expect(Math.max(...observedOuterRadii) - Math.min(...observedOuterRadii))
+    .toBeGreaterThan(3.5)
+
+  for (let slot = 0; slot < nextCycleOrder.length; slot += 1) {
+    const phase = nextCycleOrder[slot]!
+    const elapsed = 15 + 90 + slot * slotSeconds + 0.05
+    await page.evaluate(value => {
+      ;(window as Window & {
+        __farmingBlackHoleElapsedSeconds?: number
+      }).__farmingBlackHoleElapsedSeconds = value
+    }, elapsed)
+    await expect(canvas).toHaveAttribute('data-macro-phase', phase)
+  }
 })
 
 test('dark black-hole status stays readable and manual exit fully evaporates in place', async ({ page }) => {
@@ -94,9 +274,14 @@ test('dark black-hole status stays readable and manual exit fully evaporates in 
       .getAttribute('data-exit-progress') ?? '0',
   )).toBeGreaterThan(0.52)
   await expect(scene.locator('.code-pet-black-hole-compositor'))
-    .toHaveAttribute('data-evaporation-phase', 'radiation')
+    .toHaveAttribute('data-evaporation-phase', 'blue-shift')
   await expect(scene.locator('.code-pet-black-hole-canvas'))
     .toHaveAttribute('data-radiation-probe', 'sampled')
+  const exitCanvas = scene.locator('.code-pet-black-hole-canvas')
+  await expect(exitCanvas).toHaveAttribute('data-gpu-timer', 'sampled')
+  const exitGpuP95 = Number(await exitCanvas.getAttribute('data-gpu-p95-ms'))
+  expect(exitGpuP95).toBeGreaterThan(0)
+  expect(exitGpuP95).toBeLessThan(1000 / 120)
   await expect(scene).toBeVisible()
   await expect(page.locator('.code-pet-black-hole-compositor')).toHaveCount(1)
   await expect.poll(async () => {
@@ -362,7 +547,7 @@ test('natural black-hole evaporation resumes at the absolute-time progress', asy
   await expect.poll(async () => Number(
     await compositor.getAttribute('data-exit-progress') ?? '0',
   )).toBeGreaterThan(0.18)
-  await expect(compositor).toHaveAttribute('data-evaporation-phase', 'radiation')
+  await expect(compositor).toHaveAttribute('data-evaporation-phase', 'blue-shift')
   await page.evaluate(() => {
     const testDocument = document as Document & {
       __petVisibilityState?: DocumentVisibilityState
@@ -397,11 +582,11 @@ test('natural black-hole evaporation resumes at the absolute-time progress', asy
   await expect.poll(async () => Number(
     await compositor.getAttribute('data-exit-progress') ?? '0',
   )).toBeGreaterThan(progressBeforeHide + 0.05)
-  await expect(compositor).toHaveAttribute('data-evaporation-phase', 'radiation')
+  await expect(compositor).toHaveAttribute('data-evaporation-phase', 'blue-shift')
   await expect(scene).toHaveCount(0, { timeout: 16_000 })
 })
 
-test('black-hole snapshot refresh excludes Pet UI and keeps one renderer', async ({ page }) => {
+test('black-hole snapshot refresh rasterizes file icons, excludes Pet UI, and keeps one renderer', async ({ page }) => {
   test.slow()
   await page.addInitScript(({ settingsKey, runtimeKey }) => {
     localStorage.setItem(settingsKey, JSON.stringify({
@@ -438,6 +623,20 @@ test('black-hole snapshot refresh excludes Pet UI and keeps one renderer', async
   const settings = page.getByTestId('code-settings-panel')
   await expect(settings).toBeVisible()
   await expect(settings).toHaveAttribute('data-pet-snapshot-exclude', 'true')
+  await page.evaluate(async () => {
+    const icon = document.createElement('img')
+    icon.className = 'code-file-type-icon'
+    icon.src = '/farming/vendor/material-icons/markdown.svg'
+    icon.alt = ''
+    icon.dataset.testSnapshotFileIcon = ''
+    Object.assign(icon.style, {
+      position: 'fixed',
+      left: '8px',
+      top: '8px',
+    })
+    document.body.append(icon)
+    await icon.decode()
+  })
   const previousGeneration = Number(
     await compositor.getAttribute('data-scene-generation') ?? '0',
   )
@@ -451,10 +650,15 @@ test('black-hole snapshot refresh excludes Pet UI and keeps one renderer', async
   )).toBeGreaterThan(previousGeneration)
   await expect(compositor).toHaveAttribute('data-refresh-state', 'idle')
   await expect(compositor).toHaveAttribute('data-remaining-pet-elements', '0')
+  await expect(compositor).toHaveAttribute('data-visible-file-icons', '1')
+  await expect(compositor).toHaveAttribute('data-rasterized-file-icons', '1')
   await expect(scene).toHaveCount(1)
   await expect(scene.locator('.code-pet-black-hole-canvas')).toHaveCount(1)
   await expect(scene.locator('.code-pet-black-hole-compositor')).toHaveCount(1)
 
+  await page.evaluate(() => {
+    document.querySelector('[data-test-snapshot-file-icon]')?.remove()
+  })
   await settings.getByRole('button', { name: 'Close', exact: true }).click()
   await scene.getByRole('button', { name: 'End break' }).click()
   await expect(scene).toHaveCount(0, { timeout: 7_000 })
@@ -609,7 +813,7 @@ test('appearance changes preserve the active cycle and reload restores it', asyn
   expect(restored.cycleStartedAt).toBe(originalCycleStartedAt)
 })
 
-test('custom reminder minutes and the slider stay synchronized', async ({ page }) => {
+test('custom reminder minutes sit between fixed slider stops', async ({ page }) => {
   await page.addInitScript(settingsKey => {
     localStorage.setItem(settingsKey, JSON.stringify({
       version: 1,
@@ -627,13 +831,14 @@ test('custom reminder minutes and the slider stay synchronized', async ({ page }
   })
 
   await expect(customMinutes).toHaveValue('50')
-  await expect(slider).toHaveValue('51')
+  await expect(slider).toHaveValue('5')
 
   await customMinutes.fill('37')
-  await expect(slider).toHaveValue('38')
+  await expect(slider).toHaveValue('3.7')
 
-  await slider.fill('91')
+  await slider.fill('7.4')
   await expect(customMinutes).toHaveValue('90')
+  await expect(slider).toHaveValue('7')
   await expect.poll(() => page.evaluate(key => (
     JSON.parse(localStorage.getItem(key) ?? 'null')
       ?.capabilities?.restReminder?.intervalSeconds

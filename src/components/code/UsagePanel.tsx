@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { memo, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
   ChevronDownGlyph,
@@ -346,11 +346,7 @@ type UsageHeatmapInspection = {
   tokens: number
 }
 
-const USAGE_DAY_HOVER_DELAY_MS = 200
-
-type UsageDetailRange = 'day' | 'year'
-
-function TokenUsageHeatmap({
+function TokenUsageSparkline({
   usageSummary,
   points,
   onInspect,
@@ -363,37 +359,53 @@ function TokenUsageHeatmap({
 
   const total = points.reduce((sum, point) => sum + Number(point.totalTokens), 0)
   const windowLabel = formatUsageWindow(Number(timeline.windowMs) / 60_000).toLowerCase()
-  const thresholds = usageHeatThresholds(points.map(point => point.totalTokens))
   const tickTimes = [0, 0.25, 0.5, 0.75, 1].map(position => (
     timeline.startAt + (timeline.endAt - timeline.startAt) * position
   ))
+  const width = 100
+  const height = 30
+  const maximum = Math.max(0, ...points.map(point => Number(point.totalTokens)))
+  const coordinates = points.map((point, index) => ({
+    x: points.length > 1 ? (index / (points.length - 1)) * width : width / 2,
+    y: maximum > 0 ? height - (Number(point.totalTokens) / maximum) * (height - 4) - 2 : height - 2,
+  }))
+  const path = coordinates.reduce((value, point, index) => {
+    if (index === 0) return `M ${point.x} ${point.y}`
+    const previous = coordinates[index - 1]!
+    const midpoint = (previous.x + point.x) / 2
+    return `${value} C ${midpoint} ${previous.y}, ${midpoint} ${point.y}, ${point.x} ${point.y}`
+  }, '')
 
   return (
     <>
-      <div
-        className="code-usage-heatmap"
-        data-testid="code-usage-heatmap"
+      <svg
+        className="code-usage-sparkline"
+        data-testid="code-usage-sparkline"
+        viewBox={`0 0 ${width} ${height}`}
+        preserveAspectRatio="none"
         role="img"
         aria-label={`Token activity over the last ${windowLabel}, ${formatCompactNumber(total)} tokens`}
-        title={`Local token activity · last ${windowLabel}`}
       >
+        <path className="code-usage-sparkline-line" d={path} vectorEffect="non-scaling-stroke" />
         {points.map((point, index) => {
           const tokens = Number(point.totalTokens)
           const label = `${formatHeatmapTime(point.startedAt)}–${formatHeatmapTime(point.endedAt)}`
           const title = `${label} · ${formatExactTokenCount(tokens)} tokens`
           return (
-            <span
+            <rect
               key={`${point.startedAt}-${index}`}
-              className="code-usage-heatmap-cell"
-              data-level={usageHeatLevel(tokens, thresholds)}
+              className="code-usage-sparkline-hit"
               data-start={point.startedAt}
-              title={title}
+              x={(index / points.length) * width}
+              y="0"
+              width={width / points.length}
+              height={height}
               aria-label={title}
               onMouseEnter={() => onInspect({ label, tokens })}
             />
           )
         })}
-      </div>
+      </svg>
       <div className="code-usage-time-axis" data-testid="code-usage-time-axis" aria-hidden="true">
         {tickTimes.map((timestamp, index) => (
           <span key={`${timestamp}-${index}`}>{formatHeatmapHour(timestamp)}</span>
@@ -403,61 +415,154 @@ function TokenUsageHeatmap({
   )
 }
 
+const DailyUsageGrid = memo(function DailyUsageGrid({
+  points,
+  layout,
+  peakDay,
+  recentStartIndex,
+  selectedDay,
+  showDayHighlight,
+  onInspect,
+  onPreview,
+  ariaLabel,
+}: {
+  points: UsageDailyPoint[]
+  layout: 'calendar' | 'matrix'
+  peakDay: UsageDailyPoint | null
+  recentStartIndex: number
+  selectedDay: UsageDailyPoint | null
+  showDayHighlight: boolean
+  onInspect: (inspection: UsageHeatmapInspection) => void
+  onPreview: (inspection: UsageHeatmapInspection | null) => void
+  ariaLabel: string
+}) {
+  const firstDate = parseUsageDate(points[0]!.date)!
+  const leadingDays = layout === 'calendar' ? (firstDate.getDay() + 6) % 7 : 0
+  const columnCount = layout === 'calendar'
+    ? Math.max(1, Math.ceil((leadingDays + points.length) / 7))
+    : Math.min(10, points.length)
+  const trailingDays = layout === 'calendar' ? columnCount * 7 - leadingDays - points.length : 0
+  const thresholds = usageHeatThresholds(points.map(point => point.totalTokens))
+  const pointsByDate = new Map(points.map(point => [point.date, point]))
+  const pointFromTarget = (target: EventTarget | null) => {
+    const cell = target instanceof HTMLElement
+      ? target.closest<HTMLElement>('.code-usage-daily-heatmap-cell')
+      : null
+    return cell ? pointsByDate.get(cell.dataset.date || '') ?? null : null
+  }
+  const inspectTarget = (target: EventTarget | null) => {
+    const point = pointFromTarget(target)
+    if (point) onInspect({ label: point.date, tokens: point.totalTokens })
+  }
+
+  return (
+    <div
+      className="code-usage-daily-heatmap"
+      data-layout={layout}
+      data-testid="code-usage-daily-heatmap"
+      role={showDayHighlight ? 'group' : 'img'}
+      aria-label={ariaLabel}
+      style={{ gridTemplateColumns: `repeat(${columnCount}, minmax(2px, 1fr))` }}
+      onClick={showDayHighlight ? event => inspectTarget(event.target) : undefined}
+      onFocus={showDayHighlight ? event => {
+        const point = pointFromTarget(event.target)
+        if (point) onPreview({ label: point.date, tokens: point.totalTokens })
+      } : undefined}
+      onBlur={showDayHighlight ? event => {
+        if (!event.currentTarget.contains(event.relatedTarget)) onPreview(null)
+      } : undefined}
+      onKeyDown={showDayHighlight ? event => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault()
+          inspectTarget(event.target)
+        }
+      } : undefined}
+      onPointerOver={showDayHighlight ? event => {
+        const point = pointFromTarget(event.target)
+        if (point) onPreview({ label: point.date, tokens: point.totalTokens })
+      } : undefined}
+      onPointerLeave={showDayHighlight ? () => onPreview(null) : undefined}
+    >
+      {Array.from({ length: leadingDays }, (_, index) => (
+        <span key={`leading-${index}`} className="code-usage-daily-spacer" aria-hidden="true" />
+      ))}
+      {points.map((point, index) => {
+        const tokens = Number(point.totalTokens)
+        const isPeak = point.date === peakDay?.date
+        const isBillion = tokens > 1_000_000_000
+        const markerLabel = isPeak ? 'Token king' : isBillion ? 'Over 1B tokens' : ''
+        const title = `${point.date} · ${formatCompactNumber(tokens)} tokens${markerLabel ? ` · ${markerLabel}` : ''}`
+        const ariaLabel = `${point.date} · ${formatExactTokenCount(tokens)} tokens${markerLabel ? ` · ${markerLabel}` : ''}`
+        return (
+          <span
+            key={point.date}
+            className="code-usage-heatmap-cell code-usage-daily-heatmap-cell"
+            data-date={point.date}
+            data-level={usageHeatLevel(tokens, thresholds)}
+            data-peak={isPeak ? 'true' : undefined}
+            data-billion={isBillion ? 'true' : undefined}
+            data-shape={isPeak ? 'crown' : isBillion ? 'flame' : undefined}
+            data-recent={index >= recentStartIndex ? 'true' : undefined}
+            data-selected={point.date === selectedDay?.date ? 'true' : undefined}
+            title={showDayHighlight ? undefined : title}
+            aria-label={ariaLabel}
+            role={showDayHighlight ? 'button' : undefined}
+            tabIndex={showDayHighlight ? 0 : undefined}
+            onMouseEnter={showDayHighlight ? undefined : () => onInspect({ label: point.date, tokens })}
+          />
+        )
+      })}
+      {Array.from({ length: trailingDays }, (_, index) => (
+        <span key={`trailing-${index}`} className="code-usage-daily-spacer" aria-hidden="true" />
+      ))}
+    </div>
+  )
+})
+
 function DailyUsageHeatmap({
   points,
   onInspect,
   inspection = null,
+  layout = 'calendar',
+  rangeLabel = '52w',
+  peakDay: authoritativePeakDay,
   showDayHighlight = false,
 }: {
   points: UsageDailyPoint[]
   onInspect: (inspection: UsageHeatmapInspection) => void
   inspection?: UsageHeatmapInspection | null
+  layout?: 'calendar' | 'matrix'
+  rangeLabel?: string
+  peakDay?: UsageDailyPoint | null
   showDayHighlight?: boolean
 }) {
-  const hoverInspectionTimerRef = useRef<number | null>(null)
-  const cancelHoverInspection = useCallback(() => {
-    if (hoverInspectionTimerRef.current === null) return
-    window.clearTimeout(hoverInspectionTimerRef.current)
-    hoverInspectionTimerRef.current = null
-  }, [])
-  const inspectAfterHover = useCallback((nextInspection: UsageHeatmapInspection) => {
-    cancelHoverInspection()
-    hoverInspectionTimerRef.current = window.setTimeout(() => {
-      hoverInspectionTimerRef.current = null
-      onInspect(nextInspection)
-    }, USAGE_DAY_HOVER_DELAY_MS)
-  }, [cancelHoverInspection, onInspect])
-
-  useEffect(() => cancelHoverInspection, [cancelHoverInspection])
-
-  const firstDate = parseUsageDate(points[0]!.date)!
-  const leadingDays = (firstDate.getDay() + 6) % 7
-  const weekCount = Math.max(1, Math.ceil((leadingDays + points.length) / 7))
-  const trailingDays = weekCount * 7 - leadingDays - points.length
-  const thresholds = usageHeatThresholds(points.map(point => point.totalTokens))
+  const [previewInspection, setPreviewInspection] = useState<UsageHeatmapInspection | null>(null)
   const activeDays = points.filter(point => point.totalTokens > 0).length
   const recentStartIndex = Math.max(0, points.length - 7)
   const recentTokens = points.slice(recentStartIndex).reduce((sum, point) => sum + point.totalTokens, 0)
   const peakCandidate = points.reduce<UsageDailyPoint | null>((peak, point) => (
     !peak || point.totalTokens > peak.totalTokens ? point : peak
   ), null)
-  const peakDay = peakCandidate && peakCandidate.totalTokens > 0 ? peakCandidate : null
+  const computedPeakDay = peakCandidate && peakCandidate.totalTokens > 0 ? peakCandidate : null
+  const peakDay = authoritativePeakDay === undefined ? computedPeakDay : authoritativePeakDay
   const selectedDay = inspection ? points.find(point => point.date === inspection.label) ?? null : null
+  const previewDay = previewInspection ? points.find(point => point.date === previewInspection.label) ?? null : null
   const today = points[points.length - 1] ?? null
-  const highlightedDay = selectedDay ?? today
+  const highlightedDay = previewDay ?? selectedDay ?? today
   const highlightedDayIsPeak = Boolean(highlightedDay && highlightedDay.date === peakDay?.date)
+  const isPreviewingUnselectedDay = Boolean(previewDay && previewDay.date !== selectedDay?.date)
 
   return (
     <>
       <div className="code-usage-activity-heading">
-        <span>52w · daily</span>
+        <span>{rangeLabel} · daily</span>
         {showDayHighlight && highlightedDay ? (
           <div
             className="code-usage-detail-day-highlight"
-            data-state={selectedDay ? 'selected' : 'today'}
+            data-state={isPreviewingUnselectedDay ? 'preview' : selectedDay ? 'selected' : 'today'}
             data-testid="code-usage-detail-day-highlight"
           >
-            <span>{selectedDay && highlightedDayIsPeak ? 'Top · ' : ''}{formatUsageDay(highlightedDay.date)}</span>
+            <span>{(previewDay || selectedDay) && highlightedDayIsPeak ? 'Top · ' : ''}{formatUsageDay(highlightedDay.date)}</span>
             <strong>{formatCompactNumber(highlightedDay.totalTokens)}</strong>
             <small>tokens</small>
           </div>
@@ -465,69 +570,25 @@ function DailyUsageHeatmap({
           <span>7d {formatCompactNumber(recentTokens)}</span>
         )}
       </div>
-      <div
-        className="code-usage-daily-heatmap"
-        data-testid="code-usage-daily-heatmap"
-        role="img"
-        aria-label={`Daily token activity over 52 weeks, ${activeDays} active days`}
-        style={{ gridTemplateColumns: `repeat(${weekCount}, minmax(2px, 1fr))` }}
-      >
-        {Array.from({ length: leadingDays }, (_, index) => (
-          <span key={`leading-${index}`} className="code-usage-daily-spacer" aria-hidden="true" />
-        ))}
-        {points.map((point, index) => {
-          const tokens = Number(point.totalTokens)
-          const isPeak = point.date === peakDay?.date
-          const isBillion = tokens > 1_000_000_000
-          const markerLabel = isPeak ? 'Token king' : isBillion ? 'Over 1B tokens' : ''
-          const title = `${point.date} · ${formatExactTokenCount(tokens)} tokens${markerLabel ? ` · ${markerLabel}` : ''}`
-          const isSelected = point.date === selectedDay?.date
-          const nextInspection = { label: point.date, tokens }
-          const inspect = () => {
-            cancelHoverInspection()
-            onInspect(nextInspection)
-          }
-          return (
-            <span
-              key={point.date}
-              className="code-usage-heatmap-cell code-usage-daily-heatmap-cell"
-              data-date={point.date}
-              data-level={usageHeatLevel(tokens, thresholds)}
-              data-peak={isPeak ? 'true' : undefined}
-              data-billion={isBillion ? 'true' : undefined}
-              data-shape={showDayHighlight ? (isPeak ? 'crown' : isBillion ? 'flame' : undefined) : undefined}
-              data-recent={index >= recentStartIndex ? 'true' : undefined}
-              data-selected={isSelected ? 'true' : undefined}
-              title={title}
-              aria-label={title}
-              role={showDayHighlight ? 'button' : undefined}
-              tabIndex={showDayHighlight ? 0 : undefined}
-              onClick={showDayHighlight ? inspect : undefined}
-              onFocus={showDayHighlight ? inspect : undefined}
-              onKeyDown={showDayHighlight ? event => {
-                if (event.key === 'Enter' || event.key === ' ') {
-                  event.preventDefault()
-                  inspect()
-                }
-              } : undefined}
-              onMouseEnter={showDayHighlight ? undefined : inspect}
-              onPointerMove={showDayHighlight ? () => inspectAfterHover(nextInspection) : undefined}
-              onPointerLeave={showDayHighlight ? cancelHoverInspection : undefined}
-            />
-          )
-        })}
-        {Array.from({ length: trailingDays }, (_, index) => (
-          <span key={`trailing-${index}`} className="code-usage-daily-spacer" aria-hidden="true" />
-        ))}
-      </div>
-      {showDayHighlight && highlightedDay && (
+      <DailyUsageGrid
+        points={points}
+        layout={layout}
+        peakDay={peakDay}
+        recentStartIndex={recentStartIndex}
+        selectedDay={selectedDay}
+        showDayHighlight={showDayHighlight}
+        onInspect={onInspect}
+        onPreview={setPreviewInspection}
+        ariaLabel={`Daily token activity over ${rangeLabel}, ${activeDays} active days`}
+      />
+      {showDayHighlight && (selectedDay ?? today) && (
         <label className="code-usage-mobile-date-picker">
           <span>Selected day</span>
           <input
             type="date"
             min={points[0]!.date}
             max={today?.date}
-            value={highlightedDay.date}
+            value={(selectedDay ?? today)!.date}
             data-testid="code-usage-mobile-date-picker"
             onChange={event => {
               const point = points.find(candidate => candidate.date === event.currentTarget.value)
@@ -721,7 +782,7 @@ function UsageDayHistogram({
                   key={hour.hour}
                   className="code-usage-day-histogram-column"
                   data-hour={hour.hour}
-                  title={`${hour.label}:00 · ${formatExactTokenCount(hour.totalTokens)} tokens`}
+                  title={`${hour.label}:00 · ${formatCompactNumber(hour.totalTokens)} tokens`}
                 >
                   <div className="code-usage-day-histogram-stack" style={{ height: `${height}%` }}>
                     {agentTypes.map(agentType => {
@@ -732,7 +793,7 @@ function UsageDayHistogram({
                       ), 0)
                       if (tokens <= 0 || hour.totalTokens <= 0) return null
                       const label = `${hour.label}:00 · ${agentType.label}`
-                      const title = `${label} · ${formatExactTokenCount(tokens)} tokens`
+                      const title = `${label} · ${formatCompactNumber(tokens)} tokens`
                       return (
                         <span
                           key={agentType.key}
@@ -764,7 +825,7 @@ function UsageDayHistogram({
       {agentTypes.length > 0 && (
         <div className="code-usage-day-agent-legend" data-testid="code-usage-day-agent-legend">
           {agentTypes.map(agentType => (
-            <span key={agentType.key} title={`${agentType.label} · ${formatExactTokenCount(agentType.totalTokens)} tokens`}>
+            <span key={agentType.key} title={`${agentType.label} · ${formatCompactNumber(agentType.totalTokens)} tokens`}>
               <i style={{ backgroundColor: usageAgentTypeColor(agentType.key) }} aria-hidden="true" />
               <b>{agentType.label}</b>
               <small>{formatCompactNumber(agentType.totalTokens)}</small>
@@ -795,24 +856,20 @@ function UsageAnalysisCard({
 }
 
 function UsageActivityDialog({
-  initialRange,
   usageSummary,
   onClose,
 }: {
-  initialRange: UsageDetailRange
   usageSummary: UsageSummary
   onClose: () => void
 }) {
-  const [range, setRange] = useState<UsageDetailRange>(initialRange)
   const [inspection, setInspection] = useState<UsageHeatmapInspection | null>(null)
-  const timelinePoints = validUsageTimelinePoints(usageSummary)
   const dailyPoints = validUsageDailyPoints(usageSummary)
   const peakDay = dailyPoints?.reduce<UsageDailyPoint | null>((peak, point) => (
     !peak || point.totalTokens > peak.totalTokens ? point : peak
   ), null) ?? null
   const today = dailyPoints?.[dailyPoints.length - 1] ?? null
   const inspectedDay = dailyPoints?.find(point => point.date === inspection?.label) ?? null
-  const histogramDay = range === 'year' ? (inspectedDay ?? today)?.date || '' : ''
+  const histogramDay = (inspectedDay ?? today)?.date || ''
   const dayDetail = useUsageDayDetail(
     histogramDay,
     Boolean(histogramDay && dailyPoints && histogramDay === dailyPoints[dailyPoints.length - 1]?.date),
@@ -820,12 +877,6 @@ function UsageActivityDialog({
   useEscapeKey(onClose)
 
   if (typeof document === 'undefined') return null
-
-  const timelineTotal = timelinePoints?.reduce((sum, point) => sum + point.totalTokens, 0) ?? 0
-  const activeHours = timelinePoints?.filter(point => point.totalTokens > 0).length ?? 0
-  const peakHour = timelinePoints?.reduce<UsageTimelinePoint | null>((peak, point) => (
-    !peak || point.totalTokens > peak.totalTokens ? point : peak
-  ), null) ?? null
 
   const currentSevenDays = dailyPoints?.slice(-7) ?? []
   const previousSevenDays = dailyPoints?.slice(-14, -7) ?? []
@@ -839,12 +890,9 @@ function UsageActivityDialog({
   const cacheShare = currentSevenDayTotal > 0
     ? Math.min(100, Math.round((currentSevenDayCache / currentSevenDayTotal) * 100))
     : 0
-  const dayReadout = inspection
-    ? `${inspection.label} · ${formatExactTokenCount(inspection.tokens)} tokens`
-    : `Last 24 hours · ${formatExactTokenCount(timelineTotal)} tokens`
   const yearReadout = inspection
-    ? `${inspection.label} · ${formatExactTokenCount(inspection.tokens)} tokens`
-    : `Last 52 weeks · ${formatExactTokenCount(annualTotal)} tokens`
+    ? `${inspection.label} · ${formatCompactNumber(inspection.tokens)} tokens`
+    : `Last 52 weeks · ${formatCompactNumber(annualTotal)} tokens`
 
   return createPortal(
     <div
@@ -870,98 +918,41 @@ function UsageActivityDialog({
             <CloseGlyph />
           </button>
         </header>
-        <div className="code-usage-detail-tabs" role="tablist" aria-label="Usage activity range">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={range === 'day'}
-            data-testid="code-usage-detail-day-tab"
-            onClick={() => {
-              setInspection(null)
-              setRange('day')
-            }}
-          >
-            1 Day
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={range === 'year'}
-            data-testid="code-usage-detail-year-tab"
-            onClick={() => {
-              setInspection(null)
-              setRange('year')
-            }}
-          >
-            52 Weeks
-          </button>
-        </div>
-        <div
-          className="code-usage-detail-chart"
-          onBlur={event => {
-            if (!event.currentTarget.contains(event.relatedTarget)) setInspection(null)
-          }}
-          onMouseLeave={() => setInspection(null)}
-        >
-          {range === 'day' && timelinePoints && (
-            <>
-              <div className="code-usage-detail-chart-heading">
-                <span>Hourly activity</span>
-                <strong>{formatCompactNumber(timelineTotal)} tokens</strong>
-              </div>
-              <TokenUsageHeatmap usageSummary={usageSummary} points={timelinePoints} onInspect={setInspection} />
-            </>
+        <div className="code-usage-detail-chart">
+          {dailyPoints && (
+            <DailyUsageHeatmap
+              points={dailyPoints}
+              inspection={inspection}
+              showDayHighlight
+              onInspect={setInspection}
+            />
           )}
-          {range === 'year' && dailyPoints && (
-            <>
-              <DailyUsageHeatmap
-                points={dailyPoints}
-                inspection={inspection}
-                showDayHighlight
-                onInspect={setInspection}
-              />
-              <UsageDayHistogram
-                date={histogramDay}
-                detail={dayDetail.date === histogramDay ? dayDetail.detail : null}
-                error={dayDetail.date === histogramDay ? dayDetail.error : ''}
-                loading={dayDetail.date === histogramDay ? dayDetail.loading : true}
-                onRetry={dayDetail.retry}
-              />
-            </>
-          )}
+          <UsageDayHistogram
+            date={histogramDay}
+            detail={dayDetail.date === histogramDay ? dayDetail.detail : null}
+            error={dayDetail.date === histogramDay ? dayDetail.error : ''}
+            loading={dayDetail.date === histogramDay ? dayDetail.loading : true}
+            onRetry={dayDetail.retry}
+          />
           <div className="code-usage-detail-readout" data-testid="code-usage-detail-readout">
-            {range === 'day' ? dayReadout : yearReadout}
+            {yearReadout}
           </div>
         </div>
         <div className="code-usage-detail-analysis" data-testid="code-usage-detail-analysis">
-          {range === 'day' ? (
-            <>
-              <UsageAnalysisCard label="24-hour tokens" value={formatCompactNumber(timelineTotal)} />
-              <UsageAnalysisCard label="Active hours" value={`${activeHours}`} detail="hours with token activity" />
-              <UsageAnalysisCard
-                label="Peak hour"
-                value={peakHour ? formatHeatmapHour(peakHour.startedAt) : '--'}
-                detail={peakHour ? `${formatCompactNumber(peakHour.totalTokens)} tokens` : 'no activity'}
-              />
-            </>
-          ) : (
-            <>
-              <UsageAnalysisCard label="Last 7 days" value={formatCompactNumber(currentSevenDayTotal)} />
-              <UsageAnalysisCard
-                label="Previous 7 days"
-                value={formatCompactNumber(previousSevenDayTotal)}
-                detail={`${formatUsageChange(currentSevenDayTotal, previousSevenDayTotal)} change`}
-              />
-              <UsageAnalysisCard
-                label="Peak day"
-                value={peakDay ? formatUsageDay(peakDay.date) : '--'}
-                detail={peakDay ? `${formatCompactNumber(peakDay.totalTokens)} tokens` : 'no activity'}
-              />
-              <UsageAnalysisCard label="Active days" value={`${activeDays}`} detail="within 52 weeks" />
-              <UsageAnalysisCard label="7-day cache share" value={`${cacheShare}%`} detail="read and write tokens" />
-              <UsageAnalysisCard label="52-week tokens" value={formatCompactNumber(annualTotal)} />
-            </>
-          )}
+          <UsageAnalysisCard label="Last 7 days" value={formatCompactNumber(currentSevenDayTotal)} />
+          <UsageAnalysisCard
+            label="Previous 7 days"
+            value={formatCompactNumber(previousSevenDayTotal)}
+            detail={`${formatUsageChange(currentSevenDayTotal, previousSevenDayTotal)} change`}
+          />
+          <UsageAnalysisCard
+            label="Peak day"
+            value={peakDay ? formatUsageDay(peakDay.date) : '--'}
+            detail={peakDay ? `${formatCompactNumber(peakDay.totalTokens)} tokens` : 'no activity'}
+          />
+          <UsageAnalysisCard label="Active days" value={`${activeDays}`} detail="within 52 weeks" />
+          <UsageAnalysisCard label="7-day cache share" value={`${cacheShare}%`} detail="read and write tokens" />
+          <UsageAnalysisCard label="52-week tokens" value={formatCompactNumber(annualTotal)} />
         </div>
       </section>
     </div>,
@@ -972,55 +963,58 @@ function UsageActivityDialog({
 function UsageActivityHeatmaps({ usageSummary }: { usageSummary: UsageSummary }) {
   const timelinePoints = validUsageTimelinePoints(usageSummary)
   const dailyPoints = validUsageDailyPoints(usageSummary)
+  const compactDailyPoints = dailyPoints?.slice(-30) ?? null
+  const peakDay = dailyPoints?.reduce<UsageDailyPoint | null>((peak, point) => (
+    !peak || point.totalTokens > peak.totalTokens ? point : peak
+  ), null) ?? null
   const [inspection, setInspection] = useState<UsageHeatmapInspection | null>(null)
-  const [detailRange, setDetailRange] = useState<UsageDetailRange | null>(null)
+  const [detailOpen, setDetailOpen] = useState(false)
   if (!timelinePoints && !dailyPoints) return null
 
   const timelineTotal = timelinePoints?.reduce((sum, point) => sum + point.totalTokens, 0) ?? 0
   const timelineLabel = formatUsageWindow(Number(usageSummary.timeline?.windowMs) / 60_000).toLowerCase()
-  const sevenDayTotal = dailyPoints?.slice(-7).reduce((sum, point) => sum + point.totalTokens, 0) ?? 0
-  const dailyTotal = dailyPoints?.reduce((sum, point) => sum + point.totalTokens, 0) ?? 0
+  const sevenDayTotal = compactDailyPoints?.slice(-7).reduce((sum, point) => sum + point.totalTokens, 0) ?? 0
+  const dailyTotal = compactDailyPoints?.reduce((sum, point) => sum + point.totalTokens, 0) ?? 0
   const baseReadout = inspection
-    ? `${inspection.label} · ${formatExactTokenCount(inspection.tokens)} tokens`
-    : `${timelinePoints ? `${timelineLabel} ${formatCompactNumber(timelineTotal)}` : ''}${timelinePoints && dailyPoints ? ' · ' : ''}${dailyPoints ? `7d ${formatCompactNumber(sevenDayTotal)} · 52w ${formatCompactNumber(dailyTotal)}` : ''}`
+    ? `${inspection.label} · ${formatCompactNumber(inspection.tokens)} tokens`
+    : `${timelinePoints ? `${timelineLabel} ${formatCompactNumber(timelineTotal)}` : ''}${timelinePoints && compactDailyPoints ? ' · ' : ''}${compactDailyPoints ? `7d ${formatCompactNumber(sevenDayTotal)} · 30d ${formatCompactNumber(dailyTotal)}` : ''}`
   const readout = `${baseReadout}${usageSummary.daily?.syncing === true ? ' · syncing history' : ''}`
 
   return (
     <div className="code-usage-activity" onMouseLeave={() => setInspection(null)}>
       {timelinePoints && (
-        <button
-          type="button"
-          className="code-usage-chart-trigger"
-          data-testid="code-usage-open-day"
-          title="Open 1-day usage details"
-          onClick={() => setDetailRange('day')}
-        >
+        <div className="code-usage-chart-summary" data-testid="code-usage-day-summary">
           <div className="code-usage-activity-heading">
             <span>{timelineLabel} · activity</span>
             <span>{formatUsageWindow(usageSummary.timeline.bucketMs / 60_000).toLowerCase()} buckets</span>
           </div>
-          <TokenUsageHeatmap usageSummary={usageSummary} points={timelinePoints} onInspect={setInspection} />
-        </button>
+          <TokenUsageSparkline usageSummary={usageSummary} points={timelinePoints} onInspect={setInspection} />
+        </div>
       )}
-      {dailyPoints && (
+      {compactDailyPoints && (
         <button
           type="button"
           className="code-usage-chart-trigger"
           data-testid="code-usage-open-year"
           title="Open 52-week usage details"
-          onClick={() => setDetailRange('year')}
+          onClick={() => setDetailOpen(true)}
         >
-          <DailyUsageHeatmap points={dailyPoints} onInspect={setInspection} />
+          <DailyUsageHeatmap
+            points={compactDailyPoints}
+            layout="matrix"
+            rangeLabel="30d"
+            peakDay={peakDay}
+            onInspect={setInspection}
+          />
         </button>
       )}
       <div className="code-usage-activity-readout" data-testid="code-usage-activity-readout" title={readout}>
         {readout}
       </div>
-      {detailRange && (
+      {detailOpen && (
         <UsageActivityDialog
-          initialRange={detailRange}
           usageSummary={usageSummary}
-          onClose={() => setDetailRange(null)}
+          onClose={() => setDetailOpen(false)}
         />
       )}
     </div>
@@ -1042,18 +1036,14 @@ export function UsagePanel({
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false)
   const hasLiveSystemStats = useHasBackendSystemStats()
   if (!usageSummary && !mainAgent && !hasLiveSystemStats) return null
-  const mobileDetailRange: UsageDetailRange | null = usageSummary && validUsageDailyPoints(usageSummary)
-    ? 'year'
-    : usageSummary && validUsageTimelinePoints(usageSummary)
-      ? 'day'
-      : null
+  const mobileDetailAvailable = Boolean(usageSummary && validUsageDailyPoints(usageSummary))
 
   return (
     <div
-      className={`code-usage-panel ${collapsed ? 'collapsed' : ''} ${mobileDetailRange ? '' : 'mobile-unavailable'}`}
+      className={`code-usage-panel ${collapsed ? 'collapsed' : ''} ${mobileDetailAvailable ? '' : 'mobile-unavailable'}`}
       data-testid="code-usage-panel"
     >
-      {mobileDetailRange && (
+      {mobileDetailAvailable && (
         <button
           type="button"
           className="code-usage-mobile-open"
@@ -1062,7 +1052,7 @@ export function UsagePanel({
         >
           <span>Usage activity</span>
           <span>
-            {mobileDetailRange === 'year' ? '52 Weeks' : '1 Day'}
+            52 Weeks
             <ChevronRightGlyph />
           </span>
         </button>
@@ -1163,9 +1153,8 @@ export function UsagePanel({
           <SystemUsageRow usageSummary={usageSummary} />
         </>
       )}
-      {mobileDetailOpen && mobileDetailRange && usageSummary && (
+      {mobileDetailOpen && mobileDetailAvailable && usageSummary && (
         <UsageActivityDialog
-          initialRange={mobileDetailRange}
           usageSummary={usageSummary}
           onClose={() => setMobileDetailOpen(false)}
         />

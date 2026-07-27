@@ -26,6 +26,36 @@ export const REST_REMINDER_INTERVAL_PRESETS_SECONDS = [
   4 * 60 * 60,
 ] as const
 
+export function restReminderSliderPosition(intervalSeconds: number | null): number {
+  const normalized = intervalSeconds ?? 0
+  const exactIndex = REST_REMINDER_INTERVAL_PRESETS_SECONDS.indexOf(
+    normalized as typeof REST_REMINDER_INTERVAL_PRESETS_SECONDS[number],
+  )
+  if (exactIndex >= 0) return exactIndex
+
+  const upperIndex = REST_REMINDER_INTERVAL_PRESETS_SECONDS.findIndex(
+    preset => preset > normalized,
+  )
+  if (upperIndex < 0) return REST_REMINDER_INTERVAL_PRESETS_SECONDS.length - 1
+  if (upperIndex === 0) return 0
+
+  const lowerIndex = upperIndex - 1
+  const lower = REST_REMINDER_INTERVAL_PRESETS_SECONDS[lowerIndex]!
+  const upper = REST_REMINDER_INTERVAL_PRESETS_SECONDS[upperIndex]!
+  return lowerIndex + ((normalized - lower) / (upper - lower))
+}
+
+export function restReminderSliderIntervalSeconds(position: number): number {
+  const presetIndex = Math.max(
+    0,
+    Math.min(
+      REST_REMINDER_INTERVAL_PRESETS_SECONDS.length - 1,
+      Math.round(position),
+    ),
+  )
+  return REST_REMINDER_INTERVAL_PRESETS_SECONDS[presetIndex] ?? 0
+}
+
 export function restReminderEntryCountdownSeconds(intervalSeconds: number) {
   return intervalSeconds === REST_REMINDER_TEST_INTERVAL_SECONDS
     ? REST_REMINDER_TEST_ENTRY_COUNTDOWN_SECONDS
