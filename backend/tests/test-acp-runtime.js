@@ -4,6 +4,7 @@ const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
 const { AcpRuntime, acpErrorKind, acpSessionRequestOptions, autoPermissionResponse, codexAcpEnvironment, deleteProviderSessionIdentity, promptContentForCapabilities, resolveAcpLaunch, supportsCodexSteer } = require('../acp-runtime');
+const { claudeAcpEnvironment } = require('../provider-adapters');
 const { AcpSessionState } = require('../acp-session-state');
 
 async function run() {
@@ -162,13 +163,21 @@ async function run() {
     '/opt/farming/lib',
     '/opt/farming/node',
   ]);
-  assert.match(compatibleCodexLaunch.args[3], /(?:dist\/acp\/codex-acp-1\.1\.4\.js|codex-acp\/dist\/index\.js)$/);
+  assert.match(compatibleCodexLaunch.args[3], /(?:dist\/acp\/codex-acp-1\.1\.4\.mjs|codex-acp\/dist\/index\.js)$/);
+  const compatibleClaudeLaunch = resolveAcpLaunch('claude');
+  assert.match(
+    compatibleClaudeLaunch.args.at(-1),
+    /(?:dist\/acp\/claude-agent-acp-0\.59\.0\.mjs|claude-agent-acp\/dist\/index\.js)$/,
+  );
   const originalProcessPkg = process.pkg;
   try {
     process.pkg = { entrypoint: 'backend/farming-app-cli.pkg.js' };
     const packagedCodexLaunch = resolveAcpLaunch('codex');
     assert.strictEqual(packagedCodexLaunch.command, process.execPath);
     assert.deepStrictEqual(packagedCodexLaunch.args, ['--farming-codex-acp']);
+    const packagedClaudeLaunch = resolveAcpLaunch('claude');
+    assert.strictEqual(packagedClaudeLaunch.command, process.execPath);
+    assert.deepStrictEqual(packagedClaudeLaunch.args, ['--farming-claude-acp']);
   } finally {
     if (originalProcessPkg === undefined) delete process.pkg;
     else process.pkg = originalProcessPkg;
@@ -206,6 +215,17 @@ async function run() {
     developer_instructions: 'You are running in Farming.',
   });
   assert.strictEqual(codexAcpEnvironment({ env: {}, approvalMode: 'ask' }).INITIAL_AGENT_MODE, 'read-only');
+  assert.deepStrictEqual(claudeAcpEnvironment({
+    env: { KEEP: 'yes' },
+    executable: '/opt/claude/bin/claude',
+  }), {
+    KEEP: 'yes',
+    CLAUDE_CODE_EXECUTABLE: '/opt/claude/bin/claude',
+  });
+  assert.strictEqual(claudeAcpEnvironment({
+    env: { CLAUDE_CODE_EXECUTABLE: '/custom/claude' },
+    executable: '/opt/claude/bin/claude',
+  }).CLAUDE_CODE_EXECUTABLE, '/custom/claude');
   assert.deepStrictEqual(acpSessionRequestOptions({
     additionalDirectories: ['../shared', '../shared', '/tmp/absolute'],
     mcpServers: [{ name: 'docs', command: '/bin/docs-mcp', args: ['--stdio'] }],

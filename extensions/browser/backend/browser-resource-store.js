@@ -3,7 +3,7 @@ const crypto = require('crypto');
 const { atomicWriteJson } = require('../../../backend/atomic-json-store');
 const storageLayout = require('../../../backend/storage-layout');
 
-const STORE_VERSION = 3;
+const STORE_VERSION = 4;
 const RESOURCE_ID_RE = /^browser_[A-Za-z0-9_-]+$/;
 const STATUSES = new Set(['stopped', 'starting', 'running', 'stopping', 'failed']);
 
@@ -45,6 +45,7 @@ function normalizeResource(value) {
     url: String(value.url || 'about:blank').slice(0, 8_192) || 'about:blank',
     title: String(value.title || '').slice(0, 512),
     browserKind: String(value.browserKind || ''),
+    runtimeKind: String(value.runtimeKind || ''),
     error: String(value.error || '').slice(0, 2_000),
     processIdentity: normalizeProcessIdentity(value.processIdentity),
     createdAt: Number.isFinite(value.createdAt) ? value.createdAt : Date.now(),

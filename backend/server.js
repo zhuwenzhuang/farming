@@ -2183,6 +2183,7 @@ app.post(routePath(BASE_PATH, '/api/settings'), express.json(), async (req, res)
   const changesBrowserExtension = Object.prototype.hasOwnProperty.call(settingsPatch, 'browserExtensionEnabled');
   const browserExtensionEnabled = settingsPatch.browserExtensionEnabled === true;
   if (changesBrowserExtension && browserExtensionEnabled) {
+    await browserResourceManager.refreshCapability();
     const browserCapability = browserResourceManager.capability();
     if (!browserCapability.browser) {
       res.status(400).json({

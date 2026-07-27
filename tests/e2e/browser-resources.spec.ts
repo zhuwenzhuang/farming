@@ -128,10 +128,10 @@ test('explains which system browser must be installed when none is available', a
   const settingsPanel = page.getByTestId('code-settings-panel')
   await expect(settingsPanel.getByText('System browser', { exact: true })).toBeVisible()
   await expect(settingsPanel.getByText(
-    'Install a Chromium-based browser to use a system browser in Farming.',
+    'Install a Chromium-based browser or configure a loopback CDP endpoint for Farming.',
     { exact: true },
   )).toBeVisible()
-  await expect(settingsPanel.getByText('Chromium required', { exact: true })).toBeVisible()
+  await expect(settingsPanel.getByText('Chromium or CDP required', { exact: true })).toBeVisible()
   await expect(settingsPanel.getByRole('button', { name: 'System browser' })).toHaveCount(0)
   const screenshot = testInfo.outputPath('browser-settings-install-required.png')
   await settingsPanel.locator('.code-settings-panel').screenshot({ path: screenshot })
@@ -141,7 +141,7 @@ test('explains which system browser must be installed when none is available', a
   })
 })
 
-test('shares one fixed Browser viewport across desktop, mobile, and Agent actions', async ({
+test('matches the focused Viewer viewport and restores the previous Viewer on close', async ({
   browser,
   page,
   workspaceRoot,
@@ -197,6 +197,7 @@ test('shares one fixed Browser viewport across desktop, mobile, and Agent action
   const viewer = page.getByTestId('farming-browser-viewer')
   const desktopCanvas = viewer.locator('canvas')
   await expect(desktopCanvas).toBeVisible({ timeout: 30_000 })
+  await expect(viewer.getByRole('button', { name: 'Back to Agent' })).toBeVisible()
 
   const browserId = new URL(page.url()).searchParams.get('browser')
   expect(browserId).toMatch(/^browser_/)
@@ -211,6 +212,17 @@ test('shares one fixed Browser viewport across desktop, mobile, and Agent action
     const [width, height] = await readDesktopFrameSize()
     return width >= 320 && height >= 240
   }).toBe(true)
+  await expect.poll(async () => viewer.locator('.farming-browser-viewport').evaluate(element => {
+    const canvas = element.querySelector('canvas') as HTMLCanvasElement | null
+    if (!canvas) {
+      return false
+    }
+    const rect = canvas.getBoundingClientRect()
+    return canvas.width >= element.clientWidth
+      && canvas.height >= element.clientHeight
+      && Math.round(rect.width) === element.clientWidth
+      && Math.round(rect.height) === element.clientHeight
+  })).toBe(true)
   const desktopFrameSize = await readDesktopFrameSize()
 
   await clickBrowserPoint(desktopCanvas, 330, 207)
@@ -253,14 +265,32 @@ test('shares one fixed Browser viewport across desktop, mobile, and Agent action
   await mobilePage.goto(page.url())
   const mobileCanvas = mobilePage.getByTestId('farming-browser-viewer').locator('canvas')
   await expect(mobileCanvas).toBeVisible({ timeout: 30_000 })
+  const readMobileFrameSize = () => mobileCanvas.evaluate(canvas => [
+    (canvas as HTMLCanvasElement).width,
+    (canvas as HTMLCanvasElement).height,
+  ])
+  await expect.poll(async () => mobilePage.getByTestId('farming-browser-viewer')
+    .locator('.farming-browser-viewport')
+    .evaluate(element => {
+      const canvas = element.querySelector('canvas') as HTMLCanvasElement | null
+      return Boolean(
+        canvas
+        && canvas.width >= element.clientWidth
+        && canvas.height >= element.clientHeight
+        && Math.round(canvas.getBoundingClientRect().width) === element.clientWidth
+        && Math.round(canvas.getBoundingClientRect().height) === element.clientHeight
+      )
+    })).toBe(true)
+  const mobileFrameSize = await readMobileFrameSize()
   await expect.poll(async () => Promise.all([desktopCanvas, mobileCanvas].map(async canvas => [
     await canvas.evaluate(element => (element as HTMLCanvasElement).width),
     await canvas.evaluate(element => (element as HTMLCanvasElement).height),
-  ]))).toEqual([desktopFrameSize, desktopFrameSize])
+  ]))).toEqual([mobileFrameSize, mobileFrameSize])
   const mobileScreenshot = testInfo.outputPath('browser-mobile.png')
   await mobilePage.screenshot({ path: mobileScreenshot, fullPage: true })
   await testInfo.attach('browser-mobile', { path: mobileScreenshot, contentType: 'image/png' })
   await mobileContext.close()
+  await expect.poll(readDesktopFrameSize).toEqual(desktopFrameSize)
 
   const row = browserSection.getByTestId('farming-browser-row')
   await row.hover()
@@ -269,13 +299,13 @@ test('shares one fixed Browser viewport across desktop, mobile, and Agent action
   await row.getByRole('textbox', { name: 'Browser name' }).press('Enter')
   await expect(row).toContainText('Frontend Smoke')
 
-  await viewer.getByRole('button', { name: 'Stop', exact: true }).click()
+  await viewer.getByRole('button', { name: 'More', exact: true }).click()
+  await viewer.getByRole('menuitem', { name: 'Stop', exact: true }).click()
   await expect(viewer.getByText('Browser stopped', { exact: true })).toBeVisible({ timeout: 15_000 })
   await viewer.getByRole('button', { name: 'Start Browser' }).click()
   await expect(viewer.locator('canvas')).toBeVisible({ timeout: 30_000 })
   await expect.poll(async () => (await browserSnapshot(page, browserId!)).url).toBe(targetUrl)
 
-  page.once('dialog', dialog => dialog.accept())
   await row.hover()
   await row.getByRole('button', { name: 'Delete Browser' }).click()
   await expect(browserSection.getByTestId('farming-browser-row')).toHaveCount(0)

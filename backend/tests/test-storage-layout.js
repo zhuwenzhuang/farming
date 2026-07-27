@@ -30,6 +30,15 @@ function run() {
       path.join(configDir, 'history', 'usage-history-v2.sqlite3'),
     );
     assert.strictEqual(storageLayout.browserResourcesDir(configDir), path.join(configDir, 'browsers'));
+    assert.strictEqual(storageLayout.runtimeDependenciesDir(configDir), path.join(configDir, 'runtimes'));
+    assert.strictEqual(
+      storageLayout.runtimeDependenciesActiveFile(configDir),
+      path.join(configDir, 'runtimes', 'active.json'),
+    );
+    assert.strictEqual(
+      storageLayout.runtimeDependenciesLockDir(configDir),
+      path.join(configDir, 'runtimes', '.prepare.lock'),
+    );
     assert.strictEqual(
       storageLayout.farmingAgentBootstrapFile(configDir),
       path.join(configDir, 'farming-agent-bootstrap.zh_cn.md'),

@@ -34,6 +34,7 @@ interface UsePooledTerminalOptions {
   onFollowOutputChange?: (state: TerminalFollowState) => void
   onPathOpen?: (agentId: string, target: TerminalPathOpenTarget) => void
   onPathResolve?: (agentId: string, target: TerminalPathOpenTarget) => Promise<TerminalPathOpenTarget | null> | TerminalPathOpenTarget | null
+  onUrlOpen?: (agentId: string, url: string) => void
   onRecoveryStatusChange?: (status: TerminalRecoveryStatus) => void
   onReady?: () => void
   onError?: (error: Error) => void
@@ -49,6 +50,7 @@ export function usePooledTerminal({
   onFollowOutputChange,
   onPathOpen,
   onPathResolve,
+  onUrlOpen,
   onRecoveryStatusChange,
   onReady,
   onError,
@@ -59,6 +61,7 @@ export function usePooledTerminal({
     onFollowOutputChange,
     onPathOpen,
     onPathResolve,
+    onUrlOpen,
     onRecoveryStatusChange,
     onReady,
     onError,
@@ -69,6 +72,7 @@ export function usePooledTerminal({
     onFollowOutputChange,
     onPathOpen,
     onPathResolve,
+    onUrlOpen,
     onRecoveryStatusChange,
     onReady,
     onError,
@@ -89,6 +93,10 @@ export function usePooledTerminal({
 
   const handlePathResolve = useCallback((currentAgentId: string, target: TerminalPathOpenTarget) => {
     return latestHandlersRef.current.onPathResolve?.(currentAgentId, target) ?? null
+  }, [])
+
+  const handleUrlOpen = useCallback((currentAgentId: string, url: string) => {
+    latestHandlersRef.current.onUrlOpen?.(currentAgentId, url)
   }, [])
 
   const handleRecoveryStatusChange = useCallback((status: TerminalRecoveryStatus) => {
@@ -120,6 +128,7 @@ export function usePooledTerminal({
       onFollowOutputChange: handleFollowOutputChange,
       onPathOpen: handlePathOpen,
       onPathResolve: handlePathResolve,
+      onUrlOpen: onUrlOpen ? handleUrlOpen : undefined,
       onRecoveryStatusChange: handleRecoveryStatusChange,
       onError: handleError,
       bootstrapState: latestHandlersRef.current.bootstrapState,
@@ -141,7 +150,7 @@ export function usePooledTerminal({
         console.error('Failed to detach terminal session:', error)
       })
     }
-  }, [agentId, containerRef, handleError, handleFollowOutputChange, handlePathOpen, handlePathResolve, handleReady, handleRecoveryStatusChange, handleSessionOutput, inputDisabled, suppressRendererCursor])
+  }, [agentId, containerRef, handleError, handleFollowOutputChange, handlePathOpen, handlePathResolve, handleReady, handleRecoveryStatusChange, handleSessionOutput, handleUrlOpen, inputDisabled, onUrlOpen, suppressRendererCursor])
 
   useEffect(() => {
     if (!agentId || !bootstrapState?.runtimeEpoch || bootstrapState.stateRevision === null) return
@@ -177,6 +186,7 @@ export function usePooledTerminal({
         onFollowOutputChange: handleFollowOutputChange,
         onPathOpen: handlePathOpen,
         onPathResolve: handlePathResolve,
+        onUrlOpen: onUrlOpen ? handleUrlOpen : undefined,
         onRecoveryStatusChange: handleRecoveryStatusChange,
         onError: handleError,
         bootstrapState: latestHandlersRef.current.bootstrapState,

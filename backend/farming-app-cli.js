@@ -8,6 +8,7 @@ const { URLSearchParams } = require('url');
 const { execFileSync, spawn } = require('child_process');
 const { run: runControlCli } = require('./farming-cli');
 const { PACKAGED_CODEX_ACP_ARG, runPackagedCodexAcp } = require('./acp/packaged-codex-acp');
+const { PACKAGED_CLAUDE_ACP_ARG, runPackagedClaudeAcp } = require('./acp/packaged-claude-acp');
 const {
   SERVER_PROCESS_IDENTITY_FORMAT,
   matchingProcessIdentity,
@@ -486,16 +487,20 @@ function canonicalConfigDir(configDir) {
   }
 }
 
-function writeServerState(configDir, env, pid, processIdentity) {
+function writeServerState(configDir, env, pid, processIdentity, phase = 'running') {
   const state = {
     pid,
     port: Number(env.PORT || DEFAULT_PORT),
     basePath: env.FARMING_BASE_PATH || DEFAULT_BASE_PATH,
     configDir: canonicalConfigDir(configDir),
     processIdentity,
+    phase,
     updatedAt: new Date().toISOString(),
   };
-  fs.writeFileSync(serverStateFile(configDir), `${JSON.stringify(state, null, 2)}\n`);
+  const target = serverStateFile(configDir);
+  const temporary = `${target}.${process.pid}.tmp`;
+  fs.writeFileSync(temporary, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
+  fs.renameSync(temporary, target);
 }
 
 function processLooksLikeFarmingServer(pid) {
@@ -660,7 +665,7 @@ async function assertServerProcessIdentity(configDir, pid, state) {
       `Refusing to stop Farming PID ${pid}: the live process identity does not match the server control metadata`,
     );
   }
-  if (!processOwnsListeningPort(pid, Number(state.port))) {
+  if (state.phase !== 'starting' && !processOwnsListeningPort(pid, Number(state.port))) {
     throw new Error(`Refusing to stop Farming PID ${pid}: the process does not own listening port ${state.port}`);
   }
   return current;
@@ -807,12 +812,31 @@ function waitForProcessStability(pid, durationMs = DEFAULT_SERVER_START_STABILIT
   });
 }
 
-function cleanupFailedDaemonStart(configDir, childPid) {
+async function cleanupFailedDaemonStart(configDir, childPid, expectedIdentity = null) {
   if (isRunning(childPid)) {
+    const expected = expectedIdentity || readServerState(configDir).processIdentity;
+    const current = readServerProcessIdentity(childPid);
+    if (!matchingProcessIdentity(expected, current)) {
+      throw new Error(`Failed Farming startup left live PID ${childPid} with an unproved identity; refusing to signal it`);
+    }
     try {
       process.kill(childPid, 'SIGKILL');
-    } catch {
-      // The child may exit between the liveness check and the signal.
+    } catch (error) {
+      if (error?.code === 'EPERM' || error?.code === 'EACCES') {
+        throw new Error(
+          `Failed Farming startup left Server PID ${childPid} running because cleanup lacks permission. `
+          + 'Stop it as the operating-system user that owns the process, then retry.',
+          { cause: error },
+        );
+      }
+      if (error?.code !== 'ESRCH') throw error;
+    }
+    const startedAt = Date.now();
+    while (matchingProcessIdentity(expected, readServerProcessIdentity(childPid))) {
+      if (Date.now() - startedAt >= 5_000) {
+        throw new Error(`Failed Farming startup left Server PID ${childPid} running after SIGKILL`);
+      }
+      await new Promise(resolve => setTimeout(resolve, SERVER_STOP_POLL_MS));
     }
   }
   if (readPid(configDir) !== childPid) return;
@@ -877,10 +901,24 @@ function waitForServer(env, timeoutMs = serverStartTimeoutMs(env), childPid = 0)
   });
 }
 
-function runServerInCurrentProcess() {
+async function runServerInCurrentProcess() {
   process.env = buildServerEnv();
+  ensureConfigDir(process.env.FARMING_CONFIG_DIR);
+  fs.writeFileSync(pidFile(process.env.FARMING_CONFIG_DIR), String(process.pid), { mode: 0o600 });
+  const processIdentity = await readServerProcessIdentity(process.pid);
+  if (!processIdentity) throw new Error('server process identity could not be committed before startup');
+  writeServerState(process.env.FARMING_CONFIG_DIR, process.env, process.pid, processIdentity, 'starting');
   const { startServer } = require('./server');
-  startServer();
+  const server = startServer();
+  server.once('listening', () => {
+    writeServerState(
+      process.env.FARMING_CONFIG_DIR,
+      process.env,
+      process.pid,
+      processIdentity,
+      'running',
+    );
+  });
 }
 
 function runNativePtyHostInCurrentProcess() {
@@ -888,8 +926,24 @@ function runNativePtyHostInCurrentProcess() {
   startNativePtyHostProcess();
 }
 
+async function prepareStartupDependencies(env, options = {}) {
+  if (
+    options.force !== true
+    && (env.FARMING_SKIP_RUNTIME_PREPARE === '1' || env.NODE_ENV === 'test')
+  ) {
+    return { skipped: true };
+  }
+  const { prepareRuntimeDependencies } = require('./runtime-dependency-manager');
+  return prepareRuntimeDependencies({
+    configDir: env.FARMING_CONFIG_DIR,
+    env,
+  });
+}
+
 async function startForeground(parsed) {
-  const env = await adaptServerPort(buildServerEnv(parsed.env), parsed);
+  const env = buildServerEnv(parsed.env);
+  await prepareStartupDependencies(env);
+  await adaptServerPort(env, parsed);
   env[SERVER_MODE_ENV] = '1';
   ensureConfigDir(env.FARMING_CONFIG_DIR);
   const invocation = childInvocation(env);
@@ -919,13 +973,33 @@ async function startDaemon(parsed) {
   const existingPid = readPid(configDir);
   if (isRunning(existingPid)) {
     const state = readServerState(configDir);
-    if (state.port) env.PORT = String(state.port);
-    if (state.basePath) env.FARMING_BASE_PATH = state.basePath;
-    console.log(`Farming is already running (PID ${existingPid})`);
-    console.log(entryUrl(env));
-    return 0;
+    try {
+      if (state.processIdentity?.format === SERVER_PROCESS_IDENTITY_FORMAT) {
+        await assertServerProcessIdentity(configDir, existingPid, state);
+      } else {
+        await migrateLegacyServerIdentity(configDir, existingPid, state);
+      }
+    } catch (error) {
+      console.error(
+        `Farming PID ${existingPid} is live, but this config directory does not prove that it owns the Server: `
+        + `${error.message || error}`,
+      );
+      return 1;
+    }
+    if (state.phase === 'starting') {
+      console.warn(`Previous Farming startup (PID ${existingPid}) did not complete; replacing it.`);
+      const stopCode = await stopDaemon({ env });
+      if (stopCode !== 0) return stopCode;
+    } else {
+      if (state.port) env.PORT = String(state.port);
+      if (state.basePath) env.FARMING_BASE_PATH = state.basePath;
+      console.log(`Farming is already running (PID ${existingPid})`);
+      console.log(entryUrl(env));
+      return 0;
+    }
   }
 
+  await prepareStartupDependencies(env);
   const out = fs.openSync(logFile(configDir), 'a');
   const invocation = childInvocation(env);
   if (env.FARMING_DEBUG_CLI === '1') {
@@ -946,9 +1020,11 @@ async function startDaemon(parsed) {
   child.unref();
   fs.writeFileSync(pidFile(configDir), String(child.pid));
 
+  let processIdentity = null;
   try {
-    const processIdentity = await readServerProcessIdentity(child.pid);
+    processIdentity = await readServerProcessIdentity(child.pid);
     if (!processIdentity) throw new Error('server process identity could not be verified after launch');
+    writeServerState(configDir, env, child.pid, processIdentity, 'starting');
     await waitForServer(env, serverStartTimeoutMs(env), child.pid);
     await waitForProcessStability(child.pid, serverStartStabilityMs(env));
     await waitForServer(env, Math.min(serverStartTimeoutMs(env), 5_000), child.pid);
@@ -960,9 +1036,14 @@ async function startDaemon(parsed) {
     ) {
       throw new Error('server process identity changed during startup');
     }
-    writeServerState(configDir, env, child.pid, stableIdentity);
+    writeServerState(configDir, env, child.pid, stableIdentity, 'running');
   } catch (error) {
-    cleanupFailedDaemonStart(configDir, child.pid);
+    try {
+      await cleanupFailedDaemonStart(configDir, child.pid, processIdentity);
+    } catch (cleanupError) {
+      console.error(`${error.message}; cleanup failed: ${cleanupError.message || cleanupError}`);
+      return 1;
+    }
     console.error(error.message);
     const logs = tailFile(logFile(configDir), 80);
     if (logs) console.error(logs);
@@ -1016,13 +1097,31 @@ async function stopDaemon(parsed) {
   return 0;
 }
 
-function statusDaemon(parsed) {
+async function statusDaemon(parsed) {
   const env = buildServerEnv(parsed.env);
   const configDir = env.FARMING_CONFIG_DIR;
   const pid = readPid(configDir);
   if (!isRunning(pid)) {
     console.log('Farming is not running.');
     return 0;
+  }
+  const state = readServerState(configDir);
+  try {
+    if (state.processIdentity?.format === SERVER_PROCESS_IDENTITY_FORMAT) {
+      await assertServerProcessIdentity(configDir, pid, state);
+    } else {
+      await migrateLegacyServerIdentity(configDir, pid, state);
+    }
+  } catch (error) {
+    console.error(
+      `Farming PID ${pid} is live, but this config directory does not prove that it owns the Server: `
+      + `${error.message || error}`,
+    );
+    return 1;
+  }
+  if (state.phase === 'starting') {
+    console.log(`Farming is starting (PID ${pid}). Run 'farming start' to replace an interrupted startup.`);
+    return 1;
   }
   console.log(`Farming is running (PID ${pid})`);
   const logs = tailFile(logFile(configDir), 30);
@@ -1056,6 +1155,7 @@ function usage() {
   farming stop
   farming logs
   farming url
+  farming runtime prepare [--config-dir ~/.farming]
   farming review <git-dir> <old-revision> <new-revision|now> [--branch <branch>] [--no-open]
 
 Agent control commands are also available:
@@ -1080,7 +1180,12 @@ async function run(argv = process.argv.slice(2)) {
   }
 
   if (argv[0] === PACKAGED_CODEX_ACP_ARG) {
-    runPackagedCodexAcp();
+    await runPackagedCodexAcp();
+    return 0;
+  }
+
+  if (argv[0] === PACKAGED_CLAUDE_ACP_ARG) {
+    await runPackagedClaudeAcp();
     return 0;
   }
 
@@ -1097,13 +1202,21 @@ async function run(argv = process.argv.slice(2)) {
   }
 
   if (process.env[SERVER_MODE_ENV] === '1' || argv[0] === SERVER_MODE_ARG) {
-    runServerInCurrentProcess();
+    await runServerInCurrentProcess();
     return 0;
   }
 
   if (argv[0] === 'browser') {
     const { run: runBrowserCli } = require('../extensions/browser/bin/farming-browser');
     return runBrowserCli(argv.slice(1));
+  }
+
+  if (argv[0] === 'runtime' && argv[1] === 'prepare') {
+    const parsed = parseServerArgs(['start', ...argv.slice(2)]);
+    const env = buildServerEnv(parsed.env);
+    const result = await prepareStartupDependencies(env, { force: true });
+    console.log(JSON.stringify(result, null, 2));
+    return 0;
   }
 
   if (SERVER_BACKED_CONTROL_COMMANDS.has(argv[0])) {

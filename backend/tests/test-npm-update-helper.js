@@ -32,7 +32,7 @@ function writeCli(root, exitCode, observationsFile) {
   ].join('\n'));
 }
 
-function writeFakeNpm(rootDir, callsFile, { requireFallback = false } = {}) {
+function writeFakeNpm(rootDir, callsFile, { requireFallback = false, runtimeExitCode = 0 } = {}) {
   const command = path.join(rootDir, 'fake-npm');
   fs.writeFileSync(command, [
     '#!/usr/bin/env node',
@@ -49,6 +49,7 @@ function writeFakeNpm(rootDir, callsFile, { requireFallback = false } = {}) {
     `const packageRoot = path.join(prefix, 'lib', 'node_modules', 'farming-code');`,
     `fs.mkdirSync(path.join(packageRoot, 'bin'), { recursive: true });`,
     `fs.writeFileSync(path.join(packageRoot, 'package.json'), JSON.stringify({ name: 'farming-code', version }));`,
+    `fs.writeFileSync(path.join(packageRoot, 'bin', 'farming'), 'process.exit(${runtimeExitCode});\\n');`,
     '',
   ].join('\n'), { mode: 0o755 });
   return command;
@@ -217,6 +218,7 @@ async function run() {
   await runNpmUpdate(preparePayload);
   const prepared = JSON.parse(fs.readFileSync(preparePayload.stateFile, 'utf8'));
   assert.strictEqual(prepared.phase, 'ready-to-restart');
+  assert(prepared.runtimePreparedAt);
   assert.strictEqual(prepared.version, '2.3.0');
   assert.strictEqual(JSON.parse(fs.readFileSync(path.join(preparePayload.packageRoot, 'package.json'))).version, '2.2.5');
   assert.strictEqual(JSON.parse(fs.readFileSync(path.join(preparePayload.stagingPackageRoot, 'package.json'))).version, '2.3.0');
@@ -231,6 +233,22 @@ async function run() {
   assert.strictEqual(failedPrepare.phase, 'failed');
   assert.strictEqual(JSON.parse(fs.readFileSync(path.join(failedPreparePayload.packageRoot, 'package.json'))).version, '2.2.5');
   assert.strictEqual(fs.existsSync(failedPreparePayload.stagingPrefix), false);
+
+  const failedRuntimeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-npm-helper-runtime-failure.'));
+  const failedRuntimeCalls = path.join(failedRuntimeRoot, 'npm-calls');
+  const failedRuntimePayload = payloadFor(failedRuntimeRoot, {
+    npmCommand: writeFakeNpm(failedRuntimeRoot, failedRuntimeCalls, { runtimeExitCode: 1 }),
+  });
+  writePackage(failedRuntimePayload.packageRoot, '2.2.5');
+  await runNpmUpdate(failedRuntimePayload);
+  const failedRuntime = JSON.parse(fs.readFileSync(failedRuntimePayload.stateFile, 'utf8'));
+  assert.strictEqual(failedRuntime.phase, 'failed');
+  assert.strictEqual(fs.existsSync(failedRuntimePayload.stagingPrefix), false);
+  assert.strictEqual(
+    JSON.parse(fs.readFileSync(path.join(failedRuntimePayload.packageRoot, 'package.json'))).version,
+    '2.2.5',
+    'runtime preparation failure must leave the running package untouched',
+  );
 
   const fallbackRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-npm-helper-fallback.'));
   const fallbackCallsFile = path.join(fallbackRoot, 'npm-calls');

@@ -86,6 +86,13 @@ function clearExecutableVersionCache() {
 
 function getPreferredExecutableCandidates(agentName, pathEnv = process.env.PATH || '') {
   const pathCandidates = getPathDirectories(pathEnv).map((dir) => path.join(dir, agentName));
+  if (agentName === 'claude') {
+    return [
+      process.env.FARMING_CLAUDE_BIN || '',
+      process.env.CLAUDE_CODE_EXECUTABLE || '',
+      ...pathCandidates,
+    ].filter(Boolean);
+  }
   if (agentName !== 'codex') return pathCandidates;
 
   return [

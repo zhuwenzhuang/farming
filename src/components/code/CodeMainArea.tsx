@@ -237,6 +237,7 @@ interface CodeMainAreaProps {
   activeView: WorkspaceView
   activeBrowserResource: BrowserResource | null
   browserController: BrowserResourcesController
+  onBackFromBrowser: () => void
   language: UiPreferences['language']
   showFileEditor: boolean
   openWorkspaceFile: OpenWorkspaceFile | null
@@ -303,6 +304,7 @@ interface CodeMainAreaProps {
   ) => OpenWorkspaceFile | null
   onSelectOpenWorkspaceFile: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => boolean
   onOpenWorkspaceFilePath: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void> | void
+  onOpenUrlInFarming?: (agentId: string, url: string) => void
   canNavigateWorkspaceBack: boolean
   canNavigateWorkspaceForward: boolean
   onNavigateWorkspaceHistory: (direction: -1 | 1) => boolean
@@ -466,6 +468,7 @@ export function CodeMainArea({
   activeView,
   activeBrowserResource,
   browserController,
+  onBackFromBrowser,
   language,
   showFileEditor,
   openWorkspaceFile,
@@ -522,6 +525,7 @@ export function CodeMainArea({
   onUpdateOpenWorkspaceFile,
   onSelectOpenWorkspaceFile,
   onOpenWorkspaceFilePath,
+  onOpenUrlInFarming,
   canNavigateWorkspaceBack,
   canNavigateWorkspaceForward,
   onNavigateWorkspaceHistory,
@@ -707,6 +711,7 @@ export function CodeMainArea({
           controller={browserController}
           language={language}
           onResource={browserController.mergeResource}
+          onBackToAgent={onBackFromBrowser}
         />
       ) : showFileEditor && openWorkspaceFile ? (
         ReadyFileEditorPane ? (
@@ -795,6 +800,7 @@ export function CodeMainArea({
               onOpenPath={onOpenTerminalPath}
               onResolvePath={onResolveTerminalPath}
               onOpenWorkspaceFilePath={onOpenWorkspaceFilePath}
+              onOpenUrl={onOpenUrlInFarming}
               onFollowOutputChange={onTerminalFollowOutputChange}
               onReadLatest={onAgentReadLatest}
               onRuntimeModeChange={onRuntimeModeChange}

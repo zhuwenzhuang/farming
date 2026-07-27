@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowLeftGlyph, ArrowRightGlyph, CopyGlyph, SquareGlyph } from '@/components/IconGlyphs'
+import { ArrowLeftGlyph, ArrowRightGlyph, BackToAgentGlyph, CopyGlyph, SquareGlyph } from '@/components/IconGlyphs'
 import { appPath } from '@/lib/base-path'
 import type { UiPreferences } from '@/lib/ui-preferences'
 import type { BrowserResource } from './types'
@@ -15,12 +15,14 @@ function viewerCopy(language: UiPreferences['language']) {
   const zh = language === 'zh'
   return {
     back: zh ? '后退' : 'Back',
+    backToAgent: zh ? '返回 Agent' : 'Back to Agent',
     forward: zh ? '前进' : 'Forward',
     reload: zh ? '重新加载' : 'Reload',
     address: zh ? '浏览器地址' : 'Browser address',
     connected: zh ? 'Viewer 已连接' : 'Viewer connected',
     disconnected: zh ? 'Viewer 未连接' : 'Viewer disconnected',
     copyLink: zh ? '复制链接' : 'Copy link',
+    more: zh ? '更多' : 'More',
     start: zh ? '启动' : 'Start',
     stop: zh ? '停止' : 'Stop',
     startBrowser: zh ? '启动浏览器' : 'Start Browser',
@@ -52,29 +54,118 @@ function PlayGlyph() {
   )
 }
 
+function MoreGlyph() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+      <circle cx="3" cy="8" r="1.1" />
+      <circle cx="8" cy="8" r="1.1" />
+      <circle cx="13" cy="8" r="1.1" />
+    </svg>
+  )
+}
+
 export function BrowserViewer({
   resource,
   controller,
   language,
   onResource,
+  onBackToAgent,
 }: {
   resource: BrowserResource
   controller: BrowserResourcesController
   language: UiPreferences['language']
   onResource: (resource: BrowserResource) => void
+  onBackToAgent: () => void
 }) {
   const copy = viewerCopy(language)
+  const viewportRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const textInputRef = useRef<HTMLTextAreaElement>(null)
   const composingTextRef = useRef(false)
   const socketRef = useRef<WebSocket | null>(null)
+  const moreButtonRef = useRef<HTMLButtonElement>(null)
+  const moreMenuRef = useRef<HTMLDivElement>(null)
   const imageSequenceRef = useRef(0)
   const paintFrameRef = useRef<number | null>(null)
+  const resizeFrameRef = useRef<number | null>(null)
+  const frameViewportRef = useRef<{ width: number; height: number } | null>(null)
   const [address, setAddress] = useState(resource.url)
   const [connected, setConnected] = useState(false)
   const [viewerError, setViewerError] = useState('')
+  const [moreOpen, setMoreOpen] = useState(false)
 
   useEffect(() => setAddress(resource.url), [resource.url])
+
+  useEffect(() => {
+    if (!moreOpen) return undefined
+    const closeOnPointerDown = (event: PointerEvent) => {
+      if (
+        event.target instanceof Node
+        && (moreMenuRef.current?.contains(event.target) || moreButtonRef.current?.contains(event.target))
+      ) return
+      setMoreOpen(false)
+    }
+    const closeOnKeydown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      setMoreOpen(false)
+      moreButtonRef.current?.focus()
+    }
+    window.addEventListener('pointerdown', closeOnPointerDown, true)
+    window.addEventListener('keydown', closeOnKeydown, true)
+    return () => {
+      window.removeEventListener('pointerdown', closeOnPointerDown, true)
+      window.removeEventListener('keydown', closeOnKeydown, true)
+    }
+  }, [moreOpen])
+
+  const sendViewerSize = useCallback((socket = socketRef.current, claim = false) => {
+    const viewport = viewportRef.current
+    if (!viewport || !socket || socket.readyState !== WebSocket.OPEN) return
+    const width = Math.round(viewport.clientWidth)
+    const height = Math.round(viewport.clientHeight)
+    if (width <= 0 || height <= 0) return
+    socket.send(JSON.stringify({
+      type: 'resize',
+      generation: resource.generation,
+      width,
+      height,
+      deviceScaleFactor: Math.max(1, Math.min(2, window.devicePixelRatio || 1)),
+      claim,
+    }))
+  }, [resource.generation])
+
+  useEffect(() => {
+    const viewport = viewportRef.current
+    if (!viewport) return undefined
+    const observer = new ResizeObserver(() => {
+      if (resizeFrameRef.current !== null) window.cancelAnimationFrame(resizeFrameRef.current)
+      resizeFrameRef.current = window.requestAnimationFrame(() => {
+        resizeFrameRef.current = null
+        sendViewerSize()
+      })
+    })
+    observer.observe(viewport)
+    return () => {
+      observer.disconnect()
+      if (resizeFrameRef.current !== null) window.cancelAnimationFrame(resizeFrameRef.current)
+      resizeFrameRef.current = null
+    }
+  }, [sendViewerSize])
+
+  useEffect(() => {
+    const claimViewport = () => {
+      if (document.visibilityState === 'visible' && document.hasFocus()) {
+        sendViewerSize(undefined, true)
+      }
+    }
+    window.addEventListener('focus', claimViewport)
+    document.addEventListener('visibilitychange', claimViewport)
+    return () => {
+      window.removeEventListener('focus', claimViewport)
+      document.removeEventListener('visibilitychange', claimViewport)
+    }
+  }, [sendViewerSize])
 
   useEffect(() => {
     if (resource.status !== 'running') {
@@ -92,11 +183,14 @@ export function BrowserViewer({
       socket.onopen = () => {
         setConnected(true)
         setViewerError('')
+        sendViewerSize(socket, document.visibilityState === 'visible' && document.hasFocus())
       }
       socket.onmessage = event => {
         const message = JSON.parse(String(event.data)) as {
           type: string
           data?: string
+          format?: 'jpeg' | 'png'
+          viewport?: { width: number; height: number }
           resource?: BrowserResource
           message?: string
         }
@@ -120,12 +214,20 @@ export function BrowserViewer({
             const canvas = canvasRef.current
             const context = canvas?.getContext('2d')
             if (!canvas || !context) return
+            const frameViewport = message.viewport
+              && Number.isFinite(message.viewport.width)
+              && Number.isFinite(message.viewport.height)
+              ? message.viewport
+              : { width: image.naturalWidth, height: image.naturalHeight }
+            frameViewportRef.current = frameViewport
             canvas.width = image.naturalWidth
             canvas.height = image.naturalHeight
+            canvas.style.width = `${frameViewport.width}px`
+            canvas.style.height = `${frameViewport.height}px`
             context.drawImage(image, 0, 0)
           })
         }
-        image.src = `data:image/jpeg;base64,${message.data}`
+        image.src = `data:image/${message.format === 'png' ? 'png' : 'jpeg'};base64,${message.data}`
       }
       socket.onclose = () => {
         if (socketRef.current === socket) socketRef.current = null
@@ -143,7 +245,7 @@ export function BrowserViewer({
       socketRef.current?.close()
       socketRef.current = null
     }
-  }, [copy.connectionFailed, copy.viewerFailed, onResource, resource.id, resource.status])
+  }, [copy.connectionFailed, copy.viewerFailed, onResource, resource.id, resource.status, sendViewerSize])
 
   const send = useCallback((message: Record<string, unknown>) => {
     const socket = socketRef.current
@@ -158,9 +260,10 @@ export function BrowserViewer({
   }) => {
     const canvas = event.currentTarget
     const bounds = canvas.getBoundingClientRect()
+    const frameViewport = frameViewportRef.current
     return {
-      x: (event.clientX - bounds.left) * canvas.width / Math.max(1, bounds.width),
-      y: (event.clientY - bounds.top) * canvas.height / Math.max(1, bounds.height),
+      x: (event.clientX - bounds.left) * (frameViewport?.width || canvas.width) / Math.max(1, bounds.width),
+      y: (event.clientY - bounds.top) * (frameViewport?.height || canvas.height) / Math.max(1, bounds.height),
     }
   }
   const navigate = async () => {
@@ -196,6 +299,16 @@ export function BrowserViewer({
   return (
     <section className="farming-browser-viewer" data-testid="farming-browser-viewer">
       <header className="farming-browser-toolbar">
+        <button
+          type="button"
+          className="farming-browser-toolbar-icon farming-browser-agent-return"
+          aria-label={copy.backToAgent}
+          title={copy.backToAgent}
+          onClick={onBackToAgent}
+        >
+          <BackToAgentGlyph />
+        </button>
+        <span className="farming-browser-toolbar-separator" aria-hidden="true" />
         <button type="button" className="farming-browser-toolbar-icon" aria-label={copy.back} title={copy.back} disabled={resource.status !== 'running'} onClick={() => void browserAction('back')}><ArrowLeftGlyph /></button>
         <button type="button" className="farming-browser-toolbar-icon" aria-label={copy.forward} title={copy.forward} disabled={resource.status !== 'running'} onClick={() => void browserAction('forward')}><ArrowRightGlyph /></button>
         <button type="button" className="farming-browser-toolbar-icon" aria-label={copy.reload} title={copy.reload} disabled={resource.status !== 'running'} onClick={() => void browserAction('reload')}><ReloadGlyph /></button>
@@ -209,36 +322,56 @@ export function BrowserViewer({
             disabled={resource.status !== 'running'}
             onChange={event => setAddress(event.currentTarget.value)}
           />
+          <span className={`farming-browser-connection ${connected ? 'connected' : ''}`} title={connected ? copy.connected : copy.disconnected} />
         </form>
-        <span className={`farming-browser-connection ${connected ? 'connected' : ''}`} title={connected ? copy.connected : copy.disconnected} />
-        <button
-          type="button"
-          className="farming-browser-toolbar-action farming-browser-copy-link"
-          onClick={() => {
-            const stableUrl = new URL(window.location.href)
-            stableUrl.searchParams.set('browser', resource.id)
-            void navigator.clipboard.writeText(stableUrl.href)
-          }}
-        >
-          <CopyGlyph />
-          <span>{copy.copyLink}</span>
-        </button>
-        <button
-          type="button"
-          className="farming-browser-toolbar-action"
-          disabled={resource.status === 'starting' || resource.status === 'stopping'}
-          onClick={() => {
-            const transition = resource.status === 'running'
-              ? controller.stop(resource.id)
-              : controller.start(resource.id)
-            void transition.catch(error => setViewerError(error instanceof Error ? error.message : copy.transitionFailed))
-          }}
-        >
-          {resource.status === 'running' ? <SquareGlyph /> : <PlayGlyph />}
-          <span>{resource.status === 'running' ? copy.stop : copy.start}</span>
-        </button>
+        <div className="farming-browser-more-wrap">
+          <button
+            ref={moreButtonRef}
+            type="button"
+            className="farming-browser-toolbar-icon"
+            aria-label={copy.more}
+            title={copy.more}
+            aria-haspopup="menu"
+            aria-expanded={moreOpen}
+            onClick={() => setMoreOpen(current => !current)}
+          >
+            <MoreGlyph />
+          </button>
+          {moreOpen ? (
+            <div ref={moreMenuRef} className="farming-browser-more-menu" role="menu">
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setMoreOpen(false)
+                  const stableUrl = new URL(window.location.href)
+                  stableUrl.searchParams.set('browser', resource.id)
+                  void navigator.clipboard.writeText(stableUrl.href)
+                }}
+              >
+                <CopyGlyph />
+                <span>{copy.copyLink}</span>
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                disabled={resource.status === 'starting' || resource.status === 'stopping'}
+                onClick={() => {
+                  setMoreOpen(false)
+                  const transition = resource.status === 'running'
+                    ? controller.stop(resource.id)
+                    : controller.start(resource.id)
+                  void transition.catch(error => setViewerError(error instanceof Error ? error.message : copy.transitionFailed))
+                }}
+              >
+                {resource.status === 'running' ? <SquareGlyph /> : <PlayGlyph />}
+                <span>{resource.status === 'running' ? copy.stop : copy.start}</span>
+              </button>
+            </div>
+          ) : null}
+        </div>
       </header>
-      <div className="farming-browser-viewport">
+      <div ref={viewportRef} className="farming-browser-viewport">
         {resource.status === 'running' ? (
           <canvas
             ref={canvasRef}

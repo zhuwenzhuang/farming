@@ -59,7 +59,7 @@ Browse, search, and lightly edit Project Files without leaving the current task.
 
 ### Browser Resources
 
-Each Project can own multiple named Browser Resources. Farming starts a compatible Chromium-based system browser with an isolated profile, streams that exact headless page into the workspace, and sends both human input and Agent actions to the same CDP session. Farming does not download Chromium or depend on Playwright. Agents can discover and operate these resources with `farming browser`; npm installations also expose the `farming-browser` alias.
+Each Project can own multiple named Browser Resources. Farming prepares a pinned `agent-browser` runtime at startup, uses it with a compatible Chromium-based system browser and isolated profile, and sends both human input and Agent actions to the same session. Farming does not download Chromium or depend on Playwright. Agents can discover and operate these resources with `farming browser`; npm installations also expose the `farming-browser` alias.
 
 Farming can also connect to an externally managed Chromium CDP endpoint, including one exposed by Docker; see [external CDP browser setup](./docs/products/code/external-cdp-browser.md).
 
@@ -67,7 +67,7 @@ This first Browser Viewer targets web pages and simple Agent interaction. It is 
 
 ## Supported Agents
 
-Farming discovers installed CLIs on the host. Codex, Claude Code, OpenCode, and Qoder support both structured Chat and a native Terminal; other detected coding agents use the Terminal path.
+Farming prepares the pinned Codex and Claude executables needed by its structured runtimes at startup, while continuing to discover other installed CLIs on the host. Codex, Claude Code, OpenCode, and Qoder support both structured Chat and a native Terminal; other detected coding agents use the Terminal path.
 
 | Agent | Structured Chat | Terminal | History / resume |
 | --- | --- | --- | --- |
@@ -96,7 +96,7 @@ Development machine
   ├── coding Agent processes
   ├── real terminals
   ├── repositories and project files
-  └── optional system-browser processes
+  └── optional agent-browser sessions
 ```
 
 The browser can disconnect and reconnect without stopping an Agent. A normal Farming server restart can also reconnect supported live terminal sessions. The desktop layout keeps projects, conversations, files, and review together; the mobile layout focuses one conversation, terminal, or file at a time.

@@ -7,10 +7,11 @@ const {
   readServerProcessIdentity,
 } = require('../../../backend/server-process-identity');
 const { BrowserResourceStore, RESOURCE_ID_RE } = require('./browser-resource-store');
-const { CdpBrowserRuntime } = require('./cdp-browser-runtime');
-const { discoverBrowserExecutable } = require('./executable-discovery');
+const { AgentBrowserRuntime } = require('./agent-browser-runtime');
+const { discoverBrowserRuntime } = require('./executable-discovery');
 
 const MAX_VIEWER_BUFFER_BYTES = 2 * 1024 * 1024;
+const VIEWER_RESIZE_SETTLE_MS = 80;
 const BROWSER_RECOVERY_TIMEOUT_MS = 5_000;
 const BROWSER_RECOVERY_POLL_MS = 100;
 
@@ -72,19 +73,27 @@ class BrowserResourceManager extends EventEmitter {
     super();
     this.configDir = options.configDir;
     this.store = options.store || new BrowserResourceStore(options.configDir);
-    this.discoverExecutable = options.discoverExecutable || (() => discoverBrowserExecutable(options));
-    this.createRuntime = options.createRuntime || (input => new CdpBrowserRuntime(input));
+    this.discoverExecutable = options.discoverExecutable || (() => discoverBrowserRuntime({
+      ...options,
+      configDir: this.configDir,
+    }));
+    this.createRuntime = options.createRuntime || (input => new AgentBrowserRuntime(input));
+    this.recoverRuntime = options.recoverRuntime || (input => AgentBrowserRuntime.recover(input));
     this.isEnabled = typeof options.isEnabled === 'function' ? options.isEnabled : () => true;
     this.readProcessIdentity = options.readProcessIdentity || readServerProcessIdentity;
     this.killProcessGroup = options.killProcessGroup || ((processGroupId, signal) => process.kill(-processGroupId, signal));
     this.wait = options.wait || (durationMs => new Promise(resolve => setTimeout(resolve, durationMs)));
+    this.scheduleTimeout = options.scheduleTimeout || setTimeout;
+    this.cancelTimeout = options.cancelTimeout || clearTimeout;
     this.runtimes = new Map();
     this.operations = new Map();
     this.disposed = false;
+    this.runtimeCapability = null;
   }
 
   async init() {
     this.store.init();
+    await this.refreshCapability();
     const interrupted = this.store.list().filter(resource =>
       ['running', 'starting', 'stopping'].includes(resource.status)
     );
@@ -92,6 +101,42 @@ class BrowserResourceManager extends EventEmitter {
   }
 
   async recoverInterruptedRuntime(resource) {
+    if (resource.runtimeKind === 'agent-browser') {
+      const capability = this.runtimeCapability || await this.refreshCapability();
+      let runtimeError = null;
+      if (!capability || capability.error || !capability.agentBrowserPath) {
+        runtimeError = new Error(
+          capability?.error
+          || 'The exact agent-browser runtime required to clean up this Browser is unavailable',
+        );
+      } else {
+        try {
+          await this.recoverRuntime({
+            id: resource.id,
+            generation: resource.generation,
+            browserKind: resource.browserKind,
+            processIdentity: resource.processIdentity,
+            configDir: this.configDir,
+            profileDir: storageLayout.browserProfileDir(this.configDir, resource.id),
+            agentBrowserPath: capability.agentBrowserPath,
+            readProcessIdentity: this.readProcessIdentity,
+            wait: this.wait,
+          });
+        } catch (error) {
+          runtimeError = error;
+        }
+      }
+      this.store.update(resource.id, {
+        status: 'failed',
+        error: runtimeError
+          ? `agent-browser Session cleanup failed: ${runtimeError.message || runtimeError}`
+          : 'Farming restarted and cleaned up the previous Browser runtime',
+        ...(!runtimeError ? { processIdentity: null } : {}),
+      });
+      return;
+    }
+
+    // Migration cleanup for Browser rows created by Farming's former raw-CDP runtime.
     const expected = resource.processIdentity;
     if (!expected) {
       this.store.update(resource.id, {
@@ -152,7 +197,7 @@ class BrowserResourceManager extends EventEmitter {
   }
 
   capability() {
-    const executable = this.discoverExecutable();
+    const executable = this.runtimeCapability;
     const runnable = executable && !executable.error;
     const enabled = this.isEnabled() === true;
     return {
@@ -163,8 +208,13 @@ class BrowserResourceManager extends EventEmitter {
         ? 'Browser extension is disabled'
         : (executable?.error || (runnable
             ? ''
-            : 'Install a Chromium-based browser or configure a loopback external CDP endpoint')),
+            : 'Install agent-browser and a Chromium-based browser, or configure a loopback external CDP endpoint')),
     };
+  }
+
+  async refreshCapability() {
+    this.runtimeCapability = await this.discoverExecutable();
+    return this.runtimeCapability;
   }
 
   list() {
@@ -208,7 +258,7 @@ class BrowserResourceManager extends EventEmitter {
   }
 
   start(id) {
-    this.requireAvailable();
+    this.requireEnabled();
     return this.enqueue(id, async () => {
       const resource = this.requireStored(id);
       const existing = this.runtimes.get(id);
@@ -224,18 +274,19 @@ class BrowserResourceManager extends EventEmitter {
         throw browserError(`Browser is ${resource.status}`, 409, 'BROWSER_BUSY');
       }
       if (resource.processIdentity) {
+        const blockedIdentity = resource.processIdentity;
         throw browserError(
-          `Previous Browser process ${resource.processIdentity.pid} still requires cleanup`,
+          `Previous Browser process ${blockedIdentity.pid} still requires cleanup`,
           409,
           'BROWSER_RECOVERY_CLEANUP_REQUIRED',
         );
       }
-      const executable = this.discoverExecutable();
+      const executable = await this.refreshCapability();
       if (!executable || executable.error) {
         const failed = this.store.update(id, {
           status: 'failed',
           error: executable?.error
-            || 'Install a Chromium-based browser or configure a loopback external CDP endpoint',
+            || 'Install agent-browser and a Chromium-based browser, or configure a loopback external CDP endpoint',
         });
         this.emitResource(failed);
         throw browserError(failed.error, 503, 'BROWSER_EXECUTABLE_NOT_FOUND');
@@ -246,6 +297,7 @@ class BrowserResourceManager extends EventEmitter {
         status: 'starting',
         generation,
         browserKind: executable.kind,
+        runtimeKind: 'agent-browser',
         error: '',
         processIdentity: null,
       });
@@ -253,6 +305,8 @@ class BrowserResourceManager extends EventEmitter {
       const runtime = this.createRuntime({
         id,
         generation,
+        configDir: this.configDir,
+        agentBrowserPath: executable.agentBrowserPath,
         executablePath: executable.path,
         externalCdpUrl: executable.cdpUrl || '',
         profileDir: storageLayout.browserProfileDir(this.configDir, id),
@@ -314,14 +368,19 @@ class BrowserResourceManager extends EventEmitter {
           await this.recoverInterruptedRuntime(resource);
           const recovered = this.requireStored(id);
           if (recovered.processIdentity) {
+            const blockedIdentity = recovered.processIdentity;
             throw browserError(
-              recovered.error || `Previous Browser process ${recovered.processIdentity.pid} still requires cleanup`,
+              recovered.error || `Previous Browser process ${blockedIdentity.pid} still requires cleanup`,
               500,
               'BROWSER_RECOVERY_CLEANUP_REQUIRED',
             );
           }
         }
-        const stopped = this.store.update(id, { status: 'stopped', error: '', processIdentity: null });
+        const stopped = this.store.update(id, {
+          status: 'stopped',
+          error: '',
+          processIdentity: null,
+        });
         this.emitResource(stopped);
         return publicResource(stopped, this.store.revision);
       }
@@ -337,10 +396,14 @@ class BrowserResourceManager extends EventEmitter {
         throw error;
       }
       if (this.runtimes.get(id) === runtime) this.runtimes.delete(id);
-      const stopped = this.store.update(id, { status: 'stopped', error: '', processIdentity: null });
+      const stopped = this.store.update(id, {
+        status: 'stopped',
+        error: '',
+        processIdentity: null,
+      });
       this.emitResource(stopped);
       this.broadcastRuntimeState(runtime);
-      runtime.viewers?.clear?.();
+      this.releaseViewerState(runtime);
       return publicResource(stopped, this.store.revision);
     });
   }
@@ -424,6 +487,7 @@ class BrowserResourceManager extends EventEmitter {
     }));
     if (!runtime || resource.status !== 'running') return () => {};
     if (!runtime.viewers) runtime.viewers = new Set();
+    if (!runtime.viewerGeometries) runtime.viewerGeometries = new Map();
     runtime.viewers.add(ws);
     if (runtime.latestFrame) ws.send(JSON.stringify(runtime.latestFrame));
     const onMessage = raw => {
@@ -433,7 +497,10 @@ class BrowserResourceManager extends EventEmitter {
       } catch {
         return;
       }
-      void this.handleViewerMessage(runtime, message).catch(error => {
+      const operation = message.type === 'resize'
+        ? this.scheduleViewerResize(runtime, ws, message)
+        : this.handleViewerMessage(runtime, ws, message);
+      void Promise.resolve(operation).catch(error => {
         if (ws.readyState === 1) {
           ws.send(JSON.stringify({ type: 'browser-error', message: error?.message || 'Browser input failed' }));
         }
@@ -442,28 +509,103 @@ class BrowserResourceManager extends EventEmitter {
     ws.on('message', onMessage);
     const detach = () => {
       runtime.viewers.delete(ws);
+      runtime.viewerGeometries.delete(ws);
+      if (runtime.viewerViewportOwner === ws) {
+        runtime.viewerViewportOwner = runtime.viewers.values().next().value || null;
+        if (runtime.viewerViewportOwner) {
+          const geometry = runtime.viewerGeometries.get(runtime.viewerViewportOwner);
+          if (geometry) this.scheduleViewerResize(runtime, runtime.viewerViewportOwner, geometry);
+        } else {
+          this.clearViewerResize(runtime);
+        }
+      }
       ws.off('message', onMessage);
     };
     ws.once('close', detach);
     return detach;
   }
 
-  handleViewerMessage(runtime, message) {
+  handleViewerMessage(runtime, viewer, message) {
     const next = (runtime.actionChain || Promise.resolve())
       .catch(() => {})
-      .then(() => this.performViewerMessage(runtime, message));
+      .then(() => this.performViewerMessage(runtime, viewer, message));
     runtime.actionChain = next;
     return next;
   }
 
-  async performViewerMessage(runtime, message) {
+  scheduleViewerResize(runtime, viewer, message) {
+    if (message.generation !== runtime.generation || this.runtimes.get(runtime.id) !== runtime) {
+      return Promise.reject(browserError('Browser Viewer generation is stale', 409, 'BROWSER_STALE_GENERATION'));
+    }
+    const width = Math.round(Number(message.width));
+    const height = Math.round(Number(message.height));
+    const requestedDeviceScaleFactor = Number(message.deviceScaleFactor);
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+      return Promise.reject(browserError('Browser Viewer size is invalid'));
+    }
+    const deviceScaleFactor = Number.isFinite(requestedDeviceScaleFactor)
+      ? Math.max(1, Math.min(2, requestedDeviceScaleFactor))
+      : 1;
+    const geometry = {
+      type: 'resize',
+      generation: message.generation,
+      width,
+      height,
+      deviceScaleFactor,
+    };
+    runtime.viewerGeometries.set(viewer, geometry);
+    if (
+      message.claim === true
+      || !runtime.viewerViewportOwner
+      || !runtime.viewers.has(runtime.viewerViewportOwner)
+    ) {
+      runtime.viewerViewportOwner = viewer;
+    }
+    if (runtime.viewerViewportOwner !== viewer) return Promise.resolve();
+    runtime.pendingViewerResize = { viewer, geometry };
+    if (runtime.viewerResizeTimer) this.cancelTimeout(runtime.viewerResizeTimer);
+    runtime.viewerResizeTimer = this.scheduleTimeout(() => {
+      runtime.viewerResizeTimer = null;
+      const pending = runtime.pendingViewerResize;
+      runtime.pendingViewerResize = null;
+      if (!pending || runtime.viewerViewportOwner !== pending.viewer) return;
+      void this.handleViewerMessage(runtime, pending.viewer, pending.geometry).catch(error => {
+        if (pending.viewer.readyState === 1) {
+          pending.viewer.send(JSON.stringify({
+            type: 'browser-error',
+            message: error?.message || 'Browser resize failed',
+          }));
+        }
+      });
+    }, VIEWER_RESIZE_SETTLE_MS);
+    runtime.viewerResizeTimer.unref?.();
+    return Promise.resolve();
+  }
+
+  clearViewerResize(runtime) {
+    if (runtime.viewerResizeTimer) this.cancelTimeout(runtime.viewerResizeTimer);
+    runtime.viewerResizeTimer = null;
+    runtime.pendingViewerResize = null;
+  }
+
+  releaseViewerState(runtime) {
+    this.clearViewerResize(runtime);
+    runtime.viewerGeometries?.clear?.();
+    runtime.viewerViewportOwner = null;
+    runtime.viewers?.clear?.();
+  }
+
+  async performViewerMessage(runtime, viewer, message) {
     if (message.generation !== runtime.generation || this.runtimes.get(runtime.id) !== runtime) {
       throw browserError('Browser Viewer generation is stale', 409, 'BROWSER_STALE_GENERATION');
     }
     if (message.type === 'resize') {
-      // A Browser resource owns one authoritative viewport. Viewer layout is
-      // presentation-only: allowing each attached desktop or mobile Viewer to
-      // resize the page makes concurrent viewers fight over shared page state.
+      if (runtime.viewerViewportOwner !== viewer) return;
+      await runtime.resize({
+        width: message.width,
+        height: message.height,
+        deviceScaleFactor: message.deviceScaleFactor,
+      });
       return;
     }
     if (message.type === 'pointer') {
@@ -493,6 +635,7 @@ class BrowserResourceManager extends EventEmitter {
     if (failures.length > 0) {
       throw new Error(`Browser runtime cleanup failed: ${failures.join('; ')}`);
     }
+    for (const runtime of runtimes) this.releaseViewerState(runtime);
     this.runtimes.clear();
   }
 
@@ -519,10 +662,10 @@ class BrowserResourceManager extends EventEmitter {
 
   requireAvailable() {
     this.requireEnabled();
-    const executable = this.discoverExecutable();
+    const executable = this.runtimeCapability;
     if (!executable || executable.error) {
       throw browserError(
-        executable?.error || 'Install a Chromium-based browser or configure a loopback external CDP endpoint',
+        executable?.error || 'Install agent-browser and a Chromium-based browser, or configure a loopback external CDP endpoint',
         503,
         'BROWSER_EXECUTABLE_NOT_FOUND',
       );
@@ -636,7 +779,10 @@ class BrowserResourceManager extends EventEmitter {
     try {
       await runtime.close();
       if (this.runtimes.get(runtime.id) === runtime) this.runtimes.delete(runtime.id);
-      const cleaned = this.store.update(runtime.id, { processIdentity: null });
+      this.releaseViewerState(runtime);
+      const cleaned = this.store.update(runtime.id, {
+        processIdentity: null,
+      });
       this.emitResource(cleaned);
       this.broadcastRuntimeState(runtime);
     } catch (error) {

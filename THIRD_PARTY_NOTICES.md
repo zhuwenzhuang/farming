@@ -15,8 +15,6 @@ preserved in bundled `node_modules` when bundled dependencies are enabled.
 | Package | Version | License | Purpose |
 | --- | --- | --- | --- |
 | `@agentclientprotocol/sdk` | 1.2.1 | Apache-2.0 | ACP JSON-RPC client and protocol types |
-| `@agentclientprotocol/codex-acp` | 1.1.4 | Apache-2.0 | Codex ACP adapter |
-| `@agentclientprotocol/claude-agent-acp` | 0.59.0 | Apache-2.0 | Claude Code ACP adapter |
 | `@modelcontextprotocol/sdk` | 1.29.0 | MIT | Browser Extension MCP server and stdio transport |
 | `@xterm/addon-clipboard` | 0.2.0 | MIT | Browser terminal clipboard integration |
 | `@xterm/addon-fit` | 0.11.0 | MIT | Browser terminal sizing |
@@ -47,11 +45,31 @@ preserved in bundled `node_modules` when bundled dependencies are enabled.
 | `remark-gfm` | 4.0.1 | MIT | GitHub Flavored Markdown support |
 | `remark-math` | 6.0.0 | MIT | Markdown math syntax support |
 | `ripgrep` | 0.3.1 | MIT | Node wrapper for file search support |
+| `tar` | 7.5.19 | BlueOak-1.0.0 | Safe extraction of version-locked startup dependency archives |
 | `ws` | 8.21.0 | MIT | WebSocket server/client support |
 | `yaml` | 2.9.0 | ISC | YAML parsing |
 | `zod` | 3.25.76 | MIT | MCP tool input schema validation |
 
 ## Vendored Assets
+
+Farming builds version- and SHA-256-locked ACP runtime files from these exact
+development dependencies and ships their license texts beside the runtime
+files under `dist/acp/`:
+
+| Package | Version | License | Purpose |
+| --- | --- | --- | --- |
+| `@agentclientprotocol/codex-acp` | 1.1.4 | Apache-2.0 | Reviewed and patched Codex ACP adapter |
+| `@openai/codex` | 0.144.6 | Apache-2.0 | Codex executable discovery and launch bridge; platform CLI binaries are excluded |
+| `@agentclientprotocol/claude-agent-acp` | 0.59.0 | Apache-2.0 | Claude Code ACP adapter |
+| `@anthropic-ai/claude-agent-sdk` | 0.3.207 | Anthropic commercial terms | Claude Agent SDK bridge; platform CLI binaries are excluded |
+
+Before starting a fresh Server, Farming may prepare the exact Codex CLI
+0.144.6, Claude Agent SDK CLI package 0.3.207, and `agent-browser` 0.32.3
+platform artifacts in its private runtime cache. They are not part of the npm
+or application package and remain independent works under their own terms.
+Farming accepts only the version-locked sources and integrity values declared
+by its release manifest. The `agent-browser` license text is included at
+`backend/data/LICENSE.agent-browser`.
 
 Farming vendors `ghostty-web` distribution files under
 `frontend/vendor/ghostty-web` for the optional Ghostty debug renderer. The
@@ -114,10 +132,11 @@ their code.
 
 Farming can launch or observe coding-agent CLIs installed by the user, including
 OpenCode and the terminal forms of OpenAI Codex CLI and Anthropic Claude Code.
-The optional structured ACP runtime includes the pinned Codex and Claude ACP
-adapter dependency trees, including the provider SDK/runtime packages required
-by those adapters. Those packages remain separate projects governed by their
-own terms and licenses; package-level license files remain in `node_modules`.
+The structured ACP runtime includes reviewed Codex and Claude adapter code, but
+Farming does not bundle a platform Codex or Claude Code CLI inside its package.
+The adapters use the exact system or verified startup-cache executable prepared
+by the Farming launcher. Those tools remain separate projects governed by their
+own terms and licenses.
 
 Farming is not affiliated with, sponsored by, or endorsed by OpenAI, Anthropic,
 Microsoft, or the maintainers of the third-party projects listed above.

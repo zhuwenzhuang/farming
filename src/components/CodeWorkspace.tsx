@@ -595,6 +595,7 @@ export function CodeWorkspace({
   const acpPromptStartFencesRef = useRef<Record<string, number>>({})
   const [, setTerminalFollowStates] = useState<Record<string, TerminalFollowState>>({})
   const [activeBrowserId, setActiveBrowserId] = useState<string | null>(initialBrowserResourceId)
+  const [browserReturnAgentId, setBrowserReturnAgentId] = useState<string | null>(null)
   const [mainPaneMode, setMainPaneMode] = useState<MainPaneMode>(() => (
     initialBrowserResourceId() ? 'browser' : 'terminal'
   ))
@@ -2712,7 +2713,7 @@ export function CodeWorkspace({
     onOpenTerminal(agentId, options)
   }, [clearSearch, onOpenTerminal, onWorkspaceViewChange])
 
-  const openBrowserFromSidebar = useCallback((resource: BrowserResource) => {
+  const showBrowserResource = useCallback((resource: BrowserResource) => {
     closeContextMenu()
     clearSearch()
     setActiveBrowserId(resource.id)
@@ -2720,6 +2721,39 @@ export function CodeWorkspace({
     onWorkspaceViewChange('projects')
     closeSidebarForMobile()
   }, [clearSearch, closeContextMenu, closeSidebarForMobile, onWorkspaceViewChange])
+
+  const openBrowserFromSidebar = useCallback((resource: BrowserResource) => {
+    setBrowserReturnAgentId(activeTerminalId)
+    showBrowserResource(resource)
+  }, [activeTerminalId, showBrowserResource])
+
+  const openUrlInFarmingBrowser = useCallback((agentId: string, url: string) => {
+    const agent = agents.find(candidate => candidate.id === agentId)
+    const workspace = agent?.projectWorkspace || agent?.cwd || ''
+    if (!workspace) return
+    setBrowserReturnAgentId(agentId)
+    void browserResources.create(workspace, { url })
+      .then(resource => browserResources.start(resource.id))
+      .then(showBrowserResource)
+      .catch(error => {
+        setCopyNotice({
+          id: Date.now(),
+          kind: 'error',
+          message: error instanceof Error ? error.message : 'Failed to open URL in Farming browser',
+        })
+      })
+  }, [agents, browserResources, showBrowserResource])
+
+  const backFromBrowser = useCallback(() => {
+    const returnAgent = browserReturnAgentId
+      ? agents.find(agent => agent.id === browserReturnAgentId)
+      : activeAgent
+    if (returnAgent) {
+      openTerminalFromWorkspace(returnAgent.id, { focusTerminal: false })
+      return
+    }
+    setMainPaneMode('terminal')
+  }, [activeAgent, agents, browserReturnAgentId, openTerminalFromWorkspace])
 
   const openTerminalFromSidebar = useCallback((agentId: string) => {
     openTerminalFromWorkspace(agentId)
@@ -4948,6 +4982,7 @@ export function CodeWorkspace({
         activeView={activeView}
         activeBrowserResource={mainPaneMode === 'browser' ? activeBrowserResource : null}
         browserController={browserResources}
+        onBackFromBrowser={backFromBrowser}
         language={uiPreferences.language}
         showFileEditor={showFileEditor}
         openWorkspaceFile={openWorkspaceFile}
@@ -5163,6 +5198,7 @@ export function CodeWorkspace({
         onUpdateOpenWorkspaceFile={updateOpenWorkspaceFile}
         onSelectOpenWorkspaceFile={selectOpenWorkspaceFile}
         onOpenWorkspaceFilePath={openWorkspaceFilePath}
+        onOpenUrlInFarming={browserResources.capability?.available ? openUrlInFarmingBrowser : undefined}
         canNavigateWorkspaceBack={canNavigateWorkspaceBack}
         canNavigateWorkspaceForward={canNavigateWorkspaceForward}
         onNavigateWorkspaceHistory={navigateWorkspaceHistory}

@@ -188,14 +188,17 @@ for target in "${TARGET_ARRAY[@]}"; do
       echo "Packaged CLI failed its native startup self-check: ${out_bin}" >&2
       exit 1
     fi
-    codex_bin="$(command -v codex || true)"
-    if [ -z "${codex_bin}" ]; then
+    codex_bin="${PROJECT_ROOT}/node_modules/.bin/codex"
+    if [ ! -x "${codex_bin}" ]; then
       echo "Packaged CLI ACP smoke requires the pinned Codex executable from node_modules." >&2
       exit 1
     fi
     CODEX_PATH="${codex_bin}" node "${PROJECT_ROOT}/scripts/smoke-codex-acp-process.js" \
       --command "${out_bin}" \
       --arg --farming-codex-acp
+    node "${PROJECT_ROOT}/scripts/smoke-claude-acp-process.js" \
+      --command "${out_bin}" \
+      --arg --farming-claude-acp
     node "${PROJECT_ROOT}/scripts/smoke-browser-mcp-process.js" --command "${out_bin}"
     if ! "${out_bin}" --farming-usage-history-smoke >/dev/null; then
       echo "Packaged CLI failed its Usage History worker + SQLite smoke: ${out_bin}" >&2
