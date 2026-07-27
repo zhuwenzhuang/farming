@@ -338,10 +338,12 @@ export function BrowserSidebarPortals({
       {projects.map(project => {
         const target = targets.get(project.id)
         if (!target || !project.workspace) return null
+        const resources = controller.byWorkspace.get(project.workspace) ?? []
+        if (resources.length === 0) return null
         return createPortal(
           <BrowserSection
             project={project}
-            resources={controller.byWorkspace.get(project.workspace) ?? []}
+            resources={resources}
             activeBrowserId={activeBrowserId}
             controller={controller}
             copy={copy}
