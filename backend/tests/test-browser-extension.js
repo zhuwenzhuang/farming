@@ -9,7 +9,9 @@ const { WebSocketServer } = WebSocket;
 const { CdpClient } = require('../../extensions/browser/backend/cdp-client');
 const {
   CdpBrowserRuntime,
+  PACKAGED_BROWSER_LAUNCH_GATE_ARG,
   browserLaunchArguments,
+  launchSystemBrowser,
 } = require('../../extensions/browser/backend/cdp-browser-runtime');
 const {
   applyBrowserResource,
@@ -151,6 +153,22 @@ function testSystemBrowserLaunchFlags() {
   assert(unsandboxed.includes('--no-sandbox'));
   assert(unsandboxed.includes('--disable-setuid-sandbox'));
   assert(sandboxed.includes('--remote-debugging-port=0'));
+
+  const launches = [];
+  const child = launchSystemBrowser('/fake/chrome', profileDir, {
+    packagedRuntime: true,
+    spawn: (command, args, options) => {
+      launches.push({ command, args, options });
+      return {
+        stdin: { end() {} },
+        stderr: new EventEmitter(),
+      };
+    },
+  });
+  assert(child);
+  assert.strictEqual(launches[0].command, process.execPath);
+  assert.strictEqual(launches[0].args[0], PACKAGED_BROWSER_LAUNCH_GATE_ARG);
+  assert.strictEqual(launches[0].args[1], '/fake/chrome');
 }
 
 async function testBrowserLaunchGate() {

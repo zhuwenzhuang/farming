@@ -4,6 +4,7 @@ const { spawn } = require('child_process');
 const { EventEmitter } = require('events');
 const { readServerProcessIdentity } = require('../../../backend/server-process-identity');
 const { CdpClient } = require('./cdp-client');
+const { PACKAGED_BROWSER_LAUNCH_GATE_ARG } = require('./browser-launch-gate');
 
 const DEFAULT_VIEWPORT = Object.freeze({ width: 1280, height: 800 });
 const MAX_VIEWPORT = Object.freeze({ width: 4096, height: 4096 });
@@ -127,9 +128,14 @@ function browserLaunchArguments(profileDir, options = {}) {
 function launchSystemBrowser(executablePath, profileDir, options = {}) {
   fs.mkdirSync(profileDir, { recursive: true });
   fs.rmSync(path.join(profileDir, 'DevToolsActivePort'), { force: true });
+  const packagedRuntime = options.packagedRuntime === true
+    || (options.packagedRuntime === undefined && Boolean(process.pkg));
+  const gateArgs = packagedRuntime
+    ? [PACKAGED_BROWSER_LAUNCH_GATE_ARG, executablePath, ...browserLaunchArguments(profileDir, options)]
+    : [path.join(__dirname, 'browser-launch-gate.js'), executablePath, ...browserLaunchArguments(profileDir, options)];
   const child = (options.spawn || spawn)(
     process.execPath,
-    [path.join(__dirname, 'browser-launch-gate.js'), executablePath, ...browserLaunchArguments(profileDir, options)],
+    gateArgs,
     {
     detached: process.platform !== 'win32',
       stdio: ['pipe', 'ignore', 'pipe'],
@@ -661,6 +667,7 @@ module.exports = {
   CdpBrowserRuntime,
   DEFAULT_VIEWPORT,
   MAX_VIEWPORT,
+  PACKAGED_BROWSER_LAUNCH_GATE_ARG,
   browserLaunchArguments,
   clampViewport,
   launchSystemBrowser,

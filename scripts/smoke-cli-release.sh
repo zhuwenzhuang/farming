@@ -28,6 +28,27 @@ HOME_DIR="${WORK_DIR}/home"
 WORKSPACE_DIR="${WORK_DIR}/workspace"
 mkdir -p "${HOME_DIR}" "${WORKSPACE_DIR}"
 
+BROWSER_GATE_MARKER="${WORK_DIR}/browser-gate-launched"
+BROWSER_GATE_FIXTURE="${WORK_DIR}/browser-gate-fixture.sh"
+cat > "${BROWSER_GATE_FIXTURE}" <<'EOF'
+#!/usr/bin/env bash
+printf '%s' launched > "$1"
+EOF
+chmod +x "${BROWSER_GATE_FIXTURE}"
+{ sleep 1; printf 'GO\n'; } | HOME="${HOME_DIR}" "${BIN}" \
+  --farming-browser-launch-gate "${BROWSER_GATE_FIXTURE}" "${BROWSER_GATE_MARKER}" &
+BROWSER_GATE_PID=$!
+sleep 0.2
+if [ -e "${BROWSER_GATE_MARKER}" ]; then
+  echo "Packaged Browser launch gate started its target before release." >&2
+  exit 1
+fi
+wait "${BROWSER_GATE_PID}"
+if [ "$(cat "${BROWSER_GATE_MARKER}" 2>/dev/null || true)" != "launched" ]; then
+  echo "Packaged Browser launch gate did not start its target after release." >&2
+  exit 1
+fi
+
 dump_logs() {
   local server_log="${HOME_DIR}/.farming/farming-server.log"
   local native_log="${HOME_DIR}/.farming/native-pty-host.log"

@@ -8,6 +8,7 @@ function run() {
   const packageScript = fs.readFileSync(path.join(root, 'scripts/package-cli-release.sh'), 'utf8');
   const appPackageScript = fs.readFileSync(path.join(root, 'scripts/package-release.sh'), 'utf8');
   const npmSmokeScript = fs.readFileSync(path.join(root, 'scripts/smoke-npm-package.sh'), 'utf8');
+  const cliSmokeScript = fs.readFileSync(path.join(root, 'scripts/smoke-cli-release.sh'), 'utf8');
   const packagedAcpBridge = fs.readFileSync(path.join(root, 'backend/acp/packaged-codex-acp.js'), 'utf8');
   const previousEntry = process.env.FARMING_PKG_ENTRY;
   const previousWorkerEntry = process.env.FARMING_PKG_WORKER_ENTRY;
@@ -49,6 +50,11 @@ function run() {
   assert(
     packageScript.includes('Packaged CLI failed its native startup self-check'),
     'native CLI targets must execute before their manifest is written',
+  );
+  assert(
+    cliSmokeScript.includes('--farming-browser-launch-gate')
+      && cliSmokeScript.includes('Packaged Browser launch gate started its target before release.'),
+    'native CLI smoke must prove the packaged Browser launch gate holds its target until release',
   );
   assert(
     appPackageScript.includes(

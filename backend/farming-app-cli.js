@@ -9,6 +9,10 @@ const { execFileSync, spawn } = require('child_process');
 const { run: runControlCli } = require('./farming-cli');
 const { PACKAGED_CODEX_ACP_ARG, runPackagedCodexAcp } = require('./acp/packaged-codex-acp');
 const {
+  PACKAGED_BROWSER_LAUNCH_GATE_ARG,
+  runBrowserLaunchGate,
+} = require('../extensions/browser/backend/browser-launch-gate');
+const {
   SERVER_PROCESS_IDENTITY_FORMAT,
   matchingProcessIdentity,
   readServerProcessIdentity,
@@ -1081,6 +1085,11 @@ async function run(argv = process.argv.slice(2)) {
 
   if (argv[0] === PACKAGED_CODEX_ACP_ARG) {
     runPackagedCodexAcp();
+    return 0;
+  }
+
+  if (argv[0] === PACKAGED_BROWSER_LAUNCH_GATE_ARG) {
+    runBrowserLaunchGate(argv.slice(1));
     return 0;
   }
 
