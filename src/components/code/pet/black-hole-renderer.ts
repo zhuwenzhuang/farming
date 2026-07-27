@@ -101,6 +101,7 @@ uniform vec2 uResolution;
 uniform float uTime;
 uniform float uOpacity;
 uniform float uLook;
+uniform float uFineStreakWeight;
 uniform float uMass;
 uniform float uDiskFeed;
 uniform float uHawking;
@@ -273,8 +274,10 @@ void main() {
         float gravity = sqrt(max(1.0 - 1.5 / diskRadius, 0.02));
         float swirl = diskRadius * wind * 0.12 - uTime * kepler * gravity * speed * 0.38;
         float streaks =
-          wrappedNoise(vec2(diskRadius * 2.8, turns * 19.0 + swirl * 3.0), 19.0) * 0.65
-          + wrappedNoise(vec2(diskRadius, turns * 9.0 + swirl * 1.5 + 7.0), 9.0) * 0.35;
+          wrappedNoise(vec2(diskRadius * 2.8, turns * 19.0 + swirl * 3.0), 19.0)
+            * uFineStreakWeight
+          + wrappedNoise(vec2(diskRadius, turns * 9.0 + swirl * 1.5 + 7.0), 9.0)
+            * (1.0 - uFineStreakWeight);
         streaks = 0.35 + contrast * streaks * streaks;
         vec3 gasDirection = normalize(cross(diskNormal, diskPoint));
         float beta = clamp(
@@ -606,11 +609,13 @@ function createDisplayRenderer(canvas: HTMLCanvasElement): DisplayRenderer {
   const time = gl.getUniformLocation(program, 'uTime')
   const opacity = gl.getUniformLocation(program, 'uOpacity')
   const lookUniform = gl.getUniformLocation(program, 'uLook')
+  const fineStreakWeightUniform = gl.getUniformLocation(program, 'uFineStreakWeight')
   const mass = gl.getUniformLocation(program, 'uMass')
   const diskFeed = gl.getUniformLocation(program, 'uDiskFeed')
   const hawking = gl.getUniformLocation(program, 'uHawking')
   const finalBurst = gl.getUniformLocation(program, 'uFinalBurst')
   let renderSize = 0
+  let fineStreakWeight = 0.65
   let verificationPixels = new Uint8Array()
   let nextVerificationAt = 0
   let maximumVerificationInkPixels = 0
@@ -622,11 +627,16 @@ function createDisplayRenderer(canvas: HTMLCanvasElement): DisplayRenderer {
   return {
     resize(cssSize) {
       const pixelRatio = Math.min(2, Math.max(1, window.devicePixelRatio || 1))
-      const exact = Math.min(
-        DISPLAY_CAP,
-        Math.max(512, Math.round(cssSize * pixelRatio * RENDER_SCALE)),
+      const requestedSize = Math.max(
+        512,
+        Math.round(cssSize * pixelRatio * RENDER_SCALE),
       )
+      const exact = Math.min(DISPLAY_CAP, requestedSize)
       const nextSize = Math.round(exact / 16) * 16
+      const streakAA = 0.72 * smoother(
+        clamp((requestedSize / DISPLAY_CAP - 1) / 0.5, 0, 1),
+      )
+      fineStreakWeight = mix(0.65, 0.22, streakAA)
       canvas.style.width = `${cssSize}px`
       canvas.style.height = `${cssSize}px`
       if (renderSize === nextSize) return
@@ -641,6 +651,7 @@ function createDisplayRenderer(canvas: HTMLCanvasElement): DisplayRenderer {
       gl.uniform1f(time, clock)
       gl.uniform1f(opacity, alpha)
       gl.uniform1f(lookUniform, look.look)
+      gl.uniform1f(fineStreakWeightUniform, fineStreakWeight)
       gl.uniform1f(mass, evaporation.mass)
       gl.uniform1f(diskFeed, evaporation.diskFeed)
       gl.uniform1f(hawking, evaporation.hawking)

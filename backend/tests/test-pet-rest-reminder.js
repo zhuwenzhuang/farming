@@ -119,6 +119,23 @@ const path = require('path');
   assert(!blackHoleSceneSource.includes('code-pet-close'));
   assert(blackHoleRendererSource.includes("canvas.getContext('webgl2'"));
   assert(
+    blackHoleRendererSource.includes('uniform float uFineStreakWeight;')
+      && blackHoleRendererSource.includes(
+        'clamp((requestedSize / DISPLAY_CAP - 1) / 0.5, 0, 1)',
+      )
+      && blackHoleRendererSource.includes(
+        'fineStreakWeight = mix(0.65, 0.22, streakAA)',
+      )
+      && blackHoleRendererSource.includes(
+        'gl.uniform1f(fineStreakWeightUniform, fineStreakWeight)',
+      )
+      && blackHoleRendererSource.includes('* (1.0 - uFineStreakWeight);')
+      && !blackHoleRendererSource.includes('wrappedNoiseAA(')
+      && !blackHoleRendererSource.includes('fwidth(')
+      && !blackHoleRendererSource.includes('wrappedNoise(p - 0.25'),
+    'large capped accretion disks should shift streak energy to the resolvable octave without derivatives or extra noise samples',
+  )
+  assert(
     blackHoleRendererSource.includes('preserveDrawingBuffer: preserveForVisualRegression')
       && blackHoleRendererSource.includes("window as Window & { __FARMING_E2E__?: boolean }"),
     'pixel-level browser checks may preserve the rendered frame without changing production buffering',
