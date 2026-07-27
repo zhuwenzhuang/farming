@@ -639,11 +639,7 @@ app.get(routePath(BASE_PATH, '/api/agent-extensions'), (_req, res) => {
             command: extension.command,
             name: extension.label,
             description: extension.description,
-            kind: extension.source === 'plugin'
-              ? 'plugin'
-              : extension.source === 'skill'
-                ? 'skill'
-                : 'command',
+            kind: extension.source === 'custom' ? 'command' : extension.source || 'command',
             scope: extension.scope || '',
           })),
         })),

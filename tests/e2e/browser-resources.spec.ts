@@ -232,6 +232,27 @@ test('keeps extension cards compact and opens the full description on demand', a
             description: longDescription,
             kind: 'skill',
             scope: 'Personal',
+          }, {
+            id: 'plugin:sample',
+            command: 'plugin:sample',
+            name: 'Sample plugin',
+            description: 'Plugin description.',
+            kind: 'plugin',
+            scope: 'Plugin',
+          }, {
+            id: '/sample',
+            command: '/sample',
+            name: 'Sample command',
+            description: 'Command description.',
+            kind: 'command',
+            scope: 'Personal',
+          }, {
+            id: 'hook:sample',
+            command: 'hook:sample',
+            name: 'Sample hook',
+            description: 'Hook description.',
+            kind: 'hook',
+            scope: 'Plugin',
           }],
         }],
       }],
@@ -241,7 +262,7 @@ test('keeps extension cards compact and opens the full description on demand', a
   await page.getByTestId('code-nav-plugins').click()
 
   const cards = page.locator('.code-plugin-extension')
-  await expect(cards).toHaveCount(2)
+  await expect(cards).toHaveCount(5)
   const geometry = await cards.evaluateAll(elements => elements.map(element => {
     const description = element.querySelector('p')
     return {
@@ -249,17 +270,29 @@ test('keeps extension cards compact and opens the full description on demand', a
       lineClamp: description ? getComputedStyle(description).webkitLineClamp : '',
     }
   }))
-  expect(geometry).toEqual([
-    { height: 126, lineClamp: '3' },
-    { height: 126, lineClamp: '3' },
-  ])
+  expect(geometry.every(item => item.height === 126 && item.lineClamp === '3')).toBe(true)
 
+  const skillSection = page.locator('.code-plugin-kind-section[data-kind="skill"]')
+  const pluginSection = page.locator('.code-plugin-kind-section[data-kind="plugin"]')
+  const commandSection = page.locator('.code-plugin-kind-section[data-kind="command"]')
+  const hookSection = page.locator('.code-plugin-kind-section[data-kind="hook"]')
+  await expect(skillSection.locator('summary').getByText('Skill', { exact: true })).toBeVisible()
+  await expect(pluginSection.locator('summary').getByText('Plugin', { exact: true })).toBeVisible()
+  await expect(commandSection.locator('summary').getByText('Command', { exact: true })).toBeVisible()
+  await expect(hookSection.locator('summary').getByText('Hook', { exact: true })).toBeVisible()
+  await skillSection.locator('summary').click()
+  await expect(skillSection).toHaveJSProperty('open', false)
+  await expect(pluginSection).toHaveJSProperty('open', true)
+
+  await skillSection.locator('summary').click()
+  await pluginSection.locator('summary').click()
   await cards.filter({ hasText: 'Long skill' }).click()
   const detail = page.getByTestId('code-plugin-detail-dialog')
   await expect(detail).toBeVisible()
   await expect(detail.getByText(longDescription, { exact: true })).toBeVisible()
   await page.keyboard.press('Escape')
   await expect(detail).toHaveCount(0)
+  await expect(pluginSection).toHaveJSProperty('open', false)
 })
 
 test('keeps an edited browser address until Enter submits it', async ({

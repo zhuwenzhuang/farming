@@ -4420,6 +4420,11 @@ export function CodeWorkspace({
       const isTypingTarget = isTextEditingShortcutTarget(target)
       if (isTypingTarget || isTerminalShortcutTarget(target)) return
       if (isOverlayShortcutTarget(target) && event.key !== 'Escape') return
+      if (
+        event.key === 'Escape'
+        && target instanceof HTMLElement
+        && target.closest('.code-plugin-detail-dialog')
+      ) return
 
       if (event.key === 'Escape' && (plusMenuOpen || approvalMenuOpen || modelMenuOpen)) {
         event.preventDefault()

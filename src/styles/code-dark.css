@@ -359,7 +359,6 @@ body.code-mode[data-appearance='dark'] .code-plugin-card p,
 body.code-mode[data-appearance='dark'] .code-plugin-card small,
 body.code-mode[data-appearance='dark'] .code-plugin-status,
 body.code-mode[data-appearance='dark'] .code-plugin-section-header > span,
-body.code-mode[data-appearance='dark'] .code-plugin-agent-home h4,
 body.code-mode[data-appearance='dark'] .code-plugin-extension p,
 body.code-mode[data-appearance='dark'] .code-plugin-empty {
   color: var(--code-dark-text-muted);
@@ -390,6 +389,21 @@ body.code-mode[data-appearance='dark'] .code-plugin-extension {
 body.code-mode[data-appearance='dark'] .code-plugin-extension,
 body.code-mode[data-appearance='dark'] .code-plugin-empty {
   background: var(--code-dark-bg-soft);
+}
+
+body.code-mode[data-appearance='dark'] .code-plugin-kind-section > summary {
+  background: var(--code-dark-bg-soft);
+  color: var(--code-dark-text);
+}
+
+body.code-mode[data-appearance='dark'] .code-plugin-kind-section > summary::before,
+body.code-mode[data-appearance='dark'] .code-plugin-kind-section > summary span {
+  color: var(--code-dark-text-muted);
+}
+
+body.code-mode[data-appearance='dark'] .code-plugin-kind-section > summary:hover,
+body.code-mode[data-appearance='dark'] .code-plugin-kind-section > summary:focus-visible {
+  background: var(--code-dark-bg-hover);
 }
 
 body.code-mode[data-appearance='dark'] .code-plugin-extension:hover,

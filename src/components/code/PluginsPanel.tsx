@@ -9,7 +9,7 @@ type AgentExtension = {
   command: string
   name: string
   description: string
-  kind: 'skill' | 'plugin' | 'command'
+  kind: string
   scope: string
 }
 
@@ -28,6 +28,8 @@ type SelectedAgentExtension = AgentExtension & {
   agentName: string
   homeId: string
 }
+
+const EXTENSION_KIND_ORDER = ['plugin', 'skill', 'command']
 
 function pluginCopy(language: UiLanguage) {
   const zh = language === 'zh'
@@ -84,6 +86,36 @@ function agentDisplayName(agent: Pick<AgentExtensionGroup, 'id' | 'name'>) {
   return agent.name || agent.id
 }
 
+function extensionKindLabel(kind: string, copy: ReturnType<typeof pluginCopy>) {
+  if (kind === 'skill' || kind === 'plugin' || kind === 'command') return copy.kind[kind]
+  return kind
+    .split(/[-_.]+/)
+    .filter(Boolean)
+    .map(part => part.slice(0, 1).toUpperCase() + part.slice(1))
+    .join(' ') || kind
+}
+
+function agentExtensionKindGroups(agent: AgentExtensionGroup) {
+  const groups = new Map<string, Array<AgentExtension & { homeId: string }>>()
+  agent.homes.forEach(home => {
+    home.extensions.forEach(extension => {
+      const entries = groups.get(extension.kind) || []
+      entries.push({ ...extension, homeId: home.id })
+      groups.set(extension.kind, entries)
+    })
+  })
+  return [...groups.entries()]
+    .map(([kind, extensions]) => ({ kind, extensions }))
+    .sort((left, right) => {
+      const leftIndex = EXTENSION_KIND_ORDER.indexOf(left.kind)
+      const rightIndex = EXTENSION_KIND_ORDER.indexOf(right.kind)
+      if (leftIndex === -1 && rightIndex === -1) return left.kind.localeCompare(right.kind)
+      if (leftIndex === -1) return 1
+      if (rightIndex === -1) return -1
+      return leftIndex - rightIndex
+    })
+}
+
 export function PluginsPanel({
   capability,
   loading,
@@ -135,15 +167,6 @@ export function PluginsPanel({
       })
     return () => controller.abort()
   }, [copy.agentExtensionsFailed])
-
-  useEffect(() => {
-    if (!selectedExtension) return undefined
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setSelectedExtension(null)
-    }
-    window.addEventListener('keydown', closeOnEscape)
-    return () => window.removeEventListener('keydown', closeOnEscape)
-  }, [selectedExtension])
 
   const toggleBrowser = async () => {
     if (saving || (!capability?.browser && !enabled)) return
@@ -236,6 +259,7 @@ export function PluginsPanel({
           <div className="code-plugin-error" role="alert">{agentGroupsError}</div>
         ) : agentGroups.map(agent => {
           const extensionCount = agent.homes.reduce((count, home) => count + home.extensions.length, 0)
+          const kindGroups = agentExtensionKindGroups(agent)
           return (
             <section
               key={agent.id}
@@ -253,36 +277,44 @@ export function PluginsPanel({
                 <p className="code-plugin-empty">{copy.unsupportedDiscovery}</p>
               ) : extensionCount === 0 ? (
                 <p className="code-plugin-empty">{copy.noAgentExtensions}</p>
-              ) : agent.homes.map(home => (
-                <div className="code-plugin-agent-home" key={home.id}>
-                  {agent.homes.length > 1 || home.id !== 'default' ? (
-                    <h4>{copy.home}: {home.id}</h4>
-                  ) : null}
+              ) : kindGroups.map(group => (
+                <details
+                  open
+                  className="code-plugin-kind-section"
+                  data-kind={group.kind}
+                  key={group.kind}
+                >
+                  <summary>
+                    <strong>{extensionKindLabel(group.kind, copy)}</strong>
+                    <span>{copy.count(group.extensions.length)}</span>
+                  </summary>
                   <div className="code-plugin-extension-list">
-                    {home.extensions.map(extension => (
+                    {group.extensions.map(extension => (
                       <button
                         type="button"
                         className="code-plugin-extension"
-                        key={`${home.id}:${extension.id}`}
+                        key={`${extension.homeId}:${extension.id}`}
                         onClick={() => setSelectedExtension({
                           ...extension,
                           agentName: agentDisplayName(agent),
-                          homeId: home.id,
                         })}
                       >
                         <div className="code-plugin-extension-title">
                           <strong>{extension.name}</strong>
-                          <span>{copy.kind[extension.kind]}</span>
+                          <span>{extensionKindLabel(extension.kind, copy)}</span>
                         </div>
                         <div className="code-plugin-extension-meta">
                           <code>{extension.command}</code>
                           {extension.scope ? <span>{extension.scope}</span> : null}
+                          {agent.homes.length > 1 || extension.homeId !== 'default' ? (
+                            <span>{copy.home}: {extension.homeId}</span>
+                          ) : null}
                         </div>
                         <p>{extension.description}</p>
                       </button>
                     ))}
                   </div>
-                </div>
+                </details>
               ))}
             </section>
           )
@@ -302,6 +334,11 @@ export function PluginsPanel({
             aria-modal="true"
             aria-labelledby="code-plugin-detail-title"
             onPointerDown={event => event.stopPropagation()}
+            onKeyDown={event => {
+              if (event.key !== 'Escape') return
+              event.stopPropagation()
+              setSelectedExtension(null)
+            }}
           >
             <header>
               <div>
@@ -319,7 +356,7 @@ export function PluginsPanel({
               </button>
             </header>
             <div className="code-plugin-detail-meta">
-              <span>{copy.kind[selectedExtension.kind]}</span>
+              <span>{extensionKindLabel(selectedExtension.kind, copy)}</span>
               <code>{selectedExtension.command}</code>
               {selectedExtension.scope ? <span>{selectedExtension.scope}</span> : null}
               {selectedExtension.homeId !== 'default' ? <span>{copy.home}: {selectedExtension.homeId}</span> : null}

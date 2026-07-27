@@ -10422,16 +10422,59 @@ body.code-mode.code-compact-layout .code-empty-workspace-compact {
   border-top: 1px solid #e8ebe6;
 }
 
-.code-plugin-agent-home {
-  display: grid;
-  gap: 8px;
+.code-plugin-kind-section + .code-plugin-kind-section {
+  margin-top: 4px;
 }
 
-.code-plugin-agent-home h4 {
-  margin: 0;
-  color: #59645b;
-  font-size: 12px;
-  font-weight: 600;
+.code-plugin-kind-section > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #f7f8f6;
+  color: #39423b;
+  cursor: pointer;
+  list-style: none;
+}
+
+.code-plugin-kind-section > summary::-webkit-details-marker {
+  display: none;
+}
+
+.code-plugin-kind-section > summary::before {
+  content: '›';
+  width: 12px;
+  color: #7a847a;
+  font-size: 18px;
+  line-height: 1;
+  transform-origin: center;
+  transition: transform 120ms ease;
+}
+
+.code-plugin-kind-section[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.code-plugin-kind-section > summary:hover,
+.code-plugin-kind-section > summary:focus-visible {
+  background: #f1f3ef;
+  outline: 0;
+}
+
+.code-plugin-kind-section > summary strong {
+  font-size: 13px;
+  font-weight: 620;
+}
+
+.code-plugin-kind-section > summary span {
+  margin-left: auto;
+  color: #7a847a;
+  font-size: 11px;
+}
+
+.code-plugin-kind-section[open] > summary {
+  margin-bottom: 8px;
 }
 
 .code-plugin-extension-list {
