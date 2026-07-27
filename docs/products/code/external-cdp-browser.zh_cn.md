@@ -33,6 +33,6 @@ farming stop
 FARMING_BROWSER_CDP_URL=http://127.0.0.1:9222 farming daemon
 ```
 
-在**设置 → 扩展**中启用**外部浏览器**。Browser Resource 随后复用 Farming 已有的 Browser Viewer 和 `farming browser` Agent 命令。每个 Resource 会创建并拥有自己的页面 Target；浏览器进程、容器、镜像、Profile 与 Endpoint 可用性仍由外部 Owner 负责。
+在**插件 → 浏览器**中启用浏览器插件。Browser Resource 随后复用 Farming 已有的 Browser Viewer 和 `farming browser` Agent 命令。每个 Resource 会创建并拥有自己的页面 Target；浏览器进程、容器、镜像、Profile 与 Endpoint 可用性仍由外部 Owner 负责。
 
 `FARMING_BROWSER_CDP_URL` 接受回环地址上的 `http`、`https`、`ws` 或 `wss` Endpoint。Farming 会拒绝非回环地址、内嵌凭证和 Query Parameter。显式配置的外部 Endpoint 优先于系统浏览器发现；去掉变量并重启 Farming 后恢复系统浏览器路径。

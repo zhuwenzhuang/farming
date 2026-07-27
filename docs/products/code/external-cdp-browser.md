@@ -33,6 +33,6 @@ farming stop
 FARMING_BROWSER_CDP_URL=http://127.0.0.1:9222 farming daemon
 ```
 
-In **Settings → Extensions**, enable **External browser**. Browser Resources then use the existing Farming Browser Viewer and `farming browser` Agent commands. Each Resource creates and owns its page targets, but the external owner remains responsible for the browser process, container, image, profile, and endpoint availability.
+In **Plugins → Browser**, enable the Browser plugin. Browser Resources then use the existing Farming Browser Viewer and `farming browser` Agent commands. Each Resource creates and owns its page targets, but the external owner remains responsible for the browser process, container, image, profile, and endpoint availability.
 
 `FARMING_BROWSER_CDP_URL` accepts loopback `http`, `https`, `ws`, or `wss` endpoints. Farming intentionally rejects non-loopback addresses, embedded credentials, and query parameters. An explicit external endpoint takes precedence over system-browser discovery until Farming is restarted without the variable.

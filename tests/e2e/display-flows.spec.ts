@@ -366,6 +366,7 @@ test.describe('display-backed agent flows', () => {
     const emptyWorkspace = page.getByTestId('code-empty-workspace')
     await expect(emptyWorkspace.getByTestId('code-empty-home-history')).toBeVisible()
     await expect(emptyWorkspace.getByTestId('code-empty-home-new-agent')).toBeVisible()
+    await expect(emptyWorkspace.getByTestId('code-empty-home-plugins')).toBeVisible()
     await expect(page.getByTestId('code-empty-home-brace')).toBeVisible()
     await expect(page.getByTestId('code-empty-home-target-brace')).toBeVisible()
     const guideGeometry = await page.evaluate(() => {
@@ -389,6 +390,7 @@ test.describe('display-backed agent flows', () => {
         ['code-empty-home-focus', 'code-sidebar-focus-toggle'],
         ['code-empty-home-search', 'code-nav-search'],
         ['code-empty-home-history', 'code-nav-history'],
+        ['code-empty-home-plugins', 'code-nav-plugins'],
         ['code-empty-home-collapse', 'code-sidebar-toggle'],
       ]
       const getPathPoint = (selector: string, fraction: number) => {
@@ -549,6 +551,16 @@ test.describe('display-backed agent flows', () => {
     expect(new Set(guideGeometry.cardBackgrounds).size).toBe(1)
     expect(guideGeometry.iconsMatchToolbar).toBe(true)
 
+    await emptyWorkspace.getByTestId('code-empty-home-plugins').click()
+    await expect(page.getByTestId('code-plugins-panel')).toBeVisible()
+    await expect(page.getByTestId('code-plugin-browser')).toBeVisible()
+    await expect(page.getByTestId('code-nav-plugins')).toHaveClass(/active/)
+    await page.getByTestId('code-plugins-panel').getByRole('button', { name: /Back to workspace|返回工作区/ }).click()
+    await expect(emptyWorkspace.getByTestId('code-empty-home-plugins')).toBeVisible()
+    await page.getByTestId('code-nav-plugins').click()
+    await expect(page.getByTestId('code-plugins-panel')).toBeVisible()
+    await page.getByTestId('code-plugins-panel').getByRole('button', { name: /Back to workspace|返回工作区/ }).click()
+
     await emptyWorkspace.getByTestId('code-empty-home-share').click()
     await expect(page.getByTestId('code-share-popover')).toBeVisible()
     await page.getByTestId('code-share-button').click()
@@ -593,6 +605,7 @@ test.describe('display-backed agent flows', () => {
     const compactHistory = emptyWorkspace.getByTestId('code-empty-compact-history')
     await expect(compactHistory).toBeVisible()
     await expect(emptyWorkspace.getByTestId('code-empty-compact-new-agent')).toBeVisible()
+    await expect(emptyWorkspace.getByTestId('code-empty-compact-plugins')).toBeVisible()
     await compactHistory.click()
     const historyRow = page.getByTestId('code-session-history-card').filter({ hasText: 'Resume from the whole row' })
     await expect(historyRow).toBeVisible()
@@ -3090,6 +3103,7 @@ test.describe('display-backed agent flows', () => {
     await expect(page.getByTestId('code-terminal-grid')).toBeVisible()
     await expect(page.getByTestId('code-nav-search')).toHaveCount(0)
     await expect(page.getByTestId('code-nav-history')).toHaveCount(0)
+    await expect(page.getByTestId('code-nav-plugins')).toHaveCount(0)
     await expect.poll(async () => (await page.getByTestId('code-sidebar').boundingBox())?.width ?? 0).toBeLessThanOrEqual(52)
     const collapsedAgentRailMetrics = await page.getByTestId('code-agent-rail-item').first().evaluate(element => {
       const rect = (element as HTMLElement).getBoundingClientRect()

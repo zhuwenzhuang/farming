@@ -26,11 +26,13 @@ import {
   FocusModeGlyph,
   HistoryGlyph,
   NewAgentGlyph,
+  PuzzleGlyph,
   QrGlyph,
   SearchGlyph,
 } from '../IconGlyphs'
 import type { CodeCopy } from './copy'
 import type { AgentSessionHistoryItem, ProjectGroup, WorkspaceFileOpenTarget, WorkspaceView } from './types'
+import { PluginsPanel } from './PluginsPanel'
 
 type ComposerProps = Omit<ComponentProps<typeof CodeComposer>, 'copy'>
 type AcpComposerProps = Omit<ComponentProps<typeof AcpComposer>, 'copy'>
@@ -266,6 +268,7 @@ interface CodeMainAreaProps {
   acpComposerProps: AcpComposerProps
   onNewAgent: (workspace?: string, command?: string) => void
   onOpenHistory: () => void
+  onOpenPlugins: () => void
   onOpenSearch: () => void
   onOpenShare: () => void
   onOpenAppMode: () => void
@@ -321,13 +324,15 @@ interface CodeMainAreaProps {
 function viewTitle(copy: CodeCopy, view: WorkspaceView) {
   if (view === 'search') return copy.search
   if (view === 'history') return copy.history
+  if (view === 'plugins') return copy.plugins
   return 'Farming'
 }
 
-type EmptyWorkspaceAction = 'history' | 'new-agent' | 'search' | 'share' | 'focus' | 'collapse'
+type EmptyWorkspaceAction = 'history' | 'new-agent' | 'plugins' | 'search' | 'share' | 'focus' | 'collapse'
 
 function EmptyWorkspaceActionGlyph({ action }: { action: EmptyWorkspaceAction }) {
   if (action === 'new-agent') return <NewAgentGlyph />
+  if (action === 'plugins') return <PuzzleGlyph />
   if (action === 'search') return <SearchGlyph />
   if (action === 'collapse') return <ChevronLeftGlyph />
   if (action === 'history') return <HistoryGlyph />
@@ -339,6 +344,7 @@ function EmptyWorkspaceGuide({
   agentCreationWorkspace,
   onNewAgent,
   onOpenHistory,
+  onOpenPlugins,
   onOpenSearch,
   onOpenShare,
   onOpenAppMode,
@@ -348,6 +354,7 @@ function EmptyWorkspaceGuide({
   agentCreationWorkspace?: string
   onNewAgent: (workspace?: string, command?: string) => void
   onOpenHistory: () => void
+  onOpenPlugins: () => void
   onOpenSearch: () => void
   onOpenShare: () => void
   onOpenAppMode: () => void
@@ -440,6 +447,16 @@ function EmptyWorkspaceGuide({
               <strong>{copy.newAgent}</strong>
               <span>{copy.emptyWorkspaceNewAgentDescription}</span>
             </button>
+            <button
+              type="button"
+              className="code-empty-home-card primary"
+              data-testid="code-empty-home-plugins"
+              onClick={onOpenPlugins}
+            >
+              <span className="code-empty-home-card-icon"><EmptyWorkspaceActionGlyph action="plugins" /></span>
+              <strong>{copy.plugins}</strong>
+              <span>{copy.emptyWorkspacePluginsDescription}</span>
+            </button>
           </div>
           <div className="code-empty-home-utilities">
             {utilityActions.map(item => (
@@ -497,6 +514,7 @@ export function CodeMainArea({
   acpComposerProps,
   onNewAgent,
   onOpenHistory,
+  onOpenPlugins,
   onOpenSearch,
   onOpenShare,
   onOpenAppMode,
@@ -664,7 +682,7 @@ export function CodeMainArea({
     >
       {activeView !== 'projects' ? (
         <section
-          className={`code-side-view-panel ${activeView === 'search' ? 'code-search-view' : ''} ${activeView === 'history' ? 'code-history-view' : ''}`}
+          className={`code-side-view-panel ${activeView === 'search' ? 'code-search-view' : ''} ${activeView === 'history' ? 'code-history-view' : ''} ${activeView === 'plugins' ? 'code-plugins-view' : ''}`}
           data-testid="code-side-view-panel"
         >
           {activeView === 'search' ? (
@@ -700,6 +718,14 @@ export function CodeMainArea({
               onLoadMoreAgentSessions={onLoadMoreHistoryAgentSessions}
               onBack={onBackToProjects}
               copy={copy}
+            />
+          ) : activeView === 'plugins' ? (
+            <PluginsPanel
+              capability={browserController.capability}
+              loading={browserController.loading}
+              language={language}
+              onBack={onBackToProjects}
+              onRefreshCapability={browserController.refreshCapability}
             />
           ) : (
             <h2>{viewTitle(copy, activeView)}</h2>
@@ -750,6 +776,7 @@ export function CodeMainArea({
               agentCreationWorkspace={agentCreationWorkspace}
               onNewAgent={onNewAgent}
               onOpenHistory={onOpenHistory}
+              onOpenPlugins={onOpenPlugins}
               onOpenSearch={onOpenSearch}
               onOpenShare={onOpenShare}
               onOpenAppMode={onOpenAppMode}
@@ -782,6 +809,18 @@ export function CodeMainArea({
                   <span className="code-empty-home-card-copy">
                     <strong>{copy.newAgent}</strong>
                     <span>{copy.emptyWorkspaceNewAgentDescription}</span>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className="code-empty-home-card compact-primary"
+                  data-testid="code-empty-compact-plugins"
+                  onClick={onOpenPlugins}
+                >
+                  <span className="code-empty-home-card-icon"><PuzzleGlyph /></span>
+                  <span className="code-empty-home-card-copy">
+                    <strong>{copy.plugins}</strong>
+                    <span>{copy.emptyWorkspacePluginsDescription}</span>
                   </span>
                 </button>
               </div>

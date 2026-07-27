@@ -138,7 +138,8 @@ body.code-resizing-sidebar {
 .code-sidebar-toggle,
 .code-sidebar-focus-toggle,
 .code-sidebar-search-toggle,
-.code-sidebar-history-toggle {
+.code-sidebar-history-toggle,
+.code-sidebar-plugins-toggle {
   width: 22px;
   height: 22px;
   border: 0;
@@ -156,7 +157,8 @@ body.code-resizing-sidebar {
 .code-sidebar-toggle-icon,
 .code-sidebar-focus-icon,
 .code-sidebar-search-icon,
-.code-sidebar-history-icon {
+.code-sidebar-history-icon,
+.code-sidebar-plugins-icon {
   width: 12px;
   height: 12px;
   display: inline-flex;
@@ -172,6 +174,7 @@ body.code-resizing-sidebar {
 
 .code-sidebar-search-icon svg,
 .code-sidebar-history-icon svg,
+.code-sidebar-plugins-icon svg,
 .code-sidebar-toggle-icon svg {
   width: 16px;
   height: 16px;
@@ -185,7 +188,9 @@ body.code-resizing-sidebar {
 .code-sidebar-search-toggle:hover,
 .code-sidebar-search-toggle.active,
 .code-sidebar-history-toggle:hover,
-.code-sidebar-history-toggle.active {
+.code-sidebar-history-toggle.active,
+.code-sidebar-plugins-toggle:hover,
+.code-sidebar-plugins-toggle.active {
   background: rgba(0, 0, 0, 0.07);
 }
 
@@ -203,7 +208,7 @@ body.code-resizing-sidebar {
 
 .code-nav-top-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 22px 22px 22px 22px 22px;
+  grid-template-columns: minmax(0, 1fr) 22px 22px 22px 22px 22px 22px;
   align-items: center;
   gap: 4px;
 }
@@ -10045,7 +10050,7 @@ button.code-agent-transcript-result-summary:focus-visible {
 
 .code-empty-home-primary {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 14px;
 }
 
@@ -10325,6 +10330,150 @@ body.code-mode.code-compact-layout .code-empty-workspace-compact {
   justify-content: flex-start;
   overflow-y: auto;
   padding: 42px 32px 32px;
+}
+
+.code-plugins-view {
+  display: block;
+  background: #ffffff;
+  overflow-y: auto;
+  padding: 42px 32px 32px;
+}
+
+.code-plugins-panel {
+  width: min(820px, 100%);
+  margin: 0 auto;
+  display: grid;
+  gap: 24px;
+}
+
+.code-plugins-panel-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.code-plugins-panel-header > button {
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #586069;
+  display: inline-grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.code-plugins-panel-header > button:hover,
+.code-plugins-panel-header > button:focus-visible {
+  background: #f0f2ee;
+}
+
+.code-plugins-panel-header h2 {
+  margin: 1px 0 4px;
+  font-size: 24px;
+  line-height: 1.25;
+}
+
+.code-plugins-panel-header p,
+.code-plugin-card p {
+  margin: 0;
+  color: #657087;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.code-plugin-card {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid #e3e6e0;
+  border-radius: 12px;
+  background: #ffffff;
+}
+
+.code-plugin-card-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  background: #f0f2ee;
+  color: #39423b;
+  display: inline-grid;
+  place-items: center;
+}
+
+.code-plugin-card-icon svg {
+  width: 22px;
+  height: 22px;
+}
+
+.code-plugin-card-copy {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.code-plugin-card-title {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.code-plugin-card-title h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 620;
+}
+
+.code-plugin-card small {
+  color: #7a847a;
+  font-size: 12px;
+}
+
+.code-plugin-status {
+  color: #6d766d;
+  font-size: 12px;
+}
+
+.code-plugin-status.enabled {
+  color: #24824a;
+}
+
+.code-plugin-toggle {
+  min-width: 64px;
+  height: 32px;
+  padding: 0 13px;
+  border: 1px solid #d9ded7;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #39423b;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+}
+
+.code-plugin-toggle:hover:not(:disabled),
+.code-plugin-toggle:focus-visible:not(:disabled) {
+  background: #f0f2ee;
+}
+
+.code-plugin-toggle.active {
+  border-color: #c9d7cc;
+  background: #eef6ef;
+  color: #216e3d;
+}
+
+.code-plugin-toggle:disabled {
+  cursor: default;
+  opacity: 0.48;
+}
+
+.code-plugin-error {
+  color: #b42318;
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .code-search-panel {
@@ -18560,7 +18709,7 @@ body.code-mode[data-appearance='dark'] .code-settings-language-choice {
   }
 
   body.code-mode.code-compact-layout .code-nav-top-row {
-    grid-template-columns: minmax(0, 1fr) 44px 44px 44px;
+    grid-template-columns: minmax(0, 1fr) 44px 44px 44px 44px;
     gap: 6px;
   }
 

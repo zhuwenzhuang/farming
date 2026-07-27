@@ -187,6 +187,14 @@ export function SettingsGlyph(props: IconGlyphProps) {
   )
 }
 
+export function PuzzleGlyph(props: IconGlyphProps) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false" {...props}>
+      <path d="M6.25 2.25H3.5a1.25 1.25 0 0 0-1.25 1.25v2.75h1a1.75 1.75 0 1 1 0 3.5h-1v2.75a1.25 1.25 0 0 0 1.25 1.25h2.75v-1a1.75 1.75 0 1 1 3.5 0v1h2.75a1.25 1.25 0 0 0 1.25-1.25V9.75h-1a1.75 1.75 0 1 1 0-3.5h1V3.5a1.25 1.25 0 0 0-1.25-1.25H9.75v1a1.75 1.75 0 1 1-3.5 0v-1Z" />
+    </svg>
+  )
+}
+
 export function PencilGlyph(props: IconGlyphProps) {
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" focusable="false" {...props}>

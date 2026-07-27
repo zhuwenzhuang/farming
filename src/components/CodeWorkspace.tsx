@@ -1327,6 +1327,8 @@ export function CodeWorkspace({
     ? copy.search
     : activeView === 'history'
       ? copy.history
+      : activeView === 'plugins'
+        ? copy.plugins
       : mainPaneMode === 'browser' && activeBrowserResource
         ? activeBrowserResource.name
         : showFileEditor && openWorkspaceFile
@@ -4886,7 +4888,6 @@ export function CodeWorkspace({
         agentLaunchOptions={agentLaunchOptions}
         onClose={() => setSettingsPanelOpen(false)}
         onUpdateUiPreferences={onUpdateUiPreferences}
-        onBrowserCapabilityChange={browserResources.refreshCapability}
       />
 
       {mobileShareUrl && (
@@ -5166,6 +5167,7 @@ export function CodeWorkspace({
         }}
         onNewAgent={onNewAgent}
         onOpenHistory={() => openWorkspaceViewFromSidebar('history')}
+        onOpenPlugins={() => openWorkspaceViewFromSidebar('plugins')}
         onOpenSearch={openSearchFromSidebar}
         onOpenShare={() => requestEmptyHomeSidebarAction('share')}
         onOpenAppMode={() => requestEmptyHomeSidebarAction('focus')}

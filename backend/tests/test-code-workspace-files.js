@@ -332,12 +332,13 @@ function run() {
       workspaceSource.includes('isOverlayShortcutTarget') &&
       workspaceSource.includes('isTerminalShortcutTarget') &&
       workspaceSource.includes('agentShortcutKeys') &&
-      workspaceSource.includes("export type WorkspaceView = 'projects' | 'search' | 'history'") &&
+      workspaceSource.includes("export type WorkspaceView = 'projects' | 'search' | 'history' | 'plugins'") &&
       workspaceSource.includes('openWorkspaceView') &&
       workspaceSource.includes('code-side-view-panel') &&
       !workspaceSource.includes('code-nav-projects') &&
       workspaceSource.includes('code-nav-search') &&
       workspaceSource.includes('code-nav-history') &&
+      workspaceSource.includes('code-nav-plugins') &&
       !workspaceSource.includes('settingsAvailable') &&
       !workspaceSource.includes('code-nav-settings') &&
       workspaceSource.includes('codeCopyForLanguage') &&
@@ -360,7 +361,6 @@ function run() {
       workspaceSource.includes('returnFocusRef={productMarkRef}') &&
       workspaceSource.includes('code-product-mark-badge') &&
       workspaceSource.includes('appPath') &&
-      !workspaceSource.includes('code-nav-plugins') &&
       !workspaceSource.includes('code-nav-automations') &&
       workspaceSource.includes('/api/settings') &&
       !workspaceSource.includes('buildWorkspaceHistory') &&

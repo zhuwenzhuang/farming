@@ -116,7 +116,7 @@ test('explains which system browser must be installed when none is available', a
   await page.route('**/api/browsers/capability', route => route.fulfill({
     contentType: 'application/json',
     body: JSON.stringify({
-      enabled: true,
+      enabled: false,
       available: false,
       browser: null,
       message: 'Install a Chromium-based browser to use the system Browser in Farming',
@@ -124,18 +124,18 @@ test('explains which system browser must be installed when none is available', a
   }))
   await openFarming(page)
   await expect(page.getByTestId('farming-browser-section')).toHaveCount(0)
-  await page.getByTestId('code-sidebar-options').click()
-  const settingsPanel = page.getByTestId('code-settings-panel')
-  await expect(settingsPanel.getByText('System browser', { exact: true })).toBeVisible()
-  await expect(settingsPanel.getByText(
-    'Install a Chromium-based browser or configure a loopback CDP endpoint for Farming.',
+  await page.getByTestId('code-nav-plugins').click()
+  const pluginsPanel = page.getByTestId('code-plugins-panel')
+  await expect(pluginsPanel.getByText('Browser', { exact: true })).toBeVisible()
+  await expect(pluginsPanel.getByText(
+    'Requires a compatible Chromium browser or an external CDP endpoint on loopback.',
     { exact: true },
   )).toBeVisible()
-  await expect(settingsPanel.getByText('Chromium or CDP required', { exact: true })).toBeVisible()
-  await expect(settingsPanel.getByRole('button', { name: 'System browser' })).toHaveCount(0)
-  const screenshot = testInfo.outputPath('browser-settings-install-required.png')
-  await settingsPanel.locator('.code-settings-panel').screenshot({ path: screenshot })
-  await testInfo.attach('browser-settings-install-required', {
+  await expect(pluginsPanel.getByText('Not ready', { exact: true })).toBeVisible()
+  await expect(pluginsPanel.getByRole('button', { name: 'Enable' })).toBeDisabled()
+  const screenshot = testInfo.outputPath('browser-plugin-install-required.png')
+  await pluginsPanel.screenshot({ path: screenshot })
+  await testInfo.attach('browser-plugin-install-required', {
     path: screenshot,
     contentType: 'image/png',
   })
@@ -159,14 +159,15 @@ test('matches the focused Viewer viewport and restores the previous Viewer on cl
   const project = page.getByTestId('code-project-group').filter({ hasText: path.basename(workspace) })
   const browserSection = project.getByTestId('farming-browser-section')
   await expect(browserSection).toBeVisible()
-  await page.getByTestId('code-sidebar-options').click()
-  const settingsPanel = page.getByTestId('code-settings-panel')
-  const browserToggle = settingsPanel.getByRole('button', { name: 'System browser' })
-  const browserHint = settingsPanel.getByText(
-    'Show an installed system Chromium browser in Farming and let Agents operate it on demand.',
+  await page.getByTestId('code-nav-plugins').click()
+  const pluginsPanel = page.getByTestId('code-plugins-panel')
+  const browserToggle = pluginsPanel.getByRole('button', { name: 'Disable' })
+  const browserHint = pluginsPanel.getByText(
+    'Let Agents operate webpages and view the same browser in Farming.',
     { exact: true },
   )
-  await expect(settingsPanel.getByText('System browser', { exact: true })).toBeVisible()
+  await expect(pluginsPanel.getByText('Browser', { exact: true })).toBeVisible()
+  await expect(pluginsPanel.getByText('System Chromium', { exact: true })).toBeVisible()
   await expect(browserHint).toBeVisible()
   expect(await browserHint.evaluate(element => ({
     horizontallyClipped: element.scrollWidth > element.clientWidth,
@@ -180,19 +181,19 @@ test('matches the focused Viewer viewport and restores the previous Viewer on cl
     whiteSpace: 'normal',
   })
   await expect(browserToggle).toHaveAttribute('aria-pressed', 'true')
-  const settingsScreenshot = testInfo.outputPath('browser-settings-system-browser.png')
-  await settingsPanel.locator('.code-settings-panel').screenshot({ path: settingsScreenshot })
-  await testInfo.attach('browser-settings-system-browser', {
-    path: settingsScreenshot,
+  const pluginScreenshot = testInfo.outputPath('browser-plugin-system-browser.png')
+  await pluginsPanel.screenshot({ path: pluginScreenshot })
+  await testInfo.attach('browser-plugin-system-browser', {
+    path: pluginScreenshot,
     contentType: 'image/png',
   })
   await browserToggle.click()
-  await expect(browserToggle).toHaveAttribute('aria-pressed', 'false')
+  await expect(pluginsPanel.getByRole('button', { name: 'Enable' })).toHaveAttribute('aria-pressed', 'false')
   await expect(browserSection).toHaveCount(0)
-  await browserToggle.click()
-  await expect(browserToggle).toHaveAttribute('aria-pressed', 'true')
+  await pluginsPanel.getByRole('button', { name: 'Enable' }).click()
+  await expect(pluginsPanel.getByRole('button', { name: 'Disable' })).toHaveAttribute('aria-pressed', 'true')
   await expect(browserSection).toBeVisible()
-  await settingsPanel.getByRole('button', { name: 'Close' }).click()
+  await pluginsPanel.getByRole('button', { name: 'Back to workspace' }).click()
   await browserSection.getByRole('button', { name: 'New Browser' }).click()
   const viewer = page.getByTestId('farming-browser-viewer')
   const desktopCanvas = viewer.locator('canvas')

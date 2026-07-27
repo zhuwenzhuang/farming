@@ -12,7 +12,7 @@ Project Files 现在通过同一个内部 Viewer Registry 解析内置的 Markdo
 
 用户显式打开的已知 Project Root 之外的可读文件仍然只读。对于精确打开的外部 HTML，临时 Preview Session 只授权该 HTML 所在目录，以便加载相对资源；它不会把这个目录加入 Files 浏览、Search、编辑或 Git Scope。
 
-Browser Extension 是第一种实时 Resource 实现，集成默认关闭；Agent Tool 和 MCP 挂载仍然按需进行。它可以启动系统已安装的 Chromium，也可以连接显式配置的外部 CDP Endpoint。Settings 会显示当前可用来源；两个来源都不存在时不显示开关。只有“已启用且当前可用”时，Extension 才贡献 Browser UI，并接受 Browser API、EventSource、Viewer WebSocket、CLI 或 MCP 操作。
+Browser Extension 是第一种实时 Resource 实现，集成默认关闭；Agent Tool 和 MCP 挂载仍然按需进行。它可以启动系统已安装的 Chromium，也可以连接显式配置的外部 CDP Endpoint。插件页会显示当前可用来源；两个来源都不存在时禁用启用操作。只有“已启用且当前可用”时，Extension 才贡献 Browser UI，并接受 Browser API、EventSource、Viewer WebSocket、CLI 或 MCP 操作。
 
 每个 Project 可以拥有多个身份稳定、可重命名的 Browser Row，并具有显式的 `stopped -> starting -> running -> stopping -> stopped` 生命周期；启动或运行失败进入 `failed`。系统浏览器 Row 拥有独立 Profile 和 agent-browser Session；外部 CDP Row 只拥有自己创建的页面 Target，浏览器进程、容器、镜像、Profile 与 Endpoint 仍归外部 Owner。同一个 Browser 身份上的操作串行执行，过期 Viewer Generation 会被拒绝；Farming 重启时，之前仍处于运行态的行会标记为失败。每次持久化变更都会同时递增 Row Revision 与 Collection Revision。后端先注册实时事件监听，再发送权威 Collection Snapshot；UI 按 Revision 归约 HTTP、EventSource 与 Viewer 更新，因此传输乱序不能让状态回退，也不能删除更新的状态。
 
@@ -23,6 +23,8 @@ Browser Extension 是第一种实时 Resource 实现，集成默认关闭；Agen
 Farming 不会把 Browser MCP 自动挂到 ACP Session。Codex、Claude Code、OpenCode 和 Qoder 在进程或 Session 创建时会收到一段很短的 Farming 启动提示，但 Farming 不修改 Project 或 Provider 自己的 Instruction 文件。这段提示要求 Agent 先查询 `farming capabilities`，不能假设能力存在。Browser 可用时，Agent 可按需通过 `farming browser` 列出、创建、启动、连接并操作当前 Project 的 Browser Resource；`farming-browser` 继续作为 npm Bin 别名。`farming browser mcp` 只供调用方在 Session 边界显式配置 MCP，不是默认挂载。
 
 Farming Code 后续应通过 Extension 扩展能力，而不是把每一种新资源和 Agent 能力直接加入核心产品。浏览器是当前最明确的例子，但不应因此在核心中形成一套一次性的浏览器子系统。
+
+Farming Code 通过统一的插件页面呈现这些能力。左上角的紧凑拼图按钮和空白欢迎页上的大型“插件”入口进入同一个页面；插件生命周期与配置归属这里，不再堆进通用设置。进入插件页本身只读，启用或停用仍是显式操作。
 
 ## Resource 与 Viewer 模型
 
