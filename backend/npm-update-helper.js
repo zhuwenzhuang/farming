@@ -88,8 +88,7 @@ function validatePayload(payload) {
   if (!/^[A-Za-z0-9@/._-]+$/.test(String(payload.packageName || ''))) throw new Error('Invalid npm package name');
   if (!/^[0-9A-Za-z.+-]+$/.test(String(payload.targetVersion || ''))) throw new Error('Invalid npm target version');
   if (!/^[0-9A-Za-z.+-]+$/.test(String(payload.previousVersion || ''))) throw new Error('Invalid npm previous version');
-  if (!/^[0-9a-f-]{36}$/i.test(String(payload.operationId || ''))) throw new Error('Invalid npm update operationId');
-  for (const key of ['stateFile', 'logPath', 'cliPath', 'packageRoot', 'configDir', 'stagingPrefix', 'stagingPackageRoot', 'switchRecoveryFile']) {
+  for (const key of ['stateFile', 'logPath', 'cliPath', 'packageRoot', 'configDir', 'stagingPrefix', 'stagingPackageRoot']) {
     if (!path.isAbsolute(String(payload[key] || ''))) throw new Error(`Invalid npm update ${key}`);
   }
   if (payload.npmPrefix && !path.isAbsolute(String(payload.npmPrefix))) {
@@ -117,7 +116,6 @@ function validatePayload(payload) {
 }
 
 function stateFor(payload, phase, extra = {}) {
-  const helperActive = ['installing', 'restarting', 'rolling-back'].includes(phase);
   return {
     method: 'npm',
     phase,
@@ -128,9 +126,6 @@ function stateFor(payload, phase, extra = {}) {
     logPath: payload.logPath,
     stagingPrefix: payload.stagingPrefix,
     stagingPackageRoot: payload.stagingPackageRoot,
-    packageRoot: payload.packageRoot,
-    operationId: payload.operationId,
-    helperProcessIdentity: helperActive ? payload.helperProcessIdentity : null,
     ...extra,
   };
 }
@@ -263,41 +258,16 @@ async function applyNpmUpdate(payload) {
 
     writeJsonAtomic(payload.stateFile, stateFor(payload, 'restarting', {
       preparedAt: payload.preparedAt,
-      backupRoot,
-      switchStep: 'stopping-server',
     }));
     await new Promise(resolve => setTimeout(resolve, 1_000));
     await stopProcess(Number(payload.serverPid), payload.serverProcessIdentity);
     stoppedOldServer = true;
-    writeJsonAtomic(payload.switchRecoveryFile, {
-      operationId: payload.operationId,
-      packageRoot: payload.packageRoot,
-      backupRoot,
-      previousVersion: payload.previousVersion,
-      targetVersion: payload.targetVersion,
-    });
-    writeJsonAtomic(payload.stateFile, stateFor(payload, 'restarting', {
-      preparedAt: payload.preparedAt,
-      backupRoot,
-      switchStep: 'moving-old-package',
-    }));
     fs.renameSync(payload.packageRoot, backupRoot);
     movedOldPackage = true;
-    writeJsonAtomic(payload.stateFile, stateFor(payload, 'restarting', {
-      preparedAt: payload.preparedAt,
-      backupRoot,
-      switchStep: 'moving-new-package',
-    }));
     fs.renameSync(payload.stagingPackageRoot, payload.packageRoot);
     movedNewPackage = true;
-    writeJsonAtomic(payload.stateFile, stateFor(payload, 'restarting', {
-      preparedAt: payload.preparedAt,
-      backupRoot,
-      switchStep: 'starting-server',
-    }));
     await startServer(payload);
 
-    fs.rmSync(payload.switchRecoveryFile, { force: true });
     writeJsonAtomic(payload.stateFile, stateFor(payload, 'succeeded', {
       preparedAt: payload.preparedAt,
       completedAt: new Date().toISOString(),
@@ -318,8 +288,6 @@ async function applyNpmUpdate(payload) {
         writeJsonAtomic(payload.stateFile, stateFor(payload, 'rolling-back', {
           preparedAt: payload.preparedAt,
           error: message,
-          backupRoot,
-          switchStep: 'restoring-old-package',
         }));
         if (movedNewPackage && fs.existsSync(payload.packageRoot)) {
           fs.mkdirSync(path.dirname(payload.stagingPackageRoot), { recursive: true });
@@ -330,7 +298,6 @@ async function applyNpmUpdate(payload) {
         }
         verifyInstalledVersion(payload, payload.previousVersion, payload.packageRoot);
         await startServer(payload, payload.previousVersion);
-        fs.rmSync(payload.switchRecoveryFile, { force: true });
         writeJsonAtomic(payload.stateFile, stateFor(payload, 'rolled-back', {
           version: payload.previousVersion,
           attemptedVersion: payload.targetVersion,
@@ -365,10 +332,6 @@ async function applyNpmUpdate(payload) {
 
 async function runNpmUpdate(rawPayload) {
   const payload = validatePayload(rawPayload);
-  payload.helperProcessIdentity = readServerProcessIdentity(process.pid);
-  if (!payload.helperProcessIdentity) {
-    throw new Error('npm update helper process identity could not be committed');
-  }
   if (payload.action === 'prepare') return prepareNpmUpdate(payload);
   return applyNpmUpdate(payload);
 }

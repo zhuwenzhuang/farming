@@ -151,7 +151,7 @@ write_managed_npm_launchers() {
   release_uses_managed_npm || return 0
   mkdir -p "${RUNTIME_BIN_DIR}" "${STABLE_CLI_DIR}"
 
-  local node_exec config_line home_line auth_line switch_recovery_file
+  local node_exec config_line home_line auth_line
   node_exec="exec \"${SYSTEM_NODE_BIN}\" \"\$@\""
   if use_glibc_runtime; then
     node_exec="exec \"${GLIBC_RUNTIME_ROOT}/lib/ld-2.28.so\" --library-path \"${GLIBC_RUNTIME_ROOT}/lib\" \"${SYSTEM_NODE_BIN}\" \"\$@\""
@@ -178,7 +178,6 @@ EOF
   [ -n "${SERVER_HOME_VALUE}" ] && home_line="export HOME=\"${SERVER_HOME_VALUE}\""
   auth_line="unset FARMING_DISABLE_AUTH"
   is_truthy "${FARMING_DISABLE_AUTH:-0}" && auth_line="export FARMING_DISABLE_AUTH=1"
-  switch_recovery_file="$(effective_config_dir)/farming-update-switch.json"
 
   cat > "${STABLE_CLI_DIR}/farming" <<EOF
 #!/usr/bin/env bash
@@ -192,26 +191,6 @@ export FARMING_SYSTEM_NPM_BIN="${SYSTEM_NPM_BIN}"
 ${config_line}
 ${home_line}
 ${auth_line}
-if [ ! -d "${INSTALL_DIR}" ] && [ -f "${switch_recovery_file}" ]; then
-  backup_root="\$("${RUNTIME_BIN_DIR}/node" -e '
-    const fs = require("fs");
-    const path = require("path");
-    const [markerPath, packageRoot] = process.argv.slice(1);
-    const marker = JSON.parse(fs.readFileSync(markerPath, "utf8"));
-    const expected = path.resolve(packageRoot);
-    const backup = path.resolve(String(marker.backupRoot || ""));
-    if (path.resolve(String(marker.packageRoot || "")) !== expected
-      || path.dirname(backup) !== path.dirname(expected)
-      || !path.basename(backup).startsWith(\`.\${path.basename(expected)}.backup-\`)
-      || !fs.existsSync(backup)) process.exit(1);
-    process.stdout.write(backup);
-  ' "${switch_recovery_file}" "${INSTALL_DIR}")" || {
-    echo "Farming update recovery metadata is invalid; refusing to guess which package directory to restore." >&2
-    exit 1
-  }
-  mv "\${backup_root}" "${INSTALL_DIR}"
-  rm -f "${switch_recovery_file}"
-fi
 exec "${RUNTIME_BIN_DIR}/node" "${INSTALL_DIR}/bin/farming" "\$@"
 EOF
   chmod +x "${STABLE_CLI_DIR}/farming"

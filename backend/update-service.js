@@ -7,17 +7,13 @@ const os = require('os');
 const path = require('path');
 const { Transform } = require('stream');
 const { pipeline } = require('stream/promises');
-const {
-  matchingProcessIdentity,
-  readServerProcessIdentity,
-} = require('./server-process-identity');
+const { readServerProcessIdentity } = require('./server-process-identity');
 const storageLayout = require('./storage-layout');
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const UPDATE_SOURCE_UNCONFIGURED_REASON = 'Update source is empty. Save an Update URL in Settings or restore the default source.';
 const NPM_PACKAGE_NAME = 'farming-code';
 const DEFAULT_NPM_REGISTRY = 'https://registry.npmjs.org';
-const TRANSIENT_UPDATE_PHASES = new Set(['downloading', 'extracting', 'installing', 'restarting', 'rolling-back']);
 
 function readJsonFile(filePath) {
   try {
@@ -25,11 +21,6 @@ function readJsonFile(filePath) {
   } catch {
     return null;
   }
-}
-
-function installedVersionAt(packageRoot) {
-  const metadata = readJsonFile(path.join(String(packageRoot || ''), 'package.json')) || {};
-  return normalizeVersion(metadata.version);
 }
 
 function normalizeVersion(value) {
@@ -803,11 +794,9 @@ class FarmingUpdateService {
     this.npmCache = null;
     this.installState = { phase: 'idle' };
     this.installStartPromise = null;
-    this.activeHelperGraceUntil = 0;
     this.updateStateFile = options.updateStateFile || storageLayout.updateStateFile(this.configDir);
     this.updateLogFile = options.updateLogFile || storageLayout.updateLogFile(this.configDir);
     this.updateStagingDir = options.updateStagingDir || storageLayout.updateStagingDir(this.configDir);
-    this.updateSwitchRecoveryFile = options.updateSwitchRecoveryFile || storageLayout.updateSwitchRecoveryFile(this.configDir);
   }
 
   updateUrl() {
@@ -833,7 +822,7 @@ class FarmingUpdateService {
 
   currentInstallState() {
     const persisted = readJsonFile(this.updateStateFile);
-    if (persisted && persisted.method === this.installMethod) return this.reconcileInterruptedInstallState(persisted);
+    if (persisted && persisted.method === this.installMethod) return persisted;
     const current = this.currentVersion();
     const currentVersion = normalizeVersion(current.releaseVersion || current.packageVersion);
     if (
@@ -844,121 +833,6 @@ class FarmingUpdateService {
       return persisted;
     }
     return this.installState;
-  }
-
-  clearNpmSwitchRecovery(state) {
-    const marker = readJsonFile(this.updateSwitchRecoveryFile);
-    if (!marker) return '';
-    const packageRoot = path.resolve(String(state.packageRoot || this.rootDir));
-    const backupRoot = path.resolve(String(marker.backupRoot || ''));
-    const validMarker = marker.operationId === state.operationId
-      && path.resolve(String(marker.packageRoot || '')) === packageRoot
-      && path.dirname(backupRoot) === path.dirname(packageRoot)
-      && path.basename(backupRoot).startsWith(`.${path.basename(packageRoot)}.backup-`);
-    if (!validMarker) {
-      return 'Update switch recovery metadata does not match the interrupted update; operator cleanup is required.';
-    }
-    if (
-      fs.existsSync(backupRoot)
-      && installedVersionAt(backupRoot) !== normalizeVersion(state.previousVersion)
-    ) {
-      return 'Update switch backup does not match the previous Farming version; operator cleanup is required.';
-    }
-    try {
-      fs.rmSync(backupRoot, { recursive: true, force: true });
-      fs.rmSync(this.updateSwitchRecoveryFile, { force: true });
-      return '';
-    } catch (error) {
-      return `Stale update switch recovery data could not be cleared: ${error.message || error}`;
-    }
-  }
-
-  reconcileInterruptedInstallState(state) {
-    if (!TRANSIENT_UPDATE_PHASES.has(state.phase)) return state;
-    if (this.installStartPromise || this.now() < this.activeHelperGraceUntil) return state;
-    const owner = state.helperProcessIdentity || state.ownerProcessIdentity;
-    if (owner && matchingProcessIdentity(owner, readServerProcessIdentity(owner.pid))) return state;
-
-    const current = this.currentVersion();
-    const currentVersion = normalizeVersion(current.releaseVersion || current.packageVersion);
-    if (currentVersion && currentVersion === normalizeVersion(state.version)) {
-      if (state.method === 'npm') {
-        const cleanupError = this.clearNpmSwitchRecovery(state);
-        if (cleanupError) {
-          return this.persistInstallState({
-            ...state,
-            phase: 'failed',
-            error: `Updated Farming is running, but ${cleanupError}`,
-            completedAt: new Date(this.now()).toISOString(),
-          });
-        }
-        try {
-          fs.rmSync(state.stagingPrefix, { recursive: true, force: true });
-        } catch (error) {
-          return this.persistInstallState({
-            ...state,
-            phase: 'failed',
-            error: `Updated Farming is running, but stale staging data could not be cleared: ${error.message || error}`,
-            completedAt: new Date(this.now()).toISOString(),
-          });
-        }
-      }
-      return this.persistInstallState({
-        ...state,
-        phase: 'succeeded',
-        helperProcessIdentity: null,
-        ownerProcessIdentity: null,
-        error: '',
-        completedAt: new Date(this.now()).toISOString(),
-      });
-    }
-
-    if (state.method === 'npm') {
-      const stagedVersion = installedVersionAt(state.stagingPackageRoot);
-      const installedVersion = installedVersionAt(state.packageRoot || this.rootDir);
-      if (
-        installedVersion === normalizeVersion(state.previousVersion)
-        && stagedVersion === normalizeVersion(state.version)
-      ) {
-        const cleanupError = this.clearNpmSwitchRecovery(state);
-        if (cleanupError) {
-          return this.persistInstallState({
-            ...state,
-            phase: 'failed',
-            error: cleanupError,
-            completedAt: new Date(this.now()).toISOString(),
-          });
-        }
-        return this.persistInstallState({
-          ...state,
-          phase: 'ready-to-restart',
-          helperProcessIdentity: null,
-          ownerProcessIdentity: null,
-          error: 'The previous update helper was interrupted; the prepared update can be retried.',
-        });
-      }
-    } else if (
-      currentVersion === normalizeVersion(state.previousVersion)
-      && path.isAbsolute(String(state.releaseDir || ''))
-      && fs.existsSync(String(state.installer || ''))
-    ) {
-      return this.persistInstallState({
-        ...state,
-        phase: 'ready-to-restart',
-        helperProcessIdentity: null,
-        ownerProcessIdentity: null,
-        error: 'The previous update helper was interrupted; the prepared update can be retried.',
-      });
-    }
-
-    return this.persistInstallState({
-      ...state,
-      phase: 'failed',
-      helperProcessIdentity: null,
-      ownerProcessIdentity: null,
-      error: 'The update owner exited before reaching a provable result. Restart Farming and retry the update.',
-      completedAt: new Date(this.now()).toISOString(),
-    });
   }
 
   persistInstallState(state) {
@@ -1297,7 +1171,6 @@ class FarmingUpdateService {
       totalBytes: Number(status.selected.assetSize) || 0,
       startedAt: new Date(this.now()).toISOString(),
       logPath: path.join(this.configDir, 'farming-update.log'),
-      ownerProcessIdentity: readServerProcessIdentity(process.pid),
     });
     void this.runInstall(asset).catch(error => {
       this.persistInstallState({
@@ -1323,9 +1196,8 @@ class FarmingUpdateService {
     }
 
     const startedAt = new Date(this.now()).toISOString();
-    const operationId = crypto.randomUUID();
-    const packageParent = path.dirname(status.target.packageRoot);
-    const stagingPrefix = fs.mkdtempSync(path.join(packageParent, `.farming-update-${status.selected.version}.`));
+    fs.mkdirSync(this.updateStagingDir, { recursive: true });
+    const stagingPrefix = fs.mkdtempSync(path.join(this.updateStagingDir, `npm-${status.selected.version}.`));
     const stagingPackageRoot = npmPackageRoot(
       path.join(stagingPrefix, 'lib', 'node_modules'),
       this.npmPackageName,
@@ -1338,8 +1210,6 @@ class FarmingUpdateService {
       packageName: this.npmPackageName,
       stagingPrefix,
       stagingPackageRoot,
-      packageRoot: status.target.packageRoot,
-      operationId,
       startedAt,
       logPath: this.updateLogFile,
     });
@@ -1347,7 +1217,6 @@ class FarmingUpdateService {
     const nodePath = process.env.FARMING_NODE_BIN || process.execPath;
     const payload = {
       action: 'prepare',
-      operationId,
       packageName: this.npmPackageName,
       targetVersion: status.selected.version,
       previousVersion: status.current.releaseVersion || status.current.packageVersion,
@@ -1364,7 +1233,6 @@ class FarmingUpdateService {
       npmFallbackRegistryUrl: this.npmRegistryUrl,
       serverPid: process.pid,
       configDir: this.configDir,
-      switchRecoveryFile: this.updateSwitchRecoveryFile,
       port: process.env.FARMING_PORT || process.env.PORT || '6694',
       basePath: process.env.FARMING_BASE_PATH || '/farming',
       serverHome: process.env.FARMING_SERVER_HOME || '',
@@ -1405,7 +1273,6 @@ class FarmingUpdateService {
       });
     }
     if (child && typeof child.unref === 'function') child.unref();
-    this.activeHelperGraceUntil = this.now() + 5_000;
     return state;
   }
 
@@ -1448,11 +1315,8 @@ class FarmingUpdateService {
         throw new Error('Prepared npm update is missing its staging identity');
       }
       const stagingPrefix = normalizePathForCompare(prepared.stagingPrefix);
-      if (
-        path.dirname(stagingPrefix) !== normalizePathForCompare(path.dirname(target.packageRoot))
-        || !path.basename(stagingPrefix).startsWith(`.farming-update-${prepared.version}.`)
-      ) {
-        throw new Error('Prepared npm update is outside the managed package directory');
+      if (!pathIsInside(normalizePathForCompare(this.updateStagingDir), stagingPrefix)) {
+        throw new Error('Prepared npm update is outside the Farming staging directory');
       }
       if (path.resolve(prepared.stagingPackageRoot) !== path.resolve(npmPackageRoot(
         path.join(prepared.stagingPrefix, 'lib', 'node_modules'),
@@ -1468,7 +1332,6 @@ class FarmingUpdateService {
       helperPath = path.join(__dirname, 'npm-update-helper.js');
       payload = {
         action: 'apply',
-        operationId: prepared.operationId,
         packageName: this.npmPackageName,
         targetVersion: prepared.version,
         previousVersion: prepared.previousVersion,
@@ -1487,7 +1350,6 @@ class FarmingUpdateService {
         serverPid: process.pid,
         serverProcessIdentity,
         configDir: this.configDir,
-        switchRecoveryFile: this.updateSwitchRecoveryFile,
         port: process.env.FARMING_PORT || process.env.PORT || '6694',
         basePath: process.env.FARMING_BASE_PATH || '/farming',
         serverHome: process.env.FARMING_SERVER_HOME || '',
@@ -1528,9 +1390,6 @@ class FarmingUpdateService {
         logPath: prepared.logPath || this.updateLogFile,
         releaseDir,
         installer,
-        serverPid: process.pid,
-        serverProcessIdentity,
-        configDir: this.configDir,
       };
       env = { ...this.installEnvironment(), FARMING_BUNDLE_UPDATE_PAYLOAD: JSON.stringify(payload) };
     }
@@ -1557,7 +1416,6 @@ class FarmingUpdateService {
     }
     if (child && typeof child.once === 'function') child.once('error', restorePreparedState);
     if (child && typeof child.unref === 'function') child.unref();
-    this.activeHelperGraceUntil = this.now() + 5_000;
     return state;
   }
 
@@ -1639,7 +1497,6 @@ class FarmingUpdateService {
       installer,
       logPath,
       preparedAt: new Date(this.now()).toISOString(),
-      ownerProcessIdentity: null,
     });
   }
 }

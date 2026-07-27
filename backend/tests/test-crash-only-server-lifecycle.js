@@ -19,11 +19,11 @@ function run() {
       !deploySource.includes('FARMING_GUARD_HTTP_URL') &&
       !deploySource.includes('FARMING_GUARD_WS_URL') &&
       deploySource.includes('bin/farming stop --config-dir ${control_config_dir}') &&
-      deploySource.includes('cmd_stop_with_root "${REMOTE_STAGE_DIR}"') &&
-      deploySource.includes('activate_prepared_deploy') &&
+      deploySource.includes('bin/farming daemon --port ${REMOTE_PORT}') &&
+      !deploySource.includes('write_server_control_metadata') &&
       deploySource.includes('Restart is always crash-only.') &&
       deploySource.includes('Stop is always crash-only.'),
-    'deploy restart and stop should use the same crash-only server termination path without Agent-state guards'
+    'deploy start and stop should use the product crash-only CLI without a second process-control implementation'
   );
 
   assert(
@@ -55,7 +55,7 @@ function run() {
       deploySource.includes("--exclude 'fa-273-mol-dog-stale-db/'") &&
       deploySource.includes("--exclude 'fa-oxg-mol-dog-stale-db/'") &&
       deploySource.includes("--exclude '.git'") &&
-      deploySource.includes('if [ -f ${REMOTE_STAGE_DIR}/.git ]; then rm -f ${REMOTE_STAGE_DIR}/.git; fi') &&
+      deploySource.includes('if [ -f ${REMOTE_DIR}/.git ]; then rm -f ${REMOTE_DIR}/.git; fi') &&
       deploySource.includes("--exclude 'releases/'"),
     'deploy script should keep generated local-only paths out of remote source sync'
   );
@@ -73,14 +73,14 @@ function run() {
 	      deploySource.includes("git(['tag', '--list', 'v[0-9]*', '--sort=-v:refname'])") &&
 	      deploySource.includes('const packageNewerThanLatest = compareSemver(packageVersion, latestVersion) > 0;') &&
 	      deploySource.includes("const suffix = packageNewerThanLatest ? '' : sourceVersionSuffix(gitDescribe, dirty);") &&
-	      deploySource.includes('> ${target_dir}/RELEASE.json') &&
+	      deploySource.includes('> ${REMOTE_DIR}/RELEASE.json') &&
 	      deploySource.includes("type: 'source-deploy'"),
 	    'deploy script should write latest-tag-based RELEASE.json metadata for source deployments'
 	  );
 
   assert(
-      deploySource.includes('inherited_token_b64="$(remote_token_b64)"') &&
-      deploySource.indexOf('inherited_token_b64="$(remote_token_b64)"') < deploySource.indexOf('# A PID file is an ownership claim') &&
+    deploySource.includes('inherited_token_b64="$(remote_token_b64)"') &&
+      deploySource.indexOf('inherited_token_b64="$(remote_token_b64)"') < deploySource.indexOf('if remote_server_control_exists') &&
       deploySource.includes('elif [ -n "${inherited_token_b64}" ]; then') &&
       deploySource.includes("'${inherited_token_b64}' | base64 -d"),
     'deploy start should preserve the running server token when no explicit token is configured'
@@ -104,10 +104,9 @@ function run() {
   );
 
   assert(
-    deploySource.includes('bin/farming daemon --port ${REMOTE_PORT}') &&
-      deploySource.includes('remote "${REMOTE_DIR}/.farming-launcher.sh"') &&
+    deploySource.includes('if ! remote "${REMOTE_DIR}/.farming-launcher.sh"; then') &&
       deploySource.includes('cp ${config_dir}/farming-server.pid ${PID_FILE}'),
-    'deploy start should rely on the CLI readiness and exact process-control handshake'
+    'deploy start should rely on the product CLI readiness and exact process-control handshake'
   );
 
   assert(
@@ -116,8 +115,8 @@ function run() {
       deploySource.includes('remote_server_control_exists()') &&
       deploySource.includes('farming-server.pid') &&
       deploySource.includes('control_config_dir="$(server_config_dir)"') &&
-      deploySource.includes('bin/farming stop --config-dir ${control_config_dir}'),
-    'deploy start and stop should keep CLI server control metadata aligned with the source deployment process'
+      deploySource.includes('${stop_command} && rm -f ${PID_FILE}'),
+    'deploy stop should preserve exact CLI ownership failures and remove compatibility metadata only after success'
   );
 
   console.log('✓ deploy restart and stop use one crash-only server termination path');
