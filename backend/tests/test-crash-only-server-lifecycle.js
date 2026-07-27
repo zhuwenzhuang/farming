@@ -19,8 +19,8 @@ function run() {
       !deploySource.includes('FARMING_GUARD_HTTP_URL') &&
       !deploySource.includes('FARMING_GUARD_WS_URL') &&
       deploySource.includes('bin/farming stop --config-dir ${control_config_dir}') &&
-      deploySource.includes('\\"processIdentity\\"') &&
-      deploySource.includes('\\"format\\": \\"ps-lstart-c-utc-v1\\"') &&
+      deploySource.includes('cmd_stop_with_root "${REMOTE_STAGE_DIR}"') &&
+      deploySource.includes('activate_prepared_deploy') &&
       deploySource.includes('Restart is always crash-only.') &&
       deploySource.includes('Stop is always crash-only.'),
     'deploy restart and stop should use the same crash-only server termination path without Agent-state guards'
@@ -32,10 +32,10 @@ function run() {
       !serverSource.includes("process.on('SIGTERM'") &&
       appCliSource.includes("process.kill(pid, 'SIGKILL')") &&
       npmUpdateHelperSource.includes("process.kill(pid, 'SIGKILL')") &&
-      releaseInstallerSource.includes('kill -9 "${pid}"') &&
+      releaseInstallerSource.includes('run_release_cli "${SOURCE_DIR}" stop') &&
       appCliSource.includes('this command lacks permission') &&
       npmUpdateHelperSource.includes('update helper lacks permission') &&
-      releaseInstallerSource.includes('installer lacks permission'),
+      !releaseInstallerSource.includes('kill -9 "${pid}"'),
     'all supported Farming Server exit entry points should bypass in-process draining'
   );
 
@@ -55,7 +55,7 @@ function run() {
       deploySource.includes("--exclude 'fa-273-mol-dog-stale-db/'") &&
       deploySource.includes("--exclude 'fa-oxg-mol-dog-stale-db/'") &&
       deploySource.includes("--exclude '.git'") &&
-      deploySource.includes('if [ -f ${REMOTE_DIR}/.git ]; then rm -f ${REMOTE_DIR}/.git; fi') &&
+      deploySource.includes('if [ -f ${REMOTE_STAGE_DIR}/.git ]; then rm -f ${REMOTE_STAGE_DIR}/.git; fi') &&
       deploySource.includes("--exclude 'releases/'"),
     'deploy script should keep generated local-only paths out of remote source sync'
   );
@@ -73,23 +73,21 @@ function run() {
 	      deploySource.includes("git(['tag', '--list', 'v[0-9]*', '--sort=-v:refname'])") &&
 	      deploySource.includes('const packageNewerThanLatest = compareSemver(packageVersion, latestVersion) > 0;') &&
 	      deploySource.includes("const suffix = packageNewerThanLatest ? '' : sourceVersionSuffix(gitDescribe, dirty);") &&
-	      deploySource.includes('> ${REMOTE_DIR}/RELEASE.json') &&
+	      deploySource.includes('> ${target_dir}/RELEASE.json') &&
 	      deploySource.includes("type: 'source-deploy'"),
 	    'deploy script should write latest-tag-based RELEASE.json metadata for source deployments'
 	  );
 
   assert(
-    deploySource.includes('inherited_token_b64="$(remote_token_b64)"') &&
-      deploySource.indexOf('inherited_token_b64="$(remote_token_b64)"') < deploySource.indexOf('# Stop if already running') &&
+      deploySource.includes('inherited_token_b64="$(remote_token_b64)"') &&
+      deploySource.indexOf('inherited_token_b64="$(remote_token_b64)"') < deploySource.indexOf('# A PID file is an ownership claim') &&
       deploySource.includes('elif [ -n "${inherited_token_b64}" ]; then') &&
       deploySource.includes("'${inherited_token_b64}' | base64 -d"),
     'deploy start should preserve the running server token when no explicit token is configured'
   );
 
   assert(
-      /token=\\\$\(tr/.test(deploySource) &&
-      deploySource.includes('FARMING_CONFIG_DIR=') &&
-      deploySource.includes('config_dir=\\"\\$HOME/.farming\\"') &&
+      deploySource.includes('config_dir="$(server_config_dir)"') &&
       deploySource.includes('.session-token') &&
       /printf '%s' \\"\\\$token\\" \| base64/.test(deploySource),
     'deploy token inheritance should read the persisted session token without base64-encoding a trailing newline'
@@ -106,20 +104,18 @@ function run() {
   );
 
   assert(
-    deploySource.includes('Farming server failed to become healthy on ${REMOTE}:${REMOTE_PORT}.') &&
-      deploySource.includes('200|401) exit 0 ;; esac') &&
-      deploySource.includes('--connect-timeout 1 --max-time 2') &&
-      deploySource.includes('if ! kill -0 ${started_pid} 2>/dev/null; then exit 1; fi;'),
-    'deploy start should fail when the new process exits or its authenticated endpoint never becomes reachable'
+    deploySource.includes('bin/farming daemon --port ${REMOTE_PORT}') &&
+      deploySource.includes('remote "${REMOTE_DIR}/.farming-launcher.sh"') &&
+      deploySource.includes('cp ${config_dir}/farming-server.pid ${PID_FILE}'),
+    'deploy start should rely on the CLI readiness and exact process-control handshake'
   );
 
   assert(
     deploySource.includes('REMOTE_CONFIG_DIR="${FARMING_REMOTE_CONFIG_DIR:-}"') &&
-      deploySource.includes('server_config_dir_for_pid()') &&
-      deploySource.includes('write_server_control_metadata "${started_pid}"') &&
+      deploySource.includes('server_config_dir()') &&
+      deploySource.includes('remote_server_control_exists()') &&
       deploySource.includes('farming-server.pid') &&
-      deploySource.includes('farming-server.json') &&
-      deploySource.includes('control_config_dir="$(server_config_dir_for_pid "${pid}")"') &&
+      deploySource.includes('control_config_dir="$(server_config_dir)"') &&
       deploySource.includes('bin/farming stop --config-dir ${control_config_dir}'),
     'deploy start and stop should keep CLI server control metadata aligned with the source deployment process'
   );

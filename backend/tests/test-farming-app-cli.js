@@ -332,6 +332,36 @@ async function runTests() {
   }
 
   {
+    const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-starting-stop-daemon.'));
+    const port = await freePort();
+    const starting = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+      detached: true,
+      stdio: 'ignore',
+    });
+    try {
+      await new Promise((resolve, reject) => {
+        starting.once('spawn', resolve);
+        starting.once('error', reject);
+      });
+      const processIdentity = await readServerProcessIdentity(starting.pid);
+      fs.writeFileSync(storageLayout.serverPidFile(configDir), String(starting.pid));
+      fs.writeFileSync(serverStateFile(configDir), JSON.stringify({
+        pid: starting.pid,
+        port,
+        configDir: fs.realpathSync.native(configDir),
+        processIdentity,
+        phase: 'starting',
+      }));
+      const exited = new Promise(resolve => starting.once('exit', (code, signal) => resolve({ code, signal })));
+      assert.strictEqual(await stopDaemon(parseServerArgs(['stop', '--config-dir', configDir])), 0);
+      assert.deepStrictEqual(await exited, { code: null, signal: 'SIGKILL' });
+    } finally {
+      if (starting.exitCode === null && starting.signalCode === null) starting.kill('SIGKILL');
+      fs.rmSync(configDir, { recursive: true, force: true });
+    }
+  }
+
+  {
     const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-legacy-stop-daemon.'));
     const fixture = path.join(__dirname, 'fixtures', 'farming-stop-server.js');
     const port = await freePort();
@@ -554,7 +584,7 @@ async function runTests() {
     const deadPid = 2_147_483_647;
     fs.writeFileSync(storageLayout.serverPidFile(configDir), String(deadPid));
     fs.writeFileSync(serverStateFile(configDir), JSON.stringify({ pid: deadPid }));
-    cleanupFailedDaemonStart(configDir, deadPid);
+    await cleanupFailedDaemonStart(configDir, deadPid);
     assert.strictEqual(fs.existsSync(storageLayout.serverPidFile(configDir)), false);
     assert.strictEqual(fs.existsSync(serverStateFile(configDir)), false);
   }

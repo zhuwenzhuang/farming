@@ -8,6 +8,7 @@ const {
   runBundleUpdate,
   validatePayload,
 } = require('../bundle-update-helper');
+const { readServerProcessIdentity } = require('../server-process-identity');
 
 function quoteShell(value) {
   return `'${String(value).replace(/'/g, `'\\''`)}'`;
@@ -24,6 +25,9 @@ function payloadFor(rootDir, overrides = {}) {
     logPath: path.join(rootDir, 'farming-update.log'),
     releaseDir: rootDir,
     installer: path.join(rootDir, 'install-release.sh'),
+    configDir: rootDir,
+    serverPid: process.pid,
+    serverProcessIdentity: readServerProcessIdentity(process.pid),
     ...overrides,
   };
 }
@@ -51,7 +55,7 @@ async function run() {
   process.env.FARMING_NODE_LD = '/opt/farming/glibc/lib/ld-2.28.so';
   process.env.FARMING_NODE_LIBRARY_PATH = '/opt/farming/glibc/lib';
   try {
-    await runBundleUpdate(payloadFor(rootDir));
+    await runBundleUpdate(payloadFor(rootDir), { stopProcess: async () => {} });
   } finally {
     Object.entries(previous).forEach(([key, value]) => {
       if (value === undefined) delete process.env[key];
@@ -71,7 +75,7 @@ async function run() {
 
   const failedRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-bundle-update-failed.'));
   fs.writeFileSync(path.join(failedRoot, 'install-release.sh'), '#!/usr/bin/env bash\nexit 7\n', { mode: 0o755 });
-  await runBundleUpdate(payloadFor(failedRoot));
+  await runBundleUpdate(payloadFor(failedRoot), { stopProcess: async () => {} });
   const failed = JSON.parse(fs.readFileSync(path.join(failedRoot, 'farming-update.json'), 'utf8'));
   assert.strictEqual(failed.phase, 'failed');
   assert.match(failed.error, /exited with 7/);
@@ -82,7 +86,7 @@ async function run() {
     '#!/usr/bin/env bash\nkill -9 "$$"\n',
     { mode: 0o755 },
   );
-  await runBundleUpdate(payloadFor(killedRoot));
+  await runBundleUpdate(payloadFor(killedRoot), { stopProcess: async () => {} });
   const killed = JSON.parse(fs.readFileSync(path.join(killedRoot, 'farming-update.json'), 'utf8'));
   assert.strictEqual(killed.phase, 'failed');
   assert.match(killed.error, /SIGKILL/);

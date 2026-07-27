@@ -113,6 +113,10 @@ function updateStagingDir(configDir) {
   return path.join(configDir, 'updates');
 }
 
+function updateSwitchRecoveryFile(configDir) {
+  return path.join(configDir, 'farming-update-switch.json');
+}
+
 function farmingNetInstancesFile(configDir) {
   return path.join(configDir, 'instances.json');
 }
@@ -171,5 +175,6 @@ module.exports = {
   updateLogFile,
   updateStagingDir,
   updateStateFile,
+  updateSwitchRecoveryFile,
   usageHistoryCacheFile,
 };

@@ -46,7 +46,10 @@ REMOTE_GLIBC_ROOT="${FARMING_REMOTE_GLIBC_ROOT:-}"
 REMOTE_USE_GLIBC="${FARMING_REMOTE_USE_GLIBC:-${REMOTE_GLIBC_ROOT:+1}}"
 
 PID_FILE="${REMOTE_DIR}/.farming.pid"
-LOG_FILE="${REMOTE_DIR}/farming.log"
+REMOTE_STAGE_DIR="${REMOTE_DIR}.deploy-staging"
+REMOTE_BACKUP_DIR="${REMOTE_DIR}.deploy-backup"
+REMOTE_DEPLOY_STATE="${REMOTE_DIR}.deploy-state"
+DEPLOY_OPERATION_ID="$(date +%s)-$$"
 
 # ── Helpers ────────────────────────────────────────────────────
 remote() {
@@ -59,6 +62,37 @@ log() {
 
 ensure_remote_dir() {
   remote "mkdir -p ${REMOTE_DIR}"
+}
+
+recover_interrupted_deploy() {
+  remote "phase=\$(sed -n 's/^phase=//p' ${REMOTE_DEPLOY_STATE} 2>/dev/null | head -1); \
+    if test -e ${REMOTE_BACKUP_DIR}; then \
+      case \"\$phase\" in \
+        switching|awaiting-health) \
+          if test -e ${REMOTE_DIR}; then exit 0; fi; \
+          mv ${REMOTE_BACKUP_DIR} ${REMOTE_DIR}; \
+          rm -f ${REMOTE_DEPLOY_STATE} ;; \
+        committed) \
+          rm -rf ${REMOTE_BACKUP_DIR}; \
+          rm -f ${REMOTE_DEPLOY_STATE} ;; \
+        *) \
+          echo 'Deployment backup exists without a provable activation phase; refusing automatic cleanup.' >&2; \
+          exit 1 ;; \
+      esac; \
+    elif test \"\$phase\" = switching && test ! -e ${REMOTE_DIR}; then \
+      echo 'Interrupted deployment has neither a live directory nor a rollback directory.' >&2; \
+      exit 1; \
+  fi"
+}
+
+rollback_pending_deploy() {
+  if remote_server_control_exists 2>/dev/null; then
+    cmd_stop_with_root "${REMOTE_DIR}"
+  fi
+  remote "test -e ${REMOTE_BACKUP_DIR}; \
+    rm -rf ${REMOTE_DIR}; \
+    mv ${REMOTE_BACKUP_DIR} ${REMOTE_DIR}; \
+    rm -f ${REMOTE_DEPLOY_STATE}"
 }
 
 ensure_remote_prerequisites() {
@@ -81,27 +115,18 @@ configured_token() {
   printf '%s' "${FARMING_REMOTE_TOKEN:-${FARMING_TOKEN:-}}"
 }
 
-server_config_dir_for_pid() {
-  local pid="$1"
-  remote "config_dir=\$(tr '\0' '\n' < /proc/${pid}/environ 2>/dev/null | \
-    sed -n 's/^FARMING_CONFIG_DIR=//p' | head -1); \
-    if [ -z \"\$config_dir\" ]; then config_dir=\"\$HOME/.farming\"; fi; \
-    printf '%s' \"\$config_dir\""
+server_config_dir() {
+  if [ -n "${REMOTE_CONFIG_DIR}" ]; then
+    printf '%s' "${REMOTE_CONFIG_DIR}"
+    return
+  fi
+  remote 'printf "%s" "$HOME/.farming"'
 }
 
-write_server_control_metadata() {
-  local pid="$1"
+remote_server_control_exists() {
   local config_dir
-  config_dir="$(server_config_dir_for_pid "${pid}")"
-  remote "mkdir -p ${config_dir}; \
-    process_group_id=\$(LANG=C LC_ALL=C TZ=UTC ps -p '${pid}' -o pgid= | tr -d '[:space:]'); \
-    started_at=\$(LANG=C LC_ALL=C TZ=UTC ps -p '${pid}' -o lstart= | sed 's/^ *//;s/ *\$//'); \
-    test -n \"\$process_group_id\" && test -n \"\$started_at\"; \
-    printf '%s' '${pid}' > ${config_dir}/farming-server.pid; \
-    updated_at=\$(date -u +%Y-%m-%dT%H:%M:%S.000Z); \
-    printf '{\n  \"pid\": %s,\n  \"port\": %s,\n  \"basePath\": \"%s\",\n  \"configDir\": \"%s\",\n  \"processIdentity\": {\n    \"pid\": %s,\n    \"processGroupId\": %s,\n    \"startedAt\": \"%s\",\n    \"format\": \"ps-lstart-c-utc-v1\"\n  },\n  \"updatedAt\": \"%s\"\n}\n' \
-      '${pid}' '${REMOTE_PORT}' '${REMOTE_BASE_PATH}' '${config_dir}' '${pid}' \"\$process_group_id\" \"\$started_at\" \"\$updated_at\" \
-      > ${config_dir}/farming-server.json"
+  config_dir="$(server_config_dir)"
+  remote "test -f ${PID_FILE} || test -f ${config_dir}/farming-server.pid"
 }
 
 remote_token_b64() {
@@ -112,15 +137,10 @@ remote_token_b64() {
     return
   fi
 
-  remote "if test -f ${PID_FILE} && kill -0 \$(cat ${PID_FILE}) 2>/dev/null; then \
-    token=\$(tr '\0' '\n' < /proc/\$(cat ${PID_FILE})/environ 2>/dev/null | \
-      sed -n 's/^FARMING_TOKEN=//p' | head -1); \
-    if [ -z \"\$token\" ]; then \
-      config_dir=\$(tr '\0' '\n' < /proc/\$(cat ${PID_FILE})/environ 2>/dev/null | \
-        sed -n 's/^FARMING_CONFIG_DIR=//p' | head -1); \
-      if [ -z \"\$config_dir\" ]; then config_dir=\"\$HOME/.farming\"; fi; \
-      if [ -f \"\$config_dir/.session-token\" ]; then token=\$(cat \"\$config_dir/.session-token\"); fi; \
-    fi; \
+  local config_dir
+  config_dir="$(server_config_dir)"
+  remote "if [ -f ${config_dir}/.session-token ]; then \
+    token=\$(cat ${config_dir}/.session-token); \
     printf '%s' \"\$token\" | base64 | tr -d '\n'; \
   fi" 2>/dev/null || true
 }
@@ -217,19 +237,24 @@ NODE
 }
 
 write_source_release_metadata() {
+  local target_dir="${1:-${REMOTE_DIR}}"
   local metadata_b64
   metadata_b64="$(source_release_metadata_b64)"
   log "Writing source deployment metadata ..."
-  remote "printf '%s' '${metadata_b64}' | base64 -d > ${REMOTE_DIR}/RELEASE.json"
+  remote "printf '%s' '${metadata_b64}' | base64 -d > ${target_dir}/RELEASE.json"
 }
 
 # ── Commands ───────────────────────────────────────────────────
 
-cmd_deploy() {
-  ensure_remote_dir
+prepare_deploy() {
+  recover_interrupted_deploy
+  if remote "test -f ${REMOTE_DEPLOY_STATE}" 2>/dev/null; then
+    cmd_start
+  fi
+  remote "rm -rf ${REMOTE_STAGE_DIR} && mkdir -p \$(dirname ${REMOTE_STAGE_DIR}) ${REMOTE_STAGE_DIR}"
   ensure_remote_prerequisites
 
-  log "Syncing code to ${REMOTE}:${REMOTE_DIR} ..."
+  log "Syncing code to staging directory ${REMOTE}:${REMOTE_STAGE_DIR} ..."
   rsync -azP --delete \
     --exclude 'node_modules/' \
     --exclude 'dist/' \
@@ -272,27 +297,55 @@ cmd_deploy() {
     --exclude '.farming.pid' \
     --exclude '.claude/' \
     --exclude '.env' \
-    "${PROJECT_ROOT}/" "${REMOTE}:${REMOTE_DIR}/"
+    "${PROJECT_ROOT}/" "${REMOTE}:${REMOTE_STAGE_DIR}/"
 
-  remote "if [ -f ${REMOTE_DIR}/.git ]; then rm -f ${REMOTE_DIR}/.git; fi"
+  remote "if [ -f ${REMOTE_STAGE_DIR}/.git ]; then rm -f ${REMOTE_STAGE_DIR}/.git; fi"
 
   log "Installing dependencies ..."
-  remote "cd ${REMOTE_DIR} && PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 PUPPETEER_SKIP_DOWNLOAD=1 npm ci"
+  remote "cd ${REMOTE_STAGE_DIR} && PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 PUPPETEER_SKIP_DOWNLOAD=1 npm ci"
 
   log "Building frontend and CRT renderers ..."
-  remote "cd ${REMOTE_DIR} && FARMING_BASE_PATH=${REMOTE_BASE_PATH} npm run build"
+  remote "cd ${REMOTE_STAGE_DIR} && FARMING_BASE_PATH=${REMOTE_BASE_PATH} npm run build"
 
   log "Pruning development dependencies from runtime install ..."
-  remote "cd ${REMOTE_DIR} && npm prune --omit=dev"
+  remote "cd ${REMOTE_STAGE_DIR} && npm prune --omit=dev"
 
-  write_source_release_metadata
+  write_source_release_metadata "${REMOTE_STAGE_DIR}"
+}
 
-  log "Deploy complete."
+activate_prepared_deploy() {
+  remote "test ! -e ${REMOTE_BACKUP_DIR}; \
+    printf '%s\n' 'operationId=${DEPLOY_OPERATION_ID}' 'phase=switching' > ${REMOTE_DEPLOY_STATE}; \
+    if test -e ${REMOTE_DIR}; then mv ${REMOTE_DIR} ${REMOTE_BACKUP_DIR}; fi; \
+    if mv ${REMOTE_STAGE_DIR} ${REMOTE_DIR}; then \
+      printf '%s\n' 'operationId=${DEPLOY_OPERATION_ID}' 'phase=awaiting-health' > ${REMOTE_DEPLOY_STATE}; \
+    else \
+      if test ! -e ${REMOTE_DIR} && test -e ${REMOTE_BACKUP_DIR}; then mv ${REMOTE_BACKUP_DIR} ${REMOTE_DIR}; fi; \
+      rm -f ${REMOTE_DEPLOY_STATE}; \
+      exit 1; \
+    fi"
+}
+
+cmd_deploy() {
+  prepare_deploy
+  log "Deploy prepared. Run '$0 up' to stop the old Server, atomically activate it, and verify the new Server."
 }
 
 cmd_up() {
-  cmd_deploy
-  cmd_start "$@"
+  prepare_deploy
+  if remote_server_control_exists 2>/dev/null; then
+    cmd_stop_with_root "${REMOTE_STAGE_DIR}"
+  fi
+  activate_prepared_deploy
+  if FARMING_SKIP_DEPLOY_RECOVERY=1 cmd_start "$@"; then
+    return 0
+  fi
+  echo "New Farming release failed to start; restoring the previous complete release." >&2
+  if remote "test -e ${REMOTE_BACKUP_DIR}" 2>/dev/null; then
+    rollback_pending_deploy
+    cmd_start "$@" || true
+  fi
+  return 1
 }
 
 cmd_start() {
@@ -316,6 +369,20 @@ cmd_start() {
     shift
   done
 
+  if [ "${FARMING_SKIP_DEPLOY_RECOVERY:-0}" != "1" ]; then
+    recover_interrupted_deploy
+    if remote "test -f ${REMOTE_DEPLOY_STATE}" 2>/dev/null; then
+      if FARMING_SKIP_DEPLOY_RECOVERY=1 cmd_start "$@"; then
+        return 0
+      fi
+      if remote "test -e ${REMOTE_BACKUP_DIR}" 2>/dev/null; then
+        echo "Interrupted Farming release failed health verification; restoring the previous release." >&2
+        rollback_pending_deploy
+        FARMING_SKIP_DEPLOY_RECOVERY=1 cmd_start "$@" || true
+      fi
+      return 1
+    fi
+  fi
   ensure_remote_dir
 
   local configured_token
@@ -325,9 +392,10 @@ cmd_start() {
     inherited_token_b64="$(remote_token_b64)"
   fi
 
-  # Stop if already running
-  if remote "test -f ${PID_FILE} && kill -0 \$(cat ${PID_FILE}) 2>/dev/null"; then
-    log "Server already running (PID $(remote "cat ${PID_FILE}")). Restarting ..."
+  # A PID file is an ownership claim, even when signal probing is denied.
+  # The CLI validates the exact process identity before it sends SIGKILL.
+  if remote_server_control_exists 2>/dev/null; then
+    log "A previous Server control record exists. Reconciling it before start ..."
     cmd_stop
   fi
 
@@ -357,15 +425,17 @@ cmd_start() {
   fi
 
   # Write launcher script on remote (login shell to inherit user PATH)
-  local config_line exec_line runtime_lines
-  config_line="unset FARMING_CONFIG_DIR"
-  if [ -n "${REMOTE_CONFIG_DIR}" ]; then
-    config_line="export FARMING_CONFIG_DIR=${REMOTE_CONFIG_DIR}"
+  local config_dir config_line exec_line runtime_lines auth_arg
+  config_dir="$(server_config_dir)"
+  config_line="export FARMING_CONFIG_DIR=${config_dir}"
+  auth_arg=""
+  if [[ "${disable_auth}" =~ ^(1|true|TRUE|yes|YES|on|ON)$ ]]; then
+    auth_arg="--no-auth"
   fi
-  exec_line="exec ${remote_node} backend/server.js"
+  exec_line="exec ${remote_node} bin/farming daemon --port ${REMOTE_PORT} --base-path ${REMOTE_BASE_PATH} --config-dir ${config_dir} ${auth_arg}"
   runtime_lines="unset FARMING_NODE_LD FARMING_NODE_LIBRARY_PATH"
   if remote_uses_glibc; then
-    exec_line="exec ${REMOTE_GLIBC_ROOT}/lib/ld-2.28.so --library-path ${REMOTE_GLIBC_ROOT}/lib ${remote_node} backend/server.js"
+    exec_line="exec ${REMOTE_GLIBC_ROOT}/lib/ld-2.28.so --library-path ${REMOTE_GLIBC_ROOT}/lib ${remote_node} bin/farming daemon --port ${REMOTE_PORT} --base-path ${REMOTE_BASE_PATH} --config-dir ${config_dir} ${auth_arg}"
     runtime_lines="export FARMING_NODE_LD=${REMOTE_GLIBC_ROOT}/lib/ld-2.28.so
 export FARMING_NODE_LIBRARY_PATH=${REMOTE_GLIBC_ROOT}/lib"
   fi
@@ -391,36 +461,25 @@ export FARMING_NODE_LIBRARY_PATH=${REMOTE_GLIBC_ROOT}/lib"
     '${exec_line}' \
     > ${REMOTE_DIR}/.farming-launcher.sh && chmod +x ${REMOTE_DIR}/.farming-launcher.sh"
 
-  remote "nohup ${REMOTE_DIR}/.farming-launcher.sh > ${LOG_FILE} 2>&1 & echo \$! > ${PID_FILE}"
-
-  # Treat an early process exit or an unreachable HTTP endpoint as a failed
-  # deployment instead of printing a misleading success message.
-  local started_pid
-  started_pid=$(remote "cat ${PID_FILE}")
-  if ! remote "for _ in \$(seq 1 15); do \
-    if ! kill -0 ${started_pid} 2>/dev/null; then exit 1; fi; \
-    code=\$(curl -sS --connect-timeout 1 --max-time 2 -o /dev/null -w '%{http_code}' http://127.0.0.1:${REMOTE_PORT}${REMOTE_BASE_PATH}/ 2>/dev/null || true); \
-    case \"\$code\" in 200|401) exit 0 ;; esac; \
-    sleep 1; \
-  done; \
-  exit 1"; then
-    echo "Farming server failed to become healthy on ${REMOTE}:${REMOTE_PORT}." >&2
-    remote "tail -30 ${LOG_FILE}" >&2 || true
+  if ! remote "${REMOTE_DIR}/.farming-launcher.sh"; then
     return 1
   fi
-
-  # Source deployments and the product CLI must agree on which process owns
-  # the configured server. Otherwise a later `farming status` or `stop` can
-  # act on stale control metadata left by an earlier daemon launch.
-  write_server_control_metadata "${started_pid}"
+  remote "cp ${config_dir}/farming-server.pid ${PID_FILE}"
+  if remote "test -f ${REMOTE_DEPLOY_STATE} && grep -Eq '^phase=(switching|awaiting-health)$' ${REMOTE_DEPLOY_STATE}"; then
+    remote "printf '%s\n' 'operationId=${DEPLOY_OPERATION_ID}' 'phase=committed' > ${REMOTE_DEPLOY_STATE}; \
+      rm -rf ${REMOTE_BACKUP_DIR}; \
+      rm -f ${REMOTE_DEPLOY_STATE}"
+  fi
 
   log "Server started. Access URL:"
   echo ""
-  remote "head -20 ${LOG_FILE}" 2>/dev/null || true
+  remote "head -20 ${config_dir}/farming-server.log" 2>/dev/null || true
   echo ""
 }
 
-cmd_stop() {
+cmd_stop_with_root() {
+  local cli_root="$1"
+  shift
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --force)
@@ -434,15 +493,15 @@ cmd_stop() {
     shift
   done
 
-  if ! remote "test -f ${PID_FILE}" 2>/dev/null; then
+  if ! remote_server_control_exists 2>/dev/null; then
     log "No PID file found. Server not running."
     return 0
   fi
 
-  local pid
-  pid=$(remote "cat ${PID_FILE}")
   local control_config_dir
-  control_config_dir="$(server_config_dir_for_pid "${pid}")"
+  control_config_dir="$(server_config_dir)"
+  local pid
+  pid="$(remote "if test -f ${control_config_dir}/farming-server.pid; then cat ${control_config_dir}/farming-server.pid; else cat ${PID_FILE}; fi")"
   log "Stopping server (PID ${pid}) ..."
 
   local remote_node
@@ -452,25 +511,30 @@ cmd_stop() {
   if remote_uses_glibc; then
     stop_command="${REMOTE_GLIBC_ROOT}/lib/ld-2.28.so --library-path ${REMOTE_GLIBC_ROOT}/lib ${remote_node} bin/farming stop --config-dir ${control_config_dir}"
   fi
-  remote "cd ${REMOTE_DIR} && ${stop_command}; rm -f .farming.pid"
+  remote "(cd ${cli_root} && ${stop_command}) && rm -f ${PID_FILE}"
   log "Server stopped."
 }
 
+cmd_stop() {
+  recover_interrupted_deploy
+  cmd_stop_with_root "${REMOTE_DIR}" "$@"
+}
+
 cmd_status() {
-  if remote "test -f ${PID_FILE} && kill -0 \$(cat ${PID_FILE}) 2>/dev/null"; then
-    local pid
-    pid=$(remote "cat ${PID_FILE}")
-    log "Server is RUNNING (PID ${pid})"
-    echo ""
-    remote "head -20 ${LOG_FILE}" 2>/dev/null || true
-  else
-    log "Server is NOT running."
-    remote "rm -f ${PID_FILE}" 2>/dev/null || true
+  local config_dir remote_node status_command
+  config_dir="$(server_config_dir)"
+  remote_node="$(remote "which node")"
+  status_command="${remote_node} bin/farming status --config-dir ${config_dir}"
+  if remote_uses_glibc; then
+    status_command="${REMOTE_GLIBC_ROOT}/lib/ld-2.28.so --library-path ${REMOTE_GLIBC_ROOT}/lib ${remote_node} bin/farming status --config-dir ${config_dir}"
   fi
+  remote "cd ${REMOTE_DIR} && ${status_command}"
 }
 
 cmd_logs() {
-  remote "tail -50 ${LOG_FILE}" 2>/dev/null || echo "No log file found."
+  local config_dir
+  config_dir="$(server_config_dir)"
+  remote "tail -50 ${config_dir}/farming-server.log" 2>/dev/null || echo "No log file found."
 }
 
 # ── Main ───────────────────────────────────────────────────────

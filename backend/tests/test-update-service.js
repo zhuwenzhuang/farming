@@ -21,6 +21,7 @@ const {
   selectReleaseAsset,
   validateArchiveEntries,
 } = require('../update-service');
+const storageLayout = require('../storage-layout');
 
 const VALID_SHA256 = 'a'.repeat(64);
 const ARCHIVE_SHA256 = crypto.createHash('sha256').update('archive').digest('hex');
@@ -891,7 +892,7 @@ async function run() {
   assert.strictEqual(npmUpdatePayload.npmCommand, '/opt/farming/runtime/bin/npm');
   assert.strictEqual(npmUpdatePayload.npmPrefix, npmPrefix);
   assert.strictEqual(npmUpdatePayload.packageRoot, npmRoot);
-  assert(npmUpdatePayload.stagingPrefix.startsWith(path.join(npmConfigDir, 'updates', 'npm-2.2.6.')));
+  assert(npmUpdatePayload.stagingPrefix.startsWith(path.join(path.dirname(npmRoot), '.farming-update-2.2.6.')));
   assert.strictEqual(npmUpdatePayload.stagingPackageRoot, path.join(npmUpdatePayload.stagingPrefix, 'lib', 'node_modules', 'farming-code'));
   assert.strictEqual(npmUpdatePayload.npmFallbackRegistryUrl, 'https://registry.npmjs.org');
   const npmApplyPayload = JSON.parse(npmSpawned[1].options.env.FARMING_NPM_UPDATE_PAYLOAD);
@@ -905,6 +906,46 @@ async function run() {
     installMethod: 'source',
   });
   assert.strictEqual(sourceServiceWithNpmState.currentInstallState().phase, 'idle');
+
+  const recoveredSwitchRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-update-switch-recovery.'));
+  const recoveredPackageRoot = path.join(recoveredSwitchRoot, 'farming-code');
+  const recoveredBackupRoot = path.join(recoveredSwitchRoot, '.farming-code.backup-test');
+  const recoveredConfigDir = path.join(recoveredSwitchRoot, 'config');
+  fs.mkdirSync(recoveredPackageRoot, { recursive: true });
+  fs.mkdirSync(recoveredBackupRoot, { recursive: true });
+  fs.mkdirSync(recoveredConfigDir, { recursive: true });
+  fs.writeFileSync(path.join(recoveredPackageRoot, 'package.json'), JSON.stringify({ name: 'farming-code', version: '2.3.0' }));
+  fs.writeFileSync(path.join(recoveredBackupRoot, 'package.json'), JSON.stringify({ name: 'farming-code', version: '2.2.5' }));
+  const recoveredOperationId = '22222222-2222-4222-8222-222222222222';
+  fs.writeFileSync(storageLayout.updateStateFile(recoveredConfigDir), JSON.stringify({
+    method: 'npm',
+    phase: 'restarting',
+    operationId: recoveredOperationId,
+    version: '2.3.0',
+    previousVersion: '2.2.5',
+    packageRoot: recoveredPackageRoot,
+    stagingPrefix: path.join(recoveredSwitchRoot, '.farming-update-2.3.0.test'),
+  }));
+  fs.writeFileSync(storageLayout.updateSwitchRecoveryFile(recoveredConfigDir), JSON.stringify({
+    operationId: recoveredOperationId,
+    packageRoot: recoveredPackageRoot,
+    backupRoot: recoveredBackupRoot,
+    previousVersion: '2.2.5',
+    targetVersion: '2.3.0',
+  }));
+  const recoveredSwitchService = new FarmingUpdateService({
+    rootDir: recoveredPackageRoot,
+    configDir: recoveredConfigDir,
+    installMethod: 'npm',
+  });
+  assert.strictEqual(recoveredSwitchService.currentInstallState().phase, 'succeeded');
+  assert.strictEqual(fs.existsSync(recoveredBackupRoot), false, 'recovery must remove the old package backup');
+  assert.strictEqual(
+    fs.existsSync(storageLayout.updateSwitchRecoveryFile(recoveredConfigDir)),
+    false,
+    'recovery must invalidate the switch marker before a later missing package can restore stale bytes',
+  );
+  fs.rmSync(recoveredSwitchRoot, { recursive: true, force: true });
 
   const migratedRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-migrated-update-root.'));
   const migratedConfigDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-migrated-update-config.'));

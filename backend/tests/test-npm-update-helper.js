@@ -59,6 +59,7 @@ function payloadFor(rootDir, overrides = {}) {
   const stagingPrefix = path.join(rootDir, 'updates', 'npm-2.3.0.test');
   return {
     action: 'prepare',
+    operationId: '11111111-1111-4111-8111-111111111111',
     packageName: 'farming-code',
     targetVersion: '2.3.0',
     previousVersion: '2.2.5',
@@ -74,6 +75,7 @@ function payloadFor(rootDir, overrides = {}) {
     npmFallbackRegistryUrl: 'https://registry.example.test',
     stagingPrefix,
     stagingPackageRoot: packageRoot(stagingPrefix),
+    switchRecoveryFile: path.join(rootDir, 'farming-update-switch.json'),
     serverPid: 0,
     configDir: rootDir,
     port: '6694',

@@ -1,6 +1,8 @@
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
+const { stopProcess } = require('./npm-update-helper');
+const { readServerProcessIdentity } = require('./server-process-identity');
 
 function writeJsonAtomic(filePath, value) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -16,16 +18,20 @@ function appendLog(logPath, message) {
 
 function validatePayload(payload) {
   if (!payload || typeof payload !== 'object') throw new Error('Missing bundle update payload');
-  for (const key of ['stateFile', 'logPath', 'releaseDir', 'installer']) {
+  for (const key of ['stateFile', 'logPath', 'releaseDir', 'installer', 'configDir']) {
     if (!path.isAbsolute(String(payload[key] || ''))) throw new Error(`Invalid bundle update ${key}`);
   }
   if (!/^[0-9A-Za-z.+-]+$/.test(String(payload.version || ''))) {
     throw new Error('Invalid bundle update version');
   }
+  if (!Number.isSafeInteger(Number(payload.serverPid)) || Number(payload.serverPid) <= 0 || !payload.serverProcessIdentity) {
+    throw new Error('Invalid bundle update Server identity');
+  }
   return payload;
 }
 
 function stateFor(payload, phase, extra = {}) {
+  const helperActive = phase === 'restarting';
   return {
     method: payload.method,
     targetMethod: payload.targetMethod,
@@ -34,6 +40,7 @@ function stateFor(payload, phase, extra = {}) {
     previousVersion: payload.previousVersion,
     startedAt: payload.startedAt,
     logPath: payload.logPath,
+    helperProcessIdentity: helperActive ? payload.helperProcessIdentity : null,
     ...extra,
   };
 }
@@ -69,13 +76,17 @@ function runInstaller(payload) {
   });
 }
 
-async function runBundleUpdate(rawPayload) {
+async function runBundleUpdate(rawPayload, options = {}) {
   const payload = validatePayload(rawPayload);
+  payload.helperProcessIdentity = readServerProcessIdentity(process.pid);
+  if (!payload.helperProcessIdentity) {
+    throw new Error('bundle update helper process identity could not be committed');
+  }
   writeJsonAtomic(payload.stateFile, stateFor(payload, 'restarting', {
     preparedAt: payload.preparedAt,
   }));
-  await new Promise(resolve => setTimeout(resolve, 1_000));
   try {
+    await (options.stopProcess || stopProcess)(Number(payload.serverPid), payload.serverProcessIdentity);
     await runInstaller(payload);
     writeJsonAtomic(payload.stateFile, stateFor(payload, 'succeeded', {
       preparedAt: payload.preparedAt,

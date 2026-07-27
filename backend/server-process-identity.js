@@ -2,7 +2,7 @@ const { execFileSync } = require('child_process');
 
 const SERVER_PROCESS_IDENTITY_FORMAT = 'ps-lstart-c-utc-v1';
 
-async function readServerProcessIdentity(pid) {
+function readServerProcessIdentity(pid) {
   const processId = Number(pid);
   if (!Number.isSafeInteger(processId) || processId <= 0 || process.platform === 'win32') return null;
   let stdout;

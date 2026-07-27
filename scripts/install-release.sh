@@ -48,7 +48,6 @@ STABLE_CLI_DIR="${FARMING_CLI_INSTALL_DIR:-${HOME}/.farming/bin}"
 SYSTEM_NODE_BIN="${FARMING_SYSTEM_NODE_BIN:-$(command -v node 2>/dev/null || true)}"
 SYSTEM_NPM_BIN="${FARMING_SYSTEM_NPM_BIN:-$(command -v npm 2>/dev/null || true)}"
 PID_FILE="${INSTALL_DIR}/.farming.pid"
-LOG_FILE="${INSTALL_DIR}/farming.log"
 
 log() {
   echo "==> $*"
@@ -56,6 +55,33 @@ log() {
 
 is_truthy() {
   [[ "${1:-}" =~ ^(1|true|TRUE|yes|YES|on|ON)$ ]]
+}
+
+effective_config_dir() {
+  printf '%s\n' "${CONFIG_DIR_VALUE:-${HOME}/.farming}"
+}
+
+run_release_cli() {
+  local release_root="$1"
+  shift
+  local cli_path="${release_root}/bin/farming"
+  [ -f "${cli_path}" ] || {
+    echo "Farming control CLI is unavailable: ${cli_path}" >&2
+    return 1
+  }
+  if [ -x "${GLIBC_RUNTIME_ROOT}/lib/ld-2.28.so" ] && use_glibc_runtime; then
+    FARMING_NODE_LD="${GLIBC_RUNTIME_ROOT}/lib/ld-2.28.so" \
+      FARMING_NODE_LIBRARY_PATH="${GLIBC_RUNTIME_ROOT}/lib" \
+      FARMING_NODE_BIN="${SYSTEM_NODE_BIN}" \
+      "${GLIBC_RUNTIME_ROOT}/lib/ld-2.28.so" --library-path "${GLIBC_RUNTIME_ROOT}/lib" \
+      "${SYSTEM_NODE_BIN}" "${cli_path}" "$@"
+    return
+  fi
+  FARMING_NODE_BIN="${SYSTEM_NODE_BIN}" "${SYSTEM_NODE_BIN}" "${cli_path}" "$@"
+}
+
+run_installed_cli() {
+  run_release_cli "${INSTALL_DIR}" "$@"
 }
 
 ensure_prerequisites() {
@@ -125,7 +151,7 @@ write_managed_npm_launchers() {
   release_uses_managed_npm || return 0
   mkdir -p "${RUNTIME_BIN_DIR}" "${STABLE_CLI_DIR}"
 
-  local node_exec config_line home_line auth_line
+  local node_exec config_line home_line auth_line switch_recovery_file
   node_exec="exec \"${SYSTEM_NODE_BIN}\" \"\$@\""
   if use_glibc_runtime; then
     node_exec="exec \"${GLIBC_RUNTIME_ROOT}/lib/ld-2.28.so\" --library-path \"${GLIBC_RUNTIME_ROOT}/lib\" \"${SYSTEM_NODE_BIN}\" \"\$@\""
@@ -152,6 +178,7 @@ EOF
   [ -n "${SERVER_HOME_VALUE}" ] && home_line="export HOME=\"${SERVER_HOME_VALUE}\""
   auth_line="unset FARMING_DISABLE_AUTH"
   is_truthy "${FARMING_DISABLE_AUTH:-0}" && auth_line="export FARMING_DISABLE_AUTH=1"
+  switch_recovery_file="$(effective_config_dir)/farming-update-switch.json"
 
   cat > "${STABLE_CLI_DIR}/farming" <<EOF
 #!/usr/bin/env bash
@@ -165,6 +192,26 @@ export FARMING_SYSTEM_NPM_BIN="${SYSTEM_NPM_BIN}"
 ${config_line}
 ${home_line}
 ${auth_line}
+if [ ! -d "${INSTALL_DIR}" ] && [ -f "${switch_recovery_file}" ]; then
+  backup_root="\$("${RUNTIME_BIN_DIR}/node" -e '
+    const fs = require("fs");
+    const path = require("path");
+    const [markerPath, packageRoot] = process.argv.slice(1);
+    const marker = JSON.parse(fs.readFileSync(markerPath, "utf8"));
+    const expected = path.resolve(packageRoot);
+    const backup = path.resolve(String(marker.backupRoot || ""));
+    if (path.resolve(String(marker.packageRoot || "")) !== expected
+      || path.dirname(backup) !== path.dirname(expected)
+      || !path.basename(backup).startsWith(\`.\${path.basename(expected)}.backup-\`)
+      || !fs.existsSync(backup)) process.exit(1);
+    process.stdout.write(backup);
+  ' "${switch_recovery_file}" "${INSTALL_DIR}")" || {
+    echo "Farming update recovery metadata is invalid; refusing to guess which package directory to restore." >&2
+    exit 1
+  }
+  mv "\${backup_root}" "${INSTALL_DIR}"
+  rm -f "${switch_recovery_file}"
+fi
 exec "${RUNTIME_BIN_DIR}/node" "${INSTALL_DIR}/bin/farming" "\$@"
 EOF
   chmod +x "${STABLE_CLI_DIR}/farming"
@@ -248,100 +295,20 @@ install_dependencies() {
 }
 
 stop_server() {
-  if release_uses_managed_npm && [ -x "${STABLE_CLI_DIR}/farming" ]; then
-    local managed_args=(stop)
-    [ -n "${CONFIG_DIR_VALUE}" ] && managed_args+=(--config-dir "${CONFIG_DIR_VALUE}")
-    "${STABLE_CLI_DIR}/farming" "${managed_args[@]}"
-    return 0
-  fi
-  if [ ! -f "${PID_FILE}" ]; then
+  local config_dir
+  config_dir="$(effective_config_dir)"
+  if [ ! -f "${config_dir}/farming-server.pid" ] && [ ! -f "${PID_FILE}" ]; then
     log "No PID file found. Server not running."
     return 0
   fi
-
-  local pid
-  pid="$(cat "${PID_FILE}")"
-  if [ -n "${pid}" ] && kill -0 "${pid}" 2>/dev/null; then
-    log "Stopping server (PID ${pid}) ..."
-    if ! kill -9 "${pid}" 2>/dev/null && kill -0 "${pid}" 2>/dev/null; then
-      echo "Cannot stop Server PID ${pid}: the installer lacks permission. Restart Farming as the operating-system user that owns this process or as an administrator, then retry." >&2
-      return 1
-    fi
-    for _ in $(seq 1 30); do
-      if ! kill -0 "${pid}" 2>/dev/null; then
-        break
-      fi
-      sleep 0.2
-    done
-    if kill -0 "${pid}" 2>/dev/null; then
-      echo "Server PID ${pid} did not exit after SIGKILL." >&2
-      return 1
-    fi
-  else
-    log "Stale PID file found. Cleaning up."
+  if [ ! -f "${config_dir}/farming-server.pid" ]; then
+    echo "This installation has only legacy PID metadata and cannot prove which process it owns. Stop that Farming Server manually once, remove ${PID_FILE}, and retry the install." >&2
+    return 1
   fi
+  # During an upgrade SOURCE_DIR is the complete new release. Its crash-only
+  # control code must stop the old Server before INSTALL_DIR is mutated.
+  run_release_cli "${SOURCE_DIR}" stop --config-dir "${config_dir}"
   rm -f "${PID_FILE}"
-}
-
-write_launcher() {
-  local node_bin auth_line config_line home_line exec_line runtime_lines
-  node_bin="${SYSTEM_NODE_BIN}"
-  exec_line="exec \"${node_bin}\" backend/server.js"
-  runtime_lines="unset FARMING_NODE_LD FARMING_NODE_LIBRARY_PATH FARMING_NPM_COMMAND FARMING_NPM_PREFIX"
-  if use_glibc_runtime; then
-    exec_line="exec \"${GLIBC_RUNTIME_ROOT}/lib/ld-2.28.so\" --library-path \"${GLIBC_RUNTIME_ROOT}/lib\" \"${node_bin}\" backend/server.js"
-    runtime_lines="${runtime_lines}
-export FARMING_NODE_LD=\"${GLIBC_RUNTIME_ROOT}/lib/ld-2.28.so\"
-export FARMING_NODE_LIBRARY_PATH=\"${GLIBC_RUNTIME_ROOT}/lib\""
-  fi
-  auth_line="unset FARMING_DISABLE_AUTH"
-  if is_truthy "${FARMING_DISABLE_AUTH:-0}"; then
-    auth_line="export FARMING_DISABLE_AUTH=1"
-    log "Token auth will be disabled for this server process."
-  else
-    log "Token auth is enabled by default."
-  fi
-
-  config_line=""
-  if [ -n "${CONFIG_DIR_VALUE}" ]; then
-    mkdir -p "${CONFIG_DIR_VALUE}"
-    config_line="export FARMING_CONFIG_DIR=\"${CONFIG_DIR_VALUE}\""
-  fi
-
-  home_line=""
-  if [ -n "${SERVER_HOME_VALUE}" ]; then
-    mkdir -p "${SERVER_HOME_VALUE}"
-    home_line="export HOME=\"${SERVER_HOME_VALUE}\""
-  fi
-
-  write_persisted_env
-
-  cat > "${INSTALL_DIR}/.farming-launcher.sh" <<EOF
-#!/usr/bin/env bash
-source ~/.bashrc 2>/dev/null || source ~/.bash_profile 2>/dev/null || true
-cd "${INSTALL_DIR}"
-export PORT="${PORT_VALUE}"
-export FARMING_BASE_PATH="${BASE_PATH}"
-export FARMING_NODE_BIN="${node_bin}"
-${runtime_lines}
-${config_line}
-${home_line}
-if [ "\${FARMING_NODE_MAX_OLD_SPACE_SIZE:-auto}" = "auto" ] || [ -z "\${FARMING_NODE_MAX_OLD_SPACE_SIZE:-}" ]; then
-  export FARMING_NODE_MAX_OLD_SPACE_SIZE="\$(./scripts/compute-node-heap-mb.sh)"
-fi
-case "\${FARMING_NODE_MAX_OLD_SPACE_SIZE}" in
-  0|off|OFF|false|FALSE)
-    unset NODE_OPTIONS
-    ;;
-  *)
-    export NODE_OPTIONS="--max-old-space-size=\${FARMING_NODE_MAX_OLD_SPACE_SIZE}"
-    echo "Farming Node heap max: \${FARMING_NODE_MAX_OLD_SPACE_SIZE} MB"
-    ;;
-esac
-${auth_line}
-${exec_line}
-EOF
-  chmod +x "${INSTALL_DIR}/.farming-launcher.sh"
 }
 
 write_default_env_var() {
@@ -382,23 +349,20 @@ start_server() {
     echo "Future updates use npm prefix: ${NPM_PREFIX}"
     return 0
   fi
-  write_launcher
+  write_persisted_env
 
+  local config_dir daemon_args
+  config_dir="$(effective_config_dir)"
+  daemon_args=(daemon --port "${PORT_VALUE}" --base-path "${BASE_PATH}" --config-dir "${config_dir}")
+  [ -n "${SERVER_HOME_VALUE}" ] && daemon_args+=(--home "${SERVER_HOME_VALUE}")
+  is_truthy "${FARMING_DISABLE_AUTH:-0}" && daemon_args+=(--no-auth)
   log "Starting Farming server on port ${PORT_VALUE} ..."
-  nohup "${INSTALL_DIR}/.farming-launcher.sh" > "${LOG_FILE}" 2>&1 &
-  echo $! > "${PID_FILE}"
-  sleep 3
-
-  if ! kill -0 "$(cat "${PID_FILE}")" 2>/dev/null; then
-    log "Server failed to stay running. Recent logs:"
-    tail -80 "${LOG_FILE}" 2>/dev/null || true
-    rm -f "${PID_FILE}"
-    exit 1
-  fi
+  run_installed_cli "${daemon_args[@]}"
+  cp "${config_dir}/farming-server.pid" "${PID_FILE}"
 
   log "Server started. Access URL:"
   echo ""
-  tail -80 "${LOG_FILE}" | grep -E 'Local:|Network:|Token:|Token auth|Farming server running' || tail -40 "${LOG_FILE}"
+  tail -80 "${config_dir}/farming-server.log" | grep -E 'Local:|Network:|Token:|Token auth|Farming server running' || tail -40 "${config_dir}/farming-server.log"
   echo ""
 }
 
@@ -409,13 +373,7 @@ status_server() {
     "${STABLE_CLI_DIR}/farming" "${managed_args[@]}"
     return 0
   fi
-  if [ -f "${PID_FILE}" ] && kill -0 "$(cat "${PID_FILE}")" 2>/dev/null; then
-    log "Server is RUNNING (PID $(cat "${PID_FILE}"))"
-    tail -40 "${LOG_FILE}" 2>/dev/null || true
-  else
-    log "Server is NOT running."
-    rm -f "${PID_FILE}"
-  fi
+  run_installed_cli status --config-dir "$(effective_config_dir)"
 }
 
 logs_server() {
@@ -425,11 +383,12 @@ logs_server() {
     "${STABLE_CLI_DIR}/farming" "${managed_args[@]}"
     return 0
   fi
-  tail -80 "${LOG_FILE}" 2>/dev/null || echo "No log file found."
+  run_installed_cli logs --config-dir "$(effective_config_dir)"
 }
 
 install_release() {
   ensure_prerequisites
+  stop_server
   sync_release_files
   install_dependencies
   start_server
