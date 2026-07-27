@@ -225,7 +225,7 @@ function BrowserSection({
             {collapsed ? <ChevronRightGlyph /> : <ChevronDownGlyph />}
           </span>
           <span>{copy.browsers}</span>
-          <small>{resources.length}</small>
+          {resources.length > 0 && <small>{resources.length}</small>}
         </button>
         <button
           type="button"

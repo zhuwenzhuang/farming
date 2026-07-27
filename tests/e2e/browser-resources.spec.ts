@@ -110,6 +110,35 @@ async function runBrowserCli(args: string[]) {
   })
 }
 
+test('does not show a zero count before the first Browser is created', async ({
+  page,
+  workspaceRoot,
+}) => {
+  const workspace = path.join(workspaceRoot, 'empty-browser-project')
+  fs.mkdirSync(workspace, { recursive: true })
+  await page.route('**/api/browsers/capability', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      enabled: true,
+      available: true,
+      browser: { kind: 'chrome', path: '/mock/chrome' },
+      message: 'Browser is available',
+    }),
+  }))
+  await page.route('**/api/browsers', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ collectionRevision: 1, resources: [] }),
+  }))
+  await page.request.post('/farming/api/projects/mount', { data: { workspace } })
+  await openFarming(page)
+
+  const project = page.getByTestId('code-project-group').filter({ hasText: path.basename(workspace) })
+  const browserSection = project.getByTestId('farming-browser-section')
+  await expect(browserSection).toBeVisible()
+  await expect(browserSection.locator('.farming-browser-section-toggle small')).toHaveCount(0)
+  await expect(browserSection.getByRole('button', { name: 'Create browser' })).toBeVisible()
+})
+
 test('explains which system browser must be installed when none is available', async ({
   page,
 }, testInfo) => {
@@ -159,6 +188,7 @@ test('matches the focused Viewer viewport and restores the previous Viewer on cl
   const project = page.getByTestId('code-project-group').filter({ hasText: path.basename(workspace) })
   const browserSection = project.getByTestId('farming-browser-section')
   await expect(browserSection).toBeVisible()
+  await expect(browserSection.locator('.farming-browser-section-toggle small')).toHaveCount(0)
   await page.getByTestId('code-nav-plugins').click()
   const pluginsPanel = page.getByTestId('code-plugins-panel')
   const browserToggle = pluginsPanel.getByRole('button', { name: 'Disable' })
@@ -195,6 +225,7 @@ test('matches the focused Viewer viewport and restores the previous Viewer on cl
   await expect(browserSection).toBeVisible()
   await pluginsPanel.getByRole('button', { name: 'Back to workspace' }).click()
   await browserSection.getByRole('button', { name: 'New Browser' }).click()
+  await expect(browserSection.locator('.farming-browser-section-toggle small')).toHaveText('1')
   const viewer = page.getByTestId('farming-browser-viewer')
   const desktopCanvas = viewer.locator('canvas')
   await expect(desktopCanvas).toBeVisible({ timeout: 30_000 })
