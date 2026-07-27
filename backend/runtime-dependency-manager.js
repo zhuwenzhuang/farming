@@ -30,6 +30,7 @@ const DEPENDENCIES = Object.freeze([
     id: 'agentBrowser',
     envKeys: ['FARMING_AGENT_BROWSER_BIN', 'FARMING_AGENT_BROWSER_EXECUTABLE'],
     commands: ['agent-browser'],
+    allowSystem: false,
   },
 ]);
 
@@ -378,7 +379,8 @@ async function resolveCachedRuntime(configDir, id, platformKey) {
 async function findExactRuntime(configDir, definition, platformKey, env) {
   const { dependency } = dependencyManifest(definition.id, platformKey);
   const expectedVersion = dependency.reportedVersion || dependency.version;
-  for (const candidate of systemCandidates(definition, env)) {
+  const candidates = definition.allowSystem === false ? [] : systemCandidates(definition, env);
+  for (const candidate of candidates) {
     if (!fs.existsSync(candidate.path)) {
       if (candidate.key) {
         throw new Error(`${candidate.key} points to a missing executable: ${candidate.path}`);
@@ -497,7 +499,8 @@ async function prepareRuntimeDependencies(options = {}) {
     for (const definition of DEPENDENCIES) {
       let runtime = await findExactRuntime(configDir, definition, platformKey, candidateEnv);
       if (!runtime) {
-        runtime = await installExactRuntime(configDir, definition, platformKey, options);
+        const installRuntime = options.installRuntime || installExactRuntime;
+        runtime = await installRuntime(configDir, definition, platformKey, options);
       }
       prepared.push(runtime);
     }
@@ -519,12 +522,75 @@ async function prepareRuntimeDependencies(options = {}) {
   }
 }
 
+async function pruneRuntimeDependencies(options = {}) {
+  const env = options.env || process.env;
+  const configDir = options.configDir || storageLayout.farmingConfigDir(env);
+  const active = readJson(storageLayout.runtimeDependenciesActiveFile(configDir));
+  if (!active || active.manifestId !== MANIFEST.manifestId) return { removed: [] };
+  const platformKey = safeSegment(active.platformKey, 'platform key');
+  const releaseLock = await acquirePrepareLock(configDir, options);
+  const removed = [];
+  try {
+    const latest = readJson(storageLayout.runtimeDependenciesActiveFile(configDir));
+    if (!latest || latest.manifestId !== MANIFEST.manifestId) return { removed };
+    for (const definition of DEPENDENCIES) {
+      const dependencyRoot = path.join(
+        storageLayout.runtimeDependenciesDir(configDir),
+        safeSegment(definition.id, 'id'),
+      );
+      if (!fs.existsSync(dependencyRoot)) continue;
+      const dependencyRootStat = fs.lstatSync(dependencyRoot);
+      if (!dependencyRootStat.isDirectory() || dependencyRootStat.isSymbolicLink()) {
+        fs.rmSync(dependencyRoot, { recursive: true, force: true });
+        removed.push(dependencyRoot);
+        continue;
+      }
+      const activeDependency = latest.dependencies?.[definition.id];
+      const keepDir = activeDependency?.source === 'managed'
+        ? dependencyCacheDir(
+            configDir,
+            definition.id,
+            MANIFEST.dependencies[definition.id].version,
+            platformKey,
+          )
+        : '';
+      const keepVersionDir = keepDir ? path.dirname(keepDir) : '';
+      for (const versionEntry of fs.readdirSync(dependencyRoot, { withFileTypes: true })) {
+        const versionDir = path.join(dependencyRoot, versionEntry.name);
+        if (
+          !versionEntry.isDirectory()
+          || !keepDir
+          || path.resolve(versionDir) !== path.resolve(keepVersionDir)
+        ) {
+          fs.rmSync(versionDir, { recursive: true, force: true });
+          removed.push(versionDir);
+          continue;
+        }
+        for (const platformEntry of fs.readdirSync(versionDir, { withFileTypes: true })) {
+          const platformDir = path.join(versionDir, platformEntry.name);
+          if (
+            platformEntry.isDirectory()
+            && path.resolve(platformDir) === path.resolve(keepDir)
+          ) continue;
+          fs.rmSync(platformDir, { recursive: true, force: true });
+          removed.push(platformDir);
+        }
+      }
+      if (fs.readdirSync(dependencyRoot).length === 0) fs.rmdirSync(dependencyRoot);
+    }
+    return { removed };
+  } finally {
+    releaseLock();
+  }
+}
+
 module.exports = {
   DEPENDENCIES,
   MANIFEST,
   applyRuntimeEnvironment,
   dependencyCacheDir,
   prepareRuntimeDependencies,
+  pruneRuntimeDependencies,
   runtimePlatformKey,
   verifyExecutable,
 };

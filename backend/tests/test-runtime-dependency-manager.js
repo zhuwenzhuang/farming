@@ -5,7 +5,9 @@ const path = require('path');
 const storageLayout = require('../storage-layout');
 const {
   MANIFEST,
+  dependencyCacheDir,
   prepareRuntimeDependencies,
+  pruneRuntimeDependencies,
   runtimePlatformKey,
   verifyExecutable,
 } = require('../runtime-dependency-manager');
@@ -35,16 +37,60 @@ async function run() {
     FARMING_CLAUDE_BIN: writeVersionExecutable(binDir, 'claude', '2.1.0'),
     FARMING_AGENT_BROWSER_BIN: writeVersionExecutable(binDir, 'agent-browser', '0.32.3'),
   };
-  const result = await prepareRuntimeDependencies({ configDir: root, env });
+  const managedAgentBrowser = writeVersionExecutable(binDir, 'managed-agent-browser', '0.32.3');
+  const installRuntime = async (_configDir, definition) => {
+    assert.strictEqual(definition.id, 'agentBrowser');
+    return {
+      id: 'agentBrowser',
+      version: MANIFEST.dependencies.agentBrowser.version,
+      source: 'managed',
+      executablePath: managedAgentBrowser,
+    };
+  };
+  const result = await prepareRuntimeDependencies({ configDir: root, env, installRuntime });
   assert.strictEqual(result.dependencies.length, 3);
-  assert(result.dependencies.every(item => item.source === 'system'));
+  assert.deepStrictEqual(
+    result.dependencies.map(item => item.source),
+    ['system', 'system', 'managed'],
+  );
   assert.strictEqual(env.CODEX_PATH, env.FARMING_CODEX_BIN);
   assert.strictEqual(env.CLAUDE_CODE_EXECUTABLE, env.FARMING_CLAUDE_BIN);
   assert.strictEqual(env.FARMING_AGENT_BROWSER_EXECUTABLE, env.FARMING_AGENT_BROWSER_BIN);
+  assert.strictEqual(env.FARMING_AGENT_BROWSER_BIN, managedAgentBrowser);
   assert.strictEqual(env.FARMING_RUNTIME_MANIFEST_ID, MANIFEST.manifestId);
   const active = JSON.parse(fs.readFileSync(storageLayout.runtimeDependenciesActiveFile(root), 'utf8'));
   assert.strictEqual(active.manifestId, MANIFEST.manifestId);
   assert.deepStrictEqual(Object.keys(active.dependencies), ['codex', 'claude', 'agentBrowser']);
+
+  const platformKey = runtimePlatformKey();
+  const currentAgentBrowserCache = dependencyCacheDir(
+    root,
+    'agentBrowser',
+    MANIFEST.dependencies.agentBrowser.version,
+    platformKey,
+  );
+  const oldAgentBrowserCache = dependencyCacheDir(root, 'agentBrowser', '0.31.0', platformKey);
+  const oldCodexCache = dependencyCacheDir(root, 'codex', '0.143.0', platformKey);
+  fs.mkdirSync(currentAgentBrowserCache, { recursive: true });
+  fs.mkdirSync(oldAgentBrowserCache, { recursive: true });
+  fs.mkdirSync(oldCodexCache, { recursive: true });
+  const outsideCache = path.join(root, 'outside-cache');
+  fs.mkdirSync(outsideCache);
+  fs.writeFileSync(path.join(outsideCache, 'keep.txt'), 'keep');
+  if (process.platform !== 'win32') {
+    fs.symlinkSync(
+      outsideCache,
+      path.join(path.dirname(currentAgentBrowserCache), 'other-platform'),
+      'dir',
+    );
+  }
+  const pruned = await pruneRuntimeDependencies({ configDir: root, env });
+  assert(pruned.removed.includes(path.dirname(oldAgentBrowserCache)));
+  assert(pruned.removed.includes(path.dirname(oldCodexCache)));
+  assert(fs.existsSync(currentAgentBrowserCache));
+  assert(!fs.existsSync(oldAgentBrowserCache));
+  assert(!fs.existsSync(oldCodexCache));
+  assert.strictEqual(fs.readFileSync(path.join(outsideCache, 'keep.txt'), 'utf8'), 'keep');
 
   const staleInjectedEnv = {
     PATH: [
@@ -61,8 +107,12 @@ async function run() {
   const refreshed = await prepareRuntimeDependencies({
     configDir: path.join(root, 'stale-manifest'),
     env: staleInjectedEnv,
+    installRuntime,
   });
-  assert(refreshed.dependencies.every(item => item.source === 'system'));
+  assert.deepStrictEqual(
+    refreshed.dependencies.map(item => item.source),
+    ['system', 'system', 'managed'],
+  );
   assert.strictEqual(staleInjectedEnv.FARMING_CODEX_BIN, env.FARMING_CODEX_BIN);
   assert.strictEqual(staleInjectedEnv.FARMING_CLAUDE_BIN, env.FARMING_CLAUDE_BIN);
   assert.strictEqual(
@@ -84,7 +134,7 @@ async function run() {
     /FARMING_CODEX_BIN must provide codex 0\.144\.6/,
   );
 
-  console.log('✓ startup dependencies resolve exact system versions and publish one active manifest');
+  console.log('✓ startup dependencies keep agent-browser managed and publish one active manifest');
 }
 
 run().catch(error => {

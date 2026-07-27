@@ -5,6 +5,7 @@ const path = require('path');
 const { EventEmitter } = require('events');
 const {
   discoverBrowserExecutable,
+  discoverBrowserRuntime,
   normalizeExternalCdpUrl,
 } = require('../../extensions/browser/backend/executable-discovery');
 const {
@@ -140,6 +141,36 @@ function testExternalCdpDiscoveryConfiguration() {
     }).error,
     /loopback/,
   );
+}
+
+async function testManagedAgentBrowserDiscovery() {
+  const probed = [];
+  const managedPath = '/farming/runtime/agent-browser';
+  const runtime = await discoverBrowserRuntime({
+    env: {
+      FARMING_BROWSER_CDP_URL: 'http://127.0.0.1:9222',
+      FARMING_AGENT_BROWSER_BIN: managedPath,
+      PATH: '/system/bin',
+    },
+    execFile(executablePath, _args, _options, callback) {
+      probed.push(executablePath);
+      callback(null, 'agent-browser 0.32.3', '');
+    },
+  });
+  assert.strictEqual(runtime.agentBrowserPath, managedPath);
+  assert.strictEqual(runtime.agentBrowserSource, 'managed');
+  assert.deepStrictEqual(probed, [managedPath]);
+
+  const missing = await discoverBrowserRuntime({
+    env: {
+      FARMING_BROWSER_CDP_URL: 'http://127.0.0.1:9222',
+      PATH: '/system/bin',
+    },
+    execFile() {
+      throw new Error('system agent-browser must not be probed');
+    },
+  });
+  assert.strictEqual(missing.runtimeErrorCode, 'NOT_FOUND');
 }
 
 async function testBrowserResourceManager() {
@@ -604,6 +635,7 @@ function testBrowserUiAndPackagingWiring() {
 
 Promise.resolve()
   .then(testExternalCdpDiscoveryConfiguration)
+  .then(testManagedAgentBrowserDiscovery)
   .then(testBrowserResourceManager)
   .then(testExternalBrowserErrorRedaction)
   .then(testAgentBrowserRestartRecovery)

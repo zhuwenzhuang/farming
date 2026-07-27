@@ -918,6 +918,13 @@ async function runServerInCurrentProcess() {
       processIdentity,
       'running',
     );
+    const { pruneRuntimeDependencies } = require('./runtime-dependency-manager');
+    void pruneRuntimeDependencies({
+      configDir: process.env.FARMING_CONFIG_DIR,
+      env: process.env,
+    }).catch(error => {
+      console.warn(`Startup dependency cache cleanup failed: ${error?.message || error}`);
+    });
   });
 }
 

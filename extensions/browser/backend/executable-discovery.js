@@ -35,36 +35,14 @@ function which(command) {
   }
 }
 
-function agentBrowserBinaryName(platform = process.platform, arch = process.arch) {
-  return `agent-browser-${platform}-${arch}${platform === 'win32' ? '.exe' : ''}`;
-}
-
-function agentBrowserSystemCandidates(options = {}) {
+function managedAgentBrowserPath(options = {}) {
   const env = options.env || process.env;
-  const platform = options.platform || process.platform;
-  const arch = options.arch || process.arch;
-  const configured = String(
+  return String(
     options.agentBrowserPath
     || env.FARMING_AGENT_BROWSER_BIN
     || env.FARMING_AGENT_BROWSER_EXECUTABLE
     || '',
   ).trim();
-  const commandPath = configured || which('agent-browser');
-  const candidates = [];
-  if (commandPath) {
-    try {
-      const realCommandPath = fs.realpathSync(commandPath);
-      const nativeSibling = path.join(
-        path.dirname(realCommandPath),
-        agentBrowserBinaryName(platform, arch),
-      );
-      if (fs.existsSync(nativeSibling)) candidates.push(nativeSibling);
-    } catch {
-      // The resolver reports the configured candidate as missing below.
-    }
-    candidates.push(commandPath);
-  }
-  return [...new Set(candidates.map(candidate => path.resolve(candidate)))];
 }
 
 function discoverMacBrowser() {
@@ -152,33 +130,35 @@ function discoverBrowserExecutable(options = {}) {
 async function discoverBrowserRuntime(options = {}) {
   const browser = discoverBrowserExecutable(options);
   if (!browser || browser.error) return browser;
-  const env = options.env || process.env;
-  const candidates = options.agentBrowserSystemCandidates || agentBrowserSystemCandidates(options);
-  for (const candidate of candidates) {
-    const verification = await verifyExecutable(candidate, AGENT_BROWSER_VERSION, {
-      execFile: options.execFile,
-    });
-    if (!verification.valid) continue;
+  const agentBrowserPath = managedAgentBrowserPath(options);
+  if (!agentBrowserPath) {
     return {
       ...browser,
-      agentBrowserPath: candidate,
-      agentBrowserVersion: AGENT_BROWSER_VERSION,
-      agentBrowserSource: candidate === String(env.FARMING_AGENT_BROWSER_BIN || '').trim()
-        ? 'managed'
-        : 'system',
+      error: `agent-browser ${AGENT_BROWSER_VERSION} is required; restart Farming through its launcher to prepare startup dependencies`,
+      runtimeErrorCode: 'NOT_FOUND',
+    };
+  }
+  const verification = await verifyExecutable(agentBrowserPath, AGENT_BROWSER_VERSION, {
+    execFile: options.execFile,
+  });
+  if (!verification.valid) {
+    return {
+      ...browser,
+      error: `The Farming-managed agent-browser must be version ${AGENT_BROWSER_VERSION}`,
+      runtimeErrorCode: 'VERSION_MISMATCH',
     };
   }
   return {
     ...browser,
-    error: `agent-browser ${AGENT_BROWSER_VERSION} is required; restart Farming through its launcher to prepare startup dependencies`,
-    runtimeErrorCode: 'NOT_FOUND',
+    agentBrowserPath,
+    agentBrowserVersion: AGENT_BROWSER_VERSION,
+    agentBrowserSource: 'managed',
   };
 }
 
 module.exports = {
-  agentBrowserBinaryName,
-  agentBrowserSystemCandidates,
   discoverBrowserExecutable,
   discoverBrowserRuntime,
+  managedAgentBrowserPath,
   normalizeExternalCdpUrl,
 };
