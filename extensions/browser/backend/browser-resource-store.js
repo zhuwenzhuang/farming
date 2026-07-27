@@ -3,12 +3,30 @@ const crypto = require('crypto');
 const { atomicWriteJson } = require('../../../backend/atomic-json-store');
 const storageLayout = require('../../../backend/storage-layout');
 
-const STORE_VERSION = 2;
+const STORE_VERSION = 3;
 const RESOURCE_ID_RE = /^browser_[A-Za-z0-9_-]+$/;
 const STATUSES = new Set(['stopped', 'starting', 'running', 'stopping', 'failed']);
 
 function createBrowserId() {
   return `browser_${Date.now().toString(36)}_${crypto.randomBytes(6).toString('hex')}`;
+}
+
+function normalizeProcessIdentity(value) {
+  if (
+    !value
+    || Number(value.pid) <= 0
+    || !Number.isSafeInteger(Number(value.pid))
+    || Number(value.processGroupId) <= 0
+    || !Number.isSafeInteger(Number(value.processGroupId))
+    || !String(value.startedAt || '').trim()
+    || !String(value.format || '').trim()
+  ) return null;
+  return {
+    pid: Number(value.pid),
+    processGroupId: Number(value.processGroupId),
+    startedAt: String(value.startedAt).trim(),
+    format: String(value.format).trim(),
+  };
 }
 
 function normalizeResource(value) {
@@ -28,6 +46,7 @@ function normalizeResource(value) {
     title: String(value.title || '').slice(0, 512),
     browserKind: String(value.browserKind || ''),
     error: String(value.error || '').slice(0, 2_000),
+    processIdentity: normalizeProcessIdentity(value.processIdentity),
     createdAt: Number.isFinite(value.createdAt) ? value.createdAt : Date.now(),
     updatedAt: Number.isFinite(value.updatedAt) ? value.updatedAt : Date.now(),
   };
@@ -59,11 +78,6 @@ class BrowserResourceStore {
     for (const value of resources) {
       const resource = normalizeResource(value);
       if (!resource || this.resources.has(resource.id)) continue;
-      if (resource.status === 'running' || resource.status === 'starting' || resource.status === 'stopping') {
-        resource.status = 'failed';
-        resource.error = 'Farming restarted before the Browser runtime could be reconciled';
-        resource.updatedAt = Date.now();
-      }
       this.resources.set(resource.id, resource);
     }
     this.commit();

@@ -2,11 +2,17 @@ const fs = require('fs');
 const path = require('path');
 const { EventEmitter } = require('events');
 const storageLayout = require('../../../backend/storage-layout');
+const {
+  matchingProcessIdentity,
+  readServerProcessIdentity,
+} = require('../../../backend/server-process-identity');
 const { BrowserResourceStore, RESOURCE_ID_RE } = require('./browser-resource-store');
 const { CdpBrowserRuntime } = require('./cdp-browser-runtime');
 const { discoverBrowserExecutable } = require('./executable-discovery');
 
 const MAX_VIEWER_BUFFER_BYTES = 2 * 1024 * 1024;
+const BROWSER_RECOVERY_TIMEOUT_MS = 5_000;
+const BROWSER_RECOVERY_POLL_MS = 100;
 
 function publicResource(resource, collectionRevision) {
   return {
@@ -59,13 +65,78 @@ class BrowserResourceManager extends EventEmitter {
     this.discoverExecutable = options.discoverExecutable || (() => discoverBrowserExecutable(options));
     this.createRuntime = options.createRuntime || (input => new CdpBrowserRuntime(input));
     this.isEnabled = typeof options.isEnabled === 'function' ? options.isEnabled : () => true;
+    this.readProcessIdentity = options.readProcessIdentity || readServerProcessIdentity;
+    this.killProcessGroup = options.killProcessGroup || ((processGroupId, signal) => process.kill(-processGroupId, signal));
+    this.wait = options.wait || (durationMs => new Promise(resolve => setTimeout(resolve, durationMs)));
     this.runtimes = new Map();
     this.operations = new Map();
     this.disposed = false;
   }
 
-  init() {
+  async init() {
     this.store.init();
+    const interrupted = this.store.list().filter(resource =>
+      ['running', 'starting', 'stopping'].includes(resource.status)
+    );
+    await Promise.all(interrupted.map(resource => this.recoverInterruptedRuntime(resource)));
+  }
+
+  async recoverInterruptedRuntime(resource) {
+    const expected = resource.processIdentity;
+    if (!expected) {
+      this.store.update(resource.id, {
+        status: 'failed',
+        error: 'Farming restarted before the Browser runtime identity was committed',
+        processIdentity: null,
+      });
+      return;
+    }
+    const current = await this.readProcessIdentity(expected.pid);
+    if (!matchingProcessIdentity(expected, current)) {
+      this.store.update(resource.id, {
+        status: 'failed',
+        error: 'Farming restarted after the previous Browser runtime exited',
+        processIdentity: null,
+      });
+      return;
+    }
+    if (expected.processGroupId !== expected.pid) {
+      this.store.update(resource.id, {
+        status: 'failed',
+        error: `Previous Browser process ${expected.pid} has an unsafe process-group identity; stop it manually`,
+      });
+      return;
+    }
+    try {
+      this.killProcessGroup(expected.processGroupId, 'SIGKILL');
+    } catch (error) {
+      if (error?.code !== 'ESRCH') {
+        const permission = error?.code === 'EPERM' || error?.code === 'EACCES';
+        this.store.update(resource.id, {
+          status: 'failed',
+          error: permission
+            ? `Farming cannot clean up previous Browser process ${expected.pid} because it lacks permission`
+            : `Farming could not clean up previous Browser process ${expected.pid}: ${error?.message || error}`,
+        });
+        return;
+      }
+    }
+    const startedAt = Date.now();
+    while (matchingProcessIdentity(expected, await this.readProcessIdentity(expected.pid))) {
+      if (Date.now() - startedAt >= BROWSER_RECOVERY_TIMEOUT_MS) {
+        this.store.update(resource.id, {
+          status: 'failed',
+          error: `Previous Browser process ${expected.pid} did not exit after SIGKILL`,
+        });
+        return;
+      }
+      await this.wait(BROWSER_RECOVERY_POLL_MS);
+    }
+    this.store.update(resource.id, {
+      status: 'failed',
+      error: 'Farming restarted and cleaned up the previous Browser runtime',
+      processIdentity: null,
+    });
   }
 
   capability() {
@@ -137,6 +208,13 @@ class BrowserResourceManager extends EventEmitter {
       if (resource.status === 'starting' || resource.status === 'stopping') {
         throw browserError(`Browser is ${resource.status}`, 409, 'BROWSER_BUSY');
       }
+      if (resource.processIdentity) {
+        throw browserError(
+          `Previous Browser process ${resource.processIdentity.pid} still requires cleanup`,
+          409,
+          'BROWSER_RECOVERY_CLEANUP_REQUIRED',
+        );
+      }
       const executable = this.discoverExecutable();
       if (!executable) {
         const failed = this.store.update(id, {
@@ -153,6 +231,7 @@ class BrowserResourceManager extends EventEmitter {
         generation,
         browserKind: executable.kind,
         error: '',
+        processIdentity: null,
       });
       this.emitResource(starting);
       const runtime = this.createRuntime({
@@ -192,6 +271,7 @@ class BrowserResourceManager extends EventEmitter {
             error: cleanupError
               ? `${error?.message || 'Failed to start system browser'}; cleanup failed: ${cleanupError.message}`
               : error?.message || 'Failed to start system browser',
+            ...(!cleanupError ? { processIdentity: null } : {}),
           })
           : null;
         if (failed) this.emitResource(failed);
@@ -210,7 +290,19 @@ class BrowserResourceManager extends EventEmitter {
       this.requireStored(id);
       const runtime = this.runtimes.get(id);
       if (!runtime) {
-        const stopped = this.store.update(id, { status: 'stopped', error: '' });
+        const resource = this.requireStored(id);
+        if (resource.processIdentity) {
+          await this.recoverInterruptedRuntime(resource);
+          const recovered = this.requireStored(id);
+          if (recovered.processIdentity) {
+            throw browserError(
+              recovered.error || `Previous Browser process ${recovered.processIdentity.pid} still requires cleanup`,
+              500,
+              'BROWSER_RECOVERY_CLEANUP_REQUIRED',
+            );
+          }
+        }
+        const stopped = this.store.update(id, { status: 'stopped', error: '', processIdentity: null });
         this.emitResource(stopped);
         return publicResource(stopped, this.store.revision);
       }
@@ -219,7 +311,7 @@ class BrowserResourceManager extends EventEmitter {
       this.broadcastRuntimeState(runtime);
       await runtime.close();
       if (this.runtimes.get(id) === runtime) this.runtimes.delete(id);
-      const stopped = this.store.update(id, { status: 'stopped', error: '' });
+      const stopped = this.store.update(id, { status: 'stopped', error: '', processIdentity: null });
       this.emitResource(stopped);
       this.broadcastRuntimeState(runtime);
       runtime.viewers?.clear?.();
@@ -442,6 +534,15 @@ class BrowserResourceManager extends EventEmitter {
   }
 
   bindRuntime(runtime) {
+    runtime.on('process-identity', processIdentity => {
+      const current = this.store.get(runtime.id);
+      if (
+        this.runtimes.get(runtime.id) !== runtime
+        || !current
+        || current.generation !== runtime.generation
+      ) return;
+      this.store.update(runtime.id, { processIdentity });
+    });
     runtime.on('frame', frame => {
       runtime.latestFrame = frame;
       for (const viewer of runtime.viewers || []) {
@@ -506,6 +607,9 @@ class BrowserResourceManager extends EventEmitter {
     try {
       await runtime.close();
       if (this.runtimes.get(runtime.id) === runtime) this.runtimes.delete(runtime.id);
+      const cleaned = this.store.update(runtime.id, { processIdentity: null });
+      this.emitResource(cleaned);
+      this.broadcastRuntimeState(runtime);
     } catch (error) {
       const cleanupFailed = this.store.update(runtime.id, {
         status: 'failed',

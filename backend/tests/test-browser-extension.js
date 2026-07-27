@@ -2,13 +2,14 @@ const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { spawn } = require('child_process');
 const { EventEmitter } = require('events');
 const WebSocket = require('ws');
 const { WebSocketServer } = WebSocket;
 const { CdpClient } = require('../../extensions/browser/backend/cdp-client');
 const {
   CdpBrowserRuntime,
-  launchSystemBrowser,
+  browserLaunchArguments,
 } = require('../../extensions/browser/backend/cdp-browser-runtime');
 const {
   applyBrowserResource,
@@ -36,6 +37,12 @@ class FakeBrowserRuntime extends EventEmitter {
 
   async start(url) {
     this.startedUrl = url;
+    this.emit('process-identity', {
+      pid: 41_001 + this.generation,
+      processGroupId: 41_001 + this.generation,
+      startedAt: `generation-${this.generation}`,
+      format: 'test-v1',
+    });
     return { url, title: 'Fake Browser' };
   }
 
@@ -136,30 +143,40 @@ async function testCdpClient() {
 }
 
 function testSystemBrowserLaunchFlags() {
-  const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-browser-launch-'));
-  const launches = [];
-  const spawn = (executablePath, args, options) => {
-    launches.push({ executablePath, args, options });
-    return { stderr: new EventEmitter() };
-  };
+  const profileDir = '/tmp/farming-browser-launch-flags';
+  const sandboxed = browserLaunchArguments(profileDir, { platform: 'linux', noSandbox: false });
+  const unsandboxed = browserLaunchArguments(profileDir, { platform: 'linux', noSandbox: true });
+  assert(sandboxed.includes('--disable-dev-shm-usage'));
+  assert(!sandboxed.includes('--no-sandbox'));
+  assert(unsandboxed.includes('--no-sandbox'));
+  assert(unsandboxed.includes('--disable-setuid-sandbox'));
+  assert(sandboxed.includes('--remote-debugging-port=0'));
+}
+
+async function testBrowserLaunchGate() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-browser-gate-'));
+  const fixture = path.join(root, 'browser-fixture.js');
+  const marker = path.join(root, 'launched');
+  const gatePath = path.join(__dirname, '..', '..', 'extensions', 'browser', 'backend', 'browser-launch-gate.js');
+  fs.writeFileSync(fixture, `require('fs').writeFileSync(process.argv[2], 'launched');\n`);
+  const gate = spawn(process.execPath, [gatePath, process.execPath, fixture, marker], {
+    detached: true,
+    stdio: ['pipe', 'ignore', 'ignore'],
+  });
   try {
-    launchSystemBrowser('/fake/chrome', profileDir, {
-      spawn,
-      platform: 'linux',
-      noSandbox: false,
+    await new Promise((resolve, reject) => {
+      gate.once('spawn', resolve);
+      gate.once('error', reject);
     });
-    launchSystemBrowser('/fake/chrome', profileDir, {
-      spawn,
-      platform: 'linux',
-      noSandbox: true,
-    });
-    assert(launches[0].args.includes('--disable-dev-shm-usage'));
-    assert(!launches[0].args.includes('--no-sandbox'));
-    assert(launches[1].args.includes('--no-sandbox'));
-    assert(launches[1].args.includes('--disable-setuid-sandbox'));
-    assert(launches.every(call => call.args.includes('--remote-debugging-port=0')));
+    await new Promise(resolve => setTimeout(resolve, 100));
+    assert.strictEqual(fs.existsSync(marker), false, 'the Browser executable must not start before identity commit releases the gate');
+    const exited = new Promise(resolve => gate.once('exit', resolve));
+    gate.stdin.end('GO\n');
+    await exited;
+    assert.strictEqual(fs.readFileSync(marker, 'utf8'), 'launched');
   } finally {
-    fs.rmSync(profileDir, { recursive: true, force: true });
+    if (gate.exitCode === null && gate.signalCode === null) process.kill(-gate.pid, 'SIGKILL');
+    fs.rmSync(root, { recursive: true, force: true });
   }
 }
 
@@ -273,7 +290,7 @@ async function testBrowserResourceManager() {
     },
   });
   try {
-    manager.init();
+    await manager.init();
     assert.deepStrictEqual(manager.capability(), {
       enabled: false,
       available: false,
@@ -297,7 +314,7 @@ async function testBrowserResourceManager() {
     const running = await manager.start(created.id);
     assert.strictEqual(running.status, 'running');
     assert.strictEqual(running.generation, 1);
-    assert.strictEqual(running.revision, 2);
+    assert.strictEqual(running.revision, 3);
     assert.strictEqual(running.collectionRevision, manager.store.revision);
     assert.deepStrictEqual(manager.snapshot(), {
       collectionRevision: manager.store.revision,
@@ -369,17 +386,77 @@ async function testBrowserResourceManager() {
       name: 'Restart recovery',
       url: 'about:blank',
     });
-    manager.store.update(orphaned.id, { status: 'running' });
+    const orphanedIdentity = {
+      pid: 51_001,
+      processGroupId: 51_001,
+      startedAt: 'orphaned-browser',
+      format: 'test-v1',
+    };
+    manager.store.update(orphaned.id, {
+      status: 'running',
+      processIdentity: orphanedIdentity,
+    });
+    let orphanedAlive = true;
+    const killedGroups = [];
     const restartedManager = new BrowserResourceManager({
       configDir,
       discoverExecutable: () => ({ kind: 'chrome', path: '/fake/chrome' }),
       createRuntime: options => new FakeBrowserRuntime(options),
+      readProcessIdentity: async pid => (
+        orphanedAlive && pid === orphanedIdentity.pid ? orphanedIdentity : null
+      ),
+      killProcessGroup: (processGroupId, signal) => {
+        killedGroups.push({ processGroupId, signal });
+        orphanedAlive = false;
+      },
     });
-    restartedManager.init();
+    await restartedManager.init();
     assert.strictEqual(restartedManager.capability().enabled, true, 'System browser integration should default to enabled');
     assert.strictEqual(restartedManager.get(orphaned.id).status, 'failed');
-    assert.match(restartedManager.get(orphaned.id).error, /restarted/);
+    assert.strictEqual(restartedManager.store.get(orphaned.id).processIdentity, null);
+    assert.match(restartedManager.get(orphaned.id).error, /cleaned up/);
+    assert.deepStrictEqual(killedGroups, [{
+      processGroupId: orphanedIdentity.processGroupId,
+      signal: 'SIGKILL',
+    }]);
     await restartedManager.dispose();
+
+    const blocked = manager.store.create({
+      projectRootId: 'project_test',
+      workspace: '/tmp/project-test',
+      name: 'Permission recovery',
+      url: 'about:blank',
+    });
+    const blockedIdentity = {
+      pid: 51_002,
+      processGroupId: 51_002,
+      startedAt: 'permission-browser',
+      format: 'test-v1',
+    };
+    manager.store.update(blocked.id, { status: 'running', processIdentity: blockedIdentity });
+    const permissionManager = new BrowserResourceManager({
+      configDir,
+      discoverExecutable: () => ({ kind: 'chrome', path: '/fake/chrome' }),
+      createRuntime: options => new FakeBrowserRuntime(options),
+      readProcessIdentity: async pid => (pid === blockedIdentity.pid ? blockedIdentity : null),
+      killProcessGroup: () => {
+        const error = new Error('Operation not permitted');
+        error.code = 'EPERM';
+        throw error;
+      },
+    });
+    await permissionManager.init();
+    assert.strictEqual(permissionManager.store.get(blocked.id).processIdentity.pid, blockedIdentity.pid);
+    await assert.rejects(
+      () => permissionManager.stop(blocked.id),
+      error => error.code === 'BROWSER_RECOVERY_CLEANUP_REQUIRED',
+    );
+    assert.strictEqual(
+      permissionManager.store.get(blocked.id).processIdentity.pid,
+      blockedIdentity.pid,
+      'a failed cleanup must retain the exact Browser identity for retry',
+    );
+    await permissionManager.dispose();
   } finally {
     await manager.dispose();
     fs.rmSync(configDir, { recursive: true, force: true });
@@ -455,6 +532,7 @@ function testBrowserUiAndPackagingWiring() {
 Promise.resolve()
   .then(testCdpClient)
   .then(testSystemBrowserLaunchFlags)
+  .then(testBrowserLaunchGate)
   .then(testScreencastFrameRateBound)
   .then(testDeterministicViewerFrameCapture)
   .then(testBrowserResourceManager)

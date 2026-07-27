@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
 const { EventEmitter } = require('events');
+const { readServerProcessIdentity } = require('../../../backend/server-process-identity');
 const { CdpClient } = require('./cdp-client');
 
 const DEFAULT_VIEWPORT = Object.freeze({ width: 1280, height: 800 });
@@ -101,13 +102,11 @@ async function waitForDevToolsPort(profileDir, child, timeoutMs = 15_000) {
   throw new Error(`System browser did not expose a CDP endpoint before startup timed out${detail}`);
 }
 
-function launchSystemBrowser(executablePath, profileDir, options = {}) {
-  fs.mkdirSync(profileDir, { recursive: true });
-  fs.rmSync(path.join(profileDir, 'DevToolsActivePort'), { force: true });
+function browserLaunchArguments(profileDir, options = {}) {
   const platform = options.platform || process.platform;
   const noSandbox = options.noSandbox === true
     || (options.noSandbox === undefined && process.env.FARMING_BROWSER_NO_SANDBOX === '1');
-  const child = (options.spawn || spawn)(executablePath, [
+  return [
     '--headless=new',
     '--remote-debugging-port=0',
     `--user-data-dir=${profileDir}`,
@@ -122,10 +121,24 @@ function launchSystemBrowser(executablePath, profileDir, options = {}) {
     '--disable-features=Translate,MediaRouter',
     '--disable-popup-blocking',
     'about:blank',
-  ], {
+  ];
+}
+
+function launchSystemBrowser(executablePath, profileDir, options = {}) {
+  fs.mkdirSync(profileDir, { recursive: true });
+  fs.rmSync(path.join(profileDir, 'DevToolsActivePort'), { force: true });
+  const child = (options.spawn || spawn)(
+    process.execPath,
+    [path.join(__dirname, 'browser-launch-gate.js'), executablePath, ...browserLaunchArguments(profileDir, options)],
+    {
     detached: process.platform !== 'win32',
-    stdio: ['ignore', 'ignore', 'pipe'],
-  });
+      stdio: ['pipe', 'ignore', 'pipe'],
+    },
+  );
+  child.release = () => {
+    if (!child.stdin) throw new Error('Browser launch gate has no release pipe');
+    child.stdin.end('GO\n');
+  };
   return child;
 }
 
@@ -222,6 +235,13 @@ class CdpBrowserRuntime extends EventEmitter {
       this.emit('exit', `System browser exited (${code ?? signal ?? 'unknown'})`);
     });
     try {
+      const processIdentity = await readServerProcessIdentity(this.child.pid);
+      if (!processIdentity || processIdentity.processGroupId !== this.child.pid) {
+        throw new Error('System browser process identity could not be verified');
+      }
+      this.processIdentity = processIdentity;
+      this.emit('process-identity', processIdentity);
+      this.child.release?.();
       const wsUrl = await waitForDevToolsPort(this.profileDir, this.child);
       this.client = this.createClient();
       await this.client.connect(wsUrl);
@@ -641,6 +661,7 @@ module.exports = {
   CdpBrowserRuntime,
   DEFAULT_VIEWPORT,
   MAX_VIEWPORT,
+  browserLaunchArguments,
   clampViewport,
   launchSystemBrowser,
   stopBrowserProcess,

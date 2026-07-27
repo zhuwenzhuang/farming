@@ -136,7 +136,10 @@ const browserResourceManager = new BrowserResourceManager({
   configDir: configManager.farmingDir,
   isEnabled: () => configManager.getSettings().browserExtensionEnabled === true,
 });
-browserResourceManager.init();
+const browserRuntimeRecoveryPromise = browserResourceManager.init().catch(error => {
+  console.warn('Failed to recover Browser runtimes:', error?.message || error);
+  return null;
+});
 const updateService = new FarmingUpdateService({
   rootDir: path.join(__dirname, '..'),
   configDir: configManager.farmingDir,
@@ -3088,7 +3091,10 @@ function startServer() {
   if (serverStarted) return server;
   serverStarted = true;
 
-  void runTerminalRuntimeStartupCleanup().finally(() => {
+  void Promise.all([
+    runTerminalRuntimeStartupCleanup(),
+    browserRuntimeRecoveryPromise,
+  ]).finally(() => {
     server.listen(PORT, () => {
       const token = tokenAuth.getToken();
       const localIPs = getLocalIPs();
