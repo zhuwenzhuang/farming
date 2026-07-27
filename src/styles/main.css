@@ -10441,13 +10441,26 @@ body.code-mode.code-compact-layout .code-empty-workspace-compact {
 }
 
 .code-plugin-extension {
+  height: 126px;
   min-width: 0;
   display: grid;
+  grid-template-rows: auto auto 1fr;
   gap: 5px;
   padding: 12px 14px;
   border: 1px solid #e8ebe6;
   border-radius: 10px;
   background: #fafbf9;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.code-plugin-extension:hover,
+.code-plugin-extension:focus-visible {
+  border-color: #cfd5cc;
+  background: #f5f7f3;
+  outline: 0;
 }
 
 .code-plugin-extension-title {
@@ -10505,15 +10518,126 @@ body.code-mode.code-compact-layout .code-empty-workspace-compact {
   line-height: 1.45;
 }
 
+.code-plugin-extension p {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
 .code-plugin-empty {
   padding: 12px 14px;
   border-radius: 10px;
   background: #f7f8f6;
 }
 
+.code-plugin-detail-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10035;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(31, 35, 40, 0.18);
+  backdrop-filter: blur(7px);
+  -webkit-backdrop-filter: blur(7px);
+}
+
+.code-plugin-detail-dialog {
+  width: min(100%, 600px);
+  max-height: min(680px, calc(100dvh - 48px));
+  display: grid;
+  gap: 16px;
+  overflow: auto;
+  padding: 22px;
+  border: 1px solid rgba(95, 103, 94, 0.12);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.98);
+  color: #24292f;
+  box-shadow: 0 24px 68px rgba(31, 35, 40, 0.2);
+}
+
+.code-plugin-detail-dialog > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.code-plugin-detail-dialog h3,
+.code-plugin-detail-dialog small,
+.code-plugin-detail-dialog p {
+  margin: 0;
+}
+
+.code-plugin-detail-dialog h3 {
+  margin-top: 3px;
+  font-size: 20px;
+  font-weight: 650;
+}
+
+.code-plugin-detail-dialog small {
+  color: #7a847a;
+  font-size: 12px;
+}
+
+.code-plugin-detail-dialog > header > button {
+  width: 30px;
+  height: 30px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #687067;
+  cursor: pointer;
+}
+
+.code-plugin-detail-dialog > header > button:hover,
+.code-plugin-detail-dialog > header > button:focus-visible {
+  background: rgba(31, 35, 40, 0.06);
+  outline: 0;
+}
+
+.code-plugin-detail-dialog > header > button svg {
+  width: 16px;
+  height: 16px;
+}
+
+.code-plugin-detail-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  color: #657087;
+  font-size: 11px;
+}
+
+.code-plugin-detail-meta code {
+  color: #39423b;
+  font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.code-plugin-detail-dialog > p {
+  color: #4d596d;
+  font-size: 14px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
 @media (max-width: 720px) {
   .code-plugin-extension-list {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .code-plugin-detail-backdrop {
+    padding: 12px;
+  }
+
+  .code-plugin-detail-dialog {
+    max-height: calc(100dvh - 24px);
   }
 }
 

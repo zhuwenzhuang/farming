@@ -200,6 +200,68 @@ test('explains which system browser must be installed when none is available', a
   })
 })
 
+test('keeps extension cards compact and opens the full description on demand', async ({
+  page,
+}) => {
+  const longDescription = [
+    'A deliberately long extension description that should stay compact in the grid.',
+    'It contains enough text to span several lines and prove that one verbose item cannot stretch its row.',
+    'The complete text remains available in the explicit details dialog.',
+  ].join(' ')
+  await page.route('**/api/agent-extensions', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      agents: [{
+        id: 'codex',
+        name: 'codex',
+        description: 'Codex CLI',
+        discoverySupported: true,
+        homes: [{
+          id: 'default',
+          extensions: [{
+            id: '$short',
+            command: '$short',
+            name: 'Short skill',
+            description: 'Short description.',
+            kind: 'skill',
+            scope: 'Personal',
+          }, {
+            id: '$long',
+            command: '$long',
+            name: 'Long skill',
+            description: longDescription,
+            kind: 'skill',
+            scope: 'Personal',
+          }],
+        }],
+      }],
+    }),
+  }))
+  await openFarming(page)
+  await page.getByTestId('code-nav-plugins').click()
+
+  const cards = page.locator('.code-plugin-extension')
+  await expect(cards).toHaveCount(2)
+  const geometry = await cards.evaluateAll(elements => elements.map(element => {
+    const description = element.querySelector('p')
+    return {
+      height: element.getBoundingClientRect().height,
+      lineClamp: description ? getComputedStyle(description).webkitLineClamp : '',
+    }
+  }))
+  expect(geometry).toEqual([
+    { height: 126, lineClamp: '3' },
+    { height: 126, lineClamp: '3' },
+  ])
+
+  await cards.filter({ hasText: 'Long skill' }).click()
+  const detail = page.getByTestId('code-plugin-detail-dialog')
+  await expect(detail).toBeVisible()
+  await expect(detail.getByText(longDescription, { exact: true })).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(detail).toHaveCount(0)
+})
+
 test('keeps an edited browser address until Enter submits it', async ({
   page,
   workspaceRoot,

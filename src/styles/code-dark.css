@@ -392,6 +392,11 @@ body.code-mode[data-appearance='dark'] .code-plugin-empty {
   background: var(--code-dark-bg-soft);
 }
 
+body.code-mode[data-appearance='dark'] .code-plugin-extension:hover,
+body.code-mode[data-appearance='dark'] .code-plugin-extension:focus-visible {
+  background: var(--code-dark-bg-hover);
+}
+
 body.code-mode[data-appearance='dark'] .code-plugin-extension-title span {
   background: var(--code-dark-bg-hover);
   color: var(--code-dark-text-muted);
@@ -403,6 +408,31 @@ body.code-mode[data-appearance='dark'] .code-plugin-extension-meta code {
 
 body.code-mode[data-appearance='dark'] .code-plugin-extension-meta span {
   color: var(--code-dark-text-muted);
+}
+
+body.code-mode[data-appearance='dark'] .code-plugin-detail-dialog {
+  border-color: var(--code-dark-border);
+  background: var(--code-dark-bg);
+  color: var(--code-dark-text);
+}
+
+body.code-mode[data-appearance='dark'] .code-plugin-detail-dialog small,
+body.code-mode[data-appearance='dark'] .code-plugin-detail-meta,
+body.code-mode[data-appearance='dark'] .code-plugin-detail-dialog > p {
+  color: var(--code-dark-text-muted);
+}
+
+body.code-mode[data-appearance='dark'] .code-plugin-detail-meta code {
+  color: var(--code-dark-text-soft);
+}
+
+body.code-mode[data-appearance='dark'] .code-plugin-detail-dialog > header > button {
+  color: var(--code-dark-text-soft);
+}
+
+body.code-mode[data-appearance='dark'] .code-plugin-detail-dialog > header > button:hover,
+body.code-mode[data-appearance='dark'] .code-plugin-detail-dialog > header > button:focus-visible {
+  background: var(--code-dark-bg-hover);
 }
 
 body.code-mode[data-appearance='dark'] .code-plugin-card-icon {

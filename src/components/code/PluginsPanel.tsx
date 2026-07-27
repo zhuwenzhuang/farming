@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { appPath } from '@/lib/base-path'
-import { ArrowLeftGlyph, PuzzleGlyph } from '@/components/IconGlyphs'
+import { ArrowLeftGlyph, CloseGlyph, PuzzleGlyph } from '@/components/IconGlyphs'
 import type { UiLanguage } from '@/lib/ui-preferences'
 import type { BrowserCapability } from '../../../extensions/browser/frontend/types'
 
@@ -24,6 +24,11 @@ type AgentExtensionGroup = {
   }>
 }
 
+type SelectedAgentExtension = AgentExtension & {
+  agentName: string
+  homeId: string
+}
+
 function pluginCopy(language: UiLanguage) {
   const zh = language === 'zh'
   return {
@@ -45,6 +50,8 @@ function pluginCopy(language: UiLanguage) {
       plugin: zh ? '插件' : 'Plugin',
       command: zh ? '命令' : 'Command',
     },
+    extensionDetails: zh ? '扩展详情' : 'Extension details',
+    closeDetails: zh ? '关闭详情' : 'Close details',
     browser: zh ? '浏览器' : 'Browser',
     browserDescription: zh
       ? '让 Agent 操作网页，并在 Farming 中查看同一个浏览器。'
@@ -97,6 +104,7 @@ export function PluginsPanel({
   const [agentGroups, setAgentGroups] = useState<AgentExtensionGroup[]>([])
   const [agentGroupsLoading, setAgentGroupsLoading] = useState(true)
   const [agentGroupsError, setAgentGroupsError] = useState('')
+  const [selectedExtension, setSelectedExtension] = useState<SelectedAgentExtension | null>(null)
 
   useEffect(() => {
     if (capability) setEnabled(capability.enabled)
@@ -127,6 +135,15 @@ export function PluginsPanel({
       })
     return () => controller.abort()
   }, [copy.agentExtensionsFailed])
+
+  useEffect(() => {
+    if (!selectedExtension) return undefined
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setSelectedExtension(null)
+    }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => window.removeEventListener('keydown', closeOnEscape)
+  }, [selectedExtension])
 
   const toggleBrowser = async () => {
     if (saving || (!capability?.browser && !enabled)) return
@@ -243,7 +260,16 @@ export function PluginsPanel({
                   ) : null}
                   <div className="code-plugin-extension-list">
                     {home.extensions.map(extension => (
-                      <article className="code-plugin-extension" key={`${home.id}:${extension.id}`}>
+                      <button
+                        type="button"
+                        className="code-plugin-extension"
+                        key={`${home.id}:${extension.id}`}
+                        onClick={() => setSelectedExtension({
+                          ...extension,
+                          agentName: agentDisplayName(agent),
+                          homeId: home.id,
+                        })}
+                      >
                         <div className="code-plugin-extension-title">
                           <strong>{extension.name}</strong>
                           <span>{copy.kind[extension.kind]}</span>
@@ -253,7 +279,7 @@ export function PluginsPanel({
                           {extension.scope ? <span>{extension.scope}</span> : null}
                         </div>
                         <p>{extension.description}</p>
-                      </article>
+                      </button>
                     ))}
                   </div>
                 </div>
@@ -262,6 +288,46 @@ export function PluginsPanel({
           )
         })}
       </div>
+
+      {selectedExtension ? (
+        <div
+          className="code-plugin-detail-backdrop"
+          role="presentation"
+          onPointerDown={() => setSelectedExtension(null)}
+        >
+          <section
+            className="code-plugin-detail-dialog"
+            data-testid="code-plugin-detail-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="code-plugin-detail-title"
+            onPointerDown={event => event.stopPropagation()}
+          >
+            <header>
+              <div>
+                <small>{selectedExtension.agentName} · {copy.extensionDetails}</small>
+                <h3 id="code-plugin-detail-title">{selectedExtension.name}</h3>
+              </div>
+              <button
+                type="button"
+                autoFocus
+                aria-label={copy.closeDetails}
+                title={copy.closeDetails}
+                onClick={() => setSelectedExtension(null)}
+              >
+                <CloseGlyph />
+              </button>
+            </header>
+            <div className="code-plugin-detail-meta">
+              <span>{copy.kind[selectedExtension.kind]}</span>
+              <code>{selectedExtension.command}</code>
+              {selectedExtension.scope ? <span>{selectedExtension.scope}</span> : null}
+              {selectedExtension.homeId !== 'default' ? <span>{copy.home}: {selectedExtension.homeId}</span> : null}
+            </div>
+            <p>{selectedExtension.description}</p>
+          </section>
+        </div>
+      ) : null}
     </div>
   )
 }
