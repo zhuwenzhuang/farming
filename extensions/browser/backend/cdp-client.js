@@ -18,6 +18,14 @@ class CdpClient {
     return new Promise((resolve, reject) => {
       const socket = new this.WebSocket(url);
       this.socket = socket;
+      const timer = setTimeout(() => {
+        cleanupConnectListeners();
+        this.socket = null;
+        socket.once('error', () => {});
+        if (typeof socket.terminate === 'function') socket.terminate();
+        else socket.close();
+        reject(new Error('CDP connection timed out'));
+      }, this.timeoutMs);
       const onOpen = () => {
         cleanupConnectListeners();
         socket.on('message', data => this.handleMessage(data));
@@ -36,6 +44,7 @@ class CdpClient {
         reject(new Error('CDP connection closed during startup'));
       };
       const cleanupConnectListeners = () => {
+        clearTimeout(timer);
         socket.off('open', onOpen);
         socket.off('error', onError);
         socket.off('close', onClose);

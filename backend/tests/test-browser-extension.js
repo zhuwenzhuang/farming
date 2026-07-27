@@ -1,5 +1,7 @@
 const assert = require('assert');
 const fs = require('fs');
+const http = require('http');
+const net = require('net');
 const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
@@ -10,7 +12,12 @@ const { CdpClient } = require('../../extensions/browser/backend/cdp-client');
 const {
   CdpBrowserRuntime,
   browserLaunchArguments,
+  resolveExternalCdpWebSocketUrl,
 } = require('../../extensions/browser/backend/cdp-browser-runtime');
+const {
+  discoverBrowserExecutable,
+  normalizeExternalCdpUrl,
+} = require('../../extensions/browser/backend/executable-discovery');
 const {
   applyBrowserResource,
   applyBrowserResourceDeletion,
@@ -27,6 +34,7 @@ class FakeBrowserRuntime extends EventEmitter {
     super();
     this.id = options.id;
     this.generation = options.generation;
+    this.externalCdpUrl = options.externalCdpUrl || '';
     this.startedUrl = '';
     this.closed = false;
     this.closeFailures = 0;
@@ -140,6 +148,208 @@ async function testCdpClient() {
     client.close();
     await new Promise(resolve => server.close(resolve));
   }
+}
+
+async function testCdpClientConnectTimeout() {
+  const sockets = new Set();
+  const server = net.createServer(socket => {
+    sockets.add(socket);
+    socket.once('close', () => sockets.delete(socket));
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const client = new CdpClient({ timeoutMs: 50 });
+  try {
+    await assert.rejects(
+      client.connect(`ws://127.0.0.1:${server.address().port}`),
+      /connection timed out/,
+    );
+  } finally {
+    client.close();
+    for (const socket of sockets) socket.destroy();
+    await new Promise(resolve => server.close(resolve));
+  }
+}
+
+function testExternalCdpDiscoveryConfiguration() {
+  assert.strictEqual(
+    normalizeExternalCdpUrl('http://127.0.0.1:9222'),
+    'http://127.0.0.1:9222/',
+  );
+  assert.strictEqual(
+    normalizeExternalCdpUrl('ws://localhost:9222/devtools/browser/example'),
+    'ws://localhost:9222/devtools/browser/example',
+  );
+  assert.strictEqual(normalizeExternalCdpUrl('http://10.0.0.8:9222'), '');
+  assert.strictEqual(normalizeExternalCdpUrl('http://user:pass@127.0.0.1:9222'), '');
+  assert.strictEqual(normalizeExternalCdpUrl('http://127.0.0.1:9222?token=secret'), '');
+  assert.deepStrictEqual(
+    discoverBrowserExecutable({
+      env: { FARMING_BROWSER_CDP_URL: 'http://127.0.0.1:9222' },
+      platform: 'linux',
+    }),
+    {
+      kind: 'external-cdp',
+      path: '',
+      cdpUrl: 'http://127.0.0.1:9222/',
+    },
+  );
+  assert.match(
+    discoverBrowserExecutable({
+      env: { FARMING_BROWSER_CDP_URL: 'http://browser.example:9222' },
+      platform: 'linux',
+    }).error,
+    /loopback/,
+  );
+}
+
+async function testExternalCdpRuntime() {
+  const commands = [];
+  const connections = [];
+  let discoveryRequests = 0;
+  const server = http.createServer();
+  const webSocketServer = new WebSocketServer({ server });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const port = server.address().port;
+  server.on('request', (request, response) => {
+    if (request.url !== '/json/version') {
+      response.writeHead(404).end();
+      return;
+    }
+    discoveryRequests += 1;
+    response.setHeader('content-type', 'application/json');
+    response.end(JSON.stringify({
+      webSocketDebuggerUrl: `ws://0.0.0.0:${port}/devtools/browser/external-test`,
+    }));
+  });
+  webSocketServer.on('connection', socket => {
+    connections.push(socket);
+    socket.on('message', raw => {
+      const message = JSON.parse(raw.toString());
+      commands.push(message.method);
+      const results = {
+        'Target.createTarget': { targetId: 'target-external' },
+        'Target.attachToTarget': { sessionId: 'session-external' },
+        'Target.getTargets': {
+          targetInfos: [
+            { targetId: 'target-external', type: 'page', url: 'about:blank' },
+            { targetId: 'popup-external', type: 'page', url: 'about:blank', openerId: 'target-external' },
+          ],
+        },
+        'Page.captureScreenshot': { data: 'jpeg-frame' },
+        'Runtime.evaluate': {
+          result: {
+            value: {
+              url: 'about:blank',
+              title: 'External Browser',
+            },
+          },
+        },
+        'Target.closeTarget': { success: true },
+      };
+      socket.send(JSON.stringify({
+        id: message.id,
+        sessionId: message.sessionId,
+        result: results[message.method] || {},
+      }));
+    });
+  });
+  const endpoint = `http://127.0.0.1:${port}`;
+  try {
+    assert.strictEqual(
+      await resolveExternalCdpWebSocketUrl(endpoint),
+      `ws://127.0.0.1:${port}/devtools/browser/external-test`,
+    );
+    const runtime = new CdpBrowserRuntime({
+      id: 'browser_external',
+      generation: 1,
+      externalCdpUrl: endpoint,
+      profileDir: '/unused',
+      launchBrowser: () => {
+        throw new Error('External CDP must not launch a system browser');
+      },
+    });
+    let processIdentityCommitted = false;
+    runtime.on('process-identity', () => {
+      processIdentityCommitted = true;
+    });
+    assert.deepStrictEqual(await runtime.start('about:blank'), {
+      url: 'about:blank',
+      title: 'External Browser',
+    });
+    const discoveryRequestsBeforeCleanup = discoveryRequests;
+    connections[0].terminate();
+    await new Promise(resolve => setImmediate(resolve));
+    await runtime.close();
+    assert.strictEqual(processIdentityCommitted, false);
+    assert(connections.length >= 2, 'Target cleanup should reconnect after the original CDP connection is lost');
+    assert.strictEqual(
+      discoveryRequests,
+      discoveryRequestsBeforeCleanup,
+      'Cleanup must reconnect to the exact Browser WebSocket without rediscovery',
+    );
+    assert(commands.includes('Target.createTarget'));
+    assert.strictEqual(
+      commands.filter(method => method === 'Target.closeTarget').length,
+      2,
+      'Cleanup must close the root target and popups discovered through the opener chain',
+    );
+    assert(!commands.includes('Browser.close'));
+  } finally {
+    for (const client of webSocketServer.clients) client.terminate();
+    await new Promise(resolve => webSocketServer.close(resolve));
+    await new Promise(resolve => server.close(resolve));
+  }
+}
+
+async function testExternalCdpLostCreateResponseCleanup() {
+  let markerUrl = '';
+  const connectedUrls = [];
+  const closedTargets = [];
+  const listener = () => () => {};
+  const firstClient = {
+    connect: async url => connectedUrls.push(url),
+    onClose: listener,
+    on: listener,
+    send: async (method, params) => {
+      if (method === 'Target.setDiscoverTargets') return {};
+      if (method === 'Target.createTarget') {
+        markerUrl = params.url;
+        throw new Error('CDP connection lost after target creation');
+      }
+      throw new Error('original CDP connection is closed');
+    },
+    close() {},
+  };
+  const cleanupClient = {
+    connect: async url => connectedUrls.push(url),
+    send: async (method, params) => {
+      if (method === 'Target.getTargets') {
+        return { targetInfos: [{ targetId: 'lost-response-target', type: 'page', url: markerUrl }] };
+      }
+      if (method === 'Target.closeTarget') {
+        closedTargets.push(params.targetId);
+        return { success: true };
+      }
+      return {};
+    },
+    close() {},
+  };
+  const clients = [firstClient, cleanupClient];
+  const runtime = new CdpBrowserRuntime({
+    id: 'browser_lost_create',
+    generation: 3,
+    externalCdpUrl: 'ws://127.0.0.1:9222/devtools/browser/exact-browser',
+    profileDir: '/unused',
+    markerNonce: 'fixed-nonce',
+    createClient: () => clients.shift(),
+  });
+  await assert.rejects(runtime.start('about:blank'), /lost after target creation/);
+  assert.deepStrictEqual(connectedUrls, [
+    'ws://127.0.0.1:9222/devtools/browser/exact-browser',
+    'ws://127.0.0.1:9222/devtools/browser/exact-browser',
+  ]);
+  assert.deepStrictEqual(closedTargets, ['lost-response-target']);
+  assert.match(markerUrl, /fixed-nonce/);
 }
 
 function testSystemBrowserLaunchFlags() {
@@ -277,7 +487,7 @@ async function testBrowserResourceManager() {
     enabled: true,
     available: false,
     browser: null,
-    message: 'Install a Chromium-based browser to use the system Browser in Farming',
+    message: 'Install a Chromium-based browser or configure a loopback external CDP endpoint',
   });
   const manager = new BrowserResourceManager({
     configDir,
@@ -300,6 +510,20 @@ async function testBrowserResourceManager() {
     assert.throws(() => manager.list(), /disabled/);
     enabled = true;
     assert.strictEqual(manager.capability().available, true);
+    const externalManager = new BrowserResourceManager({
+      configDir,
+      discoverExecutable: () => ({
+        kind: 'external-cdp',
+        path: '',
+        cdpUrl: 'http://127.0.0.1:9222/',
+      }),
+    });
+    assert.deepStrictEqual(externalManager.capability(), {
+      enabled: true,
+      available: true,
+      browser: { kind: 'external-cdp', path: '' },
+      message: '',
+    });
     const created = manager.create({
       projectRootId: 'wroot_project',
       workspace: '/tmp/project',
@@ -463,6 +687,60 @@ async function testBrowserResourceManager() {
   }
 }
 
+async function testExternalBrowserErrorRedaction() {
+  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-external-browser-errors-'));
+  let failStart = true;
+  let failClose = false;
+  const manager = new BrowserResourceManager({
+    configDir,
+    discoverExecutable: () => ({
+      kind: 'external-cdp',
+      path: '',
+      cdpUrl: 'http://127.0.0.1:9222/',
+    }),
+    createRuntime: options => {
+      const runtime = new EventEmitter();
+      runtime.id = options.id;
+      runtime.generation = options.generation;
+      runtime.start = async url => {
+        if (failStart) throw new Error('connect ECONNREFUSED 127.0.0.1:9222');
+        return { url, title: 'External Browser' };
+      };
+      runtime.close = async () => {
+        if (failClose) throw new Error('connect ECONNREFUSED 127.0.0.1:9222');
+      };
+      return runtime;
+    },
+  });
+  try {
+    await manager.init();
+    const failed = manager.create({
+      projectRootId: 'wroot_external',
+      workspace: '/tmp/external',
+      name: 'External',
+      url: 'about:blank',
+    });
+    await assert.rejects(
+      manager.start(failed.id),
+      error => error.code === 'BROWSER_START_FAILED' && !error.message.includes('127.0.0.1'),
+    );
+    assert(!manager.get(failed.id).error.includes('127.0.0.1'));
+
+    failStart = false;
+    await manager.start(failed.id);
+    failClose = true;
+    await assert.rejects(
+      manager.stop(failed.id),
+      error => error.code === 'BROWSER_EXTERNAL_CDP_FAILED' && !error.message.includes('127.0.0.1'),
+    );
+    failClose = false;
+    await manager.stop(failed.id);
+  } finally {
+    await manager.dispose();
+    fs.rmSync(configDir, { recursive: true, force: true });
+  }
+}
+
 function testBrowserResourceRevisionOrdering() {
   const current = {
     id: 'browser_revision',
@@ -531,11 +809,16 @@ function testBrowserUiAndPackagingWiring() {
 
 Promise.resolve()
   .then(testCdpClient)
+  .then(testCdpClientConnectTimeout)
+  .then(testExternalCdpDiscoveryConfiguration)
+  .then(testExternalCdpRuntime)
+  .then(testExternalCdpLostCreateResponseCleanup)
   .then(testSystemBrowserLaunchFlags)
   .then(testBrowserLaunchGate)
   .then(testScreencastFrameRateBound)
   .then(testDeterministicViewerFrameCapture)
   .then(testBrowserResourceManager)
+  .then(testExternalBrowserErrorRedaction)
   .then(testBrowserResourceRevisionOrdering)
   .then(testBrowserUiAndPackagingWiring)
   .then(() => console.log('browser extension tests passed'))

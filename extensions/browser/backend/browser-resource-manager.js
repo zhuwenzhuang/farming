@@ -40,6 +40,16 @@ function browserError(message, status = 400, code = 'BROWSER_INVALID_REQUEST') {
   return error;
 }
 
+function externalBrowserFailure(action, cause) {
+  const error = browserError(
+    `${action}; verify FARMING_BROWSER_CDP_URL and the external browser's /json/version endpoint`,
+    500,
+    'BROWSER_EXTERNAL_CDP_FAILED',
+  );
+  error.cause = cause;
+  return error;
+}
+
 function normalizeUrl(value) {
   const input = String(value || '').trim();
   if (!input) return 'about:blank';
@@ -86,7 +96,9 @@ class BrowserResourceManager extends EventEmitter {
     if (!expected) {
       this.store.update(resource.id, {
         status: 'failed',
-        error: 'Farming restarted before the Browser runtime identity was committed',
+        error: resource.browserKind === 'external-cdp'
+          ? 'Farming restarted and disconnected from the external Browser'
+          : 'Farming restarted before the Browser runtime identity was committed',
         processIdentity: null,
       });
       return;
@@ -141,14 +153,17 @@ class BrowserResourceManager extends EventEmitter {
 
   capability() {
     const executable = this.discoverExecutable();
+    const runnable = executable && !executable.error;
     const enabled = this.isEnabled() === true;
     return {
       enabled,
-      available: enabled && Boolean(executable),
-      browser: executable ? { kind: executable.kind, path: executable.path } : null,
+      available: enabled && Boolean(runnable),
+      browser: runnable ? { kind: executable.kind, path: executable.path } : null,
       message: !enabled
         ? 'Browser extension is disabled'
-        : (executable ? '' : 'Install a Chromium-based browser to use the system Browser in Farming'),
+        : (executable?.error || (runnable
+            ? ''
+            : 'Install a Chromium-based browser or configure a loopback external CDP endpoint')),
     };
   }
 
@@ -216,10 +231,11 @@ class BrowserResourceManager extends EventEmitter {
         );
       }
       const executable = this.discoverExecutable();
-      if (!executable) {
+      if (!executable || executable.error) {
         const failed = this.store.update(id, {
           status: 'failed',
-          error: 'Install a Chromium-based browser to use the system Browser in Farming',
+          error: executable?.error
+            || 'Install a Chromium-based browser or configure a loopback external CDP endpoint',
         });
         this.emitResource(failed);
         throw browserError(failed.error, 503, 'BROWSER_EXECUTABLE_NOT_FOUND');
@@ -238,6 +254,7 @@ class BrowserResourceManager extends EventEmitter {
         id,
         generation,
         executablePath: executable.path,
+        externalCdpUrl: executable.cdpUrl || '',
         profileDir: storageLayout.browserProfileDir(this.configDir, id),
       });
       this.runtimes.set(id, runtime);
@@ -265,18 +282,21 @@ class BrowserResourceManager extends EventEmitter {
         }
         if (!cleanupError && this.runtimes.get(id) === runtime) this.runtimes.delete(id);
         const current = this.store.get(id);
+        const failureMessage = executable.kind === 'external-cdp'
+          ? externalBrowserFailure('External Browser connection failed', error).message
+          : error?.message || 'Failed to start Browser';
         const failed = current?.generation === generation
           ? this.store.update(id, {
             status: 'failed',
             error: cleanupError
-              ? `${error?.message || 'Failed to start system browser'}; cleanup failed: ${cleanupError.message}`
-              : error?.message || 'Failed to start system browser',
+              ? `${failureMessage}; cleanup failed`
+              : failureMessage,
             ...(!cleanupError ? { processIdentity: null } : {}),
           })
           : null;
         if (failed) this.emitResource(failed);
         throw browserError(
-          failed?.error || error?.message || 'Failed to start system browser',
+          failed?.error || error?.message || 'Failed to start Browser',
           500,
           'BROWSER_START_FAILED',
         );
@@ -287,10 +307,9 @@ class BrowserResourceManager extends EventEmitter {
   stop(id) {
     this.requireEnabled();
     return this.enqueue(id, async () => {
-      this.requireStored(id);
+      const resource = this.requireStored(id);
       const runtime = this.runtimes.get(id);
       if (!runtime) {
-        const resource = this.requireStored(id);
         if (resource.processIdentity) {
           await this.recoverInterruptedRuntime(resource);
           const recovered = this.requireStored(id);
@@ -309,7 +328,14 @@ class BrowserResourceManager extends EventEmitter {
       const stopping = this.store.update(id, { status: 'stopping', error: '' });
       this.emitResource(stopping);
       this.broadcastRuntimeState(runtime);
-      await runtime.close();
+      try {
+        await runtime.close();
+      } catch (error) {
+        if (resource.browserKind === 'external-cdp') {
+          throw externalBrowserFailure('External Browser targets could not be closed', error);
+        }
+        throw error;
+      }
       if (this.runtimes.get(id) === runtime) this.runtimes.delete(id);
       const stopped = this.store.update(id, { status: 'stopped', error: '', processIdentity: null });
       this.emitResource(stopped);
@@ -493,9 +519,10 @@ class BrowserResourceManager extends EventEmitter {
 
   requireAvailable() {
     this.requireEnabled();
-    if (!this.discoverExecutable()) {
+    const executable = this.discoverExecutable();
+    if (!executable || executable.error) {
       throw browserError(
-        'Install a Chromium-based browser to use the system Browser in Farming',
+        executable?.error || 'Install a Chromium-based browser or configure a loopback external CDP endpoint',
         503,
         'BROWSER_EXECUTABLE_NOT_FOUND',
       );
@@ -600,7 +627,9 @@ class BrowserResourceManager extends EventEmitter {
     ) return;
     const failed = this.store.update(runtime.id, {
       status: 'failed',
-      error: message || 'System browser exited',
+      error: current.browserKind === 'external-cdp'
+        ? 'External Browser connection exited'
+        : message || 'Browser connection exited',
     });
     this.emitResource(failed);
     this.broadcastRuntimeState(runtime);
@@ -613,7 +642,9 @@ class BrowserResourceManager extends EventEmitter {
     } catch (error) {
       const cleanupFailed = this.store.update(runtime.id, {
         status: 'failed',
-        error: `${failed.error}; cleanup failed: ${error?.message || error}`,
+        error: current.browserKind === 'external-cdp'
+          ? `${failed.error}; target cleanup failed`
+          : `${failed.error}; cleanup failed: ${error?.message || error}`,
       });
       this.emitResource(cleanupFailed);
       this.broadcastRuntimeState(runtime);
@@ -624,5 +655,6 @@ class BrowserResourceManager extends EventEmitter {
 module.exports = {
   BrowserResourceManager,
   browserError,
+  externalBrowserFailure,
   normalizeUrl,
 };

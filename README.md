@@ -61,6 +61,8 @@ Browse, search, and lightly edit Project Files without leaving the current task.
 
 Each Project can own multiple named Browser Resources. Farming starts a compatible Chromium-based system browser with an isolated profile, streams that exact headless page into the workspace, and sends both human input and Agent actions to the same CDP session. Farming does not download Chromium or depend on Playwright. Agents can discover and operate these resources with `farming browser`; npm installations also expose the `farming-browser` alias.
 
+Farming can also connect to an externally managed Chromium CDP endpoint, including one exposed by Docker; see [external CDP browser setup](./docs/products/code/external-cdp-browser.md).
+
 This first Browser Viewer targets web pages and simple Agent interaction. It is not a replacement for the browser's full window chrome, DevTools, downloads UI, extensions, or Computer Use.
 
 ## Supported Agents

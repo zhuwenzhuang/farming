@@ -1,6 +1,9 @@
 const fs = require('fs');
+const http = require('http');
+const https = require('https');
 const path = require('path');
 const { spawn } = require('child_process');
+const { randomBytes } = require('crypto');
 const { EventEmitter } = require('events');
 const { readServerProcessIdentity } = require('../../../backend/server-process-identity');
 const { CdpClient } = require('./cdp-client');
@@ -30,6 +33,67 @@ const ACTIONABLE_ROLES = new Set([
 
 function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function readCdpVersion(discoveryUrl, timeoutMs = 5_000) {
+  return new Promise((resolve, reject) => {
+    const transport = discoveryUrl.protocol === 'https:' ? https : http;
+    const request = transport.get(discoveryUrl, {
+      headers: { accept: 'application/json' },
+    }, response => {
+      if (response.statusCode !== 200) {
+        response.resume();
+        reject(new Error(`External CDP discovery returned HTTP ${response.statusCode}`));
+        return;
+      }
+      const chunks = [];
+      let size = 0;
+      response.on('data', chunk => {
+        size += chunk.length;
+        if (size > 1024 * 1024) {
+          request.destroy(new Error('External CDP discovery response is too large'));
+          return;
+        }
+        chunks.push(chunk);
+      });
+      response.on('end', () => {
+        try {
+          resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+        } catch {
+          reject(new Error('External CDP discovery returned invalid JSON'));
+        }
+      });
+    });
+    request.setTimeout(timeoutMs, () => request.destroy(new Error('External CDP discovery timed out')));
+    request.once('error', reject);
+  });
+}
+
+async function resolveExternalCdpWebSocketUrl(endpoint, options = {}) {
+  const configured = new URL(endpoint);
+  if (configured.protocol === 'ws:' || configured.protocol === 'wss:') return configured.href;
+  const discoveryUrl = new URL(configured.href);
+  discoveryUrl.pathname = '/json/version';
+  discoveryUrl.search = '';
+  const version = await (options.readVersion || readCdpVersion)(discoveryUrl, options.timeoutMs);
+  if (!version?.webSocketDebuggerUrl) {
+    throw new Error('External CDP discovery did not return webSocketDebuggerUrl');
+  }
+  let advertised;
+  try {
+    advertised = new URL(version.webSocketDebuggerUrl);
+  } catch {
+    throw new Error('External CDP discovery returned an invalid WebSocket URL');
+  }
+  if (!['ws:', 'wss:'].includes(advertised.protocol)) {
+    throw new Error('External CDP discovery returned a non-WebSocket URL');
+  }
+  // Containerized Chromium often advertises its container hostname or 0.0.0.0.
+  // Keep the browser id/path but connect through the explicitly configured tunnel.
+  advertised.protocol = configured.protocol === 'https:' ? 'wss:' : 'ws:';
+  advertised.hostname = configured.hostname;
+  advertised.port = configured.port;
+  return advertised.href;
 }
 
 function clampViewport(value = {}) {
@@ -194,6 +258,7 @@ class CdpBrowserRuntime extends EventEmitter {
     this.id = options.id;
     this.generation = options.generation;
     this.executablePath = options.executablePath;
+    this.externalCdpUrl = options.externalCdpUrl || '';
     this.profileDir = options.profileDir;
     this.launchBrowser = options.launchBrowser || launchSystemBrowser;
     this.createClient = options.createClient || (() => new CdpClient());
@@ -201,6 +266,11 @@ class CdpBrowserRuntime extends EventEmitter {
     this.client = null;
     this.sessionId = null;
     this.targetId = null;
+    this.ownedTargetId = null;
+    this.ownedTargetIds = new Set();
+    const markerNonce = options.markerNonce || randomBytes(16).toString('hex');
+    this.ownedTargetMarker = `about:blank#farming-browser-${encodeURIComponent(this.id)}-${this.generation}-${markerNonce}`;
+    this.resolvedCdpWebSocketUrl = '';
     this.sessionListeners = [];
     this.globalListeners = [];
     this.refs = new Map();
@@ -221,28 +291,34 @@ class CdpBrowserRuntime extends EventEmitter {
   }
 
   async start(initialUrl) {
-    this.child = this.launchBrowser(this.executablePath, this.profileDir);
-    this.child.stderr?.on('data', chunk => {
-      const combined = `${this.child.farmingStderr || ''}${chunk.toString('utf8')}`;
-      this.child.farmingStderr = combined.slice(-8_192).trim();
-    });
-    this.child.once('error', error => {
-      this.child.farmingStartError = error;
-      if (this.started && !this.closedByOwner) this.emit('exit', `System browser failed: ${error.message}`);
-    });
-    this.child.once('exit', (code, signal) => {
-      if (this.closedByOwner) return;
-      this.emit('exit', `System browser exited (${code ?? signal ?? 'unknown'})`);
-    });
     try {
-      const processIdentity = await readServerProcessIdentity(this.child.pid);
-      if (!processIdentity || processIdentity.processGroupId !== this.child.pid) {
-        throw new Error('System browser process identity could not be verified');
+      let wsUrl;
+      if (this.externalCdpUrl) {
+        wsUrl = await resolveExternalCdpWebSocketUrl(this.externalCdpUrl);
+        this.resolvedCdpWebSocketUrl = wsUrl;
+      } else {
+        this.child = this.launchBrowser(this.executablePath, this.profileDir);
+        this.child.stderr?.on('data', chunk => {
+          const combined = `${this.child.farmingStderr || ''}${chunk.toString('utf8')}`;
+          this.child.farmingStderr = combined.slice(-8_192).trim();
+        });
+        this.child.once('error', error => {
+          this.child.farmingStartError = error;
+          if (this.started && !this.closedByOwner) this.emit('exit', `System browser failed: ${error.message}`);
+        });
+        this.child.once('exit', (code, signal) => {
+          if (this.closedByOwner) return;
+          this.emit('exit', `System browser exited (${code ?? signal ?? 'unknown'})`);
+        });
+        const processIdentity = await readServerProcessIdentity(this.child.pid);
+        if (!processIdentity || processIdentity.processGroupId !== this.child.pid) {
+          throw new Error('System browser process identity could not be verified');
+        }
+        this.processIdentity = processIdentity;
+        this.emit('process-identity', processIdentity);
+        this.child.release?.();
+        wsUrl = await waitForDevToolsPort(this.profileDir, this.child);
       }
-      this.processIdentity = processIdentity;
-      this.emit('process-identity', processIdentity);
-      this.child.release?.();
-      const wsUrl = await waitForDevToolsPort(this.profileDir, this.child);
       this.client = this.createClient();
       await this.client.connect(wsUrl);
       this.globalListeners.push(this.client.onClose(error => {
@@ -252,22 +328,40 @@ class CdpBrowserRuntime extends EventEmitter {
       this.globalListeners.push(this.client.on('Target.targetCreated', event => {
         const target = event.targetInfo;
         if (!this.started || target?.type !== 'page' || target.targetId === this.targetId) return;
+        if (this.externalCdpUrl) {
+          if (!this.ownedTargetIds.has(target.openerId)) return;
+          this.ownedTargetIds.add(target.targetId);
+        }
         this.targetChange = this.targetChange
           .catch(() => {})
           .then(() => this.setActiveTarget(target.targetId))
           .catch(error => this.emit('error', error));
       }));
       this.globalListeners.push(this.client.on('Target.targetDestroyed', event => {
+        this.ownedTargetIds.delete(event.targetId);
         if (!this.started || event.targetId !== this.targetId || this.closedByOwner) return;
         this.emit('exit', 'Browser page closed');
       }));
       await this.client.send('Target.setDiscoverTargets', { discover: true });
-      const { targetInfos = [] } = await this.client.send('Target.getTargets');
-      const target = targetInfos.find(candidate => candidate.type === 'page');
-      if (!target) throw new Error('System browser did not create a page target');
-      await this.setActiveTarget(target.targetId);
+      let targetId;
+      if (this.externalCdpUrl) {
+        const created = await this.client.send('Target.createTarget', { url: this.ownedTargetMarker });
+        if (!created.targetId) throw new Error('External CDP did not create a page target');
+        this.ownedTargetId = created.targetId;
+        this.ownedTargetIds.add(created.targetId);
+        targetId = created.targetId;
+      } else {
+        const { targetInfos = [] } = await this.client.send('Target.getTargets');
+        targetId = targetInfos.find(candidate => candidate.type === 'page')?.targetId;
+        if (!targetId) throw new Error('System browser did not create a page target');
+      }
+      await this.setActiveTarget(targetId);
       this.started = true;
-      if (initialUrl && initialUrl !== 'about:blank') await this.navigate(initialUrl);
+      if (this.externalCdpUrl) {
+        await this.navigate(initialUrl || 'about:blank');
+      } else if (initialUrl && initialUrl !== 'about:blank') {
+        await this.navigate(initialUrl);
+      }
       return await this.metadata();
     } catch (error) {
       await this.close();
@@ -633,6 +727,56 @@ class CdpBrowserRuntime extends EventEmitter {
     await this.captureViewerFrame();
   }
 
+  async closeOwnedExternalTargetsWith(client) {
+    const { targetInfos = [] } = await client.send('Target.getTargets');
+    for (const target of targetInfos) {
+      if (target.url === this.ownedTargetMarker) this.ownedTargetIds.add(target.targetId);
+    }
+    let added;
+    do {
+      added = false;
+      for (const target of targetInfos) {
+        if (this.ownedTargetIds.has(target.targetId) || !this.ownedTargetIds.has(target.openerId)) continue;
+        this.ownedTargetIds.add(target.targetId);
+        added = true;
+      }
+    } while (added);
+    const targetIds = [...this.ownedTargetIds].reverse();
+    for (const targetId of targetIds) {
+      try {
+        const result = await client.send('Target.closeTarget', { targetId });
+        if (result.success === true) continue;
+        throw new Error(`External Browser target ${targetId} did not close`);
+      } catch (error) {
+        const { targetInfos = [] } = await client.send('Target.getTargets');
+        if (targetInfos.some(target => target.targetId === targetId)) throw error;
+      }
+    }
+  }
+
+  async closeOwnedExternalTargets() {
+    try {
+      await this.closeOwnedExternalTargetsWith(this.client);
+      return;
+    } catch (connectionError) {
+      const cleanupClient = this.createClient();
+      try {
+        if (!this.resolvedCdpWebSocketUrl) {
+          throw new Error('External Browser identity was not resolved', { cause: connectionError });
+        }
+        await cleanupClient.connect(this.resolvedCdpWebSocketUrl);
+        await this.closeOwnedExternalTargetsWith(cleanupClient);
+      } catch (cleanupError) {
+        throw new Error(
+          `Could not close external Browser targets: ${cleanupError?.message || connectionError?.message || cleanupError}`,
+          { cause: cleanupError },
+        );
+      } finally {
+        cleanupClient.close();
+      }
+    }
+  }
+
   async close() {
     if (this.closeComplete) return;
     if (this.closePromise) return this.closePromise;
@@ -641,7 +785,13 @@ class CdpBrowserRuntime extends EventEmitter {
       for (const off of this.globalListeners.splice(0)) off();
       await this.detachActiveTarget();
       if (this.client) {
-        await this.client.send('Browser.close').catch(() => {});
+        if (this.externalCdpUrl) {
+          await this.closeOwnedExternalTargets();
+        } else {
+          await this.client.send('Browser.close').catch(() => {});
+        }
+        this.ownedTargetId = null;
+        this.ownedTargetIds.clear();
         this.client.close();
         this.client = null;
       }
@@ -664,6 +814,8 @@ module.exports = {
   browserLaunchArguments,
   clampViewport,
   launchSystemBrowser,
+  readCdpVersion,
+  resolveExternalCdpWebSocketUrl,
   stopBrowserProcess,
   waitForDevToolsPort,
 };

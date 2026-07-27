@@ -2182,12 +2182,16 @@ app.post(routePath(BASE_PATH, '/api/settings'), express.json(), async (req, res)
   delete settingsPatch.pinnedProjectWorkspaces;
   const changesBrowserExtension = Object.prototype.hasOwnProperty.call(settingsPatch, 'browserExtensionEnabled');
   const browserExtensionEnabled = settingsPatch.browserExtensionEnabled === true;
-  if (changesBrowserExtension && browserExtensionEnabled && !browserResourceManager.capability().browser) {
-    res.status(400).json({
-      error: 'Install a Chromium-based browser to use the system Browser in Farming',
-      code: 'BROWSER_EXECUTABLE_NOT_FOUND',
-    });
-    return;
+  if (changesBrowserExtension && browserExtensionEnabled) {
+    const browserCapability = browserResourceManager.capability();
+    if (!browserCapability.browser) {
+      res.status(400).json({
+        error: browserCapability.message
+          || 'Install a Chromium-based browser or configure a loopback external CDP endpoint',
+        code: 'BROWSER_EXECUTABLE_NOT_FOUND',
+      });
+      return;
+    }
   }
   if (
     changesBrowserExtension

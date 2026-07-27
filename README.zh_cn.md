@@ -61,6 +61,8 @@ Farming Code 是默认的桌面与手机界面。它按项目组织工作，把�
 
 每个 Project 可以拥有多个可命名的 Browser Resource。Farming 使用兼容的 Chromium 系系统浏览器和独立 Profile 启动浏览器，把这个 Headless 页面流式展示在工作区中，并把人的输入和 Agent 操作发送给同一个 CDP Session。Farming 不下载 Chromium，也不依赖 Playwright。Agent 可以通过 `farming browser` 发现并操作这些 Resource；npm 安装还会提供 `farming-browser` 别名。
 
+Farming 也可以连接由管理员独立管理的 Chromium CDP Endpoint，包括 Docker 中暴露的 Chromium；配置方式见[外部 CDP 浏览器指南](./docs/products/code/external-cdp-browser.zh_cn.md)。
+
 第一版 Browser Viewer 面向网页展示与简单 Agent 操作，不替代浏览器完整窗口、DevTools、下载界面、浏览器扩展或 Computer Use。
 
 ## 支持的 Agent

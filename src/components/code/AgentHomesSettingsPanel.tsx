@@ -133,10 +133,15 @@ function panelCopy(language: UiPreferences['language']) {
     browserExtensionHint: zh
       ? '在 Farming 中显示系统已安装的 Chromium 浏览器，并允许 Agent 按需操作。'
       : 'Show an installed system Chromium browser in Farming and let Agents operate it on demand.',
+    externalBrowserExtension: zh ? '外部浏览器' : 'External browser',
+    externalBrowserExtensionHint: zh
+      ? '连接由用户或 Agent 管理的 Chromium CDP，并在 Farming 中操作和查看同一个页面。'
+      : 'Connect to a user- or Agent-managed Chromium CDP endpoint and operate and view the same page in Farming.',
+    externalBrowserExtensionToggle: zh ? '外部浏览器' : 'External browser',
     browserExtensionUnavailableHint: zh
-      ? '请先安装 Chromium 系浏览器，才能在 Farming 中使用系统浏览器。'
-      : 'Install a Chromium-based browser to use a system browser in Farming.',
-    browserExtensionUnavailableStatus: zh ? '需要 Chromium 浏览器' : 'Chromium required',
+      ? '请安装 Chromium 系浏览器，或为 Farming 配置本机回环 CDP 端点。'
+      : 'Install a Chromium-based browser or configure a loopback CDP endpoint for Farming.',
+    browserExtensionUnavailableStatus: zh ? '需要 Chromium 或 CDP' : 'Chromium or CDP required',
     browserExtensionToggle: zh ? '系统浏览器' : 'System browser',
     browserExtensionSaveFailed: zh ? '系统浏览器设置保存失败' : 'Failed to save system browser setting',
     farmingPet: 'Farming Pet',
@@ -968,10 +973,16 @@ export function AgentHomesSettingsPanel({
               <div className="code-settings-card">
                 <div className="code-settings-choice-row code-settings-runtime-row code-settings-browser-row">
                   <div className="code-settings-row-copy">
-                    <strong>{copy.browserExtension}</strong>
+                    <strong>
+                      {browserCapability.browser?.kind === 'external-cdp'
+                        ? copy.externalBrowserExtension
+                        : copy.browserExtension}
+                    </strong>
                     <small>
                       {browserCapability.browser
-                        ? copy.browserExtensionHint
+                        ? (browserCapability.browser.kind === 'external-cdp'
+                            ? copy.externalBrowserExtensionHint
+                            : copy.browserExtensionHint)
                         : copy.browserExtensionUnavailableHint}
                     </small>
                   </div>
@@ -979,7 +990,9 @@ export function AgentHomesSettingsPanel({
                     <button
                       type="button"
                       className={`code-settings-permission-toggle ${browserExtensionEnabled ? 'active' : ''}`}
-                      aria-label={copy.browserExtensionToggle}
+                      aria-label={browserCapability.browser.kind === 'external-cdp'
+                        ? copy.externalBrowserExtensionToggle
+                        : copy.browserExtensionToggle}
                       aria-pressed={browserExtensionEnabled}
                       disabled={browserSaving}
                       onClick={() => void toggleBrowserExtension()}

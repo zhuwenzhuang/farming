@@ -73,9 +73,37 @@ function discoverWindowsBrowser(env) {
   return firstExecutable(candidates);
 }
 
+function normalizeExternalCdpUrl(value) {
+  const input = String(value || '').trim();
+  if (!input) return '';
+  try {
+    const url = new URL(input);
+    if (!['http:', 'https:', 'ws:', 'wss:'].includes(url.protocol)) return '';
+    if (url.username || url.password || url.search) return '';
+    const hostname = url.hostname.toLowerCase();
+    if (!['localhost', '127.0.0.1', '[::1]'].includes(hostname)) return '';
+    url.hash = '';
+    return url.href;
+  } catch {
+    return '';
+  }
+}
+
 function discoverBrowserExecutable(options = {}) {
   const env = options.env || process.env;
   const platform = options.platform || process.platform;
+  const externalCdpInput = String(options.externalCdpUrl || env.FARMING_BROWSER_CDP_URL || '').trim();
+  if (externalCdpInput) {
+    const cdpUrl = normalizeExternalCdpUrl(externalCdpInput);
+    return cdpUrl
+      ? { kind: 'external-cdp', path: '', cdpUrl }
+      : {
+          kind: 'external-cdp',
+          path: '',
+          cdpUrl: '',
+          error: 'FARMING_BROWSER_CDP_URL must be a loopback http(s) or ws(s) CDP endpoint without credentials or query parameters',
+        };
+  }
   const configured = String(options.executablePath || env.FARMING_BROWSER_EXECUTABLE || '').trim();
   if (configured) {
     return executable(path.resolve(configured), 'custom');
@@ -88,4 +116,5 @@ function discoverBrowserExecutable(options = {}) {
 
 module.exports = {
   discoverBrowserExecutable,
+  normalizeExternalCdpUrl,
 };
