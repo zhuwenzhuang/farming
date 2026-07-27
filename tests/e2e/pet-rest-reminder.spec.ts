@@ -609,6 +609,37 @@ test('appearance changes preserve the active cycle and reload restores it', asyn
   expect(restored.cycleStartedAt).toBe(originalCycleStartedAt)
 })
 
+test('custom reminder minutes and the slider stay synchronized', async ({ page }) => {
+  await page.addInitScript(settingsKey => {
+    localStorage.setItem(settingsKey, JSON.stringify({
+      version: 1,
+      appearance: 'glass',
+      capabilities: { restReminder: { intervalSeconds: 50 * 60 } },
+    }))
+  }, SETTINGS_KEY)
+
+  await openFarming(page)
+  await page.getByTestId('code-sidebar-options').click()
+  const settings = page.getByTestId('code-settings-panel')
+  const slider = settings.getByRole('slider', { name: 'Break reminder' })
+  const customMinutes = settings.getByRole('spinbutton', {
+    name: 'Custom reminder interval in minutes',
+  })
+
+  await expect(customMinutes).toHaveValue('50')
+  await expect(slider).toHaveValue('51')
+
+  await customMinutes.fill('37')
+  await expect(slider).toHaveValue('38')
+
+  await slider.fill('91')
+  await expect(customMinutes).toHaveValue('90')
+  await expect.poll(() => page.evaluate(key => (
+    JSON.parse(localStorage.getItem(key) ?? 'null')
+      ?.capabilities?.restReminder?.intervalSeconds
+  ), SETTINGS_KEY)).toBe(90 * 60)
+})
+
 test('Settings blocks rest entry and closing it starts a fresh entry countdown', async ({ page }) => {
   test.slow()
   await page.addInitScript(({ settingsKey, runtimeKey }) => {

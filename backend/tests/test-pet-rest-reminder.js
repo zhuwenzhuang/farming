@@ -277,9 +277,10 @@ const path = require('path');
   assert(settingsSource.includes('code-settings-pet-appearance-options'));
   assert(settingsSource.includes('data-pet-snapshot-exclude'));
   assert(settingsSource.includes('aria-valuetext={copy.breakReminderValue(restReminderIntervalSeconds)}'));
-  assert(settingsSource.includes('当前标签页内'));
-  assert(settingsSource.includes("if (event.key === 'Escape')"));
-  assert(settingsSource.includes('commitCustomRestReminderMinutes(event.currentTarget)'));
+  assert(settingsSource.includes('按本页点击和输入计时'));
+  assert(settingsSource.includes('value={restReminderSliderValue}'));
+  assert(settingsSource.includes('onChange={event => setRestReminderSliderValue(Number(event.target.value))}'));
+  assert(settingsSource.includes('onChange={event => setCustomRestReminderMinutes(event.currentTarget.value)}'));
 
   const importedRestReminder = await import('../../src/lib/pet/rest-reminder.ts');
   const restReminder = importedRestReminder.default ?? importedRestReminder;

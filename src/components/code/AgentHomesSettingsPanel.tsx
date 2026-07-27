@@ -6,7 +6,6 @@ import {
   REST_REMINDER_CUSTOM_MINUTES_MAX,
   REST_REMINDER_CUSTOM_MINUTES_MIN,
   REST_REMINDER_IDLE_RESET_MINUTES,
-  REST_REMINDER_INTERVAL_PRESETS_SECONDS,
   REST_REMINDER_TEST_INTERVAL_SECONDS,
   isPetSettingsStorageKey,
   normalizeRestReminderIntervalSeconds,
@@ -147,8 +146,8 @@ function panelCopy(language: UiPreferences['language']) {
     blackHole: zh ? '黑洞' : 'Black hole',
     breakReminder: zh ? '休息提醒' : 'Break reminder',
     breakReminderHint: zh
-      ? `Pet 按当前标签页内的 Farming 点击和输入计时；连续 ${REST_REMINDER_IDLE_RESET_MINUTES} 分钟无操作后自动重置。档位：5 秒观察、25、30、40、50、60、90 分钟、2、3、4 小时。`
-      : `Pet counts Farming clicks and input in this tab; it resets after ${REST_REMINDER_IDLE_RESET_MINUTES} minutes without activity. Presets: 5-sec preview; 25, 30, 40, 50, 60, and 90 min; 2, 3, and 4 hr.`,
+      ? `按本页点击和输入计时，空闲 ${REST_REMINDER_IDLE_RESET_MINUTES} 分钟后重置。`
+      : `Counts clicks and input in this tab; resets after ${REST_REMINDER_IDLE_RESET_MINUTES} minutes idle.`,
     breakReminderValue: (seconds: number | null) => {
       if (!seconds || seconds <= 0) return zh ? '关闭' : 'Off'
       if (seconds === REST_REMINDER_TEST_INTERVAL_SECONDS) {
@@ -659,28 +658,34 @@ export function AgentHomesSettingsPanel({
     setPetAppearanceState(appearance)
   }, [copy.saveFailed])
 
-  const restReminderSliderOptions = useMemo(() => {
-    const presets = [...REST_REMINDER_INTERVAL_PRESETS_SECONDS] as number[]
-    if (
-      restReminderIntervalSeconds === null
-      || presets.includes(restReminderIntervalSeconds)
-    ) return presets
-    return [...presets, restReminderIntervalSeconds].sort((left, right) => left - right)
-  }, [restReminderIntervalSeconds])
+  const restReminderSliderValue = restReminderIntervalSeconds === REST_REMINDER_TEST_INTERVAL_SECONDS
+    ? 1
+    : restReminderIntervalSeconds && restReminderIntervalSeconds >= 60
+      ? (restReminderIntervalSeconds / 60) + 1
+      : 0
 
-  const commitCustomRestReminderMinutes = useCallback((input: HTMLInputElement) => {
-    const minutes = Number(input.value)
-    const valid = Number.isInteger(minutes)
-      && minutes >= REST_REMINDER_CUSTOM_MINUTES_MIN
-      && minutes <= REST_REMINDER_CUSTOM_MINUTES_MAX
-    if (valid) {
-      setRestReminderIntervalSeconds(minutes * 60)
+  const setRestReminderSliderValue = useCallback((value: number) => {
+    if (value === 0) {
+      setRestReminderIntervalSeconds(0)
       return
     }
-    input.value = restReminderIntervalSeconds && restReminderIntervalSeconds >= 60
-      ? String(restReminderIntervalSeconds / 60)
-      : ''
-  }, [restReminderIntervalSeconds, setRestReminderIntervalSeconds])
+    setRestReminderIntervalSeconds(
+      value === 1 ? REST_REMINDER_TEST_INTERVAL_SECONDS : (value - 1) * 60,
+    )
+  }, [setRestReminderIntervalSeconds])
+
+  const setCustomRestReminderMinutes = useCallback((value: string) => {
+    if (value === '') {
+      setRestReminderIntervalSeconds(0)
+      return
+    }
+    const minutes = Number(value)
+    if (
+      Number.isInteger(minutes)
+      && minutes >= REST_REMINDER_CUSTOM_MINUTES_MIN
+      && minutes <= REST_REMINDER_CUSTOM_MINUTES_MAX
+    ) setRestReminderIntervalSeconds(minutes * 60)
+  }, [setRestReminderIntervalSeconds])
 
   const toggleBrowserExtension = useCallback(async () => {
     if (browserSaving) return
@@ -1057,16 +1062,12 @@ export function AgentHomesSettingsPanel({
                   <input
                     type="range"
                     min="0"
-                    max={String(restReminderSliderOptions.length - 1)}
+                    max={String(REST_REMINDER_CUSTOM_MINUTES_MAX + 1)}
                     step="1"
-                    value={Math.max(0, restReminderSliderOptions.indexOf(
-                      restReminderIntervalSeconds ?? 0,
-                    ))}
+                    value={restReminderSliderValue}
                     aria-label={copy.breakReminder}
                     aria-valuetext={copy.breakReminderValue(restReminderIntervalSeconds)}
-                    onChange={event => setRestReminderIntervalSeconds(
-                      restReminderSliderOptions[Number(event.target.value)] ?? 0,
-                    )}
+                    onChange={event => setRestReminderSliderValue(Number(event.target.value))}
                   />
                   <span className="code-settings-pet-rest-off-marker">{copy.breakReminderOffMarker}</span>
                 </div>
@@ -1075,23 +1076,16 @@ export function AgentHomesSettingsPanel({
                   <label className="code-settings-pet-rest-custom">
                     <span>{copy.customBreakReminder}</span>
                     <input
-                      key={restReminderIntervalSeconds ?? 'unset'}
                       type="number"
                       min={REST_REMINDER_CUSTOM_MINUTES_MIN}
                       max={REST_REMINDER_CUSTOM_MINUTES_MAX}
                       step="1"
-                      defaultValue={restReminderIntervalSeconds && restReminderIntervalSeconds >= 60
+                      value={restReminderIntervalSeconds && restReminderIntervalSeconds >= 60
                         ? restReminderIntervalSeconds / 60
                         : ''}
                       placeholder={`${REST_REMINDER_CUSTOM_MINUTES_MIN}–${REST_REMINDER_CUSTOM_MINUTES_MAX}`}
                       aria-label={copy.customBreakReminderMinutes}
-                      onBlur={event => commitCustomRestReminderMinutes(event.currentTarget)}
-                      onKeyDown={event => {
-                        if (event.key === 'Enter') event.currentTarget.blur()
-                        if (event.key === 'Escape') {
-                          commitCustomRestReminderMinutes(event.currentTarget)
-                        }
-                      }}
+                      onChange={event => setCustomRestReminderMinutes(event.currentTarget.value)}
                     />
                     <span>{copy.customBreakReminderUnit}</span>
                   </label>
