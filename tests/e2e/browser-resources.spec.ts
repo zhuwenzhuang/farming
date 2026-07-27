@@ -137,6 +137,38 @@ test('does not show a Browser section before the first Browser is created', asyn
   await expect(project.getByTestId('farming-browser-section')).toHaveCount(0)
 })
 
+test('deletes a Browser directly without a confirmation dialog', async ({
+  page,
+  workspaceRoot,
+}) => {
+  const workspace = path.join(workspaceRoot, 'browser-direct-delete')
+  fs.mkdirSync(workspace, { recursive: true })
+  const enableResponse = await page.request.post('/farming/api/settings', {
+    data: { browserExtensionEnabled: true },
+  })
+  expect(enableResponse.ok()).toBeTruthy()
+  await page.request.post('/farming/api/projects/mount', { data: { workspace } })
+  const createResponse = await page.request.post('/farming/api/browsers', {
+    data: { rootId: projectFilesWorkspaceId(workspace) },
+  })
+  expect(createResponse.ok()).toBeTruthy()
+  await openFarming(page)
+
+  const project = page.getByTestId('code-project-group').filter({ hasText: path.basename(workspace) })
+  const row = project.getByTestId('farming-browser-row')
+  await expect(row).toBeVisible()
+  const dialogs: string[] = []
+  page.on('dialog', async dialog => {
+    dialogs.push(dialog.message())
+    await dialog.dismiss()
+  })
+
+  await row.hover()
+  await row.getByRole('button', { name: 'Delete Browser' }).click()
+  await expect(project.getByTestId('farming-browser-section')).toHaveCount(0)
+  expect(dialogs).toEqual([])
+})
+
 test('explains which system browser must be installed when none is available', async ({
   page,
 }, testInfo) => {
@@ -168,6 +200,46 @@ test('explains which system browser must be installed when none is available', a
   })
 })
 
+test('keeps an edited browser address until Enter submits it', async ({
+  page,
+  workspaceRoot,
+}) => {
+  const workspace = path.join(workspaceRoot, 'browser-address-draft')
+  fs.mkdirSync(workspace, { recursive: true })
+  const enableResponse = await page.request.post('/farming/api/settings', {
+    data: { browserExtensionEnabled: true },
+  })
+  expect(enableResponse.ok()).toBeTruthy()
+  await page.request.post('/farming/api/projects/mount', { data: { workspace } })
+  await openFarming(page)
+
+  const createResponse = await page.request.post('/farming/api/browsers', {
+    data: { rootId: projectFilesWorkspaceId(workspace) },
+  })
+  expect(createResponse.ok()).toBeTruthy()
+  const createdBrowser = await createResponse.json() as { id: string }
+  const startResponse = await page.request.post(`/farming/api/browsers/${createdBrowser.id}/start`)
+  expect(startResponse.ok()).toBeTruthy()
+
+  const project = page.getByTestId('code-project-group').filter({ hasText: path.basename(workspace) })
+  await expect(project.getByTestId('farming-browser-section')).toBeVisible()
+  await project.getByTestId('farming-browser-row').click()
+  const addressInput = page.getByRole('textbox', { name: 'Browser address' })
+  await expect(addressInput).toBeVisible({ timeout: 30_000 })
+  await addressInput.fill(targetUrl)
+
+  const competingUrl = `${targetUrl}?agent-navigation=1`
+  const competingNavigation = await page.request.post(`/farming/api/browsers/${createdBrowser.id}/navigate`, {
+    data: { url: competingUrl },
+  })
+  expect(competingNavigation.ok()).toBeTruthy()
+  await expect.poll(async () => (await browserSnapshot(page, createdBrowser.id)).url).toBe(competingUrl)
+  await expect(addressInput).toHaveValue(targetUrl)
+
+  await addressInput.press('Enter')
+  await expect.poll(async () => (await browserSnapshot(page, createdBrowser.id)).url).toBe(targetUrl)
+})
+
 test('matches the focused Viewer viewport and restores the previous Viewer on close', async ({
   browser,
   page,
@@ -188,6 +260,9 @@ test('matches the focused Viewer viewport and restores the previous Viewer on cl
   await expect(browserSection).toHaveCount(0)
   await page.getByTestId('code-nav-plugins').click()
   const pluginsPanel = page.getByTestId('code-plugins-panel')
+  await expect(pluginsPanel.getByTestId('code-plugin-section-farming')).toBeVisible()
+  await expect(pluginsPanel.getByTestId('code-plugin-section-agent-codex')).toBeVisible()
+  await expect(pluginsPanel.getByTestId('code-plugin-section-agent-claude')).toBeVisible()
   const browserToggle = pluginsPanel.getByRole('button', { name: 'Disable' })
   const browserHint = pluginsPanel.getByText(
     'Let Agents operate webpages and view the same browser in Farming.',

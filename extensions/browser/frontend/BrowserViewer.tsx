@@ -80,6 +80,8 @@ export function BrowserViewer({
   const copy = viewerCopy(language)
   const viewportRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const addressInputRef = useRef<HTMLInputElement>(null)
+  const addressEditingRef = useRef(false)
   const textInputRef = useRef<HTMLTextAreaElement>(null)
   const composingTextRef = useRef(false)
   const socketRef = useRef<WebSocket | null>(null)
@@ -94,7 +96,9 @@ export function BrowserViewer({
   const [viewerError, setViewerError] = useState('')
   const [moreOpen, setMoreOpen] = useState(false)
 
-  useEffect(() => setAddress(resource.url), [resource.url])
+  useEffect(() => {
+    if (!addressEditingRef.current) setAddress(resource.url)
+  }, [resource.url])
 
   useEffect(() => {
     if (!moreOpen) return undefined
@@ -267,8 +271,11 @@ export function BrowserViewer({
     }
   }
   const navigate = async () => {
+    const submittedAddress = (addressInputRef.current?.value ?? address).trim()
     try {
-      const normalized = /^https?:\/\//i.test(address) || address === 'about:blank' ? address : `http://${address}`
+      const normalized = /^https?:\/\//i.test(submittedAddress) || submittedAddress === 'about:blank'
+        ? submittedAddress
+        : `http://${submittedAddress}`
       const response = await fetch(appPath(`/api/browsers/${encodeURIComponent(resource.id)}/navigate`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
@@ -276,6 +283,8 @@ export function BrowserViewer({
       })
       const next = await response.json() as BrowserResource & { error?: string }
       if (!response.ok) throw new Error(next.error || copy.navigationFailed)
+      addressEditingRef.current = false
+      setAddress(next.url)
       onResource(next)
     } catch (error) {
       setViewerError(error instanceof Error ? error.message : copy.navigationFailed)
@@ -317,10 +326,18 @@ export function BrowserViewer({
           void navigate()
         }}>
           <input
+            ref={addressInputRef}
             value={address}
             aria-label={copy.address}
             disabled={resource.status !== 'running'}
-            onChange={event => setAddress(event.currentTarget.value)}
+            onChange={event => {
+              addressEditingRef.current = true
+              setAddress(event.currentTarget.value)
+            }}
+            onBlur={() => {
+              addressEditingRef.current = false
+              setAddress(resource.url)
+            }}
           />
           <span className={`farming-browser-connection ${connected ? 'connected' : ''}`} title={connected ? copy.connected : copy.disconnected} />
         </form>

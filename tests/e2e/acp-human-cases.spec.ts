@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { execFileSync } from 'node:child_process'
 import type { Page } from '@playwright/test'
-import { expect, openFarming, test } from './fixtures'
+import { expect, openFarming, terminalRows, test } from './fixtures'
 
 async function createAcpAgent(page: Page, workspace: string) {
   const response = await page.request.post('/farming/api/control/agents', {
@@ -26,6 +26,47 @@ async function sendAcpMessage(page: Page, text: string) {
 }
 
 test.describe('ACP human-like browser matrix', () => {
+  test('paints the terminal checkpoint after switching from Chat', async ({ page, workspaceRoot }) => {
+    const workspace = path.join(workspaceRoot, 'acp-chat-to-terminal')
+    fs.mkdirSync(workspace, { recursive: true })
+
+    const originalAgentId = await createAcpAgent(page, workspace)
+    await openFarming(page)
+    await agentRow(page, originalAgentId).click()
+    await expect(page.getByTestId('code-agent-chat-view')).toBeVisible()
+
+    const switchResponsePromise = page.waitForResponse((response) => {
+      if (
+        response.request().method() !== 'PATCH'
+        || !response.url().includes(`/api/agents/${originalAgentId}`)
+      ) return false
+      try {
+        return (response.request().postDataJSON() as { agentRuntimeMode?: string }).agentRuntimeMode === 'terminal'
+      } catch {
+        return false
+      }
+    })
+    await page.getByTestId('code-terminal-mode-toggle').getByRole('button', { name: 'Terminal' }).click()
+    const switchResponse = await switchResponsePromise
+    const payload = await switchResponse.json() as { error?: string, restartedAgentId?: string }
+    expect(switchResponse.ok(), payload.error || 'Runtime switch request failed').toBeTruthy()
+    expect(payload.restartedAgentId).toBeTruthy()
+
+    const restartedAgentId = payload.restartedAgentId as string
+    await expect(page.getByTestId('code-agent-terminal-view')).toBeVisible({ timeout: 30_000 })
+    await expect.poll(
+      async () => (await terminalRows(page, restartedAgentId, 10)).join('\n'),
+      { timeout: 30_000 },
+    ).toContain('Fake Claude Code ready')
+    const terminalHost = page.getByTestId('code-agent-terminal-view').locator('.terminal-session-host')
+    await expect(terminalHost).toBeVisible()
+    await expect(terminalHost).not.toHaveClass(/terminal-checkpoint-installing/)
+    await expect.poll(async () => terminalHost.locator('.xterm').evaluate(element => {
+      const bounds = element.getBoundingClientRect()
+      return [getComputedStyle(element).opacity, bounds.width > 100, bounds.height > 100]
+    })).toEqual(['1', true, true])
+  })
+
   test('keeps a fresh OpenCode launch on ACP before the provider session id exists', async ({ page, workspaceRoot }) => {
     const workspace = path.join(workspaceRoot, 'opencode-acp-launch')
     fs.mkdirSync(workspace, { recursive: true })

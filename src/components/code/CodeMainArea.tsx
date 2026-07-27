@@ -21,7 +21,6 @@ import { HistoryPanel } from './HistoryPanel'
 import { SearchPanel } from './SearchPanel'
 import {
   ChevronDownGlyph,
-  ChevronLeftGlyph,
   ChevronUpGlyph,
   FocusModeGlyph,
   HistoryGlyph,
@@ -272,7 +271,6 @@ interface CodeMainAreaProps {
   onOpenSearch: () => void
   onOpenShare: () => void
   onOpenAppMode: () => void
-  onCollapseSidebar: () => void
   onOpenTerminal: (agentId: string, options?: { focusTerminal?: boolean }) => void
   onOpenTerminalPath: (agentId: string, target: TerminalPathOpenTarget) => void
   onResolveTerminalPath: (agentId: string, target: TerminalPathOpenTarget) => Promise<TerminalPathOpenTarget | null> | TerminalPathOpenTarget | null
@@ -328,13 +326,12 @@ function viewTitle(copy: CodeCopy, view: WorkspaceView) {
   return 'Farming'
 }
 
-type EmptyWorkspaceAction = 'history' | 'new-agent' | 'plugins' | 'search' | 'share' | 'focus' | 'collapse'
+type EmptyWorkspaceAction = 'history' | 'new-agent' | 'plugins' | 'search' | 'share' | 'focus'
 
 function EmptyWorkspaceActionGlyph({ action }: { action: EmptyWorkspaceAction }) {
   if (action === 'new-agent') return <NewAgentGlyph />
   if (action === 'plugins') return <PuzzleGlyph />
   if (action === 'search') return <SearchGlyph />
-  if (action === 'collapse') return <ChevronLeftGlyph />
   if (action === 'history') return <HistoryGlyph />
   if (action === 'share') return <QrGlyph />
   return <FocusModeGlyph />
@@ -348,7 +345,6 @@ function EmptyWorkspaceGuide({
   onOpenSearch,
   onOpenShare,
   onOpenAppMode,
-  onCollapseSidebar,
   copy,
 }: {
   agentCreationWorkspace?: string
@@ -358,7 +354,6 @@ function EmptyWorkspaceGuide({
   onOpenSearch: () => void
   onOpenShare: () => void
   onOpenAppMode: () => void
-  onCollapseSidebar: () => void
   copy: CodeCopy
 }) {
   const utilityActions: Array<{
@@ -370,7 +365,7 @@ function EmptyWorkspaceGuide({
     { action: 'search', title: copy.search, description: copy.emptyWorkspaceSearchDescription, onClick: onOpenSearch },
     { action: 'share', title: copy.sharePage, description: copy.emptyWorkspaceShareDescription, onClick: onOpenShare },
     { action: 'focus', title: copy.emptyWorkspaceFocus, description: copy.emptyWorkspaceFocusDescription, onClick: onOpenAppMode },
-    { action: 'collapse', title: copy.collapseSidebar, description: copy.emptyWorkspaceCollapseDescription, onClick: onCollapseSidebar },
+    { action: 'plugins', title: copy.plugins, description: copy.emptyWorkspacePluginsDescription, onClick: onOpenPlugins },
   ]
 
   return (
@@ -447,16 +442,6 @@ function EmptyWorkspaceGuide({
               <strong>{copy.newAgent}</strong>
               <span>{copy.emptyWorkspaceNewAgentDescription}</span>
             </button>
-            <button
-              type="button"
-              className="code-empty-home-card primary"
-              data-testid="code-empty-home-plugins"
-              onClick={onOpenPlugins}
-            >
-              <span className="code-empty-home-card-icon"><EmptyWorkspaceActionGlyph action="plugins" /></span>
-              <strong>{copy.plugins}</strong>
-              <span>{copy.emptyWorkspacePluginsDescription}</span>
-            </button>
           </div>
           <div className="code-empty-home-utilities">
             {utilityActions.map(item => (
@@ -518,7 +503,6 @@ export function CodeMainArea({
   onOpenSearch,
   onOpenShare,
   onOpenAppMode,
-  onCollapseSidebar,
   onOpenTerminal,
   onOpenTerminalPath,
   onResolveTerminalPath,
@@ -780,7 +764,6 @@ export function CodeMainArea({
               onOpenSearch={onOpenSearch}
               onOpenShare={onOpenShare}
               onOpenAppMode={onOpenAppMode}
-              onCollapseSidebar={onCollapseSidebar}
               copy={copy}
             />
             <div className="code-empty-workspace-compact">

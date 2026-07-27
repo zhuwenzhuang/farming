@@ -5171,7 +5171,6 @@ export function CodeWorkspace({
         onOpenSearch={openSearchFromSidebar}
         onOpenShare={() => requestEmptyHomeSidebarAction('share')}
         onOpenAppMode={() => requestEmptyHomeSidebarAction('focus')}
-        onCollapseSidebar={collapseSidebar}
         onOpenTerminal={onOpenTerminal}
         onOpenTerminalPath={openTerminalPathTarget}
         onResolveTerminalPath={resolveTerminalPathTarget}

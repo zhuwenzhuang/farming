@@ -391,7 +391,6 @@ test.describe('display-backed agent flows', () => {
         ['code-empty-home-search', 'code-nav-search'],
         ['code-empty-home-history', 'code-nav-history'],
         ['code-empty-home-plugins', 'code-nav-plugins'],
-        ['code-empty-home-collapse', 'code-sidebar-toggle'],
       ]
       const getPathPoint = (selector: string, fraction: number) => {
         const path = document.querySelector<SVGPathElement>(selector)
@@ -508,6 +507,11 @@ test.describe('display-backed agent flows', () => {
           : Number.POSITIVE_INFINITY,
         guideBorderWidths: [...guideButtons, ...guideIcons].map(element => getComputedStyle(element).borderTopWidth),
         cardBackgrounds: guideButtons.map(element => getComputedStyle(element).backgroundColor),
+        primaryCardCount: document.querySelectorAll('.code-empty-home-primary .code-empty-home-card').length,
+        utilityCardCount: document.querySelectorAll('.code-empty-home-utilities .code-empty-home-card').length,
+        pluginsIsUtility: Boolean(
+          document.querySelector('[data-testid="code-empty-home-plugins"]')?.closest('.code-empty-home-utilities'),
+        ),
         iconsMatchToolbar: iconPairs.every(([guideId, toolbarId]) => {
           const guideIcon = document.querySelector(`[data-testid="${guideId}"] .code-empty-home-card-icon svg`)
           const toolbarIcon = document.querySelector(`[data-testid="${toolbarId}"] svg`)
@@ -549,11 +553,17 @@ test.describe('display-backed agent flows', () => {
       Array.from({ length: guideGeometry.guideBorderWidths.length }, () => '0px'),
     )
     expect(new Set(guideGeometry.cardBackgrounds).size).toBe(1)
+    expect(guideGeometry.primaryCardCount).toBe(2)
+    expect(guideGeometry.utilityCardCount).toBe(4)
+    expect(guideGeometry.pluginsIsUtility).toBe(true)
     expect(guideGeometry.iconsMatchToolbar).toBe(true)
 
     await emptyWorkspace.getByTestId('code-empty-home-plugins').click()
     await expect(page.getByTestId('code-plugins-panel')).toBeVisible()
     await expect(page.getByTestId('code-plugin-browser')).toBeVisible()
+    await expect(page.getByTestId('code-plugin-section-farming')).toBeVisible()
+    await expect(page.getByTestId('code-plugin-section-agent-codex')).toBeVisible()
+    await expect(page.getByTestId('code-plugin-section-agent-claude')).toBeVisible()
     await expect(page.getByTestId('code-nav-plugins')).toHaveClass(/active/)
     await page.getByTestId('code-plugins-panel').getByRole('button', { name: /Back to workspace|返回工作区/ }).click()
     await expect(emptyWorkspace.getByTestId('code-empty-home-plugins')).toBeVisible()
@@ -570,11 +580,6 @@ test.describe('display-backed agent flows', () => {
     await expect(page.getByTestId('code-app-mode-dialog')).toBeVisible()
     await page.keyboard.press('Escape')
     await expect(page.getByTestId('code-app-mode-dialog')).toHaveCount(0)
-
-    await emptyWorkspace.getByTestId('code-empty-home-collapse').click()
-    await expect(emptyWorkspace.getByTestId('code-empty-compact-history')).toBeVisible()
-    await page.getByTestId('code-sidebar-toggle').click()
-    await expect(emptyWorkspace.getByTestId('code-empty-home-history')).toBeVisible()
 
     await emptyWorkspace.getByTestId('code-empty-home-search').click()
     const searchView = page.getByTestId('code-side-view-panel')
