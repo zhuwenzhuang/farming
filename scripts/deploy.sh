@@ -94,23 +94,14 @@ write_server_control_metadata() {
   local config_dir
   config_dir="$(server_config_dir_for_pid "${pid}")"
   remote "mkdir -p ${config_dir}; \
+    process_group_id=\$(LANG=C LC_ALL=C TZ=UTC ps -p '${pid}' -o pgid= | tr -d '[:space:]'); \
+    started_at=\$(LANG=C LC_ALL=C TZ=UTC ps -p '${pid}' -o lstart= | sed 's/^ *//;s/ *\$//'); \
+    test -n \"\$process_group_id\" && test -n \"\$started_at\"; \
     printf '%s' '${pid}' > ${config_dir}/farming-server.pid; \
     updated_at=\$(date -u +%Y-%m-%dT%H:%M:%S.000Z); \
-    printf '{\n  \"pid\": %s,\n  \"port\": %s,\n  \"basePath\": \"%s\",\n  \"configDir\": \"%s\",\n  \"updatedAt\": \"%s\"\n}\n' \
-      '${pid}' '${REMOTE_PORT}' '${REMOTE_BASE_PATH}' '${config_dir}' \"\$updated_at\" \
+    printf '{\n  \"pid\": %s,\n  \"port\": %s,\n  \"basePath\": \"%s\",\n  \"configDir\": \"%s\",\n  \"processIdentity\": {\n    \"pid\": %s,\n    \"processGroupId\": %s,\n    \"startedAt\": \"%s\",\n    \"format\": \"ps-lstart-c-utc-v1\"\n  },\n  \"updatedAt\": \"%s\"\n}\n' \
+      '${pid}' '${REMOTE_PORT}' '${REMOTE_BASE_PATH}' '${config_dir}' '${pid}' \"\$process_group_id\" \"\$started_at\" \"\$updated_at\" \
       > ${config_dir}/farming-server.json"
-}
-
-arg_force_restart() {
-  if [[ "${FARMING_REMOTE_FORCE_RESTART:-0}" =~ ^(1|true|TRUE|yes|YES|on|ON)$ ]]; then
-    return 0
-  fi
-  for arg in "$@"; do
-    if [ "${arg}" = "--force" ]; then
-      return 0
-    fi
-  done
-  return 1
 }
 
 remote_token_b64() {
@@ -232,265 +223,6 @@ write_source_release_metadata() {
   remote "printf '%s' '${metadata_b64}' | base64 -d > ${REMOTE_DIR}/RELEASE.json"
 }
 
-assert_safe_to_restart() {
-  if arg_force_restart "$@"; then
-    log "Force restart requested; skipping active agent guard."
-    return 0
-  fi
-
-  if ! remote "test -f ${PID_FILE} && kill -0 \$(cat ${PID_FILE}) 2>/dev/null"; then
-    return 0
-  fi
-
-  local token_b64
-  token_b64="$(remote_token_b64)"
-  log "Checking for active agents before restart ..."
-  if remote "cd ${REMOTE_DIR} && \
-    FARMING_GUARD_HTTP_URL='http://127.0.0.1:${REMOTE_PORT}${REMOTE_BASE_PATH}/api/update' \
-    FARMING_GUARD_TOKEN_B64='${token_b64}' \
-    node <<'NODE'
-const http = require('http');
-
-const url = new URL(process.env.FARMING_GUARD_HTTP_URL);
-const tokenB64 = process.env.FARMING_GUARD_TOKEN_B64 || '';
-if (tokenB64) {
-  url.searchParams.set('token', Buffer.from(tokenB64, 'base64').toString('utf8'));
-}
-
-let completed = false;
-function finish(code) {
-  if (completed) return;
-  completed = true;
-  process.exit(code);
-}
-
-const request = http.get(url, (response) => {
-  let body = '';
-  response.setEncoding('utf8');
-  response.on('data', chunk => { body += chunk; });
-  response.on('end', () => {
-    if (response.statusCode !== 200) {
-      console.error('Could not read Farming restart blockers over HTTP: status ' + response.statusCode);
-      finish(3);
-      return;
-    }
-
-    let payload;
-    try {
-      payload = JSON.parse(body);
-    } catch (error) {
-      console.error('Could not read Farming restart blockers over HTTP: invalid JSON');
-      finish(3);
-      return;
-    }
-
-    const blocking = payload && payload.update && Array.isArray(payload.update.blockingAgents)
-      ? payload.update.blockingAgents
-      : null;
-    if (!blocking) {
-      console.error('Could not read Farming restart blockers over HTTP: missing blockingAgents');
-      finish(3);
-      return;
-    }
-
-    if (blocking.length > 0) {
-      console.error('Refusing to restart because active non-recoverable agents would be interrupted:');
-      for (const agent of blocking) {
-        const title = agent.task || agent.command || agent.id;
-        const cwd = agent.cwd || '';
-        console.error('- ' + agent.id + ' | ' + (agent.command || 'agent') + ' | ' + title + (cwd ? ' | ' + cwd : ''));
-      }
-      console.error('Retry with --force or FARMING_REMOTE_FORCE_RESTART=1 only if interruption is intentional.');
-      finish(2);
-      return;
-    }
-
-    finish(0);
-  });
-});
-
-request.setTimeout(3000, () => {
-  request.destroy(new Error('HTTP timeout'));
-});
-request.on('error', (error) => {
-  console.error('Could not read Farming restart blockers over HTTP: ' + error.message);
-  finish(3);
-});
-NODE"; then
-    return 0
-  elif [ "$?" = "2" ]; then
-    echo "Restart aborted. Farming reported active non-main agents." >&2
-    exit 1
-  fi
-
-  log "HTTP restart guard unavailable; falling back to WebSocket state check."
-  if remote "cd ${REMOTE_DIR} && \
-    FARMING_GUARD_WS_URL='ws://127.0.0.1:${REMOTE_PORT}${REMOTE_BASE_PATH}/ws' \
-    FARMING_GUARD_TOKEN_B64='${token_b64}' \
-    node <<'NODE'
-const WebSocket = require('ws');
-
-const url = new URL(process.env.FARMING_GUARD_WS_URL);
-const tokenB64 = process.env.FARMING_GUARD_TOKEN_B64 || '';
-if (tokenB64) {
-  url.searchParams.set('token', Buffer.from(tokenB64, 'base64').toString('utf8'));
-}
-
-const ws = new WebSocket(url.toString());
-const timeout = setTimeout(() => {
-  console.error('Could not read Farming state before restart: WebSocket timeout.');
-  ws.close();
-  process.exit(3);
-}, 5000);
-
-function agentKindForCommand(command) {
-  const executable = String(command || '')
-    .trim()
-    .split(/\s+/)
-    .find((token) => token !== 'env' && !/^[A-Za-z_][A-Za-z0-9_]*=/.test(token));
-  const basename = (executable || '').split('/').pop() || '';
-  if (basename === 'codex') return 'codex';
-  if (basename === 'claude') return 'claude';
-  if (['bash', 'zsh', 'sh', 'fish'].includes(basename)) return 'shell';
-  return executable ? 'agent' : null;
-}
-
-function currentTerminalText(agent) {
-  if (!agent) return '';
-  const previewText = typeof agent.previewText === 'string' ? agent.previewText : '';
-  if (previewText.trim()) return previewText.toLowerCase();
-  return String(agent.output || '').slice(-1800).toLowerCase();
-}
-
-function lastIndexOfAny(text, needles) {
-  return needles.reduce((last, needle) => Math.max(last, text.lastIndexOf(needle)), -1);
-}
-
-function lastCodexIdleFooterIndex(text) {
-  const matches = Array.from(text.matchAll(/(?:^|\n)\s*(?:gpt|codex)[^\n]*(?:·|•)\s*(?:~|\/)[^\n]*$/gim));
-  const lastMatch = matches.length > 0 ? matches[matches.length - 1] : undefined;
-  return lastMatch && typeof lastMatch.index === 'number' ? lastMatch.index : -1;
-}
-
-function codexActiveIndex(text) {
-  const activeTextIndex = lastIndexOfAny(text, [
-    'pursuing goal',
-    'esc to interrupt',
-    'press esc to interrupt',
-    'reconnecting',
-    '/stop to close',
-    'background terminal running',
-  ]);
-  const workingIndex = /\bworking\b/.test(text) ? text.lastIndexOf('working') : -1;
-  const stepMatches = Array.from(text.matchAll(/step\s+\d+\s*\/\s*\d+/g));
-  const lastStepMatch = stepMatches.length > 0 ? stepMatches[stepMatches.length - 1] : undefined;
-  const stepIndex = lastStepMatch && typeof lastStepMatch.index === 'number' ? lastStepMatch.index : -1;
-  return Math.max(activeTextIndex, workingIndex, stepIndex);
-}
-
-function codexBlockedIndex(text) {
-  return lastIndexOfAny(text, [
-    'goal blocked',
-    'input exceeds the context window',
-    'please adjust your input and try again',
-  ]);
-}
-
-function isCodexRestartBlocking(agent) {
-  const output = currentTerminalText(agent);
-  if (!output) return false;
-  if (output.includes('messages to be submitted after next tool call')) return true;
-
-  const activeIndex = codexActiveIndex(output);
-  if (activeIndex < 0) return false;
-
-  const blockedIndex = codexBlockedIndex(output);
-  if (blockedIndex >= activeIndex) return false;
-
-  return lastCodexIdleFooterIndex(output) <= activeIndex;
-}
-
-function isClaudeRestartBlocking(agent) {
-  const output = currentTerminalText(agent);
-  return (
-    output.includes('esc to interrupt') ||
-    output.includes('escape to interrupt') ||
-    output.includes('ctrl+c to interrupt') ||
-    output.includes('ctrl-c to interrupt') ||
-    output.includes('press esc to interrupt')
-  );
-}
-
-function isRecoverableEngineAgent(agent) {
-  return agent && agent.engineName === 'native';
-}
-
-function isAgentTerminalBusy(agent) {
-  if (agent && agent.terminalStatus) {
-    if (agent.terminalStatus.activity === 'busy') return true;
-    if (agent.terminalStatus.activity === 'idle' || agent.terminalStatus.activity === 'exited') return false;
-  }
-  return agent && agent.terminalBusy === true;
-}
-
-function isRestartBlockingAgent(agent) {
-  if (!agent || agent.isMain === true || agent.archived === true) return false;
-  if (agent.status === 'pending') return true;
-  if (agent.status !== 'running') return false;
-  if (isRecoverableEngineAgent(agent)) return false;
-  if (isAgentTerminalBusy(agent)) return true;
-
-  const kind = agent.terminalStatus && agent.terminalStatus.kind && agent.terminalStatus.kind !== 'unknown'
-    ? agent.terminalStatus.kind
-    : agentKindForCommand(agent.command);
-  if (kind === 'shell') return false;
-  if (kind === 'codex') return isCodexRestartBlocking(agent);
-  if (kind === 'claude') return isClaudeRestartBlocking(agent);
-  return true;
-}
-
-ws.on('message', (raw) => {
-  let message;
-  try {
-    message = JSON.parse(raw.toString());
-  } catch (error) {
-    return;
-  }
-  if (message.type !== 'state') return;
-
-  clearTimeout(timeout);
-  const agents = Array.isArray(message.state && message.state.agents) ? message.state.agents : [];
-  const blocking = agents.filter(isRestartBlockingAgent);
-
-  if (blocking.length > 0) {
-    console.error('Refusing to restart because active non-recoverable agents would be interrupted:');
-    for (const agent of blocking) {
-      const title = agent.task || agent.command || agent.id;
-      const cwd = agent.cwd || agent.projectWorkspace || '';
-      console.error('- ' + agent.id + ' | ' + (agent.command || 'agent') + ' | ' + title + (cwd ? ' | ' + cwd : ''));
-    }
-    console.error('Retry with --force or FARMING_REMOTE_FORCE_RESTART=1 only if interruption is intentional.');
-    ws.close();
-    process.exit(2);
-  }
-
-  ws.close();
-  process.exit(0);
-});
-
-ws.on('error', (error) => {
-  clearTimeout(timeout);
-  console.error('Could not read Farming state before restart: ' + error.message);
-  process.exit(3);
-});
-NODE"; then
-    return 0
-  fi
-
-  echo "Restart aborted. Farming could not prove that no active non-main agents are running." >&2
-  exit 1
-}
-
 # ── Commands ───────────────────────────────────────────────────
 
 cmd_deploy() {
@@ -559,14 +291,12 @@ cmd_deploy() {
 }
 
 cmd_up() {
-  assert_safe_to_restart "$@"
   cmd_deploy
   cmd_start "$@"
 }
 
 cmd_start() {
   local disable_auth="${FARMING_REMOTE_DISABLE_AUTH:-0}"
-  local force_restart=0
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --disable-auth)
@@ -576,7 +306,7 @@ cmd_start() {
         disable_auth=0
         ;;
       --force)
-        force_restart=1
+        # Kept as a no-op for command compatibility. Restart is always crash-only.
         ;;
       *)
         echo "Unknown start option: $1" >&2
@@ -597,17 +327,8 @@ cmd_start() {
 
   # Stop if already running
   if remote "test -f ${PID_FILE} && kill -0 \$(cat ${PID_FILE}) 2>/dev/null"; then
-    if [ "${force_restart}" = "1" ]; then
-      assert_safe_to_restart --force
-    else
-      assert_safe_to_restart
-    fi
     log "Server already running (PID $(remote "cat ${PID_FILE}")). Restarting ..."
-    if [ "${force_restart}" = "1" ]; then
-      cmd_stop --force
-    else
-      cmd_stop
-    fi
+    cmd_stop
   fi
 
   log "Starting Farming server on ${REMOTE}:${REMOTE_PORT} ..."
@@ -700,11 +421,10 @@ export FARMING_NODE_LIBRARY_PATH=${REMOTE_GLIBC_ROOT}/lib"
 }
 
 cmd_stop() {
-  local force_restart=0
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --force)
-        force_restart=1
+        # Kept as a no-op for command compatibility. Stop is always crash-only.
         ;;
       *)
         echo "Unknown stop option: $1" >&2
@@ -719,29 +439,20 @@ cmd_stop() {
     return 0
   fi
 
-  if [ "${force_restart}" = "1" ]; then
-    assert_safe_to_restart --force
-  else
-    assert_safe_to_restart
-  fi
-
   local pid
   pid=$(remote "cat ${PID_FILE}")
   local control_config_dir
   control_config_dir="$(server_config_dir_for_pid "${pid}")"
   log "Stopping server (PID ${pid}) ..."
 
-  remote "kill ${pid} 2>/dev/null || true; \
-    for _ in \$(seq 1 30); do \
-      kill -0 ${pid} 2>/dev/null || break; \
-      sleep 0.2; \
-    done; \
-    if kill -0 ${pid} 2>/dev/null; then kill -9 ${pid} 2>/dev/null || true; fi; \
-    if test -f ${control_config_dir}/farming-server.pid && \
-      test \"\$(cat ${control_config_dir}/farming-server.pid)\" = '${pid}'; then \
-      rm -f ${control_config_dir}/farming-server.pid ${control_config_dir}/farming-server.json; \
-    fi; \
-    rm -f ${PID_FILE}"
+  local remote_node
+  remote_node="$(remote "which node")"
+  local stop_command
+  stop_command="${remote_node} bin/farming stop --config-dir ${control_config_dir}"
+  if remote_uses_glibc; then
+    stop_command="${REMOTE_GLIBC_ROOT}/lib/ld-2.28.so --library-path ${REMOTE_GLIBC_ROOT}/lib ${remote_node} bin/farming stop --config-dir ${control_config_dir}"
+  fi
+  remote "cd ${REMOTE_DIR} && ${stop_command}; rm -f .farming.pid"
   log "Server stopped."
 }
 
@@ -774,7 +485,7 @@ Commands:
   start [--disable-auth] [--force]
            Start the server (or restart if running). Token auth is enabled by default.
   stop [--force]
-           Stop the server after checking that no non-main agents are active.
+           Stop the server immediately through the crash-only lifecycle.
   status   Check if server is running
   logs     Show recent log output
 
@@ -786,7 +497,6 @@ Environment:
   FARMING_REMOTE_CONFIG_DIR=/path/to/config
   FARMING_REMOTE_GLIBC_ROOT=/path/to/glibc228
   FARMING_REMOTE_USE_GLIBC=1      # launch Node through ld-2.28.so
-  FARMING_REMOTE_FORCE_RESTART=1   # bypass active-agent restart guard
 EOF
 }
 

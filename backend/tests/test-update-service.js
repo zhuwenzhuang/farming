@@ -126,9 +126,9 @@ async function run() {
   assert(serverSource.includes("app.get(routePath(BASE_PATH, '/api/update')"));
   assert(serverSource.includes("app.post(routePath(BASE_PATH, '/api/update/install')"));
   assert(serverSource.includes("app.post(routePath(BASE_PATH, '/api/update/restart')"));
-  assert(serverSource.includes('Cannot restart for update while non-recoverable project agents are running'));
-  assert(serverSource.includes("const { isRestartBlockingAgent } = require('./agent-activity');"));
-  assert(serverSource.includes('.filter(isRestartBlockingAgent)'));
+  assert(!serverSource.includes('blockingUpdateAgents'));
+  assert(!serverSource.includes('isRestartBlockingAgent'));
+  assert(!serverSource.includes('Cannot restart for update while non-recoverable project agents are running'));
 
   assert.strictEqual(normalizeVersion('v2.0.5'), '2.0.5');
   assert.strictEqual(normalizeVersion('farming-2.tar.gz'), '2');
@@ -817,8 +817,9 @@ async function run() {
       return npmGlobalRoot;
     },
     spawn: (command, args, options) => {
-      npmSpawned.push({ command, args, options });
-      return { unref() {} };
+      const record = { command, args, options, unrefed: false };
+      npmSpawned.push(record);
+      return { unref() { record.unrefed = true; } };
     },
   });
   const npmStatus = await npmService.check({ force: true });
@@ -870,6 +871,9 @@ async function run() {
   assert.strictEqual(npmInstallState.phase, 'installing');
   assert.strictEqual(npmApplyState.phase, 'restarting');
   assert.strictEqual(npmSpawned.length, 2);
+  assert(npmSpawned.every(record => record.options.detached === true));
+  assert(npmSpawned.every(record => record.options.stdio === 'ignore'));
+  assert(npmSpawned.every(record => record.unrefed === true));
   assert.strictEqual(npmSpawned[0].command, '/opt/farming/glibc/lib/ld-linux-x86-64.so.2');
   assert.deepStrictEqual(npmSpawned[0].args.slice(0, 3), [
     '--library-path',

@@ -179,6 +179,8 @@ farming logs
 farming stop
 ```
 
+Server stop, restart, and update share one crash-only path: the Farming Server exits immediately, and the successor reconciles Farming-owned state and reconnects supported runtimes. These operations never wait for an active Agent turn to finish. If the updater cannot signal the recorded Server because it belongs to another operating-system user, it leaves the package directories untouched and asks that user or an administrator to restart Farming before retrying.
+
 If an npm mirror still serves an older `latest`, compare it with the public registry, reinstall the current package, restart Farming, and hard-refresh the page:
 
 ```bash

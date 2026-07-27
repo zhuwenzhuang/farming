@@ -236,18 +236,31 @@ async function runTests() {
         configDir: fs.realpathSync.native(configDir),
         processIdentity,
       }));
-      const stopRequested = childMessage('stop-requested');
-      let stopSettled = false;
-      const stopping = stopDaemon(parseServerArgs(['stop', '--config-dir', configDir]))
-        .finally(() => { stopSettled = true; });
-      await stopRequested;
-      await new Promise(resolve => setImmediate(resolve));
-      assert.strictEqual(stopSettled, false, 'stop must wait while the old process still owns its listening port');
+
+      const originalKill = process.kill;
+      process.kill = (pid, signal) => {
+        if (pid === child.pid && signal === 'SIGKILL') {
+          const error = new Error('Operation not permitted');
+          error.code = 'EPERM';
+          throw error;
+        }
+        return originalKill(pid, signal);
+      };
+      try {
+        await assert.rejects(
+          stopDaemon(parseServerArgs(['stop', '--config-dir', configDir])),
+          /lacks permission.*operating-system user that owns the process/s,
+        );
+      } finally {
+        process.kill = originalKill;
+      }
+      assert.doesNotThrow(() => process.kill(child.pid, 0));
       assert.strictEqual(fs.existsSync(storageLayout.serverPidFile(configDir)), true);
       assert.strictEqual(fs.existsSync(serverStateFile(configDir)), true);
 
-      child.send({ type: 'release' });
-      assert.strictEqual(await stopping, 0);
+      const exited = new Promise(resolve => child.once('exit', (code, signal) => resolve({ code, signal })));
+      assert.strictEqual(await stopDaemon(parseServerArgs(['stop', '--config-dir', configDir])), 0);
+      assert.deepStrictEqual(await exited, { code: null, signal: 'SIGKILL' });
       assert.strictEqual(fs.existsSync(storageLayout.serverPidFile(configDir)), false);
       assert.strictEqual(fs.existsSync(serverStateFile(configDir)), false);
       assert.strictEqual(await canBindPort(listening.port), true, 'stop must return only after the old port can be rebound');
@@ -377,19 +390,9 @@ async function runTests() {
       assert.strictEqual(JSON.parse(fs.readFileSync(serverStateFile(configDir), 'utf8')).processIdentity, undefined);
       fs.writeFileSync(storageLayout.sessionTokenFile(configDir), token, { mode: 0o600 });
 
-      const stopRequested = childMessage('stop-requested');
-      let stopSettled = false;
-      const stopping = stopDaemon(parseServerArgs(['stop', '--config-dir', configDir]))
-        .finally(() => { stopSettled = true; });
-      await stopRequested;
-      const migratedState = JSON.parse(fs.readFileSync(serverStateFile(configDir), 'utf8'));
-      assert.strictEqual(migratedState.pid, child.pid);
-      assert.strictEqual(migratedState.configDir, fs.realpathSync.native(configDir));
-      assert.strictEqual(migratedState.processIdentity.pid, child.pid);
-      assert.strictEqual(typeof migratedState.processIdentity.startedAt, 'string');
-      assert.strictEqual(stopSettled, false, 'legacy migration must still wait for process exit and port release');
-      child.send({ type: 'release' });
-      assert.strictEqual(await stopping, 0);
+      const exited = new Promise(resolve => child.once('exit', (code, signal) => resolve({ code, signal })));
+      assert.strictEqual(await stopDaemon(parseServerArgs(['stop', '--config-dir', configDir])), 0);
+      assert.deepStrictEqual(await exited, { code: null, signal: 'SIGKILL' });
       assert.strictEqual(fs.existsSync(storageLayout.serverPidFile(configDir)), false);
       assert.strictEqual(fs.existsSync(serverStateFile(configDir)), false);
       assert.strictEqual(await canBindPort(port), true);
@@ -448,16 +451,9 @@ async function runTests() {
         configDir: fs.realpathSync.native(configDir),
         updatedAt: '2026-07-01T00:00:00.000Z',
       }));
-      const stopRequested = childMessage('stop-requested');
-      let stopSettled = false;
-      const stopping = stopDaemon(parseServerArgs(['stop', '--config-dir', configDir]))
-        .finally(() => { stopSettled = true; });
-      await stopRequested;
-      const migratedState = JSON.parse(fs.readFileSync(serverStateFile(configDir), 'utf8'));
-      assert.strictEqual(migratedState.processIdentity.pid, child.pid);
-      assert.strictEqual(stopSettled, false);
-      child.send({ type: 'release' });
-      assert.strictEqual(await stopping, 0);
+      const exited = new Promise(resolve => child.once('exit', (code, signal) => resolve({ code, signal })));
+      assert.strictEqual(await stopDaemon(parseServerArgs(['stop', '--config-dir', configDir])), 0);
+      assert.deepStrictEqual(await exited, { code: null, signal: 'SIGKILL' });
       assert.strictEqual(fs.existsSync(storageLayout.serverPidFile(configDir)), false);
       assert.strictEqual(fs.existsSync(serverStateFile(configDir)), false);
       assert.strictEqual(await canBindPort(port), true);

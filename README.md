@@ -126,6 +126,8 @@ farming logs
 farming stop
 ```
 
+Farming Server lifecycle is crash-only: `farming stop`, restart, and update terminate the Server immediately instead of waiting for active Agent work. The next Server process reconciles Farming-owned state and reconnects supported live runtimes; an interrupted provider turn may still require the provider's normal resume. If the updater lacks permission to stop the recorded Server process, it leaves both package directories untouched and asks the owning OS user or an administrator to restart Farming before retrying.
+
 The startup token is stored in `~/.farming/.session-token` and reused across restarts and upgrades. **Settings → Updates** uses a two-step flow for npm installations: **Prepare** installs the selected version into a separate staging directory while the current server keeps running, then **Restart to update** switches the package directory and restarts Farming only after the user clicks it. If the new server does not start, Farming restores the previous package directory. npm preparation first uses the machine's configured registry and retries the registry shown in Settings only when that registry lacks the selected version. Before preparing or applying an update, Farming verifies that npm targets the same package root that launched the server. GitHub Releases also provide standalone CLI and directory bundles; see [GitHub Releases](https://github.com/zhuwenzhuang/farming/releases) for current artifacts.
 
 To run from source with the same port and base path:

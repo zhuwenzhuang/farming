@@ -263,7 +263,10 @@ stop_server() {
   pid="$(cat "${PID_FILE}")"
   if [ -n "${pid}" ] && kill -0 "${pid}" 2>/dev/null; then
     log "Stopping server (PID ${pid}) ..."
-    kill "${pid}" 2>/dev/null || true
+    if ! kill -9 "${pid}" 2>/dev/null && kill -0 "${pid}" 2>/dev/null; then
+      echo "Cannot stop Server PID ${pid}: the installer lacks permission. Restart Farming as the operating-system user that owns this process or as an administrator, then retry." >&2
+      return 1
+    fi
     for _ in $(seq 1 30); do
       if ! kill -0 "${pid}" 2>/dev/null; then
         break
@@ -271,7 +274,8 @@ stop_server() {
       sleep 0.2
     done
     if kill -0 "${pid}" 2>/dev/null; then
-      kill -9 "${pid}" 2>/dev/null || true
+      echo "Server PID ${pid} did not exit after SIGKILL." >&2
+      return 1
     fi
   else
     log "Stale PID file found. Cleaning up."

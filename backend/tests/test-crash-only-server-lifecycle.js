@@ -8,41 +8,43 @@ function read(relativePath) {
 
 function run() {
   const deploySource = read('scripts/deploy.sh');
+  const serverSource = read('backend/server.js');
+  const appCliSource = read('backend/farming-app-cli.js');
+  const npmUpdateHelperSource = read('backend/npm-update-helper.js');
+  const updateServiceSource = read('backend/update-service.js');
+  const releaseInstallerSource = read('scripts/install-release.sh');
 
   assert(
-    deploySource.includes('assert_safe_to_restart "$@"') &&
-      deploySource.includes("const WebSocket = require('ws');") &&
-      deploySource.includes('function isRestartBlockingAgent(agent)') &&
-      deploySource.includes('function isRecoverableEngineAgent(agent)') &&
-      deploySource.includes('function isAgentTerminalBusy(agent)') &&
-      deploySource.includes("return agent && agent.engineName === 'native';") &&
-      deploySource.includes('if (isRecoverableEngineAgent(agent)) return false;') &&
-      deploySource.includes('if (isAgentTerminalBusy(agent)) return true;') &&
-      deploySource.includes("agent.terminalStatus.activity === 'idle'") &&
-      deploySource.includes("if (kind === 'codex') return isCodexRestartBlocking(agent);") &&
-      deploySource.includes('const blocking = agents.filter(isRestartBlockingAgent);') &&
-      deploySource.includes("FARMING_GUARD_HTTP_URL='http://127.0.0.1:${REMOTE_PORT}${REMOTE_BASE_PATH}/api/update'") &&
-      deploySource.includes('payload.update.blockingAgents') &&
-      deploySource.includes('HTTP restart guard unavailable; falling back to WebSocket state check.') &&
-      deploySource.includes('Refusing to restart because active non-recoverable agents would be interrupted:') &&
-      deploySource.includes('Retry with --force or FARMING_REMOTE_FORCE_RESTART=1') &&
-      deploySource.includes('cmd_stop --force') &&
-      deploySource.includes('stop [--force]'),
-    'deploy script should refuse restart/stop when active non-recoverable agents would be interrupted unless forced'
+      !deploySource.includes('assert_safe_to_restart') &&
+      !deploySource.includes('FARMING_GUARD_HTTP_URL') &&
+      !deploySource.includes('FARMING_GUARD_WS_URL') &&
+      deploySource.includes('bin/farming stop --config-dir ${control_config_dir}') &&
+      deploySource.includes('\\"processIdentity\\"') &&
+      deploySource.includes('\\"format\\": \\"ps-lstart-c-utc-v1\\"') &&
+      deploySource.includes('Restart is always crash-only.') &&
+      deploySource.includes('Stop is always crash-only.'),
+    'deploy restart and stop should use the same crash-only server termination path without Agent-state guards'
   );
 
   assert(
-    deploySource.indexOf("FARMING_GUARD_HTTP_URL='http://127.0.0.1:${REMOTE_PORT}${REMOTE_BASE_PATH}/api/update'") <
-      deploySource.indexOf("FARMING_GUARD_WS_URL='ws://127.0.0.1:${REMOTE_PORT}${REMOTE_BASE_PATH}/ws'"),
-    'deploy restart guard should prefer the server management API before falling back to WebSocket state'
+    !serverSource.includes('shutdownServer') &&
+      !serverSource.includes("process.on('SIGINT'") &&
+      !serverSource.includes("process.on('SIGTERM'") &&
+      appCliSource.includes("process.kill(pid, 'SIGKILL')") &&
+      npmUpdateHelperSource.includes("process.kill(pid, 'SIGKILL')") &&
+      releaseInstallerSource.includes('kill -9 "${pid}"') &&
+      appCliSource.includes('this command lacks permission') &&
+      npmUpdateHelperSource.includes('update helper lacks permission') &&
+      releaseInstallerSource.includes('installer lacks permission'),
+    'all supported Farming Server exit entry points should bypass in-process draining'
   );
 
   assert(
-      deploySource.indexOf("if (agent.status === 'pending') return true;") <
-      deploySource.indexOf('if (isRecoverableEngineAgent(agent)) return false;') &&
-      deploySource.indexOf('if (isRecoverableEngineAgent(agent)) return false;') <
-        deploySource.indexOf('if (isAgentTerminalBusy(agent)) return true;'),
-    'deploy restart guard should still block pending agents, then allow recoverable running agents before busy checks'
+    updateServiceSource.includes("require('./server-process-identity')") &&
+      npmUpdateHelperSource.includes("require('./server-process-identity')") &&
+      !updateServiceSource.includes("require('./farming-app-cli')") &&
+      !npmUpdateHelperSource.includes("require('./farming-app-cli')"),
+    'server startup must not load farming-app-cli again through the update service'
   );
 
   assert(
@@ -118,11 +120,11 @@ function run() {
       deploySource.includes('farming-server.pid') &&
       deploySource.includes('farming-server.json') &&
       deploySource.includes('control_config_dir="$(server_config_dir_for_pid "${pid}")"') &&
-      deploySource.includes('rm -f ${control_config_dir}/farming-server.pid ${control_config_dir}/farming-server.json'),
+      deploySource.includes('bin/farming stop --config-dir ${control_config_dir}'),
     'deploy start and stop should keep CLI server control metadata aligned with the source deployment process'
   );
 
-  console.log('✓ deploy restart guard refuses unsafe restarts by default');
+  console.log('✓ deploy restart and stop use one crash-only server termination path');
 }
 
 run();

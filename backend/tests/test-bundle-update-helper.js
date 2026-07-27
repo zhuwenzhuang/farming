@@ -76,9 +76,21 @@ async function run() {
   assert.strictEqual(failed.phase, 'failed');
   assert.match(failed.error, /exited with 7/);
 
+  const killedRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-bundle-update-killed.'));
+  fs.writeFileSync(
+    path.join(killedRoot, 'install-release.sh'),
+    '#!/usr/bin/env bash\nkill -9 "$$"\n',
+    { mode: 0o755 },
+  );
+  await runBundleUpdate(payloadFor(killedRoot));
+  const killed = JSON.parse(fs.readFileSync(path.join(killedRoot, 'farming-update.json'), 'utf8'));
+  assert.strictEqual(killed.phase, 'failed');
+  assert.match(killed.error, /SIGKILL/);
+
   fs.rmSync(rootDir, { recursive: true, force: true });
   fs.rmSync(failedRoot, { recursive: true, force: true });
-  console.log('✓ bundle update helper preserves launch settings and persists terminal state');
+  fs.rmSync(killedRoot, { recursive: true, force: true });
+  console.log('✓ bundle update helper preserves launch settings and persists installer exit failover');
 }
 
 run().catch(error => {

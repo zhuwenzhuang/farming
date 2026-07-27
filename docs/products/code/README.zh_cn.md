@@ -179,6 +179,8 @@ farming logs
 farming stop
 ```
 
+Server 停止、重启和升级共用一条 crash-only 路径：Farming Server 立即退出，后继进程负责对账 Farming 自有状态并重新连接受支持的 Runtime。这些操作不会等待正在执行的 Agent Turn 完成。如果 Updater 无法向属于其他系统用户的 Server 进程发送信号，它会保持包目录不变，并提示由该用户或管理员重启 Farming 后再重试。
+
 如果 npm Mirror 的 `latest` 仍然落后，可以与公共 Registry 对比，重新安装当前包、重启 Farming，并强制刷新页面：
 
 ```bash

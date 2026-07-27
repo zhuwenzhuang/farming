@@ -1,6 +1,10 @@
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
+const {
+  matchingProcessIdentity,
+  readServerProcessIdentity,
+} = require('./server-process-identity');
 
 function writeJsonAtomic(filePath, value) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -42,18 +46,37 @@ function isProcessRunning(pid) {
   try {
     process.kill(pid, 0);
     return true;
-  } catch {
+  } catch (error) {
+    if (error?.code === 'EPERM' || error?.code === 'EACCES') return true;
     return false;
   }
 }
 
-async function stopProcess(pid, timeoutMs = 15_000) {
+async function stopProcess(pid, expectedIdentity, timeoutMs = 15_000) {
   if (!isProcessRunning(pid)) return;
-  process.kill(pid, 'SIGTERM');
+  const currentIdentity = await readServerProcessIdentity(pid);
+  if (!matchingProcessIdentity(expectedIdentity, currentIdentity)) {
+    throw new Error(`Refusing to stop Farming server ${pid}: process identity changed`);
+  }
+  try {
+    process.kill(pid, 'SIGKILL');
+  } catch (error) {
+    if (error?.code === 'EPERM' || error?.code === 'EACCES') {
+      throw new Error(
+        `Farming cannot stop server ${pid} because the update helper lacks permission. `
+        + 'Use the operating-system user that owns this process (or an administrator) to stop and restart Farming, then retry the update.',
+        { cause: error },
+      );
+    }
+    if (error?.code !== 'ESRCH') throw error;
+  }
   const startedAt = Date.now();
-  while (isProcessRunning(pid)) {
+  while (matchingProcessIdentity(expectedIdentity, await readServerProcessIdentity(pid))) {
     if (Date.now() - startedAt >= timeoutMs) {
-      throw new Error(`Farming server ${pid} did not stop before timeout`);
+      throw new Error(
+        `Farming server ${pid} did not exit after SIGKILL. `
+        + 'Stop and restart Farming manually, then retry the update.',
+      );
     }
     await new Promise(resolve => setTimeout(resolve, 100));
   }
@@ -237,7 +260,7 @@ async function applyNpmUpdate(payload) {
       preparedAt: payload.preparedAt,
     }));
     await new Promise(resolve => setTimeout(resolve, 1_000));
-    await stopProcess(Number(payload.serverPid));
+    await stopProcess(Number(payload.serverPid), payload.serverProcessIdentity);
     stoppedOldServer = true;
     fs.renameSync(payload.packageRoot, backupRoot);
     movedOldPackage = true;

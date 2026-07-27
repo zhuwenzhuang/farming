@@ -39,7 +39,7 @@ async function waitFor(fn, label, timeoutMs = 12000) {
 
 function startServerProcess({ port, configDir }) {
   const fixtureBinDir = path.join(__dirname, '..', '..', 'tests', 'e2e', 'fixtures');
-  const child = spawn(process.execPath, ['backend/server.js'], {
+  const child = spawn(process.execPath, ['backend/farming-app-cli.js'], {
     cwd: path.join(__dirname, '..', '..'),
     stdio: ['ignore', 'pipe', 'pipe'],
     env: {
@@ -48,6 +48,7 @@ function startServerProcess({ port, configDir }) {
       FARMING_BASE_PATH: '/farming',
       FARMING_CONFIG_DIR: configDir,
       FARMING_DISABLE_AUTH: '1',
+      FARMING_RUN_SERVER: '1',
       FARMING_E2E_FAKE_EXECUTABLES: '1',
       FARMING_CODEX_BIN: path.join(fixtureBinDir, 'fake-codex'),
       NODE_ENV: 'test',
@@ -68,11 +69,11 @@ function startServerProcess({ port, configDir }) {
 
 async function stopServerProcess(child) {
   if (!child || child.exitCode !== null || child.signalCode !== null) return;
-  child.kill('SIGTERM');
+  child.kill('SIGKILL');
   await Promise.race([
     new Promise(resolve => child.once('exit', resolve)),
     delay(5000).then(() => {
-      if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+      throw new Error('Farming server did not exit after SIGKILL');
     }),
   ]);
 }
@@ -111,6 +112,8 @@ async function run() {
   const port = await freePort();
   const baseUrl = `http://127.0.0.1:${port}/farming`;
   const marker = `SERVER_RESTART_MARKER_${Date.now()}`;
+  const secondMarker = `${marker}_SECOND`;
+  const postRecoveryMarker = `${marker}_POST_RECOVERY`;
   const fakeSessionId = '019f1234-5678-7abc-8def-0123456789ab';
   let serverProcess = null;
   let agentId = '';
@@ -170,9 +173,60 @@ async function run() {
     assert.strictEqual(recoveredView.status, 'running');
     assert(Number.isFinite(recoveredView.outputSeq), 'recovered session view should expose outputSeq');
 
+    const sentAfterRecovery = await fetchJson(baseUrl, `/api/control/agents/${agentId}/input`, {
+      method: 'POST',
+      body: JSON.stringify({ input: `${secondMarker}\n` }),
+    });
+    assert.strictEqual(sentAfterRecovery.response.status, 200, JSON.stringify(sentAfterRecovery.body));
+    await waitFor(async () => {
+      const view = await fetchJson(baseUrl, `/api/agents/${agentId}/session-view`);
+      return view.response.ok && String(view.body.session?.output || '').includes(secondMarker);
+    }, 'terminal input after first recovery');
+
+    await stopServerProcess(serverProcess);
+    serverProcess = null;
+    serverProcess = startServerProcess({ port, configDir });
+    await waitFor(
+      () => fetch(`${baseUrl}/api/control/agents`).then(response => response.ok).catch(() => false),
+      'third Farming server startup',
+      20000
+    );
+
+    const twiceRecoveredAgents = await waitFor(async () => {
+      const listed = await fetchJson(baseUrl, '/api/control/agents');
+      if (!listed.response.ok) return null;
+      const matches = (listed.body.agents || []).filter(agent => agent.id === agentId);
+      return matches.length === 1 ? matches : null;
+    }, 'single recovered agent after second server restart', 20000);
+    assert.strictEqual(twiceRecoveredAgents.length, 1, 'repeated failover must not duplicate the Agent');
+
+    const twiceRecoveredView = await waitFor(async () => {
+      const view = await fetchJson(baseUrl, `/api/agents/${agentId}/session-view`);
+      const output = String(view.body.session?.output || '');
+      return view.response.ok && output.includes(marker) && output.includes(secondMarker)
+        ? view.body.session
+        : null;
+    }, 'terminal output after second server restart', 20000);
+    assert.strictEqual(twiceRecoveredView.engineName, 'native');
+    assert.strictEqual(twiceRecoveredView.status, 'running');
+
+    const sentAfterSecondRecovery = await fetchJson(baseUrl, `/api/control/agents/${agentId}/input`, {
+      method: 'POST',
+      body: JSON.stringify({ input: `${postRecoveryMarker}\n` }),
+    });
+    assert.strictEqual(sentAfterSecondRecovery.response.status, 200, JSON.stringify(sentAfterSecondRecovery.body));
+    await waitFor(async () => {
+      const view = await fetchJson(baseUrl, `/api/agents/${agentId}/session-view`);
+      return view.response.ok && String(view.body.session?.output || '').includes(postRecoveryMarker);
+    }, 'terminal input after repeated recovery');
+    assert(
+      !serverProcess.outputText().includes('circular dependency'),
+      `CLI Server startup emitted a circular dependency warning:\n${serverProcess.outputText()}`,
+    );
+
     await fetchJson(baseUrl, `/api/control/agents/${agentId}`, { method: 'DELETE' });
 
-    console.log('✓ Farming server restarts recover native pty terminal sessions');
+    console.log('✓ repeated Farming server failover preserves one writable native pty terminal session');
   } finally {
     await stopServerProcess(serverProcess);
     await shutdownNativeHost(configDir).catch(() => {});

@@ -53,7 +53,6 @@ const { AsyncCache } = require('./async-cache');
 const { getMainAgentSkillsCatalog } = require('./main-agent-skills');
 const { discoverSlashCommands } = require('./slash-command-discovery');
 const { FarmingUpdateService } = require('./update-service');
-const { isRestartBlockingAgent } = require('./agent-activity');
 const { inputPartsFromMessage } = require('./input-parts');
 const { cleanupTerminalRuntime } = require('./terminal-runtime-cleanup');
 const { QrShareTicketStore, SHARE_TICKET_TTL_MS } = require('./qr-share-tickets');
@@ -815,26 +814,10 @@ app.post(routePath(BASE_PATH, '/api/codex/context-windows'), express.json(), asy
   }
 });
 
-function blockingUpdateAgents() {
-  return agentManager.getState().agents
-    .filter(isRestartBlockingAgent)
-    .map(agent => ({
-      id: agent.id,
-      command: agent.command,
-      task: agent.task || agent.customTitle || agent.sessionTitle || '',
-      cwd: agent.cwd,
-    }));
-}
-
 app.get(routePath(BASE_PATH, '/api/update'), async (req, res) => {
   try {
     const update = await updateService.check({ force: req.query.force === '1' });
-    res.json({
-      update: {
-        ...update,
-        blockingAgents: blockingUpdateAgents(),
-      },
-    });
+    res.json({ update });
   } catch (error) {
     res.status(502).json({ error: error.message || 'Failed to check for updates' });
   }
@@ -845,31 +828,16 @@ app.post(routePath(BASE_PATH, '/api/update/install'), express.json(), async (req
     const state = await updateService.startInstall({
       assetName: req.body && typeof req.body.assetName === 'string' ? req.body.assetName : '',
     });
-    res.status(202).json({
-      update: {
-        state,
-        blockingAgents: blockingUpdateAgents(),
-      },
-    });
+    res.status(202).json({ update: { state } });
   } catch (error) {
     res.status(500).json({ error: error.message || 'Failed to start update' });
   }
 });
 
 app.post(routePath(BASE_PATH, '/api/update/restart'), express.json(), async (req, res) => {
-  const blockers = blockingUpdateAgents();
-  const force = req.body && req.body.force === true;
-  if (blockers.length > 0 && !force) {
-    res.status(409).json({
-      error: 'Cannot restart for update while non-recoverable project agents are running',
-      blockingAgents: blockers,
-    });
-    return;
-  }
-
   try {
     const state = await updateService.applyPreparedUpdate();
-    res.status(202).json({ update: { state, blockingAgents: blockers } });
+    res.status(202).json({ update: { state } });
   } catch (error) {
     res.status(500).json({ error: error.message || 'Failed to restart for update' });
   }
@@ -2857,7 +2825,6 @@ const pendingAgentUpdates = new Map();
 const pendingSessionStreams = new Map();
 let sessionStreamBroadcastTimer = null;
 let lastSessionStreamBroadcastAt = 0;
-let shutdownStarted = false;
 
 function broadcastState() {
   lastStateBroadcastAt = Date.now();
@@ -3072,106 +3039,6 @@ function scheduleSessionStreamBroadcast(stream) {
   }
 }
 
-function clearBroadcastTimers() {
-  if (stateBroadcastTimer) {
-    clearTimeout(stateBroadcastTimer);
-    stateBroadcastTimer = null;
-  }
-  for (const entry of pendingPreviewBroadcasts.values()) {
-    if (entry && entry.timer) {
-      clearTimeout(entry.timer);
-    }
-  }
-  pendingPreviewBroadcasts.clear();
-  for (const entry of pendingAgentActivityBroadcasts.values()) {
-    if (entry && entry.timer) clearTimeout(entry.timer);
-  }
-  pendingAgentActivityBroadcasts.clear();
-  for (const entry of pendingAgentUpdates.values()) {
-    if (entry && entry.timer) clearTimeout(entry.timer);
-  }
-  pendingAgentUpdates.clear();
-  if (sessionStreamBroadcastTimer) {
-    clearTimeout(sessionStreamBroadcastTimer);
-    sessionStreamBroadcastTimer = null;
-  }
-  pendingSessionStreams.clear();
-}
-
-function closeHttpServer() {
-  return new Promise(resolve => {
-    if (!server.listening) {
-      resolve();
-      return;
-    }
-    server.close(error => {
-      if (error && error.code !== 'ERR_SERVER_NOT_RUNNING') {
-        console.warn('Failed to close HTTP server:', error.message || error);
-      }
-      resolve();
-    });
-  });
-}
-
-function closeWebSocketServer() {
-  for (const client of wss.clients) {
-    clearWorkspaceFileWatch(client);
-    try {
-      client.close(1001, 'Farming server shutting down');
-    } catch {
-      // ignore shutdown races
-    }
-  }
-  return new Promise(resolve => {
-    wss.close(() => resolve());
-    setTimeout(resolve, 250).unref?.();
-  });
-}
-
-async function shutdownServer(options = {}) {
-  if (shutdownStarted) return;
-  shutdownStarted = true;
-  const preserveTerminalHost = options.preserveTerminalHost !== undefined
-    ? options.preserveTerminalHost === true
-    : process.env.FARMING_NATIVE_PTY_HOST_PERSIST !== '0';
-
-  try {
-    await browserResourceManager.dispose();
-    await agentManager.dispose({ preserveTerminalHost });
-  } catch (error) {
-    const teardownFrozen = agentManager.disposing === true;
-    shutdownStarted = false;
-    console.error('Farming shutdown blocked because runtime cleanup could not be verified:', error);
-    if (teardownFrozen) {
-      clearBroadcastTimers();
-      tokenAuth.cleanup();
-      await Promise.allSettled([
-        closeWebSocketServer(),
-        workspaceFileService.dispose(),
-        closeHttpServer(),
-      ]);
-    }
-    if (options.exit === true) process.exitCode = 1;
-    return {
-      error: error?.message || 'Runtime cleanup could not be verified',
-      ...(teardownFrozen ? { frozen: true } : {}),
-    };
-  }
-
-  clearBroadcastTimers();
-  tokenAuth.cleanup();
-  await Promise.allSettled([
-    closeWebSocketServer(),
-    workspaceFileService.dispose(),
-    closeHttpServer(),
-  ]);
-
-  if (options.exit === true) {
-    process.exit(options.exitCode || 0);
-  }
-  return { stopped: true };
-}
-
 agentManager.onSessionStream((stream) => {
   scheduleSessionStreamBroadcast(stream);
 });
@@ -3222,7 +3089,6 @@ function startServer() {
   serverStarted = true;
 
   void runTerminalRuntimeStartupCleanup().finally(() => {
-    if (shutdownStarted) return;
     server.listen(PORT, () => {
       const token = tokenAuth.getToken();
       const localIPs = getLocalIPs();
@@ -3252,13 +3118,6 @@ function startServer() {
     });
   });
 
-  process.on('SIGINT', () => {
-    void shutdownServer({ exit: true });
-  });
-  process.on('SIGTERM', () => {
-    void shutdownServer({ exit: true });
-  });
-
   return server;
 }
 
@@ -3279,6 +3138,5 @@ module.exports = {
   rewriteIndexHtmlForBasePath,
   appendIndexHtmlAssetToken,
   startServer,
-  shutdownServer,
   runTerminalRuntimeStartupCleanup,
 };

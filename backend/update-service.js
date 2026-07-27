@@ -7,6 +7,7 @@ const os = require('os');
 const path = require('path');
 const { Transform } = require('stream');
 const { pipeline } = require('stream/promises');
+const { readServerProcessIdentity } = require('./server-process-identity');
 const storageLayout = require('./storage-layout');
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
@@ -1300,6 +1301,10 @@ class FarmingUpdateService {
     }
 
     const nodePath = process.env.FARMING_NODE_BIN || process.execPath;
+    const serverProcessIdentity = await readServerProcessIdentity(process.pid);
+    if (!serverProcessIdentity) {
+      throw new Error('Running Farming server process identity could not be verified');
+    }
     let helperPath;
     let payload;
     let env;
@@ -1343,6 +1348,7 @@ class FarmingUpdateService {
         stagingPrefix,
         stagingPackageRoot,
         serverPid: process.pid,
+        serverProcessIdentity,
         configDir: this.configDir,
         port: process.env.FARMING_PORT || process.env.PORT || '6694',
         basePath: process.env.FARMING_BASE_PATH || '/farming',

@@ -1,12 +1,16 @@
 const assert = require('assert');
+const { spawn } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
 const {
+  isProcessRunning,
   runNpmUpdate,
+  stopProcess,
   validatePayload,
 } = require('../npm-update-helper');
+const { readServerProcessIdentity } = require('../farming-app-cli');
 
 function packageRoot(prefix) {
   return path.join(prefix, 'lib', 'node_modules', 'farming-code');
@@ -88,6 +92,122 @@ async function run() {
   assert.throws(() => validatePayload(payloadFor(validationRoot, { stagingPackageRoot: validationRoot })), /Invalid npm update stagingPackageRoot/);
   assert.throws(() => validatePayload(payloadFor(validationRoot, { npmFallbackRegistryUrl: 'file:///tmp/registry' })), /Invalid npm update registry/);
 
+  const originalProcessKill = process.kill;
+  process.kill = (pid, signal) => {
+    if (pid === 2_147_483_647 && signal === 0) {
+      const error = new Error('Operation not permitted');
+      error.code = 'EPERM';
+      throw error;
+    }
+    return originalProcessKill(pid, signal);
+  };
+  try {
+    assert.strictEqual(isProcessRunning(2_147_483_647), true, 'EPERM must mean the process exists but is not signalable');
+  } finally {
+    process.kill = originalProcessKill;
+  }
+
+  const serverProcess = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+    stdio: 'ignore',
+  });
+  try {
+    await new Promise((resolve, reject) => {
+      serverProcess.once('spawn', resolve);
+      serverProcess.once('error', reject);
+    });
+    const processIdentity = await readServerProcessIdentity(serverProcess.pid);
+    assert(processIdentity, 'update stop fixture must expose a process identity');
+    await assert.rejects(
+      stopProcess(serverProcess.pid, { ...processIdentity, startedAt: 'stale' }, 1000),
+      /process identity changed/,
+    );
+    assert.doesNotThrow(() => process.kill(serverProcess.pid, 0));
+    const exited = new Promise(resolve => serverProcess.once('exit', (code, signal) => resolve({ code, signal })));
+    await stopProcess(serverProcess.pid, processIdentity, 5000);
+    assert.deepStrictEqual(await exited, { code: null, signal: 'SIGKILL' });
+  } finally {
+    if (serverProcess.exitCode === null && serverProcess.signalCode === null) serverProcess.kill('SIGKILL');
+  }
+
+  const permissionServer = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+    stdio: 'ignore',
+  });
+  const permissionRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-npm-helper-permission.'));
+  try {
+    await new Promise((resolve, reject) => {
+      permissionServer.once('spawn', resolve);
+      permissionServer.once('error', reject);
+    });
+    const processIdentity = await readServerProcessIdentity(permissionServer.pid);
+    assert(processIdentity, 'permission fixture must expose a process identity');
+    const permissionPayload = payloadFor(permissionRoot, {
+      action: 'apply',
+      serverPid: permissionServer.pid,
+      serverProcessIdentity: processIdentity,
+    });
+    const observations = path.join(permissionRoot, 'cli-observations');
+    writePackage(permissionPayload.packageRoot, '2.2.5');
+    writePackage(permissionPayload.stagingPackageRoot, '2.3.0');
+    writeCli(permissionPayload.packageRoot, 0, observations);
+    writeCli(permissionPayload.stagingPackageRoot, 0, observations);
+
+    const originalKill = process.kill;
+    process.kill = (pid, signal) => {
+      if (pid === permissionServer.pid && signal === 'SIGKILL') {
+        const error = new Error('Operation not permitted');
+        error.code = 'EPERM';
+        throw error;
+      }
+      return originalKill(pid, signal);
+    };
+    try {
+      assert.strictEqual(isProcessRunning(permissionServer.pid), true);
+      await runNpmUpdate(permissionPayload);
+    } finally {
+      process.kill = originalKill;
+    }
+
+    const failed = JSON.parse(fs.readFileSync(permissionPayload.stateFile, 'utf8'));
+    assert.strictEqual(failed.phase, 'failed');
+    assert.match(failed.error, /lacks permission/);
+    assert.match(failed.error, /stop and restart Farming/);
+    assert.strictEqual(isProcessRunning(permissionServer.pid), true, 'permission failure must leave the old server running');
+    assert.strictEqual(JSON.parse(fs.readFileSync(path.join(permissionPayload.packageRoot, 'package.json'))).version, '2.2.5');
+    assert.strictEqual(JSON.parse(fs.readFileSync(path.join(permissionPayload.stagingPackageRoot, 'package.json'))).version, '2.3.0');
+    assert.strictEqual(fs.existsSync(observations), false, 'permission failure must not start either package');
+  } finally {
+    if (permissionServer.exitCode === null && permissionServer.signalCode === null) permissionServer.kill('SIGKILL');
+  }
+
+  const stuckServer = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+    stdio: 'ignore',
+  });
+  try {
+    await new Promise((resolve, reject) => {
+      stuckServer.once('spawn', resolve);
+      stuckServer.once('error', reject);
+    });
+    const processIdentity = await readServerProcessIdentity(stuckServer.pid);
+    assert(processIdentity, 'stuck-process fixture must expose a process identity');
+    const originalKill = process.kill;
+    process.kill = (pid, signal) => {
+      if (pid === stuckServer.pid && signal === 'SIGKILL') return true;
+      return originalKill(pid, signal);
+    };
+    try {
+      await assert.rejects(
+        stopProcess(stuckServer.pid, processIdentity, 150),
+        error => /did not exit after SIGKILL/.test(error.message)
+          && /Stop and restart Farming manually/.test(error.message),
+      );
+    } finally {
+      process.kill = originalKill;
+    }
+    assert.strictEqual(isProcessRunning(stuckServer.pid), true);
+  } finally {
+    if (stuckServer.exitCode === null && stuckServer.signalCode === null) stuckServer.kill('SIGKILL');
+  }
+
   const prepareRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-npm-helper-prepare.'));
   const prepareCalls = path.join(prepareRoot, 'npm-calls');
   const preparePayload = payloadFor(prepareRoot, {
@@ -139,6 +259,73 @@ async function run() {
   assert.strictEqual(JSON.parse(fs.readFileSync(path.join(applyPayload.packageRoot, 'package.json'))).version, '2.3.0');
   assert.strictEqual(fs.existsSync(applyPayload.stagingPrefix), false);
 
+  const handoffServer = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+    stdio: 'ignore',
+  });
+  const handoffRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-npm-helper-handoff.'));
+  try {
+    await new Promise((resolve, reject) => {
+      handoffServer.once('spawn', resolve);
+      handoffServer.once('error', reject);
+    });
+    const processIdentity = await readServerProcessIdentity(handoffServer.pid);
+    assert(processIdentity, 'handoff fixture must expose a process identity');
+    const handoffPayload = payloadFor(handoffRoot, {
+      action: 'apply',
+      serverPid: handoffServer.pid,
+      serverProcessIdentity: processIdentity,
+    });
+    const handoffObservations = path.join(handoffRoot, 'cli-observations');
+    writePackage(handoffPayload.packageRoot, '2.2.5');
+    writePackage(handoffPayload.stagingPackageRoot, '2.3.0');
+    writeCli(handoffPayload.packageRoot, 0, handoffObservations);
+    writeCli(handoffPayload.stagingPackageRoot, 0, handoffObservations);
+    const exited = new Promise(resolve => handoffServer.once('exit', (code, signal) => resolve({ code, signal })));
+    await runNpmUpdate(handoffPayload);
+    assert.deepStrictEqual(await exited, { code: null, signal: 'SIGKILL' });
+    assert.strictEqual(JSON.parse(fs.readFileSync(handoffPayload.stateFile, 'utf8')).phase, 'succeeded');
+    assert.strictEqual(JSON.parse(fs.readFileSync(path.join(handoffPayload.packageRoot, 'package.json'))).version, '2.3.0');
+    assert.deepStrictEqual(
+      fs.readFileSync(handoffObservations, 'utf8').trim().split('\n').map(line => JSON.parse(line).version),
+      ['2.3.0'],
+    );
+  } finally {
+    if (handoffServer.exitCode === null && handoffServer.signalCode === null) handoffServer.kill('SIGKILL');
+  }
+
+  const switchFailureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-npm-helper-switch-failure.'));
+  const switchFailurePayload = payloadFor(switchFailureRoot, { action: 'apply' });
+  const switchFailureObservations = path.join(switchFailureRoot, 'cli-observations');
+  writePackage(switchFailurePayload.packageRoot, '2.2.5');
+  writePackage(switchFailurePayload.stagingPackageRoot, '2.3.0');
+  writeCli(switchFailurePayload.packageRoot, 0, switchFailureObservations);
+  writeCli(switchFailurePayload.stagingPackageRoot, 0, switchFailureObservations);
+  const originalRenameSync = fs.renameSync;
+  fs.renameSync = (source, destination) => {
+    if (
+      path.resolve(source) === path.resolve(switchFailurePayload.stagingPackageRoot)
+      && path.resolve(destination) === path.resolve(switchFailurePayload.packageRoot)
+    ) {
+      const error = new Error('Injected directory switch failure');
+      error.code = 'EIO';
+      throw error;
+    }
+    return originalRenameSync(source, destination);
+  };
+  try {
+    await runNpmUpdate(switchFailurePayload);
+  } finally {
+    fs.renameSync = originalRenameSync;
+  }
+  const switchRolledBack = JSON.parse(fs.readFileSync(switchFailurePayload.stateFile, 'utf8'));
+  assert.strictEqual(switchRolledBack.phase, 'rolled-back');
+  assert.match(switchRolledBack.error, /Injected directory switch failure/);
+  assert.strictEqual(JSON.parse(fs.readFileSync(path.join(switchFailurePayload.packageRoot, 'package.json'))).version, '2.2.5');
+  assert.deepStrictEqual(
+    fs.readFileSync(switchFailureObservations, 'utf8').trim().split('\n').map(line => JSON.parse(line).version),
+    ['2.2.5'],
+  );
+
   const rollbackRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-npm-helper-rollback.'));
   const rollbackPayload = payloadFor(rollbackRoot, { action: 'apply' });
   const rollbackObservations = path.join(rollbackRoot, 'cli-observations');
@@ -161,7 +348,25 @@ async function run() {
     assert.strictEqual(observation.runNativeHost, undefined);
   });
 
-  console.log('✓ npm update helper stages separately, applies on restart, and rolls back directory switches');
+  const failedRollbackRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-npm-helper-rollback-failure.'));
+  const failedRollbackPayload = payloadFor(failedRollbackRoot, { action: 'apply' });
+  const failedRollbackObservations = path.join(failedRollbackRoot, 'cli-observations');
+  writePackage(failedRollbackPayload.packageRoot, '2.2.5');
+  writePackage(failedRollbackPayload.stagingPackageRoot, '2.3.0');
+  writeCli(failedRollbackPayload.packageRoot, 1, failedRollbackObservations);
+  writeCli(failedRollbackPayload.stagingPackageRoot, 1, failedRollbackObservations);
+  await runNpmUpdate(failedRollbackPayload);
+  const rollbackFailed = JSON.parse(fs.readFileSync(failedRollbackPayload.stateFile, 'utf8'));
+  assert.strictEqual(rollbackFailed.phase, 'failed');
+  assert.match(rollbackFailed.error, /rollback failed/);
+  assert.strictEqual(JSON.parse(fs.readFileSync(path.join(failedRollbackPayload.packageRoot, 'package.json'))).version, '2.2.5');
+  assert.strictEqual(JSON.parse(fs.readFileSync(path.join(failedRollbackPayload.stagingPackageRoot, 'package.json'))).version, '2.3.0');
+  assert.deepStrictEqual(
+    fs.readFileSync(failedRollbackObservations, 'utf8').trim().split('\n').map(line => JSON.parse(line).version),
+    ['2.3.0', '2.2.5'],
+  );
+
+  console.log('✓ npm update helper covers kill permission, directory-switch, restart, and rollback failover');
 }
 
 run().catch(error => {

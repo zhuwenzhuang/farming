@@ -8,6 +8,11 @@ const { URLSearchParams } = require('url');
 const { execFileSync, spawn } = require('child_process');
 const { run: runControlCli } = require('./farming-cli');
 const { PACKAGED_CODEX_ACP_ARG, runPackagedCodexAcp } = require('./acp/packaged-codex-acp');
+const {
+  SERVER_PROCESS_IDENTITY_FORMAT,
+  matchingProcessIdentity,
+  readServerProcessIdentity,
+} = require('./server-process-identity');
 const storageLayout = require('./storage-layout');
 
 const SERVER_MODE_ARG = '--farming-server';
@@ -20,7 +25,6 @@ const DEFAULT_SERVER_START_TIMEOUT_MS = 30_000;
 const DEFAULT_SERVER_START_STABILITY_MS = 1_500;
 const DEFAULT_SERVER_STOP_TIMEOUT_MS = 30_000;
 const SERVER_STOP_POLL_MS = 100;
-const SERVER_PROCESS_IDENTITY_FORMAT = 'ps-lstart-c-utc-v1';
 const SERVER_COMMANDS = new Set(['start', 'serve', 'daemon', 'stop', 'status', 'logs', 'url', 'help']);
 const CONTROL_COMMANDS = new Set(['skills', 'capabilities', 'memory', 'report', 'list', 'spawn', 'output', 'send', 'kill']);
 const SERVER_BACKED_CONTROL_COMMANDS = new Set(['capabilities', 'list', 'spawn', 'output', 'send', 'kill']);
@@ -482,35 +486,6 @@ function canonicalConfigDir(configDir) {
   }
 }
 
-async function readServerProcessIdentity(pid) {
-  const processId = Number(pid);
-  if (!Number.isSafeInteger(processId) || processId <= 0 || process.platform === 'win32') return null;
-  let stdout;
-  try {
-    stdout = execFileSync(
-      '/bin/ps',
-      ['-p', String(processId), '-o', 'pid=', '-o', 'pgid=', '-o', 'lstart='],
-      {
-        encoding: 'utf8',
-        timeout: 1_000,
-        maxBuffer: 16_384,
-        env: { ...process.env, LANG: 'C', LC_ALL: 'C', TZ: 'UTC' },
-      },
-    );
-  } catch (error) {
-    if (error?.status === 1 || error?.code === 'ESRCH') return null;
-    throw error;
-  }
-  const match = String(stdout || '').trim().match(/^(\d+)\s+(\d+)\s+(.+)$/);
-  if (!match || Number(match[1]) !== processId) return null;
-  return {
-    pid: processId,
-    processGroupId: Number(match[2]),
-    startedAt: match[3].trim(),
-    format: SERVER_PROCESS_IDENTITY_FORMAT,
-  };
-}
-
 function writeServerState(configDir, env, pid, processIdentity) {
   const state = {
     pid,
@@ -664,15 +639,6 @@ function processOwnsListeningPort(pid, port) {
   }
 }
 
-function matchingProcessIdentity(expected, current) {
-  return Boolean(
-    current
-    && current.pid === Number(expected?.pid)
-    && current.processGroupId === Number(expected?.processGroupId)
-    && current.startedAt === String(expected?.startedAt || '')
-  );
-}
-
 async function assertServerProcessIdentity(configDir, pid, state) {
   const expected = state?.processIdentity;
   if (
@@ -752,7 +718,8 @@ function isRunning(pid) {
   try {
     process.kill(pid, 0);
     return true;
-  } catch {
+  } catch (error) {
+    if (error?.code === 'EPERM' || error?.code === 'EACCES') return true;
     return false;
   }
 }
@@ -843,7 +810,7 @@ function waitForProcessStability(pid, durationMs = DEFAULT_SERVER_START_STABILIT
 function cleanupFailedDaemonStart(configDir, childPid) {
   if (isRunning(childPid)) {
     try {
-      process.kill(childPid, 'SIGTERM');
+      process.kill(childPid, 'SIGKILL');
     } catch {
       // The child may exit between the liveness check and the signal.
     }
@@ -1031,8 +998,15 @@ async function stopDaemon(parsed) {
     await migrateLegacyServerIdentity(configDir, pid, state);
   }
   try {
-    process.kill(pid, 'SIGTERM');
+    process.kill(pid, 'SIGKILL');
   } catch (error) {
+    if (error?.code === 'EPERM' || error?.code === 'EACCES') {
+      throw new Error(
+        `Farming cannot stop server ${pid} because this command lacks permission. `
+        + 'Run it as the operating-system user that owns the process (or as an administrator), then start Farming again.',
+        { cause: error },
+      );
+    }
     if (error?.code !== 'ESRCH') throw error;
   }
   await waitForDaemonStop(pid, port, { timeoutMs: serverStopTimeoutMs(env) });

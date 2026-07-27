@@ -22,7 +22,7 @@ if (!useRealCodex) {
 }
 process.env.NODE_ENV = process.env.NODE_ENV || 'test';
 
-const { server, shutdownServer } = require('../backend/server');
+const { server } = require('../backend/server');
 
 let cleanedUp = false;
 
@@ -54,18 +54,8 @@ function cleanup() {
 }
 
 function shutdown() {
-  shutdownServer({ exit: false })
-    .catch(error => {
-      console.warn(`Failed to stop Farming Playwright server cleanly: ${error.message || error}`);
-    })
-    .finally(() => {
-      cleanup();
-      process.exit(0);
-    });
-  setTimeout(() => {
-    cleanup();
-    process.exit(0);
-  }, 1000).unref();
+  cleanup();
+  process.exit(0);
 }
 
 server.listen(Number(process.env.PORT), () => {

@@ -126,6 +126,8 @@ farming logs
 farming stop
 ```
 
+Farming Server 采用 crash-only 生命周期：`farming stop`、重启和升级都会立即终止 Server，不等待正在运行的 Agent 工作。下一个 Server 进程负责对账 Farming 自有状态并重新连接受支持的存活 Runtime；被中断的 Provider Turn 仍可能需要走 Provider 自己的正常 Resume。如果 Updater 没有权限停止记录中的 Server 进程，它会保持新旧包目录不变，并提示用户由拥有该进程的系统账号或管理员重启 Farming 后再重试。
+
 启动 Token 存放在 `~/.farming/.session-token`，重启和升级会继续复用。**Settings → Updates** 为 npm 安装提供两阶段更新：点击**准备**后，所选版本会安装到独立 staging 目录，当前服务继续运行；准备完成后，只有用户点击**重启并应用**，Farming 才会切换包目录并重启。如果新服务启动失败，Farming 会恢复旧包目录。npm 准备阶段会先使用机器配置的 registry；只有该 registry 缺少所选版本时，才会回退到 Settings 展示版本所用的 registry。准备和应用更新前，Farming 都会校验 npm 目标包根目录与启动当前服务的包根目录一致。GitHub Releases 也提供独立 CLI 和目录 Bundle；当前产物见 [GitHub Releases](https://github.com/zhuwenzhuang/farming/releases)。
 
 从源码运行，并使用相同的端口与 Base Path：

@@ -48,7 +48,6 @@ type UpdateStatus = {
   }>
   available?: boolean
   installable?: boolean
-  blockingAgents?: Array<{ id: string; command: string; task?: string; cwd?: string }>
   state?: {
     phase?: string
     error?: string
@@ -741,16 +740,13 @@ export function AgentHomesSettingsPanel({
       body: JSON.stringify(restartPreparedUpdate ? {} : { assetName: selectedUpdateAsset }),
     })
       .then(async response => {
-        const data = await response.json().catch(() => null) as { update?: { state?: UpdateStatus['state']; blockingAgents?: UpdateStatus['blockingAgents'] }; error?: string; blockingAgents?: UpdateStatus['blockingAgents'] } | null
+        const data = await response.json().catch(() => null) as { update?: { state?: UpdateStatus['state'] }; error?: string } | null
         if (!response.ok) {
-          const blockers = data?.blockingAgents || []
-          const suffix = blockers.length ? `: ${blockers.map(agent => agent.command).join(', ')}` : ''
-          throw new Error(`${data?.error || copy.saveFailed}${suffix}`)
+          throw new Error(data?.error || copy.saveFailed)
         }
         setUpdateStatus(current => ({
           ...(current ?? {}),
           state: data?.update?.state ?? current?.state,
-          blockingAgents: data?.update?.blockingAgents ?? current?.blockingAgents,
         }))
       })
       .catch(error => {
