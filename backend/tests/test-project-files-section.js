@@ -1622,7 +1622,8 @@ function run() {
       !fileSectionSource.includes('onWatchWorkspaceFiles') &&
       fileSectionSource.includes('const refreshProjectFiles = useCallback(() =>') &&
       fileSectionSource.includes("setFilesRefreshStatus('refreshing')") &&
-      fileSectionSource.includes("setFilesRefreshStatus(refreshed ? 'success' : 'error')") &&
+      fileSectionSource.includes("refreshed\n          ? 'success'") &&
+      fileSectionSource.includes("getBackendConnectionSnapshot().connected ? 'error' : 'idle'") &&
       fileSectionSource.includes('filesRefreshInFlightRef.current') &&
       fileSectionSource.includes("const loadedDirectoryPaths = ['', ...openDirectoryPaths]") &&
       fileSectionSource.includes('refreshDirectories(loadedDirectoryPaths)') &&
