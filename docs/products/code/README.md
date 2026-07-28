@@ -12,6 +12,8 @@ When you supervise more than one Farming machine, the sidebar defaults to that h
 
 For the complete cross-interface capability map, see the [Farming 2 product overview](../README.md). This guide is updated in place so it always describes the current product rather than one release.
 
+To use a Chromium instance managed outside Farming, including one in Docker, see [Connect an external CDP browser](external-cdp-browser.md).
+
 ## Switch To Farming CRT
 
 Click the gear at the bottom-left, find **Interface**, and choose **Farming CRT**. Farming opens `<base-path>/crt/` and carries the focused Agent when possible. To return, press `S` in CRT (or choose **[S] SETTINGS**) and select **Farming Code** under **UI Theme**. The switch keeps the same live Agent and provider session; it does not restart or duplicate the process.

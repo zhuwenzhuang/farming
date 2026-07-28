@@ -80,37 +80,49 @@ NPM_CONFIG_CACHE="${NPM_CACHE}" NPM_CONFIG_REGISTRY="${NPM_REGISTRY}" \
   npm install --global --prefix "${PREFIX}" "${PACKAGE_TARBALL}" \
     --ignore-scripts --no-audit --no-fund --silent
 PACKAGE_ROOT="${PREFIX}/lib/node_modules/farming-code"
-CODEX_ACP_UPSTREAM="${PACKAGE_ROOT}/node_modules/@agentclientprotocol/codex-acp/dist/index.js"
-CODEX_ACP_VENDOR="${PACKAGE_ROOT}/dist/acp/codex-acp-1.1.4.js"
+CODEX_ACP_VENDOR="${PACKAGE_ROOT}/dist/acp/codex-acp-1.1.4.mjs"
+CLAUDE_ACP_VENDOR="${PACKAGE_ROOT}/dist/acp/claude-agent-acp-0.59.0.mjs"
 if [ ! -f "${CODEX_ACP_VENDOR}" ]; then
   echo "npm package omitted the version-locked Codex ACP runtime" >&2
   exit 1
 fi
-node - "${PACKAGE_ROOT}" "${CODEX_ACP_UPSTREAM}" "${CODEX_ACP_VENDOR}" <<'NODE'
+if [ ! -f "${CLAUDE_ACP_VENDOR}" ]; then
+  echo "npm package omitted the version-locked Claude ACP runtime" >&2
+  exit 1
+fi
+node "${PROJECT_ROOT}/scripts/assert-no-bundled-agent-clis.js" "${PACKAGE_ROOT}"
+node - "${PACKAGE_ROOT}" "${CODEX_ACP_VENDOR}" "${CLAUDE_ACP_VENDOR}" <<'NODE'
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
-const [packageRoot, upstreamEntry, vendorEntry] = process.argv.slice(2);
+const [packageRoot, codexVendorEntry, claudeVendorEntry] = process.argv.slice(2);
 const sha256 = filePath => crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
-const expectedUpstream = '7534a0ad3cc4c9affd0b2da5007fa53ea0f1d6fcd71b2c5ef202e2056a976a97';
-const expectedVendor = 'e36876cc2250737c719644e6c69ab054a3f8b58071fad45c44407013082942ff';
-if (sha256(upstreamEntry) !== expectedUpstream) {
-  throw new Error('Packed install unexpectedly mutated the upstream codex-acp dependency');
-}
-if (sha256(vendorEntry) !== expectedVendor) {
+const expectedCodexVendor = 'e36876cc2250737c719644e6c69ab054a3f8b58071fad45c44407013082942ff';
+const expectedClaudeVendor = 'a6aa515dd02382617bf46d9eac47b8a1022c6835bcf7a8d61e2c63939be2e49c';
+if (sha256(codexVendorEntry) !== expectedCodexVendor) {
   throw new Error('Packed Codex ACP runtime failed its SHA-256 verification');
 }
+if (sha256(claudeVendorEntry) !== expectedClaudeVendor) {
+  throw new Error('Packed Claude ACP runtime failed its SHA-256 verification');
+}
 const { resolveAcpLaunch } = require(path.join(packageRoot, 'backend/acp-runtime'));
-const launch = resolveAcpLaunch('codex');
-if (fs.realpathSync(launch.args.at(-1)) !== fs.realpathSync(vendorEntry)) {
-  throw new Error(`Codex ACP launch did not select the packaged runtime: ${launch.args.at(-1)}`);
+const codexLaunch = resolveAcpLaunch('codex');
+if (fs.realpathSync(codexLaunch.args.at(-1)) !== fs.realpathSync(codexVendorEntry)) {
+  throw new Error(`Codex ACP launch did not select the packaged runtime: ${codexLaunch.args.at(-1)}`);
+}
+const claudeLaunch = resolveAcpLaunch('claude');
+if (fs.realpathSync(claudeLaunch.args.at(-1)) !== fs.realpathSync(claudeVendorEntry)) {
+  throw new Error(`Claude ACP launch did not select the packaged runtime: ${claudeLaunch.args.at(-1)}`);
 }
 NODE
-node "${PROJECT_ROOT}/scripts/smoke-codex-acp-process.js" --package-root "${PACKAGE_ROOT}"
+CODEX_PATH="${PROJECT_ROOT}/node_modules/.bin/codex" \
+  node "${PROJECT_ROOT}/scripts/smoke-codex-acp-process.js" --package-root "${PACKAGE_ROOT}"
+node "${PROJECT_ROOT}/scripts/smoke-claude-acp-process.js" --package-root "${PACKAGE_ROOT}"
 node "${PROJECT_ROOT}/scripts/smoke-browser-mcp-process.js" --package-root "${PACKAGE_ROOT}"
 "${PREFIX}/bin/farming" help >/dev/null
-FARMING_DISABLE_AUTH=1 FARMING_NATIVE_PTY_HOST_PERSIST=0 "${PREFIX}/bin/farming" daemon \
+FARMING_DISABLE_AUTH=1 FARMING_NATIVE_PTY_HOST_PERSIST=0 FARMING_SKIP_RUNTIME_PREPARE=1 \
+  "${PREFIX}/bin/farming" daemon \
   --port "${PORT_VALUE}" \
   --base-path /farming \
   --config-dir "${CONFIG_DIR}" >/dev/null

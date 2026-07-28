@@ -2,7 +2,7 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 
-const { discoverSlashCommands } = require('../slash-command-discovery');
+const { discoverAgentExtensions, discoverSlashCommands } = require('../slash-command-discovery');
 
 function mkdirp(filePath) {
   fs.mkdirSync(filePath, { recursive: true });
@@ -26,6 +26,31 @@ function run() {
     fs.writeFileSync(path.join(workspace, '.claude', 'commands', 'review.md'), 'secret review body\n');
     fs.writeFileSync(path.join(workspace, '.claude', 'commands', '.hidden.md'), 'hidden\n');
     fs.writeFileSync(path.join(workspace, '.claude', 'commands', 'bad name.md'), 'bad\n');
+    const claudePluginPath = path.join(homeDir, '.claude', 'plugins', 'cache', 'example-market', 'review-tools', '1.0.0');
+    mkdirp(path.join(claudePluginPath, '.claude-plugin'));
+    mkdirp(path.join(claudePluginPath, 'skills', 'review-code'));
+    fs.writeFileSync(path.join(claudePluginPath, '.claude-plugin', 'plugin.json'), JSON.stringify({
+      name: 'review-tools',
+      description: 'Review tools plugin',
+    }));
+    fs.writeFileSync(path.join(claudePluginPath, 'skills', 'review-code', 'SKILL.md'), [
+      '---',
+      'name: review-code',
+      'description: Review code changes',
+      '---',
+      'secret plugin skill body',
+      '',
+    ].join('\n'));
+    fs.writeFileSync(path.join(homeDir, '.claude', 'plugins', 'installed_plugins.json'), JSON.stringify({
+      version: 2,
+      plugins: {
+        'review-tools@example-market': [{
+          scope: 'user',
+          installPath: claudePluginPath,
+          version: '1.0.0',
+        }],
+      },
+    }));
     mkdirp(path.join(workspace, '.agents', 'skills', 'repo-skill'));
     fs.writeFileSync(path.join(workspace, '.agents', 'skills', 'repo-skill', 'SKILL.md'), [
       '---',
@@ -84,6 +109,33 @@ function run() {
       command.command === '$pdf:pdf' && command.label === 'PDF' && command.scope === 'Plugin'
     )));
     assert(!JSON.stringify(codexCommands).includes('secret'), 'Codex skill discovery should not expose skill body text');
+
+    const codexExtensions = discoverAgentExtensions({
+      provider: 'codex',
+      providerHomePath: path.join(homeDir, '.codex'),
+      homeDir,
+    });
+    assert(codexExtensions.some(command => command.command === '$home-codex'));
+    assert(codexExtensions.some(command => command.command === '$skill-creator'));
+    assert(codexExtensions.some(command => (
+      command.command === 'plugin:pdf' && command.source === 'plugin'
+    )));
+    assert(codexExtensions.some(command => command.command === '$pdf:pdf'));
+    assert(!JSON.stringify(codexExtensions).includes('secret'), 'Codex extension catalog should not expose skill body text');
+
+    const claudeExtensions = discoverAgentExtensions({
+      provider: 'claude',
+      providerHomePath: path.join(homeDir, '.claude'),
+    });
+    assert(claudeExtensions.some(command => command.command === '/home-skill'));
+    assert(claudeExtensions.some(command => (
+      command.command === 'plugin:review-tools' && command.source === 'plugin'
+    )));
+    assert(claudeExtensions.some(command => (
+      command.command === '/review-tools:review-code' && command.scope === 'Plugin'
+    )));
+    assert(!claudeExtensions.some(command => command.command === '/workspace-skill'));
+    assert(!JSON.stringify(claudeExtensions).includes('secret'), 'Claude extension catalog should not expose skill body text');
 
     assert.deepStrictEqual(discoverSlashCommands({ provider: 'unknown', homeDir, workspace }), []);
 

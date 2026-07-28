@@ -19,6 +19,7 @@ import remarkMath from 'remark-math'
 import { AgentGroupGlyph, ArrowDownGlyph, CheckGlyph, ChevronRightGlyph, CloseGlyph, CopyGlyph, ForkGlyph } from '@/components/IconGlyphs'
 import { MermaidBlock } from '@/components/files/FileEditorMarkdownPreview'
 import { appPath } from '@/lib/base-path'
+import { showUrlOpenMenu } from '@/lib/url-open-menu'
 import { writeClipboardText } from '@/lib/clipboard'
 import { iconForFilePath } from '@/lib/file-icons'
 import { normalizeGlobalWorkspaceFilePath } from '@/lib/global-workspace-files'
@@ -155,6 +156,7 @@ export interface AgentTranscriptPaneProps {
   expectHistory?: boolean
   forkedFromAgent?: boolean
   onOpenWorkspaceFilePath?: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void> | void
+  onOpenUrl?: (url: string) => void
   onAvailabilityChange?: (state: { loading: boolean; hasContent: boolean; available: boolean }) => void
   onReadLatest?: () => void
   onForkLatest?: () => Promise<void> | void
@@ -1823,6 +1825,7 @@ function AgentTranscriptTurnView({
   turn,
   copy,
   onOpenFile,
+  onOpenUrl,
   workspaceRoot,
   processOpen,
   groupProcessActions,
@@ -1841,6 +1844,7 @@ function AgentTranscriptTurnView({
   turn: AgentTranscriptTurn
   copy: CodeCopy
   onOpenFile?: (filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void> | void
+  onOpenUrl?: (url: string) => void
   workspaceRoot?: string
   processOpen: boolean
   groupProcessActions: boolean
@@ -2175,11 +2179,21 @@ function AgentTranscriptTurnView({
       const target = href ? transcriptFileTargetFromText(href, workspaceRoot) : null
       const external = href ? isExternalTranscriptHref(href) : false
       const normalizedHref = href ? normalizeTranscriptHref(href) : href
+      const browserUrl = external && normalizedHref && /^https?:/i.test(normalizedHref)
+        ? normalizedHref
+        : ''
       const handleClick = (event: ReactMouseEvent<HTMLAnchorElement>) => {
         onClick?.(event)
-        if (event.defaultPrevented || !target || !onOpenFile) return
-        event.preventDefault()
-        onOpenFile(target.filePath, target.target)
+        if (event.defaultPrevented) return
+        if (target && onOpenFile) {
+          event.preventDefault()
+          onOpenFile(target.filePath, target.target)
+          return
+        }
+        if (browserUrl && onOpenUrl) {
+          event.preventDefault()
+          onOpenUrl(browserUrl)
+        }
       }
       return (
         <a
@@ -2191,6 +2205,14 @@ function AgentTranscriptTurnView({
           onPointerDown={event => event.stopPropagation()}
           onMouseDown={event => event.stopPropagation()}
           onClick={handleClick}
+          onContextMenu={event => {
+            if (!browserUrl) return
+            showUrlOpenMenu({
+              event: event.nativeEvent,
+              url: browserUrl,
+              onOpenInFarming: onOpenUrl ? () => onOpenUrl(browserUrl) : undefined,
+            })
+          }}
         >
           {target ? (
             <TranscriptFileLinkLabel filePath={target.filePath} lineNumber={target.target?.lineNumber}>
@@ -2231,7 +2253,7 @@ function AgentTranscriptTurnView({
       if (mermaidSource !== null) return <MermaidBlock source={mermaidSource} copy={copy} />
       return <pre {...props}>{children}</pre>
     },
-  }), [copy, onOpenFile, workspaceRoot])
+  }), [copy, onOpenFile, onOpenUrl, workspaceRoot])
 
   return (
     <article ref={turnRef} className={`code-agent-transcript-turn ${turn.status === 'inProgress' ? 'running' : ''}`} data-turn-id={turn.id}>
@@ -2480,6 +2502,7 @@ export function AgentTranscriptPane({
   expectHistory = false,
   forkedFromAgent = false,
   onOpenWorkspaceFilePath,
+  onOpenUrl,
   onAvailabilityChange,
   onReadLatest,
   onForkLatest,
@@ -2989,6 +3012,7 @@ export function AgentTranscriptPane({
                 turn={turn}
                 copy={copy}
                 onOpenFile={onOpenWorkspaceFilePath ? handleOpenFile : undefined}
+                onOpenUrl={onOpenUrl}
                 workspaceRoot={workspaceRoot}
                 processOpen={processOpen}
                 groupProcessActions={groupProcessActions}

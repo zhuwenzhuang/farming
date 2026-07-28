@@ -186,6 +186,7 @@ if [ "${BUNDLE_NODE_MODULES}" != "0" ]; then
       PUPPETEER_SKIP_DOWNLOAD=1 \
       npm ci --omit=dev >&2
   )
+  node "${PROJECT_ROOT}/scripts/assert-no-bundled-agent-clis.js" "${APP_DIR}" >&2
 fi
 
 cat > "${APP_DIR}/farming" <<'EOF'

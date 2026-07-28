@@ -213,6 +213,14 @@ function codexAcpEnvironment(options = {}) {
   return env;
 }
 
+function claudeAcpEnvironment(options = {}) {
+  const env = { ...(options.env || process.env) };
+  if (options.executable && !env.CLAUDE_CODE_EXECUTABLE) {
+    env.CLAUDE_CODE_EXECUTABLE = options.executable;
+  }
+  return env;
+}
+
 const PROVIDER_ADAPTERS = Object.freeze([
   {
     id: 'codex',
@@ -250,6 +258,7 @@ const PROVIDER_ADAPTERS = Object.freeze([
       version: '0.59.0',
       forkMode: 'target-process',
     },
+    prepareAcpEnvironment: claudeAcpEnvironment,
     capabilities: {
       runtimeSwitch: true,
       terminalProfile: false,
@@ -378,6 +387,7 @@ function isFreshAcpSessionSource(provider, source) {
 }
 
 module.exports = {
+  claudeAcpEnvironment,
   getProviderAdapter,
   applyProviderHomeEnvironment,
   isFreshAcpSessionSource,

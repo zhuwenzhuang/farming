@@ -13,7 +13,7 @@ module.exports = {
     ],
     assets: [
       'dist/**/*',
-      'backend/data/**/*.json',
+      'backend/data/**/*',
       'backend/farming-agent-bootstrap.zh_cn.md',
       'backend/vendor/usage-parsers/**/*',
       'frontend/*.js',

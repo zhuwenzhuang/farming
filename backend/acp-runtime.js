@@ -12,6 +12,7 @@ const { AcpSessionState } = require('./acp-session-state');
 const { readCodexHistoryImageData } = require('./codex-transcript');
 const { AcpClientFileSystem, AcpClientTerminalManager } = require('./acp/client-services');
 const { PACKAGED_CODEX_ACP_ARG } = require('./acp/packaged-codex-acp');
+const { PACKAGED_CLAUDE_ACP_ARG } = require('./acp/packaged-claude-acp');
 const { permissionSecurityWarnings } = require('./acp/permission-security');
 const { patchBlock, rejectPatch } = require('./acp/patch-decisions');
 const { getProviderAdapter, listProviderAdapters } = require('./provider-adapters');
@@ -36,12 +37,22 @@ const CODEX_STEER_METHOD = '_codex/session/steer';
 const CODEX_ACP_PACKAGE = '@agentclientprotocol/codex-acp';
 const CODEX_ACP_VERSION = '1.1.4';
 const CODEX_ACP_SHA256 = 'e36876cc2250737c719644e6c69ab054a3f8b58071fad45c44407013082942ff';
+const CLAUDE_ACP_PACKAGE = '@agentclientprotocol/claude-agent-acp';
+const CLAUDE_ACP_VERSION = '0.59.0';
+const CLAUDE_ACP_SHA256 = 'a6aa515dd02382617bf46d9eac47b8a1022c6835bcf7a8d61e2c63939be2e49c';
 const CODEX_ACP_VENDOR_ENTRY = path.join(
   __dirname,
   '..',
   'dist',
   'acp',
-  `codex-acp-${CODEX_ACP_VERSION}.js`,
+  `codex-acp-${CODEX_ACP_VERSION}.mjs`,
+);
+const CLAUDE_ACP_VENDOR_ENTRY = path.join(
+  __dirname,
+  '..',
+  'dist',
+  'acp',
+  `claude-agent-acp-${CLAUDE_ACP_VERSION}.mjs`,
 );
 const execFileAsync = promisify(execFile);
 
@@ -69,6 +80,15 @@ function verifiedCodexAcpEntry(entry) {
 function adapterEntry(packageName) {
   if (packageName === CODEX_ACP_PACKAGE && fs.existsSync(CODEX_ACP_VENDOR_ENTRY)) {
     return verifiedCodexAcpEntry(CODEX_ACP_VENDOR_ENTRY);
+  }
+  if (packageName === CLAUDE_ACP_PACKAGE && fs.existsSync(CLAUDE_ACP_VENDOR_ENTRY)) {
+    const actualSha256 = fileSha256(CLAUDE_ACP_VENDOR_ENTRY);
+    if (actualSha256 !== CLAUDE_ACP_SHA256) {
+      throw new Error(
+        `Claude ACP runtime failed integrity verification: expected ${CLAUDE_ACP_SHA256}, found ${actualSha256}`,
+      );
+    }
+    return CLAUDE_ACP_VENDOR_ENTRY;
   }
   let sdkDirectory;
   try {
@@ -109,7 +129,11 @@ function resolveAcpLaunch(provider, options = {}) {
     const launch = nodeAdapterLaunch(
       adapterEntry(adapter.acp.packageName),
       options.runtimeEnv || process.env,
-      adapter.acp.packageName === CODEX_ACP_PACKAGE ? PACKAGED_CODEX_ACP_ARG : '',
+      adapter.acp.packageName === CODEX_ACP_PACKAGE
+        ? PACKAGED_CODEX_ACP_ARG
+        : adapter.acp.packageName === CLAUDE_ACP_PACKAGE
+          ? PACKAGED_CLAUDE_ACP_ARG
+          : '',
     );
     return { ...launch, version: adapter.acp.version };
   }

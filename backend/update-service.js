@@ -790,6 +790,15 @@ class FarmingUpdateService {
     this.getNpmGlobalRoot = options.getNpmGlobalRoot
       || ((npmCommand, npmPrefix) => readNpmGlobalRoot(npmCommand, npmPrefix, this.execFile));
     this.spawn = options.spawn || childProcess.spawn;
+    this.prepareRuntimeDependencies = options.prepareRuntimeDependencies || (async (releaseDir) => {
+      if (process.env.NODE_ENV === 'test') return;
+      const managerPath = path.join(releaseDir, 'backend', 'runtime-dependency-manager.js');
+      const { prepareRuntimeDependencies } = require(managerPath);
+      await prepareRuntimeDependencies({
+        configDir: this.configDir,
+        env: { ...process.env, FARMING_CONFIG_DIR: this.configDir },
+      });
+    });
     this.latestCache = null;
     this.npmCache = null;
     this.installState = { phase: 'idle' };
@@ -1491,12 +1500,23 @@ class FarmingUpdateService {
     const targetMethod = String(releaseMetadata.updateMethod || releaseMetadata.type || this.installMethod);
     this.persistInstallState({
       ...this.installState,
+      phase: 'preparing-runtimes',
+      targetMethod,
+      releaseDir,
+      installer,
+      logPath,
+    });
+    await this.prepareRuntimeDependencies(releaseDir);
+    const runtimePreparedAt = new Date(this.now()).toISOString();
+    this.persistInstallState({
+      ...this.installState,
       phase: 'ready-to-restart',
       targetMethod,
       releaseDir,
       installer,
       logPath,
-      preparedAt: new Date(this.now()).toISOString(),
+      preparedAt: runtimePreparedAt,
+      runtimePreparedAt,
     });
   }
 }

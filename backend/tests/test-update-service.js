@@ -585,6 +585,7 @@ async function run() {
   fs.rmSync(service.updateStateFile, { force: true });
 
   const plainBundleSpawned = [];
+  let plainBundleRuntimePrepares = 0;
   const plainBundleService = new FarmingUpdateService({
     rootDir,
     configDir,
@@ -618,6 +619,10 @@ async function run() {
       fs.writeFileSync(path.join(releaseDir, 'scripts', 'install-release.sh'), '#!/usr/bin/env bash\n');
       callback(null);
     },
+    prepareRuntimeDependencies: async (releaseDir) => {
+      plainBundleRuntimePrepares++;
+      assert(fs.existsSync(path.join(releaseDir, 'scripts', 'install-release.sh')));
+    },
     spawn: (command, args, options) => {
       plainBundleSpawned.push({ command, args, options });
       return { unref() {} };
@@ -625,6 +630,8 @@ async function run() {
   });
   await plainBundleService.startInstall();
   await waitFor(() => plainBundleService.installState.phase === 'ready-to-restart', 1000, 'plain bundle preparation');
+  assert.strictEqual(plainBundleRuntimePrepares, 1);
+  assert(plainBundleService.installState.runtimePreparedAt);
   assert.strictEqual(plainBundleSpawned.length, 0);
   const preparedPlainBundle = plainBundleService.currentInstallState();
   plainBundleService.spawn = () => {

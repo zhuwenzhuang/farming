@@ -8,8 +8,9 @@ function run() {
   const packageScript = fs.readFileSync(path.join(root, 'scripts/package-cli-release.sh'), 'utf8');
   const appPackageScript = fs.readFileSync(path.join(root, 'scripts/package-release.sh'), 'utf8');
   const npmSmokeScript = fs.readFileSync(path.join(root, 'scripts/smoke-npm-package.sh'), 'utf8');
-  const cliSmokeScript = fs.readFileSync(path.join(root, 'scripts/smoke-cli-release.sh'), 'utf8');
+  const bundleCliScript = fs.readFileSync(path.join(root, 'scripts/bundle-cli-runtime.js'), 'utf8');
   const packagedAcpBridge = fs.readFileSync(path.join(root, 'backend/acp/packaged-codex-acp.js'), 'utf8');
+  const packagedClaudeAcpBridge = fs.readFileSync(path.join(root, 'backend/acp/packaged-claude-acp.js'), 'utf8');
   const previousEntry = process.env.FARMING_PKG_ENTRY;
   const previousWorkerEntry = process.env.FARMING_PKG_WORKER_ENTRY;
   const previousUsageWorkerEntry = process.env.FARMING_PKG_USAGE_WORKER_ENTRY;
@@ -43,8 +44,9 @@ function run() {
     'CLI packaging must retain source when cross-target bytecode fails and reject missing code',
   );
   assert(
-    packagedAcpBridge.includes("require('../../dist/acp/codex-acp-1.1.4.js')")
-      && packagedAcpBridge.includes("PACKAGED_CODEX_ACP_ARG = '--farming-codex-acp'"),
+    packagedAcpBridge.includes("PACKAGED_CODEX_ACP_ARG = '--farming-codex-acp'")
+      && packagedAcpBridge.includes('omitted its embedded Codex ACP runtime')
+      && bundleCliScript.includes("'codex-acp-1.1.4.mjs'"),
     'standalone CLI must bundle a hidden entry for the pinned Codex ACP runtime',
   );
   assert(
@@ -52,9 +54,10 @@ function run() {
     'native CLI targets must execute before their manifest is written',
   );
   assert(
-    cliSmokeScript.includes('--farming-browser-launch-gate')
-      && cliSmokeScript.includes('Packaged Browser launch gate started its target before release.'),
-    'native CLI smoke must prove the packaged Browser launch gate holds its target until release',
+    packagedClaudeAcpBridge.includes("PACKAGED_CLAUDE_ACP_ARG = '--farming-claude-acp'")
+      && packagedClaudeAcpBridge.includes('omitted its embedded Claude ACP runtime')
+      && bundleCliScript.includes("'claude-agent-acp-0.59.0.mjs'"),
+    'standalone CLI must bundle a hidden entry for the pinned Claude ACP runtime',
   );
   assert(
     appPackageScript.includes(
@@ -64,8 +67,10 @@ function run() {
   );
   assert(
     packageScript.includes('smoke-codex-acp-process.js')
-      && packageScript.includes('--arg --farming-codex-acp'),
-    'native CLI targets must complete an ACP initialize handshake before their manifest is written',
+      && packageScript.includes('--arg --farming-codex-acp')
+      && packageScript.includes('smoke-claude-acp-process.js')
+      && packageScript.includes('--arg --farming-claude-acp'),
+    'native CLI targets must complete Codex and Claude ACP initialize handshakes before their manifest is written',
   );
   assert(
     packageScript.includes('smoke-browser-mcp-process.js')

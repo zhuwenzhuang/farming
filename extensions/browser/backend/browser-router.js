@@ -11,8 +11,13 @@ function createBrowserRouter(manager, workspaceRootRegistry) {
   const router = express.Router();
   router.use(express.json({ limit: '2mb' }));
 
-  router.get('/capability', (_req, res) => {
-    res.json(manager.capability());
+  router.get('/capability', async (_req, res) => {
+    try {
+      await manager.refreshCapability();
+      res.json(manager.capability());
+    } catch (error) {
+      sendError(res, error);
+    }
   });
 
   router.get('/', (_req, res) => {

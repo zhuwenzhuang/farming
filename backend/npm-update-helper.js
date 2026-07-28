@@ -223,9 +223,23 @@ async function prepareNpmUpdate(payload) {
     fs.mkdirSync(payload.stagingPrefix, { recursive: true });
     await installPackage(payload, payload.targetVersion, payload.stagingPrefix);
     verifyInstalledVersion(payload, payload.targetVersion, payload.stagingPackageRoot);
+    writeJsonAtomic(payload.stateFile, stateFor(payload, 'preparing-runtimes'));
+    appendLog(payload.logPath, `Preparing Farming ${payload.targetVersion} startup dependencies`);
+    await runCommand(payload.nodePath, [
+      path.join(payload.stagingPackageRoot, 'bin', 'farming'),
+      'runtime',
+      'prepare',
+      '--config-dir',
+      payload.configDir,
+    ], {
+      cwd: payload.configDir,
+      env: commandEnvironment(),
+      logPath: payload.logPath,
+    });
     const preparedAt = new Date().toISOString();
     writeJsonAtomic(payload.stateFile, stateFor(payload, 'ready-to-restart', {
       preparedAt,
+      runtimePreparedAt: preparedAt,
     }));
     appendLog(payload.logPath, `Farming ${payload.targetVersion} is ready to restart`);
   } catch (error) {

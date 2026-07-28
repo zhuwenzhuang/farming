@@ -85,6 +85,7 @@ import {
 } from '@/lib/terminal-bootstrap'
 import type { SessionBootstrapState, SessionDataPayload } from '@/lib/terminal-bootstrap'
 import { appPath } from '@/lib/base-path'
+import { openExternalUrl, showUrlOpenMenu } from '@/lib/url-open-menu'
 import {
   clearReadingAnchor,
   readingAnchorAgentKey,
@@ -141,6 +142,7 @@ interface AttachOptions {
   onFollowOutputChange?: (state: TerminalFollowState) => void
   onPathOpen?: (agentId: string, target: TerminalPathOpenTarget) => void
   onPathResolve?: (agentId: string, target: TerminalPathOpenTarget) => Promise<TerminalPathOpenTarget | null> | TerminalPathOpenTarget | null
+  onUrlOpen?: (agentId: string, url: string) => void
   onRecoveryStatusChange?: (status: TerminalRecoveryStatus) => void
   onReady?: () => void
   onError?: (error: Error) => void
@@ -246,6 +248,7 @@ interface SessionRecord {
   followOutputHandler: ((state: TerminalFollowState) => void) | null
   pathOpenHandler: ((agentId: string, target: TerminalPathOpenTarget) => void) | null
   pathResolveHandler: ((agentId: string, target: TerminalPathOpenTarget) => Promise<TerminalPathOpenTarget | null> | TerminalPathOpenTarget | null) | null
+  urlOpenHandler: ((agentId: string, url: string) => void) | null
   pathResolveCache: Map<string, { resolvedAt: number; target: TerminalPathOpenTarget | null; promise?: Promise<TerminalPathOpenTarget | null> }>
   originalRender: NonNullable<NonNullable<FarmingTerminal['renderer']>['render']> | null
   snapshotOutput: string
@@ -2175,7 +2178,7 @@ function installTerminalLinkProvider(record: SessionRecord) {
               event.stopPropagation()
               event.stopImmediatePropagation()
               if (match.kind === 'url') {
-                openTerminalUrl(match.text)
+                openTerminalUrl(record, match.text)
               } else if (match.pathTarget && record.pathOpenHandler) {
                 record.pathOpenHandler(record.agentId, match.pathTarget)
               }
@@ -2601,8 +2604,12 @@ function getNativeTerminalSelection(hostEl: HTMLElement) {
   return selection.toString()
 }
 
-function openTerminalUrl(url: string) {
-  window.open(url, '_blank', 'noopener,noreferrer')
+function openTerminalUrl(record: SessionRecord, url: string) {
+  if (record.urlOpenHandler) {
+    record.urlOpenHandler(record.agentId, url)
+    return
+  }
+  openExternalUrl(url)
 }
 
 function terminalOpenTargetTitle(kind: 'url' | 'path') {
@@ -2933,6 +2940,17 @@ function getTerminalCopyTextAtEvent(record: SessionRecord, event: MouseEvent) {
 function installTerminalContextMenu(record: SessionRecord, agentId: string) {
   const contextMenuHandler = (event: MouseEvent) => {
     if (!(event.target instanceof Node) || !record.hostEl.contains(event.target)) return
+    const url = findTerminalUrlAtMouseEvent(record, event)
+    if (url) {
+      showUrlOpenMenu({
+        event,
+        url,
+        onOpenInFarming: record.urlOpenHandler
+          ? () => record.urlOpenHandler?.(agentId, url)
+          : undefined,
+      })
+      return
+    }
     const rawPathLink = record.pathOpenHandler ? readTerminalPathLinkAtMouseEvent(record, event) : null
     if (rawPathLink?.pathTarget) {
       event.preventDefault()
@@ -3804,6 +3822,7 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
     followOutputHandler: options.onFollowOutputChange ?? null,
     pathOpenHandler: options.onPathOpen ?? null,
     pathResolveHandler: options.onPathResolve ?? null,
+    urlOpenHandler: options.onUrlOpen ?? null,
     pathResolveCache: new Map(),
     originalRender: null,
     snapshotOutput: '',
@@ -3937,7 +3956,7 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
       event.preventDefault()
       event.stopPropagation()
       event.stopImmediatePropagation()
-      openTerminalUrl(url)
+      openTerminalUrl(record, url)
       record.suppressClickUntil = Date.now() + 250
       return true
     }
@@ -4049,7 +4068,7 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
           event.stopPropagation()
           event.stopImmediatePropagation()
         }
-        openTerminalUrl(url)
+        openTerminalUrl(record, url)
         record.suppressClickUntil = Date.now() + 250
         return
       }
@@ -4487,6 +4506,7 @@ export async function attachTerminalSession(agentId: string, options: AttachOpti
   record.followOutputHandler = options.onFollowOutputChange ?? null
   record.pathOpenHandler = options.onPathOpen ?? null
   record.pathResolveHandler = options.onPathResolve ?? null
+  record.urlOpenHandler = options.onUrlOpen ?? null
   seedTerminalCheckpoint(record, options.bootstrapState)
   emitFollowOutputState(record)
   updateRendererCursorSuppression(record, Boolean(options.suppressRendererCursor))

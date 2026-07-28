@@ -61,6 +61,18 @@ function browserProfileDir(configDir, browserId) {
   return path.join(browserResourcesDir(configDir), browserId, 'profile');
 }
 
+function runtimeDependenciesDir(configDir) {
+  return path.join(configDir, 'runtimes');
+}
+
+function runtimeDependenciesActiveFile(configDir) {
+  return path.join(runtimeDependenciesDir(configDir), 'active.json');
+}
+
+function runtimeDependenciesLockDir(configDir) {
+  return path.join(runtimeDependenciesDir(configDir), '.prepare.lock');
+}
+
 function farmingAgentBootstrapFile(configDir) {
   return path.join(configDir, 'farming-agent-bootstrap.zh_cn.md');
 }
@@ -152,6 +164,9 @@ module.exports = {
   farmingNetTrustFile,
   farmingConfigDir,
   historyDir,
+  runtimeDependenciesActiveFile,
+  runtimeDependenciesDir,
+  runtimeDependenciesLockDir,
   nativePtyControllerGenerationFile,
   nativePtyControllerGenerationLockDir,
   nativePtyHostLogFile,
