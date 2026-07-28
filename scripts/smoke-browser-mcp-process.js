@@ -16,6 +16,23 @@ const EXPECTED_TOOLS = [
   'browser_type',
   'browser_press',
   'browser_scroll',
+  'browser_history',
+  'browser_wait',
+  'browser_get',
+  'browser_is',
+  'browser_eval',
+  'browser_element_action',
+  'browser_keyboard',
+  'browser_select',
+  'browser_drag',
+  'browser_find',
+  'browser_debug',
+  'browser_cookies',
+  'browser_storage',
+  'browser_frame',
+  'browser_dialog',
+  'browser_upload',
+  'browser_download',
 ];
 
 function parseArgs(argv) {
