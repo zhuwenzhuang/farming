@@ -442,7 +442,9 @@ function childInvocation(env = process.env) {
     // making daemon ownership impossible to prove on Linux.
     return {
       command: '/usr/bin/env',
-      args: buildCleanEnvExecArgs(env, process.execPath, ['--']),
+      // FARMING_RUN_SERVER selects the embedded server entry. Do not append a
+      // sentinel argument: pkg may interpret it as an external script path.
+      args: buildCleanEnvExecArgs(env, process.execPath),
     };
   }
   const nodePath = env.FARMING_NODE_BIN || process.execPath;

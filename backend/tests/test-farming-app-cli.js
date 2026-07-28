@@ -565,6 +565,27 @@ async function runTests() {
   }
 
   {
+    const previousPkg = process.pkg;
+    process.pkg = {};
+    try {
+      const invocation = childInvocation({
+        FARMING_RUN_SERVER: '1',
+        PORT: '6694',
+      });
+      assert.strictEqual(invocation.command, '/usr/bin/env');
+      assert.deepStrictEqual(invocation.args, [
+        '-i',
+        'FARMING_RUN_SERVER=1',
+        'PORT=6694',
+        process.execPath,
+      ]);
+    } finally {
+      if (previousPkg === undefined) delete process.pkg;
+      else process.pkg = previousPkg;
+    }
+  }
+
+  {
     const invocation = childInvocation({
       FARMING_NODE_BIN: '/opt/farming/runtime/bin/node',
       FARMING_NODE_LD: '/opt/farming/glibc/lib/ld-linux-x86-64.so.2',
