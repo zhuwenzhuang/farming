@@ -258,6 +258,22 @@ function getAvailableAgentsForRequest() {
         interactive: true,
       },
       {
+        name: 'opencode',
+        command: 'opencode',
+        description: 'OpenCode - AI coding assistant',
+        category: 'coding',
+        supported: true,
+        interactive: true,
+      },
+      {
+        name: 'qoder',
+        command: 'qodercli',
+        description: 'Qoder - AI coding assistant',
+        category: 'coding',
+        supported: true,
+        interactive: true,
+      },
+      {
         name: 'bash',
         command: 'bash',
         description: 'Shell session',
