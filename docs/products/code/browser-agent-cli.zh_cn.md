@@ -51,11 +51,13 @@ Snapshot，只有标准流程不足时才进入 JavaScript 或更底层的诊断
 多 Tab。这样 Agent 的目标、Viewer 状态、生命周期和用户接管始终一致。
 
 同一 Project、同一 Browser Source 下正在运行的 Resource，是一个共享
-`agent-browser` Session 中的多个 Tab。它们共用一个 Chromium Process、隔离的
-Profile、Cookie 和 Storage；每个 Tab 仍有独立的 Farming 身份、URL、Viewer 和有序
-Action。启动另一个 Resource 会在该 Session 中创建 Tab；网页自己打开的新页面会成为
-新的 Resource，并由 Viewer 自动选中。关闭一个 Resource 只关闭对应 Tab；关闭最后一个
-Tab 才关闭整个 Session。
+`agent-browser` Session 中的多个 Tab。使用本地来源时，它们共用 Farming 拥有的
+Chromium Process、隔离 Profile、Cookie 和 Storage；使用外部 CDP 时，它们共用外部
+Owner 的浏览器、Profile、Cookie 和 Storage，Farming 只拥有自己创建的 Tab 与连接。
+每个 Tab 仍有独立的 Farming 身份、URL、Viewer 和有序 Action。启动另一个 Resource
+会在该 Session 中创建 Tab；网页自己打开的新页面会成为新的 Resource，并由 Viewer 自动
+选中。关闭一个 Resource 只关闭对应 Tab；关闭最后一个 Tab 会关闭 Session，但绝不会
+关闭外部浏览器进程。
 
 ## Action 状态模型
 

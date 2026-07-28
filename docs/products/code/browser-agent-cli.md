@@ -58,12 +58,14 @@ Resources, not hidden tabs inside one Resource. This keeps Agent targeting,
 Viewer state, lifecycle, and human takeover aligned.
 
 Running Resources in the same Project and Browser source are tabs in one shared
-`agent-browser` Session. They share one Chromium process, isolated profile,
-cookies, and storage, while every tab keeps its own Farming identity, URL,
-Viewer, and ordered actions. Starting another Resource creates a tab in that
-Session. A page opened by the website becomes a new Resource and the Viewer
-selects it. Closing one Resource closes only that tab; closing the last tab
-closes the Session.
+`agent-browser` Session. With a local source they share one Farming-owned
+Chromium process, isolated profile, cookies, and storage. With external CDP they
+share the externally owned browser, profile, cookies, and storage; Farming owns
+only the tabs it creates and the connection. Every tab keeps its own Farming
+identity, URL, Viewer, and ordered actions. Starting another Resource creates a
+tab in that Session. A page opened by the website becomes a new Resource and the
+Viewer selects it. Closing one Resource closes only that tab; closing the last
+tab closes the Session but never the external browser process.
 
 ## Action state model
 
