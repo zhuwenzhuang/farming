@@ -48,7 +48,6 @@ const {
 } = require('../extensions/browser/backend');
 const { UsageMonitor } = require('./usage-monitor');
 const { CodexContextWindowReader } = require('./codex-context-window');
-const { DEFAULT_MAX_TURNS: DEFAULT_CODEX_TRANSCRIPT_MAX_TURNS, readCodexTranscript } = require('./codex-transcript');
 const { AsyncCache } = require('./async-cache');
 const { getMainAgentSkillsCatalog } = require('./main-agent-skills');
 const { discoverAgentExtensions, discoverSlashCommands } = require('./slash-command-discovery');
@@ -90,7 +89,8 @@ const tokenAuth = new TokenAuth({ basePath: BASE_PATH || '/' });
 const authEnabled = tokenAuth.isEnabled();
 const WS_PATH = routePath(BASE_PATH, '/ws');
 const encodeCookieToken = TokenAuth.encodeCookieToken;
-const MAX_CODEX_TRANSCRIPT_TURNS = 1000;
+const DEFAULT_TRANSCRIPT_MAX_TURNS = 240;
+const MAX_TRANSCRIPT_TURNS = 1000;
 const INTERACTIVE_REFRESH_CACHE_MAX_AGE_MS = 3_000;
 const execFileAsync = promisify(execFile);
 
@@ -1105,51 +1105,10 @@ app.get(routePath(BASE_PATH, '/api/agents/:agentId/session-view'), async (req, r
   res.json({ session: sessionView });
 });
 
-app.get(routePath(BASE_PATH, '/api/agents/:agentId/codex-transcript'), async (req, res) => {
-  // Legacy JSONL transcript reader. ACP Chat uses the dedicated ACP endpoint;
-  // Terminal Agents stay in their terminal UI.
-  const providerSession = agentManager.getAgentProviderSession(req.params.agentId);
-  if (!providerSession) {
-    res.status(404).json({ error: 'Agent not found' });
-    return;
-  }
-  if (
-    providerSession.provider !== 'codex'
-    || providerSession.temporary
-    || !providerSession.sessionId
-    || providerSession.sessionId.startsWith('tmp_uuid')
-  ) {
-    res.json({
-      transcript: {
-        available: false,
-        reason: 'not-codex-provider-session',
-        sessionId: providerSession.sessionId || '',
-        turns: [],
-      },
-    });
-    return;
-  }
-
-  try {
-    const requestedMaxTurns = Number.parseInt(String(req.query.maxTurns || ''), 10);
-    const maxTurns = Number.isFinite(requestedMaxTurns)
-      ? Math.min(MAX_CODEX_TRANSCRIPT_TURNS, Math.max(20, requestedMaxTurns))
-      : DEFAULT_CODEX_TRANSCRIPT_MAX_TURNS;
-    const transcript = await readCodexTranscript(providerSession.sessionId, {
-      maxTurns,
-      codexHome: providerSession.providerHomePath || '',
-    });
-    res.json({ transcript });
-  } catch (error) {
-    console.error('Failed to read Codex transcript:', error);
-    res.status(500).json({ error: error.message || 'Failed to read Codex transcript' });
-  }
-});
-
 app.get(routePath(BASE_PATH, '/api/agents/:agentId/json-cli-transcript'), async (req, res) => {
   try {
     const transcript = agentManager.getJsonCliTranscript(req.params.agentId, {
-      maxTurns: DEFAULT_CODEX_TRANSCRIPT_MAX_TURNS,
+      maxTurns: DEFAULT_TRANSCRIPT_MAX_TURNS,
     });
     res.json({ transcript });
   } catch (error) {
@@ -1176,8 +1135,8 @@ app.get(routePath(BASE_PATH, '/api/agents/:agentId/acp-transcript'), async (req,
   try {
     const requestedMaxTurns = Number.parseInt(String(req.query.maxTurns || ''), 10);
     const maxTurns = Number.isFinite(requestedMaxTurns)
-      ? Math.min(MAX_CODEX_TRANSCRIPT_TURNS, Math.max(20, requestedMaxTurns))
-      : DEFAULT_CODEX_TRANSCRIPT_MAX_TURNS;
+      ? Math.min(MAX_TRANSCRIPT_TURNS, Math.max(20, requestedMaxTurns))
+      : DEFAULT_TRANSCRIPT_MAX_TURNS;
     const requestedRevision = Number.parseInt(String(req.query.sinceRevision || ''), 10);
     const externalMedia = req.query.media === 'external-v1';
     res.json({ transcript: agentManager.getAcpTranscript(req.params.agentId, {

@@ -11,7 +11,6 @@ const {
   stripCodexInternalContextBlocks,
 } = require('./codex-transcript-sanitizer');
 
-// @deprecated `readCodexTranscript` below is the legacy JSONL file reader.
 // The generic event-to-turn projection remains for JSON compatibility feeds;
 // live structured Chat is reduced from ACP session updates instead.
 const DEFAULT_MAX_READ_BYTES = 32 * 1024 * 1024;
@@ -2437,82 +2436,6 @@ async function readTailLines(filePath, maxReadBytes = DEFAULT_MAX_READ_BYTES) {
   }
 }
 
-function isUserMessageLine(line) {
-  if (!line.trim()) return false;
-  try {
-    const event = JSON.parse(line);
-    const { type: eventType, payload } = normalizeEventEnvelope(event);
-    if (!payload) return false;
-    if (eventType === 'event_msg') {
-      if (payload.type !== 'user_message') return false;
-      const text = textFromUserMessagePayload(payload);
-      const images = imagesFromUserMessagePayload(payload);
-      const files = extractComposerFileAttachments(text).files;
-      return Boolean(visibleUserMessageText(text, {
-        renderedAttachmentKinds: renderedAttachmentKindsForAttachments({ images, files }),
-      }) || images.length > 0 || files.length > 0);
-    }
-    if (eventType === 'response_item') {
-      if (payload.type !== 'message' || payload.role !== 'user') return false;
-      const text = textFromContent(payload.content);
-      const images = imagesFromContent(payload.content);
-      const files = extractComposerFileAttachments(text).files;
-      return Boolean(visibleUserMessageText(text, {
-        renderedAttachmentKinds: renderedAttachmentKindsForAttachments({ images, files }),
-      }) || images.length > 0 || files.length > 0);
-    }
-    if (eventType === 'item/started' || eventType === 'item/completed' || eventType === 'item.started' || eventType === 'item.completed') {
-      if (turnItemType(payload.item) !== 'usermessage') return false;
-      const text = textFromUserInput(payload.item?.content);
-      const images = imagesFromContent(payload.item?.content);
-      const audios = audiosFromContent(payload.item?.content);
-      const files = extractComposerFileAttachments(text).files;
-      return Boolean(visibleUserMessageText(text, {
-        renderedAttachmentKinds: renderedAttachmentKindsForAttachments({ images, audios, files }),
-      }) || images.length > 0 || audios.length > 0 || files.length > 0);
-    }
-    return false;
-  } catch {
-    return false;
-  }
-}
-
-function dropLeadingPartialTurn(lines) {
-  const firstUserIndex = lines.findIndex(isUserMessageLine);
-  return firstUserIndex > 0 ? lines.slice(firstUserIndex) : lines;
-}
-
-async function readCodexTranscript(sessionId, options = {}) {
-  const normalizedSessionId = String(sessionId || '').trim();
-  if (!normalizedSessionId) {
-    return { available: false, reason: 'missing-session-id', sessionId: '', turns: [] };
-  }
-
-  const filePath = findCodexRolloutFile(normalizedSessionId, {
-    codexHome: options.codexHome || path.join(os.homedir(), '.codex'),
-  });
-  if (!filePath) {
-    return { available: false, reason: 'history-not-found', sessionId: normalizedSessionId, turns: [] };
-  }
-
-  const tail = await readTailLines(filePath, options.maxReadBytes);
-  const lines = tail.truncated ? dropLeadingPartialTurn(tail.lines) : tail.lines;
-  const stat = fs.statSync(filePath);
-  const maxTurns = Number.isFinite(options.maxTurns) ? Math.max(1, Math.floor(options.maxTurns)) : DEFAULT_MAX_TURNS;
-  const allTurns = buildTranscriptFromLines(lines, { maxTurns: Number.MAX_SAFE_INTEGER });
-  const turns = allTurns.slice(-maxTurns);
-  return {
-    available: true,
-    sessionId: normalizedSessionId,
-    filePath,
-    updatedAt: new Date(stat.mtimeMs).toISOString(),
-    source: 'codex-rollout-jsonl',
-    hasMoreBefore: allTurns.length > maxTurns || tail.truncated,
-    turnLimit: maxTurns,
-    turns,
-  };
-}
-
 async function readCodexHistoryImageData(sessionId, options = {}) {
   const normalizedSessionId = String(sessionId || '').trim();
   if (!normalizedSessionId) return new Map();
@@ -2555,9 +2478,7 @@ module.exports = {
   buildTranscriptFromEvents,
   buildTranscriptFromLines,
   codexHistoryImageTargets,
-  dropLeadingPartialTurn,
   readCodexHistoryImageData,
-  readCodexTranscript,
   stripUserMessagePrefix,
   textFromContent,
   visibleUserMessageText,

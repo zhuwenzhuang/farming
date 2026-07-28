@@ -63,17 +63,7 @@ async function test() {
   assert.match(formattedBrowserCapabilities, /browser: available/);
   assert.match(formattedBrowserCapabilities, /Default browser path/);
   assert.match(formattedBrowserCapabilities, /farming browser help workflow/);
-
-  assert.deepStrictEqual(parseArgs(['memory', 'report', '--period', 'week', '--json']), {
-    command: 'memory-report',
-    options: {
-      period: 'week',
-      since: '',
-      until: '',
-      homeDir: '',
-      json: true,
-    },
-  });
+  assert.throws(() => parseArgs(['memory', 'report']), /Unknown command: memory/);
 
   const send = parseArgs(['send', 'agent-child', 'run', 'tests']);
   assert.deepStrictEqual(send, {
@@ -113,8 +103,7 @@ async function test() {
   assert(skillsOutput.includes('farming spawn'));
   assert(skillsOutput.includes('牧场除虫计划'));
   assert(skillsOutput.includes('明确模块间协议'));
-  assert(skillsOutput.includes('记忆读取总结'));
-  assert(skillsOutput.includes('farming memory report'));
+  assert(!skillsOutput.includes('farming memory report'));
 
   let encodedCookieHeader = null;
   const encodedServer = http.createServer((req, res) => {

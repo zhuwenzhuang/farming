@@ -27,7 +27,7 @@ const DEFAULT_SERVER_START_STABILITY_MS = 1_500;
 const DEFAULT_SERVER_STOP_TIMEOUT_MS = 30_000;
 const SERVER_STOP_POLL_MS = 100;
 const SERVER_COMMANDS = new Set(['start', 'serve', 'daemon', 'stop', 'status', 'logs', 'url', 'help']);
-const CONTROL_COMMANDS = new Set(['skills', 'capabilities', 'memory', 'report', 'list', 'spawn', 'output', 'send', 'kill']);
+const CONTROL_COMMANDS = new Set(['skills', 'capabilities', 'list', 'spawn', 'output', 'send', 'kill']);
 const SERVER_BACKED_CONTROL_COMMANDS = new Set(['capabilities', 'list', 'spawn', 'output', 'send', 'kill']);
 
 function defaultConfigDir(env = process.env) {

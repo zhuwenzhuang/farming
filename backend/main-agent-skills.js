@@ -4,7 +4,7 @@ const path = require('path');
 const MANAGED_BLOCK_START = '<!-- FARMING_MAIN_AGENT_SKILLS:START -->';
 const MANAGED_BLOCK_END = '<!-- FARMING_MAIN_AGENT_SKILLS:END -->';
 
-const REMOVED_MAIN_AGENT_SKILL_IDS = [];
+const REMOVED_MAIN_AGENT_SKILL_IDS = ['memory-report'];
 
 const MAIN_AGENT_OPERATING_GUIDE = [
   {
@@ -19,7 +19,6 @@ const MAIN_AGENT_OPERATING_GUIDE = [
     lines: [
       'On startup or resume, orient yourself with `farming list --json` and inspect `FARMING_PROJECT_WORKSPACE` / `FARMING_MAIN_WORKSPACE` before proposing work.',
       'Do not spawn child agents just because you can. Wait for a concrete user goal, or ask one short clarification if the goal is too vague to route safely.',
-      'Use `farming memory report` only when recent local context would change what you do next.',
     ],
   },
   {
@@ -67,18 +66,6 @@ const MAIN_AGENT_SKILLS = [
       'farming browser list',
       'farming browser help workflow',
       'farming browser help <lifecycle|navigation|interaction|inspection|debugging|state|files>',
-    ],
-  },
-  {
-    id: 'memory-report',
-    name: '记忆读取总结',
-    trigger: '用户要求总结今日、昨日、本周做过什么，或需要先了解这台机器上各 agent 的近期工作记忆时',
-    summary: '只读扫描本机 Claude/Qwen/Codex 本地历史线索，按时间段生成 Farming 日报或周报。',
-    commands: [
-      'farming memory report --period today',
-      'farming memory report --period yesterday',
-      'farming memory report --period week',
-      'farming memory report --since <YYYY-MM-DD> --until <YYYY-MM-DD>',
     ],
   },
   {
@@ -150,7 +137,6 @@ function renderMainAgentSkills() {
 
   lines.push('Rules:');
   lines.push('- Use `farming browser` only for Browser Resources already in the user-selected Project scope; follow `farming browser help workflow`, and reveal only the help topic or command needed for the current step.');
-  lines.push('- Use `farming memory report` when you need recent context from local agent memories.');
   lines.push('- Use “牧场除虫计划” when the user asks for systematic bug hunting across a directory or module tree.');
   lines.push('- Before spawning child agents for pest control, map modules and module protocols first; do not send overlapping or vague tasks.');
   lines.push('- Keep child agents scoped to their assigned module and require evidence, reproduction notes, or tests for each bug claim.');
@@ -174,9 +160,6 @@ function renderCanonicalAgentsFile() {
     '',
     'Useful commands:',
     '- `farming skills`',
-    '- `farming memory report --period today`',
-    '- `farming memory report --period yesterday`',
-    '- `farming memory report --period week`',
     '- `farming spawn --workspace <repo> --task "<module bug hunt task>" -- <coding-agent-command>`',
     '- `farming list --parent "$FARMING_AGENT_ID"`',
     '- `farming output <agent-id> --tail 2000`',

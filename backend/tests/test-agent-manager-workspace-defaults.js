@@ -42,7 +42,7 @@ async function run() {
     const mainAgentId = await startAgent(manager, 'bash', null, { wantsMain: true });
     assert.strictEqual(captured[0].cwd, resolvedMainWorkspace);
     assert(fs.existsSync(path.join(resolvedMainWorkspace, 'AGENTS.md')));
-    assert(fs.existsSync(path.join(resolvedMainWorkspace, 'skills', 'memory-report.md')));
+    assert(!fs.existsSync(path.join(resolvedMainWorkspace, 'skills', 'memory-report.md')));
     assert.strictEqual(manager.getAgentWorkspaceRoot(mainAgentId), farmingWorkspace);
     assert.strictEqual(manager.agents.get(mainAgentId).status, 'running');
     assert.strictEqual(manager.agents.get(mainAgentId).validated, true);

@@ -15,14 +15,13 @@ const {
 async function run() {
   const catalog = getMainAgentSkillsCatalog();
   assert(Array.isArray(catalog));
-  assert(catalog.some(s => s.id === 'memory-report'));
+  assert(!catalog.some(s => s.id === 'memory-report'));
   assert(catalog.some(s => s.id === 'pest-control'));
   assert(catalog.every(s => Array.isArray(s.commands) && s.commands.length > 0));
 
   const skills = renderMainAgentSkills();
   assert(skills.includes('Farming Main Agent Skills'));
-  assert(skills.includes('记忆读取总结'));
-  assert(skills.includes('farming memory report'));
+  assert(!skills.includes('farming memory report'));
   assert(skills.includes('attention steward'));
   assert(skills.includes('farming list --json'));
   assert(skills.includes('farming browser help workflow'));
@@ -36,7 +35,7 @@ async function run() {
   assert(skills.includes('farming spawn --workspace <repo>'));
   assert(skills.includes('farming list --parent "$FARMING_AGENT_ID"'));
   assert(renderCanonicalAgentsFile().includes('This directory is a Farming-managed Main Agent workspace'));
-  assert(renderCanonicalAgentsFile().includes('farming memory report --period today'));
+  assert(!renderCanonicalAgentsFile().includes('farming memory report'));
   assert(renderCanonicalAgentsFile().includes('farming spawn --workspace <repo>'));
   assert(renderMainAgentOperatingGuide().includes('Classify agents as running, waiting for input, blocked, failed, complete, stale, or safe to ignore'));
 
@@ -51,6 +50,7 @@ async function run() {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-main-skills-'));
   try {
     ensureMainAgentSkillFiles(tmpDir);
+    fs.writeFileSync(path.join(tmpDir, 'skills', 'memory-report.md'), 'removed skill');
     fs.writeFileSync(path.join(tmpDir, 'skills', 'pest-control.md'), 'stale skill');
     ensureMainAgentSkillFiles(tmpDir);
 
@@ -59,7 +59,6 @@ async function run() {
     const agentsFile = fs.readFileSync(path.join(tmpDir, 'AGENTS.md'), 'utf8');
     const qwenFile = fs.readFileSync(path.join(tmpDir, 'QWEN.md'), 'utf8');
     const indexFile = fs.readFileSync(path.join(tmpDir, 'skills', 'index.json'), 'utf8');
-    const memoryReportFile = fs.readFileSync(path.join(tmpDir, 'skills', 'memory-report.md'), 'utf8');
     const pestControlFile = fs.readFileSync(path.join(tmpDir, 'skills', 'pest-control.md'), 'utf8');
 
     assert(skillsFile.includes('farming skills'));
@@ -74,14 +73,14 @@ async function run() {
     assert(agentsFile.includes('牧场除虫计划'));
     assert(qwenFile.includes('You are the Farming Main Agent'));
     assert(qwenFile.includes('牧场除虫计划'));
-    assert(indexFile.includes('memory-report'));
+    assert(!indexFile.includes('memory-report'));
     assert(indexFile.includes('pest-control'));
     assert(fs.existsSync(path.join(tmpDir, 'skills', 'pest-control.md')));
-    assert(memoryReportFile.includes('记忆读取总结'));
+    assert(!fs.existsSync(path.join(tmpDir, 'skills', 'memory-report.md')));
     assert(pestControlFile.includes('牧场除虫计划'));
     assert(pestControlFile.includes('模块：<name>'));
 
-    console.log('✓ Main Agent skills render memory-report and pest-control coding-agent memory files');
+    console.log('✓ Main Agent skills remove memory-report and render pest-control files');
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }

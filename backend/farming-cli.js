@@ -1,7 +1,6 @@
 const fs = require('fs');
 const http = require('http');
 const https = require('https');
-const { buildMemoryReport, formatMemoryReport } = require('./agent-memory-report');
 const { renderMainAgentSkills } = require('./main-agent-skills');
 const storageLayout = require('./storage-layout');
 
@@ -9,7 +8,6 @@ function usage() {
   return `Usage:
   farming skills
   farming capabilities [--json]
-  farming memory report [--period today|yesterday|week] [--since <time>] [--until <time>] [--home <path>] [--json]
   farming list [--json] [--parent <agentId>]
   farming spawn [--workspace <path>] [--task <text>] [--parent <agentId>] [--json] -- <command...>
   farming output <agentId> [--tail <chars>]
@@ -18,8 +16,6 @@ function usage() {
 
 Examples:
   farming spawn --workspace /repo --task "Inspect this module for bugs" -- claude
-  farming memory report --period today
-  farming memory report --period week --json
   farming skills
   farming capabilities
   farming list --parent "$FARMING_AGENT_ID"
@@ -83,43 +79,6 @@ function parseArgs(argv) {
       throw new Error('capabilities accepts only --json');
     }
     return { command, options: { json: rest.includes('--json') } };
-  }
-
-  if (command === 'memory' || command === 'report') {
-    const subcommand = command === 'memory' ? rest.shift() : 'report';
-    if (subcommand !== 'report') {
-      throw new Error('memory requires the report subcommand');
-    }
-
-    const options = {
-      period: 'today',
-      since: '',
-      until: '',
-      homeDir: '',
-      json: false,
-    };
-
-    for (let i = 0; i < rest.length; i++) {
-      if (rest[i] === '--period') {
-        options.period = splitOptionValue(rest, i, '--period');
-        i++;
-      } else if (rest[i] === '--since') {
-        options.since = splitOptionValue(rest, i, '--since');
-        i++;
-      } else if (rest[i] === '--until') {
-        options.until = splitOptionValue(rest, i, '--until');
-        i++;
-      } else if (rest[i] === '--home') {
-        options.homeDir = splitOptionValue(rest, i, '--home');
-        i++;
-      } else if (rest[i] === '--json') {
-        options.json = true;
-      } else {
-        throw new Error(`Unknown option: ${rest[i]}`);
-      }
-    }
-
-    return { command: 'memory-report', options };
   }
 
   if (command === 'list') {
@@ -358,21 +317,6 @@ async function run(argv = process.argv.slice(2), io = process) {
     io.stdout.write(parsed.options.json
       ? `${JSON.stringify(report, null, 2)}\n`
       : `${formatCapabilities(report)}\n`);
-    return 0;
-  }
-
-  if (parsed.command === 'memory-report') {
-    const report = buildMemoryReport({
-      period: parsed.options.period,
-      since: parsed.options.since,
-      until: parsed.options.until,
-      homeDir: parsed.options.homeDir || undefined,
-    });
-    if (parsed.options.json) {
-      io.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
-    } else {
-      io.stdout.write(`${formatMemoryReport(report)}\n`);
-    }
     return 0;
   }
 

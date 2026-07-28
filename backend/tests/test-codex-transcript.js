@@ -5,9 +5,7 @@ const path = require('path');
 const {
   DEFAULT_MAX_TURNS,
   buildTranscriptFromLines,
-  dropLeadingPartialTurn,
   readCodexHistoryImageData,
-  readCodexTranscript,
   stripUserMessagePrefix,
   textFromContent,
 } = require('../codex-transcript');
@@ -606,25 +604,6 @@ function referenceServerNotificationMethods() {
   assert.strictEqual(turns[0].userAudios[0].mimeType, 'audio/wav');
   assert.strictEqual(turns[0].userAudios[1].name, 'sample.wav');
   assert(turns[0].userAudios[1].url.startsWith('data:audio/wav;base64,'));
-}
-
-{
-  const lines = dropLeadingPartialTurn([
-    event('agent_message', { message: '截断前半个回答', phase: 'final_answer' }),
-    line('response_item', {
-      type: 'function_call',
-      id: 'fc-tail',
-      call_id: 'call-tail',
-      name: 'exec_command',
-      arguments: JSON.stringify({ cmd: 'ls' }),
-    }),
-    event('user_message', { message: '完整问题' }),
-    event('agent_message', { message: '完整回答', phase: 'final_answer' }),
-  ]);
-  const turns = buildTranscriptFromLines(lines);
-  assert.strictEqual(turns.length, 1);
-  assert.strictEqual(turns[0].userMessage, '完整问题');
-  assert.strictEqual(turns[0].finalMessage, '完整回答');
 }
 
 {
@@ -2359,40 +2338,9 @@ function referenceServerNotificationMethods() {
 
 async function runAsyncTests() {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-codex-transcript-history-'));
-  const sessionId = '019f0000-0000-7000-8000-000000000777';
   const sessionDir = path.join(tmpDir, 'sessions', '2026', '07', '09');
-  const sessionPath = path.join(sessionDir, `rollout-${sessionId}.jsonl`);
   fs.mkdirSync(sessionDir, { recursive: true });
   try {
-    const largeOutput = 'x'.repeat(7 * 1024 * 1024);
-    fs.writeFileSync(sessionPath, [
-      event('user_message', { turn_id: 'turn-large-1', message: '第一轮问题' }),
-      event('agent_message', { turn_id: 'turn-large-1', message: '第一轮回答', phase: 'final_answer' }),
-      event('exec_command_end', {
-        turn_id: 'turn-large-1',
-        call_id: 'large-output',
-        cmd: 'cat huge.log',
-        exit_code: 0,
-        stdout: largeOutput,
-      }),
-      event('user_message', { turn_id: 'turn-large-2', message: '第二轮问题' }),
-      event('agent_message', { turn_id: 'turn-large-2', message: '第二轮回答', phase: 'final_answer' }),
-    ].join('\n'));
-
-    const transcript = await readCodexTranscript(sessionId, { codexHome: tmpDir });
-    assert.strictEqual(transcript.available, true);
-    assert.strictEqual(transcript.turns.length, 2);
-    assert.strictEqual(transcript.turns[0].userMessage, '第一轮问题');
-    assert.strictEqual(transcript.turns[1].userMessage, '第二轮问题');
-    assert.strictEqual(transcript.hasMoreBefore, false);
-    assert.strictEqual(transcript.turnLimit, DEFAULT_MAX_TURNS);
-
-    const limitedTranscript = await readCodexTranscript(sessionId, { codexHome: tmpDir, maxTurns: 1 });
-    assert.strictEqual(limitedTranscript.turns.length, 1);
-    assert.strictEqual(limitedTranscript.turns[0].userMessage, '第二轮问题');
-    assert.strictEqual(limitedTranscript.hasMoreBefore, true);
-    assert.strictEqual(limitedTranscript.turnLimit, 1);
-
     const imageSessionId = '019f0000-0000-7000-8000-000000000778';
     const imageSessionPath = path.join(sessionDir, `rollout-${imageSessionId}.jsonl`);
     const imagePath = path.join(tmpDir, 'expired-screen.png');
