@@ -55,8 +55,6 @@ Start or resume Codex, Claude Code, OpenCode, Qoder, and other detected coding C
 
 Browse, search, and lightly edit Project Files without leaving the current task. Inspect Git Changes, History, Diff, and Blame, then open a commit or working-copy change in Review.
 
-![Farming Code project files and blame](./docs/products/code/assets/04-files-editor-blame.png)
-
 ### Browser Resources
 
 Each Project can own multiple named Browser Resources. In **Plugins → Browser**, users choose a discovered Chromium-based system browser or an external loopback CDP endpoint. Farming prepares a pinned `agent-browser` runtime at startup and sends both human input and Agent actions to the same session. Farming does not download Chromium or depend on Playwright. Agents can discover and operate these resources with `farming browser`; npm installations also expose the `farming-browser` alias.
@@ -75,10 +73,6 @@ Farming prepares the pinned Codex and Claude executables needed by its structure
 | Claude Code | Yes | Yes | Yes |
 | OpenCode | Yes | Yes | Yes |
 | Qoder | Yes | Yes | Yes |
-| Qwen Code | — | Yes | CLI-dependent |
-| Aider | — | Yes | CLI-dependent |
-| GitHub Copilot CLI | — | Yes | CLI-dependent |
-| Amazon Q | — | Yes | CLI-dependent |
 | bash / zsh | — | Yes | No |
 
 Farming hosts CLIs that already work on the same machine. It does not replace provider installation, login, or account configuration.
@@ -101,15 +95,11 @@ Development machine
 
 The browser can disconnect and reconnect without stopping an Agent. A normal Farming server restart can also reconnect supported live terminal sessions. The desktop layout keeps projects, conversations, files, and review together; the mobile layout focuses one conversation, terminal, or file at a time.
 
-<p align="center">
-  <img src="./docs/products/code/assets/05-mobile-agent-chat.png" alt="Farming Code reconnecting to a running Agent from a phone" width="390">
-</p>
-
 ## Farming CRT
 
 Farming CRT is an optional keyboard-first, retro control-room interface for scanning many Agents, opening their Chat or Terminal sessions, searching history, and viewing usage telemetry.
 
-![Farming CRT multi-Agent control room](./docs/products/crt/assets/01-crt-dashboard.png)
+![Farming CRT multi-agent dashboard](./docs/products/crt/assets/01-crt-dashboard.png)
 
 Code and CRT use the same backend Agents and sessions. Switching interfaces does not create a second Agent. Farming Code remains the default interface and the supported phone interface. See the [Farming CRT guide](./docs/products/crt/README.md) for controls and workflows.
 
@@ -119,27 +109,11 @@ Farming Net is a separate, token-protected directory for Farming deployments. It
 
 ## Installation And Updates
 
-The installed `farming` CLI defaults to port `6694`, base path `/farming`, config directory `~/.farming`, and token authentication. Useful daemon commands are:
+Install with the Quick Start command above. For npm installations, **Settings → Updates** prepares a selected release while the current Server keeps running, then applies it after confirmation. The existing startup token is retained.
 
-```bash
-farming status
-farming url
-farming logs
-farming stop
-```
+![Farming npm update settings](./docs/products/code/assets/14-code-settings.png)
 
-Farming Server lifecycle is crash-only: `farming stop`, restart, and update terminate the Server immediately instead of waiting for active Agent work. The next Server process reconciles Farming-owned state and reconnects supported live runtimes; an interrupted provider turn may still require the provider's normal resume. If the updater lacks permission to stop the recorded Server process, it leaves both package directories untouched and asks the owning OS user or an administrator to restart Farming before retrying.
-
-The startup token is stored in `~/.farming/.session-token` and reused across restarts and upgrades. **Settings → Updates** uses a two-step flow for npm installations: **Prepare** installs the selected version into a separate staging directory while the current server keeps running, then **Restart to update** switches the package directory and restarts Farming only after the user clicks it. If the new server does not start, Farming restores the previous package directory. npm preparation first uses the machine's configured registry and retries the registry shown in Settings only when that registry lacks the selected version. Before preparing or applying an update, Farming verifies that npm targets the same package root that launched the server. GitHub Releases also provide standalone CLI and directory bundles; see [GitHub Releases](https://github.com/zhuwenzhuang/farming/releases) for current artifacts.
-
-To run from source with the same port and base path:
-
-```bash
-npm install
-PORT=6694 FARMING_BASE_PATH=/farming npm start
-```
-
-For trusted local development only, `npm run start:no-auth` disables token authentication.
+Standalone CLI and directory bundles remain available from [GitHub Releases](https://github.com/zhuwenzhuang/farming/releases).
 
 ## Security
 

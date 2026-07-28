@@ -55,8 +55,6 @@ Farming Code 是默认的桌面与手机界面。它按项目组织工作，把�
 
 浏览、搜索并轻量编辑 Project Files，不需要离开当前任务。检查 Git Changes、History、Diff 和 Blame，再把 Commit 或 Working Copy 修改打开到 Review。
 
-![Farming Code 项目文件与 Blame](./docs/products/code/assets/04-files-editor-blame.png)
-
 ### Browser Resource
 
 每个 Project 可以拥有多个可命名的 Browser Resource。用户在**插件 → 浏览器**中选择已发现的 Chromium 系统浏览器，或填写外部回环 CDP Endpoint。Farming 启动时准备锁定版本的 `agent-browser` Runtime，并把人的输入和 Agent 操作发送给同一个 Session。Farming 不下载 Chromium，也不依赖 Playwright。Agent 可以通过 `farming browser` 发现并操作这些 Resource；npm 安装还会提供 `farming-browser` 别名。
@@ -75,10 +73,6 @@ Farming 启动时会准备结构化 Runtime 所需的锁定版本 Codex 与 Clau
 | Claude Code | 是 | 是 | 是 |
 | OpenCode | 是 | 是 | 是 |
 | Qoder | 是 | 是 | 是 |
-| Qwen Code | — | 是 | 取决于 CLI |
-| Aider | — | 是 | 取决于 CLI |
-| GitHub Copilot CLI | — | 是 | 取决于 CLI |
-| Amazon Q | — | 是 | 取决于 CLI |
 | bash / zsh | — | 是 | 否 |
 
 Farming 承载的是已经能在同一台机器正常工作的 CLI，不替代 Provider 的安装、登录和账户配置。
@@ -101,15 +95,11 @@ Farming 承载的是已经能在同一台机器正常工作的 CLI，不替代 P
 
 浏览器断开或重新连接不会停止 Agent。Farming Server 正常重启后也可以重新连接受支持的实时 Terminal Session。桌面布局把项目、对话、文件和 Review 放在一起；手机布局一次聚焦一段对话、一个 Terminal 或一个文件。
 
-<p align="center">
-  <img src="./docs/products/code/assets/05-mobile-agent-chat.png" alt="使用手机重新连接仍在运行的 Farming Code Agent" width="390">
-</p>
-
 ## Farming CRT
 
 Farming CRT 是可选的键盘优先复古控制室，用来扫视多个 Agent、打开它们的 Chat 或 Terminal、搜索 History，以及查看用量遥测。
 
-![Farming CRT 多 Agent 控制室](./docs/products/crt/assets/01-crt-dashboard.png)
+![Farming CRT 多 Agent 仪表盘](./docs/products/crt/assets/01-crt-dashboard.png)
 
 Code 与 CRT 使用相同的后端 Agent 和 Session，切换界面不会创建第二个 Agent。Farming Code 仍是默认界面，也是受支持的手机界面。控制方式和完整流程见 [Farming CRT 指南](./docs/products/crt/README.zh_cn.md)。
 
@@ -119,27 +109,11 @@ Farming Net 是独立、带 Token 鉴权的 Farming 部署目录。它提供一�
 
 ## 安装与更新
 
-安装后的 `farming` CLI 默认端口是 `6694`，Base Path 是 `/farming`，配置目录是 `~/.farming`，Token 鉴权默认开启。常用 Daemon 命令：
+按上面的快速开始命令安装即可。对于 npm 安装，**Settings → Updates** 会在当前 Server 继续运行时准备所选版本，确认后再应用更新；原有启动 Token 保持不变。
 
-```bash
-farming status
-farming url
-farming logs
-farming stop
-```
+![Farming npm 更新设置](./docs/products/code/assets/14-code-settings.png)
 
-Farming Server 采用 crash-only 生命周期：`farming stop`、重启和升级都会立即终止 Server，不等待正在运行的 Agent 工作。下一个 Server 进程负责对账 Farming 自有状态并重新连接受支持的存活 Runtime；被中断的 Provider Turn 仍可能需要走 Provider 自己的正常 Resume。如果 Updater 没有权限停止记录中的 Server 进程，它会保持新旧包目录不变，并提示用户由拥有该进程的系统账号或管理员重启 Farming 后再重试。
-
-启动 Token 存放在 `~/.farming/.session-token`，重启和升级会继续复用。**Settings → Updates** 为 npm 安装提供两阶段更新：点击**准备**后，所选版本会安装到独立 staging 目录，当前服务继续运行；准备完成后，只有用户点击**重启并应用**，Farming 才会切换包目录并重启。如果新服务启动失败，Farming 会恢复旧包目录。npm 准备阶段会先使用机器配置的 registry；只有该 registry 缺少所选版本时，才会回退到 Settings 展示版本所用的 registry。准备和应用更新前，Farming 都会校验 npm 目标包根目录与启动当前服务的包根目录一致。GitHub Releases 也提供独立 CLI 和目录 Bundle；当前产物见 [GitHub Releases](https://github.com/zhuwenzhuang/farming/releases)。
-
-从源码运行，并使用相同的端口与 Base Path：
-
-```bash
-npm install
-PORT=6694 FARMING_BASE_PATH=/farming npm start
-```
-
-只有在可信本地开发环境中，才可以用 `npm run start:no-auth` 关闭 Token 鉴权。
+独立 CLI 和目录 Bundle 仍可从 [GitHub Releases](https://github.com/zhuwenzhuang/farming/releases) 下载。
 
 ## 安全
 

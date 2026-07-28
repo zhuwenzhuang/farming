@@ -845,36 +845,13 @@ async function projectNorthstarChat(page, { mobile = false } = {}) {
   }, { version: packageVersion, mobileLayout: mobile });
 }
 
-async function projectNorthstarCrtDashboard(page) {
+async function stabilizeCrtDashboard(page) {
   await page.addStyleTag({
     content: [
       '#farming-crt .agent-output-afterimage { display: none !important; }',
       '#farming-crt .agent-block.working .agent-output:not(.structured-preview) { animation: none !important; }',
+      '#farming-crt #map-area .agent-block.unread:not(:hover) { box-shadow: 0 0 7px rgba(12, 204, 104, 0.15), inset 0 0 10px rgba(12, 204, 104, 0.025) !important; }',
     ].join('\n'),
-  });
-  await page.evaluate(() => {
-    const firstCard = document.querySelector('#map-area .agent-block');
-    if (!firstCard) throw new Error('CRT dashboard has no Agent card');
-    const title = firstCard.querySelector('.agent-header');
-    const status = firstCard.querySelector('.agent-status');
-    const output = firstCard.querySelector('.agent-output');
-    if (!title || !status || !output) throw new Error('CRT Agent card structure changed');
-    title.textContent = 'Northstar pagination';
-    status.textContent = 'running | warm | Northstar API';
-    output.classList.remove('structured-preview');
-    output.replaceChildren();
-    const tail = document.createElement('div');
-    tail.className = 'agent-output-tail';
-    tail.textContent = [
-      'PAGINATION FIX',
-      '',
-      'page-boundary duplicates: 0',
-      'bounded retries: 3',
-      'response shape: unchanged',
-      '',
-      '8 boundary tests: PASS',
-    ].join('\n');
-    output.appendChild(tail);
   });
 }
 
@@ -956,7 +933,8 @@ async function main() {
       task: '',
     });
     const shellAgentId = await startDemoAgent(page, baseUrl);
-    await updateAgent(page, baseUrl, codexAgentId, { customTitle: 'Fix duplicate page items', pinned: true });
+    await updateAgent(page, baseUrl, codexAgentId, { customTitle: 'Fix duplicate page items' });
+    await updateAgent(page, baseUrl, codexAgentId, { pinned: true });
     await updateAgent(page, baseUrl, terminalAgentId, { customTitle: 'Pagination regression' });
     await updateAgent(page, baseUrl, claudeAgentId, { customTitle: 'Settings UI check' });
     await updateAgent(page, baseUrl, shellAgentId, { customTitle: 'API request logs' });
@@ -1161,8 +1139,49 @@ async function main() {
     await screenshot(page, '08-history-search.png');
 
     await page.keyboard.press('Escape');
+    const latestScreenshotVersion = packageVersion.replace(
+      /(\d+)$/,
+      value => String(Number(value) + 1),
+    );
+    await page.route(`**${basePath}/api/update*`, route => route.fulfill({
+      json: {
+        update: {
+          method: 'npm',
+          current: {
+            releaseVersion: packageVersion,
+            packageVersion,
+            type: 'npm',
+          },
+          latest: {
+            version: latestScreenshotVersion,
+            assetName: latestScreenshotVersion,
+            blockedReason: '',
+          },
+          selected: {
+            version: latestScreenshotVersion,
+            assetName: latestScreenshotVersion,
+            available: true,
+            installable: true,
+          },
+          versions: [{
+            version: latestScreenshotVersion,
+            assetName: latestScreenshotVersion,
+            available: true,
+            installable: true,
+          }],
+          available: true,
+          installable: true,
+          state: {
+            phase: 'idle',
+            version: latestScreenshotVersion,
+            previousVersion: packageVersion,
+          },
+        },
+      },
+    }));
     await page.getByTestId('code-sidebar-options').click();
     await page.getByTestId('code-settings-panel').waitFor({ state: 'visible', timeout: 20_000 });
+    await page.getByTestId('code-settings-update-card').getByText(latestScreenshotVersion, { exact: true }).waitFor({ state: 'visible', timeout: 20_000 });
     await screenshot(page, '14-code-settings.png');
     await page.keyboard.press('Escape');
 
@@ -1199,89 +1218,65 @@ async function main() {
     await page.setViewportSize({ width: 1440, height: 810 });
     await page.keyboard.press('Escape');
 
+    const releaseOpsWorkspace = path.join(homeDir, 'Projects', 'release-ops');
+    fs.mkdirSync(releaseOpsWorkspace, { recursive: true });
     const dependencyAgentId = await startAgent(page, baseUrl, {
       command: 'bash',
-      workspace: workspaceDir,
+      workspace: releaseOpsWorkspace,
       task: '',
     });
     await updateAgent(page, baseUrl, dependencyAgentId, { customTitle: 'Dependency audit' });
     await sendAgentInput(page, baseUrl, dependencyAgentId, 'stty -echo; clear; printf "DEPENDENCY AUDIT\\n\\nproduction packages: 74\\nknown vulnerabilities: 0\\nlicense conflicts: 0\\nlockfile drift: none\\n\\nready for release\\n"; stty echo\r');
     await waitForAgentOutput(page, baseUrl, dependencyAgentId, 'ready for release');
 
-    const dashboardCards = [
-      {
-        title: 'Checkpoint recovery',
-        project: 'terminal-lab',
-        lines: ['RECOVERY TRACE 14:32', 'epoch 7c2a / rev 1842', '', 'gap detected at seq 918', 'checkpoint installed: 920', 'live stream resumed: 921', '', 'result  CONTIGUOUS'],
-      },
-      {
-        title: 'API contract review',
-        project: 'farming-core',
-        lines: ['PATCH REVIEW', '6 files  +148  -37', '', 'runtimeBinding  tagged', 'WorkspaceRoot   stable', 'legacy fields    blocked', '', 'open: cancellation test'],
-      },
-      {
-        title: 'Mobile control pass',
-        project: 'mobile-console',
-        lines: ['DEVICE MATRIX', '', 'iPhone 15      PASS', 'Pixel 9        PASS', 'iPad mini      PASS', '', 'IME compose    PASS', 'focus restore  PASS'],
-      },
-      {
-        title: 'Federated trust audit',
-        project: 'net-portal',
-        lines: ['PASS INSPECTOR', 'aud: edge-west-2', 'ttl: 43s', '', '[ok] target bound', '[ok] one-time nonce', '[ok] token absent', '', 'replay -> REJECTED'],
-      },
-      {
-        title: 'Release narrative',
-        project: 'product-docs',
-        lines: ['DOC SET', '', 'README.en/zh       linked', 'Code screens       6/6', 'CRT screens        8/8', 'license notices    clean', '', 'copy pass: COMPLETE'],
-      },
-      {
-        title: 'Latency watch',
-        project: 'release-ops',
-        lines: ['INPUT LATENCY / 5m', '', 'p50   31 ms  ||||||', 'p95   58 ms  |||||||||||', 'p99   83 ms  |||||||||||||', '', 'budget 250 ms', 'headroom 67%'],
-      },
-      {
-        title: 'Operator decision',
-        project: 'deploy-control',
-        lines: ['DEPLOY HOLD', '', 'Mac smoke       green', 'Linux smoke     green', 'manifest        signed', '', 'Choose window:', '  A  16:00   B  18:30'],
-      },
-    ];
-    const dashboardAgentIds = [];
-    for (const card of dashboardCards) {
-      const cardWorkspace = path.join(homeDir, 'Projects', card.project);
-      fs.mkdirSync(cardWorkspace, { recursive: true });
-      const agentId = await startAgent(page, baseUrl, {
-        command: 'bash',
-        workspace: cardWorkspace,
-        task: '',
-      });
-      dashboardAgentIds.push(agentId);
-      await updateAgent(page, baseUrl, agentId, { customTitle: card.title, unread: false });
-      const body = card.lines.join('\\n').replaceAll('"', '\\"');
-      await sendAgentInput(page, baseUrl, agentId, 'stty -echo\r');
-      await page.waitForTimeout(120);
-      await sendAgentInput(page, baseUrl, agentId, 'clear\r');
-      await page.waitForTimeout(120);
-      await sendAgentInput(page, baseUrl, agentId, `printf "\\033[H\\033[2J${body}\\n"; stty echo\r`);
-      await waitForAgentOutput(page, baseUrl, agentId, card.lines.at(-1));
-    }
+    const recoveryWorkspace = path.join(homeDir, 'Projects', 'terminal-lab');
+    fs.mkdirSync(recoveryWorkspace, { recursive: true });
+    const crtRecoveryAgentId = await startAgent(page, baseUrl, {
+      command: 'bash',
+      workspace: recoveryWorkspace,
+      task: '',
+    });
+    await updateAgent(page, baseUrl, crtRecoveryAgentId, { customTitle: 'Watch checkpoint recovery' });
+    await sendAgentInput(page, baseUrl, crtRecoveryAgentId, [
+      'stty -echo',
+      'clear',
+      `printf '\\033[1;35mCHECKPOINT RECOVERY\\033[0m\\n\\nreplaying epoch \\033[36m7f2c…91ab\\033[0m\\n  output sequence      \\033[32mcontiguous\\033[0m\\n  resize boundary      \\033[32mcommitted\\033[0m\\n  hidden-page resume   \\033[33mverifying\\033[0m\\n\\nwatch mode · waiting for the next transition\\n'`,
+      'stty echo',
+    ].join('; ') + '\r');
+    await waitForAgentOutput(page, baseUrl, crtRecoveryAgentId, 'waiting for the next transition');
+
+    const docsWorkspace = path.join(homeDir, 'Projects', 'docs-ui');
+    fs.mkdirSync(docsWorkspace, { recursive: true });
+    const crtChatAgentId = await startAgent(page, baseUrl, {
+      command: 'claude',
+      workspace: docsWorkspace,
+      task: 'Check markdown typography in the structured Chat preview.',
+      agentRuntimeMode: 'acp',
+    });
+    await updateAgent(page, baseUrl, crtChatAgentId, { customTitle: 'Audit Chat rendering' });
+    await updateAgent(page, baseUrl, crtChatAgentId, { unread: false });
+    await updateAgent(page, baseUrl, shellAgentId, { customTitle: 'Release verification' });
+    await updateAgent(page, baseUrl, claudeAgentId, { archived: true });
 
     await page.goto(`${basePath}/crt/`, { waitUntil: 'networkidle' });
     await page.locator('body#farming-crt').waitFor({ state: 'visible', timeout: 30_000 });
     await page.locator('.agent-block').first().waitFor({ state: 'visible', timeout: 30_000 });
+    await page.waitForTimeout(500);
     await Promise.all([
       codexAgentId,
-      claudeAgentId,
       shellAgentId,
       dependencyAgentId,
-      ...dashboardAgentIds,
+      crtRecoveryAgentId,
+      crtChatAgentId,
     ].map(agentId => updateAgent(page, baseUrl, agentId, { unread: false })));
-    await page.locator('.agent-block').nth(8).waitFor({ state: 'visible', timeout: 30_000 });
+    await page.locator('.agent-block').nth(4).waitFor({ state: 'visible', timeout: 30_000 });
     await page.waitForTimeout(900);
     const dashboardCardsVisible = await page.locator('#map-area .agent-block').count();
-    if (dashboardCardsVisible !== 9) {
-      throw new Error(`expected 9 visible CRT dashboard cards, found ${dashboardCardsVisible}`);
+    if (dashboardCardsVisible !== 5) {
+      throw new Error(`expected 5 visible CRT dashboard cards, found ${dashboardCardsVisible}`);
     }
-    await projectNorthstarCrtDashboard(page);
+    await stabilizeCrtDashboard(page);
+    await page.locator(`#map-area .agent-block[data-agent-id="${dependencyAgentId}"]`).hover();
     await screenshot(page, '01-crt-dashboard.png', crtScreenshotDir);
     if (requestedScreenshotsComplete()) return;
 
