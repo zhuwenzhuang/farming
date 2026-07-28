@@ -2369,6 +2369,8 @@ function AgentTranscriptTurnView({
     const item = resolvedProcessItems.find(candidate => candidate.id === itemId)
     if (item) refreshTerminalOutcome(item)
   }, [refreshTerminalOutcome, resolvedProcessItems])
+  const onOpenUrlRef = useRef(onOpenUrl)
+  onOpenUrlRef.current = onOpenUrl
   // Keep the process compact while the agent works. The short activity label
   // carries the live state; full reasoning and tool details remain opt-in.
   const effectiveProcessOpen = processOpen
@@ -2388,9 +2390,9 @@ function AgentTranscriptTurnView({
           onOpenFile(target.filePath, target.target)
           return
         }
-        if (browserUrl && onOpenUrl) {
+        if (browserUrl && onOpenUrlRef.current) {
           event.preventDefault()
-          onOpenUrl(browserUrl)
+          onOpenUrlRef.current(browserUrl)
         }
       }
       return (
@@ -2408,7 +2410,9 @@ function AgentTranscriptTurnView({
             showUrlOpenMenu({
               event: event.nativeEvent,
               url: browserUrl,
-              onOpenInFarming: onOpenUrl ? () => onOpenUrl(browserUrl) : undefined,
+              onOpenInFarming: onOpenUrlRef.current
+                ? () => onOpenUrlRef.current?.(browserUrl)
+                : undefined,
             })
           }}
         >
@@ -2451,7 +2455,7 @@ function AgentTranscriptTurnView({
       if (mermaidSource !== null) return <MermaidBlock source={mermaidSource} copy={copy} />
       return <pre {...props}>{children}</pre>
     },
-  }), [copy, onOpenFile, onOpenUrl, workspaceRoot])
+  }), [copy, onOpenFile, workspaceRoot])
 
   return (
     <article ref={turnRef} className={`code-agent-transcript-turn ${turn.status === 'inProgress' ? 'running' : ''}`} data-turn-id={turn.id}>
