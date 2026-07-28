@@ -186,6 +186,51 @@ export function workspaceStickyDirectoryPaths(
   })
 }
 
+export function workspaceStickyDirectoryPathsForViewport(options: {
+  rows: readonly WorkspaceFileRowSnapshot[]
+  stickyTop: number
+  scrollerBottom: number
+  rowHeight: number
+  maxRows: number
+}) {
+  const rowHeight = Math.max(1, options.rowHeight)
+  const maxRows = Math.max(0, Math.floor(options.maxRows))
+  if (maxRows === 0) return []
+
+  let effectiveTop = options.stickyTop
+  let stickyPaths: string[] = []
+  let firstVisiblePath = firstVisibleWorkspaceFilePath(
+    options.rows,
+    effectiveTop,
+    options.scrollerBottom
+  )
+
+  for (let attempt = 0; attempt < options.rows.length + 1; attempt += 1) {
+    const nextStickyPaths = workspaceStickyDirectoryPaths(
+      firstVisiblePath,
+      options.rows,
+      effectiveTop
+    ).slice(-maxRows)
+    const nextEffectiveTop = options.stickyTop + nextStickyPaths.length * rowHeight
+
+    if (
+      nextEffectiveTop === effectiveTop &&
+      nextStickyPaths.length === stickyPaths.length &&
+      nextStickyPaths.every((path, index) => path === stickyPaths[index])
+    ) {
+      return nextStickyPaths
+    }
+
+    stickyPaths = nextStickyPaths
+    effectiveTop = nextEffectiveTop
+    firstVisiblePath = options.rows.find(row => (
+      row.top >= effectiveTop - 1 && row.top < options.scrollerBottom
+    ))?.path ?? ''
+  }
+
+  return stickyPaths
+}
+
 export function workspaceStickyContextItems(options: {
   visible: boolean
   directoryNodes: readonly WorkspaceFileTreeNode[]

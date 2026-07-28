@@ -769,9 +769,11 @@ function run() {
       fileStickyContextHookSource.includes('window.requestAnimationFrame(() =>') &&
       fileStickyContextHookSource.includes("scroller?.addEventListener('scroll', refreshBeforePaint, { passive: true })") &&
       fileStickyContextHookSource.includes('setStickyContextVisible(isWorkspaceStickyContextVisible(viewportRect.top, stickyTop))') &&
-      fileStickyContextHookSource.includes('workspaceStickyDirectoryPaths(firstVisiblePath, rowSnapshots, stickyTop)') &&
+      fileStickyContextHookSource.includes('workspaceStickyDirectoryPathsForViewport({') &&
+      fileStickyContextHookSource.includes('Math.max(1, availableRows - MIN_VISIBLE_FILE_ROWS)') &&
       fileViewModelSource.includes('function firstVisibleWorkspaceFilePath') &&
       fileViewModelSource.includes('function workspaceStickyDirectoryPaths') &&
+      fileViewModelSource.includes('function workspaceStickyDirectoryPathsForViewport') &&
       fileStickyContextHookSource.includes('setStickyDirectoryPaths(current =>') &&
 	      fileTreeViewSource.includes('<FileStickyContext') &&
 	      !fileSectionSource.includes('<FileStickyContext') &&

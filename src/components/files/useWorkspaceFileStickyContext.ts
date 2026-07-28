@@ -6,12 +6,14 @@ import {
   isWorkspaceStickyContextVisible,
   workspaceStickyContentTop,
   workspaceStickyContextItems,
-  workspaceStickyDirectoryPaths,
+  workspaceStickyDirectoryPathsForViewport,
   type WorkspaceFileStickyContextItem,
   type WorkspaceFileRowSnapshot,
 } from '@/lib/workspace-file-view-model'
 
 export type FileStickyContextItem = WorkspaceFileStickyContextItem
+const MAX_STICKY_DIRECTORY_ROWS = 8
+const MIN_VISIBLE_FILE_ROWS = 4
 
 interface UseWorkspaceFileStickyContextOptions {
   filesCollapsed: boolean
@@ -94,7 +96,19 @@ export function useWorkspaceFileStickyContext({
 
     setStickyContextVisible(isWorkspaceStickyContextVisible(viewportRect.top, stickyTop))
 
-    const nextStickyPaths = workspaceStickyDirectoryPaths(firstVisiblePath, rowSnapshots, stickyTop)
+    const firstRowHeight = Math.max(1, rows[0]?.getBoundingClientRect().height ?? 24)
+    const availableRows = Math.floor(Math.max(0, scrollerRect.bottom - stickyTop) / firstRowHeight)
+    const maxStickyRows = Math.min(
+      MAX_STICKY_DIRECTORY_ROWS,
+      Math.max(1, availableRows - MIN_VISIBLE_FILE_ROWS)
+    )
+    const nextStickyPaths = workspaceStickyDirectoryPathsForViewport({
+      rows: rowSnapshots,
+      stickyTop,
+      scrollerBottom: scrollerRect.bottom,
+      rowHeight: firstRowHeight,
+      maxRows: maxStickyRows,
+    })
 
     setStickyDirectoryPaths(current => (
       current.length === nextStickyPaths.length && current.every((path, index) => path === nextStickyPaths[index])
