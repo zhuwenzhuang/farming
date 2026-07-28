@@ -1206,6 +1206,7 @@ test.describe('ACP human-like browser matrix', () => {
     await expect(turn.getByTestId('code-agent-transcript-process-summary')).toHaveAttribute('aria-expanded', 'false')
     await expect(answer.locator('.code-markdown-mermaid')).toBeVisible({ timeout: 15_000 })
     await expect(answer.locator('.code-markdown-mermaid.error')).toHaveCount(0)
+    await expect(turn).not.toHaveClass(/running/, { timeout: 15_000 })
     const diagram = answer.locator('.code-markdown-mermaid-canvas > svg')
     await expect(diagram).toBeVisible()
     const diagramId = await diagram.getAttribute('id')
