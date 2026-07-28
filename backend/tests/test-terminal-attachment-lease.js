@@ -3,9 +3,10 @@
 const assert = require('assert');
 
 async function main() {
+  const imported = await import('../../src/lib/terminal-attachment.ts');
   const {
     createTerminalAttachmentLeaseCoordinator,
-  } = await import('../../src/lib/terminal-attachment.ts');
+  } = imported.default || imported;
 
   const scheduled = [];
   const coordinator = createTerminalAttachmentLeaseCoordinator(commit => scheduled.push(commit));
