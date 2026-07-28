@@ -1,8 +1,18 @@
 import { expect, openFarming, test } from './fixtures'
-import type { Locator, WebSocketRoute } from '@playwright/test'
+import type { Locator, Page, WebSocketRoute } from '@playwright/test'
 
 const SETTINGS_KEY = 'farmingPetSettings'
 const RUNTIME_KEY = 'farmingPetRestReminderRuntime'
+const PET_SETUP_SCREENSHOT_DIR = process.env.FARMING_PET_SETUP_SCREENSHOT_DIR
+
+async function capturePetSetupStep(page: Page, name: string) {
+  if (!PET_SETUP_SCREENSHOT_DIR) return
+  await page.screenshot({
+    path: `${PET_SETUP_SCREENSHOT_DIR}/${name}.png`,
+    animations: 'disabled',
+    fullPage: false,
+  })
+}
 
 async function readBlackHoleOuterInk(canvas: Locator) {
   return canvas.evaluate(element => {
@@ -95,6 +105,64 @@ test('dark appearance defaults an unconfigured Pet to the black hole', async ({ 
   await expect.poll(() => page.evaluate(key => (
     JSON.parse(localStorage.getItem(key) ?? 'null')?.appearance ?? null
   ), SETTINGS_KEY)).toBeNull()
+})
+
+test('first-use Pet setup walks from invitation to explicit style selection', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.request.post('/farming/api/settings', {
+    data: { appearance: 'light', language: 'zh' },
+  })
+  await page.addInitScript(({ settingsKey, runtimeKey }) => {
+    localStorage.removeItem(settingsKey)
+    sessionStorage.removeItem(runtimeKey)
+  }, { settingsKey: SETTINGS_KEY, runtimeKey: RUNTIME_KEY })
+
+  await openFarming(page)
+  const invitation = page.getByTestId('pet-rest-invitation')
+  await expect(invitation).toBeVisible()
+  await expect(invitation).toContainText('需要长时使用休息提醒吗？')
+  await expect(invitation.getByRole('button', { name: '试用一下', exact: true })).toBeVisible()
+  await expect(invitation.locator('.code-pet-close')).toBeVisible()
+  await capturePetSetupStep(page, '01-invitation')
+
+  await invitation.getByRole('button', { name: '试用一下', exact: true }).click()
+  const appearanceChoice = page.getByTestId('pet-appearance-choice')
+  await expect(appearanceChoice).toBeVisible()
+  await expect(invitation).toHaveCount(0)
+  await expect(appearanceChoice.getByRole('button', { name: /^柔光/ }))
+    .toHaveAttribute('aria-pressed', 'true')
+  await expect(appearanceChoice.getByRole('button', { name: /^黑洞/ }))
+    .toHaveAttribute('aria-pressed', 'false')
+  await expect.poll(() => page.evaluate(key => (
+    JSON.parse(localStorage.getItem(key) ?? 'null')?.capabilities?.restReminder?.intervalSeconds
+  ), SETTINGS_KEY)).toBe(50 * 60)
+  await expect.poll(() => page.evaluate(key => (
+    JSON.parse(localStorage.getItem(key) ?? 'null')?.appearance ?? null
+  ), SETTINGS_KEY)).toBeNull()
+  await capturePetSetupStep(page, '02-style-choice')
+
+  await appearanceChoice.getByRole('button', { name: /^黑洞/ }).click()
+  await expect(appearanceChoice).toHaveCount(0)
+  await expect.poll(() => page.evaluate(key => {
+    const settings = JSON.parse(localStorage.getItem(key) ?? 'null')
+    return {
+      intervalSeconds: settings?.capabilities?.restReminder?.intervalSeconds ?? null,
+      appearance: settings?.appearance ?? null,
+    }
+  }, SETTINGS_KEY)).toEqual({
+    intervalSeconds: 50 * 60,
+    appearance: 'black-hole',
+  })
+
+  await page.getByTestId('code-sidebar-options').click()
+  const settings = page.getByTestId('code-settings-panel')
+  await expect(settings).toBeVisible()
+  await expect(settings.getByRole('group', { name: '提醒样式' })
+    .getByRole('button', { name: '黑洞', exact: true }))
+    .toHaveAttribute('aria-pressed', 'true')
+  await expect(settings.getByRole('slider', { name: '休息提醒' }))
+    .toHaveAttribute('aria-valuetext', '每 50 分钟')
+  await capturePetSetupStep(page, '03-selected-black-hole')
 })
 
 test('black-hole lifecycle changes shape within the 120 FPS GPU budget', async ({ page }) => {
