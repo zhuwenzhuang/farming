@@ -44,6 +44,7 @@ REMOTE_BASE_PATH="${FARMING_REMOTE_BASE_PATH:-/farming}"
 REMOTE_CONFIG_DIR="${FARMING_REMOTE_CONFIG_DIR:-}"
 REMOTE_GLIBC_ROOT="${FARMING_REMOTE_GLIBC_ROOT:-}"
 REMOTE_USE_GLIBC="${FARMING_REMOTE_USE_GLIBC:-${REMOTE_GLIBC_ROOT:+1}}"
+RUNTIME_NPM_MIRROR="${FARMING_RUNTIME_NPM_MIRROR:-}"
 
 PID_FILE="${REMOTE_DIR}/.farming.pid"
 
@@ -208,6 +209,22 @@ write_source_release_metadata() {
   remote "printf '%s' '${metadata_b64}' | base64 -d > ${REMOTE_DIR}/RELEASE.json"
 }
 
+prepare_remote_runtime_dependencies() {
+  local config_dir remote_node prepare_command mirror_prefix
+  config_dir="$(server_config_dir)"
+  remote_node="$(remote "which node")"
+  mirror_prefix=""
+  if [ -n "${RUNTIME_NPM_MIRROR}" ]; then
+    printf -v mirror_prefix 'FARMING_RUNTIME_NPM_MIRROR=%q ' "${RUNTIME_NPM_MIRROR}"
+  fi
+  prepare_command="${mirror_prefix}${remote_node} bin/farming runtime prepare --config-dir ${config_dir}"
+  if remote_uses_glibc; then
+    prepare_command="${mirror_prefix}FARMING_NODE_LD=${REMOTE_GLIBC_ROOT}/lib/ld-2.28.so FARMING_NODE_LIBRARY_PATH=${REMOTE_GLIBC_ROOT}/lib ${REMOTE_GLIBC_ROOT}/lib/ld-2.28.so --library-path ${REMOTE_GLIBC_ROOT}/lib ${remote_node} bin/farming runtime prepare --config-dir ${config_dir}"
+  fi
+  log "Preparing startup dependencies before the restart window ..."
+  remote "cd ${REMOTE_DIR} && ${prepare_command}"
+}
+
 # ── Commands ───────────────────────────────────────────────────
 
 cmd_deploy() {
@@ -270,6 +287,7 @@ cmd_deploy() {
   log "Pruning development dependencies from runtime install ..."
   remote "cd ${REMOTE_DIR} && npm prune --omit=dev"
 
+  prepare_remote_runtime_dependencies
   write_source_release_metadata
 
   log "Deploy complete."
@@ -345,7 +363,7 @@ cmd_start() {
 
   # Write a small environment launcher, but let the product CLI exclusively
   # own process identity, readiness, and crash-only termination.
-  local config_dir config_line exec_line runtime_lines auth_arg
+  local config_dir config_line exec_line runtime_lines mirror_line auth_arg
   config_dir="$(server_config_dir)"
   config_line="export FARMING_CONFIG_DIR=${config_dir}"
   auth_arg=""
@@ -359,6 +377,10 @@ cmd_start() {
     runtime_lines="export FARMING_NODE_LD=${REMOTE_GLIBC_ROOT}/lib/ld-2.28.so
 export FARMING_NODE_LIBRARY_PATH=${REMOTE_GLIBC_ROOT}/lib"
   fi
+  mirror_line="unset FARMING_RUNTIME_NPM_MIRROR"
+  if [ -n "${RUNTIME_NPM_MIRROR}" ]; then
+    printf -v mirror_line 'export FARMING_RUNTIME_NPM_MIRROR=%q' "${RUNTIME_NPM_MIRROR}"
+  fi
 
   remote "printf '%s\n' \
     '#!/usr/bin/env bash' \
@@ -369,6 +391,7 @@ export FARMING_NODE_LIBRARY_PATH=${REMOTE_GLIBC_ROOT}/lib"
     '${config_line}' \
     'export FARMING_NODE_BIN=${remote_node}' \
     '${runtime_lines}' \
+    '${mirror_line}' \
     'if [ \"\${FARMING_NODE_MAX_OLD_SPACE_SIZE:-auto}\" = \"auto\" ] || [ -z \"\${FARMING_NODE_MAX_OLD_SPACE_SIZE:-}\" ]; then' \
     '  export FARMING_NODE_MAX_OLD_SPACE_SIZE=\"\$(./scripts/compute-node-heap-mb.sh)\"' \
     'fi' \

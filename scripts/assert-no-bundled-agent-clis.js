@@ -13,6 +13,7 @@ const forbidden = [
   'node_modules/@agentclientprotocol/claude-agent-acp',
   'node_modules/@openai/codex',
   'node_modules/@anthropic-ai/claude-agent-sdk',
+  'node_modules/agent-browser',
 ];
 
 for (const relativePath of forbidden) {
@@ -35,4 +36,4 @@ for (const [scope, prefix] of [
   }
 }
 
-console.log(`Verified no duplicate Codex or Claude Agent CLI under ${packageRoot}`);
+console.log(`Verified no duplicate Codex, Claude, or agent-browser CLI under ${packageRoot}`);

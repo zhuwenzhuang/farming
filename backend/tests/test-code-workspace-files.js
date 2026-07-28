@@ -75,6 +75,7 @@ function run() {
   const terminalSearchSource = read('src/lib/terminal-search.ts');
   const terminalSessionPoolSource = read('src/lib/terminal-session-pool.ts');
   const usePooledTerminalSource = read('src/hooks/usePooledTerminal.ts');
+  const browserResourcesHookSource = read('extensions/browser/frontend/useBrowserResources.ts');
   const xtermSource = read('src/lib/xterm.ts');
   const fileEditorMonacoSource = read('src/components/files/useFileEditorMonacoController.ts');
   const inputDialogSource = read('src/components/InputDialog.tsx');
@@ -1240,6 +1241,25 @@ function run() {
   );
 
   assert(
+    usePooledTerminalSource.includes('const attachmentHandlersRef = useRef<TerminalAttachmentHandlers | null>(null)') &&
+      usePooledTerminalSource.includes('}, [agentId, attachmentHandlers, containerRef])') &&
+      usePooledTerminalSource.includes('updateTerminalSessionLiveOptions(agentId, {') &&
+      usePooledTerminalSource.includes('onUrlOpen: urlOpenEnabled ? attachmentHandlers.onUrlOpen : undefined') &&
+      usePooledTerminalSource.includes('}, [agentId, attachmentHandlers, inputDisabled, suppressRendererCursor, urlOpenEnabled])') &&
+      !usePooledTerminalSource.includes('}, [agentId, attachmentHandlers, containerRef,'),
+    'Pooled-terminal attachment identity must be isolated from callbacks and hot-updatable interaction options'
+  );
+
+  assert(
+    workspaceSource.includes('}, [agents, createBrowserResource, showBrowserResource, startBrowserResource])') &&
+      !workspaceSource.includes('}, [agents, browserResources, showBrowserResource])') &&
+      browserResourcesHookSource.includes("const start = useCallback((id: string) => transition(id, 'start'), [transition])") &&
+      browserResourcesHookSource.includes("const stop = useCallback((id: string) => transition(id, 'stop'), [transition])") &&
+      browserResourcesHookSource.includes('const refreshCapability = useCallback(() => {'),
+    'Browser Resource commands should keep stable identities and consumers should not depend on the mutable controller object'
+  );
+
+  assert(
     agentWorkPaneSource.includes('forkedFromAgent={Boolean(agent.parentAgentId && agent.forkedFromProviderSessionId)}') &&
       transcriptPaneSource.includes('data-testid="code-agent-transcript-fork-origin"') &&
       transcriptPaneSource.includes('copy.agentTranscriptForkedFromAgent') &&
@@ -1329,7 +1349,7 @@ function run() {
       inputDialogSource.includes("['codex', 'claude', 'opencode', 'qoder'].includes(selectedAgent.name)") &&
       acpPermissionSource.includes('code-acp-permission-details') &&
       agentWorkPaneSource.includes('refreshSignal={acpRuntime?.sessionRevision || (acpRuntime?.sessionUpdatedAt ? Date.parse(acpRuntime.sessionUpdatedAt) : 0)}') &&
-      transcriptPaneSource.includes("if (source !== 'acp') timer = window.setInterval(load, 3000)") &&
+      transcriptPaneSource.includes("if (source !== 'acp') pollTimer = window.setInterval(load, 3000)") &&
       acpTranscriptSource.includes("Omit<AgentTranscriptPaneProps, 'source'>") &&
       acpTranscriptSource.includes('groupProcessActions') &&
       !acpTranscriptSource.includes('groupProcessActions={false}') &&
@@ -1479,9 +1499,9 @@ function run() {
       iconGlyphsSource.includes('export function NewAgentGlyph') &&
       iconGlyphsSource.includes('export function HistoryGlyph') &&
       iconGlyphsSource.includes('export function FocusModeGlyph') &&
-      iconGlyphsSource.includes('export function QrGlyph') &&
+      iconGlyphsSource.includes('export function ShareGlyph') &&
       codeMainAreaSource.includes("if (action === 'history') return <HistoryGlyph />") &&
-      codeMainAreaSource.includes("if (action === 'share') return <QrGlyph />") &&
+      codeMainAreaSource.includes("if (action === 'share') return <ShareGlyph />") &&
       workspaceSource.includes('<NewAgentGlyph />') &&
       workspaceSource.includes('<HistoryGlyph />') &&
       codeMainAreaSource.includes('data-testid="code-empty-compact-history"') &&

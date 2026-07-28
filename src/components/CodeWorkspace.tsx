@@ -601,6 +601,8 @@ export function CodeWorkspace({
     initialBrowserResourceId() ? 'browser' : 'terminal'
   ))
   const browserResources = useBrowserResources()
+  const createBrowserResource = browserResources.create
+  const startBrowserResource = browserResources.start
   const [initialWorkspaceSurface] = useState<CodeWorkspaceSurface | undefined>(() => (
     loadCodeWorkspaceViewState().surface
   ))
@@ -2741,8 +2743,8 @@ export function CodeWorkspace({
     const workspace = agent?.projectWorkspace || agent?.cwd || ''
     if (!workspace) return
     setBrowserReturnAgentId(agentId)
-    void browserResources.create(workspace, { url })
-      .then(resource => browserResources.start(resource.id))
+    void createBrowserResource(workspace, { url })
+      .then(resource => startBrowserResource(resource.id))
       .then(showBrowserResource)
       .catch(error => {
         setCopyNotice({
@@ -2751,7 +2753,7 @@ export function CodeWorkspace({
           message: error instanceof Error ? error.message : 'Failed to open URL in Farming browser',
         })
       })
-  }, [agents, browserResources, showBrowserResource])
+  }, [agents, createBrowserResource, showBrowserResource, startBrowserResource])
 
   const backFromBrowser = useCallback(() => {
     const returnAgent = browserReturnAgentId

@@ -110,6 +110,7 @@ async function run() {
     '/Applications/Chromium',
   );
   assert.strictEqual(commandEnvironments[0].AGENT_BROWSER_PROFILE, profileDir);
+  assert.strictEqual(commandEnvironments[0].AGENT_BROWSER_NO_AUTO_DIALOG, 'true');
 
   const frames = [];
   runtime.on('frame', frame => frames.push(frame));
@@ -133,16 +134,136 @@ async function run() {
     ['snapshot', '--json'],
   );
   await runtime.click({ ref: 'e1' });
+  await runtime.elementAction('hover', { selector: '#menu' });
   await runtime.type({ ref: 'e1', text: 'hello' }, true);
+  await runtime.keyboard({ mode: 'type', text: 'editor text' });
+  await runtime.select({ ref: 'e2', values: ['one', 'two'] });
+  await runtime.drag({
+    sourceSelector: '#source',
+    targetSelector: '#target',
+  });
+  await runtime.upload({
+    selector: '#upload',
+    files: ['/workspace/a.txt', '/workspace/b.txt'],
+  });
+  await runtime.download({
+    ref: 'e3',
+    outputPath: '/private/download.bin',
+    timeoutMs: 45_000,
+  });
+  await runtime.waitFor({
+    mode: 'selector',
+    selector: '#ready',
+    state: 'visible',
+    timeoutMs: 20_000,
+  });
+  await runtime.waitFor({
+    mode: 'function',
+    value: 'window.appReady === true',
+  });
+  await runtime.get({ what: 'attr', selector: '#link', attribute: 'href' });
+  await runtime.is({ state: 'enabled', ref: 'e4' });
+  await runtime.find({
+    locator: 'role',
+    value: 'button',
+    action: 'click',
+    name: 'Continue',
+    exact: true,
+  });
+  await runtime.evaluate({ expression: '({ title: document.title })' });
+  await runtime.debugLog('console', { clear: true });
+  await runtime.debugLog('errors', {});
+  await runtime.network({
+    operation: 'requests',
+    filter: '/api/',
+    resourceType: 'xhr,fetch',
+    method: 'POST',
+    status: '2xx',
+  });
+  await runtime.network({ operation: 'request', requestId: '123.4' });
+  await runtime.cookies({
+    operation: 'set',
+    name: 'theme',
+    value: 'dark',
+    sameSite: 'Lax',
+    secure: true,
+  });
+  await runtime.storage({
+    storageType: 'local',
+    operation: 'set',
+    key: 'theme',
+    value: 'dark',
+  });
+  await runtime.frame({ selector: '#embedded' });
+  await runtime.frame({ main: true });
+  await runtime.dialog({ operation: 'accept', text: 'approved' });
   await runtime.resize({ width: 1024, height: 700, deviceScaleFactor: 1 });
   await runtime.pointer({ action: 'down', x: 10, y: 20, button: 'left' });
   await runtime.wheel({ x: 10, y: 20, deltaY: 120 });
+  const sentBeforeText = stream.sent.length;
   await runtime.insertText('text');
+  const textMessages = stream.sent.slice(sentBeforeText);
+  await runtime.insertText('性能');
   await runtime.press({ type: 'key', key: 'Enter', code: 'Enter' });
   assert(stream.sent.some(message => message.type === 'input_mouse' && message.eventType === 'mousePressed'));
   assert(stream.sent.some(message => message.type === 'input_mouse' && message.eventType === 'mouseWheel'));
-  assert(stream.sent.some(message => message.type === 'input_keyboard' && message.eventType === 'char'));
+  assert.deepStrictEqual(
+    textMessages.map(message => [message.eventType, message.key, message.text]),
+    [
+      ['keyDown', 't', 't'],
+      ['keyUp', 't', undefined],
+      ['keyDown', 'e', 'e'],
+      ['keyUp', 'e', undefined],
+      ['keyDown', 'x', 'x'],
+      ['keyUp', 'x', undefined],
+      ['keyDown', 't', 't'],
+      ['keyUp', 't', undefined],
+    ],
+  );
   assert(stream.sent.some(message => message.type === 'input_keyboard' && message.eventType === 'keyDown'));
+  assert(calls.some(args => args.slice(-4).join(' ') === 'keyboard inserttext 性能 --json'));
+  const commands = calls.map(args => args.slice(4, -1));
+  assert(commands.some(command => command.join(' ') === 'hover #menu'));
+  assert(commands.some(command => command.join(' ') === 'keyboard type editor text'));
+  assert(commands.some(command => command.join(' ') === 'select @e2 one two'));
+  assert(commands.some(command => command.join(' ') === 'drag #source #target'));
+  assert(commands.some(command => (
+    command.join(' ') === 'upload #upload /workspace/a.txt /workspace/b.txt'
+  )));
+  assert(commands.some(command => (
+    command.join(' ') === 'download @e3 /private/download.bin --timeout 45000'
+  )));
+  assert(commands.some(command => (
+    command.join(' ') === 'wait #ready --state visible --timeout 20000'
+  )));
+  assert(commands.some(command => (
+    command.join(' ') === 'wait --fn window.appReady === true --timeout 30000'
+  )));
+  assert(commands.some(command => command.join(' ') === 'get attr #link href'));
+  assert(commands.some(command => command.join(' ') === 'is enabled @e4'));
+  assert(commands.some(command => (
+    command.join(' ') === 'find role button click --name Continue --exact'
+  )));
+  const evalCommand = commands.find(command => command[0] === 'eval');
+  assert.strictEqual(evalCommand[1], '--base64');
+  assert.strictEqual(
+    Buffer.from(evalCommand[2], 'base64').toString('utf8'),
+    '({ title: document.title })',
+  );
+  assert(commands.some(command => command.join(' ') === 'console --clear'));
+  assert(commands.some(command => command.join(' ') === 'errors'));
+  assert(commands.some(command => (
+    command.join(' ') === 'network requests --filter /api/ --type xhr,fetch --method POST --status 2xx'
+  )));
+  assert(commands.some(command => command.join(' ') === 'network request 123.4'));
+  assert(commands.some(command => command.join(' ') === 'cookies set theme dark --sameSite Lax --secure'));
+  assert(commands.some(command => command.join(' ') === 'storage local set theme dark'));
+  assert(commands.some(command => command.join(' ') === 'frame #embedded'));
+  assert(commands.some(command => command.join(' ') === 'frame main'));
+  assert(commands.some(command => command.join(' ') === 'dialog accept approved'));
+  assert(commandEnvironments.every(env => (
+    env.AGENT_BROWSER_DEFAULT_TIMEOUT === process.env.AGENT_BROWSER_DEFAULT_TIMEOUT
+  )));
 
   await runtime.close();
   assert.strictEqual(processActive, false);
@@ -197,6 +318,34 @@ async function run() {
   assert.deepStrictEqual(externalCalls[2], ['tab', 'tab-external']);
   await external.close();
   assert(externalCalls.some(command => command[0] === 'tab' && command[1] === 'close'));
+
+  const screenshotPaths = [];
+  let screenshotCommandsInFlight = 0;
+  let maxScreenshotCommandsInFlight = 0;
+  const screenshotRuntime = new AgentBrowserRuntime({
+    id: 'browser_screenshot',
+    generation: 3,
+    configDir,
+    profileDir: path.join(configDir, 'screenshots', 'profile'),
+    agentBrowserPath: '/managed/agent-browser',
+    executablePath: '/Applications/Chromium',
+    runCommand: async (_executable, args) => {
+      const command = args.slice(4, -1);
+      assert.strictEqual(command[0], 'screenshot');
+      screenshotPaths.push(command[1]);
+      screenshotCommandsInFlight += 1;
+      maxScreenshotCommandsInFlight = Math.max(maxScreenshotCommandsInFlight, screenshotCommandsInFlight);
+      await new Promise(resolve => setTimeout(resolve, 10));
+      fs.mkdirSync(path.dirname(command[1]), { recursive: true });
+      fs.writeFileSync(command[1], `image-${screenshotPaths.length}`);
+      screenshotCommandsInFlight -= 1;
+      return { success: true, data: { path: command[1] } };
+    },
+  });
+  screenshotRuntime.started = true;
+  await Promise.all([screenshotRuntime.screenshot(), screenshotRuntime.screenshot()]);
+  assert.strictEqual(maxScreenshotCommandsInFlight, 1);
+  assert.strictEqual(new Set(screenshotPaths).size, 2);
 
   fs.rmSync(configDir, { recursive: true, force: true });
   console.log('agent-browser runtime tests passed');

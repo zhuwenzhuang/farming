@@ -29,6 +29,12 @@ If reconnect, reattach, page resume, or a newer bootstrap cut supersedes a check
 
 Farming Code keeps that atomic paint boundary visible to the user with one centered recovery status owned by the terminal session pool. It distinguishes checkpoint request, screen installation, and retry backoff, and shows elapsed wait time plus the current attempt. The status disappears only after the authoritative cut has committed to xterm; renderer or invariant failures continue to use the terminal's explicit failure card.
 
+## Browser Attachment Ownership
+
+The terminal session pool owns one `SessionRecord` per Agent. A browser attachment is identified only by the Agent id and its mount element. Changing either identity, unmounting the pane, reconnecting the transport, resuming a hidden page, or detecting a replay gap may enter recovery. Ordinary React renders may not.
+
+Event callbacks, input enablement, cursor suppression, and newer bootstrap data are live options. They update the existing `SessionRecord` in place and cannot detach its host, advance its attachment generation, or publish a `requesting` recovery state. Browser controllers likewise expose stable command functions so their collection updates do not churn downstream callback identities. The responsive browser test repeatedly changes between desktop and phone geometry and requires the same attachment generation with no recovery overlay throughout.
+
 Live WebSocket output uses a leading-edge, frame-bounded batch: the first transition after an idle period is sent immediately for responsive typing, while sustained output is coalesced without dropping its individual transition indexes. The browser still validates and commits every index separately, but gives each contiguous output / clear run to xterm in one write. Resize is an ordered batch boundary: after committing it, the browser holds its following redraw until 50 ms of output quiet, with a 300 ms maximum, and then paints that burst once. Normal non-resize output keeps the low-latency path.
 
 ## Supported Browser Renderer

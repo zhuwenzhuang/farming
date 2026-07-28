@@ -115,12 +115,19 @@ export function useBrowserResources() {
     return resource
   }, [mergeResource])
 
+  const start = useCallback((id: string) => transition(id, 'start'), [transition])
+  const stop = useCallback((id: string) => transition(id, 'stop'), [transition])
+
   const remove = useCallback(async (id: string) => {
     const deletion = await browserRequest<BrowserResourceDeletion>(
       `/api/browsers/${encodeURIComponent(id)}`,
       { method: 'DELETE' },
     )
     setCollection(current => applyBrowserResourceDeletion(current, deletion))
+  }, [])
+
+  const refreshCapability = useCallback(() => {
+    setRefreshVersion(version => version + 1)
   }, [])
 
   const byWorkspace = useMemo(() => {
@@ -140,11 +147,11 @@ export function useBrowserResources() {
     loading,
     create,
     rename,
-    start: (id: string) => transition(id, 'start'),
-    stop: (id: string) => transition(id, 'stop'),
+    start,
+    stop,
     remove,
     mergeResource,
-    refreshCapability: () => setRefreshVersion(version => version + 1),
+    refreshCapability,
   }
 }
 

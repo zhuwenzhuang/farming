@@ -1168,7 +1168,7 @@ function usage() {
 Agent control commands are also available:
   farming skills
   farming capabilities [--json]
-  farming browser <capability|create|list|start|stop|snapshot|navigate|click|fill|type|press|scroll|screenshot> ...
+  farming browser ...
   farming list [--json] [--parent <agentId>]
   farming spawn --workspace <repo> -- <command...>
   farming output <agentId> [--tail <chars>]

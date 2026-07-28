@@ -66,6 +66,24 @@ function run() {
     'deploy script should build Code plus the CRT Markdown and Mermaid renderer bundles'
   );
 
+  assert(
+    deploySource.includes('prepare_remote_runtime_dependencies()') &&
+      deploySource.includes('bin/farming runtime prepare --config-dir ${config_dir}') &&
+      deploySource.includes('prepare_remote_runtime_dependencies\n  write_source_release_metadata') &&
+      deploySource.indexOf('prepare_remote_runtime_dependencies\n  write_source_release_metadata')
+        < deploySource.indexOf('cmd_start "$@"'),
+    'source deployment should prepare startup dependencies before entering the restart window'
+  );
+
+  assert(
+    releaseInstallerSource.includes('prepare_release_runtime_dependencies()') &&
+      releaseInstallerSource.includes('run_release_cli "${SOURCE_DIR}" runtime prepare') &&
+      releaseInstallerSource.includes(
+        'ensure_prerequisites\n  prepare_release_runtime_dependencies\n  stop_server',
+      ),
+    'bundle installation should prepare startup dependencies before stopping the old server'
+  );
+
 	  assert(
 	    deploySource.includes('source_release_metadata_b64') &&
 	      deploySource.includes("git(['describe', '--tags', '--dirty', '--always'])") &&

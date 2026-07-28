@@ -273,6 +273,17 @@ install_dependencies() {
   )
 }
 
+prepare_release_runtime_dependencies() {
+  release_uses_managed_npm && return 0
+  if [ ! -f "${SOURCE_DIR}/backend/runtime-dependency-manager.js" ]; then
+    echo "Release is missing its startup dependency manager." >&2
+    return 1
+  fi
+  ensure_glibc_runtime
+  log "Preparing startup dependencies before the restart window ..."
+  run_release_cli "${SOURCE_DIR}" runtime prepare --config-dir "$(effective_config_dir)"
+}
+
 stop_server() {
   local config_dir
   config_dir="$(effective_config_dir)"
@@ -305,6 +316,8 @@ write_persisted_env() {
   write_default_env_var FARMING_USE_GLIBC_RUNTIME "${USE_GLIBC_RUNTIME}"
   write_default_env_var FARMING_GLIBC_RUNTIME_ROOT "${GLIBC_RUNTIME_ROOT}"
   write_default_env_var FARMING_NODE_MAX_OLD_SPACE_SIZE "${FARMING_NODE_MAX_OLD_SPACE_SIZE:-auto}"
+  [ -n "${FARMING_RUNTIME_NPM_MIRROR:-}" ] \
+    && write_default_env_var FARMING_RUNTIME_NPM_MIRROR "${FARMING_RUNTIME_NPM_MIRROR}"
   [ -n "${CONFIG_DIR_VALUE}" ] && write_default_env_var FARMING_CONFIG_DIR "${CONFIG_DIR_VALUE}"
   [ -n "${SERVER_HOME_VALUE}" ] && write_default_env_var FARMING_SERVER_HOME "${SERVER_HOME_VALUE}"
   return 0
@@ -367,6 +380,7 @@ logs_server() {
 
 install_release() {
   ensure_prerequisites
+  prepare_release_runtime_dependencies
   stop_server
   sync_release_files
   install_dependencies
@@ -396,6 +410,7 @@ Environment:
   FARMING_USE_GLIBC_RUNTIME=auto  # use a bundled legacy runtime on Linux glibc < 2.28
   FARMING_GLIBC_RUNTIME_ROOT=  # optional extraction directory for that runtime
   FARMING_NPM_PREFIX=${HOME}/.farming/npm  # managed prefix used by the legacy Linux bootstrap
+  FARMING_RUNTIME_NPM_MIRROR=  # override the packaged mirror candidate; use off to disable
   FARMING_NODE_MAX_OLD_SPACE_SIZE=auto  # auto-detect from cgroup or system memory; 0 disables override
   FARMING_DISABLE_AUTH=1      # optional, trusted local networks only
 EOF

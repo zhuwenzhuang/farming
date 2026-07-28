@@ -26,8 +26,8 @@ import {
   HistoryGlyph,
   NewAgentGlyph,
   PuzzleGlyph,
-  QrGlyph,
   SearchGlyph,
+  ShareGlyph,
 } from '../IconGlyphs'
 import type { CodeCopy } from './copy'
 import type { AgentSessionHistoryItem, ProjectGroup, WorkspaceFileOpenTarget, WorkspaceView } from './types'
@@ -333,7 +333,7 @@ function EmptyWorkspaceActionGlyph({ action }: { action: EmptyWorkspaceAction })
   if (action === 'plugins') return <PuzzleGlyph />
   if (action === 'search') return <SearchGlyph />
   if (action === 'history') return <HistoryGlyph />
-  if (action === 'share') return <QrGlyph />
+  if (action === 'share') return <ShareGlyph />
   return <FocusModeGlyph />
 }
 

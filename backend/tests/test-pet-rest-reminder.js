@@ -250,7 +250,6 @@ const path = require('path');
       && blackHoleRendererSource.includes('image.dataset.rasterizedFileIcons'),
     'the scene snapshot should rasterize loaded file SVGs before cloning them',
   );
-  assert(blackHoleRendererSource.includes('__farmingBlackHolePetTest'));
   assert(
     blackHoleRendererSource.includes('smoother(offsetPixels / ${BLUR_OFFSET_PX.toFixed(1)})'),
     'production compositor should preserve the reference pixel-space blur activity',
@@ -282,16 +281,10 @@ const path = require('path');
     'the refraction map must not switch formulas at one hard radial boundary',
   )
   assert(
-    blackHoleRendererSource.includes('const SCENE_REFRESH_MIN_MS = 60_000'),
-    'the frozen scene should periodically refresh rather than remain stale for the full break',
-  )
-  assert(
-    blackHoleRendererSource.includes("canvas.dataset.refreshState = 'blending'"),
-    'a refreshed scene should be staged and blended without clearing the current texture',
-  )
-  assert(
-    blackHoleRendererSource.includes('look.motion <= SCENE_REFRESH_MAX_MOTION'),
-    'snapshot capture should wait for a low-motion black-hole phase',
+    !blackHoleRendererSource.includes('SCENE_REFRESH')
+      && !blackHoleRendererSource.includes('refreshScene')
+      && !blackHoleRendererSource.includes('transitionScene'),
+    'the black hole should keep its initial scene instead of blocking animation with periodic DOM snapshots',
   )
   assert(
     blackHoleRendererSource.includes('const INITIAL_SCENE_RETRY_MIN_MS = 1_000')
@@ -299,6 +292,13 @@ const path = require('path');
       && blackHoleRendererSource.includes('loadInitialScene()')
       && blackHoleSceneSource.includes('onReady: () => setRenderError(null)'),
     'an unavailable first snapshot should retry and clear its visible failure after recovery',
+  )
+  assert(
+    blackHoleRendererSource.includes("cssText.includes('body.code-mode[data-appearance=')")
+      && blackHoleRendererSource.includes("cssText.includes('color-scheme: dark')")
+      && blackHoleRendererSource.includes("style.dataset.farmingAppearanceSnapshot = ''")
+      && blackHoleRendererSource.includes('link.replaceWith(style)'),
+    'the production snapshot clone should receive the already-loaded dark stylesheet synchronously',
   )
   assert(
     !blackHoleRendererSource.includes('|| (!sceneReady && exitingAt === null)')

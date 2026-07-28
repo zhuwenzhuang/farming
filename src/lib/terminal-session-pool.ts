@@ -150,6 +150,12 @@ interface AttachOptions {
   signal?: AbortSignal
 }
 
+export interface TerminalSessionLiveOptions {
+  inputDisabled: boolean
+  suppressRendererCursor: boolean
+  onUrlOpen?: (agentId: string, url: string) => void
+}
+
 export type TerminalRecoveryPhase = 'requesting' | 'installing' | 'retrying' | 'ready' | 'failed'
 
 export interface TerminalRecoveryStatus {
@@ -4537,6 +4543,21 @@ export async function updateTerminalSessionBootstrapState(
     })
   }
   return seeded
+}
+
+export async function updateTerminalSessionLiveOptions(
+  agentId: string,
+  options: TerminalSessionLiveOptions,
+) {
+  const current = sessions.get(agentId)
+  if (!current) return false
+  const record = current instanceof Promise ? await current : current
+  if (record.disposed || sessions.get(agentId) !== record) return false
+
+  record.inputDisabled = options.inputDisabled
+  record.urlOpenHandler = options.onUrlOpen ?? null
+  updateRendererCursorSuppression(record, options.suppressRendererCursor)
+  return true
 }
 
 export async function detachTerminalSession(agentId: string, expectedMount?: HTMLElement) {

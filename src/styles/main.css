@@ -28,10 +28,16 @@ body {
 }
 
 body.code-mode {
+  --code-light-surface: #ffffff;
+  --code-light-ink: #1a1c1f;
+  --code-light-accent: #339cff;
+  --code-light-diff-added: #00a240;
+  --code-light-diff-removed: #ba2623;
+  --code-light-skill: #924ff7;
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
   font-size: 14px;
-  background: #ffffff;
-  color: #1f2328;
+  background: var(--code-light-surface);
+  color: var(--code-light-ink);
   text-shadow: none;
   border: 0;
 }
@@ -66,8 +72,8 @@ body.code-mode input {
 }
 
 .code-app-shell {
-  background: #ffffff;
-  color: #1f2328;
+  background: var(--code-light-surface);
+  color: var(--code-light-ink);
   text-shadow: none;
   overflow: hidden;
   overscroll-behavior: none;
@@ -81,7 +87,7 @@ body.code-mode input {
   grid-template-columns: var(--code-sidebar-width, 296px) 1px minmax(0, 1fr);
   overflow: hidden;
   overscroll-behavior: none;
-  background: #ffffff;
+  background: var(--code-light-surface);
 }
 
 .code-workspace.sidebar-collapsed {
@@ -6204,6 +6210,23 @@ body.code-mode .code-instance-name {
   padding: 5px 0 13px;
 }
 
+.code-agent-transcript-collaboration-heading {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 2px 2px;
+  color: #7d858d;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.code-agent-transcript-collaboration-heading svg {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+}
+
 .code-agent-transcript-collaboration-group {
   min-width: 0;
   overflow: hidden;
@@ -6238,7 +6261,7 @@ body.code-mode .code-instance-name {
   box-shadow: inset 0 0 0 2px rgba(9, 105, 218, 0.22);
 }
 
-.code-agent-transcript-collaboration-group.expanded .code-agent-transcript-chevron {
+.code-agent-transcript-collaboration-group.expanded > .code-agent-transcript-collaboration-summary .code-agent-transcript-chevron {
   transform: rotate(90deg);
   opacity: 0.9;
 }
@@ -6256,7 +6279,7 @@ body.code-mode .code-instance-name {
   min-width: 0;
   min-height: 30px;
   display: grid;
-  grid-template-columns: minmax(72px, auto) minmax(0, 1fr) auto;
+  grid-template-columns: minmax(64px, auto) minmax(0, 1fr) auto 14px;
   align-items: center;
   gap: 10px;
   padding: 5px 8px 5px 28px;
@@ -6264,17 +6287,22 @@ body.code-mode .code-instance-name {
   border-radius: 6px;
   background: transparent;
   color: #7d858d;
-  cursor: pointer;
   font: inherit;
   font-size: 13px;
   text-align: left;
+  cursor: pointer;
 }
 
-.code-agent-transcript-collaboration-event:hover,
-.code-agent-transcript-collaboration-event:focus-visible {
+.code-agent-transcript-collaboration-event:hover {
   background: rgba(31, 35, 40, 0.045);
   color: #57606a;
+}
+
+.code-agent-transcript-collaboration-event:focus-visible {
+  background: rgba(31, 35, 40, 0.045);
+  color: #1a1c1f;
   outline: none;
+  box-shadow: inset 0 0 0 2px rgba(51, 156, 255, 0.28);
 }
 
 .code-agent-transcript-collaboration-event::before {
@@ -6338,6 +6366,68 @@ body.code-mode .code-instance-name {
 .code-agent-transcript-collaboration-event-count {
   color: #8c959f;
   font-size: 12px;
+}
+
+.code-agent-transcript-collaboration-activity.expanded > .code-agent-transcript-collaboration-event .code-agent-transcript-chevron {
+  transform: rotate(90deg);
+  opacity: 0.9;
+}
+
+.code-agent-transcript-collaboration-evidence {
+  max-height: min(440px, 48vh);
+  margin: 0 6px 6px 22px;
+  padding: 5px 6px 6px;
+  overflow: auto;
+  border-left: 1px solid rgba(31, 35, 40, 0.11);
+}
+
+.code-agent-transcript-collaboration-evidence .code-agent-transcript-process-item {
+  min-width: 0;
+}
+
+.code-agent-transcript-collaboration-earlier {
+  min-height: 26px;
+  margin: 0 0 3px 18px;
+  padding: 2px 7px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #7d858d;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+}
+
+.code-agent-transcript-collaboration-activities-earlier {
+  width: fit-content;
+  min-height: 26px;
+  margin: 0 0 1px 24px;
+  padding: 2px 7px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #7d858d;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+}
+
+.code-agent-transcript-collaboration-activities-earlier:hover,
+.code-agent-transcript-collaboration-activities-earlier:focus-visible {
+  background: rgba(31, 35, 40, 0.06);
+  color: #1a1c1f;
+  outline: none;
+}
+
+.code-agent-transcript-collaboration-earlier:hover,
+.code-agent-transcript-collaboration-earlier:focus-visible {
+  background: rgba(31, 35, 40, 0.06);
+  color: #1a1c1f;
+  outline: none;
+}
+
+.code-agent-transcript-collaboration-action.unresolved {
+  color: #7d858d;
 }
 
 .code-agent-transcript-collaboration-action.failed,

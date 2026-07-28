@@ -55,10 +55,14 @@ async function test() {
     command: 'capabilities',
     options: { json: true },
   });
-  assert.match(formatCapabilities(farmingCapabilities({
+  const browserCapabilities = farmingCapabilities({
     enabled: true,
     available: true,
-  })), /browser: available/);
+  });
+  const formattedBrowserCapabilities = formatCapabilities(browserCapabilities);
+  assert.match(formattedBrowserCapabilities, /browser: available/);
+  assert.match(formattedBrowserCapabilities, /Default browser path/);
+  assert.match(formattedBrowserCapabilities, /farming browser help workflow/);
 
   assert.deepStrictEqual(parseArgs(['memory', 'report', '--period', 'week', '--json']), {
     command: 'memory-report',

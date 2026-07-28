@@ -253,6 +253,358 @@ function createBrowserMcpServer(options = {}) {
     await browser.action(browserId, { kind: 'scroll', deltaY, deltaX })
   ));
 
+  server.registerTool('browser_history', {
+    title: 'Navigate Farming Browser History',
+    description: 'Go back, forward, or reload in the selected Browser Resource.',
+    inputSchema: {
+      browserId: z.string().min(1).describe(BROWSER_ID_DESCRIPTION),
+      operation: z.enum(['back', 'forward', 'reload']),
+    },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: true,
+    },
+  }, async ({ browserId, operation }) => textResult(
+    await browser.action(browserId, { kind: operation })
+  ));
+
+  server.registerTool('browser_wait', {
+    title: 'Wait in Farming Browser',
+    description: [
+      'Wait for one bounded page condition before continuing.',
+      'For selector mode, provide a snapshot ref or CSS selector.',
+      PAGE_CONTENT_WARNING,
+    ].join(' '),
+    inputSchema: {
+      ...locatorSchema(),
+      mode: z.enum(['selector', 'time', 'url', 'load', 'function', 'text']).default('selector'),
+      value: z.string().optional().describe('URL pattern, load state, JavaScript expression, or page text.'),
+      durationMs: z.number().int().positive().optional(),
+      state: z.enum(['visible', 'hidden', 'attached', 'detached']).optional(),
+      timeoutMs: z.number().int().min(100).max(120_000).optional(),
+    },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: false,
+      openWorldHint: true,
+    },
+  }, async ({ browserId, ...input }) => textResult(
+    await browser.action(browserId, { kind: 'wait', ...input })
+  ));
+
+  server.registerTool('browser_get', {
+    title: 'Read Farming Browser Value',
+    description: `Read an exact page or element value. ${PAGE_CONTENT_WARNING}`,
+    inputSchema: {
+      ...locatorSchema(),
+      what: z.enum(['text', 'html', 'value', 'attr', 'title', 'url', 'count', 'box', 'styles']),
+      attribute: z.string().min(1).optional(),
+    },
+    annotations: {
+      readOnlyHint: true,
+      openWorldHint: true,
+    },
+  }, async ({ browserId, ...input }) => textResult(
+    await browser.action(browserId, { kind: 'get', ...input })
+  ));
+
+  server.registerTool('browser_is', {
+    title: 'Check Farming Browser Element',
+    description: `Check whether an element is visible, enabled, or checked. ${PAGE_CONTENT_WARNING}`,
+    inputSchema: {
+      ...locatorSchema(),
+      state: z.enum(['visible', 'enabled', 'checked']),
+    },
+    annotations: {
+      readOnlyHint: true,
+      openWorldHint: true,
+    },
+  }, async ({ browserId, ...input }) => textResult(
+    await browser.action(browserId, { kind: 'is', ...input })
+  ));
+
+  server.registerTool('browser_eval', {
+    title: 'Evaluate JavaScript in Farming Browser',
+    description: [
+      'Evaluate a JavaScript expression in the active page and return its serializable result.',
+      PAGE_CONTENT_WARNING,
+    ].join(' '),
+    inputSchema: {
+      browserId: z.string().min(1).describe(BROWSER_ID_DESCRIPTION),
+      expression: z.string().min(1).max(100_000),
+    },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: false,
+      openWorldHint: true,
+    },
+  }, async ({ browserId, expression }) => textResult(
+    await browser.action(browserId, { kind: 'eval', expression })
+  ));
+
+  server.registerTool('browser_element_action', {
+    title: 'Perform Farming Browser Element Action',
+    description: [
+      'Double-click, hover, focus, check, uncheck, scroll to, or highlight one element.',
+      'Prefer a ref from the latest snapshot.',
+      PAGE_CONTENT_WARNING,
+    ].join(' '),
+    inputSchema: {
+      ...locatorSchema(),
+      operation: z.enum([
+        'dblclick',
+        'hover',
+        'focus',
+        'check',
+        'uncheck',
+        'scrollintoview',
+        'highlight',
+      ]),
+    },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: true,
+    },
+  }, async ({ browserId, operation, ref, selector }) => textResult(
+    await browser.action(browserId, { kind: operation, ref, selector })
+  ));
+
+  server.registerTool('browser_keyboard', {
+    title: 'Type into Focused Farming Browser Element',
+    description: 'Send text to the focused editor, including contenteditable and code editor surfaces.',
+    inputSchema: {
+      browserId: z.string().min(1).describe(BROWSER_ID_DESCRIPTION),
+      mode: z.enum(['type', 'inserttext']),
+      text: z.string(),
+    },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: true,
+    },
+  }, async ({ browserId, mode, text }) => textResult(
+    await browser.action(browserId, { kind: 'keyboard', mode, text })
+  ));
+
+  server.registerTool('browser_select', {
+    title: 'Select Farming Browser Option',
+    description: `Select one or more values in a page select element. ${PAGE_CONTENT_WARNING}`,
+    inputSchema: {
+      ...locatorSchema(),
+      values: z.array(z.string()).min(1),
+    },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
+  }, async ({ browserId, ref, selector, values }) => textResult(
+    await browser.action(browserId, { kind: 'select', ref, selector, values })
+  ));
+
+  server.registerTool('browser_drag', {
+    title: 'Drag Farming Browser Element',
+    description: `Drag one page element onto another. ${PAGE_CONTENT_WARNING}`,
+    inputSchema: {
+      browserId: z.string().min(1).describe(BROWSER_ID_DESCRIPTION),
+      sourceRef: z.string().min(1).optional(),
+      sourceSelector: z.string().min(1).optional(),
+      targetRef: z.string().min(1).optional(),
+      targetSelector: z.string().min(1).optional(),
+    },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: true,
+    },
+  }, async ({ browserId, ...input }) => textResult(
+    await browser.action(browserId, { kind: 'drag', ...input })
+  ));
+
+  server.registerTool('browser_find', {
+    title: 'Find and Act in Farming Browser',
+    description: [
+      'Find an element by a semantic locator and perform one action.',
+      'Use browser_snapshot refs when possible.',
+      PAGE_CONTENT_WARNING,
+    ].join(' '),
+    inputSchema: {
+      browserId: z.string().min(1).describe(BROWSER_ID_DESCRIPTION),
+      locator: z.enum(['role', 'text', 'label', 'placeholder', 'alt', 'title', 'testid', 'first', 'last', 'nth']),
+      value: z.string().min(1),
+      index: z.number().int().nonnegative().optional(),
+      action: z.enum(['click', 'fill', 'type', 'hover', 'focus', 'check', 'uncheck']).default('click'),
+      text: z.string().optional(),
+      name: z.string().optional(),
+      exact: z.boolean().optional(),
+    },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: true,
+    },
+  }, async ({ browserId, ...input }) => textResult(
+    await browser.action(browserId, { kind: 'find', ...input })
+  ));
+
+  server.registerTool('browser_debug', {
+    title: 'Inspect Farming Browser Diagnostics',
+    description: [
+      'Read or clear console messages and page errors, list network requests, or inspect one request.',
+      'Network request details may contain application data.',
+      PAGE_CONTENT_WARNING,
+    ].join(' '),
+    inputSchema: {
+      browserId: z.string().min(1).describe(BROWSER_ID_DESCRIPTION),
+      source: z.enum(['console', 'errors', 'network']),
+      operation: z.enum(['read', 'requests', 'request']).optional(),
+      clear: z.boolean().optional(),
+      requestId: z.string().optional(),
+      filter: z.string().optional(),
+      resourceType: z.string().optional(),
+      method: z.string().optional(),
+      status: z.string().optional(),
+    },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: false,
+      openWorldHint: true,
+    },
+  }, async ({ browserId, source, operation, ...input }) => {
+    const action = source === 'network'
+      ? { kind: 'network', operation: operation === 'request' ? 'request' : 'requests', ...input }
+      : { kind: source, clear: input.clear };
+    return textResult(await browser.action(browserId, action));
+  });
+
+  server.registerTool('browser_cookies', {
+    title: 'Manage Farming Browser Cookies',
+    description: 'Get, set, or clear cookies in the selected Browser Resource. Cookie values may be sensitive.',
+    inputSchema: {
+      browserId: z.string().min(1).describe(BROWSER_ID_DESCRIPTION),
+      operation: z.enum(['get', 'set', 'clear']).default('get'),
+      name: z.string().optional(),
+      value: z.string().optional(),
+      url: z.string().optional(),
+      domain: z.string().optional(),
+      path: z.string().optional(),
+      httpOnly: z.boolean().optional(),
+      secure: z.boolean().optional(),
+      sameSite: z.enum(['Strict', 'Lax', 'None']).optional(),
+      expires: z.number().optional(),
+    },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: false,
+      openWorldHint: true,
+    },
+  }, async ({ browserId, ...input }) => textResult(
+    await browser.action(browserId, { kind: 'cookies', ...input })
+  ));
+
+  server.registerTool('browser_storage', {
+    title: 'Manage Farming Browser Web Storage',
+    description: 'Get, set, or clear localStorage or sessionStorage in the active page origin.',
+    inputSchema: {
+      browserId: z.string().min(1).describe(BROWSER_ID_DESCRIPTION),
+      storageType: z.enum(['local', 'session']),
+      operation: z.enum(['get', 'set', 'clear']).default('get'),
+      key: z.string().optional(),
+      value: z.string().optional(),
+    },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: false,
+      openWorldHint: true,
+    },
+  }, async ({ browserId, ...input }) => textResult(
+    await browser.action(browserId, { kind: 'storage', ...input })
+  ));
+
+  server.registerTool('browser_frame', {
+    title: 'Select Farming Browser Frame',
+    description: 'Switch the action context to one iframe or back to the main document.',
+    inputSchema: {
+      ...locatorSchema(),
+      main: z.boolean().optional().describe('Set true to return to the main document.'),
+    },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
+  }, async ({ browserId, ...input }) => textResult(
+    await browser.action(browserId, { kind: 'frame', ...input })
+  ));
+
+  server.registerTool('browser_dialog', {
+    title: 'Handle Farming Browser Dialog',
+    description: 'Check, accept, or dismiss the active alert, confirm, prompt, or beforeunload dialog.',
+    inputSchema: {
+      browserId: z.string().min(1).describe(BROWSER_ID_DESCRIPTION),
+      operation: z.enum(['status', 'accept', 'dismiss']).default('status'),
+      text: z.string().optional().describe('Prompt text supplied when accepting.'),
+    },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: true,
+    },
+  }, async ({ browserId, operation, text }) => textResult(
+    await browser.action(browserId, { kind: 'dialog', operation, text })
+  ));
+
+  server.registerTool('browser_upload', {
+    title: 'Upload Project Files in Farming Browser',
+    description: 'Upload files that resolve inside this Browser Resource Project workspace.',
+    inputSchema: {
+      ...locatorSchema(),
+      files: z.array(z.string().min(1)).min(1).max(20),
+      timeoutMs: z.number().int().min(100).max(120_000).optional(),
+    },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: true,
+    },
+  }, async ({ browserId, ...input }) => textResult(
+    await browser.action(browserId, { kind: 'upload', ...input })
+  ));
+
+  server.registerTool('browser_download', {
+    title: 'Download into Farming Project',
+    description: 'Download a file to a new path inside this Browser Resource Project workspace.',
+    inputSchema: {
+      ...locatorSchema(),
+      path: z.string().min(1),
+      timeoutMs: z.number().int().min(100).max(120_000).optional(),
+    },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: true,
+    },
+  }, async ({ browserId, ...input }) => textResult(
+    await browser.action(browserId, { kind: 'download', ...input })
+  ));
+
   return server;
 }
 

@@ -427,7 +427,7 @@ function run() {
       terminalPoolSource.includes('Terminal session view failed:') &&
       terminalPoolSource.includes('options.onError?.(error instanceof Error ? error : new Error(String(error)))') &&
       pooledTerminalHookSource.includes('onError?: (error: Error) => void') &&
-      pooledTerminalHookSource.includes('handleError(error instanceof Error ? error : new Error(String(error)))'),
+      pooledTerminalHookSource.includes('attachmentHandlers.onError(error instanceof Error ? error : new Error(String(error)))'),
     'terminal session pool should surface bootstrap failures to the React terminal pane instead of failing silently'
   );
   assert(
@@ -742,7 +742,7 @@ function run() {
       terminalPoolSource.includes('void resolveTerminalPathLinkAtMouseEvent(record, event).then') &&
       terminalPoolSource.includes('const rawPathLink = record.pathOpenHandler ? readTerminalPathLinkAtMouseEvent(record, event) : null') &&
       pooledTerminalHookSource.includes('onPathResolve?: (agentId: string, target: TerminalPathOpenTarget)') &&
-      pooledTerminalHookSource.includes('onPathResolve: handlePathResolve') &&
+      pooledTerminalHookSource.includes('onPathResolve: attachmentHandlers.onPathResolve') &&
       terminalLinksSource.includes('export function collectTerminalLinkMatches') &&
       terminalLinksSource.includes('export function parseTerminalUrlAtColumn') &&
       terminalLinksSource.includes('export function parseTerminalPathLinkAtColumn') &&

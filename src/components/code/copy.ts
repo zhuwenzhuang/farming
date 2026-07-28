@@ -51,6 +51,17 @@ export interface CodeCopy {
   agentTranscriptRetryTerminalStatus: string
   agentTranscriptWorkedFor: (duration: string) => string
   agentTranscriptProcessCount: (count: number) => string
+  agentTranscriptCollaborationInProgress: string
+  agentTranscriptCollaborationHeading: string
+  agentTranscriptCollaborationNoFinalState: string
+  agentTranscriptCollaborationCompleted: string
+  agentTranscriptCollaborationInterrupted: string
+  agentTranscriptCollaborationFailed: string
+  agentTranscriptCollaborationRecorded: string
+  agentTranscriptCollaborationStarted: string
+  agentTranscriptCollaborationUpdated: string
+  agentTranscriptCollaborationEarlierActivities: (count: number) => string
+  agentTranscriptCollaborationEarlierEvidence: (count: number) => string
   agentTranscriptCopyDetails: string
   agentTranscriptCopiedDetails: string
   agentTranscriptCopyAnswer: string
@@ -510,6 +521,17 @@ const EN_COPY: CodeCopy = {
   agentTranscriptRetryTerminalStatus: 'Retry',
   agentTranscriptWorkedFor: duration => `Worked for ${duration}`,
   agentTranscriptProcessCount: count => `${count} ${count === 1 ? 'event' : 'events'}`,
+  agentTranscriptCollaborationInProgress: 'In progress',
+  agentTranscriptCollaborationHeading: 'Collaborating agents',
+  agentTranscriptCollaborationNoFinalState: 'No final state',
+  agentTranscriptCollaborationCompleted: 'Completed',
+  agentTranscriptCollaborationInterrupted: 'Interrupted',
+  agentTranscriptCollaborationFailed: 'Failed',
+  agentTranscriptCollaborationRecorded: 'Activity',
+  agentTranscriptCollaborationStarted: 'Started',
+  agentTranscriptCollaborationUpdated: 'Updated',
+  agentTranscriptCollaborationEarlierActivities: count => `Show ${count} earlier ${count === 1 ? 'activity' : 'activities'}`,
+  agentTranscriptCollaborationEarlierEvidence: count => `Show ${count} earlier ${count === 1 ? 'record' : 'records'}`,
   agentTranscriptCopyDetails: 'Copy details',
   agentTranscriptCopiedDetails: 'Copied',
   agentTranscriptCopyAnswer: 'Copy answer',
@@ -582,10 +604,10 @@ const EN_COPY: CodeCopy = {
   copyWorkingDirectory: 'Copy working directory',
   copiedWorkingDirectory: 'Copied working directory',
   copyFailed: 'Copy failed',
-  sharePage: 'Share page',
+  sharePage: 'Share current page',
   scanToOpenOnPhone: 'Scan to open on phone',
-  copyFullShareLink: 'Copy full link',
-  copiedShareLink: 'Copied full link',
+  copyFullShareLink: 'Copy current page link',
+  copiedShareLink: 'Current page link copied',
   shareLinkFailed: 'Share link unavailable',
   sharedLocationUnavailable: path => `Unable to locate shared path: ${path}`,
   shareLinkExpired: 'Expired',
@@ -998,6 +1020,17 @@ const ZH_COPY: CodeCopy = {
   agentTranscriptRetryTerminalStatus: '重试',
   agentTranscriptWorkedFor: duration => `Worked for ${duration}`,
   agentTranscriptProcessCount: count => `${count} 个事件`,
+  agentTranscriptCollaborationInProgress: '进行中',
+  agentTranscriptCollaborationHeading: '协作 Agent',
+  agentTranscriptCollaborationNoFinalState: '未收到终态',
+  agentTranscriptCollaborationCompleted: '已完成',
+  agentTranscriptCollaborationInterrupted: '已中断',
+  agentTranscriptCollaborationFailed: '失败',
+  agentTranscriptCollaborationRecorded: '活动',
+  agentTranscriptCollaborationStarted: '已启动',
+  agentTranscriptCollaborationUpdated: '已更新',
+  agentTranscriptCollaborationEarlierActivities: count => `显示更早 ${count} 条活动`,
+  agentTranscriptCollaborationEarlierEvidence: count => `显示更早 ${count} 条记录`,
   agentTranscriptCopyDetails: '复制详情',
   agentTranscriptCopiedDetails: '已复制',
   agentTranscriptCopyAnswer: '复制答复',
@@ -1070,10 +1103,10 @@ const ZH_COPY: CodeCopy = {
   copyWorkingDirectory: '复制工作目录',
   copiedWorkingDirectory: '已复制工作目录',
   copyFailed: '复制失败',
-  sharePage: '分享页面',
+  sharePage: '分享当前页面',
   scanToOpenOnPhone: '手机扫码打开',
-  copyFullShareLink: '复制完整链接',
-  copiedShareLink: '已复制完整链接',
+  copyFullShareLink: '复制当前页面链接',
+  copiedShareLink: '已复制当前页面链接',
   shareLinkFailed: '分享链接不可用',
   sharedLocationUnavailable: path => `无法定位分享路径：${path}`,
   shareLinkExpired: '已过期',

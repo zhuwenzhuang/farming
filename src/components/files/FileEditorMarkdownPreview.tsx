@@ -377,15 +377,15 @@ function useMermaidAppearance() {
 function mermaidThemeVariables(appearance: MermaidAppearance) {
   if (appearance === 'dark') {
     return {
-      background: '#0d1117',
-      mainBkg: '#161b22',
-      primaryColor: '#161b22',
-      primaryTextColor: '#e6edf3',
-      primaryBorderColor: '#30363d',
-      secondaryColor: '#1f6feb',
-      tertiaryColor: '#21262d',
-      lineColor: '#8b949e',
-      textColor: '#e6edf3',
+      background: '#181818',
+      mainBkg: '#212121',
+      primaryColor: '#212121',
+      primaryTextColor: '#ffffff',
+      primaryBorderColor: '#383838',
+      secondaryColor: '#339cff',
+      tertiaryColor: '#262626',
+      lineColor: '#9b9b9b',
+      textColor: '#ffffff',
       fontFamily: MERMAID_FONT,
     }
   }

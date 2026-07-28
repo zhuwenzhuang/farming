@@ -395,21 +395,23 @@ export function useWorkspaceFileFocus({
   const focusFileTreePath = useCallback((filePath: string | null) => {
     cancelPendingFileTreeScrollFocus()
     const focusTarget = () => {
-      if (shouldPreserveMonacoFocus()) return
+      const preserveMonacoFocus = shouldPreserveMonacoFocus()
       if (filePath) {
         treeRef.current?.get(filePath)?.select()
         const row = Array.from(treeViewportRef.current?.querySelectorAll<HTMLElement>('[data-file-path]') ?? [])
           .find(element => element.dataset.filePath === filePath)
         const targetTree = row?.closest<HTMLElement>('[role="tree"]')
           ?? treeViewportRef.current?.querySelector<HTMLElement>('[role="tree"]')
-        focusWithoutScrolling(targetTree)
+        if (!preserveMonacoFocus) focusWithoutScrolling(targetTree)
         if (row) {
           row.scrollIntoView({ block: 'nearest' })
           revealRowInProjectScroller(row)
           return
         }
       }
-      focusWithoutScrolling(treeViewportRef.current?.querySelector<HTMLElement>('[role="tree"]'))
+      if (!preserveMonacoFocus) {
+        focusWithoutScrolling(treeViewportRef.current?.querySelector<HTMLElement>('[role="tree"]'))
+      }
     }
     focusTarget()
     fileTreeFocusFrameRef.current = window.requestAnimationFrame(() => {

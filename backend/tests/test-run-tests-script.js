@@ -9,5 +9,8 @@ assert(source.includes('DEFAULT_TEST_CONCURRENCY'));
 assert(source.includes("['test-workspace-file-service.js', 90_000]"));
 assert(source.includes('Promise.all'));
 assert(!source.includes('execFileSync'));
+assert(source.includes('function captureSourceRevision()'));
+assert(source.includes('function changedSourcePaths(before, after)'));
+assert(source.includes('Source revision changed during the test run'));
 
-console.log('✓ full test runner uses configurable bounded concurrency');
+console.log('✓ full test runner uses configurable bounded concurrency and fences its source revision');

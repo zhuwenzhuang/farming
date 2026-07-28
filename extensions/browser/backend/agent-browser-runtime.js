@@ -8,6 +8,9 @@ const {
   matchingProcessIdentity,
   readServerProcessIdentity,
 } = require('../../../backend/server-process-identity');
+const {
+  runtimeExecutableInvocation,
+} = require('../../../backend/runtime-executable-invocation');
 
 const AGENT_BROWSER_VERSION = '0.32.3';
 const DEFAULT_VIEWPORT = Object.freeze({ width: 1280, height: 720, deviceScaleFactor: 1 });
@@ -17,6 +20,8 @@ const COMMAND_TIMEOUT_MS = 30_000;
 const CLOSE_TIMEOUT_MS = 10_000;
 const PROCESS_EXIT_TIMEOUT_MS = 5_000;
 const PROCESS_EXIT_POLL_MS = 100;
+const MAX_ACTION_TIMEOUT_MS = 120_000;
+const MAX_SCRIPT_LENGTH = 100_000;
 
 function namespaceForResource(configDir, id, generation) {
   const digest = crypto
@@ -75,12 +80,14 @@ function parseJsonOutput(stdout) {
 }
 
 function defaultRunCommand(executablePath, args, options = {}) {
+  const env = options.env || process.env;
+  const invocation = runtimeExecutableInvocation(executablePath, args, env);
   return new Promise((resolve, reject) => {
-    execFile(executablePath, args, {
+    execFile(invocation.command, invocation.args, {
       encoding: 'utf8',
       timeout: options.timeoutMs || COMMAND_TIMEOUT_MS,
       maxBuffer: options.maxBuffer || 4 * 1024 * 1024,
-      env: options.env || process.env,
+      env,
     }, (error, stdout, stderr) => {
       let result;
       try {
@@ -92,11 +99,13 @@ function defaultRunCommand(executablePath, args, options = {}) {
         }
       }
       if (error || result?.success === false) {
-        const detail = result?.error
-          || result?.message
-          || String(stderr || '').trim()
-          || error?.message
-          || 'agent-browser command failed';
+        const detail = error?.killed
+          ? `Browser command timed out after ${options.timeoutMs || COMMAND_TIMEOUT_MS} ms`
+          : (result?.error
+            || result?.message
+            || String(stderr || '').trim()
+            || error?.message
+            || 'agent-browser command failed');
         const commandError = new Error(detail);
         commandError.code = result?.code || error?.code || 'AGENT_BROWSER_COMMAND_FAILED';
         commandError.cause = error;
@@ -112,6 +121,12 @@ function commandData(result) {
   return result && typeof result.data === 'object' && result.data !== null ? result.data : {};
 }
 
+function publicCommandData(result) {
+  if (!result || !Object.prototype.hasOwnProperty.call(result, 'data')) return {};
+  const data = result.data;
+  return data && typeof data === 'object' ? data : { value: data };
+}
+
 function normalizeRef(input = {}) {
   const ref = String(input.ref || '').trim();
   if (ref) return ref.startsWith('@') ? ref : `@${ref}`;
@@ -120,14 +135,39 @@ function normalizeRef(input = {}) {
   throw new Error('ref or selector is required');
 }
 
-function metadataFromTabs(data) {
+function normalizeTimeoutMs(value, fallback = COMMAND_TIMEOUT_MS) {
+  const timeoutMs = Number(value);
+  if (!Number.isFinite(timeoutMs)) return fallback;
+  return Math.max(100, Math.min(MAX_ACTION_TIMEOUT_MS, Math.round(timeoutMs)));
+}
+
+function requiredText(value, name, maxLength = 10_000) {
+  const text = String(value ?? '');
+  if (!text.trim()) throw new Error(`${name} is required`);
+  if (text.length > maxLength) throw new Error(`${name} is too long`);
+  return text;
+}
+
+function oneOf(value, values, name) {
+  const normalized = String(value || '').trim();
+  if (!values.includes(normalized)) {
+    throw new Error(`${name} must be one of: ${values.join(', ')}`);
+  }
+  return normalized;
+}
+
+function normalizedTabs(data) {
   const tabs = Array.isArray(data?.tabs) ? data.tabs : (Array.isArray(data) ? data : []);
-  const active = tabs.find(tab => tab?.active) || tabs[0];
-  if (!active) return null;
-  return {
-    url: String(active.url || 'about:blank'),
-    title: String(active.title || ''),
-  };
+  return tabs
+    .filter(tab => tab && String(tab.tabId || tab.id || '').trim())
+    .map(tab => ({
+      tabId: String(tab.tabId || tab.id).trim(),
+      label: String(tab.label || ''),
+      title: String(tab.title || ''),
+      type: String(tab.type || 'page'),
+      url: String(tab.url || 'about:blank'),
+      active: tab.active === true,
+    }));
 }
 
 function snapshotElements(refs) {
@@ -233,10 +273,17 @@ class AgentBrowserRuntime extends EventEmitter {
     this.connectedCdp = false;
     this.stream = null;
     this.streamReady = false;
+    this.activeTabId = '';
+    this.streamTabId = '';
+    this.knownTabIds = new Set();
+    this.ownedTabIds = new Set();
+    this.popupAdmissionUntil = 0;
     this.started = false;
     this.closedByOwner = false;
     this.closeComplete = false;
     this.closePromise = null;
+    this.commandChain = Promise.resolve();
+    this.screenshotChain = Promise.resolve();
   }
 
   baseArgs() {
@@ -245,19 +292,23 @@ class AgentBrowserRuntime extends EventEmitter {
 
   async command(args, options = {}) {
     if (!this.agentBrowserPath) throw new Error('agent-browser runtime is unavailable');
-    const env = this.externalCdpUrl
-      ? (options.env || process.env)
-      : {
-          ...process.env,
-          ...options.env,
-          AGENT_BROWSER_EXECUTABLE_PATH: this.executablePath,
-          AGENT_BROWSER_PROFILE: this.profileDir,
-        };
-    return this.runCommand(
+    const env = {
+      ...process.env,
+      ...options.env,
+      AGENT_BROWSER_NO_AUTO_DIALOG: 'true',
+      ...(!this.externalCdpUrl ? {
+        AGENT_BROWSER_EXECUTABLE_PATH: this.executablePath,
+        AGENT_BROWSER_PROFILE: this.profileDir,
+      } : {}),
+    };
+    const execute = () => this.runCommand(
       this.agentBrowserPath,
       [...this.baseArgs(), ...args, '--json'],
       { ...options, env },
     );
+    const result = this.commandChain.catch(() => {}).then(execute);
+    this.commandChain = result;
+    return result;
   }
 
   async sessionInfo() {
@@ -276,10 +327,21 @@ class AgentBrowserRuntime extends EventEmitter {
         ]));
         const tabId = String(created.tabId || created.id || created.targetId || this.tabLabel);
         await this.command(['tab', tabId]);
+        this.ownedTabIds.add(tabId);
         if (url !== 'about:blank') await this.command(['open', url]);
       } else {
         if (!this.executablePath) throw new Error('A compatible system browser is required');
         await this.command(['open', url]);
+      }
+
+      const tabs = await this.listTabs();
+      const activeTab = tabs.find(tab => tab.active) || tabs[0];
+      if (!activeTab) throw new Error('agent-browser did not create an initial tab');
+      this.activeTabId = activeTab.tabId;
+      this.streamTabId = activeTab.tabId;
+      this.knownTabIds = new Set(tabs.map(tab => tab.tabId));
+      if (!this.externalCdpUrl) {
+        for (const tab of tabs) this.ownedTabIds.add(tab.tabId);
       }
 
       const info = await this.sessionInfo();
@@ -386,8 +448,18 @@ class AgentBrowserRuntime extends EventEmitter {
       return;
     }
     if (message.type === 'tabs') {
-      const metadata = metadataFromTabs(message.data || message);
-      if (metadata) this.emit('metadata', metadata);
+      const tabs = normalizedTabs(message.data || message);
+      const active = tabs.find(tab => tab.active) || tabs[0];
+      if (active) this.activeTabId = active.tabId;
+      const newTabIds = tabs
+        .map(tab => tab.tabId)
+        .filter(tabId => !this.knownTabIds.has(tabId));
+      this.knownTabIds = new Set(tabs.map(tab => tab.tabId));
+      this.emit('tabs', {
+        tabs,
+        newTabIds,
+        popupAdmitted: Date.now() <= this.popupAdmissionUntil,
+      });
     }
   }
 
@@ -407,6 +479,57 @@ class AgentBrowserRuntime extends EventEmitter {
       url: String(commandData(urlResult).url || 'about:blank'),
       title: String(commandData(titleResult).title || ''),
     };
+  }
+
+  async listTabs() {
+    return normalizedTabs(commandData(await this.command(['tab', 'list'])));
+  }
+
+  async createTab(url = 'about:blank', label = '') {
+    const args = ['tab', 'new'];
+    if (label) args.push('--label', label);
+    args.push(url);
+    const created = commandData(await this.command(args));
+    const tabs = await this.listTabs();
+    const tabId = String(created.tabId || created.id || created.targetId || '').trim();
+    const tab = tabs.find(candidate => candidate.tabId === tabId)
+      || tabs.find(candidate => candidate.active)
+      || tabs.at(-1);
+    if (!tab) throw new Error('agent-browser did not report the new tab');
+    this.knownTabIds = new Set(tabs.map(candidate => candidate.tabId));
+    this.ownedTabIds.add(tab.tabId);
+    await this.switchTab(tab.tabId);
+    return tab;
+  }
+
+  async switchTab(tabId) {
+    const target = String(tabId || '').trim();
+    if (!target) throw new Error('tab id is required');
+    await this.command(['tab', target]);
+    this.activeTabId = target;
+    this.streamTabId = target;
+    const tabs = await this.listTabs();
+    const tab = tabs.find(candidate => candidate.tabId === target);
+    if (!tab) throw new Error(`Browser tab ${target} is unavailable`);
+    this.knownTabIds = new Set(tabs.map(candidate => candidate.tabId));
+    return tab;
+  }
+
+  async closeTab(tabId) {
+    const target = String(tabId || '').trim();
+    if (!target) throw new Error('tab id is required');
+    await this.command(['tab', 'close', target], { timeoutMs: CLOSE_TIMEOUT_MS });
+    this.knownTabIds.delete(target);
+    this.ownedTabIds.delete(target);
+    const tabs = await this.listTabs();
+    const active = tabs.find(tab => tab.active) || tabs[0];
+    this.activeTabId = active?.tabId || '';
+    if (this.streamTabId === target) this.streamTabId = '';
+    return tabs;
+  }
+
+  admitPopup() {
+    this.popupAdmissionUntil = Date.now() + 2_000;
   }
 
   async navigate(url) {
@@ -447,29 +570,269 @@ class AgentBrowserRuntime extends EventEmitter {
   }
 
   async screenshot() {
-    const output = path.join(path.dirname(this.profileDir), `screenshot-${this.generation}.png`);
-    const data = commandData(await this.command(['screenshot', output]));
-    const resolved = path.resolve(String(data.path || output));
-    const resourceDir = path.resolve(path.dirname(this.profileDir));
-    if (resolved !== path.resolve(output) && !resolved.startsWith(`${resourceDir}${path.sep}`)) {
-      throw new Error('agent-browser returned an unsafe screenshot path');
-    }
-    try {
-      return { mimeType: 'image/png', data: fs.readFileSync(resolved).toString('base64') };
-    } finally {
-      fs.rmSync(resolved, { force: true });
-    }
+    const operation = async () => {
+      const output = path.join(
+        path.dirname(this.profileDir),
+        `screenshot-${this.generation}-${crypto.randomUUID()}.png`,
+      );
+      const data = commandData(await this.command(['screenshot', output]));
+      const resolved = path.resolve(String(data.path || output));
+      const resourceDir = path.resolve(path.dirname(this.profileDir));
+      if (resolved !== path.resolve(output) && !resolved.startsWith(`${resourceDir}${path.sep}`)) {
+        throw new Error('agent-browser returned an unsafe screenshot path');
+      }
+      try {
+        return { mimeType: 'image/png', data: fs.readFileSync(resolved).toString('base64') };
+      } finally {
+        fs.rmSync(resolved, { force: true });
+      }
+    };
+    const next = this.screenshotChain.catch(() => {}).then(operation);
+    this.screenshotChain = next;
+    return next;
   }
 
   async click(input) {
+    this.admitPopup();
     await this.command(['click', normalizeRef(input)]);
     return { ok: true };
+  }
+
+  async elementAction(kind, input) {
+    const command = oneOf(
+      kind,
+      ['dblclick', 'hover', 'focus', 'check', 'uncheck', 'scrollintoview', 'highlight'],
+      'element action',
+    );
+    const result = await this.command([command, normalizeRef(input)]);
+    return publicCommandData(result);
   }
 
   async type(input, clear) {
     const action = clear ? 'fill' : 'type';
     await this.command([action, normalizeRef(input), String(input.text ?? '')]);
     return { ok: true };
+  }
+
+  async keyboard(input) {
+    const mode = oneOf(input?.mode, ['type', 'inserttext'], 'keyboard mode');
+    const text = String(input?.text ?? '');
+    const result = await this.command(['keyboard', mode, text]);
+    return publicCommandData(result);
+  }
+
+  async select(input) {
+    const values = Array.isArray(input?.values)
+      ? input.values.map(value => String(value))
+      : [String(input?.value ?? '')];
+    if (values.length === 0 || values.some(value => !value)) {
+      throw new Error('at least one select value is required');
+    }
+    const result = await this.command(['select', normalizeRef(input), ...values]);
+    return publicCommandData(result);
+  }
+
+  async drag(input) {
+    const source = normalizeRef({
+      ref: input?.sourceRef,
+      selector: input?.sourceSelector,
+    });
+    const target = normalizeRef({
+      ref: input?.targetRef,
+      selector: input?.targetSelector,
+    });
+    const result = await this.command(['drag', source, target]);
+    return publicCommandData(result);
+  }
+
+  async upload(input) {
+    const files = Array.isArray(input?.files) ? input.files.map(file => String(file)) : [];
+    if (files.length === 0) throw new Error('at least one upload file is required');
+    const result = await this.command(['upload', normalizeRef(input), ...files], {
+      timeoutMs: normalizeTimeoutMs(input?.timeoutMs),
+    });
+    return publicCommandData(result);
+  }
+
+  async download(input) {
+    const outputPath = requiredText(input?.outputPath, 'download output path');
+    const timeoutMs = normalizeTimeoutMs(input?.timeoutMs);
+    const result = await this.command([
+      'download',
+      normalizeRef(input),
+      outputPath,
+      '--timeout',
+      String(timeoutMs),
+    ], {
+      timeoutMs: timeoutMs + 5_000,
+    });
+    return publicCommandData(result);
+  }
+
+  async waitFor(input) {
+    const mode = oneOf(
+      input?.mode || 'selector',
+      ['selector', 'time', 'url', 'load', 'function', 'text'],
+      'wait mode',
+    );
+    const args = ['wait'];
+    if (mode === 'selector') {
+      args.push(normalizeRef(input));
+      if (input?.state) {
+        args.push('--state', oneOf(
+          input.state,
+          ['visible', 'hidden', 'attached', 'detached'],
+          'wait state',
+        ));
+      }
+    } else if (mode === 'time') {
+      const durationMs = normalizeTimeoutMs(input?.durationMs, 1_000);
+      args.push(String(durationMs));
+    } else {
+      const option = mode === 'function' ? 'fn' : mode;
+      const value = mode === 'load'
+        ? oneOf(input?.value, ['load', 'domcontentloaded', 'networkidle'], 'load state')
+        : requiredText(input?.value, `${mode} wait value`, mode === 'function' ? MAX_SCRIPT_LENGTH : 10_000);
+      args.push(`--${option}`, value);
+    }
+    const timeoutMs = normalizeTimeoutMs(input?.timeoutMs);
+    args.push('--timeout', String(timeoutMs));
+    const result = await this.command(args, {
+      timeoutMs: timeoutMs + 5_000,
+    });
+    return publicCommandData(result);
+  }
+
+  async get(input) {
+    const what = oneOf(
+      input?.what,
+      ['text', 'html', 'value', 'attr', 'title', 'url', 'count', 'box', 'styles'],
+      'get type',
+    );
+    const args = ['get', what];
+    if (!['title', 'url'].includes(what)) args.push(normalizeRef(input));
+    if (what === 'attr') args.push(requiredText(input?.attribute, 'attribute name', 256));
+    return publicCommandData(await this.command(args));
+  }
+
+  async is(input) {
+    const state = oneOf(input?.state, ['visible', 'enabled', 'checked'], 'element state');
+    return publicCommandData(await this.command(['is', state, normalizeRef(input)]));
+  }
+
+  async find(input) {
+    const locator = oneOf(
+      input?.locator,
+      ['role', 'text', 'label', 'placeholder', 'alt', 'title', 'testid', 'first', 'last', 'nth'],
+      'find locator',
+    );
+    const action = oneOf(
+      input?.action || 'click',
+      ['click', 'fill', 'type', 'hover', 'focus', 'check', 'uncheck'],
+      'find action',
+    );
+    const args = ['find', locator];
+    if (locator === 'nth') {
+      const index = Number(input?.index);
+      if (!Number.isSafeInteger(index) || index < 0) throw new Error('find index must be a non-negative integer');
+      args.push(String(index), requiredText(input?.value, 'find selector'));
+    } else {
+      args.push(requiredText(input?.value, 'find value'));
+    }
+    args.push(action);
+    if (['fill', 'type'].includes(action)) args.push(String(input?.text ?? ''));
+    if (input?.name) args.push('--name', String(input.name));
+    if (input?.exact === true) args.push('--exact');
+    const result = await this.command(args);
+    return publicCommandData(result);
+  }
+
+  async evaluate(input) {
+    const expression = requiredText(input?.expression, 'JavaScript expression', MAX_SCRIPT_LENGTH);
+    const encoded = Buffer.from(expression).toString('base64');
+    return publicCommandData(await this.command(['eval', '--base64', encoded]));
+  }
+
+  async debugLog(kind, input) {
+    const command = oneOf(kind, ['console', 'errors'], 'debug log');
+    const args = [command];
+    if (input?.clear === true) args.push('--clear');
+    return publicCommandData(await this.command(args));
+  }
+
+  async network(input) {
+    const operation = oneOf(input?.operation || 'requests', ['requests', 'request'], 'network operation');
+    if (operation === 'request') {
+      return publicCommandData(await this.command([
+        'network',
+        'request',
+        requiredText(input?.requestId, 'request id', 256),
+      ]));
+    }
+    const args = ['network', 'requests'];
+    if (input?.clear === true) args.push('--clear');
+    for (const [key, flag] of [
+      ['filter', '--filter'],
+      ['resourceType', '--type'],
+      ['method', '--method'],
+      ['status', '--status'],
+    ]) {
+      if (input?.[key] !== undefined && input[key] !== '') {
+        args.push(flag, String(input[key]));
+      }
+    }
+    return publicCommandData(await this.command(args));
+  }
+
+  async cookies(input) {
+    const operation = oneOf(input?.operation || 'get', ['get', 'set', 'clear'], 'cookie operation');
+    const args = ['cookies', operation];
+    if (operation === 'set') {
+      args.push(
+        requiredText(input?.name, 'cookie name', 1_024),
+        String(input?.value ?? ''),
+      );
+      for (const [key, flag] of [
+        ['url', '--url'],
+        ['domain', '--domain'],
+        ['path', '--path'],
+        ['sameSite', '--sameSite'],
+        ['expires', '--expires'],
+      ]) {
+        if (input?.[key] !== undefined && input[key] !== '') {
+          args.push(flag, String(input[key]));
+        }
+      }
+      if (input?.httpOnly === true) args.push('--httpOnly');
+      if (input?.secure === true) args.push('--secure');
+    }
+    const result = await this.command(args);
+    return publicCommandData(result);
+  }
+
+  async storage(input) {
+    const storageType = oneOf(input?.storageType, ['local', 'session'], 'storage type');
+    const operation = oneOf(input?.operation || 'get', ['get', 'set', 'clear'], 'storage operation');
+    const args = ['storage', storageType, operation];
+    if (operation === 'get' && input?.key) args.push(String(input.key));
+    if (operation === 'set') {
+      args.push(requiredText(input?.key, 'storage key', 10_000), String(input?.value ?? ''));
+    }
+    const result = await this.command(args);
+    return publicCommandData(result);
+  }
+
+  async frame(input) {
+    const target = input?.main === true ? 'main' : normalizeRef(input);
+    return publicCommandData(await this.command(['frame', target]));
+  }
+
+  async dialog(input) {
+    const operation = oneOf(input?.operation || 'status', ['status', 'accept', 'dismiss'], 'dialog operation');
+    const args = ['dialog', operation];
+    if (operation === 'accept' && input?.text !== undefined) args.push(String(input.text));
+    const result = await this.command(args);
+    return publicCommandData(result);
   }
 
   async press(input) {
@@ -524,6 +887,7 @@ class AgentBrowserRuntime extends EventEmitter {
     };
     const eventType = eventTypes[input.action];
     if (!eventType) return;
+    if (input.action === 'down') this.admitPopup();
     this.sendStream({
       type: 'input_mouse',
       eventType,
@@ -550,24 +914,42 @@ class AgentBrowserRuntime extends EventEmitter {
   }
 
   async insertText(text) {
-    this.sendStream({
-      type: 'input_keyboard',
-      eventType: 'char',
-      key: '',
-      code: '',
-      text: String(text || ''),
-      windowsVirtualKeyCode: 0,
-      modifiers: 0,
-    });
+    const value = String(text || '');
+    if (/[^\x20-\x7e]/.test(value)) {
+      await this.command(['keyboard', 'inserttext', value]);
+      return;
+    }
+    for (const key of value) {
+      const common = {
+        key,
+        code: '',
+        windowsVirtualKeyCode: keyCodeFor(key),
+        modifiers: 0,
+      };
+      this.sendStream({
+        type: 'input_keyboard',
+        eventType: 'keyDown',
+        ...common,
+        text: key,
+      });
+      this.sendStream({
+        type: 'input_keyboard',
+        eventType: 'keyUp',
+        ...common,
+      });
+    }
   }
 
-  async closeOwnedExternalTab() {
-    try {
-      await this.command(['tab', 'close', this.tabLabel], { timeoutMs: CLOSE_TIMEOUT_MS });
-    } catch (error) {
-      const tabs = commandData(await this.command(['tab', 'list'], { timeoutMs: CLOSE_TIMEOUT_MS }));
-      const stillExists = (tabs.tabs || []).some(tab => tab?.label === this.tabLabel);
-      if (stillExists) throw error;
+  async closeOwnedExternalTabs() {
+    for (const tabId of [...this.ownedTabIds]) {
+      try {
+        await this.command(['tab', 'close', tabId], { timeoutMs: CLOSE_TIMEOUT_MS });
+        this.ownedTabIds.delete(tabId);
+      } catch (error) {
+        const tabs = await this.listTabs();
+        if (tabs.some(tab => tab.tabId === tabId)) throw error;
+        this.ownedTabIds.delete(tabId);
+      }
     }
   }
 
@@ -581,7 +963,7 @@ class AgentBrowserRuntime extends EventEmitter {
     if (this.connectedCdp) {
       // Keep the daemon/session identity alive when target cleanup is not
       // proven, so an operator can restore the endpoint and retry safely.
-      await this.closeOwnedExternalTab();
+      await this.closeOwnedExternalTabs();
     }
     let closeError = null;
     try {

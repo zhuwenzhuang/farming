@@ -4,10 +4,12 @@ const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
 const { AcpRuntime, acpErrorKind, acpSessionRequestOptions, autoPermissionResponse, codexAcpEnvironment, deleteProviderSessionIdentity, promptContentForCapabilities, resolveAcpLaunch, supportsCodexSteer } = require('../acp-runtime');
+const { renderFarmingAgentBootstrap } = require('../farming-agent-bootstrap');
 const { claudeAcpEnvironment } = require('../provider-adapters');
 const { AcpSessionState } = require('../acp-session-state');
 
 async function run() {
+  const farmingSystemPrompt = renderFarmingAgentBootstrap();
   assert.strictEqual(acpErrorKind(new Error('401 Unauthorized: sign in required')), 'authentication');
   assert.strictEqual(acpErrorKind(new Error('Input exceeds the context window')), 'context');
   assert.strictEqual(acpErrorKind(new Error('429 rate limit exceeded')), 'rate-limit');
@@ -202,7 +204,7 @@ async function run() {
     model: 'gpt-5.5',
     reasoningEffort: 'xhigh',
     serviceTier: 'priority',
-    farmingSystemPrompt: 'You are running in Farming.',
+    farmingSystemPrompt,
   });
   assert.strictEqual(codexEnv.KEEP, 'yes');
   assert.strictEqual(codexEnv.CODEX_PATH, '/opt/codex/bin/codex');
@@ -212,7 +214,7 @@ async function run() {
     model: 'gpt-5.5',
     model_reasoning_effort: 'xhigh',
     service_tier: 'priority',
-    developer_instructions: 'You are running in Farming.',
+    developer_instructions: farmingSystemPrompt,
   });
   assert.strictEqual(codexAcpEnvironment({ env: {}, approvalMode: 'ask' }).INITIAL_AGENT_MODE, 'read-only');
   assert.deepStrictEqual(claudeAcpEnvironment({
@@ -236,20 +238,20 @@ async function run() {
   });
   assert.deepStrictEqual(acpSessionRequestOptions({
     provider: 'claude',
-    farmingSystemPrompt: 'You are running in Farming.',
+    farmingSystemPrompt,
   }, '/tmp/project')._meta, {
     systemPrompt: {
       type: 'preset',
       preset: 'claude_code',
-      append: 'You are running in Farming.',
+      append: farmingSystemPrompt,
     },
   });
   assert.deepStrictEqual(resolveAcpLaunch('qoder', {
     executable: '/bin/qodercli',
-    farmingSystemPrompt: 'You are running in Farming.',
+    farmingSystemPrompt,
   }), {
     command: '/bin/qodercli',
-    args: ['--append-system-prompt', 'You are running in Farming.', '--acp'],
+    args: ['--append-system-prompt', farmingSystemPrompt, '--acp'],
     version: 'native',
   });
   assert.deepStrictEqual(promptContentForCapabilities([

@@ -471,6 +471,18 @@ class FakeAgent {
       return { stopReason: 'end_turn' };
     }
     if (promptText.includes('codex collaboration')) {
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'tool_call',
+          toolCallId: 'collab-parent-inspect',
+          title: 'Inspect parent coordinator',
+          kind: 'read',
+          status: 'completed',
+          rawInput: { scope: 'parent' },
+          content: [{ type: 'content', content: { type: 'text', text: 'Parent coordination state is ready.' } }],
+        },
+      });
       const activity = async (id, threadId, agentPath, activityKind = 'interacted') => client.sessionUpdate({
         sessionId: params.sessionId,
         update: {
@@ -489,6 +501,12 @@ class FakeAgent {
       });
       await activity('collab-review-updated', 'thread-review-refresh', 'Review refresh');
       await activity('collab-browser-started', 'thread-browser-guards', 'Browser guards', 'started');
+      await activity(
+        'collab-browser-provider-unknown',
+        'thread-browser-guards',
+        'Browser guards',
+        'provider_future_action',
+      );
       for (let index = 1; index <= 18; index += 1) {
         await activity(`collab-browser-updated-${index}`, 'thread-browser-guards', 'Browser guards');
       }

@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="color-scheme" content="light dark" />
-    <meta name="theme-color" content="#f8f4e8" />
+    <meta name="theme-color" content="#ffffff" />
     <style>
       html,
       body {
@@ -13,7 +13,7 @@
 
       html[data-appearance='dark'],
       html[data-appearance='dark'] body {
-        background: #0d1117;
+        background: #181818;
         color-scheme: dark;
       }
     </style>
@@ -29,7 +29,7 @@
         root.dataset.appearance = appearance
         document.querySelector('meta[name="theme-color"]')?.setAttribute(
           'content',
-          appearance === 'dark' ? '#0d1117' : '#f8f4e8',
+          appearance === 'dark' ? '#181818' : '#ffffff',
         )
       })()
     </script>

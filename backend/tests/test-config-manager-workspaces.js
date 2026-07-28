@@ -61,7 +61,9 @@ function run() {
     manager.updateSettings({ browserExtensionEnabled: false });
     assert.strictEqual(manager.getSettings().browserExtensionEnabled, false);
     assert.strictEqual(
-      fs.readFileSync(path.join(farmingDir, 'farming-agent-bootstrap.zh_cn.md'), 'utf8').includes('farming capabilities'),
+      fs
+        .readFileSync(path.join(farmingDir, 'farming-agent-bootstrap.zh_cn.md'), 'utf8')
+        .includes('"$FARMING_CLI_BIN_DIR/farming" capabilities'),
       true,
     );
     assert.strictEqual(settings.crtDynamicHeatEnabled, false);

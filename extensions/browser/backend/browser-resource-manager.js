@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { EventEmitter } = require('events');
 const storageLayout = require('../../../backend/storage-layout');
 const {
@@ -17,6 +18,7 @@ const MAX_VIEWER_BUFFER_BYTES = 2 * 1024 * 1024;
 const VIEWER_RESIZE_SETTLE_MS = 80;
 const BROWSER_RECOVERY_TIMEOUT_MS = 5_000;
 const BROWSER_RECOVERY_POLL_MS = 100;
+const MAX_UPLOAD_FILES = 20;
 
 function publicResource(resource, collectionRevision) {
   return {
@@ -58,7 +60,18 @@ function normalizeUrl(value) {
   const input = String(value || '').trim();
   if (!input) return 'about:blank';
   if (input === 'about:blank') return input;
-  const url = /^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(input) ? input : `http://${input}`;
+  let url = input;
+  if (!/^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(input)) {
+    const authority = input.split(/[/?#]/, 1)[0];
+    const hostname = authority.replace(/:\d+$/, '').replace(/^\[|\]$/g, '').toLowerCase();
+    const explicitPort = authority.match(/:(\d+)$/)?.[1] || '';
+    const isIpLiteral = /^\d{1,3}(?:\.\d{1,3}){3}$/.test(hostname) || authority.startsWith('[');
+    const localHost = hostname === 'localhost'
+      || hostname.endsWith('.localhost')
+      || !hostname.includes('.')
+      || isIpLiteral;
+    url = `${localHost || (explicitPort && explicitPort !== '443') ? 'http' : 'https'}://${input}`;
+  }
   try {
     const parsed = new URL(url);
     if (!['http:', 'https:'].includes(parsed.protocol)) {
@@ -69,6 +82,61 @@ function normalizeUrl(value) {
     if (error?.status) throw error;
     throw browserError('Invalid Browser URL');
   }
+}
+
+function tabResourceName(tab) {
+  const title = String(tab?.title || '').trim();
+  if (title) return title.slice(0, 120);
+  try {
+    return new URL(String(tab?.url || '')).hostname.slice(0, 120) || 'Browser';
+  } catch {
+    return 'Browser';
+  }
+}
+
+function pathInside(root, candidate) {
+  return candidate === root || candidate.startsWith(`${root}${path.sep}`);
+}
+
+function resolveWorkspaceInputFile(resource, value) {
+  const workspace = fs.realpathSync(resource.workspace);
+  const requested = path.resolve(resource.workspace, String(value || ''));
+  let resolved;
+  try {
+    resolved = fs.realpathSync(requested);
+  } catch {
+    throw browserError(`Upload file does not exist: ${value}`);
+  }
+  if (!pathInside(workspace, resolved)) {
+    throw browserError('Browser uploads must stay inside the Browser Project workspace');
+  }
+  if (!fs.statSync(resolved).isFile()) {
+    throw browserError(`Browser upload path is not a file: ${value}`);
+  }
+  return resolved;
+}
+
+function resolveWorkspaceOutputFile(resource, value) {
+  const requestedValue = String(value || '').trim();
+  if (!requestedValue) throw browserError('Download output path is required');
+  const workspace = fs.realpathSync(resource.workspace);
+  const requested = path.resolve(resource.workspace, requestedValue);
+  if (!pathInside(path.resolve(resource.workspace), requested)) {
+    throw browserError('Browser downloads must stay inside the Browser Project workspace');
+  }
+  let parent;
+  try {
+    parent = fs.realpathSync(path.dirname(requested));
+  } catch {
+    throw browserError('Browser download parent directory does not exist');
+  }
+  if (!pathInside(workspace, parent)) {
+    throw browserError('Browser downloads must stay inside the Browser Project workspace');
+  }
+  if (fs.existsSync(requested)) {
+    throw browserError('Browser download target already exists');
+  }
+  return requested;
 }
 
 class BrowserResourceManager extends EventEmitter {
@@ -95,6 +163,7 @@ class BrowserResourceManager extends EventEmitter {
     this.scheduleTimeout = options.scheduleTimeout || setTimeout;
     this.cancelTimeout = options.cancelTimeout || clearTimeout;
     this.runtimes = new Map();
+    this.sessions = new Map();
     this.operations = new Map();
     this.disposed = false;
     this.runtimeCapability = null;
@@ -107,10 +176,21 @@ class BrowserResourceManager extends EventEmitter {
     const interrupted = this.store.list().filter(resource =>
       ['running', 'starting', 'stopping'].includes(resource.status)
     );
-    await Promise.all(interrupted.map(resource => this.recoverInterruptedRuntime(resource)));
+    const groups = new Map();
+    for (const resource of interrupted) {
+      const key = resource.runtimeKind === 'agent-browser'
+        ? (resource.sessionId || resource.id)
+        : resource.id;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(resource);
+    }
+    await Promise.all([...groups.values()].map(resources => {
+      const owner = resources.find(resource => resource.processIdentity) || resources[0];
+      return this.recoverInterruptedRuntime(owner, resources);
+    }));
   }
 
-  async recoverInterruptedRuntime(resource) {
+  async recoverInterruptedRuntime(resource, relatedResources = [resource]) {
     if (resource.runtimeKind === 'agent-browser') {
       const capability = this.runtimeCapability || await this.refreshCapability();
       let runtimeError = null;
@@ -122,12 +202,15 @@ class BrowserResourceManager extends EventEmitter {
       } else {
         try {
           await this.recoverRuntime({
-            id: resource.id,
-            generation: resource.generation,
+            id: resource.sessionId || resource.id,
+            generation: resource.sessionGeneration || resource.generation,
             browserKind: resource.browserKind,
             processIdentity: resource.processIdentity,
             configDir: this.configDir,
-            profileDir: storageLayout.browserProfileDir(this.configDir, resource.id),
+            profileDir: storageLayout.browserProfileDir(
+              this.configDir,
+              resource.sessionId || resource.id,
+            ),
             agentBrowserPath: capability.agentBrowserPath,
             readProcessIdentity: this.readProcessIdentity,
             wait: this.wait,
@@ -136,13 +219,16 @@ class BrowserResourceManager extends EventEmitter {
           runtimeError = error;
         }
       }
-      this.store.update(resource.id, {
-        status: 'failed',
-        error: runtimeError
-          ? `agent-browser Session cleanup failed: ${runtimeError.message || runtimeError}`
-          : 'Farming restarted and cleaned up the previous Browser runtime',
-        ...(!runtimeError ? { processIdentity: null } : {}),
-      });
+      for (const related of relatedResources) {
+        this.store.update(related.id, {
+          status: 'failed',
+          error: runtimeError
+            ? `agent-browser Session cleanup failed: ${runtimeError.message || runtimeError}`
+            : 'Farming restarted and cleaned up the previous Browser runtime',
+          ...(!runtimeError ? { processIdentity: null } : {}),
+          tabId: '',
+        });
+      }
       return;
     }
 
@@ -296,9 +382,11 @@ class BrowserResourceManager extends EventEmitter {
     this.requireEnabled();
     return this.enqueue(id, async () => {
       const resource = this.requireStored(id);
-      const existing = this.runtimes.get(id);
-      if (resource.status === 'running' && existing) return publicResource(resource, this.store.revision);
-      if (existing) {
+      const existingBinding = this.runtimes.get(id);
+      if (resource.status === 'running' && existingBinding) {
+        return publicResource(resource, this.store.revision);
+      }
+      if (existingBinding) {
         throw browserError(
           'A previous Browser runtime still owns this resource; stop it before restarting',
           409,
@@ -337,39 +425,124 @@ class BrowserResourceManager extends EventEmitter {
         processIdentity: null,
       });
       this.emitResource(starting);
+
+      const reusableSession = [...this.sessions.values()].find(session => (
+        !session.closing
+        && session.projectRootId === resource.projectRootId
+        && session.browserKind === executable.kind
+      ));
+      if (reusableSession) {
+        try {
+          let running;
+          let binding;
+          const operation = (reusableSession.actionChain || Promise.resolve())
+            .catch(() => {})
+            .then(async () => {
+              const tab = await reusableSession.runtime.createTab(
+                resource.url,
+                executable.kind === 'external-cdp'
+                  ? `farming-${resource.id}-g${generation}`
+                  : '',
+              );
+              binding = this.createBinding(reusableSession, {
+                ...starting,
+                tabId: tab.tabId,
+              });
+              reusableSession.bindings.set(id, binding);
+              reusableSession.activeResourceId = id;
+              this.runtimes.set(id, binding);
+              running = this.store.update(id, {
+                status: 'running',
+                sessionId: reusableSession.id,
+                sessionGeneration: reusableSession.generation,
+                tabId: tab.tabId,
+                url: tab.url || resource.url,
+                title: tab.title || '',
+                error: '',
+                processIdentity: null,
+              });
+            });
+          reusableSession.actionChain = operation;
+          await operation;
+          this.emitResource(running);
+          this.broadcastRuntimeState(binding);
+          return publicResource(running, this.store.revision);
+        } catch (error) {
+          const failed = this.store.update(id, {
+            status: 'failed',
+            error: error?.message || 'Failed to create Browser tab',
+            tabId: '',
+          });
+          this.emitResource(failed);
+          throw browserError(failed.error, 500, 'BROWSER_START_FAILED');
+        }
+      }
+
+      const sessionId = resource.sessionId || id;
+      const previousSessionGeneration = this.store.list()
+        .filter(candidate => candidate.sessionId === sessionId)
+        .reduce((maximum, candidate) => Math.max(maximum, candidate.sessionGeneration || 0), 0);
+      const sessionGeneration = previousSessionGeneration + 1;
       const runtime = this.createRuntime({
-        id,
-        generation,
+        id: sessionId,
+        generation: sessionGeneration,
         configDir: this.configDir,
         agentBrowserPath: executable.agentBrowserPath,
         executablePath: executable.path,
         externalCdpUrl: executable.cdpUrl || '',
-        profileDir: storageLayout.browserProfileDir(this.configDir, id),
+        profileDir: storageLayout.browserProfileDir(this.configDir, sessionId),
       });
-      this.runtimes.set(id, runtime);
-      this.bindRuntime(runtime);
+      const session = {
+        id: sessionId,
+        generation: sessionGeneration,
+        projectRootId: resource.projectRootId,
+        browserKind: executable.kind,
+        runtime,
+        bindings: new Map(),
+        activeResourceId: id,
+        processOwnerResourceId: id,
+        actionChain: Promise.resolve(),
+        reconcilingTabs: Promise.resolve(),
+        initializing: true,
+        closing: false,
+      };
+      const binding = this.createBinding(session, starting);
+      session.bindings.set(id, binding);
+      this.sessions.set(sessionId, session);
+      this.runtimes.set(id, binding);
+      this.bindSession(session);
       try {
         const metadata = await runtime.start(resource.url);
-        if (this.runtimes.get(id) !== runtime) {
+        const tabs = await runtime.listTabs();
+        const tab = tabs.find(candidate => candidate.active) || tabs[0];
+        if (!tab) throw new Error('agent-browser did not report the Browser tab');
+        binding.tabId = tab.tabId;
+        if (this.runtimes.get(id) !== binding) {
           throw browserError('Browser startup lost runtime ownership', 409, 'BROWSER_START_REPLACED');
         }
         const running = this.store.update(id, {
           status: 'running',
+          sessionId,
+          sessionGeneration,
+          tabId: tab.tabId,
           url: metadata.url || resource.url,
           title: metadata.title || '',
           error: '',
         });
+        session.initializing = false;
         this.emitResource(running);
-        this.broadcastRuntimeState(runtime);
+        this.broadcastRuntimeState(binding);
         return publicResource(running, this.store.revision);
       } catch (error) {
+        session.initializing = false;
         let cleanupError = null;
         try {
           await runtime.close();
         } catch (closeError) {
           cleanupError = closeError;
         }
-        if (!cleanupError && this.runtimes.get(id) === runtime) this.runtimes.delete(id);
+        if (!cleanupError && this.runtimes.get(id) === binding) this.runtimes.delete(id);
+        if (!cleanupError && this.sessions.get(sessionId) === session) this.sessions.delete(sessionId);
         const current = this.store.get(id);
         const failureMessage = executable.kind === 'external-cdp'
           ? externalBrowserFailure('External Browser connection failed', error).message
@@ -380,6 +553,7 @@ class BrowserResourceManager extends EventEmitter {
             error: cleanupError
               ? `${failureMessage}; cleanup failed`
               : failureMessage,
+            tabId: '',
             ...(!cleanupError ? { processIdentity: null } : {}),
           })
           : null;
@@ -397,8 +571,8 @@ class BrowserResourceManager extends EventEmitter {
     this.requireEnabled();
     return this.enqueue(id, async () => {
       const resource = this.requireStored(id);
-      const runtime = this.runtimes.get(id);
-      if (!runtime) {
+      const binding = this.runtimes.get(id);
+      if (!binding) {
         if (resource.processIdentity) {
           await this.recoverInterruptedRuntime(resource);
           const recovered = this.requireStored(id);
@@ -421,24 +595,48 @@ class BrowserResourceManager extends EventEmitter {
       }
       const stopping = this.store.update(id, { status: 'stopping', error: '' });
       this.emitResource(stopping);
-      this.broadcastRuntimeState(runtime);
+      this.broadcastRuntimeState(binding);
+      const { session } = binding;
+      session.closing = session.bindings.size === 1;
       try {
-        await runtime.close();
+        await session.actionChain?.catch(() => {});
+        if (session.bindings.size > 1) {
+          await session.runtime.closeTab(binding.tabId);
+        } else {
+          await session.runtime.close();
+        }
       } catch (error) {
+        session.closing = false;
         if (resource.browserKind === 'external-cdp') {
           throw externalBrowserFailure('External Browser targets could not be closed', error);
         }
         throw error;
       }
-      if (this.runtimes.get(id) === runtime) this.runtimes.delete(id);
+      session.bindings.delete(id);
+      if (this.runtimes.get(id) === binding) this.runtimes.delete(id);
+      if (session.bindings.size === 0 && this.sessions.get(session.id) === session) {
+        this.sessions.delete(session.id);
+      }
+      session.closing = false;
+
+      if (session.processOwnerResourceId === id && session.bindings.size > 0) {
+        const nextOwner = session.bindings.values().next().value;
+        session.processOwnerResourceId = nextOwner.id;
+        const ownerResource = this.store.update(nextOwner.id, {
+          processIdentity: resource.processIdentity,
+        });
+        this.emitResource(ownerResource);
+        this.broadcastRuntimeState(nextOwner);
+      }
       const stopped = this.store.update(id, {
         status: 'stopped',
         error: '',
         processIdentity: null,
+        tabId: '',
       });
       this.emitResource(stopped);
-      this.broadcastRuntimeState(runtime);
-      this.releaseViewerState(runtime);
+      this.broadcastRuntimeState(binding);
+      this.releaseViewerState(binding);
       return publicResource(stopped, this.store.revision);
     });
   }
@@ -446,12 +644,18 @@ class BrowserResourceManager extends EventEmitter {
   async delete(id) {
     this.requireEnabled();
     await this.stop(id);
-    this.requireStored(id);
+    const resource = this.requireStored(id);
     this.store.delete(id);
-    const profileDir = storageLayout.browserProfileDir(this.configDir, id);
+    const sessionId = resource.sessionId || id;
+    const profileDir = storageLayout.browserProfileDir(this.configDir, sessionId);
     const browsersDir = path.resolve(storageLayout.browserResourcesDir(this.configDir));
     const resourceDir = path.resolve(profileDir, '..');
-    if (resourceDir.startsWith(`${browsersDir}${path.sep}`) && RESOURCE_ID_RE.test(id)) {
+    const sessionStillReferenced = this.store.list().some(candidate => candidate.sessionId === sessionId);
+    if (
+      !sessionStillReferenced
+      && resourceDir.startsWith(`${browsersDir}${path.sep}`)
+      && RESOURCE_ID_RE.test(sessionId)
+    ) {
       fs.rmSync(resourceDir, { recursive: true, force: true });
     }
     this.emit('deleted', { id, collectionRevision: this.store.revision });
@@ -461,33 +665,33 @@ class BrowserResourceManager extends EventEmitter {
   navigate(id, url) {
     this.requireEnabled();
     const normalized = normalizeUrl(url);
-    return this.withRuntime(id, async runtime => {
+    return this.withRuntime(id, async (runtime, binding) => {
       const metadata = await runtime.navigate(normalized);
-      this.updateMetadata(runtime, metadata);
+      this.updateMetadata(binding, metadata);
       return this.get(id);
     });
   }
 
   goBack(id) {
-    return this.withRuntime(id, async runtime => {
+    return this.withRuntime(id, async (runtime, binding) => {
       const metadata = await runtime.goBack();
-      this.updateMetadata(runtime, metadata);
+      this.updateMetadata(binding, metadata);
       return this.get(id);
     });
   }
 
   goForward(id) {
-    return this.withRuntime(id, async runtime => {
+    return this.withRuntime(id, async (runtime, binding) => {
       const metadata = await runtime.goForward();
-      this.updateMetadata(runtime, metadata);
+      this.updateMetadata(binding, metadata);
       return this.get(id);
     });
   }
 
   reload(id) {
-    return this.withRuntime(id, async runtime => {
+    return this.withRuntime(id, async (runtime, binding) => {
       const metadata = await runtime.reload();
-      this.updateMetadata(runtime, metadata);
+      this.updateMetadata(binding, metadata);
       return this.get(id);
     });
   }
@@ -502,9 +706,74 @@ class BrowserResourceManager extends EventEmitter {
     if (kind === 'forward') return this.goForward(id);
     if (kind === 'reload') return this.reload(id);
     if (kind === 'click') return this.withRuntime(id, runtime => runtime.click(input));
+    if ([
+      'dblclick',
+      'hover',
+      'focus',
+      'check',
+      'uncheck',
+      'scrollintoview',
+      'highlight',
+    ].includes(kind)) {
+      return this.withRuntime(id, runtime => runtime.elementAction(kind, input));
+    }
     if (kind === 'type') return this.withRuntime(id, runtime => runtime.type(input, false));
     if (kind === 'fill') return this.withRuntime(id, runtime => runtime.type(input, true));
+    if (kind === 'keyboard') return this.withRuntime(id, runtime => runtime.keyboard(input));
     if (kind === 'press') return this.withRuntime(id, runtime => runtime.press(input));
+    if (kind === 'select') return this.withRuntime(id, runtime => runtime.select(input));
+    if (kind === 'drag') return this.withRuntime(id, runtime => runtime.drag(input));
+    if (kind === 'wait') return this.withRuntime(id, runtime => runtime.waitFor(input));
+    if (kind === 'get') return this.withRuntime(id, runtime => runtime.get(input));
+    if (kind === 'is') return this.withRuntime(id, runtime => runtime.is(input));
+    if (kind === 'find') return this.withRuntime(id, runtime => runtime.find(input));
+    if (kind === 'eval') return this.withRuntime(id, runtime => runtime.evaluate(input));
+    if (kind === 'console' || kind === 'errors') {
+      return this.withRuntime(id, runtime => runtime.debugLog(kind, input));
+    }
+    if (kind === 'network') return this.withRuntime(id, runtime => runtime.network(input));
+    if (kind === 'cookies') return this.withRuntime(id, runtime => runtime.cookies(input));
+    if (kind === 'storage') return this.withRuntime(id, runtime => runtime.storage(input));
+    if (kind === 'frame') return this.withRuntime(id, runtime => runtime.frame(input));
+    if (kind === 'dialog') return this.withRuntime(id, runtime => runtime.dialog(input));
+    if (kind === 'upload') {
+      const resource = this.requireStored(id);
+      const requestedFiles = Array.isArray(input?.files) ? input.files : [];
+      if (requestedFiles.length === 0 || requestedFiles.length > MAX_UPLOAD_FILES) {
+        throw browserError(`Browser upload requires between 1 and ${MAX_UPLOAD_FILES} files`);
+      }
+      const files = requestedFiles.map(file => resolveWorkspaceInputFile(resource, file));
+      return this.withRuntime(id, runtime => runtime.upload({ ...input, files }));
+    }
+    if (kind === 'download') {
+      const resource = this.requireStored(id);
+      const target = resolveWorkspaceOutputFile(resource, input?.path);
+      return this.withRuntime(id, async runtime => {
+        const resourceDir = path.dirname(storageLayout.browserProfileDir(
+          this.configDir,
+          resource.sessionId || id,
+        ));
+        const downloadDir = path.join(resourceDir, 'downloads');
+        fs.mkdirSync(downloadDir, { recursive: true, mode: 0o700 });
+        const temporaryPath = path.join(
+          downloadDir,
+          `${crypto.randomUUID()}-${path.basename(target)}`,
+        );
+        try {
+          await runtime.download({ ...input, outputPath: temporaryPath });
+          const stat = fs.statSync(temporaryPath);
+          if (!stat.isFile()) throw browserError('Browser download did not produce a regular file');
+          fs.copyFileSync(temporaryPath, target, fs.constants.COPYFILE_EXCL);
+          return {
+            ok: true,
+            path: path.relative(resource.workspace, target) || path.basename(target),
+            size: stat.size,
+          };
+        } finally {
+          fs.rmSync(temporaryPath, { force: true });
+        }
+      });
+    }
     if (kind === 'scroll') return this.withRuntime(id, async runtime => {
       await runtime.wheel(input);
       return { ok: true };
@@ -515,16 +784,19 @@ class BrowserResourceManager extends EventEmitter {
   attachViewer(id, ws) {
     this.requireEnabled();
     const resource = this.requireStored(id);
-    const runtime = this.runtimes.get(id);
+    const binding = this.runtimes.get(id);
     ws.send(JSON.stringify({
       type: 'browser-state',
       resource: publicResource(resource, this.store.revision),
     }));
-    if (!runtime || resource.status !== 'running') return () => {};
-    if (!runtime.viewers) runtime.viewers = new Set();
-    if (!runtime.viewerGeometries) runtime.viewerGeometries = new Map();
-    runtime.viewers.add(ws);
-    if (runtime.latestFrame) ws.send(JSON.stringify(runtime.latestFrame));
+    if (!binding || resource.status !== 'running') return () => {};
+    binding.viewers.add(ws);
+    if (binding.latestFrame) ws.send(JSON.stringify(binding.latestFrame));
+    void this.withRuntime(id, () => {}).catch(error => {
+      if (ws.readyState === 1) {
+        ws.send(JSON.stringify({ type: 'browser-error', message: error?.message || 'Browser tab failed' }));
+      }
+    });
     const onMessage = raw => {
       let message;
       try {
@@ -533,8 +805,8 @@ class BrowserResourceManager extends EventEmitter {
         return;
       }
       const operation = message.type === 'resize'
-        ? this.scheduleViewerResize(runtime, ws, message)
-        : this.handleViewerMessage(runtime, ws, message);
+        ? this.scheduleViewerResize(binding, ws, message)
+        : this.handleViewerMessage(binding, ws, message);
       void Promise.resolve(operation).catch(error => {
         if (ws.readyState === 1) {
           ws.send(JSON.stringify({ type: 'browser-error', message: error?.message || 'Browser input failed' }));
@@ -543,15 +815,17 @@ class BrowserResourceManager extends EventEmitter {
     };
     ws.on('message', onMessage);
     const detach = () => {
-      runtime.viewers.delete(ws);
-      runtime.viewerGeometries.delete(ws);
-      if (runtime.viewerViewportOwner === ws) {
-        runtime.viewerViewportOwner = runtime.viewers.values().next().value || null;
-        if (runtime.viewerViewportOwner) {
-          const geometry = runtime.viewerGeometries.get(runtime.viewerViewportOwner);
-          if (geometry) this.scheduleViewerResize(runtime, runtime.viewerViewportOwner, geometry);
+      binding.viewers.delete(ws);
+      binding.viewerGeometries.delete(ws);
+      if (binding.viewerViewportOwner === ws) {
+        binding.viewerViewportOwner = binding.viewers.values().next().value || null;
+        if (binding.viewerViewportOwner) {
+          const geometry = binding.viewerGeometries.get(binding.viewerViewportOwner);
+          if (geometry) {
+            void this.scheduleViewerResize(binding, binding.viewerViewportOwner, geometry).catch(() => {});
+          }
         } else {
-          this.clearViewerResize(runtime);
+          this.clearViewerResize(binding);
         }
       }
       ws.off('message', onMessage);
@@ -560,17 +834,42 @@ class BrowserResourceManager extends EventEmitter {
     return detach;
   }
 
-  handleViewerMessage(runtime, viewer, message) {
-    const next = (runtime.actionChain || Promise.resolve())
+  handleViewerMessage(binding, viewer, message) {
+    const resource = this.requireStored(binding.id);
+    if (
+      resource.status !== 'running'
+      || message.generation !== binding.generation
+      || this.runtimes.get(binding.id) !== binding
+    ) {
+      return Promise.reject(browserError(
+        'Browser Viewer input is no longer admitted',
+        409,
+        'BROWSER_NOT_RUNNING',
+      ));
+    }
+    const { session } = binding;
+    const next = (session.actionChain || Promise.resolve())
       .catch(() => {})
-      .then(() => this.performViewerMessage(runtime, viewer, message));
-    runtime.actionChain = next;
+      .then(async () => {
+        await this.activateBinding(binding);
+        return this.performViewerMessage(binding, viewer, message);
+      });
+    session.actionChain = next;
     return next;
   }
 
-  scheduleViewerResize(runtime, viewer, message) {
-    if (message.generation !== runtime.generation || this.runtimes.get(runtime.id) !== runtime) {
-      return Promise.reject(browserError('Browser Viewer generation is stale', 409, 'BROWSER_STALE_GENERATION'));
+  scheduleViewerResize(binding, viewer, message) {
+    const resource = this.requireStored(binding.id);
+    if (
+      resource.status !== 'running'
+      || message.generation !== binding.generation
+      || this.runtimes.get(binding.id) !== binding
+    ) {
+      return Promise.reject(browserError(
+        'Browser Viewer resize is no longer admitted',
+        409,
+        'BROWSER_NOT_RUNNING',
+      ));
     }
     const width = Math.round(Number(message.width));
     const height = Math.round(Number(message.height));
@@ -588,23 +887,23 @@ class BrowserResourceManager extends EventEmitter {
       height,
       deviceScaleFactor,
     };
-    runtime.viewerGeometries.set(viewer, geometry);
+    binding.viewerGeometries.set(viewer, geometry);
     if (
       message.claim === true
-      || !runtime.viewerViewportOwner
-      || !runtime.viewers.has(runtime.viewerViewportOwner)
+      || !binding.viewerViewportOwner
+      || !binding.viewers.has(binding.viewerViewportOwner)
     ) {
-      runtime.viewerViewportOwner = viewer;
+      binding.viewerViewportOwner = viewer;
     }
-    if (runtime.viewerViewportOwner !== viewer) return Promise.resolve();
-    runtime.pendingViewerResize = { viewer, geometry };
-    if (runtime.viewerResizeTimer) this.cancelTimeout(runtime.viewerResizeTimer);
-    runtime.viewerResizeTimer = this.scheduleTimeout(() => {
-      runtime.viewerResizeTimer = null;
-      const pending = runtime.pendingViewerResize;
-      runtime.pendingViewerResize = null;
-      if (!pending || runtime.viewerViewportOwner !== pending.viewer) return;
-      void this.handleViewerMessage(runtime, pending.viewer, pending.geometry).catch(error => {
+    if (binding.viewerViewportOwner !== viewer) return Promise.resolve();
+    binding.pendingViewerResize = { viewer, geometry };
+    if (binding.viewerResizeTimer) this.cancelTimeout(binding.viewerResizeTimer);
+    binding.viewerResizeTimer = this.scheduleTimeout(() => {
+      binding.viewerResizeTimer = null;
+      const pending = binding.pendingViewerResize;
+      binding.pendingViewerResize = null;
+      if (!pending || binding.viewerViewportOwner !== pending.viewer) return;
+      void this.handleViewerMessage(binding, pending.viewer, pending.geometry).catch(error => {
         if (pending.viewer.readyState === 1) {
           pending.viewer.send(JSON.stringify({
             type: 'browser-error',
@@ -613,7 +912,7 @@ class BrowserResourceManager extends EventEmitter {
         }
       });
     }, VIEWER_RESIZE_SETTLE_MS);
-    runtime.viewerResizeTimer.unref?.();
+    binding.viewerResizeTimer.unref?.();
     return Promise.resolve();
   }
 
@@ -630,12 +929,13 @@ class BrowserResourceManager extends EventEmitter {
     runtime.viewers?.clear?.();
   }
 
-  async performViewerMessage(runtime, viewer, message) {
-    if (message.generation !== runtime.generation || this.runtimes.get(runtime.id) !== runtime) {
+  async performViewerMessage(binding, viewer, message) {
+    if (message.generation !== binding.generation || this.runtimes.get(binding.id) !== binding) {
       throw browserError('Browser Viewer generation is stale', 409, 'BROWSER_STALE_GENERATION');
     }
+    const runtime = binding.session.runtime;
     if (message.type === 'resize') {
-      if (runtime.viewerViewportOwner !== viewer) return;
+      if (binding.viewerViewportOwner !== viewer) return;
       await runtime.resize({
         width: message.width,
         height: message.height,
@@ -662,21 +962,27 @@ class BrowserResourceManager extends EventEmitter {
 
   async dispose() {
     this.disposed = true;
-    const runtimes = [...this.runtimes.values()];
-    const results = await Promise.allSettled(runtimes.map(runtime => runtime.close()));
+    const sessions = [...this.sessions.values()];
+    const results = await Promise.allSettled(sessions.map(session => session.runtime.close()));
     const failures = results
       .filter(result => result.status === 'rejected')
       .map(result => result.reason?.message || String(result.reason));
     if (failures.length > 0) {
       throw new Error(`Browser runtime cleanup failed: ${failures.join('; ')}`);
     }
-    for (const runtime of runtimes) this.releaseViewerState(runtime);
+    for (const binding of this.runtimes.values()) this.releaseViewerState(binding);
     this.runtimes.clear();
+    this.sessions.clear();
   }
 
   async stopAll() {
     const ids = [...this.runtimes.keys()];
-    const results = await Promise.allSettled(ids.map(id => this.stop(id)));
+    const results = [];
+    for (const id of ids) {
+      results.push(await Promise.resolve(this.stop(id))
+        .then(value => ({ status: 'fulfilled', value }))
+        .catch(reason => ({ status: 'rejected', reason })));
+    }
     const failures = results
       .filter(result => result.status === 'rejected')
       .map(result => result.reason?.message || String(result.reason));
@@ -725,110 +1031,249 @@ class BrowserResourceManager extends EventEmitter {
     });
   }
 
+  createBinding(session, resource) {
+    return {
+      id: resource.id,
+      generation: resource.generation,
+      session,
+      tabId: resource.tabId || '',
+      viewers: new Set(),
+      viewerGeometries: new Map(),
+      viewerViewportOwner: null,
+      viewerResizeTimer: null,
+      pendingViewerResize: null,
+      latestFrame: null,
+    };
+  }
+
+  async activateBinding(binding) {
+    const { session } = binding;
+    if (!binding.tabId) throw browserError('Browser tab is unavailable', 409, 'BROWSER_TAB_UNAVAILABLE');
+    if (
+      session.runtime.activeTabId !== binding.tabId
+      || session.runtime.streamTabId !== binding.tabId
+    ) {
+      await session.runtime.switchTab(binding.tabId);
+    }
+    session.activeResourceId = binding.id;
+  }
+
   withRuntime(id, operation) {
-    const runtime = this.runtimes.get(id);
+    const binding = this.runtimes.get(id);
     const resource = this.requireStored(id);
-    if (!runtime || resource.status !== 'running') {
+    if (!binding || resource.status !== 'running') {
       throw browserError('Browser is not running', 409, 'BROWSER_NOT_RUNNING');
     }
-    const next = (runtime.actionChain || Promise.resolve())
+    const { session } = binding;
+    const next = (session.actionChain || Promise.resolve())
       .catch(() => {})
-      .then(() => operation(runtime));
-    runtime.actionChain = next;
+      .then(async () => {
+        await this.activateBinding(binding);
+        return operation(session.runtime, binding);
+      });
+    session.actionChain = next;
     return next;
   }
 
-  bindRuntime(runtime) {
+  bindSession(session) {
+    const { runtime } = session;
     runtime.on('process-identity', processIdentity => {
-      const current = this.store.get(runtime.id);
+      const owner = this.store.get(session.processOwnerResourceId);
       if (
-        this.runtimes.get(runtime.id) !== runtime
-        || !current
-        || current.generation !== runtime.generation
+        this.sessions.get(session.id) !== session
+        || !owner
+        || owner.sessionId && owner.sessionId !== session.id
       ) return;
-      this.store.update(runtime.id, { processIdentity });
+      const next = this.store.update(owner.id, { processIdentity });
+      this.emitResource(next);
     });
     runtime.on('frame', frame => {
-      runtime.latestFrame = frame;
-      for (const viewer of runtime.viewers || []) {
+      const binding = [...session.bindings.values()]
+        .find(candidate => candidate.tabId === runtime.streamTabId)
+        || session.bindings.get(session.activeResourceId);
+      if (!binding) return;
+      const resourceFrame = {
+        ...frame,
+        generation: binding.generation,
+      };
+      binding.latestFrame = resourceFrame;
+      for (const viewer of binding.viewers) {
         if (viewer.readyState === 1 && (Number(viewer.bufferedAmount) || 0) <= MAX_VIEWER_BUFFER_BYTES) {
-          viewer.send(JSON.stringify(frame));
+          viewer.send(JSON.stringify(resourceFrame));
         }
       }
     });
-    runtime.on('metadata', metadata => this.updateMetadata(runtime, metadata));
+    runtime.on('metadata', metadata => {
+      const binding = [...session.bindings.values()]
+        .find(candidate => candidate.tabId === runtime.activeTabId)
+        || session.bindings.get(session.activeResourceId);
+      if (binding) this.updateMetadata(binding, metadata);
+    });
+    runtime.on('tabs', event => {
+      if (session.initializing || session.closing) return;
+      const next = (session.actionChain || Promise.resolve())
+        .catch(() => {})
+        .then(() => this.reconcileTabs(session, event));
+      session.actionChain = next;
+    });
     runtime.on('error', error => {
-      for (const viewer of runtime.viewers || []) {
-        if (viewer.readyState === 1) {
-          viewer.send(JSON.stringify({ type: 'browser-error', message: error?.message || 'Browser runtime failed' }));
+      for (const binding of session.bindings.values()) {
+        for (const viewer of binding.viewers) {
+          if (viewer.readyState === 1) {
+            viewer.send(JSON.stringify({ type: 'browser-error', message: error?.message || 'Browser runtime failed' }));
+          }
         }
       }
     });
     runtime.once('exit', message => {
-      void this.handleRuntimeExit(runtime, message);
+      void this.handleRuntimeExit(session, message);
     });
   }
 
-  updateMetadata(runtime, metadata) {
-    const current = this.store.get(runtime.id);
-    if (!current || current.generation !== runtime.generation || !metadata) return;
-    const next = this.store.update(runtime.id, {
+  async reconcileTabs(session, event) {
+    if (this.sessions.get(session.id) !== session || session.closing) return;
+    const tabs = Array.isArray(event?.tabs) ? event.tabs.filter(tab => tab.type === 'page') : [];
+    const byTabId = new Map([...session.bindings.values()].map(binding => [binding.tabId, binding]));
+    const opener = session.bindings.get(session.activeResourceId) || null;
+    const opened = [];
+
+    for (const tab of tabs) {
+      let binding = byTabId.get(tab.tabId);
+      if (!binding && (!session.runtime.externalCdpUrl || event.popupAdmitted)) {
+        session.runtime.ownedTabIds.add(tab.tabId);
+        const created = this.store.createRunningTab({
+          projectRootId: opener?.session.projectRootId || session.projectRootId,
+          workspace: this.store.get(opener?.id)?.workspace
+            || this.store.list().find(resource => resource.sessionId === session.id)?.workspace,
+          name: tabResourceName(tab),
+          url: tab.url,
+          title: tab.title,
+          browserKind: session.browserKind,
+          sessionId: session.id,
+          sessionGeneration: session.generation,
+          tabId: tab.tabId,
+        });
+        binding = this.createBinding(session, created);
+        session.bindings.set(created.id, binding);
+        this.runtimes.set(created.id, binding);
+        byTabId.set(tab.tabId, binding);
+        this.emitResource(created);
+        opened.push(publicResource(created, this.store.revision));
+      }
+      if (!binding) continue;
+      const current = this.store.get(binding.id);
+      if (!current || current.status !== 'running') continue;
+      if (current.url !== tab.url || current.title !== tab.title) {
+        const updated = this.store.update(binding.id, {
+          url: tab.url || current.url,
+          title: tab.title || '',
+        });
+        this.emitResource(updated);
+        this.broadcastRuntimeState(binding);
+      }
+    }
+
+    const liveTabIds = new Set(tabs.map(tab => tab.tabId));
+    for (const binding of [...session.bindings.values()]) {
+      if (liveTabIds.has(binding.tabId)) continue;
+      const current = this.store.get(binding.id);
+      if (!current || current.status === 'stopping') continue;
+      session.bindings.delete(binding.id);
+      this.runtimes.delete(binding.id);
+      const stopped = this.store.update(binding.id, {
+        status: 'stopped',
+        tabId: '',
+        processIdentity: null,
+        error: '',
+      });
+      this.emitResource(stopped);
+      this.broadcastRuntimeState(binding);
+      this.releaseViewerState(binding);
+    }
+
+    const activeTab = tabs.find(tab => tab.active);
+    const activeBinding = activeTab ? byTabId.get(activeTab.tabId) : null;
+    if (activeBinding) {
+      session.activeResourceId = activeBinding.id;
+      if (session.runtime.streamTabId !== activeBinding.tabId) {
+        await session.runtime.switchTab(activeBinding.tabId);
+      }
+    }
+    if (opened.length > 0 && opener) {
+      const message = JSON.stringify({
+        type: 'browser-tab-opened',
+        resource: opened.at(-1),
+      });
+      for (const viewer of opener.viewers) {
+        if (viewer.readyState === 1) viewer.send(message);
+      }
+    }
+  }
+
+  updateMetadata(binding, metadata) {
+    const current = this.store.get(binding.id);
+    if (!current || current.generation !== binding.generation || !metadata) return;
+    const next = this.store.update(binding.id, {
       url: String(metadata.url || current.url),
       title: String(metadata.title || ''),
     });
     this.emitResource(next);
-    this.broadcastRuntimeState(runtime);
+    this.broadcastRuntimeState(binding);
   }
 
   emitResource(resource) {
     this.emit('resource', publicResource(resource, this.store.revision));
   }
 
-  broadcastRuntimeState(runtime) {
-    const resource = this.store.get(runtime.id);
+  broadcastRuntimeState(binding) {
+    const resource = this.store.get(binding.id);
     if (!resource) return;
     const message = JSON.stringify({
       type: 'browser-state',
       resource: publicResource(resource, this.store.revision),
     });
-    for (const viewer of runtime.viewers || []) {
+    for (const viewer of binding.viewers || []) {
       if (viewer.readyState === 1) viewer.send(message);
     }
   }
 
-  async handleRuntimeExit(runtime, message) {
-    const current = this.store.get(runtime.id);
-    if (
-      this.runtimes.get(runtime.id) !== runtime
-      || !current
-      || current.generation !== runtime.generation
-    ) return;
-    const failed = this.store.update(runtime.id, {
-      status: 'failed',
-      error: current.browserKind === 'external-cdp'
-        ? 'External Browser connection exited'
-        : message || 'Browser connection exited',
-    });
-    this.emitResource(failed);
-    this.broadcastRuntimeState(runtime);
-    try {
-      await runtime.close();
-      if (this.runtimes.get(runtime.id) === runtime) this.runtimes.delete(runtime.id);
-      this.releaseViewerState(runtime);
-      const cleaned = this.store.update(runtime.id, {
-        processIdentity: null,
-      });
-      this.emitResource(cleaned);
-      this.broadcastRuntimeState(runtime);
-    } catch (error) {
-      const cleanupFailed = this.store.update(runtime.id, {
+  async handleRuntimeExit(session, message) {
+    if (this.sessions.get(session.id) !== session) return;
+    const failedBindings = [...session.bindings.values()];
+    for (const binding of failedBindings) {
+      const current = this.store.get(binding.id);
+      if (!current) continue;
+      const failed = this.store.update(binding.id, {
         status: 'failed',
         error: current.browserKind === 'external-cdp'
-          ? `${failed.error}; target cleanup failed`
-          : `${failed.error}; cleanup failed: ${error?.message || error}`,
+          ? 'External Browser connection exited'
+          : message || 'Browser connection exited',
       });
-      this.emitResource(cleanupFailed);
-      this.broadcastRuntimeState(runtime);
+      this.emitResource(failed);
+      this.broadcastRuntimeState(binding);
+    }
+    try {
+      await session.runtime.close();
+      this.sessions.delete(session.id);
+      for (const binding of failedBindings) {
+        this.runtimes.delete(binding.id);
+        this.releaseViewerState(binding);
+        const cleaned = this.store.update(binding.id, { processIdentity: null });
+        if (cleaned) this.emitResource(cleaned);
+      }
+    } catch (error) {
+      for (const binding of failedBindings) {
+        const current = this.store.get(binding.id);
+        if (!current) continue;
+        const cleanupFailed = this.store.update(binding.id, {
+          status: 'failed',
+          error: current.browserKind === 'external-cdp'
+            ? `${current.error}; target cleanup failed`
+            : `${current.error}; cleanup failed: ${error?.message || error}`,
+        });
+        this.emitResource(cleanupFailed);
+        this.broadcastRuntimeState(binding);
+      }
     }
   }
 }

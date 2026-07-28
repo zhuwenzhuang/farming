@@ -1,6 +1,8 @@
 import { chromium, defineConfig, devices } from '@playwright/test'
 import { registry } from 'playwright-core/lib/server/registry/index'
 import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 
 const port = Number(process.env.FARMING_PLAYWRIGHT_PORT || 4173)
 const baseURL = `http://127.0.0.1:${port}`
@@ -16,6 +18,20 @@ const browserResourceExecutablePath = process.env.FARMING_BROWSER_EXECUTABLE
   || executablePath
   || headlessShellPath
   || chromium.executablePath()
+const managedAgentBrowserCandidates = [
+  process.env.FARMING_AGENT_BROWSER_BIN,
+  path.join(
+    os.homedir(),
+    '.farming',
+    'runtimes',
+    'agentBrowser',
+    '0.32.3',
+    `${process.platform}-${process.arch}`,
+    process.platform === 'win32' ? 'agent-browser.exe' : 'agent-browser',
+  ),
+  path.resolve('node_modules', '.bin', process.platform === 'win32' ? 'agent-browser.cmd' : 'agent-browser'),
+].filter((candidate): candidate is string => Boolean(candidate))
+const managedAgentBrowserPath = managedAgentBrowserCandidates.find(candidate => fs.existsSync(candidate))
 const chromiumLaunchOptions = {
   executablePath,
   args: [
@@ -37,6 +53,7 @@ const playwrightServerEnv = {
   FARMING_E2E_FAKE_EXECUTABLES: useRealCodex ? '0' : '1',
   FARMING_E2E_FAKE_ACP_AGENT: useRealCodex ? '0' : '1',
   FARMING_BROWSER_EXECUTABLE: browserResourceExecutablePath,
+  ...(managedAgentBrowserPath ? { FARMING_AGENT_BROWSER_BIN: managedAgentBrowserPath } : {}),
   FARMING_BROWSER_NO_SANDBOX: process.env.CI ? '1' : '0',
   VITE_FARMING_BLAME_AUTHOR_URL_TEMPLATE: 'https://example.invalid/users/{author}',
   NODE_ENV: 'test',

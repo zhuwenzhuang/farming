@@ -3,6 +3,10 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const AgentManager = require('../agent-manager');
+const {
+  ensureFarmingAgentBootstrapFile,
+  renderFarmingAgentBootstrap,
+} = require('../farming-agent-bootstrap');
 
 async function run() {
   const farmingDir = path.join(os.tmpdir(), 'farming-control-env');
@@ -10,6 +14,8 @@ async function run() {
   const mainWorkspace = path.join(workspace, '.farming');
   fs.mkdirSync(farmingDir, { recursive: true });
   fs.mkdirSync(workspace, { recursive: true });
+  const startupPromptFile = ensureFarmingAgentBootstrapFile(farmingDir);
+  const farmingSystemPrompt = renderFarmingAgentBootstrap();
 
   const captured = [];
   const previousLdLibraryPath = process.env.LD_LIBRARY_PATH;
@@ -86,13 +92,34 @@ async function run() {
     assert(captured[0].env.PATH.startsWith(`/repo/bin${path.delimiter}`));
     assert(captured[0].args.includes('--append-system-prompt'));
     assert(captured[0].args.some(arg => String(arg).includes('You are the Farming Main Agent.')));
-    assert(captured[0].args.some(arg => String(arg).includes('你由 Farming 启动并托管')));
+    assert(
+      captured[0].args.some(arg => String(arg).includes(farmingSystemPrompt)),
+      'Main Agents must receive the Farming bootstrap alongside their Main Agent context',
+    );
 
     assert.strictEqual(captured[1].cwd, workspace, 'child should inherit parent project workspace by default');
     assert.strictEqual(captured[1].env.FARMING_AGENT_ID, childId);
     assert.strictEqual(captured[1].env.FARMING_PARENT_AGENT_ID, parentId);
     assert.strictEqual(captured[1].env.FARMING_IS_MAIN_AGENT, '0');
     assert.strictEqual(captured[1].env.FARMING_PROJECT_WORKSPACE, workspace);
+    assert(captured[1].args.includes(farmingSystemPrompt), 'child Agents must receive the Farming bootstrap too');
+
+    const openCodeEnv = manager.buildAgentEnv('agent-opencode', {
+      wantsMain: false,
+      category: 'coding',
+      command: 'opencode',
+      providerSessionProvider: 'opencode',
+    });
+    assert.deepStrictEqual(
+      JSON.parse(openCodeEnv.OPENCODE_CONFIG_CONTENT).instructions,
+      [startupPromptFile],
+      'OpenCode must receive the Farming bootstrap through process-local instructions',
+    );
+    assert.strictEqual(
+      fs.readFileSync(startupPromptFile, 'utf8').trim(),
+      farmingSystemPrompt,
+      'the OpenCode instructions file must contain the same bootstrap as other providers',
+    );
 
     const state = manager.getState();
     const child = state.agents.find((agent) => agent.id === childId);

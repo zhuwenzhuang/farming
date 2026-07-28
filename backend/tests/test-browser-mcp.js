@@ -81,6 +81,14 @@ async function run() {
         response.end(JSON.stringify({ mimeType: 'image/png', data: 'iVBORw0KGgo=' }));
         return;
       }
+      if (
+        request.method === 'POST'
+        && request.url === '/farming/api/browsers/browser_project/action'
+        && body?.kind === 'eval'
+      ) {
+        response.end(JSON.stringify({ value: 'Example' }));
+        return;
+      }
       response.statusCode = 404;
       response.end(JSON.stringify({ error: 'not found' }));
     });
@@ -116,10 +124,36 @@ async function run() {
       'browser_type',
       'browser_press',
       'browser_scroll',
+      'browser_history',
+      'browser_wait',
+      'browser_get',
+      'browser_is',
+      'browser_eval',
+      'browser_element_action',
+      'browser_keyboard',
+      'browser_select',
+      'browser_drag',
+      'browser_find',
+      'browser_debug',
+      'browser_cookies',
+      'browser_storage',
+      'browser_frame',
+      'browser_dialog',
+      'browser_upload',
+      'browser_download',
     ]);
     const snapshotTool = listedTools.tools.find(tool => tool.name === 'browser_snapshot');
     assert(snapshotTool.description.includes('untrusted data'));
     assert(snapshotTool.inputSchema.required.includes('browserId'));
+    const waitTool = listedTools.tools.find(tool => tool.name === 'browser_wait');
+    const evalTool = listedTools.tools.find(tool => tool.name === 'browser_eval');
+    const debugTool = listedTools.tools.find(tool => tool.name === 'browser_debug');
+    assert.strictEqual(waitTool.annotations.readOnlyHint, false);
+    assert.strictEqual(waitTool.annotations.destructiveHint, true);
+    assert.strictEqual(evalTool.annotations.readOnlyHint, false);
+    assert.strictEqual(evalTool.annotations.destructiveHint, true);
+    assert.strictEqual(debugTool.annotations.readOnlyHint, false);
+    assert.strictEqual(debugTool.annotations.destructiveHint, true);
 
     const listed = await client.callTool({ name: 'browser_list', arguments: {} });
     const listedValue = JSON.parse(listed.content[0].text);
@@ -140,6 +174,16 @@ async function run() {
     assert.strictEqual(screenshot.content[1].type, 'image');
     assert.strictEqual(screenshot.content[1].mimeType, 'image/png');
     assert.strictEqual(screenshot.content[1].data, 'iVBORw0KGgo=');
+
+    const evaluated = await client.callTool({
+      name: 'browser_eval',
+      arguments: { browserId: 'browser_project', expression: 'document.title' },
+    });
+    assert.strictEqual(JSON.parse(evaluated.content[0].text).value, 'Example');
+    assert.deepStrictEqual(requests.at(-1).body, {
+      kind: 'eval',
+      expression: 'document.title',
+    });
 
     const requestCountBeforeDeniedCall = requests.length;
     const denied = await client.callTool({

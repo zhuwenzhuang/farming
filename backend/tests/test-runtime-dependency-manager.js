@@ -2,12 +2,19 @@ const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const tar = require('tar');
 const storageLayout = require('../storage-layout');
+const { runtimeExecutableInvocation } = require('../runtime-executable-invocation');
 const {
   MANIFEST,
+  SOURCE_CONFIG,
   dependencyCacheDir,
+  downloadArtifact,
+  extractArtifact,
+  managedRuntimeUsesConfiguredLoader,
   prepareRuntimeDependencies,
   pruneRuntimeDependencies,
+  runtimeArtifactDownloadUrls,
   runtimePlatformKey,
   verifyExecutable,
 } = require('../runtime-dependency-manager');
@@ -24,11 +31,140 @@ function writeVersionExecutable(directory, name, version) {
 
 async function run() {
   assert.deepStrictEqual(buildManifest(), MANIFEST, 'checked-in runtime manifest must match package-lock');
+  assert.strictEqual(SOURCE_CONFIG.authoritativeNpmRegistry, 'https://registry.npmjs.org/');
+  assert.strictEqual(SOURCE_CONFIG.defaultNpmMirror, 'https://registry.npmmirror.com/');
+  const directInvocation = runtimeExecutableInvocation('/runtime/agent-browser', ['--version'], {});
+  assert.deepStrictEqual(directInvocation, {
+    command: '/runtime/agent-browser',
+    args: ['--version'],
+  });
+  const loaderInvocation = runtimeExecutableInvocation(
+    '/runtime/agent-browser',
+    ['--version'],
+    {
+      FARMING_NODE_LD: '/runtime/ld-2.28.so',
+      FARMING_NODE_LIBRARY_PATH: '/runtime/lib',
+    },
+    'linux',
+  );
+  assert.deepStrictEqual(loaderInvocation, {
+    command: '/runtime/ld-2.28.so',
+    args: ['--library-path', '/runtime/lib', '/runtime/agent-browser', '--version'],
+  });
+  assert.strictEqual(managedRuntimeUsesConfiguredLoader('agentBrowser'), true);
+  assert.strictEqual(managedRuntimeUsesConfiguredLoader('codex'), false);
+  assert.strictEqual(managedRuntimeUsesConfiguredLoader('claude'), false);
   assert(MANIFEST.dependencies.codex.artifacts[runtimePlatformKey()]);
   assert(MANIFEST.dependencies.claude.artifacts[runtimePlatformKey()]);
   assert(MANIFEST.dependencies.agentBrowser.artifacts[runtimePlatformKey()]);
+  for (const dependency of Object.values(MANIFEST.dependencies)) {
+    for (const artifact of Object.values(dependency.artifacts)) {
+      assert.match(
+        artifact.url,
+        /^https:\/\/registry\.npmjs\.org\//,
+        'startup dependencies must use the public npm registry',
+      );
+    }
+  }
+  for (const artifact of Object.values(MANIFEST.dependencies.agentBrowser.artifacts)) {
+    assert.strictEqual(artifact.archive, 'tgz');
+    assert.match(artifact.archiveEntry, /^package\/bin\/agent-browser-/);
+    assert(!artifact.archivePrefix);
+  }
 
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-runtime-manager.'));
+  const downloadBody = Buffer.from('verified runtime artifact');
+  const downloadArtifactFixture = {
+    url: 'https://registry.npmjs.org/example/-/example-1.0.0.tgz',
+    integrity: `sha512-${require('crypto').createHash('sha512').update(downloadBody).digest('base64')}`,
+    size: downloadBody.length,
+  };
+  assert.deepStrictEqual(
+    await runtimeArtifactDownloadUrls(downloadArtifactFixture, {
+      env: {},
+      fetch: async () => new globalThis.Response(JSON.stringify({
+        version: '1.0.0',
+        dist: {
+          integrity: downloadArtifactFixture.integrity,
+          tarball: 'https://registry.npmmirror.com/example/-/example-1.0.0.tgz',
+        },
+      })),
+    }),
+    [
+      'https://registry.npmmirror.com/example/-/example-1.0.0.tgz',
+      downloadArtifactFixture.url,
+    ],
+  );
+  assert.deepStrictEqual(
+    await runtimeArtifactDownloadUrls(downloadArtifactFixture, {
+      env: { FARMING_RUNTIME_NPM_MIRROR: 'off' },
+    }),
+    [downloadArtifactFixture.url],
+  );
+  await assert.rejects(
+    runtimeArtifactDownloadUrls(downloadArtifactFixture, {
+      env: { FARMING_RUNTIME_NPM_MIRROR: 'http://registry.example.com/' },
+    }),
+    /must be an HTTPS registry origin/,
+  );
+  const downloadedFixture = path.join(root, 'downloaded-fixture.tgz');
+  const requestedUrls = [];
+  await downloadArtifact(downloadArtifactFixture, downloadedFixture, {
+    env: { FARMING_RUNTIME_NPM_MIRROR: 'https://registry.npmmirror.com/' },
+    fetch: async url => {
+      requestedUrls.push(String(url));
+      if (String(url).startsWith('https://registry.npmmirror.com/')) {
+        return new globalThis.Response('', { status: 404 });
+      }
+      return new globalThis.Response(downloadBody);
+    },
+  });
+  assert.deepStrictEqual(requestedUrls, [
+    'https://registry.npmmirror.com/example/1.0.0',
+    downloadArtifactFixture.url,
+  ]);
+  assert.deepStrictEqual(fs.readFileSync(downloadedFixture), downloadBody);
+  const mirroredFixture = path.join(root, 'mirrored-fixture.tgz');
+  const mirroredUrls = [];
+  await downloadArtifact(downloadArtifactFixture, mirroredFixture, {
+    env: { FARMING_RUNTIME_NPM_MIRROR: 'https://registry.npmmirror.com/' },
+    fetch: async url => {
+      mirroredUrls.push(String(url));
+      if (String(url) === 'https://registry.npmmirror.com/example/1.0.0') {
+        return new globalThis.Response(JSON.stringify({
+          version: '1.0.0',
+          dist: {
+            integrity: downloadArtifactFixture.integrity,
+            tarball: 'https://registry.npmmirror.com/example/-/example-1.0.0.tgz',
+          },
+        }));
+      }
+      return new globalThis.Response(downloadBody);
+    },
+  });
+  assert.deepStrictEqual(mirroredUrls, [
+    'https://registry.npmmirror.com/example/1.0.0',
+    'https://registry.npmmirror.com/example/-/example-1.0.0.tgz',
+  ]);
+  assert.deepStrictEqual(fs.readFileSync(mirroredFixture), downloadBody);
+
+  const archiveFixture = path.join(root, 'archive-fixture');
+  const archivePackageBin = path.join(archiveFixture, 'package', 'bin');
+  const selectiveArchive = path.join(root, 'agent-browser.tgz');
+  const selectiveStaging = path.join(root, 'selective-staging');
+  fs.mkdirSync(archivePackageBin, { recursive: true });
+  fs.mkdirSync(selectiveStaging);
+  fs.writeFileSync(path.join(archivePackageBin, 'agent-browser-platform'), 'selected');
+  fs.writeFileSync(path.join(archivePackageBin, 'agent-browser-other'), 'excluded');
+  await tar.c({ cwd: archiveFixture, file: selectiveArchive, gzip: true }, ['package']);
+  const extracted = await extractArtifact({
+    archive: 'tgz',
+    archiveEntry: 'package/bin/agent-browser-platform',
+    entry: 'agent-browser',
+  }, selectiveArchive, selectiveStaging);
+  assert.strictEqual(fs.readFileSync(extracted, 'utf8'), 'selected');
+  assert(!fs.existsSync(path.join(selectiveStaging, 'agent-browser-other')));
+
   const binDir = path.join(root, 'bin');
   fs.mkdirSync(binDir);
   const env = {

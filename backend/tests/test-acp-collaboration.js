@@ -1,7 +1,10 @@
 const assert = require('assert');
 const { acpTranscriptToolEntry } = require('../acp-transcript');
 const { projectAcpTranscript } = require('../../src/components/code/acp/acp-entry-projection.ts');
-const { acpCollaborationEvents } = require('../../src/components/code/acp/acp-collaboration.ts');
+const {
+  acpCollaborationAgents,
+  acpCollaborationEvents,
+} = require('../../src/components/code/acp/acp-collaboration.ts');
 
 const compactActivity = acpTranscriptToolEntry({
   id: 'activity-review',
@@ -107,5 +110,128 @@ const fallbackEvents = acpCollaborationEvents([{
 }]);
 assert.strictEqual(fallbackEvents[0].action, 'started');
 assert.strictEqual(fallbackEvents[0].name, 'Agent thread');
+const stableIconAgents = acpCollaborationAgents([
+  {
+    id: 'icon-a-start',
+    type: 'collaboration',
+    title: 'Start A',
+    status: 'completed',
+    collaboration: {
+      kind: 'activity',
+      threadId: 'thread-review-refresh',
+      agentPath: 'review_refresh',
+      activity: 'started',
+    },
+  },
+  {
+    id: 'icon-a-update',
+    type: 'collaboration',
+    title: 'Update A',
+    status: 'completed',
+    collaboration: {
+      kind: 'activity',
+      threadId: 'thread-review-refresh',
+      agentPath: 'review_refresh',
+      activity: 'interacted',
+    },
+  },
+  {
+    id: 'icon-b-start',
+    type: 'collaboration',
+    title: 'Start B',
+    status: 'completed',
+    collaboration: {
+      kind: 'activity',
+      threadId: 'thread-browser-guards',
+      agentPath: 'browser_guards',
+      activity: 'started',
+    },
+  },
+  {
+    id: 'icon-c-start',
+    type: 'collaboration',
+    title: 'Start C',
+    status: 'completed',
+    collaboration: {
+      kind: 'activity',
+      threadId: 'thread-crt-races',
+      agentPath: 'crt_races',
+      activity: 'started',
+    },
+  },
+]);
+assert.deepStrictEqual(
+  stableIconAgents.map(agent => agent.icon),
+  [1, 0, 2],
+  'the production-shaped child threads cover all three stable base Agent icons',
+);
+assert.strictEqual(
+  acpCollaborationAgents(stableIconAgents[0].events.map(event => ({
+    id: event.processItemId,
+    type: 'collaboration',
+    title: event.title,
+    status: 'completed',
+    collaboration: {
+      kind: 'activity',
+      threadId: event.threadId,
+      agentPath: 'review_refresh',
+      activity: event.action === 'updated' ? 'interacted' : event.action,
+    },
+  })))[0].icon,
+  stableIconAgents[0].icon,
+  'an Agent icon stays stable as more events arrive for the same thread',
+);
+
+const unknownEvents = acpCollaborationEvents([
+  {
+    id: 'unknown-activity',
+    type: 'collaboration',
+    title: 'Provider-specific child activity',
+    status: 'completed',
+    collaboration: {
+      kind: 'activity',
+      threadId: 'thread-unknown',
+      agentPath: 'unknown_worker',
+      activity: 'provider_future_action',
+    },
+  },
+  {
+    id: 'unknown-tool',
+    type: 'collaboration',
+    title: 'Provider-specific child tool',
+    status: 'mystery',
+    collaboration: {
+      kind: 'tool',
+      tool: 'providerFutureTool',
+      receiverThreadIds: ['thread-unknown'],
+    },
+  },
+]);
+assert.deepStrictEqual(
+  unknownEvents.map(event => [event.name, event.action, event.processItemId]),
+  [
+    ['Unknown worker', 'recorded', 'unknown-activity'],
+    ['Unknown worker', 'recorded', 'unknown-tool'],
+  ],
+  'an attributed child record must stay in its child thread even when its lifecycle action is unknown',
+);
+assert.deepStrictEqual(
+  acpCollaborationAgents([
+    ...Array.from({ length: 30 }, (_, index) => ({
+      id: `unknown-${index}`,
+      type: 'collaboration',
+      title: `Provider child activity ${index}`,
+      status: 'completed',
+      collaboration: {
+        kind: 'activity',
+        threadId: 'thread-many-activities',
+        agentPath: 'many_activities',
+        activity: `provider_action_${index}`,
+      },
+    })),
+  ])[0].activities.length,
+  30,
+  'distinct child activities remain available for the bounded UI activity window',
+);
 
 console.log('ACP collaboration projection tests passed');

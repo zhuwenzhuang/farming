@@ -144,56 +144,56 @@
       },
       "artifacts": {
         "darwin-arm64": {
-          "url": "https://github.com/vercel-labs/agent-browser/releases/download/v0.32.3/agent-browser-darwin-arm64",
-          "size": 11421328,
-          "integrity": "sha256-tjlgX0lrYp67LNqzDx4HDgBO/ZRbnNC68Zgaz6tkoVE=",
-          "archive": "file",
+          "url": "https://registry.npmjs.org/agent-browser/-/agent-browser-0.32.3.tgz",
+          "integrity": "sha512-jwmqex/vEFNWx7X/W3JnZSWm5C+46SFKWDXYD7timGPCcvqHZtdVIBnKGUz7iCJYflQg4DrtxWUWzuin9+zoyA==",
+          "archive": "tgz",
+          "archiveEntry": "package/bin/agent-browser-darwin-arm64",
           "entry": "agent-browser"
         },
         "darwin-x64": {
-          "url": "https://github.com/vercel-labs/agent-browser/releases/download/v0.32.3/agent-browser-darwin-x64",
-          "size": 12497296,
-          "integrity": "sha256-GQ3gOIBwed58IMsTP4dGWHUKCIfaMP5WPb5/NfWTzik=",
-          "archive": "file",
+          "url": "https://registry.npmjs.org/agent-browser/-/agent-browser-0.32.3.tgz",
+          "integrity": "sha512-jwmqex/vEFNWx7X/W3JnZSWm5C+46SFKWDXYD7timGPCcvqHZtdVIBnKGUz7iCJYflQg4DrtxWUWzuin9+zoyA==",
+          "archive": "tgz",
+          "archiveEntry": "package/bin/agent-browser-darwin-x64",
           "entry": "agent-browser"
         },
         "linux-arm64": {
-          "url": "https://github.com/vercel-labs/agent-browser/releases/download/v0.32.3/agent-browser-linux-arm64",
-          "size": 11424360,
-          "integrity": "sha256-h/0u+2eZX8QzVp8DgyYL/uRKeF1tRcoHx3F5xFtw3hg=",
-          "archive": "file",
+          "url": "https://registry.npmjs.org/agent-browser/-/agent-browser-0.32.3.tgz",
+          "integrity": "sha512-jwmqex/vEFNWx7X/W3JnZSWm5C+46SFKWDXYD7timGPCcvqHZtdVIBnKGUz7iCJYflQg4DrtxWUWzuin9+zoyA==",
+          "archive": "tgz",
+          "archiveEntry": "package/bin/agent-browser-linux-arm64",
           "entry": "agent-browser"
         },
         "linux-arm64-musl": {
-          "url": "https://github.com/vercel-labs/agent-browser/releases/download/v0.32.3/agent-browser-linux-musl-arm64",
-          "size": 11285568,
-          "integrity": "sha256-X3PaE8ZSHqjR89enftp3WIebzBuj/TBDBBeZZz6Q2PA=",
-          "archive": "file",
+          "url": "https://registry.npmjs.org/agent-browser/-/agent-browser-0.32.3.tgz",
+          "integrity": "sha512-jwmqex/vEFNWx7X/W3JnZSWm5C+46SFKWDXYD7timGPCcvqHZtdVIBnKGUz7iCJYflQg4DrtxWUWzuin9+zoyA==",
+          "archive": "tgz",
+          "archiveEntry": "package/bin/agent-browser-linux-musl-arm64",
           "entry": "agent-browser"
         },
         "linux-x64": {
-          "url": "https://github.com/vercel-labs/agent-browser/releases/download/v0.32.3/agent-browser-linux-x64",
-          "size": 13107176,
-          "integrity": "sha256-JD9uAcS33qU60H2XVN+ZAzxhRYLVxoXFKaHLgcr8OrE=",
-          "archive": "file",
+          "url": "https://registry.npmjs.org/agent-browser/-/agent-browser-0.32.3.tgz",
+          "integrity": "sha512-jwmqex/vEFNWx7X/W3JnZSWm5C+46SFKWDXYD7timGPCcvqHZtdVIBnKGUz7iCJYflQg4DrtxWUWzuin9+zoyA==",
+          "archive": "tgz",
+          "archiveEntry": "package/bin/agent-browser-linux-x64",
           "entry": "agent-browser"
         },
         "linux-x64-musl": {
-          "url": "https://github.com/vercel-labs/agent-browser/releases/download/v0.32.3/agent-browser-linux-musl-x64",
-          "size": 12958288,
-          "integrity": "sha256-+xHEY+8evF1iY1UEAhjrJa9oV3Ty7gIrLfcN6svTS/Q=",
-          "archive": "file",
+          "url": "https://registry.npmjs.org/agent-browser/-/agent-browser-0.32.3.tgz",
+          "integrity": "sha512-jwmqex/vEFNWx7X/W3JnZSWm5C+46SFKWDXYD7timGPCcvqHZtdVIBnKGUz7iCJYflQg4DrtxWUWzuin9+zoyA==",
+          "archive": "tgz",
+          "archiveEntry": "package/bin/agent-browser-linux-musl-x64",
           "entry": "agent-browser"
         },
         "win32-x64": {
-          "url": "https://github.com/vercel-labs/agent-browser/releases/download/v0.32.3/agent-browser-win32-x64.exe",
-          "size": 12758016,
-          "integrity": "sha256-0n93y07XEgol8LYAMLMG/meIvgmX9aa6rXT3SiwOxic=",
-          "archive": "file",
+          "url": "https://registry.npmjs.org/agent-browser/-/agent-browser-0.32.3.tgz",
+          "integrity": "sha512-jwmqex/vEFNWx7X/W3JnZSWm5C+46SFKWDXYD7timGPCcvqHZtdVIBnKGUz7iCJYflQg4DrtxWUWzuin9+zoyA==",
+          "archive": "tgz",
+          "archiveEntry": "package/bin/agent-browser-win32-x64.exe",
           "entry": "agent-browser.exe"
         }
       }
     }
   },
-  "manifestId": "792f8f5cb99e98a62cd04af5212c092b24a10e715378d1cde79000241c6af72b"
+  "manifestId": "e84575670b5e7bb7b429a960ac6b6c17ae21ed8cb4ab25836cec8c582091ef5f"
 }

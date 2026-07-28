@@ -42,18 +42,18 @@ export type XtermBackedTerminal = GhosttyTerminal & {
 }
 
 const DARK_THEME = {
-  background: '#0d1117',
-  foreground: '#e6edf3',
-  cursor: '#e6edf3',
-  cursorAccent: '#0d1117',
-  selectionBackground: 'rgba(88, 166, 255, 0.32)',
-  selectionInactiveBackground: 'rgba(88, 166, 255, 0.22)',
+  background: '#181818',
+  foreground: '#ffffff',
+  cursor: '#ffffff',
+  cursorAccent: '#181818',
+  selectionBackground: 'rgba(51, 156, 255, 0.32)',
+  selectionInactiveBackground: 'rgba(51, 156, 255, 0.22)',
   black: '#484f58',
-  red: '#ff7b72',
-  green: '#7ee787',
+  red: '#fa423e',
+  green: '#40c977',
   yellow: '#d29922',
-  blue: '#58a6ff',
-  magenta: '#bc8cff',
+  blue: '#339cff',
+  magenta: '#ad7bf9',
   cyan: '#39c5cf',
   white: '#b1bac4',
   brightBlack: '#6e7681',
@@ -220,7 +220,7 @@ export function createXtermSnapshotOverlays() {
       overflow: 'hidden',
       pointerEvents: 'none',
       visibility: 'hidden',
-      background: terminal.options.theme?.background ?? '#0d1117',
+      background: terminal.options.theme?.background ?? '#181818',
     })
 
     const rendered = content.cloneNode(true) as HTMLElement

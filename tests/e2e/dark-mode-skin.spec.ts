@@ -167,8 +167,8 @@ test.describe('Farming Code dark skin', () => {
       expect(firstPaint).toEqual({
         appearance: 'dark',
         preference: 'dark',
-        background: 'rgb(13, 17, 23)',
-        themeColor: '#0d1117',
+        background: 'rgb(24, 24, 24)',
+        themeColor: '#181818',
       })
     } finally {
       releaseModules()

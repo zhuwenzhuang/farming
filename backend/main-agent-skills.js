@@ -61,16 +61,12 @@ const MAIN_AGENT_SKILLS = [
     id: 'browser-resource',
     name: '系统浏览器操作',
     trigger: '用户要求打开、查看或操作 Farming Project 下的 Browser Resource，或者需要绕过静态 HTML Viewer 限制验证真实网页时',
-    summary: '通过 Farming Browser ID 操作用户当前看到的同一个 Headless 系统浏览器；先 Snapshot 获取当前 Ref，再进行点击或输入，页面变化后重新 Snapshot。',
+    summary: '通过 Farming Browser ID 操作用户当前看到的同一个系统浏览器；先走 Browser 的渐进式帮助和标准 Workflow，只在需要时展开具体问题域与原子命令。',
     commands: [
-      'farming browser list --workspace <repo>',
-      'farming browser start <browser-id>',
-      'farming browser snapshot <browser-id>',
-      'farming browser navigate <browser-id> <url>',
-      'farming browser click <browser-id> <ref-or-css=selector>',
-      'farming browser fill <browser-id> <ref-or-css=selector> <text>',
-      'farming browser screenshot <browser-id> <output.png>',
-      'farming browser stop <browser-id>',
+      'farming capabilities',
+      'farming browser list',
+      'farming browser help workflow',
+      'farming browser help <lifecycle|navigation|interaction|inspection|debugging|state|files>',
     ],
   },
   {
@@ -153,7 +149,7 @@ function renderMainAgentSkills() {
   });
 
   lines.push('Rules:');
-  lines.push('- Use `farming browser` only for Browser Resources already in the user-selected Project scope; take a new snapshot after navigation or DOM-changing actions.');
+  lines.push('- Use `farming browser` only for Browser Resources already in the user-selected Project scope; follow `farming browser help workflow`, and reveal only the help topic or command needed for the current step.');
   lines.push('- Use `farming memory report` when you need recent context from local agent memories.');
   lines.push('- Use “牧场除虫计划” when the user asks for systematic bug hunting across a directory or module tree.');
   lines.push('- Before spawning child agents for pest control, map modules and module protocols first; do not send overlapping or vague tasks.');

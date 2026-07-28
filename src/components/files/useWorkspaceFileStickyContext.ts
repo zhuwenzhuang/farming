@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState, type MutableRefObject, type RefObject } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState, type MutableRefObject, type RefObject } from 'react'
+import { flushSync } from 'react-dom'
 import { findWorkspaceFileTreeNode, type WorkspaceFileTreeNode as FileExplorerNode } from '@/lib/workspace-file-tree'
 import {
   firstVisibleWorkspaceFilePath,
@@ -128,26 +129,26 @@ export function useWorkspaceFileStickyContext({
     }
   }, [clearStickyContext, filesCollapsed, openDirectoryPaths, refreshTreeLayout, treeData])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (filesCollapsed) return undefined
     const scroller = treeViewportRef.current?.closest<HTMLElement>('.code-project-list')
     let frameId = 0
-    const scheduleRefresh = () => {
+    const refreshBeforePaint = () => {
       if (frameId) return
       frameId = window.requestAnimationFrame(() => {
         frameId = 0
-        refreshStickyAncestors()
+        flushSync(refreshStickyAncestors)
       })
     }
 
     refreshStickyAncestors()
     window.setTimeout(refreshStickyAncestors, 80)
-    scroller?.addEventListener('scroll', scheduleRefresh, { passive: true })
-    window.addEventListener('resize', scheduleRefresh)
+    scroller?.addEventListener('scroll', refreshBeforePaint, { passive: true })
+    window.addEventListener('resize', refreshBeforePaint)
     return () => {
       if (frameId) window.cancelAnimationFrame(frameId)
-      scroller?.removeEventListener('scroll', scheduleRefresh)
-      window.removeEventListener('resize', scheduleRefresh)
+      scroller?.removeEventListener('scroll', refreshBeforePaint)
+      window.removeEventListener('resize', refreshBeforePaint)
     }
   }, [filesCollapsed, openDirectoryPaths, refreshStickyAncestors, treeData, treeViewportRef])
 

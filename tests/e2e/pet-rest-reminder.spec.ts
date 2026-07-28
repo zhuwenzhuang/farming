@@ -363,6 +363,19 @@ test('dark black-hole status stays readable and manual exit fully evaporates in 
   const endBreak = scene.getByRole('button', { name: 'End break' })
   await expect(scene).toBeVisible()
   await expect(scene.locator('.code-pet-black-hole-error')).toHaveCount(0)
+  const compositor = scene.locator('.code-pet-black-hole-compositor')
+  await expect(compositor).toHaveAttribute('data-refresh-state', 'idle')
+  const captureState = {
+    luminance: Number(await compositor.getAttribute('data-corner-luminance')),
+    background: await compositor.getAttribute('data-cloned-body-background'),
+    stylesheets: Number(await compositor.getAttribute('data-appearance-stylesheets')),
+  }
+  expect(captureState).toEqual({
+    luminance: expect.any(Number),
+    background: 'rgb(24, 24, 24)',
+    stylesheets: 1,
+  })
+  expect(captureState.luminance).toBeLessThan(80)
   await expect(label).toHaveCSS('color', 'rgba(226, 235, 229, 0.82)')
   await expect(clock).toHaveCSS('color', 'rgb(231, 238, 233)')
   await expect(endBreak).toHaveCSS('color', 'rgba(238, 245, 240, 0.9)')
@@ -721,7 +734,7 @@ test('natural black-hole evaporation resumes at the absolute-time progress', asy
   await expect(scene).toHaveCount(0, { timeout: 16_000 })
 })
 
-test('black-hole snapshot refresh rasterizes file icons, excludes Pet UI, and keeps one renderer', async ({ page }) => {
+test('black-hole keeps its initial snapshot and one renderer for the full break', async ({ page }) => {
   test.slow()
   await page.addInitScript(({ settingsKey, runtimeKey }) => {
     localStorage.setItem(settingsKey, JSON.stringify({
@@ -754,47 +767,19 @@ test('black-hole snapshot refresh rasterizes file icons, excludes Pet UI, and ke
   await expect(scene.locator('.code-pet-black-hole-error')).toHaveCount(0)
   await expect(compositor).toHaveAttribute('data-refresh-state', 'idle')
 
-  await page.getByTestId('code-sidebar-options').click()
-  const settings = page.getByTestId('code-settings-panel')
-  await expect(settings).toBeVisible()
-  await expect(settings).toHaveAttribute('data-pet-snapshot-exclude', 'true')
-  await page.evaluate(async () => {
-    const icon = document.createElement('img')
-    icon.className = 'code-file-type-icon'
-    icon.src = '/farming/vendor/material-icons/markdown.svg'
-    icon.alt = ''
-    icon.dataset.testSnapshotFileIcon = ''
-    Object.assign(icon.style, {
-      position: 'fixed',
-      left: '8px',
-      top: '8px',
-    })
-    document.body.append(icon)
-    await icon.decode()
-  })
-  const previousGeneration = Number(
+  const initialGeneration = Number(
     await compositor.getAttribute('data-scene-generation') ?? '0',
   )
-  await page.evaluate(() => (
-    (window as Window & {
-      __farmingBlackHolePetTest?: { refreshScene: () => void }
-    }).__farmingBlackHolePetTest?.refreshScene()
-  ))
-  await expect.poll(async () => Number(
+  expect(initialGeneration).toBe(1)
+  await page.waitForTimeout(1_200)
+  expect(Number(
     await compositor.getAttribute('data-scene-generation') ?? '0',
-  )).toBeGreaterThan(previousGeneration)
-  await expect(compositor).toHaveAttribute('data-refresh-state', 'idle')
+  )).toBe(initialGeneration)
   await expect(compositor).toHaveAttribute('data-remaining-pet-elements', '0')
-  await expect(compositor).toHaveAttribute('data-visible-file-icons', '1')
-  await expect(compositor).toHaveAttribute('data-rasterized-file-icons', '1')
   await expect(scene).toHaveCount(1)
   await expect(scene.locator('.code-pet-black-hole-canvas')).toHaveCount(1)
   await expect(scene.locator('.code-pet-black-hole-compositor')).toHaveCount(1)
 
-  await page.evaluate(() => {
-    document.querySelector('[data-test-snapshot-file-icon]')?.remove()
-  })
-  await settings.getByRole('button', { name: 'Close', exact: true }).click()
   await scene.getByRole('button', { name: 'End break' }).click()
   await expect(scene).toHaveCount(0, { timeout: 7_000 })
 })

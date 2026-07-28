@@ -111,8 +111,8 @@ function failurePalette() {
       || (!document.body.dataset.appearance && window.matchMedia('(prefers-color-scheme: dark)').matches)
     ))
   return dark
-    ? { background: '#0d1117', foreground: '#e6edf3', muted: '#8b949e', border: '#30363d', button: '#21262d' }
-    : { background: '#f7f7f6', foreground: '#24292f', muted: '#6e7781', border: '#d8d8d5', button: '#ffffff' }
+    ? { background: '#181818', foreground: '#ffffff', muted: '#9b9b9b', border: '#383838', button: '#262626' }
+    : { background: '#ffffff', foreground: '#1a1c1f', muted: '#6e7781', border: '#d8d8d5', button: '#ffffff' }
 }
 
 function prepareFailureDocument() {

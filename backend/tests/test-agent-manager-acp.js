@@ -1,7 +1,13 @@
 const assert = require('assert');
+const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const AgentManager = require('../agent-manager');
 const { AcpRuntime } = require('../acp-runtime');
+const {
+  ensureFarmingAgentBootstrapFile,
+  renderFarmingAgentBootstrap,
+} = require('../farming-agent-bootstrap');
 
 const TEST_PROCESS_IDENTITY = {
   describeAcpProcessGroup: async pid => ({
@@ -29,6 +35,7 @@ function config(overrides = {}) {
 }
 
 async function run() {
+  const farmingSystemPrompt = renderFarmingAgentBootstrap();
   const fixture = path.join(__dirname, 'fixtures', 'fake-acp-agent.mjs');
   const runtime = new AcpRuntime({
     ...TEST_PROCESS_IDENTITY,
@@ -328,11 +335,13 @@ async function run() {
     await openCodeManager.dispose();
   }
 
+  const providerFarmingDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-provider-bootstrap-'));
+  const providerStartupPromptFile = ensureFarmingAgentBootstrapFile(providerFarmingDir);
   const providerRuntime = new AcpRuntime({
     ...TEST_PROCESS_IDENTITY,
     resolveLaunch: () => ({ command: process.execPath, args: [fixture], version: 'test' }),
   });
-  const providerManager = new AgentManager(config(), {
+  const providerManager = new AgentManager(config({ farmingDir: providerFarmingDir }), {
     acpRuntime: providerRuntime,
     skipExecutablePreflight: true,
   });
@@ -355,6 +364,26 @@ async function run() {
       const providerAgent = providerManager.agents.get(providerAgentId);
       assert.strictEqual(providerAgent.providerSessionProvider, provider);
       assert.strictEqual(providerAgent.runtimeBinding.kind, 'acp');
+      const providerBinding = providerRuntime.bindings.get(providerAgentId);
+      assert.strictEqual(
+        providerBinding.restartOptions.farmingSystemPrompt,
+        farmingSystemPrompt,
+        `${provider} ACP must retain the Farming bootstrap across connection recovery`,
+      );
+      if (provider === 'claude') {
+        assert.strictEqual(
+          providerBinding.sessionRequestOptions._meta?.systemPrompt?.append,
+          farmingSystemPrompt,
+          'Claude ACP must receive the Farming bootstrap as appended system context',
+        );
+      }
+      if (provider === 'opencode') {
+        assert.deepStrictEqual(
+          JSON.parse(providerBinding.env.OPENCODE_CONFIG_CONTENT).instructions,
+          [providerStartupPromptFile],
+          'OpenCode ACP must receive the Farming bootstrap through process-local instructions',
+        );
+      }
       assert.strictEqual(
         providerAgent.providerSessionSource,
         'acp-new',
@@ -376,6 +405,7 @@ async function run() {
     }
   } finally {
     await providerManager.dispose();
+    fs.rmSync(providerFarmingDir, { recursive: true, force: true });
   }
 
   const blockedRecoverySessionKey = 'agent-session:codex:11111111-2222-4333-8444-555555555555';
@@ -467,6 +497,11 @@ async function run() {
       Object.keys(JSON.parse(recoveredBinding.env.CODEX_CONFIG)),
       ['developer_instructions'],
       'ACP recovery may restore the Farming bootstrap but must let Codex resolve model settings from its Home',
+    );
+    assert.strictEqual(
+      JSON.parse(recoveredBinding.env.CODEX_CONFIG).developer_instructions,
+      farmingSystemPrompt,
+      'Codex ACP recovery must restore the same Farming bootstrap',
     );
     assert.strictEqual(
       recoveryManager.agents.has('agent-acp-hidden-claude'),

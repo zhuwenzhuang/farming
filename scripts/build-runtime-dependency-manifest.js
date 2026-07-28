@@ -54,14 +54,14 @@ const PLATFORM_TARGETS = {
   },
 };
 
-const AGENT_BROWSER_ARTIFACTS = {
-  'darwin-arm64': ['agent-browser-darwin-arm64', 11421328, 'b639605f496b629ebb2cdab30f1e070e004efd945b9cd0baf1981acfab64a151'],
-  'darwin-x64': ['agent-browser-darwin-x64', 12497296, '190de038807079de7c20cb133f874658750a0887da30fe563dbe7f35f593ce29'],
-  'linux-arm64': ['agent-browser-linux-arm64', 11424360, '87fd2efb67995fc433569f0383260bfee44a785d6d45ca07c77179c45b70de18'],
-  'linux-arm64-musl': ['agent-browser-linux-musl-arm64', 11285568, '5f73da13c6521ea8d1f3d7a77eda7758879bcc1ba3fd3043041799673e90d8f0'],
-  'linux-x64': ['agent-browser-linux-x64', 13107176, '243f6e01c4b7dea53ad07d9754df99033c614582d5c685c529a1cb81cafc3ab1'],
-  'linux-x64-musl': ['agent-browser-linux-musl-x64', 12958288, 'fb11c463ef1ebc5d626355040218eb25af685774f2ee022b2df70deacbd34bf4'],
-  'win32-x64': ['agent-browser-win32-x64.exe', 12758016, 'd27f77cb4ed7120a25f0b60030b306fe6788be0997f5a6baad74f74a2c0ec627'],
+const AGENT_BROWSER_ENTRIES = {
+  'darwin-arm64': 'agent-browser-darwin-arm64',
+  'darwin-x64': 'agent-browser-darwin-x64',
+  'linux-arm64': 'agent-browser-linux-arm64',
+  'linux-arm64-musl': 'agent-browser-linux-musl-arm64',
+  'linux-x64': 'agent-browser-linux-x64',
+  'linux-x64-musl': 'agent-browser-linux-musl-x64',
+  'win32-x64': 'agent-browser-win32-x64.exe',
 };
 
 function packageRecord(packageName, version) {
@@ -69,16 +69,20 @@ function packageRecord(packageName, version) {
   if (!record || record.version !== version || !record.resolved || !record.integrity) {
     throw new Error(`package-lock.json does not pin ${packageName} ${version}`);
   }
+  if (!record.resolved.startsWith('https://registry.npmjs.org/')) {
+    throw new Error(`${packageName} ${version} must resolve from the public npm registry`);
+  }
   return record;
 }
 
-function npmArtifact(packageName, version, entry, archivePrefix = '') {
+function npmArtifact(packageName, version, entry, archivePrefix = '', archiveEntry = '') {
   const record = packageRecord(packageName, version);
   return {
     url: record.resolved,
     integrity: record.integrity,
     archive: 'tgz',
     ...(archivePrefix ? { archivePrefix } : {}),
+    ...(archiveEntry ? { archiveEntry } : {}),
     entry,
   };
 }
@@ -102,14 +106,14 @@ function buildManifest() {
     );
   }
   const agentBrowserArtifacts = {};
-  for (const [platformKey, [filename, size, sha256]] of Object.entries(AGENT_BROWSER_ARTIFACTS)) {
-    agentBrowserArtifacts[platformKey] = {
-      url: `https://github.com/vercel-labs/agent-browser/releases/download/v${AGENT_BROWSER_VERSION}/${filename}`,
-      size,
-      integrity: `sha256-${Buffer.from(sha256, 'hex').toString('base64')}`,
-      archive: 'file',
-      entry: platformKey.startsWith('win32-') ? 'agent-browser.exe' : 'agent-browser',
-    };
+  for (const [platformKey, archiveFilename] of Object.entries(AGENT_BROWSER_ENTRIES)) {
+    agentBrowserArtifacts[platformKey] = npmArtifact(
+      'agent-browser',
+      AGENT_BROWSER_VERSION,
+      platformKey.startsWith('win32-') ? 'agent-browser.exe' : 'agent-browser',
+      '',
+      `package/bin/${archiveFilename}`,
+    );
   }
   const manifest = {
     schemaVersion: 1,

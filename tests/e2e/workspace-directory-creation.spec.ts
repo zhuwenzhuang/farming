@@ -88,9 +88,9 @@ test.describe('New Agent workspace directory creation', () => {
 
     const prompt = page.getByTestId('workspace-directory-prompt')
     await expect(prompt).toHaveCSS('background-color', 'rgb(22, 27, 34)')
-    await expect(prompt).toHaveCSS('color', 'rgb(230, 237, 243)')
+    await expect(prompt).toHaveCSS('color', 'rgb(255, 255, 255)')
     await expect(prompt.locator('code')).toHaveCSS('background-color', 'rgb(28, 33, 41)')
-    await expect(page.getByTestId('workspace-directory-create')).toHaveCSS('background-color', 'rgb(88, 166, 255)')
+    await expect(page.getByTestId('workspace-directory-create')).toHaveCSS('background-color', 'rgb(51, 156, 255)')
   })
 
   test('uses the same explicit confirmation flow in the CRT skin', async ({ page, workspaceRoot }) => {

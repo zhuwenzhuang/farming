@@ -93,6 +93,41 @@ async function waitForFileLines(file: string, expected: string[]) {
   )).toEqual([...expected].sort())
 }
 
+test('keeps terminal attachment identity stable across responsive rerenders', async ({ page, workspaceRoot }) => {
+  const workspace = path.join(workspaceRoot, 'terminal-attachment-identity')
+  fs.mkdirSync(workspace, { recursive: true })
+  await page.goto('/farming/', { waitUntil: 'domcontentloaded' })
+  await expect(page.getByTestId('app-shell')).toBeVisible()
+
+  const agentId = await createControlAgent(page, workspace)
+  await openAgent(page, agentId)
+  const initialGeneration = await page.evaluate(
+    id => window.__farmingTerminalTest?.getBufferDiagnostics(id)?.attachGeneration ?? null,
+    agentId,
+  )
+  expect(initialGeneration).not.toBeNull()
+
+  const generations = []
+  for (const viewport of [
+    { width: 390, height: 844 },
+    { width: 414, height: 896 },
+    { width: 375, height: 812 },
+    { width: 1440, height: 900 },
+    { width: 390, height: 844 },
+  ]) {
+    await page.setViewportSize(viewport)
+    await page.waitForTimeout(150)
+    generations.push(await page.evaluate(
+      id => window.__farmingTerminalTest?.getBufferDiagnostics(id)?.attachGeneration ?? null,
+      agentId,
+    ))
+    await expect(page.getByTestId('code-terminal-recovery')).toHaveCount(0)
+  }
+
+  expect(generations).toEqual(Array(generations.length).fill(initialGeneration))
+  await expect(page.locator(`.terminal-session-host[data-agent-id="${agentId}"]`)).toBeVisible()
+})
+
 test('keeps newer local terminal geometry while older resize transitions arrive', async ({ page, workspaceRoot }) => {
   await installResizeMessageCapture(page)
 

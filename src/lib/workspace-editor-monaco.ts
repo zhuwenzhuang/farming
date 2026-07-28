@@ -117,18 +117,18 @@ function defineCodexMonacoThemes() {
     inherit: true,
     rules: [],
     colors: {
-      'editor.background': '#0d1117',
-      'editor.foreground': '#e6edf3',
+      'editor.background': '#181818',
+      'editor.foreground': '#ffffff',
       'editorLineNumber.foreground': '#6e7681',
       'editorLineNumber.activeForeground': '#c9d1d9',
       'editor.lineHighlightBackground': '#161b22',
       'editor.selectionBackground': '#264f78',
       'editor.inactiveSelectionBackground': '#1f3a55',
-      'editorCursor.foreground': '#e6edf3',
-      'editorWhitespace.foreground': '#30363d',
+      'editorCursor.foreground': '#ffffff',
+      'editorWhitespace.foreground': '#383838',
       'editorIndentGuide.background1': '#21262d',
       'editorIndentGuide.activeBackground1': '#3b4655',
-      'editorGutter.background': '#0d1117',
+      'editorGutter.background': '#181818',
     },
   })
 }

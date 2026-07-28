@@ -7,9 +7,6 @@ const MAP_SCALE = 640
 const FIELD_INNER = 0.22
 const FIELD_OUTER = 0.46
 const BLUR_OFFSET_PX = 2
-const SCENE_REFRESH_MIN_MS = 60_000
-const SCENE_REFRESH_BLEND_MS = 1_200
-const SCENE_REFRESH_MAX_MOTION = 0.40
 const INITIAL_SCENE_RETRY_MIN_MS = 1_000
 const INITIAL_SCENE_RETRY_MAX_MS = 10_000
 const PET_SNAPSHOT_EXCLUDE_SELECTOR = [
@@ -481,17 +478,13 @@ uniform float uScale;
 uniform float uOpacity;
 uniform float uPixelRatio;
 uniform sampler2D uScene;
-uniform sampler2D uSceneNext;
-uniform float uSceneMix;
 uniform sampler2D uHigh;
 uniform sampler2D uLow;
 out vec4 outColor;
 
 vec4 scene(vec2 pixel) {
   vec2 uv = clamp(pixel / uResolution, vec2(0.0), vec2(1.0));
-  vec4 current = texture(uScene, uv);
-  if (uSceneMix <= 0.001) return current;
-  return mix(current, texture(uSceneNext, uv), uSceneMix);
+  return texture(uScene, uv);
 }
 
 void main() {
@@ -600,7 +593,6 @@ interface DisplayRenderer {
 
 interface CompositorRenderer {
   setScene: (image: TexImageSource) => void
-  transitionScene: (image: TexImageSource, durationMs: number) => void
   draw: (pose: Pose) => void
   destroy: () => void
 }
@@ -929,15 +921,36 @@ async function createSceneImage() {
   const pixelRatio = Math.min(2, Math.max(1, window.devicePixelRatio || 1))
   const captureStartedAt = performance.now()
   const { default: html2canvas } = await import('html2canvas')
+  const appearanceStyles = Array.from(document.styleSheets).flatMap(sheet => {
+    if (!sheet.href) return []
+    try {
+      const cssText = Array.from(sheet.cssRules)
+        .map(rule => rule.cssText)
+        .join('\n')
+      return cssText.includes('body.code-mode[data-appearance=')
+        && cssText.includes('color-scheme: dark')
+        ? [{
+            href: sheet.href,
+            cssText,
+            media: (sheet.ownerNode as HTMLLinkElement | null)?.media ?? '',
+          }]
+        : []
+    } catch {
+      return []
+    }
+  })
+  const backgroundColor = getComputedStyle(document.body).backgroundColor
+    || '#101418'
   const removeXtermOverlays = createXtermSnapshotOverlays()
   const fileIcons = rasterizeVisibleFileIcons()
   let excludedElementCount = 0
   let remainingExcludedElementCount = 0
   let rasterizedFileIconCount = 0
+  let clonedBodyBackground = ''
   try {
     const image = await html2canvas(document.body, {
       allowTaint: false,
-      backgroundColor: getComputedStyle(document.body).backgroundColor || '#101418',
+      backgroundColor,
       foreignObjectRendering: false,
       height,
       ignoreElements: element => (
@@ -951,6 +964,21 @@ async function createSceneImage() {
       logging: false,
       onclone: clonedDocument => {
         const clonedBody = clonedDocument.body
+        clonedBody.className = document.body.className
+        clonedBody.dataset.appearance = document.body.dataset.appearance
+          ?? 'light'
+        appearanceStyles.forEach(stylesheet => {
+          const link = Array.from(
+            clonedDocument.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]'),
+          ).find(candidate => candidate.href === stylesheet.href)
+          if (!link) return
+          const style = clonedDocument.createElement('style')
+          style.dataset.farmingAppearanceSnapshot = ''
+          style.media = stylesheet.media
+          style.textContent = stylesheet.cssText
+          link.replaceWith(style)
+        })
+        clonedBodyBackground = getComputedStyle(clonedBody).backgroundColor
         const excludedElements = Array.from(
           clonedDocument.querySelectorAll(PET_SNAPSHOT_EXCLUDE_SELECTOR),
         )
@@ -995,6 +1023,17 @@ async function createSceneImage() {
     image.dataset.remainingPetElements = String(remainingExcludedElementCount)
     image.dataset.visibleFileIcons = String(fileIcons.visibleCount)
     image.dataset.rasterizedFileIcons = String(rasterizedFileIconCount)
+    image.dataset.clonedBodyBackground = clonedBodyBackground
+    image.dataset.appearanceStylesheets = String(appearanceStyles.length)
+    const context = image.getContext('2d', { willReadFrequently: true })
+    if (context) {
+      const pixel = context.getImageData(0, 0, 1, 1).data
+      image.dataset.cornerLuminance = String(Math.round(
+        0.2126 * (pixel[0] ?? 0)
+        + 0.7152 * (pixel[1] ?? 0)
+        + 0.0722 * (pixel[2] ?? 0),
+      ))
+    }
     return image
   } finally {
     removeXtermOverlays()
@@ -1019,7 +1058,6 @@ function createCompositorRenderer(
   const scale = gl.getUniformLocation(program, 'uScale')
   const opacity = gl.getUniformLocation(program, 'uOpacity')
   const pixelRatioUniform = gl.getUniformLocation(program, 'uPixelRatio')
-  const sceneMix = gl.getUniformLocation(program, 'uSceneMix')
   const textures: WebGLTexture[] = []
 
   const texture = (unit: number, source: TexImageSource) => {
@@ -1045,10 +1083,9 @@ function createCompositorRenderer(
   }
 
   gl.useProgram(program)
-  let sceneTexture = texture(0, highMap)
+  const sceneTexture = texture(0, highMap)
   texture(1, highMap)
   texture(2, lowMap)
-  let nextSceneTexture = texture(3, highMap)
   highMap
     .getContext('webgl2')
     ?.getExtension('WEBGL_lose_context')
@@ -1058,16 +1095,8 @@ function createCompositorRenderer(
     ?.getExtension('WEBGL_lose_context')
     ?.loseContext()
   gl.uniform1i(gl.getUniformLocation(program, 'uScene'), 0)
-  gl.uniform1i(gl.getUniformLocation(program, 'uSceneNext'), 3)
   gl.uniform1i(gl.getUniformLocation(program, 'uHigh'), 1)
   gl.uniform1i(gl.getUniformLocation(program, 'uLow'), 2)
-  let transition: {
-    startedAt: number
-    durationMs: number
-    captureMs: string
-    visibleFileIcons: string
-    rasterizedFileIcons: string
-  } | null = null
   let sceneGeneration = 0
 
   const uploadScene = (
@@ -1112,67 +1141,20 @@ function createCompositorRenderer(
       canvas.dataset.rasterizedFileIcons = image instanceof HTMLCanvasElement
         ? (image.dataset.rasterizedFileIcons ?? '')
         : ''
+      canvas.dataset.cornerLuminance = image instanceof HTMLCanvasElement
+        ? (image.dataset.cornerLuminance ?? '')
+        : ''
+      canvas.dataset.clonedBodyBackground = image instanceof HTMLCanvasElement
+        ? (image.dataset.clonedBodyBackground ?? '')
+        : ''
+      canvas.dataset.appearanceStylesheets = image instanceof HTMLCanvasElement
+        ? (image.dataset.appearanceStylesheets ?? '')
+        : ''
       canvas.style.opacity = '1'
-    },
-    transitionScene(image, durationMs) {
-      sceneGeneration += 1
-      canvas.dataset.sceneGeneration = String(sceneGeneration)
-      const uploadStartedAt = performance.now()
-      uploadScene(3, nextSceneTexture, image)
-      canvas.dataset.uploadMs = String(Math.round(
-        (performance.now() - uploadStartedAt) * 10,
-      ) / 10)
-      canvas.dataset.excludedPetElements = image instanceof HTMLCanvasElement
-        ? (image.dataset.excludedPetElements ?? '')
-        : ''
-      canvas.dataset.remainingPetElements = image instanceof HTMLCanvasElement
-        ? (image.dataset.remainingPetElements ?? '')
-        : ''
-      canvas.dataset.visibleFileIcons = image instanceof HTMLCanvasElement
-        ? (image.dataset.visibleFileIcons ?? '')
-        : ''
-      canvas.dataset.rasterizedFileIcons = image instanceof HTMLCanvasElement
-        ? (image.dataset.rasterizedFileIcons ?? '')
-        : ''
-      transition = {
-        startedAt: performance.now(),
-        durationMs: Math.max(1, durationMs),
-        captureMs: image instanceof HTMLCanvasElement
-          ? (image.dataset.captureMs ?? '')
-          : '',
-        visibleFileIcons: image instanceof HTMLCanvasElement
-          ? (image.dataset.visibleFileIcons ?? '')
-          : '',
-        rasterizedFileIcons: image instanceof HTMLCanvasElement
-          ? (image.dataset.rasterizedFileIcons ?? '')
-          : '',
-      }
-      canvas.dataset.refreshState = 'blending'
     },
     draw(pose) {
       if (!canvas.width || !canvas.height) return
       const pixelRatio = canvas.width / window.innerWidth
-      let transitionAmount = 0
-      if (transition) {
-        transitionAmount = smoother(
-          (performance.now() - transition.startedAt) / transition.durationMs,
-        )
-        if (transitionAmount >= 1) {
-          const previousSceneTexture = sceneTexture
-          sceneTexture = nextSceneTexture
-          nextSceneTexture = previousSceneTexture
-          gl.activeTexture(gl.TEXTURE0)
-          gl.bindTexture(gl.TEXTURE_2D, sceneTexture)
-          gl.activeTexture(gl.TEXTURE3)
-          gl.bindTexture(gl.TEXTURE_2D, nextSceneTexture)
-          canvas.dataset.captureMs = transition.captureMs
-          canvas.dataset.visibleFileIcons = transition.visibleFileIcons
-          canvas.dataset.rasterizedFileIcons = transition.rasterizedFileIcons
-          canvas.dataset.refreshState = 'idle'
-          transition = null
-          transitionAmount = 0
-        }
-      }
       gl.viewport(0, 0, canvas.width, canvas.height)
       gl.useProgram(program)
       gl.uniform2f(resolution, canvas.width, canvas.height)
@@ -1184,7 +1166,6 @@ function createCompositorRenderer(
       gl.uniform1f(scale, pose.scale * pose.mass * pixelRatio)
       gl.uniform1f(opacity, pose.lensOpacity)
       gl.uniform1f(pixelRatioUniform, pixelRatio)
-      gl.uniform1f(sceneMix, transitionAmount)
       gl.drawArrays(gl.TRIANGLES, 0, 3)
     },
     destroy() {
@@ -1551,8 +1532,6 @@ export function createBlackHolePetRenderer({
   let requestId = 0
   let lastClockAt = 0
   let diskClock = 18.5
-  let nextSceneRefreshAt = Number.POSITIVE_INFINITY
-  let sceneRefreshInFlight = false
   let initialSceneInFlight = false
   let initialSceneRetryId: number | null = null
   let initialSceneFailures = 0
@@ -1560,7 +1539,6 @@ export function createBlackHolePetRenderer({
     __FARMING_E2E__?: boolean
     __farmingBlackHoleElapsedSeconds?: number
     __farmingBlackHoleEvolutionSeed?: number
-    __farmingBlackHolePetTest?: { refreshScene: () => void }
   }
   const startedAt = performance.now()
   const roamSeed = crypto.getRandomValues(new Uint32Array(1))[0] ?? 0
@@ -1633,7 +1611,6 @@ export function createBlackHolePetRenderer({
         compositor.setScene(image)
         sceneReady = true
         initialSceneFailures = 0
-        nextSceneRefreshAt = performance.now() + SCENE_REFRESH_MIN_MS
         compositorCanvas.dataset.refreshState = 'idle'
         delete compositorCanvas.dataset.refreshError
         onReady()
@@ -1670,34 +1647,6 @@ export function createBlackHolePetRenderer({
     display.resize(size)
   }
 
-  const refreshScene = () => {
-    if (
-      destroyed
-      || sceneRefreshInFlight
-      || exitingAt !== null
-      || document.hidden
-    ) return
-    sceneRefreshInFlight = true
-    compositorCanvas.dataset.refreshState = 'capturing'
-    void createSceneImage()
-      .then(image => {
-        if (destroyed) return
-        compositor.transitionScene(image, SCENE_REFRESH_BLEND_MS)
-        nextSceneRefreshAt = performance.now() + SCENE_REFRESH_MIN_MS
-      })
-      .catch(error => {
-        if (destroyed) return
-        compositorCanvas.dataset.refreshState = 'retry-wait'
-        compositorCanvas.dataset.refreshError = error instanceof Error
-          ? error.message
-          : String(error)
-        nextSceneRefreshAt = performance.now() + SCENE_REFRESH_MIN_MS
-      })
-      .finally(() => {
-        sceneRefreshInFlight = false
-      })
-  }
-
   function frame(now: number) {
     requestId = 0
     if (destroyed || !active || document.hidden) return
@@ -1713,13 +1662,6 @@ export function createBlackHolePetRenderer({
     canvas.dataset.macroTemperature = look.temperature.toFixed(1)
     canvas.dataset.macroInclination = look.inclination.toFixed(4)
     canvas.dataset.macroOuterRadius = look.outerRadius.toFixed(3)
-    if (
-      sceneReady
-      && now >= nextSceneRefreshAt
-      && look.motion <= SCENE_REFRESH_MAX_MOTION
-    ) {
-      refreshScene()
-    }
     let evaporation = evaporationAt(0)
     let pose = activePose(elapsed, look, roamSeed, homeElement)
 
@@ -1786,10 +1728,6 @@ export function createBlackHolePetRenderer({
     }
   }
   document.addEventListener('visibilitychange', onVisibilityChange)
-  const testApi = { refreshScene }
-  if (testWindow.__FARMING_E2E__) {
-    testWindow.__farmingBlackHolePetTest = testApi
-  }
 
   return {
     setActive(nextActive) {
@@ -1821,9 +1759,6 @@ export function createBlackHolePetRenderer({
       clearSchedule()
       clearInitialSceneRetry()
       document.removeEventListener('visibilitychange', onVisibilityChange)
-      if (testWindow.__farmingBlackHolePetTest === testApi) {
-        delete testWindow.__farmingBlackHolePetTest
-      }
       compositorCanvas.style.opacity = '0'
       compositor.destroy()
       display.destroy()

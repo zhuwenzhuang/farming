@@ -57,7 +57,7 @@ Farming Code 是默认的桌面与手机界面。它按项目组织工作，把�
 
 ### Browser Resource
 
-每个 Project 可以拥有多个可命名的 Browser Resource。用户在**插件 → 浏览器**中选择已发现的 Chromium 系统浏览器，或填写外部回环 CDP Endpoint。Farming 启动时准备锁定版本的 `agent-browser` Runtime，并把人的输入和 Agent 操作发送给同一个 Session。Farming 不下载 Chromium，也不依赖 Playwright。Agent 可以通过 `farming browser` 发现并操作这些 Resource；npm 安装还会提供 `farming-browser` 别名。
+每个 Project 可以拥有多个可命名的 Browser Resource。用户在**插件 → 浏览器**中选择已发现的 Chromium 系统浏览器，或填写外部回环 CDP Endpoint。Farming 在安装或更新阶段准备锁定版本的 `agent-browser` Runtime，并在启动前再次校验 Cache，然后把人的输入和 Agent 操作发送给同一个 Session。Farming 不下载 Chromium，也不依赖 Playwright。Agent 先用 `farming capabilities` 发现实时能力，再通过渐进式披露的 `farming browser` CLI 使用导航、交互、检查、调试、页面状态、Frame/Dialog 与 Project 级文件传输；npm 安装还会提供 `farming-browser` 别名。详见 [Farming Browser Agent CLI](docs/products/code/browser-agent-cli.zh_cn.md)。
 
 Farming 也可以连接由管理员独立管理的 Chromium CDP Endpoint，包括 Docker 中暴露的 Chromium；配置方式见[外部 CDP 浏览器指南](./docs/products/code/external-cdp-browser.zh_cn.md)。
 
@@ -65,7 +65,7 @@ Farming 也可以连接由管理员独立管理的 Chromium CDP Endpoint，包�
 
 ## 支持的 Agent
 
-Farming 启动时会准备结构化 Runtime 所需的锁定版本 Codex 与 Claude Executable，同时继续发现开发机上安装的其他 CLI。Codex、Claude Code、OpenCode 和 Qoder 同时支持结构化 Chat 与原生 Terminal；其他检测到的 Coding Agent 使用 Terminal 路径。
+Farming 在安装或更新阶段准备结构化 Runtime 所需的锁定版本 Codex 与 Claude Executable，并在启动前再次校验，同时继续发现开发机上安装的其他 CLI。Codex、Claude Code、OpenCode 和 Qoder 同时支持结构化 Chat 与原生 Terminal；其他检测到的 Coding Agent 使用 Terminal 路径。
 
 | Agent | 结构化 Chat | Terminal | History / Resume |
 | --- | --- | --- | --- |

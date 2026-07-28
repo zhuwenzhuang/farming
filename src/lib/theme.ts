@@ -25,7 +25,7 @@ export function applyThemeAppearance(
   body.dataset.appearance = appearance
   document.querySelector('meta[name="theme-color"]')?.setAttribute(
     'content',
-    appearance === 'dark' ? '#0d1117' : '#f8f4e8',
+    appearance === 'dark' ? '#181818' : '#ffffff',
   )
 
   if (crtEnabled) {

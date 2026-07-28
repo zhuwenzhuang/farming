@@ -1,8 +1,18 @@
 const assert = require('assert');
 const CLI_AGENTS = require('../cli-agents');
+const { renderFarmingAgentBootstrap } = require('../farming-agent-bootstrap');
 const { parseCommand, resolveLaunchCommand } = CLI_AGENTS;
 
 function run() {
+  const farmingSystemPrompt = renderFarmingAgentBootstrap();
+  assert.match(farmingSystemPrompt, /将 `agent-browser` 封装为 Farming Browser/);
+  assert.match(farmingSystemPrompt, /"\$FARMING_CLI_BIN_DIR\/farming" capabilities/);
+  assert.match(farmingSystemPrompt, /不要依赖 Shell 的 `PATH`/);
+  assert.match(farmingSystemPrompt, /Farming Browser 是默认浏览器路径/);
+  assert.match(farmingSystemPrompt, /必须优先使用它/);
+  assert.match(farmingSystemPrompt, /不要改用 Provider 自带的通用 Browser/);
+  assert.match(farmingSystemPrompt, /共享 Browser Resource/);
+
   const claudeDefault = resolveLaunchCommand('claude', { dangerouslySkipPermissions: false });
   assert.deepStrictEqual(claudeDefault.args, []);
   assert.strictEqual(claudeDefault.permissionMode, '');
@@ -244,22 +254,22 @@ function run() {
   assert.deepStrictEqual(qwenMain.args, ['--yolo']);
 
   const codexFarming = resolveLaunchCommand('codex', {
-    farmingSystemPrompt: 'You are running in Farming.',
+    farmingSystemPrompt,
   });
-  assert(codexFarming.args.includes('developer_instructions="You are running in Farming."'));
+  assert(codexFarming.args.includes(`developer_instructions=${JSON.stringify(farmingSystemPrompt)}`));
   const claudeFarming = resolveLaunchCommand('claude', {
-    farmingSystemPrompt: 'You are running in Farming.',
+    farmingSystemPrompt,
   });
   assert.deepStrictEqual(claudeFarming.args.slice(-2), [
     '--append-system-prompt',
-    'You are running in Farming.',
+    farmingSystemPrompt,
   ]);
   const qoderFarming = resolveLaunchCommand('qoder', {
-    farmingSystemPrompt: 'You are running in Farming.',
+    farmingSystemPrompt,
   });
   assert.deepStrictEqual(qoderFarming.args, [
     '--append-system-prompt',
-    'You are running in Farming.',
+    farmingSystemPrompt,
   ]);
 
   console.log('✓ Agent launch profiles resolve per-agent dangerous skip flags correctly');

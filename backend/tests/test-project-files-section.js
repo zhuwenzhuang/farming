@@ -762,9 +762,12 @@ function run() {
 	      fileStickyContextHookSource.includes('function stickyContentTop') &&
 	      fileStickyContextHookSource.includes("querySelector<HTMLElement>('.code-agents-section')") &&
 	      treeModelSource.includes('function findWorkspaceFileTreeNode') &&
-	      fileStickyContextHookSource.includes('findWorkspaceFileTreeNode') &&
+      fileStickyContextHookSource.includes('findWorkspaceFileTreeNode') &&
       fileStickyContextHookSource.includes('const refreshStickyAncestors = useCallback') &&
+      fileStickyContextHookSource.includes('useLayoutEffect(() =>') &&
       fileStickyContextHookSource.includes("viewport?.closest<HTMLElement>('.code-project-list')") &&
+      fileStickyContextHookSource.includes('window.requestAnimationFrame(() =>') &&
+      fileStickyContextHookSource.includes("scroller?.addEventListener('scroll', refreshBeforePaint, { passive: true })") &&
       fileStickyContextHookSource.includes('setStickyContextVisible(isWorkspaceStickyContextVisible(viewportRect.top, stickyTop))') &&
       fileStickyContextHookSource.includes('workspaceStickyDirectoryPaths(firstVisiblePath, rowSnapshots, stickyTop)') &&
       fileViewModelSource.includes('function firstVisibleWorkspaceFilePath') &&

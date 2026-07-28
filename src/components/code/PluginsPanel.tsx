@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { appPath } from '@/lib/base-path'
 import { getBackendConnectionSnapshot } from '@/lib/backend-live-status'
 import { ArrowLeftGlyph, CloseGlyph, PuzzleGlyph } from '@/components/IconGlyphs'
@@ -152,13 +152,14 @@ export function PluginsPanel({
   const [error, setError] = useState('')
   const [browserChoice, setBrowserChoice] = useState('system:')
   const [externalCdpUrl, setExternalCdpUrl] = useState('http://127.0.0.1:9222')
+  const browserChoiceDirtyRef = useRef(false)
   const [agentGroups, setAgentGroups] = useState<AgentExtensionGroup[]>([])
   const [agentGroupsLoading, setAgentGroupsLoading] = useState(true)
   const [agentGroupsError, setAgentGroupsError] = useState('')
   const [selectedExtension, setSelectedExtension] = useState<SelectedAgentExtension | null>(null)
 
   useEffect(() => {
-    if (!capability) return
+    if (!capability || browserChoiceDirtyRef.current) return
     setEnabled(capability.enabled)
     const selection = capability.selection
     setBrowserChoice(selection?.source === 'external-cdp'
@@ -263,6 +264,7 @@ export function PluginsPanel({
       })
       const data = await response.json().catch(() => ({})) as { error?: string }
       if (!response.ok) throw new Error(data.error || copy.saveFailed)
+      browserChoiceDirtyRef.current = false
       onRefreshCapability()
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : copy.saveFailed)
@@ -322,6 +324,7 @@ export function PluginsPanel({
                   value={browserChoice}
                   disabled={saving}
                   onChange={event => {
+                    browserChoiceDirtyRef.current = true
                     setBrowserChoice(event.target.value)
                     setError('')
                   }}
@@ -344,6 +347,7 @@ export function PluginsPanel({
                     placeholder={copy.externalCdpPlaceholder}
                     disabled={saving}
                     onChange={event => {
+                      browserChoiceDirtyRef.current = true
                       setExternalCdpUrl(event.target.value)
                       setError('')
                     }}

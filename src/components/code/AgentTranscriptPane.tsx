@@ -16,7 +16,18 @@ import rehypeHighlight from 'rehype-highlight'
 import rehypeKatex from 'rehype-katex'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
-import { AgentGroupGlyph, ArrowDownGlyph, CheckGlyph, ChevronRightGlyph, CloseGlyph, CopyGlyph, ForkGlyph } from '@/components/IconGlyphs'
+import {
+  AgentBotGlyph,
+  AgentChipGlyph,
+  AgentGroupGlyph,
+  AgentSpeechBotGlyph,
+  ArrowDownGlyph,
+  CheckGlyph,
+  ChevronRightGlyph,
+  CloseGlyph,
+  CopyGlyph,
+  ForkGlyph,
+} from '@/components/IconGlyphs'
 import { MermaidBlock } from '@/components/files/FileEditorMarkdownPreview'
 import { appPath } from '@/lib/base-path'
 import { showUrlOpenMenu } from '@/lib/url-open-menu'
@@ -1305,36 +1316,75 @@ function AgentTranscriptSteerItem({ item }: { item: AgentTranscriptProcessItem }
   )
 }
 
+function collaborationActionLabel(
+  action: AcpCollaborationAgent['action'],
+  copy: CodeCopy,
+) {
+  if (action === 'started') return copy.agentTranscriptCollaborationStarted
+  if (action === 'updated') return copy.agentTranscriptCollaborationUpdated
+  if (action === 'finished') return copy.agentTranscriptCollaborationCompleted
+  if (action === 'interrupted') return copy.agentTranscriptCollaborationInterrupted
+  if (action === 'failed') return copy.agentTranscriptCollaborationFailed
+  return copy.agentTranscriptCollaborationRecorded
+}
+
+function CollaborationAgentGlyph({ icon }: { icon: number }) {
+  const Glyph = [AgentBotGlyph, AgentSpeechBotGlyph, AgentChipGlyph][icon] || AgentBotGlyph
+  return <Glyph />
+}
+
 function AgentTranscriptCollaborationTimeline({
   agents,
-  onOpen,
+  live,
+  renderProcessItem,
   copy,
 }: {
   agents: AcpCollaborationAgent[]
-  onOpen: (processItemId: string) => void
+  live: boolean
+  renderProcessItem: (processItemId: string) => ReactNode
   copy: CodeCopy
 }) {
   const [openAgentIds, setOpenAgentIds] = useState<Set<string>>(() => new Set())
+  const [openActivityIds, setOpenActivityIds] = useState<Set<string>>(() => new Set())
+  const [visibleActivityCounts, setVisibleActivityCounts] = useState<Record<string, number>>({})
+  const [visibleEvidenceCounts, setVisibleEvidenceCounts] = useState<Record<string, number>>({})
   if (agents.length === 0) return null
   return (
     <div className="code-agent-transcript-collaboration" data-testid="code-agent-transcript-collaboration">
+      <div className="code-agent-transcript-collaboration-heading">
+        <AgentGroupGlyph />
+        <span>{copy.agentTranscriptCollaborationHeading}</span>
+      </div>
       {agents.map(agent => {
         const active = agent.action === 'started' || agent.action === 'updated'
-        const statusClassName = active ? 'running' : agent.action
-        const statusLabel = active ? copy.agentTranscriptRunning : agent.action
+        const agentOpen = openAgentIds.has(agent.id)
+        const statusClassName = active ? (live ? 'running' : 'unresolved') : (
+          agent.action === 'recorded' ? 'unresolved' : agent.action
+        )
+        const statusLabel = agent.action === 'recorded'
+          ? copy.agentTranscriptCollaborationNoFinalState
+          : active
+          ? (live
+            ? copy.agentTranscriptCollaborationInProgress
+            : copy.agentTranscriptCollaborationNoFinalState)
+          : collaborationActionLabel(agent.action, copy)
+        const visibleActivityCount = Math.max(8, visibleActivityCounts[agent.id] || 8)
+        const visibleActivities = agent.activities.slice(-visibleActivityCount)
+        const hiddenActivityCount = agent.activities.length - visibleActivities.length
         return (
           <section
-            className={`code-agent-transcript-collaboration-group ${openAgentIds.has(agent.id) ? 'expanded' : ''}`}
+            className={`code-agent-transcript-collaboration-group ${agentOpen ? 'expanded' : ''}`}
             data-testid="code-agent-transcript-collaboration-group"
             data-agent-thread-id={agent.threadId}
+            data-agent-icon={agent.icon}
             key={agent.id}
           >
             <button
               type="button"
               className="code-agent-transcript-collaboration-summary"
               data-testid="code-agent-transcript-collaboration-summary"
-              aria-expanded={openAgentIds.has(agent.id)}
-              title={`${agent.name} · ${copy.agentTranscriptProcessCount(agent.events.length)}`}
+              aria-expanded={agentOpen}
+              title={`${agent.name} · ${statusLabel} · ${copy.agentTranscriptProcessCount(agent.events.length)}`}
               onClick={clickEvent => {
                 clickEvent.stopPropagation()
                 toggleTranscriptDisclosureWithStableAnchor(clickEvent.currentTarget, () => {
@@ -1344,11 +1394,18 @@ function AgentTranscriptCollaborationTimeline({
                     else next.add(agent.id)
                     return next
                   })
+                  if (agentOpen) {
+                    setOpenActivityIds(current => {
+                      const next = new Set(current)
+                      agent.activities.forEach(activity => next.delete(activity.id))
+                      return next
+                    })
+                  }
                 })
               }}
             >
               <span className={`code-agent-transcript-collaboration-agent tone-${agent.tone}`}>
-                <AgentGroupGlyph />
+                <CollaborationAgentGlyph icon={agent.icon} />
                 <span>{agent.name}</span>
               </span>
               <span className={`code-agent-transcript-collaboration-action ${statusClassName}`}>{statusLabel}</span>
@@ -1357,34 +1414,104 @@ function AgentTranscriptCollaborationTimeline({
               </span>
               <ChevronRightGlyph className="code-agent-transcript-chevron" />
             </button>
-            {openAgentIds.has(agent.id) ? (
+            {agentOpen ? (
               <div className="code-agent-transcript-collaboration-events">
-                {agent.activities.map(activity => (
+                {hiddenActivityCount > 0 ? (
                   <button
                     type="button"
-                    className="code-agent-transcript-collaboration-event"
-                    data-testid="code-agent-transcript-collaboration-event"
-                    data-process-item-id={activity.processItemId}
-                    key={activity.id}
-                    title={activity.title || activity.message || agent.name}
+                    className="code-agent-transcript-collaboration-activities-earlier"
+                    data-testid="code-agent-transcript-collaboration-activities-earlier"
                     onClick={clickEvent => {
                       clickEvent.stopPropagation()
-                      onOpen(activity.processItemId)
+                      setVisibleActivityCounts(current => ({
+                        ...current,
+                        [agent.id]: Math.min(agent.activities.length, visibleActivityCount + 20),
+                      }))
                     }}
                   >
-                    <span className={`code-agent-transcript-collaboration-action ${activity.action}`}>
-                      {activity.action}
-                    </span>
-                    <span className="code-agent-transcript-collaboration-event-detail">
-                      {activity.message || activity.title || agent.name}
-                    </span>
-                    {activity.count > 1 ? (
-                      <span className="code-agent-transcript-collaboration-event-count">
-                        {copy.agentTranscriptProcessCount(activity.count)}
-                      </span>
-                    ) : null}
+                    {copy.agentTranscriptCollaborationEarlierActivities(
+                      Math.min(20, hiddenActivityCount),
+                    )}
                   </button>
-                ))}
+                ) : null}
+                {visibleActivities.map(activity => {
+                  const activityOpen = openActivityIds.has(activity.id)
+                  const visibleCount = Math.max(8, visibleEvidenceCounts[activity.id] || 8)
+                  const visibleProcessItemIds = activity.processItemIds.slice(-visibleCount)
+                  const hiddenEvidenceCount = activity.processItemIds.length - visibleProcessItemIds.length
+                  return (
+                    <div
+                      className={`code-agent-transcript-collaboration-activity ${activityOpen ? 'expanded' : ''}`}
+                      data-testid="code-agent-transcript-collaboration-activity"
+                      key={activity.id}
+                    >
+                      <button
+                        type="button"
+                        className="code-agent-transcript-collaboration-event"
+                        data-testid="code-agent-transcript-collaboration-event"
+                        data-process-item-id={activity.processItemId}
+                        aria-expanded={activityOpen}
+                        title={activity.title || activity.message || agent.name}
+                        onClick={clickEvent => {
+                          clickEvent.stopPropagation()
+                          toggleTranscriptDisclosureWithStableAnchor(clickEvent.currentTarget, () => {
+                            setOpenActivityIds(current => {
+                              const next = new Set(current)
+                              if (next.has(activity.id)) next.delete(activity.id)
+                              else next.add(activity.id)
+                              return next
+                            })
+                          })
+                        }}
+                      >
+                        <span className={`code-agent-transcript-collaboration-action ${activity.action}`}>
+                          {collaborationActionLabel(activity.action, copy)}
+                        </span>
+                        <span className="code-agent-transcript-collaboration-event-detail">
+                          {activity.message || (
+                            activity.action === 'started'
+                              || activity.action === 'updated'
+                              || activity.action === 'recorded'
+                              ? agent.name
+                              : activity.title || agent.name
+                          )}
+                        </span>
+                        {activity.count > 1 ? (
+                          <span className="code-agent-transcript-collaboration-event-count">
+                            {copy.agentTranscriptProcessCount(activity.count)}
+                          </span>
+                        ) : null}
+                        <ChevronRightGlyph className="code-agent-transcript-chevron" />
+                      </button>
+                      {activityOpen ? (
+                        <div
+                          className="code-agent-transcript-collaboration-evidence"
+                          data-testid="code-agent-transcript-collaboration-evidence"
+                        >
+                          {hiddenEvidenceCount > 0 ? (
+                            <button
+                              type="button"
+                              className="code-agent-transcript-collaboration-earlier"
+                              data-testid="code-agent-transcript-collaboration-earlier"
+                              onClick={clickEvent => {
+                                clickEvent.stopPropagation()
+                                setVisibleEvidenceCounts(current => ({
+                                  ...current,
+                                  [activity.id]: Math.min(activity.processItemIds.length, visibleCount + 20),
+                                }))
+                              }}
+                            >
+                              {copy.agentTranscriptCollaborationEarlierEvidence(
+                                Math.min(20, hiddenEvidenceCount),
+                              )}
+                            </button>
+                          ) : null}
+                          {visibleProcessItemIds.map(processItemId => renderProcessItem(processItemId))}
+                        </div>
+                      ) : null}
+                    </div>
+                  )
+                })}
               </div>
             ) : null}
           </section>
@@ -1930,7 +2057,7 @@ function AgentTranscriptTurnView({
         }
       : item
   )), [loadedProcessDetails, turn.processItems])
-  const hasProcess = resolvedProcessItems.length > 0
+  const hasAnyProcess = resolvedProcessItems.length > 0
   const patchResults = resolvedProcessItems.filter(isPatchResultItem)
   const userImages = turn.userImages || []
   const userAudios = turn.userAudios || []
@@ -1952,18 +2079,34 @@ function AgentTranscriptTurnView({
   const refreshedTerminalOutcomeItemIdsRef = useRef(new Set<string>())
   const syncingTerminalOutcomeItemIdsRef = useRef(new Set<string>())
   const [, setProgressClock] = useState(0)
-  const processEntries = useMemo(() => (
-    groupProcessActions
-      ? processEntriesForTurn(resolvedProcessItems)
-      : resolvedProcessItems.map(item => ({ kind: 'item' as const, item }))
-  ), [groupProcessActions, resolvedProcessItems])
-  const compactProcess = useMemo(
-    () => compactProcessEntries(processEntries, turn.status),
-    [processEntries, turn.status],
-  )
   const collaborationAgents = useMemo(
     () => acpCollaborationAgents(resolvedProcessItems),
     [resolvedProcessItems],
+  )
+  const collaborationProcessItemIds = useMemo(() => new Set(
+    collaborationAgents.flatMap(agent => agent.events.map(event => event.processItemId)),
+  ), [collaborationAgents])
+  const processItemById = useMemo(
+    () => new Map(resolvedProcessItems.map(item => [item.id, item])),
+    [resolvedProcessItems],
+  )
+  const mainProcessItems = useMemo(
+    () => resolvedProcessItems.filter(item => !collaborationProcessItemIds.has(item.id)),
+    [collaborationProcessItemIds, resolvedProcessItems],
+  )
+  const mainProcessTurn = useMemo(
+    () => ({ ...turn, processItems: mainProcessItems }),
+    [mainProcessItems, turn],
+  )
+  const hasProcess = mainProcessItems.length > 0
+  const processEntries = useMemo(() => (
+    groupProcessActions
+      ? processEntriesForTurn(mainProcessItems)
+      : mainProcessItems.map(item => ({ kind: 'item' as const, item }))
+  ), [groupProcessActions, mainProcessItems])
+  const compactProcess = useMemo(
+    () => compactProcessEntries(processEntries, turn.status),
+    [processEntries, turn.status],
   )
   const latestLiveThoughtId = useMemo(() => {
     if (turn.status !== 'inProgress') return ''
@@ -1986,7 +2129,7 @@ function AgentTranscriptTurnView({
     && compactProcess.items.length === 0
     && collaborationAgents.length === 0
     && (
-    Boolean(turn.userMessage) || userImages.length > 0 || userAudios.length > 0 || userFiles.length > 0 || hasProcess
+    Boolean(turn.userMessage) || userImages.length > 0 || userAudios.length > 0 || userFiles.length > 0 || hasAnyProcess
     )
   useEffect(() => {
     if (turn.status !== 'inProgress' || !turn.startedAt) return undefined
@@ -2191,22 +2334,6 @@ function AgentTranscriptTurnView({
       return next
     })
   }, [latestLiveThoughtId, loadFullProcessDetail, openProcessItemIds, resolvedProcessItems])
-  const handleOpenCollaborationItem = useCallback((itemId: string) => {
-    if (!processOpen) onToggleProcess(turn.id)
-    manuallyToggledProcessItemIdsRef.current.add(itemId)
-    const item = resolvedProcessItems.find(candidate => candidate.id === itemId)
-    if (item?.detailTruncated || item?.terminalIds?.length || item?.subagentSessionId) {
-      void loadFullProcessDetail(item).catch(() => {})
-    }
-    setOpenProcessItemIds(current => new Set([...current, itemId]))
-    window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
-      const target = Array.from(
-        turnRef.current?.querySelectorAll<HTMLElement>('[data-testid="code-agent-transcript-process-item"]') || [],
-      ).find(element => element.dataset.processItemId === itemId)
-      target?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-      target?.querySelector<HTMLElement>('[data-testid="code-agent-transcript-process-item-toggle"]')?.focus({ preventScroll: true })
-    }))
-  }, [loadFullProcessDetail, onToggleProcess, processOpen, resolvedProcessItems, turn.id])
   const handleStopTerminal = useCallback(async (itemId: string, terminalId: string) => {
     if (!onStopTerminal) return
     await onStopTerminal(terminalId)
@@ -2322,14 +2449,16 @@ function AgentTranscriptTurnView({
         </div>
       ) : null}
 
-      {hasProcess ? (
+      {hasAnyProcess ? (
         <div className={`code-agent-transcript-process ${effectiveProcessOpen ? 'expanded' : ''}`}>
-          <button
+          {hasProcess ? (
+            <>
+              <button
             type="button"
             className="code-agent-transcript-process-summary"
             data-testid="code-agent-transcript-process-summary"
             aria-expanded={effectiveProcessOpen}
-            title={liveToolLabel || turnProcessTitle(turn, copy)}
+            title={liveToolLabel || turnProcessTitle(mainProcessTurn, copy)}
             onPointerDown={event => event.stopPropagation()}
             onMouseDown={event => event.stopPropagation()}
             onClick={event => {
@@ -2342,12 +2471,12 @@ function AgentTranscriptTurnView({
               event.stopPropagation()
               toggleTranscriptDisclosureWithStableAnchor(event.currentTarget, toggleProcessOpen)
             }}
-          >
-            <span className="code-agent-transcript-process-summary-label">
-              {turnProcessLabel(turn, copy, processSummaryWorkingLabel, planLabel)}
-            </span>
-            <ChevronRightGlyph className="code-agent-transcript-chevron" />
-          </button>
+              >
+                <span className="code-agent-transcript-process-summary-label">
+                  {turnProcessLabel(mainProcessTurn, copy, processSummaryWorkingLabel, planLabel)}
+                </span>
+                <ChevronRightGlyph className="code-agent-transcript-chevron" />
+              </button>
           {!effectiveProcessOpen ? resolvedProcessItems
             .filter(isUserSteerProcessItem)
             .map(item => <AgentTranscriptSteerItem key={item.id} item={item} />) : null}
@@ -2397,7 +2526,7 @@ function AgentTranscriptTurnView({
               compact
             />
           ) : null}
-          {effectiveProcessOpen ? (
+              {effectiveProcessOpen ? (
             <div className="code-agent-transcript-process-list">
               {processEntries.map(entry => {
                 if (entry.kind === 'group') {
@@ -2463,10 +2592,33 @@ function AgentTranscriptTurnView({
                 )
               })}
             </div>
+              ) : null}
+            </>
           ) : null}
           <AgentTranscriptCollaborationTimeline
             agents={collaborationAgents}
-            onOpen={handleOpenCollaborationItem}
+            live={turn.status === 'inProgress'}
+            renderProcessItem={processItemId => {
+              const item = processItemById.get(processItemId)
+              if (!item) return null
+              return (
+                <AgentTranscriptProcessItemView
+                  key={item.id}
+                  item={item}
+                  copy={copy}
+                  copied={copiedItemId === item.id}
+                  detailOpen={openProcessItemIds.has(item.id)}
+                  onToggle={handleToggleProcessItem}
+                  onCopy={handleCopyItem}
+                  onStopTerminal={handleStopTerminal}
+                  onInputTerminal={handleInputTerminal}
+                  onResizeTerminal={handleResizeTerminal}
+                  terminalOutcomeSyncFailed={terminalOutcomeSyncFailedItemIds.has(item.id)}
+                  onRetryTerminalOutcome={handleRetryTerminalOutcome}
+                  onStopSubagent={onStopSubagent}
+                />
+              )
+            }}
             copy={copy}
           />
         </div>
@@ -2689,6 +2841,7 @@ export function AgentTranscriptPane({
     let retryTimer: number | null = null
     let retryAttempt = 0
     let controller: AbortController | null = null
+    let needsReconnectReload = false
 
     const load = () => {
       if (retryTimer !== null) {
@@ -2727,6 +2880,7 @@ export function AgentTranscriptPane({
         .then(payload => {
           if (stopped) return
           retryAttempt = 0
+          needsReconnectReload = false
           const nextTranscript = source === 'acp' && payload.transcript
             ? projectAcpTranscript(payload.transcript, { maxTurns: turnLimit })
             : payload.transcript || null
@@ -2752,13 +2906,30 @@ export function AgentTranscriptPane({
             return
           }
           retryAttempt = 0
+          needsReconnectReload = source === 'acp' && !responseReceived && reason instanceof TypeError
           setError(transcriptRef.current?.available ? '' : copy.agentTranscriptUnavailable)
           setLoading(false)
           setLoadingOlder(false)
         })
     }
 
+    const handleBackendDisconnected = () => {
+      needsReconnectReload = true
+    }
+    const handleBackendConnected = () => {
+      if (!needsReconnectReload) return
+      needsReconnectReload = false
+      load()
+    }
+
     load()
+    // A bounded transport retry can legitimately finish before a deploy or
+    // backend restart has completed. The shared socket reconnect is the
+    // authoritative signal that reads are available again, so retry this
+    // read-only projection once on that transition instead of polling or
+    // leaving a stale transport error on screen.
+    window.addEventListener('farming:backend-disconnected', handleBackendDisconnected)
+    window.addEventListener('farming:backend-connected', handleBackendConnected)
     // ACP entry updates already advance refreshSignal through the shared state
     // websocket. Re-fetching a complete, idle history every three seconds is
     // especially expensive for long sessions with many tool details.
@@ -2766,6 +2937,8 @@ export function AgentTranscriptPane({
 
     return () => {
       stopped = true
+      window.removeEventListener('farming:backend-disconnected', handleBackendDisconnected)
+      window.removeEventListener('farming:backend-connected', handleBackendConnected)
       controller?.abort()
       if (retryTimer !== null) window.clearTimeout(retryTimer)
       if (pollTimer !== null) window.clearInterval(pollTimer)

@@ -315,14 +315,14 @@ function farmingCapabilities(browser) {
       state,
       summary: state === 'available'
         ? (browser?.browser?.kind === 'external-cdp'
-            ? 'An externally managed CDP Browser can be created or attached in Farming on demand.'
-            : 'An installed system Chromium Browser can be created or attached in Farming on demand.')
+            ? 'Default browser path for web tasks. An externally managed CDP Browser can be created or attached as a shared, user-visible Farming Resource.'
+            : 'Default browser path for web tasks. An installed system Chromium Browser can be created or attached as a shared, user-visible Farming Resource.')
         : (browser?.message || 'Browser integration is unavailable in Farming.'),
       commands: state === 'available'
         ? {
             list: 'farming browser list',
             create: 'farming browser create',
-            help: 'farming browser --help',
+            workflow: 'farming browser help workflow',
           }
         : {},
     }],

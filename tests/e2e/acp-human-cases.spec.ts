@@ -41,7 +41,7 @@ test.describe('ACP human-like browser matrix', () => {
       new RegExp(`/farming/api/agents/${agentId}/acp-transcript(?:\\?.*)?$`),
       async route => {
         attempts += 1
-        if (attempts !== 3) {
+        if (attempts !== 4) {
           await route.abort('connectionreset')
           return
         }
@@ -74,11 +74,17 @@ test.describe('ACP human-like browser matrix', () => {
     )
 
     await openFarming(page)
+    await page.evaluate(() => window.dispatchEvent(new Event('farming:backend-disconnected')))
     await agentRow(page, agentId).click()
+    await expect(page.getByText('This session’s Chat history could not be loaded.', { exact: true }))
+      .toBeVisible({ timeout: 10_000 })
+    expect(attempts).toBe(3)
+
+    await page.evaluate(() => window.dispatchEvent(new Event('farming:backend-connected')))
     await expect(page.getByText('Transcript transport recovered.', { exact: true })).toBeVisible({
       timeout: 10_000,
     })
-    expect(attempts).toBe(3)
+    expect(attempts).toBe(4)
     await expect(page.getByText('Failed to fetch', { exact: true })).toHaveCount(0)
 
     await agentRow(page, otherAgentId).click()
@@ -230,14 +236,14 @@ test.describe('ACP human-like browser matrix', () => {
       tableFontSize: '14px',
       headerLineHeight: '20px',
       quoteFontSize: '14px',
-      inlineCodeColor: 'rgb(230, 237, 243)',
-      inlineCodeBackground: 'rgba(88, 166, 255, 0.14)',
+      inlineCodeColor: 'rgb(255, 255, 255)',
+      inlineCodeBackground: 'rgba(255, 255, 255, 0.09)',
     })
     expect(metrics.inlineCodeFontSize).toBeGreaterThanOrEqual(12)
     expect(metrics.inlineCodeFontSize).toBeLessThan(14)
   })
 
-  test('shows Codex collaboration events and opens their exact Process evidence', async ({ page, workspaceRoot }) => {
+  test('shows readable Codex collaboration summaries and keeps raw Process evidence secondary', async ({ page, workspaceRoot }) => {
     const workspace = path.join(workspaceRoot, 'acp-codex-collaboration')
     fs.mkdirSync(workspace, { recursive: true })
 
@@ -254,17 +260,34 @@ test.describe('ACP human-like browser matrix', () => {
     await expect(groups).toHaveCount(3)
     await expect(events).toHaveCount(0)
     await expect(groups.nth(0)).toContainText('Review refresh')
-    await expect(groups.nth(0)).toContainText(/Running|正在运行/)
+    await expect(groups.nth(0)).toContainText(/No final state|未收到终态/)
     await expect(groups.nth(1)).toContainText('Browser guards')
-    await expect(groups.nth(1)).toContainText(/22 (?:events|个事件)/)
+    await expect(groups.nth(1)).toContainText(/23 (?:events|个事件)/)
     await expect(groups.nth(2)).toContainText('Crt races')
     await expect(groups.nth(0).locator('.code-agent-transcript-collaboration-agent svg')).toBeVisible()
+    expect(await groups.evaluateAll(elements => (
+      elements.map(element => element.getAttribute('data-agent-icon')).sort()
+    ))).toEqual(['0', '1', '2'])
+    const agentIconPaths = await groups.locator('.code-agent-transcript-collaboration-agent svg').evaluateAll(
+      icons => icons.map(icon => icon.querySelector('path')?.getAttribute('d')),
+    )
+    expect(new Set(agentIconPaths).size).toBe(3)
+    await expect(timeline.locator('.code-agent-transcript-collaboration-heading svg')).toBeVisible()
     for (let index = 0; index < 3; index += 1) {
       await expect(groups.nth(index).getByTestId('code-agent-transcript-collaboration-summary'))
         .toHaveAttribute('aria-expanded', 'false')
     }
-    await expect(turn.getByTestId('code-agent-transcript-process-summary')).toHaveAttribute('aria-expanded', 'false')
-    expect((await timeline.boundingBox())?.height || 0).toBeLessThan(160)
+    const parentProcessSummary = turn.getByTestId('code-agent-transcript-process-summary')
+    await expect(parentProcessSummary).toHaveAttribute('aria-expanded', 'false')
+    await parentProcessSummary.click()
+    await expect(parentProcessSummary).toHaveAttribute('aria-expanded', 'true')
+    const parentProcessList = turn.locator('.code-agent-transcript-process-list').first()
+    await expect(parentProcessList.getByTestId('code-agent-transcript-process-group')).toHaveCount(1)
+    await expect(parentProcessList).toContainText('Read a file')
+    await expect(parentProcessList).not.toContainText('Browser guards')
+    await parentProcessSummary.click()
+    await expect(parentProcessSummary).toHaveAttribute('aria-expanded', 'false')
+    expect((await timeline.boundingBox())?.height || 0).toBeLessThan(190)
 
     await page.evaluate(() => { document.body.dataset.appearance = 'light' })
     const lightVisuals = await groups.nth(0).evaluate(element => {
@@ -300,25 +323,55 @@ test.describe('ACP human-like browser matrix', () => {
     await browserSummary.click()
     await expect(browserSummary).toHaveAttribute('aria-expanded', 'true')
     const browserEvents = browserGroup.getByTestId('code-agent-transcript-collaboration-event')
-    await expect(browserEvents).toHaveCount(5)
-    await expect(browserEvents.nth(0)).toContainText('started')
-    await expect(browserEvents.nth(1)).toContainText('updated')
-    await expect(browserEvents.nth(1)).toContainText(/18 (?:events|个事件)/)
-    await expect(browserEvents.nth(2)).toContainText('failed')
-    await expect(browserEvents.nth(2)).toHaveAttribute('data-process-item-id', 'collab-browser-failed-1')
-    await expect(browserEvents.nth(3)).toContainText('failed')
-    await expect(browserEvents.nth(3)).toHaveAttribute('data-process-item-id', 'collab-browser-failed-2')
-    await expect(browserEvents.nth(4)).toContainText('finished')
-    await expect(browserEvents.nth(4)).toContainText('Browser guard verification passed.')
+    await expect(browserEvents).toHaveCount(6)
+    await expect(browserEvents.nth(0)).toContainText(/Started|已启动/)
+    await expect(browserEvents.nth(1)).toContainText(/Activity|活动/)
+    await expect(browserEvents.nth(1)).toHaveAttribute('data-process-item-id', 'collab-browser-provider-unknown')
+    await expect(browserEvents.nth(2)).toContainText(/Updated|已更新/)
+    await expect(browserEvents.nth(2)).toContainText(/18 (?:events|个事件)/)
+    await expect(browserEvents.nth(3)).toContainText(/Failed|失败/)
+    await expect(browserEvents.nth(3)).toHaveAttribute('data-process-item-id', 'collab-browser-failed-1')
+    await expect(browserEvents.nth(4)).toContainText(/Failed|失败/)
+    await expect(browserEvents.nth(4)).toHaveAttribute('data-process-item-id', 'collab-browser-failed-2')
+    await expect(browserEvents.nth(5)).toContainText(/Completed|已完成/)
+    await expect(browserEvents.nth(5)).toContainText('Browser guard verification passed.')
+    await browserEvents.nth(0).focus()
+    await page.keyboard.press('Tab')
+    const keyboardFocusedActivity = browserGroup.locator('.code-agent-transcript-collaboration-event:focus')
+    await expect(keyboardFocusedActivity).toHaveCount(1)
+    expect(await keyboardFocusedActivity.evaluate(element => getComputedStyle(element).boxShadow)).not.toBe('none')
 
     await browserEvents.nth(2).click()
-    await expect(turn.getByTestId('code-agent-transcript-process-summary')).toHaveAttribute('aria-expanded', 'true')
-    const detail = turn.locator(
+    await expect(browserEvents.nth(2)).toHaveAttribute('aria-expanded', 'true')
+    const repeatedEvidence = browserGroup.getByTestId('code-agent-transcript-collaboration-evidence')
+    await expect(repeatedEvidence.getByTestId('code-agent-transcript-process-item')).toHaveCount(8)
+    await expect(repeatedEvidence.getByTestId('code-agent-transcript-collaboration-earlier'))
+      .toContainText(/10 (?:earlier records|条记录)/)
+    await repeatedEvidence.getByTestId('code-agent-transcript-collaboration-earlier').click()
+    await expect(repeatedEvidence.getByTestId('code-agent-transcript-process-item')).toHaveCount(18)
+    await browserEvents.nth(2).click()
+    await expect(browserEvents.nth(2)).toHaveAttribute('aria-expanded', 'false')
+    await expect(browserGroup.getByTestId('code-agent-transcript-collaboration-evidence')).toHaveCount(0)
+
+    await browserEvents.nth(3).click()
+    await expect(browserEvents.nth(3)).toHaveAttribute('aria-expanded', 'true')
+    const detail = browserGroup.locator(
       '[data-testid="code-agent-transcript-process-item"][data-process-item-id="collab-browser-failed-1"]',
     )
+    await expect(detail.getByTestId('code-agent-transcript-process-item-toggle')).toHaveAttribute('aria-expanded', 'false')
+    await detail.getByTestId('code-agent-transcript-process-item-toggle').click()
     await expect(detail.getByTestId('code-agent-transcript-process-item-toggle')).toHaveAttribute('aria-expanded', 'true')
-    await expect(detail.getByTestId('code-agent-transcript-process-item-toggle')).toBeFocused()
     await expect(detail).toContainText('Browser guard retry required.')
+    await detail.getByTestId('code-agent-transcript-process-item-toggle').click()
+    await expect(detail.getByTestId('code-agent-transcript-process-item-toggle')).toHaveAttribute('aria-expanded', 'false')
+
+    await browserSummary.click()
+    await expect(browserSummary).toHaveAttribute('aria-expanded', 'false')
+    await expect(browserGroup.getByTestId('code-agent-transcript-collaboration-event')).toHaveCount(0)
+    await browserSummary.click()
+    await expect(browserSummary).toHaveAttribute('aria-expanded', 'true')
+    await expect(browserGroup.getByTestId('code-agent-transcript-collaboration-event').nth(3))
+      .toHaveAttribute('aria-expanded', 'false')
   })
 
   test('keeps a manually expanded Agent stable while collaboration updates stream', async ({ page, workspaceRoot }) => {
@@ -336,7 +389,8 @@ test.describe('ACP human-like browser matrix', () => {
     const liveReviewGroup = timeline.getByTestId('code-agent-transcript-collaboration-group')
       .filter({ hasText: 'Live reviewer' })
     const summary = liveReviewGroup.getByTestId('code-agent-transcript-collaboration-summary')
-    await expect(summary).toContainText(/Running|正在运行/)
+    const initialAgentIcon = await liveReviewGroup.getAttribute('data-agent-icon')
+    await expect(summary).toContainText(/In progress|进行中/)
     await expect(summary).toContainText(/2 (?:events|个事件)/, { timeout: 5_000 })
 
     await summary.click()
@@ -353,7 +407,8 @@ test.describe('ACP human-like browser matrix', () => {
       timeout: 15_000,
     })
     await expect(summary).toHaveAttribute('aria-expanded', 'true')
-    await expect(summary).toContainText('finished')
+    await expect(summary).toContainText(/Completed|已完成/)
+    await expect(liveReviewGroup).toHaveAttribute('data-agent-icon', initialAgentIcon || '')
     const activities = liveReviewGroup.getByTestId('code-agent-transcript-collaboration-event')
     await expect(activities).toHaveCount(3)
     await expect(activities.nth(1)).toContainText(/10 (?:events|个事件)/)

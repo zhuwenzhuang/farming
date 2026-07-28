@@ -196,6 +196,9 @@ async function discoverBrowserRuntime(options = {}) {
   }
   const verification = await verifyExecutable(agentBrowserPath, AGENT_BROWSER_VERSION, {
     execFile: options.execFile,
+    env: options.env || process.env,
+    platform: options.platform || process.platform,
+    useConfiguredLoader: true,
   });
   if (!verification.valid) {
     return {

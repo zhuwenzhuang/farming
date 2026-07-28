@@ -50,6 +50,8 @@ function run() {
   assert(shareButtonSource.includes('<FarmingQrCode value={ticket.shortUrl} badgeUrl={badgeUrl} qrCodeFactory={qrCodeFactory} />'));
 
   assert(sidebarSource.includes("import { ShareQrButton } from './ShareQrButton'"));
+  assert(shareButtonSource.includes("import { ShareGlyph } from '@/components/IconGlyphs'"));
+  assert(shareButtonSource.includes('<ShareGlyph className="code-share-icon" />'));
   assert(sidebarSource.includes('shareTarget: WorkspaceShareTarget | null'));
   assert(
     sidebarSource.includes('<ShareQrButton') &&
@@ -61,7 +63,8 @@ function run() {
   assert(shareButtonSource.includes('handledOpenRequestRef.current === openRequest'));
   assert(shareButtonSource.includes('openPopover(true, true)'));
   assert(copySource.includes('copyFullShareLink:'));
-  assert(copySource.includes("copyFullShareLink: '复制完整链接'"));
+  assert(copySource.includes("sharePage: '分享当前页面'"));
+  assert(copySource.includes("copyFullShareLink: '复制当前页面链接'"));
 
   assert(stylesSource.includes('.code-share-popover'));
   assert(stylesSource.includes('width: 264px;'));

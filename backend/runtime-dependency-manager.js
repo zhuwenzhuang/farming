@@ -6,14 +6,18 @@ const { pipeline } = require('stream/promises');
 const { Readable, Transform } = require('stream');
 const tar = require('tar');
 const storageLayout = require('./storage-layout');
+const { runtimeExecutableInvocation } = require('./runtime-executable-invocation');
 
 const MANIFEST = require('./data/runtime-dependency-manifest.json');
+const SOURCE_CONFIG = require('./data/runtime-dependency-sources.json');
 const MAX_DOWNLOAD_BYTES = 512 * 1024 * 1024;
 const DOWNLOAD_TIMEOUT_MS = 180_000;
+const MIRROR_LOOKUP_TIMEOUT_MS = 3_000;
 const LOCK_TIMEOUT_MS = 180_000;
 const LOCK_STALE_MS = 10 * 60_000;
 const LOCK_POLL_MS = 100;
 const SAFE_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+const AUTHORITATIVE_NPM_ORIGIN = new URL(SOURCE_CONFIG.authoritativeNpmRegistry).origin;
 
 const DEPENDENCIES = Object.freeze([
   {
@@ -115,8 +119,17 @@ function semanticVersion(output) {
 
 async function verifyExecutable(executablePath, expectedVersion, options = {}) {
   const exec = options.execFile || execFile;
+  const args = options.args || ['--version'];
+  const invocation = options.useConfiguredLoader
+    ? runtimeExecutableInvocation(
+      executablePath,
+      args,
+      options.env || process.env,
+      options.platform || process.platform,
+    )
+    : { command: executablePath, args };
   return new Promise(resolve => {
-    exec(executablePath, options.args || ['--version'], {
+    exec(invocation.command, invocation.args, {
       encoding: 'utf8',
       timeout: options.timeoutMs || 5_000,
       maxBuffer: 1024 * 1024,
@@ -165,6 +178,10 @@ function resolutionEnvironment(env) {
   }
   delete resolved.FARMING_RUNTIME_MANIFEST_ID;
   return resolved;
+}
+
+function managedRuntimeUsesConfiguredLoader(id) {
+  return id === 'agentBrowser';
 }
 
 function readJson(filePath) {
@@ -243,7 +260,91 @@ async function acquirePrepareLock(configDir, options = {}) {
   }
 }
 
-async function downloadArtifact(artifact, destination, options = {}) {
+function npmArtifactIdentity(artifactUrl) {
+  const artifact = new URL(artifactUrl);
+  const segments = artifact.pathname.split('/').filter(Boolean).map(decodeURIComponent);
+  const separator = segments.indexOf('-');
+  if (separator < 1 || separator !== segments.length - 2) {
+    throw new Error('Runtime artifact must use a standard npm tarball URL');
+  }
+  const packageName = segments.slice(0, separator).join('/');
+  const packageBase = packageName.split('/').pop();
+  const filename = segments[separator + 1];
+  const prefix = `${packageBase}-`;
+  if (!filename.startsWith(prefix) || !filename.endsWith('.tgz')) {
+    throw new Error('Runtime artifact tarball does not match its npm package');
+  }
+  return {
+    packageName,
+    version: filename.slice(prefix.length, -'.tgz'.length),
+  };
+}
+
+function configuredRuntimeNpmMirror(env) {
+  if (Object.prototype.hasOwnProperty.call(env, 'FARMING_RUNTIME_NPM_MIRROR')) {
+    const configured = String(env.FARMING_RUNTIME_NPM_MIRROR || '').trim();
+    if (!configured || /^(0|false|none|off)$/i.test(configured)) return '';
+    return configured;
+  }
+  return String(SOURCE_CONFIG.defaultNpmMirror || '').trim();
+}
+
+async function runtimeArtifactDownloadUrls(artifact, options = {}) {
+  const authoritative = new URL(artifact.url);
+  if (authoritative.origin !== AUTHORITATIVE_NPM_ORIGIN) {
+    throw new Error('Runtime artifact must use the authoritative public npm registry');
+  }
+  const env = options.env || process.env;
+  const configuredMirror = configuredRuntimeNpmMirror(env);
+  if (!configuredMirror) return [authoritative.href];
+  const mirror = new URL(configuredMirror);
+  if (
+    mirror.protocol !== 'https:'
+    || mirror.username
+    || mirror.password
+    || mirror.search
+    || mirror.hash
+    || !['', '/'].includes(mirror.pathname)
+  ) {
+    throw new Error('FARMING_RUNTIME_NPM_MIRROR must be an HTTPS registry origin');
+  }
+  if (mirror.origin === authoritative.origin) return [authoritative.href];
+
+  const { packageName, version } = npmArtifactIdentity(authoritative);
+  const metadataUrl = new URL(
+    `${encodeURIComponent(packageName)}/${encodeURIComponent(version)}`,
+    mirror,
+  );
+  const controller = new globalThis.AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(),
+    options.mirrorLookupTimeoutMs || MIRROR_LOOKUP_TIMEOUT_MS,
+  );
+  timeout.unref?.();
+  try {
+    const response = await (options.fetch || fetch)(metadataUrl, {
+      headers: { accept: 'application/json' },
+      redirect: 'follow',
+      signal: controller.signal,
+    });
+    if (!response.ok) return [authoritative.href];
+    const metadata = await response.json();
+    if (metadata?.version !== version || metadata?.dist?.integrity !== artifact.integrity) {
+      return [authoritative.href];
+    }
+    const mirrored = new URL(metadata.dist.tarball);
+    if (mirrored.protocol !== 'https:' || mirrored.origin !== mirror.origin) {
+      return [authoritative.href];
+    }
+    return [mirrored.href, authoritative.href];
+  } catch {
+    return [authoritative.href];
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function downloadArtifactFromUrl(artifact, url, destination, options = {}) {
   const { algorithm, digest } = parseIntegrity(artifact.integrity);
   const controller = new globalThis.AbortController();
   const timeout = setTimeout(
@@ -254,7 +355,7 @@ async function downloadArtifact(artifact, destination, options = {}) {
   const hash = crypto.createHash(algorithm);
   let received = 0;
   try {
-    const response = await (options.fetch || fetch)(artifact.url, {
+    const response = await (options.fetch || fetch)(url, {
       redirect: 'follow',
       signal: controller.signal,
     });
@@ -294,6 +395,21 @@ async function downloadArtifact(artifact, destination, options = {}) {
   }
 }
 
+async function downloadArtifact(artifact, destination, options = {}) {
+  const urls = await runtimeArtifactDownloadUrls(artifact, options);
+  for (const [index, url] of urls.entries()) {
+    try {
+      await downloadArtifactFromUrl(artifact, url, destination, options);
+      return;
+    } catch (error) {
+      if (index === urls.length - 1) throw error;
+      console.warn(
+        `Runtime npm mirror download failed; retrying the authoritative npm registry: ${error.message}`,
+      );
+    }
+  }
+}
+
 async function extractArtifact(artifact, archivePath, stagingDir) {
   const entry = safeRelative(artifact.entry);
   if (artifact.archive === 'file') {
@@ -303,6 +419,32 @@ async function extractArtifact(artifact, archivePath, stagingDir) {
     return destination;
   }
   if (artifact.archive !== 'tgz') throw new Error(`Unsupported runtime archive: ${artifact.archive}`);
+  if (artifact.archiveEntry) {
+    const archiveEntry = safeRelative(artifact.archiveEntry, 'archive entry');
+    const extractionDir = path.join(stagingDir, '.artifact');
+    const extractedName = path.posix.basename(archiveEntry);
+    fs.mkdirSync(extractionDir, { recursive: true });
+    await tar.x({
+      cwd: extractionDir,
+      file: archivePath,
+      gzip: true,
+      preserveOwner: false,
+      strict: true,
+      strip: archiveEntry.split('/').length - 1,
+      filter: candidate => candidate === archiveEntry,
+    });
+    const extractedPath = path.join(extractionDir, extractedName);
+    const extractedStat = fs.lstatSync(extractedPath);
+    if (!extractedStat.isFile() || extractedStat.isSymbolicLink()) {
+      throw new Error('Runtime archive entry must be a regular file');
+    }
+    const destination = path.join(stagingDir, entry);
+    fs.mkdirSync(path.dirname(destination), { recursive: true });
+    fs.renameSync(extractedPath, destination);
+    fs.rmSync(extractionDir, { recursive: true, force: true });
+    fs.rmSync(archivePath, { force: true });
+    return destination;
+  }
   const prefix = safeRelative(artifact.archivePrefix, 'archive prefix');
   const prefixWithSlash = `${prefix}/`;
   await tar.x({
@@ -342,11 +484,14 @@ function dependencyManifest(id, platformKey) {
   }
   parseIntegrity(artifact.integrity);
   safeRelative(artifact.entry);
-  if (artifact.archive === 'tgz') safeRelative(artifact.archivePrefix, 'archive prefix');
+  if (artifact.archive === 'tgz') {
+    if (artifact.archiveEntry) safeRelative(artifact.archiveEntry, 'archive entry');
+    else safeRelative(artifact.archivePrefix, 'archive prefix');
+  }
   return { dependency, artifact };
 }
 
-async function resolveCachedRuntime(configDir, id, platformKey) {
+async function resolveCachedRuntime(configDir, id, platformKey, options = {}) {
   const { dependency, artifact } = dependencyManifest(id, platformKey);
   const cacheDir = dependencyCacheDir(configDir, id, dependency.version, platformKey);
   const record = readJson(path.join(cacheDir, 'runtime.json'));
@@ -369,7 +514,11 @@ async function resolveCachedRuntime(configDir, id, platformKey) {
     const verification = await verifyExecutable(
       executablePath,
       dependency.reportedVersion || dependency.version,
-      { args: dependency.probe?.args },
+      {
+        args: dependency.probe?.args,
+        env: options.env,
+        useConfiguredLoader: managedRuntimeUsesConfiguredLoader(id),
+      },
     );
     if (!verification.valid) return null;
   }
@@ -407,7 +556,7 @@ async function findExactRuntime(configDir, definition, platformKey, env) {
       );
     }
   }
-  return resolveCachedRuntime(configDir, definition.id, platformKey);
+  return resolveCachedRuntime(configDir, definition.id, platformKey, { env });
 }
 
 async function installExactRuntime(configDir, definition, platformKey, options = {}) {
@@ -426,7 +575,11 @@ async function installExactRuntime(configDir, definition, platformKey, options =
       const verification = await verifyExecutable(
         executablePath,
         dependency.reportedVersion || dependency.version,
-        { args: dependency.probe?.args },
+        {
+          args: dependency.probe?.args,
+          env: options.env,
+          useConfiguredLoader: managedRuntimeUsesConfiguredLoader(definition.id),
+        },
       );
       if (!verification.valid) {
         throw new Error(
@@ -461,7 +614,12 @@ async function installExactRuntime(configDir, definition, platformKey, options =
     fs.rmSync(stagingDir, { recursive: true, force: true });
     throw error;
   }
-  const resolved = await resolveCachedRuntime(configDir, definition.id, platformKey);
+  const resolved = await resolveCachedRuntime(
+    configDir,
+    definition.id,
+    platformKey,
+    { env: options.env },
+  );
   if (!resolved) throw new Error(`${definition.id} runtime did not pass post-install verification`);
   return resolved;
 }
@@ -587,10 +745,15 @@ async function pruneRuntimeDependencies(options = {}) {
 module.exports = {
   DEPENDENCIES,
   MANIFEST,
+  SOURCE_CONFIG,
   applyRuntimeEnvironment,
   dependencyCacheDir,
+  downloadArtifact,
+  extractArtifact,
+  managedRuntimeUsesConfiguredLoader,
   prepareRuntimeDependencies,
   pruneRuntimeDependencies,
+  runtimeArtifactDownloadUrls,
   runtimePlatformKey,
   verifyExecutable,
 };

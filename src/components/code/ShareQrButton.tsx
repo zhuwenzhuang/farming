@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type qrcode from 'qrcode-generator'
 import { appPath } from '@/lib/base-path'
-import { QrGlyph } from '@/components/IconGlyphs'
+import { ShareGlyph } from '@/components/IconGlyphs'
 import { writeClipboardText } from '@/lib/clipboard'
 import {
   workspaceShareTargetKey,
@@ -453,7 +453,7 @@ export function ShareQrButton({
         aria-expanded={open}
         onClick={handleButtonClick}
       >
-        <QrGlyph className="code-share-icon" />
+        <ShareGlyph className="code-share-icon" />
       </button>
       {open && (
         <div

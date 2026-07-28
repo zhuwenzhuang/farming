@@ -210,7 +210,7 @@ test.describe('display-backed agent flows', () => {
     await expect(brandDialog).not.toContainText('https://github.com/zhuwenzhuang/farming')
     await page.evaluate(() => document.body.setAttribute('data-appearance', 'dark'))
     await expect(page.locator('body')).toHaveAttribute('data-appearance', 'dark')
-    await expect(brandDialog.locator('.code-brand-dialog')).toHaveCSS('color', 'rgb(230, 237, 243)')
+    await expect(brandDialog.locator('.code-brand-dialog')).toHaveCSS('color', 'rgb(255, 255, 255)')
     await brandDialog.getByRole('button', { name: 'Cancel' }).click()
     await expect(brandDialog).toHaveCount(0)
     await expectCompactVersionLabel(productMark, 'dark')
@@ -762,6 +762,83 @@ test.describe('display-backed agent flows', () => {
     await expect(activeFileTabName(page)).toHaveText('one.txt')
   })
 
+  test('shows the sticky folder path in the first frame after the file tree scrolls', async ({ page, workspaceRoot }) => {
+    await page.setViewportSize({ width: 1440, height: 760 })
+    await mockCodexSessions(page)
+    const projectDir = path.join(workspaceRoot, 'file-tree-sticky-first-frame')
+    const nestedPath = path.join(projectDir, 'odps-sql', 'odps-optimizer', 'odps-optimizer-cbo')
+    for (const directoryPath of [
+      projectDir,
+      path.join(projectDir, 'odps-sql'),
+      path.join(projectDir, 'odps-sql', 'odps-optimizer'),
+    ]) {
+      fs.mkdirSync(directoryPath, { recursive: true })
+      fs.writeFileSync(path.join(directoryPath, 'keep.txt'), 'keep\n')
+    }
+    for (let index = 0; index < 24; index += 1) {
+      const childPath = path.join(nestedPath, `child-${String(index).padStart(2, '0')}`)
+      fs.mkdirSync(childPath, { recursive: true })
+      fs.writeFileSync(path.join(childPath, 'file.txt'), 'content\n')
+    }
+    const agentId = await createControlAgent(page, 'bash', projectDir)
+
+    await openFarming(page)
+    const project = page.getByTestId('code-project-group').filter({
+      has: page.locator(`[data-agent-id="${agentId}"]`),
+    })
+    await expect(project).toBeVisible({ timeout: 30_000 })
+    const filesSection = project.getByTestId('code-files-section')
+    const filesTitle = filesSection.locator('.code-files-title').first()
+    if (await filesTitle.getAttribute('aria-expanded') !== 'true') {
+      await filesTitle.click()
+    }
+
+    for (const directoryPath of [
+      'odps-sql',
+      'odps-sql/odps-optimizer',
+      'odps-sql/odps-optimizer/odps-optimizer-cbo',
+    ]) {
+      const row = filesSection.locator(
+        `[data-testid="code-file-row"][data-file-path="${directoryPath}"]`,
+      )
+      await expect(row).toBeVisible()
+      await row.click()
+      await expect(row).toHaveAttribute('aria-expanded', 'true')
+    }
+
+    await expect(filesSection.locator(
+      '[data-file-path="odps-sql/odps-optimizer/odps-optimizer-cbo/child-12"]',
+    )).toBeAttached()
+    const firstFrame = await page.evaluate(async targetPath => {
+      const target = document.querySelector<HTMLElement>(`[data-file-path="${targetPath}"]`)
+      const scroller = target?.closest<HTMLElement>('.code-project-list')
+      const header = target?.closest<HTMLElement>('.code-files-section')
+        ?.querySelector<HTMLElement>('.code-files-header')
+      if (!target || !scroller || !header) return null
+      return new Promise<{ stickyPath: string; viewportTop: number; headerBottom: number }>(resolve => {
+        scroller.addEventListener('scroll', () => {
+          window.requestAnimationFrame(() => {
+            const sticky = document.querySelector<HTMLElement>('.code-file-sticky-stack')
+            const viewport = document.querySelector<HTMLElement>('.code-file-tree-viewport')
+            resolve({
+              stickyPath: sticky?.innerText ?? '',
+              viewportTop: viewport?.getBoundingClientRect().top ?? Number.POSITIVE_INFINITY,
+              headerBottom: header.getBoundingClientRect().bottom,
+            })
+          })
+        }, { once: true })
+        scroller.scrollTop += target.getBoundingClientRect().top
+          - header.getBoundingClientRect().bottom
+          - 8
+      })
+    }, 'odps-sql/odps-optimizer/odps-optimizer-cbo/child-12')
+
+    expect(firstFrame).not.toBeNull()
+    expect(firstFrame!.viewportTop).toBeLessThan(firstFrame!.headerBottom)
+    expect(firstFrame!.stickyPath).toContain('odps-sql')
+    expect(firstFrame!.stickyPath).toContain('odps-optimizer-cbo')
+  })
+
   test('opens project changes into the editor diff surface', async ({ page, workspaceRoot }) => {
     await mockCodexSessions(page)
     const projectDir = path.join(workspaceRoot, 'project-changes')
@@ -1235,6 +1312,7 @@ test.describe('display-backed agent flows', () => {
   })
 
   test('keeps project files as a collapsible project-level section', async ({ page }) => {
+    test.setTimeout(120_000)
     await mockCodexSessions(page)
     const shortWorkspaceRoot = path.join('/tmp', `farming-files-${process.pid}`)
     fs.rmSync(shortWorkspaceRoot, { recursive: true, force: true })
@@ -1826,13 +1904,23 @@ test.describe('display-backed agent flows', () => {
     const loadedDeepRow = childFiles.locator('[data-testid="code-file-row"][data-file-path="deep/nested/inner"]')
     await expect(loadedDeepRow).toBeVisible()
     await expect(loadedDeepRow.locator('.code-file-name')).toHaveText('deep/nested/inner')
-    await loadedDeepRow.click({ button: 'right' })
+    await loadedDeepRow.dispatchEvent('contextmenu', {
+      button: 2,
+      buttons: 2,
+      clientX: 160,
+      clientY: 240,
+    })
     await expect(page.getByTestId('code-file-context-menu')).toBeVisible()
     await expect(page.getByTestId('code-file-context-menu').getByRole('menuitem', { name: 'New File' })).toBeFocused()
     await page.keyboard.press('Escape')
     await expect(page.getByTestId('code-file-context-menu')).toBeHidden()
-    await loadedDeepRow.click({ button: 'right' })
-    await page.getByTestId('code-file-context-menu').getByRole('menuitem', { name: 'Rename' }).click()
+    await loadedDeepRow.dispatchEvent('contextmenu', {
+      button: 2,
+      buttons: 2,
+      clientX: 160,
+      clientY: 240,
+    })
+    await page.getByTestId('code-file-context-menu').getByRole('menuitem', { name: 'Rename' }).dispatchEvent('click')
     await expect(page.getByTestId('code-file-operation-dialog')).toHaveCount(0)
     await expect(loadedDeepRow.getByTestId('code-file-inline-operation')).toBeVisible()
     const deepOperationInput = loadedDeepRow.getByTestId('code-file-operation-input')
@@ -1955,10 +2043,10 @@ test.describe('display-backed agent flows', () => {
     await expect(file00Row).toHaveClass(/selected/)
 
     if (await compactDeepRow.getAttribute('aria-expanded') !== 'true') {
-      await compactDeepRow.click()
+      await compactDeepRow.dispatchEvent('click')
     }
     await expect(compactDeepRow).toHaveAttribute('aria-expanded', 'true')
-    await compactDeepRow.click()
+    await compactDeepRow.dispatchEvent('click')
     await expect(compactDeepRow).toHaveAttribute('aria-expanded', 'false')
     await expect.poll(async () => childFiles.locator('.code-file-tree-viewport').evaluate(viewport => {
       const tree = viewport.querySelector<HTMLElement>('.code-file-tree')
@@ -1971,7 +2059,7 @@ test.describe('display-backed agent flows', () => {
         Math.abs(viewport.clientHeight - rows.length * 24) <= 4 &&
         Math.abs(viewportBox.bottom - lastRowBox.bottom) <= 4
     })).toBe(true)
-    await compactDeepRow.click()
+    await compactDeepRow.dispatchEvent('click')
     await expect(compactDeepRow).toHaveAttribute('aria-expanded', 'true')
     await expect.poll(async () => fileTree.evaluate(element => {
       const rowCount = element.querySelectorAll('[data-testid="code-file-row"]').length

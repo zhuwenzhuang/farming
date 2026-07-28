@@ -13,7 +13,27 @@ let targetUrl = ''
 const execFileAsync = promisify(execFile)
 
 test.beforeAll(async () => {
-  targetServer = http.createServer((_request, response) => {
+  targetServer = http.createServer((request, response) => {
+    if (request.url === '/closed') {
+      request.socket.destroy()
+      return
+    }
+    if (request.url === '/frame') {
+      response.setHeader('content-type', 'text/html; charset=utf-8')
+      response.end('<button id="inside-frame">Inside frame</button>')
+      return
+    }
+    if (request.url === '/download') {
+      response.setHeader('content-type', 'text/plain; charset=utf-8')
+      response.setHeader('content-disposition', 'attachment; filename="browser-report.txt"')
+      response.end('browser-download-body')
+      return
+    }
+    if (request.url === '/api/status') {
+      response.setHeader('content-type', 'application/json')
+      response.end(JSON.stringify({ ready: true }))
+      return
+    }
     response.setHeader('content-type', 'text/html; charset=utf-8')
     response.end(`<!doctype html>
       <meta charset="utf-8">
@@ -22,20 +42,43 @@ test.beforeAll(async () => {
       <style>
         body { background: #eef6ff; font: 24px system-ui; margin: 0; }
         h1 { left: 180px; position: absolute; top: 70px; }
-        input { font: inherit; height: 48px; left: 180px; position: absolute; top: 180px; width: 300px; }
+        #name { font: inherit; height: 48px; left: 180px; position: absolute; top: 180px; width: 300px; }
         button { font: inherit; height: 54px; left: 540px; position: absolute; top: 180px; width: 160px; }
         #result { color: #17663a; font-weight: 700; left: 180px; position: absolute; top: 260px; }
+        #moving { background: #2d6cdf; height: 50px; position: absolute; top: 370px; width: 50px; }
+        #advanced { display: grid; font-size: 16px; gap: 8px; grid-template-columns: max-content; left: 180px; position: absolute; top: 470px; }
+        #advanced iframe { height: 90px; width: 220px; }
       </style>
       <h1>Browser Interaction Lab</h1>
       <label><span hidden>Name</span><input id="name" aria-label="Name"></label>
       <button id="complete">Complete</button>
       <p id="result">WAITING</p>
+      <div id="moving"></div>
+      <section id="advanced">
+        <label><input id="agree" type="checkbox"> Agree</label>
+        <select id="choice" aria-label="Choice"><option value="a">A</option><option value="b">B</option></select>
+        <input id="upload" aria-label="Upload" type="file">
+        <a id="download" href="/download" download>Download report</a>
+        <span id="async-status">ASYNC WAITING</span>
+        <iframe id="embedded" title="Embedded lab" src="/frame"></iframe>
+      </section>
       <script>
+        console.log('browser-lab-ready')
+        fetch('/api/status')
+        setTimeout(() => {
+          document.querySelector('#async-status').textContent = 'ASYNC READY'
+        }, 100)
         document.querySelector('#complete').addEventListener('click', () => {
           const value = document.querySelector('#name').value
           document.querySelector('#result').textContent = 'COMPLETED: ' + value
           document.title = 'Done ' + value
         })
+        let frame = 0
+        const timer = setInterval(() => {
+          frame += 1
+          document.querySelector('#moving').style.left = (frame % 900) + 'px'
+          if (frame >= 180) clearInterval(timer)
+        }, 16)
       </script>`)
   })
   await new Promise<void>((resolve, reject) => {
@@ -334,6 +377,156 @@ test('keeps an edited browser address until Enter submits it', async ({
   await expect.poll(async () => (await browserSnapshot(page, createdBrowser.id)).url).toBe(targetUrl)
 })
 
+test('normalizes a bare address and clears a recovered navigation error', async ({
+  page,
+  workspaceRoot,
+}) => {
+  const workspace = path.join(workspaceRoot, 'browser-address-recovery')
+  fs.mkdirSync(workspace, { recursive: true })
+  const enableResponse = await page.request.post('/farming/api/settings', {
+    data: { browserExtensionEnabled: true },
+  })
+  expect(enableResponse.ok()).toBeTruthy()
+  await page.request.post('/farming/api/projects/mount', { data: { workspace } })
+  const createResponse = await page.request.post('/farming/api/browsers', {
+    data: { rootId: projectFilesWorkspaceId(workspace) },
+  })
+  expect(createResponse.ok()).toBeTruthy()
+  const createdBrowser = await createResponse.json() as { id: string }
+  const startResponse = await page.request.post(`/farming/api/browsers/${createdBrowser.id}/start`)
+  expect(startResponse.ok()).toBeTruthy()
+  await openFarming(page)
+
+  const project = page.getByTestId('code-project-group').filter({ hasText: path.basename(workspace) })
+  await project.getByTestId('farming-browser-row').click()
+  const viewer = page.getByTestId('farming-browser-viewer')
+  const addressInput = viewer.getByRole('textbox', { name: 'Browser address' })
+  await expect(addressInput).toBeVisible({ timeout: 30_000 })
+
+  const bareTarget = targetUrl.replace(/^http:\/\//, '')
+  await addressInput.fill(bareTarget)
+  await addressInput.press('Enter')
+  await expect.poll(async () => (await browserSnapshot(page, createdBrowser.id)).url).toBe(targetUrl)
+  await expect(addressInput).toHaveValue(targetUrl)
+
+  await addressInput.fill(`${targetUrl}closed`)
+  await addressInput.press('Enter')
+  await expect(viewer.getByRole('alert')).toContainText('ERR_EMPTY_RESPONSE')
+
+  await addressInput.fill(bareTarget)
+  await addressInput.press('Enter')
+  await expect.poll(async () => (await browserSnapshot(page, createdBrowser.id)).title)
+    .toBe('Browser Interaction Lab')
+  await expect(viewer.getByRole('alert')).toHaveCount(0)
+  await expect(viewer.locator('form')).toHaveAttribute('aria-busy', 'false')
+})
+
+test('keeps Browser startup, navigation, frames, and interaction within local budgets', async ({
+  page,
+  workspaceRoot,
+}, testInfo) => {
+  const workspace = path.join(workspaceRoot, 'browser-performance')
+  fs.mkdirSync(workspace, { recursive: true })
+  const enableResponse = await page.request.post('/farming/api/settings', {
+    data: { browserExtensionEnabled: true },
+  })
+  expect(enableResponse.ok()).toBeTruthy()
+  await page.request.post('/farming/api/projects/mount', { data: { workspace } })
+  const createResponse = await page.request.post('/farming/api/browsers', {
+    data: { rootId: projectFilesWorkspaceId(workspace) },
+  })
+  expect(createResponse.ok()).toBeTruthy()
+  const createdBrowser = await createResponse.json() as { id: string }
+
+  const startupAt = performance.now()
+  const startResponse = await page.request.post(`/farming/api/browsers/${createdBrowser.id}/start`)
+  expect(startResponse.ok()).toBeTruthy()
+  const startupMs = performance.now() - startupAt
+  await openFarming(page)
+  const project = page.getByTestId('code-project-group').filter({ hasText: path.basename(workspace) })
+  await project.getByTestId('farming-browser-row').click()
+  const viewer = page.getByTestId('farming-browser-viewer')
+  const canvas = viewer.locator('canvas')
+  await expect(canvas).toBeVisible({ timeout: 30_000 })
+  await canvas.evaluate(element => {
+    const context = (element as HTMLCanvasElement).getContext('2d')
+    if (!context) throw new Error('Browser canvas has no 2D context')
+    const originalDrawImage = context.drawImage.bind(context)
+    const frameTimes: number[] = []
+    ;(window as typeof window & { __farmingBrowserFrameTimes?: number[] }).__farmingBrowserFrameTimes = frameTimes
+    context.drawImage = ((...args: Parameters<CanvasRenderingContext2D['drawImage']>) => {
+      frameTimes.push(performance.now())
+      return originalDrawImage(...args)
+    }) as CanvasRenderingContext2D['drawImage']
+  })
+
+  const navigationAt = performance.now()
+  const addressInput = viewer.getByRole('textbox', { name: 'Browser address' })
+  await addressInput.fill(`${targetUrl}?performance=1`)
+  await addressInput.press('Enter')
+  await expect.poll(async () => (await browserSnapshot(page, createdBrowser.id)).title)
+    .toBe('Browser Interaction Lab')
+  const navigationMs = performance.now() - navigationAt
+  await expect.poll(async () => canvas.evaluate(() =>
+    (window as typeof window & { __farmingBrowserFrameTimes?: number[] }).__farmingBrowserFrameTimes?.length || 0
+  )).toBeGreaterThanOrEqual(20)
+  const frameTimes = await canvas.evaluate(() =>
+    (window as typeof window & { __farmingBrowserFrameTimes?: number[] }).__farmingBrowserFrameTimes || []
+  )
+
+  const interactionAt = performance.now()
+  await clickBrowserPoint(canvas, 330, 207)
+  const textInput = viewer.getByRole('textbox', { name: 'Browser text input' })
+  await expect(textInput).toBeFocused()
+  await page.keyboard.insertText('性能测试')
+  await clickBrowserPoint(canvas, 620, 207)
+  await expect.poll(async () => (await browserSnapshot(page, createdBrowser.id)).title)
+    .toBe('Done 性能测试')
+  const interactionMs = performance.now() - interactionAt
+  const frameWindowMs = Math.max(1, frameTimes.at(-1)! - frameTimes[0])
+  const metrics = {
+    startupMs: Math.round(startupMs),
+    navigationMs: Math.round(navigationMs),
+    interactionMs: Math.round(interactionMs),
+    frameCount: frameTimes.length,
+    observedFps: Math.round(frameTimes.length * 1_000 / frameWindowMs),
+  }
+  console.log(`browser-performance ${JSON.stringify(metrics)}`)
+  await testInfo.attach('browser-performance.json', {
+    body: Buffer.from(JSON.stringify(metrics, null, 2)),
+    contentType: 'application/json',
+  })
+  expect(metrics.startupMs).toBeLessThan(5_000)
+  expect(metrics.navigationMs).toBeLessThan(2_000)
+  expect(metrics.interactionMs).toBeLessThan(2_000)
+  expect(metrics.observedFps).toBeGreaterThanOrEqual(20)
+
+  await page.request.delete(`/farming/api/browsers/${createdBrowser.id}`)
+})
+
+test('uses dark native colors for the Browser source menu', async ({ page }) => {
+  await openFarming(page)
+  await page.getByTestId('code-nav-plugins').click()
+  const pluginsPanel = page.getByTestId('code-plugins-panel')
+  const browserSource = pluginsPanel.getByRole('combobox', { name: 'Browser source' })
+
+  await page.evaluate(() => {
+    document.body.dataset.appearance = 'dark'
+  })
+  await expect(browserSource).toHaveCSS('color-scheme', 'dark')
+  const optionColors = await browserSource.locator('option').first().evaluate(option => {
+    const style = getComputedStyle(option)
+    return {
+      background: style.backgroundColor,
+      color: style.color,
+    }
+  })
+  expect(optionColors).toEqual({
+    background: 'rgb(33, 33, 33)',
+    color: 'rgb(255, 255, 255)',
+  })
+})
+
 test('selects the Browser source in Plugins without restarting Farming', async ({ page }) => {
   await openFarming(page)
   await page.getByTestId('code-nav-plugins').click()
@@ -393,7 +586,7 @@ test('matches the focused Viewer viewport and restores the previous Viewer on cl
     { exact: true },
   )
   await expect(pluginsPanel.getByRole('heading', { name: 'Browser', exact: true })).toBeVisible()
-  await expect(pluginsPanel.getByText('System Chromium', { exact: true })).toBeVisible()
+  await expect(pluginsPanel.locator('small').filter({ hasText: /System Chromium|Google Chrome|Chromium|Brave|Microsoft Edge/ })).toBeVisible()
   await expect(browserHint).toBeVisible()
   expect(await browserHint.evaluate(element => ({
     horizontallyClipped: element.scrollWidth > element.clientWidth,
@@ -485,6 +678,128 @@ test('matches the focused Viewer viewport and restores the previous Viewer on cl
   await runBrowserCli(['fill', browserId!, 'css=#name', 'ssh-agent-cli'])
   await runBrowserCli(['click', browserId!, 'css=#complete'])
   await expect.poll(async () => (await browserSnapshot(page, browserId!)).title).toBe('Done ssh-agent-cli')
+
+  const waited = JSON.parse((await runBrowserCli([
+    'wait',
+    browserId!,
+    '--text',
+    'ASYNC READY',
+    '--timeout',
+    '5000',
+  ])).stdout) as { waited: string }
+  expect(waited.waited).toBe('text')
+  const exactText = JSON.parse((await runBrowserCli([
+    'get',
+    browserId!,
+    'text',
+    'css=#async-status',
+  ])).stdout) as { text: string }
+  expect(exactText.text).toBe('ASYNC READY')
+
+  await runBrowserCli(['check', browserId!, 'css=#agree'])
+  const checked = JSON.parse((await runBrowserCli([
+    'is',
+    browserId!,
+    'checked',
+    'css=#agree',
+  ])).stdout) as { checked: boolean }
+  expect(checked.checked).toBe(true)
+  await runBrowserCli(['select', browserId!, 'css=#choice', 'b'])
+  const evaluated = JSON.parse((await runBrowserCli([
+    'eval',
+    browserId!,
+    '({choice:document.querySelector("#choice").value,title:document.title})',
+  ])).stdout) as { result: { choice: string, title: string } }
+  expect(evaluated.result).toEqual({ choice: 'b', title: 'Done ssh-agent-cli' })
+
+  await runBrowserCli(['storage', browserId!, 'local', 'set', 'theme', 'dark'])
+  const storageValue = JSON.parse((await runBrowserCli([
+    'storage',
+    browserId!,
+    'local',
+    'get',
+    'theme',
+  ])).stdout) as { value: string }
+  expect(storageValue.value).toBe('dark')
+  await runBrowserCli(['cookies', browserId!, 'set', 'browser_mode', 'test'])
+  const cookies = JSON.parse((await runBrowserCli([
+    'cookies',
+    browserId!,
+    'get',
+  ])).stdout) as { cookies: Array<{ name: string, value: string }> }
+  expect(cookies.cookies).toContainEqual(expect.objectContaining({
+    name: 'browser_mode',
+    value: 'test',
+  }))
+
+  const consoleMessages = JSON.parse((await runBrowserCli([
+    'console',
+    browserId!,
+  ])).stdout) as { messages: Array<{ text: string }> }
+  expect(consoleMessages.messages.some(message => message.text.includes('browser-lab-ready'))).toBe(true)
+  const networkRequests = JSON.parse((await runBrowserCli([
+    'network',
+    browserId!,
+    'requests',
+    '--filter',
+    'api/status',
+  ])).stdout) as { requests: Array<{ url: string }> }
+  expect(networkRequests.requests.some(request => request.url.includes('/api/status'))).toBe(true)
+
+  const uploadPath = path.join(workspace, 'browser-upload.txt')
+  fs.writeFileSync(uploadPath, 'browser-upload-body')
+  await runBrowserCli(['upload', browserId!, 'css=#upload', uploadPath])
+  const uploadName = JSON.parse((await runBrowserCli([
+    'eval',
+    browserId!,
+    'document.querySelector("#upload").files[0].name',
+  ])).stdout) as { result: string }
+  expect(uploadName.result).toBe('browser-upload.txt')
+
+  await runBrowserCli(['frame', browserId!, 'css=#embedded'])
+  const frameText = JSON.parse((await runBrowserCli([
+    'get',
+    browserId!,
+    'text',
+    'css=#inside-frame',
+  ])).stdout) as { text: string }
+  expect(frameText.text).toBe('Inside frame')
+  await runBrowserCli(['frame', browserId!, 'main'])
+
+  const downloadPath = path.join(workspace, 'browser-report.txt')
+  const downloaded = JSON.parse((await runBrowserCli([
+    'download',
+    browserId!,
+    'css=#download',
+    downloadPath,
+    '--timeout',
+    '10000',
+  ])).stdout) as { path: string, size: number }
+  expect(downloaded.path).toBe('browser-report.txt')
+  expect(downloaded.size).toBe(Buffer.byteLength('browser-download-body'))
+  expect(fs.readFileSync(downloadPath, 'utf8')).toBe('browser-download-body')
+
+  await runBrowserCli([
+    'eval',
+    browserId!,
+    'setTimeout(()=>{window.promptResult=prompt("Code?")},50);true',
+  ])
+  await expect.poll(async () => {
+    const status = JSON.parse((await runBrowserCli([
+      'dialog',
+      browserId!,
+      'status',
+    ])).stdout) as { hasDialog: boolean }
+    return status.hasDialog
+  }).toBe(true)
+  await runBrowserCli(['dialog', browserId!, 'accept', 'Farming'])
+  const promptResult = JSON.parse((await runBrowserCli([
+    'eval',
+    browserId!,
+    'window.promptResult',
+  ])).stdout) as { result: string }
+  expect(promptResult.result).toBe('Farming')
+
   const cliScreenshot = testInfo.outputPath('browser-agent-cli.png')
   await runBrowserCli(['screenshot', browserId!, cliScreenshot])
   expect(fs.readFileSync(cliScreenshot).subarray(0, 8)).toEqual(
@@ -498,6 +813,7 @@ test('matches the focused Viewer viewport and restores the previous Viewer on cl
     viewport: { width: 390, height: 844 },
   })
   const mobilePage = await mobileContext.newPage()
+  await mobilePage.bringToFront()
   await mobilePage.goto(page.url())
   const mobileCanvas = mobilePage.getByTestId('farming-browser-viewer').locator('canvas')
   await expect(mobileCanvas).toBeVisible({ timeout: 30_000 })
@@ -509,13 +825,10 @@ test('matches the focused Viewer viewport and restores the previous Viewer on cl
     .locator('.farming-browser-viewport')
     .evaluate(element => {
       const canvas = element.querySelector('canvas') as HTMLCanvasElement | null
-      return Boolean(
-        canvas
-        && canvas.width >= element.clientWidth
-        && canvas.height >= element.clientHeight
-        && Math.round(canvas.getBoundingClientRect().width) === element.clientWidth
-        && Math.round(canvas.getBoundingClientRect().height) === element.clientHeight
-      )
+      if (!canvas || canvas.width <= 0 || canvas.height <= 0) return false
+      const rect = canvas.getBoundingClientRect()
+      return Math.round(rect.width) === element.clientWidth
+        && Math.round(rect.height) === element.clientHeight
     })).toBe(true)
   const mobileFrameSize = await readMobileFrameSize()
   await expect.poll(async () => Promise.all([desktopCanvas, mobileCanvas].map(async canvas => [

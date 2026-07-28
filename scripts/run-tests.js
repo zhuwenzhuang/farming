@@ -4,6 +4,7 @@
  * Usage: node scripts/run-tests.js
  */
 const { execFile } = require('child_process');
+const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -11,7 +12,25 @@ const path = require('path');
 /** Backend tests may dynamic-import TypeScript under src/; native node cannot load those without tsx. */
 const tsxCli = path.join(path.dirname(require.resolve('tsx/package.json')), 'dist', 'cli.mjs');
 
-const testsDir = path.join(__dirname, '..', 'backend', 'tests');
+const projectRoot = path.join(__dirname, '..');
+const testsDir = path.join(projectRoot, 'backend', 'tests');
+const SOURCE_REVISION_PATHS = [
+  'backend',
+  'extensions',
+  'frontend',
+  'scripts',
+  'src',
+  'tests',
+  'package.json',
+  'package-lock.json',
+  'playwright.config.ts',
+  'tsconfig.json',
+];
+const SOURCE_REVISION_IGNORED_DIRECTORIES = new Set([
+  'node_modules',
+  'dist',
+  '.tmp',
+]);
 const serverBackedTests = new Set([
   'test-final.js',
   'test-session-terminal-input-e2e.js',
@@ -62,6 +81,42 @@ const testConcurrency = Math.min(
     : DEFAULT_TEST_CONCURRENCY
 );
 
+function captureSourceRevision() {
+  const revision = new Map();
+
+  function visit(absolutePath, relativePath) {
+    const entry = fs.lstatSync(absolutePath);
+    if (entry.isDirectory()) {
+      if (SOURCE_REVISION_IGNORED_DIRECTORIES.has(path.basename(absolutePath))) return;
+      fs.readdirSync(absolutePath)
+        .sort()
+        .forEach(name => visit(path.join(absolutePath, name), path.join(relativePath, name)));
+      return;
+    }
+    if (entry.isSymbolicLink()) {
+      revision.set(relativePath, `link:${fs.readlinkSync(absolutePath)}`);
+      return;
+    }
+    if (!entry.isFile()) return;
+    revision.set(
+      relativePath,
+      crypto.createHash('sha256').update(fs.readFileSync(absolutePath)).digest('hex'),
+    );
+  }
+
+  SOURCE_REVISION_PATHS.forEach(relativePath => {
+    const absolutePath = path.join(projectRoot, relativePath);
+    if (fs.existsSync(absolutePath)) visit(absolutePath, relativePath);
+  });
+  return revision;
+}
+
+function changedSourcePaths(before, after) {
+  return [...new Set([...before.keys(), ...after.keys()])]
+    .filter(relativePath => before.get(relativePath) !== after.get(relativePath))
+    .sort();
+}
+
 function runTest({ args, label, timeoutMs }) {
   return new Promise(resolve => {
     execFile(process.execPath, args, {
@@ -79,6 +134,7 @@ function runTest({ args, label, timeoutMs }) {
 }
 
 async function main() {
+  const sourceRevisionBefore = captureSourceRevision();
   let passed = 0;
   let failed = 0;
   const failures = [];
@@ -116,7 +172,16 @@ async function main() {
   await runBatch(parallelTestRuns, testConcurrency);
   await runBatch(exclusiveTestRuns, 1);
 
+  const changedSources = changedSourcePaths(sourceRevisionBefore, captureSourceRevision());
   console.log(`\n${passed + failed} tests, ${passed} passed, ${failed} failed`);
+  if (changedSources.length > 0) {
+    console.log(`\nSource revision changed during the test run (${changedSources.length} files):`);
+    changedSources.slice(0, 20).forEach(relativePath => console.log(`  ${relativePath}`));
+    if (changedSources.length > 20) {
+      console.log(`  ...and ${changedSources.length - 20} more`);
+    }
+    process.exitCode = 1;
+  }
 
   if (failures.length > 0) {
     console.log('\nFailures:');

@@ -3,8 +3,9 @@ const crypto = require('crypto');
 const { atomicWriteJson } = require('../../../backend/atomic-json-store');
 const storageLayout = require('../../../backend/storage-layout');
 
-const STORE_VERSION = 4;
+const STORE_VERSION = 5;
 const RESOURCE_ID_RE = /^browser_[A-Za-z0-9_-]+$/;
+const TAB_ID_RE = /^t\d+$/;
 const STATUSES = new Set(['stopped', 'starting', 'running', 'stopping', 'failed']);
 
 function createBrowserId() {
@@ -46,6 +47,11 @@ function normalizeResource(value) {
     title: String(value.title || '').slice(0, 512),
     browserKind: String(value.browserKind || ''),
     runtimeKind: String(value.runtimeKind || ''),
+    sessionId: RESOURCE_ID_RE.test(String(value.sessionId || '')) ? String(value.sessionId) : '',
+    sessionGeneration: Number.isSafeInteger(value.sessionGeneration) && value.sessionGeneration >= 0
+      ? value.sessionGeneration
+      : 0,
+    tabId: TAB_ID_RE.test(String(value.tabId || '')) ? String(value.tabId) : '',
     error: String(value.error || '').slice(0, 2_000),
     processIdentity: normalizeProcessIdentity(value.processIdentity),
     createdAt: Number.isFinite(value.createdAt) ? value.createdAt : Date.now(),
@@ -107,6 +113,9 @@ class BrowserResourceStore {
       url: input.url || 'about:blank',
       title: '',
       browserKind: '',
+      sessionId: input.sessionId || '',
+      sessionGeneration: input.sessionGeneration || 0,
+      tabId: input.tabId || '',
       error: '',
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -115,6 +124,20 @@ class BrowserResourceStore {
     this.resources.set(resource.id, resource);
     this.commit();
     return { ...resource };
+  }
+
+  createRunningTab(input) {
+    const resource = this.create(input);
+    return this.update(resource.id, {
+      status: 'running',
+      generation: 1,
+      browserKind: input.browserKind,
+      runtimeKind: 'agent-browser',
+      sessionId: input.sessionId,
+      sessionGeneration: input.sessionGeneration,
+      tabId: input.tabId,
+      title: input.title || '',
+    });
   }
 
   update(id, patch) {

@@ -1,6 +1,6 @@
 import type { AgentTranscriptProcessItem } from './acp-entry-projection'
 
-export type AcpCollaborationAction = 'started' | 'updated' | 'finished' | 'interrupted' | 'failed'
+export type AcpCollaborationAction = 'started' | 'updated' | 'finished' | 'interrupted' | 'failed' | 'recorded'
 
 export interface AcpCollaborationEvent {
   id: string
@@ -19,6 +19,7 @@ export interface AcpCollaborationAgent {
   name: string
   action: AcpCollaborationAction
   tone: number
+  icon: number
   events: AcpCollaborationEvent[]
   activities: AcpCollaborationActivity[]
 }
@@ -26,6 +27,7 @@ export interface AcpCollaborationAgent {
 export interface AcpCollaborationActivity {
   id: string
   processItemId: string
+  processItemIds: string[]
   action: AcpCollaborationAction
   title: string
   message: string
@@ -64,10 +66,18 @@ function fallbackToolAction(tool: string, status: string): AcpCollaborationActio
   return null
 }
 
-function eventTone(threadId: string) {
+function threadVisualHash(threadId: string) {
   let hash = 0
   for (const character of threadId) hash = ((hash * 31) + character.charCodeAt(0)) >>> 0
-  return hash % 4
+  return hash
+}
+
+function eventTone(threadId: string) {
+  return threadVisualHash(threadId) % 4
+}
+
+function agentIcon(threadId: string) {
+  return Math.floor(threadVisualHash(threadId) / 4) % 3
 }
 
 export function acpCollaborationEvents(items: AgentTranscriptProcessItem[]): AcpCollaborationEvent[] {
@@ -108,8 +118,8 @@ export function acpCollaborationEvents(items: AgentTranscriptProcessItem[]): Acp
     const collaboration = item.collaboration
     if (!collaboration) continue
     if (collaboration.kind === 'activity') {
-      const action = activityAction(String(collaboration.activity || '').toLowerCase())
-      if (action) append(item, collaboration.threadId || '', action)
+      const action = activityAction(String(collaboration.activity || '').toLowerCase()) || 'recorded'
+      append(item, collaboration.threadId || '', action)
       continue
     }
     const tool = String(collaboration.tool || '').toLowerCase()
@@ -121,9 +131,9 @@ export function acpCollaborationEvents(items: AgentTranscriptProcessItem[]): Acp
     for (const threadId of threadIds) {
       const agentStatus = String(collaboration.agentsStates?.[threadId]?.status || '').toLowerCase()
       const action = tool === 'wait'
-        ? stateAction(agentStatus) || (itemStatus === 'failed' ? 'failed' : null)
-        : fallbackToolAction(tool, itemStatus)
-      if (!action || (tool !== 'wait' && activityActions.has(`${threadId}:${action}`))) continue
+        ? stateAction(agentStatus) || (itemStatus === 'failed' ? 'failed' : 'recorded')
+        : fallbackToolAction(tool, itemStatus) || 'recorded'
+      if (tool !== 'wait' && action !== 'recorded' && activityActions.has(`${threadId}:${action}`)) continue
       append(item, threadId, action, collaboration.agentsStates?.[threadId]?.message)
     }
   }
@@ -136,7 +146,7 @@ export function acpCollaborationAgents(items: AgentTranscriptProcessItem[]): Acp
     const existing = groups.get(event.threadId)
     if (existing) {
       existing.events.push(event)
-      existing.action = event.action
+      if (event.action !== 'recorded') existing.action = event.action
       existing.name = event.name
       const previousActivity = existing.activities[existing.activities.length - 1]
       if (
@@ -146,11 +156,13 @@ export function acpCollaborationAgents(items: AgentTranscriptProcessItem[]): Acp
         && previousActivity.message === event.message
       ) {
         previousActivity.processItemId = event.processItemId
+        previousActivity.processItemIds.push(event.processItemId)
         previousActivity.count += 1
       } else {
         existing.activities.push({
           id: event.id,
           processItemId: event.processItemId,
+          processItemIds: [event.processItemId],
           action: event.action,
           title: event.title,
           message: event.message,
@@ -165,10 +177,12 @@ export function acpCollaborationAgents(items: AgentTranscriptProcessItem[]): Acp
       name: event.name,
       action: event.action,
       tone: event.tone,
+      icon: agentIcon(event.threadId),
       events: [event],
       activities: [{
         id: event.id,
         processItemId: event.processItemId,
+        processItemIds: [event.processItemId],
         action: event.action,
         title: event.title,
         message: event.message,

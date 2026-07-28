@@ -370,6 +370,10 @@
   background: #2da44e;
 }
 
+.farming-browser-connection.navigating {
+  background: #d29922;
+}
+
 .farming-browser-viewport {
   min-height: 0;
   position: relative;

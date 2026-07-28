@@ -12,6 +12,7 @@ import {
   scrollTerminalSessionToBottom,
   searchTerminalSession,
   updateTerminalSessionBootstrapState,
+  updateTerminalSessionLiveOptions,
   type TerminalSearchDirection,
   type TerminalSearchResult,
   type TerminalPathOpenTarget,
@@ -39,6 +40,17 @@ interface UsePooledTerminalOptions {
   onReady?: () => void
   onError?: (error: Error) => void
   bootstrapState?: SessionBootstrapState
+}
+
+interface TerminalAttachmentHandlers {
+  onSessionOutput: UsePooledTerminalOptions['onSessionOutput']
+  onFollowOutputChange: (state: TerminalFollowState) => void
+  onPathOpen: (agentId: string, target: TerminalPathOpenTarget) => void
+  onPathResolve: (agentId: string, target: TerminalPathOpenTarget) => Promise<TerminalPathOpenTarget | null> | TerminalPathOpenTarget | null
+  onUrlOpen: (agentId: string, url: string) => void
+  onRecoveryStatusChange: (status: TerminalRecoveryStatus) => void
+  onReady: () => void
+  onError: (error: Error) => void
 }
 
 export function usePooledTerminal({
@@ -79,37 +91,47 @@ export function usePooledTerminal({
     bootstrapState,
   }
 
-  const handleSessionOutput = useCallback((currentAgentId: string, handler: (data: string, replace?: boolean, outputSeq?: number | null, runtimeEpoch?: string, stateRevision?: number | null, cols?: number, rows?: number, kind?: 'output' | 'resize' | 'clear') => void) => {
-    return latestHandlersRef.current.onSessionOutput(currentAgentId, handler)
-  }, [])
-
-  const handleFollowOutputChange = useCallback((state: TerminalFollowState) => {
-    latestHandlersRef.current.onFollowOutputChange?.(state)
-  }, [])
-
-  const handlePathOpen = useCallback((currentAgentId: string, target: TerminalPathOpenTarget) => {
-    latestHandlersRef.current.onPathOpen?.(currentAgentId, target)
-  }, [])
-
-  const handlePathResolve = useCallback((currentAgentId: string, target: TerminalPathOpenTarget) => {
-    return latestHandlersRef.current.onPathResolve?.(currentAgentId, target) ?? null
-  }, [])
-
-  const handleUrlOpen = useCallback((currentAgentId: string, url: string) => {
-    latestHandlersRef.current.onUrlOpen?.(currentAgentId, url)
-  }, [])
-
-  const handleRecoveryStatusChange = useCallback((status: TerminalRecoveryStatus) => {
-    latestHandlersRef.current.onRecoveryStatusChange?.(status)
-  }, [])
-
-  const handleReady = useCallback(() => {
-    latestHandlersRef.current.onReady?.()
-  }, [])
-
-  const handleError = useCallback((error: Error) => {
-    latestHandlersRef.current.onError?.(error)
-  }, [])
+  const attachmentHandlersRef = useRef<TerminalAttachmentHandlers | null>(null)
+  if (!attachmentHandlersRef.current) {
+    attachmentHandlersRef.current = {
+      onSessionOutput: (currentAgentId, handler) => {
+        return latestHandlersRef.current.onSessionOutput(currentAgentId, handler)
+      },
+      onFollowOutputChange: state => {
+        latestHandlersRef.current.onFollowOutputChange?.(state)
+      },
+      onPathOpen: (currentAgentId, target) => {
+        latestHandlersRef.current.onPathOpen?.(currentAgentId, target)
+      },
+      onPathResolve: (currentAgentId, target) => {
+        return latestHandlersRef.current.onPathResolve?.(currentAgentId, target) ?? null
+      },
+      onUrlOpen: (currentAgentId, url) => {
+        latestHandlersRef.current.onUrlOpen?.(currentAgentId, url)
+      },
+      onRecoveryStatusChange: status => {
+        latestHandlersRef.current.onRecoveryStatusChange?.(status)
+      },
+      onReady: () => {
+        latestHandlersRef.current.onReady?.()
+      },
+      onError: error => {
+        latestHandlersRef.current.onError?.(error)
+      },
+    }
+  }
+  const attachmentHandlers = attachmentHandlersRef.current
+  const urlOpenEnabled = Boolean(onUrlOpen)
+  const latestLiveOptionsRef = useRef({
+    inputDisabled,
+    suppressRendererCursor,
+    urlOpenEnabled,
+  })
+  latestLiveOptionsRef.current = {
+    inputDisabled,
+    suppressRendererCursor,
+    urlOpenEnabled,
+  }
 
   useEffect(() => {
     if (!agentId || !containerRef.current) return
@@ -122,25 +144,25 @@ export function usePooledTerminal({
 
     attachTerminalSession(agentId, {
       mountEl,
-      onSessionOutput: handleSessionOutput,
-      suppressRendererCursor,
-      inputDisabled,
-      onFollowOutputChange: handleFollowOutputChange,
-      onPathOpen: handlePathOpen,
-      onPathResolve: handlePathResolve,
-      onUrlOpen: onUrlOpen ? handleUrlOpen : undefined,
-      onRecoveryStatusChange: handleRecoveryStatusChange,
-      onError: handleError,
+      onSessionOutput: attachmentHandlers.onSessionOutput,
+      suppressRendererCursor: latestLiveOptionsRef.current.suppressRendererCursor,
+      inputDisabled: latestLiveOptionsRef.current.inputDisabled,
+      onFollowOutputChange: attachmentHandlers.onFollowOutputChange,
+      onPathOpen: attachmentHandlers.onPathOpen,
+      onPathResolve: attachmentHandlers.onPathResolve,
+      onUrlOpen: latestLiveOptionsRef.current.urlOpenEnabled ? attachmentHandlers.onUrlOpen : undefined,
+      onRecoveryStatusChange: attachmentHandlers.onRecoveryStatusChange,
+      onError: attachmentHandlers.onError,
       bootstrapState: latestHandlersRef.current.bootstrapState,
       signal: controller.signal,
       onReady: () => {
         if (!cancelled) {
-          handleReady()
+          attachmentHandlers.onReady()
         }
       },
     }).catch((error) => {
       console.error('Failed to attach terminal session:', error)
-      handleError(error instanceof Error ? error : new Error(String(error)))
+      attachmentHandlers.onError(error instanceof Error ? error : new Error(String(error)))
     })
 
     return () => {
@@ -150,7 +172,18 @@ export function usePooledTerminal({
         console.error('Failed to detach terminal session:', error)
       })
     }
-  }, [agentId, containerRef, handleError, handleFollowOutputChange, handlePathOpen, handlePathResolve, handleReady, handleRecoveryStatusChange, handleSessionOutput, handleUrlOpen, inputDisabled, onUrlOpen, suppressRendererCursor])
+  }, [agentId, attachmentHandlers, containerRef])
+
+  useEffect(() => {
+    if (!agentId) return
+    updateTerminalSessionLiveOptions(agentId, {
+      inputDisabled,
+      suppressRendererCursor,
+      onUrlOpen: urlOpenEnabled ? attachmentHandlers.onUrlOpen : undefined,
+    }).catch((error) => {
+      console.error('Failed to update terminal live options:', error)
+    })
+  }, [agentId, attachmentHandlers, inputDisabled, suppressRendererCursor, urlOpenEnabled])
 
   useEffect(() => {
     if (!agentId || !bootstrapState?.runtimeEpoch || bootstrapState.stateRevision === null) return
@@ -179,24 +212,24 @@ export function usePooledTerminal({
       // parked; otherwise keep xterm's native focus lifecycle intact.
       return attachTerminalSession(agentId, {
         mountEl,
-        onSessionOutput: handleSessionOutput,
+        onSessionOutput: attachmentHandlers.onSessionOutput,
         autoFocus: true,
-        suppressRendererCursor,
-        inputDisabled,
-        onFollowOutputChange: handleFollowOutputChange,
-        onPathOpen: handlePathOpen,
-        onPathResolve: handlePathResolve,
-        onUrlOpen: onUrlOpen ? handleUrlOpen : undefined,
-        onRecoveryStatusChange: handleRecoveryStatusChange,
-        onError: handleError,
+        suppressRendererCursor: latestLiveOptionsRef.current.suppressRendererCursor,
+        inputDisabled: latestLiveOptionsRef.current.inputDisabled,
+        onFollowOutputChange: attachmentHandlers.onFollowOutputChange,
+        onPathOpen: attachmentHandlers.onPathOpen,
+        onPathResolve: attachmentHandlers.onPathResolve,
+        onUrlOpen: latestLiveOptionsRef.current.urlOpenEnabled ? attachmentHandlers.onUrlOpen : undefined,
+        onRecoveryStatusChange: attachmentHandlers.onRecoveryStatusChange,
+        onError: attachmentHandlers.onError,
         bootstrapState: latestHandlersRef.current.bootstrapState,
-        onReady: handleReady,
+        onReady: attachmentHandlers.onReady,
       })
     }).catch((error) => {
       console.error('Failed to focus terminal session:', error)
-      handleError(error instanceof Error ? error : new Error(String(error)))
+      attachmentHandlers.onError(error instanceof Error ? error : new Error(String(error)))
     })
-  }, [agentId, containerRef, handleError, handleFollowOutputChange, handlePathOpen, handlePathResolve, handleReady, handleRecoveryStatusChange, handleSessionOutput, inputDisabled, suppressRendererCursor])
+  }, [agentId, attachmentHandlers, containerRef])
 
   const refreshLayout = useCallback((options: { autoFocus?: boolean } = {}) => {
     if (!agentId) return

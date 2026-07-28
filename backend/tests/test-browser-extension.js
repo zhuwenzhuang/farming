@@ -32,6 +32,7 @@ class FakeBrowserRuntime extends EventEmitter {
     this.viewers = new Set();
     this.resizeCalls = 0;
     this.resizeValues = [];
+    this.actionCalls = [];
   }
 
   async start(url) {
@@ -78,7 +79,8 @@ class FakeBrowserRuntime extends EventEmitter {
     return { mimeType: 'image/png', data: 'cG5n' };
   }
 
-  async click() {
+  async click(input) {
+    this.actionCalls.push({ kind: 'click', input });
     return { ok: true };
   }
 
@@ -90,8 +92,31 @@ class FakeBrowserRuntime extends EventEmitter {
     return { ok: true };
   }
 
+  async elementAction(kind, input) {
+    this.actionCalls.push({ kind, input });
+    return { ok: true };
+  }
+
+  async evaluate(input) {
+    this.actionCalls.push({ kind: 'eval', input });
+    return { value: 'evaluated' };
+  }
+
+  async upload(input) {
+    this.actionCalls.push({ kind: 'upload', input });
+    return { ok: true };
+  }
+
+  async download(input) {
+    this.actionCalls.push({ kind: 'download', input });
+    fs.writeFileSync(input.outputPath, 'downloaded');
+    return { ok: true };
+  }
+
   async wheel() {}
-  async pointer() {}
+  async pointer(input) {
+    this.actionCalls.push({ kind: 'pointer', input });
+  }
   async resize(value) {
     this.resizeCalls += 1;
     this.resizeValues.push(value);
@@ -147,19 +172,32 @@ async function testManagedAgentBrowserDiscovery() {
   const probed = [];
   const managedPath = '/farming/runtime/agent-browser';
   const runtime = await discoverBrowserRuntime({
+    platform: 'linux',
     env: {
       FARMING_BROWSER_CDP_URL: 'http://127.0.0.1:9222',
       FARMING_AGENT_BROWSER_BIN: managedPath,
+      FARMING_NODE_LD: '/runtime/ld-linux.so',
+      FARMING_NODE_LIBRARY_PATH: '/runtime/lib',
       PATH: '/system/bin',
     },
-    execFile(executablePath, _args, _options, callback) {
-      probed.push(executablePath);
+    execFile(executablePath, args, options, callback) {
+      probed.push({ executablePath, args, env: options.env });
       callback(null, 'agent-browser 0.32.3', '');
     },
   });
   assert.strictEqual(runtime.agentBrowserPath, managedPath);
   assert.strictEqual(runtime.agentBrowserSource, 'managed');
-  assert.deepStrictEqual(probed, [managedPath]);
+  assert.deepStrictEqual(probed, [{
+    executablePath: '/runtime/ld-linux.so',
+    args: ['--library-path', '/runtime/lib', managedPath, '--version'],
+    env: {
+      FARMING_BROWSER_CDP_URL: 'http://127.0.0.1:9222',
+      FARMING_AGENT_BROWSER_BIN: managedPath,
+      FARMING_NODE_LD: '/runtime/ld-linux.so',
+      FARMING_NODE_LIBRARY_PATH: '/runtime/lib',
+      PATH: '/system/bin',
+    },
+  }]);
 
   const missing = await discoverBrowserRuntime({
     env: {
@@ -175,6 +213,8 @@ async function testManagedAgentBrowserDiscovery() {
 
 async function testBrowserResourceManager() {
   const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-browser-extension-'));
+  const projectWorkspace = path.join(configDir, 'project');
+  fs.mkdirSync(projectWorkspace);
   const runtimes = [];
   let enabled = false;
   const unavailableManager = new BrowserResourceManager({
@@ -248,7 +288,7 @@ async function testBrowserResourceManager() {
     });
     const created = manager.create({
       projectRootId: 'wroot_project',
-      workspace: '/tmp/project',
+      workspace: projectWorkspace,
       name: 'App',
       url: 'localhost:3000',
     });
@@ -271,6 +311,48 @@ async function testBrowserResourceManager() {
     assert.deepStrictEqual((await manager.action(created.id, { kind: 'snapshot' })).elements, [
       { ref: 'e1', role: 'button' },
     ]);
+    await manager.action(created.id, { kind: 'hover', selector: '#menu' });
+    assert.deepStrictEqual(
+      await manager.action(created.id, { kind: 'eval', expression: 'document.title' }),
+      { value: 'evaluated' },
+    );
+    const uploadPath = path.join(projectWorkspace, 'upload.txt');
+    fs.writeFileSync(uploadPath, 'upload');
+    await manager.action(created.id, {
+      kind: 'upload',
+      selector: '#file',
+      files: [uploadPath],
+    });
+    const downloadPath = path.join(projectWorkspace, 'download.txt');
+    assert.deepStrictEqual(
+      await manager.action(created.id, {
+        kind: 'download',
+        selector: '#download',
+        path: downloadPath,
+      }),
+      { ok: true, path: 'download.txt', size: 10 },
+    );
+    assert.strictEqual(fs.readFileSync(downloadPath, 'utf8'), 'downloaded');
+    assert.throws(
+      () => manager.action(created.id, {
+        kind: 'upload',
+        selector: '#file',
+        files: [path.join(configDir, 'outside.txt')],
+      }),
+      /does not exist/,
+    );
+    assert.throws(
+      () => manager.action(created.id, {
+        kind: 'download',
+        selector: '#download',
+        path: downloadPath,
+      }),
+      /already exists/,
+    );
+    assert(runtimes[0].actionCalls.some(call => call.kind === 'hover'));
+    assert(runtimes[0].actionCalls.some(call => (
+      call.kind === 'upload' && call.input.files[0] === fs.realpathSync(uploadPath)
+    )));
 
     const viewer = new FakeViewer();
     manager.attachViewer(created.id, viewer);
@@ -354,7 +436,39 @@ async function testBrowserResourceManager() {
     const navigated = await manager.navigate(created.id, 'https://example.com/path');
     assert.strictEqual(navigated.url, 'https://example.com/path');
     assert.strictEqual(navigated.title, 'Navigated');
-    const stopped = await manager.stop(created.id);
+    let releaseAction;
+    runtimes[0].click = () => new Promise(resolve => {
+      releaseAction = () => resolve({ ok: true });
+    });
+    const pendingAction = manager.action(created.id, { kind: 'click', selector: '#slow' });
+    const lateViewer = new FakeViewer();
+    manager.attachViewer(created.id, lateViewer);
+    await new Promise(resolve => setImmediate(resolve));
+    const stopPromise = manager.stop(created.id);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.strictEqual(
+      runtimes[0].closed,
+      false,
+      'Stopping must drain the already admitted Browser action before closing its Session',
+    );
+    lateViewer.emit('message', Buffer.from(JSON.stringify({
+      type: 'pointer',
+      generation: running.generation,
+      action: 'down',
+      x: 20,
+      y: 30,
+      button: 'left',
+    })));
+    await new Promise(resolve => setImmediate(resolve));
+    assert.strictEqual(
+      runtimes[0].actionCalls.some(call => call.kind === 'pointer'),
+      false,
+      'Viewer input arriving after stopping begins must not reach the Browser runtime',
+    );
+    assert.strictEqual(lateViewer.messages.at(-1).type, 'browser-error');
+    releaseAction();
+    await pendingAction;
+    const stopped = await stopPromise;
     assert.strictEqual(stopped.status, 'stopped');
     assert.strictEqual(runtimes[0].closed, true);
 
@@ -384,6 +498,13 @@ async function testBrowserResourceManager() {
 
     await manager.delete(created.id);
     assert.throws(() => manager.get(created.id), /not found/);
+    assert.strictEqual(normalizeUrl('example.com/path'), 'https://example.com/path');
+    assert.strictEqual(normalizeUrl('www.baidu.com'), 'https://www.baidu.com/');
+    assert.strictEqual(normalizeUrl('localhost:3000/path'), 'http://localhost:3000/path');
+    assert.strictEqual(normalizeUrl('127.0.0.1:3000/path'), 'http://127.0.0.1:3000/path');
+    assert.strictEqual(normalizeUrl('intranet/path'), 'http://intranet/path');
+    assert.strictEqual(normalizeUrl('example.com:8080/path'), 'http://example.com:8080/path');
+    assert.strictEqual(normalizeUrl('example.com:443/path'), 'https://example.com/path');
     assert.throws(() => normalizeUrl('file:///tmp/private'), /only http/);
 
     const orphaned = manager.create({

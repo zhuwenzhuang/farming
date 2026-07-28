@@ -93,6 +93,7 @@ export function BrowserViewer({
   const frameViewportRef = useRef<{ width: number; height: number } | null>(null)
   const [address, setAddress] = useState(resource.url)
   const [connected, setConnected] = useState(false)
+  const [navigating, setNavigating] = useState(false)
   const [viewerError, setViewerError] = useState('')
   const [moreOpen, setMoreOpen] = useState(false)
 
@@ -272,25 +273,29 @@ export function BrowserViewer({
   }
   const navigate = async () => {
     const submittedAddress = (addressInputRef.current?.value ?? address).trim()
+    setNavigating(true)
+    setViewerError('')
     try {
-      const normalized = /^https?:\/\//i.test(submittedAddress) || submittedAddress === 'about:blank'
-        ? submittedAddress
-        : `http://${submittedAddress}`
       const response = await fetch(appPath(`/api/browsers/${encodeURIComponent(resource.id)}/navigate`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify({ url: normalized }),
+        body: JSON.stringify({ url: submittedAddress }),
       })
       const next = await response.json() as BrowserResource & { error?: string }
       if (!response.ok) throw new Error(next.error || copy.navigationFailed)
       addressEditingRef.current = false
       setAddress(next.url)
+      setViewerError('')
       onResource(next)
     } catch (error) {
       setViewerError(error instanceof Error ? error.message : copy.navigationFailed)
+    } finally {
+      setNavigating(false)
     }
   }
   const browserAction = async (kind: 'back' | 'forward' | 'reload') => {
+    setNavigating(true)
+    setViewerError('')
     try {
       const response = await fetch(appPath(`/api/browsers/${encodeURIComponent(resource.id)}/action`), {
         method: 'POST',
@@ -299,9 +304,12 @@ export function BrowserViewer({
       })
       const next = await response.json() as BrowserResource & { error?: string }
       if (!response.ok) throw new Error(next.error || `Browser ${kind} failed`)
+      setViewerError('')
       onResource(next)
     } catch (error) {
       setViewerError(error instanceof Error ? error.message : `Browser ${kind} failed`)
+    } finally {
+      setNavigating(false)
     }
   }
 
@@ -321,7 +329,7 @@ export function BrowserViewer({
         <button type="button" className="farming-browser-toolbar-icon" aria-label={copy.back} title={copy.back} disabled={resource.status !== 'running'} onClick={() => void browserAction('back')}><ArrowLeftGlyph /></button>
         <button type="button" className="farming-browser-toolbar-icon" aria-label={copy.forward} title={copy.forward} disabled={resource.status !== 'running'} onClick={() => void browserAction('forward')}><ArrowRightGlyph /></button>
         <button type="button" className="farming-browser-toolbar-icon" aria-label={copy.reload} title={copy.reload} disabled={resource.status !== 'running'} onClick={() => void browserAction('reload')}><ReloadGlyph /></button>
-        <form onSubmit={event => {
+        <form aria-busy={navigating} onSubmit={event => {
           event.preventDefault()
           void navigate()
         }}>
@@ -334,12 +342,17 @@ export function BrowserViewer({
               addressEditingRef.current = true
               setAddress(event.currentTarget.value)
             }}
+            onKeyDown={event => {
+              if (event.key !== 'Enter' || event.nativeEvent.isComposing) return
+              event.preventDefault()
+              void navigate()
+            }}
             onBlur={() => {
               addressEditingRef.current = false
               setAddress(resource.url)
             }}
           />
-          <span className={`farming-browser-connection ${connected ? 'connected' : ''}`} title={connected ? copy.connected : copy.disconnected} />
+          <span className={`farming-browser-connection ${connected ? 'connected' : ''} ${navigating ? 'navigating' : ''}`} title={connected ? copy.connected : copy.disconnected} />
         </form>
         <div className="farming-browser-more-wrap">
           <button
@@ -403,9 +416,7 @@ export function BrowserViewer({
               event.currentTarget.setPointerCapture(event.pointerId)
               const position = point(event)
               send({ type: 'pointer', action: 'down', button: event.button === 2 ? 'right' : event.button === 1 ? 'middle' : 'left', ...position })
-              if (event.pointerType !== 'mouse') {
-                window.requestAnimationFrame(() => textInputRef.current?.focus({ preventScroll: true }))
-              }
+              window.requestAnimationFrame(() => textInputRef.current?.focus({ preventScroll: true }))
             }}
             onPointerUp={event => {
               const position = point(event)
@@ -456,8 +467,11 @@ export function BrowserViewer({
           onCompositionStart={() => {
             composingTextRef.current = true
           }}
-          onCompositionEnd={() => {
+          onCompositionEnd={event => {
             composingTextRef.current = false
+            const text = event.currentTarget.value
+            if (text) send({ type: 'text', text })
+            event.currentTarget.value = ''
           }}
           onInput={event => {
             if (composingTextRef.current) return

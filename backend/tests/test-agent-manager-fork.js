@@ -354,7 +354,7 @@ async function run() {
     assert.notStrictEqual(captured.at(-1).args[1], claudeSessionId);
     assert.deepStrictEqual(captured.at(-1).args.slice(2, 5), ['--resume', claudeSessionId, '--fork-session']);
     assert.strictEqual(captured.at(-1).args[5], '--append-system-prompt');
-    assert.match(captured.at(-1).args[6], /farming capabilities/);
+    assert.match(captured.at(-1).args[6], /FARMING_CLI_BIN_DIR\/farming" capabilities/);
 
     const sourceClaudeAgent = manager.agents.get(resumedClaudeId);
     sourceClaudeAgent.runtimeBinding = {
