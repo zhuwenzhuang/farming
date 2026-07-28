@@ -282,20 +282,36 @@ function uniqueByUrl<T extends { url: string }>(items: T[]) {
 
 function contentImages(content: unknown, prefix: string): AgentTranscriptUserImage[] {
   return list(content).map(record)
-    .filter(block => block.type === 'image' && typeof block.data === 'string' && block.data)
+    .filter(block => (
+      block.type === 'image'
+      && (
+        (typeof block.data === 'string' && block.data)
+        || (typeof block.url === 'string' && block.url)
+      )
+    ))
     .map((block, index) => ({
       id: `${prefix}-image-${index + 1}`,
-      url: `data:${stringValue(block.mimeType) || 'image/png'};base64,${block.data as string}`,
+      url: typeof block.url === 'string' && block.url
+        ? block.url
+        : `data:${stringValue(block.mimeType) || 'image/png'};base64,${block.data as string}`,
       alt: 'Image',
     }))
 }
 
 function contentAudios(content: unknown, prefix: string): AgentTranscriptAudio[] {
   return list(content).map(record)
-    .filter(block => block.type === 'audio' && typeof block.data === 'string' && block.data)
+    .filter(block => (
+      block.type === 'audio'
+      && (
+        (typeof block.data === 'string' && block.data)
+        || (typeof block.url === 'string' && block.url)
+      )
+    ))
     .map((block, index) => ({
       id: `${prefix}-audio-${index + 1}`,
-      url: `data:${stringValue(block.mimeType) || 'audio/mpeg'};base64,${block.data as string}`,
+      url: typeof block.url === 'string' && block.url
+        ? block.url
+        : `data:${stringValue(block.mimeType) || 'audio/mpeg'};base64,${block.data as string}`,
       mimeType: stringValue(block.mimeType) || 'audio/mpeg',
       name: stringValue(block.name) || `Audio ${index + 1}`,
     }))
@@ -459,9 +475,13 @@ function processEntry(entry: AcpRecord): AgentTranscriptProcessItem | null {
     const terminalIds = list(entry.content).map(record)
       .filter(block => block.type === 'terminal' && block.terminalId)
       .map(block => stringValue(block.terminalId))
-    const richContent = list(entry.content).map(record)
-      .filter(block => block.type === 'content' && block.content)
-      .map(block => block.content)
+    const richContent = list(entry.content).map(record).flatMap(block => {
+      if (block.type === 'content' && block.content) return [block.content]
+      if (['image', 'audio', 'resource_link', 'resource'].includes(stringValue(block.type))) {
+        return [block]
+      }
+      return []
+    })
     const rawContent = rawToolResultContent(entry)
     const mediaContent = [...richContent, ...rawContent]
     const prefix = stringValue(entry.id) || 'tool'

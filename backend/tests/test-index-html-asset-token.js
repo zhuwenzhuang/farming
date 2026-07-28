@@ -2,6 +2,7 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const {
+  applyIndexHtmlAppearance,
   appendIndexHtmlAssetToken,
   rewriteIndexHtmlForBasePath,
 } = require('../index-html');
@@ -54,12 +55,25 @@ function run() {
     'asset token rewriting should not duplicate an existing token query parameter'
   );
 
+  assert(
+    applyIndexHtmlAppearance('<html data-appearance-preference="system">', 'dark')
+      .includes('data-appearance-preference="dark"'),
+    'the entry document should receive the saved dark appearance before its first paint'
+  );
+  assert(
+    applyIndexHtmlAppearance('<html>', 'unexpected')
+      .includes('data-appearance-preference="system"'),
+    'invalid saved appearances should retain the system-color fallback'
+  );
+
   const productIndex = fs.readFileSync(path.join(repoRoot, 'index.html'), 'utf8');
   const serverSource = fs.readFileSync(path.join(repoRoot, 'backend/server.js'), 'utf8');
   const manifest = JSON.parse(fs.readFileSync(path.join(repoRoot, 'public/farming-2/site.webmanifest'), 'utf8'));
   const faviconHeader = fs.readFileSync(path.join(repoRoot, 'public/farming-2/favicon-v2.ico')).subarray(0, 4);
   assert(productIndex.includes('app-icon-v2-180.png'), 'iOS should use the versioned high-resolution touch icon');
   assert(productIndex.includes('favicon-v2-32.png'), 'browser tabs should use the versioned small-icon crop');
+  assert(productIndex.includes('data-appearance-preference="system"'), 'the entry document should expose a server-rewritable appearance preference');
+  assert(productIndex.includes("root.dataset.appearance = appearance"), 'the entry document should resolve its first-paint appearance before loading app code');
   assert.strictEqual(manifest.id, undefined, 'the installed app identity should inherit the resolved start URL instead of collapsing custom base paths to one origin-level id');
   assert.strictEqual(manifest.start_url, '../', 'the installed app should reopen the authenticated base path without persisting a token URL');
   assert.strictEqual(manifest.scope, '../', 'the installed app should keep Code and CRT routes inside the same standalone window');

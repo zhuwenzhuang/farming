@@ -2532,6 +2532,17 @@ class AcpRuntime extends EventEmitter {
     return visible;
   }
 
+  getTranscriptEntry(agentId, entryId) {
+    const binding = this.requireBinding(agentId);
+    const entries = (binding.sessionState?.entries || []).filter(candidate => (
+      String(candidate?.id || '') === String(entryId || '')
+    ));
+    if (entries.length !== 1) return null;
+    const [entry] = entries;
+    if (!entry || binding.sessionState.isInternalEntry(entry)) return null;
+    return entry;
+  }
+
   getPatchDecision(agentId, toolCallId, requestedPath) {
     const binding = this.requireBinding(agentId);
     return binding.patchDecisions.get(`${String(toolCallId || '')}\n${String(requestedPath || '')}`) || '';

@@ -137,6 +137,45 @@ async function saveScreenshot(testInfo: import('@playwright/test').TestInfo, nam
 }
 
 test.describe('Farming Code dark skin', () => {
+  test('paints the saved dark appearance before application modules execute', async ({ page }) => {
+    const settingsResponse = await page.request.post('/farming/api/settings', {
+      data: { appearance: 'dark' },
+    })
+    expect(settingsResponse.ok()).toBeTruthy()
+
+    let releaseModules = () => {}
+    const modulesReleased = new Promise<void>(resolve => {
+      releaseModules = resolve
+    })
+    await page.route(/\/farming\/assets\/.*\.js(?:\?.*)?$/, async route => {
+      await modulesReleased
+      await route.continue()
+    })
+
+    try {
+      await page.goto('/farming/', { waitUntil: 'commit' })
+      await page.waitForFunction(() => (
+        document.documentElement.dataset.appearance === 'dark'
+        && document.body !== null
+      ))
+      const firstPaint = await page.evaluate(() => ({
+        appearance: document.documentElement.dataset.appearance,
+        preference: document.documentElement.dataset.appearancePreference,
+        background: getComputedStyle(document.body).backgroundColor,
+        themeColor: document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.content,
+      }))
+      expect(firstPaint).toEqual({
+        appearance: 'dark',
+        preference: 'dark',
+        background: 'rgb(13, 17, 23)',
+        themeColor: '#0d1117',
+      })
+    } finally {
+      releaseModules()
+    }
+    await page.waitForLoadState('domcontentloaded')
+  })
+
   test('applies and verifies the dark Codex skin across core surfaces', async ({ page, workspaceRoot }, testInfo) => {
     const projectDir = path.join(workspaceRoot, 'dark-project')
     fs.mkdirSync(path.join(projectDir, 'src'), { recursive: true })

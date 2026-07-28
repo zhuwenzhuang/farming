@@ -36,7 +36,7 @@ import { loadAcpReviewPreview } from '@/lib/review/api'
 import type { WorkspaceFileOpenTarget } from '@/lib/workspace-open-files'
 import type { CodeCopy } from './copy'
 import { acpActivityKind, acpCompactPlanLabel, acpLiveToolActivityLabel, acpPlanProgress, type AcpActivityKind } from './acp/acp-activity-label'
-import { acpCollaborationEvents, type AcpCollaborationEvent } from './acp/acp-collaboration'
+import { acpCollaborationAgents, type AcpCollaborationAgent } from './acp/acp-collaboration'
 import { AcpEmbeddedTerminal } from './acp/AcpEmbeddedTerminal'
 import {
   projectAcpTranscript,
@@ -225,6 +225,7 @@ const TRANSCRIPT_TURN_PAGE_SIZE = 80
 const INITIAL_ACP_TRANSCRIPT_TURN_LIMIT = 20
 const ACP_TRANSCRIPT_TURN_PAGE_SIZE = 20
 const MAX_TRANSCRIPT_TURN_LIMIT = 1000
+const ACP_TRANSCRIPT_FETCH_RETRY_DELAYS_MS = [250, 1000] as const
 
 function initialTranscriptTurnLimit(source: AgentTranscriptPaneProps['source']) {
   return source === 'acp'
@@ -1305,35 +1306,90 @@ function AgentTranscriptSteerItem({ item }: { item: AgentTranscriptProcessItem }
 }
 
 function AgentTranscriptCollaborationTimeline({
-  events,
+  agents,
   onOpen,
+  copy,
 }: {
-  events: AcpCollaborationEvent[]
+  agents: AcpCollaborationAgent[]
   onOpen: (processItemId: string) => void
+  copy: CodeCopy
 }) {
-  if (events.length === 0) return null
+  const [openAgentIds, setOpenAgentIds] = useState<Set<string>>(() => new Set())
+  if (agents.length === 0) return null
   return (
     <div className="code-agent-transcript-collaboration" data-testid="code-agent-transcript-collaboration">
-      {events.map(event => (
-        <button
-          type="button"
-          className="code-agent-transcript-collaboration-event"
-          data-testid="code-agent-transcript-collaboration-event"
-          data-process-item-id={event.processItemId}
-          key={event.id}
-          title={`Open ${event.name} collaboration details`}
-          onClick={clickEvent => {
-            clickEvent.stopPropagation()
-            onOpen(event.processItemId)
-          }}
-        >
-          <span className={`code-agent-transcript-collaboration-agent tone-${event.tone}`}>
-            <AgentGroupGlyph />
-            <span>{event.name}</span>
-          </span>
-          <span className={`code-agent-transcript-collaboration-action ${event.action}`}>{event.action}</span>
-        </button>
-      ))}
+      {agents.map(agent => {
+        const active = agent.action === 'started' || agent.action === 'updated'
+        const statusClassName = active ? 'running' : agent.action
+        const statusLabel = active ? copy.agentTranscriptRunning : agent.action
+        return (
+          <section
+            className={`code-agent-transcript-collaboration-group ${openAgentIds.has(agent.id) ? 'expanded' : ''}`}
+            data-testid="code-agent-transcript-collaboration-group"
+            data-agent-thread-id={agent.threadId}
+            key={agent.id}
+          >
+            <button
+              type="button"
+              className="code-agent-transcript-collaboration-summary"
+              data-testid="code-agent-transcript-collaboration-summary"
+              aria-expanded={openAgentIds.has(agent.id)}
+              title={`${agent.name} · ${copy.agentTranscriptProcessCount(agent.events.length)}`}
+              onClick={clickEvent => {
+                clickEvent.stopPropagation()
+                toggleTranscriptDisclosureWithStableAnchor(clickEvent.currentTarget, () => {
+                  setOpenAgentIds(current => {
+                    const next = new Set(current)
+                    if (next.has(agent.id)) next.delete(agent.id)
+                    else next.add(agent.id)
+                    return next
+                  })
+                })
+              }}
+            >
+              <span className={`code-agent-transcript-collaboration-agent tone-${agent.tone}`}>
+                <AgentGroupGlyph />
+                <span>{agent.name}</span>
+              </span>
+              <span className={`code-agent-transcript-collaboration-action ${statusClassName}`}>{statusLabel}</span>
+              <span className="code-agent-transcript-collaboration-count">
+                {copy.agentTranscriptProcessCount(agent.events.length)}
+              </span>
+              <ChevronRightGlyph className="code-agent-transcript-chevron" />
+            </button>
+            {openAgentIds.has(agent.id) ? (
+              <div className="code-agent-transcript-collaboration-events">
+                {agent.activities.map(activity => (
+                  <button
+                    type="button"
+                    className="code-agent-transcript-collaboration-event"
+                    data-testid="code-agent-transcript-collaboration-event"
+                    data-process-item-id={activity.processItemId}
+                    key={activity.id}
+                    title={activity.title || activity.message || agent.name}
+                    onClick={clickEvent => {
+                      clickEvent.stopPropagation()
+                      onOpen(activity.processItemId)
+                    }}
+                  >
+                    <span className={`code-agent-transcript-collaboration-action ${activity.action}`}>
+                      {activity.action}
+                    </span>
+                    <span className="code-agent-transcript-collaboration-event-detail">
+                      {activity.message || activity.title || agent.name}
+                    </span>
+                    {activity.count > 1 ? (
+                      <span className="code-agent-transcript-collaboration-event-count">
+                        {copy.agentTranscriptProcessCount(activity.count)}
+                      </span>
+                    ) : null}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </section>
+        )
+      })}
     </div>
   )
 }
@@ -1905,8 +1961,8 @@ function AgentTranscriptTurnView({
     () => compactProcessEntries(processEntries, turn.status),
     [processEntries, turn.status],
   )
-  const collaborationEvents = useMemo(
-    () => acpCollaborationEvents(resolvedProcessItems),
+  const collaborationAgents = useMemo(
+    () => acpCollaborationAgents(resolvedProcessItems),
     [resolvedProcessItems],
   )
   const latestLiveThoughtId = useMemo(() => {
@@ -1928,7 +1984,7 @@ function AgentTranscriptTurnView({
   const shouldShowWaiting = turn.status === 'inProgress'
     && !answerMessage
     && compactProcess.items.length === 0
-    && collaborationEvents.length === 0
+    && collaborationAgents.length === 0
     && (
     Boolean(turn.userMessage) || userImages.length > 0 || userAudios.length > 0 || userFiles.length > 0 || hasProcess
     )
@@ -2409,8 +2465,9 @@ function AgentTranscriptTurnView({
             </div>
           ) : null}
           <AgentTranscriptCollaborationTimeline
-            events={collaborationEvents}
+            agents={collaborationAgents}
             onOpen={handleOpenCollaborationItem}
+            copy={copy}
           />
         </div>
       ) : null}
@@ -2628,10 +2685,16 @@ export function AgentTranscriptPane({
     if (!active) return undefined
 
     let stopped = false
-    let timer: number | null = null
+    let pollTimer: number | null = null
+    let retryTimer: number | null = null
+    let retryAttempt = 0
     let controller: AbortController | null = null
 
     const load = () => {
+      if (retryTimer !== null) {
+        window.clearTimeout(retryTimer)
+        retryTimer = null
+      }
       controller?.abort()
       controller = new AbortController()
       const params = new URLSearchParams({ maxTurns: String(turnLimit) })
@@ -2644,20 +2707,26 @@ export function AgentTranscriptPane({
       ) {
         params.set('sinceRevision', String(currentTranscript.revision))
       }
+      if (source === 'acp') {
+        params.set('media', 'external-v1')
+      }
       const endpoint = source === 'acp'
         ? 'acp-transcript'
         : source === 'json-cli'
             ? 'json-cli-transcript'
             : 'codex-transcript'
+      let responseReceived = false
       fetch(appPath(`/api/agents/${encodeURIComponent(agentId)}/${endpoint}?${params.toString()}`), {
         signal: controller.signal,
       })
         .then(response => {
+          responseReceived = true
           if (!response.ok) throw new Error(copy.agentTranscriptUnavailable)
           return response.json()
         })
         .then(payload => {
           if (stopped) return
+          retryAttempt = 0
           const nextTranscript = source === 'acp' && payload.transcript
             ? projectAcpTranscript(payload.transcript, { maxTurns: turnLimit })
             : payload.transcript || null
@@ -2674,7 +2743,16 @@ export function AgentTranscriptPane({
         })
         .catch(reason => {
           if (stopped || reason?.name === 'AbortError') return
-          setError(reason?.message || copy.agentTranscriptUnavailable)
+          const retryDelay = source === 'acp' && !responseReceived && reason instanceof TypeError
+            ? ACP_TRANSCRIPT_FETCH_RETRY_DELAYS_MS[retryAttempt]
+            : undefined
+          if (retryDelay !== undefined) {
+            retryAttempt += 1
+            retryTimer = window.setTimeout(load, retryDelay)
+            return
+          }
+          retryAttempt = 0
+          setError(transcriptRef.current?.available ? '' : copy.agentTranscriptUnavailable)
           setLoading(false)
           setLoadingOlder(false)
         })
@@ -2684,12 +2762,13 @@ export function AgentTranscriptPane({
     // ACP entry updates already advance refreshSignal through the shared state
     // websocket. Re-fetching a complete, idle history every three seconds is
     // especially expensive for long sessions with many tool details.
-    if (source !== 'acp') timer = window.setInterval(load, 3000)
+    if (source !== 'acp') pollTimer = window.setInterval(load, 3000)
 
     return () => {
       stopped = true
       controller?.abort()
-      if (timer) window.clearInterval(timer)
+      if (retryTimer !== null) window.clearTimeout(retryTimer)
+      if (pollTimer !== null) window.clearInterval(pollTimer)
     }
   }, [active, agentId, copy.agentTranscriptUnavailable, refreshSignal, source, turnLimit])
 

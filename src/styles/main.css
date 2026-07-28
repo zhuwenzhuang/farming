@@ -3826,10 +3826,9 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
 
 .code-pet-bubble {
   width: min(286px, calc(100vw - 28px));
-  position: absolute;
+  position: relative;
   z-index: 85;
-  left: 0;
-  bottom: calc(100% + 10px);
+  align-self: stretch;
   box-sizing: border-box;
   display: grid;
   gap: 8px;
@@ -6200,18 +6199,69 @@ body.code-mode .code-instance-name {
 
 .code-agent-transcript-collaboration {
   display: grid;
-  justify-items: start;
-  gap: 7px;
+  gap: 6px;
+  width: min(620px, 100%);
   padding: 5px 0 13px;
 }
 
-.code-agent-transcript-collaboration-event {
+.code-agent-transcript-collaboration-group {
   min-width: 0;
-  display: inline-flex;
+  overflow: hidden;
+  border: 1px solid rgba(31, 35, 40, 0.1);
+  border-radius: 9px;
+  background: rgba(246, 248, 250, 0.46);
+}
+
+.code-agent-transcript-collaboration-summary {
+  width: 100%;
+  min-height: 38px;
+  display: flex;
   align-items: center;
   gap: 9px;
-  padding: 0;
+  padding: 5px 9px;
   border: 0;
+  background: transparent;
+  color: #57606a;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+}
+
+.code-agent-transcript-collaboration-summary:hover,
+.code-agent-transcript-collaboration-summary:focus-visible {
+  background: rgba(31, 35, 40, 0.045);
+  outline: none;
+}
+
+.code-agent-transcript-collaboration-summary:focus-visible {
+  box-shadow: inset 0 0 0 2px rgba(9, 105, 218, 0.22);
+}
+
+.code-agent-transcript-collaboration-group.expanded .code-agent-transcript-chevron {
+  transform: rotate(90deg);
+  opacity: 0.9;
+}
+
+.code-agent-transcript-collaboration-events {
+  display: grid;
+  gap: 1px;
+  padding: 5px;
+  border-top: 1px solid rgba(31, 35, 40, 0.08);
+}
+
+.code-agent-transcript-collaboration-event {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  min-height: 30px;
+  display: grid;
+  grid-template-columns: minmax(72px, auto) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 8px 5px 28px;
+  border: 0;
+  border-radius: 6px;
   background: transparent;
   color: #7d858d;
   cursor: pointer;
@@ -6222,25 +6272,29 @@ body.code-mode .code-instance-name {
 
 .code-agent-transcript-collaboration-event:hover,
 .code-agent-transcript-collaboration-event:focus-visible {
+  background: rgba(31, 35, 40, 0.045);
   color: #57606a;
   outline: none;
 }
 
-.code-agent-transcript-collaboration-event:focus-visible .code-agent-transcript-collaboration-agent {
-  outline: 2px solid rgba(9, 105, 218, 0.24);
-  outline-offset: 2px;
+.code-agent-transcript-collaboration-event::before {
+  content: '';
+  position: absolute;
+  left: 13px;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.52;
 }
 
 .code-agent-transcript-collaboration-agent {
+  flex: 1 1 auto;
   min-width: 0;
-  max-width: min(280px, 60vw);
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 10px 4px 7px;
-  border: 1px solid rgba(31, 35, 40, 0.1);
-  border-radius: 999px;
-  background: rgba(246, 248, 250, 0.7);
+  padding: 0;
   color: #57606a;
 }
 
@@ -6261,6 +6315,30 @@ body.code-mode .code-instance-name {
 .code-agent-transcript-collaboration-agent.tone-1 svg { color: #d95f76; }
 .code-agent-transcript-collaboration-agent.tone-2 svg { color: #8b5cf6; }
 .code-agent-transcript-collaboration-agent.tone-3 svg { color: #d97706; }
+
+.code-agent-transcript-collaboration-summary > .code-agent-transcript-collaboration-action {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+.code-agent-transcript-collaboration-count {
+  flex: 0 0 auto;
+  color: #8c959f;
+  font-size: 12px;
+}
+
+.code-agent-transcript-collaboration-event-detail {
+  min-width: 0;
+  overflow: hidden;
+  color: #57606a;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.code-agent-transcript-collaboration-event-count {
+  color: #8c959f;
+  font-size: 12px;
+}
 
 .code-agent-transcript-collaboration-action.failed,
 .code-agent-transcript-collaboration-action.interrupted {

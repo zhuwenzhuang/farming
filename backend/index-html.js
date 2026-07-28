@@ -41,7 +41,20 @@ function appendIndexHtmlAssetToken(html, token) {
   });
 }
 
+function applyIndexHtmlAppearance(html, appearance) {
+  const normalizedAppearance = ['light', 'dark'].includes(appearance) ? appearance : 'system';
+  const source = String(html || '');
+  if (/\bdata-appearance-preference="[^"]*"/i.test(source)) {
+    return source.replace(
+      /\bdata-appearance-preference="[^"]*"/i,
+      `data-appearance-preference="${normalizedAppearance}"`
+    );
+  }
+  return source.replace(/<html\b/i, `<html data-appearance-preference="${normalizedAppearance}"`);
+}
+
 module.exports = {
+  applyIndexHtmlAppearance,
   normalizeBasePath,
   routePath,
   rewriteIndexHtmlForBasePath,

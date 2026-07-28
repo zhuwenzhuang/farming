@@ -26,6 +26,73 @@ async function sendAcpMessage(page: Page, text: string) {
 }
 
 test.describe('ACP human-like browser matrix', () => {
+  test('recovers a read-only transcript from bounded transport failures', async ({ page, workspaceRoot }) => {
+    const workspace = path.join(workspaceRoot, 'acp-transcript-transport-retry')
+    fs.mkdirSync(workspace, { recursive: true })
+
+    const agentId = await createAcpAgent(page, workspace)
+    const otherAgentResponse = await page.request.post('/farming/api/control/agents', {
+      data: { command: 'bash', workspace },
+    })
+    expect(otherAgentResponse.ok()).toBeTruthy()
+    const { agentId: otherAgentId } = await otherAgentResponse.json() as { agentId: string }
+    let attempts = 0
+    await page.route(
+      new RegExp(`/farming/api/agents/${agentId}/acp-transcript(?:\\?.*)?$`),
+      async route => {
+        attempts += 1
+        if (attempts !== 3) {
+          await route.abort('connectionreset')
+          return
+        }
+        await route.fulfill({
+          contentType: 'application/json',
+          body: JSON.stringify({
+            transcript: {
+              sessionId: `transport-retry-${agentId}`,
+              state: 'idle',
+              revision: 1,
+              entries: [
+                {
+                  id: 'retry-user',
+                  type: 'message',
+                  role: 'user',
+                  content: [{ type: 'text', text: 'Recover the transcript' }],
+                },
+                {
+                  id: 'retry-answer',
+                  type: 'message',
+                  role: 'assistant',
+                  _meta: { codex: { phase: 'final_answer' } },
+                  content: [{ type: 'text', text: 'Transcript transport recovered.' }],
+                },
+              ],
+            },
+          }),
+        })
+      },
+    )
+
+    await openFarming(page)
+    await agentRow(page, agentId).click()
+    await expect(page.getByText('Transcript transport recovered.', { exact: true })).toBeVisible({
+      timeout: 10_000,
+    })
+    expect(attempts).toBe(3)
+    await expect(page.getByText('Failed to fetch', { exact: true })).toHaveCount(0)
+
+    await agentRow(page, otherAgentId).click()
+    await expect(page.locator(
+      `[data-testid="code-terminal-pane"][data-agent-id="${otherAgentId}"]`,
+    )).toBeVisible()
+    await agentRow(page, agentId).click()
+    await expect(page.getByText('Transcript transport recovered.', { exact: true })).toBeVisible()
+    await expect.poll(() => attempts, { timeout: 5_000 }).toBeGreaterThanOrEqual(6)
+    await expect(page.getByText('Transcript transport recovered.', { exact: true })).toBeVisible()
+    await expect(page.getByText('This session’s Chat history could not be loaded.', { exact: true }))
+      .toHaveCount(0)
+  })
+
   test('paints the terminal checkpoint after switching from Chat', async ({ page, workspaceRoot }) => {
     const workspace = path.join(workspaceRoot, 'acp-chat-to-terminal')
     fs.mkdirSync(workspace, { recursive: true })
@@ -123,6 +190,9 @@ test.describe('ACP human-like browser matrix', () => {
 
     const turn = page.locator('.code-agent-transcript-turn').filter({ hasText: 'Typography baseline.' })
     await expect(turn).toBeVisible({ timeout: 15_000 })
+    await page.evaluate(() => {
+      document.body.dataset.appearance = 'dark'
+    })
     const metrics = await turn.evaluate(element => {
       const answer = element.querySelector<HTMLElement>('.code-agent-transcript-assistant.code-markdown-preview')
       const pre = answer?.querySelector<HTMLElement>('pre')
@@ -146,6 +216,8 @@ test.describe('ACP human-like browser matrix', () => {
         headerLineHeight: getComputedStyle(header).lineHeight,
         quoteFontSize: getComputedStyle(quote).fontSize,
         inlineCodeFontSize: Number.parseFloat(getComputedStyle(inlineCode).fontSize),
+        inlineCodeColor: getComputedStyle(inlineCode).color,
+        inlineCodeBackground: getComputedStyle(inlineCode).backgroundColor,
       }
     })
     expect(metrics).toMatchObject({
@@ -158,6 +230,8 @@ test.describe('ACP human-like browser matrix', () => {
       tableFontSize: '14px',
       headerLineHeight: '20px',
       quoteFontSize: '14px',
+      inlineCodeColor: 'rgb(230, 237, 243)',
+      inlineCodeBackground: 'rgba(88, 166, 255, 0.14)',
     })
     expect(metrics.inlineCodeFontSize).toBeGreaterThanOrEqual(12)
     expect(metrics.inlineCodeFontSize).toBeLessThan(14)
@@ -175,51 +249,115 @@ test.describe('ACP human-like browser matrix', () => {
     const turn = page.locator('.code-agent-transcript-turn').filter({ hasText: 'Codex collaboration example complete.' })
     await expect(turn).toBeVisible({ timeout: 15_000 })
     const timeline = turn.getByTestId('code-agent-transcript-collaboration')
+    const groups = timeline.getByTestId('code-agent-transcript-collaboration-group')
     const events = timeline.getByTestId('code-agent-transcript-collaboration-event')
-    await expect(events).toHaveCount(4)
-    await expect(events.nth(0)).toContainText('Review refresh')
-    await expect(events.nth(0)).toContainText('updated')
-    await expect(events.nth(1)).toContainText('Browser guards')
-    await expect(events.nth(2)).toContainText('finished')
-    await expect(events.nth(3)).toContainText('Crt races')
-    await expect(events.nth(0).locator('svg')).toBeVisible()
+    await expect(groups).toHaveCount(3)
+    await expect(events).toHaveCount(0)
+    await expect(groups.nth(0)).toContainText('Review refresh')
+    await expect(groups.nth(0)).toContainText(/Running|正在运行/)
+    await expect(groups.nth(1)).toContainText('Browser guards')
+    await expect(groups.nth(1)).toContainText(/22 (?:events|个事件)/)
+    await expect(groups.nth(2)).toContainText('Crt races')
+    await expect(groups.nth(0).locator('.code-agent-transcript-collaboration-agent svg')).toBeVisible()
+    for (let index = 0; index < 3; index += 1) {
+      await expect(groups.nth(index).getByTestId('code-agent-transcript-collaboration-summary'))
+        .toHaveAttribute('aria-expanded', 'false')
+    }
     await expect(turn.getByTestId('code-agent-transcript-process-summary')).toHaveAttribute('aria-expanded', 'false')
+    expect((await timeline.boundingBox())?.height || 0).toBeLessThan(160)
 
     await page.evaluate(() => { document.body.dataset.appearance = 'light' })
-    const lightVisuals = await events.nth(0).evaluate(element => {
-      const pill = element.querySelector<HTMLElement>('.code-agent-transcript-collaboration-agent')
-      const icon = pill?.querySelector<SVGElement>('svg')
-      if (!pill || !icon) throw new Error('Collaboration visuals are incomplete')
+    const lightVisuals = await groups.nth(0).evaluate(element => {
+      const summary = element.querySelector<HTMLElement>('.code-agent-transcript-collaboration-summary')
+      const icon = summary?.querySelector<SVGElement>('svg')
+      if (!summary || !icon) throw new Error('Collaboration visuals are incomplete')
       return {
-        rowColor: getComputedStyle(element).color,
-        pillBackground: getComputedStyle(pill).backgroundColor,
-        pillBorder: getComputedStyle(pill).borderColor,
+        rowColor: getComputedStyle(summary).color,
+        cardBackground: getComputedStyle(element).backgroundColor,
+        cardBorder: getComputedStyle(element).borderColor,
         iconColor: getComputedStyle(icon).color,
       }
     })
     await page.evaluate(() => { document.body.dataset.appearance = 'dark' })
-    const darkVisuals = await events.nth(0).evaluate(element => {
-      const pill = element.querySelector<HTMLElement>('.code-agent-transcript-collaboration-agent')
-      const icon = pill?.querySelector<SVGElement>('svg')
-      if (!pill || !icon) throw new Error('Collaboration visuals are incomplete')
+    const darkVisuals = await groups.nth(0).evaluate(element => {
+      const summary = element.querySelector<HTMLElement>('.code-agent-transcript-collaboration-summary')
+      const icon = summary?.querySelector<SVGElement>('svg')
+      if (!summary || !icon) throw new Error('Collaboration visuals are incomplete')
       return {
-        rowColor: getComputedStyle(element).color,
-        pillBackground: getComputedStyle(pill).backgroundColor,
-        pillBorder: getComputedStyle(pill).borderColor,
+        rowColor: getComputedStyle(summary).color,
+        cardBackground: getComputedStyle(element).backgroundColor,
+        cardBorder: getComputedStyle(element).borderColor,
         iconColor: getComputedStyle(icon).color,
       }
     })
     expect(darkVisuals.rowColor).not.toBe(lightVisuals.rowColor)
-    expect(darkVisuals.pillBackground).not.toBe(lightVisuals.pillBackground)
-    expect(darkVisuals.pillBorder).not.toBe(lightVisuals.pillBorder)
+    expect(darkVisuals.cardBackground).not.toBe(lightVisuals.cardBackground)
+    expect(darkVisuals.cardBorder).not.toBe(lightVisuals.cardBorder)
     expect(darkVisuals.iconColor).toBe(lightVisuals.iconColor)
 
-    await events.nth(2).click()
+    const browserGroup = groups.filter({ hasText: 'Browser guards' })
+    const browserSummary = browserGroup.getByTestId('code-agent-transcript-collaboration-summary')
+    await browserSummary.click()
+    await expect(browserSummary).toHaveAttribute('aria-expanded', 'true')
+    const browserEvents = browserGroup.getByTestId('code-agent-transcript-collaboration-event')
+    await expect(browserEvents).toHaveCount(5)
+    await expect(browserEvents.nth(0)).toContainText('started')
+    await expect(browserEvents.nth(1)).toContainText('updated')
+    await expect(browserEvents.nth(1)).toContainText(/18 (?:events|个事件)/)
+    await expect(browserEvents.nth(2)).toContainText('failed')
+    await expect(browserEvents.nth(2)).toHaveAttribute('data-process-item-id', 'collab-browser-failed-1')
+    await expect(browserEvents.nth(3)).toContainText('failed')
+    await expect(browserEvents.nth(3)).toHaveAttribute('data-process-item-id', 'collab-browser-failed-2')
+    await expect(browserEvents.nth(4)).toContainText('finished')
+    await expect(browserEvents.nth(4)).toContainText('Browser guard verification passed.')
+
+    await browserEvents.nth(2).click()
     await expect(turn.getByTestId('code-agent-transcript-process-summary')).toHaveAttribute('aria-expanded', 'true')
-    const detail = turn.getByTestId('code-agent-transcript-process-item').filter({ hasText: 'Wait for Browser guards' })
+    const detail = turn.locator(
+      '[data-testid="code-agent-transcript-process-item"][data-process-item-id="collab-browser-failed-1"]',
+    )
     await expect(detail.getByTestId('code-agent-transcript-process-item-toggle')).toHaveAttribute('aria-expanded', 'true')
     await expect(detail.getByTestId('code-agent-transcript-process-item-toggle')).toBeFocused()
-    await expect(detail).toContainText('Browser guard verification passed.')
+    await expect(detail).toContainText('Browser guard retry required.')
+  })
+
+  test('keeps a manually expanded Agent stable while collaboration updates stream', async ({ page, workspaceRoot }) => {
+    test.setTimeout(30_000)
+    const workspace = path.join(workspaceRoot, 'acp-live-collaboration')
+    fs.mkdirSync(workspace, { recursive: true })
+
+    const agentId = await createAcpAgent(page, workspace)
+    await openFarming(page)
+    await agentRow(page, agentId).click()
+    await sendAcpMessage(page, 'live collaboration demo')
+
+    const turn = page.locator('.code-agent-transcript-turn').filter({ hasText: 'live collaboration demo' })
+    const timeline = turn.getByTestId('code-agent-transcript-collaboration')
+    const liveReviewGroup = timeline.getByTestId('code-agent-transcript-collaboration-group')
+      .filter({ hasText: 'Live reviewer' })
+    const summary = liveReviewGroup.getByTestId('code-agent-transcript-collaboration-summary')
+    await expect(summary).toContainText(/Running|正在运行/)
+    await expect(summary).toContainText(/2 (?:events|个事件)/, { timeout: 5_000 })
+
+    await summary.click()
+    await expect(summary).toHaveAttribute('aria-expanded', 'true')
+    const activityCountBefore = await liveReviewGroup
+      .getByTestId('code-agent-transcript-collaboration-event')
+      .count()
+    await expect(summary).toContainText(/5 (?:events|个事件)/, { timeout: 5_000 })
+    await expect(summary).toHaveAttribute('aria-expanded', 'true')
+    expect(await liveReviewGroup.getByTestId('code-agent-transcript-collaboration-event').count())
+      .toBe(activityCountBefore)
+
+    await expect(page.getByText('Live collaboration demo complete.', { exact: true })).toBeVisible({
+      timeout: 15_000,
+    })
+    await expect(summary).toHaveAttribute('aria-expanded', 'true')
+    await expect(summary).toContainText('finished')
+    const activities = liveReviewGroup.getByTestId('code-agent-transcript-collaboration-event')
+    await expect(activities).toHaveCount(3)
+    await expect(activities.nth(1)).toContainText(/10 (?:events|个事件)/)
+    await expect(activities.nth(2)).toContainText('Live review completed.')
   })
 
   test('aligns every Chat turn to one shared content column', async ({ page, workspaceRoot }) => {
@@ -312,6 +450,10 @@ test.describe('ACP human-like browser matrix', () => {
       await page.getByTestId('code-acp-composer-input').fill('rich timeline')
       await expect(page.getByTestId('code-acp-composer-input')).toHaveValue('rich timeline')
     })
+    const transcriptMediaResponse = page.waitForResponse(response => (
+      response.url().includes(`/api/agents/${agentId}/acp-media/`)
+      && response.status() === 200
+    ))
     await test.step('07 send a structured ACP prompt', async () => {
       await page.getByTestId('code-acp-composer-send').click()
       await expect(page.getByTestId('code-acp-composer-input')).toHaveValue('')
@@ -377,6 +519,12 @@ test.describe('ACP human-like browser matrix', () => {
     })
     await test.step('21 render ACP audio content with native controls', async () => {
       await expect(readItem.getByTestId('code-agent-transcript-audios').locator('audio')).toHaveCount(1)
+    })
+    await test.step('21b load negotiated media through an immutable authenticated response', async () => {
+      const response = await transcriptMediaResponse
+      expect(response.headers()['cache-control']).toContain('immutable')
+      expect(response.headers()['x-content-type-options']).toBe('nosniff')
+      expect(response.headers()['content-type']).toMatch(/^(?:image|audio)\//)
     })
     await test.step('22 summarize a file edit as a result card', async () => {
       await expect(richTurn.getByTestId('code-agent-transcript-result-card')).toBeVisible()

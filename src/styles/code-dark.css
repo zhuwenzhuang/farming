@@ -1679,19 +1679,36 @@ body.code-mode[data-appearance='dark'] .code-agent-transcript-process {
   color: var(--code-dark-text-muted);
 }
 
+body.code-mode[data-appearance='dark'] .code-agent-transcript-collaboration-group {
+  border-color: var(--code-dark-border);
+  background: rgba(22, 27, 34, 0.52);
+}
+
+body.code-mode[data-appearance='dark'] .code-agent-transcript-collaboration-summary,
 body.code-mode[data-appearance='dark'] .code-agent-transcript-collaboration-event {
   color: var(--code-dark-text-muted);
 }
 
+body.code-mode[data-appearance='dark'] .code-agent-transcript-collaboration-summary:hover,
+body.code-mode[data-appearance='dark'] .code-agent-transcript-collaboration-summary:focus-visible,
 body.code-mode[data-appearance='dark'] .code-agent-transcript-collaboration-event:hover,
 body.code-mode[data-appearance='dark'] .code-agent-transcript-collaboration-event:focus-visible {
+  background: rgba(139, 148, 158, 0.08);
   color: var(--code-dark-text-soft);
 }
 
 body.code-mode[data-appearance='dark'] .code-agent-transcript-collaboration-agent {
-  border-color: var(--code-dark-border);
-  background: rgba(139, 148, 158, 0.1);
   color: var(--code-dark-text-soft);
+}
+
+body.code-mode[data-appearance='dark'] .code-agent-transcript-collaboration-events {
+  border-top-color: var(--code-dark-border);
+}
+
+body.code-mode[data-appearance='dark'] .code-agent-transcript-collaboration-count,
+body.code-mode[data-appearance='dark'] .code-agent-transcript-collaboration-event-detail,
+body.code-mode[data-appearance='dark'] .code-agent-transcript-collaboration-event-count {
+  color: var(--code-dark-text-muted);
 }
 
 body.code-mode[data-appearance='dark'] .code-agent-transcript-collaboration-action.failed,
@@ -1791,7 +1808,11 @@ body.code-mode[data-appearance='dark'] .code-agent-transcript-assistant.code-mar
   color: var(--code-dark-text);
 }
 
-body.code-mode[data-appearance='dark'] .code-agent-transcript-assistant.code-markdown-preview code,
+body.code-mode[data-appearance='dark'] .code-agent-transcript-assistant.code-markdown-preview code {
+  background: rgba(88, 166, 255, 0.14);
+  color: var(--code-dark-text);
+}
+
 body.code-mode[data-appearance='dark'] .code-agent-transcript-file-link {
   background: rgba(88, 166, 255, 0.14);
   color: var(--code-dark-accent);
@@ -1856,6 +1877,12 @@ body.code-mode[data-appearance='dark'] .code-agent-transcript-result-summary {
   background: rgba(22, 27, 34, 0.72);
   color: var(--code-dark-text-muted);
   box-shadow: 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+body.code-mode[data-appearance='dark'] .code-agent-transcript-progress {
+  border-color: var(--code-dark-border);
+  background: rgba(22, 27, 34, 0.72);
+  color: var(--code-dark-text-muted);
 }
 
 body.code-mode[data-appearance='dark'] .code-agent-transcript-result-summary .added {

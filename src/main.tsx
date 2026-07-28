@@ -278,6 +278,15 @@ async function renderApplication() {
     return
   }
 
+  const initialAppearance = document.documentElement.dataset.appearance
+  const initialAppearancePreference = document.documentElement.dataset.appearancePreference
+  if (initialAppearance === 'light' || initialAppearance === 'dark') {
+    document.body.dataset.appearance = initialAppearance
+  }
+  if (initialAppearancePreference === 'system' || initialAppearancePreference === 'light' || initialAppearancePreference === 'dark') {
+    document.body.dataset.appearancePreference = initialAppearancePreference
+  }
+  document.body.classList.add('code-mode')
   await import('./styles/tokens.css')
   await import('./styles/main.css')
   await import('./styles/code-dark.css')

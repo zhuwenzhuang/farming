@@ -2,19 +2,32 @@ import { useEffect, useState } from 'react'
 import type { CodeCopy } from '@/components/code/copy'
 import { isPageVisible, usePageVisibilitySnapshot } from '@/hooks/usePageVisibility'
 import { useBackendConnectionStatus } from '@/lib/backend-live-status'
-import { classifyBackendConnection } from '../../shared/backend-connection-status.js'
+import {
+  advanceBackendObservation,
+  classifyBackendConnection,
+} from '../../shared/backend-connection-status.js'
 
 type ConnectionState = 'connecting' | 'lost' | 'stale' | null
+type BackendObservation = {
+  now: number
+  continuousSince: number
+}
 
 export function BackendConnectionStatus({ copy }: { copy: CodeCopy }) {
   const connection = useBackendConnectionStatus()
   const pageVisibility = usePageVisibilitySnapshot()
-  const [now, setNow] = useState(() => Date.now())
+  const [observation, setObservation] = useState<BackendObservation>(() => {
+    const now = Date.now()
+    return { now, continuousSince: now }
+  })
 
   useEffect(() => {
     if (!pageVisibility.visible) return undefined
-    setNow(Date.now())
-    const timer = window.setInterval(() => setNow(Date.now()), 1000)
+    const observedAt = Date.now()
+    setObservation({ now: observedAt, continuousSince: observedAt })
+    const timer = window.setInterval(() => {
+      setObservation(current => advanceBackendObservation(current, Date.now()))
+    }, 1000)
     return () => window.clearInterval(timer)
   }, [pageVisibility.visible])
 
@@ -24,8 +37,8 @@ export function BackendConnectionStatus({ copy }: { copy: CodeCopy }) {
     connected: connection.connected,
     everConnected: connection.everConnected,
     lastMessageAt: connection.lastMessageAt,
-    visibleSince: pageVisibility.visibleSince,
-    now,
+    visibleSince: Math.max(pageVisibility.visibleSince, observation.continuousSince),
+    now: observation.now,
   }) as ConnectionState
   if (!state) return null
 

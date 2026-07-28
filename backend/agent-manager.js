@@ -50,7 +50,13 @@ const {
   stopPersistedAcpProcessGroup,
 } = require('./acp-runtime');
 const { chatRuntimeForProvider, isChatMode } = require('./chat-runtime');
-const { acpToolChanges, acpToolDetail, acpToolReviewChanges, acpTranscriptToolEntry } = require('./acp-transcript');
+const {
+  acpTranscriptEntries,
+  acpTranscriptMedia,
+  acpToolChanges,
+  acpToolDetail,
+  acpToolReviewChanges,
+} = require('./acp-transcript');
 const {
   applyCodexTerminalProfile,
   codexTerminalProfileFromOutput,
@@ -5085,8 +5091,19 @@ class AgentManager extends EventEmitter {
     const transcript = this.acpRuntime.getTranscriptSession(agentId, options);
     return {
       ...transcript,
-      entries: transcript.entries.map(entry => entry?.type === 'tool' ? acpTranscriptToolEntry(entry) : entry),
+      entries: acpTranscriptEntries(transcript.entries, {
+        mediaPathPrefix: options.mediaPathPrefix,
+      }),
     };
+  }
+
+  getAcpTranscriptMedia(agentId, entryId, mediaId) {
+    this.requireLiveAcpAgent(agentId);
+    const entry = this.acpRuntime.getTranscriptEntry(agentId, entryId);
+    if (!entry) throw new Error('ACP transcript entry not found');
+    const media = acpTranscriptMedia(entry, mediaId);
+    if (!media) throw new Error('ACP transcript media not found');
+    return media;
   }
 
   getAcpToolDetail(agentId, toolCallId) {
@@ -5660,6 +5677,14 @@ class AgentManager extends EventEmitter {
 
     if (admission) {
       transitionLifecycleOperation(staged, admission.operation.id, 'succeeded');
+    }
+    if (!admission && !structuralUpdateChanged && !readUpdateChanged) {
+      return {
+        agentId,
+        ...updates,
+        changed: false,
+        requiresState: false,
+      };
     }
     try {
       this.ensurePersistentAgentSession(staged);

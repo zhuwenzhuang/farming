@@ -407,8 +407,8 @@ class FakeAgent {
       });
       return { stopReason: 'end_turn' };
     }
-    if (promptText.includes('codex collaboration')) {
-      const activity = async (id, threadId, agentPath) => client.sessionUpdate({
+    if (promptText.includes('live collaboration demo')) {
+      const activity = async (id, threadId, agentPath, activityKind = 'interacted') => client.sessionUpdate({
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'tool_call',
@@ -416,16 +416,110 @@ class FakeAgent {
           title: `Interact with subagent ${agentPath}`,
           kind: 'other',
           status: 'completed',
-          rawInput: { agentThreadId: threadId, agentPath, activityKind: 'interacted' },
+          rawInput: { agentThreadId: threadId, agentPath, activityKind },
           _meta: {
             codex: {
-              subagent: { threadId, path: agentPath, activity: 'interacted' },
+              subagent: { threadId, path: agentPath, activity: activityKind },
+            },
+          },
+        },
+      });
+      await activity('live-review-started', 'thread-live-review', 'Live reviewer', 'started');
+      await activity('live-tests-started', 'thread-live-tests', 'Test runner', 'started');
+      await activity('live-docs-started', 'thread-live-docs', 'Documentation', 'started');
+      for (let index = 1; index <= 10; index += 1) {
+        await new Promise(resolve => setTimeout(resolve, 900));
+        await activity(`live-review-updated-${index}`, 'thread-live-review', 'Live reviewer');
+        if (index === 3 || index === 7) {
+          await activity(`live-tests-updated-${index}`, 'thread-live-tests', 'Test runner');
+        }
+      }
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'tool_call',
+          toolCallId: 'live-review-finished',
+          title: 'Wait for Live reviewer',
+          kind: 'other',
+          status: 'completed',
+          rawInput: {
+            senderThreadId: params.sessionId,
+            receiverThreadIds: ['thread-live-review'],
+            agentsStates: {
+              'thread-live-review': { status: 'completed', message: 'Live review completed.' },
+            },
+          },
+          _meta: {
+            codex: {
+              collaboration: {
+                tool: 'wait',
+                senderThreadId: params.sessionId,
+                receiverThreadIds: ['thread-live-review'],
+              },
+            },
+          },
+        },
+      });
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          messageId: 'live-collaboration-answer',
+          content: { type: 'text', text: 'Live collaboration demo complete.' },
+        },
+      });
+      return { stopReason: 'end_turn' };
+    }
+    if (promptText.includes('codex collaboration')) {
+      const activity = async (id, threadId, agentPath, activityKind = 'interacted') => client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'tool_call',
+          toolCallId: id,
+          title: `Interact with subagent ${agentPath}`,
+          kind: 'other',
+          status: 'completed',
+          rawInput: { agentThreadId: threadId, agentPath, activityKind },
+          _meta: {
+            codex: {
+              subagent: { threadId, path: agentPath, activity: activityKind },
             },
           },
         },
       });
       await activity('collab-review-updated', 'thread-review-refresh', 'Review refresh');
-      await activity('collab-browser-updated', 'thread-browser-guards', 'Browser guards');
+      await activity('collab-browser-started', 'thread-browser-guards', 'Browser guards', 'started');
+      for (let index = 1; index <= 18; index += 1) {
+        await activity(`collab-browser-updated-${index}`, 'thread-browser-guards', 'Browser guards');
+      }
+      for (let index = 1; index <= 2; index += 1) {
+        await client.sessionUpdate({
+          sessionId: params.sessionId,
+          update: {
+            sessionUpdate: 'tool_call',
+            toolCallId: `collab-browser-failed-${index}`,
+            title: 'Wait for Browser guards',
+            kind: 'other',
+            status: 'failed',
+            rawInput: {
+              senderThreadId: params.sessionId,
+              receiverThreadIds: ['thread-browser-guards'],
+              agentsStates: {
+                'thread-browser-guards': { status: 'errored', message: 'Browser guard retry required.' },
+              },
+            },
+            _meta: {
+              codex: {
+                collaboration: {
+                  tool: 'wait',
+                  senderThreadId: params.sessionId,
+                  receiverThreadIds: ['thread-browser-guards'],
+                },
+              },
+            },
+          },
+        });
+      }
       await client.sessionUpdate({
         sessionId: params.sessionId,
         update: {

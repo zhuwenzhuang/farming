@@ -3,6 +3,8 @@ const fs = require('fs');
 const path = require('path');
 const {
   BACKEND_HEARTBEAT_STALE_MS,
+  BACKEND_OBSERVER_LAG_RESET_MS,
+  advanceBackendObservation,
   classifyBackendConnection,
   reducePageVisibilitySnapshot,
 } = require('../../shared/backend-connection-status');
@@ -53,7 +55,7 @@ function run() {
     connectionStatusSource.includes('const pageVisibility = usePageVisibilitySnapshot()') &&
       connectionStatusSource.includes('if (!pageVisibility.visible) return undefined') &&
       connectionStatusSource.includes('if (!pageVisibility.visible || !isPageVisible()) return null') &&
-      connectionStatusSource.includes('visibleSince: pageVisibility.visibleSince') &&
+      connectionStatusSource.includes('Math.max(pageVisibility.visibleSince, observation.continuousSince)') &&
       pageVisibilitySource.includes('reducePageVisibilitySnapshot(current') &&
       appSource.includes('const pageVisible = usePageVisibility()') &&
       appSource.includes('CONTEXT_WINDOW_REFRESH_MS') &&
@@ -125,6 +127,37 @@ function run() {
     visibleSince: foregroundAt,
     now: foregroundAt,
   }), 'lost', 'A real WebSocket close should remain immediately visible');
+
+  const continuousObservation = advanceBackendObservation({
+    now: foregroundAt,
+    continuousSince: foregroundAt,
+  }, foregroundAt + 1_000);
+  assert.deepStrictEqual(continuousObservation, {
+    now: foregroundAt + 1_000,
+    continuousSince: foregroundAt,
+  }, 'A normal observer tick should preserve the continuous foreground window');
+  const resumedObservation = advanceBackendObservation(
+    continuousObservation,
+    continuousObservation.now + BACKEND_OBSERVER_LAG_RESET_MS + 1
+  );
+  assert.deepStrictEqual(resumedObservation, {
+    now: continuousObservation.now + BACKEND_OBSERVER_LAG_RESET_MS + 1,
+    continuousSince: continuousObservation.now + BACKEND_OBSERVER_LAG_RESET_MS + 1,
+  }, 'A delayed observer tick should start a fresh window instead of blaming backend heartbeat');
+  assert.strictEqual(classifyBackendConnection({
+    connected: true,
+    everConnected: true,
+    lastMessageAt: foregroundAt,
+    visibleSince: resumedObservation.continuousSince,
+    now: resumedObservation.now,
+  }), null, 'Main-thread suspension should not immediately report a false backend heartbeat failure');
+  assert.strictEqual(classifyBackendConnection({
+    connected: true,
+    everConnected: true,
+    lastMessageAt: foregroundAt,
+    visibleSince: resumedObservation.continuousSince,
+    now: resumedObservation.now + BACKEND_HEARTBEAT_STALE_MS,
+  }), 'stale', 'A full uninterrupted observation window should still report a real stale connection');
 
   const hiddenSnapshot = { visible: false, visibleSince: backgroundMessageAt };
   const hiddenPageShow = reducePageVisibilitySnapshot(hiddenSnapshot, {

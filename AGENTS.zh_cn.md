@@ -192,7 +192,7 @@ ACP 历史重放和实时更新必须归约到同一条有序 entry stream，不
 
 Farming Code 必须把“已打开 Agent”的逻辑顺序与有界前端视图缓存分开。Chat DOM 和池化 xterm 共用一份最多二十个 Agent 的 LRU 工作集：激活 Agent 会把它移到最近使用端，当前活跃 Agent 绝不能被逐出；打开第二十一个需要保留的视图时，只释放最久未使用的非活跃 Chat DOM 或 xterm 实例，不停止后端 ACP 或 PTY 进程。在缓存命中的 Agent 之间切换，或暂时打开 Search、History、文件时，只隐藏而不逐出这些视图。命中的 Chat 先展示原 transcript 与阅读状态，再按 revision 校准 ACP 增量；被逐出的 Chat 重新加载权威 transcript，被逐出的 Terminal 从权威 session-view checkpoint 重建。关闭、归档或终止 Agent 时立即移除视图，runtime replacement 则映射保留身份。
 
-ACP 只有在 Farming reducer checkpoint 已精确且原子落盘，并且 provider、Agent Home、Session、工作区与 provider 新鲜度仍一致时，才可以跳过完整 `session/load`。发送 prompt 前必须先把 checkpoint fence 为 dirty；缺失、dirty、过期、损坏或无法校验的状态必须明确进入有界 load/repair 路径。Transcript 页面只携带紧凑有序 tool envelope，准确 raw tool detail 仍由后端持有，并按 tool-call id 懒加载。
+ACP 只有在 Farming reducer checkpoint 已精确且原子落盘，并且 provider、Agent Home、Session、工作区与 provider 新鲜度仍一致时，才可以跳过完整 `session/load`。发送 prompt 前必须先把 checkpoint fence 为 dirty；缺失、dirty、过期、损坏或无法校验的状态必须明确进入有界 load/repair 路径。Transcript 页面只携带紧凑有序 tool envelope，准确 raw tool detail 仍由后端持有，并按 tool-call id 懒加载。外置 Transcript 媒体必须由客户端显式协商，并使用可安全滚动升级的不可变内容寻址 URL；过期 identity 必须 fail-closed。只有只读 Transcript GET 的传输失败可以做有界自动重试，绝不能重放 prompt、终端输入或任何其他写操作。
 
 Agent 进程不能直接完整继承 Farming server 的 `process.env`。后端应先解析用户 shell 环境，再只叠加 agent 需要的服务端变量，例如模型凭据、代理、SSH auth 和证书路径，最后统一规范化 `TERM`、`COLORTERM`、`TERM_PROGRAM` 等 terminal 变量，并移除 `NO_COLOR`、非交互式 `cat` pager、动态库覆盖和 Node heap flag 等 server/runtime shim。新增启动路径必须复用这套 resolver，不能重新复制 `process.env`。
 

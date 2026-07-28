@@ -1,12 +1,31 @@
+const crypto = require('crypto');
 const { createTwoFilesPatch, diffLines } = require('diff');
 
 const MAX_RENDERED_DIFF_CHARS = 64 * 1024;
 const MAX_INLINE_TOOL_DETAIL_CHARS = 4 * 1024;
+const MAX_TRANSCRIPT_INLINE_TOOL_DETAIL_CHARS = 64 * 1024;
+const MAX_TRANSCRIPT_MEDIA_BYTES = 25 * 1024 * 1024;
+const MAX_TRANSCRIPT_MEDIA_BASE64_CHARS = Math.ceil(MAX_TRANSCRIPT_MEDIA_BYTES / 3) * 4;
 const MAX_EMBEDDED_RESOURCE_TEXT_CHARS = 4 * 1024;
 const MAX_COLLABORATION_AGENTS = 16;
 const MAX_COLLABORATION_ID_CHARS = 160;
 const MAX_COLLABORATION_PATH_CHARS = 512;
 const MAX_COLLABORATION_MESSAGE_CHARS = 160;
+const TRANSCRIPT_MEDIA_MIME_TYPES = new Set([
+  'audio/aac',
+  'audio/flac',
+  'audio/mp4',
+  'audio/mpeg',
+  'audio/ogg',
+  'audio/wav',
+  'audio/wave',
+  'audio/webm',
+  'audio/x-wav',
+  'image/gif',
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+]);
 
 function diffBlocks(content) {
   return (Array.isArray(content) ? content : [])
@@ -184,7 +203,92 @@ function transcriptResource(resourceValue) {
   };
 }
 
-function transcriptMediaBlocks(entry) {
+function transcriptMediaValue(block) {
+  if (!block || typeof block !== 'object') return null;
+  if (['image', 'audio'].includes(block.type)) return block;
+  if (
+    block.type === 'content'
+    && block.content
+    && typeof block.content === 'object'
+    && ['image', 'audio'].includes(block.content.type)
+  ) {
+    return block.content;
+  }
+  return null;
+}
+
+function validatedTranscriptMedia(block) {
+  const type = String(block?.type || '');
+  const data = typeof block?.data === 'string' ? block.data : '';
+  const mimeType = String(block?.mimeType || '').trim().toLowerCase();
+  if (
+    !['image', 'audio'].includes(type)
+    || !data
+    || data.length > MAX_TRANSCRIPT_MEDIA_BASE64_CHARS
+    || data.length % 4 !== 0
+    || !TRANSCRIPT_MEDIA_MIME_TYPES.has(mimeType)
+    || !/^[a-z0-9+/]*={0,2}$/i.test(data)
+  ) return null;
+  const paddingChars = data.endsWith('==') ? 2 : (data.endsWith('=') ? 1 : 0);
+  const decodedBytes = (data.length / 4) * 3 - paddingChars;
+  if (decodedBytes <= 0 || decodedBytes > MAX_TRANSCRIPT_MEDIA_BYTES) return null;
+  return { data, decodedBytes, mimeType, type };
+}
+
+function transcriptMediaId(block) {
+  const media = validatedTranscriptMedia(block);
+  if (!media) return '';
+  return crypto.createHash('sha256')
+    .update(media.type)
+    .update('\0')
+    .update(media.mimeType)
+    .update('\0')
+    .update(media.data)
+    .digest('hex');
+}
+
+function decodeAcpTranscriptMedia(block) {
+  const media = validatedTranscriptMedia(block);
+  if (!media) return null;
+  const content = Buffer.from(media.data, 'base64');
+  if (content.length !== media.decodedBytes) return null;
+  return {
+    content,
+    mimeType: media.mimeType,
+  };
+}
+
+function compactTranscriptMedia(block, entry, options = {}) {
+  const mediaPathPrefix = String(options.mediaPathPrefix || '').replace(/\/+$/, '');
+  if (!mediaPathPrefix) return JSON.parse(JSON.stringify(block));
+  const hasInlineData = typeof block?.data === 'string' && block.data.length > 0;
+  if (!hasInlineData) return JSON.parse(JSON.stringify(block));
+  const mediaId = transcriptMediaId(block);
+  const projected = { ...block };
+  delete projected.data;
+  if (!mediaId) return projected;
+  projected.url = `${mediaPathPrefix}/${encodeURIComponent(String(entry?.id || ''))}/${mediaId}`;
+  return projected;
+}
+
+function acpTranscriptMedia(entry, requestedMediaId) {
+  const mediaId = String(requestedMediaId || '').trim().toLowerCase();
+  if (!/^[a-f0-9]{64}$/.test(mediaId)) return null;
+  const direct = Array.isArray(entry?.content) ? entry.content : [];
+  const output = entry?.rawOutput && typeof entry.rawOutput === 'object' ? entry.rawOutput : {};
+  const result = output?.result && typeof output.result === 'object' ? output.result : {};
+  const raw = Array.isArray(result.content)
+    ? result.content
+    : (Array.isArray(output.content) ? output.content : []);
+  for (const block of [...direct, ...raw]) {
+    const media = transcriptMediaValue(block);
+    if (!media) continue;
+    if (transcriptMediaId(media) === mediaId) return media;
+  }
+  return null;
+}
+
+function transcriptMediaBlocks(entry, options = {}) {
   const direct = Array.isArray(entry?.content) ? entry.content : [];
   const output = entry?.rawOutput && typeof entry.rawOutput === 'object' ? entry.rawOutput : {};
   const result = output?.result && typeof output.result === 'object' ? output.result : {};
@@ -194,7 +298,10 @@ function transcriptMediaBlocks(entry) {
   const blocks = [...direct, ...raw].flatMap(block => {
     if (!block || typeof block !== 'object') return [];
     if (block.type === 'terminal') return [{ type: 'terminal', terminalId: String(block.terminalId || '') }];
-    if (['image', 'audio', 'resource_link'].includes(block.type)) return [JSON.parse(JSON.stringify(block))];
+    if (['image', 'audio'].includes(block.type)) {
+      return [compactTranscriptMedia(block, entry, options)];
+    }
+    if (block.type === 'resource_link') return [JSON.parse(JSON.stringify(block))];
     if (block.type === 'resource') {
       return [{
         type: 'resource',
@@ -203,7 +310,11 @@ function transcriptMediaBlocks(entry) {
     }
     if (block.type !== 'content' || !block.content || typeof block.content !== 'object') return [];
     const content = block.content;
-    if (['image', 'audio', 'resource_link'].includes(content.type)) {
+    if (['image', 'audio'].includes(content.type)) {
+      const projected = compactTranscriptMedia(content, entry, options);
+      return [{ type: 'content', content: projected }];
+    }
+    if (content.type === 'resource_link') {
       return [{ type: 'content', content: JSON.parse(JSON.stringify(content)) }];
     }
     if (content.type === 'resource') {
@@ -224,6 +335,20 @@ function transcriptMediaBlocks(entry) {
     seenTerminals.add(block.terminalId);
     return true;
   });
+}
+
+function transcriptEntryWithCompactMedia(entry, options = {}) {
+  const mediaPathPrefix = String(options.mediaPathPrefix || '').trim();
+  if (!mediaPathPrefix || !Array.isArray(entry?.content)) return entry;
+  const content = entry.content.map(block => {
+    const media = transcriptMediaValue(block);
+    if (!media) return block;
+    const projected = compactTranscriptMedia(media, entry, options);
+    return block?.type === 'content'
+      ? { ...block, content: projected }
+      : projected;
+  });
+  return { ...entry, content };
 }
 
 function generatedMediaTool(entry) {
@@ -296,9 +421,13 @@ function transcriptCodexToolMeta(entry) {
   return Object.keys(compact).length > 0 ? compact : null;
 }
 
-function acpTranscriptToolEntry(entry) {
+function acpTranscriptToolEntry(entry, options = {}) {
   if (!entry || entry.type !== 'tool') return entry;
   const detail = detailForTool(entry);
+  const requestedInlineDetailChars = Number(options.maxInlineDetailChars);
+  const inlineDetailChars = Number.isFinite(requestedInlineDetailChars)
+    ? Math.max(0, Math.min(MAX_INLINE_TOOL_DETAIL_CHARS, Math.floor(requestedInlineDetailChars)))
+    : MAX_INLINE_TOOL_DETAIL_CHARS;
   const changes = patchChanges(entry.content).map(change => ({
     path: change.path,
     kind: change.kind,
@@ -313,7 +442,11 @@ function acpTranscriptToolEntry(entry) {
     .join('\n');
   const meta = {};
   if (entry?._meta?.subagent_session_info) {
-    meta.subagent_session_info = JSON.parse(JSON.stringify(entry._meta.subagent_session_info));
+    const sessionId = boundedCollaborationString(
+      entry._meta.subagent_session_info.session_id,
+      MAX_COLLABORATION_ID_CHARS
+    );
+    if (sessionId) meta.subagent_session_info = { session_id: sessionId };
   }
   if (entry?._meta?.farming_patch_decisions) {
     meta.farming_patch_decisions = JSON.parse(JSON.stringify(entry._meta.farming_patch_decisions));
@@ -326,12 +459,12 @@ function acpTranscriptToolEntry(entry) {
     title: String(entry.title || ''),
     kind: String(entry.kind || 'other'),
     status: String(entry.status || ''),
-    content: transcriptMediaBlocks(entry),
+    content: transcriptMediaBlocks(entry, options),
     ...(Object.keys(meta).length > 0 ? { _meta: meta } : {}),
-    transcriptDetail: detail.length <= MAX_INLINE_TOOL_DETAIL_CHARS
+    transcriptDetail: detail.length <= inlineDetailChars
       ? detail
-      : `${detail.slice(0, MAX_INLINE_TOOL_DETAIL_CHARS)}\n\n[Open to load full detail]`,
-    transcriptDetailTruncated: detail.length > MAX_INLINE_TOOL_DETAIL_CHARS,
+      : `${detail.slice(0, inlineDetailChars)}${inlineDetailChars > 0 ? '\n\n' : ''}[Open to load full detail]`,
+    transcriptDetailTruncated: detail.length > inlineDetailChars,
     transcriptPatchSummary: patchSummary,
     transcriptChanges: changes,
     generatedMedia: generatedMediaTool(entry),
@@ -339,9 +472,41 @@ function acpTranscriptToolEntry(entry) {
   };
 }
 
+function acpTranscriptEntries(entries, options = {}) {
+  const requestedBudget = Number(options.maxInlineToolDetailChars);
+  let remainingInlineDetailChars = Number.isFinite(requestedBudget)
+    ? Math.max(0, Math.floor(requestedBudget))
+    : MAX_TRANSCRIPT_INLINE_TOOL_DETAIL_CHARS;
+  const source = Array.isArray(entries) ? entries : [];
+  const projected = new Array(source.length);
+
+  // The transcript page owns only a bounded summary. Exact tool and subagent
+  // detail remains backend-owned and is loaded on explicit expansion.
+  for (let index = source.length - 1; index >= 0; index -= 1) {
+    const entry = source[index];
+    if (entry?.type !== 'tool') {
+      projected[index] = transcriptEntryWithCompactMedia(entry, options);
+      continue;
+    }
+    const projectedEntry = acpTranscriptToolEntry(entry, {
+      maxInlineDetailChars: remainingInlineDetailChars,
+      mediaPathPrefix: options.mediaPathPrefix,
+    });
+    remainingInlineDetailChars = Math.max(
+      0,
+      remainingInlineDetailChars - String(projectedEntry.transcriptDetail || '').length
+    );
+    projected[index] = projectedEntry;
+  }
+  return projected;
+}
+
 module.exports = {
+  acpTranscriptEntries,
+  acpTranscriptMedia,
   acpToolChanges: entry => patchChanges(entry?.content, { includeDiff: true }),
   acpToolDetail: detailForTool,
   acpToolReviewChanges: entry => patchReviewChanges(entry?.content),
   acpTranscriptToolEntry,
+  decodeAcpTranscriptMedia,
 };

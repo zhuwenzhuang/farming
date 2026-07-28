@@ -9,6 +9,27 @@ export interface AcpCollaborationEvent {
   name: string
   action: AcpCollaborationAction
   tone: number
+  title: string
+  message: string
+}
+
+export interface AcpCollaborationAgent {
+  id: string
+  threadId: string
+  name: string
+  action: AcpCollaborationAction
+  tone: number
+  events: AcpCollaborationEvent[]
+  activities: AcpCollaborationActivity[]
+}
+
+export interface AcpCollaborationActivity {
+  id: string
+  processItemId: string
+  action: AcpCollaborationAction
+  title: string
+  message: string
+  count: number
 }
 
 function displayAgentName(path: string, threadId: string) {
@@ -62,7 +83,12 @@ export function acpCollaborationEvents(items: AgentTranscriptProcessItem[]): Acp
 
   const events: AcpCollaborationEvent[] = []
   const seen = new Set<string>()
-  const append = (item: AgentTranscriptProcessItem, threadId: string, action: AcpCollaborationAction) => {
+  const append = (
+    item: AgentTranscriptProcessItem,
+    threadId: string,
+    action: AcpCollaborationAction,
+    message = '',
+  ) => {
     const key = `${item.id}:${threadId}:${action}`
     if (!threadId || seen.has(key)) return
     seen.add(key)
@@ -73,6 +99,8 @@ export function acpCollaborationEvents(items: AgentTranscriptProcessItem[]): Acp
       name: nameByThread.get(threadId) || displayAgentName('', threadId),
       action,
       tone: eventTone(threadId),
+      title: String(item.title || '').trim(),
+      message: String(message || '').trim(),
     })
   }
 
@@ -96,8 +124,57 @@ export function acpCollaborationEvents(items: AgentTranscriptProcessItem[]): Acp
         ? stateAction(agentStatus) || (itemStatus === 'failed' ? 'failed' : null)
         : fallbackToolAction(tool, itemStatus)
       if (!action || (tool !== 'wait' && activityActions.has(`${threadId}:${action}`))) continue
-      append(item, threadId, action)
+      append(item, threadId, action, collaboration.agentsStates?.[threadId]?.message)
     }
   }
   return events
+}
+
+export function acpCollaborationAgents(items: AgentTranscriptProcessItem[]): AcpCollaborationAgent[] {
+  const groups = new Map<string, AcpCollaborationAgent>()
+  for (const event of acpCollaborationEvents(items)) {
+    const existing = groups.get(event.threadId)
+    if (existing) {
+      existing.events.push(event)
+      existing.action = event.action
+      existing.name = event.name
+      const previousActivity = existing.activities[existing.activities.length - 1]
+      if (
+        event.action === 'updated'
+        && previousActivity?.action === event.action
+        && previousActivity.title === event.title
+        && previousActivity.message === event.message
+      ) {
+        previousActivity.processItemId = event.processItemId
+        previousActivity.count += 1
+      } else {
+        existing.activities.push({
+          id: event.id,
+          processItemId: event.processItemId,
+          action: event.action,
+          title: event.title,
+          message: event.message,
+          count: 1,
+        })
+      }
+      continue
+    }
+    groups.set(event.threadId, {
+      id: event.threadId,
+      threadId: event.threadId,
+      name: event.name,
+      action: event.action,
+      tone: event.tone,
+      events: [event],
+      activities: [{
+        id: event.id,
+        processItemId: event.processItemId,
+        action: event.action,
+        title: event.title,
+        message: event.message,
+        count: 1,
+      }],
+    })
+  }
+  return [...groups.values()]
 }

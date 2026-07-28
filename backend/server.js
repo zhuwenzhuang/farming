@@ -64,11 +64,13 @@ const { ReviewSessionStore } = require('./review-session-store');
 const { ReviewSessionService } = require('./review-session-service');
 const { createReviewSessionRouter } = require('./review-session-router');
 const {
+  applyIndexHtmlAppearance,
   normalizeBasePath,
   routePath,
   rewriteIndexHtmlForBasePath,
   appendIndexHtmlAssetToken,
 } = require('./index-html');
+const { decodeAcpTranscriptMedia } = require('./acp-transcript');
 const {
   coalesceSessionStream,
   deliverSessionStreamToClients,
@@ -593,7 +595,10 @@ app.get([
     }
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.setHeader('Cache-Control', 'no-cache');
-    const rewrittenHtml = rewriteIndexHtmlForBasePath(html, BASE_PATH);
+    const rewrittenHtml = applyIndexHtmlAppearance(
+      rewriteIndexHtmlForBasePath(html, BASE_PATH),
+      configManager.getSettings().appearance
+    );
     const requestUrl = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
     const requestToken = requestUrl.searchParams.has('token') ? tokenAuth.extractToken(req) : '';
     const htmlWithAssetToken = authEnabled && requestToken && tokenAuth.verify(requestToken)
@@ -1174,8 +1179,17 @@ app.get(routePath(BASE_PATH, '/api/agents/:agentId/acp-transcript'), async (req,
       ? Math.min(MAX_CODEX_TRANSCRIPT_TURNS, Math.max(20, requestedMaxTurns))
       : DEFAULT_CODEX_TRANSCRIPT_MAX_TURNS;
     const requestedRevision = Number.parseInt(String(req.query.sinceRevision || ''), 10);
+    const externalMedia = req.query.media === 'external-v1';
     res.json({ transcript: agentManager.getAcpTranscript(req.params.agentId, {
       maxTurns,
+      ...(externalMedia
+        ? {
+            mediaPathPrefix: routePath(
+              BASE_PATH,
+              `/api/agents/${encodeURIComponent(req.params.agentId)}/acp-media`
+            ),
+          }
+        : {}),
       ...(Number.isFinite(requestedRevision) && requestedRevision >= 0
         ? { sinceRevision: requestedRevision }
         : {}),
@@ -1183,6 +1197,32 @@ app.get(routePath(BASE_PATH, '/api/agents/:agentId/acp-transcript'), async (req,
   } catch (error) {
     const message = error && error.message ? error.message : 'Failed to read ACP transcript';
     res.status(message === 'Agent not found' ? 404 : 409).json({ error: message });
+  }
+});
+
+app.get(routePath(BASE_PATH, '/api/agents/:agentId/acp-media/:entryId/:mediaId'), (req, res) => {
+  try {
+    const media = agentManager.getAcpTranscriptMedia(
+      req.params.agentId,
+      req.params.entryId,
+      req.params.mediaId
+    );
+    const decoded = decodeAcpTranscriptMedia(media);
+    if (!decoded) {
+      res.status(415).json({ error: 'unsupported ACP transcript media' });
+      return;
+    }
+    res.setHeader('Cache-Control', 'private, max-age=31536000, immutable');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.type(decoded.mimeType).send(decoded.content);
+  } catch (error) {
+    const message = error && error.message ? error.message : 'Failed to read ACP transcript media';
+    const status = message === 'Agent not found'
+      || message === 'ACP transcript entry not found'
+      || message === 'ACP transcript media not found'
+      ? 404
+      : 409;
+    res.status(status).json({ error: message });
   }
 });
 

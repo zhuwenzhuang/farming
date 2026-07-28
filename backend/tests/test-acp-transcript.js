@@ -1,6 +1,15 @@
 const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
 const { projectAcpTranscript: acpSessionTranscript } = require('../../src/components/code/acp/acp-entry-projection.ts');
-const { acpToolChanges, acpToolReviewChanges, acpTranscriptToolEntry } = require('../acp-transcript');
+const {
+  acpTranscriptEntries,
+  acpTranscriptMedia,
+  acpToolChanges,
+  acpToolReviewChanges,
+  acpTranscriptToolEntry,
+  decodeAcpTranscriptMedia,
+} = require('../acp-transcript');
 
 const transcript = acpSessionTranscript({
   sessionId: 'session-1',
@@ -149,6 +158,50 @@ assert.strictEqual(compactTool.transcriptDetailTruncated, true);
 assert.strictEqual(compactTool.transcriptChanges[0].path, '/tmp/large.js');
 assert(JSON.stringify(compactTool).length < 8 * 1024, 'the transcript envelope must not carry full tool output');
 assert.strictEqual(Object.prototype.hasOwnProperty.call(compactTool, 'rawOutput'), false);
+
+const compactTranscriptEntries = acpTranscriptEntries(Array.from({ length: 40 }, (_, index) => ({
+  id: `bounded-tool-${index}`,
+  type: 'tool',
+  kind: 'execute',
+  title: `Bounded command ${index}`,
+  status: 'completed',
+  rawOutput: { stdout: String(index).repeat(8 * 1024) },
+})));
+const inlineTranscriptDetailChars = compactTranscriptEntries.reduce(
+  (total, entry) => total + String(entry.transcriptDetail || '').length,
+  0
+);
+assert(
+  inlineTranscriptDetailChars < 68 * 1024,
+  'a transcript page must keep a bounded aggregate of inline tool detail'
+);
+assert.strictEqual(
+  compactTranscriptEntries.at(-1).transcriptDetailTruncated,
+  true,
+  'an individually large newest tool still exposes exact detail through lazy loading'
+);
+assert.strictEqual(
+  compactTranscriptEntries[0].transcriptDetail,
+  '[Open to load full detail]',
+  'older tool detail should become a compact lazy-loading envelope after the page budget is spent'
+);
+
+const compactSubagentTool = acpTranscriptToolEntry({
+  id: 'subagent-tool',
+  type: 'tool',
+  kind: 'other',
+  title: 'Subagent',
+  status: 'completed',
+  _meta: {
+    subagent_session_info: {
+      session_id: 'child-session',
+      replay: 'x'.repeat(128 * 1024),
+    },
+  },
+});
+assert.deepStrictEqual(compactSubagentTool._meta.subagent_session_info, {
+  session_id: 'child-session',
+});
 
 const embeddedResourceText = 'Embedded ACP note';
 const oversizedResourceText = 'resource detail '.repeat(8 * 1024);
@@ -537,5 +590,184 @@ const replayedCompactionTranscript = acpSessionTranscript({
   ],
 });
 assert.strictEqual(replayedCompactionTranscript.turns[0].finalMessage, 'Actual answer');
+
+const originalMediaData = 'b3JpZ2luYWwtaW1hZ2U=';
+const originalMediaEntry = {
+  id: 'media-entry',
+  type: 'message',
+  role: 'user',
+  content: [{ type: 'image', mimeType: 'image/png', data: originalMediaData }],
+};
+const externalMediaEntry = acpTranscriptEntries([originalMediaEntry], {
+  mediaPathPrefix: '/farming/api/agents/agent-1/acp-media',
+})[0];
+assert.strictEqual(externalMediaEntry.content[0].data, undefined);
+assert.match(
+  externalMediaEntry.content[0].url,
+  /^\/farming\/api\/agents\/agent-1\/acp-media\/media-entry\/[a-f0-9]{64}$/,
+  'opted-in transcript clients should receive immutable content-addressed media URLs'
+);
+const originalMediaId = externalMediaEntry.content[0].url.split('/').at(-1);
+assert.deepStrictEqual(
+  decodeAcpTranscriptMedia(originalMediaEntry.content[0]),
+  {
+    content: Buffer.from(originalMediaData, 'base64'),
+    mimeType: 'image/png',
+  },
+  'the same validation boundary should govern transcript projection and media delivery'
+);
+assert.strictEqual(
+  decodeAcpTranscriptMedia({
+    type: 'image',
+    mimeType: 'image/png',
+    data: 'not-base64',
+  }),
+  null,
+  'malformed media must fail closed before a response is emitted'
+);
+const reorderedMediaEntry = {
+  ...originalMediaEntry,
+  content: [
+    { type: 'image', mimeType: 'image/png', data: 'bmV3LWltYWdl' },
+    ...originalMediaEntry.content,
+  ],
+};
+assert.strictEqual(
+  acpTranscriptMedia(reorderedMediaEntry, originalMediaId).data,
+  originalMediaData,
+  'reordering or inserting media must not change which content an existing URL resolves to'
+);
+assert.strictEqual(
+  acpTranscriptMedia({
+    ...originalMediaEntry,
+    content: [{ type: 'image', mimeType: 'image/png', data: 'cmVwbGFjZWQ=' }],
+  }, originalMediaId),
+  null,
+  'a stale media URL must fail closed instead of resolving to different content'
+);
+
+const urlOnlyMedia = {
+  id: 'url-only-media',
+  type: 'message',
+  role: 'assistant',
+  content: [{ type: 'image', mimeType: 'image/png', url: 'https://example.invalid/existing.png' }],
+};
+assert.deepStrictEqual(
+  acpTranscriptEntries([urlOnlyMedia], {
+    mediaPathPrefix: '/farming/api/agents/agent-1/acp-media',
+  })[0].content,
+  urlOnlyMedia.content,
+  'URL-only media should remain on its original provider URL'
+);
+assert.strictEqual(
+  acpTranscriptEntries([originalMediaEntry])[0].content[0].data,
+  originalMediaData,
+  'legacy clients that do not opt in must keep inline media'
+);
+const unsupportedMedia = {
+  id: 'unsupported-media',
+  type: 'message',
+  role: 'user',
+  content: [{ type: 'image', mimeType: 'image/svg+xml', data: 'PHN2Zz48L3N2Zz4=' }],
+};
+const unsupportedProjection = acpTranscriptEntries([unsupportedMedia], {
+  mediaPathPrefix: '/farming/api/agents/agent-1/acp-media',
+})[0];
+assert.strictEqual(
+  unsupportedProjection.content[0].data,
+  undefined,
+  'an opted-in reader must not receive unsupported inline media bytes'
+);
+assert.strictEqual(unsupportedProjection.content[0].url, undefined);
+
+const oversizedMediaData = 'A'.repeat((Math.ceil((25 * 1024 * 1024) / 3) * 4) + 4);
+const invalidExternalMediaEntries = acpTranscriptEntries([
+  {
+    id: 'invalid-message-media',
+    type: 'message',
+    role: 'user',
+    content: [
+      { type: 'image', mimeType: 'image/png', data: oversizedMediaData },
+      {
+        type: 'content',
+        content: { type: 'image', mimeType: 'image/svg+xml', data: 'PHN2Zz48L3N2Zz4=' },
+      },
+    ],
+  },
+  {
+    id: 'invalid-tool-media',
+    type: 'tool',
+    kind: 'other',
+    title: 'Invalid media result',
+    status: 'completed',
+    content: [
+      { type: 'image', mimeType: 'image/svg+xml', data: 'PHN2Zz48L3N2Zz4=' },
+      {
+        type: 'content',
+        content: { type: 'image', mimeType: 'image/png', data: oversizedMediaData },
+      },
+    ],
+    rawOutput: {
+      result: {
+        content: [{ type: 'image', mimeType: 'image/png', data: oversizedMediaData }],
+      },
+    },
+  },
+], {
+  mediaPathPrefix: '/farming/api/agents/agent-1/acp-media',
+});
+assert(
+  !JSON.stringify(invalidExternalMediaEntries).includes('"data":'),
+  'message, nested-content, direct-tool, and raw-tool media must all drop invalid inline bytes'
+);
+
+const externalToolMediaEntries = acpTranscriptEntries([
+  {
+    id: 'external-tool-media-user',
+    type: 'message',
+    role: 'user',
+    content: [{ type: 'text', text: 'Show tool media' }],
+  },
+  {
+    id: 'external-tool-media',
+    type: 'tool',
+    kind: 'other',
+    title: 'Media result',
+    status: 'completed',
+    rawOutput: {
+      result: {
+        content: [{ type: 'image', mimeType: 'image/png', data: originalMediaData }],
+      },
+    },
+  },
+], {
+  mediaPathPrefix: '/farming/api/agents/agent-1/acp-media',
+});
+const externalToolMediaTranscript = acpSessionTranscript({
+  state: 'idle',
+  entries: externalToolMediaEntries,
+});
+assert.match(
+  externalToolMediaTranscript.turns[0].processItems[0].images[0].url,
+  /^\/farming\/api\/agents\/agent-1\/acp-media\/external-tool-media\/[a-f0-9]{64}$/,
+  'backend-projected direct tool media should remain visible through the frontend projection'
+);
+
+const serverSource = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+const transcriptPaneSource = fs.readFileSync(
+  path.join(__dirname, '..', '..', 'src', 'components', 'code', 'AgentTranscriptPane.tsx'),
+  'utf8'
+);
+assert(
+  serverSource.includes("req.query.media === 'external-v1'")
+    && transcriptPaneSource.includes("params.set('media', 'external-v1')"),
+  'media externalization must stay explicitly negotiated for rolling-upgrade compatibility'
+);
+assert(
+  transcriptPaneSource.includes('ACP_TRANSCRIPT_FETCH_RETRY_DELAYS_MS = [250, 1000]')
+    && transcriptPaneSource.includes("source === 'acp' && !responseReceived && reason instanceof TypeError")
+    && transcriptPaneSource.includes("setError(transcriptRef.current?.available ? '' : copy.agentTranscriptUnavailable)"),
+  'only read-only ACP transcript network failures should receive bounded retries and localized final errors'
+);
 
 console.log('ACP transcript tests passed');

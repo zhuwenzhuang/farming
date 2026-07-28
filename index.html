@@ -1,9 +1,38 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-appearance-preference="system">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
     <meta name="theme-color" content="#f8f4e8" />
+    <style>
+      html,
+      body {
+        background: #ffffff;
+      }
+
+      html[data-appearance='dark'],
+      html[data-appearance='dark'] body {
+        background: #0d1117;
+        color-scheme: dark;
+      }
+    </style>
+    <script>
+      (() => {
+        const root = document.documentElement
+        const preference = ['light', 'dark'].includes(root.dataset.appearancePreference)
+          ? root.dataset.appearancePreference
+          : 'system'
+        const appearance = preference === 'system'
+          ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+          : preference
+        root.dataset.appearance = appearance
+        document.querySelector('meta[name="theme-color"]')?.setAttribute(
+          'content',
+          appearance === 'dark' ? '#0d1117' : '#f8f4e8',
+        )
+      })()
+    </script>
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="Farming 2" />
