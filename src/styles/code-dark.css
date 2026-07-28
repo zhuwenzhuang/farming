@@ -463,6 +463,23 @@ body.code-mode[data-appearance='dark'] .code-plugin-toggle {
   background: rgba(22, 27, 34, 0.66);
 }
 
+body.code-mode[data-appearance='dark'] .code-plugin-browser-settings label {
+  color: var(--code-dark-text-muted);
+}
+
+body.code-mode[data-appearance='dark'] .code-plugin-browser-settings select,
+body.code-mode[data-appearance='dark'] .code-plugin-browser-settings input,
+body.code-mode[data-appearance='dark'] .code-plugin-browser-apply {
+  border-color: var(--code-dark-border);
+  background: rgba(22, 27, 34, 0.66);
+  color: var(--code-dark-text-soft);
+}
+
+body.code-mode[data-appearance='dark'] .code-plugin-browser-apply:hover:not(:disabled),
+body.code-mode[data-appearance='dark'] .code-plugin-browser-apply:focus-visible:not(:disabled) {
+  background: var(--code-dark-bg-hover);
+}
+
 body.code-mode[data-appearance='dark'] .code-plugin-toggle.active {
   border-color: rgba(86, 194, 119, 0.36);
   background: rgba(35, 134, 54, 0.16);

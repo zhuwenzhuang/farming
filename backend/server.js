@@ -135,6 +135,7 @@ const workspaceRootRegistry = new WorkspaceRootRegistry(agentManager);
 const browserResourceManager = new BrowserResourceManager({
   configDir: configManager.farmingDir,
   isEnabled: () => configManager.getSettings().browserExtensionEnabled === true,
+  getBrowserSettings: () => configManager.getSettings(),
 });
 const browserRuntimeRecoveryPromise = browserResourceManager.init().catch(error => {
   console.warn('Failed to recover Browser runtimes:', error?.message || error);
@@ -2230,14 +2231,32 @@ app.post(routePath(BASE_PATH, '/api/settings'), express.json(), async (req, res)
   delete settingsPatch.mainPageSessionKeys;
   delete settingsPatch.projectWorkspaces;
   delete settingsPatch.pinnedProjectWorkspaces;
+  const browserConfigurationKeys = [
+    'browserSource',
+    'browserExecutablePath',
+    'browserExternalCdpUrl',
+  ];
   const changesBrowserExtension = Object.prototype.hasOwnProperty.call(settingsPatch, 'browserExtensionEnabled');
+  const changesBrowserConfiguration = browserConfigurationKeys.some(key =>
+    Object.prototype.hasOwnProperty.call(settingsPatch, key)
+  );
+  const currentSettings = configManager.getSettings();
   const browserExtensionEnabled = settingsPatch.browserExtensionEnabled === true;
-  if (changesBrowserExtension && browserExtensionEnabled) {
-    await browserResourceManager.refreshCapability();
-    const browserCapability = browserResourceManager.capability();
-    if (!browserCapability.browser) {
+  const desiredBrowserEnabled = changesBrowserExtension
+    ? browserExtensionEnabled
+    : currentSettings.browserExtensionEnabled === true;
+  if ((changesBrowserExtension && browserExtensionEnabled) || changesBrowserConfiguration) {
+    const desiredSelection = browserResourceManager.browserSelection({
+      ...currentSettings,
+      ...settingsPatch,
+    });
+    const probe = await browserResourceManager.probeCapability(desiredSelection);
+    if (
+      (changesBrowserConfiguration || desiredBrowserEnabled)
+      && (!probe.runtimeCapability || probe.runtimeCapability.error)
+    ) {
       res.status(400).json({
-        error: browserCapability.message
+        error: probe.runtimeCapability?.error
           || 'Install a Chromium-based browser or configure a loopback external CDP endpoint',
         code: 'BROWSER_EXECUTABLE_NOT_FOUND',
       });
@@ -2245,9 +2264,11 @@ app.post(routePath(BASE_PATH, '/api/settings'), express.json(), async (req, res)
     }
   }
   if (
-    changesBrowserExtension
-    && !browserExtensionEnabled
-    && configManager.getSettings().browserExtensionEnabled === true
+    currentSettings.browserExtensionEnabled === true
+    && (
+      (changesBrowserExtension && !browserExtensionEnabled)
+      || changesBrowserConfiguration
+    )
   ) {
     try {
       await browserResourceManager.stopAll();
@@ -2260,6 +2281,9 @@ app.post(routePath(BASE_PATH, '/api/settings'), express.json(), async (req, res)
     }
   }
   configManager.updateSettings(settingsPatch);
+  if (changesBrowserExtension || changesBrowserConfiguration) {
+    await browserResourceManager.refreshCapability();
+  }
   agentSessionsCache.invalidate();
   res.json({
     success: true,

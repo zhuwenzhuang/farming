@@ -45,6 +45,17 @@ function run() {
     assert.strictEqual(settings.language, 'en');
     assert.strictEqual(settings.crtSkinEffectsEnabled, true);
     assert.strictEqual(settings.browserExtensionEnabled, false);
+    assert.strictEqual(settings.browserSource, 'system');
+    assert.strictEqual(settings.browserExecutablePath, '');
+    assert.strictEqual(settings.browserExternalCdpUrl, 'http://127.0.0.1:9222');
+    manager.updateSettings({
+      browserSource: 'external-cdp',
+      browserExternalCdpUrl: 'http://127.0.0.1:9333',
+    });
+    assert.strictEqual(manager.getSettings().browserSource, 'external-cdp');
+    assert.strictEqual(manager.getSettings().browserExternalCdpUrl, 'http://127.0.0.1:9333');
+    manager.updateSettings({ browserSource: 'invalid' });
+    assert.strictEqual(manager.getSettings().browserSource, 'system');
     manager.updateSettings({ browserExtensionEnabled: true });
     assert.strictEqual(manager.getSettings().browserExtensionEnabled, true);
     manager.updateSettings({ browserExtensionEnabled: false });

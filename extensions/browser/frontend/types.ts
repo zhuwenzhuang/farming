@@ -21,5 +21,11 @@ export interface BrowserCapability {
   enabled: boolean
   available: boolean
   browser: { kind: string; path: string } | null
+  selection?: {
+    source: 'external-cdp' | 'system'
+    executablePath: string
+    externalCdpUrl: string
+  }
+  options?: Array<{ kind: string; path: string }>
   message: string
 }

@@ -16,7 +16,7 @@ Browser Extension 是第一种实时 Resource 实现，集成默认关闭；Agen
 
 每个 Project 可以拥有多个身份稳定、可重命名的 Browser Row，并具有显式的 `stopped -> starting -> running -> stopping -> stopped` 生命周期；启动或运行失败进入 `failed`。系统浏览器 Row 拥有独立 Profile 和 agent-browser Session；外部 CDP Row 只拥有自己创建的页面 Target，浏览器进程、容器、镜像、Profile 与 Endpoint 仍归外部 Owner。同一个 Browser 身份上的操作串行执行，过期 Viewer Generation 会被拒绝；Farming 重启时，之前仍处于运行态的行会标记为失败。每次持久化变更都会同时递增 Row Revision 与 Collection Revision。后端先注册实时事件监听，再发送权威 Collection Snapshot；UI 按 Revision 归约 HTTP、EventSource 与 Viewer 更新，因此传输乱序不能让状态回退，也不能删除更新的状态。
 
-两个来源复用同一个版本精确锁定的 `agent-browser` Runtime。Server 打开端口前，启动依赖准备始终把锁定的当前平台 Artifact 下载、校验并写入 Farming 的不可变 Cache，不复用系统安装。Local Resource 由 Farming 把已安装 Chromium Executable 与独立 Profile 交给这份受管 Runtime，不再有第二套 Farming Chromium Launcher；External Resource 则由同一 Runtime 连接配置的回环 Endpoint，并创建一个带标签的 Tab。Farming 不访问 Docker、不管理容器，也不携带 Chromium。
+两个来源复用同一个版本精确锁定的 `agent-browser` Runtime。Server 打开端口前，启动依赖准备始终把锁定的当前平台 Artifact 下载、校验并写入 Farming 的不可变 Cache，不复用系统安装。用户在**插件 → 浏览器**中选择已发现的系统 Chromium，或填写外部回环 CDP Endpoint；来源选择是普通持久化产品设置，不需要重启 Farming。Local Resource 由 Farming 把选中的 Chromium Executable 与独立 Profile 交给这份受管 Runtime，不再有第二套 Farming Chromium Launcher；External Resource 则由同一 Runtime 连接配置的回环 Endpoint，并创建一个带标签的 Tab。Farming 不访问 Docker、不管理容器，也不携带 Chromium。
 
 受鉴权保护的 Viewer 代理 Runtime 的 Session-scoped WebSocket Stream。Frame 使用 JPEG 保持交互响应速度，Viewport、Pointer、Wheel、Keyboard 与 Text Input 则通过同一个 Session 返回。Viewer 按 Frame 上报的 CSS 尺寸绘制；Client 较慢时会丢弃已经被新 Frame 取代的内容。Agent Command 与人的输入因此操作同一个 Browser Identity，Farming 不再携带第二条原生 CDP Action Path。
 

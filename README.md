@@ -59,7 +59,7 @@ Browse, search, and lightly edit Project Files without leaving the current task.
 
 ### Browser Resources
 
-Each Project can own multiple named Browser Resources. Farming prepares a pinned `agent-browser` runtime at startup, uses it with a compatible Chromium-based system browser and isolated profile, and sends both human input and Agent actions to the same session. Farming does not download Chromium or depend on Playwright. Agents can discover and operate these resources with `farming browser`; npm installations also expose the `farming-browser` alias.
+Each Project can own multiple named Browser Resources. In **Plugins → Browser**, users choose a discovered Chromium-based system browser or an external loopback CDP endpoint. Farming prepares a pinned `agent-browser` runtime at startup and sends both human input and Agent actions to the same session. Farming does not download Chromium or depend on Playwright. Agents can discover and operate these resources with `farming browser`; npm installations also expose the `farming-browser` alias.
 
 Farming can also connect to an externally managed Chromium CDP endpoint, including one exposed by Docker; see [external CDP browser setup](./docs/products/code/external-cdp-browser.md).
 

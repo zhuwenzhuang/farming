@@ -186,10 +186,9 @@ test('explains which system browser must be installed when none is available', a
   await page.getByTestId('code-nav-plugins').click()
   const pluginsPanel = page.getByTestId('code-plugins-panel')
   await expect(pluginsPanel.getByRole('heading', { name: 'Browser', exact: true })).toBeVisible()
-  await expect(pluginsPanel.getByText(
-    'Requires a compatible Chromium browser or an external CDP endpoint on loopback.',
-    { exact: true },
-  )).toBeVisible()
+  await expect(pluginsPanel.locator('small').filter({
+    hasText: 'Requires a compatible Chromium browser or an external CDP endpoint on loopback.',
+  })).toBeVisible()
   await expect(pluginsPanel.getByText('Not ready', { exact: true })).toBeVisible()
   await expect(pluginsPanel.getByRole('button', { name: 'Enable' })).toBeDisabled()
   const screenshot = testInfo.outputPath('browser-plugin-install-required.png')
@@ -333,6 +332,36 @@ test('keeps an edited browser address until Enter submits it', async ({
 
   await addressInput.press('Enter')
   await expect.poll(async () => (await browserSnapshot(page, createdBrowser.id)).url).toBe(targetUrl)
+})
+
+test('selects the Browser source in Plugins without restarting Farming', async ({ page }) => {
+  await openFarming(page)
+  await page.getByTestId('code-nav-plugins').click()
+  const pluginsPanel = page.getByTestId('code-plugins-panel')
+  const browserSource = pluginsPanel.getByRole('combobox', { name: 'Browser source' })
+  const apply = pluginsPanel.getByRole('button', { name: 'Apply' })
+
+  await expect(browserSource.locator('option')).toContainText([
+    'Choose system browser automatically',
+    'Google Chrome',
+    'External CDP',
+  ])
+  await browserSource.selectOption('system:')
+  if (await apply.isEnabled()) await apply.click()
+  await expect(browserSource).toHaveValue('system:')
+  await expect(apply).toBeDisabled()
+
+  await browserSource.selectOption('external-cdp')
+  const cdpAddress = pluginsPanel.getByRole('textbox', { name: 'CDP address' })
+  await expect(cdpAddress).toHaveValue('http://127.0.0.1:9222')
+  await apply.click()
+  await expect(apply).toBeDisabled()
+  await expect(pluginsPanel.locator('small').filter({ hasText: 'External CDP ·' })).toBeVisible()
+
+  await browserSource.selectOption('system:')
+  await apply.click()
+  await expect(apply).toBeDisabled()
+  await expect(pluginsPanel.locator('small').filter({ hasText: 'System Chromium ·' })).toBeVisible()
 })
 
 test('matches the focused Viewer viewport and restores the previous Viewer on close', async ({

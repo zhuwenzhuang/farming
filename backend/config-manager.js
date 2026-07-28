@@ -88,6 +88,9 @@ const PERSISTED_SETTING_KEYS = new Set([
   'heartbeatInterval',
   'dangerouslySkipAgentPermissionsByDefault',
   'browserExtensionEnabled',
+  'browserSource',
+  'browserExecutablePath',
+  'browserExternalCdpUrl',
   'crtSkinEffectsEnabled',
   'crtDynamicHeatEnabled',
   'crtTerminalFontSize',
@@ -320,6 +323,9 @@ class ConfigManager {
         heartbeatInterval: 1000,
         dangerouslySkipAgentPermissionsByDefault: false,
         browserExtensionEnabled: false,
+        browserSource: process.env.FARMING_BROWSER_CDP_URL ? 'external-cdp' : 'system',
+        browserExecutablePath: process.env.FARMING_BROWSER_EXECUTABLE || '',
+        browserExternalCdpUrl: process.env.FARMING_BROWSER_CDP_URL || 'http://127.0.0.1:9222',
         crtSkinEffectsEnabled: true,
         crtDynamicHeatEnabled: false,
         crtTerminalFontSize: DEFAULT_CRT_TERMINAL_FONT_SIZE,
@@ -358,6 +364,9 @@ class ConfigManager {
       heartbeatInterval: 1000,
       dangerouslySkipAgentPermissionsByDefault: false,
       browserExtensionEnabled: false,
+      browserSource: process.env.FARMING_BROWSER_CDP_URL ? 'external-cdp' : 'system',
+      browserExecutablePath: process.env.FARMING_BROWSER_EXECUTABLE || '',
+      browserExternalCdpUrl: process.env.FARMING_BROWSER_CDP_URL || 'http://127.0.0.1:9222',
       crtSkinEffectsEnabled: true,
       crtDynamicHeatEnabled: false,
       crtTerminalFontSize: DEFAULT_CRT_TERMINAL_FONT_SIZE,
@@ -420,6 +429,10 @@ class ConfigManager {
     this.settings.appearance = this.normalizeAppearance(this.settings.appearance);
     this.settings.language = this.normalizeLanguage(this.settings.language);
     this.settings.browserExtensionEnabled = this.settings.browserExtensionEnabled === true;
+    this.settings.browserSource = this.normalizeBrowserSource(this.settings.browserSource);
+    this.settings.browserExecutablePath = this.normalizeBrowserSetting(this.settings.browserExecutablePath);
+    this.settings.browserExternalCdpUrl = this.normalizeBrowserSetting(this.settings.browserExternalCdpUrl)
+      || 'http://127.0.0.1:9222';
     this.settings.crtSkinEffectsEnabled = this.settings.crtSkinEffectsEnabled !== false;
     this.settings.crtDynamicHeatEnabled = this.settings.crtDynamicHeatEnabled === true;
     this.settings.crtTerminalFontSize = this.normalizeCrtTerminalFontSize(this.settings.crtTerminalFontSize);
@@ -577,6 +590,14 @@ class ConfigManager {
 
   normalizeLanguage(language) {
     return ['en', 'zh'].includes(language) ? language : 'en';
+  }
+
+  normalizeBrowserSource(source) {
+    return source === 'external-cdp' ? source : 'system';
+  }
+
+  normalizeBrowserSetting(value) {
+    return String(value || '').trim().slice(0, 2000);
   }
 
   normalizeUpdateUrl(value) {
@@ -1071,6 +1092,10 @@ class ConfigManager {
     nextSettings.appearance = this.normalizeAppearance(nextSettings.appearance);
     nextSettings.language = this.normalizeLanguage(nextSettings.language);
     nextSettings.browserExtensionEnabled = nextSettings.browserExtensionEnabled === true;
+    nextSettings.browserSource = this.normalizeBrowserSource(nextSettings.browserSource);
+    nextSettings.browserExecutablePath = this.normalizeBrowserSetting(nextSettings.browserExecutablePath);
+    nextSettings.browserExternalCdpUrl = this.normalizeBrowserSetting(nextSettings.browserExternalCdpUrl)
+      || 'http://127.0.0.1:9222';
     nextSettings.crtSkinEffectsEnabled = nextSettings.crtSkinEffectsEnabled !== false;
     nextSettings.crtDynamicHeatEnabled = nextSettings.crtDynamicHeatEnabled === true;
     nextSettings.crtTerminalFontSize = this.normalizeCrtTerminalFontSize(nextSettings.crtTerminalFontSize);

@@ -20,19 +20,12 @@ docker run --rm --name farming-cdp --init --shm-size=1g \
 
 Some Chromium builds ignore `--remote-debugging-address=0.0.0.0` and bind only inside the container, so a normal `-p` mapping may not work. In that case use the image's documented CDP proxy or Linux host networking; Farming does not need a Docker-specific mode. CDP grants full control of that browser. Never publish this port on `0.0.0.0` or the public network. For a browser on another machine, create an SSH tunnel so Farming still connects to a local loopback address.
 
-Verify the endpoint before starting Farming:
+Verify the endpoint:
 
 ```bash
 curl --fail http://127.0.0.1:9222/json/version
 ```
 
-Then stop any existing Farming server and start it with the endpoint:
+In **Plugins → Browser**, choose **External CDP**, enter the endpoint, apply the selection, and enable the Browser plugin. No Farming restart is required. Browser Resources then use the existing Farming Browser Viewer and `farming browser` Agent commands. Each Resource creates and owns its page targets, but the external owner remains responsible for the browser process, container, image, profile, and endpoint availability.
 
-```bash
-farming stop
-FARMING_BROWSER_CDP_URL=http://127.0.0.1:9222 farming daemon
-```
-
-In **Plugins → Browser**, enable the Browser plugin. Browser Resources then use the existing Farming Browser Viewer and `farming browser` Agent commands. Each Resource creates and owns its page targets, but the external owner remains responsible for the browser process, container, image, profile, and endpoint availability.
-
-`FARMING_BROWSER_CDP_URL` accepts loopback `http`, `https`, `ws`, or `wss` endpoints. Farming intentionally rejects non-loopback addresses, embedded credentials, and query parameters. An explicit external endpoint takes precedence over system-browser discovery until Farming is restarted without the variable.
+The field accepts loopback `http`, `https`, `ws`, or `wss` endpoints. Farming intentionally rejects non-loopback addresses, embedded credentials, and query parameters. Changing the selected browser source stops running Browser Resources before the new selection is committed.

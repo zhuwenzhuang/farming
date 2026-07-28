@@ -22,6 +22,18 @@ function firstExecutable(candidates) {
   return null;
 }
 
+function uniqueExecutables(candidates) {
+  const seen = new Set();
+  const result = [];
+  for (const candidate of candidates) {
+    const found = executable(candidate.path, candidate.kind);
+    if (!found || seen.has(found.path)) continue;
+    seen.add(found.path);
+    result.push(found);
+  }
+  return result;
+}
+
 function which(command) {
   try {
     const program = process.platform === 'win32' ? 'where.exe' : 'which';
@@ -45,18 +57,22 @@ function managedAgentBrowserPath(options = {}) {
   ).trim();
 }
 
-function discoverMacBrowser() {
-  return firstExecutable([
+function macBrowserCandidates() {
+  return [
     { kind: 'chrome', path: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' },
     { kind: 'brave', path: '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser' },
     { kind: 'edge', path: '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge' },
     { kind: 'chromium', path: '/Applications/Chromium.app/Contents/MacOS/Chromium' },
     { kind: 'chrome', path: path.join(process.env.HOME || '', 'Applications/Google Chrome.app/Contents/MacOS/Google Chrome') },
     { kind: 'brave', path: path.join(process.env.HOME || '', 'Applications/Brave Browser.app/Contents/MacOS/Brave Browser') },
-  ]);
+  ];
 }
 
-function discoverLinuxBrowser() {
+function discoverMacBrowser() {
+  return firstExecutable(macBrowserCandidates());
+}
+
+function linuxBrowserCandidates() {
   const commands = [
     ['google-chrome', 'chrome'],
     ['google-chrome-stable', 'chrome'],
@@ -65,14 +81,14 @@ function discoverLinuxBrowser() {
     ['chromium', 'chromium'],
     ['chromium-browser', 'chromium'],
   ];
-  for (const [command, kind] of commands) {
-    const found = executable(which(command), kind);
-    if (found) return found;
-  }
-  return null;
+  return commands.map(([command, kind]) => ({ kind, path: which(command) }));
 }
 
-function discoverWindowsBrowser(env) {
+function discoverLinuxBrowser() {
+  return firstExecutable(linuxBrowserCandidates());
+}
+
+function windowsBrowserCandidates(env) {
   const roots = [env.PROGRAMFILES, env['PROGRAMFILES(X86)'], env.LOCALAPPDATA].filter(Boolean);
   const candidates = [];
   for (const root of roots) {
@@ -83,7 +99,20 @@ function discoverWindowsBrowser(env) {
       { kind: 'chromium', path: path.join(root, 'Chromium', 'Application', 'chrome.exe') },
     );
   }
-  return firstExecutable(candidates);
+  return candidates;
+}
+
+function discoverWindowsBrowser(env) {
+  return firstExecutable(windowsBrowserCandidates(env));
+}
+
+function discoverBrowserExecutables(options = {}) {
+  const env = options.env || process.env;
+  const platform = options.platform || process.platform;
+  if (platform === 'darwin') return uniqueExecutables(macBrowserCandidates());
+  if (platform === 'linux') return uniqueExecutables(linuxBrowserCandidates());
+  if (platform === 'win32') return uniqueExecutables(windowsBrowserCandidates(env));
+  return [];
 }
 
 function normalizeExternalCdpUrl(value) {
@@ -105,6 +134,33 @@ function normalizeExternalCdpUrl(value) {
 function discoverBrowserExecutable(options = {}) {
   const env = options.env || process.env;
   const platform = options.platform || process.platform;
+  const source = String(options.source || '').trim();
+  if (source === 'external-cdp') {
+    const cdpUrl = normalizeExternalCdpUrl(options.externalCdpUrl);
+    return cdpUrl
+      ? { kind: 'external-cdp', path: '', cdpUrl }
+      : {
+          kind: 'external-cdp',
+          path: '',
+          cdpUrl: '',
+          error: 'External CDP must be a loopback http(s) or ws(s) endpoint without credentials or query parameters',
+        };
+  }
+  if (source === 'system') {
+    const configuredPath = String(options.executablePath || '').trim();
+    if (configuredPath) {
+      const configuredKind = String(options.executableKind || 'custom').trim() || 'custom';
+      return executable(path.resolve(configuredPath), configuredKind) || {
+        kind: configuredKind,
+        path: path.resolve(configuredPath),
+        error: 'The selected Chromium browser is no longer available',
+      };
+    }
+    if (platform === 'darwin') return discoverMacBrowser();
+    if (platform === 'linux') return discoverLinuxBrowser();
+    if (platform === 'win32') return discoverWindowsBrowser(env);
+    return null;
+  }
   const externalCdpInput = String(options.externalCdpUrl || env.FARMING_BROWSER_CDP_URL || '').trim();
   if (externalCdpInput) {
     const cdpUrl = normalizeExternalCdpUrl(externalCdpInput);
@@ -158,6 +214,7 @@ async function discoverBrowserRuntime(options = {}) {
 
 module.exports = {
   discoverBrowserExecutable,
+  discoverBrowserExecutables,
   discoverBrowserRuntime,
   managedAgentBrowserPath,
   normalizeExternalCdpUrl,

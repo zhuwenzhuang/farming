@@ -8,7 +8,10 @@ const {
 } = require('../../../backend/server-process-identity');
 const { BrowserResourceStore, RESOURCE_ID_RE } = require('./browser-resource-store');
 const { AgentBrowserRuntime } = require('./agent-browser-runtime');
-const { discoverBrowserRuntime } = require('./executable-discovery');
+const {
+  discoverBrowserExecutables,
+  discoverBrowserRuntime,
+} = require('./executable-discovery');
 
 const MAX_VIEWER_BUFFER_BYTES = 2 * 1024 * 1024;
 const VIEWER_RESIZE_SETTLE_MS = 80;
@@ -43,7 +46,7 @@ function browserError(message, status = 400, code = 'BROWSER_INVALID_REQUEST') {
 
 function externalBrowserFailure(action, cause) {
   const error = browserError(
-    `${action}; verify FARMING_BROWSER_CDP_URL and the external browser's /json/version endpoint`,
+    `${action}; verify the Browser plugin's external CDP address and the browser's /json/version endpoint`,
     500,
     'BROWSER_EXTERNAL_CDP_FAILED',
   );
@@ -73,10 +76,16 @@ class BrowserResourceManager extends EventEmitter {
     super();
     this.configDir = options.configDir;
     this.store = options.store || new BrowserResourceStore(options.configDir);
-    this.discoverExecutable = options.discoverExecutable || (() => discoverBrowserRuntime({
+    this.discoverExecutable = options.discoverExecutable || (selection => discoverBrowserRuntime({
       ...options,
+      ...selection,
       configDir: this.configDir,
     }));
+    this.discoverBrowserOptions = options.discoverBrowserOptions
+      || (options.discoverExecutable ? () => [] : () => discoverBrowserExecutables(options));
+    this.getBrowserSettings = typeof options.getBrowserSettings === 'function'
+      ? options.getBrowserSettings
+      : () => ({ browserSource: 'system', browserExecutablePath: '', browserExternalCdpUrl: '' });
     this.createRuntime = options.createRuntime || (input => new AgentBrowserRuntime(input));
     this.recoverRuntime = options.recoverRuntime || (input => AgentBrowserRuntime.recover(input));
     this.isEnabled = typeof options.isEnabled === 'function' ? options.isEnabled : () => true;
@@ -89,6 +98,7 @@ class BrowserResourceManager extends EventEmitter {
     this.operations = new Map();
     this.disposed = false;
     this.runtimeCapability = null;
+    this.browserOptions = [];
   }
 
   async init() {
@@ -200,10 +210,13 @@ class BrowserResourceManager extends EventEmitter {
     const executable = this.runtimeCapability;
     const runnable = executable && !executable.error;
     const enabled = this.isEnabled() === true;
+    const selection = this.browserSelection();
     return {
       enabled,
       available: enabled && Boolean(runnable),
       browser: runnable ? { kind: executable.kind, path: executable.path } : null,
+      selection,
+      options: this.browserOptions.map(option => ({ kind: option.kind, path: option.path })),
       message: !enabled
         ? 'Browser extension is disabled'
         : (executable?.error || (runnable
@@ -212,8 +225,30 @@ class BrowserResourceManager extends EventEmitter {
     };
   }
 
-  async refreshCapability() {
-    this.runtimeCapability = await this.discoverExecutable();
+  browserSelection(settings = this.getBrowserSettings()) {
+    return {
+      source: settings?.browserSource === 'external-cdp' ? 'external-cdp' : 'system',
+      executablePath: String(settings?.browserExecutablePath || ''),
+      externalCdpUrl: String(settings?.browserExternalCdpUrl || 'http://127.0.0.1:9222'),
+    };
+  }
+
+  async probeCapability(selection = this.browserSelection()) {
+    const browserOptions = this.discoverBrowserOptions();
+    const selectedOption = browserOptions.find(option => option.path === selection.executablePath);
+    const runtimeCapability = await this.discoverExecutable({
+      source: selection.source,
+      executablePath: selection.executablePath,
+      executableKind: selectedOption?.kind,
+      externalCdpUrl: selection.externalCdpUrl,
+    });
+    return { browserOptions, runtimeCapability };
+  }
+
+  async refreshCapability(selection = this.browserSelection()) {
+    const probe = await this.probeCapability(selection);
+    this.browserOptions = probe.browserOptions;
+    this.runtimeCapability = probe.runtimeCapability;
     return this.runtimeCapability;
   }
 

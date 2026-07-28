@@ -186,6 +186,12 @@ async function testBrowserResourceManager() {
     enabled: true,
     available: false,
     browser: null,
+    selection: {
+      source: 'system',
+      executablePath: '',
+      externalCdpUrl: 'http://127.0.0.1:9222',
+    },
+    options: [],
     message: 'Install agent-browser and a Chromium-based browser, or configure a loopback external CDP endpoint',
   });
   const manager = new BrowserResourceManager({
@@ -204,6 +210,12 @@ async function testBrowserResourceManager() {
       enabled: false,
       available: false,
       browser: { kind: 'chrome', path: '/fake/chrome' },
+      selection: {
+        source: 'system',
+        executablePath: '',
+        externalCdpUrl: 'http://127.0.0.1:9222',
+      },
+      options: [],
       message: 'Browser extension is disabled',
     });
     assert.throws(() => manager.list(), /disabled/);
@@ -211,6 +223,10 @@ async function testBrowserResourceManager() {
     assert.strictEqual(manager.capability().available, true);
     const externalManager = new BrowserResourceManager({
       configDir,
+      getBrowserSettings: () => ({
+        browserSource: 'external-cdp',
+        browserExternalCdpUrl: 'http://127.0.0.1:9222',
+      }),
       discoverExecutable: () => ({
         kind: 'external-cdp',
         path: '',
@@ -222,6 +238,12 @@ async function testBrowserResourceManager() {
       enabled: true,
       available: true,
       browser: { kind: 'external-cdp', path: '' },
+      selection: {
+        source: 'external-cdp',
+        executablePath: '',
+        externalCdpUrl: 'http://127.0.0.1:9222',
+      },
+      options: [],
       message: '',
     });
     const created = manager.create({
