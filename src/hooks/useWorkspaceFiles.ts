@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { getBackendConnectionSnapshot } from '@/lib/backend-live-status'
 import { fetchWorkspaceTree, type WorkspaceFileEntry } from '@/lib/workspace-files'
 
 interface DirectoryState {
@@ -25,6 +26,7 @@ export function useWorkspaceFiles(agentId: string | null, workspaceKey = agentId
   const directoriesRef = useRef<Record<string, DirectoryState>>({})
   const inFlightDirectoryLoadsRef = useRef(new Map<string, Promise<WorkspaceDirectoryTree | null>>())
   const gitStatusRefreshTimersRef = useRef(new Map<string, number>())
+  const reconnectDirectoryLoadsRef = useRef(new Set<string>())
   const generationRef = useRef(0)
 
   const loadDirectory = useCallback((directoryPath = ''): Promise<WorkspaceDirectoryTree | null> => {
@@ -73,14 +75,18 @@ export function useWorkspaceFiles(agentId: string | null, workspaceKey = agentId
         return tree
       } catch (error) {
         if (generationRef.current !== generation) return null
+        const recovering = !getBackendConnectionSnapshot().connected
+        if (recovering) reconnectDirectoryLoadsRef.current.add(normalizedPath)
         setDirectories(previous => ({
           ...previous,
           [normalizedPath]: {
             items: previous[normalizedPath]?.items ?? [],
-            loading: false,
-            error: timedOut
-              ? 'File refresh timed out'
-              : error instanceof Error ? error.message : 'Failed to load directory',
+            loading: recovering,
+            error: recovering
+              ? null
+              : timedOut
+                ? 'File refresh timed out'
+                : error instanceof Error ? error.message : 'Failed to load directory',
           },
         }))
         return null
@@ -115,6 +121,7 @@ export function useWorkspaceFiles(agentId: string | null, workspaceKey = agentId
   useEffect(() => {
     generationRef.current += 1
     inFlightDirectoryLoadsRef.current.clear()
+    reconnectDirectoryLoadsRef.current.clear()
     gitStatusRefreshTimersRef.current.forEach(timer => window.clearTimeout(timer))
     gitStatusRefreshTimersRef.current.clear()
   }, [agentId, workspaceKey])
@@ -129,6 +136,18 @@ export function useWorkspaceFiles(agentId: string | null, workspaceKey = agentId
     gitStatusRefreshTimersRef.current.forEach(timer => window.clearTimeout(timer))
     gitStatusRefreshTimersRef.current.clear()
   }, [])
+
+  useEffect(() => {
+    const retryRecoverableLoads = () => {
+      const directoryPaths = Array.from(reconnectDirectoryLoadsRef.current)
+      reconnectDirectoryLoadsRef.current.clear()
+      directoryPaths.forEach(directoryPath => {
+        void loadDirectory(directoryPath)
+      })
+    }
+    window.addEventListener('farming:backend-connected', retryRecoverableLoads)
+    return () => window.removeEventListener('farming:backend-connected', retryRecoverableLoads)
+  }, [loadDirectory])
 
   return useMemo(() => ({
     directories,

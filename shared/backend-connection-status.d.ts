@@ -1,4 +1,5 @@
 export const BACKEND_INITIAL_CONNECT_GRACE_MS: number
+export const BACKEND_HEARTBEAT_FAILURE_MS: number
 export const BACKEND_HEARTBEAT_STALE_MS: number
 export const BACKEND_OBSERVER_LAG_RESET_MS: number
 
@@ -21,6 +22,7 @@ export function classifyBackendConnection(input: {
   connected: boolean
   everConnected: boolean
   lastMessageAt: number
+  disconnectedAt: number | null
   visibleSince: number
   now: number
 }): BackendConnectionState

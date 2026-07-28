@@ -1,5 +1,6 @@
-const BACKEND_INITIAL_CONNECT_GRACE_MS = 3000;
+const BACKEND_INITIAL_CONNECT_GRACE_MS = 8000;
 const BACKEND_HEARTBEAT_STALE_MS = 6000;
+const BACKEND_HEARTBEAT_FAILURE_MS = 14000;
 const BACKEND_OBSERVER_LAG_RESET_MS = 2500;
 
 function advanceBackendObservation(current, observedAt) {
@@ -20,14 +21,26 @@ function classifyBackendConnection({
   connected,
   everConnected,
   lastMessageAt,
+  disconnectedAt,
   visibleSince,
   now,
 }) {
+  if (!connected) {
+    const disconnectObservedAt = Number.isFinite(disconnectedAt)
+      ? disconnectedAt
+      : lastMessageAt;
+    const disconnectedElapsed = Math.max(
+      0,
+      now - Math.max(disconnectObservedAt, visibleSince),
+    );
+    return disconnectedElapsed >= BACKEND_INITIAL_CONNECT_GRACE_MS
+      ? 'lost'
+      : 'connecting';
+  }
   const observationStartedAt = Math.max(lastMessageAt, visibleSince);
   const elapsed = Math.max(0, now - observationStartedAt);
-  if (!connected && everConnected) return 'lost';
-  if (!connected && elapsed >= BACKEND_INITIAL_CONNECT_GRACE_MS) return 'connecting';
-  if (connected && elapsed >= BACKEND_HEARTBEAT_STALE_MS) return 'stale';
+  if (elapsed >= BACKEND_HEARTBEAT_FAILURE_MS) return 'stale';
+  if (elapsed >= BACKEND_HEARTBEAT_STALE_MS) return 'connecting';
   return null;
 }
 
@@ -49,6 +62,7 @@ function reducePageVisibilitySnapshot(current, {
 
 module.exports = {
   BACKEND_INITIAL_CONNECT_GRACE_MS,
+  BACKEND_HEARTBEAT_FAILURE_MS,
   BACKEND_HEARTBEAT_STALE_MS,
   BACKEND_OBSERVER_LAG_RESET_MS,
   advanceBackendObservation,

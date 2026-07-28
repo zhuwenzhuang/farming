@@ -37,6 +37,7 @@ export function BackendConnectionStatus({ copy }: { copy: CodeCopy }) {
     connected: connection.connected,
     everConnected: connection.everConnected,
     lastMessageAt: connection.lastMessageAt,
+    disconnectedAt: connection.disconnectedAt,
     visibleSince: Math.max(pageVisibility.visibleSince, observation.continuousSince),
     now: observation.now,
   }) as ConnectionState

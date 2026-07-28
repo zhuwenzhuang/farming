@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { appPath } from '@/lib/base-path'
+import { getBackendConnectionSnapshot } from '@/lib/backend-live-status'
 import { ArrowLeftGlyph, CloseGlyph, PuzzleGlyph } from '@/components/IconGlyphs'
 import type { UiLanguage } from '@/lib/ui-preferences'
 import type { BrowserCapability } from '../../../extensions/browser/frontend/types'
@@ -167,29 +168,56 @@ export function PluginsPanel({
   }, [capability])
 
   useEffect(() => {
-    const controller = new AbortController()
-    setAgentGroupsLoading(true)
-    setAgentGroupsError('')
-    fetch(appPath('/api/agent-extensions'), {
-      headers: { Accept: 'application/json' },
-      signal: controller.signal,
-    })
-      .then(async response => {
-        const data = await response.json().catch(() => ({})) as {
-          agents?: AgentExtensionGroup[]
-          error?: string
-        }
-        if (!response.ok) throw new Error(data.error || copy.agentExtensionsFailed)
-        setAgentGroups(Array.isArray(data.agents) ? data.agents : [])
+    let controller = new AbortController()
+    let retryOnReconnect = false
+    let requestSequence = 0
+    const loadAgentGroups = () => {
+      controller.abort()
+      const requestController = new AbortController()
+      controller = requestController
+      const requestId = ++requestSequence
+      setAgentGroupsLoading(true)
+      setAgentGroupsError('')
+      fetch(appPath('/api/agent-extensions'), {
+        headers: { Accept: 'application/json' },
+        signal: requestController.signal,
       })
-      .catch(loadError => {
-        if (loadError instanceof DOMException && loadError.name === 'AbortError') return
-        setAgentGroupsError(loadError instanceof Error ? loadError.message : copy.agentExtensionsFailed)
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setAgentGroupsLoading(false)
-      })
-    return () => controller.abort()
+        .then(async response => {
+          const data = await response.json().catch(() => ({})) as {
+            agents?: AgentExtensionGroup[]
+            error?: string
+          }
+          if (!response.ok) throw new Error(data.error || copy.agentExtensionsFailed)
+          retryOnReconnect = false
+          setAgentGroups(Array.isArray(data.agents) ? data.agents : [])
+        })
+        .catch(loadError => {
+          if (loadError instanceof DOMException && loadError.name === 'AbortError') return
+          if (!getBackendConnectionSnapshot().connected) {
+            retryOnReconnect = true
+            return
+          }
+          setAgentGroupsError(loadError instanceof Error ? loadError.message : copy.agentExtensionsFailed)
+        })
+        .finally(() => {
+          if (
+            requestId === requestSequence
+            && !requestController.signal.aborted
+            && !retryOnReconnect
+          ) setAgentGroupsLoading(false)
+        })
+    }
+    const retryRecoverableLoad = () => {
+      if (!retryOnReconnect) return
+      retryOnReconnect = false
+      loadAgentGroups()
+    }
+    window.addEventListener('farming:backend-connected', retryRecoverableLoad)
+    loadAgentGroups()
+    return () => {
+      controller.abort()
+      window.removeEventListener('farming:backend-connected', retryRecoverableLoad)
+    }
   }, [copy.agentExtensionsFailed])
 
   const toggleBrowser = async () => {

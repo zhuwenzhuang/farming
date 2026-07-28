@@ -30,6 +30,7 @@ export interface WebSocketState {
   mainAgentId: string | null
   connected: boolean
   error: string | null
+  errorKind: 'recoverable' | 'error'
   errorId: number
   lastStartedAgentId: string | null
   projectWorkspaces: string[] | null
@@ -68,6 +69,7 @@ export function useWebSocket() {
     mainAgentId: null,
     connected: false,
     error: null,
+    errorKind: 'error',
     errorId: 0,
     lastStartedAgentId: null,
     projectWorkspaces: null,
@@ -96,12 +98,19 @@ export function useWebSocket() {
     setState(prev => ({
       ...prev,
       error: 'Farming backend is not connected',
+      errorKind: 'recoverable',
       errorId: prev.errorId + 1,
     }))
     return false
   }, [])
 
-  const settleComposerRequest = useCallback((requestId: string, accepted: boolean, message = '', definitive = true) => {
+  const settleComposerRequest = useCallback((
+    requestId: string,
+    accepted: boolean,
+    message = '',
+    definitive = true,
+    errorKind: WebSocketState['errorKind'] = 'error',
+  ) => {
     const pending = composerRequestResolversRef.current.get(requestId)
     const requestKey = composerRequestKeysRef.current.get(requestId)
     if (!pending && accepted && requestKey) {
@@ -119,7 +128,12 @@ export function useWebSocket() {
     composerRequestResolversRef.current.delete(requestId)
     window.clearTimeout(pending.timeout)
     if (!accepted && message) {
-      setState(prev => ({ ...prev, error: message, errorId: prev.errorId + 1 }))
+      setState(prev => ({
+        ...prev,
+        error: message,
+        errorKind,
+        errorId: prev.errorId + 1,
+      }))
     }
     pending.resolve(accepted)
   }, [])
@@ -198,7 +212,13 @@ export function useWebSocket() {
     }, 15_000)
     composerRequestResolversRef.current.set(requestId, { resolve: resolveRequest, timeout, promise })
     if (!sendMessage(input)) {
-      settleComposerRequest(requestId, false, 'Farming backend is not connected. Your draft is still available.')
+      settleComposerRequest(
+        requestId,
+        false,
+        'Farming backend is not connected. Your draft is still available.',
+        true,
+        'recoverable',
+      )
     }
     return promise
   }, [sendMessage, settleComposerRequest])
@@ -310,6 +330,7 @@ export function useWebSocket() {
           connected: true,
           everConnected: true,
           lastMessageAt: lastMessageStateUpdateAt,
+          disconnectedAt: null,
         })
         ws.send(JSON.stringify({ type: 'protocol-hello', protocolVersion: PROTOCOL_VERSION }))
         window.dispatchEvent(new Event('farming:backend-connected'))
@@ -335,7 +356,12 @@ export function useWebSocket() {
               }
               break
             case 'protocol-error':
-              setState(prev => ({ ...prev, error: msg.message, errorId: prev.errorId + 1 }))
+              setState(prev => ({
+                ...prev,
+                error: msg.message,
+                errorKind: 'error',
+                errorId: prev.errorId + 1,
+              }))
               break
             case 'command-ack':
               break
@@ -417,7 +443,12 @@ export function useWebSocket() {
               })
               break
             case 'error':
-              setState(prev => ({ ...prev, error: msg.message, errorId: prev.errorId + 1 }))
+              setState(prev => ({
+                ...prev,
+                error: msg.message,
+                errorKind: 'error',
+                errorId: prev.errorId + 1,
+              }))
               break
             case 'composer-input-result':
               settleComposerRequest(msg.requestId, msg.accepted, msg.message || '', msg.uncertain !== true)
@@ -495,7 +526,12 @@ export function useWebSocket() {
           }
         } catch (error) {
           const message = error instanceof Error ? error.message : 'Invalid Farming backend message'
-          setState(prev => ({ ...prev, error: message, errorId: prev.errorId + 1 }))
+          setState(prev => ({
+            ...prev,
+            error: message,
+            errorKind: 'error',
+            errorId: prev.errorId + 1,
+          }))
         }
       }
 
@@ -511,9 +547,13 @@ export function useWebSocket() {
           ...prev,
           connected: false,
           error: event.code === 4001 ? 'Farming token expired or is invalid' : prev.error,
+          errorKind: event.code === 4001 ? 'error' : prev.errorKind,
           errorId: event.code === 4001 ? prev.errorId + 1 : prev.errorId,
         }))
-        updateBackendConnectionStatus({ connected: false })
+        updateBackendConnectionStatus({
+          connected: false,
+          disconnectedAt: Date.now(),
+        })
         window.dispatchEvent(new CustomEvent('farming:backend-disconnected', {
           detail: { code: event.code, reason: event.reason },
         }))
@@ -533,7 +573,10 @@ export function useWebSocket() {
       if (wsRef.current === activeSocket) {
         wsRef.current = null
       }
-      updateBackendConnectionStatus({ connected: false })
+      updateBackendConnectionStatus({
+        connected: false,
+        disconnectedAt: Date.now(),
+      })
       activeSocket?.close()
     }
   }, [])

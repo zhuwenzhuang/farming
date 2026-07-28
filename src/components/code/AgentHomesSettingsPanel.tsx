@@ -9,11 +9,12 @@ import {
   REST_REMINDER_INTERVAL_PRESETS_SECONDS,
   REST_REMINDER_TEST_INTERVAL_SECONDS,
   isPetSettingsStorageKey,
+  loadRestReminderIntervalSeconds,
   normalizeRestReminderIntervalSeconds,
+  persistRestReminderIntervalSeconds,
   readPetAppearance,
   readRestReminderIntervalSeconds,
   savePetAppearance,
-  saveRestReminderIntervalSeconds,
   restReminderSliderIntervalSeconds,
   restReminderSliderPosition,
   type PetAppearance,
@@ -452,10 +453,11 @@ export function AgentHomesSettingsPanel({
   useEffect(() => {
     if (!open) return
     if (!homesSaveRequestRef.current) setSaving(false)
-    setRestReminderIntervalSecondsState(readRestReminderIntervalSeconds())
+    loadRestReminderIntervalSeconds(defaultPetAppearance)
+      .then(setRestReminderIntervalSecondsState)
     loadSettings()
     window.requestAnimationFrame(() => closeButtonRef.current?.focus({ preventScroll: true }))
-  }, [loadSettings, open])
+  }, [defaultPetAppearance, loadSettings, open])
 
   useEffect(() => {
     setPetAppearanceState(readPetAppearance(undefined, defaultPetAppearance))
@@ -617,8 +619,8 @@ export function AgentHomesSettingsPanel({
     }, 120)
   }, [copy.saveFailed])
 
-  const setRestReminderIntervalSeconds = useCallback((seconds: number) => {
-    if (!saveRestReminderIntervalSeconds(seconds, undefined, defaultPetAppearance)) {
+  const setRestReminderIntervalSeconds = useCallback(async (seconds: number) => {
+    if (!await persistRestReminderIntervalSeconds(seconds, defaultPetAppearance)) {
       setError(copy.saveFailed)
       return
     }

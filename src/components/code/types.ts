@@ -51,6 +51,7 @@ export interface GlobalSettings extends WorkspaceHistorySettings {
   instanceName?: string
   appearance?: UiAppearance
   language?: UiLanguage
+  restReminderIntervalSeconds?: number | null
   dangerouslySkipAgentPermissionsByDefault?: boolean
   browserExtensionEnabled?: boolean
   updateUrl?: string

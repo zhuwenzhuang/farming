@@ -58,6 +58,8 @@ Native PTY Host 与 Farming Server 是独立进程。浏览器可以重新连接
 
 Terminal 恢复使用 checkpoint / replay 协议。PTY Host 中的 headless xterm 持续把输出归约为权威终端状态。每次 Runtime 有独立 epoch 和单调递增的输出索引；断线重连或页面恢复时只安装一次带精确索引的序列化 checkpoint，随后只接收连续增量。发现消息缺口或 Runtime epoch 变化时会重新获取 checkpoint，不会继续展示一个无法证明来源的混合状态。
 
+页面首次打开、从后台恢复、后端 WebSocket 短暂断开或心跳暂时中止时，Code 先显示中性的加载提示。只有连接经过完整恢复窗口仍未恢复，才升级为红色的后端不可用状态。Project Files、模型目录和 Agent 扩展等自动读取会保留当前内容，并在重连后自动重试，不会短暂闪出红色错误；重连期间尝试的操作会收到中性的“尚未发送”提示。
+
 关于 `/session-view`、多窗口控制、Flow Control 和恢复保证，请参阅 [Terminal 状态协议](terminal-state-protocol.zh_cn.md)。
 
 ## 切换 Agent 后继续阅读
@@ -130,7 +132,7 @@ History 使用有边界的显式分页，不再持续拉长同一个滚动面。
 
 ## 不离开 Workspace 就能配置服务
 
-Settings 把 Interface、Language、Search Timeout、Farming Pet、Installation Aware Update、Agent Permission 和 Agent Homes 放在一起。Farming Pet 的第一项能力是当前标签页内显式启用的休息提醒：第一次 Farming 点击或输入开始一轮计时，连续五分钟没有这两类操作就自动重置，Agent Output 永远不算人的操作。当前周期会在页面刷新后恢复，切换 Pet 外观也不会重置计时。Slider 只吸附到关闭、5 秒观察和常用工作时长；同步的自定义分钟输入可设置 1–240 的任意整分钟，并让滑块停在相邻档位之间。到时先保留 30 秒安静窗口，再进入五分钟休息，进入前可以延后十分钟一次或关闭本轮提醒。首次邀请会持续显示，直到用户启用或明确关闭提醒。用户尚未明确选择 Pet 时，浅色外观默认柔光，深色外观默认黑洞；一旦用户手动选择，就始终以用户选择为准。黑洞样式把 WebGL 本体和局部 DOM 折射与提醒计时分离，本体和霍金辐射退出过程不依赖背景捕获完成，页面隐藏时停止渲染，并始终保留一枚不受折射影响的结束休息按钮。Agent Homes 允许同一个 Provider 使用多个 Identity / Configuration Root，同时保留一个不可删除的 Default Home。
+Settings 把 Interface、Language、Search Timeout、Farming Pet、Installation Aware Update、Agent Permission 和 Agent Homes 放在一起。Farming Pet 的第一项能力是当前标签页内显式启用的休息提醒：第一次 Farming 点击或输入开始一轮计时，连续五分钟没有这两类操作就自动重置，Agent Output 永远不算人的操作。当前周期会在页面刷新后恢复，切换 Pet 外观也不会重置计时。Slider 只吸附到关闭、5 秒观察和常用工作时长；同步的自定义分钟输入可设置 1–240 的任意整分钟，并让滑块停在相邻档位之间。到时先保留 30 秒安静窗口，再进入五分钟休息，进入前可以延后十分钟一次或取消本轮休息。首次邀请提供启用提醒和在 Farming Settings 中持久化关闭两种选择；直接关闭邀请只会把选择延后到下次刷新。用户尚未明确选择 Pet 时，浅色外观默认柔光，深色外观默认黑洞；一旦用户手动选择，就始终以用户选择为准。黑洞样式把 WebGL 本体和局部 DOM 折射与提醒计时分离，本体和霍金辐射退出过程不依赖背景捕获完成，页面隐藏时停止渲染，并始终保留一枚不受折射影响的结束休息按钮。Agent Homes 允许同一个 Provider 使用多个 Identity / Configuration Root，同时保留一个不可删除的 Default Home。
 
 ![Farming Code Settings](assets/14-code-settings.png)
 

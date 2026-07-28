@@ -1,3 +1,5 @@
+import { appPath } from '../base-path.ts'
+
 export const PET_SETTINGS_STORAGE_KEY = 'farmingPetSettings'
 export const PET_SETTINGS_EVENT = 'farming-pet-settings'
 export const PET_REST_REMINDER_RUNTIME_STORAGE_KEY = 'farmingPetRestReminderRuntime'
@@ -198,6 +200,81 @@ export function savePetAppearance(appearance: PetAppearance, storage?: PetSettin
     dispatchPetSettings(intervalSeconds, appearance)
   }
   return true
+}
+
+type RestReminderServerSettings = {
+  restReminderIntervalSeconds?: unknown
+}
+
+let restReminderSettingWrite = Promise.resolve(true)
+
+async function postRestReminderIntervalSeconds(seconds: number) {
+  const response = await fetch(appPath('/api/settings'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ restReminderIntervalSeconds: seconds }),
+  })
+  const data = await response.json().catch(() => null) as {
+    settings?: RestReminderServerSettings
+    error?: string
+  } | null
+  if (!response.ok) {
+    throw new Error(data?.error || `Could not save break reminder (${response.status})`)
+  }
+  const saved = normalizeRestReminderIntervalSeconds(
+    data?.settings?.restReminderIntervalSeconds,
+  )
+  if (saved === null) throw new Error('The saved break reminder setting is invalid.')
+  return saved
+}
+
+export function persistRestReminderIntervalSeconds(
+  seconds: number,
+  defaultAppearance: PetAppearance = 'glass',
+) {
+  const normalized = normalizeRestReminderIntervalSeconds(seconds)
+  if (normalized === null) return Promise.resolve(false)
+  const write = async () => {
+    try {
+      const saved = await postRestReminderIntervalSeconds(normalized)
+      return saveRestReminderIntervalSeconds(saved, undefined, defaultAppearance)
+    } catch {
+      return false
+    }
+  }
+  const result = restReminderSettingWrite.then(write, write)
+  restReminderSettingWrite = result.then(() => true, () => true)
+  return result
+}
+
+export async function loadRestReminderIntervalSeconds(
+  defaultAppearance: PetAppearance = 'glass',
+) {
+  const localIntervalSeconds = readRestReminderIntervalSeconds()
+  try {
+    const response = await fetch(appPath('/api/settings'))
+    if (!response.ok) return localIntervalSeconds
+    const data = await response.json() as { settings?: RestReminderServerSettings }
+    const persistedIntervalSeconds = normalizeRestReminderIntervalSeconds(
+      data.settings?.restReminderIntervalSeconds,
+    )
+    if (persistedIntervalSeconds !== null) {
+      saveRestReminderIntervalSeconds(
+        persistedIntervalSeconds,
+        undefined,
+        defaultAppearance,
+      )
+      return persistedIntervalSeconds
+    }
+    if (localIntervalSeconds === null) return null
+    await persistRestReminderIntervalSeconds(
+      localIntervalSeconds,
+      defaultAppearance,
+    )
+    return localIntervalSeconds
+  } catch {
+    return localIntervalSeconds
+  }
 }
 
 export function isPetSettingsStorageKey(key: string | null) {

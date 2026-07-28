@@ -5,6 +5,7 @@ export interface BackendConnectionSnapshot {
   connected: boolean
   everConnected: boolean
   lastMessageAt: number
+  disconnectedAt: number | null
 }
 
 type Listener = () => void
@@ -13,6 +14,7 @@ let connectionSnapshot: BackendConnectionSnapshot = {
   connected: false,
   everConnected: false,
   lastMessageAt: Date.now(),
+  disconnectedAt: Date.now(),
 }
 let systemStatsSnapshot: SystemStats | null = null
 
@@ -33,6 +35,7 @@ export function resetBackendConnectionStatus() {
     connected: false,
     everConnected: false,
     lastMessageAt: Date.now(),
+    disconnectedAt: Date.now(),
   }
   notify(connectionListeners)
 }
@@ -43,6 +46,7 @@ export function updateBackendConnectionStatus(patch: Partial<BackendConnectionSn
     next.connected === connectionSnapshot.connected
     && next.everConnected === connectionSnapshot.everConnected
     && next.lastMessageAt === connectionSnapshot.lastMessageAt
+    && next.disconnectedAt === connectionSnapshot.disconnectedAt
   ) return
   connectionSnapshot = next
   notify(connectionListeners)

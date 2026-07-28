@@ -50,7 +50,7 @@ const path = require('path');
   assert(petSource.includes('需要长时使用休息提醒吗？'));
   assert(petSource.includes('之后可随时在设置的“Farming Pet”中调整或关闭。'));
   assert(petSource.includes("tryReminder: zh ? '试用一下'"));
-  assert(petSource.includes("disable: zh ? '关闭'"));
+  assert(petSource.includes("disable: zh ? '不使用提醒'"));
   assert(intentSource.includes("notification: 'rest-reminder-setup'"));
   assert(petSource.includes("softGlow: zh ? '柔光'"));
   assert(petSource.includes("blackHole: zh ? '黑洞'"));

@@ -215,6 +215,7 @@ async function resetSettings(page: Page) {
         instanceName: 'farming-e2e-host',
         appearance: 'light',
         language: 'en',
+        restReminderIntervalSeconds: null,
         codexApprovalMode: 'approve',
         codexModel: 'gpt-5.5',
         codexReasoningEffort: 'xhigh',

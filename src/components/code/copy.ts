@@ -454,6 +454,7 @@ export interface CodeCopy {
   goBack: string
   goForward: string
   backendConnecting: string
+  backendActionPending: string
   backendConnectionLost: string
   backendHeartbeatLost: string
 }
@@ -940,8 +941,9 @@ const EN_COPY: CodeCopy = {
   backToAgent: 'Back to Agent',
   goBack: 'Go Back',
   goForward: 'Go Forward',
-  backendConnecting: 'Connecting to Farming backend...',
-  backendConnectionLost: 'Farming backend disconnected. Reconnecting...',
+  backendConnecting: 'Loading...',
+  backendActionPending: 'Still reconnecting. This action was not sent.',
+  backendConnectionLost: 'Farming backend is still unavailable. Retrying...',
   backendHeartbeatLost: 'No Farming backend heartbeat. Waiting for it to recover...',
 }
 
@@ -1463,8 +1465,9 @@ const ZH_COPY: CodeCopy = {
   backToAgent: '返回 Agent',
   goBack: '后退',
   goForward: '前进',
-  backendConnecting: '正在连接 Farming 后端...',
-  backendConnectionLost: 'Farming 后端连接已断开，正在重连...',
+  backendConnecting: '加载中…',
+  backendActionPending: '正在重新连接，这次操作尚未发送。',
+  backendConnectionLost: 'Farming 后端暂时不可用，仍在重试…',
   backendHeartbeatLost: '没有收到 Farming 后端心跳，正在等待恢复...',
 }
 

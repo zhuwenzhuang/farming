@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { getBackendConnectionSnapshot } from '@/lib/backend-live-status'
 import {
   shouldRefreshWorkspaceChangesAfterDirtyStateChange,
   workspaceOpenFileDirtyState,
@@ -41,6 +42,7 @@ export function useWorkspaceFileChanges(
   const requestIdRef = useRef(0)
   const dirtyStateRef = useRef<ReadonlyMap<string, boolean>>(new Map())
   const openFilesRef = useRef(openFiles)
+  const retryAfterReconnectRef = useRef(false)
 
   const refreshChanges = useCallback(() => {
     if (!agentId) {
@@ -81,13 +83,17 @@ export function useWorkspaceFileChanges(
       return true
     }).catch(error => {
       if ((!timedOut && abortController.signal.aborted) || requestIdRef.current !== requestId) return false
+      const recovering = !getBackendConnectionSnapshot().connected
+      if (recovering) retryAfterReconnectRef.current = true
       setState(current => ({
         ...current,
-        error: timedOut
-          ? 'File refresh timed out'
-          : error instanceof Error ? error.message : 'Failed to refresh changes',
+        error: recovering
+          ? null
+          : timedOut
+            ? 'File refresh timed out'
+            : error instanceof Error ? error.message : 'Failed to refresh changes',
         loaded: true,
-        loading: false,
+        loading: recovering,
       }))
       return false
     }).finally(() => window.clearTimeout(timeoutId))
@@ -98,6 +104,7 @@ export function useWorkspaceFileChanges(
   }, [openFiles])
 
   useEffect(() => {
+    retryAfterReconnectRef.current = false
     dirtyStateRef.current = workspaceOpenFileDirtyState(openFilesRef.current)
     void refreshChanges()
   }, [agentId, refreshChanges])
@@ -111,8 +118,19 @@ export function useWorkspaceFileChanges(
     }
   }, [agentId, openFiles, refreshChanges])
 
+  useEffect(() => {
+    const retryRecoverableLoad = () => {
+      if (!retryAfterReconnectRef.current) return
+      retryAfterReconnectRef.current = false
+      void refreshChanges()
+    }
+    window.addEventListener('farming:backend-connected', retryRecoverableLoad)
+    return () => window.removeEventListener('farming:backend-connected', retryRecoverableLoad)
+  }, [refreshChanges])
+
   useEffect(() => () => {
     abortRef.current?.abort()
+    retryAfterReconnectRef.current = false
   }, [])
 
   return {

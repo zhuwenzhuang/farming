@@ -2,6 +2,8 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const {
+  BACKEND_INITIAL_CONNECT_GRACE_MS,
+  BACKEND_HEARTBEAT_FAILURE_MS,
   BACKEND_HEARTBEAT_STALE_MS,
   BACKEND_OBSERVER_LAG_RESET_MS,
   advanceBackendObservation,
@@ -23,10 +25,14 @@ function run() {
   const connectionClassifierSource = read('shared/backend-connection-status.js');
   const copySource = read('src/components/code/copy.ts');
   const stylesSource = read('src/styles/main.css');
+  const workspaceFilesSource = read('src/hooks/useWorkspaceFiles.ts');
+  const workspaceChangesSource = read('src/components/files/useWorkspaceFileChanges.ts');
+  const pluginsPanelSource = read('src/components/code/PluginsPanel.tsx');
 
   assert(
-    liveStatusSource.includes('everConnected: boolean') &&
+      liveStatusSource.includes('everConnected: boolean') &&
       liveStatusSource.includes('lastMessageAt: number') &&
+      liveStatusSource.includes('disconnectedAt: number | null') &&
       webSocketSource.includes('LAST_MESSAGE_STATE_THROTTLE_MS') &&
       webSocketSource.includes('everConnected: true') &&
       webSocketSource.includes('function markBackendMessage') &&
@@ -35,6 +41,24 @@ function run() {
       webSocketSource.includes('event.code === 4001') &&
       webSocketSource.includes('Farming token expired or is invalid'),
     'The isolated backend status store should track whether the backend was ever connected and when the last message arrived'
+  );
+
+  assert(
+    webSocketSource.includes("errorKind: 'recoverable'") &&
+      appSource.includes("ws.errorKind === 'recoverable'") &&
+      copySource.includes('backendActionPending') &&
+      stylesSource.includes('.app-toast.recovering'),
+    'Writes attempted during a recoverable disconnect should use a neutral notice instead of a red global toast'
+  );
+
+  assert(
+    workspaceFilesSource.includes("'farming:backend-connected'") &&
+      workspaceFilesSource.includes('reconnectDirectoryLoadsRef') &&
+      workspaceChangesSource.includes("'farming:backend-connected'") &&
+      workspaceChangesSource.includes('retryAfterReconnectRef') &&
+      codeWorkspaceSource.includes('codexModelsRetryOnReconnectRef') &&
+      pluginsPanelSource.includes('retryOnReconnect'),
+    'Automatic backend reads should retain their loading state and retry after a recoverable reconnect'
   );
 
   assert(
@@ -72,9 +96,10 @@ function run() {
   );
 
   assert(
-    connectionClassifierSource.includes('BACKEND_INITIAL_CONNECT_GRACE_MS') &&
+      connectionClassifierSource.includes('BACKEND_INITIAL_CONNECT_GRACE_MS') &&
+      connectionClassifierSource.includes('BACKEND_HEARTBEAT_FAILURE_MS') &&
       connectionClassifierSource.includes('BACKEND_HEARTBEAT_STALE_MS') &&
-      connectionClassifierSource.includes("return 'lost'") &&
+      connectionClassifierSource.includes("'lost'") &&
       connectionClassifierSource.includes("return 'stale'") &&
       connectionStatusSource.includes('data-testid="connection-status"') &&
       appSource.includes('<BackendConnectionStatus copy={copy} />'),
@@ -119,14 +144,46 @@ function run() {
     lastMessageAt: backgroundMessageAt,
     visibleSince: foregroundAt,
     now: foregroundAt + BACKEND_HEARTBEAT_STALE_MS,
-  }), 'stale', 'A visible connected page should report stale after the full observation window');
+  }), 'connecting', 'A missing heartbeat should start with the lightweight recovery state');
+  assert.strictEqual(classifyBackendConnection({
+    connected: true,
+    everConnected: true,
+    lastMessageAt: backgroundMessageAt,
+    visibleSince: foregroundAt,
+    now: foregroundAt + BACKEND_HEARTBEAT_FAILURE_MS,
+  }), 'stale', 'A missing heartbeat should escalate only after the full failure window');
   assert.strictEqual(classifyBackendConnection({
     connected: false,
     everConnected: true,
     lastMessageAt: foregroundAt,
+    disconnectedAt: foregroundAt,
     visibleSince: foregroundAt,
     now: foregroundAt,
-  }), 'lost', 'A real WebSocket close should remain immediately visible');
+  }), 'connecting', 'A real WebSocket close should start with a lightweight reconnecting state');
+  assert.strictEqual(classifyBackendConnection({
+    connected: false,
+    everConnected: true,
+    lastMessageAt: foregroundAt,
+    disconnectedAt: foregroundAt,
+    visibleSince: foregroundAt,
+    now: foregroundAt + BACKEND_INITIAL_CONNECT_GRACE_MS - 1,
+  }), 'connecting', 'A brief outage should not escalate into a red failure');
+  assert.strictEqual(classifyBackendConnection({
+    connected: false,
+    everConnected: true,
+    lastMessageAt: foregroundAt,
+    disconnectedAt: foregroundAt,
+    visibleSince: foregroundAt,
+    now: foregroundAt + BACKEND_INITIAL_CONNECT_GRACE_MS,
+  }), 'lost', 'An uninterrupted outage should escalate after the full grace window');
+  assert.strictEqual(classifyBackendConnection({
+    connected: false,
+    everConnected: true,
+    lastMessageAt: backgroundMessageAt,
+    disconnectedAt: backgroundMessageAt,
+    visibleSince: foregroundAt,
+    now: foregroundAt,
+  }), 'connecting', 'Returning from a long-suspended page should restart the lightweight reconnect window');
 
   const continuousObservation = advanceBackendObservation({
     now: foregroundAt,
@@ -157,7 +214,14 @@ function run() {
     lastMessageAt: foregroundAt,
     visibleSince: resumedObservation.continuousSince,
     now: resumedObservation.now + BACKEND_HEARTBEAT_STALE_MS,
-  }), 'stale', 'A full uninterrupted observation window should still report a real stale connection');
+  }), 'connecting', 'A full uninterrupted observation window should first report lightweight recovery');
+  assert.strictEqual(classifyBackendConnection({
+    connected: true,
+    everConnected: true,
+    lastMessageAt: foregroundAt,
+    visibleSince: resumedObservation.continuousSince,
+    now: resumedObservation.now + BACKEND_HEARTBEAT_FAILURE_MS,
+  }), 'stale', 'A continued heartbeat failure should eventually escalate');
 
   const hiddenSnapshot = { visible: false, visibleSince: backgroundMessageAt };
   const hiddenPageShow = reducePageVisibilitySnapshot(hiddenSnapshot, {

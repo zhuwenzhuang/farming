@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { getBackendConnectionSnapshot } from '@/lib/backend-live-status'
 import type { WorkspaceFileOpenTarget } from '@/lib/workspace-file-search'
 import type { WorkspaceFileTreeNode } from '@/lib/workspace-file-tree'
 import {
@@ -236,7 +237,11 @@ export function ProjectFilesSection({
 
       if (filesRefreshRequestRef.current !== requestId) return
       filesRefreshInFlightRef.current = false
-      setFilesRefreshStatus(refreshed ? 'success' : 'error')
+      setFilesRefreshStatus(
+        refreshed
+          ? 'success'
+          : getBackendConnectionSnapshot().connected ? 'error' : 'idle',
+      )
       if (!refreshed) return
       filesRefreshResetTimerRef.current = window.setTimeout(() => {
         if (filesRefreshRequestRef.current === requestId) {

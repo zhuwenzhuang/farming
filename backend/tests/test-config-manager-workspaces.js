@@ -227,6 +227,14 @@ function run() {
     manager.updateSettings({ appearance: 'sepia', language: 'jp' });
     assert.strictEqual(manager.getSettings().appearance, 'system');
     assert.strictEqual(manager.getSettings().language, 'en');
+    manager.updateSettings({ restReminderIntervalSeconds: 0 });
+    assert.strictEqual(manager.getSettings().restReminderIntervalSeconds, 0);
+    manager.updateSettings({ restReminderIntervalSeconds: 5 });
+    assert.strictEqual(manager.getSettings().restReminderIntervalSeconds, 5);
+    manager.updateSettings({ restReminderIntervalSeconds: 37 * 60 });
+    assert.strictEqual(manager.getSettings().restReminderIntervalSeconds, 37 * 60);
+    manager.updateSettings({ restReminderIntervalSeconds: 30 });
+    assert.strictEqual(manager.getSettings().restReminderIntervalSeconds, null);
     manager.updateSettings({ updateUrl: 'https://updates.example.test/farming/' });
     assert.strictEqual(manager.getSettings().updateUrl, 'https://updates.example.test/farming/');
     manager.updateSettings({ updateUrl: 'file:///tmp/farming/' });

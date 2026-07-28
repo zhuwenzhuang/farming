@@ -2603,6 +2603,10 @@ body.code-mode[data-appearance='dark'] .app-toast.error {
   color: #ff7b72;
 }
 
+body.code-mode[data-appearance='dark'] .app-toast.recovering {
+  color: var(--code-dark-text-muted);
+}
+
 body.code-mode[data-appearance='dark'] .code-context-menu,
 body.code-mode[data-appearance='dark'] .code-options-menu,
 body.code-mode[data-appearance='dark'] .code-composer-menu,
@@ -3231,7 +3235,7 @@ body.code-mode[data-appearance='dark'] .code-mobile-sidebar-backdrop {
 body.code-mode[data-appearance='dark'] .connection-status {
   background: var(--code-dark-bg-elevated);
   border-color: var(--code-dark-border);
-  color: var(--code-dark-warning);
+  color: var(--code-dark-text-muted);
   box-shadow: 0 12px 34px var(--code-dark-shadow);
 }
 

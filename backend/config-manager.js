@@ -85,6 +85,7 @@ const PERSISTED_SETTING_KEYS = new Set([
   'theme',
   'appearance',
   'language',
+  'restReminderIntervalSeconds',
   'heartbeatInterval',
   'dangerouslySkipAgentPermissionsByDefault',
   'browserExtensionEnabled',
@@ -320,6 +321,7 @@ class ConfigManager {
         theme: 'terminal',
         appearance: 'system',
         language: 'en',
+        restReminderIntervalSeconds: null,
         heartbeatInterval: 1000,
         dangerouslySkipAgentPermissionsByDefault: false,
         browserExtensionEnabled: false,
@@ -361,6 +363,7 @@ class ConfigManager {
       theme: 'terminal',
       appearance: 'system',
       language: 'en',
+      restReminderIntervalSeconds: null,
       heartbeatInterval: 1000,
       dangerouslySkipAgentPermissionsByDefault: false,
       browserExtensionEnabled: false,
@@ -428,6 +431,9 @@ class ConfigManager {
     this.runHistoryStore.init({ legacyTaskHistory });
     this.settings.appearance = this.normalizeAppearance(this.settings.appearance);
     this.settings.language = this.normalizeLanguage(this.settings.language);
+    this.settings.restReminderIntervalSeconds = this.normalizeRestReminderIntervalSeconds(
+      this.settings.restReminderIntervalSeconds,
+    );
     this.settings.browserExtensionEnabled = this.settings.browserExtensionEnabled === true;
     this.settings.browserSource = this.normalizeBrowserSource(this.settings.browserSource);
     this.settings.browserExecutablePath = this.normalizeBrowserSetting(this.settings.browserExecutablePath);
@@ -463,6 +469,16 @@ class ConfigManager {
       MAX_SEARCH_TIMEOUT_MS,
       Math.max(MIN_SEARCH_TIMEOUT_MS, Math.round(timeoutMs))
     );
+  }
+
+  normalizeRestReminderIntervalSeconds(value) {
+    if (value === null || value === undefined || value === '') return null;
+    const seconds = Number(value);
+    if (!Number.isInteger(seconds)) return null;
+    if (seconds === 0 || seconds === 5) return seconds;
+    return seconds >= 60 && seconds <= 240 * 60 && seconds % 60 === 0
+      ? seconds
+      : null;
   }
 
   normalizeCrtTerminalFontSize(value) {
@@ -1091,6 +1107,9 @@ class ConfigManager {
     }
     nextSettings.appearance = this.normalizeAppearance(nextSettings.appearance);
     nextSettings.language = this.normalizeLanguage(nextSettings.language);
+    nextSettings.restReminderIntervalSeconds = this.normalizeRestReminderIntervalSeconds(
+      nextSettings.restReminderIntervalSeconds,
+    );
     nextSettings.browserExtensionEnabled = nextSettings.browserExtensionEnabled === true;
     nextSettings.browserSource = this.normalizeBrowserSource(nextSettings.browserSource);
     nextSettings.browserExecutablePath = this.normalizeBrowserSetting(nextSettings.browserExecutablePath);

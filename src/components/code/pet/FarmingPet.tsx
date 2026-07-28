@@ -16,11 +16,12 @@ import {
   REST_REMINDER_DEFAULT_INTERVAL_SECONDS,
   REST_REMINDER_SNOOZE_MINUTES,
   isPetSettingsStorageKey,
+  loadRestReminderIntervalSeconds,
   normalizeRestReminderIntervalSeconds,
+  persistRestReminderIntervalSeconds,
   readPetAppearance,
   readRestReminderIntervalSeconds,
   savePetAppearance,
-  saveRestReminderIntervalSeconds,
   restReminderEntryCountdownSeconds,
   type PetAppearance,
 } from '@/lib/pet/rest-reminder'
@@ -88,7 +89,7 @@ function petCopy(language: UiLanguage) {
       ? `连续操作 Farming ${defaultInterval}后提醒休息。之后可随时在设置的“Farming Pet”中调整或关闭。`
       : `Get a break reminder after ${defaultInterval} of continuous Farming activity. You can adjust or turn it off anytime under “Farming Pet” in Settings.`,
     tryReminder: zh ? '试用一下' : 'Try it',
-    disable: zh ? '关闭' : 'Turn off',
+    disable: zh ? '不使用提醒' : 'Don’t use reminders',
     appearanceTitle: zh ? '选择休息提醒的样式' : 'Choose a reminder style',
     appearanceBody: zh
       ? '它只会在需要提醒休息时出现。之后可在设置的“Farming Pet”中更改。'
@@ -142,10 +143,14 @@ function FarmingPetController({
 }: FarmingPetProps) {
   const copy = useMemo(() => petCopy(language), [language])
   const defaultAppearance = usePetDefaultAppearance(appearancePreference)
-  const [intervalSeconds, setIntervalSeconds] = useState<number | null>(readRestReminderIntervalSeconds)
+  const [intervalSeconds, setIntervalSeconds] = useState<number | null>(
+    readRestReminderIntervalSeconds,
+  )
+  const [settingsLoaded, setSettingsLoaded] = useState(false)
   const [appearance, setAppearance] = useState<PetAppearance>(() => (
     readPetAppearance(undefined, defaultAppearance)
   ))
+  const [startupInvitationDismissed, setStartupInvitationDismissed] = useState(false)
   const [restReminderSetupOption, setRestReminderSetupOption] = useState<'appearance' | null>(null)
   const [settingsError, setSettingsError] = useState('')
   const [persistenceNoticeDismissed, setPersistenceNoticeDismissed] = useState(false)
@@ -159,6 +164,18 @@ function FarmingPetController({
   } = useRestReminderCapability(intervalSeconds, restReminderEntryBlocked)
 
   useEffect(() => {
+    let cancelled = false
+    loadRestReminderIntervalSeconds(defaultAppearance).then(nextInterval => {
+      if (cancelled) return
+      setIntervalSeconds(nextInterval)
+      setSettingsLoaded(true)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [defaultAppearance])
+
+  useEffect(() => {
     const syncSetting = (
       intervalValue: unknown,
       appearanceValue?: PetAppearance,
@@ -166,6 +183,7 @@ function FarmingPetController({
     ) => {
       const nextInterval = normalizeRestReminderIntervalSeconds(intervalValue)
       setIntervalSeconds(nextInterval)
+      setSettingsLoaded(true)
       setAppearance(appearanceValue ?? readPetAppearance(undefined, defaultAppearance))
       setRestReminderSetupOption(null)
       if (clearSaveError) setSettingsError('')
@@ -204,10 +222,9 @@ function FarmingPetController({
     return () => window.clearInterval(interval)
   }, [pageVisible, restReminder?.phase, restReminder?.restStartsAt])
 
-  const tryRestReminder = useCallback(() => {
-    if (saveRestReminderIntervalSeconds(
+  const tryRestReminder = useCallback(async () => {
+    if (await persistRestReminderIntervalSeconds(
       REST_REMINDER_DEFAULT_INTERVAL_SECONDS,
-      undefined,
       defaultAppearance,
     )) {
       setSettingsError('')
@@ -216,8 +233,8 @@ function FarmingPetController({
       setSettingsError(copy.settingsSaveFailed)
     }
   }, [copy.settingsSaveFailed, defaultAppearance])
-  const disableRestReminder = useCallback(() => {
-    if (saveRestReminderIntervalSeconds(0, undefined, defaultAppearance)) {
+  const disableRestReminder = useCallback(async () => {
+    if (await persistRestReminderIntervalSeconds(0, defaultAppearance)) {
       setSettingsError('')
     } else {
       setSettingsError(copy.settingsSaveFailed)
@@ -234,11 +251,16 @@ function FarmingPetController({
   }, [copy.settingsSaveFailed])
 
   const intent = useMemo<PetIntent | null>(() => {
+    if (!settingsLoaded) return null
     if (restReminderEntryBlocked && restReminder?.phase !== 'resting') return null
     const notificationIntent = resolvePetNotificationIntent(
       intervalSeconds,
       restReminderSetupOption,
     )
+    if (
+      startupInvitationDismissed
+      && notificationIntent?.option === 'invitation'
+    ) return null
     if (notificationIntent) return notificationIntent
     if (restReminder?.phase === 'due' && restReminder.restStartsAt !== null) {
       return {
@@ -262,6 +284,8 @@ function FarmingPetController({
     restReminder,
     restReminderEntryBlocked,
     restReminderSetupOption,
+    settingsLoaded,
+    startupInvitationDismissed,
   ])
 
   if (!intent) {
@@ -401,7 +425,7 @@ function FarmingPetController({
       closeLabel={copy.closeStartup}
       testId="pet-rest-invitation"
       error={settingsError || undefined}
-      onClose={disableRestReminder}
+      onClose={() => setStartupInvitationDismissed(true)}
       actions={[
         { label: copy.tryReminder, primary: true, onClick: tryRestReminder },
         { label: copy.disable, onClick: disableRestReminder },

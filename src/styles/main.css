@@ -10017,6 +10017,13 @@ button.code-agent-transcript-result-summary:focus-visible {
   color: #9d2f2f;
 }
 
+.app-toast.recovering {
+  border-color: rgba(116, 123, 114, 0.16);
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: 0 6px 18px rgba(31, 35, 40, 0.08);
+  color: #747b72;
+}
+
 .code-empty-workspace {
   align-self: center;
   justify-self: center;
@@ -15412,11 +15419,11 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  border: 1px solid #e5d3a3;
+  border: 1px solid rgba(116, 123, 114, 0.16);
   border-radius: 999px;
-  background: rgba(255, 253, 247, 0.97);
-  box-shadow: 0 12px 30px rgba(31, 35, 40, 0.16);
-  color: #795900;
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: 0 6px 18px rgba(31, 35, 40, 0.08);
+  color: #747b72;
   padding: 6px 12px;
   font-size: 13px;
   line-height: 1.25;
@@ -19092,6 +19099,11 @@ body.code-mode[data-appearance='dark'] .code-settings-language-choice {
     grid-row: auto;
   }
 
+  .code-settings-pet-rest-control,
+  .code-settings-pet-rest-value {
+    grid-column: 1 / -1;
+  }
+
 }
 
 /* Mobile hand-feel pass: keep the drawer useful, but make it feel like a sheet
@@ -19378,6 +19390,11 @@ body.code-mode[data-appearance='dark'] .code-settings-language-choice {
   body.code-mode.code-compact-layout .code-settings-pet-rest-row .code-settings-row-copy {
     grid-column: 1 / -1;
     grid-row: auto;
+  }
+
+  body.code-mode.code-compact-layout .code-settings-pet-rest-control,
+  body.code-mode.code-compact-layout .code-settings-pet-rest-value {
+    grid-column: 1 / -1;
   }
 
   body.code-mode.code-compact-layout .code-sidebar-options {

@@ -18,6 +18,7 @@ import type {
 import { CheckGlyph } from '@/components/IconGlyphs'
 import { appPath } from '@/lib/base-path'
 import { writeClipboardText } from '@/lib/clipboard'
+import { getBackendConnectionSnapshot } from '@/lib/backend-live-status'
 import { isAcpRuntime, isStructuredRuntime } from '@/lib/agent-runtime'
 import { useAgentWithLiveRuntimeState } from '@/lib/agent-live-state'
 import { recordPerformanceTestRender } from '@/lib/performance-test-observer'
@@ -712,6 +713,7 @@ export function CodeWorkspace({
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null)
   const codexModelsLoadedAtRef = useRef(0)
   const codexModelsLoadingRef = useRef(false)
+  const codexModelsRetryOnReconnectRef = useRef(false)
   const resumeAgentSessionRef = useRef<(provider: string, sessionId: string, providerHomeId?: string) => void>(() => {})
   const activeTerminalIdRef = useRef<string | null>(activeTerminalId)
   const workspaceFileCursorRequestRef = useRef(0)
@@ -1450,12 +1452,17 @@ export function CodeWorkspace({
         const options = normalizeModelCatalog(data)
         if (options.length === 0) throw new Error('Codex model catalog did not contain any visible models')
         codexModelsLoadedAtRef.current = Date.now()
+        codexModelsRetryOnReconnectRef.current = false
         setCodexModelOptions(options)
       })
       .catch(error => {
         if (cancelled) return
         codexModelsLoadedAtRef.current = 0
-        setCodexModelOptions([])
+        if (!getBackendConnectionSnapshot().connected) {
+          codexModelsRetryOnReconnectRef.current = true
+          return
+        }
+        codexModelsRetryOnReconnectRef.current = false
         setCopyNotice({
           id: Date.now(),
           kind: 'error',
@@ -4610,6 +4617,19 @@ export function CodeWorkspace({
   useEffect(() => {
     if (!modelMenuOpen) return undefined
     return loadCodexModels()
+  }, [loadCodexModels, modelMenuOpen])
+  useEffect(() => {
+    if (!modelMenuOpen) {
+      codexModelsRetryOnReconnectRef.current = false
+      return undefined
+    }
+    const retryRecoverableLoad = () => {
+      if (!codexModelsRetryOnReconnectRef.current) return
+      codexModelsRetryOnReconnectRef.current = false
+      loadCodexModels()
+    }
+    window.addEventListener('farming:backend-connected', retryRecoverableLoad)
+    return () => window.removeEventListener('farming:backend-connected', retryRecoverableLoad)
   }, [loadCodexModels, modelMenuOpen])
   useEffect(() => {
     if (!modelMenuOpen || composerAgentKind !== 'claude') return undefined

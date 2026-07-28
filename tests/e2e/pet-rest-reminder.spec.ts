@@ -1,4 +1,10 @@
-import { expect, openFarming, test } from './fixtures'
+import {
+  expect,
+  openFarming,
+  openNewAgentDialog,
+  selectAgent,
+  test,
+} from './fixtures'
 import type { Locator, Page, WebSocketRoute } from '@playwright/test'
 
 const SETTINGS_KEY = 'farmingPetSettings'
@@ -31,6 +37,32 @@ test('unconfigured reminder shows its invitation in narrow layouts', async ({ pa
   await page.getByTestId('code-mobile-menu').click()
   await expect(page.getByTestId('code-sidebar')).toBeVisible()
   await expect(page.getByTestId('pet-rest-invitation')).toBeVisible()
+})
+
+test('mobile reminder settings keep long values clear of the slider', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.request.post('/farming/api/settings', {
+    data: {
+      appearance: 'light',
+      language: 'zh',
+      restReminderIntervalSeconds: 5,
+    },
+  })
+  await openFarming(page)
+
+  await page.getByTestId('code-mobile-menu').click()
+  await page.getByTestId('code-sidebar-options').click()
+  const settings = page.getByTestId('code-settings-panel')
+  const slider = settings.getByRole('slider', { name: '休息提醒' })
+  const value = settings.locator('.code-settings-pet-rest-value output')
+  await expect(value).toHaveText('5 秒（仅用于观察效果）')
+  const [sliderBox, valueBox] = await Promise.all([
+    slider.boundingBox(),
+    value.boundingBox(),
+  ])
+  expect(sliderBox).not.toBeNull()
+  expect(valueBox).not.toBeNull()
+  expect(valueBox!.y).toBeGreaterThanOrEqual(sliderBox!.y + sliderBox!.height)
 })
 
 test('break reminder keeps its English status copy compact', async ({ page }) => {
@@ -570,7 +602,10 @@ test('backend disconnect does not reset or duplicate an active black-hole break'
 
   outage = true
   await activeSocket?.close({ code: 1012, reason: 'Pet reconnect regression' })
-  await expect(page.getByTestId('connection-status')).toBeVisible()
+  const connectionStatus = page.getByTestId('connection-status')
+  await expect(connectionStatus).toBeVisible()
+  await expect(connectionStatus).toHaveClass(/connecting/)
+  await expect(connectionStatus).toContainText('Loading')
   await page.waitForTimeout(2_200)
   const duringDisconnect = await clock.getAttribute('aria-label') ?? await clock.textContent()
   expect(duringDisconnect).not.toBe(beforeDisconnect)
@@ -584,6 +619,38 @@ test('backend disconnect does not reset or duplicate an active black-hole break'
   await expect(scene.locator('.code-pet-black-hole-canvas')).toHaveCount(1)
   await scene.getByRole('button', { name: 'End break' }).click()
   await expect(scene).toHaveCount(0, { timeout: 7_000 })
+})
+
+test('an action attempted during reconnect uses a neutral recoverable notice', async ({ page, workspaceRoot }) => {
+  let outage = false
+  let activeSocket: WebSocketRoute | null = null
+  await page.routeWebSocket(/\/farming\/ws(?:\?|$)/, async socket => {
+    if (outage) {
+      await socket.close({ code: 1012, reason: 'Recoverable notice regression' })
+      return
+    }
+    activeSocket = socket
+    socket.connectToServer()
+  })
+
+  await openFarming(page)
+  await openNewAgentDialog(page)
+  await selectAgent(page, 'bash')
+  await page.getByTestId('workspace-input').fill(workspaceRoot)
+  await expect.poll(() => Boolean(activeSocket)).toBe(true)
+
+  outage = true
+  await activeSocket?.close({ code: 1012, reason: 'Recoverable notice regression' })
+  await expect(page.getByTestId('connection-status')).toHaveClass(/connecting/)
+  await page.getByTestId('workspace-start').click()
+
+  const notice = page.getByTestId('app-toast')
+  await expect(notice).toHaveClass(/recovering/)
+  await expect(notice).not.toHaveClass(/error/)
+  await expect(notice).toContainText('Still reconnecting')
+
+  outage = false
+  await expect(page.getByTestId('connection-status')).toHaveCount(0, { timeout: 7_000 })
 })
 
 test('natural black-hole evaporation resumes at the absolute-time progress', async ({ page }) => {
@@ -814,7 +881,7 @@ test('ending a break remains bounded while the first snapshot is unavailable', a
   await expect(scene).toHaveCount(0, { timeout: 7_000 })
 })
 
-test('closing the first-use invitation keeps the reminder off after reload', async ({ page }) => {
+test('closing the first-use invitation defers the choice until reload', async ({ page }) => {
   await openFarming(page)
 
   const invitation = page.getByTestId('pet-rest-invitation')
@@ -822,14 +889,79 @@ test('closing the first-use invitation keeps the reminder off after reload', asy
   await invitation.locator('.code-pet-close').click()
   await expect(invitation).toBeHidden()
 
-  await expect.poll(() => page.evaluate(key => {
-    const settings = JSON.parse(localStorage.getItem(key) ?? 'null')
-    return settings?.capabilities?.restReminder?.intervalSeconds
-  }, SETTINGS_KEY)).toBe(0)
+  const settingsResponse = await page.request.get('/farming/api/settings')
+  const settingsData = await settingsResponse.json() as {
+    settings?: { restReminderIntervalSeconds?: number | null }
+  }
+  expect(settingsData.settings?.restReminderIntervalSeconds).toBeNull()
+
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await expect(page.getByTestId('app-shell')).toBeVisible()
+  await expect(page.getByTestId('pet-rest-invitation')).toBeVisible()
+})
+
+test('choosing not to use reminders persists the reminder as off', async ({ page }) => {
+  await openFarming(page)
+
+  const invitation = page.getByTestId('pet-rest-invitation')
+  await expect(invitation).toBeVisible()
+  await invitation.getByRole('button', { name: 'Don’t use reminders', exact: true }).click()
+  await expect(invitation).toHaveCount(0)
+
+  await expect.poll(async () => {
+    const response = await page.request.get('/farming/api/settings')
+    const data = await response.json() as {
+      settings?: { restReminderIntervalSeconds?: number | null }
+    }
+    return data.settings?.restReminderIntervalSeconds
+  }).toBe(0)
+  await expect.poll(() => page.evaluate(key => (
+    JSON.parse(localStorage.getItem(key) ?? 'null')
+      ?.capabilities?.restReminder?.intervalSeconds
+  ), SETTINGS_KEY)).toBe(0)
 
   await page.reload({ waitUntil: 'domcontentloaded' })
   await expect(page.getByTestId('app-shell')).toBeVisible()
   await expect(page.getByTestId('pet-rest-invitation')).toHaveCount(0)
+})
+
+test('closing a due reminder cancels only the current break', async ({ page }) => {
+  await page.request.post('/farming/api/settings', {
+    data: { restReminderIntervalSeconds: 60 },
+  })
+  await page.addInitScript(({ settingsKey, runtimeKey }) => {
+    const now = Date.now()
+    localStorage.setItem(settingsKey, JSON.stringify({
+      version: 1,
+      appearance: 'glass',
+      capabilities: { restReminder: { intervalSeconds: 60 } },
+    }))
+    sessionStorage.setItem(runtimeKey, JSON.stringify({
+      version: 1,
+      state: {
+        phase: 'due',
+        intervalSeconds: 60,
+        cycleStartedAt: now - 60_000,
+        lastActivityAt: now,
+        snoozedUntil: null,
+        restStartsAt: now + 30_000,
+        restUntil: null,
+        snoozeUsed: false,
+      },
+    }))
+  }, { settingsKey: SETTINGS_KEY, runtimeKey: RUNTIME_KEY })
+
+  await openFarming(page)
+  const reminder = page.getByTestId('pet-rest-reminder')
+  await expect(reminder).toBeVisible()
+  await reminder.locator('.code-pet-close').click()
+  await expect(reminder).toHaveCount(0)
+
+  const response = await page.request.get('/farming/api/settings')
+  const data = await response.json() as {
+    settings?: { restReminderIntervalSeconds?: number | null }
+  }
+  expect(data.settings?.restReminderIntervalSeconds).toBe(60)
 })
 
 test('appearance changes preserve the active cycle and reload restores it', async ({ page }) => {

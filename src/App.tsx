@@ -169,7 +169,11 @@ export function App() {
     options?: { focusTerminal?: boolean }
   } | null>(null)
   const [activeWorkspaceView, setActiveWorkspaceView] = useState<WorkspaceView>(() => initialWorkspaceViewState.activeView ?? 'projects')
-  const [appNotice, setAppNotice] = useState<{ id: number; kind: 'error'; message: string } | null>(null)
+  const [appNotice, setAppNotice] = useState<{
+    id: number
+    kind: 'recovering' | 'error'
+    message: string
+  } | null>(null)
   const [permissionSwitch, setPermissionSwitch] = useState<PermissionSwitchState | null>(null)
   const [externalAgentReplacement, setExternalAgentReplacement] = useState<AgentReplacementTransition | null>(null)
   const [usageSummary, setUsageSummary] = useState<UsageSummary | null>(null)
@@ -979,8 +983,16 @@ export function App() {
     setPendingTerminalOpen(null)
     pendingMainRestartRef.current = null
     hiddenMainStartRequestedRef.current = false
+    if (ws.errorKind === 'recoverable') {
+      setAppNotice({
+        id: Date.now(),
+        kind: 'recovering',
+        message: copy.backendActionPending,
+      })
+      return
+    }
     notifyError(ws.error)
-  }, [notifyError, ws.error, ws.errorId])
+  }, [copy.backendActionPending, notifyError, ws.error, ws.errorId, ws.errorKind])
 
   useEffect(() => {
     if (!appNotice) return
