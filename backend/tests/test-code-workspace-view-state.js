@@ -50,6 +50,9 @@ function run() {
     updatedAt: Date.now() - 15 * 24 * 60 * 60 * 1000,
     surface: { kind: 'agent', agentId: 'stale' },
   }).surface, undefined);
+  assert.strictEqual(normalizeCodeWorkspaceViewState({
+    activeView: 'plugins',
+  }).activeView, 'plugins');
 
   console.log('test-code-workspace-view-state passed');
 }

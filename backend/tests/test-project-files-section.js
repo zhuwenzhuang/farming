@@ -281,7 +281,7 @@ function run() {
       terminalLinksSource.includes('const TERMINAL_URL_PATTERN') &&
       terminalLinksSource.includes('function parseTerminalUrlAtColumn') &&
       terminalPoolSource.includes('function findTerminalUrlAtMouseEvent') &&
-      terminalPoolSource.includes("window.open(url, '_blank', 'noopener,noreferrer')") &&
+      terminalPoolSource.includes('openExternalUrl(url)') &&
       terminalLinksSource.includes('isLikelyTerminalPathTarget(filePath)') &&
       terminalLinksSource.includes('(?:\\/|~\\/|\\.{1,2}\\/)?') &&
       terminalPoolSource.includes('while (logicalStartRow > 0 && buffer.getLine(logicalStartRow)?.isWrapped)') &&
@@ -297,7 +297,7 @@ function run() {
 			      terminalPoolSource.includes('record.suppressClickUntil = Date.now() + 250') &&
 			      terminalPoolSource.includes('const modifierActive = isTerminalOpenModifierActive(record, event)') &&
 			      terminalPoolSource.includes('const url = event.button === 0 && modifierActive ? findTerminalUrlAtMouseEvent(record, event) : null') &&
-			      terminalPoolSource.includes('openTerminalUrl(url)') &&
+			      terminalPoolSource.includes('openTerminalUrl(record, url)') &&
 			      terminalPoolSource.includes('const pathDirectOpen = match.kind === \'path\' && Boolean(match.pathTarget && record.pathOpenHandler)') &&
 				      terminalPoolSource.includes('pointerCursor: pathDirectOpen') &&
 				      terminalPoolSource.includes('underline: pathDirectOpen') &&
@@ -1868,7 +1868,7 @@ function run() {
       editorActionsSource.includes('function DiffIcon()') &&
       editorActionsSource.includes('M5.5 2H2.5C1.673 2 1 2.673 1 3.5V12.5') &&
       editorActionsSource.includes('<DiffIcon />') &&
-      editorTabsComponentSource.includes('function BackToAgentIcon()') &&
+      editorTabsComponentSource.includes('BackToAgentGlyph') &&
       editorTabsComponentSource.includes('<ArrowLeftGlyph className="code-file-editor-action-svg" />') &&
       editorTabsComponentSource.includes('<ArrowRightGlyph className="code-file-editor-action-svg" />') &&
       editorTabsComponentSource.includes('data-testid="code-file-editor-history-back"') &&

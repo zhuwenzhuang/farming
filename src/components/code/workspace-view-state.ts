@@ -39,7 +39,7 @@ export interface CodeWorkspaceViewState {
 }
 
 function isWorkspaceView(value: unknown): value is WorkspaceView {
-  return value === 'projects' || value === 'search' || value === 'history'
+  return value === 'projects' || value === 'search' || value === 'history' || value === 'plugins'
 }
 
 function normalizeStringId(value: unknown) {

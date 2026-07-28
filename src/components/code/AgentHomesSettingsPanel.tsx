@@ -22,7 +22,6 @@ import type { UiPreferences } from '@/lib/ui-preferences'
 import { usePetDefaultAppearance } from './pet/usePetDefaultAppearance'
 import type { AgentHomeSetting, AgentHomesSettings, GlobalSettings } from './types'
 import type { AgentLaunchOption } from './agent-launch-options'
-import type { BrowserCapability } from '../../../extensions/browser/frontend/types'
 
 type DraftState = { provider: string; id: string; path: string } | null
 
@@ -73,7 +72,6 @@ interface AgentHomesSettingsPanelProps {
   agentLaunchOptions: AgentLaunchOption[]
   onClose: () => void
   onUpdateUiPreferences: (preferences: Partial<UiPreferences>) => void
-  onBrowserCapabilityChange?: () => void
 }
 
 const KNOWN_PROVIDERS = ['codex', 'claude', 'opencode', 'qoder']
@@ -131,17 +129,6 @@ function panelCopy(language: UiPreferences['language']) {
     interfaceSkin: zh ? '界面皮肤' : 'Interface skin',
     farmingCode: 'Farming Code',
     farmingCrt: 'Farming CRT',
-    extensions: zh ? '扩展' : 'Extensions',
-    browserExtension: zh ? '系统浏览器' : 'System browser',
-    browserExtensionHint: zh
-      ? '在 Farming 中显示系统已安装的 Chromium 浏览器，并允许 Agent 按需操作。'
-      : 'Show an installed system Chromium browser in Farming and let Agents operate it on demand.',
-    browserExtensionUnavailableHint: zh
-      ? '请先安装 Chromium 系浏览器，才能在 Farming 中使用系统浏览器。'
-      : 'Install a Chromium-based browser to use a system browser in Farming.',
-    browserExtensionUnavailableStatus: zh ? '需要 Chromium 浏览器' : 'Chromium required',
-    browserExtensionToggle: zh ? '系统浏览器' : 'System browser',
-    browserExtensionSaveFailed: zh ? '系统浏览器设置保存失败' : 'Failed to save system browser setting',
     farmingPet: 'Farming Pet',
     petAppearance: zh ? '提醒样式' : 'Reminder style',
     softGlow: zh ? '柔光' : 'Soft glow',
@@ -369,7 +356,6 @@ export function AgentHomesSettingsPanel({
   agentLaunchOptions,
   onClose,
   onUpdateUiPreferences,
-  onBrowserCapabilityChange,
 }: AgentHomesSettingsPanelProps) {
   const copy = useMemo(() => panelCopy(language), [language])
   const defaultPetAppearance = usePetDefaultAppearance(uiPreferences.appearance)
@@ -383,9 +369,6 @@ export function AgentHomesSettingsPanel({
   const [dangerouslySkipPermissions, setDangerouslySkipPermissions] = useState(false)
   const [updateUrl, setUpdateUrl] = useState('')
   const [searchTimeoutSeconds, setSearchTimeoutSeconds] = useState(15)
-  const [browserExtensionEnabled, setBrowserExtensionEnabled] = useState(false)
-  const [browserCapability, setBrowserCapability] = useState<BrowserCapability | null>(null)
-  const [browserSaving, setBrowserSaving] = useState(false)
   const [restReminderIntervalSeconds, setRestReminderIntervalSecondsState] = useState<number | null>(
     readRestReminderIntervalSeconds,
   )
@@ -421,16 +404,10 @@ export function AgentHomesSettingsPanel({
     settingsLoadRequestRef.current = requestId
     setLoading(true)
     setError('')
-    Promise.all([
-      fetchAgentHomesSettings(appPath('/api/settings')),
-      fetchAgentHomesSettings(appPath('/api/browsers/capability')),
-    ])
-      .then(async ([settingsResponse, capabilityResponse]) => {
+    fetchAgentHomesSettings(appPath('/api/settings'))
+      .then(async settingsResponse => {
         if (!settingsResponse.ok) throw new Error(copy.loadFailed)
         const data = await settingsResponse.json() as { settings?: GlobalSettings }
-        const capability = capabilityResponse.ok
-          ? await capabilityResponse.json() as BrowserCapability
-          : null
         if (
           settingsLoadRequestRef.current !== requestId
           || panelScopeRef.current.generation !== generation
@@ -441,8 +418,6 @@ export function AgentHomesSettingsPanel({
         setDangerouslySkipPermissions(data.settings?.dangerouslySkipAgentPermissionsByDefault === true)
         setUpdateUrl(String(data.settings?.updateUrl ?? ''))
         setSearchTimeoutSeconds(nearestSearchTimeoutSeconds(Number(data.settings?.searchTimeoutMs ?? 15000)))
-        setBrowserExtensionEnabled(data.settings?.browserExtensionEnabled === true)
-        setBrowserCapability(capability)
       })
       .catch(() => {
         if (
@@ -678,40 +653,6 @@ export function AgentHomesSettingsPanel({
       && minutes <= REST_REMINDER_CUSTOM_MINUTES_MAX
     ) setRestReminderIntervalSeconds(minutes * 60)
   }, [setRestReminderIntervalSeconds])
-
-  const toggleBrowserExtension = useCallback(async () => {
-    if (browserSaving) return
-    const enabled = !browserExtensionEnabled
-    setBrowserSaving(true)
-    setError('')
-    try {
-      const response = await fetchAgentHomesSettings(appPath('/api/settings'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify({ browserExtensionEnabled: enabled }),
-      })
-      const data = await response.json().catch(() => ({})) as {
-        error?: string
-        settings?: GlobalSettings
-      }
-      if (!response.ok) throw new Error(data.error || copy.browserExtensionSaveFailed)
-      setBrowserExtensionEnabled(data.settings?.browserExtensionEnabled === true)
-      const capabilityResponse = await fetchAgentHomesSettings(appPath('/api/browsers/capability'))
-      if (capabilityResponse.ok) {
-        setBrowserCapability(await capabilityResponse.json() as BrowserCapability)
-      }
-      onBrowserCapabilityChange?.()
-    } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : copy.browserExtensionSaveFailed)
-    } finally {
-      setBrowserSaving(false)
-    }
-  }, [
-    browserExtensionEnabled,
-    browserSaving,
-    copy.browserExtensionSaveFailed,
-    onBrowserCapabilityChange,
-  ])
 
   const startUpgrade = useCallback(() => {
     const restartPreparedUpdate = updateStatus?.state?.phase === 'ready-to-restart'
@@ -952,42 +893,6 @@ export function AgentHomesSettingsPanel({
               </div>
             </div>
           </section>
-
-          {browserCapability !== null && (
-            <section className="code-settings-section code-settings-group">
-              <div className="code-settings-section-heading">
-                <div><h3>{copy.extensions}</h3></div>
-              </div>
-              <div className="code-settings-card">
-                <div className="code-settings-choice-row code-settings-runtime-row code-settings-browser-row">
-                  <div className="code-settings-row-copy">
-                    <strong>{copy.browserExtension}</strong>
-                    <small>
-                      {browserCapability.browser
-                        ? copy.browserExtensionHint
-                        : copy.browserExtensionUnavailableHint}
-                    </small>
-                  </div>
-                  {browserCapability.browser ? (
-                    <button
-                      type="button"
-                      className={`code-settings-permission-toggle ${browserExtensionEnabled ? 'active' : ''}`}
-                      aria-label={copy.browserExtensionToggle}
-                      aria-pressed={browserExtensionEnabled}
-                      disabled={browserSaving}
-                      onClick={() => void toggleBrowserExtension()}
-                    >
-                      <CheckGlyph />
-                    </button>
-                  ) : (
-                    <span className="code-settings-browser-unavailable">
-                      {copy.browserExtensionUnavailableStatus}
-                    </span>
-                  )}
-                </div>
-              </div>
-            </section>
-          )}
 
           <section className="code-settings-section code-settings-group">
             <div className="code-settings-section-heading">

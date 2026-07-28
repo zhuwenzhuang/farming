@@ -12,7 +12,7 @@ const packageJsonPath = path.join(packageRoot, 'package.json');
 const sourceEntry = path.join(packageRoot, 'dist', 'index.js');
 const sourceLicense = path.join(packageRoot, 'LICENSE');
 const targetDirectory = path.join(projectRoot, 'dist', 'acp');
-const targetEntry = path.join(targetDirectory, `codex-acp-${expectedVersion}.js`);
+const targetEntry = path.join(targetDirectory, `codex-acp-${expectedVersion}.mjs`);
 const targetLicense = path.join(targetDirectory, 'LICENSE.codex-acp');
 
 function sha256(filePath) {

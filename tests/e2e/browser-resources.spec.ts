@@ -5,6 +5,7 @@ import path from 'node:path'
 import type { AddressInfo } from 'node:net'
 import { promisify } from 'node:util'
 import type { Locator, Page } from '@playwright/test'
+import { projectFilesWorkspaceId } from '../../src/lib/project-workspaces'
 import { expect, openFarming, test } from './fixtures'
 
 let targetServer: http.Server
@@ -110,13 +111,71 @@ async function runBrowserCli(args: string[]) {
   })
 }
 
+test('does not show a Browser section before the first Browser is created', async ({
+  page,
+  workspaceRoot,
+}) => {
+  const workspace = path.join(workspaceRoot, 'empty-browser-project')
+  fs.mkdirSync(workspace, { recursive: true })
+  await page.route('**/api/browsers/capability', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      enabled: true,
+      available: true,
+      browser: { kind: 'chrome', path: '/mock/chrome' },
+      message: 'Browser is available',
+    }),
+  }))
+  await page.route('**/api/browsers', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ collectionRevision: 1, resources: [] }),
+  }))
+  await page.request.post('/farming/api/projects/mount', { data: { workspace } })
+  await openFarming(page)
+
+  const project = page.getByTestId('code-project-group').filter({ hasText: path.basename(workspace) })
+  await expect(project.getByTestId('farming-browser-section')).toHaveCount(0)
+})
+
+test('deletes a Browser directly without a confirmation dialog', async ({
+  page,
+  workspaceRoot,
+}) => {
+  const workspace = path.join(workspaceRoot, 'browser-direct-delete')
+  fs.mkdirSync(workspace, { recursive: true })
+  const enableResponse = await page.request.post('/farming/api/settings', {
+    data: { browserExtensionEnabled: true },
+  })
+  expect(enableResponse.ok()).toBeTruthy()
+  await page.request.post('/farming/api/projects/mount', { data: { workspace } })
+  const createResponse = await page.request.post('/farming/api/browsers', {
+    data: { rootId: projectFilesWorkspaceId(workspace) },
+  })
+  expect(createResponse.ok()).toBeTruthy()
+  await openFarming(page)
+
+  const project = page.getByTestId('code-project-group').filter({ hasText: path.basename(workspace) })
+  const row = project.getByTestId('farming-browser-row')
+  await expect(row).toBeVisible()
+  const dialogs: string[] = []
+  page.on('dialog', async dialog => {
+    dialogs.push(dialog.message())
+    await dialog.dismiss()
+  })
+
+  await row.hover()
+  await row.getByRole('button', { name: 'Delete Browser' }).click()
+  await expect(project.getByTestId('farming-browser-section')).toHaveCount(0)
+  expect(dialogs).toEqual([])
+})
+
 test('explains which system browser must be installed when none is available', async ({
   page,
 }, testInfo) => {
   await page.route('**/api/browsers/capability', route => route.fulfill({
     contentType: 'application/json',
     body: JSON.stringify({
-      enabled: true,
+      enabled: false,
       available: false,
       browser: null,
       message: 'Install a Chromium-based browser to use the system Browser in Farming',
@@ -124,24 +183,159 @@ test('explains which system browser must be installed when none is available', a
   }))
   await openFarming(page)
   await expect(page.getByTestId('farming-browser-section')).toHaveCount(0)
-  await page.getByTestId('code-sidebar-options').click()
-  const settingsPanel = page.getByTestId('code-settings-panel')
-  await expect(settingsPanel.getByText('System browser', { exact: true })).toBeVisible()
-  await expect(settingsPanel.getByText(
-    'Install a Chromium-based browser to use a system browser in Farming.',
+  await page.getByTestId('code-nav-plugins').click()
+  const pluginsPanel = page.getByTestId('code-plugins-panel')
+  await expect(pluginsPanel.getByRole('heading', { name: 'Browser', exact: true })).toBeVisible()
+  await expect(pluginsPanel.getByText(
+    'Requires a compatible Chromium browser or an external CDP endpoint on loopback.',
     { exact: true },
   )).toBeVisible()
-  await expect(settingsPanel.getByText('Chromium required', { exact: true })).toBeVisible()
-  await expect(settingsPanel.getByRole('button', { name: 'System browser' })).toHaveCount(0)
-  const screenshot = testInfo.outputPath('browser-settings-install-required.png')
-  await settingsPanel.locator('.code-settings-panel').screenshot({ path: screenshot })
-  await testInfo.attach('browser-settings-install-required', {
+  await expect(pluginsPanel.getByText('Not ready', { exact: true })).toBeVisible()
+  await expect(pluginsPanel.getByRole('button', { name: 'Enable' })).toBeDisabled()
+  const screenshot = testInfo.outputPath('browser-plugin-install-required.png')
+  await pluginsPanel.screenshot({ path: screenshot })
+  await testInfo.attach('browser-plugin-install-required', {
     path: screenshot,
     contentType: 'image/png',
   })
 })
 
-test('shares one fixed Browser viewport across desktop, mobile, and Agent actions', async ({
+test('keeps extension cards compact and opens the full description on demand', async ({
+  page,
+}) => {
+  const longDescription = [
+    'A deliberately long extension description that should stay compact in the grid.',
+    'It contains enough text to span several lines and prove that one verbose item cannot stretch its row.',
+    'The complete text remains available in the explicit details dialog.',
+  ].join(' ')
+  await page.route('**/api/agent-extensions', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      agents: [{
+        id: 'codex',
+        name: 'codex',
+        description: 'Codex CLI',
+        discoverySupported: true,
+        homes: [{
+          id: 'default',
+          extensions: [{
+            id: '$short',
+            command: '$short',
+            name: 'Short skill',
+            description: 'Short description.',
+            kind: 'skill',
+            scope: 'Personal',
+          }, {
+            id: '$long',
+            command: '$long',
+            name: 'Long skill',
+            description: longDescription,
+            kind: 'skill',
+            scope: 'Personal',
+          }, {
+            id: 'plugin:sample',
+            command: 'plugin:sample',
+            name: 'Sample plugin',
+            description: 'Plugin description.',
+            kind: 'plugin',
+            scope: 'Plugin',
+          }, {
+            id: '/sample',
+            command: '/sample',
+            name: 'Sample command',
+            description: 'Command description.',
+            kind: 'command',
+            scope: 'Personal',
+          }, {
+            id: 'hook:sample',
+            command: 'hook:sample',
+            name: 'Sample hook',
+            description: 'Hook description.',
+            kind: 'hook',
+            scope: 'Plugin',
+          }],
+        }],
+      }],
+    }),
+  }))
+  await openFarming(page)
+  await page.getByTestId('code-nav-plugins').click()
+
+  const cards = page.locator('.code-plugin-extension')
+  await expect(cards).toHaveCount(5)
+  const geometry = await cards.evaluateAll(elements => elements.map(element => {
+    const description = element.querySelector('p')
+    return {
+      height: element.getBoundingClientRect().height,
+      lineClamp: description ? getComputedStyle(description).webkitLineClamp : '',
+    }
+  }))
+  expect(geometry.every(item => item.height === 126 && item.lineClamp === '3')).toBe(true)
+
+  const skillSection = page.locator('.code-plugin-kind-section[data-kind="skill"]')
+  const pluginSection = page.locator('.code-plugin-kind-section[data-kind="plugin"]')
+  const commandSection = page.locator('.code-plugin-kind-section[data-kind="command"]')
+  const hookSection = page.locator('.code-plugin-kind-section[data-kind="hook"]')
+  await expect(skillSection.locator('summary').getByText('Skill', { exact: true })).toBeVisible()
+  await expect(pluginSection.locator('summary').getByText('Plugin', { exact: true })).toBeVisible()
+  await expect(commandSection.locator('summary').getByText('Command', { exact: true })).toBeVisible()
+  await expect(hookSection.locator('summary').getByText('Hook', { exact: true })).toBeVisible()
+  await skillSection.locator('summary').click()
+  await expect(skillSection).toHaveJSProperty('open', false)
+  await expect(pluginSection).toHaveJSProperty('open', true)
+
+  await skillSection.locator('summary').click()
+  await pluginSection.locator('summary').click()
+  await cards.filter({ hasText: 'Long skill' }).click()
+  const detail = page.getByTestId('code-plugin-detail-dialog')
+  await expect(detail).toBeVisible()
+  await expect(detail.getByText(longDescription, { exact: true })).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(detail).toHaveCount(0)
+  await expect(pluginSection).toHaveJSProperty('open', false)
+})
+
+test('keeps an edited browser address until Enter submits it', async ({
+  page,
+  workspaceRoot,
+}) => {
+  const workspace = path.join(workspaceRoot, 'browser-address-draft')
+  fs.mkdirSync(workspace, { recursive: true })
+  const enableResponse = await page.request.post('/farming/api/settings', {
+    data: { browserExtensionEnabled: true },
+  })
+  expect(enableResponse.ok()).toBeTruthy()
+  await page.request.post('/farming/api/projects/mount', { data: { workspace } })
+  await openFarming(page)
+
+  const createResponse = await page.request.post('/farming/api/browsers', {
+    data: { rootId: projectFilesWorkspaceId(workspace) },
+  })
+  expect(createResponse.ok()).toBeTruthy()
+  const createdBrowser = await createResponse.json() as { id: string }
+  const startResponse = await page.request.post(`/farming/api/browsers/${createdBrowser.id}/start`)
+  expect(startResponse.ok()).toBeTruthy()
+
+  const project = page.getByTestId('code-project-group').filter({ hasText: path.basename(workspace) })
+  await expect(project.getByTestId('farming-browser-section')).toBeVisible()
+  await project.getByTestId('farming-browser-row').click()
+  const addressInput = page.getByRole('textbox', { name: 'Browser address' })
+  await expect(addressInput).toBeVisible({ timeout: 30_000 })
+  await addressInput.fill(targetUrl)
+
+  const competingUrl = `${targetUrl}?agent-navigation=1`
+  const competingNavigation = await page.request.post(`/farming/api/browsers/${createdBrowser.id}/navigate`, {
+    data: { url: competingUrl },
+  })
+  expect(competingNavigation.ok()).toBeTruthy()
+  await expect.poll(async () => (await browserSnapshot(page, createdBrowser.id)).url).toBe(competingUrl)
+  await expect(addressInput).toHaveValue(targetUrl)
+
+  await addressInput.press('Enter')
+  await expect.poll(async () => (await browserSnapshot(page, createdBrowser.id)).url).toBe(targetUrl)
+})
+
+test('matches the focused Viewer viewport and restores the previous Viewer on close', async ({
   browser,
   page,
   workspaceRoot,
@@ -158,15 +352,19 @@ test('shares one fixed Browser viewport across desktop, mobile, and Agent action
 
   const project = page.getByTestId('code-project-group').filter({ hasText: path.basename(workspace) })
   const browserSection = project.getByTestId('farming-browser-section')
-  await expect(browserSection).toBeVisible()
-  await page.getByTestId('code-sidebar-options').click()
-  const settingsPanel = page.getByTestId('code-settings-panel')
-  const browserToggle = settingsPanel.getByRole('button', { name: 'System browser' })
-  const browserHint = settingsPanel.getByText(
-    'Show an installed system Chromium browser in Farming and let Agents operate it on demand.',
+  await expect(browserSection).toHaveCount(0)
+  await page.getByTestId('code-nav-plugins').click()
+  const pluginsPanel = page.getByTestId('code-plugins-panel')
+  await expect(pluginsPanel.getByTestId('code-plugin-section-farming')).toBeVisible()
+  await expect(pluginsPanel.getByTestId('code-plugin-section-agent-codex')).toBeVisible()
+  await expect(pluginsPanel.getByTestId('code-plugin-section-agent-claude')).toBeVisible()
+  const browserToggle = pluginsPanel.getByRole('button', { name: 'Disable' })
+  const browserHint = pluginsPanel.getByText(
+    'Let Agents operate webpages and view the same browser in Farming.',
     { exact: true },
   )
-  await expect(settingsPanel.getByText('System browser', { exact: true })).toBeVisible()
+  await expect(pluginsPanel.getByRole('heading', { name: 'Browser', exact: true })).toBeVisible()
+  await expect(pluginsPanel.getByText('System Chromium', { exact: true })).toBeVisible()
   await expect(browserHint).toBeVisible()
   expect(await browserHint.evaluate(element => ({
     horizontallyClipped: element.scrollWidth > element.clientWidth,
@@ -180,23 +378,33 @@ test('shares one fixed Browser viewport across desktop, mobile, and Agent action
     whiteSpace: 'normal',
   })
   await expect(browserToggle).toHaveAttribute('aria-pressed', 'true')
-  const settingsScreenshot = testInfo.outputPath('browser-settings-system-browser.png')
-  await settingsPanel.locator('.code-settings-panel').screenshot({ path: settingsScreenshot })
-  await testInfo.attach('browser-settings-system-browser', {
-    path: settingsScreenshot,
+  const pluginScreenshot = testInfo.outputPath('browser-plugin-system-browser.png')
+  await pluginsPanel.screenshot({ path: pluginScreenshot })
+  await testInfo.attach('browser-plugin-system-browser', {
+    path: pluginScreenshot,
     contentType: 'image/png',
   })
   await browserToggle.click()
-  await expect(browserToggle).toHaveAttribute('aria-pressed', 'false')
+  await expect(pluginsPanel.getByRole('button', { name: 'Enable' })).toHaveAttribute('aria-pressed', 'false')
   await expect(browserSection).toHaveCount(0)
-  await browserToggle.click()
-  await expect(browserToggle).toHaveAttribute('aria-pressed', 'true')
+  await pluginsPanel.getByRole('button', { name: 'Enable' }).click()
+  await expect(pluginsPanel.getByRole('button', { name: 'Disable' })).toHaveAttribute('aria-pressed', 'true')
+  await expect(browserSection).toHaveCount(0)
+  await pluginsPanel.getByRole('button', { name: 'Back to workspace' }).click()
+  const createResponse = await page.request.post('/farming/api/browsers', {
+    data: { rootId: projectFilesWorkspaceId(workspace) },
+  })
+  expect(createResponse.ok()).toBeTruthy()
+  const createdBrowser = await createResponse.json() as { id: string }
+  const startResponse = await page.request.post(`/farming/api/browsers/${createdBrowser.id}/start`)
+  expect(startResponse.ok()).toBeTruthy()
   await expect(browserSection).toBeVisible()
-  await settingsPanel.getByRole('button', { name: 'Close' }).click()
-  await browserSection.getByRole('button', { name: 'New Browser' }).click()
+  await expect(browserSection.locator('.farming-browser-section-toggle small')).toHaveText('1')
+  await browserSection.getByTestId('farming-browser-row').click()
   const viewer = page.getByTestId('farming-browser-viewer')
   const desktopCanvas = viewer.locator('canvas')
   await expect(desktopCanvas).toBeVisible({ timeout: 30_000 })
+  await expect(viewer.getByRole('button', { name: 'Back to Agent' })).toBeVisible()
 
   const browserId = new URL(page.url()).searchParams.get('browser')
   expect(browserId).toMatch(/^browser_/)
@@ -211,6 +419,17 @@ test('shares one fixed Browser viewport across desktop, mobile, and Agent action
     const [width, height] = await readDesktopFrameSize()
     return width >= 320 && height >= 240
   }).toBe(true)
+  await expect.poll(async () => viewer.locator('.farming-browser-viewport').evaluate(element => {
+    const canvas = element.querySelector('canvas') as HTMLCanvasElement | null
+    if (!canvas) {
+      return false
+    }
+    const rect = canvas.getBoundingClientRect()
+    return canvas.width >= element.clientWidth
+      && canvas.height >= element.clientHeight
+      && Math.round(rect.width) === element.clientWidth
+      && Math.round(rect.height) === element.clientHeight
+  })).toBe(true)
   const desktopFrameSize = await readDesktopFrameSize()
 
   await clickBrowserPoint(desktopCanvas, 330, 207)
@@ -253,14 +472,32 @@ test('shares one fixed Browser viewport across desktop, mobile, and Agent action
   await mobilePage.goto(page.url())
   const mobileCanvas = mobilePage.getByTestId('farming-browser-viewer').locator('canvas')
   await expect(mobileCanvas).toBeVisible({ timeout: 30_000 })
+  const readMobileFrameSize = () => mobileCanvas.evaluate(canvas => [
+    (canvas as HTMLCanvasElement).width,
+    (canvas as HTMLCanvasElement).height,
+  ])
+  await expect.poll(async () => mobilePage.getByTestId('farming-browser-viewer')
+    .locator('.farming-browser-viewport')
+    .evaluate(element => {
+      const canvas = element.querySelector('canvas') as HTMLCanvasElement | null
+      return Boolean(
+        canvas
+        && canvas.width >= element.clientWidth
+        && canvas.height >= element.clientHeight
+        && Math.round(canvas.getBoundingClientRect().width) === element.clientWidth
+        && Math.round(canvas.getBoundingClientRect().height) === element.clientHeight
+      )
+    })).toBe(true)
+  const mobileFrameSize = await readMobileFrameSize()
   await expect.poll(async () => Promise.all([desktopCanvas, mobileCanvas].map(async canvas => [
     await canvas.evaluate(element => (element as HTMLCanvasElement).width),
     await canvas.evaluate(element => (element as HTMLCanvasElement).height),
-  ]))).toEqual([desktopFrameSize, desktopFrameSize])
+  ]))).toEqual([mobileFrameSize, mobileFrameSize])
   const mobileScreenshot = testInfo.outputPath('browser-mobile.png')
   await mobilePage.screenshot({ path: mobileScreenshot, fullPage: true })
   await testInfo.attach('browser-mobile', { path: mobileScreenshot, contentType: 'image/png' })
   await mobileContext.close()
+  await expect.poll(readDesktopFrameSize).toEqual(desktopFrameSize)
 
   const row = browserSection.getByTestId('farming-browser-row')
   await row.hover()
@@ -269,15 +506,15 @@ test('shares one fixed Browser viewport across desktop, mobile, and Agent action
   await row.getByRole('textbox', { name: 'Browser name' }).press('Enter')
   await expect(row).toContainText('Frontend Smoke')
 
-  await viewer.getByRole('button', { name: 'Stop', exact: true }).click()
+  await viewer.getByRole('button', { name: 'More', exact: true }).click()
+  await viewer.getByRole('menuitem', { name: 'Stop', exact: true }).click()
   await expect(viewer.getByText('Browser stopped', { exact: true })).toBeVisible({ timeout: 15_000 })
   await viewer.getByRole('button', { name: 'Start Browser' }).click()
   await expect(viewer.locator('canvas')).toBeVisible({ timeout: 30_000 })
   await expect.poll(async () => (await browserSnapshot(page, browserId!)).url).toBe(targetUrl)
 
-  page.once('dialog', dialog => dialog.accept())
   await row.hover()
   await row.getByRole('button', { name: 'Delete Browser' }).click()
-  await expect(browserSection.getByTestId('farming-browser-row')).toHaveCount(0)
+  await expect(browserSection).toHaveCount(0)
   await page.request.post('/farming/api/projects/remove', { data: { workspace } })
 })

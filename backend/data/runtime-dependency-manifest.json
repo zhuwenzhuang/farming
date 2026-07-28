@@ -1,0 +1,199 @@
+{
+  "schemaVersion": 1,
+  "dependencies": {
+    "codex": {
+      "version": "0.144.6",
+      "probe": {
+        "args": [
+          "--version"
+        ]
+      },
+      "artifacts": {
+        "darwin-arm64": {
+          "url": "https://registry.npmjs.org/@openai/codex/-/codex-0.144.6-darwin-arm64.tgz",
+          "integrity": "sha512-6zgvh70MzBNSeT17HEhSOrmmGGZGAKzSC7x6JAq+edkJkdPYA9P0I1tG7aJ49GlBkBxuC+MKBH1qm6+2Cghcww==",
+          "archive": "tgz",
+          "archivePrefix": "package/vendor/aarch64-apple-darwin",
+          "entry": "bin/codex"
+        },
+        "darwin-x64": {
+          "url": "https://registry.npmjs.org/@openai/codex/-/codex-0.144.6-darwin-x64.tgz",
+          "integrity": "sha512-THRyPG0zSU6M8NQAge1LHEHsJDnoH4BpKsfJHB/qe3Fm+Wf6zqAmWJFlOKzBm27m0K2Hq3za4Ac2I5p5i4yp/A==",
+          "archive": "tgz",
+          "archivePrefix": "package/vendor/x86_64-apple-darwin",
+          "entry": "bin/codex"
+        },
+        "linux-arm64": {
+          "url": "https://registry.npmjs.org/@openai/codex/-/codex-0.144.6-linux-arm64.tgz",
+          "integrity": "sha512-PGiLXMN+2IQRkf7tOLi64dMInjU1pRLbz0Rwfj/yt2Y97SZQqAjFQoi2wmswmqtqMDnfwCPTC1DRXVQkvU6T6Q==",
+          "archive": "tgz",
+          "archivePrefix": "package/vendor/aarch64-unknown-linux-musl",
+          "entry": "bin/codex"
+        },
+        "linux-arm64-musl": {
+          "url": "https://registry.npmjs.org/@openai/codex/-/codex-0.144.6-linux-arm64.tgz",
+          "integrity": "sha512-PGiLXMN+2IQRkf7tOLi64dMInjU1pRLbz0Rwfj/yt2Y97SZQqAjFQoi2wmswmqtqMDnfwCPTC1DRXVQkvU6T6Q==",
+          "archive": "tgz",
+          "archivePrefix": "package/vendor/aarch64-unknown-linux-musl",
+          "entry": "bin/codex"
+        },
+        "linux-x64": {
+          "url": "https://registry.npmjs.org/@openai/codex/-/codex-0.144.6-linux-x64.tgz",
+          "integrity": "sha512-4E7EnzCg0OnBxCyYnwJ+qnZwWHYe0YScr5ucKWbngE9u4+0XrpWELqq2Kn9jl5GZK8MDjU7PrJwFIwusHOHjuw==",
+          "archive": "tgz",
+          "archivePrefix": "package/vendor/x86_64-unknown-linux-musl",
+          "entry": "bin/codex"
+        },
+        "linux-x64-musl": {
+          "url": "https://registry.npmjs.org/@openai/codex/-/codex-0.144.6-linux-x64.tgz",
+          "integrity": "sha512-4E7EnzCg0OnBxCyYnwJ+qnZwWHYe0YScr5ucKWbngE9u4+0XrpWELqq2Kn9jl5GZK8MDjU7PrJwFIwusHOHjuw==",
+          "archive": "tgz",
+          "archivePrefix": "package/vendor/x86_64-unknown-linux-musl",
+          "entry": "bin/codex"
+        },
+        "win32-arm64": {
+          "url": "https://registry.npmjs.org/@openai/codex/-/codex-0.144.6-win32-arm64.tgz",
+          "integrity": "sha512-SpMjXJLW43JzMP0K62mVcYfmFcpk0BK4AOgYmWSfyZHs3iRtHMd0UYw7605n/9lwkT2EqbwQLT2omZFeKJFzwA==",
+          "archive": "tgz",
+          "archivePrefix": "package/vendor/aarch64-pc-windows-msvc",
+          "entry": "bin/codex.exe"
+        },
+        "win32-x64": {
+          "url": "https://registry.npmjs.org/@openai/codex/-/codex-0.144.6-win32-x64.tgz",
+          "integrity": "sha512-dN39VnjEthKz5io1RNWwZDtErdSn07nW3pGUgvlA6DMxgm/nuGaIAZO/sG/Hgxq/x5j9HteAENfrFgVkpZ0lFg==",
+          "archive": "tgz",
+          "archivePrefix": "package/vendor/x86_64-pc-windows-msvc",
+          "entry": "bin/codex.exe"
+        }
+      }
+    },
+    "claude": {
+      "version": "0.3.207",
+      "reportedVersion": "2.1.0",
+      "managedProbe": false,
+      "probe": {
+        "args": [
+          "--version"
+        ]
+      },
+      "artifacts": {
+        "darwin-arm64": {
+          "url": "https://registry.npmjs.org/@anthropic-ai/claude-agent-sdk-darwin-arm64/-/claude-agent-sdk-darwin-arm64-0.3.207.tgz",
+          "integrity": "sha512-08xSo1FDx8h0aLhL5tvcRxa2SMmcUV3aDWeZiEJVTclyiDAs61BgTjAxCg+SZcu1CndjJO8cfO0yM5dhamxz3g==",
+          "archive": "tgz",
+          "archivePrefix": "package",
+          "entry": "claude"
+        },
+        "darwin-x64": {
+          "url": "https://registry.npmjs.org/@anthropic-ai/claude-agent-sdk-darwin-x64/-/claude-agent-sdk-darwin-x64-0.3.207.tgz",
+          "integrity": "sha512-1o7K4EYqyCixZ/oeOZSh7AzSy6TM86xoOuf4VuORjPSS31hBnoqY0NGZd27+2VDs9LGtsdksmsTqcNGx9xd1hA==",
+          "archive": "tgz",
+          "archivePrefix": "package",
+          "entry": "claude"
+        },
+        "linux-arm64": {
+          "url": "https://registry.npmjs.org/@anthropic-ai/claude-agent-sdk-linux-arm64/-/claude-agent-sdk-linux-arm64-0.3.207.tgz",
+          "integrity": "sha512-X4uezYOifDiNTTmmugfRCdg3nNamrr1LFRY9hg30vWYTShL+bbN+nfC3KaFfSYCl4GTtsEEUbYdOTC2F3bBpcA==",
+          "archive": "tgz",
+          "archivePrefix": "package",
+          "entry": "claude"
+        },
+        "linux-arm64-musl": {
+          "url": "https://registry.npmjs.org/@anthropic-ai/claude-agent-sdk-linux-arm64-musl/-/claude-agent-sdk-linux-arm64-musl-0.3.207.tgz",
+          "integrity": "sha512-oPj+g2DslhH4Y9nCTs7al4t9wZv78FZwLFQwOCg99BXuz1o0ZOpKmxyvR7J9eBR+GPszeMMS8gYplQTiZC9o2w==",
+          "archive": "tgz",
+          "archivePrefix": "package",
+          "entry": "claude"
+        },
+        "linux-x64": {
+          "url": "https://registry.npmjs.org/@anthropic-ai/claude-agent-sdk-linux-x64/-/claude-agent-sdk-linux-x64-0.3.207.tgz",
+          "integrity": "sha512-Kg6BPH8Ee0ny/oEUWJmvT1jCRBne4jVpRSOMsJcYp1Fav1rMEgpU219oJJs+LWwx4ifuuLtNWedqJNnVw7mnKg==",
+          "archive": "tgz",
+          "archivePrefix": "package",
+          "entry": "claude"
+        },
+        "linux-x64-musl": {
+          "url": "https://registry.npmjs.org/@anthropic-ai/claude-agent-sdk-linux-x64-musl/-/claude-agent-sdk-linux-x64-musl-0.3.207.tgz",
+          "integrity": "sha512-uRv+D5oG/7EYr41FAJ9IPo2pZYBe2ZMaA6nSHCeizsgPxCSMtl5bNppmU21+jZJvo4hivObEgkGFERAhdGqygg==",
+          "archive": "tgz",
+          "archivePrefix": "package",
+          "entry": "claude"
+        },
+        "win32-arm64": {
+          "url": "https://registry.npmjs.org/@anthropic-ai/claude-agent-sdk-win32-arm64/-/claude-agent-sdk-win32-arm64-0.3.207.tgz",
+          "integrity": "sha512-9fWpUzfkXlPAg2tf8JpQe7w9avFaomAUbfAwyAmykQgSIf66LwaJjvI5hNqhNqczRKyfsXPn3ei2S5HKlmFP+Q==",
+          "archive": "tgz",
+          "archivePrefix": "package",
+          "entry": "claude.exe"
+        },
+        "win32-x64": {
+          "url": "https://registry.npmjs.org/@anthropic-ai/claude-agent-sdk-win32-x64/-/claude-agent-sdk-win32-x64-0.3.207.tgz",
+          "integrity": "sha512-YPjVT0q6aXEM2MgN4CI6/9fqiTXwETji+4NoPOzCYuqAkhXZqp30Jsk7/NHqYGNNSfURKrsuAoliKB0rsbpbjg==",
+          "archive": "tgz",
+          "archivePrefix": "package",
+          "entry": "claude.exe"
+        }
+      }
+    },
+    "agentBrowser": {
+      "version": "0.32.3",
+      "probe": {
+        "args": [
+          "--version"
+        ]
+      },
+      "artifacts": {
+        "darwin-arm64": {
+          "url": "https://github.com/vercel-labs/agent-browser/releases/download/v0.32.3/agent-browser-darwin-arm64",
+          "size": 11421328,
+          "integrity": "sha256-tjlgX0lrYp67LNqzDx4HDgBO/ZRbnNC68Zgaz6tkoVE=",
+          "archive": "file",
+          "entry": "agent-browser"
+        },
+        "darwin-x64": {
+          "url": "https://github.com/vercel-labs/agent-browser/releases/download/v0.32.3/agent-browser-darwin-x64",
+          "size": 12497296,
+          "integrity": "sha256-GQ3gOIBwed58IMsTP4dGWHUKCIfaMP5WPb5/NfWTzik=",
+          "archive": "file",
+          "entry": "agent-browser"
+        },
+        "linux-arm64": {
+          "url": "https://github.com/vercel-labs/agent-browser/releases/download/v0.32.3/agent-browser-linux-arm64",
+          "size": 11424360,
+          "integrity": "sha256-h/0u+2eZX8QzVp8DgyYL/uRKeF1tRcoHx3F5xFtw3hg=",
+          "archive": "file",
+          "entry": "agent-browser"
+        },
+        "linux-arm64-musl": {
+          "url": "https://github.com/vercel-labs/agent-browser/releases/download/v0.32.3/agent-browser-linux-musl-arm64",
+          "size": 11285568,
+          "integrity": "sha256-X3PaE8ZSHqjR89enftp3WIebzBuj/TBDBBeZZz6Q2PA=",
+          "archive": "file",
+          "entry": "agent-browser"
+        },
+        "linux-x64": {
+          "url": "https://github.com/vercel-labs/agent-browser/releases/download/v0.32.3/agent-browser-linux-x64",
+          "size": 13107176,
+          "integrity": "sha256-JD9uAcS33qU60H2XVN+ZAzxhRYLVxoXFKaHLgcr8OrE=",
+          "archive": "file",
+          "entry": "agent-browser"
+        },
+        "linux-x64-musl": {
+          "url": "https://github.com/vercel-labs/agent-browser/releases/download/v0.32.3/agent-browser-linux-musl-x64",
+          "size": 12958288,
+          "integrity": "sha256-+xHEY+8evF1iY1UEAhjrJa9oV3Ty7gIrLfcN6svTS/Q=",
+          "archive": "file",
+          "entry": "agent-browser"
+        },
+        "win32-x64": {
+          "url": "https://github.com/vercel-labs/agent-browser/releases/download/v0.32.3/agent-browser-win32-x64.exe",
+          "size": 12758016,
+          "integrity": "sha256-0n93y07XEgol8LYAMLMG/meIvgmX9aa6rXT3SiwOxic=",
+          "archive": "file",
+          "entry": "agent-browser.exe"
+        }
+      }
+    }
+  },
+  "manifestId": "792f8f5cb99e98a62cd04af5212c092b24a10e715378d1cde79000241c6af72b"
+}

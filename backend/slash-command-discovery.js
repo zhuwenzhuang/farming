@@ -159,6 +159,7 @@ function discoverClaudeSkillCommands(commands, skillsDir, sourceLabel) {
       label: commandLabel(entry.name),
       description: `Claude skill from ${sourceLabel}`,
       source: 'skill',
+      scope: sourceLabel === 'home' ? 'Personal' : commandLabel(sourceLabel),
     });
   });
 }
@@ -180,7 +181,97 @@ function discoverClaudeCustomCommands(commands, commandsDir, sourceLabel) {
       label: commandLabel(name),
       description: `Claude custom command from ${sourceLabel}`,
       source: 'custom',
+      scope: sourceLabel === 'home' ? 'Personal' : commandLabel(sourceLabel),
     });
+  });
+}
+
+function discoverClaudePluginComponents(commands, pluginPath, pluginName) {
+  discoverSkillFiles(path.join(pluginPath, 'skills')).forEach(skillFile => {
+    const skillName = path.basename(path.dirname(skillFile));
+    const metadata = parseSkillFrontMatter(skillFile);
+    addCommand(commands, {
+      command: `/${pluginName}:${skillName}`,
+      label: commandLabel(metadata.name || skillName),
+      description: metadata.description || `Claude skill from ${pluginName}`,
+      source: 'skill',
+      scope: 'Plugin',
+    });
+  });
+
+  let commandEntries = [];
+  try {
+    commandEntries = fs.readdirSync(path.join(pluginPath, 'commands'), { withFileTypes: true });
+  } catch {
+    // Plugins do not have to provide commands.
+  }
+  commandEntries.forEach(entry => {
+    if (!entry.isFile() || !entry.name.endsWith('.md')) return;
+    const commandName = entry.name.slice(0, -3);
+    if (!SAFE_COMMAND_NAME.test(commandName)) return;
+    addCommand(commands, {
+      command: `/${pluginName}:${commandName}`,
+      label: commandLabel(commandName),
+      description: `Claude command from ${pluginName}`,
+      source: 'custom',
+      scope: 'Plugin',
+    });
+  });
+}
+
+function readBoundedJson(filePath, maxBytes = 1024 * 1024) {
+  try {
+    const stats = fs.statSync(filePath);
+    if (!stats.isFile() || stats.size > maxBytes) return null;
+    const value = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function addClaudePlugin(commands, pluginName, pluginPath, scope = 'Plugin') {
+  if (!SAFE_COMMAND_NAME.test(pluginName)) return;
+  const manifest = readBoundedJson(path.join(pluginPath, '.claude-plugin', 'plugin.json'));
+  addCommand(commands, {
+    command: `plugin:${pluginName}`,
+    label: String(manifest?.name || commandLabel(pluginName)).slice(0, 100),
+    description: String(manifest?.description || 'Claude Code plugin').slice(0, 500),
+    source: 'plugin',
+    scope,
+  });
+  discoverClaudePluginComponents(commands, pluginPath, pluginName);
+}
+
+function discoverClaudeInstalledPlugins(commands, homePath) {
+  const pluginsRoot = path.join(homePath, 'plugins');
+  const installed = readBoundedJson(path.join(pluginsRoot, 'installed_plugins.json'));
+  Object.entries(installed?.plugins || {}).slice(0, MAX_DISCOVERED_SKILLS).forEach(([key, rawEntries]) => {
+    const pluginName = key.split('@')[0];
+    const entries = Array.isArray(rawEntries) ? rawEntries : [];
+    const installedEntry = entries.find(entry => (
+      entry && typeof entry === 'object' && typeof entry.installPath === 'string'
+    ));
+    if (!installedEntry) return;
+    addClaudePlugin(
+      commands,
+      pluginName,
+      installedEntry.installPath,
+      String(installedEntry.scope || 'Plugin'),
+    );
+  });
+
+  let entries = [];
+  try {
+    entries = fs.readdirSync(pluginsRoot, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  entries.forEach(entry => {
+    if (!entry.isDirectory() || !SAFE_COMMAND_NAME.test(entry.name)) return;
+    const pluginPath = path.join(pluginsRoot, entry.name);
+    if (!fs.existsSync(path.join(pluginPath, '.claude-plugin', 'plugin.json'))) return;
+    addClaudePlugin(commands, entry.name, pluginPath);
   });
 }
 
@@ -249,15 +340,26 @@ function discoverPluginSkillFiles(root, depth = 0, skillFiles = []) {
 
 function pluginNameForSkillFile(skillFile, pluginsCacheDir) {
   const parts = path.relative(pluginsCacheDir, skillFile).split(path.sep);
-  if (parts[0] === 'openai-curated' && parts[1]) return parts[1];
+  if ((parts[0] === 'openai-curated' || parts[0] === 'openai-curated-remote') && parts[1]) return parts[1];
   if ((parts[0] === 'openai-primary-runtime' || parts[0] === 'openai-bundled') && parts[1]) return parts[1];
   return parts[0] || '';
 }
 
 function discoverCodexPluginSkills(commands, homeDir) {
   const pluginsCacheDir = path.join(homeDir, '.codex', 'plugins', 'cache');
+  discoverCodexPluginSkillsAt(commands, pluginsCacheDir);
+}
+
+function discoverCodexPluginSkillsAt(commands, pluginsCacheDir) {
   discoverPluginSkillFiles(pluginsCacheDir).forEach(skillFile => {
     const pluginName = pluginNameForSkillFile(skillFile, pluginsCacheDir);
+    addCommand(commands, {
+      command: `plugin:${pluginName}`,
+      label: commandLabel(pluginName),
+      description: 'Codex plugin',
+      source: 'plugin',
+      scope: 'Plugin',
+    });
     addSkillMention(commands, skillFile, {
       mentionPrefix: pluginName,
       fallbackName: path.basename(path.dirname(skillFile)),
@@ -278,6 +380,40 @@ function discoverCodexSkillMentions({ homeDir = os.homedir(), workspace } = {}) 
   return commands.slice(0, MAX_DISCOVERED_SKILLS);
 }
 
+function discoverAgentExtensions({
+  provider,
+  providerHomePath,
+  workspace,
+  homeDir = os.homedir(),
+} = {}) {
+  const normalizedProvider = normalizeProvider(provider);
+  const homePath = normalizeWorkspace(providerHomePath);
+  const normalizedHomeDir = normalizeWorkspace(homeDir) || os.homedir();
+  if (!normalizedProvider || !homePath) return [];
+
+  const commands = [];
+  if (normalizedProvider === 'claude') {
+    const normalizedWorkspace = normalizeWorkspace(workspace);
+    if (normalizedWorkspace) {
+      discoverClaudeSkillCommands(commands, path.join(normalizedWorkspace, '.claude', 'skills'), 'workspace');
+      discoverClaudeCustomCommands(commands, path.join(normalizedWorkspace, '.claude', 'commands'), 'workspace');
+    }
+    discoverClaudeSkillCommands(commands, path.join(homePath, 'skills'), 'home');
+    discoverClaudeCustomCommands(commands, path.join(homePath, 'commands'), 'home');
+    discoverClaudeInstalledPlugins(commands, homePath);
+    return commands.slice(0, MAX_DISCOVERED_SKILLS);
+  }
+
+  workspaceSkillRoots(workspace, normalizedHomeDir)
+    .forEach(root => discoverDirectCodexSkills(commands, root, 'Repo'));
+  discoverDirectCodexSkills(commands, path.join(normalizedHomeDir, '.agents', 'skills'), 'Personal');
+  discoverDirectCodexSkills(commands, path.join(homePath, 'skills'), 'Personal');
+  discoverDirectCodexSkills(commands, path.join(homePath, 'skills', '.system'), 'System');
+  discoverDirectCodexSkills(commands, path.join('/etc', 'codex', 'skills'), 'Admin');
+  discoverCodexPluginSkillsAt(commands, path.join(homePath, 'plugins', 'cache'));
+  return commands.slice(0, MAX_DISCOVERED_SKILLS);
+}
+
 function discoverSlashCommands({ provider, homeDir = os.homedir(), workspace } = {}) {
   const normalizedProvider = normalizeProvider(provider);
   if (normalizedProvider === 'codex') {
@@ -290,6 +426,7 @@ function discoverSlashCommands({ provider, homeDir = os.homedir(), workspace } =
 }
 
 module.exports = {
+  discoverAgentExtensions,
   discoverSlashCommands,
   discoverClaudeSlashCommands,
   discoverCodexSkillMentions,

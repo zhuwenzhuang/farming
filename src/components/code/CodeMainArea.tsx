@@ -21,16 +21,17 @@ import { HistoryPanel } from './HistoryPanel'
 import { SearchPanel } from './SearchPanel'
 import {
   ChevronDownGlyph,
-  ChevronLeftGlyph,
   ChevronUpGlyph,
   FocusModeGlyph,
   HistoryGlyph,
   NewAgentGlyph,
+  PuzzleGlyph,
   QrGlyph,
   SearchGlyph,
 } from '../IconGlyphs'
 import type { CodeCopy } from './copy'
 import type { AgentSessionHistoryItem, ProjectGroup, WorkspaceFileOpenTarget, WorkspaceView } from './types'
+import { PluginsPanel } from './PluginsPanel'
 
 type ComposerProps = Omit<ComponentProps<typeof CodeComposer>, 'copy'>
 type AcpComposerProps = Omit<ComponentProps<typeof AcpComposer>, 'copy'>
@@ -237,6 +238,7 @@ interface CodeMainAreaProps {
   activeView: WorkspaceView
   activeBrowserResource: BrowserResource | null
   browserController: BrowserResourcesController
+  onBackFromBrowser: () => void
   language: UiPreferences['language']
   showFileEditor: boolean
   openWorkspaceFile: OpenWorkspaceFile | null
@@ -265,10 +267,10 @@ interface CodeMainAreaProps {
   acpComposerProps: AcpComposerProps
   onNewAgent: (workspace?: string, command?: string) => void
   onOpenHistory: () => void
+  onOpenPlugins: () => void
   onOpenSearch: () => void
   onOpenShare: () => void
   onOpenAppMode: () => void
-  onCollapseSidebar: () => void
   onOpenTerminal: (agentId: string, options?: { focusTerminal?: boolean }) => void
   onOpenTerminalPath: (agentId: string, target: TerminalPathOpenTarget) => void
   onResolveTerminalPath: (agentId: string, target: TerminalPathOpenTarget) => Promise<TerminalPathOpenTarget | null> | TerminalPathOpenTarget | null
@@ -303,6 +305,7 @@ interface CodeMainAreaProps {
   ) => OpenWorkspaceFile | null
   onSelectOpenWorkspaceFile: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => boolean
   onOpenWorkspaceFilePath: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void> | void
+  onOpenUrlInFarming?: (agentId: string, url: string) => void
   canNavigateWorkspaceBack: boolean
   canNavigateWorkspaceForward: boolean
   onNavigateWorkspaceHistory: (direction: -1 | 1) => boolean
@@ -319,15 +322,16 @@ interface CodeMainAreaProps {
 function viewTitle(copy: CodeCopy, view: WorkspaceView) {
   if (view === 'search') return copy.search
   if (view === 'history') return copy.history
+  if (view === 'plugins') return copy.plugins
   return 'Farming'
 }
 
-type EmptyWorkspaceAction = 'history' | 'new-agent' | 'search' | 'share' | 'focus' | 'collapse'
+type EmptyWorkspaceAction = 'history' | 'new-agent' | 'plugins' | 'search' | 'share' | 'focus'
 
 function EmptyWorkspaceActionGlyph({ action }: { action: EmptyWorkspaceAction }) {
   if (action === 'new-agent') return <NewAgentGlyph />
+  if (action === 'plugins') return <PuzzleGlyph />
   if (action === 'search') return <SearchGlyph />
-  if (action === 'collapse') return <ChevronLeftGlyph />
   if (action === 'history') return <HistoryGlyph />
   if (action === 'share') return <QrGlyph />
   return <FocusModeGlyph />
@@ -337,19 +341,19 @@ function EmptyWorkspaceGuide({
   agentCreationWorkspace,
   onNewAgent,
   onOpenHistory,
+  onOpenPlugins,
   onOpenSearch,
   onOpenShare,
   onOpenAppMode,
-  onCollapseSidebar,
   copy,
 }: {
   agentCreationWorkspace?: string
   onNewAgent: (workspace?: string, command?: string) => void
   onOpenHistory: () => void
+  onOpenPlugins: () => void
   onOpenSearch: () => void
   onOpenShare: () => void
   onOpenAppMode: () => void
-  onCollapseSidebar: () => void
   copy: CodeCopy
 }) {
   const utilityActions: Array<{
@@ -361,7 +365,7 @@ function EmptyWorkspaceGuide({
     { action: 'search', title: copy.search, description: copy.emptyWorkspaceSearchDescription, onClick: onOpenSearch },
     { action: 'share', title: copy.sharePage, description: copy.emptyWorkspaceShareDescription, onClick: onOpenShare },
     { action: 'focus', title: copy.emptyWorkspaceFocus, description: copy.emptyWorkspaceFocusDescription, onClick: onOpenAppMode },
-    { action: 'collapse', title: copy.collapseSidebar, description: copy.emptyWorkspaceCollapseDescription, onClick: onCollapseSidebar },
+    { action: 'plugins', title: copy.plugins, description: copy.emptyWorkspacePluginsDescription, onClick: onOpenPlugins },
   ]
 
   return (
@@ -466,6 +470,7 @@ export function CodeMainArea({
   activeView,
   activeBrowserResource,
   browserController,
+  onBackFromBrowser,
   language,
   showFileEditor,
   openWorkspaceFile,
@@ -494,10 +499,10 @@ export function CodeMainArea({
   acpComposerProps,
   onNewAgent,
   onOpenHistory,
+  onOpenPlugins,
   onOpenSearch,
   onOpenShare,
   onOpenAppMode,
-  onCollapseSidebar,
   onOpenTerminal,
   onOpenTerminalPath,
   onResolveTerminalPath,
@@ -522,6 +527,7 @@ export function CodeMainArea({
   onUpdateOpenWorkspaceFile,
   onSelectOpenWorkspaceFile,
   onOpenWorkspaceFilePath,
+  onOpenUrlInFarming,
   canNavigateWorkspaceBack,
   canNavigateWorkspaceForward,
   onNavigateWorkspaceHistory,
@@ -660,7 +666,7 @@ export function CodeMainArea({
     >
       {activeView !== 'projects' ? (
         <section
-          className={`code-side-view-panel ${activeView === 'search' ? 'code-search-view' : ''} ${activeView === 'history' ? 'code-history-view' : ''}`}
+          className={`code-side-view-panel ${activeView === 'search' ? 'code-search-view' : ''} ${activeView === 'history' ? 'code-history-view' : ''} ${activeView === 'plugins' ? 'code-plugins-view' : ''}`}
           data-testid="code-side-view-panel"
         >
           {activeView === 'search' ? (
@@ -697,6 +703,14 @@ export function CodeMainArea({
               onBack={onBackToProjects}
               copy={copy}
             />
+          ) : activeView === 'plugins' ? (
+            <PluginsPanel
+              capability={browserController.capability}
+              loading={browserController.loading}
+              language={language}
+              onBack={onBackToProjects}
+              onRefreshCapability={browserController.refreshCapability}
+            />
           ) : (
             <h2>{viewTitle(copy, activeView)}</h2>
           )}
@@ -707,6 +721,7 @@ export function CodeMainArea({
           controller={browserController}
           language={language}
           onResource={browserController.mergeResource}
+          onBackToAgent={onBackFromBrowser}
         />
       ) : showFileEditor && openWorkspaceFile ? (
         ReadyFileEditorPane ? (
@@ -745,10 +760,10 @@ export function CodeMainArea({
               agentCreationWorkspace={agentCreationWorkspace}
               onNewAgent={onNewAgent}
               onOpenHistory={onOpenHistory}
+              onOpenPlugins={onOpenPlugins}
               onOpenSearch={onOpenSearch}
               onOpenShare={onOpenShare}
               onOpenAppMode={onOpenAppMode}
-              onCollapseSidebar={onCollapseSidebar}
               copy={copy}
             />
             <div className="code-empty-workspace-compact">
@@ -779,6 +794,18 @@ export function CodeMainArea({
                     <span>{copy.emptyWorkspaceNewAgentDescription}</span>
                   </span>
                 </button>
+                <button
+                  type="button"
+                  className="code-empty-home-card compact-primary"
+                  data-testid="code-empty-compact-plugins"
+                  onClick={onOpenPlugins}
+                >
+                  <span className="code-empty-home-card-icon"><PuzzleGlyph /></span>
+                  <span className="code-empty-home-card-copy">
+                    <strong>{copy.plugins}</strong>
+                    <span>{copy.emptyWorkspacePluginsDescription}</span>
+                  </span>
+                </button>
               </div>
             </div>
           </div>
@@ -795,6 +822,7 @@ export function CodeMainArea({
               onOpenPath={onOpenTerminalPath}
               onResolvePath={onResolveTerminalPath}
               onOpenWorkspaceFilePath={onOpenWorkspaceFilePath}
+              onOpenUrl={onOpenUrlInFarming}
               onFollowOutputChange={onTerminalFollowOutputChange}
               onReadLatest={onAgentReadLatest}
               onRuntimeModeChange={onRuntimeModeChange}

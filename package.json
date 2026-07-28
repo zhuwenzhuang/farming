@@ -33,11 +33,12 @@
   ],
   "scripts": {
     "sync:ghostty-vendor": "node scripts/sync-ghostty-vendor.js",
-    "prepare:acp-vendor": "node scripts/prepare-codex-acp-vendor.js --copy",
+    "prepare:acp-vendor": "node scripts/prepare-codex-acp-vendor.js --copy && node scripts/prepare-claude-acp-vendor.js --copy",
+    "prepare:runtime-manifest": "node scripts/build-runtime-dependency-manifest.js",
     "build:usage-history": "node scripts/build-usage-history-scanner.js",
-    "prebuild": "node scripts/build-usage-history-scanner.js && node scripts/sync-ghostty-vendor.js && node scripts/prepare-codex-acp-vendor.js",
+    "prebuild": "node scripts/build-usage-history-scanner.js && node scripts/sync-ghostty-vendor.js && npm run prepare:acp-vendor && npm run prepare:runtime-manifest",
     "prepack": "FARMING_BASE_PATH=/farming npm run build",
-    "pretest": "npm run prepare:acp-vendor && npm run build:usage-history",
+    "pretest": "npm run prepare:acp-vendor && npm run prepare:runtime-manifest && npm run build:usage-history",
     "start": "npm run build && node backend/server.js",
     "start:net": "node backend/farming-net-server.js",
     "start:no-auth": "FARMING_DISABLE_AUTH=1 npm start",
@@ -111,8 +112,6 @@
     "node": "^22.13.0 || >=24.0.0"
   },
   "dependencies": {
-    "@agentclientprotocol/claude-agent-acp": "0.59.0",
-    "@agentclientprotocol/codex-acp": "1.1.4",
     "@agentclientprotocol/sdk": "1.2.1",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@xterm/addon-clipboard": "^0.2.0",
@@ -144,11 +143,14 @@
     "remark-gfm": "^4.0.1",
     "remark-math": "^6.0.0",
     "ripgrep": "^0.3.1",
+    "tar": "7.5.19",
     "ws": "^8.21.0",
     "yaml": "^2.9.0",
     "zod": "^3.25.76"
   },
   "devDependencies": {
+    "@agentclientprotocol/claude-agent-acp": "0.59.0",
+    "@agentclientprotocol/codex-acp": "1.1.4",
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.59.1",
     "@types/node": "^26.1.1",

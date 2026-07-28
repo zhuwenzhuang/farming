@@ -8,10 +8,7 @@ const { URLSearchParams } = require('url');
 const { execFileSync, spawn } = require('child_process');
 const { run: runControlCli } = require('./farming-cli');
 const { PACKAGED_CODEX_ACP_ARG, runPackagedCodexAcp } = require('./acp/packaged-codex-acp');
-const {
-  PACKAGED_BROWSER_LAUNCH_GATE_ARG,
-  runBrowserLaunchGate,
-} = require('../extensions/browser/backend/browser-launch-gate');
+const { PACKAGED_CLAUDE_ACP_ARG, runPackagedClaudeAcp } = require('./acp/packaged-claude-acp');
 const {
   SERVER_PROCESS_IDENTITY_FORMAT,
   matchingProcessIdentity,
@@ -912,7 +909,23 @@ async function runServerInCurrentProcess() {
   if (!processIdentity) throw new Error('server process identity could not be committed before startup');
   writeServerState(process.env.FARMING_CONFIG_DIR, process.env, process.pid, processIdentity, 'starting');
   const { startServer } = require('./server');
-  startServer();
+  const server = startServer();
+  server.once('listening', () => {
+    writeServerState(
+      process.env.FARMING_CONFIG_DIR,
+      process.env,
+      process.pid,
+      processIdentity,
+      'running',
+    );
+    const { pruneRuntimeDependencies } = require('./runtime-dependency-manager');
+    void pruneRuntimeDependencies({
+      configDir: process.env.FARMING_CONFIG_DIR,
+      env: process.env,
+    }).catch(error => {
+      console.warn(`Startup dependency cache cleanup failed: ${error?.message || error}`);
+    });
+  });
 }
 
 function runNativePtyHostInCurrentProcess() {
@@ -920,8 +933,24 @@ function runNativePtyHostInCurrentProcess() {
   startNativePtyHostProcess();
 }
 
+async function prepareStartupDependencies(env, options = {}) {
+  if (
+    options.force !== true
+    && (env.FARMING_SKIP_RUNTIME_PREPARE === '1' || env.NODE_ENV === 'test')
+  ) {
+    return { skipped: true };
+  }
+  const { prepareRuntimeDependencies } = require('./runtime-dependency-manager');
+  return prepareRuntimeDependencies({
+    configDir: env.FARMING_CONFIG_DIR,
+    env,
+  });
+}
+
 async function startForeground(parsed) {
-  const env = await adaptServerPort(buildServerEnv(parsed.env), parsed);
+  const env = buildServerEnv(parsed.env);
+  await prepareStartupDependencies(env);
+  await adaptServerPort(env, parsed);
   env[SERVER_MODE_ENV] = '1';
   ensureConfigDir(env.FARMING_CONFIG_DIR);
   const invocation = childInvocation(env);
@@ -977,6 +1006,7 @@ async function startDaemon(parsed) {
     }
   }
 
+  await prepareStartupDependencies(env);
   const out = fs.openSync(logFile(configDir), 'a');
   const invocation = childInvocation(env);
   if (env.FARMING_DEBUG_CLI === '1') {
@@ -1132,6 +1162,7 @@ function usage() {
   farming stop
   farming logs
   farming url
+  farming runtime prepare [--config-dir ~/.farming]
   farming review <git-dir> <old-revision> <new-revision|now> [--branch <branch>] [--no-open]
 
 Agent control commands are also available:
@@ -1156,12 +1187,12 @@ async function run(argv = process.argv.slice(2)) {
   }
 
   if (argv[0] === PACKAGED_CODEX_ACP_ARG) {
-    runPackagedCodexAcp();
+    await runPackagedCodexAcp();
     return 0;
   }
 
-  if (argv[0] === PACKAGED_BROWSER_LAUNCH_GATE_ARG) {
-    runBrowserLaunchGate(argv.slice(1));
+  if (argv[0] === PACKAGED_CLAUDE_ACP_ARG) {
+    await runPackagedClaudeAcp();
     return 0;
   }
 
@@ -1185,6 +1216,14 @@ async function run(argv = process.argv.slice(2)) {
   if (argv[0] === 'browser') {
     const { run: runBrowserCli } = require('../extensions/browser/bin/farming-browser');
     return runBrowserCli(argv.slice(1));
+  }
+
+  if (argv[0] === 'runtime' && argv[1] === 'prepare') {
+    const parsed = parseServerArgs(['start', ...argv.slice(2)]);
+    const env = buildServerEnv(parsed.env);
+    const result = await prepareStartupDependencies(env, { force: true });
+    console.log(JSON.stringify(result, null, 2));
+    return 0;
   }
 
   if (SERVER_BACKED_CONTROL_COMMANDS.has(argv[0])) {

@@ -43,9 +43,6 @@ function browserCopy(language: UiPreferences['language']) {
     startBrowser: zh ? '启动浏览器' : 'Start Browser',
     stopBrowser: zh ? '停止浏览器' : 'Stop Browser',
     deleteBrowser: zh ? '删除浏览器' : 'Delete Browser',
-    deleteConfirm: (name: string) => zh
-      ? `删除浏览器“${name}”及其独立资料目录？`
-      : `Delete Browser “${name}” and its isolated profile?`,
     failed: zh ? '浏览器失败' : 'Browser failed',
     starting: zh ? '启动中…' : 'Starting…',
     stopping: zh ? '停止中…' : 'Stopping…',
@@ -175,7 +172,6 @@ function BrowserRow({
           aria-label={copy.deleteBrowser}
           onClick={event => {
             event.stopPropagation()
-            if (!window.confirm(copy.deleteConfirm(resource.name))) return
             void controller.remove(resource.id).catch(error => {
               window.alert(error instanceof Error ? error.message : copy.deleteFailed)
             })
@@ -229,7 +225,7 @@ function BrowserSection({
             {collapsed ? <ChevronRightGlyph /> : <ChevronDownGlyph />}
           </span>
           <span>{copy.browsers}</span>
-          <small>{resources.length}</small>
+          {resources.length > 0 && <small>{resources.length}</small>}
         </button>
         <button
           type="button"
@@ -342,10 +338,12 @@ export function BrowserSidebarPortals({
       {projects.map(project => {
         const target = targets.get(project.id)
         if (!target || !project.workspace) return null
+        const resources = controller.byWorkspace.get(project.workspace) ?? []
+        if (resources.length === 0) return null
         return createPortal(
           <BrowserSection
             project={project}
-            resources={controller.byWorkspace.get(project.workspace) ?? []}
+            resources={resources}
             activeBrowserId={activeBrowserId}
             controller={controller}
             copy={copy}

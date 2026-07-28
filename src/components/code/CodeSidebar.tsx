@@ -14,6 +14,7 @@ import {
   HistoryGlyph,
   NewAgentGlyph,
   PencilGlyph,
+  PuzzleGlyph,
   SettingsGlyph,
   SearchGlyph,
 } from '@/components/IconGlyphs'
@@ -519,6 +520,19 @@ export function CodeSidebar({
               >
                 <span className="code-sidebar-history-icon" aria-hidden="true">
                   <HistoryGlyph />
+                </span>
+              </button>
+              <button
+                type="button"
+                className={`code-sidebar-plugins-toggle ${activeView === 'plugins' ? 'active' : ''}`}
+                data-testid="code-nav-plugins"
+                aria-label={copy.plugins}
+                title={copy.plugins}
+                aria-pressed={activeView === 'plugins'}
+                onClick={() => onOpenWorkspaceView('plugins')}
+              >
+                <span className="code-sidebar-plugins-icon" aria-hidden="true">
+                  <PuzzleGlyph />
                 </span>
               </button>
             </>

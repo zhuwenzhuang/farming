@@ -2,17 +2,12 @@ const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { spawn } = require('child_process');
 const { EventEmitter } = require('events');
-const WebSocket = require('ws');
-const { WebSocketServer } = WebSocket;
-const { CdpClient } = require('../../extensions/browser/backend/cdp-client');
 const {
-  CdpBrowserRuntime,
-  PACKAGED_BROWSER_LAUNCH_GATE_ARG,
-  browserLaunchArguments,
-  launchSystemBrowser,
-} = require('../../extensions/browser/backend/cdp-browser-runtime');
+  discoverBrowserExecutable,
+  discoverBrowserRuntime,
+  normalizeExternalCdpUrl,
+} = require('../../extensions/browser/backend/executable-discovery');
 const {
   applyBrowserResource,
   applyBrowserResourceDeletion,
@@ -29,12 +24,14 @@ class FakeBrowserRuntime extends EventEmitter {
     super();
     this.id = options.id;
     this.generation = options.generation;
+    this.externalCdpUrl = options.externalCdpUrl || '';
     this.startedUrl = '';
     this.closed = false;
     this.closeFailures = 0;
     this.latestFrame = null;
     this.viewers = new Set();
     this.resizeCalls = 0;
+    this.resizeValues = [];
   }
 
   async start(url) {
@@ -95,8 +92,9 @@ class FakeBrowserRuntime extends EventEmitter {
 
   async wheel() {}
   async pointer() {}
-  async resize() {
+  async resize(value) {
     this.resizeCalls += 1;
+    this.resizeValues.push(value);
   }
   async insertText() {}
 }
@@ -113,174 +111,66 @@ class FakeViewer extends EventEmitter {
   }
 }
 
-async function testCdpClient() {
-  const server = new WebSocketServer({ port: 0 });
-  await new Promise(resolve => server.once('listening', resolve));
-  const port = server.address().port;
-  server.on('connection', socket => {
-    socket.on('message', raw => {
-      const message = JSON.parse(raw.toString());
-      socket.send(JSON.stringify({
-        id: message.id,
-        sessionId: message.sessionId,
-        result: { echoed: message.method },
-      }));
-      socket.send(JSON.stringify({
-        method: 'Page.testEvent',
-        sessionId: message.sessionId,
-        params: { value: 42 },
-      }));
-    });
-  });
-  const client = new CdpClient({ timeoutMs: 1_000 });
-  try {
-    await client.connect(`ws://127.0.0.1:${port}`);
-    const event = client.waitFor('Page.testEvent', { sessionId: 'session-1' });
-    assert.deepStrictEqual(await client.send('Page.enable', {}, 'session-1'), { echoed: 'Page.enable' });
-    assert.deepStrictEqual(await event, { value: 42 });
-  } finally {
-    client.close();
-    await new Promise(resolve => server.close(resolve));
-  }
-}
-
-function testSystemBrowserLaunchFlags() {
-  const profileDir = '/tmp/farming-browser-launch-flags';
-  const sandboxed = browserLaunchArguments(profileDir, { platform: 'linux', noSandbox: false });
-  const unsandboxed = browserLaunchArguments(profileDir, { platform: 'linux', noSandbox: true });
-  assert(sandboxed.includes('--disable-dev-shm-usage'));
-  assert(!sandboxed.includes('--no-sandbox'));
-  assert(unsandboxed.includes('--no-sandbox'));
-  assert(unsandboxed.includes('--disable-setuid-sandbox'));
-  assert(sandboxed.includes('--remote-debugging-port=0'));
-
-  const launches = [];
-  const child = launchSystemBrowser('/fake/chrome', profileDir, {
-    packagedRuntime: true,
-    spawn: (command, args, options) => {
-      launches.push({ command, args, options });
-      return {
-        stdin: { end() {} },
-        stderr: new EventEmitter(),
-      };
-    },
-  });
-  assert(child);
-  assert.strictEqual(launches[0].command, process.execPath);
-  assert.strictEqual(launches[0].args[0], PACKAGED_BROWSER_LAUNCH_GATE_ARG);
-  assert.strictEqual(launches[0].args[1], '/fake/chrome');
-}
-
-async function testBrowserLaunchGate() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-browser-gate-'));
-  const fixture = path.join(root, 'browser-fixture.js');
-  const marker = path.join(root, 'launched');
-  const gatePath = path.join(__dirname, '..', '..', 'extensions', 'browser', 'backend', 'browser-launch-gate.js');
-  fs.writeFileSync(fixture, `require('fs').writeFileSync(process.argv[2], 'launched');\n`);
-  const gate = spawn(process.execPath, [gatePath, process.execPath, fixture, marker], {
-    detached: true,
-    stdio: ['pipe', 'ignore', 'ignore'],
-  });
-  try {
-    await new Promise((resolve, reject) => {
-      gate.once('spawn', resolve);
-      gate.once('error', reject);
-    });
-    await new Promise(resolve => setTimeout(resolve, 100));
-    assert.strictEqual(fs.existsSync(marker), false, 'the Browser executable must not start before identity commit releases the gate');
-    const exited = new Promise(resolve => gate.once('exit', resolve));
-    gate.stdin.end('GO\n');
-    await exited;
-    assert.strictEqual(fs.readFileSync(marker, 'utf8'), 'launched');
-  } finally {
-    if (gate.exitCode === null && gate.signalCode === null) process.kill(-gate.pid, 'SIGKILL');
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-}
-
-async function testScreencastFrameRateBound() {
-  let now = 1_000;
-  const scheduled = [];
-  const cancelled = [];
-  const runtime = new CdpBrowserRuntime({
-    id: 'browser_test',
-    generation: 1,
-    executablePath: '/fake/chrome',
-    profileDir: '/tmp/fake-browser-profile',
-    now: () => now,
-    scheduleTimeout: (callback, waitMs) => {
-      const timer = { callback, waitMs };
-      scheduled.push(timer);
-      return timer;
-    },
-    cancelTimeout: timer => cancelled.push(timer),
-  });
-  runtime.sessionId = 'target-session';
-  runtime.client = {
-    send: async () => ({}),
-  };
-  const frames = [];
-  runtime.on('frame', frame => frames.push(frame));
-
-  runtime.publishScreencastFrame({ data: 'frame-1' }, 'target-session');
-  assert.deepStrictEqual(frames, [{ data: 'frame-1' }], 'The first Browser frame should be visible immediately');
-
-  now += 1;
-  runtime.publishScreencastFrame({ data: 'frame-2' }, 'target-session');
-  runtime.publishScreencastFrame({ data: 'frame-3' }, 'target-session');
-  assert.strictEqual(frames.length, 1, 'Following Browser frames must wait for the frame-rate boundary');
-  assert.strictEqual(scheduled.length, 1, 'A burst should own only one trailing frame timer');
-  assert(scheduled[0].waitMs >= 65 && scheduled[0].waitMs <= 67);
-  now += scheduled[0].waitMs;
-  scheduled[0].callback();
-  assert.deepStrictEqual(
-    frames,
-    [{ data: 'frame-1' }, { data: 'frame-3' }],
-    'The trailing frame must be the newest frame from the burst',
+function testExternalCdpDiscoveryConfiguration() {
+  assert.strictEqual(
+    normalizeExternalCdpUrl('http://127.0.0.1:9222'),
+    'http://127.0.0.1:9222/',
   );
-
-  now += 1;
-  runtime.publishScreencastFrame({ data: 'stale-frame' }, 'target-session');
-  await runtime.detachActiveTarget();
-  assert.strictEqual(cancelled.length, 1, 'Detaching a page must cancel its delayed Viewer frame');
-  scheduled[1].callback();
-  assert.strictEqual(frames.length, 2, 'A detached page must not publish a stale trailing frame');
+  assert.strictEqual(
+    normalizeExternalCdpUrl('ws://localhost:9222/devtools/browser/example'),
+    'ws://localhost:9222/devtools/browser/example',
+  );
+  assert.strictEqual(normalizeExternalCdpUrl('http://10.0.0.8:9222'), '');
+  assert.strictEqual(normalizeExternalCdpUrl('http://user:pass@127.0.0.1:9222'), '');
+  assert.strictEqual(normalizeExternalCdpUrl('http://127.0.0.1:9222?token=secret'), '');
+  assert.deepStrictEqual(
+    discoverBrowserExecutable({
+      env: { FARMING_BROWSER_CDP_URL: 'http://127.0.0.1:9222' },
+      platform: 'linux',
+    }),
+    {
+      kind: 'external-cdp',
+      path: '',
+      cdpUrl: 'http://127.0.0.1:9222/',
+    },
+  );
+  assert.match(
+    discoverBrowserExecutable({
+      env: { FARMING_BROWSER_CDP_URL: 'http://browser.example:9222' },
+      platform: 'linux',
+    }).error,
+    /loopback/,
+  );
 }
 
-async function testDeterministicViewerFrameCapture() {
-  const calls = [];
-  const runtime = new CdpBrowserRuntime({
-    id: 'browser_capture',
-    generation: 7,
-    executablePath: '/fake/chrome',
-    profileDir: '/tmp/fake-browser-profile',
+async function testManagedAgentBrowserDiscovery() {
+  const probed = [];
+  const managedPath = '/farming/runtime/agent-browser';
+  const runtime = await discoverBrowserRuntime({
+    env: {
+      FARMING_BROWSER_CDP_URL: 'http://127.0.0.1:9222',
+      FARMING_AGENT_BROWSER_BIN: managedPath,
+      PATH: '/system/bin',
+    },
+    execFile(executablePath, _args, _options, callback) {
+      probed.push(executablePath);
+      callback(null, 'agent-browser 0.32.3', '');
+    },
   });
-  runtime.sessionId = 'capture-session';
-  runtime.client = {
-    send: async (method, params, sessionId) => {
-      calls.push({ method, params, sessionId });
-      return { data: 'jpeg-frame' };
+  assert.strictEqual(runtime.agentBrowserPath, managedPath);
+  assert.strictEqual(runtime.agentBrowserSource, 'managed');
+  assert.deepStrictEqual(probed, [managedPath]);
+
+  const missing = await discoverBrowserRuntime({
+    env: {
+      FARMING_BROWSER_CDP_URL: 'http://127.0.0.1:9222',
+      PATH: '/system/bin',
     },
-  };
-  const frames = [];
-  runtime.on('frame', frame => frames.push(frame));
-  await runtime.captureViewerFrame();
-  assert.deepStrictEqual(calls, [{
-    method: 'Page.captureScreenshot',
-    params: {
-      format: 'jpeg',
-      quality: 80,
-      fromSurface: true,
-      captureBeyondViewport: false,
+    execFile() {
+      throw new Error('system agent-browser must not be probed');
     },
-    sessionId: 'capture-session',
-  }]);
-  assert.deepStrictEqual(frames, [{
-    type: 'browser-frame',
-    generation: 7,
-    data: 'jpeg-frame',
-  }]);
-  assert.deepStrictEqual(runtime.latestFrame, frames[0]);
+  });
+  assert.strictEqual(missing.runtimeErrorCode, 'NOT_FOUND');
 }
 
 async function testBrowserResourceManager() {
@@ -291,11 +181,12 @@ async function testBrowserResourceManager() {
     configDir,
     discoverExecutable: () => null,
   });
+  await unavailableManager.init();
   assert.deepStrictEqual(unavailableManager.capability(), {
     enabled: true,
     available: false,
     browser: null,
-    message: 'Install a Chromium-based browser to use the system Browser in Farming',
+    message: 'Install agent-browser and a Chromium-based browser, or configure a loopback external CDP endpoint',
   });
   const manager = new BrowserResourceManager({
     configDir,
@@ -318,6 +209,21 @@ async function testBrowserResourceManager() {
     assert.throws(() => manager.list(), /disabled/);
     enabled = true;
     assert.strictEqual(manager.capability().available, true);
+    const externalManager = new BrowserResourceManager({
+      configDir,
+      discoverExecutable: () => ({
+        kind: 'external-cdp',
+        path: '',
+        cdpUrl: 'http://127.0.0.1:9222/',
+      }),
+    });
+    await externalManager.init();
+    assert.deepStrictEqual(externalManager.capability(), {
+      enabled: true,
+      available: true,
+      browser: { kind: 'external-cdp', path: '' },
+      message: '',
+    });
     const created = manager.create({
       projectRootId: 'wroot_project',
       workspace: '/tmp/project',
@@ -353,15 +259,75 @@ async function testBrowserResourceManager() {
     viewer.emit('message', Buffer.from(JSON.stringify({
       type: 'resize',
       generation: running.generation,
+      width: 1200,
+      height: 700,
+      deviceScaleFactor: 2,
+    })));
+    viewer.emit('message', Buffer.from(JSON.stringify({
+      type: 'resize',
+      generation: running.generation,
+      width: 1280,
+      height: 720,
+      deviceScaleFactor: 2,
+    })));
+    await new Promise(resolve => setTimeout(resolve, 100));
+    assert.strictEqual(runtimes[0].resizeCalls, 1, 'Rapid primary Viewer resizes must coalesce');
+    assert.deepStrictEqual(runtimes[0].resizeValues, [{ width: 1280, height: 720, deviceScaleFactor: 2 }]);
+
+    const mobileViewer = new FakeViewer();
+    manager.attachViewer(created.id, mobileViewer);
+    mobileViewer.emit('message', Buffer.from(JSON.stringify({
+      type: 'resize',
+      generation: running.generation,
       width: 390,
       height: 800,
     })));
-    await new Promise(resolve => setImmediate(resolve));
+    await new Promise(resolve => setTimeout(resolve, 100));
     assert.strictEqual(
       runtimes[0].resizeCalls,
-      0,
-      'Viewer layout must not mutate the authoritative Browser viewport',
+      1,
+      'A secondary Viewer must not fight the primary Viewer for Browser geometry',
     );
+    mobileViewer.emit('message', Buffer.from(JSON.stringify({
+      type: 'resize',
+      generation: running.generation,
+      width: 390,
+      height: 800,
+      claim: true,
+    })));
+    await new Promise(resolve => setTimeout(resolve, 100));
+    assert.deepStrictEqual(
+      runtimes[0].resizeValues,
+      [
+        { width: 1280, height: 720, deviceScaleFactor: 2 },
+        { width: 390, height: 800, deviceScaleFactor: 1 },
+      ],
+      'A focused Viewer must be able to take geometry ownership',
+    );
+    viewer.emit('message', Buffer.from(JSON.stringify({
+      type: 'resize',
+      generation: running.generation,
+      width: 1300,
+      height: 730,
+    })));
+    await new Promise(resolve => setTimeout(resolve, 100));
+    assert.strictEqual(
+      runtimes[0].resizeCalls,
+      2,
+      'The old Viewer must become passive after ownership transfers',
+    );
+    mobileViewer.emit('close');
+    await new Promise(resolve => setTimeout(resolve, 100));
+    assert.deepStrictEqual(
+      runtimes[0].resizeValues,
+      [
+        { width: 1280, height: 720, deviceScaleFactor: 2 },
+        { width: 390, height: 800, deviceScaleFactor: 1 },
+        { width: 1300, height: 730, deviceScaleFactor: 1 },
+      ],
+      'The previous Viewer must regain ownership with its latest geometry when the owner disconnects',
+    );
+    viewer.emit('close');
 
     const navigated = await manager.navigate(created.id, 'https://example.com/path');
     assert.strictEqual(navigated.url, 'https://example.com/path');
@@ -481,6 +447,124 @@ async function testBrowserResourceManager() {
   }
 }
 
+async function testExternalBrowserErrorRedaction() {
+  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-external-browser-errors-'));
+  let failStart = true;
+  let failClose = false;
+  const manager = new BrowserResourceManager({
+    configDir,
+    discoverExecutable: () => ({
+      kind: 'external-cdp',
+      path: '',
+      cdpUrl: 'http://127.0.0.1:9222/',
+    }),
+    createRuntime: options => {
+      const runtime = new EventEmitter();
+      runtime.id = options.id;
+      runtime.generation = options.generation;
+      runtime.start = async url => {
+        if (failStart) throw new Error('connect ECONNREFUSED 127.0.0.1:9222');
+        return { url, title: 'External Browser' };
+      };
+      runtime.close = async () => {
+        if (failClose) throw new Error('connect ECONNREFUSED 127.0.0.1:9222');
+      };
+      return runtime;
+    },
+  });
+  try {
+    await manager.init();
+    const failed = manager.create({
+      projectRootId: 'wroot_external',
+      workspace: '/tmp/external',
+      name: 'External',
+      url: 'about:blank',
+    });
+    await assert.rejects(
+      manager.start(failed.id),
+      error => error.code === 'BROWSER_START_FAILED' && !error.message.includes('127.0.0.1'),
+    );
+    assert(!manager.get(failed.id).error.includes('127.0.0.1'));
+
+    failStart = false;
+    await manager.start(failed.id);
+    failClose = true;
+    await assert.rejects(
+      manager.stop(failed.id),
+      error => error.code === 'BROWSER_EXTERNAL_CDP_FAILED' && !error.message.includes('127.0.0.1'),
+    );
+    failClose = false;
+    await manager.stop(failed.id);
+  } finally {
+    await manager.dispose();
+    fs.rmSync(configDir, { recursive: true, force: true });
+  }
+}
+
+async function testAgentBrowserRestartRecovery() {
+  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-agent-browser-recovery-'));
+  const seed = new BrowserResourceManager({
+    configDir,
+    discoverExecutable: () => ({
+      kind: 'external-cdp',
+      path: '',
+      cdpUrl: 'http://127.0.0.1:9222/',
+      agentBrowserPath: '/test/agent-browser',
+    }),
+  });
+  try {
+    await seed.init();
+    const created = seed.store.create({
+      projectRootId: 'wroot_recovery',
+      workspace: '/tmp/recovery',
+      name: 'Recover',
+      url: 'about:blank',
+    });
+    seed.store.update(created.id, {
+      status: 'starting',
+      generation: 7,
+      browserKind: 'external-cdp',
+      runtimeKind: 'agent-browser',
+      processIdentity: null,
+    });
+    const local = seed.store.create({
+      projectRootId: 'wroot_recovery',
+      workspace: '/tmp/recovery',
+      name: 'Recover local',
+      url: 'about:blank',
+    });
+    seed.store.update(local.id, {
+      status: 'running',
+      generation: 3,
+      browserKind: 'chrome',
+      runtimeKind: 'agent-browser',
+      processIdentity: null,
+    });
+    const recoveries = [];
+    const recovered = new BrowserResourceManager({
+      configDir,
+      discoverExecutable: () => ({
+        kind: 'external-cdp',
+        path: '',
+        cdpUrl: 'http://127.0.0.1:9222/',
+        agentBrowserPath: '/test/agent-browser',
+      }),
+      recoverRuntime: async input => recoveries.push(input),
+    });
+    await recovered.init();
+    assert.strictEqual(recoveries.length, 2);
+    assert(recoveries.some(input => input.id === created.id && input.generation === 7));
+    assert(recoveries.some(input => input.id === local.id && input.generation === 3));
+    assert.strictEqual(recovered.store.get(created.id).status, 'failed');
+    assert.match(recovered.store.get(created.id).error, /cleaned up/);
+    assert.strictEqual(recovered.store.get(local.id).processIdentity, null);
+    await recovered.dispose();
+  } finally {
+    await seed.dispose();
+    fs.rmSync(configDir, { recursive: true, force: true });
+  }
+}
+
 function testBrowserResourceRevisionOrdering() {
   const current = {
     id: 'browser_revision',
@@ -535,11 +619,13 @@ function testBrowserUiAndPackagingWiring() {
   const projectRoot = path.join(__dirname, '..', '..');
   const workspaceSource = fs.readFileSync(path.join(projectRoot, 'src', 'components', 'CodeWorkspace.tsx'), 'utf8');
   const mainAreaSource = fs.readFileSync(path.join(projectRoot, 'src', 'components', 'code', 'CodeMainArea.tsx'), 'utf8');
+  const sidebarSource = fs.readFileSync(path.join(projectRoot, 'extensions', 'browser', 'frontend', 'BrowserSidebarPortals.tsx'), 'utf8');
   const serverSource = fs.readFileSync(path.join(projectRoot, 'backend', 'server.js'), 'utf8');
   const packageJson = JSON.parse(fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf8'));
   assert(workspaceSource.includes('<BrowserSidebarPortals'));
   assert(workspaceSource.includes("setMainPaneMode('browser')"));
   assert(mainAreaSource.includes('<BrowserViewer'));
+  assert(!sidebarSource.includes('window.confirm'), 'Browser row close must remove directly without a redundant confirmation');
   assert(serverSource.includes("createBrowserRouter(browserResourceManager"));
   assert.strictEqual(packageJson.dependencies['playwright-core'], undefined);
   assert.strictEqual(packageJson.bin['farming-browser'], 'extensions/browser/bin/farming-browser');
@@ -548,12 +634,11 @@ function testBrowserUiAndPackagingWiring() {
 }
 
 Promise.resolve()
-  .then(testCdpClient)
-  .then(testSystemBrowserLaunchFlags)
-  .then(testBrowserLaunchGate)
-  .then(testScreencastFrameRateBound)
-  .then(testDeterministicViewerFrameCapture)
+  .then(testExternalCdpDiscoveryConfiguration)
+  .then(testManagedAgentBrowserDiscovery)
   .then(testBrowserResourceManager)
+  .then(testExternalBrowserErrorRedaction)
+  .then(testAgentBrowserRestartRecovery)
   .then(testBrowserResourceRevisionOrdering)
   .then(testBrowserUiAndPackagingWiring)
   .then(() => console.log('browser extension tests passed'))

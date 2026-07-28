@@ -2,7 +2,7 @@
 
 > English version: [extension-model.md](./extension-model.md)
 
-状态：内部 Viewer 基础和基于系统浏览器的 Browser Resource MVP 已经实现，但尚不是公开的第三方 Extension API。
+状态：内部 Viewer 基础和基于 agent-browser 的 Browser Resource MVP 已经实现，但尚不是公开的第三方 Extension API。
 
 ## 已实现的基础
 
@@ -12,15 +12,19 @@ Project Files 现在通过同一个内部 Viewer Registry 解析内置的 Markdo
 
 用户显式打开的已知 Project Root 之外的可读文件仍然只读。对于精确打开的外部 HTML，临时 Preview Session 只授权该 HTML 所在目录，以便加载相对资源；它不会把这个目录加入 Files 浏览、Search、编辑或 Git Scope。
 
-基于系统浏览器的 Browser Extension 是第一种实时 Resource 实现，集成默认关闭；Agent Tool 和 MCP 挂载仍然按需进行。系统没有兼容的 Chromium 系浏览器时，Settings 明确提示所需浏览器类型，不展示开关，Project Browser 分组也保持隐藏。系统浏览器可用时，Settings 展示“系统浏览器”开关。只有“已启用且当前可用”时，Extension 才贡献 Browser UI，并接受 Browser API、EventSource、Viewer WebSocket、CLI 或 MCP 操作；因此只有启用 Extension 后才会建立实时事件订阅。关闭时必须先停止所有受管 Runtime；若无法证明清理完成，关闭失败且设置保持开启。
+Browser Extension 是第一种实时 Resource 实现，集成默认关闭；Agent Tool 和 MCP 挂载仍然按需进行。它可以启动系统已安装的 Chromium，也可以连接显式配置的外部 CDP Endpoint。插件页会显示当前可用来源；两个来源都不存在时禁用启用操作。只有“已启用且当前可用”时，Extension 才贡献 Browser UI，并接受 Browser API、EventSource、Viewer WebSocket、CLI 或 MCP 操作。
 
-每个 Project 可以拥有多个身份稳定、可重命名的 Browser Row。每一行都有独立 Profile 和显式的 `stopped -> starting -> running -> stopping -> stopped` 生命周期；启动或运行失败进入 `failed`。同一个 Browser 身份上的操作串行执行，过期 Viewer Generation 会被拒绝；Farming 重启时，之前仍处于运行态的行会标记为失败，而不会猜测某个已经失去 Owner 的浏览器进程是否可以安全复用。每次持久化变更都会同时递增 Row Revision 与 Collection Revision。后端先注册实时事件监听，再发送权威 Collection Snapshot；UI 按 Revision 归约 HTTP、EventSource 与 Viewer 更新，因此传输乱序不能让状态回退，也不能删除更新的状态。
+每个 Project 可以拥有多个身份稳定、可重命名的 Browser Row，并具有显式的 `stopped -> starting -> running -> stopping -> stopped` 生命周期；启动或运行失败进入 `failed`。系统浏览器 Row 拥有独立 Profile 和 agent-browser Session；外部 CDP Row 只拥有自己创建的页面 Target，浏览器进程、容器、镜像、Profile 与 Endpoint 仍归外部 Owner。同一个 Browser 身份上的操作串行执行，过期 Viewer Generation 会被拒绝；Farming 重启时，之前仍处于运行态的行会标记为失败。每次持久化变更都会同时递增 Row Revision 与 Collection Revision。后端先注册实时事件监听，再发送权威 Collection Snapshot；UI 按 Revision 归约 HTTP、EventSource 与 Viewer 更新，因此传输乱序不能让状态回退，也不能删除更新的状态。
 
-Extension 会发现兼容的 Chromium 系系统浏览器可执行文件，以 Headless 模式启动，并通过 WebSocket 直接连接原生 CDP。Farming 不携带 Chromium，Extension 也没有 Playwright 或 Puppeteer Runtime 依赖。`Page.startScreencast` 为受鉴权保护的工作区 Viewer 提供画面；启动以及已接受的页面变更输入还会通过同一 Viewer Stream 提交一帧 `Page.captureScreenshot`，因此 Screencast 安静或节流时，可见状态也不会落后于 CDP 已经接受的操作。人的操作和 Agent 操作共享同一条串行 Target 通道。Agent 操作也使用同一 Target，通过 Accessibility Snapshot、稳定的 Snapshot Ref、Screenshot、Navigation 和 CDP Input 工作。
+两个来源复用同一个版本精确锁定的 `agent-browser` Runtime。Server 打开端口前，启动依赖准备始终把锁定的当前平台 Artifact 下载、校验并写入 Farming 的不可变 Cache，不复用系统安装。Local Resource 由 Farming 把已安装 Chromium Executable 与独立 Profile 交给这份受管 Runtime，不再有第二套 Farming Chromium Launcher；External Resource 则由同一 Runtime 连接配置的回环 Endpoint，并创建一个带标签的 Tab。Farming 不访问 Docker、不管理容器，也不携带 Chromium。
+
+受鉴权保护的 Viewer 代理 Runtime 的 Session-scoped WebSocket Stream。Frame 使用 JPEG 保持交互响应速度，Viewport、Pointer、Wheel、Keyboard 与 Text Input 则通过同一个 Session 返回。Viewer 按 Frame 上报的 CSS 尺寸绘制；Client 较慢时会丢弃已经被新 Frame 取代的内容。Agent Command 与人的输入因此操作同一个 Browser Identity，Farming 不再携带第二条原生 CDP Action Path。
 
 Farming 不会把 Browser MCP 自动挂到 ACP Session。Codex、Claude Code、OpenCode 和 Qoder 在进程或 Session 创建时会收到一段很短的 Farming 启动提示，但 Farming 不修改 Project 或 Provider 自己的 Instruction 文件。这段提示要求 Agent 先查询 `farming capabilities`，不能假设能力存在。Browser 可用时，Agent 可按需通过 `farming browser` 列出、创建、启动、连接并操作当前 Project 的 Browser Resource；`farming-browser` 继续作为 npm Bin 别名。`farming browser mcp` 只供调用方在 Session 边界显式配置 MCP，不是默认挂载。
 
 Farming Code 后续应通过 Extension 扩展能力，而不是把每一种新资源和 Agent 能力直接加入核心产品。浏览器是当前最明确的例子，但不应因此在核心中形成一套一次性的浏览器子系统。
+
+Farming Code 通过统一的插件页面呈现这些能力。左上角的紧凑拼图按钮和空白欢迎页上的大型“插件”入口进入同一个页面；插件生命周期与配置归属这里，不再堆进通用设置。进入插件页本身只读，启用或停用仍是显式操作。
 
 ## Resource 与 Viewer 模型
 
@@ -62,11 +66,11 @@ Agent 仍然可以保留 Provider 原生或用户自行安装的工具。Farming
 
 ## Browser Extension 示例
 
-Farming 的 Browser Extension 启动系统已安装的浏览器，并拥有 Browser Session、Profile 和 CDP Endpoint。Extension Viewer 展示这个精确 Session，Extension 提供的 Agent Tools 也操作同一个身份。这样用户可以观察或接管浏览器，而不需要在每一种 Agent 实现中加入 Provider 特有的浏览器代码。
+Farming 的 Browser Extension 拥有一个 Browser Resource 身份，以及 Viewer 和 Agent Tool 共用的页面 Target。使用系统浏览器时，它同时拥有独立 Profile 和本地 agent-browser Session；使用外部 CDP 时，它只拥有创建的 Target 与连接，不拥有外部浏览器生命周期。
 
-MVP 有意只支持一条实现路径：系统 Chromium 系浏览器、原生 CDP 与 CDP Screencast。它不暴露浏览器原生窗口框架、Extension、下载界面、DevTools、任意桌面交互或 Computer Use。这些属于独立产品能力，不是隐藏的 Fallback Path。
+MVP 有意只支持一套操作实现：锁定版本的 `agent-browser` Command 与 Stream Protocol，通过本地系统浏览器 Executable 或外部 CDP 连接进入。它不暴露浏览器原生窗口框架、Extension、下载界面、DevTools、任意桌面交互或 Computer Use。这些属于独立产品能力，不是隐藏的 Fallback Path。
 
-每个 Browser 都有持久唯一 ID，归属于一个 Project Workspace，并可通过 `browser` URL Query Parameter 直接打开。Browser Metadata 与 Profile 位于 Farming 配置目录下；删除 Browser Row 时必须先停止它的精确 Runtime，再删除独立 Profile。
+每个 Browser 都有持久唯一 ID，归属于一个 Project Workspace，并可通过 `browser` URL Query Parameter 直接打开。删除系统浏览器 Row 时必须先停止精确 Runtime，再删除独立 Profile；删除外部 CDP Row 时只关闭 Farming 创建的 Target。
 
 ## 待确定问题
 

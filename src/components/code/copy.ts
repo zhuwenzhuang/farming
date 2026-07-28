@@ -220,6 +220,8 @@ export interface CodeCopy {
   emptyWorkspaceContinue: string
   emptyWorkspaceContinueDescription: string
   emptyWorkspaceNewAgentDescription: string
+  plugins: string
+  emptyWorkspacePluginsDescription: string
   emptyWorkspaceSearchDescription: string
   emptyWorkspaceShareDescription: string
   emptyWorkspaceFocus: string
@@ -705,6 +707,8 @@ const EN_COPY: CodeCopy = {
   emptyWorkspaceContinue: 'Continue earlier work',
   emptyWorkspaceContinueDescription: 'Resume Codex, Claude, and other Agent sessions from History.',
   emptyWorkspaceNewAgentDescription: 'Start a new coding task in the current project.',
+  plugins: 'Plugins',
+  emptyWorkspacePluginsDescription: 'Manage capabilities available to Farming and Agents.',
   emptyWorkspaceSearchDescription: 'Find projects, Agents, and history.',
   emptyWorkspaceShareDescription: 'Open Farming on your phone or another device.',
   emptyWorkspaceFocus: 'Focus mode',
@@ -1226,6 +1230,8 @@ const ZH_COPY: CodeCopy = {
   emptyWorkspaceContinue: '继续之前的工作',
   emptyWorkspaceContinueDescription: '从历史记录恢复 Codex、Claude 等 Agent 会话。',
   emptyWorkspaceNewAgentDescription: '在当前项目开始一个新的编码任务。',
+  plugins: '插件',
+  emptyWorkspacePluginsDescription: '管理 Farming 和 Agent 可以使用的能力。',
   emptyWorkspaceSearchDescription: '查找项目、Agent 和历史。',
   emptyWorkspaceShareDescription: '在手机或另一台设备打开。',
   emptyWorkspaceFocus: '专注模式',

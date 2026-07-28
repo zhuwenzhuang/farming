@@ -140,7 +140,7 @@ export interface AgentSessionSchedule {
   label?: string
 }
 
-export type WorkspaceView = 'projects' | 'search' | 'history'
+export type WorkspaceView = 'projects' | 'search' | 'history' | 'plugins'
 
 export type SpeechRecognitionResultLike = {
   isFinal: boolean

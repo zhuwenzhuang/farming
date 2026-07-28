@@ -2,7 +2,7 @@
 
 > Chinese version: [extension-model.zh_cn.md](./extension-model.zh_cn.md)
 
-Status: the internal Viewer foundation and system-browser-backed Browser Resource MVP are implemented; this is not yet a public third-party extension API.
+Status: the internal Viewer foundation and agent-browser-backed Browser Resource MVP are implemented; this is not yet a public third-party extension API.
 
 ## Implemented Foundation
 
@@ -12,15 +12,19 @@ The static HTML viewer uses the existing file tab and Source / Preview interacti
 
 An explicitly opened readable file outside known project roots remains read-only. For exact external HTML preview, the temporary Preview Session authorizes only the HTML file's containing directory so its relative assets can load; it does not add that directory to Files browsing, search, editing, or Git scope.
 
-The system-browser-backed Browser Extension is the first live Resource implementation. Its integration is disabled by default, and Agent tool and MCP attachment remain on demand. When no compatible Chromium-based browser is installed, Settings explains the required browser type and offers no toggle; Project Browser sections remain hidden. When a browser is installed, Settings exposes the System browser switch, and only an enabled and currently available Extension contributes Browser UI or accepts Browser API, EventSource, Viewer WebSocket, CLI, or MCP operations. Enabling the Extension is therefore what starts its live event subscription. Disabling first stops every owned runtime and fails visibly without changing the setting if cleanup cannot be proved.
+The Browser Extension is the first live Resource implementation. Its integration is disabled by default, and Agent tool and MCP attachment remain on demand. It can either launch an installed system Chromium or connect to an explicitly configured external CDP endpoint. The Plugins view names the available source and disables its enable action when neither exists. Only an enabled and currently available Extension contributes Browser UI or accepts Browser API, EventSource, Viewer WebSocket, CLI, or MCP operations.
 
-Each Project may own multiple stable, renameable Browser rows. Every row has an isolated profile and an explicit `stopped -> starting -> running -> stopping -> stopped` lifecycle; startup or runtime failure ends in `failed`. Operations are serialized per Browser identity, stale Viewer generations are rejected, and a Farming restart marks previously live rows failed instead of guessing whether an unowned browser process is safe to reuse. Every persisted mutation increments both the row revision and a collection revision. The backend registers live event listeners before emitting the authoritative collection snapshot, and the UI reduces HTTP, EventSource, and Viewer updates by those revisions so delayed transport delivery cannot regress or remove newer state.
+Each Project may own multiple stable, renameable Browser rows with an explicit `stopped -> starting -> running -> stopping -> stopped` lifecycle; startup or runtime failure ends in `failed`. System-browser rows own an isolated profile and their agent-browser Session. External-CDP rows own only the page targets they create; the external owner retains the browser process, container, image, profile, and endpoint. Operations are serialized per Browser identity, stale Viewer generations are rejected, and a Farming restart marks previously live rows failed. Every persisted mutation increments both the row revision and a collection revision. The backend registers live event listeners before emitting the authoritative collection snapshot, and the UI reduces HTTP, EventSource, and Viewer updates by those revisions so delayed transport delivery cannot regress or remove newer state.
 
-The Extension discovers a compatible Chromium-based system browser executable. It launches that executable headlessly and connects through raw CDP over WebSocket. Farming does not ship Chromium and the Extension has no Playwright or Puppeteer runtime dependency. `Page.startScreencast` supplies the authenticated in-workspace Viewer. Startup and accepted page-changing input also commit a `Page.captureScreenshot` frame through the same Viewer stream, so a quiet or throttled screencast cannot leave the visible state behind an action that CDP has already accepted. Human and Agent actions share one serialized target lane. Agent operations use the same target through accessibility snapshots, stable snapshot refs, screenshots, navigation and CDP input.
+Both sources use the same exact, version-locked `agent-browser` runtime. Before the Server opens its port, startup preparation always downloads and verifies the pinned platform artifact into Farming's immutable cache; a system `agent-browser` installation is never reused. For a local Resource, Farming gives an installed Chromium executable and isolated profile to that managed runtime; there is no separate Farming Chromium launcher. For an external Resource, the same runtime connects to the configured loopback endpoint and creates one labeled tab. Farming does not access Docker, manage containers, or ship Chromium.
+
+The authenticated Viewer proxies the runtime's session-scoped WebSocket stream. Frames are JPEG to keep interaction responsive, while viewport, pointer, wheel, keyboard, and text input return through the same Session. The Viewer paints at the frame's reported CSS dimensions and discards superseded frames when a client is slow. Agent commands and human input therefore operate the same Browser identity without Farming carrying a second raw-CDP action path.
 
 Farming does not auto-mount Browser MCP into ACP Sessions. Codex, Claude Code, OpenCode, and Qoder receive a small Farming startup bootstrap at process or Session creation time, without modifying the Project or provider-owned instruction files. The bootstrap tells the Agent to query `farming capabilities` instead of assuming a capability exists. When Browser is available, the Agent can list, create, start, attach and operate Project-owned Browser Resources on demand through `farming browser`; `farming-browser` remains the npm bin alias. `farming browser mcp` is an explicit stdio bridge for a caller that intentionally configures MCP at a Session boundary, not a default attachment.
 
 Farming Code should be able to grow through Extensions instead of adding every new resource and Agent capability directly to the core product. A browser is the motivating example, but it should not become a one-off browser subsystem.
+
+Farming Code exposes these capabilities through one Plugins view. A compact puzzle button in the top-left navigation and a large Plugins action on the empty welcome surface open that same view. Plugin lifecycle and configuration belong there rather than in general Settings. Opening the Plugins view is read-only; enabling or disabling a plugin remains an explicit action.
 
 ## Resource And Viewer Model
 
@@ -62,11 +66,11 @@ Agents may still have native or user-installed tools of their own. Farming does 
 
 ## Browser As An Extension
 
-Farming's Browser Extension owns a Browser Session, its profile and CDP endpoint while launching an installed system browser. The Extension viewer displays that exact Session, while the Extension's Agent tools operate on the same identity. This lets a human observe or take over without requiring provider-specific browser code inside every Agent implementation.
+Farming's Browser Extension owns one Browser Resource identity and the page target shown by its Viewer and Agent tools. With a system browser it also owns the isolated profile and local agent-browser Session. With external CDP it owns only its created target and connection, never the externally managed browser lifecycle.
 
-The MVP intentionally uses one implementation: a system Chromium-family executable plus raw CDP and CDP Screencast. It does not expose the browser's native window chrome, extensions, download UI, DevTools, arbitrary desktop interaction or Computer Use. Those are separate product capabilities rather than hidden fallback paths.
+The MVP intentionally uses one operations implementation: the pinned `agent-browser` command and stream protocols, reached through a local system-browser executable or external-CDP connection. It does not expose the browser's native window chrome, extensions, download UI, DevTools, arbitrary desktop interaction or Computer Use. Those are separate product capabilities rather than hidden fallback paths.
 
-Each Browser has a durable unique id, belongs to one Project workspace, and may be opened directly with the `browser` URL query parameter. Browser metadata and profiles live under the Farming config directory; deleting the row stops its exact runtime before removing its isolated profile.
+Each Browser has a durable unique id, belongs to one Project workspace, and may be opened directly with the `browser` URL query parameter. Deleting a system-browser row stops its exact runtime before removing its isolated profile. Deleting an external-CDP row closes only Farming-created targets.
 
 ## Open Design Questions
 

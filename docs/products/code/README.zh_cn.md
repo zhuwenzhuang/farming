@@ -12,6 +12,8 @@ Farming Code 是 Farming 2 的默认界面：一个运行在开发机上的浏�
 
 跨界面的完整能力矩阵见 [Farming 2 产品总览](../README.zh_cn.md)。本文会随产品变化直接更新，始终描述当前体验，而不是某一个版本。
 
+如需使用由 Farming 之外管理的 Chromium（包括 Docker 内浏览器），参见[连接外部 CDP 浏览器](external-cdp-browser.zh_cn.md)。
+
 ## 切换到 Farming CRT
 
 点击左下角齿轮，找到**界面**，选择 **Farming CRT**。Farming 会打开 `<base-path>/crt/`，并在条件允许时带上当前聚焦的 Agent。返回时，在 CRT 中按 `S`（或选择 **[S] SETTINGS**），再在 **UI Theme** 中选择 **Farming Code**。切换后仍是同一个实时 Agent 和 Provider Session，不会重启或复制进程。

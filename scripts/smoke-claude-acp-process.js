@@ -31,19 +31,19 @@ function parseArgs(argv) {
 function launchForOptions(options) {
   if (options.packageRoot) {
     const runtime = require(path.join(options.packageRoot, 'backend', 'acp-runtime'));
-    return runtime.resolveAcpLaunch('codex');
+    return runtime.resolveAcpLaunch('claude');
   }
   return { command: options.command, args: options.args };
 }
 
-async function smokeCodexAcp(options) {
+async function smokeClaudeAcp(options) {
   const launch = launchForOptions(options);
   const timeoutMs = Number.isFinite(options.timeoutMs) && options.timeoutMs > 0
     ? options.timeoutMs
     : 20_000;
   const child = spawn(launch.command, launch.args, {
     cwd: options.packageRoot || process.cwd(),
-    env: { ...process.env, CODEX_PATH: process.env.CODEX_PATH || 'codex' },
+    env: { ...process.env, CLAUDE_CODE_EXECUTABLE: process.execPath },
     stdio: ['pipe', 'pipe', 'pipe'],
   });
   let stderr = '';
@@ -54,7 +54,7 @@ async function smokeCodexAcp(options) {
 
   const response = await new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
-      reject(new Error(`Codex ACP initialize timed out after ${timeoutMs}ms${stderr ? `: ${stderr.trim()}` : ''}`));
+      reject(new Error(`Claude ACP initialize timed out after ${timeoutMs}ms${stderr ? `: ${stderr.trim()}` : ''}`));
     }, timeoutMs);
     timer.unref?.();
     const finish = (callback, value) => {
@@ -65,7 +65,7 @@ async function smokeCodexAcp(options) {
     child.once('exit', (code, signal) => {
       finish(
         reject,
-        new Error(`Codex ACP exited before initialize: code=${code} signal=${signal || ''}${stderr ? `: ${stderr.trim()}` : ''}`),
+        new Error(`Claude ACP exited before initialize: code=${code} signal=${signal || ''}${stderr ? `: ${stderr.trim()}` : ''}`),
       );
     });
     child.stdout.on('data', chunk => {
@@ -80,7 +80,7 @@ async function smokeCodexAcp(options) {
         try {
           message = JSON.parse(line);
         } catch {
-          finish(reject, new Error(`Codex ACP wrote non-JSON stdout: ${line}`));
+          finish(reject, new Error(`Claude ACP wrote non-JSON stdout: ${line}`));
           return;
         }
         if (message.id === 1) {
@@ -103,22 +103,21 @@ async function smokeCodexAcp(options) {
 
   child.kill('SIGTERM');
   if (response.error) {
-    throw new Error(`Codex ACP initialize failed: ${JSON.stringify(response.error)}`);
+    throw new Error(`Claude ACP initialize failed: ${JSON.stringify(response.error)}`);
   }
   if (response.result?.protocolVersion !== 1) {
-    throw new Error(`Codex ACP selected unexpected protocol version: ${response.result?.protocolVersion}`);
-  }
-  const steer = response.result?.agentCapabilities?._meta?.codex?.steer;
-  if (steer?.method !== '_codex/session/steer' || steer?.version !== 1) {
-    throw new Error(`Codex ACP initialize omitted the reviewed steer capability: ${JSON.stringify(steer)}`);
+    throw new Error(`Claude ACP selected unexpected protocol version: ${response.result?.protocolVersion}`);
   }
   if (response.result?.agentCapabilities?.sessionCapabilities?.fork == null) {
-    throw new Error('Codex ACP initialize omitted the reviewed session/fork capability');
+    throw new Error('Claude ACP initialize omitted session/fork');
   }
-  console.log(`✓ Codex ACP process initialized through ${launch.command} ${launch.args.join(' ')}`);
+  if (response.result?.agentInfo?.version !== '0.59.0') {
+    throw new Error(`Claude ACP selected unexpected version: ${response.result?.agentInfo?.version}`);
+  }
+  console.log(`✓ Claude ACP process initialized through ${launch.command} ${launch.args.join(' ')}`);
 }
 
-smokeCodexAcp(parseArgs(process.argv.slice(2))).catch(error => {
+smokeClaudeAcp(parseArgs(process.argv.slice(2))).catch(error => {
   console.error(error.message || error);
   process.exit(1);
 });

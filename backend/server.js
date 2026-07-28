@@ -51,7 +51,7 @@ const { CodexContextWindowReader } = require('./codex-context-window');
 const { DEFAULT_MAX_TURNS: DEFAULT_CODEX_TRANSCRIPT_MAX_TURNS, readCodexTranscript } = require('./codex-transcript');
 const { AsyncCache } = require('./async-cache');
 const { getMainAgentSkillsCatalog } = require('./main-agent-skills');
-const { discoverSlashCommands } = require('./slash-command-discovery');
+const { discoverAgentExtensions, discoverSlashCommands } = require('./slash-command-discovery');
 const { FarmingUpdateService } = require('./update-service');
 const { inputPartsFromMessage } = require('./input-parts');
 const { cleanupTerminalRuntime } = require('./terminal-runtime-cleanup');
@@ -629,6 +629,40 @@ app.use(routePath(BASE_PATH, '/api/workspaces'), createWorkspaceDirectoryRouter(
 
 app.get(routePath(BASE_PATH, '/api/skills'), (_req, res) => {
   res.json({ skills: getMainAgentSkillsCatalog() });
+});
+
+app.get(routePath(BASE_PATH, '/api/agent-extensions'), (_req, res) => {
+  const agents = getAvailableAgentsForRequest()
+    .filter(agent => agent.category === 'coding')
+    .map(agent => {
+      const provider = String(agent.name || agent.command || '').trim().toLowerCase();
+      const configuredHomes = configManager.getAgentHomes(provider);
+      const homes = configuredHomes.length > 0
+        ? configuredHomes
+        : [{ id: 'default', path: '' }];
+      return {
+        id: provider,
+        name: agent.name,
+        description: agent.description || '',
+        discoverySupported: provider === 'codex' || provider === 'claude',
+        homes: homes.map(home => ({
+          id: home.id,
+          extensions: discoverAgentExtensions({
+            provider,
+            providerHomePath: home.path,
+          }).map(extension => ({
+            id: extension.command,
+            command: extension.command,
+            name: extension.label,
+            description: extension.description,
+            kind: extension.source === 'custom' ? 'command' : extension.source || 'command',
+            scope: extension.scope || '',
+          })),
+        })),
+      };
+    });
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({ agents });
 });
 
 app.get(routePath(BASE_PATH, '/api/slash-commands'), (req, res) => {
@@ -2198,12 +2232,17 @@ app.post(routePath(BASE_PATH, '/api/settings'), express.json(), async (req, res)
   delete settingsPatch.pinnedProjectWorkspaces;
   const changesBrowserExtension = Object.prototype.hasOwnProperty.call(settingsPatch, 'browserExtensionEnabled');
   const browserExtensionEnabled = settingsPatch.browserExtensionEnabled === true;
-  if (changesBrowserExtension && browserExtensionEnabled && !browserResourceManager.capability().browser) {
-    res.status(400).json({
-      error: 'Install a Chromium-based browser to use the system Browser in Farming',
-      code: 'BROWSER_EXECUTABLE_NOT_FOUND',
-    });
-    return;
+  if (changesBrowserExtension && browserExtensionEnabled) {
+    await browserResourceManager.refreshCapability();
+    const browserCapability = browserResourceManager.capability();
+    if (!browserCapability.browser) {
+      res.status(400).json({
+        error: browserCapability.message
+          || 'Install a Chromium-based browser or configure a loopback external CDP endpoint',
+        code: 'BROWSER_EXECUTABLE_NOT_FOUND',
+      });
+      return;
+    }
   }
   if (
     changesBrowserExtension

@@ -1,6 +1,8 @@
 const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
+const { verifyExecutable } = require('../../../backend/runtime-dependency-manager');
+const { AGENT_BROWSER_VERSION } = require('./agent-browser-runtime');
 
 function executable(pathname, kind) {
   if (!pathname) return null;
@@ -22,14 +24,25 @@ function firstExecutable(candidates) {
 
 function which(command) {
   try {
-    return execFileSync('which', [command], {
+    const program = process.platform === 'win32' ? 'where.exe' : 'which';
+    return execFileSync(program, [command], {
       encoding: 'utf8',
       timeout: 1_000,
       maxBuffer: 16_384,
-    }).trim();
+    }).split(/\r?\n/).map(value => value.trim()).find(Boolean) || '';
   } catch {
     return '';
   }
+}
+
+function managedAgentBrowserPath(options = {}) {
+  const env = options.env || process.env;
+  return String(
+    options.agentBrowserPath
+    || env.FARMING_AGENT_BROWSER_BIN
+    || env.FARMING_AGENT_BROWSER_EXECUTABLE
+    || '',
+  ).trim();
 }
 
 function discoverMacBrowser() {
@@ -73,9 +86,37 @@ function discoverWindowsBrowser(env) {
   return firstExecutable(candidates);
 }
 
+function normalizeExternalCdpUrl(value) {
+  const input = String(value || '').trim();
+  if (!input) return '';
+  try {
+    const url = new URL(input);
+    if (!['http:', 'https:', 'ws:', 'wss:'].includes(url.protocol)) return '';
+    if (url.username || url.password || url.search) return '';
+    const hostname = url.hostname.toLowerCase();
+    if (!['localhost', '127.0.0.1', '[::1]'].includes(hostname)) return '';
+    url.hash = '';
+    return url.href;
+  } catch {
+    return '';
+  }
+}
+
 function discoverBrowserExecutable(options = {}) {
   const env = options.env || process.env;
   const platform = options.platform || process.platform;
+  const externalCdpInput = String(options.externalCdpUrl || env.FARMING_BROWSER_CDP_URL || '').trim();
+  if (externalCdpInput) {
+    const cdpUrl = normalizeExternalCdpUrl(externalCdpInput);
+    return cdpUrl
+      ? { kind: 'external-cdp', path: '', cdpUrl }
+      : {
+          kind: 'external-cdp',
+          path: '',
+          cdpUrl: '',
+          error: 'FARMING_BROWSER_CDP_URL must be a loopback http(s) or ws(s) CDP endpoint without credentials or query parameters',
+        };
+  }
   const configured = String(options.executablePath || env.FARMING_BROWSER_EXECUTABLE || '').trim();
   if (configured) {
     return executable(path.resolve(configured), 'custom');
@@ -86,6 +127,38 @@ function discoverBrowserExecutable(options = {}) {
   return null;
 }
 
+async function discoverBrowserRuntime(options = {}) {
+  const browser = discoverBrowserExecutable(options);
+  if (!browser || browser.error) return browser;
+  const agentBrowserPath = managedAgentBrowserPath(options);
+  if (!agentBrowserPath) {
+    return {
+      ...browser,
+      error: `agent-browser ${AGENT_BROWSER_VERSION} is required; restart Farming through its launcher to prepare startup dependencies`,
+      runtimeErrorCode: 'NOT_FOUND',
+    };
+  }
+  const verification = await verifyExecutable(agentBrowserPath, AGENT_BROWSER_VERSION, {
+    execFile: options.execFile,
+  });
+  if (!verification.valid) {
+    return {
+      ...browser,
+      error: `The Farming-managed agent-browser must be version ${AGENT_BROWSER_VERSION}`,
+      runtimeErrorCode: 'VERSION_MISMATCH',
+    };
+  }
+  return {
+    ...browser,
+    agentBrowserPath,
+    agentBrowserVersion: AGENT_BROWSER_VERSION,
+    agentBrowserSource: 'managed',
+  };
+}
+
 module.exports = {
   discoverBrowserExecutable,
+  discoverBrowserRuntime,
+  managedAgentBrowserPath,
+  normalizeExternalCdpUrl,
 };
