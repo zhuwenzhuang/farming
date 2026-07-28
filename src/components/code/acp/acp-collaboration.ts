@@ -1,6 +1,10 @@
-import type { AgentTranscriptProcessItem } from './acp-entry-projection'
+import type {
+  AgentTranscriptProcessItem,
+  AgentTranscriptSubagentState,
+} from './acp-entry-projection'
 
 export type AcpCollaborationAction = 'started' | 'updated' | 'finished' | 'interrupted' | 'failed' | 'recorded'
+export type AcpCollaborationStatus = 'pending' | 'running' | 'completed' | 'paused' | 'failed' | 'closed' | 'unknown'
 
 export interface AcpCollaborationEvent {
   id: string
@@ -17,7 +21,8 @@ export interface AcpCollaborationAgent {
   id: string
   threadId: string
   name: string
-  action: AcpCollaborationAction
+  status: AcpCollaborationStatus
+  parentThreadId?: string
   tone: number
   icon: number
   events: AcpCollaborationEvent[]
@@ -47,14 +52,6 @@ function activityAction(activity: string): AcpCollaborationAction | null {
   if (activity === 'started') return 'started'
   if (activity === 'interacted') return 'updated'
   if (activity === 'interrupted') return 'interrupted'
-  return null
-}
-
-function stateAction(status: string): AcpCollaborationAction | null {
-  if (['completed', 'shutdown'].includes(status)) return 'finished'
-  if (['errored', 'notfound'].includes(status)) return 'failed'
-  if (status === 'interrupted') return 'interrupted'
-  if (['pendinginit', 'running'].includes(status)) return 'updated'
   return null
 }
 
@@ -129,9 +126,8 @@ export function acpCollaborationEvents(items: AgentTranscriptProcessItem[]): Acp
       ...Object.keys(collaboration.agentsStates || {}),
     ].filter(Boolean))]
     for (const threadId of threadIds) {
-      const agentStatus = String(collaboration.agentsStates?.[threadId]?.status || '').toLowerCase()
       const action = tool === 'wait'
-        ? stateAction(agentStatus) || (itemStatus === 'failed' ? 'failed' : 'recorded')
+        ? (itemStatus === 'failed' ? 'failed' : 'recorded')
         : fallbackToolAction(tool, itemStatus) || 'recorded'
       if (tool !== 'wait' && action !== 'recorded' && activityActions.has(`${threadId}:${action}`)) continue
       append(item, threadId, action, collaboration.agentsStates?.[threadId]?.message)
@@ -140,13 +136,26 @@ export function acpCollaborationEvents(items: AgentTranscriptProcessItem[]): Acp
   return events
 }
 
-export function acpCollaborationAgents(items: AgentTranscriptProcessItem[]): AcpCollaborationAgent[] {
+function collaborationStatus(status: string): AcpCollaborationStatus {
+  if (status === 'pendingInit') return 'pending'
+  if (status === 'running') return 'running'
+  if (status === 'completed') return 'completed'
+  if (status === 'interrupted') return 'paused'
+  if (['errored', 'notFound'].includes(status)) return 'failed'
+  if (status === 'shutdown') return 'closed'
+  return 'unknown'
+}
+
+export function acpCollaborationAgents(
+  items: AgentTranscriptProcessItem[],
+  states: AgentTranscriptSubagentState[] = [],
+): AcpCollaborationAgent[] {
+  const stateByThreadId = new Map(states.map(state => [state.threadId, state]))
   const groups = new Map<string, AcpCollaborationAgent>()
   for (const event of acpCollaborationEvents(items)) {
     const existing = groups.get(event.threadId)
     if (existing) {
       existing.events.push(event)
-      if (event.action !== 'recorded') existing.action = event.action
       existing.name = event.name
       const previousActivity = existing.activities[existing.activities.length - 1]
       if (
@@ -175,7 +184,8 @@ export function acpCollaborationAgents(items: AgentTranscriptProcessItem[]): Acp
       id: event.threadId,
       threadId: event.threadId,
       name: event.name,
-      action: event.action,
+      status: collaborationStatus(stateByThreadId.get(event.threadId)?.status || ''),
+      parentThreadId: stateByThreadId.get(event.threadId)?.parentThreadId,
       tone: event.tone,
       icon: agentIcon(event.threadId),
       events: [event],
@@ -188,6 +198,26 @@ export function acpCollaborationAgents(items: AgentTranscriptProcessItem[]): Acp
         message: event.message,
         count: 1,
       }],
+    })
+  }
+  for (const agent of groups.values()) {
+    const state = stateByThreadId.get(agent.threadId)
+    if (state?.name?.trim()) agent.name = state.name.trim()
+    agent.status = collaborationStatus(state?.status || '')
+    agent.parentThreadId = state?.parentThreadId
+  }
+  for (const state of states) {
+    if (groups.has(state.threadId)) continue
+    groups.set(state.threadId, {
+      id: state.threadId,
+      threadId: state.threadId,
+      name: state.name?.trim() || displayAgentName('', state.threadId),
+      status: collaborationStatus(state.status),
+      parentThreadId: state.parentThreadId,
+      tone: eventTone(state.threadId),
+      icon: agentIcon(state.threadId),
+      events: [],
+      activities: [],
     })
   }
   return [...groups.values()]

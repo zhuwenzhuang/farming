@@ -4,6 +4,9 @@ const { fileURLToPath } = require('url');
 
 const MAX_ACP_UPDATES = 2_000;
 const MAX_ACP_UPDATE_LOG_VALUE_CHARS = 32 * 1024;
+const MAX_CODEX_SUBAGENTS = 128;
+const MAX_CODEX_SUBAGENT_ID_CHARS = 160;
+const MAX_CODEX_SUBAGENT_NAME_CHARS = 120;
 const MAX_CODEX_HISTORY_IMAGES_PER_MESSAGE = 6;
 const MAX_CODEX_HISTORY_IMAGE_BYTES = 5 * 1024 * 1024;
 const CODEX_HISTORY_IMAGE_MIME_BY_EXT = Object.freeze({
@@ -25,6 +28,54 @@ const {
 
 function clone(value) {
   return value === undefined ? undefined : JSON.parse(JSON.stringify(value));
+}
+
+function boundedSubagentId(value) {
+  return String(value || '').trim().slice(0, MAX_CODEX_SUBAGENT_ID_CHARS);
+}
+
+function normalizeCodexSubagentStatus(value) {
+  const status = String(value || '');
+  return [
+    'pendingInit',
+    'running',
+    'completed',
+    'interrupted',
+    'errored',
+    'shutdown',
+    'notFound',
+  ].includes(status) ? status : '';
+}
+
+function normalizeCodexSubagentUpdate(raw, sessionId) {
+  if (!raw || raw.version !== 1 || !Array.isArray(raw.agents)) return null;
+  const rootThreadId = boundedSubagentId(raw.rootThreadId);
+  if (!rootThreadId || rootThreadId !== sessionId) return null;
+  const agents = [];
+  const seen = new Set();
+  for (const candidate of raw.agents.slice(0, MAX_CODEX_SUBAGENTS)) {
+    const threadId = boundedSubagentId(candidate?.threadId);
+    const status = normalizeCodexSubagentStatus(candidate?.status);
+    if (!threadId || threadId === rootThreadId || !status || seen.has(threadId)) continue;
+    seen.add(threadId);
+    const parentThreadId = boundedSubagentId(candidate?.parentThreadId);
+    const name = String(candidate?.name || '').trim().slice(0, MAX_CODEX_SUBAGENT_NAME_CHARS);
+    agents.push({
+      threadId,
+      parentThreadId: parentThreadId && parentThreadId !== threadId ? parentThreadId : null,
+      ...(name ? { name } : {}),
+      status,
+    });
+  }
+  return {
+    version: 1,
+    rootThreadId,
+    revision: Number.isFinite(Number(raw.revision))
+      ? Math.max(0, Math.floor(Number(raw.revision)))
+      : 0,
+    kind: raw.kind === 'delta' ? 'delta' : 'snapshot',
+    agents,
+  };
 }
 
 function compactUpdateForLog(update) {
@@ -157,6 +208,7 @@ class AcpSessionState {
     this.configOptions = [];
     this.title = '';
     this.updatedAt = '';
+    this.codexSubagents = null;
     this.truncated = false;
     this.sequence = 0;
     this.revision = Number.isFinite(Number(options.revisionBase))
@@ -202,6 +254,7 @@ class AcpSessionState {
     state.configOptions = clone(checkpoint.configOptions || []);
     state.title = String(checkpoint.title || '');
     state.updatedAt = String(checkpoint.updatedAt || '');
+    state.codexSubagents = clone(checkpoint.codexSubagents ?? null);
     state.truncated = checkpoint.truncated === true;
     return state;
   }
@@ -360,7 +413,28 @@ class AcpSessionState {
     } else if (kind === 'session_info_update') {
       if (Object.prototype.hasOwnProperty.call(update, 'title')) this.title = String(update.title || '');
       if (Object.prototype.hasOwnProperty.call(update, 'updatedAt')) this.updatedAt = String(update.updatedAt || '');
+      this.applyCodexSubagentUpdate(update?._meta?.codex?.subagents);
     }
+    return true;
+  }
+
+  applyCodexSubagentUpdate(raw) {
+    const update = normalizeCodexSubagentUpdate(raw, this.sessionId);
+    if (!update) return false;
+    const agentsById = update.kind === 'delta' && this.codexSubagents?.rootThreadId === update.rootThreadId
+      ? new Map(this.codexSubagents.agents.map(agent => [agent.threadId, agent]))
+      : new Map();
+    for (const agent of update.agents) agentsById.set(agent.threadId, agent);
+    this.codexSubagents = {
+      version: 1,
+      rootThreadId: update.rootThreadId,
+      revision: update.revision,
+      agents: [...agentsById.values()].slice(0, MAX_CODEX_SUBAGENTS),
+    };
+    // Session metadata changes are visible transcript state even when no
+    // message/tool entry changed. Advance the reducer revision so the existing
+    // revision-driven transcript read reconciles this snapshot without polling.
+    this.revision += 1;
     return true;
   }
 
@@ -523,6 +597,7 @@ class AcpSessionState {
       revision: this.revision,
       delta,
       hasMoreBefore: startIndex > 0,
+      codexSubagents: clone(this.codexSubagents),
     };
   }
 
@@ -608,6 +683,7 @@ class AcpSessionState {
       availableCommands: clone(this.availableCommands),
       currentModeId: this.currentModeId,
       configOptions: clone(this.configOptions),
+      codexSubagents: clone(this.codexSubagents),
       ...clone(extra),
     };
     if (options.includeUpdates === true) snapshot.updates = clone(this.updates);
@@ -632,6 +708,7 @@ class AcpSessionState {
       configOptions: clone(this.configOptions),
       title: this.title,
       updatedAt: this.updatedAt,
+      codexSubagents: clone(this.codexSubagents),
       truncated: this.truncated,
     };
   }

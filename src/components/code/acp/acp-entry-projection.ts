@@ -82,6 +82,13 @@ export interface AgentTranscriptCollaboration {
   activity?: string
 }
 
+export interface AgentTranscriptSubagentState {
+  threadId: string
+  parentThreadId?: string
+  name?: string
+  status: 'pendingInit' | 'running' | 'completed' | 'interrupted' | 'errored' | 'shutdown' | 'notFound' | string
+}
+
 export interface AgentTranscriptTurn {
   id: string
   userMessage: string
@@ -117,6 +124,12 @@ export interface AgentTranscript {
   replaceFromTurnId?: string
   stopReason?: string
   truncated?: boolean
+  codexSubagents?: {
+    version: number
+    rootThreadId: string
+    revision: number
+    agents: AgentTranscriptSubagentState[]
+  }
   turns: AgentTranscriptTurn[]
 }
 
@@ -675,6 +688,23 @@ export function projectAcpTranscript(sessionValue: unknown, options: { maxTurns?
   }
   const maxTurns = Number.isFinite(Number(options.maxTurns)) ? Math.max(1, Math.floor(Number(options.maxTurns))) : 80
   const visibleTurns = turns.slice(-maxTurns)
+  const rawSubagents = record(session.codexSubagents)
+  const codexSubagents = Number(rawSubagents.version) === 1
+    ? {
+        version: 1,
+        rootThreadId: stringValue(rawSubagents.rootThreadId),
+        revision: Number(rawSubagents.revision || 0),
+        agents: list(rawSubagents.agents).slice(0, 128).map(candidate => {
+          const agent = record(candidate)
+          return {
+            threadId: stringValue(agent.threadId),
+            parentThreadId: stringValue(agent.parentThreadId) || undefined,
+            name: stringValue(agent.name) || undefined,
+            status: stringValue(agent.status),
+          }
+        }).filter(agent => Boolean(agent.threadId && agent.status)),
+      }
+    : undefined
   return {
     version: 2,
     available: visibleTurns.length > 0,
@@ -684,6 +714,7 @@ export function projectAcpTranscript(sessionValue: unknown, options: { maxTurns?
     revision: Number(session.revision || 0), delta: session.delta === true,
     replaceFromTurnId: session.delta === true ? stringValue(visibleTurns[0]?.id) : '',
     stopReason: stringValue(session.stopReason),
+    ...(codexSubagents ? { codexSubagents } : {}),
     hasMoreBefore: session.hasMoreBefore === true || turns.length > visibleTurns.length,
     turnLimit: maxTurns, truncated: session.truncated === true, turns: visibleTurns,
   }

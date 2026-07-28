@@ -1,4 +1,5 @@
 const assert = require('assert');
+const { AcpSessionState } = require('../acp-session-state');
 const { acpTranscriptToolEntry } = require('../acp-transcript');
 const { projectAcpTranscript } = require('../../src/components/code/acp/acp-entry-projection.ts');
 const {
@@ -93,7 +94,7 @@ assert.deepStrictEqual(
   acpCollaborationEvents(transcript.turns[0].processItems).map(event => [event.name, event.action, event.processItemId]),
   [
     ['Review refresh', 'updated', 'activity-review'],
-    ['Review refresh', 'finished', 'wait-browser'],
+    ['Review refresh', 'recorded', 'wait-browser'],
   ],
 );
 
@@ -176,10 +177,150 @@ const stableIconAgents = acpCollaborationAgents([
     },
   })),
 ]);
+assert(stableIconAgents.every(agent => agent.status === 'unknown'));
 assert.deepStrictEqual(
   stableIconAgents.map(agent => agent.icon),
   [4, 3, 5, 0, 1, 2],
   'the child thread identities cover all six stable base Agent icons',
+);
+
+const realSessionStates = [
+  { threadId: 'thread-review-refresh', status: 'completed' },
+  { threadId: 'thread-browser-guards', status: 'interrupted' },
+  { threadId: 'thread-crt-races', parentThreadId: 'thread-review-refresh', status: 'running' },
+];
+const realSessionAgents = acpCollaborationAgents([
+  {
+    id: 'review-interrupt-request',
+    type: 'collaboration',
+    title: 'Interrupt subagent review_refresh',
+    status: 'completed',
+    collaboration: {
+      kind: 'activity',
+      threadId: 'thread-review-refresh',
+      agentPath: '/root/review_refresh',
+      activity: 'interrupted',
+    },
+  },
+  {
+    id: 'browser-started',
+    type: 'collaboration',
+    title: 'Start subagent browser_guards',
+    status: 'completed',
+    collaboration: {
+      kind: 'activity',
+      threadId: 'thread-browser-guards',
+      agentPath: '/root/browser_guards',
+      activity: 'started',
+    },
+  },
+  {
+    id: 'nested-started',
+    type: 'collaboration',
+    title: 'Start subagent crt_races',
+    status: 'completed',
+    collaboration: {
+      kind: 'activity',
+      threadId: 'thread-crt-races',
+      agentPath: '/root/review_refresh/crt_races',
+      activity: 'started',
+    },
+  },
+], realSessionStates);
+assert.deepStrictEqual(
+  realSessionAgents.map(agent => [agent.threadId, agent.status, agent.parentThreadId || null]),
+  [
+    ['thread-review-refresh', 'completed', null],
+    ['thread-browser-guards', 'paused', null],
+    ['thread-crt-races', 'running', 'thread-review-refresh'],
+  ],
+  'activity verbs never overwrite the authoritative child lifecycle snapshot',
+);
+const stateOnlyAncestors = acpCollaborationAgents([
+  {
+    id: 'child-follow-up',
+    type: 'collaboration',
+    title: 'Interact with subagent child',
+    status: 'completed',
+    collaboration: {
+      kind: 'activity',
+      threadId: 'thread-child',
+      agentPath: '/root/parent/child',
+      activity: 'interacted',
+    },
+  },
+], [
+  { threadId: 'thread-parent', name: 'Parent reviewer', status: 'completed' },
+  {
+    threadId: 'thread-child',
+    name: 'Child verifier',
+    parentThreadId: 'thread-parent',
+    status: 'completed',
+  },
+]);
+assert.deepStrictEqual(
+  stateOnlyAncestors.map(agent => [
+    agent.threadId,
+    agent.name,
+    agent.parentThreadId || null,
+    agent.events.length,
+  ]),
+  [
+    ['thread-child', 'Child verifier', 'thread-parent', 1],
+    ['thread-parent', 'Parent reviewer', null, 0],
+  ],
+  'authoritative state supplies a missing ancestor so cross-turn child activity cannot escape to the top level',
+);
+
+const reducer = new AcpSessionState({
+  provider: 'codex',
+  sessionId: 'parent-session',
+  cwd: '/tmp',
+});
+reducer.apply({
+  sessionId: 'parent-session',
+  update: {
+    sessionUpdate: 'session_info_update',
+    _meta: {
+      codex: {
+        subagents: {
+          version: 1,
+          rootThreadId: 'parent-session',
+          revision: 4,
+          kind: 'snapshot',
+          agents: realSessionStates,
+        },
+      },
+    },
+  },
+});
+const snapshotRevision = reducer.revision;
+reducer.apply({
+  sessionId: 'parent-session',
+  update: {
+    sessionUpdate: 'session_info_update',
+    _meta: {
+      codex: {
+        subagents: {
+          version: 1,
+          rootThreadId: 'parent-session',
+          revision: 5,
+          kind: 'delta',
+          agents: [{ threadId: 'thread-crt-races', parentThreadId: 'thread-review-refresh', status: 'completed' }],
+        },
+      },
+    },
+  },
+});
+assert.strictEqual(reducer.revision, snapshotRevision + 1);
+assert.deepStrictEqual(
+  reducer.transcriptSlice({ sinceRevision: snapshotRevision }).codexSubagents.agents,
+  [
+    { threadId: 'thread-review-refresh', parentThreadId: null, status: 'completed' },
+    { threadId: 'thread-browser-guards', parentThreadId: null, status: 'interrupted' },
+    { threadId: 'thread-crt-races', parentThreadId: 'thread-review-refresh', status: 'completed' },
+  ],
+  'a state-only delta advances the transcript revision and merges without inventing an ACP entry',
 );
 assert.strictEqual(
   acpCollaborationAgents(stableIconAgents[0].events.map(event => ({

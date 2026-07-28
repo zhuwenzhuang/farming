@@ -57,6 +57,11 @@ export interface CodeCopy {
   agentTranscriptCollaborationCompleted: string
   agentTranscriptCollaborationInterrupted: string
   agentTranscriptCollaborationFailed: string
+  agentTranscriptCollaborationPending: string
+  agentTranscriptCollaborationClosed: string
+  agentTranscriptCollaborationActionCompleted: string
+  agentTranscriptCollaborationPauseRequested: string
+  agentTranscriptCollaborationChildCount: (count: number) => string
   agentTranscriptCollaborationRecorded: string
   agentTranscriptCollaborationStarted: string
   agentTranscriptCollaborationUpdated: string
@@ -245,6 +250,7 @@ export interface CodeCopy {
   historyAgents: string
   historyPagination: string
   historyPageStatus: (page: number, totalPages: number, totalItems: number, hasMore: boolean) => string
+  historyProviderSessionTotal: (total: number) => string
   previousPage: string
   nextPage: string
   agentSessions: string
@@ -523,13 +529,18 @@ const EN_COPY: CodeCopy = {
   agentTranscriptProcessCount: count => `${count} ${count === 1 ? 'event' : 'events'}`,
   agentTranscriptCollaborationInProgress: 'In progress',
   agentTranscriptCollaborationHeading: 'Collaborating agents',
-  agentTranscriptCollaborationNoFinalState: 'No final state',
+  agentTranscriptCollaborationNoFinalState: 'Status syncing',
   agentTranscriptCollaborationCompleted: 'Completed',
-  agentTranscriptCollaborationInterrupted: 'Interrupted',
+  agentTranscriptCollaborationInterrupted: 'Paused',
   agentTranscriptCollaborationFailed: 'Failed',
+  agentTranscriptCollaborationPending: 'Preparing',
+  agentTranscriptCollaborationClosed: 'Closed',
+  agentTranscriptCollaborationActionCompleted: 'Action completed',
+  agentTranscriptCollaborationPauseRequested: 'Pause requested',
+  agentTranscriptCollaborationChildCount: count => `${count} ${count === 1 ? 'child' : 'children'}`,
   agentTranscriptCollaborationRecorded: 'Activity',
-  agentTranscriptCollaborationStarted: 'Started',
-  agentTranscriptCollaborationUpdated: 'Updated',
+  agentTranscriptCollaborationStarted: 'Created',
+  agentTranscriptCollaborationUpdated: 'Message sent',
   agentTranscriptCollaborationEarlierActivities: count => `Show ${count} earlier ${count === 1 ? 'activity' : 'activities'}`,
   agentTranscriptCollaborationEarlierEvidence: count => `Show ${count} earlier ${count === 1 ? 'record' : 'records'}`,
   agentTranscriptCopyDetails: 'Copy details',
@@ -744,6 +755,7 @@ const EN_COPY: CodeCopy = {
   historyAgents: 'History Agents',
   historyPagination: 'History pages',
   historyPageStatus: (page, totalPages, totalItems, hasMore) => `${page} / ${totalPages}${hasMore ? '+' : ''} · ${totalItems} loaded`,
+  historyProviderSessionTotal: total => `${total} provider sessions found`,
   previousPage: 'Previous page',
   nextPage: 'Next page',
   agentSessions: 'Agent Sessions',
@@ -1022,13 +1034,18 @@ const ZH_COPY: CodeCopy = {
   agentTranscriptProcessCount: count => `${count} 个事件`,
   agentTranscriptCollaborationInProgress: '进行中',
   agentTranscriptCollaborationHeading: '协作 Agent',
-  agentTranscriptCollaborationNoFinalState: '未收到终态',
+  agentTranscriptCollaborationNoFinalState: '状态同步中',
   agentTranscriptCollaborationCompleted: '已完成',
-  agentTranscriptCollaborationInterrupted: '已中断',
+  agentTranscriptCollaborationInterrupted: '已暂停',
   agentTranscriptCollaborationFailed: '失败',
-  agentTranscriptCollaborationRecorded: '活动',
-  agentTranscriptCollaborationStarted: '已启动',
-  agentTranscriptCollaborationUpdated: '已更新',
+  agentTranscriptCollaborationPending: '准备中',
+  agentTranscriptCollaborationClosed: '已关闭',
+  agentTranscriptCollaborationActionCompleted: '动作已完成',
+  agentTranscriptCollaborationPauseRequested: '已请求暂停',
+  agentTranscriptCollaborationChildCount: count => `${count} 个子 Agent`,
+  agentTranscriptCollaborationRecorded: '活动记录',
+  agentTranscriptCollaborationStarted: '已创建',
+  agentTranscriptCollaborationUpdated: '已发送消息',
   agentTranscriptCollaborationEarlierActivities: count => `显示更早 ${count} 条活动`,
   agentTranscriptCollaborationEarlierEvidence: count => `显示更早 ${count} 条记录`,
   agentTranscriptCopyDetails: '复制详情',
@@ -1279,6 +1296,7 @@ const ZH_COPY: CodeCopy = {
   historyAgents: 'History Agents',
   historyPagination: '历史记录分页',
   historyPageStatus: (page, totalPages, totalItems, hasMore) => `第 ${page} / ${totalPages}${hasMore ? '+' : ''} 页 · 已载入 ${totalItems} 条`,
+  historyProviderSessionTotal: total => `已发现 ${total} 个 Provider 会话`,
   previousPage: '上一页',
   nextPage: '下一页',
   agentSessions: 'Agent 会话',

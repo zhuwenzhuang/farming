@@ -51,7 +51,12 @@ import { loadAcpReviewPreview } from '@/lib/review/api'
 import type { WorkspaceFileOpenTarget } from '@/lib/workspace-open-files'
 import type { CodeCopy } from './copy'
 import { acpActivityKind, acpCompactPlanLabel, acpLiveToolActivityLabel, acpPlanProgress, type AcpActivityKind } from './acp/acp-activity-label'
-import { acpCollaborationAgents, type AcpCollaborationAgent } from './acp/acp-collaboration'
+import {
+  acpCollaborationAgents,
+  type AcpCollaborationAction,
+  type AcpCollaborationAgent,
+  type AcpCollaborationStatus,
+} from './acp/acp-collaboration'
 import { AcpEmbeddedTerminal } from './acp/AcpEmbeddedTerminal'
 import {
   projectAcpTranscript,
@@ -165,7 +170,7 @@ export interface AgentTranscriptPaneProps {
   workspaceRoot?: string
   active: boolean
   viewportLayoutKey?: string
-  source?: 'acp' | 'json-cli' | 'legacy-jsonl'
+  source: 'acp' | 'json-cli'
   refreshSignal?: number
   runtimeState?: string
   expectHistory?: boolean
@@ -1321,15 +1326,25 @@ function AgentTranscriptSteerItem({ item }: { item: AgentTranscriptProcessItem }
 }
 
 function collaborationActionLabel(
-  action: AcpCollaborationAgent['action'],
+  action: AcpCollaborationAction,
   copy: CodeCopy,
 ) {
   if (action === 'started') return copy.agentTranscriptCollaborationStarted
   if (action === 'updated') return copy.agentTranscriptCollaborationUpdated
-  if (action === 'finished') return copy.agentTranscriptCollaborationCompleted
-  if (action === 'interrupted') return copy.agentTranscriptCollaborationInterrupted
+  if (action === 'finished') return copy.agentTranscriptCollaborationActionCompleted
+  if (action === 'interrupted') return copy.agentTranscriptCollaborationPauseRequested
   if (action === 'failed') return copy.agentTranscriptCollaborationFailed
   return copy.agentTranscriptCollaborationRecorded
+}
+
+function collaborationStatusLabel(status: AcpCollaborationStatus, copy: CodeCopy) {
+  if (status === 'pending') return copy.agentTranscriptCollaborationPending
+  if (status === 'running') return copy.agentTranscriptCollaborationInProgress
+  if (status === 'completed') return copy.agentTranscriptCollaborationCompleted
+  if (status === 'paused') return copy.agentTranscriptCollaborationInterrupted
+  if (status === 'failed') return copy.agentTranscriptCollaborationFailed
+  if (status === 'closed') return copy.agentTranscriptCollaborationClosed
+  return copy.agentTranscriptCollaborationNoFinalState
 }
 
 function CollaborationAgentGlyph({ icon }: { icon: number }) {
@@ -1346,12 +1361,10 @@ function CollaborationAgentGlyph({ icon }: { icon: number }) {
 
 function AgentTranscriptCollaborationTimeline({
   agents,
-  live,
   renderProcessItem,
   copy,
 }: {
   agents: AcpCollaborationAgent[]
-  live: boolean
   renderProcessItem: (processItemId: string) => ReactNode
   copy: CodeCopy
 }) {
@@ -1360,174 +1373,195 @@ function AgentTranscriptCollaborationTimeline({
   const [visibleActivityCounts, setVisibleActivityCounts] = useState<Record<string, number>>({})
   const [visibleEvidenceCounts, setVisibleEvidenceCounts] = useState<Record<string, number>>({})
   if (agents.length === 0) return null
+  const agentById = new Map(agents.map(agent => [agent.id, agent]))
+  const childrenByParent = new Map<string, AcpCollaborationAgent[]>()
+  const topLevelAgents: AcpCollaborationAgent[] = []
+  const hasParentCycle = (agent: AcpCollaborationAgent) => {
+    const visited = new Set([agent.id])
+    let parentId = agent.parentThreadId
+    while (parentId && agentById.has(parentId)) {
+      if (visited.has(parentId)) return true
+      visited.add(parentId)
+      parentId = agentById.get(parentId)?.parentThreadId
+    }
+    return false
+  }
+  for (const agent of agents) {
+    if (agent.parentThreadId && agentById.has(agent.parentThreadId) && !hasParentCycle(agent)) {
+      const children = childrenByParent.get(agent.parentThreadId) || []
+      children.push(agent)
+      childrenByParent.set(agent.parentThreadId, children)
+    } else {
+      topLevelAgents.push(agent)
+    }
+  }
+  const renderAgent = (agent: AcpCollaborationAgent, depth: number): ReactNode => {
+    const agentOpen = openAgentIds.has(agent.id)
+    const statusLabel = collaborationStatusLabel(agent.status, copy)
+    const childAgents = childrenByParent.get(agent.id) || []
+    const expandable = agent.activities.length > 0 || childAgents.length > 0
+    const visibleActivityCount = Math.max(8, visibleActivityCounts[agent.id] || 8)
+    const visibleActivities = agent.activities.slice(-visibleActivityCount)
+    const hiddenActivityCount = agent.activities.length - visibleActivities.length
+    const closeAgent = () => {
+      setOpenActivityIds(current => {
+        const next = new Set(current)
+        agent.activities.forEach(activity => next.delete(activity.id))
+        return next
+      })
+    }
+    return (
+      <section
+        className={`code-agent-transcript-collaboration-group ${agentOpen ? 'expanded' : ''}`}
+        data-testid="code-agent-transcript-collaboration-group"
+        data-agent-thread-id={agent.threadId}
+        data-agent-icon={agent.icon}
+        data-agent-depth={depth}
+        key={agent.id}
+      >
+        <button
+          type="button"
+          className={`code-agent-transcript-collaboration-summary ${expandable ? '' : 'static'}`}
+          data-testid="code-agent-transcript-collaboration-summary"
+          aria-expanded={expandable ? agentOpen : undefined}
+          disabled={!expandable}
+          title={`${agent.name} · ${statusLabel} · ${copy.agentTranscriptProcessCount(agent.events.length)}`}
+          onClick={clickEvent => {
+            if (!expandable) return
+            clickEvent.stopPropagation()
+            toggleTranscriptDisclosureWithStableAnchor(clickEvent.currentTarget, () => {
+              setOpenAgentIds(current => {
+                const next = new Set(current)
+                if (next.has(agent.id)) next.delete(agent.id)
+                else next.add(agent.id)
+                return next
+              })
+              if (agentOpen) closeAgent()
+            })
+          }}
+        >
+          <span className={`code-agent-transcript-collaboration-agent tone-${agent.tone}`}>
+            <CollaborationAgentGlyph icon={agent.icon} />
+            <span>{agent.name}</span>
+          </span>
+          <span className={`code-agent-transcript-collaboration-action ${agent.status}`}>{statusLabel}</span>
+          <span className="code-agent-transcript-collaboration-count">
+            {copy.agentTranscriptProcessCount(agent.events.length)}
+            {childAgents.length > 0 ? ` · ${copy.agentTranscriptCollaborationChildCount(childAgents.length)}` : ''}
+          </span>
+          {expandable ? <ChevronRightGlyph className="code-agent-transcript-chevron" /> : null}
+        </button>
+        {agentOpen ? (
+          <div className="code-agent-transcript-collaboration-events">
+            {hiddenActivityCount > 0 ? (
+              <button
+                type="button"
+                className="code-agent-transcript-collaboration-activities-earlier"
+                data-testid="code-agent-transcript-collaboration-activities-earlier"
+                onClick={clickEvent => {
+                  clickEvent.stopPropagation()
+                  setVisibleActivityCounts(current => ({
+                    ...current,
+                    [agent.id]: Math.min(agent.activities.length, visibleActivityCount + 20),
+                  }))
+                }}
+              >
+                {copy.agentTranscriptCollaborationEarlierActivities(Math.min(20, hiddenActivityCount))}
+              </button>
+            ) : null}
+            {visibleActivities.map(activity => {
+              const activityOpen = openActivityIds.has(activity.id)
+              const visibleCount = Math.max(8, visibleEvidenceCounts[activity.id] || 8)
+              const visibleProcessItemIds = activity.processItemIds.slice(-visibleCount)
+              const hiddenEvidenceCount = activity.processItemIds.length - visibleProcessItemIds.length
+              return (
+                <div
+                  className={`code-agent-transcript-collaboration-activity ${activityOpen ? 'expanded' : ''}`}
+                  data-testid="code-agent-transcript-collaboration-activity"
+                  key={activity.id}
+                >
+                  <button
+                    type="button"
+                    className="code-agent-transcript-collaboration-event"
+                    data-testid="code-agent-transcript-collaboration-event"
+                    data-process-item-id={activity.processItemId}
+                    aria-expanded={activityOpen}
+                    title={activity.title || activity.message || agent.name}
+                    onClick={clickEvent => {
+                      clickEvent.stopPropagation()
+                      toggleTranscriptDisclosureWithStableAnchor(clickEvent.currentTarget, () => {
+                        setOpenActivityIds(current => {
+                          const next = new Set(current)
+                          if (next.has(activity.id)) next.delete(activity.id)
+                          else next.add(activity.id)
+                          return next
+                        })
+                      })
+                    }}
+                  >
+                    <span className={`code-agent-transcript-collaboration-action ${activity.action}`}>
+                      {collaborationActionLabel(activity.action, copy)}
+                    </span>
+                    <span className="code-agent-transcript-collaboration-event-detail">
+                      {activity.message || (
+                        activity.action === 'started'
+                          || activity.action === 'updated'
+                          || activity.action === 'recorded'
+                          ? agent.name
+                          : activity.title || agent.name
+                      )}
+                    </span>
+                    {activity.count > 1 ? (
+                      <span className="code-agent-transcript-collaboration-event-count">
+                        {copy.agentTranscriptProcessCount(activity.count)}
+                      </span>
+                    ) : null}
+                    <ChevronRightGlyph className="code-agent-transcript-chevron" />
+                  </button>
+                  {activityOpen ? (
+                    <div
+                      className="code-agent-transcript-collaboration-evidence"
+                      data-testid="code-agent-transcript-collaboration-evidence"
+                    >
+                      {hiddenEvidenceCount > 0 ? (
+                        <button
+                          type="button"
+                          className="code-agent-transcript-collaboration-earlier"
+                          data-testid="code-agent-transcript-collaboration-earlier"
+                          onClick={clickEvent => {
+                            clickEvent.stopPropagation()
+                            setVisibleEvidenceCounts(current => ({
+                              ...current,
+                              [activity.id]: Math.min(activity.processItemIds.length, visibleCount + 20),
+                            }))
+                          }}
+                        >
+                          {copy.agentTranscriptCollaborationEarlierEvidence(Math.min(20, hiddenEvidenceCount))}
+                        </button>
+                      ) : null}
+                      {visibleProcessItemIds.map(processItemId => renderProcessItem(processItemId))}
+                    </div>
+                  ) : null}
+                </div>
+              )
+            })}
+            {childAgents.length > 0 ? (
+              <div className="code-agent-transcript-collaboration-children">
+                {childAgents.map(child => renderAgent(child, depth + 1))}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+      </section>
+    )
+  }
   return (
     <div className="code-agent-transcript-collaboration" data-testid="code-agent-transcript-collaboration">
       <div className="code-agent-transcript-collaboration-heading">
         <AgentGroupGlyph />
         <span>{copy.agentTranscriptCollaborationHeading}</span>
       </div>
-      {agents.map(agent => {
-        const active = agent.action === 'started' || agent.action === 'updated'
-        const agentOpen = openAgentIds.has(agent.id)
-        const statusClassName = active ? (live ? 'running' : 'unresolved') : (
-          agent.action === 'recorded' ? 'unresolved' : agent.action
-        )
-        const statusLabel = agent.action === 'recorded'
-          ? copy.agentTranscriptCollaborationNoFinalState
-          : active
-          ? (live
-            ? copy.agentTranscriptCollaborationInProgress
-            : copy.agentTranscriptCollaborationNoFinalState)
-          : collaborationActionLabel(agent.action, copy)
-        const visibleActivityCount = Math.max(8, visibleActivityCounts[agent.id] || 8)
-        const visibleActivities = agent.activities.slice(-visibleActivityCount)
-        const hiddenActivityCount = agent.activities.length - visibleActivities.length
-        return (
-          <section
-            className={`code-agent-transcript-collaboration-group ${agentOpen ? 'expanded' : ''}`}
-            data-testid="code-agent-transcript-collaboration-group"
-            data-agent-thread-id={agent.threadId}
-            data-agent-icon={agent.icon}
-            key={agent.id}
-          >
-            <button
-              type="button"
-              className="code-agent-transcript-collaboration-summary"
-              data-testid="code-agent-transcript-collaboration-summary"
-              aria-expanded={agentOpen}
-              title={`${agent.name} · ${statusLabel} · ${copy.agentTranscriptProcessCount(agent.events.length)}`}
-              onClick={clickEvent => {
-                clickEvent.stopPropagation()
-                toggleTranscriptDisclosureWithStableAnchor(clickEvent.currentTarget, () => {
-                  setOpenAgentIds(current => {
-                    const next = new Set(current)
-                    if (next.has(agent.id)) next.delete(agent.id)
-                    else next.add(agent.id)
-                    return next
-                  })
-                  if (agentOpen) {
-                    setOpenActivityIds(current => {
-                      const next = new Set(current)
-                      agent.activities.forEach(activity => next.delete(activity.id))
-                      return next
-                    })
-                  }
-                })
-              }}
-            >
-              <span className={`code-agent-transcript-collaboration-agent tone-${agent.tone}`}>
-                <CollaborationAgentGlyph icon={agent.icon} />
-                <span>{agent.name}</span>
-              </span>
-              <span className={`code-agent-transcript-collaboration-action ${statusClassName}`}>{statusLabel}</span>
-              <span className="code-agent-transcript-collaboration-count">
-                {copy.agentTranscriptProcessCount(agent.events.length)}
-              </span>
-              <ChevronRightGlyph className="code-agent-transcript-chevron" />
-            </button>
-            {agentOpen ? (
-              <div className="code-agent-transcript-collaboration-events">
-                {hiddenActivityCount > 0 ? (
-                  <button
-                    type="button"
-                    className="code-agent-transcript-collaboration-activities-earlier"
-                    data-testid="code-agent-transcript-collaboration-activities-earlier"
-                    onClick={clickEvent => {
-                      clickEvent.stopPropagation()
-                      setVisibleActivityCounts(current => ({
-                        ...current,
-                        [agent.id]: Math.min(agent.activities.length, visibleActivityCount + 20),
-                      }))
-                    }}
-                  >
-                    {copy.agentTranscriptCollaborationEarlierActivities(
-                      Math.min(20, hiddenActivityCount),
-                    )}
-                  </button>
-                ) : null}
-                {visibleActivities.map(activity => {
-                  const activityOpen = openActivityIds.has(activity.id)
-                  const visibleCount = Math.max(8, visibleEvidenceCounts[activity.id] || 8)
-                  const visibleProcessItemIds = activity.processItemIds.slice(-visibleCount)
-                  const hiddenEvidenceCount = activity.processItemIds.length - visibleProcessItemIds.length
-                  return (
-                    <div
-                      className={`code-agent-transcript-collaboration-activity ${activityOpen ? 'expanded' : ''}`}
-                      data-testid="code-agent-transcript-collaboration-activity"
-                      key={activity.id}
-                    >
-                      <button
-                        type="button"
-                        className="code-agent-transcript-collaboration-event"
-                        data-testid="code-agent-transcript-collaboration-event"
-                        data-process-item-id={activity.processItemId}
-                        aria-expanded={activityOpen}
-                        title={activity.title || activity.message || agent.name}
-                        onClick={clickEvent => {
-                          clickEvent.stopPropagation()
-                          toggleTranscriptDisclosureWithStableAnchor(clickEvent.currentTarget, () => {
-                            setOpenActivityIds(current => {
-                              const next = new Set(current)
-                              if (next.has(activity.id)) next.delete(activity.id)
-                              else next.add(activity.id)
-                              return next
-                            })
-                          })
-                        }}
-                      >
-                        <span className={`code-agent-transcript-collaboration-action ${activity.action}`}>
-                          {collaborationActionLabel(activity.action, copy)}
-                        </span>
-                        <span className="code-agent-transcript-collaboration-event-detail">
-                          {activity.message || (
-                            activity.action === 'started'
-                              || activity.action === 'updated'
-                              || activity.action === 'recorded'
-                              ? agent.name
-                              : activity.title || agent.name
-                          )}
-                        </span>
-                        {activity.count > 1 ? (
-                          <span className="code-agent-transcript-collaboration-event-count">
-                            {copy.agentTranscriptProcessCount(activity.count)}
-                          </span>
-                        ) : null}
-                        <ChevronRightGlyph className="code-agent-transcript-chevron" />
-                      </button>
-                      {activityOpen ? (
-                        <div
-                          className="code-agent-transcript-collaboration-evidence"
-                          data-testid="code-agent-transcript-collaboration-evidence"
-                        >
-                          {hiddenEvidenceCount > 0 ? (
-                            <button
-                              type="button"
-                              className="code-agent-transcript-collaboration-earlier"
-                              data-testid="code-agent-transcript-collaboration-earlier"
-                              onClick={clickEvent => {
-                                clickEvent.stopPropagation()
-                                setVisibleEvidenceCounts(current => ({
-                                  ...current,
-                                  [activity.id]: Math.min(activity.processItemIds.length, visibleCount + 20),
-                                }))
-                              }}
-                            >
-                              {copy.agentTranscriptCollaborationEarlierEvidence(
-                                Math.min(20, hiddenEvidenceCount),
-                              )}
-                            </button>
-                          ) : null}
-                          {visibleProcessItemIds.map(processItemId => renderProcessItem(processItemId))}
-                        </div>
-                      ) : null}
-                    </div>
-                  )
-                })}
-              </div>
-            ) : null}
-          </section>
-        )
-      })}
+      {topLevelAgents.map(agent => renderAgent(agent, 0))}
     </div>
   )
 }
@@ -1688,6 +1722,113 @@ function AgentTranscriptProcessItemView({
       </div>
       {expandable && detailOpen ? details : null}
     </section>
+  )
+}
+
+function AgentTranscriptCollaborationSpace({
+  agents,
+  processItems,
+  copy,
+  onLoadProcessItemDetail,
+  onStopTerminal,
+  onInputTerminal,
+  onResizeTerminal,
+  onStopSubagent,
+}: {
+  agents: AcpCollaborationAgent[]
+  processItems: AgentTranscriptProcessItem[]
+  copy: CodeCopy
+  onLoadProcessItemDetail?: (itemId: string) => Promise<AgentTranscriptProcessPresentation>
+  onStopTerminal?: (terminalId: string) => Promise<void>
+  onInputTerminal?: (terminalId: string, input: string) => Promise<void>
+  onResizeTerminal?: (terminalId: string, cols: number, rows: number) => Promise<void>
+  onStopSubagent?: (sessionId: string) => Promise<void>
+}) {
+  const [loadedDetails, setLoadedDetails] = useState<Record<string, AgentTranscriptProcessPresentation>>({})
+  const [openItemIds, setOpenItemIds] = useState<Set<string>>(() => new Set())
+  const [copiedItemId, setCopiedItemId] = useState('')
+  const resolvedItems = useMemo(() => processItems.map(item => (
+    Object.prototype.hasOwnProperty.call(loadedDetails, item.id)
+      ? {
+          ...item,
+          detail: loadedDetails[item.id]?.detail || '',
+          terminals: loadedDetails[item.id]?.terminals,
+          subagentTranscript: loadedDetails[item.id]?.subagentTranscript,
+          detailTruncated: false,
+        }
+      : item
+  )), [loadedDetails, processItems])
+  const itemById = useMemo(
+    () => new Map(resolvedItems.map(item => [item.id, item])),
+    [resolvedItems],
+  )
+  const loadItem = useCallback(async (itemId: string) => {
+    if (!onLoadProcessItemDetail) return
+    const detail = await onLoadProcessItemDetail(itemId)
+    setLoadedDetails(current => ({ ...current, [itemId]: detail }))
+  }, [onLoadProcessItemDetail])
+  const toggleItem = useCallback((itemId: string) => {
+    const opening = !openItemIds.has(itemId)
+    const item = itemById.get(itemId)
+    if (opening && item && (item.detailTruncated || item.terminalIds?.length || item.subagentSessionId)) {
+      void loadItem(itemId).catch(() => {})
+    }
+    setOpenItemIds(current => {
+      const next = new Set(current)
+      if (next.has(itemId)) next.delete(itemId)
+      else next.add(itemId)
+      return next
+    })
+  }, [itemById, loadItem, openItemIds])
+  const copyItem = useCallback((item: AgentTranscriptProcessItem) => {
+    const load = item.detailTruncated && onLoadProcessItemDetail
+      ? onLoadProcessItemDetail(item.id)
+      : Promise.resolve({ detail: item.detail || '' })
+    void load.then(presentation => writeClipboardText(
+      [item.title, presentation.detail].filter(Boolean).join('\n\n'),
+    )).then(copied => {
+      if (!copied) return
+      setCopiedItemId(item.id)
+      window.setTimeout(() => setCopiedItemId(current => (current === item.id ? '' : current)), 1200)
+    }).catch(() => {})
+  }, [onLoadProcessItemDetail])
+  const stopTerminal = useCallback(async (itemId: string, terminalId: string) => {
+    if (!onStopTerminal) return
+    await onStopTerminal(terminalId)
+    await loadItem(itemId)
+  }, [loadItem, onStopTerminal])
+  const inputTerminal = useCallback(async (itemId: string, terminalId: string, input: string) => {
+    if (!onInputTerminal) return
+    await onInputTerminal(terminalId, input)
+    await loadItem(itemId)
+  }, [loadItem, onInputTerminal])
+  const resizeTerminal = useCallback(async (_itemId: string, terminalId: string, cols: number, rows: number) => {
+    await onResizeTerminal?.(terminalId, cols, rows)
+  }, [onResizeTerminal])
+  return (
+    <AgentTranscriptCollaborationTimeline
+      agents={agents}
+      renderProcessItem={processItemId => {
+        const item = itemById.get(processItemId)
+        if (!item) return null
+        return (
+          <AgentTranscriptProcessItemView
+            key={item.id}
+            item={item}
+            copy={copy}
+            copied={copiedItemId === item.id}
+            detailOpen={openItemIds.has(item.id)}
+            onToggle={toggleItem}
+            onCopy={copyItem}
+            onStopTerminal={stopTerminal}
+            onInputTerminal={inputTerminal}
+            onResizeTerminal={resizeTerminal}
+            onStopSubagent={onStopSubagent}
+          />
+        )
+      }}
+      copy={copy}
+    />
   )
 }
 
@@ -2101,10 +2242,6 @@ function AgentTranscriptTurnView({
   const collaborationProcessItemIds = useMemo(() => new Set(
     collaborationAgents.flatMap(agent => agent.events.map(event => event.processItemId)),
   ), [collaborationAgents])
-  const processItemById = useMemo(
-    () => new Map(resolvedProcessItems.map(item => [item.id, item])),
-    [resolvedProcessItems],
-  )
   const mainProcessItems = useMemo(
     () => resolvedProcessItems.filter(item => !collaborationProcessItemIds.has(item.id)),
     [collaborationProcessItemIds, resolvedProcessItems],
@@ -2614,32 +2751,6 @@ function AgentTranscriptTurnView({
               ) : null}
             </>
           ) : null}
-          <AgentTranscriptCollaborationTimeline
-            agents={collaborationAgents}
-            live={turn.status === 'inProgress'}
-            renderProcessItem={processItemId => {
-              const item = processItemById.get(processItemId)
-              if (!item) return null
-              return (
-                <AgentTranscriptProcessItemView
-                  key={item.id}
-                  item={item}
-                  copy={copy}
-                  copied={copiedItemId === item.id}
-                  detailOpen={openProcessItemIds.has(item.id)}
-                  onToggle={handleToggleProcessItem}
-                  onCopy={handleCopyItem}
-                  onStopTerminal={handleStopTerminal}
-                  onInputTerminal={handleInputTerminal}
-                  onResizeTerminal={handleResizeTerminal}
-                  terminalOutcomeSyncFailed={terminalOutcomeSyncFailedItemIds.has(item.id)}
-                  onRetryTerminalOutcome={handleRetryTerminalOutcome}
-                  onStopSubagent={onStopSubagent}
-                />
-              )
-            }}
-            copy={copy}
-          />
         </div>
       ) : null}
 
@@ -2724,7 +2835,7 @@ export function AgentTranscriptPane({
   workspaceRoot,
   active,
   viewportLayoutKey = '',
-  source = 'legacy-jsonl',
+  source,
   refreshSignal = 0,
   runtimeState = '',
   expectHistory = false,
@@ -2882,11 +2993,7 @@ export function AgentTranscriptPane({
       if (source === 'acp') {
         params.set('media', 'external-v1')
       }
-      const endpoint = source === 'acp'
-        ? 'acp-transcript'
-        : source === 'json-cli'
-            ? 'json-cli-transcript'
-            : 'codex-transcript'
+      const endpoint = source === 'acp' ? 'acp-transcript' : 'json-cli-transcript'
       let responseReceived = false
       fetch(appPath(`/api/agents/${encodeURIComponent(agentId)}/${endpoint}?${params.toString()}`), {
         signal: controller.signal,
@@ -2965,6 +3072,17 @@ export function AgentTranscriptPane({
   }, [active, agentId, copy.agentTranscriptUnavailable, refreshSignal, source, turnLimit])
 
   const turns = useMemo(() => transcript?.turns || [], [transcript])
+  const collaborationProcessItems = useMemo(
+    () => turns.flatMap(turn => turn.processItems),
+    [turns],
+  )
+  const collaborationAgents = useMemo(
+    () => acpCollaborationAgents(
+      collaborationProcessItems,
+      transcript?.codexSubagents?.agents || [],
+    ),
+    [collaborationProcessItems, transcript?.codexSubagents?.agents],
+  )
   const awaitingAcpHistory = source === 'acp'
     && !error
     && turns.length === 0
@@ -3301,6 +3419,18 @@ export function AgentTranscriptPane({
               />
             )
           })}
+          {source === 'acp' && collaborationAgents.length > 0 ? (
+            <AgentTranscriptCollaborationSpace
+              agents={collaborationAgents}
+              processItems={collaborationProcessItems}
+              copy={copy}
+              onLoadProcessItemDetail={handleLoadProcessItemDetail}
+              onStopTerminal={handleStopTerminal}
+              onInputTerminal={handleInputTerminal}
+              onResizeTerminal={handleResizeTerminal}
+              onStopSubagent={handleStopSubagent}
+            />
+          ) : null}
         </div>
       )}
       {showJumpToBottom ? (

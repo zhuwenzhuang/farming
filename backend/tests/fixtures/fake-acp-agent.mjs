@@ -427,6 +427,27 @@ class FakeAgent {
       await activity('live-review-started', 'thread-live-review', 'Live reviewer', 'started');
       await activity('live-tests-started', 'thread-live-tests', 'Test runner', 'started');
       await activity('live-docs-started', 'thread-live-docs', 'Documentation', 'started');
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'session_info_update',
+          _meta: {
+            codex: {
+              subagents: {
+                version: 1,
+                rootThreadId: params.sessionId,
+                revision: 1,
+                kind: 'snapshot',
+                agents: [
+                  { threadId: 'thread-live-review', parentThreadId: null, status: 'running' },
+                  { threadId: 'thread-live-tests', parentThreadId: null, status: 'running' },
+                  { threadId: 'thread-live-docs', parentThreadId: null, status: 'running' },
+                ],
+              },
+            },
+          },
+        },
+      });
       for (let index = 1; index <= 10; index += 1) {
         await new Promise(resolve => setTimeout(resolve, 900));
         await activity(`live-review-updated-${index}`, 'thread-live-review', 'Live reviewer');
@@ -455,6 +476,25 @@ class FakeAgent {
                 tool: 'wait',
                 senderThreadId: params.sessionId,
                 receiverThreadIds: ['thread-live-review'],
+              },
+            },
+          },
+        },
+      });
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'session_info_update',
+          _meta: {
+            codex: {
+              subagents: {
+                version: 1,
+                rootThreadId: params.sessionId,
+                revision: 2,
+                kind: 'delta',
+                agents: [
+                  { threadId: 'thread-live-review', parentThreadId: null, status: 'completed' },
+                ],
               },
             },
           },
@@ -500,6 +540,7 @@ class FakeAgent {
         },
       });
       await activity('collab-review-updated', 'thread-review-refresh', 'Review refresh');
+      await activity('collab-review-interrupted', 'thread-review-refresh', 'Review refresh', 'interrupted');
       await activity('collab-browser-started', 'thread-browser-guards', 'Browser guards', 'started');
       await activity(
         'collab-browser-provider-unknown',
@@ -568,9 +609,111 @@ class FakeAgent {
       await client.sessionUpdate({
         sessionId: params.sessionId,
         update: {
+          sessionUpdate: 'session_info_update',
+          _meta: {
+            codex: {
+              subagents: {
+                version: 1,
+                rootThreadId: params.sessionId,
+                revision: 7,
+                kind: 'snapshot',
+                agents: [
+                  { threadId: 'thread-review-refresh', parentThreadId: null, status: 'completed' },
+                  { threadId: 'thread-browser-guards', parentThreadId: null, status: 'completed' },
+                  {
+                    threadId: 'thread-crt-races',
+                    parentThreadId: 'thread-review-refresh',
+                    status: 'interrupted',
+                  },
+                ],
+              },
+            },
+          },
+        },
+      });
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
           sessionUpdate: 'agent_message_chunk',
           messageId: 'codex-collaboration-answer',
           content: { type: 'text', text: 'Codex collaboration example complete.' },
+        },
+      });
+      return { stopReason: 'end_turn' };
+    }
+    if (promptText.includes('collaboration follow up')) {
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'tool_call',
+          toolCallId: 'cross-turn-child-started',
+          title: 'Start subagent Cross turn child',
+          kind: 'other',
+          status: 'completed',
+          rawInput: {
+            agentThreadId: 'thread-cross-turn-child',
+            agentPath: 'Cross turn child',
+            activityKind: 'started',
+          },
+          _meta: {
+            codex: {
+              subagent: {
+                threadId: 'thread-cross-turn-child',
+                path: 'Cross turn child',
+                activity: 'started',
+              },
+            },
+          },
+        },
+      });
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'session_info_update',
+          _meta: {
+            codex: {
+              subagents: {
+                version: 1,
+                rootThreadId: params.sessionId,
+                revision: 8,
+                kind: 'snapshot',
+                agents: [
+                  {
+                    threadId: 'thread-review-refresh',
+                    parentThreadId: null,
+                    name: 'Review refresh',
+                    status: 'completed',
+                  },
+                  {
+                    threadId: 'thread-browser-guards',
+                    parentThreadId: null,
+                    name: 'Browser guards',
+                    status: 'completed',
+                  },
+                  {
+                    threadId: 'thread-crt-races',
+                    parentThreadId: 'thread-review-refresh',
+                    name: 'Crt races',
+                    status: 'interrupted',
+                  },
+                  {
+                    threadId: 'thread-cross-turn-child',
+                    parentThreadId: 'thread-review-refresh',
+                    name: 'Cross turn child',
+                    status: 'completed',
+                  },
+                ],
+              },
+            },
+          },
+        },
+      });
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          messageId: 'cross-turn-collaboration-answer',
+          content: { type: 'text', text: 'Cross-turn collaboration update complete.' },
         },
       });
       return { stopReason: 'end_turn' };

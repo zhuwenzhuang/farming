@@ -112,6 +112,10 @@ async function smokeCodexAcp(options) {
   if (steer?.method !== '_codex/session/steer' || steer?.version !== 1) {
     throw new Error(`Codex ACP initialize omitted the reviewed steer capability: ${JSON.stringify(steer)}`);
   }
+  const subagents = response.result?.agentCapabilities?._meta?.codex?.subagents;
+  if (subagents?.version !== 1) {
+    throw new Error(`Codex ACP initialize omitted the reviewed subagent-state capability: ${JSON.stringify(subagents)}`);
+  }
   if (response.result?.agentCapabilities?.sessionCapabilities?.fork == null) {
     throw new Error('Codex ACP initialize omitted the reviewed session/fork capability');
   }

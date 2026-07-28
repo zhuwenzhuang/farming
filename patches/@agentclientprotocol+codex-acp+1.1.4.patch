@@ -1,17 +1,22 @@
 diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_modules/@agentclientprotocol/codex-acp/dist/index.js
-index fb338ee..dde4c00 100755
+index fb338ee..3c468b5 100755
 --- a/node_modules/@agentclientprotocol/codex-acp/dist/index.js
 +++ b/node_modules/@agentclientprotocol/codex-acp/dist/index.js
-@@ -23365,6 +23365,7 @@ function createAgentTextThoughtChunk(text, messageId, meta3) {
+@@ -23365,8 +23365,12 @@ function createAgentTextThoughtChunk(text, messageId, meta3) {
  // src/AcpExtensions.ts
  var LEGACY_SET_SESSION_MODEL_METHOD = "session/set_model";
  var GOAL_CONTROL_METHOD = "_codex/session/goal_control";
 +var STEER_METHOD = "_codex/session/steer";
++var SUBAGENT_STATE_VERSION = 1;
++var MAX_SUBAGENT_THREADS = 128;
++var SUBAGENT_READ_CONCURRENCY = 8;
  function isExtMethodRequest(request) {
 -  return request.method === "authentication/status" || request.method === "authentication/logout" || request.method === LEGACY_SET_SESSION_MODEL_METHOD || request.method === GOAL_CONTROL_METHOD;
 +  return request.method === "authentication/status" || request.method === "authentication/logout" || request.method === LEGACY_SET_SESSION_MODEL_METHOD || request.method === GOAL_CONTROL_METHOD || request.method === STEER_METHOD;
  }
-@@ -26065,6 +26066,17 @@ var CodexAcpClient = class {
+
+ // src/ThreadGoalSnapshot.ts
+@@ -26065,6 +26069,17 @@ var CodexAcpClient = class {
        additionalDirectories
      };
    }
@@ -29,7 +34,62 @@ index fb338ee..dde4c00 100755
    async newSession(request) {
      const additionalDirectories = readAdditionalDirectories(request.cwd, request.additionalDirectories, request._meta);
      await this.refreshSkills(request.cwd, additionalDirectories);
-@@ -26316,6 +26328,14 @@ var CodexAcpClient = class {
+@@ -26112,6 +26127,54 @@ var CodexAcpClient = class {
+     const response = await this.codexClient.threadGoalGet({ threadId: sessionId });
+     return response?.goal ?? null;
+   }
++  onClientTransportEvent(callback) {
++    this.codexClient.onClientTransportEvent(callback);
++  }
++  async listSubagentThreads(rootThreadId) {
++    const threads = [];
++    let cursor = null;
++    do {
++      const response = await this.codexClient.threadList({
++        cursor,
++        limit: Math.min(100, MAX_SUBAGENT_THREADS - threads.length),
++        sortKey: "created_at",
++        sortDirection: "asc",
++        useStateDbOnly: true,
++        ancestorThreadId: rootThreadId
++      });
++      threads.push(...response.data.slice(0, MAX_SUBAGENT_THREADS - threads.length));
++      cursor = threads.length < MAX_SUBAGENT_THREADS ? response.nextCursor ?? null : null;
++    } while (cursor);
++    let nextIndex = 0;
++    const resolved = new Array(threads.length);
++    const worker = async () => {
++      while (nextIndex < threads.length) {
++        const index = nextIndex++;
++        const thread = threads[index];
++        const runtimeStatus = thread?.status?.type;
++        if (runtimeStatus === "active" || runtimeStatus === "systemError") {
++          resolved[index] = thread;
++          continue;
++        }
++        try {
++          const response = await this.codexClient.threadRead({
++            threadId: thread.id,
++            includeTurns: true
++          });
++          resolved[index] = response.thread;
++        } catch {
++          resolved[index] = thread;
++        }
++      }
++    };
++    await Promise.all(
++      Array.from(
++        { length: Math.min(SUBAGENT_READ_CONCURRENCY, threads.length) },
++        () => worker()
++      )
++    );
++    return resolved.filter(Boolean);
++  }
+   async setGoal(sessionId, objective, onTurnStarted) {
+     return await this.codexClient.runGoalSet({
+       threadId: sessionId,
+@@ -26316,6 +26379,14 @@ var CodexAcpClient = class {
        serviceTier
      }, onTurnStarted);
    }
@@ -44,7 +104,45 @@ index fb338ee..dde4c00 100755
    async setCollaborationMode(sessionId, mode, currentModelId) {
      await this.codexClient.threadSettingsUpdate({
        threadId: sessionId,
-@@ -28202,6 +28222,7 @@ var CodexAcpServer = class _CodexAcpServer {
+@@ -28151,6 +28222,13 @@ var CodexAcpServer = class _CodexAcpServer {
+   closingSessions;
+   sessionGenerations;
+   sessionOpenGenerations;
++  subagentSnapshots;
++  subagentRootByThreadId;
++  subagentRefreshTokens;
++  subagentPublishQueues;
++  subagentPublishDirty;
++  subagentRecoveryTimers;
++  subagentRecoveryAttempts;
+   constructor(connection, codexAcpClient, defaultAuthRequest, getExitCode, getRecentStderr) {
+     this.sessions = /* @__PURE__ */ new Map();
+     this.pendingMcpStartupSessions = /* @__PURE__ */ new Map();
+@@ -28159,6 +28237,13 @@ var CodexAcpServer = class _CodexAcpServer {
+     this.closingSessions = /* @__PURE__ */ new Map();
+     this.sessionGenerations = /* @__PURE__ */ new Map();
+     this.sessionOpenGenerations = /* @__PURE__ */ new Map();
++    this.subagentSnapshots = /* @__PURE__ */ new Map();
++    this.subagentRootByThreadId = /* @__PURE__ */ new Map();
++    this.subagentRefreshTokens = /* @__PURE__ */ new Map();
++    this.subagentPublishQueues = /* @__PURE__ */ new Map();
++    this.subagentPublishDirty = /* @__PURE__ */ new Set();
++    this.subagentRecoveryTimers = /* @__PURE__ */ new Map();
++    this.subagentRecoveryAttempts = /* @__PURE__ */ new Map();
+     this.connection = connection;
+     this.codexAcpClient = codexAcpClient;
+     this.defaultAuthRequest = defaultAuthRequest ?? null;
+@@ -28174,6 +28259,9 @@ var CodexAcpServer = class _CodexAcpServer {
+       (operation) => this.runWithProcessCheck(operation),
+       () => this.refreshSessionsAuthState(null)
+     );
++    this.codexAcpClient.onClientTransportEvent((event) => {
++      this.handleSubagentTransportEvent(event);
++    });
+   }
+   async initialize(_params) {
+     logger.log("Initialize request received");
+@@ -28202,6 +28290,7 @@ var CodexAcpServer = class _CodexAcpServer {
          sessionCapabilities: {
            resume: {},
            list: {},
@@ -52,19 +150,20 @@ index fb338ee..dde4c00 100755
            close: {},
            delete: {},
            additionalDirectories: {}
-@@ -28210,6 +28231,11 @@ var CodexAcpServer = class _CodexAcpServer {
+@@ -28210,6 +28299,12 @@ var CodexAcpServer = class _CodexAcpServer {
            acp: false,
            http: true,
            sse: false
 +        },
 +        _meta: {
 +          codex: {
-+            steer: { method: STEER_METHOD, version: 1 }
++            steer: { method: STEER_METHOD, version: 1 },
++            subagents: { version: SUBAGENT_STATE_VERSION }
 +          }
          }
        },
        authMethods: getCodexAuthMethods(_params.clientCapabilities)
-@@ -28248,6 +28274,31 @@ var CodexAcpServer = class _CodexAcpServer {
+@@ -28248,6 +28343,31 @@ var CodexAcpServer = class _CodexAcpServer {
          }
          return {};
        }
@@ -96,7 +195,15 @@ index fb338ee..dde4c00 100755
      }
    }
    async checkAuthorization() {
-@@ -28473,6 +28524,22 @@ You have been logged out. Please try again.`);
+@@ -28462,6 +28582,7 @@ You have been logged out. Please try again.`);
+       thread
+     } = await this.getOrCreateSessionWithHistory(params);
+     await this.streamThreadHistory(sessionId, thread);
++    this.refreshSubagentSnapshotAsync(sessionId);
+     logger.log("Session loaded", {
+       sessionId,
+       modelId: modelState.currentModelId,
+@@ -28473,6 +28594,22 @@ You have been logged out. Please try again.`);
        ...this.createSessionConfigOptionsResponse(this.getSessionState(sessionId))
      };
    }
@@ -119,7 +226,280 @@ index fb338ee..dde4c00 100755
    async resumeSession(params) {
      logger.log("Resuming session...", { sessionId: params.sessionId });
      const [sessionId, modelState, modeState] = await this.getOrCreateSession(params);
-@@ -29805,6 +29872,9 @@ var CodexAppServerClient = class {
+@@ -28481,6 +28618,7 @@ You have been logged out. Please try again.`);
+       modelId: modelState.currentModelId,
+       availableModelCount: modelState.availableModels.length
+     });
++    this.refreshSubagentSnapshotAsync(sessionId);
+     return {
+       models: modelState,
+       modes: modeState,
+@@ -28522,6 +28660,7 @@ You have been logged out. Please try again.`);
+         await activePrompt.completion;
+       }
+       await this.runWithProcessCheck(() => this.codexAcpClient.closeSession(params.sessionId));
++      this.clearSubagentSnapshot(params.sessionId);
+       logger.log("Session closed", { sessionId: params.sessionId });
+     } finally {
+       if (this.getSessionGeneration(params.sessionId) === closeGeneration) {
+@@ -28534,6 +28673,256 @@ You have been logged out. Please try again.`);
+     }
+     return {};
+   }
++  clearSubagentSnapshot(rootThreadId) {
++    const snapshot = this.subagentSnapshots.get(rootThreadId);
++    for (const threadId of snapshot?.agents.keys() ?? []) {
++      if (this.subagentRootByThreadId.get(threadId) === rootThreadId) {
++        this.subagentRootByThreadId.delete(threadId);
++      }
++    }
++    this.subagentSnapshots.delete(rootThreadId);
++    this.subagentRefreshTokens.delete(rootThreadId);
++    this.subagentPublishQueues.delete(rootThreadId);
++    this.subagentPublishDirty.delete(rootThreadId);
++    const recoveryTimer = this.subagentRecoveryTimers.get(rootThreadId);
++    if (recoveryTimer) clearTimeout(recoveryTimer);
++    this.subagentRecoveryTimers.delete(rootThreadId);
++    this.subagentRecoveryAttempts.delete(rootThreadId);
++  }
++  rootThreadIdForSubagent(threadId) {
++    if (this.sessions.has(threadId)) return threadId;
++    return this.subagentRootByThreadId.get(threadId) ?? null;
++  }
++  subagentStatusFromThread(thread) {
++    const runtimeStatus = thread?.status?.type;
++    if (runtimeStatus === "active") return "running";
++    if (runtimeStatus === "systemError") return "errored";
++    const lastTurn = Array.isArray(thread?.turns) ? thread.turns.at(-1) : null;
++    switch (lastTurn?.status) {
++      case "completed":
++        return "completed";
++      case "interrupted":
++        return "interrupted";
++      case "failed":
++        return "errored";
++      case "inProgress":
++        return "running";
++      default:
++        return "pendingInit";
++    }
++  }
++  subagentSnapshotEntry(thread) {
++    return {
++      threadId: String(thread.id),
++      parentThreadId: typeof thread.parentThreadId === "string" ? thread.parentThreadId : null,
++      name: typeof thread.agentNickname === "string" && thread.agentNickname.trim()
++        ? thread.agentNickname.trim()
++        : typeof thread.agentRole === "string" && thread.agentRole.trim()
++          ? thread.agentRole.trim()
++          : "",
++      status: this.subagentStatusFromThread(thread)
++    };
++  }
++  refreshSubagentSnapshotAsync(rootThreadId) {
++    const refreshToken = this.subagentRefreshTokens.get(rootThreadId) ?? 0;
++    void this.runWithProcessCheck(() => this.codexAcpClient.listSubagentThreads(rootThreadId)).then((threads) => {
++      if (!this.sessions.has(rootThreadId)) return;
++      if ((this.subagentRefreshTokens.get(rootThreadId) ?? 0) !== refreshToken) {
++        this.refreshSubagentSnapshotAsync(rootThreadId);
++        return;
++      }
++      const previous = this.subagentSnapshots.get(rootThreadId);
++      const agents = new Map(
++        threads.map((thread) => {
++          const entry = this.subagentSnapshotEntry(thread);
++          return [entry.threadId, entry];
++        })
++      );
++      for (const threadId of previous?.agents.keys() ?? []) {
++        if (!agents.has(threadId) && this.subagentRootByThreadId.get(threadId) === rootThreadId) {
++          this.subagentRootByThreadId.delete(threadId);
++        }
++      }
++      for (const threadId of agents.keys()) {
++        this.subagentRootByThreadId.set(threadId, rootThreadId);
++      }
++      const snapshot = {
++        revision: (previous?.revision ?? 0) + 1,
++        agents
++      };
++      this.subagentSnapshots.set(rootThreadId, snapshot);
++      this.publishSubagentUpdate(rootThreadId, "snapshot", [...agents.values()], snapshot.revision);
++    }).catch((error51) => {
++      logger.error(`Failed to reconcile Codex subagents for session ${rootThreadId}`, error51);
++    });
++  }
++  publishSubagentUpdate(rootThreadId, kind, agents, revision) {
++    if (!this.sessions.has(rootThreadId)) return;
++    const run = async () => {
++      const dirty = this.subagentPublishDirty.has(rootThreadId);
++      const current = this.subagentSnapshots.get(rootThreadId);
++      const updateKind = dirty ? "snapshot" : kind;
++      const updateAgents = dirty && current ? [...current.agents.values()] : agents;
++      const updateRevision = dirty && current ? current.revision : revision;
++      const session = new ACPSessionConnection(this.connection, rootThreadId);
++      await session.update({
++        sessionUpdate: "session_info_update",
++        _meta: {
++          codex: {
++            subagents: {
++              version: SUBAGENT_STATE_VERSION,
++              rootThreadId,
++              revision: updateRevision,
++              kind: updateKind,
++              agents: updateAgents
++            }
++          }
++        }
++      });
++      this.subagentPublishDirty.delete(rootThreadId);
++      this.subagentRecoveryAttempts.delete(rootThreadId);
++      const recoveryTimer = this.subagentRecoveryTimers.get(rootThreadId);
++      if (recoveryTimer) clearTimeout(recoveryTimer);
++      this.subagentRecoveryTimers.delete(rootThreadId);
++    };
++    const previous = this.subagentPublishQueues.get(rootThreadId);
++    const next = (previous ? previous.then(run, run) : run()).catch((error51) => {
++      logger.error(`Failed to publish Codex subagent state for session ${rootThreadId}`, error51);
++      this.subagentPublishDirty.add(rootThreadId);
++      this.scheduleSubagentRecovery(rootThreadId);
++    });
++    this.subagentPublishQueues.set(rootThreadId, next);
++    void next.finally(() => {
++      if (this.subagentPublishQueues.get(rootThreadId) === next) {
++        this.subagentPublishQueues.delete(rootThreadId);
++      }
++    });
++  }
++  scheduleSubagentRecovery(rootThreadId) {
++    if (!this.sessions.has(rootThreadId) || this.subagentRecoveryTimers.has(rootThreadId)) return;
++    const attempt = this.subagentRecoveryAttempts.get(rootThreadId) ?? 0;
++    if (attempt >= 3) return;
++    const delays = [100, 500, 1e3];
++    const timer = setTimeout(() => {
++      this.subagentRecoveryTimers.delete(rootThreadId);
++      if (!this.sessions.has(rootThreadId)) {
++        this.subagentPublishDirty.delete(rootThreadId);
++        this.subagentRecoveryAttempts.delete(rootThreadId);
++        return;
++      }
++      if (!this.subagentPublishDirty.has(rootThreadId)) return;
++      this.subagentRecoveryAttempts.set(rootThreadId, attempt + 1);
++      const current = this.subagentSnapshots.get(rootThreadId);
++      if (!current) return;
++      this.publishSubagentUpdate(
++        rootThreadId,
++        "snapshot",
++        [...current.agents.values()],
++        current.revision
++      );
++    }, delays[attempt]);
++    this.subagentRecoveryTimers.set(rootThreadId, timer);
++  }
++  updateSubagent(rootThreadId, entry) {
++    if (!rootThreadId || !entry?.threadId || !this.sessions.has(rootThreadId)) return;
++    const previous = this.subagentSnapshots.get(rootThreadId) ?? {
++      revision: 0,
++      agents: /* @__PURE__ */ new Map()
++    };
++    const existing = previous.agents.get(entry.threadId);
++    const nextEntry = {
++      threadId: entry.threadId,
++      parentThreadId: entry.parentThreadId ?? existing?.parentThreadId ?? null,
++      name: entry.name ?? existing?.name ?? "",
++      status: entry.status ?? existing?.status ?? "pendingInit"
++    };
++    if (
++      existing
++      && existing.parentThreadId === nextEntry.parentThreadId
++      && existing.name === nextEntry.name
++      && existing.status === nextEntry.status
++    ) {
++      return;
++    }
++    const next = {
++      revision: previous.revision + 1,
++      agents: new Map(previous.agents)
++    };
++    next.agents.set(nextEntry.threadId, nextEntry);
++    this.subagentSnapshots.set(rootThreadId, next);
++    this.subagentRootByThreadId.set(nextEntry.threadId, rootThreadId);
++    this.subagentRefreshTokens.set(
++      rootThreadId,
++      (this.subagentRefreshTokens.get(rootThreadId) ?? 0) + 1
++    );
++    this.publishSubagentUpdate(rootThreadId, "delta", [nextEntry], next.revision);
++  }
++  handleSubagentTransportEvent(event) {
++    if (event?.eventType !== "notification") return;
++    const params = event.params ?? {};
++    const method = event.method;
++    if (method === "thread/started") {
++      const thread = params.thread;
++      const parentThreadId = thread?.parentThreadId;
++      const rootThreadId = typeof parentThreadId === "string"
++        ? this.rootThreadIdForSubagent(parentThreadId)
++        : null;
++      if (rootThreadId && thread?.id) {
++        this.updateSubagent(rootThreadId, this.subagentSnapshotEntry(thread));
++      }
++      return;
++    }
++    if (
++      (method === "item/started" || method === "item/completed")
++      && params.item?.type === "subAgentActivity"
++    ) {
++      const parentThreadId = typeof params.threadId === "string" ? params.threadId : "";
++      const rootThreadId = this.rootThreadIdForSubagent(parentThreadId);
++      const childThreadId = params.item.threadId;
++      if (rootThreadId && typeof childThreadId === "string") {
++        this.updateSubagent(rootThreadId, {
++          threadId: childThreadId,
++          parentThreadId,
++          status: "pendingInit"
++        });
++      }
++      return;
++    }
++    const threadId = typeof params.threadId === "string" ? params.threadId : "";
++    const rootThreadId = this.rootThreadIdForSubagent(threadId);
++    if (!rootThreadId || rootThreadId === threadId) return;
++    if (method === "turn/started") {
++      this.updateSubagent(rootThreadId, { threadId, status: "running" });
++      return;
++    }
++    if (method === "turn/completed") {
++      const status = params.turn?.status;
++      this.updateSubagent(rootThreadId, {
++        threadId,
++        status: status === "completed"
++          ? "completed"
++          : status === "interrupted"
++            ? "interrupted"
++            : status === "failed"
++              ? "errored"
++              : "running"
++      });
++      return;
++    }
++    if (method === "thread/status/changed") {
++      const status = params.status?.type;
++      if (status === "active" || status === "systemError") {
++        this.updateSubagent(rootThreadId, {
++          threadId,
++          status: status === "active" ? "running" : "errored"
++        });
++      }
++      return;
++    }
++    if (method === "thread/closed") {
++      this.updateSubagent(rootThreadId, { threadId, status: "shutdown" });
++    }
++  }
+   async deleteSession(params) {
+     logger.log("Deleting session...", { sessionId: params.sessionId });
+     const sessionId = params.sessionId;
+@@ -29805,6 +30194,9 @@ var CodexAppServerClient = class {
    async turnStart(params) {
      return await this.sendRequest({ method: "turn/start", params });
    }
@@ -129,7 +509,7 @@ index fb338ee..dde4c00 100755
    async runTurn(params, onTurnStarted) {
      const capturedCompletions = [];
      const releaseCapture = this.captureTurnCompletions(params.threadId, (event) => {
-@@ -30032,6 +30102,9 @@ var CodexAppServerClient = class {
+@@ -30032,6 +30424,9 @@ var CodexAppServerClient = class {
    async threadResume(params) {
      return await this.sendRequest({ method: "thread/resume", params });
    }
@@ -139,7 +519,7 @@ index fb338ee..dde4c00 100755
    getThreadSettings(threadId) {
      return this.threadSettings.get(threadId);
    }
-@@ -30595,6 +30668,11 @@ var goalControlParamsParser = external_exports.object({
+@@ -30595,6 +30990,11 @@ var goalControlParamsParser = external_exports.object({
    sessionId: external_exports.string(),
    action: external_exports.enum(["pause", "clear"])
  }).passthrough();
@@ -151,7 +531,7 @@ index fb338ee..dde4c00 100755
  if (process.argv.includes("--version")) {
    console.log(`${package_default.name} ${package_default.version}`);
    process.exit(0);
-@@ -30667,5 +30745,5 @@ function startAcpServer() {
+@@ -30667,5 +31067,5 @@ function startAcpServer() {
          codexAcpServer = null;
        }
      });
