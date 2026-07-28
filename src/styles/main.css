@@ -6251,10 +6251,19 @@ body.code-mode .code-instance-name {
   text-align: left;
 }
 
+.code-agent-transcript-collaboration-summary.static {
+  cursor: default;
+  opacity: 1;
+}
+
 .code-agent-transcript-collaboration-summary:hover,
 .code-agent-transcript-collaboration-summary:focus-visible {
   background: rgba(31, 35, 40, 0.045);
   outline: none;
+}
+
+.code-agent-transcript-collaboration-summary.static:hover {
+  background: transparent;
 }
 
 .code-agent-transcript-collaboration-summary:focus-visible {
@@ -6271,6 +6280,18 @@ body.code-mode .code-instance-name {
   gap: 1px;
   padding: 5px;
   border-top: 1px solid rgba(31, 35, 40, 0.08);
+}
+
+.code-agent-transcript-collaboration-children {
+  display: grid;
+  gap: 5px;
+  margin: 5px 0 0 18px;
+  padding: 2px 0 0 9px;
+  border-left: 1px solid rgba(31, 35, 40, 0.11);
+}
+
+.code-agent-transcript-collaboration-children .code-agent-transcript-collaboration-group {
+  background: rgba(255, 255, 255, 0.52);
 }
 
 .code-agent-transcript-collaboration-event {
@@ -6426,13 +6447,27 @@ body.code-mode .code-instance-name {
   outline: none;
 }
 
-.code-agent-transcript-collaboration-action.unresolved {
+.code-agent-transcript-collaboration-action.unknown,
+.code-agent-transcript-collaboration-action.pending,
+.code-agent-transcript-collaboration-action.closed {
   color: #7d858d;
 }
 
 .code-agent-transcript-collaboration-action.failed,
 .code-agent-transcript-collaboration-action.interrupted {
   color: #b4232d;
+}
+
+.code-agent-transcript-collaboration-action.running {
+  color: #0969da;
+}
+
+.code-agent-transcript-collaboration-action.completed {
+  color: #1a7f37;
+}
+
+.code-agent-transcript-collaboration-action.paused {
+  color: #9a6700;
 }
 
 .code-agent-transcript-process-compact-list .code-agent-transcript-process-status,

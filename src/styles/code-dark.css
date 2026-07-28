@@ -1711,12 +1711,25 @@ body.code-mode[data-appearance='dark'] .code-agent-transcript-collaboration-even
   color: var(--code-dark-text-soft);
 }
 
+body.code-mode[data-appearance='dark'] .code-agent-transcript-collaboration-summary.static:hover {
+  background: transparent;
+  color: var(--code-dark-text-muted);
+}
+
 body.code-mode[data-appearance='dark'] .code-agent-transcript-collaboration-agent {
   color: var(--code-dark-text-soft);
 }
 
 body.code-mode[data-appearance='dark'] .code-agent-transcript-collaboration-events {
   border-top-color: var(--code-dark-border);
+}
+
+body.code-mode[data-appearance='dark'] .code-agent-transcript-collaboration-children {
+  border-left-color: var(--code-dark-border);
+}
+
+body.code-mode[data-appearance='dark'] .code-agent-transcript-collaboration-children .code-agent-transcript-collaboration-group {
+  background: rgba(24, 24, 24, 0.76);
 }
 
 body.code-mode[data-appearance='dark'] .code-agent-transcript-collaboration-count,
@@ -1745,13 +1758,27 @@ body.code-mode[data-appearance='dark'] .code-agent-transcript-collaboration-earl
   color: var(--code-dark-text);
 }
 
-body.code-mode[data-appearance='dark'] .code-agent-transcript-collaboration-action.unresolved {
+body.code-mode[data-appearance='dark'] .code-agent-transcript-collaboration-action.unknown,
+body.code-mode[data-appearance='dark'] .code-agent-transcript-collaboration-action.pending,
+body.code-mode[data-appearance='dark'] .code-agent-transcript-collaboration-action.closed {
   color: var(--code-dark-text-muted);
 }
 
 body.code-mode[data-appearance='dark'] .code-agent-transcript-collaboration-action.failed,
 body.code-mode[data-appearance='dark'] .code-agent-transcript-collaboration-action.interrupted {
   color: #ff7b72;
+}
+
+body.code-mode[data-appearance='dark'] .code-agent-transcript-collaboration-action.running {
+  color: #58a6ff;
+}
+
+body.code-mode[data-appearance='dark'] .code-agent-transcript-collaboration-action.completed {
+  color: #56d364;
+}
+
+body.code-mode[data-appearance='dark'] .code-agent-transcript-collaboration-action.paused {
+  color: #e3b341;
 }
 
 body.code-mode[data-appearance='dark'] .code-acp-progress-update {
@@ -3313,8 +3340,7 @@ body.code-mode[data-appearance='dark'] .code-agent-home-empty {
   color: #8b949e;
 }
 
-body.code-mode[data-appearance='dark'] .code-settings-row-copy strong,
-body.code-mode[data-appearance='dark'] .code-settings-update-url > span {
+body.code-mode[data-appearance='dark'] .code-settings-row-copy strong {
   color: var(--code-dark-text-soft);
 }
 
