@@ -240,6 +240,37 @@ async function continueWithoutUntrustedHooks(page: Page, agentId: string, readyF
   await page.keyboard.press('Enter')
 }
 
+async function continueCrtWithoutUntrustedHooks(page: Page, readyAnchor: string) {
+  let startupState = 'waiting'
+  await expect.poll(async () => {
+    const rendered = (await crtRows(page)).join('\n')
+    startupState = rendered.includes(readyAnchor)
+      ? 'ready'
+      : rendered.includes('Hooks need review') ? 'hooks' : 'waiting'
+    return startupState
+  }, { timeout: 60_000 }).toMatch(/^(ready|hooks)$/)
+  if (startupState === 'ready') return
+
+  const options = ['Review hooks', 'Trust all and continue', 'Continue without trusting']
+  const selectedOption = async () => {
+    const rows = await crtRows(page)
+    return options.find(option => rows.some(row => row.includes('›') && row.includes(option))) || ''
+  }
+  const targetIndex = options.indexOf('Continue without trusting')
+  let currentIndex = options.indexOf(await selectedOption())
+  expect(currentIndex, 'Codex hook review must expose a selected rendered option').toBeGreaterThanOrEqual(0)
+  const input = page.locator('#terminal-output .xterm-helper-textarea')
+  await input.focus()
+  while (currentIndex !== targetIndex) {
+    const direction = currentIndex < targetIndex ? 1 : -1
+    const nextIndex = currentIndex + direction
+    await page.keyboard.press(direction > 0 ? 'ArrowDown' : 'ArrowUp')
+    await expect.poll(selectedOption, { timeout: 5_000 }).toBe(options[nextIndex])
+    currentIndex = nextIndex
+  }
+  await page.keyboard.press('Enter')
+}
+
 async function waitForCodeAnchor(page: Page, agentId: string, anchor: string, timeout = 120_000) {
   await expect.poll(async () => (await codeRows(page, agentId)).join('\n'), { timeout }).toContain(anchor)
 }
@@ -814,6 +845,7 @@ test.describe('real Codex pre-release composite case', () => {
       expect(switched.mode).toBe('terminal')
       await assertSameProviderSession(page, agentId, providerSessionId, 'terminal')
       await waitForCrtTerminal(page)
+      await continueCrtWithoutUntrustedHooks(page, COMPOSITE_END)
       await waitForCrtAnchor(page, COMPOSITE_END, 180_000)
       await waitForCrtTerminalIdle(page, agentId)
       // The terminal is intentionally following the latest output. After the
@@ -846,6 +878,7 @@ test.describe('real Codex pre-release composite case', () => {
       expect(switched.mode).toBe('terminal')
       await assertSameProviderSession(page, agentId, providerSessionId, 'terminal')
       await waitForCrtTerminal(page)
+      await continueCrtWithoutUntrustedHooks(page, CRT_MSG_ACK)
       await waitForCrtAnchor(page, CRT_MSG_ACK, 180_000)
       await waitForCrtTerminalIdle(page, agentId)
       await expect.poll(async () => (await crtRows(page)).join('\n').toLowerCase(), { timeout: 90_000 })
