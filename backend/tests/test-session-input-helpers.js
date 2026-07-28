@@ -565,6 +565,7 @@ function run() {
       terminalPoolSource.includes('record.terminal.reattach?.()') &&
       terminalPoolSource.includes('record.terminal.forceRedraw?.()') &&
       terminalPoolSource.includes('const generation = beginTerminalAttachment(record)') &&
+      terminalPoolSource.includes('record.attachedMount === options.mountEl && isTerminalSessionAttached(record)') &&
       terminalPoolSource.includes('attachTerminalHost(record, mountEl') &&
       terminalPoolSource.includes('repairTerminalAfterAttach(record)') &&
       terminalPoolSource.includes('detachTerminalSession(agentId: string, expectedMount?: HTMLElement)') &&

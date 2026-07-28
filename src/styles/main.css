@@ -7655,6 +7655,12 @@ button.code-agent-transcript-result-summary:focus-visible {
   color: #cf222e;
 }
 
+.code-agent-transcript-result-icon {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+}
+
 .code-agent-transcript-result-chevron {
   width: 16px;
   height: 16px;

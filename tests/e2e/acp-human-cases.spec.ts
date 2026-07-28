@@ -267,7 +267,7 @@ test.describe('ACP human-like browser matrix', () => {
     await expect(groups.nth(0).locator('.code-agent-transcript-collaboration-agent svg')).toBeVisible()
     expect(await groups.evaluateAll(elements => (
       elements.map(element => element.getAttribute('data-agent-icon')).sort()
-    ))).toEqual(['0', '1', '2'])
+    ))).toEqual(['3', '4', '5'])
     const agentIconPaths = await groups.locator('.code-agent-transcript-collaboration-agent svg').evaluateAll(
       icons => icons.map(icon => icon.querySelector('path')?.getAttribute('d')),
     )
@@ -919,6 +919,8 @@ test.describe('ACP human-like browser matrix', () => {
     const turn = pane.locator('.code-agent-transcript-turn').filter({ hasText: 'rich timeline' }).last()
     const summary = turn.getByTestId('code-agent-transcript-result-summary')
     await expect(summary).toHaveText('1 file changed+1-1')
+    await expect(summary).toHaveAttribute('aria-expanded', 'false')
+    await expect(summary.getByTestId('code-agent-transcript-result-icon')).toBeVisible()
     await summary.click()
     await expect(turn.getByTestId('code-agent-transcript-result-details')).toBeVisible()
     await expect(turn.locator('.code-agent-transcript-result-loading')).toHaveCount(0)

@@ -5011,6 +5011,7 @@ export function CodeWorkspace({
         activeBrowserResource={mainPaneMode === 'browser' ? activeBrowserResource : null}
         browserController={browserResources}
         onBackFromBrowser={backFromBrowser}
+        onOpenBrowserResource={showBrowserResource}
         language={uiPreferences.language}
         showFileEditor={showFileEditor}
         openWorkspaceFile={openWorkspaceFile}

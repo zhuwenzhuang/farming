@@ -5,6 +5,91 @@ export interface TerminalAttachmentRecord {
   disposed: boolean
 }
 
+export interface TerminalAttachmentLease {
+  release: () => void
+}
+
+interface TerminalAttachmentLeaseEntry {
+  agentId: string
+  mountEl: HTMLElement
+  revision: number
+  releasePending: boolean
+  teardown: () => void
+}
+
+type TerminalAttachmentReleaseScheduler = (commit: () => void) => void
+
+/**
+ * React may clean up and recreate an effect in the same commit even though the
+ * terminal's business owner did not change. This coordinator turns that
+ * implementation detail into an ownership handoff: a same-owner reacquire
+ * cancels the pending release and reuses the existing attachment.
+ */
+export function createTerminalAttachmentLeaseCoordinator(
+  scheduleRelease: TerminalAttachmentReleaseScheduler = queueMicrotask,
+) {
+  let current: TerminalAttachmentLeaseEntry | null = null
+  let nextRevision = 0
+
+  const createLease = (entry: TerminalAttachmentLeaseEntry): TerminalAttachmentLease => {
+    const revision = entry.revision
+    let released = false
+
+    return {
+      release: () => {
+        if (released) return
+        released = true
+        if (current !== entry || entry.revision !== revision) return
+
+        entry.releasePending = true
+        scheduleRelease(() => {
+          if (
+            current !== entry
+            || entry.revision !== revision
+            || !entry.releasePending
+          ) {
+            return
+          }
+          current = null
+          entry.releasePending = false
+          entry.teardown()
+        })
+      },
+    }
+  }
+
+  return {
+    acquire(
+      agentId: string,
+      mountEl: HTMLElement,
+      start: () => () => void,
+    ): TerminalAttachmentLease {
+      if (current?.agentId === agentId && current.mountEl === mountEl) {
+        current.releasePending = false
+        current.revision = ++nextRevision
+        return createLease(current)
+      }
+
+      if (current) {
+        const previous = current
+        current = null
+        previous.releasePending = false
+        previous.teardown()
+      }
+
+      const entry: TerminalAttachmentLeaseEntry = {
+        agentId,
+        mountEl,
+        revision: ++nextRevision,
+        releasePending: false,
+        teardown: start(),
+      }
+      current = entry
+      return createLease(entry)
+    },
+  }
+}
+
 export function getTerminalSessionParkingLot() {
   let parkingLot = document.getElementById('terminal-session-parking-lot') as HTMLDivElement | null
   if (parkingLot) return parkingLot

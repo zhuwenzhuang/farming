@@ -33,10 +33,26 @@ class FakeBrowserRuntime extends EventEmitter {
     this.resizeCalls = 0;
     this.resizeValues = [];
     this.actionCalls = [];
+    this.tabs = [];
+    this.nextTab = 1;
+    this.activeTabId = '';
+    this.streamTabId = '';
+    this.ownedTabIds = new Set();
   }
 
   async start(url) {
     this.startedUrl = url;
+    const tab = {
+      active: true,
+      label: null,
+      tabId: `t${this.nextTab++}`,
+      title: 'Fake Browser',
+      type: 'page',
+      url,
+    };
+    this.tabs = [tab];
+    this.activeTabId = tab.tabId;
+    this.streamTabId = tab.tabId;
     this.emit('process-identity', {
       pid: 41_001 + this.generation,
       processGroupId: 41_001 + this.generation,
@@ -44,6 +60,48 @@ class FakeBrowserRuntime extends EventEmitter {
       format: 'test-v1',
     });
     return { url, title: 'Fake Browser' };
+  }
+
+  async listTabs() {
+    return this.tabs.map(tab => ({ ...tab }));
+  }
+
+  async createTab(url) {
+    this.tabs.forEach(tab => { tab.active = false; });
+    const tab = {
+      active: true,
+      label: null,
+      tabId: `t${this.nextTab++}`,
+      title: 'Fake Browser',
+      type: 'page',
+      url,
+    };
+    this.tabs.push(tab);
+    this.activeTabId = tab.tabId;
+    this.streamTabId = tab.tabId;
+    this.emit('tabs', { tabs: this.tabs.map(candidate => ({ ...candidate })), newTabIds: [tab.tabId] });
+    return { ...tab };
+  }
+
+  async switchTab(tabId) {
+    const tab = this.tabs.find(candidate => candidate.tabId === tabId);
+    if (!tab) throw new Error('missing fake tab');
+    this.tabs.forEach(candidate => { candidate.active = candidate === tab; });
+    this.activeTabId = tabId;
+    this.streamTabId = tabId;
+    return { ...tab };
+  }
+
+  async closeTab(tabId) {
+    this.tabs = this.tabs.filter(tab => tab.tabId !== tabId);
+    if (this.activeTabId === tabId) {
+      const next = this.tabs[0];
+      if (next) next.active = true;
+      this.activeTabId = next?.tabId || '';
+      this.streamTabId = next?.tabId || '';
+    }
+    this.emit('tabs', { tabs: this.tabs.map(tab => ({ ...tab })), newTabIds: [] });
+    return this.listTabs();
   }
 
   async close() {
@@ -360,6 +418,48 @@ async function testBrowserResourceManager() {
     const frame = { type: 'browser-frame', generation: 1, data: 'frame' };
     runtimes[0].emit('frame', frame);
     assert.deepStrictEqual(viewer.messages.at(-1), frame);
+
+    runtimes[0].tabs[0].active = false;
+    runtimes[0].tabs.push({
+      active: true,
+      label: null,
+      tabId: 't2',
+      title: 'Popup destination',
+      type: 'page',
+      url: 'https://popup.example/',
+    });
+    runtimes[0].nextTab = 3;
+    runtimes[0].activeTabId = 't2';
+    runtimes[0].emit('tabs', {
+      tabs: runtimes[0].tabs.map(tab => ({ ...tab })),
+      newTabIds: ['t2'],
+      popupAdmitted: true,
+    });
+    await manager.sessions.values().next().value.actionChain;
+    const popupResource = manager.list().find(resource => resource.url === 'https://popup.example/');
+    assert(popupResource, 'An admitted popup must become its own Browser Resource');
+    assert.strictEqual(runtimes.length, 1, 'A new tab must reuse the existing Browser process');
+    assert.strictEqual(viewer.messages.at(-1).type, 'browser-tab-opened');
+    assert.strictEqual(viewer.messages.at(-1).resource.id, popupResource.id);
+    assert.strictEqual(runtimes[0].streamTabId, 't2');
+    await manager.stop(popupResource.id);
+    assert.strictEqual(runtimes[0].closed, false, 'Closing one tab must keep the shared Browser alive');
+
+    const manualTab = manager.create({
+      projectRootId: 'wroot_project',
+      workspace: projectWorkspace,
+      name: 'Manual tab',
+      url: 'https://manual.example/',
+    });
+    const runningManualTab = await manager.start(manualTab.id);
+    assert.strictEqual(runningManualTab.status, 'running');
+    assert.strictEqual(runtimes.length, 1, 'Starting another tab must reuse the shared Browser process');
+    await manager.action(created.id, { kind: 'snapshot' });
+    assert.strictEqual(runtimes[0].activeTabId, 't1');
+    await manager.action(manualTab.id, { kind: 'snapshot' });
+    assert.strictEqual(runtimes[0].activeTabId, 't3');
+    await manager.stop(manualTab.id);
+
     viewer.emit('message', Buffer.from(JSON.stringify({
       type: 'resize',
       generation: running.generation,
@@ -607,8 +707,18 @@ async function testExternalBrowserErrorRedaction() {
       runtime.generation = options.generation;
       runtime.start = async url => {
         if (failStart) throw new Error('connect ECONNREFUSED 127.0.0.1:9222');
+        runtime.activeTabId = 't1';
+        runtime.streamTabId = 't1';
+        runtime.tabs = [{
+          active: true,
+          tabId: 't1',
+          title: 'External Browser',
+          type: 'page',
+          url,
+        }];
         return { url, title: 'External Browser' };
       };
+      runtime.listTabs = async () => runtime.tabs || [];
       runtime.close = async () => {
         if (failClose) throw new Error('connect ECONNREFUSED 127.0.0.1:9222');
       };

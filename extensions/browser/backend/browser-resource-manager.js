@@ -373,7 +373,10 @@ class BrowserResourceManager extends EventEmitter {
     const title = String(name || '').trim();
     if (!title) throw browserError('Browser name is required');
     const resource = this.requireStored(id);
-    const next = this.store.update(resource.id, { name: title.slice(0, 120) });
+    const next = this.store.update(resource.id, {
+      name: title.slice(0, 120),
+      autoName: false,
+    });
     this.emitResource(next);
     return publicResource(next, this.store.revision);
   }
@@ -599,12 +602,15 @@ class BrowserResourceManager extends EventEmitter {
       const { session } = binding;
       session.closing = session.bindings.size === 1;
       try {
-        await session.actionChain?.catch(() => {});
-        if (session.bindings.size > 1) {
-          await session.runtime.closeTab(binding.tabId);
-        } else {
-          await session.runtime.close();
-        }
+        const closeOperation = (session.actionChain || Promise.resolve())
+          .catch(() => {})
+          .then(() => (
+            session.bindings.size > 1
+              ? session.runtime.closeTab(binding.tabId)
+              : session.runtime.close()
+          ));
+        session.actionChain = closeOperation;
+        await closeOperation;
       } catch (error) {
         session.closing = false;
         if (resource.browserKind === 'external-cdp') {
@@ -1167,6 +1173,7 @@ class BrowserResourceManager extends EventEmitter {
         const updated = this.store.update(binding.id, {
           url: tab.url || current.url,
           title: tab.title || '',
+          ...(current.autoName ? { name: tabResourceName(tab) } : {}),
         });
         this.emitResource(updated);
         this.broadcastRuntimeState(binding);
@@ -1180,6 +1187,15 @@ class BrowserResourceManager extends EventEmitter {
       if (!current || current.status === 'stopping') continue;
       session.bindings.delete(binding.id);
       this.runtimes.delete(binding.id);
+      if (session.processOwnerResourceId === binding.id && session.bindings.size > 0) {
+        const nextOwner = session.bindings.values().next().value;
+        session.processOwnerResourceId = nextOwner.id;
+        const transferred = this.store.update(nextOwner.id, {
+          processIdentity: current.processIdentity,
+        });
+        this.emitResource(transferred);
+        this.broadcastRuntimeState(nextOwner);
+      }
       const stopped = this.store.update(binding.id, {
         status: 'stopped',
         tabId: '',

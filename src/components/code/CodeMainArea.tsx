@@ -239,6 +239,7 @@ interface CodeMainAreaProps {
   activeBrowserResource: BrowserResource | null
   browserController: BrowserResourcesController
   onBackFromBrowser: () => void
+  onOpenBrowserResource: (resource: BrowserResource) => void
   language: UiPreferences['language']
   showFileEditor: boolean
   openWorkspaceFile: OpenWorkspaceFile | null
@@ -471,6 +472,7 @@ export function CodeMainArea({
   activeBrowserResource,
   browserController,
   onBackFromBrowser,
+  onOpenBrowserResource,
   language,
   showFileEditor,
   openWorkspaceFile,
@@ -721,6 +723,7 @@ export function CodeMainArea({
           controller={browserController}
           language={language}
           onResource={browserController.mergeResource}
+          onOpenResource={onOpenBrowserResource}
           onBackToAgent={onBackFromBrowser}
         />
       ) : showFileEditor && openWorkspaceFile ? (

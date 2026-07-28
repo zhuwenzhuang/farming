@@ -77,7 +77,7 @@ function eventTone(threadId: string) {
 }
 
 function agentIcon(threadId: string) {
-  return Math.floor(threadVisualHash(threadId) / 4) % 3
+  return Math.floor(threadVisualHash(threadId) / 4) % 6
 }
 
 export function acpCollaborationEvents(items: AgentTranscriptProcessItem[]): AcpCollaborationEvent[] {

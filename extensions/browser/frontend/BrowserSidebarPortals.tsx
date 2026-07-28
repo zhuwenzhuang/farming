@@ -35,22 +35,22 @@ function writeCollapsed(values: Set<string>) {
 function browserCopy(language: UiPreferences['language']) {
   const zh = language === 'zh'
   return {
-    browsers: zh ? '浏览器' : 'Browsers',
-    newBrowser: zh ? '新建浏览器' : 'New Browser',
-    createBrowser: zh ? '新建浏览器' : 'Create browser',
-    browserName: zh ? '浏览器名称' : 'Browser name',
-    renameBrowser: zh ? '重命名浏览器' : 'Rename Browser',
-    startBrowser: zh ? '启动浏览器' : 'Start Browser',
-    stopBrowser: zh ? '停止浏览器' : 'Stop Browser',
-    deleteBrowser: zh ? '删除浏览器' : 'Delete Browser',
-    failed: zh ? '浏览器失败' : 'Browser failed',
+    browsers: zh ? '浏览器' : 'Browser',
+    newBrowser: zh ? '新建标签页' : 'New Tab',
+    createBrowser: zh ? '新建标签页' : 'Create tab',
+    browserName: zh ? '标签页名称' : 'Tab name',
+    renameBrowser: zh ? '重命名标签页' : 'Rename Tab',
+    startBrowser: zh ? '启动标签页' : 'Start Tab',
+    stopBrowser: zh ? '停止标签页' : 'Stop Tab',
+    deleteBrowser: zh ? '关闭标签页' : 'Close Tab',
+    failed: zh ? '标签页失败' : 'Tab failed',
     starting: zh ? '启动中…' : 'Starting…',
     stopping: zh ? '停止中…' : 'Stopping…',
     stopped: zh ? '已停止' : 'Stopped',
-    renameFailed: zh ? '浏览器重命名失败' : 'Failed to rename Browser',
-    transitionFailed: zh ? '浏览器状态切换失败' : 'Browser transition failed',
-    deleteFailed: zh ? '浏览器删除失败' : 'Failed to delete Browser',
-    createFailed: zh ? '浏览器创建失败' : 'Failed to create Browser',
+    renameFailed: zh ? '标签页重命名失败' : 'Failed to rename tab',
+    transitionFailed: zh ? '标签页状态切换失败' : 'Tab transition failed',
+    deleteFailed: zh ? '标签页关闭失败' : 'Failed to close tab',
+    createFailed: zh ? '标签页创建失败' : 'Failed to create tab',
   }
 }
 

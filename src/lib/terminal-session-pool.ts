@@ -4483,12 +4483,30 @@ function fitAndFocus(record: SessionRecord, options: Pick<AttachOptions, 'autoFo
   })
 }
 
+function applyTerminalAttachmentOptions(record: SessionRecord, options: AttachOptions) {
+  record.errorHandler = options.onError ?? null
+  record.inputDisabled = Boolean(options.inputDisabled)
+  record.followOutputHandler = options.onFollowOutputChange ?? null
+  record.pathOpenHandler = options.onPathOpen ?? null
+  record.pathResolveHandler = options.onPathResolve ?? null
+  record.urlOpenHandler = options.onUrlOpen ?? null
+  record.recoveryStatusHandler = options.onRecoveryStatusChange ?? null
+  updateRendererCursorSuppression(record, Boolean(options.suppressRendererCursor))
+}
+
 export async function attachTerminalSession(agentId: string, options: AttachOptions) {
   if (options.signal?.aborted) return
 
   const record = await getOrCreateSession(agentId, options)
   if (record.disposed || options.signal?.aborted) return
   if (sessions.get(agentId) !== record) return
+
+  if (record.attachedMount === options.mountEl && isTerminalSessionAttached(record)) {
+    // Repeating the same ownership claim is a live-options refresh, not an
+    // attachment transition. In particular it must not start recovery.
+    applyTerminalAttachmentOptions(record, options)
+    return
+  }
 
   const generation = beginTerminalAttachment(record)
   record.attachReadyHandler = options.onReady ?? null
@@ -4507,15 +4525,9 @@ export async function attachTerminalSession(agentId: string, options: AttachOpti
       || record.parkedViewportState.preserveUnreadOutputUntilJump
   }
   repairTerminalAfterAttach(record)
-  record.errorHandler = options.onError ?? null
-  record.inputDisabled = Boolean(options.inputDisabled)
-  record.followOutputHandler = options.onFollowOutputChange ?? null
-  record.pathOpenHandler = options.onPathOpen ?? null
-  record.pathResolveHandler = options.onPathResolve ?? null
-  record.urlOpenHandler = options.onUrlOpen ?? null
+  applyTerminalAttachmentOptions(record, options)
   seedTerminalCheckpoint(record, options.bootstrapState)
   emitFollowOutputState(record)
-  updateRendererCursorSuppression(record, Boolean(options.suppressRendererCursor))
   fitAndFocus(record, options, generation)
 }
 

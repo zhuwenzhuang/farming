@@ -25,10 +25,10 @@ function viewerCopy(language: UiPreferences['language']) {
     more: zh ? '更多' : 'More',
     start: zh ? '启动' : 'Start',
     stop: zh ? '停止' : 'Stop',
-    startBrowser: zh ? '启动浏览器' : 'Start Browser',
-    stoppedTitle: zh ? '浏览器已停止' : 'Browser stopped',
-    failedTitle: zh ? '浏览器失败' : 'Browser failed',
-    stoppedHint: zh ? '启动后，用户和 Agent 将操作同一个页面。' : 'Start it to share one page between the user and Agent.',
+    startBrowser: zh ? '启动标签页' : 'Start Tab',
+    stoppedTitle: zh ? '标签页已停止' : 'Tab stopped',
+    failedTitle: zh ? '标签页失败' : 'Tab failed',
+    stoppedHint: zh ? '启动后，用户和 Agent 将操作同一个标签页。' : 'Start it to share one tab between the user and Agent.',
     pageLabel: (name: string) => zh ? `${name} 浏览器页面` : `${name} browser page`,
     textInput: zh ? '浏览器文本输入' : 'Browser text input',
     viewerFailed: zh ? 'Browser Viewer 失败' : 'Browser Viewer failed',
@@ -69,12 +69,14 @@ export function BrowserViewer({
   controller,
   language,
   onResource,
+  onOpenResource,
   onBackToAgent,
 }: {
   resource: BrowserResource
   controller: BrowserResourcesController
   language: UiPreferences['language']
   onResource: (resource: BrowserResource) => void
+  onOpenResource: (resource: BrowserResource) => void
   onBackToAgent: () => void
 }) {
   const copy = viewerCopy(language)
@@ -199,6 +201,11 @@ export function BrowserViewer({
           resource?: BrowserResource
           message?: string
         }
+        if (message.type === 'browser-tab-opened' && message.resource) {
+          onResource(message.resource)
+          onOpenResource(message.resource)
+          return
+        }
         if (message.type === 'browser-state' && message.resource) {
           onResource(message.resource)
           return
@@ -250,7 +257,7 @@ export function BrowserViewer({
       socketRef.current?.close()
       socketRef.current = null
     }
-  }, [copy.connectionFailed, copy.viewerFailed, onResource, resource.id, resource.status, sendViewerSize])
+  }, [copy.connectionFailed, copy.viewerFailed, onOpenResource, onResource, resource.id, resource.status, sendViewerSize])
 
   const send = useCallback((message: Record<string, unknown>) => {
     const socket = socketRef.current

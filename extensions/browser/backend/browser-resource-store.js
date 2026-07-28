@@ -40,6 +40,7 @@ function normalizeResource(value) {
     projectRootId,
     workspace,
     name: String(value.name || 'Browser').trim().slice(0, 120) || 'Browser',
+    autoName: value.autoName === true,
     status: STATUSES.has(value.status) ? value.status : 'failed',
     generation: Number.isSafeInteger(value.generation) && value.generation >= 0 ? value.generation : 0,
     revision: Number.isSafeInteger(value.revision) && value.revision >= 0 ? value.revision : 0,
@@ -107,6 +108,7 @@ class BrowserResourceStore {
       projectRootId: input.projectRootId,
       workspace: input.workspace,
       name: input.name || 'Browser',
+      autoName: input.autoName === true,
       status: 'stopped',
       generation: 0,
       revision: 0,
@@ -130,6 +132,7 @@ class BrowserResourceStore {
     const resource = this.create(input);
     return this.update(resource.id, {
       status: 'running',
+      autoName: true,
       generation: 1,
       browserKind: input.browserKind,
       runtimeKind: 'agent-browser',

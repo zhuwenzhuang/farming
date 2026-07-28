@@ -23,6 +23,15 @@ test.beforeAll(async () => {
       response.end('<button id="inside-frame">Inside frame</button>')
       return
     }
+    if (request.url === '/tab-destination') {
+      response.setHeader('content-type', 'text/html; charset=utf-8')
+      response.end(`<!doctype html>
+        <meta charset="utf-8">
+        <title>Popup destination</title>
+        <style>body { background: #7a1f5c; color: white; font: 32px system-ui; padding: 48px; }</style>
+        <h1>Popup destination</h1>`)
+      return
+    }
     if (request.url === '/download') {
       response.setHeader('content-type', 'text/plain; charset=utf-8')
       response.setHeader('content-disposition', 'attachment; filename="browser-report.txt"')
@@ -59,6 +68,7 @@ test.beforeAll(async () => {
         <select id="choice" aria-label="Choice"><option value="a">A</option><option value="b">B</option></select>
         <input id="upload" aria-label="Upload" type="file">
         <a id="download" href="/download" download>Download report</a>
+        <a id="new-tab" href="/tab-destination" target="_blank">Open destination tab</a>
         <span id="async-status">ASYNC WAITING</span>
         <iframe id="embedded" title="Embedded lab" src="/frame"></iframe>
       </section>
@@ -207,7 +217,7 @@ test('deletes a Browser directly without a confirmation dialog', async ({
   })
 
   await row.hover()
-  await row.getByRole('button', { name: 'Delete Browser' }).click()
+  await row.getByRole('button', { name: 'Close Tab' }).click()
   await expect(project.getByTestId('farming-browser-section')).toHaveCount(0)
   expect(dialogs).toEqual([])
 })
@@ -419,6 +429,49 @@ test('normalizes a bare address and clears a recovered navigation error', async 
     .toBe('Browser Interaction Lab')
   await expect(viewer.getByRole('alert')).toHaveCount(0)
   await expect(viewer.locator('form')).toHaveAttribute('aria-busy', 'false')
+})
+
+test('promotes a website popup into a shared Browser tab Resource', async ({
+  page,
+  workspaceRoot,
+}) => {
+  const workspace = path.join(workspaceRoot, 'browser-tabs')
+  fs.mkdirSync(workspace, { recursive: true })
+  const enableResponse = await page.request.post('/farming/api/settings', {
+    data: { browserExtensionEnabled: true },
+  })
+  expect(enableResponse.ok()).toBeTruthy()
+  await page.request.post('/farming/api/projects/mount', { data: { workspace } })
+  const createResponse = await page.request.post('/farming/api/browsers', {
+    data: {
+      rootId: projectFilesWorkspaceId(workspace),
+      url: targetUrl,
+    },
+  })
+  expect(createResponse.ok()).toBeTruthy()
+  const createdBrowser = await createResponse.json() as { id: string }
+  const startResponse = await page.request.post(`/farming/api/browsers/${createdBrowser.id}/start`)
+  expect(startResponse.ok()).toBeTruthy()
+  await openFarming(page)
+
+  const project = page.getByTestId('code-project-group').filter({ hasText: path.basename(workspace) })
+  const browserSection = project.getByTestId('farming-browser-section')
+  await browserSection.getByTestId('farming-browser-row').click()
+  const viewer = page.getByTestId('farming-browser-viewer')
+  await expect(viewer.locator('canvas')).toBeVisible({ timeout: 30_000 })
+  const popupResponse = await page.request.post(`/farming/api/browsers/${createdBrowser.id}/action`, {
+    data: { kind: 'click', selector: '#new-tab' },
+  })
+  expect(popupResponse.ok()).toBeTruthy()
+
+  await expect(browserSection.getByTestId('farming-browser-row')).toHaveCount(2)
+  await expect(viewer.getByRole('textbox', { name: 'Browser address' }))
+    .toHaveValue(`${targetUrl}tab-destination`)
+  await expect(browserSection.locator('.farming-browser-row.active')).toContainText('Popup destination')
+
+  const originalRow = browserSection.locator(`[data-browser-id="${createdBrowser.id}"]`)
+  await originalRow.click()
+  await expect(viewer.getByRole('textbox', { name: 'Browser address' })).toHaveValue(targetUrl)
 })
 
 test('keeps Browser startup, navigation, frames, and interaction within local budgets', async ({
@@ -850,13 +903,13 @@ test('matches the focused Viewer viewport and restores the previous Viewer on cl
 
   await viewer.getByRole('button', { name: 'More', exact: true }).click()
   await viewer.getByRole('menuitem', { name: 'Stop', exact: true }).click()
-  await expect(viewer.getByText('Browser stopped', { exact: true })).toBeVisible({ timeout: 15_000 })
-  await viewer.getByRole('button', { name: 'Start Browser' }).click()
+  await expect(viewer.getByText('Tab stopped', { exact: true })).toBeVisible({ timeout: 15_000 })
+  await viewer.getByRole('button', { name: 'Start Tab' }).click()
   await expect(viewer.locator('canvas')).toBeVisible({ timeout: 30_000 })
   await expect.poll(async () => (await browserSnapshot(page, browserId!)).url).toBe(targetUrl)
 
   await row.hover()
-  await row.getByRole('button', { name: 'Delete Browser' }).click()
+  await row.getByRole('button', { name: 'Close Tab' }).click()
   await expect(browserSection).toHaveCount(0)
   await page.request.post('/farming/api/projects/remove', { data: { workspace } })
 })

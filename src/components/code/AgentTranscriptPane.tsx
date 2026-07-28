@@ -19,13 +19,17 @@ import remarkMath from 'remark-math'
 import {
   AgentBotGlyph,
   AgentChipGlyph,
+  AgentDroneGlyph,
   AgentGroupGlyph,
+  AgentManufacturingGlyph,
+  AgentSmartToyGlyph,
   AgentSpeechBotGlyph,
   ArrowDownGlyph,
   CheckGlyph,
   ChevronRightGlyph,
   CloseGlyph,
   CopyGlyph,
+  DifferenceGlyph,
   ForkGlyph,
 } from '@/components/IconGlyphs'
 import { MermaidBlock } from '@/components/files/FileEditorMarkdownPreview'
@@ -1329,7 +1333,14 @@ function collaborationActionLabel(
 }
 
 function CollaborationAgentGlyph({ icon }: { icon: number }) {
-  const Glyph = [AgentBotGlyph, AgentSpeechBotGlyph, AgentChipGlyph][icon] || AgentBotGlyph
+  const Glyph = [
+    AgentBotGlyph,
+    AgentSpeechBotGlyph,
+    AgentChipGlyph,
+    AgentSmartToyGlyph,
+    AgentDroneGlyph,
+    AgentManufacturingGlyph,
+  ][icon] || AgentBotGlyph
   return <Glyph />
 }
 
@@ -1910,6 +1921,10 @@ function AgentTranscriptPatchResultCard({
   }, [copy.agentTranscriptUnavailable, detailOpen, detailedChanges, handleReview, items, onLoadPatchChanges, source])
   const summaryContent = (
     <>
+      <DifferenceGlyph
+        className="code-agent-transcript-result-icon"
+        data-testid="code-agent-transcript-result-icon"
+      />
       <span>{summary}</span>
       {totalAdded ? <span className="added">+{totalAdded}</span> : null}
       {totalRemoved ? <span className="removed">-{totalRemoved}</span> : null}

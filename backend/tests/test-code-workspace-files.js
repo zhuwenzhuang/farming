@@ -1242,12 +1242,14 @@ function run() {
 
   assert(
     usePooledTerminalSource.includes('const attachmentHandlersRef = useRef<TerminalAttachmentHandlers | null>(null)') &&
-      usePooledTerminalSource.includes('}, [agentId, attachmentHandlers, containerRef])') &&
+      usePooledTerminalSource.includes('createTerminalAttachmentLeaseCoordinator()') &&
+      usePooledTerminalSource.includes('attachmentLeaseCoordinator.acquire(agentId, mountEl, () => {') &&
+      usePooledTerminalSource.includes('lease.release()') &&
       usePooledTerminalSource.includes('updateTerminalSessionLiveOptions(agentId, {') &&
       usePooledTerminalSource.includes('onUrlOpen: urlOpenEnabled ? attachmentHandlers.onUrlOpen : undefined') &&
       usePooledTerminalSource.includes('}, [agentId, attachmentHandlers, inputDisabled, suppressRendererCursor, urlOpenEnabled])') &&
-      !usePooledTerminalSource.includes('}, [agentId, attachmentHandlers, containerRef,'),
-    'Pooled-terminal attachment identity must be isolated from callbacks and hot-updatable interaction options'
+      terminalSessionPoolSource.includes('record.attachedMount === options.mountEl && isTerminalSessionAttached(record)'),
+    'Pooled-terminal attachment identity must use a handoff lease, isolate hot options, and make duplicate same-owner attach idempotent'
   );
 
   assert(

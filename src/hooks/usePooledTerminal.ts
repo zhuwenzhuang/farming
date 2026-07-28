@@ -20,6 +20,7 @@ import {
 } from '@/lib/terminal-session-pool'
 import type { TerminalSearchOptions } from '@/lib/terminal-search'
 import type { SessionBootstrapState } from '@/lib/terminal-bootstrap'
+import { createTerminalAttachmentLeaseCoordinator } from '@/lib/terminal-attachment'
 
 interface TerminalFollowState {
   following: boolean
@@ -132,47 +133,52 @@ export function usePooledTerminal({
     suppressRendererCursor,
     urlOpenEnabled,
   }
+  const attachmentLeaseCoordinatorRef = useRef<ReturnType<typeof createTerminalAttachmentLeaseCoordinator> | null>(null)
+  if (!attachmentLeaseCoordinatorRef.current) {
+    attachmentLeaseCoordinatorRef.current = createTerminalAttachmentLeaseCoordinator()
+  }
+  const attachmentLeaseCoordinator = attachmentLeaseCoordinatorRef.current
 
   useEffect(() => {
     if (!agentId || !containerRef.current) return
 
     const mountEl = containerRef.current
-    const controller = new AbortController()
-    let cancelled = false
+    const lease = attachmentLeaseCoordinator.acquire(agentId, mountEl, () => {
+      const controller = new AbortController()
+      mountEl.replaceChildren()
 
-    mountEl.replaceChildren()
+      attachTerminalSession(agentId, {
+        mountEl,
+        onSessionOutput: attachmentHandlers.onSessionOutput,
+        suppressRendererCursor: latestLiveOptionsRef.current.suppressRendererCursor,
+        inputDisabled: latestLiveOptionsRef.current.inputDisabled,
+        onFollowOutputChange: attachmentHandlers.onFollowOutputChange,
+        onPathOpen: attachmentHandlers.onPathOpen,
+        onPathResolve: attachmentHandlers.onPathResolve,
+        onUrlOpen: latestLiveOptionsRef.current.urlOpenEnabled ? attachmentHandlers.onUrlOpen : undefined,
+        onRecoveryStatusChange: attachmentHandlers.onRecoveryStatusChange,
+        onError: attachmentHandlers.onError,
+        bootstrapState: latestHandlersRef.current.bootstrapState,
+        signal: controller.signal,
+        onReady: attachmentHandlers.onReady,
+      }).catch((error) => {
+        if (controller.signal.aborted) return
+        console.error('Failed to attach terminal session:', error)
+        attachmentHandlers.onError(error instanceof Error ? error : new Error(String(error)))
+      })
 
-    attachTerminalSession(agentId, {
-      mountEl,
-      onSessionOutput: attachmentHandlers.onSessionOutput,
-      suppressRendererCursor: latestLiveOptionsRef.current.suppressRendererCursor,
-      inputDisabled: latestLiveOptionsRef.current.inputDisabled,
-      onFollowOutputChange: attachmentHandlers.onFollowOutputChange,
-      onPathOpen: attachmentHandlers.onPathOpen,
-      onPathResolve: attachmentHandlers.onPathResolve,
-      onUrlOpen: latestLiveOptionsRef.current.urlOpenEnabled ? attachmentHandlers.onUrlOpen : undefined,
-      onRecoveryStatusChange: attachmentHandlers.onRecoveryStatusChange,
-      onError: attachmentHandlers.onError,
-      bootstrapState: latestHandlersRef.current.bootstrapState,
-      signal: controller.signal,
-      onReady: () => {
-        if (!cancelled) {
-          attachmentHandlers.onReady()
-        }
-      },
-    }).catch((error) => {
-      console.error('Failed to attach terminal session:', error)
-      attachmentHandlers.onError(error instanceof Error ? error : new Error(String(error)))
+      return () => {
+        controller.abort()
+        detachTerminalSession(agentId, mountEl).catch((error) => {
+          console.error('Failed to detach terminal session:', error)
+        })
+      }
     })
 
     return () => {
-      cancelled = true
-      controller.abort()
-      detachTerminalSession(agentId, mountEl).catch((error) => {
-        console.error('Failed to detach terminal session:', error)
-      })
+      lease.release()
     }
-  }, [agentId, attachmentHandlers, containerRef])
+  }, [agentId, attachmentHandlers, attachmentLeaseCoordinator, containerRef])
 
   useEffect(() => {
     if (!agentId) return

@@ -33,6 +33,8 @@ Farming Code 会用一个由 Terminal Session Pool 持有状态的中央恢复�
 
 Terminal Session Pool 为每个 Agent 持有唯一的 `SessionRecord`。浏览器 Attachment 的身份只由 Agent id 与 Mount Element 决定。只有这两个身份发生变化、Pane Unmount、传输重连、隐藏页面恢复或发现 Replay 缺口时，才允许进入 Recovery；普通 React Render 不得触发 Recovery。
 
+React 边界获取 Attachment Lease，而不是在 Effect Cleanup 中直接执行 Detach。它的状态模型是 `detached -> attached -> release-pending -> detached`。Cleanup 只进入 `release-pending`；如果同一次 Commit 中仍是同一个 Agent 和同一个 Mount 重新获取 Lease，就取消释放并保持 `attached`，不会推进 Generation。Agent 或 Mount 真正变化时，先释放旧 Owner 再挂载新 Owner。旧 Lease 无法释放更新的 Owner；如果下一次 Microtask 前没有重新获取，才提交真实释放。Session Pool 同时把当前 Agent 与 Mount 的重复 Attach 视为幂等，因此即使绕过 React 协调器，也不能意外启动 Checkpoint Recovery。
+
 事件回调、输入开关、光标抑制和更新的 Bootstrap 数据都属于 Live Options。它们只能原地更新已有 `SessionRecord`，不能 Detach Host、推进 Attachment Generation 或发布 `requesting` 恢复状态。Browser Controller 同样提供稳定的命令函数，Resource Collection 更新不能造成下游回调身份抖动。响应式浏览器测试会在桌面与多种手机尺寸之间反复切换，并要求全过程 Attachment Generation 不变且恢复遮罩不出现。
 
 Live WebSocket Output 使用 Leading-edge 且有帧率上限的合并策略：空闲后的第一条 Transition 立即发送，以保证打字响应；持续输出仍会合并，但不会丢失任何单独的 Transition Index。浏览器仍会逐条校验和提交索引，并把连续的 Output / Clear 一次写入 xterm。Resize 是有序的批次边界：提交 Resize 后，浏览器等待后续重画静默 50 ms（最长 300 ms），再一次性绘制该 Burst；普通非 Resize Output 继续走低延迟路径。

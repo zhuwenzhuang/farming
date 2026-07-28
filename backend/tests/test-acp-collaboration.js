@@ -159,11 +159,27 @@ const stableIconAgents = acpCollaborationAgents([
       activity: 'started',
     },
   },
+  ...[
+    ['thread-icon-9', 'icon-d-start'],
+    ['thread-icon-36', 'icon-e-start'],
+    ['thread-icon-10', 'icon-f-start'],
+  ].map(([threadId, id]) => ({
+    id,
+    type: 'collaboration',
+    title: `Start ${id}`,
+    status: 'completed',
+    collaboration: {
+      kind: 'activity',
+      threadId,
+      agentPath: id,
+      activity: 'started',
+    },
+  })),
 ]);
 assert.deepStrictEqual(
   stableIconAgents.map(agent => agent.icon),
-  [1, 0, 2],
-  'the production-shaped child threads cover all three stable base Agent icons',
+  [4, 3, 5, 0, 1, 2],
+  'the child thread identities cover all six stable base Agent icons',
 );
 assert.strictEqual(
   acpCollaborationAgents(stableIconAgents[0].events.map(event => ({

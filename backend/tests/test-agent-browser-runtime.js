@@ -56,6 +56,20 @@ async function run() {
     if (command[0] === 'stream' && command[1] === 'status') {
       return { success: true, data: { enabled: true, port: 47_777 } };
     }
+    if (command[0] === 'tab' && command[1] === 'list') {
+      return {
+        success: true,
+        data: {
+          tabs: [{
+            active: true,
+            tabId: 't1',
+            title: 'Example',
+            type: 'page',
+            url: 'https://example.test/',
+          }],
+        },
+      };
+    }
     if (command[0] === 'get' && command[1] === 'url') {
       return { success: true, data: { url: 'https://example.test/' } };
     }
@@ -289,7 +303,22 @@ async function run() {
         };
       }
       if (command[0] === 'tab' && command[1] === 'new') {
-        return { success: true, data: { tabId: 'tab-external' } };
+        return { success: true, data: { tabId: 't1' } };
+      }
+      if (command[0] === 'tab' && command[1] === 'list') {
+        return {
+          success: true,
+          data: {
+            tabs: [{
+              active: true,
+              label: 'farming-browser_external-g2',
+              tabId: 't1',
+              title: '',
+              type: 'page',
+              url: 'about:blank',
+            }],
+          },
+        };
       }
       if (command[0] === 'stream' && command[1] === 'status') {
         return { success: true, data: { port: 47_778 } };
@@ -315,7 +344,7 @@ async function run() {
   assert.deepStrictEqual(externalCalls[1], [
     'tab', 'new', '--label', 'farming-browser_external-g2', 'about:blank',
   ]);
-  assert.deepStrictEqual(externalCalls[2], ['tab', 'tab-external']);
+  assert.deepStrictEqual(externalCalls[2], ['tab', 't1']);
   await external.close();
   assert(externalCalls.some(command => command[0] === 'tab' && command[1] === 'close'));
 
