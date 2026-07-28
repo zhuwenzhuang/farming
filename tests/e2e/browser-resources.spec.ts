@@ -896,9 +896,9 @@ test('matches the focused Viewer viewport and restores the previous Viewer on cl
 
   const row = browserSection.getByTestId('farming-browser-row')
   await row.hover()
-  await row.getByRole('button', { name: 'Rename Browser' }).click()
-  await row.getByRole('textbox', { name: 'Browser name' }).fill('Frontend Smoke')
-  await row.getByRole('textbox', { name: 'Browser name' }).press('Enter')
+  await row.getByRole('button', { name: 'Rename Tab' }).click()
+  await row.getByRole('textbox', { name: 'Tab name' }).fill('Frontend Smoke')
+  await row.getByRole('textbox', { name: 'Tab name' }).press('Enter')
   await expect(row).toContainText('Frontend Smoke')
 
   await viewer.getByRole('button', { name: 'More', exact: true }).click()
