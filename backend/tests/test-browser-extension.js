@@ -442,8 +442,29 @@ async function testBrowserResourceManager() {
     assert.strictEqual(viewer.messages.at(-1).type, 'browser-tab-opened');
     assert.strictEqual(viewer.messages.at(-1).resource.id, popupResource.id);
     assert.strictEqual(runtimes[0].streamTabId, 't2');
-    await manager.stop(popupResource.id);
+    await manager.delete(popupResource.id);
     assert.strictEqual(runtimes[0].closed, false, 'Closing one tab must keep the shared Browser alive');
+    runtimes[0].emit('tabs', {
+      tabs: [
+        ...runtimes[0].tabs.map(tab => ({ ...tab })),
+        {
+          active: false,
+          label: null,
+          tabId: 't2',
+          title: 'Popup destination',
+          type: 'page',
+          url: 'https://popup.example/',
+        },
+      ],
+      newTabIds: [],
+      popupAdmitted: true,
+    });
+    await manager.sessions.values().next().value.actionChain;
+    assert.strictEqual(
+      manager.list().filter(resource => resource.url === 'https://popup.example/').length,
+      0,
+      'A stale tab snapshot must not recreate a closed Browser Resource',
+    );
 
     const manualTab = manager.create({
       projectRootId: 'wroot_project',

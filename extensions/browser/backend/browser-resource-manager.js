@@ -1139,13 +1139,20 @@ class BrowserResourceManager extends EventEmitter {
   async reconcileTabs(session, event) {
     if (this.sessions.get(session.id) !== session || session.closing) return;
     const tabs = Array.isArray(event?.tabs) ? event.tabs.filter(tab => tab.type === 'page') : [];
+    const newlyObservedTabIds = new Set(
+      Array.isArray(event?.newTabIds) ? event.newTabIds.map(String) : [],
+    );
     const byTabId = new Map([...session.bindings.values()].map(binding => [binding.tabId, binding]));
     const opener = session.bindings.get(session.activeResourceId) || null;
     const opened = [];
 
     for (const tab of tabs) {
       let binding = byTabId.get(tab.tabId);
-      if (!binding && (!session.runtime.externalCdpUrl || event.popupAdmitted)) {
+      if (
+        !binding
+        && newlyObservedTabIds.has(tab.tabId)
+        && (!session.runtime.externalCdpUrl || event.popupAdmitted)
+      ) {
         session.runtime.ownedTabIds.add(tab.tabId);
         const created = this.store.createRunningTab({
           projectRootId: opener?.session.projectRootId || session.projectRootId,

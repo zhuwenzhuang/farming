@@ -57,6 +57,14 @@ Multiple independently visible pages are represented as multiple Farming Browser
 Resources, not hidden tabs inside one Resource. This keeps Agent targeting,
 Viewer state, lifecycle, and human takeover aligned.
 
+Running Resources in the same Project and Browser source are tabs in one shared
+`agent-browser` Session. They share one Chromium process, isolated profile,
+cookies, and storage, while every tab keeps its own Farming identity, URL,
+Viewer, and ordered actions. Starting another Resource creates a tab in that
+Session. A page opened by the website becomes a new Resource and the Viewer
+selects it. Closing one Resource closes only that tab; closing the last tab
+closes the Session.
+
 ## Action state model
 
 The Browser Resource Manager is the authoritative owner. An admitted action
@@ -68,7 +76,7 @@ ordered action queue.
 | admit | Resource exists, is running, and belongs to the Agent Project | Capture Runtime and generation; append action | Reject without side effects |
 | execute | Earlier admitted action completed or failed | Invoke the pinned runtime once | Return the exact bounded failure; never replay |
 | commit | The same Runtime still owns the Resource | Return structured result; metadata events update the Resource | Stale Runtime events cannot commit |
-| stop | Resource enters `stopping` | Close new admissions, drain admitted actions, then close the Session | Cleanup failure stays visible and retryable |
+| stop | Resource enters `stopping` | Close new admissions, drain admitted actions, then close its tab; the last tab also closes the Session | Cleanup failure stays visible and retryable |
 | restart | Previous Session exit is proven | Increment generation and create a fresh Session | Stale Viewer generations and events are rejected |
 
 Runtime commands themselves are serialized, including Viewer-supporting

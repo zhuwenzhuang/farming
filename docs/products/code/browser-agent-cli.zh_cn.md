@@ -50,6 +50,13 @@ Snapshot，只有标准流程不足时才进入 JavaScript 或更底层的诊断
 多个独立可见页面使用多个 Farming Browser Resource 表达，不在一个 Resource 内隐藏
 多 Tab。这样 Agent 的目标、Viewer 状态、生命周期和用户接管始终一致。
 
+同一 Project、同一 Browser Source 下正在运行的 Resource，是一个共享
+`agent-browser` Session 中的多个 Tab。它们共用一个 Chromium Process、隔离的
+Profile、Cookie 和 Storage；每个 Tab 仍有独立的 Farming 身份、URL、Viewer 和有序
+Action。启动另一个 Resource 会在该 Session 中创建 Tab；网页自己打开的新页面会成为
+新的 Resource，并由 Viewer 自动选中。关闭一个 Resource 只关闭对应 Tab；关闭最后一个
+Tab 才关闭整个 Session。
+
 ## Action 状态模型
 
 Browser Resource Manager 是权威 Owner。每个被接收的 Action 都会捕获一个正在运行的
@@ -60,7 +67,7 @@ Resource Generation，并追加到该 Runtime 的有序 Action Queue。
 | admit | Resource 存在、正在运行且属于 Agent Project | 捕获 Runtime/Generation，追加 Action | 无副作用拒绝 |
 | execute | 之前接收的 Action 已成功或失败 | 只调用一次锁定 Runtime | 返回精确的有界失败，绝不重放 |
 | commit | 同一个 Runtime 仍拥有 Resource | 返回结构化结果；Metadata Event 更新 Resource | 过期 Runtime Event 不能提交 |
-| stop | Resource 进入 `stopping` | 关闭新接收，排空已接收 Action，再关闭 Session | Cleanup 失败保持可见且可重试 |
+| stop | Resource 进入 `stopping` | 关闭新接收，排空已接收 Action，再关闭对应 Tab；最后一个 Tab 同时关闭 Session | Cleanup 失败保持可见且可重试 |
 | restart | 已证明旧 Session 退出 | Generation 加一，创建新 Session | 拒绝过期 Viewer Generation 和 Event |
 
 Runtime Command 自身也会串行执行，包括为 Viewer 清晰度服务的 Screenshot，避免诊断
