@@ -8,7 +8,7 @@ const {
   formatAgent,
   request,
   run,
-} = require('../farming-cli');
+} = require('../farming-cli.cjs');
 
 function listen(server) {
   return new Promise((resolve) => {

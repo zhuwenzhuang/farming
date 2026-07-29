@@ -6,7 +6,7 @@ const os = require('os');
 const path = require('path');
 const { URLSearchParams } = require('url');
 const { execFileSync, spawn } = require('child_process');
-const { run: runControlCli } = require('./farming-cli');
+const { run: runControlCli } = require('./farming-cli.cjs');
 const { PACKAGED_CODEX_ACP_ARG, runPackagedCodexAcp } = require('./acp/packaged-codex-acp');
 const { PACKAGED_CLAUDE_ACP_ARG, runPackagedClaudeAcp } = require('./acp/packaged-claude-acp');
 const {

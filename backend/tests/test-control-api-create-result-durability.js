@@ -1,5 +1,5 @@
 const assert = require('assert');
-const { createControlRouter } = require('../control-api');
+const { createControlRouter } = require('../control-api.cjs');
 
 async function run() {
   const agentId = 'agent-undurable-create-result';

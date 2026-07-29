@@ -1,10 +1,104 @@
+import type { IncomingHttpHeaders, IncomingMessage, OutgoingHttpHeaders } from 'node:http';
+
 const fs = require('fs');
 const http = require('http');
 const https = require('https');
 const { renderMainAgentSkills } = require('./main-agent-skills.cjs');
 const storageLayout = require('./storage-layout.cjs');
 
-function usage() {
+interface AuthOptions {
+  authDisabled?: boolean;
+  token?: string;
+  tokenFile?: string;
+}
+
+interface RequestOptions extends AuthOptions {
+  baseUrl?: string;
+  body?: unknown;
+  headers?: OutgoingHttpHeaders;
+  method?: string;
+}
+
+interface HttpRequestOptions {
+  body?: string;
+  headers?: OutgoingHttpHeaders;
+  method?: string;
+  timeoutMs?: number;
+}
+
+interface HttpResponse {
+  statusCode: number;
+  headers: IncomingHttpHeaders;
+  body: string;
+}
+
+interface BrowserCapabilityStatus {
+  available?: boolean;
+  enabled?: boolean;
+  message?: string;
+  browser?: {
+    kind?: string;
+  };
+}
+
+interface Capability {
+  id: string;
+  state: string;
+  summary: string;
+  commands: Record<string, string>;
+}
+
+interface CapabilityReport {
+  runtime: string;
+  agentId: string;
+  projectWorkspace: string;
+  capabilities: Capability[];
+}
+
+interface AgentSummary {
+  id: string;
+  command: string;
+  status: string;
+  cwd: string;
+  isMain?: boolean;
+  parentAgentId?: string;
+  task?: string;
+}
+
+interface CliIo {
+  stdout: {
+    write(chunk: string): unknown;
+  };
+}
+
+type ParsedArgs =
+  | { command: 'help' | 'skills' }
+  | { command: 'capabilities'; options: { json: boolean } }
+  | { command: 'list'; options: { json: boolean; parent: string } }
+  | {
+      command: 'spawn';
+      options: {
+        workspace: string;
+        task: string;
+        parent: string;
+        json: boolean;
+        dangerouslySkipPermissions: boolean;
+        childCommand: string;
+      };
+    }
+  | { command: 'output'; options: { agentId: string; tail: number } }
+  | { command: 'send'; options: { agentId: string; input: string } }
+  | { command: 'kill'; options: { agentId: string } };
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function usage(): string {
   return `Usage:
   farming skills
   farming capabilities [--json]
@@ -23,7 +117,7 @@ Examples:
   farming send agent-123 "Please run the focused tests"`;
 }
 
-function readTokenFile(filePath) {
+function readTokenFile(filePath: string): string {
   try {
     return fs.readFileSync(filePath, 'utf8').trim();
   } catch {
@@ -31,12 +125,12 @@ function readTokenFile(filePath) {
   }
 }
 
-function isAuthDisabled(options = {}) {
+function isAuthDisabled(options: AuthOptions = {}): boolean {
   if (options.authDisabled === true) return true;
   return ['1', 'true', 'yes', 'on'].includes(String(process.env.FARMING_DISABLE_AUTH || '').toLowerCase());
 }
 
-function getToken(options = {}) {
+function getToken(options: AuthOptions = {}): string {
   if (isAuthDisabled(options)) return '';
   if (options.token) return options.token;
   if (process.env.FARMING_TOKEN) return process.env.FARMING_TOKEN;
@@ -47,12 +141,12 @@ function getToken(options = {}) {
   return readTokenFile(tokenFile);
 }
 
-function normalizeBaseUrl(value) {
+function normalizeBaseUrl(value?: string): string {
   const raw = value || process.env.FARMING_CONTROL_URL || `http://127.0.0.1:${process.env.PORT || 3000}${process.env.FARMING_BASE_PATH || ''}`;
   return raw.replace(/\/+$/, '');
 }
 
-function splitOptionValue(args, index, name) {
+function splitOptionValue(args: string[], index: number, name: string): string {
   const value = args[index + 1];
   if (!value || value.startsWith('--')) {
     throw new Error(`${name} requires a value`);
@@ -60,7 +154,7 @@ function splitOptionValue(args, index, name) {
   return value;
 }
 
-function parseArgs(argv) {
+function parseArgs(argv: string[]): ParsedArgs {
   const [command, ...rest] = argv;
 
   if (!command || command === 'help' || command === '--help' || command === '-h') {
@@ -176,14 +270,14 @@ function parseArgs(argv) {
   throw new Error(`Unknown command: ${command}`);
 }
 
-async function request(pathname, options = {}) {
+async function request<T = unknown>(pathname: string, options: RequestOptions = {}): Promise<T> {
   const baseUrl = normalizeBaseUrl(options.baseUrl);
   const token = getToken(options);
   if (!token && !isAuthDisabled(options)) {
     throw new Error('Farming token not found. Start this command from a Farming agent session or set FARMING_TOKEN_FILE.');
   }
 
-  const headers = {
+  const headers: OutgoingHttpHeaders = {
     ...(options.headers || {}),
   };
   if (token) {
@@ -201,23 +295,23 @@ async function request(pathname, options = {}) {
   });
 
   const contentType = response.headers['content-type'] || '';
-  const payload = contentType.includes('application/json')
+  const payload: unknown = contentType.includes('application/json')
     ? JSON.parse(response.body || 'null')
     : response.body;
 
   if (response.statusCode < 200 || response.statusCode >= 300) {
-    const message = payload && typeof payload === 'object' ? payload.error : payload;
-    throw new Error(message || `HTTP ${response.statusCode}`);
+    const message = isObject(payload) ? payload.error : payload;
+    throw new Error(typeof message === 'string' && message ? message : `HTTP ${response.statusCode}`);
   }
 
-  return payload;
+  return payload as T;
 }
 
-function httpRequest(urlValue, options = {}) {
-  return new Promise((resolve, reject) => {
+function httpRequest(urlValue: string, options: HttpRequestOptions = {}): Promise<HttpResponse> {
+  return new Promise<HttpResponse>((resolve, reject) => {
     const url = new URL(urlValue);
     const body = options.body || '';
-    const headers = {
+    const headers: OutgoingHttpHeaders = {
       ...(options.headers || {}),
     };
     if (body && headers['Content-Length'] === undefined && headers['content-length'] === undefined) {
@@ -233,9 +327,9 @@ function httpRequest(urlValue, options = {}) {
       method: options.method || 'GET',
       headers,
       timeout: options.timeoutMs || 30000,
-    }, (res) => {
-      const chunks = [];
-      res.on('data', chunk => chunks.push(Buffer.from(chunk)));
+    }, (res: IncomingMessage) => {
+      const chunks: Buffer[] = [];
+      res.on('data', (chunk: string | Buffer | Uint8Array) => chunks.push(Buffer.from(chunk)));
       res.on('end', () => {
         resolve({
           statusCode: res.statusCode || 0,
@@ -254,14 +348,14 @@ function httpRequest(urlValue, options = {}) {
   });
 }
 
-function formatAgent(agent) {
+function formatAgent(agent: AgentSummary): string {
   const marker = agent.isMain ? '*' : '-';
   const task = agent.task ? ` | task: ${agent.task}` : '';
   const parent = agent.parentAgentId ? ` | parent: ${agent.parentAgentId}` : '';
   return `${marker} ${agent.id} | ${agent.command} | ${agent.status} | ${agent.cwd}${parent}${task}`;
 }
 
-function farmingCapabilities(browser) {
+function farmingCapabilities(browser?: BrowserCapabilityStatus): CapabilityReport {
   const state = browser?.available === true
     ? 'available'
     : (browser?.enabled === true ? 'unavailable' : 'disabled');
@@ -290,7 +384,7 @@ function farmingCapabilities(browser) {
   };
 }
 
-function formatCapabilities(report) {
+function formatCapabilities(report: CapabilityReport): string {
   const lines = ['Farming runtime capabilities:'];
   for (const capability of report.capabilities) {
     lines.push(`- ${capability.id}: ${capability.state} — ${capability.summary}`);
@@ -301,7 +395,7 @@ function formatCapabilities(report) {
   return lines.join('\n');
 }
 
-async function run(argv = process.argv.slice(2), io = process) {
+async function run(argv: string[] = process.argv.slice(2), io: CliIo = process): Promise<number> {
   const parsed = parseArgs(argv);
 
   if (parsed.command === 'help') {
@@ -315,7 +409,7 @@ async function run(argv = process.argv.slice(2), io = process) {
   }
 
   if (parsed.command === 'capabilities') {
-    const report = farmingCapabilities(await request('/api/browsers/capability'));
+    const report = farmingCapabilities(await request<BrowserCapabilityStatus>('/api/browsers/capability'));
     io.stdout.write(parsed.options.json
       ? `${JSON.stringify(report, null, 2)}\n`
       : `${formatCapabilities(report)}\n`);
@@ -324,7 +418,7 @@ async function run(argv = process.argv.slice(2), io = process) {
 
   if (parsed.command === 'list') {
     const query = parsed.options.parent ? `?parent=${encodeURIComponent(parsed.options.parent)}` : '';
-    const state = await request(`/api/control/agents${query}`);
+    const state = await request<{ agents: AgentSummary[] }>(`/api/control/agents${query}`);
     if (parsed.options.json) {
       io.stdout.write(`${JSON.stringify(state, null, 2)}\n`);
     } else {
@@ -334,7 +428,7 @@ async function run(argv = process.argv.slice(2), io = process) {
   }
 
   if (parsed.command === 'spawn') {
-    const result = await request('/api/control/agents', {
+    const result = await request<{ agentId: string }>('/api/control/agents', {
       method: 'POST',
       body: {
         command: parsed.options.childCommand,
@@ -355,7 +449,7 @@ async function run(argv = process.argv.slice(2), io = process) {
   }
 
   if (parsed.command === 'output') {
-    const output = await request(`/api/control/agents/${encodeURIComponent(parsed.options.agentId)}/output?tail=${parsed.options.tail}`);
+    const output = await request<string>(`/api/control/agents/${encodeURIComponent(parsed.options.agentId)}/output?tail=${parsed.options.tail}`);
     io.stdout.write(output);
     if (!String(output).endsWith('\n')) io.stdout.write('\n');
     return 0;
@@ -381,7 +475,7 @@ async function run(argv = process.argv.slice(2), io = process) {
   return 1;
 }
 
-module.exports = {
+export {
   formatAgent,
   farmingCapabilities,
   formatCapabilities,
@@ -396,8 +490,8 @@ module.exports = {
 };
 
 if (require.main === module) {
-  run().catch((error) => {
-    console.error(error.message);
+  run().catch((error: unknown) => {
+    console.error(errorMessage(error));
     process.exit(1);
   });
 }

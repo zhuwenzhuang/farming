@@ -6,7 +6,7 @@ const { DatabaseSync } = require('node:sqlite');
 const {
   UsageHistoryClient,
   runUsageWorker,
-} = require('../usage-history-client');
+} = require('../usage-history-client.cjs');
 const {
   usageHistoryCacheFile,
 } = require('../storage-layout.cjs');

@@ -102,8 +102,10 @@ for runtime_module in \
   codex-session-archive \
   codex-transcript-sanitizer \
   command-runner-child \
+  control-api \
   executable-discovery \
   farming-agent-bootstrap \
+  farming-cli \
   farming-session-store \
   farming-net-server \
   farming-net-pass \
@@ -154,6 +156,7 @@ for runtime_module in \
   terminal-state-serialization \
   theme-manager \
   usage-forecast \
+  usage-history-client \
   usage-history-smoke \
   workspace-directory \
   workspace-discovery \

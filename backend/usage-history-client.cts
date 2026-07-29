@@ -1,7 +1,84 @@
-const path = require('path');
-const fs = require('fs');
-const { Worker } = require('worker_threads');
-const { usageHistoryCacheFile } = require('./storage-layout.cjs');
+import * as path from 'path';
+import * as fs from 'fs';
+import { Worker } from 'worker_threads';
+import { usageHistoryCacheFile } from './storage-layout.cjs';
+
+interface UsageWorkerRequest extends Record<string, unknown> {
+  nowMs?: number;
+}
+
+interface UsageHistoryCache extends Record<string, unknown> {
+  committed_bytes?: unknown;
+  discovered_files?: unknown;
+  enumerated_entries?: unknown;
+  errors?: unknown;
+  pending_directories?: unknown;
+  pending_files?: unknown;
+  scan_complete?: boolean;
+}
+
+interface UsageHistoryResult extends Record<string, unknown> {
+  cache?: UsageHistoryCache;
+  sampledAt?: unknown;
+}
+
+interface UsageWorkerLike {
+  on(eventName: string, listener: (value: unknown) => void): unknown;
+  once(eventName: string, listener: (value: unknown) => void): unknown;
+  postMessage(message: Record<string, unknown>): void;
+  ref?(): void;
+  terminate(): Promise<unknown>;
+  unref?(): void;
+}
+
+interface UsageWorkerConstructor {
+  new(
+    workerFile: string,
+    options?: { workerData: { request: UsageWorkerRequest } },
+  ): UsageWorkerLike;
+}
+
+interface UsageWorkerOptions {
+  timeoutMs?: number;
+  WorkerClass?: UsageWorkerConstructor;
+}
+
+interface PendingWorkerRequest {
+  reject(error: Error): void;
+  resolve(result: UsageHistoryResult): void;
+  timeout: NodeJS.Timeout;
+}
+
+interface SharedWorkerSession {
+  run(request: UsageWorkerRequest, timeoutMs: number): Promise<UsageHistoryResult>;
+  terminate(): void;
+  worker: UsageWorkerLike;
+  workerFile: string;
+}
+
+type UsageWorkerRunner = (
+  request: UsageWorkerRequest,
+  options: { timeoutMs: number },
+) => Promise<UsageHistoryResult>;
+
+interface UsageHistoryClientOptions {
+  backgroundDelayMs?: number;
+  backgroundErrorDelayMs?: number;
+  configDir: string;
+  runner?: UsageWorkerRunner;
+  timeoutMs?: number;
+}
+
+interface UsageHistoryCollectOptions {
+  claudeRoots?: string[];
+  codexRoots?: string[];
+  fresh?: boolean;
+  legacyCacheFile?: string;
+  now?: number;
+  recentRawMs?: number;
+  retentionDays?: number;
+  scanBudgetMs?: number;
+}
 
 const DEFAULT_TIMEOUT_MS = 120_000;
 const DEFAULT_RETENTION_DAYS = 52 * 7;
@@ -11,10 +88,30 @@ const BACKGROUND_SCAN_DELAY_MS = 100;
 const RESULT_REUSE_MS = 2_000;
 const SOURCE_WORKER_FILE = 'usage-history-worker.js';
 const PACKAGED_WORKER_FILE = 'usage-history-worker.pkg.js';
-let sharedWorkerSession = null;
+let sharedWorkerSession: SharedWorkerSession | null = null;
 let nextWorkerRequestId = 1;
 
-function resolveWorkerFile() {
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === 'object'
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function workerError(value: unknown, fallbackMessage: string, fallbackCode: string): Error {
+  const payload = asRecord(value);
+  const error = new Error(
+    typeof payload?.message === 'string' && payload.message
+      ? payload.message
+      : fallbackMessage,
+  );
+  error.code = typeof payload?.code === 'string' && payload.code
+    ? payload.code
+    : fallbackCode;
+  if (typeof payload?.stack === 'string' && payload.stack) error.stack = payload.stack;
+  return error;
+}
+
+function resolveWorkerFile(): string {
   if (!process.pkg && process.env.FARMING_PACKAGED_RUNTIME !== '1') {
     return SOURCE_WORKER_FILE;
   }
@@ -22,32 +119,42 @@ function resolveWorkerFile() {
   return fs.existsSync(packaged) ? PACKAGED_WORKER_FILE : SOURCE_WORKER_FILE;
 }
 
-function runUsageWorker(request, options = {}) {
+function runUsageWorker(
+  request: UsageWorkerRequest,
+  options: UsageWorkerOptions = {},
+): Promise<UsageHistoryResult> {
   if (options.WorkerClass) {
     return runOneShotUsageWorker(request, options);
   }
   const workerFile = path.join(__dirname, resolveWorkerFile());
   if (!sharedWorkerSession || sharedWorkerSession.workerFile !== workerFile) {
     sharedWorkerSession?.terminate();
-    sharedWorkerSession = createSharedWorkerSession(workerFile, options.WorkerClass || Worker);
+    sharedWorkerSession = createSharedWorkerSession(
+      workerFile,
+      options.WorkerClass || Worker as unknown as UsageWorkerConstructor,
+    );
   }
   return sharedWorkerSession.run(request, options.timeoutMs || DEFAULT_TIMEOUT_MS);
 }
 
-function runOneShotUsageWorker(request, options = {}) {
-  return new Promise((resolve, reject) => {
-    const worker = new (options.WorkerClass || Worker)(
+function runOneShotUsageWorker(
+  request: UsageWorkerRequest,
+  options: UsageWorkerOptions = {},
+): Promise<UsageHistoryResult> {
+  return new Promise<UsageHistoryResult>((resolve, reject) => {
+    const WorkerClass = options.WorkerClass || Worker as unknown as UsageWorkerConstructor;
+    const worker = new WorkerClass(
       path.join(__dirname, resolveWorkerFile()),
       { workerData: { request } },
     );
     let settled = false;
-    const finish = (error, value) => {
+    const finish = (error: Error | null, value?: UsageHistoryResult): void => {
       if (settled) return;
       settled = true;
       clearTimeout(timeout);
       worker.terminate().catch(() => {});
       if (error) reject(error);
-      else resolve(value);
+      else resolve(value as UsageHistoryResult);
     };
     const timeout = setTimeout(() => {
       const error = new Error(
@@ -57,8 +164,11 @@ function runOneShotUsageWorker(request, options = {}) {
       finish(error);
     }, options.timeoutMs || DEFAULT_TIMEOUT_MS);
     timeout.unref?.();
-    worker.once('error', finish);
-    worker.once('exit', (code) => {
+    worker.once('error', (value: unknown) => {
+      finish(value instanceof Error ? value : new Error(String(value)));
+    });
+    worker.once('exit', (value: unknown) => {
+      const code = typeof value === 'number' ? value : null;
       if (!settled) {
         const error = new Error(
           code === 0
@@ -69,23 +179,24 @@ function runOneShotUsageWorker(request, options = {}) {
         finish(error);
       }
     });
-    worker.once('message', (message) => {
+    worker.once('message', (value: unknown) => {
+      const message = asRecord(value);
       if (message?.error) {
-        const error = new Error(message.error.message || 'Usage scanner failed');
-        error.code = message.error.code || 'EUSAGE';
-        error.stack = message.error.stack || error.stack;
-        finish(error);
+        finish(workerError(message.error, 'Usage scanner failed', 'EUSAGE'));
         return;
       }
-      finish(null, message?.result);
+      finish(null, message?.result as UsageHistoryResult);
     });
   });
 }
 
-function createSharedWorkerSession(workerFile, WorkerClass) {
+function createSharedWorkerSession(
+  workerFile: string,
+  WorkerClass: UsageWorkerConstructor,
+): SharedWorkerSession {
   const worker = new WorkerClass(workerFile);
-  const pending = new Map();
-  const failAll = (error) => {
+  const pending = new Map<number, PendingWorkerRequest>();
+  const failAll = (error: Error): void => {
     for (const request of pending.values()) {
       clearTimeout(request.timeout);
       request.reject(error);
@@ -93,23 +204,28 @@ function createSharedWorkerSession(workerFile, WorkerClass) {
     pending.clear();
     if (sharedWorkerSession?.worker === worker) sharedWorkerSession = null;
   };
-  worker.on('message', (message) => {
-    const request = pending.get(message?.requestId);
+  worker.on('message', (value: unknown) => {
+    const message = asRecord(value);
+    const requestId = typeof message?.requestId === 'number'
+      ? message.requestId
+      : null;
+    if (requestId === null) return;
+    const request = pending.get(requestId);
     if (!request) return;
-    pending.delete(message.requestId);
+    pending.delete(requestId);
     clearTimeout(request.timeout);
     if (message?.error) {
-      const error = new Error(message.error.message || 'Usage scanner failed');
-      error.code = message.error.code || 'EUSAGE';
-      error.stack = message.error.stack || error.stack;
-      request.reject(error);
+      request.reject(workerError(message.error, 'Usage scanner failed', 'EUSAGE'));
     } else {
-      request.resolve(message?.result);
+      request.resolve(message?.result as UsageHistoryResult);
     }
     if (pending.size === 0) worker.unref?.();
   });
-  worker.once('error', failAll);
-  worker.once('exit', (code) => {
+  worker.once('error', (value: unknown) => {
+    failAll(value instanceof Error ? value : new Error(String(value)));
+  });
+  worker.once('exit', (value: unknown) => {
+    const code = typeof value === 'number' ? value : null;
     if (pending.size > 0) {
       const error = new Error(
         code === 0
@@ -126,8 +242,8 @@ function createSharedWorkerSession(workerFile, WorkerClass) {
   return {
     worker,
     workerFile,
-    run(request, timeoutMs) {
-      return new Promise((resolve, reject) => {
+    run(request: UsageWorkerRequest, timeoutMs: number): Promise<UsageHistoryResult> {
+      return new Promise<UsageHistoryResult>((resolve, reject) => {
         const requestId = nextWorkerRequestId++;
         const timeout = setTimeout(() => {
           if (!pending.delete(requestId)) return;
@@ -153,7 +269,25 @@ function createSharedWorkerSession(workerFile, WorkerClass) {
 }
 
 class UsageHistoryClient {
-  constructor(options = {}) {
+  configDir: string;
+  timeoutMs: number;
+  runner: UsageWorkerRunner;
+  pending: Promise<UsageHistoryResult> | null;
+  pendingKey: string;
+  cached: UsageHistoryResult | null;
+  cachedAt: number;
+  cacheKey: string;
+  backgroundTimer: NodeJS.Timeout | null;
+  backgroundGeneration: number;
+  backgroundDelayMs: number;
+  backgroundErrorDelayMs: number;
+  backgroundErrorRetries: number;
+  backgroundStalls: number;
+  backgroundProgressSignature: string;
+
+  constructor(
+    options: UsageHistoryClientOptions = {} as UsageHistoryClientOptions,
+  ) {
     this.configDir = options.configDir;
     this.timeoutMs = options.timeoutMs || DEFAULT_TIMEOUT_MS;
     this.runner = options.runner || runUsageWorker;
@@ -171,19 +305,23 @@ class UsageHistoryClient {
     this.backgroundProgressSignature = '';
   }
 
-  invoke(request) {
+  invoke(request: UsageWorkerRequest): Promise<UsageHistoryResult> {
     return this.runner(request, { timeoutMs: this.timeoutMs });
   }
 
-  storeResult(result, cacheKey) {
+  storeResult(result: UsageHistoryResult, cacheKey: string): void {
     if (cacheKey !== this.cacheKey) return;
     this.cached = result;
-    this.cachedAt = Number.isFinite(result?.sampledAt)
+    this.cachedAt = typeof result.sampledAt === 'number' && Number.isFinite(result.sampledAt)
       ? result.sampledAt
       : Date.now();
   }
 
-  scheduleBackgroundScan(request, cacheKey, result) {
+  scheduleBackgroundScan(
+    request: UsageWorkerRequest,
+    cacheKey: string,
+    result: UsageHistoryResult,
+  ): void {
     if (result?.cache?.scan_complete !== false || cacheKey !== this.cacheKey) {
       this.backgroundErrorRetries = 0;
       this.backgroundStalls = 0;
@@ -223,6 +361,7 @@ class UsageHistoryClient {
         return nextResult;
       }).catch(() => {
         // Keep the last usable snapshot. A later normal request retries.
+        return undefined as unknown as UsageHistoryResult;
       }).finally(() => {
         if (this.pending === pending) {
           this.pending = null;
@@ -235,7 +374,7 @@ class UsageHistoryClient {
     this.backgroundTimer.unref?.();
   }
 
-  collect(options = {}) {
+  collect(options: UsageHistoryCollectOptions = {}): Promise<UsageHistoryResult> {
     const now = options.now ?? Date.now();
     const retentionDays = options.retentionDays ?? DEFAULT_RETENTION_DAYS;
     const roots = {
@@ -279,7 +418,7 @@ class UsageHistoryClient {
       scanBudgetMs: options.scanBudgetMs ?? DEFAULT_SCAN_BUDGET_MS,
       roots,
     };
-    const pending = this.invoke(request).then((result) => {
+    const pending: Promise<UsageHistoryResult> = this.invoke(request).then((result) => {
       this.storeResult(result, cacheKey);
       this.scheduleBackgroundScan(request, cacheKey, result);
       return result;
@@ -295,7 +434,7 @@ class UsageHistoryClient {
   }
 }
 
-module.exports = {
+export {
   UsageHistoryClient,
   DEFAULT_RECENT_RAW_MS,
   DEFAULT_RETENTION_DAYS,

@@ -1,41 +1,241 @@
 const express = require('express');
 const crypto = require('crypto');
-const { runtimeKind } = require('./agent-runtime-binding.cjs');
-const { terminalInputReady } = require('./terminal-status');
+const { runtimeKind } = require('./agent-runtime-binding.cjs') as {
+  runtimeKind(agent: Record<string, unknown> | null | undefined): 'terminal' | 'acp' | 'json';
+};
+const { terminalInputReady } = require('./terminal-status') as {
+  terminalInputReady(options: TerminalReadinessState): boolean;
+};
 
 const DEFAULT_INITIAL_INPUT_TIMEOUT_MS = 30000;
 
-function ensureTrailingNewline(value) {
+interface ExpressRequest {
+  body: Record<string, unknown>;
+  get(name: string): string | undefined;
+  params: Record<string, string>;
+  query: Record<string, unknown>;
+}
+
+interface ExpressResponse {
+  json(value: unknown): ExpressResponse;
+  send(value: unknown): ExpressResponse;
+  status(code: number): ExpressResponse;
+  type(value: string): ExpressResponse;
+}
+
+type ExpressHandler = (
+  request: ExpressRequest,
+  response: ExpressResponse,
+) => void | Promise<void>;
+
+interface ExpressRouter {
+  delete(path: string, handler: ExpressHandler): ExpressRouter;
+  get(path: string, handler: ExpressHandler): ExpressRouter;
+  post(path: string, handler: ExpressHandler): ExpressRouter;
+  use(middleware: unknown): ExpressRouter;
+}
+
+interface ExpressFactory {
+  Router(): ExpressRouter;
+  json(options: { limit: string }): unknown;
+}
+
+interface TerminalStatus {
+  cwd?: string;
+  lastExitCode?: unknown;
+  runningCommand?: string;
+  source?: string;
+  title?: string;
+}
+
+interface AgentRecord extends Record<string, unknown> {
+  command?: string;
+  cwd?: string | null;
+  id: string;
+  parentAgentId?: string;
+  previewText?: string;
+  runtimeEpoch?: string;
+  sessionTitle?: string;
+  startedAt?: unknown;
+  status?: string;
+  terminalBusy?: boolean | null;
+  terminalInputReceived?: boolean;
+  terminalStatus?: TerminalStatus;
+}
+
+interface AgentState {
+  agents: AgentRecord[];
+  mainAgentId?: string;
+}
+
+interface TerminalReadinessState {
+  command?: string;
+  cwd?: string | null;
+  previewText: string;
+  shellCommand: string;
+  shellLastEvent: string;
+  shellLastExitCode?: unknown;
+  status?: string;
+  terminalBusy: boolean | null;
+  title: string;
+}
+
+interface TerminalReadinessOptions {
+  expectedRuntimeEpoch?: unknown;
+  expectedStartedAt?: unknown;
+  timeoutMs?: unknown;
+}
+
+interface TerminalReadiness {
+  expectedRuntimeEpoch: string;
+  expectedStartedAt: number;
+}
+
+interface MutationResult extends Record<string, unknown> {
+  cleared?: boolean;
+  error?: string;
+  reason?: string;
+  status?: string;
+}
+
+interface CreateOutcome {
+  body: Record<string, unknown>;
+  status: number;
+}
+
+interface RecordedCreateResult {
+  controlApi?: CreateOutcome;
+}
+
+interface CreateMetadata {
+  createResult?: RecordedCreateResult;
+  deduplicated?: boolean;
+}
+
+interface StartAgentOptions extends Record<string, unknown> {
+  acpHistoryMode: 'load' | 'resume';
+  agentRuntimeMode: 'acp' | 'chat' | 'json' | 'terminal';
+  createInitialInputSignature: string;
+  createRequestId: string;
+  dangerouslySkipPermissions: boolean;
+  parentAgentId: string;
+  providerSessionTitle: string;
+  source: 'control-cli';
+  task: string;
+  wantsMain: false;
+}
+
+interface KillRequest {
+  completion: Promise<unknown>;
+  result: MutationResult;
+}
+
+interface PersistCreateResult {
+  error?: string;
+}
+
+interface AgentManager {
+  agentSupportsTerminalInput?(agentId: string): boolean;
+  clearAgentSessionBuffer(
+    agentId: string,
+    options: { expectedRuntimeEpoch: string },
+  ): Promise<MutationResult> | MutationResult;
+  getAgentSessionText(agentId: string): Promise<unknown> | unknown;
+  getState(): AgentState;
+  off?(event: 'update', listener: () => void): void;
+  on?(event: 'update', listener: () => void): void;
+  recordCreateRequestResult(
+    agentId: string,
+    requestId: string,
+    result: RecordedCreateResult,
+  ): PersistCreateResult;
+  removeListener?(event: 'update', listener: () => void): void;
+  requestKillAgent(
+    agentId: string,
+    options: { recordHistory: boolean },
+  ): Promise<KillRequest>;
+  sendComposerMessage(agentId: string, input: string): Promise<unknown> | unknown;
+  sendInput(
+    agentId: string,
+    input: string,
+    options: { expectedRuntimeEpoch: string },
+  ): Promise<MutationResult> | MutationResult;
+  startAgent(
+    command: string,
+    workspace: string | null,
+    callback: (agentId?: string | null, error?: string | null, metadata?: CreateMetadata) => void,
+    options: StartAgentOptions,
+  ): unknown;
+}
+
+interface ControlRouterOptions {
+  allowConcurrentTestControl?: boolean;
+  initialInputTimeoutMs?: unknown;
+  notifyUpdate?: () => void;
+}
+
+interface CreateAdmission {
+  promise: Promise<CreateOutcome>;
+  signature: string;
+}
+
+interface ControlError extends Error {
+  code: string;
+}
+
+const expressFactory = express as ExpressFactory;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object';
+}
+
+function errorMessage(error: unknown, fallback: string): string {
+  return isRecord(error) && typeof error.message === 'string' ? error.message : fallback;
+}
+
+function errorCode(error: unknown, fallback: string): string {
+  return isRecord(error) && error.code ? String(error.code) : fallback;
+}
+
+function controlError(code: string, message: string): ControlError {
+  return Object.assign(new Error(message), { code });
+}
+
+function isRequestedRuntimeMode(value: unknown): value is 'acp' | 'chat' | 'json' {
+  return value === 'acp' || value === 'chat' || value === 'json';
+}
+
+function ensureTrailingNewline(value: unknown): string {
   const text = String(value || '');
   return text.endsWith('\r') || text.endsWith('\n') ? text : `${text}\r`;
 }
 
-function findAgent(state, agentId) {
+function findAgent(state: AgentState, agentId: string): AgentRecord | null {
   return state.agents.find((agent) => agent.id === agentId) || null;
 }
 
-function normalizeTail(value, fallback = 4000) {
+function normalizeTail(value: unknown, fallback = 4000): number {
   const tail = Number(value);
   if (!Number.isFinite(tail)) return fallback;
   return Math.max(0, Math.min(100000, Math.floor(tail)));
 }
 
-function stableJsonValue(value) {
+function stableJsonValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(stableJsonValue);
   if (!value || typeof value !== 'object') return value;
-  return Object.keys(value).sort().reduce((result, key) => {
-    result[key] = stableJsonValue(value[key]);
+  return Object.keys(value).sort().reduce<Record<string, unknown>>((result, key) => {
+    result[key] = stableJsonValue((value as Record<string, unknown>)[key]);
     return result;
   }, {});
 }
 
-function requestSignature(value) {
+function requestSignature(value: unknown): string {
   return crypto.createHash('sha256')
     .update(JSON.stringify(stableJsonValue(value)))
     .digest('hex');
 }
 
-function terminalReadinessOptions(agent) {
+function terminalReadinessOptions(agent: AgentRecord): TerminalReadinessState {
   return {
     command: agent.command,
     cwd: agent.terminalStatus?.cwd || agent.cwd,
@@ -49,34 +249,36 @@ function terminalReadinessOptions(agent) {
   };
 }
 
-function waitForTerminalInputReadiness(agentManager, agentId, options = {}) {
+function waitForTerminalInputReadiness(
+  agentManager: AgentManager,
+  agentId: string,
+  options: TerminalReadinessOptions = {},
+): Promise<TerminalReadiness> {
   const expectedStartedAt = Number(options.expectedStartedAt);
   const initialRuntimeEpoch = typeof options.expectedRuntimeEpoch === 'string'
     ? options.expectedRuntimeEpoch
     : '';
-  const timeoutMs = Number.isFinite(options.timeoutMs)
+  const timeoutMs = typeof options.timeoutMs === 'number' && Number.isFinite(options.timeoutMs)
     ? Math.max(1, options.timeoutMs)
     : DEFAULT_INITIAL_INPUT_TIMEOUT_MS;
 
-  return new Promise((resolve, reject) => {
+  return new Promise<TerminalReadiness>((resolve, reject) => {
     let settled = false;
     let expectedRuntimeEpoch = initialRuntimeEpoch;
     const removeUpdateListener = () => {
       if (typeof agentManager.off === 'function') agentManager.off('update', inspect);
       else if (typeof agentManager.removeListener === 'function') agentManager.removeListener('update', inspect);
     };
-    const finish = (error, value) => {
+    const finish = (error: ControlError | null, value?: TerminalReadiness) => {
       if (settled) return;
       settled = true;
       clearTimeout(timeout);
       removeUpdateListener();
       if (error) reject(error);
-      else resolve(value);
+      else if (value) resolve(value);
     };
-    const fail = (code, message) => {
-      const error = new Error(message);
-      error.code = code;
-      finish(error);
+    const fail = (code: string, message: string) => {
+      finish(controlError(code, message));
     };
     const inspect = () => {
       const agent = findAgent(agentManager.getState(), agentId);
@@ -118,15 +320,25 @@ function waitForTerminalInputReadiness(agentManager, agentId, options = {}) {
   });
 }
 
-function createControlRouter(agentManager, options = {}) {
-  const router = express.Router();
-  const createRequestAdmissions = new Map();
+function createControlRouter(
+  agentManager: AgentManager,
+  options: ControlRouterOptions = {},
+): ExpressRouter {
+  const router = expressFactory.Router();
+  const createRequestAdmissions = new Map<string, CreateAdmission>();
   const notifyUpdate = typeof options.notifyUpdate === 'function' ? options.notifyUpdate : () => {};
-  const initialInputTimeoutMs = Number.isFinite(options.initialInputTimeoutMs)
+  const initialInputTimeoutMs = (
+    typeof options.initialInputTimeoutMs === 'number'
+    && Number.isFinite(options.initialInputTimeoutMs)
+  )
     ? Math.max(1, options.initialInputTimeoutMs)
     : DEFAULT_INITIAL_INPUT_TIMEOUT_MS;
 
-  async function runTerminalMutation(agentId, expectedRuntimeEpoch, operation) {
+  async function runTerminalMutation(
+    agentId: string,
+    expectedRuntimeEpoch: string,
+    operation: (input: { expectedRuntimeEpoch: string }) => Promise<MutationResult> | MutationResult,
+  ): Promise<MutationResult> {
     const current = findAgent(agentManager.getState(), agentId);
     if (!current || current.runtimeEpoch !== expectedRuntimeEpoch) {
       return { status: 'rejected', reason: 'runtime-epoch-mismatch' };
@@ -134,7 +346,7 @@ function createControlRouter(agentManager, options = {}) {
     return operation({ expectedRuntimeEpoch });
   }
 
-  router.use(express.json({ limit: '1mb' }));
+  router.use(expressFactory.json({ limit: '1mb' }));
 
   router.get('/agents', (req, res) => {
     const state = agentManager.getState();
@@ -272,13 +484,14 @@ function createControlRouter(agentManager, options = {}) {
           status: 201,
           body: { agentId, initialInputDelivered: true, inputMode: 'terminal' },
         };
-      })().catch(deliveryError => {
-        const status = deliveryError?.code === 'initial-input-timeout' ? 504 : 409;
+      })().catch((deliveryError: unknown) => {
+        const code = errorCode(deliveryError, 'initial-input-failed');
+        const status = code === 'initial-input-timeout' ? 504 : 409;
         return {
           status,
           body: {
-            error: deliveryError?.message || 'Initial input delivery failed',
-            code: deliveryError?.code || 'initial-input-failed',
+            error: errorMessage(deliveryError, 'Initial input delivery failed'),
+            code,
             agentId,
             initialInputDelivered: false,
           },
@@ -294,7 +507,7 @@ function createControlRouter(agentManager, options = {}) {
             { controlApi: outcome },
           );
         } catch (error) {
-          persisted = { error: error?.message || 'Create result persistence failed' };
+          persisted = { error: errorMessage(error, 'Create result persistence failed') };
         }
         if (persisted?.error) {
           return {
@@ -332,7 +545,9 @@ function createControlRouter(agentManager, options = {}) {
       source: 'control-cli',
       createRequestId,
       createInitialInputSignature: requestSignature(initialInput),
-      agentRuntimeMode: ['json', 'acp', 'chat'].includes(body.agentRuntimeMode) ? body.agentRuntimeMode : 'terminal',
+      agentRuntimeMode: isRequestedRuntimeMode(body.agentRuntimeMode)
+        ? body.agentRuntimeMode
+        : 'terminal',
       acpHistoryMode: body.acpHistoryMode === 'resume' ? 'resume' : 'load',
       providerSessionTitle: typeof body.providerSessionTitle === 'string' ? body.providerSessionTitle : '',
       ...(Array.isArray(body.additionalDirectories) ? { additionalDirectories: body.additionalDirectories } : {}),
@@ -353,8 +568,9 @@ function createControlRouter(agentManager, options = {}) {
       res.status(409).json({ error: 'raw input is only available for Terminal Agents' });
       return;
     }
-    const expectedRuntimeEpoch = typeof findAgent(agentManager.getState(), agentId)?.runtimeEpoch === 'string'
-      ? findAgent(agentManager.getState(), agentId).runtimeEpoch
+    const currentAgent = findAgent(agentManager.getState(), agentId);
+    const expectedRuntimeEpoch = typeof currentAgent?.runtimeEpoch === 'string'
+      ? currentAgent.runtimeEpoch
       : '';
     if (!expectedRuntimeEpoch) {
       res.status(409).json({ error: 'terminal runtime is not ready' });
@@ -383,8 +599,9 @@ function createControlRouter(agentManager, options = {}) {
       res.status(409).json({ error: 'clear is only available for Terminal Agents' });
       return;
     }
-    const expectedRuntimeEpoch = typeof findAgent(agentManager.getState(), agentId)?.runtimeEpoch === 'string'
-      ? findAgent(agentManager.getState(), agentId).runtimeEpoch
+    const currentAgent = findAgent(agentManager.getState(), agentId);
+    const expectedRuntimeEpoch = typeof currentAgent?.runtimeEpoch === 'string'
+      ? currentAgent.runtimeEpoch
       : '';
     if (!expectedRuntimeEpoch) {
       res.status(409).json({ error: 'terminal runtime is not ready' });
@@ -425,7 +642,7 @@ function createControlRouter(agentManager, options = {}) {
       requested = await agentManager.requestKillAgent(agentId, { recordHistory });
     } catch (error) {
       res.status(503).json({
-        error: error?.message || 'Agent lifecycle recovery is unavailable',
+        error: errorMessage(error, 'Agent lifecycle recovery is unavailable'),
         retryable: true,
       });
       return;
@@ -447,7 +664,7 @@ function createControlRouter(agentManager, options = {}) {
   return router;
 }
 
-module.exports = {
+export {
   DEFAULT_INITIAL_INPUT_TIMEOUT_MS,
   createControlRouter,
   ensureTrailingNewline,

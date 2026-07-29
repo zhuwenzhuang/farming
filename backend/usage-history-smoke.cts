@@ -29,7 +29,7 @@ interface UsageHistoryClientLike {
   }): Promise<UsageHistoryResult>;
 }
 
-const { UsageHistoryClient } = require('./usage-history-client') as {
+const { UsageHistoryClient } = require('./usage-history-client.cjs') as {
   UsageHistoryClient: new (options: { configDir: string }) => UsageHistoryClientLike;
 };
 

@@ -1,7 +1,7 @@
 const assert = require('assert');
 const EventEmitter = require('events');
 const express = require('express');
-const { createControlRouter } = require('../control-api');
+const { createControlRouter } = require('../control-api.cjs');
 
 async function fetchJson(baseUrl, pathname, options = {}) {
   const response = await fetch(`${baseUrl}${pathname}`, {

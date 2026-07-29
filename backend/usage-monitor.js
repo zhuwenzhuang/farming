@@ -2,7 +2,7 @@ const os = require('os');
 const path = require('path');
 const { execFile } = require('child_process');
 const { promisify } = require('util');
-const { UsageHistoryClient } = require('./usage-history-client');
+const { UsageHistoryClient } = require('./usage-history-client.cjs');
 const { attachQuotaForecasts } = require('./usage-forecast.cjs');
 
 const execFileAsync = promisify(execFile);

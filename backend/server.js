@@ -39,7 +39,7 @@ const {
 const { discoverAgentWorkspaces } = require('./workspace-discovery.cjs');
 const { inspectGitWorktree } = require('./git-worktree-info.cjs');
 const { createWorkspaceDirectoryRouter } = require('./workspace-directory.cjs');
-const { createControlRouter } = require('./control-api');
+const { createControlRouter } = require('./control-api.cjs');
 const { WorkspaceFileService, WorkspaceFileError } = require('./workspace-file-service');
 const { createWorkspaceFileRouter, resolveWorkspaceRoot } = require('./workspace-file-router');
 const { WorkspaceRootRegistry, rootIdForPath } = require('./workspace-root-registry.cjs');
