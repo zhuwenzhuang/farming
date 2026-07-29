@@ -178,7 +178,14 @@ export function App() {
   const [externalAgentReplacement, setExternalAgentReplacement] = useState<AgentReplacementTransition | null>(null)
   const [usageSummary, setUsageSummary] = useState<UsageSummary | null>(null)
   const [contextWindowByAgentId, setContextWindowByAgentId] = useState<Record<string, AgentContextWindowUsage>>({})
-  const [uiPreferences, setUiPreferences] = useState<UiPreferences>(DEFAULT_UI_PREFERENCES)
+  const [uiPreferences, setUiPreferences] = useState<UiPreferences>(() => ({
+    ...DEFAULT_UI_PREFERENCES,
+    appearance: normalizeUiAppearance(
+      typeof document === 'undefined'
+        ? undefined
+        : document.documentElement.dataset.appearancePreference
+    ),
+  }))
   const pendingStartRef = useRef<{ beforeIds: Set<string> } | null>(null)
   const pendingMainRestartRef = useRef<{ beforeIds: Set<string> } | null>(null)
   const pendingForkAgentIdsRef = useRef(new Set<string>())
@@ -1110,12 +1117,12 @@ export function App() {
     openTerminal(agentId)
   }, [openTerminal, ws.agents])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     document.body.classList.add('code-mode')
     return () => { document.body.classList.remove('code-mode') }
   }, [])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const applyAppearance = () => {
       applyThemeAppearance('terminal', {
         crtEffects: false,

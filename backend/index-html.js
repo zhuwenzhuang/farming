@@ -43,14 +43,32 @@ function appendIndexHtmlAssetToken(html, token) {
 
 function applyIndexHtmlAppearance(html, appearance) {
   const normalizedAppearance = ['light', 'dark'].includes(appearance) ? appearance : 'system';
-  const source = String(html || '');
+  let source = String(html || '');
   if (/\bdata-appearance-preference="[^"]*"/i.test(source)) {
-    return source.replace(
+    source = source.replace(
       /\bdata-appearance-preference="[^"]*"/i,
       `data-appearance-preference="${normalizedAppearance}"`
     );
+  } else {
+    source = source.replace(
+      /<html\b/i,
+      `<html data-appearance-preference="${normalizedAppearance}"`
+    );
   }
-  return source.replace(/<html\b/i, `<html data-appearance-preference="${normalizedAppearance}"`);
+
+  const colorScheme = normalizedAppearance === 'system'
+    ? 'light dark'
+    : normalizedAppearance;
+  const themeColor = normalizedAppearance === 'dark' ? '#181818' : '#ffffff';
+  return source
+    .replace(
+      /(<meta\s+name="color-scheme"\s+content=")[^"]*(")/i,
+      `$1${colorScheme}$2`
+    )
+    .replace(
+      /(<meta\s+name="theme-color"\s+content=")[^"]*(")/i,
+      `$1${themeColor}$2`
+    );
 }
 
 module.exports = {

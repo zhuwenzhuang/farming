@@ -55,10 +55,21 @@ function run() {
     'asset token rewriting should not duplicate an existing token query parameter'
   );
 
+  const darkEntry = applyIndexHtmlAppearance(
+    '<html data-appearance-preference="system"><head><meta name="color-scheme" content="light dark"><meta name="theme-color" content="#ffffff"></head>',
+    'dark'
+  );
   assert(
-    applyIndexHtmlAppearance('<html data-appearance-preference="system">', 'dark')
-      .includes('data-appearance-preference="dark"'),
+    darkEntry.includes('data-appearance-preference="dark"'),
     'the entry document should receive the saved dark appearance before its first paint'
+  );
+  assert(
+    darkEntry.includes('<meta name="color-scheme" content="dark">'),
+    'the browser should create a dark document canvas before parsing application styles'
+  );
+  assert(
+    darkEntry.includes('<meta name="theme-color" content="#181818">'),
+    'the browser chrome should receive the saved dark color with the entry document'
   );
   assert(
     applyIndexHtmlAppearance('<html>', 'unexpected')

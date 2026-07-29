@@ -162,18 +162,49 @@ test.describe('Farming Code dark skin', () => {
         appearance: document.documentElement.dataset.appearance,
         preference: document.documentElement.dataset.appearancePreference,
         background: getComputedStyle(document.body).backgroundColor,
+        colorScheme: document.querySelector<HTMLMetaElement>('meta[name="color-scheme"]')?.content,
         themeColor: document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.content,
       }))
       expect(firstPaint).toEqual({
         appearance: 'dark',
         preference: 'dark',
         background: 'rgb(24, 24, 24)',
+        colorScheme: 'dark',
         themeColor: '#181818',
       })
     } finally {
       releaseModules()
     }
     await page.waitForLoadState('domcontentloaded')
+  })
+
+  test('keeps the server-injected dark appearance while settings hydrate', async ({ page }) => {
+    const settingsResponse = await page.request.post('/farming/api/settings', {
+      data: { appearance: 'dark' },
+    })
+    expect(settingsResponse.ok()).toBeTruthy()
+
+    let releaseSettings = () => {}
+    const settingsReleased = new Promise<void>(resolve => {
+      releaseSettings = resolve
+    })
+    await page.route(/\/farming\/api\/settings(?:\?.*)?$/, async route => {
+      if (route.request().method() === 'GET') {
+        await settingsReleased
+      }
+      await route.continue()
+    })
+
+    try {
+      await page.goto('/farming/')
+      await expect(page.getByTestId('app-shell')).toBeVisible()
+      await expect(page.locator('body')).toHaveAttribute('data-appearance', 'dark')
+      await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(24, 24, 24)')
+      await expect(page.getByTestId('app-shell')).toHaveCSS('background-color', 'rgb(24, 24, 24)')
+      await expect(page.locator('meta[name="color-scheme"]')).toHaveAttribute('content', 'dark')
+    } finally {
+      releaseSettings()
+    }
   })
 
   test('applies and verifies the dark Codex skin across core surfaces', async ({ page, workspaceRoot }, testInfo) => {
