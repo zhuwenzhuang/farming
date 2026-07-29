@@ -9,7 +9,7 @@ const {
   createWorkspaceDirectoryRouter,
   prepareWorkspaceDirectory,
   resolveWorkspaceDirectory,
-} = require('../workspace-directory');
+} = require('../workspace-directory.cjs');
 
 async function fetchJson(baseUrl, body) {
   const response = await fetch(`${baseUrl}/api/workspaces/prepare`, {

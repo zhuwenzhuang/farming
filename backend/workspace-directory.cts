@@ -7,7 +7,75 @@ const CREATE_FORBIDDEN_CODES = new Set(['EACCES', 'EPERM', 'EROFS']);
 const INVALID_PATH_CODES = new Set(['EINVAL', 'ENAMETOOLONG']);
 const DEFAULT_BROWSE_LIMIT = 500;
 
-function resolveWorkspaceDirectory(value, homeDir = process.env.HOME || os.homedir()) {
+interface DirectoryStat {
+  isDirectory(): boolean;
+}
+
+interface DirectoryEntry {
+  isDirectory(): boolean;
+  isSymbolicLink(): boolean;
+  name: string;
+}
+
+interface WorkspaceDirectoryFileSystem {
+  mkdir(directory: string, options: { recursive: true }): Promise<unknown>;
+  readdir(directory: string, options: { withFileTypes: true }): Promise<DirectoryEntry[]>;
+  stat(pathname: string): Promise<DirectoryStat>;
+}
+
+interface WorkspaceDirectoryOptions {
+  create?: boolean;
+  fileSystem?: WorkspaceDirectoryFileSystem;
+  homeDir?: string;
+  limit?: unknown;
+}
+
+interface WorkspaceDirectoryResult {
+  body: Record<string, unknown>;
+  status: number;
+}
+
+interface ExpressRequest {
+  body?: Record<string, unknown>;
+  query?: Record<string, unknown>;
+}
+
+interface ExpressResponse {
+  json(value: unknown): ExpressResponse;
+  status(code: number): ExpressResponse;
+}
+
+type ExpressHandler = (
+  request: ExpressRequest,
+  response: ExpressResponse,
+) => void | Promise<void>;
+
+interface ExpressRouter {
+  get(path: string, handler: ExpressHandler): ExpressRouter;
+  post(path: string, handler: ExpressHandler): ExpressRouter;
+  use(middleware: unknown): ExpressRouter;
+}
+
+interface ExpressFactory {
+  Router(): ExpressRouter;
+  json(options: { limit: string }): unknown;
+}
+
+interface WorkspaceDirectory {
+  name: string;
+  path: string;
+}
+
+const expressFactory = express as ExpressFactory;
+
+function errorCode(error: unknown): string {
+  return error instanceof Error && 'code' in error ? String(error.code) : '';
+}
+
+function resolveWorkspaceDirectory(
+  value: unknown,
+  homeDir = process.env.HOME || os.homedir(),
+): string {
   const input = typeof value === 'string' ? value.trim() : '';
   if (!input) return '';
   const expanded = input === '~'
@@ -18,8 +86,8 @@ function resolveWorkspaceDirectory(value, homeDir = process.env.HOME || os.homed
   return path.resolve(expanded);
 }
 
-function workspaceDirectoryError(error, workspace) {
-  const code = error?.code || '';
+function workspaceDirectoryError(error: unknown, workspace: string): WorkspaceDirectoryResult {
+  const code = errorCode(error);
   if (CREATE_FORBIDDEN_CODES.has(code)) {
     return {
       status: 403,
@@ -75,7 +143,10 @@ function workspaceDirectoryError(error, workspace) {
   };
 }
 
-async function prepareWorkspaceDirectory(value, options = {}) {
+async function prepareWorkspaceDirectory(
+  value: unknown,
+  options: WorkspaceDirectoryOptions = {},
+): Promise<WorkspaceDirectoryResult> {
   const workspace = resolveWorkspaceDirectory(value, options.homeDir);
   if (!workspace) {
     return {
@@ -105,7 +176,7 @@ async function prepareWorkspaceDirectory(value, options = {}) {
     }
     return { status: 200, body: { status: 'ready', workspace } };
   } catch (error) {
-    if (error?.code !== 'ENOENT') return workspaceDirectoryError(error, workspace);
+    if (errorCode(error) !== 'ENOENT') return workspaceDirectoryError(error, workspace);
   }
 
   if (options.create !== true) {
@@ -132,10 +203,13 @@ async function prepareWorkspaceDirectory(value, options = {}) {
   }
 }
 
-async function browseWorkspaceDirectory(value, options = {}) {
+async function browseWorkspaceDirectory(
+  value: unknown,
+  options: WorkspaceDirectoryOptions = {},
+): Promise<WorkspaceDirectoryResult> {
   const workspace = resolveWorkspaceDirectory(value || '~', options.homeDir);
   const fileSystem = options.fileSystem || fs.promises;
-  let entries;
+  let entries: DirectoryEntry[];
   try {
     const stat = await fileSystem.stat(workspace);
     if (!stat.isDirectory()) {
@@ -151,8 +225,9 @@ async function browseWorkspaceDirectory(value, options = {}) {
     }
     entries = await fileSystem.readdir(workspace, { withFileTypes: true });
   } catch (error) {
-    const forbidden = CREATE_FORBIDDEN_CODES.has(error?.code);
-    const missing = error?.code === 'ENOENT';
+    const code = errorCode(error);
+    const forbidden = CREATE_FORBIDDEN_CODES.has(code);
+    const missing = code === 'ENOENT';
     return {
       status: forbidden ? 403 : missing ? 404 : 500,
       body: {
@@ -172,7 +247,7 @@ async function browseWorkspaceDirectory(value, options = {}) {
     };
   }
 
-  const directories = (await Promise.all(entries.map(async (entry) => {
+  const directories = (await Promise.all(entries.map(async (entry): Promise<WorkspaceDirectory | null> => {
     if (!entry.isDirectory() && !entry.isSymbolicLink()) return null;
     const childPath = path.join(workspace, entry.name);
     if (entry.isSymbolicLink()) {
@@ -185,7 +260,7 @@ async function browseWorkspaceDirectory(value, options = {}) {
     }
     return { name: entry.name, path: childPath };
   })))
-    .filter(Boolean)
+    .filter((entry): entry is WorkspaceDirectory => entry !== null)
     .sort((left, right) => left.name.localeCompare(right.name));
   const limit = Math.max(1, Math.min(Number(options.limit) || DEFAULT_BROWSE_LIMIT, DEFAULT_BROWSE_LIMIT));
   const parentPath = path.dirname(workspace);
@@ -202,9 +277,11 @@ async function browseWorkspaceDirectory(value, options = {}) {
   };
 }
 
-function createWorkspaceDirectoryRouter(options = {}) {
-  const router = express.Router();
-  router.use(express.json({ limit: '8kb' }));
+function createWorkspaceDirectoryRouter(
+  options: WorkspaceDirectoryOptions = {},
+): ExpressRouter {
+  const router = expressFactory.Router();
+  router.use(expressFactory.json({ limit: '8kb' }));
   router.get('/browse', async (req, res) => {
     const result = await browseWorkspaceDirectory(req.query?.path, {
       fileSystem: options.fileSystem,
@@ -224,7 +301,7 @@ function createWorkspaceDirectoryRouter(options = {}) {
   return router;
 }
 
-module.exports = {
+export {
   browseWorkspaceDirectory,
   createWorkspaceDirectoryRouter,
   prepareWorkspaceDirectory,

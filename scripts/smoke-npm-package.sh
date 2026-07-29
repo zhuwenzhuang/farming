@@ -142,6 +142,7 @@ for runtime_module in \
   terminal-state-serialization \
   theme-manager \
   usage-forecast \
+  workspace-directory \
   workspace-root-registry
 do
   if [ ! -f "${PACKAGE_ROOT}/backend/${runtime_module}.cjs" ]; then

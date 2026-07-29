@@ -38,7 +38,7 @@ const {
 } = require('./main-page-session.cjs');
 const { discoverAgentWorkspaces } = require('./workspace-discovery');
 const { inspectGitWorktree } = require('./git-worktree-info.cjs');
-const { createWorkspaceDirectoryRouter } = require('./workspace-directory');
+const { createWorkspaceDirectoryRouter } = require('./workspace-directory.cjs');
 const { createControlRouter } = require('./control-api');
 const { WorkspaceFileService, WorkspaceFileError } = require('./workspace-file-service');
 const { createWorkspaceFileRouter, resolveWorkspaceRoot } = require('./workspace-file-router');
