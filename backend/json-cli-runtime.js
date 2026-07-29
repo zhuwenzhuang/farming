@@ -1,6 +1,6 @@
 const EventEmitter = require('events');
 const { spawn } = require('child_process');
-const { AgentJsonStreamParser } = require('./agent-json-stream');
+const { AgentJsonStreamParser } = require('./agent-json-stream.cjs');
 
 const MAX_EVENTS = 12_000;
 const PROCESS_EXIT_TIMEOUT_MS = 1500;

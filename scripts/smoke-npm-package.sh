@@ -87,6 +87,7 @@ for runtime_module in \
   agent-order-transaction \
   agent-provider-session \
   agent-env \
+  agent-json-stream \
   agent-lifecycle-journal \
   agent-runtime-binding \
   acp-checkpoint-store \

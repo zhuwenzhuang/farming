@@ -1,5 +1,5 @@
 const assert = require('assert');
-const { AgentJsonStreamParser, JsonlStreamDecoder } = require('../agent-json-stream');
+const { AgentJsonStreamParser, JsonlStreamDecoder } = require('../agent-json-stream.cjs');
 
 {
   const decoder = new JsonlStreamDecoder();

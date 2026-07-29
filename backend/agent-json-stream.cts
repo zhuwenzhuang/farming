@@ -1,27 +1,55 @@
-const { buildTranscriptFromEvents } = require('./codex-transcript');
+const { buildTranscriptFromEvents } = require('./codex-transcript') as {
+  buildTranscriptFromEvents(events: JsonEvent[], options: unknown): unknown;
+};
 
 const DEFAULT_MAX_EVENTS = 12_000;
 
+type JsonEvent = Record<string, unknown>;
+
+interface JsonAdapter {
+  readonly sessionId: string;
+  adapt(raw: unknown): JsonEvent[];
+  flush(): JsonEvent[];
+}
+
+interface JsonAdapterOptions {
+  operationId: string;
+  prompt: string;
+}
+
+interface AgentJsonStreamParserOptions {
+  maxEvents?: number;
+  operationId?: unknown;
+  prompt?: string;
+  provider?: unknown;
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
 class JsonlStreamDecoder {
+  buffer: string;
+
   constructor() {
     this.buffer = '';
   }
 
-  push(chunk) {
+  push(chunk: unknown): unknown[] {
     this.buffer += Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk || '');
     const lines = this.buffer.split('\n');
     this.buffer = lines.pop() || '';
     return lines.flatMap(parseJsonLine);
   }
 
-  flush() {
+  flush(): unknown[] {
     const trailing = this.buffer;
     this.buffer = '';
     return parseJsonLine(trailing);
   }
 }
 
-function parseJsonLine(line) {
+function parseJsonLine(line: unknown): unknown[] {
   const text = String(line || '').trim();
   if (!text) return [];
   try {
@@ -34,12 +62,18 @@ function parseJsonLine(line) {
   }
 }
 
-function itemEvent(type, turnId, item) {
+function itemEvent(type: string, turnId: string, item: unknown): JsonEvent {
   return { type, turn_id: turnId, item };
 }
 
 class CodexJsonAdapter {
-  constructor(options) {
+  prompt: string;
+  operationId: string;
+  turnId: string;
+  sessionId: string;
+  started: boolean;
+
+  constructor(options: JsonAdapterOptions) {
     this.prompt = options.prompt;
     this.operationId = options.operationId;
     this.turnId = `codex-${this.operationId}`;
@@ -47,8 +81,8 @@ class CodexJsonAdapter {
     this.started = false;
   }
 
-  adapt(raw) {
-    if (!raw || typeof raw !== 'object') return [];
+  adapt(raw: unknown): JsonEvent[] {
+    if (!isObject(raw)) return [];
     if (raw.type === 'thread.started') {
       this.sessionId = typeof raw.thread_id === 'string' ? raw.thread_id : this.sessionId;
       return [];
@@ -71,7 +105,8 @@ class CodexJsonAdapter {
     }
     if (raw.type === 'turn.failed' || raw.type === 'error') {
       this.ensureStarted();
-      const message = raw.message || raw.error?.message || raw.error || 'Codex execution failed';
+      const rawError = isObject(raw.error) ? raw.error : {};
+      const message = raw.message || rawError.message || raw.error || 'Codex execution failed';
       return [
         itemEvent('item.completed', this.turnId, {
           id: `${this.turnId}-error`,
@@ -85,15 +120,15 @@ class CodexJsonAdapter {
     return [];
   }
 
-  flush() {
+  flush(): JsonEvent[] {
     return [];
   }
 
-  ensureStarted() {
+  ensureStarted(): void {
     this.started = true;
   }
 
-  userMessageEvents() {
+  userMessageEvents(): JsonEvent[] {
     if (!this.prompt) return [];
     return [itemEvent('item.completed', this.turnId, {
       id: `${this.turnId}-user`,
@@ -103,17 +138,20 @@ class CodexJsonAdapter {
   }
 }
 
-function openCodeToolItem(part) {
-  const state = part.state && typeof part.state === 'object' ? part.state : {};
-  const input = state.input && typeof state.input === 'object' ? state.input : {};
+function openCodeToolItem(part: Record<string, unknown>): JsonEvent {
+  const state = isObject(part.state) ? part.state : {};
+  const input = isObject(state.input) ? state.input : {};
+  const metadata = isObject(state.metadata) ? state.metadata : {};
   const id = part.callID || part.id;
   if (part.tool === 'bash') {
     return {
       id,
       type: 'command_execution',
       command: input.command || state.title || '',
-      aggregated_output: state.output || state.metadata?.output || '',
-      exit_code: Number.isFinite(state.metadata?.exit) ? state.metadata.exit : null,
+      aggregated_output: state.output || metadata.output || '',
+      exit_code: typeof metadata.exit === 'number' && Number.isFinite(metadata.exit)
+        ? metadata.exit
+        : null,
       status: state.status,
     };
   }
@@ -130,7 +168,15 @@ function openCodeToolItem(part) {
 }
 
 class OpenCodeJsonAdapter {
-  constructor(options) {
+  prompt: string;
+  operationId: string;
+  turnId: string;
+  sessionId: string;
+  started: boolean;
+  completed: boolean;
+  text: string;
+
+  constructor(options: JsonAdapterOptions) {
     this.prompt = options.prompt;
     this.operationId = options.operationId;
     this.turnId = `opencode-${this.operationId}`;
@@ -140,11 +186,11 @@ class OpenCodeJsonAdapter {
     this.text = '';
   }
 
-  adapt(raw) {
-    if (!raw || typeof raw !== 'object') return [];
+  adapt(raw: unknown): JsonEvent[] {
+    if (!isObject(raw)) return [];
     if (typeof raw.sessionID === 'string') this.sessionId = raw.sessionID;
     const events = this.startEvents(raw.timestamp);
-    const part = raw.part && typeof raw.part === 'object' ? raw.part : {};
+    const part = isObject(raw.part) ? raw.part : {};
 
     if (raw.type === 'text' && typeof part.text === 'string') {
       this.text += part.text;
@@ -154,13 +200,14 @@ class OpenCodeJsonAdapter {
         text: this.text,
       }));
     } else if (raw.type === 'tool_use' && (part.callID || part.id)) {
-      const state = part.state && typeof part.state === 'object' ? part.state : {};
+      const state = isObject(part.state) ? part.state : {};
       const eventType = state.status === 'completed' || state.status === 'error'
         ? 'item.completed'
         : 'item.started';
       events.push(itemEvent(eventType, this.turnId, openCodeToolItem(part)));
     } else if (raw.type === 'error') {
-      const message = raw.error?.message || raw.message || raw.error || 'OpenCode execution failed';
+      const rawError = isObject(raw.error) ? raw.error : {};
+      const message = rawError.message || raw.message || raw.error || 'OpenCode execution failed';
       events.push(itemEvent('item.completed', this.turnId, {
         id: `${this.turnId}-error`,
         type: 'error',
@@ -175,17 +222,17 @@ class OpenCodeJsonAdapter {
     return events;
   }
 
-  flush() {
+  flush(): JsonEvent[] {
     return this.completeEvents();
   }
 
-  startEvents(timestamp) {
+  startEvents(timestamp: unknown): JsonEvent[] {
     if (this.started) return [];
     this.started = true;
-    const events = [{
+    const events: JsonEvent[] = [{
       type: 'turn.started',
       turn_id: this.turnId,
-      ...(Number.isFinite(timestamp) ? { startedAtMs: timestamp } : {}),
+      ...(typeof timestamp === 'number' && Number.isFinite(timestamp) ? { startedAtMs: timestamp } : {}),
     }];
     if (this.prompt) {
       events.push(itemEvent('item.completed', this.turnId, {
@@ -197,25 +244,31 @@ class OpenCodeJsonAdapter {
     return events;
   }
 
-  completeEvents(timestamp) {
+  completeEvents(timestamp?: unknown): JsonEvent[] {
     if (!this.started || this.completed) return [];
     this.completed = true;
     return [{
       type: 'turn.completed',
       turn_id: this.turnId,
-      ...(Number.isFinite(timestamp) ? { completedAt: timestamp } : {}),
+      ...(typeof timestamp === 'number' && Number.isFinite(timestamp) ? { completedAt: timestamp } : {}),
     }];
   }
 }
 
-function createAdapter(provider, options) {
+function createAdapter(provider: string, options: JsonAdapterOptions): JsonAdapter {
   if (provider === 'codex') return new CodexJsonAdapter(options);
   if (provider === 'opencode') return new OpenCodeJsonAdapter(options);
   throw new Error(`Unsupported agent JSON provider: ${provider}`);
 }
 
 class AgentJsonStreamParser {
-  constructor(options = {}) {
+  provider: string;
+  decoder: JsonlStreamDecoder;
+  adapter: JsonAdapter;
+  events: JsonEvent[];
+  maxEvents: number;
+
+  constructor(options: AgentJsonStreamParserOptions = {}) {
     const provider = String(options.provider || '').trim().toLowerCase();
     const operationId = String(options.operationId || Date.now());
     this.provider = provider;
@@ -225,34 +278,34 @@ class AgentJsonStreamParser {
       prompt: typeof options.prompt === 'string' ? options.prompt.trim() : '',
     });
     this.events = [];
-    this.maxEvents = Number.isFinite(options.maxEvents)
+    this.maxEvents = typeof options.maxEvents === 'number' && Number.isFinite(options.maxEvents)
       ? Math.max(1, Math.floor(options.maxEvents))
       : DEFAULT_MAX_EVENTS;
   }
 
-  get sessionId() {
+  get sessionId(): string {
     return this.adapter.sessionId;
   }
 
-  push(chunk) {
+  push(chunk: unknown): JsonEvent[] {
     return this.appendRaw(this.decoder.push(chunk));
   }
 
-  flush() {
+  flush(): JsonEvent[] {
     const events = this.appendRaw(this.decoder.flush());
     return [...events, ...this.appendEvents(this.adapter.flush())];
   }
 
-  transcript(options = {}) {
+  transcript(options: unknown = {}): unknown {
     return buildTranscriptFromEvents(this.events, options);
   }
 
-  appendRaw(rawEvents) {
+  appendRaw(rawEvents: unknown[]): JsonEvent[] {
     const normalized = rawEvents.flatMap(event => this.adapter.adapt(event));
     return this.appendEvents(normalized);
   }
 
-  appendEvents(events) {
+  appendEvents(events: JsonEvent[]): JsonEvent[] {
     if (!events.length) return [];
     this.events.push(...events);
     if (this.events.length > this.maxEvents) {
@@ -262,7 +315,7 @@ class AgentJsonStreamParser {
   }
 }
 
-module.exports = {
+export {
   AgentJsonStreamParser,
   JsonlStreamDecoder,
 };
