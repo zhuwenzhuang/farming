@@ -2048,7 +2048,9 @@ function isTerminalPathOpenClick(event: MouseEvent) {
 }
 
 function isTerminalOpenModifierEvent(event: Pick<MouseEvent, 'ctrlKey' | 'metaKey'>) {
-  return event.ctrlKey || event.metaKey
+  return navigator.platform.toLowerCase().includes('mac')
+    ? event.metaKey
+    : event.ctrlKey
 }
 
 function isTerminalOpenModifierActive(record: SessionRecord, event: Pick<MouseEvent, 'ctrlKey' | 'metaKey'>) {
