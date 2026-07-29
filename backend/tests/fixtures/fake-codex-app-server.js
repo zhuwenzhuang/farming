@@ -39,6 +39,12 @@ function thread() {
           { type: 'image', url: dataUrl },
           { type: 'localImage', path: `${imagePath}.missing` },
         ],
+      }, {
+        id: 'user-history-steer',
+        type: 'userMessage',
+        content: [
+          { type: 'text', text: '重点检查恢复后的图片', text_elements: [] },
+        ],
       }],
       itemsView: { type: 'full' },
       status: 'completed',

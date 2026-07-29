@@ -1,5 +1,5 @@
 diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_modules/@agentclientprotocol/codex-acp/dist/index.js
-index fb338ee..191b134 100755
+index fb338ee..20191ea 100755
 --- a/node_modules/@agentclientprotocol/codex-acp/dist/index.js
 +++ b/node_modules/@agentclientprotocol/codex-acp/dist/index.js
 @@ -23365,8 +23365,12 @@ function createAgentTextThoughtChunk(text, messageId, meta3) {
@@ -15,7 +15,7 @@ index fb338ee..191b134 100755
 +  return request.method === "authentication/status" || request.method === "authentication/logout" || request.method === LEGACY_SET_SESSION_MODEL_METHOD || request.method === GOAL_CONTROL_METHOD || request.method === STEER_METHOD;
  }
 
- // src/ThreadGoalSnapshot.ts
+// src/ThreadGoalSnapshot.ts
 @@ -26065,6 +26069,17 @@ var CodexAcpClient = class {
        additionalDirectories
      };
@@ -553,7 +553,34 @@ index fb338ee..191b134 100755
    async deleteSession(params) {
      logger.log("Deleting session...", { sessionId: params.sessionId });
      const sessionId = params.sessionId;
-@@ -29040,11 +29476,11 @@ You have been logged out. Please try again.`);
+@@ -28937,8 +29373,25 @@ You have been logged out. Please try again.`);
+     );
+     const threadUpdates = [];
+     for (const turn of thread.turns) {
++      let seenUserMessage = false;
+       for (const item of turn.items) {
+-        const updates2 = await this.createHistoryUpdates(item, sessionState);
++        let updates2 = await this.createHistoryUpdates(item, sessionState);
++        if (item.type === "userMessage") {
++          if (seenUserMessage) {
++            updates2 = updates2.map((update) => ({
++              ...update,
++              _meta: {
++                ...update._meta,
++                codex: {
++                  ...update._meta?.codex,
++                  steer: true,
++                  turnId: turn.id
++                }
++              }
++            }));
++          }
++          seenUserMessage = true;
++        }
+         threadUpdates.push(...updates2);
+       }
+     }
+@@ -29040,11 +29493,11 @@ You have been logged out. Please try again.`);
          return [this.createPlanUpdate(item)];
      }
    }
@@ -567,7 +594,7 @@ index fb338ee..191b134 100755
        for (const block of blocks) {
          updates.push(createUserMessageChunk(block, messageId));
        }
-@@ -29088,15 +29524,26 @@ ${item.text}`
+@@ -29088,15 +29541,26 @@ ${item.text}`
        }
      };
    }
@@ -598,7 +625,7 @@ index fb338ee..191b134 100755
        }
        case "skill":
          return [{ type: "text", text: `skill:${input.name} (${input.path})` }];
-@@ -29805,6 +30252,9 @@ var CodexAppServerClient = class {
+@@ -29805,6 +30269,9 @@ var CodexAppServerClient = class {
    async turnStart(params) {
      return await this.sendRequest({ method: "turn/start", params });
    }
@@ -608,7 +635,7 @@ index fb338ee..191b134 100755
    async runTurn(params, onTurnStarted) {
      const capturedCompletions = [];
      const releaseCapture = this.captureTurnCompletions(params.threadId, (event) => {
-@@ -30032,6 +30482,9 @@ var CodexAppServerClient = class {
+@@ -30032,6 +30499,9 @@ var CodexAppServerClient = class {
    async threadResume(params) {
      return await this.sendRequest({ method: "thread/resume", params });
    }
@@ -618,7 +645,7 @@ index fb338ee..191b134 100755
    getThreadSettings(threadId) {
      return this.threadSettings.get(threadId);
    }
-@@ -30595,6 +31048,11 @@ var goalControlParamsParser = external_exports.object({
+@@ -30595,6 +31065,11 @@ var goalControlParamsParser = external_exports.object({
    sessionId: external_exports.string(),
    action: external_exports.enum(["pause", "clear"])
  }).passthrough();
@@ -630,7 +657,7 @@ index fb338ee..191b134 100755
  if (process.argv.includes("--version")) {
    console.log(`${package_default.name} ${package_default.version}`);
    process.exit(0);
-@@ -30667,5 +31125,5 @@ function startAcpServer() {
+@@ -30667,5 +31142,5 @@ function startAcpServer() {
          codexAcpServer = null;
        }
      });

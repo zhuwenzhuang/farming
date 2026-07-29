@@ -91,11 +91,11 @@ async function run() {
       });
     });
 
-    const contents = updates
-      .filter(update => update?.sessionUpdate === 'user_message_chunk')
-      .map(update => update.content);
+    const userUpdates = updates
+      .filter(update => update?.sessionUpdate === 'user_message_chunk');
+    const contents = userUpdates.map(update => update.content);
     assert.deepStrictEqual(contents[0], { type: 'text', text: '请检查历史图片' });
-    assert.deepStrictEqual(contents.slice(1), [
+    assert.deepStrictEqual(contents.slice(1, 4), [
       { type: 'image', mimeType: 'image/png', data: imageData },
       { type: 'image', mimeType: 'image/png', data: imageData },
       {
@@ -104,6 +104,11 @@ async function run() {
         name: 'screen.png.missing',
       },
     ]);
+    assert.deepStrictEqual(contents[4], { type: 'text', text: '重点检查恢复后的图片' });
+    assert(userUpdates.slice(0, 4).every(update => update._meta?.codex?.steer !== true));
+    assert.deepStrictEqual(userUpdates[4]._meta, {
+      codex: { steer: true, turnId: 'turn-history-image' },
+    });
     assert(!contents.some(content => content?.type === 'text' && content.text.includes('[@image]')));
     console.log('✓ Codex ACP session/load emits native history image blocks');
   } finally {
