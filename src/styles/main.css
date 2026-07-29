@@ -16963,6 +16963,14 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
     margin-bottom: 0;
   }
 
+  /* The live status row is fixed above the compact composer so it remains
+     visible while the Agent works. Reserve the same vertical band in the
+     running turn; otherwise follow-latest aligns the growing answer beneath
+     that row and its final lines appear clipped. */
+  body.code-mode.code-compact-layout .code-agent-transcript-turn.running:last-child {
+    padding-bottom: 42px;
+  }
+
   body.code-mode.code-compact-layout .code-agent-transcript-turn {
     width: 100%;
     max-width: none;

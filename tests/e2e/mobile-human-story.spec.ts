@@ -384,7 +384,7 @@ test.describe('mobile Farming Code user story', () => {
               {
                 id: 'running-turn',
                 userMessage: 'Continue and keep the file changes close to the composer.',
-                finalMessage: '',
+                finalMessage: 'The live answer keeps growing while the compact status remains visible above the composer.',
                 startedAt: Date.now() - 45_000,
                 status: 'inProgress',
                 processItems: [
@@ -419,6 +419,9 @@ test.describe('mobile Farming Code user story', () => {
       const input = document.querySelector('[data-testid="code-composer-input"]') as HTMLElement | null
       const rows = Array.from(document.querySelectorAll('.code-agent-transcript-status-row')) as HTMLElement[]
       const statusRow = rows.at(-1) ?? null
+      const runningAnswer = document.querySelector(
+        '.code-agent-transcript-turn.running:last-child .code-agent-transcript-answer',
+      ) as HTMLElement | null
       const runningPlaceholder = document.querySelector('.code-agent-transcript-turn.running:last-child .code-agent-transcript-placeholder') as HTMLElement | null
       const runningPlaceholderStyle = runningPlaceholder ? getComputedStyle(runningPlaceholder) : null
       return {
@@ -439,6 +442,9 @@ test.describe('mobile Farming Code user story', () => {
         statusGapToComposer: statusRow && composer
           ? Math.round(composer.getBoundingClientRect().top - statusRow.getBoundingClientRect().bottom)
           : -1,
+        answerGapToStatus: runningAnswer && statusRow
+          ? Math.round(statusRow.getBoundingClientRect().top - runningAnswer.getBoundingClientRect().bottom)
+          : -1,
       }
     })
     expect(metrics.documentScrollWidth).toBe(metrics.innerWidth)
@@ -453,6 +459,7 @@ test.describe('mobile Farming Code user story', () => {
     expect(metrics.placeholderVisible).toBe(false)
     expect(metrics.statusGapToComposer).toBeGreaterThanOrEqual(0)
     expect(metrics.statusGapToComposer).toBeLessThanOrEqual(24)
+    expect(metrics.answerGapToStatus).toBeGreaterThanOrEqual(4)
   })
 
   test('returns to a remote shell, opens files, and uses touch-accessible blame', async ({ page, workspaceRoot }) => {
