@@ -82,6 +82,18 @@ const MAIN_AGENT_SKILLS: MainAgentSkill[] = [
     ],
   },
   {
+    id: 'computer-resource',
+    name: '隔离电脑操作',
+    trigger: '用户要求操作完整桌面、系统窗口、浏览器工具栏、权限弹窗或非网页应用，并且 Farming Computer 能力可用时',
+    summary: '使用当前 Agent 自己拥有、用户可观察和接管的隔离 Computer；先观察再操作，操作后复核，不盲目重放超时写操作。',
+    commands: [
+      'farming capabilities',
+      'farming computer list',
+      'farming computer open',
+      'farming computer help workflow',
+    ],
+  },
+  {
     id: 'pest-control',
     name: '牧场除虫计划',
     trigger: '用户要求对某个目录、仓库或模块体系做系统性 bug 排查、除虫、深挖潜在缺陷时',
@@ -150,6 +162,7 @@ function renderMainAgentSkills(): string {
 
   lines.push('Rules:');
   lines.push('- `farming browser` lists and operates only Browser Resources owned by this Agent; follow `farming browser help workflow`, and reveal only the help topic or command needed for the current step.');
+  lines.push('- `farming computer` operates only the isolated Computer owned by this Agent; observe before and after actions, and never replay an uncertain mutation without observing first.');
   lines.push('- Use “牧场除虫计划” when the user asks for systematic bug hunting across a directory or module tree.');
   lines.push('- Before spawning child agents for pest control, map modules and module protocols first; do not send overlapping or vague tasks.');
   lines.push('- Keep child agents scoped to their assigned module and require evidence, reproduction notes, or tests for each bug claim.');

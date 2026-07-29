@@ -1,0 +1,224 @@
+.farming-computer-section {
+  margin: 4px 8px 4px 28px;
+  min-width: 0;
+}
+
+.farming-computer-section > header {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.farming-computer-section > header button {
+  border: 0;
+  background: transparent;
+  color: var(--code-text-muted);
+  height: 28px;
+}
+
+.farming-computer-section-toggle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+}
+
+.farming-computer-section-toggle svg,
+.farming-computer-section > header button:last-child svg {
+  width: 14px;
+  height: 14px;
+  fill: currentColor;
+}
+
+.farming-computer-section-toggle small {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.farming-computer-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  height: 42px;
+  padding: 4px 5px 4px 8px;
+  border-radius: 8px;
+  color: var(--code-text);
+}
+
+.farming-computer-row:hover,
+.farming-computer-row.active {
+  background: var(--code-hover);
+}
+
+.farming-computer-status {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--code-text-muted);
+}
+
+.farming-computer-status.running { background: #23a55a; }
+.farming-computer-status.failed { background: #d44b4b; }
+.farming-computer-status.starting,
+.farming-computer-status.stopping { background: #d39a27; }
+
+.farming-computer-copy {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.farming-computer-name,
+.farming-computer-detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.farming-computer-name { font-size: 13px; }
+.farming-computer-detail { color: var(--code-text-muted); font-size: 11px; }
+
+.farming-computer-copy input {
+  width: 100%;
+  min-width: 0;
+}
+
+.farming-computer-actions {
+  display: none;
+  align-items: center;
+}
+
+.farming-computer-row:hover .farming-computer-actions,
+.farming-computer-row:focus-within .farming-computer-actions {
+  display: flex;
+}
+
+.farming-computer-actions button,
+.farming-computer-empty {
+  border: 0;
+  background: transparent;
+  color: var(--code-text-muted);
+}
+
+.farming-computer-actions button {
+  width: 24px;
+  height: 24px;
+}
+
+.farming-computer-actions svg,
+.farming-computer-empty svg {
+  width: 13px;
+  height: 13px;
+  fill: currentColor;
+}
+
+.farming-computer-empty {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  height: 32px;
+  padding: 0 8px;
+  text-align: left;
+}
+
+.farming-computer-viewer {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  min-height: 0;
+  background: var(--code-bg);
+}
+
+.farming-computer-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--code-border);
+}
+
+.farming-computer-toolbar button {
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--code-text-muted);
+  min-height: 28px;
+}
+
+.farming-computer-toolbar button:hover {
+  background: var(--code-hover);
+  color: var(--code-text);
+}
+
+.farming-computer-toolbar svg {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+}
+
+.farming-computer-toolbar-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.farming-computer-control-status {
+  margin-left: auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--code-text-muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.farming-computer-control-button {
+  padding: 0 10px;
+}
+
+.farming-computer-viewport {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+.farming-computer-viewport iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #111;
+}
+
+.farming-computer-empty-state {
+  display: grid;
+  place-content: center;
+  gap: 12px;
+  height: 100%;
+  color: var(--code-text-muted);
+  text-align: center;
+}
+
+.farming-computer-empty-state button {
+  justify-self: center;
+}
+
+.farming-computer-error {
+  position: absolute;
+  inset: auto 12px 12px;
+  border: 1px solid #c34747;
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: color-mix(in srgb, var(--code-bg) 92%, #c34747);
+  color: var(--code-text);
+}

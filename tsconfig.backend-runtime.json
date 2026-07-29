@@ -12,7 +12,8 @@
   "include": [
     "backend/**/*.cts",
     "backend/types/**/*.d.ts",
-    "extensions/browser/backend/**/*.cts"
+    "extensions/browser/backend/**/*.cts",
+    "extensions/computer/backend/**/*.cts"
   ],
   "exclude": [
     "backend/tests/**",

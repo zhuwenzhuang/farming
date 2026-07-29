@@ -91,6 +91,10 @@ import { BrowserSidebarPortals } from '../../extensions/browser/frontend/Browser
 import { useBrowserResources } from '../../extensions/browser/frontend/useBrowserResources'
 import type { BrowserResource } from '../../extensions/browser/frontend/types'
 import '../../extensions/browser/frontend/browser.css'
+import { ComputerSection } from '../../extensions/computer/frontend/ComputerSection'
+import { useComputerResources } from '../../extensions/computer/frontend/useComputerResources'
+import type { ComputerResource } from '../../extensions/computer/frontend/types'
+import '../../extensions/computer/frontend/computer.css'
 import { AgentHomesSettingsPanel } from './code/AgentHomesSettingsPanel'
 import {
   canSwitchAgentRuntime,
@@ -496,6 +500,11 @@ function initialBrowserResourceId() {
   return new URL(window.location.href).searchParams.get('browser')
 }
 
+function initialComputerResourceId() {
+  if (typeof window === 'undefined') return null
+  return new URL(window.location.href).searchParams.get('computer')
+}
+
 function openTargetForTerminalPath(target: TerminalPathOpenTarget): WorkspaceFileOpenTarget | undefined {
   if (!target.lineNumber) return undefined
   return {
@@ -601,10 +610,14 @@ export function CodeWorkspace({
   const [, setTerminalFollowStates] = useState<Record<string, TerminalFollowState>>({})
   const [activeBrowserId, setActiveBrowserId] = useState<string | null>(initialBrowserResourceId)
   const [browserReturnAgentId, setBrowserReturnAgentId] = useState<string | null>(null)
+  const [activeComputerId, setActiveComputerId] = useState<string | null>(initialComputerResourceId)
+  const [computerReturnAgentId, setComputerReturnAgentId] = useState<string | null>(null)
+  const [collapsedComputerAgentIds, setCollapsedComputerAgentIds] = useState<Set<string>>(() => new Set())
   const [mainPaneMode, setMainPaneMode] = useState<MainPaneMode>(() => (
-    initialBrowserResourceId() ? 'browser' : 'terminal'
+    initialComputerResourceId() ? 'computer' : initialBrowserResourceId() ? 'browser' : 'terminal'
   ))
   const browserResources = useBrowserResources()
+  const computerResources = useComputerResources()
   const createBrowserResource = browserResources.create
   const startBrowserResource = browserResources.start
   const [initialWorkspaceSurface] = useState<CodeWorkspaceSurface | undefined>(() => (
@@ -628,6 +641,13 @@ export function CodeWorkspace({
   const activeBrowserResource = activeBrowserId
     ? browserResources.resources.find(resource => resource.id === activeBrowserId) ?? null
     : null
+  const activeComputerResource = activeComputerId
+    ? computerResources.resources.find(resource => resource.id === activeComputerId) ?? null
+    : null
+  const computerResourceAgentIds = useMemo(
+    () => new Set(computerResources.resources.map(resource => resource.ownerAgentId)),
+    [computerResources.resources],
+  )
   const refreshProjectOpenFiles = useCallback(async (filesId: string, workspaceRoot: string) => {
     const filePaths = Array.from(new Set(workspaceOpenFiles.files
       .filter(file => file.workspaceRoot === workspaceRoot)
@@ -1133,17 +1153,31 @@ export function CodeWorkspace({
   }, [activeBrowserId, activeBrowserResource, browserResources.loading])
 
   useEffect(() => {
+    if (computerResources.loading || !activeComputerId || activeComputerResource) return
+    setActiveComputerId(null)
+    setMainPaneMode('terminal')
+  }, [activeComputerId, activeComputerResource, computerResources.loading])
+
+  useEffect(() => {
     const url = new URL(window.location.href)
     if (mainPaneMode === 'browser' && activeBrowserId) {
       url.searchParams.set('browser', activeBrowserId)
+      url.searchParams.delete('computer')
+      for (const key of ['agent', 'file', 'folder', 'path', 'view', 'line', 'column', 'endColumn']) {
+        url.searchParams.delete(key)
+      }
+    } else if (mainPaneMode === 'computer' && activeComputerId) {
+      url.searchParams.set('computer', activeComputerId)
+      url.searchParams.delete('browser')
       for (const key of ['agent', 'file', 'folder', 'path', 'view', 'line', 'column', 'endColumn']) {
         url.searchParams.delete(key)
       }
     } else {
       url.searchParams.delete('browser')
+      url.searchParams.delete('computer')
     }
     if (url.href !== window.location.href) window.history.replaceState(window.history.state, '', url)
-  }, [activeBrowserId, mainPaneMode])
+  }, [activeBrowserId, activeComputerId, mainPaneMode])
   const composerHasAttachmentMessage = composerAttachmentMessageBlocks(composerAttachments).length > 0
   const composerAttachmentsUploading = composerAttachments.some(attachment => attachment.status === 'uploading')
   const composerSubmitAction = activeCodexTerminalProfileApplying
@@ -1339,6 +1373,8 @@ export function CodeWorkspace({
       ? copy.history
       : activeView === 'plugins'
         ? copy.plugins
+      : mainPaneMode === 'computer' && activeComputerResource
+        ? activeComputerResource.name
       : mainPaneMode === 'browser' && activeBrowserResource
         ? activeBrowserResource.name
         : showFileEditor && openWorkspaceFile
@@ -2968,6 +3004,33 @@ export function CodeWorkspace({
     }
     setMainPaneMode('terminal')
   }, [activeAgent, agents, browserReturnAgentId, openTerminalFromWorkspace])
+
+  const openComputerFromSidebar = useCallback((resource: ComputerResource) => {
+    closeContextMenu()
+    clearSearch()
+    setComputerReturnAgentId(activeTerminalId)
+    setActiveComputerId(resource.id)
+    setMainPaneMode('computer')
+    onWorkspaceViewChange('projects')
+    closeSidebarForMobile()
+  }, [
+    activeTerminalId,
+    clearSearch,
+    closeContextMenu,
+    closeSidebarForMobile,
+    onWorkspaceViewChange,
+  ])
+
+  const backFromComputer = useCallback(() => {
+    const returnAgent = computerReturnAgentId
+      ? agents.find(agent => agent.id === computerReturnAgentId)
+      : activeAgent
+    if (returnAgent) {
+      openTerminalFromWorkspace(returnAgent.id, { focusTerminal: false })
+      return
+    }
+    setMainPaneMode('terminal')
+  }, [activeAgent, agents, computerReturnAgentId, openTerminalFromWorkspace])
 
   const openTerminalFromSidebar = useCallback((agentId: string) => {
     openTerminalFromWorkspace(agentId)
@@ -5111,6 +5174,32 @@ export function CodeWorkspace({
         controller={browserResources}
         language={uiPreferences.language}
         onOpen={openBrowserFromSidebar}
+        forceAvailable={computerResourceAgentIds.size > 0}
+        additionalAgentResourceIds={computerResourceAgentIds}
+        renderAdditionalAgentResources={({ agentId, workspace }) => {
+          const resource = computerResources.byAgentId.get(agentId) ?? null
+          if (!resource) return null
+          return (
+            <ComputerSection
+              workspace={workspace}
+              agentId={agentId}
+              resource={resource}
+              active={mainPaneMode === 'computer' && activeComputerId === resource.id}
+              controller={computerResources}
+              language={uiPreferences.language}
+              collapsed={collapsedComputerAgentIds.has(agentId)}
+              onToggle={() => {
+                setCollapsedComputerAgentIds(current => {
+                  const next = new Set(current)
+                  if (next.has(agentId)) next.delete(agentId)
+                  else next.add(agentId)
+                  return next
+                })
+              }}
+              onOpen={openComputerFromSidebar}
+            />
+          )
+        }}
       />
 
       <AgentHomesSettingsPanel
@@ -5218,6 +5307,9 @@ export function CodeWorkspace({
         browserController={browserResources}
         onBackFromBrowser={backFromBrowser}
         onOpenBrowserResource={showBrowserResource}
+        activeComputerResource={mainPaneMode === 'computer' ? activeComputerResource : null}
+        computerController={computerResources}
+        onBackFromComputer={backFromComputer}
         language={uiPreferences.language}
         showFileEditor={showFileEditor}
         openWorkspaceFile={openWorkspaceFile}

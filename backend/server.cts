@@ -206,6 +206,10 @@ const {
   BrowserResourceManager,
   createBrowserRouter,
 } = require('../extensions/browser/backend/index.cjs');
+const {
+  ComputerResourceManager,
+  createComputerRouter,
+} = require('../extensions/computer/backend/index.cjs');
 const { UsageMonitor } = require('./usage-monitor.cjs');
 const { CodexContextWindowReader } = require('./codex-context-window.cjs');
 const { AsyncCache } = require('./async-cache.cjs');
@@ -285,6 +289,7 @@ const agentManager = new AgentManager(configManager, {
   authDisabled: !authEnabled,
   cliBinDir: resolveCliBinDir(),
   browserMcpEnabled: () => configManager.getSettings().browserExtensionEnabled === true,
+  computerMcpEnabled: () => configManager.getSettings().computerExtensionEnabled === true,
 });
 
 async function requireAgentRecoveryForHttp(res: HttpResponse) {
@@ -308,6 +313,11 @@ const browserResourceManager = new BrowserResourceManager({
   configDir: configManager.farmingDir,
   isEnabled: () => configManager.getSettings().browserExtensionEnabled === true,
   getBrowserSettings: () => configManager.getSettings(),
+});
+const computerResourceManager = new ComputerResourceManager({
+  configDir: configManager.farmingDir,
+  isEnabled: () => configManager.getSettings().computerExtensionEnabled === true,
+  getSettings: () => configManager.getSettings(),
 });
 let browserAgentReconcileRequested = false;
 let browserAgentReconcileRunning = false;
@@ -336,6 +346,35 @@ const browserRuntimeRecoveryPromise = browserResourceManager.init().then(() => {
   reconcileBrowserAgentLifecycle();
 }).catch((error: unknown) => {
   console.warn('Failed to recover Browser runtimes:', caughtError(error).message || error);
+  return null;
+});
+let computerAgentReconcileRequested = false;
+let computerAgentReconcileRunning = false;
+const reconcileComputerAgentLifecycle = () => {
+  computerAgentReconcileRequested = true;
+  if (computerAgentReconcileRunning) return;
+  computerAgentReconcileRunning = true;
+  void (async () => {
+    try {
+      await agentManager.whenRecovered();
+      while (computerAgentReconcileRequested) {
+        computerAgentReconcileRequested = false;
+        const agents = agentManager.getState().agents;
+        await computerResourceManager.reconcileAgentLifecycle(Array.isArray(agents) ? agents : []);
+      }
+    } catch (error) {
+      console.warn('Failed to reconcile Agent-owned Computer resources:', caughtError(error).message || error);
+    } finally {
+      computerAgentReconcileRunning = false;
+      if (computerAgentReconcileRequested) reconcileComputerAgentLifecycle();
+    }
+  })();
+};
+const computerRuntimeRecoveryPromise = computerResourceManager.init().then(() => {
+  agentManager.on('update', reconcileComputerAgentLifecycle);
+  reconcileComputerAgentLifecycle();
+}).catch((error: unknown) => {
+  console.warn('Failed to recover Computer runtimes:', caughtError(error).message || error);
   return null;
 });
 const updateService = new FarmingUpdateService({
@@ -774,6 +813,11 @@ app.use(routePath(BASE_PATH, '/api/files'), createWorkspaceFileRouter(agentManag
 }));
 app.use(routePath(BASE_PATH, '/api/browsers'), createBrowserRouter(
   browserResourceManager,
+  workspaceRootRegistry,
+  agentManager,
+));
+app.use(routePath(BASE_PATH, '/api/computers'), createComputerRouter(
+  computerResourceManager,
   workspaceRootRegistry,
   agentManager,
 ));
@@ -2499,8 +2543,16 @@ app.post(routePath(BASE_PATH, '/api/settings'), express.json(), async (req, res)
     'browserExecutablePath',
     'browserExternalCdpUrl',
   ];
+  const computerConfigurationKeys = [
+    'computerImage',
+    'computerCompatibilityMode',
+  ];
   const changesBrowserExtension = Object.prototype.hasOwnProperty.call(settingsPatch, 'browserExtensionEnabled');
   const changesBrowserConfiguration = browserConfigurationKeys.some(key =>
+    Object.prototype.hasOwnProperty.call(settingsPatch, key)
+  );
+  const changesComputerExtension = Object.prototype.hasOwnProperty.call(settingsPatch, 'computerExtensionEnabled');
+  const changesComputerConfiguration = computerConfigurationKeys.some(key =>
     Object.prototype.hasOwnProperty.call(settingsPatch, key)
   );
   const currentSettings = configManager.getSettings();
@@ -2508,6 +2560,10 @@ app.post(routePath(BASE_PATH, '/api/settings'), express.json(), async (req, res)
   const desiredBrowserEnabled = changesBrowserExtension
     ? browserExtensionEnabled
     : currentSettings.browserExtensionEnabled === true;
+  const computerExtensionEnabled = settingsPatch.computerExtensionEnabled === true;
+  const desiredComputerEnabled = changesComputerExtension
+    ? computerExtensionEnabled
+    : currentSettings.computerExtensionEnabled === true;
   if ((changesBrowserExtension && browserExtensionEnabled) || changesBrowserConfiguration) {
     const desiredSelection = browserResourceManager.browserSelection({
       ...currentSettings,
@@ -2544,9 +2600,57 @@ app.post(routePath(BASE_PATH, '/api/settings'), express.json(), async (req, res)
       return;
     }
   }
+  if ((changesComputerExtension && computerExtensionEnabled) || changesComputerConfiguration) {
+    try {
+      const probe = await computerResourceManager.probeSettings({
+        ...currentSettings,
+        ...settingsPatch,
+      });
+      if (desiredComputerEnabled && !probe.imageReady) {
+        res.status(400).json({
+          error: probe.error || 'Prepare the pinned Computer runtime before enabling this plugin',
+          code: probe.dockerAvailable ? 'COMPUTER_IMAGE_NOT_READY' : 'COMPUTER_DOCKER_NOT_AVAILABLE',
+        });
+        return;
+      }
+    } catch (caught) {
+      const error = caughtError(caught);
+      res.status(Number(error?.status) || 400).json({
+        error: error?.message || 'Computer configuration is invalid',
+        code: error?.code || 'COMPUTER_CONFIGURATION_INVALID',
+      });
+      return;
+    }
+  }
+  if (
+    currentSettings.computerExtensionEnabled === true
+    && (
+      (changesComputerExtension && !computerExtensionEnabled)
+      || changesComputerConfiguration
+    )
+  ) {
+    try {
+      if (changesComputerConfiguration) {
+        await computerResourceManager.resetAllContainers();
+      } else {
+        await computerResourceManager.stopAll();
+      }
+    } catch (caught) {
+      const error = caughtError(caught);
+      res.status(Number(error?.status) || 500).json({
+        error: error?.message || 'Computer extension could not be disabled',
+        code: error?.code || 'COMPUTER_DISABLE_FAILED',
+      });
+      return;
+    }
+  }
   configManager.updateSettings(settingsPatch);
   if (changesBrowserExtension || changesBrowserConfiguration) {
     await browserResourceManager.refreshCapability();
+  }
+  if (changesComputerExtension || changesComputerConfiguration) {
+    computerResourceManager.capabilityCache = null;
+    await computerResourceManager.capability(true);
   }
   agentSessionsCache.invalidate();
   res.json({
@@ -2610,6 +2714,24 @@ app.get(routePath(BASE_PATH, '/api/themes/:themeId'), (req, res) => {
 wss.on('connection', (ws, req) => {
   initializeWebSocketLiveness(ws);
   const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+  const computerViewerPrefix = routePath(BASE_PATH, '/api/computers/');
+  if (url.pathname.startsWith(computerViewerPrefix) && url.pathname.endsWith('/viewer-websocket')) {
+    if (authEnabled && !tokenAuth.verifyWebSocket(req)) {
+      ws.close(4001, 'Authentication required');
+      return;
+    }
+    const encodedId = url.pathname.slice(
+      computerViewerPrefix.length,
+      -'/viewer-websocket'.length,
+    );
+    try {
+      computerResourceManager.attachViewer(decodeURIComponent(encodedId), ws);
+    } catch (caught) {
+      const error = caughtError(caught);
+      ws.close(4004, error?.message || 'Computer Resource not found');
+    }
+    return;
+  }
   const viewerPrefix = routePath(BASE_PATH, '/api/browsers/');
   if (url.pathname.startsWith(viewerPrefix) && url.pathname.endsWith('/viewer')) {
     if (authEnabled && !tokenAuth.verifyWebSocket(req)) {
@@ -3505,6 +3627,7 @@ function startServer() {
   void Promise.all([
     runTerminalRuntimeStartupCleanup(),
     browserRuntimeRecoveryPromise,
+    computerRuntimeRecoveryPromise,
   ]).finally(() => {
     server.listen(PORT, () => {
       const token = tokenAuth.getToken();
@@ -3548,6 +3671,7 @@ module.exports = {
   wss,
   agentManager,
   browserResourceManager,
+  computerResourceManager,
   workspaceFileService,
   handleMessage,
   resolveCliBinDir,

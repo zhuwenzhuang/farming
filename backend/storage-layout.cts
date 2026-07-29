@@ -61,6 +61,14 @@ function browserProfileDir(configDir: string, browserId: string): string {
   return path.join(browserResourcesDir(configDir), browserId, 'profile');
 }
 
+function computerResourcesDir(configDir: string): string {
+  return path.join(configDir, 'computers');
+}
+
+function computerResourcesFile(configDir: string): string {
+  return path.join(computerResourcesDir(configDir), 'resources.json');
+}
+
 function runtimeDependenciesDir(configDir: string): string {
   return path.join(configDir, 'runtimes');
 }
@@ -171,6 +179,8 @@ export {
   browserProfileDir,
   browserResourcesDir,
   browserResourcesFile,
+  computerResourcesDir,
+  computerResourcesFile,
   farmingAgentBootstrapFile,
   farmingNetInstancesFile,
   farmingNetServerLogFile,

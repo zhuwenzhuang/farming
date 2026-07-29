@@ -14,6 +14,9 @@ import { isWorkspaceHtmlFile, isWorkspaceMarkdownFile, isWorkspaceSvgFile } from
 import { BrowserViewer } from '../../../extensions/browser/frontend/BrowserViewer'
 import type { BrowserResource } from '../../../extensions/browser/frontend/types'
 import type { BrowserResourcesController } from '../../../extensions/browser/frontend/useBrowserResources'
+import { ComputerViewer } from '../../../extensions/computer/frontend/ComputerViewer'
+import type { ComputerResource } from '../../../extensions/computer/frontend/types'
+import type { ComputerResourcesController } from '../../../extensions/computer/frontend/useComputerResources'
 import { AgentWorkPane } from './AgentWorkPane'
 import { CodeComposer } from './CodeComposer'
 import { AcpComposer } from './acp/AcpComposer'
@@ -240,6 +243,9 @@ interface CodeMainAreaProps {
   browserController: BrowserResourcesController
   onBackFromBrowser: () => void
   onOpenBrowserResource: (resource: BrowserResource) => void
+  activeComputerResource: ComputerResource | null
+  computerController: ComputerResourcesController
+  onBackFromComputer: () => void
   language: UiPreferences['language']
   showFileEditor: boolean
   openWorkspaceFile: OpenWorkspaceFile | null
@@ -475,6 +481,9 @@ export function CodeMainArea({
   browserController,
   onBackFromBrowser,
   onOpenBrowserResource,
+  activeComputerResource,
+  computerController,
+  onBackFromComputer,
   language,
   showFileEditor,
   openWorkspaceFile,
@@ -586,8 +595,10 @@ export function CodeMainArea({
     ? openAgents.find(agent => agent.id === activeTerminalId) || null
     : null
   const browserWorkspaceVisible = activeView === 'projects' && activeBrowserResource !== null
+  const computerWorkspaceVisible = activeView === 'projects' && activeComputerResource !== null
   const agentWorkspaceVisible = activeView === 'projects'
     && !browserWorkspaceVisible
+    && !computerWorkspaceVisible
     && !(showFileEditor && openWorkspaceFile)
   const acpComposerActive = isAcpRuntime(activeAgent)
   const terminalComposerActive = activeAgent?.runtimeBinding.kind === 'terminal'
@@ -714,9 +725,15 @@ export function CodeMainArea({
             <PluginsPanel
               capability={browserController.capability}
               loading={browserController.loading}
+              computerCapability={computerController.capability}
+              computerLoading={computerController.loading}
+              onPrepareComputer={computerController.prepare}
               language={language}
               onBack={onBackToProjects}
-              onRefreshCapability={browserController.refreshCapability}
+              onRefreshCapability={() => {
+                browserController.refreshCapability()
+                computerController.refreshCapability()
+              }}
             />
           ) : (
             <h2>{viewTitle(copy, activeView)}</h2>
@@ -730,6 +747,13 @@ export function CodeMainArea({
           onResource={browserController.mergeResource}
           onOpenResource={onOpenBrowserResource}
           onBackToAgent={onBackFromBrowser}
+        />
+      ) : computerWorkspaceVisible ? (
+        <ComputerViewer
+          resource={activeComputerResource}
+          controller={computerController}
+          language={language}
+          onBackToAgent={onBackFromComputer}
         />
       ) : showFileEditor && openWorkspaceFile ? (
         ReadyFileEditorPane ? (

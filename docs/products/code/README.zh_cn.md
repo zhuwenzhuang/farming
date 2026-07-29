@@ -28,6 +28,11 @@ Farming Code 是默认的桌面与移动端工作区，用来跟进一个或多�
 
 人和 Agent 可以使用同一个 Project Browser。详见 [Farming Browser](browser-agent-cli.zh_cn.md)。
 
+### Computer
+
+Agent 可以操作一台隔离的 Linux 桌面，用户则在 Farming 中观察或显式接管。详见
+[Farming Computer](computer-use.zh_cn.md)。
+
 ### 手机
 
 在手机上打开 Farming 的带鉴权 URL。通过抽屉切换 Project 和 Agent；Chat、Terminal

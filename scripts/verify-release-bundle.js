@@ -73,12 +73,16 @@ function readBundleRelease(archivePath) {
   const installerEntry = findBundleEntry(entries, '/scripts/install-release.sh');
   const browserProtocolEntry = findBundleEntry(entries, '/shared/browser-protocol.js');
   const browserExtensionEntry = findBundleEntry(entries, '/extensions/browser/backend/index.cjs');
+  const computerExtensionEntry = findBundleEntry(entries, '/extensions/computer/backend/index.cjs');
+  const computerSchemaEntry = findBundleEntry(entries, '/extensions/computer/backend/cua-tools.json');
   return {
     entries,
     releaseEntry,
     installerEntry,
     browserProtocolEntry,
     browserExtensionEntry,
+    computerExtensionEntry,
+    computerSchemaEntry,
     release: readArchiveJson(archivePath, releaseEntry),
   };
 }
@@ -103,6 +107,12 @@ function verifyReleaseBundle(archivePath) {
   }
   if (!bundle.browserExtensionEntry) {
     throw new Error(`release archive is missing extensions/browser/backend/index.cjs: ${archivePath}`);
+  }
+  if (!bundle.computerExtensionEntry) {
+    throw new Error(`release archive is missing extensions/computer/backend/index.cjs: ${archivePath}`);
+  }
+  if (!bundle.computerSchemaEntry) {
+    throw new Error(`release archive is missing extensions/computer/backend/cua-tools.json: ${archivePath}`);
   }
   return bundle;
 }

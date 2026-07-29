@@ -32,6 +32,11 @@ Find live work or resume a supported earlier Agent session.
 People and Agents can use the same project Browser. See
 [Farming Browser](browser-agent-cli.md).
 
+### Computer
+
+An Agent can operate an isolated Linux desktop while the user watches or
+explicitly takes control in Farming. See [Farming Computer](computer-use.md).
+
 ### Phone
 
 Open the authenticated Farming URL on your phone. Use the drawer to switch

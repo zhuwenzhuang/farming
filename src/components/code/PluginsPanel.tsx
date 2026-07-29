@@ -4,6 +4,7 @@ import { getBackendConnectionSnapshot } from '@/lib/backend-live-status'
 import { ArrowLeftGlyph, CloseGlyph, PuzzleGlyph } from '@/components/IconGlyphs'
 import type { UiLanguage } from '@/lib/ui-preferences'
 import type { BrowserCapability } from '../../../extensions/browser/frontend/types'
+import type { ComputerCapability } from '../../../extensions/computer/frontend/types'
 
 type AgentExtension = {
   id: string
@@ -88,6 +89,24 @@ function pluginCopy(language: UiLanguage) {
     enable: zh ? '启用' : 'Enable',
     disable: zh ? '停用' : 'Disable',
     saveFailed: zh ? '浏览器插件设置保存失败' : 'Failed to save Browser plugin settings',
+    computer: zh ? '电脑' : 'Computer',
+    computerDescription: zh
+      ? '让 Agent 在隔离的 Linux 桌面中操作应用，并在 Farming 中观察或接管同一个桌面。'
+      : 'Let Agents operate an isolated Linux desktop that you can observe or take over in Farming.',
+    dockerUnavailable: zh ? '未检测到 Docker' : 'Docker not available',
+    computerRuntimeReady: zh ? '运行时已准备' : 'Runtime ready',
+    computerRuntimeMissing: zh ? '运行时未准备' : 'Runtime not prepared',
+    prepareComputer: zh ? '准备运行时' : 'Prepare runtime',
+    preparingComputer: zh ? '正在下载并验证…' : 'Downloading and verifying…',
+    computerRuntimeHint: zh
+      ? '显式下载固定版本的上游 CUA XFCE 镜像（约 1.3 GB）；Farming 不维护自己的镜像。'
+      : 'Explicitly downloads the pinned upstream CUA XFCE image (about 1.3 GB); Farming does not maintain its own image.',
+    compatibilityMode: zh ? '旧版 Docker 兼容模式' : 'Legacy Docker compatibility mode',
+    compatibilityHint: zh
+      ? '仅在旧 Docker 的 seccomp 阻止 CUA 启动时启用；该模式会对隔离容器关闭 seccomp。'
+      : 'Enable only when old Docker seccomp blocks CUA startup; this disables seccomp for the isolated container.',
+    computerSaveFailed: zh ? '电脑插件设置保存失败' : 'Failed to save Computer plugin settings',
+    computerPrepareFailed: zh ? 'Computer 运行时准备失败' : 'Failed to prepare Computer runtime',
   }
 }
 
@@ -148,18 +167,31 @@ function agentExtensionKindGroups(agent: AgentExtensionGroup) {
 export function PluginsPanel({
   capability,
   loading,
+  computerCapability,
+  computerLoading,
+  onPrepareComputer,
   language,
   onBack,
   onRefreshCapability,
 }: {
   capability: BrowserCapability | null
   loading: boolean
+  computerCapability: ComputerCapability | null
+  computerLoading: boolean
+  onPrepareComputer: () => Promise<ComputerCapability>
   language: UiLanguage
   onBack: () => void
   onRefreshCapability: () => void
 }) {
   const copy = useMemo(() => pluginCopy(language), [language])
   const [enabled, setEnabled] = useState(capability?.enabled === true)
+  const [computerEnabled, setComputerEnabled] = useState(computerCapability?.enabled === true)
+  const [computerCompatibilityMode, setComputerCompatibilityMode] = useState(
+    computerCapability?.compatibilityMode === true,
+  )
+  const [computerSaving, setComputerSaving] = useState(false)
+  const [computerPreparing, setComputerPreparing] = useState(false)
+  const [computerError, setComputerError] = useState('')
   const [saving, setSaving] = useState(false)
   const [installing, setInstalling] = useState(false)
   const [error, setError] = useState('')
@@ -182,6 +214,12 @@ export function PluginsPanel({
         : `system:${selection?.executablePath || ''}`)
     setExternalCdpUrl(selection?.externalCdpUrl || 'http://127.0.0.1:9222')
   }, [capability])
+
+  useEffect(() => {
+    if (!computerCapability) return
+    setComputerEnabled(computerCapability.enabled)
+    setComputerCompatibilityMode(computerCapability.compatibilityMode)
+  }, [computerCapability])
 
   useEffect(() => {
     let controller = new AbortController()
@@ -312,6 +350,52 @@ export function PluginsPanel({
     }
   }
 
+  const saveComputerSettings = async (patch: {
+    computerCompatibilityMode?: boolean
+    computerExtensionEnabled?: boolean
+  }) => {
+    if (computerSaving) return
+    setComputerSaving(true)
+    setComputerError('')
+    try {
+      const response = await fetch(appPath('/api/settings'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify(patch),
+      })
+      const data = await response.json().catch(() => ({})) as {
+        error?: string
+        settings?: {
+          computerCompatibilityMode?: boolean
+          computerExtensionEnabled?: boolean
+        }
+      }
+      if (!response.ok) throw new Error(data.error || copy.computerSaveFailed)
+      setComputerEnabled(data.settings?.computerExtensionEnabled === true)
+      setComputerCompatibilityMode(data.settings?.computerCompatibilityMode === true)
+      onRefreshCapability()
+    } catch (caught) {
+      setComputerError(caught instanceof Error ? caught.message : copy.computerSaveFailed)
+    } finally {
+      setComputerSaving(false)
+    }
+  }
+
+  const prepareComputer = async () => {
+    if (computerPreparing) return
+    setComputerPreparing(true)
+    setComputerError('')
+    try {
+      await onPrepareComputer()
+      onRefreshCapability()
+    } catch (caught) {
+      setComputerError(caught instanceof Error ? caught.message : copy.computerPrepareFailed)
+      onRefreshCapability()
+    } finally {
+      setComputerPreparing(false)
+    }
+  }
+
   const browserReady = Boolean(capability?.browser)
   const savedBrowserChoice = capability?.selection?.source === 'external-cdp'
     ? 'external-cdp'
@@ -337,6 +421,13 @@ export function PluginsPanel({
     : browserReady
       ? enabled ? copy.enabled : copy.disabled
       : copy.unavailable
+  const computerStatus = computerLoading && computerCapability === null
+    ? copy.checking
+    : !computerCapability?.dockerAvailable
+      ? copy.dockerUnavailable
+      : computerCapability.imageReady
+        ? computerEnabled ? copy.enabled : copy.disabled
+        : copy.computerRuntimeMissing
 
   return (
     <div className="code-plugins-panel" data-testid="code-plugins-panel">
@@ -448,6 +539,66 @@ export function PluginsPanel({
             onClick={() => void toggleBrowser()}
           >
             {enabled ? copy.disable : copy.enable}
+          </button>
+        </article>
+        <article className="code-plugin-card" data-testid="code-plugin-computer">
+          <span className="code-plugin-card-icon" aria-hidden="true">
+            <PuzzleGlyph />
+          </span>
+          <div className="code-plugin-card-copy">
+            <div className="code-plugin-card-title">
+              <h3>{copy.computer}</h3>
+              <span className={`code-plugin-status ${computerCapability?.imageReady && computerEnabled ? 'enabled' : ''}`}>
+                {computerStatus}
+              </span>
+            </div>
+            <p>{copy.computerDescription}</p>
+            <div className="code-plugin-computer-settings">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={computerCompatibilityMode}
+                  disabled={computerSaving || computerPreparing || computerEnabled}
+                  onChange={event => {
+                    const next = event.currentTarget.checked
+                    setComputerCompatibilityMode(next)
+                    void saveComputerSettings({ computerCompatibilityMode: next })
+                  }}
+                />
+                <span>{copy.compatibilityMode}</span>
+              </label>
+              <small>{copy.compatibilityHint}</small>
+              {!computerCapability?.imageReady && (
+                <button
+                  type="button"
+                  disabled={computerPreparing || computerSaving || !computerCapability?.dockerAvailable}
+                  onClick={() => void prepareComputer()}
+                >
+                  {computerPreparing ? copy.preparingComputer : copy.prepareComputer}
+                </button>
+              )}
+            </div>
+            <small>{copy.computerRuntimeHint}</small>
+            {(computerError || (!computerCapability?.dockerAvailable && computerCapability?.error)) && (
+              <div className="code-plugin-error" role="alert">
+                {computerError || computerCapability?.error}
+              </div>
+            )}
+          </div>
+          <button
+            type="button"
+            className={`code-plugin-toggle ${computerEnabled ? 'active' : ''}`}
+            aria-pressed={computerEnabled}
+            disabled={
+              computerSaving
+              || computerPreparing
+              || (!computerCapability?.imageReady && !computerEnabled)
+            }
+            onClick={() => void saveComputerSettings({
+              computerExtensionEnabled: !computerEnabled,
+            })}
+          >
+            {computerEnabled ? copy.disable : copy.enable}
           </button>
         </article>
       </section>

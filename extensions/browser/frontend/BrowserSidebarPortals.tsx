@@ -1,5 +1,6 @@
 import { createPortal } from 'react-dom'
 import { useCallback, useEffect, useLayoutEffect, useState } from 'react'
+import type { ReactNode } from 'react'
 import {
   ChevronDownGlyph,
   ChevronRightGlyph,
@@ -346,6 +347,9 @@ export function BrowserSidebarPortals({
   controller,
   language,
   onOpen,
+  additionalAgentResourceIds = new Set<string>(),
+  renderAdditionalAgentResources,
+  forceAvailable = false,
 }: {
   projects: ProjectGroup[]
   collapsedProjectIds: ReadonlySet<string>
@@ -353,9 +357,17 @@ export function BrowserSidebarPortals({
   controller: BrowserResourcesController
   language: UiPreferences['language']
   onOpen: (resource: BrowserResource) => void
+  additionalAgentResourceIds?: ReadonlySet<string>
+  renderAdditionalAgentResources?: (input: {
+    agentId: string
+    workspace: string
+    expanded: boolean
+  }) => ReactNode
+  forceAvailable?: boolean
 }) {
   const copy = browserCopy(language)
-  const available = controller.loading === false && controller.capability?.available === true
+  const browserAvailable = controller.loading === false && controller.capability?.available === true
+  const available = forceAvailable || browserAvailable
   const [targets, setTargets] = useState(new Map<string, HTMLElement>())
   const [collapsed, setCollapsed] = useState(readCollapsed)
   const [expandedResources, setExpandedResources] = useState(readExpandedResources)
@@ -417,6 +429,7 @@ export function BrowserSidebarPortals({
   return (
     <>
       {projects.map(project => {
+        if (!browserAvailable) return null
         const target = targets.get(project.id)
         if (!target || !project.workspace) return null
         const resources = (controller.byWorkspace.get(project.workspace) ?? [])
@@ -439,7 +452,8 @@ export function BrowserSidebarPortals({
       })}
       {projects.flatMap(project => project.agents.flatMap(agent => {
         const resources = controller.byAgentId.get(agent.id) ?? []
-        if (resources.length === 0) return []
+        const hasAdditionalResources = additionalAgentResourceIds.has(agent.id)
+        if (resources.length === 0 && !hasAdditionalResources) return []
         const actionTarget = targets.get(`agent-action:${agent.id}`)
         const contentTarget = targets.get(`agent-content:${agent.id}`)
         const expanded = expandedResources.has(agent.id)
@@ -457,17 +471,26 @@ export function BrowserSidebarPortals({
         }
         if (contentTarget && expanded) {
           portals.push(createPortal(
-            <BrowserSection
-              workspace={project.workspace}
-              ownerAgentId={agent.id}
-              resources={resources}
-              activeBrowserId={activeBrowserId}
-              controller={controller}
-              copy={copy}
-              collapsed={collapsed.has(`agent:${agent.id}`)}
-              onToggle={() => toggle(`agent:${agent.id}`)}
-              onOpen={onOpen}
-            />,
+            <>
+              {resources.length > 0 && (
+                <BrowserSection
+                  workspace={project.workspace}
+                  ownerAgentId={agent.id}
+                  resources={resources}
+                  activeBrowserId={activeBrowserId}
+                  controller={controller}
+                  copy={copy}
+                  collapsed={collapsed.has(`agent:${agent.id}`)}
+                  onToggle={() => toggle(`agent:${agent.id}`)}
+                  onOpen={onOpen}
+                />
+              )}
+              {renderAdditionalAgentResources?.({
+                agentId: agent.id,
+                workspace: project.workspace,
+                expanded,
+              })}
+            </>,
             contentTarget,
             `browser-agent-section:${agent.id}`,
           ))

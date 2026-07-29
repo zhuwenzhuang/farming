@@ -5,6 +5,7 @@ const path = require('path');
 const projectRoot = path.resolve(__dirname, '../..');
 const backendDir = path.resolve(__dirname, '..');
 const browserBackendDir = path.join(projectRoot, 'extensions', 'browser', 'backend');
+const computerBackendDir = path.join(projectRoot, 'extensions', 'computer', 'backend');
 const packageJson = require('../../package.json');
 const sourceOnlyDirectories = new Set(['tests', 'types', 'vendor']);
 
@@ -21,6 +22,7 @@ function collectRuntimeSources(directory) {
 const runtimeSources = [
   ...collectRuntimeSources(backendDir),
   ...collectRuntimeSources(browserBackendDir),
+  ...collectRuntimeSources(computerBackendDir),
 ].sort();
 const processEntrypoints = new Set([
   'backend/command-runner-child.cts',
@@ -46,6 +48,15 @@ assert(
 );
 assert(!packageJson.files.includes('backend/acp/'), 'npm package must not include ACP TypeScript source');
 assert(!packageJson.files.includes('extensions/browser/'), 'npm package must not include Browser TypeScript source');
+assert(
+  packageJson.files.includes('extensions/computer/backend/*.cjs'),
+  'npm package must include compiled Computer runtime',
+);
+assert(
+  packageJson.files.includes('extensions/computer/backend/*.json'),
+  'npm package must include the pinned Computer tool schema',
+);
+assert(!packageJson.files.includes('extensions/computer/'), 'npm package must not include Computer TypeScript source');
 assert(!packageJson.files.includes('backend/*.cts'), 'npm package must not execute or ship backend TypeScript source');
 assert(!packageJson.files.includes('backend/*.ts'), 'npm package must not execute or ship backend TypeScript source');
 

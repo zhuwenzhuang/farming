@@ -1,0 +1,131 @@
+#!/usr/bin/env node
+const { requestJson } = require('../backend/farming-computer-client.cjs');
+const { rootIdForPath } = require('../../../backend/workspace-root-registry.cjs');
+
+function usage() {
+  return `Usage: farming computer <command> [options]
+
+Start here:
+  capability                 Check Docker and the pinned Computer runtime
+  list                       Show this Agent's Computer Resource
+  open [--name <name>]       Create or start this Agent's isolated Computer
+  stop                       Stop it without deleting the owned container
+  help workflow              Read the recommended Agent workflow
+
+Advanced:
+  call <tool> [json]         Call one pinned Cua Driver tool
+  mcp                        Serve the complete computer_* MCP catalog
+
+The Computer is owned by the current Farming Agent. The user can observe the
+same desktop in Farming and explicitly take control. Run \`farming computer
+help workflow\` before the first terminal-driven task.
+`;
+}
+
+function workflowHelp() {
+  return `Recommended Computer workflow:
+  1. farming capabilities
+  2. farming computer list
+  3. farming computer open
+  4. Observe with get_desktop_state or get_window_state before each action
+  5. Act through a specific Cua Driver tool
+  6. Observe again and verify the result
+
+If an action times out, its outcome is uncertain. Observe before any retry.
+When a human returns control to the Agent, the next call must be an observation.
+`;
+}
+
+function option(args, name) {
+  const index = args.indexOf(name);
+  return index >= 0 ? args[index + 1] : undefined;
+}
+
+function envBinding() {
+  const workspace = String(process.env.FARMING_PROJECT_WORKSPACE || '').trim();
+  const agentId = String(process.env.FARMING_AGENT_ID || '').trim();
+  if (!workspace || !agentId) {
+    throw new Error('farming computer must run inside a Farming Agent Project');
+  }
+  return { workspace, agentId };
+}
+
+async function list() {
+  const snapshot = await requestJson('GET', '/api/computers', undefined, process.env);
+  return Array.isArray(snapshot.resources) ? snapshot.resources : [];
+}
+
+async function open(args) {
+  const { workspace, agentId } = envBinding();
+  const existing = (await list())[0];
+  const resource = existing || await requestJson('POST', '/api/computers', {
+    rootId: rootIdForPath(workspace),
+    agentId,
+    name: option(args, '--name'),
+  }, process.env);
+  if (resource.status === 'running') return resource;
+  return requestJson(
+    'POST',
+    `/api/computers/${encodeURIComponent(resource.id)}/start`,
+    undefined,
+    process.env,
+  );
+}
+
+async function run(argv = process.argv.slice(2)) {
+  const command = argv[0] || 'help';
+  if (command === 'help' || command === '--help' || command === '-h') {
+    console.log(argv[1] === 'workflow' ? workflowHelp() : usage());
+    return 0;
+  }
+  if (command === 'mcp') {
+    const { runComputerMcpServer } = require('../backend/computer-mcp-server.cjs');
+    await runComputerMcpServer();
+    return 0;
+  }
+  if (command === 'capability') {
+    console.log(JSON.stringify(await requestJson('GET', '/api/computers/capability', undefined, process.env), null, 2));
+    return 0;
+  }
+  if (command === 'list') {
+    console.log(JSON.stringify({ resources: await list() }, null, 2));
+    return 0;
+  }
+  if (command === 'open') {
+    console.log(JSON.stringify(await open(argv.slice(1)), null, 2));
+    return 0;
+  }
+  if (command === 'stop') {
+    const resource = (await list())[0];
+    const result = resource
+      ? await requestJson('POST', `/api/computers/${encodeURIComponent(resource.id)}/stop`, undefined, process.env)
+      : { stopped: true, resource: null };
+    console.log(JSON.stringify(result, null, 2));
+    return 0;
+  }
+  if (command === 'call') {
+    const tool = String(argv[1] || '').trim().replace(/^computer_/, '');
+    if (!tool) throw new Error('Usage: farming computer call <tool> [json]');
+    const input = argv[2] ? JSON.parse(argv[2]) : {};
+    const resource = await open([]);
+    console.log(JSON.stringify(await requestJson(
+      'POST',
+      `/api/computers/${encodeURIComponent(resource.id)}/tool/${encodeURIComponent(tool)}`,
+      input,
+      process.env,
+    ), null, 2));
+    return 0;
+  }
+  throw new Error(`Unknown farming computer command: ${command}`);
+}
+
+if (require.main === module) {
+  run().then(code => {
+    if (code) process.exit(code);
+  }).catch(error => {
+    console.error(error?.message || error);
+    process.exit(1);
+  });
+}
+
+module.exports = { run };

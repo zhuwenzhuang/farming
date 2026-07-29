@@ -21,3 +21,4 @@ interface Error {
 }
 
 declare module '*extensions/browser/bin/farming-browser';
+declare module '*extensions/computer/bin/farming-computer';

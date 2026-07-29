@@ -11039,6 +11039,29 @@ body.code-mode.code-compact-layout .code-empty-workspace-compact {
   margin-top: 5px;
 }
 
+.code-plugin-computer-settings {
+  display: grid;
+  gap: 7px;
+  margin-top: 10px;
+}
+
+.code-plugin-computer-settings label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.code-plugin-computer-settings button {
+  justify-self: start;
+  min-height: 30px;
+  border: 1px solid var(--code-border);
+  border-radius: 7px;
+  padding: 0 10px;
+  background: transparent;
+  color: inherit;
+}
+
 .code-plugin-browser-settings label {
   min-width: 180px;
   display: grid;

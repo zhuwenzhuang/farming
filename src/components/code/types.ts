@@ -36,7 +36,7 @@ export interface WorkspaceHistorySettings {
 export type CodexApprovalMode = 'ask' | 'approve' | 'full' | 'custom'
 export type ClaudePermissionMode = 'acceptEdits' | 'auto' | 'bypassPermissions' | 'default' | 'dontAsk' | 'plan'
 export type CodexModelPreset = string
-export type MainPaneMode = 'terminal' | 'editor' | 'browser'
+export type MainPaneMode = 'terminal' | 'editor' | 'browser' | 'computer'
 export type ComposerMode = 'default' | 'goal' | 'plan'
 export type CodeModelPickerPane = 'model' | 'speed' | null
 
@@ -54,6 +54,9 @@ export interface GlobalSettings extends WorkspaceHistorySettings {
   restReminderIntervalSeconds?: number | null
   dangerouslySkipAgentPermissionsByDefault?: boolean
   browserExtensionEnabled?: boolean
+  computerExtensionEnabled?: boolean
+  computerCompatibilityMode?: boolean
+  computerImage?: string
   searchTimeoutMs?: number
   agentHomes?: AgentHomesSettings
   agentLaunchProfiles?: {

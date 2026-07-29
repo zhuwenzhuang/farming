@@ -10,6 +10,7 @@ const { FarmingSessionStore, MAX_MAIN_PAGE_SESSION_KEYS } = require('./farming-s
 const { RunHistoryStore } = require('./run-history-store.cjs');
 const { isSupportedHistoryAgent } = require('./cli-agents.cjs');
 const storageLayout = require('./storage-layout.cjs');
+const { COMPUTER_IMAGE } = require('../extensions/computer/backend/computer-constants.cjs');
 
 type JsonRecord = Record<string, unknown>;
 
@@ -71,6 +72,9 @@ interface Settings extends JsonRecord {
   browserExtensionEnabled: boolean;
   browserExternalCdpUrl: string;
   browserSource: string;
+  computerCompatibilityMode: boolean;
+  computerExtensionEnabled: boolean;
+  computerImage: string;
   codexApprovalMode: string;
   codexModel: string;
   codexModelPreset: string;
@@ -224,6 +228,9 @@ const PERSISTED_SETTING_KEYS = new Set([
   'browserSource',
   'browserExecutablePath',
   'browserExternalCdpUrl',
+  'computerExtensionEnabled',
+  'computerCompatibilityMode',
+  'computerImage',
   'crtSkinEffectsEnabled',
   'crtDynamicHeatEnabled',
   'crtTerminalFontSize',
@@ -467,6 +474,9 @@ class ConfigManager {
         browserSource: process.env.FARMING_BROWSER_CDP_URL ? 'external-cdp' : 'system',
         browserExecutablePath: process.env.FARMING_BROWSER_EXECUTABLE || '',
         browserExternalCdpUrl: process.env.FARMING_BROWSER_CDP_URL || 'http://127.0.0.1:9222',
+        computerExtensionEnabled: false,
+        computerCompatibilityMode: false,
+        computerImage: COMPUTER_IMAGE,
         crtSkinEffectsEnabled: true,
         crtDynamicHeatEnabled: false,
         crtTerminalFontSize: DEFAULT_CRT_TERMINAL_FONT_SIZE,
@@ -508,6 +518,9 @@ class ConfigManager {
       browserSource: process.env.FARMING_BROWSER_CDP_URL ? 'external-cdp' : 'system',
       browserExecutablePath: process.env.FARMING_BROWSER_EXECUTABLE || '',
       browserExternalCdpUrl: process.env.FARMING_BROWSER_CDP_URL || 'http://127.0.0.1:9222',
+      computerExtensionEnabled: false,
+      computerCompatibilityMode: false,
+      computerImage: COMPUTER_IMAGE,
       crtSkinEffectsEnabled: true,
       crtDynamicHeatEnabled: false,
       crtTerminalFontSize: DEFAULT_CRT_TERMINAL_FONT_SIZE,
@@ -573,6 +586,9 @@ class ConfigManager {
     this.settings.browserExecutablePath = this.normalizeBrowserSetting(this.settings.browserExecutablePath);
     this.settings.browserExternalCdpUrl = this.normalizeBrowserSetting(this.settings.browserExternalCdpUrl)
       || 'http://127.0.0.1:9222';
+    this.settings.computerExtensionEnabled = this.settings.computerExtensionEnabled === true;
+    this.settings.computerCompatibilityMode = this.settings.computerCompatibilityMode === true;
+    this.settings.computerImage = this.normalizeBrowserSetting(this.settings.computerImage) || COMPUTER_IMAGE;
     this.settings.crtSkinEffectsEnabled = this.settings.crtSkinEffectsEnabled !== false;
     this.settings.crtDynamicHeatEnabled = this.settings.crtDynamicHeatEnabled === true;
     this.settings.crtTerminalFontSize = this.normalizeCrtTerminalFontSize(this.settings.crtTerminalFontSize);
@@ -1258,6 +1274,9 @@ class ConfigManager {
     nextSettings.browserExecutablePath = this.normalizeBrowserSetting(nextSettings.browserExecutablePath);
     nextSettings.browserExternalCdpUrl = this.normalizeBrowserSetting(nextSettings.browserExternalCdpUrl)
       || 'http://127.0.0.1:9222';
+    nextSettings.computerExtensionEnabled = nextSettings.computerExtensionEnabled === true;
+    nextSettings.computerCompatibilityMode = nextSettings.computerCompatibilityMode === true;
+    nextSettings.computerImage = this.normalizeBrowserSetting(nextSettings.computerImage) || COMPUTER_IMAGE;
     nextSettings.crtSkinEffectsEnabled = nextSettings.crtSkinEffectsEnabled !== false;
     nextSettings.crtDynamicHeatEnabled = nextSettings.crtDynamicHeatEnabled === true;
     nextSettings.crtTerminalFontSize = this.normalizeCrtTerminalFontSize(nextSettings.crtTerminalFontSize);

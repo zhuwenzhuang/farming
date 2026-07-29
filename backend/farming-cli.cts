@@ -41,6 +41,15 @@ interface BrowserCapabilityStatus {
   };
 }
 
+interface ComputerCapabilityStatus {
+  available?: boolean;
+  enabled?: boolean;
+  dockerAvailable?: boolean;
+  imageReady?: boolean;
+  driverVersion?: string;
+  error?: string;
+}
+
 interface Capability {
   id: string;
   state: string;
@@ -355,7 +364,10 @@ function formatAgent(agent: AgentSummary): string {
   return `${marker} ${agent.id} | ${agent.command} | ${agent.status} | ${agent.cwd}${parent}${task}`;
 }
 
-function farmingCapabilities(browser?: BrowserCapabilityStatus): CapabilityReport {
+function farmingCapabilities(
+  browser?: BrowserCapabilityStatus,
+  computer?: ComputerCapabilityStatus,
+): CapabilityReport {
   const state = browser?.available === true
     ? 'available'
     : (browser?.enabled === true ? 'unavailable' : 'disabled');
@@ -378,6 +390,28 @@ function farmingCapabilities(browser?: BrowserCapabilityStatus): CapabilityRepor
             list: 'farming browser list',
             create: 'farming browser create',
             workflow: 'farming browser help workflow',
+          }
+        : {},
+    }, {
+      id: 'computer',
+      state: computer?.available === true
+        ? 'available'
+        : (computer?.enabled === true ? 'unavailable' : 'disabled'),
+      summary: computer?.available === true
+        ? `An isolated, user-visible Linux desktop is available through Cua Driver ${computer.driverVersion || ''}.`
+        : (
+            computer?.error
+            || (!computer?.dockerAvailable
+              ? 'Docker is unavailable for isolated Computer resources.'
+              : !computer?.imageReady
+                ? 'The pinned Computer runtime has not been prepared.'
+                : 'Computer integration is disabled.')
+          ),
+      commands: computer?.available === true
+        ? {
+            list: 'farming computer list',
+            open: 'farming computer open',
+            workflow: 'farming computer help workflow',
           }
         : {},
     }],
@@ -409,7 +443,11 @@ async function run(argv: string[] = process.argv.slice(2), io: CliIo = process):
   }
 
   if (parsed.command === 'capabilities') {
-    const report = farmingCapabilities(await request<BrowserCapabilityStatus>('/api/browsers/capability'));
+    const [browser, computer] = await Promise.all([
+      request<BrowserCapabilityStatus>('/api/browsers/capability'),
+      request<ComputerCapabilityStatus>('/api/computers/capability'),
+    ]);
+    const report = farmingCapabilities(browser, computer);
     io.stdout.write(parsed.options.json
       ? `${JSON.stringify(report, null, 2)}\n`
       : `${formatCapabilities(report)}\n`);

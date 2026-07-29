@@ -1396,6 +1396,7 @@ Agent control commands are also available:
   farming skills
   farming capabilities [--json]
   farming browser ...
+  farming computer ...
   farming list [--json] [--parent <agentId>]
   farming spawn --workspace <repo> -- <command...>
   farming output <agentId> [--tail <chars>]
@@ -1443,6 +1444,11 @@ async function run(argv: string[] = process.argv.slice(2)): Promise<number> {
   if (argv[0] === 'browser') {
     const { run: runBrowserCli } = require('../extensions/browser/bin/farming-browser');
     return runBrowserCli(argv.slice(1));
+  }
+
+  if (argv[0] === 'computer') {
+    const { run: runComputerCli } = require('../extensions/computer/bin/farming-computer');
+    return runComputerCli(argv.slice(1));
   }
 
   if (argv[0] === 'runtime' && argv[1] === 'prepare') {

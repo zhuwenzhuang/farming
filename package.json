@@ -5,7 +5,8 @@
   "main": "backend/server.cjs",
   "bin": {
     "farming": "bin/farming",
-    "farming-browser": "extensions/browser/bin/farming-browser"
+    "farming-browser": "extensions/browser/bin/farming-browser",
+    "farming-computer": "extensions/computer/bin/farming-computer"
   },
   "files": [
     "backend/usage-history-scanner.generated.js",
@@ -35,6 +36,9 @@
     "frontend/vendor/ghostty-web/LICENSE",
     "extensions/browser/backend/*.cjs",
     "extensions/browser/bin/",
+    "extensions/computer/backend/*.cjs",
+    "extensions/computer/backend/*.json",
+    "extensions/computer/bin/",
     "shared/*.js",
     "LICENSE",
     "README.md",

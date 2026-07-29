@@ -22,6 +22,13 @@ function makeArchive(options = {}) {
     fs.mkdirSync(path.join(appDir, 'extensions', 'browser', 'backend'), { recursive: true });
     fs.writeFileSync(path.join(appDir, 'extensions', 'browser', 'backend', 'index.cjs'), 'module.exports = {};\n');
   }
+  if (!options.missingComputerExtension) {
+    fs.mkdirSync(path.join(appDir, 'extensions', 'computer', 'backend'), { recursive: true });
+    fs.writeFileSync(path.join(appDir, 'extensions', 'computer', 'backend', 'index.cjs'), 'module.exports = {};\n');
+    if (!options.missingComputerSchema) {
+      fs.writeFileSync(path.join(appDir, 'extensions', 'computer', 'backend', 'cua-tools.json'), '{}\n');
+    }
+  }
   fs.writeFileSync(path.join(appDir, 'RELEASE.json'), JSON.stringify({
     name: 'farming',
     type: 'app-bundle',
@@ -52,8 +59,16 @@ function run() {
     () => verifyReleaseBundle(makeArchive({ missingBrowserExtension: true })),
     /missing extensions\/browser\/backend\/index\.cjs/,
   );
+  assert.throws(
+    () => verifyReleaseBundle(makeArchive({ missingComputerExtension: true })),
+    /missing extensions\/computer\/backend\/index\.cjs/,
+  );
+  assert.throws(
+    () => verifyReleaseBundle(makeArchive({ missingComputerSchema: true })),
+    /missing extensions\/computer\/backend\/cua-tools\.json/,
+  );
 
-  console.log('✓ release bundle verification requires clean metadata and Browser runtime files');
+  console.log('✓ release bundle verification requires clean metadata and Browser/Computer runtime files');
 }
 
 run();

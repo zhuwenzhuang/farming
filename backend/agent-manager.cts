@@ -189,6 +189,7 @@ const { deserializeTerminalState } = require('./terminal-state-serialization.cjs
 const { compareNativePtyRuntimeEpochs } = require('./native-pty-controller-generation.cjs');
 const { canonicalWorkspacePath } = require('./workspace-root-registry.cjs');
 const { mergeBrowserMcpServer } = require('../extensions/browser/backend/agent-capability.cjs');
+const { mergeComputerMcpServer } = require('../extensions/computer/backend/agent-capability.cjs');
 const {
   TERMINAL_OPERATION_STATES,
   activeLifecycleOperation,
@@ -425,6 +426,7 @@ interface AgentManagerOptions extends UnknownRecord {
   archiveCodexSession?: ArchiveCodexSessionContract;
   authDisabled?: boolean;
   browserMcpEnabled?: boolean | (() => boolean);
+  computerMcpEnabled?: boolean | (() => boolean);
   cliBinDir?: string;
   controlUrl?: string;
   createProviderSessionIdentity?: CreateProviderSessionIdentityContract;
@@ -1280,6 +1282,7 @@ class AgentManager extends EventEmitter {
   declare tokenFile: string;
   declare authDisabled: boolean;
   declare browserMcpEnabled: () => boolean;
+  declare computerMcpEnabled: () => boolean;
   declare skipExecutablePreflight: boolean;
   declare cliBinDir: string;
   declare agentShellEnvProvider: (shell: string) => NodeJS.ProcessEnv | null;
@@ -1344,6 +1347,9 @@ class AgentManager extends EventEmitter {
     this.browserMcpEnabled = typeof options.browserMcpEnabled === 'function'
       ? options.browserMcpEnabled
       : () => options.browserMcpEnabled === true;
+    this.computerMcpEnabled = typeof options.computerMcpEnabled === 'function'
+      ? options.computerMcpEnabled
+      : () => options.computerMcpEnabled === true;
     this.skipExecutablePreflight = options.skipExecutablePreflight === true;
     this.cliBinDir = options.cliBinDir || path.join(__dirname, '..', 'bin');
     this.agentShellEnvProvider = typeof options.agentShellEnvProvider === 'function'
@@ -3828,11 +3834,20 @@ class AgentManager extends EventEmitter {
     mcpServers: Record<string, unknown>[],
     agentEnv: NodeJS.ProcessEnv,
   ): Record<string, unknown>[] {
-    if (!this.browserMcpEnabled()) return Array.isArray(mcpServers) ? mcpServers : [];
-    return mergeBrowserMcpServer(mcpServers, {
-      cliBinDir: this.cliBinDir,
-      agentEnv,
-    });
+    let projected = Array.isArray(mcpServers) ? mcpServers : [];
+    if (this.browserMcpEnabled()) {
+      projected = mergeBrowserMcpServer(projected, {
+        cliBinDir: this.cliBinDir,
+        agentEnv,
+      });
+    }
+    if (this.computerMcpEnabled()) {
+      projected = mergeComputerMcpServer(projected, {
+        cliBinDir: this.cliBinDir,
+        agentEnv,
+      });
+    }
+    return projected;
   }
 
   expandWorkspacePath(workspace: string) {
