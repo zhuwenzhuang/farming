@@ -12,7 +12,7 @@ const {
   nativePtyHostSocketPath,
 } = require('./native-pty-host-path.cjs');
 const { terminalInputToPtyString } = require('./input-parts.cjs');
-const { normalizeInteractiveTerminalEnv } = require('./agent-env');
+const { normalizeInteractiveTerminalEnv } = require('./agent-env.cjs');
 const {
   cleanupShellBusyIntegration,
   parseShellBusyMarkers,

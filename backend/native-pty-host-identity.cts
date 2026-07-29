@@ -6,7 +6,7 @@ import * as path from 'path';
 
 const NATIVE_PTY_HOST_PROTOCOL_VERSION = 8;
 const NATIVE_PTY_HOST_RUNTIME_FILES = Object.freeze([
-  'agent-env.js',
+  'agent-env.cjs',
   'input-parts.cjs',
   'local-session-engine.js',
   'native-pty-host.js',

@@ -86,6 +86,7 @@ for runtime_module in \
   agent-order \
   agent-order-transaction \
   agent-provider-session \
+  agent-env \
   agent-lifecycle-journal \
   agent-runtime-binding \
   async-cache \

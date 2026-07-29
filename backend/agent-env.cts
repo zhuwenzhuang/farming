@@ -7,13 +7,37 @@ const SHELL_ENV_BEGIN = '__FARMING_AGENT_ENV_BEGIN__';
 const SHELL_ENV_END = '__FARMING_AGENT_ENV_END__';
 const DEFAULT_SHELL_ENV_TIMEOUT_MS = 2500;
 
-function isCatPager(value) {
+interface ResolveUserShellEnvOptions {
+  args?: string[];
+  command?: string;
+  cwd?: string;
+  nodePath?: string;
+  processEnv?: NodeJS.ProcessEnv;
+  shell?: string;
+  timeoutMs?: unknown;
+}
+
+interface BuildInteractiveAgentBaseEnvOptions {
+  processEnv?: NodeJS.ProcessEnv;
+  shellEnv?: NodeJS.ProcessEnv | null;
+}
+
+interface NormalizeInteractiveTerminalEnvOptions {
+  stripNodeOptions?: boolean;
+  stripRuntimeShims?: boolean;
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isCatPager(value: unknown): boolean {
   const text = String(value || '').trim();
   if (!text) return false;
   return /^(?:\/[^\s]+\/)?cat(?:\s|$)/.test(text);
 }
 
-function scrubNonInteractivePagerEnv(env) {
+function scrubNonInteractivePagerEnv(env?: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const next = env || {};
   if (next.FARMING_PRESERVE_AGENT_CAT_PAGER === '1') {
     return next;
@@ -24,24 +48,24 @@ function scrubNonInteractivePagerEnv(env) {
   return next;
 }
 
-function shellQuote(value) {
+function shellQuote(value: unknown): string {
   return `'${String(value).replace(/'/g, "'\\''")}'`;
 }
 
-function normalizeTimeoutMs(value, fallback = DEFAULT_SHELL_ENV_TIMEOUT_MS) {
+function normalizeTimeoutMs(value: unknown, fallback = DEFAULT_SHELL_ENV_TIMEOUT_MS): number {
   const parsed = Math.floor(Number(value));
   if (!Number.isFinite(parsed)) return fallback;
   return Math.max(250, Math.min(parsed, 15000));
 }
 
-function defaultShell(processEnv = process.env) {
+function defaultShell(processEnv: NodeJS.ProcessEnv = process.env): string {
   if (processEnv.SHELL) return processEnv.SHELL;
   if (process.platform === 'win32') return '';
   if (fsExists('/bin/bash')) return '/bin/bash';
   return '/bin/sh';
 }
 
-function fsExists(filePath) {
+function fsExists(filePath: string): boolean {
   try {
     return fs.existsSync(filePath);
   } catch {
@@ -49,7 +73,7 @@ function fsExists(filePath) {
   }
 }
 
-function shellEnvArgs(shell, command) {
+function shellEnvArgs(shell: string, command: string): string[] {
   const name = path.basename(String(shell || '')).toLowerCase();
   if (name === 'bash' || name === 'zsh' || name === 'fish' || name === 'ksh') {
     return ['-lic', command];
@@ -60,7 +84,7 @@ function shellEnvArgs(shell, command) {
   return ['-lc', command];
 }
 
-function buildShellEnvCommand(nodePath = process.execPath) {
+function buildShellEnvCommand(nodePath = process.execPath): string {
   const script = 'process.stdout.write(JSON.stringify(process.env))';
   return [
     `printf '\\n${SHELL_ENV_BEGIN}\\n'`,
@@ -69,7 +93,7 @@ function buildShellEnvCommand(nodePath = process.execPath) {
   ].join('; ');
 }
 
-function parseShellEnvOutput(output) {
+function parseShellEnvOutput(output: unknown): NodeJS.ProcessEnv | null {
   const text = Buffer.isBuffer(output) ? output.toString('utf8') : String(output || '');
   const start = text.indexOf(SHELL_ENV_BEGIN);
   const end = text.lastIndexOf(SHELL_ENV_END);
@@ -79,18 +103,21 @@ function parseShellEnvOutput(output) {
   if (!jsonText) return null;
 
   try {
-    const parsed = JSON.parse(jsonText);
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
-    return Object.fromEntries(
-      Object.entries(parsed)
-        .filter(([key, value]) => typeof key === 'string' && typeof value === 'string')
-    );
+    const parsed: unknown = JSON.parse(jsonText);
+    if (!isObject(parsed)) return null;
+    const env: NodeJS.ProcessEnv = {};
+    for (const [key, value] of Object.entries(parsed)) {
+      if (typeof value === 'string') env[key] = value;
+    }
+    return env;
   } catch {
     return null;
   }
 }
 
-function resolveUserShellEnvSync(options = {}) {
+function resolveUserShellEnvSync(
+  options: ResolveUserShellEnvOptions = {},
+): NodeJS.ProcessEnv | null {
   const processEnv = options.processEnv || process.env;
   if (String(processEnv.FARMING_AGENT_SHELL_ENV || '').toLowerCase() === '0' ||
       String(processEnv.FARMING_AGENT_SHELL_ENV || '').toLowerCase() === 'false') {
@@ -190,11 +217,13 @@ const PROCESS_ENV_PREFIXES = [
   'npm_config_',
 ];
 
-function shouldOverlayProcessEnv(key) {
+function shouldOverlayProcessEnv(key: string): boolean {
   return PROCESS_ENV_EXACT_KEYS.has(key) || PROCESS_ENV_PREFIXES.some(prefix => key.startsWith(prefix));
 }
 
-function buildInteractiveAgentBaseEnv(options = {}) {
+function buildInteractiveAgentBaseEnv(
+  options: BuildInteractiveAgentBaseEnvOptions = {},
+): NodeJS.ProcessEnv {
   const processEnv = options.processEnv || process.env;
   const shellEnv = options.shellEnv && typeof options.shellEnv === 'object' ? options.shellEnv : null;
   const env = shellEnv ? { ...shellEnv } : { ...processEnv };
@@ -214,7 +243,10 @@ function buildInteractiveAgentBaseEnv(options = {}) {
   return env;
 }
 
-function normalizeInteractiveTerminalEnv(env, options = {}) {
+function normalizeInteractiveTerminalEnv(
+  env: NodeJS.ProcessEnv | undefined,
+  options: NormalizeInteractiveTerminalEnvOptions = {},
+): NodeJS.ProcessEnv {
   const next = env || {};
 
   if (options.stripRuntimeShims !== false) {
@@ -237,7 +269,7 @@ function normalizeInteractiveTerminalEnv(env, options = {}) {
   return next;
 }
 
-module.exports = {
+export {
   SHELL_ENV_BEGIN,
   SHELL_ENV_END,
   buildInteractiveAgentBaseEnv,

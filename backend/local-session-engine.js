@@ -8,7 +8,7 @@ const {
 } = require('./shell-busy-integration');
 const { terminalInputToPtyString } = require('./input-parts.cjs');
 const { deriveTerminalStatus } = require('./terminal-status');
-const { normalizeInteractiveTerminalEnv } = require('./agent-env');
+const { normalizeInteractiveTerminalEnv } = require('./agent-env.cjs');
 const {
   allocateNativePtyRuntimeGeneration,
   formatNativePtyRuntimeEpoch,

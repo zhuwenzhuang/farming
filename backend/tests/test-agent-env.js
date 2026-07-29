@@ -10,7 +10,7 @@ const {
   parseShellEnvOutput,
   scrubNonInteractivePagerEnv,
   shellEnvArgs,
-} = require('../agent-env');
+} = require('../agent-env.cjs');
 const { normalizeShellSessionOptions } = require('../local-session-engine');
 
 async function run() {
