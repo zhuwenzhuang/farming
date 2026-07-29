@@ -75,7 +75,7 @@ const {
   coalesceSessionStream,
   deliverSessionStreamToClients,
   shouldBroadcastSessionStreamImmediately,
-} = require('./session-stream-protocol');
+} = require('./session-stream-protocol.cjs');
 const {
   MIN_PROTOCOL_VERSION,
   PROTOCOL_VERSION,

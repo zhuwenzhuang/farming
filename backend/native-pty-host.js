@@ -36,14 +36,14 @@ const {
   enqueueTerminalReducerData,
   resetTerminalReducerFlowControl,
   setTerminalExternalFlowControlBlocked,
-} = require('./terminal-reducer-flow-control');
+} = require('./terminal-reducer-flow-control.cjs');
 const {
   normalizeTerminalStateEntry,
   serializeTerminalState,
-} = require('./terminal-state-serialization');
+} = require('./terminal-state-serialization.cjs');
 const {
   captureTerminalAttachCheckpoint,
-} = require('./terminal-attach-checkpoint');
+} = require('./terminal-attach-checkpoint.cjs');
 const {
   acceptTerminalExitData,
   waitForTerminalExitDataQuiescence,

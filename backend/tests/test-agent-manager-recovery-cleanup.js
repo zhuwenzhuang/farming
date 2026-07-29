@@ -31,7 +31,7 @@ require.cache[sessionEngineBridgePath] = {
 };
 
 const AgentManager = require('../agent-manager');
-const { serializeTerminalState } = require('../terminal-state-serialization');
+const { serializeTerminalState } = require('../terminal-state-serialization.cjs');
 
 function configManager() {
   return {

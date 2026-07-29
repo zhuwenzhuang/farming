@@ -1,7 +1,7 @@
 const assert = require('assert');
 const NativePtyHost = require('../native-pty-host');
 const LocalSessionEngine = require('../local-session-engine');
-const { coalesceSessionStream } = require('../session-stream-protocol');
+const { coalesceSessionStream } = require('../session-stream-protocol.cjs');
 
 function deferred() {
   let resolve;

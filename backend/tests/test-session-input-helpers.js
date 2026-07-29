@@ -837,7 +837,7 @@ function run() {
 
   const serverSource = fs.readFileSync(path.join(__dirname, '../../backend/server.js'), 'utf8');
   const streamProtocolSource = fs.readFileSync(
-    path.join(__dirname, '../../backend/session-stream-protocol.js'),
+    path.join(__dirname, '../../backend/session-stream-protocol.cts'),
     'utf8'
   );
   assert(

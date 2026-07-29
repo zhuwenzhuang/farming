@@ -1,26 +1,102 @@
-function finiteNumber(value) {
-  return Number.isFinite(value) ? value : undefined;
+type SessionTransitionKind = 'output' | 'resize' | 'clear';
+
+interface SessionTransitionChunk {
+  kind: SessionTransitionKind;
+  data: string;
+  runtimeEpoch: string | undefined;
+  outputSeq: number | undefined;
+  stateRevision: number | undefined;
+  cols: number | undefined;
+  rows: number | undefined;
 }
 
-function nonEmptyString(value) {
+interface SessionStreamInput extends Record<string, unknown> {
+  agentId?: unknown;
+  chunks?: unknown;
+  cols?: unknown;
+  data?: unknown;
+  kind?: unknown;
+  outputSeq?: unknown;
+  replace?: unknown;
+  rows?: unknown;
+  runtimeEpoch?: unknown;
+  stateRevision?: unknown;
+}
+
+interface NormalizedSessionStream extends SessionStreamInput {
+  chunks: SessionTransitionChunk[] | undefined;
+  cols: number | undefined;
+  data: string;
+  kind: SessionTransitionKind;
+  outputSeq: number | undefined;
+  replace: boolean;
+  rows: number | undefined;
+  runtimeEpoch: string | undefined;
+  stateRevision: number | undefined;
+}
+
+interface SessionStreamBatchOptions {
+  intervalMs?: number;
+  lastBroadcastAt?: number;
+  now?: number;
+  pendingCount?: number;
+}
+
+interface SessionStreamClient {
+  bufferedAmount: number;
+  close(code: number, reason: string): void;
+  focusedAgentId?: unknown;
+  readyState: number;
+  send(message: string): void;
+  streamScope?: unknown;
+}
+
+interface SessionStreamDeliveryOptions {
+  maxBufferedAmount?: number;
+  message?: string;
+  openState?: number;
+}
+
+interface SessionStreamDeliveryResult {
+  sent: number;
+  closed: number;
+  skipped: number;
+}
+
+function finiteNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function nonEmptyString(value: unknown): string | undefined {
   return typeof value === 'string' && value ? value : undefined;
 }
 
-function transitionKind(value) {
+function transitionKind(value: unknown): SessionTransitionKind {
   return value === 'resize' || value === 'clear' ? value : 'output';
 }
 
-function transitionChunks(stream, data, runtimeEpoch, outputSeq, stateRevision) {
+function transitionChunks(
+  stream: SessionStreamInput,
+  data: string,
+  runtimeEpoch: string | undefined,
+  outputSeq: number | undefined,
+  stateRevision: number | undefined,
+): SessionTransitionChunk[] | undefined {
   if (Array.isArray(stream.chunks)) {
-    return stream.chunks.map(chunk => ({
-      kind: transitionKind(chunk.kind),
-      data: typeof chunk.data === 'string' ? chunk.data : String(chunk.data || ''),
-      runtimeEpoch: nonEmptyString(chunk.runtimeEpoch),
-      outputSeq: finiteNumber(chunk.outputSeq),
-      stateRevision: finiteNumber(chunk.stateRevision),
-      cols: finiteNumber(chunk.cols),
-      rows: finiteNumber(chunk.rows),
-    }));
+    return stream.chunks.map((value) => {
+      const chunk = value && typeof value === 'object'
+        ? value as Record<string, unknown>
+        : {};
+      return {
+        kind: transitionKind(chunk.kind),
+        data: typeof chunk.data === 'string' ? chunk.data : String(chunk.data || ''),
+        runtimeEpoch: nonEmptyString(chunk.runtimeEpoch),
+        outputSeq: finiteNumber(chunk.outputSeq),
+        stateRevision: finiteNumber(chunk.stateRevision),
+        cols: finiteNumber(chunk.cols),
+        rows: finiteNumber(chunk.rows),
+      };
+    });
   }
   if (stream.replace === true || !runtimeEpoch || outputSeq === undefined || stateRevision === undefined) {
     return undefined;
@@ -36,7 +112,7 @@ function transitionChunks(stream, data, runtimeEpoch, outputSeq, stateRevision) 
   }];
 }
 
-function normalizeSessionStream(stream) {
+function normalizeSessionStream(stream: SessionStreamInput): NormalizedSessionStream {
   const data = typeof stream.data === 'string' ? stream.data : String(stream.data || '');
   const runtimeEpoch = nonEmptyString(stream.runtimeEpoch);
   const outputSeq = finiteNumber(stream.outputSeq);
@@ -55,7 +131,10 @@ function normalizeSessionStream(stream) {
   };
 }
 
-function coalesceSessionStream(existingStream, incomingStream) {
+function coalesceSessionStream(
+  existingStream: SessionStreamInput | null | undefined,
+  incomingStream: SessionStreamInput,
+): NormalizedSessionStream {
   const incoming = normalizeSessionStream(incomingStream);
   if (!existingStream) {
     return incoming;
@@ -83,7 +162,7 @@ function coalesceSessionStream(existingStream, incomingStream) {
     if (incomingRevision === undefined) return incoming;
     const uncoveredChunks = (existing.chunks || []).filter(chunk => (
       chunk.runtimeEpoch === incoming.runtimeEpoch &&
-      Number.isFinite(chunk.stateRevision) &&
+      chunk.stateRevision !== undefined &&
       chunk.stateRevision > incomingRevision
     ));
     return {
@@ -138,19 +217,23 @@ function coalesceSessionStream(existingStream, incomingStream) {
   };
 }
 
-function shouldBroadcastSessionStreamImmediately(options = {}) {
-  const pendingCount = Number.isFinite(options.pendingCount) ? options.pendingCount : 0;
-  const lastBroadcastAt = Number.isFinite(options.lastBroadcastAt) ? options.lastBroadcastAt : 0;
-  const now = Number.isFinite(options.now) ? options.now : Date.now();
-  const intervalMs = Number.isFinite(options.intervalMs) ? Math.max(0, options.intervalMs) : 0;
+function shouldBroadcastSessionStreamImmediately(
+  options: SessionStreamBatchOptions = {},
+): boolean {
+  const pendingCount = finiteNumber(options.pendingCount) ?? 0;
+  const lastBroadcastAt = finiteNumber(options.lastBroadcastAt) ?? 0;
+  const now = finiteNumber(options.now) ?? Date.now();
+  const intervalMs = Math.max(0, finiteNumber(options.intervalMs) ?? 0);
   return pendingCount === 0 && (lastBroadcastAt === 0 || now - lastBroadcastAt >= intervalMs);
 }
 
-function deliverSessionStreamToClients(clients, stream, options = {}) {
+function deliverSessionStreamToClients(
+  clients: ReadonlyArray<SessionStreamClient | null | undefined> | null | undefined,
+  stream: SessionStreamInput,
+  options: SessionStreamDeliveryOptions = {},
+): SessionStreamDeliveryResult {
   const openState = options.openState ?? 1;
-  const maxBufferedAmount = Number.isFinite(options.maxBufferedAmount)
-    ? options.maxBufferedAmount
-    : 4 * 1024 * 1024;
+  const maxBufferedAmount = finiteNumber(options.maxBufferedAmount) ?? 4 * 1024 * 1024;
   const message = options.message || JSON.stringify({
     type: 'session-output',
     stream,
@@ -177,7 +260,7 @@ function deliverSessionStreamToClients(clients, stream, options = {}) {
   return result;
 }
 
-module.exports = {
+export {
   coalesceSessionStream,
   deliverSessionStreamToClients,
   normalizeSessionStream,

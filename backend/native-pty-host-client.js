@@ -19,7 +19,7 @@ const {
 } = require('./native-pty-controller-generation.cjs');
 const { isTemporaryProviderSessionId } = require('./provider-session-id.cjs');
 const storageLayout = require('./storage-layout');
-const { deserializeTerminalState } = require('./terminal-state-serialization');
+const { deserializeTerminalState } = require('./terminal-state-serialization.cjs');
 const { probeUnixSocket } = require('./terminal-runtime-cleanup');
 
 const DEFAULT_CONNECT_RETRIES = 300;
@@ -660,7 +660,7 @@ class NativePtyHostClient extends EventEmitter {
     let unresumableCodex;
     try {
       unresumableCodex = deserializeTerminalState(serializedTerminalState).find(entry => {
-        const metadata = entry.metadata || {};
+        const metadata = entry.metadata;
         const provider = String(metadata.providerSessionProvider || metadata.provider || '').trim();
         return provider === 'codex'
           && metadata.terminalInputReceived === true

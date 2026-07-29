@@ -3,7 +3,7 @@ const {
   coalesceSessionStream,
   normalizeSessionStream,
   shouldBroadcastSessionStreamImmediately,
-} = require('../session-stream-protocol');
+} = require('../session-stream-protocol.cjs');
 
 function run() {
   assert.strictEqual(shouldBroadcastSessionStreamImmediately({

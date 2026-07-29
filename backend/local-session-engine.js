@@ -20,10 +20,10 @@ const {
   ensureTerminalReducerFlowControl,
   enqueueTerminalReducerData,
   resetTerminalReducerFlowControl,
-} = require('./terminal-reducer-flow-control');
+} = require('./terminal-reducer-flow-control.cjs');
 const {
   captureTerminalAttachCheckpoint,
-} = require('./terminal-attach-checkpoint');
+} = require('./terminal-attach-checkpoint.cjs');
 const {
   acceptTerminalExitData,
   waitForTerminalExitDataQuiescence,

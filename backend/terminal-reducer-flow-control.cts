@@ -1,12 +1,42 @@
 const DEFAULT_REDUCER_HIGH_WATERMARK_BYTES = 512 * 1024;
 const DEFAULT_REDUCER_LOW_WATERMARK_BYTES = 64 * 1024;
 
-function positiveInteger(value, fallback) {
+interface TerminalReducerFlowControlOptions {
+  highWatermarkBytes?: number;
+  lowWatermarkBytes?: number;
+}
+
+interface TerminalReducerFlowControl {
+  pendingBytes: number;
+  paused: boolean;
+  reducerBlocked: boolean;
+  externalBlocked: boolean;
+  highWatermarkBytes: number;
+  lowWatermarkBytes: number;
+}
+
+interface TerminalFlowControlProcess {
+  pause?(): void;
+  resume?(): void;
+}
+
+interface TerminalReducerFlowControlSession {
+  reducerFlowControl?: TerminalReducerFlowControl | null;
+}
+
+interface TerminalReducerEnqueueResult {
+  bytes: number;
+  error: Error | null;
+}
+
+function positiveInteger(value: unknown, fallback: number): number {
   const parsed = Math.floor(Number(value));
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-function createTerminalReducerFlowControl(options = {}) {
+function createTerminalReducerFlowControl(
+  options: TerminalReducerFlowControlOptions = {},
+): TerminalReducerFlowControl {
   const highWatermarkBytes = positiveInteger(
     options.highWatermarkBytes,
     DEFAULT_REDUCER_HIGH_WATERMARK_BYTES,
@@ -25,7 +55,10 @@ function createTerminalReducerFlowControl(options = {}) {
   };
 }
 
-function ensureTerminalReducerFlowControl(session, options = {}) {
+function ensureTerminalReducerFlowControl(
+  session: TerminalReducerFlowControlSession | null | undefined,
+  options: TerminalReducerFlowControlOptions = {},
+): TerminalReducerFlowControl {
   if (!session || typeof session !== 'object') {
     return createTerminalReducerFlowControl(options);
   }
@@ -35,11 +68,14 @@ function ensureTerminalReducerFlowControl(session, options = {}) {
   return session.reducerFlowControl;
 }
 
-function terminalReducerDataBytes(data) {
+function terminalReducerDataBytes(data: unknown): number {
   return Buffer.byteLength(String(data || ''), 'utf8');
 }
 
-function reconcileTerminalFlowControl(control, process) {
+function reconcileTerminalFlowControl(
+  control: TerminalReducerFlowControl,
+  process: TerminalFlowControlProcess | null | undefined,
+): Error | null {
   const shouldPause = control.reducerBlocked || control.externalBlocked;
   if (shouldPause === control.paused) return null;
   const method = shouldPause ? 'pause' : 'resume';
@@ -55,12 +91,20 @@ function reconcileTerminalFlowControl(control, process) {
   }
 }
 
-function setTerminalExternalFlowControlBlocked(control, process, blocked) {
+function setTerminalExternalFlowControlBlocked(
+  control: TerminalReducerFlowControl,
+  process: TerminalFlowControlProcess | null | undefined,
+  blocked: unknown,
+): Error | null {
   control.externalBlocked = blocked === true;
   return reconcileTerminalFlowControl(control, process);
 }
 
-function enqueueTerminalReducerData(control, process, data) {
+function enqueueTerminalReducerData(
+  control: TerminalReducerFlowControl,
+  process: TerminalFlowControlProcess | null | undefined,
+  data: unknown,
+): TerminalReducerEnqueueResult {
   const bytes = terminalReducerDataBytes(data);
   control.pendingBytes += bytes;
   if (!control.reducerBlocked && control.pendingBytes > control.highWatermarkBytes) {
@@ -69,7 +113,11 @@ function enqueueTerminalReducerData(control, process, data) {
   return { bytes, error: reconcileTerminalFlowControl(control, process) };
 }
 
-function acknowledgeTerminalReducerData(control, process, bytes) {
+function acknowledgeTerminalReducerData(
+  control: TerminalReducerFlowControl,
+  process: TerminalFlowControlProcess | null | undefined,
+  bytes: unknown,
+): Error | null {
   const acknowledgedBytes = Math.max(0, Math.floor(Number(bytes) || 0));
   control.pendingBytes = Math.max(0, control.pendingBytes - acknowledgedBytes);
   if (control.reducerBlocked && control.pendingBytes < control.lowWatermarkBytes) {
@@ -78,13 +126,16 @@ function acknowledgeTerminalReducerData(control, process, bytes) {
   return reconcileTerminalFlowControl(control, process);
 }
 
-function resetTerminalReducerFlowControl(control, process) {
+function resetTerminalReducerFlowControl(
+  control: TerminalReducerFlowControl,
+  process: TerminalFlowControlProcess | null | undefined,
+): Error | null {
   control.pendingBytes = 0;
   control.reducerBlocked = false;
   return reconcileTerminalFlowControl(control, process);
 }
 
-module.exports = {
+export {
   DEFAULT_REDUCER_HIGH_WATERMARK_BYTES,
   DEFAULT_REDUCER_LOW_WATERMARK_BYTES,
   acknowledgeTerminalReducerData,

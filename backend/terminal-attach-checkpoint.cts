@@ -1,16 +1,55 @@
 const DEFAULT_TERMINAL_ATTACH_CHECKPOINT_TIMEOUT_MS = 2000;
 
-function finiteNonNegativeInteger(value) {
+interface TerminalAttachCheckpoint {
+  runtimeEpoch: string;
+  renderOutput: string;
+  outputSeq: number;
+  stateRevision: number;
+  cols: number;
+  rows: number;
+  previewText: string;
+  previewSnapshot: unknown;
+  title: string;
+}
+
+interface TerminalScreenWorker {
+  getState(options: { timeoutMs: number }): Promise<unknown>;
+}
+
+interface TerminalAttachSession {
+  finalCheckpoint?: TerminalAttachCheckpoint | null;
+  screenWorker?: TerminalScreenWorker | null;
+  stateProofAvailable?: boolean;
+  runtimeEpoch?: unknown;
+  outputSeq?: unknown;
+  stateRevision?: unknown;
+}
+
+interface TerminalAttachCheckpointOptions {
+  requireCurrentCut?: boolean;
+  timeoutMs?: number;
+}
+
+function finiteNonNegativeInteger(value: unknown): number | null {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : null;
 }
 
-function finitePositiveInteger(value) {
+function finitePositiveInteger(value: unknown): number | null {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : null;
 }
 
-async function captureTerminalAttachCheckpoint(session, options = {}) {
+function recordValue(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object'
+    ? value as Record<string, unknown>
+    : null;
+}
+
+async function captureTerminalAttachCheckpoint(
+  session: TerminalAttachSession | null | undefined,
+  options: TerminalAttachCheckpointOptions = {},
+): Promise<TerminalAttachCheckpoint | null> {
   if (session?.finalCheckpoint) {
     return { ...session.finalCheckpoint };
   }
@@ -24,10 +63,10 @@ async function captureTerminalAttachCheckpoint(session, options = {}) {
     return null;
   }
 
-  const timeoutMs = Number.isFinite(options.timeoutMs)
+  const timeoutMs = typeof options.timeoutMs === 'number' && Number.isFinite(options.timeoutMs)
     ? Math.max(1, Math.floor(options.timeoutMs))
     : DEFAULT_TERMINAL_ATTACH_CHECKPOINT_TIMEOUT_MS;
-  const state = await session.screenWorker.getState({ timeoutMs }).catch(() => null);
+  const state = recordValue(await session.screenWorker.getState({ timeoutMs }).catch(() => null));
   const outputSeq = finiteNonNegativeInteger(state?.outputSeq);
   const stateRevision = finiteNonNegativeInteger(state?.stateRevision);
   const currentOutputSeq = finiteNonNegativeInteger(session.outputSeq);
@@ -56,7 +95,7 @@ async function captureTerminalAttachCheckpoint(session, options = {}) {
   }
 
   return {
-    runtimeEpoch: state.runtimeEpoch,
+    runtimeEpoch: state.runtimeEpoch as string,
     renderOutput: state.renderOutput,
     outputSeq,
     stateRevision,
@@ -68,7 +107,7 @@ async function captureTerminalAttachCheckpoint(session, options = {}) {
   };
 }
 
-module.exports = {
+export {
   DEFAULT_TERMINAL_ATTACH_CHECKPOINT_TIMEOUT_MS,
   captureTerminalAttachCheckpoint,
 };

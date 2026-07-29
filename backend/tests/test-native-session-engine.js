@@ -13,7 +13,7 @@ const {
   nativePtyHostRuntimeIdentityMatches,
   normalizeNativePtyHostRuntimeIdentity,
 } = require('../native-pty-host-identity.cjs');
-const { deserializeTerminalState } = require('../terminal-state-serialization');
+const { deserializeTerminalState } = require('../terminal-state-serialization.cjs');
 const { probeUnixSocket } = require('../terminal-runtime-cleanup');
 
 function delay(ms) {

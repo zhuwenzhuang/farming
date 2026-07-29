@@ -102,7 +102,11 @@ for runtime_module in \
   runtime-executable-invocation \
   runtime-observation \
   server-process-identity \
-  terminal-exit-quiescence
+  session-stream-protocol \
+  terminal-attach-checkpoint \
+  terminal-exit-quiescence \
+  terminal-reducer-flow-control \
+  terminal-state-serialization
 do
   if [ ! -f "${PACKAGE_ROOT}/backend/${runtime_module}.cjs" ]; then
     echo "npm package omitted compiled backend runtime ${runtime_module}.cjs" >&2

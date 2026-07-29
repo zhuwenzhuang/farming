@@ -5,7 +5,7 @@ const {
   enqueueTerminalReducerData,
   resetTerminalReducerFlowControl,
   setTerminalExternalFlowControlBlocked,
-} = require('../terminal-reducer-flow-control');
+} = require('../terminal-reducer-flow-control.cjs');
 
 function fakeProcess() {
   return {

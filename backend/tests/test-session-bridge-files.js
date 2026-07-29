@@ -5,7 +5,7 @@ const path = require('path');
 function run() {
   const sessionBridgePath = path.join(__dirname, '../../frontend/session-bridge.js');
   const serverPath = path.join(__dirname, '../server.js');
-  const sessionStreamProtocolPath = path.join(__dirname, '../session-stream-protocol.js');
+  const sessionStreamProtocolPath = path.join(__dirname, '../session-stream-protocol.cts');
   const appPath = path.join(__dirname, '../../src/App.tsx');
   const useWebSocketPath = path.join(__dirname, '../../src/hooks/useWebSocket.ts');
   const workspacePath = path.join(__dirname, '../../src/components/CodeWorkspace.tsx');

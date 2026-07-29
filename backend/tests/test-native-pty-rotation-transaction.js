@@ -3,11 +3,11 @@ const NativePtyHost = require('../native-pty-host');
 const NativePtyHostClient = require('../native-pty-host-client');
 const {
   createTerminalReducerFlowControl,
-} = require('../terminal-reducer-flow-control');
+} = require('../terminal-reducer-flow-control.cjs');
 const {
   deserializeTerminalState,
   serializeTerminalState,
-} = require('../terminal-state-serialization');
+} = require('../terminal-state-serialization.cjs');
 
 function deferred() {
   let resolve;

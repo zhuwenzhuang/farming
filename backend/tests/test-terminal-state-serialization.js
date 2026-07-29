@@ -4,7 +4,7 @@ const {
   TERMINAL_STATE_VERSION,
   deserializeTerminalState,
   serializeTerminalState,
-} = require('../terminal-state-serialization');
+} = require('../terminal-state-serialization.cjs');
 
 function entry(overrides = {}) {
   return {

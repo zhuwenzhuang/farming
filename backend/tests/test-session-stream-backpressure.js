@@ -1,7 +1,7 @@
 const assert = require('assert');
 const {
   deliverSessionStreamToClients,
-} = require('../session-stream-protocol');
+} = require('../session-stream-protocol.cjs');
 
 function client(options = {}) {
   return {
