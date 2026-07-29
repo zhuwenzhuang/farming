@@ -10,7 +10,7 @@ const storageLayout = require('../../../backend/storage-layout.cjs');
 const {
   runtimePlatformKey,
   verifyExecutable,
-} = require('../../../backend/runtime-dependency-manager');
+} = require('../../../backend/runtime-dependency-manager.cjs');
 const {
   runtimeExecutableInvocation,
 } = require('../../../backend/runtime-executable-invocation.cjs');

@@ -17,7 +17,7 @@ const {
   runtimeArtifactDownloadUrls,
   runtimePlatformKey,
   verifyExecutable,
-} = require('../runtime-dependency-manager');
+} = require('../runtime-dependency-manager.cjs');
 const { buildManifest } = require('../../scripts/build-runtime-dependency-manifest');
 
 function writeVersionExecutable(directory, name, version) {

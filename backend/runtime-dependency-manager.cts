@@ -1,15 +1,199 @@
-const crypto = require('crypto');
-const fs = require('fs');
-const path = require('path');
-const { execFile, execFileSync } = require('child_process');
-const { pipeline } = require('stream/promises');
-const { Readable, Transform } = require('stream');
-const tar = require('tar');
-const storageLayout = require('./storage-layout.cjs');
-const { runtimeExecutableInvocation } = require('./runtime-executable-invocation.cjs');
+import * as crypto from 'crypto';
+import * as fs from 'fs';
+import * as path from 'path';
+import {
+  execFile,
+  execFileSync,
+  type ExecFileException,
+  type ExecFileOptionsWithStringEncoding,
+} from 'child_process';
+import { pipeline } from 'stream/promises';
+import { Readable, Transform, type TransformCallback } from 'stream';
+import * as tar from 'tar';
 
-const MANIFEST = require('./data/runtime-dependency-manifest.json');
-const SOURCE_CONFIG = require('./data/runtime-dependency-sources.json');
+interface StorageLayout {
+  farmingConfigDir(env?: NodeJS.ProcessEnv): string;
+  runtimeDependenciesDir(configDir: string): string;
+  runtimeDependenciesActiveFile(configDir: string): string;
+  runtimeDependenciesLockDir(configDir: string): string;
+}
+
+interface RuntimeExecutableInvocation {
+  command: string;
+  args: string[];
+}
+
+interface RuntimeArtifact {
+  url: string;
+  integrity: string;
+  size?: number;
+  archive?: string;
+  archiveEntry?: string;
+  archivePrefix?: string;
+  entry: string;
+}
+
+interface RuntimeDependencyManifestEntry {
+  version: string;
+  reportedVersion?: string;
+  managedProbe?: boolean;
+  probe?: {
+    args?: string[];
+  };
+  artifacts: Record<string, RuntimeArtifact>;
+}
+
+interface RuntimeDependencyManifest {
+  schemaVersion: number;
+  manifestId: string;
+  dependencies: Record<string, RuntimeDependencyManifestEntry>;
+}
+
+interface RuntimeDependencySourceConfig {
+  authoritativeNpmRegistry: string;
+  defaultNpmMirror?: string;
+}
+
+interface RuntimeDependencyDefinition {
+  id: string;
+  envKeys: readonly string[];
+  commands: readonly string[];
+  allowSystem?: boolean;
+}
+
+interface RuntimePlatformOptions {
+  platform?: string;
+  arch?: string;
+  platformKey?: string;
+  musl?: boolean;
+}
+
+interface ResolvedRuntime {
+  id: string;
+  version: string;
+  reportedVersion?: string;
+  source: 'managed' | 'system';
+  executablePath: string;
+}
+
+interface ExecutableVerification {
+  valid: boolean;
+  version: string;
+  output: string;
+  error: string;
+}
+
+type ExecFileCallback = (
+  error: ExecFileException | null,
+  stdout: string,
+  stderr: string,
+) => void;
+
+type ExecFileImplementation = (
+  command: string,
+  args: readonly string[],
+  options: ExecFileOptionsWithStringEncoding,
+  callback: ExecFileCallback,
+) => unknown;
+
+type FetchImplementation = (
+  input: string | URL,
+  init?: RequestInit,
+) => Promise<Response>;
+
+interface DownloadOptions {
+  env?: NodeJS.ProcessEnv;
+  fetch?: FetchImplementation;
+  mirrorLookupTimeoutMs?: number;
+  downloadTimeoutMs?: number;
+}
+
+interface LockOptions {
+  token?: string;
+  lockTimeoutMs?: number;
+  lockPollMs?: number;
+  wait?: (ms: number) => Promise<void>;
+}
+
+interface VerifyExecutableOptions {
+  execFile?: ExecFileImplementation;
+  args?: string[];
+  useConfiguredLoader?: boolean;
+  env?: NodeJS.ProcessEnv;
+  platform?: string;
+  timeoutMs?: number;
+}
+
+type InstallRuntime = (
+  configDir: string,
+  definition: RuntimeDependencyDefinition,
+  platformKey: string,
+  options: RuntimeManagerOptions,
+) => Promise<ResolvedRuntime>;
+
+interface RuntimeManagerOptions extends RuntimePlatformOptions, DownloadOptions, LockOptions {
+  configDir?: string;
+  installRuntime?: InstallRuntime;
+}
+
+interface ActiveRuntimeDependency {
+  version: string;
+  source: 'managed' | 'system';
+  executablePath: string;
+}
+
+interface ActiveRuntimeManifest {
+  schemaVersion: number;
+  manifestId: string;
+  platformKey: string;
+  dependencies: Record<string, ActiveRuntimeDependency>;
+  preparedAt: string;
+}
+
+interface RuntimeCacheRecord {
+  schemaVersion: number;
+  manifestId: string;
+  id: string;
+  version: string;
+  platformKey: string;
+  integrity: string;
+  entry: string;
+  executableSha256: string;
+  installedAt: string;
+}
+
+interface LockOwner {
+  pid: number;
+  token: string;
+  createdAt: string;
+}
+
+interface MirrorMetadata {
+  version?: string;
+  dist?: {
+    integrity?: string;
+    tarball?: string;
+  };
+}
+
+interface ProcessReport {
+  header?: {
+    glibcVersionRuntime?: string;
+  };
+}
+
+const storageLayout = require('./storage-layout.cjs') as StorageLayout;
+const { runtimeExecutableInvocation } = require('./runtime-executable-invocation.cjs') as {
+  runtimeExecutableInvocation(
+    executablePath: string,
+    args?: string[],
+    env?: NodeJS.ProcessEnv,
+    platform?: string,
+  ): RuntimeExecutableInvocation;
+};
+
+const MANIFEST = require('./data/runtime-dependency-manifest.json') as RuntimeDependencyManifest;
+const SOURCE_CONFIG = require('./data/runtime-dependency-sources.json') as RuntimeDependencySourceConfig;
 const MAX_DOWNLOAD_BYTES = 512 * 1024 * 1024;
 const DOWNLOAD_TIMEOUT_MS = 180_000;
 const MIRROR_LOOKUP_TIMEOUT_MS = 3_000;
@@ -19,7 +203,7 @@ const LOCK_POLL_MS = 100;
 const SAFE_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const AUTHORITATIVE_NPM_ORIGIN = new URL(SOURCE_CONFIG.authoritativeNpmRegistry).origin;
 
-const DEPENDENCIES = Object.freeze([
+const DEPENDENCIES: readonly RuntimeDependencyDefinition[] = Object.freeze([
   {
     id: 'codex',
     envKeys: ['FARMING_CODEX_BIN', 'CODEX_PATH'],
@@ -38,11 +222,25 @@ const DEPENDENCIES = Object.freeze([
   },
 ]);
 
-function delay(ms) {
+function errorCode(error: unknown): string {
+  if (!error || typeof error !== 'object' || !('code' in error)) return '';
+  return typeof error.code === 'string' ? error.code : '';
+}
+
+function errorName(error: unknown): string {
+  if (!error || typeof error !== 'object' || !('name' in error)) return '';
+  return typeof error.name === 'string' ? error.name : '';
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-function safeSegment(value, label) {
+function safeSegment(value: unknown, label: string): string {
   const text = String(value || '').trim();
   if (!SAFE_SEGMENT.test(text) || text === '.' || text === '..') {
     throw new Error(`Invalid runtime dependency ${label}`);
@@ -50,7 +248,7 @@ function safeSegment(value, label) {
   return text;
 }
 
-function safeRelative(value, label = 'entry') {
+function safeRelative(value: unknown, label = 'entry'): string {
   const text = String(value || '').replace(/\\/g, '/');
   if (
     !text
@@ -62,16 +260,16 @@ function safeRelative(value, label = 'entry') {
   return text;
 }
 
-function isMuslRuntime() {
+function isMuslRuntime(): boolean {
   if (process.platform !== 'linux') return false;
   if (process.report?.getReport) {
-    const report = /** @type {any} */ (process.report.getReport());
+    const report = process.report.getReport() as ProcessReport;
     if (report?.header?.glibcVersionRuntime) return false;
   }
   return true;
 }
 
-function runtimePlatformKey(options = {}) {
+function runtimePlatformKey(options: RuntimePlatformOptions = {}): string {
   const platform = safeSegment(options.platform || process.platform, 'platform');
   const arch = safeSegment(options.arch || process.arch, 'architecture');
   if (options.platformKey) return safeSegment(options.platformKey, 'platform key');
@@ -79,7 +277,12 @@ function runtimePlatformKey(options = {}) {
   return platform === 'linux' && musl ? `${platform}-${arch}-musl` : `${platform}-${arch}`;
 }
 
-function dependencyCacheDir(configDir, id, version, platformKey) {
+function dependencyCacheDir(
+  configDir: string,
+  id: string,
+  version: string,
+  platformKey: string,
+): string {
   return path.join(
     storageLayout.runtimeDependenciesDir(configDir),
     safeSegment(id, 'id'),
@@ -88,17 +291,20 @@ function dependencyCacheDir(configDir, id, version, platformKey) {
   );
 }
 
-function fileSha256(filePath) {
+function fileSha256(filePath: string): string {
   return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
 }
 
-function parseIntegrity(integrity) {
+function parseIntegrity(integrity: unknown): { algorithm: 'sha256' | 'sha512'; digest: Buffer } {
   const match = String(integrity || '').match(/^(sha256|sha512)-([A-Za-z0-9+/=]+)$/);
   if (!match) throw new Error('Runtime artifact integrity must use sha256 or sha512 SRI');
-  return { algorithm: match[1], digest: Buffer.from(match[2], 'base64') };
+  return {
+    algorithm: match[1] as 'sha256' | 'sha512',
+    digest: Buffer.from(match[2], 'base64'),
+  };
 }
 
-function which(command, env = process.env) {
+function which(command: string, env: NodeJS.ProcessEnv = process.env): string {
   try {
     const program = process.platform === 'win32' ? 'where.exe' : 'which';
     const output = execFileSync(program, [command], {
@@ -113,12 +319,16 @@ function which(command, env = process.env) {
   }
 }
 
-function semanticVersion(output) {
+function semanticVersion(output: unknown): string {
   return String(output || '').match(/\b\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?\b/)?.[0] || '';
 }
 
-async function verifyExecutable(executablePath, expectedVersion, options = {}) {
-  const exec = options.execFile || execFile;
+async function verifyExecutable(
+  executablePath: string,
+  expectedVersion: string,
+  options: VerifyExecutableOptions = {},
+): Promise<ExecutableVerification> {
+  const execute: ExecFileImplementation = options.execFile || execFile;
   const args = options.args || ['--version'];
   const invocation = options.useConfiguredLoader
     ? runtimeExecutableInvocation(
@@ -129,13 +339,13 @@ async function verifyExecutable(executablePath, expectedVersion, options = {}) {
     )
     : { command: executablePath, args };
   return new Promise(resolve => {
-    exec(invocation.command, invocation.args, {
+    execute(invocation.command, invocation.args, {
       encoding: 'utf8',
       timeout: options.timeoutMs || 5_000,
       maxBuffer: 1024 * 1024,
       windowsHide: true,
       env: options.env || process.env,
-    }, (error, stdout, stderr) => {
+    }, (error: ExecFileException | null, stdout: string, stderr: string) => {
       const output = `${stdout || ''}\n${stderr || ''}`.trim();
       const version = semanticVersion(output);
       resolve({
@@ -148,7 +358,10 @@ async function verifyExecutable(executablePath, expectedVersion, options = {}) {
   });
 }
 
-function explicitCandidate(dependency, env) {
+function explicitCandidate(
+  dependency: RuntimeDependencyDefinition,
+  env: NodeJS.ProcessEnv,
+): { path: string; key: string } | null {
   for (const key of dependency.envKeys) {
     const value = String(env[key] || '').trim();
     if (value) return { path: path.resolve(value), key };
@@ -156,7 +369,10 @@ function explicitCandidate(dependency, env) {
   return null;
 }
 
-function systemCandidates(dependency, env) {
+function systemCandidates(
+  dependency: RuntimeDependencyDefinition,
+  env: NodeJS.ProcessEnv,
+): Array<{ path: string; key: string }> {
   const explicit = explicitCandidate(dependency, env);
   if (explicit) return [explicit];
   return dependency.commands
@@ -165,7 +381,7 @@ function systemCandidates(dependency, env) {
     .map(candidate => ({ path: path.resolve(candidate), key: '' }));
 }
 
-function resolutionEnvironment(env) {
+function resolutionEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   if (
     !env.FARMING_RUNTIME_MANIFEST_ID
     || env.FARMING_RUNTIME_MANIFEST_ID === MANIFEST.manifestId
@@ -180,19 +396,19 @@ function resolutionEnvironment(env) {
   return resolved;
 }
 
-function managedRuntimeUsesConfiguredLoader(id) {
+function managedRuntimeUsesConfiguredLoader(id: string): boolean {
   return id === 'agentBrowser';
 }
 
-function readJson(filePath) {
+function readJson<T>(filePath: string): T | null {
   try {
-    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    return JSON.parse(fs.readFileSync(filePath, 'utf8')) as T;
   } catch {
     return null;
   }
 }
 
-function writeJsonAtomic(filePath, value) {
+function writeJsonAtomic(filePath: string, value: unknown): void {
   const temporary = `${filePath}.${process.pid}.${crypto.randomUUID()}.tmp`;
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`, {
@@ -202,17 +418,20 @@ function writeJsonAtomic(filePath, value) {
   fs.renameSync(temporary, filePath);
 }
 
-function processRunning(pid) {
+function processRunning(pid: number): boolean {
   if (!Number.isSafeInteger(pid) || pid <= 0) return false;
   try {
     process.kill(pid, 0);
     return true;
-  } catch (error) {
-    return error?.code === 'EPERM' || error?.code === 'EACCES';
+  } catch (error: unknown) {
+    return errorCode(error) === 'EPERM' || errorCode(error) === 'EACCES';
   }
 }
 
-async function acquirePrepareLock(configDir, options = {}) {
+async function acquirePrepareLock(
+  configDir: string,
+  options: LockOptions = {},
+): Promise<() => void> {
   const lockDir = storageLayout.runtimeDependenciesLockDir(configDir);
   const startedAt = Date.now();
   while (true) {
@@ -224,15 +443,15 @@ async function acquirePrepareLock(configDir, options = {}) {
         createdAt: new Date().toISOString(),
       });
       return () => fs.rmSync(lockDir, { recursive: true, force: true });
-    } catch (error) {
-      if (error?.code !== 'EEXIST') {
-        if (error?.code === 'ENOENT') {
+    } catch (error: unknown) {
+      if (errorCode(error) !== 'EEXIST') {
+        if (errorCode(error) === 'ENOENT') {
           fs.mkdirSync(path.dirname(lockDir), { recursive: true });
           continue;
         }
         throw error;
       }
-      const owner = readJson(path.join(lockDir, 'owner.json'));
+      const owner = readJson<LockOwner>(path.join(lockDir, 'owner.json'));
       let ageMs = 0;
       try {
         ageMs = Date.now() - fs.statSync(lockDir).mtimeMs;
@@ -260,7 +479,10 @@ async function acquirePrepareLock(configDir, options = {}) {
   }
 }
 
-function npmArtifactIdentity(artifactUrl) {
+function npmArtifactIdentity(artifactUrl: string | URL): {
+  packageName: string;
+  version: string;
+} {
   const artifact = new URL(artifactUrl);
   const segments = artifact.pathname.split('/').filter(Boolean).map(decodeURIComponent);
   const separator = segments.indexOf('-');
@@ -280,7 +502,7 @@ function npmArtifactIdentity(artifactUrl) {
   };
 }
 
-function configuredRuntimeNpmMirror(env) {
+function configuredRuntimeNpmMirror(env: NodeJS.ProcessEnv): string {
   if (Object.prototype.hasOwnProperty.call(env, 'FARMING_RUNTIME_NPM_MIRROR')) {
     const configured = String(env.FARMING_RUNTIME_NPM_MIRROR || '').trim();
     if (!configured || /^(0|false|none|off)$/i.test(configured)) return '';
@@ -289,7 +511,10 @@ function configuredRuntimeNpmMirror(env) {
   return String(SOURCE_CONFIG.defaultNpmMirror || '').trim();
 }
 
-async function runtimeArtifactDownloadUrls(artifact, options = {}) {
+async function runtimeArtifactDownloadUrls(
+  artifact: RuntimeArtifact,
+  options: DownloadOptions = {},
+): Promise<string[]> {
   const authoritative = new URL(artifact.url);
   if (authoritative.origin !== AUTHORITATIVE_NPM_ORIGIN) {
     throw new Error('Runtime artifact must use the authoritative public npm registry');
@@ -322,17 +547,23 @@ async function runtimeArtifactDownloadUrls(artifact, options = {}) {
   );
   timeout.unref?.();
   try {
-    const response = await (options.fetch || fetch)(metadataUrl, {
+    const request: FetchImplementation = options.fetch || fetch;
+    const response = await request(metadataUrl, {
       headers: { accept: 'application/json' },
       redirect: 'follow',
       signal: controller.signal,
     });
     if (!response.ok) return [authoritative.href];
-    const metadata = await response.json();
-    if (metadata?.version !== version || metadata?.dist?.integrity !== artifact.integrity) {
+    const metadata = await response.json() as MirrorMetadata;
+    const mirroredTarball = metadata.dist?.tarball;
+    if (
+      metadata.version !== version
+      || metadata.dist?.integrity !== artifact.integrity
+      || !mirroredTarball
+    ) {
       return [authoritative.href];
     }
-    const mirrored = new URL(metadata.dist.tarball);
+    const mirrored = new URL(mirroredTarball);
     if (mirrored.protocol !== 'https:' || mirrored.origin !== mirror.origin) {
       return [authoritative.href];
     }
@@ -344,7 +575,12 @@ async function runtimeArtifactDownloadUrls(artifact, options = {}) {
   }
 }
 
-async function downloadArtifactFromUrl(artifact, url, destination, options = {}) {
+async function downloadArtifactFromUrl(
+  artifact: RuntimeArtifact,
+  url: string,
+  destination: string,
+  options: DownloadOptions = {},
+): Promise<void> {
   const { algorithm, digest } = parseIntegrity(artifact.integrity);
   const controller = new globalThis.AbortController();
   const timeout = setTimeout(
@@ -355,7 +591,8 @@ async function downloadArtifactFromUrl(artifact, url, destination, options = {})
   const hash = crypto.createHash(algorithm);
   let received = 0;
   try {
-    const response = await (options.fetch || fetch)(url, {
+    const request: FetchImplementation = options.fetch || fetch;
+    const response = await request(url, {
       redirect: 'follow',
       signal: controller.signal,
     });
@@ -365,7 +602,7 @@ async function downloadArtifactFromUrl(artifact, url, destination, options = {})
     const expectedSize = Number(artifact.size) || 0;
     const limit = expectedSize || MAX_DOWNLOAD_BYTES;
     const meter = new Transform({
-      transform(chunk, _encoding, callback) {
+      transform(chunk: Buffer, _encoding: BufferEncoding, callback: TransformCallback) {
         received += chunk.length;
         if (received > limit) {
           callback(new Error(`Runtime download exceeded ${limit} bytes`));
@@ -376,7 +613,9 @@ async function downloadArtifactFromUrl(artifact, url, destination, options = {})
       },
     });
     await pipeline(
-      Readable.fromWeb(response.body),
+      Readable.fromWeb(
+        response.body as unknown as import('stream/web').ReadableStream<Uint8Array>,
+      ),
       meter,
       fs.createWriteStream(destination, { flags: 'wx', mode: 0o600 }),
     );
@@ -386,31 +625,41 @@ async function downloadArtifactFromUrl(artifact, url, destination, options = {})
     if (!crypto.timingSafeEqual(hash.digest(), digest)) {
       throw new Error('Runtime artifact failed integrity verification');
     }
-  } catch (error) {
+  } catch (error: unknown) {
     fs.rmSync(destination, { force: true });
-    if (error?.name === 'AbortError') throw new Error('Runtime download timed out', { cause: error });
+    if (errorName(error) === 'AbortError') {
+      throw new Error('Runtime download timed out', { cause: error });
+    }
     throw error;
   } finally {
     clearTimeout(timeout);
   }
 }
 
-async function downloadArtifact(artifact, destination, options = {}) {
+async function downloadArtifact(
+  artifact: RuntimeArtifact,
+  destination: string,
+  options: DownloadOptions = {},
+): Promise<void> {
   const urls = await runtimeArtifactDownloadUrls(artifact, options);
   for (const [index, url] of urls.entries()) {
     try {
       await downloadArtifactFromUrl(artifact, url, destination, options);
       return;
-    } catch (error) {
+    } catch (error: unknown) {
       if (index === urls.length - 1) throw error;
       console.warn(
-        `Runtime npm mirror download failed; retrying the authoritative npm registry: ${error.message}`,
+        `Runtime npm mirror download failed; retrying the authoritative npm registry: ${errorMessage(error)}`,
       );
     }
   }
 }
 
-async function extractArtifact(artifact, archivePath, stagingDir) {
+async function extractArtifact(
+  artifact: RuntimeArtifact,
+  archivePath: string,
+  stagingDir: string,
+): Promise<string> {
   const entry = safeRelative(artifact.entry);
   if (artifact.archive === 'file') {
     const destination = path.join(stagingDir, entry);
@@ -473,7 +722,10 @@ async function extractArtifact(artifact, archivePath, stagingDir) {
   return executablePath;
 }
 
-function dependencyManifest(id, platformKey) {
+function dependencyManifest(
+  id: string,
+  platformKey: string,
+): { dependency: RuntimeDependencyManifestEntry; artifact: RuntimeArtifact } {
   if (MANIFEST.schemaVersion !== 1 || !MANIFEST.manifestId) {
     throw new Error('Runtime dependency manifest is invalid');
   }
@@ -491,10 +743,15 @@ function dependencyManifest(id, platformKey) {
   return { dependency, artifact };
 }
 
-async function resolveCachedRuntime(configDir, id, platformKey, options = {}) {
+async function resolveCachedRuntime(
+  configDir: string,
+  id: string,
+  platformKey: string,
+  options: Pick<DownloadOptions, 'env'> = {},
+): Promise<ResolvedRuntime | null> {
   const { dependency, artifact } = dependencyManifest(id, platformKey);
   const cacheDir = dependencyCacheDir(configDir, id, dependency.version, platformKey);
-  const record = readJson(path.join(cacheDir, 'runtime.json'));
+  const record = readJson<RuntimeCacheRecord>(path.join(cacheDir, 'runtime.json'));
   const executablePath = path.resolve(cacheDir, artifact.entry);
   if (
     !record
@@ -525,7 +782,12 @@ async function resolveCachedRuntime(configDir, id, platformKey, options = {}) {
   return { id, version: dependency.version, source: 'managed', executablePath };
 }
 
-async function findExactRuntime(configDir, definition, platformKey, env) {
+async function findExactRuntime(
+  configDir: string,
+  definition: RuntimeDependencyDefinition,
+  platformKey: string,
+  env: NodeJS.ProcessEnv,
+): Promise<ResolvedRuntime | null> {
   const { dependency } = dependencyManifest(definition.id, platformKey);
   const expectedVersion = dependency.reportedVersion || dependency.version;
   const candidates = definition.allowSystem === false ? [] : systemCandidates(definition, env);
@@ -559,7 +821,12 @@ async function findExactRuntime(configDir, definition, platformKey, env) {
   return resolveCachedRuntime(configDir, definition.id, platformKey, { env });
 }
 
-async function installExactRuntime(configDir, definition, platformKey, options = {}) {
+async function installExactRuntime(
+  configDir: string,
+  definition: RuntimeDependencyDefinition,
+  platformKey: string,
+  options: RuntimeManagerOptions = {},
+): Promise<ResolvedRuntime> {
   const { dependency, artifact } = dependencyManifest(definition.id, platformKey);
   const cacheDir = dependencyCacheDir(configDir, definition.id, dependency.version, platformKey);
   const stagingDir = `${cacheDir}.preparing-${process.pid}-${crypto.randomUUID()}`;
@@ -603,14 +870,14 @@ async function installExactRuntime(configDir, definition, platformKey, options =
     if (hadCache) fs.renameSync(cacheDir, quarantine);
     try {
       fs.renameSync(stagingDir, cacheDir);
-    } catch (error) {
+    } catch (error: unknown) {
       if (hadCache && !fs.existsSync(cacheDir) && fs.existsSync(quarantine)) {
         fs.renameSync(quarantine, cacheDir);
       }
       throw error;
     }
     fs.rmSync(quarantine, { recursive: true, force: true });
-  } catch (error) {
+  } catch (error: unknown) {
     fs.rmSync(stagingDir, { recursive: true, force: true });
     throw error;
   }
@@ -624,7 +891,10 @@ async function installExactRuntime(configDir, definition, platformKey, options =
   return resolved;
 }
 
-function applyRuntimeEnvironment(env, prepared) {
+function applyRuntimeEnvironment(
+  env: NodeJS.ProcessEnv,
+  prepared: ResolvedRuntime[],
+): NodeJS.ProcessEnv {
   const byId = new Map(prepared.map(item => [item.id, item]));
   const codex = byId.get('codex')?.executablePath;
   const claude = byId.get('claude')?.executablePath;
@@ -645,14 +915,18 @@ function applyRuntimeEnvironment(env, prepared) {
   return env;
 }
 
-async function prepareRuntimeDependencies(options = {}) {
+async function prepareRuntimeDependencies(options: RuntimeManagerOptions = {}): Promise<{
+  manifestId: string;
+  platformKey: string;
+  dependencies: ResolvedRuntime[];
+}> {
   const env = options.env || process.env;
   const candidateEnv = resolutionEnvironment(env);
   const configDir = options.configDir || storageLayout.farmingConfigDir(env);
   const platformKey = runtimePlatformKey(options);
   fs.mkdirSync(storageLayout.runtimeDependenciesDir(configDir), { recursive: true });
   const releaseLock = await acquirePrepareLock(configDir, options);
-  const prepared = [];
+  const prepared: ResolvedRuntime[] = [];
   try {
     for (const definition of DEPENDENCIES) {
       let runtime = await findExactRuntime(configDir, definition, platformKey, candidateEnv);
@@ -680,16 +954,22 @@ async function prepareRuntimeDependencies(options = {}) {
   }
 }
 
-async function pruneRuntimeDependencies(options = {}) {
+async function pruneRuntimeDependencies(
+  options: Omit<RuntimeManagerOptions, 'installRuntime'> = {},
+): Promise<{ removed: string[] }> {
   const env = options.env || process.env;
   const configDir = options.configDir || storageLayout.farmingConfigDir(env);
-  const active = readJson(storageLayout.runtimeDependenciesActiveFile(configDir));
+  const active = readJson<ActiveRuntimeManifest>(
+    storageLayout.runtimeDependenciesActiveFile(configDir),
+  );
   if (!active || active.manifestId !== MANIFEST.manifestId) return { removed: [] };
   const platformKey = safeSegment(active.platformKey, 'platform key');
   const releaseLock = await acquirePrepareLock(configDir, options);
-  const removed = [];
+  const removed: string[] = [];
   try {
-    const latest = readJson(storageLayout.runtimeDependenciesActiveFile(configDir));
+    const latest = readJson<ActiveRuntimeManifest>(
+      storageLayout.runtimeDependenciesActiveFile(configDir),
+    );
     if (!latest || latest.manifestId !== MANIFEST.manifestId) return { removed };
     for (const definition of DEPENDENCIES) {
       const dependencyRoot = path.join(
@@ -742,7 +1022,7 @@ async function pruneRuntimeDependencies(options = {}) {
   }
 }
 
-module.exports = {
+export {
   DEPENDENCIES,
   MANIFEST,
   SOURCE_CONFIG,

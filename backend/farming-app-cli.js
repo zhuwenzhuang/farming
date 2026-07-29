@@ -944,7 +944,7 @@ async function runServerInCurrentProcess() {
       processIdentity,
       'running',
     );
-    const { pruneRuntimeDependencies } = require('./runtime-dependency-manager');
+    const { pruneRuntimeDependencies } = require('./runtime-dependency-manager.cjs');
     void pruneRuntimeDependencies({
       configDir: process.env.FARMING_CONFIG_DIR,
       env: process.env,
@@ -966,7 +966,7 @@ async function prepareStartupDependencies(env, options = {}) {
   ) {
     return { skipped: true };
   }
-  const { prepareRuntimeDependencies } = require('./runtime-dependency-manager');
+  const { prepareRuntimeDependencies } = require('./runtime-dependency-manager.cjs');
   return prepareRuntimeDependencies({
     configDir: env.FARMING_CONFIG_DIR,
     env,

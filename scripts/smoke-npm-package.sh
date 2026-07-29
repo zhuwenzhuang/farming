@@ -137,6 +137,7 @@ for runtime_module in \
   review-state-store \
   run-history-store \
   runtime-executable-invocation \
+  runtime-dependency-manager \
   runtime-observation \
   server-process-identity \
   session-engine \

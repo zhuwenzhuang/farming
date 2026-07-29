@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
-const { verifyExecutable } = require('../../../backend/runtime-dependency-manager');
+const { verifyExecutable } = require('../../../backend/runtime-dependency-manager.cjs');
 const { AGENT_BROWSER_VERSION } = require('./agent-browser-runtime');
 
 function executable(pathname, kind) {

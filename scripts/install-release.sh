@@ -281,7 +281,7 @@ install_dependencies() {
 
 prepare_release_runtime_dependencies() {
   release_uses_managed_npm && return 0
-  if [ ! -f "${SOURCE_DIR}/backend/runtime-dependency-manager.js" ]; then
+  if [ ! -f "${SOURCE_DIR}/backend/runtime-dependency-manager.cts" ]; then
     echo "Release is missing its startup dependency manager." >&2
     return 1
   fi
