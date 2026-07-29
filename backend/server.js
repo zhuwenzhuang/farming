@@ -2902,6 +2902,7 @@ let lastStateBroadcastAt = 0;
 const pendingPreviewBroadcasts = new Map();
 const pendingAgentActivityBroadcasts = new Map();
 const pendingAgentUpdates = new Map();
+const pendingAcpSessionRevisions = new Map();
 const pendingSessionStreams = new Map();
 let sessionStreamBroadcastTimer = null;
 let lastSessionStreamBroadcastAt = 0;
@@ -3059,6 +3060,38 @@ function scheduleAgentUpdate(update) {
 }
 
 agentManager.on('agent-update', scheduleAgentUpdate);
+
+function scheduleAcpSessionRevision(session) {
+  if (
+    !session?.agentId
+    || !Number.isFinite(Number(session.revision))
+    || typeof session.updatedAt !== 'string'
+  ) return;
+  const previous = pendingAcpSessionRevisions.get(session.agentId);
+  if (previous) {
+    if (Number(session.revision) >= Number(previous.session.revision)) {
+      previous.session = session;
+    }
+    return;
+  }
+  const entry = {
+    session,
+    timer: setTimeout(() => {
+      pendingAcpSessionRevisions.delete(session.agentId);
+      const message = JSON.stringify({
+        type: 'acp-session-revision',
+        session: entry.session,
+      });
+      wss.clients.forEach((client) => {
+        if (client.readyState === WebSocket.OPEN) client.send(message);
+      });
+    }, AGENT_ACTIVITY_BROADCAST_DELAY_MS),
+  };
+  entry.timer.unref?.();
+  pendingAcpSessionRevisions.set(session.agentId, entry);
+}
+
+agentManager.on('acp-session-revision', scheduleAcpSessionRevision);
 
 function broadcastAgentRead(read) {
   if (!read || !read.agentId) return;

@@ -459,6 +459,28 @@ export function useWebSocket() {
             case 'agent-update':
               updateAgentLiveState(msg.update.agentId, msg.update.patch)
               break
+            case 'acp-session-revision':
+              setState(prev => {
+                let changed = false
+                const agents = prev.agents.map(agent => {
+                  if (
+                    agent.id !== msg.session.agentId
+                    || agent.runtimeBinding?.kind !== 'acp'
+                    || msg.session.revision <= agent.runtimeBinding.sessionRevision
+                  ) return agent
+                  changed = true
+                  return {
+                    ...agent,
+                    runtimeBinding: {
+                      ...agent.runtimeBinding,
+                      sessionRevision: msg.session.revision,
+                      sessionUpdatedAt: msg.session.updatedAt,
+                    },
+                  }
+                })
+                return changed ? { ...prev, agents } : prev
+              })
+              break
             case 'session-preview':
               updateAgentLivePreview(msg.preview)
               break

@@ -326,6 +326,55 @@ async function run() {
     state.transcriptSlice({ sinceRevision: deltaSlice.revision }).entries,
     [],
   );
+  const steeredDeltaState = new AcpSessionState({ provider: 'codex', sessionId: 'steered-delta', cwd: '/tmp' });
+  steeredDeltaState.apply({ sessionId: 'steered-delta', update: {
+    sessionUpdate: 'user_message_chunk',
+    messageId: 'steered-root',
+    content: { type: 'text', text: 'Start broadly' },
+  } });
+  steeredDeltaState.apply({ sessionId: 'steered-delta', update: {
+    sessionUpdate: 'agent_message_chunk',
+    messageId: 'steered-progress',
+    content: { type: 'text', text: 'Inspecting broadly' },
+  } });
+  const beforeSteerRevision = steeredDeltaState.transcriptSlice().revision;
+  steeredDeltaState.apply({ sessionId: 'steered-delta', update: {
+    sessionUpdate: 'user_message_chunk',
+    messageId: 'steered-follow-up',
+    content: { type: 'text', text: 'Focus on metadata too' },
+    _meta: { codex: { steer: true, turnId: 'turn-1' } },
+  } });
+  steeredDeltaState.apply({ sessionId: 'steered-delta', update: {
+    sessionUpdate: 'agent_message_chunk',
+    messageId: 'steered-answer',
+    content: { type: 'text', text: 'Following both requirements completely' },
+  } });
+  const steeredDeltaSlice = steeredDeltaState.transcriptSlice({
+    maxTurns: 1,
+    sinceRevision: beforeSteerRevision,
+  });
+  assert.strictEqual(
+    steeredDeltaSlice.entries[0].id,
+    'steered-root',
+    'a steer delta must rewind to the owning root user message',
+  );
+  assert.deepStrictEqual(
+    steeredDeltaSlice.entries
+      .filter(entry => entry.type === 'message')
+      .map(entry => entry.content[0].text),
+    [
+      'Start broadly',
+      'Inspecting broadly',
+      'Focus on metadata too',
+      'Following both requirements completely',
+    ],
+    'a steer delta must retain the complete active turn text',
+  );
+  assert.strictEqual(
+    steeredDeltaState.transcriptSlice({ maxTurns: 1 }).entries[0].id,
+    'steered-root',
+    'a steer message must not consume the full-transcript turn limit',
+  );
   const replacementState = new AcpSessionState({
     provider: 'codex', sessionId: 's1', cwd: '/tmp', revisionBase: 12, resetBeforeRevision: 12,
   });

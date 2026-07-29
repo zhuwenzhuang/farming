@@ -114,7 +114,7 @@ let globalSettingsSaveTail = Promise.resolve();
 const terminalPreviewSnapshots = new Map();
 const crtBrandPulseTimers = new Map();
 const SESSION_LINK_LIMIT = 6;
-const CRT_PROTOCOL_VERSION = 2;
+const CRT_PROTOCOL_VERSION = 3;
 const CRT_PREVIEW_RENDER_INTERVAL_MS = 1000;
 const CRT_STRUCTURED_PREVIEW_REFRESH_MS = 240;
 const CRT_AGENT_CARD_MIN_WIDTH = 200;
@@ -5598,6 +5598,21 @@ function connect() {
         Object.assign(agent, update.patch);
         renderCrtDashboardIfNeeded();
         if (agent.id === focusedAgentId) updateCrtRuntimeSwitchControl(agent);
+      }
+    } else if (data.type === 'acp-session-revision') {
+      const update = data.session;
+      const agent = update && state && state.agents.find(candidate => candidate.id === update.agentId);
+      if (
+        agent?.runtimeBinding?.kind === 'acp'
+        && Number(update.revision) > Number(agent.runtimeBinding.sessionRevision || 0)
+      ) {
+        agent.runtimeBinding.sessionRevision = Number(update.revision);
+        agent.runtimeBinding.sessionUpdatedAt = String(update.updatedAt || '');
+        if (agent.id === focusedAgentId) {
+          updateStructuredComposerState(agent);
+        } else {
+          scheduleCrtStructuredPreviewRefresh(agent);
+        }
       }
     } else if (data.type === 'session-preview') {
       const preview = data.preview;

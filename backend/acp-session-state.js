@@ -98,6 +98,12 @@ function contentText(content) {
     .join('');
 }
 
+function isCodexSteerMessage(entry) {
+  return entry?.type === 'message'
+    && entry.role === 'user'
+    && entry?._meta?.codex?.steer === true;
+}
+
 function isContextCompactionText(content) {
   const text = contentText(content).trim();
   return /^\*?Context compacted(?: to fit the model's context window)?\.?\*?$/i.test(text)
@@ -488,7 +494,11 @@ class AcpSessionState {
       if (startIndex < this.entries.length) {
         while (startIndex > 0) {
           const entry = this.entries[startIndex];
-          if (entry?.type === 'message' && entry.role === 'user') break;
+          if (
+            entry?.type === 'message'
+            && entry.role === 'user'
+            && !isCodexSteerMessage(entry)
+          ) break;
           startIndex -= 1;
         }
       }
@@ -498,7 +508,11 @@ class AcpSessionState {
       while (startIndex > 0) {
         startIndex -= 1;
         const entry = this.entries[startIndex];
-        if (entry?.type === 'message' && entry.role === 'user') {
+        if (
+          entry?.type === 'message'
+          && entry.role === 'user'
+          && !isCodexSteerMessage(entry)
+        ) {
           remaining -= 1;
           if (remaining <= 0) break;
         }

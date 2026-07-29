@@ -230,6 +230,15 @@ export interface AgentUpdateMessage {
   }
 }
 
+export interface AcpSessionRevisionMessage {
+  type: 'acp-session-revision'
+  session: {
+    agentId: string
+    revision: number
+    updatedAt: string
+  }
+}
+
 export interface SessionPreviewMessage {
   type: 'session-preview'
   preview: {
@@ -273,6 +282,7 @@ export type ServerMessage =
   | SystemStatsMessage
   | AgentActivityMessage
   | AgentUpdateMessage
+  | AcpSessionRevisionMessage
   | AgentReadMessage
   | WorkspaceFileWatchMessage
   | WorkspaceFileEventMessage

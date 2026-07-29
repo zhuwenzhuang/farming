@@ -34,4 +34,12 @@ assert.strictEqual(validateServerMessage({
   type: 'agent-update',
   update: { agentId: 'a', patch: { terminalInputReceived: true, status: 'dead' } },
 }).ok, false);
+assert.strictEqual(validateServerMessage({
+  type: 'acp-session-revision',
+  session: { agentId: 'a', revision: 12, updatedAt: '2026-07-29T03:00:00.000Z' },
+}).ok, true);
+assert.strictEqual(validateServerMessage({
+  type: 'acp-session-revision',
+  session: { agentId: 'a', revision: '12', updatedAt: '2026-07-29T03:00:00.000Z' },
+}).ok, false);
 console.log('browser protocol schema tests passed');

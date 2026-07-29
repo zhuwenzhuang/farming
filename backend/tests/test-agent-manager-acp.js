@@ -71,6 +71,26 @@ async function run() {
     assert.strictEqual(live.engineStarted, false);
     assert.strictEqual(live.providerSessionId, 'acp-new-session');
     assert.strictEqual(live.providerSessionSource, 'acp-new');
+    let genericUpdateCount = 0;
+    const sessionRevisions = [];
+    manager.onUpdate(() => {
+      genericUpdateCount += 1;
+    });
+    manager.on('acp-session-revision', session => {
+      sessionRevisions.push(session);
+    });
+    const nextSessionRevision = live.runtimeBinding.sessionRevision + 1;
+    runtime.emit('session', { agentId, revision: nextSessionRevision });
+    assert.strictEqual(
+      genericUpdateCount,
+      0,
+      'an ACP transcript revision must not request a full workspace-state broadcast',
+    );
+    assert.deepStrictEqual(
+      sessionRevisions.map(({ agentId: updatedAgentId, revision }) => ({ agentId: updatedAgentId, revision })),
+      [{ agentId, revision: nextSessionRevision }],
+      'an ACP transcript revision should use its dedicated per-Agent channel',
+    );
     const binding = runtime.bindings.get(agentId);
     assert.deepStrictEqual(binding.sessionRequestOptions.additionalDirectories, [path.join(process.cwd(), 'docs')]);
     assert.deepStrictEqual(binding.sessionRequestOptions.mcpServers, [

@@ -995,9 +995,18 @@ class AgentManager extends EventEmitter {
       const agent = this.agents.get(agentId);
       const runtime = runtimeBindingOf(agent, 'acp');
       if (!runtime) return;
+      const currentRevision = Number(runtime.sessionRevision) || 0;
+      const nextRevision = Number.isFinite(Number(revision))
+        ? Number(revision)
+        : currentRevision + 1;
+      if (nextRevision <= currentRevision) return;
       runtime.sessionUpdatedAt = new Date().toISOString();
-      runtime.sessionRevision = Number.isFinite(Number(revision)) ? Number(revision) : (Number(runtime.sessionRevision) || 0) + 1;
-      this.emit('update');
+      runtime.sessionRevision = nextRevision;
+      this.emit('acp-session-revision', {
+        agentId,
+        revision: runtime.sessionRevision,
+        updatedAt: runtime.sessionUpdatedAt,
+      });
     });
   }
 

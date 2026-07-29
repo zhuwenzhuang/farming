@@ -1,5 +1,5 @@
-const PROTOCOL_VERSION = 2;
-const MIN_PROTOCOL_VERSION = 2;
+const PROTOCOL_VERSION = 3;
+const MIN_PROTOCOL_VERSION = 3;
 
 const CLIENT_MESSAGE_TYPES = new Set([
   'protocol-hello',
@@ -30,6 +30,7 @@ const SERVER_MESSAGE_TYPES = new Set([
   'system-stats',
   'agent-activity',
   'agent-update',
+  'acp-session-revision',
   'agent-read',
   'workspace-file-watch',
   'workspace-file-event',
@@ -108,6 +109,7 @@ function validateServerMessage(value) {
     case 'system-stats': valid = objectMessage(value.stats); break;
     case 'agent-activity': valid = objectMessage(value.activity) && stringField(value.activity, 'agentId'); break;
     case 'agent-update': valid = objectMessage(value.update) && stringField(value.update, 'agentId') && Boolean(sanitizeAgentUpdatePatch(value.update.patch)); break;
+    case 'acp-session-revision': valid = objectMessage(value.session) && stringField(value.session, 'agentId') && Number.isInteger(value.session.revision) && value.session.revision >= 0 && stringField(value.session, 'updatedAt'); break;
     case 'agent-read': valid = objectMessage(value.read) && stringField(value.read, 'agentId'); break;
     case 'workspace-file-watch': valid = stringField(value, 'agentId') && typeof value.watching === 'boolean'; break;
     case 'workspace-file-event': valid = objectMessage(value.event) && stringField(value.event, 'agentId'); break;
