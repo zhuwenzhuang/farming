@@ -1,28 +1,88 @@
-const crypto = require('crypto');
+import * as crypto from 'crypto';
 
-const CHINESE_POETIC_CATEGORIES = {
+type PoeticVerbKind = 'verb' | 'softVerb';
+type SourcePoeticSlotKind =
+  | PoeticVerbKind
+  | 'word'
+  | 'marker'
+  | 'image'
+  | 'toneChar'
+  | 'imageChar';
+type TokenLocale = 'zh' | 'ja' | 'in' | 'en';
+type RequestedTokenLocale = TokenLocale | 'auto';
+
+interface SourcePoeticSlot {
+  kind: SourcePoeticSlotKind;
+}
+
+type SourcePoeticPattern = SourcePoeticSlot[][];
+
+interface JapaneseTokenSlot {
+  kind: 'word' | 'char';
+  words?: string[];
+  chars?: string;
+}
+
+interface PoeticSourceWord {
+  word: string;
+  tier: string;
+  quality?: number;
+}
+
+interface PoeticSource {
+  words: PoeticSourceWord[];
+}
+
+interface PoeticWordTier {
+  name: string;
+  weight: number;
+  words: string[];
+}
+
+interface PoeticTokenOptions {
+  locale?: unknown;
+  timeZone?: unknown;
+  env?: NodeJS.ProcessEnv;
+}
+
+interface PoeticTokenResolution {
+  locale: TokenLocale;
+  style: 'zh-classic-haiku' | 'zh-japan-haiku' | 'zh-india-haiku' | 'en-passphrase';
+  source: string;
+}
+
+interface CreatedPoeticToken extends PoeticTokenResolution {
+  token: string;
+  entropyBits: number;
+}
+
+const CHINESE_POETIC_CATEGORIES: Record<PoeticVerbKind, string> = {
   verb: '照入落过映起眠归拂绕穿渡藏向逐随问泊生满摇醒看寻开合沉浮来去停舒敛转隐澄',
   softVerb: '听照入落过映起眠归拂绕穿渡藏向逐随问泊生满摇醒看寻开合沉浮来去停舒敛转隐澄',
 };
-const CHINESE_POETIC_WORDS_DATA = require('./data/chinese-poetic-words.json');
-const CHINESE_POETIC_WORDS = CHINESE_POETIC_WORDS_DATA.words;
-const POETIC_SOURCE_WORDLISTS = {
-  china: require('./data/poetic-word-sources/china.json'),
-  japan: require('./data/poetic-word-sources/japan.json'),
-  india: require('./data/poetic-word-sources/india.json'),
+const CHINESE_POETIC_WORDS_DATA = require('./data/chinese-poetic-words.json') as {
+  words: string[];
 };
-const POETIC_SOURCE_TIER_WEIGHTS = {
+const CHINESE_POETIC_WORDS: string[] = CHINESE_POETIC_WORDS_DATA.words;
+const POETIC_SOURCE_WORDLISTS: Record<string, PoeticSource> = {
+  china: require('./data/poetic-word-sources/china.json') as PoeticSource,
+  japan: require('./data/poetic-word-sources/japan.json') as PoeticSource,
+  india: require('./data/poetic-word-sources/india.json') as PoeticSource,
+};
+const POETIC_SOURCE_TIER_WEIGHTS: Record<string, number> = {
   common: 48,
   varied: 47,
   rare: 5,
 };
-const CHINESE_POETIC_WORD_TIERS = [
+const CHINESE_POETIC_WORD_TIERS: PoeticWordTier[] = [
   { name: 'common', weight: 76, words: CHINESE_POETIC_WORDS.slice(0, 2048) },
   { name: 'varied', weight: 20, words: CHINESE_POETIC_WORDS.slice(2048, 6144) },
   { name: 'rare', weight: 4, words: CHINESE_POETIC_WORDS.slice(6144) },
 ];
-const CHINESE_POETIC_ACTIVE_WORDS = CHINESE_POETIC_WORD_TIERS.flatMap(tier => tier.words);
-const ENGLISH_WORDS = [
+const CHINESE_POETIC_ACTIVE_WORDS: string[] = CHINESE_POETIC_WORD_TIERS.flatMap(
+  tier => tier.words,
+);
+const ENGLISH_WORDS: string[] = [
   'amber', 'anchor', 'autumn', 'azure', 'bamboo', 'beacon', 'birch', 'blossom',
   'breeze', 'bridge', 'brook', 'canyon', 'cedar', 'circle', 'cloud', 'coast',
   'comet', 'copper', 'crystal', 'dawn', 'delta', 'desert', 'drift', 'dune',
@@ -61,7 +121,7 @@ const JAPANESE_TIME_ZONES = new Set([
   'Japan',
 ]);
 
-const TOKEN_TEMPLATE = [
+const TOKEN_TEMPLATE: SourcePoeticPattern = [
   [
     { kind: 'word' },
     { kind: 'verb' },
@@ -79,7 +139,7 @@ const TOKEN_TEMPLATE = [
     { kind: 'word' },
   ],
 ];
-const CHINESE_POETIC_PATTERNS = [
+const CHINESE_POETIC_PATTERNS: SourcePoeticPattern[] = [
   TOKEN_TEMPLATE,
   [
     [{ kind: 'word' }, { kind: 'softVerb' }, { kind: 'word' }],
@@ -119,19 +179,19 @@ const CHINESE_POETIC_PATTERNS = [
 ];
 const SOURCE_MARKER_WORD_COUNT = 128;
 const SOURCE_MARKER_PREFERRED_WEIGHT = 70;
-const SOURCE_MARKER_FORCE_SOURCE = new Set(['india']);
-const SOURCE_MARKER_PATTERNS = {
+const SOURCE_MARKER_FORCE_SOURCE = new Set<string>(['india']);
+const SOURCE_MARKER_PATTERNS: Record<string, RegExp | undefined> = {
   china: /春|秋|山|水|月|风|云|梅|花|江|烟|霞|松|竹|桃|柳|楼|台|诗|雪/,
   japan: /梅|露|秋|暮|夕|菊|旅|红叶|谷鸟|黄莺|清水|时雨|苔|蝉|蛙|芦|雁|孤寂|草木|寒夜|春雨|春风|春日|春夜|春山|夏日|夏夜|冬夜|雪/,
   india: /天空|诗人|清晨|微笑|森林|诗歌|夜晚|花园|河水|河岸|光明|深夜|青春|寺院|阴影|遥远|寂静|时光|月光|旅人|芦笛|莲花|尘世|孤寂|海岸|新生|心花|爱人|霞光|星光|晨光|灯光|暮歌|晨歌|心弦|河心|祝福|自由|灵魂|梦乡/,
 };
-const SOURCE_MARKER_BAD_WORDS = {
+const SOURCE_MARKER_BAD_WORDS: Record<string, Set<string> | undefined> = {
   china: new Set(['微笑', '青春', '花园', '诗歌', '心花', '心弦', '爱人', '自由', '灵魂', '梦乡']),
   japan: new Set(['微笑', '青春', '花园', '诗歌', '心花', '心弦', '爱人', '自由', '灵魂', '梦乡']),
 };
 const SOURCE_IMAGE_BAD_CHARS = /[龙猿鸳蜂根裳渚洲鹤辰鹿金鱼李玄银]/;
 const SOURCE_IMAGE_WORD_BAD_CHARS = /[龙猿鸳蜂根裳渚洲鹤辰鹿金鱼李玄银心笑爱客旅命界歌]/;
-const SOURCE_IMAGE_BAD_WORDS = new Set(['青春', '花园', '自由', '灵魂', '梦乡', '时光']);
+const SOURCE_IMAGE_BAD_WORDS = new Set<string>(['青春', '花园', '自由', '灵魂', '梦乡', '时光']);
 const SOURCE_IMAGE_PREFERRED_MIN_QUALITY = 10;
 const SOURCE_IMAGE_PREFERRED_MAX_WEIGHT = 30;
 const SOURCE_IMAGE_PREFERRED_MIN_WEIGHT = 15;
@@ -140,7 +200,7 @@ const SOURCE_IMAGE_ENTROPY_MIN_CHOICES = 2048;
 const SOURCE_IMAGE_CHAR_ENTROPY_MIN_CHOICES = 40;
 const SOURCE_TONE_CHARS = '清远深微静暖淡幽冷空晚轻薄浅寂寒素疏斜澄碧遥';
 const SOURCE_IMAGE_CHARS = '云月星霞烟雨雪霜露风山水江河海溪泉林松竹梅兰菊荷莲柳桃花草叶枝鸟雁鸥岸沙石岩峰谷灯钟琴笛诗酒茶';
-const SOURCE_POETIC_PATTERNS = [
+const SOURCE_POETIC_PATTERNS: SourcePoeticPattern[] = [
   [
     [{ kind: 'marker' }, { kind: 'verb' }, { kind: 'word' }],
     [{ kind: 'word' }, { kind: 'softVerb' }, { kind: 'word' }, { kind: 'word' }],
@@ -182,7 +242,7 @@ const SOURCE_POETIC_PATTERNS = [
     [{ kind: 'word' }, { kind: 'softVerb' }, { kind: 'word' }],
   ],
 ];
-const SOURCE_IMAGE_POETIC_PATTERNS = [
+const SOURCE_IMAGE_POETIC_PATTERNS: SourcePoeticPattern[] = [
   [
     [{ kind: 'marker' }, { kind: 'verb' }, { kind: 'image' }],
     [{ kind: 'image' }, { kind: 'softVerb' }, { kind: 'image' }, { kind: 'toneChar' }, { kind: 'imageChar' }],
@@ -264,7 +324,9 @@ const SOURCE_IMAGE_POETIC_PATTERNS = [
     [{ kind: 'image' }, { kind: 'verb' }, { kind: 'image' }],
   ],
 ];
-const SOURCE_POETIC_VERBS = {
+const SOURCE_POETIC_VERBS: {
+  china: Record<PoeticVerbKind, string>;
+} & Record<string, Record<PoeticVerbKind, string> | undefined> = {
   china: {
     verb: '照入落过映起眠归拂绕穿渡藏向逐随问泊摇醒看寻开沉浮来去停舒敛转隐澄行',
     softVerb: '听照入落过映起眠归拂绕穿渡藏向逐随问泊摇醒看寻开沉浮来去停舒敛转隐澄行',
@@ -284,7 +346,7 @@ const JAPANESE_SEASON_WORDS = 'はる なつ あき ふゆ あさ よる ゆき 
 const JAPANESE_IMAGE_WORDS = 'つき ほし ゆき はな かぜ あめ くも うみ やま かわ もり まつ とり そら みず なみ きり つゆ しも すな いし たき こけ しま さと みね はま おか たに ぬま ふじ うめ もも あし こえ かげ ゆめ あわ いろ おと ひび つぼ えだ はね つの たね くさ つち かい つる すみ'.split(' ');
 const JAPANESE_PLACE_WORDS = 'やま うみ かわ もり はま さと しま たに みね おか ぬま いけ はし まど にわ みち つち そら むら うら いえ たき はら のべ あぜ すみ よこ かど した うえ なか きし おき かべ もと さき ほら ふち すえ より'.split(' ');
 const JAPANESE_VERB_WORDS = 'ゆく みる きく まつ ねる さく ふる とぶ なく よむ たつ すむ ふく よる うく もゆ ぬく ひく おる いる くる かう あう おう よぶ なる きる ぬる ふむ つむ かむ のむ'.split(' ');
-const JAPANESE_TOKEN_TEMPLATE = [
+const JAPANESE_TOKEN_TEMPLATE: JapaneseTokenSlot[][] = [
   [
     { kind: 'word', words: JAPANESE_SEASON_WORDS },
     { kind: 'char', chars: JAPANESE_PARTICLES },
@@ -303,21 +365,21 @@ const JAPANESE_TOKEN_TEMPLATE = [
   ],
 ];
 
-function chooseChar(chars) {
+function chooseChar(chars: string): string {
   const values = Array.from(new Set(Array.from(chars)));
   return values[crypto.randomInt(values.length)];
 }
 
-function chooseWord(words) {
+function chooseWord<T>(words: readonly T[]): T {
   const values = Array.from(new Set(words));
   return values[crypto.randomInt(values.length)];
 }
 
-function uniqueChars(chars) {
+function uniqueChars(chars: string): string[] {
   return Array.from(new Set(Array.from(chars)));
 }
 
-function sourceWordTiers(sourceKey) {
+function sourceWordTiers(sourceKey: string): PoeticWordTier[] {
   const source = POETIC_SOURCE_WORDLISTS[sourceKey];
   if (!source) throw new Error(`Unknown poetic source: ${sourceKey}`);
   return Object.entries(POETIC_SOURCE_TIER_WEIGHTS).map(([name, weight]) => ({
@@ -329,7 +391,7 @@ function sourceWordTiers(sourceKey) {
   })).filter(tier => tier.words.length > 0);
 }
 
-function sourceImageEntries(sourceKey) {
+function sourceImageEntries(sourceKey: string): PoeticSourceWord[] {
   const source = POETIC_SOURCE_WORDLISTS[sourceKey];
   if (!source) return [];
   const entries = source.words.filter(entry => (
@@ -353,12 +415,12 @@ function sourceImageEntries(sourceKey) {
   return entries.concat(classicEntries);
 }
 
-function sourcePreferredImageEntries(sourceKey) {
+function sourcePreferredImageEntries(sourceKey: string): PoeticSourceWord[] {
   const entries = sourceImageEntries(sourceKey);
   return entries.filter(entry => (entry.quality ?? 0) >= SOURCE_IMAGE_PREFERRED_MIN_QUALITY);
 }
 
-function sourceImagePreferredWeight(sourceKey) {
+function sourceImagePreferredWeight(sourceKey: string): number {
   const allCount = sourceImageEntries(sourceKey).length;
   const preferredCount = sourcePreferredImageEntries(sourceKey).length;
   if (allCount === 0 || preferredCount === 0 || preferredCount >= allCount) return 0;
@@ -369,7 +431,7 @@ function sourceImagePreferredWeight(sourceKey) {
   );
 }
 
-function chooseTieredSourceWord(sourceKey, usedWords) {
+function chooseTieredSourceWord(sourceKey: string, usedWords: Set<string>): string {
   const availableTiers = sourceWordTiers(sourceKey)
     .map(tier => ({ ...tier, candidates: tier.words.filter(word => !usedWords.has(word)) }))
     .filter(tier => tier.candidates.length > 0);
@@ -387,16 +449,24 @@ function chooseTieredSourceWord(sourceKey, usedWords) {
   return word;
 }
 
-function wordOverlapsUsedImageChars(word, usedImageChars) {
+function wordOverlapsUsedImageChars(word: string, usedImageChars: Set<string>): boolean {
   return Array.from(word).some(char => usedImageChars.has(char));
 }
 
-function markImageWordUsed(word, usedWords, usedImageChars) {
+function markImageWordUsed(
+  word: string,
+  usedWords: Set<string>,
+  usedImageChars: Set<string>,
+): void {
   usedWords.add(word);
   Array.from(word).forEach(char => usedImageChars.add(char));
 }
 
-function chooseSourceImageWord(sourceKey, usedWords, usedImageChars) {
+function chooseSourceImageWord(
+  sourceKey: string,
+  usedWords: Set<string>,
+  usedImageChars: Set<string>,
+): string {
   const preferredWeight = sourceImagePreferredWeight(sourceKey);
   const preferred = sourcePreferredImageEntries(sourceKey).map(entry => entry.word);
   const preferredSet = new Set(preferred);
@@ -417,7 +487,11 @@ function chooseSourceImageWord(sourceKey, usedWords, usedImageChars) {
   return word;
 }
 
-function chooseSourceMarkerWord(sourceKey, usedWords, usedImageChars) {
+function chooseSourceMarkerWord(
+  sourceKey: string,
+  usedWords: Set<string>,
+  usedImageChars: Set<string>,
+): string {
   const source = POETIC_SOURCE_WORDLISTS[sourceKey];
   const badWords = SOURCE_MARKER_BAD_WORDS[sourceKey] || new Set();
   const preferred = source.words.filter(entry => (
@@ -446,13 +520,16 @@ function chooseSourceMarkerWord(sourceKey, usedWords, usedImageChars) {
   return word;
 }
 
-function chooseSourcePoeticVerb(sourceKey, kind) {
+function chooseSourcePoeticVerb(sourceKey: string, kind: PoeticVerbKind): string {
   const verbs = SOURCE_POETIC_VERBS[sourceKey] || SOURCE_POETIC_VERBS.china;
   const categoryName = kind === 'softVerb' ? 'softVerb' : 'verb';
   return chooseChar(verbs[categoryName]);
 }
 
-function chooseSourcePoeticChar(kind, usedImageChars) {
+function chooseSourcePoeticChar(
+  kind: 'toneChar' | 'imageChar',
+  usedImageChars: Set<string>,
+): string {
   if (kind === 'toneChar') return chooseChar(SOURCE_TONE_CHARS);
 
   const imageChars = uniqueChars(SOURCE_IMAGE_CHARS);
@@ -463,7 +540,12 @@ function chooseSourcePoeticChar(kind, usedImageChars) {
   return char;
 }
 
-function renderSourcePoeticLine(sourceKey, slots, usedWords, usedImageChars) {
+function renderSourcePoeticLine(
+  sourceKey: string,
+  slots: SourcePoeticSlot[],
+  usedWords: Set<string>,
+  usedImageChars: Set<string>,
+): string {
   return slots.map((slot) => {
     if (slot.kind === 'marker') return chooseSourceMarkerWord(sourceKey, usedWords, usedImageChars);
     if (slot.kind === 'image') return chooseSourceImageWord(sourceKey, usedWords, usedImageChars);
@@ -474,40 +556,40 @@ function renderSourcePoeticLine(sourceKey, slots, usedWords, usedImageChars) {
   }).join('');
 }
 
-function sourcePoeticPatterns(sourceKey) {
+function sourcePoeticPatterns(sourceKey: string): SourcePoeticPattern[] {
   if (POETIC_SOURCE_WORDLISTS[sourceKey]) return SOURCE_IMAGE_POETIC_PATTERNS;
   return SOURCE_POETIC_PATTERNS;
 }
 
-function generateSourcePoeticToken(sourceKey) {
-  const usedWords = new Set();
-  const usedImageChars = new Set();
+function generateSourcePoeticToken(sourceKey: string): string {
+  const usedWords = new Set<string>();
+  const usedImageChars = new Set<string>();
   return chooseWord(sourcePoeticPatterns(sourceKey))
     .map(line => renderSourcePoeticLine(sourceKey, line, usedWords, usedImageChars))
     .join('-');
 }
 
-function generateChineseHaikuToken() {
+function generateChineseHaikuToken(): string {
   return generateSourcePoeticToken('china');
 }
 
-function generateJapaneseHaikuToken() {
+function generateJapaneseHaikuToken(): string {
   return generateSourcePoeticToken('japan');
 }
 
-function generateIndianHaikuToken() {
+function generateIndianHaikuToken(): string {
   return generateSourcePoeticToken('india');
 }
 
-function generateEnglishPassphraseToken() {
+function generateEnglishPassphraseToken(): string {
   return Array.from({ length: ENGLISH_TOKEN_WORD_COUNT }, () => chooseWord(ENGLISH_WORDS)).join('-');
 }
 
-function getChineseHaikuTokenEntropyBits() {
+function getChineseHaikuTokenEntropyBits(): number {
   return getSourcePoeticTokenEntropyBits('china');
 }
 
-function getSourcePoeticTokenEntropyBits(sourceKey) {
+function getSourcePoeticTokenEntropyBits(sourceKey: string): number {
   const tiers = sourceWordTiers(sourceKey);
   const tierWeightTotal = tiers.reduce((total, tier) => total + tier.weight, 0);
   const verbCategories = SOURCE_POETIC_VERBS[sourceKey] || SOURCE_POETIC_VERBS.china;
@@ -587,19 +669,19 @@ function getSourcePoeticTokenEntropyBits(sourceKey) {
   return Math.floor(bits);
 }
 
-function getEnglishPassphraseTokenEntropyBits() {
+function getEnglishPassphraseTokenEntropyBits(): number {
   return Math.floor(ENGLISH_TOKEN_WORD_COUNT * Math.log2(new Set(ENGLISH_WORDS).size));
 }
 
-function getJapaneseHaikuTokenEntropyBits() {
+function getJapaneseHaikuTokenEntropyBits(): number {
   return getSourcePoeticTokenEntropyBits('japan');
 }
 
-function getIndianHaikuTokenEntropyBits() {
+function getIndianHaikuTokenEntropyBits(): number {
   return getSourcePoeticTokenEntropyBits('india');
 }
 
-function normalizeTokenLocale(value) {
+function normalizeTokenLocale(value: unknown): RequestedTokenLocale {
   const locale = String(value || '').trim().toLowerCase();
   if (locale === CHINESE_TOKEN_LOCALE || locale === 'zh-cn' || locale === 'zh_cn') return CHINESE_TOKEN_LOCALE;
   if (locale === JAPANESE_TOKEN_LOCALE || locale === 'jp' || locale === 'ja-jp' || locale === 'ja_jp') return JAPANESE_TOKEN_LOCALE;
@@ -608,7 +690,10 @@ function normalizeTokenLocale(value) {
   return AUTO_TOKEN_LOCALE;
 }
 
-function detectTimeZone(options = {}) {
+function detectTimeZone(options: PoeticTokenOptions = {}): {
+  timeZone: string;
+  source: string;
+} {
   if (typeof options.timeZone === 'string' && options.timeZone.trim()) {
     return { timeZone: options.timeZone.trim(), source: `timeZone=${options.timeZone.trim()}` };
   }
@@ -628,7 +713,7 @@ function detectTimeZone(options = {}) {
   return { timeZone: '', source: '' };
 }
 
-function localeEnvironmentValues(env = process.env) {
+function localeEnvironmentValues(env: NodeJS.ProcessEnv = process.env): string[] {
   return [
     env.LC_ALL,
     env.LC_MESSAGES,
@@ -637,15 +722,15 @@ function localeEnvironmentValues(env = process.env) {
   ].filter(Boolean).map(String);
 }
 
-function localeLooksChinese(value) {
+function localeLooksChinese(value: unknown): boolean {
   return String(value || '').split(':').some(part => /^zh(?:[_.-]|$)/i.test(part));
 }
 
-function localeLooksJapanese(value) {
+function localeLooksJapanese(value: unknown): boolean {
   return String(value || '').split(':').some(part => /^ja(?:[_.-]|$)/i.test(part));
 }
 
-function resolvePoeticTokenLocale(options = {}) {
+function resolvePoeticTokenLocale(options: PoeticTokenOptions = {}): PoeticTokenResolution {
   const env = options.env || process.env;
   const explicitLocale = options.locale || env.FARMING_TOKEN_LOCALE || AUTO_TOKEN_LOCALE;
   const requestedLocale = normalizeTokenLocale(explicitLocale);
@@ -694,7 +779,7 @@ function resolvePoeticTokenLocale(options = {}) {
   };
 }
 
-function generatePoeticToken(options = {}) {
+function generatePoeticToken(options: PoeticTokenOptions = {}): string {
   const resolved = resolvePoeticTokenLocale(options);
   if (resolved.locale === CHINESE_TOKEN_LOCALE) return generateChineseHaikuToken();
   if (resolved.locale === JAPANESE_TOKEN_LOCALE) return generateJapaneseHaikuToken();
@@ -702,7 +787,7 @@ function generatePoeticToken(options = {}) {
   return generateEnglishPassphraseToken();
 }
 
-function getPoeticTokenEntropyBits(options = {}) {
+function getPoeticTokenEntropyBits(options: PoeticTokenOptions = {}): number {
   const resolved = resolvePoeticTokenLocale(options);
   if (resolved.locale === CHINESE_TOKEN_LOCALE) return getChineseHaikuTokenEntropyBits();
   if (resolved.locale === JAPANESE_TOKEN_LOCALE) return getJapaneseHaikuTokenEntropyBits();
@@ -710,7 +795,7 @@ function getPoeticTokenEntropyBits(options = {}) {
   return getEnglishPassphraseTokenEntropyBits();
 }
 
-function createPoeticToken(options = {}) {
+function createPoeticToken(options: PoeticTokenOptions = {}): CreatedPoeticToken {
   const resolved = resolvePoeticTokenLocale(options);
   const token = resolved.locale === CHINESE_TOKEN_LOCALE
     ? generateChineseHaikuToken()
@@ -736,7 +821,7 @@ function createPoeticToken(options = {}) {
   };
 }
 
-module.exports = {
+export {
   AUTO_TOKEN_LOCALE,
   CHINESE_POETIC_ACTIVE_WORDS,
   CHINESE_POETIC_CATEGORIES,
@@ -769,4 +854,11 @@ module.exports = {
   getPoeticTokenEntropyBits,
   getSourcePoeticTokenEntropyBits,
   resolvePoeticTokenLocale,
+};
+export type {
+  CreatedPoeticToken,
+  PoeticTokenOptions,
+  PoeticTokenResolution,
+  RequestedTokenLocale,
+  TokenLocale,
 };

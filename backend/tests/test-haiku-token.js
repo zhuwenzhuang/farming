@@ -16,7 +16,7 @@ const {
   getJapaneseHaikuTokenEntropyBits,
   getPoeticTokenEntropyBits,
   resolvePoeticTokenLocale,
-} = require('../haiku-token');
+} = require('../haiku-token.cjs');
 const CHINA_SOURCE_WORDS = require('../data/poetic-word-sources/china.json');
 const JAPAN_SOURCE_WORDS = require('../data/poetic-word-sources/japan.json');
 const INDIA_SOURCE_WORDS = require('../data/poetic-word-sources/india.json');

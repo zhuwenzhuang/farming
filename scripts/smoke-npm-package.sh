@@ -112,6 +112,7 @@ for runtime_module in \
   farming-net-pass \
   farming-net-registry \
   git-worktree-info \
+  haiku-token \
   input-parts \
   input-routing \
   index-html \

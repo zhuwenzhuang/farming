@@ -5,7 +5,7 @@ const {
   generateIndianHaikuToken,
   generateJapaneseHaikuToken,
   getPoeticTokenEntropyBits,
-} = require('../backend/haiku-token');
+} = require('../backend/haiku-token.cjs');
 
 const SOURCES = [
   { key: 'china', locale: 'zh', label: 'China', generate: generateChineseHaikuToken },

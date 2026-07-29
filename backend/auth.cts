@@ -1,5 +1,11 @@
 const crypto = require('crypto');
 const fs = require('fs');
+import {
+  createPoeticToken,
+  generatePoeticToken,
+  getPoeticTokenEntropyBits,
+  type CreatedPoeticToken,
+} from './haiku-token.cjs';
 
 interface FarmingNetPassVerifierLike {
   verify(pass: unknown): { valid: boolean };
@@ -10,26 +16,11 @@ const { FarmingNetPassVerifier, PASS_QUERY_PARAM } = require('./farming-net-pass
   PASS_QUERY_PARAM: string;
 };
 
-interface PoeticTokenInfo extends Record<string, unknown> {
-  entropyBits: number;
-  source: string;
-  style: string;
-  token: string;
+interface PoeticTokenInfo extends Omit<CreatedPoeticToken, 'locale' | 'style'> {
+  locale?: CreatedPoeticToken['locale'];
+  style: CreatedPoeticToken['style'] | 'configured' | 'persisted';
 }
 
-const {
-  createPoeticToken,
-  generatePoeticToken,
-  getPoeticTokenEntropyBits,
-} = require('./haiku-token') as {
-  createPoeticToken(options: {
-    env: NodeJS.ProcessEnv;
-    locale?: unknown;
-    timeZone?: string;
-  }): PoeticTokenInfo;
-  generatePoeticToken(...args: unknown[]): unknown;
-  getPoeticTokenEntropyBits(...args: unknown[]): number;
-};
 const storageLayout = require('./storage-layout.cjs');
 
 interface TokenAuthOptions {
