@@ -5,12 +5,53 @@ const { promisify } = require('util');
 const zlib = require('zlib');
 const storageLayout = require('./storage-layout.cjs');
 
-const gzip = promisify(zlib.gzip);
-const gunzip = promisify(zlib.gunzip);
+type Gzip = (data: Buffer, options: { level: number }) => Promise<Buffer>;
+type Gunzip = (data: Buffer) => Promise<Buffer>;
+
+interface AcpCheckpointIdentity {
+  cwd: string;
+  provider: string;
+  providerHomeId: string;
+  sessionId: string;
+}
+
+interface AcpCheckpointState {
+  exportCheckpoint(): unknown;
+}
+
+interface PendingCheckpoint {
+  exact: boolean;
+  identity: AcpCheckpointIdentity;
+  state: AcpCheckpointState;
+  timer: NodeJS.Timeout | null;
+}
+
+interface AcpCheckpointPaths {
+  checkpoint: string;
+  dirty: string;
+  key: string;
+}
+
+interface AcpCheckpointLoadResult {
+  exact: boolean;
+  savedAt: number;
+  state: unknown;
+}
+
+const gzip = promisify(zlib.gzip) as unknown as Gzip;
+const gunzip = promisify(zlib.gunzip) as unknown as Gunzip;
 const CHECKPOINT_VERSION = 1;
 const DEFAULT_WRITE_DELAY_MS = 250;
 
-async function durableWrite(file, data) {
+function isObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function errorCode(error: unknown): string {
+  return error instanceof Error && 'code' in error ? String(error.code) : '';
+}
+
+async function durableWrite(file: string, data: string | Buffer): Promise<void> {
   const handle = await fs.open(file, 'w');
   try {
     await handle.writeFile(data);
@@ -20,7 +61,7 @@ async function durableWrite(file, data) {
   }
 }
 
-async function syncDirectory(directory) {
+async function syncDirectory(directory: string): Promise<void> {
   const handle = await fs.open(directory, 'r');
   try {
     await handle.sync();
@@ -29,36 +70,42 @@ async function syncDirectory(directory) {
   }
 }
 
-function normalizeIdentity(value = {}) {
+function normalizeIdentity(value: unknown = {}): AcpCheckpointIdentity {
+  const candidate = isObject(value) ? value : {};
   return {
-    provider: String(value.provider || '').trim().toLowerCase(),
-    providerHomeId: String(value.providerHomeId || 'default').trim() || 'default',
-    sessionId: String(value.sessionId || '').trim(),
-    cwd: path.resolve(String(value.cwd || process.cwd())),
+    provider: String(candidate.provider || '').trim().toLowerCase(),
+    providerHomeId: String(candidate.providerHomeId || 'default').trim() || 'default',
+    sessionId: String(candidate.sessionId || '').trim(),
+    cwd: path.resolve(String(candidate.cwd || process.cwd())),
   };
 }
 
-function checkpointKey(identity) {
+function checkpointKey(identity: unknown): string {
   return crypto.createHash('sha256')
     .update(JSON.stringify(normalizeIdentity(identity)))
     .digest('hex');
 }
 
-function sameIdentity(left, right) {
+function sameIdentity(left: unknown, right: unknown): boolean {
   return JSON.stringify(normalizeIdentity(left)) === JSON.stringify(normalizeIdentity(right));
 }
 
 class AcpCheckpointStore {
-  constructor(configDir, options = {}) {
+  dir: string;
+  writeDelayMs: number;
+  pending: Map<string, PendingCheckpoint>;
+  writeChains: Map<string, Promise<void>>;
+
+  constructor(configDir: string, options: { writeDelayMs?: unknown } = {}) {
     this.dir = storageLayout.acpCheckpointsDir(configDir);
     this.writeDelayMs = Number.isFinite(Number(options.writeDelayMs))
       ? Math.max(0, Math.floor(Number(options.writeDelayMs)))
       : DEFAULT_WRITE_DELAY_MS;
-    this.pending = new Map();
-    this.writeChains = new Map();
+    this.pending = new Map<string, PendingCheckpoint>();
+    this.writeChains = new Map<string, Promise<void>>();
   }
 
-  paths(identity) {
+  paths(identity: unknown): AcpCheckpointPaths {
     const key = checkpointKey(identity);
     return {
       key,
@@ -67,7 +114,7 @@ class AcpCheckpointStore {
     };
   }
 
-  enqueue(key, operation) {
+  enqueue(key: string, operation: () => Promise<void>): Promise<void> {
     const previous = this.writeChains.get(key) || Promise.resolve();
     const next = previous.catch(() => {}).then(operation);
     this.writeChains.set(key, next);
@@ -79,7 +126,10 @@ class AcpCheckpointStore {
     return next;
   }
 
-  async load(identity, options = {}) {
+  async load(
+    identity: unknown,
+    options: { allowDirty?: boolean } = {},
+  ): Promise<AcpCheckpointLoadResult | null> {
     const normalized = normalizeIdentity(identity);
     if (!normalized.provider || !normalized.sessionId) return null;
     const files = this.paths(normalized);
@@ -90,23 +140,24 @@ class AcpCheckpointStore {
         fs.readFile(files.checkpoint),
         fs.access(files.dirty).then(() => true).catch(() => false),
       ]);
-      const payload = JSON.parse((await gunzip(compressed)).toString('utf8'));
+      const payload: unknown = JSON.parse((await gunzip(compressed)).toString('utf8'));
       if (
-        payload?.version !== CHECKPOINT_VERSION
+        !isObject(payload)
+        || payload.version !== CHECKPOINT_VERSION
         || !sameIdentity(payload.identity, normalized)
         || !payload.state
       ) return null;
       if (dirty && options.allowDirty !== true) return null;
       return { state: payload.state, exact: !dirty, savedAt: Number(payload.savedAt || 0) };
-    } catch (error) {
-      if (error?.code !== 'ENOENT') {
-        console.warn('Failed to read ACP checkpoint:', error && (error.message || error));
+    } catch (error: unknown) {
+      if (errorCode(error) !== 'ENOENT') {
+        console.warn('Failed to read ACP checkpoint:', error instanceof Error ? error.message : error);
       }
       return null;
     }
   }
 
-  async markDirty(identity) {
+  async markDirty(identity: unknown): Promise<void> {
     const normalized = normalizeIdentity(identity);
     if (!normalized.provider || !normalized.sessionId) return;
     const files = this.paths(normalized);
@@ -120,13 +171,17 @@ class AcpCheckpointStore {
     });
   }
 
-  schedule(identity, state, options = {}) {
+  schedule(
+    identity: unknown,
+    state: AcpCheckpointState | null | undefined,
+    options: { exact?: boolean } = {},
+  ): void {
     const normalized = normalizeIdentity(identity);
     if (!normalized.provider || !normalized.sessionId || !state) return;
     const files = this.paths(normalized);
     const previous = this.pending.get(files.key);
     if (previous?.timer) clearTimeout(previous.timer);
-    const pending = {
+    const pending: PendingCheckpoint = {
       identity: normalized,
       state,
       exact: options.exact === true,
@@ -140,7 +195,11 @@ class AcpCheckpointStore {
     this.pending.set(files.key, pending);
   }
 
-  async write(identity, state, options = {}) {
+  async write(
+    identity: unknown,
+    state: AcpCheckpointState | null | undefined,
+    options: { exact?: boolean } = {},
+  ): Promise<void> {
     const normalized = normalizeIdentity(identity);
     if (!normalized.provider || !normalized.sessionId || !state) return;
     const files = this.paths(normalized);
@@ -175,7 +234,7 @@ class AcpCheckpointStore {
     });
   }
 
-  async flush() {
+  async flush(): Promise<void> {
     const pending = [...this.pending.values()];
     this.pending.clear();
     pending.forEach(item => {
@@ -185,12 +244,12 @@ class AcpCheckpointStore {
     await Promise.all([...this.writeChains.values()].map(write => write.catch(() => {})));
   }
 
-  async dispose() {
+  async dispose(): Promise<void> {
     await this.flush();
   }
 }
 
-module.exports = {
+export {
   AcpCheckpointStore,
   CHECKPOINT_VERSION,
   checkpointKey,

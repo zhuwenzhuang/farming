@@ -89,6 +89,7 @@ for runtime_module in \
   agent-env \
   agent-lifecycle-journal \
   agent-runtime-binding \
+  acp-checkpoint-store \
   async-cache \
   auth \
   atomic-json-store \

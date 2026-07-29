@@ -2,7 +2,7 @@ const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { AcpCheckpointStore } = require('../acp-checkpoint-store');
+const { AcpCheckpointStore } = require('../acp-checkpoint-store.cjs');
 const { AcpRuntime } = require('../acp-runtime');
 const { AcpSessionState } = require('../acp-session-state');
 
