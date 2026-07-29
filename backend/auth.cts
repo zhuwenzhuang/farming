@@ -1,23 +1,85 @@
 const crypto = require('crypto');
 const fs = require('fs');
-const { FarmingNetPassVerifier, PASS_QUERY_PARAM } = require('./farming-net-pass.cjs');
-const { createPoeticToken, generatePoeticToken, getPoeticTokenEntropyBits } = require('./haiku-token');
-const storageLayout = require('./storage-layout.cjs');
 
-function normalizeBasePath(basePath) {
-  if (!basePath || basePath === '/') return '';
-  return basePath.endsWith('/') ? basePath.slice(0, -1) : basePath;
+interface FarmingNetPassVerifierLike {
+  verify(pass: unknown): { valid: boolean };
 }
 
-function isTruthyEnv(value) {
+const { FarmingNetPassVerifier, PASS_QUERY_PARAM } = require('./farming-net-pass.cjs') as {
+  FarmingNetPassVerifier: new (options: { trustFile: string }) => FarmingNetPassVerifierLike;
+  PASS_QUERY_PARAM: string;
+};
+
+interface PoeticTokenInfo extends Record<string, unknown> {
+  entropyBits: number;
+  source: string;
+  style: string;
+  token: string;
+}
+
+const {
+  createPoeticToken,
+  generatePoeticToken,
+  getPoeticTokenEntropyBits,
+} = require('./haiku-token') as {
+  createPoeticToken(options: {
+    env: NodeJS.ProcessEnv;
+    locale?: unknown;
+    timeZone?: string;
+  }): PoeticTokenInfo;
+  generatePoeticToken(...args: unknown[]): unknown;
+  getPoeticTokenEntropyBits(...args: unknown[]): number;
+};
+const storageLayout = require('./storage-layout.cjs');
+
+interface TokenAuthOptions {
+  basePath?: string;
+  cookieName?: unknown;
+  cookiePath?: unknown;
+  disabled?: boolean;
+  env?: NodeJS.ProcessEnv;
+  farmingDir?: string;
+  farmingNetPassVerifier?: FarmingNetPassVerifierLike | false;
+  farmingNetTrustFile?: string;
+  redirectQueryToken?: boolean;
+  timeZone?: string;
+  token?: unknown;
+  tokenLocale?: unknown;
+}
+
+interface AuthRequest {
+  headers: {
+    cookie?: string;
+    host?: string;
+  };
+  method?: string;
+  url?: string;
+}
+
+interface AuthResponse {
+  end(body?: string): void;
+  setHeader(name: string, value: string): void;
+  writeHead(statusCode: number, headers?: Record<string, string>): void;
+}
+
+type AuthNext = () => unknown;
+type AuthMiddleware = (req: AuthRequest, res: AuthResponse, next: AuthNext) => unknown;
+
+function normalizeBasePath(basePath: unknown): string {
+  const normalized = String(basePath || '');
+  if (!normalized || normalized === '/') return '';
+  return normalized.endsWith('/') ? normalized.slice(0, -1) : normalized;
+}
+
+function isTruthyEnv(value: unknown): boolean {
   return ['1', 'true', 'yes', 'on'].includes(String(value || '').toLowerCase());
 }
 
-function encodeCookieToken(token) {
-  return encodeURIComponent(token);
+function encodeCookieToken(token: unknown): string {
+  return encodeURIComponent(String(token));
 }
 
-function decodeCookieToken(token) {
+function decodeCookieToken(token: string): string {
   try {
     return decodeURIComponent(token);
   } catch {
@@ -25,22 +87,22 @@ function decodeCookieToken(token) {
   }
 }
 
-function normalizeCookieName(value) {
+function normalizeCookieName(value: unknown): string {
   const cookieName = String(value || '').trim();
   return /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(cookieName) ? cookieName : 'farming_token';
 }
 
-function normalizeCookiePath(value) {
+function normalizeCookiePath(value: unknown): string {
   const cookiePath = String(value || '/').trim();
   if (!cookiePath.startsWith('/') || /[;\r\n]/.test(cookiePath)) return '/';
   return cookiePath;
 }
 
-function escapeRegExp(value) {
+function escapeRegExp(value: unknown): string {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function readExistingTokenFile(tokenFile) {
+function readExistingTokenFile(tokenFile: string): string {
   try {
     const token = fs.readFileSync(tokenFile, 'utf8').trim();
     return token || '';
@@ -50,7 +112,18 @@ function readExistingTokenFile(tokenFile) {
 }
 
 class TokenAuth {
-  constructor(options = {}) {
+  disabled: boolean;
+  basePath: string;
+  authStatusPath: string;
+  cookieName: string;
+  cookiePath: string;
+  redirectQueryToken: boolean;
+  tokenFile: string;
+  token: string;
+  tokenInfo: PoeticTokenInfo | null;
+  farmingNetPassVerifier: FarmingNetPassVerifierLike | null;
+
+  constructor(options: TokenAuthOptions = {}) {
     const authEnv = options.env || process.env;
     this.disabled = options.disabled === true || isTruthyEnv(authEnv.FARMING_DISABLE_AUTH);
     this.basePath = normalizeBasePath(options.basePath || '/');
@@ -105,36 +178,36 @@ class TokenAuth {
     this.saveTokenFile();
   }
 
-  saveTokenFile() {
+  saveTokenFile(): void {
     if (this.disabled || !this.tokenFile) return;
     fs.writeFileSync(this.tokenFile, this.token, { mode: 0o600 });
   }
 
-  isEnabled() {
+  isEnabled(): boolean {
     return !this.disabled;
   }
 
-  getToken() {
+  getToken(): string {
     return this.token;
   }
 
-  getTokenFile() {
+  getTokenFile(): string {
     return this.tokenFile;
   }
 
-  getTokenInfo() {
+  getTokenInfo(): PoeticTokenInfo | null {
     return this.tokenInfo;
   }
 
-  getCookieName() {
+  getCookieName(): string {
     return this.cookieName;
   }
 
-  verify(token) {
+  verify(token: unknown): boolean {
     if (this.disabled) return true;
     if (!token || !this.token) return false;
     try {
-      const a = Buffer.from(token);
+      const a = Buffer.from(String(token));
       const b = Buffer.from(this.token);
       if (a.length !== b.length) return false;
       return crypto.timingSafeEqual(a, b);
@@ -143,7 +216,7 @@ class TokenAuth {
     }
   }
 
-  extractToken(req) {
+  extractToken(req: AuthRequest): string | null {
     const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
     const queryToken = url.searchParams.get('token');
     if (queryToken) return queryToken;
@@ -151,7 +224,7 @@ class TokenAuth {
     return this.extractCookieToken(req);
   }
 
-  extractCookieToken(req) {
+  extractCookieToken(req: AuthRequest): string | null {
     const cookies = req.headers.cookie || '';
     const match = cookies.match(new RegExp(`(?:^|;\\s*)${escapeRegExp(this.cookieName)}=([^;]+)`));
     if (match) return decodeCookieToken(match[1]);
@@ -159,12 +232,12 @@ class TokenAuth {
     return null;
   }
 
-  setAuthenticatedCookie(res) {
+  setAuthenticatedCookie(res: AuthResponse): void {
     res.setHeader('Set-Cookie',
       `${this.cookieName}=${encodeCookieToken(this.token)}; Path=${this.cookiePath}; HttpOnly; SameSite=Lax`);
   }
 
-  redirectWithoutQueryParameter(res, url, parameter) {
+  redirectWithoutQueryParameter(res: AuthResponse, url: URL, parameter: string): void {
     url.searchParams.delete(parameter);
     const search = url.searchParams.toString();
     res.writeHead(302, {
@@ -174,7 +247,7 @@ class TokenAuth {
     res.end();
   }
 
-  middleware() {
+  middleware(): AuthMiddleware {
     return (req, res, next) => {
       if (this.disabled) return next();
 
@@ -228,13 +301,13 @@ class TokenAuth {
     };
   }
 
-  verifyWebSocket(req) {
+  verifyWebSocket(req: AuthRequest): boolean {
     if (this.disabled) return true;
     const token = this.extractToken(req);
     return token !== null && this.verify(token);
   }
 
-  cleanup(options = {}) {
+  cleanup(options: { removeTokenFile?: boolean } = {}): void {
     if (options.removeTokenFile !== true) return;
     try {
       fs.unlinkSync(this.tokenFile);
@@ -244,8 +317,10 @@ class TokenAuth {
   }
 }
 
-module.exports = TokenAuth;
-module.exports.generatePoeticToken = generatePoeticToken;
-module.exports.getPoeticTokenEntropyBits = getPoeticTokenEntropyBits;
-module.exports.encodeCookieToken = encodeCookieToken;
-module.exports.decodeCookieToken = decodeCookieToken;
+export {
+  TokenAuth,
+  decodeCookieToken,
+  encodeCookieToken,
+  generatePoeticToken,
+  getPoeticTokenEntropyBits,
+};

@@ -90,6 +90,7 @@ for runtime_module in \
   agent-lifecycle-journal \
   agent-runtime-binding \
   async-cache \
+  auth \
   atomic-json-store \
   business-health \
   chat-runtime \

@@ -4,7 +4,7 @@ const fs = require('fs');
 const http = require('http');
 const os = require('os');
 const path = require('path');
-const TokenAuth = require('./auth');
+const { TokenAuth } = require('./auth.cjs');
 const {
   createFarmingNetPass,
   loadOrCreateFarmingNetSigningIdentity,

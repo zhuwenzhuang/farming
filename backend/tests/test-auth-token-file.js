@@ -2,8 +2,11 @@ const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const TokenAuth = require('../auth');
-const { encodeCookieToken, getPoeticTokenEntropyBits } = require('../auth');
+const {
+  TokenAuth,
+  encodeCookieToken,
+  getPoeticTokenEntropyBits,
+} = require('../auth.cjs');
 
 function run() {
   const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-auth-'));
