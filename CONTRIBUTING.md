@@ -43,11 +43,16 @@ npm run docs:product:screenshots
 
 ## Documentation
 
-Update docs in the same change when behavior, packaging, configuration, or visible product flows change.
+Update the canonical document for the affected reader:
 
-- Root project overview: `README.md` and `README.zh_cn.md`
-- Agent development guide: `AGENTS.md` and `AGENTS.zh_cn.md`
-- Farming Code product docs: `docs/products/code/README.md` and `docs/products/code/README.zh_cn.md`
+- product entry point: `README.md` and `README.zh_cn.md`
+- user documentation: the task and product pages linked from `docs/README.md`
+- product landing pages: `docs/products/*/README.md`
+- implementation architecture and verification: `docs/development/`
+- Agent engineering rules: `AGENTS.md` and `AGENTS.zh_cn.md`
+
+Do not add implementation details to a README unless they are required to
+understand the product, install it, or choose the next document.
 
 Do not add public chat transcripts or temporary debugging notes to the repository.
 

@@ -20,6 +20,14 @@ function createBrowserRouter(manager, workspaceRootRegistry) {
     }
   });
 
+  router.post('/install', async (_req, res) => {
+    try {
+      res.json(await manager.installManagedChromium());
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+
   router.get('/', (_req, res) => {
     try {
       res.json(manager.snapshot());

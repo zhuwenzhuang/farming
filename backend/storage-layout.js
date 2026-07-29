@@ -73,6 +73,18 @@ function runtimeDependenciesLockDir(configDir) {
   return path.join(runtimeDependenciesDir(configDir), '.prepare.lock');
 }
 
+function managedChromiumRootDir(configDir) {
+  return path.join(runtimeDependenciesDir(configDir), 'chromium');
+}
+
+function managedChromiumVersionDir(configDir, agentBrowserVersion, platformKey) {
+  return path.join(managedChromiumRootDir(configDir), agentBrowserVersion, platformKey);
+}
+
+function managedChromiumInstallLockDir(configDir) {
+  return path.join(managedChromiumRootDir(configDir), '.install.lock');
+}
+
 function farmingAgentBootstrapFile(configDir) {
   return path.join(configDir, 'farming-agent-bootstrap.zh_cn.md');
 }
@@ -164,6 +176,9 @@ module.exports = {
   farmingNetTrustFile,
   farmingConfigDir,
   historyDir,
+  managedChromiumInstallLockDir,
+  managedChromiumRootDir,
+  managedChromiumVersionDir,
   runtimeDependenciesActiveFile,
   runtimeDependenciesDir,
   runtimeDependenciesLockDir,

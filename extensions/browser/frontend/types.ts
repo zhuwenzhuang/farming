@@ -22,10 +22,17 @@ export interface BrowserCapability {
   available: boolean
   browser: { kind: string; path: string } | null
   selection?: {
-    source: 'external-cdp' | 'system'
+    source: 'external-cdp' | 'managed' | 'system'
     executablePath: string
     externalCdpUrl: string
   }
   options?: Array<{ kind: string; path: string }>
+  installation: {
+    state: 'absent' | 'failed' | 'installing' | 'ready'
+    agentBrowserVersion: string
+    installedVersion: string
+    updateAvailable: boolean
+    error: string
+  }
   message: string
 }

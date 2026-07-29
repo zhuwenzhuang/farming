@@ -55,6 +55,8 @@ function run() {
     assert.strictEqual(manager.getSettings().browserExternalCdpUrl, 'http://127.0.0.1:9333');
     manager.updateSettings({ browserSource: 'invalid' });
     assert.strictEqual(manager.getSettings().browserSource, 'system');
+    manager.updateSettings({ browserSource: 'managed' });
+    assert.strictEqual(manager.getSettings().browserSource, 'managed');
     manager.updateSettings({ browserExtensionEnabled: true });
     assert.strictEqual(manager.getSettings().browserExtensionEnabled, true);
     manager.updateSettings({ browserExtensionEnabled: false });

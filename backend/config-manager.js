@@ -600,7 +600,7 @@ class ConfigManager {
   }
 
   normalizeBrowserSource(source) {
-    return source === 'external-cdp' ? source : 'system';
+    return ['external-cdp', 'managed'].includes(source) ? source : 'system';
   }
 
   normalizeBrowserSetting(value) {

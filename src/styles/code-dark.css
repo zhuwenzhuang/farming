@@ -470,7 +470,8 @@ body.code-mode[data-appearance='dark'] .code-plugin-browser-settings label {
 
 body.code-mode[data-appearance='dark'] .code-plugin-browser-settings select,
 body.code-mode[data-appearance='dark'] .code-plugin-browser-settings input,
-body.code-mode[data-appearance='dark'] .code-plugin-browser-apply {
+body.code-mode[data-appearance='dark'] .code-plugin-browser-apply,
+body.code-mode[data-appearance='dark'] .code-plugin-browser-install {
   border-color: var(--code-dark-border);
   background: rgba(22, 27, 34, 0.66);
   color: var(--code-dark-text-soft);
@@ -486,7 +487,9 @@ body.code-mode[data-appearance='dark'] .code-plugin-browser-settings option {
 }
 
 body.code-mode[data-appearance='dark'] .code-plugin-browser-apply:hover:not(:disabled),
-body.code-mode[data-appearance='dark'] .code-plugin-browser-apply:focus-visible:not(:disabled) {
+body.code-mode[data-appearance='dark'] .code-plugin-browser-apply:focus-visible:not(:disabled),
+body.code-mode[data-appearance='dark'] .code-plugin-browser-install:hover:not(:disabled),
+body.code-mode[data-appearance='dark'] .code-plugin-browser-install:focus-visible:not(:disabled) {
   background: var(--code-dark-bg-hover);
 }
 

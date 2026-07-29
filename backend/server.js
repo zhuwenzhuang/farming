@@ -2255,7 +2255,7 @@ app.post(routePath(BASE_PATH, '/api/settings'), express.json(), async (req, res)
     ) {
       res.status(400).json({
         error: probe.runtimeCapability?.error
-          || 'Install a Chromium-based browser or configure a loopback external CDP endpoint',
+          || 'Install Farming-managed Chromium, choose a system Chromium browser, or configure a loopback external CDP endpoint',
         code: 'BROWSER_EXECUTABLE_NOT_FOUND',
       });
       return;

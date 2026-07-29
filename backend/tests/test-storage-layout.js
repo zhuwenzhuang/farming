@@ -40,6 +40,18 @@ function run() {
       path.join(configDir, 'runtimes', '.prepare.lock'),
     );
     assert.strictEqual(
+      storageLayout.managedChromiumRootDir(configDir),
+      path.join(configDir, 'runtimes', 'chromium'),
+    );
+    assert.strictEqual(
+      storageLayout.managedChromiumVersionDir(configDir, '0.32.3', 'linux-x64'),
+      path.join(configDir, 'runtimes', 'chromium', '0.32.3', 'linux-x64'),
+    );
+    assert.strictEqual(
+      storageLayout.managedChromiumInstallLockDir(configDir),
+      path.join(configDir, 'runtimes', 'chromium', '.install.lock'),
+    );
+    assert.strictEqual(
       storageLayout.farmingAgentBootstrapFile(configDir),
       path.join(configDir, 'farming-agent-bootstrap.zh_cn.md'),
     );

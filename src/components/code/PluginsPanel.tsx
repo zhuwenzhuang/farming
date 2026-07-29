@@ -64,18 +64,27 @@ function pluginCopy(language: UiLanguage) {
     unavailable: zh ? '未就绪' : 'Not ready',
     checking: zh ? '正在检查…' : 'Checking…',
     systemBrowser: zh ? '系统 Chromium' : 'System Chromium',
+    managedBrowser: zh ? 'Farming 内置 Chromium' : 'Farming-managed Chromium',
+    managedBrowserNotInstalled: zh ? 'Farming 内置 Chromium（未安装）' : 'Farming-managed Chromium (not installed)',
     externalBrowser: zh ? '外部 CDP' : 'External CDP',
     browserChoice: zh ? '浏览器来源' : 'Browser source',
-    automaticBrowser: zh ? '自动选择系统浏览器' : 'Choose system browser automatically',
+    automaticBrowser: zh ? '自动选择可用 Chromium' : 'Choose an available Chromium automatically',
     externalCdpAddress: zh ? 'CDP 地址' : 'CDP address',
     externalCdpPlaceholder: 'http://127.0.0.1:9222',
     applyBrowser: zh ? '应用' : 'Apply',
+    installManagedBrowser: zh ? '安装内置 Chromium' : 'Install managed Chromium',
+    updateManagedBrowser: zh ? '更新内置 Chromium' : 'Update managed Chromium',
+    installingManagedBrowser: zh ? '正在安装…' : 'Installing…',
+    managedBrowserInstallHint: zh
+      ? '按需从 Chrome for Testing 下载；macOS arm64 当前约 178 MB，实际大小随平台和版本变化。文件只保存在 Farming 运行时目录。'
+      : 'Downloads Chrome for Testing on demand; macOS arm64 is currently about 178 MB, and size varies by platform and version. Files stay in Farming runtime storage.',
+    managedBrowserInstallFailed: zh ? '内置 Chromium 安装失败' : 'Failed to install managed Chromium',
     browserChangeHint: zh
       ? '切换后，正在运行的浏览器会停止。'
       : 'Changing this stops running Browsers.',
     unavailableHint: zh
-      ? '需要兼容的 Chromium 浏览器，或本机回环地址上的外部 CDP。'
-      : 'Requires a compatible Chromium browser or an external CDP endpoint on loopback.',
+      ? '可以安装 Farming 内置 Chromium、选择系统浏览器，或使用本机回环地址上的外部 CDP。'
+      : 'Install Farming-managed Chromium, choose a system browser, or use an external CDP endpoint on loopback.',
     enable: zh ? '启用' : 'Enable',
     disable: zh ? '停用' : 'Disable',
     saveFailed: zh ? '浏览器插件设置保存失败' : 'Failed to save Browser plugin settings',
@@ -84,6 +93,7 @@ function pluginCopy(language: UiLanguage) {
 
 function browserSource(capability: BrowserCapability | null, copy: ReturnType<typeof pluginCopy>) {
   if (!capability?.browser) return ''
+  if (capability.browser.kind === 'managed-chromium') return copy.managedBrowser
   return capability.browser.kind === 'external-cdp' ? copy.externalBrowser : copy.systemBrowser
 }
 
@@ -91,6 +101,7 @@ function browserKindName(kind: string) {
   if (kind === 'chrome') return 'Google Chrome'
   if (kind === 'brave') return 'Brave'
   if (kind === 'edge') return 'Microsoft Edge'
+  if (kind === 'managed-chromium') return 'Farming Chromium'
   if (kind === 'chromium') return 'Chromium'
   return 'Chromium'
 }
@@ -149,6 +160,7 @@ export function PluginsPanel({
   const copy = useMemo(() => pluginCopy(language), [language])
   const [enabled, setEnabled] = useState(capability?.enabled === true)
   const [saving, setSaving] = useState(false)
+  const [installing, setInstalling] = useState(false)
   const [error, setError] = useState('')
   const [browserChoice, setBrowserChoice] = useState('system:')
   const [externalCdpUrl, setExternalCdpUrl] = useState('http://127.0.0.1:9222')
@@ -164,7 +176,9 @@ export function PluginsPanel({
     const selection = capability.selection
     setBrowserChoice(selection?.source === 'external-cdp'
       ? 'external-cdp'
-      : `system:${selection?.executablePath || ''}`)
+      : selection?.source === 'managed'
+        ? 'managed'
+        : `system:${selection?.executablePath || ''}`)
     setExternalCdpUrl(selection?.externalCdpUrl || 'http://127.0.0.1:9222')
   }, [capability])
 
@@ -248,7 +262,11 @@ export function PluginsPanel({
 
   const saveBrowserChoice = async () => {
     if (saving || !browserChoiceDirty) return
-    const source = browserChoice === 'external-cdp' ? 'external-cdp' : 'system'
+    const source = browserChoice === 'external-cdp'
+      ? 'external-cdp'
+      : browserChoice === 'managed'
+        ? 'managed'
+        : 'system'
     const executablePath = source === 'system' ? browserChoice.slice('system:'.length) : ''
     setSaving(true)
     setError('')
@@ -273,10 +291,41 @@ export function PluginsPanel({
     }
   }
 
+  const installManagedBrowser = async () => {
+    if (installing) return
+    setInstalling(true)
+    setError('')
+    try {
+      const response = await fetch(appPath('/api/browsers/install'), {
+        method: 'POST',
+        headers: { Accept: 'application/json' },
+      })
+      const data = await response.json().catch(() => ({})) as { error?: string }
+      if (!response.ok) throw new Error(data.error || copy.managedBrowserInstallFailed)
+      onRefreshCapability()
+    } catch (installError) {
+      setError(installError instanceof Error ? installError.message : copy.managedBrowserInstallFailed)
+      onRefreshCapability()
+    } finally {
+      setInstalling(false)
+    }
+  }
+
   const browserReady = Boolean(capability?.browser)
   const savedBrowserChoice = capability?.selection?.source === 'external-cdp'
     ? 'external-cdp'
-    : `system:${capability?.selection?.executablePath || ''}`
+    : capability?.selection?.source === 'managed'
+      ? 'managed'
+      : `system:${capability?.selection?.executablePath || ''}`
+  const installation = capability?.installation
+  const managedBrowserReady = installation?.state === 'ready'
+  const managedBrowserInstalling = installing || installation?.state === 'installing'
+  const showManagedBrowserInstall = managedBrowserInstalling
+    || installation?.updateAvailable === true
+    || (
+      !browserReady
+      && (installation?.state === 'absent' || installation?.state === 'failed')
+    )
   const browserChoiceDirty = browserChoice !== savedBrowserChoice
     || (
       browserChoice === 'external-cdp'
@@ -322,7 +371,7 @@ export function PluginsPanel({
                 <span>{copy.browserChoice}</span>
                 <select
                   value={browserChoice}
-                  disabled={saving}
+                  disabled={saving || managedBrowserInstalling}
                   onChange={event => {
                     browserChoiceDirtyRef.current = true
                     setBrowserChoice(event.target.value)
@@ -330,11 +379,14 @@ export function PluginsPanel({
                   }}
                 >
                   <option value="system:">{copy.automaticBrowser}</option>
-                  {(capability?.options || []).map(option => (
+                  {(capability?.options || []).filter(option => option.kind !== 'managed-chromium').map(option => (
                     <option key={option.path} value={`system:${option.path}`}>
                       {browserKindName(option.kind)}
                     </option>
                   ))}
+                  <option value="managed" disabled={!managedBrowserReady}>
+                    {managedBrowserReady ? copy.managedBrowser : copy.managedBrowserNotInstalled}
+                  </option>
                   <option value="external-cdp">{copy.externalBrowser}</option>
                 </select>
               </label>
@@ -345,7 +397,7 @@ export function PluginsPanel({
                     type="url"
                     value={externalCdpUrl}
                     placeholder={copy.externalCdpPlaceholder}
-                    disabled={saving}
+                    disabled={saving || managedBrowserInstalling}
                     onChange={event => {
                       browserChoiceDirtyRef.current = true
                       setExternalCdpUrl(event.target.value)
@@ -357,24 +409,41 @@ export function PluginsPanel({
               <button
                 type="button"
                 className="code-plugin-browser-apply"
-                disabled={saving || !browserChoiceDirty}
+                disabled={saving || managedBrowserInstalling || !browserChoiceDirty}
                 onClick={() => void saveBrowserChoice()}
               >
                 {copy.applyBrowser}
               </button>
+              {showManagedBrowserInstall ? (
+                <button
+                  type="button"
+                  className="code-plugin-browser-install"
+                  disabled={managedBrowserInstalling}
+                  onClick={() => void installManagedBrowser()}
+                >
+                  {managedBrowserInstalling
+                    ? copy.installingManagedBrowser
+                    : installation?.updateAvailable
+                      ? copy.updateManagedBrowser
+                      : copy.installManagedBrowser}
+                </button>
+              ) : null}
             </div>
             <small>
               {browserReady ? browserSource(capability, copy) : copy.unavailableHint}
               {' · '}
               {copy.browserChangeHint}
             </small>
-            {error && <div className="code-plugin-error" role="alert">{error}</div>}
+            {showManagedBrowserInstall ? <small>{copy.managedBrowserInstallHint}</small> : null}
+            {(error || installation?.error) && (
+              <div className="code-plugin-error" role="alert">{error || installation?.error}</div>
+            )}
           </div>
           <button
             type="button"
             className={`code-plugin-toggle ${enabled ? 'active' : ''}`}
             aria-pressed={enabled}
-            disabled={saving || (!browserReady && !enabled)}
+            disabled={saving || managedBrowserInstalling || (!browserReady && !enabled)}
             onClick={() => void toggleBrowser()}
           >
             {enabled ? copy.disable : copy.enable}

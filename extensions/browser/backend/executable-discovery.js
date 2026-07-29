@@ -109,10 +109,15 @@ function discoverWindowsBrowser(env) {
 function discoverBrowserExecutables(options = {}) {
   const env = options.env || process.env;
   const platform = options.platform || process.platform;
-  if (platform === 'darwin') return uniqueExecutables(macBrowserCandidates());
-  if (platform === 'linux') return uniqueExecutables(linuxBrowserCandidates());
-  if (platform === 'win32') return uniqueExecutables(windowsBrowserCandidates(env));
-  return [];
+  let candidates = [];
+  if (platform === 'darwin') candidates = macBrowserCandidates();
+  if (platform === 'linux') candidates = linuxBrowserCandidates();
+  if (platform === 'win32') candidates = windowsBrowserCandidates(env);
+  const managed = executable(options.managedBrowserPath, 'managed-chromium');
+  return [
+    ...uniqueExecutables(candidates),
+    ...(managed ? [managed] : []),
+  ];
 }
 
 function normalizeExternalCdpUrl(value) {
@@ -146,6 +151,13 @@ function discoverBrowserExecutable(options = {}) {
           error: 'External CDP must be a loopback http(s) or ws(s) endpoint without credentials or query parameters',
         };
   }
+  if (source === 'managed') {
+    return executable(options.managedBrowserPath, 'managed-chromium') || {
+      kind: 'managed-chromium',
+      path: String(options.managedBrowserPath || ''),
+      error: 'Install or update the Farming-managed Chromium for this agent-browser version',
+    };
+  }
   if (source === 'system') {
     const configuredPath = String(options.executablePath || '').trim();
     if (configuredPath) {
@@ -156,10 +168,11 @@ function discoverBrowserExecutable(options = {}) {
         error: 'The selected Chromium browser is no longer available',
       };
     }
-    if (platform === 'darwin') return discoverMacBrowser();
-    if (platform === 'linux') return discoverLinuxBrowser();
-    if (platform === 'win32') return discoverWindowsBrowser(env);
-    return null;
+    let systemBrowser = null;
+    if (platform === 'darwin') systemBrowser = discoverMacBrowser();
+    if (platform === 'linux') systemBrowser = discoverLinuxBrowser();
+    if (platform === 'win32') systemBrowser = discoverWindowsBrowser(env);
+    return systemBrowser || executable(options.managedBrowserPath, 'managed-chromium');
   }
   const externalCdpInput = String(options.externalCdpUrl || env.FARMING_BROWSER_CDP_URL || '').trim();
   if (externalCdpInput) {
@@ -177,10 +190,11 @@ function discoverBrowserExecutable(options = {}) {
   if (configured) {
     return executable(path.resolve(configured), 'custom');
   }
-  if (platform === 'darwin') return discoverMacBrowser();
-  if (platform === 'linux') return discoverLinuxBrowser();
-  if (platform === 'win32') return discoverWindowsBrowser(env);
-  return null;
+  let systemBrowser = null;
+  if (platform === 'darwin') systemBrowser = discoverMacBrowser();
+  if (platform === 'linux') systemBrowser = discoverLinuxBrowser();
+  if (platform === 'win32') systemBrowser = discoverWindowsBrowser(env);
+  return systemBrowser || executable(options.managedBrowserPath, 'managed-chromium');
 }
 
 async function discoverBrowserRuntime(options = {}) {

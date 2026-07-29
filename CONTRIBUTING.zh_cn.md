@@ -43,11 +43,15 @@ npm run docs:product:screenshots
 
 ## 文档同步
 
-当行为、打包方式、配置或用户可见流程变化时，请在同一个改动中更新相关文档。
+请按受影响的读者更新权威文档：
 
-- 根项目介绍：`README.md` 和 `README.zh_cn.md`
-- Agent 开发说明：`AGENTS.md` 和 `AGENTS.zh_cn.md`
-- Farming Code 产品文档：`docs/products/code/README.md` 和 `docs/products/code/README.zh_cn.md`
+- 产品入口：`README.md` 和 `README.zh_cn.md`
+- 用户文档：`docs/README.md` 直接链接的任务页与产品页
+- 产品入口页：`docs/products/*/README.md`
+- 实现架构与验证：`docs/development/`
+- Agent 工程规则：`AGENTS.md` 和 `AGENTS.zh_cn.md`
+
+除非理解产品、完成安装或选择下一份文档确实需要，否则不要把实现细节写进 README。
 
 不要把公开聊天记录或临时调试记录加入仓库。
 

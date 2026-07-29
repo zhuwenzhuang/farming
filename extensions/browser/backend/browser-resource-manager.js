@@ -13,6 +13,7 @@ const {
   discoverBrowserExecutables,
   discoverBrowserRuntime,
 } = require('./executable-discovery');
+const { ManagedChromiumInstaller } = require('./managed-chromium-installer');
 
 const MAX_VIEWER_BUFFER_BYTES = 2 * 1024 * 1024;
 const VIEWER_RESIZE_SETTLE_MS = 80;
@@ -144,13 +145,23 @@ class BrowserResourceManager extends EventEmitter {
     super();
     this.configDir = options.configDir;
     this.store = options.store || new BrowserResourceStore(options.configDir);
+    this.chromiumInstaller = options.chromiumInstaller || new ManagedChromiumInstaller({
+      ...options,
+      configDir: this.configDir,
+    });
     this.discoverExecutable = options.discoverExecutable || (selection => discoverBrowserRuntime({
       ...options,
       ...selection,
       configDir: this.configDir,
+      managedBrowserPath: this.chromiumInstaller.browserOption()?.path || '',
     }));
     this.discoverBrowserOptions = options.discoverBrowserOptions
-      || (options.discoverExecutable ? () => [] : () => discoverBrowserExecutables(options));
+      || (options.discoverExecutable
+        ? () => []
+        : () => discoverBrowserExecutables({
+          ...options,
+          managedBrowserPath: this.chromiumInstaller.browserOption()?.path || '',
+        }));
     this.getBrowserSettings = typeof options.getBrowserSettings === 'function'
       ? options.getBrowserSettings
       : () => ({ browserSource: 'system', browserExecutablePath: '', browserExternalCdpUrl: '' });
@@ -303,17 +314,19 @@ class BrowserResourceManager extends EventEmitter {
       browser: runnable ? { kind: executable.kind, path: executable.path } : null,
       selection,
       options: this.browserOptions.map(option => ({ kind: option.kind, path: option.path })),
+      installation: this.chromiumInstaller.status(),
       message: !enabled
         ? 'Browser extension is disabled'
         : (executable?.error || (runnable
             ? ''
-            : 'Install agent-browser and a Chromium-based browser, or configure a loopback external CDP endpoint')),
+            : 'Install Farming-managed Chromium, choose a system Chromium browser, or configure a loopback external CDP endpoint')),
     };
   }
 
   browserSelection(settings = this.getBrowserSettings()) {
+    const source = settings?.browserSource;
     return {
-      source: settings?.browserSource === 'external-cdp' ? 'external-cdp' : 'system',
+      source: ['external-cdp', 'managed'].includes(source) ? source : 'system',
       executablePath: String(settings?.browserExecutablePath || ''),
       externalCdpUrl: String(settings?.browserExternalCdpUrl || 'http://127.0.0.1:9222'),
     };
@@ -336,6 +349,15 @@ class BrowserResourceManager extends EventEmitter {
     this.browserOptions = probe.browserOptions;
     this.runtimeCapability = probe.runtimeCapability;
     return this.runtimeCapability;
+  }
+
+  async installManagedChromium() {
+    if (this.disposed) {
+      throw browserError('Browser manager is stopping', 503, 'BROWSER_MANAGER_STOPPING');
+    }
+    await this.chromiumInstaller.install();
+    await this.refreshCapability();
+    return this.capability();
   }
 
   list() {
@@ -412,7 +434,7 @@ class BrowserResourceManager extends EventEmitter {
         const failed = this.store.update(id, {
           status: 'failed',
           error: executable?.error
-            || 'Install agent-browser and a Chromium-based browser, or configure a loopback external CDP endpoint',
+            || 'Install Farming-managed Chromium, choose a system Chromium browser, or configure a loopback external CDP endpoint',
         });
         this.emitResource(failed);
         throw browserError(failed.error, 503, 'BROWSER_EXECUTABLE_NOT_FOUND');
@@ -1012,7 +1034,7 @@ class BrowserResourceManager extends EventEmitter {
     const executable = this.runtimeCapability;
     if (!executable || executable.error) {
       throw browserError(
-        executable?.error || 'Install agent-browser and a Chromium-based browser, or configure a loopback external CDP endpoint',
+        executable?.error || 'Install Farming-managed Chromium, choose a system Chromium browser, or configure a loopback external CDP endpoint',
         503,
         'BROWSER_EXECUTABLE_NOT_FOUND',
       );

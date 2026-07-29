@@ -2,171 +2,25 @@
 
 > English version: [README.md](./README.md)
 
-Farming CRT 是 Farming 2 的键盘优先控制室。它不是旧的只读皮肤，也不是低保真 Fallback：它控制的是与 Farming Code 相同的 Live Agent、结构化 ACP Session、原生 PTY、Search、History、Settings 和 Usage Data。
+Farming CRT 是键盘优先的控制室界面，用来监控和控制多个 Agent。
 
 ![Farming CRT 控制台](assets/01-crt-dashboard.png)
 
-多个 Agent 同时运行、终端输出是主要信号，或者需要直接键盘导航时，可以使用 CRT。Files、Editing、工作区 Review 和手机访问请使用 [Farming Code](../code/README.zh_cn.md)。切换界面不会重启或复制 Agent。
+当 Terminal Output 和进行中的工作是主要信号时使用 CRT。Files、编辑、Review 和手机访问请使用 [Farming Code](../code/README.zh_cn.md)。两套界面打开的是同一批 Agent 和 Session。
 
-返回 Code 时，按 `S`（或选择 **[S] SETTINGS**），在 **UI Theme** 中选择 **Farming Code**。从 Code 进入 CRT 时，点击左下角齿轮，打开**界面**，选择 **Farming CRT**。条件允许时 Farming 会带上当前聚焦的 Agent，并继续使用同一个实时进程和 Provider Session。
+## 开始
 
-共享能力的完整矩阵见 [Farming 2 产品总览](../README.zh_cn.md)。
+在 Farming Code 中打开 **Settings → Interface**，选择 **Farming CRT**。在 CRT 中按 `S` 可以返回界面设置。
 
-## Dashboard 是实时控制室
+## 常用按键
 
-Agent Card 占据稳定机位，不会跟随 Activity 不断缩放。一到四个 Agent 使用 `2 × 2`，五到六个使用 `3 × 2`，七到九个使用 `3 × 3`；更多 Agent 每九个一页。小屏幕会先减少可用行或列，避免 Card 低于可读尺寸。
+| 按键 | 操作 |
+| --- | --- |
+| 方向键 / `Enter` | 选择并打开 Agent |
+| `N` | 启动 Agent |
+| `F` / `H` | Search / History |
+| `Ctrl+Escape` | 关闭当前 Chat 或 Terminal |
+| `Ctrl+K` | 停止当前 Agent |
+| `Alt+M` | 在支持的 Agent 上切换 Chat 与 Terminal |
 
-每张 Card 展示：
-
-- 用户 Rename、Provider Session Title、Terminal Title 或友好 Provider Name；
-- Running、Waiting、Unread 和可选 Heat 状态；
-- 配置后的 Project Name；
-- Bottom Aligned、ANSI Aware 且移除末尾无效空行的 Terminal Tail，或按顺序展示最多八条最近可见 Message 与当前 Tool Step 的紧凑 Chat Trail；Card 会根据当前 Grid Size 只裁掉最旧的溢出内容；
-- 稳定数字快捷标记。
-
-Dashboard 只表示实时工作面：Archived、Stopped 与 Dead Agent 不再占据 Grid 机位和数字快捷键；可恢复的 Run 或 Provider History 仍保留在 History。
-
-Top Bar 展示 Active Agent、Terminal Output Token Rate 估计、CPU/MEM、Host Identity、本地时间和 Uptime。Sidebar 保持 New Agent、Search、History、Billing、Settings 和可选 Main Agent 监督直接可达，同时不遮住 Grid。
-
-方向键移动反色选中，Enter 打开，Escape 退出当前 Console。在分页边界继续按 Up / Down 会进入上一页或下一页，并保留选中列。
-
-## 不离开 CRT 就能打开结构化 Chat
-
-Codex、Claude Code、OpenCode 和 Qoder ACP Session 会打开全屏磷光 Chat，而不是伪装成 PTY Output。
-
-![Farming CRT 结构化 Chat](assets/02-crt-structured-chat.png)
-
-History Replay 与 Live Entry 保持顺序。Transcript 显示 User / Agent Message，Composer 根据支持情况提供 Provider Command、Model / Mode Configuration、Token Usage、Attachment、Pasted Image、Permission Request、Queued Follow-up 和 Interrupt。
-
-Agent Reply 使用安全的 GitHub Flavored Markdown 渲染，包括 List、Table、Blockquote、Link、Inline Code、带语法高亮的 Fenced Code Block、KaTeX 公式和 Fenced Mermaid 图。Mermaid 只在消息确实包含图表时加载，使用 Strict Security Mode；非法图表会保留源码并显示有界错误。Raw HTML 不会执行。User Message 继续按原始文本展示，因此 Prompt 中的 Markdown 标点不会被重新排版。在 CRT 具备文件查看目标之前，Workspace Path Reference 仍保持普通 Markdown 文本或链接。Markdown 使用 CRT 现有字体与磷光主色。
-
-Composer 围绕终端式键盘使用设计：
-
-- Enter 发送，Shift+Enter 换行；
-- 中文 IME 确认不会被误判为提交；
-- Down 从 Draft 移动到 Control Strip；
-- Left/Right 选择 Control，Enter 打开有限高度的 Option；
-- Transcript 溢出时，Tab 聚焦，方向键翻页，Enter 回到最新消息；
-- Escape 返回一层，在 Session Root 关闭 Chat。
-
-只有 Focused Terminal Runtime 会挂载 xterm。结构化 Session 仍然保持原生结构化语义，Recovery Error 会显示在 Composer 内。
-
-## 打开真实 Terminal
-
-Terminal Session 使用全屏 xterm.js，保留原生 Keyboard、IME、ANSI Color、Scrollback、Selection、Copy 和全屏 TUI 行为。
-
-![Farming CRT 原生 Terminal](assets/03-crt-terminal.png)
-
-Terminal 会先恢复与当前尺寸匹配的 Backend Screen，再接收增量 Output。这对 OpenCode、Qoder 等全屏 CLI 很重要：重放任意 ANSI Tail 不是合法终端状态。
-
-普通 Escape 继续交给 Terminal Application；`Ctrl+Escape` 关闭 CRT Terminal，`Ctrl+K` Kill Agent。打开的 Terminal 要求产品 xterm WebGL2 路径，不会静默降级成低保真 Renderer。
-
-## 用 MSG / TTY 切换实际运行时
-
-兼容 Session Header 提供 `MSG` 和 `TTY`，并显示 `Alt+M` 快捷键。这会修改后端运行时，而不是只换表现：
-
-- `MSG` 重启到 ACP 结构化 Chat；
-- `TTY` 重启到 Native PTY CLI；
-- Provider Session Identity 已经形成时 Resume 同一个 Session；
-- Overlay 显示准备、重启和失败状态，然后跟随 Replacement Agent ID。
-
-全新 Terminal 没有用户输入时，可以在 Provider History 尚未形成之前进入新 Chat。一旦 Terminal 已有输入，History Identity 缺失会继续作为可见错误，Farming 不会静默丢弃对话。
-
-## 键盘状态契约
-
-CRT Session Key 使用统一的优先级，不依赖当前由哪个元素持有 Focus：
-
-| Session 状态 | 按键 | 目标状态 |
-| --- | --- | --- |
-| Terminal 或 Chat，任意 Focus | `Ctrl+K` | Kill 当前 Agent、关闭 Session；存在其他 Live Agent 时选择相邻 Agent。 |
-| Terminal 或 Chat，任意 Focus | `Ctrl+Escape` | 不 Kill Agent，关闭 Session，并把 Focus 恢复到同一个 Agent Card。 |
-| Terminal | `Escape` | 保持 Session 打开，把 Escape 交给 Terminal Application。 |
-| Idle Chat Input | `Escape` | 关闭 Session，并恢复 Agent Card。 |
-| Working Chat Input 且没有 Draft | `Escape` | Interrupt 当前 Turn，保持在 Chat。 |
-| Chat Transcript、Toolbar 或已打开 Menu | `Escape` | 向 Chat Input 局部返回一步，不关闭 Session。 |
-| 可切换的 Terminal 或 Chat，任意 Focus | `Alt+M` | 重启到另一个 Runtime，保留 Provider Session，并跟随 Replacement Agent。 |
-
-全局 Kill、Close、Runtime Switch 会在 Terminal IME 或 Chat Input 路由之前解析；局部 Escape 会在 Idle Chat Close 之前解析。打开 Session 时会记录对应 Agent Card，关闭后仍处于键盘可达的 Dashboard 状态；Kill 后会选择仍存活的相邻 Agent，没有其他 Agent 时回到正常的空 Dashboard 流程。
-
-## 搜索实时与历史工作
-
-按 `F` 或选择 **[F] SEARCH**。Query Console 会匹配 Live Agent Title、配置的 Project Name 和 Workspace Path，然后从共享 Provider Archive 加入可 Resume 的 Codex、Claude Code、OpenCode 和 Qoder Session。
-
-![Farming CRT Search](assets/04-crt-search.png)
-
-Live Agent 排在前面；已经由 Live Agent 代表的 Provider Session 会被移除。Up/Down 在 Query 保持 Focus 时移动结果，Enter 打开或 Resume，Escape 返回 Dashboard。
-
-## 从 History Continue、Restore 或 Resume
-
-按 `H` 打开与 Farming Code 相同的 History Scope：Farming Run Record、已归档的受支持 Coding Agent、尚未被占用的 Provider Session，并按 Identity 去重。
-
-![Farming CRT History](assets/05-crt-history.png)
-
-每行明确展示 Coding Agent 与 Workspace。主操作会明确写成 Continue、Open、Restore 或 Resume，不会从 UI 状态猜测。Up/Down 跨页连续移动，Left/Right 整页切换，Enter 执行，Escape 返回。
-
-Shell 和未知命令不会进入可 Resume 的 Provider History。它们归档时会销毁进程，而不是伪装成可恢复 Coding Session。
-
-## 查看按日与实时 Token 遥测
-
-**[$] BILLING** 是运行 Token Console，不是金额账单。
-
-### Days
-
-默认视图使用紧凑的 52 周日历热力图。无 Token 的日期保持暗色空心，低于 1B 的日期使用从靛蓝到青、绿、琥珀和高热红的五档相对热度光谱。达到 B 级后会脱离相对色阶，进入绝对的紫外超量程体系：点、环、菱形和星标分别表示 `1B`、`2B`、`4B` 与 `8B+`。相对分档仅依据当前可见 52 周内低于 1B 的非零日期计算；Tooltip 仍保留精确 Token 数。
-
-![CRT Billing Days](assets/06-crt-billing-days.png)
-
-选择日期可以查看精确 Total、放在其右侧且更醒目的缩写 Total、Input、Output、Cache Read/Write，以及 Codex/Claude/OpenCode Share。当天由服务端使用有界的 5 秒实时缓存；选择今天会强制读取一次最新明细，Today 汇总以及 Total、Input、Output、Cache Read/Write 和日内峰值计数器会用跳动数字补齐新发现的正向差值。历史数值保持静态。刷新时会保留上一帧完整小时曲线和稳定的 `READY` 状态；不完整的新快照不能清空已经存在的小时格。有旧帧的连续失败会稳定显示 `STALE`，`DAY SIGNAL LOST` 只保留给经过有界重试仍未完成首次加载的情况。日内阶梯波形把每个值明确表达为一小时区间，并与 24 个可选择方格、清晰的 `00:00`–`24:00` 仪表标尺和常驻的紧凑 Total/Cache 读数对齐；Tooltip 保留精确值。当天会标记 Partial；跨午夜 Session 的 Provider Event 会按本地日期拆分。
-
-### Live
-
-按 `L` 打开 60 分钟 Token Rate 示波器、5 分钟 Provider Channel、Quota Window 和 Reset Timing。
-
-![CRT Billing Live](assets/07-crt-billing-live.png)
-
-Total 是 Provider 报告的 Processed Token，并包含 Cache Read；不是 Cost 或 Rate Limit Consumption。Quota Telemetry 缺失会显式说明。Qoder Local Session 没有 Token Field 时仍会显示为 Unavailable，Farming 不会根据 Terminal Output 估算。
-
-## 调整 CRT，不影响 Farming Code
-
-Settings 提供 Interface Switch、CRT Effects、可选 Dynamic Heat、10–20 px Opened Terminal Text Size、Runtime Information 和 Permission Default。
-
-![Farming CRT Settings](assets/08-crt-settings.png)
-
-- CRT Effect 只作用在 CRT Root，不会泄漏到 Farming Code。
-- Opened Terminal Font Size 立即更新，Agent Preview Density 保持稳定。
-- Dynamic Heat 默认关闭，让 Card 尺寸和颜色稳定。
-- Reduced Motion Preference 会关闭依赖运动的效果。
-- 选择 Farming Code 会回到共享 Code Session，不重启 Agent。
-
-禁用的 **[E] EXTENSIONS** 位置保留给未来 Provider Neutral Extension Surface。CRT 不会独立推断或安装 Extension。
-
-## 手机端状态
-
-Farming CRT 当前只作为桌面界面支持。手机请使用 Farming Code。CRT 移动布局仍是概念方案，不作为当前产品能力展示。
-
-## 实时渲染与重连
-
-Dashboard Preview 是监控摘要，不是交互式 Session Canvas。Terminal Card 最多每秒批处理一次 ANSI Aware Snapshot，在 Bottom Aligned 之前裁掉最后一个已绘制行或可见光标行之后的无效空行；结构化 Chat Card 读取后端清洗后的 Transcript，把每个 User Turn 收敛为与打开 Chat 相同的最终 Agent Reply，再按顺序保留最多八条最近可见 Message 与当前 Activity。Chat Trail 在固定 Card 视口里按消息自然换行高度排列，只裁掉最旧的顶部溢出，因此任何卡片尺寸都会尽可能显示最近上下文，不依赖消息数量或中英文长度阈值。ACP Revision 经过节流且只更新受影响 Card，不会为每个流式 Chunk 重建整个 Grid。Session 打开时，该 Client 暂停后台 Dashboard Render 与 Preview Stream；关闭时只请求一次最新合并 State。
-
-浏览器 Tab 隐藏时，CRT 会关闭 WebSocket 并取消重连工作，后端 Agent 和 PTY 继续运行。再次回来时只建立一个连接，恢复 Dashboard State，并在增量 Output 前同步 Open Terminal。
-
-Unread Card 使用独立磷光外框，不改变 Layout。打开 Agent 会推进与 Farming Code 共享的 Attention Read Cursor。
-
-## 打开 CRT
-
-实时入口是：
-
-```text
-<base-path>/crt/
-```
-
-默认配置下打开 `/farming/crt/`。也可以在 Farming Code Settings 中切换，并把当前 Focused Agent 带入 CRT。
-
-## 详细设计文档
-
-- [Farming 2 产品总览](../README.zh_cn.md)
-- [CRT 共享布局模型](base_layout.zh_cn.md)
-- [桌面布局规则](pc_layout.zh_cn.md)
-- [移动端布局规则](mobile_layout.zh_cn.md)
-- [Zombie Cleanup 与 History 实现](zombie-history-implementation.zh_cn.md)
-- [仓库 README 与安装](../../../README.zh_cn.md)
+CRT 当前只支持桌面端。

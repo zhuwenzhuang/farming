@@ -2,207 +2,43 @@
 
 > Chinese version: [README.zh_cn.md](./README.zh_cn.md)
 
-Farming Code is the default Farming 2 interface: a browser workbench for supervising AI coding agents on a development machine. It keeps the conversation, live terminal, project files, search, history, review, and runtime controls around one evolving task instead of scattering them across SSH, an IDE, and several agent windows.
+Farming Code is the default desktop and mobile workspace for following one or
+more coding Agents, reading their work, and intervening when needed.
 
 ![Farming Code workspace](assets/01-code-workspace.png)
 
-The default layout places project-scoped Agents on the left, the current task in the center, relevant file state nearby, and a composer that continues the same provider session.
+## Start
 
-When you supervise more than one Farming machine, the sidebar defaults to that host's hostname and uses it in the browser tab title. Select the pencil beside the name to give the instance a memorable persistent name; Farming Code and Farming CRT then share that name.
+Install Farming, open its authenticated URL, and choose **New Agent**. See
+[Getting started](../../getting-started.md) for the first-run flow.
 
-For the complete cross-interface capability map, see the [Farming 2 product overview](../README.md). This guide is updated in place so it always describes the current product rather than one release.
+## Main Workflows
 
-To use a Chromium instance managed outside Farming, including one in Docker, see [Connect an external CDP browser](external-cdp-browser.md).
+### Agents, Chat, And Terminal
 
-## Switch To Farming CRT
+Read structured Agent results in Chat or work directly with the CLI in Terminal.
 
-Click the gear at the bottom-left, find **Interface**, and choose **Farming CRT**. Farming opens `<base-path>/crt/` and carries the focused Agent when possible. To return, press `S` in CRT (or choose **[S] SETTINGS**) and select **Farming Code** under **UI Theme**. The switch keeps the same live Agent and provider session; it does not restart or duplicate the process.
+### Files And Review
 
-## Start A Real Task
+Browse project files, inspect changes, make a focused edit, and open Review
+without leaving the task.
 
-On a machine where at least one supported coding CLI already works, install and start Farming with one command:
+### Search And History
 
-```bash
-npm install --global farming-code@latest && farming daemon
-```
+Find live work or resume a supported earlier Agent session.
 
-Open the authenticated URL and choose **New Agent**.
+### Browser
 
-![Choose an Agent](assets/02-start-agent-picker.png)
+People and Agents can use the same project Browser. See
+[Farming Browser](browser-agent-cli.md).
 
-Farming detects available Agent executables instead of showing launch choices that cannot run. Select a recent or custom workspace, choose structured Chat or Terminal where both are supported, and start the task. The folder button beside Workspace opens an in-page directory browser backed by the Farming host, so local and remote pages select the same server-side workspace path without depending on a desktop file manager. Directories expand in place as a lazy tree, preserving parent and sibling context while you choose a nested workspace.
+### Phone
 
-Codex, Claude Code, OpenCode, and Qoder provide both structured ACP Chat and native Terminal. Qwen Code, Aider, GitHub Copilot CLI, Amazon Q, bash, and zsh use the terminal path when detected. Farming hosts those CLIs; it does not replace their installation or login.
+Open the authenticated Farming URL on your phone. Use the drawer to switch
+Projects and Agents; Chat, Terminal, and Files each use the full screen. Phone
+access is best for checking progress and sending short follow-ups.
 
-## Read The Result First, Expand The Process When Needed
+## More
 
-ACP history replay and live updates become one ordered entry stream. Farming Code projects that stream around human attention: the result stays prominent, while plans, reasoning, tools, permissions, child sessions, embedded terminals, and exact patches remain expandable and reversible. A Chat whose first stable transcript contains no turns shows an explicit empty-conversation state instead of an unexplained blank surface; synchronization and failures keep their separate visible states.
-
-![Expanded Agent process](assets/11-code-agent-process.png)
-
-This is not a backend reconstruction into a different `Turn → Item` model. Expanding process groups preserves entry order and tool details. Codex internal heartbeat or context envelopes are sanitized without deleting visible automation notifications.
-
-While a turn is active, a follow-up can be queued visibly and sent when the Agent becomes idle. It can be removed before sending. When the composer is empty, the same action remains available as interrupt.
-
-## Use A Real Terminal When Exact CLI Behavior Matters
-
-Terminal is a native PTY session rendered with xterm.js. ANSI output, full-screen TUIs, IME input, selection and copy, terminal search, scrollback, links, and CLI shortcuts stay on the terminal path. Active IME composition is shown in place with an underline instead of floating input chrome.
-
-![Native Agent Terminal](assets/12-code-terminal-session.png)
-
-The **Chat / Terminal** control changes the actual Agent runtime; it is not a view toggle. Farming restarts into ACP or PTY mode and resumes the same provider session when its identity exists. A fresh Terminal with no user input may move into a fresh Chat before the provider record has materialized. After Terminal input, missing resume identity is an explicit error so the conversation cannot be discarded silently.
-
-On desktop, both Chat and Terminal use the same edge-hover Composer collapse and restore control. Terminal starts collapsed and remembers the user's last manual choice across reloads, while mobile Terminal keeps the Composer visible. Collapsing hides only the input surface; the active Chat transcript or Terminal remains visible, and an unsent draft survives restoration.
-
-The native PTY host is a separate process from the Farming server. Browsers can reconnect to live terminals, and a normal Farming server restart can recover them without launching duplicate Agents.
-
-Terminal recovery uses a checkpoint-and-replay protocol. A headless xterm in the PTY host continuously reduces output into the authoritative terminal state. Each runtime has an epoch and monotonic output index; a reconnect or page resume installs one serialized checkpoint at an exact index, then applies only contiguous later chunks. Missing chunks or a changed runtime epoch trigger another checkpoint instead of displaying an unprovable mixed state.
-
-When the page first opens, resumes from the background, briefly loses its backend socket, or temporarily stops receiving heartbeats, Code shows a neutral loading indicator. It escalates to the red unavailable state only after the full recovery window. Automatic reads for Project Files, model catalogs, and Agent extensions retain their current content and retry after reconnection instead of flashing a red error; an action attempted while reconnecting gets a neutral “not sent” notice.
-
-See [Terminal State Protocol](terminal-state-protocol.md) for `/session-view`, multi-window control, flow control, and recovery guarantees.
-
-## Continue Reading After Switching Agents
-
-Reading location is a versioned, skin-neutral browser anchor rather than a saved scrollbar value. Chat stores the stable turn (and process item when applicable) plus the relative point inside it. Terminal stores a fingerprint of adjacent logical lines plus the row inside that logical line. Monaco stores the workspace-relative file and its first visible line/column.
-
-Code and CRT use the same per-tab anchor protocol. A shared Agent URL may carry a compact anchor without exposing terminal text; the receiver resolves it against its own live transcript or terminal. Resolution never guesses: if a Chat turn or terminal line fingerprint is no longer in the bounded history, the view opens at the latest output. If a file line no longer exists, the editor uses its ordinary open behavior.
-
-## Change The Live Model And Runtime Profile
-
-The composer shows controls reported by the active runtime. Compatible Codex model families can expose one compact surface for model variant and reasoning, a separate Ultra charge control, a clear Fast state, and the current approval mode.
-
-![Live Codex model controls](assets/07-live-model-controls.png)
-
-- Drag or click the continuous matrix to choose model variant and ordinary reasoning level.
-- Click Ultra to trigger its charge-and-drop interaction; it is not a manually dragged vertical slider.
-- Use Fast as a distinct speed choice rather than a second copy of the Ultra control.
-- Unsupported Fast or Ultra remains in place, grey and disabled, so the control does not jump during capability refresh.
-- **Advanced** morphs to step-by-step selectors without resetting the active profile.
-
-Models that do not expose the matrix-capable catalog open directly in the Advanced compatibility selectors. Choosing a compatible model family from the live catalog returns to the matrix without requiring a restart.
-
-ACP sessions apply supported changes directly. A compatible native Terminal applies model, reasoning, or Fast changes immediately through the current CLI workflow and confirms the resulting footer before another Composer message can be sent. That footer is also the source of truth when an existing Terminal is selected, so its live profile cannot be replaced on screen by a newer launch default. Terminal runtimes without a verified live-profile adapter do not show a current-session model picker. The control therefore affects the live session, not only a future launch profile.
-
-## Keep Project Files Beside The Agent
-
-Files are scoped to a concrete project Agent. The project sidebar contains Open Editors, a VS Code-derived Git History graph, a lazy file tree, path/line and content search, Git Changes, and Review. Main Agent rows do not pretend to own project files.
-
-Agent rows progressively use available sidebar width without changing their compact height: the narrow projection keeps the title and essential state, a roomier row adds provider and relative activity time, and a wide row adds command or runtime profile detail. Title text is clipped by the actual row width instead of a fixed character count.
-
-Each Project row keeps its title and actions on one baseline. Its eye control hides or reveals only that Project's Agent list, while Files remains independently available. The `...` menu owns ordered Project pinning, reveal, permanent worktree creation, rename, mark-all-read, archive, and removal actions. Pinned Projects stay ahead of ordinary Projects in the order they were pinned.
-
-![Project file with inline blame](assets/04-files-editor-blame.png)
-
-The editor is a lightweight intervention surface:
-
-- Monaco text editing with version checks;
-- Markdown, SVG, and sandboxed static HTML preview;
-- file create, rename, move, and delete inside the workspace root;
-- a bounded commit graph with branches, tags, merge-parent selection, changed files, and commit Review;
-- git status, diff, and blame;
-- clickable `path:line` references from Chat and Terminal;
-- bounded file watching and ripgrep search where available.
-
-It is intentionally not a full IDE replacement. The goal is to verify evidence or make a focused correction without leaving the task.
-
-## Review Workspace Changes
-
-The initial Review flow separates tracked and untracked workspace changes. It captures a revision, provides file and diff views, keeps inline comments and reviewed state with the relevant snapshot, and can compare a later fix.
-
-Working-copy and historical ACP changes can feed the Review surface when the required revision evidence exists. Continuous tracking for the same findings and evidence across several review rounds remains an active product direction.
-
-## Find Live Work Or Resume Old Work
-
-When no Agent is open, the main workspace provides actions for History, New Agent, Search, sharing, focus mode, and sidebar control. Compact layouts show only the History and New Agent actions.
-
-Search matches project names, Agent titles, and workspace paths across current live work.
-
-![Live Agent Search](assets/13-code-search.png)
-
-History covers more than the left sidebar. It combines Farming run records, archived supported coding Agents, and unclaimed provider sessions from Codex, Claude Code, OpenCode, and Qoder, with identity-based deduplication.
-
-History uses explicit bounded pages instead of extending one scroll surface indefinitely. Search and refresh return to a valid first page, while older provider-session pages are fetched only when navigation reaches the loaded boundary.
-
-![Full History search](assets/08-history-search.png)
-
-Results preserve provider identity and workspace context. The History row body performs its primary open, continue, or resume action, while explicit trailing controls remain available for alternate actions such as restore. Shell processes are destroyed when archived and never masquerade as resumable provider sessions.
-
-Archiving a live Codex Agent completes Farming's local archive first, then asynchronously invokes `codex archive` for its stable provider session. A provider-side failure is reported by the backend and never revives the terminated Agent.
-
-## Configure The Service Without Leaving The Workspace
-
-Settings groups interface, language, search timeout, Farming Pet, installation-aware updates, Agent permissions, and Agent Homes. Farming Pet's first capability is an opt-in break reminder for the current tab: the first Farming click or input starts a cycle, five minutes without either resets it, and Agent output never counts as human activity. The current cycle survives a page reload, and changing the Pet appearance does not reset it. The slider snaps to Off, a five-second preview, and common work intervals; its synchronized custom-minute input can place the thumb between those stops at any whole minute from 1 to 240. A due reminder enters a five-minute break after a 30-second quiet window, with one ten-minute postponement or cancellation of the current break available beforehand. The first-use invitation offers enabling the reminder or persistently turning it off in Farming Settings; closing the invitation without choosing only defers the decision until the next page load. Until the user explicitly chooses a Pet, light appearance defaults to Soft glow and dark appearance defaults to Black hole. An explicit choice always wins over the theme default. The black-hole appearance keeps its WebGL body and local DOM refraction separate from the reminder clock, renders the body and Hawking-radiation exit independently from background capture, stops rendering while the page is hidden, and retains an undistorted end-break control. Agent Homes let one Provider keep multiple identity/configuration roots while retaining a non-removable default home.
-
-![Farming Code Settings](assets/14-code-settings.png)
-
-Switching to Farming CRT carries the focused Agent when possible and does not restart the session. Updates use two explicit steps: **Prepare** downloads and validates a Bundle or installs an npm release into a separate staging directory while the current server keeps running. The card then remains in **Update ready** until the user clicks **Restart to update**; only that second action switches the prepared version and restarts Farming. npm directory-switch failures restore the previous package before restarting it. The card shows preparation, restart, or rollback state and freezes elapsed time when preparation completes. Bundle downloads additionally show byte-backed percentage progress when the server provides a total size. Source checkouts update through Git, and standalone artifacts remain manual.
-
-## Understand Local Token Usage
-
-Expand **Usage** at the bottom of the sidebar to see the recent rate, daily history, and the provider signals Farming can read locally. Select the one-day or 52-week chart for a larger view with exact totals, hourly Agent-type attribution, cache share, active days, and the peak day.
-
-In the 52-week detail, pausing briefly over a date updates the hourly chart; moving across dates keeps the current chart stable until the pointer settles. Click, keyboard focus, and the mobile date control select a day immediately.
-
-![Farming Code token usage](assets/15-code-usage-activity.png)
-
-These numbers are processed tokens reported by local Codex and Claude Code history plus OpenCode session exports. They include cache reads, so they are useful for understanding Agent activity but are not an invoice or a direct estimate of API cost. Farming keeps an incremental SQLite-derived cache and a persistent directory census for Codex and Claude history under its own config directory. After the first bounded build, unchanged directories are reused and each refresh checks only recent files plus a fixed rotating audit batch instead of enumerating or `stat`-ing every session. Providers or homes without a readable token field remain explicitly unavailable.
-
-## Light, Dark, Desktop, And Mobile
-
-Light and dark appearance changes the workbench without changing Agent processes or session identity.
-
-![Dark Farming Code workspace](assets/09-dark-workspace.png)
-
-On desktop Chrome, Farming can run in a standalone app window without the browser tab bar, address bar, extensions, or other browser controls. When the browser provides an install prompt, click the app/fullscreen control beside Share and use **Install Farming 2**; the same dialog keeps fullscreen as a temporary alternative. When installation is unavailable, Farming explains the reason and does not show manual Chrome-menu steps. The control is omitted after Farming is opened as an installed app. Future launches from the Farming 2 app icon reopen a base-path URL without the startup Token and reuse the authenticated cookie.
-
-On a phone, Farming Code focuses one conversation, terminal, or file at a time and moves project navigation into a drawer. It is intended for checking progress, switching Agents, reading a result, or sending a short intervention—not for squeezing a multi-pane desktop IDE onto a narrow screen.
-
-See the [mobile guide](mobile-guide.md) for the complete phone workflow.
-
-## Farming Code And Farming CRT
-
-The same service exposes:
-
-- `<base-path>/code/`: Farming Code;
-- `<base-path>/crt/`: Farming CRT;
-- `<base-path>/`: compatible Farming Code entry.
-
-Both interfaces connect to the same backend sessions. If Code cannot start or render, its bounded diagnostic overlay leaves the live CRT surface visible behind it. See the [Farming CRT guide](../crt/README.md) for dashboard, Search, History, Billing, and keyboard workflows.
-
-## Runtime Defaults And Operations
-
-The default runtime requires Node.js 22.13 LTS (22.x) or Node.js 24+.
-
-Farming defaults to port `6694`, base path `/farming`, config directory `~/.farming`, and token authentication. Useful commands:
-
-```bash
-farming status
-farming url
-farming logs
-farming stop
-```
-
-Server stop, restart, and update share one crash-only path: the Farming Server exits immediately, and the successor reconciles Farming-owned state and reconnects supported runtimes. These operations never wait for an active Agent turn to finish. If the updater cannot signal the recorded Server because it belongs to another operating-system user, it leaves the package directories untouched and asks that user or an administrator to restart Farming before retrying.
-
-If an npm mirror still serves an older `latest`, compare it with the public registry, reinstall the current package, restart Farming, and hard-refresh the page:
-
-```bash
-npm view farming-code version --registry=https://registry.npmjs.org/
-npm install --global farming-code@latest --registry=https://registry.npmjs.org/
-farming stop
-farming daemon
-```
-
-The browser controls real processes and workspace files on the Farming host. Use a trusted machine and trusted network, with VPN, SSH tunnel, HTTPS reverse proxy, or equivalent access control when remote access crosses an untrusted boundary. See [SECURITY.md](../../../SECURITY.md).
-
-## More Product Documents
-
-- [Farming 2 product overview](../README.md)
-- [Mobile guide](mobile-guide.md)
-- [ACP runtime](acp-runtime.md)
-- [Extension model](extension-model.md)
-- [Review foundation](review-foundation.md)
-- [Human-like acceptance story](farming-agent-human-story.md)
-- [Acceptance and dogfood plan](test/acceptance-dogfood-plan.md)
-- [Real Codex cross-skin release case](real-codex-release-case.md)
+- [Farming CRT](../crt/README.md)
+- [Documentation home](../../README.md)

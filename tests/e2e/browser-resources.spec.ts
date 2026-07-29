@@ -222,28 +222,47 @@ test('deletes a Browser directly without a confirmation dialog', async ({
   expect(dialogs).toEqual([])
 })
 
-test('explains which system browser must be installed when none is available', async ({
+test('offers an explicit managed Chromium install when no browser is available', async ({
   page,
 }, testInfo) => {
+  let installed = false
   await page.route('**/api/browsers/capability', route => route.fulfill({
     contentType: 'application/json',
     body: JSON.stringify({
       enabled: false,
-      available: false,
-      browser: null,
-      message: 'Install a Chromium-based browser to use the system Browser in Farming',
+      available: installed,
+      browser: installed ? { kind: 'managed-chromium', path: '/mock/farming/chrome' } : null,
+      installation: {
+        state: installed ? 'ready' : 'absent',
+        agentBrowserVersion: '0.32.3',
+        installedVersion: installed ? '0.32.3' : '',
+        updateAvailable: false,
+        error: '',
+      },
+      message: installed ? 'Browser extension is disabled' : 'Install Farming-managed Chromium',
     }),
   }))
+  await page.route('**/api/browsers/install', route => {
+    installed = true
+    return route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true }),
+    })
+  })
   await openFarming(page)
   await expect(page.getByTestId('farming-browser-section')).toHaveCount(0)
   await page.getByTestId('code-nav-plugins').click()
   const pluginsPanel = page.getByTestId('code-plugins-panel')
   await expect(pluginsPanel.getByRole('heading', { name: 'Browser', exact: true })).toBeVisible()
   await expect(pluginsPanel.locator('small').filter({
-    hasText: 'Requires a compatible Chromium browser or an external CDP endpoint on loopback.',
+    hasText: 'Install Farming-managed Chromium, choose a system browser, or use an external CDP endpoint on loopback.',
   })).toBeVisible()
   await expect(pluginsPanel.getByText('Not ready', { exact: true })).toBeVisible()
   await expect(pluginsPanel.getByRole('button', { name: 'Enable' })).toBeDisabled()
+  await pluginsPanel.getByRole('button', { name: 'Install managed Chromium' }).click()
+  await expect(pluginsPanel.getByRole('option', { name: 'Farming-managed Chromium' })).toBeEnabled()
+  await expect(pluginsPanel.getByRole('button', { name: 'Install managed Chromium' })).toHaveCount(0)
+  await expect(pluginsPanel.getByRole('button', { name: 'Enable' })).toBeEnabled()
   const screenshot = testInfo.outputPath('browser-plugin-install-required.png')
   await pluginsPanel.screenshot({ path: screenshot })
   await testInfo.attach('browser-plugin-install-required', {
@@ -588,8 +607,9 @@ test('selects the Browser source in Plugins without restarting Farming', async (
   const apply = pluginsPanel.getByRole('button', { name: 'Apply' })
 
   await expect(browserSource.locator('option')).toContainText([
-    'Choose system browser automatically',
+    'Choose an available Chromium automatically',
     'Google Chrome',
+    'Farming-managed Chromium',
     'External CDP',
   ])
   await browserSource.selectOption('system:')

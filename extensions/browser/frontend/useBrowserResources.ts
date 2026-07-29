@@ -84,6 +84,14 @@ export function useBrowserResources() {
     }
   }, [capability?.available, mergeResource])
 
+  useEffect(() => {
+    if (capability?.installation?.state !== 'installing') return undefined
+    const timeout = window.setTimeout(() => {
+      setRefreshVersion(version => version + 1)
+    }, 2_000)
+    return () => window.clearTimeout(timeout)
+  }, [capability?.installation?.state, refreshVersion])
+
   const create = useCallback(async (workspace: string, options: { name?: string; url?: string } = {}) => {
     const resource = await browserRequest<BrowserResource>('/api/browsers', {
       method: 'POST',

@@ -25,19 +25,16 @@ Farming Code runs on the same development machine as your repositories and codin
 
 ## Quick Start
 
-With Node.js 22.13 LTS (22.x) or Node.js 24+ and at least one supported coding CLI installed and signed in:
+With Node.js 22.13 LTS (22.x) or Node.js 24+ and access to a supported coding
+Agent provider:
 
 ```bash
 npm install --global farming-code@latest && farming daemon
 ```
 
-Open one of the authenticated URLs printed by the command, choose **New Agent**, then select a CLI, workspace, and Chat or Terminal. Closing the browser does not stop the Agent. In the same browser, revisit that address; on the development machine, this command prints the local address again:
-
-```bash
-farming url
-```
-
-For a new remote browser, use the authenticated **Network** URL printed when `farming daemon` starts. A VPN, SSH tunnel, or HTTPS reverse proxy can provide a stable reachable address, but the first visit still needs the Farming startup token.
+Open one of the authenticated URLs printed by the command, choose **New Agent**,
+and start a task. See [Getting started](./docs/getting-started.md) for the complete
+first-run flow.
 
 ![Start an Agent](./docs/products/code/assets/02-start-agent-picker.png)
 
@@ -47,25 +44,22 @@ Farming Code is the default desktop and mobile interface. It groups work by proj
 
 ### Agents, Chat, and Terminal
 
-Start or resume Codex, Claude Code, OpenCode, Qoder, and other detected coding CLIs. Supported Agents offer structured Chat for reading results and inspecting tool activity, plus a real Terminal for working directly with the CLI. Search and History cover both current work and resumable sessions.
+Start or resume Codex, Claude Code, OpenCode, Qoder, and other detected coding
+Agents. Use structured Chat to read results and inspect the process, or Terminal
+to work directly with the CLI.
 
 ![Farming Code structured Agent process](./docs/products/code/assets/11-code-agent-process.png)
 
 ### Files and Review
 
-Browse, search, and lightly edit Project Files without leaving the current task. Inspect Git Changes, History, Diff, and Blame, then open a commit or working-copy change in Review.
+Browse, search, and lightly edit Project Files without leaving the current task.
+Inspect changes and open Review when you need evidence.
 
 ### Browser Resources
 
-Each Project can own multiple named Browser Resources. In **Plugins → Browser**, users choose a discovered Chromium-based system browser or an external loopback CDP endpoint. Farming prepares a pinned `agent-browser` runtime during installation or update, verifies the cache again before startup, and sends both human input and Agent actions to the same session. Farming does not download Chromium or depend on Playwright. Agents discover the live capability with `farming capabilities`, then use the progressively disclosed `farming browser` CLI for navigation, interaction, inspection, debugging, page state, frames/dialogs, and Project-scoped file transfer; npm installations also expose the `farming-browser` alias. See [Farming Browser for Agents](docs/products/code/browser-agent-cli.md).
-
-Farming can also connect to an externally managed Chromium CDP endpoint, including one exposed by Docker; see [external CDP browser setup](./docs/products/code/external-cdp-browser.md).
-
-This first Browser Viewer targets web pages and simple Agent interaction. It is not a replacement for the browser's full window chrome, DevTools, downloads UI, extensions, or Computer Use.
+Farming lets people and Agents use the same project browser. See [Farming Browser](docs/products/code/browser-agent-cli.md).
 
 ## Supported Agents
-
-Farming prepares the pinned Codex and Claude executables needed by its structured runtimes during installation or update and verifies them again before startup, while continuing to discover other installed CLIs on the host. Codex, Claude Code, OpenCode, and Qoder support both structured Chat and a native Terminal; other detected coding agents use the Terminal path.
 
 | Agent | Structured Chat | Terminal | History / resume |
 | --- | --- | --- | --- |
@@ -75,25 +69,15 @@ Farming prepares the pinned Codex and Claude executables needed by its structure
 | Qoder | Yes | Yes | Yes |
 | bash / zsh | — | Yes | No |
 
-Farming hosts CLIs that already work on the same machine. It does not replace provider installation, login, or account configuration.
+Provider-backed Agents still require a valid provider login. Other detected CLIs
+must be able to run on the Farming host.
 
 ## Remote Use
 
-Run Farming on the development machine and open its authenticated URL from any desktop or phone that can reach that machine:
-
-```text
-Desktop or phone browser
-          │ HTTP / WebSocket
-          ▼
-Development machine
-  Farming server
-  ├── coding Agent processes
-  ├── real terminals
-  ├── repositories and project files
-  └── optional agent-browser sessions
-```
-
-The browser can disconnect and reconnect without stopping an Agent. A normal Farming server restart can also reconnect supported live terminal sessions. The desktop layout keeps projects, conversations, files, and review together; the mobile layout focuses one conversation, terminal, or file at a time.
+Run Farming on the development machine and open its authenticated URL from a
+desktop or phone that can reach it. Agents keep running when the browser
+disconnects. See [Operations](./docs/operations/README.md) for remote-access and
+security guidance.
 
 ## Farming CRT
 
@@ -120,41 +104,15 @@ Standalone CLI and directory bundles remain available from [GitHub Releases](htt
 
 Farming controls real terminals and files on the development machine. Run it on a trusted host and network. Do not expose it directly to the public internet without a VPN, SSH tunnel, HTTPS reverse proxy, or equivalent access control.
 
-Token authentication protects HTTP and WebSocket traffic. `FARMING_DISABLE_AUTH=1` is only for trusted local development. Workspace file APIs validate paths against the selected project root. See [SECURITY.md](./SECURITY.md) for reporting and deployment guidance.
+See [SECURITY.md](./SECURITY.md) for deployment and reporting guidance.
 
 ## Documentation
 
-- [Farming 2 product overview and capability map](./docs/products/README.md)
-- [Farming Code guide](./docs/products/code/README.md)
-- [Farming CRT guide](./docs/products/crt/README.md)
-- [Farming Net deployment portal](./docs/products/net/README.md)
-- [Mobile guide](./docs/products/code/mobile-guide.md)
-- [ACP runtime](./docs/products/code/acp-runtime.md)
-- [Review foundation](./docs/products/code/review-foundation.md)
+- [Documentation home](./docs/README.md)
+- [Getting started](./docs/getting-started.md)
+- [Operations](./docs/operations/README.md)
 - [Release history](https://github.com/zhuwenzhuang/farming/releases)
-- [Contributor instructions](./AGENTS.md)
-
-## Development Checks
-
-```bash
-npm test
-npm run typecheck
-npm run lint
-FARMING_BASE_PATH=/farming npm run build
-npm run test:e2e:playwright
-```
-
-Product screenshots are generated from an anonymous demo workspace with real browser flows:
-
-```bash
-npm run docs:product:screenshots
-```
-
-To refresh only selected files, pass a comma-separated list:
-
-```bash
-FARMING_SCREENSHOT_FILES=01-code-workspace.png npm run docs:product:screenshots
-```
+- [Contributing](./CONTRIBUTING.md)
 
 ## License
 

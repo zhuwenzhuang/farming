@@ -5,6 +5,7 @@ const path = require('path');
 const { EventEmitter } = require('events');
 const {
   discoverBrowserExecutable,
+  discoverBrowserExecutables,
   discoverBrowserRuntime,
   normalizeExternalCdpUrl,
 } = require('../../extensions/browser/backend/executable-discovery');
@@ -267,6 +268,34 @@ async function testManagedAgentBrowserDiscovery() {
     },
   });
   assert.strictEqual(missing.runtimeErrorCode, 'NOT_FOUND');
+
+  const browserDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-managed-browser-discovery-'));
+  const browserPath = path.join(browserDir, 'chrome');
+  fs.writeFileSync(browserPath, 'fake');
+  fs.chmodSync(browserPath, 0o755);
+  try {
+    assert.deepStrictEqual(
+      discoverBrowserExecutable({
+        source: 'managed',
+        managedBrowserPath: browserPath,
+        platform: 'linux',
+      }),
+      { kind: 'managed-chromium', path: browserPath },
+    );
+    assert.deepStrictEqual(
+      discoverBrowserExecutables({
+        managedBrowserPath: browserPath,
+        platform: 'linux',
+      }).find(option => option.kind === 'managed-chromium'),
+      { kind: 'managed-chromium', path: browserPath },
+    );
+    assert.match(
+      discoverBrowserExecutable({ source: 'managed', platform: 'linux' }).error,
+      /Install or update/,
+    );
+  } finally {
+    fs.rmSync(browserDir, { recursive: true, force: true });
+  }
 }
 
 async function testBrowserResourceManager() {
@@ -275,6 +304,13 @@ async function testBrowserResourceManager() {
   fs.mkdirSync(projectWorkspace);
   const runtimes = [];
   let enabled = false;
+  const absentInstallation = {
+    state: 'absent',
+    agentBrowserVersion: '0.32.3',
+    installedVersion: '',
+    updateAvailable: false,
+    error: '',
+  };
   const unavailableManager = new BrowserResourceManager({
     configDir,
     discoverExecutable: () => null,
@@ -290,7 +326,8 @@ async function testBrowserResourceManager() {
       externalCdpUrl: 'http://127.0.0.1:9222',
     },
     options: [],
-    message: 'Install agent-browser and a Chromium-based browser, or configure a loopback external CDP endpoint',
+    installation: absentInstallation,
+    message: 'Install Farming-managed Chromium, choose a system Chromium browser, or configure a loopback external CDP endpoint',
   });
   const manager = new BrowserResourceManager({
     configDir,
@@ -314,6 +351,7 @@ async function testBrowserResourceManager() {
         externalCdpUrl: 'http://127.0.0.1:9222',
       },
       options: [],
+      installation: absentInstallation,
       message: 'Browser extension is disabled',
     });
     assert.throws(() => manager.list(), /disabled/);
@@ -342,6 +380,7 @@ async function testBrowserResourceManager() {
         externalCdpUrl: 'http://127.0.0.1:9222',
       },
       options: [],
+      installation: absentInstallation,
       message: '',
     });
     const created = manager.create({
@@ -895,12 +934,17 @@ function testBrowserUiAndPackagingWiring() {
   const mainAreaSource = fs.readFileSync(path.join(projectRoot, 'src', 'components', 'code', 'CodeMainArea.tsx'), 'utf8');
   const sidebarSource = fs.readFileSync(path.join(projectRoot, 'extensions', 'browser', 'frontend', 'BrowserSidebarPortals.tsx'), 'utf8');
   const serverSource = fs.readFileSync(path.join(projectRoot, 'backend', 'server.js'), 'utf8');
+  const routerSource = fs.readFileSync(
+    path.join(projectRoot, 'extensions', 'browser', 'backend', 'browser-router.js'),
+    'utf8',
+  );
   const packageJson = JSON.parse(fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf8'));
   assert(workspaceSource.includes('<BrowserSidebarPortals'));
   assert(workspaceSource.includes("setMainPaneMode('browser')"));
   assert(mainAreaSource.includes('<BrowserViewer'));
   assert(!sidebarSource.includes('window.confirm'), 'Browser row close must remove directly without a redundant confirmation');
   assert(serverSource.includes("createBrowserRouter(browserResourceManager"));
+  assert(routerSource.includes("router.post('/install'"));
   assert.strictEqual(packageJson.dependencies['playwright-core'], undefined);
   assert.strictEqual(packageJson.bin['farming-browser'], 'extensions/browser/bin/farming-browser');
   assert(packageJson.files.includes('extensions/browser/'));

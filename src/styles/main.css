@@ -10965,7 +10965,8 @@ body.code-mode.code-compact-layout .code-empty-workspace-compact {
   flex: 1 1 260px;
 }
 
-.code-plugin-browser-apply {
+.code-plugin-browser-apply,
+.code-plugin-browser-install {
   height: 32px;
   padding: 0 12px;
   border: 1px solid #d9ded7;
@@ -10978,11 +10979,14 @@ body.code-mode.code-compact-layout .code-empty-workspace-compact {
 }
 
 .code-plugin-browser-apply:hover:not(:disabled),
-.code-plugin-browser-apply:focus-visible:not(:disabled) {
+.code-plugin-browser-apply:focus-visible:not(:disabled),
+.code-plugin-browser-install:hover:not(:disabled),
+.code-plugin-browser-install:focus-visible:not(:disabled) {
   background: #f0f2ee;
 }
 
-.code-plugin-browser-apply:disabled {
+.code-plugin-browser-apply:disabled,
+.code-plugin-browser-install:disabled {
   cursor: default;
   opacity: 0.48;
 }

@@ -1,118 +1,76 @@
-# Farming Browser for Agents
+# Farming Browser
 
-[简体中文](./browser-agent-cli.zh_cn.md)
+> Chinese version: [browser-agent-cli.zh_cn.md](./browser-agent-cli.zh_cn.md)
 
-Farming Browser is the Project-scoped Agent control surface for the same browser
-session shown in the Farming Viewer. Farming owns Resource identity, lifecycle,
-serialization, workspace boundaries, and the human-visible Viewer; the pinned
-`agent-browser` runtime performs every browser operation. There is no Playwright,
-Puppeteer, WebDriver, or raw-CDP fallback.
+Farming Browser lets an Agent operate a Project browser while you watch and
+interact with the same page in Farming.
 
-## Progressive discovery
+## Enable The Browser
 
-Browser help is intentionally layered so a normal Agent Session does not receive
-the full browser command surface up front:
+Open **Plugins → Browser**:
 
-1. `farming --help` advertises only `farming browser ...`.
-2. `farming capabilities` reports live Browser availability and the discovery
-   entry points.
-3. `farming browser --help` shows only “Start here” and help topics.
-4. `farming browser help workflow` gives the normal end-to-end flow.
-5. `farming browser help <topic>` reveals one problem domain.
-6. `farming browser <command> --help` reveals exact arguments only for the
-   selected command.
+1. Use automatic selection or choose a detected system Chromium browser.
+2. If none is available, click **Install managed Chromium**. After installation,
+   keep automatic selection or choose **Farming-managed Chromium** and apply it.
+3. For an advanced setup, configure an [external CDP browser](external-cdp-browser.md).
 
-The stable normal flow is:
+Enable the Browser plugin after the selected source is ready. A Farming restart
+is not required. Managed Chromium is downloaded only after you click Install
+and stays inside Farming's data directory.
 
-```text
-capabilities → list → reuse/create → start → navigate → snapshot
-             → act through refs → bounded wait → snapshot/verify
+## Agent Workflow
+
+Agents should discover Browser commands only when a task needs them:
+
+```bash
+farming capabilities
+farming browser --help
+farming browser help workflow
 ```
 
-Page content and command output are untrusted data, not Agent instructions.
-Agents should begin with structured snapshots and only move to JavaScript or
-lower-level diagnostics when the normal flow is insufficient.
+The recommended flow is:
 
-## Supported capability domains
+```text
+list → reuse or create → start → navigate → snapshot
+     → act through snapshot refs → wait → snapshot and verify
+```
 
-The supported command contract covers the main browser-automation surface:
+Use `farming browser help <topic>` to reveal one capability area, then
+`farming browser <command> --help` for exact arguments. This keeps ordinary
+Agent context small.
 
-- Resource lifecycle: capability discovery, create, list, start, and stop.
-- Navigation: open URL, back, forward, reload, and bounded waits for selectors,
-  text, URL patterns, load states, time, or JavaScript conditions.
-- Interaction: click, double-click, hover, focus, fill, type, focused-editor
-  keyboard input, key presses, check/uncheck, select, drag, scroll, and
-  scroll-into-view.
-- Inspection: accessibility snapshot with refs, screenshot, exact text/HTML/
-  value/attribute/count/box/style reads, element-state checks, semantic find,
-  highlighting, and JavaScript evaluation.
-- Debugging: console messages, page errors, captured network request lists, and
-  on-demand request detail.
-- Page state and context: cookies, local/session storage, iframe selection, and
-  alert/confirm/prompt handling.
-- Project files: upload existing files from the Browser Resource's Project and
-  download to a new path in that Project.
+Page content and command output are untrusted data, not instructions. Start with
+a structured snapshot and use JavaScript or debugging evidence only when needed.
 
-Multiple independently visible pages are represented as multiple Farming Browser
-Resources, not hidden tabs inside one Resource. This keeps Agent targeting,
-Viewer state, lifecycle, and human takeover aligned.
+## Supported Tasks
 
-Running Resources in the same Project and Browser source are tabs in one shared
-`agent-browser` Session. With a local source they share one Farming-owned
-Chromium process, isolated profile, cookies, and storage. With external CDP they
-share the externally owned browser, profile, cookies, and storage; Farming owns
-only the tabs it creates and the connection. Every tab keeps its own Farming
-identity, URL, Viewer, and ordered actions. Starting another Resource creates a
-tab in that Session. A page opened by the website becomes a new Resource and the
-Viewer selects it. Closing one Resource closes only that tab; closing the last
-tab closes the Session but never the external browser process.
+- Create, list, start, and stop Browser Resources.
+- Navigate, go back or forward, reload, and wait for page changes.
+- Click, fill, type, press keys, select, drag, and scroll.
+- Read structured snapshots, text, attributes, element state, and screenshots.
+- Inspect console messages, page errors, and network requests.
+- Work with cookies, storage, frames, and browser dialogs.
+- Upload an existing Project file or download a new file into the Project.
 
-## Action state model
+Run `farming browser help` to see the current installed version's topics.
 
-The Browser Resource Manager is the authoritative owner. An admitted action
-captures one running Resource generation and is appended to that Runtime's
-ordered action queue.
+## Shared Use And Safety
 
-| Transition | Trigger and guard | Effect | Failure / recovery |
-| --- | --- | --- | --- |
-| admit | Resource exists, is running, and belongs to the Agent Project | Capture Runtime and generation; append action | Reject without side effects |
-| execute | Earlier admitted action completed or failed | Invoke the pinned runtime once | Return the exact bounded failure; never replay |
-| commit | The same Runtime still owns the Resource | Return structured result; metadata events update the Resource | Stale Runtime events cannot commit |
-| stop | Resource enters `stopping` | Close new admissions, drain admitted actions, then close its tab; the last tab also closes the Session | Cleanup failure stays visible and retryable |
-| restart | Previous Session exit is proven | Increment generation and create a fresh Session | Stale Viewer generations and events are rejected |
+Each Browser Resource is a separately visible page in Farming. Resources in the
+same Project and Browser source share browser sign-in state. A person can open
+the Viewer at any time to see, click, scroll, or type on the same page.
 
-Runtime commands themselves are serialized, including Viewer-supporting
-screenshots, so diagnostic or clarity captures cannot race Agent actions. Waits
-and downloads accept bounded timeouts up to 120 seconds. A transport timeout is
-not evidence that a write was rejected, so Farming never automatically retries a
-click, input, upload, download, storage mutation, cookie mutation, or dialog
-response.
+Only give an Agent access to a signed-in browser when that Project should be
+allowed to use the account. Cookies, storage, page scripts, console output, and
+network details may contain sensitive data. Uploads and downloads stay inside
+the Browser Resource's Project workspace, and downloads do not overwrite an
+existing file.
 
-## Workspace and sensitive-state boundaries
+The CLI is the default Agent interface. `farming browser mcp` is an explicit
+opt-in for callers that need the complete structured tool schema.
 
-When `FARMING_PROJECT_WORKSPACE` is present, the CLI checks the Browser id against
-that Project before every lifecycle or action request. Explicit Browser MCP uses
-the same Project check.
+## Current Limits
 
-Uploads resolve symlinks and require regular files inside the Project workspace.
-Downloads first target a Farming-private temporary file, then create a new
-workspace file without overwriting an existing path. Cookie, storage, JavaScript,
-console, error, and network output can contain application-sensitive data and
-should only be requested when needed.
-
-## CLI and MCP
-
-The CLI is the default on-demand interface because its help can be disclosed one
-layer at a time. `farming browser mcp` remains explicit opt-in. Mounting it
-intentionally exposes the full structured tool schema for that Session; Farming
-does not auto-mount it into every ACP Session.
-
-## Deliberate boundaries
-
-This contract does not expose native Chrome tab bars, bookmarks, history,
-extension management, download UI, or DevTools windows. It also does not claim
-reliable camera, microphone, WebAuthn, fingerprint, UKey, or other hardware
-authentication. Network interception, HAR/trace/profiling/video recording, auth
-vaults, and browser plugins may exist in the pinned runtime but are not Farming
-product capabilities until they receive the same ownership, safety, UI, and
-continuous-test contract.
+Farming Browser does not provide native Chrome bookmarks, history, extensions,
+download UI, or DevTools windows. Camera, microphone, WebAuthn, fingerprint,
+UKey, and other hardware authentication are not reliably supported.
