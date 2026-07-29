@@ -1,4 +1,4 @@
-const SessionEngine = require('./session-engine');
+const { SessionEngine } = require('./session-engine.cjs');
 const NativePtyHostClient = require('./native-pty-host-client');
 const { normalizeShellSessionOptions } = require('./local-session-engine');
 const { cleanupShellBusyIntegration } = require('./shell-busy-integration');

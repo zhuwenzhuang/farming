@@ -1,5 +1,5 @@
 const path = require('path');
-const SessionEngine = require('./session-engine');
+const { SessionEngine } = require('./session-engine.cjs');
 const TerminalScreenWorkerPool = require('./terminal-screen-worker-pool');
 const {
   applyShellBusyIntegration,

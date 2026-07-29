@@ -3,7 +3,7 @@ const EventEmitter = require('events');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const sessionEngineBridgePath = require.resolve('../session-engine-bridge');
+const sessionEngineBridgePath = require.resolve('../session-engine-bridge.cjs');
 
 class FakeSessionEngineBridge extends EventEmitter {
   async recoverSessions() {
@@ -27,7 +27,7 @@ require.cache[sessionEngineBridgePath] = {
   id: sessionEngineBridgePath,
   filename: sessionEngineBridgePath,
   loaded: true,
-  exports: FakeSessionEngineBridge,
+  exports: { SessionEngineBridge: FakeSessionEngineBridge },
 };
 
 const AgentManager = require('../agent-manager');

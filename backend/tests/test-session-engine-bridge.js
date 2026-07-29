@@ -1,5 +1,5 @@
 const assert = require('assert');
-const SessionEngineBridge = require('../session-engine-bridge');
+const { SessionEngineBridge } = require('../session-engine-bridge.cjs');
 
 async function run() {
   const bridge = new SessionEngineBridge({});

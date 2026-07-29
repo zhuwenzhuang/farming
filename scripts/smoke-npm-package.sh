@@ -105,6 +105,9 @@ for runtime_module in \
   runtime-executable-invocation \
   runtime-observation \
   server-process-identity \
+  session-engine \
+  session-engine-bridge \
+  session-engine-router \
   session-stream-protocol \
   terminal-attach-checkpoint \
   terminal-exit-quiescence \

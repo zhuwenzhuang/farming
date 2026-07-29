@@ -1,5 +1,5 @@
 const assert = require('assert');
-const SessionEngineRouter = require('../session-engine-router');
+const { SessionEngineRouter } = require('../session-engine-router.cjs');
 
 function run() {
   const localRouter = new SessionEngineRouter();
