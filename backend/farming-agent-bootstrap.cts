@@ -4,11 +4,11 @@ const storageLayout = require('./storage-layout.cjs');
 
 const sourceFile = path.join(__dirname, 'farming-agent-bootstrap.zh_cn.md');
 
-function renderFarmingAgentBootstrap() {
+function renderFarmingAgentBootstrap(): string {
   return fs.readFileSync(sourceFile, 'utf8').trim();
 }
 
-function ensureFarmingAgentBootstrapFile(configDir) {
+function ensureFarmingAgentBootstrapFile(configDir: string): string {
   const target = storageLayout.farmingAgentBootstrapFile(configDir);
   const content = `${renderFarmingAgentBootstrap()}\n`;
   try {
@@ -23,13 +23,18 @@ function ensureFarmingAgentBootstrapFile(configDir) {
   return target;
 }
 
-function appendOpenCodeBootstrap(env, bootstrapFile) {
+function appendOpenCodeBootstrap(
+  env: NodeJS.ProcessEnv,
+  bootstrapFile: string,
+): NodeJS.ProcessEnv {
   const next = { ...env };
-  let config = {};
+  let config: Record<string, unknown> = {};
   if (next.OPENCODE_CONFIG_CONTENT) {
     try {
       const parsed = JSON.parse(next.OPENCODE_CONFIG_CONTENT);
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) config = parsed;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        config = parsed as Record<string, unknown>;
+      }
     } catch {
       return next;
     }
@@ -42,7 +47,7 @@ function appendOpenCodeBootstrap(env, bootstrapFile) {
   return next;
 }
 
-module.exports = {
+export {
   appendOpenCodeBootstrap,
   ensureFarmingAgentBootstrapFile,
   renderFarmingAgentBootstrap,

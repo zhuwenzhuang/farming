@@ -6,7 +6,7 @@ const AgentManager = require('../agent-manager');
 const {
   ensureFarmingAgentBootstrapFile,
   renderFarmingAgentBootstrap,
-} = require('../farming-agent-bootstrap');
+} = require('../farming-agent-bootstrap.cjs');
 
 async function run() {
   const farmingDir = path.join(os.tmpdir(), 'farming-control-env');

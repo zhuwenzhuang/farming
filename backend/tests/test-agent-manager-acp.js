@@ -7,7 +7,7 @@ const { AcpRuntime } = require('../acp-runtime');
 const {
   ensureFarmingAgentBootstrapFile,
   renderFarmingAgentBootstrap,
-} = require('../farming-agent-bootstrap');
+} = require('../farming-agent-bootstrap.cjs');
 
 const TEST_PROCESS_IDENTITY = {
   describeAcpProcessGroup: async pid => ({

@@ -19,7 +19,7 @@ const { ensureMainAgentSkillFiles, renderMainAgentBootstrap } = require('./main-
 const {
   appendOpenCodeBootstrap,
   renderFarmingAgentBootstrap,
-} = require('./farming-agent-bootstrap');
+} = require('./farming-agent-bootstrap.cjs');
 const { mainPageAgentSessionKey, resumedAgentSource } = require('./main-page-session.cjs');
 const storageLayout = require('./storage-layout.cjs');
 const { isSafeProviderSessionId, isTemporaryProviderSessionId } = require('./provider-session-id.cjs');

@@ -96,6 +96,7 @@ for runtime_module in \
   codex-context-window \
   codex-session-archive \
   codex-transcript-sanitizer \
+  farming-agent-bootstrap \
   input-parts \
   input-routing \
   index-html \

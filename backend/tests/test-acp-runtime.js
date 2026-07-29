@@ -4,7 +4,7 @@ const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
 const { AcpRuntime, acpErrorKind, acpSessionRequestOptions, autoPermissionResponse, codexAcpEnvironment, deleteProviderSessionIdentity, promptContentForCapabilities, resolveAcpLaunch, supportsCodexSteer } = require('../acp-runtime');
-const { renderFarmingAgentBootstrap } = require('../farming-agent-bootstrap');
+const { renderFarmingAgentBootstrap } = require('../farming-agent-bootstrap.cjs');
 const { claudeAcpEnvironment } = require('../provider-adapters');
 const { AcpSessionState } = require('../acp-session-state');
 
