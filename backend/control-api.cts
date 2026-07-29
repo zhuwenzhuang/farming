@@ -1,12 +1,10 @@
+import { terminalInputReady } from './terminal-status.cjs';
+
 const express = require('express');
 const crypto = require('crypto');
 const { runtimeKind } = require('./agent-runtime-binding.cjs') as {
   runtimeKind(agent: Record<string, unknown> | null | undefined): 'terminal' | 'acp' | 'json';
 };
-const { terminalInputReady } = require('./terminal-status') as {
-  terminalInputReady(options: TerminalReadinessState): boolean;
-};
-
 const DEFAULT_INITIAL_INPUT_TIMEOUT_MS = 30000;
 
 interface ExpressRequest {

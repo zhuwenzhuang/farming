@@ -20,7 +20,7 @@ const NATIVE_PTY_HOST_RUNTIME_FILES = Object.freeze([
   'terminal-state-serialization.cjs',
   'native-pty-controller-generation.cjs',
   'terminal-exit-quiescence.cjs',
-  'terminal-status.js',
+  'terminal-status.cjs',
 ]);
 
 interface NativePtyHostRuntimeIdentity {

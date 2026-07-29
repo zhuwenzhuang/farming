@@ -156,6 +156,7 @@ for runtime_module in \
   terminal-screen-worker-pool \
   terminal-screen-worker \
   terminal-state-serialization \
+  terminal-status \
   theme-manager \
   usage-forecast \
   usage-history-client \

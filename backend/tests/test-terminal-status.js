@@ -1,5 +1,5 @@
 const assert = require('assert');
-const { deriveTerminalStatus } = require('../terminal-status');
+const { deriveTerminalStatus } = require('../terminal-status.cjs');
 
 function run() {
   assert.deepStrictEqual(

@@ -1,5 +1,6 @@
+import { deriveTerminalStatus } from './terminal-status.cjs';
+
 const { runtimeKind, runtimeState } = require('./agent-runtime-binding.cjs');
-const { deriveTerminalStatus } = require('./terminal-status');
 
 const WORKING_STATES = new Set(['working', 'interrupting']);
 const WAITING_STATES = new Set(['waiting-for-input', 'waiting-for-permission']);

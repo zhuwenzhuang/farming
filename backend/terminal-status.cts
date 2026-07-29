@@ -9,7 +9,53 @@ const DIRECT_PROCESS_AGENTS = new Set([
   'amazon-q',
 ]);
 
-function executableName(command) {
+type TerminalKind = 'claude' | 'codex' | 'process' | 'shell' | 'unknown';
+type TerminalActivity = 'busy' | 'exited' | 'idle' | 'unknown';
+type TerminalStatusSource =
+  | 'shell-busy-marker'
+  | 'shell-prompt-fallback'
+  | 'shell-status-marker'
+  | 'terminal-text';
+
+interface TerminalStatusOptions {
+  command?: unknown;
+  cwd?: unknown;
+  previewText?: unknown;
+  shellCommand?: unknown;
+  shellCommandStartedAt?: unknown;
+  shellLastCommand?: unknown;
+  shellLastCommandDurationMs?: unknown;
+  shellLastCommandFinishedAt?: unknown;
+  shellLastCommandStartedAt?: unknown;
+  shellLastEvent?: unknown;
+  shellLastExitCode?: unknown;
+  status?: unknown;
+  terminalBusy?: unknown;
+  title?: unknown;
+}
+
+interface TerminalStatus {
+  activity: TerminalActivity;
+  busy: boolean;
+  cwd: string;
+  kind: TerminalKind;
+  lastCommand?: string;
+  lastCommandDurationMs?: number;
+  lastCommandFinishedAt?: number;
+  lastCommandStartedAt?: number;
+  lastExitCode: number | null;
+  runningCommand?: string;
+  runningCommandStartedAt?: number;
+  source: TerminalStatusSource;
+  title: string;
+}
+
+interface TerminalKindCandidate {
+  index: number;
+  kind: Exclude<TerminalKind, 'process' | 'unknown'>;
+}
+
+function executableName(command: unknown): string {
   const executable = String(command || '')
     .trim()
     .split(/\s+/)
@@ -17,11 +63,11 @@ function executableName(command) {
   return (executable || '').split(/[\\/]/).pop() || '';
 }
 
-function normalizedText(value) {
+function normalizedText(value: unknown): string {
   return stripTerminalControlSequences(value).replace(/\s+/g, ' ').trim().toLowerCase();
 }
 
-function terminalLines(value) {
+function terminalLines(value: unknown): string[] {
   return stripTerminalControlSequences(value)
     .replace(/\r/g, '')
     .split('\n')
@@ -29,34 +75,37 @@ function terminalLines(value) {
     .filter(Boolean);
 }
 
-function stripTerminalControlSequences(value) {
+function stripTerminalControlSequences(value: unknown): string {
   return String(value || '')
     .replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, '')
     .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '');
 }
 
-function terminalStatusCommand(value) {
+function terminalStatusCommand(value: unknown): string {
   return stripTerminalControlSequences(value)
     .replace(/[\x00-\x1f\x7f]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }
 
-function finiteNumber(value) {
+function finiteNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
-function lastMatchIndex(text, pattern) {
+function lastMatchIndex(text: string, pattern: RegExp): number {
   const matches = Array.from(text.matchAll(pattern));
   const lastMatch = matches.length > 0 ? matches[matches.length - 1] : undefined;
   return lastMatch && typeof lastMatch.index === 'number' ? lastMatch.index : -1;
 }
 
-function lastIndexOfAny(text, needles) {
+function lastIndexOfAny(text: string, needles: string[]): number {
   return needles.reduce((last, needle) => Math.max(last, text.lastIndexOf(needle)), -1);
 }
 
-function lastLineIndexMatching(text, predicate) {
+function lastLineIndexMatching(
+  text: string,
+  predicate: (line: string) => boolean,
+): number {
   let offset = 0;
   let lastIndex = -1;
   for (const line of text.split('\n')) {
@@ -66,11 +115,11 @@ function lastLineIndexMatching(text, predicate) {
   return lastIndex;
 }
 
-function lastCodexIdleFooterIndex(text) {
+function lastCodexIdleFooterIndex(text: string): number {
   return lastMatchIndex(text, /(?:^|\n)\s*(?:gpt|codex)[^\n]*(?:·|•)\s*(?:~|\/)[^\n]*$/gim);
 }
 
-function codexActiveIndex(text) {
+function codexActiveIndex(text: string): number {
   const activeTextIndex = lastIndexOfAny(text, [
     'pursuing goal',
     'reconnecting',
@@ -86,7 +135,7 @@ function codexActiveIndex(text) {
   return Math.max(activeTextIndex, workingIndex);
 }
 
-function codexBlockedIndex(text) {
+function codexBlockedIndex(text: string): number {
   return lastIndexOfAny(text, [
     'goal blocked',
     'input exceeds the context window',
@@ -94,11 +143,14 @@ function codexBlockedIndex(text) {
   ]);
 }
 
-function lineShowsInterrupt(line) {
+function lineShowsInterrupt(line: string): boolean {
   return /\b(?:press\s+)?(?:esc|escape|ctrl\+c|ctrl-c)\s+to\s+interrupt\b/i.test(line);
 }
 
-function lineShowsClaudeStatusRow(line, excludeBareWorking = false) {
+function lineShowsClaudeStatusRow(
+  line: string,
+  excludeBareWorking = false,
+): boolean {
   const normalized = line.trim().toLowerCase();
   const match = normalized.match(
     /^([＊✳✱✲✶✻✽✢])?\s*([\p{L}\p{M}][\p{L}\p{M}'’-]*)(?:\.{3}|…)?\s*\(([^)]*)\)\s*$/u
@@ -111,25 +163,28 @@ function lineShowsClaudeStatusRow(line, excludeBareWorking = false) {
   return interruptOnly || hasElapsedTime;
 }
 
-function lineShowsClaudeActivity(line) {
+function lineShowsClaudeActivity(line: string): boolean {
   const normalized = line.trim().toLowerCase();
   if (/^(?:press\s+)?(?:esc|escape|ctrl\+c|ctrl-c)\s+to\s+interrupt$/.test(normalized)) return true;
   return lineShowsClaudeStatusRow(normalized);
 }
 
-function lineShowsClaudeKindEvidence(line) {
+function lineShowsClaudeKindEvidence(line: string): boolean {
   const normalized = line.trim().toLowerCase();
   if (/^(?:press\s+)?(?:esc|escape|ctrl\+c|ctrl-c)\s+to\s+interrupt$/.test(normalized)) return true;
   return lineShowsClaudeStatusRow(normalized, true);
 }
 
-function terminalLineLooksLikeIdleShellPrompt(line) {
+function terminalLineLooksLikeIdleShellPrompt(line: string): boolean {
   return /^(?:\s*[│┃]\s*(?:[^$%#\n]+?\s+)?[$%#]|\s*(?:\([^)]+\)\s+)?(?:[\w.-]+@[\w.-]+:)?[~/][\w./~:+-]*\s*[$%#]|\s*[$%#])\s*$/u.test(line);
 }
 
-function latestTerminalKindFromText(title, previewText) {
+function latestTerminalKindFromText(
+  title: unknown,
+  previewText: unknown,
+): Exclude<TerminalKind, 'process' | 'unknown'> | null {
   const text = stripTerminalControlSequences(previewText).replace(/\r/g, '').toLowerCase();
-  const candidates = [];
+  const candidates: TerminalKindCandidate[] = [];
   const codexIndex = Math.max(lastCodexIdleFooterIndex(text), codexActiveIndex(text));
   if (codexIndex >= 0) candidates.push({ kind: 'codex', index: codexIndex });
 
@@ -148,7 +203,11 @@ function latestTerminalKindFromText(title, previewText) {
   return null;
 }
 
-function inferKindFromText(title, previewText, command) {
+function inferKindFromText(
+  title: unknown,
+  previewText: unknown,
+  command: unknown,
+): TerminalKind {
   const commandName = executableName(command).toLowerCase();
   if (DIRECT_PROCESS_AGENTS.has(commandName)) return 'process';
   if (commandName && !SHELL_COMMANDS.has(commandName) && commandName !== 'codex' && commandName !== 'claude') return 'process';
@@ -160,7 +219,7 @@ function inferKindFromText(title, previewText, command) {
   return commandName ? 'process' : 'unknown';
 }
 
-function terminalTextLooksIdleShellPrompt(previewText) {
+function terminalTextLooksIdleShellPrompt(previewText: unknown): boolean {
   const lines = stripTerminalControlSequences(previewText)
     .replace(/\r/g, '')
     .split('\n')
@@ -171,11 +230,14 @@ function terminalTextLooksIdleShellPrompt(previewText) {
   return terminalLineLooksLikeIdleShellPrompt(lines[lines.length - 1]);
 }
 
-function terminalTitleShowsCodexActivity(title) {
+function terminalTitleShowsCodexActivity(title: unknown): boolean {
   return /^[\s]*[\u2800-\u28ff]/u.test(String(title || ''));
 }
 
-function inferCodexActivity(title, previewText) {
+function inferCodexActivity(
+  title: unknown,
+  previewText: unknown,
+): Exclude<TerminalActivity, 'exited'> {
   if (terminalTitleShowsCodexActivity(title)) return 'busy';
 
   const text = stripTerminalControlSequences(previewText).replace(/\r/g, '').toLowerCase();
@@ -190,13 +252,17 @@ function inferCodexActivity(title, previewText) {
   return 'unknown';
 }
 
-function inferClaudeActivity(previewText) {
+function inferClaudeActivity(
+  previewText: unknown,
+): Exclude<TerminalActivity, 'exited'> {
   const lines = terminalLines(previewText);
   if (lines.length === 0) return 'unknown';
   return lines.some(lineShowsClaudeActivity) ? 'busy' : 'idle';
 }
 
-function inferOpenCodeActivity(previewText) {
+function inferOpenCodeActivity(
+  previewText: unknown,
+): Exclude<TerminalActivity, 'exited' | 'unknown'> | 'unknown' {
   const lines = terminalLines(previewText);
   if (lines.length === 0) return 'unknown';
   const tail = lines.slice(-8);
@@ -206,7 +272,7 @@ function inferOpenCodeActivity(previewText) {
   }
   if (footerIndex < 0) return 'idle';
 
-  const activeProgress = (line) => (
+  const activeProgress = (line: string): boolean => (
     /^(?:[│┃]\s*)?[■⬝⭝]{3,}/u.test(line)
     && /\b(?:esc|escape|ctrl\+c|ctrl-c)(?:\s+(?:again\s+)?to)?\s+interrupt\b/.test(line)
   );
@@ -215,7 +281,11 @@ function inferOpenCodeActivity(previewText) {
   return activeFooter ? 'busy' : 'idle';
 }
 
-function inferQoderLikeActivity(title, previewText, commandName) {
+function inferQoderLikeActivity(
+  title: unknown,
+  previewText: unknown,
+  commandName: string,
+): Exclude<TerminalActivity, 'exited'> {
   const normalizedTitle = stripTerminalControlSequences(title).trim();
   if (commandName === 'qoder' || commandName === 'qodercli') {
     if (/^✋/u.test(normalizedTitle)) return 'idle';
@@ -238,7 +308,10 @@ function inferQoderLikeActivity(title, previewText, commandName) {
   return lines.length > 0 || normalizedTitle ? 'idle' : 'unknown';
 }
 
-function inferGenericActivity(previewText, terminalBusy) {
+function inferGenericActivity(
+  previewText: unknown,
+  terminalBusy: boolean | null,
+): Exclude<TerminalActivity, 'exited'> {
   if (terminalBusy === true) return 'busy';
   if (terminalBusy === false) return 'idle';
 
@@ -246,7 +319,7 @@ function inferGenericActivity(previewText, terminalBusy) {
   return 'unknown';
 }
 
-function nestedProcessCommandFromTitle(title) {
+function nestedProcessCommandFromTitle(title: unknown): string {
   const normalizedTitle = stripTerminalControlSequences(title).trim();
   if (/^oc\s*\|/i.test(normalizedTitle)) return 'opencode';
   if (/^[◇✋✦⏲]/u.test(normalizedTitle)) return 'qodercli';
@@ -254,7 +327,9 @@ function nestedProcessCommandFromTitle(title) {
   return '';
 }
 
-function deriveTerminalStatus(options = {}) {
+function deriveTerminalStatus(
+  options: TerminalStatusOptions = {},
+): TerminalStatus {
   const title = typeof options.title === 'string' ? options.title : '';
   const previewText = typeof options.previewText === 'string' ? options.previewText : '';
   const terminalBusy = typeof options.terminalBusy === 'boolean' ? options.terminalBusy : null;
@@ -265,7 +340,7 @@ function deriveTerminalStatus(options = {}) {
   const runningCommandName = executableName(options.shellCommand).toLowerCase();
   const launchedFromShell = SHELL_COMMANDS.has(commandName);
   let activityCommandName = commandName;
-  let kind;
+  let kind: TerminalKind;
   if (launchedFromShell && runningCommandName) {
     activityCommandName = runningCommandName;
     if (runningCommandName === 'codex') kind = 'codex';
@@ -288,7 +363,7 @@ function deriveTerminalStatus(options = {}) {
     && shellActivity
     && terminalBusy === true
     && terminalTextLooksIdleShellPrompt(previewText);
-  let activity = 'unknown';
+  let activity: TerminalActivity = 'unknown';
   if (options.status === 'exited') {
     activity = 'exited';
   } else if (hasPromptIdleFallback) {
@@ -309,7 +384,7 @@ function deriveTerminalStatus(options = {}) {
     activity = inferGenericActivity(previewText, terminalBusy);
   }
 
-  const status = {
+  const status: TerminalStatus = {
     kind,
     activity,
     busy: activity === 'busy',
@@ -349,7 +424,7 @@ function deriveTerminalStatus(options = {}) {
   return status;
 }
 
-function terminalInputReady(options = {}) {
+function terminalInputReady(options: TerminalStatusOptions = {}): boolean {
   const status = deriveTerminalStatus(options);
   if (status.activity !== 'idle') return false;
 
@@ -368,8 +443,15 @@ function terminalInputReady(options = {}) {
   return Boolean(stripTerminalControlSequences(previewText).trim());
 }
 
-module.exports = {
+export {
   deriveTerminalStatus,
   terminalInputReady,
   terminalTextLooksIdleShellPrompt,
+};
+export type {
+  TerminalActivity,
+  TerminalKind,
+  TerminalStatus,
+  TerminalStatusOptions,
+  TerminalStatusSource,
 };

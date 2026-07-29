@@ -1,6 +1,6 @@
 const assert = require('assert');
 const { importTsModule } = require('./helpers/import-ts-module');
-const { deriveTerminalStatus } = require('../terminal-status');
+const { deriveTerminalStatus } = require('../terminal-status.cjs');
 const { publicRuntimeBinding } = require('../agent-runtime-binding.cjs');
 const { deriveRuntimeObservation } = require('../runtime-observation.cjs');
 
