@@ -96,3 +96,48 @@ test('sends negotiated Codex ACP steer with mixed input and restores it once', a
     message.agentId === agentId && Number.isFinite(message.revision)
   ))).toBe(true)
 })
+
+test('keeps consecutive Codex steers separate while acceptance is delayed', async ({ page, workspaceRoot }) => {
+  const workspace = path.join(workspaceRoot, 'codex-acp-consecutive-steers')
+  fs.mkdirSync(workspace, { recursive: true })
+
+  const response = await page.request.post('/farming/api/control/agents', {
+    data: { command: 'codex', workspace, agentRuntimeMode: 'chat' },
+  })
+  expect(response.ok()).toBeTruthy()
+  const { agentId } = await response.json() as { agentId: string }
+
+  await openFarming(page)
+  await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
+  await expect.poll(async () => {
+    const state = await page.request.get('/farming/api/control/agents')
+    const body = await state.json() as {
+      agents?: Array<{ id?: string; providerCapabilities?: { supportsSteer?: boolean } }>
+    }
+    return body.agents?.find(agent => agent.id === agentId)?.providerCapabilities?.supportsSteer
+  }).toBe(true)
+
+  const input = page.getByTestId('code-acp-composer-input')
+  await input.fill('hold for two steers delayed')
+  await page.getByTestId('code-acp-composer-send').click()
+  await expect(page.getByTestId('code-acp-composer-send')).toHaveAttribute('data-action', 'interrupt')
+
+  await input.fill('?')
+  await page.getByTestId('code-acp-composer-send').click()
+  await expect(input).toHaveValue('')
+  await expect(page.getByTestId('code-acp-submission')).toContainText('?')
+
+  await input.fill('inspect the separate issue')
+  await page.getByTestId('code-acp-composer-send').click()
+  await expect(input).toHaveValue('')
+  await expect(page.getByTestId('code-acp-submission')).toHaveCount(2)
+  await expect(page.getByTestId('code-acp-submission').nth(0)).toContainText('?')
+  await expect(page.getByTestId('code-acp-submission').nth(1)).toContainText('inspect the separate issue')
+
+  await expect(page.getByTestId('code-acp-submission')).toHaveCount(0)
+  await expect(page.getByTestId('code-agent-transcript-steer')).toHaveCount(2)
+  await expect(page.locator('.code-agent-transcript-steer-bubble')).toHaveText([
+    '?',
+    'inspect the separate issue',
+  ])
+})

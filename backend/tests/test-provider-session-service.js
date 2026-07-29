@@ -258,6 +258,43 @@ async function run() {
   assert.strictEqual(agents.get('title').providerSessionTitle, '');
   assert.deepStrictEqual(titleCommits, [], 'a stale title lookup must not mutate a different session');
 
+  const firstTitleLookup = deferred();
+  const secondTitleLookup = deferred();
+  let queuedTitleLookupCount = 0;
+  agents.set('queued-title', {
+    id: 'queued-title',
+    cwd: workspace,
+    providerSessionProvider: 'qwen',
+    providerSessionId: 'qwen-session-a',
+    providerSessionTemporary: false,
+    providerSessionTitle: '',
+  });
+  const queuedTitleService = new ProviderSessionService({
+    agents,
+    findAgentSession() {
+      queuedTitleLookupCount += 1;
+      return queuedTitleLookupCount === 1
+        ? firstTitleLookup.promise
+        : secondTitleLookup.promise;
+    },
+  });
+  const earlyTitleResolution = queuedTitleService.resolveTitle('queued-title');
+  const turnCompletionRefresh = queuedTitleService.resolveTitle('queued-title', { force: true });
+  firstTitleLookup.resolve(null);
+  await earlyTitleResolution;
+  await Promise.resolve();
+  assert.strictEqual(
+    queuedTitleLookupCount,
+    2,
+    'a turn-completion refresh must rerun after joining an earlier empty title lookup',
+  );
+  secondTitleLookup.resolve({ title: 'Analyze the Agent naming regression' });
+  assert.strictEqual(await turnCompletionRefresh, true);
+  assert.strictEqual(
+    agents.get('queued-title').providerSessionTitle,
+    'Analyze the Agent naming regression',
+  );
+
   const startupStartedAt = Date.now();
   agents.set('startup-retry', {
     id: 'startup-retry',
@@ -365,6 +402,7 @@ async function run() {
   missingWorkspaceService.dispose();
   expiredService.dispose();
   titleService.dispose();
+  queuedTitleService.dispose();
   startupRetryService.dispose();
   cancelledRetryService.dispose();
   deadlineRetryService.dispose();

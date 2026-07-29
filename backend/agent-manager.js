@@ -992,7 +992,7 @@ class AgentManager extends EventEmitter {
       if (state === 'working' || state === 'waiting-for-permission' || state === 'waiting-for-input') this.lastActivity.set(agentId, Date.now());
       this.emit('update');
     });
-    this.acpRuntime.on('session', ({ agentId, revision }) => {
+    this.acpRuntime.on('session', ({ agentId, revision, title }) => {
       const agent = this.agents.get(agentId);
       const runtime = runtimeBindingOf(agent, 'acp');
       if (!runtime) return;
@@ -1003,11 +1003,15 @@ class AgentManager extends EventEmitter {
       if (nextRevision <= currentRevision) return;
       runtime.sessionUpdatedAt = new Date().toISOString();
       runtime.sessionRevision = nextRevision;
+      const titleChanged = typeof title === 'string'
+        ? this.updateAgentSessionTitle(agent, title)
+        : false;
       this.emit('acp-session-revision', {
         agentId,
         revision: runtime.sessionRevision,
         updatedAt: runtime.sessionUpdatedAt,
       });
+      if (titleChanged) this.emit('update');
     });
   }
 
@@ -5076,6 +5080,9 @@ class AgentManager extends EventEmitter {
         runtime.stopReason = result.stopReason || '';
       }
       this.ensurePersistentAgentSession(agent);
+      if (result.steered !== true) {
+        this.providerSessionService.observe(agentId, { force: true });
+      }
       return { kind: 'acp', ...result };
     }
 

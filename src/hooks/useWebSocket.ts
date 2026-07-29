@@ -171,18 +171,22 @@ export function useWebSocket() {
     message: string,
     agentId?: string,
     attachments: ComposerInputAttachment[] = [],
-    _options?: { awaitResult?: boolean },
+    options?: { awaitResult?: boolean; requestId?: string },
   ) => {
-    const requestKey = JSON.stringify({
-      agentId: agentId || '',
-      message,
-      attachments: attachments.map(attachment => ({
-        kind: attachment.kind,
-        path: attachment.path,
-        type: attachment.type,
-      })),
-    })
-    const requestId = composerRequestIdsRef.current.get(requestKey)
+    const explicitRequestId = String(options?.requestId || '').trim()
+    const requestKey = explicitRequestId
+      ? `request:${explicitRequestId}`
+      : JSON.stringify({
+        agentId: agentId || '',
+        message,
+        attachments: attachments.map(attachment => ({
+          kind: attachment.kind,
+          path: attachment.path,
+          type: attachment.type,
+        })),
+      })
+    const requestId = explicitRequestId
+      || composerRequestIdsRef.current.get(requestKey)
       || globalThis.crypto?.randomUUID?.()
       || `composer-${Date.now().toString(36)}-${++composerRequestSequenceRef.current}`
     composerRequestIdsRef.current.set(requestKey, requestId)

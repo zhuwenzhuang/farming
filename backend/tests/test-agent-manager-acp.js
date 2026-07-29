@@ -92,6 +92,40 @@ async function run() {
       'an ACP transcript revision should use its dedicated per-Agent channel',
     );
     const binding = runtime.bindings.get(agentId);
+    binding.sessionState.revision = nextSessionRevision;
+    binding.sessionState.apply({
+      sessionId: binding.sessionId,
+      update: {
+        sessionUpdate: 'session_info_update',
+        title: 'Investigate phase-aware Mermaid',
+      },
+    });
+    assert.strictEqual(
+      binding.sessionState.revision,
+      nextSessionRevision + 1,
+      'ACP session metadata should advance the revision consumed by the Agent list',
+    );
+    runtime.emitSession(binding);
+    assert.strictEqual(
+      live.sessionTitle,
+      'Investigate phase-aware Mermaid',
+      'an ACP session title should update the Agent name source',
+    );
+    assert.strictEqual(
+      genericUpdateCount,
+      1,
+      'an ACP title change should publish the updated Agent name once',
+    );
+    runtime.emit('session', {
+      agentId,
+      revision: binding.sessionState.revision,
+      title: 'Stale title must not win',
+    });
+    assert.strictEqual(
+      live.sessionTitle,
+      'Investigate phase-aware Mermaid',
+      'a stale ACP revision must not replace the current Agent title',
+    );
     assert.deepStrictEqual(binding.sessionRequestOptions.additionalDirectories, [path.join(process.cwd(), 'docs')]);
     assert.deepStrictEqual(binding.sessionRequestOptions.mcpServers, [
       { name: 'docs', command: '/bin/docs-mcp', args: [], env: [] },
@@ -133,9 +167,37 @@ async function run() {
     assert.deepStrictEqual(await elicitationPromise, { action: 'accept', content: { confirmed: true } });
     assert.strictEqual(manager.getState().agents.find(agent => agent.id === agentId).runtimeBinding.pendingElicitations.length, 0);
 
+    let resolveProviderTitle;
+    const providerTitleUpdated = new Promise(resolve => {
+      resolveProviderTitle = resolve;
+    });
+    manager.providerSessionService.findAgentSession = async (provider, sessionId) => {
+      assert.strictEqual(provider, 'claude');
+      assert.strictEqual(sessionId, 'acp-new-session');
+      return { title: 'Review phase-aware Mermaid rendering' };
+    };
+    manager.once('provider-session-updated', resolveProviderTitle);
+    live.customTitle = 'Manual Mermaid review';
     const result = await manager.sendComposerMessage(agentId, 'phase-aware mermaid');
     assert.strictEqual(result.kind, 'acp');
     assert.strictEqual(result.stopReason, 'end_turn');
+    await Promise.race([
+      providerTitleUpdated,
+      new Promise((_, reject) => setTimeout(
+        () => reject(new Error('ACP turn completion did not refresh the provider title')),
+        500,
+      )),
+    ]);
+    assert.strictEqual(
+      live.providerSessionTitle,
+      'Review phase-aware Mermaid rendering',
+      'a completed ACP turn should refresh the provider history title',
+    );
+    assert.strictEqual(
+      live.customTitle,
+      'Manual Mermaid review',
+      'a provider title refresh must not replace a manual Agent name',
+    );
     const session = manager.getAcpSession(agentId);
     assert.strictEqual(session.entries.find(item => item.role === 'assistant').content[0].text, 'Checking the final-answer phase.');
     await manager.sendComposerMessage(agentId, [

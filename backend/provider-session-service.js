@@ -217,6 +217,13 @@ class ProviderSessionService {
       return Promise.resolve(false);
     }
 
+    const inFlight = this.resolutions.get(`title:${agentId}`);
+    if (options.force === true && inFlight?.promise) {
+      return inFlight.promise.then(resolved => (
+        resolved ? true : this.resolveTitle(agentId, { force: true })
+      ));
+    }
+
     const provider = agent.providerSessionProvider;
     const sessionId = agent.providerSessionId;
     return this.runResolution(

@@ -1,6 +1,29 @@
 const BUSINESS_HEALTH_RECOVERY_TIMEOUT_MS = 5_000;
 
-function waitForRecovery(agentManager, timeoutMs) {
+type BusinessHealthStatus = 'ready' | 'recovering' | 'failed' | 'stopping';
+
+interface AgentManagerHealthState {
+  agents: unknown[];
+  mainAgentId?: unknown;
+}
+
+interface AgentManagerHealthSource {
+  disposed?: boolean;
+  disposing?: boolean;
+  whenRecovered(): Promise<unknown>;
+  getState(): AgentManagerHealthState | null;
+}
+
+interface BusinessHealthResult {
+  status: BusinessHealthStatus;
+  agentCount: number;
+  mainAgentId: string | null;
+}
+
+function waitForRecovery(
+  agentManager: AgentManagerHealthSource,
+  timeoutMs: number,
+): Promise<'ready' | 'failed' | 'timeout'> {
   return new Promise(resolve => {
     const timer = setTimeout(() => resolve('timeout'), timeoutMs);
     agentManager.whenRecovered().then(() => {
@@ -14,9 +37,9 @@ function waitForRecovery(agentManager, timeoutMs) {
 }
 
 async function probeAgentManagerBusinessHealth(
-  agentManager,
-  { timeoutMs = BUSINESS_HEALTH_RECOVERY_TIMEOUT_MS } = {},
-) {
+  agentManager: AgentManagerHealthSource,
+  { timeoutMs = BUSINESS_HEALTH_RECOVERY_TIMEOUT_MS }: { timeoutMs?: number } = {},
+): Promise<BusinessHealthResult> {
   if (agentManager.disposed || agentManager.disposing) {
     return { status: 'stopping', agentCount: 0, mainAgentId: null };
   }
@@ -44,7 +67,7 @@ async function probeAgentManagerBusinessHealth(
   }
 }
 
-module.exports = {
+export {
   BUSINESS_HEALTH_RECOVERY_TIMEOUT_MS,
   probeAgentManagerBusinessHealth,
 };

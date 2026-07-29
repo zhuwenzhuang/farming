@@ -129,6 +129,7 @@ export function useAgentComposerState({
           || state.mode !== 'default'
           || state.history.entries.length > 0
           || (state.pendingFollowUp?.messages.length ?? 0) > 0
+          || (state.submissions?.length ?? 0) > 0
         ) {
           return
         }

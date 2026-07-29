@@ -2629,8 +2629,13 @@ body.code-mode[data-appearance='dark'] .code-pending-followup {
 }
 
 body.code-mode[data-appearance='dark'] .code-pending-followup-icon,
-body.code-mode[data-appearance='dark'] .code-pending-followup-actions button {
+body.code-mode[data-appearance='dark'] .code-pending-followup-actions button,
+body.code-mode[data-appearance='dark'] .code-acp-submission-status {
   color: var(--code-dark-text-muted);
+}
+
+body.code-mode[data-appearance='dark'] .code-acp-submission.failed .code-acp-submission-status {
+  color: #d59a91;
 }
 
 body.code-mode[data-appearance='dark'] .code-pending-followup-row p {

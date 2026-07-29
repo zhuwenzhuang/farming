@@ -114,6 +114,11 @@ async function run() {
     sendMessage: () => delayedSubmission,
     updateComposerState,
   });
+  assert.strictEqual(state.draft, '', 'a submitted message must release the Composer immediately');
+  assert.strictEqual(state.attachments.length, 0);
+  assert.strictEqual(state.submissions.length, 1);
+  assert.strictEqual(state.submissions[0].text, 'submitted draft');
+  assert.strictEqual(state.submissions[0].status, 'submitting');
   state = {
     ...state,
     draft: 'newer draft',
@@ -121,7 +126,84 @@ async function run() {
   acceptDelayedSubmission(true);
   assert.strictEqual(await delayedResult, true);
   assert.strictEqual(state.draft, 'newer draft', 'a late ACK must not clear a newer draft');
-  assert.strictEqual(state.attachments.length, 1, 'a late ACK must not revoke attachments owned by a newer draft');
+  assert.strictEqual(state.attachments.length, 0);
+  assert.strictEqual(state.submissions, undefined);
+
+  const rapidSubmissions = [];
+  const rapidRequestIds = [];
+  const rapidResolvers = [];
+  const sendRapidMessage = (_agent, text, _attachments, requestId) => {
+    rapidSubmissions.push(text);
+    rapidRequestIds.push(requestId);
+    return new Promise(resolve => rapidResolvers.push(resolve));
+  };
+  state = {
+    ...createDefaultAgentComposerState(),
+    draft: '?',
+  };
+  const firstRapidResult = submitAcpDraft({
+    agent,
+    composerKey: 'acp:session-1',
+    draft: state.draft,
+    attachments: [],
+    composerMode: 'default',
+    turnActive: true,
+    supportsSteer: true,
+    sendMessage: sendRapidMessage,
+    updateComposerState,
+  });
+  assert.strictEqual(state.draft, '');
+  state = { ...state, draft: 'inspect the separate issue' };
+  const secondRapidResult = submitAcpDraft({
+    agent,
+    composerKey: 'acp:session-1',
+    draft: state.draft,
+    attachments: [],
+    composerMode: 'default',
+    turnActive: true,
+    supportsSteer: true,
+    sendMessage: sendRapidMessage,
+    updateComposerState,
+  });
+  assert.deepStrictEqual(
+    rapidSubmissions,
+    ['?', 'inspect the separate issue'],
+    'consecutive steers must retain two independent submission boundaries',
+  );
+  assert.notStrictEqual(
+    rapidRequestIds[0],
+    rapidRequestIds[1],
+    'each send action must own a distinct request id even when acknowledgements overlap',
+  );
+  assert.deepStrictEqual(state.submissions.map(message => message.text), rapidSubmissions);
+  rapidResolvers[0](true);
+  assert.strictEqual(await firstRapidResult, true);
+  assert.deepStrictEqual(state.submissions.map(message => message.text), ['inspect the separate issue']);
+  rapidResolvers[1](true);
+  assert.strictEqual(await secondRapidResult, true);
+  assert.strictEqual(state.submissions, undefined);
+
+  let rejectSubmission;
+  state = {
+    ...createDefaultAgentComposerState(),
+    draft: 'keep failed submission separate',
+  };
+  const rejectedResult = submitAcpDraft({
+    agent,
+    composerKey: 'acp:session-1',
+    draft: state.draft,
+    attachments: [],
+    composerMode: 'default',
+    turnActive: true,
+    supportsSteer: true,
+    sendMessage: () => new Promise(resolve => { rejectSubmission = resolve; }),
+    updateComposerState,
+  });
+  rejectSubmission(false);
+  assert.strictEqual(await rejectedResult, false);
+  assert.strictEqual(state.draft, '');
+  assert.strictEqual(state.submissions[0].status, 'failed');
+  assert.strictEqual(state.submissions[0].text, 'keep failed submission separate');
 
   state = {
     ...createDefaultAgentComposerState(),

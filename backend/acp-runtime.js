@@ -2763,6 +2763,7 @@ class AcpRuntime extends EventEmitter {
       agentId: binding.agentId,
       updatedAt: binding.updatedAt,
       revision: binding.sessionState?.revision || 0,
+      title: binding.sessionState?.title || '',
     });
     return true;
   }

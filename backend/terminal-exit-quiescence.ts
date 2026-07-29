@@ -1,10 +1,21 @@
 const DEFAULT_TERMINAL_EXIT_DATA_FLUSH_MS = 250;
 
-function delay(ms) {
+interface TerminalExitDataState {
+  exitDataClosed?: boolean;
+  exitFinalizing?: boolean;
+  exitDataGeneration?: number;
+}
+
+interface TerminalExitQuiescenceOptions {
+  flushMs?: number;
+  isCurrent?: () => boolean;
+}
+
+function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-function acceptTerminalExitData(session) {
+function acceptTerminalExitData(session: TerminalExitDataState | null | undefined): boolean {
   if (!session || session.exitDataClosed === true) return false;
   if (session.exitFinalizing === true) {
     session.exitDataGeneration = (session.exitDataGeneration || 0) + 1;
@@ -12,16 +23,19 @@ function acceptTerminalExitData(session) {
   return true;
 }
 
-async function waitForTerminalExitDataQuiescence(session, options = {}) {
+async function waitForTerminalExitDataQuiescence(
+  session: TerminalExitDataState,
+  options: TerminalExitQuiescenceOptions = {},
+): Promise<boolean> {
   const isCurrent = typeof options.isCurrent === 'function' ? options.isCurrent : () => true;
-  const flushMs = Number.isFinite(options.flushMs)
+  const flushMs = typeof options.flushMs === 'number' && Number.isFinite(options.flushMs)
     ? Math.max(1, Math.floor(options.flushMs))
     : DEFAULT_TERMINAL_EXIT_DATA_FLUSH_MS;
   session.exitFinalizing = true;
   session.exitDataGeneration = session.exitDataGeneration || 0;
 
   for (;;) {
-    const observedGeneration = session.exitDataGeneration;
+    const observedGeneration: number = session.exitDataGeneration || 0;
     await delay(flushMs);
     if (!isCurrent()) return false;
     if (session.exitDataGeneration !== observedGeneration) continue;
@@ -32,7 +46,7 @@ async function waitForTerminalExitDataQuiescence(session, options = {}) {
   }
 }
 
-module.exports = {
+export {
   DEFAULT_TERMINAL_EXIT_DATA_FLUSH_MS,
   acceptTerminalExitData,
   waitForTerminalExitDataQuiescence,

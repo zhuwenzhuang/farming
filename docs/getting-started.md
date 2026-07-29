@@ -7,7 +7,7 @@ This guide takes you from installation to a running Agent.
 ## Requirements
 
 - macOS or Linux
-- Node.js 22.13 LTS (22.x) or Node.js 24+
+- Node.js 22.18 LTS (22.x) or Node.js 24+
 - access to at least one supported coding Agent provider
 
 Provider login is still required. If you use a locally detected CLI, make sure

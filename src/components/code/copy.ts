@@ -202,6 +202,8 @@ export interface CodeCopy {
   queuedMessages: (count: number) => string
   sendQueuedMessage: string
   discardQueuedMessage: string
+  messageAwaitingAcceptance: string
+  messageNotAccepted: string
   addContext: string
   attachFile: string
   fileContext: string
@@ -709,6 +711,8 @@ const EN_COPY: CodeCopy = {
   queuedMessages: count => `${count} queued messages`,
   sendQueuedMessage: 'Send next',
   discardQueuedMessage: 'Discard queued message',
+  messageAwaitingAcceptance: 'Waiting for Agent',
+  messageNotAccepted: 'Not accepted',
   addContext: 'Add context',
   attachFile: 'Attach file',
   fileContext: 'File context',
@@ -1252,6 +1256,8 @@ const ZH_COPY: CodeCopy = {
   queuedMessages: count => `${count} 条排队消息`,
   sendQueuedMessage: '当前轮后发送',
   discardQueuedMessage: '丢弃排队消息',
+  messageAwaitingAcceptance: '等待 Agent 接收',
+  messageNotAccepted: '未被接收',
   addContext: '添加上下文',
   attachFile: '附加文件',
   fileContext: '文件上下文',

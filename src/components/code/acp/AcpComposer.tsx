@@ -53,6 +53,7 @@ export interface AcpComposerProps {
   composerMode: ComposerMode
   contextWindow: AgentContextWindowUsage | null
   pendingFollowUp: { messages: Array<{ id: string; text: string; createdAt: number; attachments?: Array<{ name: string }> }>; createdAt: number } | null
+  submissions: Array<{ id: string; text: string; createdAt: number; status: 'submitting' | 'failed'; attachments?: Array<{ name: string }> }>
   submitAction: 'send' | 'interrupt' | 'disabled'
   textareaRef: RefObject<HTMLTextAreaElement | null>
   attachmentInputRef: RefObject<HTMLInputElement | null>
@@ -67,6 +68,8 @@ export interface AcpComposerProps {
   onSubmit: (draft?: string) => void
   onInterrupt: () => void
   onDiscardPendingFollowUp: (messageId: string) => void
+  onRetrySubmission: (messageId: string) => void
+  onDiscardSubmission: (messageId: string) => void
   onToggleSpeechInput: () => void
   onPasteAttachment: (event: ClipboardEvent<HTMLElement>) => void
   onAttachmentFiles: (event: ChangeEvent<HTMLInputElement>) => void
@@ -89,6 +92,7 @@ export function AcpComposer({
   composerMode,
   contextWindow,
   pendingFollowUp,
+  submissions,
   submitAction,
   textareaRef,
   attachmentInputRef,
@@ -103,6 +107,8 @@ export function AcpComposer({
   onSubmit,
   onInterrupt,
   onDiscardPendingFollowUp,
+  onRetrySubmission,
+  onDiscardSubmission,
   onToggleSpeechInput,
   onPasteAttachment,
   onAttachmentFiles,
@@ -271,7 +277,7 @@ export function AcpComposer({
     'code-acp-composer',
     openMenu ? 'menu-open' : '',
     attachments.length > 0 ? 'has-attachments' : '',
-    pendingFollowUp && active ? 'has-pending-followup' : '',
+    (pendingFollowUp || submissions.length > 0) && active ? 'has-pending-followup' : '',
     hasAcpRequest ? 'has-acp-request' : '',
   ].filter(Boolean).join(' ')
 
@@ -282,6 +288,36 @@ export function AcpComposer({
       data-testid="code-acp-composer"
       onClick={handleComposerClick}
     >
+      {submissions.length > 0 && active ? (
+        <div className="code-pending-followup code-acp-submissions" data-testid="code-acp-submissions">
+          {submissions.map(message => (
+            <div
+              className={`code-pending-followup-row code-acp-submission ${message.status}`}
+              data-testid="code-acp-submission"
+              data-status={message.status}
+              key={message.id}
+            >
+              <span className="code-pending-followup-icon" aria-hidden="true"><ReplyGlyph /></span>
+              <p>{message.text || message.attachments?.map(attachment => attachment.name).join(', ')}</p>
+              <div className="code-pending-followup-actions">
+                <span className="code-acp-submission-status">
+                  {message.status === 'submitting' ? copy.messageAwaitingAcceptance : copy.messageNotAccepted}
+                </span>
+                {message.status === 'failed' ? (
+                  <>
+                    <button type="button" data-testid="code-acp-submission-retry" onClick={() => onRetrySubmission(message.id)}>
+                      {copy.retry}
+                    </button>
+                    <button type="button" className="icon" data-testid="code-acp-submission-discard" aria-label={copy.discardQueuedMessage} onClick={() => onDiscardSubmission(message.id)}>
+                      <CloseGlyph />
+                    </button>
+                  </>
+                ) : null}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : null}
       {pendingFollowUp && active ? (
         <div className="code-pending-followup" data-testid="code-acp-pending-followup">
           {pendingFollowUp.messages.map(message => (

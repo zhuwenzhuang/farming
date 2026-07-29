@@ -17,6 +17,10 @@ export interface AgentComposerPendingFollowUp {
   createdAt: number
 }
 
+export interface AgentComposerSubmission extends AgentComposerPendingFollowUpMessage {
+  status: 'submitting' | 'failed'
+}
+
 export interface AgentComposerUiState {
   plusMenuOpen: boolean
   approvalMenuOpen: boolean
@@ -30,6 +34,7 @@ export interface AgentComposerState {
   mode: ComposerMode
   history: ComposerHistoryState
   pendingFollowUp?: AgentComposerPendingFollowUp
+  submissions?: AgentComposerSubmission[]
   ui: AgentComposerUiState
 }
 
@@ -75,6 +80,15 @@ export function removePendingFollowUpMessage(
     : undefined
 }
 
+export function removeComposerSubmission(
+  submissions: AgentComposerSubmission[] | undefined,
+  messageId: string
+) {
+  if (!submissions) return undefined
+  const remaining = submissions.filter(message => message.id !== messageId)
+  return remaining.length > 0 ? remaining : undefined
+}
+
 export function closeComposerMenusForState(state: AgentComposerState): AgentComposerState {
   if (
     !state.ui.plusMenuOpen
@@ -105,6 +119,10 @@ export function mergeAgentComposerStates(primary: AgentComposerState, incoming: 
     primary.pendingFollowUp?.createdAt ?? Number.POSITIVE_INFINITY,
     incoming.pendingFollowUp?.createdAt ?? Number.POSITIVE_INFINITY
   )
+  const submissionsById = new Map<string, AgentComposerSubmission>()
+  for (const submission of [...(incoming.submissions || []), ...(primary.submissions || [])]) {
+    submissionsById.set(submission.id, submission)
+  }
   return {
     ...primary,
     draft: primary.draft || incoming.draft,
@@ -120,6 +138,7 @@ export function mergeAgentComposerStates(primary: AgentComposerState, incoming: 
         createdAt: Number.isFinite(pendingCreatedAt) ? pendingCreatedAt : Date.now(),
       }
       : undefined,
+    submissions: submissionsById.size > 0 ? Array.from(submissionsById.values()) : undefined,
     ui: isDefaultAgentComposerUiState(primary.ui) ? incoming.ui : primary.ui,
   }
 }

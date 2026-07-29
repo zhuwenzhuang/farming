@@ -7,7 +7,7 @@
 ## 环境要求
 
 - macOS 或 Linux
-- Node.js 22.13 LTS（22.x）或 Node.js 24+
+- Node.js 22.18 LTS（22.x）或 Node.js 24+
 - 至少一个可用的 Coding Agent Provider
 
 Provider 仍需要登录。如果使用 Farming 在本机发现的 CLI，请先确认它能在 Farming Host 上独立启动。

@@ -9,6 +9,7 @@
   },
   "files": [
     "backend/*.js",
+    "backend/*.ts",
     "backend/farming-agent-bootstrap.zh_cn.md",
     "backend/usage-history-scanner.ts",
     "backend/acp/",
@@ -80,7 +81,7 @@
     "test:e2e:workspaces:local": "FARMING_BASE_PATH=/farming npm run build && node scripts/e2e-workspaces.js local",
     "test:e2e:workspaces:remote": "FARMING_BASE_PATH=/farming npm run build && node scripts/e2e-workspaces.js remote",
     "typecheck:backend": "tsc -p tsconfig.backend.json",
-    "typecheck": "tsc --noEmit && tsc -p tsconfig.backend.json && tsc -p tsconfig.usage.json",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.backend.json && tsc -p tsconfig.backend-runtime.json && tsc -p tsconfig.usage.json",
     "lint": "eslint --max-warnings=0 \"backend/**/*.js\" \"frontend/**/*.js\" \"scripts/**/*.js\" bin/farming --ignore-pattern \"backend/usage-history-scanner.generated.js\" --ignore-pattern \"frontend/vendor/**\" --ignore-pattern \"frontend/themes/**\"",
     "check": "npm run typecheck && npm run lint && npm test"
   },
@@ -111,7 +112,7 @@
     "access": "public"
   },
   "engines": {
-    "node": "^22.13.0 || >=24.0.0"
+    "node": "^22.18.0 || >=24.0.0"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "1.2.1",

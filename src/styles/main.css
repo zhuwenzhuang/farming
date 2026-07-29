@@ -11729,6 +11729,17 @@ body.code-mode .code-history-agent-icon .agent-launch-icon,
   gap: 3px;
 }
 
+.code-acp-submission-status {
+  color: #8a918b;
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.code-acp-submission.failed .code-acp-submission-status {
+  color: #a4665f;
+}
+
 .code-pending-followup-actions button {
   appearance: none;
   border: 0;

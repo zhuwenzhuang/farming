@@ -1,7 +1,7 @@
 import type { Agent } from '@/types/agent'
 import { appPath } from '@/lib/base-path'
 import { addComposerHistoryEntry } from '../composer-history'
-import { createPendingFollowUpMessage } from '../composer-state'
+import { createPendingFollowUpMessage, removeComposerSubmission } from '../composer-state'
 import type { AgentComposerState } from '../composer-state'
 import {
   composerMessageForNativeAttachments,
@@ -25,6 +25,7 @@ interface SubmitAcpDraftInput {
     agent: Agent,
     message: string,
     attachments?: ComposerPromptAttachment[],
+    requestId?: string,
   ) => boolean | Promise<boolean>
   updateComposerState: (
     key: string,
@@ -61,36 +62,82 @@ export function submitAcpDraft({
   const text = formatComposerMessage(composerMode, composerMessageForNativeAttachments(draft, attachments).trim())
   if ((!text && promptAttachments.length === 0) || !agent || !isAcpComposerAvailable(agent) || !composerKey) return false
   const steerNow = turnActive && supportsSteer
-  const commitAccepted = () => {
+  const clearOwnedDraft = (state: AgentComposerState) => {
+    const ownsDraft = state.draft === draft
+      && state.attachments.length === attachments.length
+      && state.attachments.every((attachment, index) => attachment.id === attachments[index]?.id)
+    if (!ownsDraft) return state
+    return {
+      ...state,
+      draft: '',
+      attachments: [],
+      mode: 'default' as const,
+    }
+  }
+  const queueFollowUp = () => {
     updateComposerState(composerKey, state => {
-      const ownsDraft = state.draft === draft
-        && state.attachments.length === attachments.length
-        && state.attachments.every((attachment, index) => attachment.id === attachments[index]?.id)
-      if (!ownsDraft) return state
+      const cleared = clearOwnedDraft(state)
+      if (cleared === state) return state
       attachments.forEach(revokeComposerAttachmentPreview)
       return {
-        ...state,
-        draft: '',
-        attachments: [],
-        mode: 'default',
-        history: addComposerHistoryEntry(state.history, draft),
-        ...(turnActive && !steerNow ? {
-          pendingFollowUp: {
-            messages: [
-              ...(state.pendingFollowUp?.messages || []),
-              createPendingFollowUpMessage(text, promptAttachments),
-            ],
-            createdAt: state.pendingFollowUp?.createdAt || Date.now(),
-          },
-        } : {}),
+        ...cleared,
+        history: addComposerHistoryEntry(cleared.history, draft),
+        pendingFollowUp: {
+          messages: [
+            ...(cleared.pendingFollowUp?.messages || []),
+            createPendingFollowUpMessage(text, promptAttachments),
+          ],
+          createdAt: cleared.pendingFollowUp?.createdAt || Date.now(),
+        },
       }
     })
     return true
   }
-  if (turnActive && !steerNow) return commitAccepted()
-  const submitted = sendMessage(agent, text, promptAttachments)
-  if (typeof submitted === 'boolean') return submitted ? commitAccepted() : false
-  return submitted.then(accepted => accepted ? commitAccepted() : false)
+  if (turnActive && !steerNow) return queueFollowUp()
+
+  const submission = {
+    ...createPendingFollowUpMessage(text, promptAttachments),
+    status: 'submitting' as const,
+  }
+  updateComposerState(composerKey, state => {
+    const cleared = clearOwnedDraft(state)
+    if (cleared === state) return state
+    return {
+      ...cleared,
+      submissions: [...(cleared.submissions || []), submission],
+    }
+  })
+
+  const settleSubmission = (accepted: boolean) => {
+    updateComposerState(composerKey, state => {
+      if (accepted) {
+        return {
+          ...state,
+          history: addComposerHistoryEntry(state.history, draft),
+          submissions: removeComposerSubmission(state.submissions, submission.id),
+        }
+      }
+      return {
+        ...state,
+        submissions: state.submissions?.map(candidate => (
+          candidate.id === submission.id
+            ? { ...candidate, status: 'failed' as const }
+            : candidate
+        )),
+      }
+    })
+    attachments.forEach(revokeComposerAttachmentPreview)
+    return accepted
+  }
+
+  let submitted: boolean | Promise<boolean>
+  try {
+    submitted = sendMessage(agent, text, promptAttachments, submission.id)
+  } catch {
+    return settleSubmission(false)
+  }
+  if (typeof submitted === 'boolean') return settleSubmission(submitted)
+  return submitted.then(settleSubmission, () => settleSubmission(false))
 }
 
 export function respondToAcpPermission(

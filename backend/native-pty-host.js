@@ -47,7 +47,7 @@ const {
 const {
   acceptTerminalExitData,
   waitForTerminalExitDataQuiescence,
-} = require('./terminal-exit-quiescence');
+} = require('./terminal-exit-quiescence.ts');
 
 const OUTPUT_LIMIT = 10000;
 const DEFAULT_COLS = 80;

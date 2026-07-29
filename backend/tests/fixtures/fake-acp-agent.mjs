@@ -273,6 +273,9 @@ class FakeAgent {
         throw error;
       }
       const promptText = params.prompt?.map(block => block.type === 'text' ? block.text : '').join('') || '';
+      if (activeSteerTurn.delayAcceptanceMs > 0) {
+        await new Promise(resolve => setTimeout(resolve, activeSteerTurn.delayAcceptanceMs));
+      }
       if (activeSteerTurn.echoUserMessage !== false) {
         for (const content of params.prompt || []) {
           await client.sessionUpdate({
@@ -352,6 +355,7 @@ class FakeAgent {
         sessionId: params.sessionId,
         turnId: 'fake-active-turn',
         expected: promptText.includes('two steers') ? 2 : 1,
+        delayAcceptanceMs: promptText.includes('steers delayed') ? 300 : 0,
         received: 0,
         release: releaseSteerTurn,
         echoUserMessage: !promptText.includes('without user echo'),

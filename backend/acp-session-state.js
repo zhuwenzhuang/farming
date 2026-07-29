@@ -363,9 +363,19 @@ class AcpSessionState {
     } else if (kind === 'config_option_update') {
       this.configOptions = clone(update.configOptions || []);
     } else if (kind === 'session_info_update') {
-      if (Object.prototype.hasOwnProperty.call(update, 'title')) this.title = String(update.title || '');
-      if (Object.prototype.hasOwnProperty.call(update, 'updatedAt')) this.updatedAt = String(update.updatedAt || '');
-      this.applyCodexSubagentUpdate(update?._meta?.codex?.subagents);
+      let metadataChanged = false;
+      if (Object.prototype.hasOwnProperty.call(update, 'title')) {
+        const title = String(update.title || '');
+        metadataChanged = metadataChanged || title !== this.title;
+        this.title = title;
+      }
+      if (Object.prototype.hasOwnProperty.call(update, 'updatedAt')) {
+        const updatedAt = String(update.updatedAt || '');
+        metadataChanged = metadataChanged || updatedAt !== this.updatedAt;
+        this.updatedAt = updatedAt;
+      }
+      const subagentsChanged = this.applyCodexSubagentUpdate(update?._meta?.codex?.subagents);
+      if (metadataChanged && !subagentsChanged) this.revision += 1;
     }
     return true;
   }
