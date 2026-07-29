@@ -9,7 +9,7 @@ const {
   createFarmingNetPass,
   loadOrCreateFarmingNetSigningIdentity,
   PASS_QUERY_PARAM,
-} = require('./farming-net-pass');
+} = require('./farming-net-pass.cjs');
 const { loadFarmingNetRegistry } = require('./farming-net-registry.cjs');
 const storageLayout = require('./storage-layout.cjs');
 

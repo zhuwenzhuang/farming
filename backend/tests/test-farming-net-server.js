@@ -5,7 +5,7 @@ const os = require('os');
 const path = require('path');
 
 const { createFarmingNetServer } = require('../farming-net-server');
-const { FarmingNetPassVerifier, PASS_QUERY_PARAM, writeFarmingNetTrust } = require('../farming-net-pass');
+const { FarmingNetPassVerifier, PASS_QUERY_PARAM, writeFarmingNetTrust } = require('../farming-net-pass.cjs');
 const { writeFarmingNetRegistry } = require('../farming-net-registry.cjs');
 
 function request(port, requestPath, headers = {}) {

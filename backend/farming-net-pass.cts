@@ -1,6 +1,7 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+import type { KeyObject } from 'crypto';
 
 const PASS_QUERY_PARAM = 'farming_net_pass';
 const PASS_SCOPE = 'farming:open';
@@ -8,7 +9,80 @@ const DEFAULT_PASS_TTL_SECONDS = 30;
 const MAX_PASS_TTL_SECONDS = 60;
 const CLOCK_SKEW_SECONDS = 5;
 
-function normalizeAudience(value) {
+interface FarmingNetPublicKeyDetails {
+  canonicalPem: string;
+  issuer: string;
+  publicKey: KeyObject;
+}
+
+interface FarmingNetPrivateKeyDetails {
+  canonicalPem: string;
+  privateKey: KeyObject;
+  publicDetails: FarmingNetPublicKeyDetails;
+}
+
+interface FarmingNetSigningIdentity {
+  issuer: string;
+  privateKey: KeyObject;
+  privateKeyFile: string;
+  publicKey: KeyObject;
+  publicKeyFile: string;
+  publicKeyPem: string;
+}
+
+interface FarmingNetTrustIssuer {
+  id: string;
+  name: string;
+  publicKey: string;
+}
+
+interface FarmingNetTrust {
+  audience: string;
+  issuers: FarmingNetTrustIssuer[];
+  version: 1;
+}
+
+interface FarmingNetPassPayload extends Record<string, unknown> {
+  aud: string;
+  exp: number;
+  iat: number;
+  iss: string;
+  jti: string;
+  scope: string;
+  sub: string;
+}
+
+type FarmingNetPassVerification =
+  | { valid: false; reason: string }
+  | { valid: true; payload: FarmingNetPassPayload };
+
+interface FarmingNetPassVerifierOptions {
+  trustFile?: string;
+}
+
+interface FarmingNetPassTimeOptions {
+  nowMs?: number;
+}
+
+interface CreateFarmingNetPassOptions extends FarmingNetPassTimeOptions {
+  audience?: unknown;
+  subject?: unknown;
+  ttlSeconds?: unknown;
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isKeyObject(value: unknown): value is KeyObject {
+  return value instanceof crypto.KeyObject;
+}
+
+function isFileError(error: unknown, code: string): boolean {
+  return error instanceof Error && 'code' in error && error.code === code;
+}
+
+function normalizeAudience(value: unknown): string {
   const audience = String(value || '').trim().toLowerCase();
   if (!/^[a-z0-9][a-z0-9._-]{0,63}$/.test(audience)) {
     throw new Error('Invalid Farming Net audience');
@@ -16,7 +90,7 @@ function normalizeAudience(value) {
   return audience;
 }
 
-function normalizeIssuerId(value) {
+function normalizeIssuerId(value: unknown): string {
   const issuerId = String(value || '').trim();
   if (!/^[A-Za-z0-9_-]{8,80}$/.test(issuerId)) {
     throw new Error('Invalid Farming Net issuer id');
@@ -24,7 +98,7 @@ function normalizeIssuerId(value) {
   return issuerId;
 }
 
-function normalizeSubject(value) {
+function normalizeSubject(value: unknown): string {
   const subject = String(value || 'owner').trim();
   if (!subject || subject.length > 80 || /[\x00-\x1f\x7f]/.test(subject)) {
     throw new Error('Invalid Farming Net subject');
@@ -32,17 +106,14 @@ function normalizeSubject(value) {
   return subject;
 }
 
-function safeTtlSeconds(value) {
+function safeTtlSeconds(value: unknown): number {
   const ttl = Number(value);
   if (!Number.isInteger(ttl)) return DEFAULT_PASS_TTL_SECONDS;
   return Math.min(MAX_PASS_TTL_SECONDS, Math.max(5, ttl));
 }
 
-/**
- * @param {string | crypto.KeyObject} publicKeyPem
- */
-function publicKeyDetails(publicKeyPem) {
-  const publicKey = publicKeyPem && typeof publicKeyPem === 'object' && publicKeyPem.type === 'public'
+function publicKeyDetails(publicKeyPem: unknown): FarmingNetPublicKeyDetails {
+  const publicKey = isKeyObject(publicKeyPem) && publicKeyPem.type === 'public'
     ? publicKeyPem
     : crypto.createPublicKey(String(publicKeyPem || ''));
   if (publicKey.asymmetricKeyType !== 'ed25519') {
@@ -54,17 +125,17 @@ function publicKeyDetails(publicKeyPem) {
   return { canonicalPem, issuer, publicKey };
 }
 
-function privateKeyDetails(privateKeyPem) {
+function privateKeyDetails(privateKeyPem: unknown): FarmingNetPrivateKeyDetails {
   const privateKey = crypto.createPrivateKey(String(privateKeyPem || ''));
   if (privateKey.asymmetricKeyType !== 'ed25519') {
     throw new Error('Farming Net requires an Ed25519 private key');
   }
   const canonicalPem = privateKey.export({ format: 'pem', type: 'pkcs8' }).toString();
-  const publicDetails = publicKeyDetails(crypto.createPublicKey(/** @type {any} */ (privateKey)));
+  const publicDetails = publicKeyDetails(crypto.createPublicKey(privateKey));
   return { canonicalPem, privateKey, publicDetails };
 }
 
-function writePrivateFile(filePath, contents) {
+function writePrivateFile(filePath: string, contents: string): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   const tempFile = `${filePath}.${process.pid}.${crypto.randomBytes(6).toString('hex')}.tmp`;
   fs.writeFileSync(tempFile, contents, { flag: 'wx', mode: 0o600 });
@@ -80,7 +151,10 @@ function writePrivateFile(filePath, contents) {
   }
 }
 
-function loadOrCreateFarmingNetSigningIdentity(options = {}) {
+function loadOrCreateFarmingNetSigningIdentity(options: {
+  privateKeyFile?: string;
+  publicKeyFile?: string;
+} = {}): FarmingNetSigningIdentity {
   const privateKeyFile = options.privateKeyFile;
   const publicKeyFile = options.publicKeyFile;
   if (!privateKeyFile || !publicKeyFile) {
@@ -90,16 +164,16 @@ function loadOrCreateFarmingNetSigningIdentity(options = {}) {
   let privateKeyPem = '';
   try {
     privateKeyPem = fs.readFileSync(privateKeyFile, 'utf8');
-  } catch (error) {
-    if (!error || error.code !== 'ENOENT') throw error;
+  } catch (error: unknown) {
+    if (!isFileError(error, 'ENOENT')) throw error;
     const generated = crypto.generateKeyPairSync('ed25519');
     const generatedPem = generated.privateKey.export({ format: 'pem', type: 'pkcs8' }).toString();
     try {
       fs.mkdirSync(path.dirname(privateKeyFile), { recursive: true });
       fs.writeFileSync(privateKeyFile, generatedPem, { flag: 'wx', mode: 0o600 });
       privateKeyPem = generatedPem;
-    } catch (writeError) {
-      if (!writeError || writeError.code !== 'EEXIST') throw writeError;
+    } catch (writeError: unknown) {
+      if (!isFileError(writeError, 'EEXIST')) throw writeError;
       privateKeyPem = fs.readFileSync(privateKeyFile, 'utf8');
     }
   }
@@ -117,25 +191,28 @@ function loadOrCreateFarmingNetSigningIdentity(options = {}) {
   };
 }
 
-function encodeJsonSegment(value) {
+function encodeJsonSegment(value: unknown): string {
   return Buffer.from(JSON.stringify(value), 'utf8').toString('base64url');
 }
 
-function decodeJsonSegment(segment) {
+function decodeJsonSegment(segment: unknown): Record<string, unknown> {
   if (typeof segment !== 'string' || segment.length < 2 || segment.length > 2048) {
     throw new Error('Invalid Farming Net pass segment');
   }
   if (!/^[A-Za-z0-9_-]+$/.test(segment)) {
     throw new Error('Invalid Farming Net pass encoding');
   }
-  const parsed = JSON.parse(Buffer.from(segment, 'base64url').toString('utf8'));
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+  const parsed: unknown = JSON.parse(Buffer.from(segment, 'base64url').toString('utf8'));
+  if (!isObject(parsed)) {
     throw new Error('Invalid Farming Net pass JSON');
   }
   return parsed;
 }
 
-function createFarmingNetPass(identity, options = {}) {
+function createFarmingNetPass(
+  identity: FarmingNetSigningIdentity,
+  options: CreateFarmingNetPassOptions = {},
+): string {
   if (!identity || !identity.privateKey || !identity.issuer) {
     throw new Error('Farming Net signing identity is required');
   }
@@ -165,14 +242,14 @@ function createFarmingNetPass(identity, options = {}) {
   return `${signingInput}.${signature.toString('base64url')}`;
 }
 
-function normalizeFarmingNetTrust(rawTrust) {
-  if (!rawTrust || typeof rawTrust !== 'object' || Array.isArray(rawTrust)) {
+function normalizeFarmingNetTrust(rawTrust: unknown): FarmingNetTrust {
+  if (!isObject(rawTrust)) {
     throw new Error('Invalid Farming Net trust document');
   }
   const audience = normalizeAudience(rawTrust.audience);
-  const seenIssuers = new Set();
+  const seenIssuers = new Set<string>();
   const issuers = (Array.isArray(rawTrust.issuers) ? rawTrust.issuers : []).map(rawIssuer => {
-    if (!rawIssuer || typeof rawIssuer !== 'object' || Array.isArray(rawIssuer)) {
+    if (!isObject(rawIssuer)) {
       throw new Error('Invalid Farming Net trusted issuer');
     }
     const id = normalizeIssuerId(rawIssuer.id);
@@ -194,28 +271,34 @@ function normalizeFarmingNetTrust(rawTrust) {
   return { version: 1, audience, issuers };
 }
 
-function writeFarmingNetTrust(filePath, trust) {
+function writeFarmingNetTrust(filePath: string, trust: unknown): FarmingNetTrust {
   const normalized = normalizeFarmingNetTrust(trust);
   writePrivateFile(filePath, `${JSON.stringify(normalized, null, 2)}\n`);
   return normalized;
 }
 
-function loadFarmingNetTrust(filePath) {
+function loadFarmingNetTrust(filePath: string): FarmingNetTrust | null {
   try {
     return normalizeFarmingNetTrust(JSON.parse(fs.readFileSync(filePath, 'utf8')));
-  } catch (error) {
-    if (error && error.code === 'ENOENT') return null;
+  } catch (error: unknown) {
+    if (isFileError(error, 'ENOENT')) return null;
     throw error;
   }
 }
 
 class FarmingNetPassVerifier {
-  constructor(options = {}) {
+  trustFile: string;
+  seenPasses: Map<string, number>;
+
+  constructor(options: FarmingNetPassVerifierOptions = {}) {
     this.trustFile = String(options.trustFile || '');
-    this.seenPasses = new Map();
+    this.seenPasses = new Map<string, number>();
   }
 
-  verify(pass, options = {}) {
+  verify(
+    pass: unknown,
+    options: FarmingNetPassTimeOptions = {},
+  ): FarmingNetPassVerification {
     try {
       if (!this.trustFile) return { valid: false, reason: 'trust_not_configured' };
       const trust = loadFarmingNetTrust(this.trustFile);
@@ -237,8 +320,13 @@ class FarmingNetPassVerifier {
       if (!issuer || payload.iss !== issuerId) return { valid: false, reason: 'untrusted_issuer' };
       if (payload.aud !== trust.audience) return { valid: false, reason: 'wrong_audience' };
       if (payload.scope !== PASS_SCOPE) return { valid: false, reason: 'wrong_scope' };
-      normalizeSubject(payload.sub);
-      if (!Number.isSafeInteger(payload.iat) || !Number.isSafeInteger(payload.exp)) {
+      const subject = normalizeSubject(payload.sub);
+      if (
+        typeof payload.iat !== 'number'
+        || typeof payload.exp !== 'number'
+        || !Number.isSafeInteger(payload.iat)
+        || !Number.isSafeInteger(payload.exp)
+      ) {
         return { valid: false, reason: 'invalid_time' };
       }
       if (payload.exp <= payload.iat || payload.exp - payload.iat > MAX_PASS_TTL_SECONDS) {
@@ -266,14 +354,26 @@ class FarmingNetPassVerifier {
       const replayKey = `${issuerId}:${payload.jti}`;
       if (this.seenPasses.has(replayKey)) return { valid: false, reason: 'replayed' };
       this.seenPasses.set(replayKey, payload.exp);
-      return { valid: true, payload };
+      return {
+        valid: true,
+        payload: {
+          ...payload,
+          aud: trust.audience,
+          exp: payload.exp,
+          iat: payload.iat,
+          iss: issuerId,
+          jti: payload.jti,
+          scope: PASS_SCOPE,
+          sub: subject,
+        },
+      };
     } catch {
       return { valid: false, reason: 'invalid_pass' };
     }
   }
 }
 
-module.exports = {
+export {
   CLOCK_SKEW_SECONDS,
   DEFAULT_PASS_TTL_SECONDS,
   FarmingNetPassVerifier,

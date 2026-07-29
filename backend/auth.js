@@ -1,6 +1,6 @@
 const crypto = require('crypto');
 const fs = require('fs');
-const { FarmingNetPassVerifier, PASS_QUERY_PARAM } = require('./farming-net-pass');
+const { FarmingNetPassVerifier, PASS_QUERY_PARAM } = require('./farming-net-pass.cjs');
 const { createPoeticToken, generatePoeticToken, getPoeticTokenEntropyBits } = require('./haiku-token');
 const storageLayout = require('./storage-layout.cjs');
 

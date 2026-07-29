@@ -8,7 +8,7 @@ const {
   FarmingNetPassVerifier,
   loadOrCreateFarmingNetSigningIdentity,
   writeFarmingNetTrust,
-} = require('../farming-net-pass');
+} = require('../farming-net-pass.cjs');
 
 function run() {
   const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-net-pass-'));

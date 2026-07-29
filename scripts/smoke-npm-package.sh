@@ -100,6 +100,7 @@ for runtime_module in \
   codex-transcript-sanitizer \
   executable-discovery \
   farming-agent-bootstrap \
+  farming-net-pass \
   farming-net-registry \
   git-worktree-info \
   input-parts \
