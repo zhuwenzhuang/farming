@@ -1,6 +1,6 @@
 const assert = require('assert');
 const EventEmitter = require('events');
-const { JsonCliRuntime, commandForTurn } = require('../json-cli-runtime');
+const { JsonCliRuntime, commandForTurn } = require('../json-cli-runtime.cjs');
 
 assert.deepStrictEqual(commandForTurn({ provider: 'codex', cwd: '/tmp/demo', message: 'hi' }), {
   args: ['exec', '--json', '--skip-git-repo-check', '--cd', '/tmp/demo', '-'], stdin: 'hi',

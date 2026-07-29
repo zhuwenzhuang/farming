@@ -209,7 +209,7 @@ async function run() {
     '/opt/farming/glibc/lib',
     '/opt/farming/runtime/bin/node',
   ]);
-  assert(npmSpawned[0].args[3].endsWith('/backend/npm-update-helper.js'));
+  assert(npmSpawned[0].args[3].endsWith('/backend/npm-update-helper.cjs'));
   const npmUpdatePayload = JSON.parse(npmSpawned[0].options.env.FARMING_NPM_UPDATE_PAYLOAD);
   assert.strictEqual(npmUpdatePayload.targetVersion, '2.2.6');
   assert.strictEqual(npmUpdatePayload.previousVersion, '2.2.5');

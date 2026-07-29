@@ -103,12 +103,14 @@ for runtime_module in \
   codex-transcript-sanitizer \
   executable-discovery \
   farming-agent-bootstrap \
+  farming-net-server \
   farming-net-pass \
   farming-net-registry \
   git-worktree-info \
   input-parts \
   input-routing \
   index-html \
+  json-cli-runtime \
   main-agent-skills \
   main-page-session \
   native-pty-controller-generation \
@@ -116,6 +118,7 @@ for runtime_module in \
   native-pty-host-path \
   native-session-engine \
   network \
+  npm-update-helper \
   provider-session-service \
   provider-session-id \
   preview-session-manager \
@@ -133,6 +136,7 @@ for runtime_module in \
   session-engine-bridge \
   session-engine-router \
   session-stream-protocol \
+  slash-command-discovery \
   storage-layout \
   system-monitor \
   terminal-attach-checkpoint \

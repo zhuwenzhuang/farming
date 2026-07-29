@@ -9,7 +9,7 @@ const {
   runNpmUpdate,
   stopProcess,
   validatePayload,
-} = require('../npm-update-helper');
+} = require('../npm-update-helper.cjs');
 const { readServerProcessIdentity } = require('../farming-app-cli');
 
 function packageRoot(prefix) {

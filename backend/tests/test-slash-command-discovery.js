@@ -2,7 +2,7 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 
-const { discoverAgentExtensions, discoverSlashCommands } = require('../slash-command-discovery');
+const { discoverAgentExtensions, discoverSlashCommands } = require('../slash-command-discovery.cjs');
 
 function mkdirp(filePath) {
   fs.mkdirSync(filePath, { recursive: true });

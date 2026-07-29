@@ -6,31 +6,95 @@ const {
   readServerProcessIdentity,
 } = require('./server-process-identity.cjs');
 
-function writeJsonAtomic(filePath, value) {
+type NpmUpdateAction = 'prepare' | 'apply';
+
+interface ProcessIdentityInput {
+  pid?: unknown;
+  processGroupId?: unknown;
+  startedAt?: unknown;
+}
+
+interface NpmUpdatePayload {
+  action: NpmUpdateAction;
+  packageName: string;
+  targetVersion: string;
+  previousVersion: string;
+  startedAt?: string;
+  preparedAt?: string;
+  stateFile: string;
+  logPath: string;
+  cliPath: string;
+  packageRoot: string;
+  configDir: string;
+  stagingPrefix: string;
+  stagingPackageRoot: string;
+  nodePath: string;
+  npmCommand?: string;
+  npmPrefix?: string;
+  npmFallbackRegistryUrl?: string;
+  serverPid?: number | string;
+  serverProcessIdentity?: ProcessIdentityInput | null;
+  port: number | string;
+  basePath: string;
+  serverHome?: string;
+  disableAuth?: boolean;
+}
+
+interface CommandOptions {
+  cwd?: string;
+  env?: NodeJS.ProcessEnv;
+  logPath: string;
+}
+
+interface NpmUpdateState extends Record<string, unknown> {
+  method: 'npm';
+  phase: string;
+  version: string;
+  previousVersion: string;
+  packageName: string;
+  startedAt?: string;
+  logPath: string;
+  stagingPrefix: string;
+  stagingPackageRoot: string;
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function errorCode(error: unknown): string {
+  return isObject(error) ? String(error.code || '') : '';
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function writeJsonAtomic(filePath: string, value: unknown): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   const temporaryPath = `${filePath}.${process.pid}.tmp`;
   fs.writeFileSync(temporaryPath, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
   fs.renameSync(temporaryPath, filePath);
 }
 
-function appendLog(logPath, message) {
+function appendLog(logPath: string, message: string): void {
   fs.mkdirSync(path.dirname(logPath), { recursive: true });
   fs.appendFileSync(logPath, `[${new Date().toISOString()}] ${message}\n`);
 }
 
-function runCommand(command, args, options = {}) {
-  return new Promise((resolve, reject) => {
+function runCommand(command: string, args: string[], options: CommandOptions): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
     const logFd = fs.openSync(options.logPath, 'a');
     const child = spawn(command, args, {
       cwd: options.cwd,
       env: options.env,
       stdio: ['ignore', logFd, logFd],
     });
-    child.once('error', error => {
+    child.once('error', (error: Error) => {
       fs.closeSync(logFd);
       reject(error);
     });
-    child.once('exit', (code, signal) => {
+    child.once('exit', (code: number | null, signal: NodeJS.Signals | null) => {
       fs.closeSync(logFd);
       if (code === 0) {
         resolve();
@@ -41,18 +105,22 @@ function runCommand(command, args, options = {}) {
   });
 }
 
-function isProcessRunning(pid) {
-  if (!Number.isInteger(pid) || pid <= 0) return false;
+function isProcessRunning(pid: unknown): boolean {
+  if (typeof pid !== 'number' || !Number.isInteger(pid) || pid <= 0) return false;
   try {
     process.kill(pid, 0);
     return true;
-  } catch (error) {
-    if (error?.code === 'EPERM' || error?.code === 'EACCES') return true;
+  } catch (error: unknown) {
+    if (errorCode(error) === 'EPERM' || errorCode(error) === 'EACCES') return true;
     return false;
   }
 }
 
-async function stopProcess(pid, expectedIdentity, timeoutMs = 15_000) {
+async function stopProcess(
+  pid: number,
+  expectedIdentity: ProcessIdentityInput | null | undefined,
+  timeoutMs = 15_000,
+): Promise<void> {
   if (!isProcessRunning(pid)) return;
   const currentIdentity = await readServerProcessIdentity(pid);
   if (!matchingProcessIdentity(expectedIdentity, currentIdentity)) {
@@ -60,15 +128,15 @@ async function stopProcess(pid, expectedIdentity, timeoutMs = 15_000) {
   }
   try {
     process.kill(pid, 'SIGKILL');
-  } catch (error) {
-    if (error?.code === 'EPERM' || error?.code === 'EACCES') {
+  } catch (error: unknown) {
+    if (errorCode(error) === 'EPERM' || errorCode(error) === 'EACCES') {
       throw new Error(
         `Farming cannot stop server ${pid} because the update helper lacks permission. `
         + 'Use the operating-system user that owns this process (or an administrator) to stop and restart Farming, then retry the update.',
         { cause: error },
       );
     }
-    if (error?.code !== 'ESRCH') throw error;
+    if (errorCode(error) !== 'ESRCH') throw error;
   }
   const startedAt = Date.now();
   while (matchingProcessIdentity(expectedIdentity, await readServerProcessIdentity(pid))) {
@@ -78,26 +146,27 @@ async function stopProcess(pid, expectedIdentity, timeoutMs = 15_000) {
         + 'Stop and restart Farming manually, then retry the update.',
       );
     }
-    await new Promise(resolve => setTimeout(resolve, 100));
+    await new Promise<void>(resolve => setTimeout(resolve, 100));
   }
 }
 
-function validatePayload(payload) {
+function validatePayload(payload: unknown): NpmUpdatePayload {
   if (!payload || typeof payload !== 'object') throw new Error('Missing npm update payload');
-  if (!['prepare', 'apply'].includes(payload.action)) throw new Error('Invalid npm update action');
-  if (!/^[A-Za-z0-9@/._-]+$/.test(String(payload.packageName || ''))) throw new Error('Invalid npm package name');
-  if (!/^[0-9A-Za-z.+-]+$/.test(String(payload.targetVersion || ''))) throw new Error('Invalid npm target version');
-  if (!/^[0-9A-Za-z.+-]+$/.test(String(payload.previousVersion || ''))) throw new Error('Invalid npm previous version');
+  const candidate = payload as Record<string, unknown>;
+  if (!['prepare', 'apply'].includes(String(candidate.action))) throw new Error('Invalid npm update action');
+  if (!/^[A-Za-z0-9@/._-]+$/.test(String(candidate.packageName || ''))) throw new Error('Invalid npm package name');
+  if (!/^[0-9A-Za-z.+-]+$/.test(String(candidate.targetVersion || ''))) throw new Error('Invalid npm target version');
+  if (!/^[0-9A-Za-z.+-]+$/.test(String(candidate.previousVersion || ''))) throw new Error('Invalid npm previous version');
   for (const key of ['stateFile', 'logPath', 'cliPath', 'packageRoot', 'configDir', 'stagingPrefix', 'stagingPackageRoot']) {
-    if (!path.isAbsolute(String(payload[key] || ''))) throw new Error(`Invalid npm update ${key}`);
+    if (!path.isAbsolute(String(candidate[key] || ''))) throw new Error(`Invalid npm update ${key}`);
   }
-  if (payload.npmPrefix && !path.isAbsolute(String(payload.npmPrefix))) {
+  if (candidate.npmPrefix && !path.isAbsolute(String(candidate.npmPrefix))) {
     throw new Error('Invalid npm update npmPrefix');
   }
-  if (payload.npmFallbackRegistryUrl) {
+  if (candidate.npmFallbackRegistryUrl) {
     let registry;
     try {
-      registry = new URL(String(payload.npmFallbackRegistryUrl));
+      registry = new URL(String(candidate.npmFallbackRegistryUrl));
     } catch {
       throw new Error('Invalid npm update registry');
     }
@@ -105,17 +174,26 @@ function validatePayload(payload) {
       throw new Error('Invalid npm update registry');
     }
   }
-  const expectedStagingRoot = path.join(payload.stagingPrefix, 'lib', 'node_modules', payload.packageName);
-  if (path.resolve(payload.stagingPackageRoot) !== path.resolve(expectedStagingRoot)) {
+  const expectedStagingRoot = path.join(
+    String(candidate.stagingPrefix),
+    'lib',
+    'node_modules',
+    String(candidate.packageName),
+  );
+  if (path.resolve(String(candidate.stagingPackageRoot)) !== path.resolve(expectedStagingRoot)) {
     throw new Error('Invalid npm update stagingPackageRoot');
   }
-  if (path.resolve(payload.stagingPackageRoot) === path.resolve(payload.packageRoot)) {
+  if (path.resolve(String(candidate.stagingPackageRoot)) === path.resolve(String(candidate.packageRoot))) {
     throw new Error('npm update staging root must differ from the running package root');
   }
-  return payload;
+  return payload as NpmUpdatePayload;
 }
 
-function stateFor(payload, phase, extra = {}) {
+function stateFor(
+  payload: NpmUpdatePayload,
+  phase: string,
+  extra: Record<string, unknown> = {},
+): NpmUpdateState {
   return {
     method: 'npm',
     phase,
@@ -130,7 +208,7 @@ function stateFor(payload, phase, extra = {}) {
   };
 }
 
-function startArguments(payload) {
+function startArguments(payload: NpmUpdatePayload): string[] {
   const args = [
     payload.cliPath,
     'daemon',
@@ -143,7 +221,7 @@ function startArguments(payload) {
   return args;
 }
 
-function commandEnvironment() {
+function commandEnvironment(): NodeJS.ProcessEnv {
   const env = { ...process.env };
   delete env.FARMING_NPM_UPDATE_PAYLOAD;
   delete env.FARMING_RUN_SERVER;
@@ -151,26 +229,37 @@ function commandEnvironment() {
   return env;
 }
 
-async function installPackage(payload, version, npmPrefix = payload.npmPrefix) {
+async function installPackage(
+  payload: NpmUpdatePayload,
+  version: string,
+  npmPrefix = payload.npmPrefix,
+): Promise<void> {
   const packageSpec = `${payload.packageName}@${version}`;
   return installPackageFromRegistry(payload, packageSpec, '', npmPrefix);
 }
 
-function verifyInstalledVersion(payload, expectedVersion, packageRoot = payload.packageRoot) {
+function verifyInstalledVersion(
+  payload: NpmUpdatePayload,
+  expectedVersion: string,
+  packageRoot = payload.packageRoot,
+): void {
   const packageJsonPath = path.join(packageRoot, 'package.json');
-  let metadata;
+  let metadata: unknown;
   try {
     metadata = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
-  } catch (error) {
-    throw new Error(`Installed ${payload.packageName} package metadata is unreadable: ${error.message || String(error)}`, { cause: error });
+  } catch (error: unknown) {
+    throw new Error(
+      `Installed ${payload.packageName} package metadata is unreadable: ${errorMessage(error)}`,
+      { cause: error },
+    );
   }
-  const actualVersion = String(metadata && metadata.version || '');
+  const actualVersion = String(isObject(metadata) ? metadata.version || '' : '');
   if (actualVersion !== expectedVersion) {
     throw new Error(`Installed ${payload.packageName} version mismatch: expected ${expectedVersion}, found ${actualVersion || 'missing'}`);
   }
 }
 
-function logSize(filePath) {
+function logSize(filePath: string): number {
   try {
     return fs.statSync(filePath).size;
   } catch {
@@ -178,7 +267,7 @@ function logSize(filePath) {
   }
 }
 
-function logSince(filePath, offset) {
+function logSince(filePath: string, offset: number): string {
   try {
     return fs.readFileSync(filePath, 'utf8').slice(offset);
   } catch {
@@ -186,7 +275,12 @@ function logSince(filePath, offset) {
   }
 }
 
-async function installPackageFromRegistry(payload, packageSpec, registryUrl = '', npmPrefix = payload.npmPrefix) {
+async function installPackageFromRegistry(
+  payload: NpmUpdatePayload,
+  packageSpec: string,
+  registryUrl = '',
+  npmPrefix = payload.npmPrefix,
+): Promise<void> {
   appendLog(payload.logPath, `Installing ${packageSpec}${registryUrl ? ' from the update-status registry' : ''}`);
   const args = ['install', '--global'];
   if (npmPrefix) args.push('--prefix', npmPrefix);
@@ -199,7 +293,7 @@ async function installPackageFromRegistry(payload, packageSpec, registryUrl = ''
       env: commandEnvironment(),
       logPath: payload.logPath,
     });
-  } catch (error) {
+  } catch (error: unknown) {
     if (!registryUrl && payload.npmFallbackRegistryUrl && /(?:ETARGET|No matching version found)/.test(logSince(payload.logPath, offset))) {
       appendLog(payload.logPath, `Configured npm registry has no ${packageSpec}; retrying from the update-status registry`);
       return installPackageFromRegistry(payload, packageSpec, payload.npmFallbackRegistryUrl, npmPrefix);
@@ -208,7 +302,10 @@ async function installPackageFromRegistry(payload, packageSpec, registryUrl = ''
   }
 }
 
-async function startServer(payload, version = payload.targetVersion) {
+async function startServer(
+  payload: NpmUpdatePayload,
+  version = payload.targetVersion,
+): Promise<void> {
   appendLog(payload.logPath, `Starting Farming ${version}`);
   await runCommand(payload.nodePath, startArguments(payload), {
     cwd: payload.configDir,
@@ -217,7 +314,7 @@ async function startServer(payload, version = payload.targetVersion) {
   });
 }
 
-async function prepareNpmUpdate(payload) {
+async function prepareNpmUpdate(payload: NpmUpdatePayload): Promise<void> {
   try {
     writeJsonAtomic(payload.stateFile, stateFor(payload, 'installing'));
     fs.mkdirSync(payload.stagingPrefix, { recursive: true });
@@ -242,13 +339,13 @@ async function prepareNpmUpdate(payload) {
       runtimePreparedAt: preparedAt,
     }));
     appendLog(payload.logPath, `Farming ${payload.targetVersion} is ready to restart`);
-  } catch (error) {
-    const message = error && error.message ? error.message : String(error);
+  } catch (error: unknown) {
+    const message = errorMessage(error);
     appendLog(payload.logPath, `Update preparation failed: ${message}`);
     try {
       fs.rmSync(payload.stagingPrefix, { recursive: true, force: true });
-    } catch (cleanupError) {
-      appendLog(payload.logPath, `Update preparation cleanup failed: ${cleanupError.message || cleanupError}`);
+    } catch (cleanupError: unknown) {
+      appendLog(payload.logPath, `Update preparation cleanup failed: ${errorMessage(cleanupError)}`);
     }
     writeJsonAtomic(payload.stateFile, stateFor(payload, 'failed', {
       error: message,
@@ -257,7 +354,7 @@ async function prepareNpmUpdate(payload) {
   }
 }
 
-async function applyNpmUpdate(payload) {
+async function applyNpmUpdate(payload: NpmUpdatePayload): Promise<void> {
   const backupRoot = path.join(
     path.dirname(payload.packageRoot),
     `.${path.basename(payload.packageRoot)}.backup-${process.pid}`,
@@ -273,7 +370,7 @@ async function applyNpmUpdate(payload) {
     writeJsonAtomic(payload.stateFile, stateFor(payload, 'restarting', {
       preparedAt: payload.preparedAt,
     }));
-    await new Promise(resolve => setTimeout(resolve, 1_000));
+    await new Promise<void>(resolve => setTimeout(resolve, 1_000));
     await stopProcess(Number(payload.serverPid), payload.serverProcessIdentity);
     stoppedOldServer = true;
     fs.renameSync(payload.packageRoot, backupRoot);
@@ -290,11 +387,11 @@ async function applyNpmUpdate(payload) {
     try {
       fs.rmSync(backupRoot, { recursive: true, force: true });
       fs.rmSync(payload.stagingPrefix, { recursive: true, force: true });
-    } catch (cleanupError) {
-      appendLog(payload.logPath, `Update cleanup failed: ${cleanupError.message || cleanupError}`);
+    } catch (cleanupError: unknown) {
+      appendLog(payload.logPath, `Update cleanup failed: ${errorMessage(cleanupError)}`);
     }
-  } catch (error) {
-    const message = error && error.message ? error.message : String(error);
+  } catch (error: unknown) {
+    const message = errorMessage(error);
     appendLog(payload.logPath, `Update apply failed: ${message}`);
 
     if (stoppedOldServer || !isProcessRunning(Number(payload.serverPid))) {
@@ -322,12 +419,12 @@ async function applyNpmUpdate(payload) {
         appendLog(payload.logPath, `Rolled back to ${payload.previousVersion}`);
         try {
           fs.rmSync(payload.stagingPrefix, { recursive: true, force: true });
-        } catch (cleanupError) {
-          appendLog(payload.logPath, `Rollback cleanup failed: ${cleanupError.message || cleanupError}`);
+        } catch (cleanupError: unknown) {
+          appendLog(payload.logPath, `Rollback cleanup failed: ${errorMessage(cleanupError)}`);
         }
         return;
-      } catch (rollbackError) {
-        const rollbackMessage = rollbackError && rollbackError.message ? rollbackError.message : String(rollbackError);
+      } catch (rollbackError: unknown) {
+        const rollbackMessage = errorMessage(rollbackError);
         writeJsonAtomic(payload.stateFile, stateFor(payload, 'failed', {
           error: `${message}; rollback failed: ${rollbackMessage}`,
           completedAt: new Date().toISOString(),
@@ -344,27 +441,27 @@ async function applyNpmUpdate(payload) {
   }
 }
 
-async function runNpmUpdate(rawPayload) {
+async function runNpmUpdate(rawPayload: unknown): Promise<void> {
   const payload = validatePayload(rawPayload);
   if (payload.action === 'prepare') return prepareNpmUpdate(payload);
   return applyNpmUpdate(payload);
 }
 
 if (require.main === module) {
-  let payload;
+  let payload: unknown;
   try {
     payload = JSON.parse(process.env.FARMING_NPM_UPDATE_PAYLOAD || '');
   } catch {
     console.error('Invalid FARMING_NPM_UPDATE_PAYLOAD');
     process.exit(1);
   }
-  runNpmUpdate(payload).catch(error => {
-    console.error(error.message || error);
+  runNpmUpdate(payload).catch((error: unknown) => {
+    console.error(errorMessage(error));
     process.exit(1);
   });
 }
 
-module.exports = {
+export {
   isProcessRunning,
   runNpmUpdate,
   stopProcess,

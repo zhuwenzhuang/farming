@@ -10,7 +10,7 @@ function run() {
   const deploySource = read('scripts/deploy.sh');
   const serverSource = read('backend/server.js');
   const appCliSource = read('backend/farming-app-cli.js');
-  const npmUpdateHelperSource = read('backend/npm-update-helper.js');
+  const npmUpdateHelperSource = read('backend/npm-update-helper.cts');
   const updateServiceSource = read('backend/update-service.js');
   const releaseInstallerSource = read('scripts/install-release.sh');
 

@@ -1,18 +1,113 @@
-const EventEmitter = require('events');
-const { spawn } = require('child_process');
-const { AgentJsonStreamParser } = require('./agent-json-stream.cjs');
+import { EventEmitter } from 'events';
+import {
+  spawn as nodeSpawn,
+  type ChildProcessWithoutNullStreams,
+  type SpawnOptionsWithoutStdio,
+} from 'child_process';
+
+const { AgentJsonStreamParser } = require('./agent-json-stream.cjs') as {
+  AgentJsonStreamParser: new (options: AgentJsonStreamParserOptions) => AgentJsonStreamParser;
+};
 
 const MAX_EVENTS = 12_000;
 const PROCESS_EXIT_TIMEOUT_MS = 1500;
 const PROCESS_KILL_TIMEOUT_MS = 1000;
 
-function childHasExited(child) {
+type JsonEvent = Record<string, unknown>;
+type SpawnProcess = (
+  command: string,
+  args: readonly string[],
+  options: SpawnOptionsWithoutStdio & {
+    stdio: ['pipe', 'pipe', 'pipe'];
+  },
+) => ChildProcessWithoutNullStreams;
+
+interface AgentJsonStreamParserOptions {
+  provider: string;
+  operationId: string;
+  prompt?: string;
+}
+
+interface AgentJsonStreamParser {
+  events: JsonEvent[];
+  readonly sessionId: string;
+  push(chunk: unknown): JsonEvent[];
+  flush(): JsonEvent[];
+  transcript(options?: unknown): unknown;
+}
+
+interface JsonTurnOptions {
+  provider: string;
+  cwd: string;
+  message: string;
+  sessionId?: unknown;
+  approvalMode?: unknown;
+  autoApprove?: unknown;
+  model?: unknown;
+}
+
+interface JsonTurnCommand {
+  args: string[];
+  stdin: string;
+}
+
+interface JsonAgentRegistration {
+  agentId: string;
+  provider: string;
+  executable: string;
+  cwd: string;
+  env: NodeJS.ProcessEnv | Record<string, string | undefined>;
+  sessionId?: string;
+  approvalMode?: string;
+  autoApprove?: boolean;
+  model?: string;
+  initialEvents?: JsonEvent[];
+}
+
+interface JsonAgentBinding extends JsonAgentRegistration {
+  events: JsonEvent[];
+  ownsProcessGroup: boolean;
+  child: ChildProcessWithoutNullStreams | null;
+  operationSeq: number;
+  state: 'idle' | 'working' | 'error';
+  error: string;
+}
+
+interface JsonCliRuntimeOptions {
+  spawn?: SpawnProcess;
+  processExitTimeoutMs?: number;
+  processKillTimeoutMs?: number;
+  ownsProcessGroups?: boolean;
+}
+
+interface JsonAgentPatch {
+  approvalMode?: string;
+  autoApprove?: boolean;
+  model?: string;
+}
+
+interface JsonRuntimeTranscript {
+  available: boolean;
+  sessionId: string;
+  source: string;
+  turns: unknown;
+}
+
+function errorCode(error: unknown): string {
+  if (!error || typeof error !== 'object' || !('code' in error)) return '';
+  return typeof error.code === 'string' ? error.code : '';
+}
+
+function childHasExited(child: ChildProcessWithoutNullStreams | null | undefined): boolean {
   return !child
     || (child.exitCode !== null && child.exitCode !== undefined)
     || (child.signalCode !== null && child.signalCode !== undefined);
 }
 
-function processTreeHasExited(child, ownsProcessGroup) {
+function processTreeHasExited(
+  child: ChildProcessWithoutNullStreams | null | undefined,
+  ownsProcessGroup: boolean,
+): boolean {
   if (!ownsProcessGroup || !child?.pid || process.platform === 'win32') {
     return childHasExited(child);
   }
@@ -20,44 +115,52 @@ function processTreeHasExited(child, ownsProcessGroup) {
     process.kill(-child.pid, 0);
     return false;
   } catch (error) {
-    return error?.code === 'ESRCH';
+    return errorCode(error) === 'ESRCH';
   }
 }
 
-async function waitForProcessTreeExit(child, ownsProcessGroup, timeoutMs) {
+async function waitForProcessTreeExit(
+  child: ChildProcessWithoutNullStreams | null | undefined,
+  ownsProcessGroup: boolean,
+  timeoutMs: number,
+): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() <= deadline) {
     if (processTreeHasExited(child, ownsProcessGroup)) return true;
-    await new Promise(resolve => setTimeout(resolve, 25));
+    await new Promise<void>(resolve => setTimeout(resolve, 25));
   }
   return processTreeHasExited(child, ownsProcessGroup);
 }
 
-function signalProcessTree(child, ownsProcessGroup, signal) {
+function signalProcessTree(
+  child: ChildProcessWithoutNullStreams | null | undefined,
+  ownsProcessGroup: boolean,
+  signal: NodeJS.Signals,
+): void {
   if (!child || processTreeHasExited(child, ownsProcessGroup)) return;
   if (ownsProcessGroup && child.pid && process.platform !== 'win32') {
     try {
       process.kill(-child.pid, signal);
       return;
     } catch (error) {
-      if (error?.code === 'ESRCH') return;
+      if (errorCode(error) === 'ESRCH') return;
     }
   }
   child.kill(signal);
 }
 
-function codexPermissionArgs(mode) {
+function codexPermissionArgs(mode: unknown): string[] {
   if (mode === 'full') return ['--dangerously-bypass-approvals-and-sandbox'];
   if (mode === 'ask') return ['-c', 'approval_policy="untrusted"'];
   if (mode === 'approve') return ['-c', 'approval_policy="on-request"'];
   return [];
 }
 
-function commandForTurn(options) {
+function commandForTurn(options: JsonTurnOptions): JsonTurnCommand {
   const sessionId = String(options.sessionId || '').trim();
   if (options.provider === 'codex') {
     const common = ['--json', '--skip-git-repo-check', ...codexPermissionArgs(options.approvalMode)];
-    if (options.model) common.push('--model', options.model);
+    if (options.model) common.push('--model', String(options.model));
     return sessionId
       ? { args: ['exec', 'resume', ...common, sessionId, '-'], stdin: options.message }
       : { args: ['exec', ...common, '--cd', options.cwd, '-'], stdin: options.message };
@@ -66,7 +169,7 @@ function commandForTurn(options) {
     const args = ['run', '--format', 'json', '--dir', options.cwd];
     if (sessionId) args.push('--session', sessionId);
     if (options.autoApprove) args.push('--auto');
-    if (options.model) args.push('--model', options.model);
+    if (options.model) args.push('--model', String(options.model));
     args.push(options.message);
     return { args, stdin: '' };
   }
@@ -74,23 +177,32 @@ function commandForTurn(options) {
 }
 
 class JsonCliRuntime extends EventEmitter {
-  constructor(options = {}) {
+  spawn: SpawnProcess;
+  processExitTimeoutMs: number;
+  processKillTimeoutMs: number;
+  ownsProcessGroups: boolean;
+  bindings: Map<string, JsonAgentBinding>;
+  disposing: boolean;
+  disposePromise: Promise<void> | null;
+  disposed: boolean;
+
+  constructor(options: JsonCliRuntimeOptions = {}) {
     super();
-    this.spawn = options.spawn || spawn;
+    this.spawn = options.spawn || (nodeSpawn as SpawnProcess);
     this.processExitTimeoutMs = options.processExitTimeoutMs ?? PROCESS_EXIT_TIMEOUT_MS;
     this.processKillTimeoutMs = options.processKillTimeoutMs ?? PROCESS_KILL_TIMEOUT_MS;
     this.ownsProcessGroups = options.ownsProcessGroups ?? process.platform !== 'win32';
-    this.bindings = new Map();
+    this.bindings = new Map<string, JsonAgentBinding>();
     this.disposing = false;
     this.disposePromise = null;
     this.disposed = false;
   }
 
-  registerAgent(options) {
+  registerAgent(options: JsonAgentRegistration): JsonAgentBinding {
     if (this.disposing || this.disposed) {
       throw new Error('JSON CLI runtime is shutting down');
     }
-    const binding = {
+    const binding: JsonAgentBinding = {
       ...options,
       events: Array.isArray(options.initialEvents) ? [...options.initialEvents].slice(-MAX_EVENTS) : [],
       ownsProcessGroup: this.ownsProcessGroups,
@@ -103,13 +215,13 @@ class JsonCliRuntime extends EventEmitter {
     return binding;
   }
 
-  unregisterAgent(agentId) {
+  unregisterAgent(agentId: string): void {
     const binding = this.bindings.get(agentId);
     if (binding?.child) signalProcessTree(binding.child, binding.ownsProcessGroup, 'SIGTERM');
     this.bindings.delete(agentId);
   }
 
-  async unregisterAgentAndWait(agentId) {
+  async unregisterAgentAndWait(agentId: string): Promise<boolean> {
     const binding = this.bindings.get(agentId);
     if (!binding) return false;
     const child = binding.child;
@@ -126,7 +238,11 @@ class JsonCliRuntime extends EventEmitter {
     return true;
   }
 
-  async submitComposerMessage(agentId, message, patch = {}) {
+  async submitComposerMessage(
+    agentId: string,
+    message: string,
+    patch: JsonAgentPatch = {},
+  ): Promise<{ sessionId?: string }> {
     if (this.disposing || this.disposed) {
       throw new Error('JSON CLI runtime is shutting down');
     }
@@ -171,7 +287,9 @@ class JsonCliRuntime extends EventEmitter {
       child.on('close', (code, signal) => {
         parser.flush();
         binding.events.push(...parser.events);
-        if (binding.events.length > MAX_EVENTS) binding.events.splice(0, binding.events.length - MAX_EVENTS);
+        if (binding.events.length > MAX_EVENTS) {
+          binding.events.splice(0, binding.events.length - MAX_EVENTS);
+        }
         if (parser.sessionId) binding.sessionId = parser.sessionId;
         const processTreeExited = processTreeHasExited(child, binding.ownsProcessGroup);
         if (processTreeExited) binding.child = null;
@@ -193,21 +311,24 @@ class JsonCliRuntime extends EventEmitter {
     });
   }
 
-  interruptAgent(agentId) {
+  interruptAgent(agentId: string): boolean {
     const child = this.bindings.get(agentId)?.child;
     if (!child) return false;
     child.kill('SIGINT');
     return true;
   }
 
-  getEvents(agentId) {
+  getEvents(agentId: string): JsonEvent[] {
     return [...(this.bindings.get(agentId)?.events || [])];
   }
 
-  getTranscript(agentId, options = {}) {
+  getTranscript(agentId: string, options: unknown = {}): JsonRuntimeTranscript {
     const binding = this.bindings.get(agentId);
     if (!binding) throw new Error('JSON CLI Agent is not registered');
-    const parser = new AgentJsonStreamParser({ provider: binding.provider, operationId: 'snapshot' });
+    const parser = new AgentJsonStreamParser({
+      provider: binding.provider,
+      operationId: 'snapshot',
+    });
     parser.events = [...binding.events];
     return {
       available: binding.events.length > 0,
@@ -217,8 +338,14 @@ class JsonCliRuntime extends EventEmitter {
     };
   }
 
-  transcriptWith(binding, activeParser) {
-    const parser = new AgentJsonStreamParser({ provider: binding.provider, operationId: 'snapshot' });
+  transcriptWith(
+    binding: JsonAgentBinding,
+    activeParser: AgentJsonStreamParser,
+  ): JsonRuntimeTranscript {
+    const parser = new AgentJsonStreamParser({
+      provider: binding.provider,
+      operationId: 'snapshot',
+    });
     parser.events = [...binding.events, ...activeParser.events];
     return {
       available: parser.events.length > 0,
@@ -228,7 +355,7 @@ class JsonCliRuntime extends EventEmitter {
     };
   }
 
-  dispose() {
+  dispose(): Promise<void> {
     if (this.disposed) return Promise.resolve();
     if (this.disposePromise) return this.disposePromise;
 
@@ -242,13 +369,13 @@ class JsonCliRuntime extends EventEmitter {
     return disposePromise;
   }
 
-  resumeAfterDisposeAbort() {
+  resumeAfterDisposeAbort(): void {
     this.disposed = false;
     this.disposing = false;
   }
 
-  async performDispose() {
-    const failures = [];
+  async performDispose(): Promise<void> {
+    const failures: unknown[] = [];
     for (const agentId of [...this.bindings.keys()]) {
       try {
         await this.unregisterAgentAndWait(agentId);
@@ -262,7 +389,7 @@ class JsonCliRuntime extends EventEmitter {
     this.disposed = true;
   }
 
-  emitRuntime(binding) {
+  emitRuntime(binding: JsonAgentBinding): void {
     this.emit('agent-runtime', {
       agentId: binding.agentId,
       state: binding.state,
@@ -272,4 +399,4 @@ class JsonCliRuntime extends EventEmitter {
   }
 }
 
-module.exports = { JsonCliRuntime, commandForTurn };
+export { JsonCliRuntime, commandForTurn };

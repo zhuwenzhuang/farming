@@ -494,7 +494,7 @@ class FarmingUpdateService {
       startedAt,
       logPath: this.updateLogFile,
     });
-    const helperPath = path.join(__dirname, 'npm-update-helper.js');
+    const helperPath = path.join(__dirname, 'npm-update-helper.cjs');
     const nodePath = process.env.FARMING_NODE_BIN || process.execPath;
     const payload = {
       action: 'prepare',
@@ -609,7 +609,7 @@ class FarmingUpdateService {
     if (normalizeVersion(stagedMetadata.version) !== normalizeVersion(prepared.version)) {
       throw new Error('Prepared npm update is no longer available; prepare it again');
     }
-    const helperPath = path.join(__dirname, 'npm-update-helper.js');
+    const helperPath = path.join(__dirname, 'npm-update-helper.cjs');
     const payload = {
       action: 'apply',
       packageName: this.npmPackageName,

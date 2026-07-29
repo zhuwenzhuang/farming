@@ -42,7 +42,7 @@
     "prepack": "FARMING_BASE_PATH=/farming npm run build",
     "pretest": "npm run build:backend-runtime && npm run prepare:acp-vendor && npm run prepare:runtime-manifest && npm run build:usage-history",
     "start": "npm run build && node backend/server.js",
-    "start:net": "node backend/farming-net-server.js",
+    "start:net": "node backend/farming-net-server.cjs",
     "start:no-auth": "FARMING_DISABLE_AUTH=1 npm start",
     "predev:backend": "npm run build:backend-runtime && npm run prepare:acp-vendor && npm run build:usage-history && npm run build:crt-markdown",
     "dev:backend": "node backend/server.js",

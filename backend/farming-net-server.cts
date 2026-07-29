@@ -4,43 +4,168 @@ const fs = require('fs');
 const http = require('http');
 const os = require('os');
 const path = require('path');
-const { TokenAuth } = require('./auth.cjs');
+import type { IncomingMessage, Server, ServerResponse } from 'http';
+
+interface FarmingNetEndpoint {
+  label: string;
+  primary: boolean;
+  scope: string;
+  url: string;
+}
+
+interface FarmingNetInstance {
+  endpoints: FarmingNetEndpoint[];
+  federated: boolean;
+  id: string;
+  [key: string]: unknown;
+}
+
+interface FarmingNetRegistry {
+  instances: FarmingNetInstance[];
+  [key: string]: unknown;
+}
+
+interface BrowserFarmingNetEndpoint extends FarmingNetEndpoint {
+  launchUrl: string;
+}
+
+interface BrowserFarmingNetInstance extends FarmingNetInstance {
+  endpoints: BrowserFarmingNetEndpoint[];
+}
+
+interface BrowserFarmingNetRegistry extends FarmingNetRegistry {
+  instances: BrowserFarmingNetInstance[];
+}
+
+interface FarmingNetSigningIdentity {
+  issuer: string;
+  privateKey: unknown;
+  privateKeyFile: string;
+  publicKey: unknown;
+  publicKeyFile: string;
+  publicKeyPem: string;
+}
+
+type FarmingNetRequestHandler = (
+  req: IncomingMessage,
+  res: ServerResponse,
+  next: () => void,
+) => unknown;
+
+interface TokenAuthLike {
+  getToken(): string;
+  isEnabled(): boolean;
+  middleware(): FarmingNetRequestHandler;
+}
+
+interface TokenAuthOptions {
+  basePath: string;
+  cookieName: string;
+  cookiePath: string;
+  disabled: boolean;
+  env: NodeJS.ProcessEnv;
+  farmingDir: string;
+  farmingNetPassVerifier: false;
+  redirectQueryToken: boolean;
+  token: string;
+}
+
+interface FarmingNetServerOptions {
+  assetDir?: string;
+  authDisabled?: boolean;
+  basePath?: string;
+  configDir?: string;
+  env?: NodeJS.ProcessEnv;
+  iconFile?: string;
+  packageVersion?: string;
+  projectRoot?: string;
+  registryFile?: string;
+  signingIdentity?: FarmingNetSigningIdentity;
+  stateFile?: string;
+  tokenAuth?: TokenAuthLike;
+}
+
+interface FarmingNetService {
+  basePath: string;
+  configDir: string;
+  packageVersion: string;
+  registryFile: string;
+  server: Server;
+  stateFile: string;
+  signingIdentity: FarmingNetSigningIdentity;
+  tokenAuth: TokenAuthLike;
+}
+
+interface StaticAsset {
+  file: string;
+  type: string;
+}
+
+const { TokenAuth } = require('./auth.cjs') as {
+  TokenAuth: new (options: TokenAuthOptions) => TokenAuthLike;
+};
 const {
   createFarmingNetPass,
   loadOrCreateFarmingNetSigningIdentity,
   PASS_QUERY_PARAM,
-} = require('./farming-net-pass.cjs');
-const { loadFarmingNetRegistry } = require('./farming-net-registry.cjs');
-const storageLayout = require('./storage-layout.cjs');
+} = require('./farming-net-pass.cjs') as {
+  createFarmingNetPass(
+    identity: FarmingNetSigningIdentity,
+    options: {
+      audience: string;
+      subject: string;
+      ttlSeconds?: string;
+    },
+  ): string;
+  loadOrCreateFarmingNetSigningIdentity(options: {
+    privateKeyFile: string;
+    publicKeyFile: string;
+  }): FarmingNetSigningIdentity;
+  PASS_QUERY_PARAM: string;
+};
+const { loadFarmingNetRegistry } = require('./farming-net-registry.cjs') as {
+  loadFarmingNetRegistry(filePath: string): FarmingNetRegistry;
+};
+const storageLayout = require('./storage-layout.cjs') as {
+  farmingNetInstancesFile(configDir: string): string;
+  farmingNetServerStateFile(configDir: string): string;
+  farmingNetSigningPrivateKeyFile(configDir: string): string;
+  farmingNetSigningPublicKeyFile(configDir: string): string;
+};
 
 const DEFAULT_PORT = 6693;
 const DEFAULT_BASE_PATH = '/farming-net';
 
-function normalizeBasePath(basePath) {
+function isObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function normalizeBasePath(basePath: unknown): string {
   const value = String(basePath || '').trim();
   if (!value || value === '/') return '';
   const normalized = value.startsWith('/') ? value : `/${value}`;
   return normalized.endsWith('/') ? normalized.slice(0, -1) : normalized;
 }
 
-function isTruthy(value) {
+function isTruthy(value: unknown): boolean {
   return ['1', 'true', 'yes', 'on'].includes(String(value || '').toLowerCase());
 }
 
-function safePort(value, fallback = DEFAULT_PORT) {
+function safePort(value: unknown, fallback = DEFAULT_PORT): number {
   const port = Number(value);
   return Number.isInteger(port) && port > 0 && port <= 65535 ? port : fallback;
 }
 
-function loadPackageVersion(projectRoot) {
+function loadPackageVersion(projectRoot: string): string {
   try {
-    return String(JSON.parse(fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf8')).version || 'dev');
+    const parsed: unknown = JSON.parse(fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf8'));
+    return String(isObject(parsed) ? parsed.version || 'dev' : 'dev');
   } catch {
     return 'dev';
   }
 }
 
-function setSecurityHeaders(res) {
+function setSecurityHeaders(res: ServerResponse): void {
   res.setHeader('Content-Security-Policy', [
     "default-src 'self'",
     "connect-src 'self' http: https:",
@@ -57,7 +182,14 @@ function setSecurityHeaders(res) {
   res.setHeader('X-Frame-Options', 'DENY');
 }
 
-function sendBuffer(req, res, statusCode, body, contentType, cacheControl = 'no-store') {
+function sendBuffer(
+  req: IncomingMessage,
+  res: ServerResponse,
+  statusCode: number,
+  body: unknown,
+  contentType: string,
+  cacheControl = 'no-store',
+): void {
   const buffer = Buffer.isBuffer(body) ? body : Buffer.from(String(body));
   res.writeHead(statusCode, {
     'Cache-Control': cacheControl,
@@ -68,11 +200,16 @@ function sendBuffer(req, res, statusCode, body, contentType, cacheControl = 'no-
   else res.end(buffer);
 }
 
-function sendJson(req, res, statusCode, payload) {
+function sendJson(
+  req: IncomingMessage,
+  res: ServerResponse,
+  statusCode: number,
+  payload: unknown,
+): void {
   sendBuffer(req, res, statusCode, `${JSON.stringify(payload)}\n`, 'application/json; charset=utf-8');
 }
 
-function readAsset(filePath) {
+function readAsset(filePath: string): Buffer | null {
   try {
     return fs.readFileSync(filePath);
   } catch {
@@ -80,7 +217,10 @@ function readAsset(filePath) {
   }
 }
 
-function browserRegistry(registry, basePath) {
+function browserRegistry(
+  registry: FarmingNetRegistry,
+  basePath: string,
+): BrowserFarmingNetRegistry {
   return {
     ...registry,
     instances: registry.instances.map(instance => ({
@@ -95,7 +235,7 @@ function browserRegistry(registry, basePath) {
   };
 }
 
-function createFarmingNetServer(options = {}) {
+function createFarmingNetServer(options: FarmingNetServerOptions = {}): FarmingNetService {
   const env = options.env || process.env;
   const projectRoot = options.projectRoot || path.resolve(__dirname, '..');
   const basePath = normalizeBasePath(options.basePath ?? env.FARMING_NET_BASE_PATH ?? DEFAULT_BASE_PATH);
@@ -110,7 +250,7 @@ function createFarmingNetServer(options = {}) {
     options.iconFile,
     path.join(projectRoot, 'public', 'farming-2', 'app-icon-v2-180.png'),
     path.join(projectRoot, 'dist', 'farming-2', 'app-icon-v2-180.png'),
-  ].filter(Boolean);
+  ].filter((candidate): candidate is string => Boolean(candidate));
   const iconFile = iconCandidates.find(candidate => fs.existsSync(candidate)) || '';
   fs.mkdirSync(configDir, { recursive: true });
   loadFarmingNetRegistry(registryFile);
@@ -136,14 +276,14 @@ function createFarmingNetServer(options = {}) {
     token: env.FARMING_NET_TOKEN || '',
   });
 
-  const routePath = suffix => `${basePath}${suffix}` || '/';
-  const staticAssets = new Map([
+  const routePath = (suffix: string): string => `${basePath}${suffix}` || '/';
+  const staticAssets = new Map<string, StaticAsset>([
     [routePath('/app.css'), { file: path.join(assetDir, 'app.css'), type: 'text/css; charset=utf-8' }],
     [routePath('/app.js'), { file: path.join(assetDir, 'app.js'), type: 'text/javascript; charset=utf-8' }],
     [routePath('/icon.png'), { file: iconFile, type: 'image/png' }],
   ]);
 
-  const server = http.createServer((req, res) => {
+  const server: Server = http.createServer((req: IncomingMessage, res: ServerResponse) => {
     setSecurityHeaders(res);
     tokenAuth.middleware()(req, res, () => {
       try {
@@ -223,7 +363,7 @@ function createFarmingNetServer(options = {}) {
           }
         }
         sendJson(req, res, 404, { error: 'Not found' });
-      } catch (error) {
+      } catch (error: unknown) {
         console.error('Farming Net request failed:', error);
         if (!res.headersSent) sendJson(req, res, 500, { error: 'Farming Net request failed' });
         else res.end();
@@ -246,8 +386,8 @@ function createFarmingNetServer(options = {}) {
   });
   server.on('close', () => {
     try {
-      const state = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
-      if (state.pid === process.pid) fs.unlinkSync(stateFile);
+      const state: unknown = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+      if (isObject(state) && state.pid === process.pid) fs.unlinkSync(stateFile);
     } catch {
       // Ignore missing or stale state files.
     }
@@ -265,7 +405,7 @@ function createFarmingNetServer(options = {}) {
   };
 }
 
-function startFromCommandLine() {
+function startFromCommandLine(): void {
   const service = createFarmingNetServer();
   const port = safePort(process.env.FARMING_NET_PORT || process.env.PORT, DEFAULT_PORT);
   const host = process.env.FARMING_NET_HOST || '0.0.0.0';
@@ -278,7 +418,7 @@ function startFromCommandLine() {
     console.log(`Registry: ${service.registryFile}`);
   });
 
-  const shutdown = signal => {
+  const shutdown = (signal: string): void => {
     console.log(`Farming Net received ${signal}; shutting down.`);
     service.server.close(() => process.exit(0));
     setTimeout(() => process.exit(1), 5000).unref();
@@ -289,7 +429,7 @@ function startFromCommandLine() {
 
 if (require.main === module) startFromCommandLine();
 
-module.exports = {
+export {
   DEFAULT_BASE_PATH,
   DEFAULT_PORT,
   createFarmingNetServer,

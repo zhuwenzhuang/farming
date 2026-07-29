@@ -44,7 +44,7 @@ const {
   providerSupportsRuntime,
 } = require('./provider-adapters');
 const { deriveTerminalStatus } = require('./terminal-status');
-const { JsonCliRuntime } = require('./json-cli-runtime');
+const { JsonCliRuntime } = require('./json-cli-runtime.cjs');
 const {
   AcpRuntime,
   stopPersistedAcpProcessGroup,
