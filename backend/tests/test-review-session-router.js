@@ -1,6 +1,6 @@
 const assert = require('assert');
 const express = require('express');
-const { createReviewSessionRouter } = require('../review-session-router');
+const { createReviewSessionRouter } = require('../review-session-router.cjs');
 
 async function run() {
   const calls = [];

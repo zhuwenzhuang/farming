@@ -57,12 +57,12 @@ const { inputPartsFromMessage } = require('./input-parts.cjs');
 const { cleanupTerminalRuntime } = require('./terminal-runtime-cleanup.cjs');
 const { QrShareTicketStore, SHARE_TICKET_TTL_MS } = require('./qr-share-tickets.cjs');
 const { ReviewStateStore } = require('./review-state-store.cjs');
-const { createReviewStateRouter } = require('./review-state-router');
+const { createReviewStateRouter } = require('./review-state-router.cjs');
 const { ReviewDiffService } = require('./review-diff-service');
 const { createReviewDiffRouter } = require('./review-diff-router');
 const { ReviewSessionStore } = require('./review-session-store.cjs');
 const { ReviewSessionService } = require('./review-session-service');
-const { createReviewSessionRouter } = require('./review-session-router');
+const { createReviewSessionRouter } = require('./review-session-router.cjs');
 const {
   applyIndexHtmlAppearance,
   normalizeBasePath,

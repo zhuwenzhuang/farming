@@ -1,7 +1,7 @@
 const assert = require('assert');
 const express = require('express');
 
-const { createReviewStateRouter } = require('../review-state-router');
+const { createReviewStateRouter } = require('../review-state-router.cjs');
 
 async function fetchJson(baseUrl, pathname, init) {
   const response = await fetch(`${baseUrl}${pathname}`, init);

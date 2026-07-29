@@ -1,6 +1,73 @@
 const express = require('express');
 
-function sendError(res, error) {
+interface ExpressRequest {
+  body?: Record<string, unknown>;
+  params: Record<string, string>;
+  query: Record<string, unknown>;
+}
+
+interface ExpressResponse {
+  json(value: unknown): ExpressResponse;
+  send(value?: unknown): ExpressResponse;
+  set(field: string, value: string): ExpressResponse;
+  status(code: number): ExpressResponse;
+}
+
+type ExpressHandler = (
+  request: ExpressRequest,
+  response: ExpressResponse,
+) => void | Promise<void>;
+
+interface ExpressRouter {
+  delete(path: string, handler: ExpressHandler): ExpressRouter;
+  get(path: string, handler: ExpressHandler): ExpressRouter;
+  patch(path: string, handler: ExpressHandler): ExpressRouter;
+  post(path: string, handler: ExpressHandler): ExpressRouter;
+  put(path: string, handler: ExpressHandler): ExpressRouter;
+  use(middleware: unknown): ExpressRouter;
+}
+
+interface ExpressFactory {
+  Router(): ExpressRouter;
+  json(options: { limit: string }): unknown;
+}
+
+interface ReviewPatchsetState {
+  comments: unknown[];
+  reviewedPaths: string[];
+  revision: number;
+}
+
+interface ReviewStateStore {
+  deleteComment(input: {
+    commentId: string;
+    patchset: string;
+    reviewId: string;
+  }): unknown[];
+  getComments(reviewId: string, patchset: string): unknown[];
+  getPatchsetState(reviewId: string, patchset: string): ReviewPatchsetState;
+  saveComment(input: {
+    comment: Record<string, unknown> | undefined;
+    patchset: string;
+    reviewId: string;
+  }): unknown;
+  setFileReviewedGerrit(input: {
+    path: string;
+    patchset: string;
+    reviewId: string;
+    reviewed: boolean;
+  }): { changed: boolean; state: ReviewPatchsetState };
+  updateCommentStatus(input: {
+    commentId: string;
+    patchset: string;
+    reviewId: string;
+    status: unknown;
+  }): unknown;
+}
+
+const expressFactory = express as ExpressFactory;
+
+function sendError(res: ExpressResponse, error: unknown): void {
   if (error instanceof TypeError) {
     res.status(400).json({ error: error.message });
     return;
@@ -9,13 +76,13 @@ function sendError(res, error) {
   res.status(500).json({ error: 'review state operation failed' });
 }
 
-function isReviewedQuery(value) {
+function isReviewedQuery(value: unknown): boolean {
   return value === '' || value === true || value === 'true' || value === '1';
 }
 
-function createReviewStateRouter(reviewStateStore) {
-  const router = express.Router();
-  router.use(express.json({ limit: '32kb' }));
+function createReviewStateRouter(reviewStateStore: ReviewStateStore): ExpressRouter {
+  const router = expressFactory.Router();
+  router.use(expressFactory.json({ limit: '32kb' }));
 
   router.get('/:reviewId/revisions/:patchset/files', (req, res) => {
     try {
@@ -113,4 +180,4 @@ function createReviewStateRouter(reviewStateStore) {
   return router;
 }
 
-module.exports = { createReviewStateRouter };
+export { createReviewStateRouter };
