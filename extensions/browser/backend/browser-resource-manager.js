@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { EventEmitter } = require('events');
-const storageLayout = require('../../../backend/storage-layout');
+const storageLayout = require('../../../backend/storage-layout.cjs');
 const {
   matchingProcessIdentity,
   readServerProcessIdentity,

@@ -3,7 +3,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const tar = require('tar');
-const storageLayout = require('../storage-layout');
+const storageLayout = require('../storage-layout.cjs');
 const { runtimeExecutableInvocation } = require('../runtime-executable-invocation.cjs');
 const {
   MANIFEST,

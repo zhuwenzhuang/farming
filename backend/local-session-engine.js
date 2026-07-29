@@ -13,7 +13,7 @@ const {
   allocateNativePtyRuntimeGeneration,
   formatNativePtyRuntimeEpoch,
 } = require('./native-pty-controller-generation.cjs');
-const storageLayout = require('./storage-layout');
+const storageLayout = require('./storage-layout.cjs');
 const {
   acknowledgeTerminalReducerData,
   createTerminalReducerFlowControl,

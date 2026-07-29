@@ -24,7 +24,7 @@ const {
   stopDaemon,
   waitForDaemonStop,
 } = require('../farming-app-cli');
-const storageLayout = require('../storage-layout');
+const storageLayout = require('../storage-layout.cjs');
 const {
   buildCleanEnvExecCommand: buildNativeHostCleanEnvExecCommand,
   nativeHostSpawnCommand,

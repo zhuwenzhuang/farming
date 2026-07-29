@@ -1,7 +1,7 @@
 const path = require('path');
 const fs = require('fs');
 const { Worker } = require('worker_threads');
-const { usageHistoryCacheFile } = require('./storage-layout');
+const { usageHistoryCacheFile } = require('./storage-layout.cjs');
 
 const DEFAULT_TIMEOUT_MS = 120_000;
 const DEFAULT_RETENTION_DAYS = 52 * 7;

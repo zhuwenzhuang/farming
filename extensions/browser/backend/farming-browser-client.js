@@ -1,7 +1,7 @@
 const fs = require('fs');
 const http = require('http');
 const https = require('https');
-const storageLayout = require('../../../backend/storage-layout');
+const storageLayout = require('../../../backend/storage-layout.cjs');
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 

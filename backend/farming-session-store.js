@@ -5,7 +5,7 @@ const { isDeepStrictEqual } = require('util');
 const { atomicWriteJson } = require('./atomic-json-store.cjs');
 const { legacyRuntimeMetadata } = require('./agent-runtime-binding.cjs');
 const { lifecycleJournal } = require('./agent-lifecycle-journal.cjs');
-const storageLayout = require('./storage-layout');
+const storageLayout = require('./storage-layout.cjs');
 
 const AGENT_RECORD_ID_PREFIX = 'agent';
 const AGENT_RECORD_VERSION = 1;

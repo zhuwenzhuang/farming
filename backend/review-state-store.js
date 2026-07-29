@@ -1,6 +1,6 @@
 const fs = require('fs');
 const { atomicWriteJson } = require('./atomic-json-store.cjs');
-const storageLayout = require('./storage-layout');
+const storageLayout = require('./storage-layout.cjs');
 
 const MAX_KEY_LENGTH = 200;
 const MAX_PATH_LENGTH = 4096;

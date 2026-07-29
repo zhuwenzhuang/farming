@@ -14,7 +14,7 @@ const {
   matchingProcessIdentity,
   readServerProcessIdentity,
 } = require('./server-process-identity.cjs');
-const storageLayout = require('./storage-layout');
+const storageLayout = require('./storage-layout.cjs');
 
 const SERVER_MODE_ARG = '--farming-server';
 const SERVER_MODE_ENV = 'FARMING_RUN_SERVER';

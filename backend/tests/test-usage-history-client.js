@@ -9,7 +9,7 @@ const {
 } = require('../usage-history-client');
 const {
   usageHistoryCacheFile,
-} = require('../storage-layout');
+} = require('../storage-layout.cjs');
 
 function writeJsonl(filePath, records) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });

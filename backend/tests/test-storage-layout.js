@@ -3,7 +3,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const storageLayout = require('../storage-layout');
+const storageLayout = require('../storage-layout.cjs');
 const ThemeManager = require('../theme-manager');
 
 function run() {

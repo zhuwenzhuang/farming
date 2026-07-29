@@ -18,7 +18,7 @@ const {
   positiveGeneration,
 } = require('./native-pty-controller-generation.cjs');
 const { isTemporaryProviderSessionId } = require('./provider-session-id.cjs');
-const storageLayout = require('./storage-layout');
+const storageLayout = require('./storage-layout.cjs');
 const { deserializeTerminalState } = require('./terminal-state-serialization.cjs');
 const { probeUnixSocket } = require('./terminal-runtime-cleanup.cjs');
 

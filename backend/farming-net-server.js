@@ -11,7 +11,7 @@ const {
   PASS_QUERY_PARAM,
 } = require('./farming-net-pass');
 const { loadFarmingNetRegistry } = require('./farming-net-registry');
-const storageLayout = require('./storage-layout');
+const storageLayout = require('./storage-layout.cjs');
 
 const DEFAULT_PORT = 6693;
 const DEFAULT_BASE_PATH = '/farming-net';

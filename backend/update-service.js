@@ -5,7 +5,7 @@ const https = require('https');
 const os = require('os');
 const path = require('path');
 const { readServerProcessIdentity } = require('./server-process-identity.cjs');
-const storageLayout = require('./storage-layout');
+const storageLayout = require('./storage-layout.cjs');
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const NPM_PACKAGE_NAME = 'farming-code';

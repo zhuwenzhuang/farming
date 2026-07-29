@@ -1,7 +1,7 @@
 const fs = require('fs');
 const crypto = require('crypto');
 const { atomicWriteJson } = require('../../../backend/atomic-json-store.cjs');
-const storageLayout = require('../../../backend/storage-layout');
+const storageLayout = require('../../../backend/storage-layout.cjs');
 
 const STORE_VERSION = 5;
 const RESOURCE_ID_RE = /^browser_[A-Za-z0-9_-]+$/;

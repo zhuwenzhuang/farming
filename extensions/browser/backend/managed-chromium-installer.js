@@ -6,7 +6,7 @@ const { Readable, Transform } = require('stream');
 const { pipeline } = require('stream/promises');
 const extractZip = require('extract-zip');
 const { AbortController } = globalThis;
-const storageLayout = require('../../../backend/storage-layout');
+const storageLayout = require('../../../backend/storage-layout.cjs');
 const {
   runtimePlatformKey,
   verifyExecutable,

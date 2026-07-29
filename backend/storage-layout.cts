@@ -1,167 +1,171 @@
 const os = require('os');
 const path = require('path');
 
-function farmingConfigDir(env = process.env) {
+function farmingConfigDir(env: NodeJS.ProcessEnv = process.env): string {
   return env.FARMING_CONFIG_DIR || path.join(env.HOME || os.homedir(), '.farming');
 }
 
-function settingsFile(configDir) {
+function settingsFile(configDir: string): string {
   return path.join(configDir, 'settings.json');
 }
 
-function themeSettingsFile(configDir) {
+function themeSettingsFile(configDir: string): string {
   return path.join(configDir, 'theme-settings.json');
 }
 
-function sessionTokenFile(configDir) {
+function sessionTokenFile(configDir: string): string {
   return path.join(configDir, '.session-token');
 }
 
-function sessionsDir(configDir) {
+function sessionsDir(configDir: string): string {
   return path.join(configDir, 'sessions');
 }
 
-function acpCheckpointsDir(configDir) {
+function acpCheckpointsDir(configDir: string): string {
   return path.join(sessionsDir(configDir), 'acp-checkpoints');
 }
 
-function agentStateFile(configDir, agentRecordId) {
+function agentStateFile(configDir: string, agentRecordId: string): string {
   return path.join(sessionsDir(configDir), `${agentRecordId}.state.json`);
 }
 
-function historyDir(configDir) {
+function historyDir(configDir: string): string {
   return path.join(configDir, 'history');
 }
 
-function runHistoryFile(configDir) {
+function runHistoryFile(configDir: string): string {
   return path.join(historyDir(configDir), 'runs.json');
 }
 
-function reviewStateFile(configDir) {
+function reviewStateFile(configDir: string): string {
   return path.join(historyDir(configDir), 'review-state.json');
 }
 
-function reviewSessionsFile(configDir) {
+function reviewSessionsFile(configDir: string): string {
   return path.join(historyDir(configDir), 'review-sessions.json');
 }
 
-function usageHistoryCacheFile(configDir) {
+function usageHistoryCacheFile(configDir: string): string {
   return path.join(historyDir(configDir), 'usage-history-v2.sqlite3');
 }
 
-function browserResourcesDir(configDir) {
+function browserResourcesDir(configDir: string): string {
   return path.join(configDir, 'browsers');
 }
 
-function browserResourcesFile(configDir) {
+function browserResourcesFile(configDir: string): string {
   return path.join(browserResourcesDir(configDir), 'resources.json');
 }
 
-function browserProfileDir(configDir, browserId) {
+function browserProfileDir(configDir: string, browserId: string): string {
   return path.join(browserResourcesDir(configDir), browserId, 'profile');
 }
 
-function runtimeDependenciesDir(configDir) {
+function runtimeDependenciesDir(configDir: string): string {
   return path.join(configDir, 'runtimes');
 }
 
-function runtimeDependenciesActiveFile(configDir) {
+function runtimeDependenciesActiveFile(configDir: string): string {
   return path.join(runtimeDependenciesDir(configDir), 'active.json');
 }
 
-function runtimeDependenciesLockDir(configDir) {
+function runtimeDependenciesLockDir(configDir: string): string {
   return path.join(runtimeDependenciesDir(configDir), '.prepare.lock');
 }
 
-function managedChromiumRootDir(configDir) {
+function managedChromiumRootDir(configDir: string): string {
   return path.join(runtimeDependenciesDir(configDir), 'chromium');
 }
 
-function managedChromiumVersionDir(configDir, agentBrowserVersion, platformKey) {
+function managedChromiumVersionDir(
+  configDir: string,
+  agentBrowserVersion: string,
+  platformKey: string,
+): string {
   return path.join(managedChromiumRootDir(configDir), agentBrowserVersion, platformKey);
 }
 
-function managedChromiumInstallLockDir(configDir) {
+function managedChromiumInstallLockDir(configDir: string): string {
   return path.join(managedChromiumRootDir(configDir), '.install.lock');
 }
 
-function farmingAgentBootstrapFile(configDir) {
+function farmingAgentBootstrapFile(configDir: string): string {
   return path.join(configDir, 'farming-agent-bootstrap.zh_cn.md');
 }
 
-function sessionIndexFile(configDir) {
+function sessionIndexFile(configDir: string): string {
   return path.join(sessionsDir(configDir), 'index.json');
 }
 
-function serverPidFile(configDir) {
+function serverPidFile(configDir: string): string {
   return path.join(configDir, 'farming-server.pid');
 }
 
-function serverStateFile(configDir) {
+function serverStateFile(configDir: string): string {
   return path.join(configDir, 'farming-server.json');
 }
 
-function serverLogFile(configDir) {
+function serverLogFile(configDir: string): string {
   return path.join(configDir, 'farming-server.log');
 }
 
-function nativePtyHostLogFile(configDir) {
+function nativePtyHostLogFile(configDir: string): string {
   return path.join(configDir, 'native-pty-host.log');
 }
 
-function nativePtyControllerGenerationFile(configDir) {
+function nativePtyControllerGenerationFile(configDir: string): string {
   return path.join(configDir, 'native-pty-controller-generation');
 }
 
-function nativePtyControllerGenerationLockDir(configDir) {
+function nativePtyControllerGenerationLockDir(configDir: string): string {
   return path.join(configDir, '.native-pty-controller-generation.lock');
 }
 
-function nativePtyRuntimeGenerationFile(configDir) {
+function nativePtyRuntimeGenerationFile(configDir: string): string {
   return path.join(configDir, 'native-pty-runtime-generation');
 }
 
-function nativePtyRuntimeGenerationLockDir(configDir) {
+function nativePtyRuntimeGenerationLockDir(configDir: string): string {
   return path.join(configDir, '.native-pty-runtime-generation.lock');
 }
 
-function updateStateFile(configDir) {
+function updateStateFile(configDir: string): string {
   return path.join(configDir, 'farming-update.json');
 }
 
-function updateLogFile(configDir) {
+function updateLogFile(configDir: string): string {
   return path.join(configDir, 'farming-update.log');
 }
 
-function updateStagingDir(configDir) {
+function updateStagingDir(configDir: string): string {
   return path.join(configDir, 'updates');
 }
 
-function farmingNetInstancesFile(configDir) {
+function farmingNetInstancesFile(configDir: string): string {
   return path.join(configDir, 'instances.json');
 }
 
-function farmingNetServerStateFile(configDir) {
+function farmingNetServerStateFile(configDir: string): string {
   return path.join(configDir, 'farming-net-server.json');
 }
 
-function farmingNetServerLogFile(configDir) {
+function farmingNetServerLogFile(configDir: string): string {
   return path.join(configDir, 'farming-net-server.log');
 }
 
-function farmingNetSigningPrivateKeyFile(configDir) {
+function farmingNetSigningPrivateKeyFile(configDir: string): string {
   return path.join(configDir, 'signing-private-key.pem');
 }
 
-function farmingNetSigningPublicKeyFile(configDir) {
+function farmingNetSigningPublicKeyFile(configDir: string): string {
   return path.join(configDir, 'signing-public-key.pem');
 }
 
-function farmingNetTrustFile(configDir) {
+function farmingNetTrustFile(configDir: string): string {
   return path.join(configDir, 'farming-net-trust.json');
 }
 
-module.exports = {
+export {
   acpCheckpointsDir,
   agentStateFile,
   browserProfileDir,

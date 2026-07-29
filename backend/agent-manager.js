@@ -21,7 +21,7 @@ const {
   renderFarmingAgentBootstrap,
 } = require('./farming-agent-bootstrap');
 const { mainPageAgentSessionKey, resumedAgentSource } = require('./main-page-session.cjs');
-const storageLayout = require('./storage-layout');
+const storageLayout = require('./storage-layout.cjs');
 const { isSafeProviderSessionId, isTemporaryProviderSessionId } = require('./provider-session-id.cjs');
 const { ProviderSessionService } = require('./provider-session-service');
 const {

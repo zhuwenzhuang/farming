@@ -3,7 +3,7 @@ const fs = require('fs/promises');
 const path = require('path');
 const { promisify } = require('util');
 const zlib = require('zlib');
-const storageLayout = require('./storage-layout');
+const storageLayout = require('./storage-layout.cjs');
 
 const gzip = promisify(zlib.gzip);
 const gunzip = promisify(zlib.gunzip);

@@ -115,6 +115,7 @@ for runtime_module in \
   session-engine-bridge \
   session-engine-router \
   session-stream-protocol \
+  storage-layout \
   system-monitor \
   terminal-attach-checkpoint \
   terminal-exit-quiescence \
