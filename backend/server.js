@@ -48,7 +48,7 @@ const {
   createBrowserRouter,
 } = require('../extensions/browser/backend');
 const { UsageMonitor } = require('./usage-monitor');
-const { CodexContextWindowReader } = require('./codex-context-window');
+const { CodexContextWindowReader } = require('./codex-context-window.cjs');
 const { AsyncCache } = require('./async-cache.cjs');
 const { getMainAgentSkillsCatalog } = require('./main-agent-skills');
 const { discoverAgentExtensions, discoverSlashCommands } = require('./slash-command-discovery');

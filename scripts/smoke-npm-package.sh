@@ -93,6 +93,7 @@ for runtime_module in \
   business-health \
   chat-runtime \
   claude-settings \
+  codex-context-window \
   codex-session-archive \
   codex-transcript-sanitizer \
   input-parts \
