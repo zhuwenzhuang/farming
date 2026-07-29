@@ -16,7 +16,7 @@ const ThemeManager = require('./theme-manager');
 const TokenAuth = require('./auth');
 const { getLocalIPs, getPrimaryLocalIP } = require('./network.cjs');
 const { listAvailableAgents, resolveCompatibleCodexExecutable } = require('./executable-discovery');
-const { readClaudeSettingsSummary } = require('./claude-settings');
+const { readClaudeSettingsSummary } = require('./claude-settings.cjs');
 const { listCodexModelOptions } = require('./codex-models');
 const { listCodexSessions } = require('./codex-session-history');
 const {

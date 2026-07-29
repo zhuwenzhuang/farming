@@ -2,7 +2,7 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 
-const { readClaudeSettingsSummary, summarizeClaudeSettings } = require('../claude-settings');
+const { readClaudeSettingsSummary, summarizeClaudeSettings } = require('../claude-settings.cjs');
 
 function run() {
   const tmpBase = path.resolve(__dirname, '..', '..', '.tmp');

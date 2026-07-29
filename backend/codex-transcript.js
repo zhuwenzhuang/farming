@@ -5,7 +5,7 @@ const {
   heartbeatUserMessage,
   isCodexInjectedContextMessage,
   stripCodexInternalContextBlocks,
-} = require('./codex-transcript-sanitizer');
+} = require('./codex-transcript-sanitizer.cjs');
 
 // The generic event-to-turn projection remains for JSON compatibility feeds;
 // live structured Chat is reduced from ACP session updates instead.

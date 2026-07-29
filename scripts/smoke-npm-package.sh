@@ -92,7 +92,9 @@ for runtime_module in \
   atomic-json-store \
   business-health \
   chat-runtime \
+  claude-settings \
   codex-session-archive \
+  codex-transcript-sanitizer \
   input-parts \
   input-routing \
   index-html \

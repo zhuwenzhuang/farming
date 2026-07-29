@@ -10,7 +10,7 @@ const {
   isCodexContextCompactionMessage,
   isCodexInjectedContextMessage,
   stripCodexInternalContextBlocks,
-} = require('./codex-transcript-sanitizer');
+} = require('./codex-transcript-sanitizer.cjs');
 
 function clone(value) {
   return value === undefined ? undefined : JSON.parse(JSON.stringify(value));

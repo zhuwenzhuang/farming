@@ -1,26 +1,34 @@
-function normalizeCodexTranscriptText(value) {
+interface HeartbeatEnvelope {
+  automationId: string;
+  currentTimeIso: string;
+  instructions: string;
+  decision: string;
+  message: string;
+}
+
+function normalizeCodexTranscriptText(value: unknown): string {
   return String(value || '')
     .replace(/\r\n/g, '\n')
     .replace(/\r/g, '\n')
     .trim();
 }
 
-function escapeRegExp(value) {
+function escapeRegExp(value: unknown): string {
   return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function stripXmlishBlock(text, tagName) {
+function stripXmlishBlock(text: string, tagName: string): string {
   const escapedTag = escapeRegExp(tagName);
   return text.replace(new RegExp(`(^|\\n)\\s*<${escapedTag}(?:\\s+[^>]*)?>[\\s\\S]*?<\\/${escapedTag}>\\s*(?=\\n|$)`, 'gi'), '$1');
 }
 
-function xmlishTagValue(text, tagName) {
+function xmlishTagValue(text: unknown, tagName: string): string {
   const escapedTag = escapeRegExp(tagName);
   const match = String(text || '').match(new RegExp(`<${escapedTag}(?:\\s+[^>]*)?>([\\s\\S]*?)<\\/${escapedTag}>`, 'i'));
   return match ? normalizeCodexTranscriptText(match[1]) : '';
 }
 
-function parseHeartbeatEnvelope(value) {
+function parseHeartbeatEnvelope(value: unknown): HeartbeatEnvelope | null {
   const text = normalizeCodexTranscriptText(value);
   if (!text || !/^<heartbeat(?:\s+[^>]*)?>[\s\S]*<\/heartbeat>$/i.test(text)) return null;
   return {
@@ -32,7 +40,7 @@ function parseHeartbeatEnvelope(value) {
   };
 }
 
-function heartbeatUserMessage(value) {
+function heartbeatUserMessage(value: unknown): string {
   const heartbeat = parseHeartbeatEnvelope(value);
   if (!heartbeat) return '';
   return [
@@ -42,14 +50,14 @@ function heartbeatUserMessage(value) {
   ].filter(Boolean).join(' · ');
 }
 
-function heartbeatAssistantMessage(value) {
+function heartbeatAssistantMessage(value: unknown): string {
   const heartbeat = parseHeartbeatEnvelope(value);
   if (!heartbeat) return '';
   if (heartbeat.decision && heartbeat.decision.toUpperCase() === 'DONT_NOTIFY') return '';
   return heartbeat.message || '';
 }
 
-function stripCodexAppDirectives(value) {
+function stripCodexAppDirectives(value: unknown): string {
   // These directives are private transport hints consumed by the Codex app.
   // Farming does not implement their native cards, so rendering them as
   // Markdown leaks protocol syntax and local paths into otherwise clean Chat.
@@ -59,7 +67,7 @@ function stripCodexAppDirectives(value) {
   );
 }
 
-function stripCodexInternalContextBlocks(value) {
+function stripCodexInternalContextBlocks(value: unknown): string {
   let text = normalizeCodexTranscriptText(value);
   if (!text) return '';
 
@@ -100,12 +108,12 @@ function stripCodexInternalContextBlocks(value) {
     .trim();
 }
 
-function isCodexInjectedContextMessage(value) {
+function isCodexInjectedContextMessage(value: unknown): boolean {
   const text = normalizeCodexTranscriptText(value);
   return Boolean(text) && !stripCodexInternalContextBlocks(text);
 }
 
-function isCodexContextCompactionMessage(value) {
+function isCodexContextCompactionMessage(value: unknown): boolean {
   const text = normalizeCodexTranscriptText(value);
   if (!text) return false;
   return /^\*?Context compacted(?: to fit the model's context window)?\.?\*?$/i.test(text)
@@ -113,7 +121,7 @@ function isCodexContextCompactionMessage(value) {
     || /^Another language model started to solve this problem and produced a summary\b/i.test(text);
 }
 
-module.exports = {
+export {
   heartbeatAssistantMessage,
   heartbeatUserMessage,
   isCodexContextCompactionMessage,

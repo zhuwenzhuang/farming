@@ -11,7 +11,37 @@ const CLAUDE_MODEL_ENV_KEYS = [
 
 const CLAUDE_EFFORT_VALUES = ['low', 'medium', 'high', 'xhigh', 'max'];
 
-const CLAUDE_EFFORT_OPTIONS = [
+type ClaudeEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+
+interface ClaudeEffortOption {
+  effort: ClaudeEffort;
+  label: string;
+  value: ClaudeEffort;
+}
+
+interface ClaudeModelOption {
+  defaultEffort: ClaudeEffort;
+  displayName: string;
+  label: string;
+  reasoningLevels: readonly ClaudeEffortOption[];
+  source: 'settings';
+  value: string;
+}
+
+interface ClaudeSettingsSummary {
+  available: boolean;
+  effectiveEffort: ClaudeEffort | '';
+  effectiveModel: string;
+  effortOptions: readonly ClaudeEffortOption[];
+  modelOptions: ClaudeModelOption[];
+}
+
+interface ClaudeSettingsOptions {
+  home?: string;
+  settingsFile?: string;
+}
+
+const CLAUDE_EFFORT_OPTIONS: readonly ClaudeEffortOption[] = [
   { value: 'low', effort: 'low', label: 'Low' },
   { value: 'medium', effort: 'medium', label: 'Medium' },
   { value: 'high', effort: 'high', label: 'High' },
@@ -19,7 +49,7 @@ const CLAUDE_EFFORT_OPTIONS = [
   { value: 'max', effort: 'max', label: 'Max' },
 ];
 
-function normalizeClaudeModelValue(model) {
+function normalizeClaudeModelValue(model: unknown): string {
   if (typeof model !== 'string') return '';
   const value = model.trim();
   if (!value || value.length > 200) return '';
@@ -28,11 +58,13 @@ function normalizeClaudeModelValue(model) {
   return value;
 }
 
-function normalizeClaudeEffortValue(effort) {
-  return CLAUDE_EFFORT_VALUES.includes(effort) ? effort : '';
+function normalizeClaudeEffortValue(effort: unknown): ClaudeEffort | '' {
+  return typeof effort === 'string' && CLAUDE_EFFORT_VALUES.includes(effort)
+    ? effort as ClaudeEffort
+    : '';
 }
 
-function getClaudeSettingsFile(options = {}) {
+function getClaudeSettingsFile(options: ClaudeSettingsOptions = {}): string {
   if (options.settingsFile) return options.settingsFile;
   if (process.env.FARMING_CLAUDE_SETTINGS_FILE) return process.env.FARMING_CLAUDE_SETTINGS_FILE;
 
@@ -40,11 +72,11 @@ function getClaudeSettingsFile(options = {}) {
   return path.join(home, '.claude', 'settings.json');
 }
 
-function pushUnique(values, value) {
+function pushUnique(values: string[], value: string): void {
   if (value && !values.includes(value)) values.push(value);
 }
 
-function emptyClaudeSettingsSummary(available = false) {
+function emptyClaudeSettingsSummary(available = false): ClaudeSettingsSummary {
   return {
     available,
     effectiveModel: '',
@@ -54,22 +86,23 @@ function emptyClaudeSettingsSummary(available = false) {
   };
 }
 
-function summarizeClaudeSettings(rawSettings) {
+function summarizeClaudeSettings(rawSettings: unknown): ClaudeSettingsSummary {
   if (!rawSettings || typeof rawSettings !== 'object') {
     return emptyClaudeSettingsSummary(false);
   }
 
-  const env = rawSettings.env && typeof rawSettings.env === 'object'
-    ? rawSettings.env
+  const settings = rawSettings as Record<string, unknown>;
+  const env = settings.env && typeof settings.env === 'object'
+    ? settings.env as Record<string, unknown>
     : {};
-  const modelValues = [];
+  const modelValues: string[] = [];
   CLAUDE_MODEL_ENV_KEYS.forEach((key) => {
     pushUnique(modelValues, normalizeClaudeModelValue(env[key]));
   });
 
   const effectiveModel = normalizeClaudeModelValue(env.ANTHROPIC_MODEL) || modelValues[0] || '';
-  const effectiveEffort = normalizeClaudeEffortValue(rawSettings.effortLevel);
-  const modelOptions = modelValues.map((model) => ({
+  const effectiveEffort = normalizeClaudeEffortValue(settings.effortLevel);
+  const modelOptions: ClaudeModelOption[] = modelValues.map((model) => ({
     value: model,
     label: model,
     displayName: model,
@@ -98,7 +131,9 @@ function summarizeClaudeSettings(rawSettings) {
   };
 }
 
-function readClaudeSettingsSummary(options = {}) {
+function readClaudeSettingsSummary(
+  options: ClaudeSettingsOptions = {},
+): ClaudeSettingsSummary {
   const settingsFile = getClaudeSettingsFile(options);
   if (!settingsFile || !fs.existsSync(settingsFile)) {
     return emptyClaudeSettingsSummary(false);
@@ -112,7 +147,7 @@ function readClaudeSettingsSummary(options = {}) {
   }
 }
 
-module.exports = {
+export {
   CLAUDE_EFFORT_OPTIONS,
   normalizeClaudeEffortValue,
   normalizeClaudeModelValue,

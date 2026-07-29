@@ -2,7 +2,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const readline = require('readline');
-const { stripCodexInternalContextBlocks } = require('./codex-transcript-sanitizer');
+const { stripCodexInternalContextBlocks } = require('./codex-transcript-sanitizer.cjs');
 
 const DEFAULT_LIMIT = 40;
 const DEFAULT_SCAN_LIMIT = 400;

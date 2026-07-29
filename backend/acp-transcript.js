@@ -2,7 +2,7 @@ const crypto = require('crypto');
 const { createTwoFilesPatch, diffLines } = require('diff');
 const {
   isCodexContextCompactionMessage,
-} = require('./codex-transcript-sanitizer');
+} = require('./codex-transcript-sanitizer.cjs');
 
 const MAX_RENDERED_DIFF_CHARS = 64 * 1024;
 const MAX_INLINE_TOOL_DETAIL_CHARS = 4 * 1024;
