@@ -72,7 +72,7 @@ function readBundleRelease(archivePath) {
 
   const installerEntry = findBundleEntry(entries, '/scripts/install-release.sh');
   const browserProtocolEntry = findBundleEntry(entries, '/shared/browser-protocol.js');
-  const browserExtensionEntry = findBundleEntry(entries, '/extensions/browser/backend/index.js');
+  const browserExtensionEntry = findBundleEntry(entries, '/extensions/browser/backend/index.cjs');
   return {
     entries,
     releaseEntry,
@@ -102,7 +102,7 @@ function verifyReleaseBundle(archivePath) {
     throw new Error(`release archive is missing shared/browser-protocol.js: ${archivePath}`);
   }
   if (!bundle.browserExtensionEntry) {
-    throw new Error(`release archive is missing extensions/browser/backend/index.js: ${archivePath}`);
+    throw new Error(`release archive is missing extensions/browser/backend/index.cjs: ${archivePath}`);
   }
   return bundle;
 }

@@ -24,6 +24,7 @@
   "exclude": [
     "backend/tests/**",
     "backend/vendor/**",
+    "backend/*.pkg.js",
     "backend/usage-history-scanner.generated.js"
   ]
 }

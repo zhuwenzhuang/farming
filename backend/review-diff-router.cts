@@ -8,7 +8,7 @@ interface ReviewApiError extends Error {
 const { ReviewSessionError } = require('./review-session-service.cjs') as {
   ReviewSessionError: new (...args: unknown[]) => ReviewApiError;
 };
-const { WorkspaceFileError } = require('./workspace-file-service') as {
+const { WorkspaceFileError } = require('./workspace-file-service.cjs') as {
   WorkspaceFileError: new (...args: unknown[]) => ReviewApiError;
 };
 

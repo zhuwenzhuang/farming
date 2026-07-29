@@ -797,7 +797,8 @@ function run() {
       terminalPoolSource.includes('if (Date.now() < record.suppressClickUntil) return') &&
       terminalPoolSource.includes("if (match.kind === 'url' && findTerminalUrlAtMouseEvent(record, event) !== match.text) return") &&
       terminalPoolSource.includes("if (match.kind === 'path' && readTerminalPathLinkAtMouseEvent(record, event)?.text !== match.text) return") &&
-      terminalPoolSource.includes('if (logicalLine) {\n      return parseTerminalPathLinkAtColumn(logicalLine.text, logicalLine.col)') &&
+      terminalPoolSource.includes('const pathLink = readTerminalPathLinkAtCell(record, cell)') &&
+      terminalPoolSource.includes('collectTerminalMultiLinePathLinkMatches(') &&
       terminalPoolSource.includes('record.suppressClickUntil = Date.now() + 250'),
     'terminal link activation should reject stale attachment and cell matches without adding retry latency'
   );
@@ -829,13 +830,13 @@ function run() {
     'ghostty terminal scrollback should stay bounded for web performance'
   );
 
-  const localSessionEngineSource = fs.readFileSync(path.join(__dirname, '../../backend/local-session-engine.js'), 'utf8');
+  const localSessionEngineSource = fs.readFileSync(path.join(__dirname, '../../backend/local-session-engine.cts'), 'utf8');
   assert(
     localSessionEngineSource.includes('previewSnapshot: false'),
     'local session preview workers should avoid styled cell snapshots on the Codex web hot path'
   );
 
-  const serverSource = fs.readFileSync(path.join(__dirname, '../../backend/server.js'), 'utf8');
+  const serverSource = fs.readFileSync(path.join(__dirname, '../../backend/server.cts'), 'utf8');
   const streamProtocolSource = fs.readFileSync(
     path.join(__dirname, '../../backend/session-stream-protocol.cts'),
     'utf8'
@@ -855,7 +856,7 @@ function run() {
   );
   assert(
     serverSource.includes('const PREVIEW_BROADCAST_INTERVAL_MS = 500') &&
-      serverSource.includes('function schedulePreviewBroadcast(preview)') &&
+      serverSource.includes('function schedulePreviewBroadcast(') &&
       serverSource.includes('pendingPreviewBroadcasts.set(agentId, entry)') &&
       serverSource.includes('schedulePreviewBroadcast(preview)'),
     'server should coalesce terminal preview broadcasts so live output does not flood the UI'
@@ -874,20 +875,20 @@ function run() {
     serverSource.includes('async function killAgentFromMessage') &&
       serverSource.includes('const requested = await agentManager.requestKillAgent(agentId, {') &&
       serverSource.includes("type: 'agent-delete-accepted'") &&
-      serverSource.includes('void requested.completion.then(completed =>') &&
+      serverSource.includes('void requested.completion.then((completed') &&
       serverSource.includes("case 'kill-agent':") &&
       serverSource.includes('void killAgentFromMessage(ws, data.agentId, {'),
     'WebSocket Delete should acknowledge durable admission and broadcast again after asynchronous cleanup'
   );
   assert(
-    serverSource.includes('async function requireAgentRecoveryForHttp(res)') &&
+    serverSource.includes('async function requireAgentRecoveryForHttp(') &&
       serverSource.includes('await agentManager.whenRecovered()') &&
       serverSource.includes('res.status(503).json({') &&
       serverSource.includes('if (!await requireAgentRecoveryForHttp(res)) return;'),
     'HTTP Agent mutation routes should surface startup recovery failure as a bounded retryable response'
   );
 
-  const agentManagerSource = fs.readFileSync(path.join(__dirname, '../../backend/agent-manager.js'), 'utf8');
+  const agentManagerSource = fs.readFileSync(path.join(__dirname, '../../backend/agent-manager.cts'), 'utf8');
   const startAgentBody = agentManagerSource.slice(
     agentManagerSource.indexOf('async startAgent'),
     agentManagerSource.indexOf('async sendInput')

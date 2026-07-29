@@ -168,22 +168,22 @@ farming/
 ├── bin/
 │   └── farming
 ├── backend/
-│   ├── server.js
-│   ├── agent-manager.js
-│   ├── native-session-engine.js
-│   ├── native-pty-host.js
-│   ├── native-pty-host-client.js
-│   ├── local-session-engine.js
-│   ├── farming-session-store.js
-│   ├── run-history-store.js
-│   ├── shell-busy-integration.js
-│   ├── workspace-file-service.js
-│   ├── workspace-file-router.js
-│   ├── farming-app-cli.js
-│   ├── farming-net-server.js
+│   ├── server.cts
+│   ├── agent-manager.cts
+│   ├── native-session-engine.cts
+│   ├── native-pty-host.cts
+│   ├── native-pty-host-client.cts
+│   ├── local-session-engine.cts
+│   ├── farming-session-store.cts
+│   ├── run-history-store.cts
+│   ├── shell-busy-integration.cts
+│   ├── workspace-file-service.cts
+│   ├── workspace-file-router.cts
+│   ├── farming-app-cli.cts
+│   ├── farming-net-server.cts
 │   ├── farming-net-registry.cts
-│   ├── farming-net-pass.js
-│   ├── storage-layout.js
+│   ├── farming-net-pass.cts
+│   ├── storage-layout.cts
 │   └── tests/
 ├── src/
 │   ├── App.tsx
@@ -196,7 +196,8 @@ farming/
 │   ├── farming-net/       # Standalone token-protected deployment directory
 │   ├── skins/
 │   │   └── crt/            # Independent CRT entry, app, static effects, and bundled display font
-│   ├── *.js                # Shared browser terminal/session bridges
+│   ├── *.ts                # Authoritative classic browser terminal/session bridge sources
+│   ├── *.js                # Generated classic-script compatibility runtime
 │   └── vendor/
 ├── extensions/
 │   └── browser/           # agent-browser-backed Resource, Viewer, and Agent CLI
@@ -293,7 +294,7 @@ Local source smoke for the product path:
 PORT=6695 FARMING_PORT=6695 FARMING_BASE_PATH=/farming FARMING_DISABLE_AUTH=1 npm start
 ```
 
-Use another port when `6694` is already occupied. When serving the source build under `/farming`, the Vite build and the backend server must use the same `FARMING_BASE_PATH=/farming`. If you split the steps, run `FARMING_BASE_PATH=/farming npm run build` before `FARMING_BASE_PATH=/farming node backend/server.js`; otherwise `dist/index.html` points at `/assets/...` and the browser page white-screens because JS/CSS assets 404.
+Use another port when `6694` is already occupied. When serving the source build under `/farming`, the Vite build and the backend server must use the same `FARMING_BASE_PATH=/farming`. If you split the steps, run `FARMING_BASE_PATH=/farming npm run build` before `FARMING_BASE_PATH=/farming node backend/server.cjs`; otherwise `dist/index.html` points at `/assets/...` and the browser page white-screens because JS/CSS assets 404.
 
 Playwright UI tests:
 
@@ -343,7 +344,7 @@ Pre-release gate for public versions:
 
 ## Testing Expectations
 
-- `npm run typecheck` is one release gate for all typed surfaces: the React frontend, strict backend TypeScript configured by `tsconfig.backend-runtime.json`, the remaining checked-JavaScript backend configured by `tsconfig.backend.json`, and the usage scanner. Migrate bounded backend modules as `.cts`, keep their domain types with the implementation, delete the superseded `.js`, and load only the generated `.cjs` at runtime. `npm run build:backend-runtime` generates those ignored CommonJS files before development, tests, builds, and packaging; the npm package carries the generated `.cjs`, not executable TypeScript. New contracts used only by legacy JavaScript belong in `backend/types/` and should be consumed through JSDoc imports. Do not silence a file with `@ts-nocheck` or replace a domain type with `any` merely to make the gate green.
+- `npm run typecheck` is one release gate for all typed surfaces: the React frontend, strict backend and Browser Resource TypeScript configured by `tsconfig.backend-runtime.json`, the remaining checked JavaScript backend configured by `tsconfig.backend.json`, independently checked classic browser TypeScript, shared protocol TypeScript, build-script TypeScript, and the usage scanner. Backend and Browser Resource runtime sources use `.cts`, keep domain types with the implementation, delete superseded `.js`, and load only generated `.cjs`. `npm run build:backend-runtime` generates those ignored CommonJS files. Classic browser and shared protocol sources use `.ts`; `npm run build:classic-runtime` generates their original `.js` compatibility paths without bundling away UMD/global behavior. Packages carry runtime JavaScript, not executable TypeScript. Do not silence a file with `@ts-nocheck` or replace a domain type with `any` merely to make the gate green.
 - Backend tests live in `backend/tests/`.
 - Browser and visual flows live in `tests/e2e/`.
 - Use fake coding agents for deterministic CI-style checks.

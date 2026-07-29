@@ -8,8 +8,8 @@ const NATIVE_PTY_HOST_PROTOCOL_VERSION = 8;
 const NATIVE_PTY_HOST_RUNTIME_FILES = Object.freeze([
   'agent-env.cjs',
   'input-parts.cjs',
-  'local-session-engine.js',
-  'native-pty-host.js',
+  'local-session-engine.cjs',
+  'native-pty-host.cjs',
   'shell-busy-integration.cjs',
   'storage-layout.cjs',
   'terminal-screen-worker-pool.cjs',

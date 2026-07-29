@@ -13,10 +13,10 @@ interface NativePtyClient {
   ): Promise<T>;
 }
 
-const NativePtyHostClient = require('./native-pty-host-client') as new (
-  options: Record<string, unknown>,
-) => NativePtyClient;
-const { normalizeShellSessionOptions } = require('./local-session-engine') as {
+const { NativePtyHostClient } = require('./native-pty-host-client.cjs') as {
+  NativePtyHostClient: new (options: Record<string, unknown>) => NativePtyClient;
+};
+const { normalizeShellSessionOptions } = require('./local-session-engine.cjs') as {
   normalizeShellSessionOptions(options: Record<string, unknown>): Record<string, unknown>;
 };
 const { compareNativePtyRuntimeEpochs } = require('./native-pty-controller-generation.cjs');

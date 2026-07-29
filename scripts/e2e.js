@@ -66,7 +66,7 @@ function waitForOutputUrl(child, port) {
 async function startLocalServer() {
   const port = Number(process.env.FARMING_E2E_PORT || await getFreePort());
   const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-e2e-config-'));
-  const child = spawn(process.execPath, ['backend/server.js'], {
+  const child = spawn(process.execPath, ['backend/server.cjs'], {
     cwd: PROJECT_ROOT,
     env: {
       ...process.env,

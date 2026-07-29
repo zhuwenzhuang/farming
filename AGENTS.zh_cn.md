@@ -93,7 +93,7 @@ README 是产品入口，不是实现历史。只有顶层产品承诺、主要�
 
 ### 3. 测试覆盖原则
 
-- **统一类型门禁**：`npm run typecheck` 必须同时检查 React 前端、由 `tsconfig.backend-runtime.json` 管理的严格后端 TypeScript、由 `tsconfig.backend.json` 管理的剩余后端 checked JavaScript，以及 usage scanner。迁移有界后端模块时使用 `.cts`，领域类型与实现放在一起，删除被替代的 `.js`，运行时只加载生成的 `.cjs`。开发、测试、构建和打包前由 `npm run build:backend-runtime` 生成被忽略的 CommonJS 文件；npm 包携带生成的 `.cjs`，不直接执行 TypeScript。仅供旧 JavaScript 使用的新契约继续放在 `backend/types/` 并通过 JSDoc import 使用。不能为了让门禁变绿而给文件加 `@ts-nocheck`，也不能用 `any` 替换领域类型。
+- **统一类型门禁**：`npm run typecheck` 必须同时检查 React 前端、由 `tsconfig.backend-runtime.json` 管理的严格后端与 Browser Resource TypeScript、由 `tsconfig.backend.json` 管理的剩余后端 checked JavaScript、逐文件检查的 classic browser TypeScript、共享协议 TypeScript、构建脚本 TypeScript，以及 usage scanner。后端和 Browser Resource runtime 权威源码使用 `.cts`，领域类型与实现放在一起，删除被替代的 `.js`，运行时只加载生成的 `.cjs`；`npm run build:backend-runtime` 生成这些 CommonJS 产物。classic browser 与共享协议权威源码使用 `.ts`，`npm run build:classic-runtime` 在不破坏 UMD/global 行为的前提下生成原路径 `.js` 兼容产物。发行包携带运行时 JavaScript，不直接执行 TypeScript。不能为了让门禁变绿而给文件加 `@ts-nocheck`，也不能用 `any` 替换领域类型。
 - **核心功能必须有测试**：Main Agent 验证、心跳检测、状态同步等
 - **后端测试位置**：`backend/tests/` 目录
 - **展示效果 E2E 位置**：`tests/e2e/` 目录，使用 Playwright Test 覆盖真实页面、真实 WebSocket / native pty session / xterm.js terminal 渲染链路
@@ -282,7 +282,7 @@ farming/
 │   ├── e2e.js                # 可重复端到端测试（本地 / 远端 / 手机视口）
 │   └── e2e-workspaces.js     # Main/New Agent workspace 行为 E2E 测试
 ├── backend/               # 后端代码
-│   ├── server.js          # Express + WebSocket 服务器
+│   ├── server.cts         # Express + WebSocket 服务器 TypeScript 权威源码；运行时使用生成的 server.cjs
 │   │   - 静态文件服务
 │   │   - WebSocket 连接管理
 │   │   - 消息路由和处理
@@ -303,7 +303,7 @@ farming/
 │   │   - 列出 / 读取 / 输入 / 终止 agent
 │   │   - 复用现有 Token 认证与 AgentManager
 │   │
-│   ├── farming-app-cli.js # 产品 CLI 入口
+│   ├── farming-app-cli.cts # 产品 CLI TypeScript 权威入口
 │   │   - `farming start/daemon/status/stop/logs/url`
 │   │   - 默认端口 6694、base path `/farming`、配置目录 `~/.farming`
 │   │   - 同时转发 Main Agent 控制命令到 `farming-cli.js`
@@ -1027,7 +1027,7 @@ FARMING_NET_PORT=6693 FARMING_NET_BASE_PATH=/farming-net npm run start:net
 PORT=6695 FARMING_PORT=6695 FARMING_BASE_PATH=/farming FARMING_DISABLE_AUTH=1 npm start
 ```
 
-如果 `6694` 已被已有实例占用，就换成 `6695` 或其他空闲端口。不要只给后端设置 `FARMING_BASE_PATH=/farming` 却用普通 `npm run build` 的产物；分开执行时必须先运行 `FARMING_BASE_PATH=/farming npm run build`，再运行 `FARMING_BASE_PATH=/farming node backend/server.js`。否则 `dist/index.html` 会引用 `/assets/...`，在 `/farming/` 页面下 JS/CSS 404，表现为白屏。
+如果 `6694` 已被已有实例占用，就换成 `6695` 或其他空闲端口。不要只给后端设置 `FARMING_BASE_PATH=/farming` 却用普通 `npm run build` 的产物；分开执行时必须先运行 `FARMING_BASE_PATH=/farming npm run build`，再运行 `FARMING_BASE_PATH=/farming node backend/server.cjs`。否则 `dist/index.html` 会引用 `/assets/...`，在 `/farming/` 页面下 JS/CSS 404，表现为白屏。
 
 ### 2. 运行测试
 

@@ -2,7 +2,7 @@ const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { AcpPatchDecisionError, rejectPatch } = require('../acp/patch-decisions');
+const { AcpPatchDecisionError, rejectPatch } = require('../acp/patch-decisions.cjs');
 
 async function run() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-acp-patch-'));

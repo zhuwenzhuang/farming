@@ -106,6 +106,7 @@ export interface WorkspaceEditorLineChangesState {
 export interface WorkspaceEditorCursorTarget {
   lineNumber: number
   column?: number
+  endLineNumber?: number
   endColumn?: number
 }
 
@@ -514,14 +515,18 @@ export function workspaceEditorCursorSelection(
   const lineNumber = Math.max(1, Math.min(cursor.lineNumber, lineCount))
   const lineMaxColumn = Math.max(1, bounds.getLineMaxColumn(lineNumber))
   const column = Math.max(1, Math.min(cursor.column ?? 1, lineMaxColumn))
+  const endLineNumber = cursor.endLineNumber
+    ? Math.max(lineNumber, Math.min(cursor.endLineNumber, lineCount))
+    : lineNumber
+  const endLineMaxColumn = Math.max(1, bounds.getLineMaxColumn(endLineNumber))
   const endColumn = cursor.endColumn
-    ? Math.max(column, Math.min(cursor.endColumn, lineMaxColumn))
-    : column
+    ? Math.max(endLineNumber === lineNumber ? column : 1, Math.min(cursor.endColumn, endLineMaxColumn))
+    : (endLineNumber === lineNumber ? column : endLineMaxColumn)
 
   return {
     startLineNumber: lineNumber,
     startColumn: column,
-    endLineNumber: lineNumber,
+    endLineNumber,
     endColumn,
   }
 }

@@ -2,7 +2,7 @@ const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { ReviewDiffService, fileFromPatch, gitDiffPathspecArgs, gitRangeReviewId, metadataFile, normalizeReviewLimit, patchMetadata, parseComparisonBranches, parseComparisonCommits, parseNameStatus, parseNumstat, parseRawDiffMetadata, untrackedPatch, workingCopyPatchset, workingCopyReviewId } = require('../review-diff-service');
+const { ReviewDiffService, fileFromPatch, gitDiffPathspecArgs, gitRangeReviewId, metadataFile, normalizeReviewLimit, patchMetadata, parseComparisonBranches, parseComparisonCommits, parseNameStatus, parseNumstat, parseRawDiffMetadata, untrackedPatch, workingCopyPatchset, workingCopyReviewId } = require('../review-diff-service.cjs');
 
 function pathspecAfterDoubleDash(args) {
   const index = args.lastIndexOf('--');

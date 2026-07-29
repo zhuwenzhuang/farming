@@ -12,6 +12,7 @@ import { isWorkspaceWorkingCopyClean, workspaceFileCacheKey } from './workspace-
 export interface WorkspaceFileOpenTarget {
   lineNumber?: number
   column?: number
+  endLineNumber?: number
   endColumn?: number
   view?: 'editor' | 'diff'
   diffOnly?: boolean
@@ -28,6 +29,7 @@ export interface WorkspaceFileOpenTarget {
 export interface WorkspaceFileCursor {
   lineNumber: number
   column?: number
+  endLineNumber?: number
   endColumn?: number
   requestId: number
 }
@@ -132,6 +134,7 @@ export function workspaceFileCursorForTarget(target: WorkspaceFileOpenTarget | u
   return {
     lineNumber: target.lineNumber,
     column: target.column,
+    ...(target.endLineNumber !== undefined ? { endLineNumber: target.endLineNumber } : {}),
     endColumn: target.endColumn,
     requestId,
   }

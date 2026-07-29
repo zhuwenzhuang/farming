@@ -3,7 +3,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { AcpCheckpointStore } = require('../acp-checkpoint-store.cjs');
-const { AcpSessionState } = require('../acp-session-state');
+const { AcpSessionState } = require('../acp-session-state.cjs');
 
 async function run() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-acp-checkpoint-'));

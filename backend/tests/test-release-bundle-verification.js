@@ -20,7 +20,7 @@ function makeArchive(options = {}) {
   }
   if (!options.missingBrowserExtension) {
     fs.mkdirSync(path.join(appDir, 'extensions', 'browser', 'backend'), { recursive: true });
-    fs.writeFileSync(path.join(appDir, 'extensions', 'browser', 'backend', 'index.js'), 'module.exports = {};\n');
+    fs.writeFileSync(path.join(appDir, 'extensions', 'browser', 'backend', 'index.cjs'), 'module.exports = {};\n');
   }
   fs.writeFileSync(path.join(appDir, 'RELEASE.json'), JSON.stringify({
     name: 'farming',
@@ -50,7 +50,7 @@ function run() {
   );
   assert.throws(
     () => verifyReleaseBundle(makeArchive({ missingBrowserExtension: true })),
-    /missing extensions\/browser\/backend\/index\.js/,
+    /missing extensions\/browser\/backend\/index\.cjs/,
   );
 
   console.log('✓ release bundle verification requires clean metadata and Browser runtime files');

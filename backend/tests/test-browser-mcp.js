@@ -7,7 +7,7 @@ const { Client } = require('@modelcontextprotocol/sdk/client/index.js');
 const { StdioClientTransport } = require('@modelcontextprotocol/sdk/client/stdio.js');
 const {
   mergeBrowserMcpServer,
-} = require('../../extensions/browser/backend/agent-capability');
+} = require('../../extensions/browser/backend/agent-capability.cjs');
 
 function listen(server) {
   return new Promise((resolve, reject) => {
@@ -99,7 +99,18 @@ async function run() {
     const port = await listen(api);
     const transport = new StdioClientTransport({
       command: process.execPath,
-      args: [path.join(__dirname, '..', 'farming-app-cli.js'), 'browser', 'mcp'],
+      args: [
+        '-e',
+        `require(${JSON.stringify(path.join(
+          __dirname,
+          '..',
+          '..',
+          'extensions',
+          'browser',
+          'backend',
+          'browser-mcp-server.cjs'
+        ))}).runBrowserMcpServer()`,
+      ],
       env: {
         FARMING_CONTROL_URL: `http://127.0.0.1:${port}/farming`,
         FARMING_PROJECT_WORKSPACE: projectWorkspace,

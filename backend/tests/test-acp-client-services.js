@@ -6,12 +6,12 @@ const path = require('path');
 const {
   AcpClientFileSystem,
   AcpClientTerminalManager,
-} = require('../acp/client-services');
+} = require('../acp/client-services.cjs');
 
 async function run() {
   const packageJson = require('../../package.json');
   assert(
-    packageJson.files.includes('backend/acp/'),
+    packageJson.files.includes('backend/acp/*.cjs'),
     'the npm package must include ACP client service modules required at runtime',
   );
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-acp-client-'));

@@ -9,6 +9,12 @@ Farming 使用自己带 Checkpoint 的持久 Terminal 协议：
 3. 浏览器首次打开或重连时，只接收一次包含屏幕与精确尺寸的 Replay。
 4. xterm 的 Replay Write Callback 完成后，才继续处理 Live Output。
 
+## 可点击输出
+
+Terminal Link 采用 VS Code 的分层 Detector 模型。OSC 8 Hyperlink 继续由 xterm 负责；普通 HTTP(S) 输出使用 Monaco Link Grammar，并采用与 xterm Web Link Provider 相同的 2,048 字符上限。本地文件层由 VS Code Terminal Link Parser 适配而来，支持 POSIX、Windows Drive、UNC、`file://` 路径，以及它的编译器和诊断位置后缀，包括 `path:line[:column[-endColumn]]`、`path:line.column`、带引号路径、括号/方括号、不换行空格和跨行范围。Python、C/C++、Clang 与 Shell Prompt Fallback 用于识别含空格路径。只有已识别的 Git Diff Header 才会移除 Diff 前缀。
+
+检测只跨越由 `isWrapped` 连接的 xterm 逻辑行；显式换行绝不会被猜成 URL 续行。独立的 VS Code 风格多行层会把 ripgrep/ESLint 的数字结果行绑定到上方第一条非数字逻辑行，也会把 Git Hunk Header 绑定到上方的 `+++ b/path`。词法识别本身不授权打开文件：每个文件候选项必须先在捕获到的 Agent Workspace 中解析，无法解析的候选项保持普通文本。最后的 Word Fallback 使用 VS Code 兼容分隔符，单词最多 100 字符，只有按住修饰键点击时才打开 Project Files 搜索。URL 同样需要修饰键，已验证的文件目标可以直接打开。超过 2,000 字符的行、超过 1,024 字符的路径、每行十个以上的文件系统候选，以及超过 100 条逻辑行的多行回溯都会被拒绝或截断。
+
 ## Replay 状态
 
 一次 Replay 携带：

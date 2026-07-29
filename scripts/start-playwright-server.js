@@ -22,7 +22,7 @@ if (!useRealCodex) {
 }
 process.env.NODE_ENV = process.env.NODE_ENV || 'test';
 
-const { server } = require('../backend/server');
+const { server } = require('../backend/server.cjs');
 
 let cleanedUp = false;
 

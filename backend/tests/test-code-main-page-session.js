@@ -171,7 +171,7 @@ async function run() {
     'Server auto-resume should not claim by command/workspace/time-window heuristics'
   );
 
-  const serverSource = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const serverSource = fs.readFileSync(path.join(__dirname, '..', 'server.cts'), 'utf8');
   const mainPageSessionSource = fs.readFileSync(path.join(__dirname, '..', 'main-page-session.cts'), 'utf8');
   assert(
     mainPageSessionSource.includes("const AUTO_RESUME_AGENT_SESSION_PROVIDERS = new Set(['codex', 'claude', 'opencode', 'qoder', 'qwen'])") &&
@@ -179,7 +179,7 @@ async function run() {
       mainPageSessionSource.includes('AUTO_RESUME_AGENT_SESSION_PROVIDERS.has(normalized)') &&
       serverSource.includes('function autoResumeMainPageAgentSessions()') &&
       serverSource.includes('await agentManager.whenRecovered()') &&
-      serverSource.includes('const knownSessionByKey = new Map(knownSessions.map(session => [') &&
+      serverSource.includes('const knownSessionByKey = new Map(knownSessions.map((session: ServerRecord) => [') &&
       serverSource.includes('knownSessionByKey.get(mainPageAgentSessionKey(') &&
       serverSource.includes('findActiveAgentClaimingSession(agentManager.getState().agents') &&
       mainPageSessionSource.includes("agent.providerSessionKey === sessionKey") &&

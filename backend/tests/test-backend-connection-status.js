@@ -1,11 +1,12 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
+const { importTsModule } = require('./helpers/import-ts-module');
 const {
   BACKEND_INITIAL_CONNECT_GRACE_MS,
   classifyBackendConnection,
   reducePageVisibilitySnapshot,
-} = require('../../shared/backend-connection-status');
+} = importTsModule('shared/backend-connection-status.ts');
 
 function read(relativePath) {
   return fs.readFileSync(path.join(__dirname, '../..', relativePath), 'utf8');
@@ -18,14 +19,14 @@ function run() {
   const webSocketSource = read('src/hooks/useWebSocket.ts');
   const liveStatusSource = read('src/lib/backend-live-status.ts');
   const pageVisibilitySource = read('src/hooks/usePageVisibility.ts');
-  const connectionClassifierSource = read('shared/backend-connection-status.js');
+  const connectionClassifierSource = read('shared/backend-connection-status.ts');
   const copySource = read('src/components/code/copy.ts');
   const stylesSource = read('src/styles/main.css');
   const workspaceFilesSource = read('src/hooks/useWorkspaceFiles.ts');
   const workspaceChangesSource = read('src/components/files/useWorkspaceFileChanges.ts');
   const pluginsPanelSource = read('src/components/code/PluginsPanel.tsx');
-  const serverSource = read('backend/server.js');
-  const livenessSource = read('shared/websocket-liveness.js');
+  const serverSource = read('backend/server.cts');
+  const livenessSource = read('shared/websocket-liveness.ts');
 
   assert(
       liveStatusSource.includes('everConnected: boolean') &&

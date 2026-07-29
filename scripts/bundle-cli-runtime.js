@@ -11,8 +11,8 @@ const workerOutfile = process.env.FARMING_CLI_BUNDLE_WORKER
   || path.join(projectRoot, 'backend', 'terminal-screen-worker-thread.pkg.js');
 const usageWorkerOutfile = process.env.FARMING_CLI_BUNDLE_USAGE_WORKER
   || path.join(projectRoot, 'backend', 'usage-history-worker.pkg.js');
-const packagedCodexBridge = path.join(projectRoot, 'backend', 'acp', 'packaged-codex-acp.js');
-const packagedClaudeBridge = path.join(projectRoot, 'backend', 'acp', 'packaged-claude-acp.js');
+const packagedCodexBridge = path.join(projectRoot, 'backend', 'acp', 'packaged-codex-acp.cts');
+const packagedClaudeBridge = path.join(projectRoot, 'backend', 'acp', 'packaged-claude-acp.cts');
 const packagedCodexEntry = path.join(projectRoot, 'dist', 'acp', 'codex-acp-1.1.4.mjs');
 const packagedClaudeEntry = path.join(projectRoot, 'dist', 'acp', 'claude-agent-acp-0.59.0.mjs');
 
@@ -46,7 +46,7 @@ const expressViewDynamicRequirePlugin = {
 const packagedAcpPlugin = {
   name: 'farming-packaged-acp',
   setup(build) {
-    build.onLoad({ filter: /packaged-(?:codex|claude)-acp\.js$/ }, async (args) => {
+    build.onLoad({ filter: /packaged-(?:codex|claude)-acp\.cts$/ }, async (args) => {
       const filePath = path.resolve(args.path);
       const isCodex = filePath === path.resolve(packagedCodexBridge);
       const isClaude = filePath === path.resolve(packagedClaudeBridge);
@@ -107,7 +107,7 @@ const commonOptions = {
 async function main() {
   await esbuild.build({
     ...commonOptions,
-    entryPoints: [path.join(projectRoot, 'backend', 'farming-app-cli.js')],
+    entryPoints: [path.join(projectRoot, 'backend', 'farming-app-cli.cts')],
     outfile: entryOutfile,
     plugins: [expressViewDynamicRequirePlugin, packagedAcpPlugin],
   });

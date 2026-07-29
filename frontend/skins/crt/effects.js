@@ -1,8 +1,9 @@
+// Generated from TypeScript. Do not edit.
+"use strict";
 (function initCrtEffects(documentRef) {
-  function syncPageVisibility() {
-    documentRef.body.classList.toggle('page-hidden', documentRef.hidden);
-  }
-
-  documentRef.addEventListener('visibilitychange', syncPageVisibility);
-  syncPageVisibility();
+    function syncPageVisibility() {
+        documentRef.body.classList.toggle('page-hidden', documentRef.hidden);
+    }
+    documentRef.addEventListener('visibilitychange', syncPageVisibility);
+    syncPageVisibility();
 })(document);

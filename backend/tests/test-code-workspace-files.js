@@ -52,8 +52,8 @@ function run() {
   const basicComposerCapabilities = capabilitiesSource.match(/const BASIC_COMPOSER_CAPABILITIES[\s\S]*?}\n/)?.[0] || '';
   const workspaceNavigationSource = read('src/lib/workspace-navigation-history.ts');
   const responsiveModeSource = read('src/lib/responsive-mode.ts');
-  const serverSource = read('backend/server.js');
-  const agentManagerSource = read('backend/agent-manager.js');
+  const serverSource = read('backend/server.cts');
+  const agentManagerSource = read('backend/agent-manager.cts');
   const mainPageSessionSource = read('backend/main-page-session.cts');
   const inputPartsSource = read('backend/input-parts.cts');
   const terminalPaneSource = read('src/components/AgentTerminalPane.tsx');
@@ -934,9 +934,9 @@ function run() {
       workspaceSource.includes('canUseComposerHistoryNavigation(input)') &&
       workspaceSource.includes('navigateComposerHistory(activeComposerState.history, direction, input.value)') &&
       workspaceSource.includes('const message = pending.messages.find(item => item.id === messageId)') &&
-      workspaceSource.includes('sendComposerMessageToAgent(activeAgent, message.text, message.attachments)') &&
+      workspaceSource.includes("sendComposerMessageToAgent(\n        activeAgent,\n        message.text,\n        message.attachments,\n        message.id,\n        'prompt',\n      )") &&
       workspaceSource.includes('pendingFlushes.push({ agent, composerKey, message: nextMessage })') &&
-      workspaceSource.includes('sendComposerMessageToAgent(agent, message.text, message.attachments)') &&
+      workspaceSource.includes("sendComposerMessageToAgent(\n          agent,\n          message.text,\n          message.attachments,\n          message.id,\n          'prompt',\n        )") &&
       !workspaceSource.includes("pending.messages.join('\\n\\n')") &&
       workspaceSource.includes('submitAction: composerSubmitAction') &&
       workspaceSource.includes('onInterrupt: interruptActiveAgent') &&
@@ -1067,7 +1067,7 @@ function run() {
   assert(
     mainPageSessionSource.includes('function resumedAgentSource(') &&
       serverSource.includes("const MAIN_AGENT_RESTART_COMMANDS = new Set(['codex', 'claude', 'opencode', 'qoder', 'qwen', 'bash', 'zsh'])") &&
-      serverSource.includes('function restartMainAgent(ws, command)') &&
+      serverSource.includes('function restartMainAgent(ws: WebSocketClient, command: string)') &&
       serverSource.includes("case 'restart-main-agent'") &&
       serverSource.includes("case 'interrupt-agent'") &&
       serverSource.includes("routePath(BASE_PATH, '/api/attachments/image')") &&
@@ -1087,8 +1087,8 @@ function run() {
       !serverSource.includes('for (let index = 0; index < inputParts.length; index += 1)') &&
       serverSource.includes('await agentManager.killAgent(currentMain.id)') &&
       serverSource.includes('await agentManager.startAgent(normalizedCommand, null') &&
-      serverSource.includes("function findResumedAgent(provider, sessionId, providerHomeId = '')") &&
-      serverSource.includes("function rememberMainPageAgentSession(provider, sessionId, providerHomeId = '')") &&
+      serverSource.includes("function findResumedAgent(provider: string, sessionId: string, providerHomeId = '')") &&
+      serverSource.includes("function rememberMainPageAgentSession(provider: string, sessionId: string, providerHomeId = '')") &&
       mainPageSessionSource.includes("const AUTO_RESUME_AGENT_SESSION_PROVIDERS = new Set(['codex', 'claude', 'opencode', 'qoder', 'qwen'])") &&
       mainPageSessionSource.includes('function mainPageAgentSessionFromKey(key: unknown)') &&
       serverSource.includes('function autoResumeMainPageAgentSessions()') &&
@@ -1098,7 +1098,7 @@ function run() {
       serverSource.includes('rememberMainPageSession: false') &&
       serverSource.includes("console.warn('Failed to auto-resume main page agent session:'") &&
       serverSource.includes('void autoResumeMainPageAgentSessions()') &&
-      serverSource.includes('function isMainAgentSessionWorkspace(session)') &&
+      serverSource.includes('function isMainAgentSessionWorkspace(session: ServerRecord)') &&
       serverSource.includes('const requestedAsMain = req.body && req.body.asMain === true && !shouldFork') &&
       serverSource.includes('const shouldRememberMainPageSession = options.rememberMainPageSession !== false && !shouldFork && !requestedAsMain') &&
       serverSource.includes("return { error: 'session is not a Main Agent session', status: 400 }") &&
@@ -1108,7 +1108,7 @@ function run() {
       serverSource.includes("source: shouldFork ? resumeSource.replace('-history:', '-history-fork:') : resumeSource") &&
       resumeAgentSessionSource.includes("agentRuntimeMode: 'chat'") &&
       resumeAgentSessionSource.includes("acpHistoryMode: 'load'") &&
-      serverSource.includes("agentRuntimeMode: ['chat', 'acp'].includes(options.agentRuntimeMode) ? 'chat' : 'terminal'") &&
+      serverSource.includes("agentRuntimeMode: typeof options.agentRuntimeMode === 'string' && ['chat', 'acp'].includes(options.agentRuntimeMode) ? 'chat' : 'terminal'") &&
       mainPageSessionSource.includes("agent.status !== 'dead'") &&
       mainPageSessionSource.includes("agent.status !== 'stopped'") &&
       !resumeAgentSessionSource.includes("agent.status === 'dead' || agent.status === 'stopped'"),

@@ -1,6 +1,6 @@
 const assert = require('assert');
-const NativePtyHost = require('../native-pty-host');
-const LocalSessionEngine = require('../local-session-engine');
+const { NativePtyHost } = require('../native-pty-host.cjs');
+const { LocalSessionEngine } = require('../local-session-engine.cjs');
 const { createTerminalReducerFlowControl } = require('../terminal-reducer-flow-control.cjs');
 
 function deferred() {

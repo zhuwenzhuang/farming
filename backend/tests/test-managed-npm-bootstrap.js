@@ -47,7 +47,7 @@ function run() {
       compatibilityProfile: 'linux-x64-legacy-glibc228',
     }));
     writeExecutable(path.join(sourceDir, 'scripts', 'compute-node-heap-mb.sh'), '#!/usr/bin/env bash\necho 512\n');
-    fs.writeFileSync(path.join(sourceDir, 'backend', 'server.js'), 'setInterval(() => {}, 1000);\n');
+    fs.writeFileSync(path.join(sourceDir, 'backend', 'server.cjs'), 'setInterval(() => {}, 1000);\n');
     writeExecutable(path.join(sourceDir, 'bin', 'farming'), [
       '#!/usr/bin/env node',
       'const fs = require("fs");',
@@ -56,7 +56,7 @@ function run() {
       'const pidFile = path.join(process.env.HOME, ".farming", "farming-server.pid");',
       'if (process.argv[2] === "daemon") {',
       '  fs.mkdirSync(path.dirname(pidFile), { recursive: true });',
-      '  const child = spawn(process.env.FARMING_NODE_BIN, [path.join(__dirname, "..", "backend", "server.js")], { detached: true, stdio: "ignore" });',
+      '  const child = spawn(process.env.FARMING_NODE_BIN, [path.join(__dirname, "..", "backend", "server.cjs")], { detached: true, stdio: "ignore" });',
       '  child.unref();',
       '  fs.writeFileSync(pidFile, String(child.pid));',
       '  process.exit(0);',

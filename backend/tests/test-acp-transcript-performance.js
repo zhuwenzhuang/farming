@@ -2,7 +2,7 @@ const assert = require('assert');
 const {
   acpTranscriptEntries,
   acpTranscriptToolEntry,
-} = require('../acp-transcript');
+} = require('../acp-transcript.cjs');
 
 const MESSAGE_ENTRY_COUNT = 197;
 const THOUGHT_ENTRY_COUNT = 247;

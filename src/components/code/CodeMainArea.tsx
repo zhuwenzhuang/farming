@@ -276,6 +276,7 @@ interface CodeMainAreaProps {
   onOpenTerminal: (agentId: string, options?: { focusTerminal?: boolean }) => void
   onOpenTerminalPath: (agentId: string, target: TerminalPathOpenTarget) => void
   onResolveTerminalPath: (agentId: string, target: TerminalPathOpenTarget) => Promise<TerminalPathOpenTarget | null> | TerminalPathOpenTarget | null
+  onSearchTerminalWord: (agentId: string, query: string) => void
   onTerminalFollowOutputChange: (agentId: string, state: TerminalFollowState) => void
   onAgentReadLatest: (
     agentId: string,
@@ -510,6 +511,7 @@ export function CodeMainArea({
   onOpenTerminal,
   onOpenTerminalPath,
   onResolveTerminalPath,
+  onSearchTerminalWord,
   onTerminalFollowOutputChange,
   onAgentReadLatest,
   onRuntimeModeChange,
@@ -827,6 +829,7 @@ export function CodeMainArea({
               onActivate={onOpenTerminal}
               onOpenPath={onOpenTerminalPath}
               onResolvePath={onResolveTerminalPath}
+              onSearchTerminalWord={onSearchTerminalWord}
               onOpenWorkspaceFilePath={onOpenWorkspaceFilePath}
               onOpenUrlInFarming={onOpenUrlInFarming}
               onFollowOutputChange={onTerminalFollowOutputChange}

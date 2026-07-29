@@ -1,5 +1,5 @@
 const assert = require('assert');
-const AgentManager = require('../agent-manager');
+const AgentManager = require('../agent-manager.cjs');
 
 function createManager() {
   return new AgentManager({

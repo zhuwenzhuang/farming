@@ -109,9 +109,15 @@ function run() {
   assert.strictEqual(findOpenWorkspaceFile([parentWorkspaceFile], 'agent-child', 'src/App.tsx', '/repo/packages/a'), parentWorkspaceFile);
   assert.deepStrictEqual(replaceOpenWorkspaceFile([parentWorkspaceFile], childWorkspaceFile), [childWorkspaceFile]);
 
-  assert.deepStrictEqual(workspaceFileCursorForTarget({ lineNumber: 3, column: 2, endColumn: 5 }, 8), {
+  assert.deepStrictEqual(workspaceFileCursorForTarget({
     lineNumber: 3,
     column: 2,
+    endLineNumber: 4,
+    endColumn: 5,
+  }, 8), {
+    lineNumber: 3,
+    column: 2,
+    endLineNumber: 4,
     endColumn: 5,
     requestId: 8,
   });

@@ -1,15 +1,12 @@
 import * as fs from 'fs';
 import * as path from 'path';
-
-const { findAgentSession } = require('./agent-session-history') as {
-  findAgentSession: FindAgentSession;
-};
-const {
+import {
   codexSessionDateKeys,
   listCodexSessionIdentities,
-} = require('./codex-session-history') as {
-  codexSessionDateKeys(startedAt: number, windowMs: number): string[];
-  listCodexSessionIdentities: ListCodexSessionIdentities;
+} from './codex-session-history.cjs';
+
+const { findAgentSession } = require('./agent-session-history.cjs') as {
+  findAgentSession: FindAgentSession;
 };
 const { mainPageAgentSessionKey } = require('./main-page-session.cjs') as {
   mainPageAgentSessionKey(

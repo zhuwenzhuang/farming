@@ -4,7 +4,7 @@ const path = require('path');
 
 function run() {
   const sessionBridgePath = path.join(__dirname, '../../frontend/session-bridge.js');
-  const serverPath = path.join(__dirname, '../server.js');
+  const serverPath = path.join(__dirname, '../server.cts');
   const sessionStreamProtocolPath = path.join(__dirname, '../session-stream-protocol.cts');
   const appPath = path.join(__dirname, '../../src/App.tsx');
   const useWebSocketPath = path.join(__dirname, '../../src/hooks/useWebSocket.ts');
@@ -43,7 +43,7 @@ function run() {
   );
   assert(sessionBridge.includes('resize-agent'), 'session bridge should handle resize requests');
   assert(
-    server.includes('function previewForClient(preview, client)') &&
+    server.includes('function previewForClient(') &&
       server.includes('client.focusedAgentId !== preview.agentId') &&
       server.includes('previewSnapshot: null'),
     'the focused terminal must not receive a redundant full preview snapshot alongside its live output stream',

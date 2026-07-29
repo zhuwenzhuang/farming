@@ -127,9 +127,50 @@ test('modifier-click releases xterm selection tracking after opening a URL', asy
       return (window as unknown as { __openedTerminalUrls?: string[] }).__openedTerminalUrls ?? []
     })).toEqual([url])
 
+    const cols = await page.evaluate((id) => (
+      window.__farmingTerminalTest?.getBufferDiagnostics(id)?.cols ?? 0
+    ), agentId)
+    expect(cols).toBeGreaterThan(40)
+    const linePrefix = '- CR: '
+    const reviewUrlPrefix = 'https://example.test/review/'
+    const reviewUrl = reviewUrlPrefix + '2'.repeat(Math.max(1, cols - 2 - linePrefix.length - reviewUrlPrefix.length))
+    await writeTerminalFixture(page, agentId, [
+      `${linePrefix}${reviewUrl}`,
+      '- final commit: abc',
+      '- commit message: fixed',
+      '- review comment: 123',
+      '- rollback confirmed',
+      '',
+    ].join('\r\n'))
+    const reviewUrlCell = await cellForText(page, agentId, 'example.test', 2)
+    await expect.poll(async () => page.evaluate(({ id, col, row }) => {
+      return window.__farmingTerminalTest?.getUrlAtCell(id, col, row) ?? null
+    }, { id: agentId, col: reviewUrlCell.col, row: reviewUrlCell.row })).toBe(reviewUrl)
+
+    await page.keyboard.down(modifier)
+    try {
+      await page.mouse.click(reviewUrlCell.x, reviewUrlCell.y)
+    } finally {
+      await page.keyboard.up(modifier)
+    }
+    await expect.poll(async () => page.evaluate(() => {
+      return (window as unknown as { __openedTerminalUrls?: string[] }).__openedTerminalUrls ?? []
+    })).toEqual([url, reviewUrl])
+
+    const softWrappedUrl = `https://example.test/${Array.from(
+      { length: 48 },
+      (_, index) => `segment-${String(index).padStart(2, '0')}`,
+    ).join('/')}`
+    await writeTerminalFixture(page, agentId, `${softWrappedUrl}\r\n`)
+    const wrappedCell = await cellForText(page, agentId, 'segment-30', 2)
+    expect(wrappedCell.row).toBeGreaterThan(0)
+    await expect.poll(async () => page.evaluate(({ id, col, row }) => {
+      return window.__farmingTerminalTest?.getUrlAtCell(id, col, row) ?? null
+    }, { id: agentId, col: wrappedCell.col, row: wrappedCell.row })).toBe(softWrappedUrl)
+
     const releaseProbe = await page.evaluate(({ id, row }) => {
       return window.__farmingTerminalTest?.getCellCenter(id, 0, row) ?? null
-    }, { id: agentId, row: urlCell.row })
+    }, { id: agentId, row: wrappedCell.row })
     if (!releaseProbe) throw new Error('Terminal mouse-release probe cell is missing')
     await page.mouse.move(releaseProbe.x, releaseProbe.y)
     await expect.poll(async () => page.evaluate((id) => {
@@ -145,4 +186,68 @@ test('modifier-click releases xterm selection tracking after opening a URL', asy
       }
     })
   }
+})
+
+test('terminal word fallback opens Project Files search only with the open modifier', async ({ page, workspaceRoot }) => {
+  const projectDir = path.join(workspaceRoot, 'terminal-word-search')
+  fs.mkdirSync(projectDir, { recursive: true })
+  fs.writeFileSync(path.join(projectDir, 'needle-result.txt'), 'needle-result\n')
+
+  const agentId = await createControlAgent(page, 'bash', projectDir)
+  await openFarming(page)
+  await selectAgent(page, agentId)
+  await writeTerminalFixture(page, agentId, 'needle-result\r\n')
+
+  const wordCell = await cellForText(page, agentId, 'needle-result', 2)
+  await page.mouse.move(wordCell.x, wordCell.y)
+  await expect.poll(async () => terminalOpenTargetState(page, agentId)).toEqual({
+    hover: false,
+    target: '',
+    title: '',
+  })
+
+  const modifier = process.platform === 'darwin' ? 'Meta' : 'Control'
+  await page.keyboard.down(modifier)
+  try {
+    await page.mouse.move(wordCell.x, wordCell.y)
+    await expect.poll(async () => terminalOpenTargetState(page, agentId)).toEqual(expect.objectContaining({
+      hover: true,
+      target: 'search',
+    }))
+    await page.mouse.click(wordCell.x, wordCell.y)
+  } finally {
+    await page.keyboard.up(modifier)
+  }
+
+  await expect(page.getByPlaceholder('Search or path:line')).toHaveValue('needle-result')
+})
+
+test('terminal multiline diagnostics bind numeric results to the preceding file', async ({ page, workspaceRoot }) => {
+  const projectDir = path.join(workspaceRoot, 'terminal-multiline-link')
+  const fileName = 'parser with spaces.ts'
+  fs.mkdirSync(projectDir, { recursive: true })
+  fs.writeFileSync(path.join(projectDir, fileName), ['one', 'two value', 'three'].join('\n'))
+
+  const agentId = await createControlAgent(page, 'bash', projectDir)
+  await openFarming(page)
+  await selectAgent(page, agentId)
+  await writeTerminalFixture(page, agentId, `${fileName}\r\n  2:3  error Unexpected token\r\n`)
+
+  const diagnosticCell = await cellForText(page, agentId, '2:3', 1)
+  await expect.poll(async () => page.evaluate(({ id, col, row }) => {
+    return window.__farmingTerminalTest?.getPathAtCell(id, col, row) ?? null
+  }, {
+    id: agentId,
+    col: diagnosticCell.col,
+    row: diagnosticCell.row,
+  })).toEqual({
+    path: fileName,
+    lineNumber: 2,
+    column: 3,
+  })
+
+  await page.mouse.click(diagnosticCell.x, diagnosticCell.y)
+  await expect(page.getByTestId('code-file-editor')).toBeVisible()
+  await expect(page.getByTestId('code-file-editor').getByRole('tab', { selected: true })).toContainText(fileName)
+  await expect(page.getByTestId('code-file-editor-statusbar')).toContainText('Ln 2, Col 3')
 })

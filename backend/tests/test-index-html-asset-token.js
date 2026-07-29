@@ -78,7 +78,7 @@ function run() {
   );
 
   const productIndex = fs.readFileSync(path.join(repoRoot, 'index.html'), 'utf8');
-  const serverSource = fs.readFileSync(path.join(repoRoot, 'backend/server.js'), 'utf8');
+  const serverSource = fs.readFileSync(path.join(repoRoot, 'backend/server.cts'), 'utf8');
   const manifest = JSON.parse(fs.readFileSync(path.join(repoRoot, 'public/farming-2/site.webmanifest'), 'utf8'));
   const faviconHeader = fs.readFileSync(path.join(repoRoot, 'public/farming-2/favicon-v2.ico')).subarray(0, 4);
   assert(productIndex.includes('app-icon-v2-180.png'), 'iOS should use the versioned high-resolution touch icon');

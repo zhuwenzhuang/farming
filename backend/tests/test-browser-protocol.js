@@ -1,14 +1,15 @@
 const assert = require('assert');
 const packageJson = require('../../package.json');
+const { importTsModule } = require('./helpers/import-ts-module');
 const {
   PROTOCOL_VERSION,
   protocolCompatible,
   validateClientMessage,
   validateServerMessage,
-} = require('../../shared/browser-protocol');
+} = importTsModule('shared/browser-protocol.ts');
 
 assert(
-  packageJson.files.includes('shared/'),
+  packageJson.files.includes('shared/*.js'),
   'the npm package must include the shared browser protocol required by the server',
 );
 
@@ -23,6 +24,7 @@ assert.strictEqual(validateClientMessage({ type: 'composer-input', agentId: 'a',
 assert.strictEqual(validateClientMessage({ type: 'business-health-probe', requestId: 'health-1' }).ok, true);
 assert.strictEqual(validateClientMessage({ type: 'business-health-probe', requestId: 1 }).ok, false);
 assert.strictEqual(validateClientMessage({ type: 'unknown' }).ok, false);
+assert.strictEqual(validateClientMessage(null).ok, false);
 assert.strictEqual(validateServerMessage({ type: 'state', state: { agents: [] } }).ok, true);
 assert.strictEqual(validateServerMessage({ type: 'state', state: {} }).ok, false);
 assert.strictEqual(validateServerMessage({ type: 'composer-input-result', requestId: 'request-1', agentId: 'a', accepted: true }).ok, true);
@@ -55,6 +57,10 @@ assert.strictEqual(validateServerMessage({ type: 'agent-update', update: { agent
 assert.strictEqual(validateServerMessage({
   type: 'agent-update',
   update: { agentId: 'a', patch: { terminalInputReceived: true, status: 'dead' } },
+}).ok, false);
+assert.strictEqual(validateServerMessage({
+  type: 'agent-update',
+  update: { agentId: 'a', patch: {} },
 }).ok, false);
 assert.strictEqual(validateServerMessage({
   type: 'acp-session-revision',

@@ -58,7 +58,7 @@ async function startLocalServer() {
   const port = await getFreePort();
   const tmpRoot = fs.mkdtempSync('/tmp/farming-e2e-workspaces-');
   const configDir = path.join(tmpRoot, '.farming');
-  const child = spawn(process.execPath, ['backend/server.js'], {
+  const child = spawn(process.execPath, ['backend/server.cjs'], {
     cwd: PROJECT_ROOT,
     env: {
       ...process.env,

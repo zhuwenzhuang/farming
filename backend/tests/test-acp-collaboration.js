@@ -1,6 +1,6 @@
 const assert = require('assert');
-const { AcpSessionState } = require('../acp-session-state');
-const { acpTranscriptToolEntry } = require('../acp-transcript');
+const { AcpSessionState } = require('../acp-session-state.cjs');
+const { acpTranscriptToolEntry } = require('../acp-transcript.cjs');
 const { projectAcpTranscript } = require('../../src/components/code/acp/acp-entry-projection.ts');
 const {
   acpCollaborationAgents,

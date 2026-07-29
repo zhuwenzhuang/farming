@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-require('../backend/farming-app-cli').run().catch((error) => {
+require('../backend/farming-app-cli.cjs').run().catch((error) => {
   console.error(error.message);
   process.exit(1);
 });

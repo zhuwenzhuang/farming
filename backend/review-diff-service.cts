@@ -1,0 +1,1601 @@
+import * as crypto from 'crypto';
+import * as fs from 'fs';
+import * as path from 'path';
+
+interface WorkspaceFileErrorInstance extends Error {
+  details?: Record<string, unknown>;
+  statusCode: number;
+}
+
+interface DiffLine {
+  line: number;
+  text: string;
+}
+
+interface DiffRow {
+  kind: string;
+  left?: DiffLine;
+  right?: DiffLine;
+}
+
+interface DiffHunk {
+  header?: string;
+  oldStart?: number;
+  oldLines?: number;
+  newStart?: number;
+  newLines?: number;
+  rows: DiffRow[];
+}
+
+interface ReviewChange {
+  gitStatus?: string;
+  kind?: string;
+  path: string;
+  previousPath?: string;
+  status?: string;
+  [key: string]: unknown;
+}
+
+interface ReviewLineStats {
+  added: number;
+  binary: boolean;
+  removed: number;
+}
+
+interface ReviewFileMetadata {
+  newMode?: string;
+  newSha?: string;
+  oldMode?: string;
+  oldSha?: string;
+}
+
+interface ReviewTextFileMeta {
+  contentType: 'text/plain';
+  lines: number;
+  name: string;
+}
+
+interface ReviewFileDiff {
+  diffHeader?: string[];
+  hunks: DiffHunk[];
+  leftMeta?: ReviewTextFileMeta;
+  rightMeta?: ReviewTextFileMeta;
+  truncated?: boolean;
+}
+
+interface ReviewFile extends ReviewFileMetadata {
+  added: number;
+  binary?: boolean;
+  diff: ReviewFileDiff;
+  diffLoaded?: boolean;
+  diffTooExpensive?: boolean;
+  kind: string | undefined;
+  path: string;
+  previousPath?: string;
+  removed: number;
+  size?: number;
+  sizeDelta?: number;
+  status: string;
+}
+
+interface TextSources {
+  leftLines: string[];
+  leftName: string;
+  rightLines: string[];
+  rightName: string;
+}
+
+interface ContextRangeOptions {
+  lines?: unknown;
+  newStart?: unknown;
+  oldStart?: unknown;
+}
+
+type ReviewScope = 'tracked' | 'untracked';
+type IgnoreWhitespace = 'NONE' | 'ALL' | 'TRAILING' | 'LEADING_AND_TRAILING';
+
+interface ReviewOptions extends ContextRangeOptions {
+  base?: unknown;
+  context?: unknown;
+  fileMeta?: unknown;
+  head?: unknown;
+  ignoreWhitespace?: unknown;
+  limit?: unknown;
+  metadataOnly?: unknown;
+  modifiedWithinDays?: unknown;
+  path?: unknown;
+  reviewId?: unknown;
+  root?: unknown;
+  scope?: unknown;
+}
+
+interface MetadataFileOptions extends ReviewFileMetadata {
+  added?: number;
+  binary?: boolean;
+  diffTooExpensive?: boolean;
+  removed?: number;
+  size?: number;
+  sizeDelta?: number;
+  truncated?: boolean;
+}
+
+interface WorkingCopyChangesResult {
+  items: ReviewChange[];
+  truncated: boolean;
+}
+
+interface FileDiffSource {
+  binary?: boolean;
+  hunks?: DiffHunk[];
+  modifiedContent?: unknown;
+  originalContent?: unknown;
+  patch?: unknown;
+  size?: number;
+  sizeDelta?: number;
+  truncated?: boolean;
+}
+
+interface ExecResult {
+  stderr?: unknown;
+  stdout: unknown;
+}
+
+interface ReviewFileService {
+  changes(root: string, options: { limit: number }): Promise<WorkingCopyChangesResult>;
+  diff(root: string, filePath: string, options?: Record<string, unknown>): Promise<FileDiffSource>;
+  diffMaxBuffer: number;
+  diffTimeoutMs: number;
+  execFile(
+    executable: string,
+    args: string[],
+    options: Record<string, unknown>,
+  ): Promise<ExecResult>;
+  gitPath: string;
+  resolvePath(root: string, filePath: string): Promise<{ target: string }>;
+}
+
+interface ReviewAgentManager {
+  getAgentWorkspaceRoot?(agentId: string): string | undefined;
+}
+
+interface ComparisonCommit {
+  base: string;
+  head: string;
+  id: string;
+  label: string;
+}
+
+interface ComparisonBranch {
+  id: string;
+  name: string;
+}
+
+const { WorkspaceFileError, parseUnifiedDiffRows } = require('./workspace-file-service.cjs') as {
+  WorkspaceFileError: new (message: string, statusCode: number) => WorkspaceFileErrorInstance;
+  parseUnifiedDiffRows(patch: unknown): DiffHunk[];
+};
+
+const MAX_REVIEW_FILES = 200;
+const MAX_WORKING_COPY_SCAN_FILES = 2000;
+const MAX_UNTRACKED_LINES = 500;
+const MAX_REVIEW_CONTEXT_RANGE_LINES = 10000;
+const DIFF_CONCURRENCY = 4;
+
+function errorField(error: unknown, field: string): unknown {
+  return error && typeof error === 'object' && field in error
+    ? (error as Record<string, unknown>)[field]
+    : undefined;
+}
+
+function errorString(error: unknown, field: string): string {
+  const value = errorField(error, field);
+  return value ? String(value) : '';
+}
+
+function reviewKind(gitStatus: unknown): string {
+  if (gitStatus === 'added' || gitStatus === 'untracked') return 'added';
+  if (gitStatus === 'copied') return 'copied';
+  if (gitStatus === 'deleted') return 'deleted';
+  if (gitStatus === 'renamed') return 'renamed';
+  if (gitStatus === 'rewritten') return 'rewritten';
+  return 'modified';
+}
+
+function reviewStatus(kind: unknown): string {
+  if (kind === 'added') return 'A';
+  if (kind === 'copied') return 'C';
+  if (kind === 'deleted') return 'D';
+  if (kind === 'renamed') return 'R';
+  if (kind === 'rewritten') return 'W';
+  if (kind === 'unmodified') return 'U';
+  if (kind === 'reverted') return 'X';
+  return 'M';
+}
+
+function countRows(hunks: DiffHunk[]): { added: number; removed: number } {
+  return hunks.reduce((total, hunk) => hunk.rows.reduce((count, row) => ({
+    added: count.added + (row.kind === 'added' || row.kind === 'changed' ? 1 : 0),
+    removed: count.removed + (row.kind === 'deleted' || row.kind === 'changed' ? 1 : 0),
+  }), total), { added: 0, removed: 0 });
+}
+
+function metadataOnlyOption(value: unknown): boolean {
+  return value === true || value === '1' || value === 'true';
+}
+
+function normalizeIgnoreWhitespace(value: unknown): IgnoreWhitespace {
+  if (value === 'ALL' || value === 'IGNORE_ALL') return 'ALL';
+  if (value === 'TRAILING' || value === 'IGNORE_TRAILING') return 'TRAILING';
+  if (value === 'LEADING_AND_TRAILING' || value === 'IGNORE_LEADING_AND_TRAILING') return 'LEADING_AND_TRAILING';
+  return 'NONE';
+}
+
+function normalizeDiffContext(value: unknown): number | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  const context = Number(value);
+  if (!Number.isInteger(context) || context < 0) return undefined;
+  return Math.min(context, 10000);
+}
+
+function normalizeReviewLimit(value: unknown): number {
+  const limit = Number(value);
+  if (!Number.isInteger(limit) || limit <= 0) return MAX_REVIEW_FILES;
+  return Math.min(MAX_REVIEW_FILES, limit);
+}
+
+function normalizeContextRangeInteger(
+  value: unknown,
+  name: string,
+  { allowZero = false }: { allowZero?: boolean } = {},
+): number {
+  const number = Number(value);
+  const minimum = allowZero ? 0 : 1;
+  if (!Number.isInteger(number) || number < minimum) {
+    throw new WorkspaceFileError(`${name} must be an integer greater than or equal to ${minimum}`, 400);
+  }
+  return number;
+}
+
+function textLines(content: unknown): string[] {
+  if (content === undefined || content === null || content === '') return [];
+  const lines = String(content).split('\n');
+  if (lines.at(-1) === '') lines.pop();
+  return lines;
+}
+
+function reviewTextFileMeta(name: string, lines: string[]): ReviewTextFileMeta {
+  return {
+    contentType: 'text/plain',
+    lines: lines.length,
+    name,
+  };
+}
+
+function contextRowsFromSources(
+  sources: TextSources,
+  options: ContextRangeOptions = {},
+): {
+  leftLines: number;
+  rightLines: number;
+  rows: DiffRow[];
+} {
+  const oldStart = normalizeContextRangeInteger(options.oldStart, 'oldStart');
+  const newStart = normalizeContextRangeInteger(options.newStart, 'newStart');
+  const requestedLines = normalizeContextRangeInteger(options.lines, 'lines');
+  if (requestedLines > MAX_REVIEW_CONTEXT_RANGE_LINES) {
+    throw new WorkspaceFileError(`lines must not exceed ${MAX_REVIEW_CONTEXT_RANGE_LINES}`, 400);
+  }
+  const left = sources.leftLines.slice(oldStart - 1, oldStart - 1 + requestedLines);
+  const right = sources.rightLines.slice(newStart - 1, newStart - 1 + requestedLines);
+  if (left.length !== requestedLines || right.length !== requestedLines) {
+    throw new WorkspaceFileError('review context range is outside the file', 416);
+  }
+  return {
+    leftLines: sources.leftLines.length,
+    rightLines: sources.rightLines.length,
+    rows: Array.from({ length: requestedLines }, (_, index) => ({
+      kind: 'context',
+      left: { line: oldStart + index, text: left[index] },
+      right: { line: newStart + index, text: right[index] },
+    })),
+  };
+}
+
+function normalizeWorkingCopyScope(value: unknown): ReviewScope | undefined {
+  return value === 'tracked' || value === 'untracked' ? value : undefined;
+}
+
+function normalizeModifiedWithinDays(value: unknown): number | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  const days = Number(value);
+  return Number.isInteger(days) && days >= 1 && days <= 3650 ? days : undefined;
+}
+
+function filterWorkingCopyChangeItems(
+  root: string,
+  items: ReviewChange[],
+  options: Pick<ReviewOptions, 'scope' | 'modifiedWithinDays'> = {},
+  now = Date.now(),
+): ReviewChange[] {
+  const scope = normalizeWorkingCopyScope(options.scope);
+  let filtered = items;
+  if (scope === 'tracked') {
+    filtered = items.filter(change => change.gitStatus !== 'untracked');
+  } else if (scope === 'untracked') {
+    filtered = items.filter(change => change.gitStatus === 'untracked');
+    const modifiedWithinDays = normalizeModifiedWithinDays(options.modifiedWithinDays);
+    if (modifiedWithinDays !== undefined) {
+      const modifiedSince = now - modifiedWithinDays * 24 * 60 * 60 * 1000;
+      filtered = filtered.filter(change => {
+        if (!isSafeReviewPath(change.path)) return false;
+        try {
+          return fs.statSync(path.join(root, change.path)).mtimeMs >= modifiedSince;
+        } catch {
+          return false;
+        }
+      });
+    }
+  }
+  return filtered;
+}
+
+function gitWhitespaceArgs(value: unknown): string[] {
+  const normalized = normalizeIgnoreWhitespace(value);
+  if (normalized === 'ALL') return ['--ignore-all-space'];
+  if (normalized === 'TRAILING') return ['--ignore-space-at-eol'];
+  if (normalized === 'LEADING_AND_TRAILING') return ['--ignore-space-change'];
+  return [];
+}
+
+function gitContextArgs(value: unknown): string[] {
+  const context = normalizeDiffContext(value);
+  return context === undefined ? [] : [`--unified=${context}`];
+}
+
+function diffContentOptions(options: ReviewOptions = {}): Record<string, unknown> {
+  const ignoreWhitespace = normalizeIgnoreWhitespace(options.ignoreWhitespace);
+  const context = normalizeDiffContext(options.context);
+  return {
+    ...(ignoreWhitespace !== 'NONE' ? { ignoreWhitespace } : {}),
+    ...(context !== undefined ? { context } : {}),
+  };
+}
+
+function hasOptions(value: Record<string, unknown>): boolean {
+  return Object.keys(value).length > 0;
+}
+
+function reviewFileIdentity(file: ReviewFile): Record<string, unknown> {
+  return {
+    added: file.added,
+    binary: file.binary === true,
+    kind: file.kind,
+    newMode: file.newMode || '',
+    newSha: file.newSha || '',
+    oldMode: file.oldMode || '',
+    oldSha: file.oldSha || '',
+    path: file.path,
+    previousPath: file.previousPath || '',
+    removed: file.removed,
+    size: Number.isInteger(file.size) ? file.size : null,
+    sizeDelta: Number.isInteger(file.sizeDelta) ? file.sizeDelta : null,
+    status: file.status || reviewStatus(file.kind),
+  };
+}
+
+function metadataFile(
+  change: ReviewChange,
+  options: MetadataFileOptions = {},
+): ReviewFile {
+  const kind = change.kind || reviewKind(change.gitStatus);
+  return {
+    added: typeof options.added === 'number'
+      && Number.isInteger(options.added)
+      && options.added >= 0
+      ? options.added
+      : 0,
+    ...(options.binary === true ? { binary: true } : {}),
+    diff: { hunks: [], ...(options.truncated === true ? { truncated: true } : {}) },
+    diffLoaded: false,
+    ...(options.diffTooExpensive === true ? { diffTooExpensive: true } : {}),
+    kind,
+    ...(typeof options.newMode === 'string' ? { newMode: options.newMode } : {}),
+    ...(typeof options.newSha === 'string' ? { newSha: options.newSha } : {}),
+    ...(typeof options.oldMode === 'string' ? { oldMode: options.oldMode } : {}),
+    ...(typeof options.oldSha === 'string' ? { oldSha: options.oldSha } : {}),
+    path: change.path,
+    ...(change.previousPath ? { previousPath: change.previousPath } : {}),
+    removed: typeof options.removed === 'number'
+      && Number.isInteger(options.removed)
+      && options.removed >= 0
+      ? options.removed
+      : 0,
+    ...(Number.isInteger(options.size) ? { size: options.size } : {}),
+    ...(Number.isInteger(options.sizeDelta) ? { sizeDelta: options.sizeDelta } : {}),
+    status: change.status || reviewStatus(kind),
+  };
+}
+
+function assertUniqueReviewPaths<T extends ReviewChange>(files: T[]): T[] {
+  const seen = new Set<string>();
+  for (const file of files) {
+    if (seen.has(file.path)) throw new WorkspaceFileError('review snapshot contains duplicate file paths', 500);
+    seen.add(file.path);
+  }
+  return files;
+}
+
+function untrackedLines(content: unknown): string[] {
+  const lines = String(content || '').split('\n');
+  if (lines.at(-1) === '') lines.pop();
+  return lines;
+}
+
+function untrackedHunks(content: unknown): DiffHunk[] {
+  const lines = untrackedLines(content);
+  const visibleLines = lines.slice(0, MAX_UNTRACKED_LINES);
+  return [{
+    header: `@@ -0,0 +1,${visibleLines.length} @@`,
+    oldStart: 0,
+    oldLines: 0,
+    newStart: 1,
+    newLines: visibleLines.length,
+    rows: visibleLines.map((text, index) => ({ kind: 'added', right: { line: index + 1, text } })),
+  }];
+}
+
+function untrackedPatch(filePath: string, content: unknown): string {
+  const lines = untrackedLines(content);
+  const visibleLines = lines.slice(0, MAX_UNTRACKED_LINES);
+  const suffix = visibleLines.length ? `${visibleLines.map(line => `+${line}`).join('\n')}\n` : '';
+  return [
+    `diff --git a/${filePath} b/${filePath}`,
+    'new file mode 100644',
+    '--- /dev/null',
+    `+++ b/${filePath}`,
+    `@@ -0,0 +1,${visibleLines.length} @@`,
+    suffix,
+  ].join('\n');
+}
+
+function untrackedContentTooLarge(content: unknown): boolean {
+  return untrackedLines(content).length > MAX_UNTRACKED_LINES;
+}
+
+async function mapWithConcurrency<T, R>(
+  values: T[],
+  mapper: (value: T) => Promise<R>,
+): Promise<R[]> {
+  const result: R[] = new Array<R>(values.length);
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(DIFF_CONCURRENCY, values.length) }, async () => {
+    while (next < values.length) {
+      const index = next++;
+      result[index] = await mapper(values[index]);
+    }
+  }));
+  return result;
+}
+
+function stableHash(value: unknown): string {
+  return crypto.createHash('sha256').update(String(value)).digest('hex');
+}
+
+function reviewRootIdentity(root: string): string {
+  try {
+    return fs.realpathSync.native(root);
+  } catch {
+    return root;
+  }
+}
+
+function workingCopyReviewId(
+  root: string,
+  options: Pick<ReviewOptions, 'scope' | 'modifiedWithinDays'> = {},
+): string {
+  const scope = normalizeWorkingCopyScope(options.scope);
+  if (!scope) return `working-copy-${stableHash(reviewRootIdentity(root)).slice(0, 24)}`;
+  const modifiedWithinDays = scope === 'untracked' ? normalizeModifiedWithinDays(options.modifiedWithinDays) : undefined;
+  const identity = [reviewRootIdentity(root), scope, modifiedWithinDays || 'all'].join('\n');
+  return `working-copy-${stableHash(identity).slice(0, 24)}`;
+}
+
+function workingCopyPatchset(files: ReviewFile[]): string {
+  return `Working copy ${stableHash(JSON.stringify(files.map(reviewFileIdentity))).slice(0, 12)}`;
+}
+
+function gitRangeReviewId(root: string, base: unknown, head: unknown): string {
+  return `git-range-${stableHash(`${reviewRootIdentity(root)}\n${base}\n${head}`).slice(0, 24)}`;
+}
+
+function parseComparisonCommits(value: unknown): ComparisonCommit[] {
+  return String(value || '').split('\x1e').map(record => record.trim()).filter(Boolean).map(record => {
+    const [id = '', parents = '', shortId = '', ...subjectParts] = record.split('\x1f');
+    const parent = parents.trim().split(/\s+/).filter(Boolean)[0];
+    const subject = subjectParts.join('\x1f').trim();
+    if (!/^[a-f0-9]{40,64}$/i.test(id) || !/^[a-f0-9]{40,64}$/i.test(parent || '')) return null;
+    return {
+      base: parent,
+      head: id,
+      id: `commit:${id}`,
+      label: `${shortId || id.slice(0, 8)} ${subject || 'Commit'}`.trim(),
+    };
+  }).filter((commit): commit is ComparisonCommit => commit !== null);
+}
+
+function parseComparisonBranches(value: unknown, currentBranch: unknown): ComparisonBranch[] {
+  return String(value || '').split('\n').map(line => line.trim()).filter(Boolean).map(line => {
+    const [name = '', id = ''] = line.split('\0');
+    if (!name || name === currentBranch || name.endsWith('/HEAD') || !/^[a-f0-9]{40,64}$/i.test(id)) return null;
+    return { id, name };
+  }).filter((branch): branch is ComparisonBranch => branch !== null);
+}
+
+function isSafeGitRevision(value: unknown): value is string {
+  return typeof value === 'string'
+    && value.length > 0
+    && value.length <= 200
+    && !value.startsWith('-')
+    && !/[\\\0\r\n\t ]/.test(value);
+}
+
+function isReviewHead(value: unknown): value is string {
+  return value === 'now' || isSafeGitRevision(value);
+}
+
+function gitRangeRevisionArgs(base: string, head: string): string[] {
+  return head === 'now' ? [base] : [base, head];
+}
+
+function isSafeReviewPath(value: unknown): value is string {
+  return typeof value === 'string'
+    && value.length > 0
+    && value.length <= 4096
+    && !value.includes('\0')
+    && !value.startsWith('/')
+    && !value.startsWith('\\')
+    && value.split(/[\\/]/).every(segment => segment && segment !== '.' && segment !== '..');
+}
+
+function nulFields(stdout: unknown): string[] {
+  const fields = String(stdout || '').split('\0');
+  if (fields.at(-1) === '') fields.pop();
+  return fields;
+}
+
+function changeFromStatus(
+  status: string,
+  path: string | undefined,
+  previousPath?: string,
+): ReviewChange {
+  const filePath = path || '';
+  if (status.startsWith('R')) return { kind: 'renamed', path: filePath, previousPath, status: 'R' };
+  if (status.startsWith('C')) return { kind: 'copied', path: filePath, previousPath, status: 'C' };
+  if (status === 'A') return { kind: 'added', path: filePath, status: 'A' };
+  if (status === 'D') return { kind: 'deleted', path: filePath, status: 'D' };
+  if (status === 'W') return { kind: 'rewritten', path: filePath, status: 'W' };
+  return { kind: 'modified', path: filePath, status: 'M' };
+}
+
+function parseNameStatus(stdout: unknown): ReviewChange[] {
+  if (String(stdout || '').includes('\0')) {
+    const fields = nulFields(stdout);
+    const changes: ReviewChange[] = [];
+    for (let index = 0; index < fields.length;) {
+      const status = fields[index++] || '';
+      if (status.startsWith('R') || status.startsWith('C')) {
+        const previousPath = fields[index++];
+        const filePath = fields[index++];
+        if (filePath) changes.push(changeFromStatus(status, filePath, previousPath));
+        continue;
+      }
+      const filePath = fields[index++];
+      if (filePath) changes.push(changeFromStatus(status, filePath));
+    }
+    return changes;
+  }
+  return String(stdout || '').split('\n').filter(Boolean).map(line => {
+    const fields = line.split('\t');
+    const status = fields[0] || '';
+    return changeFromStatus(status, status.startsWith('R') || status.startsWith('C') ? fields[2] : fields[1], fields[1]);
+  }).filter(file => file.path);
+}
+
+function normalizedNumstatPath(pathField: unknown): string {
+  const value = String(pathField || '');
+  const braceRename = value.match(/^(.*)\{.* => (.*)\}(.*)$/);
+  if (braceRename) return `${braceRename[1]}${braceRename[2]}${braceRename[3]}`;
+  return value;
+}
+
+function numstatPathForChanges(
+  pathField: unknown,
+  changes: ReviewChange[] = [],
+): string {
+  const value = String(pathField || '');
+  if (!value) return '';
+  if (changes.some(change => change.path === value)) return value;
+
+  const bracePath = normalizedNumstatPath(value);
+  const renamed = changes.find(change => {
+    if (!change.previousPath) return false;
+    if (bracePath && change.path === bracePath) return true;
+    if (value === `${change.previousPath} => ${change.path}`) return true;
+    return false;
+  });
+  if (renamed) return renamed.path;
+  return value;
+}
+
+function splitNumstatEntry(value: unknown): [string, string, string] {
+  const text = String(value || '');
+  const first = text.indexOf('\t');
+  const second = first === -1 ? -1 : text.indexOf('\t', first + 1);
+  if (first === -1 || second === -1) return ['', '', ''];
+  return [text.slice(0, first), text.slice(first + 1, second), text.slice(second + 1)];
+}
+
+function parseNumstat(
+  stdout: unknown,
+  changes: ReviewChange[] = [],
+): Map<string, ReviewLineStats> {
+  const stats = new Map<string, ReviewLineStats>();
+  if (String(stdout || '').includes('\0')) {
+    const fields = nulFields(stdout);
+    for (let index = 0; index < fields.length;) {
+      const counts = fields[index++] || '';
+      const [addedText, removedText, inlinePath] = splitNumstatEntry(counts);
+      const renameLike = inlinePath === '';
+      const pathField = renameLike ? `${fields[index++] || ''} => ${fields[index++] || ''}` : inlinePath;
+      const added = Number(addedText);
+      const removed = Number(removedText);
+      const path = numstatPathForChanges(pathField, changes);
+      if (!path) continue;
+      stats.set(path, {
+        added: Number.isInteger(added) && added >= 0 ? added : 0,
+        binary: addedText === '-' || removedText === '-',
+        removed: Number.isInteger(removed) && removed >= 0 ? removed : 0,
+      });
+    }
+    return stats;
+  }
+  for (const line of String(stdout || '').split('\n')) {
+    if (!line.trim()) continue;
+    const [addedText, removedText, pathText] = splitNumstatEntry(line);
+    if (!pathText) continue;
+    const added = Number(addedText);
+    const removed = Number(removedText);
+    const path = numstatPathForChanges(pathText, changes);
+    if (!path) continue;
+    stats.set(path, {
+      added: Number.isInteger(added) && added >= 0 ? added : 0,
+      binary: addedText === '-' || removedText === '-',
+      removed: Number.isInteger(removed) && removed >= 0 ? removed : 0,
+    });
+  }
+  return stats;
+}
+
+function parseRawDiffMetadata(stdout: unknown): Map<string, ReviewFileMetadata> {
+  const metadata = new Map<string, ReviewFileMetadata>();
+  if (String(stdout || '').includes('\0')) {
+    const fields = nulFields(stdout);
+    for (let index = 0; index < fields.length;) {
+      const header = fields[index++] || '';
+      const match = header.match(/^:([0-7]{6}) ([0-7]{6}) ([0-9a-f]+) ([0-9a-f]+) ([A-Z][0-9]*)$/i);
+      if (!match) continue;
+      const status = match[5] || '';
+      const oldPath = fields[index++];
+      const filePath = (status.startsWith('R') || status.startsWith('C')) ? fields[index++] : oldPath;
+      if (!filePath) continue;
+      const fileMetadata: ReviewFileMetadata = {};
+      if (match[1] !== '000000') fileMetadata.oldMode = match[1];
+      if (match[2] !== '000000') fileMetadata.newMode = match[2];
+      if (!isZeroObjectId(match[3])) fileMetadata.oldSha = match[3];
+      if (!isZeroObjectId(match[4])) fileMetadata.newSha = match[4];
+      metadata.set(filePath, fileMetadata);
+    }
+    return metadata;
+  }
+  for (const line of String(stdout || '').split('\n')) {
+    if (!line.trim()) continue;
+    const fields = line.split('\t');
+    const header = fields[0] || '';
+    const match = header.match(/^:([0-7]{6}) ([0-7]{6}) ([0-9a-f]+) ([0-9a-f]+) ([A-Z][0-9]*)$/i);
+    if (!match) continue;
+    const status = match[5] || '';
+    const path = (status.startsWith('R') || status.startsWith('C')) ? fields[2] : fields[1];
+    if (!path) continue;
+    const fileMetadata: ReviewFileMetadata = {};
+    if (match[1] !== '000000') fileMetadata.oldMode = match[1];
+    if (match[2] !== '000000') fileMetadata.newMode = match[2];
+    if (!isZeroObjectId(match[3])) fileMetadata.oldSha = match[3];
+    if (!isZeroObjectId(match[4])) fileMetadata.newSha = match[4];
+    metadata.set(path, fileMetadata);
+  }
+  return metadata;
+}
+
+function patchDiffHeader(patch: unknown): string[] {
+  const lines = String(patch || '').split('\n');
+  const header: string[] = [];
+  for (const line of lines) {
+    if (line.startsWith('@@ ')) break;
+    if (!line) continue;
+    header.push(line);
+    if (line === 'GIT binary patch') break;
+  }
+  return header;
+}
+
+function isZeroObjectId(value: unknown): boolean {
+  return /^0+$/.test(String(value || ''));
+}
+
+function patchMetadata(patchOrHeader: unknown): ReviewFileMetadata {
+  const header = Array.isArray(patchOrHeader) ? patchOrHeader : patchDiffHeader(patchOrHeader);
+  const metadata: ReviewFileMetadata = {};
+  for (const line of header) {
+    const index = line.match(/^index ([0-9a-f]+)\.\.([0-9a-f]+)(?: ([0-7]{6}))?$/i);
+    if (index) {
+      if (!isZeroObjectId(index[1])) metadata.oldSha = index[1];
+      if (!isZeroObjectId(index[2])) metadata.newSha = index[2];
+      if (index[3]) {
+        metadata.oldMode = metadata.oldMode || index[3];
+        metadata.newMode = metadata.newMode || index[3];
+      }
+      continue;
+    }
+    const newFileMode = line.match(/^new file mode ([0-7]{6})$/);
+    if (newFileMode) {
+      metadata.newMode = newFileMode[1];
+      continue;
+    }
+    const deletedFileMode = line.match(/^deleted file mode ([0-7]{6})$/);
+    if (deletedFileMode) {
+      metadata.oldMode = deletedFileMode[1];
+      continue;
+    }
+    const oldMode = line.match(/^old mode ([0-7]{6})$/);
+    if (oldMode) {
+      metadata.oldMode = oldMode[1];
+      continue;
+    }
+    const newMode = line.match(/^new mode ([0-7]{6})$/);
+    if (newMode) metadata.newMode = newMode[1];
+  }
+  return metadata;
+}
+
+function fileFromPatch(change: ReviewChange, patch: unknown): ReviewFile {
+  const hunks = parseUnifiedDiffRows(patch);
+  const totals = countRows(hunks);
+  const binary = /(^|\n)(Binary files? |GIT binary patch(?:\n|$))/.test(String(patch || ''));
+  const diffHeader = patchDiffHeader(patch);
+  const metadata = patchMetadata(diffHeader);
+  return {
+    added: totals.added,
+    ...(binary ? { binary: true } : {}),
+    diff: {
+      ...(diffHeader.length ? { diffHeader } : {}),
+      hunks,
+    },
+    kind: change.kind,
+    ...metadata,
+    path: change.path,
+    ...(change.previousPath ? { previousPath: change.previousPath } : {}),
+    removed: totals.removed,
+    status: change.status || reviewStatus(change.kind),
+  };
+}
+
+function fileWithStats(file: ReviewFile, stat: ReviewLineStats | undefined): ReviewFile {
+  if (!stat) return file;
+  return {
+    ...file,
+    added: stat.added,
+    ...(stat.binary === true ? { binary: true } : {}),
+    removed: stat.removed,
+  };
+}
+
+function gitDiffPathArgs(change: ReviewChange): string[] {
+  return change.previousPath ? [change.previousPath, change.path] : [change.path];
+}
+
+function gitDiffPathspecArgs(changes: ReviewChange[] = []): string[] {
+  const seen = new Set<string>();
+  const paths: string[] = [];
+  for (const change of changes) {
+    for (const filePath of gitDiffPathArgs(change)) {
+      if (!filePath || seen.has(filePath)) continue;
+      seen.add(filePath);
+      paths.push(filePath);
+    }
+  }
+  return paths;
+}
+
+class ReviewDiffService {
+  agentManager: ReviewAgentManager | null | undefined;
+  fileService: ReviewFileService;
+
+  constructor(
+    agentManager: ReviewAgentManager | null | undefined,
+    fileService: ReviewFileService,
+  ) {
+    this.agentManager = agentManager;
+    this.fileService = fileService;
+  }
+
+  resolveWorkspace(agentId: unknown, requestedRoot: unknown): string {
+    if (requestedRoot !== undefined) {
+      if (typeof requestedRoot !== 'string' || !requestedRoot.trim() || (typeof agentId === 'string' && agentId.trim())) {
+        throw new WorkspaceFileError('exactly one review workspace target is required', 400);
+      }
+      let root;
+      try {
+        root = fs.realpathSync.native(path.resolve(requestedRoot));
+      } catch {
+        throw new WorkspaceFileError('review workspace does not exist', 404);
+      }
+      if (!fs.statSync(root).isDirectory()) throw new WorkspaceFileError('review workspace must be a directory', 400);
+      return root;
+    }
+    if (typeof agentId !== 'string' || !agentId.trim()) {
+      throw new WorkspaceFileError('review workspace target is required', 400);
+    }
+    const root = this.agentManager?.getAgentWorkspaceRoot?.(agentId);
+    if (!root) throw new WorkspaceFileError('agent not found', 404);
+    return root;
+  }
+
+  async git(
+    root: string,
+    args: string[],
+    options: Record<string, unknown> = {},
+  ): Promise<ExecResult> {
+    try {
+      return await this.fileService.execFile(this.fileService.gitPath, ['-C', root, ...args], {
+        cwd: root,
+        timeout: this.fileService.diffTimeoutMs,
+        maxBuffer: this.fileService.diffMaxBuffer,
+        ...options,
+      });
+    } catch (error) {
+      if (errorString(error, 'code') === 'ETIMEDOUT') {
+        throw new WorkspaceFileError('git comparison source request timed out', 504);
+      }
+      throw new WorkspaceFileError(
+        errorString(error, 'stderr')
+          || errorString(error, 'message')
+          || 'git comparison sources could not be loaded',
+        500,
+      );
+    }
+  }
+
+  async getComparisonSources(agentId: unknown, options: ReviewOptions = {}) {
+    const root = this.resolveWorkspace(agentId, options.root);
+    const [{ stdout: headOutput }, { stdout: indexOutput }, branchResult, logResult, statusResult] = await Promise.all([
+      this.git(root, ['rev-parse', '--verify', 'HEAD']),
+      this.git(root, ['write-tree']),
+      this.git(root, ['symbolic-ref', '--quiet', '--short', 'HEAD']).catch(() => ({ stdout: '' })),
+      this.git(root, ['log', '-n', '12', '--format=%H%x1f%P%x1f%h%x1f%s%x1e', 'HEAD']),
+      Promise.all([
+        this.git(root, ['diff', '--name-only', '-z', '--']),
+        this.git(root, ['diff', '--cached', '--name-only', '-z', '--']),
+        this.git(root, ['ls-files', '--others', '--exclude-standard', '-z']),
+      ]),
+    ]);
+    const head = String(headOutput || '').trim();
+    const indexTree = String(indexOutput || '').trim();
+    if (!/^[a-f0-9]{40,64}$/i.test(head) || !/^[a-f0-9]{40,64}$/i.test(indexTree)) {
+      throw new WorkspaceFileError('git comparison sources are invalid', 500);
+    }
+    const currentBranch = String(branchResult.stdout || '').trim();
+    const [unstagedResult, stagedResult, untrackedResult] = statusResult;
+    const refsResult = await this.git(root, [
+      'for-each-ref',
+      '--count=20',
+      '--sort=-committerdate',
+      '--format=%(refname:short)%00%(objectname)',
+      'refs/heads',
+      'refs/remotes',
+    ]);
+    const branchRefs = parseComparisonBranches(refsResult.stdout, currentBranch);
+    const branches = [];
+    for (const branch of branchRefs) {
+      try {
+        const { stdout } = await this.git(root, ['merge-base', 'HEAD', branch.id]);
+        const base = String(stdout || '').trim();
+        if (!/^[a-f0-9]{40,64}$/i.test(base) || base === head) continue;
+        branches.push({
+          base,
+          head,
+          id: `branch:${branch.name}`,
+          label: branch.name,
+        });
+      } catch {
+        // Unrelated branch histories are not useful comparison sources.
+      }
+    }
+    return {
+      branches,
+      commits: parseComparisonCommits(logResult.stdout),
+      currentBranch: currentBranch || 'Detached HEAD',
+      root,
+      staged: {
+        available: Boolean(String(stagedResult.stdout || '')),
+        base: head,
+        head: indexTree,
+        id: 'staged',
+        label: 'Staged',
+      },
+      unstaged: {
+        available: Boolean(String(unstagedResult.stdout || '') || String(untrackedResult.stdout || '')),
+        base: indexTree,
+        head: 'now',
+        id: 'unstaged',
+        label: 'Unstaged',
+      },
+    };
+  }
+
+  async getWorkingCopyChanges(
+    root: string,
+    options: ReviewOptions,
+    limit: number,
+  ): Promise<WorkingCopyChangesResult> {
+    const scope = normalizeWorkingCopyScope(options.scope);
+    const scanLimit = scope ? MAX_WORKING_COPY_SCAN_FILES : limit;
+    const changes = await this.fileService.changes(root, { limit: scanLimit });
+    const items = filterWorkingCopyChangeItems(root, assertUniqueReviewPaths(changes.items), options);
+    return {
+      items: items.slice(0, limit),
+      truncated: (
+        changes.truncated === true
+        && (scope !== 'tracked' || changes.items.at(-1)?.gitStatus !== 'untracked')
+      ) || items.length > limit,
+    };
+  }
+
+  async getGitRangeChanges(
+    root: string,
+    base: string,
+    head: string,
+  ): Promise<ReviewChange[]> {
+    try {
+      const { stdout } = await this.fileService.execFile(this.fileService.gitPath, [
+        '-C',
+        root,
+        'diff',
+        '--name-status',
+        '-z',
+        '--find-renames',
+        ...gitRangeRevisionArgs(base, head),
+        '--',
+      ], { cwd: root, timeout: this.fileService.diffTimeoutMs, maxBuffer: this.fileService.diffMaxBuffer });
+      const changes = parseNameStatus(stdout);
+      if (head !== 'now') return changes;
+      const untracked = await this.fileService.execFile(this.fileService.gitPath, [
+        '-C',
+        root,
+        'ls-files',
+        '--others',
+        '--exclude-standard',
+        '-z',
+      ], { cwd: root, timeout: this.fileService.diffTimeoutMs, maxBuffer: this.fileService.diffMaxBuffer });
+      return [...changes, ...nulFields(untracked.stdout).map(path => ({ gitStatus: 'untracked', kind: 'added', path, status: 'A' }))];
+    } catch (error) {
+      if (errorString(error, 'code') === 'ETIMEDOUT') {
+        throw new WorkspaceFileError('git diff timed out', 504);
+      }
+      throw new WorkspaceFileError(
+        errorString(error, 'stderr') || errorString(error, 'message') || 'git diff failed',
+        500,
+      );
+    }
+  }
+
+  async getCommitSummary(root: string, revision: string) {
+    if (!isSafeGitRevision(revision) || revision === 'now') return null;
+    try {
+      const { stdout } = await this.fileService.execFile(this.fileService.gitPath, [
+        '-C',
+        root,
+        'show',
+        '-s',
+        '--format=%H%x1f%an%x1f%ae%x1f%aI%x1f%B',
+        revision,
+      ], { cwd: root, timeout: this.fileService.diffTimeoutMs, maxBuffer: this.fileService.diffMaxBuffer });
+      const [id, authorName, authorEmail, authoredAt, ...messageParts] = String(stdout || '').split('\x1f');
+      const message = messageParts.join('\x1f').trim();
+      if (!/^[a-f0-9]{40,64}$/i.test(id || '') || !message) return null;
+      return { authoredAt: String(authoredAt || '').trim(), authorEmail: String(authorEmail || '').trim(), authorName: String(authorName || '').trim(), id, message };
+    } catch {
+      return null;
+    }
+  }
+
+  async getComparison(root: string, base: string, head: string) {
+    const [baseCommit, headCommit] = await Promise.all([
+      this.getCommitSummary(root, base),
+      head === 'now' ? Promise.resolve(null) : this.getCommitSummary(root, head),
+    ]);
+    if (!baseCommit && !headCommit) return null;
+    return {
+      ...(baseCommit ? { base: baseCommit } : {}),
+      ...(headCommit ? { head: headCommit } : {}),
+      workingTree: head === 'now',
+    };
+  }
+
+  async readGitTextFile(
+    root: string,
+    revision: string,
+    filePath: string,
+  ): Promise<string[]> {
+    try {
+      const { stdout } = await this.fileService.execFile(this.fileService.gitPath, [
+        '-C',
+        root,
+        'show',
+        `${revision}:${filePath}`,
+      ], { cwd: root, encoding: 'buffer', timeout: this.fileService.diffTimeoutMs, maxBuffer: this.fileService.diffMaxBuffer });
+      const buffer = Buffer.isBuffer(stdout) ? stdout : Buffer.from(String(stdout || ''));
+      if (buffer.includes(0)) throw new WorkspaceFileError('binary files do not have expandable text context', 415);
+      return textLines(buffer.toString('utf8'));
+    } catch (error) {
+      if (error instanceof WorkspaceFileError) throw error;
+      if (errorString(error, 'code') === 'ETIMEDOUT') {
+        throw new WorkspaceFileError('git show timed out', 504);
+      }
+      throw new WorkspaceFileError(
+        errorString(error, 'stderr')
+          || errorString(error, 'message')
+          || 'git file content could not be loaded',
+        500,
+      );
+    }
+  }
+
+  async readWorkingTreeTextFile(root: string, filePath: string): Promise<string[]> {
+    try {
+      const resolved = await this.fileService.resolvePath(root, filePath);
+      const buffer = await fs.promises.readFile(resolved.target);
+      if (buffer.includes(0)) throw new WorkspaceFileError('binary files do not have expandable text context', 415);
+      return textLines(buffer.toString('utf8'));
+    } catch (error) {
+      if (error instanceof WorkspaceFileError) throw error;
+      throw new WorkspaceFileError(
+        errorString(error, 'message') || 'working tree file content could not be loaded',
+        500,
+      );
+    }
+  }
+
+  async getWorkingCopyTextSources(
+    root: string,
+    change: ReviewChange,
+    source: FileDiffSource,
+  ): Promise<TextSources> {
+    const kind = reviewKind(change.gitStatus);
+    const leftLines = kind === 'added' ? [] : textLines(source.originalContent);
+    const rightLines = kind === 'deleted' ? [] : textLines(source.modifiedContent);
+    return {
+      leftLines,
+      leftName: change.previousPath || change.path,
+      rightLines,
+      rightName: change.path,
+    };
+  }
+
+  async getGitRangeTextSources(
+    root: string,
+    base: string,
+    head: string,
+    change: ReviewChange,
+  ): Promise<TextSources> {
+    const kind = change.kind || reviewKind(change.gitStatus);
+    const leftName = change.previousPath || change.path;
+    const [leftLines, rightLines] = await Promise.all([
+      kind === 'added' ? Promise.resolve([]) : this.readGitTextFile(root, base, leftName),
+      kind === 'deleted'
+        ? Promise.resolve([])
+        : head === 'now'
+          ? this.readWorkingTreeTextFile(root, change.path)
+          : this.readGitTextFile(root, head, change.path),
+    ]);
+    return { leftLines, leftName, rightLines, rightName: change.path };
+  }
+
+  async getWorkingCopyFileContext(
+    agentId: unknown,
+    filePath: unknown,
+    options: ReviewOptions = {},
+  ) {
+    const root = this.resolveWorkspace(agentId, options.root);
+    if (!isSafeReviewPath(filePath)) throw new WorkspaceFileError('file path is required', 400);
+    const changes = await this.getWorkingCopyChanges(root, options, MAX_REVIEW_FILES);
+    const change = changes.items.find(item => item.path === filePath);
+    if (!change) throw new WorkspaceFileError('review file not found', 404);
+    if (change.gitStatus === 'untracked') throw new WorkspaceFileError('untracked files do not have common diff context', 400);
+    const source = await this.fileService.diff(root, change.path);
+    if (source.binary === true) throw new WorkspaceFileError('binary files do not have expandable text context', 415);
+    return contextRowsFromSources(await this.getWorkingCopyTextSources(root, change, source), options);
+  }
+
+  async getGitRangeFileContext(agentId: unknown, options: ReviewOptions = {}) {
+    const root = this.resolveWorkspace(agentId, options.root);
+    const base = String(options.base || '').trim();
+    const head = String(options.head || '').trim();
+    const filePath = typeof options.path === 'string' ? options.path : '';
+    if (!isSafeGitRevision(base) || !isReviewHead(head)) {
+      throw new WorkspaceFileError('base and head revisions are required', 400);
+    }
+    if (!isSafeReviewPath(filePath)) throw new WorkspaceFileError('file path is required', 400);
+    const changes = assertUniqueReviewPaths(await this.getGitRangeChanges(root, base, head));
+    const change = changes.find(item => item.path === filePath);
+    if (!change) throw new WorkspaceFileError('review file not found', 404);
+    if (change.gitStatus === 'untracked') throw new WorkspaceFileError('untracked files do not have common diff context', 400);
+    return contextRowsFromSources(await this.getGitRangeTextSources(root, base, head, change), options);
+  }
+
+  async getGitRangeUntrackedFile(
+    root: string,
+    change: ReviewChange,
+    metadataOnly: boolean,
+  ): Promise<ReviewFile> {
+    const source = await this.fileService.diff(root, change.path);
+    const hunks = untrackedHunks(source.modifiedContent);
+    const totals = countRows(hunks);
+    const truncated = source.truncated === true || untrackedContentTooLarge(source.modifiedContent);
+    const metadata = patchMetadata(patchDiffHeader(untrackedPatch(change.path, source.modifiedContent)));
+    if (metadataOnly) {
+      return metadataFile(change, {
+        added: totals.added,
+        binary: source.binary === true,
+        diffTooExpensive: truncated,
+        ...metadata,
+        removed: totals.removed,
+        size: source.size,
+        sizeDelta: source.sizeDelta,
+        truncated,
+      });
+    }
+    return {
+      added: totals.added,
+      ...(source.binary === true ? { binary: true } : {}),
+      diff: {
+        diffHeader: patchDiffHeader(untrackedPatch(change.path, source.modifiedContent)),
+        hunks,
+        truncated,
+      },
+      ...(truncated ? { diffTooExpensive: true } : {}),
+      kind: 'added',
+      ...metadata,
+      path: change.path,
+      removed: totals.removed,
+      ...(Number.isInteger(source.size) ? { size: source.size } : {}),
+      ...(Number.isInteger(source.sizeDelta) ? { sizeDelta: source.sizeDelta } : {}),
+      status: 'A',
+    };
+  }
+
+  async getWorkingCopy(agentId: unknown, options: ReviewOptions = {}) {
+    const root = this.resolveWorkspace(agentId, options.root);
+    const limit = normalizeReviewLimit(options.limit);
+    const metadataOnly = metadataOnlyOption(options.metadataOnly);
+    const contentOptions = diffContentOptions(options);
+    const changes = await this.getWorkingCopyChanges(root, options, limit);
+    const changeItems = changes.items;
+    const files = await mapWithConcurrency(changeItems, async change => {
+      const source = await this.fileService.diff(root, change.path);
+      const diffSource = !metadataOnly && hasOptions(contentOptions)
+        ? await this.fileService.diff(root, change.path, contentOptions)
+        : source;
+      const isUntracked = change.gitStatus === 'untracked';
+      const metadataHunks = isUntracked ? untrackedHunks(source.modifiedContent) : parseUnifiedDiffRows(source.patch);
+      const hunks = isUntracked ? metadataHunks : parseUnifiedDiffRows(diffSource.patch);
+      const totals = countRows(metadataHunks);
+      const kind = reviewKind(change.gitStatus);
+      const diffHeader = patchDiffHeader(isUntracked ? untrackedPatch(change.path, source.modifiedContent) : (diffSource.patch || source.patch));
+      const metadata = patchMetadata(diffHeader);
+      const untrackedTooLarge = isUntracked && untrackedContentTooLarge(source.modifiedContent);
+      if (metadataOnly) {
+        return metadataFile({ ...change, kind }, {
+          added: totals.added,
+          binary: source.binary === true,
+          diffTooExpensive: source.truncated === true || untrackedTooLarge,
+          ...metadata,
+          removed: totals.removed,
+          size: source.size,
+          sizeDelta: source.sizeDelta,
+          truncated: source.truncated === true || untrackedTooLarge,
+        });
+      }
+      return {
+        added: totals.added,
+        ...(source.binary === true ? { binary: true } : {}),
+        diff: {
+          ...(diffHeader.length ? { diffHeader } : {}),
+          hunks,
+          truncated: source.truncated === true || diffSource.truncated === true || untrackedTooLarge,
+        },
+        ...(source.truncated === true || diffSource.truncated === true || untrackedTooLarge ? { diffTooExpensive: true } : {}),
+        kind,
+        ...metadata,
+        path: change.path,
+        ...(change.previousPath ? { previousPath: change.previousPath } : {}),
+        removed: totals.removed,
+        ...(Number.isInteger(source.size) ? { size: source.size } : {}),
+        ...(Number.isInteger(source.sizeDelta) ? { sizeDelta: source.sizeDelta } : {}),
+        status: reviewStatus(kind),
+      };
+    });
+
+    const comparison = await this.getComparison(root, 'HEAD', 'now');
+    return {
+      basePatchset: 'HEAD',
+      ...(comparison ? { comparison } : {}),
+      files,
+      isGitRepo: true,
+      patchset: workingCopyPatchset(files),
+      reviewId: workingCopyReviewId(root, options),
+      root,
+      source: 'working-copy',
+      truncated: changes.truncated,
+    };
+  }
+
+  async getWorkingCopyFile(
+    agentId: unknown,
+    filePath: unknown,
+    options: ReviewOptions = {},
+  ): Promise<ReviewFile> {
+    const root = this.resolveWorkspace(agentId, options.root);
+    const contentOptions = diffContentOptions(options);
+    if (!isSafeReviewPath(filePath)) throw new WorkspaceFileError('file path is required', 400);
+    const changes = await this.getWorkingCopyChanges(root, options, MAX_REVIEW_FILES);
+    const changeItems = changes.items;
+    const change = changeItems.find(item => item.path === filePath);
+    if (!change) throw new WorkspaceFileError('review file not found', 404);
+    const source = await this.fileService.diff(root, change.path);
+    const diffSource = hasOptions(contentOptions)
+      ? await this.fileService.diff(root, change.path, contentOptions)
+      : source;
+    const isUntracked = change.gitStatus === 'untracked';
+    const metadataHunks = isUntracked ? untrackedHunks(source.modifiedContent) : parseUnifiedDiffRows(source.patch);
+    const hunks = isUntracked ? metadataHunks : parseUnifiedDiffRows(diffSource.patch);
+    const totals = countRows(metadataHunks);
+    const kind = reviewKind(change.gitStatus);
+    const diffHeader = patchDiffHeader(isUntracked ? untrackedPatch(change.path, source.modifiedContent) : (diffSource.patch || source.patch));
+    const metadata = patchMetadata(diffHeader);
+    const untrackedTooLarge = isUntracked && untrackedContentTooLarge(source.modifiedContent);
+    const textSources = options.fileMeta === true
+      && !isUntracked
+      && source.binary !== true
+      && typeof source.originalContent === 'string'
+      && typeof source.modifiedContent === 'string'
+      ? await this.getWorkingCopyTextSources(root, change, source)
+      : null;
+    return {
+      added: totals.added,
+      ...(source.binary === true ? { binary: true } : {}),
+      diff: {
+        ...(diffHeader.length ? { diffHeader } : {}),
+        hunks,
+        ...(textSources ? { leftMeta: reviewTextFileMeta(textSources.leftName, textSources.leftLines) } : {}),
+        ...(textSources ? { rightMeta: reviewTextFileMeta(textSources.rightName, textSources.rightLines) } : {}),
+        truncated: source.truncated === true || diffSource.truncated === true || untrackedTooLarge,
+      },
+      ...(source.truncated === true || diffSource.truncated === true || untrackedTooLarge ? { diffTooExpensive: true } : {}),
+      kind,
+      ...metadata,
+      path: change.path,
+      ...(change.previousPath ? { previousPath: change.previousPath } : {}),
+      removed: totals.removed,
+      ...(Number.isInteger(source.size) ? { size: source.size } : {}),
+      ...(Number.isInteger(source.sizeDelta) ? { sizeDelta: source.sizeDelta } : {}),
+      status: reviewStatus(kind),
+    };
+  }
+
+  async getWorkingCopyPatch(agentId: unknown, options: ReviewOptions = {}) {
+    const root = this.resolveWorkspace(agentId, options.root);
+    const limit = normalizeReviewLimit(options.limit);
+    const contentOptions = diffContentOptions(options);
+    const changes = await this.getWorkingCopyChanges(root, options, limit);
+    const changeItems = changes.items;
+    const patchResults = await mapWithConcurrency(changeItems, async change => {
+      const source = await this.fileService.diff(root, change.path, contentOptions);
+      const untrackedTooLarge = change.gitStatus === 'untracked' && untrackedContentTooLarge(source.modifiedContent);
+      return {
+        patch: change.gitStatus === 'untracked'
+          ? untrackedPatch(change.path, source.modifiedContent)
+          : String(source.patch || ''),
+        truncated: source.truncated === true || untrackedTooLarge,
+      };
+    });
+    return {
+      patch: patchResults.map(result => result.patch).filter(Boolean).join('\n'),
+      truncated: changes.truncated || patchResults.some(result => result.truncated),
+    };
+  }
+
+  async getGitRange(agentId: unknown, options: ReviewOptions = {}) {
+    const root = this.resolveWorkspace(agentId, options.root);
+    const base = String(options.base || '').trim();
+    const head = String(options.head || '').trim();
+    if (!isSafeGitRevision(base) || !isReviewHead(head)) {
+      throw new WorkspaceFileError('base and head revisions are required', 400);
+    }
+    const limit = normalizeReviewLimit(options.limit);
+    const ignoreWhitespace = normalizeIgnoreWhitespace(options.ignoreWhitespace);
+    const context = normalizeDiffContext(options.context);
+    const changes = await this.getGitRangeChanges(root, base, head);
+    const comparisonPromise = this.getComparison(root, base, head);
+
+    const selected = assertUniqueReviewPaths(changes.slice(0, limit));
+    const lineStats = ignoreWhitespace !== 'NONE' && !metadataOnlyOption(options.metadataOnly)
+      ? await this.getGitRangeNumstat(root, base, head, ignoreWhitespace, selected)
+      : null;
+    if (metadataOnlyOption(options.metadataOnly)) {
+      const stats = await this.getGitRangeNumstat(root, base, head, 'NONE', selected);
+      const rawMetadata = await this.getGitRangeRawMetadata(root, base, head, selected);
+      const files = await mapWithConcurrency(selected, async change => {
+        if (change.gitStatus === 'untracked') return this.getGitRangeUntrackedFile(root, change, true);
+        return metadataFile(change, {
+          ...stats.get(change.path),
+          ...rawMetadata.get(change.path),
+        });
+      });
+      const comparison = await comparisonPromise;
+      return {
+        basePatchset: base,
+        ...(comparison ? { comparison } : {}),
+        files,
+        isGitRepo: true,
+        patchset: head,
+        reviewId: options.reviewId || gitRangeReviewId(root, base, head),
+        root,
+        source: 'git-range',
+        truncated: changes.length > limit,
+      };
+    }
+
+    const files = await mapWithConcurrency(selected, async change => {
+      if (change.gitStatus === 'untracked') return this.getGitRangeUntrackedFile(root, change, false);
+      try {
+        const { stdout } = await this.fileService.execFile(this.fileService.gitPath, [
+          '-C',
+          root,
+          'diff',
+          '--find-renames',
+          ...gitWhitespaceArgs(ignoreWhitespace),
+          ...gitContextArgs(context),
+          ...gitRangeRevisionArgs(base, head),
+          '--',
+          ...gitDiffPathArgs(change),
+        ], { cwd: root, timeout: this.fileService.diffTimeoutMs, maxBuffer: this.fileService.diffMaxBuffer });
+        const file = fileFromPatch(change, stdout);
+        const stat = lineStats?.get(change.path);
+        return fileWithStats(file, stat);
+      } catch (error) {
+        if (errorString(error, 'code') === 'ETIMEDOUT') {
+          throw new WorkspaceFileError('git diff timed out', 504);
+        }
+        throw new WorkspaceFileError(
+          errorString(error, 'stderr') || errorString(error, 'message') || 'git diff failed',
+          500,
+        );
+      }
+    });
+
+    const comparison = await comparisonPromise;
+    return {
+      basePatchset: base,
+      ...(comparison ? { comparison } : {}),
+      files,
+      isGitRepo: true,
+      patchset: head,
+      reviewId: options.reviewId || gitRangeReviewId(root, base, head),
+      root,
+      source: 'git-range',
+      truncated: changes.length > limit,
+    };
+  }
+
+  async getGitRangeFile(
+    agentId: unknown,
+    options: ReviewOptions = {},
+  ): Promise<ReviewFile> {
+    const root = this.resolveWorkspace(agentId, options.root);
+    const base = String(options.base || '').trim();
+    const head = String(options.head || '').trim();
+    const path = typeof options.path === 'string' ? options.path : '';
+    const ignoreWhitespace = normalizeIgnoreWhitespace(options.ignoreWhitespace);
+    const context = normalizeDiffContext(options.context);
+    if (!isSafeGitRevision(base) || !isReviewHead(head)) {
+      throw new WorkspaceFileError('base and head revisions are required', 400);
+    }
+    if (!isSafeReviewPath(path)) throw new WorkspaceFileError('file path is required', 400);
+    const changes = await this.getGitRangeChanges(root, base, head);
+    const uniqueChanges = assertUniqueReviewPaths(changes);
+    const change = uniqueChanges.find(item => item.path === path);
+    if (!change) throw new WorkspaceFileError('review file not found', 404);
+    if (change.gitStatus === 'untracked') return this.getGitRangeUntrackedFile(root, change, false);
+    const stats = ignoreWhitespace !== 'NONE'
+      ? await this.getGitRangeNumstat(root, base, head, ignoreWhitespace, [change])
+      : null;
+    try {
+      const { stdout } = await this.fileService.execFile(this.fileService.gitPath, [
+        '-C',
+        root,
+        'diff',
+        '--find-renames',
+        ...gitWhitespaceArgs(ignoreWhitespace),
+        ...gitContextArgs(context),
+        ...gitRangeRevisionArgs(base, head),
+        '--',
+        ...gitDiffPathArgs(change),
+      ], { cwd: root, timeout: this.fileService.diffTimeoutMs, maxBuffer: this.fileService.diffMaxBuffer });
+      const file = fileFromPatch(change, stdout);
+      if (options.fileMeta === true && file.binary !== true) {
+        const textSources = await this.getGitRangeTextSources(root, base, head, change);
+        file.diff = {
+          ...file.diff,
+          leftMeta: reviewTextFileMeta(textSources.leftName, textSources.leftLines),
+          rightMeta: reviewTextFileMeta(textSources.rightName, textSources.rightLines),
+        };
+      }
+      const stat = stats?.get(change.path);
+      return fileWithStats(file, stat);
+    } catch (error) {
+      if (errorString(error, 'code') === 'ETIMEDOUT') {
+        throw new WorkspaceFileError('git diff timed out', 504);
+      }
+      throw new WorkspaceFileError(
+        errorString(error, 'stderr') || errorString(error, 'message') || 'git diff failed',
+        500,
+      );
+    }
+  }
+
+  async getGitRangePatch(agentId: unknown, options: ReviewOptions = {}) {
+    const root = this.resolveWorkspace(agentId, options.root);
+    const base = String(options.base || '').trim();
+    const head = String(options.head || '').trim();
+    if (!isSafeGitRevision(base) || !isReviewHead(head)) {
+      throw new WorkspaceFileError('base and head revisions are required', 400);
+    }
+    const limit = normalizeReviewLimit(options.limit);
+    const ignoreWhitespace = normalizeIgnoreWhitespace(options.ignoreWhitespace);
+    const context = normalizeDiffContext(options.context);
+    const changes = await this.getGitRangeChanges(root, base, head);
+
+    const selected = assertUniqueReviewPaths(changes.slice(0, limit));
+    const patches = await mapWithConcurrency(selected, async change => {
+      if (change.gitStatus === 'untracked') {
+        const source = await this.fileService.diff(root, change.path);
+        return untrackedPatch(change.path, source.modifiedContent);
+      }
+      try {
+        const { stdout } = await this.fileService.execFile(this.fileService.gitPath, [
+          '-C',
+          root,
+          'diff',
+          '--find-renames',
+          ...gitWhitespaceArgs(ignoreWhitespace),
+          ...gitContextArgs(context),
+          ...gitRangeRevisionArgs(base, head),
+          '--',
+          ...gitDiffPathArgs(change),
+        ], { cwd: root, timeout: this.fileService.diffTimeoutMs, maxBuffer: this.fileService.diffMaxBuffer });
+        return stdout;
+      } catch (error) {
+        if (errorString(error, 'code') === 'ETIMEDOUT') {
+          throw new WorkspaceFileError('git diff timed out', 504);
+        }
+        throw new WorkspaceFileError(
+          errorString(error, 'stderr') || errorString(error, 'message') || 'git diff failed',
+          500,
+        );
+      }
+    });
+    return {
+      patch: patches.filter(Boolean).join('\n'),
+      truncated: changes.length > limit,
+    };
+  }
+
+  async getGitRangeNumstat(
+    root: string,
+    base: string,
+    head: string,
+    ignoreWhitespace: IgnoreWhitespace = 'NONE',
+    changes: ReviewChange[] = [],
+  ): Promise<Map<string, ReviewLineStats>> {
+    try {
+      const { stdout } = await this.fileService.execFile(this.fileService.gitPath, [
+        '-C',
+        root,
+        'diff',
+        '--numstat',
+        '-z',
+        '--find-renames',
+        ...gitWhitespaceArgs(ignoreWhitespace),
+        ...gitRangeRevisionArgs(base, head),
+        '--',
+        ...gitDiffPathspecArgs(changes),
+      ], { cwd: root, timeout: this.fileService.diffTimeoutMs, maxBuffer: this.fileService.diffMaxBuffer });
+      return parseNumstat(stdout, changes);
+    } catch (error) {
+      if (errorString(error, 'code') === 'ETIMEDOUT') {
+        throw new WorkspaceFileError('git diff timed out', 504);
+      }
+      throw new WorkspaceFileError(
+        errorString(error, 'stderr') || errorString(error, 'message') || 'git diff failed',
+        500,
+      );
+    }
+  }
+
+  async getGitRangeRawMetadata(
+    root: string,
+    base: string,
+    head: string,
+    changes: ReviewChange[] = [],
+  ): Promise<Map<string, ReviewFileMetadata>> {
+    try {
+      const { stdout } = await this.fileService.execFile(this.fileService.gitPath, [
+        '-C',
+        root,
+        'diff',
+        '--raw',
+        '-z',
+        '--find-renames',
+        ...gitRangeRevisionArgs(base, head),
+        '--',
+        ...gitDiffPathspecArgs(changes),
+      ], { cwd: root, timeout: this.fileService.diffTimeoutMs, maxBuffer: this.fileService.diffMaxBuffer });
+      return parseRawDiffMetadata(stdout);
+    } catch (error) {
+      if (errorString(error, 'code') === 'ETIMEDOUT') {
+        throw new WorkspaceFileError('git diff timed out', 504);
+      }
+      throw new WorkspaceFileError(
+        errorString(error, 'stderr') || errorString(error, 'message') || 'git diff failed',
+        500,
+      );
+    }
+  }
+}
+
+export {
+  ReviewDiffService,
+  filterWorkingCopyChangeItems,
+  untrackedPatch,
+  untrackedHunks,
+  fileFromPatch,
+  gitRangeReviewId,
+  gitDiffPathspecArgs,
+  gitWhitespaceArgs,
+  gitContextArgs,
+  metadataFile,
+  normalizeDiffContext,
+  normalizeIgnoreWhitespace,
+  normalizeReviewLimit,
+  normalizeModifiedWithinDays,
+  normalizeWorkingCopyScope,
+  patchDiffHeader,
+  patchMetadata,
+  parseComparisonBranches,
+  parseComparisonCommits,
+  parseNameStatus,
+  parseNumstat,
+  parseRawDiffMetadata,
+  workingCopyPatchset,
+  workingCopyReviewId,
+};

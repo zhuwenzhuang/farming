@@ -1,8 +1,9 @@
 const assert = require('assert');
+const { importTsModule } = require('./helpers/import-ts-module');
 const {
   advanceWebSocketLiveness,
   initializeWebSocketLiveness,
-} = require('../../shared/websocket-liveness');
+} = importTsModule('shared/websocket-liveness.ts');
 
 function socketFixture() {
   const handlers = new Map();

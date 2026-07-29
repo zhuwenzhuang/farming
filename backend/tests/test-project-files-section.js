@@ -93,12 +93,13 @@ function run() {
   const pooledTerminalHookSource = read('src/hooks/usePooledTerminal.ts');
   const terminalPoolSource = read('src/lib/terminal-session-pool.ts');
   const terminalLinksSource = read('src/lib/terminal-links.ts');
+  const terminalLinkParsingSource = read('src/lib/terminal-link-parsing.ts');
   const fileIconsSource = read('src/lib/file-icons.ts');
   const hookSource = read('src/hooks/useWorkspaceFiles.ts');
   const webSocketSource = read('src/hooks/useWebSocket.ts');
   const apiSource = read('src/lib/workspace-files.ts');
   const messagesSource = read('src/types/messages.ts');
-  const serverSource = read('backend/server.js');
+  const serverSource = read('backend/server.cts');
   const stylesSource = read('src/styles/main.css');
   const darkStylesSource = read('src/styles/code-dark.css');
   const monacoHostStyle = stylesSource.match(/\.code-file-monaco\s*\{[^}]+\}/)?.[0] || '';
@@ -278,14 +279,16 @@ function run() {
 	      terminalPoolSource.includes('function findTerminalPathTargetAtMouseEvent') &&
 	      terminalPoolSource.includes('Click to open file or folder') &&
 	      terminalPoolSource.includes('点击打开文件或文件夹') &&
-      terminalLinksSource.includes('const TERMINAL_URL_PATTERN') &&
+      terminalLinksSource.includes('LinkComputer.computeLinks') &&
+      terminalLinksSource.includes('const MAX_TERMINAL_URL_LENGTH = 2048') &&
       terminalLinksSource.includes('function parseTerminalUrlAtColumn') &&
       terminalPoolSource.includes('function findTerminalUrlAtMouseEvent') &&
       terminalPoolSource.includes('function openTerminalUrl(_record: SessionRecord, url: string)') &&
       terminalPoolSource.includes('openExternalUrl(url)') &&
       terminalPoolSource.includes('onOpenInFarming: record.farmingUrlOpenHandler') &&
       terminalLinksSource.includes('isLikelyTerminalPathTarget(filePath)') &&
-      terminalLinksSource.includes('(?:\\/|~\\/|\\.{1,2}\\/)?') &&
+      terminalLinksSource.includes('detectTerminalPathLinks(lineText)') &&
+      terminalLinkParsingSource.includes("export function detectTerminalPathLinks(") &&
       terminalPoolSource.includes('while (logicalStartRow > 0 && buffer.getLine(logicalStartRow)?.isWrapped)') &&
       terminalPoolSource.includes('while (buffer.getLine(logicalEndRow + 1)?.isWrapped)') &&
       terminalPoolSource.includes('const logicalCol = ((bufferRow - logicalStartRow) * cols) + cell.col') &&

@@ -1,6 +1,6 @@
 const assert = require('assert');
 const EventEmitter = require('events');
-const NativePtyHost = require('../native-pty-host');
+const { NativePtyHost } = require('../native-pty-host.cjs');
 
 function deferred() {
   let resolve;

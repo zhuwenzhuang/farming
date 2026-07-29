@@ -12,7 +12,7 @@ const {
   collectOpenCodeDailyEvents,
   readClaudeAuthStatus,
   readCodexAuthStatus,
-} = require('../usage-monitor');
+} = require('../usage-monitor.cjs');
 
 async function run() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-usage-monitor-'));

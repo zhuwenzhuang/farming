@@ -48,6 +48,7 @@ let activeModel = 'gpt-5.5';
 let activeEffort = 'high';
 const cancelledSessions = new Map();
 let activeSteerTurn = null;
+let liveProgressSequence = 0;
 
 function sessionScenarioMarker(sessionId, scenario) {
   const configDir = String(process.env.FARMING_CONFIG_DIR || '').trim();
@@ -1007,11 +1008,13 @@ class FakeAgent {
       return { stopReason: 'end_turn' };
     }
     if (promptText.includes('live progress')) {
+      const liveProgressId = ++liveProgressSequence;
+      const toolCallId = `live-command-${liveProgressId}`;
       await client.sessionUpdate({
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'tool_call',
-          toolCallId: 'live-command',
+          toolCallId,
           title: 'PORT=4187 FARMING_PLAYWRIGHT_PORT=4187 FARMING_BASE_PATH=/farming node ./scripts/run-long-command.js --verify-mobile-composer-focus',
           kind: 'execute',
           status: 'in_progress',
@@ -1021,24 +1024,34 @@ class FakeAgent {
       for (const [index, text] of ['Inspecting files', 'Editing display data', 'Running checks'].entries()) {
         await client.sessionUpdate({
           sessionId: params.sessionId,
-          update: { sessionUpdate: 'agent_message_chunk', messageId: `live-progress-${index}`, content: { type: 'text', text } },
+          update: {
+            sessionUpdate: 'agent_message_chunk',
+            messageId: `live-${liveProgressId}-progress-${index}`,
+            content: { type: 'text', text },
+          },
         });
         // Keep the turn active long enough for browser tests to exercise the
-        // real queued-follow-up controls instead of racing an instant fixture.
-        await new Promise(resolve => setTimeout(resolve, 500));
+        // real queued-follow-up controls. The first visible update gets a
+        // larger window so a busy CI browser cannot observe only the settled
+        // transcript after missing every transient state.
+        await new Promise(resolve => setTimeout(resolve, index === 0 ? 3_000 : 500));
       }
       await client.sessionUpdate({
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'tool_call_update',
-          toolCallId: 'live-command',
+          toolCallId,
           status: 'completed',
           rawOutput: { stdout: 'checks passed\n', stderr: '', exitCode: 0 },
         },
       });
       await client.sessionUpdate({
         sessionId: params.sessionId,
-        update: { sessionUpdate: 'agent_message_chunk', messageId: 'live-answer', content: { type: 'text', text: 'Live progress complete.' } },
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          messageId: `live-${liveProgressId}-answer`,
+          content: { type: 'text', text: 'Live progress complete.' },
+        },
       });
       return { stopReason: 'end_turn' };
     }

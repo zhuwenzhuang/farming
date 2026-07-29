@@ -101,6 +101,7 @@ for runtime_module in \
   codex-context-window \
   codex-models \
   codex-session-archive \
+  codex-session-history \
   codex-terminal-profile \
   codex-transcript-sanitizer \
   command-runner-child \
@@ -180,6 +181,17 @@ do
     exit 1
   fi
 done
+PACKAGED_RUNTIME_TS="$(find \
+  "${PACKAGE_ROOT}/backend/acp" \
+  "${PACKAGE_ROOT}/extensions/browser" \
+  "${PACKAGE_ROOT}/frontend" \
+  "${PACKAGE_ROOT}/shared" \
+  -type f \( -name '*.cts' -o -name '*.ts' -o -name '*.tsx' \) \
+  -print -quit 2>/dev/null || true)"
+if [ -n "${PACKAGED_RUNTIME_TS}" ]; then
+  echo "npm package unexpectedly included runtime TypeScript source ${PACKAGED_RUNTIME_TS}" >&2
+  exit 1
+fi
 if [ ! -f "${CODEX_ACP_VENDOR}" ]; then
   echo "npm package omitted the version-locked Codex ACP runtime" >&2
   exit 1
@@ -188,7 +200,7 @@ if [ ! -f "${CLAUDE_ACP_VENDOR}" ]; then
   echo "npm package omitted the version-locked Claude ACP runtime" >&2
   exit 1
 fi
-node "${PROJECT_ROOT}/scripts/assert-no-bundled-agent-clis.js" "${PACKAGE_ROOT}"
+"${PROJECT_ROOT}/node_modules/.bin/tsx" "${PROJECT_ROOT}/scripts/assert-no-bundled-agent-clis.ts" "${PACKAGE_ROOT}"
 node - "${PACKAGE_ROOT}" "${CODEX_ACP_VENDOR}" "${CLAUDE_ACP_VENDOR}" <<'NODE'
 const crypto = require('crypto');
 const fs = require('fs');
@@ -204,7 +216,7 @@ if (sha256(codexVendorEntry) !== expectedCodexVendor) {
 if (sha256(claudeVendorEntry) !== expectedClaudeVendor) {
   throw new Error('Packed Claude ACP runtime failed its SHA-256 verification');
 }
-const { resolveAcpLaunch } = require(path.join(packageRoot, 'backend/acp-runtime'));
+const { resolveAcpLaunch } = require(path.join(packageRoot, 'backend/acp-runtime.cjs'));
 const codexLaunch = resolveAcpLaunch('codex');
 if (fs.realpathSync(codexLaunch.args.at(-1)) !== fs.realpathSync(codexVendorEntry)) {
   throw new Error(`Codex ACP launch did not select the packaged runtime: ${codexLaunch.args.at(-1)}`);

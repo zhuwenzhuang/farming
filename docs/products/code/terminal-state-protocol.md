@@ -9,6 +9,12 @@ Farming owns a checkpointed persistent-terminal protocol:
 3. A browser attach or reconnect receives one replay containing the serialized screen and its exact dimensions.
 4. Live output continues only after xterm's replay write callback completes.
 
+## Clickable Output
+
+Terminal links follow VS Code's layered detector model. OSC 8 hyperlinks remain owned by xterm. Plain HTTP(S) output uses Monaco's link grammar with the same 2,048-character bound as xterm's web-link provider. The local-file layer is adapted from VS Code's terminal link parser and accepts POSIX, Windows drive, UNC, and `file://` paths plus its compiler and diagnostic suffix families, including `path:line[:column[-endColumn]]`, `path:line.column`, quoted paths, parentheses/brackets, non-breaking spaces, and multi-line ranges. Python, C/C++, Clang, and shell-prompt fallbacks cover paths containing spaces. Git diff prefixes are removed only in recognized diff headers.
+
+Detection runs only across xterm logical lines joined by `isWrapped`; explicit line breaks are never guessed to be URL continuation. A separate VS Code-style multiline layer handles ripgrep/ESLint numeric result lines by binding the first preceding non-numeric logical line, and Git hunk headers by binding the preceding `+++ b/path`. Lexical recognition does not authorize an open: every file candidate is resolved against the captured Agent workspace before it becomes active, and unresolved candidates remain plain text. The fallback word layer splits with VS Code-compatible separators, caps words at 100 characters, and opens Project Files search only on modifier-click. URL activation remains modifier-protected; validated file targets open directly. Lines longer than 2,000 characters, paths longer than 1,024 characters, more than ten filesystem candidates per line, and multiline scans beyond 100 logical lines are rejected or bounded.
+
 ## Replay State
 
 A replay carries:

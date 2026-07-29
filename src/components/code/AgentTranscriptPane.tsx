@@ -1,6 +1,8 @@
 import {
+  createContext,
   memo,
   useCallback,
+  useContext,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -64,6 +66,7 @@ import {
   projectAcpTranscript,
   type AgentTranscript,
   type AgentTranscriptAudio,
+  type AgentTranscriptLocation,
   type AgentTranscriptPatchChange,
   type AgentTranscriptProcessItem,
   type AgentTranscriptSubagentState,
@@ -81,6 +84,13 @@ interface AgentTranscriptProcessPresentation {
   terminals?: AgentTranscriptTerminal[]
   subagentTranscript?: AgentTranscript
 }
+
+interface TranscriptFileOpenContextValue {
+  workspaceRoot?: string
+  onOpenFile?: (filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void> | void
+}
+
+const TranscriptFileOpenContext = createContext<TranscriptFileOpenContextValue>({})
 
 function completedTranscriptTurnUnchanged(
   current: AgentTranscriptTurn,
@@ -396,7 +406,7 @@ function isExternalTranscriptHref(href: string) {
 }
 
 function isTranscriptFileLineHref(href: string) {
-  return /^[^/\s]+\.[A-Za-z0-9+_-]+:\d+(?::\d+(?:-\d+)?)?$/.test(href.trim())
+  return Boolean(exactTranscriptPathTarget(href)?.lineNumber)
 }
 
 function isBareDomainTranscriptHref(href: string) {
@@ -473,7 +483,7 @@ const TRANSCRIPT_SPECIAL_FILENAMES = new Set([
 ])
 
 function stripCandidateLocationSuffix(text: string) {
-  return text.replace(/:(\d+)(?::(\d+)(?:-(\d+))?)?$/, '')
+  return exactTranscriptPathTarget(text)?.path ?? text.replace(/:(\d+)(?::(\d+)(?:-(\d+))?)?$/, '')
 }
 
 function transcriptFileBasenameLooksValid(pathText: string) {
@@ -484,14 +494,6 @@ function transcriptFileBasenameLooksValid(pathText: string) {
   return TRANSCRIPT_FILE_EXTENSIONS.has((extensionMatch[1] || '').toLowerCase())
 }
 
-function isLikelyTranscriptFileReference(text: string) {
-  const trimmed = text.trim()
-  if (!trimmed || /\s/.test(trimmed) || trimmed.startsWith('#') || isExternalTranscriptHref(trimmed)) return false
-  if (/^[A-Z_][A-Z0-9_]*(?:\s+[A-Z_][A-Z0-9_]*)*$/.test(trimmed)) return false
-  const pathText = stripCandidateLocationSuffix(trimmed)
-  return transcriptFileBasenameLooksValid(pathText)
-}
-
 function safeDecodeTranscriptHref(text: string) {
   try {
     return decodeURI(text)
@@ -500,49 +502,23 @@ function safeDecodeTranscriptHref(text: string) {
   }
 }
 
-function transcriptLocationSuffix(text: string) {
-  const match = text.match(/:(\d+)(?::(\d+)(?:-(\d+))?)?$/)
-  if (!match) return null
-  const lineNumber = Number(match[1])
-  const column = match[2] ? Number(match[2]) : undefined
-  const endColumn = match[3] ? Number(match[3]) : undefined
-  if (!Number.isFinite(lineNumber) || lineNumber <= 0) return null
-  if (column !== undefined && (!Number.isFinite(column) || column <= 0)) return null
-  if (endColumn !== undefined && (!Number.isFinite(endColumn) || endColumn <= 0)) return null
-  return {
-    lineNumber,
-    ...(column !== undefined ? { column } : {}),
-    ...(endColumn !== undefined ? { endColumn } : {}),
-  }
-}
-
-function transcriptAbsoluteFileTargetFromText(text: string, workspaceRoot?: string) {
+function exactTranscriptPathTarget(text: string) {
   const decoded = safeDecodeTranscriptHref(text.trim())
-  const pathText = stripCandidateLocationSuffix(decoded)
-  if (!pathText.startsWith('/') || pathText.startsWith('//') || !transcriptFileBasenameLooksValid(pathText)) return null
-  const filePath = terminalTargetFilePath(pathText, workspaceRoot || '')
-  const globalFilePath = filePath ? '' : normalizeGlobalWorkspaceFilePath(pathText)
-  if (!filePath && !globalFilePath) return null
-  const location = transcriptLocationSuffix(decoded)
-  return {
-    filePath: filePath || globalFilePath,
-    target: {
-      ...(location || {}),
-      ...(!filePath && globalFilePath ? { globalRoot: true } : {}),
-    },
-  }
+  const matches = collectTerminalPathLinkMatches(decoded)
+  const exact = matches.find(match => (
+    match.startIndex === 0 &&
+    match.length === decoded.length &&
+    match.pathTarget &&
+    transcriptFileBasenameLooksValid(match.pathTarget.path)
+  ))
+  return exact?.pathTarget ?? null
 }
 
 function transcriptFileTargetFromText(text: string, workspaceRoot?: string) {
   const trimmed = text.trim()
-  if (!trimmed || trimmed.startsWith('#') || isExternalTranscriptHref(trimmed)) return null
-  const absoluteTarget = transcriptAbsoluteFileTargetFromText(trimmed, workspaceRoot)
-  if (absoluteTarget) return absoluteTarget
-  if (!isLikelyTranscriptFileReference(trimmed)) return null
-  const matches = collectTerminalPathLinkMatches(trimmed)
-  const exact = matches.find(match => match.startIndex === 0 && match.length === trimmed.length && match.pathTarget)
-  if (!exact?.pathTarget) return null
-  const pathTarget = exact.pathTarget
+  if (!trimmed || trimmed.startsWith('#') || isBareDomainTranscriptHref(trimmed)) return null
+  const pathTarget = exactTranscriptPathTarget(trimmed)
+  if (!pathTarget) return null
   const filePath = terminalTargetFilePath(pathTarget.path, workspaceRoot || '')
   if (!filePath && !pathTarget.path.startsWith('/')) return null
   const globalFilePath = !filePath && pathTarget.path.startsWith('/')
@@ -567,14 +543,16 @@ function transcriptFileTargetFromText(text: string, workspaceRoot?: string) {
 function hasQualifiedTranscriptFileReference(text: string) {
   const trimmed = text.trim()
   if (!trimmed) return false
-  const withoutLocation = stripCandidateLocationSuffix(trimmed)
+  const pathTarget = exactTranscriptPathTarget(trimmed)
+  if (!pathTarget) return false
+  const withoutLocation = pathTarget.path
   return (
     withoutLocation.startsWith('/') ||
     withoutLocation.startsWith('~/') ||
     withoutLocation.startsWith('./') ||
     withoutLocation.startsWith('../') ||
     withoutLocation.includes('/') ||
-    /:(\d+)(?::(\d+)(?:-(\d+))?)?$/.test(trimmed)
+    Boolean(pathTarget.lineNumber)
   )
 }
 
@@ -635,6 +613,7 @@ function safeResourceHref(uri?: string) {
 }
 
 function AgentTranscriptUserFiles({ files }: { files: AgentTranscriptUserFile[] }) {
+  const { workspaceRoot, onOpenFile } = useContext(TranscriptFileOpenContext)
   if (files.length <= 0) return null
   return (
     <div className="code-agent-transcript-user-files" data-testid="code-agent-transcript-user-files">
@@ -642,12 +621,24 @@ function AgentTranscriptUserFiles({ files }: { files: AgentTranscriptUserFile[] 
         const content = file.content || ''
         const hasContent = Boolean(content)
         const resourceHref = file.resourceKind === 'link' ? safeResourceHref(file.uri) : ''
+        const workspaceResource = file.resourceKind === 'link' && file.uri
+          ? transcriptLocationOpenTarget({ path: file.uri }, workspaceRoot)
+          : null
         if (file.resourceKind === 'link') {
           return (
             <div key={file.id} className="code-agent-transcript-user-file code-agent-transcript-resource-link">
               <TranscriptFileIcon filePath={file.name} />
               {resourceHref ? (
                 <a href={resourceHref} target="_blank" rel="noreferrer" title={file.uri}>{file.name}</a>
+              ) : workspaceResource && onOpenFile ? (
+                <button
+                  type="button"
+                  className="code-agent-transcript-markdown-file-link"
+                  title={file.uri}
+                  onClick={() => onOpenFile(workspaceResource.filePath, workspaceResource.target)}
+                >
+                  {file.name}
+                </button>
               ) : <span title={file.uri}>{file.name}</span>}
               <span className="code-agent-transcript-user-file-meta">{userFileMeta(file)}</span>
             </div>
@@ -718,6 +709,85 @@ function AgentTranscriptProcessImages({ images }: { images: AgentTranscriptUserI
           decoding="async"
         />
       ))}
+    </div>
+  )
+}
+
+function transcriptLocationPath(pathText: string) {
+  if (!pathText.startsWith('file://')) return pathText
+  try {
+    const uri = new URL(pathText)
+    let filePath = decodeURIComponent(uri.pathname)
+    if (uri.hostname) filePath = `//${uri.hostname}${filePath}`
+    if (/^\/[A-Za-z]:\//.test(filePath)) filePath = filePath.slice(1)
+    return filePath
+  } catch {
+    return pathText
+  }
+}
+
+function transcriptLocationOpenTarget(
+  location: AgentTranscriptLocation,
+  workspaceRoot?: string,
+) {
+  const path = transcriptLocationPath(location.path)
+  const filePath = terminalTargetFilePath(path, workspaceRoot || '')
+  const globalFilePath = !filePath && path.startsWith('/')
+    ? normalizeGlobalWorkspaceFilePath(path)
+    : ''
+  if (!filePath && !globalFilePath) return null
+  return {
+    filePath: filePath || globalFilePath,
+    target: {
+      ...(location.lineNumber !== undefined ? { lineNumber: location.lineNumber } : {}),
+      ...(location.column !== undefined ? { column: location.column } : {}),
+      ...(location.endLineNumber !== undefined ? { endLineNumber: location.endLineNumber } : {}),
+      ...(location.endColumn !== undefined ? { endColumn: location.endColumn } : {}),
+      ...(!filePath && globalFilePath ? { globalRoot: true } : {}),
+    },
+  }
+}
+
+function transcriptLocationLabel(location: AgentTranscriptLocation) {
+  if (!location.lineNumber) return location.path
+  const column = location.column ? `:${location.column}` : ''
+  const end = location.endLineNumber
+    ? `-${location.endLineNumber}${location.endColumn ? `:${location.endColumn}` : ''}`
+    : location.endColumn
+      ? `-${location.endColumn}`
+      : ''
+  return `${location.path}:${location.lineNumber}${column}${end}`
+}
+
+function transcriptLocationsCopyText(locations?: AgentTranscriptLocation[]) {
+  if (!locations?.length) return ''
+  return `Locations\n${locations.map(transcriptLocationLabel).join('\n')}`
+}
+
+function AgentTranscriptLocations({ locations }: { locations: AgentTranscriptLocation[] }) {
+  const { workspaceRoot, onOpenFile } = useContext(TranscriptFileOpenContext)
+  if (locations.length <= 0) return null
+  return (
+    <div className="code-agent-transcript-locations" data-testid="code-agent-transcript-locations">
+      {locations.map((location, index) => {
+        const openTarget = transcriptLocationOpenTarget(location, workspaceRoot)
+        const label = transcriptLocationLabel(location)
+        if (!onOpenFile || !openTarget) {
+          return <span key={`${location.path}-${index}`} className="code-agent-transcript-file-link" title={label}>{label}</span>
+        }
+        return (
+          <button
+            key={`${location.path}-${index}`}
+            type="button"
+            className="code-agent-transcript-file-link"
+            title={label}
+            onClick={() => onOpenFile(openTarget.filePath, openTarget.target)}
+          >
+            <TranscriptFileIcon filePath={openTarget.filePath} />
+            <span className="code-agent-transcript-file-label">{label}</span>
+          </button>
+        )
+      })}
     </div>
   )
 }
@@ -1196,6 +1266,7 @@ function hasExpandableProcessItemContent(item: AgentTranscriptProcessItem, detai
     || (item.images || []).length > 0
     || (item.audios || []).length > 0
     || (item.files || []).length > 0
+    || (item.locations || []).length > 0
     || (item.terminals || []).length > 0
     || (item.terminalIds || []).length > 0
     || item.detailTruncated === true
@@ -1663,12 +1734,13 @@ function AgentTranscriptProcessItemView({
   const images = item.images || []
   const audios = item.audios || []
   const files = item.files || []
+  const locations = item.locations || []
   const terminals = item.terminals || []
   const copyableDetail = item.detail && item.detail.trim() !== item.title.trim() ? item.detail : ''
   const detail = copyableDetail && detailDuplicatesTerminalOutcome(copyableDetail, terminals)
     ? ''
     : copyableDetail
-  const hasCopyableDetail = !!copyableDetail
+  const hasCopyableDetail = !!copyableDetail || locations.length > 0
   const hasDetail = !!detail
   const planItems = item.type === 'plan' && detail ? planDetailItems(detail) : null
   const expandable = hasExpandableProcessItemContent(item, detail, planItems)
@@ -1688,6 +1760,7 @@ function AgentTranscriptProcessItemView({
       <AgentTranscriptProcessImages images={images} />
       <AgentTranscriptAudios audios={audios} />
       <AgentTranscriptUserFiles files={files} />
+      <AgentTranscriptLocations locations={locations} />
       {terminalOutcomeSyncFailed ? (
         <div
           className="code-agent-transcript-terminal-sync-error"
@@ -1854,7 +1927,9 @@ function AgentTranscriptCollaborationSpace({
       ? onLoadProcessItemDetail(item.id)
       : Promise.resolve({ detail: item.detail || '' })
     void load.then(presentation => writeClipboardText(
-      [item.title, presentation.detail].filter(Boolean).join('\n\n'),
+      [item.title, presentation.detail, transcriptLocationsCopyText(item.locations)]
+        .filter(Boolean)
+        .join('\n\n'),
     )).then(copied => {
       if (!copied) return
       setCopiedItemId(item.id)
@@ -2518,7 +2593,11 @@ function AgentTranscriptTurnView({
   }, [loadFullProcessDetail, openProcessItemIds, resolvedProcessItems])
   const handleCopyItem = useCallback((item: AgentTranscriptProcessItem) => {
     void loadFullProcessDetail(item).then(presentation => {
-      const text = [item.title, presentation.detail].filter(Boolean).join('\n\n')
+      const text = [
+        item.title,
+        presentation.detail,
+        transcriptLocationsCopyText(item.locations),
+      ].filter(Boolean).join('\n\n')
       if (!text) return
       return writeClipboardText(text)
     }).then(copied => {
@@ -3237,6 +3316,10 @@ export function AgentTranscriptPane({
       suppressSearchOnMiss: true,
     })
   ), [agentId])
+  const transcriptFileOpenContext = useMemo(() => ({
+    workspaceRoot,
+    onOpenFile: onOpenWorkspaceFilePath ? handleOpenFile : undefined,
+  }), [handleOpenFile, onOpenWorkspaceFilePath, workspaceRoot])
   const handleLoadProcessItemDetail = useCallback(async (itemId: string) => {
     const response = await fetch(appPath(
       `/api/agents/${encodeURIComponent(agentId)}/acp-tool-details/${encodeURIComponent(itemId)}`,
@@ -3430,7 +3513,8 @@ export function AgentTranscriptPane({
   }, [agentId, onReadLatest])
 
   return (
-    <div className="code-agent-transcript" data-testid="code-agent-transcript">
+    <TranscriptFileOpenContext.Provider value={transcriptFileOpenContext}>
+      <div className="code-agent-transcript" data-testid="code-agent-transcript">
       {forkedFromAgent ? (
         <div className="code-agent-transcript-fork-origin" data-testid="code-agent-transcript-fork-origin" role="note">
           <span aria-hidden="true" />
@@ -3508,6 +3592,7 @@ export function AgentTranscriptPane({
           <ArrowDownGlyph />
         </button>
       ) : null}
-    </div>
+      </div>
+    </TranscriptFileOpenContext.Provider>
   )
 }

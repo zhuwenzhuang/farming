@@ -23,16 +23,16 @@ const {
   splitControlArgs,
   stopDaemon,
   waitForDaemonStop,
-} = require('../farming-app-cli');
+} = require('../farming-app-cli.cjs');
 const storageLayout = require('../storage-layout.cjs');
 const {
   buildCleanEnvExecCommand: buildNativeHostCleanEnvExecCommand,
   nativeHostSpawnCommand,
-} = require('../native-pty-host-client');
+} = require('../native-pty-host-client.cjs');
 const {
   WorkspaceFileService,
   isPackagedRuntime,
-} = require('../workspace-file-service');
+} = require('../workspace-file-service.cjs');
 
 function canBindPort(port) {
   return new Promise(resolve => {
@@ -561,7 +561,7 @@ async function runTests() {
     const invocation = childInvocation({ FARMING_NODE_BIN: '/opt/farming/runtime/bin/node' });
     assert.strictEqual(invocation.command, '/opt/farming/runtime/bin/node');
     assert.strictEqual(invocation.args.length, 1);
-    assert(invocation.args[0].endsWith('/backend/farming-app-cli.js'));
+    assert(invocation.args[0].endsWith('/backend/farming-app-cli.cjs'));
   }
 
   {
@@ -597,7 +597,7 @@ async function runTests() {
       '/opt/farming/glibc/lib',
       '/opt/farming/runtime/bin/node',
     ]);
-    assert(invocation.args[3].endsWith('/backend/farming-app-cli.js'));
+    assert(invocation.args[3].endsWith('/backend/farming-app-cli.cjs'));
   }
 
   {
@@ -618,7 +618,7 @@ async function runTests() {
       SECRET_TOKEN: 'do-not-leak',
       OPENAI_API_KEY: 'do-not-leak',
     };
-    const command = nativeHostSpawnCommand('/snapshot/farming/backend/native-pty-host.js', env);
+    const command = nativeHostSpawnCommand('/snapshot/farming/backend/native-pty-host.cjs', env);
 
     assert.strictEqual(command.command, '/opt/farming/farming');
     assert.deepStrictEqual(command.args, []);
@@ -631,16 +631,16 @@ async function runTests() {
   }
 
   {
-    const command = nativeHostSpawnCommand('/repo/backend/native-pty-host.js', {
+    const command = nativeHostSpawnCommand('/repo/backend/native-pty-host.cjs', {
       FARMING_NODE_BIN: '/usr/bin/node',
     });
 
     assert.strictEqual(command.command, '/usr/bin/node');
-    assert.deepStrictEqual(command.args, ['/repo/backend/native-pty-host.js']);
+    assert.deepStrictEqual(command.args, ['/repo/backend/native-pty-host.cjs']);
   }
 
   {
-    const command = nativeHostSpawnCommand('/repo/backend/native-pty-host.js', {
+    const command = nativeHostSpawnCommand('/repo/backend/native-pty-host.cjs', {
       FARMING_NODE_BIN: '/opt/node/bin/node',
       FARMING_NODE_LD: '/opt/glibc/lib/ld-linux-x86-64.so.2',
       FARMING_NODE_LIBRARY_PATH: '/opt/glibc/lib',
@@ -651,7 +651,7 @@ async function runTests() {
       '--library-path',
       '/opt/glibc/lib',
       '/opt/node/bin/node',
-      '/repo/backend/native-pty-host.js',
+      '/repo/backend/native-pty-host.cjs',
     ]);
   }
 
@@ -663,7 +663,7 @@ async function runTests() {
       FARMING_PACKAGED_RUNTIME: '1',
       FARMING_CONFIG_DIR: '/tmp/farming-config',
     };
-    const command = nativeHostSpawnCommand('/snapshot/farming/backend/native-pty-host.js', env);
+    const command = nativeHostSpawnCommand('/snapshot/farming/backend/native-pty-host.cjs', env);
 
     assert.strictEqual(command.command, '/opt/glibc/lib/ld-linux-x86-64.so.2');
     assert.deepStrictEqual(command.args, [
@@ -753,7 +753,7 @@ async function runTests() {
   }
 
   {
-    const output = execFileSync(process.execPath, ['bin/farming', '--help'], {
+    const output = execFileSync(process.execPath, ['backend/farming-app-cli.cjs', '--help'], {
       cwd: process.cwd(),
       encoding: 'utf8',
     });

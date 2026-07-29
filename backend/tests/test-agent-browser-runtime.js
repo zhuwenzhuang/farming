@@ -8,7 +8,7 @@ const {
   AgentBrowserRuntime,
   namespaceForResource,
   sessionForResource,
-} = require('../../extensions/browser/backend/agent-browser-runtime');
+} = require('../../extensions/browser/backend/agent-browser-runtime.cjs');
 
 class FakeStream extends EventEmitter {
   constructor() {
@@ -375,6 +375,73 @@ async function run() {
   await Promise.all([screenshotRuntime.screenshot(), screenshotRuntime.screenshot()]);
   assert.strictEqual(maxScreenshotCommandsInFlight, 1);
   assert.strictEqual(new Set(screenshotPaths).size, 2);
+
+  const commandOrder = [];
+  let commandsInFlight = 0;
+  let maxCommandsInFlight = 0;
+  const serializationRuntime = new AgentBrowserRuntime({
+    id: 'browser_serialization',
+    generation: 1,
+    configDir,
+    profileDir: path.join(configDir, 'serialization', 'profile'),
+    agentBrowserPath: '/managed/agent-browser',
+    executablePath: '/Applications/Chromium',
+    runCommand: async (_executable, args) => {
+      const name = args[4];
+      commandsInFlight += 1;
+      maxCommandsInFlight = Math.max(maxCommandsInFlight, commandsInFlight);
+      commandOrder.push(`start:${name}`);
+      await new Promise(resolve => setTimeout(resolve, 10));
+      commandOrder.push(`end:${name}`);
+      commandsInFlight -= 1;
+      return { success: true, data: {} };
+    },
+  });
+  await Promise.all([
+    serializationRuntime.command(['first']),
+    serializationRuntime.command(['second']),
+  ]);
+  assert.strictEqual(maxCommandsInFlight, 1);
+  assert.deepStrictEqual(commandOrder, [
+    'start:first',
+    'end:first',
+    'start:second',
+    'end:second',
+  ]);
+
+  let mismatchProcessActive = true;
+  const mismatchRuntime = new AgentBrowserRuntime({
+    id: 'browser_version_mismatch',
+    generation: 1,
+    configDir,
+    profileDir: path.join(configDir, 'version-mismatch', 'profile'),
+    agentBrowserPath: '/managed/agent-browser',
+    executablePath: '/Applications/Chromium',
+    runCommand: async (_executable, args) => {
+      const command = args.slice(4, -1);
+      if (command[0] === 'tab' && command[1] === 'list') {
+        return {
+          success: true,
+          data: { tabs: [{ active: true, tabId: 't1', url: 'about:blank' }] },
+        };
+      }
+      if (command[0] === 'session' && command[1] === 'info') {
+        return {
+          success: true,
+          data: { active: mismatchProcessActive, pid: identity.pid, version: '0.0.0' },
+        };
+      }
+      if (command[0] === 'close') mismatchProcessActive = false;
+      return { success: true, data: {} };
+    },
+    readProcessIdentity: async () => null,
+    wait: async () => {},
+  });
+  await assert.rejects(
+    mismatchRuntime.start('about:blank'),
+    new RegExp(`agent-browser ${AGENT_BROWSER_VERSION} is required`),
+  );
+  assert.strictEqual(mismatchProcessActive, false);
 
   fs.rmSync(configDir, { recursive: true, force: true });
   console.log('agent-browser runtime tests passed');

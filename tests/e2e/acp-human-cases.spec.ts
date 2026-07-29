@@ -628,7 +628,10 @@ test.describe('ACP human-like browser matrix', () => {
     await test.step('17 retain the typed read-tool title and location', async () => {
       await expect(readItem).toBeVisible()
       await readItem.getByTestId('code-agent-transcript-process-item-toggle').click()
-      await expect(readItem).toContainText('README.md')
+      const locations = readItem.getByTestId('code-agent-transcript-locations')
+      await expect(locations).toBeVisible()
+      await expect(locations.getByRole('button', { name: /README\.md:1/ })).toBeVisible()
+      await expect(readItem).not.toContainText('Locations\n')
     })
     await test.step('18 render a safe HTTP resource as a real link', async () => {
       await expect(readItem.getByRole('link', { name: 'ACP reference' })).toHaveAttribute('href', 'https://agentclientprotocol.com/')
@@ -792,15 +795,19 @@ test.describe('ACP human-like browser matrix', () => {
       await expect(page.getByText(/Unicode permission: selected/)).toBeVisible({ timeout: 15_000 })
     })
     await test.step('37 show restrained live progress while the Agent works', async () => {
-      await sendAcpMessage(page, 'live progress')
-      await expect(page.getByText('Inspecting files', { exact: true })).toBeVisible({ timeout: 5_000 })
+      const sendPromise = sendAcpMessage(page, 'live progress')
       const liveTurn = page.locator('.code-agent-transcript-turn').filter({ hasText: 'live progress' }).last()
       const liveSummary = liveTurn.getByTestId('code-agent-transcript-process-summary')
-      await expect(liveSummary).toContainText(/Process|Working for/)
-      await expect(liveSummary).toHaveAttribute('title', /run-long-command\.js --verify-mobile-composer-focus/)
+      await expect(liveSummary).toHaveAttribute(
+        'title',
+        /run-long-command\.js --verify-mobile-composer-focus/,
+        { timeout: 10_000 },
+      )
       const liveAction = liveTurn.getByTestId('code-agent-transcript-process-item')
         .filter({ hasText: 'PORT=4187 FARMING_PLAYWRIGHT_PORT=4187' })
       await expect(liveAction).toBeVisible()
+      await sendPromise
+      await expect(liveSummary).toContainText(/Process|Working for/)
       await expect(liveAction.locator('.code-agent-transcript-process-status')).toHaveCount(0)
       const liveActionTitle = liveAction.locator('.code-agent-transcript-process-title-text')
       await expect(liveActionTitle).toHaveCSS('text-overflow', 'ellipsis')
@@ -815,9 +822,14 @@ test.describe('ACP human-like browser matrix', () => {
       await expect(liveTurn.getByText('Running checks', { exact: true })).toBeVisible()
     })
     await test.step('38 queue and discard a follow-up during active work', async () => {
-      await sendAcpMessage(page, 'live progress')
+      const sendPromise = sendAcpMessage(page, 'live progress')
       const activeLiveTurn = page.locator('.code-agent-transcript-turn').filter({ hasText: 'live progress' }).last()
-      await expect(activeLiveTurn.getByText('Inspecting files', { exact: true })).toBeVisible({ timeout: 5_000 })
+      await expect(activeLiveTurn.getByTestId('code-agent-transcript-process-summary')).toHaveAttribute(
+        'title',
+        /run-long-command\.js --verify-mobile-composer-focus/,
+        { timeout: 10_000 },
+      )
+      await sendPromise
       await page.getByTestId('code-acp-composer-input').fill('queued follow-up')
       await page.getByTestId('code-acp-composer-send').click()
       await expect(page.getByTestId('code-acp-pending-followup')).toContainText('queued follow-up')

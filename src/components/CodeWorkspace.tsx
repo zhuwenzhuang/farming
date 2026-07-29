@@ -501,6 +501,7 @@ function openTargetForTerminalPath(target: TerminalPathOpenTarget): WorkspaceFil
   return {
     lineNumber: target.lineNumber,
     column: target.column,
+    endLineNumber: target.endLineNumber,
     endColumn: target.endColumn,
   }
 }
@@ -3161,6 +3162,10 @@ export function CodeWorkspace({
     })
   }, [clearSearch, expandSidebar, onWorkspaceViewChange, resolveWorkspaceFileIdentity])
 
+  const searchTerminalWord = useCallback((agentId: string, query: string) => {
+    focusWorkspaceFilesSearch(agentId, query)
+  }, [focusWorkspaceFilesSearch])
+
   const revealWorkspaceFileInExplorer = useCallback((agentId: string, filePath: string, kind: 'directory' | 'file') => {
     const identity = resolveWorkspaceFileIdentity(agentId)
     const projectWorkspace = projectWorkspaceFromFilesId(identity.filesId)
@@ -5410,6 +5415,7 @@ export function CodeWorkspace({
         onOpenTerminal={onOpenTerminal}
         onOpenTerminalPath={openTerminalPathTarget}
         onResolveTerminalPath={resolveTerminalPathTarget}
+        onSearchTerminalWord={searchTerminalWord}
         onTerminalFollowOutputChange={handleTerminalFollowOutputChange}
         onAgentReadLatest={markAgentReadLatest}
         onRuntimeModeChange={updateAgentRuntimeMode}

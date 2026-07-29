@@ -5,8 +5,8 @@ const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
 
-const NativePtyHost = require('../native-pty-host');
-const NativePtyHostClient = require('../native-pty-host-client');
+const { NativePtyHost } = require('../native-pty-host.cjs');
+const { NativePtyHostClient } = require('../native-pty-host-client.cjs');
 const { NativeSessionEngine } = require('../native-session-engine.cjs');
 const { FarmingSessionStore } = require('../farming-session-store.cjs');
 const { nativePtyHostSocketPath } = require('../native-pty-host-path.cjs');
@@ -44,7 +44,7 @@ async function waitFor(fn, label, timeoutMs = 20000) {
 
 function startServerProcess({ port, configDir, codexBin }) {
   const fixtureBinDir = path.join(__dirname, '..', '..', 'tests', 'e2e', 'fixtures');
-  const child = spawn(process.execPath, ['backend/server.js'], {
+  const child = spawn(process.execPath, ['backend/server.cjs'], {
     cwd: path.join(__dirname, '..', '..'),
     stdio: ['ignore', 'pipe', 'pipe'],
     env: {

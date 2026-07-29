@@ -9,7 +9,7 @@ const {
   acpToolReviewChanges,
   acpTranscriptToolEntry,
   decodeAcpTranscriptMedia,
-} = require('../acp-transcript');
+} = require('../acp-transcript.cjs');
 
 const transcript = acpSessionTranscript({
   sessionId: 'session-1',
@@ -70,7 +70,11 @@ assert.match(transcript.turns[0].processItems[2].detail, /\+new/);
 assert.deepStrictEqual(transcript.turns[0].processItems[2].terminalIds, ['terminal-1']);
 assert.doesNotMatch(transcript.turns[0].processItems[2].detail, /Terminal: terminal-1/);
 assert.match(transcript.turns[0].processItems[2].detail, /Output\nok/);
-assert.match(transcript.turns[0].processItems[2].detail, /Locations\n\/tmp\/a\.js:3/);
+assert.doesNotMatch(transcript.turns[0].processItems[2].detail, /Locations\n/);
+assert.deepStrictEqual(transcript.turns[0].processItems[2].locations, [{
+  path: '/tmp/a.js',
+  lineNumber: 3,
+}]);
 
 const steeredTranscript = acpSessionTranscript({
   state: 'working',
@@ -182,10 +186,24 @@ const compactTool = acpTranscriptToolEntry({
   status: 'completed',
   rawInput: { command: 'generate output' },
   rawOutput: { stdout: 'x'.repeat(128 * 1024) },
+  locations: [{
+    path: '/tmp/large.js',
+    range: {
+      start: { line: 4, column: 2 },
+      end: { line: 6, column: 8 },
+    },
+  }],
   content: [{ type: 'diff', path: '/tmp/large.js', oldText: 'old', newText: 'new' }],
 });
 assert.strictEqual(compactTool.transcriptDetailTruncated, true);
 assert.strictEqual(compactTool.transcriptChanges[0].path, '/tmp/large.js');
+assert.deepStrictEqual(compactTool.locations, [{
+  path: '/tmp/large.js',
+  lineNumber: 4,
+  column: 2,
+  endLineNumber: 6,
+  endColumn: 8,
+}]);
 assert(JSON.stringify(compactTool).length < 8 * 1024, 'the transcript envelope must not carry full tool output');
 assert.strictEqual(Object.prototype.hasOwnProperty.call(compactTool, 'rawOutput'), false);
 
@@ -860,7 +878,7 @@ assert.match(
   'backend-projected direct tool media should remain visible through the frontend projection'
 );
 
-const serverSource = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+const serverSource = fs.readFileSync(path.join(__dirname, '..', 'server.cts'), 'utf8');
 const transcriptPaneSource = fs.readFileSync(
   path.join(__dirname, '..', '..', 'src', 'components', 'code', 'AgentTranscriptPane.tsx'),
   'utf8'

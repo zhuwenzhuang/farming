@@ -3,7 +3,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { NativeSessionEngine } = require('../native-session-engine.cjs');
-const NativePtyHost = require('../native-pty-host');
+const { NativePtyHost } = require('../native-pty-host.cjs');
 const { nativePtyHostSocketPath } = require('../native-pty-host-path.cjs');
 const { resolveAgentExecutable } = require('../executable-discovery.cjs');
 

@@ -6,7 +6,7 @@ const { promisify } = require('util');
 
 const execFileAsync = promisify(execFile);
 const browserCli = path.join(__dirname, '..', '..', 'extensions', 'browser', 'bin', 'farming-browser');
-const farmingCli = path.join(__dirname, '..', 'farming-app-cli.js');
+const farmingCli = path.join(__dirname, '..', 'farming-app-cli.cjs');
 
 function listen(server) {
   return new Promise((resolve, reject) => {

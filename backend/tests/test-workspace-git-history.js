@@ -7,7 +7,7 @@ const {
   WorkspaceFileService,
   parseGitHistoryChanges,
   parseGitHistoryReferences,
-} = require('../workspace-file-service');
+} = require('../workspace-file-service.cjs');
 
 function hasGit() {
   try {

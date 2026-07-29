@@ -1166,9 +1166,9 @@ test.describe('terminal regression matrix', () => {
       await writeTerminalFixture(page, bashAgentId, `${url}\r\n`)
       const cell = await cellForText(page, bashAgentId, 'example.test', 2)
       await page.mouse.click(cell.x, cell.y, { button: 'right' })
-      const menu = page.getByTestId('code-terminal-context-menu')
+      const menu = page.getByTestId('code-url-context-menu')
       await expect(menu).toBeVisible()
-      await menu.getByRole('menuitem', { name: /Copy|复制/ }).click()
+      await menu.getByRole('menuitem', { name: /Copy link|复制链接/ }).click()
       await expect.poll(async () => page.evaluate(() => navigator.clipboard.readText())).toBe(url)
     })
 
@@ -1203,9 +1203,9 @@ test.describe('terminal regression matrix', () => {
       }, { id: bashAgentId, x: hit.col, y: hit.row })
       if (!cell) throw new Error('Soft-wrapped terminal URL fixture cell is missing')
       await page.mouse.click(cell.x, cell.y, { button: 'right' })
-      const menu = page.getByTestId('code-terminal-context-menu')
+      const menu = page.getByTestId('code-url-context-menu')
       await expect(menu).toBeVisible()
-      await menu.getByRole('menuitem', { name: /Copy|复制/ }).click()
+      await menu.getByRole('menuitem', { name: /Copy link|复制链接/ }).click()
       await expect.poll(async () => page.evaluate(() => navigator.clipboard.readText())).toBe(wrappedUrl)
     })
 
@@ -1218,9 +1218,9 @@ test.describe('terminal regression matrix', () => {
         return window.__farmingTerminalTest?.getUrlAtCell(id, col, row) ?? null
       }, { id: bashAgentId, col: cell.col, row: cell.row })).toBe(trimmedUrl)
       await page.mouse.click(cell.x, cell.y, { button: 'right' })
-      const menu = page.getByTestId('code-terminal-context-menu')
+      const menu = page.getByTestId('code-url-context-menu')
       await expect(menu).toBeVisible()
-      await menu.getByRole('menuitem', { name: /Copy|复制/ }).click()
+      await menu.getByRole('menuitem', { name: /Copy link|复制链接/ }).click()
       await expect.poll(async () => page.evaluate(() => navigator.clipboard.readText())).toBe(trimmedUrl)
     })
 
@@ -1279,8 +1279,8 @@ test.describe('terminal regression matrix', () => {
       }).toBe(false)
     })
 
-    await scenario('plain-clicking a terminal path:line opens README in the file editor', async () => {
-      await writeTerminalFixture(page, bashAgentId, 'README.md:3:1 failed\r\n')
+    await scenario('plain-clicking a Python-style terminal file location opens README in the file editor', async () => {
+      await writeTerminalFixture(page, bashAgentId, 'File "README.md", line 3, column 1\r\n')
       const cell = await cellForText(page, bashAgentId, 'README.md', 2)
       await page.mouse.click(cell.x, cell.y)
       await expect(page.getByTestId('code-file-editor')).toBeVisible()

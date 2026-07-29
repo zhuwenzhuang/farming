@@ -12,7 +12,7 @@ const {
   findBrowserExecutable,
   installFromNpmMirror,
   probeChromiumInstallSources,
-} = require('../../extensions/browser/backend/managed-chromium-installer');
+} = require('../../extensions/browser/backend/managed-chromium-installer.cjs');
 
 function writeFakeChrome(rootDir, platform = 'linux') {
   const relativePath = platform === 'darwin'

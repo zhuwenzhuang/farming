@@ -1,6 +1,8 @@
 import { getAgentSpec, type CliAgentSpec } from './cli-agents.cjs';
 
-const LocalSessionEngine = require('./local-session-engine') as SessionEngineConstructor;
+const { LocalSessionEngine } = require('./local-session-engine.cjs') as {
+  LocalSessionEngine: SessionEngineConstructor;
+};
 const { NativeSessionEngine } = require('./native-session-engine.cjs') as {
   NativeSessionEngine: SessionEngineConstructor;
 };

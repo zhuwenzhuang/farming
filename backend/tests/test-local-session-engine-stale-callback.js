@@ -1,5 +1,5 @@
 const assert = require('assert');
-const LocalSessionEngine = require('../local-session-engine');
+const { LocalSessionEngine } = require('../local-session-engine.cjs');
 
 function deferred() {
   let resolve;

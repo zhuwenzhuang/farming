@@ -30,7 +30,7 @@ require.cache[sessionEngineBridgePath] = {
   exports: { SessionEngineBridge: FakeSessionEngineBridge },
 };
 
-const AgentManager = require('../agent-manager');
+const AgentManager = require('../agent-manager.cjs');
 const { serializeTerminalState } = require('../terminal-state-serialization.cjs');
 
 function configManager() {

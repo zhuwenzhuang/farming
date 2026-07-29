@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 const fs = require('fs');
 const path = require('path');
-const { requestJson } = require('../backend/farming-browser-client');
+const { requestJson } = require('../backend/farming-browser-client.cjs');
 const { rootIdForPath } = require('../../../backend/workspace-root-registry.cjs');
 
 function usage() {
@@ -258,7 +258,7 @@ async function run(argv = process.argv.slice(2)) {
     return 0;
   }
   if (command === 'mcp') {
-    const { runBrowserMcpServer } = require('../backend/browser-mcp-server');
+    const { runBrowserMcpServer } = require('../backend/browser-mcp-server.cjs');
     await runBrowserMcpServer();
     return 0;
   }

@@ -52,7 +52,7 @@ function run() {
   assert.strictEqual(store.revoke(revoked.code), true);
   assert.strictEqual(store.consume(revoked.code, { now: 3001 }), null);
 
-  const serverSource = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const serverSource = fs.readFileSync(path.join(__dirname, '..', 'server.cts'), 'utf8');
   assert(
     serverSource.indexOf("app.get(routePath(BASE_PATH, '/j/:code')") <
       serverSource.indexOf('app.use(tokenAuth.middleware())'),
@@ -62,7 +62,7 @@ function run() {
   assert(serverSource.includes("app.delete(routePath(BASE_PATH, '/api/share/qr-ticket/:code')"));
   assert(serverSource.includes('function shareTargetQueryFromBody'));
   assert(serverSource.includes("params.set('ftarget', kind)"));
-  assert(serverSource.includes("target.kind === 'folder'"));
+  assert(serverSource.includes("targetRecord.kind === 'folder'"));
   assert(serverSource.includes("params.set('folder', folderPath)"));
   assert(serverSource.includes("res.redirect(302, entryPathWithQuery(ticket.targetQuery))"));
   assert(serverSource.includes('tokenLabel: authEnabled ? tokenAuth.getToken() :'));

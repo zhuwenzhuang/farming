@@ -3,13 +3,13 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const ConfigManager = require('../config-manager');
 const {
+  ConfigManager,
   DEFAULT_CRT_TERMINAL_FONT_SIZE,
   DEFAULT_SEARCH_TIMEOUT_MS,
   MAX_CRT_TERMINAL_FONT_SIZE,
   MIN_CRT_TERMINAL_FONT_SIZE,
-} = ConfigManager;
+} = require('../config-manager.cjs');
 
 function run() {
   const previousConfigDir = process.env.FARMING_CONFIG_DIR;

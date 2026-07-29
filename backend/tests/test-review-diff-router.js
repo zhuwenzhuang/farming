@@ -2,7 +2,7 @@ const assert = require('assert');
 const express = require('express');
 
 const { createReviewDiffRouter } = require('../review-diff-router.cjs');
-const { WorkspaceFileError } = require('../workspace-file-service');
+const { WorkspaceFileError } = require('../workspace-file-service.cjs');
 
 async function fetchJson(baseUrl, pathname) {
   const response = await fetch(`${baseUrl}${pathname}`);

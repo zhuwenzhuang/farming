@@ -1286,6 +1286,20 @@ function run() {
     endColumn: 5,
   });
   assert.deepStrictEqual(workspaceEditorCursorSelection({
+    lineNumber: 2,
+    column: 5,
+    endLineNumber: 4,
+    endColumn: 7,
+  }, {
+    lineCount: 10,
+    getLineMaxColumn: lineNumber => lineNumber === 4 ? 9 : 20,
+  }), {
+    startLineNumber: 2,
+    startColumn: 5,
+    endLineNumber: 4,
+    endColumn: 7,
+  });
+  assert.deepStrictEqual(workspaceEditorCursorSelection({
     lineNumber: 0,
   }, {
     lineCount: 0,

@@ -5,12 +5,12 @@ const os = require('os');
 const path = require('path');
 const { execFileSync } = require('child_process');
 
-const { WorkspaceFileService } = require('../workspace-file-service');
+const { WorkspaceFileService } = require('../workspace-file-service.cjs');
 const {
   GLOBAL_WORKSPACE_FILES_AGENT_ID,
   PROJECT_FILES_AGENT_PREFIX,
   createWorkspaceFileRouter,
-} = require('../workspace-file-router');
+} = require('../workspace-file-router.cjs');
 
 function hasCommand(command) {
   try {

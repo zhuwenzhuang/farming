@@ -10,7 +10,7 @@ const {
   stopProcess,
   validatePayload,
 } = require('../npm-update-helper.cjs');
-const { readServerProcessIdentity } = require('../farming-app-cli');
+const { readServerProcessIdentity } = require('../farming-app-cli.cjs');
 
 function packageRoot(prefix) {
   return path.join(prefix, 'lib', 'node_modules', 'farming-code');

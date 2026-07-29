@@ -10,7 +10,7 @@ const {
   WorkspaceFileError,
   DEFAULT_WATCH_DEPTH,
   resolveCommandRunnerNodePath,
-} = require('../workspace-file-service');
+} = require('../workspace-file-service.cjs');
 
 function hasCommand(command) {
   try {

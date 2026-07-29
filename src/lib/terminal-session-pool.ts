@@ -12,14 +12,10 @@ import type { FarmingFitAddon, FarmingTerminal } from '@/lib/terminal-engine'
 import type { TerminalLinkProvider } from '@/lib/terminal-engine'
 import {
   collectTerminalLinkMatches,
-  findTerminalUrlEndingAtLineEnd,
-  isTerminalUrlTrimmedAtLineEnd,
-  parseTerminalFileTargetAtColumn,
+  collectTerminalMultiLinePathLinkMatches,
   parseTerminalPathLinkAtColumn,
-  parseTerminalPathTargetAtColumn,
+  parseTerminalSearchAtColumn,
   parseTerminalUrlAtColumn,
-  readUrlContinuationPrefix,
-  shouldReadUrlContinuation,
   terminalTextColumnAtPixelOffset,
   terminalLinkMatchRange,
 } from '@/lib/terminal-links'
@@ -142,6 +138,7 @@ interface AttachOptions {
   onFollowOutputChange?: (state: TerminalFollowState) => void
   onPathOpen?: (agentId: string, target: TerminalPathOpenTarget) => void
   onPathResolve?: (agentId: string, target: TerminalPathOpenTarget) => Promise<TerminalPathOpenTarget | null> | TerminalPathOpenTarget | null
+  onSearchOpen?: (agentId: string, query: string) => void
   onOpenUrlInFarming?: (agentId: string, url: string) => void
   onRecoveryStatusChange?: (status: TerminalRecoveryStatus) => void
   onReady?: () => void
@@ -181,12 +178,6 @@ interface TerminalLogicalLine {
   bufferRow: number
   cols: number
   buffer: TerminalBuffer
-}
-
-interface TerminalLineSegment {
-  row: number
-  text: string
-  startCol: number
 }
 
 interface SessionRecord {
@@ -254,6 +245,7 @@ interface SessionRecord {
   followOutputHandler: ((state: TerminalFollowState) => void) | null
   pathOpenHandler: ((agentId: string, target: TerminalPathOpenTarget) => void) | null
   pathResolveHandler: ((agentId: string, target: TerminalPathOpenTarget) => Promise<TerminalPathOpenTarget | null> | TerminalPathOpenTarget | null) | null
+  searchOpenHandler: ((agentId: string, query: string) => void) | null
   farmingUrlOpenHandler: ((agentId: string, url: string) => void) | null
   pathResolveCache: Map<string, { resolvedAt: number; target: TerminalPathOpenTarget | null; promise?: Promise<TerminalPathOpenTarget | null> }>
   originalRender: NonNullable<NonNullable<FarmingTerminal['renderer']>['render']> | null
@@ -538,6 +530,7 @@ function parkTerminalSessionRecord(record: SessionRecord) {
   record.recoveryStatusHandler = null
   record.pathOpenHandler = null
   record.pathResolveHandler = null
+  record.searchOpenHandler = null
   pauseTerminalResizeObserver(record)
   resetTransientTerminalUi(record)
   parkTerminalHost(record)
@@ -1482,7 +1475,7 @@ function flushQueuedTerminalOutput(record: SessionRecord) {
     if (!event) break
     applyTerminalOutputEvent(
       record,
-      event.data,
+      event.data || '',
       false,
       event.outputSeq,
       event.runtimeEpoch,
@@ -2074,6 +2067,7 @@ function terminalPathResolveCacheKey(target: TerminalPathOpenTarget) {
     target.path,
     target.lineNumber ?? '',
     target.column ?? '',
+    target.endLineNumber ?? '',
     target.endColumn ?? '',
   ].join('\0')
 }
@@ -2141,7 +2135,38 @@ function installTerminalLinkProvider(record: SessionRecord) {
         return
       }
 
-      const matches = collectTerminalLinkMatches(logicalLine.text, Boolean(record.pathOpenHandler))
+      const matches = collectTerminalLinkMatches(
+        logicalLine.text,
+        Boolean(record.pathOpenHandler),
+        Boolean(record.searchOpenHandler),
+      )
+      if (record.pathOpenHandler) {
+        const previousLogicalLines = readPreviousLogicalTerminalLines(record, logicalLine.startRow)
+        for (const multiLineMatch of collectTerminalMultiLinePathLinkMatches(
+          logicalLine.text,
+          previousLogicalLines,
+        )) {
+          const overlapsHigherPriority = matches.some(match => (
+            match.kind !== 'search'
+            &&
+            multiLineMatch.startIndex < match.startIndex + match.length
+            && match.startIndex < multiLineMatch.startIndex + multiLineMatch.length
+          ))
+          if (overlapsHigherPriority) continue
+          for (let index = matches.length - 1; index >= 0; index -= 1) {
+            const match = matches[index]
+            if (
+              match?.kind === 'search'
+              && multiLineMatch.startIndex < match.startIndex + match.length
+              && match.startIndex < multiLineMatch.startIndex + multiLineMatch.length
+            ) {
+              matches.splice(index, 1)
+            }
+          }
+          matches.push(multiLineMatch)
+        }
+        matches.sort((a, b) => a.startIndex - b.startIndex)
+      }
       if (matches.length === 0) {
         callback(undefined)
         return
@@ -2179,7 +2204,9 @@ function installTerminalLinkProvider(record: SessionRecord) {
               const modifierActive = isTerminalOpenModifierActive(record, event)
               if (match.kind === 'url' && findTerminalUrlAtMouseEvent(record, event) !== match.text) return
               if (match.kind === 'path' && readTerminalPathLinkAtMouseEvent(record, event)?.text !== match.text) return
+              if (match.kind === 'search' && findTerminalSearchAtMouseEvent(record, event) !== match.text) return
               if (match.kind === 'url' && !modifierActive) return
+              if (match.kind === 'search' && !modifierActive) return
               if (match.kind === 'path' && !pathDirectOpen) return
 
               event.preventDefault()
@@ -2187,6 +2214,8 @@ function installTerminalLinkProvider(record: SessionRecord) {
               event.stopImmediatePropagation()
               if (match.kind === 'url') {
                 openTerminalUrl(record, match.text)
+              } else if (match.kind === 'search') {
+                record.searchOpenHandler?.(record.agentId, match.text)
               } else if (match.pathTarget && record.pathOpenHandler) {
                 record.pathOpenHandler(record.agentId, match.pathTarget)
               }
@@ -2297,6 +2326,39 @@ function readLogicalTerminalLineAtBufferRow(record: SessionRecord, bufferRow: nu
     cols,
     buffer,
   }
+}
+
+function readPreviousLogicalTerminalLines(
+  record: SessionRecord,
+  beforeBufferRow: number,
+  limit = 100,
+) {
+  const lines: string[] = []
+  let row = beforeBufferRow - 1
+  while (row >= 0 && lines.length < limit) {
+    const logicalLine = readLogicalTerminalLineAtBufferRow(record, row)
+    if (!logicalLine) break
+    lines.push(logicalLine.text)
+    row = logicalLine.startRow - 1
+  }
+  return lines
+}
+
+function readTerminalPathLinkAtCell(
+  record: SessionRecord,
+  cell: { col: number; row: number },
+) {
+  const logicalLine = readLogicalTerminalLineAtCellWithRows(record, cell)
+  if (!logicalLine) return null
+  const directLink = parseTerminalPathLinkAtColumn(logicalLine.text, logicalLine.col)
+  if (directLink) return directLink
+  return collectTerminalMultiLinePathLinkMatches(
+    logicalLine.text,
+    readPreviousLogicalTerminalLines(record, logicalLine.startRow),
+  ).find(match => (
+    logicalLine.col >= match.startIndex
+    && logicalLine.col < match.startIndex + match.length
+  )) ?? null
 }
 
 const TERMINAL_READING_ANCHOR_LINE_COUNT = 3
@@ -2416,121 +2478,15 @@ function readDomTerminalLineAtMouseEvent(record: SessionRecord, event: MouseEven
   return { text, col }
 }
 
-function readLogicalTerminalLineEndingAtRow(buffer: TerminalBuffer, endRow: number, cols: number) {
-  let startRow = endRow
-  while (startRow > 0 && buffer.getLine(startRow)?.isWrapped) {
-    startRow -= 1
-  }
-
-  const segments: TerminalLineSegment[] = []
-  for (let row = startRow; row <= endRow; row += 1) {
-    segments.push({
-      row,
-      text: readBufferLineText(buffer, row, cols, row === endRow),
-      startCol: 0,
-    })
-  }
-
-  return {
-    startRow,
-    endRow,
-    text: segments.map(segment => segment.text).join('').trimEnd(),
-    lastPhysicalText: segments[segments.length - 1]?.text ?? '',
-    segments,
-  }
-}
-
-function composeUrlLineFromSegments(segments: TerminalLineSegment[], bufferRow: number, cellCol: number) {
-  let text = ''
-  let col = -1
-
-  for (const segment of segments) {
-    if (segment.row === bufferRow) {
-      const relativeCol = cellCol - segment.startCol
-      if (relativeCol >= 0 && relativeCol < segment.text.length) {
-        col = text.length + relativeCol
-      }
-    }
-    text += segment.text
-  }
-
-  return col >= 0 ? { text, col } : null
-}
-
 function readTerminalUrlLineAtCell(record: SessionRecord, cell: { col: number; row: number }) {
-  const logicalLine = readLogicalTerminalLineAtCellWithRows(record, cell)
-  if (!logicalLine) return null
-
-  const { buffer, bufferRow, cols } = logicalLine
-  const segments: TerminalLineSegment[] = []
-  for (let row = logicalLine.startRow; row <= logicalLine.endRow; row += 1) {
-    segments.push({
-      row,
-      text: readBufferLineText(buffer, row, cols, row === logicalLine.endRow),
-      startCol: 0,
-    })
-  }
-
-  for (;;) {
-    const first = segments[0]
-    if (!first || first.row <= 0) break
-
-    const previousRow = first.row - 1
-    const previousLine = readLogicalTerminalLineEndingAtRow(buffer, previousRow, cols)
-    const previousUrl = findTerminalUrlEndingAtLineEnd(previousLine.text)
-    const continuation = previousUrl ? readUrlContinuationPrefix(first.text, previousUrl.rawUrl) : null
-    if (
-      !previousUrl ||
-      isTerminalUrlTrimmedAtLineEnd(previousUrl) ||
-      !continuation ||
-      !shouldReadUrlContinuation(previousLine.lastPhysicalText, previousUrl.rawUrl, cols)
-    ) {
-      break
-    }
-
-    first.text = continuation.text
-    first.startCol = continuation.startCol
-    segments.unshift(...previousLine.segments)
-  }
-
-  for (;;) {
-    const last = segments[segments.length - 1]
-    if (!last) break
-
-    const currentText = segments.map(segment => segment.text).join('')
-    const currentUrl = findTerminalUrlEndingAtLineEnd(currentText)
-    if (
-      !currentUrl ||
-      isTerminalUrlTrimmedAtLineEnd(currentUrl) ||
-      !shouldReadUrlContinuation(last.text, currentUrl.rawUrl, cols)
-    ) {
-      break
-    }
-
-    const nextLine = buffer.getLine(last.row + 1)
-    if (!nextLine) break
-
-    const nextText = readBufferLineText(buffer, last.row + 1, cols)
-    const continuation = readUrlContinuationPrefix(nextText, currentUrl.rawUrl)
-    if (!continuation) break
-
-    segments.push({
-      row: last.row + 1,
-      text: continuation.text,
-      startCol: continuation.startCol,
-    })
-  }
-
-  return composeUrlLineFromSegments(segments, bufferRow, cell.col)
+  return readLogicalTerminalLineAtCell(record, cell)
 }
 
 function readTerminalPathLinkAtMouseEvent(record: SessionRecord, event: MouseEvent) {
   const cell = cellFromMouseEvent(record, event)
   if (cell) {
-    const logicalLine = readLogicalTerminalLineAtCell(record, cell)
-    if (logicalLine) {
-      return parseTerminalPathLinkAtColumn(logicalLine.text, logicalLine.col)
-    }
+    const pathLink = readTerminalPathLinkAtCell(record, cell)
+    if (pathLink) return pathLink
   }
 
   const domLine = readDomTerminalLineAtMouseEvent(record, event)
@@ -2556,6 +2512,20 @@ function findTerminalUrlAtMouseEvent(record: SessionRecord, event: MouseEvent) {
 
   const domLine = readDomTerminalLineAtMouseEvent(record, event)
   return domLine ? parseTerminalUrlAtColumn(domLine.text, domLine.col) : null
+}
+
+function findTerminalSearchAtMouseEvent(record: SessionRecord, event: MouseEvent) {
+  if (findTerminalUrlAtMouseEvent(record, event)) return null
+  if (record.pathOpenHandler && readTerminalPathLinkAtMouseEvent(record, event)) return null
+  const cell = cellFromMouseEvent(record, event)
+  if (cell) {
+    const logicalLine = readLogicalTerminalLineAtCell(record, cell)
+    const query = logicalLine ? parseTerminalSearchAtColumn(logicalLine.text, logicalLine.col) : null
+    if (query) return query
+  }
+
+  const domLine = readDomTerminalLineAtMouseEvent(record, event)
+  return domLine ? parseTerminalSearchAtColumn(domLine.text, domLine.col) : null
 }
 
 function getXtermSelectionForCopy(record: SessionRecord) {
@@ -2616,24 +2586,25 @@ function openTerminalUrl(_record: SessionRecord, url: string) {
   openExternalUrl(url)
 }
 
-function terminalOpenTargetTitle(kind: 'url' | 'path') {
+function terminalOpenTargetTitle(kind: 'url' | 'path' | 'search') {
   const isMac = navigator.platform.toLowerCase().includes('mac')
   const modifier = isMac ? 'Cmd' : 'Ctrl'
   const lang = document.documentElement.lang || navigator.language || ''
   if (lang.toLowerCase().startsWith('zh')) {
-    return kind === 'url'
-      ? `按住 ${modifier} 点击打开链接`
-      : '点击打开文件或文件夹'
+    if (kind === 'url') return `按住 ${modifier} 点击打开链接`
+    if (kind === 'search') return `按住 ${modifier} 点击在工作区中搜索`
+    return '点击打开文件或文件夹'
   }
-  return kind === 'url'
-    ? `${modifier}-click to open link`
-    : 'Click to open file or folder'
+  if (kind === 'url') return `${modifier}-click to open link`
+  if (kind === 'search') return `${modifier}-click to search the workspace`
+  return 'Click to open file or folder'
 }
 
-function setTerminalLinkHoverTarget(record: SessionRecord, kind: 'url' | 'path' | null) {
+function setTerminalLinkHoverTarget(record: SessionRecord, kind: 'url' | 'path' | 'search' | null) {
   record.hostEl.classList.toggle('terminal-open-target-hover', kind !== null)
   record.hostEl.classList.toggle('terminal-open-target-url', kind === 'url')
   record.hostEl.classList.toggle('terminal-open-target-path', kind === 'path')
+  record.hostEl.classList.toggle('terminal-open-target-search', kind === 'search')
   if (kind) {
     record.hostEl.dataset.terminalOpenTarget = kind
     record.hostEl.title = terminalOpenTargetTitle(kind)
@@ -2658,6 +2629,7 @@ function terminalOpenTargetKindAtMouseEvent(
   if (record.pathOpenHandler && findTerminalPathTargetAtMouseEvent(record, event)) return 'path'
   if (!modifierActive) return null
   if (findTerminalUrlAtMouseEvent(record, event)) return 'url'
+  if (record.searchOpenHandler && findTerminalSearchAtMouseEvent(record, event)) return 'search'
   return null
 }
 
@@ -3382,20 +3354,12 @@ function installTerminalTestApi() {
     getPathAtCell(agentId: string, col: number, row: number) {
       const current = sessions.get(agentId)
       if (!current || current instanceof Promise || current.disposed) return null
-      const logicalLine = readLogicalTerminalLineAtCell(current, { col, row })
-      return logicalLine
-        ? parseTerminalPathTargetAtColumn(logicalLine.text, logicalLine.col) ??
-          parseTerminalFileTargetAtColumn(logicalLine.text, logicalLine.col)
-        : null
+      return readTerminalPathLinkAtCell(current, { col, row })?.pathTarget ?? null
     },
     openPathAtCell(agentId: string, col: number, row: number) {
       const current = sessions.get(agentId)
       if (!current || current instanceof Promise || current.disposed || !current.pathOpenHandler) return false
-      const logicalLine = readLogicalTerminalLineAtCell(current, { col, row })
-      const pathTarget = logicalLine
-        ? parseTerminalPathTargetAtColumn(logicalLine.text, logicalLine.col) ??
-          parseTerminalFileTargetAtColumn(logicalLine.text, logicalLine.col)
-        : null
+      const pathTarget = readTerminalPathLinkAtCell(current, { col, row })?.pathTarget ?? null
       if (!pathTarget) return false
       current.pathOpenHandler(agentId, pathTarget)
       return true
@@ -3826,6 +3790,7 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
     followOutputHandler: options.onFollowOutputChange ?? null,
     pathOpenHandler: options.onPathOpen ?? null,
     pathResolveHandler: options.onPathResolve ?? null,
+    searchOpenHandler: options.onSearchOpen ?? null,
     farmingUrlOpenHandler: options.onOpenUrlInFarming ?? null,
     pathResolveCache: new Map(),
     originalRender: null,
@@ -3965,6 +3930,19 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
       return true
     }
 
+    const searchQuery = event.button === 0 && modifierActive && record.searchOpenHandler
+      ? findTerminalSearchAtMouseEvent(record, event)
+      : null
+    if (searchQuery) {
+      event.preventDefault()
+      event.stopPropagation()
+      event.stopImmediatePropagation()
+      clearTerminalSelectionState(record)
+      record.searchOpenHandler?.(agentId, searchQuery)
+      record.suppressClickUntil = Date.now() + 250
+      return true
+    }
+
     if (record.pathOpenHandler && event.button === 0) {
       const pathTarget = findTerminalPathTargetAtMouseEvent(record, event)
       if (pathTarget) {
@@ -4073,6 +4051,20 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
           event.stopImmediatePropagation()
         }
         openTerminalUrl(record, url)
+        record.suppressClickUntil = Date.now() + 250
+        return
+      }
+      const searchQuery = record.searchOpenHandler
+        ? findTerminalSearchAtMouseEvent(record, event)
+        : null
+      if (searchQuery) {
+        event.preventDefault()
+        if (!isXtermTerminal(terminal)) {
+          event.stopPropagation()
+          event.stopImmediatePropagation()
+        }
+        clearTerminalSelectionState(record)
+        record.searchOpenHandler?.(agentId, searchQuery)
         record.suppressClickUntil = Date.now() + 250
         return
       }
@@ -4487,6 +4479,7 @@ function applyTerminalAttachmentOptions(record: SessionRecord, options: AttachOp
   record.followOutputHandler = options.onFollowOutputChange ?? null
   record.pathOpenHandler = options.onPathOpen ?? null
   record.pathResolveHandler = options.onPathResolve ?? null
+  record.searchOpenHandler = options.onSearchOpen ?? null
   record.farmingUrlOpenHandler = options.onOpenUrlInFarming ?? null
   record.recoveryStatusHandler = options.onRecoveryStatusChange ?? null
   updateRendererCursorSuppression(record, Boolean(options.suppressRendererCursor))

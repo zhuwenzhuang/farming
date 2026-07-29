@@ -515,10 +515,11 @@ test.describe('human Farming Agent story', () => {
       .toBe(selectedText)
   })
 
-  test('opens and copies hard-wrapped terminal URLs', async ({ page, workspaceRoot }) => {
+  test('does not join terminal URLs across explicit line breaks', async ({ page, workspaceRoot }) => {
     const url = 'http://example.internal:39401/farming/?token=example-token'
     const splitAt = url.indexOf('example-token') + 'example'.length
-    const hardWrappedUrl = `${url.slice(0, splitAt + 2)}\r\n${url.slice(splitAt + 2)}`
+    const firstFragment = url.slice(0, splitAt)
+    const secondFragment = url.slice(splitAt)
 
     await openFarming(page)
     await openNewAgentDialog(page)
@@ -529,53 +530,20 @@ test.describe('human Farming Agent story', () => {
       { timeout: 15_000 }
     ).toBe(true)
 
-    await page.evaluate(() => {
-      const target = window as unknown as {
-        __originalOpenForTerminalUrlTest?: typeof window.open
-        __openedTerminalUrls?: string[]
-      }
-      target.__originalOpenForTerminalUrlTest = window.open
-      target.__openedTerminalUrls = []
-      window.open = ((openedUrl?: string | URL) => {
-        target.__openedTerminalUrls?.push(String(openedUrl ?? ''))
-        return null
-      }) as typeof window.open
-    })
-
-    await writeTerminalFixture(page, agentId, `> echo link\r\n${hardWrappedUrl}\r\n`)
+    await writeTerminalFixture(page, agentId, `> echo link\r\n${firstFragment}\r\n${secondFragment}\r\n`)
     const rows = await terminalRows(page, agentId, 40)
-    const wrappedHit = rows
-      .map((row, rowIndex) => {
-        const fragment = row.includes('example-t') ? 'example-t' : ''
-        return fragment ? { row: rowIndex, col: row.indexOf(fragment) + 2 } : null
-      })
-      .find((hit): hit is { row: number; col: number } => Boolean(hit))
-    if (!wrappedHit) {
-      throw new Error(`Hard-wrapped terminal URL fixture row is missing: ${JSON.stringify(rows)}`)
+    const firstRow = rows.findIndex(row => row.includes(firstFragment))
+    const secondRow = rows.findIndex(row => row.includes(secondFragment))
+    if (firstRow < 0 || secondRow < 0) {
+      throw new Error(`Explicitly split terminal URL fixture is missing: ${JSON.stringify(rows)}`)
     }
 
-    const urlCell = await terminalCellCenter(page, agentId, wrappedHit.col, wrappedHit.row)
-    const urlOpenModifier = process.platform === 'darwin' ? 'Meta' : 'Control'
-    await page.keyboard.down(urlOpenModifier)
-    await page.mouse.click(urlCell.x, urlCell.y)
-    await page.keyboard.up(urlOpenModifier)
-    await expect.poll(async () => page.evaluate(() => {
-      return (window as unknown as { __openedTerminalUrls?: string[] }).__openedTerminalUrls ?? []
-    })).toContain(url)
-
-    await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: new URL(page.url()).origin })
-    await page.mouse.click(urlCell.x, urlCell.y, { button: 'right' })
-    const terminalContextMenu = page.getByTestId('code-terminal-context-menu')
-    await expect(terminalContextMenu).toBeVisible()
-    await terminalContextMenu.getByRole('menuitem', { name: /Copy|复制/ }).click()
-    await expect.poll(async () => page.evaluate(() => navigator.clipboard.readText())).toBe(url)
-
-    await page.evaluate(() => {
-      const target = window as unknown as { __originalOpenForTerminalUrlTest?: typeof window.open }
-      if (target.__originalOpenForTerminalUrlTest) {
-        window.open = target.__originalOpenForTerminalUrlTest
-      }
-    })
+    await expect.poll(async () => page.evaluate(({ id, col, row }) => {
+      return window.__farmingTerminalTest?.getUrlAtCell(id, col, row) ?? null
+    }, { id: agentId, col: rows[firstRow].indexOf('example.internal') + 2, row: firstRow })).toBe(firstFragment)
+    await expect.poll(async () => page.evaluate(({ id, col, row }) => {
+      return window.__farmingTerminalTest?.getUrlAtCell(id, col, row) ?? null
+    }, { id: agentId, col: rows[secondRow].indexOf(secondFragment) + 1, row: secondRow })).toBeNull()
   })
 
   test('delivers background shell output while another agent stays active', async ({ page, workspaceRoot }) => {

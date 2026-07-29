@@ -1,6 +1,6 @@
 const assert = require('assert');
 const path = require('path');
-const AgentManager = require('../agent-manager');
+const AgentManager = require('../agent-manager.cjs');
 const {
   SHELL_ENV_BEGIN,
   SHELL_ENV_END,
@@ -11,7 +11,7 @@ const {
   scrubNonInteractivePagerEnv,
   shellEnvArgs,
 } = require('../agent-env.cjs');
-const { normalizeShellSessionOptions } = require('../local-session-engine');
+const { normalizeShellSessionOptions } = require('../local-session-engine.cjs');
 
 async function run() {
   assert.strictEqual(isCatPager('cat'), true);

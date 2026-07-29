@@ -20,7 +20,7 @@ function run() {
     fs.mkdirSync(browserExtensionDir, { recursive: true });
     fs.writeFileSync(path.join(bundleDir, 'scripts/install-release.sh'), '#!/bin/sh\n');
     fs.writeFileSync(path.join(bundleDir, 'shared/browser-protocol.js'), 'module.exports = {};\n');
-    fs.writeFileSync(path.join(browserExtensionDir, 'index.js'), 'module.exports = {};\n');
+    fs.writeFileSync(path.join(browserExtensionDir, 'index.cjs'), 'module.exports = {};\n');
     fs.mkdirSync(runtimeDir, { recursive: true });
     fs.writeFileSync(path.join(runtimeDir, 'ld-2.28.so'), 'loader fixture');
     fs.writeFileSync(path.join(runtimeDir, 'runtime-padding'), crypto.randomBytes(2 * 1024 * 1024));

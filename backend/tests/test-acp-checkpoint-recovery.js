@@ -3,8 +3,8 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { AcpCheckpointStore } = require('../acp-checkpoint-store.cjs');
-const { AcpRuntime } = require('../acp-runtime');
-const { AcpSessionState } = require('../acp-session-state');
+const { AcpRuntime } = require('../acp-runtime.cjs');
+const { AcpSessionState } = require('../acp-session-state.cjs');
 
 const fixture = path.join(__dirname, 'fixtures', 'fake-acp-agent.mjs');
 

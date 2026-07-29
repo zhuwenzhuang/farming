@@ -25,7 +25,7 @@ const {
   filterWorkingCopyChangeItems,
   normalizeModifiedWithinDays,
   normalizeWorkingCopyScope,
-} = require('./review-diff-service') as {
+} = require('./review-diff-service.cjs') as {
   filterWorkingCopyChangeItems(
     root: string,
     items: WorkingCopyChange[],

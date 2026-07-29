@@ -8,7 +8,7 @@ function read(relativePath) {
 }
 
 function run() {
-  const serverSource = read('backend/server.js');
+  const serverSource = read('backend/server.cts');
   const mainSource = read('src/main.tsx');
   const appSource = read('frontend/skins/crt/app.js');
   const runtimePathsSource = read('frontend/runtime-paths.js');
@@ -41,7 +41,9 @@ function run() {
   assert.strictEqual(window.FarmingRuntimePaths.webSocketUrl(), 'wss://example.test/farming/ws');
 
   assert(packageJson.files.includes('frontend/*.js'));
-  assert(packageJson.files.includes('frontend/skins/'));
+  assert(packageJson.files.includes('frontend/skins/**/*.js'));
+  assert(packageJson.files.includes('frontend/skins/**/*.html'));
+  assert(packageJson.files.includes('frontend/skins/**/*.css'));
   assert(pkgConfig.includes("'frontend/skins/**/*'"));
   assert(packageRelease.includes('  frontend \\\n'));
   assert(packageRelease.includes('  shared \\\n'));

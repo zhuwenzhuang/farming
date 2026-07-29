@@ -6,8 +6,6 @@ import type { TerminalSearchOptions } from '@/lib/terminal-search'
  * Ported from frontend/ghostty-loader.js + frontend/terminal-bridge.js.
  */
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
-
 export interface GhosttyTerminal {
   open(container: HTMLElement): void
   input?: (data: string, wasUserInput?: boolean) => void

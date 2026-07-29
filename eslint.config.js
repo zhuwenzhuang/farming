@@ -32,6 +32,9 @@ module.exports = [
         clearInterval: 'readonly',
         global: 'readonly',
         URL: 'readonly',
+        URLSearchParams: 'readonly',
+        AbortController: 'readonly',
+        Element: 'readonly',
         // Browser (for frontend/)
         window: 'readonly',
         document: 'readonly',

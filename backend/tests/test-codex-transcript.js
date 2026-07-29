@@ -7,7 +7,7 @@ const {
   buildTranscriptFromLines,
   stripUserMessagePrefix,
   textFromContent,
-} = require('../codex-transcript');
+} = require('../codex-transcript.cjs');
 
 function line(type, payload) {
   return JSON.stringify({ type, payload });

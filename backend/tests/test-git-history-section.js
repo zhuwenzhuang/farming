@@ -12,7 +12,7 @@ function run() {
   const graph = read('src/components/files/GitHistoryGraph.tsx');
   const graphModel = read('src/lib/git-history-graph.ts');
   const api = read('src/lib/workspace-files.ts');
-  const router = read('backend/workspace-file-router.js');
+  const router = read('backend/workspace-file-router.cts');
   const copy = read('src/components/code/copy.ts');
   const styles = `${read('src/styles/main.css')}\n${read('src/styles/code-dark.css')}`;
   const notices = read('THIRD_PARTY_NOTICES.md');

@@ -30,8 +30,8 @@ function cleanup(dir) {
 }
 
 function run() {
-  const serverSource = fs.readFileSync(path.resolve(__dirname, '../server.js'), 'utf8');
-  const agentManagerSource = fs.readFileSync(path.resolve(__dirname, '../agent-manager.js'), 'utf8');
+  const serverSource = fs.readFileSync(path.resolve(__dirname, '../server.cts'), 'utf8');
+  const agentManagerSource = fs.readFileSync(path.resolve(__dirname, '../agent-manager.cts'), 'utf8');
   assert(
     serverSource.includes("agentManager.resolveAgentShellEnv('', { maxAgeMs: INTERACTIVE_REFRESH_CACHE_MAX_AGE_MS })")
       && serverSource.includes('return listAvailableAgents(pathEnv)')

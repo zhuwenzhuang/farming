@@ -1,5 +1,5 @@
 const assert = require('assert');
-const { extractLatestTerminalTitle } = require('../local-session-engine');
+const { extractLatestTerminalTitle } = require('../local-session-engine.cjs');
 
 (() => {
   assert.strictEqual(extractLatestTerminalTitle('plain output'), null);

@@ -4,7 +4,7 @@ const path = require('path');
 
 function run() {
   const vendorDir = path.join(__dirname, '../../frontend/vendor/ghostty-web');
-  const serverPath = path.join(__dirname, '../../backend/server.js');
+  const serverPath = path.join(__dirname, '../../backend/server.cts');
 
   const requiredFiles = [
     'ghostty-web.js',

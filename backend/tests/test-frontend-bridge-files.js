@@ -15,7 +15,7 @@ function run() {
   const departureLicensePath = path.join(__dirname, '../../frontend/skins/crt/assets/fonts/departure-mono/LICENSE');
   const crtIconPath = path.join(__dirname, '../../frontend/skins/crt/assets/branding/farming-crt-icon.svg');
   const pkgConfigPath = path.join(__dirname, '../../pkg.config.cjs');
-  const serverPath = path.join(__dirname, '../../backend/server.js');
+  const serverPath = path.join(__dirname, '../../backend/server.cts');
 
   const terminalBridge = fs.readFileSync(terminalBridgePath, 'utf8');
   const skinBridge = fs.readFileSync(skinBridgePath, 'utf8');
@@ -28,7 +28,7 @@ function run() {
   const crtIcon = fs.readFileSync(crtIconPath, 'utf8');
   const pkgConfig = fs.readFileSync(pkgConfigPath, 'utf8');
   const server = fs.readFileSync(serverPath, 'utf8');
-  const crtApp = fs.readFileSync(path.join(__dirname, '../../frontend/skins/crt/app.js'), 'utf8');
+  const crtApp = fs.readFileSync(path.join(__dirname, '../../frontend/skins/crt/app.ts'), 'utf8');
 
   assert(
     terminalBridge.includes('FarmingTerminalBridge'),
@@ -51,7 +51,7 @@ function run() {
     sessionBridge.includes('sendComposerMessage(agentId, message, attachments = [], options = {})') &&
       sessionBridge.includes("typeof options.requestId === 'string'") &&
       sessionBridge.includes('...(attachments.length > 0 ? { attachments } : {})') &&
-      sessionBridge.includes("type !== 'composer-input-result'") &&
+      sessionBridge.includes("candidate.type === 'composer-input-result'") &&
       sessionBridge.includes('rejectPendingComposerMessages') &&
       sessionBridge.includes('uncertain: true'),
     'structured runtimes should preserve ACP attachments and correlate Codex chat acceptance through the session bridge'
@@ -175,11 +175,12 @@ function run() {
   assert(crtApp.includes('isCrtRuntimeSwitchShortcut') && indexHtml.includes('class="crt-command-shortcut" aria-hidden="true">[ALT+M]</span>'), 'CRT should expose a visible non-terminal runtime switch shortcut');
   assert(indexHtml.includes('class="kill-btn" aria-label="Kill Agent, Ctrl+K"') && indexHtml.includes('class="close-btn" aria-label="Close session, Ctrl+Escape"'), 'CRT Kill and Close should retain their standalone button styles');
   assert(indexHtml.includes('>KILL [CTRL+K]</button>') && indexHtml.includes('>CLOSE [CTRL+ESC]</button>'), 'CRT session actions should default to the Terminal keyboard labels');
-  assert(crtApp.includes('function updateCrtSessionCloseControl(agent)') && crtApp.includes("chat ? 'CLOSE [ESC]' : 'CLOSE [CTRL+ESC]'"), 'CRT should show Escape for Chat and Ctrl+Escape for Terminal');
+  assert(crtApp.includes('function updateCrtSessionCloseControl') && crtApp.includes("chat ? 'CLOSE [ESC]' : 'CLOSE [CTRL+ESC]'"), 'CRT should show Escape for Chat and Ctrl+Escape for Terminal');
   assert(
     crtApp.includes('function resolveCrtSessionKeyboardCommand')
       && crtApp.includes('function hasCrtStructuredLocalEscapeAction')
-      && crtApp.includes("if (sessionCommand === 'kill') killCurrentAgent()")
+      && crtApp.includes("sessionCommand === 'kill'")
+      && crtApp.includes('killCurrentAgent()')
       && crtApp.includes('e.stopPropagation()'),
     'CRT session commands should remain focus-independent while local Chat Escape transitions keep priority'
   );
@@ -275,7 +276,7 @@ function run() {
       !crtApp.includes('setupTerminalInputBridge') &&
       !crtApp.includes('schedulePrintableInput') &&
       !crtApp.includes('terminalInputPendingTexts') &&
-      crtApp.includes('terminal.onData((data) => {'),
+      crtApp.includes('terminal.onData((data'),
     'CRT should use only xterm native input and IME handling',
   );
   assert(crtApp.includes("RUNTIME_PATHS.path('/code/')"), 'CRT UI Theme settings should provide a Farming Code return path');

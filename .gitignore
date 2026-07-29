@@ -18,6 +18,9 @@ dist-release/
 releases/
 backend/usage-history-scanner.generated.js
 backend/*.cjs
+backend/**/*.cjs
+backend/*.pkg.js
+extensions/browser/backend/**/*.cjs
 reference/
 docs/products/hive/
 .farming/

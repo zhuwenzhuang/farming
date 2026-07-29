@@ -1,4 +1,4 @@
-const { buildTranscriptFromEvents } = require('./codex-transcript') as {
+const { buildTranscriptFromEvents } = require('./codex-transcript.cjs') as {
   buildTranscriptFromEvents(events: JsonEvent[], options: unknown): unknown;
 };
 

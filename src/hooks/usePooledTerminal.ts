@@ -36,6 +36,7 @@ interface UsePooledTerminalOptions {
   onFollowOutputChange?: (state: TerminalFollowState) => void
   onPathOpen?: (agentId: string, target: TerminalPathOpenTarget) => void
   onPathResolve?: (agentId: string, target: TerminalPathOpenTarget) => Promise<TerminalPathOpenTarget | null> | TerminalPathOpenTarget | null
+  onSearchOpen?: (agentId: string, query: string) => void
   onOpenUrlInFarming?: (agentId: string, url: string) => void
   onRecoveryStatusChange?: (status: TerminalRecoveryStatus) => void
   onReady?: () => void
@@ -48,6 +49,7 @@ interface TerminalAttachmentHandlers {
   onFollowOutputChange: (state: TerminalFollowState) => void
   onPathOpen: (agentId: string, target: TerminalPathOpenTarget) => void
   onPathResolve: (agentId: string, target: TerminalPathOpenTarget) => Promise<TerminalPathOpenTarget | null> | TerminalPathOpenTarget | null
+  onSearchOpen: (agentId: string, query: string) => void
   onOpenUrlInFarming: (agentId: string, url: string) => void
   onRecoveryStatusChange: (status: TerminalRecoveryStatus) => void
   onReady: () => void
@@ -63,6 +65,7 @@ export function usePooledTerminal({
   onFollowOutputChange,
   onPathOpen,
   onPathResolve,
+  onSearchOpen,
   onOpenUrlInFarming,
   onRecoveryStatusChange,
   onReady,
@@ -74,6 +77,7 @@ export function usePooledTerminal({
     onFollowOutputChange,
     onPathOpen,
     onPathResolve,
+    onSearchOpen,
     onOpenUrlInFarming,
     onRecoveryStatusChange,
     onReady,
@@ -85,6 +89,7 @@ export function usePooledTerminal({
     onFollowOutputChange,
     onPathOpen,
     onPathResolve,
+    onSearchOpen,
     onOpenUrlInFarming,
     onRecoveryStatusChange,
     onReady,
@@ -106,6 +111,9 @@ export function usePooledTerminal({
       },
       onPathResolve: (currentAgentId, target) => {
         return latestHandlersRef.current.onPathResolve?.(currentAgentId, target) ?? null
+      },
+      onSearchOpen: (currentAgentId, query) => {
+        latestHandlersRef.current.onSearchOpen?.(currentAgentId, query)
       },
       onOpenUrlInFarming: (currentAgentId, url) => {
         latestHandlersRef.current.onOpenUrlInFarming?.(currentAgentId, url)
@@ -155,6 +163,7 @@ export function usePooledTerminal({
         onFollowOutputChange: attachmentHandlers.onFollowOutputChange,
         onPathOpen: attachmentHandlers.onPathOpen,
         onPathResolve: attachmentHandlers.onPathResolve,
+        onSearchOpen: attachmentHandlers.onSearchOpen,
         onOpenUrlInFarming: latestLiveOptionsRef.current.farmingUrlOpenEnabled
           ? attachmentHandlers.onOpenUrlInFarming
           : undefined,
@@ -227,6 +236,7 @@ export function usePooledTerminal({
         onFollowOutputChange: attachmentHandlers.onFollowOutputChange,
         onPathOpen: attachmentHandlers.onPathOpen,
         onPathResolve: attachmentHandlers.onPathResolve,
+        onSearchOpen: attachmentHandlers.onSearchOpen,
         onOpenUrlInFarming: latestLiveOptionsRef.current.farmingUrlOpenEnabled
           ? attachmentHandlers.onOpenUrlInFarming
           : undefined,

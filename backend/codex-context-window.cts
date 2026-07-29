@@ -1,11 +1,12 @@
-const fsp = require('fs/promises');
-const os = require('os');
-const path = require('path');
-const {
+import {
   collectRecentJsonlFiles,
   readSessionMetadata,
   sessionIdFromFilePath,
-} = require('./codex-session-history');
+} from './codex-session-history.cjs';
+
+const fsp = require('fs/promises');
+const os = require('os');
+const path = require('path');
 const { isSafeProviderSessionId, isTemporaryProviderSessionId } = require('./provider-session-id.cjs');
 
 const CACHE_TTL_MS = 5_000;

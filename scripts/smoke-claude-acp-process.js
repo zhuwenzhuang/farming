@@ -30,7 +30,7 @@ function parseArgs(argv) {
 
 function launchForOptions(options) {
   if (options.packageRoot) {
-    const runtime = require(path.join(options.packageRoot, 'backend', 'acp-runtime'));
+    const runtime = require(path.join(options.packageRoot, 'backend', 'acp-runtime.cjs'));
     return runtime.resolveAcpLaunch('claude');
   }
   return { command: options.command, args: options.args };

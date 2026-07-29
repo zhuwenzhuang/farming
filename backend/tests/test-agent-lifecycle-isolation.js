@@ -1,6 +1,6 @@
 const assert = require('assert');
 const EventEmitter = require('events');
-const AgentManager = require('../agent-manager');
+const AgentManager = require('../agent-manager.cjs');
 
 function configManager() {
   return {

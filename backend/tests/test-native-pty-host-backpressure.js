@@ -1,5 +1,5 @@
 const assert = require('assert');
-const NativePtyHost = require('../native-pty-host');
+const { NativePtyHost } = require('../native-pty-host.cjs');
 
 function fakeSocket(options = {}) {
   return {

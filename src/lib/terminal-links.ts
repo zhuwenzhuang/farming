@@ -1,14 +1,21 @@
+import { LinkComputer } from 'monaco-editor/esm/vs/editor/common/languages/linkComputer.js'
+import {
+  detectTerminalPathLinks,
+  type ParsedTerminalPathLink,
+} from './terminal-link-parsing'
+
 export interface TerminalPathOpenTarget {
   path: string
   lineNumber?: number
   column?: number
+  endLineNumber?: number
   endColumn?: number
   globalRoot?: boolean
   exactExternal?: boolean
 }
 
 export interface TerminalLinkMatch {
-  kind: 'url' | 'path'
+  kind: 'url' | 'path' | 'search'
   startIndex: number
   length: number
   text: string
@@ -16,7 +23,7 @@ export interface TerminalLinkMatch {
 }
 
 export interface TerminalLinkHoverTarget {
-  kind: 'url' | 'path'
+  kind: 'url' | 'path' | 'search'
   text: string
   pathTarget?: TerminalPathOpenTarget
 }
@@ -26,11 +33,13 @@ interface TerminalLinkLogicalLine {
   cols: number
 }
 
-const TERMINAL_PATH_TARGET_PATTERN = /(^|[\s"'`([{<])((?:\/|~\/|\.{1,2}\/)?[A-Za-z0-9_@.+~=-][^\s"'`<>{}()[\],;:]*(?:\/[^\s"'`<>{}()[\],;:]+)*):(\d+)(?::(\d+))?/g
-const TERMINAL_FILE_TARGET_PATTERN = /(^|[\s"'`([{<])((?:\/|~\/|\.{1,2}\/)?[A-Za-z0-9_@.+~=-][^\s"'`<>{}()[\],;:]*(?:\/[^\s"'`<>{}()[\],;:]+)*)(?=$|[\s"'`)\]}>.,;:])/g
-const TERMINAL_URL_PATTERN = /\bhttps?:\/\/[^\s<>"'`]+/g
-const TERMINAL_URL_CONTINUATION_PATTERN = /^[A-Za-z0-9%/?#&=._~:+@!$'()*+,;-]+/
-const TERMINAL_URL_STRONG_CONTINUATION_PATTERN = /^(?:[0-9A-Fa-f]{1,2})?%[0-9A-Fa-f]{2}|^[/?#&=._~:+@!$'()*+,;-]/
+const MAX_TERMINAL_URL_LENGTH = 2048
+const MAX_TERMINAL_PATH_LINE_LENGTH = 2000
+const MAX_TERMINAL_PATH_LENGTH = 1024
+const MAX_TERMINAL_PATH_LINKS_PER_LINE = 10
+const MAX_TERMINAL_MULTILINE_SCAN_LINES = 100
+const MAX_TERMINAL_SEARCH_WORD_LENGTH = 100
+const TERMINAL_WORD_SEPARATOR_PATTERN = /[ ()[\]{}',"`─‘’“”|\uE0B0-\uE0BF]/gu
 const TERMINAL_PATH_EXTENSIONLESS_NAMES = new Set([
   'Dockerfile',
   'Gemfile',
@@ -38,6 +47,20 @@ const TERMINAL_PATH_EXTENSIONLESS_NAMES = new Set([
   'Makefile',
   'README',
 ])
+
+// VS Code applies these only when its primary local-link parser found no
+// resolvable candidates. They intentionally cover diagnostics whose paths may
+// contain spaces.
+const TERMINAL_PATH_STRONG_FALLBACK_MATCHERS = [
+  /^ *File (?<link>"(?<path>.+)"(?:, line (?<line>\d+)(?:, (?:col(?:umn)?|character) (?<col>\d+))?)?)/,
+  /^ +FILE +(?<link>(?<path>.+)(?::(?<line>\d+)(?::(?<col>\d+))?)?)/,
+  /^(?:PS\s+)?(?<link>(?<path>[^>]+))>/,
+]
+const TERMINAL_PATH_SPACE_DIAGNOSTIC_MATCHERS = [
+  /^(?<link>(?<path>.+)\((?<line>\d+)(?:, ?(?<col>\d+))?\)) ?:/,
+  /^(?<link>(?<path>.+):(?<line>\d+)(?::(?<col>\d+))?) ?:/,
+]
+const TERMINAL_PATH_WHOLE_LINE_FALLBACK = /^ *(?<link>(?<path>.+))/
 
 export function isValidTerminalUrl(url: string) {
   try {
@@ -48,133 +71,235 @@ export function isValidTerminalUrl(url: string) {
   }
 }
 
+function computeTerminalUrlLinkMatches(lineText: string): TerminalLinkMatch[] {
+  const links = LinkComputer.computeLinks({
+    getLineCount: () => 1,
+    getLineContent: () => lineText,
+  })
+  const matches: TerminalLinkMatch[] = []
+  for (const link of links) {
+    const text = String(link.url || '')
+    if (text.length > MAX_TERMINAL_URL_LENGTH || !isValidTerminalUrl(text)) continue
+    matches.push({
+      kind: 'url',
+      startIndex: link.range.startColumn - 1,
+      length: link.range.endColumn - link.range.startColumn,
+      text,
+    })
+  }
+  return matches
+}
+
 function hasFileLikeSignal(filePath: string) {
-  const basename = filePath.split('/').filter(Boolean).pop() || filePath
+  const basename = filePath.split(/[\\/]/).filter(Boolean).pop() || filePath
   return filePath.includes('/') ||
+    filePath.includes('\\') ||
+    /^[A-Za-z]:/.test(filePath) ||
     basename.includes('.') ||
     TERMINAL_PATH_EXTENSIONLESS_NAMES.has(basename) ||
     /^[A-Z][A-Za-z0-9_-]*file$/.test(basename)
 }
 
 function isLikelyTerminalPathTarget(filePath: string) {
-  if (!filePath || filePath.includes('://')) return false
+  if (!filePath) return false
+  if (filePath.length > MAX_TERMINAL_PATH_LENGTH) return false
   if (filePath === '.' || filePath === '..') return false
   return hasFileLikeSignal(filePath)
 }
 
-export function parseTerminalPathTargetAtColumn(lineText: string, col: number): TerminalPathOpenTarget | null {
-  TERMINAL_PATH_TARGET_PATTERN.lastIndex = 0
-
-  for (;;) {
-    const match = TERMINAL_PATH_TARGET_PATTERN.exec(lineText)
-    if (!match) return null
-
-    const prefix = match[1] || ''
-    const rawPath = match[2] || ''
-    const lineTextValue = match[3] || ''
-    const columnTextValue = match[4] || ''
-    const matchedTarget = `${rawPath}:${lineTextValue}${columnTextValue ? `:${columnTextValue}` : ''}`
-    const targetStart = match.index + prefix.length
-    const targetEnd = targetStart + matchedTarget.length
-    if (col < targetStart || col >= targetEnd) continue
-
-    const filePath = rawPath.replace(/^\.\/+/, '')
-    if (!isLikelyTerminalPathTarget(filePath)) return null
-
-    const lineNumber = Number(lineTextValue)
-    const column = columnTextValue ? Number(columnTextValue) : undefined
-    if (!Number.isFinite(lineNumber) || lineNumber <= 0) return null
-    if (column !== undefined && (!Number.isFinite(column) || column <= 0)) return null
-
-    return {
-      path: filePath,
-      lineNumber,
-      ...(column !== undefined ? { column } : {}),
-    }
+function fileUrlToTerminalPath(rawPath: string) {
+  if (!rawPath.startsWith('file://')) return rawPath
+  try {
+    const uri = new URL(rawPath)
+    let filePath = decodeURIComponent(uri.pathname)
+    if (uri.hostname) filePath = `//${uri.hostname}${filePath}`
+    if (/^\/[A-Za-z]:\//.test(filePath)) filePath = filePath.slice(1)
+    return filePath
+  } catch {
+    return rawPath
   }
 }
 
-export function parseTerminalFileTargetAtColumn(lineText: string, col: number): TerminalPathOpenTarget | null {
-  TERMINAL_FILE_TARGET_PATTERN.lastIndex = 0
-
-  for (;;) {
-    const match = TERMINAL_FILE_TARGET_PATTERN.exec(lineText)
-    if (!match) return null
-
-    const prefix = match[1] || ''
-    const rawPath = match[2] || ''
-    const targetStart = match.index + prefix.length
-    const targetEnd = targetStart + rawPath.length
-    if (col < targetStart || col >= targetEnd) continue
-
-    const filePath = rawPath.replace(/^\.\/+/, '')
-    if (!isLikelyTerminalPathTarget(filePath)) return null
-    return { path: filePath }
+function normalizeTerminalPathTarget(rawPath: string, lineText: string) {
+  let filePath = fileUrlToTerminalPath(rawPath).replace(/^\.\/+/, '')
+  if (
+    /^\s*(?:---|\+\+\+)\s+[ab]\//.test(lineText) ||
+    /^\s*diff --git\s+(?:a|b)\//.test(lineText)
+  ) {
+    filePath = filePath.replace(/^[ab]\//, '')
   }
+  return filePath
+}
+
+function terminalPathMatchFromParsedLink(
+  lineText: string,
+  parsedLink: ParsedTerminalPathLink,
+): TerminalLinkMatch | null {
+  const filePath = normalizeTerminalPathTarget(parsedLink.path.text, lineText)
+  if (!isLikelyTerminalPathTarget(filePath)) return null
+
+  const startIndex = parsedLink.prefix?.index ?? parsedLink.path.index
+  const endIndex = parsedLink.suffix
+    ? parsedLink.suffix.range.index + parsedLink.suffix.range.text.length
+    : parsedLink.path.index + parsedLink.path.text.length
+  return {
+    kind: 'path',
+    startIndex,
+    length: endIndex - startIndex,
+    text: lineText.slice(startIndex, endIndex),
+    pathTarget: {
+      path: filePath,
+      ...(parsedLink.suffix?.lineNumber !== undefined
+        ? { lineNumber: parsedLink.suffix.lineNumber }
+        : {}),
+      ...(parsedLink.suffix?.column !== undefined
+        ? { column: parsedLink.suffix.column }
+        : {}),
+      ...(parsedLink.suffix?.endLineNumber !== undefined
+        ? { endLineNumber: parsedLink.suffix.endLineNumber }
+        : {}),
+      ...(parsedLink.suffix?.endColumn !== undefined
+        ? { endColumn: parsedLink.suffix.endColumn }
+        : {}),
+    },
+  }
+}
+
+function terminalPathFallbackMatch(lineText: string, matchers: readonly RegExp[]): TerminalLinkMatch | null {
+  for (const matcher of matchers) {
+    const match = lineText.match(matcher)
+    const groups = match?.groups
+    const link = groups?.link
+    const rawPath = groups?.path
+    if (!match || !link || !rawPath || link.length > MAX_TERMINAL_PATH_LENGTH) continue
+
+    const filePath = normalizeTerminalPathTarget(rawPath, lineText)
+    if (!isLikelyTerminalPathTarget(filePath)) continue
+    const lineNumber = groups?.line ? Number.parseInt(groups.line, 10) : undefined
+    const column = groups?.col ? Number.parseInt(groups.col, 10) : undefined
+    if (lineNumber !== undefined && lineNumber <= 0) continue
+    if (column !== undefined && column <= 0) continue
+
+    const startIndex = match.index === undefined
+      ? lineText.indexOf(link)
+      : match.index + match[0].indexOf(link)
+    return {
+      kind: 'path',
+      startIndex,
+      length: link.length,
+      text: link,
+      pathTarget: {
+        path: filePath,
+        ...(lineNumber !== undefined ? { lineNumber } : {}),
+        ...(column !== undefined ? { column } : {}),
+      },
+    }
+  }
+  return null
 }
 
 export function collectTerminalPathLinkMatches(lineText: string): TerminalLinkMatch[] {
-  const matches: TerminalLinkMatch[] = []
-  TERMINAL_PATH_TARGET_PATTERN.lastIndex = 0
+  if (!lineText || lineText.length > MAX_TERMINAL_PATH_LINE_LENGTH) return []
 
-  for (;;) {
-    const match = TERMINAL_PATH_TARGET_PATTERN.exec(lineText)
-    if (!match) break
+  // Farming resolves candidates in the caller after this synchronous lexical
+  // pass. Prefer VS Code's diagnostic fallbacks up front so a quoted path with
+  // spaces is not split into two weaker path candidates before validation.
+  const strongFallback = terminalPathFallbackMatch(lineText, TERMINAL_PATH_STRONG_FALLBACK_MATCHERS)
+  if (strongFallback) return [strongFallback]
+  const spaceDiagnosticFallback = terminalPathFallbackMatch(lineText, TERMINAL_PATH_SPACE_DIAGNOSTIC_MATCHERS)
+  if (spaceDiagnosticFallback?.pathTarget?.path.match(/\s/)) return [spaceDiagnosticFallback]
 
-    const prefix = match[1] || ''
-    const rawPath = match[2] || ''
-    const lineTextValue = match[3] || ''
-    const columnTextValue = match[4] || ''
-    const targetText = `${rawPath}:${lineTextValue}${columnTextValue ? `:${columnTextValue}` : ''}`
-    const startIndex = match.index + prefix.length
-    const filePath = rawPath.replace(/^\.\/+/, '')
-    const lineNumber = Number(lineTextValue)
-    const column = columnTextValue ? Number(columnTextValue) : undefined
-    if (
-      !isLikelyTerminalPathTarget(filePath) ||
-      !Number.isFinite(lineNumber) ||
-      lineNumber <= 0 ||
-      (column !== undefined && (!Number.isFinite(column) || column <= 0))
-    ) {
+  const parsedMatches: TerminalLinkMatch[] = []
+  for (const parsedLink of detectTerminalPathLinks(lineText)) {
+    if (parsedMatches.length >= MAX_TERMINAL_PATH_LINKS_PER_LINE) break
+    const match = terminalPathMatchFromParsedLink(lineText, parsedLink)
+    if (!match) continue
+    if (parsedMatches.some(existing => rangesOverlap(
+      match.startIndex,
+      match.length,
+      existing.startIndex,
+      existing.length,
+    ))) {
       continue
     }
-
-    matches.push({
-      kind: 'path',
-      startIndex,
-      length: targetText.length,
-      text: targetText,
-      pathTarget: {
-        path: filePath,
-        lineNumber,
-        ...(column !== undefined ? { column } : {}),
-      },
-    })
+    parsedMatches.push(match)
   }
 
-  TERMINAL_FILE_TARGET_PATTERN.lastIndex = 0
-  for (;;) {
-    const match = TERMINAL_FILE_TARGET_PATTERN.exec(lineText)
-    if (!match) break
+  if (parsedMatches.length > 0) return parsedMatches.sort((a, b) => a.startIndex - b.startIndex)
+  const fallback = terminalPathFallbackMatch(lineText, [TERMINAL_PATH_WHOLE_LINE_FALLBACK])
+  return fallback ? [fallback] : []
+}
 
-    const prefix = match[1] || ''
-    const rawPath = match[2] || ''
-    const startIndex = match.index + prefix.length
-    const filePath = rawPath.replace(/^\.\/+/, '')
-    if (!isLikelyTerminalPathTarget(filePath)) continue
-    if (matches.some(existing => rangesOverlap(startIndex, rawPath.length, existing.startIndex, existing.length))) {
-      continue
+export function collectTerminalMultiLinePathLinkMatches(
+  lineText: string,
+  previousLogicalLines: readonly string[],
+): TerminalLinkMatch[] {
+  if (!lineText || lineText.length > MAX_TERMINAL_PATH_LINE_LENGTH) return []
+
+  const lineNumberMatch = lineText.match(/^ *(?<link>(?<line>\d+):(?<col>\d+)?)/)
+  if (lineNumberMatch?.groups?.link && lineNumberMatch.groups.line) {
+    const possiblePath = previousLogicalLines
+      .slice(0, MAX_TERMINAL_MULTILINE_SCAN_LINES)
+      .find(previousLine => !/^\s*\d/.test(previousLine))
+      ?.trim()
+    const filePath = possiblePath ? normalizeTerminalPathTarget(possiblePath, possiblePath) : ''
+    if (isLikelyTerminalPathTarget(filePath)) {
+      const lineNumber = Number.parseInt(lineNumberMatch.groups.line, 10)
+      const column = lineNumberMatch.groups.col
+        ? Number.parseInt(lineNumberMatch.groups.col, 10)
+        : 1
+      if (lineNumber > 0 && column > 0) {
+        const startIndex = lineNumberMatch.index === undefined
+          ? lineText.indexOf(lineNumberMatch.groups.link)
+          : lineNumberMatch.index + lineNumberMatch[0].indexOf(lineNumberMatch.groups.link)
+        return [{
+          kind: 'path',
+          startIndex,
+          length: lineNumberMatch.groups.link.length,
+          text: lineNumberMatch.groups.link,
+          pathTarget: { path: filePath, lineNumber, column },
+        }]
+      }
     }
-    matches.push({
-      kind: 'path',
-      startIndex,
-      length: rawPath.length,
-      text: rawPath,
-      pathTarget: { path: filePath },
-    })
   }
 
-  return matches
+  const gitHunkMatch = lineText.match(/^(?<link>@@ .+ \+(?<line>\d+),(?<count>\d+) @@)/)
+  if (!gitHunkMatch?.groups?.link || !gitHunkMatch.groups.line) return []
+  const pathMatch = previousLogicalLines
+    .slice(0, MAX_TERMINAL_MULTILINE_SCAN_LINES)
+    .map(previousLine => previousLine.match(/\+\+\+ b\/(?<path>.+)/))
+    .find(Boolean)
+  const filePath = pathMatch?.groups?.path
+    ? normalizeTerminalPathTarget(pathMatch.groups.path, pathMatch.groups.path)
+    : ''
+  if (!isLikelyTerminalPathTarget(filePath)) return []
+
+  const lineNumber = Number.parseInt(gitHunkMatch.groups.line, 10)
+  const count = gitHunkMatch.groups.count
+    ? Number.parseInt(gitHunkMatch.groups.count, 10)
+    : 0
+  if (lineNumber <= 0 || count < 0) return []
+  return [{
+    kind: 'path',
+    startIndex: gitHunkMatch.index ?? 0,
+    length: gitHunkMatch.groups.link.length,
+    text: gitHunkMatch.groups.link,
+    pathTarget: {
+      path: filePath,
+      lineNumber,
+      column: 1,
+      ...(count > 0 ? { endLineNumber: lineNumber + count } : {}),
+    },
+  }]
+}
+
+export function parseTerminalPathTargetAtColumn(lineText: string, col: number): TerminalPathOpenTarget | null {
+  return parseTerminalPathLinkAtColumn(lineText, col)?.pathTarget ?? null
+}
+
+export function parseTerminalFileTargetAtColumn(lineText: string, col: number): TerminalPathOpenTarget | null {
+  const target = parseTerminalPathLinkAtColumn(lineText, col)?.pathTarget
+  return target?.lineNumber ? null : target ?? null
 }
 
 export function parseTerminalPathLinkAtColumn(lineText: string, col: number): TerminalLinkMatch | null {
@@ -197,131 +322,78 @@ function rangesOverlap(aStart: number, aLength: number, bStart: number, bLength:
 }
 
 export function trimTerminalUrl(rawUrl: string) {
-  let url = rawUrl.trim()
-  while (/[.,;:!?]$/.test(url)) {
-    url = url.slice(0, -1)
-  }
-
-  for (;;) {
-    const last = url[url.length - 1]
-    if (last !== ')' && last !== ']' && last !== '}') break
-
-    const first = last === ')' ? '(' : last === ']' ? '[' : '{'
-    const firstCount = [...url].filter(char => char === first).length
-    const lastCount = [...url].filter(char => char === last).length
-    if (lastCount <= firstCount) break
-    url = url.slice(0, -1)
-  }
-
-  return url
-}
-
-export function findTerminalUrlEndingAtLineEnd(lineText: string) {
-  TERMINAL_URL_PATTERN.lastIndex = 0
-
-  let found: { rawUrl: string; url: string } | null = null
-  for (;;) {
-    const match = TERMINAL_URL_PATTERN.exec(lineText)
-    if (!match) break
-
-    const rawUrl = match[0] || ''
-    const rawEnd = match.index + rawUrl.length
-    const url = trimTerminalUrl(rawUrl)
-    if (rawEnd === lineText.length && isValidTerminalUrl(url)) {
-      found = { rawUrl, url }
-    }
-  }
-
-  return found
-}
-
-export function isTerminalUrlTrimmedAtLineEnd(match: { rawUrl: string; url: string }) {
-  return match.rawUrl !== match.url
-}
-
-function isLineLikelyHardWrapped(lineText: string, cols: number) {
-  return lineText.length >= Math.max(20, cols - 2)
-}
-
-function isUrlTextLikelySplitAtEnd(urlText: string) {
-  return /%[0-9A-Fa-f]?$/.test(urlText) || /[/?#&=._~:+@!$'()*+,;%-]$/.test(urlText)
-}
-
-export function shouldReadUrlContinuation(previousLineText: string, previousUrlText: string, cols: number) {
-  return isLineLikelyHardWrapped(previousLineText, cols) ||
-    /%[0-9A-Fa-f]?$/.test(previousUrlText) ||
-    isUrlTextLikelySplitAtEnd(previousUrlText) ||
-    /[?#=&/][A-Za-z0-9%._~:+@!$'()*+,;-]*$/.test(previousUrlText)
-}
-
-export function readUrlContinuationPrefix(lineText: string, previousUrlText: string) {
-  const trimmed = lineText.trimStart()
-  if (!trimmed || /^https?:\/\//i.test(trimmed)) return null
-
-  const match = TERMINAL_URL_CONTINUATION_PATTERN.exec(trimmed)
-  const text = match?.[0] || ''
-  if (!text) return null
-
-  const wholeLineContinuation = trimmed === text
-  const previousLooksSplitInsideUrlToken = /[?#=&/][A-Za-z0-9%._~:+@!$'()*+,;-]*$/.test(previousUrlText)
-  const strongContinuation = TERMINAL_URL_STRONG_CONTINUATION_PATTERN.test(text) ||
-    isUrlTextLikelySplitAtEnd(previousUrlText) ||
-    (wholeLineContinuation && previousLooksSplitInsideUrlToken)
-  if (!strongContinuation) return null
-
-  return {
-    text,
-    startCol: lineText.length - trimmed.length,
-  }
+  const trimmed = rawUrl.trim()
+  return computeTerminalUrlLinkMatches(trimmed)
+    .find(match => match.startIndex === 0)?.text ?? trimmed
 }
 
 export function parseTerminalUrlAtColumn(lineText: string, col: number) {
-  TERMINAL_URL_PATTERN.lastIndex = 0
-
-  for (;;) {
-    const match = TERMINAL_URL_PATTERN.exec(lineText)
-    if (!match) return null
-
-    const rawUrl = match[0] || ''
-    const targetStart = match.index
-    const targetEnd = targetStart + rawUrl.length
-    if (col < targetStart || col >= targetEnd) continue
-
-    const url = trimTerminalUrl(rawUrl)
-    return isValidTerminalUrl(url) ? url : null
-  }
+  return computeTerminalUrlLinkMatches(lineText).find(match => (
+    col >= match.startIndex && col < match.startIndex + match.length
+  ))?.text ?? null
 }
 
 export function collectTerminalUrlLinkMatches(lineText: string): TerminalLinkMatch[] {
+  return computeTerminalUrlLinkMatches(lineText)
+}
+
+export function collectTerminalSearchLinkMatches(lineText: string): TerminalLinkMatch[] {
+  if (!lineText || lineText.length > MAX_TERMINAL_PATH_LINE_LENGTH) return []
   const matches: TerminalLinkMatch[] = []
-  TERMINAL_URL_PATTERN.lastIndex = 0
-
+  let startIndex = 0
+  TERMINAL_WORD_SEPARATOR_PATTERN.lastIndex = 0
   for (;;) {
-    const match = TERMINAL_URL_PATTERN.exec(lineText)
-    if (!match) break
-
-    const rawUrl = match[0] || ''
-    const url = trimTerminalUrl(rawUrl)
-    if (!isValidTerminalUrl(url)) continue
-    matches.push({
-      kind: 'url',
-      startIndex: match.index,
-      length: url.length,
-      text: url,
-    })
+    const separator = TERMINAL_WORD_SEPARATOR_PATTERN.exec(lineText)
+    const endIndex = separator?.index ?? lineText.length
+    let text = lineText.slice(startIndex, endIndex)
+    let length = text.length
+    if (text.endsWith(':')) {
+      text = text.slice(0, -1)
+      length -= 1
+    }
+    if (text && text.length <= MAX_TERMINAL_SEARCH_WORD_LENGTH) {
+      matches.push({
+        kind: 'search',
+        startIndex,
+        length,
+        text,
+      })
+    }
+    if (!separator) break
+    startIndex = separator.index + separator[0].length
   }
-
   return matches
 }
 
-export function collectTerminalLinkMatches(lineText: string, includePaths: boolean): TerminalLinkMatch[] {
+export function parseTerminalSearchAtColumn(lineText: string, col: number) {
+  return collectTerminalSearchLinkMatches(lineText).find(match => (
+    col >= match.startIndex && col < match.startIndex + match.length
+  ))?.text ?? null
+}
+
+export function collectTerminalLinkMatches(
+  lineText: string,
+  includePaths: boolean,
+  includeSearch = false,
+): TerminalLinkMatch[] {
   const urlMatches = collectTerminalUrlLinkMatches(lineText)
   const pathMatches = includePaths
     ? collectTerminalPathLinkMatches(lineText).filter(pathMatch => (
         !urlMatches.some(urlMatch => rangesOverlap(pathMatch.startIndex, pathMatch.length, urlMatch.startIndex, urlMatch.length))
       ))
     : []
-  return [...urlMatches, ...pathMatches].sort((a, b) => a.startIndex - b.startIndex)
+  const claimedMatches = [...urlMatches, ...pathMatches]
+  const searchMatches = includeSearch
+    ? collectTerminalSearchLinkMatches(lineText).filter(searchMatch => (
+        !claimedMatches.some(match => rangesOverlap(
+          searchMatch.startIndex,
+          searchMatch.length,
+          match.startIndex,
+          match.length,
+        ))
+      ))
+    : []
+  return [...claimedMatches, ...searchMatches].sort((a, b) => a.startIndex - b.startIndex)
 }
 
 export function terminalLinkMatchRange(match: TerminalLinkMatch, logicalLine: TerminalLinkLogicalLine) {

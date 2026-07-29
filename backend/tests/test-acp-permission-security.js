@@ -1,5 +1,5 @@
 const assert = require('assert');
-const { permissionSecurityWarnings, scanUnicode } = require('../acp/permission-security');
+const { permissionSecurityWarnings, scanUnicode } = require('../acp/permission-security.cjs');
 
 function request(networkHosts = [], writePaths = []) {
   return {

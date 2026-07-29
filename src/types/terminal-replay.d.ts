@@ -1,11 +1,17 @@
 type TerminalReplayTransition = {
   kind?: 'output' | 'resize' | 'clear'
-  data: string
+  data?: string
   runtimeEpoch?: string
   outputSeq?: number | null
   stateRevision?: number | null
   cols?: number
   rows?: number
+}
+
+type ValidTerminalReplayTransition = TerminalReplayTransition & {
+  runtimeEpoch: string
+  outputSeq: number
+  stateRevision: number
 }
 
 type TerminalReplayCheckpoint = {
@@ -23,7 +29,7 @@ type TerminalReplayState = {
   replayTargetEpoch: string
   replayTargetRevision: number | null
   recovering: boolean
-  queuedTransitions: TerminalReplayTransition[]
+  queuedTransitions: ValidTerminalReplayTransition[]
   queuedBytes: number
   retiredRuntimeEpochs: Set<string>
   failureCount: number
@@ -56,11 +62,11 @@ type FarmingTerminalReplayApi = {
     'maxQueuedTransitions' | 'maxQueuedBytes' | 'retryBaseMs' | 'retryMaxMs' | 'maxIdenticalInvariantFailures'
   >>) => TerminalReplayState
   compareRuntimeEpochs: (left: string, right: string) => -1 | 0 | 1 | null
-  beginRecovery: (state: TerminalReplayState, event?: Partial<TerminalReplayTransition>) => void
+  beginRecovery: (state: TerminalReplayState, event?: TerminalReplayTransition) => void
   isReplayTargetPending: (state: TerminalReplayState) => boolean
   classifyTransition: (state: TerminalReplayState, event: TerminalReplayTransition) => TerminalReplayDecision
   queueTransition: (state: TerminalReplayState, event: TerminalReplayTransition) => { queued: boolean; overflow: boolean }
-  takeQueuedTransition: (state: TerminalReplayState) => TerminalReplayTransition | null
+  takeQueuedTransition: (state: TerminalReplayState) => ValidTerminalReplayTransition | null
   clearQueuedTransitions: (state: TerminalReplayState) => void
   evaluateCheckpoint: (state: TerminalReplayState, checkpoint: TerminalReplayCheckpoint) => TerminalReplayDecision
   commitCheckpoint: (state: TerminalReplayState, checkpoint: TerminalReplayCheckpoint) => boolean

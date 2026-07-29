@@ -1,11 +1,11 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const { normalizeShellSessionOptions } = require('../local-session-engine');
+const { normalizeShellSessionOptions } = require('../local-session-engine.cjs');
 const { cleanupShellBusyIntegration } = require('../shell-busy-integration.cjs');
 
 function run() {
-  const engineSource = fs.readFileSync(path.join(__dirname, '..', 'local-session-engine.js'), 'utf8');
+  const engineSource = fs.readFileSync(path.join(__dirname, '..', 'local-session-engine.cts'), 'utf8');
   assert(
     engineSource.includes('loadPtyModule().spawn') &&
       !engineSource.includes("spawn('script'") &&

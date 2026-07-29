@@ -1,6 +1,6 @@
 const assert = require('assert');
-const NativePtyHost = require('../native-pty-host');
-const NativePtyHostClient = require('../native-pty-host-client');
+const { NativePtyHost } = require('../native-pty-host.cjs');
+const { NativePtyHostClient } = require('../native-pty-host-client.cjs');
 const {
   createTerminalReducerFlowControl,
 } = require('../terminal-reducer-flow-control.cjs');

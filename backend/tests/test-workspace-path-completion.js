@@ -7,7 +7,7 @@ function read(relativePath) {
 }
 
 function run() {
-  const serverSource = read('backend/server.js');
+  const serverSource = read('backend/server.cts');
   const inputDialogSource = read('src/components/InputDialog.tsx');
   const stylesSource = read('src/styles/main.css');
 

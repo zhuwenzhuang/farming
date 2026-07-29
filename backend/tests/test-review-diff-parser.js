@@ -1,5 +1,5 @@
 const assert = require('assert');
-const { parseUnifiedDiffRows } = require('../workspace-file-service');
+const { parseUnifiedDiffRows } = require('../workspace-file-service.cjs');
 
 const rows = parseUnifiedDiffRows([
   'diff --git a/src/review.ts b/src/review.ts',

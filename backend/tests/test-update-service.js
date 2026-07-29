@@ -38,7 +38,7 @@ async function run() {
   assert.deepStrictEqual(await secondSingleFlightStart, { phase: 'installing', version: 'single-flight' });
   assert.strictEqual(singleFlightService.installStartPromise, null, 'the start reservation should clear after completion');
 
-  const serverSource = fs.readFileSync(path.join(process.cwd(), 'backend/server.js'), 'utf8');
+  const serverSource = fs.readFileSync(path.join(process.cwd(), 'backend/server.cts'), 'utf8');
   assert(serverSource.includes("app.get(routePath(BASE_PATH, '/api/update')"));
   assert(serverSource.includes("app.post(routePath(BASE_PATH, '/api/update/install')"));
   assert(serverSource.includes("app.post(routePath(BASE_PATH, '/api/update/restart')"));

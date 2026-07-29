@@ -4,8 +4,8 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const AgentManager = require('../agent-manager');
-const ConfigManager = require('../config-manager');
+const AgentManager = require('../agent-manager.cjs');
+const { ConfigManager } = require('../config-manager.cjs');
 const { latestLifecycleOperation } = require('../agent-lifecycle-journal.cjs');
 
 async function run() {

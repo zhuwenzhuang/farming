@@ -18,10 +18,10 @@ const {
   paginateAgentSessions,
   resolveCodexResumeModelProvider,
   searchAgentSessions,
-} = require('../agent-session-history');
+} = require('../agent-session-history.cjs');
 
 async function run() {
-  const serverSource = fs.readFileSync(path.resolve(__dirname, '../server.js'), 'utf8');
+  const serverSource = fs.readFileSync(path.resolve(__dirname, '../server.cts'), 'utf8');
   assert(
     serverSource.includes("req.query.force === '1'")
       && serverSource.includes("req.query.fresh === '1' ? { maxAgeMs: INTERACTIVE_REFRESH_CACHE_MAX_AGE_MS } : {}")

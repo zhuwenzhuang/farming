@@ -44,6 +44,14 @@ export interface AgentTranscriptUserFile {
   resourceKind?: string
 }
 
+export interface AgentTranscriptLocation {
+  path: string
+  lineNumber?: number
+  column?: number
+  endLineNumber?: number
+  endColumn?: number
+}
+
 export interface AgentTranscriptProcessItem {
   id: string
   type: string
@@ -53,6 +61,7 @@ export interface AgentTranscriptProcessItem {
   images?: AgentTranscriptUserImage[]
   audios?: AgentTranscriptAudio[]
   files?: AgentTranscriptUserFile[]
+  locations?: AgentTranscriptLocation[]
   status?: string
   kind?: string
   completedSteps?: number
@@ -403,17 +412,37 @@ function detailForTool(entry: AcpRecord) {
   let structuredContent = toolContentText(list(entry.content).filter(value => record(value).type !== 'terminal'))
   const rawOutput = toolOutputText(entry)
   if (equivalentJsonText(structuredContent, entry.rawOutput)) structuredContent = ''
-  const locations = list(entry.locations).map(value => {
-    const location = record(value)
-    const path = stringValue(location.path || location.uri)
-    const line = location.line == null ? '' : `:${stringValue(location.line)}`
-    return `${path}${line}`
-  }).filter(Boolean).join('\n')
   if (rawInput) sections.push(`Input\n${rawInput}`)
   if (structuredContent) sections.push(structuredContent)
   if (rawOutput) sections.push(`Output\n${rawOutput}`)
-  if (locations) sections.push(`Locations\n${locations}`)
   return sections.join('\n\n')
+}
+
+function positiveLocationInteger(value: unknown) {
+  const number = Number(value)
+  return Number.isInteger(number) && number > 0 ? number : undefined
+}
+
+function toolLocations(entry: AcpRecord): AgentTranscriptLocation[] {
+  return list(entry.locations).slice(0, 20).flatMap(value => {
+    const location = record(value)
+    const range = record(location.range)
+    const start = record(range.start)
+    const end = record(range.end)
+    const path = stringValue(location.path || location.uri).trim().slice(0, 1024)
+    if (!path) return []
+    const lineNumber = positiveLocationInteger(location.lineNumber ?? location.line ?? start.line)
+    const column = positiveLocationInteger(location.column ?? start.column)
+    const endLineNumber = positiveLocationInteger(location.endLineNumber ?? location.endLine ?? end.line)
+    const endColumn = positiveLocationInteger(location.endColumn ?? end.column)
+    return [{
+      path,
+      ...(lineNumber !== undefined ? { lineNumber } : {}),
+      ...(column !== undefined ? { column } : {}),
+      ...(endLineNumber !== undefined ? { endLineNumber } : {}),
+      ...(endColumn !== undefined ? { endColumn } : {}),
+    }]
+  })
 }
 
 function boundedInlineDetail(detail: string) {
@@ -510,6 +539,7 @@ function processEntry(entry: AcpRecord): AgentTranscriptProcessItem | null {
     const images = uniqueByUrl(contentImages(mediaContent, prefix))
     const audios = uniqueByUrl(contentAudios(mediaContent, prefix))
     const files = contentFiles(mediaContent, prefix)
+    const locations = toolLocations(entry)
     const patchSummary = stringValue(entry.transcriptPatchSummary) || patchSummaryText(entry.content)
     const changes = Array.isArray(entry.transcriptChanges)
       ? entry.transcriptChanges.map(record).map(change => ({
@@ -548,6 +578,7 @@ function processEntry(entry: AcpRecord): AgentTranscriptProcessItem | null {
       ...(images.length > 0 ? { images } : {}),
       ...(audios.length > 0 ? { audios } : {}),
       ...(files.length > 0 ? { files } : {}),
+      ...(locations.length > 0 ? { locations } : {}),
       ...(changes.length > 0 ? { changes } : {}),
     }
   }

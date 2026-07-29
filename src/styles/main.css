@@ -7506,6 +7506,13 @@ body.code-mode .code-instance-name {
   -webkit-user-select: none;
 }
 
+.code-agent-transcript-locations {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0;
+}
+
 .code-agent-transcript-markdown-file-link {
   display: inline;
   padding: 0;

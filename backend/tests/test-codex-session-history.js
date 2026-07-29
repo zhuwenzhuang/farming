@@ -8,7 +8,7 @@ const {
   isTemporaryWorkspace,
   listCodexSessionIdentities,
   listCodexSessions,
-} = require('../codex-session-history');
+} = require('../codex-session-history.cjs');
 
 async function run() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-codex-history-'));

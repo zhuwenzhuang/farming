@@ -3,9 +3,9 @@ const EventEmitter = require('events');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const LocalSessionEngine = require('../local-session-engine');
-const NativePtyHost = require('../native-pty-host');
-const NativePtyHostClient = require('../native-pty-host-client');
+const { LocalSessionEngine } = require('../local-session-engine.cjs');
+const { NativePtyHost } = require('../native-pty-host.cjs');
+const { NativePtyHostClient } = require('../native-pty-host-client.cjs');
 const { NativeSessionEngine } = require('../native-session-engine.cjs');
 const { nativePtyHostSocketPath } = require('../native-pty-host-path.cjs');
 const {

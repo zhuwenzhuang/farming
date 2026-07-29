@@ -28,6 +28,7 @@ interface AgentWorkPaneProps {
   onSessionOutput: (agentId: string, handler: (data: string, replace?: boolean, outputSeq?: number | null, runtimeEpoch?: string, stateRevision?: number | null, cols?: number, rows?: number, kind?: 'output' | 'resize' | 'clear') => void) => () => void
   onOpenPath?: (agentId: string, target: TerminalPathOpenTarget) => void
   onResolvePath?: (agentId: string, target: TerminalPathOpenTarget) => Promise<TerminalPathOpenTarget | null> | TerminalPathOpenTarget | null
+  onSearchTerminalWord?: (agentId: string, query: string) => void
   onOpenWorkspaceFilePath?: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void> | void
   onOpenUrlInFarming?: (agentId: string, url: string) => void
   onFollowOutputChange?: (agentId: string, state: TerminalFollowState) => void
@@ -56,6 +57,7 @@ export function AgentWorkPane({
   onSessionOutput,
   onOpenPath,
   onResolvePath,
+  onSearchTerminalWord,
   onOpenWorkspaceFilePath,
   onOpenUrlInFarming,
   onFollowOutputChange,
@@ -109,6 +111,7 @@ export function AgentWorkPane({
             onActivate={onActivate}
             onOpenPath={onOpenPath}
             onResolvePath={onResolvePath}
+            onSearchWord={onSearchTerminalWord}
             onOpenUrlInFarming={onOpenUrlInFarming}
             onFollowOutputChange={onFollowOutputChange}
             onReadLatest={onReadLatest}

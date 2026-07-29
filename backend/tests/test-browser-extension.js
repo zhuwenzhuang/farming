@@ -8,7 +8,7 @@ const {
   discoverBrowserExecutables,
   discoverBrowserRuntime,
   normalizeExternalCdpUrl,
-} = require('../../extensions/browser/backend/executable-discovery');
+} = require('../../extensions/browser/backend/executable-discovery.cjs');
 const {
   applyBrowserResource,
   applyBrowserResourceDeletion,
@@ -18,7 +18,7 @@ const {
 const {
   BrowserResourceManager,
   normalizeUrl,
-} = require('../../extensions/browser/backend/browser-resource-manager');
+} = require('../../extensions/browser/backend/browser-resource-manager.cjs');
 
 class FakeBrowserRuntime extends EventEmitter {
   constructor(options) {
@@ -949,9 +949,9 @@ function testBrowserUiAndPackagingWiring() {
   const workspaceSource = fs.readFileSync(path.join(projectRoot, 'src', 'components', 'CodeWorkspace.tsx'), 'utf8');
   const mainAreaSource = fs.readFileSync(path.join(projectRoot, 'src', 'components', 'code', 'CodeMainArea.tsx'), 'utf8');
   const sidebarSource = fs.readFileSync(path.join(projectRoot, 'extensions', 'browser', 'frontend', 'BrowserSidebarPortals.tsx'), 'utf8');
-  const serverSource = fs.readFileSync(path.join(projectRoot, 'backend', 'server.js'), 'utf8');
+  const serverSource = fs.readFileSync(path.join(projectRoot, 'backend', 'server.cts'), 'utf8');
   const routerSource = fs.readFileSync(
-    path.join(projectRoot, 'extensions', 'browser', 'backend', 'browser-router.js'),
+    path.join(projectRoot, 'extensions', 'browser', 'backend', 'browser-router.cjs'),
     'utf8',
   );
   const packageJson = JSON.parse(fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf8'));
@@ -960,10 +960,11 @@ function testBrowserUiAndPackagingWiring() {
   assert(mainAreaSource.includes('<BrowserViewer'));
   assert(!sidebarSource.includes('window.confirm'), 'Browser row close must remove directly without a redundant confirmation');
   assert(serverSource.includes("createBrowserRouter(browserResourceManager"));
-  assert(routerSource.includes("router.post('/install'"));
+  assert(routerSource.includes('router.post("/install"'));
   assert.strictEqual(packageJson.dependencies['playwright-core'], undefined);
   assert.strictEqual(packageJson.bin['farming-browser'], 'extensions/browser/bin/farming-browser');
-  assert(packageJson.files.includes('extensions/browser/'));
+  assert(packageJson.files.includes('extensions/browser/backend/*.cjs'));
+  assert(packageJson.files.includes('extensions/browser/bin/'));
   assert(packageJson.files.includes('backend/farming-agent-bootstrap.zh_cn.md'));
 }
 

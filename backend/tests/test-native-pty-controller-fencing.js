@@ -2,7 +2,7 @@ const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const NativePtyHost = require('../native-pty-host');
+const { NativePtyHost } = require('../native-pty-host.cjs');
 const {
   allocateNativePtyControllerGeneration,
 } = require('../native-pty-controller-generation.cjs');

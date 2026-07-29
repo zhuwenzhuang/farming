@@ -3,9 +3,9 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const { AcpRuntime } = require('../acp-runtime');
-const AgentManager = require('../agent-manager');
-const ConfigManager = require('../config-manager');
+const { AcpRuntime } = require('../acp-runtime.cjs');
+const AgentManager = require('../agent-manager.cjs');
+const { ConfigManager } = require('../config-manager.cjs');
 
 async function run() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-composer-admission-'));
