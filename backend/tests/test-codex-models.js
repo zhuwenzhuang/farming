@@ -5,7 +5,7 @@ const {
   buildModelOptions,
   catalogModelsFromJson,
   listCodexModelOptions,
-} = require('../codex-models');
+} = require('../codex-models.cjs');
 
 async function run() {
   const raw = JSON.stringify({

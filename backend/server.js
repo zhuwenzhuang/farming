@@ -17,7 +17,7 @@ const TokenAuth = require('./auth');
 const { getLocalIPs, getPrimaryLocalIP } = require('./network.cjs');
 const { listAvailableAgents, resolveCompatibleCodexExecutable } = require('./executable-discovery.cjs');
 const { readClaudeSettingsSummary } = require('./claude-settings.cjs');
-const { listCodexModelOptions } = require('./codex-models');
+const { listCodexModelOptions } = require('./codex-models.cjs');
 const { listCodexSessions } = require('./codex-session-history');
 const {
   buildAgentSessionResumeCommand,

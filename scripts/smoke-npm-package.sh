@@ -94,6 +94,7 @@ for runtime_module in \
   chat-runtime \
   claude-settings \
   codex-context-window \
+  codex-models \
   codex-session-archive \
   codex-transcript-sanitizer \
   executable-discovery \

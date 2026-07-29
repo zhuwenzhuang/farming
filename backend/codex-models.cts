@@ -2,8 +2,84 @@ const { execFile } = require('child_process');
 
 const DEFAULT_CODEX_MODELS_TIMEOUT_MS = 15_000;
 
+interface RawCodexModel extends Record<string, unknown> {
+  slug: string;
+}
+
+interface ReasoningLevel {
+  description: string;
+  effort: string;
+}
+
+interface ServiceTier {
+  description: string;
+  label: string;
+  value: string;
+}
+
+interface ModelReasoningOption extends ReasoningLevel {
+  label: string;
+  value: string;
+}
+
+interface CodexModelCatalogItem {
+  defaultEffort: string;
+  description: string;
+  displayName: string;
+  label: string;
+  model: string;
+  reasoningLevels: ModelReasoningOption[];
+  serviceTiers: ServiceTier[];
+  source: string;
+  value: string;
+}
+
+interface CodexModelOption {
+  description: string;
+  effort: string;
+  label: string;
+  model: string;
+  source: string;
+  value: string;
+}
+
+interface CodexModelListResult {
+  catalog: CodexModelCatalogItem[];
+  models: CodexModelOption[];
+  source: 'codex';
+}
+
+interface CodexCommandError extends Error {
+  code?: string;
+  killed?: boolean;
+}
+
+type CodexModelsExec = (
+  executable: string,
+  args: string[],
+  options: { maxBuffer: number; timeout: number },
+  callback: (
+    error: CodexCommandError | null,
+    stdout: string | Buffer,
+    stderr: string | Buffer,
+  ) => void,
+) => unknown;
+
+interface ListCodexModelOptions {
+  codexBin?: string;
+  execFile?: CodexModelsExec;
+  timeout?: number;
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
 class CodexModelCatalogError extends Error {
-  constructor(code, message, cause = null) {
+  code: string;
+  override cause?: unknown;
+
+  constructor(code: string, message: string, cause: unknown = null) {
     super(message);
     this.name = 'CodexModelCatalogError';
     this.code = code;
@@ -11,7 +87,7 @@ class CodexModelCatalogError extends Error {
   }
 }
 
-const EFFORT_LABELS = {
+const EFFORT_LABELS: Record<string, string> = {
   minimal: 'Minimal',
   low: 'Low',
   medium: 'Medium',
@@ -27,13 +103,13 @@ const DEFAULT_SERVICE_TIER = {
   description: 'Default speed',
 };
 
-function compactModelLabel(model) {
+function compactModelLabel(model: RawCodexModel): string {
   const displayName = String(model.display_name || model.slug || '').trim();
   if (!displayName) return String(model.slug || '').trim();
   return displayName.replace(/^GPT-/i, '');
 }
 
-function normalizeReasoningLevels(model) {
+function normalizeReasoningLevels(model: RawCodexModel): ReasoningLevel[] {
   const levels = Array.isArray(model.supported_reasoning_levels)
     ? model.supported_reasoning_levels
     : [];
@@ -51,14 +127,17 @@ function normalizeReasoningLevels(model) {
   return fallbackEffort ? [{ effort: fallbackEffort, description: '' }] : [];
 }
 
-function normalizeServiceTiers(model) {
+function normalizeServiceTiers(model: RawCodexModel): ServiceTier[] {
   const tiers = Array.isArray(model.service_tiers) ? model.service_tiers : [];
   const normalized = tiers
-    .map(tier => ({
-      value: String(tier && (tier.id || tier.value) || '').trim(),
-      label: String(tier && (tier.name || tier.label) || '').trim(),
-      description: String(tier && tier.description || '').trim(),
-    }))
+    .map(tier => {
+      const candidate = isObject(tier) ? tier : {};
+      return {
+      value: String(candidate.id || candidate.value || '').trim(),
+      label: String(candidate.name || candidate.label || '').trim(),
+      description: String(candidate.description || '').trim(),
+      };
+    })
     .filter(tier => tier.value);
 
   return [
@@ -70,24 +149,30 @@ function normalizeServiceTiers(model) {
   ];
 }
 
-function catalogModelsFromJson(rawJson) {
-  const parsed = JSON.parse(rawJson);
-  const models = Array.isArray(parsed) ? parsed : parsed.models;
+function catalogModelsFromJson(rawJson: string | Buffer): unknown[] {
+  const parsed: unknown = JSON.parse(String(rawJson));
+  const models = Array.isArray(parsed) ? parsed : isObject(parsed) ? parsed.models : [];
   return Array.isArray(models) ? models : [];
 }
 
-function visibleModels(models) {
+function visibleModels(models: unknown[]): RawCodexModel[] {
   return models
-    .filter(model => model && typeof model.slug === 'string' && model.slug.trim())
+    .filter((model): model is RawCodexModel => (
+      isObject(model) && typeof model.slug === 'string' && Boolean(model.slug.trim())
+    ))
     .filter(model => !model.visibility || model.visibility === 'list')
     .sort((a, b) => {
-      const priorityA = Number.isFinite(a.priority) ? a.priority : Number.MAX_SAFE_INTEGER;
-      const priorityB = Number.isFinite(b.priority) ? b.priority : Number.MAX_SAFE_INTEGER;
+      const priorityA = typeof a.priority === 'number' && Number.isFinite(a.priority)
+        ? a.priority
+        : Number.MAX_SAFE_INTEGER;
+      const priorityB = typeof b.priority === 'number' && Number.isFinite(b.priority)
+        ? b.priority
+        : Number.MAX_SAFE_INTEGER;
       return priorityA - priorityB;
     });
 }
 
-function buildModelCatalog(models, source = 'codex') {
+function buildModelCatalog(models: unknown[], source = 'codex'): CodexModelCatalogItem[] {
   return visibleModels(models).map(model => {
     const modelId = model.slug.trim();
     const levels = normalizeReasoningLevels(model);
@@ -111,7 +196,7 @@ function buildModelCatalog(models, source = 'codex') {
   });
 }
 
-function buildModelOptions(models, source = 'codex') {
+function buildModelOptions(models: unknown[], source = 'codex'): CodexModelOption[] {
   return buildModelCatalog(models, source).flatMap(model => {
     if (model.reasoningLevels.length === 0) {
       return [{
@@ -135,14 +220,16 @@ function buildModelOptions(models, source = 'codex') {
   });
 }
 
-function listCodexModelOptions(options = {}) {
+function listCodexModelOptions(
+  options: ListCodexModelOptions = {},
+): Promise<CodexModelListResult> {
   const codexBin = options.codexBin || process.env.FARMING_CODEX_BIN || 'codex';
-  const timeout = Number.isFinite(options.timeout)
+  const timeout = typeof options.timeout === 'number' && Number.isFinite(options.timeout)
     ? Math.max(1, options.timeout)
     : DEFAULT_CODEX_MODELS_TIMEOUT_MS;
-  const runExecFile = options.execFile || execFile;
+  const runExecFile: CodexModelsExec = options.execFile || execFile as CodexModelsExec;
 
-  return new Promise((resolve, reject) => {
+  return new Promise<CodexModelListResult>((resolve, reject) => {
     try {
       runExecFile(codexBin, ['debug', 'models'], {
         timeout,
@@ -178,7 +265,7 @@ function listCodexModelOptions(options = {}) {
           return;
         }
 
-        let models;
+        let models: unknown[];
         try {
           models = catalogModelsFromJson(stdout);
         } catch (error) {
@@ -206,17 +293,17 @@ function listCodexModelOptions(options = {}) {
           source: 'codex',
         });
       });
-    } catch (error) {
+    } catch (error: unknown) {
       reject(new CodexModelCatalogError(
         'CODEX_MODELS_COMMAND_FAILED',
-        `Failed to start Codex model catalog command: ${error.message || error}`,
+        `Failed to start Codex model catalog command: ${error instanceof Error ? error.message : error}`,
         error
       ));
     }
   });
 }
 
-module.exports = {
+export {
   CodexModelCatalogError,
   DEFAULT_CODEX_MODELS_TIMEOUT_MS,
   buildModelCatalog,
