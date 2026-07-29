@@ -239,6 +239,9 @@ test.describe('Farming Code dark skin', () => {
 
     await expectDarkSurface(page.locator('body'), 'body')
     await expectDarkSurface(page.getByTestId('code-sidebar'), 'sidebar')
+    await expect(page.getByTestId('code-main')).toHaveCSS('background-color', 'rgb(24, 24, 24)')
+    await expect(page.getByTestId('code-sidebar')).toHaveCSS('background-color', 'rgb(36, 36, 36)')
+    await expect(page.getByTestId('code-agents-section').first()).toHaveCSS('background-color', 'rgb(36, 36, 36)')
     await expectDarkSurface(page.getByTestId('code-composer'), 'composer')
     await saveScreenshot(testInfo, 'desktop-shell.png', page)
 
@@ -319,6 +322,7 @@ test.describe('Farming Code dark skin', () => {
     }
     await expect(filesSection.getByTestId('code-file-row').filter({ hasText: 'README.md' })).toBeVisible()
     await expectDarkSurface(filesSection, 'files section')
+    await expect(filesSection.locator('.code-git-history-header')).toHaveCSS('background-color', 'rgb(36, 36, 36)')
     await saveScreenshot(testInfo, 'files-section.png', filesSection)
     await filesSection.getByTestId('code-file-row').filter({ hasText: 'README.md' }).click()
     await expect(page.getByTestId('code-file-editor')).toBeVisible()

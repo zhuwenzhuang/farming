@@ -3,6 +3,7 @@
 body.code-mode[data-appearance='dark'] {
   --code-dark-bg: #181818;
   --code-dark-bg-soft: #1c1c1c;
+  --code-dark-bg-sidebar: #242424;
   --code-dark-bg-panel: #212121;
   --code-dark-bg-elevated: #262626;
   --code-dark-bg-hover: #2d2d2d;
@@ -40,7 +41,9 @@ body.code-mode[data-appearance='dark'] ::selection {
 }
 
 body.code-mode[data-appearance='dark'] .code-sidebar {
-  background: var(--code-dark-bg-soft);
+  --code-dark-bg-soft: var(--code-dark-bg-sidebar);
+
+  background: var(--code-dark-bg-sidebar);
   color: var(--code-dark-text);
   border-right-color: var(--code-dark-border);
 }
@@ -1070,7 +1073,7 @@ body.code-mode[data-appearance='dark'] .code-file-change-group-toggle {
 }
 
 body.code-mode[data-appearance='dark'] .code-git-history-section {
-  --code-git-history-node-bg: var(--code-dark-bg);
+  --code-git-history-node-bg: var(--code-dark-bg-soft);
   color: var(--code-dark-text);
 }
 
@@ -1082,7 +1085,7 @@ body.code-mode[data-appearance='dark'] .code-git-history-parent-select select {
 }
 
 body.code-mode[data-appearance='dark'] .code-git-history-header {
-  background: var(--code-dark-bg);
+  background: var(--code-dark-bg-soft);
 }
 
 body.code-mode[data-appearance='dark'] .code-git-history-entry.selected,
