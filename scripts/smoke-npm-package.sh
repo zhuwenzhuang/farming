@@ -109,12 +109,14 @@ for runtime_module in \
   input-parts \
   input-routing \
   index-html \
+  main-agent-skills \
   main-page-session \
   native-pty-controller-generation \
   native-pty-host-identity \
   native-pty-host-path \
   native-session-engine \
   network \
+  provider-session-service \
   provider-session-id \
   preview-session-manager \
   qr-share-tickets \
@@ -145,6 +147,7 @@ for runtime_module in \
   theme-manager \
   usage-forecast \
   workspace-directory \
+  workspace-discovery \
   workspace-root-registry
 do
   if [ ! -f "${PACKAGE_ROOT}/backend/${runtime_module}.cjs" ]; then

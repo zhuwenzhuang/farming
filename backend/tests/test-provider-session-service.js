@@ -1,5 +1,5 @@
 const assert = require('assert');
-const { ProviderSessionService } = require('../provider-session-service');
+const { ProviderSessionService } = require('../provider-session-service.cjs');
 
 function deferred() {
   let resolve;

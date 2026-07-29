@@ -1,26 +1,149 @@
-const fs = require('fs');
-const path = require('path');
-const { findAgentSession } = require('./agent-session-history');
+import * as fs from 'fs';
+import * as path from 'path';
+
+const { findAgentSession } = require('./agent-session-history') as {
+  findAgentSession: FindAgentSession;
+};
 const {
   codexSessionDateKeys,
   listCodexSessionIdentities,
-} = require('./codex-session-history');
-const { mainPageAgentSessionKey } = require('./main-page-session.cjs');
-const { isTemporaryProviderSessionId } = require('./provider-session-id.cjs');
+} = require('./codex-session-history') as {
+  codexSessionDateKeys(startedAt: number, windowMs: number): string[];
+  listCodexSessionIdentities: ListCodexSessionIdentities;
+};
+const { mainPageAgentSessionKey } = require('./main-page-session.cjs') as {
+  mainPageAgentSessionKey(
+    provider: unknown,
+    sessionId: unknown,
+    providerHomeId?: unknown,
+  ): string;
+};
+const { isTemporaryProviderSessionId } = require('./provider-session-id.cjs') as {
+  isTemporaryProviderSessionId(sessionId: unknown): boolean;
+};
 
 const CODEX_RESOLVE_COOLDOWN_MS = 1000;
 const CODEX_MATCH_WINDOW_MS = 30 * 1000;
 const CODEX_STARTUP_RETRY_DELAYS_MS = [500, 1000, 2000, 4000, 8000, 12000];
 const TITLE_RESOLVE_COOLDOWN_MS = 30 * 1000;
 
-function normalizePath(value) {
+interface GitWorktree {
+  workspace?: string;
+}
+
+interface ProviderSessionAgent {
+  id: string;
+  cwd?: string;
+  projectWorkspace?: string;
+  gitWorktree?: GitWorktree;
+  providerHomeId?: string;
+  providerHomePath?: string;
+  providerSessionId?: string;
+  providerSessionKey?: string;
+  providerSessionProvider?: string;
+  providerSessionResolvedAt?: number;
+  providerSessionSource?: string;
+  providerSessionTemporary?: boolean;
+  providerSessionTitle?: string;
+  providerSessionWorkspace?: string;
+  startedAt?: unknown;
+}
+
+interface CodexSessionIdentity {
+  id?: string;
+  createdAt?: string;
+  cwd?: string;
+  title?: string;
+  workspace?: string;
+}
+
+interface ProviderHistorySession {
+  title?: unknown;
+}
+
+interface CodexSessionIdentityOptions {
+  codexHome?: string;
+  startedAt: number;
+  windowMs: number;
+}
+
+interface FindAgentSessionOptions {
+  limit: number;
+  providerLimit: number;
+  providerHomeId: string;
+  providerHomes: unknown;
+}
+
+interface SessionUpdatedEvent {
+  agentId: string;
+  provider: string;
+  sessionId: string;
+  previousSessionId?: string;
+  temporary: false;
+  title?: string;
+}
+
+interface ProviderSessionChange {
+  kind?: 'known-session' | 'session-updated';
+  event?: SessionUpdatedEvent;
+  refreshWorkspace?: string;
+}
+
+interface ProviderSessionAgentStore {
+  get(agentId: string): ProviderSessionAgent | undefined;
+  values(): IterableIterator<ProviderSessionAgent>;
+}
+
+type FindAgentSession = (
+  provider: string,
+  sessionId: string,
+  options: FindAgentSessionOptions,
+) => PromiseLike<ProviderHistorySession | null | undefined>;
+
+type ListCodexSessionIdentities = (
+  options: CodexSessionIdentityOptions,
+) => PromiseLike<CodexSessionIdentity[]> | CodexSessionIdentity[];
+
+interface ProviderSessionServiceOptions {
+  agents?: ProviderSessionAgentStore;
+  codexStartupRetryDelaysMs?: readonly number[];
+  commit?: (agent: ProviderSessionAgent, change: ProviderSessionChange) => void;
+  findAgentSession?: FindAgentSession;
+  getProviderHomes?: () => unknown;
+  listCodexSessionIdentities?: ListCodexSessionIdentities;
+}
+
+interface ResolutionOptions {
+  force?: boolean;
+}
+
+interface Resolution {
+  lastAttemptAt: number;
+  promise: Promise<boolean> | null;
+}
+
+interface StartupRetry {
+  attempt: number;
+  deadlineAt: number;
+  timer: NodeJS.Timeout | null;
+}
+
+interface ConfirmedSession {
+  provider: string;
+  sessionId: string;
+  source?: string;
+  title?: string;
+  workspace?: string;
+}
+
+function normalizePath(value: unknown): string {
   if (typeof value !== 'string') return '';
   const trimmed = value.trim();
   if (!trimmed || trimmed === path.sep) return trimmed;
   return trimmed.replace(/[\\/]+$/, '');
 }
 
-function canonicalPath(value) {
+function canonicalPath(value: unknown): string {
   const normalized = normalizePath(value);
   if (!normalized) return '';
   try {
@@ -30,27 +153,38 @@ function canonicalPath(value) {
   }
 }
 
-function timestampMs(value) {
-  const parsed = Date.parse(value || '');
+function timestampMs(value: unknown): number {
+  const parsed = Date.parse(String(value || ''));
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
 class ProviderSessionService {
-  constructor(options = {}) {
-    this.agents = options.agents || new Map();
+  agents: ProviderSessionAgentStore;
+  getProviderHomes: () => unknown;
+  commit: (agent: ProviderSessionAgent, change: ProviderSessionChange) => void;
+  listCodexSessionIdentities: ListCodexSessionIdentities;
+  findAgentSession: FindAgentSession;
+  codexStartupRetryDelaysMs: readonly number[];
+  resolutions: Map<string, Resolution>;
+  codexIdentityScans: Map<string, Promise<CodexSessionIdentity[]>>;
+  codexStartupRetries: Map<string, StartupRetry>;
+
+  constructor(options: ProviderSessionServiceOptions = {}) {
+    this.agents = options.agents || new Map<string, ProviderSessionAgent>();
     this.getProviderHomes = options.getProviderHomes || (() => undefined);
     this.commit = options.commit || (() => {});
-    this.listCodexSessionIdentities = options.listCodexSessionIdentities || listCodexSessionIdentities;
+    this.listCodexSessionIdentities = options.listCodexSessionIdentities
+      || listCodexSessionIdentities;
     this.findAgentSession = options.findAgentSession || findAgentSession;
     this.codexStartupRetryDelaysMs = Array.isArray(options.codexStartupRetryDelaysMs)
       ? options.codexStartupRetryDelaysMs
       : CODEX_STARTUP_RETRY_DELAYS_MS;
-    this.resolutions = new Map();
-    this.codexIdentityScans = new Map();
-    this.codexStartupRetries = new Map();
+    this.resolutions = new Map<string, Resolution>();
+    this.codexIdentityScans = new Map<string, Promise<CodexSessionIdentity[]>>();
+    this.codexStartupRetries = new Map<string, StartupRetry>();
   }
 
-  activate(agentId) {
+  activate(agentId: string): void {
     const agent = this.agents.get(agentId);
     if (!agent?.providerSessionProvider || !agent.providerSessionId) return;
 
@@ -65,12 +199,12 @@ class ProviderSessionService {
     void this.resolveTitle(agentId, { force: true });
   }
 
-  observe(agentId, options = {}) {
+  observe(agentId: string, options: ResolutionOptions = {}): void {
     void this.resolveTemporaryCodex(agentId, options);
     void this.resolveTitle(agentId, options);
   }
 
-  stop(agentId) {
+  stop(agentId: string): void {
     this.resolutions.delete(`codex:${agentId}`);
     this.resolutions.delete(`title:${agentId}`);
     const startupRetry = this.codexStartupRetries.get(agentId);
@@ -78,7 +212,7 @@ class ProviderSessionService {
     this.codexStartupRetries.delete(agentId);
   }
 
-  dispose() {
+  dispose(): void {
     for (const startupRetry of this.codexStartupRetries.values()) {
       if (startupRetry?.timer) clearTimeout(startupRetry.timer);
     }
@@ -87,23 +221,23 @@ class ProviderSessionService {
     this.codexStartupRetries.clear();
   }
 
-  scheduleTemporaryCodexStartupRetry(agentId) {
+  scheduleTemporaryCodexStartupRetry(agentId: string): void {
     if (this.codexStartupRetries.has(agentId)) return;
     const agent = this.agents.get(agentId);
-    const retry = {
+    const retry: StartupRetry = {
       attempt: 0,
       timer: null,
       deadlineAt: (Number(agent?.startedAt) || Date.now()) + CODEX_MATCH_WINDOW_MS,
     };
     this.codexStartupRetries.set(agentId, retry);
 
-    const scheduleNext = () => {
+    const scheduleNext = (): void => {
       if (this.codexStartupRetries.get(agentId) !== retry) return;
-      const agent = this.agents.get(agentId);
+      const currentAgent = this.agents.get(agentId);
       if (
-        !agent
-        || agent.providerSessionProvider !== 'codex'
-        || agent.providerSessionTemporary !== true
+        !currentAgent
+        || currentAgent.providerSessionProvider !== 'codex'
+        || currentAgent.providerSessionTemporary !== true
       ) {
         this.stop(agentId);
         return;
@@ -140,17 +274,31 @@ class ProviderSessionService {
     scheduleNext();
   }
 
-  bindConfirmed(agentId, provider, sessionId) {
+  bindConfirmed(
+    agentId: string,
+    provider: string,
+    sessionId: string,
+  ): ProviderSessionAgent | null {
     const agent = this.agents.get(agentId);
     if (!agent || !provider || !sessionId || isTemporaryProviderSessionId(sessionId)) return null;
     agent.providerSessionProvider = provider;
     agent.providerSessionId = sessionId;
-    agent.providerSessionKey = mainPageAgentSessionKey(provider, sessionId, agent.providerHomeId || '');
+    agent.providerSessionKey = mainPageAgentSessionKey(
+      provider,
+      sessionId,
+      agent.providerHomeId || '',
+    );
     agent.providerSessionTemporary = false;
     return agent;
   }
 
-  runResolution(kind, agentId, cooldownMs, force, task) {
+  runResolution(
+    kind: string,
+    agentId: string,
+    cooldownMs: number,
+    force: boolean,
+    task: () => boolean | PromiseLike<boolean>,
+  ): Promise<boolean> {
     const key = `${kind}:${agentId}`;
     const current = this.resolutions.get(key);
     if (current?.promise) return current.promise;
@@ -159,7 +307,7 @@ class ProviderSessionService {
       return Promise.resolve(false);
     }
 
-    const resolution = { lastAttemptAt: now, promise: null };
+    const resolution: Resolution = { lastAttemptAt: now, promise: null };
     const attempt = Promise.resolve()
       .then(task)
       .catch(() => false)
@@ -171,9 +319,16 @@ class ProviderSessionService {
     return attempt;
   }
 
-  resolveTemporaryCodex(agentId, options = {}) {
+  resolveTemporaryCodex(
+    agentId: string,
+    options: ResolutionOptions = {},
+  ): Promise<boolean> {
     const agent = this.agents.get(agentId);
-    if (!agent || agent.providerSessionProvider !== 'codex' || agent.providerSessionTemporary !== true) {
+    if (
+      !agent
+      || agent.providerSessionProvider !== 'codex'
+      || agent.providerSessionTemporary !== true
+    ) {
       this.resolutions.delete(`codex:${agentId}`);
       return Promise.resolve(false);
     }
@@ -204,7 +359,10 @@ class ProviderSessionService {
     );
   }
 
-  resolveTitle(agentId, options = {}) {
+  resolveTitle(
+    agentId: string,
+    options: ResolutionOptions = {},
+  ): Promise<boolean> {
     const agent = this.agents.get(agentId);
     if (
       !agent?.providerSessionProvider
@@ -261,7 +419,9 @@ class ProviderSessionService {
     );
   }
 
-  async findTemporaryCodexSession(agent) {
+  async findTemporaryCodexSession(
+    agent: ProviderSessionAgent,
+  ): Promise<CodexSessionIdentity | null> {
     const startedAt = Number(agent.startedAt) || 0;
     const codexHome = agent.providerHomePath || '';
     const scanKey = [
@@ -270,39 +430,43 @@ class ProviderSessionService {
     ].join('\0');
     let scan = this.codexIdentityScans.get(scanKey);
     if (!scan) {
-      scan = Promise.resolve(this.listCodexSessionIdentities({
+      const newScan = Promise.resolve(this.listCodexSessionIdentities({
         codexHome: codexHome || undefined,
         startedAt,
         windowMs: CODEX_MATCH_WINDOW_MS,
       })).finally(() => {
-        if (this.codexIdentityScans.get(scanKey) === scan) {
+        if (this.codexIdentityScans.get(scanKey) === newScan) {
           this.codexIdentityScans.delete(scanKey);
         }
       });
+      scan = newScan;
       this.codexIdentityScans.set(scanKey, scan);
     }
     const sessions = await scan;
     const workspace = normalizePath(
-      agent?.projectWorkspace || agent?.cwd || agent?.gitWorktree?.workspace || ''
+      agent.projectWorkspace || agent.cwd || agent.gitWorktree?.workspace || '',
     );
     if (!workspace) return null;
     const homeId = String(agent.providerHomeId || 'default').trim() || 'default';
-    const claimedSessionIds = new Set([...this.agents.values()]
-      .filter(candidate => candidate?.id !== agent.id
-        && candidate?.providerSessionProvider === 'codex'
-        && (String(candidate.providerHomeId || 'default').trim() || 'default') === homeId
-        && candidate.providerSessionId
-        && candidate.providerSessionTemporary !== true)
-      .map(candidate => candidate.providerSessionId));
-    const candidates = sessions
-      .filter(session => {
-        if (!session?.id || claimedSessionIds.has(session.id)) return false;
-        const sessionWorkspace = normalizePath(session.workspace || session.cwd);
-        if (workspace && !sessionWorkspace) return false;
-        const sessionTime = timestampMs(session.createdAt);
-        if (!sessionTime || !startedAt) return false;
-        return Math.abs(sessionTime - startedAt) <= CODEX_MATCH_WINDOW_MS;
-      });
+    const claimedSessionIds = new Set(
+      [...this.agents.values()]
+        .filter(candidate => (
+          candidate.id !== agent.id
+          && candidate.providerSessionProvider === 'codex'
+          && (String(candidate.providerHomeId || 'default').trim() || 'default') === homeId
+          && candidate.providerSessionId
+          && candidate.providerSessionTemporary !== true
+        ))
+        .map(candidate => candidate.providerSessionId as string),
+    );
+    const candidates = sessions.filter(session => {
+      if (!session.id || claimedSessionIds.has(session.id)) return false;
+      const sessionWorkspace = normalizePath(session.workspace || session.cwd);
+      if (workspace && !sessionWorkspace) return false;
+      const sessionTime = timestampMs(session.createdAt);
+      if (!sessionTime || !startedAt) return false;
+      return Math.abs(sessionTime - startedAt) <= CODEX_MATCH_WINDOW_MS;
+    });
 
     const exact = candidates.filter(session => (
       workspace === normalizePath(session.workspace || session.cwd)
@@ -317,14 +481,17 @@ class ProviderSessionService {
     return null;
   }
 
-  confirm(agentId, { provider, sessionId, source, title, workspace }) {
+  confirm(
+    agentId: string,
+    { provider, sessionId, source, title, workspace }: ConfirmedSession,
+  ): boolean {
     const current = this.agents.get(agentId);
     const homeId = String(current?.providerHomeId || 'default').trim() || 'default';
     const claimedByAnotherAgent = [...this.agents.values()].some(candidate => (
-      candidate?.id !== agentId
-      && candidate?.providerSessionProvider === provider
-      && candidate?.providerSessionId === sessionId
-      && candidate?.providerSessionTemporary !== true
+      candidate.id !== agentId
+      && candidate.providerSessionProvider === provider
+      && candidate.providerSessionId === sessionId
+      && candidate.providerSessionTemporary !== true
       && (String(candidate.providerHomeId || 'default').trim() || 'default') === homeId
     ));
     if (claimedByAnotherAgent) return false;
@@ -342,11 +509,17 @@ class ProviderSessionService {
     this.stop(agentId);
     this.commit(agent, {
       kind: 'session-updated',
-      event: { agentId, provider, sessionId, previousSessionId, temporary: false },
+      event: {
+        agentId,
+        provider,
+        sessionId,
+        previousSessionId,
+        temporary: false,
+      },
       refreshWorkspace: agent.providerSessionWorkspace || '',
     });
     return true;
   }
 }
 
-module.exports = { ProviderSessionService };
+export { ProviderSessionService };

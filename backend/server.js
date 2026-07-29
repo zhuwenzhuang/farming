@@ -36,7 +36,7 @@ const {
   mainPageAgentSessionsToAutoResume,
   resumedAgentSource,
 } = require('./main-page-session.cjs');
-const { discoverAgentWorkspaces } = require('./workspace-discovery');
+const { discoverAgentWorkspaces } = require('./workspace-discovery.cjs');
 const { inspectGitWorktree } = require('./git-worktree-info.cjs');
 const { createWorkspaceDirectoryRouter } = require('./workspace-directory.cjs');
 const { createControlRouter } = require('./control-api');
@@ -50,7 +50,7 @@ const {
 const { UsageMonitor } = require('./usage-monitor');
 const { CodexContextWindowReader } = require('./codex-context-window.cjs');
 const { AsyncCache } = require('./async-cache.cjs');
-const { getMainAgentSkillsCatalog } = require('./main-agent-skills');
+const { getMainAgentSkillsCatalog } = require('./main-agent-skills.cjs');
 const { discoverAgentExtensions, discoverSlashCommands } = require('./slash-command-discovery');
 const { FarmingUpdateService } = require('./update-service');
 const { inputPartsFromMessage } = require('./input-parts.cjs');

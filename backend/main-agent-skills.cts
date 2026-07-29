@@ -1,12 +1,25 @@
 const fs = require('fs');
 const path = require('path');
 
+interface MainAgentOperatingGuideSection {
+  lines: string[];
+  title: string;
+}
+
+interface MainAgentSkill {
+  commands: string[];
+  id: string;
+  name: string;
+  summary: string;
+  trigger: string;
+}
+
 const MANAGED_BLOCK_START = '<!-- FARMING_MAIN_AGENT_SKILLS:START -->';
 const MANAGED_BLOCK_END = '<!-- FARMING_MAIN_AGENT_SKILLS:END -->';
 
 const REMOVED_MAIN_AGENT_SKILL_IDS = ['memory-report'];
 
-const MAIN_AGENT_OPERATING_GUIDE = [
+const MAIN_AGENT_OPERATING_GUIDE: MainAgentOperatingGuideSection[] = [
   {
     title: 'Mission',
     lines: [
@@ -55,7 +68,7 @@ const MAIN_AGENT_OPERATING_GUIDE = [
   },
 ];
 
-const MAIN_AGENT_SKILLS = [
+const MAIN_AGENT_SKILLS: MainAgentSkill[] = [
   {
     id: 'browser-resource',
     name: '系统浏览器操作',
@@ -87,7 +100,7 @@ const MAIN_AGENT_SKILLS = [
   },
 ];
 
-function getMainAgentSkillsCatalog() {
+function getMainAgentSkillsCatalog(): MainAgentSkill[] {
   return MAIN_AGENT_SKILLS.map((skill) => ({
     id: skill.id,
     name: skill.name,
@@ -97,7 +110,7 @@ function getMainAgentSkillsCatalog() {
   }));
 }
 
-function renderMainAgentOperatingGuide() {
+function renderMainAgentOperatingGuide(): string {
   const lines = [
     '# Farming Main Agent Operating Contract',
     '',
@@ -114,7 +127,7 @@ function renderMainAgentOperatingGuide() {
   return lines.join('\n').trim();
 }
 
-function renderMainAgentSkills() {
+function renderMainAgentSkills(): string {
   const lines = [
     '# Farming Main Agent Skills',
     '',
@@ -149,7 +162,7 @@ function renderMainAgentSkills() {
   ].join('\n');
 }
 
-function renderCanonicalAgentsFile() {
+function renderCanonicalAgentsFile(): string {
   return [
     '# Farming Main Agent',
     '',
@@ -175,7 +188,7 @@ function renderCanonicalAgentsFile() {
   ].join('\n');
 }
 
-function renderCompatibilityFile(targetName = 'AGENTS.md') {
+function renderCompatibilityFile(targetName = 'AGENTS.md'): string {
   return [
     `# Farming Main Agent (${targetName})`,
     '',
@@ -186,7 +199,7 @@ function renderCompatibilityFile(targetName = 'AGENTS.md') {
   ].join('\n');
 }
 
-function renderCompatibilityPointerFile(targetName = 'AGENTS.md') {
+function renderCompatibilityPointerFile(targetName = 'AGENTS.md'): string {
   return [
     '# Farming Main Agent',
     '',
@@ -198,7 +211,7 @@ function renderCompatibilityPointerFile(targetName = 'AGENTS.md') {
   ].join('\n');
 }
 
-function renderMainAgentBootstrap() {
+function renderMainAgentBootstrap(): string {
   return [
     renderMainAgentSkills(),
     '',
@@ -206,7 +219,7 @@ function renderMainAgentBootstrap() {
   ].join('\n');
 }
 
-function upsertManagedBlock(existingContent, block) {
+function upsertManagedBlock(existingContent: string, block: string): string {
   const start = existingContent.indexOf(MANAGED_BLOCK_START);
   const end = existingContent.indexOf(MANAGED_BLOCK_END);
 
@@ -219,7 +232,7 @@ function upsertManagedBlock(existingContent, block) {
   return [existingContent.trim(), block.trim()].filter(Boolean).join('\n\n') + '\n';
 }
 
-function writeManagedSkillFile(filePath, block) {
+function writeManagedSkillFile(filePath: string, block: string): void {
   let existing = '';
   try {
     existing = fs.readFileSync(filePath, 'utf8');
@@ -230,7 +243,7 @@ function writeManagedSkillFile(filePath, block) {
   fs.writeFileSync(filePath, upsertManagedBlock(existing, block));
 }
 
-function ensureMainAgentSkillFiles(farmingDir) {
+function ensureMainAgentSkillFiles(farmingDir: string | null | undefined): void {
   if (!farmingDir) return;
   fs.mkdirSync(farmingDir, { recursive: true });
 
@@ -273,7 +286,7 @@ function ensureMainAgentSkillFiles(farmingDir) {
   });
 }
 
-module.exports = {
+export {
   MAIN_AGENT_SKILLS,
   MAIN_AGENT_OPERATING_GUIDE,
   getMainAgentSkillsCatalog,

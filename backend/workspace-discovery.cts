@@ -10,7 +10,53 @@ const MAX_JSON_BYTES = 128 * 1024;
 const AGENT_CONFIG_DIRS = new Set(['.claude', '.qwen', '.codex']);
 const DISCOVERABLE_AGENT_NAMES = new Set(['claude', 'qwen', 'codex']);
 
-function normalizeWorkspacePath(workspace) {
+type WorkspaceConfidence = 'high' | 'medium';
+
+interface DirectoryEntry {
+  entry: import('fs').Dirent;
+  path: string;
+  mtimeMs: number;
+}
+
+interface DiscoveredWorkspace {
+  path: string;
+  agents: string[];
+  sources: string[];
+  confidence: WorkspaceConfidence;
+  lastSeen: number;
+  exists?: boolean;
+}
+
+interface WorkspaceDetails {
+  agent: string;
+  source: string;
+  confidence?: WorkspaceConfidence;
+  lastSeen?: number;
+}
+
+interface ProjectHistoryScanOptions {
+  homeDir: string;
+  agent: string;
+  projectRoot: string;
+  resultByPath: Map<string, DiscoveredWorkspace>;
+}
+
+interface CodexSessionScanOptions {
+  homeDir: string;
+  resultByPath: Map<string, DiscoveredWorkspace>;
+}
+
+interface DiscoverAgentWorkspacesOptions {
+  homeDir?: string;
+  limit?: number;
+  agent?: string;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object';
+}
+
+function normalizeWorkspacePath(workspace: unknown): string {
   if (typeof workspace !== 'string') return '';
   const value = workspace.trim();
   if (!value || value.startsWith('/var')) return '';
@@ -39,7 +85,7 @@ function normalizeWorkspacePath(workspace) {
   }
 }
 
-function isTemporaryWorkspace(workspace) {
+function isTemporaryWorkspace(workspace: string): boolean {
   return workspace === '/tmp'
     || workspace.startsWith('/tmp/')
     || workspace === '/private/tmp'
@@ -54,7 +100,7 @@ function isTemporaryWorkspace(workspace) {
     || workspace.startsWith('/private/var/folders/');
 }
 
-function getMtimeMs(filePath) {
+function getMtimeMs(filePath: string): number {
   try {
     return fs.statSync(filePath).mtimeMs;
   } catch {
@@ -62,22 +108,22 @@ function getMtimeMs(filePath) {
   }
 }
 
-function sortedDirectoryEntries(dirPath) {
+function sortedDirectoryEntries(dirPath: string): DirectoryEntry[] {
   try {
     return fs.readdirSync(dirPath, { withFileTypes: true })
-      .map(entry => ({
+      .map((entry: import('fs').Dirent): DirectoryEntry => ({
         entry,
         path: path.join(dirPath, entry.name),
         mtimeMs: getMtimeMs(path.join(dirPath, entry.name)),
       }))
-      .sort((a, b) => b.mtimeMs - a.mtimeMs);
+      .sort((a: DirectoryEntry, b: DirectoryEntry) => b.mtimeMs - a.mtimeMs);
   } catch {
     return [];
   }
 }
 
-function collectJsonLikeFiles(rootDir, limit = MAX_FILES_PER_PROJECT) {
-  const result = [];
+function collectJsonLikeFiles(rootDir: string, limit = MAX_FILES_PER_PROJECT): string[] {
+  const result: string[] = [];
   const queue = sortedDirectoryEntries(rootDir).filter(item => item.entry.isDirectory() || item.entry.isFile());
 
   while (queue.length && result.length < limit) {
@@ -98,20 +144,20 @@ function collectJsonLikeFiles(rootDir, limit = MAX_FILES_PER_PROJECT) {
   return result;
 }
 
-function extractCwdFromObject(value) {
-  if (!value || typeof value !== 'object') return '';
+function extractCwdFromObject(value: unknown): string {
+  if (!isRecord(value)) return '';
   const direct = value.cwd || value.workdir || value.workspace;
   if (typeof direct === 'string') return direct;
 
   const payload = value.payload || value.session || value.message || value.metadata || value.meta;
-  if (payload && typeof payload === 'object') {
+  if (isRecord(payload)) {
     return extractCwdFromObject(payload);
   }
 
   return '';
 }
 
-function readCwdFromJsonFile(filePath) {
+function readCwdFromJsonFile(filePath: string): string {
   try {
     const stat = fs.statSync(filePath);
     if (!stat.isFile()) return '';
@@ -146,14 +192,14 @@ function readCwdFromJsonFile(filePath) {
   return '';
 }
 
-function normalizeEncodedSegment(segment) {
+function normalizeEncodedSegment(segment: string): string {
   return segment
     .replace(/[^A-Za-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .toLowerCase();
 }
 
-function resolveEncodedProjectDirectory(projectName) {
+function resolveEncodedProjectDirectory(projectName: string): string {
   const encoded = normalizeEncodedSegment(projectName);
   if (!encoded) return '';
 
@@ -177,7 +223,11 @@ function resolveEncodedProjectDirectory(projectName) {
   return normalizeWorkspacePath(currentDir);
 }
 
-function addWorkspace(resultByPath, workspace, details) {
+function addWorkspace(
+  resultByPath: Map<string, DiscoveredWorkspace>,
+  workspace: unknown,
+  details: WorkspaceDetails
+): void {
   const normalized = normalizeWorkspacePath(workspace);
   if (!normalized) return;
 
@@ -197,7 +247,12 @@ function addWorkspace(resultByPath, workspace, details) {
   resultByPath.set(normalized, existing);
 }
 
-function scanProjectHistory({ homeDir, agent, projectRoot, resultByPath }) {
+function scanProjectHistory({
+  homeDir,
+  agent,
+  projectRoot,
+  resultByPath,
+}: ProjectHistoryScanOptions): void {
   const root = path.join(homeDir, projectRoot);
   if (!fs.existsSync(root)) return;
 
@@ -239,12 +294,12 @@ function scanProjectHistory({ homeDir, agent, projectRoot, resultByPath }) {
   });
 }
 
-function scanCodexSessions({ homeDir, resultByPath }) {
+function scanCodexSessions({ homeDir, resultByPath }: CodexSessionScanOptions): void {
   const root = path.join(homeDir, '.codex', 'sessions');
   if (!fs.existsSync(root)) return;
 
-  const files = [];
-  const queue = [root];
+  const files: string[] = [];
+  const queue: string[] = [root];
 
   while (queue.length && files.length < 120) {
     const current = queue.shift();
@@ -272,12 +327,16 @@ function scanCodexSessions({ homeDir, resultByPath }) {
   });
 }
 
-function discoverAgentWorkspaces(options = {}) {
+function discoverAgentWorkspaces(
+  options: DiscoverAgentWorkspacesOptions = {}
+): DiscoveredWorkspace[] {
   const homeDir = options.homeDir || os.homedir();
-  const limit = Number.isFinite(options.limit) ? options.limit : DEFAULT_LIMIT;
+  const limit = typeof options.limit === 'number' && Number.isFinite(options.limit)
+    ? options.limit
+    : DEFAULT_LIMIT;
   const requestedAgent = typeof options.agent === 'string' ? options.agent.trim().toLowerCase() : '';
   const agentFilter = DISCOVERABLE_AGENT_NAMES.has(requestedAgent) ? requestedAgent : '';
-  const resultByPath = new Map();
+  const resultByPath = new Map<string, DiscoveredWorkspace>();
 
   scanProjectHistory({
     homeDir,
@@ -303,7 +362,7 @@ function discoverAgentWorkspaces(options = {}) {
     }));
 }
 
-module.exports = {
+export {
   discoverAgentWorkspaces,
   isTemporaryWorkspace,
   normalizeWorkspacePath,

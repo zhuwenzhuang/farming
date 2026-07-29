@@ -1,7 +1,7 @@
 const fs = require('fs');
 const http = require('http');
 const https = require('https');
-const { renderMainAgentSkills } = require('./main-agent-skills');
+const { renderMainAgentSkills } = require('./main-agent-skills.cjs');
 const storageLayout = require('./storage-layout.cjs');
 
 function usage() {

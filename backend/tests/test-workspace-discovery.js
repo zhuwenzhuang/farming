@@ -5,7 +5,7 @@ const path = require('path');
 const {
   discoverAgentWorkspaces,
   resolveEncodedProjectDirectory,
-} = require('../workspace-discovery');
+} = require('../workspace-discovery.cjs');
 
 function mkdirp(dir) {
   fs.mkdirSync(dir, { recursive: true });

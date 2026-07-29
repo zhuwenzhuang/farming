@@ -15,7 +15,7 @@ const {
 const { archiveCodexSession, unarchiveCodexSession } = require('./codex-session-archive.cjs');
 const { buildAgentProviderSessionPlan, sessionFromExactResumeSource } = require('./agent-provider-session.cjs');
 const { resolveAgentExecutable, resolveCompatibleCodexExecutable } = require('./executable-discovery.cjs');
-const { ensureMainAgentSkillFiles, renderMainAgentBootstrap } = require('./main-agent-skills');
+const { ensureMainAgentSkillFiles, renderMainAgentBootstrap } = require('./main-agent-skills.cjs');
 const {
   appendOpenCodeBootstrap,
   renderFarmingAgentBootstrap,
@@ -23,7 +23,7 @@ const {
 const { mainPageAgentSessionKey, resumedAgentSource } = require('./main-page-session.cjs');
 const storageLayout = require('./storage-layout.cjs');
 const { isSafeProviderSessionId, isTemporaryProviderSessionId } = require('./provider-session-id.cjs');
-const { ProviderSessionService } = require('./provider-session-service');
+const { ProviderSessionService } = require('./provider-session-service.cjs');
 const {
   legacyRuntimeMetadata,
   publicRuntimeBinding,

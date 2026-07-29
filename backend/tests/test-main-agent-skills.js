@@ -10,7 +10,7 @@ const {
   renderMainAgentOperatingGuide,
   renderMainAgentSkills,
   upsertManagedBlock,
-} = require('../main-agent-skills');
+} = require('../main-agent-skills.cjs');
 
 async function run() {
   const catalog = getMainAgentSkillsCatalog();
