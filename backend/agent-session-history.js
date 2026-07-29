@@ -10,7 +10,7 @@ const {
   isTemporaryWorkspace,
   listCodexSessions,
 } = require('./codex-session-history');
-const { isSafeProviderSessionId } = require('./provider-session-id');
+const { isSafeProviderSessionId } = require('./provider-session-id.cjs');
 
 const DEFAULT_LIMIT = 60;
 const DEFAULT_SCAN_LIMIT = 500;

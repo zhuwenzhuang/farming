@@ -2,7 +2,7 @@
 
 const { parseCommand } = require('./cli-agents');
 const { getProviderAdapter, providerForProgram } = require('./provider-adapters');
-const { isSafeProviderSessionId } = require('./provider-session-id');
+const { isSafeProviderSessionId } = require('./provider-session-id.cjs');
 
 interface AgentProviderSessionPlan {
   provider: string;

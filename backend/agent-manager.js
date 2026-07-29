@@ -22,7 +22,7 @@ const {
 } = require('./farming-agent-bootstrap');
 const { mainPageAgentSessionKey, resumedAgentSource } = require('./main-page-session');
 const storageLayout = require('./storage-layout');
-const { isSafeProviderSessionId, isTemporaryProviderSessionId } = require('./provider-session-id');
+const { isSafeProviderSessionId, isTemporaryProviderSessionId } = require('./provider-session-id.cjs');
 const { ProviderSessionService } = require('./provider-session-service');
 const {
   legacyRuntimeMetadata,
@@ -49,7 +49,7 @@ const {
   AcpRuntime,
   stopPersistedAcpProcessGroup,
 } = require('./acp-runtime');
-const { chatRuntimeForProvider, isChatMode } = require('./chat-runtime');
+const { chatRuntimeForProvider, isChatMode } = require('./chat-runtime.cjs');
 const {
   acpTranscriptEntries,
   acpTranscriptMedia,

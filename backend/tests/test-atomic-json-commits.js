@@ -3,7 +3,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const { atomicWriteJson } = require('../atomic-json-store');
+const { atomicWriteJson } = require('../atomic-json-store.cjs');
 const ConfigManager = require('../config-manager');
 const { ReviewSessionStore } = require('../review-session-store');
 const { ReviewStateStore } = require('../review-state-store');

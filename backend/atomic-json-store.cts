@@ -1,8 +1,30 @@
-const crypto = require('crypto');
-const fs = require('fs');
-const path = require('path');
+'use strict';
 
-function atomicWriteJson(file, value, options = {}) {
+import * as crypto from 'crypto';
+import * as fs from 'fs';
+import * as path from 'path';
+
+interface AtomicJsonFileSystem {
+  mkdirSync(directory: string, options: { recursive: true }): unknown;
+  openSync(file: string, flags: string, mode?: number | string): number;
+  writeFileSync(descriptor: number, data: string, encoding: 'utf8'): void;
+  fdatasyncSync(descriptor: number): void;
+  closeSync(descriptor: number): void;
+  renameSync(source: string, target: string): void;
+  unlinkSync(file: string): void;
+}
+
+interface AtomicWriteJsonOptions {
+  fileSystem?: AtomicJsonFileSystem;
+  mode?: number | string;
+  trailingNewline?: boolean;
+}
+
+function atomicWriteJson(
+  file: string,
+  value: unknown,
+  options: AtomicWriteJsonOptions = {},
+): void {
   const fileSystem = options.fileSystem || fs;
   const temporaryFile = `${file}.${process.pid}.${crypto.randomUUID()}.tmp`;
   const suffix = options.trailingNewline ? '\n' : '';
@@ -32,6 +54,6 @@ function atomicWriteJson(file, value, options = {}) {
   }
 }
 
-module.exports = {
+export {
   atomicWriteJson,
 };

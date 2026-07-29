@@ -1076,9 +1076,9 @@ function run() {
       serverSource.includes('cleanupExpiredImageAttachments') &&
       serverSource.includes('IMAGE_ATTACHMENT_FILENAME_RE') &&
       serverSource.includes('void agentManager.interruptAgent(data.agentId)') &&
-      serverSource.includes("const { inputPartsFromMessage } = require('./input-parts')") &&
-      inputPartsSource.includes('function inputPartsFromMessage(data)') &&
-      inputPartsSource.includes('Array.isArray(data && data.inputParts)') &&
+      serverSource.includes("const { inputPartsFromMessage } = require('./input-parts.cjs')") &&
+      inputPartsSource.includes('function inputPartsFromMessage(data: TerminalInputMessage | null | undefined)') &&
+      inputPartsSource.includes('Array.isArray(data?.inputParts)') &&
       inputPartsSource.includes("part.type === 'paste'") &&
       serverSource.includes('if (inputParts.length === 0) return') &&
       serverSource.includes('await agentManager.sendInput(targetAgentId, inputParts)') &&

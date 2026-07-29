@@ -4,7 +4,7 @@ const os = require('os');
 const path = require('path');
 const tar = require('tar');
 const storageLayout = require('../storage-layout');
-const { runtimeExecutableInvocation } = require('../runtime-executable-invocation');
+const { runtimeExecutableInvocation } = require('../runtime-executable-invocation.cjs');
 const {
   MANIFEST,
   SOURCE_CONFIG,

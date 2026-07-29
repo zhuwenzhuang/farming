@@ -7,10 +7,10 @@ const WebSocket = require('ws');
 const {
   matchingProcessIdentity,
   readServerProcessIdentity,
-} = require('../../../backend/server-process-identity');
+} = require('../../../backend/server-process-identity.cjs');
 const {
   runtimeExecutableInvocation,
-} = require('../../../backend/runtime-executable-invocation');
+} = require('../../../backend/runtime-executable-invocation.cjs');
 
 const AGENT_BROWSER_VERSION = '0.32.3';
 const DEFAULT_VIEWPORT = Object.freeze({ width: 1280, height: 720, deviceScaleFactor: 1 });

@@ -1,11 +1,23 @@
 const BRACKETED_PASTE_START = '\x1b[200~';
 const BRACKETED_PASTE_END = '\x1b[201~';
 
-function isObject(value) {
+interface PasteInputPart {
+  type: 'paste';
+  text: string;
+}
+
+interface TerminalInputMessage {
+  input?: unknown;
+  inputParts?: unknown;
+}
+
+type TerminalInputPart = string | PasteInputPart;
+
+function isObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
-function normalizeInputPart(part) {
+function normalizeInputPart(part: unknown): TerminalInputPart | null {
   if (typeof part === 'string') {
     return part;
   }
@@ -20,21 +32,21 @@ function normalizeInputPart(part) {
   return null;
 }
 
-function normalizeTerminalInputParts(input) {
+function normalizeTerminalInputParts(input: unknown): TerminalInputPart[] {
   const rawParts = Array.isArray(input) ? input : [input];
   return rawParts
     .map(normalizeInputPart)
     .filter(part => part !== null);
 }
 
-function inputPartsFromMessage(data) {
-  if (Array.isArray(data && data.inputParts)) {
+function inputPartsFromMessage(data: TerminalInputMessage | null | undefined): TerminalInputPart[] {
+  if (Array.isArray(data?.inputParts)) {
     return normalizeTerminalInputParts(data.inputParts);
   }
-  return typeof (data && data.input) === 'string' ? [data.input] : [];
+  return typeof data?.input === 'string' ? [data.input] : [];
 }
 
-function terminalInputToPtyString(input) {
+function terminalInputToPtyString(input: unknown): string {
   return normalizeTerminalInputParts(input)
     .map(part => (
       typeof part === 'string'
@@ -44,7 +56,7 @@ function terminalInputToPtyString(input) {
     .join('');
 }
 
-module.exports = {
+export {
   BRACKETED_PASTE_END,
   BRACKETED_PASTE_START,
   inputPartsFromMessage,

@@ -1,10 +1,10 @@
 const path = require('path');
-const { chatCapabilitiesForProvider } = require('./chat-runtime');
+const { chatCapabilitiesForProvider } = require('./chat-runtime.cjs');
 const {
   createProviderSessionId,
   createTemporaryProviderSessionId,
   isSafeProviderSessionId,
-} = require('./provider-session-id');
+} = require('./provider-session-id.cjs');
 
 const CODEX_VALUE_OPTIONS = new Set([
   '-a', '-c', '-C', '-m', '-p', '-s', '--ask-for-approval', '--cd', '--config',

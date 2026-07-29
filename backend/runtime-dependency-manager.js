@@ -6,7 +6,7 @@ const { pipeline } = require('stream/promises');
 const { Readable, Transform } = require('stream');
 const tar = require('tar');
 const storageLayout = require('./storage-layout');
-const { runtimeExecutableInvocation } = require('./runtime-executable-invocation');
+const { runtimeExecutableInvocation } = require('./runtime-executable-invocation.cjs');
 
 const MANIFEST = require('./data/runtime-dependency-manifest.json');
 const SOURCE_CONFIG = require('./data/runtime-dependency-sources.json');

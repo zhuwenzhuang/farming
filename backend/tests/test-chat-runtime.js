@@ -4,7 +4,7 @@ const {
   chatCapabilitiesForProvider,
   chatRuntimeForProvider,
   isChatMode,
-} = require('../chat-runtime');
+} = require('../chat-runtime.cjs');
 
 assert.strictEqual(CHAT_MODE, 'chat');
 assert.strictEqual(isChatMode('chat'), true);

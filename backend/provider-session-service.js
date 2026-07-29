@@ -6,7 +6,7 @@ const {
   listCodexSessionIdentities,
 } = require('./codex-session-history');
 const { mainPageAgentSessionKey } = require('./main-page-session');
-const { isTemporaryProviderSessionId } = require('./provider-session-id');
+const { isTemporaryProviderSessionId } = require('./provider-session-id.cjs');
 
 const CODEX_RESOLVE_COOLDOWN_MS = 1000;
 const CODEX_MATCH_WINDOW_MS = 30 * 1000;

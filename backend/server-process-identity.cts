@@ -1,8 +1,27 @@
-const { execFileSync } = require('child_process');
+'use strict';
+
+import { execFileSync } from 'child_process';
 
 const SERVER_PROCESS_IDENTITY_FORMAT = 'ps-lstart-c-utc-v1';
 
-function readServerProcessIdentity(pid) {
+interface ServerProcessIdentity {
+  pid: number;
+  processGroupId: number;
+  startedAt: string;
+  format: typeof SERVER_PROCESS_IDENTITY_FORMAT;
+}
+
+interface ExpectedServerProcessIdentity {
+  pid?: unknown;
+  processGroupId?: unknown;
+  startedAt?: unknown;
+}
+
+function processLookupError(error: unknown): error is { status?: unknown; code?: unknown } {
+  return typeof error === 'object' && error !== null;
+}
+
+function readServerProcessIdentity(pid: unknown): ServerProcessIdentity | null {
   const processId = Number(pid);
   if (!Number.isSafeInteger(processId) || processId <= 0 || process.platform === 'win32') return null;
   let stdout;
@@ -18,7 +37,7 @@ function readServerProcessIdentity(pid) {
       },
     );
   } catch (error) {
-    if (error?.status === 1 || error?.code === 'ESRCH') return null;
+    if (processLookupError(error) && (error.status === 1 || error.code === 'ESRCH')) return null;
     throw error;
   }
   const match = String(stdout || '').trim().match(/^(\d+)\s+(\d+)\s+(.+)$/);
@@ -31,7 +50,10 @@ function readServerProcessIdentity(pid) {
   };
 }
 
-function matchingProcessIdentity(expected, current) {
+function matchingProcessIdentity(
+  expected: ExpectedServerProcessIdentity | null | undefined,
+  current: ServerProcessIdentity | null | undefined,
+): boolean {
   return Boolean(
     current
     && current.pid === Number(expected?.pid)
@@ -40,7 +62,7 @@ function matchingProcessIdentity(expected, current) {
   );
 }
 
-module.exports = {
+export {
   SERVER_PROCESS_IDENTITY_FORMAT,
   matchingProcessIdentity,
   readServerProcessIdentity,

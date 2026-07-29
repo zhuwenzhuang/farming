@@ -1,9 +1,15 @@
-const crypto = require('crypto');
+'use strict';
+
+import * as crypto from 'crypto';
 
 const TEMPORARY_PROVIDER_SESSION_ID_PREFIX = 'tmp_uuid';
 const SAFE_PROVIDER_SESSION_ID_RE = /^[A-Za-z0-9._:-]+$/;
 
-function randomUuid() {
+interface SafeProviderSessionIdOptions {
+  allowTemporary?: boolean;
+}
+
+function randomUuid(): string {
   if (typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID();
   }
@@ -17,19 +23,22 @@ function randomUuid() {
   ].join('-');
 }
 
-function createProviderSessionId() {
+function createProviderSessionId(): string {
   return randomUuid();
 }
 
-function createTemporaryProviderSessionId() {
+function createTemporaryProviderSessionId(): string {
   return `${TEMPORARY_PROVIDER_SESSION_ID_PREFIX}_${randomUuid()}`;
 }
 
-function isTemporaryProviderSessionId(sessionId) {
+function isTemporaryProviderSessionId(sessionId: unknown): boolean {
   return String(sessionId || '').trim().startsWith(TEMPORARY_PROVIDER_SESSION_ID_PREFIX);
 }
 
-function isSafeProviderSessionId(sessionId, options = {}) {
+function isSafeProviderSessionId(
+  sessionId: unknown,
+  options: SafeProviderSessionIdOptions = {},
+): boolean {
   const value = String(sessionId || '').trim();
   if (value.startsWith('-')) return false;
   if (!SAFE_PROVIDER_SESSION_ID_RE.test(value)) return false;
@@ -37,7 +46,7 @@ function isSafeProviderSessionId(sessionId, options = {}) {
   return true;
 }
 
-module.exports = {
+export {
   SAFE_PROVIDER_SESSION_ID_RE,
   TEMPORARY_PROVIDER_SESSION_ID_PREFIX,
   createProviderSessionId,

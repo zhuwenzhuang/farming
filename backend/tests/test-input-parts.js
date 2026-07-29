@@ -5,7 +5,7 @@ const {
   inputPartsFromMessage,
   normalizeTerminalInputParts,
   terminalInputToPtyString,
-} = require('../input-parts');
+} = require('../input-parts.cjs');
 
 function run() {
   assert.deepStrictEqual(

@@ -53,7 +53,7 @@ const { AsyncCache } = require('./async-cache');
 const { getMainAgentSkillsCatalog } = require('./main-agent-skills');
 const { discoverAgentExtensions, discoverSlashCommands } = require('./slash-command-discovery');
 const { FarmingUpdateService } = require('./update-service');
-const { inputPartsFromMessage } = require('./input-parts');
+const { inputPartsFromMessage } = require('./input-parts.cjs');
 const { cleanupTerminalRuntime } = require('./terminal-runtime-cleanup');
 const { QrShareTicketStore, SHARE_TICKET_TTL_MS } = require('./qr-share-tickets');
 const { ReviewStateStore } = require('./review-state-store');
@@ -2787,7 +2787,7 @@ function handleMessage(ws, data) {
   }
 }
 
-const { resolveInputTargetAgentId } = require('./input-routing');
+const { resolveInputTargetAgentId } = require('./input-routing.cjs');
 
 function sendWorkspaceFileWatchError(ws, error) {
   if (ws.readyState !== WebSocket.OPEN) return;

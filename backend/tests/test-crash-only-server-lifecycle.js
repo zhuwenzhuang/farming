@@ -40,8 +40,8 @@ function run() {
   );
 
   assert(
-    updateServiceSource.includes("require('./server-process-identity')") &&
-      npmUpdateHelperSource.includes("require('./server-process-identity')") &&
+    updateServiceSource.includes("require('./server-process-identity.cjs')") &&
+      npmUpdateHelperSource.includes("require('./server-process-identity.cjs')") &&
       !updateServiceSource.includes("require('./farming-app-cli')") &&
       !npmUpdateHelperSource.includes("require('./farming-app-cli')"),
     'server startup must not load farming-app-cli again through the update service'

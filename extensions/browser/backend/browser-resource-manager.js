@@ -6,7 +6,7 @@ const storageLayout = require('../../../backend/storage-layout');
 const {
   matchingProcessIdentity,
   readServerProcessIdentity,
-} = require('../../../backend/server-process-identity');
+} = require('../../../backend/server-process-identity.cjs');
 const { BrowserResourceStore, RESOURCE_ID_RE } = require('./browser-resource-store');
 const { AgentBrowserRuntime } = require('./agent-browser-runtime');
 const {

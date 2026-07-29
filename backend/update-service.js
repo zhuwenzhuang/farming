@@ -4,7 +4,7 @@ const http = require('http');
 const https = require('https');
 const os = require('os');
 const path = require('path');
-const { readServerProcessIdentity } = require('./server-process-identity');
+const { readServerProcessIdentity } = require('./server-process-identity.cjs');
 const storageLayout = require('./storage-layout');
 
 const CACHE_TTL_MS = 5 * 60 * 1000;

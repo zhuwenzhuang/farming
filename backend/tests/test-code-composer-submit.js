@@ -1,6 +1,6 @@
 const assert = require('assert');
 const { terminalInputPartsForComposerMessage } = require('../../src/components/code/composer-submit.ts');
-const { terminalInputToPtyString } = require('../input-parts');
+const { terminalInputToPtyString } = require('../input-parts.cjs');
 
 function run() {
   assert.deepStrictEqual(

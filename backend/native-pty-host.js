@@ -11,7 +11,7 @@ const {
   nativePtyHostPrivateSocketPath,
   nativePtyHostSocketPath,
 } = require('./native-pty-host-path');
-const { terminalInputToPtyString } = require('./input-parts');
+const { terminalInputToPtyString } = require('./input-parts.cjs');
 const { normalizeInteractiveTerminalEnv } = require('./agent-env');
 const {
   cleanupShellBusyIntegration,

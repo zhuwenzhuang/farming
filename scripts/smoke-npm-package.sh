@@ -86,7 +86,14 @@ for runtime_module in \
   agent-order \
   agent-order-transaction \
   agent-provider-session \
+  atomic-json-store \
   business-health \
+  chat-runtime \
+  input-parts \
+  input-routing \
+  provider-session-id \
+  runtime-executable-invocation \
+  server-process-identity \
   terminal-exit-quiescence
 do
   if [ ! -f "${PACKAGE_ROOT}/backend/${runtime_module}.cjs" ]; then

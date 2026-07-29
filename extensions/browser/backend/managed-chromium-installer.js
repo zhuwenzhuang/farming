@@ -13,7 +13,7 @@ const {
 } = require('../../../backend/runtime-dependency-manager');
 const {
   runtimeExecutableInvocation,
-} = require('../../../backend/runtime-executable-invocation');
+} = require('../../../backend/runtime-executable-invocation.cjs');
 const {
   AGENT_BROWSER_VERSION,
 } = require('./agent-browser-runtime');

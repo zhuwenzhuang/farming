@@ -4,7 +4,7 @@ const { spawn } = require('child_process');
 const {
   matchingProcessIdentity,
   readServerProcessIdentity,
-} = require('./server-process-identity');
+} = require('./server-process-identity.cjs');
 
 function writeJsonAtomic(filePath, value) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });

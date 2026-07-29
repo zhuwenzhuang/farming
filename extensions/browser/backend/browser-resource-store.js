@@ -1,6 +1,6 @@
 const fs = require('fs');
 const crypto = require('crypto');
-const { atomicWriteJson } = require('../../../backend/atomic-json-store');
+const { atomicWriteJson } = require('../../../backend/atomic-json-store.cjs');
 const storageLayout = require('../../../backend/storage-layout');
 
 const STORE_VERSION = 5;

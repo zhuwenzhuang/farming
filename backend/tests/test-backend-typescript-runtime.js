@@ -4,13 +4,10 @@ const path = require('path');
 
 const backendDir = path.resolve(__dirname, '..');
 const packageJson = require('../../package.json');
-const modules = [
-  'agent-order',
-  'agent-order-transaction',
-  'agent-provider-session',
-  'business-health',
-  'terminal-exit-quiescence',
-];
+const modules = fs.readdirSync(backendDir)
+  .filter(fileName => fileName.endsWith('.cts'))
+  .map(fileName => fileName.slice(0, -'.cts'.length))
+  .sort();
 
 for (const moduleName of modules) {
   assert(fs.existsSync(path.join(backendDir, `${moduleName}.cts`)), `${moduleName} TypeScript source is missing`);

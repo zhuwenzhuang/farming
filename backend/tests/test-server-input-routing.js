@@ -1,5 +1,5 @@
 const assert = require('assert');
-const { resolveInputTargetAgentId } = require('../input-routing');
+const { resolveInputTargetAgentId } = require('../input-routing.cjs');
 
 function run() {
   assert.strictEqual(

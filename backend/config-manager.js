@@ -1,11 +1,11 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { atomicWriteJson } = require('./atomic-json-store');
+const { atomicWriteJson } = require('./atomic-json-store.cjs');
 const { ensureMainAgentSkillFiles } = require('./main-agent-skills');
 const { ensureFarmingAgentBootstrapFile } = require('./farming-agent-bootstrap');
 const { normalizeClaudeModelValue } = require('./claude-settings');
-const { isTemporaryProviderSessionId } = require('./provider-session-id');
+const { isTemporaryProviderSessionId } = require('./provider-session-id.cjs');
 const { FarmingSessionStore, MAX_MAIN_PAGE_SESSION_KEYS } = require('./farming-session-store');
 const { RunHistoryStore } = require('./run-history-store');
 const { isSupportedHistoryAgent } = require('./cli-agents');

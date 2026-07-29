@@ -1,5 +1,5 @@
 const fs = require('fs');
-const { atomicWriteJson } = require('./atomic-json-store');
+const { atomicWriteJson } = require('./atomic-json-store.cjs');
 const storageLayout = require('./storage-layout');
 
 class RunHistoryStore {

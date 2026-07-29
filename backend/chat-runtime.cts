@@ -1,16 +1,22 @@
 // Chat is a product-level intent. ACP is the single structured Chat runtime for
 // every supported coding agent, including Codex.
-const CHAT_MODE = 'chat';
+const CHAT_MODE = 'chat' as const;
 
-function chatRuntimeForProvider(_provider) {
+interface ChatCapabilities {
+  chatRuntime: 'acp';
+  supportsChat: true;
+  supportsSteer: false;
+}
+
+function chatRuntimeForProvider(_provider: unknown): 'acp' {
   return 'acp';
 }
 
-function isChatMode(mode) {
+function isChatMode(mode: unknown): mode is typeof CHAT_MODE {
   return mode === CHAT_MODE;
 }
 
-function chatCapabilitiesForProvider(provider) {
+function chatCapabilitiesForProvider(provider: unknown): ChatCapabilities {
   const runtime = chatRuntimeForProvider(provider);
   return {
     chatRuntime: runtime,
@@ -20,7 +26,7 @@ function chatCapabilitiesForProvider(provider) {
   };
 }
 
-module.exports = {
+export {
   CHAT_MODE,
   chatRuntimeForProvider,
   chatCapabilitiesForProvider,

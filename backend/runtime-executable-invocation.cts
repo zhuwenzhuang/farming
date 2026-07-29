@@ -1,9 +1,9 @@
 function runtimeExecutableInvocation(
-  executablePath,
-  args = [],
-  env = process.env,
-  platform = process.platform,
-) {
+  executablePath: string,
+  args: string[] = [],
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform | string = process.platform,
+): { command: string; args: string[] } {
   if (
     platform === 'linux'
     && env.FARMING_NODE_LD
@@ -17,4 +17,4 @@ function runtimeExecutableInvocation(
   return { command: executablePath, args };
 }
 
-module.exports = { runtimeExecutableInvocation };
+export { runtimeExecutableInvocation };

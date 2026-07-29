@@ -1,6 +1,6 @@
 const path = require('path');
 const { parseCommand } = require('./cli-agents');
-const { isSafeProviderSessionId } = require('./provider-session-id');
+const { isSafeProviderSessionId } = require('./provider-session-id.cjs');
 
 const AUTO_RESUME_AGENT_SESSION_PROVIDERS = new Set(['codex', 'claude', 'opencode', 'qoder', 'qwen']);
 

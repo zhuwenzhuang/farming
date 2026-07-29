@@ -6,7 +6,7 @@ const {
   readSessionMetadata,
   sessionIdFromFilePath,
 } = require('./codex-session-history');
-const { isSafeProviderSessionId, isTemporaryProviderSessionId } = require('./provider-session-id');
+const { isSafeProviderSessionId, isTemporaryProviderSessionId } = require('./provider-session-id.cjs');
 
 const CACHE_TTL_MS = 5_000;
 const CONTEXT_TAIL_BYTES = 512 * 1024;
