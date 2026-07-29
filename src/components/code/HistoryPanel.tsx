@@ -90,7 +90,7 @@ function HistoryMeta({
     <span className="code-history-meta">
       <span className="code-history-agent-icon" aria-hidden="true">
         {iconName
-          ? <AgentLaunchIcon name={iconName} variant="monochrome" />
+          ? <AgentLaunchIcon name={iconName} variant="color" />
           : <TerminalSquareGlyph />}
       </span>
       <span>

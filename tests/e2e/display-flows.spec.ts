@@ -622,6 +622,7 @@ test.describe('display-backed agent flows', () => {
     await expect(historyRow.locator('[role="link"]')).toHaveCount(0)
     const historyIcon = historyRow.locator('.code-history-agent-icon .agent-launch-icon-codex')
     await expect(historyIcon).toBeVisible()
+    await expect(historyIcon).toHaveClass(/agent-launch-icon-color/)
     await expect(historyIcon).toHaveCSS('width', '13px')
     await expect(historyIcon).toHaveCSS('height', '13px')
     await historyPrimary.click()
