@@ -7,7 +7,7 @@ const {
   modelSelectionInput,
   reasoningSelectionInput,
   newCodexServiceTierConfirmation,
-} = require('../codex-terminal-profile');
+} = require('../codex-terminal-profile.cjs');
 
 const IDLE_55 = [
   '› Improve documentation in @filename',

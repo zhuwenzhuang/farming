@@ -61,7 +61,7 @@ const {
   applyCodexTerminalProfile,
   codexTerminalProfileFromOutput,
   codexTerminalProfileFromPreview,
-} = require('./codex-terminal-profile');
+} = require('./codex-terminal-profile.cjs');
 const {
   ensureAgentOrders,
   finiteOrder,

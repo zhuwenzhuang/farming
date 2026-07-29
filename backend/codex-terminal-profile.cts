@@ -4,11 +4,86 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_POLL_INTERVAL_MS = 100;
 const MAX_CLEANUP_RESERVE_MS = 1_000;
 
-function sleep(ms) {
+type CodexServiceTier = 'default' | 'priority';
+
+interface DeadlineOptions {
+  deadline?: number;
+  signal?: AbortSignal;
+  timeoutMessage?: string;
+}
+
+interface WaitForPreviewOptions extends DeadlineOptions {
+  pollIntervalMs?: number;
+  sleep?: SleepFunction;
+  timeoutMs?: number;
+}
+
+interface CodexServiceTierConfirmation {
+  fast: boolean;
+  serviceTier: CodexServiceTier;
+}
+
+interface CodexTerminalProfile {
+  effort: string;
+  fast: boolean | null;
+  model: string;
+}
+
+interface ValidatedCodexTerminalProfile {
+  effort: string;
+  model: string;
+  serviceTier: CodexServiceTier;
+}
+
+interface CodexTerminalProfileTarget {
+  effort?: unknown;
+  model?: unknown;
+  serviceTier?: unknown;
+}
+
+interface NumberedMenuOption {
+  input: string;
+  label: string;
+  line: string;
+}
+
+interface TerminalPasteInput {
+  text: string;
+  type: 'paste';
+}
+
+type TerminalCommand = [TerminalPasteInput, '\r'];
+type TerminalInput = TerminalCommand | string;
+type AsyncReader = () => unknown | PromiseLike<unknown>;
+type SleepFunction = (ms: number) => unknown | PromiseLike<unknown>;
+type SendInput = (input: TerminalInput) => unknown | PromiseLike<unknown>;
+
+interface ApplyCodexTerminalProfileOptions {
+  onInputSafe?: () => void;
+  pollIntervalMs?: number;
+  profile: CodexTerminalProfileTarget | null | undefined;
+  readOutput?: AsyncReader;
+  readPreview: AsyncReader;
+  sendInput: SendInput;
+  signal?: AbortSignal;
+  sleep?: SleepFunction;
+  timeoutMs?: number;
+}
+
+interface ProfileMatchOptions {
+  includeFast?: boolean;
+}
+
+interface ReasoningStepResult {
+  complete?: true;
+  options?: NumberedMenuOption[];
+}
+
+function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-function abortError(signal, fallbackMessage) {
+function abortError(signal: AbortSignal | undefined, fallbackMessage: string): Error {
   const reason = signal?.reason;
   if (reason instanceof Error) return reason;
   const error = new Error(typeof reason === 'string' && reason ? reason : fallbackMessage);
@@ -16,11 +91,17 @@ function abortError(signal, fallbackMessage) {
   return error;
 }
 
-function throwIfAborted(signal, fallbackMessage = 'Codex Terminal profile update was canceled') {
+function throwIfAborted(
+  signal: AbortSignal | undefined,
+  fallbackMessage = 'Codex Terminal profile update was canceled',
+): void {
   if (signal?.aborted) throw abortError(signal, fallbackMessage);
 }
 
-function withDeadline(value, options = {}) {
+function withDeadline<T>(
+  value: T | PromiseLike<T>,
+  options: DeadlineOptions = {},
+): Promise<Awaited<T>> {
   const deadline = Number(options.deadline);
   const signal = options.signal;
   const timeoutMessage = options.timeoutMessage || 'Timed out applying the Codex Terminal profile';
@@ -29,45 +110,53 @@ function withDeadline(value, options = {}) {
   const remainingMs = deadline - Date.now();
   if (remainingMs <= 0) return Promise.reject(new Error(timeoutMessage));
 
-  return new Promise((resolve, reject) => {
+  return new Promise<Awaited<T>>((resolve, reject) => {
     let settled = false;
-    const finish = (callback, result) => {
+    let timer: ReturnType<typeof setTimeout>;
+    const finish = (callback: () => void): void => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
       signal?.removeEventListener('abort', onAbort);
-      callback(result);
+      callback();
     };
-    const onAbort = () => finish(reject, abortError(signal, 'Codex Terminal profile update was canceled'));
-    const timer = setTimeout(() => finish(reject, new Error(timeoutMessage)), remainingMs);
+    const onAbort = (): void => finish(
+      () => reject(abortError(signal, 'Codex Terminal profile update was canceled')),
+    );
+    timer = setTimeout(() => finish(() => reject(new Error(timeoutMessage))), remainingMs);
     signal?.addEventListener('abort', onAbort, { once: true });
     Promise.resolve(value).then(
-      result => finish(resolve, result),
-      error => finish(reject, error),
+      result => finish(() => resolve(result)),
+      error => finish(() => reject(error)),
     );
   });
 }
 
-function callWithDeadline(operation, options = {}) {
+function callWithDeadline<T>(
+  operation: () => T | PromiseLike<T>,
+  options: DeadlineOptions = {},
+): Promise<Awaited<T>> {
   throwIfAborted(options.signal);
   return withDeadline(Promise.resolve().then(operation), options);
 }
 
-function normalizedValue(value) {
+function normalizedValue(value: unknown): string {
   return String(value || '').trim().toLowerCase();
 }
 
-function normalizedReasoning(value) {
+function normalizedReasoning(value: unknown): string {
   const normalized = normalizedValue(value).replace(/[\s_-]+/g, '');
   if (normalized === 'extrahigh') return 'xhigh';
   return normalized;
 }
 
-function stripAnsi(value) {
+function stripAnsi(value: unknown): string {
   return String(value || '').replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, '');
 }
 
-function codexServiceTierConfirmations(outputText) {
+function codexServiceTierConfirmations(
+  outputText: unknown,
+): CodexServiceTierConfirmation[] {
   const text = stripAnsi(outputText).replace(/\r/g, '\n');
   return Array.from(text.matchAll(
     /(?:^|\n)\s*[•●]\s+(?:Service tier set to\s+(priority|default)\b|Fast mode is\s+(on|off)\b)/gi
@@ -82,7 +171,10 @@ function codexServiceTierConfirmations(outputText) {
   });
 }
 
-function newCodexServiceTierConfirmation(previousOutput, currentOutput) {
+function newCodexServiceTierConfirmation(
+  previousOutput: unknown,
+  currentOutput: unknown,
+): CodexServiceTierConfirmation | null {
   const previous = stripAnsi(previousOutput);
   const current = stripAnsi(currentOutput);
   const previousConfirmations = codexServiceTierConfirmations(previous);
@@ -100,17 +192,20 @@ function newCodexServiceTierConfirmation(previousOutput, currentOutput) {
   return null;
 }
 
-function terminalCommand(command) {
+function terminalCommand(command: string): TerminalCommand {
   return [{ type: 'paste', text: command }, '\r'];
 }
 
-function numberedOptionsAfter(previewText, headingPattern) {
+function numberedOptionsAfter(
+  previewText: unknown,
+  headingPattern: RegExp,
+): NumberedMenuOption[] | null {
   const text = String(previewText || '');
   const matches = Array.from(text.matchAll(headingPattern));
   const heading = matches[matches.length - 1];
   if (!heading || typeof heading.index !== 'number') return null;
 
-  const options = [];
+  const options: NumberedMenuOption[] = [];
   const body = text.slice(heading.index + heading[0].length);
   for (const line of body.split(/\r?\n/)) {
     const match = line.match(/^\s*(?:[>›❯]\s*)?(\d{1,2})[.)]?\s+(.+?)\s*$/u);
@@ -124,19 +219,19 @@ function numberedOptionsAfter(previewText, headingPattern) {
   return options;
 }
 
-function codexModelMenuOptions(previewText) {
+function codexModelMenuOptions(previewText: unknown): NumberedMenuOption[] | null {
   return numberedOptionsAfter(previewText, /Select Model and Effort/gi);
 }
 
-function codexReasoningMenuOptions(previewText) {
+function codexReasoningMenuOptions(previewText: unknown): NumberedMenuOption[] | null {
   return numberedOptionsAfter(previewText, /Select Reasoning Level for\s+[^\r\n]+/gi);
 }
 
-function codexAdvancedReasoningMenuOptions(previewText) {
+function codexAdvancedReasoningMenuOptions(previewText: unknown): NumberedMenuOption[] | null {
   return numberedOptionsAfter(previewText, /Advanced Reasoning/gi);
 }
 
-function modelSelectionInput(previewText, model) {
+function modelSelectionInput(previewText: unknown, model: unknown): string | null {
   const target = normalizedValue(model);
   const options = codexModelMenuOptions(previewText);
   if (!options) return null;
@@ -147,7 +242,7 @@ function modelSelectionInput(previewText, model) {
   return option?.input || '';
 }
 
-function reasoningSelectionInput(previewText, effort) {
+function reasoningSelectionInput(previewText: unknown, effort: unknown): string | null {
   const target = normalizedReasoning(effort);
   const options = codexAdvancedReasoningMenuOptions(previewText)
     || codexReasoningMenuOptions(previewText);
@@ -160,14 +255,16 @@ function reasoningSelectionInput(previewText, effort) {
   return option?.input || '';
 }
 
-function moreReasoningSelectionInput(previewText) {
+function moreReasoningSelectionInput(previewText: unknown): string | null {
   const options = codexReasoningMenuOptions(previewText);
   if (!options) return null;
   const option = options.find(item => normalizedReasoning(item.label).startsWith('morereasoning'));
   return option?.input || '';
 }
 
-function codexTerminalProfileFromPreview(previewText) {
+function codexTerminalProfileFromPreview(
+  previewText: unknown,
+): CodexTerminalProfile | null {
   const text = String(previewText || '');
   const matches = Array.from(text.matchAll(
     /\b([A-Za-z0-9][A-Za-z0-9._:/-]*-[A-Za-z0-9._-]+)\s+(minimal|low|medium|high|xhigh|extra\s+high|max|ultra)\b(\s+fast\b)?/gi
@@ -182,7 +279,9 @@ function codexTerminalProfileFromPreview(previewText) {
   };
 }
 
-function codexTerminalProfileFromOutput(outputText) {
+function codexTerminalProfileFromOutput(
+  outputText: unknown,
+): CodexTerminalProfile | null {
   const text = stripAnsi(outputText).replace(/\r/g, '\n');
   const matches = Array.from(text.matchAll(
     /(?:^|\n)\s*[•●]\s+Model changed to\s+([A-Za-z0-9][A-Za-z0-9._:/-]*-[A-Za-z0-9._-]+)\s+(minimal|low|medium|high|xhigh|extra\s+high|max|ultra)\b/gi
@@ -197,7 +296,11 @@ function codexTerminalProfileFromOutput(outputText) {
   };
 }
 
-function profileMatches(current, target, options = {}) {
+function profileMatches(
+  current: CodexTerminalProfile | null,
+  target: ValidatedCodexTerminalProfile,
+  options: ProfileMatchOptions = {},
+): boolean {
   if (!current) return false;
   if (normalizedValue(current.model) !== normalizedValue(target.model)) return false;
   if (normalizedReasoning(current.effort) !== normalizedReasoning(target.effort)) return false;
@@ -207,13 +310,21 @@ function profileMatches(current, target, options = {}) {
   return true;
 }
 
-async function waitForPreview(readPreview, predicate, options = {}) {
-  const timeoutMs = Number.isFinite(options.timeoutMs) ? options.timeoutMs : DEFAULT_TIMEOUT_MS;
-  const pollIntervalMs = Number.isFinite(options.pollIntervalMs)
+async function waitForPreview<Result>(
+  readPreview: AsyncReader,
+  predicate: (preview: string) => Result | false | null | undefined,
+  options: WaitForPreviewOptions = {},
+): Promise<{ preview: string; result: Result }> {
+  const timeoutMs = typeof options.timeoutMs === 'number' && Number.isFinite(options.timeoutMs)
+    ? options.timeoutMs
+    : DEFAULT_TIMEOUT_MS;
+  const pollIntervalMs = typeof options.pollIntervalMs === 'number' && Number.isFinite(options.pollIntervalMs)
     ? options.pollIntervalMs
     : DEFAULT_POLL_INTERVAL_MS;
   const sleepFn = typeof options.sleep === 'function' ? options.sleep : sleep;
-  const deadline = Number.isFinite(options.deadline) ? options.deadline : Date.now() + timeoutMs;
+  const deadline = typeof options.deadline === 'number' && Number.isFinite(options.deadline)
+    ? options.deadline
+    : Date.now() + timeoutMs;
 
   for (;;) {
     const preview = String(await callWithDeadline(readPreview, {
@@ -235,7 +346,9 @@ async function waitForPreview(readPreview, predicate, options = {}) {
   }
 }
 
-function validateTargetProfile(profile) {
+function validateTargetProfile(
+  profile: CodexTerminalProfileTarget | null | undefined,
+): ValidatedCodexTerminalProfile {
   const model = String(profile?.model || '').trim();
   const effort = String(profile?.effort || '').trim();
   const serviceTier = profile?.serviceTier === 'priority' ? 'priority' : 'default';
@@ -258,7 +371,7 @@ async function applyCodexTerminalProfile({
   pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
   sleep: sleepFn = sleep,
   signal,
-}) {
+}: ApplyCodexTerminalProfileOptions): Promise<ValidatedCodexTerminalProfile> {
   const target = validateTargetProfile(profile);
   const totalTimeoutMs = Math.max(1, Number.isFinite(timeoutMs) ? timeoutMs : DEFAULT_TIMEOUT_MS);
   const totalDeadline = Date.now() + totalTimeoutMs;
@@ -273,13 +386,16 @@ async function applyCodexTerminalProfile({
     sleep: sleepFn,
     signal,
   };
-  const runStep = (operation, timeoutMessage) => callWithDeadline(operation, {
+  const runStep = <Result,>(
+    operation: () => Result | PromiseLike<Result>,
+    timeoutMessage: string,
+  ): Promise<Awaited<Result>> => callWithDeadline(operation, {
     deadline: operationDeadline,
     signal,
     timeoutMessage,
   });
   let inputSafe = false;
-  const markInputSafe = () => {
+  const markInputSafe = (): void => {
     if (inputSafe) return;
     inputSafe = true;
     if (typeof onInputSafe === 'function') onInputSafe();
@@ -328,7 +444,7 @@ async function applyCodexTerminalProfile({
         `Timed out selecting model ${target.model}`,
       );
 
-      const reasoningStep = await waitForPreview(
+      const reasoningStep = await waitForPreview<ReasoningStepResult>(
         readPreview,
         text => {
           const nextProfile = codexTerminalProfileFromPreview(text);
@@ -455,6 +571,7 @@ async function applyCodexTerminalProfile({
     }
 
     markInputSafe();
+    if (!current) throw new Error('Codex Terminal stopped reporting its active model');
 
     return {
       model: current.model,
@@ -479,7 +596,7 @@ async function applyCodexTerminalProfile({
   }
 }
 
-module.exports = {
+export {
   DEFAULT_POLL_INTERVAL_MS,
   DEFAULT_TIMEOUT_MS,
   applyCodexTerminalProfile,
@@ -497,4 +614,17 @@ module.exports = {
   terminalCommand,
   validateTargetProfile,
   waitForPreview,
+};
+export type {
+  ApplyCodexTerminalProfileOptions,
+  CodexServiceTier,
+  CodexServiceTierConfirmation,
+  CodexTerminalProfile,
+  CodexTerminalProfileTarget,
+  DeadlineOptions,
+  NumberedMenuOption,
+  TerminalCommand,
+  TerminalInput,
+  ValidatedCodexTerminalProfile,
+  WaitForPreviewOptions,
 };

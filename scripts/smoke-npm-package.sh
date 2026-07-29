@@ -101,6 +101,7 @@ for runtime_module in \
   codex-context-window \
   codex-models \
   codex-session-archive \
+  codex-terminal-profile \
   codex-transcript-sanitizer \
   command-runner-child \
   control-api \
