@@ -88,6 +88,7 @@ for runtime_module in \
   agent-provider-session \
   agent-lifecycle-journal \
   agent-runtime-binding \
+  async-cache \
   atomic-json-store \
   business-health \
   chat-runtime \
@@ -99,6 +100,8 @@ for runtime_module in \
   native-pty-host-path \
   network \
   provider-session-id \
+  preview-session-manager \
+  run-history-store \
   runtime-executable-invocation \
   runtime-observation \
   server-process-identity \
@@ -106,6 +109,7 @@ for runtime_module in \
   terminal-attach-checkpoint \
   terminal-exit-quiescence \
   terminal-reducer-flow-control \
+  terminal-runtime-cleanup \
   terminal-state-serialization
 do
   if [ ! -f "${PACKAGE_ROOT}/backend/${runtime_module}.cjs" ]; then

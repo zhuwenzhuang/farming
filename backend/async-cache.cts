@@ -1,25 +1,56 @@
-class AsyncCache {
-  constructor(loader, options = {}) {
+interface AsyncCacheOptions {
+  now?: () => number;
+  staleMs?: number;
+  ttlMs?: number;
+}
+
+interface AsyncCacheGetOptions {
+  force?: boolean;
+  maxAgeMs?: number;
+}
+
+interface AsyncCacheEntry<Value> {
+  error: unknown;
+  fetchedAt: number;
+  hasValue: boolean;
+  pending: Promise<Value> | null;
+  value: Value | null;
+}
+
+class AsyncCache<Value> {
+  private readonly entries = new Map<string, AsyncCacheEntry<Value>>();
+  private readonly loader: (entryId: string) => Value | PromiseLike<Value>;
+  private readonly now: () => number;
+  private readonly staleMs: number;
+  private readonly ttlMs: number;
+
+  constructor(
+    loader: (entryId: string) => Value | PromiseLike<Value>,
+    options: AsyncCacheOptions = {},
+  ) {
     if (typeof loader !== 'function') {
       throw new TypeError('AsyncCache loader must be a function');
     }
 
     this.loader = loader;
-    this.ttlMs = Number.isFinite(options.ttlMs) ? Math.max(0, options.ttlMs) : 30_000;
-    this.staleMs = Number.isFinite(options.staleMs) ? Math.max(this.ttlMs, options.staleMs) : this.ttlMs;
+    this.ttlMs = typeof options.ttlMs === 'number' && Number.isFinite(options.ttlMs)
+      ? Math.max(0, options.ttlMs)
+      : 30_000;
+    this.staleMs = typeof options.staleMs === 'number' && Number.isFinite(options.staleMs)
+      ? Math.max(this.ttlMs, options.staleMs)
+      : this.ttlMs;
     this.now = typeof options.now === 'function' ? options.now : () => Date.now();
-    this.entries = new Map();
   }
 
-  isFresh(entry, now) {
+  private isFresh(entry: AsyncCacheEntry<Value>, now: number): boolean {
     return entry.hasValue && now - entry.fetchedAt <= this.ttlMs;
   }
 
-  isStaleUsable(entry, now) {
+  private isStaleUsable(entry: AsyncCacheEntry<Value>, now: number): boolean {
     return entry.hasValue && now - entry.fetchedAt <= this.staleMs;
   }
 
-  async refresh(entryId, entry) {
+  private async refresh(entryId: string, entry: AsyncCacheEntry<Value>): Promise<Value> {
     if (entry.pending) return entry.pending;
 
     entry.pending = Promise.resolve()
@@ -31,7 +62,7 @@ class AsyncCache {
         entry.error = null;
         return value;
       })
-      .catch(error => {
+      .catch((error: unknown) => {
         entry.error = error;
         throw error;
       })
@@ -42,10 +73,10 @@ class AsyncCache {
     return entry.pending;
   }
 
-  get(entryId = 'default', options = {}) {
+  get(entryId: unknown = 'default', options: AsyncCacheGetOptions = {}): Promise<Value | null> {
     const cacheId = String(entryId);
     const now = this.now();
-    const maxAgeMs = Number.isFinite(options.maxAgeMs)
+    const maxAgeMs = typeof options.maxAgeMs === 'number' && Number.isFinite(options.maxAgeMs)
       ? Math.max(0, options.maxAgeMs)
       : null;
     let entry = this.entries.get(cacheId);
@@ -79,7 +110,7 @@ class AsyncCache {
     return this.refresh(cacheId, entry);
   }
 
-  invalidate(entryId = null) {
+  invalidate(entryId: unknown = null): void {
     if (entryId === null || entryId === undefined) {
       this.entries.clear();
       return;
@@ -89,6 +120,6 @@ class AsyncCache {
   }
 }
 
-module.exports = {
+export {
   AsyncCache,
 };

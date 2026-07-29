@@ -7,7 +7,7 @@ const { atomicWriteJson } = require('../atomic-json-store.cjs');
 const ConfigManager = require('../config-manager');
 const { ReviewSessionStore } = require('../review-session-store');
 const { ReviewStateStore } = require('../review-state-store');
-const { RunHistoryStore } = require('../run-history-store');
+const { RunHistoryStore } = require('../run-history-store.cjs');
 
 function failingFileSystem(method) {
   return new Proxy(fs, {

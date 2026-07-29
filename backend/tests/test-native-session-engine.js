@@ -14,7 +14,7 @@ const {
   normalizeNativePtyHostRuntimeIdentity,
 } = require('../native-pty-host-identity.cjs');
 const { deserializeTerminalState } = require('../terminal-state-serialization.cjs');
-const { probeUnixSocket } = require('../terminal-runtime-cleanup');
+const { probeUnixSocket } = require('../terminal-runtime-cleanup.cjs');
 
 function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));

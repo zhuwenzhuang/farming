@@ -49,12 +49,12 @@ const {
 } = require('../extensions/browser/backend');
 const { UsageMonitor } = require('./usage-monitor');
 const { CodexContextWindowReader } = require('./codex-context-window');
-const { AsyncCache } = require('./async-cache');
+const { AsyncCache } = require('./async-cache.cjs');
 const { getMainAgentSkillsCatalog } = require('./main-agent-skills');
 const { discoverAgentExtensions, discoverSlashCommands } = require('./slash-command-discovery');
 const { FarmingUpdateService } = require('./update-service');
 const { inputPartsFromMessage } = require('./input-parts.cjs');
-const { cleanupTerminalRuntime } = require('./terminal-runtime-cleanup');
+const { cleanupTerminalRuntime } = require('./terminal-runtime-cleanup.cjs');
 const { QrShareTicketStore, SHARE_TICKET_TTL_MS } = require('./qr-share-tickets');
 const { ReviewStateStore } = require('./review-state-store');
 const { createReviewStateRouter } = require('./review-state-router');

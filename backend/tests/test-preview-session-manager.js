@@ -1,6 +1,6 @@
 const assert = require('assert');
 
-const { PreviewSessionManager } = require('../preview-session-manager');
+const { PreviewSessionManager } = require('../preview-session-manager.cjs');
 
 let now = 1_000;
 let nextId = 1;

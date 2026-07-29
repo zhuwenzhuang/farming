@@ -3,16 +3,43 @@ const crypto = require('crypto');
 const DEFAULT_PREVIEW_SESSION_TTL_MS = 30 * 60 * 1000;
 const DEFAULT_MAX_PREVIEW_SESSIONS = 128;
 
+interface PreviewSessionManagerOptions {
+  maxSessions?: number;
+  now?: () => number;
+  randomUUID?: () => string;
+  ttlMs?: number;
+}
+
+interface StaticPreviewSessionInput {
+  rootId: string;
+  workspaceRoot: string;
+  authorizedRoot: string;
+  entryPath: string;
+  baseDirectory: string;
+}
+
+interface StaticPreviewSession extends Readonly<StaticPreviewSessionInput> {
+  readonly id: string;
+  readonly kind: 'static';
+  readonly createdAt: number;
+  readonly expiresAt: number;
+}
+
 class PreviewSessionManager {
-  constructor(options = {}) {
+  private readonly maxSessions: number;
+  private readonly now: () => number;
+  private readonly randomUUID: () => string;
+  private readonly sessions = new Map<string, StaticPreviewSession>();
+  private readonly ttlMs: number;
+
+  constructor(options: PreviewSessionManagerOptions = {}) {
     this.ttlMs = Math.max(1_000, Number(options.ttlMs) || DEFAULT_PREVIEW_SESSION_TTL_MS);
     this.maxSessions = Math.max(1, Number(options.maxSessions) || DEFAULT_MAX_PREVIEW_SESSIONS);
     this.now = options.now || (() => Date.now());
     this.randomUUID = options.randomUUID || (() => crypto.randomUUID());
-    this.sessions = new Map();
   }
 
-  createStatic(input) {
+  createStatic(input: StaticPreviewSessionInput): StaticPreviewSession {
     this.cleanupExpired();
     while (this.sessions.size >= this.maxSessions) {
       const oldestId = this.sessions.keys().next().value;
@@ -36,7 +63,7 @@ class PreviewSessionManager {
     return session;
   }
 
-  get(sessionId) {
+  get(sessionId: unknown): StaticPreviewSession | null {
     const session = this.sessions.get(String(sessionId || ''));
     if (!session) return null;
     if (session.expiresAt <= this.now()) {
@@ -46,23 +73,23 @@ class PreviewSessionManager {
     return session;
   }
 
-  delete(sessionId) {
+  delete(sessionId: unknown): boolean {
     return this.sessions.delete(String(sessionId || ''));
   }
 
-  cleanupExpired() {
+  cleanupExpired(): void {
     const now = this.now();
     for (const [sessionId, session] of this.sessions) {
       if (session.expiresAt <= now) this.sessions.delete(sessionId);
     }
   }
 
-  dispose() {
+  dispose(): void {
     this.sessions.clear();
   }
 }
 
-module.exports = {
+export {
   DEFAULT_PREVIEW_SESSION_TTL_MS,
   PreviewSessionManager,
 };

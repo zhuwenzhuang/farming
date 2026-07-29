@@ -1,5 +1,5 @@
 const assert = require('assert');
-const { AsyncCache } = require('../async-cache');
+const { AsyncCache } = require('../async-cache.cjs');
 
 async function waitForMicrotasks() {
   await Promise.resolve();

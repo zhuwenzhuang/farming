@@ -7,7 +7,7 @@ const { ensureFarmingAgentBootstrapFile } = require('./farming-agent-bootstrap')
 const { normalizeClaudeModelValue } = require('./claude-settings');
 const { isTemporaryProviderSessionId } = require('./provider-session-id.cjs');
 const { FarmingSessionStore, MAX_MAIN_PAGE_SESSION_KEYS } = require('./farming-session-store');
-const { RunHistoryStore } = require('./run-history-store');
+const { RunHistoryStore } = require('./run-history-store.cjs');
 const { isSupportedHistoryAgent } = require('./cli-agents');
 const storageLayout = require('./storage-layout');
 

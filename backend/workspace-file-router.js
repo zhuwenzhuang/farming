@@ -4,7 +4,7 @@ const os = require('os');
 const path = require('path');
 const { inspectGitWorktree } = require('./git-worktree-info');
 const { WorkspaceFileError } = require('./workspace-file-service');
-const { PreviewSessionManager } = require('./preview-session-manager');
+const { PreviewSessionManager } = require('./preview-session-manager.cjs');
 const {
   GLOBAL_WORKSPACE_FILES_AGENT_ID,
   GLOBAL_WORKSPACE_FILES_ROOT,

@@ -4,11 +4,33 @@ const os = require('os');
 const path = require('path');
 const { nativePtyHostSocketPath } = require('./native-pty-host-path.cjs');
 
-function canUseUnixSocket(socketPath) {
+interface TerminalRuntimeCleanupOptions {
+  configDir?: string;
+  socketPath?: string;
+  timeoutMs?: number;
+}
+
+type UnixSocketProbe = {
+  active: boolean;
+  code?: string;
+};
+
+interface NativePtySocketCleanup extends UnixSocketProbe {
+  socketPath: string;
+  removed: boolean;
+}
+
+function errorCode(error: unknown): string {
+  return error && typeof error === 'object' && 'code' in error
+    ? String(error.code)
+    : 'error';
+}
+
+function canUseUnixSocket(socketPath: unknown): socketPath is string {
   return process.platform !== 'win32' && typeof socketPath === 'string' && socketPath.length > 0;
 }
 
-function socketExists(socketPath) {
+function socketExists(socketPath: string): boolean {
   try {
     fs.accessSync(socketPath);
     return true;
@@ -17,15 +39,15 @@ function socketExists(socketPath) {
   }
 }
 
-function probeUnixSocket(socketPath, timeoutMs = 120) {
+function probeUnixSocket(socketPath: string, timeoutMs = 120): Promise<UnixSocketProbe> {
   if (!canUseUnixSocket(socketPath)) {
     return Promise.resolve({ active: false, code: 'unsupported' });
   }
 
-  return new Promise(resolve => {
+  return new Promise<UnixSocketProbe>((resolve) => {
     const socket = net.createConnection(socketPath);
     let settled = false;
-    const finish = result => {
+    const finish = (result: UnixSocketProbe): void => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
@@ -35,11 +57,13 @@ function probeUnixSocket(socketPath, timeoutMs = 120) {
     const timer = setTimeout(() => finish({ active: false, code: 'timeout' }), timeoutMs);
     if (typeof timer.unref === 'function') timer.unref();
     socket.once('connect', () => finish({ active: true }));
-    socket.once('error', error => finish({ active: false, code: error && error.code ? error.code : 'error' }));
+    socket.once('error', (error: Error) => finish({ active: false, code: errorCode(error) }));
   });
 }
 
-async function cleanupStaleNativePtySocket(options = {}) {
+async function cleanupStaleNativePtySocket(
+  options: TerminalRuntimeCleanupOptions = {},
+): Promise<NativePtySocketCleanup> {
   const socketPath = options.socketPath || nativePtyHostSocketPath(options.configDir);
   if (!canUseUnixSocket(socketPath) || !socketExists(socketPath)) {
     return { socketPath, removed: false, active: false };
@@ -53,15 +77,17 @@ async function cleanupStaleNativePtySocket(options = {}) {
   try {
     fs.unlinkSync(socketPath);
     return { socketPath, removed: true, active: false, code: probe.code };
-  } catch (error) {
-    if (error && error.code === 'ENOENT') {
+  } catch (error: unknown) {
+    if (errorCode(error) === 'ENOENT') {
       return { socketPath, removed: false, active: false, code: probe.code };
     }
     throw error;
   }
 }
 
-async function cleanupTerminalRuntime(options = {}) {
+async function cleanupTerminalRuntime(
+  options: TerminalRuntimeCleanupOptions = {},
+): Promise<{ skipped: true } | { nativeSocket: NativePtySocketCleanup }> {
   if (process.env.FARMING_SKIP_TERMINAL_RUNTIME_CLEANUP === '1') {
     return { skipped: true };
   }
@@ -73,7 +99,7 @@ async function cleanupTerminalRuntime(options = {}) {
   };
 }
 
-module.exports = {
+export {
   cleanupStaleNativePtySocket,
   cleanupTerminalRuntime,
   probeUnixSocket,

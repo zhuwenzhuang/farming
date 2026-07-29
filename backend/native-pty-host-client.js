@@ -20,7 +20,7 @@ const {
 const { isTemporaryProviderSessionId } = require('./provider-session-id.cjs');
 const storageLayout = require('./storage-layout');
 const { deserializeTerminalState } = require('./terminal-state-serialization.cjs');
-const { probeUnixSocket } = require('./terminal-runtime-cleanup');
+const { probeUnixSocket } = require('./terminal-runtime-cleanup.cjs');
 
 const DEFAULT_CONNECT_RETRIES = 300;
 const DEFAULT_CONNECT_RETRY_MS = 50;

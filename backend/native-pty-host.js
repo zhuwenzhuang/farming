@@ -23,7 +23,7 @@ const {
   createPtyProcess,
 } = require('./local-session-engine');
 const { deriveTerminalStatus } = require('./terminal-status');
-const { probeUnixSocket } = require('./terminal-runtime-cleanup');
+const { probeUnixSocket } = require('./terminal-runtime-cleanup.cjs');
 const { nativePtyHostRuntimeIdentity } = require('./native-pty-host-identity.cjs');
 const {
   allocateNativePtyRuntimeGeneration,
