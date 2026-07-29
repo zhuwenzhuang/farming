@@ -1,6 +1,57 @@
-const path = require('path');
+const path = require('path') as typeof import('path');
 
-const CLI_AGENTS = [
+type AgentCategory = 'coding' | 'gui-launcher' | 'other';
+type PreferredEngine = 'native' | 'none';
+
+interface AgentPermissions {
+  dangerousSkipArgs: string[];
+  supportsDangerousSkip: boolean;
+}
+
+interface CliAgentSpec {
+  category: AgentCategory;
+  command?: string;
+  description: string;
+  interactive: boolean;
+  name: string;
+  permissions?: AgentPermissions;
+  preferredEngine: PreferredEngine;
+  supported: boolean;
+  systemPromptArg?: string;
+}
+
+interface AgentLaunchProfile extends Record<string, unknown> {
+  approvalMode?: unknown;
+  effort?: unknown;
+  model?: unknown;
+  modelPreset?: unknown;
+  permissionMode?: unknown;
+  reasoningEffort?: unknown;
+  serviceTier?: unknown;
+}
+
+interface ResolveLaunchOptions {
+  agentLaunchProfile?: Record<string, unknown>;
+  agentLaunchProfiles?: Record<string, unknown>;
+  claudePermissionMode?: string;
+  codexApprovalMode?: string;
+  codexModel?: string;
+  codexModelPreset?: string;
+  codexReasoningEffort?: string;
+  codexServiceTier?: string;
+  dangerouslySkipPermissions?: boolean;
+  farmingSystemPrompt?: string;
+  mainAgentSystemPrompt?: string;
+}
+
+interface ResolvedLaunchCommand {
+  args: string[];
+  permissionMode: string;
+  program: string;
+  spec: CliAgentSpec | null;
+}
+
+const CLI_AGENTS: CliAgentSpec[] = [
   {
     name: 'codex',
     description: 'Codex CLI - OpenAI coding assistant',
@@ -191,13 +242,13 @@ const CLI_AGENTS = [
   }
 ];
 
-function getAgentSpec(command) {
+function getAgentSpec(command: unknown): CliAgentSpec | null {
   const program = parseCommand(command)[0] || '';
   const executableName = path.basename(program);
   return CLI_AGENTS.find((agent) => agent.name === executableName || agent.command === executableName) || null;
 }
 
-function parseCommand(command) {
+function parseCommand(command: unknown): string[] {
   const input = String(command || '').trim();
   const parts = [];
   let current = '';
@@ -246,45 +297,49 @@ function parseCommand(command) {
   return parts;
 }
 
-function getAgentSpecForProgram(program) {
+function getAgentSpecForProgram(program: string): CliAgentSpec | null {
   const executableName = path.basename(program);
   return CLI_AGENTS.find((agent) => agent.name === executableName || agent.command === executableName) || null;
 }
 
-function getHistoryAgentSpec(command) {
+function getHistoryAgentSpec(command: unknown): CliAgentSpec | null {
   const program = parseCommand(command).find(token => (
     token !== 'env' && !/^[A-Za-z_][A-Za-z0-9_]*=/.test(token)
   ));
   return program ? getAgentSpecForProgram(program) : null;
 }
 
-function isSupportedHistoryAgent(command) {
+function isSupportedHistoryAgent(command: unknown): boolean {
   const spec = getHistoryAgentSpec(command);
   return Boolean(spec && spec.supported === true && spec.category === 'coding');
 }
 
-function getSupportedAgents() {
+function getSupportedAgents(): CliAgentSpec[] {
   return CLI_AGENTS.filter((agent) => agent.supported);
 }
 
-function getUserLaunchAgents() {
+function getUserLaunchAgents(): CliAgentSpec[] {
   return getSupportedAgents();
 }
 
-function getConfiguredProfile(options, agentName) {
-  const profiles = options && options.agentLaunchProfiles && typeof options.agentLaunchProfiles === 'object'
+function getConfiguredProfile(
+  options: ResolveLaunchOptions,
+  agentName: string,
+): AgentLaunchProfile {
+  const profiles = options.agentLaunchProfiles && typeof options.agentLaunchProfiles === 'object'
     ? options.agentLaunchProfiles
     : {};
-  const sharedProfile = options && options.agentLaunchProfile && typeof options.agentLaunchProfile === 'object'
+  const sharedProfile = options.agentLaunchProfile && typeof options.agentLaunchProfile === 'object'
     ? options.agentLaunchProfile
     : {};
+  const agentProfile = profiles[agentName];
   return {
-    ...(profiles[agentName] || {}),
+    ...(agentProfile && typeof agentProfile === 'object' ? agentProfile : {}),
     ...sharedProfile,
   };
 }
 
-function hasArgValue(args, names) {
+function hasArgValue(args: string[], names: string[]): boolean {
   return args.some((arg, index) => (
     names.includes(arg)
     || names.some(name => arg.startsWith(`${name}=`))
@@ -292,7 +347,7 @@ function hasArgValue(args, names) {
   ));
 }
 
-function argValue(args, names) {
+function argValue(args: string[], names: string[]): string {
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     for (const name of names) {
@@ -308,7 +363,11 @@ function argValue(args, names) {
   return '';
 }
 
-function inferLaunchPermissionMode(spec, launchArgs, options = {}) {
+function inferLaunchPermissionMode(
+  spec: CliAgentSpec | null,
+  launchArgs: string[],
+  options: Pick<ResolveLaunchOptions, 'codexApprovalMode'> = {},
+): string {
   if (!spec) return '';
 
   if (spec.name === 'codex') {
@@ -340,7 +399,10 @@ function inferLaunchPermissionMode(spec, launchArgs, options = {}) {
   return '';
 }
 
-function resolveLaunchCommand(command, options = {}) {
+function resolveLaunchCommand(
+  command: unknown,
+  options: ResolveLaunchOptions = {},
+): ResolvedLaunchCommand {
   const parts = parseCommand(command);
   const rawProgram = parts[0] || '';
   const args = parts.slice(1);
@@ -361,10 +423,14 @@ function resolveLaunchCommand(command, options = {}) {
     launchArgs.push('-l');
   }
   const profile = spec ? getConfiguredProfile(options, spec.name) : {};
-  const explicitCodexApprovalMode = ['ask', 'approve', 'full', 'custom'].includes(options.codexApprovalMode);
+  const explicitCodexApprovalMode = typeof options.codexApprovalMode === 'string'
+    && ['ask', 'approve', 'full', 'custom'].includes(options.codexApprovalMode);
   const codexApprovalMode = explicitCodexApprovalMode
-    ? options.codexApprovalMode
-    : (['ask', 'approve', 'full', 'custom'].includes(profile.approvalMode) ? profile.approvalMode : '');
+    ? (options.codexApprovalMode || '')
+    : (typeof profile.approvalMode === 'string'
+      && ['ask', 'approve', 'full', 'custom'].includes(profile.approvalMode)
+      ? profile.approvalMode
+      : '');
   const codexModelPreset = typeof options.codexModelPreset === 'string'
     ? options.codexModelPreset
     : (typeof profile.modelPreset === 'string' ? profile.modelPreset : '');
@@ -377,10 +443,12 @@ function resolveLaunchCommand(command, options = {}) {
   const codexServiceTier = typeof options.codexServiceTier === 'string'
     ? options.codexServiceTier
     : (typeof profile.serviceTier === 'string' ? profile.serviceTier : '');
-  const explicitClaudePermissionMode = ['acceptEdits', 'auto', 'bypassPermissions', 'default', 'dontAsk', 'plan'].includes(options.claudePermissionMode);
+  const explicitClaudePermissionMode = typeof options.claudePermissionMode === 'string'
+    && ['acceptEdits', 'auto', 'bypassPermissions', 'default', 'dontAsk', 'plan'].includes(options.claudePermissionMode);
   const claudePermissionMode = explicitClaudePermissionMode
-    ? options.claudePermissionMode
-    : (['acceptEdits', 'auto', 'bypassPermissions', 'default', 'dontAsk', 'plan'].includes(profile.permissionMode)
+    ? (options.claudePermissionMode || 'default')
+    : (typeof profile.permissionMode === 'string'
+      && ['acceptEdits', 'auto', 'bypassPermissions', 'default', 'dontAsk', 'plan'].includes(profile.permissionMode)
       ? profile.permissionMode
       : 'default');
   const claudeModel = typeof profile.model === 'string' ? profile.model : '';
@@ -433,8 +501,12 @@ function resolveLaunchCommand(command, options = {}) {
     }
   }
 
-  const hasDangerousSkipArgs = spec && spec.permissions && spec.permissions.supportsDangerousSkip && Array.isArray(spec.permissions.dangerousSkipArgs);
-  const hasDangerousSkipOverride = hasDangerousSkipArgs && spec.permissions.dangerousSkipArgs.some(arg => launchArgs.includes(arg));
+  const dangerousSkipArgs = spec?.permissions?.supportsDangerousSkip === true
+    && Array.isArray(spec.permissions.dangerousSkipArgs)
+    ? spec.permissions.dangerousSkipArgs
+    : null;
+  const hasDangerousSkipArgs = dangerousSkipArgs !== null;
+  const hasDangerousSkipOverride = dangerousSkipArgs?.some(arg => launchArgs.includes(arg)) ?? false;
   const hasPermissionOverride = spec && spec.name === 'codex'
     ? hasCodexApprovalOverride
     : spec && spec.name === 'claude'
@@ -448,7 +520,7 @@ function resolveLaunchCommand(command, options = {}) {
       : false;
 
   if (options.dangerouslySkipPermissions === true && hasDangerousSkipArgs && !hasPermissionOverride && !hasExplicitFarmingPermissionMode) {
-    launchArgs.unshift(...spec.permissions.dangerousSkipArgs);
+    launchArgs.unshift(...dangerousSkipArgs);
   } else if (spec && spec.name === 'codex' && codexApprovalMode && codexApprovalMode !== 'custom' && !hasCodexApprovalOverride) {
     if (codexApprovalMode === 'ask') {
       launchArgs.unshift('--ask-for-approval', 'untrusted', '--sandbox', 'workspace-write');
@@ -478,10 +550,21 @@ function resolveLaunchCommand(command, options = {}) {
   };
 }
 
-module.exports = CLI_AGENTS;
-module.exports.getAgentSpec = getAgentSpec;
-module.exports.parseCommand = parseCommand;
-module.exports.getSupportedAgents = getSupportedAgents;
-module.exports.getUserLaunchAgents = getUserLaunchAgents;
-module.exports.isSupportedHistoryAgent = isSupportedHistoryAgent;
-module.exports.resolveLaunchCommand = resolveLaunchCommand;
+export {
+  CLI_AGENTS,
+  getAgentSpec,
+  getSupportedAgents,
+  getUserLaunchAgents,
+  isSupportedHistoryAgent,
+  parseCommand,
+  resolveLaunchCommand,
+};
+export type {
+  AgentCategory,
+  AgentLaunchProfile,
+  AgentPermissions,
+  CliAgentSpec,
+  PreferredEngine,
+  ResolvedLaunchCommand,
+  ResolveLaunchOptions,
+};

@@ -1,16 +1,13 @@
 const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
+import { getUserLaunchAgents } from './cli-agents.cjs';
 
 interface LaunchAgent {
   command?: string;
   name: string;
   [key: string]: unknown;
 }
-
-const { getUserLaunchAgents } = require('./cli-agents') as {
-  getUserLaunchAgents(): LaunchAgent[];
-};
 
 type ExecutableVersionReader = (filePath: string) => string;
 

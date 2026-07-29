@@ -381,7 +381,7 @@ farming/
 │   │   - 输入输出转发
 │   │   - 进程清理和回收
 │   │
-│   ├── cli-agents.js      # CLI agent 白名单与元数据
+│   ├── cli-agents.cts     # CLI agent 白名单与元数据
 │   │   - supported / interactive / category
 │   │   - preferredEngine 路由提示
 │   │

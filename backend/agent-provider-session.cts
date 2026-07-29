@@ -1,6 +1,7 @@
 'use strict';
 
-const { parseCommand } = require('./cli-agents');
+import { parseCommand } from './cli-agents.cjs';
+
 const { getProviderAdapter, providerForProgram } = require('./provider-adapters.cjs');
 const { isSafeProviderSessionId } = require('./provider-session-id.cjs');
 

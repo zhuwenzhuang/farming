@@ -1,6 +1,11 @@
 const assert = require('assert');
-const CLI_AGENTS = require('../cli-agents');
-const { getSupportedAgents, getAgentSpec, isSupportedHistoryAgent, resolveLaunchCommand } = require('../cli-agents');
+const {
+  CLI_AGENTS,
+  getSupportedAgents,
+  getAgentSpec,
+  isSupportedHistoryAgent,
+  resolveLaunchCommand,
+} = require('../cli-agents.cjs');
 
 function run() {
   const supported = getSupportedAgents();

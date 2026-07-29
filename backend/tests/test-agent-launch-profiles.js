@@ -1,7 +1,6 @@
 const assert = require('assert');
-const CLI_AGENTS = require('../cli-agents');
+const { CLI_AGENTS, parseCommand, resolveLaunchCommand } = require('../cli-agents.cjs');
 const { renderFarmingAgentBootstrap } = require('../farming-agent-bootstrap.cjs');
-const { parseCommand, resolveLaunchCommand } = CLI_AGENTS;
 
 function run() {
   const farmingSystemPrompt = renderFarmingAgentBootstrap();

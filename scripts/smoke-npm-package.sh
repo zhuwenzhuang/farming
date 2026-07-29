@@ -96,6 +96,7 @@ for runtime_module in \
   atomic-json-store \
   business-health \
   chat-runtime \
+  cli-agents \
   claude-settings \
   codex-context-window \
   codex-models \

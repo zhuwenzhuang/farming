@@ -1,4 +1,5 @@
-const { getAgentSpec } = require('./cli-agents');
+import { getAgentSpec, type CliAgentSpec } from './cli-agents.cjs';
+
 const LocalSessionEngine = require('./local-session-engine') as SessionEngineConstructor;
 const { NativeSessionEngine } = require('./native-session-engine.cjs') as {
   NativeSessionEngine: SessionEngineConstructor;
@@ -97,18 +98,10 @@ interface SessionEngineConstructor {
   new(options?: Record<string, unknown>): SessionEngineLike;
 }
 
-interface AgentSpec {
-  [key: string]: unknown;
-  category?: string;
-  name: string;
-  preferredEngine?: string;
-  supported: boolean;
-}
-
 interface SessionEngineResolution {
   engine: SessionEngineLike;
   engineName: string;
-  spec: AgentSpec | null;
+  spec: CliAgentSpec | null;
 }
 
 class SessionEngineRouter {
@@ -138,7 +131,7 @@ class SessionEngineRouter {
   }
 
   resolve(command: string): SessionEngineResolution {
-    const spec = getAgentSpec(command) as AgentSpec | null;
+    const spec = getAgentSpec(command);
 
     if (!spec) {
       const engineName = this.engines[this.defaultEngineName]

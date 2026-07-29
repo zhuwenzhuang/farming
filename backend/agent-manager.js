@@ -7,7 +7,7 @@ const path = require('path');
 const { promisify } = require('util');
 const { SystemMonitor } = require('./system-monitor.cjs');
 const { SessionEngineBridge } = require('./session-engine-bridge.cjs');
-const { isSupportedHistoryAgent, parseCommand, resolveLaunchCommand } = require('./cli-agents');
+const { isSupportedHistoryAgent, parseCommand, resolveLaunchCommand } = require('./cli-agents.cjs');
 const {
   buildAgentSessionResumeCommand,
   findAgentSession,

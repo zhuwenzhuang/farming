@@ -8,7 +8,7 @@ const { normalizeClaudeModelValue } = require('./claude-settings.cjs');
 const { isTemporaryProviderSessionId } = require('./provider-session-id.cjs');
 const { FarmingSessionStore, MAX_MAIN_PAGE_SESSION_KEYS } = require('./farming-session-store.cjs');
 const { RunHistoryStore } = require('./run-history-store.cjs');
-const { isSupportedHistoryAgent } = require('./cli-agents');
+const { isSupportedHistoryAgent } = require('./cli-agents.cjs');
 const storageLayout = require('./storage-layout.cjs');
 
 function splitCodexModelPreset(preset) {
