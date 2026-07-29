@@ -115,6 +115,7 @@ for runtime_module in \
   provider-session-id \
   preview-session-manager \
   qr-share-tickets \
+  review-diff-router \
   review-session-router \
   review-session-store \
   review-state-router \

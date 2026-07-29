@@ -1,10 +1,78 @@
 const express = require('express');
-const { ReviewSessionError } = require('./review-session-service');
-const { WorkspaceFileError } = require('./workspace-file-service');
 
-function createReviewDiffRouter(reviewDiffService, reviewSessionService) {
-  const router = express.Router();
-  function sendWorkspaceError(res, error, fallbackMessage, logMessage) {
+interface ReviewApiError extends Error {
+  details?: Record<string, unknown>;
+  statusCode: number;
+}
+
+const { ReviewSessionError } = require('./review-session-service') as {
+  ReviewSessionError: new (...args: unknown[]) => ReviewApiError;
+};
+const { WorkspaceFileError } = require('./workspace-file-service') as {
+  WorkspaceFileError: new (...args: unknown[]) => ReviewApiError;
+};
+
+interface ExpressRequest {
+  params: Record<string, string>;
+  query: Record<string, unknown>;
+}
+
+interface ExpressResponse {
+  json(value: unknown): ExpressResponse;
+  send(value: unknown): ExpressResponse;
+  set(headers: Record<string, string>): ExpressResponse;
+  status(code: number): ExpressResponse;
+}
+
+type ExpressHandler = (
+  request: ExpressRequest,
+  response: ExpressResponse,
+) => void | Promise<void>;
+
+interface ExpressRouter {
+  get(path: string, handler: ExpressHandler): ExpressRouter;
+}
+
+interface ExpressFactory {
+  Router(): ExpressRouter;
+}
+
+interface ReviewPatchResult {
+  patch: unknown;
+  truncated: boolean;
+}
+
+type ReviewOptions = Record<string, unknown>;
+
+interface ReviewDiffService {
+  getComparisonSources(agentId: unknown, options: ReviewOptions): Promise<unknown>;
+  getGitRange(agentId: unknown, options: ReviewOptions): Promise<unknown>;
+  getGitRangeFile(agentId: unknown, options: ReviewOptions): Promise<unknown>;
+  getGitRangeFileContext(agentId: unknown, options: ReviewOptions): Promise<unknown>;
+  getGitRangePatch(agentId: unknown, options: ReviewOptions): Promise<ReviewPatchResult>;
+  getWorkingCopy(agentId: unknown, options: ReviewOptions): Promise<unknown>;
+  getWorkingCopyFile(agentId: unknown, path: string, options: ReviewOptions): Promise<unknown>;
+  getWorkingCopyFileContext(agentId: unknown, path: string, options: ReviewOptions): Promise<unknown>;
+  getWorkingCopyPatch(agentId: unknown, options: ReviewOptions): Promise<ReviewPatchResult>;
+}
+
+interface ReviewSessionService {
+  assertRange(reviewId: unknown, root: unknown, base: unknown, head: unknown): unknown;
+}
+
+const expressFactory = express as ExpressFactory;
+
+function createReviewDiffRouter(
+  reviewDiffService: ReviewDiffService,
+  reviewSessionService?: ReviewSessionService,
+): ExpressRouter {
+  const router = expressFactory.Router();
+  function sendWorkspaceError(
+    res: ExpressResponse,
+    error: unknown,
+    fallbackMessage: string,
+    logMessage: string,
+  ): true {
     if (error instanceof WorkspaceFileError) {
       res.status(error.statusCode).json({ error: error.message, ...(Object.keys(error.details || {}).length ? { details: error.details } : {}) });
       return true;
@@ -18,12 +86,17 @@ function createReviewDiffRouter(reviewDiffService, reviewSessionService) {
     return true;
   }
 
-  function assertReviewSessionRange(req) {
+  function assertReviewSessionRange(req: ExpressRequest): void {
     if (req.query.reviewId === undefined) return;
     reviewSessionService?.assertRange(req.query.reviewId, req.query.root, req.query.base, req.query.head);
   }
 
-  function sendPatch(res, patch, filename, truncated) {
+  function sendPatch(
+    res: ExpressResponse,
+    patch: unknown,
+    filename: string,
+    truncated: boolean,
+  ): void {
     res.set({
       'Content-Disposition': `attachment; filename="${filename}"`,
       'Content-Type': 'text/x-diff; charset=utf-8',
@@ -177,4 +250,4 @@ function createReviewDiffRouter(reviewDiffService, reviewSessionService) {
   return router;
 }
 
-module.exports = { createReviewDiffRouter };
+export { createReviewDiffRouter };
