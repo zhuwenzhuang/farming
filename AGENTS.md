@@ -63,6 +63,7 @@ Do not maintain public conversation logs. Ordinary Q&A, temporary debugging, and
 ## Engineering Principles
 
 - Keep changes scoped to the request.
+- Only npm installations support in-app self-update. Source, app-bundle, and standalone installations use their own manual deployment path; the Server must never fetch GitHub Releases as an update source.
 - Prefer existing patterns and local helpers.
 - Avoid premature abstraction in prototype surfaces.
 - Validate user input and return actionable errors.
@@ -250,7 +251,7 @@ The product CLI defaults to:
 
 The startup token is stored in `~/.farming/.session-token` and must be reused across restarts and upgrades unless `FARMING_TOKEN` explicitly overrides it. New token generation uses locale `auto`: Chinese time zones produce Chinese haiku-style tokens, Japanese time zones produce Japanese haiku-style tokens, and other time zones produce English passphrases.
 
-Update behavior is installation-aware. npm installations query the `farming-code` registry metadata and may update in one click: install the target package while the current server is alive, restart only after installation succeeds, persist progress under the config directory, and attempt a rollback if restart fails. Source checkouts update through Git and standalone CLI artifacts update manually. Standard app-bundle installs may use a trusted HTTP(S) directory or manifest URL stored as `settings.updateUrl`; every bundle must match the runtime and provide a 64-character `sha256`. The separate `linux-x64-legacy-glibc228` tarball is a first-install bootstrap: it activates its pinned glibc 2.28 runtime only when needed, installs the bundled application under the private `~/.farming/npm` prefix, and writes a stable compatibility launcher. Subsequent application updates use the normal npm updater and the same prefix; only compatibility-runtime changes require another bootstrap package.
+Update behavior is installation-aware. npm installations query the `farming-code` registry metadata and may update in one click: install the target package while the current server is alive, restart only after installation succeeds, persist progress under the config directory, and attempt a rollback if restart fails. Source checkouts update through Git; standalone CLI and standard app-bundle artifacts update manually, without a configurable Server-side update source. The separate `linux-x64-legacy-glibc228` tarball is a first-install bootstrap: it activates its pinned glibc 2.28 runtime only when needed, installs the bundled application under the private `~/.farming/npm` prefix, and writes a stable compatibility launcher. Subsequent application updates use the normal npm updater and the same prefix; only compatibility-runtime changes require another bootstrap package.
 
 ## Development Commands
 

@@ -7,7 +7,6 @@ const ConfigManager = require('../config-manager');
 const {
   DEFAULT_CRT_TERMINAL_FONT_SIZE,
   DEFAULT_SEARCH_TIMEOUT_MS,
-  DEFAULT_UPDATE_URL,
   MAX_CRT_TERMINAL_FONT_SIZE,
   MIN_CRT_TERMINAL_FONT_SIZE,
 } = ConfigManager;
@@ -81,7 +80,7 @@ function run() {
     assert.strictEqual(settings.codexReasoningEffort, 'xhigh');
     assert.strictEqual(settings.codexServiceTier, 'default');
     assert.strictEqual(settings.codexRuntimeMode, undefined);
-    assert.strictEqual(settings.updateUrl, DEFAULT_UPDATE_URL);
+    assert.strictEqual(settings.updateUrl, undefined);
     assert.strictEqual(DEFAULT_SEARCH_TIMEOUT_MS, 15000);
     assert.strictEqual(settings.searchTimeoutMs, DEFAULT_SEARCH_TIMEOUT_MS);
     assert.strictEqual(settings.removedSetting, undefined);
@@ -238,11 +237,7 @@ function run() {
     manager.updateSettings({ restReminderIntervalSeconds: 30 });
     assert.strictEqual(manager.getSettings().restReminderIntervalSeconds, null);
     manager.updateSettings({ updateUrl: 'https://updates.example.test/farming/' });
-    assert.strictEqual(manager.getSettings().updateUrl, 'https://updates.example.test/farming/');
-    manager.updateSettings({ updateUrl: 'file:///tmp/farming/' });
-    assert.strictEqual(manager.getSettings().updateUrl, DEFAULT_UPDATE_URL);
-    manager.updateSettings({ updateUrl: '' });
-    assert.strictEqual(manager.getSettings().updateUrl, DEFAULT_UPDATE_URL);
+    assert.strictEqual(manager.getSettings().updateUrl, undefined);
     manager.updateSettings({ searchTimeoutMs: 12000 });
     assert.strictEqual(manager.getSettings().searchTimeoutMs, 12000);
     manager.updateSettings({ searchTimeoutMs: 999999 });

@@ -62,6 +62,7 @@ test('update settings use a compact version summary and an explicit update butto
   await expect(updateButton).toBeEnabled()
   await expect(card.getByRole('button', { name: 'Refresh' })).toBeVisible()
   await expect(card.getByRole('combobox', { name: 'Target' })).toHaveCount(0)
+  await expect(card.getByRole('textbox')).toHaveCount(0)
 
   const metrics = await card.evaluate(element => {
     const cardRect = element.getBoundingClientRect()
@@ -77,44 +78,59 @@ test('update settings use a compact version summary and an explicit update butto
   expect(metrics.actionHeight).toBeGreaterThanOrEqual(32)
 })
 
-test('bundle download shows real progress without overflowing a narrow settings panel', async ({ page }) => {
+test('update request errors stay inside the update card', async ({ page }) => {
+  const message = 'request timed out for https://registry.npmjs.org/farming-code'
+  await page.route(/\/farming\/api\/update(?:\?.*)?$/, route => route.fulfill({
+    status: 504,
+    contentType: 'application/json',
+    body: JSON.stringify({ error: message }),
+  }))
+
+  await openFarming(page)
+  await page.getByTestId('code-sidebar-options').click()
+
+  const updateCard = page.getByTestId('code-settings-update-card')
+  await expect(updateCard.getByRole('alert')).toHaveText(message)
+
+  const agentHomesSection = page.locator('.code-settings-section').filter({
+    has: page.getByRole('heading', { name: 'Agent Homes' }),
+  })
+  await expect(agentHomesSection.getByRole('alert')).toHaveCount(0)
+})
+
+test('non-npm installations expose no update source or enabled update action', async ({ page }) => {
   await page.route(/\/farming\/api\/update(?:\?.*)?$/, route => route.fulfill({
     contentType: 'application/json',
     body: JSON.stringify({
-      update: updateStatus({
+      update: {
         method: 'app-bundle',
-        phase: 'downloading',
-        receivedBytes: 5 * 1024 * 1024,
-        totalBytes: 10 * 1024 * 1024,
-        startedAt: new Date(Date.now() - 65_000).toISOString(),
-      }),
+        current: { releaseVersion: '2.2.6', packageVersion: '2.2.6', type: 'app-bundle' },
+        latest: {
+          version: '',
+          assetName: '',
+          source: '',
+          blockedReason: 'App bundles update by reinstalling a release package or switching to npm',
+        },
+        selected: {
+          version: '',
+          assetName: '',
+          blockedReason: 'App bundles update by reinstalling a release package or switching to npm',
+        },
+        versions: [],
+        available: false,
+        installable: false,
+        state: { phase: 'idle' },
+      },
     }),
   }))
 
   await openFarming(page)
   await page.getByTestId('code-sidebar-options').click()
-  await page.setViewportSize({ width: 320, height: 720 })
 
   const card = page.getByTestId('code-settings-update-card')
-  await expect(card).toContainText('App bundle · Downloading update package 50%')
-  await expect(card).toContainText(/Elapsed 1m \d+s/)
-  await expect(page.getByTestId('code-settings-update-action')).toHaveText('Preparing…')
-
-  const bounds = await card.evaluate(element => {
-    const cardRect = element.getBoundingClientRect()
-    const actionRect = element.querySelector('[data-testid="code-settings-update-action"]')?.getBoundingClientRect()
-    return {
-      scrollWidth: element.scrollWidth,
-      clientWidth: element.clientWidth,
-      actionLeft: actionRect?.left ?? 0,
-      actionRight: actionRect?.right ?? 0,
-      cardLeft: cardRect.left,
-      cardRight: cardRect.right,
-    }
-  })
-  expect(bounds.scrollWidth).toBeLessThanOrEqual(bounds.clientWidth)
-  expect(bounds.actionLeft).toBeGreaterThanOrEqual(bounds.cardLeft)
-  expect(bounds.actionRight).toBeLessThanOrEqual(bounds.cardRight)
+  await expect(card).toContainText('App bundles update by reinstalling a release package or switching to npm')
+  await expect(card.getByRole('textbox')).toHaveCount(0)
+  await expect(page.getByTestId('code-settings-update-action')).toHaveCount(0)
 })
 
 test('prepared update waits for explicit restart, then reloads the new frontend', async ({ page }) => {

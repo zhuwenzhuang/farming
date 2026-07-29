@@ -1,17 +1,13 @@
 const childProcess = require('child_process');
-const crypto = require('crypto');
 const fs = require('fs');
 const http = require('http');
 const https = require('https');
 const os = require('os');
 const path = require('path');
-const { Transform } = require('stream');
-const { pipeline } = require('stream/promises');
 const { readServerProcessIdentity } = require('./server-process-identity');
 const storageLayout = require('./storage-layout');
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
-const UPDATE_SOURCE_UNCONFIGURED_REASON = 'Update source is empty. Save an Update URL in Settings or restore the default source.';
 const NPM_PACKAGE_NAME = 'farming-code';
 const DEFAULT_NPM_REGISTRY = 'https://registry.npmjs.org';
 
@@ -66,100 +62,16 @@ function detectInstallMethod(rootDir, options = {}) {
   return 'source';
 }
 
-function installMethodAllowsBundleUpdate(method) {
-  return method === 'app-bundle' || method === 'source-deploy';
-}
-
 function installMethodBlockedReason(method) {
   if (method === 'source') return 'Source checkouts update through Git, not the in-app updater';
+  if (method === 'source-deploy') return 'Source deployments update through their deployment workflow, not the in-app updater';
+  if (method === 'app-bundle') return 'App bundles update by reinstalling a release package or switching to npm';
   if (method === 'standalone-cli') return 'Standalone CLI updates must reinstall the matching release asset';
-  return `In-app updates are not supported for ${method || 'this installation'}`;
+  return `In-app updates require an npm installation; reinstall ${method || 'this installation'} through npm`;
 }
 
 function hasComparableVersion(value) {
   return versionParts(value).length > 0;
-}
-
-function releaseVersionFromAsset(asset) {
-  return normalizeVersion(asset && (
-    asset.releaseVersion ||
-    asset.version ||
-    asset.file ||
-    asset.name ||
-    basenameFromUrl(asset.browser_download_url || asset.downloadUrl || asset.url)
-  ));
-}
-
-function releaseVersionFromRelease(release) {
-  const taggedVersion = normalizeVersion(release && (release.tag_name || release.name));
-  if (hasComparableVersion(taggedVersion)) return taggedVersion;
-  const assetVersion = releaseVersionFromAsset(selectReleaseAsset(release));
-  return hasComparableVersion(assetVersion) ? assetVersion : taggedVersion;
-}
-
-function releaseVersionFromManifest(manifest) {
-  if (!manifest) return '';
-  if (manifest.version) return normalizeVersion(manifest.version);
-  if (manifest.releaseVersion) return normalizeVersion(manifest.releaseVersion);
-  if (manifest.tag) return normalizeVersion(manifest.tag);
-  const assets = manifestAssets(manifest);
-  const appBundle = assets.find(asset => asset && asset.type === 'app-bundle') || assets[0];
-  return releaseVersionFromAsset(appBundle);
-}
-
-function releaseTagFromManifest(manifest) {
-  const tag = String(manifest && manifest.tag || '').trim();
-  if (tag) return tag;
-  const version = releaseVersionFromManifest(manifest);
-  return version ? `v${version}` : '';
-}
-
-function isAbsoluteHttpUrl(value) {
-  return /^https?:\/\//i.test(String(value || ''));
-}
-
-function resolveUpdateUrl(value, baseUrl = '') {
-  const raw = String(value || '').trim();
-  if (!raw) return '';
-  if (isAbsoluteHttpUrl(raw)) return raw;
-  if (!baseUrl) return '';
-  try {
-    return new URL(raw, baseUrl).toString();
-  } catch {
-    return '';
-  }
-}
-
-function basenameFromUrl(value) {
-  const raw = String(value || '').trim();
-  if (!raw) return '';
-  try {
-    const parsed = isAbsoluteHttpUrl(raw) ? new URL(raw) : new URL(raw, 'http://farming.local/');
-    const pathname = parsed.pathname || '';
-    return pathname.split('/').filter(Boolean).pop() || '';
-  } catch {
-    return raw.split('/').filter(Boolean).pop() || '';
-  }
-}
-
-function manifestAssets(manifest) {
-  if (Array.isArray(manifest && manifest.assets)) return manifest.assets;
-  const tarUrl = manifest && (manifest.tarUrl || manifest.downloadUrl || manifest.url);
-  const file = manifest && (manifest.file || manifest.name || basenameFromUrl(tarUrl));
-  if (!tarUrl && !file) return [];
-  return [{
-    type: 'app-bundle',
-    file,
-    url: tarUrl,
-    size: manifest.size || manifest.bytes || 0,
-    sha256: manifest.sha256 || '',
-    releaseVersion: manifest.releaseVersion || manifest.version || '',
-  }];
-}
-
-function normalizeSha256(value) {
-  const normalized = String(value || '').trim().toLowerCase();
-  return /^[a-f0-9]{64}$/.test(normalized) ? normalized : '';
 }
 
 function normalizePlatform(value) {
@@ -174,174 +86,6 @@ function normalizeArch(value) {
   if (raw === 'x64' || raw === 'amd64' || raw === 'x86_64') return 'x64';
   if (raw === 'arm64' || raw === 'aarch64') return 'arm64';
   return raw;
-}
-
-function assetMatchesRuntime(asset, runtime) {
-  if (!runtime) return true;
-  return normalizePlatform(asset && asset.platform) === runtime.platform
-    && normalizeArch(asset && asset.arch) === runtime.arch;
-}
-
-function assetCompatibilityPreference(asset, preferredProfile = '') {
-  const profile = String(asset && asset.compatibilityProfile || '').trim();
-  const preferred = String(preferredProfile || '').trim();
-  if (preferred) return profile === preferred ? 0 : 1;
-  return profile ? 1 : 0;
-}
-
-function runtimeFromBundleName(value) {
-  const match = /-(darwin|linux)-(x64|arm64)\.tar\.gz$/i.exec(String(value || ''));
-  return match ? { platform: normalizePlatform(match[1]), arch: normalizeArch(match[2]) } : null;
-}
-
-function releaseFromAssetListing(release) {
-  const rawAssets = Array.isArray(release && release.assets) ? release.assets : [];
-  const checksumAsset = rawAssets.find(asset => /(?:checksums?|sha256)\.(?:txt|sha256)$/i.test(String(asset && asset.name || '')));
-  return {
-    ...release,
-    __directAssets: true,
-    assets: rawAssets.map(asset => {
-      const runtime = runtimeFromBundleName(asset && asset.name);
-      const isBundle = /^farming[-_].*\.tar\.gz$/i.test(String(asset && asset.name || ''));
-      return {
-        ...asset,
-        ...(isBundle ? { type: 'app-bundle' } : {}),
-        ...(runtime || {}),
-        ...(checksumAsset?.browser_download_url ? { checksum_url: checksumAsset.browser_download_url } : {}),
-      };
-    }),
-  };
-}
-
-function releaseFromManifest(manifest, options = {}) {
-  const tag = releaseTagFromManifest(manifest);
-  const assetBaseUrl = options.assetBaseUrl || options.manifestUrl || '';
-  const assets = manifestAssets(manifest);
-  return {
-    __manifest: manifest,
-    tag_name: tag,
-    name: manifest && manifest.name ? String(manifest.name) : tag,
-    published_at: manifest && (manifest.publishedAt || manifest.builtAt) ? String(manifest.publishedAt || manifest.builtAt) : '',
-    assets: assets
-      .map(asset => {
-        const file = String(asset && (
-          asset.file ||
-          asset.name ||
-          basenameFromUrl(asset.browser_download_url || asset.downloadUrl || asset.url)
-        ) || '');
-        if (!file) return null;
-        return {
-          ...asset,
-          name: file,
-          size: asset.size || asset.bytes || 0,
-          browser_download_url: asset.browser_download_url
-            || resolveUpdateUrl(asset.downloadUrl || asset.url || file, assetBaseUrl),
-        };
-      })
-      .filter(asset => asset && asset.browser_download_url),
-  };
-}
-
-function selectReleaseAsset(release, patternText = '') {
-  const assets = Array.isArray(release && release.assets) ? release.assets : [];
-  if (patternText) {
-    const pattern = new RegExp(patternText);
-    const matched = assets.find(asset => pattern.test(String(asset.name || '')) && asset.browser_download_url);
-    if (matched) return matched;
-  }
-
-  return assets.find(asset => (
-    /^farming[-_].*\.tar\.gz$/i.test(String(asset.name || '')) &&
-    !/(sha256|checksum|checksums)/i.test(String(asset.name || '')) &&
-    asset.browser_download_url
-  )) || null;
-}
-
-function releaseAssetVersion(asset, fallbackVersion = '') {
-  return normalizeVersion(
-    asset && (asset.releaseVersion || asset.version || asset.name || asset.file || asset.browser_download_url) ||
-    fallbackVersion
-  );
-}
-
-function selectableReleaseAssets(release, patternText = '', runtime = null, preferredCompatibilityProfile = '') {
-  const assets = Array.isArray(release && release.assets) ? release.assets : [];
-  const pattern = patternText ? new RegExp(patternText) : null;
-  return assets
-    .filter(asset => (
-      /^farming[-_].*\.tar\.gz$/i.test(String(asset.name || '')) &&
-      !/(sha256|checksum|checksums)/i.test(String(asset.name || '')) &&
-      asset.browser_download_url &&
-      assetMatchesRuntime(asset, runtime) &&
-      (!preferredCompatibilityProfile || String(asset.compatibilityProfile || '').trim() === preferredCompatibilityProfile) &&
-      (!pattern || pattern.test(String(asset.name || '')))
-    ))
-    .sort((left, right) => (
-      compareVersions(releaseAssetVersion(right), releaseAssetVersion(left)) ||
-      assetCompatibilityPreference(left, preferredCompatibilityProfile) - assetCompatibilityPreference(right, preferredCompatibilityProfile) ||
-      String(right.name || '').localeCompare(String(left.name || ''))
-    ));
-}
-
-function selectReleaseAssetByName(release, assetName, patternText = '', runtime = null, preferredCompatibilityProfile = '') {
-  const wanted = String(assetName || '').trim();
-  if (!wanted) return selectableReleaseAssets(release, patternText, runtime, preferredCompatibilityProfile)[0] || null;
-  return selectableReleaseAssets(release, patternText, runtime, preferredCompatibilityProfile)
-    .find(asset => String(asset.name || '') === wanted) || null;
-}
-
-function selectManifestAsset(release) {
-  const assets = Array.isArray(release && release.assets) ? release.assets : [];
-  return assets.find(asset => (
-    String(asset.name || '').toLowerCase() === 'manifest.json' &&
-    asset.browser_download_url
-  )) || null;
-}
-
-function manifestAssetSafety(asset, manifest, options = {}) {
-  const runtime = options.runtime || null;
-  if (!asset) {
-    return {
-      safe: false,
-      reason: 'Update manifest has no app bundle asset',
-    };
-  }
-  const assets = manifestAssets(manifest);
-  if (assets.length === 0 && !asset.checksum_url && !asset.checksumUrl && !asset.sha256) {
-    return {
-      safe: false,
-      reason: 'Update manifest is missing a SHA-256 checksum',
-    };
-  }
-
-  const assetName = String(asset.name || '');
-  const entry = assets.find(item => String(item.file || item.name || basenameFromUrl(item.url || item.tarUrl || item.downloadUrl) || '') === assetName) || (assets.length === 0 ? asset : null);
-  if (!entry) {
-    return {
-      safe: false,
-      reason: 'Update manifest does not describe the app bundle',
-    };
-  }
-  if (entry.type && entry.type !== 'app-bundle') {
-    return {
-      safe: false,
-      reason: 'Update manifest does not mark the app bundle correctly',
-    };
-  }
-  if (!assetMatchesRuntime(entry, runtime)) {
-    return {
-      safe: false,
-      reason: `Update app bundle is not compatible with ${runtime.platform}-${runtime.arch}`,
-    };
-  }
-  const checksumUrl = entry.checksum_url || entry.checksumUrl || asset.checksum_url || asset.checksumUrl || '';
-  if (!normalizeSha256(entry.sha256 || asset.sha256) && !checksumUrl) {
-    return {
-      safe: false,
-      reason: 'Update manifest app bundle is missing a SHA-256 checksum',
-    };
-  }
-  return { safe: true, reason: '' };
 }
 
 function requestWithRedirects(url, options = {}, redirectCount = 0, authOrigin = null) {
@@ -413,274 +157,6 @@ async function requestJson(url, options = {}) {
     chunks.push(chunk);
   }
   return JSON.parse(Buffer.concat(chunks).toString('utf8'));
-}
-
-async function requestText(url, options = {}) {
-  const response = await requestWithRedirects(url, options);
-  const chunks = [];
-  for await (const chunk of response) {
-    chunks.push(chunk);
-  }
-  return Buffer.concat(chunks).toString('utf8');
-}
-
-function decodeHtmlAttribute(value) {
-  return String(value || '')
-    .replace(/&amp;/g, '&')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>');
-}
-
-function isDirectoryUpdateSource(value) {
-  const raw = String(value || '').trim();
-  if (!raw) return false;
-  try {
-    return new URL(raw).pathname.endsWith('/');
-  } catch {
-    return raw.endsWith('/');
-  }
-}
-
-function isGitHubReleasePage(value) {
-  try {
-    const url = new URL(value);
-    return url.hostname === 'github.com' && /\/releases\/(?:latest|tag\/[^/]+)\/?$/i.test(url.pathname);
-  } catch {
-    return false;
-  }
-}
-
-function githubReleaseTagFromPage(body) {
-  for (const match of String(body || '').matchAll(/\/releases\/tag\/([^"'/?#<]+)/gi)) {
-    const tag = decodeHtmlAttribute(match[1]);
-    if (/^v\d/.test(tag)) return tag;
-  }
-  return '';
-}
-
-function githubExpandedAssetsUrl(pageUrl, tag) {
-  try {
-    const url = new URL(pageUrl);
-    const parts = url.pathname.split('/').filter(Boolean);
-    if (parts.length < 2 || !tag) return '';
-    return `${url.origin}/${parts[0]}/${parts[1]}/releases/expanded_assets/${encodeURIComponent(tag)}`;
-  } catch {
-    return '';
-  }
-}
-
-function releaseFromGitHubReleasePage(body, options = {}) {
-  const pageUrl = options.pageUrl || '';
-  const entries = [];
-  for (const match of String(body || '').matchAll(/\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi)) {
-    const value = decodeHtmlAttribute(match[1] || match[2] || match[3]).trim();
-    if (value) entries.push(value);
-  }
-  const checksumUrl = entries
-    .map(entry => ({ entry, file: basenameFromUrl(entry) }))
-    .find(({ file }) => /(?:checksums?|sha256)\.(?:txt|sha256)$/i.test(file))?.entry || '';
-  const assets = entries
-    .map(entry => {
-      const file = basenameFromUrl(entry);
-      const runtime = runtimeFromBundleName(file);
-      if (!runtime || !/^farming[-_].*\.tar\.gz$/i.test(file)) return null;
-      const browser_download_url = resolveUpdateUrl(entry, pageUrl);
-      if (!browser_download_url) return null;
-      return {
-        type: 'app-bundle',
-        name: file,
-        file,
-        releaseVersion: normalizeVersion(file),
-        browser_download_url,
-        checksum_url: resolveUpdateUrl(checksumUrl, pageUrl),
-        ...runtime,
-      };
-    })
-    .filter(Boolean);
-  const latestVersion = assets[0]?.releaseVersion || '';
-  return {
-    __directAssets: true,
-    tag_name: latestVersion ? `v${latestVersion}` : '',
-    name: latestVersion ? `v${latestVersion}` : '',
-    published_at: '',
-    assets,
-  };
-}
-
-function releaseFromDirectoryListing(body, options = {}) {
-  const directoryUrl = options.directoryUrl || '';
-  const assetBaseUrl = options.assetBaseUrl || directoryUrl;
-  const entries = [];
-  const seen = new Set();
-  const addCandidate = (value) => {
-    const raw = decodeHtmlAttribute(value).trim();
-    if (!raw || seen.has(raw)) return;
-    seen.add(raw);
-    entries.push(raw);
-  };
-
-  for (const match of String(body || '').matchAll(/\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi)) {
-    addCandidate(match[1] || match[2] || match[3]);
-  }
-  for (const match of String(body || '').matchAll(/\bfarming[-_][^\s"'<>]+?\.tar\.gz(?![\w.])/gi)) {
-    addCandidate(match[0]);
-  }
-
-  const checksumUrls = new Map();
-  entries.forEach(entry => {
-    const file = basenameFromUrl(entry);
-    const match = /^(farming[-_].*\.tar\.gz)\.sha256$/i.exec(file);
-    if (!match) return;
-    const url = resolveUpdateUrl(entry, assetBaseUrl) || resolveUpdateUrl(file, assetBaseUrl);
-    if (url) checksumUrls.set(match[1], url);
-  });
-
-  const assets = entries
-    .map(entry => {
-      const file = basenameFromUrl(entry);
-      if (!/^farming[-_].*\.tar\.gz$/i.test(file)) return null;
-      if (/(sha256|checksum|checksums)/i.test(file)) return null;
-      const url = resolveUpdateUrl(entry, assetBaseUrl) || resolveUpdateUrl(file, assetBaseUrl);
-      if (!url) return null;
-      return {
-        type: 'app-bundle',
-        file,
-        name: file,
-        releaseVersion: normalizeVersion(file),
-        browser_download_url: url,
-        checksum_url: checksumUrls.get(file) || '',
-        size: 0,
-      };
-    })
-    .filter(Boolean)
-    .sort((left, right) => (
-      compareVersions(right.releaseVersion, left.releaseVersion) ||
-      String(right.name).localeCompare(String(left.name))
-    ));
-  const latestVersion = assets[0] ? assets[0].releaseVersion : '';
-  return {
-    __manifest: {
-      releaseVersion: latestVersion,
-      assets: assets.map(asset => ({
-        type: asset.type,
-        file: asset.file,
-        url: asset.browser_download_url,
-        checksum_url: asset.checksum_url,
-        releaseVersion: asset.releaseVersion,
-      })),
-    },
-    tag_name: latestVersion ? `v${latestVersion}` : '',
-    name: latestVersion ? `v${latestVersion}` : '',
-    published_at: '',
-    assets,
-  };
-}
-
-async function downloadFile(url, outputPath, options = {}) {
-  const response = await requestWithRedirects(url, {
-    ...options,
-    accept: 'application/octet-stream',
-  });
-  const responseLength = Number(response.headers['content-length']);
-  const expectedLength = Number(options.totalBytes);
-  const totalBytes = Number.isFinite(responseLength) && responseLength > 0
-    ? responseLength
-    : (Number.isFinite(expectedLength) && expectedLength > 0 ? expectedLength : 0);
-  let receivedBytes = 0;
-  const trackProgress = new Transform({
-    transform(chunk, _encoding, callback) {
-      receivedBytes += chunk.length;
-      try {
-        if (typeof options.onProgress === 'function') {
-          options.onProgress({ receivedBytes, totalBytes });
-        }
-        callback(null, chunk);
-      } catch (error) {
-        callback(error);
-      }
-    },
-  });
-  await pipeline(response, trackProgress, fs.createWriteStream(outputPath));
-}
-
-function sha256File(filePath) {
-  const hash = crypto.createHash('sha256');
-  hash.update(fs.readFileSync(filePath));
-  return hash.digest('hex');
-}
-
-function sha256FromChecksumText(text, assetName) {
-  const escapedName = String(assetName || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const match = new RegExp(`^\\s*([a-f0-9]{64})\\s+(?:\\*?${escapedName})\\s*$`, 'im').exec(String(text || ''));
-  return normalizeSha256(match && match[1]);
-}
-
-function validateArchiveEntries(entries) {
-  const roots = new Set();
-  for (const rawEntry of Array.isArray(entries) ? entries : []) {
-    const entry = String(rawEntry || '').replace(/\\/g, '/');
-    if (!entry || entry.startsWith('/') || entry.includes('\0')) {
-      throw new Error(`downloaded release contains an unsafe archive path: ${rawEntry}`);
-    }
-    const parts = entry.split('/').filter(Boolean);
-    if (parts.some(part => part === '..')) {
-      throw new Error(`downloaded release contains path traversal: ${rawEntry}`);
-    }
-    if (parts[0]) roots.add(parts[0]);
-  }
-  if (roots.size !== 1) {
-    throw new Error(`downloaded release must contain exactly one top-level directory, found ${roots.size}`);
-  }
-}
-
-function listTarArchiveEntries(archivePath) {
-  return new Promise((resolve, reject) => {
-    childProcess.execFile('tar', ['-tzf', archivePath], { maxBuffer: 20 * 1024 * 1024 }, (error, stdout) => {
-      if (error) {
-        reject(new Error(`failed to inspect downloaded release archive: ${error.message || error}`));
-        return;
-      }
-      resolve(String(stdout || '').split(/\r?\n/).map(line => line.trim()).filter(Boolean));
-    });
-  });
-}
-
-function validateExtractedSymlinks(releaseDir) {
-  const releaseRoot = path.resolve(releaseDir);
-  const visit = directory => {
-    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
-      const entryPath = path.join(directory, entry.name);
-      if (entry.isSymbolicLink()) {
-        const target = fs.readlinkSync(entryPath);
-        const resolvedTarget = path.resolve(path.dirname(entryPath), target);
-        if (path.isAbsolute(target) || (resolvedTarget !== releaseRoot && !resolvedTarget.startsWith(`${releaseRoot}${path.sep}`))) {
-          throw new Error(`downloaded release contains a symlink outside the bundle: ${entryPath}`);
-        }
-        continue;
-      }
-      if (entry.isDirectory()) visit(entryPath);
-    }
-  };
-  visit(releaseRoot);
-}
-
-function findReleaseDirectory(rootDir) {
-  const entries = fs.readdirSync(rootDir, { withFileTypes: true });
-  const directory = entries.find(entry => entry.isDirectory());
-  if (!directory) {
-    throw new Error('downloaded release archive did not contain a directory');
-  }
-  return path.join(rootDir, directory.name);
-}
-
-function releaseInstallDir(rootDir, env = process.env) {
-  if (env.FARMING_INSTALL_DIR) return env.FARMING_INSTALL_DIR;
-  if (fs.existsSync(path.join(rootDir, '.farming.pid')) || fs.existsSync(path.join(rootDir, 'RELEASE.json'))) {
-    return rootDir;
-  }
-  return path.join(os.homedir(), 'farming');
 }
 
 function nodeScriptInvocation(nodePath, scriptPath, env = process.env) {
@@ -762,11 +238,6 @@ function npmVersionsFromMetadata(metadata, currentVersion) {
 class FarmingUpdateService {
   constructor(options = {}) {
     this.rootDir = options.rootDir || path.join(__dirname, '..');
-    this.getUpdateUrl = typeof options.getUpdateUrl === 'function' ? options.getUpdateUrl : null;
-    this.manifestUrl = options.updateUrl || options.manifestUrl || '';
-    this.assetBaseUrl = options.assetBaseUrl || '';
-    this.assetPattern = options.assetPattern || '';
-    this.authToken = options.authToken || '';
     this.installMethod = options.installMethod || detectInstallMethod(this.rootDir, {
       packagedRuntime: options.packagedRuntime === true,
     });
@@ -783,34 +254,16 @@ class FarmingUpdateService {
     this.configDir = options.configDir || path.join(os.homedir(), '.farming');
     this.now = options.now || (() => Date.now());
     this.fetchJson = options.fetchJson || requestJson;
-    this.fetchText = options.fetchText || requestText;
-    this.downloadFile = options.downloadFile || downloadFile;
-    this.listArchiveEntries = options.listArchiveEntries || listTarArchiveEntries;
     this.execFile = options.execFile || childProcess.execFile;
     this.getNpmGlobalRoot = options.getNpmGlobalRoot
       || ((npmCommand, npmPrefix) => readNpmGlobalRoot(npmCommand, npmPrefix, this.execFile));
     this.spawn = options.spawn || childProcess.spawn;
-    this.prepareRuntimeDependencies = options.prepareRuntimeDependencies || (async (releaseDir) => {
-      if (process.env.NODE_ENV === 'test') return;
-      const managerPath = path.join(releaseDir, 'backend', 'runtime-dependency-manager.js');
-      const { prepareRuntimeDependencies } = require(managerPath);
-      await prepareRuntimeDependencies({
-        configDir: this.configDir,
-        env: { ...process.env, FARMING_CONFIG_DIR: this.configDir },
-      });
-    });
-    this.latestCache = null;
     this.npmCache = null;
     this.installState = { phase: 'idle' };
     this.installStartPromise = null;
     this.updateStateFile = options.updateStateFile || storageLayout.updateStateFile(this.configDir);
     this.updateLogFile = options.updateLogFile || storageLayout.updateLogFile(this.configDir);
     this.updateStagingDir = options.updateStagingDir || storageLayout.updateStagingDir(this.configDir);
-  }
-
-  updateUrl() {
-    const configured = this.getUpdateUrl ? this.getUpdateUrl() : this.manifestUrl;
-    return String(configured || '').trim();
   }
 
   currentVersion() {
@@ -825,7 +278,7 @@ class FarmingUpdateService {
       compatibilityProfile: String(release.compatibilityProfile || ''),
       bundledGlibcRuntime: release.bundledGlibcRuntime === true,
       type: this.installMethod,
-      installDir: this.installMethod === 'npm' ? this.rootDir : releaseInstallDir(this.rootDir),
+      installDir: this.rootDir,
     };
   }
 
@@ -972,157 +425,9 @@ class FarmingUpdateService {
     };
   }
 
-  async latestRelease(options = {}) {
-    const updateUrl = this.updateUrl();
-    if (!updateUrl) return null;
-    if (!options.force && this.latestCache && this.latestCache.source === updateUrl && this.now() - this.latestCache.checkedAt < CACHE_TTL_MS) {
-      return this.latestCache.release;
-    }
-    let release;
-    if (isGitHubReleasePage(updateUrl)) {
-      const pageBody = await this.fetchText(updateUrl, {
-        accept: 'text/html,application/xhtml+xml',
-        authToken: this.authToken,
-      });
-      const tag = githubReleaseTagFromPage(pageBody);
-      const expandedAssetsUrl = githubExpandedAssetsUrl(updateUrl, tag);
-      if (!expandedAssetsUrl) throw new Error('GitHub Release page did not expose a release tag');
-      release = releaseFromGitHubReleasePage(await this.fetchText(expandedAssetsUrl, {
-        accept: 'text/html,application/xhtml+xml',
-        authToken: this.authToken,
-      }), { pageUrl: expandedAssetsUrl });
-    } else if (isDirectoryUpdateSource(updateUrl)) {
-      release = releaseFromDirectoryListing(await this.fetchText(updateUrl, {
-        accept: 'text/html, text/plain',
-        authToken: this.authToken,
-      }), {
-        directoryUrl: updateUrl,
-        assetBaseUrl: this.assetBaseUrl,
-      });
-    } else {
-      const payload = await this.fetchJson(updateUrl, {
-        accept: 'application/json',
-        authToken: this.authToken,
-      });
-      release = Array.isArray(payload && payload.assets) && payload.assets.some(asset => asset && asset.browser_download_url)
-        ? releaseFromAssetListing(payload)
-        : releaseFromManifest(payload, {
-          manifestUrl: updateUrl,
-          assetBaseUrl: this.assetBaseUrl,
-        });
-    }
-    this.latestCache = {
-      checkedAt: this.now(),
-      source: updateUrl,
-      release,
-    };
-    return release;
-  }
-
-  async latestManifest(release) {
-    if (release && release.__directAssets) return null;
-    if (release && release.__manifest) return release.__manifest;
-    const asset = selectManifestAsset(release);
-    if (!asset) return null;
-    try {
-      return await this.fetchJson(asset.browser_download_url, {
-        authToken: this.authToken,
-      });
-    } catch {
-      return null;
-    }
-  }
-
-  versionOptionsFromRelease(release, manifest = null) {
-    const current = this.currentVersion();
-    const updateUrl = this.updateUrl();
-    const comparableCurrentVersion = normalizeVersion(current.releaseVersion || current.packageVersion);
-    const latestVersion = releaseVersionFromRelease(release);
-    const configured = Boolean(updateUrl);
-    return selectableReleaseAssets(release, this.assetPattern, this.runtime, current.compatibilityProfile).map(asset => {
-      const version = releaseAssetVersion(asset, latestVersion);
-      const safety = configured
-        ? manifestAssetSafety(asset, manifest, { runtime: this.runtime })
-        : { safe: false, reason: UPDATE_SOURCE_UNCONFIGURED_REASON };
-      const newer = Boolean(version && compareVersions(version, comparableCurrentVersion) > 0);
-      return {
-        version,
-        assetName: asset.name || '',
-        assetSize: asset.size || 0,
-        blockedReason: safety.reason,
-        installable: Boolean(safety.safe),
-        available: Boolean(newer && safety.safe),
-      };
-    });
-  }
-
-  statusFromRelease(release, manifest = null, options = {}) {
-    const current = this.currentVersion();
-    const updateUrl = this.updateUrl();
-    const latestVersion = releaseVersionFromRelease(release);
-    const comparableCurrentVersion = normalizeVersion(current.releaseVersion || current.packageVersion);
-    const latestAsset = selectableReleaseAssets(release, this.assetPattern, this.runtime, current.compatibilityProfile)[0] || null;
-    const asset = selectReleaseAssetByName(release, options.assetName, this.assetPattern, this.runtime, current.compatibilityProfile);
-    const configured = Boolean(updateUrl);
-    const safety = configured
-      ? manifestAssetSafety(asset, manifest, { runtime: this.runtime })
-      : { safe: false, reason: UPDATE_SOURCE_UNCONFIGURED_REASON };
-    const selectedVersion = releaseAssetVersion(asset, latestVersion);
-    const newer = Boolean(asset && selectedVersion && compareVersions(selectedVersion, comparableCurrentVersion) > 0);
-    const available = Boolean(newer && safety.safe);
-    const versions = this.versionOptionsFromRelease(release, manifest);
-    const noCompatibleBundleReason = this.runtime
-      ? `Update source has no compatible app bundle for ${this.runtime.platform}-${this.runtime.arch}`
-      : 'Update source has no app bundle asset';
-
-    return {
-      method: this.installMethod,
-      current,
-      latest: {
-        version: latestVersion,
-        tag: release && release.tag_name ? release.tag_name : '',
-        name: release && release.name ? release.name : '',
-        publishedAt: release && release.published_at ? release.published_at : '',
-        assetName: latestAsset ? latestAsset.name : '',
-        assetSize: latestAsset ? latestAsset.size || 0 : 0,
-        blockedReason: versions[0] ? versions[0].blockedReason : (this.runtime ? noCompatibleBundleReason : (safety.reason || noCompatibleBundleReason)),
-        source: updateUrl || '',
-      },
-      selected: {
-        version: selectedVersion,
-        assetName: asset ? asset.name : '',
-        assetSize: asset ? asset.size || 0 : 0,
-        blockedReason: safety.reason,
-      },
-      versions,
-      runtime: this.runtime,
-      available,
-      installable: Boolean(asset && safety.safe),
-      checkedAt: new Date(this.now()).toISOString(),
-      state: this.currentInstallState(),
-    };
-  }
-
   async check(options = {}) {
     if (this.installMethod === 'npm') return this.npmStatus(options);
-    if (!installMethodAllowsBundleUpdate(this.installMethod)) return this.unsupportedStatus();
-    if (!this.updateUrl()) return this.statusFromRelease(null, null, options);
-    const release = await this.latestRelease(options);
-    const manifest = await this.latestManifest(release);
-    return this.statusFromRelease(release, manifest, options);
-  }
-
-  installEnvironment() {
-    const current = this.currentVersion();
-    return {
-      ...process.env,
-      FARMING_INSTALL_DIR: current.installDir,
-      FARMING_PORT: process.env.FARMING_PORT || process.env.PORT || '6694',
-      FARMING_BASE_PATH: process.env.FARMING_BASE_PATH || '/farming',
-      FARMING_CONFIG_DIR: process.env.FARMING_CONFIG_DIR || this.configDir,
-      ...(process.env.FARMING_SERVER_HOME ? { FARMING_SERVER_HOME: process.env.FARMING_SERVER_HOME } : {}),
-      ...(process.env.FARMING_DISABLE_AUTH ? { FARMING_DISABLE_AUTH: process.env.FARMING_DISABLE_AUTH } : {}),
-    };
+    return this.unsupportedStatus();
   }
 
   async startInstall(options = {}) {
@@ -1144,52 +449,7 @@ class FarmingUpdateService {
     if (currentState.phase === 'ready-to-restart') return currentState;
 
     if (this.installMethod === 'npm') return this.startNpmInstall(options);
-    if (!installMethodAllowsBundleUpdate(this.installMethod)) {
-      throw new Error(installMethodBlockedReason(this.installMethod));
-    }
-
-    const release = await this.latestRelease({ force: true });
-    const manifest = await this.latestManifest(release);
-    const status = this.statusFromRelease(release, manifest, options);
-    if (!status.available) {
-      const error = status.installable
-        ? 'Farming is already up to date'
-        : (status.latest.blockedReason || 'Update source has no app bundle asset');
-      this.installState = {
-        phase: 'failed',
-        error,
-        checkedAt: status.checkedAt,
-      };
-      return this.installState;
-    }
-
-    const asset = selectReleaseAssetByName(
-      release,
-      options.assetName,
-      this.assetPattern,
-      this.runtime,
-      this.currentVersion().compatibilityProfile,
-    );
-    this.persistInstallState({
-      phase: 'downloading',
-      method: this.installMethod,
-      version: status.selected.version,
-      previousVersion: status.current.releaseVersion || status.current.packageVersion,
-      assetName: status.selected.assetName,
-      receivedBytes: 0,
-      totalBytes: Number(status.selected.assetSize) || 0,
-      startedAt: new Date(this.now()).toISOString(),
-      logPath: path.join(this.configDir, 'farming-update.log'),
-    });
-    void this.runInstall(asset).catch(error => {
-      this.persistInstallState({
-        ...this.installState,
-        phase: 'failed',
-        error: error.message || String(error),
-        completedAt: new Date(this.now()).toISOString(),
-      });
-    });
-    return this.installState;
+    throw new Error(installMethodBlockedReason(this.installMethod));
   }
 
   async startNpmInstall(options = {}) {
@@ -1297,6 +557,9 @@ class FarmingUpdateService {
   }
 
   async applyPreparedUpdateUnreserved() {
+    if (this.installMethod !== 'npm') {
+      throw new Error(installMethodBlockedReason(this.installMethod));
+    }
     const prepared = this.currentInstallState();
     if (prepared.phase !== 'ready-to-restart') {
       throw new Error('No prepared Farming update is ready to restart');
@@ -1314,94 +577,53 @@ class FarmingUpdateService {
     if (!serverProcessIdentity) {
       throw new Error('Running Farming server process identity could not be verified');
     }
-    let helperPath;
-    let payload;
-    let env;
-    if (this.installMethod === 'npm') {
-      const target = await this.npmUpdateTarget();
-      if (!target.proven) throw new Error(target.error);
-      if (!path.isAbsolute(String(prepared.stagingPrefix || '')) || !path.isAbsolute(String(prepared.stagingPackageRoot || ''))) {
-        throw new Error('Prepared npm update is missing its staging identity');
-      }
-      const stagingPrefix = normalizePathForCompare(prepared.stagingPrefix);
-      if (!pathIsInside(normalizePathForCompare(this.updateStagingDir), stagingPrefix)) {
-        throw new Error('Prepared npm update is outside the Farming staging directory');
-      }
-      if (path.resolve(prepared.stagingPackageRoot) !== path.resolve(npmPackageRoot(
-        path.join(prepared.stagingPrefix, 'lib', 'node_modules'),
-        this.npmPackageName,
-      ))) {
-        throw new Error('Prepared npm update has an invalid package root');
-      }
-      const stagingPackageRoot = normalizePathForCompare(prepared.stagingPackageRoot);
-      const stagedMetadata = readJsonFile(path.join(stagingPackageRoot, 'package.json')) || {};
-      if (normalizeVersion(stagedMetadata.version) !== normalizeVersion(prepared.version)) {
-        throw new Error('Prepared npm update is no longer available; prepare it again');
-      }
-      helperPath = path.join(__dirname, 'npm-update-helper.js');
-      payload = {
-        action: 'apply',
-        packageName: this.npmPackageName,
-        targetVersion: prepared.version,
-        previousVersion: prepared.previousVersion,
-        startedAt: prepared.startedAt,
-        preparedAt: prepared.preparedAt,
-        stateFile: this.updateStateFile,
-        logPath: prepared.logPath || this.updateLogFile,
-        cliPath: path.join(this.rootDir, 'bin', 'farming'),
-        packageRoot: target.packageRoot,
-        nodePath,
-        npmCommand: process.env.FARMING_NPM_COMMAND || 'npm',
-        npmPrefix: target.npmPrefix,
-        npmFallbackRegistryUrl: this.npmRegistryUrl,
-        stagingPrefix,
-        stagingPackageRoot,
-        serverPid: process.pid,
-        serverProcessIdentity,
-        configDir: this.configDir,
-        port: process.env.FARMING_PORT || process.env.PORT || '6694',
-        basePath: process.env.FARMING_BASE_PATH || '/farming',
-        serverHome: process.env.FARMING_SERVER_HOME || '',
-        disableAuth: /^(1|true|yes|on)$/i.test(String(process.env.FARMING_DISABLE_AUTH || '')),
-      };
-      env = { ...process.env, FARMING_NPM_UPDATE_PAYLOAD: JSON.stringify(payload) };
-    } else {
-      if (!installMethodAllowsBundleUpdate(this.installMethod)) {
-        throw new Error(installMethodBlockedReason(this.installMethod));
-      }
-      if (!path.isAbsolute(String(prepared.releaseDir || '')) || !path.isAbsolute(String(prepared.installer || '')) || !fs.existsSync(prepared.installer)) {
-        throw new Error('Prepared bundle update is no longer available; prepare it again');
-      }
-      const releaseDir = normalizePathForCompare(prepared.releaseDir);
-      const installer = normalizePathForCompare(prepared.installer);
-      if (!pathIsInside(normalizePathForCompare(os.tmpdir()), releaseDir)
-        || !path.basename(path.dirname(releaseDir)).startsWith('farming-update.')
-        || installer !== normalizePathForCompare(path.join(releaseDir, 'scripts', 'install-release.sh'))) {
-        throw new Error('Prepared bundle update has an invalid staging identity');
-      }
-      const releaseMetadata = readJsonFile(path.join(releaseDir, 'RELEASE.json')) || {};
-      const preparedVersion = normalizeVersion(releaseMetadata.releaseVersion || releaseMetadata.packageVersion);
-      if (preparedVersion && preparedVersion !== normalizeVersion(prepared.version)) {
-        throw new Error('Prepared bundle version does not match the selected update');
-      }
-      if (!assetMatchesRuntime(releaseMetadata, this.runtime)) {
-        throw new Error(`Prepared bundle is not compatible with ${this.runtime.platform}-${this.runtime.arch}`);
-      }
-      helperPath = path.join(__dirname, 'bundle-update-helper.js');
-      payload = {
-        method: this.installMethod,
-        targetMethod: prepared.targetMethod,
-        version: prepared.version,
-        previousVersion: prepared.previousVersion,
-        startedAt: prepared.startedAt,
-        preparedAt: prepared.preparedAt,
-        stateFile: this.updateStateFile,
-        logPath: prepared.logPath || this.updateLogFile,
-        releaseDir,
-        installer,
-      };
-      env = { ...this.installEnvironment(), FARMING_BUNDLE_UPDATE_PAYLOAD: JSON.stringify(payload) };
+    const target = await this.npmUpdateTarget();
+    if (!target.proven) throw new Error(target.error);
+    if (!path.isAbsolute(String(prepared.stagingPrefix || '')) || !path.isAbsolute(String(prepared.stagingPackageRoot || ''))) {
+      throw new Error('Prepared npm update is missing its staging identity');
     }
+    const stagingPrefix = normalizePathForCompare(prepared.stagingPrefix);
+    if (!pathIsInside(normalizePathForCompare(this.updateStagingDir), stagingPrefix)) {
+      throw new Error('Prepared npm update is outside the Farming staging directory');
+    }
+    if (path.resolve(prepared.stagingPackageRoot) !== path.resolve(npmPackageRoot(
+      path.join(prepared.stagingPrefix, 'lib', 'node_modules'),
+      this.npmPackageName,
+    ))) {
+      throw new Error('Prepared npm update has an invalid package root');
+    }
+    const stagingPackageRoot = normalizePathForCompare(prepared.stagingPackageRoot);
+    const stagedMetadata = readJsonFile(path.join(stagingPackageRoot, 'package.json')) || {};
+    if (normalizeVersion(stagedMetadata.version) !== normalizeVersion(prepared.version)) {
+      throw new Error('Prepared npm update is no longer available; prepare it again');
+    }
+    const helperPath = path.join(__dirname, 'npm-update-helper.js');
+    const payload = {
+      action: 'apply',
+      packageName: this.npmPackageName,
+      targetVersion: prepared.version,
+      previousVersion: prepared.previousVersion,
+      startedAt: prepared.startedAt,
+      preparedAt: prepared.preparedAt,
+      stateFile: this.updateStateFile,
+      logPath: prepared.logPath || this.updateLogFile,
+      cliPath: path.join(this.rootDir, 'bin', 'farming'),
+      packageRoot: target.packageRoot,
+      nodePath,
+      npmCommand: process.env.FARMING_NPM_COMMAND || 'npm',
+      npmPrefix: target.npmPrefix,
+      npmFallbackRegistryUrl: this.npmRegistryUrl,
+      stagingPrefix,
+      stagingPackageRoot,
+      serverPid: process.pid,
+      serverProcessIdentity,
+      configDir: this.configDir,
+      port: process.env.FARMING_PORT || process.env.PORT || '6694',
+      basePath: process.env.FARMING_BASE_PATH || '/farming',
+      serverHome: process.env.FARMING_SERVER_HOME || '',
+      disableAuth: /^(1|true|yes|on)$/i.test(String(process.env.FARMING_DISABLE_AUTH || '')),
+    };
+    const env = { ...process.env, FARMING_NPM_UPDATE_PAYLOAD: JSON.stringify(payload) };
 
     const state = this.persistInstallState({ ...prepared, phase: 'restarting', error: '' });
     const helperInvocation = nodeScriptInvocation(nodePath, helperPath);
@@ -1428,118 +650,16 @@ class FarmingUpdateService {
     return state;
   }
 
-  async runInstall(asset) {
-    if (!asset || !asset.browser_download_url) {
-      throw new Error('release asset is missing a download URL');
-    }
-
-    fs.mkdirSync(this.configDir, { recursive: true });
-    const tempRoot = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'farming-update.'));
-    const archivePath = path.join(tempRoot, asset.name || 'farming-update.tar.gz');
-    let lastProgressPercent = -1;
-    let lastProgressBytes = 0;
-    await this.downloadFile(asset.browser_download_url, archivePath, {
-      authToken: this.authToken,
-      totalBytes: Number(asset.size) || Number(this.installState.totalBytes) || 0,
-      onProgress: ({ receivedBytes, totalBytes }) => {
-        const safeReceivedBytes = Math.max(0, Number(receivedBytes) || 0);
-        const safeTotalBytes = Math.max(0, Number(totalBytes) || 0);
-        if (safeTotalBytes > 0) {
-          const percent = Math.min(100, Math.floor((safeReceivedBytes / safeTotalBytes) * 100));
-          if (percent === lastProgressPercent && safeReceivedBytes < safeTotalBytes) return;
-          lastProgressPercent = percent;
-        } else if (safeReceivedBytes - lastProgressBytes < 1024 * 1024) {
-          return;
-        }
-        lastProgressBytes = safeReceivedBytes;
-        this.persistInstallState({
-          ...this.installState,
-          receivedBytes: safeReceivedBytes,
-          totalBytes: safeTotalBytes,
-        });
-      },
-    });
-    let expectedSha256 = normalizeSha256(asset.sha256);
-    const checksumUrl = asset.checksum_url || asset.checksumUrl || '';
-    if (!expectedSha256 && checksumUrl) {
-      const checksumText = await this.fetchText(checksumUrl, {
-        accept: 'text/plain',
-        authToken: this.authToken,
-      });
-      expectedSha256 = sha256FromChecksumText(checksumText, asset.name);
-    }
-    if (!expectedSha256) {
-      throw new Error(`release asset is missing a valid SHA-256 checksum: ${asset.name || 'asset'}`);
-    }
-    const actualSha256 = sha256File(archivePath);
-    if (actualSha256 !== expectedSha256) {
-      throw new Error(`downloaded release checksum mismatch for ${asset.name || 'asset'}`);
-    }
-
-    validateArchiveEntries(await this.listArchiveEntries(archivePath));
-
-    this.persistInstallState({ ...this.installState, phase: 'extracting' });
-    await new Promise((resolve, reject) => {
-      this.execFile('tar', ['-xzf', archivePath, '-C', tempRoot], (error) => {
-        if (error) reject(error);
-        else resolve();
-      });
-    });
-
-    const releaseDir = findReleaseDirectory(tempRoot);
-    validateExtractedSymlinks(releaseDir);
-    const releaseMetadata = readJsonFile(path.join(releaseDir, 'RELEASE.json')) || {};
-    if (!assetMatchesRuntime(releaseMetadata, this.runtime)) {
-      throw new Error(`downloaded release is not compatible with ${this.runtime.platform}-${this.runtime.arch}`);
-    }
-    const installer = path.join(releaseDir, 'scripts', 'install-release.sh');
-    if (!fs.existsSync(installer)) {
-      throw new Error('downloaded release is missing scripts/install-release.sh');
-    }
-    const logPath = this.installState.logPath || path.join(this.configDir, 'farming-update.log');
-    const targetMethod = String(releaseMetadata.updateMethod || releaseMetadata.type || this.installMethod);
-    this.persistInstallState({
-      ...this.installState,
-      phase: 'preparing-runtimes',
-      targetMethod,
-      releaseDir,
-      installer,
-      logPath,
-    });
-    await this.prepareRuntimeDependencies(releaseDir);
-    const runtimePreparedAt = new Date(this.now()).toISOString();
-    this.persistInstallState({
-      ...this.installState,
-      phase: 'ready-to-restart',
-      targetMethod,
-      releaseDir,
-      installer,
-      logPath,
-      preparedAt: runtimePreparedAt,
-      runtimePreparedAt,
-    });
-  }
 }
 
 module.exports = {
   FarmingUpdateService,
   compareVersions,
   detectInstallMethod,
-  installMethodAllowsBundleUpdate,
   normalizeVersion,
   npmPackageMetadataUrl,
   npmPrefixForPackageRoot,
   npmPackageRoot,
   npmVersionsFromMetadata,
   readNpmGlobalRoot,
-  releaseInstallDir,
-  manifestAssetSafety,
-  normalizeSha256,
-  validateArchiveEntries,
-  releaseFromManifest,
-  releaseFromDirectoryListing,
-  releaseFromGitHubReleasePage,
-  releaseVersionFromManifest,
-  selectManifestAsset,
-  selectReleaseAsset,
 };

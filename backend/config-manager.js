@@ -59,9 +59,6 @@ const DEFAULT_AGENT_HOMES = {
   qoder: [{ id: 'default', path: '~/.qoder' }],
 };
 
-const DEFAULT_UPDATE_URL = 'https://github.com/zhuwenzhuang/farming/releases/latest';
-const LEGACY_DEFAULT_UPDATE_URL = 'https://github.com/zhuwenzhuang/farming/releases/latest/download/manifest.json';
-const API_DEFAULT_UPDATE_URL = 'https://api.github.com/repos/zhuwenzhuang/farming/releases/latest';
 const LEGACY_DEFAULT_WORKSPACE_FILE_SEARCH_TIMEOUT_MS = 3000;
 const DEFAULT_SEARCH_TIMEOUT_MS = 15000;
 const MIN_SEARCH_TIMEOUT_MS = 3000;
@@ -98,7 +95,6 @@ const PERSISTED_SETTING_KEYS = new Set([
   'defaultLaunchAgent',
   'agentLaunchProfiles',
   'agentHomes',
-  'updateUrl',
   'searchTimeoutMs',
   'codexApprovalMode',
   'codexModel',
@@ -337,7 +333,6 @@ class ConfigManager {
           claude: cloneLaunchProfile(DEFAULT_CLAUDE_LAUNCH_PROFILE),
         },
         agentHomes: cloneAgentHomes(DEFAULT_AGENT_HOMES),
-        updateUrl: DEFAULT_UPDATE_URL,
         searchTimeoutMs: DEFAULT_SEARCH_TIMEOUT_MS,
         codexApprovalMode: 'approve',
         codexModel: 'gpt-5.5',
@@ -379,7 +374,6 @@ class ConfigManager {
         claude: cloneLaunchProfile(DEFAULT_CLAUDE_LAUNCH_PROFILE),
       },
       agentHomes: cloneAgentHomes(DEFAULT_AGENT_HOMES),
-      updateUrl: DEFAULT_UPDATE_URL,
       searchTimeoutMs: DEFAULT_SEARCH_TIMEOUT_MS,
       codexApprovalMode: 'approve',
       codexModel: 'gpt-5.5',
@@ -417,10 +411,7 @@ class ConfigManager {
     this.settings.projectOperations = this.normalizeProjectOperations(this.settings.projectOperations);
     this.settings.instanceName = this.normalizeInstanceName(this.settings.instanceName);
     this.settings.agentHomes = this.normalizeAgentHomes(this.settings.agentHomes);
-    if (this.settings.updateUrl === LEGACY_DEFAULT_UPDATE_URL || this.settings.updateUrl === API_DEFAULT_UPDATE_URL) {
-      this.settings.updateUrl = DEFAULT_UPDATE_URL;
-    }
-    this.settings.updateUrl = this.normalizeUpdateUrl(this.settings.updateUrl);
+    delete this.settings.updateUrl;
     this.settings.searchTimeoutMs = this.normalizeSearchTimeoutMs(this.settings.searchTimeoutMs);
     delete this.settings.codexRuntimeMode;
     const legacyMainPageSessionKeys = this.normalizeMainPageSessionKeys(this.settings.mainPageSessionKeys);
@@ -614,12 +605,6 @@ class ConfigManager {
 
   normalizeBrowserSetting(value) {
     return String(value || '').trim().slice(0, 2000);
-  }
-
-  normalizeUpdateUrl(value) {
-    const url = String(value || '').trim();
-    if (!url) return DEFAULT_UPDATE_URL;
-    return /^https?:\/\//i.test(url) ? url.slice(0, 2000) : DEFAULT_UPDATE_URL;
   }
 
   normalizeClaudePermissionMode(mode) {
@@ -1094,7 +1079,7 @@ class ConfigManager {
     nextSettings.projectOperations = this.normalizeProjectOperations(nextSettings.projectOperations);
     nextSettings.instanceName = this.normalizeInstanceName(nextSettings.instanceName);
     nextSettings.agentHomes = this.normalizeAgentHomes(nextSettings.agentHomes);
-    nextSettings.updateUrl = this.normalizeUpdateUrl(nextSettings.updateUrl);
+    delete nextSettings.updateUrl;
     nextSettings.searchTimeoutMs = this.normalizeSearchTimeoutMs(nextSettings.searchTimeoutMs);
     delete nextSettings.codexRuntimeMode;
     delete nextSettings.mainPageSessionKeys;
@@ -1126,7 +1111,6 @@ class ConfigManager {
 }
 
 module.exports = ConfigManager;
-module.exports.DEFAULT_UPDATE_URL = DEFAULT_UPDATE_URL;
 module.exports.DEFAULT_SEARCH_TIMEOUT_MS = DEFAULT_SEARCH_TIMEOUT_MS;
 module.exports.DEFAULT_CRT_TERMINAL_FONT_SIZE = DEFAULT_CRT_TERMINAL_FONT_SIZE;
 module.exports.MIN_CRT_TERMINAL_FONT_SIZE = MIN_CRT_TERMINAL_FONT_SIZE;

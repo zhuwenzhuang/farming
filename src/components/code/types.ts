@@ -54,7 +54,6 @@ export interface GlobalSettings extends WorkspaceHistorySettings {
   restReminderIntervalSeconds?: number | null
   dangerouslySkipAgentPermissionsByDefault?: boolean
   browserExtensionEnabled?: boolean
-  updateUrl?: string
   searchTimeoutMs?: number
   agentHomes?: AgentHomesSettings
   agentLaunchProfiles?: {

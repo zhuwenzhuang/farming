@@ -109,11 +109,12 @@ Farming Net is a separate, token-protected directory for Farming deployments. It
 
 ## Installation And Updates
 
-Install with the Quick Start command above. For npm installations, **Settings → Updates** prepares a selected release while the current Server keeps running, then applies it after confirmation. The existing startup token is retained.
+Install with the Quick Start command above. npm installations can update from
+**Settings → Updates**.
 
 ![Farming npm update settings](./docs/products/code/assets/14-code-settings.png)
 
-Standalone CLI and directory bundles remain available from [GitHub Releases](https://github.com/zhuwenzhuang/farming/releases).
+Standalone CLI and directory bundles remain available from [GitHub Releases](https://github.com/zhuwenzhuang/farming/releases) for manual installation. The in-app updater never reads GitHub Releases; it is available only to npm installations.
 
 ## Security
 

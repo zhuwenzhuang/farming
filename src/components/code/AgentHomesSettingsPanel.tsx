@@ -168,10 +168,6 @@ function panelCopy(language: UiPreferences['language']) {
       ? (seconds >= 60 ? `${seconds / 60} 分钟` : `${seconds} 秒`)
       : (seconds >= 60 ? `${seconds / 60} min` : `${seconds} sec`),
     updates: zh ? '更新' : 'Updates',
-    updateUrl: zh ? '更新 URL' : 'Update URL',
-    updateUrlPlaceholder: 'https://github.com/zhuwenzhuang/farming/releases/latest',
-    updateUrlEmpty: zh ? '等待检查更新' : 'Waiting for update check',
-    saveUpdateUrl: zh ? '保存更新 URL' : 'Save Update URL',
     refreshUpdates: zh ? '刷新' : 'Refresh',
     updateAction: zh ? '准备更新' : 'Prepare update',
     updateToVersion: (version: string) => zh ? `准备 ${version}` : `Prepare ${version}`,
@@ -181,7 +177,6 @@ function panelCopy(language: UiPreferences['language']) {
     currentVersion: zh ? '当前版本' : 'Current',
     latestVersion: zh ? '最新版本' : 'Latest',
     targetVersion: zh ? '升级版本' : 'Target',
-    updateSource: zh ? '更新源' : 'Update source',
     updateMethodLabel: (method: string) => ({
       npm: 'npm',
       'app-bundle': zh ? '兼容包' : 'App bundle',
@@ -368,7 +363,6 @@ export function AgentHomesSettingsPanel({
   const homesSaveRequestRef = useRef<number | null>(null)
   const homesSaveSequenceRef = useRef(0)
   const [dangerouslySkipPermissions, setDangerouslySkipPermissions] = useState(false)
-  const [updateUrl, setUpdateUrl] = useState('')
   const [searchTimeoutSeconds, setSearchTimeoutSeconds] = useState(15)
   const [restReminderIntervalSeconds, setRestReminderIntervalSecondsState] = useState<number | null>(
     readRestReminderIntervalSeconds,
@@ -379,7 +373,7 @@ export function AgentHomesSettingsPanel({
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null)
   const [selectedUpdateAsset, setSelectedUpdateAsset] = useState('')
   const [updateChecking, setUpdateChecking] = useState(false)
-  const [updateSaving, setUpdateSaving] = useState(false)
+  const [updateError, setUpdateError] = useState('')
   const [homes, setHomes] = useState<AgentHomesSettings>(() => normalizeHomes({
     codex: [{ id: 'default', path: '~/.codex' }],
     claude: [{ id: 'default', path: '~/.claude' }],
@@ -417,7 +411,6 @@ export function AgentHomesSettingsPanel({
         ) return
         setHomes(normalizeHomes(data.settings?.agentHomes))
         setDangerouslySkipPermissions(data.settings?.dangerouslySkipAgentPermissionsByDefault === true)
-        setUpdateUrl(String(data.settings?.updateUrl ?? ''))
         setSearchTimeoutSeconds(nearestSearchTimeoutSeconds(Number(data.settings?.searchTimeoutMs ?? 15000)))
       })
       .catch(() => {
@@ -553,7 +546,7 @@ export function AgentHomesSettingsPanel({
   const refreshUpdateStatus = useCallback((force = true, quiet = false) => {
     if (!quiet) {
       setUpdateChecking(true)
-      setError('')
+      setUpdateError('')
     }
     fetch(appPath(`/api/update${force ? '?force=1' : ''}`))
       .then(async response => {
@@ -573,32 +566,12 @@ export function AgentHomesSettingsPanel({
         })
       })
       .catch(error => {
-        if (!quiet) setError(error instanceof Error ? error.message : copy.loadFailed)
+        if (!quiet) setUpdateError(error instanceof Error ? error.message : copy.loadFailed)
       })
       .finally(() => {
         if (!quiet) setUpdateChecking(false)
       })
   }, [copy.loadFailed])
-
-  const saveUpdateUrl = useCallback(() => {
-    setUpdateSaving(true)
-    setError('')
-    setNotice('')
-    fetch(appPath('/api/settings'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ updateUrl }),
-    })
-      .then(async response => {
-        const data = await response.json().catch(() => null) as { settings?: GlobalSettings; error?: string } | null
-        if (!response.ok) throw new Error(data?.error || copy.saveFailed)
-        setUpdateUrl(String(data?.settings?.updateUrl ?? ''))
-        setNotice(copy.saved)
-        refreshUpdateStatus(true)
-      })
-      .catch(error => setError(error instanceof Error ? error.message : copy.saveFailed))
-      .finally(() => setUpdateSaving(false))
-  }, [copy.saveFailed, copy.saved, refreshUpdateStatus, updateUrl])
 
   const setSearchTimeout = useCallback((seconds: number) => {
     setSearchTimeoutSeconds(seconds)
@@ -665,7 +638,7 @@ export function AgentHomesSettingsPanel({
     }
 
     setUpdateChecking(true)
-    setError('')
+    setUpdateError('')
     setNotice('')
     upgradeTargetVersionRef.current = restartPreparedUpdate
       ? (updateStatus?.state?.version || '')
@@ -687,7 +660,7 @@ export function AgentHomesSettingsPanel({
       })
       .catch(error => {
         upgradeTargetVersionRef.current = ''
-        setError(error instanceof Error ? error.message : copy.saveFailed)
+        setUpdateError(error instanceof Error ? error.message : copy.saveFailed)
       })
       .finally(() => setUpdateChecking(false))
   }, [copy, refreshUpdateStatus, selectedUpdateAsset, updateStatus])
@@ -778,10 +751,9 @@ export function AgentHomesSettingsPanel({
   const selectedVersion = updateVersions.find(version => version.assetName === selectedUpdateAsset)
   const updateInstallBusy = ['downloading', 'extracting', 'installing', 'restarting', 'rolling-back'].includes(updatePhase)
   const updateReadyToRestart = updatePhase === 'ready-to-restart'
-  const updateBusy = updateChecking || updateSaving || updateInstallBusy
+  const updateBusy = updateChecking || updateInstallBusy
   const updateMethod = updateStatus?.method || updateStatus?.current?.type || ''
   const updateMethodLabel = copy.updateMethodLabel(updateMethod)
-  const bundleUpdate = updateMethod === 'app-bundle' || updateMethod === 'source-deploy'
   const currentUpdateVersion = updateStatus?.current?.releaseVersion
     || updateStatus?.current?.packageVersion
     || updateStatus?.state?.previousVersion
@@ -1026,37 +998,14 @@ export function AgentHomesSettingsPanel({
                   aria-label={copy.refreshUpdates}
                   title={copy.refreshUpdates}
                 >↻</button>
-                <button
+                {(!updateStatus || updateMethod === 'npm') && <button
                   type="button"
                   className="primary"
                   data-testid="code-settings-update-action"
                   onClick={startUpgrade}
                   disabled={updateBusy || (!updateReadyToRestart && !selectedVersion?.available)}
-                >{updateActionLabel}</button>
+                >{updateActionLabel}</button>}
               </div>
-              {bundleUpdate && <label className="code-settings-update-url">
-                <span>{copy.updateSource}</span>
-                <input
-                  type="url"
-                  name="farming-update-url"
-                  inputMode="url"
-                  autoComplete="off"
-                  autoCorrect="off"
-                  autoCapitalize="none"
-                  spellCheck={false}
-                  enterKeyHint="done"
-                  data-lpignore="true"
-                  data-1p-ignore="true"
-                  data-bwignore="true"
-                  data-form-type="other"
-                  value={updateUrl}
-                  placeholder={copy.updateUrlPlaceholder}
-                  aria-label={copy.updateUrl}
-                  onChange={event => setUpdateUrl(event.target.value)}
-                  disabled={updateBusy}
-                />
-              </label>}
-              {bundleUpdate && <button type="button" className="code-settings-update-save" onClick={saveUpdateUrl} disabled={updateBusy}>{copy.saveUpdateUrl}</button>}
               {updateVersions.length > 1 && <label className="code-settings-update-version">
                 <select
                   value={selectedUpdateAsset}
@@ -1071,6 +1020,7 @@ export function AgentHomesSettingsPanel({
                   ))}
                 </select>
               </label>}
+              {updateError && <div className="code-settings-error" role="alert">{updateError}</div>}
             </div>
           </section>
 

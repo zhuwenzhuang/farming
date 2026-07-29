@@ -109,11 +109,11 @@ Farming Net 是独立、带 Token 鉴权的 Farming 部署目录。它提供一�
 
 ## 安装与更新
 
-按上面的快速开始命令安装即可。对于 npm 安装，**Settings → Updates** 会在当前 Server 继续运行时准备所选版本，确认后再应用更新；原有启动 Token 保持不变。
+按上面的快速开始命令安装即可。npm 安装可以从 **Settings → Updates** 更新。
 
 ![Farming npm 更新设置](./docs/products/code/assets/14-code-settings.png)
 
-独立 CLI 和目录 Bundle 仍可从 [GitHub Releases](https://github.com/zhuwenzhuang/farming/releases) 下载。
+独立 CLI 和目录 Bundle 仍可从 [GitHub Releases](https://github.com/zhuwenzhuang/farming/releases) 手动下载安装。应用内更新不会读取 GitHub Releases，只对 npm 安装开放。
 
 ## 安全
 

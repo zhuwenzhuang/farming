@@ -136,6 +136,7 @@
 - **状态清晰**：用户能一眼看出当前状态
 - **错误友好**：错误提示清晰，告诉用户如何修正
 - **核心体验禁止降级 fallback**：Agent terminal / PTY / 输入输出这类核心链路必须保持一致行为；依赖不满足时直接失败并给明确错误，不用低质量替代实现假装可用
+- **应用内更新只支持 npm 安装**：源码、App Bundle 与独立 CLI 安装使用各自的手动部署路径；Server 不得把 GitHub Releases 当作更新源
 - **样式保持**：功能修复默认不得改变既有视觉风格、颜色、层级、交互气质；除非用户明确要求调整 UI，否则应优先通过更精确的作用域、局部覆盖和结构修复来解决问题，避免“顺手改样式”
 - **文案与页面表达变更需先确认**：未经用户明确同意，不得主动新增、删除或改写页面文案、提示语、说明文字，以及会改变页面表达方式的信息层；如确需调整，必须先与用户确认
 
@@ -594,7 +595,7 @@ CRT 皮肤效果开关存储在 `~/.farming/settings.json` 的 `crtSkinEffectsEn
 - 远程部署默认首选端口为 `6694`；CLI 应用在未显式覆盖端口时会从 `6694` 起自动上探可用端口，用户或环境变量显式覆盖时严格使用指定端口
 - 启动日志会打印保留 token 的入口 URL；token 保存在 `~/.farming/.session-token`，重启和升级必须复用，除非显式设置 `FARMING_TOKEN`；新 token 默认 `FARMING_TOKEN_LOCALE=auto`，中文时区生成中文 5-7-5 俳句式口令，日本时区生成日文 5-7-5 俳句式口令，其它时区生成英文 passphrase；也可显式设置 `FARMING_TOKEN_LOCALE=zh|ja|en`
 - 短语 token 保持至少约 85 bit 随机熵，比旧的 256 bit 十六进制 token 更易读，但安全余量相应更低；仍只建议用于可信开发机入口，不应直接公网裸露
-- 更新行为必须识别安装方式。npm 安装读取 `farming-code` registry 元数据并支持一键更新：旧服务运行期间先安装目标版本，安装成功后才重启，进度持久化到 config 目录，新服务启动失败时尝试回退。源码 checkout 通过 Git 更新，单文件 CLI 手动替换。标准 App bundle 的可信 HTTP(S) 目录或 manifest URL 保存为 `settings.updateUrl`，每个 bundle 必须匹配运行平台并提供 64 位 `sha256`。独立的 `linux-x64-legacy-glibc228` tar 是首次安装引导包：安装器只在需要时启用固定校验的 glibc 2.28 runtime，把包内应用安装到私有 `~/.farming/npm` prefix，并生成稳定兼容 launcher。后续应用版本直接走同一 prefix 的 npm 更新；只有兼容 runtime 本身变化时才需要新的引导包。
+- 更新行为必须识别安装方式。npm 安装读取 `farming-code` registry 元数据并支持一键更新：旧服务运行期间先安装目标版本，安装成功后才重启，进度持久化到 config 目录，新服务启动失败时尝试回退。源码 checkout 通过 Git 更新；单文件 CLI 与标准 App Bundle 手动替换，不提供可配置的 Server 端更新源。独立的 `linux-x64-legacy-glibc228` tar 是首次安装引导包：安装器只在需要时启用固定校验的 glibc 2.28 runtime，把包内应用安装到私有 `~/.farming/npm` prefix，并生成稳定兼容 launcher。后续应用版本直接走同一 prefix 的 npm 更新；只有兼容 runtime 本身变化时才需要新的引导包。
 - 默认推荐发布形态是按平台生成的直跑 `farming` CLI 应用：`npm run release:cli` 输出当前 target 的 `releases/<release-version>/farming_<release-version>_<platform>_<arch>`、统一 `manifest.json` 和 `farming_<release-version>_checksums.txt`；`npm run release:cli:all` 默认一次生成 macOS arm64 与 Linux x64；最终用户拿到二进制后可直接改名为 `farming` 并执行 `./farming daemon`
 - CLI 应用默认自配置：首选端口 `6694`、base path `/farming`、配置目录 `~/.farming`；首次启动自动创建 `settings.json`、token 文件和必要运行目录，不要求用户先写 env 文件
 - CLI 应用默认使用 native pty host session engine；目标机需要能加载打包的 `node-pty` runtime。只有排查 native host 边界时才设置 `FARMING_SESSION_ENGINE=local` 使用进程内 node-pty engine。
@@ -623,7 +624,7 @@ CRT 皮肤效果开关存储在 `~/.farming/settings.json` 的 `crtSkinEffectsEn
 - `release:app` 只能从干净 worktree 打包，并通过 Git 跟踪文件白名单构建；它必须拒绝未提交或未跟踪内容，避免把本地 token、私有配置或测试数据带入发行包。
 - `npm run release:remote` 会按 `FARMING_REMOTE_BASE_PATH` 打包、上传 tarball 到远程 Linux、执行 `scripts/install-release.sh install`，并以 token auth 启动真实服务
 - release 远程安装可在 `config/farming.deploy.env` 用 `FARMING_REMOTE_CONFIG_DIR`、`FARMING_REMOTE_SERVER_HOME` 隔离配置目录和 Codex / Claude 历史扫描，适合产品截图、测试实例和多实例部署
-- app bundle 本地安装脚本 `scripts/install-release.sh` 支持 `install/start/daemon/serve/stop/status/logs`，默认读取 `config/farming.install.env`（可从 `config/farming.install.env.example` 复制），通过 `FARMING_INSTALL_DIR`、`FARMING_PORT`、`FARMING_BASE_PATH`、`FARMING_CONFIG_DIR`、`FARMING_SERVER_HOME`、`FARMING_NODE_MAX_OLD_SPACE_SIZE` 控制目标目录、端口、base path、配置目录、server HOME 和 server heap 策略；旧 Linux 包还支持 `FARMING_USE_GLIBC_RUNTIME` 与 `FARMING_GLIBC_RUNTIME_ROOT`。应用内升级源在 Web Settings 中配置并写入 `settings.json`
+- app bundle 本地安装脚本 `scripts/install-release.sh` 支持 `install/start/daemon/serve/stop/status/logs`，默认读取 `config/farming.install.env`（可从 `config/farming.install.env.example` 复制），通过 `FARMING_INSTALL_DIR`、`FARMING_PORT`、`FARMING_BASE_PATH`、`FARMING_CONFIG_DIR`、`FARMING_SERVER_HOME`、`FARMING_NODE_MAX_OLD_SPACE_SIZE` 控制目标目录、端口、base path、配置目录、server HOME 和 server heap 策略；旧 Linux 包还支持 `FARMING_USE_GLIBC_RUNTIME` 与 `FARMING_GLIBC_RUNTIME_ROOT`。App Bundle 不提供应用内自更新，升级时应走对应的手动部署路径
 
 **公开版本发布前门禁：**
 

@@ -5,49 +5,36 @@ const os = require('os');
 const path = require('path');
 const { FarmingUpdateService } = require('../backend/update-service');
 
-const RELEASE_PAGE_URL = 'https://github.com/example/farming/releases/latest';
-const EXPANDED_ASSETS_URL = 'https://github.com/example/farming/releases/expanded_assets/v2.3.0';
-
-function fixtureFetchText(url) {
-  if (url === RELEASE_PAGE_URL) return '<a href="/example/farming/releases/tag/v2.3.0">v2.3.0</a>';
-  if (url === EXPANDED_ASSETS_URL) {
-    return [
-      '<a href="/example/farming/releases/download/v2.3.0/farming-2.3.0-darwin-arm64.tar.gz">macOS</a>',
-      '<a href="/example/farming/releases/download/v2.3.0/farming-2.3.0-linux-x64.tar.gz">Linux</a>',
-      '<a href="/example/farming/releases/download/v2.3.0/farming_2.3.0_checksums.txt">checksums</a>',
-    ].join('\n');
-  }
-  throw new Error(`unexpected update URL: ${url}`);
-}
-
-async function compatibleAssetsFor(platform, arch) {
+async function unsupportedStatusFor(platform, arch) {
   const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-update-platform-root.'));
+  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-update-platform-config.'));
   fs.writeFileSync(path.join(rootDir, 'package.json'), JSON.stringify({ version: '2.2.0' }));
+  let fetches = 0;
   const service = new FarmingUpdateService({
     rootDir,
-    configDir: fs.mkdtempSync(path.join(os.tmpdir(), 'farming-update-platform-config.')),
+    configDir,
     installMethod: 'app-bundle',
     platform,
     arch,
-    manifestUrl: RELEASE_PAGE_URL,
-    fetchText: async url => fixtureFetchText(url),
+    fetchJson: async () => {
+      fetches += 1;
+      throw new Error('non-npm updates must not fetch a release source');
+    },
   });
   const status = await service.check({ force: true });
-  return status.versions.map(version => version.assetName);
+  return { status, fetches };
 }
 
 async function run() {
-  assert.deepStrictEqual(
-    await compatibleAssetsFor('darwin', 'arm64'),
-    ['farming-2.3.0-darwin-arm64.tar.gz'],
-    'macOS must not receive the Linux app bundle'
-  );
-  assert.deepStrictEqual(
-    await compatibleAssetsFor('linux', 'x64'),
-    ['farming-2.3.0-linux-x64.tar.gz'],
-    'Linux must not receive the macOS app bundle'
-  );
-  console.log('✓ local update platform smoke covers macOS and Linux asset selection');
+  for (const [platform, arch] of [['darwin', 'arm64'], ['linux', 'x64']]) {
+    const { status, fetches } = await unsupportedStatusFor(platform, arch);
+    assert.strictEqual(status.method, 'app-bundle');
+    assert.strictEqual(status.installable, false);
+    assert.deepStrictEqual(status.versions, []);
+    assert.match(status.latest.blockedReason, /reinstalling a release package or switching to npm/i);
+    assert.strictEqual(fetches, 0);
+  }
+  console.log('✓ non-npm update smoke covers macOS and Linux');
 }
 
 run().catch(error => {

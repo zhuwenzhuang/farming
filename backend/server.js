@@ -149,7 +149,6 @@ const updateService = new FarmingUpdateService({
   platform: process.platform,
   arch: process.arch,
   packagedRuntime: Boolean(process.pkg || process.env.FARMING_PACKAGED_RUNTIME === '1'),
-  getUpdateUrl: () => configManager.getSettings().updateUrl || '',
 });
 const usageMonitor = new UsageMonitor({
   agentManager,
