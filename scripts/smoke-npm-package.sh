@@ -97,6 +97,7 @@ for runtime_module in \
   codex-session-archive \
   codex-transcript-sanitizer \
   farming-agent-bootstrap \
+  git-worktree-info \
   input-parts \
   input-routing \
   index-html \

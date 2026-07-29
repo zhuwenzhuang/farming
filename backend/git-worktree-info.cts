@@ -2,46 +2,93 @@ const { execFile } = require('child_process');
 const path = require('path');
 const { promisify } = require('util');
 
-const execFileAsync = promisify(execFile);
+interface GitWorktreeRecord {
+  path: string;
+  head?: string;
+  branch?: string;
+  bare?: boolean;
+  detached?: boolean;
+  locked?: boolean;
+  lockReason?: string;
+  prunable?: boolean;
+  pruneReason?: string;
+}
+
+interface GitWorktreeItem {
+  bare: boolean;
+  branch: string;
+  current: boolean;
+  detached: boolean;
+  head: string;
+  locked: boolean;
+  lockReason: string;
+  main: boolean;
+  prunable: boolean;
+  pruneReason: string;
+  workspace: string;
+}
+
+interface GitWorktreeInfo {
+  branch: string;
+  commonDir: string;
+  detached: boolean;
+  head: string;
+  linked: boolean;
+  locked: boolean;
+  lockReason: string;
+  mainWorkspace: string;
+  prunable: boolean;
+  pruneReason: string;
+  workspace: string;
+  worktrees: GitWorktreeItem[];
+}
+
+interface ExecFileResult {
+  stdout: string | Buffer;
+}
+
+type ExecFileAsync = (
+  executable: string,
+  args: string[],
+  options: Record<string, unknown>,
+) => Promise<ExecFileResult>;
+
+interface GitWorktreeInspectOptions {
+  cacheMs?: number;
+  execFileAsync?: ExecFileAsync;
+  timeoutMs?: number;
+}
+
+interface GitWorktreeCacheEntry {
+  createdAt: number;
+  promise: Promise<GitWorktreeInfo | null>;
+}
+
+const execFileAsync = promisify(execFile) as unknown as ExecFileAsync;
 const DEFAULT_TIMEOUT_MS = 5000;
 const DEFAULT_CACHE_MS = 3000;
-const cache = new Map();
+const cache = new Map<string, GitWorktreeCacheEntry>();
 
-/**
- * @typedef {Object} GitWorktreeRecord
- * @property {string} path
- * @property {string} [head]
- * @property {string} [branch]
- * @property {boolean} [bare]
- * @property {boolean} [detached]
- * @property {boolean} [locked]
- * @property {string} [lockReason]
- * @property {boolean} [prunable]
- * @property {string} [pruneReason]
- */
-
-function normalizePathValue(value) {
+function normalizePathValue(value: unknown): string {
   if (typeof value !== 'string') return '';
   const trimmed = value.trim();
   if (!trimmed) return '';
   return path.resolve(trimmed);
 }
 
-function isSameOrDescendantPath(root, target) {
+function isSameOrDescendantPath(root: string, target: string): boolean {
   const relative = path.relative(root, target);
   return relative === '' || Boolean(relative) && !relative.startsWith('..') && !path.isAbsolute(relative);
 }
 
-function normalizeBranchRef(value) {
+function normalizeBranchRef(value: unknown): string {
   const branch = String(value || '').trim();
   return branch.startsWith('refs/heads/') ? branch.slice('refs/heads/'.length) : branch;
 }
 
-function parseGitWorktreeList(output) {
-  /** @type {GitWorktreeRecord[]} */
-  const records = [];
-  /** @type {GitWorktreeRecord | null} */
-  let current = null;
+function parseGitWorktreeList(output: unknown): GitWorktreeRecord[] {
+  const records: GitWorktreeRecord[] = [];
+  let current: GitWorktreeRecord | null = null;
 
   for (const token of String(output || '').split('\0')) {
     if (!token) {
@@ -78,16 +125,22 @@ function parseGitWorktreeList(output) {
   return records.filter(record => record.path);
 }
 
-function matchingWorktree(records, target) {
+function matchingWorktree(
+  records: GitWorktreeRecord[],
+  target: string,
+): GitWorktreeRecord | null {
   return records
     .filter(record => isSameOrDescendantPath(record.path, target))
     .sort((a, b) => b.path.length - a.path.length)[0] || null;
 }
 
-async function inspectGitWorktreeUncached(workspace, options = {}) {
+async function inspectGitWorktreeUncached(
+  workspace: unknown,
+  options: GitWorktreeInspectOptions = {},
+): Promise<GitWorktreeInfo | null> {
   const candidate = normalizePathValue(workspace);
   if (!candidate) return null;
-  const timeout = Number.isFinite(options.timeoutMs)
+  const timeout = typeof options.timeoutMs === 'number' && Number.isFinite(options.timeoutMs)
     ? Math.max(250, options.timeoutMs)
     : DEFAULT_TIMEOUT_MS;
   const exec = options.execFileAsync || execFileAsync;
@@ -157,12 +210,15 @@ async function inspectGitWorktreeUncached(workspace, options = {}) {
   }
 }
 
-async function inspectGitWorktree(workspace, options = {}) {
+async function inspectGitWorktree(
+  workspace: unknown,
+  options: GitWorktreeInspectOptions = {},
+): Promise<GitWorktreeInfo | null> {
   if (options.execFileAsync) return inspectGitWorktreeUncached(workspace, options);
   const candidate = normalizePathValue(workspace);
   if (!candidate) return null;
   const now = Date.now();
-  const maxAgeMs = Number.isFinite(options.cacheMs)
+  const maxAgeMs = typeof options.cacheMs === 'number' && Number.isFinite(options.cacheMs)
     ? Math.max(0, options.cacheMs)
     : DEFAULT_CACHE_MS;
   const cached = cache.get(candidate);
@@ -176,7 +232,11 @@ async function inspectGitWorktree(workspace, options = {}) {
   return promise;
 }
 
-async function isLinkedWorktreeOf(workspace, candidate, options = {}) {
+async function isLinkedWorktreeOf(
+  workspace: unknown,
+  candidate: unknown,
+  options: GitWorktreeInspectOptions = {},
+): Promise<boolean> {
   const [sourceInfo, candidateInfo] = await Promise.all([
     inspectGitWorktree(workspace, options),
     inspectGitWorktree(candidate, options),
@@ -189,7 +249,7 @@ async function isLinkedWorktreeOf(workspace, candidate, options = {}) {
   );
 }
 
-module.exports = {
+export {
   inspectGitWorktree,
   isLinkedWorktreeOf,
   parseGitWorktreeList,

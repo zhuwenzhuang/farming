@@ -7,7 +7,7 @@ const {
   inspectGitWorktree,
   isLinkedWorktreeOf,
   parseGitWorktreeList,
-} = require('../git-worktree-info');
+} = require('../git-worktree-info.cjs');
 
 async function run() {
   const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-worktree-info-'));

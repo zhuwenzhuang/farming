@@ -75,7 +75,7 @@ const {
   normalizeInteractiveTerminalEnv,
   resolveUserShellEnvSync,
 } = require('./agent-env');
-const { inspectGitWorktree } = require('./git-worktree-info');
+const { inspectGitWorktree } = require('./git-worktree-info.cjs');
 const { deserializeTerminalState } = require('./terminal-state-serialization.cjs');
 const { compareNativePtyRuntimeEpochs } = require('./native-pty-controller-generation.cjs');
 const { canonicalWorkspacePath } = require('./workspace-root-registry.cjs');

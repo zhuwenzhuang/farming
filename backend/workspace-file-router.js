@@ -2,7 +2,7 @@ const express = require('express');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { inspectGitWorktree } = require('./git-worktree-info');
+const { inspectGitWorktree } = require('./git-worktree-info.cjs');
 const { WorkspaceFileError } = require('./workspace-file-service');
 const { PreviewSessionManager } = require('./preview-session-manager.cjs');
 const {
