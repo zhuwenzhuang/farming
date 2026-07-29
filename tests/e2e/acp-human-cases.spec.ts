@@ -269,6 +269,8 @@ test.describe('ACP human-like browser matrix', () => {
     await expect(groups.nth(1)).toContainText('Feynman')
     await expect(groups.nth(1)).toContainText(/Completed|已完成/)
     await expect(groups.nth(1)).toContainText(/23 (?:events|个事件)/)
+    await expect(groups.nth(0).locator('.code-agent-transcript-collaboration-agent-labels > span'))
+      .toHaveCSS('font-weight', '400')
     await expect(groups.nth(0).locator('.code-agent-transcript-collaboration-agent svg')).toBeVisible()
     expect(await groups.evaluateAll(elements => (
       elements.map(element => element.getAttribute('data-agent-icon')).sort()

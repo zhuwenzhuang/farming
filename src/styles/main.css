@@ -6422,7 +6422,7 @@ body.code-mode .code-instance-name {
   min-width: 0;
   overflow: hidden;
   color: #1f2328;
-  font-weight: 560;
+  font-weight: 400;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
