@@ -10,7 +10,7 @@ const {
   loadOrCreateFarmingNetSigningIdentity,
   PASS_QUERY_PARAM,
 } = require('./farming-net-pass');
-const { loadFarmingNetRegistry } = require('./farming-net-registry');
+const { loadFarmingNetRegistry } = require('./farming-net-registry.cjs');
 const storageLayout = require('./storage-layout.cjs');
 
 const DEFAULT_PORT = 6693;

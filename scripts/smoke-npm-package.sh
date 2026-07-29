@@ -97,6 +97,7 @@ for runtime_module in \
   codex-session-archive \
   codex-transcript-sanitizer \
   farming-agent-bootstrap \
+  farming-net-registry \
   git-worktree-info \
   input-parts \
   input-routing \
@@ -132,6 +133,7 @@ for runtime_module in \
   terminal-screen-worker-pool \
   terminal-screen-worker \
   terminal-state-serialization \
+  theme-manager \
   usage-forecast \
   workspace-root-registry
 do

@@ -309,7 +309,7 @@ farming/
 │   │   - 同时转发 Main Agent 控制命令到 `farming-cli.js`
 │   │
 │   ├── farming-net-server.js # Farming Net 独立 HTTP/Token 服务
-│   ├── farming-net-registry.js # 私有部署注册表校验与浏览器安全投影
+│   ├── farming-net-registry.cts # 私有部署注册表校验与浏览器安全投影
 │   ├── farming-net-pass.js # Farming Net 短时签名通行证与目标信任校验
 │   │
 │   ├── farming-cli.js     # Main Agent 控制 CLI 的参数解析与 HTTP 调用逻辑

@@ -1,13 +1,44 @@
 const fs = require('fs');
 const path = require('path');
 
-const ENDPOINT_SCOPES = new Set(['this-device', 'intranet', 'remote', 'tunnel']);
+type EndpointScope = 'this-device' | 'intranet' | 'remote' | 'tunnel';
 
-function boundedText(value, maxLength) {
+interface FarmingNetEndpoint {
+  label: string;
+  primary: boolean;
+  scope: EndpointScope;
+  url: string;
+}
+
+interface FarmingNetInstance {
+  description: string;
+  endpoints: FarmingNetEndpoint[];
+  federated: boolean;
+  id: string;
+  name: string;
+  owner: string;
+  pinned: boolean;
+  platform: string;
+}
+
+interface FarmingNetRegistry {
+  instances: FarmingNetInstance[];
+  subtitle: string;
+  title: string;
+  version: 1;
+}
+
+const ENDPOINT_SCOPES = new Set<EndpointScope>(['this-device', 'intranet', 'remote', 'tunnel']);
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function boundedText(value: unknown, maxLength: number): string {
   return String(value || '').trim().slice(0, maxLength);
 }
 
-function normalizeEndpointUrl(value) {
+function normalizeEndpointUrl(value: unknown): string {
   try {
     const url = new URL(String(value || '').trim());
     if (!['http:', 'https:'].includes(url.protocol)) return '';
@@ -20,11 +51,14 @@ function normalizeEndpointUrl(value) {
   }
 }
 
-function normalizeEndpoint(rawEndpoint) {
-  if (!rawEndpoint || typeof rawEndpoint !== 'object' || Array.isArray(rawEndpoint)) return null;
+function normalizeEndpoint(rawEndpoint: unknown): FarmingNetEndpoint | null {
+  if (!isObject(rawEndpoint)) return null;
   const url = normalizeEndpointUrl(rawEndpoint.url);
   if (!url) return null;
-  const scope = ENDPOINT_SCOPES.has(rawEndpoint.scope) ? rawEndpoint.scope : 'remote';
+  const scope = typeof rawEndpoint.scope === 'string'
+    && ENDPOINT_SCOPES.has(rawEndpoint.scope as EndpointScope)
+    ? rawEndpoint.scope as EndpointScope
+    : 'remote';
   return {
     label: boundedText(rawEndpoint.label, 40) || 'Open',
     url,
@@ -33,16 +67,16 @@ function normalizeEndpoint(rawEndpoint) {
   };
 }
 
-function normalizeInstance(rawInstance) {
-  if (!rawInstance || typeof rawInstance !== 'object' || Array.isArray(rawInstance)) return null;
+function normalizeInstance(rawInstance: unknown): FarmingNetInstance | null {
+  if (!isObject(rawInstance)) return null;
   const id = boundedText(rawInstance.id, 64).toLowerCase();
   const name = boundedText(rawInstance.name, 80);
   if (!/^[a-z0-9][a-z0-9._-]*$/.test(id) || !name) return null;
 
-  const seenUrls = new Set();
+  const seenUrls = new Set<string>();
   const endpoints = (Array.isArray(rawInstance.endpoints) ? rawInstance.endpoints : [])
     .map(normalizeEndpoint)
-    .filter(Boolean)
+    .filter((endpoint): endpoint is FarmingNetEndpoint => endpoint !== null)
     .filter(endpoint => {
       if (seenUrls.has(endpoint.url)) return false;
       seenUrls.add(endpoint.url);
@@ -64,14 +98,14 @@ function normalizeInstance(rawInstance) {
   };
 }
 
-function normalizeFarmingNetRegistry(rawRegistry) {
-  const source = rawRegistry && typeof rawRegistry === 'object' && !Array.isArray(rawRegistry)
+function normalizeFarmingNetRegistry(rawRegistry: unknown): FarmingNetRegistry {
+  const source = isObject(rawRegistry)
     ? rawRegistry
     : {};
-  const seenIds = new Set();
+  const seenIds = new Set<string>();
   const instances = (Array.isArray(source.instances) ? source.instances : [])
     .map(normalizeInstance)
-    .filter(Boolean)
+    .filter((instance): instance is FarmingNetInstance => instance !== null)
     .filter(instance => {
       if (seenIds.has(instance.id)) return false;
       seenIds.add(instance.id);
@@ -87,23 +121,23 @@ function normalizeFarmingNetRegistry(rawRegistry) {
   };
 }
 
-function writeFarmingNetRegistry(filePath, registry) {
+function writeFarmingNetRegistry(filePath: string, registry: unknown): FarmingNetRegistry {
   const normalized = normalizeFarmingNetRegistry(registry);
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, `${JSON.stringify(normalized, null, 2)}\n`, { mode: 0o600 });
   return normalized;
 }
 
-function loadFarmingNetRegistry(filePath) {
+function loadFarmingNetRegistry(filePath: string): FarmingNetRegistry {
   try {
     return normalizeFarmingNetRegistry(JSON.parse(fs.readFileSync(filePath, 'utf8')));
-  } catch (error) {
-    if (error && error.code !== 'ENOENT') throw error;
+  } catch (error: unknown) {
+    if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) throw error;
     return writeFarmingNetRegistry(filePath, { version: 1, title: 'Farming Net', instances: [] });
   }
 }
 
-module.exports = {
+export {
   ENDPOINT_SCOPES,
   loadFarmingNetRegistry,
   normalizeEndpointUrl,

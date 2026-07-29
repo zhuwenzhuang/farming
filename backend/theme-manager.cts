@@ -3,8 +3,33 @@ const path = require('path');
 const crypto = require('crypto');
 const storageLayout = require('./storage-layout.cjs');
 
+type ThemeSettings = Record<string, unknown>;
+
+interface ThemeConfig extends Record<string, unknown> {
+  defaultSettings?: ThemeSettings;
+  id: string;
+}
+
+interface ThemeManagerOptions {
+  configDir?: string;
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function errorMessage(error: unknown): unknown {
+  return error instanceof Error ? error.message : error;
+}
+
 class ThemeManager {
-  constructor(options = {}) {
+  themesPath: string;
+  farmingDir: string;
+  themeSettingsFile: string;
+  availableThemes: ThemeConfig[];
+  userThemeSettings: Record<string, ThemeSettings>;
+
+  constructor(options: ThemeManagerOptions = {}) {
     this.themesPath = path.join(__dirname, '../frontend/themes');
     this.farmingDir = options.configDir || storageLayout.farmingConfigDir();
     this.themeSettingsFile = storageLayout.themeSettingsFile(this.farmingDir);
@@ -16,51 +41,52 @@ class ThemeManager {
     }
   }
   
-  loadAvailableThemes() {
-    const themes = [];
+  loadAvailableThemes(): ThemeConfig[] {
+    const themes: ThemeConfig[] = [];
     
     try {
-      const themeDirs = fs.readdirSync(this.themesPath);
+      const themeDirs: string[] = fs.readdirSync(this.themesPath);
       
       themeDirs.forEach(dir => {
         const themePath = path.join(this.themesPath, dir, 'theme.json');
         
         if (fs.existsSync(themePath)) {
           try {
-            const themeConfig = JSON.parse(fs.readFileSync(themePath, 'utf8'));
+            const parsedThemeConfig: unknown = JSON.parse(fs.readFileSync(themePath, 'utf8'));
+            const themeConfig = isObject(parsedThemeConfig) ? parsedThemeConfig : {};
             themes.push({
               id: dir,
               ...themeConfig
             });
-          } catch (error) {
-            console.error(`Failed to load theme ${dir}:`, error.message);
+          } catch (error: unknown) {
+            console.error(`Failed to load theme ${dir}:`, errorMessage(error));
           }
         }
       });
-    } catch (error) {
-      console.error('Failed to load themes:', error.message);
+    } catch (error: unknown) {
+      console.error('Failed to load themes:', errorMessage(error));
     }
     
     return themes;
   }
   
-  loadUserThemeSettings() {
+  loadUserThemeSettings(): unknown {
     try {
       if (fs.existsSync(this.themeSettingsFile)) {
         return JSON.parse(fs.readFileSync(this.themeSettingsFile, 'utf8'));
       }
-    } catch (error) {
-      console.error('Failed to load user theme settings:', error.message);
+    } catch (error: unknown) {
+      console.error('Failed to load user theme settings:', errorMessage(error));
     }
     return {};
   }
 
-  normalizeThemeSettings(settings) {
-    const normalized = {};
-    let current = settings;
+  normalizeThemeSettings(settings: unknown): ThemeSettings {
+    const normalized: ThemeSettings = {};
+    let current: unknown = settings;
     let depth = 0;
 
-    while (current && typeof current === 'object' && !Array.isArray(current) && depth < 20) {
+    while (isObject(current) && depth < 20) {
       Object.entries(current).forEach(([key, value]) => {
         if (key !== 'settings' && normalized[key] === undefined) {
           normalized[key] = value;
@@ -73,14 +99,14 @@ class ThemeManager {
     return normalized;
   }
 
-  normalizeUserThemeSettings(settings) {
-    if (!settings || typeof settings !== 'object' || Array.isArray(settings)) return {};
+  normalizeUserThemeSettings(settings: unknown): Record<string, ThemeSettings> {
+    if (!isObject(settings)) return {};
     return Object.fromEntries(Object.entries(settings).map(([themeId, value]) => (
       [themeId, this.normalizeThemeSettings(value)]
     )));
   }
   
-  saveUserThemeSettings(settings = this.userThemeSettings) {
+  saveUserThemeSettings(settings: Record<string, ThemeSettings> = this.userThemeSettings): boolean {
     let temporaryFile = '';
     try {
       if (!fs.existsSync(this.farmingDir)) {
@@ -90,8 +116,8 @@ class ThemeManager {
       fs.writeFileSync(temporaryFile, JSON.stringify(settings, null, 2), { flag: 'wx', mode: 0o600 });
       fs.renameSync(temporaryFile, this.themeSettingsFile);
       return true;
-    } catch (error) {
-      console.error('Failed to save user theme settings:', error.message);
+    } catch (error: unknown) {
+      console.error('Failed to save user theme settings:', errorMessage(error));
       return false;
     } finally {
       if (temporaryFile) {
@@ -104,15 +130,15 @@ class ThemeManager {
     }
   }
   
-  getTheme(themeId) {
+  getTheme(themeId: string): ThemeConfig | undefined {
     return this.availableThemes.find(t => t.id === themeId);
   }
   
-  getAllThemes() {
+  getAllThemes(): ThemeConfig[] {
     return this.availableThemes;
   }
   
-  getThemeCSS(themeId) {
+  getThemeCSS(themeId: string): string | null {
     const theme = this.getTheme(themeId);
     if (!theme) {
       return null;
@@ -127,7 +153,7 @@ class ThemeManager {
     return null;
   }
   
-  getThemeSettings(themeId) {
+  getThemeSettings(themeId: string): ThemeSettings {
     const theme = this.getTheme(themeId);
     if (!theme) {
       return {};
@@ -139,7 +165,7 @@ class ThemeManager {
     return { ...defaultSettings, ...userOverrides };
   }
   
-  updateThemeSettings(themeId, settings) {
+  updateThemeSettings(themeId: string, settings: unknown): boolean {
     const theme = this.getTheme(themeId);
     if (!theme) {
       return false;
@@ -160,4 +186,4 @@ class ThemeManager {
   }
 }
 
-module.exports = ThemeManager;
+export { ThemeManager };

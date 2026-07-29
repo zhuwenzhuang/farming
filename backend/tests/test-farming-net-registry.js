@@ -8,7 +8,7 @@ const {
   normalizeEndpointUrl,
   normalizeFarmingNetRegistry,
   writeFarmingNetRegistry,
-} = require('../farming-net-registry');
+} = require('../farming-net-registry.cjs');
 
 function run() {
   const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-net-registry-'));

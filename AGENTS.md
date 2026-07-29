@@ -181,7 +181,7 @@ farming/
 │   ├── workspace-file-router.js
 │   ├── farming-app-cli.js
 │   ├── farming-net-server.js
-│   ├── farming-net-registry.js
+│   ├── farming-net-registry.cts
 │   ├── farming-net-pass.js
 │   ├── storage-layout.js
 │   └── tests/

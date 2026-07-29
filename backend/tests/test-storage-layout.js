@@ -4,7 +4,7 @@ const os = require('os');
 const path = require('path');
 
 const storageLayout = require('../storage-layout.cjs');
-const ThemeManager = require('../theme-manager');
+const { ThemeManager } = require('../theme-manager.cjs');
 
 function run() {
   const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-storage-layout-'));
