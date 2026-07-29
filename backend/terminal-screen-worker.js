@@ -8,7 +8,7 @@ const MAX_PENDING_APPEND_BYTES = 128 * 1024;
 const DEFAULT_REQUEST_TIMEOUT_MS = 30000;
 const DEFAULT_STATE_REQUEST_HARD_TIMEOUT_MS = 5000;
 const PACKAGED_WORKER_FILE = 'terminal-screen-worker-thread.pkg.js';
-const SOURCE_WORKER_FILE = 'terminal-screen-worker-thread.js';
+const SOURCE_WORKER_FILE = 'terminal-screen-worker-thread.cjs';
 
 function byteLength(value) {
   return Buffer.byteLength(String(value || ''), 'utf8');

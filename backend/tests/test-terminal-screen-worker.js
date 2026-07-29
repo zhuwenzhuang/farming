@@ -52,7 +52,7 @@ async function run() {
     const previousPackagedRuntime = process.env.FARMING_PACKAGED_RUNTIME;
     try {
       process.env.FARMING_PACKAGED_RUNTIME = '1';
-      assert.strictEqual(TerminalScreenWorker.resolveWorkerFile(), 'terminal-screen-worker-thread.js');
+      assert.strictEqual(TerminalScreenWorker.resolveWorkerFile(), 'terminal-screen-worker-thread.cjs');
     } finally {
       if (previousPackagedRuntime === undefined) {
         delete process.env.FARMING_PACKAGED_RUNTIME;

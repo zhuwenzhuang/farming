@@ -6,7 +6,7 @@ const net = require('net');
 const os = require('os');
 const path = require('path');
 
-const TerminalScreenWorkerPool = require('./terminal-screen-worker-pool');
+const { TerminalScreenWorkerPool } = require('./terminal-screen-worker-pool.cjs');
 const {
   nativePtyHostPrivateSocketPath,
   nativePtyHostSocketPath,

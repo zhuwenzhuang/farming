@@ -1,5 +1,5 @@
 const assert = require('assert');
-const TerminalScreenState = require('../terminal-screen-state');
+const { TerminalScreenState } = require('../terminal-screen-state.cjs');
 
 async function run() {
   const screen = new TerminalScreenState({ cols: 12, rows: 4 });

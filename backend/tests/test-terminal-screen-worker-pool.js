@@ -1,5 +1,5 @@
 const assert = require('assert');
-const TerminalScreenWorkerPool = require('../terminal-screen-worker-pool');
+const { TerminalScreenWorkerPool } = require('../terminal-screen-worker-pool.cjs');
 
 function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));

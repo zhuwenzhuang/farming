@@ -1,5 +1,5 @@
-const { Terminal } = require('@xterm/headless');
-const { SerializeAddon } = require('@xterm/addon-serialize');
+import { Terminal } from '@xterm/headless';
+import { SerializeAddon } from '@xterm/addon-serialize';
 
 const ATTR_BOLD = 0x01;
 const ATTR_ITALIC = 0x02;
@@ -9,7 +9,54 @@ const ATTR_INVERSE = 0x10;
 const ATTR_INVISIBLE = 0x20;
 const ATTR_STRIKETHROUGH = 0x40;
 
-function collectViewportText(terminal) {
+interface TerminalScreenStateOptions {
+  cols?: number;
+  previewSnapshot?: boolean;
+  rows?: number;
+  scrollback?: number;
+}
+
+interface TerminalScreenReadOptions {
+  includeRenderOutput?: boolean;
+  refreshPreview?: boolean;
+}
+
+interface TerminalSnapshotCell {
+  attributes?: number;
+  bg?: number;
+  char: string;
+  fg?: number;
+  width: number;
+}
+
+interface TerminalViewportSnapshot {
+  cells: TerminalSnapshotCell[][];
+  cols: number;
+  cursorVisible: boolean;
+  cursorX: number;
+  cursorY: number;
+  rows: number;
+  viewportY: number;
+}
+
+interface TerminalScreenSnapshot {
+  cols: number;
+  previewSnapshot: TerminalViewportSnapshot | null;
+  previewText: string;
+  renderOutput: string;
+  rows: number;
+  title: string;
+}
+
+interface TerminalWithPrivateCore extends Terminal {
+  _core?: {
+    coreService?: {
+      isCursorHidden?: boolean;
+    };
+  };
+}
+
+function collectViewportText(terminal: Terminal): string {
   const buffer = terminal.buffer.active;
   const lines = [];
 
@@ -25,14 +72,14 @@ function collectViewportText(terminal) {
   return lines.join('\n');
 }
 
-function collectViewportSnapshot(terminal) {
+function collectViewportSnapshot(terminal: Terminal): TerminalViewportSnapshot {
   const buffer = terminal.buffer.active;
   const fallbackCell = buffer.getNullCell();
   const cells = [];
 
   for (let row = 0; row < terminal.rows; row += 1) {
     const line = buffer.getLine(buffer.viewportY + row);
-    const rowCells = [];
+    const rowCells: TerminalSnapshotCell[] = [];
 
     for (let col = 0; col < terminal.cols; col += 1) {
       const cell = line ? line.getCell(col, fallbackCell) : fallbackCell;
@@ -50,7 +97,7 @@ function collectViewportSnapshot(terminal) {
       if (cell.isInvisible && cell.isInvisible()) attributes |= ATTR_INVISIBLE;
       if (cell.isStrikethrough && cell.isStrikethrough()) attributes |= ATTR_STRIKETHROUGH;
 
-      const bufferCell = {
+      const bufferCell: TerminalSnapshotCell = {
         char: cell.getChars ? (cell.getChars() || ' ') : ' ',
         width,
       };
@@ -109,18 +156,31 @@ function collectViewportSnapshot(terminal) {
   };
 }
 
-function getTerminalCursorVisible(terminal) {
+function getTerminalCursorVisible(terminal: Terminal): boolean {
   // xterm does not currently expose DECTCEM through its public buffer API.
   // The headless core still tracks it, and replay must preserve it to avoid
   // showing xterm's cursor on top of a TUI-rendered cursor.
-  const isCursorHidden = terminal && terminal._core && terminal._core.coreService
-    ? terminal._core.coreService.isCursorHidden
+  const privateTerminal = terminal as TerminalWithPrivateCore;
+  const isCursorHidden = privateTerminal._core?.coreService
+    ? privateTerminal._core.coreService.isCursorHidden
     : false;
   return isCursorHidden !== true;
 }
 
 class TerminalScreenState {
-  constructor(options = {}) {
+  private readonly includePreviewSnapshot: boolean;
+  private readonly scrollback: number;
+  private readonly serializeAddon: SerializeAddon;
+  private readonly terminal: Terminal;
+  private pendingWrite: Promise<TerminalScreenSnapshot>;
+  private previewDirty: boolean;
+  private previewSnapshot: TerminalViewportSnapshot | null;
+  private previewText: string;
+  private renderOutput: string;
+  private renderOutputDirty: boolean;
+  private title: string;
+
+  constructor(options: TerminalScreenStateOptions = {}) {
     const cols = options.cols || 80;
     const rows = options.rows || 30;
     const scrollback = options.scrollback || rows * 8;
@@ -143,7 +203,14 @@ class TerminalScreenState {
     this.previewSnapshot = null;
     this.previewDirty = false;
     this.renderOutputDirty = true;
-    this.pendingWrite = Promise.resolve();
+    this.pendingWrite = Promise.resolve({
+      cols,
+      rows,
+      renderOutput: '',
+      previewText: '',
+      previewSnapshot: null,
+      title: '',
+    });
 
     this.terminal.onTitleChange((title) => {
       this.title = title || '';
@@ -152,7 +219,7 @@ class TerminalScreenState {
     this.refreshPreview();
   }
 
-  refreshPreview() {
+  private refreshPreview(): void {
     this.previewText = collectViewportText(this.terminal);
     this.previewSnapshot = this.includePreviewSnapshot
       ? collectViewportSnapshot(this.terminal)
@@ -161,7 +228,7 @@ class TerminalScreenState {
     this.renderOutputDirty = true;
   }
 
-  refreshRenderOutput() {
+  private refreshRenderOutput(): void {
     const serialized = this.serializeAddon.serialize({
       scrollback: this.scrollback,
     });
@@ -172,7 +239,7 @@ class TerminalScreenState {
     this.renderOutputDirty = false;
   }
 
-  refresh(options = {}) {
+  refresh(options: TerminalScreenReadOptions = {}): TerminalScreenSnapshot {
     const includeRenderOutput = options.includeRenderOutput !== false;
     this.refreshPreview();
     if (includeRenderOutput) {
@@ -182,10 +249,10 @@ class TerminalScreenState {
     return this.getState(options);
   }
 
-  async write(data) {
+  async write(data: string): Promise<TerminalScreenSnapshot> {
     this.pendingWrite = this.pendingWrite.then(
       () =>
-        new Promise((resolve) => {
+        new Promise<TerminalScreenSnapshot>((resolve) => {
           this.terminal.write(data, () => {
             this.previewDirty = true;
             this.renderOutputDirty = true;
@@ -200,15 +267,15 @@ class TerminalScreenState {
     return this.pendingWrite;
   }
 
-  resize(cols, rows) {
+  resize(cols: number, rows: number): TerminalScreenSnapshot {
     this.terminal.resize(cols, rows);
     return this.refresh({ includeRenderOutput: false });
   }
 
-  async clearBuffer() {
+  async clearBuffer(): Promise<TerminalScreenSnapshot> {
     this.pendingWrite = this.pendingWrite.then(
       () =>
-        new Promise((resolve) => {
+        new Promise<TerminalScreenSnapshot>((resolve) => {
           this.terminal.write('\x1b[2J\x1b[3J\x1b[H', () => {
             this.refreshPreview();
             resolve(this.getState({ includeRenderOutput: true }));
@@ -219,7 +286,7 @@ class TerminalScreenState {
     return this.pendingWrite;
   }
 
-  getState(options = {}) {
+  getState(options: TerminalScreenReadOptions = {}): TerminalScreenSnapshot {
     const includeRenderOutput = options.includeRenderOutput !== false;
     if (options.refreshPreview !== false && this.previewDirty) {
       this.refreshPreview();
@@ -238,12 +305,19 @@ class TerminalScreenState {
     };
   }
 
-  dispose() {
+  dispose(): void {
     this.terminal.dispose();
   }
 }
 
-module.exports = TerminalScreenState;
-module.exports.collectViewportText = collectViewportText;
-module.exports.collectViewportSnapshot = collectViewportSnapshot;
-module.exports.getTerminalCursorVisible = getTerminalCursorVisible;
+export {
+  TerminalScreenState,
+  collectViewportSnapshot,
+  collectViewportText,
+  getTerminalCursorVisible,
+};
+
+export type {
+  TerminalScreenSnapshot,
+  TerminalViewportSnapshot,
+};

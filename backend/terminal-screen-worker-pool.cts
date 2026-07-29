@@ -1,17 +1,94 @@
-const TerminalScreenWorker = require('./terminal-screen-worker');
+const TerminalScreenWorker = require('./terminal-screen-worker') as TerminalScreenWorkerConstructor;
 
 const DEFAULT_POOL_SIZE = 3;
 const DEFAULT_RETRY_DELAY_MS = 250;
 const MAX_RETRY_DELAY_MS = 5000;
 
-function normalizePoolSize(value) {
+interface TerminalScreenWorkerLike {
+  append(data: string, stateRevision: number, outputSeq?: number | null): Promise<TerminalScreenWorkerState> | undefined;
+  clear(stateRevision: number, outputSeq?: number | null): Promise<TerminalScreenWorkerState>;
+  dispose(): Promise<unknown>;
+  getState(options?: Record<string, unknown>): Promise<TerminalScreenWorkerState>;
+  on(eventName: 'preview', listener: (payload: TerminalScreenWorkerPreview) => void): unknown;
+  on(eventName: 'error', listener: (error: Error) => void): unknown;
+  resize(cols: number, rows: number, stateRevision: number): Promise<TerminalScreenWorkerState>;
+  setRuntimeEpoch(runtimeEpoch: string, cols: number, rows: number): Promise<unknown>;
+}
+
+interface TerminalScreenWorkerPreview {
+  cols: number;
+  previewSnapshot: unknown;
+  previewText: string;
+  rows: number;
+  title: string;
+}
+
+interface TerminalScreenWorkerState extends TerminalScreenWorkerPreview {
+  outputSeq?: number;
+  renderOutput: string;
+  runtimeEpoch?: string;
+  stateRevision?: number;
+}
+
+interface TerminalScreenWorkerConstructor {
+  new(options?: Record<string, unknown>): TerminalScreenWorkerLike;
+}
+
+interface TerminalScreenWorkerPoolOptions {
+  retryDelayMs?: number;
+  size?: unknown;
+  workerOptions?: Record<string, unknown>;
+  WorkerClass?: TerminalScreenWorkerConstructor;
+}
+
+interface TerminalScreenWorkerAcquireOptions {
+  cols?: number;
+  rows?: number;
+  runtimeGeneration?: number;
+  runtimeEpoch?: string;
+}
+
+interface TerminalScreenWorkerPoolStats {
+  consecutiveStartFailures: number;
+  idle: number;
+  pendingStarts: number;
+  size: number;
+  waiters: number;
+}
+
+interface WorkerWaiter {
+  options: TerminalScreenWorkerAcquireOptions;
+  reject(error: unknown): void;
+  resolve(worker: TerminalScreenWorkerLike): void;
+}
+
+interface ReadyWaiter {
+  reject(error: unknown): void;
+  resolve(stats: TerminalScreenWorkerPoolStats): void;
+}
+
+function normalizePoolSize(value: unknown): number {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return DEFAULT_POOL_SIZE;
   return Math.max(0, Math.min(12, Math.floor(parsed)));
 }
 
 class TerminalScreenWorkerPool {
-  constructor(options = {}) {
+  private readonly WorkerClass: TerminalScreenWorkerConstructor;
+  private consecutiveStartFailures: number;
+  private disposePromise: Promise<void> | null = null;
+  private disposed: boolean;
+  private readonly idle: TerminalScreenWorkerLike[];
+  private pendingStarts: number;
+  private retryDelayMs: number;
+  private retryTimer: NodeJS.Timeout | null;
+  private readonly readyWaiters: ReadyWaiter[];
+  private readonly size: number;
+  private readonly startTasks: Set<Promise<unknown>>;
+  private readonly waiters: WorkerWaiter[];
+  private readonly workerOptions: Record<string, unknown>;
+
+  constructor(options: TerminalScreenWorkerPoolOptions = {}) {
     this.size = normalizePoolSize(
       options.size !== undefined
         ? options.size
@@ -34,7 +111,7 @@ class TerminalScreenWorkerPool {
     this.ensureCapacity();
   }
 
-  getStats() {
+  getStats(): TerminalScreenWorkerPoolStats {
     return {
       size: this.size,
       idle: this.idle.length,
@@ -44,7 +121,7 @@ class TerminalScreenWorkerPool {
     };
   }
 
-  ready() {
+  ready(): Promise<TerminalScreenWorkerPoolStats> {
     if (this.disposed) {
       return Promise.reject(new Error('Terminal screen worker pool is disposed'));
     }
@@ -52,13 +129,15 @@ class TerminalScreenWorkerPool {
       return Promise.resolve(this.getStats());
     }
 
-    return new Promise((resolve, reject) => {
+    return new Promise<TerminalScreenWorkerPoolStats>((resolve, reject) => {
       this.readyWaiters.push({ resolve, reject });
       this.ensureCapacity();
     });
   }
 
-  acquire(options = {}) {
+  acquire(
+    options: TerminalScreenWorkerAcquireOptions = {},
+  ): Promise<TerminalScreenWorkerLike> {
     if (this.disposed) {
       return Promise.reject(new Error('Terminal screen worker pool is disposed'));
     }
@@ -72,13 +151,13 @@ class TerminalScreenWorkerPool {
       return this.prepareCheckedWorker(worker, options);
     }
 
-    return new Promise((resolve, reject) => {
+    return new Promise<TerminalScreenWorkerLike>((resolve, reject) => {
       this.waiters.push({ resolve, reject, options });
       this.ensureCapacity();
     });
   }
 
-  ensureCapacity() {
+  private ensureCapacity(): void {
     if (this.disposed || this.size <= 0 || this.retryTimer) {
       return;
     }
@@ -89,7 +168,7 @@ class TerminalScreenWorkerPool {
     }
   }
 
-  startWorker() {
+  private startWorker(): void {
     this.pendingStarts += 1;
     let failed = false;
     const startTask = this.createReadyWorker()
@@ -101,7 +180,7 @@ class TerminalScreenWorkerPool {
         }
         this.deliverWorker(worker);
       })
-      .catch((error) => {
+      .catch((error: unknown) => {
         failed = true;
         this.pendingStarts -= 1;
         this.consecutiveStartFailures += 1;
@@ -129,7 +208,7 @@ class TerminalScreenWorkerPool {
     );
   }
 
-  scheduleCapacityRetry() {
+  private scheduleCapacityRetry(): void {
     if (this.disposed || this.size <= 0 || this.retryTimer) return;
     const delayMs = Math.min(
       MAX_RETRY_DELAY_MS,
@@ -142,12 +221,12 @@ class TerminalScreenWorkerPool {
     this.retryTimer.unref?.();
   }
 
-  async createReadyWorker() {
+  private async createReadyWorker(): Promise<TerminalScreenWorkerLike> {
     const worker = new this.WorkerClass(this.workerOptions);
     try {
       await worker.getState({ includeRenderOutput: false });
       return worker;
-    } catch (error) {
+    } catch (error: unknown) {
       try {
         await worker.dispose();
       } catch {
@@ -157,7 +236,10 @@ class TerminalScreenWorkerPool {
     }
   }
 
-  async prepareWorker(worker, options = {}) {
+  private async prepareWorker(
+    worker: TerminalScreenWorkerLike,
+    options: TerminalScreenWorkerAcquireOptions = {},
+  ): Promise<TerminalScreenWorkerLike> {
     const cols = Number(options.cols || this.workerOptions.cols || 80);
     const rows = Number(options.rows || this.workerOptions.rows || 30);
     if (typeof options.runtimeEpoch === 'string') {
@@ -168,10 +250,13 @@ class TerminalScreenWorkerPool {
     return worker;
   }
 
-  async prepareCheckedWorker(worker, options = {}) {
+  private async prepareCheckedWorker(
+    worker: TerminalScreenWorkerLike,
+    options: TerminalScreenWorkerAcquireOptions = {},
+  ): Promise<TerminalScreenWorkerLike> {
     try {
       return await this.prepareWorker(worker, options);
-    } catch (error) {
+    } catch (error: unknown) {
       try {
         await worker.dispose();
       } catch {
@@ -182,7 +267,7 @@ class TerminalScreenWorkerPool {
     }
   }
 
-  deliverWorker(worker) {
+  private deliverWorker(worker: TerminalScreenWorkerLike): void {
     const waiter = this.waiters.shift();
     if (!waiter) {
       this.idle.push(worker);
@@ -193,7 +278,7 @@ class TerminalScreenWorkerPool {
     this.prepareCheckedWorker(worker, waiter.options).then(waiter.resolve, waiter.reject);
   }
 
-  notifyReadyWaiters() {
+  private notifyReadyWaiters(): void {
     if (this.idle.length < this.size) {
       return;
     }
@@ -201,7 +286,7 @@ class TerminalScreenWorkerPool {
     waiters.forEach(({ resolve }) => resolve(this.getStats()));
   }
 
-  async dispose() {
+  async dispose(): Promise<void> {
     if (this.disposePromise) {
       return this.disposePromise;
     }
@@ -223,5 +308,7 @@ class TerminalScreenWorkerPool {
   }
 }
 
-module.exports = TerminalScreenWorkerPool;
-module.exports.DEFAULT_POOL_SIZE = DEFAULT_POOL_SIZE;
+export {
+  DEFAULT_POOL_SIZE,
+  TerminalScreenWorkerPool,
+};

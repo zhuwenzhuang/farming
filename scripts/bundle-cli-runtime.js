@@ -114,7 +114,7 @@ async function main() {
 
   await esbuild.build({
     ...commonOptions,
-    entryPoints: [path.join(projectRoot, 'backend', 'terminal-screen-worker-thread.js')],
+    entryPoints: [path.join(projectRoot, 'backend', 'terminal-screen-worker-thread.cts')],
     outfile: workerOutfile,
   });
 

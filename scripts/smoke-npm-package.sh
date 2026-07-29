@@ -113,6 +113,9 @@ for runtime_module in \
   terminal-exit-quiescence \
   terminal-reducer-flow-control \
   terminal-runtime-cleanup \
+  terminal-screen-state \
+  terminal-screen-worker-thread \
+  terminal-screen-worker-pool \
   terminal-state-serialization
 do
   if [ ! -f "${PACKAGE_ROOT}/backend/${runtime_module}.cjs" ]; then

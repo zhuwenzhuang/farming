@@ -1,19 +1,63 @@
-const { parentPort, workerData } = require('worker_threads');
-const TerminalScreenState = require('./terminal-screen-state');
+import { parentPort, workerData } from 'worker_threads';
+import type { MessagePort } from 'worker_threads';
+import { TerminalScreenState } from './terminal-screen-state.cjs';
+import type { TerminalScreenSnapshot } from './terminal-screen-state.cjs';
 
 const PREVIEW_FLUSH_INTERVAL_MS = 50;
 
-const screenState = new TerminalScreenState(workerData || {});
-let runtimeEpoch = typeof workerData.runtimeEpoch === 'string' ? workerData.runtimeEpoch : '';
+interface TerminalScreenWorkerMessage extends Record<string, unknown> {
+  cols?: number;
+  data?: unknown;
+  entries?: unknown;
+  includeRenderOutput?: boolean;
+  outputSeq?: number;
+  requestId?: number;
+  rows?: number;
+  runtimeEpoch?: string;
+  stateRevision?: number;
+  type?: string;
+}
+
+interface TerminalScreenReadOptions {
+  emitPreview?: boolean;
+  includeRenderOutput?: boolean;
+  refreshPreview?: boolean;
+}
+
+interface TerminalScreenStateWithRevision extends TerminalScreenSnapshot {
+  outputSeq: number;
+  runtimeEpoch: string;
+  stateRevision: number;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function requireParentPort(port: MessagePort | null): MessagePort {
+  if (!port) {
+    throw new Error('Terminal screen worker requires a parent port');
+  }
+  return port;
+}
+
+const workerPort = requireParentPort(parentPort);
+const initialWorkerData = workerData && typeof workerData === 'object'
+  ? workerData as Record<string, unknown>
+  : {};
+const screenState = new TerminalScreenState(initialWorkerData);
+let runtimeEpoch = typeof initialWorkerData.runtimeEpoch === 'string'
+  ? initialWorkerData.runtimeEpoch
+  : '';
 let appliedOutputSeq = 0;
 let appliedStateRevision = 0;
 let lastPreviewText = '';
 let lastTitle = '';
 let lastSnapshotFingerprint = '';
-let messageQueue = Promise.resolve();
-let previewFlushTimer = null;
+let messageQueue: Promise<void> = Promise.resolve();
+let previewFlushTimer: NodeJS.Timeout | null = null;
 
-function postPreview(state) {
+function postPreview(state: TerminalScreenSnapshot): void {
   const previewText = state.previewText || '';
   const title = state.title || '';
   const previewSnapshot = state.previewSnapshot || null;
@@ -26,7 +70,7 @@ function postPreview(state) {
   lastPreviewText = previewText;
   lastTitle = title;
   lastSnapshotFingerprint = snapshotFingerprint;
-  parentPort.postMessage({
+  workerPort.postMessage({
     type: 'preview',
     previewText,
     title,
@@ -36,7 +80,7 @@ function postPreview(state) {
   });
 }
 
-function withOutputSeq(state) {
+function withOutputSeq(state: TerminalScreenSnapshot): TerminalScreenStateWithRevision {
   return {
     ...state,
     runtimeEpoch,
@@ -45,7 +89,7 @@ function withOutputSeq(state) {
   };
 }
 
-function currentState(options = {}) {
+function currentState(options: TerminalScreenReadOptions = {}): TerminalScreenStateWithRevision {
   const state = screenState.getState({
     includeRenderOutput: options.includeRenderOutput,
     refreshPreview: options.refreshPreview,
@@ -56,7 +100,7 @@ function currentState(options = {}) {
   return withOutputSeq(state);
 }
 
-function schedulePreview() {
+function schedulePreview(): void {
   if (previewFlushTimer) return;
   previewFlushTimer = setTimeout(() => {
     previewFlushTimer = null;
@@ -68,7 +112,7 @@ function schedulePreview() {
   if (typeof previewFlushTimer.unref === 'function') previewFlushTimer.unref();
 }
 
-function assertNextRevision(stateRevision, transition) {
+function assertNextRevision(stateRevision: unknown, transition: string): asserts stateRevision is number {
   if (!Number.isFinite(stateRevision) || stateRevision !== appliedStateRevision + 1) {
     throw new Error(
       `Terminal screen ${transition} revision gap: expected ${appliedStateRevision + 1}, received ${stateRevision}`,
@@ -76,28 +120,37 @@ function assertNextRevision(stateRevision, transition) {
   }
 }
 
-async function appendEntries(rawEntries) {
+function assertFiniteDimension(value: unknown, name: string): asserts value is number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new Error(`Terminal screen ${name} must be finite`);
+  }
+}
+
+async function appendEntries(rawEntries: unknown): Promise<TerminalScreenSnapshot | undefined> {
   const entries = Array.isArray(rawEntries) ? rawEntries : [];
   if (entries.length === 0) return;
 
   let expectedRevision = appliedStateRevision + 1;
   let nextOutputSeq = appliedOutputSeq;
   let data = '';
-  for (const entry of entries) {
-    const stateRevision = Number(entry && entry.stateRevision);
+  for (const value of entries) {
+    const entry = value && typeof value === 'object'
+      ? value as Record<string, unknown>
+      : {};
+    const stateRevision = Number(entry.stateRevision);
     if (!Number.isFinite(stateRevision) || stateRevision !== expectedRevision) {
       throw new Error(
-        `Terminal screen append revision gap: expected ${expectedRevision}, received ${entry && entry.stateRevision}`,
+        `Terminal screen append revision gap: expected ${expectedRevision}, received ${entry.stateRevision}`,
       );
     }
-    const text = String((entry && entry.data) || '');
+    const text = String(entry.data || '');
     if (!text) {
       throw new Error(`Terminal screen append revision ${stateRevision} has no data`);
     }
-    const outputSeq = Number(entry && entry.outputSeq);
+    const outputSeq = Number(entry.outputSeq);
     if (!Number.isFinite(outputSeq) || outputSeq !== nextOutputSeq + 1) {
       throw new Error(
-        `Terminal screen output sequence gap: expected ${nextOutputSeq + 1}, received ${entry && entry.outputSeq}`,
+        `Terminal screen output sequence gap: expected ${nextOutputSeq + 1}, received ${entry.outputSeq}`,
       );
     }
     data += text;
@@ -112,7 +165,7 @@ async function appendEntries(rawEntries) {
   return state;
 }
 
-async function handleRequest(message) {
+async function handleRequest(message: TerminalScreenWorkerMessage): Promise<unknown> {
   switch (message.type) {
     case 'append':
       await appendEntries(message.entries);
@@ -124,12 +177,19 @@ async function handleRequest(message) {
       runtimeEpoch = typeof message.runtimeEpoch === 'string' ? message.runtimeEpoch : '';
       appliedOutputSeq = 0;
       appliedStateRevision = 0;
-      if (Number.isFinite(message.cols) && Number.isFinite(message.rows)) {
+      if (
+        typeof message.cols === 'number'
+        && Number.isFinite(message.cols)
+        && typeof message.rows === 'number'
+        && Number.isFinite(message.rows)
+      ) {
         screenState.resize(message.cols, message.rows);
       }
       return currentState({ includeRenderOutput: false });
     case 'resize': {
       assertNextRevision(message.stateRevision, 'resize');
+      assertFiniteDimension(message.cols, 'columns');
+      assertFiniteDimension(message.rows, 'rows');
       screenState.resize(message.cols, message.rows);
       appliedStateRevision = message.stateRevision;
       const state = screenState.getState({ includeRenderOutput: true });
@@ -166,34 +226,34 @@ async function handleRequest(message) {
   }
 }
 
-async function processMessage(message) {
+async function processMessage(message: TerminalScreenWorkerMessage): Promise<void> {
   try {
     const payload = await handleRequest(message);
     if (message.requestId) {
-      parentPort.postMessage({
+      workerPort.postMessage({
         type: 'response',
         requestId: message.requestId,
         payload,
       });
     }
-  } catch (error) {
+  } catch (error: unknown) {
     if (message.requestId) {
-      parentPort.postMessage({
+      workerPort.postMessage({
         type: 'response',
         requestId: message.requestId,
-        error: error.message,
+        error: errorMessage(error),
       });
       return;
     }
 
-    parentPort.postMessage({
+    workerPort.postMessage({
       type: 'error',
-      message: error.message,
+      message: errorMessage(error),
     });
   }
 }
 
-parentPort.on('message', (message) => {
+workerPort.on('message', (message: TerminalScreenWorkerMessage) => {
   messageQueue = messageQueue.then(
     () => processMessage(message),
     () => processMessage(message),
