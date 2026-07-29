@@ -10,7 +10,7 @@ const {
   npmPackageMetadataUrl,
   npmPackageRoot,
   npmVersionsFromMetadata,
-} = require('../update-service');
+} = require('../update-service.cjs');
 
 async function run() {
   const singleFlightRootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-update-single-flight-root-'));

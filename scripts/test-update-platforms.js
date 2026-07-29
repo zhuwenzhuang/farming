@@ -3,7 +3,7 @@ const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { FarmingUpdateService } = require('../backend/update-service');
+const { FarmingUpdateService } = require('../backend/update-service.cjs');
 
 async function unsupportedStatusFor(platform, arch) {
   const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-update-platform-root.'));

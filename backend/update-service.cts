@@ -1,25 +1,182 @@
-const childProcess = require('child_process');
-const fs = require('fs');
-const http = require('http');
-const https = require('https');
-const os = require('os');
-const path = require('path');
-const { readServerProcessIdentity } = require('./server-process-identity.cjs');
-const storageLayout = require('./storage-layout.cjs');
+const childProcess = require('child_process') as typeof import('child_process');
+const fs = require('fs') as typeof import('fs');
+const http = require('http') as typeof import('http');
+const https = require('https') as typeof import('https');
+const os = require('os') as typeof import('os');
+const path = require('path') as typeof import('path');
+const { readServerProcessIdentity } = require('./server-process-identity.cjs') as {
+  readServerProcessIdentity: (
+    pid: unknown,
+  ) => ServerProcessIdentity | null | Promise<ServerProcessIdentity | null>;
+};
+const storageLayout = require('./storage-layout.cjs') as StorageLayout;
+
+interface ServerProcessIdentity {
+  pid: number;
+  processGroupId: number;
+  startedAt: string;
+  format: string;
+}
+
+interface StorageLayout {
+  updateStateFile(configDir: string): string;
+  updateLogFile(configDir: string): string;
+  updateStagingDir(configDir: string): string;
+}
+
+interface JsonObject {
+  [key: string]: unknown;
+}
+
+interface DetectInstallMethodOptions {
+  packagedRuntime?: boolean;
+}
+
+interface RequestOptions {
+  accept?: string;
+  headers?: Record<string, string>;
+  authToken?: string;
+  timeoutMs?: number;
+}
+
+interface NodeScriptInvocation {
+  command: string;
+  args: string[];
+}
+
+interface NpmVersionMetadata {
+  dist?: {
+    unpackedSize?: unknown;
+  };
+}
+
+interface NpmMetadata {
+  'dist-tags'?: {
+    latest?: unknown;
+  };
+  versions?: Record<string, NpmVersionMetadata | undefined>;
+}
+
+interface NpmVersion {
+  version: string;
+  assetName: string;
+  assetSize: number;
+  blockedReason: string;
+  installable: true;
+  available: boolean;
+}
+
+interface CheckOptions {
+  force?: boolean;
+  assetName?: unknown;
+}
+
+interface RuntimeTarget {
+  platform: string;
+  arch: string;
+}
+
+interface CurrentVersion {
+  releaseVersion: string;
+  packageVersion: string;
+  gitSha: unknown;
+  compatibilityProfile: string;
+  bundledGlibcRuntime: boolean;
+  type: string;
+  installDir: string;
+}
+
+interface UpdateInstallState extends JsonObject {
+  phase: string;
+  method?: string;
+  targetMethod?: string;
+  version?: string;
+  previousVersion?: string;
+  packageName?: string;
+  stagingPrefix?: string;
+  stagingPackageRoot?: string;
+  startedAt?: string;
+  preparedAt?: string;
+  logPath?: string;
+  error?: string;
+  completedAt?: string;
+}
+
+interface NpmCache {
+  checkedAt: number;
+  source: string;
+  metadata: NpmMetadata;
+}
+
+interface ProvenNpmUpdateTarget {
+  proven: true;
+  npmPrefix: string;
+  packageRoot: string;
+}
+
+interface UnprovenNpmUpdateTarget {
+  proven: false;
+  error: string;
+}
+
+type NpmUpdateTarget = ProvenNpmUpdateTarget | UnprovenNpmUpdateTarget;
+
+type FetchJson = (url: string, options?: RequestOptions) => Promise<NpmMetadata>;
+type GetNpmGlobalRoot = (npmCommand: string, npmPrefix: string) => Promise<string>;
+
+interface FarmingUpdateServiceOptions {
+  rootDir?: string;
+  installMethod?: string;
+  packagedRuntime?: boolean;
+  npmPackageName?: string;
+  npmRegistryUrl?: string;
+  npmPackageRoot?: string;
+  npmPrefix?: string;
+  platform?: string;
+  arch?: string;
+  configDir?: string;
+  now?: () => number;
+  fetchJson?: FetchJson;
+  execFile?: typeof childProcess.execFile;
+  getNpmGlobalRoot?: GetNpmGlobalRoot;
+  spawn?: SpawnProcess;
+  updateStateFile?: string;
+  updateLogFile?: string;
+  updateStagingDir?: string;
+}
+
+interface SpawnedProcess {
+  once(event: 'error', listener: (error: Error) => void): unknown;
+  unref(): void;
+}
+
+type SpawnProcess = (
+  command: string,
+  args: readonly string[],
+  options: import('child_process').SpawnOptions,
+) => SpawnedProcess;
+
+function errorMessage(error: unknown): string {
+  if (typeof error === 'object' && error !== null && 'message' in error) {
+    const message = (error as { message?: unknown }).message;
+    if (message) return String(message);
+  }
+  return String(error);
+}
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const NPM_PACKAGE_NAME = 'farming-code';
 const DEFAULT_NPM_REGISTRY = 'https://registry.npmjs.org';
 
-function readJsonFile(filePath) {
+function readJsonFile(filePath: string): JsonObject | null {
   try {
-    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    return JSON.parse(fs.readFileSync(filePath, 'utf8')) as JsonObject;
   } catch {
     return null;
   }
 }
 
-function normalizeVersion(value) {
+function normalizeVersion(value: unknown): string {
   const raw = String(value || '').trim();
   if (!raw) return '';
   const withoutPrefix = raw
@@ -30,13 +187,13 @@ function normalizeVersion(value) {
   return match ? match[0] : withoutPrefix;
 }
 
-function versionParts(value) {
+function versionParts(value: unknown): number[] {
   const normalized = normalizeVersion(value);
   if (!normalized) return [];
   return normalized.split('.').map(part => Number(part)).filter(part => Number.isFinite(part));
 }
 
-function compareVersions(left, right) {
+function compareVersions(left: unknown, right: unknown): number {
   const leftParts = versionParts(left);
   const rightParts = versionParts(right);
   const length = Math.max(leftParts.length, rightParts.length);
@@ -49,7 +206,7 @@ function compareVersions(left, right) {
   return 0;
 }
 
-function detectInstallMethod(rootDir, options = {}) {
+function detectInstallMethod(rootDir: string, options: DetectInstallMethodOptions = {}): string {
   if (options.packagedRuntime) return 'standalone-cli';
   const release = readJsonFile(path.join(rootDir, 'RELEASE.json')) || {};
   if (release.updateMethod === 'npm') return 'npm';
@@ -62,7 +219,7 @@ function detectInstallMethod(rootDir, options = {}) {
   return 'source';
 }
 
-function installMethodBlockedReason(method) {
+function installMethodBlockedReason(method: string): string {
   if (method === 'source') return 'Source checkouts update through Git, not the in-app updater';
   if (method === 'source-deploy') return 'Source deployments update through their deployment workflow, not the in-app updater';
   if (method === 'app-bundle') return 'App bundles update by reinstalling a release package or switching to npm';
@@ -70,47 +227,40 @@ function installMethodBlockedReason(method) {
   return `In-app updates require an npm installation; reinstall ${method || 'this installation'} through npm`;
 }
 
-function hasComparableVersion(value) {
+function hasComparableVersion(value: unknown): boolean {
   return versionParts(value).length > 0;
 }
 
-function normalizePlatform(value) {
+function normalizePlatform(value: unknown): string {
   const raw = String(value || '').trim().toLowerCase();
   if (raw === 'darwin' || raw === 'macos' || raw === 'macosx' || raw === 'osx') return 'darwin';
   if (raw === 'linux') return 'linux';
   return raw;
 }
 
-function normalizeArch(value) {
+function normalizeArch(value: unknown): string {
   const raw = String(value || '').trim().toLowerCase();
   if (raw === 'x64' || raw === 'amd64' || raw === 'x86_64') return 'x64';
   if (raw === 'arm64' || raw === 'aarch64') return 'arm64';
   return raw;
 }
 
-/**
- * @param {string} url
- * @param {{
- *   accept?: string,
- *   headers?: Record<string, string>,
- *   authToken?: string,
- *   [key: string]: any,
- * }} [options]
- * @param {number} [redirectCount]
- * @param {string | false | null} [authOrigin]
- */
-function requestWithRedirects(url, options = {}, redirectCount = 0, authOrigin = null) {
+function requestWithRedirects(
+  url: string,
+  options: RequestOptions = {},
+  redirectCount = 0,
+  authOrigin: string | false | null = null,
+): Promise<import('http').IncomingMessage> {
   if (redirectCount > 5) {
     return Promise.reject(new Error(`too many redirects for ${url}`));
   }
 
-  return new Promise((resolve, reject) => {
+  return new Promise<import('http').IncomingMessage>((resolve, reject) => {
     const parsed = new URL(url);
     const allowedAuthOrigin = authOrigin === false ? '' : (authOrigin || parsed.origin);
     const sameAuthOrigin = Boolean(allowedAuthOrigin) && parsed.origin === allowedAuthOrigin;
     const client = parsed.protocol === 'http:' ? http : https;
-    /** @type {Record<string, string>} */
-    const headers = {
+    const headers: Record<string, string> = {
       'User-Agent': 'Farming-Update-Check',
       Accept: options.accept || 'application/json',
       ...(options.headers || {}),
@@ -162,16 +312,20 @@ function requestWithRedirects(url, options = {}, redirectCount = 0, authOrigin =
   });
 }
 
-async function requestJson(url, options = {}) {
+async function requestJson(url: string, options: RequestOptions = {}): Promise<NpmMetadata> {
   const response = await requestWithRedirects(url, options);
   const chunks = [];
   for await (const chunk of response) {
     chunks.push(chunk);
   }
-  return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+  return JSON.parse(Buffer.concat(chunks).toString('utf8')) as NpmMetadata;
 }
 
-function nodeScriptInvocation(nodePath, scriptPath, env = process.env) {
+function nodeScriptInvocation(
+  nodePath: string,
+  scriptPath: string,
+  env: NodeJS.ProcessEnv = process.env,
+): NodeScriptInvocation {
   if (env.FARMING_NODE_LD && env.FARMING_NODE_LIBRARY_PATH) {
     return {
       command: env.FARMING_NODE_LD,
@@ -181,12 +335,12 @@ function nodeScriptInvocation(nodePath, scriptPath, env = process.env) {
   return { command: nodePath, args: [scriptPath] };
 }
 
-function npmPackageMetadataUrl(registryUrl, packageName) {
+function npmPackageMetadataUrl(registryUrl: unknown, packageName: unknown): string {
   const registry = String(registryUrl || DEFAULT_NPM_REGISTRY).replace(/\/+$/, '');
-  return `${registry}/${encodeURIComponent(packageName).replace(/^%40/, '@')}`;
+  return `${registry}/${encodeURIComponent(String(packageName)).replace(/^%40/, '@')}`;
 }
 
-function normalizePathForCompare(filePath) {
+function normalizePathForCompare(filePath: string): string {
   try {
     return fs.realpathSync(filePath);
   } catch {
@@ -194,16 +348,16 @@ function normalizePathForCompare(filePath) {
   }
 }
 
-function pathIsInside(parentPath, childPath) {
+function pathIsInside(parentPath: string, childPath: string): boolean {
   const relative = path.relative(path.resolve(parentPath), path.resolve(childPath));
   return relative !== '' && !relative.startsWith('..') && !path.isAbsolute(relative);
 }
 
-function npmPackageRoot(npmRoot, packageName) {
+function npmPackageRoot(npmRoot: string, packageName: unknown): string {
   return path.join(npmRoot, ...String(packageName || '').split('/').filter(Boolean));
 }
 
-function npmPrefixForPackageRoot(packageRoot, packageName) {
+function npmPrefixForPackageRoot(packageRoot: string, packageName: unknown): string {
   const segments = String(packageName || '').split('/').filter(Boolean);
   if (!path.isAbsolute(packageRoot) || segments.length === 0) return '';
   let npmRoot = packageRoot;
@@ -211,10 +365,14 @@ function npmPrefixForPackageRoot(packageRoot, packageName) {
   return path.dirname(path.dirname(npmRoot));
 }
 
-function readNpmGlobalRoot(npmCommand, npmPrefix, execFile = childProcess.execFile) {
+function readNpmGlobalRoot(
+  npmCommand: string,
+  npmPrefix: string,
+  execFile: typeof childProcess.execFile = childProcess.execFile,
+): Promise<string> {
   const args = ['root', '--global'];
   if (npmPrefix) args.push('--prefix', npmPrefix);
-  return new Promise((resolve, reject) => {
+  return new Promise<string>((resolve, reject) => {
     execFile(npmCommand, args, (error, stdout) => {
       if (error) {
         reject(error);
@@ -230,9 +388,10 @@ function readNpmGlobalRoot(npmCommand, npmPrefix, execFile = childProcess.execFi
   });
 }
 
-function npmVersionsFromMetadata(metadata, currentVersion) {
-  const versions = metadata && metadata.versions && typeof metadata.versions === 'object'
-    ? Object.keys(metadata.versions)
+function npmVersionsFromMetadata(metadata: NpmMetadata | null | undefined, currentVersion: unknown): NpmVersion[] {
+  const versionMetadata = metadata?.versions;
+  const versions = versionMetadata && typeof versionMetadata === 'object'
+    ? Object.keys(versionMetadata)
     : [];
   return versions
     .filter(version => hasComparableVersion(version) && !version.includes('-'))
@@ -240,7 +399,7 @@ function npmVersionsFromMetadata(metadata, currentVersion) {
     .map(version => ({
       version,
       assetName: version,
-      assetSize: Number(metadata.versions[version]?.dist?.unpackedSize || 0),
+      assetSize: Number(versionMetadata?.[version]?.dist?.unpackedSize as string | number | undefined || 0),
       blockedReason: '',
       installable: true,
       available: compareVersions(version, currentVersion) > 0,
@@ -248,7 +407,27 @@ function npmVersionsFromMetadata(metadata, currentVersion) {
 }
 
 class FarmingUpdateService {
-  constructor(options = {}) {
+  rootDir: string;
+  installMethod: string;
+  npmPackageName: string;
+  npmRegistryUrl: string;
+  npmPackageRoot: string;
+  npmPrefix: string;
+  runtime: RuntimeTarget | null;
+  configDir: string;
+  now: () => number;
+  fetchJson: FetchJson;
+  execFile: typeof childProcess.execFile;
+  getNpmGlobalRoot: GetNpmGlobalRoot;
+  spawn: SpawnProcess;
+  npmCache: NpmCache | null;
+  installState: UpdateInstallState;
+  installStartPromise: Promise<UpdateInstallState> | null;
+  updateStateFile: string;
+  updateLogFile: string;
+  updateStagingDir: string;
+
+  constructor(options: FarmingUpdateServiceOptions = {}) {
     this.rootDir = options.rootDir || path.join(__dirname, '..');
     this.installMethod = options.installMethod || detectInstallMethod(this.rootDir, {
       packagedRuntime: options.packagedRuntime === true,
@@ -278,7 +457,7 @@ class FarmingUpdateService {
     this.updateStagingDir = options.updateStagingDir || storageLayout.updateStagingDir(this.configDir);
   }
 
-  currentVersion() {
+  currentVersion(): CurrentVersion {
     const release = readJsonFile(path.join(this.rootDir, 'RELEASE.json')) || {};
     const pkg = readJsonFile(path.join(this.rootDir, 'package.json')) || {};
     const packageVersion = String(release.packageVersion || pkg.version || '');
@@ -294,9 +473,9 @@ class FarmingUpdateService {
     };
   }
 
-  currentInstallState() {
+  currentInstallState(): UpdateInstallState {
     const persisted = readJsonFile(this.updateStateFile);
-    if (persisted && persisted.method === this.installMethod) return persisted;
+    if (persisted && persisted.method === this.installMethod) return persisted as UpdateInstallState;
     const current = this.currentVersion();
     const currentVersion = normalizeVersion(current.releaseVersion || current.packageVersion);
     if (
@@ -304,12 +483,12 @@ class FarmingUpdateService {
       && persisted.targetMethod === this.installMethod
       && normalizeVersion(persisted.version) === currentVersion
     ) {
-      return persisted;
+      return persisted as UpdateInstallState;
     }
     return this.installState;
   }
 
-  persistInstallState(state) {
+  persistInstallState<T extends UpdateInstallState>(state: T): T {
     this.installState = state;
     fs.mkdirSync(this.configDir, { recursive: true });
     const temporaryPath = `${this.updateStateFile}.${process.pid}.tmp`;
@@ -318,7 +497,7 @@ class FarmingUpdateService {
     return state;
   }
 
-  async npmMetadata(options = {}) {
+  async npmMetadata(options: CheckOptions = {}): Promise<NpmMetadata> {
     const source = npmPackageMetadataUrl(this.npmRegistryUrl, this.npmPackageName);
     if (!options.force && this.npmCache && this.npmCache.source === source && this.now() - this.npmCache.checkedAt < CACHE_TTL_MS) {
       return this.npmCache.metadata;
@@ -328,7 +507,7 @@ class FarmingUpdateService {
     return metadata;
   }
 
-  async npmStatus(options = {}) {
+  async npmStatus(options: CheckOptions = {}) {
     const current = this.currentVersion();
     const currentVersion = normalizeVersion(current.releaseVersion || current.packageVersion);
     const metadata = await this.npmMetadata(options);
@@ -373,7 +552,7 @@ class FarmingUpdateService {
     };
   }
 
-  async npmUpdateTarget() {
+  async npmUpdateTarget(): Promise<NpmUpdateTarget> {
     const runningPackageRoot = String(this.npmPackageRoot || '').trim();
     if (!path.isAbsolute(runningPackageRoot)) {
       return {
@@ -403,10 +582,10 @@ class FarmingUpdateService {
         npmPrefix,
         packageRoot: targetPackageRoot,
       };
-    } catch (error) {
+    } catch (error: unknown) {
       return {
         proven: false,
-        error: `npm update target could not be inspected: ${error.message || String(error)}`,
+        error: `npm update target could not be inspected: ${errorMessage(error)}`,
       };
     }
   }
@@ -437,12 +616,12 @@ class FarmingUpdateService {
     };
   }
 
-  async check(options = {}) {
+  async check(options: CheckOptions = {}) {
     if (this.installMethod === 'npm') return this.npmStatus(options);
     return this.unsupportedStatus();
   }
 
-  async startInstall(options = {}) {
+  async startInstall(options: CheckOptions = {}): Promise<UpdateInstallState> {
     if (this.installStartPromise) return this.installStartPromise;
     const startPromise = this.startInstallUnreserved(options);
     this.installStartPromise = startPromise;
@@ -453,7 +632,7 @@ class FarmingUpdateService {
     }
   }
 
-  async startInstallUnreserved(options = {}) {
+  async startInstallUnreserved(options: CheckOptions = {}): Promise<UpdateInstallState> {
     const currentState = this.currentInstallState();
     if (['downloading', 'extracting', 'installing', 'restarting', 'rolling-back'].includes(currentState.phase)) {
       return currentState;
@@ -464,7 +643,7 @@ class FarmingUpdateService {
     throw new Error(installMethodBlockedReason(this.installMethod));
   }
 
-  async startNpmInstall(options = {}) {
+  async startNpmInstall(options: CheckOptions = {}): Promise<UpdateInstallState> {
     const status = await this.npmStatus({ force: true, assetName: options.assetName });
     if (!status.available) {
       return this.persistInstallState({
@@ -475,6 +654,7 @@ class FarmingUpdateService {
         completedAt: new Date(this.now()).toISOString(),
       });
     }
+    const target = status.target as ProvenNpmUpdateTarget;
 
     const startedAt = new Date(this.now()).toISOString();
     fs.mkdirSync(this.updateStagingDir, { recursive: true });
@@ -505,10 +685,10 @@ class FarmingUpdateService {
       stateFile: this.updateStateFile,
       logPath: this.updateLogFile,
       cliPath: path.join(this.rootDir, 'bin', 'farming'),
-      packageRoot: status.target.packageRoot,
+      packageRoot: target.packageRoot,
       nodePath,
       npmCommand: process.env.FARMING_NPM_COMMAND || 'npm',
-      npmPrefix: status.target.npmPrefix,
+      npmPrefix: target.npmPrefix,
       stagingPrefix,
       stagingPackageRoot,
       npmFallbackRegistryUrl: this.npmRegistryUrl,
@@ -520,7 +700,7 @@ class FarmingUpdateService {
       disableAuth: /^(1|true|yes|on)$/i.test(String(process.env.FARMING_DISABLE_AUTH || '')),
     };
     const helperInvocation = nodeScriptInvocation(nodePath, helperPath);
-    const spawnOptions = {
+    const spawnOptions: import('child_process').SpawnOptions = {
       cwd: this.configDir,
       detached: true,
       stdio: 'ignore',
@@ -532,23 +712,23 @@ class FarmingUpdateService {
     let child;
     try {
       child = this.spawn(helperInvocation.command, helperInvocation.args, spawnOptions);
-    } catch (error) {
+    } catch (error: unknown) {
       fs.rmSync(stagingPrefix, { recursive: true, force: true });
       this.persistInstallState({
         ...state,
         phase: 'failed',
-        error: error.message || String(error),
+        error: errorMessage(error),
         completedAt: new Date(this.now()).toISOString(),
       });
       throw error;
     }
     if (child && typeof child.once === 'function') {
-      child.once('error', (error) => {
+      child.once('error', (error: Error) => {
         fs.rmSync(stagingPrefix, { recursive: true, force: true });
         this.persistInstallState({
           ...state,
           phase: 'failed',
-          error: error.message || String(error),
+          error: errorMessage(error),
           completedAt: new Date(this.now()).toISOString(),
         });
       });
@@ -557,7 +737,7 @@ class FarmingUpdateService {
     return state;
   }
 
-  async applyPreparedUpdate() {
+  async applyPreparedUpdate(): Promise<UpdateInstallState> {
     if (this.installStartPromise) return this.installStartPromise;
     const applyPromise = this.applyPreparedUpdateUnreserved();
     this.installStartPromise = applyPromise;
@@ -568,7 +748,7 @@ class FarmingUpdateService {
     }
   }
 
-  async applyPreparedUpdateUnreserved() {
+  async applyPreparedUpdateUnreserved(): Promise<UpdateInstallState> {
     if (this.installMethod !== 'npm') {
       throw new Error(installMethodBlockedReason(this.installMethod));
     }
@@ -594,17 +774,19 @@ class FarmingUpdateService {
     if (!path.isAbsolute(String(prepared.stagingPrefix || '')) || !path.isAbsolute(String(prepared.stagingPackageRoot || ''))) {
       throw new Error('Prepared npm update is missing its staging identity');
     }
-    const stagingPrefix = normalizePathForCompare(prepared.stagingPrefix);
+    const preparedStagingPrefix = prepared.stagingPrefix as string;
+    const preparedStagingPackageRoot = prepared.stagingPackageRoot as string;
+    const stagingPrefix = normalizePathForCompare(preparedStagingPrefix);
     if (!pathIsInside(normalizePathForCompare(this.updateStagingDir), stagingPrefix)) {
       throw new Error('Prepared npm update is outside the Farming staging directory');
     }
-    if (path.resolve(prepared.stagingPackageRoot) !== path.resolve(npmPackageRoot(
-      path.join(prepared.stagingPrefix, 'lib', 'node_modules'),
+    if (path.resolve(preparedStagingPackageRoot) !== path.resolve(npmPackageRoot(
+      path.join(preparedStagingPrefix, 'lib', 'node_modules'),
       this.npmPackageName,
     ))) {
       throw new Error('Prepared npm update has an invalid package root');
     }
-    const stagingPackageRoot = normalizePathForCompare(prepared.stagingPackageRoot);
+    const stagingPackageRoot = normalizePathForCompare(preparedStagingPackageRoot);
     const stagedMetadata = readJsonFile(path.join(stagingPackageRoot, 'package.json')) || {};
     if (normalizeVersion(stagedMetadata.version) !== normalizeVersion(prepared.version)) {
       throw new Error('Prepared npm update is no longer available; prepare it again');
@@ -639,22 +821,22 @@ class FarmingUpdateService {
 
     const state = this.persistInstallState({ ...prepared, phase: 'restarting', error: '' });
     const helperInvocation = nodeScriptInvocation(nodePath, helperPath);
-    const spawnOptions = {
+    const spawnOptions: import('child_process').SpawnOptions = {
       cwd: this.configDir,
       detached: true,
       stdio: 'ignore',
       env,
     };
-    const restorePreparedState = (error) => this.persistInstallState({
+    const restorePreparedState = (error: Error): UpdateInstallState => this.persistInstallState({
       ...prepared,
       phase: 'ready-to-restart',
-      error: error.message || String(error),
+      error: errorMessage(error),
     });
     let child;
     try {
       child = this.spawn(helperInvocation.command, helperInvocation.args, spawnOptions);
-    } catch (error) {
-      restorePreparedState(error);
+    } catch (error: unknown) {
+      restorePreparedState(error instanceof Error ? error : new Error(String(error)));
       throw error;
     }
     if (child && typeof child.once === 'function') child.once('error', restorePreparedState);
@@ -664,7 +846,7 @@ class FarmingUpdateService {
 
 }
 
-module.exports = {
+export {
   FarmingUpdateService,
   compareVersions,
   detectInstallMethod,

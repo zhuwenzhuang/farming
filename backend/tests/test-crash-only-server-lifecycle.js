@@ -11,7 +11,7 @@ function run() {
   const serverSource = read('backend/server.js');
   const appCliSource = read('backend/farming-app-cli.js');
   const npmUpdateHelperSource = read('backend/npm-update-helper.cts');
-  const updateServiceSource = read('backend/update-service.js');
+  const updateServiceSource = read('backend/update-service.cts');
   const releaseInstallerSource = read('scripts/install-release.sh');
 
   assert(

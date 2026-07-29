@@ -161,6 +161,7 @@ for runtime_module in \
   usage-history-client \
   usage-history-smoke \
   usage-history-worker \
+  update-service \
   workspace-directory \
   workspace-discovery \
   workspace-root-registry
