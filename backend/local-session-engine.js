@@ -167,6 +167,7 @@ class LocalSessionEngine extends SessionEngine {
   constructor(options = {}) {
     super();
     this.configDir = options.configDir || storageLayout.farmingConfigDir();
+    this.terminalExitDataFlushMs = options.terminalExitDataFlushMs;
     this.sessions = new Map();
     this.screenWorkerPool = new TerminalScreenWorkerPool({
       size: 3,

@@ -15,7 +15,8 @@ Farming Browser 让 Agent 操作 Project 浏览器，同时用户可以在 Farmi
 3. 高级场景下配置[外部 CDP 浏览器](external-cdp-browser.zh_cn.md)。
 
 浏览器来源就绪后启用 Browser 插件，无需重启 Farming。只有用户点击安装后才会下载
-内置 Chromium，并且它只保存在 Farming 的数据目录中。
+内置 Chromium，并且它只保存在 Farming 的数据目录中。Farming 会根据当前网络探测
+受支持的下载源；一个源失败后会继续尝试其他源。
 
 ## Agent 工作流
 

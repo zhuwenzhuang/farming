@@ -86,6 +86,7 @@ import { acpComposerStateAliasKeysForAgent, acpComposerStateKeyForAgent } from '
 import { MobileShareSheet } from './code/MobileShareSheet'
 import { CodeOverlays, ContextMenuIcon } from './code/CodeOverlays'
 import { CodeSidebar } from './code/CodeSidebar'
+import { LatestRequestFence } from './code/latest-request-fence'
 import { BrowserSidebarPortals } from '../../extensions/browser/frontend/BrowserSidebarPortals'
 import { useBrowserResources } from '../../extensions/browser/frontend/useBrowserResources'
 import type { BrowserResource } from '../../extensions/browser/frontend/types'
@@ -355,7 +356,7 @@ interface CodeWorkspaceProps {
     options?: { targetRuntime?: 'chat'; expectedRevision?: number }
   ) => Promise<void> | void
   onDeleteForkWorktreeProject: (workspace: string, options?: { force?: boolean }) => Promise<DeleteForkWorktreeProjectResult>
-  onRestartMainAgent: (command: 'codex' | 'claude' | 'opencode' | 'qoder' | 'bash' | 'zsh') => void
+  onRestartMainAgent: (command: 'codex' | 'claude' | 'opencode' | 'qoder' | 'qwen' | 'bash' | 'zsh') => void
   onWorkspaceViewChange: (view: WorkspaceView) => void
   onKill: (
     agentId: string,
@@ -439,7 +440,7 @@ function isPlainTextComposerAgentCommand(command?: string) {
     .split(/\s+/)
     .find(token => token !== 'env' && !/^[A-Za-z_][A-Za-z0-9_]*=/.test(token))
   const basename = executable?.split('/').pop() || ''
-  return basename === 'qoder' || basename === 'qodercli' || basename === 'opencode'
+  return basename === 'qoder' || basename === 'qodercli' || basename === 'opencode' || basename === 'qwen'
 }
 
 function isCodexTerminalAgent(agent: Agent | null | undefined) {
@@ -723,7 +724,7 @@ export function CodeWorkspace({
   const workspaceFileDiffRequestRef = useRef(0)
   const workspaceFileRevealRequestRef = useRef(0)
   const workspaceFileSearchFocusRequestRef = useRef(0)
-  const terminalPathOpenRequestRef = useRef(0)
+  const terminalPathOpenRequestRef = useRef(new LatestRequestFence())
   const shareTargetRestoreAttemptsRef = useRef(0)
   const restoreProjectListFocusRef = useRef<'active' | 'active-force' | 'list' | null>(null)
   const pendingArchivedFocusAgentRef = useRef<string | null>(null)
@@ -3025,8 +3026,7 @@ export function CodeWorkspace({
       : terminalTargetFilePath(target.path, identity.workspaceRoot ?? '')
     if (!filePath) return
 
-    const requestId = terminalPathOpenRequestRef.current + 1
-    terminalPathOpenRequestRef.current = requestId
+    const requestLease = terminalPathOpenRequestRef.current.begin()
     const requestedOpenTarget = openTargetForTerminalPath(target)
     const openTarget: WorkspaceFileOpenTarget = {
       ...(requestedOpenTarget ?? {}),
@@ -3037,12 +3037,12 @@ export function CodeWorkspace({
 
     const openResolvedFile = async (resolvedPath: string, resolvedTarget = openTarget) => {
       const file = await fetchWorkspaceFile(identity.filesId, resolvedPath, { exactExternal: target.exactExternal })
-      if (terminalPathOpenRequestRef.current !== requestId) return
+      if (!requestLease.isCurrent()) return
       await openProjectFile(identity.filesId, file, resolvedTarget)
     }
 
     const revealResolvedDirectory = (resolvedPath: string) => {
-      if (terminalPathOpenRequestRef.current !== requestId) return
+      if (!requestLease.isCurrent()) return
       revealWorkspaceFileInExplorer(identity.filesId, resolvedPath, 'directory')
     }
 
@@ -3055,7 +3055,7 @@ export function CodeWorkspace({
     }
 
     const revealSearch = () => {
-      if (terminalPathOpenRequestRef.current !== requestId) return
+      if (!requestLease.isCurrent()) return
       focusWorkspaceFilesSearch(identity.filesId, filePath)
     }
 
@@ -3089,7 +3089,7 @@ export function CodeWorkspace({
 
       try {
         const results = await searchWorkspaceFiles(identity.filesId, filePath, { limit: TERMINAL_PATH_SEARCH_LIMIT })
-        if (terminalPathOpenRequestRef.current !== requestId) return
+        if (!requestLease.isCurrent()) return
         const pathMatches = uniqueTerminalPathSearchMatches(results.matches)
         if (pathMatches.length === 1) {
           const match = pathMatches[0]
@@ -3414,7 +3414,7 @@ export function CodeWorkspace({
   }, [beginWorkspaceNavigation, finishWorkspaceNavigation, restoreWorkspaceNavigationEntry])
 
   const backToAgentFromFile = useCallback((agentId: string) => {
-    terminalPathOpenRequestRef.current += 1
+    terminalPathOpenRequestRef.current.invalidate()
     setMainPaneMode('terminal')
     onWorkspaceViewChange('projects')
     onOpenTerminal(agentId, { focusTerminal: !isTouchInputViewport() })
@@ -3703,7 +3703,7 @@ export function CodeWorkspace({
         body: JSON.stringify({
           unarchiveArchived: true,
           providerHomeId,
-          ...(['codex', 'claude', 'opencode', 'qoder'].includes(provider) ? {
+          ...(['codex', 'claude', 'opencode', 'qoder', 'qwen'].includes(provider) ? {
             agentRuntimeMode: 'chat',
             acpHistoryMode: 'load',
           } : {}),

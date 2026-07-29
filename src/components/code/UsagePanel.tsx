@@ -265,7 +265,7 @@ interface UsagePanelProps {
   usageSummary: UsageSummary | null
   onToggleCollapsed: () => void
   onOpenMainAgent: () => void
-  onRestartMainAgent: (command: 'codex' | 'claude' | 'opencode' | 'qoder' | 'bash' | 'zsh') => void
+  onRestartMainAgent: (command: 'codex' | 'claude' | 'opencode' | 'qoder' | 'qwen' | 'bash' | 'zsh') => void
 }
 
 function formatHeatmapTime(timestamp: number) {
@@ -1121,6 +1121,7 @@ export function UsagePanel({
                     ['claude', 'Claude Code'],
                     ['opencode', 'OpenCode'],
                     ['qoder', 'Qoder'],
+                    ['qwen', 'Qwen Code'],
                     ['bash', 'bash'],
                     ['zsh', 'zsh'],
                   ] as const).map(([command, label]) => (

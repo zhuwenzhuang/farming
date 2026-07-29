@@ -65,7 +65,7 @@ function safeRelative(value, label = 'entry') {
 function isMuslRuntime() {
   if (process.platform !== 'linux') return false;
   if (process.report?.getReport) {
-    const report = process.report.getReport();
+    const report = /** @type {any} */ (process.report.getReport());
     if (report?.header?.glibcVersionRuntime) return false;
   }
   return true;

@@ -25,13 +25,14 @@ import {
 function normalizeDefaultLaunchAgent(agentName: string | undefined) {
   if (agentName === 'opencode') return 'opencode'
   if (agentName === 'qoder') return 'qoder'
+  if (agentName === 'qwen') return 'qwen'
   if (agentName === 'bash') return 'bash'
   if (agentName === 'zsh') return 'zsh'
   return agentName === 'claude' ? 'claude' : 'codex'
 }
 
 function isResumeProvider(provider: string | undefined) {
-  return provider === 'codex' || provider === 'claude' || provider === 'qoder'
+  return provider === 'codex' || provider === 'claude' || provider === 'qoder' || provider === 'qwen'
 }
 
 interface CliAgent {
@@ -520,7 +521,7 @@ export function InputDialog({
       workflowTemplate: merged.workflowTemplate,
       ...(initialCustomTitle ? { customTitle: initialCustomTitle } : {}),
       providerHomeId: selectedHomeId,
-      ...(['codex', 'claude', 'opencode', 'qoder'].includes(selectedAgent.name) ? {
+      ...(['codex', 'claude', 'opencode', 'qoder', 'qwen'].includes(selectedAgent.name) ? {
         agentRuntimeMode,
       } : {}),
     })
@@ -623,6 +624,7 @@ export function InputDialog({
     if (selectedAgent.name === 'claude') return [{ id: 'default', path: '~/.claude' }]
     if (selectedAgent.name === 'opencode') return [{ id: 'default', path: '~/.opencode' }]
     if (selectedAgent.name === 'qoder') return [{ id: 'default', path: '~/.qoder' }]
+    if (selectedAgent.name === 'qwen') return [{ id: 'default', path: '~/.qwen' }]
     return [{ id: 'default', path: `~/.${selectedAgent.name}` }]
   }, [agentHomes, selectedAgent])
 
@@ -1026,7 +1028,7 @@ export function InputDialog({
                 )}
               </div>
             )}
-            {['codex', 'claude', 'opencode', 'qoder'].includes(selectedAgent.name) && (
+            {['codex', 'claude', 'opencode', 'qoder', 'qwen'].includes(selectedAgent.name) && (
               <div className="workspace-runtime-field" data-testid="agent-runtime-mode">
                 <p className="workspace-field-copy">{agentDisplayName(selectedAgent.name)} runtime</p>
                 <div className="workspace-runtime-options" role="group" aria-label={`${agentDisplayName(selectedAgent.name)} runtime`}>

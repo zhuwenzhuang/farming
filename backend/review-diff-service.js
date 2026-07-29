@@ -1141,7 +1141,7 @@ class ReviewDiffService {
         '--',
         ...gitDiffPathArgs(change),
       ], { cwd: root, timeout: this.fileService.diffTimeoutMs, maxBuffer: this.fileService.diffMaxBuffer });
-      const file = fileFromPatch(change, stdout);
+      const file = /** @type {any} */ (fileFromPatch(change, stdout));
       if (options.fileMeta === true && file.binary !== true) {
         const textSources = await this.getGitRangeTextSources(root, base, head, change);
         file.diff = {

@@ -296,7 +296,7 @@ test('mobile ACP keeps one compact Composer state and exposes model selection be
   expect(measured.publishedHeight).toBe(measured.composerHeight)
 })
 
-for (const provider of ['claude', 'opencode', 'qoder']) {
+for (const provider of ['claude', 'opencode', 'qoder', 'qwen']) {
   test(`${provider} ACP exposes and updates its advertised profile controls`, async ({ page, workspaceRoot }) => {
     const workspace = path.join(workspaceRoot, `acp-controls-${provider}`)
     fs.mkdirSync(workspace, { recursive: true })
@@ -560,6 +560,7 @@ for (const { provider, command } of [
   { provider: 'claude', command: 'claude' },
   { provider: 'opencode', command: 'opencode' },
   { provider: 'qoder', command: 'qodercli' },
+  { provider: 'qwen', command: 'qwen' },
 ] as const) {
   test(`Terminal ${provider} hides model controls because it has no live profile adapter`, async ({ page, workspaceRoot }) => {
     const workspace = path.join(workspaceRoot, `terminal-model-capabilities-${provider}`)

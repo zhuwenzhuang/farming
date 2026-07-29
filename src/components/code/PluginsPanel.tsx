@@ -111,6 +111,7 @@ function agentDisplayName(agent: Pick<AgentExtensionGroup, 'id' | 'name'>) {
   if (agent.id === 'claude') return 'Claude Code'
   if (agent.id === 'opencode') return 'OpenCode'
   if (agent.id === 'qoder') return 'Qoder'
+  if (agent.id === 'qwen') return 'Qwen Code'
   return agent.name || agent.id
 }
 

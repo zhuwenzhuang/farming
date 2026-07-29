@@ -275,6 +275,9 @@ function discoverClaudeInstalledPlugins(commands, homePath) {
   });
 }
 
+/**
+ * @param {{homeDir?: string, workspace?: string}} [options]
+ */
 function discoverClaudeSlashCommands({ homeDir = os.homedir(), workspace } = {}) {
   const commands = [];
   const normalizedWorkspace = normalizeWorkspace(workspace, homeDir);
@@ -369,6 +372,9 @@ function discoverCodexPluginSkillsAt(commands, pluginsCacheDir) {
   });
 }
 
+/**
+ * @param {{homeDir?: string, workspace?: string}} [options]
+ */
 function discoverCodexSkillMentions({ homeDir = os.homedir(), workspace } = {}) {
   const commands = [];
   workspaceSkillRoots(workspace, homeDir).forEach(root => discoverDirectCodexSkills(commands, root, 'Repo'));
@@ -380,6 +386,14 @@ function discoverCodexSkillMentions({ homeDir = os.homedir(), workspace } = {}) 
   return commands.slice(0, MAX_DISCOVERED_SKILLS);
 }
 
+/**
+ * @param {{
+ *   provider?: string,
+ *   providerHomePath?: string,
+ *   workspace?: string,
+ *   homeDir?: string,
+ * }} [options]
+ */
 function discoverAgentExtensions({
   provider,
   providerHomePath,
@@ -414,6 +428,9 @@ function discoverAgentExtensions({
   return commands.slice(0, MAX_DISCOVERED_SKILLS);
 }
 
+/**
+ * @param {{provider?: string, homeDir?: string, workspace?: string}} [options]
+ */
 function discoverSlashCommands({ provider, homeDir = os.homedir(), workspace } = {}) {
   const normalizedProvider = normalizeProvider(provider);
   if (normalizedProvider === 'codex') {

@@ -25,6 +25,14 @@ function resolveWorkerFile() {
 }
 
 class TerminalScreenWorker extends EventEmitter {
+  /**
+   * @param {{
+   *   WorkerClass?: typeof Worker,
+   *   requestTimeoutMs?: number,
+   *   stateRequestHardTimeoutMs?: number,
+   *   [key: string]: any,
+   * }} [options]
+   */
   constructor(options = {}) {
     super();
     this.nextRequestId = 1;

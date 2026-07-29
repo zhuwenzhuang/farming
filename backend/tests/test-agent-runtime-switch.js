@@ -170,6 +170,31 @@ const AgentManager = require('../agent-manager');
   assert.strictEqual(started.options.agentRuntimeMode, 'chat');
   assert.strictEqual(qoderAcpResult.agentRuntimeMode, 'chat');
 
+  manager.agents.set('agent-qwen-switch', {
+    id: 'agent-qwen-switch',
+    command: 'qwen',
+    forkCommand: 'qwen',
+    cwd: '/tmp/project',
+    projectWorkspace: '/tmp/project',
+    providerSessionProvider: 'qwen',
+    providerSessionId: 'e6fa82d7-cf26-4c62-9c35-00aabfcc032c',
+    providerSessionTemporary: false,
+    providerHomeId: 'default',
+    providerHomePath: '/tmp/qwen-home',
+    providerSessionTitle: 'Qwen ACP demo',
+    agentRuntimeMode: 'terminal',
+    status: 'running',
+    output: '',
+  });
+  manager.findRuntimeSwitchSession = async () => ({ provider: 'qwen' });
+  killed = '';
+  started = null;
+  const qwenAcpResult = await manager.restartAgentRuntimeMode('agent-qwen-switch', 'chat');
+  assert.strictEqual(killed, 'agent-qwen-switch');
+  assert.strictEqual(started.command.includes('qwen --resume'), true);
+  assert.strictEqual(started.options.agentRuntimeMode, 'chat');
+  assert.strictEqual(qwenAcpResult.agentRuntimeMode, 'chat');
+
   manager.agents.set('agent-fresh-qoder-switch', {
     id: 'agent-fresh-qoder-switch',
     command: 'qodercli',

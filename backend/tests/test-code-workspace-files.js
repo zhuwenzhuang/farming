@@ -295,7 +295,7 @@ function run() {
 
   assert(
     messagesSource.includes("type: 'restart-main-agent'") &&
-      messagesSource.includes("command: 'codex' | 'claude' | 'opencode' | 'qoder' | 'bash' | 'zsh'") &&
+      messagesSource.includes("command: 'codex' | 'claude' | 'opencode' | 'qoder' | 'qwen' | 'bash' | 'zsh'") &&
       webSocketSource.includes('const restartMainAgent = useCallback') &&
       webSocketSource.includes("sendMessage({ type: 'restart-main-agent', command })") &&
       webSocketSource.includes('restartMainAgent,'),
@@ -1066,7 +1066,7 @@ function run() {
 
   assert(
     mainPageSessionSource.includes("function resumedAgentSource(provider, sessionId, providerHomeId = '')") &&
-      serverSource.includes("const MAIN_AGENT_RESTART_COMMANDS = new Set(['codex', 'claude', 'opencode', 'qoder', 'bash', 'zsh'])") &&
+      serverSource.includes("const MAIN_AGENT_RESTART_COMMANDS = new Set(['codex', 'claude', 'opencode', 'qoder', 'qwen', 'bash', 'zsh'])") &&
       serverSource.includes('function restartMainAgent(ws, command)') &&
       serverSource.includes("case 'restart-main-agent'") &&
       serverSource.includes("case 'interrupt-agent'") &&
@@ -1089,7 +1089,7 @@ function run() {
       serverSource.includes('await agentManager.startAgent(normalizedCommand, null') &&
       serverSource.includes("function findResumedAgent(provider, sessionId, providerHomeId = '')") &&
       serverSource.includes("function rememberMainPageAgentSession(provider, sessionId, providerHomeId = '')") &&
-      mainPageSessionSource.includes("const AUTO_RESUME_AGENT_SESSION_PROVIDERS = new Set(['codex', 'claude', 'opencode', 'qoder'])") &&
+      mainPageSessionSource.includes("const AUTO_RESUME_AGENT_SESSION_PROVIDERS = new Set(['codex', 'claude', 'opencode', 'qoder', 'qwen'])") &&
       mainPageSessionSource.includes('function mainPageAgentSessionFromKey(key)') &&
       serverSource.includes('function autoResumeMainPageAgentSessions()') &&
       serverSource.includes('findActiveAgentClaimingSession(agentManager.getState().agents') &&
@@ -1187,7 +1187,8 @@ function run() {
       agentWorkPaneSource.includes('data-testid="code-permission-switching"') &&
       agentWorkPaneSource.includes("switchingKind === 'runtime' ? copy.runtimeModeRestarting : copy.permissionProfileRestarting") &&
       agentWorkPaneSource.includes('aria-busy={switching}') &&
-      transcriptPaneSource.includes("[workingLabel, progressDuration]") &&
+      transcriptPaneSource.includes('const processSummaryLabel = runningCompaction') &&
+      transcriptPaneSource.includes('copy.agentTranscriptWorkingFor(progressDuration)') &&
       transcriptPaneSource.includes('const effectiveProcessOpen = processOpen') &&
       !transcriptPaneSource.includes("processOpen || (!mobileTouch && turn.status === 'inProgress')") &&
       transcriptPaneSource.includes('if (seconds <= 0) return') &&
@@ -1371,7 +1372,7 @@ function run() {
       capabilitiesSource.includes('if (!agent?.providerCapabilities) return false') &&
       capabilitiesSource.includes('providerCapabilities.runtimeSwitch') &&
       capabilitiesSource.includes('providerCapabilities.supportsChat') &&
-      inputDialogSource.includes("['codex', 'claude', 'opencode', 'qoder'].includes(selectedAgent.name)") &&
+      inputDialogSource.includes("['codex', 'claude', 'opencode', 'qoder', 'qwen'].includes(selectedAgent.name)") &&
       acpPermissionSource.includes('code-acp-permission-details') &&
       agentWorkPaneSource.includes('refreshSignal={acpRuntime?.sessionRevision || (acpRuntime?.sessionUpdatedAt ? Date.parse(acpRuntime.sessionUpdatedAt) : 0)}') &&
       transcriptPaneSource.includes("if (source !== 'acp') pollTimer = window.setInterval(load, 3000)") &&
@@ -1413,21 +1414,21 @@ function run() {
   assert(
     transcriptPaneSource.includes('data-testid="code-acp-progress-update"') &&
       transcriptPaneSource.includes("turn.status === 'inProgress'") &&
-      transcriptPaneSource.includes('latestLiveProgressItem') &&
+      !transcriptPaneSource.includes('latestLiveProgressItem') &&
       transcriptPaneSource.includes('openLiveProcessTurnIds') &&
       !transcriptPaneSource.includes('closedLiveProcessTurnIds') &&
-      transcriptPaneSource.includes('COMPACT_PROCESS_ACTION_LIMIT = 4') &&
+      transcriptPaneSource.includes('COMPACT_PROCESS_ACTION_LIMIT = 1') &&
       transcriptPaneSource.includes('data-testid="code-agent-transcript-process-compact-list"') &&
       transcriptPaneSource.includes('autoExpandedTerminalItemIdsRef') &&
       transcriptPaneSource.includes('const timer = window.setInterval(checkForOutput, 500)') &&
       transcriptPaneSource.includes('compactAcpActionLabel(item, copy)') &&
       transcriptPaneSource.includes('showStatus={false}') &&
       transcriptPaneSource.includes('entry.items.some(item => openProcessItemIds.has(item.id))') &&
-      copySource.includes('agentTranscriptEarlierActions: count =>') &&
+      !copySource.includes('agentTranscriptEarlierActions: count =>') &&
       acpProgressTimelineSource.includes("return String(item.type || '').trim().toLowerCase() === 'progress'") &&
       acpProgressTimelineSource.includes("return 'Reasoning'") &&
       !terminalPaneSource.includes('code-acp-progress-update'),
-    'ACP Chat should show a bounded compact tool trail, auto-expand real long-running terminal output, keep only the latest progress note, and preserve full ordered evidence'
+    'ACP Chat should show one compact live tool row, auto-expand real long-running terminal output, and preserve progress in the full ordered evidence'
   );
 
   const keyboardSource = read('src/hooks/useKeyboard.ts');

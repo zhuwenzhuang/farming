@@ -273,16 +273,18 @@ class FakeAgent {
         throw error;
       }
       const promptText = params.prompt?.map(block => block.type === 'text' ? block.text : '').join('') || '';
-      for (const content of params.prompt || []) {
-        await client.sessionUpdate({
-          sessionId: params.sessionId,
-          update: {
-            sessionUpdate: 'user_message_chunk',
-            messageId: params.clientMessageId,
-            content,
-            _meta: { codex: { steer: true, turnId: activeSteerTurn.turnId } },
-          },
-        });
+      if (activeSteerTurn.echoUserMessage !== false) {
+        for (const content of params.prompt || []) {
+          await client.sessionUpdate({
+            sessionId: params.sessionId,
+            update: {
+              sessionUpdate: 'user_message_chunk',
+              messageId: params.clientMessageId,
+              content,
+              _meta: { codex: { steer: true, turnId: activeSteerTurn.turnId } },
+            },
+          });
+        }
       }
       await client.sessionUpdate({
         sessionId: params.sessionId,
@@ -352,6 +354,7 @@ class FakeAgent {
         expected: promptText.includes('two steers') ? 2 : 1,
         received: 0,
         release: releaseSteerTurn,
+        echoUserMessage: !promptText.includes('without user echo'),
       };
       await client.sessionUpdate({
         sessionId: params.sessionId,

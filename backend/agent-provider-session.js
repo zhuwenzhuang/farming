@@ -2,6 +2,8 @@ const { parseCommand } = require('./cli-agents');
 const { getProviderAdapter, providerForProgram } = require('./provider-adapters');
 const { isSafeProviderSessionId } = require('./provider-session-id');
 
+/** @typedef {import('./types/agent-domain').AgentProviderSessionPlan} AgentProviderSessionPlan */
+
 function sessionFromExactResumeSource(source) {
   const match = String(source || '').match(/^([a-z0-9_-]+)-history:(?:home:([A-Za-z0-9._-]+):)?([A-Za-z0-9._:-]+)$/);
   if (!match || !getProviderAdapter(match[1]) || !isSafeProviderSessionId(match[3])) return null;
@@ -27,6 +29,15 @@ function emptyPlan(args) {
   };
 }
 
+/**
+ * @param {{
+ *   command?: string,
+ *   program?: string,
+ *   args?: string[],
+ *   source?: string,
+ * }} [options]
+ * @returns {AgentProviderSessionPlan}
+ */
 function buildAgentProviderSessionPlan({ command, program, args, source } = {}) {
   const sourceSession = sessionFromExactResumeSource(source);
   const rawParts = parseCommand(command);
@@ -40,6 +51,7 @@ function buildAgentProviderSessionPlan({ command, program, args, source } = {}) 
       provider,
       id: sourceSession.sessionId,
       providerHomeId: sourceSession.providerHomeId,
+      precreate: false,
       temporary: false,
       source: 'resume-source',
       forkedFromProviderSessionId: '',

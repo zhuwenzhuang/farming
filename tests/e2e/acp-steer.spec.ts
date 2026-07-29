@@ -46,9 +46,9 @@ test('sends negotiated Codex ACP steer with mixed input and restores it once', a
   }).toBe(true)
 
   const input = page.getByTestId('code-acp-composer-input')
-  await input.fill('hold for steer')
+  await input.fill('hold for steer without user echo')
   await page.getByTestId('code-acp-composer-send').click()
-  await expect(page.getByText('Waiting for steering.', { exact: true })).toBeVisible()
+  await expect(page.getByTestId('code-acp-composer-send')).toHaveAttribute('data-action', 'interrupt')
 
   await page.getByTestId('code-acp-composer-file-input').setInputFiles(imagePath)
   await expect(page.getByTestId('code-composer-attachment')).toHaveClass(/ready/)
@@ -59,14 +59,38 @@ test('sends negotiated Codex ACP steer with mixed input and restores it once', a
   const steer = page.getByTestId('code-agent-transcript-steer')
   await expect(steer).toContainText('focus on the attached image')
   await expect(steer.getByTestId('code-agent-transcript-user-images').locator('img')).toHaveCount(1)
+  const steerTime = steer.getByTestId('code-agent-transcript-steer-time')
+  await expect(steerTime).toHaveCount(1)
+  await expect(steerTime).toHaveCSS('opacity', '0')
+  await steer.locator('.code-agent-transcript-steer-bubble').hover()
+  await expect(steerTime).toHaveCSS('opacity', '1')
   await expect(page.getByText('Steer accepted: focus on the attached image', { exact: true })).toBeVisible()
-  await expect(page.locator('.code-agent-transcript-turn').filter({ hasText: 'hold for steer' })).toHaveCount(1)
+  const turn = page.locator('.code-agent-transcript-turn').filter({ hasText: 'hold for steer without user echo' })
+  await expect(turn).toHaveCount(1)
+  expect(await turn.evaluate(element => {
+    const children = Array.from(element.children)
+    const steerIndex = children.findIndex(child => child.matches('[data-testid="code-agent-transcript-steer"]'))
+    const processIndex = children.findIndex(child => child.matches('.code-agent-transcript-process'))
+    const answerIndex = children.findIndex(child => child.matches('.code-agent-transcript-answer'))
+    return {
+      steerIndex,
+      processIndex,
+      answerIndex,
+      steerInsideProcess: Boolean(element.querySelector('.code-agent-transcript-process [data-testid="code-agent-transcript-steer"]')),
+    }
+  })).toEqual({
+    steerIndex: 1,
+    processIndex: 2,
+    answerIndex: 3,
+    steerInsideProcess: false,
+  })
   await expect(page.locator('.code-agent-transcript-turn')).toHaveCount(1)
 
   await page.reload()
   await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
   await expect(page.getByTestId('code-agent-transcript-steer')).toHaveCount(1)
   await expect(page.getByTestId('code-agent-transcript-steer')).toContainText('focus on the attached image')
+  await expect(page.getByTestId('code-agent-transcript-steer-time')).toHaveCount(1)
   await expect(page.locator('.code-agent-transcript-turn')).toHaveCount(1)
   expect(sessionRevisionMessages.some(message => (
     message.agentId === agentId && Number.isFinite(message.revision)

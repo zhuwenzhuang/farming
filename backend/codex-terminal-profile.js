@@ -256,7 +256,7 @@ async function applyCodexTerminalProfile({
   onInputSafe,
   timeoutMs = DEFAULT_TIMEOUT_MS,
   pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
-  sleep: sleepFn,
+  sleep: sleepFn = sleep,
   signal,
 }) {
   const target = validateTargetProfile(profile);

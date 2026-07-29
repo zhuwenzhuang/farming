@@ -22,6 +22,9 @@ import {
 } from '../../shared/browser-protocol.js'
 
 const LAST_MESSAGE_STATE_THROTTLE_MS = 1000
+const BUSINESS_HEALTH_INTERVAL_MS = 10_000
+const BUSINESS_HEALTH_DEADLINE_MS = 8_000
+const BUSINESS_HEALTH_RETRY_MS = 2_000
 
 export interface WebSocketState {
   agents: Agent[]
@@ -244,7 +247,7 @@ export function useWebSocket() {
     return sendMessage({ type: 'interrupt-agent', agentId })
   }, [sendMessage])
 
-  const restartMainAgent = useCallback((command: 'codex' | 'claude' | 'opencode' | 'qoder' | 'bash' | 'zsh') => {
+  const restartMainAgent = useCallback((command: 'codex' | 'claude' | 'opencode' | 'qoder' | 'qwen' | 'bash' | 'zsh') => {
     return sendMessage({ type: 'restart-main-agent', command })
   }, [sendMessage])
 
@@ -294,12 +297,76 @@ export function useWebSocket() {
     let disposed = false
     let activeSocket: WebSocket | null = null
     let lastMessageStateUpdateAt = 0
+    let businessProbeTimer: ReturnType<typeof setTimeout> | null = null
+    let businessProbeDeadline: ReturnType<typeof setTimeout> | null = null
+    let pendingBusinessProbeId = ''
+    let businessProbeSequence = 0
 
     function markBackendMessage(receivedAt = Date.now()) {
       if (receivedAt - lastMessageStateUpdateAt < LAST_MESSAGE_STATE_THROTTLE_MS) return
       lastMessageStateUpdateAt = receivedAt
       updateBackendConnectionStatus({ lastMessageAt: receivedAt })
     }
+
+    function clearBusinessProbeTimers() {
+      if (businessProbeTimer) clearTimeout(businessProbeTimer)
+      if (businessProbeDeadline) clearTimeout(businessProbeDeadline)
+      businessProbeTimer = null
+      businessProbeDeadline = null
+    }
+
+    function scheduleBusinessProbe(ws: WebSocket, delay: number) {
+      if (businessProbeTimer) clearTimeout(businessProbeTimer)
+      businessProbeTimer = setTimeout(() => {
+        businessProbeTimer = null
+        sendBusinessProbe(ws)
+      }, delay)
+    }
+
+    function sendBusinessProbe(ws: WebSocket) {
+      if (
+        disposed
+        || wsRef.current !== ws
+        || ws.readyState !== WebSocket.OPEN
+        || document.visibilityState === 'hidden'
+      ) return
+
+      if (businessProbeDeadline) clearTimeout(businessProbeDeadline)
+      const requestId = globalThis.crypto?.randomUUID?.()
+        || `health-${Date.now().toString(36)}-${++businessProbeSequence}`
+      pendingBusinessProbeId = requestId
+      ws.send(JSON.stringify({ type: 'business-health-probe', requestId }))
+      businessProbeDeadline = setTimeout(() => {
+        if (pendingBusinessProbeId !== requestId || wsRef.current !== ws) return
+        pendingBusinessProbeId = ''
+        businessProbeDeadline = null
+        updateBackendConnectionStatus({
+          businessStatus: 'unresponsive',
+          businessCheckedAt: Date.now(),
+        })
+        scheduleBusinessProbe(ws, BUSINESS_HEALTH_RETRY_MS)
+      }, BUSINESS_HEALTH_DEADLINE_MS)
+    }
+
+    function resetBusinessProbeObservation() {
+      clearBusinessProbeTimers()
+      pendingBusinessProbeId = ''
+      updateBackendConnectionStatus({
+        businessStatus: 'checking',
+        businessCheckedAt: null,
+        businessServerEpoch: '',
+      })
+    }
+
+    function handlePageVisibilityChange() {
+      const ws = activeSocket
+      resetBusinessProbeObservation()
+      if (document.visibilityState !== 'hidden' && ws?.readyState === WebSocket.OPEN) {
+        sendBusinessProbe(ws)
+      }
+    }
+
+    document.addEventListener('visibilitychange', handlePageVisibilityChange)
 
     function connect() {
       // ACP transcript revisions and terminal output arrive on this socket.
@@ -331,8 +398,12 @@ export function useWebSocket() {
           everConnected: true,
           lastMessageAt: lastMessageStateUpdateAt,
           disconnectedAt: null,
+          businessStatus: 'checking',
+          businessCheckedAt: null,
+          businessServerEpoch: '',
         })
         ws.send(JSON.stringify({ type: 'protocol-hello', protocolVersion: PROTOCOL_VERSION }))
+        sendBusinessProbe(ws)
         window.dispatchEvent(new Event('farming:backend-connected'))
         workspaceFileListenersRef.current.forEach((listeners, agentId) => {
           if (listeners.size > 0) {
@@ -362,6 +433,21 @@ export function useWebSocket() {
                 errorKind: 'error',
                 errorId: prev.errorId + 1,
               }))
+              break
+            case 'business-health-result':
+              if (msg.requestId !== pendingBusinessProbeId) break
+              pendingBusinessProbeId = ''
+              if (businessProbeDeadline) clearTimeout(businessProbeDeadline)
+              businessProbeDeadline = null
+              updateBackendConnectionStatus({
+                businessStatus: msg.status,
+                businessCheckedAt: Date.now(),
+                businessServerEpoch: msg.serverEpoch,
+              })
+              scheduleBusinessProbe(
+                ws,
+                msg.status === 'ready' ? BUSINESS_HEALTH_INTERVAL_MS : BUSINESS_HEALTH_RETRY_MS,
+              )
               break
             case 'command-ack':
               break
@@ -559,6 +645,7 @@ export function useWebSocket() {
 
       ws.onclose = (event) => {
         if (disposed || wsRef.current !== ws) return
+        resetBusinessProbeObservation()
         wsRef.current = null
         composerRequestResolversRef.current.forEach(({ resolve, timeout }) => {
           window.clearTimeout(timeout)
@@ -592,6 +679,8 @@ export function useWebSocket() {
     return () => {
       disposed = true
       clearTimeout(reconnectTimer)
+      document.removeEventListener('visibilitychange', handlePageVisibilityChange)
+      clearBusinessProbeTimers()
       if (wsRef.current === activeSocket) {
         wsRef.current = null
       }

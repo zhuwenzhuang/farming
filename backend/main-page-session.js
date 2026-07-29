@@ -2,7 +2,7 @@ const path = require('path');
 const { parseCommand } = require('./cli-agents');
 const { isSafeProviderSessionId } = require('./provider-session-id');
 
-const AUTO_RESUME_AGENT_SESSION_PROVIDERS = new Set(['codex', 'claude', 'opencode', 'qoder']);
+const AUTO_RESUME_AGENT_SESSION_PROVIDERS = new Set(['codex', 'claude', 'opencode', 'qoder', 'qwen']);
 
 function normalizeMainPageSessionProvider(provider) {
   const normalized = String(provider || '').trim().toLowerCase();
@@ -75,6 +75,7 @@ function mainPageSessionProviderForCommand(command) {
     .find(token => token !== 'env' && !/^[A-Za-z_][A-Za-z0-9_]*=/.test(token));
   const basename = path.basename(executable || '');
   if (basename === 'qodercli') return 'qoder';
+  if (basename === 'qwen') return 'qwen';
   return normalizeMainPageSessionProvider(basename);
 }
 

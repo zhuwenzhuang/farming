@@ -18,8 +18,9 @@ const MAX_AGENT_SESSION_HISTORY_LIMIT = 5000;
 const MAX_AGENT_SESSION_SCAN_LIMIT = 5000;
 const CLAUDE_HISTORY_TAIL_BYTES = 2 * 1024 * 1024;
 const QODER_HISTORY_TAIL_BYTES = 2 * 1024 * 1024;
+const QWEN_HISTORY_TAIL_BYTES = 2 * 1024 * 1024;
 const MAX_RECENT_FILE_SCAN_DIRECTORIES = 2000;
-const PROVIDERS = new Set(['codex', 'claude', 'opencode', 'qoder']);
+const PROVIDERS = new Set(['codex', 'claude', 'opencode', 'qoder', 'qwen']);
 
 function quoteCommandArg(value) {
   return `'${String(value).replace(/'/g, `'\\''`)}'`;
@@ -299,6 +300,24 @@ function qoderTextFromMessage(message) {
     .trim();
 }
 
+function qwenTextFromMessage(message) {
+  if (typeof message === 'string') return message.trim();
+  if (!message || typeof message !== 'object') return '';
+  const parts = Array.isArray(message.parts)
+    ? message.parts
+    : Array.isArray(message.content)
+      ? message.content
+      : [];
+  return parts
+    .map(part => {
+      if (typeof part === 'string') return part;
+      if (!part || typeof part !== 'object') return '';
+      return typeof part.text === 'string' ? part.text : '';
+    })
+    .join('\n')
+    .trim();
+}
+
 function isVisibleAgentSession(session) {
   const provider = String(session?.provider || '').trim().toLowerCase();
   if (provider === 'claude') {
@@ -360,7 +379,9 @@ async function collectRecentFiles(
   root,
   extension,
   limit,
+  /** @type {(filePath: string) => boolean} */
   acceptFile = () => true,
+  /** @type {(directoryPath: string) => boolean} */
   descendDirectory = () => true
 ) {
   const directories = [root];
@@ -747,6 +768,157 @@ async function listQoderSessions(options = {}) {
     .slice(0, limit);
 }
 
+function qwenSessionIdFromFilePath(filePath) {
+  const match = path.basename(filePath).match(/^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/i);
+  return match ? match[1] : '';
+}
+
+function applyQwenSessionEvent(metadata, event, fileSessionId) {
+  if (!event || typeof event !== 'object') return;
+  const eventSessionId = typeof event.sessionId === 'string' ? event.sessionId : '';
+  if (eventSessionId && isSafeProviderSessionId(eventSessionId)) {
+    metadata.id = eventSessionId;
+  }
+
+  const timestamp = isoTimestamp(event.timestamp);
+  if (timestamp) {
+    metadata.updatedAt = timestamp;
+    metadata.createdAt = metadata.createdAt || timestamp;
+  }
+  if (typeof event.cwd === 'string' && event.cwd.trim()) {
+    metadata.cwd = normalizePathValue(event.cwd);
+  }
+  if (typeof event.version === 'string' && event.version.trim()) {
+    metadata.cliVersion = event.version.trim();
+  }
+  if (typeof event.model === 'string' && event.model.trim()) {
+    metadata.model = event.model.trim();
+  }
+  if (
+    event.type === 'system'
+    && event.subtype === 'custom_title'
+    && typeof event.systemPayload?.customTitle === 'string'
+    && event.systemPayload.customTitle.trim()
+  ) {
+    metadata.title = event.systemPayload.customTitle.trim();
+  }
+  if (!metadata.firstPrompt && event.type === 'user') {
+    metadata.firstPrompt = qwenTextFromMessage(event.message);
+  }
+  if (!metadata.id && fileSessionId) metadata.id = fileSessionId;
+}
+
+async function readQwenSessionMetadata(filePath, maxLines = 160) {
+  const fileSessionId = qwenSessionIdFromFilePath(filePath);
+  const metadata = {
+    filePath,
+    id: fileSessionId,
+    title: '',
+    firstPrompt: '',
+    cwd: '',
+    workspace: '',
+    createdAt: '',
+    updatedAt: '',
+    model: '',
+    source: 'qwen',
+    cliVersion: '',
+  };
+
+  const stream = fs.createReadStream(filePath, { encoding: 'utf8' });
+  const reader = readline.createInterface({ input: stream, crlfDelay: Infinity });
+  let lineCount = 0;
+  try {
+    for await (const line of reader) {
+      if (!line) continue;
+      lineCount += 1;
+      try {
+        applyQwenSessionEvent(metadata, JSON.parse(line), fileSessionId);
+      } catch {
+        // Ignore individual corrupt session lines.
+      }
+      if (lineCount >= maxLines || (metadata.id && metadata.cwd && metadata.firstPrompt && metadata.model)) {
+        break;
+      }
+    }
+  } finally {
+    reader.close();
+    stream.destroy();
+  }
+
+  const tail = await readTextTail(filePath, QWEN_HISTORY_TAIL_BYTES);
+  for (const line of tail.split('\n').filter(Boolean)) {
+    try {
+      applyQwenSessionEvent(metadata, JSON.parse(line), fileSessionId);
+    } catch {
+      // Ignore individual corrupt session lines.
+    }
+  }
+
+  if (!metadata.id || !isSafeProviderSessionId(metadata.id)) return null;
+  metadata.title = firstTrimmedString(metadata.title, metadata.firstPrompt, 'Qwen Code session');
+  metadata.workspace = normalizePathValue(metadata.cwd || '');
+  return metadata;
+}
+
+async function listQwenSessions(options = {}) {
+  const qwenHome = options.qwenHome || path.join(os.homedir(), '.qwen');
+  const limit = Number.isFinite(options.limit)
+    ? Math.max(0, Math.min(MAX_AGENT_SESSION_HISTORY_LIMIT, Math.floor(options.limit)))
+    : DEFAULT_LIMIT;
+  const scanLimit = Number.isFinite(options.scanLimit)
+    ? Math.max(limit, Math.min(MAX_AGENT_SESSION_SCAN_LIMIT, Math.floor(options.scanLimit)))
+    : DEFAULT_SCAN_LIMIT;
+  const projectsRoot = path.join(qwenHome, 'projects');
+  const sessionFiles = await collectRecentFiles(
+    projectsRoot,
+    '.jsonl',
+    scanLimit,
+    filePath => {
+      const relativeParts = path.relative(projectsRoot, filePath).split(path.sep);
+      return relativeParts.length === 3 && relativeParts[1] === 'chats';
+    },
+    directoryPath => {
+      const relativeParts = path.relative(projectsRoot, directoryPath).split(path.sep);
+      return relativeParts.length === 1
+        || (relativeParts.length === 2 && relativeParts[1] === 'chats');
+    }
+  );
+
+  const sessions = [];
+  for (const { filePath, mtimeMs } of sessionFiles) {
+    const metadata = await readQwenSessionMetadata(filePath);
+    if (!metadata) continue;
+    const mtimeIso = mtimeMs > 0 ? new Date(mtimeMs).toISOString() : '';
+    const updatedAt = timestampMs(mtimeIso) > timestampMs(metadata.updatedAt)
+      ? mtimeIso
+      : (metadata.updatedAt || mtimeIso);
+    const session = {
+      provider: 'qwen',
+      providerName: 'Qwen Code',
+      id: metadata.id,
+      title: metadata.title,
+      cwd: metadata.cwd,
+      workspace: metadata.workspace,
+      updatedAt,
+      createdAt: metadata.createdAt,
+      archived: false,
+      pinned: false,
+      unread: false,
+      projectless: !metadata.workspace,
+      model: metadata.model,
+      effort: '',
+      source: metadata.source,
+      cliVersion: metadata.cliVersion,
+      capabilities: ['resume'],
+    };
+    if (isVisibleAgentSession(session)) sessions.push(session);
+  }
+
+  return dedupeAgentSessions(sessions)
+    .sort((a, b) => timestampMs(b.updatedAt) - timestampMs(a.updatedAt))
+    .slice(0, limit);
+}
+
 function runOpenCodeSessionList(options = {}) {
   const executable = options.opencodeBin || process.env.FARMING_OPENCODE_BIN || 'opencode';
   const maxCount = Number.isFinite(options.maxCount) ? Math.max(1, Math.floor(options.maxCount)) : DEFAULT_SCAN_LIMIT;
@@ -865,6 +1037,10 @@ function buildAgentSessionResumeCommand(provider, sessionId, options = {}) {
       : `qodercli --resume ${normalizedSessionId}`;
   }
 
+  if (normalizedProvider === 'qwen') {
+    return options.fork === true ? '' : `qwen --resume ${normalizedSessionId}`;
+  }
+
   if (normalizedProvider === 'opencode') {
     return `opencode --session ${normalizedSessionId}${options.fork === true ? ' --fork' : ''}`;
   }
@@ -878,7 +1054,7 @@ async function listAgentSessions(options = {}) {
     : DEFAULT_LIMIT;
   const requestedProviders = Array.isArray(options.providers)
     ? options.providers.map(normalizeProvider).filter(Boolean)
-    : ['codex', 'claude', 'opencode', 'qoder'];
+    : ['codex', 'claude', 'opencode', 'qoder', 'qwen'];
   const providers = Array.from(new Set(requestedProviders));
   const sessions = [];
 
@@ -922,6 +1098,10 @@ async function listAgentSessions(options = {}) {
 
   if (providers.includes('qoder')) {
     await listForHomes('qoder', providerHomes.qoder, 'qoderHome', listQoderSessions, 'qoderHome');
+  }
+
+  if (providers.includes('qwen')) {
+    await listForHomes('qwen', providerHomes.qwen, 'qwenHome', listQwenSessions, 'qwenHome');
   }
 
   if (providers.includes('opencode')) {
@@ -979,6 +1159,7 @@ module.exports = {
   listClaudeSessions,
   listOpenCodeSessions,
   listQoderSessions,
+  listQwenSessions,
   normalizeProvider,
   paginateAgentSessions,
   resolveCodexResumeModelProvider,

@@ -1696,8 +1696,11 @@ body.code-mode[data-appearance='dark'] .code-agent-transcript-user-file-error {
   background: var(--code-dark-bg-panel);
 }
 
-body.code-mode[data-appearance='dark'] .code-agent-transcript-process {
+body.code-mode[data-appearance='dark'] .code-agent-transcript-process.expanded {
   border-bottom-color: var(--code-dark-border);
+}
+
+body.code-mode[data-appearance='dark'] .code-agent-transcript-process {
   color: var(--code-dark-text-muted);
 }
 
@@ -1706,8 +1709,8 @@ body.code-mode[data-appearance='dark'] .code-agent-transcript-collaboration-head
 }
 
 body.code-mode[data-appearance='dark'] .code-agent-transcript-collaboration-group {
-  border-color: var(--code-dark-border);
-  background: rgba(33, 33, 33, 0.72);
+  border-color: transparent;
+  background: transparent;
 }
 
 body.code-mode[data-appearance='dark'] .code-agent-transcript-collaboration-summary,
@@ -1741,7 +1744,7 @@ body.code-mode[data-appearance='dark'] .code-agent-transcript-collaboration-agen
 }
 
 body.code-mode[data-appearance='dark'] .code-agent-transcript-collaboration-events {
-  border-top-color: var(--code-dark-border);
+  border-left-color: var(--code-dark-border);
 }
 
 body.code-mode[data-appearance='dark'] .code-agent-transcript-collaboration-children {
@@ -1749,7 +1752,7 @@ body.code-mode[data-appearance='dark'] .code-agent-transcript-collaboration-chil
 }
 
 body.code-mode[data-appearance='dark'] .code-agent-transcript-collaboration-children .code-agent-transcript-collaboration-group {
-  background: rgba(24, 24, 24, 0.76);
+  background: transparent;
 }
 
 body.code-mode[data-appearance='dark'] .code-agent-transcript-collaboration-count,
@@ -1841,7 +1844,7 @@ body.code-mode[data-appearance='dark'] .code-agent-transcript-process-dot {
 }
 
 body.code-mode[data-appearance='dark'] .code-agent-transcript-process-status {
-  background: rgba(139, 148, 158, 0.14);
+  background: transparent;
   color: var(--code-dark-text-muted);
 }
 
@@ -1968,8 +1971,8 @@ body.code-mode[data-appearance='dark'] .code-agent-transcript-result-summary {
 }
 
 body.code-mode[data-appearance='dark'] .code-agent-transcript-progress {
-  border-color: var(--code-dark-border);
-  background: rgba(22, 27, 34, 0.72);
+  border-color: transparent;
+  background: transparent;
   color: var(--code-dark-text-muted);
 }
 
@@ -3328,7 +3331,7 @@ body.code-mode[data-appearance='dark'] .connection-status {
 }
 
 body.code-mode[data-appearance='dark'] .connection-status.lost,
-body.code-mode[data-appearance='dark'] .connection-status.stale {
+body.code-mode[data-appearance='dark'] .connection-status.business-unavailable {
   color: #ff7b72;
   border-color: rgba(248, 81, 73, 0.46);
 }

@@ -101,7 +101,12 @@ function buildCleanEnvExecCommand(env, command, args = []) {
   return parts.map(quoteShellArg).join(' ');
 }
 
+/**
+ * @param {NodeJS.ProcessEnv} [env]
+ * @returns {NodeJS.ProcessEnv}
+ */
 function packagedNativeHostEnv(env = {}) {
+  /** @type {NodeJS.ProcessEnv} */
   const next = {};
   Object.entries(env).forEach(([key, value]) => {
     if (!PACKAGED_NATIVE_HOST_ENV_KEYS.has(key)) return;
@@ -138,6 +143,11 @@ function runtimeIdentityLabel(value) {
   return `${version}protocol ${identity.protocolVersion} build ${identity.buildId.slice(0, 12)}`;
 }
 
+/**
+ * @param {string} hostScript
+ * @param {NodeJS.ProcessEnv} env
+ * @returns {{command: string, args: string[], env?: NodeJS.ProcessEnv}}
+ */
 function nativeHostSpawnCommand(hostScript, env) {
   const nodeBin = env.FARMING_NODE_BIN || process.execPath;
   const ldPath = env.FARMING_NODE_LD || '';
@@ -197,6 +207,7 @@ class NativePtyHostClient extends EventEmitter {
     this.pending = new Map();
     this.connecting = null;
     this.disposed = false;
+    /** @type {import('child_process').ChildProcess | null} */
     this.hostChild = null;
     this.hostStartError = null;
     this.hostLogStream = null;
@@ -325,6 +336,7 @@ class NativePtyHostClient extends EventEmitter {
     if (this.disposed) return;
     if (this.hostChild && this.hostChild.exitCode === null && this.hostChild.signalCode === null) return;
     this.hostStartError = null;
+    /** @type {NodeJS.ProcessEnv} */
     const env = {
       ...process.env,
       FARMING_CONFIG_DIR: this.configDir || process.env.FARMING_CONFIG_DIR || '',

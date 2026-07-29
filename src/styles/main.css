@@ -5998,6 +5998,8 @@ body.code-mode .code-instance-name {
 }
 
 .code-agent-transcript-user {
+  position: relative;
+  min-width: 0;
   width: fit-content;
   max-width: min(720px, 78%);
   margin: 0 0 20px auto;
@@ -6008,8 +6010,36 @@ body.code-mode .code-instance-name {
   font-size: 14px;
   line-height: 20px;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
   user-select: text;
   -webkit-user-select: text;
+}
+
+.code-agent-transcript-message-time {
+  color: #8c959f;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 16px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-2px);
+  transition: opacity 100ms ease, transform 100ms ease;
+}
+
+.code-agent-transcript-message-time-user,
+.code-agent-transcript-message-time-steer {
+  position: absolute;
+  top: calc(100% + 2px);
+  right: 10px;
+}
+
+.code-agent-transcript-user:hover > .code-agent-transcript-message-time,
+.code-agent-transcript-user:focus-within > .code-agent-transcript-message-time,
+.code-agent-transcript-answer:hover .code-agent-transcript-message-time,
+.code-agent-transcript-answer:focus-within .code-agent-transcript-message-time {
+  opacity: 1;
+  transform: translateY(0);
 }
 
 .code-agent-transcript-user-images {
@@ -6131,8 +6161,11 @@ body.code-mode .code-instance-name {
 
 .code-agent-transcript-process {
   margin: 0 0 18px;
-  border-bottom: 1px solid rgba(31, 35, 40, 0.12);
   color: #6e7781;
+}
+
+.code-agent-transcript-process.expanded {
+  border-bottom: 1px solid rgba(31, 35, 40, 0.12);
 }
 
 .code-agent-transcript-process-summary {
@@ -6147,6 +6180,7 @@ body.code-mode .code-instance-name {
   color: inherit;
   cursor: pointer;
   font-size: 14px;
+  font-weight: 400;
   font-family: inherit;
   user-select: none;
 }
@@ -6185,8 +6219,8 @@ body.code-mode .code-instance-name {
 }
 
 .code-agent-transcript-process-compact-list {
-  gap: 1px;
-  padding: 2px 0 4px;
+  gap: 0;
+  padding: 6px 0 8px;
 }
 
 .code-agent-transcript-process-compact-list > .code-agent-transcript-process-item {
@@ -6212,60 +6246,56 @@ body.code-mode .code-instance-name {
 }
 
 .code-agent-transcript-collaboration {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  gap: 6px;
-  width: min(620px, 100%);
-  padding: 5px 0 13px;
+  display: grid;
+  gap: 0;
+  width: min(720px, 100%);
+  padding: 7px 0 13px;
 }
 
 .code-agent-transcript-collaboration-heading {
-  flex: 0 0 100%;
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 0 2px 2px;
+  padding: 0 2px 5px;
   color: #7d858d;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.01em;
+  font-size: 13px;
+  font-weight: 400;
 }
 
 .code-agent-transcript-collaboration-heading svg {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   flex: 0 0 auto;
 }
 
 .code-agent-transcript-collaboration-group {
   min-width: 0;
   overflow: hidden;
-  border: 1px solid rgba(31, 35, 40, 0.1);
-  border-radius: 9px;
-  background: rgba(246, 248, 250, 0.46);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
 
 .code-agent-transcript-collaboration > .code-agent-transcript-collaboration-group {
-  flex: 0 1 auto;
+  width: 100%;
   max-width: 100%;
 }
 
 .code-agent-transcript-collaboration > .code-agent-transcript-collaboration-group:not(.expanded) {
-  border-radius: 999px;
+  border-radius: 0;
 }
 
 .code-agent-transcript-collaboration > .code-agent-transcript-collaboration-group.expanded {
-  flex: 0 0 100%;
+  width: 100%;
 }
 
 .code-agent-transcript-collaboration-summary {
   width: 100%;
-  min-height: 38px;
+  min-height: 30px;
   display: flex;
   align-items: center;
-  gap: 9px;
-  padding: 5px 9px;
+  gap: 7px;
+  padding: 3px 2px;
   border: 0;
   background: transparent;
   color: #57606a;
@@ -6277,11 +6307,11 @@ body.code-mode .code-instance-name {
 
 .code-agent-transcript-collaboration > .code-agent-transcript-collaboration-group:not(.expanded)
   > .code-agent-transcript-collaboration-summary {
-  width: auto;
-  max-width: min(320px, 100%);
-  min-height: 32px;
+  width: 100%;
+  max-width: 100%;
+  min-height: 30px;
   gap: 6px;
-  padding: 4px 8px;
+  padding: 3px 2px;
 }
 
 .code-agent-transcript-collaboration > .code-agent-transcript-collaboration-group:not(.expanded)
@@ -6329,8 +6359,10 @@ body.code-mode .code-instance-name {
 .code-agent-transcript-collaboration-events {
   display: grid;
   gap: 1px;
-  padding: 5px;
-  border-top: 1px solid rgba(31, 35, 40, 0.08);
+  margin: 1px 0 5px 20px;
+  padding: 2px 0 2px 8px;
+  border-top: 0;
+  border-left: 1px solid rgba(31, 35, 40, 0.09);
 }
 
 .code-agent-transcript-collaboration-children {
@@ -6342,7 +6374,7 @@ body.code-mode .code-instance-name {
 }
 
 .code-agent-transcript-collaboration-children .code-agent-transcript-collaboration-group {
-  background: rgba(255, 255, 255, 0.52);
+  background: transparent;
 }
 
 .code-agent-transcript-collaboration-event {
@@ -6399,9 +6431,10 @@ body.code-mode .code-instance-name {
 }
 
 .code-agent-transcript-collaboration-agent svg {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   flex: 0 0 auto;
+  color: #8c959f;
 }
 
 .code-agent-transcript-collaboration-agent > span {
@@ -6437,10 +6470,12 @@ body.code-mode .code-instance-name {
   white-space: nowrap;
 }
 
-.code-agent-transcript-collaboration-agent.tone-0 svg { color: #0ea5b7; }
-.code-agent-transcript-collaboration-agent.tone-1 svg { color: #d95f76; }
-.code-agent-transcript-collaboration-agent.tone-2 svg { color: #8b5cf6; }
-.code-agent-transcript-collaboration-agent.tone-3 svg { color: #d97706; }
+.code-agent-transcript-collaboration-agent.tone-0 svg,
+.code-agent-transcript-collaboration-agent.tone-1 svg,
+.code-agent-transcript-collaboration-agent.tone-2 svg,
+.code-agent-transcript-collaboration-agent.tone-3 svg {
+  color: #8c959f;
+}
 
 .code-agent-transcript-collaboration-summary > .code-agent-transcript-collaboration-action {
   flex: 0 0 auto;
@@ -6552,39 +6587,12 @@ body.code-mode .code-instance-name {
   flex: 0 0 auto;
 }
 
-.code-agent-transcript-process-earlier {
-  width: fit-content;
-  min-height: 22px;
-  margin-left: 18px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: #8c959f;
-  cursor: pointer;
-  font: inherit;
-  font-size: 12px;
-  text-align: left;
-}
-
-.code-agent-transcript-process-earlier:hover,
-.code-agent-transcript-process-earlier:focus-visible {
-  color: #57606a;
-  outline: none;
-  text-decoration: underline;
-}
-
 .code-acp-progress-update {
   padding: 8px 0 5px;
   color: #24292f;
   font-size: 14px;
   line-height: 20px;
   overflow-wrap: anywhere;
-}
-
-.code-acp-progress-update.compact {
-  box-sizing: border-box;
-  max-height: 73px;
-  overflow: hidden;
 }
 
 .code-acp-progress-update > :first-child {
@@ -6650,7 +6658,7 @@ body.code-mode .code-instance-name {
 .code-agent-transcript-process-item {
   position: relative;
   padding: 1px 0 1px 18px;
-  color: #57606a;
+  color: #8c959f;
 }
 
 .code-agent-transcript-process-title {
@@ -6659,7 +6667,7 @@ body.code-mode .code-instance-name {
   align-items: center;
   gap: 6px;
   max-width: 100%;
-  color: #7d858d;
+  color: #8c959f;
   font-size: 13px;
   font-weight: 400;
 }
@@ -6723,9 +6731,9 @@ body.code-mode .code-instance-name {
 
 .code-agent-transcript-process-status {
   flex: 0 0 auto;
-  padding: 2px 7px;
-  border-radius: 999px;
-  background: rgba(110, 119, 129, 0.08);
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
   color: #6e7781;
   font-size: 11px;
   font-weight: 400;
@@ -7330,6 +7338,14 @@ body.code-mode .code-instance-name {
   background: #0a7ea4;
 }
 
+.code-agent-transcript-process-item:not(.status-running):not(.status-failed):not(.error):not(.status-warning):not(.warning)
+  .code-agent-transcript-process-dot {
+  width: 6px;
+  height: 6px;
+  background: #8c959f;
+  opacity: 0.52;
+}
+
 .code-agent-transcript-process-item.status-running .code-agent-transcript-process-dot {
   background: transparent;
   border: 2px solid #6e7781;
@@ -7662,6 +7678,7 @@ body.code-mode .code-instance-name {
 }
 
 .code-agent-transcript-answer-actions {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -7669,6 +7686,10 @@ body.code-mode .code-instance-name {
   opacity: 1;
   pointer-events: auto;
   transition: opacity 120ms ease;
+}
+
+.code-agent-transcript-message-time-answer {
+  margin-left: 2px;
 }
 
 .code-agent-transcript-answer:hover .code-agent-transcript-answer-actions,
@@ -7904,15 +7925,15 @@ button.code-agent-transcript-result-summary:focus-visible {
 }
 
 .code-agent-transcript-progress {
-  min-height: 34px;
+  min-height: 22px;
   display: inline-flex;
   flex: 0 1 auto;
   align-items: center;
   max-width: 100%;
-  padding: 6px 12px;
-  border: 1px solid rgba(31, 35, 40, 0.1);
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.88);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   color: #6e7781;
   font-size: 13px;
   line-height: 18px;
@@ -15643,7 +15664,7 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
 }
 
 .connection-status.lost,
-.connection-status.stale {
+.connection-status.business-unavailable {
   border-color: #e4b7ad;
   background: rgba(255, 250, 248, 0.98);
   color: #9b3528;
@@ -16963,14 +16984,6 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
     margin-bottom: 0;
   }
 
-  /* The live status row is fixed above the compact composer so it remains
-     visible while the Agent works. Reserve the same vertical band in the
-     running turn; otherwise follow-latest aligns the growing answer beneath
-     that row and its final lines appear clipped. */
-  body.code-mode.code-compact-layout .code-agent-transcript-turn.running:last-child {
-    padding-bottom: 42px;
-  }
-
   body.code-mode.code-compact-layout .code-agent-transcript-turn {
     width: 100%;
     max-width: none;
@@ -17022,33 +17035,8 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
     margin: 0 auto;
   }
 
-  body.code-mode.code-compact-layout .code-agent-transcript-results.code-agent-transcript-status-row {
-    justify-content: center;
-    gap: 5px;
-    margin-top: 3px;
-  }
-
   body.code-mode.code-compact-layout .code-agent-transcript-turn.running:last-child .code-agent-transcript-placeholder {
     display: none;
-  }
-
-  body.code-mode.code-compact-layout .code-agent-transcript-turn.running:last-child .code-agent-transcript-results.code-agent-transcript-status-row {
-    position: fixed;
-    left: calc(var(--app-visual-offset-left, 0px) + 4px);
-    right: auto;
-    bottom: calc(
-      100vh
-      - var(--app-visual-offset-top, 0px)
-      - var(--app-visual-height, 100dvh)
-      + var(--mobile-composer-current-height, var(--mobile-composer-resting-height, 52px))
-      + var(--mobile-composer-viewport-gap, max(6px, env(safe-area-inset-bottom)))
-      + 2px
-    );
-    z-index: 57;
-    width: calc(var(--app-visual-width, 100vw) - 8px);
-    margin: 0;
-    padding-bottom: 0;
-    pointer-events: auto;
   }
 
   body.code-mode.code-compact-layout .code-agent-transcript-result-summary {
@@ -17061,16 +17049,7 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
     line-height: 18px;
   }
 
-  body.code-mode.code-compact-layout .code-agent-transcript-progress {
-    min-height: 34px;
-    padding: 6px 11px;
-    border-radius: 17px;
-    font-size: 13px;
-    line-height: 18px;
-  }
-
-  body.code-mode.code-compact-layout .code-agent-transcript-copy,
-  body.code-mode.code-compact-layout .code-agent-transcript-answer-action {
+  body.code-mode.code-compact-layout .code-agent-transcript-copy {
     display: none;
   }
 
@@ -17260,8 +17239,14 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
   body.code-mode.code-compact-layout .code-composer textarea {
     min-height: 22px;
     max-height: 66px;
-    font-size: 16px;
+    font-size: 14px;
     line-height: 1.34;
+  }
+
+  body.code-mode.code-compact-layout.code-mobile-touch .code-composer textarea {
+    /* Keep touch browsers at 16px so focusing the Composer does not trigger
+       viewport zoom. Narrow desktop windows can use the denser 14px size. */
+    font-size: 16px;
   }
 
   body.code-mode.code-compact-layout .code-composer-toolbar {

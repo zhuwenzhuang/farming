@@ -53,6 +53,19 @@ const CLI_AGENTS = [
     systemPromptArg: '--append-system-prompt'
   },
   {
+    name: 'qwen',
+    description: 'Qwen Code coding assistant',
+    category: 'coding',
+    interactive: true,
+    supported: true,
+    preferredEngine: 'native',
+    permissions: {
+      supportsDangerousSkip: true,
+      dangerousSkipArgs: ['--yolo']
+    },
+    systemPromptArg: '--append-system-prompt'
+  },
+  {
     name: 'bash',
     description: 'Bash shell',
     category: 'other',
@@ -67,18 +80,6 @@ const CLI_AGENTS = [
     interactive: true,
     supported: true,
     preferredEngine: 'native'
-  },
-  {
-    name: 'qwen',
-    description: 'Qwen Code coding assistant',
-    category: 'coding',
-    interactive: true,
-    supported: true,
-    preferredEngine: 'native',
-    permissions: {
-      supportsDangerousSkip: true,
-      dangerousSkipArgs: ['--yolo']
-    }
   },
   {
     name: 'aider',
@@ -267,7 +268,7 @@ function getSupportedAgents() {
 }
 
 function getUserLaunchAgents() {
-  return getSupportedAgents().filter((agent) => agent.name !== 'qwen');
+  return getSupportedAgents();
 }
 
 function getConfiguredProfile(options, agentName) {

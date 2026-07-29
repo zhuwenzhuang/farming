@@ -2,6 +2,10 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { execFile, spawn } = require('child_process');
+const { Readable, Transform } = require('stream');
+const { pipeline } = require('stream/promises');
+const extractZip = require('extract-zip');
+const { AbortController } = globalThis;
 const storageLayout = require('../../../backend/storage-layout');
 const {
   runtimePlatformKey,
@@ -23,6 +27,14 @@ const LOCK_TIMEOUT_MS = 16 * 60_000;
 const LOCK_STALE_MS = 20 * 60_000;
 const LOCK_POLL_MS = 200;
 const MAX_INSTALL_OUTPUT_BYTES = 256 * 1024;
+const MAX_CHROMIUM_ARCHIVE_BYTES = 1024 * 1024 * 1024;
+const SOURCE_PROBE_TIMEOUT_MS = 5_000;
+const NPMMIRROR_METADATA_URL =
+  'https://registry.npmmirror.com/-/binary/chrome-for-testing/last-known-good-versions.json';
+const NPMMIRROR_ARCHIVE_ROOT =
+  'https://registry.npmmirror.com/-/binary/chrome-for-testing';
+const GOOGLE_METADATA_URL =
+  'https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-with-downloads.json';
 
 function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -119,6 +131,140 @@ function appendBounded(current, chunk) {
   return next.length > MAX_INSTALL_OUTPUT_BYTES
     ? next.slice(next.length - MAX_INSTALL_OUTPUT_BYTES)
     : next;
+}
+
+function stableChromeVersion(payload) {
+  const version = String(payload?.channels?.Stable?.version || '').trim();
+  return /^\d+\.\d+\.\d+\.\d+$/.test(version) ? version : '';
+}
+
+function chromiumArchivePlatform(platform, arch) {
+  if (platform === 'darwin' && arch === 'arm64') return 'mac-arm64';
+  if (platform === 'darwin' && arch === 'x64') return 'mac-x64';
+  if (platform === 'linux' && arch === 'x64') return 'linux64';
+  if (platform === 'win32' && arch === 'x64') return 'win64';
+  return '';
+}
+
+function chromiumArchiveName(platformName) {
+  return `chrome-${platformName}.zip`;
+}
+
+async function fetchJson(url, options = {}) {
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(new Error(`Timed out fetching ${url}`)),
+    options.timeoutMs || SOURCE_PROBE_TIMEOUT_MS,
+  );
+  timeout.unref?.();
+  try {
+    const response = await (options.fetchImpl || fetch)(url, {
+      headers: { Accept: 'application/json' },
+      redirect: 'follow',
+      signal: controller.signal,
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status} from ${url}`);
+    return await response.json();
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function probeChromiumInstallSources(options = {}) {
+  const fetchJsonImpl = options.fetchJson || fetchJson;
+  const candidates = [
+    {
+      id: 'google',
+      label: 'Google Chrome for Testing',
+      kind: 'agent-browser',
+      metadataUrl: GOOGLE_METADATA_URL,
+    },
+    {
+      id: 'npmmirror',
+      label: 'npmmirror',
+      kind: 'mirror',
+      metadataUrl: NPMMIRROR_METADATA_URL,
+    },
+  ];
+  const probed = await Promise.all(candidates.map(async (candidate, index) => {
+    const startedAt = Date.now();
+    try {
+      const metadata = await fetchJsonImpl(candidate.metadataUrl, {
+        timeoutMs: options.timeoutMs || SOURCE_PROBE_TIMEOUT_MS,
+      });
+      const version = stableChromeVersion(metadata);
+      if (!version) throw new Error('Stable Chrome version is missing');
+      return {
+        ...candidate,
+        index,
+        available: true,
+        latencyMs: Math.max(0, Date.now() - startedAt),
+        version,
+        error: '',
+      };
+    } catch (error) {
+      return {
+        ...candidate,
+        index,
+        available: false,
+        latencyMs: Number.POSITIVE_INFINITY,
+        version: '',
+        error: error?.message || String(error),
+      };
+    }
+  }));
+  return probed.sort((left, right) => {
+    if (left.available !== right.available) return left.available ? -1 : 1;
+    if (left.latencyMs !== right.latencyMs) return left.latencyMs - right.latencyMs;
+    return left.index - right.index;
+  });
+}
+
+async function downloadFile(url, destination, options = {}) {
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(new Error(`Timed out downloading ${url}`)),
+    options.timeoutMs || INSTALL_TIMEOUT_MS,
+  );
+  timeout.unref?.();
+  try {
+    const response = await (options.fetchImpl || fetch)(url, {
+      redirect: 'follow',
+      signal: controller.signal,
+    });
+    if (!response.ok || !response.body) {
+      throw new Error(`HTTP ${response.status} while downloading Chromium`);
+    }
+    const allowedHosts = new Set(options.allowedHosts || []);
+    if (allowedHosts.size && !allowedHosts.has(new URL(response.url).hostname)) {
+      throw new Error(`Chromium mirror redirected to unsupported host ${new URL(response.url).hostname}`);
+    }
+    const contentLength = Number(response.headers.get('content-length') || 0);
+    if (contentLength > MAX_CHROMIUM_ARCHIVE_BYTES) {
+      throw new Error(`Chromium archive is unexpectedly large (${contentLength} bytes)`);
+    }
+    let received = 0;
+    const limit = new Transform({
+      transform(chunk, _encoding, callback) {
+        received += chunk.length;
+        if (received > MAX_CHROMIUM_ARCHIVE_BYTES) {
+          callback(new Error('Chromium archive exceeded the download size limit'));
+          return;
+        }
+        callback(null, chunk);
+      },
+    });
+    await pipeline(
+      Readable.fromWeb(response.body),
+      limit,
+      fs.createWriteStream(destination, { flags: 'wx', mode: 0o600 }),
+    );
+  } catch (error) {
+    fs.rmSync(destination, { force: true });
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 function killInstallProcess(child, platform) {
@@ -244,6 +390,37 @@ function defaultVerifyBrowser(executablePath, options = {}) {
   });
 }
 
+async function installFromNpmMirror(source, destination, options = {}) {
+  const platformName = chromiumArchivePlatform(options.platform, options.arch);
+  if (!platformName) {
+    throw new Error(
+      `Chrome for Testing does not publish a ${options.platform}-${options.arch} archive`,
+    );
+  }
+  let version = String(source.version || '').trim();
+  if (!version) {
+    const metadata = await (options.fetchJson || fetchJson)(NPMMIRROR_METADATA_URL, {
+      timeoutMs: SOURCE_PROBE_TIMEOUT_MS,
+    });
+    version = stableChromeVersion(metadata);
+  }
+  if (!version) throw new Error('npmmirror did not report a Stable Chrome version');
+
+  const archiveName = chromiumArchiveName(platformName);
+  const archivePath = path.join(destination, archiveName);
+  const archiveUrl = `${NPMMIRROR_ARCHIVE_ROOT}/${version}/${platformName}/${archiveName}`;
+  await (options.downloadFile || downloadFile)(archiveUrl, archivePath, {
+    allowedHosts: ['registry.npmmirror.com', 'cdn.npmmirror.com'],
+    timeoutMs: INSTALL_TIMEOUT_MS,
+  });
+  try {
+    await (options.extractArchive || extractZip)(archivePath, { dir: destination });
+  } finally {
+    fs.rmSync(archivePath, { force: true });
+  }
+  return { version };
+}
+
 class ManagedChromiumInstaller {
   constructor(options = {}) {
     this.configDir = options.configDir;
@@ -259,6 +436,12 @@ class ManagedChromiumInstaller {
     this.agentBrowserPath = options.agentBrowserPath
       || (() => managedAgentBrowserPath({ env: this.env }));
     this.runInstallCommand = options.runInstallCommand || defaultRunInstallCommand;
+    this.resolveInstallSources = options.resolveInstallSources
+      || (() => probeChromiumInstallSources({ fetchJson: options.fetchJson }));
+    this.installFromMirror = options.installFromMirror || installFromNpmMirror;
+    this.downloadFile = options.downloadFile || downloadFile;
+    this.extractArchive = options.extractArchive || extractZip;
+    this.fetchJson = options.fetchJson || fetchJson;
     this.verifyBrowser = options.verifyBrowser || defaultVerifyBrowser;
     this.verifyAgentBrowser = options.verifyAgentBrowser
       || (executablePath => verifyExecutable(executablePath, this.agentBrowserVersion, {
@@ -510,41 +693,79 @@ class ManagedChromiumInstaller {
         `.staging-${this.platformKey}-${process.pid}-${crypto.randomUUID()}`,
       );
       fs.mkdirSync(stagingDir, { recursive: false, mode: 0o700 });
-      const installHome = path.join(stagingDir, '.home');
-      const xdgRoot = path.join(stagingDir, '.xdg');
-      fs.mkdirSync(installHome, { recursive: true, mode: 0o700 });
-      fs.mkdirSync(xdgRoot, { recursive: true, mode: 0o700 });
-      const installEnv = {
-        ...this.env,
-        HOME: installHome,
-        USERPROFILE: installHome,
-        LOCALAPPDATA: path.join(installHome, 'AppData', 'Local'),
-        XDG_CACHE_HOME: path.join(xdgRoot, 'cache'),
-        XDG_CONFIG_HOME: path.join(xdgRoot, 'config'),
-        XDG_STATE_HOME: path.join(xdgRoot, 'state'),
-        PLAYWRIGHT_BROWSERS_PATH: stagingDir,
-      };
-      await this.runInstallCommand(agentBrowserPath, ['install'], {
-        env: installEnv,
-        platform: this.platform,
-        timeoutMs: INSTALL_TIMEOUT_MS,
-        onSpawn: pid => lock.childStarted(pid),
-      });
-      const executablePath = findBrowserExecutable(stagingDir, { platform: this.platform });
-      if (!executablePath) {
-        const error = new Error('agent-browser finished without installing a usable Chromium executable');
-        error.code = 'CHROMIUM_EXECUTABLE_NOT_FOUND';
+      const sources = await this.resolveInstallSources();
+      const failures = [];
+      let installed = null;
+      for (const source of sources) {
+        const attemptDir = path.join(stagingDir, `source-${source.id}`);
+        const installHome = path.join(attemptDir, '.home');
+        const xdgRoot = path.join(attemptDir, '.xdg');
+        fs.mkdirSync(installHome, { recursive: true, mode: 0o700 });
+        fs.mkdirSync(xdgRoot, { recursive: true, mode: 0o700 });
+        const installEnv = {
+          ...this.env,
+          HOME: installHome,
+          USERPROFILE: installHome,
+          LOCALAPPDATA: path.join(installHome, 'AppData', 'Local'),
+          XDG_CACHE_HOME: path.join(xdgRoot, 'cache'),
+          XDG_CONFIG_HOME: path.join(xdgRoot, 'config'),
+          XDG_STATE_HOME: path.join(xdgRoot, 'state'),
+          PLAYWRIGHT_BROWSERS_PATH: attemptDir,
+        };
+        try {
+          if (source.kind === 'mirror') {
+            await this.installFromMirror(source, attemptDir, {
+              platform: this.platform,
+              arch: this.arch,
+              fetchJson: this.fetchJson,
+              downloadFile: this.downloadFile,
+              extractArchive: this.extractArchive,
+            });
+          } else {
+            await this.runInstallCommand(agentBrowserPath, ['install'], {
+              env: installEnv,
+              platform: this.platform,
+              timeoutMs: INSTALL_TIMEOUT_MS,
+              onSpawn: pid => lock.childStarted(pid),
+            });
+            lock.childStarted(null);
+          }
+          const executablePath = findBrowserExecutable(attemptDir, { platform: this.platform });
+          if (!executablePath) {
+            const error = new Error(`${source.label} did not install a usable Chromium executable`);
+            error.code = 'CHROMIUM_EXECUTABLE_NOT_FOUND';
+            throw error;
+          }
+          const browserVersion = await this.verifyBrowser(executablePath, { env: installEnv });
+          fs.rmSync(installHome, { recursive: true, force: true });
+          fs.rmSync(xdgRoot, { recursive: true, force: true });
+          installed = {
+            browserVersion,
+            executablePath,
+            source: source.id,
+          };
+          break;
+        } catch (error) {
+          if (error?.cleanupUnproven === true) throw error;
+          lock.childStarted(null);
+          failures.push(`${source.label}: ${error?.message || error}`);
+          fs.rmSync(attemptDir, { recursive: true, force: true });
+        }
+      }
+      if (!installed) {
+        const error = new Error(
+          `Chromium installation failed from every available source: ${failures.join('; ')}`,
+        );
+        error.code = 'CHROMIUM_INSTALL_SOURCES_FAILED';
         throw error;
       }
-      const browserVersion = await this.verifyBrowser(executablePath, { env: installEnv });
-      fs.rmSync(installHome, { recursive: true, force: true });
-      fs.rmSync(xdgRoot, { recursive: true, force: true });
       writeJsonAtomic(this.manifestFile(stagingDir), {
         format: MANIFEST_FORMAT,
         agentBrowserVersion: this.agentBrowserVersion,
         platformKey: this.platformKey,
-        browserVersion,
-        executableRelativePath: path.relative(stagingDir, executablePath),
+        browserVersion: installed.browserVersion,
+        downloadSource: installed.source,
+        executableRelativePath: path.relative(stagingDir, installed.executablePath),
         installedAt: new Date().toISOString(),
       });
 
@@ -584,10 +805,17 @@ class ManagedChromiumInstaller {
 }
 
 module.exports = {
+  GOOGLE_METADATA_URL,
   INSTALL_TIMEOUT_MS,
   MANIFEST_FORMAT,
+  NPMMIRROR_ARCHIVE_ROOT,
+  NPMMIRROR_METADATA_URL,
   ManagedChromiumInstaller,
+  chromiumArchivePlatform,
+  downloadFile,
   defaultRunInstallCommand,
   defaultVerifyBrowser,
   findBrowserExecutable,
+  installFromNpmMirror,
+  probeChromiumInstallSources,
 };

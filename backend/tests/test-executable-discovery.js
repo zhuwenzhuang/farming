@@ -71,12 +71,13 @@ function run() {
     const codex = agents.find((agent) => agent.name === 'codex');
 
     assert.deepStrictEqual(
-      names.slice(0, 4),
-      ['codex', 'claude', 'qoder', 'bash'],
+      names.slice(0, 5),
+      ['codex', 'claude', 'qoder', 'qwen', 'bash'],
       'available launch agents should keep the stable product order while omitting missing agents'
     );
     assert(names.includes('claude'), 'claude should be discovered from PATH');
     assert(names.includes('qoder'), 'qoder should be discovered from qodercli on PATH');
+    assert(names.includes('qwen'), 'Qwen Code should be discovered from qwen on PATH');
     assert(names.includes('codex'), 'codex should be discovered from the preferred Codex.app-style binary');
     assert.strictEqual(codex.resolvedPath, preferredCodex, 'preferred codex binary should win over PATH');
     assert.strictEqual(agents.find((agent) => agent.name === 'qoder').command, 'qodercli');
@@ -131,7 +132,7 @@ function run() {
     assert.strictEqual(incompatibleCodex.compatible, false);
     assert(incompatibleCodex.error.includes('older than this session'), 'old-only codex should produce an actionable error');
     assert(names.includes('bash'), 'bash should remain available as a launch option');
-    assert(!names.includes('qwen'), 'qwen should not be exposed as a launch option');
+    assert(names.includes('qwen'), 'an installed qwen executable should be exposed as a launch option');
 
     console.log('✓ Executable discovery uses process PATH reliably');
   } finally {

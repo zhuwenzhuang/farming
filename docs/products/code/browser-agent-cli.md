@@ -16,7 +16,8 @@ Open **Plugins → Browser**:
 
 Enable the Browser plugin after the selected source is ready. A Farming restart
 is not required. Managed Chromium is downloaded only after you click Install
-and stays inside Farming's data directory.
+and stays inside Farming's data directory. Farming checks its supported download
+sources for the current network and tries another source if one fails.
 
 ## Agent Workflow
 

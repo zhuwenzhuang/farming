@@ -482,7 +482,6 @@ function execFileAsync(command, args, options = {}) {
     execFile(command, args, {
       encoding: 'utf8',
       maxBuffer: 2 * 1024 * 1024,
-      stdio: ['ignore', 'pipe', 'pipe'],
       ...options,
     }, (error, stdout, stderr) => {
       if (error) {
@@ -1155,7 +1154,8 @@ class WorkspaceFileService {
   async runWorkspaceMutation(workspaceRoot, operation) {
     const root = await this.resolveRoot(workspaceRoot);
     const previous = this.mutationQueues.get(root) || Promise.resolve();
-    let release;
+    /** @type {(value?: unknown) => void} */
+    let release = () => {};
     const current = new Promise(resolve => {
       release = resolve;
     });
@@ -1774,9 +1774,9 @@ class WorkspaceFileService {
       if (error.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' && options.allowPartial === true) {
         const partialOutput = String(error.stdout || '');
         const lastCompleteRecord = partialOutput.lastIndexOf('\0');
-        const statusByPath = parseGitStatus(lastCompleteRecord >= 0
+        const statusByPath = /** @type {Map<string, any> & {truncated?: boolean}} */ (parseGitStatus(lastCompleteRecord >= 0
           ? partialOutput.slice(0, lastCompleteRecord + 1)
-          : '');
+          : ''));
         statusByPath.truncated = true;
         return statusByPath;
       }
@@ -2093,9 +2093,10 @@ class WorkspaceFileService {
         || left.path.localeCompare(right.path)
       ));
 
+    const typedGitStatusByPath = /** @type {Map<string, any> & {truncated?: boolean}} */ (gitStatusByPath);
     return {
       items: allItems.slice(0, limit),
-      truncated: gitStatusByPath.truncated === true || allItems.length > limit,
+      truncated: typedGitStatusByPath.truncated === true || allItems.length > limit,
     };
   }
 

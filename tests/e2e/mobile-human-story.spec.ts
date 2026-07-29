@@ -289,7 +289,7 @@ test.describe('mobile Farming Code user story', () => {
 
   })
 
-  test('keeps running transcript status docked near the mobile composer', async ({ page, workspaceRoot }) => {
+  test('keeps the running answer fully visible above the mobile composer', async ({ page, workspaceRoot }) => {
     const projectDir = path.join(workspaceRoot, 'mobile-transcript-status')
     fs.mkdirSync(path.join(projectDir, 'src/components/code'), { recursive: true })
     fs.mkdirSync(path.join(projectDir, 'backend/tests'), { recursive: true })
@@ -384,7 +384,7 @@ test.describe('mobile Farming Code user story', () => {
               {
                 id: 'running-turn',
                 userMessage: 'Continue and keep the file changes close to the composer.',
-                finalMessage: 'The live answer keeps growing while the compact status remains visible above the composer.',
+                finalMessage: 'The live answer keeps growing while its final line remains fully visible above the composer.',
                 startedAt: Date.now() - 45_000,
                 status: 'inProgress',
                 processItems: [
@@ -417,8 +417,14 @@ test.describe('mobile Farming Code user story', () => {
     const metrics = await page.evaluate(() => {
       const composer = document.querySelector('[data-testid="code-composer"]') as HTMLElement | null
       const input = document.querySelector('[data-testid="code-composer-input"]') as HTMLElement | null
-      const rows = Array.from(document.querySelectorAll('.code-agent-transcript-status-row')) as HTMLElement[]
-      const statusRow = rows.at(-1) ?? null
+      const scroller = document.querySelector('[data-testid="code-agent-transcript-scroll"]') as HTMLElement | null
+      const progressRows = document.querySelectorAll('.code-agent-transcript-progress')
+      const runningTurn = document.querySelector(
+        '.code-agent-transcript-turn.running:last-child',
+      ) as HTMLElement | null
+      const runningStatusRow = runningTurn?.querySelector(
+        '.code-agent-transcript-status-row',
+      ) as HTMLElement | null
       const runningAnswer = document.querySelector(
         '.code-agent-transcript-turn.running:last-child .code-agent-transcript-answer',
       ) as HTMLElement | null
@@ -439,11 +445,14 @@ test.describe('mobile Farming Code user story', () => {
           && runningPlaceholderStyle.display !== 'none'
           && runningPlaceholderStyle.visibility !== 'hidden'
         ),
-        statusGapToComposer: statusRow && composer
-          ? Math.round(composer.getBoundingClientRect().top - statusRow.getBoundingClientRect().bottom)
+        progressRowCount: progressRows.length,
+        runningStatusPosition: runningStatusRow ? getComputedStyle(runningStatusRow).position : '',
+        runningTurnGapToScrollerBottom: runningTurn && scroller
+          ? Math.round(scroller.getBoundingClientRect().bottom - runningTurn.getBoundingClientRect().bottom)
           : -1,
-        answerGapToStatus: runningAnswer && statusRow
-          ? Math.round(statusRow.getBoundingClientRect().top - runningAnswer.getBoundingClientRect().bottom)
+        answerHeight: Math.round(runningAnswer?.getBoundingClientRect().height ?? 0),
+        scrollerGapToComposer: scroller && composer
+          ? Math.round(composer.getBoundingClientRect().top - scroller.getBoundingClientRect().bottom)
           : -1,
       }
     })
@@ -457,9 +466,11 @@ test.describe('mobile Farming Code user story', () => {
     expect(metrics.inputName).toBe('farming-chat-message')
     expect(metrics.inputRole).toBeNull()
     expect(metrics.placeholderVisible).toBe(false)
-    expect(metrics.statusGapToComposer).toBeGreaterThanOrEqual(0)
-    expect(metrics.statusGapToComposer).toBeLessThanOrEqual(24)
-    expect(metrics.answerGapToStatus).toBeGreaterThanOrEqual(4)
+    expect(metrics.progressRowCount).toBe(0)
+    expect(metrics.runningStatusPosition).not.toBe('fixed')
+    expect(metrics.runningTurnGapToScrollerBottom).toBeGreaterThanOrEqual(0)
+    expect(metrics.answerHeight).toBeGreaterThan(40)
+    expect(metrics.scrollerGapToComposer).toBeGreaterThanOrEqual(0)
   })
 
   test('returns to a remote shell, opens files, and uses touch-accessible blame', async ({ page, workspaceRoot }) => {

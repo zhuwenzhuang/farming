@@ -10,6 +10,8 @@ import zshDarkMarkup from './dark/zsh.svg?raw'
 import claudeCodeMonochrome from './monochrome/claude-code.svg'
 import claudeMonochrome from './monochrome/claude.svg'
 import opencodeMonochrome from './monochrome/opencode.svg'
+import qwenColorMarkup from './color/qwen.svg?raw'
+import qwenMonochromeMarkup from './monochrome/qwen.svg?raw'
 import qoderMonochromeMarkup from './monochrome/qoder.svg?raw'
 import zshMonochromeMarkup from './monochrome/zsh.svg?raw'
 
@@ -29,6 +31,10 @@ export const agentIconAssets = {
 } as const
 
 export const inlineAgentIconMarkup = {
+  qwen: {
+    color: svgContents(qwenColorMarkup),
+    monochrome: svgContents(qwenMonochromeMarkup),
+  },
   qoder: {
     color: svgContents(qoderColorMarkup),
     dark: svgContents(qoderDarkMarkup),

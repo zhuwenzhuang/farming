@@ -75,7 +75,7 @@ interface AgentHomesSettingsPanelProps {
   onUpdateUiPreferences: (preferences: Partial<UiPreferences>) => void
 }
 
-const KNOWN_PROVIDERS = ['codex', 'claude', 'opencode', 'qoder']
+const KNOWN_PROVIDERS = ['codex', 'claude', 'opencode', 'qoder', 'qwen']
 const NON_CODING_AGENT_NAMES = new Set(['bash', 'zsh'])
 const ID_PATTERN = /^[A-Za-z0-9._-]+$/
 const SEARCH_TIMEOUT_OPTIONS_SECONDS = [3, 5, 10, 15, 30, 60, 180]
@@ -273,6 +273,7 @@ function providerDisplayName(provider: string) {
   if (provider === 'claude') return 'Claude'
   if (provider === 'opencode') return 'OpenCode'
   if (provider === 'qoder') return 'Qoder'
+  if (provider === 'qwen') return 'Qwen Code'
   return provider
 }
 
@@ -282,6 +283,7 @@ function defaultPathForProvider(provider: string) {
     claude: '~/.claude',
     opencode: '~/.opencode',
     qoder: '~/.qoder',
+    qwen: '~/.qwen',
   }
   return defaultPaths[provider] ?? `~/.${provider}`
 }
@@ -379,6 +381,7 @@ export function AgentHomesSettingsPanel({
     claude: [{ id: 'default', path: '~/.claude' }],
     opencode: [{ id: 'default', path: '~/.opencode' }],
     qoder: [{ id: 'default', path: '~/.qoder' }],
+    qwen: [{ id: 'default', path: '~/.qwen' }],
   }))
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)

@@ -50,13 +50,14 @@ const DEFAULT_AGENT_LAUNCH_PROFILES = {
   claude: DEFAULT_CLAUDE_LAUNCH_PROFILE,
 };
 
-const DEFAULT_LAUNCH_AGENT_NAMES = new Set(['codex', 'claude', 'opencode', 'qoder', 'bash', 'zsh']);
+const DEFAULT_LAUNCH_AGENT_NAMES = new Set(['codex', 'claude', 'opencode', 'qoder', 'qwen', 'bash', 'zsh']);
 
 const DEFAULT_AGENT_HOMES = {
   codex: [{ id: 'default', path: '~/.codex' }],
   claude: [{ id: 'default', path: '~/.claude' }],
   opencode: [{ id: 'default', path: '~/.opencode' }],
   qoder: [{ id: 'default', path: '~/.qoder' }],
+  qwen: [{ id: 'default', path: '~/.qwen' }],
 };
 
 const LEGACY_DEFAULT_WORKSPACE_FILE_SEARCH_TIMEOUT_MS = 3000;
@@ -534,6 +535,7 @@ class ConfigManager {
 
   normalizeProjectOperations(projectOperations) {
     if (!projectOperations || typeof projectOperations !== 'object' || Array.isArray(projectOperations)) return {};
+    /** @type {Array<[string, any]>} */
     const entries = Object.entries(projectOperations)
       .filter(([id, operation]) => (
         PROJECT_OPERATION_ID_PATTERN.test(id)

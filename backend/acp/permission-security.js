@@ -42,7 +42,9 @@ function scriptName(character) {
     ['Katakana', /\p{Script=Katakana}/u],
     ['Latin', /\p{Script=Latin}/u],
   ];
-  return scripts.find(([, matcher]) => matcher.test(character))?.[0] || 'Unicode';
+  return scripts.find(([, matcher]) => (
+    matcher instanceof RegExp && matcher.test(character)
+  ))?.[0] || 'Unicode';
 }
 
 function classifyCharacter(character) {

@@ -527,6 +527,16 @@ class AcpRuntime extends EventEmitter {
     this.clientTerminals = options.clientTerminals || new AcpClientTerminalManager({ spawn: options.terminalSpawn });
   }
 
+  /**
+   * @param {{
+   *   agentId?: string,
+   *   provider?: string,
+   *   forkSourceSessionId?: string,
+   *   forkSourceCheckpoint?: any,
+   *   onForkSessionCreated?: (sessionId: string) => Promise<void> | void,
+   *   [key: string]: any,
+   * }} [options]
+   */
   async prepareAgent(options = {}) {
     if (this.disposing || this.disposed) {
       throw new Error('ACP runtime is shutting down');
@@ -1774,6 +1784,7 @@ class AcpRuntime extends EventEmitter {
       await this.markCheckpointDirty(binding);
       this.requireCurrentTurn(binding, turn, ['running']);
       if (turn.providerSettled) throw new Error('No active Codex turn to steer');
+      const insertionIndex = binding.sessionState.entries.length;
       const response = await withTimeout(
         binding.connection.request(CODEX_STEER_METHOD, {
           sessionId: binding.sessionId,
@@ -1784,9 +1795,17 @@ class AcpRuntime extends EventEmitter {
         'Codex ACP steer',
       );
       this.requireCurrentTurn(binding, turn, ['running']);
+      const turnId = String(response?.turnId || '');
+      if (binding.sessionState.recordAcceptedSteer(content, {
+        messageId: clientMessageId,
+        turnId,
+        insertionIndex,
+      })) {
+        this.emitSession(binding);
+      }
       return {
         sessionId: binding.sessionId,
-        turnId: String(response?.turnId || ''),
+        turnId,
         clientMessageId,
       };
     };
@@ -1991,7 +2010,11 @@ class AcpRuntime extends EventEmitter {
     let terminalReservationTransferred = false;
     try {
       if (!method) throw new Error('Unknown ACP authentication method');
-      if (method.type === 'terminal' || method?._meta?.['terminal-auth']) {
+      if (
+        method.type === 'terminal'
+        || method?._meta?.type === 'terminal'
+        || method?._meta?.['terminal-auth']
+      ) {
         const result = await this.startTerminalAuthentication(binding, method, mutation);
         terminalReservationTransferred = true;
         return result;
@@ -2044,11 +2067,19 @@ class AcpRuntime extends EventEmitter {
         env: legacy.env && typeof legacy.env === 'object' ? legacy.env : {},
       };
     }
-    if (method.type !== 'terminal') throw new Error('ACP authentication method is not terminal based');
+    const terminalMethod = method.type === 'terminal'
+      ? method
+      : method?._meta?.type === 'terminal'
+        ? method._meta
+        : null;
+    if (!terminalMethod) throw new Error('ACP authentication method is not terminal based');
     return {
       command: binding.launch.command,
-      args: [...binding.launch.args, ...(Array.isArray(method.args) ? method.args.map(String) : [])],
-      env: method.env && typeof method.env === 'object' ? method.env : {},
+      args: [
+        ...binding.launch.args,
+        ...(Array.isArray(terminalMethod.args) ? terminalMethod.args.map(String) : []),
+      ],
+      env: terminalMethod.env && typeof terminalMethod.env === 'object' ? terminalMethod.env : {},
     };
   }
 

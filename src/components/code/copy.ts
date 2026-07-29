@@ -46,10 +46,11 @@ export interface CodeCopy {
   agentTranscriptUsingTool: string
   agentTranscriptActionRunning: (title: string) => string
   agentTranscriptActionFailed: (title: string) => string
-  agentTranscriptEarlierActions: (count: number) => string
   agentTranscriptTerminalStatusUnavailable: string
   agentTranscriptRetryTerminalStatus: string
+  agentTranscriptWorkingFor: (duration: string) => string
   agentTranscriptWorkedFor: (duration: string) => string
+  agentTranscriptCompactingContext: string
   agentTranscriptProcessCount: (count: number) => string
   agentTranscriptCollaborationInProgress: string
   agentTranscriptCollaborationHeading: string
@@ -473,7 +474,8 @@ export interface CodeCopy {
   backendConnecting: string
   backendActionPending: string
   backendConnectionLost: string
-  backendHeartbeatLost: string
+  backendBusinessRecovering: string
+  backendBusinessUnavailable: string
 }
 
 const EN_COPY: CodeCopy = {
@@ -522,10 +524,11 @@ const EN_COPY: CodeCopy = {
   agentTranscriptUsingTool: 'Using tool',
   agentTranscriptActionRunning: title => `Running: ${title}`,
   agentTranscriptActionFailed: title => `Failed: ${title}`,
-  agentTranscriptEarlierActions: count => `${count} earlier ${count === 1 ? 'action' : 'actions'}`,
   agentTranscriptTerminalStatusUnavailable: 'Terminal status could not be synchronized.',
   agentTranscriptRetryTerminalStatus: 'Retry',
+  agentTranscriptWorkingFor: duration => `Working for ${duration}`,
   agentTranscriptWorkedFor: duration => `Worked for ${duration}`,
+  agentTranscriptCompactingContext: 'Compacting context',
   agentTranscriptProcessCount: count => `${count} ${count === 1 ? 'event' : 'events'}`,
   agentTranscriptCollaborationInProgress: 'In progress',
   agentTranscriptCollaborationHeading: 'Collaborating agents',
@@ -978,7 +981,8 @@ const EN_COPY: CodeCopy = {
   backendConnecting: 'Loading...',
   backendActionPending: 'Still reconnecting. This action was not sent.',
   backendConnectionLost: 'Farming backend is still unavailable. Retrying...',
-  backendHeartbeatLost: 'No Farming backend heartbeat. Waiting for it to recover...',
+  backendBusinessRecovering: 'Farming backend is restoring business state...',
+  backendBusinessUnavailable: 'Farming backend business state is not responding. Waiting for recovery...',
 }
 
 const ZH_COPY: CodeCopy = {
@@ -1027,10 +1031,11 @@ const ZH_COPY: CodeCopy = {
   agentTranscriptUsingTool: '调用工具中',
   agentTranscriptActionRunning: title => `正在执行：${title}`,
   agentTranscriptActionFailed: title => `失败：${title}`,
-  agentTranscriptEarlierActions: count => `更早的 ${count} 个操作`,
   agentTranscriptTerminalStatusUnavailable: '终端状态未能同步。',
   agentTranscriptRetryTerminalStatus: '重试',
+  agentTranscriptWorkingFor: duration => `Working for ${duration}`,
   agentTranscriptWorkedFor: duration => `Worked for ${duration}`,
+  agentTranscriptCompactingContext: '正在压缩上下文',
   agentTranscriptProcessCount: count => `${count} 个事件`,
   agentTranscriptCollaborationInProgress: '进行中',
   agentTranscriptCollaborationHeading: '协作 Agent',
@@ -1519,7 +1524,8 @@ const ZH_COPY: CodeCopy = {
   backendConnecting: '加载中…',
   backendActionPending: '正在重新连接，这次操作尚未发送。',
   backendConnectionLost: 'Farming 后端暂时不可用，仍在重试…',
-  backendHeartbeatLost: '没有收到 Farming 后端心跳，正在等待恢复...',
+  backendBusinessRecovering: 'Farming 后端正在恢复业务状态…',
+  backendBusinessUnavailable: 'Farming 后端业务状态没有响应，正在等待恢复…',
 }
 
 export function codeCopyForLanguage(language: UiLanguage): CodeCopy {

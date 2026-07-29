@@ -8,8 +8,8 @@ function run() {
 
   assert(supported.length > 0, 'there should be supported coding agents');
   assert.deepStrictEqual(
-    supportedNames.slice(0, 6),
-    ['codex', 'claude', 'opencode', 'qoder', 'bash', 'zsh'],
+    supportedNames.slice(0, 7),
+    ['codex', 'claude', 'opencode', 'qoder', 'qwen', 'bash', 'zsh'],
     'primary launch agents should keep the expected product order'
   );
   assert(!supportedNames.includes('cursor'), 'cursor should not be exposed as a supported agent');
@@ -17,6 +17,7 @@ function run() {
   assert(supportedNames.includes('claude'), 'claude should remain supported');
   assert(supportedNames.includes('codex'), 'codex should remain supported');
   assert(supportedNames.includes('qoder'), 'qoder should remain supported');
+  assert(supportedNames.includes('qwen'), 'qwen should be available as a supported coding agent');
   assert(supportedNames.includes('bash'), 'bash should be available as a supported shell agent');
   assert(supportedNames.includes('zsh'), 'zsh should be available as a supported shell agent');
 
@@ -43,6 +44,10 @@ function run() {
     'qodercli',
     'direct qodercli commands should keep launching qodercli'
   );
+  const qwenSpec = getAgentSpec('qwen --help');
+  assert(qwenSpec, 'lookup should resolve Qwen Code by its executable name');
+  assert.strictEqual(qwenSpec.name, 'qwen');
+  assert.strictEqual(qwenSpec.systemPromptArg, '--append-system-prompt');
   assert.strictEqual(isSupportedHistoryAgent('codex resume session-1'), true);
   assert.strictEqual(isSupportedHistoryAgent('env TERM=xterm-256color /usr/local/bin/qodercli'), true);
   assert.strictEqual(isSupportedHistoryAgent('/bin/bash'), false);

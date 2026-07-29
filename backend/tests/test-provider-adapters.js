@@ -11,8 +11,9 @@ const {
 
 function run() {
   const adapters = listProviderAdapters();
-  assert.deepStrictEqual(adapters.map(adapter => adapter.id), ['codex', 'claude', 'opencode', 'qoder']);
+  assert.deepStrictEqual(adapters.map(adapter => adapter.id), ['codex', 'claude', 'opencode', 'qoder', 'qwen']);
   assert.strictEqual(providerForProgram('/usr/local/bin/qodercli'), 'qoder');
+  assert.strictEqual(providerForProgram('/opt/homebrew/bin/qwen'), 'qwen');
   assert.strictEqual(providerForProgram('unknown'), '');
 
   for (const adapter of adapters) {
@@ -337,6 +338,37 @@ function run() {
     getProviderAdapter('qoder').acp.launch({ executable: '/bin/qodercli' }),
     { command: '/bin/qodercli', args: ['--acp'] },
   );
+  const qwenFresh = getProviderAdapter('qwen').planSession([], []);
+  assert.strictEqual(qwenFresh.temporary, false);
+  assert.strictEqual(qwenFresh.source, 'qwen-session-id');
+  assert.deepStrictEqual(qwenFresh.args.slice(0, 1), ['--session-id']);
+  assert.strictEqual(isFreshAcpSessionSource('qwen', 'qwen-session-id'), true);
+  assert.deepStrictEqual(
+    getProviderAdapter('qwen').terminalResumeArgs(
+      ['--approval-mode', 'auto-edit', '--', 'initial prompt'],
+      '11111111-1111-4111-8111-111111111111',
+    ),
+    [
+      '--approval-mode', 'auto-edit',
+      '--resume', '11111111-1111-4111-8111-111111111111',
+      '--', 'initial prompt',
+    ],
+  );
+  assert.deepStrictEqual(
+    getProviderAdapter('qwen').acp.launch({
+      executable: '/bin/qwen',
+      farmingSystemPrompt: 'Farming bootstrap',
+    }),
+    {
+      command: '/bin/qwen',
+      args: ['--append-system-prompt', 'Farming bootstrap', '--acp'],
+    },
+  );
+  assert.strictEqual(providerCapabilities('qwen').sessionFork, false);
+  assert.deepStrictEqual(providerCapabilities('qwen').goalSubmission, {
+    terminal: { kind: 'prompt' },
+    acp: { kind: 'prompt' },
+  });
   console.log('provider adapter contract tests passed');
 }
 

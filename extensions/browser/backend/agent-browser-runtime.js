@@ -266,6 +266,7 @@ class AgentBrowserRuntime extends EventEmitter {
     this.createWebSocket = options.createWebSocket || (url => new WebSocket(url));
     this.readProcessIdentity = options.readProcessIdentity || readServerProcessIdentity;
     this.wait = options.wait || (durationMs => new Promise(resolve => setTimeout(resolve, durationMs)));
+    /** @type {{width: number, height: number, deviceScaleFactor: number}} */
     this.viewport = { ...DEFAULT_VIEWPORT };
     this.viewportRevision = 0;
     this.latestFrame = null;
@@ -283,6 +284,7 @@ class AgentBrowserRuntime extends EventEmitter {
     this.closeComplete = false;
     this.closePromise = null;
     this.commandChain = Promise.resolve();
+    /** @type {Promise<any>} */
     this.screenshotChain = Promise.resolve();
   }
 

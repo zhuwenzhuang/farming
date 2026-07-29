@@ -38,6 +38,9 @@ function safeTtlSeconds(value) {
   return Math.min(MAX_PASS_TTL_SECONDS, Math.max(5, ttl));
 }
 
+/**
+ * @param {string | crypto.KeyObject} publicKeyPem
+ */
 function publicKeyDetails(publicKeyPem) {
   const publicKey = publicKeyPem && typeof publicKeyPem === 'object' && publicKeyPem.type === 'public'
     ? publicKeyPem
@@ -57,7 +60,7 @@ function privateKeyDetails(privateKeyPem) {
     throw new Error('Farming Net requires an Ed25519 private key');
   }
   const canonicalPem = privateKey.export({ format: 'pem', type: 'pkcs8' }).toString();
-  const publicDetails = publicKeyDetails(crypto.createPublicKey(privateKey));
+  const publicDetails = publicKeyDetails(crypto.createPublicKey(/** @type {any} */ (privateKey)));
   return { canonicalPem, privateKey, publicDetails };
 }
 

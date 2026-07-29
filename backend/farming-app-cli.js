@@ -30,6 +30,9 @@ const SERVER_COMMANDS = new Set(['start', 'serve', 'daemon', 'stop', 'status', '
 const CONTROL_COMMANDS = new Set(['skills', 'capabilities', 'list', 'spawn', 'output', 'send', 'kill']);
 const SERVER_BACKED_CONTROL_COMMANDS = new Set(['capabilities', 'list', 'spawn', 'output', 'send', 'kill']);
 
+/**
+ * @param {NodeJS.ProcessEnv} [env]
+ */
 function defaultConfigDir(env = process.env) {
   return storageLayout.farmingConfigDir(env);
 }
@@ -49,11 +52,21 @@ function quoteShellArg(arg) {
   return `'${String(arg).replace(/'/g, `'\\''`)}'`;
 }
 
+/**
+ * @param {NodeJS.ProcessEnv} env
+ * @param {string} command
+ * @param {string[]} [args]
+ */
 function buildCleanEnvExecCommand(env, command, args = []) {
   const parts = ['/usr/bin/env', ...buildCleanEnvExecArgs(env, command, args)];
   return parts.map(quoteShellArg).join(' ');
 }
 
+/**
+ * @param {NodeJS.ProcessEnv} env
+ * @param {string} command
+ * @param {string[]} [args]
+ */
 function buildCleanEnvExecArgs(env, command, args = []) {
   const parts = ['-i'];
   Object.entries(env || {}).forEach(([key, value]) => {
@@ -97,6 +110,11 @@ function appendNodeOption(existing, option) {
   return value ? `${value} ${option}` : option;
 }
 
+/**
+ * @param {NodeJS.ProcessEnv} [overrides]
+ * @param {NodeJS.ProcessEnv} [baseEnv]
+ * @returns {NodeJS.ProcessEnv}
+ */
 function buildServerEnv(overrides = {}, baseEnv = process.env) {
   const env = { ...baseEnv, ...overrides };
   delete env.PKG_EXECPATH;
@@ -267,6 +285,7 @@ async function adaptServerPort(env, parsed) {
 
 function splitControlArgs(argv) {
   const command = argv[0];
+  /** @type {NodeJS.ProcessEnv} */
   const env = {};
   const controlArgs = [command];
 
@@ -393,6 +412,11 @@ async function runReview(parsed) {
   return 0;
 }
 
+/**
+ * @param {NodeJS.ProcessEnv} [overrides]
+ * @param {NodeJS.ProcessEnv} [baseEnv]
+ * @returns {NodeJS.ProcessEnv}
+ */
 function buildControlEnv(overrides = {}, baseEnv = process.env) {
   const env = buildServerEnv(overrides, baseEnv);
   if (!isPortOverrideExplicit(overrides, baseEnv) && !env.FARMING_CONTROL_URL) {
@@ -529,7 +553,7 @@ function processHasExactEnvironment(pid, expected) {
     const entries = fs.readFileSync(`/proc/${pid}/environ`, 'utf8')
       .split('\0')
       .filter(Boolean)
-      .map(entry => {
+      .map(/** @returns {[string, string]} */ entry => {
         const separator = entry.indexOf('=');
         return separator < 0 ? [entry, ''] : [entry.slice(0, separator), entry.slice(separator + 1)];
       });

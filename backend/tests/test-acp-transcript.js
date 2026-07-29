@@ -96,6 +96,36 @@ assert.strictEqual(steerItem.detail, 'Focus on this image');
 assert.strictEqual(steerItem.images.length, 1);
 assert.strictEqual(steeredTranscript.turns[0].status, 'inProgress');
 
+const steeredAfterAnswerTranscript = acpSessionTranscript({
+  state: 'working',
+  entries: [
+    { id: 'answer-steer-user', type: 'message', role: 'user', content: [{ type: 'text', text: 'Start' }] },
+    {
+      id: 'answer-before-steer',
+      type: 'message',
+      role: 'assistant',
+      content: [{ type: 'text', text: 'Earlier answer' }],
+      _meta: { codex: { phase: 'final_answer' } },
+    },
+    {
+      id: 'steer-after-answer',
+      type: 'message',
+      role: 'user',
+      content: [{ type: 'text', text: 'Continue instead' }],
+      _meta: { codex: { steer: true, turnId: 'turn-2' } },
+    },
+  ],
+});
+assert.strictEqual(
+  steeredAfterAnswerTranscript.turns[0].finalMessage,
+  '',
+  'a final answer superseded by a live steer must no longer remain in the answer position',
+);
+assert.strictEqual(
+  steeredAfterAnswerTranscript.turns[0].processItems.find(item => item.title === 'Earlier answer').detail,
+  'Earlier answer',
+);
+
 const mirroredCommandOutput = acpSessionTranscript({
   state: 'idle',
   entries: [
@@ -477,6 +507,24 @@ assert.deepStrictEqual(structuredTranscript.turns[0].processItems.map(item => it
 assert.match(structuredTranscript.turns[0].processItems[1].detail, /child-session/);
 assert.strictEqual(structuredTranscript.turns[0].processItems[1].subagentSessionId, 'child-session');
 
+const projectedToolCompactionEntry = acpTranscriptToolEntry({
+  id: 'tool-compaction',
+  type: 'tool',
+  title: 'Context compacting',
+  status: 'in_progress',
+  _meta: { contextCompaction: true },
+});
+assert.strictEqual(projectedToolCompactionEntry._meta.contextCompaction, true);
+const projectedToolCompactionTranscript = acpSessionTranscript({
+  state: 'working',
+  entries: [
+    { id: 'tool-compaction-user', type: 'message', role: 'user', content: [{ type: 'text', text: 'Continue' }] },
+    projectedToolCompactionEntry,
+  ],
+});
+assert.strictEqual(projectedToolCompactionTranscript.turns[0].processItems[0].type, 'compaction');
+assert.strictEqual(projectedToolCompactionTranscript.turns[0].processItems[0].title, 'Compacting context');
+
 const richContentTranscript = acpSessionTranscript({
   entries: [
     {
@@ -590,6 +638,65 @@ const replayedCompactionTranscript = acpSessionTranscript({
   ],
 });
 assert.strictEqual(replayedCompactionTranscript.turns[0].finalMessage, 'Actual answer');
+
+const legacyHandoffTranscript = acpSessionTranscript({
+  entries: [
+    { id: 'legacy-handoff-user', type: 'message', role: 'user', content: [{ type: 'text', text: 'Continue' }] },
+    {
+      id: 'legacy-handoff-answer',
+      type: 'message',
+      role: 'assistant',
+      content: [{ type: 'text', text: '## Handoff Summary\n\n### Goal\nInternal replay state' }],
+      _meta: { codex: { phase: 'final_answer' } },
+    },
+    {
+      id: 'legacy-handoff-visible-answer',
+      type: 'message',
+      role: 'assistant',
+      content: [{ type: 'text', text: 'Visible answer' }],
+      _meta: { codex: { phase: 'final_answer' } },
+    },
+  ],
+});
+assert.strictEqual(
+  legacyHandoffTranscript.turns[0].finalMessage,
+  'Visible answer',
+  'legacy persisted handoff envelopes must never become a user-visible answer',
+);
+assert.doesNotMatch(JSON.stringify(legacyHandoffTranscript), /Handoff Summary/);
+const legacyHandoffOnlyTranscript = acpSessionTranscript({
+  entries: [
+    { id: 'legacy-handoff-only-user', type: 'message', role: 'user', content: [{ type: 'text', text: 'Continue' }] },
+    {
+      id: 'legacy-handoff-only-answer',
+      type: 'message',
+      role: 'assistant',
+      content: [{ type: 'text', text: '## Handoff Summary\n\nInternal replay state' }],
+      _meta: { codex: { phase: 'final_answer' } },
+    },
+  ],
+});
+assert.strictEqual(legacyHandoffOnlyTranscript.turns[0].finalMessage, '');
+const legacyBoldHandoffEntry = acpTranscriptEntries([{
+  id: 'legacy-bold-handoff',
+  type: 'message',
+  role: 'assistant',
+  content: [{ type: 'text', text: '**Handoff Summary**\n\nInternal replay state' }],
+}])[0];
+assert.deepStrictEqual(legacyBoldHandoffEntry, {
+  id: 'legacy-bold-handoff',
+  type: 'compaction',
+  status: 'completed',
+  summary: '',
+});
+const legacyBoldHandoffTranscript = acpSessionTranscript({
+  entries: [
+    { id: 'legacy-bold-user', type: 'message', role: 'user', content: [{ type: 'text', text: 'Continue' }] },
+    legacyBoldHandoffEntry,
+  ],
+});
+assert.strictEqual(legacyBoldHandoffTranscript.turns[0].finalMessage, '');
+assert.strictEqual(legacyBoldHandoffTranscript.turns[0].processItems[0].type, 'compaction');
 
 const originalMediaData = 'b3JpZ2luYWwtaW1hZ2U=';
 const originalMediaEntry = {

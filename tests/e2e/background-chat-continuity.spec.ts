@@ -349,6 +349,132 @@ test('keeps retained Chat frontends mounted and refreshes them by revision after
   await expect(firstPane).toHaveCount(0)
 })
 
+test('rejects an older successful ACP transcript response that arrives after a newer one', async ({ page, workspaceRoot }) => {
+  const workspace = path.join(workspaceRoot, 'acp-transcript-response-order')
+  fs.mkdirSync(workspace, { recursive: true })
+  const agentId = await createAcpAgent(page, workspace)
+  let deltaRequestCount = 0
+
+  await page.route(new RegExp(`/farming/api/agents/${agentId}/acp-transcript(?:\\?.*)?$`), async route => {
+    const sinceRevision = new URL(route.request().url()).searchParams.get('sinceRevision')
+    const deltaOrdinal = sinceRevision === null ? 0 : ++deltaRequestCount
+    const label = deltaOrdinal === 1
+      ? 'STALE'
+      : deltaOrdinal === 2
+        ? 'FRESH'
+        : deltaOrdinal === 3
+          ? 'REGRESSED'
+          : 'INITIAL'
+    const revision = deltaOrdinal === 1 ? 12 : deltaOrdinal === 2 ? 13 : deltaOrdinal === 3 ? 12 : 11
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        transcript: {
+          sessionId: 'response-order-session',
+          state: 'idle',
+          revision,
+          delta: sinceRevision !== null,
+          entries: [
+            {
+              id: `${label}-user`,
+              type: 'message',
+              role: 'user',
+              content: [{ type: 'text', text: `${label} response user` }],
+            },
+            {
+              id: `${label}-answer`,
+              type: 'message',
+              role: 'assistant',
+              _meta: { codex: { phase: 'final_answer' } },
+              content: [{ type: 'text', text: `${label} response answer` }],
+            },
+          ],
+        },
+      }),
+    })
+  })
+
+  await page.addInitScript(() => {
+    const originalFetch = window.fetch.bind(window)
+    let deltaResponseCount = 0
+    let releaseHeldResponse = () => {}
+    let markHeldResponseReady = () => {}
+    const heldResponseReady = new Promise<void>(resolve => {
+      markHeldResponseReady = resolve
+    })
+    const race = {
+      heldResponseReady,
+      releaseHeldResponse: () => releaseHeldResponse(),
+    }
+    ;(window as typeof window & { __farmingTranscriptResponseRace?: typeof race })
+      .__farmingTranscriptResponseRace = race
+    window.fetch = async (input, init) => {
+      const rawUrl = typeof input === 'string'
+        ? input
+        : input instanceof Request
+          ? input.url
+          : String(input)
+      const url = new URL(rawUrl, window.location.href)
+      if (!url.pathname.endsWith('/acp-transcript') || !url.searchParams.has('sinceRevision')) {
+        return originalFetch(input, init)
+      }
+      deltaResponseCount += 1
+      // Simulate a transport that has already accepted the request and cannot
+      // be cancelled: both HTTP responses succeed, but the first is delivered
+      // to the application only after the second response has committed.
+      const response = await originalFetch(input, { ...init, signal: undefined })
+      if (deltaResponseCount !== 1) return response
+      markHeldResponseReady()
+      await new Promise<void>(resolve => {
+        releaseHeldResponse = resolve
+      })
+      return response
+    }
+  })
+
+  await openFarming(page)
+  await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
+  await expect(page.getByText('INITIAL response answer', { exact: true })).toBeVisible()
+
+  await page.evaluate(() => {
+    window.dispatchEvent(new Event('farming:backend-disconnected'))
+    window.dispatchEvent(new Event('farming:backend-connected'))
+  })
+  await page.evaluate(() => (
+    (window as typeof window & {
+      __farmingTranscriptResponseRace?: { heldResponseReady: Promise<void> }
+    }).__farmingTranscriptResponseRace?.heldResponseReady
+  ))
+  await page.evaluate(() => {
+    window.dispatchEvent(new Event('farming:backend-disconnected'))
+    window.dispatchEvent(new Event('farming:backend-connected'))
+  })
+
+  await expect(page.getByText('FRESH response answer', { exact: true })).toBeVisible()
+  await page.evaluate(async () => {
+    (window as typeof window & {
+      __farmingTranscriptResponseRace?: { releaseHeldResponse: () => void }
+    }).__farmingTranscriptResponseRace?.releaseHeldResponse()
+    await new Promise<void>(resolve => {
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => resolve())
+      })
+    })
+  })
+
+  expect(deltaRequestCount).toBe(2)
+  await expect(page.getByText('FRESH response answer', { exact: true })).toBeVisible()
+  await expect(page.getByText('STALE response answer', { exact: true })).toHaveCount(0)
+
+  await page.evaluate(() => {
+    window.dispatchEvent(new Event('farming:backend-disconnected'))
+    window.dispatchEvent(new Event('farming:backend-connected'))
+  })
+  await expect.poll(() => deltaRequestCount).toBe(3)
+  await expect(page.getByText('FRESH response answer', { exact: true })).toBeVisible()
+  await expect(page.getByText('REGRESSED response answer', { exact: true })).toHaveCount(0)
+})
+
 test('keeps long ACP Chat stable when the Composer is collapsed and restored', async ({ page, workspaceRoot }) => {
   const workspace = path.join(workspaceRoot, 'composer-layout-anchor')
   fs.mkdirSync(workspace, { recursive: true })
@@ -435,6 +561,18 @@ test('starts a short ACP turn at the top with a compact copy affordance', async 
   await page.getByTestId('code-acp-composer-input').fill('image attachment')
   await page.getByTestId('code-acp-composer-send').click()
   await expect(page.getByText('Received 0 image.', { exact: true })).toBeVisible()
+  const completedTurn = page.locator('.code-agent-transcript-turn').filter({ hasText: 'image attachment' })
+  await expect(completedTurn).toHaveCount(1)
+  const userTime = completedTurn.getByTestId('code-agent-transcript-user-time')
+  const answerTime = completedTurn.getByTestId('code-agent-transcript-answer-time')
+  await expect(userTime).toHaveCSS('opacity', '0')
+  await completedTurn.locator('.code-agent-transcript-user').hover()
+  await expect(userTime).toHaveCSS('opacity', '1')
+  await expect(answerTime).toHaveCSS('opacity', '0')
+  await completedTurn.locator('.code-agent-transcript-answer').hover()
+  await expect(answerTime).toHaveCSS('opacity', '1')
+  expect(await userTime.getAttribute('datetime')).toMatch(/^\d{4}-\d{2}-\d{2}T/)
+  expect(await answerTime.getAttribute('datetime')).toMatch(/^\d{4}-\d{2}-\d{2}T/)
   const forkRequests: Array<{ mode?: string; targetRuntime?: string; expectedRevision?: number }> = []
   await page.route(`/farming/api/agents/${agentId}/fork`, async route => {
     forkRequests.push(route.request().postDataJSON() as {
@@ -466,11 +604,13 @@ test('starts a short ACP turn at the top with a compact copy affordance', async 
     const action = element.getBoundingClientRect()
     const icon = element.querySelector('svg')?.getBoundingClientRect()
     const turn = element.closest<HTMLElement>('.code-agent-transcript-turn')
+    const time = turn?.querySelector<HTMLElement>('[data-testid="code-agent-transcript-answer-time"]')?.getBoundingClientRect()
+    const lastAction = turn?.querySelector<HTMLElement>('[data-testid="code-agent-transcript-fork"]')?.getBoundingClientRect() || action
     const user = turn?.querySelector<HTMLElement>('.code-agent-transcript-user')?.getBoundingClientRect()
     const answer = turn?.querySelector<HTMLElement>('.code-agent-transcript-answer')?.getBoundingClientRect()
     const scroller = element.closest<HTMLElement>('.code-agent-transcript-scroll')?.getBoundingClientRect()
     const composer = document.querySelector<HTMLElement>('.code-composer')?.getBoundingClientRect()
-    if (!icon || !user || !answer || !scroller || !composer) {
+    if (!icon || !time || !user || !answer || !scroller || !composer) {
       throw new Error('Chat turn geometry is unavailable')
     }
     return {
@@ -478,6 +618,8 @@ test('starts a short ACP turn at the top with a compact copy affordance', async 
       actionHeight: action.height,
       iconWidth: icon.width,
       iconHeight: icon.height,
+      answerTimeGap: time.left - lastAction.right,
+      answerTimeCenterDelta: Math.abs((time.top + time.height / 2) - (lastAction.top + lastAction.height / 2)),
       userTopOffset: user.top - scroller.top,
       answerGap: answer.top - user.bottom,
       composerGap: composer.top - action.bottom,
@@ -488,6 +630,8 @@ test('starts a short ACP turn at the top with a compact copy affordance', async 
   expect(geometry.userTopOffset).toBeLessThanOrEqual(60)
   expect(geometry.answerGap).toBeGreaterThanOrEqual(16)
   expect(geometry.answerGap).toBeLessThanOrEqual(28)
+  expect(geometry.answerTimeGap).toBe(8)
+  expect(geometry.answerTimeCenterDelta).toBeLessThanOrEqual(1)
   expect(geometry.composerGap).toBeGreaterThan(200)
   expect(geometry).toMatchObject({
     actionWidth: 20,
@@ -495,6 +639,39 @@ test('starts a short ACP turn at the top with a compact copy affordance', async 
     iconWidth: 14,
     iconHeight: 14,
   })
+})
+
+test('keeps narrow Chat copyable and wraps long user text inside its bubble', async ({ page, workspaceRoot }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  const workspace = path.join(workspaceRoot, 'narrow-chat-copy-wrap')
+  fs.mkdirSync(workspace, { recursive: true })
+  const agentId = await createAcpAgent(page, workspace)
+
+  await openFarming(page)
+  await expect(page.locator('body')).toHaveClass(/code-compact-layout/)
+  await page.getByTestId('code-mobile-menu').click()
+  await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
+
+  const input = page.getByTestId('code-acp-composer-input')
+  await expect(input).toHaveCSS('font-size', '14px')
+  await input.fill(`image attachment ${'amap_order_id,'.repeat(120)}`)
+  await page.getByTestId('code-acp-composer-send').click()
+
+  const copyAnswer = page.getByTestId('code-agent-transcript-copy-answer')
+  await expect(page.getByText('Received 0 image.', { exact: true })).toBeVisible()
+  await expect(copyAnswer).toBeVisible()
+  const userBubble = page.locator('.code-agent-transcript-turn .code-agent-transcript-user').filter({ hasText: 'amap_order_id' })
+  await expect(userBubble).toHaveCount(1)
+  expect(await userBubble.evaluate(element => ({
+    clientWidth: element.clientWidth,
+    scrollWidth: element.scrollWidth,
+    overflowWrap: getComputedStyle(element).overflowWrap,
+  }))).toMatchObject({
+    overflowWrap: 'anywhere',
+  })
+  expect(await userBubble.evaluate(element => element.scrollWidth)).toBeLessThanOrEqual(
+    await userBubble.evaluate(element => element.clientWidth),
+  )
 })
 
 test('forks the latest ACP answer into a new Chat Agent in the same workspace', async ({ page, workspaceRoot }) => {

@@ -48,6 +48,7 @@ export interface AgentTranscriptProcessItem {
   id: string
   type: string
   title: string
+  createdAt?: number
   detail?: string
   images?: AgentTranscriptUserImage[]
   audios?: AgentTranscriptAudio[]
@@ -167,7 +168,14 @@ function contentText(content: unknown) {
     .trim()
 }
 
+function isInternalCompactionMessage(text: string) {
+  const trimmed = text.trim()
+  return /^(?:#{1,3}\s*)?(?:\*{1,2}|_{1,2})?Handoff Summary(?:\*{1,2}|_{1,2})?(?:[ \t]*:|[ \t]*(?:\r?\n|$))/i.test(trimmed)
+    || /^Another language model started to solve this problem and produced a summary\b/i.test(trimmed)
+}
+
 function visibleAssistantText(text: string) {
+  if (isInternalCompactionMessage(text)) return ''
   return text
     .replace(/\s*\*?Context compacted(?: to fit the model's context window)?\.\*?\s*/gi, '')
     .trim()
@@ -484,6 +492,7 @@ function processEntry(entry: AcpRecord): AgentTranscriptProcessItem | null {
   }
   if (entry.type === 'tool') {
     const subagent = record(record(entry._meta).subagent_session_info)
+    const contextCompaction = record(entry._meta).contextCompaction === true
     const collaboration = codexCollaboration(entry)
     const terminalIds = list(entry.content).map(record)
       .filter(block => block.type === 'terminal' && block.terminalId)
@@ -517,9 +526,19 @@ function processEntry(entry: AcpRecord): AgentTranscriptProcessItem | null {
     const subagentSessionId = stringValue(subagent.session_id)
     return {
       id: stringValue(entry.id),
-      type: subagentSessionId ? 'subagent' : patchSummary ? 'patch' : collaboration ? 'collaboration' : 'tool',
+      type: contextCompaction
+        ? 'compaction'
+        : subagentSessionId
+          ? 'subagent'
+          : patchSummary
+            ? 'patch'
+            : collaboration
+              ? 'collaboration'
+              : 'tool',
       kind: stringValue(entry.kind) || 'other',
-      title: stringValue(entry.title) || 'Tool',
+      title: contextCompaction
+        ? (stringValue(entry.status) === 'completed' ? 'Context compacted' : 'Compacting context')
+        : stringValue(entry.title) || 'Tool',
       detail: [subagentSessionId ? `Session ${subagentSessionId}` : '', inline.detail].filter(Boolean).join('\n\n'),
       detailTruncated: inline.detailTruncated,
       status: stringValue(entry.status),
@@ -614,10 +633,26 @@ export function projectAcpTranscript(sessionValue: unknown, options: { maxTurns?
       if (isCodexSteerEntry(entry)) {
         if (!current) current = emptyTurn(`acp-segment-${++sequence}`, false)
         const entryId = stringValue(entry.id) || String(++sequence)
+        if (current.finalMessage) {
+          current.processItems.push({
+            id: `acp-earlier-answer-${entryId}`,
+            type: 'progress',
+            title: 'Earlier answer',
+            detail: current.finalMessage,
+            status: 'completed',
+          })
+          current.assistantMessages.push({
+            text: current.finalMessage,
+            processItemId: `acp-earlier-answer-${entryId}`,
+            phase: 'commentary',
+          })
+          current.finalMessage = ''
+        }
         current.processItems.push({
           id: `acp-steer-${entryId}`,
           type: 'user-steer',
           title: 'Steering update',
+          ...(Number.isFinite(Number(entry.createdAt)) ? { createdAt: Number(entry.createdAt) } : {}),
           detail: contentText(entry.content),
           images: contentImages(entry.content, entryId),
           audios: contentAudios(entry.content, entryId),

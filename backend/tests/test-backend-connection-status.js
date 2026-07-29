@@ -3,10 +3,6 @@ const fs = require('fs');
 const path = require('path');
 const {
   BACKEND_INITIAL_CONNECT_GRACE_MS,
-  BACKEND_HEARTBEAT_FAILURE_MS,
-  BACKEND_HEARTBEAT_STALE_MS,
-  BACKEND_OBSERVER_LAG_RESET_MS,
-  advanceBackendObservation,
   classifyBackendConnection,
   reducePageVisibilitySnapshot,
 } = require('../../shared/backend-connection-status');
@@ -28,11 +24,14 @@ function run() {
   const workspaceFilesSource = read('src/hooks/useWorkspaceFiles.ts');
   const workspaceChangesSource = read('src/components/files/useWorkspaceFileChanges.ts');
   const pluginsPanelSource = read('src/components/code/PluginsPanel.tsx');
+  const serverSource = read('backend/server.js');
+  const livenessSource = read('shared/websocket-liveness.js');
 
   assert(
       liveStatusSource.includes('everConnected: boolean') &&
       liveStatusSource.includes('lastMessageAt: number') &&
       liveStatusSource.includes('disconnectedAt: number | null') &&
+      liveStatusSource.includes("'checking' | 'ready' | 'recovering' | 'failed' | 'stopping' | 'unresponsive'") &&
       webSocketSource.includes('LAST_MESSAGE_STATE_THROTTLE_MS') &&
       webSocketSource.includes('everConnected: true') &&
       webSocketSource.includes('function markBackendMessage') &&
@@ -40,7 +39,7 @@ function run() {
       webSocketSource.includes('updateBackendConnectionStatus') &&
       webSocketSource.includes('event.code === 4001') &&
       webSocketSource.includes('Farming token expired or is invalid'),
-    'The isolated backend status store should track whether the backend was ever connected and when the last message arrived'
+    'The isolated backend status store should track transport and business-protocol health independently'
   );
 
   assert(
@@ -77,9 +76,8 @@ function run() {
 
   assert(
     connectionStatusSource.includes('const pageVisibility = usePageVisibilitySnapshot()') &&
-      connectionStatusSource.includes('if (!pageVisibility.visible) return undefined') &&
+    connectionStatusSource.includes('if (!pageVisibility.visible || connection.connected) return undefined') &&
       connectionStatusSource.includes('if (!pageVisibility.visible || !isPageVisible()) return null') &&
-      connectionStatusSource.includes('Math.max(pageVisibility.visibleSince, observation.continuousSince)') &&
       pageVisibilitySource.includes('reducePageVisibilitySnapshot(current') &&
       appSource.includes('const pageVisible = usePageVisibility()') &&
       appSource.includes('CONTEXT_WINDOW_REFRESH_MS') &&
@@ -97,13 +95,24 @@ function run() {
 
   assert(
       connectionClassifierSource.includes('BACKEND_INITIAL_CONNECT_GRACE_MS') &&
-      connectionClassifierSource.includes('BACKEND_HEARTBEAT_FAILURE_MS') &&
-      connectionClassifierSource.includes('BACKEND_HEARTBEAT_STALE_MS') &&
       connectionClassifierSource.includes("'lost'") &&
-      connectionClassifierSource.includes("return 'stale'") &&
+      connectionClassifierSource.includes("businessStatus === 'recovering'") &&
+      connectionClassifierSource.includes("'unresponsive'") &&
       connectionStatusSource.includes('data-testid="connection-status"') &&
       appSource.includes('<BackendConnectionStatus copy={copy} />'),
-    'The isolated connection component should classify initial connecting, disconnected, and stale states'
+    'The isolated connection component should report actual disconnects and failed business probes separately'
+  );
+
+  assert(
+    serverSource.includes('startWebSocketLivenessMonitor(wss') &&
+      serverSource.includes("server.on('close', () => clearInterval(websocketLivenessTimer))") &&
+    serverSource.includes('initializeWebSocketLiveness(ws)') &&
+      serverSource.includes("case 'business-health-probe':") &&
+      serverSource.includes('probeAgentManagerBusinessHealth(agentManager)') &&
+      livenessSource.includes("socket.on('pong'") &&
+      livenessSource.includes('socket.ping()') &&
+      livenessSource.includes('socket.terminate()'),
+    'The server should use ping/pong only for transport cleanup and route visible health through the business protocol'
   );
 
   assert(
@@ -117,44 +126,45 @@ function run() {
   assert(
     copySource.includes('backendConnecting') &&
       copySource.includes('backendConnectionLost') &&
-      copySource.includes('backendHeartbeatLost') &&
-      copySource.includes('没有收到 Farming 后端心跳'),
-    'Connection status copy should cover both English and Chinese backend heartbeat states'
+      copySource.includes('backendBusinessRecovering') &&
+      copySource.includes('backendBusinessUnavailable') &&
+      !copySource.includes('backendHeartbeatLost') &&
+      !copySource.includes('没有收到 Farming 后端心跳'),
+    'Connection status copy should distinguish transport recovery from business-state failure'
   );
 
   assert(
-    stylesSource.includes('.connection-status.stale') &&
+    stylesSource.includes('.connection-status.business-unavailable') &&
       stylesSource.includes('.connection-status-dot') &&
       stylesSource.includes('bottom: calc(env(safe-area-inset-bottom, 0px) + 86px)'),
     'Connection status should have a visible Code-style banner and a mobile-safe position'
   );
 
   const backgroundMessageAt = 1_000;
-  const foregroundAt = backgroundMessageAt + BACKEND_HEARTBEAT_STALE_MS + 10_000;
+  const foregroundAt = backgroundMessageAt + 30_000;
   assert.strictEqual(classifyBackendConnection({
     connected: true,
-    everConnected: true,
     lastMessageAt: backgroundMessageAt,
     visibleSince: foregroundAt,
     now: foregroundAt,
-  }), null, 'Returning from a suspended background page should restart heartbeat observation');
+    businessStatus: 'ready',
+  }), null, 'A connected but quiet WebSocket must never be mistaken for a lost heartbeat');
   assert.strictEqual(classifyBackendConnection({
     connected: true,
-    everConnected: true,
-    lastMessageAt: backgroundMessageAt,
+    lastMessageAt: foregroundAt,
     visibleSince: foregroundAt,
-    now: foregroundAt + BACKEND_HEARTBEAT_STALE_MS,
-  }), 'connecting', 'A missing heartbeat should start with the lightweight recovery state');
+    now: foregroundAt,
+    businessStatus: 'unresponsive',
+  }), 'business-unavailable', 'A failed business probe should be visible even while the transport remains connected');
   assert.strictEqual(classifyBackendConnection({
     connected: true,
-    everConnected: true,
-    lastMessageAt: backgroundMessageAt,
+    lastMessageAt: foregroundAt,
     visibleSince: foregroundAt,
-    now: foregroundAt + BACKEND_HEARTBEAT_FAILURE_MS,
-  }), 'stale', 'A missing heartbeat should escalate only after the full failure window');
+    now: foregroundAt,
+    businessStatus: 'recovering',
+  }), 'business-recovering', 'A responsive backend still restoring authoritative state should remain distinct from probe failure');
   assert.strictEqual(classifyBackendConnection({
     connected: false,
-    everConnected: true,
     lastMessageAt: foregroundAt,
     disconnectedAt: foregroundAt,
     visibleSince: foregroundAt,
@@ -162,7 +172,6 @@ function run() {
   }), 'connecting', 'A real WebSocket close should start with a lightweight reconnecting state');
   assert.strictEqual(classifyBackendConnection({
     connected: false,
-    everConnected: true,
     lastMessageAt: foregroundAt,
     disconnectedAt: foregroundAt,
     visibleSince: foregroundAt,
@@ -170,7 +179,6 @@ function run() {
   }), 'connecting', 'A brief outage should not escalate into a red failure');
   assert.strictEqual(classifyBackendConnection({
     connected: false,
-    everConnected: true,
     lastMessageAt: foregroundAt,
     disconnectedAt: foregroundAt,
     visibleSince: foregroundAt,
@@ -178,50 +186,11 @@ function run() {
   }), 'lost', 'An uninterrupted outage should escalate after the full grace window');
   assert.strictEqual(classifyBackendConnection({
     connected: false,
-    everConnected: true,
     lastMessageAt: backgroundMessageAt,
     disconnectedAt: backgroundMessageAt,
     visibleSince: foregroundAt,
     now: foregroundAt,
   }), 'connecting', 'Returning from a long-suspended page should restart the lightweight reconnect window');
-
-  const continuousObservation = advanceBackendObservation({
-    now: foregroundAt,
-    continuousSince: foregroundAt,
-  }, foregroundAt + 1_000);
-  assert.deepStrictEqual(continuousObservation, {
-    now: foregroundAt + 1_000,
-    continuousSince: foregroundAt,
-  }, 'A normal observer tick should preserve the continuous foreground window');
-  const resumedObservation = advanceBackendObservation(
-    continuousObservation,
-    continuousObservation.now + BACKEND_OBSERVER_LAG_RESET_MS + 1
-  );
-  assert.deepStrictEqual(resumedObservation, {
-    now: continuousObservation.now + BACKEND_OBSERVER_LAG_RESET_MS + 1,
-    continuousSince: continuousObservation.now + BACKEND_OBSERVER_LAG_RESET_MS + 1,
-  }, 'A delayed observer tick should start a fresh window instead of blaming backend heartbeat');
-  assert.strictEqual(classifyBackendConnection({
-    connected: true,
-    everConnected: true,
-    lastMessageAt: foregroundAt,
-    visibleSince: resumedObservation.continuousSince,
-    now: resumedObservation.now,
-  }), null, 'Main-thread suspension should not immediately report a false backend heartbeat failure');
-  assert.strictEqual(classifyBackendConnection({
-    connected: true,
-    everConnected: true,
-    lastMessageAt: foregroundAt,
-    visibleSince: resumedObservation.continuousSince,
-    now: resumedObservation.now + BACKEND_HEARTBEAT_STALE_MS,
-  }), 'connecting', 'A full uninterrupted observation window should first report lightweight recovery');
-  assert.strictEqual(classifyBackendConnection({
-    connected: true,
-    everConnected: true,
-    lastMessageAt: foregroundAt,
-    visibleSince: resumedObservation.continuousSince,
-    now: resumedObservation.now + BACKEND_HEARTBEAT_FAILURE_MS,
-  }), 'stale', 'A continued heartbeat failure should eventually escalate');
 
   const hiddenSnapshot = { visible: false, visibleSince: backgroundMessageAt };
   const hiddenPageShow = reducePageVisibilitySnapshot(hiddenSnapshot, {

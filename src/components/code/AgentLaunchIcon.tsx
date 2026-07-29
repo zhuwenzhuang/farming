@@ -39,6 +39,13 @@ export function AgentLaunchIcon({ name, variant = 'color', className = '', ...pr
       </svg>
     )
   }
+  if (normalized === 'qwen') {
+    return (
+      <svg className={classes} width="16" height="16" viewBox="0 0 141.38 140" aria-hidden="true" focusable="false" {...props}>
+        <g dangerouslySetInnerHTML={{ __html: inlineAgentIconMarkup.qwen[variant] }} />
+      </svg>
+    )
+  }
   if (normalized === 'claude') {
     const source = agentIconAssets['claude-code'][variant]
     return (

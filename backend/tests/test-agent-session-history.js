@@ -14,6 +14,7 @@ const {
   listClaudeSessions,
   listOpenCodeSessions,
   listQoderSessions,
+  listQwenSessions,
   paginateAgentSessions,
   resolveCodexResumeModelProvider,
   searchAgentSessions,
@@ -33,6 +34,7 @@ async function run() {
   const codexAltHome = path.join(root, 'codex-alt');
   const claudeHome = path.join(root, 'claude');
   const qoderHome = path.join(root, 'qoder');
+  const qwenHome = path.join(root, 'qwen');
   const codexSessionsDir = path.join(codexHome, 'sessions', '2026', '06', '28');
   const codexAltSessionsDir = path.join(codexAltHome, 'sessions', '2026', '06', '28');
   const claudeProjectDir = path.join(claudeHome, 'projects', '-repo-claude');
@@ -42,6 +44,8 @@ async function run() {
   const qoderProjectDir = path.join(qoderHome, 'projects', '-repo-qoder');
   const qoderDuplicateProjectDir = path.join(qoderHome, 'projects', '-repo-qoder-copy');
   const qoderTempProjectDir = path.join(qoderHome, 'projects', '-private-tmp-farming-test');
+  const qwenChatsDir = path.join(qwenHome, 'projects', '-repo-qwen', 'chats');
+  const qwenArchiveDir = path.join(qwenChatsDir, 'archive');
   fs.mkdirSync(codexSessionsDir, { recursive: true });
   fs.mkdirSync(codexAltSessionsDir, { recursive: true });
   fs.mkdirSync(claudeProjectDir, { recursive: true });
@@ -51,6 +55,7 @@ async function run() {
   fs.mkdirSync(qoderProjectDir, { recursive: true });
   fs.mkdirSync(qoderDuplicateProjectDir, { recursive: true });
   fs.mkdirSync(qoderTempProjectDir, { recursive: true });
+  fs.mkdirSync(qwenArchiveDir, { recursive: true });
 
   const codexId = '019f0000-0000-7000-8000-000000000101';
   const tempCodexId = '019f0000-0000-7000-8000-000000000102';
@@ -63,6 +68,9 @@ async function run() {
   const worktreeClaudeId = '11111111-2222-4333-8444-999999999999';
   const qoderId = '22222222-3333-4444-8555-666666666666';
   const tempQoderId = '22222222-3333-4444-8555-777777777777';
+  const qwenId = '33333333-4444-4555-8666-777777777777';
+  const promptOnlyQwenId = '33333333-4444-4555-8666-999999999999';
+  const archivedQwenId = '33333333-4444-4555-8666-888888888888';
   const openCodeId = 'ses_0b5c8bfdbffepm0O5sc1lPLtzK';
   const tempOpenCodeId = 'ses_0b86a0bb9ffe993SjI5ZfY2c0j';
   let openCodeListCalls = 0;
@@ -305,6 +313,64 @@ async function run() {
       message: 'Temporary qoder task',
     }),
   ].join('\n'));
+  fs.writeFileSync(path.join(qwenChatsDir, `${qwenId}.jsonl`), [
+    JSON.stringify({
+      uuid: 'qwen-user-1',
+      parentUuid: null,
+      sessionId: qwenId,
+      timestamp: '2026-06-28T10:52:00.000Z',
+      type: 'user',
+      cwd: '/repo/qwen/packages/cli',
+      version: '0.21.1',
+      message: { role: 'user', parts: [{ text: 'Inspect Qwen Code history' }] },
+    }),
+    JSON.stringify({
+      uuid: 'qwen-assistant-1',
+      parentUuid: 'qwen-user-1',
+      sessionId: qwenId,
+      timestamp: '2026-06-28T10:52:01.000Z',
+      type: 'assistant',
+      cwd: '/repo/qwen/packages/cli',
+      version: '0.21.1',
+      model: 'qwen3-coder-plus',
+      message: { role: 'model', parts: [{ text: 'Done' }] },
+    }),
+    JSON.stringify({
+      uuid: 'qwen-title-1',
+      parentUuid: 'qwen-assistant-1',
+      sessionId: qwenId,
+      timestamp: '2026-06-28T10:52:02.000Z',
+      type: 'system',
+      subtype: 'custom_title',
+      cwd: '/repo/qwen/packages/cli',
+      version: '0.21.1',
+      systemPayload: { customTitle: 'Qwen Code title', titleSource: 'manual' },
+    }),
+  ].join('\n'));
+  fs.writeFileSync(path.join(qwenArchiveDir, `${archivedQwenId}.jsonl`), [
+    JSON.stringify({
+      uuid: 'qwen-archived-user',
+      parentUuid: null,
+      sessionId: archivedQwenId,
+      timestamp: '2026-06-28T10:53:00.000Z',
+      type: 'user',
+      cwd: '/repo/qwen',
+      version: '0.21.1',
+      message: { role: 'user', parts: [{ text: 'Archived Qwen task' }] },
+    }),
+  ].join('\n'));
+  fs.writeFileSync(path.join(qwenChatsDir, `${promptOnlyQwenId}.jsonl`), [
+    JSON.stringify({
+      uuid: 'qwen-prompt-only-user',
+      parentUuid: null,
+      sessionId: promptOnlyQwenId,
+      timestamp: '2026-06-28T10:51:00.000Z',
+      type: 'user',
+      cwd: '/repo/qwen/packages/core',
+      version: '0.21.1',
+      message: { role: 'user', parts: [{ text: 'Prompt-only Qwen title' }] },
+    }),
+  ].join('\n'));
 
   assert.strictEqual(isTemporaryWorkspace('/private/tmp/claude-test'), true);
   assert.strictEqual(isTemporaryWorkspace('/tmp/codex-test'), true);
@@ -340,6 +406,21 @@ async function run() {
   assert.strictEqual(qoderSessions[0].effort, 'high');
   assert.strictEqual(qoderSessions[0].cliVersion, '1.0.40');
 
+  const qwenSessions = await listQwenSessions({ qwenHome, limit: 5 });
+  assert.strictEqual(qwenSessions.length, 2);
+  const titledQwenSession = qwenSessions.find(session => session.id === qwenId);
+  assert.strictEqual(titledQwenSession.provider, 'qwen');
+  assert.strictEqual(titledQwenSession.providerName, 'Qwen Code');
+  assert.strictEqual(titledQwenSession.title, 'Qwen Code title');
+  assert.strictEqual(titledQwenSession.workspace, '/repo/qwen/packages/cli');
+  assert.strictEqual(titledQwenSession.model, 'qwen3-coder-plus');
+  assert.strictEqual(titledQwenSession.cliVersion, '0.21.1');
+  assert.deepStrictEqual(titledQwenSession.capabilities, ['resume']);
+  assert.strictEqual(
+    qwenSessions.find(session => session.id === promptOnlyQwenId).title,
+    'Prompt-only Qwen title',
+  );
+
   const openCodeSessions = await listOpenCodeSessions({ limit: 5, runOpenCodeSessionList });
   assert.strictEqual(openCodeSessions.length, 1);
   assert.strictEqual(openCodeSessions[0].provider, 'opencode');
@@ -353,6 +434,7 @@ async function run() {
   const sessions = await listAgentSessions({
     claudeHome,
     qoderHome,
+    qwenHome,
     limit: 10,
     providerLimit: 10,
     runOpenCodeSessionList,
@@ -363,6 +445,7 @@ async function run() {
       ],
       claude: [{ id: 'default', path: claudeHome }],
       qoder: [{ id: 'default', path: qoderHome }],
+      qwen: [{ id: 'default', path: qwenHome }],
       opencode: [
         { id: 'default', path: path.join(root, 'opencode') },
         { id: 'work', path: path.join(root, 'opencode-work') },
@@ -379,13 +462,14 @@ async function run() {
   assert.strictEqual(sessions.some(session => session.id === tempQoderId), false);
   assert.strictEqual(sessions.some(session => session.id === tempOpenCodeId), false);
   assert.strictEqual(openCodeListCalls, openCodeCallsBeforeUnifiedList + 1, 'OpenCode session history is global and should not be duplicated across config homes');
-  assert.deepStrictEqual(new Set(sessions.map(session => session.provider)), new Set(['codex', 'claude', 'opencode', 'qoder']));
+  assert.deepStrictEqual(new Set(sessions.map(session => session.provider)), new Set(['codex', 'claude', 'opencode', 'qoder', 'qwen']));
   assert.strictEqual(sessions.find(session => session.id === codexId).providerHomeId, 'default');
   assert.strictEqual(sessions.find(session => session.id === altCodexId).providerHomeId, 'zwz');
   assert.strictEqual(sessions.find(session => session.id === codexId).title, 'Codex title');
   assert.strictEqual(sessions.find(session => session.id === codexId).cliVersion, '0.142.3');
   assert.deepStrictEqual(sessions.find(session => session.id === codexId).capabilities, ['resume', 'fork']);
   assert.deepStrictEqual(sessions.find(session => session.provider === 'qoder').capabilities, ['resume', 'fork']);
+  assert.deepStrictEqual(sessions.find(session => session.provider === 'qwen').capabilities, ['resume']);
   assert.deepStrictEqual(sessions.find(session => session.provider === 'opencode').capabilities, ['resume', 'fork']);
   assert.strictEqual(sessions.find(session => session.provider === 'opencode').providerHomeId, 'default');
 
@@ -413,6 +497,8 @@ async function run() {
   assert.strictEqual(buildAgentSessionResumeCommand('claude', claudeId, { fork: true }), `claude --resume ${claudeId} --fork-session`);
   assert.strictEqual(buildAgentSessionResumeCommand('qoder', qoderId), `qodercli --resume ${qoderId}`);
   assert.strictEqual(buildAgentSessionResumeCommand('qoder', qoderId, { fork: true }), `qodercli --resume ${qoderId} --fork-session`);
+  assert.strictEqual(buildAgentSessionResumeCommand('qwen', qwenId), `qwen --resume ${qwenId}`);
+  assert.strictEqual(buildAgentSessionResumeCommand('qwen', qwenId, { fork: true }), '');
   assert.strictEqual(buildAgentSessionResumeCommand('opencode', openCodeId), `opencode --session ${openCodeId}`);
   assert.strictEqual(buildAgentSessionResumeCommand('opencode', openCodeId, { fork: true }), `opencode --session ${openCodeId} --fork`);
   assert.strictEqual(buildAgentSessionResumeCommand('codex', 'tmp_uuid_11111111-2222-4333-8444-555555555555'), '');
@@ -588,7 +674,7 @@ async function run() {
   );
 
   fs.rmSync(root, { recursive: true, force: true });
-  console.log('✓ Agent session history unifies Codex, Claude, OpenCode, and Qoder metadata');
+  console.log('✓ Agent session history unifies Codex, Claude, OpenCode, Qoder, and Qwen Code metadata');
 }
 
 run().catch(error => {

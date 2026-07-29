@@ -69,6 +69,7 @@ const {
   reorderedPinnedAgentOrders,
   reorderedProjectAgentOrders,
 } = require('./agent-order');
+const { commitAgentOrderTransaction } = require('./agent-order-transaction');
 const {
   buildInteractiveAgentBaseEnv,
   normalizeInteractiveTerminalEnv,
@@ -3696,7 +3697,8 @@ class AgentManager extends EventEmitter {
       return existingMainStart.id;
     }
 
-    let resolveReservation;
+    /** @type {(value: any) => void} */
+    let resolveReservation = () => {};
     const reservation = {
       promise: new Promise(resolve => {
         resolveReservation = resolve;
@@ -4289,7 +4291,7 @@ class AgentManager extends EventEmitter {
           additionalDirectories: requestedAdditionalDirectories.map(directory => path.resolve(identityWorkspace, directory)),
           mcpServers: JSON.parse(JSON.stringify(requestedMcpServers)),
         };
-        args = adapter.terminalResumeArgs(args, providerSessionId, providerSessionPlan);
+        args = adapter.terminalResumeArgs(args, providerSessionId);
         providerSessionPlan = {
           ...providerSessionPlan,
           id: providerSessionId,
@@ -5752,62 +5754,15 @@ class AgentManager extends EventEmitter {
   }
 
   commitAgentOrderUpdates(agentId, orderUpdates, field) {
-    const staged = [...orderUpdates].map(([updatedAgentId, order]) => ({
-      agent: this.agents.get(updatedAgentId),
-      order,
-    })).filter(item => item.agent);
-    const conflicting = staged.find(item => this.agentLifecycleOperations.has(item.agent.id));
-    if (conflicting) {
-      const lifecycleOperation = this.agentLifecycleOperations.get(conflicting.agent.id);
-      return { error: `Agent lifecycle change already in progress: ${lifecycleOperation.label}` };
-    }
-
-    const attempted = [];
-    try {
-      for (const item of staged) {
-        item.stagedAgent = { ...item.agent, [field]: item.order };
-        attempted.push(item);
-        this.ensurePersistentAgentSession(item.stagedAgent);
-      }
-    } catch (error) {
-      let rollbackError = null;
-      for (const item of attempted.reverse()) {
-        try {
-          const agentRecordId = item.stagedAgent.agentRecordId
-            || item.stagedAgent.persistentSessionId
-            || item.agent.agentRecordId
-            || item.agent.persistentSessionId;
-          this.ensurePersistentAgentSession({
-            ...item.agent,
-            agentRecordId,
-            persistentSessionId: agentRecordId,
-          });
-        } catch (restoreError) {
-          rollbackError = restoreError;
-        }
-      }
-      return {
-        error: `Failed to reorder Agents: ${error.message || error}${
-          rollbackError ? `; storage rollback failed: ${rollbackError.message || rollbackError}` : ''
-        }`,
-      };
-    }
-
-    const updates = staged.map(item => {
-      item.agent[field] = item.order;
-      setAgentRecordId(
-        item.agent,
-        item.stagedAgent.agentRecordId || item.stagedAgent.persistentSessionId || '',
-      );
-      this.updateEngineProviderSessionMetadata(item.agent);
-      return { agentId: item.agent.id, [field]: item.order };
-    });
-    this.emit('update');
-    return {
-      agentId,
-      [field]: finiteOrder(this.agents.get(agentId)?.[field]),
-      updates,
-    };
+    return commitAgentOrderTransaction({
+      agents: this.agents,
+      lifecycleOperations: this.agentLifecycleOperations,
+      persistAgent: agent => this.ensurePersistentAgentSession(agent),
+      updateRuntimeMetadata: agent => this.updateEngineProviderSessionMetadata(agent),
+      emitUpdate: () => this.emit('update'),
+      setAgentRecordId,
+      finiteOrder,
+    }, agentId, orderUpdates, field);
   }
 
   reorderAgent(agentId, neighbors = {}) {

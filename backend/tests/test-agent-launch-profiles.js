@@ -251,7 +251,11 @@ function run() {
     dangerouslySkipPermissions: true,
     mainAgentSystemPrompt: 'You are the Farming Main Agent.',
   });
-  assert.deepStrictEqual(qwenMain.args, ['--yolo']);
+  assert.deepStrictEqual(qwenMain.args, [
+    '--yolo',
+    '--append-system-prompt',
+    'You are the Farming Main Agent.',
+  ]);
 
   const codexFarming = resolveLaunchCommand('codex', {
     farmingSystemPrompt,
@@ -268,6 +272,13 @@ function run() {
     farmingSystemPrompt,
   });
   assert.deepStrictEqual(qoderFarming.args, [
+    '--append-system-prompt',
+    farmingSystemPrompt,
+  ]);
+  const qwenFarming = resolveLaunchCommand('qwen', {
+    farmingSystemPrompt,
+  });
+  assert.deepStrictEqual(qwenFarming.args, [
     '--append-system-prompt',
     farmingSystemPrompt,
   ]);

@@ -3,6 +3,7 @@ const MIN_PROTOCOL_VERSION = 3;
 
 const CLIENT_MESSAGE_TYPES = new Set([
   'protocol-hello',
+  'business-health-probe',
   'start-agent',
   'input',
   'composer-input',
@@ -20,6 +21,7 @@ const CLIENT_MESSAGE_TYPES = new Set([
 const SERVER_MESSAGE_TYPES = new Set([
   'protocol-hello',
   'protocol-error',
+  'business-health-result',
   'command-ack',
   'state',
   'error',
@@ -79,6 +81,7 @@ function validateClientMessage(value) {
   let valid = true;
   switch (value.type) {
     case 'protocol-hello': valid = Number.isInteger(value.protocolVersion); break;
+    case 'business-health-probe': valid = stringField(value, 'requestId'); break;
     case 'start-agent': valid = stringField(value, 'command'); break;
     case 'input': valid = stringField(value, 'agentId', true) && (typeof value.input === 'string' || Array.isArray(value.inputParts)); break;
     case 'composer-input': valid = stringField(value, 'message') && stringField(value, 'agentId', true) && stringField(value, 'requestId', true); break;
@@ -98,6 +101,15 @@ function validateServerMessage(value) {
   let valid = true;
   switch (value.type) {
     case 'protocol-hello': valid = Number.isInteger(value.protocolVersion) && Number.isInteger(value.minProtocolVersion); break;
+    case 'business-health-result':
+      valid = stringField(value, 'requestId')
+        && stringField(value, 'serverEpoch')
+        && Number.isInteger(value.protocolVersion)
+        && ['ready', 'recovering', 'failed', 'stopping'].includes(value.status)
+        && Number.isInteger(value.agentCount)
+        && value.agentCount >= 0
+        && (value.mainAgentId === null || stringField(value, 'mainAgentId'));
+      break;
     case 'protocol-error':
     case 'error': valid = stringField(value, 'message'); break;
     case 'command-ack': valid = stringField(value, 'requestId') && stringField(value, 'command'); break;

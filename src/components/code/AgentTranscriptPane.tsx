@@ -133,6 +133,14 @@ function mergeAcpTranscript(
   current: AgentTranscript | null,
   next: AgentTranscript | null,
 ) {
+  if (
+    current
+    && next
+    && current.sessionId === next.sessionId
+    && typeof current.revision === 'number'
+    && typeof next.revision === 'number'
+    && next.revision < current.revision
+  ) return current
   if (!next?.delta) return preserveCompletedTranscriptTurns(current, next)
   if (!current || current.sessionId !== next.sessionId) return next
   if (!next.replaceFromTurnId || next.turns.length === 0) {
@@ -276,6 +284,40 @@ function elapsedDurationLabel(startedAt: number | null | undefined) {
   if (!Number.isFinite(numeric) || numeric <= 0) return ''
   const timestamp = numeric < 1_000_000_000_000 ? numeric * 1000 : numeric
   return durationLabel(Math.max(0, Date.now() - timestamp))
+}
+
+function transcriptMessageTime(timestampValue: number | null | undefined) {
+  const numeric = Number(timestampValue)
+  if (!Number.isFinite(numeric) || numeric <= 0) return null
+  const timestamp = numeric < 1_000_000_000_000 ? numeric * 1000 : numeric
+  const date = new Date(timestamp)
+  if (!Number.isFinite(date.getTime())) return null
+  return {
+    dateTime: date.toISOString(),
+    label: date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }),
+    title: date.toLocaleString(),
+  }
+}
+
+function AgentTranscriptMessageTime({
+  timestamp,
+  kind,
+}: {
+  timestamp: number | null | undefined
+  kind: 'user' | 'steer' | 'answer'
+}) {
+  const value = transcriptMessageTime(timestamp)
+  if (!value) return null
+  return (
+    <time
+      className={`code-agent-transcript-message-time code-agent-transcript-message-time-${kind}`}
+      data-testid={`code-agent-transcript-${kind}-time`}
+      dateTime={value.dateTime}
+      title={value.title}
+    >
+      {value.label}
+    </time>
+  )
 }
 
 function acpActivityLabels(copy: CodeCopy): Record<AcpActivityKind, string> {
@@ -1090,7 +1132,7 @@ function processEntriesForTurn(items: AgentTranscriptProcessItem[]) {
   return entries
 }
 
-const COMPACT_PROCESS_ACTION_LIMIT = 4
+const COMPACT_PROCESS_ACTION_LIMIT = 1
 
 function compactProcessEntries(entries: ProcessEntry[], turnStatus: AgentTranscriptTurn['status']) {
   const eligible = turnStatus === 'inProgress'
@@ -1110,7 +1152,7 @@ function compactProcessEntries(entries: ProcessEntry[], turnStatus: AgentTranscr
     selectedIndexes.add(index)
   }
   const items = eligible.filter((_item, index) => selectedIndexes.has(index))
-  return { items, hiddenActionCount: eligible.length - items.length }
+  return { items }
 }
 
 function compactAcpActionLabel(item: AgentTranscriptProcessItem, copy: CodeCopy) {
@@ -1323,6 +1365,7 @@ function AgentTranscriptSteerItem({ item }: { item: AgentTranscriptProcessItem }
         <AgentTranscriptAudios audios={audios} />
         <AgentTranscriptUserFiles files={files} />
         <AgentTranscriptTerminals terminals={terminals} />
+        <AgentTranscriptMessageTime timestamp={item.createdAt} kind="steer" />
       </div>
     </div>
   )
@@ -1866,32 +1909,26 @@ function AgentTranscriptCollaborationSpace({
 function AgentTranscriptProgressUpdate({
   item,
   markdownComponents,
-  compact = false,
 }: {
   item: AgentTranscriptProcessItem
   markdownComponents: Components
-  compact?: boolean
 }) {
   const progressText = String(item.detail || '').trim()
   if (!progressText) return null
-  const compactText = progressText.replace(/\s+/g, ' ').trim()
-  const compactPreview = compactText.length > 240 ? `${compactText.slice(0, 239).trimEnd()}…` : compactText
   return (
     <div
-      className={`code-acp-progress-update code-markdown-preview ${compact ? 'compact' : ''}`}
+      className="code-acp-progress-update code-markdown-preview"
       data-testid="code-acp-progress-update"
     >
-      {compact ? compactPreview : (
-        <ReactMarkdown
-          remarkPlugins={[remarkGfm, remarkMath]}
-          rehypePlugins={[rehypeKatex, rehypeHighlight]}
-          components={markdownComponents}
-          skipHtml
-          urlTransform={agentTranscriptUrlTransform}
-        >
-          {progressText}
-        </ReactMarkdown>
-      )}
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm, remarkMath]}
+        rehypePlugins={[rehypeKatex, rehypeHighlight]}
+        components={markdownComponents}
+        skipHtml
+        urlTransform={agentTranscriptUrlTransform}
+      >
+        {progressText}
+      </ReactMarkdown>
     </div>
   )
 }
@@ -2254,7 +2291,11 @@ function AgentTranscriptTurnView({
         }
       : item
   )), [loadedProcessDetails, turn.processItems])
-  const hasAnyProcess = resolvedProcessItems.length > 0
+  const userSteerItems = useMemo(
+    () => resolvedProcessItems.filter(isUserSteerProcessItem),
+    [resolvedProcessItems],
+  )
+  const hasAnyProcess = resolvedProcessItems.some(item => !isUserSteerProcessItem(item))
   const patchResults = resolvedProcessItems.filter(isPatchResultItem)
   const userImages = turn.userImages || []
   const userAudios = turn.userAudios || []
@@ -2284,7 +2325,10 @@ function AgentTranscriptTurnView({
     collaborationAgents.flatMap(agent => agent.events.map(event => event.processItemId)),
   ), [collaborationAgents])
   const mainProcessItems = useMemo(
-    () => resolvedProcessItems.filter(item => !collaborationProcessItemIds.has(item.id)),
+    () => resolvedProcessItems.filter(item => (
+      !collaborationProcessItemIds.has(item.id)
+      && !isUserSteerProcessItem(item)
+    )),
     [collaborationProcessItemIds, resolvedProcessItems],
   )
   const mainProcessTurn = useMemo(
@@ -2308,13 +2352,11 @@ function AgentTranscriptTurnView({
       .find(item => ['reasoning', 'thought'].includes(item.type) && Boolean(String(item.detail || '').trim()))
       ?.id || ''
   }, [resolvedProcessItems, turn.status])
-  const latestLiveProgressItem = useMemo(() => {
-    if (source !== 'acp' || turn.status !== 'inProgress') return null
-    return [...resolvedProcessItems]
+  const runningCompaction = turn.status === 'inProgress'
+    ? [...mainProcessItems]
       .reverse()
-      .find(item => isAcpProgressUpdate(item) && Boolean(String(item.detail || '').trim()))
-      || null
-  }, [resolvedProcessItems, source, turn.status])
+      .find(item => item.type === 'compaction' && isProcessItemRunning(item))
+    : undefined
   const compactViewport = isCompactViewport()
   const answerMessage = useMemo(() => stripRawMemoryCitation(turn.finalMessage), [turn.finalMessage])
   const shouldShowWaiting = turn.status === 'inProgress'
@@ -2322,7 +2364,8 @@ function AgentTranscriptTurnView({
     && compactProcess.items.length === 0
     && collaborationAgents.length === 0
     && (
-    Boolean(turn.userMessage) || userImages.length > 0 || userAudios.length > 0 || userFiles.length > 0 || hasAnyProcess
+    Boolean(turn.userMessage) || userImages.length > 0 || userAudios.length > 0 || userFiles.length > 0
+      || userSteerItems.length > 0 || hasAnyProcess
     )
   useEffect(() => {
     if (turn.status !== 'inProgress' || !turn.startedAt) return undefined
@@ -2341,6 +2384,11 @@ function AgentTranscriptTurnView({
     : workingLabel
   const liveToolLabel = source === 'acp' ? acpLiveToolLabel(activityTurn, copy) : ''
   const planLabel = source === 'acp' ? acpPlanLabel(activityTurn, copy) : ''
+  const processSummaryLabel = runningCompaction
+    ? copy.agentTranscriptCompactingContext
+    : turn.status === 'inProgress' && progressDuration
+      ? copy.agentTranscriptWorkingFor(progressDuration)
+      : turnProcessLabel(mainProcessTurn, copy, processSummaryWorkingLabel, planLabel)
   const loadFullProcessDetail = useCallback(async (item: AgentTranscriptProcessItem, force = false) => {
     if ((!item.detailTruncated && !item.terminalIds?.length && !item.subagentSessionId) || !onLoadProcessItemDetail) {
       return { detail: item.detail || '', terminals: item.terminals, subagentTranscript: item.subagentTranscript }
@@ -2639,8 +2687,11 @@ function AgentTranscriptTurnView({
           <AgentTranscriptUserImages images={userImages} />
           <AgentTranscriptAudios audios={userAudios} />
           <AgentTranscriptUserFiles files={userFiles} />
+          <AgentTranscriptMessageTime timestamp={turn.startedAt} kind="user" />
         </div>
       ) : null}
+
+      {userSteerItems.map(item => <AgentTranscriptSteerItem key={item.id} item={item} />)}
 
       {hasAnyProcess ? (
         <div className={`code-agent-transcript-process ${effectiveProcessOpen ? 'expanded' : ''}`}>
@@ -2666,31 +2717,15 @@ function AgentTranscriptTurnView({
             }}
               >
                 <span className="code-agent-transcript-process-summary-label">
-                  {turnProcessLabel(mainProcessTurn, copy, processSummaryWorkingLabel, planLabel)}
+                  {processSummaryLabel}
                 </span>
                 <ChevronRightGlyph className="code-agent-transcript-chevron" />
               </button>
-          {!effectiveProcessOpen ? resolvedProcessItems
-            .filter(isUserSteerProcessItem)
-            .map(item => <AgentTranscriptSteerItem key={item.id} item={item} />) : null}
           {!effectiveProcessOpen && compactProcess.items.length > 0 ? (
             <div
               className="code-agent-transcript-process-list code-agent-transcript-process-compact-list"
               data-testid="code-agent-transcript-process-compact-list"
             >
-              {compactProcess.hiddenActionCount > 0 ? (
-                <button
-                  type="button"
-                  className="code-agent-transcript-process-earlier"
-                  data-testid="code-agent-transcript-process-earlier"
-                  onClick={event => {
-                    event.stopPropagation()
-                    toggleProcessOpen()
-                  }}
-                >
-                  {copy.agentTranscriptEarlierActions(compactProcess.hiddenActionCount)}
-                </button>
-              ) : null}
               {compactProcess.items.map(item => (
                 <AgentTranscriptProcessItemView
                   key={item.id}
@@ -2711,13 +2746,6 @@ function AgentTranscriptTurnView({
                 />
               ))}
             </div>
-          ) : null}
-          {!effectiveProcessOpen && latestLiveProgressItem ? (
-            <AgentTranscriptProgressUpdate
-              item={latestLiveProgressItem}
-              markdownComponents={markdownComponents}
-              compact
-            />
           ) : null}
               {effectiveProcessOpen && hasProcess ? (
             <div className="code-agent-transcript-process-list">
@@ -2852,30 +2880,24 @@ function AgentTranscriptTurnView({
                 <ForkGlyph />
               </button>
             ) : null}
+            <AgentTranscriptMessageTime timestamp={turn.completedAt} kind="answer" />
           </div> : null}
         </div>
       ) : shouldShowWaiting ? (
         <div className="code-agent-transcript-placeholder">{copy.agentTranscriptWaiting}</div>
       ) : null}
 
-      {patchResults.length > 0 || turn.status === 'inProgress' ? (
+      {patchResults.length > 0 ? (
         <div className="code-agent-transcript-results code-agent-transcript-status-row">
-          {patchResults.length > 0 ? (
-            <AgentTranscriptPatchResultCard
-              items={patchResults}
-              copy={copy}
-              onLoadPatchChanges={onLoadPatchChanges}
-              onCreateReview={onCreatePatchReview}
-              onDecidePatch={onDecidePatch}
-              source={source}
-              workspaceRoot={workspaceRoot}
-            />
-          ) : null}
-          {turn.status === 'inProgress' ? (
-            <span className="code-agent-transcript-progress">
-              {[workingLabel, progressDuration].filter(Boolean).join(' ')}
-            </span>
-          ) : null}
+          <AgentTranscriptPatchResultCard
+            items={patchResults}
+            copy={copy}
+            onLoadPatchChanges={onLoadPatchChanges}
+            onCreateReview={onCreatePatchReview}
+            onDecidePatch={onDecidePatch}
+            source={source}
+            workspaceRoot={workspaceRoot}
+          />
         </div>
       ) : null}
     </article>
@@ -3030,8 +3052,10 @@ export function AgentTranscriptPane({
     let retryAttempt = 0
     let controller: AbortController | null = null
     let needsReconnectReload = false
+    let requestGeneration = 0
 
     const load = () => {
+      const generation = ++requestGeneration
       if (retryTimer !== null) {
         window.clearTimeout(retryTimer)
         retryTimer = null
@@ -3062,7 +3086,7 @@ export function AgentTranscriptPane({
           return response.json()
         })
         .then(payload => {
-          if (stopped) return
+          if (stopped || generation !== requestGeneration) return
           retryAttempt = 0
           needsReconnectReload = false
           const nextTranscript = source === 'acp' && payload.transcript
@@ -3080,7 +3104,7 @@ export function AgentTranscriptPane({
           setLoadingOlder(false)
         })
         .catch(reason => {
-          if (stopped || reason?.name === 'AbortError') return
+          if (stopped || generation !== requestGeneration || reason?.name === 'AbortError') return
           const retryDelay = source === 'acp' && !responseReceived && reason instanceof TypeError
             ? ACP_TRANSCRIPT_FETCH_RETRY_DELAYS_MS[retryAttempt]
             : undefined

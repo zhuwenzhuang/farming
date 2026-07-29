@@ -2,7 +2,7 @@
 // every supported coding agent, including Codex.
 const CHAT_MODE = 'chat';
 
-function chatRuntimeForProvider() {
+function chatRuntimeForProvider(_provider) {
   return 'acp';
 }
 

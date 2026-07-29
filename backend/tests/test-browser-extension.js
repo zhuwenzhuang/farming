@@ -273,7 +273,21 @@ async function testManagedAgentBrowserDiscovery() {
   const browserPath = path.join(browserDir, 'chrome');
   fs.writeFileSync(browserPath, 'fake');
   fs.chmodSync(browserPath, 0o755);
+  const systemBrowserPath = path.join(browserDir, 'google-chrome');
+  fs.writeFileSync(systemBrowserPath, 'fake system chrome');
+  fs.chmodSync(systemBrowserPath, 0o755);
+  const previousPath = process.env.PATH;
   try {
+    process.env.PATH = `${browserDir}${path.delimiter}${previousPath || ''}`;
+    assert.deepStrictEqual(
+      discoverBrowserExecutable({
+        source: 'system',
+        managedBrowserPath: browserPath,
+        platform: 'linux',
+      }),
+      { kind: 'chrome', path: systemBrowserPath },
+      'automatic system selection should avoid a managed Chromium download when a system browser is already available',
+    );
     assert.deepStrictEqual(
       discoverBrowserExecutable({
         source: 'managed',
@@ -294,6 +308,8 @@ async function testManagedAgentBrowserDiscovery() {
       /Install or update/,
     );
   } finally {
+    if (previousPath === undefined) delete process.env.PATH;
+    else process.env.PATH = previousPath;
     fs.rmSync(browserDir, { recursive: true, force: true });
   }
 }

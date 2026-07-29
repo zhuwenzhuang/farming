@@ -48,12 +48,12 @@ interface HistoryPanelProps {
 
 const HISTORY_SEARCH_DEBOUNCE_MS = 150
 const HISTORY_PAGE_SIZE = 12
-type HistoryAgentIconName = 'codex' | 'claude' | 'opencode' | 'qoder' | 'bash' | 'zsh'
+type HistoryAgentIconName = 'codex' | 'claude' | 'opencode' | 'qoder' | 'qwen' | 'bash' | 'zsh'
 
 function historyAgentIconName(value?: string): HistoryAgentIconName | undefined {
   const normalized = String(value || '').trim().toLowerCase()
   if (normalized === 'claude-code') return 'claude'
-  if (['codex', 'claude', 'opencode', 'qoder', 'bash', 'zsh'].includes(normalized)) {
+  if (['codex', 'claude', 'opencode', 'qoder', 'qwen', 'bash', 'zsh'].includes(normalized)) {
     return normalized as HistoryAgentIconName
   }
   return undefined
@@ -114,7 +114,7 @@ function HistoryMeta({
 
 function normalizeHistoryProvider(provider?: string) {
   const value = String(provider || '').trim().toLowerCase()
-  return value === 'codex' || value === 'claude' || value === 'opencode' || value === 'qoder' ? value : ''
+  return value === 'codex' || value === 'claude' || value === 'opencode' || value === 'qoder' || value === 'qwen' ? value : ''
 }
 
 function resumedSessionFromHistorySource(source?: string) {

@@ -92,12 +92,12 @@ type AgentPreviewTarget = {
   workspaceRootId?: string
 }
 
-type PreviewAgentIconName = 'codex' | 'claude' | 'opencode' | 'qoder' | 'bash' | 'zsh'
+type PreviewAgentIconName = 'codex' | 'claude' | 'opencode' | 'qoder' | 'qwen' | 'bash' | 'zsh'
 
 function previewAgentIconName(value?: string): PreviewAgentIconName | undefined {
   const normalized = value?.trim().toLowerCase() || ''
   if (normalized === 'claude-code') return 'claude'
-  if (['codex', 'claude', 'opencode', 'qoder', 'bash', 'zsh'].includes(normalized)) {
+  if (['codex', 'claude', 'opencode', 'qoder', 'qwen', 'bash', 'zsh'].includes(normalized)) {
     return normalized as PreviewAgentIconName
   }
   return undefined
@@ -189,7 +189,7 @@ interface CodeSidebarProps {
   onOpenSearch: () => void
   onOpenWorkspaceView: (view: WorkspaceView) => void
   onOpenMainAgent: () => void
-  onRestartMainAgent: (command: 'codex' | 'claude' | 'opencode' | 'qoder' | 'bash' | 'zsh') => void
+  onRestartMainAgent: (command: 'codex' | 'claude' | 'opencode' | 'qoder' | 'qwen' | 'bash' | 'zsh') => void
   onProjectListKeyDown: (event: ReactKeyboardEvent<HTMLDivElement>) => void
   onToggleProject: (projectId: string) => void
   onToggleProjectSessions: (projectId: string) => void

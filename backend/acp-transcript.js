@@ -1,5 +1,8 @@
 const crypto = require('crypto');
 const { createTwoFilesPatch, diffLines } = require('diff');
+const {
+  isCodexContextCompactionMessage,
+} = require('./codex-transcript-sanitizer');
 
 const MAX_RENDERED_DIFF_CHARS = 64 * 1024;
 const MAX_INLINE_TOOL_DETAIL_CHARS = 4 * 1024;
@@ -351,6 +354,27 @@ function transcriptEntryWithCompactMedia(entry, options = {}) {
   return { ...entry, content };
 }
 
+function transcriptEntryForClient(entry, options = {}) {
+  if (
+    entry?.type === 'message'
+    && entry.role === 'assistant'
+    && isCodexContextCompactionMessage(
+      (Array.isArray(entry.content) ? entry.content : [])
+        .filter(block => block?.type === 'text')
+        .map(block => String(block.text || ''))
+        .join('')
+    )
+  ) {
+    return {
+      id: String(entry.id || ''),
+      type: 'compaction',
+      status: 'completed',
+      summary: '',
+    };
+  }
+  return transcriptEntryWithCompactMedia(entry, options);
+}
+
 function generatedMediaTool(entry) {
   const title = String(entry?.title || '').trim().toLowerCase();
   const id = String(entry?.id || '').trim().toLowerCase();
@@ -451,6 +475,9 @@ function acpTranscriptToolEntry(entry, options = {}) {
   if (entry?._meta?.farming_patch_decisions) {
     meta.farming_patch_decisions = JSON.parse(JSON.stringify(entry._meta.farming_patch_decisions));
   }
+  if (entry?._meta?.contextCompaction === true) {
+    meta.contextCompaction = true;
+  }
   const codexMeta = transcriptCodexToolMeta(entry);
   if (codexMeta) meta.codex = codexMeta;
   return {
@@ -485,7 +512,7 @@ function acpTranscriptEntries(entries, options = {}) {
   for (let index = source.length - 1; index >= 0; index -= 1) {
     const entry = source[index];
     if (entry?.type !== 'tool') {
-      projected[index] = transcriptEntryWithCompactMedia(entry, options);
+      projected[index] = transcriptEntryForClient(entry, options);
       continue;
     }
     const projectedEntry = acpTranscriptToolEntry(entry, {

@@ -664,7 +664,7 @@ export function App() {
     ws.interruptAgent(agentId)
   }, [ws])
 
-  const handleRestartMainAgent = useCallback((command: 'codex' | 'claude' | 'opencode' | 'qoder' | 'bash' | 'zsh') => {
+  const handleRestartMainAgent = useCallback((command: 'codex' | 'claude' | 'opencode' | 'qoder' | 'qwen' | 'bash' | 'zsh') => {
     if (pendingMainRestartRef.current) return
     hiddenMainStartRequestedRef.current = true
     pendingMainRestartRef.current = { beforeIds: new Set(ws.agents.map(agent => agent.id)) }

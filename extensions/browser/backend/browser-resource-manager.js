@@ -1005,11 +1005,14 @@ class BrowserResourceManager extends EventEmitter {
 
   async stopAll() {
     const ids = [...this.runtimes.keys()];
+    /** @type {PromiseSettledResult<any>[]} */
     const results = [];
     for (const id of ids) {
-      results.push(await Promise.resolve(this.stop(id))
-        .then(value => ({ status: 'fulfilled', value }))
-        .catch(reason => ({ status: 'rejected', reason })));
+      try {
+        results.push({ status: 'fulfilled', value: await this.stop(id) });
+      } catch (reason) {
+        results.push({ status: 'rejected', reason });
+      }
     }
     const failures = results
       .filter(result => result.status === 'rejected')

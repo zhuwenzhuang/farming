@@ -48,7 +48,8 @@ function nodePtyPackageRoot() {
 }
 
 function loadNativeModule(modulePath) {
-  const runtimeRequire = module.require ? module.require.bind(module) : require;
+  const commonJsModule = /** @type {NodeModule & {require?: NodeRequire}} */ (module);
+  const runtimeRequire = commonJsModule.require ? commonJsModule.require.bind(commonJsModule) : require;
   return runtimeRequire(modulePath);
 }
 

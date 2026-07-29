@@ -109,9 +109,11 @@ class NativePtyHost {
     this.activeControllerIdentity = null;
     this.sessionMutationQueues = new Map();
     this.activeControllerMutations = new Set();
+    /** @type {Promise<any>} */
     this.controllerRegistrationQueue = Promise.resolve();
     this.controllerHandoff = null;
     this.rotationPreparation = null;
+    this.terminalExitDataFlushMs = options.terminalExitDataFlushMs;
     this.clientMaxBufferedBytes = normalizePositiveInteger(
       options.clientMaxBufferedBytes,
       DEFAULT_CLIENT_MAX_BUFFERED_BYTES,

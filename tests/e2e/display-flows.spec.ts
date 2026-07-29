@@ -256,7 +256,6 @@ test.describe('display-backed agent flows', () => {
     await expect(page.getByTestId('agent-option-claude')).toContainText('Claude Code')
     await expect(page.getByTestId('agent-option-bash')).toBeVisible()
     await expect(page.getByTestId('agent-option-zsh')).toContainText('zsh')
-    await expect(page.getByTestId('agent-option-qwen')).toHaveCount(0)
     await expect(page.getByTestId('agent-list-status')).toBeHidden()
   })
 
@@ -2619,7 +2618,6 @@ test.describe('display-backed agent flows', () => {
     await expect(page.getByTestId('agent-option-claude')).toContainText('Claude Code')
     await expect(page.getByTestId('agent-option-bash')).toContainText('bash')
     await expect(page.getByTestId('agent-option-zsh')).toContainText('zsh')
-    await expect(page.getByTestId('agent-option-qwen')).toHaveCount(0)
     if (process.platform === 'darwin') {
       await expect(page.getByTestId('input-dialog')).toHaveScreenshot('desktop-main-agent-list-dialog.png')
     }

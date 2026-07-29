@@ -332,6 +332,46 @@ const PROVIDER_ADAPTERS = Object.freeze([
       sessionFork: true,
     },
   },
+  {
+    id: 'qwen',
+    displayName: 'qwen code',
+    executable: 'qwen',
+    homeEnvKey: 'QWEN_HOME',
+    interruptInput: '\x1b',
+    freshAcpSessionSources: ['qwen-session-id'],
+    commands: ['qwen'],
+    supportedRuntimes: ['terminal', 'acp'],
+    planSession: (rawArgs, launchArgs) => explicitSessionPlan('qwen', rawArgs, launchArgs),
+    terminalResumeArgs: (args, sessionId) => {
+      const delimiterIndex = args.indexOf('--');
+      const insertIndex = delimiterIndex >= 0 ? delimiterIndex : args.length;
+      return [
+        ...args.slice(0, insertIndex),
+        '--resume',
+        sessionId,
+        ...args.slice(insertIndex),
+      ];
+    },
+    acp: {
+      version: 'native',
+      launch: options => ({
+        command: options.executable || 'qwen',
+        args: [
+          ...(typeof options.farmingSystemPrompt === 'string' && options.farmingSystemPrompt.trim()
+            ? ['--append-system-prompt', options.farmingSystemPrompt.trim()]
+            : []),
+          '--acp',
+        ],
+      }),
+    },
+    capabilities: {
+      runtimeSwitch: true,
+      terminalProfile: false,
+      goals: false,
+      goalSubmission: { terminal: { kind: 'prompt' }, acp: { kind: 'prompt' } },
+      sessionFork: false,
+    },
+  },
 ]);
 
 const ADAPTER_BY_ID = new Map(PROVIDER_ADAPTERS.map(adapter => [adapter.id, Object.freeze(adapter)]));

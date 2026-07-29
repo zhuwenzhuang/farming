@@ -68,7 +68,7 @@ class NativeSessionEngine extends SessionEngine {
         this.failActiveSessions(message);
       });
     });
-    this.client.on('host-exit', ({ code, signal } = {}) => {
+    this.client.on('host-exit', (/** @type {{code?: number, signal?: string}} */ { code, signal } = {}) => {
       const suffix = [
         code == null ? '' : `code ${code}`,
         signal ? `signal ${signal}` : '',

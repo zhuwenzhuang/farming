@@ -6,6 +6,9 @@ export interface BackendConnectionSnapshot {
   everConnected: boolean
   lastMessageAt: number
   disconnectedAt: number | null
+  businessStatus: 'checking' | 'ready' | 'recovering' | 'failed' | 'stopping' | 'unresponsive'
+  businessCheckedAt: number | null
+  businessServerEpoch: string
 }
 
 type Listener = () => void
@@ -15,6 +18,9 @@ let connectionSnapshot: BackendConnectionSnapshot = {
   everConnected: false,
   lastMessageAt: Date.now(),
   disconnectedAt: Date.now(),
+  businessStatus: 'checking',
+  businessCheckedAt: null,
+  businessServerEpoch: '',
 }
 let systemStatsSnapshot: SystemStats | null = null
 
@@ -36,6 +42,9 @@ export function resetBackendConnectionStatus() {
     everConnected: false,
     lastMessageAt: Date.now(),
     disconnectedAt: Date.now(),
+    businessStatus: 'checking',
+    businessCheckedAt: null,
+    businessServerEpoch: '',
   }
   notify(connectionListeners)
 }
@@ -47,6 +56,9 @@ export function updateBackendConnectionStatus(patch: Partial<BackendConnectionSn
     && next.everConnected === connectionSnapshot.everConnected
     && next.lastMessageAt === connectionSnapshot.lastMessageAt
     && next.disconnectedAt === connectionSnapshot.disconnectedAt
+    && next.businessStatus === connectionSnapshot.businessStatus
+    && next.businessCheckedAt === connectionSnapshot.businessCheckedAt
+    && next.businessServerEpoch === connectionSnapshot.businessServerEpoch
   ) return
   connectionSnapshot = next
   notify(connectionListeners)

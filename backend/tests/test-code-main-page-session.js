@@ -174,7 +174,7 @@ async function run() {
   const serverSource = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   const mainPageSessionSource = fs.readFileSync(path.join(__dirname, '..', 'main-page-session.js'), 'utf8');
   assert(
-    mainPageSessionSource.includes("const AUTO_RESUME_AGENT_SESSION_PROVIDERS = new Set(['codex', 'claude', 'opencode', 'qoder'])") &&
+    mainPageSessionSource.includes("const AUTO_RESUME_AGENT_SESSION_PROVIDERS = new Set(['codex', 'claude', 'opencode', 'qoder', 'qwen'])") &&
       mainPageSessionSource.includes('function mainPageAgentSessionFromKey(key)') &&
       mainPageSessionSource.includes('AUTO_RESUME_AGENT_SESSION_PROVIDERS.has(normalized)') &&
       serverSource.includes('function autoResumeMainPageAgentSessions()') &&

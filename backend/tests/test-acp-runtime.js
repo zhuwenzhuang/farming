@@ -17,6 +17,26 @@ async function run() {
   assert.strictEqual(acpErrorKind(new Error('unexpected failure')), 'unknown');
   assert.strictEqual(resolveAcpLaunch('codex').version, '1.1.4');
   assert.strictEqual(resolveAcpLaunch('claude').version, '0.59.0');
+  assert.strictEqual(resolveAcpLaunch('qwen').version, 'native');
+  const qwenAuthenticationRuntime = new AcpRuntime();
+  assert.deepStrictEqual(
+    qwenAuthenticationRuntime.terminalAuthenticationLaunch(
+      { launch: { command: '/bin/qwen', args: ['--acp'] } },
+      {
+        id: 'openai',
+        _meta: {
+          type: 'terminal',
+          args: ['--auth-type=openai'],
+        },
+      },
+    ),
+    {
+      command: '/bin/qwen',
+      args: ['--acp', '--auth-type=openai'],
+      env: {},
+    },
+    'Qwen ACP terminal authentication metadata should launch through the client terminal',
+  );
   assert.strictEqual(supportsCodexSteer({
     _meta: { codex: { steer: { method: '_codex/session/steer', version: 1 } } },
   }), true);
@@ -194,6 +214,11 @@ async function run() {
     args: ['--acp'],
     version: 'native',
   });
+  assert.deepStrictEqual(resolveAcpLaunch('qwen', { executable: '/bin/qwen' }), {
+    command: '/bin/qwen',
+    args: ['--acp'],
+    version: 'native',
+  });
   assert.deepStrictEqual(autoPermissionResponse({
     options: [{ optionId: 'yes', kind: 'allow_once' }],
   }, 'full'), { outcome: { outcome: 'selected', optionId: 'yes' } });
@@ -251,6 +276,14 @@ async function run() {
     farmingSystemPrompt,
   }), {
     command: '/bin/qodercli',
+    args: ['--append-system-prompt', farmingSystemPrompt, '--acp'],
+    version: 'native',
+  });
+  assert.deepStrictEqual(resolveAcpLaunch('qwen', {
+    executable: '/bin/qwen',
+    farmingSystemPrompt,
+  }), {
+    command: '/bin/qwen',
     args: ['--append-system-prompt', farmingSystemPrompt, '--acp'],
     version: 'native',
   });
@@ -374,6 +407,29 @@ async function run() {
     steeredDeltaState.transcriptSlice({ maxTurns: 1 }).entries[0].id,
     'steered-root',
     'a steer message must not consume the full-transcript turn limit',
+  );
+  const acceptedSteerInsertionIndex = steeredDeltaState.entries.length;
+  assert.strictEqual(steeredDeltaState.recordAcceptedSteer(
+    [{ type: 'text', text: 'Accepted without provider echo' }],
+    {
+      messageId: 'accepted-local-steer',
+      turnId: 'turn-1',
+      insertionIndex: acceptedSteerInsertionIndex,
+    },
+  ), true);
+  assert(Number.isFinite(
+    steeredDeltaState.entries.find(entry => entry.messageId === 'accepted-local-steer').createdAt,
+  ));
+  steeredDeltaState.apply({ sessionId: 'steered-delta', update: {
+    sessionUpdate: 'user_message_chunk',
+    messageId: 'accepted-local-steer',
+    content: { type: 'text', text: 'Accepted without provider echo' },
+    _meta: { codex: { steer: true, turnId: 'turn-1' } },
+  } });
+  assert.strictEqual(
+    steeredDeltaState.entries.filter(entry => entry.messageId === 'accepted-local-steer').length,
+    1,
+    'a delayed provider echo must reconcile with the accepted local steer by message id',
   );
   const replacementState = new AcpSessionState({
     provider: 'codex', sessionId: 's1', cwd: '/tmp', revisionBase: 12, resetBeforeRevision: 12,
@@ -516,6 +572,38 @@ async function run() {
   } });
   assert.strictEqual(structuredState.snapshot().entries[0].type, 'compaction');
   assert.strictEqual(structuredState.snapshot().entries[1]._meta.subagent_session_info.session_id, 'child-session');
+  const toolCompactionState = new AcpSessionState({
+    provider: 'codex', sessionId: 'tool-compaction', cwd: '/tmp',
+  });
+  toolCompactionState.apply({ sessionId: 'tool-compaction', update: {
+    sessionUpdate: 'tool_call',
+    toolCallId: 'compaction-tool',
+    title: 'Context compacting',
+    status: 'in_progress',
+    _meta: { contextCompaction: true },
+  } });
+  toolCompactionState.apply({ sessionId: 'tool-compaction', update: {
+    sessionUpdate: 'agent_message_chunk',
+    messageId: 'compaction-notice',
+    content: { type: 'text', text: "*Context compacted to fit the model's context window.*" },
+  } });
+  const completedToolCompactionEntries = toolCompactionState.snapshot().entries;
+  assert.strictEqual(completedToolCompactionEntries.length, 1);
+  assert.strictEqual(completedToolCompactionEntries[0].type, 'tool');
+  assert.strictEqual(completedToolCompactionEntries[0].status, 'completed');
+  assert.strictEqual(completedToolCompactionEntries[0].title, 'Context compacted');
+  const promptCompletedCompactionState = new AcpSessionState({
+    provider: 'codex', sessionId: 'prompt-completed-compaction', cwd: '/tmp',
+  });
+  promptCompletedCompactionState.apply({ sessionId: 'prompt-completed-compaction', update: {
+    sessionUpdate: 'tool_call',
+    toolCallId: 'dangling-compaction-tool',
+    title: 'Context compacting',
+    status: 'in_progress',
+    _meta: { contextCompaction: true },
+  } });
+  promptCompletedCompactionState.completePrompt();
+  assert.strictEqual(promptCompletedCompactionState.snapshot().entries[0].status, 'completed');
 
   const fixture = path.join(__dirname, 'fixtures', 'fake-acp-agent.mjs');
   const spawnedAdapters = [];

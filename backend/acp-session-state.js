@@ -7,6 +7,7 @@ const {
   visibleUserMessageText,
 } = require('./codex-transcript');
 const {
+  isCodexContextCompactionMessage,
   isCodexInjectedContextMessage,
   stripCodexInternalContextBlocks,
 } = require('./codex-transcript-sanitizer');
@@ -105,10 +106,7 @@ function isCodexSteerMessage(entry) {
 }
 
 function isContextCompactionText(content) {
-  const text = contentText(content).trim();
-  return /^\*?Context compacted(?: to fit the model's context window)?\.?\*?$/i.test(text)
-    || /^(?:#{1,3}\s*)?Handoff Summary(?:[ \t]*:|[ \t]*(?:\r?\n|$))/i.test(text)
-    || /^Another language model started to solve this problem and produced a summary\b/i.test(text);
+  return isCodexContextCompactionMessage(contentText(content));
 }
 
 function canMergeMessageIds(existing, incoming) {
@@ -258,7 +256,42 @@ class AcpSessionState {
     });
   }
 
+  recordAcceptedSteer(prompt, options = {}) {
+    const messageId = String(options.messageId || '');
+    if (!messageId) return false;
+    if (this.entries.some(entry => (
+      entry?.type === 'message'
+      && entry.role === 'user'
+      && entry.messageId === messageId
+    ))) return false;
+    const content = Array.isArray(prompt)
+      ? clone(prompt)
+      : [{ type: 'text', text: String(prompt || '') }];
+    const entry = {
+      id: messageId,
+      type: 'message',
+      role: 'user',
+      messageId,
+      optimistic: true,
+      content,
+      createdAt: Date.now(),
+      _meta: {
+        codex: {
+          steer: true,
+          turnId: String(options.turnId || ''),
+        },
+      },
+    };
+    this.touchEntry(entry);
+    const insertionIndex = Number.isFinite(Number(options.insertionIndex))
+      ? Math.max(0, Math.min(this.entries.length, Math.floor(Number(options.insertionIndex))))
+      : this.entries.length;
+    this.entries.splice(insertionIndex, 0, entry);
+    return true;
+  }
+
   completePrompt() {
+    this.completeContextCompactionTool();
     // Runtime completion changes the visible state of the last turn. Touch the
     // existing entry so delta readers can refresh that turn without inventing
     // a protocol entry boundary.
@@ -365,26 +398,41 @@ class AcpSessionState {
 
     const compactionMeta = update?._meta?.context_compaction;
     if (kind === 'agent_message_chunk' && (isContextCompactionText([update.content]) || compactionMeta)) {
-      this.applyCompaction({
-        compactionId: compactionMeta?.id || messageId,
-        status: compactionMeta?.status || 'completed',
-        summary: compactionMeta?.summary || '',
-      });
+      if (!this.completeContextCompactionTool(compactionMeta?.summary || '')) {
+        this.applyCompaction({
+          compactionId: compactionMeta?.id || messageId,
+          status: compactionMeta?.status || 'completed',
+          summary: compactionMeta?.summary || '',
+        });
+      }
       return;
     }
 
     // Farming inserts the local prompt optimistically. ACP Agents may echo the
     // same prompt during live updates; attach its protocol id without rendering
     // the user message twice.
-    if (
+    const matchingOptimisticUser = role === 'user' && messageId
+      ? this.entries.findLast(entry => (
+          entry?.type === 'message'
+          && entry.role === 'user'
+          && entry.optimistic
+          && entry.messageId === messageId
+        ))
+      : null;
+    const optimisticUser = matchingOptimisticUser || (
       role === 'user'
       && last?.type === 'message'
       && last.role === 'user'
       && last.optimistic
-      && (last.content || []).some(content => JSON.stringify(content) === JSON.stringify(update.content))
+      ? last
+      : null
+    );
+    if (
+      optimisticUser
+      && (optimisticUser.content || []).some(content => JSON.stringify(content) === JSON.stringify(update.content))
     ) {
-      if (!last.messageId) last.messageId = messageId;
-      this.touchEntry(last);
+      if (!optimisticUser.messageId) optimisticUser.messageId = messageId;
+      this.touchEntry(optimisticUser);
       return;
     }
 
@@ -450,6 +498,21 @@ class AcpSessionState {
     if (Object.prototype.hasOwnProperty.call(update, 'status')) entry.status = String(update.status || 'completed');
     if (Object.prototype.hasOwnProperty.call(update, 'summary')) entry.summary = String(update.summary || '');
     this.touchEntry(entry);
+  }
+
+  completeContextCompactionTool(summary = '') {
+    const entry = this.entries.findLast(candidate => (
+      candidate?.type === 'tool'
+      && candidate?._meta?.contextCompaction === true
+    ));
+    if (!entry) return false;
+    if (entry.status !== 'completed' || entry.title !== 'Context compacted') {
+      entry.status = 'completed';
+      entry.title = 'Context compacted';
+      if (summary && !entry.rawOutput) entry.rawOutput = { summary: String(summary) };
+      this.touchEntry(entry);
+    }
+    return true;
   }
 
   applyPlan(plan) {

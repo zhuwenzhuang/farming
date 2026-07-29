@@ -1,4 +1,5 @@
 const express = require('express');
+const compression = require('compression');
 const WebSocket = require('ws');
 const http = require('http');
 const path = require('path');
@@ -82,12 +83,18 @@ const {
   sanitizeAgentUpdatePatch,
   validateClientMessage,
 } = require('../shared/browser-protocol');
+const {
+  initializeWebSocketLiveness,
+  startWebSocketLivenessMonitor,
+} = require('../shared/websocket-liveness');
+const { probeAgentManagerBusinessHealth } = require('./business-health');
 
 const BASE_PATH = normalizeBasePath(process.env.FARMING_BASE_PATH || '/');
 const PORT = process.env.PORT || 3000;
 const tokenAuth = new TokenAuth({ basePath: BASE_PATH || '/' });
 const authEnabled = tokenAuth.isEnabled();
 const WS_PATH = routePath(BASE_PATH, '/ws');
+const SERVER_EPOCH = crypto.randomUUID();
 const encodeCookieToken = TokenAuth.encodeCookieToken;
 const DEFAULT_TRANSCRIPT_MAX_TURNS = 240;
 const MAX_TRANSCRIPT_TURNS = 1000;
@@ -95,8 +102,11 @@ const INTERACTIVE_REFRESH_CACHE_MAX_AGE_MS = 3_000;
 const execFileAsync = promisify(execFile);
 
 const app = express();
+app.use(compression());
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
+const websocketLivenessTimer = startWebSocketLivenessMonitor(wss, { openState: WebSocket.OPEN });
+server.on('close', () => clearInterval(websocketLivenessTimer));
 
 const configManager = new ConfigManager();
 configManager.init();
@@ -234,6 +244,11 @@ const frontendDir = path.join(__dirname, '../frontend');
 const crtFrontendDir = path.join(frontendDir, 'skins', 'crt');
 const distDir = path.join(__dirname, '../dist');
 const staticAppDir = fs.existsSync(distDir) ? distDir : frontendDir;
+const immutableAssetStaticOptions = {
+  immutable: true,
+  index: false,
+  maxAge: '1y',
+};
 const xtermBrowserEntryPath = path.join(__dirname, '..', 'node_modules', '@xterm', 'xterm', 'lib', 'xterm.js');
 const xtermFitEntryPath = path.join(__dirname, '..', 'node_modules', '@xterm', 'addon-fit', 'lib', 'addon-fit.js');
 const xtermWebglEntryPath = path.join(__dirname, '..', 'node_modules', '@xterm', 'addon-webgl', 'lib', 'addon-webgl.js');
@@ -271,6 +286,14 @@ function getAvailableAgentsForRequest() {
         name: 'qoder',
         command: 'qodercli',
         description: 'Qoder - AI coding assistant',
+        category: 'coding',
+        supported: true,
+        interactive: true,
+      },
+      {
+        name: 'qwen',
+        command: 'qwen',
+        description: 'Qwen Code - AI coding assistant',
         category: 'coding',
         supported: true,
         interactive: true,
@@ -525,8 +548,12 @@ app.get(routePath(BASE_PATH, '/vendor/material-icons/:iconId.svg'), (req, res) =
   const fallbackIcon = String(req.params.iconId || '').startsWith('folder-') ? 'folder.svg' : 'file.svg';
   res.sendFile(path.join(materialIconDir, fallbackIcon));
 });
+app.use(
+  routePath(BASE_PATH, '/assets'),
+  express.static(path.join(staticAppDir, 'assets'), immutableAssetStaticOptions),
+);
 if (BASE_PATH) {
-  app.use('/assets', express.static(path.join(staticAppDir, 'assets'), { index: false }));
+  app.use('/assets', express.static(path.join(staticAppDir, 'assets'), immutableAssetStaticOptions));
   app.use('/farming-2', express.static(path.join(staticAppDir, 'farming-2'), { index: false }));
 }
 const crtEntryPath = routePath(BASE_PATH, '/crt');
@@ -1516,7 +1543,7 @@ app.patch(routePath(BASE_PATH, '/api/agents/:agentId'), express.json(), async (r
     }
     Object.assign(updates, result);
     delete updates.agentId;
-    flagUpdateRequiresState = result.requiresState === true;
+    flagUpdateRequiresState = 'requiresState' in result && result.requiresState === true;
   }
 
   if (typeof body.launchPermissionMode === 'string') {
@@ -2342,6 +2369,7 @@ app.get(routePath(BASE_PATH, '/api/themes/:themeId'), (req, res) => {
 });
 
 wss.on('connection', (ws, req) => {
+  initializeWebSocketLiveness(ws);
   const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
   const viewerPrefix = routePath(BASE_PATH, '/api/browsers/');
   if (url.pathname.startsWith(viewerPrefix) && url.pathname.endsWith('/viewer')) {
@@ -2375,7 +2403,7 @@ wss.on('connection', (ws, req) => {
     try {
       const data = JSON.parse(message);
       const validation = validateClientMessage(data);
-      if (!validation.ok) {
+      if (validation.ok === false) {
         ws.send(JSON.stringify({
           type: 'protocol-error',
           protocolVersion: PROTOCOL_VERSION,
@@ -2409,7 +2437,7 @@ wss.on('connection', (ws, req) => {
   sendState(ws);
 });
 
-const MAIN_AGENT_RESTART_COMMANDS = new Set(['codex', 'claude', 'opencode', 'qoder', 'bash', 'zsh']);
+const MAIN_AGENT_RESTART_COMMANDS = new Set(['codex', 'claude', 'opencode', 'qoder', 'qwen', 'bash', 'zsh']);
 
 function normalizeMainAgentRestartCommand(command) {
   const normalized = String(command || '').trim();
@@ -2576,6 +2604,18 @@ async function sendComposerInputMessage(ws, data) {
   }
 }
 
+async function sendBusinessHealthResult(ws, requestId) {
+  const health = await probeAgentManagerBusinessHealth(agentManager);
+  if (ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify({
+    type: 'business-health-result',
+    requestId,
+    serverEpoch: SERVER_EPOCH,
+    protocolVersion: PROTOCOL_VERSION,
+    ...health,
+  }));
+}
+
 function handleMessage(ws, data) {
   switch (data.type) {
     case 'protocol-hello':
@@ -2584,6 +2624,18 @@ function handleMessage(ws, data) {
         return;
       }
       ws.protocolVersion = data.protocolVersion;
+      break;
+    case 'business-health-probe':
+      if (!ws.protocolVersion) {
+        ws.send(JSON.stringify({
+          type: 'protocol-error',
+          protocolVersion: PROTOCOL_VERSION,
+          requestId: data.requestId,
+          message: 'Business health requires a negotiated Farming protocol',
+        }));
+        return;
+      }
+      void sendBusinessHealthResult(ws, data.requestId);
       break;
     case 'start-agent': {
       const workspace = data.workspace || null;

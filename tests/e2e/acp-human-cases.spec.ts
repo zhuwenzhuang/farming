@@ -291,9 +291,11 @@ test.describe('ACP human-like browser matrix', () => {
     ])
     expect(foldedTimelineBox).not.toBeNull()
     expect(foldedGroupBoxes.every(Boolean)).toBe(true)
-    expect(Math.abs((foldedGroupBoxes[0]?.y || 0) - (foldedGroupBoxes[1]?.y || 0))).toBeLessThan(2)
-    expect((foldedGroupBoxes[0]?.width || 0) + (foldedGroupBoxes[1]?.width || 0))
-      .toBeLessThan(foldedTimelineBox?.width || 0)
+    expect((foldedGroupBoxes[1]?.y || 0) - (foldedGroupBoxes[0]?.y || 0)).toBeGreaterThan(20)
+    for (const groupBox of foldedGroupBoxes) {
+      expect(groupBox?.width || 0).toBeGreaterThan((foldedTimelineBox?.width || 0) * 0.8)
+      expect(groupBox?.width || 0).toBeLessThanOrEqual(foldedTimelineBox?.width || 0)
+    }
     await expect(groups.nth(0).locator('.code-agent-transcript-collaboration-count')).toBeHidden()
     const reviewGroup = groups.nth(0)
     const reviewSummary = reviewGroup.locator(
@@ -304,9 +306,9 @@ test.describe('ACP human-like browser matrix', () => {
     await expect(reviewGroup.locator(
       ':scope > .code-agent-transcript-collaboration-summary .code-agent-transcript-collaboration-count',
     )).toBeVisible()
-    expect((await reviewGroup.boundingBox())?.width || 0).toBeGreaterThan(
-      (foldedGroupBoxes[0]?.width || 0) * 1.5,
-    )
+    expect(Math.abs(
+      ((await reviewGroup.boundingBox())?.width || 0) - (foldedGroupBoxes[0]?.width || 0),
+    )).toBeLessThanOrEqual(2)
     await expect(groups).toHaveCount(3)
     const nestedGroup = reviewGroup.getByTestId('code-agent-transcript-collaboration-group')
       .filter({ hasText: 'Crt races' })
@@ -336,7 +338,7 @@ test.describe('ACP human-like browser matrix', () => {
       return {
         rowColor: getComputedStyle(summary).color,
         cardBackground: getComputedStyle(element).backgroundColor,
-        cardBorder: getComputedStyle(element).borderColor,
+        cardBorderWidth: getComputedStyle(element).borderTopWidth,
         iconColor: getComputedStyle(icon).color,
       }
     })
@@ -348,13 +350,15 @@ test.describe('ACP human-like browser matrix', () => {
       return {
         rowColor: getComputedStyle(summary).color,
         cardBackground: getComputedStyle(element).backgroundColor,
-        cardBorder: getComputedStyle(element).borderColor,
+        cardBorderWidth: getComputedStyle(element).borderTopWidth,
         iconColor: getComputedStyle(icon).color,
       }
     })
     expect(darkVisuals.rowColor).not.toBe(lightVisuals.rowColor)
-    expect(darkVisuals.cardBackground).not.toBe(lightVisuals.cardBackground)
-    expect(darkVisuals.cardBorder).not.toBe(lightVisuals.cardBorder)
+    expect(lightVisuals.cardBackground).toBe('rgba(0, 0, 0, 0)')
+    expect(darkVisuals.cardBackground).toBe('rgba(0, 0, 0, 0)')
+    expect(lightVisuals.cardBorderWidth).toBe('0px')
+    expect(darkVisuals.cardBorderWidth).toBe('0px')
     expect(darkVisuals.iconColor).toBe(lightVisuals.iconColor)
 
     const browserGroup = groups.filter({ hasText: 'Browser guards' })
@@ -792,7 +796,7 @@ test.describe('ACP human-like browser matrix', () => {
       await expect(page.getByText('Inspecting files', { exact: true })).toBeVisible({ timeout: 5_000 })
       const liveTurn = page.locator('.code-agent-transcript-turn').filter({ hasText: 'live progress' }).last()
       const liveSummary = liveTurn.getByTestId('code-agent-transcript-process-summary')
-      await expect(liveSummary).toContainText('Process')
+      await expect(liveSummary).toContainText(/Process|Working for/)
       await expect(liveSummary).toHaveAttribute('title', /run-long-command\.js --verify-mobile-composer-focus/)
       const liveAction = liveTurn.getByTestId('code-agent-transcript-process-item')
         .filter({ hasText: 'PORT=4187 FARMING_PLAYWRIGHT_PORT=4187' })
@@ -1192,7 +1196,7 @@ test.describe('ACP human-like browser matrix', () => {
     await expect(failedItem.locator('.code-agent-transcript-terminal-meta')).toContainText('Exit 2')
   })
 
-  test('keeps a dense multi-step turn compact until the user opens its evidence', async ({ page, workspaceRoot }) => {
+  test('shows one live action until the user opens dense process evidence', async ({ page, workspaceRoot }) => {
     test.setTimeout(60_000)
     const workspace = path.join(workspaceRoot, 'acp-dense-multi-step-progress')
     fs.mkdirSync(workspace, { recursive: true })
@@ -1203,17 +1207,15 @@ test.describe('ACP human-like browser matrix', () => {
     await sendAcpMessage(page, 'dense multi-step progress')
     const turn = page.locator('.code-agent-transcript-turn').filter({ hasText: 'dense multi-step progress' }).last()
     const processSummary = turn.getByTestId('code-agent-transcript-process-summary')
-    await expect(processSummary).toContainText('Process', { timeout: 10_000 })
+    await expect(processSummary).toContainText(/Process|Working for/, { timeout: 10_000 })
     expect(await processSummary.getAttribute('aria-expanded')).toBe('false')
     await expect(turn.getByTestId('code-agent-transcript-process-group')).toHaveCount(0)
-    await expect(turn.getByTestId('code-agent-transcript-process-item')).toHaveCount(4)
-    await expect(turn.getByTestId('code-agent-transcript-process-earlier')).toHaveText('16 earlier actions')
-    for (const step of [21, 22, 23, 24]) {
-      await expect(turn.getByTestId('code-agent-transcript-process-item')
-        .filter({ hasText: `Run verification step ${step}` })).toBeVisible()
-    }
+    await expect(turn.getByTestId('code-agent-transcript-process-item')).toHaveCount(1)
+    await expect(turn.getByTestId('code-agent-transcript-process-earlier')).toHaveCount(0)
     await expect(turn.getByTestId('code-agent-transcript-process-item')
-      .filter({ hasText: 'Run verification step 20' })).toHaveCount(0)
+      .filter({ hasText: 'Run verification step 24' })).toBeVisible()
+    await expect(turn.getByTestId('code-agent-transcript-process-item')
+      .filter({ hasText: 'Run verification step 23' })).toHaveCount(0)
     await expect(turn.getByTestId('code-agent-transcript-process-item')
       .filter({ hasText: 'Failed: Run verification step 2' })).toHaveCount(0)
     await expect(turn.getByTestId('code-agent-transcript-process-item')
@@ -1223,13 +1225,8 @@ test.describe('ACP human-like browser matrix', () => {
     const activeAction = turn.getByTestId('code-agent-transcript-process-item')
       .filter({ hasText: 'Run verification step 24' })
     await expect(activeAction).toBeVisible()
-    const visibleProgress = turn.getByTestId('code-acp-progress-update')
-    await expect(visibleProgress).toHaveCount(1)
-    await expect(visibleProgress).toContainText('The second verification phase passed; final checks are running.')
-    await expect(visibleProgress).not.toContainText('The first verification phase passed.')
-    await expect(visibleProgress).toHaveCSS('max-height', '73px')
-    await expect(visibleProgress).toHaveCSS('overflow', 'hidden')
-    await expect(visibleProgress.locator('a')).toHaveCount(0)
+    await expect(turn.getByTestId('code-acp-progress-update')).toHaveCount(0)
+    await expect(turn).not.toContainText('The second verification phase passed; final checks are running.')
 
     await activeAction.getByTestId('code-agent-transcript-process-item-toggle').click()
     await processSummary.click()
@@ -1240,6 +1237,7 @@ test.describe('ACP human-like browser matrix', () => {
     await expect(activeFullGroup.getByTestId('code-agent-transcript-process-group-toggle')).toHaveAttribute('aria-expanded', 'true')
     const fullProgress = turn.getByTestId('code-acp-progress-update').last()
     expect((await fullProgress.boundingBox())?.height || 0).toBeGreaterThan(60)
+    await expect(fullProgress).toContainText('The second verification phase passed; final checks are running.')
     await expect(fullProgress.getByRole('link', { name: 'Details' })).toBeVisible()
     const thought = turn.getByTestId('code-agent-transcript-process-item').filter({ hasText: 'Reasoning' })
     await expect(thought).toHaveCount(24)
@@ -1248,7 +1246,7 @@ test.describe('ACP human-like browser matrix', () => {
     await processSummary.click()
     await expect(processSummary).toHaveAttribute('aria-expanded', 'false')
     await expect(turn.getByTestId('code-agent-transcript-process-group')).toHaveCount(0)
-    await expect(turn.getByTestId('code-agent-transcript-process-item')).toHaveCount(4)
+    await expect(turn.getByTestId('code-agent-transcript-process-item')).toHaveCount(1)
 
     await expect(page.getByText('Dense multi-step progress complete.', { exact: true })).toBeVisible({ timeout: 15_000 })
     await expect(processSummary).toHaveAttribute('aria-expanded', 'false')

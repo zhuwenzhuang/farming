@@ -666,6 +666,32 @@ test('an action attempted during reconnect uses a neutral recoverable notice', a
   await expect(page.getByTestId('connection-status')).toHaveCount(0, { timeout: 7_000 })
 })
 
+test('reports a failed business probe without calling the WebSocket disconnected', async ({ page }) => {
+  let dropBusinessHealth = true
+  await page.routeWebSocket(/\/farming\/ws(?:\?|$)/, socket => {
+    const server = socket.connectToServer()
+    server.onMessage(message => {
+      try {
+        const parsed = JSON.parse(String(message)) as { type?: string }
+        if (dropBusinessHealth && parsed.type === 'business-health-result') return
+      } catch {
+        // Non-JSON protocol frames remain part of the live connection.
+      }
+      socket.send(message)
+    })
+  })
+
+  await openFarming(page)
+  const status = page.getByTestId('connection-status')
+  await expect(status).toHaveClass(/business-unavailable/, { timeout: 12_000 })
+  await expect(status).not.toHaveClass(/connecting|lost/)
+  await expect(status).toContainText('business state is not responding')
+
+  dropBusinessHealth = false
+  await expect(status).toHaveCount(0, { timeout: 8_000 })
+  await expect(page.getByTestId('app-shell')).toBeVisible()
+})
+
 test('natural black-hole evaporation resumes at the absolute-time progress', async ({ page }) => {
   await page.addInitScript(({ settingsKey, runtimeKey }) => {
     localStorage.setItem(settingsKey, JSON.stringify({

@@ -7,6 +7,19 @@ const DEFAULT_TIMEOUT_MS = 5000;
 const DEFAULT_CACHE_MS = 3000;
 const cache = new Map();
 
+/**
+ * @typedef {Object} GitWorktreeRecord
+ * @property {string} path
+ * @property {string} [head]
+ * @property {string} [branch]
+ * @property {boolean} [bare]
+ * @property {boolean} [detached]
+ * @property {boolean} [locked]
+ * @property {string} [lockReason]
+ * @property {boolean} [prunable]
+ * @property {string} [pruneReason]
+ */
+
 function normalizePathValue(value) {
   if (typeof value !== 'string') return '';
   const trimmed = value.trim();
@@ -25,7 +38,9 @@ function normalizeBranchRef(value) {
 }
 
 function parseGitWorktreeList(output) {
+  /** @type {GitWorktreeRecord[]} */
   const records = [];
+  /** @type {GitWorktreeRecord | null} */
   let current = null;
 
   for (const token of String(output || '').split('\0')) {

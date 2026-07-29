@@ -688,6 +688,7 @@ function summarizeApplyPatchText(input) {
   const text = normalizeText(input);
   if (!text.startsWith('*** Begin Patch')) return '';
   const rows = [];
+  /** @type {any} */
   let active = null;
   const flush = () => {
     if (!active) return;
@@ -1692,6 +1693,7 @@ function appendProcessDelta(turn, item) {
 
 function buildTranscriptFromLines(lines, options = {}) {
   const turns = [];
+  /** @type {any} */
   let active = null;
   const functionCalls = new Map();
 

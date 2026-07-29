@@ -88,6 +88,17 @@ function normalizeArch(value) {
   return raw;
 }
 
+/**
+ * @param {string} url
+ * @param {{
+ *   accept?: string,
+ *   headers?: Record<string, string>,
+ *   authToken?: string,
+ *   [key: string]: any,
+ * }} [options]
+ * @param {number} [redirectCount]
+ * @param {string | false | null} [authOrigin]
+ */
 function requestWithRedirects(url, options = {}, redirectCount = 0, authOrigin = null) {
   if (redirectCount > 5) {
     return Promise.reject(new Error(`too many redirects for ${url}`));
@@ -98,6 +109,7 @@ function requestWithRedirects(url, options = {}, redirectCount = 0, authOrigin =
     const allowedAuthOrigin = authOrigin === false ? '' : (authOrigin || parsed.origin);
     const sameAuthOrigin = Boolean(allowedAuthOrigin) && parsed.origin === allowedAuthOrigin;
     const client = parsed.protocol === 'http:' ? http : https;
+    /** @type {Record<string, string>} */
     const headers = {
       'User-Agent': 'Farming-Update-Check',
       Accept: options.accept || 'application/json',

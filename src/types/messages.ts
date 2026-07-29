@@ -7,6 +7,11 @@ export interface ProtocolClientHelloMessage {
   protocolVersion: number
 }
 
+export interface BusinessHealthProbeMessage {
+  type: 'business-health-probe'
+  requestId: string
+}
+
 export interface StartAgentMessage {
   type: 'start-agent'
   requestId?: string
@@ -92,7 +97,7 @@ export interface InterruptAgentMessage {
 
 export interface RestartMainAgentMessage {
   type: 'restart-main-agent'
-  command: 'codex' | 'claude' | 'opencode' | 'qoder' | 'bash' | 'zsh'
+  command: 'codex' | 'claude' | 'opencode' | 'qoder' | 'qwen' | 'bash' | 'zsh'
 }
 
 export interface WatchWorkspaceFilesMessage {
@@ -107,6 +112,7 @@ export interface UnwatchWorkspaceFilesMessage {
 
 export type ClientMessage =
   | ProtocolClientHelloMessage
+  | BusinessHealthProbeMessage
   | StartAgentMessage
   | InputMessage
   | ComposerInputMessage
@@ -131,6 +137,16 @@ export interface ProtocolErrorMessage {
   protocolVersion: number
   requestId?: string
   message: string
+}
+
+export interface BusinessHealthResultMessage {
+  type: 'business-health-result'
+  requestId: string
+  serverEpoch: string
+  protocolVersion: number
+  status: 'ready' | 'recovering' | 'failed' | 'stopping'
+  agentCount: number
+  mainAgentId: string | null
 }
 
 export interface CommandAckMessage {
@@ -272,6 +288,7 @@ export interface WorkspaceFileEventMessage {
 export type ServerMessage =
   | ProtocolServerHelloMessage
   | ProtocolErrorMessage
+  | BusinessHealthResultMessage
   | CommandAckMessage
   | StateMessage
   | ErrorMessage

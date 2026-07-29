@@ -72,6 +72,7 @@ async function run() {
       CODEX_THREAD_ID: 'should-not-leak',
       CLAUDE_INTERNAL_STATE: 'should-not-leak',
       CLAUDE_CONFIG_DIR: '/process/claude',
+      QWEN_HOME: '/process/qwen',
     },
     shellEnv: {
       PATH: '/shell/bin',
@@ -87,6 +88,7 @@ async function run() {
   assert.strictEqual(baseEnv.CODEX_THREAD_ID, undefined, 'Codex harness metadata should not leak into agents');
   assert.strictEqual(baseEnv.CLAUDE_INTERNAL_STATE, undefined, 'unknown Claude harness metadata should not leak into agents');
   assert.strictEqual(baseEnv.CLAUDE_CONFIG_DIR, '/process/claude', 'explicit Claude config path should be preserved');
+  assert.strictEqual(baseEnv.QWEN_HOME, '/process/qwen', 'explicit Qwen Code home should be preserved');
 
   const normalizedEnv = normalizeInteractiveTerminalEnv({
     TERM: 'dumb',

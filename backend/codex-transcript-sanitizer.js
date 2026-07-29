@@ -105,9 +105,18 @@ function isCodexInjectedContextMessage(value) {
   return Boolean(text) && !stripCodexInternalContextBlocks(text);
 }
 
+function isCodexContextCompactionMessage(value) {
+  const text = normalizeCodexTranscriptText(value);
+  if (!text) return false;
+  return /^\*?Context compacted(?: to fit the model's context window)?\.?\*?$/i.test(text)
+    || /^(?:#{1,3}\s*)?(?:\*{1,2}|_{1,2})?Handoff Summary(?:\*{1,2}|_{1,2})?(?:[ \t]*:|[ \t]*(?:\n|$))/i.test(text)
+    || /^Another language model started to solve this problem and produced a summary\b/i.test(text);
+}
+
 module.exports = {
   heartbeatAssistantMessage,
   heartbeatUserMessage,
+  isCodexContextCompactionMessage,
   isCodexInjectedContextMessage,
   parseHeartbeatEnvelope,
   stripCodexAppDirectives,

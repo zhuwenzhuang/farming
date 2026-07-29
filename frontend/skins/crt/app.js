@@ -6139,7 +6139,7 @@ function canSwitchCrtAgentRuntime(agent) {
     && agent.terminalInputReceived !== true;
   return Boolean(
     agent
-    && ['codex', 'claude', 'opencode', 'qoder'].includes(agent.providerSessionProvider || '')
+    && ['codex', 'claude', 'opencode', 'qoder', 'qwen'].includes(agent.providerSessionProvider || '')
     && (agent.providerSessionTemporary !== true || freshCodexTerminal)
     && String(agent.providerSessionId || '').trim()
   );
