@@ -340,6 +340,13 @@ test.describe('display-backed agent flows', () => {
 
   test('guides an empty workspace and resumes History from the row body', async ({ page, workspaceRoot }) => {
     const sessionId = '019f0000-0000-7000-8000-000000000221'
+    const globalWorktreeRequests: string[] = []
+    page.on('request', request => {
+      const url = new URL(request.url())
+      if (url.pathname.endsWith('/api/files/worktrees') && url.searchParams.get('rootId') === 'wroot_global') {
+        globalWorktreeRequests.push(request.url())
+      }
+    })
     await mockCodexSessions(page, [{
       provider: 'codex',
       providerName: 'Codex',
@@ -369,6 +376,7 @@ test.describe('display-backed agent flows', () => {
     await expect(emptyWorkspace.getByTestId('code-empty-home-plugins')).toBeVisible()
     await expect(page.getByTestId('code-empty-home-brace')).toBeVisible()
     await expect(page.getByTestId('code-empty-home-target-brace')).toBeVisible()
+    expect(globalWorktreeRequests).toEqual([])
     const guideGeometry = await page.evaluate(() => {
       const brace = document.querySelector<HTMLElement>('[data-testid="code-empty-home-brace"]')?.getBoundingClientRect()
       const guideHome = document.querySelector<HTMLElement>('.code-empty-home')?.getBoundingClientRect()

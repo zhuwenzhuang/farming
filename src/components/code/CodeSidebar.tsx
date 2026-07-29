@@ -1436,13 +1436,13 @@ function ProjectSection({
   }, [project.gitWorktree])
 
   useEffect(() => {
-    if (!filesWorkspaceId) return
+    if (!filesWorkspaceId || globalRootProject) return
     const controller = new AbortController()
     void fetchWorkspaceGitWorktrees(filesWorkspaceId, { signal: controller.signal })
       .then(setRepositoryWorktrees)
       .catch(() => {})
     return () => controller.abort()
-  }, [filesWorkspaceId])
+  }, [filesWorkspaceId, globalRootProject])
 
   const withProjectSourceAgent = useCallback((target?: WorkspaceFileOpenTarget) => {
     if (!projectSourceAgent?.id || target?.sourceAgentId) return target
