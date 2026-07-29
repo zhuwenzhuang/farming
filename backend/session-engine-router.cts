@@ -1,6 +1,8 @@
 const { getAgentSpec } = require('./cli-agents');
 const LocalSessionEngine = require('./local-session-engine') as SessionEngineConstructor;
-const NativeSessionEngine = require('./native-session-engine') as SessionEngineConstructor;
+const { NativeSessionEngine } = require('./native-session-engine.cjs') as {
+  NativeSessionEngine: SessionEngineConstructor;
+};
 
 interface ConfigManagerLike {
   farmingDir?: string;

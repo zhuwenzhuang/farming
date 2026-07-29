@@ -1,6 +1,6 @@
 const assert = require('assert');
 const EventEmitter = require('events');
-const NativeSessionEngine = require('../native-session-engine');
+const { NativeSessionEngine } = require('../native-session-engine.cjs');
 
 function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));

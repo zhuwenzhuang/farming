@@ -1,33 +1,73 @@
-const { SessionEngine } = require('./session-engine.cjs');
-const NativePtyHostClient = require('./native-pty-host-client');
-const { normalizeShellSessionOptions } = require('./local-session-engine');
-const { cleanupShellBusyIntegration } = require('./shell-busy-integration');
+import { SessionEngine } from './session-engine.cjs';
+
+interface NativePtyClient {
+  canConnectWithoutStartingHost?(): boolean;
+  consumeRuntimeRotation?(): unknown;
+  disconnect(options: { preserveHost: boolean }): void;
+  on(eventName: string, listener: (payload?: unknown) => void): unknown;
+  request<T = unknown>(
+    command: string,
+    payload: Record<string, unknown>,
+    options?: Record<string, unknown>,
+  ): Promise<T>;
+}
+
+const NativePtyHostClient = require('./native-pty-host-client') as new (
+  options: Record<string, unknown>,
+) => NativePtyClient;
+const { normalizeShellSessionOptions } = require('./local-session-engine') as {
+  normalizeShellSessionOptions(options: Record<string, unknown>): Record<string, unknown>;
+};
+const { cleanupShellBusyIntegration } = require('./shell-busy-integration') as {
+  cleanupShellBusyIntegration(integration: unknown): void;
+};
 const { compareNativePtyRuntimeEpochs } = require('./native-pty-controller-generation.cjs');
 
-function isRecoverableConnectError(error) {
-  const code = error && error.code;
+interface NativeSessionEngineOptions {
+  client?: NativePtyClient;
+  configDir?: string;
+  preserveHostOnDispose?: boolean;
+  socketPath?: string;
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isRecoverableConnectError(error: unknown): boolean {
+  const code = error instanceof Error && 'code' in error ? String(error.code) : '';
   return code === 'ENOENT' || code === 'ECONNREFUSED' || code === 'ECONNRESET' || code === 'EPIPE' || code === 'ETIMEDOUT';
 }
 
-function nativeSessionId(entry, fallback = '') {
-  if (!entry || typeof entry !== 'object') return fallback || '';
-  return entry.sessionId || entry.agentId || entry.metadata?.agentId || fallback || '';
+function nativeSessionId(entry: unknown, fallback = ''): string {
+  if (!isObject(entry)) return fallback || '';
+  const metadata = isObject(entry.metadata) ? entry.metadata : {};
+  return String(entry.sessionId || entry.agentId || metadata.agentId || fallback || '');
 }
 
-function recoveredRuntimeEpoch(entry) {
-  if (!entry || typeof entry !== 'object') return '';
+function recoveredRuntimeEpoch(entry: unknown): string {
+  if (!isObject(entry)) return '';
   if (typeof entry.runtimeEpoch === 'string' && entry.runtimeEpoch) return entry.runtimeEpoch;
-  return typeof entry.state?.runtimeEpoch === 'string' ? entry.state.runtimeEpoch : '';
+  const state = isObject(entry.state) ? entry.state : {};
+  return typeof state.runtimeEpoch === 'string' ? state.runtimeEpoch : '';
 }
 
-function shouldAdvanceRuntimeEpoch(currentEpoch, nextEpoch) {
+function shouldAdvanceRuntimeEpoch(currentEpoch: string, nextEpoch: string): boolean {
   if (!nextEpoch) return false;
   if (!currentEpoch || currentEpoch === nextEpoch) return true;
   return compareNativePtyRuntimeEpochs(nextEpoch, currentEpoch) === 1;
 }
 
 class NativeSessionEngine extends SessionEngine {
-  constructor(options = {}) {
+  client: NativePtyClient;
+  preserveHostOnDispose: boolean;
+  activeSessionIds: Set<string>;
+  activeSessionEpochs: Map<string, string>;
+  hostDisconnectGeneration: number;
+  reconciledHostDisconnectGeneration: number;
+  hostDisconnectReconcilePromise: Promise<void> | null;
+
+  constructor(options: NativeSessionEngineOptions = {}) {
     super();
     this.client = options.client || new NativePtyHostClient({
       configDir: options.configDir,
@@ -35,15 +75,15 @@ class NativeSessionEngine extends SessionEngine {
       preserveHostOnDisconnect: options.preserveHostOnDispose === true,
     });
     this.preserveHostOnDispose = options.preserveHostOnDispose === true;
-    this.activeSessionIds = new Set();
-    this.activeSessionEpochs = new Map();
+    this.activeSessionIds = new Set<string>();
+    this.activeSessionEpochs = new Map<string, string>();
     this.hostDisconnectGeneration = 0;
     this.reconciledHostDisconnectGeneration = 0;
     this.hostDisconnectReconcilePromise = null;
     this.bindClientEvents();
   }
 
-  bindClientEvents() {
+  bindClientEvents(): void {
     [
       'session-started',
       'session-output',
@@ -56,19 +96,22 @@ class NativeSessionEngine extends SessionEngine {
       'session-exited',
       'session-error',
     ].forEach(eventName => {
-      this.client.on(eventName, payload => {
-        this.observeSessionLifecycleEvent(eventName, payload || {});
+      this.client.on(eventName, (payload: unknown) => {
+        this.observeSessionLifecycleEvent(eventName, payload);
         this.emit(eventName, payload);
       });
     });
     this.client.on('host-disconnect', () => {
       this.hostDisconnectGeneration += 1;
-      this.reconcileHostDisconnect().catch(error => {
-        const message = error && error.message ? error.message : 'Native pty host disconnected';
+      this.reconcileHostDisconnect().catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : 'Native pty host disconnected';
         this.failActiveSessions(message);
       });
     });
-    this.client.on('host-exit', (/** @type {{code?: number, signal?: string}} */ { code, signal } = {}) => {
+    this.client.on('host-exit', (payload: unknown) => {
+      const exit = isObject(payload) ? payload : {};
+      const code = typeof exit.code === 'number' ? exit.code : null;
+      const signal = typeof exit.signal === 'string' ? exit.signal : '';
       const suffix = [
         code == null ? '' : `code ${code}`,
         signal ? `signal ${signal}` : '',
@@ -77,11 +120,12 @@ class NativeSessionEngine extends SessionEngine {
     });
   }
 
-  observeSessionLifecycleEvent(eventName, payload) {
+  observeSessionLifecycleEvent(eventName: string, payload: unknown): void {
     const sessionId = nativeSessionId(payload);
     if (!sessionId) return;
+    const event = isObject(payload) ? payload : {};
     if (eventName === 'session-started') {
-      const runtimeEpoch = typeof payload.runtimeEpoch === 'string' ? payload.runtimeEpoch : '';
+      const runtimeEpoch = typeof event.runtimeEpoch === 'string' ? event.runtimeEpoch : '';
       const currentEpoch = this.activeSessionEpochs.get(sessionId) || '';
       if (shouldAdvanceRuntimeEpoch(currentEpoch, runtimeEpoch)) {
         this.activeSessionIds.add(sessionId);
@@ -91,14 +135,14 @@ class NativeSessionEngine extends SessionEngine {
       }
     } else if (eventName === 'session-exited') {
       const currentEpoch = this.activeSessionEpochs.get(sessionId) || '';
-      const exitedEpoch = typeof payload.runtimeEpoch === 'string' ? payload.runtimeEpoch : '';
+      const exitedEpoch = typeof event.runtimeEpoch === 'string' ? event.runtimeEpoch : '';
       if (currentEpoch ? exitedEpoch !== currentEpoch : Boolean(exitedEpoch)) return;
       this.activeSessionIds.delete(sessionId);
       this.activeSessionEpochs.delete(sessionId);
     }
   }
 
-  async reconcileHostDisconnect() {
+  async reconcileHostDisconnect(): Promise<void> {
     if (this.hostDisconnectReconcilePromise) return this.hostDisconnectReconcilePromise;
     this.hostDisconnectReconcilePromise = (async () => {
       while (this.reconciledHostDisconnectGeneration < this.hostDisconnectGeneration) {
@@ -109,7 +153,7 @@ class NativeSessionEngine extends SessionEngine {
         }));
         if (expectedSessions.length > 0) {
           const recovered = await this.recoverSessions({ startHost: true });
-          const recoveredIds = new Set((recovered || [])
+          const recoveredIds = new Set<string>((recovered || [])
             .map(entry => nativeSessionId(entry))
             .filter(Boolean));
 
@@ -135,7 +179,7 @@ class NativeSessionEngine extends SessionEngine {
     }
   }
 
-  failActiveSessions(message) {
+  failActiveSessions(message: string): void {
     for (const sessionId of [...this.activeSessionIds]) {
       this.activeSessionIds.delete(sessionId);
       const runtimeEpoch = this.activeSessionEpochs.get(sessionId) || '';
@@ -149,15 +193,15 @@ class NativeSessionEngine extends SessionEngine {
     }
   }
 
-  getSessionSource() {
+  getSessionSource(): 'buffer' {
     return 'buffer';
   }
 
-  async createSession(options) {
+  override async createSession(options: unknown): Promise<unknown> {
     // Prepare the startup plan in the server process. A native PTY host may
     // deliberately survive a server restart, so it must not retain authority
     // over how newly created shells source rc files or choose a prompt.
-    const preparedOptions = normalizeShellSessionOptions(options);
+    const preparedOptions = normalizeShellSessionOptions(isObject(options) ? options : {});
     preparedOptions.shellIntegrationPrepared = true;
     let result;
     try {
@@ -166,12 +210,16 @@ class NativeSessionEngine extends SessionEngine {
       cleanupShellBusyIntegration(preparedOptions.shellBusyIntegration);
       throw error;
     }
-    const sessionId = nativeSessionId(result, preparedOptions.agentId);
+    const sessionId = nativeSessionId(result, String(preparedOptions.agentId || ''));
     if (sessionId) this.activeSessionIds.add(sessionId);
     return result;
   }
 
-  async sendInput(sessionId, input, options = {}) {
+  override async sendInput(
+    sessionId: string,
+    input: unknown,
+    options: { expectedRuntimeEpoch?: string } = {},
+  ): Promise<unknown> {
     return this.client.request('sendInput', {
       sessionId,
       input,
@@ -181,15 +229,22 @@ class NativeSessionEngine extends SessionEngine {
     });
   }
 
-  async interruptSession(sessionId, input = '\x03', options = {}) {
+  override async interruptSession(
+    sessionId: string,
+    input: unknown = '\x03',
+    options: { expectedRuntimeEpoch?: string } = {},
+  ): Promise<unknown> {
     return this.sendInput(sessionId, input, options);
   }
 
-  async resizeSession(sessionId, cols, rows) {
+  override async resizeSession(sessionId: string, cols: number, rows: number): Promise<unknown> {
     return this.client.request('resizeSession', { sessionId, cols, rows });
   }
 
-  async clearBuffer(sessionId, options = {}) {
+  override async clearBuffer(
+    sessionId: string,
+    options: { expectedRuntimeEpoch?: string } = {},
+  ): Promise<unknown> {
     return this.client.request('clearBuffer', {
       sessionId,
       expectedRuntimeEpoch: options.expectedRuntimeEpoch || '',
@@ -198,26 +253,28 @@ class NativeSessionEngine extends SessionEngine {
     });
   }
 
-  async killSession(sessionId) {
+  override async killSession(sessionId: string): Promise<unknown> {
     const result = await this.client.request('killSession', { sessionId });
     this.activeSessionIds.delete(sessionId);
     this.activeSessionEpochs.delete(sessionId);
     return result;
   }
 
-  async getSessionState(sessionId) {
+  override async getSessionState(sessionId: string): Promise<unknown> {
     return this.client.request('getSessionState', { sessionId });
   }
 
-  async getSessionAttachCheckpoint(sessionId) {
+  async getSessionAttachCheckpoint(sessionId: string): Promise<unknown> {
     return this.client.request('getSessionAttachCheckpoint', { sessionId });
   }
 
-  async getSessionPreview(sessionId) {
+  override async getSessionPreview(sessionId: string): Promise<unknown> {
     return this.client.request('getSessionPreview', { sessionId });
   }
 
-  async recoverSessions(options = {}) {
+  override async recoverSessions(
+    options: { startHost?: boolean } = {},
+  ): Promise<Record<string, unknown>[]> {
     const startHost = options.startHost === true;
     if (
       !startHost &&
@@ -228,7 +285,7 @@ class NativeSessionEngine extends SessionEngine {
       return [];
     }
     try {
-      const recovered = await this.client.request('recoverSessions', {}, { startHost });
+      const recovered = await this.client.request<unknown[]>('recoverSessions', {}, { startHost });
       for (const entry of recovered || []) {
         const sessionId = nativeSessionId(entry);
         if (!sessionId) continue;
@@ -239,24 +296,24 @@ class NativeSessionEngine extends SessionEngine {
           this.activeSessionEpochs.set(sessionId, runtimeEpoch);
         }
       }
-      return recovered;
+      return recovered.filter(isObject);
     } catch (error) {
       if (isRecoverableConnectError(error)) return [];
       throw error;
     }
   }
 
-  async updateSessionMetadata(sessionId, patch) {
+  async updateSessionMetadata(sessionId: string, patch: unknown): Promise<unknown> {
     return this.client.request('updateSessionMetadata', { sessionId, patch });
   }
 
-  consumeRuntimeRotation() {
+  override consumeRuntimeRotation(): unknown {
     return typeof this.client.consumeRuntimeRotation === 'function'
       ? this.client.consumeRuntimeRotation()
       : null;
   }
 
-  dispose(options = {}) {
+  override dispose(options: { preserveHost?: boolean } = {}): void {
     this.client.disconnect({
       preserveHost: options.preserveHost === true || this.preserveHostOnDispose,
     });
@@ -265,4 +322,4 @@ class NativeSessionEngine extends SessionEngine {
   }
 }
 
-module.exports = NativeSessionEngine;
+export { NativeSessionEngine };

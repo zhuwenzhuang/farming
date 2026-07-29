@@ -6,7 +6,7 @@ const path = require('path');
 const LocalSessionEngine = require('../local-session-engine');
 const NativePtyHost = require('../native-pty-host');
 const NativePtyHostClient = require('../native-pty-host-client');
-const NativeSessionEngine = require('../native-session-engine');
+const { NativeSessionEngine } = require('../native-session-engine.cjs');
 const { nativePtyHostSocketPath } = require('../native-pty-host-path.cjs');
 const {
   nativePtyHostRuntimeIdentity,

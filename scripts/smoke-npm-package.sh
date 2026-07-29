@@ -112,6 +112,7 @@ for runtime_module in \
   native-pty-controller-generation \
   native-pty-host-identity \
   native-pty-host-path \
+  native-session-engine \
   network \
   provider-session-id \
   preview-session-manager \
