@@ -1188,7 +1188,7 @@ body.code-resizing-sidebar {
   -webkit-overflow-scrolling: touch;
   scrollbar-gutter: stable;
   scrollbar-width: thin;
-  scrollbar-color: rgba(95, 103, 94, 0.28) transparent;
+  scrollbar-color: transparent transparent;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -1202,11 +1202,19 @@ body.code-resizing-sidebar {
 
 .code-project-list::-webkit-scrollbar-thumb {
   border-radius: 999px;
-  background: rgba(95, 103, 94, 0.24);
+  background: transparent;
 }
 
 .code-project-list::-webkit-scrollbar-track {
   background: transparent;
+}
+
+.code-project-list:hover {
+  scrollbar-color: rgba(95, 103, 94, 0.28) transparent;
+}
+
+.code-project-list:hover::-webkit-scrollbar-thumb {
+  background: rgba(95, 103, 94, 0.24);
 }
 
 .code-project-list:focus-visible {

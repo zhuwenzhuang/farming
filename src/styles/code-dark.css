@@ -283,7 +283,6 @@ body.code-mode[data-appearance='dark'] .workspace-input textarea.task-input::pla
   color: var(--code-dark-text-muted);
 }
 
-body.code-mode[data-appearance='dark'] .code-project-list::-webkit-scrollbar-thumb,
 body.code-mode[data-appearance='dark'] .code-file-tree::-webkit-scrollbar-thumb,
 body.code-mode[data-appearance='dark'] .code-terminal-grid::-webkit-scrollbar-thumb,
 body.code-mode[data-appearance='dark'] .code-file-search-results::-webkit-scrollbar-thumb,
@@ -291,12 +290,19 @@ body.code-mode[data-appearance='dark'] .code-file-editor-tabs::-webkit-scrollbar
   background: rgba(139, 148, 158, 0.32);
 }
 
-body.code-mode[data-appearance='dark'] .code-project-list::-webkit-scrollbar-track,
 body.code-mode[data-appearance='dark'] .code-file-tree::-webkit-scrollbar-track,
 body.code-mode[data-appearance='dark'] .code-terminal-grid::-webkit-scrollbar-track,
 body.code-mode[data-appearance='dark'] .code-file-search-results::-webkit-scrollbar-track,
 body.code-mode[data-appearance='dark'] .code-file-editor-tabs::-webkit-scrollbar-track {
   background: var(--code-dark-bg-soft);
+}
+
+body.code-mode[data-appearance='dark'] .code-project-list:hover {
+  scrollbar-color: rgba(139, 148, 158, 0.32) transparent;
+}
+
+body.code-mode[data-appearance='dark'] .code-project-list:hover::-webkit-scrollbar-thumb {
+  background: rgba(139, 148, 158, 0.32);
 }
 
 body.code-mode[data-appearance='dark'] .code-file-search-results {
