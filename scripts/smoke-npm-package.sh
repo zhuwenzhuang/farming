@@ -101,8 +101,10 @@ for runtime_module in \
   codex-models \
   codex-session-archive \
   codex-transcript-sanitizer \
+  command-runner-child \
   executable-discovery \
   farming-agent-bootstrap \
+  farming-session-store \
   farming-net-server \
   farming-net-pass \
   farming-net-registry \
@@ -119,11 +121,13 @@ for runtime_module in \
   native-session-engine \
   network \
   npm-update-helper \
+  provider-adapters \
   provider-session-service \
   provider-session-id \
   preview-session-manager \
   qr-share-tickets \
   review-diff-router \
+  review-session-service \
   review-session-router \
   review-session-store \
   review-state-router \
@@ -150,6 +154,7 @@ for runtime_module in \
   terminal-state-serialization \
   theme-manager \
   usage-forecast \
+  usage-history-smoke \
   workspace-directory \
   workspace-discovery \
   workspace-root-registry

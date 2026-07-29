@@ -1223,7 +1223,7 @@ async function run(argv = process.argv.slice(2)) {
   }
 
   if (argv[0] === USAGE_HISTORY_SMOKE_ARG) {
-    const { runUsageHistorySmoke } = require('./usage-history-smoke');
+    const { runUsageHistorySmoke } = require('./usage-history-smoke.cjs');
     const result = await runUsageHistorySmoke();
     console.log(JSON.stringify(result));
     return 0;

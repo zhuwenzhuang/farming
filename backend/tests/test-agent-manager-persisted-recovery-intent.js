@@ -5,7 +5,7 @@ const path = require('path');
 
 const AgentManager = require('../agent-manager');
 const { AcpRuntime } = require('../acp-runtime');
-const { FarmingSessionStore } = require('../farming-session-store');
+const { FarmingSessionStore } = require('../farming-session-store.cjs');
 
 function configForStore(store, workspace) {
   return {

@@ -61,7 +61,7 @@ const { createReviewStateRouter } = require('./review-state-router.cjs');
 const { ReviewDiffService } = require('./review-diff-service');
 const { createReviewDiffRouter } = require('./review-diff-router.cjs');
 const { ReviewSessionStore } = require('./review-session-store.cjs');
-const { ReviewSessionService } = require('./review-session-service');
+const { ReviewSessionService } = require('./review-session-service.cjs');
 const { createReviewSessionRouter } = require('./review-session-router.cjs');
 const {
   applyIndexHtmlAppearance,

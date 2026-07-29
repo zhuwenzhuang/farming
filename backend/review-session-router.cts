@@ -4,7 +4,7 @@ interface ReviewSessionApiError extends Error {
   statusCode: number;
 }
 
-const { ReviewSessionError } = require('./review-session-service') as {
+const { ReviewSessionError } = require('./review-session-service.cjs') as {
   ReviewSessionError: new (...args: unknown[]) => ReviewSessionApiError;
 };
 
@@ -36,7 +36,6 @@ interface ExpressFactory {
 
 interface ReviewSessionRefreshResult {
   unchanged: boolean;
-  [key: string]: unknown;
 }
 
 interface ReviewSessionService {

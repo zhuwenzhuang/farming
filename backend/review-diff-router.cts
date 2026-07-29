@@ -5,7 +5,7 @@ interface ReviewApiError extends Error {
   statusCode: number;
 }
 
-const { ReviewSessionError } = require('./review-session-service') as {
+const { ReviewSessionError } = require('./review-session-service.cjs') as {
   ReviewSessionError: new (...args: unknown[]) => ReviewApiError;
 };
 const { WorkspaceFileError } = require('./workspace-file-service') as {

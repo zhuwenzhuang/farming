@@ -8,7 +8,7 @@ const { spawn } = require('child_process');
 const NativePtyHost = require('../native-pty-host');
 const NativePtyHostClient = require('../native-pty-host-client');
 const { NativeSessionEngine } = require('../native-session-engine.cjs');
-const { FarmingSessionStore } = require('../farming-session-store');
+const { FarmingSessionStore } = require('../farming-session-store.cjs');
 const { nativePtyHostSocketPath } = require('../native-pty-host-path.cjs');
 const { nativePtyHostRuntimeIdentity } = require('../native-pty-host-identity.cjs');
 

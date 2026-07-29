@@ -7,12 +7,50 @@ const { legacyRuntimeMetadata } = require('./agent-runtime-binding.cjs');
 const { lifecycleJournal } = require('./agent-lifecycle-journal.cjs');
 const storageLayout = require('./storage-layout.cjs');
 
+type JsonRecord = Record<string, unknown>;
+
+interface ProviderSessionKey {
+  provider: string;
+  providerHomeId: string;
+  sessionId: string;
+}
+
+interface SessionIndex {
+  version: number;
+  mainPageSessionKeys: string[];
+  updatedAt: number;
+}
+
+interface FarmingSessionStoreOptions {
+  normalizeMainPageSessionKeys?: (keys: unknown) => string[];
+  writeJson?: (file: string, value: unknown) => void;
+}
+
+interface FarmingSessionStoreInitOptions {
+  legacyMainPageSessionKeys?: unknown;
+}
+
+interface AgentRecord extends JsonRecord {
+  id: string;
+}
+
+interface AgentStateRecord extends JsonRecord {
+  agentRecordId: string;
+  agentStateVersion: number;
+}
+
+function objectRecord(value: unknown): JsonRecord | null {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? value as JsonRecord
+    : null;
+}
+
 const AGENT_RECORD_ID_PREFIX = 'agent';
 const AGENT_RECORD_VERSION = 1;
 const AGENT_STATE_VERSION = 1;
 const SESSION_INDEX_VERSION = 2;
 const MAX_MAIN_PAGE_SESSION_KEYS = 50;
-const AGENT_STATE_FIELDS = [
+const AGENT_STATE_FIELDS: string[] = [
   'acpState',
   'acpError',
   'acpStopReason',
@@ -39,7 +77,7 @@ const AGENT_STATE_FIELDS = [
   'composerCommands',
 ];
 const AGENT_STATE_FIELD_SET = new Set(AGENT_STATE_FIELDS);
-const PRODUCT_STATE_FIELDS = [
+const PRODUCT_STATE_FIELDS: string[] = [
   'projectWorkspace',
   'task',
   'workflowTemplate',
@@ -58,52 +96,52 @@ const PRODUCT_STATE_FIELDS = [
   'customTitle',
 ];
 
-function now() {
+function now(): number {
   return Date.now();
 }
 
-function createAgentRecordId() {
+function createAgentRecordId(): string {
   const stamp = now().toString(36);
   const random = crypto.randomBytes(6).toString('hex');
   return `${AGENT_RECORD_ID_PREFIX}_${stamp}_${random}`;
 }
 
-function safeSessionFileName(id) {
+function safeSessionFileName(id: unknown): string {
   const value = String(id || '').trim();
   return /^(?:agent|fsess)_[A-Za-z0-9_-]+$/.test(value) ? `${value}.json` : '';
 }
 
-function isLegacySessionId(id) {
+function isLegacySessionId(id: unknown): boolean {
   return /^fsess_[A-Za-z0-9_-]+$/.test(String(id || '').trim());
 }
 
-function isAgentRecordId(id) {
+function isAgentRecordId(id: unknown): boolean {
   return /^agent_[A-Za-z0-9_-]+$/.test(String(id || '').trim());
 }
 
-function agentRecordIdFor(agent) {
+function agentRecordIdFor(agent: JsonRecord | null | undefined): string {
   if (agent && Object.prototype.hasOwnProperty.call(agent, 'persistentSessionId')) {
     return typeof agent.persistentSessionId === 'string' ? agent.persistentSessionId : '';
   }
   return typeof agent?.agentRecordId === 'string' ? agent.agentRecordId : '';
 }
 
-function cloneJson(value) {
-  if (value === undefined) return undefined;
-  return JSON.parse(JSON.stringify(value));
+function cloneJson<T>(value: T): T {
+  if (value === undefined) return value;
+  return JSON.parse(JSON.stringify(value)) as T;
 }
 
-function sameJson(left, right) {
+function sameJson(left: unknown, right: unknown): boolean {
   return isDeepStrictEqual(left, right);
 }
 
-function withoutUpdatedAt(value) {
+function withoutUpdatedAt(value: JsonRecord | null | undefined): JsonRecord {
   const copy = { ...(value || {}) };
   delete copy.updatedAt;
   return copy;
 }
 
-function parseProviderSessionKey(key) {
+function parseProviderSessionKey(key: unknown): ProviderSessionKey | null {
   const match = String(key || '').match(/^agent-session:([^:]+):(.+)$/);
   if (!match) return null;
   const provider = String(match[1] || '').trim().toLowerCase();
@@ -119,22 +157,32 @@ function parseProviderSessionKey(key) {
 }
 
 class FarmingSessionStore {
-  constructor(configDir, options = {}) {
+  configDir: string;
+  sessionsDir: string;
+  indexFile: string;
+  normalizeMainPageSessionKeys: (keys: unknown) => string[];
+  writeJson: (file: string, value: unknown) => void;
+  index: SessionIndex | null;
+  legacyProviderSessionRecords: Record<string, string>;
+  providerSessionRecords: Map<string, string>;
+
+  constructor(configDir: string, options: FarmingSessionStoreOptions = {}) {
     this.configDir = configDir;
     this.sessionsDir = storageLayout.sessionsDir(configDir);
     this.indexFile = storageLayout.sessionIndexFile(configDir);
     this.normalizeMainPageSessionKeys = typeof options.normalizeMainPageSessionKeys === 'function'
       ? options.normalizeMainPageSessionKeys
-      : keys => (Array.isArray(keys) ? keys : []).slice(0, MAX_MAIN_PAGE_SESSION_KEYS);
+      : keys => (Array.isArray(keys) ? keys.filter((key): key is string => typeof key === 'string') : [])
+        .slice(0, MAX_MAIN_PAGE_SESSION_KEYS);
     this.writeJson = typeof options.writeJson === 'function'
       ? options.writeJson
-      : (file, value) => atomicWriteJson(file, value, { mode: 0o600 });
+      : (file: string, value: unknown) => atomicWriteJson(file, value, { mode: 0o600 });
     this.index = null;
     this.legacyProviderSessionRecords = {};
-    this.providerSessionRecords = new Map();
+    this.providerSessionRecords = new Map<string, string>();
   }
 
-  init({ legacyMainPageSessionKeys = [] } = {}) {
+  init({ legacyMainPageSessionKeys = [] }: FarmingSessionStoreInitOptions = {}): void {
     fs.mkdirSync(this.sessionsDir, { recursive: true });
     this.index = this.readIndex();
     this.reconcileProviderSessionIndex();
@@ -157,8 +205,8 @@ class FarmingSessionStore {
     this.legacyProviderSessionRecords = {};
   }
 
-  reconcileProviderSessionIndex() {
-    const recordsByProviderKey = new Map();
+  reconcileProviderSessionIndex(): void {
+    const recordsByProviderKey = new Map<string, AgentRecord[]>();
     const records = this.listStoredAgentRecords();
     const successors = this.legacySuccessors(records);
     for (const record of records) {
@@ -170,27 +218,28 @@ class FarmingSessionStore {
       recordsByProviderKey.set(sessionKey, matches);
     }
 
+    const providerSessionRecords = new Map<string, string>();
     for (const [sessionKey, records] of recordsByProviderKey) {
       if (records.length > 1) {
         const ids = records.map(record => record.id).sort().join(', ');
         throw new Error(`Conflicting Farming session records for ${sessionKey}: ${ids}`);
       }
-      recordsByProviderKey.set(sessionKey, records[0].id);
+      providerSessionRecords.set(sessionKey, records[0].id);
     }
 
     for (const [sessionKey, id] of Object.entries(this.legacyProviderSessionRecords)) {
-      if (recordsByProviderKey.has(sessionKey)) continue;
+      if (providerSessionRecords.has(sessionKey)) continue;
       const record = this.readRecord(id);
       if (!record || successors.has(record.id)) continue;
       if (record.providerSessionKey && record.providerSessionKey !== sessionKey) {
         throw new Error(`Farming session ${id} is indexed as ${sessionKey} but bound to ${record.providerSessionKey}`);
       }
-      recordsByProviderKey.set(sessionKey, record.id);
+      providerSessionRecords.set(sessionKey, record.id);
     }
-    this.providerSessionRecords = recordsByProviderKey;
+    this.providerSessionRecords = providerSessionRecords;
   }
 
-  filterRecoverableMainPageSessionKeys(keys) {
+  filterRecoverableMainPageSessionKeys(keys: unknown): string[] {
     return this.normalizeMainPageSessionKeys(keys).filter(sessionKey => {
       const record = this.getRecordForProviderSessionKey(sessionKey);
       if (!record) return true;
@@ -205,20 +254,20 @@ class FarmingSessionStore {
     });
   }
 
-  readIndex() {
+  readIndex(): SessionIndex {
     try {
       if (fs.existsSync(this.indexFile)) {
-        const parsed = JSON.parse(fs.readFileSync(this.indexFile, 'utf8'));
+        const parsed = objectRecord(JSON.parse(fs.readFileSync(this.indexFile, 'utf8')));
         this.legacyProviderSessionRecords = this.normalizeProviderSessionRecords(parsed?.providerSessionRecords);
         return this.normalizeIndex(parsed);
       }
-    } catch (error) {
-      console.warn('Failed to read Farming session index:', error && (error.message || error));
+    } catch (error: unknown) {
+      console.warn('Failed to read Farming session index:', error instanceof Error ? error.message : error);
     }
     return this.normalizeIndex({});
   }
 
-  normalizeIndex(index) {
+  normalizeIndex(index: JsonRecord | null | undefined): SessionIndex {
     return {
       version: SESSION_INDEX_VERSION,
       mainPageSessionKeys: this.normalizeMainPageSessionKeys(index?.mainPageSessionKeys),
@@ -226,59 +275,60 @@ class FarmingSessionStore {
     };
   }
 
-  normalizeProviderSessionRecords(providerSessionRecords) {
-    const normalizedProviderSessionRecords = {};
+  normalizeProviderSessionRecords(providerSessionRecords: unknown): Record<string, string> {
+    const normalizedProviderSessionRecords: Record<string, string> = {};
     Object.entries(
       providerSessionRecords && typeof providerSessionRecords === 'object' && !Array.isArray(providerSessionRecords)
-        ? providerSessionRecords
+        ? providerSessionRecords as JsonRecord
         : {},
     ).forEach(([key, id]) => {
       if (!parseProviderSessionKey(key)) return;
       if (!safeSessionFileName(id)) return;
-      normalizedProviderSessionRecords[key] = id;
+      normalizedProviderSessionRecords[key] = String(id);
     });
     return normalizedProviderSessionRecords;
   }
 
-  ensureIndex() {
+  ensureIndex(): SessionIndex {
     if (!this.index) this.init();
+    if (!this.index) throw new Error('Farming session index initialization failed');
     return this.index;
   }
 
-  writeIndex(index = this.ensureIndex()) {
+  writeIndex(index: SessionIndex = this.ensureIndex()): SessionIndex {
     const nextIndex = this.normalizeIndex({ ...index, updatedAt: now() });
     this.writeJson(this.indexFile, nextIndex);
     this.index = nextIndex;
     return nextIndex;
   }
 
-  sessionFile(id) {
+  sessionFile(id: unknown): string {
     const fileName = safeSessionFileName(id);
     return fileName ? path.join(this.sessionsDir, fileName) : '';
   }
 
-  agentStateFile(id) {
-    return isAgentRecordId(id) ? storageLayout.agentStateFile(this.configDir, id) : '';
+  agentStateFile(id: unknown): string {
+    return isAgentRecordId(id) ? storageLayout.agentStateFile(this.configDir, String(id)) : '';
   }
 
-  readMetadataRecord(id) {
+  readMetadataRecord(id: string): AgentRecord | null {
     const file = this.sessionFile(id);
     if (!file) return null;
     try {
       if (!fs.existsSync(file)) return null;
-      const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
-      return parsed && typeof parsed === 'object' ? parsed : null;
+      const parsed = objectRecord(JSON.parse(fs.readFileSync(file, 'utf8')));
+      return parsed as AgentRecord | null;
     } catch {
       return null;
     }
   }
 
-  readAgentState(id) {
+  readAgentState(id: string): AgentStateRecord | null {
     const file = this.agentStateFile(id);
     if (!file) return null;
     try {
       if (!fs.existsSync(file)) return null;
-      const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+      const parsed = objectRecord(JSON.parse(fs.readFileSync(file, 'utf8')));
       if (
         !parsed
         || typeof parsed !== 'object'
@@ -287,28 +337,35 @@ class FarmingSessionStore {
       ) {
         return null;
       }
-      return parsed;
+      return {
+        ...parsed,
+        agentRecordId: id,
+        agentStateVersion: AGENT_STATE_VERSION,
+      };
     } catch {
       return null;
     }
   }
 
-  readRecord(id) {
+  readRecord(id: string): AgentRecord | null {
     const metadata = this.readMetadataRecord(id);
     if (!metadata) return null;
     if (!isAgentRecordId(id)) return metadata;
     const state = this.readAgentState(id);
     if (!state) return { ...metadata, agentRecordId: id };
-    const merged = { ...metadata, agentRecordId: id };
+    const merged: AgentRecord = { ...metadata, agentRecordId: id };
     AGENT_STATE_FIELDS.forEach(field => {
       if (Object.prototype.hasOwnProperty.call(state, field)) merged[field] = cloneJson(state[field]);
     });
     return merged;
   }
 
-  splitAgentRecord(record, id) {
-    const metadata = {};
-    const state = {
+  splitAgentRecord(record: JsonRecord, id: string): {
+    metadata: AgentRecord;
+    state: AgentStateRecord;
+  } {
+    const metadata: JsonRecord = {};
+    const state: AgentStateRecord = {
       agentStateVersion: AGENT_STATE_VERSION,
       agentRecordId: id,
       kind: 'agent-state',
@@ -321,17 +378,17 @@ class FarmingSessionStore {
     metadata.agentRecordId = id;
     metadata.kind = 'agent';
     metadata.recordVersion = AGENT_RECORD_VERSION;
-    return { metadata, state };
+    return { metadata: metadata as AgentRecord, state };
   }
 
-  promoteIndexRecordId(previousId, nextId) {
+  promoteIndexRecordId(previousId: string, nextId: string): void {
     if (!previousId || previousId === nextId) return;
     for (const [key, id] of this.providerSessionRecords) {
       if (id === previousId) this.providerSessionRecords.set(key, nextId);
     }
   }
 
-  writeRecord(record) {
+  writeRecord(record: AgentRecord | null | undefined): string {
     if (!record || !safeSessionFileName(record.id)) return '';
     const previousId = record.id;
     const id = isLegacySessionId(previousId) ? createAgentRecordId() : previousId;
@@ -362,8 +419,8 @@ class FarmingSessionStore {
     return id;
   }
 
-  listStoredAgentRecords() {
-    let names = [];
+  listStoredAgentRecords(): AgentRecord[] {
+    let names: string[] = [];
     try {
       names = fs.readdirSync(this.sessionsDir);
     } catch {
@@ -374,11 +431,11 @@ class FarmingSessionStore {
       .map(name => name.slice(0, -5))
       .filter(id => safeSessionFileName(id))
       .map(id => this.readRecord(id))
-      .filter(record => record && record.kind === 'agent');
+      .filter((record): record is AgentRecord => record !== null && record.kind === 'agent');
   }
 
-  legacySuccessors(records) {
-    const successors = new Map();
+  legacySuccessors(records: AgentRecord[] | unknown): Map<string, string> {
+    const successors = new Map<string, string>();
     for (const record of Array.isArray(records) ? records : []) {
       const legacyId = String(record?.legacyRecordId || '').trim();
       if (!isLegacySessionId(legacyId)) continue;
@@ -391,9 +448,11 @@ class FarmingSessionStore {
     return successors;
   }
 
-  providerSessionKeyForAgent(agent) {
+  providerSessionKeyForAgent(agent: JsonRecord | null | undefined): string {
     if (!agent || agent.providerSessionTemporary === true) return '';
-    if (agent.providerSessionKey) return agent.providerSessionKey;
+    if (typeof agent.providerSessionKey === 'string' && agent.providerSessionKey) {
+      return agent.providerSessionKey;
+    }
     if (agent.providerSessionProvider && agent.providerSessionId) {
       const homeId = typeof agent.providerHomeId === 'string' ? agent.providerHomeId.trim() : '';
       return homeId && homeId !== 'default'
@@ -403,7 +462,7 @@ class FarmingSessionStore {
     return '';
   }
 
-  recordPatchFromAgent(agent) {
+  recordPatchFromAgent(agent: JsonRecord): JsonRecord {
     const providerSessionKey = this.providerSessionKeyForAgent(agent);
     const parsed = parseProviderSessionKey(providerSessionKey);
     return {
@@ -474,11 +533,16 @@ class FarmingSessionStore {
     };
   }
 
-  ensureRecordForProviderSessionKey(sessionKey, patch = {}, preferredId = '') {
+  ensureRecordForProviderSessionKey(
+    sessionKey: string,
+    patch: JsonRecord = {},
+    preferredId = '',
+  ): string {
     const parsed = parseProviderSessionKey(sessionKey);
     if (!parsed) return '';
     this.ensureIndex();
-    const existingId = this.providerSessionRecords.get(sessionKey);
+    const indexedId = this.providerSessionRecords.get(sessionKey);
+    const existingId = typeof indexedId === 'string' ? indexedId : '';
     const normalizedPreferredId = safeSessionFileName(preferredId) ? preferredId : '';
     const preferredRecord = normalizedPreferredId ? this.readRecord(normalizedPreferredId) : null;
     if (
@@ -494,8 +558,8 @@ class FarmingSessionStore {
     const id = safeSessionFileName(existingId)
       ? existingId
       : (normalizedPreferredId || createAgentRecordId());
-    const existing = this.readRecord(id) || {};
-    const record = {
+    const existing: JsonRecord = this.readRecord(id) || {};
+    const record: AgentRecord = {
       id,
       kind: 'agent',
       createdAt: typeof existing.createdAt === 'number' ? existing.createdAt : now(),
@@ -522,7 +586,7 @@ class FarmingSessionStore {
     return writtenId;
   }
 
-  ensureRecordForAgent(agent, patch = {}) {
+  ensureRecordForAgent(agent: JsonRecord, patch: JsonRecord = {}): string {
     const providerSessionKey = this.providerSessionKeyForAgent(agent);
     if (providerSessionKey) {
       const preferredId = agentRecordIdFor(agent);
@@ -570,8 +634,8 @@ class FarmingSessionStore {
     const preferredId = agentRecordIdFor(agent);
     const existingId = safeSessionFileName(preferredId) ? preferredId : '';
     const id = existingId || createAgentRecordId();
-    const existing = this.readRecord(id) || {};
-    const record = {
+    const existing: JsonRecord = this.readRecord(id) || {};
+    const record: AgentRecord = {
       id,
       kind: 'agent',
       createdAt: typeof existing.createdAt === 'number' ? existing.createdAt : now(),
@@ -585,13 +649,13 @@ class FarmingSessionStore {
     return this.writeRecord(record);
   }
 
-  setProviderSessionDisplayState(sessionKey, patch = {}) {
-    const displayPatch = {};
+  setProviderSessionDisplayState(sessionKey: string, patch: JsonRecord = {}): string {
+    const displayPatch: JsonRecord = {};
     if (typeof patch.pinned === 'boolean') displayPatch.displayPinned = patch.pinned;
     return this.ensureRecordForProviderSessionKey(sessionKey, displayPatch);
   }
 
-  rememberMainPageSessionKey(sessionKey, patch = {}) {
+  rememberMainPageSessionKey(sessionKey: string, patch: JsonRecord = {}): string[] {
     const id = this.ensureRecordForProviderSessionKey(sessionKey, {
       ...patch,
       archived: false,
@@ -606,7 +670,7 @@ class FarmingSessionStore {
     return nextIndex.mainPageSessionKeys.slice();
   }
 
-  rememberAgent(agent) {
+  rememberAgent(agent: JsonRecord): string {
     const providerSessionKey = this.providerSessionKeyForAgent(agent);
     const id = this.ensureRecordForAgent(agent, providerSessionKey ? { archived: false } : {});
     if (providerSessionKey) {
@@ -615,7 +679,7 @@ class FarmingSessionStore {
     return id;
   }
 
-  setMainPageSessionKeys(keys) {
+  setMainPageSessionKeys(keys: unknown): string[] {
     const normalized = this.normalizeMainPageSessionKeys(keys);
     const index = this.ensureIndex();
     normalized.forEach(key => {
@@ -627,7 +691,7 @@ class FarmingSessionStore {
     return this.writeIndex({ ...index, mainPageSessionKeys: normalized }).mainPageSessionKeys.slice();
   }
 
-  removeMainPageSessionKey(sessionKey) {
+  removeMainPageSessionKey(sessionKey: string): boolean {
     const index = this.ensureIndex();
     if (!index.mainPageSessionKeys.includes(sessionKey)) return false;
     this.writeIndex({
@@ -637,7 +701,7 @@ class FarmingSessionStore {
     return true;
   }
 
-  removeMainPageSessionKeys(keys) {
+  removeMainPageSessionKeys(keys: unknown): string[] {
     const index = this.ensureIndex();
     const requested = new Set(Array.isArray(keys) ? keys : []);
     const removed = index.mainPageSessionKeys.filter(key => requested.has(key));
@@ -649,17 +713,17 @@ class FarmingSessionStore {
     return removed;
   }
 
-  getMainPageSessionKeys() {
+  getMainPageSessionKeys(): string[] {
     return this.ensureIndex().mainPageSessionKeys.slice();
   }
 
-  getRecordForProviderSessionKey(sessionKey) {
+  getRecordForProviderSessionKey(sessionKey: string): AgentRecord | null {
     this.ensureIndex();
     const id = this.providerSessionRecords.get(sessionKey);
-    return safeSessionFileName(id) ? this.readRecord(id) : null;
+    return safeSessionFileName(id) ? this.readRecord(String(id)) : null;
   }
 
-  listAgentRecords() {
+  listAgentRecords(): AgentRecord[] {
     this.ensureIndex();
     const records = this.listStoredAgentRecords();
     const successors = this.legacySuccessors(records);
@@ -667,7 +731,7 @@ class FarmingSessionStore {
   }
 }
 
-module.exports = {
+export {
   AGENT_RECORD_VERSION,
   AGENT_STATE_VERSION,
   FarmingSessionStore,

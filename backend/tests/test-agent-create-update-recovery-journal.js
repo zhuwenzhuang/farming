@@ -12,7 +12,7 @@ const {
   lifecycleJournal,
   transitionLifecycleOperation,
 } = require('../agent-lifecycle-journal.cjs');
-const { FarmingSessionStore } = require('../farming-session-store');
+const { FarmingSessionStore } = require('../farming-session-store.cjs');
 
 function configForStore(store, workspace, ensureAgentSessionRecord) {
   return {

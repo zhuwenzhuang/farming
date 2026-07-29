@@ -182,7 +182,7 @@ async function loadChokidar() {
 
 class CommandRunner {
   constructor(options = {}) {
-    this.helperPath = options.helperPath || path.join(__dirname, 'command-runner-child.js');
+    this.helperPath = options.helperPath || path.join(__dirname, 'command-runner-child.cjs');
     this.nodePath = resolveCommandRunnerNodePath(options);
     this.nextId = 1;
     this.pending = new Map();

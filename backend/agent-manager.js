@@ -42,7 +42,7 @@ const {
   providerCapabilities,
   providerForProgram,
   providerSupportsRuntime,
-} = require('./provider-adapters');
+} = require('./provider-adapters.cjs');
 const { deriveTerminalStatus } = require('./terminal-status');
 const { JsonCliRuntime } = require('./json-cli-runtime.cjs');
 const {

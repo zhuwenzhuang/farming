@@ -4,7 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { promisify } = require('util');
-const { ReviewSessionService, changedPathsFromNameStatus, normalizeHistoricalReviewChanges } = require('../review-session-service');
+const { ReviewSessionService, changedPathsFromNameStatus, normalizeHistoricalReviewChanges } = require('../review-session-service.cjs');
 const { ReviewSessionStore } = require('../review-session-store.cjs');
 const { ReviewStateStore } = require('../review-state-store.cjs');
 

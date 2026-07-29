@@ -9,7 +9,7 @@ function read(relativePath) {
 function run() {
   const manager = read('backend/agent-manager.js');
   const server = read('backend/server.js');
-  const sessionStore = read('backend/farming-session-store.js');
+  const sessionStore = read('backend/farming-session-store.cts');
   const workspace = read('src/components/CodeWorkspace.tsx');
   const sidebar = read('src/components/code/CodeSidebar.tsx');
   const reorderHook = read('src/components/code/useAgentReorder.ts');

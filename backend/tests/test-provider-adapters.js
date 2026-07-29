@@ -7,7 +7,7 @@ const {
   providerCapabilities,
   providerForProgram,
   providerSupportsRuntime,
-} = require('../provider-adapters');
+} = require('../provider-adapters.cjs');
 
 function run() {
   const adapters = listProviderAdapters();

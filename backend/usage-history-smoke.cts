@@ -1,9 +1,42 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { UsageHistoryClient } = require('./usage-history-client');
 
-async function runUsageHistorySmoke() {
+interface UsageEvent {
+  totalTokens: number;
+}
+
+interface UsageHistoryResult {
+  schemaVersion: unknown;
+  cache: {
+    scan_complete?: boolean;
+    discovery_ready?: boolean;
+  };
+  providers: {
+    codex: {
+      events: UsageEvent[];
+    };
+  };
+}
+
+interface UsageHistoryClientLike {
+  collect(options: {
+    now: number;
+    codexRoots: string[];
+    claudeRoots: string[];
+    scanBudgetMs: number;
+    fresh: boolean;
+  }): Promise<UsageHistoryResult>;
+}
+
+const { UsageHistoryClient } = require('./usage-history-client') as {
+  UsageHistoryClient: new (options: { configDir: string }) => UsageHistoryClientLike;
+};
+
+async function runUsageHistorySmoke(): Promise<{
+  schemaVersion: unknown;
+  total: number;
+}> {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-usage-smoke-'));
   try {
     const sessions = path.join(root, 'sessions');
@@ -61,4 +94,4 @@ async function runUsageHistorySmoke() {
   }
 }
 
-module.exports = { runUsageHistorySmoke };
+export { runUsageHistorySmoke };

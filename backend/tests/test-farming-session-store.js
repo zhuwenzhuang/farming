@@ -4,7 +4,7 @@ const os = require('os');
 const path = require('path');
 
 const { atomicWriteJson } = require('../atomic-json-store.cjs');
-const { FarmingSessionStore } = require('../farming-session-store');
+const { FarmingSessionStore } = require('../farming-session-store.cjs');
 
 function normalizeMainPageSessionKeys(keys) {
   const result = [];

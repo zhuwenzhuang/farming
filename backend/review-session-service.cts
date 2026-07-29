@@ -1,24 +1,178 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { createTwoFilesPatch, diffLines } = require('diff');
-const { OBJECT_ID_PATTERN, REVIEW_ID_PATTERN } = require('./review-session-store.cjs');
-const { filterWorkingCopyChangeItems, normalizeModifiedWithinDays, normalizeWorkingCopyScope } = require('./review-diff-service');
+const { createTwoFilesPatch, diffLines } = require('diff') as {
+  createTwoFilesPatch(
+    oldFileName: string,
+    newFileName: string,
+    oldText: string,
+    newText: string,
+    oldHeader?: string,
+    newHeader?: string,
+    options?: { context?: number },
+  ): string;
+  diffLines(oldText: string, newText: string): Array<{
+    added?: boolean;
+    count?: number;
+    removed?: boolean;
+  }>;
+};
+const { OBJECT_ID_PATTERN, REVIEW_ID_PATTERN } = require('./review-session-store.cjs') as {
+  OBJECT_ID_PATTERN: RegExp;
+  REVIEW_ID_PATTERN: RegExp;
+};
+const {
+  filterWorkingCopyChangeItems,
+  normalizeModifiedWithinDays,
+  normalizeWorkingCopyScope,
+} = require('./review-diff-service') as {
+  filterWorkingCopyChangeItems(
+    root: string,
+    items: WorkingCopyChange[],
+    options: { modifiedWithinDays?: unknown; scope: ReviewScope },
+  ): WorkingCopyChange[];
+  normalizeModifiedWithinDays(value: unknown): number | undefined;
+  normalizeWorkingCopyScope(value: unknown): ReviewScope | undefined;
+};
 
 const MAX_CAPTURE_FILES = 2000;
 const MAX_CAPTURE_PATHS = 256;
 const MAX_HISTORICAL_REVIEW_CHARS = 32 * 1024 * 1024;
 const MAX_HISTORICAL_PREVIEW_CHARS = 64 * 1024;
 
+type ReviewScope = 'tracked' | 'untracked';
+type HistoricalSide = 'base' | 'head';
+
+interface WorkingCopyChange {
+  path: string;
+  previousPath?: string;
+  [key: string]: unknown;
+}
+
+interface HistoricalReviewChange {
+  basePresent: boolean;
+  displayPath?: string;
+  headPresent: boolean;
+  newText: string;
+  oldText: string;
+  path: string;
+}
+
+interface ReviewRevision {
+  createdAt: string;
+  number: number;
+  previousTree?: string;
+  tree: string;
+}
+
+interface ReviewSession {
+  base: string;
+  id: string;
+  modifiedWithinDays?: number;
+  paths?: string[];
+  revisions: ReviewRevision[];
+  root: string;
+  scope?: ReviewScope;
+}
+
+interface ReviewSessionStore {
+  appendRevision(reviewId: string, tree: string): { session: ReviewSession };
+  create(input: {
+    base: string;
+    id: string;
+    modifiedWithinDays?: number;
+    paths?: string[];
+    root: string;
+    scope?: ReviewScope;
+    tree: string;
+  }): ReviewSession;
+  get(reviewId: string): ReviewSession | null;
+  newId(): string;
+}
+
+interface ReviewStateStore {
+  inheritPatchset?(input: {
+    changedPaths: string[];
+    nextPatchset: string;
+    previousPatchset: string;
+    reviewId: string;
+  }): unknown;
+}
+
+interface GitResult {
+  stderr?: string;
+  stdout: string;
+}
+
+interface ReviewFileService {
+  changes(root: string, options: { limit: number }): Promise<{
+    items: WorkingCopyChange[];
+    truncated: boolean;
+  }>;
+  diffMaxBuffer: number;
+  diffTimeoutMs: number;
+  execFile(
+    executable: string,
+    args: string[],
+    options: Record<string, unknown>,
+  ): Promise<GitResult>;
+  gitPath: string;
+}
+
+interface ReviewSessionServiceOptions {
+  resolveAcpReviewChanges?: (agentId: unknown, itemIds: unknown) => unknown | Promise<unknown>;
+  resolveAgentRoot?: (agentId: string) => unknown;
+}
+
+interface CapturePathOptions {
+  modifiedWithinDays?: unknown;
+  paths?: unknown;
+  scope?: unknown;
+}
+
+interface CreateReviewInput extends CapturePathOptions {
+  agentId?: unknown;
+  base?: unknown;
+  root?: unknown;
+}
+
+interface AcpReviewInput {
+  agentId?: unknown;
+  itemIds?: unknown;
+}
+
+interface PublicRevision {
+  base: string;
+  createdAt: string;
+  fixesBase: string;
+  head: string;
+  modifiedWithinDays?: number;
+  number: number;
+  paths?: string[];
+  reviewId: string;
+  root: string;
+  scope?: ReviewScope;
+}
+
 class ReviewSessionError extends Error {
-  constructor(message, statusCode = 400) {
+  statusCode: number;
+
+  constructor(message: string, statusCode = 400) {
     super(message);
     this.name = 'ReviewSessionError';
     this.statusCode = statusCode;
   }
 }
 
-function changedPathsFromNameStatus(value) {
+function isObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function errorField(error: unknown, field: string): unknown {
+  return isObject(error) ? error[field] : undefined;
+}
+
+function changedPathsFromNameStatus(value: unknown): string[] {
   const tokens = String(value || '').split('\0');
   const paths = [];
   for (let index = 0; index < tokens.length;) {
@@ -34,7 +188,7 @@ function changedPathsFromNameStatus(value) {
   return [...new Set(paths)];
 }
 
-function normalizeCapturePaths(value) {
+function normalizeCapturePaths(value: unknown): string[] | undefined {
   if (value === undefined) return undefined;
   if (!Array.isArray(value) || value.length > MAX_CAPTURE_PATHS) {
     throw new ReviewSessionError('review file paths are invalid');
@@ -42,7 +196,9 @@ function normalizeCapturePaths(value) {
   if (value.some(candidate => typeof candidate !== 'string')) {
     throw new ReviewSessionError('review file paths are invalid');
   }
-  const paths = value.map(candidate => candidate.replace(/\\/g, '/').trim());
+  const paths = value
+    .filter((candidate): candidate is string => typeof candidate === 'string')
+    .map(candidate => candidate.replace(/\\/g, '/').trim());
   if (paths.some(candidate => (
     !candidate
     || candidate.length > 4096
@@ -55,7 +211,7 @@ function normalizeCapturePaths(value) {
   return [...new Set(paths)];
 }
 
-function historicalSidePresence(kind) {
+function historicalSidePresence(kind: unknown): { base: boolean; head: boolean } {
   const normalized = String(kind || '').trim().toLowerCase();
   return {
     base: !['add', 'added', 'create', 'created'].includes(normalized),
@@ -63,7 +219,7 @@ function historicalSidePresence(kind) {
   };
 }
 
-function workspaceRelativeReviewPath(root, candidate) {
+function workspaceRelativeReviewPath(root: string, candidate: unknown): string {
   if (typeof candidate !== 'string' || !candidate.trim()) return '';
   const raw = candidate.trim();
   const normalized = raw.replace(/\\/g, '/');
@@ -96,12 +252,16 @@ function workspaceRelativeReviewPath(root, candidate) {
   }
 }
 
-function normalizeHistoricalReviewChanges(root, value, workspaceRoot = root) {
+function normalizeHistoricalReviewChanges(
+  root: string,
+  value: unknown,
+  workspaceRoot = root,
+): HistoricalReviewChange[] {
   if (!Array.isArray(value)) throw new ReviewSessionError('ACP review changes are invalid');
-  const changesByPath = new Map();
+  const changesByPath = new Map<string, HistoricalReviewChange>();
   let totalChars = 0;
   for (const rawChange of value) {
-    if (!rawChange || typeof rawChange !== 'object') continue;
+    if (!isObject(rawChange)) continue;
     const displayPath = workspaceRelativeReviewPath(workspaceRoot, rawChange.path);
     if (!displayPath) continue;
     const absolutePath = path.resolve(workspaceRoot, displayPath);
@@ -135,7 +295,13 @@ function normalizeHistoricalReviewChanges(root, value, workspaceRoot = root) {
   return changes;
 }
 
-function historicalPreviewChange(change) {
+function historicalPreviewChange(change: HistoricalReviewChange): {
+  added: number;
+  diff: string;
+  kind: 'added' | 'deleted' | 'updated';
+  path: string;
+  removed: number;
+} {
   const oldText = change.basePresent ? change.oldText : '';
   const newText = change.headPresent ? change.newText : '';
   const stats = diffLines(oldText, newText).reduce((result, part) => {
@@ -155,7 +321,7 @@ function historicalPreviewChange(change) {
   };
 }
 
-function publicRevision(session, revision) {
+function publicRevision(session: ReviewSession, revision: ReviewRevision): PublicRevision {
   const previous = revision.previousTree;
   return {
     base: session.base,
@@ -172,7 +338,19 @@ function publicRevision(session, revision) {
 }
 
 class ReviewSessionService {
-  constructor(fileService, sessionStore, reviewStateStore, options = {}) {
+  fileService: ReviewFileService;
+  sessionStore: ReviewSessionStore;
+  reviewStateStore?: ReviewStateStore;
+  resolveAgentRoot?: (agentId: string) => unknown;
+  resolveAcpReviewChanges?: (agentId: unknown, itemIds: unknown) => unknown | Promise<unknown>;
+  refreshQueues: Map<string, Promise<unknown>>;
+
+  constructor(
+    fileService: ReviewFileService,
+    sessionStore: ReviewSessionStore,
+    reviewStateStore?: ReviewStateStore,
+    options: ReviewSessionServiceOptions = {},
+  ) {
     this.fileService = fileService;
     this.sessionStore = sessionStore;
     this.reviewStateStore = reviewStateStore;
@@ -181,7 +359,7 @@ class ReviewSessionService {
     this.refreshQueues = new Map();
   }
 
-  enqueueRefresh(reviewId, operation) {
+  enqueueRefresh<T>(reviewId: string, operation: () => Promise<T>): Promise<T> {
     const previous = this.refreshQueues.get(reviewId) || Promise.resolve();
     const next = previous.catch(() => {}).then(operation);
     this.refreshQueues.set(reviewId, next);
@@ -192,7 +370,11 @@ class ReviewSessionService {
     return next;
   }
 
-  async git(root, args, options = {}) {
+  async git(
+    root: string,
+    args: string[],
+    options: Record<string, unknown> = {},
+  ): Promise<GitResult> {
     try {
       return await this.fileService.execFile(this.fileService.gitPath, ['-C', root, ...args], {
         cwd: root,
@@ -200,13 +382,17 @@ class ReviewSessionService {
         timeout: this.fileService.diffTimeoutMs,
         ...options,
       });
-    } catch (error) {
-      if (error?.code === 'ETIMEDOUT') throw new ReviewSessionError('review capture timed out', 504);
-      throw new ReviewSessionError(String(error?.stderr || error?.message || 'git review capture failed').trim(), 400);
+    } catch (error: unknown) {
+      if (errorField(error, 'code') === 'ETIMEDOUT') throw new ReviewSessionError('review capture timed out', 504);
+      throw new ReviewSessionError(String(
+        errorField(error, 'stderr')
+        || errorField(error, 'message')
+        || 'git review capture failed',
+      ).trim(), 400);
     }
   }
 
-  async resolveRoot(requestedRoot, agentId) {
+  async resolveRoot(requestedRoot: unknown, agentId: unknown): Promise<string> {
     if (requestedRoot && agentId) throw new ReviewSessionError('only one review workspace target is allowed');
     let candidate = requestedRoot;
     if (!candidate && typeof agentId === 'string' && agentId.trim()) {
@@ -230,7 +416,7 @@ class ReviewSessionService {
     }
   }
 
-  async resolveBase(root, base) {
+  async resolveBase(root: string, base: unknown): Promise<string> {
     if (typeof base !== 'string' || !base.trim() || base.trim().startsWith('-')) {
       throw new ReviewSessionError('review base is required');
     }
@@ -240,7 +426,7 @@ class ReviewSessionService {
     return resolved;
   }
 
-  async captureTreeOnce(root, paths) {
+  async captureTreeOnce(root: string, paths?: string[]): Promise<string> {
     const temporaryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-review-capture-'));
     const temporaryIndex = path.join(temporaryDir, 'index');
     const env = { ...process.env, GIT_INDEX_FILE: temporaryIndex };
@@ -260,7 +446,7 @@ class ReviewSessionService {
     }
   }
 
-  async captureStableTree(root, paths) {
+  async captureStableTree(root: string, paths?: string[]): Promise<string> {
     const first = await this.captureTreeOnce(root, paths);
     const second = await this.captureTreeOnce(root, paths);
     if (first !== second) {
@@ -269,7 +455,12 @@ class ReviewSessionService {
     return first;
   }
 
-  async writeHistoricalTree(root, changes, side, temporaryDir) {
+  async writeHistoricalTree(
+    root: string,
+    changes: HistoricalReviewChange[],
+    side: HistoricalSide,
+    temporaryDir: string,
+  ): Promise<string> {
     const temporaryIndex = path.join(temporaryDir, `${side}.index`);
     const contentFile = path.join(temporaryDir, `${side}.content`);
     const env = { ...process.env, GIT_INDEX_FILE: temporaryIndex };
@@ -289,7 +480,10 @@ class ReviewSessionService {
     return tree;
   }
 
-  async captureHistoricalTrees(root, changes) {
+  async captureHistoricalTrees(
+    root: string,
+    changes: HistoricalReviewChange[],
+  ): Promise<{ base: string; head: string }> {
     const temporaryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-review-history-'));
     try {
       const base = await this.writeHistoricalTree(root, changes, 'base', temporaryDir);
@@ -300,16 +494,19 @@ class ReviewSessionService {
     }
   }
 
-  async keepRevision(root, reviewId, number, tree) {
+  async keepRevision(root: string, reviewId: string, number: number, tree: string): Promise<void> {
     await this.git(root, ['update-ref', `refs/farming/reviews/${reviewId}/${number}`, tree]);
   }
 
-  async changedPaths(root, base, head) {
+  async changedPaths(root: string, base: string, head: string): Promise<string[]> {
     const { stdout } = await this.git(root, ['diff', '--name-status', '-z', '--find-renames', base, head]);
     return changedPathsFromNameStatus(stdout);
   }
 
-  async capturePaths(root, options = {}) {
+  async capturePaths(
+    root: string,
+    options: CapturePathOptions = {},
+  ): Promise<string[] | undefined> {
     const requestedPaths = normalizeCapturePaths(options.paths);
     if (requestedPaths !== undefined) return requestedPaths;
     const scope = normalizeWorkingCopyScope(options.scope);
@@ -320,10 +517,19 @@ class ReviewSessionService {
       scope,
       modifiedWithinDays: options.modifiedWithinDays,
     });
-    return [...new Set(selected.flatMap(change => [change.previousPath, change.path]).filter(Boolean))];
+    return [...new Set(selected
+      .flatMap(change => [change.previousPath, change.path])
+      .filter((candidate): candidate is string => typeof candidate === 'string' && candidate.length > 0))];
   }
 
-  async create({ root: requestedRoot, agentId, base = 'HEAD', scope: requestedScope, modifiedWithinDays: requestedDays, paths: requestedPaths }) {
+  async create({
+    root: requestedRoot,
+    agentId,
+    base = 'HEAD',
+    scope: requestedScope,
+    modifiedWithinDays: requestedDays,
+    paths: requestedPaths,
+  }: CreateReviewInput): Promise<PublicRevision> {
     const root = await this.resolveRoot(requestedRoot, agentId);
     const resolvedBase = await this.resolveBase(root, base);
     const scope = normalizeWorkingCopyScope(requestedScope);
@@ -338,7 +544,7 @@ class ReviewSessionService {
     return publicRevision(session, session.revisions[0]);
   }
 
-  async createFromAcp({ agentId, itemIds }) {
+  async createFromAcp({ agentId, itemIds }: AcpReviewInput): Promise<PublicRevision> {
     if (typeof this.resolveAcpReviewChanges !== 'function') {
       throw new ReviewSessionError('ACP review capture is unavailable', 501);
     }
@@ -353,7 +559,10 @@ class ReviewSessionService {
     return publicRevision(session, session.revisions[0]);
   }
 
-  async resolveAcpChanges(agentId, itemIds) {
+  async resolveAcpChanges(
+    agentId: unknown,
+    itemIds: unknown,
+  ): Promise<{ changes: HistoricalReviewChange[]; root: string }> {
     const requestedWorkspace = typeof agentId === 'string' && agentId.trim()
       ? this.resolveAgentRoot?.(agentId.trim())
       : '';
@@ -366,9 +575,11 @@ class ReviewSessionService {
     const root = await this.resolveRoot(undefined, agentId);
     let rawChanges;
     try {
-      rawChanges = await this.resolveAcpReviewChanges(agentId, itemIds);
-    } catch (error) {
-      const message = String(error?.message || 'ACP review changes could not be loaded');
+      const resolveAcpReviewChanges = this.resolveAcpReviewChanges;
+      if (!resolveAcpReviewChanges) throw new ReviewSessionError('ACP review capture is unavailable', 501);
+      rawChanges = await resolveAcpReviewChanges(agentId, itemIds);
+    } catch (error: unknown) {
+      const message = String(errorField(error, 'message') || 'ACP review changes could not be loaded');
       const status = message === 'Agent not found' || message === 'ACP tool call not found'
         ? 404
         : message.includes('invalid') ? 400 : 409;
@@ -378,13 +589,20 @@ class ReviewSessionService {
     return { changes, root };
   }
 
-  async previewFromAcp({ agentId, itemIds }) {
+  async previewFromAcp({ agentId, itemIds }: AcpReviewInput): Promise<{
+    changes: ReturnType<typeof historicalPreviewChange>[];
+  }> {
     const { changes } = await this.resolveAcpChanges(agentId, itemIds);
     return { changes: changes.map(historicalPreviewChange) };
   }
 
-  async refresh(reviewId) {
-    if (!REVIEW_ID_PATTERN.test(reviewId)) throw new ReviewSessionError('review session id is invalid');
+  async refresh(reviewId: unknown): Promise<PublicRevision & {
+    changedPaths: string[];
+    unchanged: boolean;
+  }> {
+    if (typeof reviewId !== 'string' || !REVIEW_ID_PATTERN.test(reviewId)) {
+      throw new ReviewSessionError('review session id is invalid');
+    }
     return this.enqueueRefresh(reviewId, async () => {
       const current = this.sessionStore.get(reviewId);
       if (!current) throw new ReviewSessionError('review session not found', 404);
@@ -407,8 +625,10 @@ class ReviewSessionService {
     });
   }
 
-  get(reviewId) {
-    if (!REVIEW_ID_PATTERN.test(reviewId)) throw new ReviewSessionError('review session id is invalid');
+  get(reviewId: unknown): PublicRevision & { revisions: PublicRevision[] } {
+    if (typeof reviewId !== 'string' || !REVIEW_ID_PATTERN.test(reviewId)) {
+      throw new ReviewSessionError('review session id is invalid');
+    }
     const session = this.sessionStore.get(reviewId);
     if (!session) throw new ReviewSessionError('review session not found', 404);
     const latest = session.revisions[session.revisions.length - 1];
@@ -418,26 +638,35 @@ class ReviewSessionService {
     };
   }
 
-  assertRange(reviewId, requestedRoot, base, head) {
+  assertRange(reviewId: unknown, requestedRoot: unknown, base: unknown, head: unknown): void {
     if (!reviewId) return;
-    if (!REVIEW_ID_PATTERN.test(reviewId)) throw new ReviewSessionError('review session id is invalid');
+    if (typeof reviewId !== 'string' || !REVIEW_ID_PATTERN.test(reviewId)) {
+      throw new ReviewSessionError('review session id is invalid');
+    }
     const session = this.sessionStore.get(reviewId);
     if (!session) throw new ReviewSessionError('review session not found', 404);
     let root;
     try {
+      if (typeof requestedRoot !== 'string') throw new TypeError('invalid root');
       root = fs.realpathSync.native(path.resolve(requestedRoot));
     } catch {
       throw new ReviewSessionError('review root does not exist', 404);
     }
     const revisionTrees = session.revisions.map(revision => revision.tree);
-    const validBase = base === session.base || revisionTrees.includes(base);
-    if (root !== session.root || !validBase || !revisionTrees.includes(head)) {
+    const validBase = typeof base === 'string'
+      && (base === session.base || revisionTrees.includes(base));
+    if (
+      root !== session.root
+      || !validBase
+      || typeof head !== 'string'
+      || !revisionTrees.includes(head)
+    ) {
       throw new ReviewSessionError('review range does not belong to this session', 409);
     }
   }
 }
 
-module.exports = {
+export {
   changedPathsFromNameStatus,
   normalizeHistoricalReviewChanges,
   normalizeCapturePaths,

@@ -14,7 +14,7 @@ const { PACKAGED_CODEX_ACP_ARG } = require('./acp/packaged-codex-acp');
 const { PACKAGED_CLAUDE_ACP_ARG } = require('./acp/packaged-claude-acp');
 const { permissionSecurityWarnings } = require('./acp/permission-security');
 const { patchBlock, rejectPatch } = require('./acp/patch-decisions');
-const { getProviderAdapter, listProviderAdapters } = require('./provider-adapters');
+const { getProviderAdapter, listProviderAdapters } = require('./provider-adapters.cjs');
 const { isSafeProviderSessionId } = require('./provider-session-id.cjs');
 
 const ADAPTER_VERSIONS = Object.freeze(Object.fromEntries(

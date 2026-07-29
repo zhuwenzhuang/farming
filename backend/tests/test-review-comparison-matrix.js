@@ -6,7 +6,7 @@ const path = require('path');
 const { promisify } = require('util');
 
 const { ReviewDiffService } = require('../review-diff-service');
-const { ReviewSessionService } = require('../review-session-service');
+const { ReviewSessionService } = require('../review-session-service.cjs');
 const { ReviewSessionStore } = require('../review-session-store.cjs');
 const { ReviewStateStore } = require('../review-state-store.cjs');
 const { WorkspaceFileService } = require('../workspace-file-service');

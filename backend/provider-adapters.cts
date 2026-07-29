@@ -6,6 +6,107 @@ const {
   isSafeProviderSessionId,
 } = require('./provider-session-id.cjs');
 
+type ProviderId = 'codex' | 'claude' | 'opencode' | 'qoder' | 'qwen';
+type ProviderRuntime = 'terminal' | 'acp' | 'json';
+type ProviderAcpForkMode = 'source-then-load' | 'target-process';
+type GoalSubmission =
+  | { kind: 'prompt' }
+  | { kind: 'command'; prefix: string };
+
+interface PositionalArgument {
+  value: string;
+  index: number;
+  afterDelimiter: boolean;
+}
+
+interface PositionalScanOptions {
+  multiValueOptions?: ReadonlySet<string>;
+}
+
+interface ProviderSessionPlan {
+  id?: string;
+  precreate?: boolean;
+  temporary?: boolean;
+  source?: string;
+  forkedFromProviderSessionId?: string;
+  identityWorkspace?: string;
+  resumeInsertIndex?: number;
+  error?: string;
+  args?: string[];
+}
+
+interface ProviderEnvironmentOptions {
+  [key: string]: unknown;
+  env?: NodeJS.ProcessEnv;
+  executable?: string;
+  model?: string;
+  reasoningEffort?: string;
+  serviceTier?: string;
+  farmingSystemPrompt?: string;
+  approvalMode?: string;
+}
+
+interface ProviderAcpLaunchOptions {
+  executable?: string;
+  cwd?: string;
+  farmingSystemPrompt?: string;
+}
+
+interface ProviderAcpLaunch {
+  command: string;
+  args: string[];
+}
+
+interface ProviderAcpContract {
+  packageName?: string;
+  version: string;
+  forkMode?: ProviderAcpForkMode;
+  launch?: (options: ProviderAcpLaunchOptions) => ProviderAcpLaunch;
+}
+
+interface ProviderCapabilitiesContract {
+  runtimeSwitch: boolean;
+  terminalProfile: boolean;
+  goals: boolean;
+  goalSubmission: {
+    terminal: GoalSubmission;
+    acp: GoalSubmission;
+  };
+  sessionFork: boolean;
+}
+
+interface ProviderAdapter {
+  id: ProviderId;
+  displayName: string;
+  executable: string;
+  homeEnvKey: string;
+  interruptInput: string;
+  freshAcpSessionSources: readonly string[];
+  commands: readonly string[];
+  supportedRuntimes: readonly ProviderRuntime[];
+  planSession: (rawArgs: string[], launchArgs: string[]) => ProviderSessionPlan | null;
+  terminalResumeArgs?: (
+    args: string[],
+    sessionId: string,
+    plan?: ProviderSessionPlan,
+  ) => string[];
+  acp: ProviderAcpContract;
+  prepareAcpEnvironment?: (options?: ProviderEnvironmentOptions) => NodeJS.ProcessEnv;
+  capabilities: ProviderCapabilitiesContract;
+}
+
+interface PublicProviderCapabilities {
+  supportedRuntimes: ProviderRuntime[];
+  runtimeSwitch: boolean;
+  terminalProfile: boolean;
+  goals: boolean;
+  goalSubmission: ProviderCapabilitiesContract['goalSubmission'] | null;
+  sessionFork: boolean;
+  chatRuntime: string;
+  supportsChat: boolean;
+  supportsSteer: boolean;
+}
+
 const CODEX_VALUE_OPTIONS = new Set([
   '-a', '-c', '-C', '-m', '-p', '-s', '--ask-for-approval', '--cd', '--config',
   '--config-profile', '--model', '--profile', '--sandbox', '--add-dir',
@@ -29,12 +130,16 @@ const OPENCODE_SUBCOMMANDS = new Set([
 ]);
 const CODEX_SESSION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-function optionTakesValue(option, valueOptions) {
+function optionTakesValue(option: string, valueOptions: ReadonlySet<string>): boolean {
   return Boolean(option && !option.includes('=') && valueOptions.has(option));
 }
 
-function scanPositionals(args, valueOptions, options = {}) {
-  const positionals = [];
+function scanPositionals(
+  args: string[],
+  valueOptions: ReadonlySet<string>,
+  options: PositionalScanOptions = {},
+): PositionalArgument[] {
+  const positionals: PositionalArgument[] = [];
   for (let index = 0; index < args.length; index += 1) {
     const arg = String(args[index] || '');
     if (!arg) continue;
@@ -61,7 +166,7 @@ function scanPositionals(args, valueOptions, options = {}) {
   return positionals;
 }
 
-function codexSessionIdAfterSubcommand(args, subcommandIndex) {
+function codexSessionIdAfterSubcommand(args: string[], subcommandIndex: number): string {
   const sessionId = scanPositionals(
     args.slice(subcommandIndex + 1),
     CODEX_VALUE_OPTIONS,
@@ -70,7 +175,7 @@ function codexSessionIdAfterSubcommand(args, subcommandIndex) {
   return CODEX_SESSION_ID_RE.test(sessionId) ? sessionId.toLowerCase() : '';
 }
 
-function argValue(args, names) {
+function argValue(args: string[], names: readonly string[]): string {
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     if (arg === '--') break;
@@ -82,7 +187,7 @@ function argValue(args, names) {
   return '';
 }
 
-function hasArg(args, names) {
+function hasArg(args: string[], names: readonly string[]): boolean {
   for (const arg of args) {
     if (arg === '--') break;
     if (names.includes(arg) || names.some(name => arg.startsWith(`${name}=`))) return true;
@@ -90,7 +195,7 @@ function hasArg(args, names) {
   return false;
 }
 
-function codexSessionPlan(rawArgs, _launchArgs) {
+function codexSessionPlan(rawArgs: string[], _launchArgs: string[]): ProviderSessionPlan | null {
   const positional = scanPositionals(rawArgs, CODEX_VALUE_OPTIONS, {
     multiValueOptions: new Set(['-i', '--image']),
   });
@@ -128,7 +233,11 @@ function codexSessionPlan(rawArgs, _launchArgs) {
   };
 }
 
-function explicitSessionPlan(provider, rawArgs, launchArgs) {
+function explicitSessionPlan(
+  provider: ProviderId,
+  rawArgs: string[],
+  launchArgs: string[],
+): ProviderSessionPlan | null {
   const explicitSessionId = argValue(rawArgs, ['--session-id']);
   const resumeSessionId = argValue(rawArgs, ['--resume']);
   const isFork = hasArg(rawArgs, ['--fork-session']);
@@ -155,7 +264,7 @@ function explicitSessionPlan(provider, rawArgs, launchArgs) {
   };
 }
 
-function openCodeSessionPlan(rawArgs, launchArgs) {
+function openCodeSessionPlan(rawArgs: string[], launchArgs: string[]): ProviderSessionPlan | null {
   const id = argValue(rawArgs, ['--session', '-s']);
   if (id && isSafeProviderSessionId(id)) {
     return hasArg(rawArgs, ['--fork'])
@@ -186,14 +295,18 @@ function openCodeSessionPlan(rawArgs, launchArgs) {
   };
 }
 
-function codexAcpEnvironment(options = {}) {
+function codexAcpEnvironment(
+  options: ProviderEnvironmentOptions = {},
+): NodeJS.ProcessEnv {
   const env = { ...(options.env || process.env) };
   if (options.executable && !env.CODEX_PATH) env.CODEX_PATH = options.executable;
-  let config = {};
+  let config: Record<string, unknown> = {};
   if (env.CODEX_CONFIG) {
     try {
-      const parsed = JSON.parse(env.CODEX_CONFIG);
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) config = parsed;
+      const parsed: unknown = JSON.parse(env.CODEX_CONFIG);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        config = parsed as Record<string, unknown>;
+      }
     } catch {
       // A selected Farming profile below replaces an invalid adapter config.
     }
@@ -208,12 +321,16 @@ function codexAcpEnvironment(options = {}) {
     ].filter(Boolean).join('\n\n');
   }
   if (Object.keys(config).length > 0) env.CODEX_CONFIG = JSON.stringify(config);
-  const initialMode = { ask: 'read-only', approve: 'agent', full: 'agent-full-access' }[options.approvalMode];
+  const initialMode = options.approvalMode
+    ? { ask: 'read-only', approve: 'agent', full: 'agent-full-access' }[options.approvalMode]
+    : undefined;
   if (initialMode) env.INITIAL_AGENT_MODE = initialMode;
   return env;
 }
 
-function claudeAcpEnvironment(options = {}) {
+function claudeAcpEnvironment(
+  options: ProviderEnvironmentOptions = {},
+): NodeJS.ProcessEnv {
   const env = { ...(options.env || process.env) };
   if (options.executable && !env.CLAUDE_CODE_EXECUTABLE) {
     env.CLAUDE_CODE_EXECUTABLE = options.executable;
@@ -221,7 +338,7 @@ function claudeAcpEnvironment(options = {}) {
   return env;
 }
 
-const PROVIDER_ADAPTERS = Object.freeze([
+const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
   {
     id: 'codex',
     displayName: 'codex',
@@ -374,24 +491,27 @@ const PROVIDER_ADAPTERS = Object.freeze([
   },
 ]);
 
-const ADAPTER_BY_ID = new Map(PROVIDER_ADAPTERS.map(adapter => [adapter.id, Object.freeze(adapter)]));
-const ADAPTER_BY_COMMAND = new Map(PROVIDER_ADAPTERS.flatMap(adapter => (
-  adapter.commands.map(command => [command, adapter])
+const ADAPTER_BY_ID = new Map<ProviderId, Readonly<ProviderAdapter>>(
+  PROVIDER_ADAPTERS.map(adapter => [adapter.id, Object.freeze(adapter)]),
+);
+const ADAPTER_BY_COMMAND = new Map<string, ProviderAdapter>(PROVIDER_ADAPTERS.flatMap(adapter => (
+  adapter.commands.map(command => [command, adapter] as [string, ProviderAdapter])
 )));
 
-function getProviderAdapter(provider) {
-  return ADAPTER_BY_ID.get(String(provider || '').trim().toLowerCase()) || null;
+function getProviderAdapter(provider: unknown): Readonly<ProviderAdapter> | null {
+  const providerId = String(provider || '').trim().toLowerCase() as ProviderId;
+  return ADAPTER_BY_ID.get(providerId) || null;
 }
 
-function providerForProgram(program) {
+function providerForProgram(program: unknown): ProviderId | '' {
   return ADAPTER_BY_COMMAND.get(path.basename(String(program || '').trim()))?.id || '';
 }
 
-function listProviderAdapters() {
+function listProviderAdapters(): readonly ProviderAdapter[] {
   return [...PROVIDER_ADAPTERS];
 }
 
-function providerCapabilities(provider) {
+function providerCapabilities(provider: unknown): PublicProviderCapabilities {
   const adapter = getProviderAdapter(provider);
   return {
     supportedRuntimes: adapter
@@ -408,25 +528,29 @@ function providerCapabilities(provider) {
   };
 }
 
-function providerSupportsRuntime(provider, runtime) {
+function providerSupportsRuntime(provider: unknown, runtime: ProviderRuntime): boolean {
   return getProviderAdapter(provider)?.supportedRuntimes.includes(runtime) === true;
 }
 
-function providerAcpForkMode(provider) {
+function providerAcpForkMode(provider: unknown): ProviderAcpForkMode {
   return getProviderAdapter(provider)?.acp?.forkMode || 'source-then-load';
 }
 
-function applyProviderHomeEnvironment(env, provider, homePath) {
+function applyProviderHomeEnvironment(
+  env: NodeJS.ProcessEnv,
+  provider: unknown,
+  homePath: string,
+): NodeJS.ProcessEnv {
   const key = getProviderAdapter(provider)?.homeEnvKey;
   if (key && homePath) env[key] = homePath;
   return env;
 }
 
-function isFreshAcpSessionSource(provider, source) {
+function isFreshAcpSessionSource(provider: unknown, source: string): boolean {
   return getProviderAdapter(provider)?.freshAcpSessionSources.includes(source) === true;
 }
 
-module.exports = {
+export {
   claudeAcpEnvironment,
   getProviderAdapter,
   applyProviderHomeEnvironment,
