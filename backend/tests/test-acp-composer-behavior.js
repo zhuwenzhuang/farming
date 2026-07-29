@@ -39,7 +39,6 @@ async function run() {
     attachments: [queuedAttachment],
     composerMode: 'plan',
     turnActive: true,
-    supportsSteer: false,
     sendMessage,
     updateComposerState,
   }), true);
@@ -63,7 +62,6 @@ async function run() {
     attachments: [directAttachment],
     composerMode: 'default',
     turnActive: false,
-    supportsSteer: false,
     sendMessage,
     updateComposerState,
   }), true);
@@ -84,14 +82,12 @@ async function run() {
     attachments: [steerAttachment],
     composerMode: 'default',
     turnActive: true,
-    supportsSteer: true,
     sendMessage,
     updateComposerState,
   }), true);
-  assert.strictEqual(sent.length, 2, 'a steer-capable running ACP turn should submit immediately');
-  assert.strictEqual(sent[1].text, 'change direction now');
-  assert.strictEqual(sent[1].attachments[0].path, '/tmp/screen.png');
-  assert.strictEqual(state.pendingFollowUp, undefined);
+  assert.strictEqual(sent.length, 1, 'a running ACP turn should queue even when steer is supported');
+  assert.strictEqual(state.pendingFollowUp.messages[0].text, 'change direction now');
+  assert.strictEqual(state.pendingFollowUp.messages[0].attachments[0].path, '/tmp/screen.png');
 
   let acceptDelayedSubmission;
   const delayedSubmission = new Promise(resolve => {
@@ -110,7 +106,6 @@ async function run() {
     attachments: state.attachments,
     composerMode: 'default',
     turnActive: false,
-    supportsSteer: false,
     sendMessage: () => delayedSubmission,
     updateComposerState,
   });
@@ -129,58 +124,42 @@ async function run() {
   assert.strictEqual(state.attachments.length, 0);
   assert.strictEqual(state.submissions, undefined);
 
-  const rapidSubmissions = [];
-  const rapidRequestIds = [];
-  const rapidResolvers = [];
-  const sendRapidMessage = (_agent, text, _attachments, requestId) => {
-    rapidSubmissions.push(text);
-    rapidRequestIds.push(requestId);
-    return new Promise(resolve => rapidResolvers.push(resolve));
-  };
   state = {
     ...createDefaultAgentComposerState(),
     draft: '?',
   };
-  const firstRapidResult = submitAcpDraft({
+  assert.strictEqual(submitAcpDraft({
     agent,
     composerKey: 'acp:session-1',
     draft: state.draft,
     attachments: [],
     composerMode: 'default',
     turnActive: true,
-    supportsSteer: true,
-    sendMessage: sendRapidMessage,
+    sendMessage,
     updateComposerState,
-  });
+  }), true);
   assert.strictEqual(state.draft, '');
   state = { ...state, draft: 'inspect the separate issue' };
-  const secondRapidResult = submitAcpDraft({
+  assert.strictEqual(submitAcpDraft({
     agent,
     composerKey: 'acp:session-1',
     draft: state.draft,
     attachments: [],
     composerMode: 'default',
     turnActive: true,
-    supportsSteer: true,
-    sendMessage: sendRapidMessage,
+    sendMessage,
     updateComposerState,
-  });
+  }), true);
   assert.deepStrictEqual(
-    rapidSubmissions,
+    state.pendingFollowUp.messages.map(message => message.text),
     ['?', 'inspect the separate issue'],
-    'consecutive steers must retain two independent submission boundaries',
+    'consecutive sends during a running Turn must retain two independent queue entries',
   );
   assert.notStrictEqual(
-    rapidRequestIds[0],
-    rapidRequestIds[1],
-    'each send action must own a distinct request id even when acknowledgements overlap',
+    state.pendingFollowUp.messages[0].id,
+    state.pendingFollowUp.messages[1].id,
+    'each queued send action must own a distinct request id',
   );
-  assert.deepStrictEqual(state.submissions.map(message => message.text), rapidSubmissions);
-  rapidResolvers[0](true);
-  assert.strictEqual(await firstRapidResult, true);
-  assert.deepStrictEqual(state.submissions.map(message => message.text), ['inspect the separate issue']);
-  rapidResolvers[1](true);
-  assert.strictEqual(await secondRapidResult, true);
   assert.strictEqual(state.submissions, undefined);
 
   let rejectSubmission;
@@ -194,8 +173,7 @@ async function run() {
     draft: state.draft,
     attachments: [],
     composerMode: 'default',
-    turnActive: true,
-    supportsSteer: true,
+    turnActive: false,
     sendMessage: () => new Promise(resolve => { rejectSubmission = resolve; }),
     updateComposerState,
   });
@@ -226,7 +204,6 @@ async function run() {
     attachments: [],
     composerMode: 'default',
     turnActive: false,
-    supportsSteer: false,
     sendMessage,
     updateComposerState,
   }), false);

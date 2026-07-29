@@ -19,6 +19,8 @@ export interface AgentComposerPendingFollowUp {
 
 export interface AgentComposerSubmission extends AgentComposerPendingFollowUpMessage {
   status: 'submitting' | 'failed'
+  historyRecorded?: boolean
+  delivery?: 'prompt' | 'steer'
 }
 
 export interface AgentComposerUiState {

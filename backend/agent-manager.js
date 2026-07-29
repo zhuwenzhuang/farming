@@ -32,7 +32,7 @@ const {
   runtimeBindingFor,
   runtimeBindingOf,
   runtimeKind,
-} = require('./agent-runtime-binding');
+} = require('./agent-runtime-binding.cjs');
 const { deriveRuntimeObservation } = require('./runtime-observation');
 const {
   applyProviderHomeEnvironment,
@@ -4809,14 +4809,17 @@ class AgentManager extends EventEmitter {
     ]);
   }
 
-  sendPersistentComposerMessage(agentId, message, requestId) {
+  sendPersistentComposerMessage(agentId, message, requestId, options = {}) {
     const agent = this.agents.get(agentId);
     if (!agent) return Promise.reject(new Error('Agent not found'));
     if (runtimeKind(agent) === 'terminal') {
       return Promise.reject(new Error('Persistent Composer admission requires a structured runtime'));
     }
     const prompt = normalizedComposerPrompt(message);
-    const contentHash = composerCommandHash(prompt);
+    const delivery = options.delivery === 'prompt' || options.delivery === 'steer'
+      ? options.delivery
+      : 'auto';
+    const contentHash = composerCommandHash({ prompt, delivery });
     const commands = normalizedComposerCommands(agent.composerCommands);
     const existing = commands.find(command => command.requestId === requestId);
     const admissionKey = `${agentId}:${requestId}`;
@@ -4893,9 +4896,15 @@ class AgentManager extends EventEmitter {
     };
 
     const completion = isAcpAgent(agent)
-      ? this.enqueueInputOperationUntilReleased(
+      ? (delivery === 'steer'
+        ? this.sendComposerMessageNow(agentId, prompt, {
+            delivery,
+            onSubmitted: () => onSubmitted({ kind: 'acp' }),
+          })
+        : this.enqueueInputOperationUntilReleased(
           agentId,
           releaseInput => this.sendComposerMessageNow(agentId, prompt, {
+            delivery,
             onSubmitted: () => {
               try {
                 onSubmitted({ kind: 'acp' });
@@ -4904,7 +4913,7 @@ class AgentManager extends EventEmitter {
               }
             },
           }),
-        )
+        ))
       : this.enqueueInputOperation(
           agentId,
           () => this.sendComposerMessageNow(agentId, prompt, {
@@ -4944,16 +4953,25 @@ class AgentManager extends EventEmitter {
     const requestId = String(options.requestId || '').trim();
     if (requestId) {
       if (!/^[A-Za-z0-9._:-]{1,160}$/.test(requestId)) throw new Error('Composer requestId is invalid');
-      return this.sendPersistentComposerMessage(agentId, message, requestId);
+      return this.sendPersistentComposerMessage(agentId, message, requestId, options);
     }
     const agent = this.agents.get(agentId);
     if (agent && isAcpAgent(agent)) {
+      if (options.delivery === 'steer') {
+        return this.sendComposerMessageNow(agentId, message, { delivery: 'steer' });
+      }
       return this.enqueueInputOperationUntilReleased(
         agentId,
-        releaseInput => this.sendComposerMessageNow(agentId, message, { releaseInput }),
+        releaseInput => this.sendComposerMessageNow(agentId, message, {
+          releaseInput,
+          delivery: options.delivery,
+        }),
       );
     }
-    return this.enqueueInputOperation(agentId, () => this.sendComposerMessageNow(agentId, message));
+    return this.enqueueInputOperation(
+      agentId,
+      () => this.sendComposerMessageNow(agentId, message, { delivery: options.delivery }),
+    );
   }
 
   async setCodexTerminalProfile(agentId, profile, options = {}) {
@@ -5072,6 +5090,7 @@ class AgentManager extends EventEmitter {
     if (isAcpAgent(agent)) {
       this.requireLiveAcpAgent(agentId);
       const result = await this.acpRuntime.submitMessage(agentId, prompt, {
+        delivery: options.delivery,
         onSubmitted: options.onSubmitted || options.releaseInput,
       });
       if (result.steered !== true) {

@@ -1634,6 +1634,24 @@ class AcpRuntime extends EventEmitter {
 
   async submitMessage(agentId, prompt, options = {}) {
     const binding = this.requireBinding(agentId);
+    const delivery = options.delivery === 'prompt' || options.delivery === 'steer'
+      ? options.delivery
+      : 'auto';
+    if (delivery === 'steer') {
+      this.requireOpenBinding(binding);
+      const turn = binding.activeTurn;
+      if (
+        turn?.phase !== 'running'
+        || turn.providerSettled === true
+        || binding.provider !== 'codex'
+        || binding.supportsSteer !== true
+      ) {
+        throw new Error('No active Codex turn to steer');
+      }
+      const result = await this.steer(agentId, prompt);
+      options.onSubmitted?.();
+      return { steered: true, ...result };
+    }
     while (true) {
       this.requireOpenBinding(binding);
       const turn = binding.activeTurn;
@@ -1641,7 +1659,8 @@ class AcpRuntime extends EventEmitter {
         throw new Error(`ACP Agent is not ready (${binding.state})`);
       }
       if (
-        turn?.phase === 'running'
+        delivery === 'auto'
+        && turn?.phase === 'running'
         && turn.providerSettled !== true
         && binding.provider === 'codex'
         && binding.supportsSteer === true

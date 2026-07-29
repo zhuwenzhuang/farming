@@ -10,7 +10,7 @@ const { execFile } = require('child_process');
 const { promisify } = require('util');
 const { URLSearchParams, pathToFileURL } = require('url');
 const AgentManager = require('./agent-manager');
-const { runtimeKind } = require('./agent-runtime-binding');
+const { runtimeKind } = require('./agent-runtime-binding.cjs');
 const ConfigManager = require('./config-manager');
 const ThemeManager = require('./theme-manager');
 const TokenAuth = require('./auth');
@@ -2529,6 +2529,9 @@ async function sendInputMessage(ws, data) {
 async function sendComposerInputMessage(ws, data) {
   const targetAgentId = resolveInputTargetAgentId(ws, data);
   const requestId = typeof data.requestId === 'string' ? data.requestId.trim() : '';
+  const delivery = data.delivery === 'steer' || data.delivery === 'prompt'
+    ? data.delivery
+    : 'auto';
   const responseAgentId = targetAgentId || (typeof data.agentId === 'string' ? data.agentId : '');
   const respond = (accepted, message = '', uncertain = false) => {
     if (!requestId || !responseAgentId) return;
@@ -2595,7 +2598,7 @@ async function sendComposerInputMessage(ws, data) {
     return;
   }
   try {
-    await agentManager.sendComposerMessage(targetAgentId, content, { requestId });
+    await agentManager.sendComposerMessage(targetAgentId, content, { requestId, delivery });
     respond(true);
   } catch (error) {
     const message = error && error.message ? error.message : 'Failed to send Composer message';

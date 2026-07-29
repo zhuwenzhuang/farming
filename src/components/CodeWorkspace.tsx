@@ -368,7 +368,7 @@ interface CodeWorkspaceProps {
     message: string,
     agentId?: string,
     attachments?: ComposerPromptAttachment[],
-    options?: { awaitResult?: boolean; requestId?: string },
+    options?: { awaitResult?: boolean; requestId?: string; delivery?: 'prompt' | 'steer' },
   ) => boolean | Promise<boolean>
   onSessionOutput: (agentId: string, handler: (data: string, replace?: boolean, outputSeq?: number | null, runtimeEpoch?: string, stateRevision?: number | null, cols?: number, rows?: number, kind?: 'output' | 'resize' | 'clear') => void) => () => void
   onUpdateUiPreferences: (patch: Partial<UiPreferences>) => void
@@ -592,6 +592,7 @@ export function CodeWorkspace({
     onDiscardAttachment: revokeComposerAttachmentPreview,
   })
   const pendingFollowUpAutoFlushRef = useRef<Record<string, string>>({})
+  const acpSubmissionAdmissionsRef = useRef<Set<string>>(new Set())
   // This is only a local admission fence. ACP's runtime state remains
   // authoritative, but the first prompt must not leave a click-sized window
   // in which a second prompt is sent before its `working` update arrives.
@@ -1969,9 +1970,14 @@ export function CodeWorkspace({
     message: string,
     attachments: ComposerPromptAttachment[] = [],
     requestId?: string,
+    delivery?: 'prompt' | 'steer',
   ) => {
     if (isStructuredRuntime(agent)) {
-      return sendComposerInput(message, agent.id, attachments, { awaitResult: true, requestId })
+      return sendComposerInput(message, agent.id, attachments, {
+        awaitResult: true,
+        requestId,
+        delivery,
+      })
     }
     if (
       agentKindForCommand(agent.command) === 'shell'
@@ -2047,8 +2053,13 @@ export function CodeWorkspace({
       attachments: composerAttachments,
       composerMode,
       turnActive: activeAgentTurnActive || promptStartFenced,
-      supportsSteer: activeAgent?.providerCapabilities.supportsSteer === true,
-      sendMessage: (agent, message, attachments, requestId) => sendComposerMessageToAgent(agent, message, attachments, requestId),
+      sendMessage: (agent, message, attachments, requestId) => sendComposerMessageToAgent(
+        agent,
+        message,
+        attachments,
+        requestId,
+        'prompt',
+      ),
       updateComposerState: updateComposerStateForKey,
     })
     const commitAccepted = (accepted: boolean, restoreFocus: boolean) => {
@@ -2068,6 +2079,9 @@ export function CodeWorkspace({
       candidate.id === messageId && candidate.status === 'failed'
     ))
     if (!submission) return
+    const admissionKey = `${activeComposerKey}:${messageId}`
+    if (acpSubmissionAdmissionsRef.current.has(admissionKey)) return
+    acpSubmissionAdmissionsRef.current.add(admissionKey)
     updateComposerStateForKey(activeComposerKey, state => ({
       ...state,
       submissions: state.submissions?.map(candidate => (
@@ -2077,17 +2091,26 @@ export function CodeWorkspace({
     const settle = (accepted: boolean) => {
       updateComposerStateForKey(activeComposerKey, state => ({
         ...state,
-        ...(accepted ? { history: addComposerHistoryEntry(state.history, submission.text) } : {}),
+        ...(accepted && submission.historyRecorded !== true
+          ? { history: addComposerHistoryEntry(state.history, submission.text) }
+          : {}),
         submissions: accepted
           ? removeComposerSubmission(state.submissions, messageId)
           : state.submissions?.map(candidate => (
             candidate.id === messageId ? { ...candidate, status: 'failed' as const } : candidate
           )),
       }))
+      acpSubmissionAdmissionsRef.current.delete(admissionKey)
     }
     let sent: boolean | Promise<boolean>
     try {
-      sent = sendComposerMessageToAgent(activeAgent, submission.text, submission.attachments, submission.id)
+      sent = sendComposerMessageToAgent(
+        activeAgent,
+        submission.text,
+        submission.attachments,
+        submission.id,
+        submission.delivery || 'prompt',
+      )
     } catch {
       settle(false)
       return
@@ -2095,6 +2118,71 @@ export function CodeWorkspace({
     if (typeof sent === 'boolean') settle(sent)
     else void sent.then(settle, () => settle(false))
   }, [activeAgent, activeComposerKey, composerByAgentKey, sendComposerMessageToAgent, updateComposerStateForKey])
+
+  const steerPendingFollowUp = useCallback((messageId: string) => {
+    if (
+      !activeAgent
+      || !activeComposerKey
+      || !activeAgentTurnActive
+      || activeAgent.providerCapabilities.supportsSteer !== true
+    ) return
+    const message = composerByAgentKey[activeComposerKey]?.pendingFollowUp?.messages.find(candidate => (
+      candidate.id === messageId
+    ))
+    if (!message) return
+    const admissionKey = `${activeComposerKey}:${messageId}`
+    if (acpSubmissionAdmissionsRef.current.has(admissionKey)) return
+    acpSubmissionAdmissionsRef.current.add(admissionKey)
+    updateComposerStateForKey(activeComposerKey, state => {
+      if (!state.pendingFollowUp?.messages.some(candidate => candidate.id === messageId)) return state
+      return {
+        ...state,
+        pendingFollowUp: removePendingFollowUpMessage(state.pendingFollowUp, messageId),
+        submissions: [
+          ...(state.submissions || []),
+          {
+            ...message,
+            status: 'submitting' as const,
+            historyRecorded: true,
+            delivery: 'steer' as const,
+          },
+        ],
+      }
+    })
+    const settle = (accepted: boolean) => {
+      updateComposerStateForKey(activeComposerKey, state => ({
+        ...state,
+        submissions: accepted
+          ? removeComposerSubmission(state.submissions, messageId)
+          : state.submissions?.map(candidate => (
+            candidate.id === messageId ? { ...candidate, status: 'failed' as const } : candidate
+          )),
+      }))
+      acpSubmissionAdmissionsRef.current.delete(admissionKey)
+    }
+    let sent: boolean | Promise<boolean>
+    try {
+      sent = sendComposerMessageToAgent(
+        activeAgent,
+        message.text,
+        message.attachments,
+        message.id,
+        'steer',
+      )
+    } catch {
+      settle(false)
+      return
+    }
+    if (typeof sent === 'boolean') settle(sent)
+    else void sent.then(settle, () => settle(false))
+  }, [
+    activeAgent,
+    activeAgentTurnActive,
+    activeComposerKey,
+    composerByAgentKey,
+    sendComposerMessageToAgent,
+    updateComposerStateForKey,
+  ])
 
   const discardAcpSubmission = useCallback((messageId: string) => {
     if (!activeComposerKey) return
@@ -2131,20 +2219,34 @@ export function CodeWorkspace({
       if (!state.pendingFollowUp) return state
       return { ...state, pendingFollowUp: removePendingFollowUpMessage(state.pendingFollowUp, messageId) }
     })
-    const submitted = sendComposerMessageToAgent(activeAgent, message.text, message.attachments, message.id)
-    if (typeof submitted === 'boolean') {
-      if (!submitted) return
-      pendingFollowUpAutoFlushRef.current[activeComposerKey] = message.id
+    if (pendingFollowUpAutoFlushRef.current[activeComposerKey]) return
+    pendingFollowUpAutoFlushRef.current[activeComposerKey] = message.id
+    const settle = (accepted: boolean) => {
+      if (pendingFollowUpAutoFlushRef.current[activeComposerKey] === message.id) {
+        delete pendingFollowUpAutoFlushRef.current[activeComposerKey]
+      }
+      if (!accepted) return
       removeAcceptedFollowUp()
       focusComposerTextarea()
+    }
+    let submitted: boolean | Promise<boolean>
+    try {
+      submitted = sendComposerMessageToAgent(
+        activeAgent,
+        message.text,
+        message.attachments,
+        message.id,
+        'prompt',
+      )
+    } catch {
+      settle(false)
       return
     }
-    void submitted.then(accepted => {
-      if (!accepted) return
-      pendingFollowUpAutoFlushRef.current[activeComposerKey] = message.id
-      removeAcceptedFollowUp()
-      focusComposerTextarea()
-    })
+    if (typeof submitted === 'boolean') {
+      settle(submitted)
+      return
+    }
+    void submitted.then(settle, () => settle(false))
   }, [activeAgent, activeComposerKey, composerByAgentKey, focusComposerTextarea, sendComposerMessageToAgent, updateComposerStateForKey])
 
   const discardPendingFollowUp = useCallback((messageId: string) => {
@@ -2188,7 +2290,7 @@ export function CodeWorkspace({
     }> = []
 
     activeAgents.forEach(agent => {
-      const acpRuntime = isAcpRuntime(agent)
+      const acpRuntime = isAcpRuntime(agent) ? agent.runtimeBinding : null
       const composerKey = acpRuntime
         ? acpComposerStateKeyForAgent(agent)
         : composerStateKeyForAgent(agent)
@@ -2199,9 +2301,15 @@ export function CodeWorkspace({
         return
       }
       if (agent.archived || agent.status === 'dead' || agent.status === 'stopped') return
-      if (acpRuntime && acpPromptStartFencesRef.current[agent.id] !== undefined) return
+      if (acpRuntime) {
+        const revisionBeforePrompt = acpPromptStartFencesRef.current[agent.id]
+        const currentSessionRevision = Number(acpRuntime.sessionRevision) || 0
+        if (
+          revisionBeforePrompt !== undefined
+          && currentSessionRevision <= revisionBeforePrompt
+        ) return
+      }
       if (acpRuntime ? isAgentTurnActive(agent) : isCodexAgentWorking(agent)) {
-        delete pendingFollowUpAutoFlushRef.current[composerKey]
         return
       }
       if (pendingFollowUpAutoFlushRef.current[composerKey]) return
@@ -2217,18 +2325,50 @@ export function CodeWorkspace({
         if (!state.pendingFollowUp) return state
         return { ...state, pendingFollowUp: removePendingFollowUpMessage(state.pendingFollowUp, message.id) }
       })
-      const submitted = sendComposerMessageToAgent(agent, message.text, message.attachments, message.id)
-      if (typeof submitted === 'boolean') {
-        if (!submitted) return
-        pendingFollowUpAutoFlushRef.current[composerKey] = message.id
-        removeAcceptedFollowUp()
+      pendingFollowUpAutoFlushRef.current[composerKey] = message.id
+      const settle = (accepted: boolean) => {
+        if (pendingFollowUpAutoFlushRef.current[composerKey] === message.id) {
+          delete pendingFollowUpAutoFlushRef.current[composerKey]
+        }
+        if (accepted) {
+          removeAcceptedFollowUp()
+          return
+        }
+        updateExistingComposerStateForKey(composerKey, state => {
+          if (!state.pendingFollowUp?.messages.some(candidate => candidate.id === message.id)) return state
+          return {
+            ...state,
+            pendingFollowUp: removePendingFollowUpMessage(state.pendingFollowUp, message.id),
+            submissions: [
+              ...(state.submissions || []),
+              {
+                ...message,
+                status: 'failed' as const,
+                historyRecorded: true,
+                delivery: 'prompt' as const,
+              },
+            ],
+          }
+        })
+      }
+      let submitted: boolean | Promise<boolean>
+      try {
+        submitted = sendComposerMessageToAgent(
+          agent,
+          message.text,
+          message.attachments,
+          message.id,
+          'prompt',
+        )
+      } catch {
+        settle(false)
         return
       }
-      void submitted.then(accepted => {
-        if (!accepted) return
-        pendingFollowUpAutoFlushRef.current[composerKey] = message.id
-        removeAcceptedFollowUp()
-      })
+      if (typeof submitted === 'boolean') {
+        settle(submitted)
+        return
+      }
+      void submitted.then(settle, () => settle(false))
     })
   }, [activeAgents, composerByAgentKey, sendComposerMessageToAgent, updateExistingComposerStateForKey])
 
@@ -5110,6 +5250,8 @@ export function CodeWorkspace({
           contextWindow: activeAgentContextWindow,
           pendingFollowUp: activePendingFollowUp ?? null,
           submissions: activeComposerSubmissions ?? [],
+          canSteerPendingFollowUp: activeAgentTurnActive
+            && activeAgent?.providerCapabilities.supportsSteer === true,
           submitAction: acpComposerSubmitAction,
           textareaRef: composerTextareaRef,
           attachmentInputRef,
@@ -5132,6 +5274,7 @@ export function CodeWorkspace({
           onSubmit: submitAcpDraft,
           onInterrupt: interruptActiveAgent,
           onDiscardPendingFollowUp: discardPendingFollowUp,
+          onSteerPendingFollowUp: steerPendingFollowUp,
           onRetrySubmission: retryAcpSubmission,
           onDiscardSubmission: discardAcpSubmission,
           onToggleSpeechInput: toggleSpeechInput,

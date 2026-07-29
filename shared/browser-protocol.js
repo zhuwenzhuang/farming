@@ -84,7 +84,13 @@ function validateClientMessage(value) {
     case 'business-health-probe': valid = stringField(value, 'requestId'); break;
     case 'start-agent': valid = stringField(value, 'command'); break;
     case 'input': valid = stringField(value, 'agentId', true) && (typeof value.input === 'string' || Array.isArray(value.inputParts)); break;
-    case 'composer-input': valid = stringField(value, 'message') && stringField(value, 'agentId', true) && stringField(value, 'requestId', true); break;
+    case 'composer-input':
+      valid = stringField(value, 'message')
+        && stringField(value, 'agentId', true)
+        && stringField(value, 'requestId', true)
+        && (!Object.prototype.hasOwnProperty.call(value, 'delivery')
+          || ['prompt', 'steer'].includes(value.delivery));
+      break;
     case 'acp-permission-response': valid = stringField(value, 'agentId') && stringField(value, 'requestId'); break;
     case 'focus-agent': valid = value.agentId === null || stringField(value, 'agentId'); break;
     case 'resize-agent': valid = stringField(value, 'agentId') && finiteField(value, 'cols') && finiteField(value, 'rows'); break;

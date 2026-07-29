@@ -54,6 +54,7 @@ export interface AcpComposerProps {
   contextWindow: AgentContextWindowUsage | null
   pendingFollowUp: { messages: Array<{ id: string; text: string; createdAt: number; attachments?: Array<{ name: string }> }>; createdAt: number } | null
   submissions: Array<{ id: string; text: string; createdAt: number; status: 'submitting' | 'failed'; attachments?: Array<{ name: string }> }>
+  canSteerPendingFollowUp: boolean
   submitAction: 'send' | 'interrupt' | 'disabled'
   textareaRef: RefObject<HTMLTextAreaElement | null>
   attachmentInputRef: RefObject<HTMLInputElement | null>
@@ -68,6 +69,7 @@ export interface AcpComposerProps {
   onSubmit: (draft?: string) => void
   onInterrupt: () => void
   onDiscardPendingFollowUp: (messageId: string) => void
+  onSteerPendingFollowUp: (messageId: string) => void
   onRetrySubmission: (messageId: string) => void
   onDiscardSubmission: (messageId: string) => void
   onToggleSpeechInput: () => void
@@ -93,6 +95,7 @@ export function AcpComposer({
   contextWindow,
   pendingFollowUp,
   submissions,
+  canSteerPendingFollowUp,
   submitAction,
   textareaRef,
   attachmentInputRef,
@@ -107,6 +110,7 @@ export function AcpComposer({
   onSubmit,
   onInterrupt,
   onDiscardPendingFollowUp,
+  onSteerPendingFollowUp,
   onRetrySubmission,
   onDiscardSubmission,
   onToggleSpeechInput,
@@ -288,8 +292,8 @@ export function AcpComposer({
       data-testid="code-acp-composer"
       onClick={handleComposerClick}
     >
-      {submissions.length > 0 && active ? (
-        <div className="code-pending-followup code-acp-submissions" data-testid="code-acp-submissions">
+      {(submissions.length > 0 || pendingFollowUp) && active ? (
+        <div className="code-pending-followup code-acp-pending-items" data-testid="code-acp-pending-followup">
           {submissions.map(message => (
             <div
               className={`code-pending-followup-row code-acp-submission ${message.status}`}
@@ -316,15 +320,17 @@ export function AcpComposer({
               </div>
             </div>
           ))}
-        </div>
-      ) : null}
-      {pendingFollowUp && active ? (
-        <div className="code-pending-followup" data-testid="code-acp-pending-followup">
-          {pendingFollowUp.messages.map(message => (
+          {pendingFollowUp?.messages.map(message => (
             <div className="code-pending-followup-row" data-testid="code-acp-pending-followup-row" key={message.id}>
               <span className="code-pending-followup-icon" aria-hidden="true"><ReplyGlyph /></span>
               <p>{message.text || message.attachments?.map(attachment => attachment.name).join(', ')}</p>
               <div className="code-pending-followup-actions">
+                {canSteerPendingFollowUp ? (
+                  <button type="button" data-testid="code-acp-pending-followup-steer" onClick={() => onSteerPendingFollowUp(message.id)}>
+                    <ReplyGlyph />
+                    <span>{copy.steerQueuedMessage}</span>
+                  </button>
+                ) : null}
                 <button type="button" className="icon" data-testid="code-acp-pending-followup-discard" aria-label={copy.discardQueuedMessage} onClick={() => onDiscardPendingFollowUp(message.id)}>
                   <CloseGlyph />
                 </button>

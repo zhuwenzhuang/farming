@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { expect, openFarming, test } from './fixtures'
 
-test('sends negotiated Codex ACP steer with mixed input and restores it once', async ({ page, workspaceRoot }) => {
+test('queues a follow-up and explicitly sends negotiated Codex ACP steer', async ({ page, workspaceRoot }) => {
   const sessionRevisionMessages: Array<{ agentId?: string; revision?: number }> = []
   page.on('websocket', socket => {
     if (!/\/farming\/ws(?:\?|$)/.test(socket.url())) return
@@ -54,7 +54,12 @@ test('sends negotiated Codex ACP steer with mixed input and restores it once', a
   await expect(page.getByTestId('code-composer-attachment')).toHaveClass(/ready/)
   await input.fill('focus on the attached image')
   await page.getByTestId('code-acp-composer-send').click()
-  await expect(page.getByTestId('code-acp-pending-followup')).toHaveCount(0)
+  await expect(input).toHaveValue('')
+  await expect(page.getByTestId('code-acp-pending-followup-row')).toHaveCount(1)
+  await expect(page.getByTestId('code-acp-pending-followup-row')).toContainText('focus on the attached image')
+  await expect(page.getByTestId('code-agent-transcript-steer')).toHaveCount(0)
+  await page.getByTestId('code-acp-pending-followup-steer').click()
+  await expect(page.getByTestId('code-acp-pending-followup-row')).toHaveCount(0)
 
   const steer = page.getByTestId('code-agent-transcript-steer')
   await expect(steer).toContainText('focus on the attached image')
@@ -97,7 +102,7 @@ test('sends negotiated Codex ACP steer with mixed input and restores it once', a
   ))).toBe(true)
 })
 
-test('keeps consecutive Codex steers separate while acceptance is delayed', async ({ page, workspaceRoot }) => {
+test('keeps queued follow-ups separate and steers each selected message', async ({ page, workspaceRoot }) => {
   const workspace = path.join(workspaceRoot, 'codex-acp-consecutive-steers')
   fs.mkdirSync(workspace, { recursive: true })
 
@@ -125,11 +130,19 @@ test('keeps consecutive Codex steers separate while acceptance is delayed', asyn
   await input.fill('?')
   await page.getByTestId('code-acp-composer-send').click()
   await expect(input).toHaveValue('')
-  await expect(page.getByTestId('code-acp-submission')).toContainText('?')
+  await expect(page.getByTestId('code-acp-pending-followup-row')).toContainText('?')
 
   await input.fill('inspect the separate issue')
   await page.getByTestId('code-acp-composer-send').click()
   await expect(input).toHaveValue('')
+  await expect(page.getByTestId('code-acp-pending-followup-row')).toHaveCount(2)
+  await expect(page.getByTestId('code-acp-pending-followup-row').nth(0)).toContainText('?')
+  await expect(page.getByTestId('code-acp-pending-followup-row').nth(1)).toContainText('inspect the separate issue')
+  await expect(page.getByTestId('code-agent-transcript-steer')).toHaveCount(0)
+
+  await page.getByTestId('code-acp-pending-followup-steer').nth(0).click()
+  await page.getByTestId('code-acp-pending-followup-steer').nth(0).click()
+  await expect(page.getByTestId('code-acp-pending-followup-row')).toHaveCount(0)
   await expect(page.getByTestId('code-acp-submission')).toHaveCount(2)
   await expect(page.getByTestId('code-acp-submission').nth(0)).toContainText('?')
   await expect(page.getByTestId('code-acp-submission').nth(1)).toContainText('inspect the separate issue')
@@ -140,4 +153,18 @@ test('keeps consecutive Codex steers separate while acceptance is delayed', asyn
     '?',
     'inspect the separate issue',
   ])
+
+  await input.fill('live progress')
+  await expect(page.getByTestId('code-acp-composer-send')).toHaveAttribute('data-action', 'send')
+  await page.getByTestId('code-acp-composer-send').click()
+  await expect(page.getByTestId('code-acp-composer-send')).toHaveAttribute('data-action', 'interrupt')
+
+  await input.fill('phase-aware mermaid after the active turn')
+  await page.getByTestId('code-acp-composer-send').click()
+  await expect(page.getByTestId('code-acp-pending-followup-row')).toHaveCount(1)
+  await expect(page.getByTestId('code-acp-pending-followup-row')).toContainText('phase-aware mermaid after the active turn')
+  await expect(page.getByText('Live progress complete.', { exact: true })).toBeVisible({ timeout: 10_000 })
+  await expect(page.getByTestId('code-acp-pending-followup-row')).toHaveCount(0, { timeout: 10_000 })
+  const nextTurn = page.locator('.code-agent-transcript-turn').filter({ hasText: 'phase-aware mermaid after the active turn' })
+  await expect(nextTurn).toContainText('Phase-aware rich answer.')
 })

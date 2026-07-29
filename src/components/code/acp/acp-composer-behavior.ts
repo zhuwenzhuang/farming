@@ -20,7 +20,6 @@ interface SubmitAcpDraftInput {
   attachments: ComposerAttachment[]
   composerMode: ComposerMode
   turnActive: boolean
-  supportsSteer: boolean
   sendMessage: (
     agent: Agent,
     message: string,
@@ -54,14 +53,12 @@ export function submitAcpDraft({
   attachments,
   composerMode,
   turnActive,
-  supportsSteer,
   sendMessage,
   updateComposerState,
 }: SubmitAcpDraftInput) {
   const promptAttachments = composerPromptAttachments(attachments)
   const text = formatComposerMessage(composerMode, composerMessageForNativeAttachments(draft, attachments).trim())
   if ((!text && promptAttachments.length === 0) || !agent || !isAcpComposerAvailable(agent) || !composerKey) return false
-  const steerNow = turnActive && supportsSteer
   const clearOwnedDraft = (state: AgentComposerState) => {
     const ownsDraft = state.draft === draft
       && state.attachments.length === attachments.length
@@ -93,11 +90,12 @@ export function submitAcpDraft({
     })
     return true
   }
-  if (turnActive && !steerNow) return queueFollowUp()
+  if (turnActive) return queueFollowUp()
 
   const submission = {
     ...createPendingFollowUpMessage(text, promptAttachments),
     status: 'submitting' as const,
+    delivery: 'prompt' as const,
   }
   updateComposerState(composerKey, state => {
     const cleared = clearOwnedDraft(state)

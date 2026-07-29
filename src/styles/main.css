@@ -11680,12 +11680,12 @@ body.code-mode .code-history-agent-icon .agent-launch-icon,
   max-height: min(34vh, 260px);
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 4px;
   overflow: auto;
-  padding: 8px 10px;
+  padding: 10px 12px;
   border: 1px solid #e7eadf;
-  border-radius: 16px;
-  background: rgba(247, 248, 244, 0.72);
+  border-radius: 20px;
+  background: rgba(249, 250, 247, 0.86);
   color: #626963;
 }
 
@@ -11694,8 +11694,9 @@ body.code-mode .code-history-agent-icon .agent-launch-icon,
   display: grid;
   grid-template-columns: 18px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 8px;
-  padding: 3px 0;
+  gap: 10px;
+  min-height: 34px;
+  padding: 4px 2px;
 }
 
 .code-pending-followup-icon {

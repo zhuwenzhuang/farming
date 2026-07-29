@@ -201,6 +201,7 @@ export interface CodeCopy {
   openAgentTerminalFirst: string
   queuedMessages: (count: number) => string
   sendQueuedMessage: string
+  steerQueuedMessage: string
   discardQueuedMessage: string
   messageAwaitingAcceptance: string
   messageNotAccepted: string
@@ -710,6 +711,7 @@ const EN_COPY: CodeCopy = {
   openAgentTerminalFirst: 'Open an agent terminal first',
   queuedMessages: count => `${count} queued messages`,
   sendQueuedMessage: 'Send next',
+  steerQueuedMessage: 'Steer',
   discardQueuedMessage: 'Discard queued message',
   messageAwaitingAcceptance: 'Waiting for Agent',
   messageNotAccepted: 'Not accepted',
@@ -1255,6 +1257,7 @@ const ZH_COPY: CodeCopy = {
   openAgentTerminalFirst: '先打开一个 Agent 终端',
   queuedMessages: count => `${count} 条排队消息`,
   sendQueuedMessage: '当前轮后发送',
+  steerQueuedMessage: 'Steer',
   discardQueuedMessage: '丢弃排队消息',
   messageAwaitingAcceptance: '等待 Agent 接收',
   messageNotAccepted: '未被接收',

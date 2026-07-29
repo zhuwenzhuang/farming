@@ -171,7 +171,7 @@ export function useWebSocket() {
     message: string,
     agentId?: string,
     attachments: ComposerInputAttachment[] = [],
-    options?: { awaitResult?: boolean; requestId?: string },
+    options?: { awaitResult?: boolean; requestId?: string; delivery?: 'prompt' | 'steer' },
   ) => {
     const explicitRequestId = String(options?.requestId || '').trim()
     const requestKey = explicitRequestId
@@ -179,6 +179,7 @@ export function useWebSocket() {
       : JSON.stringify({
         agentId: agentId || '',
         message,
+        delivery: options?.delivery || '',
         attachments: attachments.map(attachment => ({
           kind: attachment.kind,
           path: attachment.path,
@@ -203,6 +204,7 @@ export function useWebSocket() {
       requestId,
       message,
       agentId,
+      ...(options?.delivery ? { delivery: options.delivery } : {}),
       ...(attachments.length > 0 ? { attachments } : {}),
     }
     let resolveRequest: (accepted: boolean) => void = () => {}

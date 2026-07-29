@@ -279,13 +279,29 @@ async function run() {
     while (!codexRuntime.canSteer(codexAgentId)) {
       await new Promise(resolve => setTimeout(resolve, 10));
     }
+    let queuedPromptSettled = false;
+    const queuedPrompt = codexManager.sendComposerMessage(
+      codexAgentId,
+      'phase-aware mermaid after the active turn',
+      { delivery: 'prompt' },
+    ).then(result => {
+      queuedPromptSettled = true;
+      return result;
+    });
+    await new Promise(resolve => setTimeout(resolve, 30));
+    assert.strictEqual(
+      queuedPromptSettled,
+      false,
+      'prompt delivery must wait for the active turn instead of becoming a steer',
+    );
     const steerResult = await codexManager.sendComposerMessage(codexAgentId, [
       { type: 'text', text: 'inspect the attached image instead' },
       { type: 'image', data: 'aW1hZ2U=', mimeType: 'image/png' },
-    ]);
+    ], { delivery: 'steer' });
     assert.strictEqual(steerResult.steered, true);
     assert.strictEqual(steerResult.turnId, 'fake-active-turn');
     await firstTurn;
+    assert.strictEqual((await queuedPrompt).stopReason, 'end_turn');
     const steeredEntries = codexManager.getAcpSession(codexAgentId).entries;
     const steeredUser = steeredEntries.find(entry => entry.role === 'user' && entry._meta?.codex?.steer === true);
     assert(steeredUser, 'accepted steer should appear once in the ordered ACP transcript');
@@ -298,8 +314,8 @@ async function run() {
       await new Promise(resolve => setTimeout(resolve, 10));
     }
     const orderedSteers = await Promise.all([
-      codexManager.sendComposerMessage(codexAgentId, 'first rapid steer'),
-      codexManager.sendComposerMessage(codexAgentId, 'second rapid steer'),
+      codexManager.sendComposerMessage(codexAgentId, 'first rapid steer', { delivery: 'steer' }),
+      codexManager.sendComposerMessage(codexAgentId, 'second rapid steer', { delivery: 'steer' }),
     ]);
     assert(orderedSteers.every(result => result.steered === true));
     await orderedTurn;

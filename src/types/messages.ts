@@ -43,6 +43,7 @@ export interface ComposerInputMessage {
   message: string
   agentId?: string
   requestId?: string
+  delivery?: 'prompt' | 'steer'
   attachments?: ComposerInputAttachment[]
 }
 
