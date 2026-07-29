@@ -1,3 +1,5 @@
+'use strict';
+
 const DEFAULT_TERMINAL_EXIT_DATA_FLUSH_MS = 250;
 
 interface TerminalExitDataState {

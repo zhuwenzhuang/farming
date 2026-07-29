@@ -27,7 +27,7 @@ const {
 const {
   acceptTerminalExitData,
   waitForTerminalExitDataQuiescence,
-} = require('./terminal-exit-quiescence.ts');
+} = require('./terminal-exit-quiescence.cjs');
 
 const CONTROLLED_BASH_PROMPT = [
   '\\[\\e[90m\\]│\\[\\e[0m\\] ',

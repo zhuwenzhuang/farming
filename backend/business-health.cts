@@ -1,3 +1,5 @@
+'use strict';
+
 const BUSINESS_HEALTH_RECOVERY_TIMEOUT_MS = 5_000;
 
 type BusinessHealthStatus = 'ready' | 'recovering' | 'failed' | 'stopping';

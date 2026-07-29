@@ -1,44 +1,60 @@
+'use strict';
+
 const AGENT_ORDER_STEP = 1024;
 
-function finiteOrder(value) {
+interface AgentOrderRecord {
+  id: string;
+  cwd?: string;
+  projectWorkspace?: string;
+  projectOrder?: number;
+  pinned?: boolean;
+  pinnedOrder?: number;
+  startedAt?: number | string;
+}
+
+type AgentOrderResult =
+  | { error: string; updates?: never }
+  | { updates: Map<string, number>; error?: never };
+
+function finiteOrder(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
-function agentWorkspace(agent) {
+function agentWorkspace(agent: AgentOrderRecord | null | undefined): string {
   return String(agent && (agent.projectWorkspace || agent.cwd) || '');
 }
 
-function projectOrder(agent) {
+function projectOrder(agent: AgentOrderRecord | null | undefined): number {
   return finiteOrder(agent && agent.projectOrder) ?? 0;
 }
 
-function pinnedOrder(agent) {
+function pinnedOrder(agent: AgentOrderRecord | null | undefined): number {
   return finiteOrder(agent && agent.pinnedOrder) ?? 0;
 }
 
-function compareProjectAgents(left, right) {
+function compareProjectAgents(left: AgentOrderRecord, right: AgentOrderRecord): number {
   return projectOrder(right) - projectOrder(left)
     || (Number(right && right.startedAt) || 0) - (Number(left && left.startedAt) || 0)
     || String(left && left.id || '').localeCompare(String(right && right.id || ''));
 }
 
-function comparePinnedAgents(left, right) {
+function comparePinnedAgents(left: AgentOrderRecord, right: AgentOrderRecord): number {
   return pinnedOrder(left) - pinnedOrder(right)
     || (Number(left && left.startedAt) || 0) - (Number(right && right.startedAt) || 0)
     || String(left && left.id || '').localeCompare(String(right && right.id || ''));
 }
 
-function nextProjectOrder(agents, workspace) {
+function nextProjectOrder(agents: AgentOrderRecord[], workspace: string): number {
   return Math.max(0, ...agents
     .filter(agent => agentWorkspace(agent) === workspace)
     .map(projectOrder)) + AGENT_ORDER_STEP;
 }
 
-function nextPinnedOrder(agents) {
+function nextPinnedOrder(agents: AgentOrderRecord[]): number {
   return Math.max(0, ...agents.filter(agent => agent && agent.pinned === true).map(pinnedOrder)) + AGENT_ORDER_STEP;
 }
 
-function ensureAgentOrders(agent, agents) {
+function ensureAgentOrders(agent: AgentOrderRecord, agents: AgentOrderRecord[]): AgentOrderRecord {
   if (finiteOrder(agent.projectOrder) === null) {
     agent.projectOrder = nextProjectOrder(agents, agentWorkspace(agent));
   }
@@ -48,13 +64,22 @@ function ensureAgentOrders(agent, agents) {
   return agent;
 }
 
-function projectAgents(agents, workspace, excludedAgentId = '') {
+function projectAgents(
+  agents: AgentOrderRecord[],
+  workspace: string,
+  excludedAgentId = '',
+): AgentOrderRecord[] {
   return agents
     .filter(agent => agent && agent.id !== excludedAgentId && agentWorkspace(agent) === workspace)
     .sort(compareProjectAgents);
 }
 
-function reorderedProjectAgentOrders(agents, agentId, beforeAgentId = '', afterAgentId = '') {
+function reorderedProjectAgentOrders(
+  agents: AgentOrderRecord[],
+  agentId: string,
+  beforeAgentId = '',
+  afterAgentId = '',
+): AgentOrderResult {
   const target = agents.find(agent => agent && agent.id === agentId);
   if (!target) return { error: 'Agent not found' };
   if (target.pinned === true) return { error: 'Pinned Agents cannot be reordered inside a Project' };
@@ -82,8 +107,8 @@ function reorderedProjectAgentOrders(agents, agentId, beforeAgentId = '', afterA
     fullInsertIndex = fullOrder.findIndex(agent => agent.id === afterAgentId);
   }
 
-  const updates = new Map();
-  const orderAt = index => {
+  const updates = new Map<string, number>();
+  const orderAt = (index: number): number => {
     const agent = fullOrder[index];
     return agent ? (updates.get(agent.id) ?? finiteOrder(agent.projectOrder) ?? 0) : 0;
   };
@@ -107,7 +132,12 @@ function reorderedProjectAgentOrders(agents, agentId, beforeAgentId = '', afterA
   return { updates };
 }
 
-function reorderedPinnedAgentOrders(agents, agentId, beforeAgentId = '', afterAgentId = '') {
+function reorderedPinnedAgentOrders(
+  agents: AgentOrderRecord[],
+  agentId: string,
+  beforeAgentId = '',
+  afterAgentId = '',
+): AgentOrderResult {
   const target = agents.find(agent => agent && agent.id === agentId);
   if (!target) return { error: 'Agent not found' };
   if (target.pinned !== true) return { error: 'Only pinned Agents can be reordered in Pinned' };
@@ -128,8 +158,8 @@ function reorderedPinnedAgentOrders(agents, agentId, beforeAgentId = '', afterAg
     return { error: 'Reorder neighbors are stale' };
   }
 
-  const updates = new Map();
-  const orderAt = index => {
+  const updates = new Map<string, number>();
+  const orderAt = (index: number): number => {
     const agent = pinned[index];
     return agent ? (updates.get(agent.id) ?? finiteOrder(agent.pinnedOrder) ?? 0) : 0;
   };
@@ -153,7 +183,7 @@ function reorderedPinnedAgentOrders(agents, agentId, beforeAgentId = '', afterAg
   return { updates };
 }
 
-module.exports = {
+export {
   AGENT_ORDER_STEP,
   comparePinnedAgents,
   compareProjectAgents,

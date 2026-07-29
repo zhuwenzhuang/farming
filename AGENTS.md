@@ -343,7 +343,7 @@ Pre-release gate for public versions:
 
 ## Testing Expectations
 
-- `npm run typecheck` is one release gate for all three typed surfaces: the React frontend, the checked-JavaScript backend configured by `tsconfig.backend.json`, and the usage scanner. New backend contracts belong in `backend/types/` and should be consumed through JSDoc imports; do not silence a file with `@ts-nocheck` or replace a domain type with `any` merely to make the gate green. Runtime CommonJS remains unchanged until a separately verified build/runtime migration is justified.
+- `npm run typecheck` is one release gate for all typed surfaces: the React frontend, strict backend TypeScript configured by `tsconfig.backend-runtime.json`, the remaining checked-JavaScript backend configured by `tsconfig.backend.json`, and the usage scanner. Migrate bounded backend modules as `.cts`, keep their domain types with the implementation, delete the superseded `.js`, and load only the generated `.cjs` at runtime. `npm run build:backend-runtime` generates those ignored CommonJS files before development, tests, builds, and packaging; the npm package carries the generated `.cjs`, not executable TypeScript. New contracts used only by legacy JavaScript belong in `backend/types/` and should be consumed through JSDoc imports. Do not silence a file with `@ts-nocheck` or replace a domain type with `any` merely to make the gate green.
 - Backend tests live in `backend/tests/`.
 - Browser and visual flows live in `tests/e2e/`.
 - Use fake coding agents for deterministic CI-style checks.

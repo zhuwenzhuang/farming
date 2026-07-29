@@ -1,5 +1,5 @@
 const assert = require('assert');
-const { commitAgentOrderTransaction } = require('../agent-order-transaction');
+const { commitAgentOrderTransaction } = require('../agent-order-transaction.cjs');
 
 function createOwner(agents) {
   const writes = [];

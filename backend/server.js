@@ -87,7 +87,7 @@ const {
   initializeWebSocketLiveness,
   startWebSocketLivenessMonitor,
 } = require('../shared/websocket-liveness');
-const { probeAgentManagerBusinessHealth } = require('./business-health.ts');
+const { probeAgentManagerBusinessHealth } = require('./business-health.cjs');
 
 const BASE_PATH = normalizeBasePath(process.env.FARMING_BASE_PATH || '/');
 const PORT = process.env.PORT || 3000;

@@ -5,7 +5,7 @@ const {
   ensureAgentOrders,
   reorderedPinnedAgentOrders,
   reorderedProjectAgentOrders,
-} = require('../agent-order');
+} = require('../agent-order.cjs');
 
 function agent(id, projectOrder, overrides = {}) {
   return {

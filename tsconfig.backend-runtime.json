@@ -1,9 +1,8 @@
 {
   "compilerOptions": {
-    "target": "ESNext",
+    "target": "ES2023",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
-    "allowImportingTsExtensions": true,
     "erasableSyntaxOnly": true,
     "noEmit": true,
     "strict": true,
@@ -11,11 +10,10 @@
     "types": ["node"]
   },
   "include": [
-    "backend/**/*.ts",
+    "backend/**/*.cts",
     "backend/types/**/*.d.ts"
   ],
   "exclude": [
-    "backend/tests/**",
-    "backend/usage-history-scanner.ts"
+    "backend/tests/**"
   ]
 }

@@ -13,7 +13,7 @@ const {
   findAgentSession,
 } = require('./agent-session-history');
 const { archiveCodexSession, unarchiveCodexSession } = require('./codex-session-archive');
-const { buildAgentProviderSessionPlan, sessionFromExactResumeSource } = require('./agent-provider-session');
+const { buildAgentProviderSessionPlan, sessionFromExactResumeSource } = require('./agent-provider-session.cjs');
 const { resolveAgentExecutable, resolveCompatibleCodexExecutable } = require('./executable-discovery');
 const { ensureMainAgentSkillFiles, renderMainAgentBootstrap } = require('./main-agent-skills');
 const {
@@ -68,8 +68,8 @@ const {
   nextPinnedOrder,
   reorderedPinnedAgentOrders,
   reorderedProjectAgentOrders,
-} = require('./agent-order');
-const { commitAgentOrderTransaction } = require('./agent-order-transaction');
+} = require('./agent-order.cjs');
+const { commitAgentOrderTransaction } = require('./agent-order-transaction.cjs');
 const {
   buildInteractiveAgentBaseEnv,
   normalizeInteractiveTerminalEnv,

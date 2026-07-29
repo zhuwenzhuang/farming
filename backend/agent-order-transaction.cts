@@ -1,5 +1,52 @@
 'use strict';
 
+type AgentOrderField = 'projectOrder' | 'pinnedOrder';
+
+interface AgentOrderTransactionAgent {
+  id: string;
+  agentRecordId?: string;
+  persistentSessionId?: string;
+  projectOrder?: number;
+  pinnedOrder?: number;
+  [key: string]: unknown;
+}
+
+interface AgentOrderTransactionOwner {
+  agents: Map<string, AgentOrderTransactionAgent>;
+  lifecycleOperations: Map<string, { label?: string }>;
+  persistAgent(agent: AgentOrderTransactionAgent): void;
+  updateRuntimeMetadata(agent: AgentOrderTransactionAgent): void;
+  emitUpdate(): void;
+  setAgentRecordId(agent: AgentOrderTransactionAgent, recordId: string): void;
+  finiteOrder(value: unknown): number | null;
+}
+
+interface StagedOrderUpdate {
+  agent: AgentOrderTransactionAgent;
+  order: number;
+  stagedAgent: AgentOrderTransactionAgent;
+}
+
+interface AgentOrderTransactionSuccess {
+  agentId: string;
+  projectOrder?: number | null;
+  pinnedOrder?: number | null;
+  updates: Array<Record<string, number | string>>;
+  error?: never;
+}
+
+interface AgentOrderTransactionFailure {
+  error: string;
+}
+
+type AgentOrderTransactionResult =
+  | AgentOrderTransactionSuccess
+  | AgentOrderTransactionFailure;
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 /**
  * Persist and publish one Agent ordering change as a bounded transaction.
  *
@@ -7,14 +54,14 @@
  * only after every staged record has been written successfully. If staging
  * fails, already-written records are restored before the error is returned.
  *
- * @param {import('./types/agent-domain').AgentOrderTransactionOwner} owner
- * @param {string} agentId
- * @param {Iterable<[string, number]>} orderUpdates
- * @param {import('./types/agent-domain').AgentOrderField} field
- * @returns {import('./types/agent-domain').AgentOrderTransactionResult}
  */
-function commitAgentOrderTransaction(owner, agentId, orderUpdates, field) {
-  const staged = [...orderUpdates]
+function commitAgentOrderTransaction(
+  owner: AgentOrderTransactionOwner,
+  agentId: string,
+  orderUpdates: Iterable<readonly [string, number]>,
+  field: AgentOrderField,
+): AgentOrderTransactionResult {
+  const staged: StagedOrderUpdate[] = [...orderUpdates]
     .map(([updatedAgentId, order]) => {
       const agent = owner.agents.get(updatedAgentId);
       return agent ? {
@@ -23,12 +70,12 @@ function commitAgentOrderTransaction(owner, agentId, orderUpdates, field) {
         stagedAgent: { ...agent, [field]: order },
       } : null;
     })
-    .filter(Boolean);
+    .filter((item): item is StagedOrderUpdate => item !== null);
 
   const conflicting = staged.find(item => owner.lifecycleOperations.has(item.agent.id));
   if (conflicting) {
     const lifecycleOperation = owner.lifecycleOperations.get(conflicting.agent.id);
-    return { error: `Agent lifecycle change already in progress: ${lifecycleOperation.label}` };
+    return { error: `Agent lifecycle change already in progress: ${lifecycleOperation?.label}` };
   }
 
   const attempted = [];
@@ -55,8 +102,8 @@ function commitAgentOrderTransaction(owner, agentId, orderUpdates, field) {
       }
     }
     return {
-      error: `Failed to reorder Agents: ${error.message || error}${
-        rollbackError ? `; storage rollback failed: ${rollbackError.message || rollbackError}` : ''
+      error: `Failed to reorder Agents: ${errorMessage(error)}${
+        rollbackError ? `; storage rollback failed: ${errorMessage(rollbackError)}` : ''
       }`,
     };
   }
@@ -78,6 +125,6 @@ function commitAgentOrderTransaction(owner, agentId, orderUpdates, field) {
   };
 }
 
-module.exports = {
+export {
   commitAgentOrderTransaction,
 };

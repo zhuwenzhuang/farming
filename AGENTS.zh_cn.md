@@ -93,7 +93,7 @@ README 是产品入口，不是实现历史。只有顶层产品承诺、主要�
 
 ### 3. 测试覆盖原则
 
-- **统一类型门禁**：`npm run typecheck` 必须同时检查 React 前端、由 `tsconfig.backend.json` 管理的后端 checked JavaScript，以及 usage scanner。新的后端契约放在 `backend/types/`，通过 JSDoc import 使用；不能为了让门禁变绿而给文件加 `@ts-nocheck`，也不能用 `any` 替换领域类型。CommonJS Runtime 暂时不变，除非另行完成并验证 Build/Runtime 迁移。
+- **统一类型门禁**：`npm run typecheck` 必须同时检查 React 前端、由 `tsconfig.backend-runtime.json` 管理的严格后端 TypeScript、由 `tsconfig.backend.json` 管理的剩余后端 checked JavaScript，以及 usage scanner。迁移有界后端模块时使用 `.cts`，领域类型与实现放在一起，删除被替代的 `.js`，运行时只加载生成的 `.cjs`。开发、测试、构建和打包前由 `npm run build:backend-runtime` 生成被忽略的 CommonJS 文件；npm 包携带生成的 `.cjs`，不直接执行 TypeScript。仅供旧 JavaScript 使用的新契约继续放在 `backend/types/` 并通过 JSDoc import 使用。不能为了让门禁变绿而给文件加 `@ts-nocheck`，也不能用 `any` 替换领域类型。
 - **核心功能必须有测试**：Main Agent 验证、心跳检测、状态同步等
 - **后端测试位置**：`backend/tests/` 目录
 - **展示效果 E2E 位置**：`tests/e2e/` 目录，使用 Playwright Test 覆盖真实页面、真实 WebSocket / native pty session / xterm.js terminal 渲染链路

@@ -1,7 +1,7 @@
 const assert = require('assert');
 const {
   probeAgentManagerBusinessHealth,
-} = require('../business-health.ts');
+} = require('../business-health.cjs');
 
 async function run() {
   const ready = await probeAgentManagerBusinessHealth({

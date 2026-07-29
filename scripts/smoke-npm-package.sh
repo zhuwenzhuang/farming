@@ -82,6 +82,22 @@ NPM_CONFIG_CACHE="${NPM_CACHE}" NPM_CONFIG_REGISTRY="${NPM_REGISTRY}" \
 PACKAGE_ROOT="${PREFIX}/lib/node_modules/farming-code"
 CODEX_ACP_VENDOR="${PACKAGE_ROOT}/dist/acp/codex-acp-1.1.4.mjs"
 CLAUDE_ACP_VENDOR="${PACKAGE_ROOT}/dist/acp/claude-agent-acp-0.59.0.mjs"
+for runtime_module in \
+  agent-order \
+  agent-order-transaction \
+  agent-provider-session \
+  business-health \
+  terminal-exit-quiescence
+do
+  if [ ! -f "${PACKAGE_ROOT}/backend/${runtime_module}.cjs" ]; then
+    echo "npm package omitted compiled backend runtime ${runtime_module}.cjs" >&2
+    exit 1
+  fi
+  if [ -e "${PACKAGE_ROOT}/backend/${runtime_module}.cts" ]; then
+    echo "npm package unexpectedly included backend TypeScript source ${runtime_module}.cts" >&2
+    exit 1
+  fi
+done
 if [ ! -f "${CODEX_ACP_VENDOR}" ]; then
   echo "npm package omitted the version-locked Codex ACP runtime" >&2
   exit 1

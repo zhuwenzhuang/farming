@@ -9,7 +9,7 @@
   },
   "files": [
     "backend/*.js",
-    "backend/*.ts",
+    "backend/*.cjs",
     "backend/farming-agent-bootstrap.zh_cn.md",
     "backend/usage-history-scanner.ts",
     "backend/acp/",
@@ -33,20 +33,21 @@
     "index.html"
   ],
   "scripts": {
+    "build:backend-runtime": "node scripts/build-backend-runtime.js",
     "sync:ghostty-vendor": "node scripts/sync-ghostty-vendor.js",
     "prepare:acp-vendor": "node scripts/prepare-codex-acp-vendor.js --copy && node scripts/prepare-claude-acp-vendor.js --copy",
     "prepare:runtime-manifest": "node scripts/build-runtime-dependency-manifest.js",
     "build:usage-history": "node scripts/build-usage-history-scanner.js",
-    "prebuild": "node scripts/build-usage-history-scanner.js && node scripts/sync-ghostty-vendor.js && npm run prepare:acp-vendor && npm run prepare:runtime-manifest",
+    "prebuild": "npm run build:backend-runtime && node scripts/build-usage-history-scanner.js && node scripts/sync-ghostty-vendor.js && npm run prepare:acp-vendor && npm run prepare:runtime-manifest",
     "prepack": "FARMING_BASE_PATH=/farming npm run build",
-    "pretest": "npm run prepare:acp-vendor && npm run prepare:runtime-manifest && npm run build:usage-history",
+    "pretest": "npm run build:backend-runtime && npm run prepare:acp-vendor && npm run prepare:runtime-manifest && npm run build:usage-history",
     "start": "npm run build && node backend/server.js",
     "start:net": "node backend/farming-net-server.js",
     "start:no-auth": "FARMING_DISABLE_AUTH=1 npm start",
-    "predev:backend": "npm run prepare:acp-vendor && npm run build:usage-history && npm run build:crt-markdown",
+    "predev:backend": "npm run build:backend-runtime && npm run prepare:acp-vendor && npm run build:usage-history && npm run build:crt-markdown",
     "dev:backend": "node backend/server.js",
     "dev:frontend": "vite",
-    "predev": "npm run prepare:acp-vendor && npm run build:usage-history && npm run build:crt-markdown",
+    "predev": "npm run build:backend-runtime && npm run prepare:acp-vendor && npm run build:usage-history && npm run build:crt-markdown",
     "dev": "node backend/server.js & vite --open & wait",
     "build:crt-markdown": "node -e \"require('fs').rmSync('dist/crt-markdown-assets',{recursive:true,force:true})\" && esbuild src/crt-markdown-renderer.tsx --bundle --outdir=dist --entry-names=crt-markdown-renderer --asset-names=crt-markdown-assets/[name]-[hash] --platform=browser --format=iife --target=es2022 --loader:.woff=file --loader:.woff2=file --loader:.ttf=file --minify && esbuild src/crt-mermaid-runtime.ts --bundle --outfile=dist/crt-mermaid-renderer.js --platform=browser --format=iife --target=es2022 --minify",
     "build": "vite build && npm run build:crt-markdown && npm run prepare:acp-vendor",
@@ -80,8 +81,10 @@
     "test:remote-terminal:chaos": "node scripts/smoke-remote-terminal-chaos.js",
     "test:e2e:workspaces:local": "FARMING_BASE_PATH=/farming npm run build && node scripts/e2e-workspaces.js local",
     "test:e2e:workspaces:remote": "FARMING_BASE_PATH=/farming npm run build && node scripts/e2e-workspaces.js remote",
-    "typecheck:backend": "tsc -p tsconfig.backend.json",
-    "typecheck": "tsc --noEmit && tsc -p tsconfig.backend.json && tsc -p tsconfig.backend-runtime.json && tsc -p tsconfig.usage.json",
+    "pretypecheck:backend": "npm run build:backend-runtime",
+    "typecheck:backend": "tsc -p tsconfig.backend-runtime.json && tsc -p tsconfig.backend.json",
+    "pretypecheck": "npm run build:backend-runtime",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.backend-runtime.json && tsc -p tsconfig.backend.json && tsc -p tsconfig.usage.json",
     "lint": "eslint --max-warnings=0 \"backend/**/*.js\" \"frontend/**/*.js\" \"scripts/**/*.js\" bin/farming --ignore-pattern \"backend/usage-history-scanner.generated.js\" --ignore-pattern \"frontend/vendor/**\" --ignore-pattern \"frontend/themes/**\"",
     "check": "npm run typecheck && npm run lint && npm test"
   },
@@ -112,7 +115,7 @@
     "access": "public"
   },
   "engines": {
-    "node": "^22.18.0 || >=24.0.0"
+    "node": "^22.13.0 || >=24.0.0"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "1.2.1",
