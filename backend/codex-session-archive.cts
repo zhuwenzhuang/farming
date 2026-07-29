@@ -2,7 +2,7 @@ const { execFile } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const { promisify } = require('util');
-const { resolveCompatibleCodexExecutable } = require('./executable-discovery');
+const { resolveCompatibleCodexExecutable } = require('./executable-discovery.cjs');
 
 type CodexArchiveAction = 'archive' | 'unarchive';
 

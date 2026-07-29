@@ -12,7 +12,7 @@ const {
   parseCliVersion,
   resolveAgentExecutable,
   resolveCompatibleCodexExecutable
-} = require('../executable-discovery');
+} = require('../executable-discovery.cjs');
 
 function makeTempDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'farming-exec-'));

@@ -96,6 +96,7 @@ for runtime_module in \
   codex-context-window \
   codex-session-archive \
   codex-transcript-sanitizer \
+  executable-discovery \
   farming-agent-bootstrap \
   farming-net-registry \
   git-worktree-info \

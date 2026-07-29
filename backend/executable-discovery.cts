@@ -1,20 +1,60 @@
 const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
-const { getUserLaunchAgents } = require('./cli-agents');
+
+interface LaunchAgent {
+  command?: string;
+  name: string;
+  [key: string]: unknown;
+}
+
+const { getUserLaunchAgents } = require('./cli-agents') as {
+  getUserLaunchAgents(): LaunchAgent[];
+};
+
+type ExecutableVersionReader = (filePath: string) => string;
+
+type ExecutableRunner = (
+  filePath: string,
+  args: string[],
+  options: {
+    encoding: 'utf8';
+    stdio: ['ignore', 'pipe', 'pipe'];
+    timeout: number;
+  },
+) => string | Buffer;
+
+interface ExecutableResolutionOptions {
+  cacheVersions?: boolean;
+  candidates?: string[];
+  readVersion?: ExecutableVersionReader;
+}
+
+interface CodexExecutableResolution {
+  compatible: boolean;
+  error: string;
+  path: string;
+  requiredVersion: string;
+  version: string;
+}
+
+interface AvailableLaunchAgent extends LaunchAgent {
+  available: true;
+  resolvedPath: string;
+}
 
 const DEFAULT_CODEX_APP_BIN = '/Applications/Codex.app/Contents/Resources/codex';
 const DEFAULT_CHATGPT_APP_CODEX_BIN = '/Applications/ChatGPT.app/Contents/Resources/codex';
-const executableVersionCache = new Map();
+const executableVersionCache = new Map<string, string>();
 
-function getPathDirectories(pathEnv = process.env.PATH || '') {
+function getPathDirectories(pathEnv = process.env.PATH || ''): string[] {
   return String(pathEnv)
     .split(path.delimiter)
     .map((entry) => entry.trim())
     .filter(Boolean);
 }
 
-function isExecutable(filePath) {
+function isExecutable(filePath: string): boolean {
   try {
     fs.accessSync(filePath, fs.constants.X_OK);
     return true;
@@ -23,12 +63,12 @@ function isExecutable(filePath) {
   }
 }
 
-function parseCliVersion(value) {
+function parseCliVersion(value: unknown): string {
   const match = String(value || '').match(/(\d+\.\d+\.\d+)/);
   return match ? match[1] : '';
 }
 
-function compareCliVersions(left, right) {
+function compareCliVersions(left: unknown, right: unknown): number {
   const leftParts = parseCliVersion(left).split('.').map(part => Number(part));
   const rightParts = parseCliVersion(right).split('.').map(part => Number(part));
   if (leftParts.length !== 3 || rightParts.length !== 3) return 0;
@@ -40,7 +80,10 @@ function compareCliVersions(left, right) {
   return 0;
 }
 
-function readExecutableCliVersion(filePath, runner = execFileSync) {
+function readExecutableCliVersion(
+  filePath: string,
+  runner: ExecutableRunner = execFileSync as unknown as ExecutableRunner,
+): string {
   try {
     return parseCliVersion(runner(filePath, ['--version'], {
       encoding: 'utf8',
@@ -52,7 +95,7 @@ function readExecutableCliVersion(filePath, runner = execFileSync) {
   }
 }
 
-function getExecutableVersionCacheKey(filePath) {
+function getExecutableVersionCacheKey(filePath: string): string {
   try {
     const stats = fs.statSync(filePath);
     return `${filePath}:${stats.size}:${stats.mtimeMs}`;
@@ -61,15 +104,18 @@ function getExecutableVersionCacheKey(filePath) {
   }
 }
 
-function readCachedExecutableCliVersion(filePath, readVersion, options = {}) {
+function readCachedExecutableCliVersion(
+  filePath: string,
+  readVersion: ExecutableVersionReader,
+  options: ExecutableResolutionOptions = {},
+): string {
   if (options.cacheVersions === false) {
     return readVersion(filePath);
   }
 
   const cacheToken = getExecutableVersionCacheKey(filePath);
-  if (executableVersionCache.has(cacheToken)) {
-    return executableVersionCache.get(cacheToken);
-  }
+  const cachedVersion = executableVersionCache.get(cacheToken);
+  if (cachedVersion !== undefined) return cachedVersion;
 
   const version = readVersion(filePath);
   const prefix = `${filePath}:`;
@@ -80,11 +126,14 @@ function readCachedExecutableCliVersion(filePath, readVersion, options = {}) {
   return version;
 }
 
-function clearExecutableVersionCache() {
+function clearExecutableVersionCache(): void {
   executableVersionCache.clear();
 }
 
-function getPreferredExecutableCandidates(agentName, pathEnv = process.env.PATH || '') {
+function getPreferredExecutableCandidates(
+  agentName: string,
+  pathEnv = process.env.PATH || '',
+): string[] {
   const pathCandidates = getPathDirectories(pathEnv).map((dir) => path.join(dir, agentName));
   if (agentName === 'claude') {
     return [
@@ -103,11 +152,15 @@ function getPreferredExecutableCandidates(agentName, pathEnv = process.env.PATH 
   ].filter(Boolean);
 }
 
-function resolveAgentExecutable(agentName, pathEnv = process.env.PATH || '') {
+function resolveAgentExecutable(agentName: string, pathEnv = process.env.PATH || ''): string {
   return getPreferredExecutableCandidates(agentName, pathEnv).find(isExecutable) || '';
 }
 
-function resolveCompatibleCodexExecutable(requiredVersion = '', pathEnv = process.env.PATH || '', options = {}) {
+function resolveCompatibleCodexExecutable(
+  requiredVersion = '',
+  pathEnv = process.env.PATH || '',
+  options: ExecutableResolutionOptions = {},
+): CodexExecutableResolution {
   const normalizedRequired = parseCliVersion(requiredVersion);
   const readVersion = typeof options.readVersion === 'function'
     ? options.readVersion
@@ -189,7 +242,7 @@ function resolveCompatibleCodexExecutable(requiredVersion = '', pathEnv = proces
   };
 }
 
-function listAvailableAgents(pathEnv = process.env.PATH || '') {
+function listAvailableAgents(pathEnv = process.env.PATH || ''): AvailableLaunchAgent[] {
   return getUserLaunchAgents()
     .map((agent) => ({
       ...agent,
@@ -202,7 +255,7 @@ function listAvailableAgents(pathEnv = process.env.PATH || '') {
     }));
 }
 
-module.exports = {
+export {
   getPathDirectories,
   getPreferredExecutableCandidates,
   compareCliVersions,

@@ -4,7 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const AgentManager = require('../agent-manager');
-const { resolveAgentExecutable } = require('../executable-discovery');
+const { resolveAgentExecutable } = require('../executable-discovery.cjs');
 
 async function run() {
   const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-agent-fork-'));

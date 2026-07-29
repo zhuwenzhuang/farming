@@ -14,7 +14,7 @@ const {
 } = require('./agent-session-history');
 const { archiveCodexSession, unarchiveCodexSession } = require('./codex-session-archive.cjs');
 const { buildAgentProviderSessionPlan, sessionFromExactResumeSource } = require('./agent-provider-session.cjs');
-const { resolveAgentExecutable, resolveCompatibleCodexExecutable } = require('./executable-discovery');
+const { resolveAgentExecutable, resolveCompatibleCodexExecutable } = require('./executable-discovery.cjs');
 const { ensureMainAgentSkillFiles, renderMainAgentBootstrap } = require('./main-agent-skills');
 const {
   appendOpenCodeBootstrap,
