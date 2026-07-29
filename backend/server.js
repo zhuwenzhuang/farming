@@ -14,7 +14,7 @@ const { runtimeKind } = require('./agent-runtime-binding');
 const ConfigManager = require('./config-manager');
 const ThemeManager = require('./theme-manager');
 const TokenAuth = require('./auth');
-const { getLocalIPs, getPrimaryLocalIP } = require('./network');
+const { getLocalIPs, getPrimaryLocalIP } = require('./network.cjs');
 const { listAvailableAgents, resolveCompatibleCodexExecutable } = require('./executable-discovery');
 const { readClaudeSettingsSummary } = require('./claude-settings');
 const { listCodexModelOptions } = require('./codex-models');
@@ -35,7 +35,7 @@ const {
   mainPageAgentSessionFromKey,
   mainPageAgentSessionsToAutoResume,
   resumedAgentSource,
-} = require('./main-page-session');
+} = require('./main-page-session.cjs');
 const { discoverAgentWorkspaces } = require('./workspace-discovery');
 const { inspectGitWorktree } = require('./git-worktree-info');
 const { createWorkspaceDirectoryRouter } = require('./workspace-directory');

@@ -1,19 +1,57 @@
-const path = require('path');
+'use strict';
+
+import * as path from 'path';
+
 const { parseCommand } = require('./cli-agents');
 const { isSafeProviderSessionId } = require('./provider-session-id.cjs');
 
 const AUTO_RESUME_AGENT_SESSION_PROVIDERS = new Set(['codex', 'claude', 'opencode', 'qoder', 'qwen']);
 
-function normalizeMainPageSessionProvider(provider) {
+interface MainPageAgentSession {
+  provider: string;
+  providerHomeId?: string;
+  sessionId: string;
+}
+
+interface MainPageSettings {
+  mainPageSessionKeys?: unknown;
+}
+
+interface MainPageAgentClaim {
+  id?: string;
+  archived?: boolean;
+  status?: string;
+  cwd?: string;
+  projectWorkspace?: string;
+  gitWorktree?: { workspace?: string };
+  providerSessionTemporary?: boolean;
+  providerSessionKey?: string;
+  providerSessionProvider?: string;
+  providerSessionId?: string;
+  providerHomeId?: string;
+  source?: string;
+}
+
+interface ProviderSessionCandidate {
+  id?: unknown;
+  sessionId?: unknown;
+  providerHomeId?: unknown;
+}
+
+function normalizeMainPageSessionProvider(provider: unknown): string {
   const normalized = String(provider || '').trim().toLowerCase();
   return AUTO_RESUME_AGENT_SESSION_PROVIDERS.has(normalized) ? normalized : '';
 }
 
-function isSafeSessionId(sessionId) {
+function isSafeSessionId(sessionId: unknown): boolean {
   return isSafeProviderSessionId(sessionId);
 }
 
-function mainPageAgentSessionKey(provider, sessionId, providerHomeId = '') {
+function mainPageAgentSessionKey(
+  provider: unknown,
+  sessionId: unknown,
+  providerHomeId: unknown = '',
+): string {
   const normalizedProvider = normalizeMainPageSessionProvider(provider);
   const normalizedSessionId = String(sessionId || '').trim();
   if (!normalizedProvider || !normalizedSessionId) return '';
@@ -22,7 +60,7 @@ function mainPageAgentSessionKey(provider, sessionId, providerHomeId = '') {
   return `agent-session:${normalizedProvider}:${normalizedSessionId}`;
 }
 
-function mainPageAgentSessionFromKey(key) {
+function mainPageAgentSessionFromKey(key: unknown): MainPageAgentSession | null {
   const match = String(key || '').match(/^agent-session:([^:]+):(.+)$/);
   if (!match) return null;
 
@@ -43,12 +81,14 @@ function mainPageAgentSessionFromKey(key) {
     : { provider, sessionId };
 }
 
-function mainPageAgentSessionsToAutoResume(settings) {
-  const keys = Array.isArray(settings && settings.mainPageSessionKeys)
+function mainPageAgentSessionsToAutoResume(
+  settings: MainPageSettings | null | undefined,
+): MainPageAgentSession[] {
+  const keys = Array.isArray(settings?.mainPageSessionKeys)
     ? settings.mainPageSessionKeys
     : [];
-  const seen = new Set();
-  const sessions = [];
+  const seen = new Set<string>();
+  const sessions: MainPageAgentSession[] = [];
 
   keys.forEach((key) => {
     const session = mainPageAgentSessionFromKey(key);
@@ -63,15 +103,19 @@ function mainPageAgentSessionsToAutoResume(settings) {
   return sessions;
 }
 
-function resumedAgentSource(provider, sessionId, providerHomeId = '') {
+function resumedAgentSource(
+  provider: unknown,
+  sessionId: unknown,
+  providerHomeId: unknown = '',
+): string {
   const homeId = String(providerHomeId || '').trim();
   return homeId && homeId !== 'default'
     ? `${provider}-history:home:${homeId}:${sessionId}`
     : `${provider}-history:${sessionId}`;
 }
 
-function mainPageSessionProviderForCommand(command) {
-  const executable = parseCommand(command)
+function mainPageSessionProviderForCommand(command: unknown): string {
+  const executable = (parseCommand(command) as string[])
     .find(token => token !== 'env' && !/^[A-Za-z_][A-Za-z0-9_]*=/.test(token));
   const basename = path.basename(executable || '');
   if (basename === 'qodercli') return 'qoder';
@@ -79,14 +123,18 @@ function mainPageSessionProviderForCommand(command) {
   return normalizeMainPageSessionProvider(basename);
 }
 
-function isActiveAgent(agent) {
-  return agent
+function isActiveAgent(agent: MainPageAgentClaim | null | undefined): boolean {
+  return Boolean(agent
     && agent.archived !== true
     && agent.status !== 'dead'
-    && agent.status !== 'stopped';
+    && agent.status !== 'stopped');
 }
 
-function findActiveAgentClaimingSession(agents, provider, session) {
+function findActiveAgentClaimingSession(
+  agents: MainPageAgentClaim[] | null | undefined,
+  provider: unknown,
+  session: ProviderSessionCandidate | null | undefined,
+): MainPageAgentClaim | null {
   const normalizedProvider = normalizeMainPageSessionProvider(provider);
   const sessionId = String((session && (session.id || session.sessionId)) || '').trim();
   if (!normalizedProvider || !isSafeSessionId(sessionId) || !Array.isArray(agents)) return null;
@@ -112,7 +160,7 @@ function findActiveAgentClaimingSession(agents, provider, session) {
   }) || null;
 }
 
-module.exports = {
+export {
   AUTO_RESUME_AGENT_SESSION_PROVIDERS,
   findActiveAgentClaimingSession,
   mainPageAgentSessionFromKey,

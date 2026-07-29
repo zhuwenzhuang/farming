@@ -1,11 +1,13 @@
-const crypto = require('crypto');
-const fs = require('fs');
-const path = require('path');
+'use strict';
+
+import * as crypto from 'crypto';
+import * as fs from 'fs';
+import * as path from 'path';
 
 const NATIVE_PTY_HOST_PROTOCOL_VERSION = 8;
 const NATIVE_PTY_HOST_RUNTIME_FILES = Object.freeze([
   'agent-env.js',
-  'input-parts.js',
+  'input-parts.cjs',
   'local-session-engine.js',
   'native-pty-host.js',
   'shell-busy-integration.js',
@@ -14,19 +16,32 @@ const NATIVE_PTY_HOST_RUNTIME_FILES = Object.freeze([
   'terminal-screen-worker.js',
   'terminal-reducer-flow-control.js',
   'terminal-state-serialization.js',
-  'native-pty-controller-generation.js',
+  'native-pty-controller-generation.cjs',
+  'terminal-exit-quiescence.cjs',
   'terminal-status.js',
 ]);
 
-function readFileForIdentity(filePath) {
+interface NativePtyHostRuntimeIdentity {
+  protocolVersion: number;
+  buildId: string;
+  version: string;
+}
+
+function errorCode(error: unknown): string {
+  return typeof error === 'object' && error !== null && 'code' in error
+    ? String(error.code)
+    : 'unknown';
+}
+
+function readFileForIdentity(filePath: string): Buffer {
   try {
     return fs.readFileSync(filePath);
   } catch (error) {
-    return Buffer.from(`missing:${error && error.code ? error.code : 'unknown'}`, 'utf8');
+    return Buffer.from(`missing:${errorCode(error)}`, 'utf8');
   }
 }
 
-function packageVersion(backendDir) {
+function packageVersion(backendDir: string): string {
   try {
     const packageJson = JSON.parse(fs.readFileSync(path.join(backendDir, '..', 'package.json'), 'utf8'));
     return typeof packageJson.version === 'string' ? packageJson.version : '';
@@ -35,7 +50,9 @@ function packageVersion(backendDir) {
   }
 }
 
-function nativePtyHostRuntimeIdentity(backendDir = __dirname) {
+function nativePtyHostRuntimeIdentity(
+  backendDir = __dirname,
+): Readonly<NativePtyHostRuntimeIdentity> {
   const hash = crypto.createHash('sha256');
   const version = packageVersion(backendDir);
   hash.update(`protocol:${NATIVE_PTY_HOST_PROTOCOL_VERSION}\n`);
@@ -52,21 +69,22 @@ function nativePtyHostRuntimeIdentity(backendDir = __dirname) {
   });
 }
 
-function normalizeNativePtyHostRuntimeIdentity(value) {
+function normalizeNativePtyHostRuntimeIdentity(value: unknown): NativePtyHostRuntimeIdentity | null {
   if (!value || typeof value !== 'object') return null;
-  const protocolVersion = Number(value.protocolVersion);
-  const buildId = typeof value.buildId === 'string' ? value.buildId.trim() : '';
+  const candidate = value as Record<string, unknown>;
+  const protocolVersion = Number(candidate.protocolVersion);
+  const buildId = typeof candidate.buildId === 'string' ? candidate.buildId.trim() : '';
   if (!Number.isInteger(protocolVersion) || protocolVersion <= 0 || !/^[a-f0-9]{64}$/i.test(buildId)) {
     return null;
   }
   return {
     protocolVersion,
     buildId: buildId.toLowerCase(),
-    version: typeof value.version === 'string' ? value.version : '',
+    version: typeof candidate.version === 'string' ? candidate.version : '',
   };
 }
 
-function nativePtyHostRuntimeIdentityMatches(expected, actual) {
+function nativePtyHostRuntimeIdentityMatches(expected: unknown, actual: unknown): boolean {
   const normalizedExpected = normalizeNativePtyHostRuntimeIdentity(expected);
   const normalizedActual = normalizeNativePtyHostRuntimeIdentity(actual);
   return Boolean(
@@ -77,7 +95,7 @@ function nativePtyHostRuntimeIdentityMatches(expected, actual) {
   );
 }
 
-module.exports = {
+export {
   NATIVE_PTY_HOST_PROTOCOL_VERSION,
   NATIVE_PTY_HOST_RUNTIME_FILES,
   nativePtyHostRuntimeIdentity,

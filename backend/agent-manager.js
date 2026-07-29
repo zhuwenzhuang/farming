@@ -20,7 +20,7 @@ const {
   appendOpenCodeBootstrap,
   renderFarmingAgentBootstrap,
 } = require('./farming-agent-bootstrap');
-const { mainPageAgentSessionKey, resumedAgentSource } = require('./main-page-session');
+const { mainPageAgentSessionKey, resumedAgentSource } = require('./main-page-session.cjs');
 const storageLayout = require('./storage-layout');
 const { isSafeProviderSessionId, isTemporaryProviderSessionId } = require('./provider-session-id.cjs');
 const { ProviderSessionService } = require('./provider-session-service');
@@ -77,7 +77,7 @@ const {
 } = require('./agent-env');
 const { inspectGitWorktree } = require('./git-worktree-info');
 const { deserializeTerminalState } = require('./terminal-state-serialization');
-const { compareNativePtyRuntimeEpochs } = require('./native-pty-controller-generation');
+const { compareNativePtyRuntimeEpochs } = require('./native-pty-controller-generation.cjs');
 const { canonicalWorkspacePath } = require('./workspace-root-registry');
 const { mergeBrowserMcpServer } = require('../extensions/browser/backend/agent-capability');
 const {
@@ -88,7 +88,7 @@ const {
   lifecycleJournal,
   setLifecycleOperationResult,
   transitionLifecycleOperation,
-} = require('./agent-lifecycle-journal');
+} = require('./agent-lifecycle-journal.cjs');
 
 const SESSION_OUTPUT_LIMIT = 10000;
 const AGENT_USAGE_RATE_WINDOW_MS = 5 * 60 * 1000;

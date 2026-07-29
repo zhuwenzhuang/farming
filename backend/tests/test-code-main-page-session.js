@@ -19,7 +19,7 @@ async function run() {
     findActiveAgentClaimingSession,
     mainPageAgentSessionKey,
     mainPageAgentSessionsToAutoResume,
-  } = require('../main-page-session');
+  } = require('../main-page-session.cjs');
   assert.strictEqual(mainPageAgentSessionKey('', ''), '');
   assert.strictEqual(mainPageAgentSessionKey('bash', 'shell-session'), '');
   assert.strictEqual(mainPageAgentSessionKey('codex', ''), '');
@@ -172,10 +172,10 @@ async function run() {
   );
 
   const serverSource = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-  const mainPageSessionSource = fs.readFileSync(path.join(__dirname, '..', 'main-page-session.js'), 'utf8');
+  const mainPageSessionSource = fs.readFileSync(path.join(__dirname, '..', 'main-page-session.cts'), 'utf8');
   assert(
     mainPageSessionSource.includes("const AUTO_RESUME_AGENT_SESSION_PROVIDERS = new Set(['codex', 'claude', 'opencode', 'qoder', 'qwen'])") &&
-      mainPageSessionSource.includes('function mainPageAgentSessionFromKey(key)') &&
+      mainPageSessionSource.includes('function mainPageAgentSessionFromKey(key: unknown)') &&
       mainPageSessionSource.includes('AUTO_RESUME_AGENT_SESSION_PROVIDERS.has(normalized)') &&
       serverSource.includes('function autoResumeMainPageAgentSessions()') &&
       serverSource.includes('await agentManager.whenRecovered()') &&

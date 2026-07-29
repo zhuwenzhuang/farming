@@ -1,6 +1,6 @@
 const assert = require('assert');
 const AgentManager = require('../agent-manager');
-const { activeLifecycleOperation } = require('../agent-lifecycle-journal');
+const { activeLifecycleOperation } = require('../agent-lifecycle-journal.cjs');
 
 async function run() {
   const appended = [];

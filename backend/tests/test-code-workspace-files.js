@@ -54,8 +54,8 @@ function run() {
   const responsiveModeSource = read('src/lib/responsive-mode.ts');
   const serverSource = read('backend/server.js');
   const agentManagerSource = read('backend/agent-manager.js');
-  const mainPageSessionSource = read('backend/main-page-session.js');
-  const inputPartsSource = read('backend/input-parts.js');
+  const mainPageSessionSource = read('backend/main-page-session.cts');
+  const inputPartsSource = read('backend/input-parts.cts');
   const terminalPaneSource = read('src/components/AgentTerminalPane.tsx');
   const transcriptPaneSource = read('src/components/code/AgentTranscriptPane.tsx');
   const copySource = read('src/components/code/copy.ts');
@@ -1065,7 +1065,7 @@ function run() {
   );
 
   assert(
-    mainPageSessionSource.includes("function resumedAgentSource(provider, sessionId, providerHomeId = '')") &&
+    mainPageSessionSource.includes('function resumedAgentSource(') &&
       serverSource.includes("const MAIN_AGENT_RESTART_COMMANDS = new Set(['codex', 'claude', 'opencode', 'qoder', 'qwen', 'bash', 'zsh'])") &&
       serverSource.includes('function restartMainAgent(ws, command)') &&
       serverSource.includes("case 'restart-main-agent'") &&
@@ -1090,7 +1090,7 @@ function run() {
       serverSource.includes("function findResumedAgent(provider, sessionId, providerHomeId = '')") &&
       serverSource.includes("function rememberMainPageAgentSession(provider, sessionId, providerHomeId = '')") &&
       mainPageSessionSource.includes("const AUTO_RESUME_AGENT_SESSION_PROVIDERS = new Set(['codex', 'claude', 'opencode', 'qoder', 'qwen'])") &&
-      mainPageSessionSource.includes('function mainPageAgentSessionFromKey(key)') &&
+      mainPageSessionSource.includes('function mainPageAgentSessionFromKey(key: unknown)') &&
       serverSource.includes('function autoResumeMainPageAgentSessions()') &&
       serverSource.includes('findActiveAgentClaimingSession(agentManager.getState().agents') &&
       mainPageSessionSource.includes('agent.providerSessionKey === sessionKey') &&

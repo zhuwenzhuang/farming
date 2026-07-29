@@ -7,7 +7,7 @@ const {
   cleanupStaleNativePtySocket,
   cleanupTerminalRuntime,
 } = require('../terminal-runtime-cleanup');
-const { nativePtyHostSocketPath } = require('../native-pty-host-path');
+const { nativePtyHostSocketPath } = require('../native-pty-host-path.cjs');
 
 async function listenUnixSocket(socketPath) {
   const server = net.createServer(socket => socket.end());

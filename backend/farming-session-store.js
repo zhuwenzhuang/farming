@@ -4,7 +4,7 @@ const path = require('path');
 const { isDeepStrictEqual } = require('util');
 const { atomicWriteJson } = require('./atomic-json-store.cjs');
 const { legacyRuntimeMetadata } = require('./agent-runtime-binding');
-const { lifecycleJournal } = require('./agent-lifecycle-journal');
+const { lifecycleJournal } = require('./agent-lifecycle-journal.cjs');
 const storageLayout = require('./storage-layout');
 
 const AGENT_RECORD_ID_PREFIX = 'agent';

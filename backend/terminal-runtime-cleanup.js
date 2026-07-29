@@ -2,7 +2,7 @@ const fs = require('fs');
 const net = require('net');
 const os = require('os');
 const path = require('path');
-const { nativePtyHostSocketPath } = require('./native-pty-host-path');
+const { nativePtyHostSocketPath } = require('./native-pty-host-path.cjs');
 
 function canUseUnixSocket(socketPath) {
   return process.platform !== 'win32' && typeof socketPath === 'string' && socketPath.length > 0;

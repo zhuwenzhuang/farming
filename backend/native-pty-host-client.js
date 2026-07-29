@@ -7,16 +7,16 @@ const path = require('path');
 const {
   nativePtyHostPrivateSocketNamePattern,
   nativePtyHostSocketPath,
-} = require('./native-pty-host-path');
+} = require('./native-pty-host-path.cjs');
 const {
   nativePtyHostRuntimeIdentity,
   nativePtyHostRuntimeIdentityMatches,
   normalizeNativePtyHostRuntimeIdentity,
-} = require('./native-pty-host-identity');
+} = require('./native-pty-host-identity.cjs');
 const {
   allocateNativePtyControllerGeneration,
   positiveGeneration,
-} = require('./native-pty-controller-generation');
+} = require('./native-pty-controller-generation.cjs');
 const { isTemporaryProviderSessionId } = require('./provider-session-id.cjs');
 const storageLayout = require('./storage-layout');
 const { deserializeTerminalState } = require('./terminal-state-serialization');

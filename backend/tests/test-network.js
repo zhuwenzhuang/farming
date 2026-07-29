@@ -1,6 +1,6 @@
 const assert = require('assert');
 
-const { getLocalIPs, getPrimaryLocalIP } = require('../network');
+const { getLocalIPs, getPrimaryLocalIP } = require('../network.cjs');
 
 function run() {
   const ips = getLocalIPs();

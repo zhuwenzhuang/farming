@@ -5,7 +5,7 @@ const path = require('path');
 const NativePtyHost = require('../native-pty-host');
 const {
   allocateNativePtyControllerGeneration,
-} = require('../native-pty-controller-generation');
+} = require('../native-pty-controller-generation.cjs');
 
 function client() {
   return {};

@@ -5,7 +5,7 @@ const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
 const NativePtyHostClient = require('../native-pty-host-client');
-const { nativePtyHostSocketPath } = require('../native-pty-host-path');
+const { nativePtyHostSocketPath } = require('../native-pty-host-path.cjs');
 
 function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));

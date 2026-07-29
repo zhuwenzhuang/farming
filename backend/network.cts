@@ -1,8 +1,10 @@
-const os = require('os');
+'use strict';
 
-function getLocalIPs() {
+import * as os from 'os';
+
+function getLocalIPs(): string[] {
   const interfaces = os.networkInterfaces();
-  const ips = [];
+  const ips: string[] = [];
 
   for (const [, addrs] of Object.entries(interfaces)) {
     if (!addrs) continue;
@@ -16,8 +18,8 @@ function getLocalIPs() {
   return ips;
 }
 
-function getPrimaryLocalIP() {
+function getPrimaryLocalIP(): string {
   return getLocalIPs()[0] || '127.0.0.1';
 }
 
-module.exports = { getLocalIPs, getPrimaryLocalIP };
+export { getLocalIPs, getPrimaryLocalIP };

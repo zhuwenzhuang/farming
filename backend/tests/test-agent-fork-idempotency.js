@@ -6,7 +6,7 @@ const path = require('path');
 
 const AgentManager = require('../agent-manager');
 const ConfigManager = require('../config-manager');
-const { latestLifecycleOperation } = require('../agent-lifecycle-journal');
+const { latestLifecycleOperation } = require('../agent-lifecycle-journal.cjs');
 
 async function run() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-fork-idempotency-'));

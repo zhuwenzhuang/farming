@@ -9,8 +9,8 @@ const NativePtyHost = require('../native-pty-host');
 const NativePtyHostClient = require('../native-pty-host-client');
 const NativeSessionEngine = require('../native-session-engine');
 const { FarmingSessionStore } = require('../farming-session-store');
-const { nativePtyHostSocketPath } = require('../native-pty-host-path');
-const { nativePtyHostRuntimeIdentity } = require('../native-pty-host-identity');
+const { nativePtyHostSocketPath } = require('../native-pty-host-path.cjs');
+const { nativePtyHostRuntimeIdentity } = require('../native-pty-host-identity.cjs');
 
 function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));

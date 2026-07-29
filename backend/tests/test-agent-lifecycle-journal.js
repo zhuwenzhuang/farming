@@ -4,7 +4,7 @@ const {
   beginLifecycleOperation,
   lifecycleJournal,
   transitionLifecycleOperation,
-} = require('../agent-lifecycle-journal');
+} = require('../agent-lifecycle-journal.cjs');
 
 function run() {
   const agent = {};

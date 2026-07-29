@@ -4,7 +4,7 @@ const os = require('os');
 const path = require('path');
 const NativeSessionEngine = require('../native-session-engine');
 const NativePtyHost = require('../native-pty-host');
-const { nativePtyHostSocketPath } = require('../native-pty-host-path');
+const { nativePtyHostSocketPath } = require('../native-pty-host-path.cjs');
 const { resolveAgentExecutable } = require('../executable-discovery');
 
 const SHELL_PROFILE_PROBE_TIMEOUT_MS = 30_000;

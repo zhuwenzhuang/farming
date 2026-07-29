@@ -10,7 +10,7 @@ const TerminalScreenWorkerPool = require('./terminal-screen-worker-pool');
 const {
   nativePtyHostPrivateSocketPath,
   nativePtyHostSocketPath,
-} = require('./native-pty-host-path');
+} = require('./native-pty-host-path.cjs');
 const { terminalInputToPtyString } = require('./input-parts.cjs');
 const { normalizeInteractiveTerminalEnv } = require('./agent-env');
 const {
@@ -24,11 +24,11 @@ const {
 } = require('./local-session-engine');
 const { deriveTerminalStatus } = require('./terminal-status');
 const { probeUnixSocket } = require('./terminal-runtime-cleanup');
-const { nativePtyHostRuntimeIdentity } = require('./native-pty-host-identity');
+const { nativePtyHostRuntimeIdentity } = require('./native-pty-host-identity.cjs');
 const {
   allocateNativePtyRuntimeGeneration,
   formatNativePtyRuntimeEpoch,
-} = require('./native-pty-controller-generation');
+} = require('./native-pty-controller-generation.cjs');
 const {
   acknowledgeTerminalReducerData,
   createTerminalReducerFlowControl,

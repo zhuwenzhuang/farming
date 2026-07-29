@@ -12,7 +12,7 @@ const { normalizeInteractiveTerminalEnv } = require('./agent-env');
 const {
   allocateNativePtyRuntimeGeneration,
   formatNativePtyRuntimeEpoch,
-} = require('./native-pty-controller-generation');
+} = require('./native-pty-controller-generation.cjs');
 const storageLayout = require('./storage-layout');
 const {
   acknowledgeTerminalReducerData,

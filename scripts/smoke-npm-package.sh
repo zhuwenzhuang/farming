@@ -86,11 +86,17 @@ for runtime_module in \
   agent-order \
   agent-order-transaction \
   agent-provider-session \
+  agent-lifecycle-journal \
   atomic-json-store \
   business-health \
   chat-runtime \
   input-parts \
   input-routing \
+  main-page-session \
+  native-pty-controller-generation \
+  native-pty-host-identity \
+  native-pty-host-path \
+  network \
   provider-session-id \
   runtime-executable-invocation \
   server-process-identity \
@@ -181,7 +187,7 @@ const net = require('net');
 const path = require('path');
 
 const [packageRoot, configDir] = process.argv.slice(2);
-const { nativePtyHostSocketPath } = require(path.join(packageRoot, 'backend/native-pty-host-path'));
+const { nativePtyHostSocketPath } = require(path.join(packageRoot, 'backend/native-pty-host-path.cjs'));
 const socketPath = nativePtyHostSocketPath(configDir);
 const socket = net.createConnection(socketPath);
 let buffer = '';

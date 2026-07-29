@@ -7,12 +7,12 @@ const LocalSessionEngine = require('../local-session-engine');
 const NativePtyHost = require('../native-pty-host');
 const NativePtyHostClient = require('../native-pty-host-client');
 const NativeSessionEngine = require('../native-session-engine');
-const { nativePtyHostSocketPath } = require('../native-pty-host-path');
+const { nativePtyHostSocketPath } = require('../native-pty-host-path.cjs');
 const {
   nativePtyHostRuntimeIdentity,
   nativePtyHostRuntimeIdentityMatches,
   normalizeNativePtyHostRuntimeIdentity,
-} = require('../native-pty-host-identity');
+} = require('../native-pty-host-identity.cjs');
 const { deserializeTerminalState } = require('../terminal-state-serialization');
 const { probeUnixSocket } = require('../terminal-runtime-cleanup');
 

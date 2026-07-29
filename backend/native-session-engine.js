@@ -2,7 +2,7 @@ const SessionEngine = require('./session-engine');
 const NativePtyHostClient = require('./native-pty-host-client');
 const { normalizeShellSessionOptions } = require('./local-session-engine');
 const { cleanupShellBusyIntegration } = require('./shell-busy-integration');
-const { compareNativePtyRuntimeEpochs } = require('./native-pty-controller-generation');
+const { compareNativePtyRuntimeEpochs } = require('./native-pty-controller-generation.cjs');
 
 function isRecoverableConnectError(error) {
   const code = error && error.code;

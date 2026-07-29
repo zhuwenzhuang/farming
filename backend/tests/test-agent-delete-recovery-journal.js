@@ -10,7 +10,7 @@ const {
   beginLifecycleOperation,
   latestLifecycleOperation,
   transitionLifecycleOperation,
-} = require('../agent-lifecycle-journal');
+} = require('../agent-lifecycle-journal.cjs');
 const { FarmingSessionStore } = require('../farming-session-store');
 
 function configForStore(store, workspace) {

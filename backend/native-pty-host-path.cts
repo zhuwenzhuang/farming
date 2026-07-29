@@ -1,8 +1,15 @@
-const crypto = require('crypto');
-const os = require('os');
-const path = require('path');
+'use strict';
 
-function nativePtyHostSocketPath(configDir) {
+import * as crypto from 'crypto';
+import * as os from 'os';
+import * as path from 'path';
+
+interface NativePtyPrivateSocketOptions {
+  pid?: number;
+  nonce?: string;
+}
+
+function nativePtyHostSocketPath(configDir?: string): string {
   const root = configDir || process.env.FARMING_CONFIG_DIR || path.join(os.homedir(), '.farming');
   const hash = crypto
     .createHash('sha1')
@@ -17,11 +24,14 @@ function nativePtyHostSocketPath(configDir) {
   return path.join(os.tmpdir(), `farming-native-pty-${process.getuid ? process.getuid() : 'user'}-${hash}.sock`);
 }
 
-function nativePtyHostPrivateSocketHash(socketPath) {
+function nativePtyHostPrivateSocketHash(socketPath: string): string {
   return crypto.createHash('sha256').update(socketPath).digest('hex').slice(0, 8);
 }
 
-function nativePtyHostPrivateSocketPath(socketPath, options = {}) {
+function nativePtyHostPrivateSocketPath(
+  socketPath: string,
+  options: NativePtyPrivateSocketOptions = {},
+): string {
   const pid = Number(options.pid || process.pid);
   const nonce = String(options.nonce || crypto.randomBytes(4).toString('hex'));
   return path.join(
@@ -30,12 +40,12 @@ function nativePtyHostPrivateSocketPath(socketPath, options = {}) {
   );
 }
 
-function nativePtyHostPrivateSocketNamePattern(socketPath) {
+function nativePtyHostPrivateSocketNamePattern(socketPath: string): RegExp {
   const hash = nativePtyHostPrivateSocketHash(socketPath);
   return new RegExp(`^\\.fpty-\\d+-${hash}-[a-f0-9]+\\.sock$`);
 }
 
-module.exports = {
+export {
   nativePtyHostPrivateSocketNamePattern,
   nativePtyHostPrivateSocketPath,
   nativePtyHostSocketPath,
