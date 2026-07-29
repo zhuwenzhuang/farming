@@ -79,7 +79,8 @@
     "test:remote-terminal:chaos": "node scripts/smoke-remote-terminal-chaos.js",
     "test:e2e:workspaces:local": "FARMING_BASE_PATH=/farming npm run build && node scripts/e2e-workspaces.js local",
     "test:e2e:workspaces:remote": "FARMING_BASE_PATH=/farming npm run build && node scripts/e2e-workspaces.js remote",
-    "typecheck": "tsc --noEmit && tsc -p tsconfig.usage.json",
+    "typecheck:backend": "tsc -p tsconfig.backend.json",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.backend.json && tsc -p tsconfig.usage.json",
     "lint": "eslint --max-warnings=0 \"backend/**/*.js\" \"frontend/**/*.js\" \"scripts/**/*.js\" bin/farming --ignore-pattern \"backend/usage-history-scanner.generated.js\" --ignore-pattern \"frontend/vendor/**\" --ignore-pattern \"frontend/themes/**\"",
     "check": "npm run typecheck && npm run lint && npm test"
   },
