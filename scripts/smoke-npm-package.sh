@@ -116,6 +116,7 @@ for runtime_module in \
   terminal-screen-state \
   terminal-screen-worker-thread \
   terminal-screen-worker-pool \
+  terminal-screen-worker \
   terminal-state-serialization
 do
   if [ ! -f "${PACKAGE_ROOT}/backend/${runtime_module}.cjs" ]; then

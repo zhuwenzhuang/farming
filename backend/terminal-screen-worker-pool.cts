@@ -1,4 +1,6 @@
-const TerminalScreenWorker = require('./terminal-screen-worker') as TerminalScreenWorkerConstructor;
+const { TerminalScreenWorker } = require('./terminal-screen-worker.cjs') as {
+  TerminalScreenWorker: TerminalScreenWorkerConstructor;
+};
 
 const DEFAULT_POOL_SIZE = 3;
 const DEFAULT_RETRY_DELAY_MS = 250;

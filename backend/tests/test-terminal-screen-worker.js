@@ -1,6 +1,6 @@
 const assert = require('assert');
 const EventEmitter = require('events');
-const TerminalScreenWorker = require('../terminal-screen-worker');
+const { TerminalScreenWorker } = require('../terminal-screen-worker.cjs');
 
 class FakeWorker extends EventEmitter {
   constructor(workerFile, options = {}) {

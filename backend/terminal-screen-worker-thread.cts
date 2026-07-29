@@ -1,5 +1,4 @@
 import { parentPort, workerData } from 'worker_threads';
-import type { MessagePort } from 'worker_threads';
 import { TerminalScreenState } from './terminal-screen-state.cjs';
 import type { TerminalScreenSnapshot } from './terminal-screen-state.cjs';
 
@@ -34,14 +33,7 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function requireParentPort(port: MessagePort | null): MessagePort {
-  if (!port) {
-    throw new Error('Terminal screen worker requires a parent port');
-  }
-  return port;
-}
-
-const workerPort = requireParentPort(parentPort);
+const workerPort = parentPort;
 const initialWorkerData = workerData && typeof workerData === 'object'
   ? workerData as Record<string, unknown>
   : {};
@@ -70,7 +62,7 @@ function postPreview(state: TerminalScreenSnapshot): void {
   lastPreviewText = previewText;
   lastTitle = title;
   lastSnapshotFingerprint = snapshotFingerprint;
-  workerPort.postMessage({
+  workerPort?.postMessage({
     type: 'preview',
     previewText,
     title,
@@ -230,7 +222,7 @@ async function processMessage(message: TerminalScreenWorkerMessage): Promise<voi
   try {
     const payload = await handleRequest(message);
     if (message.requestId) {
-      workerPort.postMessage({
+      workerPort?.postMessage({
         type: 'response',
         requestId: message.requestId,
         payload,
@@ -238,7 +230,7 @@ async function processMessage(message: TerminalScreenWorkerMessage): Promise<voi
     }
   } catch (error: unknown) {
     if (message.requestId) {
-      workerPort.postMessage({
+      workerPort?.postMessage({
         type: 'response',
         requestId: message.requestId,
         error: errorMessage(error),
@@ -246,14 +238,14 @@ async function processMessage(message: TerminalScreenWorkerMessage): Promise<voi
       return;
     }
 
-    workerPort.postMessage({
+    workerPort?.postMessage({
       type: 'error',
       message: errorMessage(error),
     });
   }
 }
 
-workerPort.on('message', (message: TerminalScreenWorkerMessage) => {
+workerPort?.on('message', (message: TerminalScreenWorkerMessage) => {
   messageQueue = messageQueue.then(
     () => processMessage(message),
     () => processMessage(message),

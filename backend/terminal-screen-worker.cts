@@ -1,7 +1,7 @@
-const path = require('path');
-const fs = require('fs');
-const EventEmitter = require('events');
-const { Worker } = require('worker_threads');
+import * as path from 'path';
+import * as fs from 'fs';
+import { EventEmitter } from 'events';
+import { Worker } from 'worker_threads';
 
 const APPEND_FLUSH_INTERVAL_MS = 16;
 const MAX_PENDING_APPEND_BYTES = 128 * 1024;
@@ -10,11 +10,67 @@ const DEFAULT_STATE_REQUEST_HARD_TIMEOUT_MS = 5000;
 const PACKAGED_WORKER_FILE = 'terminal-screen-worker-thread.pkg.js';
 const SOURCE_WORKER_FILE = 'terminal-screen-worker-thread.cjs';
 
-function byteLength(value) {
+interface TerminalScreenWorkerOptions extends Record<string, unknown> {
+  requestTimeoutMs?: number;
+  stateRequestHardTimeoutMs?: number;
+  WorkerClass?: TerminalWorkerConstructor;
+}
+
+interface TerminalWorkerLike {
+  on(eventName: string, listener: (...args: unknown[]) => void): unknown;
+  postMessage(message: Record<string, unknown>): void;
+  terminate(): Promise<unknown>;
+}
+
+interface TerminalWorkerConstructor {
+  new(
+    workerFile: string,
+    options: { workerData: Record<string, unknown> },
+  ): TerminalWorkerLike;
+}
+
+interface PendingRequest {
+  reject(error: unknown): void;
+  resolve(value: unknown): void;
+  timer: NodeJS.Timeout;
+}
+
+interface AppendEntry {
+  data: string;
+  outputSeq: number | null;
+  stateRevision: number;
+}
+
+interface PendingAppendWaiter {
+  reject(error: unknown): void;
+  resolve(value: unknown): void;
+}
+
+interface TerminalScreenRequestOptions {
+  flushAppend?: boolean;
+  timeoutMs?: number;
+}
+
+interface TerminalScreenStateOptions {
+  includeRenderOutput?: boolean;
+  timeoutMs?: number;
+}
+
+function errorCode(error: unknown): string {
+  return error && typeof error === 'object' && 'code' in error
+    ? String(error.code)
+    : '';
+}
+
+function byteLength(value: unknown): number {
   return Buffer.byteLength(String(value || ''), 'utf8');
 }
 
-function resolveWorkerFile() {
+function finiteNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function resolveWorkerFile(): string {
   const wantsPackagedWorker = process.pkg || process.env.FARMING_PACKAGED_RUNTIME === '1';
   if (!wantsPackagedWorker) return SOURCE_WORKER_FILE;
 
@@ -25,33 +81,35 @@ function resolveWorkerFile() {
 }
 
 class TerminalScreenWorker extends EventEmitter {
-  /**
-   * @param {{
-   *   WorkerClass?: typeof Worker,
-   *   requestTimeoutMs?: number,
-   *   stateRequestHardTimeoutMs?: number,
-   *   [key: string]: any,
-   * }} [options]
-   */
-  constructor(options = {}) {
+  static readonly DEFAULT_REQUEST_TIMEOUT_MS = DEFAULT_REQUEST_TIMEOUT_MS;
+  static readonly DEFAULT_STATE_REQUEST_HARD_TIMEOUT_MS = DEFAULT_STATE_REQUEST_HARD_TIMEOUT_MS;
+  static readonly resolveWorkerFile = resolveWorkerFile;
+
+  readonly worker: TerminalWorkerLike;
+  readonly pendingRequests = new Map<number, PendingRequest>();
+  pendingAppendEntries: AppendEntry[] = [];
+  pendingAppendWaiters: PendingAppendWaiter[] = [];
+  pendingAppendBytes = 0;
+  appendFlushTimer: NodeJS.Timeout | null = null;
+  stateRequestInFlight: Promise<unknown> | null = null;
+  failed = false;
+  disposed = false;
+  private nextRequestId = 1;
+  private readonly requestTimeoutMs: number;
+  private readonly stateRequestHardTimeoutMs: number;
+
+  constructor(options: TerminalScreenWorkerOptions = {}) {
     super();
-    this.nextRequestId = 1;
-    this.pendingRequests = new Map();
-    this.pendingAppendEntries = [];
-    this.pendingAppendBytes = 0;
-    this.pendingAppendWaiters = [];
-    this.appendFlushTimer = null;
-    this.stateRequestInFlight = null;
-    this.requestTimeoutMs = Number.isFinite(options.requestTimeoutMs)
-      ? Math.max(1, Math.floor(options.requestTimeoutMs))
+    const requestTimeoutMs = finiteNumber(options.requestTimeoutMs);
+    this.requestTimeoutMs = requestTimeoutMs !== null
+      ? Math.max(1, Math.floor(requestTimeoutMs))
       : DEFAULT_REQUEST_TIMEOUT_MS;
-    this.stateRequestHardTimeoutMs = Number.isFinite(options.stateRequestHardTimeoutMs)
-      ? Math.max(1, Math.floor(options.stateRequestHardTimeoutMs))
+    const stateRequestHardTimeoutMs = finiteNumber(options.stateRequestHardTimeoutMs);
+    this.stateRequestHardTimeoutMs = stateRequestHardTimeoutMs !== null
+      ? Math.max(1, Math.floor(stateRequestHardTimeoutMs))
       : Math.min(this.requestTimeoutMs, DEFAULT_STATE_REQUEST_HARD_TIMEOUT_MS);
-    this.failed = false;
-    this.disposed = false;
     const workerFile = resolveWorkerFile();
-    const WorkerClass = options.WorkerClass || Worker;
+    const WorkerClass = options.WorkerClass || Worker as unknown as TerminalWorkerConstructor;
     const workerData = { ...options };
     delete workerData.WorkerClass;
     delete workerData.requestTimeoutMs;
@@ -60,7 +118,10 @@ class TerminalScreenWorker extends EventEmitter {
       workerData,
     });
 
-    this.worker.on('message', (message) => {
+    this.worker.on('message', (value: unknown) => {
+      const message = value && typeof value === 'object'
+        ? value as Record<string, unknown>
+        : null;
       if (!message || typeof message !== 'object') {
         return;
       }
@@ -76,13 +137,13 @@ class TerminalScreenWorker extends EventEmitter {
         return;
       }
 
-      if (message.type === 'response' && message.requestId) {
+      if (message.type === 'response' && typeof message.requestId === 'number') {
         const pending = this.pendingRequests.get(message.requestId);
         if (!pending) return;
         this.pendingRequests.delete(message.requestId);
         clearTimeout(pending.timer);
         if (message.error) {
-          pending.reject(new Error(message.error));
+          pending.reject(new Error(String(message.error)));
           return;
         }
         pending.resolve(message.payload);
@@ -90,15 +151,15 @@ class TerminalScreenWorker extends EventEmitter {
       }
 
       if (message.type === 'error') {
-        this.emit('error', new Error(message.message || 'Unknown worker error'));
+        this.emit('error', new Error(String(message.message || 'Unknown worker error')));
       }
     });
 
-    this.worker.on('error', (error) => {
+    this.worker.on('error', (error: unknown) => {
       this.handleWorkerFailure(error);
     });
 
-    this.worker.on('exit', (code) => {
+    this.worker.on('exit', (code: unknown) => {
       if (this.disposed) {
         return;
       }
@@ -107,7 +168,7 @@ class TerminalScreenWorker extends EventEmitter {
     });
   }
 
-  handleWorkerFailure(error) {
+  private handleWorkerFailure(error: unknown): void {
     if (this.disposed) return;
     const failure = error instanceof Error ? error : new Error(String(error));
     const shouldEmit = !this.failed;
@@ -129,11 +190,14 @@ class TerminalScreenWorker extends EventEmitter {
     }
   }
 
-  handlePostMessageFailure(error) {
+  private handlePostMessageFailure(error: unknown): void {
     this.handleWorkerFailure(error);
   }
 
-  postWorkerMessage(message, options = {}) {
+  private postWorkerMessage(
+    message: Record<string, unknown>,
+    options: { throwOnError?: boolean } = {},
+  ): boolean {
     try {
       this.worker.postMessage(message);
       return true;
@@ -144,7 +208,7 @@ class TerminalScreenWorker extends EventEmitter {
     }
   }
 
-  flushAppend() {
+  private flushAppend(): void {
     if (this.appendFlushTimer) {
       clearTimeout(this.appendFlushTimer);
       this.appendFlushTimer = null;
@@ -166,7 +230,11 @@ class TerminalScreenWorker extends EventEmitter {
     );
   }
 
-  request(type, payload = {}, options = {}) {
+  private request(
+    type: string,
+    payload: Record<string, unknown> = {},
+    options: TerminalScreenRequestOptions = {},
+  ): Promise<unknown> {
     if (this.disposed) {
       return Promise.reject(new Error('Terminal screen worker is disposed'));
     }
@@ -183,14 +251,17 @@ class TerminalScreenWorker extends EventEmitter {
     const requestId = this.nextRequestId;
     this.nextRequestId += 1;
 
-    return new Promise((resolve, reject) => {
-      const requestTimeoutMs = Number.isFinite(options.timeoutMs)
-        ? Math.max(1, Math.floor(options.timeoutMs))
+    return new Promise<unknown>((resolve, reject) => {
+      const requestedTimeoutMs = finiteNumber(options.timeoutMs);
+      const requestTimeoutMs = requestedTimeoutMs !== null
+        ? Math.max(1, Math.floor(requestedTimeoutMs))
         : this.requestTimeoutMs;
       const timer = setTimeout(() => {
         this.pendingRequests.delete(requestId);
-        const error = new Error(`Terminal screen worker request timed out: ${type}`);
-        error.code = 'ETIMEDOUT';
+        const error = Object.assign(
+          new Error(`Terminal screen worker request timed out: ${type}`),
+          { code: 'ETIMEDOUT' },
+        );
         reject(error);
       }, requestTimeoutMs);
       if (typeof timer.unref === 'function') timer.unref();
@@ -211,7 +282,11 @@ class TerminalScreenWorker extends EventEmitter {
     });
   }
 
-  append(data, stateRevision, outputSeq = null) {
+  append(
+    data: unknown,
+    stateRevision: number,
+    outputSeq: number | null = null,
+  ): Promise<unknown> | undefined {
     if (this.disposed || this.failed) {
       return Promise.reject(new Error('Terminal screen worker is not available'));
     }
@@ -230,7 +305,7 @@ class TerminalScreenWorker extends EventEmitter {
       this.flushAppend();
     }
 
-    return new Promise((resolve, reject) => {
+    return new Promise<unknown>((resolve, reject) => {
       this.pendingAppendEntries.push({ data: text, stateRevision, outputSeq });
       this.pendingAppendBytes += byteLength(text);
       this.pendingAppendWaiters.push({ resolve, reject });
@@ -245,19 +320,19 @@ class TerminalScreenWorker extends EventEmitter {
     });
   }
 
-  resize(cols, rows, stateRevision) {
+  resize(cols: number, rows: number, stateRevision: number): Promise<unknown> {
     return this.request('resize', { cols, rows, stateRevision });
   }
 
-  setRuntimeEpoch(runtimeEpoch, cols, rows) {
+  setRuntimeEpoch(runtimeEpoch: string, cols: number, rows: number): Promise<unknown> {
     return this.request('set-runtime-epoch', { runtimeEpoch, cols, rows });
   }
 
-  clear(stateRevision, outputSeq = null) {
+  clear(stateRevision: number, outputSeq: number | null = null): Promise<unknown> {
     return this.request('clear', { stateRevision, outputSeq });
   }
 
-  getState(options = {}) {
+  getState(options: TerminalScreenStateOptions = {}): Promise<unknown> {
     if (!this.stateRequestInFlight) {
       const request = this.request('get-state', {
         // A full checkpoint can satisfy callers that only need metadata too,
@@ -271,8 +346,8 @@ class TerminalScreenWorker extends EventEmitter {
         // reducer can no longer prove progress, so fail it closed.
         timeoutMs: this.stateRequestHardTimeoutMs,
       });
-      const sharedRequest = request.catch((error) => {
-        if (error && error.code === 'ETIMEDOUT') {
+      const sharedRequest = request.catch((error: unknown) => {
+        if (errorCode(error) === 'ETIMEDOUT') {
           this.handleWorkerFailure(error);
         }
         throw error;
@@ -285,15 +360,17 @@ class TerminalScreenWorker extends EventEmitter {
     }
 
     const sharedRequest = this.stateRequestInFlight;
-    const timeoutMs = Number.isFinite(options.timeoutMs)
+    const timeoutMs = typeof options.timeoutMs === 'number' && Number.isFinite(options.timeoutMs)
       ? Math.max(1, Math.floor(options.timeoutMs))
       : null;
     if (timeoutMs === null) return sharedRequest;
 
-    return new Promise((resolve, reject) => {
+    return new Promise<unknown>((resolve, reject) => {
       const timer = setTimeout(() => {
-        const error = new Error('Terminal screen worker request timed out: get-state');
-        error.code = 'ETIMEDOUT';
+        const error = Object.assign(
+          new Error('Terminal screen worker request timed out: get-state'),
+          { code: 'ETIMEDOUT' },
+        );
         reject(error);
       }, timeoutMs);
       if (typeof timer.unref === 'function') timer.unref();
@@ -310,7 +387,7 @@ class TerminalScreenWorker extends EventEmitter {
     });
   }
 
-  async dispose() {
+  async dispose(): Promise<void> {
     if (this.disposed) {
       return;
     }
@@ -339,7 +416,9 @@ class TerminalScreenWorker extends EventEmitter {
   }
 }
 
-module.exports = TerminalScreenWorker;
-module.exports.resolveWorkerFile = resolveWorkerFile;
-module.exports.DEFAULT_REQUEST_TIMEOUT_MS = DEFAULT_REQUEST_TIMEOUT_MS;
-module.exports.DEFAULT_STATE_REQUEST_HARD_TIMEOUT_MS = DEFAULT_STATE_REQUEST_HARD_TIMEOUT_MS;
+export {
+  DEFAULT_REQUEST_TIMEOUT_MS,
+  DEFAULT_STATE_REQUEST_HARD_TIMEOUT_MS,
+  TerminalScreenWorker,
+  resolveWorkerFile,
+};
