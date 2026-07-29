@@ -21,6 +21,7 @@ export interface AcpCollaborationAgent {
   id: string
   threadId: string
   name: string
+  task?: string
   status: AcpCollaborationStatus
   parentThreadId?: string
   tone: number
@@ -156,7 +157,7 @@ export function acpCollaborationAgents(
     const existing = groups.get(event.threadId)
     if (existing) {
       existing.events.push(event)
-      existing.name = event.name
+      existing.task = event.name
       const previousActivity = existing.activities[existing.activities.length - 1]
       if (
         event.action === 'updated'
@@ -184,6 +185,7 @@ export function acpCollaborationAgents(
       id: event.threadId,
       threadId: event.threadId,
       name: event.name,
+      task: event.name,
       status: collaborationStatus(stateByThreadId.get(event.threadId)?.status || ''),
       parentThreadId: stateByThreadId.get(event.threadId)?.parentThreadId,
       tone: event.tone,
@@ -221,4 +223,30 @@ export function acpCollaborationAgents(
     })
   }
   return [...groups.values()]
+}
+
+export function acpCollaborationAgentsForTurn(
+  items: AgentTranscriptProcessItem[],
+  states: AgentTranscriptSubagentState[] = [],
+): AcpCollaborationAgent[] {
+  const events = acpCollaborationEvents(items)
+  if (events.length === 0) return []
+
+  const stateByThreadId = new Map(states.map(state => [state.threadId, state]))
+  const relevantThreadIds = new Set(events.map(event => event.threadId))
+
+  for (const event of events) {
+    const visited = new Set<string>()
+    let parentThreadId = stateByThreadId.get(event.threadId)?.parentThreadId
+    while (parentThreadId && !visited.has(parentThreadId)) {
+      visited.add(parentThreadId)
+      relevantThreadIds.add(parentThreadId)
+      parentThreadId = stateByThreadId.get(parentThreadId)?.parentThreadId
+    }
+  }
+
+  return acpCollaborationAgents(
+    items,
+    states.filter(state => relevantThreadIds.has(state.threadId)),
+  )
 }

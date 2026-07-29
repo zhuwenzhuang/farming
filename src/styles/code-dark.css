@@ -1726,6 +1726,14 @@ body.code-mode[data-appearance='dark'] .code-agent-transcript-collaboration-agen
   color: var(--code-dark-text-soft);
 }
 
+body.code-mode[data-appearance='dark'] .code-agent-transcript-collaboration-agent-labels > span {
+  color: var(--code-dark-text);
+}
+
+body.code-mode[data-appearance='dark'] .code-agent-transcript-collaboration-agent-labels > small {
+  color: var(--code-dark-text-muted);
+}
+
 body.code-mode[data-appearance='dark'] .code-agent-transcript-collaboration-events {
   border-top-color: var(--code-dark-border);
 }
@@ -1770,8 +1778,7 @@ body.code-mode[data-appearance='dark'] .code-agent-transcript-collaboration-acti
   color: var(--code-dark-text-muted);
 }
 
-body.code-mode[data-appearance='dark'] .code-agent-transcript-collaboration-action.failed,
-body.code-mode[data-appearance='dark'] .code-agent-transcript-collaboration-action.interrupted {
+body.code-mode[data-appearance='dark'] .code-agent-transcript-collaboration-action.failed {
   color: #ff7b72;
 }
 
@@ -1783,7 +1790,8 @@ body.code-mode[data-appearance='dark'] .code-agent-transcript-collaboration-acti
   color: #56d364;
 }
 
-body.code-mode[data-appearance='dark'] .code-agent-transcript-collaboration-action.paused {
+body.code-mode[data-appearance='dark'] .code-agent-transcript-collaboration-action.paused,
+body.code-mode[data-appearance='dark'] .code-agent-transcript-collaboration-action.interrupted {
   color: #e3b341;
 }
 

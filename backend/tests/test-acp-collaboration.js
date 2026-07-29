@@ -4,6 +4,7 @@ const { acpTranscriptToolEntry } = require('../acp-transcript');
 const { projectAcpTranscript } = require('../../src/components/code/acp/acp-entry-projection.ts');
 const {
   acpCollaborationAgents,
+  acpCollaborationAgentsForTurn,
   acpCollaborationEvents,
 } = require('../../src/components/code/acp/acp-collaboration.ts');
 
@@ -270,6 +271,67 @@ assert.deepStrictEqual(
     ['thread-parent', 'Parent reviewer', null, 0],
   ],
   'authoritative state supplies a missing ancestor so cross-turn child activity cannot escape to the top level',
+);
+
+const turnScopedStates = [
+  { threadId: 'thread-turn-a', name: 'Goodall', status: 'completed' },
+  {
+    threadId: 'thread-turn-a-child',
+    name: 'Carver',
+    parentThreadId: 'thread-turn-a',
+    status: 'completed',
+  },
+  { threadId: 'thread-turn-b', name: 'Feynman', status: 'running' },
+];
+const turnAAgents = acpCollaborationAgentsForTurn([
+  {
+    id: 'turn-a-start',
+    type: 'collaboration',
+    title: 'Start subagent review_refresh',
+    status: 'completed',
+    collaboration: {
+      kind: 'activity',
+      threadId: 'thread-turn-a',
+      agentPath: '/root/review_refresh',
+      activity: 'started',
+    },
+  },
+], turnScopedStates);
+assert.deepStrictEqual(
+  turnAAgents.map(agent => [
+    agent.threadId,
+    agent.task || null,
+    agent.name,
+    agent.parentThreadId || null,
+  ]),
+  [
+    ['thread-turn-a', 'Review refresh', 'Goodall', null],
+  ],
+  'a Turn includes its named task and authoritative identity without pulling future descendants backward',
+);
+const turnBAgents = acpCollaborationAgentsForTurn([
+  {
+    id: 'turn-b-update',
+    type: 'collaboration',
+    title: 'Interact with subagent browser_guards',
+    status: 'completed',
+    collaboration: {
+      kind: 'activity',
+      threadId: 'thread-turn-b',
+      agentPath: '/root/browser_guards',
+      activity: 'interacted',
+    },
+  },
+], turnScopedStates);
+assert.deepStrictEqual(
+  turnBAgents.map(agent => [agent.threadId, agent.task, agent.name]),
+  [['thread-turn-b', 'Browser guards', 'Feynman']],
+  'unrelated subagent snapshots never leak into another Turn',
+);
+assert.strictEqual(
+  turnAAgents.some(agent => agent.threadId === 'thread-turn-a-child'),
+  false,
+  'a child first observed in a later Turn must not appear in the earlier parent-start Turn',
 );
 
 const reducer = new AcpSessionState({

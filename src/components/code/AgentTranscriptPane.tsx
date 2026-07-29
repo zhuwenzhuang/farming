@@ -54,7 +54,7 @@ import type { WorkspaceFileOpenTarget } from '@/lib/workspace-open-files'
 import type { CodeCopy } from './copy'
 import { acpActivityKind, acpCompactPlanLabel, acpLiveToolActivityLabel, acpPlanProgress, type AcpActivityKind } from './acp/acp-activity-label'
 import {
-  acpCollaborationAgents,
+  acpCollaborationAgentsForTurn,
   type AcpCollaborationAction,
   type AcpCollaborationAgent,
   type AcpCollaborationStatus,
@@ -66,6 +66,7 @@ import {
   type AgentTranscriptAudio,
   type AgentTranscriptPatchChange,
   type AgentTranscriptProcessItem,
+  type AgentTranscriptSubagentState,
   type AgentTranscriptTerminal,
   type AgentTranscriptTurn,
   type AgentTranscriptUserFile,
@@ -1365,6 +1366,7 @@ function AgentTranscriptCollaborationTimeline({
   agents,
   renderProcessItem,
   copy,
+  disclosureScope,
   openAgentIds,
   setOpenAgentIds,
   openActivityIds,
@@ -1373,6 +1375,7 @@ function AgentTranscriptCollaborationTimeline({
   agents: AcpCollaborationAgent[]
   renderProcessItem: (processItemId: string) => ReactNode
   copy: CodeCopy
+  disclosureScope: string
   openAgentIds: Set<string>
   setOpenAgentIds: Dispatch<SetStateAction<Set<string>>>
   openActivityIds: Set<string>
@@ -1404,7 +1407,8 @@ function AgentTranscriptCollaborationTimeline({
     }
   }
   const renderAgent = (agent: AcpCollaborationAgent, depth: number): ReactNode => {
-    const agentOpen = openAgentIds.has(agent.id)
+    const agentDisclosureId = `${disclosureScope}:${agent.id}`
+    const agentOpen = openAgentIds.has(agentDisclosureId)
     const statusLabel = collaborationStatusLabel(agent.status, copy)
     const childAgents = childrenByParent.get(agent.id) || []
     const expandable = agent.activities.length > 0 || childAgents.length > 0
@@ -1414,7 +1418,7 @@ function AgentTranscriptCollaborationTimeline({
     const closeAgent = () => {
       setOpenActivityIds(current => {
         const next = new Set(current)
-        agent.activities.forEach(activity => next.delete(activity.id))
+        agent.activities.forEach(activity => next.delete(`${disclosureScope}:${activity.id}`))
         return next
       })
     }
@@ -1433,15 +1437,15 @@ function AgentTranscriptCollaborationTimeline({
           data-testid="code-agent-transcript-collaboration-summary"
           aria-expanded={expandable ? agentOpen : undefined}
           disabled={!expandable}
-          title={`${agent.name} · ${statusLabel} · ${copy.agentTranscriptProcessCount(agent.events.length)}`}
+          title={`${agent.task || agent.name}${agent.task && agent.task !== agent.name ? ` · ${agent.name}` : ''} · ${statusLabel} · ${copy.agentTranscriptProcessCount(agent.events.length)}`}
           onClick={clickEvent => {
             if (!expandable) return
             clickEvent.stopPropagation()
             toggleTranscriptDisclosureWithStableAnchor(clickEvent.currentTarget, () => {
               setOpenAgentIds(current => {
                 const next = new Set(current)
-                if (next.has(agent.id)) next.delete(agent.id)
-                else next.add(agent.id)
+                if (next.has(agentDisclosureId)) next.delete(agentDisclosureId)
+                else next.add(agentDisclosureId)
                 return next
               })
               if (agentOpen) closeAgent()
@@ -1450,7 +1454,10 @@ function AgentTranscriptCollaborationTimeline({
         >
           <span className={`code-agent-transcript-collaboration-agent tone-${agent.tone}`}>
             <CollaborationAgentGlyph icon={agent.icon} />
-            <span>{agent.name}</span>
+            <span className="code-agent-transcript-collaboration-agent-labels">
+              <span>{agent.task || agent.name}</span>
+              {agent.task && agent.task !== agent.name ? <small>{agent.name}</small> : null}
+            </span>
           </span>
           <span className={`code-agent-transcript-collaboration-action ${agent.status}`}>{statusLabel}</span>
           <span className="code-agent-transcript-collaboration-count">
@@ -1478,7 +1485,8 @@ function AgentTranscriptCollaborationTimeline({
               </button>
             ) : null}
             {visibleActivities.map(activity => {
-              const activityOpen = openActivityIds.has(activity.id)
+              const activityDisclosureId = `${disclosureScope}:${activity.id}`
+              const activityOpen = openActivityIds.has(activityDisclosureId)
               const visibleCount = Math.max(8, visibleEvidenceCounts[activity.id] || 8)
               const visibleProcessItemIds = activity.processItemIds.slice(-visibleCount)
               const hiddenEvidenceCount = activity.processItemIds.length - visibleProcessItemIds.length
@@ -1500,8 +1508,8 @@ function AgentTranscriptCollaborationTimeline({
                       toggleTranscriptDisclosureWithStableAnchor(clickEvent.currentTarget, () => {
                         setOpenActivityIds(current => {
                           const next = new Set(current)
-                          if (next.has(activity.id)) next.delete(activity.id)
-                          else next.add(activity.id)
+                          if (next.has(activityDisclosureId)) next.delete(activityDisclosureId)
+                          else next.add(activityDisclosureId)
                           return next
                         })
                       })
@@ -1515,7 +1523,7 @@ function AgentTranscriptCollaborationTimeline({
                         activity.action === 'started'
                           || activity.action === 'updated'
                           || activity.action === 'recorded'
-                          ? agent.name
+                          ? agent.task || agent.name
                           : activity.title || agent.name
                       )}
                     </span>
@@ -1737,6 +1745,7 @@ function AgentTranscriptCollaborationSpace({
   agents,
   processItems,
   copy,
+  disclosureScope,
   openAgentIds,
   setOpenAgentIds,
   openActivityIds,
@@ -1750,6 +1759,7 @@ function AgentTranscriptCollaborationSpace({
   agents: AcpCollaborationAgent[]
   processItems: AgentTranscriptProcessItem[]
   copy: CodeCopy
+  disclosureScope: string
   openAgentIds: Set<string>
   setOpenAgentIds: Dispatch<SetStateAction<Set<string>>>
   openActivityIds: Set<string>
@@ -1824,6 +1834,7 @@ function AgentTranscriptCollaborationSpace({
   return (
     <AgentTranscriptCollaborationTimeline
       agents={agents}
+      disclosureScope={disclosureScope}
       openAgentIds={openAgentIds}
       setOpenAgentIds={setOpenAgentIds}
       openActivityIds={openActivityIds}
@@ -2198,6 +2209,11 @@ function AgentTranscriptTurnView({
   onInputTerminal,
   onResizeTerminal,
   onStopSubagent,
+  subagentStates,
+  openCollaborationAgentIds,
+  setOpenCollaborationAgentIds,
+  openCollaborationActivityIds,
+  setOpenCollaborationActivityIds,
   onFork,
 }: {
   turn: AgentTranscriptTurn
@@ -2217,6 +2233,11 @@ function AgentTranscriptTurnView({
   onInputTerminal?: (terminalId: string, input: string) => Promise<void>
   onResizeTerminal?: (terminalId: string, cols: number, rows: number) => Promise<void>
   onStopSubagent?: (sessionId: string) => Promise<void>
+  subagentStates: AgentTranscriptSubagentState[]
+  openCollaborationAgentIds: Set<string>
+  setOpenCollaborationAgentIds: Dispatch<SetStateAction<Set<string>>>
+  openCollaborationActivityIds: Set<string>
+  setOpenCollaborationActivityIds: Dispatch<SetStateAction<Set<string>>>
   onFork?: () => Promise<void> | void
 }) {
   const turnRef = useRef<HTMLElement | null>(null)
@@ -2256,8 +2277,8 @@ function AgentTranscriptTurnView({
   const syncingTerminalOutcomeItemIdsRef = useRef(new Set<string>())
   const [, setProgressClock] = useState(0)
   const collaborationAgents = useMemo(
-    () => acpCollaborationAgents(resolvedProcessItems),
-    [resolvedProcessItems],
+    () => acpCollaborationAgentsForTurn(resolvedProcessItems, subagentStates),
+    [resolvedProcessItems, subagentStates],
   )
   const collaborationProcessItemIds = useMemo(() => new Set(
     collaborationAgents.flatMap(agent => agent.events.map(event => event.processItemId)),
@@ -2623,7 +2644,7 @@ function AgentTranscriptTurnView({
 
       {hasAnyProcess ? (
         <div className={`code-agent-transcript-process ${effectiveProcessOpen ? 'expanded' : ''}`}>
-          {hasProcess ? (
+          {hasProcess || collaborationAgents.length > 0 ? (
             <>
               <button
             type="button"
@@ -2698,7 +2719,7 @@ function AgentTranscriptTurnView({
               compact
             />
           ) : null}
-              {effectiveProcessOpen ? (
+              {effectiveProcessOpen && hasProcess ? (
             <div className="code-agent-transcript-process-list">
               {processEntries.map(entry => {
                 if (entry.kind === 'group') {
@@ -2765,6 +2786,23 @@ function AgentTranscriptTurnView({
               })}
             </div>
               ) : null}
+            {source === 'acp' && collaborationAgents.length > 0 ? (
+              <AgentTranscriptCollaborationSpace
+                agents={collaborationAgents}
+                processItems={resolvedProcessItems}
+                copy={copy}
+                disclosureScope={turn.id}
+                openAgentIds={openCollaborationAgentIds}
+                setOpenAgentIds={setOpenCollaborationAgentIds}
+                openActivityIds={openCollaborationActivityIds}
+                setOpenActivityIds={setOpenCollaborationActivityIds}
+                onLoadProcessItemDetail={onLoadProcessItemDetail}
+                onStopTerminal={onStopTerminal}
+                onInputTerminal={onInputTerminal}
+                onResizeTerminal={onResizeTerminal}
+                onStopSubagent={onStopSubagent}
+              />
+            ) : null}
             </>
           ) : null}
         </div>
@@ -3092,17 +3130,6 @@ export function AgentTranscriptPane({
   }, [active, agentId, copy.agentTranscriptUnavailable, refreshSignal, source, turnLimit])
 
   const turns = useMemo(() => transcript?.turns || [], [transcript])
-  const collaborationProcessItems = useMemo(
-    () => turns.flatMap(turn => turn.processItems),
-    [turns],
-  )
-  const collaborationAgents = useMemo(
-    () => acpCollaborationAgents(
-      collaborationProcessItems,
-      transcript?.codexSubagents?.agents || [],
-    ),
-    [collaborationProcessItems, transcript?.codexSubagents?.agents],
-  )
   const awaitingAcpHistory = source === 'acp'
     && !error
     && turns.length === 0
@@ -3435,26 +3462,15 @@ export function AgentTranscriptPane({
                 onInputTerminal={source === 'acp' ? handleInputTerminal : undefined}
                 onResizeTerminal={source === 'acp' ? handleResizeTerminal : undefined}
                 onStopSubagent={source === 'acp' ? handleStopSubagent : undefined}
+                subagentStates={transcript?.codexSubagents?.agents || []}
+                openCollaborationAgentIds={openCollaborationAgentIds}
+                setOpenCollaborationAgentIds={setOpenCollaborationAgentIds}
+                openCollaborationActivityIds={openCollaborationActivityIds}
+                setOpenCollaborationActivityIds={setOpenCollaborationActivityIds}
                 onFork={index === turns.length - 1 && turn.status !== 'inProgress' ? onForkLatest : undefined}
               />
             )
           })}
-          {source === 'acp' && collaborationAgents.length > 0 ? (
-            <AgentTranscriptCollaborationSpace
-              agents={collaborationAgents}
-              processItems={collaborationProcessItems}
-              copy={copy}
-              openAgentIds={openCollaborationAgentIds}
-              setOpenAgentIds={setOpenCollaborationAgentIds}
-              openActivityIds={openCollaborationActivityIds}
-              setOpenActivityIds={setOpenCollaborationActivityIds}
-              onLoadProcessItemDetail={handleLoadProcessItemDetail}
-              onStopTerminal={handleStopTerminal}
-              onInputTerminal={handleInputTerminal}
-              onResizeTerminal={handleResizeTerminal}
-              onStopSubagent={handleStopSubagent}
-            />
-          ) : null}
         </div>
       )}
       {showJumpToBottom ? (

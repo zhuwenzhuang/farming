@@ -6360,6 +6360,32 @@ body.code-mode .code-instance-name {
   white-space: nowrap;
 }
 
+.code-agent-transcript-collaboration-agent-labels {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.code-agent-transcript-collaboration-agent-labels > span {
+  min-width: 0;
+  overflow: hidden;
+  color: #1f2328;
+  font-weight: 560;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.code-agent-transcript-collaboration-agent-labels > small {
+  flex: 0 0 auto;
+  overflow: hidden;
+  color: #8c959f;
+  font-size: 11px;
+  font-weight: 450;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .code-agent-transcript-collaboration-agent.tone-0 svg { color: #0ea5b7; }
 .code-agent-transcript-collaboration-agent.tone-1 svg { color: #d95f76; }
 .code-agent-transcript-collaboration-agent.tone-2 svg { color: #8b5cf6; }
@@ -6453,8 +6479,7 @@ body.code-mode .code-instance-name {
   color: #7d858d;
 }
 
-.code-agent-transcript-collaboration-action.failed,
-.code-agent-transcript-collaboration-action.interrupted {
+.code-agent-transcript-collaboration-action.failed {
   color: #b4232d;
 }
 
@@ -6466,7 +6491,8 @@ body.code-mode .code-instance-name {
   color: #1a7f37;
 }
 
-.code-agent-transcript-collaboration-action.paused {
+.code-agent-transcript-collaboration-action.paused,
+.code-agent-transcript-collaboration-action.interrupted {
   color: #9a6700;
 }
 
