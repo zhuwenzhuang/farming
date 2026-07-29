@@ -8,13 +8,54 @@ const GLOBAL_WORKSPACE_ROOT_ID = 'wroot_global';
 const GLOBAL_WORKSPACE_FILES_ROOT = '/';
 const PROJECT_FILES_WORKSPACE_PREFIX = '__farming_project__:';
 
-function normalizeWorkspacePath(value) {
+interface WorkspaceAccessPolicy {
+  externalReads: boolean;
+  readOnly: boolean;
+  watch: boolean;
+}
+
+interface WorkspaceRoot {
+  accessPolicy: Readonly<WorkspaceAccessPolicy>;
+  canonicalPath: string;
+  kind: string;
+  repositoryId: string;
+  rootId: string;
+}
+
+interface WorkspaceRootOptions {
+  accessPolicy?: Partial<WorkspaceAccessPolicy>;
+  canonicalPath?: unknown;
+  kind?: string;
+  repositoryId?: string;
+  rootId?: string;
+}
+
+interface WorkspaceRootAgentManager {
+  configManager?: {
+    getSettings?(): unknown;
+  };
+  getAgentWorkspaceRoot?(agentId: string): unknown;
+  getState?(): unknown;
+}
+
+interface LiveAgentPath {
+  agentId: string;
+  path: string;
+}
+
+function recordValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object'
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function normalizeWorkspacePath(value: unknown): string {
   const raw = String(value || '').trim();
   if (!raw) return '';
   return path.resolve(raw.replace(/^~(?=$|[\\/])/, os.homedir()));
 }
 
-function canonicalWorkspacePath(value) {
+function canonicalWorkspacePath(value: unknown): string {
   const normalized = normalizeWorkspacePath(value);
   if (!normalized) return '';
   try {
@@ -24,7 +65,7 @@ function canonicalWorkspacePath(value) {
   }
 }
 
-function rootIdForPath(value) {
+function rootIdForPath(value: unknown): string {
   const canonicalPath = canonicalWorkspacePath(value);
   if (!canonicalPath) return '';
   if (canonicalPath === GLOBAL_WORKSPACE_FILES_ROOT) return GLOBAL_WORKSPACE_ROOT_ID;
@@ -36,7 +77,7 @@ function rootIdForPath(value) {
   return `wroot_${hash.toString(16).padStart(16, '0')}`;
 }
 
-function projectWorkspaceFromLegacyRef(ref) {
+function projectWorkspaceFromLegacyRef(ref: unknown): string {
   const value = String(ref || '');
   if (!value.startsWith(PROJECT_FILES_WORKSPACE_PREFIX)) return '';
   try {
@@ -46,7 +87,7 @@ function projectWorkspaceFromLegacyRef(ref) {
   }
 }
 
-function workspaceRootSnapshot(root) {
+function workspaceRootSnapshot(root: WorkspaceRoot): WorkspaceRoot {
   return {
     rootId: root.rootId,
     kind: root.kind,
@@ -57,9 +98,11 @@ function workspaceRootSnapshot(root) {
 }
 
 class WorkspaceRootRegistry {
-  constructor(agentManager) {
+  private readonly agentManager: WorkspaceRootAgentManager | null | undefined;
+  private readonly roots = new Map<string, WorkspaceRoot>();
+
+  constructor(agentManager?: WorkspaceRootAgentManager | null) {
     this.agentManager = agentManager;
-    this.roots = new Map();
     this.register({
       rootId: GLOBAL_WORKSPACE_ROOT_ID,
       kind: 'global',
@@ -68,7 +111,7 @@ class WorkspaceRootRegistry {
     });
   }
 
-  register(options = {}) {
+  register(options: WorkspaceRootOptions = {}): WorkspaceRoot {
     const canonicalPath = options.rootId === GLOBAL_WORKSPACE_ROOT_ID
       ? GLOBAL_WORKSPACE_FILES_ROOT
       : canonicalWorkspacePath(options.canonicalPath);
@@ -79,7 +122,7 @@ class WorkspaceRootRegistry {
       throw new WorkspaceFileError('workspace root identity collision', 409);
     }
     const isGlobalRoot = rootId === GLOBAL_WORKSPACE_ROOT_ID;
-    const root = Object.freeze({
+    const root: WorkspaceRoot = Object.freeze({
       rootId,
       kind: isGlobalRoot ? 'global' : (options.kind || current?.kind || 'directory'),
       canonicalPath,
@@ -94,22 +137,26 @@ class WorkspaceRootRegistry {
     return root;
   }
 
-  configuredProjectPaths() {
-    const settings = this.agentManager?.configManager?.getSettings?.() || {};
+  configuredProjectPaths(): string[] {
+    const settings = recordValue(this.agentManager?.configManager?.getSettings?.());
     return (Array.isArray(settings.projectWorkspaces) ? settings.projectWorkspaces : [])
       .map(normalizeWorkspacePath)
       .filter(Boolean);
   }
 
-  liveAgentPaths() {
-    const state = this.agentManager?.getState?.() || { agents: [] };
-    return (state.agents || []).filter(agent => agent && !agent.isMain).map(agent => ({
-      agentId: agent.id,
-      path: normalizeWorkspacePath(agent.projectWorkspace || agent.gitWorktree?.workspace || agent.cwd),
-    })).filter(entry => entry.path);
+  liveAgentPaths(): LiveAgentPath[] {
+    const state = recordValue(this.agentManager?.getState?.());
+    const agents = Array.isArray(state.agents) ? state.agents : [];
+    return agents.map(recordValue).filter(agent => !agent.isMain).map(agent => {
+      const worktree = recordValue(agent.gitWorktree);
+      return {
+        agentId: String(agent.id || ''),
+        path: normalizeWorkspacePath(agent.projectWorkspace || worktree.workspace || agent.cwd),
+      };
+    }).filter(entry => Boolean(entry.agentId && entry.path));
   }
 
-  refresh() {
+  refresh(): void {
     const activeRootIds = new Set([GLOBAL_WORKSPACE_ROOT_ID]);
     for (const projectPath of this.configuredProjectPaths()) {
       activeRootIds.add(this.register({ kind: 'directory', canonicalPath: projectPath }).rootId);
@@ -122,11 +169,11 @@ class WorkspaceRootRegistry {
     }
   }
 
-  resolve(ref) {
+  resolve(ref: unknown): WorkspaceRoot {
     const value = String(ref || '').trim();
     if (!value) throw new WorkspaceFileError('rootId is required', 400);
     if (value === GLOBAL_WORKSPACE_ROOT_ID || value === GLOBAL_WORKSPACE_FILES_AGENT_ID) {
-      return this.roots.get(GLOBAL_WORKSPACE_ROOT_ID);
+      return this.roots.get(GLOBAL_WORKSPACE_ROOT_ID) as WorkspaceRoot;
     }
 
     this.refresh();
@@ -147,13 +194,13 @@ class WorkspaceRootRegistry {
     throw new WorkspaceFileError(value.startsWith('wroot_') ? 'workspace root not found' : 'agent not found', 404);
   }
 
-  list() {
+  list(): WorkspaceRoot[] {
     this.refresh();
     return [...this.roots.values()].map(workspaceRootSnapshot);
   }
 }
 
-module.exports = {
+export {
   GLOBAL_WORKSPACE_FILES_AGENT_ID,
   GLOBAL_WORKSPACE_FILES_ROOT,
   GLOBAL_WORKSPACE_ROOT_ID,

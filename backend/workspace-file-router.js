@@ -12,7 +12,7 @@ const {
   PROJECT_FILES_WORKSPACE_PREFIX,
   WorkspaceRootRegistry,
   projectWorkspaceFromLegacyRef,
-} = require('./workspace-root-registry');
+} = require('./workspace-root-registry.cjs');
 
 const ROOT_REGISTRIES = new WeakMap();
 

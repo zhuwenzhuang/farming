@@ -42,7 +42,7 @@ const { createWorkspaceDirectoryRouter } = require('./workspace-directory');
 const { createControlRouter } = require('./control-api');
 const { WorkspaceFileService, WorkspaceFileError } = require('./workspace-file-service');
 const { createWorkspaceFileRouter, resolveWorkspaceRoot } = require('./workspace-file-router');
-const { WorkspaceRootRegistry, rootIdForPath } = require('./workspace-root-registry');
+const { WorkspaceRootRegistry, rootIdForPath } = require('./workspace-root-registry.cjs');
 const {
   BrowserResourceManager,
   createBrowserRouter,

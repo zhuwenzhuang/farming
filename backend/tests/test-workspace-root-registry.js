@@ -5,7 +5,7 @@ const {
   GLOBAL_WORKSPACE_ROOT_ID,
   WorkspaceRootRegistry,
   rootIdForPath,
-} = require('../workspace-root-registry');
+} = require('../workspace-root-registry.cjs');
 
 const project = path.join(os.tmpdir(), 'farming-workspace-root-project');
 let projectWorkspaces = [project];

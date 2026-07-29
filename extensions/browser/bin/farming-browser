@@ -2,7 +2,7 @@
 const fs = require('fs');
 const path = require('path');
 const { requestJson } = require('../backend/farming-browser-client');
-const { rootIdForPath } = require('../../../backend/workspace-root-registry');
+const { rootIdForPath } = require('../../../backend/workspace-root-registry.cjs');
 
 function usage() {
   return `Usage: farming browser <command> [options]

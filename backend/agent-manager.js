@@ -78,7 +78,7 @@ const {
 const { inspectGitWorktree } = require('./git-worktree-info');
 const { deserializeTerminalState } = require('./terminal-state-serialization.cjs');
 const { compareNativePtyRuntimeEpochs } = require('./native-pty-controller-generation.cjs');
-const { canonicalWorkspacePath } = require('./workspace-root-registry');
+const { canonicalWorkspacePath } = require('./workspace-root-registry.cjs');
 const { mergeBrowserMcpServer } = require('../extensions/browser/backend/agent-capability');
 const {
   TERMINAL_OPERATION_STATES,

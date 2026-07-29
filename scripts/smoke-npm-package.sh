@@ -126,7 +126,8 @@ for runtime_module in \
   terminal-screen-worker-pool \
   terminal-screen-worker \
   terminal-state-serialization \
-  usage-forecast
+  usage-forecast \
+  workspace-root-registry
 do
   if [ ! -f "${PACKAGE_ROOT}/backend/${runtime_module}.cjs" ]; then
     echo "npm package omitted compiled backend runtime ${runtime_module}.cjs" >&2
