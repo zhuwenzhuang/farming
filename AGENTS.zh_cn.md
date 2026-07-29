@@ -307,18 +307,13 @@ farming/
 │   │
 │   ├── farming-cli.js     # Main Agent 控制 CLI 的参数解析与 HTTP 调用逻辑
 │   │   - 读取 FARMING_CONTROL_URL / FARMING_TOKEN_FILE
-│   │   - 给 Main Agent 提供 spawn/list/output/send/kill/memory report 命令
+│   │   - 给 Main Agent 提供 spawn/list/output/send/kill 命令
 │   │
 │   ├── main-agent-skills.js # Main Agent Farming 技能说明与内置记忆文件
-│   │   - 声明“记忆读取总结”“牧场除虫计划”等 Main Agent 技能
+│   │   - 声明“牧场除虫计划”等 Main Agent 技能
 │   │   - 以 AGENTS.md 作为 canonical skill 文件
 │   │   - 维护 CLAUDE.md / QWEN.md 完整内联兼容入口
 │   │   - 支持 `farming skills` 输出同一份能力说明
-│   │
-│   ├── agent-memory-report.js # Farming 记忆日报/周报生成
-│   │   - 只读扫描 Claude/Qwen/Codex 本地历史线索
-│   │   - 支持 today / yesterday / week / 自定义时间段
-│   │   - 不依赖 Farming server 和外部服务
 │   │
 │   ├── network.js         # 本机内网 IPv4 探测
 │   ├── executable-discovery.js # CLI agent 可执行项发现
@@ -442,7 +437,6 @@ farming/
 │       ├── test-farming-cli.js # Farming CLI 参数解析测试
 │       ├── test-farming-app-cli.js # Farming 产品 CLI 默认配置 / packaged fallback 测试
 │       ├── test-main-agent-skills.js # Main Agent 技能说明 / 记忆文件测试
-│       ├── test-agent-memory-report.js # 记忆日报/周报扫描与格式化测试
 │       ├── test-agent-manager-control-env.js # Main Agent 控制环境注入测试
 │       ├── test-executable-discovery.js # PATH 可执行项发现测试
 │       ├── test-config-manager-workspaces.js # Main/New Agent workspace 配置测试
@@ -605,7 +599,7 @@ CRT 皮肤效果开关存储在 `~/.farming/settings.json` 的 `crtSkinEffectsEn
 - CLI 应用默认使用 native pty host session engine；目标机需要能加载打包的 `node-pty` runtime。只有排查 native host 边界时才设置 `FARMING_SESSION_ENGINE=local` 使用进程内 node-pty engine。
 - CLI 应用启动时按目标环境自适应：未显式设置时自动计算 server Node heap，清理 packaged self-spawn 的 `PKG_EXECPATH`，并让 server 使用最终 `HOME` 推导默认 `~/.farming`
 - CLI 应用会把实际 daemon 端口写入 `~/.farming/farming-server.json`；用户终端不传端口执行 `farming list/spawn/output/send/kill` 时会自动读取该 state 文件找到当前实例。`farming stop` 必须校验记录的精确 Server Identity 并发送 SIGKILL，只有在 Server 进程已经退出且记录端口可以重新 bind 后才能删除匹配的控制元数据并返回成功；有界等待超时必须保留元数据并显式失败。走 Native PTY 路径的 Release Smoke 必须关闭 Host 持久化、显式终止精确的 Smoke Agent，并证明 Server、Host 与子 Shell 进程都已退出
-- CLI 应用同时保留 Main Agent 控制命令：用户终端可用 `farming start/status/stop/logs/url` 管理 server，agent 内仍可用 `farming list/spawn/output/send/kill/memory report`
+- CLI 应用同时保留 Main Agent 控制命令：用户终端可用 `farming start/status/stop/logs/url` 管理 server，agent 内仍可用 `farming list/spawn/output/send/kill`
 - CLI 应用发布产物不包含仓库 `backend/`、`src/`、测试或脚本源码；服务端逻辑进入平台二进制，浏览器侧只包含 Vite 构建后的 `dist/` 静态资源；Farming 自身运行依赖尽量自包含，但目标机仍需要可执行的 shell，Codex / Claude agent 仍依赖目标机已有对应 CLI
 - `scripts/package-cli-release.sh` 通过 `scripts/bundle-cli-runtime.js` 用 esbuild 将后端 runtime bundle/minify 为临时 `backend/farming-app-cli.pkg.js` 和 `backend/terminal-screen-worker-thread.pkg.js`，不生成 sourcemap；bundler 会把 Express 可选 view engine 动态 require 隔离为 runtime require，避免 pkg 误判；pkg 只接收这些临时 bundle 和静态 assets，脚本退出时必须清理临时 bundle
 - Packaged native addon 提取必须比较已有字节并使用原子替换：node-pty 会多次调用 native loader，原地截断已经 mmap 的 Linux `.node` 文件会让第一次 `pty.fork` 直接崩溃，即使提取文件的 checksum 完全正确。
@@ -820,9 +814,8 @@ CRT 皮肤效果开关存储在 `~/.farming/settings.json` 的 `crtSkinEffectsEn
 - ✅ **后端核心**
   - Express + WebSocket 服务器
   - 默认 native pty host session engine（local node-pty engine 仅保留为调试 fallback）
-  - Main Agent 控制 CLI（`farming spawn/list/output/send/kill/memory report`）
-  - Farming 记忆日报/周报（只读扫描本机 Claude/Qwen/Codex 历史线索）
-  - Main Agent skills 记忆文件（Main Agent 在 `.farming` 身份工作区启动，读取 canonical `AGENTS.md`、`farming skills`、“记忆读取总结”和“牧场除虫计划”）
+  - Main Agent 控制 CLI（`farming spawn/list/output/send/kill`）
+  - Main Agent skills 记忆文件（Main Agent 在 `.farming` 身份工作区启动，读取 canonical `AGENTS.md`、`farming skills` 和“牧场除虫计划”）
   - `/api/control/*` agent 生命周期控制 API
   - `/api/files/*` 轻量编辑后端（workspace 内文件 tree/read/write/create/rename/delete/move/search/diff/blame/watch）
   - `/api/attachments/image` 图片附件上传 API（composer 粘贴/选择图片时保存到 `~/.farming/attachments`，消息中插入远端 agent 可访问的图片路径；Farming 自动生成的图片附件默认保留 7 天后清理）
@@ -921,16 +914,15 @@ CRT 皮肤效果开关存储在 `~/.farming/settings.json` 的 `crtSkinEffectsEn
 
 **实现方式**：
 1. 后端暴露 `/api/control/*`，默认复用现有 Token 认证与 `AgentManager`
-2. `farming` 是合并后的产品 CLI：用户终端可用 `start/daemon/status/stop/logs/url` 管理 server，agent 内可用 `list/spawn/output/send/kill/memory report` 访问控制 API
+2. `farming` 是合并后的产品 CLI：用户终端可用 `start/daemon/status/stop/logs/url` 管理 server，agent 内可用 `list/spawn/output/send/kill` 访问控制 API
 3. 控制命令读取 `FARMING_CONTROL_URL` 和 `FARMING_TOKEN_FILE`；服务以 `FARMING_DISABLE_AUTH=1` 启动时跳过 token 读取
 4. `AgentManager` 启动每个 agent 时把 CLI 所在目录注入 `PATH`；源码态是仓库 `bin/`，packaged runtime 是 `farming` 二进制所在目录
 5. `AgentManager` 同时注入 `FARMING_AGENT_ID`、`FARMING_IS_MAIN_AGENT`、`FARMING_PARENT_AGENT_ID`
 6. 子 agent 环境会剥离服务进程自己的 `LD_LIBRARY_PATH` 和 `NODE_OPTIONS`，避免部署 shim 或 server heap 设置污染 agent 运行时
 7. Main Agent 启动目录固定为 Farming 身份工作区：用户选择的目录若不是 `.farming` 结尾，则实际进入 `<选择目录>/.farming`；Code-style 前端在 Projects 分组和 Project 下新增 Agent 时会把 Main Agent 的 `.farming` 身份目录折叠回真实项目目录
 8. Farming 在身份工作区维护 canonical `AGENTS.md`、`FARMING_MAIN_AGENT_SKILLS.md`，并把完整 Main Agent 身份与技能内联写入常见 coding CLI 兼容入口；Claude 启动时还会通过 `--append-system-prompt` 注入同一份 bootstrap，避免只依赖 memory 文件自动发现；Main Agent 也可运行 `farming skills` 查看技能
-9. Main Agent 可用 `farming memory report` 只读总结本机近期 agent 记忆
-10. Main Agent 可用“牧场除虫计划”先只读梳理目录结构与模块协议，再用 `farming spawn` 为每个模块启动子 Agent；子 Agent 必须聚焦自己的模块，同时检查与相邻模块的协议违约、边界条件、错误处理、并发/状态一致性和测试缺口
-11. Main Agent 用 `farming list/output/send/kill` 监督子 Agent，汇总发现、去重分级，并推动可验证修复；高风险写操作、破坏性操作或大范围重构需要先向用户确认
+9. Main Agent 可用“牧场除虫计划”先只读梳理目录结构与模块协议，再用 `farming spawn` 为每个模块启动子 Agent；子 Agent 必须聚焦自己的模块，同时检查与相邻模块的协议违约、边界条件、错误处理、并发/状态一致性和测试缺口
+10. Main Agent 用 `farming list/output/send/kill` 监督子 Agent，汇总发现、去重分级，并推动可验证修复；高风险写操作、破坏性操作或大范围重构需要先向用户确认
 
 **示例**：
 ```bash
@@ -939,15 +931,12 @@ farming list --parent "$FARMING_AGENT_ID"
 farming output agent-xxx --tail 2000
 farming send agent-xxx "继续跑相关测试"
 farming kill agent-xxx
-farming memory report --period today
-farming memory report --period week
 ```
 
 **代码位置**：
 - 后端 API：`backend/control-api.js`
 - CLI：`bin/farming`、`backend/farming-app-cli.js`、`backend/farming-cli.js`
 - Skills：`backend/main-agent-skills.js`
-- 记忆报告：`backend/agent-memory-report.js`
 - 环境注入：`backend/agent-manager.js` 的 `buildAgentEnv` 方法
 
 ### Main Agent 心跳检测

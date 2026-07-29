@@ -56,6 +56,10 @@ function run() {
     );
     assert(installScript.includes('FARMING_NPM_PREFIX'));
     assert(installScript.includes('FARMING_NODE_BIN'));
+    assert(installScript.includes('managed_node_bin="${SYSTEM_NODE_BIN}"'));
+    assert(installScript.includes('export FARMING_NODE_BIN="${managed_node_bin}"'));
+    assert(installScript.includes('export FARMING_NODE_LD='));
+    assert(installScript.includes('export FARMING_NODE_LIBRARY_PATH='));
     assert(installScript.includes('write_managed_npm_launchers'));
     console.log('Legacy Linux release tests passed');
   } finally {

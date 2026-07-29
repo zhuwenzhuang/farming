@@ -151,9 +151,14 @@ write_managed_npm_launchers() {
   release_uses_managed_npm || return 0
   mkdir -p "${RUNTIME_BIN_DIR}" "${STABLE_CLI_DIR}"
 
-  local node_exec config_line home_line auth_line
+  local node_exec managed_node_bin loader_lines config_line home_line auth_line
   node_exec="exec \"${SYSTEM_NODE_BIN}\" \"\$@\""
+  managed_node_bin="${RUNTIME_BIN_DIR}/node"
+  loader_lines=""
   if use_glibc_runtime; then
+    managed_node_bin="${SYSTEM_NODE_BIN}"
+    loader_lines="export FARMING_NODE_LD=\"${GLIBC_RUNTIME_ROOT}/lib/ld-2.28.so\"
+export FARMING_NODE_LIBRARY_PATH=\"${GLIBC_RUNTIME_ROOT}/lib\""
     node_exec="exec \"${GLIBC_RUNTIME_ROOT}/lib/ld-2.28.so\" --library-path \"${GLIBC_RUNTIME_ROOT}/lib\" \"${SYSTEM_NODE_BIN}\" \"\$@\""
   fi
 
@@ -183,7 +188,8 @@ EOF
 #!/usr/bin/env bash
 set -euo pipefail
 export PATH="${RUNTIME_BIN_DIR}:\${PATH}"
-export FARMING_NODE_BIN="${RUNTIME_BIN_DIR}/node"
+export FARMING_NODE_BIN="${managed_node_bin}"
+${loader_lines}
 export FARMING_NPM_COMMAND="${RUNTIME_BIN_DIR}/npm"
 export FARMING_NPM_PREFIX="${NPM_PREFIX}"
 export FARMING_SYSTEM_NODE_BIN="${SYSTEM_NODE_BIN}"
