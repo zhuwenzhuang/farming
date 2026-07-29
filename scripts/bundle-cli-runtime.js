@@ -121,7 +121,7 @@ async function main() {
   await esbuild.build({
     ...commonOptions,
     target: 'node22',
-    entryPoints: [path.join(projectRoot, 'backend', 'usage-history-worker.js')],
+    entryPoints: [path.join(projectRoot, 'backend', 'usage-history-worker.cts')],
     outfile: usageWorkerOutfile,
     external: ['node:sqlite'],
   });

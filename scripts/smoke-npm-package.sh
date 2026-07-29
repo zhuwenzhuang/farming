@@ -158,6 +158,7 @@ for runtime_module in \
   usage-forecast \
   usage-history-client \
   usage-history-smoke \
+  usage-history-worker \
   workspace-directory \
   workspace-discovery \
   workspace-root-registry
