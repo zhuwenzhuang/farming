@@ -15,7 +15,7 @@ index fb338ee..20191ea 100755
 +  return request.method === "authentication/status" || request.method === "authentication/logout" || request.method === LEGACY_SET_SESSION_MODEL_METHOD || request.method === GOAL_CONTROL_METHOD || request.method === STEER_METHOD;
  }
 
-// src/ThreadGoalSnapshot.ts
+ // src/ThreadGoalSnapshot.ts
 @@ -26065,6 +26069,17 @@ var CodexAcpClient = class {
        additionalDirectories
      };
