@@ -5,7 +5,7 @@ const {
   RuntimeAgentMap,
   runtimeKind,
   runtimeState,
-} = require('../agent-runtime-binding');
+} = require('../agent-runtime-binding.cjs');
 
 function run() {
   assert.deepStrictEqual(publicRuntimeBinding({ agentRuntimeMode: 'terminal' }), { kind: 'terminal' });

@@ -1,17 +1,49 @@
-const { runtimeKind, runtimeState } = require('./agent-runtime-binding');
+const { runtimeKind, runtimeState } = require('./agent-runtime-binding.cjs');
 const { deriveTerminalStatus } = require('./terminal-status');
 
 const WORKING_STATES = new Set(['working', 'interrupting']);
 const WAITING_STATES = new Set(['waiting-for-input', 'waiting-for-permission']);
 const IDLE_STATES = new Set(['idle', 'connected', 'ready']);
 
-function providerObservationKind(agent) {
+type RuntimeObservationPhase = 'working' | 'waiting' | 'idle' | 'starting' | 'exited' | 'unknown';
+
+interface TerminalObservationStatus {
+  activity: string;
+  kind?: string;
+  source?: string;
+}
+
+interface RuntimeObservationAgent {
+  [key: string]: unknown;
+  command?: string;
+  cwd?: string;
+  lastActivity?: number;
+  output?: string;
+  previewText?: string;
+  providerSessionProvider?: string;
+  sessionTitle?: string;
+  startedAt?: number;
+  status?: string;
+  terminalBusy?: boolean | null;
+  terminalStatus?: TerminalObservationStatus;
+}
+
+interface RuntimeObservation {
+  kind: string;
+  phase: RuntimeObservationPhase;
+  confidence: 'authoritative' | 'high' | 'heuristic';
+  source: 'structured-runtime' | 'shell-marker' | 'terminal-observer';
+  observerVersion: 'structured-v1' | 'shell-marker-v1' | 'terminal-observer-v1';
+  observedAt: number;
+}
+
+function providerObservationKind(agent: RuntimeObservationAgent): string {
   const provider = String(agent?.providerSessionProvider || '').toLowerCase();
   if (provider === 'codex' || provider === 'claude') return provider;
   return provider ? 'process' : 'unknown';
 }
 
-function structuredPhase(agent) {
+function structuredPhase(agent: RuntimeObservationAgent): RuntimeObservationPhase {
   const state = runtimeState(agent);
   if (WORKING_STATES.has(state)) return 'working';
   if (WAITING_STATES.has(state)) return 'waiting';
@@ -21,7 +53,7 @@ function structuredPhase(agent) {
   return 'unknown';
 }
 
-function terminalStatusFor(agent) {
+function terminalStatusFor(agent: RuntimeObservationAgent): TerminalObservationStatus {
   if (agent?.terminalStatus) return agent.terminalStatus;
   return deriveTerminalStatus({
     command: agent?.command,
@@ -41,7 +73,10 @@ function terminalStatusFor(agent) {
   });
 }
 
-function terminalPhase(agent, status) {
+function terminalPhase(
+  agent: RuntimeObservationAgent,
+  status: TerminalObservationStatus,
+): RuntimeObservationPhase {
   if (agent?.status === 'pending') return 'starting';
   if (agent?.status === 'stopped' || agent?.status === 'dead' || status.activity === 'exited') return 'exited';
   if (status.activity === 'busy') return 'working';
@@ -49,7 +84,7 @@ function terminalPhase(agent, status) {
   return 'unknown';
 }
 
-function deriveRuntimeObservation(agent) {
+function deriveRuntimeObservation(agent: RuntimeObservationAgent): RuntimeObservation {
   const observedAt = Number(agent?.lastActivity || agent?.startedAt) || 0;
   if (runtimeKind(agent) !== 'terminal') {
     return {
@@ -76,6 +111,6 @@ function deriveRuntimeObservation(agent) {
   };
 }
 
-module.exports = {
+export {
   deriveRuntimeObservation,
 };

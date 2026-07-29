@@ -1,7 +1,7 @@
 const assert = require('assert');
 const { importTsModule } = require('./helpers/import-ts-module');
-const { publicRuntimeBinding } = require('../agent-runtime-binding');
-const { deriveRuntimeObservation } = require('../runtime-observation');
+const { publicRuntimeBinding } = require('../agent-runtime-binding.cjs');
+const { deriveRuntimeObservation } = require('../runtime-observation.cjs');
 
 function agent(overrides = {}) {
   const value = {

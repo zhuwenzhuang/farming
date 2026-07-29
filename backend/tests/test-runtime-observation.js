@@ -1,5 +1,5 @@
 const assert = require('assert');
-const { deriveRuntimeObservation } = require('../runtime-observation');
+const { deriveRuntimeObservation } = require('../runtime-observation.cjs');
 
 function run() {
   assert.deepStrictEqual(deriveRuntimeObservation({

@@ -1,6 +1,6 @@
 const express = require('express');
 const crypto = require('crypto');
-const { runtimeKind } = require('./agent-runtime-binding');
+const { runtimeKind } = require('./agent-runtime-binding.cjs');
 const { terminalInputReady } = require('./terminal-status');
 
 const DEFAULT_INITIAL_INPUT_TIMEOUT_MS = 30000;

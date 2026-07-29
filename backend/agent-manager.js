@@ -33,7 +33,7 @@ const {
   runtimeBindingOf,
   runtimeKind,
 } = require('./agent-runtime-binding.cjs');
-const { deriveRuntimeObservation } = require('./runtime-observation');
+const { deriveRuntimeObservation } = require('./runtime-observation.cjs');
 const {
   applyProviderHomeEnvironment,
   getProviderAdapter,

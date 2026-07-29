@@ -87,6 +87,7 @@ for runtime_module in \
   agent-order-transaction \
   agent-provider-session \
   agent-lifecycle-journal \
+  agent-runtime-binding \
   atomic-json-store \
   business-health \
   chat-runtime \
@@ -99,6 +100,7 @@ for runtime_module in \
   network \
   provider-session-id \
   runtime-executable-invocation \
+  runtime-observation \
   server-process-identity \
   terminal-exit-quiescence
 do

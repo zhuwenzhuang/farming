@@ -6,8 +6,8 @@ const {
   estimateContextMenuHeight,
   outwardContextMenuPoint,
 } = require('../../src/components/code/menu-position.ts');
-const { publicRuntimeBinding } = require('../agent-runtime-binding');
-const { deriveRuntimeObservation } = require('../runtime-observation');
+const { publicRuntimeBinding } = require('../agent-runtime-binding.cjs');
+const { deriveRuntimeObservation } = require('../runtime-observation.cjs');
 
 function agent(overrides = {}) {
   const value = {
