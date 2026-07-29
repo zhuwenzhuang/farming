@@ -6204,13 +6204,16 @@ body.code-mode .code-instance-name {
 }
 
 .code-agent-transcript-collaboration {
-  display: grid;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
   gap: 6px;
   width: min(620px, 100%);
   padding: 5px 0 13px;
 }
 
 .code-agent-transcript-collaboration-heading {
+  flex: 0 0 100%;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -6235,6 +6238,19 @@ body.code-mode .code-instance-name {
   background: rgba(246, 248, 250, 0.46);
 }
 
+.code-agent-transcript-collaboration > .code-agent-transcript-collaboration-group {
+  flex: 0 1 auto;
+  max-width: 100%;
+}
+
+.code-agent-transcript-collaboration > .code-agent-transcript-collaboration-group:not(.expanded) {
+  border-radius: 999px;
+}
+
+.code-agent-transcript-collaboration > .code-agent-transcript-collaboration-group.expanded {
+  flex: 0 0 100%;
+}
+
 .code-agent-transcript-collaboration-summary {
   width: 100%;
   min-height: 38px;
@@ -6249,6 +6265,33 @@ body.code-mode .code-instance-name {
   font: inherit;
   font-size: 13px;
   text-align: left;
+}
+
+.code-agent-transcript-collaboration > .code-agent-transcript-collaboration-group:not(.expanded)
+  > .code-agent-transcript-collaboration-summary {
+  width: auto;
+  max-width: min(320px, 100%);
+  min-height: 32px;
+  gap: 6px;
+  padding: 4px 8px;
+}
+
+.code-agent-transcript-collaboration > .code-agent-transcript-collaboration-group:not(.expanded)
+  > .code-agent-transcript-collaboration-summary
+  > .code-agent-transcript-collaboration-agent {
+  flex: 0 1 auto;
+}
+
+.code-agent-transcript-collaboration > .code-agent-transcript-collaboration-group:not(.expanded)
+  > .code-agent-transcript-collaboration-summary
+  > .code-agent-transcript-collaboration-action {
+  margin-left: 0;
+}
+
+.code-agent-transcript-collaboration > .code-agent-transcript-collaboration-group:not(.expanded)
+  > .code-agent-transcript-collaboration-summary
+  > .code-agent-transcript-collaboration-count {
+  display: none;
 }
 
 .code-agent-transcript-collaboration-summary.static {
