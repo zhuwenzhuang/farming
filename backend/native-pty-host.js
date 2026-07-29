@@ -16,7 +16,7 @@ const { normalizeInteractiveTerminalEnv } = require('./agent-env.cjs');
 const {
   cleanupShellBusyIntegration,
   parseShellBusyMarkers,
-} = require('./shell-busy-integration');
+} = require('./shell-busy-integration.cjs');
 const {
   extractLatestTerminalTitle,
   normalizeShellSessionOptions,

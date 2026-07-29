@@ -5,7 +5,7 @@ const {
   applyShellBusyIntegration,
   cleanupShellBusyIntegration,
   parseShellBusyMarkers,
-} = require('../shell-busy-integration');
+} = require('../shell-busy-integration.cjs');
 
 function run() {
   const parsed = parseShellBusyMarkers(`a${MARKERS.busy}b${MARKERS.idle}c`, null);

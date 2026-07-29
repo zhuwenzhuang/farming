@@ -125,6 +125,7 @@ for runtime_module in \
   native-session-engine \
   network \
   npm-update-helper \
+  packaged-node-pty \
   provider-adapters \
   provider-session-service \
   provider-session-id \
@@ -145,6 +146,7 @@ for runtime_module in \
   session-engine-bridge \
   session-engine-router \
   session-stream-protocol \
+  shell-busy-integration \
   slash-command-discovery \
   storage-layout \
   system-monitor \

@@ -2,7 +2,10 @@ const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const packagedNodePty = require('../packaged-node-pty');
+const {
+  copyIfExists,
+  nodePty,
+} = require('../packaged-node-pty.cjs');
 
 function run() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-packaged-node-pty.'));
@@ -10,11 +13,12 @@ function run() {
   const target = path.join(root, 'runtime', 'pty.node');
   try {
     fs.writeFileSync(source, 'native-addon-v1');
-    assert.strictEqual(packagedNodePty.copyIfExists(source, target), true);
+    assert.strictEqual(typeof nodePty.spawn, 'function');
+    assert.strictEqual(copyIfExists(source, target), true);
     const firstStat = fs.statSync(target);
     assert.strictEqual(fs.readFileSync(target, 'utf8'), 'native-addon-v1');
 
-    assert.strictEqual(packagedNodePty.copyIfExists(source, target), true);
+    assert.strictEqual(copyIfExists(source, target), true);
     const unchangedStat = fs.statSync(target);
     assert.strictEqual(
       unchangedStat.ino,
@@ -23,7 +27,7 @@ function run() {
     );
 
     fs.writeFileSync(source, 'native-addon-v2-with-new-bytes');
-    assert.strictEqual(packagedNodePty.copyIfExists(source, target), true);
+    assert.strictEqual(copyIfExists(source, target), true);
     const replacedStat = fs.statSync(target);
     assert.notStrictEqual(
       replacedStat.ino,

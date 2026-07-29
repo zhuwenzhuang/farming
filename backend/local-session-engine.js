@@ -5,7 +5,7 @@ const {
   applyShellBusyIntegration,
   cleanupShellBusyIntegration,
   parseShellBusyMarkers,
-} = require('./shell-busy-integration');
+} = require('./shell-busy-integration.cjs');
 const { terminalInputToPtyString } = require('./input-parts.cjs');
 const { deriveTerminalStatus } = require('./terminal-status.cjs');
 const { normalizeInteractiveTerminalEnv } = require('./agent-env.cjs');
@@ -87,7 +87,7 @@ function loadPtyModule() {
   if (cachedPty) return cachedPty;
   if (cachedPtyError) throw cachedPtyError;
   try {
-    cachedPty = require('./packaged-node-pty');
+    cachedPty = require('./packaged-node-pty.cjs').nodePty;
     return cachedPty;
   } catch (error) {
     cachedPtyError = error;

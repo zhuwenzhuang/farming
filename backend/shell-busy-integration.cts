@@ -1,6 +1,53 @@
-const fs = require('fs');
-const os = require('os');
-const path = require('path');
+const fs = require('fs') as typeof import('fs');
+const os = require('os') as typeof import('os');
+const path = require('path') as typeof import('path');
+
+type ShellEnvironment = Record<string, string | undefined>;
+
+interface ShellBusyIntegration {
+  shellName?: string;
+  tempDir: string;
+}
+
+interface ShellBusyIntegrationOptions extends Record<string, unknown> {
+  command: string;
+  args?: readonly string[];
+  category?: string;
+  env?: ShellEnvironment;
+}
+
+interface AppliedShellBusyIntegrationOptions extends Record<string, unknown> {
+  command: string;
+  args: string[];
+  category?: string;
+  env: ShellEnvironment;
+  shellBusyIntegration?: ShellBusyIntegration;
+}
+
+interface ShellIntegrationFileOptions {
+  controlledPrompt?: boolean;
+}
+
+interface PendingMarkerSplit {
+  data: string;
+  pending: string;
+}
+
+interface ParsedShellBusyMarkers {
+  data: string;
+  markerSeen: boolean;
+  statusMarkerSeen: boolean;
+  busyMarkerSeen: boolean;
+  terminalBusy: boolean | null;
+  changed: boolean;
+  shellEvent: string;
+  shellCommand: string;
+  commandTextSeen: boolean;
+  cwd: string;
+  lastExitCode: number | null;
+  exitCodeSeen: boolean;
+  pending: string;
+}
 
 const OSC_PREFIX = '\x1b]133;FarmingShellBusy=';
 const STATUS_OSC_PREFIX = '\x1b]133;FarmingShellStatus=';
@@ -12,28 +59,36 @@ const MARKERS = {
 };
 const SHELL_INTEGRATION_PATTERN = /\x1b\](?:(?:133;FarmingShellStatus=(start|finish)((?:;[A-Za-z][A-Za-z0-9_-]*=[^\x07\x1b;]*)*))|(?:7;file:\/\/([^\x07\x1b]*))|(?:133;FarmingShellBusy=(busy|idle)))(?:\x07|\x1b\\)/g;
 
-function shellNameForCommand(command) {
+function shellNameForCommand(command: unknown): string {
   return path.basename(String(command || '').trim());
 }
 
-function shellBusyIntegrationDisabled(env = {}) {
+function shellBusyIntegrationDisabled(env: ShellEnvironment = {}): boolean {
   return env.FARMING_SHELL_BUSY_INTEGRATION === '0';
 }
 
-function shSingleQuote(value) {
+function shSingleQuote(value: unknown): string {
   return `'${String(value).replace(/'/g, "'\\''")}'`;
 }
 
-function createTempDir() {
+function createTempDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'farming-shell-busy-'));
 }
 
-function cleanupShellBusyIntegration(integration) {
-  if (!integration || !integration.tempDir) return;
+function cleanupShellBusyIntegration(
+  integration: unknown,
+): void {
+  if (
+    !integration
+    || typeof integration !== 'object'
+    || !('tempDir' in integration)
+    || typeof integration.tempDir !== 'string'
+    || !integration.tempDir
+  ) return;
   fs.rmSync(integration.tempDir, { recursive: true, force: true });
 }
 
-function defaultBashArgs(args) {
+function defaultBashArgs(args: readonly string[]): boolean {
   return args.length === 0 || (
     args.length === 3 &&
     args[0] === '--noprofile' &&
@@ -42,11 +97,11 @@ function defaultBashArgs(args) {
   );
 }
 
-function bashLoginArgs(args) {
+function bashLoginArgs(args: readonly string[]): boolean {
   return args.length === 1 && (args[0] === '-l' || args[0] === '--login');
 }
 
-function defaultZshArgs(args) {
+function defaultZshArgs(args: readonly string[]): boolean {
   return args.length === 0 || (
     args.length === 2 &&
     args[0] === '-f' &&
@@ -54,11 +109,11 @@ function defaultZshArgs(args) {
   );
 }
 
-function zshLoginArgs(args) {
+function zshLoginArgs(args: readonly string[]): boolean {
   return args.length === 1 && (args[0] === '-l' || args[0] === '--login');
 }
 
-function writeBashRc(tempDir, options = {}) {
+function writeBashRc(tempDir: string, options: ShellIntegrationFileOptions = {}): string {
   const rcPath = path.join(tempDir, 'bashrc');
   const controlledPrompt = options.controlledPrompt === true;
   const userStartupSource = [
@@ -159,7 +214,7 @@ function writeBashRc(tempDir, options = {}) {
   return rcPath;
 }
 
-function writeZshFiles(tempDir, options = {}) {
+function writeZshFiles(tempDir: string, options: ShellIntegrationFileOptions = {}): void {
   const controlledPrompt = options.controlledPrompt === true;
   fs.writeFileSync(path.join(tempDir, '.zshenv'), [
     '# Farming temporary shell busy integration. Safe to delete.',
@@ -275,8 +330,10 @@ function writeZshFiles(tempDir, options = {}) {
   ].join('\n'));
 }
 
-function applyShellBusyIntegration(options) {
-  const normalized = {
+function applyShellBusyIntegration(
+  options: ShellBusyIntegrationOptions,
+): AppliedShellBusyIntegrationOptions {
+  const normalized: AppliedShellBusyIntegrationOptions = {
     ...options,
     args: [...(options.args || [])],
     env: { ...(options.env || {}) },
@@ -329,7 +386,7 @@ function applyShellBusyIntegration(options) {
   }
 }
 
-function splitPendingMarker(text) {
+function splitPendingMarker(text: string): PendingMarkerSplit {
   const lastOscIndex = String(text || '').lastIndexOf('\x1b]');
   if (lastOscIndex >= 0) {
     const suffix = text.slice(lastOscIndex);
@@ -349,7 +406,7 @@ function splitPendingMarker(text) {
   return { data: text, pending: '' };
 }
 
-function cwdFromOsc7(value) {
+function cwdFromOsc7(value: unknown): string {
   const raw = String(value || '');
   const slashIndex = raw.indexOf('/');
   if (slashIndex < 0) return '';
@@ -361,8 +418,8 @@ function cwdFromOsc7(value) {
   }
 }
 
-function parseShellStatusParams(value) {
-  const params = {};
+function parseShellStatusParams(value: unknown): Record<string, string> {
+  const params: Record<string, string> = {};
   for (const part of String(value || '').split(';')) {
     if (!part) continue;
     const equalsIndex = part.indexOf('=');
@@ -372,7 +429,7 @@ function parseShellStatusParams(value) {
   return params;
 }
 
-function decodeShellStatusValue(value) {
+function decodeShellStatusValue(value: unknown): string {
   try {
     return decodeURIComponent(String(value || ''));
   } catch {
@@ -380,7 +437,7 @@ function decodeShellStatusValue(value) {
   }
 }
 
-function normalizeShellCommand(command) {
+function normalizeShellCommand(command: unknown): string {
   const normalized = String(command || '')
     .replace(/[\x00-\x1f\x7f]/g, ' ')
     .replace(/\s+/g, ' ')
@@ -390,7 +447,11 @@ function normalizeShellCommand(command) {
     : normalized;
 }
 
-function parseShellBusyMarkers(data, previousBusy = null, pending = '') {
+function parseShellBusyMarkers(
+  data: unknown,
+  previousBusy: boolean | null = null,
+  pending = '',
+): ParsedShellBusyMarkers {
   let markerSeen = false;
   let statusMarkerSeen = false;
   let busyMarkerSeen = false;
@@ -400,7 +461,7 @@ function parseShellBusyMarkers(data, previousBusy = null, pending = '') {
   let shellEvent = '';
   let shellCommand = '';
   let cwd = '';
-  let lastExitCode = null;
+  let lastExitCode: number | null = null;
   const combined = `${pending || ''}${String(data || '')}`;
   const split = splitPendingMarker(combined);
   const cleanData = split.data.replace(SHELL_INTEGRATION_PATTERN, (_match, statusEvent, statusParams, cwdValue, busyState) => {
@@ -462,11 +523,18 @@ function parseShellBusyMarkers(data, previousBusy = null, pending = '') {
   };
 }
 
-module.exports = {
+export {
   MARKERS,
   applyShellBusyIntegration,
   cleanupShellBusyIntegration,
   normalizeShellCommand,
   parseShellBusyMarkers,
   shellNameForCommand,
+};
+export type {
+  AppliedShellBusyIntegrationOptions,
+  ParsedShellBusyMarkers,
+  ShellBusyIntegration,
+  ShellBusyIntegrationOptions,
+  ShellEnvironment,
 };

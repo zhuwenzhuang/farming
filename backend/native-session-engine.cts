@@ -1,4 +1,5 @@
 import { SessionEngine } from './session-engine.cjs';
+import { cleanupShellBusyIntegration } from './shell-busy-integration.cjs';
 
 interface NativePtyClient {
   canConnectWithoutStartingHost?(): boolean;
@@ -17,9 +18,6 @@ const NativePtyHostClient = require('./native-pty-host-client') as new (
 ) => NativePtyClient;
 const { normalizeShellSessionOptions } = require('./local-session-engine') as {
   normalizeShellSessionOptions(options: Record<string, unknown>): Record<string, unknown>;
-};
-const { cleanupShellBusyIntegration } = require('./shell-busy-integration') as {
-  cleanupShellBusyIntegration(integration: unknown): void;
 };
 const { compareNativePtyRuntimeEpochs } = require('./native-pty-controller-generation.cjs');
 

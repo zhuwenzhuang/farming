@@ -2,7 +2,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
-const nodePty = require('../packaged-node-pty');
+const { nodePty } = require('../packaged-node-pty.cjs');
 
 const fsp = fs.promises;
 const DEFAULT_MAX_FILE_BYTES = 8 * 1024 * 1024;
