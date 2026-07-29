@@ -6,9 +6,11 @@ import {
   useMemo,
   useRef,
   useState,
+  type Dispatch,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
+  type SetStateAction,
   type WheelEvent as ReactWheelEvent,
 } from 'react'
 import ReactMarkdown, { defaultUrlTransform, type Components } from 'react-markdown'
@@ -1363,13 +1365,19 @@ function AgentTranscriptCollaborationTimeline({
   agents,
   renderProcessItem,
   copy,
+  openAgentIds,
+  setOpenAgentIds,
+  openActivityIds,
+  setOpenActivityIds,
 }: {
   agents: AcpCollaborationAgent[]
   renderProcessItem: (processItemId: string) => ReactNode
   copy: CodeCopy
+  openAgentIds: Set<string>
+  setOpenAgentIds: Dispatch<SetStateAction<Set<string>>>
+  openActivityIds: Set<string>
+  setOpenActivityIds: Dispatch<SetStateAction<Set<string>>>
 }) {
-  const [openAgentIds, setOpenAgentIds] = useState<Set<string>>(() => new Set())
-  const [openActivityIds, setOpenActivityIds] = useState<Set<string>>(() => new Set())
   const [visibleActivityCounts, setVisibleActivityCounts] = useState<Record<string, number>>({})
   const [visibleEvidenceCounts, setVisibleEvidenceCounts] = useState<Record<string, number>>({})
   if (agents.length === 0) return null
@@ -1729,6 +1737,10 @@ function AgentTranscriptCollaborationSpace({
   agents,
   processItems,
   copy,
+  openAgentIds,
+  setOpenAgentIds,
+  openActivityIds,
+  setOpenActivityIds,
   onLoadProcessItemDetail,
   onStopTerminal,
   onInputTerminal,
@@ -1738,6 +1750,10 @@ function AgentTranscriptCollaborationSpace({
   agents: AcpCollaborationAgent[]
   processItems: AgentTranscriptProcessItem[]
   copy: CodeCopy
+  openAgentIds: Set<string>
+  setOpenAgentIds: Dispatch<SetStateAction<Set<string>>>
+  openActivityIds: Set<string>
+  setOpenActivityIds: Dispatch<SetStateAction<Set<string>>>
   onLoadProcessItemDetail?: (itemId: string) => Promise<AgentTranscriptProcessPresentation>
   onStopTerminal?: (terminalId: string) => Promise<void>
   onInputTerminal?: (terminalId: string, input: string) => Promise<void>
@@ -1808,6 +1824,10 @@ function AgentTranscriptCollaborationSpace({
   return (
     <AgentTranscriptCollaborationTimeline
       agents={agents}
+      openAgentIds={openAgentIds}
+      setOpenAgentIds={setOpenAgentIds}
+      openActivityIds={openActivityIds}
+      setOpenActivityIds={setOpenActivityIds}
       renderProcessItem={processItemId => {
         const item = itemById.get(processItemId)
         if (!item) return null
@@ -2850,6 +2870,8 @@ export function AgentTranscriptPane({
   const [error, setError] = useState('')
   const [openProcessTurnIds, setOpenProcessTurnIds] = useState<Set<string>>(() => new Set())
   const [openLiveProcessTurnIds, setOpenLiveProcessTurnIds] = useState<Set<string>>(() => new Set())
+  const [openCollaborationAgentIds, setOpenCollaborationAgentIds] = useState<Set<string>>(() => new Set())
+  const [openCollaborationActivityIds, setOpenCollaborationActivityIds] = useState<Set<string>>(() => new Set())
   const [turnLimit, setTurnLimit] = useState(() => initialTranscriptTurnLimit(source))
   const [loadingOlder, setLoadingOlder] = useState(false)
   const [showJumpToBottom, setShowJumpToBottom] = useState(false)
@@ -2905,6 +2927,8 @@ export function AgentTranscriptPane({
     setTurnLimit(initialTranscriptTurnLimit(source))
     setOpenProcessTurnIds(new Set())
     setOpenLiveProcessTurnIds(new Set())
+    setOpenCollaborationAgentIds(new Set())
+    setOpenCollaborationActivityIds(new Set())
     setShowJumpToBottom(false)
     const hasReadingAnchor = Boolean(readReadingAnchor(readingAnchorAgentKey(agentId, 'chat')))
     followBottomRef.current = !hasReadingAnchor
@@ -3420,6 +3444,10 @@ export function AgentTranscriptPane({
               agents={collaborationAgents}
               processItems={collaborationProcessItems}
               copy={copy}
+              openAgentIds={openCollaborationAgentIds}
+              setOpenAgentIds={setOpenCollaborationAgentIds}
+              openActivityIds={openCollaborationActivityIds}
+              setOpenActivityIds={setOpenCollaborationActivityIds}
               onLoadProcessItemDetail={handleLoadProcessItemDetail}
               onStopTerminal={handleStopTerminal}
               onInputTerminal={handleInputTerminal}
