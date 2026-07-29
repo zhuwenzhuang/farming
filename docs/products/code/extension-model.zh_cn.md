@@ -12,9 +12,9 @@ Project Files 现在通过同一个内部 Viewer Registry 解析内置的 Markdo
 
 用户显式打开的已知 Project Root 之外的可读文件仍然只读。对于精确打开的外部 HTML，临时 Preview Session 只授权该 HTML 所在目录，以便加载相对资源；它不会把这个目录加入 Files 浏览、Search、编辑或 Git Scope。
 
-Browser Extension 是第一种实时 Resource 实现，集成默认关闭；Agent Tool 和 MCP 挂载仍然按需进行。它可以启动系统已安装的 Chromium、启动用户显式安装的 Farming 受管 Chromium，也可以连接显式配置的外部 CDP Endpoint。插件页会显示当前可用来源；所有来源都不存在时禁用启用操作。只有“已启用且当前可用”时，Extension 才贡献 Browser UI，并接受 Browser API、EventSource、Viewer WebSocket、CLI 或 MCP 操作。
+Browser Extension 是第一种实时 Resource 实现，集成默认关闭。它可以启动系统已安装的 Chromium、启动用户显式安装的 Farming 受管 Chromium，也可以连接显式配置的外部 CDP Endpoint。插件页会显示当前可用来源；所有来源都不存在时禁用启用操作。只有“已启用且当前可用”时，Extension 才贡献 Browser UI，并接受 Browser API、EventSource、Viewer WebSocket、CLI 或 MCP 操作。
 
-每个 Project 可以拥有多个身份稳定、可重命名的 Browser Row，并具有显式的 `stopped -> starting -> running -> stopping -> stopped` 生命周期；启动或运行失败进入 `failed`。同一 Project 与 Browser Source 下正在运行的 Row，是一个共享 agent-browser Session 中的多个带标签 Tab。Local Session 拥有 Chromium Process 与隔离 Profile；External CDP Session 只拥有连接和自己创建的 Target，浏览器进程、容器、镜像、Profile 与 Endpoint 仍归外部 Owner。同一个 Browser 身份上的操作串行执行，Runtime Command 边界还会再次串行，因此服务 Viewer 的截图不能与 Agent Action 竞争。Stop 会先关闭新接收、排空已经接收的有界 Action，再关闭对应 Tab；关闭最后一个 Tab 才关闭 Session，但绝不能关闭外部浏览器进程。过期 Viewer Generation 会被拒绝；Farming 重启时，之前仍处于运行态的行会标记为失败。每次持久化变更都会同时递增 Row Revision 与 Collection Revision。后端先注册实时事件监听，再发送权威 Collection Snapshot；UI 按 Revision 归约 HTTP、EventSource 与 Viewer 更新，因此传输乱序不能让状态回退，也不能删除更新的状态。
+每个存活 Agent 可以拥有多个身份稳定、可重命名的 Browser Row，并具有显式的 `stopped -> starting -> running -> stopping -> stopped` 生命周期；启动或运行失败进入 `failed`。Project Root 仍然是文件、上传和下载的隔离边界，但不再是 Runtime Owner。同一 Agent、同一 Browser Source 下正在运行的 Row，是一个共享 agent-browser Session 中的多个带标签 Tab；即使属于同一个 Project，不同 Agent 也绝不共享 Session、Profile、Cookie 或 Storage。Local Session 拥有 Chromium Process 与隔离 Profile；External CDP Session 只拥有连接和自己创建的 Target，浏览器进程、容器、镜像、Profile 与 Endpoint 仍归外部 Owner。同一个 Browser 身份上的操作串行执行，Runtime Command 边界还会再次串行，因此服务 Viewer 的截图不能与 Agent Action 竞争。Stop 会先关闭新接收、排空已经接收的有界 Action，再关闭对应 Tab；关闭最后一个 Tab 才关闭 Session，但绝不能关闭外部浏览器进程。过期 Runtime 与 Viewer Generation 都会被拒绝。Agent 在 Chat/Terminal 间切换时保留 Resource；停止或归档 Agent 会停止 Browser Runtime 但保留 Row 与 Profile；恢复后只按需重新启动；删除 Agent 会删除其 Browser Resource 与独立 Profile。Farming 重启时，之前仍处于运行态的行会标记为失败。每次持久化变更都会同时递增 Row Revision 与 Collection Revision。后端先注册实时事件监听，再发送权威 Collection Snapshot；UI 按 Revision 归约 HTTP、EventSource 与 Viewer 更新，因此传输乱序不能让状态回退，也不能删除更新的状态。
 
 三个来源复用同一个版本精确锁定的 `agent-browser` Runtime。安装与更新准备阶段会在旧 Server 仍可用时下载 package-lock 锁定的公共 npm Tarball，校验 Integrity，并只把当前平台 Entry 提取到 Farming 的不可变 Cache。Server 启动时先校验 Cache，再打开端口；只有全新安装或条目缺失、损坏时才修复，且不复用系统安装的 `agent-browser`。
 
@@ -24,7 +24,9 @@ Chromium 有独立且显式的生命周期，绝不属于启动依赖准备。�
 
 受鉴权保护的 Viewer 代理 Runtime 的 Session-scoped WebSocket Stream。Frame 使用 JPEG 保持交互响应速度，Viewport、Pointer、Wheel、Keyboard 与 Text Input 则通过同一个 Session 返回。Viewer 按 Frame 上报的 CSS 尺寸绘制；Client 较慢时会丢弃已经被新 Frame 取代的内容。Agent Command 与人的输入因此操作同一个 Browser Identity，Farming 不再携带第二条原生 CDP Action Path。
 
-Farming 不会把 Browser MCP 自动挂到 ACP Session。每个 Codex、Claude Code、OpenCode 和 Qoder Agent 都会在 Terminal 进程或 ACP Session 的创建与恢复边界收到同一段简短的 Farming 启动提示，但 Farming 不修改 Project 或 Provider 自己的 Instruction 文件。这段提示说明 Farming 把 `agent-browser` 封装成 Agent 的结构化操作入口和用户可见的共享 Viewer，让 Agent 更好地操作网页，也让用户在 Farming 中理解进展并随时接管。提示要求 Agent 通过 `"$FARMING_CLI_BIN_DIR/farming"` 这一实例精确入口查询 Capability，不依赖登录 Shell 可能重排的 `PATH`，也不能假设能力存在；Browser 可用时，Farming Browser 是网页任务的默认路径，Agent 必须优先使用它，并把需要复查的最终页面留在用户可点击的 Browser Resource 中。只有 Browser 不可用、任务确实需要尚未支持的能力，或用户明确要求其他工具时，才改用 Provider 自带的通用 Browser 等其他能力。Agent 先用 Browser `list` 发现已有 Resource；Browser 顶层 Help 只披露起点，`help workflow` 给出标准流程，Topic Help 展开单个能力域，最后由 Command Help 披露精确参数。`farming-browser` 继续作为 npm Bin 别名。Browser `mcp` 只供调用方在 Session 边界显式配置完整 Tool Schema，不是默认挂载。完整支持合同见 [Farming Browser Agent CLI](./browser-agent-cli.zh_cn.md)。
+Browser 插件在 ACP Session 创建边界处已启用时，Farming 会通过现有 Provider Adapter，把完整且细粒度的 `browser_*` MCP Tool Catalog 挂载给 Codex、Claude Code、OpenCode 与 Qoder。`browser_open` 负责创建、挂载和启动当前 Agent 拥有的 Resource；其他工具分别保留生命周期、导航、交互、检查、诊断、状态与文件契约。CLI 是 Terminal 访问同一份能力 Contract 的 Transport，不是第二套实现。已经运行的 ACP Session 如果之后才启用 Browser，需要明确重启 Chat Runtime 后才能获得这些 Schema。
+
+每个受支持 Agent 也会在 Terminal 进程或 ACP Session 的创建与恢复边界收到同一段简短的 Farming 启动提示，但 Farming 不修改 Project 或 Provider 自己的 Instruction 文件。这段提示说明 Farming 把 `agent-browser` 封装成 Agent 的结构化操作入口和用户可见的共享 Viewer，让 Agent 更好地操作网页，也让用户在 Farming 中理解进展并随时接管。提示要求 Agent 通过 `"$FARMING_CLI_BIN_DIR/farming"` 这一实例精确入口查询 Capability，不依赖登录 Shell 可能重排的 `PATH`，也不能假设能力存在；Browser 可用时，Farming Browser 是网页任务的默认路径，Agent 必须优先使用它，并把需要复查的最终页面留在用户可点击的 Browser Resource 中。只有 Browser 不可用、任务确实需要尚未支持的能力，或用户明确要求其他工具时，才改用 Provider 自带的通用 Browser 等其他能力。Terminal Agent 用 Browser `list` 发现自己拥有的 Resource；Browser 顶层 Help 只披露起点，`help workflow` 给出标准流程，Topic Help 展开单个能力域，最后由 Command Help 披露精确参数。`farming-browser` 继续作为 npm Bin 别名，`farming browser mcp` 则是 Provider Adapter 和显式外部调用方共用的标准 stdio 入口。完整支持合同见 [Farming Browser Agent CLI](./browser-agent-cli.zh_cn.md)。
 
 Farming Code 后续应通过 Extension 扩展能力，而不是把每一种新资源和 Agent 能力直接加入核心产品。浏览器是当前最明确的例子，但不应因此在核心中形成一套一次性的浏览器子系统。
 
@@ -63,7 +65,7 @@ Extension Runtime 与 Viewer
           v
 Farming Resource UI + Agent Capability Registry
           |
-          | 启动提示 + 按需 CLI 或显式 MCP
+          | 启动提示 + ACP MCP 或 Terminal CLI
           v
 Codex / Claude / OpenCode / Qoder
 ```
@@ -72,11 +74,11 @@ Agent 仍然可以保留 Provider 原生或用户自行安装的工具。Farming
 
 ## Browser Extension 示例
 
-Farming 的 Browser Extension 拥有每个 Browser Resource 身份，以及 Viewer 和 Agent Tool 共用的页面 Target。同一 Project 与 Browser Source 下的 Resource 共享一个 agent-browser Session。Local Session 拥有 Chromium Process 与隔离 Profile；External CDP Session 只拥有连接和创建的 Target，不拥有外部浏览器、Profile 或 Endpoint 生命周期。
+Farming 的 Browser Extension 拥有每个 Browser Resource 身份，以及 Viewer 和 Agent Tool 共用的页面 Target。同一 Agent 与 Browser Source 下的 Resource 共享一个 agent-browser Session，不同 Agent 保持隔离。Local Session 拥有 Chromium Process 与隔离 Profile；External CDP Session 只拥有连接和创建的 Target，不拥有外部浏览器、Profile 或 Endpoint 生命周期。
 
 MVP 有意只支持一套操作实现：锁定版本的 `agent-browser` Command 与 Stream Protocol，通过系统浏览器 Executable、版本匹配的 Farming 受管 Chromium Executable 或外部 CDP 连接进入。结构化 Agent Surface 已覆盖导航与等待、DOM 交互、检查与 JavaScript、Console/Error/Network 诊断、Cookie/Storage、Frame/Dialog 和 Project 级 Upload/Download。它不暴露浏览器原生窗口框架、Extension、下载界面、DevTools Window、任意桌面交互或 Computer Use。这些属于独立产品能力，不是隐藏的 Fallback Path。
 
-每个 Browser 都有持久唯一 ID，归属于一个 Project Workspace，并可通过 `browser` URL Query Parameter 直接打开。删除系统浏览器 Row 时必须先停止精确 Runtime，再删除独立 Profile；删除外部 CDP Row 时只关闭 Farming 创建的 Target。
+每个 Browser 都有持久唯一 ID、一个 Agent Owner，以及用于文件隔离的 Project Root。在侧栏中它默认隐藏在 **Agent → Resources → Browsers** 下；展开或收起这两层都不会改变 Runtime 或 Viewer 状态。Browser 仍可通过 `browser` URL Query Parameter 直接打开。删除系统浏览器 Row 时必须先停止精确 Runtime，再删除独立 Profile；删除外部 CDP Row 时只关闭 Farming 创建的 Target。
 
 Viewer 地址栏接受完整 HTTP(S) URL 或裸 Host。裸公网域名默认补全为 HTTPS；回环地址、IP 字面量、单段内网 Host 和显式非默认端口默认使用 HTTP。Farming 不会猜测 `www` Host。导航失败会明确显示；下一次导航开始时会清除旧错误，成功后也不会残留上一次失败提示。Viewer 键盘输入通过隐藏文本代理接收，因此已提交的输入法文字和粘贴内容可以进入页面；普通 ASCII 按键仍走低延迟的流式通道。
 
@@ -84,7 +86,7 @@ Viewer 地址栏接受完整 HTTP(S) URL 或裸 Host。裸公网域名默认补�
 
 第一版实现必须解决以下问题，之后才能把 Extension API 视为稳定 Contract：
 
-- 后续实时 Resource 类型是否也默认归属于 Project，还是需要 Agent Scope 与显式共享 Scope；
+- 未来如何通过显式 Handoff 把 Agent-owned Resource 提升为 Project-shared Resource；
 - 如何展示 Tool 名称冲突和 Provider 原生等价能力；
 - Extension UI 在 Farming 页面内如何隔离和授权；
 - Farming Core 对实时 Extension Runtime 要求哪些生命周期与恢复保证。

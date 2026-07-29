@@ -149,7 +149,7 @@ function renderMainAgentSkills(): string {
   });
 
   lines.push('Rules:');
-  lines.push('- Use `farming browser` only for Browser Resources already in the user-selected Project scope; follow `farming browser help workflow`, and reveal only the help topic or command needed for the current step.');
+  lines.push('- `farming browser` lists and operates only Browser Resources owned by this Agent; follow `farming browser help workflow`, and reveal only the help topic or command needed for the current step.');
   lines.push('- Use “牧场除虫计划” when the user asks for systematic bug hunting across a directory or module tree.');
   lines.push('- Before spawning child agents for pest control, map modules and module protocols first; do not send overlapping or vague tasks.');
   lines.push('- Keep child agents scoped to their assigned module and require evidence, reproduction notes, or tests for each bug claim.');

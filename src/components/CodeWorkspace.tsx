@@ -2946,7 +2946,7 @@ export function CodeWorkspace({
     const workspace = agent?.projectWorkspace || agent?.cwd || ''
     if (!workspace) return
     setBrowserReturnAgentId(agentId)
-    void createBrowserResource(workspace, { url })
+    void createBrowserResource(workspace, { agentId, url })
       .then(resource => startBrowserResource(resource.id))
       .then(showBrowserResource)
       .catch(error => {

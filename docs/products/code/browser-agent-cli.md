@@ -2,8 +2,8 @@
 
 > Chinese version: [browser-agent-cli.zh_cn.md](./browser-agent-cli.zh_cn.md)
 
-Farming Browser lets an Agent operate a Project browser while you watch and
-interact with the same page in Farming.
+Farming Browser lets an Agent operate Browsers it owns while you watch and
+interact with the same pages in Farming.
 
 ## Enable The Browser
 
@@ -21,7 +21,12 @@ sources for the current network and tries another source if one fails.
 
 ## Agent Workflow
 
-Agents should discover Browser commands only when a task needs them:
+ACP Agents receive the granular `browser_*` tool catalog when Browser is enabled
+at Session creation. Start with `browser_list`; use `browser_open` when the Agent
+needs a new visible Browser. If Browser is enabled after an ACP Session starts,
+restart its Chat runtime once to attach the tools.
+
+Terminal Agents discover Browser commands only when a task needs them:
 
 ```bash
 farming capabilities
@@ -57,9 +62,17 @@ Run `farming browser help` to see the current installed version's topics.
 
 ## Shared Use And Safety
 
-Each Browser Resource is a separately visible page in Farming. Resources in the
-same Project and Browser source share browser sign-in state. A person can open
-the Viewer at any time to see, click, scroll, or type on the same page.
+Each Browser Resource is a separately visible page mounted under **Agent →
+Resources → Browsers**. The hierarchy is collapsed by default and changing its
+visibility does not stop the Browser or close the Viewer. Resources owned by the
+same Agent and using the same Browser source share browser sign-in state.
+Different Agents do not share Sessions, profiles, cookies, or storage even when
+they use the same Project. A person can open the Viewer at any time to see,
+click, scroll, or type on the same page.
+
+Chat/Terminal switches retain Browser ownership. Stopping or archiving the Agent
+stops its Browser runtime but retains the row and profile; resuming starts it on
+demand. Deleting the Agent deletes its Browser Resources and owned profiles.
 
 Only give an Agent access to a signed-in browser when that Project should be
 allowed to use the account. Cookies, storage, page scripts, console output, and
@@ -67,8 +80,9 @@ network details may contain sensitive data. Uploads and downloads stay inside
 the Browser Resource's Project workspace, and downloads do not overwrite an
 existing file.
 
-The CLI is the default Agent interface. `farming browser mcp` is an explicit
-opt-in for callers that need the complete structured tool schema.
+ACP MCP and Terminal CLI are two transports to the same Farming Browser
+contract. `farming browser mcp` is the standard stdio entry used by Farming's
+Provider Adapter and may also be configured by an explicit external caller.
 
 ## Current Limits
 

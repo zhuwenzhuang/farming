@@ -2,6 +2,8 @@ export type BrowserResourceStatus = 'failed' | 'running' | 'starting' | 'stopped
 
 export interface BrowserResource {
   id: string
+  ownerType: 'agent' | 'project'
+  ownerAgentId: string
   projectRootId: string
   workspace: string
   name: string

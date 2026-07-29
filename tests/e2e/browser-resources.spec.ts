@@ -6,7 +6,13 @@ import type { AddressInfo } from 'node:net'
 import { promisify } from 'node:util'
 import type { Locator, Page } from '@playwright/test'
 import { projectFilesWorkspaceId } from '../../src/lib/project-workspaces'
-import { expect, openFarming, test } from './fixtures'
+import {
+  expect,
+  openFarming,
+  openNewAgentDialog,
+  startAgentFromOpenDialog,
+  test,
+} from './fixtures'
 
 let targetServer: http.Server
 let targetUrl = ''
@@ -143,7 +149,9 @@ async function browserSnapshot(page: Page, browserId: string) {
   const response = await page.request.post(`/farming/api/browsers/${browserId}/action`, {
     data: { kind: 'snapshot' },
   })
-  expect(response.ok()).toBeTruthy()
+  if (!response.ok()) {
+    throw new Error(`Browser snapshot failed with HTTP ${response.status()}: ${await response.text()}`)
+  }
   return response.json() as Promise<{
     title: string
     url: string
@@ -188,6 +196,73 @@ test('does not show a Browser section before the first Browser is created', asyn
 
   const project = page.getByTestId('code-project-group').filter({ hasText: path.basename(workspace) })
   await expect(project.getByTestId('farming-browser-section')).toHaveCount(0)
+})
+
+test('mounts Agent-owned Browsers behind nested resource controls without layout noise', async ({
+  page,
+  workspaceRoot,
+}, testInfo) => {
+  const workspace = path.join(workspaceRoot, 'agent-owned-browser-project')
+  fs.mkdirSync(workspace, { recursive: true })
+  const enableResponse = await page.request.post('/farming/api/settings', {
+    data: { browserExtensionEnabled: true },
+  })
+  expect(enableResponse.ok()).toBeTruthy()
+  await openFarming(page)
+  await openNewAgentDialog(page)
+  const agentId = await startAgentFromOpenDialog(page, 'bash', workspace)
+  const agentRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
+  await expect(agentRow.getByTestId('code-agent-resources-toggle')).toHaveCount(0)
+  await expect(agentRow).not.toContainText('0')
+
+  const createResponse = await page.request.post('/farming/api/browsers', {
+    data: {
+      rootId: projectFilesWorkspaceId(workspace),
+      agentId,
+      name: 'Agent Browser with a deliberately long title that must stay within the sidebar',
+    },
+  })
+  expect(createResponse.ok()).toBeTruthy()
+  const createdBrowser = await createResponse.json() as { id: string }
+
+  const resourcesToggle = agentRow.getByTestId('code-agent-resources-toggle')
+  await expect(resourcesToggle).toBeVisible()
+  await expect(resourcesToggle).toHaveAttribute('aria-expanded', 'false')
+  const resourceSlot = page.locator(
+    `[data-testid="code-agent-resource-slot"][data-agent-id="${agentId}"]`,
+  )
+  await expect(resourceSlot.getByTestId('farming-browser-section')).toHaveCount(0)
+
+  await resourcesToggle.click()
+  await expect(resourcesToggle).toHaveAttribute('aria-expanded', 'true')
+  const browserSection = resourceSlot.getByTestId('farming-browser-section')
+  await expect(browserSection).toBeVisible()
+  const browserRow = browserSection.getByTestId('farming-browser-row')
+  await expect(browserRow).toBeVisible()
+  expect(await browserRow.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
+  const sidebarScreenshot = testInfo.outputPath('agent-owned-browser-sidebar.png')
+  await page.getByTestId('code-sidebar').screenshot({ path: sidebarScreenshot })
+  await testInfo.attach('agent-owned-browser-sidebar', {
+    path: sidebarScreenshot,
+    contentType: 'image/png',
+  })
+
+  await browserSection.locator('.farming-browser-section-toggle').click()
+  await expect(browserSection.locator('.farming-browser-section-toggle')).toHaveAttribute('aria-expanded', 'false')
+  await expect(browserRow).toHaveCount(0)
+  await browserSection.locator('.farming-browser-section-toggle').click()
+  await browserSection.getByTestId('farming-browser-row').click()
+  await expect(page.getByTestId('farming-browser-viewer')).toBeVisible()
+  await resourcesToggle.click()
+  await expect(resourceSlot.getByTestId('farming-browser-section')).toHaveCount(0)
+  await expect(page.getByTestId('farming-browser-viewer')).toBeVisible()
+  const resourcesResponse = await page.request.get('/farming/api/browsers')
+  expect(resourcesResponse.ok()).toBeTruthy()
+  const resourcesSnapshot = await resourcesResponse.json() as {
+    resources: Array<{ id: string, status: string }>
+  }
+  expect(resourcesSnapshot.resources.find(resource => resource.id === createdBrowser.id)?.status)
+    .toBe('stopped')
 })
 
 test('deletes a Browser directly without a confirmation dialog', async ({

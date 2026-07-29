@@ -32,31 +32,83 @@ async function run() {
   fs.writeFileSync(tokenFile, 'test-token');
 
   const requests = [];
+  let openedCreated = false;
   const api = http.createServer((request, response) => {
     const chunks = [];
     request.on('data', chunk => chunks.push(chunk));
     request.on('end', () => {
       const body = chunks.length > 0 ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : null;
-      requests.push({ method: request.method, url: request.url, cookie: request.headers.cookie, body });
+      requests.push({
+        method: request.method,
+        url: request.url,
+        cookie: request.headers.cookie,
+        agentId: request.headers['x-farming-agent-id'],
+        body,
+      });
       response.setHeader('Content-Type', 'application/json');
       if (request.method === 'GET' && request.url === '/farming/api/browsers') {
         response.end(JSON.stringify({
           resources: [
             {
               id: 'browser_project',
+              ownerAgentId: 'agent_test',
               workspace: projectWorkspace,
               name: 'Project Browser',
               status: 'running',
               url: 'http://example.test/',
             },
             {
+              id: 'browser_same_project_other_agent',
+              ownerAgentId: 'agent_other',
+              workspace: projectWorkspace,
+              name: 'Other Agent Browser',
+              status: 'running',
+              url: 'http://other-agent.test/',
+            },
+            {
               id: 'browser_other',
+              ownerAgentId: 'agent_test',
               workspace: otherWorkspace,
               name: 'Other Browser',
               status: 'running',
               url: 'http://other.test/',
             },
+            ...(openedCreated ? [{
+              id: 'browser_opened',
+              ownerAgentId: 'agent_test',
+              workspace: projectWorkspace,
+              name: 'Opened',
+              status: 'stopped',
+              url: 'https://opened.test/',
+            }] : []),
           ],
+        }));
+        return;
+      }
+      if (request.method === 'POST' && request.url === '/farming/api/browsers') {
+        openedCreated = true;
+        response.statusCode = 201;
+        response.end(JSON.stringify({
+          id: 'browser_opened',
+          ownerAgentId: body.agentId,
+          workspace: projectWorkspace,
+          name: body.name || 'Browser',
+          status: 'stopped',
+          url: body.url || 'about:blank',
+        }));
+        return;
+      }
+      if (
+        request.method === 'POST'
+        && request.url === '/farming/api/browsers/browser_opened/start'
+      ) {
+        response.end(JSON.stringify({
+          id: 'browser_opened',
+          ownerAgentId: 'agent_test',
+          workspace: projectWorkspace,
+          name: 'Opened',
+          status: 'running',
+          url: 'https://opened.test/',
         }));
         return;
       }
@@ -113,6 +165,7 @@ async function run() {
       ],
       env: {
         FARMING_CONTROL_URL: `http://127.0.0.1:${port}/farming`,
+        FARMING_AGENT_ID: 'agent_test',
         FARMING_PROJECT_WORKSPACE: projectWorkspace,
         FARMING_TOKEN_FILE: tokenFile,
       },
@@ -124,6 +177,7 @@ async function run() {
     const listedTools = await client.listTools();
     const toolNames = listedTools.tools.map(tool => tool.name);
     assert.deepStrictEqual(toolNames, [
+      'browser_open',
       'browser_list',
       'browser_snapshot',
       'browser_screenshot',
@@ -169,6 +223,24 @@ async function run() {
     const listed = await client.callTool({ name: 'browser_list', arguments: {} });
     const listedValue = JSON.parse(listed.content[0].text);
     assert.deepStrictEqual(listedValue.resources.map(resource => resource.id), ['browser_project']);
+    assert.strictEqual(requests.at(-1).agentId, 'agent_test');
+
+    const opened = await client.callTool({
+      name: 'browser_open',
+      arguments: { url: 'https://opened.test/', name: 'Opened' },
+    });
+    assert.strictEqual(JSON.parse(opened.content[0].text).id, 'browser_opened');
+    const createRequest = requests.find(request => (
+      request.method === 'POST' && request.url === '/farming/api/browsers'
+    ));
+    assert.deepStrictEqual(createRequest.body, {
+      rootId: require('../../backend/workspace-root-registry.cjs').rootIdForPath(projectWorkspace),
+      agentId: 'agent_test',
+      name: 'Opened',
+      url: 'https://opened.test/',
+    });
+    assert.strictEqual(createRequest.agentId, 'agent_test');
+    assert.strictEqual(requests.at(-1).url, '/farming/api/browsers/browser_opened/start');
 
     const snapshot = await client.callTool({
       name: 'browser_snapshot',
@@ -202,7 +274,7 @@ async function run() {
       arguments: { browserId: 'browser_other' },
     });
     assert.strictEqual(denied.isError, true);
-    assert(denied.content[0].text.includes("not available in this Agent's Project"));
+    assert(denied.content[0].text.includes('not owned by this Agent'));
     assert.strictEqual(requests.length, requestCountBeforeDeniedCall + 1);
     assert.strictEqual(requests.at(-1).method, 'GET');
 
@@ -212,6 +284,7 @@ async function run() {
       cliBinDir: '/opt/farming/bin',
       agentEnv: {
         FARMING_CONTROL_URL: 'http://127.0.0.1:6694/farming',
+        FARMING_AGENT_ID: 'agent_test',
         FARMING_PROJECT_WORKSPACE: projectWorkspace,
         FARMING_TOKEN_FILE: tokenFile,
       },

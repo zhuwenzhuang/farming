@@ -63,6 +63,7 @@ function requestJson(
         Accept: 'application/json',
         ...(payload ? { 'Content-Type': 'application/json', 'Content-Length': String(payload.length) } : {}),
         ...(connection.token ? { Cookie: `farming_token=${encodeURIComponent(connection.token)}` } : {}),
+        ...(env.FARMING_AGENT_ID ? { 'X-Farming-Agent-Id': env.FARMING_AGENT_ID } : {}),
       },
     }, response => {
       const chunks: Buffer[] = [];

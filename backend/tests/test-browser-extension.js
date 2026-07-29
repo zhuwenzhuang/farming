@@ -1,8 +1,10 @@
 const assert = require('assert');
 const fs = require('fs');
+const http = require('http');
 const os = require('os');
 const path = require('path');
 const { EventEmitter } = require('events');
+const express = require('express');
 const {
   discoverBrowserExecutable,
   discoverBrowserExecutables,
@@ -19,6 +21,9 @@ const {
   BrowserResourceManager,
   normalizeUrl,
 } = require('../../extensions/browser/backend/browser-resource-manager.cjs');
+const {
+  createBrowserRouter,
+} = require('../../extensions/browser/backend/browser-router.cjs');
 
 class FakeBrowserRuntime extends EventEmitter {
   constructor(options) {
@@ -407,6 +412,8 @@ async function testBrowserResourceManager() {
     });
     assert.strictEqual(created.status, 'stopped');
     assert.strictEqual(created.url, 'http://localhost:3000/');
+    assert.strictEqual(created.ownerType, 'project', 'Existing create callers migrate to Project ownership');
+    assert.strictEqual(created.ownerAgentId, '');
 
     const transitions = [];
     manager.on('resource', resource => transitions.push(resource.status));
@@ -621,6 +628,11 @@ async function testBrowserResourceManager() {
     manager.attachViewer(created.id, lateViewer);
     await new Promise(resolve => setImmediate(resolve));
     const stopPromise = manager.stop(created.id);
+    assert.throws(
+      () => manager.action(created.id, { kind: 'snapshot' }),
+      error => error.code === 'BROWSER_STOPPING',
+      'Stop must synchronously close new Agent admissions',
+    );
     await new Promise(resolve => setImmediate(resolve));
     assert.strictEqual(
       runtimes[0].closed,
@@ -642,11 +654,21 @@ async function testBrowserResourceManager() {
       'Viewer input arriving after stopping begins must not reach the Browser runtime',
     );
     assert.strictEqual(lateViewer.messages.at(-1).type, 'browser-error');
+    const restartPromise = manager.start(created.id);
     releaseAction();
     await pendingAction;
     const stopped = await stopPromise;
     assert.strictEqual(stopped.status, 'stopped');
     assert.strictEqual(runtimes[0].closed, true);
+    assert.strictEqual(
+      manager.stopAdmissions.has(created.id),
+      false,
+      'A completed Stop must reopen admissions for an explicit later Start',
+    );
+    const restarted = await restartPromise;
+    assert.strictEqual(restarted.status, 'running');
+    assert.strictEqual((await manager.action(created.id, { kind: 'snapshot' })).title, 'Fake Browser');
+    await manager.stop(created.id);
 
     const second = manager.create({
       projectRootId: 'wroot_project',
@@ -655,7 +677,7 @@ async function testBrowserResourceManager() {
       url: 'about:blank',
     });
     await manager.start(second.id);
-    runtimes[1].emit('exit', 'Browser crashed');
+    runtimes[2].emit('exit', 'Browser crashed');
     await new Promise(resolve => setImmediate(resolve));
     assert.strictEqual(manager.get(second.id).status, 'failed');
     assert.strictEqual(manager.get(second.id).error, 'Browser crashed');
@@ -667,7 +689,7 @@ async function testBrowserResourceManager() {
       url: 'about:blank',
     });
     await manager.start(retryable.id);
-    runtimes[2].closeFailures = 1;
+    runtimes[3].closeFailures = 1;
     await assert.rejects(manager.stop(retryable.id), /close not proven/);
     assert.strictEqual(manager.get(retryable.id).status, 'stopping');
     assert.strictEqual((await manager.stop(retryable.id)).status, 'stopped');
@@ -830,6 +852,87 @@ async function testExternalBrowserErrorRedaction() {
   }
 }
 
+async function testAgentOwnedBrowserIsolationAndLifecycle() {
+  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-agent-browser-owner-'));
+  const runtimes = [];
+  const manager = new BrowserResourceManager({
+    configDir,
+    discoverExecutable: () => ({ kind: 'chrome', path: '/fake/chrome' }),
+    createRuntime: options => {
+      const runtime = new FakeBrowserRuntime(options);
+      runtimes.push(runtime);
+      return runtime;
+    },
+  });
+  try {
+    await manager.init();
+    const first = manager.create({
+      projectRootId: 'wroot_shared',
+      workspace: '/tmp/shared',
+      ownerType: 'agent',
+      ownerAgentId: 'agent_a',
+      name: 'A1',
+      url: 'about:blank',
+    });
+    const second = manager.create({
+      projectRootId: 'wroot_shared',
+      workspace: '/tmp/shared',
+      ownerType: 'agent',
+      ownerAgentId: 'agent_a',
+      name: 'A2',
+      url: 'about:blank',
+    });
+    const isolated = manager.create({
+      projectRootId: 'wroot_shared',
+      workspace: '/tmp/shared',
+      ownerType: 'agent',
+      ownerAgentId: 'agent_b',
+      name: 'B1',
+      url: 'about:blank',
+    });
+    assert.strictEqual(first.ownerType, 'agent');
+    assert.strictEqual(first.ownerAgentId, 'agent_a');
+    await manager.start(first.id);
+    await manager.start(second.id);
+    assert.strictEqual(runtimes.length, 1, 'Browsers owned by one Agent may share one Session');
+    await manager.start(isolated.id);
+    assert.strictEqual(runtimes.length, 2, 'Different Agents must not share a Browser Session');
+    const isolatedRunning = manager.store.get(isolated.id);
+    manager.store.update(isolated.id, { generation: isolatedRunning.generation + 1 });
+    assert.throws(
+      () => manager.action(isolated.id, { kind: 'snapshot' }),
+      error => error.code === 'BROWSER_STALE_GENERATION',
+    );
+    manager.store.update(isolated.id, { generation: isolatedRunning.generation });
+
+    await manager.reconcileAgentLifecycle([
+      { id: 'agent_a', status: 'stopped', lifecycleOperation: { type: 'runtime-switch' } },
+      { id: 'agent_b', status: 'running' },
+    ]);
+    assert.strictEqual(
+      manager.get(first.id).status,
+      'running',
+      'A Chat/Terminal runtime switch must retain Browser ownership and runtime',
+    );
+
+    await manager.reconcileAgentLifecycle([
+      { id: 'agent_a', status: 'stopped' },
+      { id: 'agent_b', status: 'running' },
+    ]);
+    assert.strictEqual(manager.get(first.id).status, 'stopped');
+    assert.strictEqual(manager.get(second.id).status, 'stopped');
+    assert.strictEqual(manager.get(isolated.id).status, 'running');
+    assert.strictEqual(manager.get(first.id).ownerAgentId, 'agent_a');
+
+    await manager.reconcileAgentLifecycle([{ id: 'agent_a', status: 'running' }]);
+    assert.throws(() => manager.get(isolated.id), /not found/);
+    assert.strictEqual(manager.get(first.id).status, 'stopped');
+  } finally {
+    await manager.dispose();
+    fs.rmSync(configDir, { recursive: true, force: true });
+  }
+}
+
 async function testAgentBrowserRestartRecovery() {
   const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-agent-browser-recovery-'));
   const seed = new BrowserResourceManager({
@@ -944,6 +1047,161 @@ function testBrowserResourceRevisionOrdering() {
   );
 }
 
+async function testBrowserRouterAgentOwnership() {
+  const resources = [{
+    id: 'browser_agent_a',
+    ownerType: 'agent',
+    ownerAgentId: 'agent_a',
+    projectRootId: 'wroot_project',
+    workspace: '/tmp/project',
+    name: 'Agent A Browser',
+  }, {
+    id: 'browser_agent_b',
+    ownerType: 'agent',
+    ownerAgentId: 'agent_b',
+    projectRootId: 'wroot_project',
+    workspace: '/tmp/project',
+    name: 'Agent B Browser',
+  }];
+  const calls = [];
+  const manager = {
+    requireEnabled() {},
+    refreshCapability: async () => {},
+    capability: () => ({ enabled: true }),
+    installManagedChromium: async () => ({}),
+    snapshot: () => ({ collectionRevision: 1, resources }),
+    get: id => {
+      const resource = resources.find(candidate => candidate.id === id);
+      if (!resource) {
+        const error = new Error('Browser resource not found');
+        error.status = 404;
+        throw error;
+      }
+      return resource;
+    },
+    create: input => {
+      calls.push({ kind: 'create', input });
+      return { id: 'browser_created', ...input };
+    },
+    rename: (id, name) => {
+      calls.push({ kind: 'rename', id, name });
+      return { id, name };
+    },
+    start: async id => {
+      calls.push({ kind: 'start', id });
+      return { id, status: 'running' };
+    },
+    stop: async id => ({ id, status: 'stopped' }),
+    delete: async id => ({ id }),
+    navigate: async (id, url) => ({ id, url }),
+    action: async (id, input) => ({ id, input }),
+    on() {},
+    off() {},
+  };
+  const rootRegistry = {
+    resolve: () => ({
+      rootId: 'wroot_project',
+      canonicalPath: '/tmp/project',
+      kind: 'project',
+    }),
+  };
+  const agentStateReader = {
+    getState: () => ({
+      agents: [{
+        id: 'agent_a',
+        status: 'running',
+        projectWorkspace: '/tmp/project',
+      }, {
+        id: 'agent_b',
+        status: 'running',
+        projectWorkspace: '/tmp/project',
+      }],
+    }),
+  };
+  const app = express();
+  app.use('/api/browsers', createBrowserRouter(manager, rootRegistry, agentStateReader));
+  const server = http.createServer(app);
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  const origin = `http://127.0.0.1:${server.address().port}`;
+  const request = async (pathname, options = {}) => {
+    const response = await fetch(`${origin}${pathname}`, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Farming-Agent-Id': 'agent_a',
+        ...options.headers,
+      },
+    });
+    return { status: response.status, body: await response.json() };
+  };
+  try {
+    const listed = await request('/api/browsers');
+    assert.strictEqual(listed.status, 200);
+    assert.deepStrictEqual(
+      listed.body.resources.map(resource => resource.id),
+      ['browser_agent_a'],
+      'Agent-scoped Browser listing must be filtered by the Server',
+    );
+
+    const crossAgent = await request('/api/browsers/browser_agent_b/start', { method: 'POST' });
+    assert.strictEqual(crossAgent.status, 403);
+    assert.strictEqual(crossAgent.body.code, 'BROWSER_OWNER_MISMATCH');
+    assert.strictEqual(
+      calls.some(call => call.kind === 'start'),
+      false,
+      'A cross-Agent operation must be rejected before it reaches the manager',
+    );
+
+    const created = await request('/api/browsers', {
+      method: 'POST',
+      body: JSON.stringify({
+        rootId: 'wroot_project',
+        agentId: 'agent_a',
+        name: 'Owned',
+        url: 'https://example.test/',
+      }),
+    });
+    assert.strictEqual(created.status, 201);
+    assert.deepStrictEqual(calls.at(-1), {
+      kind: 'create',
+      input: {
+        projectRootId: 'wroot_project',
+        workspace: '/tmp/project',
+        ownerType: 'agent',
+        ownerAgentId: 'agent_a',
+        name: 'Owned',
+        url: 'https://example.test/',
+      },
+    });
+
+    const spoofed = await request('/api/browsers', {
+      method: 'POST',
+      body: JSON.stringify({
+        rootId: 'wroot_project',
+        agentId: 'agent_b',
+        url: 'about:blank',
+      }),
+    });
+    assert.strictEqual(spoofed.status, 403);
+
+    agentStateReader.getState = () => ({
+      agents: [{
+        id: 'agent_a',
+        status: 'stopped',
+        projectWorkspace: '/tmp/project',
+      }],
+    });
+    const stoppedOwner = await request('/api/browsers/browser_agent_a/start', { method: 'POST' });
+    assert.strictEqual(stoppedOwner.status, 409);
+    assert.strictEqual(stoppedOwner.body.code, 'BROWSER_OWNER_NOT_RUNNING');
+  } finally {
+    await new Promise(resolve => server.close(resolve));
+  }
+}
+
 function testBrowserUiAndPackagingWiring() {
   const projectRoot = path.join(__dirname, '..', '..');
   const workspaceSource = fs.readFileSync(path.join(projectRoot, 'src', 'components', 'CodeWorkspace.tsx'), 'utf8');
@@ -959,7 +1217,10 @@ function testBrowserUiAndPackagingWiring() {
   assert(workspaceSource.includes("setMainPaneMode('browser')"));
   assert(mainAreaSource.includes('<BrowserViewer'));
   assert(!sidebarSource.includes('window.confirm'), 'Browser row close must remove directly without a redundant confirmation');
-  assert(serverSource.includes("createBrowserRouter(browserResourceManager"));
+  assert(serverSource.includes("createBrowserRouter("));
+  assert(serverSource.includes("browserResourceManager,"));
+  assert(sidebarSource.includes('code-agent-resources-toggle'));
+  assert(sidebarSource.includes('controller.byAgentId'));
   assert(routerSource.includes('router.post("/install"'));
   assert.strictEqual(packageJson.dependencies['playwright-core'], undefined);
   assert.strictEqual(packageJson.bin['farming-browser'], 'extensions/browser/bin/farming-browser');
@@ -972,9 +1233,11 @@ Promise.resolve()
   .then(testExternalCdpDiscoveryConfiguration)
   .then(testManagedAgentBrowserDiscovery)
   .then(testBrowserResourceManager)
+  .then(testAgentOwnedBrowserIsolationAndLifecycle)
   .then(testExternalBrowserErrorRedaction)
   .then(testAgentBrowserRestartRecovery)
   .then(testBrowserResourceRevisionOrdering)
+  .then(testBrowserRouterAgentOwnership)
   .then(testBrowserUiAndPackagingWiring)
   .then(() => console.log('browser extension tests passed'))
   .catch(error => {

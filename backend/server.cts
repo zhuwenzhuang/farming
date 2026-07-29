@@ -284,6 +284,7 @@ const agentManager = new AgentManager(configManager, {
   tokenFile: tokenAuth.getTokenFile(),
   authDisabled: !authEnabled,
   cliBinDir: resolveCliBinDir(),
+  browserMcpEnabled: () => configManager.getSettings().browserExtensionEnabled === true,
 });
 
 async function requireAgentRecoveryForHttp(res: HttpResponse) {
@@ -308,7 +309,32 @@ const browserResourceManager = new BrowserResourceManager({
   isEnabled: () => configManager.getSettings().browserExtensionEnabled === true,
   getBrowserSettings: () => configManager.getSettings(),
 });
-const browserRuntimeRecoveryPromise = browserResourceManager.init().catch((error: unknown) => {
+let browserAgentReconcileRequested = false;
+let browserAgentReconcileRunning = false;
+const reconcileBrowserAgentLifecycle = () => {
+  browserAgentReconcileRequested = true;
+  if (browserAgentReconcileRunning) return;
+  browserAgentReconcileRunning = true;
+  void (async () => {
+    try {
+      await agentManager.whenRecovered();
+      while (browserAgentReconcileRequested) {
+        browserAgentReconcileRequested = false;
+        const agents = agentManager.getState().agents;
+        await browserResourceManager.reconcileAgentLifecycle(Array.isArray(agents) ? agents : []);
+      }
+    } catch (error) {
+      console.warn('Failed to reconcile Agent-owned Browser resources:', caughtError(error).message || error);
+    } finally {
+      browserAgentReconcileRunning = false;
+      if (browserAgentReconcileRequested) reconcileBrowserAgentLifecycle();
+    }
+  })();
+};
+const browserRuntimeRecoveryPromise = browserResourceManager.init().then(() => {
+  agentManager.on('update', reconcileBrowserAgentLifecycle);
+  reconcileBrowserAgentLifecycle();
+}).catch((error: unknown) => {
   console.warn('Failed to recover Browser runtimes:', caughtError(error).message || error);
   return null;
 });
@@ -746,7 +772,11 @@ app.use(BASE_PATH || '/', express.static(staticAppDir, { index: false }));
 app.use(routePath(BASE_PATH, '/api/files'), createWorkspaceFileRouter(agentManager, workspaceFileService, {
   rootRegistry: workspaceRootRegistry,
 }));
-app.use(routePath(BASE_PATH, '/api/browsers'), createBrowserRouter(browserResourceManager, workspaceRootRegistry));
+app.use(routePath(BASE_PATH, '/api/browsers'), createBrowserRouter(
+  browserResourceManager,
+  workspaceRootRegistry,
+  agentManager,
+));
 
 app.use(routePath(BASE_PATH, '/api/review-sessions'), createReviewSessionRouter(reviewSessionService));
 app.use(routePath(BASE_PATH, '/api/reviews'), createReviewDiffRouter(reviewDiffService, reviewSessionService));

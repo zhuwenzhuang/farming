@@ -6,7 +6,7 @@ import {
   browserResourcesFile,
 } from '../../../backend/storage-layout.cjs';
 
-const STORE_VERSION = 5;
+const STORE_VERSION = 6;
 const RESOURCE_ID_RE = /^browser_[A-Za-z0-9_-]+$/;
 const TAB_ID_RE = /^t\d+$/;
 const STATUSES = new Set<BrowserResourceStatus>([
@@ -18,6 +18,7 @@ const STATUSES = new Set<BrowserResourceStatus>([
 ]);
 
 type BrowserResourceStatus = 'stopped' | 'starting' | 'running' | 'stopping' | 'failed';
+type BrowserResourceOwnerType = 'agent' | 'project';
 
 interface BrowserProcessIdentity {
   format: string;
@@ -34,6 +35,8 @@ interface BrowserResource {
   generation: number;
   id: string;
   name: string;
+  ownerAgentId: string;
+  ownerType: BrowserResourceOwnerType;
   processIdentity: BrowserProcessIdentity | null;
   projectRootId: string;
   revision: number;
@@ -52,6 +55,8 @@ interface BrowserResourceCreateInput {
   autoName?: boolean;
   browserKind?: unknown;
   name?: unknown;
+  ownerAgentId?: unknown;
+  ownerType?: unknown;
   projectRootId: unknown;
   sessionGeneration?: unknown;
   sessionId?: unknown;
@@ -70,7 +75,7 @@ interface RunningBrowserTabInput extends BrowserResourceCreateInput {
 
 type MutableBrowserResourceKey = Exclude<
   keyof BrowserResource,
-  'id' | 'projectRootId' | 'revision' | 'updatedAt' | 'workspace'
+  'id' | 'ownerAgentId' | 'ownerType' | 'projectRootId' | 'revision' | 'updatedAt' | 'workspace'
 >;
 
 type BrowserResourcePatch = {
@@ -129,10 +134,16 @@ function normalizeResource(value: unknown): BrowserResource | null {
   const projectRootId = String(resource.projectRootId || '').trim();
   const workspace = String(resource.workspace || '').trim();
   if (!projectRootId || !workspace) return null;
+  const ownerAgentId = String(resource.ownerAgentId || '').trim();
+  const ownerType: BrowserResourceOwnerType = resource.ownerType === 'agent' && ownerAgentId
+    ? 'agent'
+    : 'project';
   return {
     id: String(resource.id),
     projectRootId,
     workspace,
+    ownerType,
+    ownerAgentId: ownerType === 'agent' ? ownerAgentId : '',
     name: String(resource.name || 'Browser').trim().slice(0, 120) || 'Browser',
     autoName: resource.autoName === true,
     status: isBrowserResourceStatus(resource.status) ? resource.status : 'failed',
@@ -214,6 +225,8 @@ class BrowserResourceStore {
       id: createBrowserId(),
       projectRootId: input.projectRootId,
       workspace: input.workspace,
+      ownerType: input.ownerType,
+      ownerAgentId: input.ownerAgentId,
       name: input.name || 'Browser',
       autoName: input.autoName === true,
       status: 'stopped',

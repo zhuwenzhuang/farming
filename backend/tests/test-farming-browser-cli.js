@@ -58,20 +58,31 @@ async function run() {
     request.on('data', chunk => chunks.push(chunk));
     request.on('end', () => {
       const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : null;
-      requests.push({ method: request.method, url: request.url, body });
+      requests.push({
+        method: request.method,
+        url: request.url,
+        agentId: request.headers['x-farming-agent-id'],
+        body,
+      });
       response.setHeader('content-type', 'application/json');
       if (request.method === 'GET' && request.url === '/api/browsers') {
         response.end(JSON.stringify({
           resources: [{
             id: 'browser_project',
+            ownerAgentId: 'agent_test',
             workspace: '/project',
             status: 'running',
           }, {
             id: 'browser_other',
-            workspace: '/other',
+            ownerAgentId: 'agent_other',
+            workspace: '/project',
             status: 'running',
           }],
         }));
+        return;
+      }
+      if (request.method === 'POST' && request.url === '/api/browsers') {
+        response.end(JSON.stringify({ id: 'browser_created', received: body }));
         return;
       }
       if (request.method === 'POST' && request.url === '/api/browsers/browser_project/action') {
@@ -135,14 +146,25 @@ async function run() {
     });
     assert.strictEqual(requests.length, 3);
 
+    const created = JSON.parse((await invoke(browserCli, ['create', '--url', 'https://example.test'], {
+      ...env,
+      FARMING_AGENT_ID: 'agent_test',
+      FARMING_PROJECT_WORKSPACE: '/project',
+    })).stdout);
+    assert.strictEqual(created.received.agentId, 'agent_test');
+    assert.strictEqual(created.received.url, 'https://example.test');
+    assert.strictEqual(requests.at(-1).agentId, 'agent_test');
+
     await assert.rejects(
       invoke(browserCli, ['snapshot', 'browser_other'], {
         ...env,
+        FARMING_AGENT_ID: 'agent_test',
         FARMING_PROJECT_WORKSPACE: '/project',
       }),
-      error => error.stderr.includes("not available in this Agent's Project"),
+      error => error.stderr.includes('not owned by this Agent'),
     );
     assert.strictEqual(requests.at(-1).method, 'GET');
+    assert.strictEqual(requests.at(-1).agentId, 'agent_test');
   } finally {
     await close(server);
   }

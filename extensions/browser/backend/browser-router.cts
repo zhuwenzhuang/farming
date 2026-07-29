@@ -3,11 +3,14 @@ interface BrowserResourceManager {
   capability(): unknown;
   create(input: {
     name: unknown;
+    ownerAgentId: string;
+    ownerType: 'agent' | 'project';
     projectRootId: string;
     url: unknown;
     workspace: string;
   }): unknown;
   delete(id: string): Promise<unknown>;
+  get(id: string): Record<string, unknown>;
   installManagedChromium(): Promise<unknown>;
   navigate(id: string, url: unknown): Promise<unknown>;
   off(event: 'deleted' | 'resource', listener: (value: unknown) => void): unknown;
@@ -30,9 +33,14 @@ interface WorkspaceRootRegistry {
   resolve(rootId: unknown): WorkspaceRoot;
 }
 
+interface AgentStateReader {
+  getState(): { agents?: unknown[] };
+}
+
 interface Request {
   body: unknown;
   params: Record<string, string>;
+  get?(name: string): string | undefined;
   on(event: 'close', listener: () => void): unknown;
 }
 
@@ -59,6 +67,7 @@ interface ExpressModule {
 }
 
 const express = require('express') as ExpressModule;
+const INACTIVE_AGENT_STATUSES = new Set(['dead', 'error', 'exited', 'stopped']);
 
 function recordValue(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object'
@@ -79,9 +88,68 @@ function sendError(res: Response, error: unknown): void {
   });
 }
 
+function requestAgentId(req: Request): string {
+  return String(req.get?.('X-Farming-Agent-Id') || '').trim();
+}
+
+function browserOwnerAgent(
+  agentStateReader: AgentStateReader | undefined,
+  agentId: string,
+): Record<string, unknown> | undefined {
+  const agents = agentStateReader?.getState()?.agents;
+  return Array.isArray(agents)
+    ? agents.map(recordValue).find(agent => agent.id === agentId)
+    : undefined;
+}
+
+function requireActiveOwner(
+  manager: BrowserResourceManager,
+  agentStateReader: AgentStateReader | undefined,
+  id: string,
+): void {
+  const resource = manager.get(id);
+  if (resource.ownerType !== 'agent') return;
+  const owner = browserOwnerAgent(agentStateReader, String(resource.ownerAgentId || ''));
+  const lifecycleType = String(recordValue(owner?.lifecycleOperation).type || '');
+  const preservesBrowserRuntime = ['permission-restart', 'runtime-switch'].includes(lifecycleType);
+  if (
+    !owner
+    || owner.archived === true
+    || (!preservesBrowserRuntime && INACTIVE_AGENT_STATUSES.has(String(owner.status || '')))
+  ) {
+    const error = new Error('Browser owner Agent is not running') as Error & {
+      code?: string;
+      status?: number;
+    };
+    error.status = 409;
+    error.code = 'BROWSER_OWNER_NOT_RUNNING';
+    throw error;
+  }
+}
+
+function requireRequestOwnership(
+  manager: BrowserResourceManager,
+  req: Request,
+  id: string,
+): void {
+  const agentId = requestAgentId(req);
+  if (!agentId) return;
+  const resource = manager.get(id);
+  if (resource.ownerType !== 'agent' || resource.ownerAgentId !== agentId) {
+    const error = new Error('Browser Resource is not owned by this Agent') as Error & {
+      code?: string;
+      status?: number;
+    };
+    error.status = 403;
+    error.code = 'BROWSER_OWNER_MISMATCH';
+    throw error;
+  }
+}
+
 function createBrowserRouter(
   manager: BrowserResourceManager,
   workspaceRootRegistry: WorkspaceRootRegistry,
+  agentStateReader?: AgentStateReader,
 ): Router {
   const router = express.Router();
   router.use(express.json({ limit: '2mb' }));
@@ -103,9 +171,20 @@ function createBrowserRouter(
     }
   });
 
-  router.get('/', (_req, res) => {
+  router.get('/', (req, res) => {
     try {
-      res.json(manager.snapshot());
+      const snapshot = recordValue(manager.snapshot());
+      const agentId = requestAgentId(req);
+      const resources = Array.isArray(snapshot.resources) ? snapshot.resources : [];
+      res.json(agentId
+        ? {
+            ...snapshot,
+            resources: resources.filter(resource => (
+              recordValue(resource).ownerType === 'agent'
+              && recordValue(resource).ownerAgentId === agentId
+            )),
+          }
+        : snapshot);
     } catch (error) {
       sendError(res, error);
     }
@@ -149,9 +228,37 @@ function createBrowserRouter(
       if (root.kind === 'global') {
         return res.status(400).json({ error: 'Browsers require a Project workspace' });
       }
+      const callerAgentId = requestAgentId(req);
+      const requestedAgentId = String(body.agentId || '').trim();
+      if (callerAgentId && requestedAgentId && callerAgentId !== requestedAgentId) {
+        return res.status(403).json({ error: 'Agent tools cannot create a Browser for another Agent' });
+      }
+      const ownerAgentId = callerAgentId || requestedAgentId;
+      if (ownerAgentId) {
+        const owner = browserOwnerAgent(agentStateReader, ownerAgentId);
+        if (!owner) {
+          return res.status(404).json({ error: 'Browser owner Agent was not found' });
+        }
+        const ownerWorkspace = String(owner.projectWorkspace || owner.cwd || '').trim();
+        if (!ownerWorkspace || ownerWorkspace !== root.canonicalPath) {
+          return res.status(409).json({
+            error: 'Browser owner Agent is not bound to the selected Project workspace',
+          });
+        }
+        const lifecycleType = String(recordValue(owner.lifecycleOperation).type || '');
+        const preservesBrowserRuntime = ['permission-restart', 'runtime-switch'].includes(lifecycleType);
+        if (
+          owner.archived === true
+          || (!preservesBrowserRuntime && INACTIVE_AGENT_STATUSES.has(String(owner.status || '')))
+        ) {
+          return res.status(409).json({ error: 'Browser owner Agent is not running' });
+        }
+      }
       const resource = manager.create({
         projectRootId: root.rootId,
         workspace: root.canonicalPath,
+        ownerType: ownerAgentId ? 'agent' : 'project',
+        ownerAgentId,
         name: body.name,
         url: body.url,
       });
@@ -163,6 +270,7 @@ function createBrowserRouter(
 
   router.patch('/:id', (req, res) => {
     try {
+      requireRequestOwnership(manager, req, req.params.id);
       res.json(manager.rename(req.params.id, recordValue(req.body).name));
     } catch (error) {
       sendError(res, error);
@@ -171,6 +279,8 @@ function createBrowserRouter(
 
   router.post('/:id/start', async (req, res) => {
     try {
+      requireRequestOwnership(manager, req, req.params.id);
+      requireActiveOwner(manager, agentStateReader, req.params.id);
       res.json(await manager.start(req.params.id));
     } catch (error) {
       sendError(res, error);
@@ -179,6 +289,7 @@ function createBrowserRouter(
 
   router.post('/:id/stop', async (req, res) => {
     try {
+      requireRequestOwnership(manager, req, req.params.id);
       res.json(await manager.stop(req.params.id));
     } catch (error) {
       sendError(res, error);
@@ -187,6 +298,7 @@ function createBrowserRouter(
 
   router.delete('/:id', async (req, res) => {
     try {
+      requireRequestOwnership(manager, req, req.params.id);
       res.json(await manager.delete(req.params.id));
     } catch (error) {
       sendError(res, error);
@@ -195,6 +307,8 @@ function createBrowserRouter(
 
   router.post('/:id/navigate', async (req, res) => {
     try {
+      requireRequestOwnership(manager, req, req.params.id);
+      requireActiveOwner(manager, agentStateReader, req.params.id);
       res.json(await manager.navigate(req.params.id, recordValue(req.body).url));
     } catch (error) {
       sendError(res, error);
@@ -203,6 +317,8 @@ function createBrowserRouter(
 
   router.post('/:id/action', async (req, res) => {
     try {
+      requireRequestOwnership(manager, req, req.params.id);
+      requireActiveOwner(manager, agentStateReader, req.params.id);
       res.json(await manager.action(req.params.id, req.body));
     } catch (error) {
       sendError(res, error);

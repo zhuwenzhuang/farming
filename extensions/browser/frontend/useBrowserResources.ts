@@ -92,11 +92,15 @@ export function useBrowserResources() {
     return () => window.clearTimeout(timeout)
   }, [capability?.installation?.state, refreshVersion])
 
-  const create = useCallback(async (workspace: string, options: { name?: string; url?: string } = {}) => {
+  const create = useCallback(async (
+    workspace: string,
+    options: { agentId?: string; name?: string; url?: string } = {},
+  ) => {
     const resource = await browserRequest<BrowserResource>('/api/browsers', {
       method: 'POST',
       body: JSON.stringify({
         rootId: projectFilesWorkspaceId(workspace),
+        agentId: options.agentId,
         name: options.name,
         url: options.url,
       }),
@@ -148,9 +152,21 @@ export function useBrowserResources() {
     return result
   }, [collection.resources])
 
+  const byAgentId = useMemo(() => {
+    const result = new Map<string, BrowserResource[]>()
+    for (const resource of collection.resources) {
+      if (resource.ownerType !== 'agent' || !resource.ownerAgentId) continue
+      const current = result.get(resource.ownerAgentId) ?? []
+      current.push(resource)
+      result.set(resource.ownerAgentId, current)
+    }
+    return result
+  }, [collection.resources])
+
   return {
     resources: collection.resources,
     byWorkspace,
+    byAgentId,
     capability,
     loading,
     create,

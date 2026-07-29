@@ -20,8 +20,10 @@ const VIEWER_RESIZE_SETTLE_MS = 80;
 const BROWSER_RECOVERY_TIMEOUT_MS = 5_000;
 const BROWSER_RECOVERY_POLL_MS = 100;
 const MAX_UPLOAD_FILES = 20;
+const INACTIVE_AGENT_STATUSES = new Set(['dead', 'error', 'exited', 'stopped']);
 
 type BrowserResourceStatus = 'stopped' | 'starting' | 'running' | 'stopping' | 'failed';
+type BrowserResourceOwnerType = 'agent' | 'project';
 type BrowserProcessIdentity = {
   format: string;
   pid: number;
@@ -36,6 +38,8 @@ type BrowserResource = {
   generation: number;
   id: string;
   name: string;
+  ownerAgentId: string;
+  ownerType: BrowserResourceOwnerType;
   processIdentity: BrowserProcessIdentity | null;
   projectRootId: string;
   revision: number;
@@ -172,6 +176,7 @@ type BrowserSession = {
   initializing: boolean;
   processOwnerResourceId: string;
   projectRootId: string;
+  ownerKey: string;
   reconcilingTabs: Promise<unknown>;
   runtime: BrowserRuntime;
 };
@@ -206,6 +211,12 @@ type BrowserManagerOptions = Record<string, unknown> & {
   scheduleTimeout?: typeof setTimeout;
   cancelTimeout?: typeof clearTimeout;
 };
+type AgentLifecycleState = {
+  archived?: boolean;
+  id: string;
+  lifecycleOperation?: { type?: string } | null;
+  status?: string;
+};
 type BrowserError = Error & { cause?: unknown; code: string; status: number };
 
 function errorMessage(error: unknown): string {
@@ -220,6 +231,8 @@ function errorCode(error: unknown): string {
 function publicResource(resource: BrowserResource, collectionRevision: number) {
   return {
     id: resource.id,
+    ownerType: resource.ownerType,
+    ownerAgentId: resource.ownerAgentId,
     projectRootId: resource.projectRootId,
     workspace: resource.workspace,
     name: resource.name,
@@ -241,6 +254,12 @@ function browserError(message: string, status = 400, code = 'BROWSER_INVALID_REQ
   error.status = status;
   error.code = code;
   return error;
+}
+
+function browserOwnerKey(resource: Pick<BrowserResource, 'ownerAgentId' | 'ownerType' | 'projectRootId'>): string {
+  return resource.ownerType === 'agent'
+    ? `agent:${resource.ownerAgentId}`
+    : `project:${resource.projectRootId}`;
 }
 
 function externalBrowserFailure(action: string, cause: unknown): BrowserError {
@@ -354,6 +373,7 @@ class BrowserResourceManager extends EventEmitter {
   readonly runtimes = new Map<string, BrowserBinding>();
   readonly sessions = new Map<string, BrowserSession>();
   readonly operations = new Map<string, Promise<unknown>>();
+  readonly stopAdmissions = new Map<string, number>();
   disposed = false;
   runtimeCapability: BrowserCapability | null = null;
   browserOptions: BrowserOption[] = [];
@@ -602,6 +622,8 @@ class BrowserResourceManager extends EventEmitter {
     const resource = this.store.create({
       projectRootId: input.projectRootId,
       workspace: input.workspace,
+      ownerType: input.ownerType,
+      ownerAgentId: input.ownerAgentId,
       name: input.name,
       url: normalizeUrl(input.url),
     });
@@ -672,6 +694,7 @@ class BrowserResourceManager extends EventEmitter {
 
       const reusableSession = [...this.sessions.values()].find(session => (
         !session.closing
+        && session.ownerKey === browserOwnerKey(resource)
         && session.projectRootId === resource.projectRootId
         && session.browserKind === executable.kind
       ));
@@ -743,6 +766,7 @@ class BrowserResourceManager extends EventEmitter {
         id: sessionId,
         generation: sessionGeneration,
         projectRootId: resource.projectRootId,
+        ownerKey: browserOwnerKey(resource),
         browserKind: executable.kind,
         runtime,
         bindings: new Map(),
@@ -814,8 +838,9 @@ class BrowserResourceManager extends EventEmitter {
     });
   }
 
-  stop(id: string): Promise<unknown> {
-    this.requireEnabled();
+  stop(id: string, internal = false): Promise<unknown> {
+    if (!internal) this.requireEnabled();
+    this.stopAdmissions.set(id, (this.stopAdmissions.get(id) || 0) + 1);
     return this.enqueue(id, async () => {
       const resource = this.requireStored(id);
       const binding = this.runtimes.get(id);
@@ -889,12 +914,16 @@ class BrowserResourceManager extends EventEmitter {
       this.broadcastRuntimeState(binding);
       this.releaseViewerState(binding);
       return publicResource(stopped, this.store.revision);
+    }).finally(() => {
+      const remainingStops = (this.stopAdmissions.get(id) || 1) - 1;
+      if (remainingStops > 0) this.stopAdmissions.set(id, remainingStops);
+      else this.stopAdmissions.delete(id);
     });
   }
 
-  async delete(id: string): Promise<unknown> {
-    this.requireEnabled();
-    await this.stop(id);
+  async delete(id: string, internal = false): Promise<unknown> {
+    if (!internal) this.requireEnabled();
+    await this.stop(id, internal);
     const resource = this.requireStored(id);
     this.store.delete(id);
     const sessionId = resource.sessionId || id;
@@ -1093,6 +1122,7 @@ class BrowserResourceManager extends EventEmitter {
     const resource = this.requireStored(binding.id);
     if (
       resource.status !== 'running'
+      || this.stopAdmissions.has(binding.id)
       || message.generation !== binding.generation
       || this.runtimes.get(binding.id) !== binding
     ) {
@@ -1121,6 +1151,7 @@ class BrowserResourceManager extends EventEmitter {
     const resource = this.requireStored(binding.id);
     if (
       resource.status !== 'running'
+      || this.stopAdmissions.has(binding.id)
       || message.generation !== binding.generation
       || this.runtimes.get(binding.id) !== binding
     ) {
@@ -1267,6 +1298,35 @@ class BrowserResourceManager extends EventEmitter {
     }
   }
 
+  async reconcileAgentLifecycle(agentStates: AgentLifecycleState[]): Promise<void> {
+    const agents = new Map(agentStates.map(agent => [String(agent.id || ''), agent]));
+    const resources = this.store.list().filter(resource => resource.ownerType === 'agent');
+    for (const resource of resources) {
+      const owner = agents.get(resource.ownerAgentId);
+      if (!owner) {
+        await this.delete(resource.id, true);
+        continue;
+      }
+      const preservesBrowserRuntime = ['permission-restart', 'runtime-switch'].includes(
+        String(owner.lifecycleOperation?.type || ''),
+      );
+      const ownerStopped = !preservesBrowserRuntime && (
+        owner.archived === true
+        || INACTIVE_AGENT_STATUSES.has(String(owner.status || ''))
+      );
+      if (
+        ownerStopped
+        && (
+          this.runtimes.has(resource.id)
+          || ['running', 'starting', 'stopping'].includes(resource.status)
+          || Boolean(resource.processIdentity)
+        )
+      ) {
+        await this.stop(resource.id, true);
+      }
+    }
+  }
+
   requireEnabled(): void {
     if (this.isEnabled() !== true) {
       throw browserError('Browser extension is disabled', 409, 'BROWSER_EXTENSION_DISABLED');
@@ -1338,6 +1398,21 @@ class BrowserResourceManager extends EventEmitter {
     const resource = this.requireStored(id);
     if (!binding || resource.status !== 'running') {
       throw browserError('Browser is not running', 409, 'BROWSER_NOT_RUNNING');
+    }
+    if (this.stopAdmissions.has(id)) {
+      throw browserError('Browser is stopping', 409, 'BROWSER_STOPPING');
+    }
+    if (
+      resource.generation !== binding.generation
+      || resource.sessionId !== binding.session.id
+      || resource.sessionGeneration !== binding.session.generation
+      || resource.tabId !== binding.tabId
+    ) {
+      throw browserError(
+        'Browser runtime ownership changed; refresh the Browser Resource before retrying',
+        409,
+        'BROWSER_STALE_GENERATION',
+      );
     }
     const { session } = binding;
     const next = (session.actionChain || Promise.resolve())
@@ -1425,6 +1500,8 @@ class BrowserResourceManager extends EventEmitter {
         session.runtime.ownedTabIds.add(tab.tabId);
         const created = this.store.createRunningTab({
           projectRootId: opener?.session.projectRootId || session.projectRootId,
+          ownerType: opener ? this.store.get(opener.id)?.ownerType : undefined,
+          ownerAgentId: opener ? this.store.get(opener.id)?.ownerAgentId : undefined,
           workspace: (opener ? this.store.get(opener.id)?.workspace : undefined)
             || this.store.list().find(resource => resource.sessionId === session.id)?.workspace,
           name: tabResourceName(tab),

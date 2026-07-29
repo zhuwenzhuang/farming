@@ -5,6 +5,31 @@
   color: #343a34;
 }
 
+.code-agent-resource-action-slot {
+  display: contents;
+}
+
+.code-agent-row:has(.code-agent-resource-action-slot:not(:empty)) .code-agent-row-actions {
+  right: 31px;
+}
+
+.code-agent-resource-slot:empty {
+  display: none;
+}
+
+.code-agent-resource-slot .farming-browser-section {
+  margin-top: 0;
+  margin-left: 28px;
+}
+
+.farming-agent-resources-toggle.active {
+  color: #30372f;
+}
+
+.farming-agent-resources-toggle svg {
+  fill: currentColor;
+}
+
 .code-settings-browser-row .code-settings-row-copy small {
   overflow: visible;
   text-overflow: clip;
@@ -471,6 +496,10 @@
 body.code-mode[data-appearance='dark'] .farming-browser-section,
 body.code-mode[data-appearance='dark'] .farming-browser-row {
   color: #c9d1d9;
+}
+
+body.code-mode[data-appearance='dark'] .farming-agent-resources-toggle.active {
+  color: #f0f6fc;
 }
 
 body.code-mode[data-appearance='dark'] .farming-browser-section > header {

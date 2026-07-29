@@ -2107,6 +2107,7 @@ function AgentRow({
   }
 
   return (
+    <>
     <div
       tabIndex={0}
       className={`code-agent-row ${providerIcon ? 'has-provider' : ''} ${requiresResume ? 'requires-resume' : ''} ${active ? 'active' : ''} ${searchSelected ? 'search-selected' : ''} ${rowState.pinned ? 'pinned' : ''} ${rowState.unread ? 'unread' : ''} ${dragging ? 'dragging' : ''} ${dropPosition ? `drop-${dropPosition}` : ''}`}
@@ -2257,7 +2258,22 @@ function AgentRow({
           </button>
         )}
         {shortcutHint && <kbd>{shortcutHint}</kbd>}
+        {liveAgent && (
+          <span
+            className="code-agent-resource-action-slot"
+            data-testid="code-agent-resource-action-slot"
+            data-agent-id={liveAgent.id}
+          />
+        )}
       </span>
     </div>
+    {liveAgent && (
+      <div
+        className="code-agent-resource-slot"
+        data-testid="code-agent-resource-slot"
+        data-agent-id={liveAgent.id}
+      />
+    )}
+    </>
   )
 }

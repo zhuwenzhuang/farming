@@ -2,7 +2,7 @@
 
 > English version: [browser-agent-cli.md](./browser-agent-cli.md)
 
-Farming Browser 让 Agent 操作 Project 浏览器，同时用户可以在 Farming 中看到并操作
+Farming Browser 让 Agent 操作自己拥有的 Browser，同时用户可以在 Farming 中看到并操作
 同一个页面。
 
 ## 启用 Browser
@@ -20,7 +20,12 @@ Farming Browser 让 Agent 操作 Project 浏览器，同时用户可以在 Farmi
 
 ## Agent 工作流
 
-Agent 只在任务需要浏览器时逐步发现命令：
+Browser 在 ACP Session 创建时已经启用的情况下，Agent 会获得细粒度的 `browser_*`
+Tool Catalog：先用 `browser_list`，需要新页面时用 `browser_open` 创建用户可见的
+Agent-owned Browser。如果 ACP Session 启动后才启用 Browser，需要明确重启一次 Chat
+Runtime 才能挂载这些 Tool。
+
+Terminal Agent 只在任务需要浏览器时逐步发现命令：
 
 ```bash
 farming capabilities
@@ -56,16 +61,23 @@ list → 复用或创建 → start → navigate → snapshot
 
 ## 共享使用与安全
 
-每个 Browser Resource 都是在 Farming 中独立可见的页面。同一 Project、同一浏览器
-来源下的 Resource 共享浏览器登录状态。用户可以随时打开 Viewer，在同一个页面上查看、
-点击、滚动或输入。
+每个 Browser Resource 都是在 Farming 中独立可见的页面，并挂在
+**Agent → Resources → Browsers** 下。层级默认收起，改变展开状态不会停止 Browser，
+也不会关闭已经打开的 Viewer。同一 Agent、同一浏览器来源下的 Resource 共享浏览器
+登录状态；即使处于同一个 Project，不同 Agent 也不会共享 Session、Profile、Cookie
+或 Storage。用户可以随时打开 Viewer，在同一个页面上查看、点击、滚动或输入。
+
+Agent 在 Chat/Terminal 间切换时保留 Browser Ownership。停止或归档 Agent 会停止其
+Browser Runtime，但保留 Row 与 Profile；恢复 Agent 后按需启动。删除 Agent 会删除
+它的 Browser Resource 与独立 Profile。
 
 只有当该 Project 确实应该使用某个账号时，才把已登录浏览器交给 Agent。Cookie、
 Storage、页面脚本、Console 和 Network 详情可能包含敏感信息。上传与下载只允许在
 Browser Resource 所属的 Project Workspace 内进行，下载不会覆盖已有文件。
 
-CLI 是 Agent 的默认入口。只有调用方确实需要完整结构化 Tool Schema 时，才显式使用
-`farming browser mcp`。
+ACP MCP 与 Terminal CLI 是同一 Farming Browser Contract 的两种 Transport。
+`farming browser mcp` 是 Farming Provider Adapter 使用的标准 stdio 入口，也可由
+明确的外部调用方配置。
 
 ## 当前限制
 

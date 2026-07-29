@@ -14,6 +14,7 @@ import type { BrowserResource } from './types'
 import type { BrowserResourcesController } from './useBrowserResources'
 
 const COLLAPSED_KEY = 'farming.code.browserSectionsCollapsed.v1'
+const EXPANDED_RESOURCES_KEY = 'farming.code.agentResourcesExpanded.v1'
 
 function readCollapsed() {
   try {
@@ -32,10 +33,27 @@ function writeCollapsed(values: Set<string>) {
   }
 }
 
+function readExpandedResources() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(EXPANDED_RESOURCES_KEY) || '[]')
+    return new Set(Array.isArray(parsed) ? parsed.filter(value => typeof value === 'string') : [])
+  } catch {
+    return new Set<string>()
+  }
+}
+
+function writeExpandedResources(values: Set<string>) {
+  try {
+    localStorage.setItem(EXPANDED_RESOURCES_KEY, JSON.stringify([...values]))
+  } catch {
+    // In-memory expansion state still works.
+  }
+}
+
 function browserCopy(language: UiPreferences['language']) {
   const zh = language === 'zh'
   return {
-    browsers: zh ? '浏览器' : 'Browser',
+    browsers: zh ? '浏览器' : 'Browsers',
     newBrowser: zh ? '新建标签页' : 'New Tab',
     createBrowser: zh ? '新建标签页' : 'Create tab',
     browserName: zh ? '标签页名称' : 'Tab name',
@@ -51,6 +69,8 @@ function browserCopy(language: UiPreferences['language']) {
     transitionFailed: zh ? '标签页状态切换失败' : 'Tab transition failed',
     deleteFailed: zh ? '标签页关闭失败' : 'Failed to close tab',
     createFailed: zh ? '标签页创建失败' : 'Failed to create tab',
+    showResources: zh ? '显示 Agent 资源' : 'Show Agent resources',
+    hideResources: zh ? '隐藏 Agent 资源' : 'Hide Agent resources',
   }
 }
 
@@ -185,7 +205,8 @@ function BrowserRow({
 }
 
 function BrowserSection({
-  project,
+  workspace,
+  ownerAgentId,
   resources,
   activeBrowserId,
   controller,
@@ -194,7 +215,8 @@ function BrowserSection({
   onToggle,
   onOpen,
 }: {
-  project: ProjectGroup
+  workspace: string
+  ownerAgentId?: string
   resources: BrowserResource[]
   activeBrowserId: string | null
   controller: BrowserResourcesController
@@ -205,7 +227,7 @@ function BrowserSection({
 }) {
   const createBrowser = async () => {
     try {
-      const resource = await controller.create(project.workspace)
+      const resource = await controller.create(workspace, { agentId: ownerAgentId })
       const running = await controller.start(resource.id)
       onOpen(running)
     } catch (error) {
@@ -265,6 +287,42 @@ function BrowserSection({
   )
 }
 
+function AgentResourcesGlyph() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+      <path d="M2.5 2.5h4v4h-4v-4Zm7 0h4v4h-4v-4Zm-7 7h4v4h-4v-4Zm7 0h4v4h-4v-4Z" />
+    </svg>
+  )
+}
+
+function AgentResourceToggle({
+  expanded,
+  copy,
+  onToggle,
+}: {
+  expanded: boolean
+  copy: BrowserCopy
+  onToggle: () => void
+}) {
+  return (
+    <button
+      type="button"
+      className={`code-agent-row-action farming-agent-resources-toggle ${expanded ? 'active' : ''}`}
+      data-testid="code-agent-resources-toggle"
+      aria-expanded={expanded}
+      aria-label={expanded ? copy.hideResources : copy.showResources}
+      title={expanded ? copy.hideResources : copy.showResources}
+      onClick={event => {
+        event.preventDefault()
+        event.stopPropagation()
+        onToggle()
+      }}
+    >
+      <AgentResourcesGlyph />
+    </button>
+  )
+}
+
 function findProjectExpandedElement(projectId: string) {
   const titles = document.querySelectorAll<HTMLElement>('[data-testid="code-project-title"]')
   for (const title of titles) {
@@ -273,6 +331,12 @@ function findProjectExpandedElement(projectId: string) {
       ?.querySelector<HTMLElement>('.code-project-expanded') ?? null
   }
   return null
+}
+
+function findAgentElement(agentId: string, testId: string) {
+  return document.querySelector<HTMLElement>(
+    `[data-testid="${testId}"][data-agent-id="${CSS.escape(agentId)}"]`,
+  )
 }
 
 export function BrowserSidebarPortals({
@@ -294,12 +358,19 @@ export function BrowserSidebarPortals({
   const available = controller.loading === false && controller.capability?.available === true
   const [targets, setTargets] = useState(new Map<string, HTMLElement>())
   const [collapsed, setCollapsed] = useState(readCollapsed)
+  const [expandedResources, setExpandedResources] = useState(readExpandedResources)
   const refreshTargets = useCallback(() => {
     const next = new Map<string, HTMLElement>()
     for (const project of projects) {
       if (collapsedProjectIds.has(project.id)) continue
       const target = findProjectExpandedElement(project.id)
       if (target) next.set(project.id, target)
+      for (const agent of project.agents) {
+        const action = findAgentElement(agent.id, 'code-agent-resource-action-slot')
+        const content = findAgentElement(agent.id, 'code-agent-resource-slot')
+        if (action) next.set(`agent-action:${agent.id}`, action)
+        if (content) next.set(`agent-content:${agent.id}`, content)
+      }
     }
     setTargets(current => {
       if (current.size === next.size && [...next].every(([id, element]) => current.get(id) === element)) return current
@@ -331,6 +402,16 @@ export function BrowserSidebarPortals({
     })
   }
 
+  const toggleAgentResources = (agentId: string) => {
+    setExpandedResources(current => {
+      const next = new Set(current)
+      if (next.has(agentId)) next.delete(agentId)
+      else next.add(agentId)
+      writeExpandedResources(next)
+      return next
+    })
+  }
+
   if (!available) return null
 
   return (
@@ -338,11 +419,12 @@ export function BrowserSidebarPortals({
       {projects.map(project => {
         const target = targets.get(project.id)
         if (!target || !project.workspace) return null
-        const resources = controller.byWorkspace.get(project.workspace) ?? []
+        const resources = (controller.byWorkspace.get(project.workspace) ?? [])
+          .filter(resource => resource.ownerType === 'project')
         if (resources.length === 0) return null
         return createPortal(
           <BrowserSection
-            project={project}
+            workspace={project.workspace}
             resources={resources}
             activeBrowserId={activeBrowserId}
             controller={controller}
@@ -355,6 +437,43 @@ export function BrowserSidebarPortals({
           `browser-section:${project.id}`,
         )
       })}
+      {projects.flatMap(project => project.agents.flatMap(agent => {
+        const resources = controller.byAgentId.get(agent.id) ?? []
+        if (resources.length === 0) return []
+        const actionTarget = targets.get(`agent-action:${agent.id}`)
+        const contentTarget = targets.get(`agent-content:${agent.id}`)
+        const expanded = expandedResources.has(agent.id)
+        const portals = []
+        if (actionTarget) {
+          portals.push(createPortal(
+            <AgentResourceToggle
+              expanded={expanded}
+              copy={copy}
+              onToggle={() => toggleAgentResources(agent.id)}
+            />,
+            actionTarget,
+            `browser-agent-toggle:${agent.id}`,
+          ))
+        }
+        if (contentTarget && expanded) {
+          portals.push(createPortal(
+            <BrowserSection
+              workspace={project.workspace}
+              ownerAgentId={agent.id}
+              resources={resources}
+              activeBrowserId={activeBrowserId}
+              controller={controller}
+              copy={copy}
+              collapsed={collapsed.has(`agent:${agent.id}`)}
+              onToggle={() => toggle(`agent:${agent.id}`)}
+              onOpen={onOpen}
+            />,
+            contentTarget,
+            `browser-agent-section:${agent.id}`,
+          ))
+        }
+        return portals
+      }))}
     </>
   )
 }

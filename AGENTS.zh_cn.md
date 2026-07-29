@@ -229,6 +229,8 @@ Shell agent（`bash` / `zsh`）默认保留用户自己的交互启动流程和 
 
 Qwen Code 与其他受支持的 Coding Agent 共用由 ProviderAdapter 管理的 ACP Chat 与 Terminal 生命周期。它使用系统 `qwen` Executable 和 `QWEN_HOME`，注入 Farming Bootstrap，只扫描 `projects/*/chats` 下可恢复的根 Transcript；在实时 ACP Agent 协商出标准 `session/fork` 之前，不得宣称支持 Fork。
 
+当前 Browser Ownership 与 Capability Projection 规则取代前文旧的 Project 共享和按需 MCP 表述：Agent 打开的 Browser 归属于稳定的 Farming Agent Record，`projectRootId` 只保留为 Workspace 隔离边界。同一 Agent、同一 Browser Source 的多个 Browser 可以作为独立 Tab 共享一个 `agent-browser` Session；不同 Agent 绝不能共享该 Session、Profile、Cookie 或 Storage。Chat/Terminal Runtime 切换保留 Browser Resource；停止或归档 Agent 会停止其 Browser Runtime，但保留 Row 与 Profile以便按需恢复；删除 Agent 会停止并删除精确归属的 Resource 与 Profile。侧栏默认把 Resource 隐藏在 **Agent → Resources → Browsers** 下；展开或收起任一层都不能改变 Runtime 或 Viewer 状态，没有 Resource 的 Agent 不显示按钮或 `0`。Browser 在 ACP Session 创建边界已启用时，Codex、Claude Code、OpenCode 与 Qoder 通过现有 Provider Adapter 获得完整且细粒度的 `browser_*` MCP Tool Catalog；`browser_open` 创建、挂载并启动 Agent-owned Resource。Terminal Agent 通过渐进披露的 `farming browser` CLI 访问同一份 Contract。ACP Session 启动后才启用 Browser 时，必须明确重启 Chat Runtime 后才能声明这些 Tool 可用。每次 Agent 操作都必须校验精确 Owner、Project Root、Resource Generation、Session Generation、Tab ID 与 Running State；过期调用明确失败。旧 Project-owned Row 可以继续持久化并作为 Project Resource 展示，但新的 Agent Workflow 不会静默共享它们。
+
 ## 代码库结构
 
 ```

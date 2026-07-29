@@ -424,7 +424,7 @@ interface AgentManagerOptions extends UnknownRecord {
   allowUnprovenLegacyAcpRecovery?: boolean;
   archiveCodexSession?: ArchiveCodexSessionContract;
   authDisabled?: boolean;
-  browserMcpEnabled?: boolean;
+  browserMcpEnabled?: boolean | (() => boolean);
   cliBinDir?: string;
   controlUrl?: string;
   createProviderSessionIdentity?: CreateProviderSessionIdentityContract;
@@ -1279,7 +1279,7 @@ class AgentManager extends EventEmitter {
   declare controlUrl: string;
   declare tokenFile: string;
   declare authDisabled: boolean;
-  declare browserMcpEnabled: boolean;
+  declare browserMcpEnabled: () => boolean;
   declare skipExecutablePreflight: boolean;
   declare cliBinDir: string;
   declare agentShellEnvProvider: (shell: string) => NodeJS.ProcessEnv | null;
@@ -1341,7 +1341,9 @@ class AgentManager extends EventEmitter {
     this.controlUrl = options.controlUrl || '';
     this.tokenFile = options.tokenFile || '';
     this.authDisabled = options.authDisabled === true;
-    this.browserMcpEnabled = options.browserMcpEnabled === true;
+    this.browserMcpEnabled = typeof options.browserMcpEnabled === 'function'
+      ? options.browserMcpEnabled
+      : () => options.browserMcpEnabled === true;
     this.skipExecutablePreflight = options.skipExecutablePreflight === true;
     this.cliBinDir = options.cliBinDir || path.join(__dirname, '..', 'bin');
     this.agentShellEnvProvider = typeof options.agentShellEnvProvider === 'function'
@@ -3826,7 +3828,7 @@ class AgentManager extends EventEmitter {
     mcpServers: Record<string, unknown>[],
     agentEnv: NodeJS.ProcessEnv,
   ): Record<string, unknown>[] {
-    if (!this.browserMcpEnabled) return Array.isArray(mcpServers) ? mcpServers : [];
+    if (!this.browserMcpEnabled()) return Array.isArray(mcpServers) ? mcpServers : [];
     return mergeBrowserMcpServer(mcpServers, {
       cliBinDir: this.cliBinDir,
       agentEnv,

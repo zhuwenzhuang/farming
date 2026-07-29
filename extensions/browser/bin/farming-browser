@@ -9,7 +9,7 @@ function usage() {
 
 Start here:
   capability                 Check whether Farming Browser is available
-  list                       Discover this Project's Browser Resources
+  list                       Discover this Agent's Browser Resources
   create                     Create another independently visible Browser
   help workflow              Read the recommended Agent workflow
 
@@ -31,7 +31,7 @@ const TOPIC_HELP = Object.freeze({
   workflow: `Recommended Agent workflow:
   1. farming capabilities
   2. farming browser list
-  3. Reuse a Project Browser, or create and start one
+  3. Reuse a Browser owned by this Agent, or create and start one
   4. Navigate, then take a snapshot
   5. Act through snapshot refs; wait and snapshot again after page changes
   6. Use inspection or debugging commands only when the normal flow is insufficient
@@ -230,16 +230,18 @@ function writeJson(value) {
 
 async function requireProjectBrowser(id) {
   const requestedWorkspace = String(process.env.FARMING_PROJECT_WORKSPACE || '').trim();
+  const requestedAgentId = String(process.env.FARMING_AGENT_ID || '').trim();
   if (!requestedWorkspace) return;
   const workspace = path.resolve(requestedWorkspace);
   const result = await requestJson('GET', '/api/browsers');
   const resource = (result.resources || []).find(item => (
     item?.id === id
+    && (!requestedAgentId || item.ownerAgentId === requestedAgentId)
     && item.workspace
     && path.resolve(item.workspace) === workspace
   ));
   if (!resource) {
-    throw new Error(`Browser Resource ${id} is not available in this Agent's Project`);
+    throw new Error(`Browser Resource ${id} is not owned by this Agent`);
   }
 }
 
@@ -275,6 +277,7 @@ async function run(argv = process.argv.slice(2)) {
     const workspace = path.resolve(requestedWorkspace);
     const result = await requestJson('POST', '/api/browsers', {
       rootId: rootIdForPath(workspace),
+      agentId: process.env.FARMING_AGENT_ID || undefined,
       name: option(args, '--name') || undefined,
       url: option(args, '--url') || undefined,
     });
@@ -289,7 +292,13 @@ async function run(argv = process.argv.slice(2)) {
     const workspace = requestedWorkspace ? path.resolve(requestedWorkspace) : '';
     const result = await requestJson('GET', '/api/browsers');
     const resources = workspace
-      ? result.resources.filter(resource => path.resolve(resource.workspace) === workspace)
+      ? result.resources.filter(resource => (
+        path.resolve(resource.workspace) === workspace
+        && (
+          !process.env.FARMING_AGENT_ID
+          || resource.ownerAgentId === process.env.FARMING_AGENT_ID
+        )
+      ))
       : result.resources;
     writeJson({ resources });
     return 0;
