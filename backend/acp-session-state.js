@@ -1,24 +1,9 @@
-const fsp = require('fs/promises');
-const path = require('path');
-const { fileURLToPath } = require('url');
-
 const MAX_ACP_UPDATES = 2_000;
 const MAX_ACP_UPDATE_LOG_VALUE_CHARS = 32 * 1024;
 const MAX_CODEX_SUBAGENTS = 128;
 const MAX_CODEX_SUBAGENT_ID_CHARS = 160;
 const MAX_CODEX_SUBAGENT_NAME_CHARS = 120;
-const MAX_CODEX_HISTORY_IMAGES_PER_MESSAGE = 6;
-const MAX_CODEX_HISTORY_IMAGE_BYTES = 5 * 1024 * 1024;
-const CODEX_HISTORY_IMAGE_MIME_BY_EXT = Object.freeze({
-  '.gif': 'image/gif',
-  '.jpeg': 'image/jpeg',
-  '.jpg': 'image/jpeg',
-  '.png': 'image/png',
-  '.svg': 'image/svg+xml',
-  '.webp': 'image/webp',
-});
 const {
-  codexHistoryImageTargets,
   visibleUserMessageText,
 } = require('./codex-transcript');
 const {
@@ -111,40 +96,6 @@ function contentText(content) {
     .filter(block => block?.type === 'text')
     .map(block => String(block.text || ''))
     .join('');
-}
-
-function localPathFromHistoryImageTarget(value) {
-  const target = String(value || '').trim();
-  if (!target || target.includes('\0') || /^data:/i.test(target)) return '';
-  if (/^file:\/\//i.test(target)) {
-    try {
-      return fileURLToPath(target);
-    } catch {
-      return '';
-    }
-  }
-  return path.isAbsolute(target) ? target : '';
-}
-
-function imageBlockFromDataUrl(value) {
-  const match = String(value || '').match(/^data:(image\/(?:gif|jpe?g|png|svg\+xml|webp));base64,([a-z0-9+/=]+)$/i);
-  if (!match) return null;
-  const data = match[2];
-  if (!data || Math.ceil(data.length * 3 / 4) > MAX_CODEX_HISTORY_IMAGE_BYTES) return null;
-  return { type: 'image', mimeType: match[1].toLowerCase(), data };
-}
-
-async function imageBlockFromLocalPath(filePath) {
-  const ext = path.extname(filePath).toLowerCase();
-  const mimeType = CODEX_HISTORY_IMAGE_MIME_BY_EXT[ext];
-  if (!mimeType) return null;
-  try {
-    const stat = await fsp.stat(filePath);
-    if (!stat.isFile() || stat.size <= 0 || stat.size > MAX_CODEX_HISTORY_IMAGE_BYTES) return null;
-    return { type: 'image', mimeType, data: (await fsp.readFile(filePath)).toString('base64') };
-  } catch {
-    return null;
-  }
 }
 
 function isContextCompactionText(content) {
@@ -333,44 +284,6 @@ class AcpSessionState {
 
   finishHistoryReplay() {
     // History replay uses the same reducer as live updates; nothing to close.
-  }
-
-  hasCodexHistoryImageReferences() {
-    return this.provider === 'codex' && this.entries.some(entry => (
-      entry?.type === 'message'
-      && entry.role === 'user'
-      && codexHistoryImageTargets(contentText(entry.content)).length > 0
-    ));
-  }
-
-  async hydrateCodexHistoryAttachments(options = {}) {
-    if (this.provider !== 'codex') return 0;
-    const imageDataByPath = options.imageDataByPath instanceof Map ? options.imageDataByPath : new Map();
-    let hydrated = 0;
-    for (const entry of this.entries) {
-      if (entry?.type !== 'message' || entry.role !== 'user') continue;
-      const existingImages = (entry.content || []).filter(content => content?.type === 'image');
-      const remaining = MAX_CODEX_HISTORY_IMAGES_PER_MESSAGE - existingImages.length;
-      if (remaining <= 0) continue;
-      const targets = codexHistoryImageTargets(contentText(entry.content));
-      const seenPaths = new Set();
-      const blocks = [];
-      for (const target of targets) {
-        const filePath = localPathFromHistoryImageTarget(target);
-        if (!filePath || seenPaths.has(filePath)) continue;
-        seenPaths.add(filePath);
-        const fallback = imageDataByPath.get(filePath);
-        const block = await imageBlockFromLocalPath(filePath) || imageBlockFromDataUrl(fallback);
-        if (!block) continue;
-        blocks.push(block);
-        if (blocks.length >= remaining) break;
-      }
-      if (blocks.length === 0) continue;
-      entry.content.push(...blocks);
-      this.touchEntry(entry);
-      hydrated += blocks.length;
-    }
-    return hydrated;
   }
 
   apply(notification) {
@@ -639,7 +552,7 @@ class AcpSessionState {
       if (
         entry.type === 'message'
         && entry.role === 'user'
-        && ((entry.content || []).some(content => content?.type === 'image') || codexHistoryImageTargets(contentText(entry.content)).length > 0)
+        && (entry.content || []).some(content => content?.type === 'image')
       ) {
         renderedAttachmentKinds.push('image');
       }

@@ -1,0 +1,136 @@
+#!/usr/bin/env node
+
+const readline = require('readline');
+
+const sessionId = '019f0000-0000-7000-8000-000000000999';
+const imagePath = process.env.FARMING_TEST_HISTORY_IMAGE_PATH || '';
+const dataUrl = process.env.FARMING_TEST_HISTORY_IMAGE_DATA_URL || '';
+
+function thread() {
+  return {
+    id: sessionId,
+    sessionId,
+    forkedFromId: null,
+    parentThreadId: null,
+    preview: 'ACP history image test',
+    ephemeral: false,
+    modelProvider: 'openai',
+    createdAt: 1,
+    updatedAt: 2,
+    recencyAt: 2,
+    status: { type: 'idle' },
+    path: null,
+    cwd: process.cwd(),
+    cliVersion: '0.0.0-test',
+    source: 'appServer',
+    threadSource: null,
+    agentNickname: null,
+    agentRole: null,
+    gitInfo: null,
+    name: null,
+    turns: [{
+      id: 'turn-history-image',
+      items: [{
+        id: 'user-history-image',
+        type: 'userMessage',
+        content: [
+          { type: 'text', text: '请检查历史图片', text_elements: [] },
+          { type: 'localImage', path: imagePath },
+          { type: 'image', url: dataUrl },
+          { type: 'localImage', path: `${imagePath}.missing` },
+        ],
+      }],
+      itemsView: { type: 'full' },
+      status: 'completed',
+      error: null,
+      startedAt: 1,
+      completedAt: 2,
+      durationMs: 1000,
+    }],
+  };
+}
+
+function resultFor(method, params) {
+  if (method === 'initialize') {
+    return { userAgent: 'fake-codex-app-server/0.0.0' };
+  }
+  if (method === 'account/read') {
+    return { account: null, requiresOpenaiAuth: false };
+  }
+  if (method === 'config/read') {
+    return { config: {}, layers: [] };
+  }
+  if (method === 'skills/extraRoots/set') {
+    return {};
+  }
+  if (method === 'skills/list') {
+    return { data: [] };
+  }
+  if (method === 'thread/resume') {
+    return {
+      thread: thread(),
+      model: 'gpt-5.6',
+      modelProvider: 'openai',
+      reasoningEffort: 'medium',
+      serviceTier: null,
+    };
+  }
+  if (method === 'thread/read') {
+    return { thread: thread() };
+  }
+  if (method === 'thread/list') {
+    return { data: [], nextCursor: null };
+  }
+  if (method === 'model/list') {
+    return {
+      data: [{
+        id: 'gpt-5.6',
+        model: 'gpt-5.6',
+        upgrade: null,
+        upgradeInfo: null,
+        availabilityNux: null,
+        displayName: 'GPT-5.6',
+        description: 'test model',
+        hidden: false,
+        supportedReasoningEfforts: [{ reasoningEffort: 'medium', description: 'Medium' }],
+        defaultReasoningEffort: 'medium',
+        inputModalities: ['text', 'image'],
+        supportsPersonality: false,
+        additionalSpeedTiers: [],
+        serviceTiers: [],
+        defaultServiceTier: null,
+        isDefault: true,
+      }],
+      nextCursor: null,
+    };
+  }
+  if (method === 'thread/goal/get') {
+    return { goal: null, revision: 0 };
+  }
+  throw new Error(`Unexpected fake Codex app-server request: ${method} ${JSON.stringify(params)}`);
+}
+
+async function run() {
+  const lines = readline.createInterface({ input: process.stdin });
+  for await (const line of lines) {
+    if (!line.trim()) continue;
+    const request = JSON.parse(line);
+    if (request.id === undefined) continue;
+    try {
+      process.stdout.write(`${JSON.stringify({
+        id: request.id,
+        result: resultFor(request.method, request.params),
+      })}\n`);
+    } catch (error) {
+      process.stdout.write(`${JSON.stringify({
+        id: request.id,
+        error: { code: -32601, message: error.message },
+      })}\n`);
+    }
+  }
+}
+
+run().catch(error => {
+  console.error(error);
+  process.exitCode = 1;
+});

@@ -1,5 +1,5 @@
 diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_modules/@agentclientprotocol/codex-acp/dist/index.js
-index fb338ee..3c468b5 100755
+index fb338ee..191b134 100755
 --- a/node_modules/@agentclientprotocol/codex-acp/dist/index.js
 +++ b/node_modules/@agentclientprotocol/codex-acp/dist/index.js
 @@ -23365,8 +23365,12 @@ function createAgentTextThoughtChunk(text, messageId, meta3) {
@@ -104,7 +104,61 @@ index fb338ee..3c468b5 100755
    async setCollaborationMode(sessionId, mode, currentModelId) {
      await this.codexClient.threadSettingsUpdate({
        threadId: sessionId,
-@@ -28151,6 +28222,13 @@ var CodexAcpServer = class _CodexAcpServer {
+@@ -27352,6 +27423,53 @@ function imageBlocks(images) {
+     return path6 ? [{ type: "text", text: `[@image](${path6})` }] : [];
+   });
+ }
++var MAX_HISTORY_IMAGE_BYTES = 5 * 1024 * 1024;
++var HISTORY_IMAGE_MIME_BY_EXT = /* @__PURE__ */ new Map([
++  [".gif", "image/gif"],
++  [".jpeg", "image/jpeg"],
++  [".jpg", "image/jpeg"],
++  [".png", "image/png"],
++  [".svg", "image/svg+xml"],
++  [".webp", "image/webp"]
++]);
++function historyImageBlockFromDataUrl(value) {
++  const match = String(value ?? "").match(/^data:(image\/(?:gif|jpe?g|png|svg\+xml|webp));base64,([a-z0-9+/=]+)$/i);
++  if (!match || Math.ceil(match[2].length * 3 / 4) > MAX_HISTORY_IMAGE_BYTES) {
++    return null;
++  }
++  return {
++    type: "image",
++    mimeType: match[1].toLowerCase(),
++    data: match[2]
++  };
++}
++async function historyImageBlockFromLocalPath(value) {
++  let filePath = String(value ?? "");
++  if (filePath.startsWith("file://")) {
++    try {
++      filePath = fileURLToPath(filePath);
++    } catch {
++      return null;
++    }
++  }
++  const mimeType = HISTORY_IMAGE_MIME_BY_EXT.get(path5.extname(filePath).toLowerCase());
++  if (!mimeType) {
++    return null;
++  }
++  try {
++    const data = await readFile2(filePath);
++    if (data.length === 0 || data.length > MAX_HISTORY_IMAGE_BYTES) {
++      return null;
++    }
++    return {
++      type: "image",
++      mimeType,
++      data: Buffer2.from(data).toString("base64")
++    };
++  } catch {
++    return null;
++  }
++}
+ function contentBlocksFromResponseContent(content) {
+   if (!Array.isArray(content)) {
+     return [];
+@@ -28151,6 +28269,13 @@ var CodexAcpServer = class _CodexAcpServer {
    closingSessions;
    sessionGenerations;
    sessionOpenGenerations;
@@ -118,7 +172,7 @@ index fb338ee..3c468b5 100755
    constructor(connection, codexAcpClient, defaultAuthRequest, getExitCode, getRecentStderr) {
      this.sessions = /* @__PURE__ */ new Map();
      this.pendingMcpStartupSessions = /* @__PURE__ */ new Map();
-@@ -28159,6 +28237,13 @@ var CodexAcpServer = class _CodexAcpServer {
+@@ -28159,6 +28284,13 @@ var CodexAcpServer = class _CodexAcpServer {
      this.closingSessions = /* @__PURE__ */ new Map();
      this.sessionGenerations = /* @__PURE__ */ new Map();
      this.sessionOpenGenerations = /* @__PURE__ */ new Map();
@@ -132,7 +186,7 @@ index fb338ee..3c468b5 100755
      this.connection = connection;
      this.codexAcpClient = codexAcpClient;
      this.defaultAuthRequest = defaultAuthRequest ?? null;
-@@ -28174,6 +28259,9 @@ var CodexAcpServer = class _CodexAcpServer {
+@@ -28174,6 +28306,9 @@ var CodexAcpServer = class _CodexAcpServer {
        (operation) => this.runWithProcessCheck(operation),
        () => this.refreshSessionsAuthState(null)
      );
@@ -142,7 +196,7 @@ index fb338ee..3c468b5 100755
    }
    async initialize(_params) {
      logger.log("Initialize request received");
-@@ -28202,6 +28290,7 @@ var CodexAcpServer = class _CodexAcpServer {
+@@ -28202,6 +28337,7 @@ var CodexAcpServer = class _CodexAcpServer {
          sessionCapabilities: {
            resume: {},
            list: {},
@@ -150,7 +204,7 @@ index fb338ee..3c468b5 100755
            close: {},
            delete: {},
            additionalDirectories: {}
-@@ -28210,6 +28299,12 @@ var CodexAcpServer = class _CodexAcpServer {
+@@ -28210,6 +28346,12 @@ var CodexAcpServer = class _CodexAcpServer {
            acp: false,
            http: true,
            sse: false
@@ -163,7 +217,7 @@ index fb338ee..3c468b5 100755
          }
        },
        authMethods: getCodexAuthMethods(_params.clientCapabilities)
-@@ -28248,6 +28343,31 @@ var CodexAcpServer = class _CodexAcpServer {
+@@ -28248,6 +28390,31 @@ var CodexAcpServer = class _CodexAcpServer {
          }
          return {};
        }
@@ -195,7 +249,7 @@ index fb338ee..3c468b5 100755
      }
    }
    async checkAuthorization() {
-@@ -28462,6 +28582,7 @@ You have been logged out. Please try again.`);
+@@ -28462,6 +28629,7 @@ You have been logged out. Please try again.`);
        thread
      } = await this.getOrCreateSessionWithHistory(params);
      await this.streamThreadHistory(sessionId, thread);
@@ -203,7 +257,7 @@ index fb338ee..3c468b5 100755
      logger.log("Session loaded", {
        sessionId,
        modelId: modelState.currentModelId,
-@@ -28473,6 +28594,22 @@ You have been logged out. Please try again.`);
+@@ -28473,6 +28641,22 @@ You have been logged out. Please try again.`);
        ...this.createSessionConfigOptionsResponse(this.getSessionState(sessionId))
      };
    }
@@ -226,7 +280,7 @@ index fb338ee..3c468b5 100755
    async resumeSession(params) {
      logger.log("Resuming session...", { sessionId: params.sessionId });
      const [sessionId, modelState, modeState] = await this.getOrCreateSession(params);
-@@ -28481,6 +28618,7 @@ You have been logged out. Please try again.`);
+@@ -28481,6 +28665,7 @@ You have been logged out. Please try again.`);
        modelId: modelState.currentModelId,
        availableModelCount: modelState.availableModels.length
      });
@@ -234,7 +288,7 @@ index fb338ee..3c468b5 100755
      return {
        models: modelState,
        modes: modeState,
-@@ -28522,6 +28660,7 @@ You have been logged out. Please try again.`);
+@@ -28522,6 +28707,7 @@ You have been logged out. Please try again.`);
          await activePrompt.completion;
        }
        await this.runWithProcessCheck(() => this.codexAcpClient.closeSession(params.sessionId));
@@ -242,7 +296,7 @@ index fb338ee..3c468b5 100755
        logger.log("Session closed", { sessionId: params.sessionId });
      } finally {
        if (this.getSessionGeneration(params.sessionId) === closeGeneration) {
-@@ -28534,6 +28673,256 @@ You have been logged out. Please try again.`);
+@@ -28534,6 +28720,256 @@ You have been logged out. Please try again.`);
      }
      return {};
    }
@@ -499,7 +553,52 @@ index fb338ee..3c468b5 100755
    async deleteSession(params) {
      logger.log("Deleting session...", { sessionId: params.sessionId });
      const sessionId = params.sessionId;
-@@ -29805,6 +30194,9 @@ var CodexAppServerClient = class {
+@@ -29040,11 +29476,11 @@ You have been logged out. Please try again.`);
+         return [this.createPlanUpdate(item)];
+     }
+   }
+-  createUserMessageUpdates(item) {
++  async createUserMessageUpdates(item) {
+     const updates = [];
+     const messageId = item.id;
+     for (const input of item.content) {
+-      const blocks = this.userInputToContentBlocks(input);
++      const blocks = await this.userInputToContentBlocks(input);
+       for (const block of blocks) {
+         updates.push(createUserMessageChunk(block, messageId));
+       }
+@@ -29088,15 +29524,26 @@ ${item.text}`
+       }
+     };
+   }
+-  userInputToContentBlocks(input) {
++  async userInputToContentBlocks(input) {
+     switch (input.type) {
+       case "text":
+         return input.text.length > 0 ? [{ type: "text", text: input.text }] : [];
+-      case "image":
+-        return [{ type: "text", text: this.formatUriAsLink("image", input.url) }];
++      case "image": {
++        const image = historyImageBlockFromDataUrl(input.url);
++        return image ? [image] : [{
++          type: "resource_link",
++          uri: input.url,
++          name: "image"
++        }];
++      }
+       case "localImage": {
+         const uri = input.path.startsWith("file://") ? input.path : `file://${input.path}`;
+-        return [{ type: "text", text: this.formatUriAsLink(null, uri) }];
++        const image = await historyImageBlockFromLocalPath(input.path);
++        return image ? [image] : [{
++          type: "resource_link",
++          uri,
++          name: path5.basename(input.path) || "image"
++        }];
+       }
+       case "skill":
+         return [{ type: "text", text: `skill:${input.name} (${input.path})` }];
+@@ -29805,6 +30252,9 @@ var CodexAppServerClient = class {
    async turnStart(params) {
      return await this.sendRequest({ method: "turn/start", params });
    }
@@ -509,7 +608,7 @@ index fb338ee..3c468b5 100755
    async runTurn(params, onTurnStarted) {
      const capturedCompletions = [];
      const releaseCapture = this.captureTurnCompletions(params.threadId, (event) => {
-@@ -30032,6 +30424,9 @@ var CodexAppServerClient = class {
+@@ -30032,6 +30482,9 @@ var CodexAppServerClient = class {
    async threadResume(params) {
      return await this.sendRequest({ method: "thread/resume", params });
    }
@@ -519,7 +618,7 @@ index fb338ee..3c468b5 100755
    getThreadSettings(threadId) {
      return this.threadSettings.get(threadId);
    }
-@@ -30595,6 +30990,11 @@ var goalControlParamsParser = external_exports.object({
+@@ -30595,6 +31048,11 @@ var goalControlParamsParser = external_exports.object({
    sessionId: external_exports.string(),
    action: external_exports.enum(["pause", "clear"])
  }).passthrough();
@@ -531,7 +630,7 @@ index fb338ee..3c468b5 100755
  if (process.argv.includes("--version")) {
    console.log(`${package_default.name} ${package_default.version}`);
    process.exit(0);
-@@ -30667,5 +31067,5 @@ function startAcpServer() {
+@@ -30667,5 +31125,5 @@ function startAcpServer() {
          codexAcpServer = null;
        }
      });

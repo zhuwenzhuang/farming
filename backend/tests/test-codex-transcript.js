@@ -5,7 +5,6 @@ const path = require('path');
 const {
   DEFAULT_MAX_TURNS,
   buildTranscriptFromLines,
-  readCodexHistoryImageData,
   stripUserMessagePrefix,
   textFromContent,
 } = require('../codex-transcript');
@@ -2336,37 +2335,4 @@ function referenceServerNotificationMethods() {
   assert.strictEqual(turns[0].processItems.filter(item => item.title === '我会按 review 口径判断一下。').length, 1);
 }
 
-async function runAsyncTests() {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-codex-transcript-history-'));
-  const sessionDir = path.join(tmpDir, 'sessions', '2026', '07', '09');
-  fs.mkdirSync(sessionDir, { recursive: true });
-  try {
-    const imageSessionId = '019f0000-0000-7000-8000-000000000778';
-    const imageSessionPath = path.join(sessionDir, `rollout-${imageSessionId}.jsonl`);
-    const imagePath = path.join(tmpDir, 'expired-screen.png');
-    const imageData = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=';
-    fs.writeFileSync(imageSessionPath, line('response_item', {
-      type: 'message',
-      role: 'user',
-      content: [
-        { type: 'input_text', text: `# Files mentioned by the user:\n\n## expired-screen.png: ${imagePath}\n\n## My request for Codex:\n查看截图` },
-        { type: 'input_text', text: `<image name=[Image #1] path="${imagePath}">` },
-        { type: 'input_image', image_url: `data:image/png;base64,${imageData}` },
-        { type: 'input_text', text: '</image>' },
-      ],
-    }));
-    const historyImages = await readCodexHistoryImageData(imageSessionId, { codexHome: tmpDir });
-    assert.strictEqual(historyImages.get(imagePath), `data:image/png;base64,${imageData}`);
-  } finally {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
-  }
-}
-
-runAsyncTests()
-  .then(() => {
-    console.log('codex transcript tests passed');
-  })
-  .catch(error => {
-    console.error(error);
-    process.exitCode = 1;
-  });
+console.log('codex transcript tests passed');

@@ -1,9 +1,5 @@
 const fs = require('fs');
-const fsp = require('fs/promises');
-const os = require('os');
 const path = require('path');
-const { fileURLToPath } = require('url');
-const { findCodexRolloutFile } = require('./codex-rollout-follower');
 const {
   heartbeatAssistantMessage,
   heartbeatUserMessage,
@@ -13,7 +9,6 @@ const {
 
 // The generic event-to-turn projection remains for JSON compatibility feeds;
 // live structured Chat is reduced from ACP session updates instead.
-const DEFAULT_MAX_READ_BYTES = 32 * 1024 * 1024;
 const DEFAULT_MAX_TURNS = 240;
 const USER_MESSAGE_BEGIN = '## My request for Codex:';
 const MAX_USER_IMAGES_PER_TURN = 6;
@@ -305,71 +300,6 @@ function stripRenderedComposerAttachmentBlocks(value, renderedKinds) {
   return next
     .replace(/\n{3,}/g, '\n\n')
     .trim();
-}
-
-function codexHistoryImageTargets(value) {
-  const text = String(value || '');
-  const targets = [];
-  let match;
-  CODEX_HISTORY_IMAGE_LINK_PATTERN.lastIndex = 0;
-  while ((match = CODEX_HISTORY_IMAGE_LINK_PATTERN.exec(text))) {
-    const target = String(match[1] || '').trim();
-    if (!target || targets.includes(target)) continue;
-    targets.push(target);
-    if (targets.length >= MAX_USER_IMAGES_PER_TURN) break;
-  }
-  return targets;
-}
-
-function localImagePathFromTarget(value) {
-  const target = String(value || '').trim();
-  if (!target || target.includes('\0') || /^data:/i.test(target)) return '';
-  if (/^file:\/\//i.test(target)) {
-    try {
-      return fileURLToPath(target);
-    } catch {
-      return '';
-    }
-  }
-  return path.isAbsolute(target) ? target : '';
-}
-
-function localImagePathsFromUserContent(content) {
-  const paths = [];
-  const append = (value) => {
-    const filePath = localImagePathFromTarget(value);
-    if (!filePath || !LOCAL_IMAGE_MIME_BY_EXT[path.extname(filePath).toLowerCase()] || paths.includes(filePath)) return;
-    paths.push(filePath);
-  };
-  for (const part of Array.isArray(content) ? content : []) {
-    if (!part || typeof part !== 'object') continue;
-    if (['local_image', 'localImage'].includes(part.type)) append(part.path || part.file || part.url);
-    const text = typeof part.text === 'string' ? part.text : '';
-    for (const match of text.matchAll(/<image\b[^>]*\bpath=(['"])(.*?)\1/gi)) append(match[2]);
-    for (const match of text.matchAll(/^##\s+[^\n:]+:\s*(.+)$/gim)) append(match[1]);
-  }
-  return paths.slice(0, MAX_USER_IMAGES_PER_TURN);
-}
-
-function dataImageUrlsFromUserContent(content) {
-  const urls = [];
-  for (const part of Array.isArray(content) ? content : []) {
-    if (!part || typeof part !== 'object' || !['input_image', 'inputImage', 'image'].includes(part.type)) continue;
-    const value = String(part.image_url || part.imageUrl || part.url || part.data || '');
-    if (!/^data:image\/(?:gif|jpe?g|png|svg\+xml|webp);base64,/i.test(value)) continue;
-    if (value.length > MAX_USER_IMAGE_URL_LENGTH || urls.includes(value)) continue;
-    urls.push(value);
-    if (urls.length >= MAX_USER_IMAGES_PER_TURN) break;
-  }
-  return urls;
-}
-
-function appendHistoryImageDataFromContent(imageDataByPath, content) {
-  const paths = localImagePathsFromUserContent(content);
-  const urls = dataImageUrlsFromUserContent(content);
-  for (let index = 0; index < Math.min(paths.length, urls.length); index += 1) {
-    if (!imageDataByPath.has(paths[index])) imageDataByPath.set(paths[index], urls[index]);
-  }
 }
 
 function stripRenderedCodexHistoryAttachmentLinks(value, renderedKinds) {
@@ -2415,57 +2345,6 @@ function buildTranscriptFromLines(lines, options = {}) {
     .slice(-maxTurns);
 }
 
-async function readTailLines(filePath, maxReadBytes = DEFAULT_MAX_READ_BYTES) {
-  const stat = await fsp.stat(filePath);
-  const start = Math.max(0, stat.size - maxReadBytes);
-  const handle = await fsp.open(filePath, 'r');
-  try {
-    const buffer = Buffer.alloc(stat.size - start);
-    const result = await handle.read(buffer, 0, buffer.length, start);
-    let text = buffer.subarray(0, result.bytesRead).toString('utf8');
-    if (start > 0) {
-      const firstNewline = text.indexOf('\n');
-      text = firstNewline >= 0 ? text.slice(firstNewline + 1) : '';
-    }
-    return {
-      truncated: start > 0,
-      lines: text.split('\n'),
-    };
-  } finally {
-    await handle.close().catch(() => {});
-  }
-}
-
-async function readCodexHistoryImageData(sessionId, options = {}) {
-  const normalizedSessionId = String(sessionId || '').trim();
-  if (!normalizedSessionId) return new Map();
-  const filePath = findCodexRolloutFile(normalizedSessionId, {
-    codexHome: options.codexHome || path.join(os.homedir(), '.codex'),
-  });
-  if (!filePath) return new Map();
-  const tail = await readTailLines(filePath, options.maxReadBytes);
-  const imageDataByPath = new Map();
-  for (const line of tail.lines) {
-    if (!line.trim()) continue;
-    try {
-      const event = JSON.parse(line);
-      const { type: eventType, payload } = normalizeEventEnvelope(event);
-      if (!payload) continue;
-      if (eventType === 'response_item' && payload.type === 'message' && payload.role === 'user') {
-        appendHistoryImageDataFromContent(imageDataByPath, payload.content);
-        continue;
-      }
-      if (['item/started', 'item/completed', 'item.started', 'item.completed'].includes(eventType)) {
-        const item = payload.item;
-        if (turnItemType(item) === 'usermessage') appendHistoryImageDataFromContent(imageDataByPath, item?.content);
-      }
-    } catch {
-      // Ignore malformed or partial tail records; history replay remains usable without image recovery.
-    }
-  }
-  return imageDataByPath;
-}
-
 function buildTranscriptFromEvents(events, options = {}) {
   const lines = Array.isArray(events)
     ? events.filter(event => event && typeof event === 'object').map(event => JSON.stringify(event))
@@ -2477,8 +2356,6 @@ module.exports = {
   DEFAULT_MAX_TURNS,
   buildTranscriptFromEvents,
   buildTranscriptFromLines,
-  codexHistoryImageTargets,
-  readCodexHistoryImageData,
   stripUserMessagePrefix,
   textFromContent,
   visibleUserMessageText,

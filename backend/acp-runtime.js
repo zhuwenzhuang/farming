@@ -9,7 +9,6 @@ const { promisify } = require('util');
 const packageJson = require('../package.json');
 const { AcpCheckpointStore } = require('./acp-checkpoint-store');
 const { AcpSessionState } = require('./acp-session-state');
-const { readCodexHistoryImageData } = require('./codex-transcript');
 const { AcpClientFileSystem, AcpClientTerminalManager } = require('./acp/client-services');
 const { PACKAGED_CODEX_ACP_ARG } = require('./acp/packaged-codex-acp');
 const { PACKAGED_CLAUDE_ACP_ARG } = require('./acp/packaged-claude-acp');
@@ -36,7 +35,7 @@ const CODEX_SET_SESSION_MODEL_METHOD = 'session/set_model';
 const CODEX_STEER_METHOD = '_codex/session/steer';
 const CODEX_ACP_PACKAGE = '@agentclientprotocol/codex-acp';
 const CODEX_ACP_VERSION = '1.1.4';
-const CODEX_ACP_SHA256 = '60be4e834e1e98d563eeddc90059dca689381b6bb2587f0ec2e64bc9475c0012';
+const CODEX_ACP_SHA256 = '75e70159692a7889d496651074cd3476687bafb9dc7d4eb3e9590509ad687611';
 const CLAUDE_ACP_PACKAGE = '@agentclientprotocol/claude-agent-acp';
 const CLAUDE_ACP_VERSION = '0.59.0';
 const CLAUDE_ACP_SHA256 = 'a6aa515dd02382617bf46d9eac47b8a1022c6835bcf7a8d61e2c63939be2e49c';
@@ -857,19 +856,6 @@ class AcpRuntime extends EventEmitter {
             binding.historyReplayActive = false;
           }
           binding.sessionState.finishHistoryReplay();
-          if (provider === 'codex' && binding.sessionState.hasCodexHistoryImageReferences()) {
-            let imageDataByPath = new Map();
-            try {
-              imageDataByPath = await readCodexHistoryImageData(requestedSessionId, {
-                codexHome: binding.env.CODEX_HOME,
-              });
-            } catch {
-              // Local history images can still be restored from their adapter paths.
-            }
-            this.requireOpenBinding(binding);
-            await binding.sessionState.hydrateCodexHistoryAttachments({ imageDataByPath });
-            this.requireOpenBinding(binding);
-          }
           this.restorePatchDecisions(binding, restoredCheckpoint?.patchDecisions);
           historyMode = 'load';
           opened = true;

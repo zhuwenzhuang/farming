@@ -359,42 +359,26 @@ async function run() {
     },
   } });
   assert.strictEqual(sanitizedState.snapshot().entries[1].content[0].text, 'answer');
-  const historyImageDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-acp-history-image-'));
-  const historyImagePath = path.join(historyImageDir, 'screen.png');
   const historyImageData = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=';
-  fs.writeFileSync(historyImagePath, Buffer.from(historyImageData, 'base64'));
-  try {
-    const historyImageState = new AcpSessionState({ provider: 'codex', sessionId: 'history-image', cwd: '/tmp' });
-    historyImageState.apply({ sessionId: 'history-image', update: {
-      sessionUpdate: 'user_message_chunk',
-      messageId: 'history-image-user',
-      content: {
-        type: 'text',
-        text: `# Files mentioned by the user:\n\n## screen.png: ${historyImagePath}\n\n## My request for Codex:\n请检查截图\n[@screen.png](file://${historyImagePath})[@image](${historyImagePath})`,
-      },
-    } });
-    assert.strictEqual(historyImageState.hasCodexHistoryImageReferences(), true);
-    assert.strictEqual(await historyImageState.hydrateCodexHistoryAttachments(), 1);
-    const historyImageEntry = historyImageState.snapshot().entries[0];
-    assert.strictEqual(historyImageEntry.content[0].text, '请检查截图');
-    assert.deepStrictEqual(historyImageEntry.content[1], {
-      type: 'image', mimeType: 'image/png', data: historyImageData,
-    });
-
-    const missingImagePath = path.join(historyImageDir, 'removed.png');
-    const fallbackImageState = new AcpSessionState({ provider: 'codex', sessionId: 'fallback-image', cwd: '/tmp' });
-    fallbackImageState.apply({ sessionId: 'fallback-image', update: {
-      sessionUpdate: 'user_message_chunk',
-      content: { type: 'text', text: `看旧截图\n[@image](${missingImagePath})` },
-    } });
-    assert.strictEqual(await fallbackImageState.hydrateCodexHistoryAttachments({
-      imageDataByPath: new Map([[missingImagePath, `data:image/png;base64,${historyImageData}`]]),
-    }), 1);
-    assert.strictEqual(fallbackImageState.snapshot().entries[0].content[0].text, '看旧截图');
-    assert.strictEqual(fallbackImageState.snapshot().entries[0].content[1].data, historyImageData);
-  } finally {
-    fs.rmSync(historyImageDir, { recursive: true, force: true });
-  }
+  const historyImageState = new AcpSessionState({ provider: 'codex', sessionId: 'history-image', cwd: '/tmp' });
+  historyImageState.apply({ sessionId: 'history-image', update: {
+    sessionUpdate: 'user_message_chunk',
+    messageId: 'history-image-user',
+    content: {
+      type: 'text',
+      text: '# Files mentioned by the user:\n\n## screen.png: /tmp/screen.png\n\n## My request for Codex:\n请检查截图',
+    },
+  } });
+  historyImageState.apply({ sessionId: 'history-image', update: {
+    sessionUpdate: 'user_message_chunk',
+    messageId: 'history-image-user',
+    content: { type: 'image', mimeType: 'image/png', data: historyImageData },
+  } });
+  const historyImageEntry = historyImageState.snapshot().entries[0];
+  assert.strictEqual(historyImageEntry.content[0].text, '请检查截图');
+  assert.deepStrictEqual(historyImageEntry.content[1], {
+    type: 'image', mimeType: 'image/png', data: historyImageData,
+  });
   const phasedState = new AcpSessionState({ provider: 'codex', sessionId: 'phased', cwd: '/tmp' });
   phasedState.apply({ sessionId: 'phased', update: {
     sessionUpdate: 'agent_message_chunk',
