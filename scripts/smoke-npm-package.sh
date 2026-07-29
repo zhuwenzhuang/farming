@@ -109,6 +109,8 @@ for runtime_module in \
   provider-session-id \
   preview-session-manager \
   qr-share-tickets \
+  review-session-store \
+  review-state-store \
   run-history-store \
   runtime-executable-invocation \
   runtime-observation \

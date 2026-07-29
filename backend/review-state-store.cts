@@ -7,11 +7,71 @@ const MAX_PATH_LENGTH = 4096;
 const MAX_COMMENT_ID_LENGTH = 256;
 const MAX_COMMENT_BODY_LENGTH = 20000;
 
-function ownValue(object, key) {
+type ReviewCommentSide = 'left' | 'right' | 'unified';
+type ReviewCommentStatus = 'open' | 'resolved' | 'outdated';
+
+interface ReviewCommentRange {
+  end_character: number;
+  end_line: number;
+  start_character: number;
+  start_line: number;
+}
+
+interface ReviewComment {
+  body: string;
+  id: string;
+  line: number;
+  patchset: string;
+  path: string;
+  range?: ReviewCommentRange;
+  side: ReviewCommentSide;
+  sourcePatchset?: string;
+  status?: ReviewCommentStatus;
+}
+
+interface ReviewPatchsetState {
+  comments: ReviewComment[];
+  reviewedPaths: string[];
+  revision: number;
+}
+
+interface ReviewStateEntry {
+  patchsets: Record<string, ReviewPatchsetState>;
+}
+
+type ReviewStateMap = Record<string, ReviewStateEntry>;
+
+interface ReviewState {
+  reviews: ReviewStateMap;
+}
+
+interface ReviewStateStoreOptions {
+  file?: string;
+  seedReviews?: unknown;
+  writeJson?: (file: string, value: unknown) => void;
+}
+
+interface ReviewCommentInput {
+  body?: unknown;
+  id?: unknown;
+  line?: unknown;
+  patchset?: unknown;
+  path?: unknown;
+  range?: unknown;
+  side?: unknown;
+  sourcePatchset?: unknown;
+  status?: unknown;
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function ownValue<T>(object: Record<string, T> | null | undefined, key: string): T | undefined {
   return object && Object.prototype.hasOwnProperty.call(object, key) ? object[key] : undefined;
 }
 
-function isSafeKey(value) {
+function isSafeKey(value: unknown): value is string {
   return typeof value === 'string'
     && value.length > 0
     && value.length <= MAX_KEY_LENGTH
@@ -19,27 +79,27 @@ function isSafeKey(value) {
     && !/[\\\0\r\n\t]/.test(value);
 }
 
-function isSafeRepositoryPath(value) {
+function isSafeRepositoryPath(value: unknown): value is string {
   if (value === '/COMMIT_MSG' || value === '/MERGE_LIST') return true;
   if (typeof value !== 'string' || !value || value.length > MAX_PATH_LENGTH || value.includes('\0')) return false;
   if (value.startsWith('/') || value.startsWith('\\')) return false;
   return value.split(/[\\/]/).every(segment => segment && segment !== '.' && segment !== '..');
 }
 
-function uniquePaths(paths) {
+function uniquePaths(paths: unknown): string[] {
   if (!Array.isArray(paths)) return [];
   return [...new Set(paths.filter(isSafeRepositoryPath))];
 }
 
-function isSafeCommentId(value) {
+function isSafeCommentId(value: unknown): value is string {
   return typeof value === 'string'
     && value.length > 0
     && value.length <= MAX_COMMENT_ID_LENGTH
     && /^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(value);
 }
 
-function normalizeCommentRange(value) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+function normalizeCommentRange(value: unknown): ReviewCommentRange | null {
+  if (!isObject(value)) return null;
   const range = {
     end_character: value.end_character,
     end_line: value.end_line,
@@ -47,22 +107,28 @@ function normalizeCommentRange(value) {
     start_line: value.start_line,
   };
   if (
-    !Number.isInteger(range.start_line) || range.start_line < 1
-    || !Number.isInteger(range.end_line) || range.end_line < 1
-    || !Number.isInteger(range.start_character) || range.start_character < 0
-    || !Number.isInteger(range.end_character) || range.end_character < 0
+    typeof range.start_line !== 'number' || !Number.isInteger(range.start_line) || range.start_line < 1
+    || typeof range.end_line !== 'number' || !Number.isInteger(range.end_line) || range.end_line < 1
+    || typeof range.start_character !== 'number' || !Number.isInteger(range.start_character) || range.start_character < 0
+    || typeof range.end_character !== 'number' || !Number.isInteger(range.end_character) || range.end_character < 0
     || (range.start_line > range.end_line)
     || (range.start_line === range.end_line && range.start_character >= range.end_character)
   ) return null;
-  return range;
+  return {
+    end_character: range.end_character,
+    end_line: range.end_line,
+    start_character: range.start_character,
+    start_line: range.start_line,
+  } as ReviewCommentRange;
 }
 
-function normalizeComment(value, patchset) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+function normalizeComment(value: unknown, patchset: string): ReviewComment | null {
+  if (!isObject(value)) return null;
   const body = typeof value.body === 'string' ? value.body.trim() : '';
   if (
     !isSafeCommentId(value.id)
     || !isSafeRepositoryPath(value.path)
+    || typeof value.line !== 'number'
     || !Number.isInteger(value.line)
     || value.line < 1
     || value.line > 100000000
@@ -73,7 +139,9 @@ function normalizeComment(value, patchset) {
   ) return null;
   const range = value.range === undefined ? undefined : normalizeCommentRange(value.range);
   if (value.range !== undefined && !range) return null;
-  const status = value.status === 'open' || value.status === 'resolved' || value.status === 'outdated'
+  const status: ReviewCommentStatus | undefined = value.status === 'open'
+    || value.status === 'resolved'
+    || value.status === 'outdated'
     ? value.status
     : undefined;
   return {
@@ -89,10 +157,10 @@ function normalizeComment(value, patchset) {
   };
 }
 
-function normalizeComments(value, patchset) {
+function normalizeComments(value: unknown, patchset: string): ReviewComment[] {
   if (!Array.isArray(value)) return [];
-  const seen = new Set();
-  return value.reduce((comments, item) => {
+  const seen = new Set<string>();
+  return value.reduce<ReviewComment[]>((comments, item) => {
     const comment = normalizeComment(item, patchset);
     if (!comment || seen.has(comment.id)) return comments;
     seen.add(comment.id);
@@ -101,13 +169,17 @@ function normalizeComments(value, patchset) {
   }, []);
 }
 
-function normalizePatchsets(value) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+function normalizePatchsets(value: unknown): Record<string, ReviewPatchsetState> {
+  if (!isObject(value)) return {};
   return Object.fromEntries(Object.entries(value)
     .filter(([patchset]) => isSafeKey(patchset))
     .map(([patchset, entry]) => {
-      const candidate = entry && typeof entry === 'object' && !Array.isArray(entry) ? entry : {};
-      const revision = Number.isInteger(candidate.revision) && candidate.revision >= 0 ? candidate.revision : 0;
+      const candidate = isObject(entry) ? entry : {};
+      const revision = typeof candidate.revision === 'number'
+        && Number.isInteger(candidate.revision)
+        && candidate.revision >= 0
+        ? candidate.revision
+        : 0;
       return [patchset, {
         comments: normalizeComments(candidate.comments, patchset),
         reviewedPaths: uniquePaths(candidate.reviewedPaths),
@@ -116,22 +188,27 @@ function normalizePatchsets(value) {
     }));
 }
 
-function normalizeReviews(value) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+function normalizeReviews(value: unknown): ReviewStateMap {
+  if (!isObject(value)) return {};
   return Object.fromEntries(Object.entries(value)
     .filter(([reviewId]) => isSafeKey(reviewId))
     .map(([reviewId, entry]) => {
-      const candidate = entry && typeof entry === 'object' && !Array.isArray(entry) ? entry : {};
+      const candidate = isObject(entry) ? entry : {};
       return [reviewId, { patchsets: normalizePatchsets(candidate.patchsets) }];
     }));
 }
 
-function clone(value) {
-  return JSON.parse(JSON.stringify(value));
+function clone<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
 }
 
 class ReviewStateStore {
-  constructor(configDir, options = {}) {
+  file: string;
+  seedReviews: ReviewStateMap;
+  writeJson: (file: string, value: unknown) => void;
+  state: ReviewState | null;
+
+  constructor(configDir: string, options: ReviewStateStoreOptions = {}) {
     this.file = options.file || storageLayout.reviewStateFile(configDir);
     this.seedReviews = normalizeReviews(options.seedReviews);
     this.writeJson = typeof options.writeJson === 'function'
@@ -140,38 +217,51 @@ class ReviewStateStore {
     this.state = null;
   }
 
-  readState() {
+  readState(): ReviewState {
     try {
       if (!fs.existsSync(this.file)) return { reviews: {} };
       const parsed = JSON.parse(fs.readFileSync(this.file, 'utf8'));
-      return { reviews: normalizeReviews(parsed && parsed.reviews) };
-    } catch (error) {
-      console.warn('Failed to read Farming review state:', error && (error.message || error));
+      return { reviews: normalizeReviews(isObject(parsed) ? parsed.reviews : undefined) };
+    } catch (error: unknown) {
+      console.warn(
+        'Failed to read Farming review state:',
+        error instanceof Error ? error.message : error,
+      );
       return { reviews: {} };
     }
   }
 
-  ensureState() {
+  ensureState(): ReviewState {
     if (!this.state) this.state = this.readState();
     return this.state;
   }
 
-  initialPatchsetState(reviewId, patchset) {
+  initialPatchsetState(reviewId: string, patchset: string): ReviewPatchsetState {
     const review = ownValue(this.seedReviews, reviewId);
-    const patchsets = review && typeof review === 'object' ? review.patchsets : null;
+    const patchsets = review?.patchsets;
     return ownValue(patchsets, patchset) || { comments: [], reviewedPaths: [], revision: 0 };
   }
 
-  getPatchsetState(reviewId, patchset) {
+  getPatchsetState(reviewId: string, patchset: string): ReviewPatchsetState {
     if (!isSafeKey(reviewId) || !isSafeKey(patchset)) throw new TypeError('reviewId and patchset are required');
     const state = this.ensureState();
     const review = ownValue(state.reviews, reviewId);
-    const patchsets = review && typeof review === 'object' ? review.patchsets : null;
+    const patchsets = review?.patchsets;
     const stored = ownValue(patchsets, patchset);
     return clone(stored || this.initialPatchsetState(reviewId, patchset));
   }
 
-  setFileReviewedGerrit({ reviewId, patchset, path: filePath, reviewed }) {
+  setFileReviewedGerrit({
+    reviewId,
+    patchset,
+    path: filePath,
+    reviewed,
+  }: {
+    reviewId: string;
+    patchset: string;
+    path: string;
+    reviewed: boolean;
+  }): { changed: boolean; state: ReviewPatchsetState } {
     if (!isSafeKey(reviewId) || !isSafeKey(patchset) || !isSafeRepositoryPath(filePath) || typeof reviewed !== 'boolean') {
       throw new TypeError('invalid review status request');
     }
@@ -192,11 +282,19 @@ class ReviewStateStore {
     return { changed: true, state: clone(next) };
   }
 
-  getComments(reviewId, patchset) {
+  getComments(reviewId: string, patchset: string): ReviewComment[] {
     return this.getPatchsetState(reviewId, patchset).comments;
   }
 
-  saveComment({ reviewId, patchset, comment }) {
+  saveComment({
+    reviewId,
+    patchset,
+    comment,
+  }: {
+    reviewId: string;
+    patchset: string;
+    comment: ReviewCommentInput;
+  }): ReviewComment {
     if (!isSafeKey(reviewId) || !isSafeKey(patchset)) throw new TypeError('reviewId and patchset are required');
     const normalizedComment = normalizeComment(comment, patchset);
     if (!normalizedComment) throw new TypeError('invalid review comment');
@@ -212,7 +310,15 @@ class ReviewStateStore {
     return clone(normalizedComment);
   }
 
-  deleteComment({ reviewId, patchset, commentId }) {
+  deleteComment({
+    reviewId,
+    patchset,
+    commentId,
+  }: {
+    reviewId: string;
+    patchset: string;
+    commentId: string;
+  }): ReviewComment[] {
     if (!isSafeKey(reviewId) || !isSafeKey(patchset) || !isSafeCommentId(commentId)) {
       throw new TypeError('invalid review comment request');
     }
@@ -223,7 +329,17 @@ class ReviewStateStore {
     return clone(next.comments);
   }
 
-  updateCommentStatus({ reviewId, patchset, commentId, status }) {
+  updateCommentStatus({
+    reviewId,
+    patchset,
+    commentId,
+    status,
+  }: {
+    reviewId: string;
+    patchset: string;
+    commentId: string;
+    status: unknown;
+  }): ReviewComment {
     if (!isSafeKey(reviewId) || !isSafeKey(patchset) || !isSafeCommentId(commentId) || (status !== 'open' && status !== 'resolved')) {
       throw new TypeError('invalid review comment status request');
     }
@@ -231,8 +347,8 @@ class ReviewStateStore {
     const existing = current.comments.find(comment => comment.id === commentId);
     if (!existing) throw new TypeError('review comment not found');
     if ((existing.status || 'open') === status) return clone(existing);
-    const comment = { ...existing, status };
-    const next = {
+    const comment: ReviewComment = { ...existing, status };
+    const next: ReviewPatchsetState = {
       ...current,
       comments: current.comments.map(item => item.id === commentId ? comment : item),
     };
@@ -240,7 +356,17 @@ class ReviewStateStore {
     return clone(comment);
   }
 
-  inheritPatchset({ reviewId, previousPatchset, nextPatchset, changedPaths }) {
+  inheritPatchset({
+    reviewId,
+    previousPatchset,
+    nextPatchset,
+    changedPaths,
+  }: {
+    reviewId: string;
+    previousPatchset: string;
+    nextPatchset: string;
+    changedPaths: unknown;
+  }): ReviewPatchsetState {
     if (!isSafeKey(reviewId) || !isSafeKey(previousPatchset) || !isSafeKey(nextPatchset) || !Array.isArray(changedPaths)) {
       throw new TypeError('invalid review patchset inheritance');
     }
@@ -250,8 +376,8 @@ class ReviewStateStore {
     if (existing) return clone(existing);
     const previous = this.getPatchsetState(reviewId, previousPatchset);
     const changed = new Set(uniquePaths(changedPaths));
-    const next = {
-      comments: previous.comments.map(comment => ({
+    const next: ReviewPatchsetState = {
+      comments: previous.comments.map((comment): ReviewComment => ({
         ...comment,
         patchset: nextPatchset,
         ...(changed.has(comment.path)
@@ -265,7 +391,11 @@ class ReviewStateStore {
     return clone(next);
   }
 
-  writePatchsetState(reviewId, patchset, patchsetState) {
+  writePatchsetState(
+    reviewId: string,
+    patchset: string,
+    patchsetState: ReviewPatchsetState,
+  ): void {
     const currentState = this.ensureState();
     const review = ownValue(currentState.reviews, reviewId) || { patchsets: {} };
     const nextState = {
@@ -279,7 +409,7 @@ class ReviewStateStore {
   }
 }
 
-module.exports = {
+export {
   ReviewStateStore,
   isSafeKey,
   isSafeRepositoryPath,

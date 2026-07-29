@@ -5,8 +5,8 @@ const path = require('path');
 
 const { atomicWriteJson } = require('../atomic-json-store.cjs');
 const ConfigManager = require('../config-manager');
-const { ReviewSessionStore } = require('../review-session-store');
-const { ReviewStateStore } = require('../review-state-store');
+const { ReviewSessionStore } = require('../review-session-store.cjs');
+const { ReviewStateStore } = require('../review-state-store.cjs');
 const { RunHistoryStore } = require('../run-history-store.cjs');
 
 function failingFileSystem(method) {

@@ -7,8 +7,8 @@ const { promisify } = require('util');
 
 const { ReviewDiffService } = require('../review-diff-service');
 const { ReviewSessionService } = require('../review-session-service');
-const { ReviewSessionStore } = require('../review-session-store');
-const { ReviewStateStore } = require('../review-state-store');
+const { ReviewSessionStore } = require('../review-session-store.cjs');
+const { ReviewStateStore } = require('../review-state-store.cjs');
 const { WorkspaceFileService } = require('../workspace-file-service');
 
 const execFile = promisify(childProcess.execFile);

@@ -7,21 +7,73 @@ const storageLayout = require('./storage-layout.cjs');
 const REVIEW_ID_PATTERN = /^review-[a-f0-9]{32}$/;
 const OBJECT_ID_PATTERN = /^[a-f0-9]{40,64}$/;
 
-function clone(value) {
-  return JSON.parse(JSON.stringify(value));
+type ReviewScope = 'tracked' | 'untracked';
+
+interface ReviewRevision {
+  createdAt: string;
+  number: number;
+  previousTree?: string;
+  tree: string;
 }
 
-function validRevision(value) {
-  return value
-    && typeof value === 'object'
+interface ReviewSession {
+  base: string;
+  createdAt: string;
+  id: string;
+  modifiedWithinDays?: number;
+  paths?: string[];
+  revisions: ReviewRevision[];
+  root: string;
+  scope?: ReviewScope;
+  updatedAt: string;
+}
+
+interface ReviewSessionState {
+  sessions: Record<string, ReviewSession>;
+}
+
+interface ReviewSessionStoreOptions {
+  file?: string;
+  writeJson?: (file: string, value: unknown) => void;
+}
+
+interface CreateReviewSessionInput {
+  base: string;
+  createdAt?: string;
+  id: string;
+  modifiedWithinDays?: number;
+  paths?: string[];
+  root: string;
+  scope?: ReviewScope;
+  tree: string;
+}
+
+interface AppendReviewRevisionResult {
+  added: boolean;
+  session: ReviewSession;
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function clone<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function validRevision(value: unknown): value is ReviewRevision {
+  return isObject(value)
+    && typeof value.tree === 'string'
     && OBJECT_ID_PATTERN.test(value.tree)
+    && typeof value.number === 'number'
     && Number.isInteger(value.number)
     && value.number > 0
     && typeof value.createdAt === 'string'
-    && (value.previousTree === undefined || OBJECT_ID_PATTERN.test(value.previousTree));
+    && (value.previousTree === undefined
+      || (typeof value.previousTree === 'string' && OBJECT_ID_PATTERN.test(value.previousTree)));
 }
 
-function validStoredPath(value) {
+function validStoredPath(value: unknown): value is string {
   return typeof value === 'string'
     && value.length > 0
     && value.length <= 4096
@@ -30,17 +82,23 @@ function validStoredPath(value) {
     && value.split(/[\\/]/).every(segment => segment && segment !== '.' && segment !== '..');
 }
 
-function validSession(value) {
-  return value
-    && typeof value === 'object'
+function validSession(value: unknown): value is ReviewSession {
+  return isObject(value)
+    && typeof value.id === 'string'
     && REVIEW_ID_PATTERN.test(value.id)
     && typeof value.root === 'string'
     && path.isAbsolute(value.root)
+    && typeof value.base === 'string'
     && OBJECT_ID_PATTERN.test(value.base)
     && typeof value.createdAt === 'string'
     && typeof value.updatedAt === 'string'
     && (value.scope === undefined || value.scope === 'tracked' || value.scope === 'untracked')
-    && (value.modifiedWithinDays === undefined || (Number.isInteger(value.modifiedWithinDays) && value.modifiedWithinDays >= 1 && value.modifiedWithinDays <= 3650))
+    && (value.modifiedWithinDays === undefined || (
+      typeof value.modifiedWithinDays === 'number'
+      && Number.isInteger(value.modifiedWithinDays)
+      && value.modifiedWithinDays >= 1
+      && value.modifiedWithinDays <= 3650
+    ))
     && (value.paths === undefined || (
       Array.isArray(value.paths)
       && value.paths.length <= 256
@@ -51,18 +109,25 @@ function validSession(value) {
     && value.revisions.every(validRevision);
 }
 
-function normalizeState(value) {
-  const sessions = value && typeof value === 'object' && value.sessions && typeof value.sessions === 'object'
+function normalizeState(value: unknown): ReviewSessionState {
+  const sessions = isObject(value) && isObject(value.sessions)
     ? value.sessions
     : {};
   return {
     sessions: Object.fromEntries(Object.entries(sessions)
-      .filter(([id, session]) => REVIEW_ID_PATTERN.test(id) && validSession(session) && session.id === id)),
+      .filter((entry): entry is [string, ReviewSession] => {
+        const [id, session] = entry;
+        return REVIEW_ID_PATTERN.test(id) && validSession(session) && session.id === id;
+      })),
   };
 }
 
 class ReviewSessionStore {
-  constructor(configDir, options = {}) {
+  file: string;
+  writeJson: (file: string, value: unknown) => void;
+  state: ReviewSessionState | null;
+
+  constructor(configDir: string, options: ReviewSessionStoreOptions = {}) {
     this.file = options.file || storageLayout.reviewSessionsFile(configDir);
     this.writeJson = typeof options.writeJson === 'function'
       ? options.writeJson
@@ -70,30 +135,42 @@ class ReviewSessionStore {
     this.state = null;
   }
 
-  ensureState() {
+  ensureState(): ReviewSessionState {
     if (this.state) return this.state;
     try {
       this.state = fs.existsSync(this.file)
         ? normalizeState(JSON.parse(fs.readFileSync(this.file, 'utf8')))
         : { sessions: {} };
-    } catch (error) {
-      console.warn('Failed to read Farming review sessions:', error && (error.message || error));
+    } catch (error: unknown) {
+      console.warn(
+        'Failed to read Farming review sessions:',
+        error instanceof Error ? error.message : error,
+      );
       this.state = { sessions: {} };
     }
     return this.state;
   }
 
-  newId() {
+  newId(): string {
     return `review-${crypto.randomUUID().replace(/-/g, '')}`;
   }
 
-  get(reviewId) {
+  get(reviewId: string): ReviewSession | null {
     if (!REVIEW_ID_PATTERN.test(reviewId)) return null;
     const session = this.ensureState().sessions[reviewId];
     return session ? clone(session) : null;
   }
 
-  create({ id, root, base, tree, scope, modifiedWithinDays, paths, createdAt = new Date().toISOString() }) {
+  create({
+    id,
+    root,
+    base,
+    tree,
+    scope,
+    modifiedWithinDays,
+    paths,
+    createdAt = new Date().toISOString(),
+  }: CreateReviewSessionInput): ReviewSession {
     if (!REVIEW_ID_PATTERN.test(id) || !path.isAbsolute(root) || !OBJECT_ID_PATTERN.test(base) || !OBJECT_ID_PATTERN.test(tree)) {
       throw new TypeError('invalid review session');
     }
@@ -118,7 +195,11 @@ class ReviewSessionStore {
     return clone(session);
   }
 
-  appendRevision(reviewId, tree, createdAt = new Date().toISOString()) {
+  appendRevision(
+    reviewId: string,
+    tree: string,
+    createdAt = new Date().toISOString(),
+  ): AppendReviewRevisionResult {
     if (!OBJECT_ID_PATTERN.test(tree)) throw new TypeError('invalid review revision');
     const currentState = this.ensureState();
     const currentSession = currentState.sessions[reviewId];
@@ -144,7 +225,7 @@ class ReviewSessionStore {
   }
 }
 
-module.exports = {
+export {
   OBJECT_ID_PATTERN,
   REVIEW_ID_PATTERN,
   ReviewSessionStore,

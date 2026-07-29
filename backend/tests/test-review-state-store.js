@@ -2,7 +2,7 @@ const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { ReviewStateStore } = require('../review-state-store');
+const { ReviewStateStore } = require('../review-state-store.cjs');
 
 function run() {
   const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-review-state-'));

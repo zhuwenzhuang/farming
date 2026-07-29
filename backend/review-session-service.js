@@ -2,7 +2,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { createTwoFilesPatch, diffLines } = require('diff');
-const { OBJECT_ID_PATTERN, REVIEW_ID_PATTERN } = require('./review-session-store');
+const { OBJECT_ID_PATTERN, REVIEW_ID_PATTERN } = require('./review-session-store.cjs');
 const { filterWorkingCopyChangeItems, normalizeModifiedWithinDays, normalizeWorkingCopyScope } = require('./review-diff-service');
 
 const MAX_CAPTURE_FILES = 2000;

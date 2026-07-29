@@ -5,8 +5,8 @@ const os = require('os');
 const path = require('path');
 const { promisify } = require('util');
 const { ReviewSessionService, changedPathsFromNameStatus, normalizeHistoricalReviewChanges } = require('../review-session-service');
-const { ReviewSessionStore } = require('../review-session-store');
-const { ReviewStateStore } = require('../review-state-store');
+const { ReviewSessionStore } = require('../review-session-store.cjs');
+const { ReviewStateStore } = require('../review-state-store.cjs');
 
 const execFile = promisify(childProcess.execFile);
 
