@@ -765,7 +765,9 @@ function run() {
       workspaceSource.includes('historyAgentSessionsForSessions(sessions, mainPageSessionKeys, claimedAgentSessionKeys)') &&
       workspaceSource.includes('function historySessionMeta(session: AgentSessionHistoryItem)') &&
       workspaceSource.includes('function historyAgentMeta(agent: Agent)') &&
-      !workspaceSource.includes('code-history-identity') &&
+      workspaceSource.includes('data-testid="code-history-resume-id"') &&
+      workspaceSource.includes('Resume {formatHistoryResumeId(resumeId)}') &&
+      workspaceSource.includes('resumeId={session.id}') &&
       workspaceSource.includes('visibleSearchTargets') &&
       workspaceSource.includes("kind: 'agent-session'") &&
       workspaceSource.includes("? `home:${session.providerHomeId}:${session.id}`") &&

@@ -6,7 +6,7 @@ const { stripCodexInternalContextBlocks } = require('./codex-transcript-sanitize
 
 const DEFAULT_LIMIT = 40;
 const DEFAULT_SCAN_LIMIT = 400;
-const MAX_SESSION_HISTORY_LIMIT = 1000;
+const MAX_SESSION_HISTORY_LIMIT = 5000;
 const MAX_SESSION_HISTORY_SCAN_LIMIT = 5000;
 const MAX_SCAN_DIRECTORIES = 2000;
 const SESSION_INDEX_TAIL_BYTES = 4 * 1024 * 1024;

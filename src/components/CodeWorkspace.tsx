@@ -658,6 +658,7 @@ export function CodeWorkspace({
   const [agentSessions, setAgentSessions] = useState<AgentSessionHistoryItem[]>([])
   const [agentSessionNextCursor, setAgentSessionNextCursor] = useState('')
   const [agentSessionsHasMore, setAgentSessionsHasMore] = useState(false)
+  const [agentSessionTotal, setAgentSessionTotal] = useState<number | null>(null)
   const [searchedAgentSessions, setSearchedAgentSessions] = useState<AgentSessionHistoryItem[]>([])
   const [agentSessionSearchLoading, setAgentSessionSearchLoading] = useState(false)
   const agentSessionsLoadingRef = useRef(false)
@@ -1529,11 +1530,14 @@ export function CodeWorkspace({
       sessions?: AgentSessionHistoryItem[]
       nextCursor?: string
       hasMore?: boolean
+      total?: number
     }
+    const sessions = Array.isArray(data.sessions) ? data.sessions : []
     return {
-      sessions: Array.isArray(data.sessions) ? data.sessions : [],
+      sessions,
       nextCursor: typeof data.nextCursor === 'string' ? data.nextCursor : '',
       hasMore: data.hasMore === true,
+      total: Number.isFinite(data.total) ? Math.max(sessions.length, Math.floor(data.total as number)) : sessions.length,
     }
   }, [])
   const loadAgentSessions = useCallback((fresh = false) => {
@@ -1544,6 +1548,7 @@ export function CodeWorkspace({
         setAgentSessions(page.sessions)
         setAgentSessionNextCursor(page.nextCursor)
         setAgentSessionsHasMore(page.hasMore)
+        setAgentSessionTotal(page.total)
         agentSessionLoadedCountRef.current = Math.max(AGENT_SESSION_PAGE_SIZE, page.sessions.length)
       })
       .catch(() => {
@@ -1551,6 +1556,7 @@ export function CodeWorkspace({
           setAgentSessions([])
           setAgentSessionNextCursor('')
           setAgentSessionsHasMore(false)
+          setAgentSessionTotal(null)
         }
       })
 
@@ -1565,8 +1571,12 @@ export function CodeWorkspace({
         setAgentSessions(page.sessions)
         setAgentSessionNextCursor(page.nextCursor)
         setAgentSessionsHasMore(page.hasMore)
+        setAgentSessionTotal(page.total)
       })
-      .catch(() => setAgentSessions([]))
+      .catch(() => {
+        setAgentSessions([])
+        setAgentSessionTotal(null)
+      })
       .finally(() => {
         if (agentSessionsRefreshInFlightRef.current === refresh) {
           agentSessionsRefreshInFlightRef.current = null
@@ -1594,6 +1604,7 @@ export function CodeWorkspace({
       })
       setAgentSessionNextCursor(page.nextCursor)
       setAgentSessionsHasMore(page.hasMore)
+      setAgentSessionTotal(page.total)
       return page.sessions.length > 0
     } catch {
       return false
@@ -5034,6 +5045,7 @@ export function CodeWorkspace({
         archivedRuns={visibleArchivedRuns}
         archivedAgents={visibleArchivedAgents}
         historyAgentSessions={visibleHistoryAgentSessions}
+        providerSessionTotal={agentSessionTotal}
         canLoadMoreHistoryAgentSessions={agentSessionsHasMore}
         now={now}
         acpComposerProps={{

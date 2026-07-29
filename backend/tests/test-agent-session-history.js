@@ -1,5 +1,6 @@
 const assert = require('assert');
 const fs = require('fs');
+const fsp = require('fs/promises');
 const os = require('os');
 const path = require('path');
 const {
@@ -35,16 +36,20 @@ async function run() {
   const codexSessionsDir = path.join(codexHome, 'sessions', '2026', '06', '28');
   const codexAltSessionsDir = path.join(codexAltHome, 'sessions', '2026', '06', '28');
   const claudeProjectDir = path.join(claudeHome, 'projects', '-repo-claude');
+  const claudeDuplicateProjectDir = path.join(claudeHome, 'projects', '-repo-claude-copy');
   const claudeTempProjectDir = path.join(claudeHome, 'projects', '-private-tmp-farming-test');
   const claudeWorktreeProjectDir = path.join(claudeHome, 'projects', '-codex-worktrees-farming-test');
   const qoderProjectDir = path.join(qoderHome, 'projects', '-repo-qoder');
+  const qoderDuplicateProjectDir = path.join(qoderHome, 'projects', '-repo-qoder-copy');
   const qoderTempProjectDir = path.join(qoderHome, 'projects', '-private-tmp-farming-test');
   fs.mkdirSync(codexSessionsDir, { recursive: true });
   fs.mkdirSync(codexAltSessionsDir, { recursive: true });
   fs.mkdirSync(claudeProjectDir, { recursive: true });
+  fs.mkdirSync(claudeDuplicateProjectDir, { recursive: true });
   fs.mkdirSync(claudeTempProjectDir, { recursive: true });
   fs.mkdirSync(claudeWorktreeProjectDir, { recursive: true });
   fs.mkdirSync(qoderProjectDir, { recursive: true });
+  fs.mkdirSync(qoderDuplicateProjectDir, { recursive: true });
   fs.mkdirSync(qoderTempProjectDir, { recursive: true });
 
   const codexId = '019f0000-0000-7000-8000-000000000101';
@@ -77,6 +82,13 @@ async function run() {
       directory: '/private/tmp/opencode-test',
       created: 1782642000000,
       updated: 1782643000000,
+    },
+    {
+      id: openCodeId,
+      title: 'Older copied OpenCode title',
+      directory: '/repo/opencode',
+      created: 1782641000000,
+      updated: 1782642000000,
     },
     ]);
   };
@@ -156,6 +168,30 @@ async function run() {
       message: { role: 'assistant', content: [] },
     }),
   ].join('\n'));
+  const claudeSubagentDir = path.join(claudeProjectDir, claudeId, 'subagents');
+  fs.mkdirSync(claudeSubagentDir, { recursive: true });
+  fs.writeFileSync(path.join(claudeSubagentDir, 'agent-aExplore.jsonl'), [
+    JSON.stringify({
+      type: 'user',
+      sessionId: claudeId,
+      cwd: '/repo/claude/packages/api',
+      timestamp: '2026-06-28T10:45:30.000Z',
+      entrypoint: 'cli',
+      message: { role: 'user', content: 'Child-agent prompt that must not become another History row' },
+    }),
+  ].join('\n'));
+  const duplicateClaudeSessionPath = path.join(claudeDuplicateProjectDir, `${claudeId}.jsonl`);
+  fs.writeFileSync(duplicateClaudeSessionPath, [
+    JSON.stringify({
+      type: 'user',
+      sessionId: claudeId,
+      cwd: '/repo/claude/packages/api',
+      timestamp: '2026-06-28T10:44:00.000Z',
+      entrypoint: 'cli',
+      message: { role: 'user', content: 'Copied root transcript with the same resume id' },
+    }),
+  ].join('\n'));
+  fs.utimesSync(duplicateClaudeSessionPath, new Date('2026-06-28T10:44:00.000Z'), new Date('2026-06-28T10:44:00.000Z'));
   fs.writeFileSync(path.join(claudeTempProjectDir, `${tempClaudeId}.jsonl`), [
     JSON.stringify({
       type: 'user',
@@ -238,6 +274,17 @@ async function run() {
       lastPrompt: 'Inspect qoder history again',
     }),
   ].join('\n'));
+  const duplicateQoderSessionPath = path.join(qoderDuplicateProjectDir, `${qoderId}.jsonl`);
+  fs.writeFileSync(duplicateQoderSessionPath, [
+    JSON.stringify({
+      type: 'user',
+      sessionId: qoderId,
+      cwd: '/repo/qoder/packages/api',
+      timestamp: '2026-06-28T10:49:00.000Z',
+      message: 'Copied root transcript with the same resume id',
+    }),
+  ].join('\n'));
+  fs.utimesSync(duplicateQoderSessionPath, new Date('2026-06-28T10:49:00.000Z'), new Date('2026-06-28T10:49:00.000Z'));
   const qoderSubagentDir = path.join(qoderProjectDir, qoderId, 'subagents');
   fs.mkdirSync(qoderSubagentDir, { recursive: true });
   fs.writeFileSync(path.join(qoderSubagentDir, 'agent-aExplore.jsonl'), [
@@ -413,6 +460,21 @@ async function run() {
     ...pagedSessions,
   ], { limit: 2, cursor: firstPage.nextCursor });
   assert.deepStrictEqual(insertedBeforeCursor.sessions.map(session => session.id), ['page-1']);
+  const duplicateIdentitySessions = [
+    { provider: 'claude', providerHomeId: 'default', id: 'shared-page-id', updatedAt: '2026-06-28T12:04:00.000Z' },
+    { provider: 'claude', providerHomeId: 'default', id: 'shared-page-id', updatedAt: '2026-06-28T12:03:00.000Z' },
+    { provider: 'codex', providerHomeId: 'default', id: 'after-shared-id', updatedAt: '2026-06-28T12:02:00.000Z' },
+  ];
+  const duplicateIdentityFirstPage = paginateAgentSessions(duplicateIdentitySessions, { limit: 2 });
+  const duplicateIdentitySecondPage = paginateAgentSessions(duplicateIdentitySessions, {
+    limit: 2,
+    cursor: duplicateIdentityFirstPage.nextCursor,
+  });
+  assert.deepStrictEqual(
+    duplicateIdentitySecondPage.sessions.map(session => session.id),
+    ['after-shared-id'],
+    'Pagination must advance from the exact cursor revision even if malformed input repeats a resume id'
+  );
   assert.strictEqual(paginateAgentSessions(pagedSessions, { cursor: 'not-a-cursor' }).invalidCursor, true);
 
   const searchableSessions = [
@@ -435,7 +497,7 @@ async function run() {
   assert.deepStrictEqual(titleSearch.sessions.map(session => session.id), ['older-alter-session']);
   assert.strictEqual(titleSearch.total, 1);
   assert.strictEqual(titleSearch.query, 'alter');
-  assert.strictEqual(titleSearch.scope, 'title-project');
+  assert.strictEqual(titleSearch.scope, 'id-title-project');
   assert.deepStrictEqual(
     searchAgentSessions(searchableSessions, 'ODPS_SRC', { limit: 20 }).sessions.map(session => session.id),
     ['older-alter-session']
@@ -449,8 +511,81 @@ async function run() {
   );
   assert.deepStrictEqual(searchAgentSessions(searchableSessions, 'hidden-model-name', { limit: 20 }).sessions, []);
   assert.deepStrictEqual(searchAgentSessions(searchableSessions, 'hidden-source-name', { limit: 20 }).sessions, []);
-  assert.deepStrictEqual(searchAgentSessions(searchableSessions, 'older-alter-session', { limit: 20 }).sessions, []);
+  assert.deepStrictEqual(
+    searchAgentSessions(searchableSessions, 'older-alter-session', { limit: 20 }).sessions.map(session => session.id),
+    ['older-alter-session']
+  );
   assert.deepStrictEqual(searchAgentSessions(searchableSessions, '  ').sessions, []);
+  assert.strictEqual(searchAgentSessions(searchableSessions, '  ').scope, 'id-title-project');
+
+  const productionShapeRoot = path.join(root, 'claude-production-shape');
+  const productionShapeProject = path.join(productionShapeRoot, 'projects', '-repo-production-shape');
+  const productionShapeSessionCount = 135;
+  const productionShapeChildCount = 20;
+  fs.mkdirSync(productionShapeProject, { recursive: true });
+  for (let sessionIndex = 0; sessionIndex < productionShapeSessionCount; sessionIndex += 1) {
+    const suffix = String(sessionIndex + 1).padStart(12, '0');
+    const sessionId = `33333333-4444-4555-8666-${suffix}`;
+    fs.writeFileSync(path.join(productionShapeProject, `${sessionId}.jsonl`), [
+      JSON.stringify({
+        type: 'user',
+        sessionId,
+        cwd: '/repo/production-shape',
+        timestamp: `2026-06-28T11:${String(sessionIndex % 60).padStart(2, '0')}:00.000Z`,
+        message: { role: 'user', content: 'Production-shaped root session' },
+      }),
+      JSON.stringify({
+        type: 'ai-title',
+        sessionId,
+        timestamp: `2026-06-28T11:${String(sessionIndex % 60).padStart(2, '0')}:01.000Z`,
+        aiTitle: `Production-shaped session ${sessionIndex + 1}`,
+      }),
+    ].join('\n'));
+    const subagentsDir = path.join(productionShapeProject, sessionId, 'subagents');
+    fs.mkdirSync(subagentsDir, { recursive: true });
+    for (let childIndex = 0; childIndex < productionShapeChildCount; childIndex += 1) {
+      fs.writeFileSync(
+        path.join(subagentsDir, `agent-${String(childIndex).padStart(2, '0')}.jsonl`),
+        JSON.stringify({
+          type: 'user',
+          sessionId,
+          cwd: '/repo/production-shape',
+          timestamp: '2026-06-28T11:59:00.000Z',
+          message: { role: 'user', content: 'Nested child transcript' },
+        })
+      );
+    }
+  }
+
+  const originalReaddir = fsp.readdir;
+  let productionShapeDirectoryReads = 0;
+  fsp.readdir = async (...args) => {
+    productionShapeDirectoryReads += 1;
+    return originalReaddir(...args);
+  };
+  const productionShapeStartedAt = process.hrtime.bigint();
+  let productionShapeSessions;
+  try {
+    productionShapeSessions = await listClaudeSessions({
+      claudeHome: productionShapeRoot,
+      limit: productionShapeSessionCount,
+      scanLimit: 5000,
+    });
+  } finally {
+    fsp.readdir = originalReaddir;
+  }
+  const productionShapeElapsedMs = Number(process.hrtime.bigint() - productionShapeStartedAt) / 1_000_000;
+  assert.strictEqual(productionShapeSessions.length, productionShapeSessionCount);
+  assert.strictEqual(
+    productionShapeDirectoryReads,
+    2,
+    'History discovery should read only the projects root and direct project directory, never 135 child-session trees'
+  );
+  console.log(
+    `  production-shaped History: ${productionShapeSessionCount} roots + `
+      + `${productionShapeSessionCount * productionShapeChildCount} child transcripts, `
+      + `${productionShapeDirectoryReads} directory reads in ${productionShapeElapsedMs.toFixed(1)}ms`
+  );
 
   fs.rmSync(root, { recursive: true, force: true });
   console.log('✓ Agent session history unifies Codex, Claude, OpenCode, and Qoder metadata');

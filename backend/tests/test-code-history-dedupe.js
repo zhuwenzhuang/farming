@@ -57,6 +57,7 @@ function run() {
   const {
     buildHistoryAgentItems,
     filterHistoryAgentItems,
+    formatHistoryResumeId,
     getHistoryAgentPage,
     mergeHistoryAgentSessions,
   } = importTsModule('src/components/code/HistoryPanel.tsx');
@@ -121,6 +122,12 @@ function run() {
     1,
     'Repeated Claude process-exit history rows with the same resume id should collapse'
   );
+  assert.strictEqual(
+    formatHistoryResumeId(codexResumeId),
+    '019f26d3…690129',
+    'History should expose a compact stable resume id without hiding the distinguishing suffix'
+  );
+  assert.strictEqual(formatHistoryResumeId('short-id'), 'short-id');
 
   const sharedId = '019f26d3-7485-76d0-8a64-f5cf5d690130';
   const homeItems = buildHistoryAgentItems([], [], [
@@ -131,6 +138,23 @@ function run() {
     homeItems.map(item => item.historyKey).sort(),
     [`agent-session:codex:${sharedId}`, `agent-session:codex:home:work:${sharedId}`].sort(),
     'Sessions with the same provider id in different Agent Homes must remain distinct'
+  );
+
+  const openCodeResumeId = 'ses_opencode_resume_1';
+  const openCodeItems = buildHistoryAgentItems(
+    [historyEntry({ id: 'opencode-run', source: `opencode-history:${openCodeResumeId}`, archivedAt: 1_000 })],
+    [],
+    [session({
+      provider: 'opencode',
+      providerName: 'OpenCode',
+      id: openCodeResumeId,
+      updatedAt: new Date(2_000).toISOString(),
+    })]
+  );
+  assert.deepStrictEqual(
+    openCodeItems.map(item => item.historyKey),
+    [`agent-session:opencode:${openCodeResumeId}`],
+    'OpenCode History should use the same provider resume identity dedupe as other supported Agents'
   );
 
   const searchableItems = buildHistoryAgentItems(
@@ -147,6 +171,29 @@ function run() {
     filterHistoryAgentItems(searchableItems, 'BACKEND').map(item => item.historyKey),
     ['agent:agent-search'],
     'History search should match workspace metadata without case sensitivity'
+  );
+  assert.deepStrictEqual(
+    filterHistoryAgentItems(searchableItems, 'session-search').map(item => item.historyKey),
+    ['agent-session:codex:session-search'],
+    'History search should match a provider Resume ID'
+  );
+  const archivedResumeId = '019f26d3-7485-76d0-8a64-f5cf5d690131';
+  const archivedResumeItems = buildHistoryAgentItems(
+    [historyEntry({
+      id: 'run-resume-search',
+      source: `codex-history:${archivedResumeId}`,
+      archivedAt: 3_000,
+    })],
+    [],
+    [session({
+      id: archivedResumeId,
+      updatedAt: new Date(2_000).toISOString(),
+    })]
+  );
+  assert.deepStrictEqual(
+    filterHistoryAgentItems(archivedResumeItems, '690131').map(item => item.historyKey),
+    ['run:run-resume-search'],
+    'Resume ID search should survive provider-session dedupe into a newer archived run'
   );
   assert.strictEqual(
     filterHistoryAgentItems(searchableItems, '  ').length,

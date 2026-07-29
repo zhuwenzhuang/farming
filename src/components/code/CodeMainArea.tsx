@@ -262,6 +262,7 @@ interface CodeMainAreaProps {
   archivedRuns: TaskHistoryEntry[]
   archivedAgents: Agent[]
   historyAgentSessions: AgentSessionHistoryItem[]
+  providerSessionTotal: number | null
   canLoadMoreHistoryAgentSessions: boolean
   now: number
   composerProps: ComposerProps
@@ -495,6 +496,7 @@ export function CodeMainArea({
   archivedRuns,
   archivedAgents,
   historyAgentSessions,
+  providerSessionTotal,
   canLoadMoreHistoryAgentSessions,
   now,
   composerProps,
@@ -694,6 +696,7 @@ export function CodeMainArea({
               archivedRuns={archivedRuns}
               archivedAgents={archivedAgents}
               agentSessions={historyAgentSessions}
+              providerSessionTotal={providerSessionTotal}
               now={now}
               onResumeSession={onResumeHistorySession}
               onContinueRun={onContinueArchivedRun}

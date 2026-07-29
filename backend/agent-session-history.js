@@ -105,6 +105,18 @@ function compareAgentSessions(a, b) {
   return timeDelta || agentSessionIdentity(a).localeCompare(agentSessionIdentity(b));
 }
 
+function dedupeAgentSessions(sessions) {
+  const sessionsByIdentity = new Map();
+  for (const session of sessions) {
+    const identity = agentSessionIdentity(session);
+    const current = sessionsByIdentity.get(identity);
+    if (!current || timestampMs(session?.updatedAt || session?.createdAt) > timestampMs(current?.updatedAt || current?.createdAt)) {
+      sessionsByIdentity.set(identity, session);
+    }
+  }
+  return Array.from(sessionsByIdentity.values());
+}
+
 function encodeAgentSessionCursor(session) {
   if (!session?.provider || !session?.id) return '';
   return Buffer.from(JSON.stringify({
@@ -140,7 +152,10 @@ function paginateAgentSessions(sessions, options = {}) {
   if (cursorValue) {
     const cursor = decodeAgentSessionCursor(cursorValue);
     if (!cursor) return { sessions: [], nextCursor: '', hasMore: false, invalidCursor: true };
-    const exactIndex = sessions.findIndex(session => agentSessionIdentity(session) === agentSessionIdentity(cursor));
+    const exactIndex = sessions.findIndex(session => (
+      agentSessionIdentity(session) === agentSessionIdentity(cursor)
+      && String(session.updatedAt || session.createdAt || '') === cursor.updatedAt
+    ));
     if (exactIndex >= 0) {
       start = exactIndex + 1;
     } else {
@@ -164,7 +179,7 @@ function searchAgentSessions(sessions, query, options = {}) {
     ? Math.max(1, Math.min(MAX_AGENT_SESSION_HISTORY_LIMIT, Math.floor(options.limit)))
     : DEFAULT_LIMIT;
   if (!normalizedQuery) {
-    return { sessions: [], total: 0, query: '', scope: 'title-project' };
+    return { sessions: [], total: 0, query: '', scope: 'id-title-project' };
   }
 
   const projectNames = options.projectNames && typeof options.projectNames === 'object'
@@ -173,6 +188,7 @@ function searchAgentSessions(sessions, query, options = {}) {
   const matches = sessions.filter(session => {
     const projectPaths = [session?.workspace, session?.cwd];
     return [
+      session?.id,
       session?.title,
       ...projectPaths,
       ...projectPaths.map(workspace => projectNames[String(workspace || '')]),
@@ -183,7 +199,7 @@ function searchAgentSessions(sessions, query, options = {}) {
     sessions: matches.slice(0, limit),
     total: matches.length,
     query: normalizedQuery,
-    scope: 'title-project',
+    scope: 'id-title-project',
   };
 }
 
@@ -340,7 +356,13 @@ function scheduleFromClaudeEvent(event, sessionId) {
   return null;
 }
 
-async function collectRecentFiles(root, extension, limit, acceptFile = () => true) {
+async function collectRecentFiles(
+  root,
+  extension,
+  limit,
+  acceptFile = () => true,
+  descendDirectory = () => true
+) {
   const directories = [root];
   let files = [];
   let visitedDirectories = 0;
@@ -362,7 +384,7 @@ async function collectRecentFiles(root, extension, limit, acceptFile = () => tru
     for (const entry of entries) {
       const fullPath = path.join(directory, entry.name);
       if (entry.isDirectory()) {
-        directories.push(fullPath);
+        if (descendDirectory(fullPath)) directories.push(fullPath);
       } else if (entry.isFile() && entry.name.endsWith(extension) && acceptFile(fullPath)) {
         let mtimeMs = 0;
         try {
@@ -508,7 +530,17 @@ async function listClaudeSessions(options = {}) {
     ? Math.max(limit, Math.min(MAX_AGENT_SESSION_SCAN_LIMIT, Math.floor(options.scanLimit)))
     : DEFAULT_SCAN_LIMIT;
   const promptHistory = await readClaudePromptHistory(claudeHome);
-  const sessionFiles = await collectRecentFiles(path.join(claudeHome, 'projects'), '.jsonl', scanLimit);
+  const projectsRoot = path.join(claudeHome, 'projects');
+  // Claude child-agent transcripts live below <project>/<session-id>/subagents
+  // and inherit the parent session id. Only direct project session files are
+  // resumable roots and should count as History entries.
+  const sessionFiles = await collectRecentFiles(
+    projectsRoot,
+    '.jsonl',
+    scanLimit,
+    filePath => path.relative(projectsRoot, filePath).split(path.sep).length === 2,
+    directoryPath => path.relative(projectsRoot, directoryPath).split(path.sep).length === 1
+  );
 
   const sessions = [];
   for (const { filePath, mtimeMs } of sessionFiles) {
@@ -542,7 +574,7 @@ async function listClaudeSessions(options = {}) {
     }
   }
 
-  return sessions
+  return dedupeAgentSessions(sessions)
     .sort((a, b) => timestampMs(b.updatedAt) - timestampMs(a.updatedAt))
     .slice(0, limit);
 }
@@ -674,7 +706,8 @@ async function listQoderSessions(options = {}) {
     projectsRoot,
     '.jsonl',
     scanLimit,
-    filePath => path.relative(projectsRoot, filePath).split(path.sep).length === 2
+    filePath => path.relative(projectsRoot, filePath).split(path.sep).length === 2,
+    directoryPath => path.relative(projectsRoot, directoryPath).split(path.sep).length === 1
   );
 
   const sessions = [];
@@ -709,7 +742,7 @@ async function listQoderSessions(options = {}) {
     }
   }
 
-  return sessions
+  return dedupeAgentSessions(sessions)
     .sort((a, b) => timestampMs(b.updatedAt) - timestampMs(a.updatedAt))
     .slice(0, limit);
 }
@@ -755,7 +788,7 @@ async function listOpenCodeSessions(options = {}) {
   }
   if (!Array.isArray(rawSessions)) return [];
 
-  return rawSessions
+  return dedupeAgentSessions(rawSessions
     .map(raw => {
       const id = firstTrimmedString(raw?.id);
       const cwd = normalizePathValue(raw?.directory || '');
@@ -777,7 +810,7 @@ async function listOpenCodeSessions(options = {}) {
         capabilities: ['resume', 'fork'],
       };
     })
-    .filter(session => session && isVisibleAgentSession(session))
+    .filter(session => session && isVisibleAgentSession(session)))
     .sort((a, b) => timestampMs(b.updatedAt) - timestampMs(a.updatedAt))
     .slice(0, limit);
 }
@@ -912,7 +945,7 @@ async function listAgentSessions(options = {}) {
     })));
   }
 
-  return sessions
+  return dedupeAgentSessions(sessions)
     .sort(compareAgentSessions)
     .slice(0, limit);
 }

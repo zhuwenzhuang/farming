@@ -152,7 +152,7 @@ async function mockCodexSessions(page: Page, sessions: MockAgentSession[] = []) 
   await page.route(/\/farming\/api\/agent-sessions(?:\?.*)?$/, async route => {
     await route.fulfill({
       contentType: 'application/json',
-      body: JSON.stringify({ sessions: agentSessions }),
+      body: JSON.stringify({ sessions: agentSessions, total: agentSessions.length }),
     })
   })
 }
@@ -311,7 +311,7 @@ test.describe('display-backed agent flows', () => {
     await page.getByTestId('code-nav-history').click()
     await expect(page.getByTestId('code-session-history-card')).toHaveCount(12)
     const pageStatus = page.getByTestId('code-history-page-status')
-    await expect(pageStatus).toHaveText(/^1 \/ \d+ · \d+ loaded$/)
+    await expect(pageStatus).toHaveText(/^1 \/ \d+ · \d+ loaded · \d+ provider sessions found$/)
     const firstPageStatus = await pageStatus.textContent()
     if (!firstPageStatus) throw new Error('History first-page status is missing')
 
@@ -616,6 +616,9 @@ test.describe('display-backed agent flows', () => {
     await expect(historyRow).toBeVisible()
     const historyPrimary = historyRow.getByTestId('code-session-history-primary')
     await expect(historyPrimary).toBeVisible()
+    const resumeId = historyRow.getByTestId('code-history-resume-id')
+    await expect(resumeId).toHaveText('Resume 019f0000…000221')
+    await expect(resumeId).toHaveAttribute('title', `Resume ID: ${sessionId}`)
     await expect(historyRow.locator('[role="link"]')).toHaveCount(0)
     const historyIcon = historyRow.locator('.code-history-agent-icon .agent-launch-icon-codex')
     await expect(historyIcon).toBeVisible()
@@ -628,18 +631,19 @@ test.describe('display-backed agent flows', () => {
   test('searches older provider History and renders one clear control', async ({ page, workspaceRoot }) => {
     await mockCodexSessions(page)
     let searchRequests = 0
+    const resumeId = '019f0000-0000-7000-8000-000000000220'
     await page.route(/\/farming\/api\/agent-sessions\/search\?.*$/, async route => {
       searchRequests += 1
       const query = new URL(route.request().url()).searchParams.get('q')
       await route.fulfill({
         contentType: 'application/json',
         body: JSON.stringify({
-          sessions: query === '上下游联动替代表测试'
+          sessions: query === '上下游联动替代表测试' || query === '000220'
             ? [{
                 provider: 'codex',
                 providerName: 'Codex',
                 capabilities: ['resume'],
-                id: '019f0000-0000-7000-8000-000000000220',
+                id: resumeId,
                 title: '上下游联动替代表测试',
                 cwd: workspaceRoot,
                 workspace: workspaceRoot,
@@ -673,6 +677,10 @@ test.describe('display-backed agent flows', () => {
     await expect(searchBox.getByRole('button', { name: 'Clear search' })).toBeVisible()
     await searchBox.getByRole('button', { name: 'Clear search' }).click()
     await expect(historyInput).toHaveValue('')
+    await historyInput.fill('000220')
+    const resumeRow = page.getByTestId('code-session-history-card').filter({ hasText: '上下游联动替代表测试' })
+    await expect(resumeRow).toHaveCount(1)
+    await expect(resumeRow.getByTestId('code-history-resume-id')).toHaveAttribute('title', `Resume ID: ${resumeId}`)
   })
 
   test('reopens the last closed editor tab with the VS Code shortcut', async ({ page, workspaceRoot }) => {

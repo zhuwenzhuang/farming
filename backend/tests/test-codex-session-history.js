@@ -240,7 +240,7 @@ async function run() {
   const manyRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-codex-history-many-'));
   const manySessionsDir = path.join(manyRoot, 'sessions', '2026', '07', '01');
   fs.mkdirSync(manySessionsDir, { recursive: true });
-  const manyCount = 260;
+  const manyCount = 1_105;
   for (let index = 0; index < manyCount; index += 1) {
     const suffix = String(index + 1).padStart(12, '0');
     const sessionId = `019f0000-0000-7000-8000-${suffix}`;

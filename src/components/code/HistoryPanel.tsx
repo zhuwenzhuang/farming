@@ -33,6 +33,7 @@ interface HistoryPanelProps {
   archivedRuns: TaskHistoryEntry[]
   archivedAgents: Agent[]
   agentSessions: AgentSessionHistoryItem[]
+  providerSessionTotal: number | null
   now: number
   onResumeSession: (provider: string, sessionId: string, providerHomeId?: string) => void
   onContinueRun: (entry: TaskHistoryEntry) => void
@@ -76,7 +77,15 @@ function historyArchivedAgentIconName(agent: Agent) {
     || historyCommandIconName(agent.command)
 }
 
-function HistoryMeta({ iconName, children }: { iconName?: HistoryAgentIconName; children: ReactNode }) {
+function HistoryMeta({
+  iconName,
+  resumeId,
+  children,
+}: {
+  iconName?: HistoryAgentIconName
+  resumeId?: string
+  children: ReactNode
+}) {
   return (
     <span className="code-history-meta">
       <span className="code-history-agent-icon" aria-hidden="true">
@@ -84,14 +93,28 @@ function HistoryMeta({ iconName, children }: { iconName?: HistoryAgentIconName; 
           ? <AgentLaunchIcon name={iconName} variant="monochrome" />
           : <TerminalSquareGlyph />}
       </span>
-      <span>{children}</span>
+      <span>
+        {resumeId && (
+          <>
+            <span
+              className="code-history-resume-id"
+              data-testid="code-history-resume-id"
+              title={`Resume ID: ${resumeId}`}
+            >
+              Resume {formatHistoryResumeId(resumeId)}
+            </span>
+            {' · '}
+          </>
+        )}
+        {children}
+      </span>
     </span>
   )
 }
 
 function normalizeHistoryProvider(provider?: string) {
   const value = String(provider || '').trim().toLowerCase()
-  return value === 'codex' || value === 'claude' || value === 'qoder' ? value : ''
+  return value === 'codex' || value === 'claude' || value === 'opencode' || value === 'qoder' ? value : ''
 }
 
 function resumedSessionFromHistorySource(source?: string) {
@@ -132,6 +155,12 @@ function historySessionMeta(session: AgentSessionHistoryItem) {
     session.effort ? effortLabel(session.effort) : '',
     formatAgentSessionWorkspace(session)
   )
+}
+
+export function formatHistoryResumeId(value: string) {
+  const resumeId = String(value || '').trim()
+  if (resumeId.length <= 20) return resumeId
+  return `${resumeId.slice(0, 8)}…${resumeId.slice(-6)}`
 }
 
 function historyRunUpdatedAt(entry: TaskHistoryEntry) {
@@ -256,12 +285,14 @@ export function filterHistoryAgentItems(items: HistoryAgentItem[], query: string
   if (!normalizedQuery) return items
 
   return items.filter(item => {
+    const resumeId = historyItemResumeSession(item)?.sessionId
     if (item.kind === 'run') {
       return normalizeHistorySearchValue([
         historyRunTitle(item.entry),
         historyRunMeta(item.entry),
         item.entry.command,
         item.entry.task,
+        resumeId,
       ].join('\n')).includes(normalizedQuery)
     }
 
@@ -270,6 +301,7 @@ export function filterHistoryAgentItems(items: HistoryAgentItem[], query: string
         agentTitle(item.agent),
         historyAgentMeta(item.agent),
         item.agent.command,
+        resumeId,
       ].join('\n')).includes(normalizedQuery)
     }
 
@@ -277,6 +309,7 @@ export function filterHistoryAgentItems(items: HistoryAgentItem[], query: string
       item.session.title,
       historySessionMeta(item.session),
       item.session.provider,
+      resumeId,
     ].join('\n')).includes(normalizedQuery)
   })
 }
@@ -299,6 +332,7 @@ export function HistoryPanel({
   archivedRuns,
   archivedAgents,
   agentSessions,
+  providerSessionTotal,
   now,
   onResumeSession,
   onContinueRun,
@@ -456,7 +490,12 @@ export function HistoryPanel({
                     >
                       <span className="code-history-card-copy">
                         <span className="code-history-card-title">{historyRunTitle(entry)}</span>
-                        <HistoryMeta iconName={historyRunIconName(entry)}>{historyRunMeta(entry)}</HistoryMeta>
+                        <HistoryMeta
+                          iconName={historyRunIconName(entry)}
+                          resumeId={historyItemResumeSession(item)?.sessionId}
+                        >
+                          {historyRunMeta(entry)}
+                        </HistoryMeta>
                       </span>
                     </button>
                     <div className="code-history-actions">
@@ -492,7 +531,12 @@ export function HistoryPanel({
                     >
                       <span className="code-history-card-copy">
                         <span className="code-history-card-title">{agentTitle(agent)}</span>
-                        <HistoryMeta iconName={historyArchivedAgentIconName(agent)}>{historyAgentMeta(agent)}</HistoryMeta>
+                        <HistoryMeta
+                          iconName={historyArchivedAgentIconName(agent)}
+                          resumeId={historyItemResumeSession(item)?.sessionId}
+                        >
+                          {historyAgentMeta(agent)}
+                        </HistoryMeta>
                       </span>
                     </button>
                     <div className="code-history-actions">
@@ -537,7 +581,12 @@ export function HistoryPanel({
                   >
                     <span className="code-history-card-copy">
                       <span className="code-history-card-title">{sessionTitle}</span>
-                      <HistoryMeta iconName={historyAgentIconName(session.provider)}>{historySessionMeta(session)}</HistoryMeta>
+                      <HistoryMeta
+                        iconName={historyAgentIconName(session.provider)}
+                        resumeId={session.id}
+                      >
+                        {historySessionMeta(session)}
+                      </HistoryMeta>
                     </span>
                   </button>
                   <div className="code-history-actions">
@@ -572,6 +621,7 @@ export function HistoryPanel({
                 historyPage.totalItems,
                 canLoadMoreAgentSessions
               )}
+              {providerSessionTotal !== null && ` · ${copy.historyProviderSessionTotal(providerSessionTotal)}`}
             </span>
             <button
               type="button"
