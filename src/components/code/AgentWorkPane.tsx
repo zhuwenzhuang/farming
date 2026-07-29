@@ -29,7 +29,7 @@ interface AgentWorkPaneProps {
   onOpenPath?: (agentId: string, target: TerminalPathOpenTarget) => void
   onResolvePath?: (agentId: string, target: TerminalPathOpenTarget) => Promise<TerminalPathOpenTarget | null> | TerminalPathOpenTarget | null
   onOpenWorkspaceFilePath?: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void> | void
-  onOpenUrl?: (agentId: string, url: string) => void
+  onOpenUrlInFarming?: (agentId: string, url: string) => void
   onFollowOutputChange?: (agentId: string, state: TerminalFollowState) => void
   onReadLatest?: (agentId: string, readCut?: { runtimeEpoch: string; outputSeq: number } | null) => void
   onRuntimeModeChange?: (agentId: string, mode: 'terminal' | 'chat') => void
@@ -57,7 +57,7 @@ export function AgentWorkPane({
   onOpenPath,
   onResolvePath,
   onOpenWorkspaceFilePath,
-  onOpenUrl,
+  onOpenUrlInFarming,
   onFollowOutputChange,
   onReadLatest,
   onRuntimeModeChange,
@@ -109,7 +109,7 @@ export function AgentWorkPane({
             onActivate={onActivate}
             onOpenPath={onOpenPath}
             onResolvePath={onResolvePath}
-            onOpenUrl={onOpenUrl}
+            onOpenUrlInFarming={onOpenUrlInFarming}
             onFollowOutputChange={onFollowOutputChange}
             onReadLatest={onReadLatest}
             onSessionOutput={onSessionOutput}
@@ -127,9 +127,9 @@ export function AgentWorkPane({
           onPointerDown={activateChatView}
         >
           {acpChat ? (
-            <AcpTranscriptPane agentId={agent.id} workspaceRoot={agent.projectWorkspace || agent.cwd} active={active} viewportLayoutKey={viewportLayoutKey} runtimeState={acpRuntime?.state || ''} expectHistory={(agent.source || '').startsWith('codex-history:')} forkedFromAgent={Boolean(agent.parentAgentId && agent.forkedFromProviderSessionId)} refreshSignal={acpRuntime?.sessionRevision || (acpRuntime?.sessionUpdatedAt ? Date.parse(acpRuntime.sessionUpdatedAt) : 0)} onOpenWorkspaceFilePath={onOpenWorkspaceFilePath} onOpenUrl={url => onOpenUrl?.(agent.id, url)} onReadLatest={() => onReadLatest?.(agent.id)} onForkLatest={canForkConversation ? () => onForkAgent?.(agent.id, 'same-worktree', { targetRuntime: 'chat', expectedRevision: acpRuntime?.sessionRevision || 0 }) : undefined} copy={copy} />
+            <AcpTranscriptPane agentId={agent.id} workspaceRoot={agent.projectWorkspace || agent.cwd} active={active} viewportLayoutKey={viewportLayoutKey} runtimeState={acpRuntime?.state || ''} expectHistory={(agent.source || '').startsWith('codex-history:')} forkedFromAgent={Boolean(agent.parentAgentId && agent.forkedFromProviderSessionId)} refreshSignal={acpRuntime?.sessionRevision || (acpRuntime?.sessionUpdatedAt ? Date.parse(acpRuntime.sessionUpdatedAt) : 0)} onOpenWorkspaceFilePath={onOpenWorkspaceFilePath} onOpenUrlInFarming={url => onOpenUrlInFarming?.(agent.id, url)} onReadLatest={() => onReadLatest?.(agent.id)} onForkLatest={canForkConversation ? () => onForkAgent?.(agent.id, 'same-worktree', { targetRuntime: 'chat', expectedRevision: acpRuntime?.sessionRevision || 0 }) : undefined} copy={copy} />
           ) : (
-            <JsonCliTranscriptPane agentId={agent.id} workspaceRoot={agent.projectWorkspace || agent.cwd} active={active} viewportLayoutKey={viewportLayoutKey} refreshSignal={jsonRuntime?.transcriptUpdatedAt ? Date.parse(jsonRuntime.transcriptUpdatedAt) : 0} onOpenWorkspaceFilePath={onOpenWorkspaceFilePath} onOpenUrl={url => onOpenUrl?.(agent.id, url)} onReadLatest={() => onReadLatest?.(agent.id)} copy={copy} />
+            <JsonCliTranscriptPane agentId={agent.id} workspaceRoot={agent.projectWorkspace || agent.cwd} active={active} viewportLayoutKey={viewportLayoutKey} refreshSignal={jsonRuntime?.transcriptUpdatedAt ? Date.parse(jsonRuntime.transcriptUpdatedAt) : 0} onOpenWorkspaceFilePath={onOpenWorkspaceFilePath} onOpenUrlInFarming={url => onOpenUrlInFarming?.(agent.id, url)} onReadLatest={() => onReadLatest?.(agent.id)} copy={copy} />
           )}
         </div>
       ) : null}

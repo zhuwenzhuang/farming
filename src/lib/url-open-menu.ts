@@ -85,8 +85,10 @@ export function showUrlOpenMenu({
     cleanup()
   }
 
+  if (onOpenInFarming) {
+    menu.append(createUrlMenuItem(copy.farming, () => run(onOpenInFarming)))
+  }
   menu.append(
-    createUrlMenuItem(copy.farming, () => run(() => onOpenInFarming?.()), !onOpenInFarming),
     createUrlMenuItem(copy.external, () => run(() => openExternalUrl(url))),
     createUrlMenuItem(copy.copy, () => run(() => {
       void writeClipboardText(url)

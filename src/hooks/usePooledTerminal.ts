@@ -36,7 +36,7 @@ interface UsePooledTerminalOptions {
   onFollowOutputChange?: (state: TerminalFollowState) => void
   onPathOpen?: (agentId: string, target: TerminalPathOpenTarget) => void
   onPathResolve?: (agentId: string, target: TerminalPathOpenTarget) => Promise<TerminalPathOpenTarget | null> | TerminalPathOpenTarget | null
-  onUrlOpen?: (agentId: string, url: string) => void
+  onOpenUrlInFarming?: (agentId: string, url: string) => void
   onRecoveryStatusChange?: (status: TerminalRecoveryStatus) => void
   onReady?: () => void
   onError?: (error: Error) => void
@@ -48,7 +48,7 @@ interface TerminalAttachmentHandlers {
   onFollowOutputChange: (state: TerminalFollowState) => void
   onPathOpen: (agentId: string, target: TerminalPathOpenTarget) => void
   onPathResolve: (agentId: string, target: TerminalPathOpenTarget) => Promise<TerminalPathOpenTarget | null> | TerminalPathOpenTarget | null
-  onUrlOpen: (agentId: string, url: string) => void
+  onOpenUrlInFarming: (agentId: string, url: string) => void
   onRecoveryStatusChange: (status: TerminalRecoveryStatus) => void
   onReady: () => void
   onError: (error: Error) => void
@@ -63,7 +63,7 @@ export function usePooledTerminal({
   onFollowOutputChange,
   onPathOpen,
   onPathResolve,
-  onUrlOpen,
+  onOpenUrlInFarming,
   onRecoveryStatusChange,
   onReady,
   onError,
@@ -74,7 +74,7 @@ export function usePooledTerminal({
     onFollowOutputChange,
     onPathOpen,
     onPathResolve,
-    onUrlOpen,
+    onOpenUrlInFarming,
     onRecoveryStatusChange,
     onReady,
     onError,
@@ -85,7 +85,7 @@ export function usePooledTerminal({
     onFollowOutputChange,
     onPathOpen,
     onPathResolve,
-    onUrlOpen,
+    onOpenUrlInFarming,
     onRecoveryStatusChange,
     onReady,
     onError,
@@ -107,8 +107,8 @@ export function usePooledTerminal({
       onPathResolve: (currentAgentId, target) => {
         return latestHandlersRef.current.onPathResolve?.(currentAgentId, target) ?? null
       },
-      onUrlOpen: (currentAgentId, url) => {
-        latestHandlersRef.current.onUrlOpen?.(currentAgentId, url)
+      onOpenUrlInFarming: (currentAgentId, url) => {
+        latestHandlersRef.current.onOpenUrlInFarming?.(currentAgentId, url)
       },
       onRecoveryStatusChange: status => {
         latestHandlersRef.current.onRecoveryStatusChange?.(status)
@@ -122,16 +122,16 @@ export function usePooledTerminal({
     }
   }
   const attachmentHandlers = attachmentHandlersRef.current
-  const urlOpenEnabled = Boolean(onUrlOpen)
+  const farmingUrlOpenEnabled = Boolean(onOpenUrlInFarming)
   const latestLiveOptionsRef = useRef({
     inputDisabled,
     suppressRendererCursor,
-    urlOpenEnabled,
+    farmingUrlOpenEnabled,
   })
   latestLiveOptionsRef.current = {
     inputDisabled,
     suppressRendererCursor,
-    urlOpenEnabled,
+    farmingUrlOpenEnabled,
   }
   const attachmentLeaseCoordinatorRef = useRef<ReturnType<typeof createTerminalAttachmentLeaseCoordinator> | null>(null)
   if (!attachmentLeaseCoordinatorRef.current) {
@@ -155,7 +155,9 @@ export function usePooledTerminal({
         onFollowOutputChange: attachmentHandlers.onFollowOutputChange,
         onPathOpen: attachmentHandlers.onPathOpen,
         onPathResolve: attachmentHandlers.onPathResolve,
-        onUrlOpen: latestLiveOptionsRef.current.urlOpenEnabled ? attachmentHandlers.onUrlOpen : undefined,
+        onOpenUrlInFarming: latestLiveOptionsRef.current.farmingUrlOpenEnabled
+          ? attachmentHandlers.onOpenUrlInFarming
+          : undefined,
         onRecoveryStatusChange: attachmentHandlers.onRecoveryStatusChange,
         onError: attachmentHandlers.onError,
         bootstrapState: latestHandlersRef.current.bootstrapState,
@@ -185,11 +187,11 @@ export function usePooledTerminal({
     updateTerminalSessionLiveOptions(agentId, {
       inputDisabled,
       suppressRendererCursor,
-      onUrlOpen: urlOpenEnabled ? attachmentHandlers.onUrlOpen : undefined,
+      onOpenUrlInFarming: farmingUrlOpenEnabled ? attachmentHandlers.onOpenUrlInFarming : undefined,
     }).catch((error) => {
       console.error('Failed to update terminal live options:', error)
     })
-  }, [agentId, attachmentHandlers, inputDisabled, suppressRendererCursor, urlOpenEnabled])
+  }, [agentId, attachmentHandlers, farmingUrlOpenEnabled, inputDisabled, suppressRendererCursor])
 
   useEffect(() => {
     if (!agentId || !bootstrapState?.runtimeEpoch || bootstrapState.stateRevision === null) return
@@ -225,7 +227,9 @@ export function usePooledTerminal({
         onFollowOutputChange: attachmentHandlers.onFollowOutputChange,
         onPathOpen: attachmentHandlers.onPathOpen,
         onPathResolve: attachmentHandlers.onPathResolve,
-        onUrlOpen: latestLiveOptionsRef.current.urlOpenEnabled ? attachmentHandlers.onUrlOpen : undefined,
+        onOpenUrlInFarming: latestLiveOptionsRef.current.farmingUrlOpenEnabled
+          ? attachmentHandlers.onOpenUrlInFarming
+          : undefined,
         onRecoveryStatusChange: attachmentHandlers.onRecoveryStatusChange,
         onError: attachmentHandlers.onError,
         bootstrapState: latestHandlersRef.current.bootstrapState,

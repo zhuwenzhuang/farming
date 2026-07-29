@@ -422,6 +422,15 @@ test.describe('human Farming Agent story', () => {
       return (window as unknown as { __openedTerminalUrls?: string[] }).__openedTerminalUrls ?? []
     })).toContain(url)
 
+    await page.mouse.click(urlCell.x, urlCell.y, { button: 'right' })
+    const urlContextMenu = page.getByTestId('code-url-context-menu')
+    await expect(urlContextMenu).toBeVisible()
+    await expect(urlContextMenu.getByText(/Farming browser|Farming 浏览器/i)).toHaveCount(0)
+    await expect(urlContextMenu.getByRole('menuitem', { name: /external browser|外部浏览器/i })).toBeVisible()
+    await expect(urlContextMenu.getByRole('menuitem', { name: /Copy link|复制链接/i })).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(urlContextMenu).toHaveCount(0)
+
     const copyCell = await terminalCellCenter(page, agentId, copyHit.col, copyHit.row)
     await page.mouse.dblclick(copyCell.x, copyCell.y)
     await expect.poll(async () => page.evaluate((id) => {

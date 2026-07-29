@@ -142,7 +142,7 @@ interface AttachOptions {
   onFollowOutputChange?: (state: TerminalFollowState) => void
   onPathOpen?: (agentId: string, target: TerminalPathOpenTarget) => void
   onPathResolve?: (agentId: string, target: TerminalPathOpenTarget) => Promise<TerminalPathOpenTarget | null> | TerminalPathOpenTarget | null
-  onUrlOpen?: (agentId: string, url: string) => void
+  onOpenUrlInFarming?: (agentId: string, url: string) => void
   onRecoveryStatusChange?: (status: TerminalRecoveryStatus) => void
   onReady?: () => void
   onError?: (error: Error) => void
@@ -153,7 +153,7 @@ interface AttachOptions {
 export interface TerminalSessionLiveOptions {
   inputDisabled: boolean
   suppressRendererCursor: boolean
-  onUrlOpen?: (agentId: string, url: string) => void
+  onOpenUrlInFarming?: (agentId: string, url: string) => void
 }
 
 export type TerminalRecoveryPhase = 'requesting' | 'installing' | 'retrying' | 'ready' | 'failed'
@@ -254,7 +254,7 @@ interface SessionRecord {
   followOutputHandler: ((state: TerminalFollowState) => void) | null
   pathOpenHandler: ((agentId: string, target: TerminalPathOpenTarget) => void) | null
   pathResolveHandler: ((agentId: string, target: TerminalPathOpenTarget) => Promise<TerminalPathOpenTarget | null> | TerminalPathOpenTarget | null) | null
-  urlOpenHandler: ((agentId: string, url: string) => void) | null
+  farmingUrlOpenHandler: ((agentId: string, url: string) => void) | null
   pathResolveCache: Map<string, { resolvedAt: number; target: TerminalPathOpenTarget | null; promise?: Promise<TerminalPathOpenTarget | null> }>
   originalRender: NonNullable<NonNullable<FarmingTerminal['renderer']>['render']> | null
   snapshotOutput: string
@@ -2610,11 +2610,7 @@ function getNativeTerminalSelection(hostEl: HTMLElement) {
   return selection.toString()
 }
 
-function openTerminalUrl(record: SessionRecord, url: string) {
-  if (record.urlOpenHandler) {
-    record.urlOpenHandler(record.agentId, url)
-    return
-  }
+function openTerminalUrl(_record: SessionRecord, url: string) {
   openExternalUrl(url)
 }
 
@@ -2951,8 +2947,8 @@ function installTerminalContextMenu(record: SessionRecord, agentId: string) {
       showUrlOpenMenu({
         event,
         url,
-        onOpenInFarming: record.urlOpenHandler
-          ? () => record.urlOpenHandler?.(agentId, url)
+        onOpenInFarming: record.farmingUrlOpenHandler
+          ? () => record.farmingUrlOpenHandler?.(agentId, url)
           : undefined,
       })
       return
@@ -3828,7 +3824,7 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
     followOutputHandler: options.onFollowOutputChange ?? null,
     pathOpenHandler: options.onPathOpen ?? null,
     pathResolveHandler: options.onPathResolve ?? null,
-    urlOpenHandler: options.onUrlOpen ?? null,
+    farmingUrlOpenHandler: options.onOpenUrlInFarming ?? null,
     pathResolveCache: new Map(),
     originalRender: null,
     snapshotOutput: '',
@@ -4489,7 +4485,7 @@ function applyTerminalAttachmentOptions(record: SessionRecord, options: AttachOp
   record.followOutputHandler = options.onFollowOutputChange ?? null
   record.pathOpenHandler = options.onPathOpen ?? null
   record.pathResolveHandler = options.onPathResolve ?? null
-  record.urlOpenHandler = options.onUrlOpen ?? null
+  record.farmingUrlOpenHandler = options.onOpenUrlInFarming ?? null
   record.recoveryStatusHandler = options.onRecoveryStatusChange ?? null
   updateRendererCursorSuppression(record, Boolean(options.suppressRendererCursor))
 }
@@ -4567,7 +4563,7 @@ export async function updateTerminalSessionLiveOptions(
   if (record.disposed || sessions.get(agentId) !== record) return false
 
   record.inputDisabled = options.inputDisabled
-  record.urlOpenHandler = options.onUrlOpen ?? null
+  record.farmingUrlOpenHandler = options.onOpenUrlInFarming ?? null
   updateRendererCursorSuppression(record, options.suppressRendererCursor)
   return true
 }

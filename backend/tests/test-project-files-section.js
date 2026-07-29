@@ -281,7 +281,9 @@ function run() {
       terminalLinksSource.includes('const TERMINAL_URL_PATTERN') &&
       terminalLinksSource.includes('function parseTerminalUrlAtColumn') &&
       terminalPoolSource.includes('function findTerminalUrlAtMouseEvent') &&
+      terminalPoolSource.includes('function openTerminalUrl(_record: SessionRecord, url: string)') &&
       terminalPoolSource.includes('openExternalUrl(url)') &&
+      terminalPoolSource.includes('onOpenInFarming: record.farmingUrlOpenHandler') &&
       terminalLinksSource.includes('isLikelyTerminalPathTarget(filePath)') &&
       terminalLinksSource.includes('(?:\\/|~\\/|\\.{1,2}\\/)?') &&
       terminalPoolSource.includes('while (logicalStartRow > 0 && buffer.getLine(logicalStartRow)?.isWrapped)') &&

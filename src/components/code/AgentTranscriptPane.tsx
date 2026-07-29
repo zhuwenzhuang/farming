@@ -176,7 +176,7 @@ export interface AgentTranscriptPaneProps {
   expectHistory?: boolean
   forkedFromAgent?: boolean
   onOpenWorkspaceFilePath?: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void> | void
-  onOpenUrl?: (url: string) => void
+  onOpenUrlInFarming?: (url: string) => void
   onAvailabilityChange?: (state: { loading: boolean; hasContent: boolean; available: boolean }) => void
   onReadLatest?: () => void
   onForkLatest?: () => Promise<void> | void
@@ -2164,7 +2164,7 @@ function AgentTranscriptTurnView({
   turn,
   copy,
   onOpenFile,
-  onOpenUrl,
+  onOpenUrlInFarming,
   workspaceRoot,
   processOpen,
   groupProcessActions,
@@ -2183,7 +2183,7 @@ function AgentTranscriptTurnView({
   turn: AgentTranscriptTurn
   copy: CodeCopy
   onOpenFile?: (filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void> | void
-  onOpenUrl?: (url: string) => void
+  onOpenUrlInFarming?: (url: string) => void
   workspaceRoot?: string
   processOpen: boolean
   groupProcessActions: boolean
@@ -2506,8 +2506,8 @@ function AgentTranscriptTurnView({
     const item = resolvedProcessItems.find(candidate => candidate.id === itemId)
     if (item) refreshTerminalOutcome(item)
   }, [refreshTerminalOutcome, resolvedProcessItems])
-  const onOpenUrlRef = useRef(onOpenUrl)
-  onOpenUrlRef.current = onOpenUrl
+  const onOpenUrlInFarmingRef = useRef(onOpenUrlInFarming)
+  onOpenUrlInFarmingRef.current = onOpenUrlInFarming
   // Keep the process compact while the agent works. The short activity label
   // carries the live state; full reasoning and tool details remain opt-in.
   const effectiveProcessOpen = processOpen
@@ -2527,10 +2527,6 @@ function AgentTranscriptTurnView({
           onOpenFile(target.filePath, target.target)
           return
         }
-        if (browserUrl && onOpenUrlRef.current) {
-          event.preventDefault()
-          onOpenUrlRef.current(browserUrl)
-        }
       }
       return (
         <a
@@ -2547,8 +2543,8 @@ function AgentTranscriptTurnView({
             showUrlOpenMenu({
               event: event.nativeEvent,
               url: browserUrl,
-              onOpenInFarming: onOpenUrlRef.current
-                ? () => onOpenUrlRef.current?.(browserUrl)
+              onOpenInFarming: onOpenUrlInFarmingRef.current
+                ? () => onOpenUrlInFarmingRef.current?.(browserUrl)
                 : undefined,
             })
           }}
@@ -2841,7 +2837,7 @@ export function AgentTranscriptPane({
   expectHistory = false,
   forkedFromAgent = false,
   onOpenWorkspaceFilePath,
-  onOpenUrl,
+  onOpenUrlInFarming,
   onAvailabilityChange,
   onReadLatest,
   onForkLatest,
@@ -3401,7 +3397,7 @@ export function AgentTranscriptPane({
                 turn={turn}
                 copy={copy}
                 onOpenFile={onOpenWorkspaceFilePath ? handleOpenFile : undefined}
-                onOpenUrl={onOpenUrl}
+                onOpenUrlInFarming={onOpenUrlInFarming}
                 workspaceRoot={workspaceRoot}
                 processOpen={processOpen}
                 groupProcessActions={groupProcessActions}

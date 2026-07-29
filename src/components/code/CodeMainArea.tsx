@@ -828,7 +828,7 @@ export function CodeMainArea({
               onOpenPath={onOpenTerminalPath}
               onResolvePath={onResolveTerminalPath}
               onOpenWorkspaceFilePath={onOpenWorkspaceFilePath}
-              onOpenUrl={onOpenUrlInFarming}
+              onOpenUrlInFarming={onOpenUrlInFarming}
               onFollowOutputChange={onTerminalFollowOutputChange}
               onReadLatest={onAgentReadLatest}
               onRuntimeModeChange={onRuntimeModeChange}

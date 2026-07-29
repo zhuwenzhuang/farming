@@ -23,7 +23,7 @@ interface AgentTerminalPaneProps {
   onSessionOutput: (agentId: string, handler: (data: string, replace?: boolean, outputSeq?: number | null, runtimeEpoch?: string, stateRevision?: number | null, cols?: number, rows?: number, kind?: 'output' | 'resize' | 'clear') => void) => () => void
   onOpenPath?: (agentId: string, target: TerminalPathOpenTarget) => void
   onResolvePath?: (agentId: string, target: TerminalPathOpenTarget) => Promise<TerminalPathOpenTarget | null> | TerminalPathOpenTarget | null
-  onOpenUrl?: (agentId: string, url: string) => void
+  onOpenUrlInFarming?: (agentId: string, url: string) => void
   onFollowOutputChange?: (agentId: string, state: TerminalFollowState) => void
   onReadLatest?: (
     agentId: string,
@@ -125,7 +125,7 @@ export function AgentTerminalPane({
   onSessionOutput,
   onOpenPath,
   onResolvePath,
-  onOpenUrl,
+  onOpenUrlInFarming,
   onFollowOutputChange,
   onReadLatest,
   copy,
@@ -181,7 +181,7 @@ export function AgentTerminalPane({
     onFollowOutputChange: handleFollowOutputChange,
     onPathOpen: onOpenPath,
     onPathResolve: onResolvePath,
-    onUrlOpen: onOpenUrl,
+    onOpenUrlInFarming,
     onRecoveryStatusChange: handleTerminalRecoveryStatus,
     onReady: handleTerminalReady,
     onError: handleTerminalError,

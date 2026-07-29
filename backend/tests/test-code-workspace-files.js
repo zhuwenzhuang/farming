@@ -74,6 +74,7 @@ function run() {
   const agentViewCacheSource = read('src/components/code/agent-view-cache.ts');
   const terminalSearchSource = read('src/lib/terminal-search.ts');
   const terminalSessionPoolSource = read('src/lib/terminal-session-pool.ts');
+  const urlOpenMenuSource = read('src/lib/url-open-menu.ts');
   const usePooledTerminalSource = read('src/hooks/usePooledTerminal.ts');
   const browserResourcesHookSource = read('extensions/browser/frontend/useBrowserResources.ts');
   const xtermSource = read('src/lib/xterm.ts');
@@ -92,6 +93,13 @@ function run() {
     serverSource.indexOf("app.post(routePath(BASE_PATH, '/api/themes/:themeId/set')"),
   );
   const historyViewStyles = stylesSource.match(/\.code-history-view \{[\s\S]*?\n\}/)?.[0] || '';
+  const transcriptLinkClickStart = transcriptPaneSource.indexOf(
+    'const handleClick = (event: ReactMouseEvent<HTMLAnchorElement>) => {'
+  );
+  const transcriptLinkClickSource = transcriptPaneSource.slice(
+    transcriptLinkClickStart,
+    transcriptPaneSource.indexOf('      return (', transcriptLinkClickStart),
+  );
 
   assert(
     historyViewStyles.includes('flex-direction: column')
@@ -1248,8 +1256,8 @@ function run() {
       usePooledTerminalSource.includes('attachmentLeaseCoordinator.acquire(agentId, mountEl, () => {') &&
       usePooledTerminalSource.includes('lease.release()') &&
       usePooledTerminalSource.includes('updateTerminalSessionLiveOptions(agentId, {') &&
-      usePooledTerminalSource.includes('onUrlOpen: urlOpenEnabled ? attachmentHandlers.onUrlOpen : undefined') &&
-      usePooledTerminalSource.includes('}, [agentId, attachmentHandlers, inputDisabled, suppressRendererCursor, urlOpenEnabled])') &&
+      usePooledTerminalSource.includes('onOpenUrlInFarming: farmingUrlOpenEnabled ? attachmentHandlers.onOpenUrlInFarming : undefined') &&
+      usePooledTerminalSource.includes('}, [agentId, attachmentHandlers, farmingUrlOpenEnabled, inputDisabled, suppressRendererCursor])') &&
       terminalSessionPoolSource.includes('record.attachedMount === options.mountEl && isTerminalSessionAttached(record)'),
     'Pooled-terminal attachment identity must use a handoff lease, isolate hot options, and make duplicate same-owner attach idempotent'
   );
@@ -1261,6 +1269,19 @@ function run() {
       browserResourcesHookSource.includes("const stop = useCallback((id: string) => transition(id, 'stop'), [transition])") &&
       browserResourcesHookSource.includes('const refreshCapability = useCallback(() => {'),
     'Browser Resource commands should keep stable identities and consumers should not depend on the mutable controller object'
+  );
+
+  assert(
+    transcriptLinkClickStart >= 0 &&
+      transcriptPaneSource.includes("target={external ? '_blank' : undefined}") &&
+      !transcriptLinkClickSource.includes('onOpenUrlInFarmingRef') &&
+      transcriptPaneSource.includes('onOpenInFarming: onOpenUrlInFarmingRef.current') &&
+      workspaceSource.includes('onOpenUrlInFarming={browserResources.capability?.available ? openUrlInFarmingBrowser : undefined}') &&
+      urlOpenMenuSource.includes('if (onOpenInFarming) {') &&
+      urlOpenMenuSource.includes('menu.append(createUrlMenuItem(copy.farming, () => run(onOpenInFarming)))') &&
+      !urlOpenMenuSource.includes('farmingUnavailable') &&
+      !urlOpenMenuSource.includes('createUrlMenuItem(copy.farming, () => run(() => onOpenInFarming?.()), !onOpenInFarming)'),
+    'HTTP links should open externally by default and offer Farming from the context menu only when Browser capability is available'
   );
 
   assert(
