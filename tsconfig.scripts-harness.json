@@ -1,0 +1,31 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023", "DOM"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "noEmit": true,
+    "strict": false,
+    "strictNullChecks": true,
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "include": [
+    "backend/tests/fixtures/fake-acp-agent.mts",
+    "backend/tests/fixtures/fake-codex-app-server.ts",
+    "backend/tests/fixtures/farming-stop-server.ts",
+    "backend/tests/helpers/import-ts-module.ts",
+    "scripts/types/**/*.d.ts",
+    "scripts/capture-product-screenshots.ts",
+    "scripts/e2e-workspaces.ts",
+    "scripts/e2e.ts",
+    "scripts/evaluate-poetic-tokens.ts",
+    "scripts/generate-chinese-poetic-words.ts",
+    "scripts/generate-poem-wordlists.ts",
+    "scripts/repro-mobile-ime-layout.ts",
+    "scripts/smoke-remote-terminal-chaos.ts",
+    "scripts/test-initial-main-agent-flow.ts",
+    "tests/e2e/global-teardown.ts",
+    "tests/performance/agent-usage-hotpath.ts"
+  ]
+}

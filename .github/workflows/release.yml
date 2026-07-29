@@ -71,7 +71,7 @@ jobs:
       - name: Verify Linux app bundle
         env:
           FARMING_RELEASE_VERSION: ${{ steps.version.outputs.value }}
-        run: node scripts/verify-release-bundle.js "releases/${FARMING_RELEASE_VERSION}/farming-${FARMING_RELEASE_VERSION}-linux-x64.tar.gz"
+        run: node --import tsx scripts/verify-release-bundle.ts "releases/${FARMING_RELEASE_VERSION}/farming-${FARMING_RELEASE_VERSION}-linux-x64.tar.gz"
 
       - name: Smoke-test Linux app bundle
         env:
@@ -91,7 +91,7 @@ jobs:
       - name: Verify legacy Linux app bundle
         env:
           FARMING_RELEASE_VERSION: ${{ steps.version.outputs.value }}
-        run: node scripts/verify-linux-legacy-release.js "releases/${FARMING_RELEASE_VERSION}/farming-${FARMING_RELEASE_VERSION}-linux-x64-legacy-glibc228.tar.gz"
+        run: node --import tsx scripts/verify-linux-legacy-release.ts "releases/${FARMING_RELEASE_VERSION}/farming-${FARMING_RELEASE_VERSION}-linux-x64-legacy-glibc228.tar.gz"
 
       - name: Smoke-test legacy Linux npm bootstrap and native PTY
         env:
@@ -200,7 +200,7 @@ jobs:
       - name: Verify macOS app bundle
         env:
           FARMING_RELEASE_VERSION: ${{ steps.version.outputs.value }}
-        run: node scripts/verify-release-bundle.js "releases/${FARMING_RELEASE_VERSION}/farming-${FARMING_RELEASE_VERSION}-darwin-${{ matrix.arch }}.tar.gz"
+        run: node --import tsx scripts/verify-release-bundle.ts "releases/${FARMING_RELEASE_VERSION}/farming-${FARMING_RELEASE_VERSION}-darwin-${{ matrix.arch }}.tar.gz"
 
       - name: Smoke-test macOS app bundle
         env:
@@ -248,6 +248,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: npm ci --registry=https://registry.npmjs.org/
+
       - name: Verify release notes
         id: notes
         env:
@@ -293,10 +303,10 @@ jobs:
           else
             shasum -a 256 farming* > "farming_${FARMING_RELEASE_VERSION}_checksums.txt"
           fi
-          node <<'NODE'
+          node --import tsx <<'NODE'
           const crypto = require('crypto');
           const fs = require('fs');
-          const { readBundleRelease } = require('../scripts/verify-release-bundle.js');
+          const { readBundleRelease } = require('../scripts/verify-release-bundle.ts');
           const version = process.env.FARMING_RELEASE_VERSION;
           const files = fs.readdirSync('.')
             .filter((file) => file.startsWith('farming'))

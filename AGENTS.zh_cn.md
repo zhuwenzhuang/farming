@@ -93,11 +93,11 @@ README 是产品入口，不是实现历史。只有顶层产品承诺、主要�
 
 ### 3. 测试覆盖原则
 
-- **统一类型门禁**：`npm run typecheck` 必须同时检查 React 前端、由 `tsconfig.backend-runtime.json` 管理的严格后端与 Browser Resource TypeScript、由 `tsconfig.backend.json` 管理的剩余后端 checked JavaScript、逐文件检查的 classic browser TypeScript、共享协议 TypeScript、构建脚本 TypeScript，以及 usage scanner。后端和 Browser Resource runtime 权威源码使用 `.cts`，领域类型与实现放在一起，删除被替代的 `.js`，运行时只加载生成的 `.cjs`；`npm run build:backend-runtime` 生成这些 CommonJS 产物。classic browser 与共享协议权威源码使用 `.ts`，`npm run build:classic-runtime` 在不破坏 UMD/global 行为的前提下生成原路径 `.js` 兼容产物。发行包携带运行时 JavaScript，不直接执行 TypeScript。不能为了让门禁变绿而给文件加 `@ts-nocheck`，也不能用 `any` 替换领域类型。
+- **统一类型门禁**：`npm run typecheck` 必须同时检查 React 前端、由 `tsconfig.backend-runtime.json` 管理的严格后端与 Browser Resource TypeScript、由 `tsconfig.backend.json` 管理的剩余后端 checked JavaScript、逐文件检查的 classic browser TypeScript、共享协议 TypeScript、构建脚本 TypeScript、由 `tsconfig.tests.json` 管理的后端测试结构类型，以及 usage scanner。后端和 Browser Resource runtime 权威源码使用 `.cts`，领域类型与实现放在一起，删除被替代的 `.js`，运行时只加载生成的 `.cjs`；`npm run build:backend-runtime` 生成这些 CommonJS 产物。classic browser 与共享协议权威源码使用 `.ts`，`npm run build:classic-runtime` 在不破坏 UMD/global 行为的前提下生成原路径 `.js` 兼容产物。后端测试使用 `.ts` 并始终纳入测试类型门禁；动态测试夹具可以使用独立于生产 runtime 严格配置的测试配置，但不能绕过检查。发行包携带运行时 JavaScript，不直接执行 TypeScript。不能为了让门禁变绿而给文件加 `@ts-nocheck`，也不能用 `any` 替换领域类型。
 - **核心功能必须有测试**：Main Agent 验证、心跳检测、状态同步等
 - **后端测试位置**：`backend/tests/` 目录
 - **展示效果 E2E 位置**：`tests/e2e/` 目录，使用 Playwright Test 覆盖真实页面、真实 WebSocket / native pty session / xterm.js terminal 渲染链路
-- **测试命名**：`test-[功能].js`
+- **测试命名**：`test-[功能].ts`
 - **E2E 命名**：`*.spec.ts`
 - **测试覆盖**：每个核心功能至少有一个测试用例
 - **复杂真实场景优先**：简单合成夹具只用于首轮 Smoke。非平凡 UI 或运行时改动进入验收前，必须选取信息丰富的真实或生产形态场景，组合覆盖相关界面与状态，例如长 Agent 对话、工具过程、Markdown、代码、图片、实时 xterm 输出、主题切换和生命周期转换。优先用少量有代表性的复杂场景暴露交互问题，而不是堆积互不关联的玩具 case；发现的每个缺陷仍需补充可重复的确定性回归测试。
@@ -168,7 +168,7 @@ README 是产品入口，不是实现历史。只有顶层产品承诺、主要�
 
 新的交互式 agent 默认由 `NativeSessionEngine` 托管，node-pty 进程运行在独立 native pty host 中，Farming 服务重启后通过本地 socket 重新挂回仍存活的 terminal。Farming Server 采用 crash-only 生命周期：SIGINT 和 SIGTERM 保持立即退出语义，不能安装调用 `AgentManager.dispose()`、等待 Agent Operation 或发布半关停状态的 Server Signal Handler。人工停止、部署重启和升级都先校验精确 Server Process Identity，再发送 SIGKILL，只等待进程退出与端口释放。Signal 返回 `EPERM` 或 `EACCES` 说明进程可能仍存在：此时不得修改包目录，必须提示用户由拥有该进程的系统账号或管理员重启 Farming 后再重试升级。正确性由启动恢复和对账负责，而不是退出前 Drain。活跃 Provider Turn 可以被中断并由 Provider 自己 Resume；Farming 只持久化并恢复 Farming 自有状态。native pty host 默认会跨 Farming server 进程丢失保留；当没有 live session 和 client 后会在空闲宽限期后退出。server 与 host 连接时必须交换 runtime 代码指纹；应用升级或指纹不一致时执行 Transactional Controlled Rotation：阻止新 Mutation，Drain 并 Freeze Reducer 的精确状态切面，序列化所有仍为 Live 的 Terminal，只有携带匹配 Preparation Token 才能关闭旧 Host，并在新 PTY Epoch 中恢复序列化 Screen。序列化失败必须恢复旧 Host 并终止轮换；已经接受用户输入但还没有精确 provider Session ID 的 Codex Terminal 同样不可重启，此时必须终止轮换并恢复旧 Host，不能在同一个 `agent_*` 记录下启动全新的 Codex 进程。Host 意外崩溃属于进程丢失，不能伪装成成功恢复。过时 Host 只能在共享 Socket 路径仍指向它自己的 Active Listener 时删除该路径；同一 Config 的启动或关闭发生重叠时，绝不能删除 Replacement Host 的 Socket。每个 Host 保留一个 Private Listener 路径；重新连接的 Server 只有在恰好找到一个匹配的 Live Private Listener 时才能恢复缺失的公开链接，多个匹配项必须显式失败，不能任意选择。只有希望 host 在每次 server 进程丢失后退出时才设置 `FARMING_NATIVE_PTY_HOST_PERSIST=0`。`LocalSessionEngine` 仅保留为 `FARMING_SESSION_ENGINE=local` 调试路径；产品 runtime 工作应面向 native pty host。
 
-Browser Resource 模块位于 `extensions/browser`，默认关闭；Agent Tool 和 MCP 挂载仍然按需进行。它唯一受支持的操作与 Viewer Runtime，是 Farming 启动依赖 Manifest 声明的精确版本 `agent-browser`。Farming 不得用原生 CDP 重写 Browser Automation，不得把 Playwright 或 Puppeteer 加入生产包，不得把 Chromium 随发行包交付，也不得加入 WebDriver 或保留静默的第二套实现。全新 Server 打开端口前，Farming Launcher 必须始终准备并使用已校验的不可变 `agent-browser` Cache 条目，不得复用或回退到系统安装。Chromium 是独立的显式可选依赖：普通安装、更新和启动绝不能下载它。只有用户在**插件 → 浏览器**中显式操作，才能开始受管 Chromium 安装。该操作并发探测经过审查的 Google Chrome for Testing 与 npmmirror Endpoint，按有界延迟排列可用源，并在一个源明确失败后继续下一个。Google 路径调用锁定版本的 `agent-browser install`；镜像路径直接下载匹配平台的 Archive。两条路径都使用 `<config-dir>/runtimes/chromium/<agent-browser-version>/<platform>/` 下的 Staging Directory 并重定向 HOME 与 XDG Path，绝不能调用 `--with-deps` 或修改全局系统 Package。受管 Chromium 安装只有一套权威 `absent -> installing -> ready | failed` 状态机；旧版本有效而当前版本缺失时派生 `updateAvailable`，并发请求必须合并，跨 Server 通过 Config-scoped Lock 串行，并且只有找到精确 Executable 且成功执行版本检查后才能原子发布。超时或无法证明 Installer Process 已退出时，必须保留 Ownership 证据，不能删除仍可能被写入的文件；只有证明 Installer 已退出后才能回收遗留 Staging。浏览器来源必须在**插件 → 浏览器**中选择，而不是要求用户配置启动环境；用户可以选择已发现的兼容 Chromium Executable、与当前 `agent-browser` 版本匹配的 Farming 受管 Chromium，或填写外部回环 CDP Endpoint；自动选择优先使用可用的系统 Executable，再使用已安装的受管 Chromium。切换来源时，必须先校验目标配置，停止所有由 Farming 拥有且正在运行的 Browser，清理成功后才提交新设置；清理失败时保留旧选择。Local Resource 由 Farming 把选中的 Chromium Executable 与隔离 Profile 交给 `agent-browser`；Farming 不再保留独立的 Chromium Launcher 或 Process Gate 实现。External Resource 则由 `agent-browser` 连接插件中选择的用户或 Agent 管理 Endpoint。外部 Endpoint 只允许回环地址；浏览器在另一台机器时由用户自行建立 Tunnel。Farming 不得访问 Docker Socket、选择或拉取镜像、管理容器、在受鉴权的插件设置界面之外暴露 Endpoint，也不得关闭外部 Owner 的浏览器进程。同一 Project 与 Browser Source 下的 Resource 是一个共享 `agent-browser` Session 中的多个带标签 Tab。Local Session 拥有 Chromium Process 与隔离 Profile；External Session 只拥有连接与带标签 Tab，浏览器、容器、Profile 与 Endpoint 生命周期归外部 Owner。过期 Viewer Generation 必须被拒绝；受鉴权保护的 Viewer 代理 Runtime 的 JPEG WebSocket Stream，并把 Pointer、Keyboard、Wheel 与 Viewport Input 映射回同一个 Session。Browser Action 与 Runtime Command 都必须串行；Stop 先关闭新接收、排空已接收的有界 Action，再关闭对应 Tab；关闭最后一个 Tab 才关闭 Session，但绝不能关闭外部浏览器进程。支持的 Agent Surface 覆盖导航/等待、DOM 交互、结构化检查/JavaScript、Console/Error/Network 证据、Cookie/Storage、Frame/Dialog 和 Project 级 Upload/Download；Tab 映射为独立 Farming Browser Resource。Codex、Claude Code、OpenCode 和 Qoder 启动时从 `backend/farming-agent-bootstrap.zh_cn.md` 注入 Farming Bootstrap，并通过 `farming capabilities` 查询实时能力；不得自动挂载 Browser MCP。`farming browser` 是按需操作同一 Browser Identity 的 Agent Bridge，`farming browser mcp` 只允许显式启用，`farming-browser` 只是 npm Bin 别名。CLI 发现必须保持渐进式：Farming 全局 Help 只披露 Browser 入口，Browser 顶层 Help 只披露起点和 Topic，Topic Help 展开一个能力域，只有 Command Help 才披露精确参数。
+Browser Resource 模块位于 `extensions/browser`，默认关闭。Browser 在 ACP Session 创建边界已启用时，Farming 会通过 Provider Adapter 自动投影完整的 `browser_*` MCP Tool Catalog；Terminal 仍通过 CLI 按需访问。它唯一受支持的操作与 Viewer Runtime，是 Farming 启动依赖 Manifest 声明的精确版本 `agent-browser`。Farming 不得用原生 CDP 重写 Browser Automation，不得把 Playwright 或 Puppeteer 加入生产包，不得把 Chromium 随发行包交付，也不得加入 WebDriver 或保留静默的第二套实现。全新 Server 打开端口前，Farming Launcher 必须始终准备并使用已校验的不可变 `agent-browser` Cache 条目，不得复用或回退到系统安装。Chromium 是独立的显式可选依赖：普通安装、更新和启动绝不能下载它。只有用户在**插件 → 浏览器**中显式操作，才能开始受管 Chromium 安装。该操作并发探测经过审查的 Google Chrome for Testing 与 npmmirror Endpoint，按有界延迟排列可用源，并在一个源明确失败后继续下一个。Google 路径调用锁定版本的 `agent-browser install`；镜像路径直接下载匹配平台的 Archive。两条路径都使用 `<config-dir>/runtimes/chromium/<agent-browser-version>/<platform>/` 下的 Staging Directory 并重定向 HOME 与 XDG Path，绝不能调用 `--with-deps` 或修改全局系统 Package。受管 Chromium 安装只有一套权威 `absent -> installing -> ready | failed` 状态机；旧版本有效而当前版本缺失时派生 `updateAvailable`，并发请求必须合并，跨 Server 通过 Config-scoped Lock 串行，并且只有找到精确 Executable 且成功执行版本检查后才能原子发布。超时或无法证明 Installer Process 已退出时，必须保留 Ownership 证据，不能删除仍可能被写入的文件；只有证明 Installer 已退出后才能回收遗留 Staging。浏览器来源必须在**插件 → 浏览器**中选择，而不是要求用户配置启动环境；用户可以选择已发现的兼容 Chromium Executable、与当前 `agent-browser` 版本匹配的 Farming 受管 Chromium，或填写外部回环 CDP Endpoint；自动选择优先使用可用的系统 Executable，再使用已安装的受管 Chromium。切换来源时，必须先校验目标配置，停止所有由 Farming 拥有且正在运行的 Browser，清理成功后才提交新设置；清理失败时保留旧选择。Local Resource 由 Farming 把选中的 Chromium Executable 与隔离 Profile 交给 `agent-browser`；Farming 不再保留独立的 Chromium Launcher 或 Process Gate 实现。External Resource 则由 `agent-browser` 连接插件中选择的用户或 Agent 管理 Endpoint。外部 Endpoint 只允许回环地址；浏览器在另一台机器时由用户自行建立 Tunnel。Farming 不得访问 Docker Socket、选择或拉取镜像、管理容器、在受鉴权的插件设置界面之外暴露 Endpoint，也不得关闭外部 Owner 的浏览器进程。同一 Agent 与 Browser Source 下的 Resource 是一个共享 `agent-browser` Session 中的多个带标签 Tab。Local Session 拥有 Chromium Process 与隔离 Profile；External Session 只拥有连接与带标签 Tab，浏览器、容器、Profile 与 Endpoint 生命周期归外部 Owner。过期 Viewer Generation 必须被拒绝；受鉴权保护的 Viewer 代理 Runtime 的 JPEG WebSocket Stream，并把 Pointer、Keyboard、Wheel 与 Viewport Input 映射回同一个 Session。Browser Action 与 Runtime Command 都必须串行；Stop 先关闭新接收、排空已接收的有界 Action，再关闭对应 Tab；关闭最后一个 Tab 才关闭 Session，但绝不能关闭外部浏览器进程。支持的 Agent Surface 覆盖导航/等待、DOM 交互、结构化检查/JavaScript、Console/Error/Network 证据、Cookie/Storage、Frame/Dialog 和 Project 级 Upload/Download；Tab 映射为独立 Farming Browser Resource。Codex、Claude Code、OpenCode 和 Qoder 启动时从 `backend/farming-agent-bootstrap.zh_cn.md` 注入 Farming Bootstrap，并通过 `farming capabilities` 查询实时能力。已启用的 Browser Capability 还会自动投影到新建的 ACP Session；`farming browser` 是 Terminal 按需操作同一 Browser Identity 的 Bridge，`farming browser mcp` 是 Provider Adapter 与显式手工集成使用的 stdio Transport，`farming-browser` 只是 npm Bin 别名。CLI 发现必须保持渐进式：Farming 全局 Help 只披露 Browser 入口，Browser 顶层 Help 只披露起点和 Topic，Topic Help 展开一个能力域，只有 Command Help 才披露精确参数。
 
 Terminal 展示恢复使用带 checkpoint 的状态机协议。native pty host 中的 headless xterm 是唯一权威归约器：每次 PTY 运行都有唯一 epoch；Output Transition 同时推进 `outputSeq` 和 `stateRevision`，Clear / Resize 只推进 `stateRevision`。序列化 checkpoint 必须携带该归约器实际提交的 epoch、序号、screen 与尺寸。WebSocket 合并不能抹掉单个 Transition 的索引；浏览器逐条校验合并消息里的索引，但把连续的 Output / Clear 作为一次 xterm Write Batch 提交。Resize 仍是有序的批次边界；提交后，浏览器等待后续重画短暂且有界地静默，再一次绘制整个 Burst，避免全屏 TUI 重画被逐块暴露。浏览器只允许在当前 epoch 上应用下一条连续 Transition；重复消息直接忽略，序号缺口、epoch 变化、页面隐藏恢复或断线重连都必须先安装权威 `/session-view` checkpoint，再继续归约 live output。禁止轮询 `/session-view`；Transport Failure 使用 Backoff 重试，重复响应持续违反同一 Checkpoint 不变量时必须停止并显式报错。已知落后于 Replay Target 的 Checkpoint 不得进入可见画面；安装完整 Checkpoint 时应抑制 xterm 的增量绘制，恢复过程一次显示最新 Screen，而不是重播历史。PTY 退出时必须等待 250 ms 尾部数据静默窗口、Drain Reducer，并保存精确 Final Checkpoint；若最终切面缺失或不精确，必须显式报告致命状态证明失败，不能把 Raw Output 伪装成权威 Screen。
 
@@ -272,19 +272,19 @@ farming/
 ├── bin/
 │   └── farming            # 开发态 Farming 产品 CLI；发布后二进制也叫 farming
 ├── scripts/
-│   ├── sync-ghostty-vendor.js # 将 ghostty-web 浏览器资源同步到 frontend/vendor/
+│   ├── sync-ghostty-vendor.ts # 将 ghostty-web 浏览器资源同步到 frontend/vendor/
 │   ├── deploy.sh             # 远程 Linux 部署 / 启动 / 停止脚本
-│   ├── bundle-cli-runtime.js # release CLI 后端 bundle 入口；处理 packaged runtime 的动态 require 边界
+│   ├── bundle-cli-runtime.ts # release CLI 后端 bundle 入口；处理 packaged runtime 的动态 require 边界
 │   ├── package-cli-release.sh # 生成按平台发布的 farming CLI 应用；先 esbuild bundle/minify 后端，再交给 @yao-pkg/pkg / legacy pkg
 │   ├── smoke-cli-release.sh   # 平台 CLI 冷路径 smoke：干净 HOME、自动配置、token、agent 控制链路
 │   ├── package-release.sh     # 生成可解压运行的 app bundle tarball，包内根目录自带 ./farming
 │   ├── install-release.sh     # app bundle / tarball 本地安装、启动、停止脚本
 │   ├── install-remote-release.sh # 本机打包、上传 tarball 并远程安装启动
 │   ├── compute-node-heap-mb.sh # 按 cgroup / 系统内存计算 Farming server Node heap
-│   ├── start-playwright-server.js # Playwright 本地临时测试服务入口
-│   ├── capture-product-screenshots.js # 使用匿名 demo workspace 重建 docs/products/code 产品截图
-│   ├── e2e.js                # 可重复端到端测试（本地 / 远端 / 手机视口）
-│   └── e2e-workspaces.js     # Main/New Agent workspace 行为 E2E 测试
+│   ├── start-playwright-server.ts # Playwright 本地临时测试服务入口
+│   ├── capture-product-screenshots.ts # 使用匿名 demo workspace 重建 docs/products/code 产品截图
+│   ├── e2e.ts                # 可重复端到端测试（本地 / 远端 / 手机视口）
+│   └── e2e-workspaces.ts     # Main/New Agent workspace 行为 E2E 测试
 ├── backend/               # 后端代码
 │   ├── server.cts         # Express + WebSocket 服务器 TypeScript 权威源码；运行时使用生成的 server.cjs
 │   │   - 静态文件服务
@@ -409,69 +409,69 @@ farming/
 │   │   - 工作空间配置
 │   │
 │   └── tests/             # 后端测试
-│       ├── test-final.js  # 完整测试套件
+│       ├── test-final.ts  # 完整测试套件
 │       │   - Non-tty rejection
 │       │   - Main Agent creation
 │       │   - Input processing
 │       │   - Second agent creation
 │       │   - Main Agent kill
 │       │   - Other agent preservation
-│       ├── test-agent-manager-fork.js # Agent fork / git worktree 行为测试
-│       ├── test-agent-manager-interrupt.js # Agent interrupt fallback 行为测试
-│       ├── test-agent-manager-rename.js # Agent 自定义显示名行为测试
-│       ├── test-agent-session-history.js # Codex / Claude session provider 统一测试
-│       ├── test-async-cache.js # stale-while-refresh 缓存语义测试
-│       ├── test-usage-monitor.js # Codex / Claude usage 与 quota 只读采集测试
-│       ├── test-codex-models.js # Codex 模型目录裁剪与三段式选项测试
-│       ├── test-code-composer-message.js # Composer 附件 / slash mode 消息格式化测试
-│       ├── test-code-composer-submit.js # Composer -> terminal 单 chunk 提交语义测试
-│       ├── test-code-focus-retry.js # Code-style focus retry 调度 helper 测试
-│       ├── test-code-main-page-session.js # Codex / Claude 主页面 session membership helper 测试
-│       ├── test-code-menu-position.js # Code context menu 定位 helper 测试
-│       ├── test-code-workspace-file-view.js # workspace file path / open file view helper 测试
-│       ├── test-claude-settings.js # Claude settings 模型/effort 摘要与敏感字段过滤测试
-│       ├── test-slash-command-discovery.js # Claude slash command / skill 名称只读发现测试
-│       ├── test-codex-session-history.js # Codex 历史 session 元数据合并测试
-│       ├── test-code-workspace-derived.js # CodeWorkspace agent/session/project 派生状态 helper 测试
-│       ├── test-code-workspace-files.js # Code-style workspace 结构与接线测试
-│       ├── test-codex-agent-working-state.js # Codex / Claude 当前 turn active 状态判断测试
-│       ├── test-session-engine-bridge.js # Session engine bridge 测试
-│       ├── test-session-engine-routing.js # Session engine 路由测试
-│       ├── test-supported-coding-agents.js # Coding agent 白名单测试
-│       ├── test-auth-token-file.js # Token 文件位置测试
-│       ├── test-haiku-token.js # 多语言短语 token 生成器测试
-│       ├── test-control-api.js # Farming CLI control API 测试
-│       ├── test-project-files-section.js # Project Files section / editor 前端接线测试
-│       ├── test-workspace-file-service.js # workspace 文件服务安全读写/search/diff/watch 测试
-│       ├── test-workspace-file-router.js # `/api/files/*` 路由测试
-│       ├── test-workspace-path-completion.js # New Agent workspace 路径补全接线测试
-│       ├── test-farming-cli.js # Farming CLI 参数解析测试
-│       ├── test-farming-app-cli.js # Farming 产品 CLI 默认配置 / packaged fallback 测试
-│       ├── test-main-agent-skills.js # Main Agent 技能说明 / 记忆文件测试
-│       ├── test-agent-manager-control-env.js # Main Agent 控制环境注入测试
-│       ├── test-executable-discovery.js # PATH 可执行项发现测试
-│       ├── test-config-manager-workspaces.js # Main/New Agent workspace 配置测试
-│       ├── test-workspace-discovery.js # workspace 候选发现测试
-│       ├── test-workspace-options.js # Main/New Agent workspace 候选规则测试
-│       ├── test-agent-manager-session-text.js # session modal 文本源测试
-│       ├── test-agent-manager-session-view.js # session view model 测试
-│       ├── test-agent-manager-session-stream.js # session 实时流测试
-│       ├── test-agent-preview-format.js # agent 文本预览格式测试
-│       ├── test-session-modal-helpers.js # session modal 前端逻辑测试
-│       ├── test-session-input-helpers.js # terminal 输入路由 helper 测试
-│       ├── test-terminal-screen-state.js # headless terminal 屏幕状态测试
-│       ├── test-terminal-screen-worker.js # terminal screen worker 测试
-│       ├── test-terminal-screen-worker-pool.js # terminal screen worker 预热池测试
-│       ├── test-workspace-history-helpers.js # workspace 历史去重/截断测试
-│       ├── test-agent-manager-workspace-defaults.js # 主/子 agent 默认工作目录测试
-│       ├── test-backend-connection-status.js # 后端连接断开 / 心跳缺失页面提示接线测试
-│       ├── test-session-terminal-input-e2e.js # terminal 输入浏览器级 E2E 测试
-│       ├── test-session-modal-bridge-files.js # session modal bridge 测试
-│       ├── test-server-input-routing.js # session 输入路由优先级测试
-│       ├── test-local-session-engine-shells.js # shell/login 启动规范测试
-│       ├── test-frontend-bridge-files.js # terminal/skin bridge 骨架测试
-│       ├── test-session-bridge-files.js # session bridge 骨架测试
-│       └── test-ghostty-vendor.js # ghostty vendor 资源测试
+│       ├── test-agent-manager-fork.ts # Agent fork / git worktree 行为测试
+│       ├── test-agent-manager-interrupt.ts # Agent interrupt fallback 行为测试
+│       ├── test-agent-manager-rename.ts # Agent 自定义显示名行为测试
+│       ├── test-agent-session-history.ts # Codex / Claude session provider 统一测试
+│       ├── test-async-cache.ts # stale-while-refresh 缓存语义测试
+│       ├── test-usage-monitor.ts # Codex / Claude usage 与 quota 只读采集测试
+│       ├── test-codex-models.ts # Codex 模型目录裁剪与三段式选项测试
+│       ├── test-code-composer-message.ts # Composer 附件 / slash mode 消息格式化测试
+│       ├── test-code-composer-submit.ts # Composer -> terminal 单 chunk 提交语义测试
+│       ├── test-code-focus-retry.ts # Code-style focus retry 调度 helper 测试
+│       ├── test-code-main-page-session.ts # Codex / Claude 主页面 session membership helper 测试
+│       ├── test-code-menu-position.ts # Code context menu 定位 helper 测试
+│       ├── test-code-workspace-file-view.ts # workspace file path / open file view helper 测试
+│       ├── test-claude-settings.ts # Claude settings 模型/effort 摘要与敏感字段过滤测试
+│       ├── test-slash-command-discovery.ts # Claude slash command / skill 名称只读发现测试
+│       ├── test-codex-session-history.ts # Codex 历史 session 元数据合并测试
+│       ├── test-code-workspace-derived.ts # CodeWorkspace agent/session/project 派生状态 helper 测试
+│       ├── test-code-workspace-files.ts # Code-style workspace 结构与接线测试
+│       ├── test-codex-agent-working-state.ts # Codex / Claude 当前 turn active 状态判断测试
+│       ├── test-session-engine-bridge.ts # Session engine bridge 测试
+│       ├── test-session-engine-routing.ts # Session engine 路由测试
+│       ├── test-supported-coding-agents.ts # Coding agent 白名单测试
+│       ├── test-auth-token-file.ts # Token 文件位置测试
+│       ├── test-haiku-token.ts # 多语言短语 token 生成器测试
+│       ├── test-control-api.ts # Farming CLI control API 测试
+│       ├── test-project-files-section.ts # Project Files section / editor 前端接线测试
+│       ├── test-workspace-file-service.ts # workspace 文件服务安全读写/search/diff/watch 测试
+│       ├── test-workspace-file-router.ts # `/api/files/*` 路由测试
+│       ├── test-workspace-path-completion.ts # New Agent workspace 路径补全接线测试
+│       ├── test-farming-cli.ts # Farming CLI 参数解析测试
+│       ├── test-farming-app-cli.ts # Farming 产品 CLI 默认配置 / packaged fallback 测试
+│       ├── test-main-agent-skills.ts # Main Agent 技能说明 / 记忆文件测试
+│       ├── test-agent-manager-control-env.ts # Main Agent 控制环境注入测试
+│       ├── test-executable-discovery.ts # PATH 可执行项发现测试
+│       ├── test-config-manager-workspaces.ts # Main/New Agent workspace 配置测试
+│       ├── test-workspace-discovery.ts # workspace 候选发现测试
+│       ├── test-workspace-options.ts # Main/New Agent workspace 候选规则测试
+│       ├── test-agent-manager-session-text.ts # session modal 文本源测试
+│       ├── test-agent-manager-session-view.ts # session view model 测试
+│       ├── test-agent-manager-session-stream.ts # session 实时流测试
+│       ├── test-agent-preview-format.ts # agent 文本预览格式测试
+│       ├── test-session-modal-helpers.ts # session modal 前端逻辑测试
+│       ├── test-session-input-helpers.ts # terminal 输入路由 helper 测试
+│       ├── test-terminal-screen-state.ts # headless terminal 屏幕状态测试
+│       ├── test-terminal-screen-worker.ts # terminal screen worker 测试
+│       ├── test-terminal-screen-worker-pool.ts # terminal screen worker 预热池测试
+│       ├── test-workspace-history-helpers.ts # workspace 历史去重/截断测试
+│       ├── test-agent-manager-workspace-defaults.ts # 主/子 agent 默认工作目录测试
+│       ├── test-backend-connection-status.ts # 后端连接断开 / 心跳缺失页面提示接线测试
+│       ├── test-session-terminal-input-e2e.ts # terminal 输入浏览器级 E2E 测试
+│       ├── test-session-modal-bridge-files.ts # session modal bridge 测试
+│       ├── test-server-input-routing.ts # session 输入路由优先级测试
+│       ├── test-local-session-engine-shells.ts # shell/login 启动规范测试
+│       ├── test-frontend-bridge-files.ts # terminal/skin bridge 骨架测试
+│       ├── test-session-bridge-files.ts # session bridge 骨架测试
+│       └── test-ghostty-vendor.ts # ghostty vendor 资源测试
 │
 │   ├── theme-manager.js   # 主题管理器
 │   │   - 自动扫描 frontend/themes/ 目录
@@ -612,7 +612,7 @@ CRT 皮肤效果开关存储在 `~/.farming/settings.json` 的 `crtSkinEffectsEn
 - CLI 应用会把实际 daemon 端口写入 `~/.farming/farming-server.json`；用户终端不传端口执行 `farming list/spawn/output/send/kill` 时会自动读取该 state 文件找到当前实例。`farming stop` 必须校验记录的精确 Server Identity 并发送 SIGKILL，只有在 Server 进程已经退出且记录端口可以重新 bind 后才能删除匹配的控制元数据并返回成功；有界等待超时必须保留元数据并显式失败。走 Native PTY 路径的 Release Smoke 必须关闭 Host 持久化、显式终止精确的 Smoke Agent，并证明 Server、Host 与子 Shell 进程都已退出
 - CLI 应用同时保留 Main Agent 控制命令：用户终端可用 `farming start/status/stop/logs/url` 管理 server，agent 内仍可用 `farming list/spawn/output/send/kill`
 - CLI 应用发布产物不包含仓库 `backend/`、`src/`、测试或脚本源码；服务端逻辑进入平台二进制，浏览器侧只包含 Vite 构建后的 `dist/` 静态资源；Farming 自身运行依赖尽量自包含，但目标机仍需要可执行的 shell，Codex / Claude agent 仍依赖目标机已有对应 CLI
-- `scripts/package-cli-release.sh` 通过 `scripts/bundle-cli-runtime.js` 用 esbuild 将后端 runtime bundle/minify 为临时 `backend/farming-app-cli.pkg.js` 和 `backend/terminal-screen-worker-thread.pkg.js`，不生成 sourcemap；bundler 会把 Express 可选 view engine 动态 require 隔离为 runtime require，避免 pkg 误判；pkg 只接收这些临时 bundle 和静态 assets，脚本退出时必须清理临时 bundle
+- `scripts/package-cli-release.sh` 通过 `scripts/bundle-cli-runtime.ts` 用 esbuild 将后端 runtime bundle/minify 为临时 `backend/farming-app-cli.pkg.js` 和 `backend/terminal-screen-worker-thread.pkg.js`，不生成 sourcemap；bundler 会把 Express 可选 view engine 动态 require 隔离为 runtime require，避免 pkg 误判；pkg 只接收这些临时 bundle 和静态 assets，脚本退出时必须清理临时 bundle
 - Packaged native addon 提取必须比较已有字节并使用原子替换：node-pty 会多次调用 native loader，原地截断已经 mmap 的 Linux `.node` 文件会让第一次 `pty.fork` 直接崩溃，即使提取文件的 checksum 完全正确。
 - `scripts/package-cli-release.sh` 统一使用 `@yao-pkg/pkg` 和 Node 22 target
 - `scripts/package-cli-release.sh` 调 pkg 时使用 `--no-native-build`；`node-pty` native addon 和 `spawn-helper` 通过显式 assets 进入包，运行时由 `packaged-node-pty.js` 提取

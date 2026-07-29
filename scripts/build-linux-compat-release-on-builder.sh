@@ -150,7 +150,7 @@ docker "${docker_args[@]}" "${IMAGE}" -lc '
   npm run release:app:linux-compat >&2
   test -f "${archive}"
   test -f "${archive}.sha256"
-  node scripts/verify-linux-compat-release.js "${archive}" >&2
+  node --import tsx scripts/verify-linux-compat-release.ts "${archive}" >&2
 
   echo "==> Running packaged bash-agent smoke ..." >&2
   smoke_dir="$(mktemp -d /tmp/farming-linux-compat-smoke.XXXXXX)"

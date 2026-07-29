@@ -194,4 +194,4 @@ Project 侧栏使用紧凑、便于扫描的文件布局。具体 agent 行是 P
 
 当前自动化覆盖：
 - `tests/e2e/display-flows.spec.ts` 中 `keeps project files as a collapsible project-level section` 走通上述主要链路。
-- `backend/tests/test-project-files-section.js` 静态约束 UI 保留 toolbar blame、gutter line changes 和主区域 Monaco diff 的产品边界。
+- `backend/tests/test-project-files-section.ts` 静态约束 UI 保留 toolbar blame、gutter line changes 和主区域 Monaco diff 的产品边界。

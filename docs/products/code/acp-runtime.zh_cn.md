@@ -106,6 +106,6 @@ Terminal 模式继续使用 `NativeSessionEngine`。ACP 是新启动或重启 Ag
 
 ## 验证
 
-`backend/tests/test-acp-runtime.js` 会运行一个真实官方 SDK client 和确定性的假 ACP 子进程，验证新 Session、load 完整历史重放、prompt、权限选择、稳定 tool update、Session 列表和归一化 Session snapshot。`backend/tests/test-acp-checkpoint-store.js` 验证 reducer round-trip、identity 隔离、dirty fence 和持久化原子替换；`backend/tests/test-acp-checkpoint-recovery.js` 验证冷/热场景 fail-closed load、revision reset、完整子 Session/patch fence 序列化、不确定失败 fencing、bare-resume fencing、工作区校验和 Agent Home 隔离。
+`backend/tests/test-acp-runtime.ts` 会运行一个真实官方 SDK client 和确定性的假 ACP 子进程，验证新 Session、load 完整历史重放、prompt、权限选择、稳定 tool update、Session 列表和归一化 Session snapshot。`backend/tests/test-acp-checkpoint-store.ts` 验证 reducer round-trip、identity 隔离、dirty fence 和持久化原子替换；`backend/tests/test-acp-checkpoint-recovery.ts` 验证冷/热场景 fail-closed load、revision reset、完整子 Session/patch fence 序列化、不确定失败 fencing、bare-resume fencing、工作区校验和 Agent Home 隔离。
 
 `npm run test:performance:transcript` 使用生产形状的 942 条 entry、498 个 Tool 及实测大媒体分布，持续约束响应体积，并要求解析耗时取得实质改进。ACP 人类场景浏览器套件验证协商媒体读取和只读传输失败的有界恢复；共享 Agent 视图缓存与扩展性套件则覆盖最多五十个实时 Agent 下 Chat / Terminal 的保留与逐出。

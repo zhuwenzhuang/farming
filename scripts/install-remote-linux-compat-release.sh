@@ -9,7 +9,7 @@ if [ -z "${TARBALL}" ] || [ ! -f "${TARBALL}" ]; then
   exit 2
 fi
 
-node "${PROJECT_ROOT}/scripts/verify-linux-compat-release.js" "${TARBALL}"
+(cd "${PROJECT_ROOT}" && node --import tsx scripts/verify-linux-compat-release.ts "${TARBALL}")
 
 if [ -z "${FARMING_REMOTE:-}" ]; then
   echo "Set FARMING_REMOTE=user@host for the compatibility deployment target." >&2

@@ -227,11 +227,14 @@ if (fs.realpathSync(claudeLaunch.args.at(-1)) !== fs.realpathSync(claudeVendorEn
   throw new Error(`Claude ACP launch did not select the packaged runtime: ${claudeLaunch.args.at(-1)}`);
 }
 NODE
-CODEX_PATH="${PROJECT_ROOT}/node_modules/.bin/codex" \
-  node "${PROJECT_ROOT}/scripts/smoke-codex-acp-process.js" --package-root "${PACKAGE_ROOT}"
-node "${PROJECT_ROOT}/scripts/smoke-claude-acp-process.js" --package-root "${PACKAGE_ROOT}"
-node "${PROJECT_ROOT}/scripts/smoke-browser-mcp-process.js" --package-root "${PACKAGE_ROOT}"
-node "${PROJECT_ROOT}/scripts/smoke-computer-mcp-process.js" --package-root "${PACKAGE_ROOT}"
+(
+  cd "${PROJECT_ROOT}"
+  CODEX_PATH="${PROJECT_ROOT}/node_modules/.bin/codex" \
+    node --import tsx scripts/smoke-codex-acp-process.ts --package-root "${PACKAGE_ROOT}"
+  node --import tsx scripts/smoke-claude-acp-process.ts --package-root "${PACKAGE_ROOT}"
+  node --import tsx scripts/smoke-browser-mcp-process.ts --package-root "${PACKAGE_ROOT}"
+  node --import tsx scripts/smoke-computer-mcp-process.ts --package-root "${PACKAGE_ROOT}"
+)
 "${PREFIX}/bin/farming" help >/dev/null
 FARMING_DISABLE_AUTH=1 FARMING_NATIVE_PTY_HOST_PERSIST=0 FARMING_SKIP_RUNTIME_PREPARE=1 \
   "${PREFIX}/bin/farming" daemon \

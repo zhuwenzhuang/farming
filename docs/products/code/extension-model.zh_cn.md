@@ -54,7 +54,7 @@ Files 已经体现了这一基础思想：文本、Markdown、图片、PDF、Dif
 
 Extension 应通过一份由 Farming 定义的 Capability Contract 发布 Agent Tools。Extension 不应分别实现 Codex、Claude、OpenCode 和 Qoder 接入。
 
-Farming 启动或恢复 Agent 时，只通过 Provider Adapter 在每个 Terminal 进程和 ACP Session 边界注入简短的 Farming 启动提示：Codex 使用 Developer Instructions，Claude Code 使用追加的 System Prompt，OpenCode 使用进程内 Instructions 文件，Qoder 使用追加的 System Prompt。实时可用性不写死在提示词中：`farming capabilities` 会报告 Browser 是 Disabled、Unavailable 还是 Available，并在可用时给出按需使用命令。这样每个 ACP Session 不必默认承担 MCP 启动、Schema Context 和稳定性成本。用户或 Agent 仍可在确实需要 Tool Schema 时显式添加标准的 `farming browser mcp` stdio Server。Tool Identity、Schema、Ownership、Permission Policy 和 Result Semantics 仍由 Farming Extension Contract 定义。
+Farming 启动或恢复 Agent 时，会通过 Provider Adapter 在每个 Terminal 进程和 ACP Session 边界注入简短的 Farming 启动提示：Codex 使用 Developer Instructions，Claude Code 使用追加的 System Prompt，OpenCode 使用进程内 Instructions 文件，Qoder 使用追加的 System Prompt。实时可用性不写死在提示词中：`farming capabilities` 会报告 Browser 是 Disabled、Unavailable 还是 Available。Browser 在新建 ACP Session 的边界已启用时，同一个 Provider Adapter 还会自动投影完整的 `browser_*` MCP Tool Catalog。Terminal Agent 按需使用渐进披露的 `farming browser` CLI；`farming browser mcp` 继续作为显式手工集成使用的 stdio Transport。Tool Identity、Schema、Ownership、Permission Policy 和 Result Semantics 仍由 Farming Extension Contract 定义。
 
 预期关系是：
 

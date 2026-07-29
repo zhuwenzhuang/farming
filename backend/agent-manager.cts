@@ -1398,7 +1398,11 @@ class AgentManager extends EventEmitter {
         ? {
             resolveLaunch: () => ({
               command: process.execPath,
-              args: [path.join(__dirname, 'tests', 'fixtures', 'fake-acp-agent.mjs')],
+              args: [
+                '--import',
+                require.resolve('tsx'),
+                path.join(__dirname, 'tests', 'fixtures', 'fake-acp-agent.mts'),
+              ],
               version: 'e2e',
             }),
           }

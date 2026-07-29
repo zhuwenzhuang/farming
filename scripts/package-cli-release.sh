@@ -102,7 +102,7 @@ check_release_binary() {
 }
 
 MODERN_PKG_BIN="${PROJECT_ROOT}/node_modules/@yao-pkg/pkg/lib-es5/bin.js"
-BUNDLE_CLI_RUNTIME="${PROJECT_ROOT}/scripts/bundle-cli-runtime.js"
+BUNDLE_CLI_RUNTIME="${PROJECT_ROOT}/scripts/bundle-cli-runtime.ts"
 
 cleanup() {
   rm -f "${BUNDLE_ENTRY}" "${BUNDLE_WORKER}" "${BUNDLE_USAGE_WORKER}" "${ASSET_MANIFEST_TMP}"
@@ -139,7 +139,7 @@ log "Bundling backend runtime with esbuild ..."
   FARMING_CLI_BUNDLE_ENTRY="${BUNDLE_ENTRY}" \
   FARMING_CLI_BUNDLE_WORKER="${BUNDLE_WORKER}" \
   FARMING_CLI_BUNDLE_USAGE_WORKER="${BUNDLE_USAGE_WORKER}" \
-    node "${BUNDLE_CLI_RUNTIME}" >&2
+    node --import tsx "${BUNDLE_CLI_RUNTIME}" >&2
 )
 
 mkdir -p "${RELEASE_DIR}"
@@ -193,13 +193,16 @@ for target in "${TARGET_ARRAY[@]}"; do
       echo "Packaged CLI ACP smoke requires the pinned Codex executable from node_modules." >&2
       exit 1
     fi
-    CODEX_PATH="${codex_bin}" node "${PROJECT_ROOT}/scripts/smoke-codex-acp-process.js" \
-      --command "${out_bin}" \
-      --arg --farming-codex-acp
-    node "${PROJECT_ROOT}/scripts/smoke-claude-acp-process.js" \
-      --command "${out_bin}" \
-      --arg --farming-claude-acp
-    node "${PROJECT_ROOT}/scripts/smoke-browser-mcp-process.js" --command "${out_bin}"
+    (
+      cd "${PROJECT_ROOT}"
+      CODEX_PATH="${codex_bin}" node --import tsx scripts/smoke-codex-acp-process.ts \
+        --command "${out_bin}" \
+        --arg --farming-codex-acp
+      node --import tsx scripts/smoke-claude-acp-process.ts \
+        --command "${out_bin}" \
+        --arg --farming-claude-acp
+      node --import tsx scripts/smoke-browser-mcp-process.ts --command "${out_bin}"
+    )
     if ! "${out_bin}" --farming-usage-history-smoke >/dev/null; then
       echo "Packaged CLI failed its Usage History worker + SQLite smoke: ${out_bin}" >&2
       exit 1

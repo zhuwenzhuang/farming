@@ -36,6 +36,6 @@ Last updated: 2026-05-01
 
 - `npm run typecheck`
 - `npm run build`
-- `npm test`（`scripts/run-tests.js` 通过 `tsx` 执行各 `backend/tests/test-*.js`，以便测试中 `import()` 仓库内 `src/**/*.ts` 模块）
+- `npm test`（`scripts/run-tests.ts` 通过 `tsx` 执行各 `backend/tests/test-*.ts`，以便测试中 `import()` 仓库内 `src/**/*.ts` 模块）
 
 Playwright E2E 未在本次改动中强制重跑；发布前可按仓库惯例执行 `npm run test:e2e:playwright`。

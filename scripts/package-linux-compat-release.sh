@@ -42,5 +42,5 @@ tarball="$({
     ./scripts/package-release.sh
 })"
 
-node "${PROJECT_ROOT}/scripts/verify-linux-compat-release.js" "${tarball}"
+(cd "${PROJECT_ROOT}" && node --import tsx scripts/verify-linux-compat-release.ts "${tarball}")
 printf '%s\n' "${tarball}"

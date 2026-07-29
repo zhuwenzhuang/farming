@@ -1,4 +1,6 @@
 const js = require('@eslint/js');
+const typescriptPlugin = require('@typescript-eslint/eslint-plugin');
+const typescriptParser = require('@typescript-eslint/parser');
 
 module.exports = [
   {
@@ -83,6 +85,28 @@ module.exports = [
       sourceType: 'commonjs',
     }
   },
+  // Backend tests remain CommonJS-shaped at runtime, but use real TypeScript
+  // fixture models and narrowing while running through tsx.
+  {
+    files: ['backend/tests/test-*.ts'],
+    plugins: {
+      '@typescript-eslint': typescriptPlugin,
+    },
+    languageOptions: {
+      ecmaVersion: 2022,
+      parser: typescriptParser,
+      sourceType: 'commonjs',
+    },
+    rules: {
+      'no-undef': 'off',
+      'no-redeclare': 'off',
+      'no-unused-vars': 'off',
+      '@typescript-eslint/no-unused-vars': ['warn', {
+        argsIgnorePattern: '^_',
+        varsIgnorePattern: '^_',
+      }],
+    },
+  },
   // Test-specific globals
   {
     files: ['backend/tests/**'],
@@ -94,7 +118,7 @@ module.exports = [
       }
     },
     rules: {
-      'no-undef': 'warn',
+      'no-undef': 'off',
     }
   },
 ];

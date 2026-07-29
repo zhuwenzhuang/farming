@@ -265,10 +265,10 @@ cmd_deploy() {
     --exclude 'test-results/' \
     --exclude 'tests/' \
     --exclude 'backend/tests/' \
-    --exclude 'scripts/e2e*.js' \
-    --exclude 'scripts/run-tests.js' \
-    --exclude 'scripts/start-playwright-server.js' \
-    --exclude 'scripts/test-*.js' \
+    --exclude 'scripts/e2e*.ts' \
+    --exclude 'scripts/run-tests.ts' \
+    --exclude 'scripts/start-playwright-server.ts' \
+    --exclude 'scripts/test-*.ts' \
     --exclude '.DS_Store' \
     --exclude '*.log' \
     --exclude '.farming.pid' \

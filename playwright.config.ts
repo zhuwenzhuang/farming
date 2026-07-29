@@ -62,7 +62,7 @@ const playwrightServerEnv = {
 export default defineConfig({
   testDir: './tests/e2e',
   testIgnore: includeInternalTests ? [] : ['**/internal/**'],
-  globalTeardown: './tests/e2e/global-teardown.js',
+  globalTeardown: './tests/e2e/global-teardown.ts',
   fullyParallel: false,
   workers: 1,
   forbidOnly: !!process.env.CI,
@@ -104,7 +104,7 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'npm run build && exec node scripts/start-playwright-server.js',
+    command: 'npm run build && exec tsx scripts/start-playwright-server.ts',
     url: `${baseURL}/farming/`,
     reuseExistingServer: false,
     timeout: 90_000,

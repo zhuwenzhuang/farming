@@ -14,7 +14,21 @@
     "scripts/build-classic-browser-runtime.ts",
     "scripts/build-runtime-dependency-manifest.ts",
     "scripts/build-usage-history-scanner.ts",
+    "scripts/bundle-cli-runtime.ts",
+    "scripts/prepare-claude-acp-vendor.ts",
+    "scripts/prepare-codex-acp-vendor.ts",
+    "scripts/run-tests.ts",
+    "scripts/smoke-browser-mcp-process.ts",
+    "scripts/smoke-claude-acp-process.ts",
+    "scripts/smoke-codex-acp-process.ts",
+    "scripts/smoke-computer-mcp-process.ts",
+    "scripts/smoke-remote-terminal.ts",
+    "scripts/start-playwright-server.ts",
     "scripts/sync-ghostty-vendor.ts",
-    "scripts/typecheck-classic-runtime.ts"
+    "scripts/test-update-platforms.ts",
+    "scripts/typecheck-classic-runtime.ts",
+    "scripts/verify-linux-compat-release.ts",
+    "scripts/verify-linux-legacy-release.ts",
+    "scripts/verify-release-bundle.ts"
   ]
 }
