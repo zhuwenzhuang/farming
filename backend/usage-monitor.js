@@ -3,7 +3,7 @@ const path = require('path');
 const { execFile } = require('child_process');
 const { promisify } = require('util');
 const { UsageHistoryClient } = require('./usage-history-client');
-const { attachQuotaForecasts } = require('./usage-forecast');
+const { attachQuotaForecasts } = require('./usage-forecast.cjs');
 
 const execFileAsync = promisify(execFile);
 

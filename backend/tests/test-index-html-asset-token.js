@@ -5,7 +5,7 @@ const {
   applyIndexHtmlAppearance,
   appendIndexHtmlAssetToken,
   rewriteIndexHtmlForBasePath,
-} = require('../index-html');
+} = require('../index-html.cjs');
 
 function run() {
   const repoRoot = path.join(__dirname, '..', '..');

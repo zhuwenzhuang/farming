@@ -92,8 +92,10 @@ for runtime_module in \
   atomic-json-store \
   business-health \
   chat-runtime \
+  codex-session-archive \
   input-parts \
   input-routing \
+  index-html \
   main-page-session \
   native-pty-controller-generation \
   native-pty-host-identity \
@@ -101,6 +103,7 @@ for runtime_module in \
   network \
   provider-session-id \
   preview-session-manager \
+  qr-share-tickets \
   run-history-store \
   runtime-executable-invocation \
   runtime-observation \
@@ -109,6 +112,7 @@ for runtime_module in \
   session-engine-bridge \
   session-engine-router \
   session-stream-protocol \
+  system-monitor \
   terminal-attach-checkpoint \
   terminal-exit-quiescence \
   terminal-reducer-flow-control \
@@ -117,7 +121,8 @@ for runtime_module in \
   terminal-screen-worker-thread \
   terminal-screen-worker-pool \
   terminal-screen-worker \
-  terminal-state-serialization
+  terminal-state-serialization \
+  usage-forecast
 do
   if [ ! -f "${PACKAGE_ROOT}/backend/${runtime_module}.cjs" ]; then
     echo "npm package omitted compiled backend runtime ${runtime_module}.cjs" >&2

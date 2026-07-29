@@ -6,7 +6,7 @@ const {
   SHARE_TICKET_ALPHABET,
   SHARE_TICKET_TTL_MS,
   createShareTicketCode,
-} = require('../qr-share-tickets');
+} = require('../qr-share-tickets.cjs');
 
 function fixedBytes(value) {
   return (length) => Buffer.alloc(length, value);

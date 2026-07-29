@@ -55,7 +55,7 @@ const { discoverAgentExtensions, discoverSlashCommands } = require('./slash-comm
 const { FarmingUpdateService } = require('./update-service');
 const { inputPartsFromMessage } = require('./input-parts.cjs');
 const { cleanupTerminalRuntime } = require('./terminal-runtime-cleanup.cjs');
-const { QrShareTicketStore, SHARE_TICKET_TTL_MS } = require('./qr-share-tickets');
+const { QrShareTicketStore, SHARE_TICKET_TTL_MS } = require('./qr-share-tickets.cjs');
 const { ReviewStateStore } = require('./review-state-store');
 const { createReviewStateRouter } = require('./review-state-router');
 const { ReviewDiffService } = require('./review-diff-service');
@@ -69,7 +69,7 @@ const {
   routePath,
   rewriteIndexHtmlForBasePath,
   appendIndexHtmlAssetToken,
-} = require('./index-html');
+} = require('./index-html.cjs');
 const { decodeAcpTranscriptMedia } = require('./acp-transcript');
 const {
   coalesceSessionStream,

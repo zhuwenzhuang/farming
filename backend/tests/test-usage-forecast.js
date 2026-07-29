@@ -2,7 +2,7 @@ const assert = require('assert');
 const {
   attachQuotaForecasts,
   buildQuotaForecast,
-} = require('../usage-forecast');
+} = require('../usage-forecast.cjs');
 
 function run() {
   const now = Date.parse('2026-07-09T12:00:00.000Z');

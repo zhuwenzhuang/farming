@@ -1,15 +1,17 @@
-function normalizeBasePath(basePath) {
+function normalizeBasePath(basePath: unknown): string {
   if (!basePath || basePath === '/') return '';
-  return basePath.endsWith('/') ? basePath.slice(0, -1) : basePath;
+  const value = String(basePath);
+  return value.endsWith('/') ? value.slice(0, -1) : value;
 }
 
-function routePath(basePath, suffix = '') {
+function routePath(basePath: unknown, suffix: unknown = ''): string {
   const normalizedBase = normalizeBasePath(basePath);
-  const normalizedSuffix = suffix.startsWith('/') ? suffix : `/${suffix}`;
+  const suffixValue = String(suffix);
+  const normalizedSuffix = suffixValue.startsWith('/') ? suffixValue : `/${suffixValue}`;
   return normalizedBase ? `${normalizedBase}${normalizedSuffix}` : normalizedSuffix;
 }
 
-function rewriteIndexHtmlForBasePath(html, basePath) {
+function rewriteIndexHtmlForBasePath(html: unknown, basePath: unknown): string {
   const normalizedBase = normalizeBasePath(basePath);
   const runtimeBaseScript = `<script>window.__FARMING_BASE_PATH__=${JSON.stringify(normalizedBase || '')}</script>`;
   const withRuntimeBase = String(html || '').includes('window.__FARMING_BASE_PATH__')
@@ -23,7 +25,7 @@ function rewriteIndexHtmlForBasePath(html, basePath) {
     .replace(new RegExp(`(src|href)="${escapedBase}${escapedBase}/`, 'g'), `$1="${normalizedBase}/`);
 }
 
-function appendIndexHtmlAssetToken(html, token) {
+function appendIndexHtmlAssetToken(html: unknown, token: unknown): string {
   const assetToken = String(token || '');
   if (!assetToken) return String(html || '');
   const encodedToken = encodeURIComponent(assetToken);
@@ -41,8 +43,11 @@ function appendIndexHtmlAssetToken(html, token) {
   });
 }
 
-function applyIndexHtmlAppearance(html, appearance) {
-  const normalizedAppearance = ['light', 'dark'].includes(appearance) ? appearance : 'system';
+function applyIndexHtmlAppearance(html: unknown, appearance: unknown): string {
+  const appearanceValue = typeof appearance === 'string' ? appearance : '';
+  const normalizedAppearance = ['light', 'dark'].includes(appearanceValue)
+    ? appearanceValue
+    : 'system';
   let source = String(html || '');
   if (/\bdata-appearance-preference="[^"]*"/i.test(source)) {
     source = source.replace(
@@ -71,7 +76,7 @@ function applyIndexHtmlAppearance(html, appearance) {
     );
 }
 
-module.exports = {
+export {
   applyIndexHtmlAppearance,
   normalizeBasePath,
   routePath,

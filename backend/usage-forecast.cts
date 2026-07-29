@@ -1,20 +1,56 @@
-function numberOrNull(value) {
+interface QuotaLimit extends Record<string, unknown> {
+  resetsAt?: unknown;
+  totalTokens?: unknown;
+  usedPercent?: unknown;
+  windowMinutes?: unknown;
+}
+
+interface QuotaForecastOptions {
+  now?: unknown;
+}
+
+interface QuotaForecast {
+  source: 'quota-window-average';
+  usedPercent: number;
+  remainingPercent: number;
+  burnRatePercentPerMinute: number;
+  etaMs: number | null;
+  projectedExhaustedAt: number | null;
+  projectedEndPercent: number | null;
+  resetInMs: number | null;
+  windowElapsedMs: number;
+  totalTokens: number | null;
+  usedTokens: number | null;
+  remainingTokens: number | null;
+}
+
+interface Quota extends Record<string, unknown> {
+  available?: boolean;
+  primary?: unknown;
+  secondary?: unknown;
+}
+
+function numberOrNull(value: unknown): number | null {
   if (value === null || value === undefined || value === '') return null;
   const numberValue = Number(value);
   return Number.isFinite(numberValue) ? numberValue : null;
 }
 
-function clamp(value, min, max) {
+function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
-function buildQuotaForecast(limit, options = {}) {
+function buildQuotaForecast(
+  limit: unknown,
+  options: QuotaForecastOptions = {},
+): QuotaForecast | null {
   if (!limit || typeof limit !== 'object') return null;
+  const source = limit as QuotaLimit;
 
   const now = numberOrNull(options.now) ?? Date.now();
-  const usedPercentRaw = numberOrNull(limit.usedPercent);
-  const windowMinutes = numberOrNull(limit.windowMinutes);
-  const resetsAt = numberOrNull(limit.resetsAt);
+  const usedPercentRaw = numberOrNull(source.usedPercent);
+  const windowMinutes = numberOrNull(source.windowMinutes);
+  const resetsAt = numberOrNull(source.resetsAt);
   if (usedPercentRaw === null || windowMinutes === null || windowMinutes <= 0) return null;
 
   const usedPercent = clamp(usedPercentRaw, 0, 100);
@@ -38,7 +74,7 @@ function buildQuotaForecast(limit, options = {}) {
     ? null
     : clamp(usedPercent + burnRatePercentPerMinute * remainingMinutes, 0, Number.MAX_SAFE_INTEGER);
 
-  const totalTokens = numberOrNull(limit.totalTokens);
+  const totalTokens = numberOrNull(source.totalTokens);
   const usedTokens = totalTokens !== null && totalTokens > 0
     ? Math.round(totalTokens * usedPercent / 100)
     : null;
@@ -62,7 +98,10 @@ function buildQuotaForecast(limit, options = {}) {
   };
 }
 
-function attachQuotaForecast(limit, options = {}) {
+function attachQuotaForecast(
+  limit: unknown,
+  options: QuotaForecastOptions = {},
+): unknown {
   if (!limit || typeof limit !== 'object') return limit;
   return {
     ...limit,
@@ -70,16 +109,21 @@ function attachQuotaForecast(limit, options = {}) {
   };
 }
 
-function attachQuotaForecasts(quota, options = {}) {
-  if (!quota || typeof quota !== 'object' || quota.available === false) return quota;
+function attachQuotaForecasts(
+  quota: unknown,
+  options: QuotaForecastOptions = {},
+): unknown {
+  if (!quota || typeof quota !== 'object') return quota;
+  const source = quota as Quota;
+  if (source.available === false) return quota;
   return {
-    ...quota,
-    primary: attachQuotaForecast(quota.primary, options),
-    secondary: attachQuotaForecast(quota.secondary, options),
+    ...source,
+    primary: attachQuotaForecast(source.primary, options),
+    secondary: attachQuotaForecast(source.secondary, options),
   };
 }
 
-module.exports = {
+export {
   attachQuotaForecast,
   attachQuotaForecasts,
   buildQuotaForecast,

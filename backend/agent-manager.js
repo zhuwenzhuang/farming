@@ -5,14 +5,14 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { promisify } = require('util');
-const SystemMonitor = require('./system-monitor');
+const { SystemMonitor } = require('./system-monitor.cjs');
 const { SessionEngineBridge } = require('./session-engine-bridge.cjs');
 const { isSupportedHistoryAgent, parseCommand, resolveLaunchCommand } = require('./cli-agents');
 const {
   buildAgentSessionResumeCommand,
   findAgentSession,
 } = require('./agent-session-history');
-const { archiveCodexSession, unarchiveCodexSession } = require('./codex-session-archive');
+const { archiveCodexSession, unarchiveCodexSession } = require('./codex-session-archive.cjs');
 const { buildAgentProviderSessionPlan, sessionFromExactResumeSource } = require('./agent-provider-session.cjs');
 const { resolveAgentExecutable, resolveCompatibleCodexExecutable } = require('./executable-discovery');
 const { ensureMainAgentSkillFiles, renderMainAgentBootstrap } = require('./main-agent-skills');

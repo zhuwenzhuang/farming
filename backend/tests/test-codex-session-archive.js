@@ -1,5 +1,5 @@
 const assert = require('assert');
-const { archiveCodexSession } = require('../codex-session-archive');
+const { archiveCodexSession } = require('../codex-session-archive.cjs');
 
 async function run() {
   const calls = [];

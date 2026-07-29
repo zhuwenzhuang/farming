@@ -1,7 +1,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const SystemMonitor = require('../system-monitor');
+const { SystemMonitor } = require('../system-monitor.cjs');
 
 async function run() {
   const monitor = new SystemMonitor();
@@ -15,7 +15,7 @@ async function run() {
   assert.strictEqual(stats.network, null, 'network stats should degrade to null without external probes');
   assert(Number.isFinite(stats.timestamp), 'timestamp should be present');
 
-  const source = fs.readFileSync(path.join(__dirname, '..', 'system-monitor.js'), 'utf8');
+  const source = fs.readFileSync(path.join(__dirname, '..', 'system-monitor.cts'), 'utf8');
   assert(!source.includes("require('systeminformation')"), 'system monitor should not depend on systeminformation spawn probes');
 
   let now = 1_000;

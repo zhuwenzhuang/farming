@@ -4,9 +4,42 @@ const fsp = require('fs/promises');
 
 const DISK_STATS_TTL_MS = 30_000;
 
+interface SystemMonitorOptions {
+  diskStatsTtlMs?: number;
+  now?: () => number;
+}
+
+interface DiskStats {
+  percentage: number;
+  total: number;
+  used: number;
+}
+
+interface SystemStats {
+  cpu: number;
+  disk: DiskStats | null;
+  memory: {
+    percentage: number;
+    total: number;
+    used: number;
+  };
+  network: null;
+  timestamp: number;
+}
+
 class SystemMonitor {
-  constructor(options = {}) {
-    this.diskStatsTtlMs = Number.isFinite(options.diskStatsTtlMs) ? options.diskStatsTtlMs : DISK_STATS_TTL_MS;
+  private readonly diskStatsTtlMs: number;
+  private readonly now: () => number;
+  private diskStatsCache: {
+    sampledAt: number;
+    value: DiskStats | null;
+  };
+
+  constructor(options: SystemMonitorOptions = {}) {
+    this.diskStatsTtlMs = typeof options.diskStatsTtlMs === 'number'
+      && Number.isFinite(options.diskStatsTtlMs)
+      ? options.diskStatsTtlMs
+      : DISK_STATS_TTL_MS;
     this.now = typeof options.now === 'function' ? options.now : () => Date.now();
     this.diskStatsCache = {
       sampledAt: 0,
@@ -14,13 +47,13 @@ class SystemMonitor {
     };
   }
 
-  async getSystemStats() {
+  async getSystemStats(): Promise<SystemStats> {
     const stats = this.getBasicStats();
     stats.disk = await this.getCachedDiskStats().catch(() => this.diskStatsCache.value || null);
     return stats;
   }
 
-  getBasicStats() {
+  getBasicStats(): SystemStats {
     const totalMem = os.totalmem();
     const freeMem = os.freemem();
     const usedMem = totalMem - freeMem;
@@ -40,7 +73,7 @@ class SystemMonitor {
     };
   }
 
-  async getCachedDiskStats() {
+  async getCachedDiskStats(): Promise<DiskStats | null> {
     const now = this.now();
     if (this.diskStatsCache.value && now - this.diskStatsCache.sampledAt < this.diskStatsTtlMs) {
       return this.diskStatsCache.value;
@@ -54,7 +87,7 @@ class SystemMonitor {
     return value;
   }
 
-  async getDiskStats() {
+  async getDiskStats(): Promise<DiskStats | null> {
     if (typeof fsp.statfs !== 'function') return null;
 
     const root = path.parse(process.cwd()).root || '/';
@@ -73,5 +106,7 @@ class SystemMonitor {
   }
 }
 
-module.exports = SystemMonitor;
-module.exports.DISK_STATS_TTL_MS = DISK_STATS_TTL_MS;
+export {
+  DISK_STATS_TTL_MS,
+  SystemMonitor,
+};

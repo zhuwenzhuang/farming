@@ -5,11 +5,38 @@ const DEFAULT_CODE_LENGTH = 10;
 const DEFAULT_MAX_TICKETS = 200;
 const SHARE_TICKET_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
-function normalizeCode(value) {
+type RandomBytes = (size: number) => Buffer;
+
+interface ShareTicketCodeOptions {
+  length?: number;
+  randomBytes?: RandomBytes;
+}
+
+interface QrShareTicketStoreOptions {
+  codeLength?: number;
+  maxTickets?: number;
+  randomBytes?: RandomBytes;
+  ttlMs?: number;
+}
+
+interface ShareTicket {
+  code: string;
+  token: string;
+  targetQuery: string;
+  createdAt: number;
+  expiresAt: number;
+}
+
+interface ShareTicketOperationOptions {
+  now?: number;
+  targetQuery?: string;
+}
+
+function normalizeCode(value: unknown): string {
   return String(value || '').trim().toUpperCase();
 }
 
-function createShareTicketCode(options = {}) {
+function createShareTicketCode(options: ShareTicketCodeOptions = {}): string {
   const length = Math.max(6, Math.min(Number(options.length) || DEFAULT_CODE_LENGTH, 32));
   const randomBytes = typeof options.randomBytes === 'function' ? options.randomBytes : crypto.randomBytes;
   const bytes = randomBytes(length);
@@ -21,15 +48,20 @@ function createShareTicketCode(options = {}) {
 }
 
 class QrShareTicketStore {
-  constructor(options = {}) {
+  private readonly codeLength: number;
+  private readonly maxTickets: number;
+  private readonly randomBytes: RandomBytes;
+  private readonly tickets = new Map<string, ShareTicket>();
+  private readonly ttlMs: number;
+
+  constructor(options: QrShareTicketStoreOptions = {}) {
     this.ttlMs = Math.max(30_000, Number(options.ttlMs) || SHARE_TICKET_TTL_MS);
     this.codeLength = Math.max(6, Math.min(Number(options.codeLength) || DEFAULT_CODE_LENGTH, 32));
     this.maxTickets = Math.max(1, Number(options.maxTickets) || DEFAULT_MAX_TICKETS);
     this.randomBytes = typeof options.randomBytes === 'function' ? options.randomBytes : crypto.randomBytes;
-    this.tickets = new Map();
   }
 
-  create(token, options = {}) {
+  create(token: unknown, options: ShareTicketOperationOptions = {}): ShareTicket {
     const now = Number(options.now) || Date.now();
     const targetQuery = typeof options.targetQuery === 'string' ? options.targetQuery : '';
     this.cleanup(now);
@@ -56,7 +88,7 @@ class QrShareTicketStore {
     return { ...ticket };
   }
 
-  consume(code, options = {}) {
+  consume(code: unknown, options: ShareTicketOperationOptions = {}): ShareTicket | null {
     const normalizedCode = normalizeCode(code);
     const now = Number(options.now) || Date.now();
     const ticket = this.tickets.get(normalizedCode);
@@ -66,11 +98,11 @@ class QrShareTicketStore {
     return { ...ticket };
   }
 
-  revoke(code) {
+  revoke(code: unknown): boolean {
     return this.tickets.delete(normalizeCode(code));
   }
 
-  cleanup(now = Date.now()) {
+  cleanup(now = Date.now()): void {
     for (const [code, ticket] of this.tickets) {
       if (ticket.expiresAt <= now) {
         this.tickets.delete(code);
@@ -78,7 +110,7 @@ class QrShareTicketStore {
     }
   }
 
-  trim(now = Date.now()) {
+  trim(now = Date.now()): void {
     if (this.tickets.size < this.maxTickets) return;
     this.cleanup(now);
     if (this.tickets.size < this.maxTickets) return;
@@ -91,7 +123,7 @@ class QrShareTicketStore {
   }
 }
 
-module.exports = {
+export {
   QrShareTicketStore,
   SHARE_TICKET_ALPHABET,
   SHARE_TICKET_TTL_MS,
