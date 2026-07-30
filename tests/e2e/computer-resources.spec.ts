@@ -130,9 +130,21 @@ test('shows an Agent-owned Computer only when present and switches Viewer contro
   )
   const computerSection = resourceSlot.getByTestId('farming-computer-section')
   await expect(computerSection).toBeVisible()
-  await expect(computerSection.getByTestId('farming-computer-row')).toContainText('Agent Computer')
+  const computerRow = computerSection.getByTestId('farming-computer-row')
+  const computerActions = computerRow.locator('.farming-computer-actions')
+  const computerCopy = computerRow.locator('.farming-computer-copy')
+  await expect(computerRow).toContainText('Agent Computer')
+  await expect(computerActions).toHaveCSS('opacity', '0')
+  const computerCopyBoxBeforeHover = await computerCopy.boundingBox()
+  await computerRow.hover()
+  await expect(computerActions).toHaveCSS('opacity', '1')
+  const computerCopyBoxAfterHover = await computerCopy.boundingBox()
+  if (!computerCopyBoxBeforeHover || !computerCopyBoxAfterHover) {
+    throw new Error('Computer row copy must have measurable bounds')
+  }
+  expect(Math.abs(computerCopyBoxAfterHover.width - computerCopyBoxBeforeHover.width)).toBeLessThan(1)
 
-  await computerSection.getByTestId('farming-computer-row').click()
+  await computerRow.click()
   const viewer = page.getByTestId('farming-computer-viewer')
   await expect(viewer).toBeVisible()
   const frame = viewer.locator('iframe')

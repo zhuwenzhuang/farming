@@ -1492,7 +1492,18 @@ test.describe('display-backed agent flows', () => {
     await openEditorsTitle.click()
     await expect(openEditorsTitle).toHaveAttribute('aria-expanded', 'true')
     const readmeOpenEditorRow = openEditors.getByTestId('code-open-editor-row').filter({ hasText: 'README.md' })
-	    await expect(readmeOpenEditorRow).toBeVisible()
+    await expect(readmeOpenEditorRow).toBeVisible()
+    const openEditorActions = readmeOpenEditorRow.locator('.code-open-editor-actions')
+    const openEditorMain = readmeOpenEditorRow.locator('.code-open-editor-main')
+    await expect(openEditorActions).toHaveCSS('opacity', '0')
+    const openEditorMainBoxBeforeHover = await openEditorMain.boundingBox()
+    await readmeOpenEditorRow.hover()
+    await expect(openEditorActions).toHaveCSS('opacity', '1')
+    const openEditorMainBoxAfterHover = await openEditorMain.boundingBox()
+    if (!openEditorMainBoxBeforeHover || !openEditorMainBoxAfterHover) {
+      throw new Error('Open Editor row must have measurable bounds')
+    }
+    expect(Math.abs(openEditorMainBoxAfterHover.width - openEditorMainBoxBeforeHover.width)).toBeLessThan(1)
 	    await page.getByTestId('code-file-editor-back').click()
 	    await expect(page.getByTestId('code-terminal-grid')).toBeVisible()
 	    const projectScrollTopBeforeOpenEditorSelect = await childProject.evaluate(element => {

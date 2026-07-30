@@ -1,10 +1,17 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { appPath } from '@/lib/base-path'
 import { getBackendConnectionSnapshot } from '@/lib/backend-live-status'
-import { ArrowLeftGlyph, CloseGlyph, PuzzleGlyph } from '@/components/IconGlyphs'
+import { ArrowLeftGlyph, CloseGlyph, PlusGlyph, PuzzleGlyph } from '@/components/IconGlyphs'
 import type { UiLanguage } from '@/lib/ui-preferences'
 import type { BrowserCapability } from '../../../extensions/browser/frontend/types'
 import type { ComputerCapability } from '../../../extensions/computer/frontend/types'
+import type { CodexModelOption } from './types'
+
+type NewAgentDefaults = {
+  model: string
+  reasoning: string
+  fast: 'inherit' | 'on' | 'off'
+}
 
 type AgentExtension = {
   id: string
@@ -19,11 +26,26 @@ type AgentExtensionGroup = {
   id: string
   name: string
   description: string
+  available: boolean
   discoverySupported: boolean
   homes: Array<{
     id: string
+    path: string
+    order: number
+    newAgentDefaults: NewAgentDefaults
     extensions: AgentExtension[]
   }>
+}
+
+type AgentHomeDraft = {
+  provider: string
+  id: string
+  path: string
+}
+
+type AgentConfiguration = {
+  provider: AgentExtensionGroup
+  home: AgentExtensionGroup['homes'][number]
 }
 
 type SelectedAgentExtension = AgentExtension & {
@@ -43,6 +65,31 @@ function pluginCopy(language: UiLanguage) {
     farmingBuiltInDescription: zh ? '由 Farming 提供并统一管理的能力。' : 'Capabilities provided and managed by Farming.',
     agentExtensions: zh ? 'Agent 扩展' : 'Agent extensions',
     agentExtensionsDescription: zh ? '按 Agent 查看已安装的 Skill、插件和命令。' : 'Installed skills, plugins, and commands grouped by Agent.',
+    addAgent: zh ? '添加 Agent' : 'Add Agent',
+    edit: zh ? '编辑' : 'Edit',
+    remove: zh ? '删除' : 'Remove',
+    save: zh ? '保存' : 'Save',
+    cancel: zh ? '取消' : 'Cancel',
+    moveUp: zh ? '上移' : 'Move up',
+    moveDown: zh ? '下移' : 'Move down',
+    dragToReorder: zh ? '拖动调整 Agent 顺序' : 'Drag to reorder Agents',
+    unavailableAgent: zh ? '未安装' : 'Not installed',
+    newAgentDefaults: zh ? '新 Agent 默认设置' : 'New Agent defaults',
+    model: zh ? '模型' : 'Model',
+    reasoning: zh ? '推理强度' : 'Reasoning',
+    fast: 'Fast',
+    inheritAgentConfig: zh ? '继承 Agent 配置' : 'Inherit Agent config',
+    fastOn: zh ? '开启' : 'On',
+    fastOff: zh ? '关闭' : 'Off',
+    unsupportedDefault: zh ? '由 Agent 管理' : 'Managed by Agent',
+    agentProvider: zh ? 'Agent 类型' : 'Agent provider',
+    homeName: zh ? 'Home 名称' : 'Home name',
+    homePath: zh ? 'Home 路径' : 'Home path',
+    homeNamePlaceholder: zh ? '例如 work' : 'e.g. work',
+    homePathPlaceholder: '~/.codex-work',
+    invalidHome: zh ? '请输入有效且不重复的 Home 名称和路径。' : 'Enter a valid, unique Home name and path.',
+    saveAgentFailed: zh ? 'Agent 设置保存失败' : 'Failed to save Agent settings',
+    confirmRemoveAgent: (name: string) => zh ? `删除 ${name}？` : `Remove ${name}?`,
     loadingAgentExtensions: zh ? '正在读取 Agent 扩展…' : 'Loading Agent extensions…',
     agentExtensionsFailed: zh ? 'Agent 扩展读取失败' : 'Failed to load Agent extensions',
     noAgentExtensions: zh ? '没有发现 Skill、插件或命令。' : 'No skills, plugins, or commands found.',
@@ -139,14 +186,12 @@ function extensionKindLabel(kind: string, copy: ReturnType<typeof pluginCopy>) {
     .join(' ') || kind
 }
 
-function agentExtensionKindGroups(agent: AgentExtensionGroup) {
-  const groups = new Map<string, Array<AgentExtension & { homeId: string }>>()
-  agent.homes.forEach(home => {
-    home.extensions.forEach(extension => {
+function agentExtensionKindGroups(home: AgentExtensionGroup['homes'][number]) {
+  const groups = new Map<string, AgentExtension[]>()
+  home.extensions.forEach(extension => {
       const entries = groups.get(extension.kind) || []
-      entries.push({ ...extension, homeId: home.id })
+      entries.push(extension)
       groups.set(extension.kind, entries)
-    })
   })
   return [...groups.entries()]
     .map(([kind, extensions]) => ({ kind, extensions }))
@@ -158,6 +203,75 @@ function agentExtensionKindGroups(agent: AgentExtensionGroup) {
       if (rightIndex === -1) return -1
       return leftIndex - rightIndex
     })
+}
+
+function agentConfigurationKey(provider: string, homeId: string) {
+  return `${provider}:${homeId}`
+}
+
+function orderedAgentConfigurations(groups: AgentExtensionGroup[]): AgentConfiguration[] {
+  return groups
+    .flatMap(provider => provider.homes.map(home => ({ provider, home })))
+    .sort((left, right) => (
+      left.home.order - right.home.order
+      || left.provider.id.localeCompare(right.provider.id)
+      || left.home.id.localeCompare(right.home.id)
+    ))
+}
+
+function normalizeAgentExtensionGroups(rawGroups: AgentExtensionGroup[]) {
+  let fallbackOrder = 0
+  return rawGroups.map(provider => ({
+    ...provider,
+    available: provider.available !== false,
+    homes: (provider.homes || []).map(home => ({
+      ...home,
+      path: String(home.path || ''),
+      order: Number.isFinite(Number(home.order)) ? Number(home.order) : fallbackOrder++,
+      newAgentDefaults: {
+        model: String(home.newAgentDefaults?.model || 'inherit'),
+        reasoning: String(home.newAgentDefaults?.reasoning || 'inherit'),
+        fast: home.newAgentDefaults?.fast === 'on' || home.newAgentDefaults?.fast === 'off'
+          ? home.newAgentDefaults.fast
+          : 'inherit',
+      } satisfies NewAgentDefaults,
+      extensions: Array.isArray(home.extensions) ? home.extensions : [],
+    })),
+  }))
+}
+
+function settingsHomes(groups: AgentExtensionGroup[]) {
+  return Object.fromEntries(groups.map(provider => [
+    provider.id,
+    provider.homes.map(home => ({
+      id: home.id,
+      path: home.path,
+      order: home.order,
+      newAgentDefaults: home.newAgentDefaults,
+    })),
+  ]))
+}
+
+function homeIdForPath(homePath: string) {
+  const segments = homePath.trim().replace(/\/+$/, '').split('/').filter(Boolean)
+  const segment = segments[segments.length - 1] || 'home'
+  return segment
+    .replace(/^\.+/, '')
+    .replace(/[^A-Za-z0-9._-]+/g, '-')
+    .replace(/^[.-]+|[.-]+$/g, '')
+    .slice(0, 64) || 'home'
+}
+
+function reasoningOptionsForModel(model: string, catalog: CodexModelOption[]) {
+  const exact = catalog.find(option => option.value === model)
+  const values = exact?.reasoningLevels?.map(option => ({
+    value: option.value,
+    label: option.label,
+  })) || catalog.flatMap(option => option.reasoningLevels || []).map(option => ({
+    value: option.value,
+    label: option.label,
+  }))
+  return [...new Map(values.map(option => [option.value, option])).values()]
 }
 
 export function PluginsPanel({
@@ -197,7 +311,16 @@ export function PluginsPanel({
   const [agentGroups, setAgentGroups] = useState<AgentExtensionGroup[]>([])
   const [agentGroupsLoading, setAgentGroupsLoading] = useState(true)
   const [agentGroupsError, setAgentGroupsError] = useState('')
+  const [agentSaving, setAgentSaving] = useState(false)
+  const [agentDraft, setAgentDraft] = useState<AgentHomeDraft | null>(null)
+  const [editingAgentKey, setEditingAgentKey] = useState('')
+  const [editingHomePath, setEditingHomePath] = useState('')
+  const [draggingAgentKey, setDraggingAgentKey] = useState('')
+  const [codexModels, setCodexModels] = useState<CodexModelOption[]>([])
+  const [claudeModels, setClaudeModels] = useState<CodexModelOption[]>([])
+  const [claudeReasoning, setClaudeReasoning] = useState<Array<{ value: string; label: string }>>([])
   const [selectedExtension, setSelectedExtension] = useState<SelectedAgentExtension | null>(null)
+  const agentGroupsRequestRef = useRef(0)
 
   useEffect(() => {
     if (!capability || browserChoiceDirtyRef.current) return
@@ -214,58 +337,223 @@ export function PluginsPanel({
     setComputerCompatibilityMode(computerCapability.compatibilityMode)
   }, [computerCapability])
 
-  useEffect(() => {
-    let controller = new AbortController()
-    let retryOnReconnect = false
-    let requestSequence = 0
-    const loadAgentGroups = () => {
-      controller.abort()
-      const requestController = new AbortController()
-      controller = requestController
-      const requestId = ++requestSequence
-      setAgentGroupsLoading(true)
-      setAgentGroupsError('')
-      fetch(appPath('/api/agent-extensions'), {
+  const loadAgentGroups = useCallback(async () => {
+    const requestId = agentGroupsRequestRef.current + 1
+    agentGroupsRequestRef.current = requestId
+    setAgentGroupsLoading(true)
+    setAgentGroupsError('')
+    try {
+      const response = await fetch(appPath('/api/agent-extensions'), {
         headers: { Accept: 'application/json' },
-        signal: requestController.signal,
       })
-        .then(async response => {
-          const data = await response.json().catch(() => ({})) as {
-            agents?: AgentExtensionGroup[]
-            error?: string
-          }
-          if (!response.ok) throw new Error(data.error || copy.agentExtensionsFailed)
-          retryOnReconnect = false
-          setAgentGroups(Array.isArray(data.agents) ? data.agents : [])
-        })
-        .catch(loadError => {
-          if (loadError instanceof DOMException && loadError.name === 'AbortError') return
-          if (!getBackendConnectionSnapshot().connected) {
-            retryOnReconnect = true
-            return
-          }
-          setAgentGroupsError(loadError instanceof Error ? loadError.message : copy.agentExtensionsFailed)
-        })
-        .finally(() => {
-          if (
-            requestId === requestSequence
-            && !requestController.signal.aborted
-            && !retryOnReconnect
-          ) setAgentGroupsLoading(false)
-        })
-    }
-    const retryRecoverableLoad = () => {
-      if (!retryOnReconnect) return
-      retryOnReconnect = false
-      loadAgentGroups()
-    }
-    window.addEventListener('farming:backend-connected', retryRecoverableLoad)
-    loadAgentGroups()
-    return () => {
-      controller.abort()
-      window.removeEventListener('farming:backend-connected', retryRecoverableLoad)
+      const data = await response.json().catch(() => ({})) as {
+        agents?: AgentExtensionGroup[]
+        error?: string
+      }
+      if (!response.ok) throw new Error(data.error || copy.agentExtensionsFailed)
+      if (agentGroupsRequestRef.current !== requestId) return
+      setAgentGroups(normalizeAgentExtensionGroups(Array.isArray(data.agents) ? data.agents : []))
+    } catch (loadError) {
+      if (agentGroupsRequestRef.current !== requestId) return
+      if (!getBackendConnectionSnapshot().connected) return
+      setAgentGroupsError(loadError instanceof Error ? loadError.message : copy.agentExtensionsFailed)
+    } finally {
+      if (agentGroupsRequestRef.current === requestId) setAgentGroupsLoading(false)
     }
   }, [copy.agentExtensionsFailed])
+
+  useEffect(() => {
+    const retryLoad = () => void loadAgentGroups()
+    window.addEventListener('farming:backend-connected', retryLoad)
+    void loadAgentGroups()
+    return () => {
+      agentGroupsRequestRef.current += 1
+      window.removeEventListener('farming:backend-connected', retryLoad)
+    }
+  }, [loadAgentGroups])
+
+  useEffect(() => {
+    let cancelled = false
+    void Promise.all([
+      fetch(appPath('/api/codex/models'))
+        .then(response => response.ok ? response.json() : {})
+        .then((data: { catalog?: CodexModelOption[] }) => {
+          if (!cancelled) setCodexModels(Array.isArray(data.catalog) ? data.catalog : [])
+        }),
+      fetch(appPath('/api/claude/settings'))
+        .then(response => response.ok ? response.json() : {})
+        .then((data: {
+          settings?: {
+            modelOptions?: CodexModelOption[]
+            effortOptions?: Array<{ value: string; label?: string }>
+          }
+        }) => {
+          if (cancelled) return
+          setClaudeModels(Array.isArray(data.settings?.modelOptions) ? data.settings.modelOptions : [])
+          setClaudeReasoning(Array.isArray(data.settings?.effortOptions)
+            ? data.settings.effortOptions.map(option => ({
+                value: option.value,
+                label: option.label || option.value,
+              }))
+            : [])
+        }),
+    ]).catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const saveAgentGroups = useCallback(async (nextGroups: AgentExtensionGroup[]) => {
+    if (agentSaving) return false
+    setAgentSaving(true)
+    setAgentGroupsError('')
+    try {
+      const response = await fetch(appPath('/api/settings'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ agentHomes: settingsHomes(nextGroups) }),
+      })
+      const data = await response.json().catch(() => ({})) as { error?: string }
+      if (!response.ok) throw new Error(data.error || copy.saveAgentFailed)
+      setAgentGroups(nextGroups)
+      window.dispatchEvent(new CustomEvent('farming-agent-homes-saved'))
+      await loadAgentGroups()
+      return true
+    } catch (saveError) {
+      setAgentGroupsError(saveError instanceof Error ? saveError.message : copy.saveAgentFailed)
+      return false
+    } finally {
+      setAgentSaving(false)
+    }
+  }, [agentSaving, copy.saveAgentFailed, loadAgentGroups])
+
+  const updateHome = useCallback((
+    providerId: string,
+    homeId: string,
+    updater: (home: AgentExtensionGroup['homes'][number]) => AgentExtensionGroup['homes'][number],
+  ) => agentGroups.map(provider => (
+    provider.id === providerId
+      ? {
+          ...provider,
+          homes: provider.homes.map(home => home.id === homeId ? updater(home) : home),
+        }
+      : provider
+  )), [agentGroups])
+
+  const saveHomeDefaults = useCallback((
+    providerId: string,
+    homeId: string,
+    patch: Partial<NewAgentDefaults>,
+  ) => {
+    const nextGroups = updateHome(providerId, homeId, home => ({
+      ...home,
+      newAgentDefaults: { ...home.newAgentDefaults, ...patch },
+    }))
+    void saveAgentGroups(nextGroups)
+  }, [saveAgentGroups, updateHome])
+
+  const submitAgentDraft = useCallback(() => {
+    if (!agentDraft || agentSaving) return
+    const providerId = agentDraft.provider
+    const provider = agentGroups.find(group => group.id === providerId)
+    const homePath = agentDraft.path.trim()
+    const homeId = (agentDraft.id.trim() || homeIdForPath(homePath)).slice(0, 64)
+    if (
+      !provider
+      || !homePath
+      || !/^[A-Za-z0-9._-]+$/.test(homeId)
+      || provider.homes.some(home => home.id.toLowerCase() === homeId.toLowerCase())
+    ) {
+      setAgentGroupsError(copy.invalidHome)
+      return
+    }
+    const nextOrder = orderedAgentConfigurations(agentGroups)
+      .reduce((maximum, configuration) => Math.max(maximum, configuration.home.order), -1) + 1
+    const nextGroups = agentGroups.map(group => group.id === providerId
+      ? {
+          ...group,
+          homes: [...group.homes, {
+            id: homeId,
+            path: homePath,
+            order: nextOrder,
+            newAgentDefaults: {
+              model: 'inherit',
+              reasoning: 'inherit',
+              fast: 'inherit',
+            } satisfies NewAgentDefaults,
+            extensions: [],
+          }],
+        }
+      : group)
+    void saveAgentGroups(nextGroups).then(saved => {
+      if (saved) setAgentDraft(null)
+    })
+  }, [agentDraft, agentGroups, agentSaving, copy.invalidHome, saveAgentGroups])
+
+  const saveEditedHomePath = useCallback((providerId: string, homeId: string) => {
+    const nextPath = editingHomePath.trim()
+    if (!nextPath) {
+      setAgentGroupsError(copy.invalidHome)
+      return
+    }
+    const nextGroups = updateHome(providerId, homeId, home => ({ ...home, path: nextPath }))
+    void saveAgentGroups(nextGroups).then(saved => {
+      if (saved) {
+        setEditingAgentKey('')
+        setEditingHomePath('')
+      }
+    })
+  }, [copy.invalidHome, editingHomePath, saveAgentGroups, updateHome])
+
+  const removeAgentConfiguration = useCallback((providerId: string, homeId: string) => {
+    if (homeId === 'default' || agentSaving) return
+    const label = `${agentDisplayName({ id: providerId, name: providerId })} · ${homeId}`
+    if (!window.confirm(copy.confirmRemoveAgent(label))) return
+    const nextGroups = agentGroups.map(provider => provider.id === providerId
+      ? { ...provider, homes: provider.homes.filter(home => home.id !== homeId) }
+      : provider)
+    void saveAgentGroups(nextGroups)
+  }, [agentGroups, agentSaving, copy, saveAgentGroups])
+
+  const reorderAgentConfigurations = useCallback((sourceKey: string, targetKey: string) => {
+    if (!sourceKey || sourceKey === targetKey || agentSaving) return
+    const ordered = orderedAgentConfigurations(agentGroups)
+    const sourceIndex = ordered.findIndex(configuration => (
+      agentConfigurationKey(configuration.provider.id, configuration.home.id) === sourceKey
+    ))
+    const targetIndex = ordered.findIndex(configuration => (
+      agentConfigurationKey(configuration.provider.id, configuration.home.id) === targetKey
+    ))
+    if (sourceIndex < 0 || targetIndex < 0) return
+    const [source] = ordered.splice(sourceIndex, 1)
+    if (!source) return
+    ordered.splice(targetIndex, 0, source)
+    const orderByKey = new Map(ordered.map((configuration, order) => [
+      agentConfigurationKey(configuration.provider.id, configuration.home.id),
+      order,
+    ]))
+    const nextGroups = agentGroups.map(provider => ({
+      ...provider,
+      homes: provider.homes.map(home => ({
+        ...home,
+        order: orderByKey.get(agentConfigurationKey(provider.id, home.id)) ?? home.order,
+      })),
+    }))
+    void saveAgentGroups(nextGroups)
+  }, [agentGroups, agentSaving, saveAgentGroups])
+
+  const moveAgentConfiguration = useCallback((key: string, offset: -1 | 1) => {
+    const ordered = orderedAgentConfigurations(agentGroups)
+    const index = ordered.findIndex(configuration => (
+      agentConfigurationKey(configuration.provider.id, configuration.home.id) === key
+    ))
+    const target = ordered[index + offset]
+    if (index < 0 || !target) return
+    reorderAgentConfigurations(
+      key,
+      agentConfigurationKey(target.provider.id, target.home.id),
+    )
+  }, [agentGroups, reorderAgentConfigurations])
 
   const toggleBrowser = async () => {
     if (saving || (!capability?.browser && !enabled)) return
@@ -597,30 +885,243 @@ export function PluginsPanel({
 
       <div className="code-plugin-agent-sections" data-testid="code-plugin-agent-sections">
         <header className="code-plugin-agent-sections-header">
-          <h3>{copy.agentExtensions}</h3>
-          <p>{copy.agentExtensionsDescription}</p>
+          <div>
+            <h3>{copy.agentExtensions}</h3>
+            <p>{copy.agentExtensionsDescription}</p>
+          </div>
+          <button
+            type="button"
+            className="code-plugin-agent-add"
+            disabled={agentSaving || agentGroups.length === 0}
+            onClick={() => {
+              setAgentGroupsError('')
+              setAgentDraft(current => current ? null : {
+                provider: agentGroups.find(group => group.available)?.id || agentGroups[0]?.id || 'codex',
+                id: '',
+                path: '',
+              })
+            }}
+          >
+            <PlusGlyph />
+            <span>{copy.addAgent}</span>
+          </button>
         </header>
+        {agentDraft ? (
+          <div className="code-plugin-agent-form" data-testid="code-plugin-agent-form">
+            <label>
+              <span>{copy.agentProvider}</span>
+              <select
+                value={agentDraft.provider}
+                disabled={agentSaving}
+                onChange={event => setAgentDraft(current => current
+                  ? { ...current, provider: event.target.value }
+                  : current)}
+              >
+                {agentGroups.filter(group => group.available).map(group => (
+                  <option key={group.id} value={group.id}>{agentDisplayName(group)}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>{copy.homePath}</span>
+              <input
+                type="text"
+                value={agentDraft.path}
+                placeholder={copy.homePathPlaceholder}
+                disabled={agentSaving}
+                onChange={event => setAgentDraft(current => current
+                  ? { ...current, path: event.target.value }
+                  : current)}
+              />
+            </label>
+            <label>
+              <span>{copy.homeName}</span>
+              <input
+                type="text"
+                value={agentDraft.id}
+                placeholder={copy.homeNamePlaceholder}
+                disabled={agentSaving}
+                onChange={event => setAgentDraft(current => current
+                  ? { ...current, id: event.target.value }
+                  : current)}
+              />
+            </label>
+            <div className="code-plugin-agent-form-actions">
+              <button type="button" disabled={agentSaving} onClick={() => setAgentDraft(null)}>
+                {copy.cancel}
+              </button>
+              <button type="button" className="primary" disabled={agentSaving} onClick={submitAgentDraft}>
+                {copy.save}
+              </button>
+            </div>
+          </div>
+        ) : null}
+        {agentGroupsError ? <div className="code-plugin-error" role="alert">{agentGroupsError}</div> : null}
         {agentGroupsLoading ? (
           <p className="code-plugin-empty">{copy.loadingAgentExtensions}</p>
-        ) : agentGroupsError ? (
-          <div className="code-plugin-error" role="alert">{agentGroupsError}</div>
-        ) : agentGroups.map(agent => {
-          const extensionCount = agent.homes.reduce((count, home) => count + home.extensions.length, 0)
-          const kindGroups = agentExtensionKindGroups(agent)
+        ) : orderedAgentConfigurations(agentGroups).map((configuration, configurationIndex, configurations) => {
+          const { provider, home } = configuration
+          const key = agentConfigurationKey(provider.id, home.id)
+          const extensionCount = home.extensions.length
+          const kindGroups = agentExtensionKindGroups(home)
+          const supportsManagedDefaults = provider.id === 'codex' || provider.id === 'claude'
+          const modelCatalog = provider.id === 'codex' ? codexModels : claudeModels
+          const reasoningCatalog = provider.id === 'codex'
+            ? reasoningOptionsForModel(home.newAgentDefaults.model, codexModels)
+            : claudeReasoning
+          const modelOptions = home.newAgentDefaults.model !== 'inherit'
+            && !modelCatalog.some(option => option.value === home.newAgentDefaults.model)
+            ? [{
+                value: home.newAgentDefaults.model,
+                label: home.newAgentDefaults.model,
+              }, ...modelCatalog]
+            : modelCatalog
+          const reasoningOptions = home.newAgentDefaults.reasoning !== 'inherit'
+            && !reasoningCatalog.some(option => option.value === home.newAgentDefaults.reasoning)
+            ? [{
+                value: home.newAgentDefaults.reasoning,
+                label: home.newAgentDefaults.reasoning,
+              }, ...reasoningCatalog]
+            : reasoningCatalog
           return (
             <section
-              key={agent.id}
-              className="code-plugin-section code-plugin-agent-section"
-              data-testid={`code-plugin-section-agent-${agent.id}`}
+              key={key}
+              className={`code-plugin-section code-plugin-agent-section ${draggingAgentKey === key ? 'dragging' : ''}`}
+              data-testid={`code-plugin-section-agent-${provider.id}-${home.id}`}
+              draggable={!agentSaving}
+              onDragStart={event => {
+                setDraggingAgentKey(key)
+                event.dataTransfer.effectAllowed = 'move'
+                event.dataTransfer.setData('text/plain', key)
+              }}
+              onDragEnd={() => setDraggingAgentKey('')}
+              onDragOver={event => {
+                event.preventDefault()
+                event.dataTransfer.dropEffect = 'move'
+              }}
+              onDrop={event => {
+                event.preventDefault()
+                const sourceKey = event.dataTransfer.getData('text/plain') || draggingAgentKey
+                setDraggingAgentKey('')
+                reorderAgentConfigurations(sourceKey, key)
+              }}
             >
-              <header className="code-plugin-section-header">
-                <div>
-                  <h3>{agentDisplayName(agent)}</h3>
-                  <p>{agent.description}</p>
+              <header className="code-plugin-section-header code-plugin-agent-header">
+                <span className="code-plugin-agent-drag" aria-hidden="true" title={copy.dragToReorder}>⋮⋮</span>
+                <div className="code-plugin-agent-identity">
+                  <h3>
+                    {agentDisplayName(provider)}
+                    <span>{home.id}</span>
+                    {!provider.available ? <em>{copy.unavailableAgent}</em> : null}
+                  </h3>
+                  {editingAgentKey === key ? (
+                    <div className="code-plugin-agent-path-edit">
+                      <input
+                        autoFocus
+                        type="text"
+                        value={editingHomePath}
+                        disabled={agentSaving}
+                        onChange={event => setEditingHomePath(event.target.value)}
+                        onKeyDown={event => {
+                          if (event.key === 'Enter') saveEditedHomePath(provider.id, home.id)
+                          if (event.key === 'Escape') setEditingAgentKey('')
+                        }}
+                      />
+                      <button type="button" disabled={agentSaving} onClick={() => saveEditedHomePath(provider.id, home.id)}>
+                        {copy.save}
+                      </button>
+                      <button type="button" disabled={agentSaving} onClick={() => setEditingAgentKey('')}>
+                        {copy.cancel}
+                      </button>
+                    </div>
+                  ) : (
+                    <p>{provider.description || agentDisplayName(provider)} · <code>{home.path}</code></p>
+                  )}
                 </div>
-                <span>{copy.count(extensionCount)}</span>
+                <div className="code-plugin-agent-actions">
+                  <button
+                    type="button"
+                    disabled={agentSaving || configurationIndex === 0}
+                    aria-label={copy.moveUp}
+                    title={copy.moveUp}
+                    onClick={() => moveAgentConfiguration(key, -1)}
+                  >↑</button>
+                  <button
+                    type="button"
+                    disabled={agentSaving || configurationIndex === configurations.length - 1}
+                    aria-label={copy.moveDown}
+                    title={copy.moveDown}
+                    onClick={() => moveAgentConfiguration(key, 1)}
+                  >↓</button>
+                  <button
+                    type="button"
+                    disabled={agentSaving}
+                    onClick={() => {
+                      setEditingAgentKey(key)
+                      setEditingHomePath(home.path)
+                    }}
+                  >{copy.edit}</button>
+                  {home.id !== 'default' ? (
+                    <button
+                      type="button"
+                      disabled={agentSaving}
+                      onClick={() => removeAgentConfiguration(provider.id, home.id)}
+                    >{copy.remove}</button>
+                  ) : null}
+                  <span>{copy.count(extensionCount)}</span>
+                </div>
               </header>
-              {!agent.discoverySupported ? (
+
+              <div className="code-plugin-agent-defaults">
+                <strong>{copy.newAgentDefaults}</strong>
+                <label>
+                  <span>{copy.model}</span>
+                  <select
+                    value={home.newAgentDefaults.model}
+                    disabled={agentSaving || !supportsManagedDefaults}
+                    onChange={event => saveHomeDefaults(provider.id, home.id, {
+                      model: event.target.value,
+                      reasoning: 'inherit',
+                    })}
+                  >
+                    <option value="inherit">{supportsManagedDefaults ? copy.inheritAgentConfig : copy.unsupportedDefault}</option>
+                    {modelOptions.map(option => (
+                      <option key={option.value} value={option.value}>{option.displayName || option.label}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  <span>{copy.reasoning}</span>
+                  <select
+                    value={home.newAgentDefaults.reasoning}
+                    disabled={agentSaving || !supportsManagedDefaults}
+                    onChange={event => saveHomeDefaults(provider.id, home.id, {
+                      reasoning: event.target.value,
+                    })}
+                  >
+                    <option value="inherit">{supportsManagedDefaults ? copy.inheritAgentConfig : copy.unsupportedDefault}</option>
+                    {reasoningOptions.map(option => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  <span>{copy.fast}</span>
+                  <select
+                    value={home.newAgentDefaults.fast}
+                    disabled={agentSaving || provider.id !== 'codex'}
+                    onChange={event => saveHomeDefaults(provider.id, home.id, {
+                      fast: event.target.value as NewAgentDefaults['fast'],
+                    })}
+                  >
+                    <option value="inherit">{provider.id === 'codex' ? copy.inheritAgentConfig : copy.unsupportedDefault}</option>
+                    {provider.id === 'codex' ? <option value="on">{copy.fastOn}</option> : null}
+                    {provider.id === 'codex' ? <option value="off">{copy.fastOff}</option> : null}
+                  </select>
+                </label>
+              </div>
+
+              {!provider.discoverySupported ? (
                 <p className="code-plugin-empty">{copy.unsupportedDiscovery}</p>
               ) : extensionCount === 0 ? (
                 <p className="code-plugin-empty">{copy.noAgentExtensions}</p>
@@ -640,10 +1141,11 @@ export function PluginsPanel({
                       <button
                         type="button"
                         className="code-plugin-extension"
-                        key={`${extension.homeId}:${extension.id}`}
+                        key={extension.id}
                         onClick={() => setSelectedExtension({
                           ...extension,
-                          agentName: agentDisplayName(agent),
+                          agentName: `${agentDisplayName(provider)} · ${home.id}`,
+                          homeId: home.id,
                         })}
                       >
                         <div className="code-plugin-extension-title">
@@ -653,9 +1155,6 @@ export function PluginsPanel({
                         <div className="code-plugin-extension-meta">
                           <code>{extension.command}</code>
                           {extension.scope ? <span>{extension.scope}</span> : null}
-                          {agent.homes.length > 1 || extension.homeId !== 'default' ? (
-                            <span>{copy.home}: {extension.homeId}</span>
-                          ) : null}
                         </div>
                         <p>{extension.description}</p>
                       </button>

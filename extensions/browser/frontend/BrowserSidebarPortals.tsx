@@ -89,7 +89,9 @@ function BrowserPlayGlyph() {
 
 function resourceStatusLabel(resource: BrowserResource, copy: BrowserCopy) {
   if (resource.status === 'running') return resource.url.replace(/^https?:\/\//, '') || 'about:blank'
-  if (resource.status === 'failed') return resource.error || copy.failed
+  // Failures stay actionable in the Browser view; in the Agent sidebar they
+  // are only a noisy transport detail, so present them as a neutral stopped tab.
+  if (resource.status === 'failed') return copy.stopped
   if (resource.status === 'starting') return copy.starting
   if (resource.status === 'stopping') return copy.stopping
   return copy.stopped
@@ -111,6 +113,7 @@ function BrowserRow({
   const [renaming, setRenaming] = useState(false)
   const [name, setName] = useState(resource.name)
   const busy = resource.status === 'starting' || resource.status === 'stopping'
+  const sidebarStatus = resource.status === 'failed' ? 'stopped' : resource.status
   const submitRename = async () => {
     const next = name.trim()
     setRenaming(false)
@@ -138,7 +141,7 @@ function BrowserRow({
         }
       }}
     >
-      <span className={`farming-browser-status ${resource.status}`} aria-hidden="true" />
+      <span className={`farming-browser-status ${sidebarStatus}`} aria-hidden="true" />
       <span className="farming-browser-row-copy">
         {renaming ? (
           <input
@@ -160,7 +163,7 @@ function BrowserRow({
         ) : (
           <span className="farming-browser-row-name">{resource.name}</span>
         )}
-        <span className="farming-browser-row-detail" title={resource.error || resource.url}>
+        <span className="farming-browser-row-detail" title={resource.status === 'running' ? resource.url : undefined}>
           {resourceStatusLabel(resource, copy)}
         </span>
       </span>

@@ -214,6 +214,19 @@ test('mounts Agent-owned Browsers behind nested resource controls without layout
   const agentRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
   await expect(agentRow.getByTestId('code-agent-resources-toggle')).toHaveCount(0)
   await expect(agentRow).not.toContainText('0')
+  const project = page.getByTestId('code-project-group').filter({ has: agentRow }).first()
+  const projectRow = project.locator('.code-project-row')
+  const projectActions = project.locator('.code-project-title-actions')
+  const projectTitleContent = project.locator('.code-project-title-content')
+  await expect(projectActions).toHaveCSS('opacity', '0')
+  const projectTitleBoxBeforeHover = await projectTitleContent.boundingBox()
+  await projectRow.hover()
+  await expect(projectActions).toHaveCSS('opacity', '1')
+  const projectTitleBoxAfterHover = await projectTitleContent.boundingBox()
+  if (!projectTitleBoxBeforeHover || !projectTitleBoxAfterHover) {
+    throw new Error('Project title must have measurable bounds')
+  }
+  expect(Math.abs(projectTitleBoxAfterHover.width - projectTitleBoxBeforeHover.width)).toBeLessThan(1)
 
   const createResponse = await page.request.post('/farming/api/browsers', {
     data: {
@@ -251,6 +264,18 @@ test('mounts Agent-owned Browsers behind nested resource controls without layout
   const browserRow = browserSection.getByTestId('farming-browser-row')
   await expect(browserRow).toBeVisible()
   expect(await browserRow.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
+  const browserRowActions = browserRow.locator('.farming-browser-row-actions')
+  const browserRowCopy = browserRow.locator('.farming-browser-row-copy')
+  await expect(browserRowActions).toHaveCSS('opacity', '0')
+  const browserCopyBoxBeforeHover = await browserRowCopy.boundingBox()
+  await browserRow.hover()
+  await expect(browserRowActions).toHaveCSS('opacity', '1')
+  const browserCopyBoxAfterHover = await browserRowCopy.boundingBox()
+  if (!browserCopyBoxBeforeHover || !browserCopyBoxAfterHover) {
+    throw new Error('Browser row copy must have measurable bounds')
+  }
+  expect(Math.abs(browserCopyBoxAfterHover.width - browserCopyBoxBeforeHover.width)).toBeLessThan(1)
+  await browserSection.locator('.farming-browser-section-toggle').hover()
   const sidebarScreenshot = testInfo.outputPath('agent-owned-browser-sidebar.png')
   await page.getByTestId('code-sidebar').screenshot({ path: sidebarScreenshot })
   await testInfo.attach('agent-owned-browser-sidebar', {

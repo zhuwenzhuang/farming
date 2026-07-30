@@ -185,6 +185,14 @@ body.code-mode[data-appearance='dark'] .code-agent-row.search-selected .code-age
   --code-agent-row-action-surface: var(--code-dark-bg-hover);
 }
 
+body.code-mode[data-appearance='dark'] .code-project-row {
+  --code-project-row-action-surface: var(--code-dark-bg-soft);
+}
+
+body.code-mode[data-appearance='dark'] .code-project-row:hover {
+  --code-project-row-action-surface: var(--code-dark-bg-hover);
+}
+
 body.code-mode[data-appearance='dark'] .code-project-title-action {
   color: var(--code-dark-text-muted);
 }
@@ -394,6 +402,35 @@ body.code-mode[data-appearance='dark'] .code-plugin-card {
 body.code-mode[data-appearance='dark'] .code-plugin-agent-section,
 body.code-mode[data-appearance='dark'] .code-plugin-extension {
   border-color: var(--code-dark-border);
+}
+
+body.code-mode[data-appearance='dark'] .code-plugin-agent-form,
+body.code-mode[data-appearance='dark'] .code-plugin-agent-defaults {
+  border-color: var(--code-dark-border);
+  background: var(--code-dark-bg-soft);
+}
+
+body.code-mode[data-appearance='dark'] .code-plugin-agent-add,
+body.code-mode[data-appearance='dark'] .code-plugin-agent-actions button,
+body.code-mode[data-appearance='dark'] .code-plugin-agent-path-edit button,
+body.code-mode[data-appearance='dark'] .code-plugin-agent-form-actions button,
+body.code-mode[data-appearance='dark'] .code-plugin-agent-form input,
+body.code-mode[data-appearance='dark'] .code-plugin-agent-form select,
+body.code-mode[data-appearance='dark'] .code-plugin-agent-defaults select,
+body.code-mode[data-appearance='dark'] .code-plugin-agent-path-edit input {
+  border-color: var(--code-dark-border);
+  background: var(--code-dark-bg);
+  color: var(--code-dark-text);
+}
+
+body.code-mode[data-appearance='dark'] .code-plugin-agent-identity h3 > span {
+  background: var(--code-dark-bg-hover);
+  color: var(--code-dark-text-muted);
+}
+
+body.code-mode[data-appearance='dark'] .code-plugin-agent-defaults > strong,
+body.code-mode[data-appearance='dark'] .code-plugin-agent-identity p code {
+  color: var(--code-dark-text-soft);
 }
 
 body.code-mode[data-appearance='dark'] .code-plugin-extension,
@@ -1996,6 +2033,16 @@ body.code-mode[data-appearance='dark'] .code-agent-transcript-result-details {
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.28);
 }
 
+body.code-mode[data-appearance='dark'] .code-agent-transcript-result-card.expanded .code-agent-transcript-result-header {
+  border-color: var(--code-dark-border);
+  background: rgba(22, 27, 34, 0.96);
+}
+
+body.code-mode[data-appearance='dark'] .code-agent-transcript-result-card.expanded .code-agent-transcript-result-summary {
+  background: transparent;
+  box-shadow: none;
+}
+
 body.code-mode[data-appearance='dark'] .code-agent-transcript-result-file + .code-agent-transcript-result-file,
 body.code-mode[data-appearance='dark'] .code-agent-transcript-result-diff,
 body.code-mode[data-appearance='dark'] .code-agent-transcript-result-loading,
@@ -2007,9 +2054,30 @@ body.code-mode[data-appearance='dark'] .code-agent-transcript-result-file > summ
   color: var(--code-dark-text);
 }
 
+body.code-mode[data-appearance='dark'] .code-agent-transcript-result-file-directory,
+body.code-mode[data-appearance='dark'] .code-agent-transcript-result-file-chevron,
+body.code-mode[data-appearance='dark'] .code-agent-transcript-result-show-more {
+  color: var(--code-dark-text-muted);
+}
+
+body.code-mode[data-appearance='dark'] .code-agent-transcript-result-error {
+  border-color: rgba(248, 81, 73, 0.42);
+  background: rgba(248, 81, 73, 0.12);
+}
+
+body.code-mode[data-appearance='dark'] .code-agent-transcript-result-error > details {
+  color: #d2a8ff;
+}
+
+body.code-mode[data-appearance='dark'] .code-agent-transcript-result-error code {
+  color: var(--code-dark-text-muted);
+}
+
 body.code-mode[data-appearance='dark'] .code-agent-transcript-result-file > summary:hover,
 body.code-mode[data-appearance='dark'] .code-agent-transcript-result-review:hover,
-body.code-mode[data-appearance='dark'] .code-agent-transcript-result-review:focus-visible {
+body.code-mode[data-appearance='dark'] .code-agent-transcript-result-review:focus-visible,
+body.code-mode[data-appearance='dark'] .code-agent-transcript-result-show-more:hover,
+body.code-mode[data-appearance='dark'] .code-agent-transcript-result-show-more:focus-visible {
   background: rgba(139, 148, 158, 0.14);
 }
 
@@ -2155,6 +2223,15 @@ body.code-mode[data-appearance='dark'] .code-file-editor-tab:hover:not(.active) 
 body.code-mode[data-appearance='dark'] .code-file-editor-close,
 body.code-mode[data-appearance='dark'] .code-open-editor-close {
   color: var(--code-dark-text-muted);
+}
+
+body.code-mode[data-appearance='dark'] .code-open-editor-row {
+  --code-open-editor-row-action-surface: var(--code-dark-bg-soft);
+}
+
+body.code-mode[data-appearance='dark'] .code-open-editor-row:hover,
+body.code-mode[data-appearance='dark'] .code-open-editor-row.active {
+  --code-open-editor-row-action-surface: var(--code-dark-bg-hover);
 }
 
 body.code-mode[data-appearance='dark'] .code-file-editor-close:hover,

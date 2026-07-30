@@ -42,6 +42,12 @@ export type CodeModelPickerPane = 'model' | 'speed' | null
 
 export interface AgentHomeSetting {
   id: string
+  newAgentDefaults?: {
+    model: string
+    reasoning: string
+    fast: 'inherit' | 'on' | 'off'
+  }
+  order?: number
   path: string
 }
 

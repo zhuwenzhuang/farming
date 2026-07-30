@@ -124,13 +124,15 @@ export function OpenEditorsSection({
                   )}
                 </button>
                 {onCloseOpenFile && (
-                  <button
-                    type="button"
-                    className="code-open-editor-close"
-                    aria-label={copy.closeFile(file.path)}
-                    title={copy.closeFile(file.path)}
-                    onClick={() => onCloseOpenFile(file.agentId, file.path, file.workspaceRoot)}
-                  />
+                  <span className="code-open-editor-actions">
+                    <button
+                      type="button"
+                      className="code-open-editor-close"
+                      aria-label={copy.closeFile(file.path)}
+                      title={copy.closeFile(file.path)}
+                      onClick={() => onCloseOpenFile(file.agentId, file.path, file.workspaceRoot)}
+                    />
+                  </span>
                 )}
               </div>
             )

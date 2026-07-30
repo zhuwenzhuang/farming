@@ -282,6 +282,50 @@ async function run() {
     assert.strictEqual(agent.attentionSeq, 0, 'a completed interactive shell command must not create sidebar attention');
     assert.strictEqual(agent.unread, false);
 
+    manager.agents.set('stale-shell-agent', {
+      id: 'stale-shell-agent',
+      command: 'bash',
+      cwd: '/tmp',
+      output: '',
+      previewText: '',
+      engineName: 'local',
+      status: 'running',
+      terminalBusy: false,
+      attentionSeq: 1,
+      readAttentionSeq: 0,
+      unread: true,
+      attentionReason: 'turn-complete',
+      attentionTrackingReady: true,
+      lastObservedTurnActive: false,
+      attentionSuppressUntil: 0,
+    });
+    manager.observeAgentAttentionState('stale-shell-agent');
+    agent = manager.agents.get('stale-shell-agent');
+    assert.strictEqual(agent.readAttentionSeq, 1, 'automatic shell attention persisted by older releases must be read');
+    assert.strictEqual(agent.unread, false);
+
+    manager.agents.set('manual-shell-agent', {
+      id: 'manual-shell-agent',
+      command: 'bash',
+      cwd: '/tmp',
+      output: '',
+      previewText: '',
+      engineName: 'local',
+      status: 'running',
+      terminalBusy: false,
+      attentionSeq: 1,
+      readAttentionSeq: 0,
+      unread: true,
+      attentionReason: 'manual-unread',
+      attentionTrackingReady: true,
+      lastObservedTurnActive: false,
+      attentionSuppressUntil: 0,
+    });
+    manager.observeAgentAttentionState('manual-shell-agent');
+    agent = manager.agents.get('manual-shell-agent');
+    assert.strictEqual(agent.readAttentionSeq, 0, 'manual shell unread marks must remain deliberate');
+    assert.strictEqual(agent.unread, true);
+
     manager.agents.set('main-agent', {
       id: 'main-agent',
       isMain: true,

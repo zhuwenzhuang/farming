@@ -794,11 +794,16 @@ class FakeAgent implements Agent {
       return { stopReason: 'end_turn' };
     }
     if (promptText.includes('applied edit')) {
-      const files = promptText.includes('conflict')
+      const files = promptText.includes('deep path')
+        ? Array.from({ length: 6 }, (_, index) => `src/features/very-long-feature-name/decision-many-${index + 1}.txt`)
+        : promptText.includes('many')
+        ? Array.from({ length: 6 }, (_, index) => `decision-many-${index + 1}.txt`)
+        : promptText.includes('conflict')
         ? ['decision-conflict.txt']
         : ['decision-keep.txt', 'decision-revert.txt'];
       const content: ToolCallContent[] = files.map(file => {
         const target = path.join(process.cwd(), file);
+        fs.mkdirSync(path.dirname(target), { recursive: true });
         const oldText = fs.readFileSync(target, 'utf8');
         const newText = `after ${file}\n`;
         fs.writeFileSync(target, newText);

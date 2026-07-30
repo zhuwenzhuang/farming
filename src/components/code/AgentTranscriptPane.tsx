@@ -1400,6 +1400,14 @@ function patchResultSummary(fileCount: number, failed: boolean) {
   return fileCount === 1 ? '1 file changed' : `${fileCount} files changed`
 }
 
+const PATCH_RESULT_FILE_PAGE_SIZE = 4
+
+function patchResultFileParts(path: string) {
+  const segments = normalizeTranscriptPath(path).split('/').filter(Boolean)
+  const name = segments.pop() || path
+  return { name, directory: segments.join('/') }
+}
+
 function patchDiffLineClass(line: string) {
   if (line.startsWith('+') && !line.startsWith('+++')) return 'added'
   if (line.startsWith('-') && !line.startsWith('---')) return 'removed'
@@ -2115,6 +2123,7 @@ function AgentTranscriptPatchResultCard({
   workspaceRoot?: string
 }) {
   const [detailOpen, setDetailOpen] = useState(false)
+  const [visibleFileCount, setVisibleFileCount] = useState(PATCH_RESULT_FILE_PAGE_SIZE)
   const [detailedChanges, setDetailedChanges] = useState<AgentTranscriptPatchChange[] | null>(null)
   const [detailError, setDetailError] = useState('')
   const embeddedDecisions = useMemo(() => Object.fromEntries(items.flatMap(item => (
@@ -2143,6 +2152,8 @@ function AgentTranscriptPatchResultCard({
   const totalAdded = rows.reduce((sum, row) => sum + Number(row.added.replace('+', '') || 0), 0)
   const totalRemoved = rows.reduce((sum, row) => sum + Number(row.removed.replace('-', '') || 0), 0)
   const summary = patchResultSummary(rows.length, failed)
+  const visibleRows = rows.slice(0, visibleFileCount)
+  const hiddenRowCount = rows.length - visibleRows.length
   const embeddedChanges = items.flatMap(item => item.changes || [])
   const detailedChangePaths = new Set((detailedChanges || []).map(change => change.path))
   const availableChanges = detailedChanges
@@ -2216,31 +2227,44 @@ function AgentTranscriptPatchResultCard({
   )
   return (
     <section
-      className={`code-agent-transcript-result-card ${failed ? 'failed' : ''}`}
+      className={`code-agent-transcript-result-card ${detailOpen ? 'expanded' : ''} ${failed ? 'failed' : ''}`}
       data-testid="code-agent-transcript-result-card"
     >
-      {workspaceRoot && rows.length > 0 ? (
-        <button
-          type="button"
-          className="code-agent-transcript-result-summary"
-          data-testid="code-agent-transcript-result-summary"
-          aria-label={`${summary}. ${source === 'acp' ? copy.agentTranscriptShowChanges : copy.agentTranscriptReviewChanges}`}
-          aria-expanded={source === 'acp' ? detailOpen : undefined}
-          onClick={handleSummary}
-        >
-          {summaryContent}
-          {source === 'acp' ? <ChevronRightGlyph className="code-agent-transcript-result-chevron" /> : null}
-        </button>
-      ) : (
-        <div className="code-agent-transcript-result-summary" aria-label={summary}>
-          {summaryContent}
-        </div>
-      )}
+      <div className="code-agent-transcript-result-header">
+        {workspaceRoot && rows.length > 0 ? (
+          <button
+            type="button"
+            className="code-agent-transcript-result-summary"
+            data-testid="code-agent-transcript-result-summary"
+            aria-label={`${summary}. ${source === 'acp' ? copy.agentTranscriptShowChanges : copy.agentTranscriptReviewChanges}`}
+            aria-expanded={source === 'acp' ? detailOpen : undefined}
+            onClick={handleSummary}
+          >
+            {summaryContent}
+            {source === 'acp' ? <ChevronRightGlyph className="code-agent-transcript-result-chevron" /> : null}
+          </button>
+        ) : (
+          <div className="code-agent-transcript-result-summary" aria-label={summary}>
+            {summaryContent}
+          </div>
+        )}
+        {source === 'acp' && detailOpen && reviewPaths.length > 0 ? (
+          <button
+            type="button"
+            className="code-agent-transcript-result-review"
+            aria-label={`${copy.agentTranscriptReviewChanges}: ${reviewPaths.length} workspace ${reviewPaths.length === 1 ? 'file' : 'files'}`}
+            onClick={handleReview}
+          >
+            {copy.agentTranscriptReviewChanges}
+          </button>
+        ) : null}
+      </div>
       {source === 'acp' && detailOpen ? (
         <div className="code-agent-transcript-result-details" data-testid="code-agent-transcript-result-details">
           <div className="code-agent-transcript-result-files">
-            {rows.map(row => {
+            {visibleRows.map(row => {
               const path = patchRowDisplayPath(row, workspaceRoot)
+              const fileParts = patchResultFileParts(path)
               const changes = availableChanges.filter(change => (
                 (workspaceRelativeTranscriptPath(change.path, workspaceRoot) || change.path) === path
               ))
@@ -2248,12 +2272,17 @@ function AgentTranscriptPatchResultCard({
               const decision = patchDecisions[path]
               return (
                 <details className="code-agent-transcript-result-file" key={`${items[0]?.id || 'patch'}:${path}`}>
-                  <summary>
-                    <span className="code-agent-transcript-result-file-path">{path}</span>
+                  <summary title={path}>
+                    <TranscriptFileIcon filePath={path} />
+                    <span className="code-agent-transcript-result-file-copy">
+                      <span className="code-agent-transcript-result-file-name code-agent-transcript-result-file-path">{fileParts.name}</span>
+                      {fileParts.directory ? <span className="code-agent-transcript-result-file-directory">{fileParts.directory}</span> : null}
+                    </span>
                     <span className="code-agent-transcript-result-file-stats">
                       {row.added ? <span className="added">{row.added}</span> : null}
                       {row.removed ? <span className="removed">{row.removed}</span> : null}
                     </span>
+                    <ChevronRightGlyph className="code-agent-transcript-result-file-chevron" />
                   </summary>
                   {changes.map((change, changeIndex) => change.diff ? (
                     <pre className="code-agent-transcript-result-diff" key={`${path}:${changeIndex}`}>
@@ -2283,19 +2312,29 @@ function AgentTranscriptPatchResultCard({
               )
             })}
           </div>
+          {hiddenRowCount > 0 ? (
+            <button
+              type="button"
+              className="code-agent-transcript-result-show-more"
+              onClick={() => setVisibleFileCount(current => Math.min(
+                rows.length,
+                current + PATCH_RESULT_FILE_PAGE_SIZE,
+              ))}
+            >
+              {copy.agentTranscriptShowMoreChanges(hiddenRowCount)}
+            </button>
+          ) : null}
           {!detailedChanges && !detailError ? (
             <div className="code-agent-transcript-result-loading">{copy.agentTranscriptLoadingChanges}</div>
           ) : null}
-          {detailError ? <div className="code-agent-transcript-result-error">{detailError}</div> : null}
-          {source !== 'acp' || reviewPaths.length > 0 ? (
-            <button
-              type="button"
-              className="code-agent-transcript-result-review"
-              aria-label={`${copy.agentTranscriptReviewChanges}: ${reviewPaths.length} workspace ${reviewPaths.length === 1 ? 'file' : 'files'}`}
-              onClick={handleReview}
-            >
-              {copy.agentTranscriptReviewChanges}
-            </button>
+          {detailError ? (
+            <div className="code-agent-transcript-result-error" role="alert">
+              <span>{copy.agentTranscriptChangesUnavailable}</span>
+              <details>
+                <summary>{copy.agentTranscriptTechnicalDetails}</summary>
+                <code>{detailError}</code>
+              </details>
+            </div>
           ) : null}
         </div>
       ) : null}

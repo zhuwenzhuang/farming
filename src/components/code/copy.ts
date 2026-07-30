@@ -76,7 +76,10 @@ export interface CodeCopy {
   agentTranscriptForkedFromAgent: string
   agentTranscriptReviewChanges: string
   agentTranscriptShowChanges: string
+  agentTranscriptShowMoreChanges: (count: number) => string
   agentTranscriptLoadingChanges: string
+  agentTranscriptChangesUnavailable: string
+  agentTranscriptTechnicalDetails: string
   agentTranscriptKeepChange: string
   agentTranscriptRevertChange: string
   agentTranscriptChangeKept: string
@@ -557,7 +560,10 @@ const EN_COPY: CodeCopy = {
   agentTranscriptForkedFromAgent: 'Forked from agent',
   agentTranscriptReviewChanges: 'Review',
   agentTranscriptShowChanges: 'Show file changes',
+  agentTranscriptShowMoreChanges: (count) => `Show more files · ${count} remaining`,
   agentTranscriptLoadingChanges: 'Loading exact changes…',
+  agentTranscriptChangesUnavailable: 'Some exact file details could not be loaded.',
+  agentTranscriptTechnicalDetails: 'Technical details',
   agentTranscriptKeepChange: 'Keep',
   agentTranscriptRevertChange: 'Revert',
   agentTranscriptChangeKept: 'Kept',
@@ -1067,7 +1073,10 @@ const ZH_COPY: CodeCopy = {
   agentTranscriptForkedFromAgent: '从 Agent 分叉',
   agentTranscriptReviewChanges: 'Review',
   agentTranscriptShowChanges: '展开文件改动',
+  agentTranscriptShowMoreChanges: (count) => `展开更多文件 · 还剩 ${count} 个`,
   agentTranscriptLoadingChanges: '正在加载准确改动…',
+  agentTranscriptChangesUnavailable: '部分准确文件详情无法加载。',
+  agentTranscriptTechnicalDetails: '技术详情',
   agentTranscriptKeepChange: '保留',
   agentTranscriptRevertChange: '撤销',
   agentTranscriptChangeKept: '已保留',

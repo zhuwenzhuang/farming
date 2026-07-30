@@ -462,6 +462,7 @@ interface KillAgentAdmission {
 interface AgentManagerConfigContract extends AgentManagerConfig {
   appendTaskHistory?(entry: UnknownRecord): void;
   getAgentHome(provider: string, homeId?: string): AgentHome | null;
+  getAgentLaunchProfileForHome(provider: string, homeId?: string): UnknownRecord;
   getAgentLaunchProfiles(): UnknownRecord;
   getCodexApprovalMode(): string;
   getCodexModel(): string;
@@ -3504,6 +3505,17 @@ class AgentManager extends EventEmitter {
     const agent = this.agents.get(agentId);
     if (!agent) return false;
 
+    // Older releases turned every interactive shell busy→idle transition into
+    // unread attention.  Keep deliberate manual unread marks, but retire those
+    // persisted automatic shell events as soon as their Agent is observed.
+    if (
+      isEphemeralShellAgent(agent)
+      && agent.unread === true
+      && (agent.attentionReason === 'turn-complete' || agent.attentionReason === 'process-exit')
+    ) {
+      this.markAgentReadCursor(agent.id, finiteNonNegativeInteger(agent.attentionSeq));
+    }
+
     const turnActive = this.isAgentAttentionTurnActive(agent);
     if (agent.attentionTrackingReady !== true) {
       agent.lastObservedTurnActive = turnActive;
@@ -4505,41 +4517,52 @@ class AgentManager extends EventEmitter {
       );
     const preserveProviderSessionProfile = options.preserveProviderSessionProfile === true
       || codexCommandContinuesSession(command);
+    const launchProvider = agentHomeProviderForProgram(command);
+    const requestedLaunchHomeId = typeof options.providerHomeId === 'string' && options.providerHomeId.trim()
+      ? options.providerHomeId.trim()
+      : 'default';
+    const homeLaunchProfile = launchProvider
+      && this.configManager
+      && typeof this.configManager.getAgentLaunchProfileForHome === 'function'
+      ? this.configManager.getAgentLaunchProfileForHome(launchProvider, requestedLaunchHomeId)
+      : {};
+    const configuredLaunchProfiles = this.configManager && this.configManager.getAgentLaunchProfiles
+      ? this.configManager.getAgentLaunchProfiles()
+      : {};
+    if (launchProvider) configuredLaunchProfiles[launchProvider] = homeLaunchProfile;
     const codexModel = preserveProviderSessionProfile
       ? 'config'
       : (typeof options.codexModel === 'string'
         ? options.codexModel
-        : (this.configManager && this.configManager.getCodexModel
-          ? this.configManager.getCodexModel()
-          : 'gpt-5.5'));
+        : (typeof homeLaunchProfile.model === 'string' ? homeLaunchProfile.model : 'config'));
     const codexReasoningEffort = preserveProviderSessionProfile
       ? 'config'
       : (typeof options.codexReasoningEffort === 'string'
         ? options.codexReasoningEffort
-        : (this.configManager && this.configManager.getCodexReasoningEffort
-          ? this.configManager.getCodexReasoningEffort()
-          : 'xhigh'));
+        : (typeof homeLaunchProfile.reasoningEffort === 'string'
+          ? homeLaunchProfile.reasoningEffort
+          : 'config'));
     const codexServiceTier = preserveProviderSessionProfile
       ? 'config'
       : (typeof options.codexServiceTier === 'string'
         ? options.codexServiceTier
-        : (this.configManager && this.configManager.getCodexServiceTier
-          ? this.configManager.getCodexServiceTier()
-          : 'default'));
+        : (typeof homeLaunchProfile.serviceTier === 'string'
+          ? homeLaunchProfile.serviceTier
+          : 'config'));
     const launch = resolveLaunchCommand(command, {
       dangerouslySkipPermissions: dangerouslySkipPermissions === true,
-      agentLaunchProfiles: this.configManager && this.configManager.getAgentLaunchProfiles
-        ? this.configManager.getAgentLaunchProfiles()
-        : undefined,
+      agentLaunchProfiles: configuredLaunchProfiles,
       codexApprovalMode: options.codexApprovalMode || (
         dangerouslySkipPermissions
           ? undefined
-          : (this.configManager && this.configManager.getCodexApprovalMode ? this.configManager.getCodexApprovalMode() : 'approve')
+          : (typeof homeLaunchProfile.approvalMode === 'string'
+            ? homeLaunchProfile.approvalMode
+            : 'approve')
       ),
       claudePermissionMode: typeof options.claudePermissionMode === 'string' ? options.claudePermissionMode : undefined,
-      codexModelPreset: this.configManager && this.configManager.getCodexModelPreset
-        ? this.configManager.getCodexModelPreset()
-        : 'gpt-5.5:xhigh',
+      codexModelPreset: typeof homeLaunchProfile.modelPreset === 'string'
+        ? homeLaunchProfile.modelPreset
+        : 'config',
       codexModel,
       codexReasoningEffort,
       codexServiceTier,

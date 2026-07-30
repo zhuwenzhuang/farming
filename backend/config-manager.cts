@@ -28,6 +28,12 @@ interface ConfigManagerOptions {
 
 export interface AgentHome {
   id: string;
+  newAgentDefaults: {
+    model: string;
+    reasoning: string;
+    fast: 'inherit' | 'on' | 'off';
+  };
+  order: number;
   path: string;
 }
 
@@ -160,13 +166,13 @@ function splitCodexModelPreset(preset: unknown): { model: string; effort: string
     return { model: 'config', effort: 'config' };
   }
   if (typeof preset !== 'string') {
-    return { model: 'gpt-5.5', effort: 'xhigh' };
+    return { model: 'config', effort: 'config' };
   }
 
   const [model, effort] = preset.split(':');
   return {
-    model: model || 'gpt-5.5',
-    effort: effort || 'xhigh',
+    model: model || 'config',
+    effort: effort || 'config',
   };
 }
 
@@ -177,10 +183,10 @@ function joinCodexModelPreset(model: string, effort: string): string {
 
 const DEFAULT_CODEX_LAUNCH_PROFILE: CodexLaunchProfile = {
   approvalMode: 'approve',
-  model: 'gpt-5.5',
-  reasoningEffort: 'xhigh',
-  serviceTier: 'default',
-  modelPreset: 'gpt-5.5:xhigh',
+  model: 'config',
+  reasoningEffort: 'config',
+  serviceTier: 'config',
+  modelPreset: 'config',
 };
 
 const DEFAULT_CLAUDE_LAUNCH_PROFILE: ClaudeLaunchProfile = {
@@ -197,11 +203,36 @@ const DEFAULT_AGENT_LAUNCH_PROFILES: AgentLaunchProfiles = {
 const DEFAULT_LAUNCH_AGENT_NAMES = new Set(['codex', 'claude', 'opencode', 'qoder', 'qwen', 'bash', 'zsh']);
 
 const DEFAULT_AGENT_HOMES: AgentHomes = {
-  codex: [{ id: 'default', path: '~/.codex' }],
-  claude: [{ id: 'default', path: '~/.claude' }],
-  opencode: [{ id: 'default', path: '~/.opencode' }],
-  qoder: [{ id: 'default', path: '~/.qoder' }],
-  qwen: [{ id: 'default', path: '~/.qwen' }],
+  codex: [{
+    id: 'default',
+    path: '~/.codex',
+    order: 0,
+    newAgentDefaults: { model: 'inherit', reasoning: 'inherit', fast: 'inherit' },
+  }],
+  claude: [{
+    id: 'default',
+    path: '~/.claude',
+    order: 1,
+    newAgentDefaults: { model: 'inherit', reasoning: 'inherit', fast: 'inherit' },
+  }],
+  opencode: [{
+    id: 'default',
+    path: '~/.opencode',
+    order: 2,
+    newAgentDefaults: { model: 'inherit', reasoning: 'inherit', fast: 'inherit' },
+  }],
+  qoder: [{
+    id: 'default',
+    path: '~/.qoder',
+    order: 3,
+    newAgentDefaults: { model: 'inherit', reasoning: 'inherit', fast: 'inherit' },
+  }],
+  qwen: [{
+    id: 'default',
+    path: '~/.qwen',
+    order: 4,
+    newAgentDefaults: { model: 'inherit', reasoning: 'inherit', fast: 'inherit' },
+  }],
 };
 
 const LEGACY_DEFAULT_WORKSPACE_FILE_SEARCH_TIMEOUT_MS = 3000;
@@ -266,7 +297,10 @@ function cloneAgentHomes(agentHomes: AgentHomes): AgentHomes {
   const cloned: AgentHomes = {};
   Object.entries(agentHomes || {}).forEach(([provider, homes]) => {
     cloned[provider] = Array.isArray(homes)
-      ? homes.map(home => ({ ...home }))
+      ? homes.map(home => ({
+          ...home,
+          newAgentDefaults: { ...home.newAgentDefaults },
+        }))
       : [];
   });
   return cloned;
@@ -501,10 +535,10 @@ class ConfigManager {
         agentHomes: cloneAgentHomes(DEFAULT_AGENT_HOMES),
         searchTimeoutMs: DEFAULT_SEARCH_TIMEOUT_MS,
         codexApprovalMode: 'approve',
-        codexModel: 'gpt-5.5',
-        codexReasoningEffort: 'xhigh',
-        codexServiceTier: 'default',
-        codexModelPreset: 'gpt-5.5:xhigh',
+        codexModel: 'config',
+        codexReasoningEffort: 'config',
+        codexServiceTier: 'config',
+        codexModelPreset: 'config',
         version: '2'
       };
       this.writeSettingsFile(defaultSettings);
@@ -547,10 +581,10 @@ class ConfigManager {
       agentHomes: cloneAgentHomes(DEFAULT_AGENT_HOMES),
       searchTimeoutMs: DEFAULT_SEARCH_TIMEOUT_MS,
       codexApprovalMode: 'approve',
-      codexModel: 'gpt-5.5',
-      codexReasoningEffort: 'xhigh',
-      codexServiceTier: 'default',
-      codexModelPreset: 'gpt-5.5:xhigh',
+      codexModel: 'config',
+      codexReasoningEffort: 'config',
+      codexServiceTier: 'config',
+      codexModelPreset: 'config',
       version: '2',
       ...rawSettings
     };
@@ -695,7 +729,7 @@ class ConfigManager {
 
       const seenIds = new Set<string>();
       const homes: AgentHome[] = [];
-      rawHomes.forEach(rawHome => {
+      rawHomes.forEach((rawHome, homeIndex) => {
         const record = objectRecord(rawHome);
         if (!record) return;
         const id = String(record.id || '').trim();
@@ -705,7 +739,24 @@ class ConfigManager {
         const idKey = id.toLowerCase();
         if (seenIds.has(idKey)) return;
         seenIds.add(idKey);
-        homes.push({ id, path: homePath });
+        const rawDefaults = objectRecord(record.newAgentDefaults) || {};
+        const model = String(rawDefaults.model || 'inherit').trim();
+        const reasoning = String(rawDefaults.reasoning || 'inherit').trim();
+        const fast = String(rawDefaults.fast || 'inherit').trim();
+        const providerRank = Object.keys(DEFAULT_AGENT_HOMES).indexOf(provider);
+        const requestedOrder = Number(record.order);
+        homes.push({
+          id,
+          path: homePath,
+          order: Number.isFinite(requestedOrder) && requestedOrder >= 0
+            ? requestedOrder
+            : (providerRank * 1000) + homeIndex,
+          newAgentDefaults: {
+            model: model && model.length <= 200 && !/[\r\n\0]/.test(model) ? model : 'inherit',
+            reasoning: /^[A-Za-z0-9._-]{1,80}$/.test(reasoning) ? reasoning : 'inherit',
+            fast: fast === 'on' || fast === 'off' ? fast : 'inherit',
+          },
+        });
       });
       if (homes.length > 0) normalized[provider] = homes;
     });
@@ -835,29 +886,29 @@ class ConfigManager {
 
   normalizeCodexModelPreset(preset: unknown): string {
     if (preset === 'config') return preset;
-    if (typeof preset !== 'string') return 'gpt-5.5:xhigh';
+    if (typeof preset !== 'string') return 'config';
     if (/^[A-Za-z0-9._-]+(?::[A-Za-z0-9._-]+)?$/.test(preset)) return preset;
-    return 'gpt-5.5:xhigh';
+    return 'config';
   }
 
   normalizeCodexModelId(model: unknown): string {
     if (model === 'config') return model;
-    if (typeof model !== 'string') return 'gpt-5.5';
+    if (typeof model !== 'string') return 'config';
     if (/^[A-Za-z0-9._-]+$/.test(model)) return model;
-    return 'gpt-5.5';
+    return 'config';
   }
 
   normalizeCodexReasoningEffort(effort: unknown): string {
     if (effort === 'config') return effort;
-    if (typeof effort !== 'string') return 'xhigh';
+    if (typeof effort !== 'string') return 'config';
     if (/^[A-Za-z0-9._-]+$/.test(effort)) return effort;
-    return 'xhigh';
+    return 'config';
   }
 
   normalizeCodexServiceTier(tier: unknown): string {
-    if (typeof tier !== 'string') return 'default';
+    if (typeof tier !== 'string') return 'config';
     if (/^[A-Za-z0-9._-]+$/.test(tier)) return tier;
-    return 'default';
+    return 'config';
   }
 
   normalizeCodexModelSettings(rawSettings: JsonRecord = {}): void {
@@ -1004,22 +1055,22 @@ class ConfigManager {
   }
 
   getCodexModelPreset(): string {
-    if (!this.settings) return 'gpt-5.5:xhigh';
+    if (!this.settings) return 'config';
     return this.getAgentLaunchProfile('codex').modelPreset;
   }
 
   getCodexModel(): string {
-    if (!this.settings) return 'gpt-5.5';
+    if (!this.settings) return 'config';
     return this.getAgentLaunchProfile('codex').model;
   }
 
   getCodexReasoningEffort(): string {
-    if (!this.settings) return 'xhigh';
+    if (!this.settings) return 'config';
     return this.getAgentLaunchProfile('codex').reasoningEffort;
   }
 
   getCodexServiceTier(): string {
-    if (!this.settings) return 'default';
+    if (!this.settings) return 'config';
     return this.getAgentLaunchProfile('codex').serviceTier;
   }
 
@@ -1029,7 +1080,11 @@ class ConfigManager {
     const homes = this.settings && this.settings.agentHomes && this.settings.agentHomes[providerKey]
       ? this.settings.agentHomes[providerKey]
       : [];
-    return homes.map(home => ({ ...home, path: this.expandWorkspacePath(home.path) }));
+    return homes.map(home => ({
+      ...home,
+      newAgentDefaults: { ...home.newAgentDefaults },
+      path: this.expandWorkspacePath(home.path),
+    }));
   }
 
   getAgentHome(provider: unknown, homeId: unknown = 'default'): AgentHome | null {
@@ -1061,6 +1116,47 @@ class ConfigManager {
     const profileName = String(agentName);
     const profile = profiles[profileName] || DEFAULT_AGENT_LAUNCH_PROFILES[profileName];
     return profile ? { ...profile } : {};
+  }
+
+  getAgentLaunchProfileForHome(agentName: unknown, homeId: unknown = 'default'): JsonRecord {
+    const provider = String(agentName || '').trim().toLowerCase();
+    const profile = this.getAgentLaunchProfile(provider);
+    const home = this.getAgentHome(provider, homeId);
+    if (!home) return profile;
+    const defaults = home.newAgentDefaults;
+    if (provider === 'codex') {
+      const model = defaults.model === 'inherit'
+        ? 'config'
+        : this.normalizeCodexModelId(defaults.model);
+      const reasoningEffort = defaults.reasoning === 'inherit'
+        ? 'config'
+        : this.normalizeCodexReasoningEffort(defaults.reasoning);
+      const serviceTier = defaults.fast === 'inherit'
+        ? 'config'
+        : (defaults.fast === 'on' ? 'priority' : 'default');
+      return {
+        ...profile,
+        model,
+        reasoningEffort,
+        serviceTier,
+        modelPreset: joinCodexModelPreset(
+          model,
+          reasoningEffort === 'config' ? '' : reasoningEffort,
+        ),
+      };
+    }
+    if (provider === 'claude') {
+      return {
+        ...profile,
+        model: defaults.model === 'inherit'
+          ? 'config'
+          : this.normalizeClaudeModel(defaults.model),
+        effort: defaults.reasoning === 'inherit'
+          ? 'config'
+          : this.normalizeClaudeEffort(defaults.reasoning),
+      };
+    }
+    return profile;
   }
 
   getSettings(): PublicSettingsSnapshot {

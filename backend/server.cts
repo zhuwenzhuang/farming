@@ -935,21 +935,40 @@ app.get(routePath(BASE_PATH, '/api/skills'), (_req, res) => {
 });
 
 app.get(routePath(BASE_PATH, '/api/agent-extensions'), (_req, res) => {
-  const agents = getAvailableAgentsForRequest()
-    .filter(agent => agent.category === 'coding')
-    .map(agent => {
-      const provider = String(agent.name || agent.command || '').trim().toLowerCase();
+  const availableAgents = getAvailableAgentsForRequest()
+    .filter(agent => agent.category === 'coding');
+  const availableByProvider = new Map(availableAgents.map(agent => [
+    String(agent.name || agent.command || '').trim().toLowerCase(),
+    agent,
+  ]));
+  const configuredProviders = Object.keys(configManager.getSettings().agentHomes || {})
+    .filter(provider => (
+      availableByProvider.has(provider)
+      || configManager.getAgentHomes(provider).some(home => home.id !== 'default')
+    ));
+  const agents = configuredProviders
+    .map(provider => {
+      const agent = availableByProvider.get(provider);
       const configuredHomes = configManager.getAgentHomes(provider);
       const homes = configuredHomes.length > 0
         ? configuredHomes
-        : [{ id: 'default', path: '' }];
+        : [{
+            id: 'default',
+            path: '',
+            order: Number.MAX_SAFE_INTEGER,
+            newAgentDefaults: { model: 'inherit', reasoning: 'inherit', fast: 'inherit' as const },
+          }];
       return {
         id: provider,
-        name: agent.name,
-        description: agent.description || '',
+        name: agent?.name || provider,
+        description: agent?.description || '',
+        available: Boolean(agent),
         discoverySupported: provider === 'codex' || provider === 'claude',
         homes: homes.map(home => ({
           id: home.id,
+          path: home.path,
+          order: home.order,
+          newAgentDefaults: home.newAgentDefaults,
           extensions: discoverAgentExtensions({
             provider,
             providerHomePath: home.path,

@@ -39,6 +39,8 @@
 }
 
 .farming-computer-row {
+  --farming-computer-row-action-surface: var(--code-bg, #f6f7f3);
+  position: relative;
   display: flex;
   align-items: center;
   gap: 7px;
@@ -51,6 +53,7 @@
 
 .farming-computer-row:hover,
 .farming-computer-row.active {
+  --farming-computer-row-action-surface: color-mix(in srgb, var(--code-bg, #f6f7f3) 94%, var(--code-text, #343a34) 6%);
   background: var(--code-hover);
 }
 
@@ -90,13 +93,28 @@
 }
 
 .farming-computer-actions {
-  display: none;
+  width: 93px;
+  height: 28px;
+  position: absolute;
+  top: 50%;
+  right: 5px;
+  z-index: 1;
+  box-sizing: border-box;
+  display: inline-flex;
   align-items: center;
+  justify-content: flex-end;
+  padding-left: 21px;
+  background: linear-gradient(90deg, transparent 0, var(--farming-computer-row-action-surface) 21px, var(--farming-computer-row-action-surface) 100%);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-50%);
+  transition: opacity 120ms ease;
 }
 
 .farming-computer-row:hover .farming-computer-actions,
 .farming-computer-row:focus-within .farming-computer-actions {
-  display: flex;
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .farming-computer-actions button,
@@ -116,6 +134,15 @@
   width: 13px;
   height: 13px;
   fill: currentColor;
+}
+
+body.code-mode[data-appearance='dark'] .farming-computer-row {
+  --farming-computer-row-action-surface: var(--code-dark-bg-soft);
+}
+
+body.code-mode[data-appearance='dark'] .farming-computer-row:hover,
+body.code-mode[data-appearance='dark'] .farming-computer-row.active {
+  --farming-computer-row-action-surface: var(--code-dark-bg-hover);
 }
 
 .farming-computer-empty {

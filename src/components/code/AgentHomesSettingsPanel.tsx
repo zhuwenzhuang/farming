@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { CheckGlyph, ChevronLeftGlyph, CloseGlyph, ColorModeGlyph, PlusGlyph } from '@/components/IconGlyphs'
+import { CheckGlyph, ChevronLeftGlyph, CloseGlyph, ColorModeGlyph } from '@/components/IconGlyphs'
 import { appPath } from '@/lib/base-path'
 import {
   PET_SETTINGS_EVENT,
@@ -22,10 +22,7 @@ import {
 import type { UiPreferences } from '@/lib/ui-preferences'
 import { MAX_CONTENT_FONT_SIZE, MIN_CONTENT_FONT_SIZE } from '@/lib/content-font-size'
 import { usePetDefaultAppearance } from './pet/usePetDefaultAppearance'
-import type { AgentHomeSetting, AgentHomesSettings, GlobalSettings } from './types'
-import type { AgentLaunchOption } from './agent-launch-options'
-
-type DraftState = { provider: string; id: string; path: string } | null
+import type { GlobalSettings } from './types'
 
 type UpdateStatus = {
   method?: string
@@ -71,26 +68,11 @@ interface AgentHomesSettingsPanelProps {
   activeAgentId?: string | null
   language: UiPreferences['language']
   uiPreferences: UiPreferences
-  agentLaunchOptions: AgentLaunchOption[]
   onClose: () => void
   onUpdateUiPreferences: (preferences: Partial<UiPreferences>) => void
 }
 
-const KNOWN_PROVIDERS = ['codex', 'claude', 'opencode', 'qoder', 'qwen']
-const NON_CODING_AGENT_NAMES = new Set(['bash', 'zsh'])
-const ID_PATTERN = /^[A-Za-z0-9._-]+$/
 const SEARCH_TIMEOUT_OPTIONS_SECONDS = [3, 5, 10, 15, 30, 60, 180]
-const AGENT_HOMES_REQUEST_TIMEOUT_MS = 15_000
-
-async function fetchAgentHomesSettings(url: string, init?: RequestInit) {
-  const controller = new AbortController()
-  const timeoutId = window.setTimeout(() => controller.abort(), AGENT_HOMES_REQUEST_TIMEOUT_MS)
-  try {
-    return await fetch(url, { ...init, signal: controller.signal })
-  } finally {
-    window.clearTimeout(timeoutId)
-  }
-}
 
 function nearestSearchTimeoutSeconds(timeoutMs: number) {
   const seconds = timeoutMs / 1000
@@ -205,147 +187,12 @@ function panelCopy(language: UiPreferences['language']) {
       if (zh) return `已用时 ${minutes > 0 ? `${minutes} 分 ` : ''}${remainingSeconds} 秒`
       return `Elapsed ${minutes > 0 ? `${minutes}m ` : ''}${remainingSeconds}s`
     },
-    agentHomes: 'Agent Homes',
-    agentHomesHint: zh
-      ? '为不同 Agent 配置独立的主目录。'
-      : 'Configure a separate home directory for each agent.',
-    addHome: (provider: string) => zh ? `添加 ${provider} home` : `Add ${provider} home`,
-    edit: zh ? '编辑' : 'Edit',
-    remove: zh ? '删除' : 'Remove',
-    save: zh ? '保存' : 'Save',
-    cancel: zh ? '取消' : 'Cancel',
-    homeName: zh ? 'Home 名称（可选）' : 'Home name (optional)',
-    homePath: zh ? 'Home 路径' : 'Home path',
-    homeNameHint: zh ? '留空时将根据路径自动生成。允许字母、数字、点、下划线和短横线。' : 'Leave empty to generate it from the path. Use letters, numbers, dots, underscores, and hyphens.',
-    homeNamePlaceholder: zh ? '例如：work' : 'e.g. work',
-    pathPlaceholder: '~/.codex.local',
     loading: zh ? '加载中…' : 'Loading…',
     saving: zh ? '保存中…' : 'Saving…',
     saved: zh ? '已保存' : 'Saved',
     loadFailed: zh ? '加载设置失败' : 'Failed to load settings',
     saveFailed: zh ? '保存失败' : 'Failed to save',
-    invalidId: zh ? 'Home 名称只能包含字母、数字、点、下划线和短横线。' : 'Home name can only contain letters, numbers, dots, underscores, and hyphens.',
-    duplicateId: zh ? '同一个 provider 下 Home 名称不能重复。' : 'Home name must be unique under the same provider.',
-    missingPath: zh ? 'Home 路径不能为空。' : 'Home path is required.',
-    removeLastHint: zh ? '至少保留一个 home。' : 'Keep at least one home.',
-    removeDefaultHint: zh ? 'default home 不能删除。' : 'The default home cannot be removed.',
-    editDisabledHint: zh ? 'home 不支持编辑；请删除后重新添加。' : 'Homes cannot be edited. Remove and add again.',
-    confirmRemove: (id: string) => zh ? `删除 home ${id}？` : `Remove home ${id}?`,
-    empty: zh ? '还没有配置 home。' : 'No homes configured.',
-    noAgents: zh ? '当前机器没有识别到可配置的 coding agent。' : 'No configurable coding agents were detected on this machine.',
-    unavailable: zh ? '未安装' : 'Not installed',
   }
-}
-
-function normalizeProvider(provider: string) {
-  return provider.trim().toLowerCase()
-}
-
-function normalizeHomes(raw: unknown): AgentHomesSettings {
-  const source = raw && typeof raw === 'object' && !Array.isArray(raw)
-    ? raw as Record<string, unknown>
-    : {}
-  const normalized: AgentHomesSettings = {}
-
-  Object.entries(source).forEach(([rawProvider, rawHomes]) => {
-    const provider = normalizeProvider(rawProvider)
-    if (!provider || !/^[a-z0-9._-]+$/.test(provider) || !Array.isArray(rawHomes)) return
-    const seen = new Set<string>()
-    const homes: AgentHomeSetting[] = []
-    rawHomes.forEach(rawHome => {
-      if (!rawHome || typeof rawHome !== 'object') return
-      const home = rawHome as Partial<AgentHomeSetting>
-      const id = String(home.id ?? '').trim()
-      const path = String(home.path ?? '').trim()
-      if (!id || !path || !ID_PATTERN.test(id)) return
-      const idKey = id.toLowerCase()
-      if (seen.has(idKey)) return
-      seen.add(idKey)
-      homes.push({ id, path })
-    })
-    if (homes.length > 0) normalized[provider] = homes
-  })
-
-
-  return normalized
-}
-
-function providerDisplayName(provider: string) {
-  if (provider === 'codex') return 'Codex'
-  if (provider === 'claude') return 'Claude'
-  if (provider === 'opencode') return 'OpenCode'
-  if (provider === 'qoder') return 'Qoder'
-  if (provider === 'qwen') return 'Qwen Code'
-  return provider
-}
-
-function defaultPathForProvider(provider: string) {
-  const defaultPaths: Record<string, string> = {
-    codex: '~/.codex',
-    claude: '~/.claude',
-    opencode: '~/.opencode',
-    qoder: '~/.qoder',
-    qwen: '~/.qwen',
-  }
-  return defaultPaths[provider] ?? `~/.${provider}`
-}
-
-function hasNonDefaultHomes(homes: AgentHomeSetting[] | undefined) {
-  return Boolean(homes?.some(home => home.id.toLowerCase() !== 'default'))
-}
-
-function availableCodingProviders(agentLaunchOptions: AgentLaunchOption[]) {
-  return agentLaunchOptions
-    .filter(option => option.supported !== false && option.interactive !== false)
-    .filter(option => !NON_CODING_AGENT_NAMES.has(option.name))
-    .filter(option => KNOWN_PROVIDERS.includes(option.name))
-    .map(option => normalizeProvider(option.name))
-    .filter(Boolean)
-}
-
-function orderedProviders(homes: AgentHomesSettings, agentLaunchOptions: AgentLaunchOption[]) {
-  const available = new Set(availableCodingProviders(agentLaunchOptions))
-  const configuredWithCustomHomes = Object.keys(homes).filter(provider => hasNonDefaultHomes(homes[provider]))
-  const keys = new Set([...available, ...configuredWithCustomHomes])
-  return Array.from(keys).sort((left, right) => {
-    const leftRank = KNOWN_PROVIDERS.indexOf(left)
-    const rightRank = KNOWN_PROVIDERS.indexOf(right)
-    const normalizedLeftRank = leftRank === -1 ? KNOWN_PROVIDERS.length : leftRank
-    const normalizedRightRank = rightRank === -1 ? KNOWN_PROVIDERS.length : rightRank
-    if (normalizedLeftRank !== normalizedRightRank) return normalizedLeftRank - normalizedRightRank
-    return left.localeCompare(right)
-  })
-}
-
-function homesForProvider(homes: AgentHomesSettings, provider: string) {
-  const current = homes[provider] ?? []
-  if (current.some(home => home.id.toLowerCase() === 'default')) return current
-  return [{ id: 'default', path: defaultPathForProvider(provider) }, ...current]
-}
-
-
-function homeNameForPath(homePath: string, homes: AgentHomeSetting[]) {
-  const pathSegments = homePath.trim().replace(/\/+$/, '').split('/').filter(Boolean)
-  const pathSegment = pathSegments[pathSegments.length - 1] ?? ''
-  const baseName = pathSegment
-    .replace(/^\.+/, '')
-    .replace(/[^A-Za-z0-9._-]+/g, '-')
-    .replace(/^[.-]+|[.-]+$/g, '')
-    .slice(0, 64) || 'home'
-  const existingIds = new Set(homes.map(home => home.id.toLowerCase()))
-  let suffix = 1
-  let id = baseName
-  while (existingIds.has(id.toLowerCase())) {
-    suffix += 1
-    id = `${baseName}-${suffix}`
-  }
-  return {
-    id,
-  }
-}
-
-function nextHomeDraft(provider: string) {
-  return { provider, id: '', path: '' }
 }
 
 export function AgentHomesSettingsPanel({
@@ -353,7 +200,6 @@ export function AgentHomesSettingsPanel({
   activeAgentId = null,
   language,
   uiPreferences,
-  agentLaunchOptions,
   onClose,
   onUpdateUiPreferences,
 }: AgentHomesSettingsPanelProps) {
@@ -364,8 +210,6 @@ export function AgentHomesSettingsPanel({
   const upgradeTargetVersionRef = useRef('')
   const panelScopeRef = useRef({ open, generation: 0 })
   const settingsLoadRequestRef = useRef(0)
-  const homesSaveRequestRef = useRef<number | null>(null)
-  const homesSaveSequenceRef = useRef(0)
   const [dangerouslySkipPermissions, setDangerouslySkipPermissions] = useState(false)
   const [searchTimeoutSeconds, setSearchTimeoutSeconds] = useState(15)
   const [restReminderIntervalSeconds, setRestReminderIntervalSecondsState] = useState<number | null>(
@@ -378,18 +222,10 @@ export function AgentHomesSettingsPanel({
   const [selectedUpdateAsset, setSelectedUpdateAsset] = useState('')
   const [updateChecking, setUpdateChecking] = useState(false)
   const [updateError, setUpdateError] = useState('')
-  const [homes, setHomes] = useState<AgentHomesSettings>(() => normalizeHomes({
-    codex: [{ id: 'default', path: '~/.codex' }],
-    claude: [{ id: 'default', path: '~/.claude' }],
-    opencode: [{ id: 'default', path: '~/.opencode' }],
-    qoder: [{ id: 'default', path: '~/.qoder' }],
-    qwen: [{ id: 'default', path: '~/.qwen' }],
-  }))
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
-  const [draft, setDraft] = useState<DraftState>(null)
   if (panelScopeRef.current.open !== open) {
     panelScopeRef.current = {
       open,
@@ -398,13 +234,13 @@ export function AgentHomesSettingsPanel({
   }
 
   const loadSettings = useCallback(() => {
-    if (!panelScopeRef.current.open || homesSaveRequestRef.current) return
+    if (!panelScopeRef.current.open) return
     const generation = panelScopeRef.current.generation
     const requestId = settingsLoadRequestRef.current + 1
     settingsLoadRequestRef.current = requestId
     setLoading(true)
     setError('')
-    fetchAgentHomesSettings(appPath('/api/settings'))
+    fetch(appPath('/api/settings'))
       .then(async settingsResponse => {
         if (!settingsResponse.ok) throw new Error(copy.loadFailed)
         const data = await settingsResponse.json() as { settings?: GlobalSettings }
@@ -412,9 +248,7 @@ export function AgentHomesSettingsPanel({
           settingsLoadRequestRef.current !== requestId
           || panelScopeRef.current.generation !== generation
           || !panelScopeRef.current.open
-          || homesSaveRequestRef.current
         ) return
-        setHomes(normalizeHomes(data.settings?.agentHomes))
         setDangerouslySkipPermissions(data.settings?.dangerouslySkipAgentPermissionsByDefault === true)
         setSearchTimeoutSeconds(nearestSearchTimeoutSeconds(Number(data.settings?.searchTimeoutMs ?? 15000)))
       })
@@ -423,7 +257,6 @@ export function AgentHomesSettingsPanel({
           settingsLoadRequestRef.current === requestId
           && panelScopeRef.current.generation === generation
           && panelScopeRef.current.open
-          && !homesSaveRequestRef.current
         ) setError(copy.loadFailed)
       })
       .finally(() => {
@@ -431,7 +264,6 @@ export function AgentHomesSettingsPanel({
           settingsLoadRequestRef.current === requestId
           && panelScopeRef.current.generation === generation
           && panelScopeRef.current.open
-          && !homesSaveRequestRef.current
         ) setLoading(false)
       })
   }, [copy.loadFailed])
@@ -450,7 +282,7 @@ export function AgentHomesSettingsPanel({
 
   useEffect(() => {
     if (!open) return
-    if (!homesSaveRequestRef.current) setSaving(false)
+    setSaving(false)
     loadRestReminderIntervalSeconds(defaultPetAppearance)
       .then(setRestReminderIntervalSecondsState)
     loadSettings()
@@ -499,54 +331,6 @@ export function AgentHomesSettingsPanel({
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [onClose, open])
-
-  const saveHomes = useCallback((nextHomes: AgentHomesSettings) => {
-    if (!panelScopeRef.current.open || homesSaveRequestRef.current) return
-    const generation = panelScopeRef.current.generation
-    const requestId = homesSaveSequenceRef.current + 1
-    homesSaveSequenceRef.current = requestId
-    homesSaveRequestRef.current = requestId
-    settingsLoadRequestRef.current += 1
-    setLoading(false)
-    setSaving(true)
-    setError('')
-    setNotice('')
-    let reconcileAfterSave = false
-    fetchAgentHomesSettings(appPath('/api/settings'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ agentHomes: nextHomes }),
-    })
-      .then(async response => {
-        const data = await response.json().catch(() => null) as { settings?: GlobalSettings; error?: string } | null
-        if (!response.ok) throw new Error(data?.error || copy.saveFailed)
-        if (
-          homesSaveRequestRef.current !== requestId
-          || panelScopeRef.current.generation !== generation
-          || !panelScopeRef.current.open
-        ) return
-        const normalized = normalizeHomes(data?.settings?.agentHomes ?? nextHomes)
-        setHomes(normalized)
-        setDraft(null)
-        setNotice(copy.saved)
-        window.dispatchEvent(new CustomEvent('farming-agent-homes-saved'))
-      })
-      .catch(error => {
-        reconcileAfterSave = true
-        if (
-          homesSaveRequestRef.current === requestId
-          && panelScopeRef.current.generation === generation
-          && panelScopeRef.current.open
-        ) setError(error instanceof Error ? error.message : copy.saveFailed)
-      })
-      .finally(() => {
-        if (homesSaveRequestRef.current !== requestId) return
-        homesSaveRequestRef.current = null
-        if (!panelScopeRef.current.open) return
-        setSaving(false)
-        if (reconcileAfterSave || panelScopeRef.current.generation !== generation) loadSettings()
-      })
-  }, [copy.saveFailed, copy.saved, loadSettings])
 
   const refreshUpdateStatus = useCallback((force = true, quiet = false) => {
     if (!quiet) {
@@ -697,38 +481,6 @@ export function AgentHomesSettingsPanel({
       })
       .finally(() => setSaving(false))
   }, [copy.saveFailed, copy.saved])
-
-  const submitDraft = useCallback(() => {
-    if (!draft) return
-    const provider = normalizeProvider(draft.provider)
-    const homePath = draft.path.trim()
-    if (!homePath) {
-      setError(copy.missingPath)
-      return
-    }
-    const current = homes[provider] ?? []
-    const id = draft.id.trim() || homeNameForPath(homePath, current).id
-    if (!ID_PATTERN.test(id)) {
-      setError(copy.invalidId)
-      return
-    }
-    const duplicate = current.some(home => home.id.toLowerCase() === id.toLowerCase())
-    if (duplicate) {
-      setError(copy.duplicateId)
-      return
-    }
-    saveHomes({ ...homes, [provider]: [...current, { id, path: homePath }] })
-  }, [copy.duplicateId, copy.invalidId, copy.missingPath, draft, homes, saveHomes])
-
-  const removeHome = useCallback((provider: string, id: string) => {
-    if (id.toLowerCase() === 'default') return
-    const current = homes[provider] ?? []
-    if (!window.confirm(copy.confirmRemove(id))) return
-    saveHomes({
-      ...homes,
-      [provider]: current.filter(home => home.id !== id),
-    })
-  }, [copy, homes, saveHomes])
 
   const updatePhase = updateStatus?.state?.phase || ''
   useEffect(() => {

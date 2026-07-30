@@ -1417,4 +1417,31 @@ test.describe('ACP human-like browser matrix', () => {
     await expect(conflictFile.getByRole('alert')).toContainText('File changed after this ACP patch')
     expect(fs.readFileSync(path.join(workspace, 'decision-conflict.txt'), 'utf8')).toBe('newer human change\n')
   })
+
+  test('keeps a large ACP file-change list compact until the user asks for more', async ({ page, workspaceRoot }) => {
+    test.setTimeout(60_000)
+    const workspace = path.join(workspaceRoot, 'acp-patch-many-files')
+    fs.mkdirSync(workspace, { recursive: true })
+    for (let index = 1; index <= 6; index += 1) {
+      const target = path.join(workspace, 'src/features/very-long-feature-name', `decision-many-${index}.txt`)
+      fs.mkdirSync(path.dirname(target), { recursive: true })
+      fs.writeFileSync(target, `before ${index}\n`)
+    }
+    const agentId = await createAcpAgent(page, workspace)
+    await openFarming(page)
+    await agentRow(page, agentId).click()
+
+    await sendAcpMessage(page, 'deep path many applied edit')
+    const turn = page.locator('.code-agent-transcript-turn').filter({ hasText: 'deep path many applied edit' }).last()
+    await expect(turn.getByText('Applied edit complete.', { exact: true })).toBeVisible({ timeout: 15_000 })
+    await turn.getByTestId('code-agent-transcript-result-summary').click()
+    await expect(turn.locator('.code-agent-transcript-result-file')).toHaveCount(4)
+    await expect(turn.getByRole('button', { name: 'Show more files · 2 remaining' })).toBeVisible()
+    await expect(turn.getByText('decision-many-5.txt', { exact: true })).toHaveCount(0)
+    await expect(turn.getByText('src/features/very-long-feature-name', { exact: true })).toHaveCount(4)
+
+    await turn.getByRole('button', { name: 'Show more files · 2 remaining' }).click()
+    await expect(turn.locator('.code-agent-transcript-result-file')).toHaveCount(6)
+    await expect(turn.getByText('decision-many-5.txt', { exact: true })).toBeVisible()
+  })
 })

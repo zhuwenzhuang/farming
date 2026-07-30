@@ -1404,6 +1404,8 @@ function testBrowserUiAndPackagingWiring() {
     'the passive Agent Browser preview must never claim or resize the interactive Viewer viewport',
   );
   assert(!sidebarSource.includes('window.confirm'), 'Browser row close must remove directly without a redundant confirmation');
+  assert(sidebarSource.includes("resource.status === 'failed' ? 'stopped' : resource.status"));
+  assert(sidebarSource.includes("if (resource.status === 'failed') return copy.stopped"));
   assert(serverSource.includes("createBrowserRouter("));
   assert(serverSource.includes("browserResourceManager,"));
   assert(sidebarSource.includes('code-agent-resources-toggle'));

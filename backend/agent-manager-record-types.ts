@@ -331,6 +331,12 @@ export interface DeleteProjectWorktreeOptions {
 
 export interface AgentHome {
   id: string;
+  newAgentDefaults: {
+    model: string;
+    reasoning: string;
+    fast: 'inherit' | 'on' | 'off';
+  };
+  order: number;
   path: string;
 }
 
