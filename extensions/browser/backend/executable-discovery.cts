@@ -30,6 +30,7 @@ type BrowserKind =
   | 'custom'
   | 'edge'
   | 'external-cdp'
+  | 'isolated-computer'
   | 'managed-chromium'
   | string;
 
@@ -210,6 +211,9 @@ function discoverBrowserExecutable(
           error: 'External CDP must be a loopback http(s) or ws(s) endpoint without credentials or query parameters',
         };
   }
+  if (source === 'isolated') {
+    return { kind: 'isolated-computer', path: '' };
+  }
   if (source === 'managed') {
     return executable(options.managedBrowserPath, 'managed-chromium') || {
       kind: 'managed-chromium',
@@ -273,7 +277,7 @@ async function discoverBrowserRuntime(
     execFile: options.execFile,
     env: options.env || process.env,
     platform: options.platform || process.platform,
-    useConfiguredLoader: true,
+    useConfiguredLoader: (options.env || process.env).FARMING_AGENT_BROWSER_STATIC !== '1',
   });
   if (!verification.valid) {
     return {

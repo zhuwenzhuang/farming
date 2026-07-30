@@ -459,7 +459,9 @@ function defaultRunInstallCommand(
 ): Promise<InstallCommandResult> {
   const env = options.env || process.env;
   const platform = options.platform || process.platform;
-  const invocation = runtimeExecutableInvocation(executablePath, args, env, platform);
+  const invocation = env.FARMING_AGENT_BROWSER_STATIC === '1'
+    ? { command: executablePath, args }
+    : runtimeExecutableInvocation(executablePath, args, env, platform);
   return new Promise((resolve, reject) => {
     const child = spawn(invocation.command, invocation.args, {
       detached: platform !== 'win32',
@@ -652,7 +654,7 @@ class ManagedChromiumInstaller {
       || (executablePath => verifyExecutable(executablePath, this.agentBrowserVersion, {
         env: this.env,
         platform: this.platform,
-        useConfiguredLoader: true,
+        useConfiguredLoader: this.env.FARMING_AGENT_BROWSER_STATIC !== '1',
       }));
     this.wait = options.wait || delay;
     this.installPromise = null;

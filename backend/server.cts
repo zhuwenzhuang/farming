@@ -240,7 +240,11 @@ import { WorkspaceFileService, WorkspaceFileError } from './workspace-file-servi
 import { createWorkspaceFileRouter, resolveWorkspaceRoot } from './workspace-file-router.cjs';
 import { WorkspaceRootRegistry, rootIdForPath } from './workspace-root-registry.cjs';
 import { BrowserResourceManager, createBrowserRouter } from '../extensions/browser/backend/index.cjs';
-import { ComputerResourceManager, createComputerRouter } from '../extensions/computer/backend/index.cjs';
+import {
+  ComputerResourceManager,
+  IsolatedBrowserProvider,
+  createComputerRouter,
+} from '../extensions/computer/backend/index.cjs';
 import { UsageMonitor } from './usage-monitor.cjs';
 import { CodexContextWindowReader } from './codex-context-window.cjs';
 import { AsyncCache } from './async-cache.cjs';
@@ -304,10 +308,15 @@ function resolveCliBinDir() {
   return path.join(__dirname, '..', 'bin');
 }
 
+const isolatedBrowserProvider = new IsolatedBrowserProvider({
+  configDir: configManager.farmingDir,
+  getSettings: () => configManager.getSettings(),
+});
 const browserResourceManager = new BrowserResourceManager({
   configDir: configManager.farmingDir,
   isEnabled: () => configManager.getSettings().browserExtensionEnabled === true,
   getBrowserSettings: () => configManager.getSettings(),
+  isolatedBrowserProvider,
 });
 
 const agentManager = new AgentManager(
@@ -373,7 +382,9 @@ const reconcileBrowserAgentLifecycle = () => {
     }
   })();
 };
-const browserRuntimeRecoveryPromise = browserResourceManager.init().then(() => {
+const browserRuntimeRecoveryPromise = isolatedBrowserProvider.recover()
+  .then(() => browserResourceManager.init())
+  .then(() => {
   agentManager.on('update', reconcileBrowserAgentLifecycle);
   reconcileBrowserAgentLifecycle();
 }).catch((error: unknown) => {
@@ -2665,7 +2676,7 @@ app.post(routePath(BASE_PATH, '/api/settings'), express.json(), async (req, res)
     ) {
       res.status(400).json({
         error: probe.runtimeCapability?.error
-          || 'Install Farming-managed Chromium, choose a system Chromium browser, or configure a loopback external CDP endpoint',
+          || 'Choose a local Chromium browser or prepare the isolated Browser runtime',
         code: 'BROWSER_EXECUTABLE_NOT_FOUND',
       });
       return;

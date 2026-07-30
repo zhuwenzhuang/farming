@@ -201,6 +201,10 @@ class FakeViewer extends EventEmitter {
 }
 
 function testExternalCdpDiscoveryConfiguration() {
+  assert.deepStrictEqual(
+    discoverBrowserExecutable({ source: 'isolated' }),
+    { kind: 'isolated-computer', path: '' },
+  );
   assert.strictEqual(
     normalizeExternalCdpUrl('http://127.0.0.1:9222'),
     'http://127.0.0.1:9222/',
@@ -262,6 +266,26 @@ async function testManagedAgentBrowserDiscovery() {
       PATH: '/system/bin',
     },
   }]);
+
+  probed.length = 0;
+  const staticRuntime = await discoverBrowserRuntime({
+    platform: 'linux',
+    env: {
+      FARMING_BROWSER_CDP_URL: 'http://127.0.0.1:9222',
+      FARMING_AGENT_BROWSER_BIN: managedPath,
+      FARMING_AGENT_BROWSER_STATIC: '1',
+      FARMING_NODE_LD: '/runtime/ld-linux.so',
+      FARMING_NODE_LIBRARY_PATH: '/runtime/lib',
+      PATH: '/system/bin',
+    },
+    execFile(executablePath, args, options, callback) {
+      probed.push({ executablePath, args, env: options.env });
+      callback(null, 'agent-browser 0.32.3', '');
+    },
+  });
+  assert.strictEqual(staticRuntime.agentBrowserPath, managedPath);
+  assert.strictEqual(probed[0].executablePath, managedPath);
+  assert.deepStrictEqual(probed[0].args, ['--version']);
 
   const missing = await discoverBrowserRuntime({
     env: {
@@ -348,7 +372,7 @@ async function testBrowserResourceManager() {
     },
     options: [],
     installation: absentInstallation,
-    message: 'Install Farming-managed Chromium, choose a system Chromium browser, or configure a loopback external CDP endpoint',
+    message: 'Choose a local Chromium browser or prepare the isolated Browser runtime',
   });
   const manager = new BrowserResourceManager({
     configDir,
@@ -408,6 +432,82 @@ async function testBrowserResourceManager() {
       installation: absentInstallation,
       message: '',
     });
+    const isolatedConfigDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-isolated-browser-manager-'));
+    const isolatedCalls = {
+      acquired: 0,
+      released: 0,
+      deleted: 0,
+      deleteShouldFail: true,
+      runtimeOptions: null,
+    };
+    const isolatedManager = new BrowserResourceManager({
+      configDir: isolatedConfigDir,
+      getBrowserSettings: () => ({ browserSource: 'system' }),
+      isolatedBrowserProvider: {
+        capability: async () => ({
+          available: true,
+          dockerAvailable: true,
+          imageReady: true,
+        }),
+        prepare: async () => ({}),
+        acquire: async ({ ownerKey }) => {
+          isolatedCalls.acquired += 1;
+          return { cdpUrl: 'http://127.0.0.1:19444', leaseKey: ownerKey };
+        },
+        release: async () => {
+          isolatedCalls.released += 1;
+        },
+        deleteOwner: async () => {
+          isolatedCalls.deleted += 1;
+          if (isolatedCalls.deleteShouldFail) throw new Error('Docker rm failed');
+        },
+      },
+      discoverExecutable: async selection => (
+        selection.source === 'isolated'
+          ? {
+              kind: 'isolated-computer',
+              path: '',
+              agentBrowserPath: '/fake/agent-browser',
+            }
+          : null
+      ),
+      createRuntime: options => {
+        isolatedCalls.runtimeOptions = options;
+        return new FakeBrowserRuntime(options);
+      },
+    });
+    try {
+      await isolatedManager.init();
+      assert.strictEqual(isolatedManager.capability().browser.kind, 'isolated-computer');
+      assert.strictEqual(isolatedManager.capability().selection.source, 'system');
+      const isolatedResource = isolatedManager.create({
+        projectRootId: 'wroot_isolated',
+        workspace: projectWorkspace,
+        ownerType: 'agent',
+        ownerAgentId: 'agent_isolated',
+        name: 'Isolated',
+        url: 'https://example.com',
+      });
+      await isolatedManager.start(isolatedResource.id);
+      assert.strictEqual(isolatedCalls.acquired, 1);
+      assert.strictEqual(
+        isolatedCalls.runtimeOptions.externalCdpUrl,
+        'http://127.0.0.1:19444',
+      );
+      await assert.rejects(isolatedManager.delete(isolatedResource.id), /Docker rm failed/);
+      assert.strictEqual(
+        isolatedManager.store.get(isolatedResource.id)?.status,
+        'stopped',
+        'failed container deletion must retain the stopped Browser row for retry',
+      );
+      isolatedCalls.deleteShouldFail = false;
+      await isolatedManager.delete(isolatedResource.id);
+      assert.strictEqual(isolatedCalls.released, 1);
+      assert.strictEqual(isolatedCalls.deleted, 2);
+    } finally {
+      await isolatedManager.dispose();
+      fs.rmSync(isolatedConfigDir, { recursive: true, force: true });
+    }
     const created = manager.create({
       projectRootId: 'wroot_project',
       workspace: projectWorkspace,

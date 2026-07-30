@@ -9,6 +9,7 @@ const {
   MANIFEST,
   SOURCE_CONFIG,
   dependencyCacheDir,
+  dependencyPlatformKey,
   downloadArtifact,
   extractArtifact,
   managedRuntimeUsesConfiguredLoader,
@@ -63,8 +64,26 @@ async function run() {
     args: ['--library-path', '/runtime/lib', '/runtime/agent-browser', '--version'],
   });
   assert.strictEqual(managedRuntimeUsesConfiguredLoader('agentBrowser'), true);
+  assert.strictEqual(
+    managedRuntimeUsesConfiguredLoader('agentBrowser', 'linux-x64-musl'),
+    false,
+  );
   assert.strictEqual(managedRuntimeUsesConfiguredLoader('codex'), false);
   assert.strictEqual(managedRuntimeUsesConfiguredLoader('claude'), false);
+  assert.strictEqual(
+    dependencyPlatformKey('agentBrowser', 'linux-x64', {
+      FARMING_NODE_LD: '/runtime/ld-2.28.so',
+      FARMING_NODE_LIBRARY_PATH: '/runtime/lib',
+    }),
+    'linux-x64-musl',
+  );
+  assert.strictEqual(
+    dependencyPlatformKey('codex', 'linux-x64', {
+      FARMING_NODE_LD: '/runtime/ld-2.28.so',
+      FARMING_NODE_LIBRARY_PATH: '/runtime/lib',
+    }),
+    'linux-x64',
+  );
   assert(MANIFEST.dependencies.codex.artifacts[runtimePlatformKey()]);
   assert(MANIFEST.dependencies.claude.artifacts[runtimePlatformKey()]);
   assert(MANIFEST.dependencies.agentBrowser.artifacts[runtimePlatformKey()]);
@@ -212,6 +231,54 @@ async function run() {
   const active = JSON.parse(fs.readFileSync(storageLayout.runtimeDependenciesActiveFile(root), 'utf8'));
   assert.strictEqual(active.manifestId, MANIFEST.manifestId);
   assert.deepStrictEqual(Object.keys(active.dependencies), ['codex', 'claude', 'agentBrowser']);
+
+  const legacyConfigDir = path.join(root, 'legacy-glibc');
+  const legacyEnv: NodeJS.ProcessEnv = {
+    PATH: process.env.PATH,
+    FARMING_CODEX_BIN: env.FARMING_CODEX_BIN,
+    FARMING_CLAUDE_BIN: env.FARMING_CLAUDE_BIN,
+    FARMING_NODE_LD: '/runtime/ld-2.28.so',
+    FARMING_NODE_LIBRARY_PATH: '/runtime/lib',
+  };
+  let selectedAgentBrowserPlatform = '';
+  await prepareRuntimeDependencies({
+    configDir: legacyConfigDir,
+    env: legacyEnv,
+    platform: 'linux',
+    arch: 'x64',
+    installRuntime: async (_configDir, definition, selectedPlatformKey) => {
+      assert.strictEqual(definition.id, 'agentBrowser');
+      selectedAgentBrowserPlatform = selectedPlatformKey;
+      return {
+        id: 'agentBrowser',
+        version: MANIFEST.dependencies.agentBrowser.version,
+        platformKey: selectedPlatformKey,
+        source: 'managed',
+        executablePath: managedAgentBrowser,
+      };
+    },
+  });
+  assert.strictEqual(selectedAgentBrowserPlatform, 'linux-x64-musl');
+  assert.strictEqual(legacyEnv.FARMING_AGENT_BROWSER_STATIC, '1');
+  const legacyMuslCache = dependencyCacheDir(
+    legacyConfigDir,
+    'agentBrowser',
+    MANIFEST.dependencies.agentBrowser.version,
+    'linux-x64-musl',
+  );
+  const legacyGlibcCache = dependencyCacheDir(
+    legacyConfigDir,
+    'agentBrowser',
+    MANIFEST.dependencies.agentBrowser.version,
+    'linux-x64',
+  );
+  fs.mkdirSync(legacyMuslCache, { recursive: true });
+  fs.mkdirSync(legacyGlibcCache, { recursive: true });
+  fs.writeFileSync(path.join(legacyMuslCache, 'keep.txt'), 'active static runtime');
+  fs.writeFileSync(path.join(legacyGlibcCache, 'remove.txt'), 'inactive glibc runtime');
+  await pruneRuntimeDependencies({ configDir: legacyConfigDir, env: legacyEnv });
+  assert(fs.existsSync(legacyMuslCache), 'prune must retain the selected musl agent-browser');
+  assert(!fs.existsSync(legacyGlibcCache), 'prune must remove the inactive glibc agent-browser');
 
   const platformKey = runtimePlatformKey();
   const currentAgentBrowserCache = dependencyCacheDir(

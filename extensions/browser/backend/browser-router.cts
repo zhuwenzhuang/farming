@@ -62,6 +62,7 @@ function sendError(res: Response, error: unknown): void {
   res.status(Number(value.status) || 500).json({
     error: errorMessage(error),
     code: value.code || 'BROWSER_INTERNAL_ERROR',
+    ...(value.compatibilityRequired ? { compatibilityRequired: true } : {}),
   });
 }
 
@@ -143,6 +144,14 @@ function createBrowserRouter(
   router.post('/install', async (_req, res) => {
     try {
       res.json(await manager.installManagedChromium());
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+
+  router.post('/isolated/prepare', async (_req, res) => {
+    try {
+      res.json(await manager.prepareIsolatedBrowser());
     } catch (error) {
       sendError(res, error);
     }

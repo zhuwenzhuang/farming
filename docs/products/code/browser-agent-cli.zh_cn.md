@@ -9,14 +9,15 @@ Farming Browser 让 Agent 操作自己拥有的 Browser，同时用户可以在 
 
 打开**插件 → 浏览器**：
 
-1. 保持自动选择，或选择已发现的系统 Chromium 浏览器。
-2. 如果没有可用浏览器，直接点击**安装内置 Chromium**。安装完成后可继续自动选择，
-   也可以选择 **Farming 内置 Chromium** 并应用。
-3. 高级场景下配置[外部 CDP 浏览器](external-cdp-browser.zh_cn.md)。
+1. 保持**自动**，或选择已发现的本机 Chromium 浏览器。
+2. 宿主机无法运行 Chromium 时，只需显式点击一次**准备隔离浏览器**；Farming 会下载
+   锁定的上游 CUA Browser 镜像，并自动管理一台独立的 Agent-owned Container 与内部
+   CDP Endpoint；它不会复用完整 Computer 的桌面 Container。
 
-浏览器来源就绪后启用 Browser 插件，无需重启 Farming。只有用户点击安装后才会下载
-内置 Chromium，并且它只保存在 Farming 的数据目录中。Farming 会根据当前网络探测
-受支持的下载源；一个源失败后会继续尝试其他源。
+浏览器来源就绪后启用 Browser 插件，无需重启 Farming。普通安装、更新和 Server 启动
+绝不会下载 Chromium，用户也不需要配置 Docker、端口或 CDP 地址。在旧 Linux
+宿主机上，Farming 会自动使用同一个锁定 Package 中静态链接的 `agent-browser`
+Artifact，因此 Browser Daemon 不依赖宿主机 glibc。
 
 Browser Tool 直接使用 Coding Agent Provider 的 Session 权限模式，Browser 插件不再
 提供第二套权限策略。当 Provider 发起询问且用户为当前 Session 允许 Browser 请求后，

@@ -384,28 +384,42 @@ test('deletes a Browser directly without a confirmation dialog', async ({
   expect(dialogs).toEqual([])
 })
 
-test('offers an explicit managed Chromium install when no browser is available', async ({
+test('offers explicit isolated Browser preparation when no local browser is available', async ({
   page,
 }, testInfo) => {
-  let installed = false
+  let prepared = false
   await page.route('**/api/browsers/capability', route => route.fulfill({
     contentType: 'application/json',
     body: JSON.stringify({
       enabled: false,
-      available: installed,
-      browser: installed ? { kind: 'managed-chromium', path: '/mock/farming/chrome' } : null,
+      available: prepared,
+      browser: prepared ? { kind: 'isolated-computer', path: '' } : null,
+      selection: {
+        source: 'system',
+        executablePath: '',
+        externalCdpUrl: 'http://127.0.0.1:9222',
+      },
+      options: [],
+      isolated: {
+        available: prepared,
+        dockerAvailable: true,
+        imageReady: prepared,
+        image: 'trycua/cuabot:1.0.5@sha256:test',
+      },
       installation: {
-        state: installed ? 'ready' : 'absent',
+        state: 'absent',
         agentBrowserVersion: '0.32.3',
-        installedVersion: installed ? '0.32.3' : '',
+        installedVersion: '',
         updateAvailable: false,
         error: '',
       },
-      message: installed ? 'Browser extension is disabled' : 'Install Farming-managed Chromium',
+      message: prepared
+        ? 'Browser extension is disabled'
+        : 'Choose a local Chromium browser or prepare the isolated Browser runtime',
     }),
   }))
-  await page.route('**/api/browsers/install', route => {
-    installed = true
+  await page.route('**/api/browsers/isolated/prepare', route => {
+    prepared = true
     return route.fulfill({
       contentType: 'application/json',
       body: JSON.stringify({ success: true }),
@@ -417,18 +431,18 @@ test('offers an explicit managed Chromium install when no browser is available',
   const pluginsPanel = page.getByTestId('code-plugins-panel')
   await expect(pluginsPanel.getByRole('heading', { name: 'Browser', exact: true })).toBeVisible()
   await expect(pluginsPanel.locator('small').filter({
-    hasText: 'Install Farming-managed Chromium, choose a system browser, or use an external CDP endpoint on loopback.',
+    hasText: 'Choose a local Chromium browser or prepare the Farming-managed isolated Browser.',
   })).toBeVisible()
   await expect(pluginsPanel.getByText('Not ready', { exact: true })).toBeVisible()
   const browserPlugin = pluginsPanel.getByTestId('code-plugin-browser')
   await expect(browserPlugin.getByRole('button', { name: 'Enable' })).toBeDisabled()
-  await pluginsPanel.getByRole('button', { name: 'Install managed Chromium' }).click()
-  await expect(pluginsPanel.getByRole('option', { name: 'Farming-managed Chromium' })).toBeEnabled()
-  await expect(pluginsPanel.getByRole('button', { name: 'Install managed Chromium' })).toHaveCount(0)
+  await pluginsPanel.getByRole('button', { name: 'Prepare isolated Browser' }).click()
+  await expect(pluginsPanel.getByRole('option', { name: 'Isolated Browser (Docker)' })).toBeEnabled()
+  await expect(pluginsPanel.getByRole('button', { name: 'Prepare isolated Browser' })).toHaveCount(0)
   await expect(browserPlugin.getByRole('button', { name: 'Enable' })).toBeEnabled()
-  const screenshot = testInfo.outputPath('browser-plugin-install-required.png')
+  const screenshot = testInfo.outputPath('browser-plugin-prepare-required.png')
   await pluginsPanel.screenshot({ path: screenshot })
-  await testInfo.attach('browser-plugin-install-required', {
+  await testInfo.attach('browser-plugin-prepare-required', {
     path: screenshot,
     contentType: 'image/png',
   })
@@ -771,24 +785,22 @@ test('selects the Browser source in Plugins without restarting Farming', async (
 
   await expect(pluginsPanel.getByRole('combobox', { name: 'Browser permissions' })).toHaveCount(0)
   await expect(browserSource.locator('option')).toContainText([
-    'Choose an available Chromium automatically',
+    'Automatic (local first, then isolated)',
     'Google Chrome',
-    'Farming-managed Chromium',
-    'External CDP',
+    'Isolated Browser (Docker)',
   ])
+  await expect(pluginsPanel.getByRole('textbox', { name: 'CDP address' })).toHaveCount(0)
   await browserSource.selectOption('system:')
   if (await apply.isEnabled()) await apply.click()
   await expect(browserSource).toHaveValue('system:')
   await expect(apply).toBeDisabled()
 
-  await browserSource.selectOption('external-cdp')
-  const cdpAddress = pluginsPanel.getByRole('textbox', { name: 'CDP address' })
-  await expect(cdpAddress).toHaveValue('http://127.0.0.1:9222')
-  await apply.click()
-  await expect(apply).toBeDisabled()
-  await expect(pluginsPanel.locator('small').filter({ hasText: 'External CDP ·' })).toBeVisible()
-
-  await browserSource.selectOption('system:')
+  const localChrome = await browserSource.locator('option').evaluateAll(options =>
+    options.map(option => (option as HTMLOptionElement).value)
+      .find(value => value.startsWith('system:') && value !== 'system:')
+  )
+  expect(localChrome).toBeTruthy()
+  await browserSource.selectOption(localChrome)
   await apply.click()
   await expect(apply).toBeDisabled()
   await expect(pluginsPanel.locator('small').filter({ hasText: 'System Chromium ·' })).toBeVisible()

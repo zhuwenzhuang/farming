@@ -15,6 +15,15 @@ update, or Server startup. The user explicitly prepares Computer in
 `trycua/xfce-cua` image at the exact digest shown by the plugin and verifies the
 pinned Cua Driver version before Computer can be enabled.
 
+The same extension also owns the Docker boundary for Browser's optional
+Isolated Browser source. That path is prepared separately in
+**Plugins → Browser** from the pinned upstream `trycua/cuabot` image. It exposes
+Chromium's CDP only on loopback and hands it privately to Farming's existing
+`agent-browser` runtime; it does not add a second Browser automation path.
+The Browser container is separate from the full Computer container because the
+reviewed desktop image does not include Chromium. They share only the Computer
+extension's verified Docker ownership boundary.
+
 Some older Docker Engines cannot run the image with their default seccomp
 profile. If the probe reports this exact incompatibility, disable Computer,
 enable the explicit compatibility option, prepare again, and then enable the

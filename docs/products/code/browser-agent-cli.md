@@ -9,15 +9,18 @@ interact with the same pages in Farming.
 
 Open **Plugins → Browser**:
 
-1. Use automatic selection or choose a detected system Chromium browser.
-2. If none is available, click **Install managed Chromium**. After installation,
-   keep automatic selection or choose **Farming-managed Chromium** and apply it.
-3. For an advanced setup, configure an [external CDP browser](external-cdp-browser.md).
+1. Keep **Automatic** selected, or choose a detected local Chromium browser.
+2. If the host cannot run Chromium, click **Prepare isolated Browser** once.
+   Farming downloads the pinned upstream CUA Browser image and then manages its
+   separate Agent-owned container and private CDP endpoint. It does not reuse
+   the full Computer desktop container.
 
 Enable the Browser plugin after the selected source is ready. A Farming restart
-is not required. Managed Chromium is downloaded only after you click Install
-and stays inside Farming's data directory. Farming checks its supported download
-sources for the current network and tries another source if one fails.
+is not required. Chromium is never downloaded during normal install, update, or
+Server startup. Users do not configure Docker, ports, or CDP addresses. On
+older Linux hosts, Farming automatically uses the statically linked
+`agent-browser` artifact from the same pinned package, so the host glibc does
+not need to run the Browser daemon.
 
 Browser tools use the coding Agent Provider's Session permission mode; the
 Browser plugin adds no second permission policy. When the Provider asks and the

@@ -72,6 +72,7 @@ interface ResolvedRuntime {
   id: string;
   version: string;
   reportedVersion?: string;
+  platformKey?: string;
   source: 'managed' | 'system';
   executablePath: string;
 }
@@ -138,6 +139,7 @@ interface RuntimeManagerOptions extends RuntimePlatformOptions, DownloadOptions,
 
 interface ActiveRuntimeDependency {
   version: string;
+  platformKey?: string;
   source: 'managed' | 'system';
   executablePath: string;
 }
@@ -270,6 +272,31 @@ function runtimePlatformKey(options: RuntimePlatformOptions = {}): string {
   return platform === 'linux' && musl ? `${platform}-${arch}-musl` : `${platform}-${arch}`;
 }
 
+function legacyGlibcNeedsStaticAgentBrowser(
+  platformKey: string,
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  if (!/^linux-(?:x64|arm64)$/.test(platformKey)) return false;
+  if (env.FARMING_NODE_LD && env.FARMING_NODE_LIBRARY_PATH) return true;
+  if (process.platform !== 'linux') return false;
+  const version = process.report?.getReport
+    ? (process.report.getReport() as ProcessReport)?.header?.glibcVersionRuntime
+    : '';
+  const match = String(version || '').match(/^(\d+)\.(\d+)/);
+  if (!match) return false;
+  return Number(match[1]) < 2 || (Number(match[1]) === 2 && Number(match[2]) < 28);
+}
+
+function dependencyPlatformKey(
+  id: string,
+  platformKey: string,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  return id === 'agentBrowser' && legacyGlibcNeedsStaticAgentBrowser(platformKey, env)
+    ? `${platformKey}-musl`
+    : platformKey;
+}
+
 function dependencyCacheDir(
   configDir: string,
   id: string,
@@ -389,8 +416,8 @@ function resolutionEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return resolved;
 }
 
-function managedRuntimeUsesConfiguredLoader(id: string): boolean {
-  return id === 'agentBrowser';
+function managedRuntimeUsesConfiguredLoader(id: string, platformKey = ''): boolean {
+  return id === 'agentBrowser' && !platformKey.endsWith('-musl');
 }
 
 function readJson<T>(filePath: string): T | null {
@@ -767,12 +794,18 @@ async function resolveCachedRuntime(
       {
         args: dependency.probe?.args,
         env: options.env,
-        useConfiguredLoader: managedRuntimeUsesConfiguredLoader(id),
+        useConfiguredLoader: managedRuntimeUsesConfiguredLoader(id, platformKey),
       },
     );
     if (!verification.valid) return null;
   }
-  return { id, version: dependency.version, source: 'managed', executablePath };
+  return {
+    id,
+    version: dependency.version,
+    platformKey,
+    source: 'managed',
+    executablePath,
+  };
 }
 
 async function findExactRuntime(
@@ -800,6 +833,7 @@ async function findExactRuntime(
         id: definition.id,
         version: dependency.version,
         reportedVersion: expectedVersion,
+        platformKey,
         source: 'system',
         executablePath: candidate.path,
       };
@@ -838,7 +872,7 @@ async function installExactRuntime(
         {
           args: dependency.probe?.args,
           env: options.env,
-          useConfiguredLoader: managedRuntimeUsesConfiguredLoader(definition.id),
+          useConfiguredLoader: managedRuntimeUsesConfiguredLoader(definition.id, platformKey),
         },
       );
       if (!verification.valid) {
@@ -903,6 +937,11 @@ function applyRuntimeEnvironment(
   if (agentBrowser) {
     env.FARMING_AGENT_BROWSER_BIN = agentBrowser;
     env.FARMING_AGENT_BROWSER_EXECUTABLE = agentBrowser;
+    if (byId.get('agentBrowser')?.platformKey?.endsWith('-musl')) {
+      env.FARMING_AGENT_BROWSER_STATIC = '1';
+    } else {
+      delete env.FARMING_AGENT_BROWSER_STATIC;
+    }
   }
   env.FARMING_RUNTIME_MANIFEST_ID = MANIFEST.manifestId;
   return env;
@@ -922,11 +961,22 @@ async function prepareRuntimeDependencies(options: RuntimeManagerOptions = {}): 
   const prepared: ResolvedRuntime[] = [];
   try {
     for (const definition of DEPENDENCIES) {
-      let runtime = await findExactRuntime(configDir, definition, platformKey, candidateEnv);
+      const selectedPlatformKey = dependencyPlatformKey(
+        definition.id,
+        platformKey,
+        candidateEnv,
+      );
+      let runtime = await findExactRuntime(
+        configDir,
+        definition,
+        selectedPlatformKey,
+        candidateEnv,
+      );
       if (!runtime) {
         const installRuntime = options.installRuntime || installExactRuntime;
-        runtime = await installRuntime(configDir, definition, platformKey, options);
+        runtime = await installRuntime(configDir, definition, selectedPlatformKey, options);
       }
+      runtime.platformKey ||= selectedPlatformKey;
       prepared.push(runtime);
     }
     applyRuntimeEnvironment(env, prepared);
@@ -936,6 +986,7 @@ async function prepareRuntimeDependencies(options: RuntimeManagerOptions = {}): 
       platformKey,
       dependencies: Object.fromEntries(prepared.map(item => [item.id, {
         version: item.version,
+        platformKey: item.platformKey,
         source: item.source,
         executablePath: item.executablePath,
       }])),
@@ -956,7 +1007,6 @@ async function pruneRuntimeDependencies(
     storageLayout.runtimeDependenciesActiveFile(configDir),
   );
   if (!active || active.manifestId !== MANIFEST.manifestId) return { removed: [] };
-  const platformKey = safeSegment(active.platformKey, 'platform key');
   const releaseLock = await acquirePrepareLock(configDir, options);
   const removed: string[] = [];
   try {
@@ -977,12 +1027,16 @@ async function pruneRuntimeDependencies(
         continue;
       }
       const activeDependency = latest.dependencies?.[definition.id];
+      const dependencyPlatform = safeSegment(
+        activeDependency?.platformKey || latest.platformKey,
+        'platform key',
+      );
       const keepDir = activeDependency?.source === 'managed'
         ? dependencyCacheDir(
             configDir,
             definition.id,
             MANIFEST.dependencies[definition.id].version,
-            platformKey,
+            dependencyPlatform,
           )
         : '';
       const keepVersionDir = keepDir ? path.dirname(keepDir) : '';
@@ -1021,6 +1075,7 @@ export {
   SOURCE_CONFIG,
   applyRuntimeEnvironment,
   dependencyCacheDir,
+  dependencyPlatformKey,
   downloadArtifact,
   extractArtifact,
   managedRuntimeUsesConfiguredLoader,

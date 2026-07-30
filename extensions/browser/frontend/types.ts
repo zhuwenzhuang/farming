@@ -24,11 +24,20 @@ export interface BrowserCapability {
   available: boolean
   browser: { kind: string; path: string } | null
   selection?: {
-    source: 'external-cdp' | 'managed' | 'system'
+    source: 'external-cdp' | 'isolated' | 'managed' | 'system'
     executablePath: string
     externalCdpUrl: string
   }
   options?: Array<{ kind: string; path: string }>
+  isolated?: {
+    available?: boolean
+    dockerAvailable?: boolean
+    imageReady?: boolean
+    image?: string
+    imageDigest?: string
+    compatibilityMode?: boolean
+    error?: string
+  } | null
   installation: {
     state: 'absent' | 'failed' | 'installing' | 'ready'
     agentBrowserVersion: string

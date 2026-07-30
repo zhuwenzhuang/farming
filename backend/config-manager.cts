@@ -762,7 +762,9 @@ class ConfigManager {
   }
 
   normalizeBrowserSource(source: unknown): string {
-    return typeof source === 'string' && ['external-cdp', 'managed'].includes(source) ? source : 'system';
+    return typeof source === 'string' && ['external-cdp', 'isolated', 'managed'].includes(source)
+      ? source
+      : 'system';
   }
 
   normalizeBrowserSetting(value: unknown): string {

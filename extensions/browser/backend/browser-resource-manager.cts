@@ -154,6 +154,7 @@ type BrowserSession = {
   generation: number;
   id: string;
   initializing: boolean;
+  isolatedLeaseKey: string;
   processOwnerResourceId: string;
   projectRootId: string;
   ownerKey: string;
@@ -175,10 +176,18 @@ type ChromiumInstaller = {
   install(): Promise<unknown>;
   status(): unknown;
 };
+type IsolatedBrowserProvider = {
+  acquire(owner: { ownerKey: string }): Promise<{ cdpUrl: string; leaseKey: string }>;
+  capability(refresh?: boolean): Promise<Record<string, unknown>>;
+  deleteOwner(ownerKey: string): Promise<void>;
+  prepare(): Promise<unknown>;
+  release(leaseKey: string): Promise<void>;
+};
 type BrowserManagerOptions = Record<string, unknown> & {
   configDir: string;
   store?: BrowserResourceStoreLike;
   chromiumInstaller?: ChromiumInstaller;
+  isolatedBrowserProvider?: IsolatedBrowserProvider;
   discoverExecutable?: (
     selection: BrowserDiscoveryOptions,
   ) => Promise<BrowserCapability | null>;
@@ -358,6 +367,7 @@ class BrowserResourceManager extends EventEmitter {
   readonly configDir: string;
   readonly store: BrowserResourceStoreLike;
   readonly chromiumInstaller: ChromiumInstaller;
+  readonly isolatedBrowserProvider: IsolatedBrowserProvider | null;
   readonly discoverExecutable: (
     selection: BrowserDiscoveryOptions,
   ) => Promise<BrowserCapability | null>;
@@ -380,6 +390,7 @@ class BrowserResourceManager extends EventEmitter {
   disposed = false;
   runtimeCapability: BrowserCapability | null = null;
   browserOptions: BrowserOption[] = [];
+  isolatedBrowserCapability: Record<string, unknown> | null = null;
 
   constructor(options: BrowserManagerOptions) {
     super();
@@ -389,6 +400,7 @@ class BrowserResourceManager extends EventEmitter {
       ...options,
       configDir: this.configDir,
     });
+    this.isolatedBrowserProvider = options.isolatedBrowserProvider || null;
     this.discoverExecutable = options.discoverExecutable || (selection => discoverBrowserRuntime({
       ...options,
       ...selection,
@@ -487,7 +499,9 @@ class BrowserResourceManager extends EventEmitter {
         status: 'failed',
         error: resource.browserKind === 'external-cdp'
           ? 'Farming restarted and disconnected from the external Browser'
-          : 'Farming restarted before the Browser runtime identity was committed',
+          : resource.browserKind === 'isolated-computer'
+            ? 'Farming restarted and stopped the isolated Browser runtime'
+            : 'Farming restarted before the Browser runtime identity was committed',
         processIdentity: null,
       });
       return;
@@ -551,19 +565,20 @@ class BrowserResourceManager extends EventEmitter {
       browser: runnable ? { kind: executable.kind, path: executable.path } : null,
       selection,
       options: this.browserOptions.map(option => ({ kind: option.kind, path: option.path })),
+      ...(this.isolatedBrowserCapability ? { isolated: this.isolatedBrowserCapability } : {}),
       installation: this.chromiumInstaller.status(),
       message: !enabled
         ? 'Browser extension is disabled'
         : (executable?.error || (runnable
             ? ''
-            : 'Install Farming-managed Chromium, choose a system Chromium browser, or configure a loopback external CDP endpoint')),
+            : 'Choose a local Chromium browser or prepare the isolated Browser runtime')),
     };
   }
 
   browserSelection(settings: BrowserSettings = this.getBrowserSettings()): BrowserSelection {
     const source = settings?.browserSource;
     return {
-      source: source && ['external-cdp', 'managed'].includes(source) ? source : 'system',
+      source: source && ['external-cdp', 'isolated', 'managed'].includes(source) ? source : 'system',
       executablePath: String(settings?.browserExecutablePath || ''),
       externalCdpUrl: String(settings?.browserExternalCdpUrl || 'http://127.0.0.1:9222'),
     };
@@ -571,17 +586,37 @@ class BrowserResourceManager extends EventEmitter {
 
   async probeCapability(selection: BrowserSelection = this.browserSelection()): Promise<{
     browserOptions: BrowserOption[];
+    isolatedBrowserCapability: Record<string, unknown> | null;
     runtimeCapability: BrowserCapability | null;
   }> {
     const browserOptions = this.discoverBrowserOptions();
     const selectedOption = browserOptions.find(option => option.path === selection.executablePath);
-    const runtimeCapability = await this.discoverExecutable({
+    const isolatedBrowserCapability = this.isolatedBrowserProvider
+      ? await this.isolatedBrowserProvider.capability()
+      : null;
+    let runtimeCapability = await this.discoverExecutable({
       source: selection.source,
       executablePath: selection.executablePath,
       executableKind: selectedOption?.kind,
       externalCdpUrl: selection.externalCdpUrl,
     });
-    return { browserOptions, runtimeCapability };
+    const automaticSelection = selection.source === 'system' && !selection.executablePath;
+    if (
+      (selection.source === 'isolated' || (automaticSelection && !runtimeCapability))
+      && isolatedBrowserCapability?.available === true
+    ) {
+      runtimeCapability = await this.discoverExecutable({ source: 'isolated' });
+    }
+    if (selection.source === 'isolated' && isolatedBrowserCapability?.available !== true) {
+      runtimeCapability = {
+        kind: 'isolated-computer',
+        path: '',
+        error: isolatedBrowserCapability?.dockerAvailable === true
+          ? 'Prepare the isolated Browser runtime before selecting it'
+          : 'Docker is required for the isolated Browser',
+      };
+    }
+    return { browserOptions, isolatedBrowserCapability, runtimeCapability };
   }
 
   async refreshCapability(
@@ -589,6 +624,7 @@ class BrowserResourceManager extends EventEmitter {
   ): Promise<BrowserCapability | null> {
     const probe = await this.probeCapability(selection);
     this.browserOptions = probe.browserOptions;
+    this.isolatedBrowserCapability = probe.isolatedBrowserCapability;
     this.runtimeCapability = probe.runtimeCapability;
     return this.runtimeCapability;
   }
@@ -598,6 +634,15 @@ class BrowserResourceManager extends EventEmitter {
       throw browserError('Browser manager is stopping', 503, 'BROWSER_MANAGER_STOPPING');
     }
     await this.chromiumInstaller.install();
+    await this.refreshCapability();
+    return this.capability();
+  }
+
+  async prepareIsolatedBrowser(): Promise<unknown> {
+    if (!this.isolatedBrowserProvider) {
+      throw browserError('The isolated Browser runtime is unavailable', 503, 'ISOLATED_BROWSER_UNAVAILABLE');
+    }
+    await this.isolatedBrowserProvider.prepare();
     await this.refreshCapability();
     return this.capability();
   }
@@ -699,7 +744,7 @@ class BrowserResourceManager extends EventEmitter {
         const failed = this.store.update(id, {
           status: 'failed',
           error: executable?.error
-            || 'Install Farming-managed Chromium, choose a system Chromium browser, or configure a loopback external CDP endpoint',
+            || 'Choose a local Chromium browser or prepare the isolated Browser runtime',
         });
         this.emitResource(failed);
         throw browserError(failed.error, 503, 'BROWSER_EXECUTABLE_NOT_FOUND');
@@ -731,7 +776,7 @@ class BrowserResourceManager extends EventEmitter {
             .then(async () => {
               const tab = await reusableSession.runtime.createTab(
                 resource.url,
-                executable.kind === 'external-cdp'
+                ['external-cdp', 'isolated-computer'].includes(executable.kind)
                   ? `farming-${resource.id}-g${generation}`
                   : '',
               );
@@ -777,15 +822,53 @@ class BrowserResourceManager extends EventEmitter {
         .filter(candidate => candidate.sessionId === sessionId)
         .reduce((maximum, candidate) => Math.max(maximum, candidate.sessionGeneration || 0), 0);
       const sessionGeneration = previousSessionGeneration + 1;
-      const runtime = this.createRuntime({
-        id: sessionId,
-        generation: sessionGeneration,
-        configDir: this.configDir,
-        agentBrowserPath: executable.agentBrowserPath,
-        executablePath: executable.path,
-        externalCdpUrl: executable.cdpUrl || '',
-        profileDir: storageLayout.browserProfileDir(this.configDir, sessionId),
-      });
+      let isolatedLeaseKey = '';
+      let externalCdpUrl = executable.cdpUrl || '';
+      if (executable.kind === 'isolated-computer') {
+        try {
+          if (!this.isolatedBrowserProvider) {
+            throw browserError(
+              'The isolated Browser runtime is unavailable',
+              503,
+              'ISOLATED_BROWSER_UNAVAILABLE',
+            );
+          }
+          const isolated = await this.isolatedBrowserProvider.acquire({
+            ownerKey: browserOwnerKey(resource),
+          });
+          externalCdpUrl = isolated.cdpUrl;
+          isolatedLeaseKey = isolated.leaseKey;
+        } catch (error) {
+          const failed = this.store.update(id, {
+            status: 'failed',
+            error: errorMessage(error) || 'Failed to start the isolated Browser runtime',
+          });
+          this.emitResource(failed);
+          throw error;
+        }
+      }
+      let runtime: BrowserRuntime;
+      try {
+        runtime = this.createRuntime({
+          id: sessionId,
+          generation: sessionGeneration,
+          configDir: this.configDir,
+          agentBrowserPath: executable.agentBrowserPath,
+          executablePath: executable.path,
+          externalCdpUrl,
+          profileDir: storageLayout.browserProfileDir(this.configDir, sessionId),
+        });
+      } catch (error) {
+        if (isolatedLeaseKey && this.isolatedBrowserProvider) {
+          await this.isolatedBrowserProvider.release(isolatedLeaseKey).catch(() => null);
+        }
+        const failed = this.store.update(id, {
+          status: 'failed',
+          error: errorMessage(error) || 'Failed to create Browser runtime',
+        });
+        this.emitResource(failed);
+        throw error;
+      }
       const session: BrowserSession = {
         id: sessionId,
         generation: sessionGeneration,
@@ -799,6 +882,7 @@ class BrowserResourceManager extends EventEmitter {
         actionChain: Promise.resolve(),
         reconcilingTabs: Promise.resolve(),
         initializing: true,
+        isolatedLeaseKey,
         closing: false,
       };
       const binding = this.createBinding(session, starting);
@@ -836,12 +920,21 @@ class BrowserResourceManager extends EventEmitter {
         } catch (closeError) {
           cleanupError = closeError;
         }
+        if (!cleanupError && isolatedLeaseKey && this.isolatedBrowserProvider) {
+          try {
+            await this.isolatedBrowserProvider.release(isolatedLeaseKey);
+          } catch (releaseError) {
+            cleanupError = releaseError;
+          }
+        }
         if (!cleanupError && this.runtimes.get(id) === binding) this.runtimes.delete(id);
         if (!cleanupError && this.sessions.get(sessionId) === session) this.sessions.delete(sessionId);
         const current = this.store.get(id);
         const failureMessage = executable.kind === 'external-cdp'
           ? externalBrowserFailure('External Browser connection failed', error).message
-          : errorMessage(error) || 'Failed to start Browser';
+          : executable.kind === 'isolated-computer'
+            ? `Isolated Browser connection failed: ${errorMessage(error)}`
+            : errorMessage(error) || 'Failed to start Browser';
         const failed = current?.generation === generation
           ? this.store.update(id, {
             status: 'failed',
@@ -894,6 +987,7 @@ class BrowserResourceManager extends EventEmitter {
       this.broadcastRuntimeState(binding);
       const { session } = binding;
       session.closing = session.bindings.size === 1;
+      let isolatedReleaseError: unknown = null;
       try {
         const closeOperation = (session.actionChain || Promise.resolve())
           .catch(() => {})
@@ -904,12 +998,30 @@ class BrowserResourceManager extends EventEmitter {
           ));
         session.actionChain = closeOperation;
         await closeOperation;
+        if (session.bindings.size === 1 && session.isolatedLeaseKey && this.isolatedBrowserProvider) {
+          try {
+            await this.isolatedBrowserProvider.release(session.isolatedLeaseKey);
+            session.isolatedLeaseKey = '';
+          } catch (error) {
+            isolatedReleaseError = error;
+          }
+        }
       } catch (error) {
         session.closing = false;
         if (resource.browserKind === 'external-cdp') {
           throw externalBrowserFailure('External Browser targets could not be closed', error);
         }
         throw error;
+      }
+      if (isolatedReleaseError) {
+        session.closing = false;
+        const failed = this.store.update(id, {
+          status: 'failed',
+          error: `Browser closed, but its isolated container could not be stopped: ${errorMessage(isolatedReleaseError)}`,
+        });
+        this.emitResource(failed);
+        this.broadcastRuntimeState(binding);
+        throw browserError(failed.error, 500, 'ISOLATED_BROWSER_RELEASE_FAILED');
       }
       session.bindings.delete(id);
       if (this.runtimes.get(id) === binding) this.runtimes.delete(id);
@@ -949,6 +1061,17 @@ class BrowserResourceManager extends EventEmitter {
     if (!internal) this.requireEnabled();
     await this.stop(id, internal);
     const resource = this.requireStored(id);
+    const ownerKey = browserOwnerKey(resource);
+    const deletesLastIsolatedOwner = resource.browserKind === 'isolated-computer'
+      && this.isolatedBrowserProvider
+      && !this.store.list().some(candidate => (
+        candidate.id !== resource.id
+        && candidate.browserKind === 'isolated-computer'
+        && browserOwnerKey(candidate) === ownerKey
+      ));
+    if (deletesLastIsolatedOwner) {
+      await this.isolatedBrowserProvider!.deleteOwner(ownerKey);
+    }
     this.store.delete(id);
     const sessionId = resource.sessionId || id;
     const profileDir = storageLayout.browserProfileDir(this.configDir, sessionId);
@@ -1288,7 +1411,13 @@ class BrowserResourceManager extends EventEmitter {
   async dispose() {
     this.disposed = true;
     const sessions = [...this.sessions.values()];
-    const results = await Promise.allSettled(sessions.map(session => session.runtime.close()));
+    const results = await Promise.allSettled(sessions.map(async session => {
+      await session.runtime.close();
+      if (session.isolatedLeaseKey && this.isolatedBrowserProvider) {
+        await this.isolatedBrowserProvider.release(session.isolatedLeaseKey);
+        session.isolatedLeaseKey = '';
+      }
+    }));
     const failures = results
       .filter(result => result.status === 'rejected')
       .map(result => result.reason?.message || String(result.reason));
@@ -1362,7 +1491,7 @@ class BrowserResourceManager extends EventEmitter {
     const executable = this.runtimeCapability;
     if (!executable || executable.error) {
       throw browserError(
-        executable?.error || 'Install Farming-managed Chromium, choose a system Chromium browser, or configure a loopback external CDP endpoint',
+        executable?.error || 'Choose a local Chromium browser or prepare the isolated Browser runtime',
         503,
         'BROWSER_EXECUTABLE_NOT_FOUND',
       );
@@ -1641,13 +1770,19 @@ class BrowserResourceManager extends EventEmitter {
         status: 'failed',
         error: current.browserKind === 'external-cdp'
           ? 'External Browser connection exited'
-          : message || 'Browser connection exited',
+          : current.browserKind === 'isolated-computer'
+            ? 'Isolated Browser connection exited'
+            : message || 'Browser connection exited',
       });
       this.emitResource(failed);
       this.broadcastRuntimeState(binding);
     }
     try {
       await session.runtime.close();
+      if (session.isolatedLeaseKey && this.isolatedBrowserProvider) {
+        await this.isolatedBrowserProvider.release(session.isolatedLeaseKey);
+        session.isolatedLeaseKey = '';
+      }
       this.sessions.delete(session.id);
       for (const binding of failedBindings) {
         this.runtimes.delete(binding.id);

@@ -13,6 +13,13 @@ Farming 不随包交付桌面镜像，也不会在安装、更新或 Server 启�
 审查的上游 `trycua/xfce-cua` 镜像，并校验锁定的 Cua Driver 版本，成功后才允许
 启用 Computer。
 
+同一个 Extension 也拥有 Browser 可选“隔离浏览器”来源的 Docker 边界。该路径在
+**插件 → 浏览器**中单独准备锁定的上游 `trycua/cuabot` 镜像，只把 Chromium CDP
+发布到回环地址，并私下交给 Farming 现有的 `agent-browser` Runtime；它不会增加
+第二套 Browser Automation 实现。
+隔离 Browser 使用独立容器，因为经过审查的完整 Computer Desktop 镜像不包含
+Chromium；两者只共享 Computer Extension 已校验的 Docker Ownership Boundary。
+
 部分旧 Docker Engine 的默认 seccomp Profile 无法运行该镜像。只有 Probe 明确
 报告这一兼容问题时，用户才应先关闭 Computer、显式启用兼容模式、重新准备，再启用
 插件。Farming 不会静默降低隔离级别重试。

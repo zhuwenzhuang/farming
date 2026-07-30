@@ -188,7 +188,9 @@ function defaultRunCommand(
   options: CommandOptions = {},
 ): Promise<CommandResult> {
   const env = options.env || process.env;
-  const invocation = runtimeExecutableInvocation(executablePath, args, env);
+  const invocation = env.FARMING_AGENT_BROWSER_STATIC === '1'
+    ? { command: executablePath, args }
+    : runtimeExecutableInvocation(executablePath, args, env);
   return new Promise((resolve, reject) => {
     execFile(invocation.command, invocation.args, {
       encoding: 'utf8',
