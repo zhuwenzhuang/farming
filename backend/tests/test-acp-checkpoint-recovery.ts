@@ -16,10 +16,10 @@ function runtime(configDir) {
   });
 }
 
-async function prepare(target, agentId, configDir, providerHomeId = 'default') {
+async function prepare(target, agentId, configDir, providerHomeId = 'default', provider = 'codex') {
   return target.prepareAgent({
     agentId,
-    provider: 'codex',
+    provider,
     providerHomeId,
     cwd: configDir,
     env: process.env,
@@ -48,6 +48,25 @@ async function run() {
     assert.strictEqual(staleReader.delta, false,
       'a full repair must reset browsers carrying a revision from the discarded reducer');
     assert.strictEqual(staleReader.entries.length, 2);
+
+    const qoderDir = path.join(configDir, 'qoder-history-media');
+    fs.mkdirSync(qoderDir, { recursive: true });
+    const qoderCold = runtime(qoderDir);
+    await prepare(qoderCold, 'agent-qoder-cold', qoderDir, 'default', 'qoder');
+    const qoderBinding = qoderCold.requireBinding('agent-qoder-cold');
+    qoderBinding.sessionState.entries[0].content.push({
+      type: 'image', mimeType: 'image/png', data: 'aW1hZ2U=', path: '/tmp/history.png',
+    });
+    qoderCold.scheduleCheckpoint(qoderBinding);
+    await qoderCold.checkpointStore.flush();
+    await qoderCold.dispose();
+
+    const qoderWarm = runtime(qoderDir);
+    await prepare(qoderWarm, 'agent-qoder-warm', qoderDir, 'default', 'qoder');
+    assert.deepStrictEqual(qoderWarm.getSession('agent-qoder-warm').entries[0].content[1], {
+      type: 'image', mimeType: 'image/png', data: 'aW1hZ2U=', path: '/tmp/history.png',
+    }, 'Qoder history replay must recover media omitted by session/load from the Farming checkpoint');
+    await qoderWarm.dispose();
 
     const binding = warm.requireBinding('agent-warm');
     const childState = new AcpSessionState({

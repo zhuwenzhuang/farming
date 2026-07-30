@@ -617,6 +617,40 @@ function promptContentForCapabilities(content: unknown, capabilities: Initialize
   });
 }
 
+function restoreMissingHistoryMedia(replayedState: AcpSessionState, checkpointState: AcpSessionState) {
+  const userEntries = (state: AcpSessionState) => state.entries.filter(entry => (
+    entry?.type === 'message' && entry.role === 'user'
+  ));
+  const entryText = (entry: UnknownRecord) => (Array.isArray(entry.content) ? entry.content : [])
+    .filter((block: UnknownRecord) => block?.type === 'text')
+    .map((block: UnknownRecord) => String(block.text || ''))
+    .join('');
+  const replayedUsers = userEntries(replayedState);
+  const checkpointUsers = userEntries(checkpointState);
+  let restored = 0;
+  for (let index = 0; index < Math.min(replayedUsers.length, checkpointUsers.length); index += 1) {
+    const target = replayedUsers[index] as UnknownRecord;
+    const source = checkpointUsers[index] as UnknownRecord;
+    if (entryText(target) !== entryText(source)) continue;
+    const targetContent = Array.isArray(target.content) ? target.content as UnknownRecord[] : [];
+    const sourceMedia = (Array.isArray(source.content) ? source.content as UnknownRecord[] : [])
+      .filter(block => block?.type === 'image' || block?.type === 'audio');
+    for (const block of sourceMedia) {
+      const duplicate = targetContent.some(candidate => (
+        candidate?.type === block.type
+        && candidate?.mimeType === block.mimeType
+        && candidate?.data === block.data
+        && candidate?.path === block.path
+      ));
+      if (duplicate) continue;
+      targetContent.push(clone(block));
+      restored += 1;
+    }
+    target.content = targetContent;
+  }
+  return restored;
+}
+
 function supportsCodexSteer(capabilities: InitializeResponse['agentCapabilities'] = {} = {}) {
   const capability = capabilities?._meta?.codex?.steer;
   return capability?.method === CODEX_STEER_METHOD
@@ -1226,6 +1260,9 @@ class AcpRuntime extends EventEmitter {
             binding.historyReplayActive = false;
           }
           binding.sessionState.finishHistoryReplay();
+          if (provider === 'qoder' && restoredCheckpointState) {
+            restoreMissingHistoryMedia(binding.sessionState, restoredCheckpointState);
+          }
           this.restorePatchDecisions(binding, restoredCheckpoint?.patchDecisions);
           historyMode = 'load';
           opened = true;

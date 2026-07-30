@@ -15,6 +15,7 @@ import {
   type SetStateAction,
   type WheelEvent as ReactWheelEvent,
 } from 'react'
+import { createPortal } from 'react-dom'
 import ReactMarkdown, { defaultUrlTransform, type Components } from 'react-markdown'
 import rehypeHighlight from 'rehype-highlight'
 import rehypeKatex from 'rehype-katex'
@@ -601,21 +602,81 @@ function TranscriptLocalErrorFallback({
   )
 }
 
-function AgentTranscriptUserImages({ images }: { images: AgentTranscriptUserImage[] }) {
+function AgentTranscriptImages({
+  images,
+  className,
+  testId,
+  fallbackAlt,
+}: {
+  images: AgentTranscriptUserImage[]
+  className: string
+  testId: string
+  fallbackAlt: string
+}) {
+  const [preview, setPreview] = useState<AgentTranscriptUserImage | null>(null)
+  useEffect(() => {
+    if (!preview) return undefined
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setPreview(null)
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [preview])
   if (images.length <= 0) return null
   return (
-    <div className="code-agent-transcript-user-images" data-testid="code-agent-transcript-user-images">
-      {images.map(image => (
-        <img
-          key={image.id}
-          src={image.url}
-          alt={image.alt || 'Attached image'}
-          loading="lazy"
-          decoding="async"
-        />
-      ))}
-    </div>
+    <>
+      <div className={className} data-testid={testId}>
+        {images.map(image => (
+          <button
+            key={image.id}
+            type="button"
+            className="code-agent-transcript-image-trigger"
+            aria-label={`Open ${image.alt || fallbackAlt}`}
+            onClick={() => setPreview(image)}
+          >
+            <img
+              src={image.url}
+              alt={image.alt || fallbackAlt}
+              loading="lazy"
+              decoding="async"
+            />
+          </button>
+        ))}
+      </div>
+      {preview ? createPortal(
+        <div
+          className="code-agent-transcript-image-overlay"
+          data-testid="code-agent-transcript-image-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-label={preview.alt || fallbackAlt}
+          onClick={() => setPreview(null)}
+        >
+          <button
+            type="button"
+            className="code-agent-transcript-image-close"
+            aria-label="Close image preview"
+            onClick={event => {
+              event.stopPropagation()
+              setPreview(null)
+            }}
+          >
+            <CloseGlyph />
+          </button>
+          <img
+            src={preview.url}
+            alt={preview.alt || fallbackAlt}
+            onClick={event => event.stopPropagation()}
+          />
+        </div>,
+        document.body,
+      ) : null}
+    </>
   )
+}
+
+function AgentTranscriptUserImages({ images }: { images: AgentTranscriptUserImage[] }) {
+  return <AgentTranscriptImages images={images} className="code-agent-transcript-user-images" testId="code-agent-transcript-user-images" fallbackAlt="Attached image" />
 }
 
 function userFileMeta(file: AgentTranscriptUserFile) {
@@ -724,20 +785,7 @@ function TranscriptFileLinkLabel({
 }
 
 function AgentTranscriptProcessImages({ images }: { images: AgentTranscriptUserImage[] }) {
-  if (images.length <= 0) return null
-  return (
-    <div className="code-agent-transcript-process-images" data-testid="code-agent-transcript-process-images">
-      {images.map(image => (
-        <img
-          key={image.id}
-          src={image.url}
-          alt={image.alt || 'Generated image'}
-          loading="lazy"
-          decoding="async"
-        />
-      ))}
-    </div>
-  )
+  return <AgentTranscriptImages images={images} className="code-agent-transcript-process-images" testId="code-agent-transcript-process-images" fallbackAlt="Generated image" />
 }
 
 function transcriptLocationPath(pathText: string) {
@@ -820,20 +868,7 @@ function AgentTranscriptLocations({ locations }: { locations: AgentTranscriptLoc
 }
 
 function AgentTranscriptResultImages({ images }: { images: AgentTranscriptUserImage[] }) {
-  if (images.length <= 0) return null
-  return (
-    <div className="code-agent-transcript-result-images" data-testid="code-agent-transcript-result-images">
-      {images.map(image => (
-        <img
-          key={image.id}
-          src={image.url}
-          alt={image.alt || 'Generated image'}
-          loading="lazy"
-          decoding="async"
-        />
-      ))}
-    </div>
-  )
+  return <AgentTranscriptImages images={images} className="code-agent-transcript-result-images" testId="code-agent-transcript-result-images" fallbackAlt="Generated image" />
 }
 
 function AgentTranscriptAudios({ audios }: { audios: AgentTranscriptAudio[] }) {
@@ -1230,8 +1265,6 @@ function processEntriesForTurn(items: AgentTranscriptProcessItem[], source: stri
   return entries
 }
 
-const COMPACT_PROCESS_ACTION_LIMIT = 1
-
 function compactProcessEntries(entries: ProcessEntry[], turnStatus: AgentTranscriptTurn['status']) {
   const eligible = turnStatus === 'inProgress'
     ? entries.flatMap(entry => (
@@ -1245,9 +1278,6 @@ function compactProcessEntries(entries: ProcessEntry[], turnStatus: AgentTranscr
     if (!isProcessItemRunning(eligible[index]!)) continue
     selectedIndexes.add(index)
     break
-  }
-  for (let index = eligible.length - 1; index >= 0 && selectedIndexes.size < COMPACT_PROCESS_ACTION_LIMIT; index -= 1) {
-    selectedIndexes.add(index)
   }
   const items = eligible.filter((_item, index) => selectedIndexes.has(index))
   return { items }
@@ -3671,8 +3701,8 @@ export function AgentTranscriptPane({
           {turns.map((turn, index) => {
             const processOpen = source === 'acp'
               ? turn.status === 'inProgress'
-                ? !openLiveProcessTurnIds.has(turn.id)
-                : !openProcessTurnIds.has(turn.id)
+                ? openLiveProcessTurnIds.has(turn.id)
+                : openProcessTurnIds.has(turn.id)
               : openProcessTurnIds.has(turn.id)
             return (
               <LocalErrorBoundary

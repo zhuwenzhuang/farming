@@ -6364,6 +6364,70 @@ body.code-mode .code-instance-name {
   background: rgba(255, 255, 255, 0.76);
 }
 
+.code-agent-transcript-image-trigger {
+  display: block;
+  padding: 0;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  cursor: zoom-in;
+}
+
+.code-agent-transcript-image-trigger:focus-visible {
+  outline: 2px solid rgba(9, 105, 218, 0.38);
+  outline-offset: 2px;
+}
+
+.code-agent-transcript-image-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1400;
+  display: grid;
+  place-items: center;
+  padding: 48px;
+  background: rgba(13, 17, 23, 0.84);
+  cursor: zoom-out;
+}
+
+.code-agent-transcript-image-overlay > img {
+  display: block;
+  max-width: min(94vw, 1600px);
+  max-height: 90vh;
+  object-fit: contain;
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: 0 20px 70px rgba(0, 0, 0, 0.38);
+  cursor: default;
+}
+
+.code-agent-transcript-image-close {
+  position: fixed;
+  top: 18px;
+  right: 18px;
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 50%;
+  background: rgba(13, 17, 23, 0.72);
+  color: #ffffff;
+  cursor: pointer;
+}
+
+.code-agent-transcript-image-close svg {
+  width: 17px;
+  height: 17px;
+  fill: currentColor;
+}
+
+@media (max-width: 640px) {
+  .code-agent-transcript-image-overlay {
+    padding: 42px 12px 20px;
+  }
+}
+
 .code-agent-transcript-user-files {
   min-width: min(320px, 100%);
   display: grid;
@@ -6892,7 +6956,10 @@ body.code-mode .code-instance-name {
   flex: 0 0 auto;
 }
 
-.code-acp-progress-update {
+.code-acp-progress-update.code-markdown-preview {
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0;
   padding: 8px 0 5px;
   color: #24292f;
   font-size: var(--code-content-font-size);
