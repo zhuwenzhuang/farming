@@ -12406,6 +12406,20 @@ body.code-mode .code-history-agent-icon .agent-launch-icon,
   fill: currentColor;
 }
 
+.code-pending-followup-steer-icon {
+  transform: scaleX(-1);
+}
+
+.code-pending-followup-row.queued .code-pending-followup-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.code-pending-followup-row.queued .code-pending-followup-actions button svg {
+  width: 15px;
+  height: 15px;
+}
+
 .code-acp-request {
   display: grid;
   gap: 9px;
@@ -17821,12 +17835,12 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
     z-index: 56;
     width: calc(var(--app-visual-width, 100vw) - 8px);
     max-width: calc(var(--app-visual-width, 100vw) - 8px);
-    gap: 6px;
+    gap: 0;
     pointer-events: none;
   }
 
   body.code-mode.code-compact-layout .code-acp-composer-stack > .code-pending-followup {
-    margin: 0;
+    margin: 0 14px -10px;
     pointer-events: auto;
   }
 
@@ -17865,16 +17879,16 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
 
   body.code-mode.code-compact-layout .code-acp-composer-stack > .code-pending-followup {
     gap: 2px;
-    padding: 4px 6px;
+    padding: 3px 10px 12px;
     overflow-x: hidden;
     overflow-y: auto;
   }
 
   body.code-mode.code-compact-layout .code-acp-composer-stack > .code-pending-followup .code-pending-followup-row {
     grid-template-columns: 16px minmax(0, 1fr) auto;
-    gap: 6px;
-    min-height: 34px;
-    padding: 2px 0;
+    gap: 8px;
+    min-height: 30px;
+    padding: 1px 0;
   }
 
   body.code-mode.code-compact-layout .code-composer.has-attachments {

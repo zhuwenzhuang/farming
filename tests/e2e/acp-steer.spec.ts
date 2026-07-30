@@ -143,10 +143,14 @@ test('keeps queued follow-ups separate and steers each selected message', async 
   await page.getByTestId('code-acp-composer-send').click()
   await expect(page.getByTestId('code-acp-composer-send')).toHaveAttribute('data-action', 'interrupt')
 
-  await input.fill('?')
+  await input.fill('你自己先看看自己迭代到合理的展示吧。')
   await page.getByTestId('code-acp-composer-send').click()
   await expect(input).toHaveValue('')
-  await expect(page.getByTestId('code-acp-pending-followup-row')).toContainText('?')
+  await expect(page.getByTestId('code-acp-pending-followup-row')).toContainText('你自己先看看自己迭代到合理的展示吧。')
+  await expect(page.getByTestId('code-acp-pending-followup-queue-icon')).toBeVisible()
+  const queuedGlyphPath = await page.getByTestId('code-acp-pending-followup-queue-icon').locator('path').getAttribute('d')
+  const steerGlyphPath = await page.getByTestId('code-acp-pending-followup-steer').locator('path').getAttribute('d')
+  expect(queuedGlyphPath).not.toBe(steerGlyphPath)
   expect(await page.getByTestId('code-acp-composer-stack').evaluate(stack => {
     const composer = stack.querySelector<HTMLElement>('[data-testid="code-acp-composer"]')
     const pending = stack.querySelector<HTMLElement>(':scope > [data-testid="code-acp-pending-followup"]')
@@ -161,7 +165,8 @@ test('keeps queued follow-ups separate and steers each selected message', async 
       composerOverflow: composer.scrollHeight > composer.clientHeight + 1,
       composerKeepsRestingHeight: composerRect.height >= 70 && composerRect.height <= 74,
       pendingOutsideComposer: !composer.contains(pending),
-      pendingAboveComposer: pendingRect.bottom <= composerRect.top,
+      pendingOverlapsComposer: pendingRect.bottom - composerRect.top >= 9
+        && pendingRect.bottom - composerRect.top <= 11,
       pendingOverflow: pending.scrollWidth > pending.clientWidth + 1
         || pending.scrollHeight > pending.clientHeight + 1,
       rowInsidePending: Boolean(rowRect
@@ -177,35 +182,34 @@ test('keeps queued follow-ups separate and steers each selected message', async 
     composerOverflow: false,
     composerKeepsRestingHeight: true,
     pendingOutsideComposer: true,
-    pendingAboveComposer: true,
+    pendingOverlapsComposer: true,
     pendingOverflow: false,
     rowInsidePending: true,
     actionsInsidePending: true,
     composerRowsDoNotOverlap: true,
     toolbarInsideComposer: true,
   })
-  await page.setViewportSize({ width: 1280, height: 720 })
-
-  await input.fill('inspect the separate issue')
+  await input.fill('自己看看')
   await page.getByTestId('code-acp-composer-send').click()
   await expect(input).toHaveValue('')
   await expect(page.getByTestId('code-acp-pending-followup-row')).toHaveCount(2)
-  await expect(page.getByTestId('code-acp-pending-followup-row').nth(0)).toContainText('?')
-  await expect(page.getByTestId('code-acp-pending-followup-row').nth(1)).toContainText('inspect the separate issue')
+  await expect(page.getByTestId('code-acp-pending-followup-row').nth(0)).toContainText('你自己先看看自己迭代到合理的展示吧。')
+  await expect(page.getByTestId('code-acp-pending-followup-row').nth(1)).toContainText('自己看看')
+  await page.setViewportSize({ width: 1280, height: 720 })
   await expect(page.getByTestId('code-agent-transcript-steer')).toHaveCount(0)
 
   await page.getByTestId('code-acp-pending-followup-steer').nth(0).click()
   await page.getByTestId('code-acp-pending-followup-steer').nth(0).click()
   await expect(page.getByTestId('code-acp-pending-followup-row')).toHaveCount(0)
   await expect(page.getByTestId('code-acp-submission')).toHaveCount(2)
-  await expect(page.getByTestId('code-acp-submission').nth(0)).toContainText('?')
-  await expect(page.getByTestId('code-acp-submission').nth(1)).toContainText('inspect the separate issue')
+  await expect(page.getByTestId('code-acp-submission').nth(0)).toContainText('你自己先看看自己迭代到合理的展示吧。')
+  await expect(page.getByTestId('code-acp-submission').nth(1)).toContainText('自己看看')
 
   await expect(page.getByTestId('code-acp-submission')).toHaveCount(0)
   await expect(page.getByTestId('code-agent-transcript-steer')).toHaveCount(2)
   await expect(page.locator('.code-agent-transcript-steer-bubble')).toHaveText([
-    '?',
-    'inspect the separate issue',
+    '你自己先看看自己迭代到合理的展示吧。',
+    '自己看看',
   ])
 
   await input.fill('live progress')

@@ -42,6 +42,22 @@ function findAcpCommandTrigger(draft: string, selectionStart: number) {
   }
 }
 
+function QueuedFollowUpGlyph() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+      <path d="M2.5 2h1v7.5c0 .55.45 1 1 1H6v1H4.5a2 2 0 0 1-2-2V2Zm3 1h6v1h-6V3Zm0 3h4v1h-4V6Zm3 4h3.3l-1.4-1.4.7-.7 2.6 2.6-2.6 2.6-.7-.7 1.4-1.4H8.5v-1Z" />
+    </svg>
+  )
+}
+
+function TrashGlyph() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+      <path fillRule="evenodd" clipRule="evenodd" d="M6 2h4l.5.5V4H13v1h-1l-.6 8.5-.5.5H5.1l-.5-.5L4 5H3V4h2.5V2.5L6 2Zm.5 2h3V3h-3v1ZM5 5l.57 8h4.86L11 5H5Zm1.5 1h1v5h-1V6Zm2 0h1v5h-1V6Z" />
+    </svg>
+  )
+}
+
 export interface AcpComposerProps {
   active: boolean
   agentId: string
@@ -320,18 +336,18 @@ export function AcpComposer({
             </div>
           ))}
           {pendingFollowUp?.messages.map(message => (
-            <div className="code-pending-followup-row" data-testid="code-acp-pending-followup-row" key={message.id}>
-              <span className="code-pending-followup-icon" aria-hidden="true"><ReplyGlyph /></span>
+            <div className="code-pending-followup-row queued" data-testid="code-acp-pending-followup-row" key={message.id}>
+              <span className="code-pending-followup-icon" data-testid="code-acp-pending-followup-queue-icon" aria-hidden="true"><QueuedFollowUpGlyph /></span>
               <p>{message.text || message.attachments?.map(attachment => attachment.name).join(', ')}</p>
               <div className="code-pending-followup-actions">
                 {canSteerPendingFollowUp ? (
                   <button type="button" data-testid="code-acp-pending-followup-steer" onClick={() => onSteerPendingFollowUp(message.id)}>
-                    <ReplyGlyph />
+                    <ReplyGlyph className="code-pending-followup-steer-icon" />
                     <span>{copy.steerQueuedMessage}</span>
                   </button>
                 ) : null}
                 <button type="button" className="icon" data-testid="code-acp-pending-followup-discard" aria-label={copy.discardQueuedMessage} onClick={() => onDiscardPendingFollowUp(message.id)}>
-                  <CloseGlyph />
+                  <TrashGlyph />
                 </button>
               </div>
             </div>
