@@ -41,13 +41,9 @@ test('Plugins treats each Agent Home as an independent ordered Agent configurati
   ])
 
   const openCode = panel.getByTestId('code-plugin-section-agent-opencode-default')
-  await expect(openCode.getByLabel('Model')).toBeDisabled()
-  await expect(openCode.getByLabel('Model').locator('option')).toHaveText([
-    'Use Agent configuration from this Home',
-  ])
-  await expect(openCode.getByLabel('Reasoning').locator('option')).toHaveText([
-    'Use Agent configuration from this Home',
-  ])
+  await expect(openCode.getByText('Use Agent configuration from this Home', { exact: true })).toBeVisible()
+  await expect(openCode.getByRole('combobox')).toHaveCount(0)
+  await expect(panel.locator('.code-plugin-kind-section[open]')).toHaveCount(0)
 
   const work = panel.getByTestId('code-plugin-section-agent-codex-work')
   await expect(work.getByText('work', { exact: true })).toBeVisible()
@@ -59,6 +55,7 @@ test('Plugins treats each Agent Home as an independent ordered Agent configurati
     'code-plugin-section-agent-claude-default',
     'code-plugin-section-agent-codex-work',
   ])
+  await work.locator('.code-plugin-agent-defaults > summary').click()
   await work.getByLabel('Fast').selectOption('on')
   await expect.poll(async () => {
     const response = await page.request.get('/farming/api/settings')
@@ -67,6 +64,8 @@ test('Plugins treats each Agent Home as an independent ordered Agent configurati
       .find((home: { id: string }) => home.id === 'work')
       ?.newAgentDefaults.fast
   }).toBe('on')
+  await work.locator('.code-plugin-agent-defaults > summary').click()
+  await expect(work.locator('.code-plugin-agent-defaults > summary')).toContainText('Fast: On')
 
   await panel.getByRole('button', { name: 'Add Agent', exact: true }).click()
   const form = panel.getByTestId('code-plugin-agent-form')

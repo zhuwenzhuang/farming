@@ -1,7 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { appPath } from '@/lib/base-path'
 import { getBackendConnectionSnapshot } from '@/lib/backend-live-status'
-import { ArrowLeftGlyph, CloseGlyph, PlusGlyph, PuzzleGlyph } from '@/components/IconGlyphs'
+import {
+  ArrowDownGlyph,
+  ArrowLeftGlyph,
+  ArrowUpGlyph,
+  CloseGlyph,
+  PencilGlyph,
+  PlusGlyph,
+  PuzzleGlyph,
+} from '@/components/IconGlyphs'
 import type { UiLanguage } from '@/lib/ui-preferences'
 import type { BrowserCapability } from '../../../extensions/browser/frontend/types'
 import type { ComputerCapability } from '../../../extensions/computer/frontend/types'
@@ -54,7 +62,6 @@ type SelectedAgentExtension = AgentExtension & {
 }
 
 const EXTENSION_KIND_ORDER = ['plugin', 'skill', 'command']
-const MAX_AUTO_EXPANDED_EXTENSIONS = 12
 const AGENT_SETTINGS_REQUEST_TIMEOUT_MS = 15_000
 
 async function fetchAgentSettings(url: string, init?: RequestInit) {
@@ -1058,6 +1065,27 @@ export function PluginsPanel({
                 label: home.newAgentDefaults.reasoning,
               }, ...reasoningCatalog]
             : reasoningCatalog
+          const selectedModelOption = modelOptions.find(option => option.value === home.newAgentDefaults.model)
+          const selectedReasoningOption = reasoningOptions.find(option => option.value === home.newAgentDefaults.reasoning)
+          const defaultOverrideLabels = supportsManagedDefaults
+            ? [
+                home.newAgentDefaults.model !== 'inherit'
+                  ? `${copy.model}: ${selectedModelOption?.displayName
+                    || selectedModelOption?.label
+                    || home.newAgentDefaults.model}`
+                  : '',
+                home.newAgentDefaults.reasoning !== 'inherit'
+                  ? `${copy.reasoning}: ${selectedReasoningOption?.label
+                    || home.newAgentDefaults.reasoning}`
+                  : '',
+                provider.id === 'codex' && home.newAgentDefaults.fast !== 'inherit'
+                  ? `${copy.fast}: ${home.newAgentDefaults.fast === 'on' ? copy.fastOn : copy.fastOff}`
+                  : '',
+              ].filter(Boolean)
+            : []
+          const defaultsSummary = supportsManagedDefaults
+            ? (defaultOverrideLabels.join(' · ') || copy.inheritAgentConfig)
+            : copy.unsupportedDefault
           return (
             <section
               key={key}
@@ -1088,6 +1116,7 @@ export function PluginsPanel({
                     {agentDisplayName(provider)}
                     <span>{home.id}</span>
                     {!provider.available ? <em>{copy.unavailableAgent}</em> : null}
+                    <small>{copy.count(extensionCount)}</small>
                   </h3>
                   {editingAgentKey === key ? (
                     <div className="code-plugin-agent-path-edit">
@@ -1110,7 +1139,7 @@ export function PluginsPanel({
                       </button>
                     </div>
                   ) : (
-                    <p>{provider.description || agentDisplayName(provider)} · <code>{home.path}</code></p>
+                    <p><code>{home.path}</code></p>
                   )}
                 </div>
                 <div className="code-plugin-agent-actions">
@@ -1120,89 +1149,105 @@ export function PluginsPanel({
                     aria-label={copy.moveUp}
                     title={copy.moveUp}
                     onClick={() => moveAgentConfiguration(key, -1)}
-                  >↑</button>
+                  ><ArrowUpGlyph /></button>
                   <button
                     type="button"
                     disabled={agentSaving || configurationIndex === configurations.length - 1}
                     aria-label={copy.moveDown}
                     title={copy.moveDown}
                     onClick={() => moveAgentConfiguration(key, 1)}
-                  >↓</button>
+                  ><ArrowDownGlyph /></button>
                   <button
                     type="button"
                     disabled={agentSaving}
+                    aria-label={copy.edit}
+                    title={copy.edit}
                     onClick={() => {
                       setEditingAgentKey(key)
                       setEditingHomePath(home.path)
                     }}
-                  >{copy.edit}</button>
+                  ><PencilGlyph /></button>
                   {home.id !== 'default' ? (
                     <button
                       type="button"
                       disabled={agentSaving}
+                      aria-label={copy.remove}
+                      title={copy.remove}
                       onClick={() => removeAgentConfiguration(provider.id, home.id)}
-                    >{copy.remove}</button>
+                    ><CloseGlyph /></button>
                   ) : null}
-                  <span>{copy.count(extensionCount)}</span>
                 </div>
               </header>
 
-              <div className="code-plugin-agent-defaults">
-                <strong>{copy.newAgentDefaults}</strong>
-                <label>
-                  <span>{copy.model}</span>
-                  <select
-                    value={home.newAgentDefaults.model}
-                    disabled={agentSaving || !supportsManagedDefaults}
-                    onChange={event => saveHomeDefaults(provider.id, home.id, {
-                      model: event.target.value,
-                      reasoning: 'inherit',
-                    })}
-                  >
-                    <option value="inherit">{supportsManagedDefaults ? copy.inheritAgentConfig : copy.unsupportedDefault}</option>
-                    {modelOptions.map(option => (
-                      <option key={option.value} value={option.value}>{option.displayName || option.label}</option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  <span>{copy.reasoning}</span>
-                  <select
-                    value={home.newAgentDefaults.reasoning}
-                    disabled={agentSaving || !supportsManagedDefaults}
-                    onChange={event => saveHomeDefaults(provider.id, home.id, {
-                      reasoning: event.target.value,
-                    })}
-                  >
-                    <option value="inherit">{supportsManagedDefaults ? copy.inheritAgentConfig : copy.unsupportedDefault}</option>
-                    {reasoningOptions.map(option => (
-                      <option key={option.value} value={option.value}>{option.label}</option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  <span>{copy.fast}</span>
-                  <select
-                    value={home.newAgentDefaults.fast}
-                    disabled={agentSaving || provider.id !== 'codex'}
-                    onChange={event => saveHomeDefaults(provider.id, home.id, {
-                      fast: event.target.value as NewAgentDefaults['fast'],
-                    })}
-                  >
-                    <option value="inherit">{provider.id === 'codex' ? copy.inheritAgentConfig : copy.unsupportedDefault}</option>
-                    {provider.id === 'codex' ? <option value="on">{copy.fastOn}</option> : null}
-                    {provider.id === 'codex' ? <option value="off">{copy.fastOff}</option> : null}
-                  </select>
-                </label>
-              </div>
+              {supportsManagedDefaults ? (
+                <details className="code-plugin-agent-defaults">
+                  <summary>
+                    <strong>{copy.newAgentDefaults}</strong>
+                    <span>{defaultsSummary}</span>
+                  </summary>
+                  <div className="code-plugin-agent-default-controls">
+                    <label>
+                      <span>{copy.model}</span>
+                      <select
+                        value={home.newAgentDefaults.model}
+                        disabled={agentSaving}
+                        onChange={event => saveHomeDefaults(provider.id, home.id, {
+                          model: event.target.value,
+                          reasoning: 'inherit',
+                        })}
+                      >
+                        <option value="inherit">{copy.inheritAgentConfig}</option>
+                        {modelOptions.map(option => (
+                          <option key={option.value} value={option.value}>{option.displayName || option.label}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      <span>{copy.reasoning}</span>
+                      <select
+                        value={home.newAgentDefaults.reasoning}
+                        disabled={agentSaving}
+                        onChange={event => saveHomeDefaults(provider.id, home.id, {
+                          reasoning: event.target.value,
+                        })}
+                      >
+                        <option value="inherit">{copy.inheritAgentConfig}</option>
+                        {reasoningOptions.map(option => (
+                          <option key={option.value} value={option.value}>{option.label}</option>
+                        ))}
+                      </select>
+                    </label>
+                    {provider.id === 'codex' ? (
+                      <label>
+                        <span>{copy.fast}</span>
+                        <select
+                          value={home.newAgentDefaults.fast}
+                          disabled={agentSaving}
+                          onChange={event => saveHomeDefaults(provider.id, home.id, {
+                            fast: event.target.value as NewAgentDefaults['fast'],
+                          })}
+                        >
+                          <option value="inherit">{copy.inheritAgentConfig}</option>
+                          <option value="on">{copy.fastOn}</option>
+                          <option value="off">{copy.fastOff}</option>
+                        </select>
+                      </label>
+                    ) : null}
+                  </div>
+                </details>
+              ) : (
+                <div className="code-plugin-agent-defaults unsupported">
+                  <strong>{copy.newAgentDefaults}</strong>
+                  <span>{defaultsSummary}</span>
+                </div>
+              )}
 
               {!provider.discoverySupported ? (
-                <p className="code-plugin-empty">{copy.unsupportedDiscovery}</p>
+                <p className="code-plugin-agent-note">{copy.unsupportedDiscovery}</p>
               ) : extensionCount === 0 ? (
-                <p className="code-plugin-empty">{copy.noAgentExtensions}</p>
+                <p className="code-plugin-agent-note">{copy.noAgentExtensions}</p>
               ) : kindGroups.map(group => (
                 <details
-                  open={group.extensions.length <= MAX_AUTO_EXPANDED_EXTENSIONS}
                   className="code-plugin-kind-section"
                   data-kind={group.kind}
                   key={group.kind}
