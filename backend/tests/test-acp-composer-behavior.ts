@@ -27,8 +27,8 @@ async function run() {
     state = updater(state);
   };
   const sent = [];
-  const sendMessage = (_agent, text, attachments) => {
-    sent.push({ text, attachments });
+  const sendMessage = (_agent, text, attachments, requestId) => {
+    sent.push({ text, attachments, requestId });
     return true;
   };
 
@@ -68,6 +68,9 @@ async function run() {
   assert.strictEqual(sent.length, 1);
   assert.strictEqual(sent[0].text, 'send now');
   assert.strictEqual(sent[0].attachments[0].name, 'screen.png');
+  assert.strictEqual(sent[0].requestId, undefined, 'the transport should own the ordinary Prompt request id');
+  assert.strictEqual(state.draft, '');
+  assert.strictEqual(state.submissions, undefined);
 
   const steerAttachment = readyImage();
   state = {
@@ -109,11 +112,9 @@ async function run() {
     sendMessage: () => delayedSubmission,
     updateComposerState,
   });
-  assert.strictEqual(state.draft, '', 'a submitted message must release the Composer immediately');
-  assert.strictEqual(state.attachments.length, 0);
-  assert.strictEqual(state.submissions.length, 1);
-  assert.strictEqual(state.submissions[0].text, 'submitted draft');
-  assert.strictEqual(state.submissions[0].status, 'submitting');
+  assert.strictEqual(state.draft, 'submitted draft', 'an ordinary Prompt must remain in the Composer until admission succeeds');
+  assert.strictEqual(state.attachments.length, 1);
+  assert.strictEqual(state.submissions, undefined, 'an ordinary Prompt must not enter the visible submission staging area');
   state = {
     ...state,
     draft: 'newer draft',
@@ -121,8 +122,31 @@ async function run() {
   acceptDelayedSubmission(true);
   assert.strictEqual(await delayedResult, true);
   assert.strictEqual(state.draft, 'newer draft', 'a late ACK must not clear a newer draft');
-  assert.strictEqual(state.attachments.length, 0);
+  assert.strictEqual(state.attachments.length, 1);
   assert.strictEqual(state.submissions, undefined);
+  assert.deepStrictEqual(state.history.entries, ['submitted draft']);
+
+  let acceptOwnedSubmission;
+  state = {
+    ...createDefaultAgentComposerState(),
+    draft: 'clear only after acceptance',
+  };
+  const ownedResult = submitAcpDraft({
+    agent,
+    composerKey: 'acp:session-1',
+    draft: state.draft,
+    attachments: [],
+    composerMode: 'default',
+    turnActive: false,
+    sendMessage: () => new Promise(resolve => { acceptOwnedSubmission = resolve; }),
+    updateComposerState,
+  });
+  assert.strictEqual(state.draft, 'clear only after acceptance');
+  assert.strictEqual(state.submissions, undefined);
+  acceptOwnedSubmission(true);
+  assert.strictEqual(await ownedResult, true);
+  assert.strictEqual(state.draft, '');
+  assert.deepStrictEqual(state.history.entries, ['clear only after acceptance']);
 
   state = {
     ...createDefaultAgentComposerState(),
@@ -179,9 +203,8 @@ async function run() {
   });
   rejectSubmission(false);
   assert.strictEqual(await rejectedResult, false);
-  assert.strictEqual(state.draft, '');
-  assert.strictEqual(state.submissions[0].status, 'failed');
-  assert.strictEqual(state.submissions[0].text, 'keep failed submission separate');
+  assert.strictEqual(state.draft, 'keep failed submission separate');
+  assert.strictEqual(state.submissions, undefined, 'a rejected ordinary Prompt must stay editable instead of becoming a staged retry row');
 
   state = {
     ...createDefaultAgentComposerState(),

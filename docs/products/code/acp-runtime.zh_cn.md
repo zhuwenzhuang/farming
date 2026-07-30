@@ -54,7 +54,7 @@ Codex 协作活动与子 Agent 生命周期是两类不同的协议事实。`col
 
 ACP Composer 保留所有不依赖 PTY 输入的日常消息框行为：草稿与上下键历史、Enter/Shift+Enter 与中文输入法、文件选择、粘贴媒体预览、删除附件、语音输入、Agent 命令与 Skill、Goal/Plan 请求模式、排队的 follow-up、中断、存在精确 Codex 数据时的上下文窗口，以及 Agent 提供的权限和配置控件。`+` 菜单包含附件、目标和计划，并且只有 Agent 声明 ACP logout 时才出现退出登录；Agent 命令通过 `/` 搜索，`$` 则搜索 Agent 实际宣告的 Skill 子集。只有实时 Agent 声明对应 prompt capability 时，上传图片或音频才会作为原生 ACP content block 发送；否则 Farming 会把它转换成与现有文本降级一致的可读本地路径上下文，避免不支持的媒体类型被静默丢弃。文本文件仍嵌入消息。
 
-Structured Composer 提交使用 request-id 幂等语义。遇到断线或明确 UNKNOWN 响应时，两套浏览器皮肤都保留同一个 request id；Farming Code 在有界 Admission Timeout 后也沿用同一个 id。浏览器只有收到确定的 Admission ACK 才清理精确对应的已提交草稿，迟到 ACK 不能清除更新输入或抢夺焦点。调用 ACP 前，Farming 会在 Agent Sidecar 中持久化一条有界记录，只包含 request id 与内容 hash。Provider `onSubmitted` 回调是准入线性化点：Farming 先持久化 `accepted`，再向浏览器确认。相同 id 与 hash 会 Join 或返回已提交结果，同一 id 携带不同 hash 会被拒绝。只要 Provider 可能已接管、但 Farming 无法证明 accepted 状态，记录就进入 UNKNOWN，Prompt 或 Steer 绝不会自动重放。
+Structured Composer 提交使用 request-id 幂等语义。遇到断线或明确 UNKNOWN 响应时，两套浏览器皮肤都保留同一个 request id；Farming Code 在有界 Admission Timeout 后也沿用同一个 id。没有活跃 Turn 时发送的普通 Prompt 会直接进入这条准入路径，不再先出现在可见的排队消息区。精确草稿会保留为可编辑状态，直到浏览器收到确定的 Admission ACK；此时只清理仍然完全匹配的草稿，迟到 ACK 不能清除更新输入或抢夺焦点。调用 ACP 前，Farming 会在 Agent Sidecar 中持久化一条有界记录，只包含 request id 与内容 hash。Provider `onSubmitted` 回调是准入线性化点：Farming 先持久化 `accepted`，再向浏览器确认。相同 id 与 hash 会 Join 或返回已提交结果，同一 id 携带不同 hash 会被拒绝。只要 Provider 可能已接管、但 Farming 无法证明 accepted 状态，记录就进入 UNKNOWN，Prompt 或 Steer 绝不会自动重放。
 
 对 Codex，Farming 会把选中的启动配置映射到 ACP adapter 的 `CODEX_CONFIG` 和 `INITIAL_AGENT_MODE`。因此 Terminal 与 Chat 之间切换时，会继承模型、推理强度、速度层级和对应的初始权限模式，不再静默回到 adapter 默认值。
 

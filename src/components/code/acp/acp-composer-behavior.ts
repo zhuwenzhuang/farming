@@ -1,7 +1,7 @@
 import type { Agent } from '@/types/agent'
 import { appPath } from '@/lib/base-path'
 import { addComposerHistoryEntry } from '../composer-history'
-import { createPendingFollowUpMessage, removeComposerSubmission } from '../composer-state'
+import { createPendingFollowUpMessage } from '../composer-state'
 import type { AgentComposerState } from '../composer-state'
 import {
   composerMessageForNativeAttachments,
@@ -92,50 +92,29 @@ export function submitAcpDraft({
   }
   if (turnActive) return queueFollowUp()
 
-  const submission = {
-    ...createPendingFollowUpMessage(text, promptAttachments),
-    status: 'submitting' as const,
-    delivery: 'prompt' as const,
-  }
-  updateComposerState(composerKey, state => {
-    const cleared = clearOwnedDraft(state)
-    if (cleared === state) return state
-    return {
-      ...cleared,
-      submissions: [...(cleared.submissions || []), submission],
-    }
-  })
-
-  const settleSubmission = (accepted: boolean) => {
+  const settlePrompt = (accepted: boolean) => {
+    if (!accepted) return false
     updateComposerState(composerKey, state => {
-      if (accepted) {
-        return {
-          ...state,
-          history: addComposerHistoryEntry(state.history, draft),
-          submissions: removeComposerSubmission(state.submissions, submission.id),
-        }
+      const cleared = clearOwnedDraft(state)
+      if (cleared !== state) {
+        attachments.forEach(revokeComposerAttachmentPreview)
       }
       return {
-        ...state,
-        submissions: state.submissions?.map(candidate => (
-          candidate.id === submission.id
-            ? { ...candidate, status: 'failed' as const }
-            : candidate
-        )),
+        ...cleared,
+        history: addComposerHistoryEntry(cleared.history, draft),
       }
     })
-    attachments.forEach(revokeComposerAttachmentPreview)
-    return accepted
+    return true
   }
 
   let submitted: boolean | Promise<boolean>
   try {
-    submitted = sendMessage(agent, text, promptAttachments, submission.id)
+    submitted = sendMessage(agent, text, promptAttachments)
   } catch {
-    return settleSubmission(false)
+    return false
   }
-  if (typeof submitted === 'boolean') return settleSubmission(submitted)
-  return submitted.then(settleSubmission, () => settleSubmission(false))
+  if (typeof submitted === 'boolean') return settlePrompt(submitted)
+  return submitted.then(settlePrompt, () => false)
 }
 
 export function respondToAcpPermission(
