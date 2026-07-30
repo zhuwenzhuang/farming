@@ -594,6 +594,24 @@ const path = require('path');
     delayedActivityAt + REST_REMINDER_TEST_ENTRY_COUNTDOWN_SECONDS * 1000,
   );
 
+  let delayedWorkingState = createRestReminderState(REST_REMINDER_TEST_INTERVAL_SECONDS);
+  delayedWorkingState = reduceRestReminder(delayedWorkingState, {
+    type: 'foreground',
+    now: start,
+  });
+  delayedWorkingState = reduceRestReminder(delayedWorkingState, {
+    type: 'interaction',
+    now: start + REST_REMINDER_TEST_INTERVAL_SECONDS * 1000 + 100,
+  });
+  assert.strictEqual(delayedWorkingState.phase, 'due');
+  assert.strictEqual(
+    delayedWorkingState.restStartsAt,
+    start
+      + REST_REMINDER_TEST_INTERVAL_SECONDS * 1000
+      + 100
+      + REST_REMINDER_TEST_ENTRY_COUNTDOWN_SECONDS * 1000,
+  );
+
   previewState = reduceRestReminder(previewState, {
     type: 'deadline',
     now: previewState.restStartsAt,
