@@ -872,6 +872,10 @@ export function App() {
         }
         clearPermissionSwitch()
         notifyError(data?.error || `Failed to update agent (${response.status})`)
+        // Provider archive can fail after Farming has durably stopped and
+        // archived the Agent. Preserve that committed outcome in the UI; the
+        // persisted lifecycle operation remains blocked and retryable.
+        if (flags.archived === true && data?.archived === true) return data
         return false
       }
       if (data?.warning) notifyError(data.warning)
@@ -933,6 +937,9 @@ export function App() {
           requestErrorAt: Date.now(),
         })
         return current.replacementAgentId ? true : false
+      }
+      if (flags.archived === true && error instanceof DOMException && error.name === 'AbortError') {
+        return { uncertain: true }
       }
       notifyError(message)
       return false

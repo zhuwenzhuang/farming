@@ -93,6 +93,8 @@ Expected:
 - blame, diff, and editor state remain stable while Agents continue producing output;
 - History search can find older provider sessions beyond the first loaded browser page;
 - ephemeral shell runtimes are destroyed on archive, while supported provider sessions resume the same provider identity.
+- selecting Archive removes the live row immediately; a definite stop or persistence failure restores it, while an uncertain request waits for the next authoritative state;
+- once the local archive is durable, the Agent stays out of the live list even if the slower provider archive later needs a retry.
 
 ## Story 6: Return From A Phone
 

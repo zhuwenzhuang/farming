@@ -3519,6 +3519,11 @@ class AgentManager extends EventEmitter {
         return false;
       }
       agent.attentionRequiresNewOutput = false;
+      // Interactive shells report a busy/idle pair for every entered command.
+      // That is terminal state, not an Agent turn that needs sidebar attention.
+      if (isEphemeralShellAgent(agent)) {
+        return false;
+      }
       const reason = agent.status === 'stopped' || agent.status === 'dead'
         ? 'process-exit'
         : 'turn-complete';
@@ -8721,6 +8726,12 @@ class AgentManager extends EventEmitter {
         console.error(historyWarning);
       }
     }
+    // The local archive is now durable and the runtime has stopped. Publish
+    // this committed state before waiting for the slower external Codex
+    // archive so every connected client can remove the Agent immediately.
+    // The lifecycle journal remains provider-archive-pending until that
+    // external mutation reaches its terminal state.
+    this.emit('update');
     if (options.scheduleProviderArchive !== false) {
       const providerArchive = await this.archiveCodexProviderSession(agent);
       if (providerArchive?.error) {

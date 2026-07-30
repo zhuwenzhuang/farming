@@ -682,7 +682,8 @@ function run() {
       terminalOutputSource.includes('const outputObserved = options.isOutputObserved?.() ?? true') &&
       terminalOutputSource.includes('} else if (!outputObserved) {') &&
       terminalOutputSource.includes('if (outputObserved) {') &&
-      terminalOutputSource.includes('forceTerminalRender(record)') &&
+      terminalOutputSource.includes('function renderLiveTerminalOutput') &&
+      terminalOutputSource.includes('if (!isXtermTerminal(record.terminal))') &&
       !terminalOutputSource.includes('if (quiet && !shouldFollowOutput)') &&
       terminalPoolSource.includes('isOutputObserved: () => isTerminalSessionAttached(record)') &&
       terminalPoolSource.includes('preserveUnreadOutputUntilJump: boolean') &&
@@ -814,9 +815,11 @@ function run() {
   const writeTerminalOutputBody = terminalOutputSource.match(/export function writeTerminalOutput[\s\S]*?\n}\n\nexport function replaceTerminalOutput/)?.[0] || '';
   assert(
     writeTerminalOutputBody.includes('writeTerminalData(record, data') &&
+      writeTerminalOutputBody.includes('renderLiveTerminalOutput(record)') &&
+      writeTerminalOutputBody.includes('if (outputObserved) {\n        renderLiveTerminalOutput(record)') &&
       !writeTerminalOutputBody.includes('scheduleTerminalRepaint(record)') &&
       terminalOutputSource.includes('export function scheduleTerminalRepaint'),
-    'terminal live output should rely on ghostty rendering instead of forcing repeated repaint on every output chunk'
+    'terminal live output should let xterm batch its own WebGL renders instead of forcing a repaint for every output chunk'
   );
 
   const ghosttySource = fs.readFileSync(path.join(__dirname, '../../src/lib/ghostty.ts'), 'utf8');

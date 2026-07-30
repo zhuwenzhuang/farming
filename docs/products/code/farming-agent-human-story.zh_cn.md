@@ -93,6 +93,8 @@
 - Agent 继续输出时，blame、diff 与 editor 状态保持稳定；
 - History 可以找到浏览器第一页之外的旧 provider Session；
 - 临时 shell runtime 归档后销毁，受支持 provider Session 恢复同一个 provider identity。
+- 选择归档后，Live 行会立即消失；停止或持久化明确失败时会恢复，不确定请求则等待下一次权威状态；
+- 本地归档一旦持久化完成，即使较慢的 provider 归档之后需要重试，Agent 也始终不再出现在 Live 列表。
 
 ## 故事 6：从手机回到现场
 

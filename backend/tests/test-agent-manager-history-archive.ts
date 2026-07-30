@@ -133,6 +133,11 @@ async function run() {
     });
     manager.lastActivity.set('sub-archive', now);
 
+    let committedArchiveUpdates = 0;
+    const observeCommittedArchive = () => {
+      if (manager.agents.get('sub-archive')?.archived === true) committedArchiveUpdates += 1;
+    };
+    manager.on('update', observeCommittedArchive);
     const archivedPromise = manager.archiveAgent('sub-archive');
     await new Promise(resolve => setImmediate(resolve));
     assert.deepStrictEqual(codexArchiveCalls, [{
@@ -144,6 +149,17 @@ async function run() {
         providerHomePath: '/home/farming/.codex',
       },
     }], 'manual Codex archive should durably wait for provider archive');
+    assert.strictEqual(
+      manager.agents.get('sub-archive')?.archived,
+      true,
+      'the locally committed archive should be visible before the provider command settles',
+    );
+    assert.strictEqual(
+      committedArchiveUpdates,
+      1,
+      'the locally committed archive should immediately publish an authoritative state update',
+    );
+    manager.off('update', observeCommittedArchive);
     resolveCodexArchive({ archived: true });
     const archived = await archivedPromise;
     assert.strictEqual(archived.error, undefined);

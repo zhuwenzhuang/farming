@@ -246,6 +246,42 @@ async function run() {
     assert.strictEqual(agent.readAttentionSeq, 1);
     assert.strictEqual(agent.unread, true, 'work after the auto-read resume baseline should still become unread');
 
+    manager.agents.set('shell-agent', {
+      id: 'shell-agent',
+      command: 'zsh',
+      cwd: '/tmp',
+      output: '',
+      previewText: '',
+      engineName: 'local',
+      status: 'running',
+      terminalBusy: false,
+      attentionSeq: 0,
+      readAttentionSeq: 0,
+      unread: false,
+      attentionTrackingReady: false,
+      lastObservedTurnActive: false,
+      attentionSuppressUntil: 0,
+    });
+    manager.engineBridge.router.engines.local.emit('session-busy-state', {
+      sessionId: 'shell-agent',
+      terminalBusy: true,
+      runtimeEpoch: 'shell-epoch',
+    });
+    manager.engineBridge.router.engines.local.emit('session-output', {
+      sessionId: 'shell-agent',
+      data: 'long ls output\n',
+      runtimeEpoch: 'shell-epoch',
+      outputSeq: 1,
+    });
+    manager.engineBridge.router.engines.local.emit('session-busy-state', {
+      sessionId: 'shell-agent',
+      terminalBusy: false,
+      runtimeEpoch: 'shell-epoch',
+    });
+    agent = manager.agents.get('shell-agent');
+    assert.strictEqual(agent.attentionSeq, 0, 'a completed interactive shell command must not create sidebar attention');
+    assert.strictEqual(agent.unread, false);
+
     manager.agents.set('main-agent', {
       id: 'main-agent',
       isMain: true,

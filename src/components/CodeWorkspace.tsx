@@ -304,12 +304,14 @@ export interface DeleteForkWorktreeProjectResult {
 }
 
 export interface AgentFlagUpdateResult {
+  archived?: boolean
   removedMainPageSessionKeys?: string[]
   restarted?: boolean
   restartedAgentId?: string
   launchPermissionMode?: string
   agentRuntimeMode?: 'terminal' | 'chat' | 'acp' | 'json'
   switchFailed?: boolean
+  uncertain?: boolean
   warning?: string
   error?: string
 }
@@ -691,6 +693,7 @@ export function CodeWorkspace({
   const [agentSessionPinnedOverrides, setAgentSessionPinnedOverrides] = useState<Record<string, boolean>>(
     () => loadSessionDisplayState().pinnedOverrides
   )
+  const [optimisticallyArchivedAgentIds, setOptimisticallyArchivedAgentIds] = useState<Set<string>>(() => new Set())
   const [speechSupported, setSpeechSupported] = useState(false)
   const [speechListening, setSpeechListening] = useState(false)
   const [collapsedProjectIds, setCollapsedProjectIds] = useState<Set<string>>(() => new Set())
@@ -801,7 +804,24 @@ export function CodeWorkspace({
     })
   }, [agentSessionPinnedOverrides])
 
-  const visibleAgents = useMemo(() => agents.filter(agent => !agent.isMain), [agents])
+  useEffect(() => {
+    setOptimisticallyArchivedAgentIds(previous => {
+      let changed = false
+      const next = new Set(previous)
+      previous.forEach(agentId => {
+        const agent = agents.find(candidate => candidate.id === agentId)
+        if (!agent || agent.archived === true) {
+          next.delete(agentId)
+          changed = true
+        }
+      })
+      return changed ? next : previous
+    })
+  }, [agents])
+
+  const visibleAgents = useMemo(() => agents.filter(agent => (
+    !agent.isMain && !optimisticallyArchivedAgentIds.has(agent.id)
+  )), [agents, optimisticallyArchivedAgentIds])
   const hiddenMainAgent = useMemo(() => agents.find(agent => agent.isMain) ?? null, [agents])
   const unorderedLiveAgents = useMemo(
     () => visibleAgents.filter(isAgentListLiveAgent),
@@ -2580,6 +2600,38 @@ export function CodeWorkspace({
       .catch(() => {})
   }, [removeMainPageAgentSessions])
 
+  const archiveAgentOptimistically = useCallback((agentId: string) => {
+    setOptimisticallyArchivedAgentIds(previous => {
+      if (previous.has(agentId)) return previous
+      return new Set(previous).add(agentId)
+    })
+    const rollback = () => {
+      if (pendingArchivedFocusAgentRef.current === agentId) {
+        pendingArchivedFocusAgentRef.current = null
+      }
+      setOptimisticallyArchivedAgentIds(previous => {
+        if (!previous.has(agentId)) return previous
+        const next = new Set(previous)
+        next.delete(agentId)
+        return next
+      })
+    }
+    const result = onUpdateAgentFlags(agentId, { archived: true })
+    syncRemovedMainPageSessionsFromAgentUpdate(result)
+    void Promise.resolve(result)
+      .then(value => {
+        if (
+          value === true
+          || (typeof value === 'object' && value !== null && (
+            value.archived === true || value.uncertain === true
+          ))
+        ) return
+        rollback()
+      })
+      .catch(rollback)
+    return result
+  }, [onUpdateAgentFlags, syncRemovedMainPageSessionsFromAgentUpdate])
+
   useEffect(() => {
     let discoveredSession = false
     activeAgents.forEach(agent => {
@@ -3859,10 +3911,10 @@ export function CodeWorkspace({
       if (sessionHandle) removeMainPageAgentSession(sessionHandle)
       pendingArchivedFocusAgentRef.current = agentId
     }
-    const result = onUpdateAgentFlags(agentId, flags)
-    if (flags.archived === true) syncRemovedMainPageSessionsFromAgentUpdate(result)
+    if (flags.archived === true) archiveAgentOptimistically(agentId)
+    else onUpdateAgentFlags(agentId, flags)
     if (flags.archived !== true) focusAgentRow(agentId)
-  }, [contextMenuAgent, focusAgentRow, onUpdateAgentFlags, removeMainPageAgentSession, syncRemovedMainPageSessionsFromAgentUpdate])
+  }, [archiveAgentOptimistically, contextMenuAgent, focusAgentRow, onUpdateAgentFlags, removeMainPageAgentSession])
 
   const updateSidebarAgentFlags = useCallback((agent: Agent, flags: Partial<Pick<Agent, 'pinned' | 'archived'>>) => {
     const agentId = agent.id
@@ -3872,10 +3924,10 @@ export function CodeWorkspace({
       if (sessionHandle) removeMainPageAgentSession(sessionHandle)
       pendingArchivedFocusAgentRef.current = agentId
     }
-    const result = onUpdateAgentFlags(agentId, flags)
-    if (flags.archived === true) syncRemovedMainPageSessionsFromAgentUpdate(result)
+    if (flags.archived === true) archiveAgentOptimistically(agentId)
+    else onUpdateAgentFlags(agentId, flags)
     if (flags.archived !== true) focusAgentRow(agentId)
-  }, [focusAgentRow, onUpdateAgentFlags, removeMainPageAgentSession, syncRemovedMainPageSessionsFromAgentUpdate])
+  }, [archiveAgentOptimistically, focusAgentRow, onUpdateAgentFlags, removeMainPageAgentSession])
 
   const reorderSidebarAgent = useCallback(async (
     agentId: string,
@@ -4481,15 +4533,13 @@ export function CodeWorkspace({
       return
     }
 
-    archivableAgents.forEach(agent => {
-      onUpdateAgentFlags(agent.id, { archived: true })
-    })
+    archivableAgents.forEach(agent => archiveAgentOptimistically(agent.id))
 
     removeMainPageAgentSessions(projectSessions.map(agentSessionId))
 
     closeContextMenu()
     restoreProjectListFocusRef.current = 'list'
-  }, [mainPageAgentSessions, contextMenuProject, onUpdateAgentFlags, removeMainPageAgentSessions])
+  }, [archiveAgentOptimistically, mainPageAgentSessions, contextMenuProject, removeMainPageAgentSessions])
 
   const removeContextProject = useCallback(async () => {
     if (

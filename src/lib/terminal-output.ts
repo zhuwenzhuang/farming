@@ -141,6 +141,16 @@ function writeTerminalData(record: TerminalOutputRecord, data: string, callback?
   record.terminal.write(data, callback)
 }
 
+function renderLiveTerminalOutput(record: TerminalOutputRecord) {
+  // xterm's WebGL renderer batches writes into animation frames. Refreshing
+  // every PTY chunk defeats that batching and makes high-frequency TUIs look
+  // as though the whole screen is flashing. The Ghostty debug renderer still
+  // needs an explicit paint here.
+  if (!isXtermTerminal(record.terminal)) {
+    forceTerminalRender(record)
+  }
+}
+
 function enqueueTerminalWrite(
   record: TerminalOutputRecord,
   operation: (done: (cancelled?: boolean) => boolean) => void,
@@ -236,7 +246,7 @@ export function writeTerminalOutput(
         })
       }
       if (outputObserved) {
-        forceTerminalRender(record)
+        renderLiveTerminalOutput(record)
       }
       completeTerminalWrite(done, callback)
     })

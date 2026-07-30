@@ -314,7 +314,10 @@ function run() {
       workspaceSource.includes('aria-label={copy.search}') &&
       workspaceSource.includes('const shortcutHint = keyboardShortcutsEnabled') &&
       !workspaceSource.includes("agent.isMain ? '0'") &&
-      workspaceSource.includes('const visibleAgents = useMemo(() => agents.filter(agent => !agent.isMain), [agents])') &&
+      workspaceSource.includes('const [optimisticallyArchivedAgentIds, setOptimisticallyArchivedAgentIds]') &&
+      workspaceSource.includes('const archiveAgentOptimistically = useCallback') &&
+      workspaceSource.includes('const visibleAgents = useMemo(() => agents.filter(agent => (') &&
+      workspaceSource.includes('!agent.isMain && !optimisticallyArchivedAgentIds.has(agent.id)') &&
       workspaceSource.includes('const hiddenMainAgent = useMemo(() => agents.find(agent => agent.isMain) ?? null, [agents])') &&
       !workspaceSource.includes('agents={agents}') &&
       workspaceSource.includes('mainAgent={hiddenMainAgent}') &&
@@ -506,7 +509,7 @@ function run() {
 	      workspaceSource.includes('New Agent') &&
 	      workspaceSource.includes('Archive chats') &&
 	      workspaceSource.includes('const archivableAgents = contextMenuProject.agents.filter(agent => !agent.isMain)') &&
-      workspaceSource.includes('onUpdateAgentFlags(agent.id, { archived: true })') &&
+      workspaceSource.includes('archivableAgents.forEach(agent => archiveAgentOptimistically(agent.id))') &&
       workspaceSource.includes('Pin Agent') &&
       workspaceSource.includes('Unpin Agent') &&
       workspaceSource.includes('Archive') &&
