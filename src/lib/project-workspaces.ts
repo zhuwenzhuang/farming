@@ -43,12 +43,6 @@ export function isProjectFilesWorkspaceId(filesId: string | null | undefined) {
   return String(filesId || '').startsWith(PROJECT_FILES_WORKSPACE_PREFIX)
 }
 
-// Compatibility aliases for callers that still use the historical name.
-export const PROJECT_FILES_AGENT_PREFIX = PROJECT_FILES_WORKSPACE_PREFIX
-export const projectFilesAgentId = projectFilesWorkspaceId
-export const projectWorkspaceFromFilesAgentId = projectWorkspaceFromFilesId
-export const isProjectFilesAgentId = isProjectFilesWorkspaceId
-
 export function normalizeProjectWorkspaces(projects: unknown) {
   if (!Array.isArray(projects)) return []
   const seen = new Set<string>()

@@ -8,7 +8,7 @@ const { execFileSync } = require('child_process');
 const { WorkspaceFileService } = require('../workspace-file-service.cjs');
 const {
   GLOBAL_WORKSPACE_FILES_AGENT_ID,
-  PROJECT_FILES_AGENT_PREFIX,
+  PROJECT_FILES_WORKSPACE_PREFIX,
   createWorkspaceFileRouter,
 } = require('../workspace-file-router.cjs');
 
@@ -156,14 +156,14 @@ async function run() {
       const tree = await fetchJson(baseUrl, '/api/files/tree?agentId=agent-main');
       assert.strictEqual(tree.response.status, 200);
       assert(tree.body.tree.items.some(item => item.path === 'README.md'));
-      const configuredProjectId = `${PROJECT_FILES_AGENT_PREFIX}${encodeURIComponent(projectWorkspace)}`;
+      const configuredProjectId = `${PROJECT_FILES_WORKSPACE_PREFIX}${encodeURIComponent(projectWorkspace)}`;
       const configuredProjectTree = await fetchJson(baseUrl, `/api/files/tree?agentId=${encodeURIComponent(configuredProjectId)}`);
       assert.strictEqual(configuredProjectTree.response.status, 200);
-      const liveProjectId = `${PROJECT_FILES_AGENT_PREFIX}${encodeURIComponent(liveProjectWorkspace)}`;
+      const liveProjectId = `${PROJECT_FILES_WORKSPACE_PREFIX}${encodeURIComponent(liveProjectWorkspace)}`;
       const liveProjectTree = await fetchJson(baseUrl, `/api/files/tree?agentId=${encodeURIComponent(liveProjectId)}`);
       assert.strictEqual(liveProjectTree.response.status, 200);
       assert(liveProjectTree.body.tree.items.some(item => item.path === 'live.txt'));
-      const unrelatedProjectId = `${PROJECT_FILES_AGENT_PREFIX}${encodeURIComponent(path.join(liveProjectWorkspace, 'nested'))}`;
+      const unrelatedProjectId = `${PROJECT_FILES_WORKSPACE_PREFIX}${encodeURIComponent(path.join(liveProjectWorkspace, 'nested'))}`;
       const unrelatedProjectTree = await fetchJson(baseUrl, `/api/files/tree?agentId=${encodeURIComponent(unrelatedProjectId)}`);
       assert.strictEqual(unrelatedProjectTree.response.status, 404);
       const referenceLink = tree.body.tree.items.find(item => item.path === 'reference-link');
@@ -397,7 +397,7 @@ async function run() {
         assert.strictEqual(worktrees.body.worktrees.items.length, 2);
         assert.strictEqual(worktrees.body.worktrees.items.find(item => item.main).workspace, canonicalProjectWorkspace);
         assert.strictEqual(worktrees.body.worktrees.items.find(item => item.current).workspace, canonicalProjectWorkspace);
-        const linkedProjectAgentId = `${PROJECT_FILES_AGENT_PREFIX}${encodeURIComponent(linkedWorkspace)}`;
+        const linkedProjectAgentId = `${PROJECT_FILES_WORKSPACE_PREFIX}${encodeURIComponent(linkedWorkspace)}`;
         const linkedTree = await fetchJson(baseUrl, `/api/files/tree?agentId=${encodeURIComponent(linkedProjectAgentId)}`);
         assert.strictEqual(linkedTree.response.status, 200);
         assert(linkedTree.body.tree.items.some(item => item.path === 'README.md'));

@@ -1068,23 +1068,6 @@ function lifecycleOperationBlocksRuntimeStart(record: TypedAgentRecord) {
     : null;
 }
 
-function requiresLegacyAcpExitAcknowledgement(record: TypedAgentRecord) {
-  if (
-    runtimeKind(record) !== 'acp'
-    || record?.structuredRuntimeProcess
-    || record?.legacyAcpProcessExitAcknowledgedAt
-  ) {
-    return false;
-  }
-  if (record?.requiresProcessExitAcknowledgement === true) return true;
-  const operation = activeLifecycleOperation(record);
-  return Boolean(
-    operation
-    && ['delete', 'archive'].includes(operation.type)
-    && operation.request?.structuredProcessProofRequired === true,
-  );
-}
-
 function publicActiveLifecycleOperation(agent: TypedAgentRecord) {
   const operation = activeLifecycleOperation(agent);
   if (!operation) return null;

@@ -839,21 +839,16 @@ function createWorkspaceFileRouter(
   return router;
 }
 
-const PROJECT_FILES_AGENT_PREFIX = PROJECT_FILES_WORKSPACE_PREFIX;
-const projectWorkspaceFromFilesAgentId = projectWorkspaceFromFilesId;
-
 export {
   GLOBAL_WORKSPACE_FILES_AGENT_ID,
   GLOBAL_WORKSPACE_FILES_ROOT,
   PROJECT_FILES_WORKSPACE_PREFIX,
-  PROJECT_FILES_AGENT_PREFIX,
   assertGlobalWorkspacePathAllowed,
   assertExactExternalFileReadable,
   createWorkspaceFileRouter,
   globalWorkspaceAllowedRoots,
   isGlobalWorkspaceFilesAgentId,
   projectWorkspaceFromFilesId,
-  projectWorkspaceFromFilesAgentId,
   resolveWorkspaceRoot,
   sendWorkspaceFileError,
 };
