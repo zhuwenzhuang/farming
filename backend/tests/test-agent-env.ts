@@ -132,8 +132,20 @@ async function run() {
     agentShellEnvProvider(shell) {
       resolvedShells.push(shell || 'default');
       return String(shell).endsWith('zsh')
-        ? { PATH: '/zsh/bin', PROMPT: 'zsh prompt', RPROMPT: 'zsh right prompt' }
-        : { PATH: '/bash/bin', PS1: 'bash prompt', PROMPT_COMMAND: 'bash hook' };
+        ? {
+            PATH: '/zsh/bin',
+            PROMPT: 'zsh prompt',
+            RPROMPT: 'zsh right prompt',
+            FARMING_RUN_SERVER: '1',
+            FARMING_RUN_NATIVE_PTY_HOST: '1',
+          }
+        : {
+            PATH: '/bash/bin',
+            PS1: 'bash prompt',
+            PROMPT_COMMAND: 'bash hook',
+            FARMING_RUN_SERVER: '1',
+            FARMING_RUN_NATIVE_PTY_HOST: '1',
+          };
     },
   });
   const previousPager = process.env.PAGER;
@@ -151,6 +163,8 @@ async function run() {
     assert.strictEqual(env.GIT_PAGER, undefined);
     assert.strictEqual(env.FARMING_SHELL_CONTROLLED_PROMPT, '1', 'shell sessions should retain their explicit prompt policy');
     assert.strictEqual(env.FARMING_ANONYMIZE_SHELL_PROMPT, '1');
+    assert.strictEqual(env.FARMING_RUN_SERVER, undefined, 'server process mode must not leak into Agent CLI commands');
+    assert.strictEqual(env.FARMING_RUN_NATIVE_PTY_HOST, undefined, 'native PTY host mode must not leak into Agent CLI commands');
     assert.strictEqual(env.PS1, undefined, 'bash must source its own prompt instead of inheriting another shell prompt');
     assert.strictEqual(env.PROMPT_COMMAND, undefined, 'bash must source its own prompt hook instead of inheriting one');
 

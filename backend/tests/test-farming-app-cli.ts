@@ -802,6 +802,21 @@ async function runTests() {
   }
 
   {
+    const output = execFileSync(process.execPath, ['backend/farming-app-cli.cjs', 'computer', '--help'], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+      timeout: 5_000,
+      env: {
+        ...process.env,
+        FARMING_RUN_SERVER: '1',
+        FARMING_RUN_NATIVE_PTY_HOST: '1',
+      },
+    });
+    assert(output.includes('farming computer'));
+    assert(output.includes('mcp'));
+  }
+
+  {
     const packageReleaseSource = fs.readFileSync(
       path.join(process.cwd(), 'scripts/package-release.sh'),
       'utf8',

@@ -3788,6 +3788,8 @@ class AgentManager extends EventEmitter {
 
   buildAgentEnv(agentId: AgentId, agent: TypedAgentRecord) {
     const env = this.buildAgentBaseEnv(agent);
+    delete env.FARMING_RUN_SERVER;
+    delete env.FARMING_RUN_NATIVE_PTY_HOST;
     if (agent.category === 'coding') {
       // Prompt policy is meaningful only for shell sessions. Never pass a
       // shell presentation toggle into a directly launched coding CLI.

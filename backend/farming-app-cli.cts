@@ -1412,12 +1412,18 @@ async function run(argv: string[] = process.argv.slice(2)): Promise<number> {
     return 0;
   }
 
-  if (argv[0] === NATIVE_PTY_HOST_ARG || process.env.FARMING_RUN_NATIVE_PTY_HOST === '1') {
+  if (
+    argv[0] === NATIVE_PTY_HOST_ARG
+    || (argv.length === 0 && process.env.FARMING_RUN_NATIVE_PTY_HOST === '1')
+  ) {
     runNativePtyHostInCurrentProcess();
     return 0;
   }
 
-  if (process.env[SERVER_MODE_ENV] === '1' || argv[0] === SERVER_MODE_ARG) {
+  if (
+    argv[0] === SERVER_MODE_ARG
+    || (argv.length === 0 && process.env[SERVER_MODE_ENV] === '1')
+  ) {
     await runServerInCurrentProcess();
     return 0;
   }
