@@ -30,7 +30,11 @@ Browser 插件在 ACP Session 创建边界处已启用时，Farming 会通过现
 
 Farming Code 后续应通过 Extension 扩展能力，而不是把每一种新资源和 Agent 能力直接加入核心产品。浏览器是当前最明确的例子，但不应因此在核心中形成一套一次性的浏览器子系统。
 
-Farming Code 通过统一的插件页面呈现这些能力。左上角的紧凑拼图按钮和空白欢迎页上的大型“插件”入口进入同一个页面；插件生命周期与配置归属这里，不再堆进通用设置。进入插件页本身只读，启用或停用仍是显式操作。
+Farming Code 通过统一的插件页面呈现这些能力。左上角的紧凑拼图按钮和空白欢迎页上的大型“插件”入口进入同一个页面；插件生命周期、Agent Home 管理与新 Agent 默认值都归属这里，不再堆进通用设置。每一次变更仍然必须由用户显式操作。
+
+同一个页面也拥有 Agent 配置。一个 Provider 加一个 Agent Home ID 就是一份独立 Agent 配置：`Codex · default` 与 `Codex · work` 是两个 Agent，即使它们都使用 Codex。Skill、Plugin 与 Command 只在拥有它们的精确 Home 下发现和展示；Farming 不会再把多个 Home 的扩展合并成 Provider 级列表。全局 Farming Settings 中有序的 `agentHomes` Registry 是权威状态。新增项追加到末尾，拖拽或键盘移动会重写稳定的数字顺序，只有非 `default` 项可以删除。因此 Agent Home 管理不再出现在通用 Settings 中。
+
+每份 Agent 配置还拥有只用于 Farming 新建 Agent 时的默认值：Provider 支持时包括 Model、Reasoning Effort 和 Fast。默认值 `inherit` 表示 Farming 不向 Provider 传入对应覆盖参数。Codex 把显式 Fast 开关映射到 Priority/Default Service Tier；Claude 支持 Model 与 Effort，但不支持 Fast；没有受支持的启动前配置 Contract 的 Provider 继续由自身管理。Terminal 与 ACP Chat 在共享的 Agent Start 边界解析同一份 Home 默认值。恢复已有 Provider Session 时保留该 Session 的 Profile，不会用“新 Agent 默认值”覆盖它。
 
 Farming 随发行包提供一个默认可选的 HTTPS 公共镜像。只有有界的精确版本元数据查询返回相同版本与 SRI时才使用镜像；否则，或镜像下载随后失败时，Farming 都使用 Manifest 中的权威 npm URL。`FARMING_RUNTIME_NPM_MIRROR` 可以覆盖包内候选，或设为 `off` 关闭。
 

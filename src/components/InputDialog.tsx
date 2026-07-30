@@ -51,6 +51,12 @@ interface WorkspacePathSuggestion {
   path: string
 }
 
+interface AgentHomeOption {
+  id: string
+  path: string
+  order?: number
+}
+
 interface MainAgentResumeSession {
   provider: string
   providerHomeId?: string
@@ -143,7 +149,7 @@ export function InputDialog({
   const [taskText, setTaskText] = useState('')
   const [workflowId, setWorkflowId] = useState('')
   const [workspaceHistory, setWorkspaceHistory] = useState<string[]>([])
-  const [agentHomes, setAgentHomes] = useState<Record<string, Array<{ id: string; path: string }>>>({})
+  const [agentHomes, setAgentHomes] = useState<Record<string, AgentHomeOption[]>>({})
   const [selectedHomeId, setSelectedHomeId] = useState('default')
   const [agentRuntimeMode, setAgentRuntimeMode] = useState<'terminal' | 'chat'>('terminal')
   const [homeMenuOpen, setHomeMenuOpen] = useState(false)
@@ -254,7 +260,7 @@ export function InputDialog({
 
     fetch(appPath('/api/settings'))
       .then(r => r.json())
-      .then((data: { settings?: { workspace?: string; lastMainWorkspace?: string; workspaceHistory?: string[]; defaultLaunchAgent?: string; agentHomes?: Record<string, Array<{ id: string; path: string }>> } }) => {
+      .then((data: { settings?: { workspace?: string; lastMainWorkspace?: string; workspaceHistory?: string[]; defaultLaunchAgent?: string; agentHomes?: Record<string, AgentHomeOption[]> } }) => {
         if (cancelled) return
         const settings = data.settings ?? {}
         const nextMainWorkspaceDefault = getMainWorkspaceDefault(settings)
@@ -464,7 +470,10 @@ export function InputDialog({
     }
 
     setSelectedAgent(agent)
-    const nextHomes = (Array.isArray(agentHomes[agent.name]) ? agentHomes[agent.name] : []) as Array<{ id: string; path: string }>
+    const configuredHomes = agentHomes[agent.name]
+    const nextHomes = (Array.isArray(configuredHomes) ? configuredHomes : [])
+      .slice()
+      .sort((left, right) => (left.order ?? Number.MAX_SAFE_INTEGER) - (right.order ?? Number.MAX_SAFE_INTEGER))
     setSelectedHomeId(nextHomes[0]?.id || 'default')
     setHomeMenuOpen(false)
     workspaceTouchedRef.current = false
@@ -618,7 +627,10 @@ export function InputDialog({
 
   const homesForSelectedAgent = useMemo(() => {
     if (!selectedAgent) return []
-    const homes = (Array.isArray(agentHomes[selectedAgent.name]) ? agentHomes[selectedAgent.name] : []) as Array<{ id: string; path: string }>
+    const configuredHomes = agentHomes[selectedAgent.name]
+    const homes = (Array.isArray(configuredHomes) ? configuredHomes : [])
+      .slice()
+      .sort((left, right) => (left.order ?? Number.MAX_SAFE_INTEGER) - (right.order ?? Number.MAX_SAFE_INTEGER))
     if (homes.length > 0) return homes
     if (selectedAgent.name === 'codex') return [{ id: 'default', path: '~/.codex' }]
     if (selectedAgent.name === 'claude') return [{ id: 'default', path: '~/.claude' }]

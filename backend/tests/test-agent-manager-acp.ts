@@ -263,15 +263,43 @@ async function run() {
     ...TEST_PROCESS_IDENTITY,
     resolveLaunch: () => ({ command: process.execPath, args: ['--import', require.resolve('tsx'), fixture], version: 'test' }),
   });
-  const codexManager = new AgentManager(config(), { acpRuntime: codexRuntime, skipExecutablePreflight: true });
+  const codexManager = new AgentManager(config({
+    getAgentHome(provider, homeId) {
+      assert.strictEqual(provider, 'codex');
+      assert.strictEqual(homeId, 'work');
+      return {
+        id: 'work',
+        path: path.join(os.homedir(), '.codex-work'),
+        order: 1,
+        newAgentDefaults: { model: 'gpt-5.6-sol', reasoning: 'high', fast: 'on' },
+      };
+    },
+    getAgentLaunchProfileForHome(provider, homeId) {
+      assert.strictEqual(provider, 'codex');
+      assert.strictEqual(homeId, 'work');
+      return {
+        approvalMode: 'approve',
+        model: 'gpt-5.6-sol',
+        reasoningEffort: 'high',
+        serviceTier: 'priority',
+        modelPreset: 'gpt-5.6-sol:high',
+      };
+    },
+  }), { acpRuntime: codexRuntime, skipExecutablePreflight: true });
   try {
     const codexAgentId = await new Promise(resolve => {
       codexManager.startAgent('codex', process.cwd(), (id, error) => {
         assert.ifError(error);
         resolve(id);
-      }, { agentRuntimeMode: 'chat', wantsMain: false });
+      }, { agentRuntimeMode: 'chat', wantsMain: false, providerHomeId: 'work' });
     });
     const codexAgent = codexManager.getState().agents.find(agent => agent.id === codexAgentId);
+    assert.deepStrictEqual(JSON.parse(codexRuntime.bindings.get(codexAgentId).env.CODEX_CONFIG), {
+      model: 'gpt-5.6-sol',
+      model_reasoning_effort: 'high',
+      service_tier: 'priority',
+      developer_instructions: farmingSystemPrompt,
+    });
     assert.strictEqual(codexAgent.providerCapabilities.supportsSteer, true);
     assert.strictEqual(codexAgent.runtimeBinding.supportsSteer, true);
 

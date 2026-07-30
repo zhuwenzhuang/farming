@@ -230,7 +230,7 @@ Farming stores runtime settings under `~/.farming/settings.json` by default. Bac
 - `defaultLaunchAgent`
 - `agentLaunchProfiles.codex`
 - `agentLaunchProfiles.claude`
-- `agentHomes` (home metadata for Codex, Claude, OpenCode, and Qoder; each provider keeps a non-removable `default` home)
+- `agentHomes` (the ordered global Agent configuration registry: one `provider + home id` is one Agent; each record owns its Home path and fresh-Agent model/reasoning/Fast defaults, and each provider keeps a non-removable `default` home)
 - `searchTimeoutMs` (shared timeout for Project Files search and Agent history search; defaults to 15 seconds)
 - `workspaceHistory`
 - `projectWorkspaces` (the persisted Projects membership; Agent, file, restored Project session, and Git-worktree entry points all add the same workspace identity, while only Remove Project deletes it)

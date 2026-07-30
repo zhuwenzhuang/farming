@@ -11,7 +11,7 @@ function run() {
   const openFileSource = read('src/components/files/useWorkspaceFileOpenController.ts');
   const inputDialogSource = read('src/components/InputDialog.tsx');
   const acpSessionSource = read('src/components/code/acp/useAcpSession.ts');
-  const agentHomesSource = read('src/components/code/AgentHomesSettingsPanel.tsx');
+  const pluginsSource = read('src/components/code/PluginsPanel.tsx');
 
   assert(
     blameSource.includes('openFileKeyRef.current !== requestedFileKey')
@@ -41,14 +41,14 @@ function run() {
   );
 
   assert(
-    agentHomesSource.includes('if (!panelScopeRef.current.open || homesSaveRequestRef.current) return')
-      && agentHomesSource.includes('settingsLoadRequestRef.current !== requestId')
-      && agentHomesSource.includes('panelScopeRef.current.generation !== generation')
-      && agentHomesSource.includes('homesSaveRequestRef.current !== requestId')
-      && agentHomesSource.includes('const AGENT_HOMES_REQUEST_TIMEOUT_MS = 15_000')
-      && agentHomesSource.includes('fetchAgentHomesSettings(appPath(\'/api/settings\')')
-      && agentHomesSource.includes('reconcileAfterSave')
-      && agentHomesSource.includes('disabled={loading || saving}'),
+    pluginsSource.includes('if (!agentPanelScopeRef.current.mounted || agentSaveRequestRef.current) return')
+      && pluginsSource.includes('agentGroupsRequestRef.current !== requestId')
+      && pluginsSource.includes('agentPanelScopeRef.current.generation !== generation')
+      && pluginsSource.includes('agentSaveRequestRef.current !== requestId')
+      && pluginsSource.includes('const AGENT_SETTINGS_REQUEST_TIMEOUT_MS = 15_000')
+      && pluginsSource.includes("fetchAgentSettings(appPath('/api/settings')")
+      && pluginsSource.includes('reconcileAfterSave')
+      && pluginsSource.includes('disabled={agentSaving'),
     'Agent Home loads and saves should be bounded, reconcile uncertain saves, and reject results from an old panel generation'
   );
 

@@ -503,7 +503,6 @@ export function AgentHomesSettingsPanel({
 
   if (!open) return null
 
-  const providers = orderedProviders(homes, agentLaunchOptions)
   const updateVersions = updateStatus?.versions ?? []
   const selectedVersion = updateVersions.find(version => version.assetName === selectedUpdateAsset)
   const updateInstallBusy = ['downloading', 'extracting', 'installing', 'restarting', 'rolling-back'].includes(updatePhase)
@@ -803,6 +802,9 @@ export function AgentHomesSettingsPanel({
               <div>
                 <h3>{copy.agentPermissions}</h3>
               </div>
+              {(loading || saving || notice) && (
+                <span className="code-settings-status">{loading ? copy.loading : saving ? copy.saving : notice}</span>
+              )}
             </div>
             <div className="code-settings-choice-row dangerous">
               <span>{copy.dangerousSkipLabel}</span>
@@ -816,112 +818,7 @@ export function AgentHomesSettingsPanel({
                 onClick={() => saveDangerouslySkipPermissions(!dangerouslySkipPermissions)}
               ><CheckGlyph /></button>
             </div>
-          </section>
-
-          <section className="code-settings-section">
-            <div className="code-settings-section-heading">
-              <div>
-                <h3>{copy.agentHomes}</h3>
-                <p>{copy.agentHomesHint}</p>
-              </div>
-              {(loading || saving || notice) && (
-                <span className="code-settings-status">{loading ? copy.loading : saving ? copy.saving : notice}</span>
-              )}
-            </div>
             {error && <div className="code-settings-error" role="alert">{error}</div>}
-
-            {providers.length === 0 && <div className="code-agent-home-empty">{copy.noAgents}</div>}
-            <div className="code-agent-homes-list">
-              {providers.map(provider => {
-                const providerHomes = homesForProvider(homes, provider)
-                const providerAvailable = availableCodingProviders(agentLaunchOptions).includes(provider)
-                const defaultHome = providerHomes.find(home => home.id.toLowerCase() === 'default')
-                const customHomes = providerHomes.filter(home => home.id.toLowerCase() !== 'default')
-                return (
-                  <div className="code-agent-home-provider" key={provider}>
-                    <div className="code-agent-home-provider-header">
-                      <div className="code-agent-home-provider-title">
-                        <strong>{providerDisplayName(provider)}{providerAvailable ? '' : ` · ${copy.unavailable}`}</strong>
-                        {defaultHome && <span title={defaultHome.path}>{defaultHome.path} default</span>}
-                      </div>
-                      <button type="button" className="code-agent-home-add" disabled={loading || saving} onClick={() => {
-                        setError('')
-                        setNotice('')
-                        setDraft(nextHomeDraft(provider))
-                      }} aria-label={copy.addHome(providerDisplayName(provider))} title={copy.addHome(providerDisplayName(provider))}><PlusGlyph /></button>
-                    </div>
-
-                    {customHomes.map(home => (
-                      <div className="code-agent-home-row" key={home.id}>
-                        <div className="code-agent-home-path" title={home.path}>{home.path}</div>
-                        <div className="code-agent-home-id">{home.id}</div>
-                        <div className="code-agent-home-actions">
-                          <button
-                            type="button"
-                            disabled={loading || saving}
-                            onClick={() => removeHome(provider, home.id)}
-                            aria-label={copy.remove}
-                            title={copy.remove}
-                          ><CloseGlyph /></button>
-                        </div>
-                      </div>
-                    ))}
-
-                    {draft && draft.provider === provider && (
-                      <div className="code-agent-home-form">
-                        <label>
-                          <span>{copy.homePath}</span>
-                          <input
-                            type="text"
-                            name={`farming-agent-home-${provider}-path`}
-                            inputMode="text"
-                            autoComplete="off"
-                            autoCorrect="off"
-                            autoCapitalize="none"
-                            spellCheck={false}
-                            enterKeyHint="next"
-                            data-lpignore="true"
-                            data-1p-ignore="true"
-                            data-bwignore="true"
-                            data-form-type="other"
-                            value={draft.path}
-                            placeholder={copy.pathPlaceholder}
-                            aria-label={copy.homePath}
-                            onChange={event => setDraft(current => current ? { ...current, path: event.target.value } : current)}
-                          />
-                        </label>
-                        <label>
-                          <span>{copy.homeName}</span>
-                          <input
-                            type="text"
-                            name={`farming-agent-home-${provider}-name`}
-                            inputMode="text"
-                            autoComplete="off"
-                            autoCorrect="off"
-                            autoCapitalize="none"
-                            spellCheck={false}
-                            enterKeyHint="done"
-                            data-lpignore="true"
-                            data-1p-ignore="true"
-                            data-bwignore="true"
-                            data-form-type="other"
-                            value={draft.id}
-                            placeholder={copy.homeNamePlaceholder}
-                            aria-label={copy.homeName}
-                            onChange={event => setDraft(current => current ? { ...current, id: event.target.value } : current)}
-                          />
-                          <span>{copy.homeNameHint}</span>
-                        </label>
-                        <div className="code-agent-home-form-actions">
-                          <button type="button" onClick={() => setDraft(null)} aria-label={copy.cancel} title={copy.cancel}><CloseGlyph /></button>
-                          <button type="button" className="primary" disabled={loading || saving} onClick={submitDraft} aria-label={copy.save} title={copy.save}><CheckGlyph /></button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
           </section>
         </div>
       </aside>

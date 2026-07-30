@@ -92,15 +92,21 @@ function run() {
     assert.strictEqual(settings.crtTerminalFontSize, DEFAULT_CRT_TERMINAL_FONT_SIZE);
     assert.strictEqual(settings.defaultLaunchAgent, 'codex');
     assert.strictEqual(settings.agentLaunchProfiles.codex.approvalMode, 'approve');
-    assert.strictEqual(settings.agentLaunchProfiles.codex.modelPreset, 'gpt-5.5:xhigh');
+    assert.strictEqual(settings.agentLaunchProfiles.codex.modelPreset, 'config');
     assert.strictEqual(settings.agentLaunchProfiles.claude.permissionMode, 'default');
     assert.strictEqual(settings.agentLaunchProfiles.claude.model, 'config');
     assert.strictEqual(settings.agentLaunchProfiles.claude.effort, 'config');
     assert.strictEqual(settings.codexApprovalMode, 'approve');
-    assert.strictEqual(settings.codexModelPreset, 'gpt-5.5:xhigh');
-    assert.strictEqual(settings.codexModel, 'gpt-5.5');
-    assert.strictEqual(settings.codexReasoningEffort, 'xhigh');
-    assert.strictEqual(settings.codexServiceTier, 'default');
+    assert.strictEqual(settings.codexModelPreset, 'config');
+    assert.strictEqual(settings.codexModel, 'config');
+    assert.strictEqual(settings.codexReasoningEffort, 'config');
+    assert.strictEqual(settings.codexServiceTier, 'config');
+    assert.deepStrictEqual(settings.agentHomes.codex[0], {
+      id: 'default',
+      path: '~/.codex',
+      order: 0,
+      newAgentDefaults: { model: 'inherit', reasoning: 'inherit', fast: 'inherit' },
+    });
     assert.strictEqual(settings.codexRuntimeMode, undefined);
     assert.strictEqual(settings.updateUrl, undefined);
     assert.strictEqual(DEFAULT_SEARCH_TIMEOUT_MS, 15000);
@@ -317,7 +323,41 @@ function run() {
     assert.strictEqual(manager.getSettings().codexModelPreset, 'gpt-5.5:high');
     assert.strictEqual(manager.getCodexServiceTier(), 'priority');
     manager.updateSettings({ codexModelPreset: 'invalid model with spaces' });
-    assert.strictEqual(manager.getSettings().codexModelPreset, 'gpt-5.5:xhigh');
+    assert.strictEqual(manager.getSettings().codexModelPreset, 'config');
+    manager.updateSettings({
+      agentHomes: {
+        ...manager.getSettings().agentHomes,
+        codex: [
+          {
+            id: 'default',
+            path: '~/.codex',
+            order: 3,
+            newAgentDefaults: { model: 'inherit', reasoning: 'inherit', fast: 'inherit' },
+          },
+          {
+            id: 'work',
+            path: '~/.codex-work',
+            order: 1,
+            newAgentDefaults: { model: 'gpt-5.6-sol', reasoning: 'high', fast: 'on' },
+          },
+        ],
+      },
+    });
+    assert.deepStrictEqual(manager.getAgentLaunchProfileForHome('codex', 'default'), {
+      approvalMode: 'approve',
+      model: 'config',
+      reasoningEffort: 'config',
+      serviceTier: 'config',
+      modelPreset: 'config',
+    });
+    assert.deepStrictEqual(manager.getAgentLaunchProfileForHome('codex', 'work'), {
+      approvalMode: 'approve',
+      model: 'gpt-5.6-sol',
+      reasoningEffort: 'high',
+      serviceTier: 'priority',
+      modelPreset: 'gpt-5.6-sol:high',
+    });
+    assert.strictEqual(manager.getSettings().agentHomes.codex[1].order, 1);
     manager.updateSettings({
       defaultLaunchAgent: 'claude',
       agentLaunchProfiles: {
@@ -344,7 +384,7 @@ function run() {
       model: 'claude-opus-4-8[1m]',
       effort: 'high',
     });
-    assert.strictEqual(manager.getSettings().agentLaunchProfiles.codex.modelPreset, 'gpt-5.5:xhigh');
+    assert.strictEqual(manager.getSettings().agentLaunchProfiles.codex.modelPreset, 'config');
     manager.updateSettings({
       defaultLaunchAgent: 'missing-agent',
       agentLaunchProfiles: {

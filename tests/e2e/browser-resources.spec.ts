@@ -852,8 +852,8 @@ test('matches the focused Viewer viewport and restores the previous Viewer on cl
   await page.getByTestId('code-nav-plugins').click()
   const pluginsPanel = page.getByTestId('code-plugins-panel')
   await expect(pluginsPanel.getByTestId('code-plugin-section-farming')).toBeVisible()
-  await expect(pluginsPanel.getByTestId('code-plugin-section-agent-codex')).toBeVisible()
-  await expect(pluginsPanel.getByTestId('code-plugin-section-agent-claude')).toBeVisible()
+  await expect(pluginsPanel.getByTestId('code-plugin-section-agent-codex-default')).toBeVisible()
+  await expect(pluginsPanel.getByTestId('code-plugin-section-agent-claude-default')).toBeVisible()
   const browserPlugin = pluginsPanel.getByTestId('code-plugin-browser')
   const browserToggle = browserPlugin.getByRole('button', { name: 'Disable' })
   const browserHint = pluginsPanel.getByText(

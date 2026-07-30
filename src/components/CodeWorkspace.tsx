@@ -5257,7 +5257,6 @@ export function CodeWorkspace({
         activeAgentId={activeView === 'projects' ? activeAgent?.id ?? null : null}
         language={uiPreferences.language}
         uiPreferences={uiPreferences}
-        agentLaunchOptions={agentLaunchOptions}
         onClose={() => setSettingsPanelOpen(false)}
         onUpdateUiPreferences={onUpdateUiPreferences}
       />

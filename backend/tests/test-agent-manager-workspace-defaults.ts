@@ -285,6 +285,57 @@ async function run() {
     assert.strictEqual(outsideAgent.cwd, restoredWorkingDirectory);
     assert.strictEqual(outsideAgent.projectWorkspace, restoredWorkingDirectory);
 
+    const homeLaunches = [];
+    const homeProfileManager = new AgentManager({
+      getWorkspace: () => process.cwd(),
+      getHeartbeatInterval: () => 60_000,
+      getTaskHistory: () => [],
+      getDangerouslySkipAgentPermissionsByDefault: () => false,
+      getAgentLaunchProfiles: () => ({ codex: { approvalMode: 'approve' } }),
+      getAgentLaunchProfileForHome(provider, homeId) {
+        assert.strictEqual(provider, 'codex');
+        assert.strictEqual(homeId, 'work');
+        return {
+          approvalMode: 'approve',
+          model: 'gpt-5.6-sol',
+          reasoningEffort: 'high',
+          serviceTier: 'priority',
+          modelPreset: 'gpt-5.6-sol:high',
+        };
+      },
+      getAgentHome(provider, homeId) {
+        assert.strictEqual(provider, 'codex');
+        assert.strictEqual(homeId, 'work');
+        return {
+          id: 'work',
+          path: path.join(os.homedir(), '.codex-work'),
+          order: 1,
+          newAgentDefaults: { model: 'gpt-5.6-sol', reasoning: 'high', fast: 'on' },
+        };
+      },
+    }, { skipExecutablePreflight: true });
+    homeProfileManager.engineBridge.resolve = () => ({
+      engineName: 'local',
+      engine: {
+        async createSession(options) {
+          homeLaunches.push(options);
+        },
+      },
+      spec: { category: 'coding' },
+    });
+    try {
+      await startAgent(homeProfileManager, 'codex', process.cwd(), {
+        wantsMain: false,
+        providerHomeId: 'work',
+      });
+      assert(homeLaunches[0].args.includes('gpt-5.6-sol'));
+      assert(homeLaunches[0].args.includes('model_reasoning_effort="high"'));
+      assert(homeLaunches[0].args.includes('service_tier="priority"'));
+    } finally {
+      clearInterval(homeProfileManager.heartbeatInterval);
+      homeProfileManager.engineBridge.dispose();
+    }
+
     console.log('✓ AgentManager uses .farming identity workspace for main agent and project cwd for sub agents by default');
   } finally {
     clearInterval(manager.heartbeatInterval);

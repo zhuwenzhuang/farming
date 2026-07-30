@@ -92,10 +92,10 @@ test('update request errors stay inside the update card', async ({ page }) => {
   const updateCard = page.getByTestId('code-settings-update-card')
   await expect(updateCard.getByRole('alert')).toHaveText(message)
 
-  const agentHomesSection = page.locator('.code-settings-section').filter({
-    has: page.getByRole('heading', { name: 'Agent Homes' }),
+  const agentPermissionsSection = page.locator('.code-settings-section').filter({
+    has: page.getByRole('heading', { name: 'Agent Permissions' }),
   })
-  await expect(agentHomesSection.getByRole('alert')).toHaveCount(0)
+  await expect(agentPermissionsSection.getByRole('alert')).toHaveCount(0)
 })
 
 test('non-npm installations expose no update source or enabled update action', async ({ page }) => {

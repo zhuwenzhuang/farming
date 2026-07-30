@@ -54,6 +54,18 @@ type SelectedAgentExtension = AgentExtension & {
 }
 
 const EXTENSION_KIND_ORDER = ['plugin', 'skill', 'command']
+const MAX_AUTO_EXPANDED_EXTENSIONS = 12
+const AGENT_SETTINGS_REQUEST_TIMEOUT_MS = 15_000
+
+async function fetchAgentSettings(url: string, init?: RequestInit) {
+  const controller = new AbortController()
+  const timeoutId = window.setTimeout(() => controller.abort(), AGENT_SETTINGS_REQUEST_TIMEOUT_MS)
+  try {
+    return await fetch(url, { ...init, signal: controller.signal })
+  } finally {
+    window.clearTimeout(timeoutId)
+  }
+}
 
 function pluginCopy(language: UiLanguage) {
   const zh = language === 'zh'
@@ -321,6 +333,10 @@ export function PluginsPanel({
   const [claudeReasoning, setClaudeReasoning] = useState<Array<{ value: string; label: string }>>([])
   const [selectedExtension, setSelectedExtension] = useState<SelectedAgentExtension | null>(null)
   const agentGroupsRequestRef = useRef(0)
+  const agentSaveRequestRef = useRef<number | null>(null)
+  const agentSaveSequenceRef = useRef(0)
+  const retryOnReconnectRef = useRef(false)
+  const agentPanelScopeRef = useRef({ mounted: true, generation: 0 })
 
   useEffect(() => {
     if (!capability || browserChoiceDirtyRef.current) return
@@ -338,12 +354,14 @@ export function PluginsPanel({
   }, [computerCapability])
 
   const loadAgentGroups = useCallback(async () => {
+    if (!agentPanelScopeRef.current.mounted || agentSaveRequestRef.current) return
+    const generation = agentPanelScopeRef.current.generation
     const requestId = agentGroupsRequestRef.current + 1
     agentGroupsRequestRef.current = requestId
     setAgentGroupsLoading(true)
     setAgentGroupsError('')
     try {
-      const response = await fetch(appPath('/api/agent-extensions'), {
+      const response = await fetchAgentSettings(appPath('/api/agent-extensions'), {
         headers: { Accept: 'application/json' },
       })
       const data = await response.json().catch(() => ({})) as {
@@ -351,23 +369,53 @@ export function PluginsPanel({
         error?: string
       }
       if (!response.ok) throw new Error(data.error || copy.agentExtensionsFailed)
-      if (agentGroupsRequestRef.current !== requestId) return
+      if (
+        agentGroupsRequestRef.current !== requestId
+        || agentPanelScopeRef.current.generation !== generation
+        || !agentPanelScopeRef.current.mounted
+        || agentSaveRequestRef.current
+      ) return
+      retryOnReconnectRef.current = false
       setAgentGroups(normalizeAgentExtensionGroups(Array.isArray(data.agents) ? data.agents : []))
     } catch (loadError) {
-      if (agentGroupsRequestRef.current !== requestId) return
-      if (!getBackendConnectionSnapshot().connected) return
+      if (
+        agentGroupsRequestRef.current !== requestId
+        || agentPanelScopeRef.current.generation !== generation
+        || !agentPanelScopeRef.current.mounted
+        || agentSaveRequestRef.current
+      ) return
+      if (!getBackendConnectionSnapshot().connected) {
+        retryOnReconnectRef.current = true
+        return
+      }
       setAgentGroupsError(loadError instanceof Error ? loadError.message : copy.agentExtensionsFailed)
     } finally {
-      if (agentGroupsRequestRef.current === requestId) setAgentGroupsLoading(false)
+      if (
+        agentGroupsRequestRef.current === requestId
+        && agentPanelScopeRef.current.generation === generation
+        && agentPanelScopeRef.current.mounted
+        && !agentSaveRequestRef.current
+        && !retryOnReconnectRef.current
+      ) setAgentGroupsLoading(false)
     }
   }, [copy.agentExtensionsFailed])
 
   useEffect(() => {
-    const retryLoad = () => void loadAgentGroups()
+    agentPanelScopeRef.current.mounted = true
+    const retryLoad = () => {
+      if (!retryOnReconnectRef.current) return
+      retryOnReconnectRef.current = false
+      void loadAgentGroups()
+    }
     window.addEventListener('farming:backend-connected', retryLoad)
     void loadAgentGroups()
     return () => {
+      agentPanelScopeRef.current = {
+        mounted: false,
+        generation: agentPanelScopeRef.current.generation + 1,
+      }
       agentGroupsRequestRef.current += 1
+      retryOnReconnectRef.current = false
       window.removeEventListener('farming:backend-connected', retryLoad)
     }
   }, [loadAgentGroups])
@@ -404,28 +452,53 @@ export function PluginsPanel({
   }, [])
 
   const saveAgentGroups = useCallback(async (nextGroups: AgentExtensionGroup[]) => {
-    if (agentSaving) return false
+    if (!agentPanelScopeRef.current.mounted || agentSaveRequestRef.current) return false
+    const generation = agentPanelScopeRef.current.generation
+    const requestId = agentSaveSequenceRef.current + 1
+    agentSaveSequenceRef.current = requestId
+    agentSaveRequestRef.current = requestId
+    agentGroupsRequestRef.current += 1
     setAgentSaving(true)
+    setAgentGroupsLoading(false)
     setAgentGroupsError('')
+    let reconcileAfterSave = false
     try {
-      const response = await fetch(appPath('/api/settings'), {
+      const response = await fetchAgentSettings(appPath('/api/settings'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify({ agentHomes: settingsHomes(nextGroups) }),
       })
       const data = await response.json().catch(() => ({})) as { error?: string }
       if (!response.ok) throw new Error(data.error || copy.saveAgentFailed)
+      if (
+        agentSaveRequestRef.current !== requestId
+        || agentPanelScopeRef.current.generation !== generation
+        || !agentPanelScopeRef.current.mounted
+      ) return false
       setAgentGroups(nextGroups)
       window.dispatchEvent(new CustomEvent('farming-agent-homes-saved'))
+      agentSaveRequestRef.current = null
       await loadAgentGroups()
       return true
     } catch (saveError) {
-      setAgentGroupsError(saveError instanceof Error ? saveError.message : copy.saveAgentFailed)
+      reconcileAfterSave = true
+      if (
+        agentSaveRequestRef.current === requestId
+        && agentPanelScopeRef.current.generation === generation
+        && agentPanelScopeRef.current.mounted
+      ) setAgentGroupsError(saveError instanceof Error ? saveError.message : copy.saveAgentFailed)
       return false
     } finally {
-      setAgentSaving(false)
+      if (agentSaveRequestRef.current === requestId) agentSaveRequestRef.current = null
+      if (
+        agentPanelScopeRef.current.generation === generation
+        && agentPanelScopeRef.current.mounted
+      ) {
+        setAgentSaving(false)
+        if (reconcileAfterSave) void loadAgentGroups()
+      }
     }
-  }, [agentSaving, copy.saveAgentFailed, loadAgentGroups])
+  }, [copy.saveAgentFailed, loadAgentGroups])
 
   const updateHome = useCallback((
     providerId: string,
@@ -1127,7 +1200,7 @@ export function PluginsPanel({
                 <p className="code-plugin-empty">{copy.noAgentExtensions}</p>
               ) : kindGroups.map(group => (
                 <details
-                  open
+                  open={group.extensions.length <= MAX_AUTO_EXPANDED_EXTENSIONS}
                   className="code-plugin-kind-section"
                   data-kind={group.kind}
                   key={group.kind}
