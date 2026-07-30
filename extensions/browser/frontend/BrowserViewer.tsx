@@ -283,6 +283,10 @@ export function BrowserViewer({
     setNavigating(true)
     setViewerError('')
     try {
+      if (resource.status === 'stopped' || resource.status === 'failed') {
+        const started = await controller.start(resource.id)
+        onResource(started)
+      }
       const response = await fetch(appPath(`/api/browsers/${encodeURIComponent(resource.id)}/navigate`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
@@ -344,7 +348,7 @@ export function BrowserViewer({
             ref={addressInputRef}
             value={address}
             aria-label={copy.address}
-            disabled={resource.status !== 'running'}
+            disabled={resource.status === 'starting' || resource.status === 'stopping'}
             onChange={event => {
               addressEditingRef.current = true
               setAddress(event.currentTarget.value)

@@ -263,18 +263,29 @@ test('mounts Agent-owned Browsers behind nested resource controls without layout
   await expect(browserRow).toHaveCount(0)
   await browserSection.locator('.farming-browser-section-toggle').click()
   await browserSection.getByTestId('farming-browser-row').click()
-  await expect(page.getByTestId('farming-browser-viewer')).toBeVisible()
+  const viewer = page.getByTestId('farming-browser-viewer')
+  await expect(viewer).toBeVisible()
+  const addressInput = viewer.getByRole('textbox', { name: 'Browser address' })
+  await expect(addressInput).toBeEnabled()
+  await addressInput.fill(targetUrl)
+  await addressInput.press('Enter')
+  await expect(viewer.locator('canvas')).toBeVisible({ timeout: 30_000 })
+  await expect.poll(async () => (await browserSnapshot(page, createdBrowser.id)).url).toBe(targetUrl)
+  await viewer.getByRole('button', { name: 'More', exact: true }).click()
+  await viewer.getByRole('menuitem', { name: 'Stop', exact: true }).click()
+  await expect(viewer.getByText('Tab stopped', { exact: true })).toBeVisible({ timeout: 15_000 })
   await agentRow.hover()
   await resourcesToggle.click()
   await expect(resourceSlot.getByTestId('farming-browser-section')).toHaveCount(0)
-  await expect(page.getByTestId('farming-browser-viewer')).toBeVisible()
-  const resourcesResponse = await page.request.get('/farming/api/browsers')
-  expect(resourcesResponse.ok()).toBeTruthy()
-  const resourcesSnapshot = await resourcesResponse.json() as {
-    resources: Array<{ id: string, status: string }>
-  }
-  expect(resourcesSnapshot.resources.find(resource => resource.id === createdBrowser.id)?.status)
-    .toBe('stopped')
+  await expect(viewer).toBeVisible()
+  await expect.poll(async () => {
+    const response = await page.request.get('/farming/api/browsers')
+    expect(response.ok()).toBeTruthy()
+    const snapshot = await response.json() as {
+      resources: Array<{ id: string, status: string }>
+    }
+    return snapshot.resources.find(resource => resource.id === createdBrowser.id)?.status
+  }).toBe('stopped')
 })
 
 test('shows a passive active-Agent Browser preview and opens the full Viewer on demand', async ({
