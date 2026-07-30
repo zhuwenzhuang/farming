@@ -7,10 +7,11 @@ function run() {
   assert.match(farmingSystemPrompt, /将 `agent-browser` 封装为 Farming Browser/);
   assert.match(farmingSystemPrompt, /"\$FARMING_CLI_BIN_DIR\/farming" capabilities/);
   assert.match(farmingSystemPrompt, /不要依赖 Shell 的 `PATH`/);
-  assert.match(farmingSystemPrompt, /Farming Browser 是默认浏览器路径/);
-  assert.match(farmingSystemPrompt, /必须优先使用它/);
-  assert.match(farmingSystemPrompt, /不要改用 Provider 自带的通用 Browser/);
-  assert.match(farmingSystemPrompt, /共享 Browser Resource/);
+  assert.match(farmingSystemPrompt, /最直接、结构化、低开销且可验证的能力/);
+  assert.match(farmingSystemPrompt, /公开资料调研时的原生 Web Search/);
+  assert.match(farmingSystemPrompt, /不要为了普通检索或静态阅读创建浏览器资源/);
+  assert.match(farmingSystemPrompt, /真实页面视觉\/控制台\/网络状态/);
+  assert.match(farmingSystemPrompt, /Farming Computer 只用于必须操作完整桌面/);
 
   const claudeDefault = resolveLaunchCommand('claude', { dangerouslySkipPermissions: false });
   assert.deepStrictEqual(claudeDefault.args, []);
