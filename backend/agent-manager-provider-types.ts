@@ -170,13 +170,13 @@ export interface AcpPromptBlock extends Record<string, unknown> {
 }
 
 export interface AcpTranscriptEntry extends Record<string, unknown> {
-  id?: string;
-  type?: string;
-  title?: string;
-  status?: string;
-  content?: AcpPromptBlock[];
+  id?: unknown;
+  type?: unknown;
+  title?: unknown;
+  status?: unknown;
+  content?: Array<Record<string, unknown>>;
   _meta?: {
-    subagent_session_info?: { session_id?: string };
+    subagent_session_info?: { session_id?: unknown };
     [key: string]: unknown;
   };
 }
@@ -420,8 +420,8 @@ export interface AcpBindingCheckpoint extends Record<string, unknown> {
   version?: number;
   sessionState?: Record<string, unknown>;
   subagentStates?: Record<string, unknown>[];
-  patchDecisions?: Record<string, unknown>[];
-  providerProof?: Record<string, unknown>;
+  patchDecisions?: Array<[string, string]>;
+  providerProof?: object | null;
   complete?: boolean;
 }
 
@@ -448,15 +448,22 @@ export interface AcpSessionListResult extends Record<string, unknown> {
 }
 
 export interface AcpRuntimeContract {
-  bindings: Map<string, AcpBindingContract>;
+  bindings: ReadonlyMap<string, AcpBindingContract>;
   on(event: 'agent-runtime', listener: (event: AcpRuntimeEvent) => void): this;
   on(event: 'session', listener: (event: AcpSessionEvent) => void): this;
-  prepareAgent(options: AcpPrepareOptions): Promise<AcpPrepareResult>;
+  prepareAgent(options?: AcpPrepareOptions): Promise<AcpPrepareResult>;
   createSessionIdentity(options: ProviderSessionIdentityRequest): Promise<ProviderSessionIdentityResult>;
   submitMessage(agentId: string, prompt: AcpPromptBlock[], options?: AcpSubmitOptions): Promise<AcpSubmitResult>;
-  getSession(agentId: string, options?: Record<string, unknown>): AcpTranscriptSession;
-  getTranscriptSession(agentId: string, options?: Record<string, unknown>): AcpTranscriptSession;
-  getSubagentTranscriptSession(agentId: string, sessionId: string, options?: Record<string, unknown>): AcpTranscriptSession | null;
+  getSession(agentId: string, options?: Record<string, unknown>): Record<string, unknown>;
+  getTranscriptSession(
+    agentId: string,
+    options?: Record<string, unknown>,
+  ): Record<string, unknown>;
+  getSubagentTranscriptSession(
+    agentId: string,
+    sessionId: string,
+    options?: Record<string, unknown>,
+  ): Record<string, unknown> | null;
   getTranscriptEntry(agentId: string, entryId: string): AcpTranscriptEntry | null;
   getToolEntry(agentId: string, toolCallId: string): AcpTranscriptEntry | null;
   getSessionRequestOptions(agentId: string): AcpSessionRequestOptions;
@@ -606,7 +613,7 @@ export interface ProviderSessionRollbackIdentity extends ProviderSessionIdentity
 }
 
 export interface RuntimeBindingRegistry {
-  bindings: Map<string, unknown>;
+  bindings: ReadonlyMap<string, unknown>;
   dispose(): Promise<void>;
   resumeAfterDisposeAbort?(): void;
 }

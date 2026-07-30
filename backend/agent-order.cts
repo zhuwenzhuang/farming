@@ -6,10 +6,10 @@ interface AgentOrderRecord {
   id: string;
   cwd?: string;
   projectWorkspace?: string;
-  projectOrder?: number;
+  projectOrder?: number | null;
   pinned?: boolean;
-  pinnedOrder?: number;
-  startedAt?: number | string;
+  pinnedOrder?: number | null;
+  startedAt?: number | string | null;
 }
 
 type AgentOrderResult =

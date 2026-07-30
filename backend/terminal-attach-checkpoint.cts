@@ -1,6 +1,6 @@
 const DEFAULT_TERMINAL_ATTACH_CHECKPOINT_TIMEOUT_MS = 2000;
 
-interface TerminalAttachCheckpoint {
+export interface TerminalAttachCheckpoint {
   runtimeEpoch: string;
   renderOutput: string;
   outputSeq: number;
@@ -12,13 +12,13 @@ interface TerminalAttachCheckpoint {
   title: string;
 }
 
-interface TerminalScreenWorker {
+export interface TerminalAttachScreenWorker {
   getState(options: { timeoutMs: number }): Promise<unknown>;
 }
 
-interface TerminalAttachSession {
+export interface TerminalAttachSession {
   finalCheckpoint?: TerminalAttachCheckpoint | null;
-  screenWorker?: TerminalScreenWorker | null;
+  screenWorker?: TerminalAttachScreenWorker | null;
   stateProofAvailable?: boolean;
   runtimeEpoch?: unknown;
   outputSeq?: unknown;

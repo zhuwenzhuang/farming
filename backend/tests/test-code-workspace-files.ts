@@ -1076,7 +1076,7 @@ function run() {
       serverSource.includes('cleanupExpiredImageAttachments') &&
       serverSource.includes('IMAGE_ATTACHMENT_FILENAME_RE') &&
       serverSource.includes('void agentManager.interruptAgent(data.agentId)') &&
-      serverSource.includes("const { inputPartsFromMessage } = require('./input-parts.cjs')") &&
+      serverSource.includes("import { inputPartsFromMessage } from './input-parts.cjs'") &&
       inputPartsSource.includes('function inputPartsFromMessage(data: TerminalInputMessage | null | undefined)') &&
       inputPartsSource.includes('Array.isArray(data?.inputParts)') &&
       inputPartsSource.includes("part.type === 'paste'") &&
@@ -1098,7 +1098,7 @@ function run() {
       serverSource.includes('rememberMainPageSession: false') &&
       serverSource.includes("console.warn('Failed to auto-resume main page agent session:'") &&
       serverSource.includes('void autoResumeMainPageAgentSessions()') &&
-      serverSource.includes('function isMainAgentSessionWorkspace(session: ServerRecord)') &&
+      serverSource.includes('function isMainAgentSessionWorkspace(session: AgentSession | null)') &&
       serverSource.includes('const requestedAsMain = req.body && req.body.asMain === true && !shouldFork') &&
       serverSource.includes('const shouldRememberMainPageSession = options.rememberMainPageSession !== false && !shouldFork && !requestedAsMain') &&
       serverSource.includes("return { error: 'session is not a Main Agent session', status: 400 }") &&

@@ -1220,3 +1220,9 @@ export {
   sessionForResource,
   waitForIdentityExit,
 };
+export type {
+  BrowserTab,
+  ProcessIdentity,
+  RuntimeOptions,
+  Viewport,
+};

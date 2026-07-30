@@ -5,12 +5,8 @@ interface ReviewApiError extends Error {
   statusCode: number;
 }
 
-const { ReviewSessionError } = require('./review-session-service.cjs') as {
-  ReviewSessionError: new (...args: unknown[]) => ReviewApiError;
-};
-const { WorkspaceFileError } = require('./workspace-file-service.cjs') as {
-  WorkspaceFileError: new (...args: unknown[]) => ReviewApiError;
-};
+import { ReviewSessionError } from './review-session-service.cjs';
+import { WorkspaceFileError } from './workspace-file-service.cjs';
 
 interface ExpressRequest {
   params: Record<string, string>;

@@ -89,7 +89,7 @@ type ExecFileCallback = (
   stderr: string,
 ) => void;
 
-type ExecFileImplementation = (
+export type ExecFileImplementation = (
   command: string,
   args: readonly string[],
   options: ExecFileOptionsWithStringEncoding,
@@ -182,15 +182,8 @@ interface ProcessReport {
   };
 }
 
-const storageLayout = require('./storage-layout.cjs') as StorageLayout;
-const { runtimeExecutableInvocation } = require('./runtime-executable-invocation.cjs') as {
-  runtimeExecutableInvocation(
-    executablePath: string,
-    args?: string[],
-    env?: NodeJS.ProcessEnv,
-    platform?: string,
-  ): RuntimeExecutableInvocation;
-};
+import * as storageLayout from './storage-layout.cjs';
+import { runtimeExecutableInvocation } from './runtime-executable-invocation.cjs';
 
 const MANIFEST = require('./data/runtime-dependency-manifest.json') as RuntimeDependencyManifest;
 const SOURCE_CONFIG = require('./data/runtime-dependency-sources.json') as RuntimeDependencySourceConfig;

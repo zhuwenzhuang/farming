@@ -1,4 +1,4 @@
-const EventEmitter = require('events');
+import { EventEmitter } from 'events';
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
@@ -7,15 +7,22 @@ const { Readable, Writable } = require('stream');
 const { createRequire } = require('module');
 const { promisify } = require('util');
 const packageJson = require('../package.json');
-const { AcpCheckpointStore } = require('./acp-checkpoint-store.cjs');
-const { AcpSessionState } = require('./acp-session-state.cjs');
-const { AcpClientFileSystem, AcpClientTerminalManager } = require('./acp/client-services.cjs');
-const { PACKAGED_CODEX_ACP_ARG } = require('./acp/packaged-codex-acp.cjs');
-const { PACKAGED_CLAUDE_ACP_ARG } = require('./acp/packaged-claude-acp.cjs');
-const { permissionSecurityWarnings } = require('./acp/permission-security.cjs');
-const { patchBlock, rejectPatch } = require('./acp/patch-decisions.cjs');
-const { getProviderAdapter, listProviderAdapters } = require('./provider-adapters.cjs');
-const { isSafeProviderSessionId } = require('./provider-session-id.cjs');
+import { AcpCheckpointStore } from './acp-checkpoint-store.cjs';
+import {
+  AcpSessionState,
+  type AcpEntry as TranscriptEntry,
+  type AcpSessionSnapshot,
+  type SnapshotOptions,
+  type TranscriptSliceOptions,
+} from './acp-session-state.cjs';
+import { AcpClientFileSystem, AcpClientTerminalManager } from './acp/client-services.cjs';
+import { PACKAGED_CODEX_ACP_ARG } from './acp/packaged-codex-acp.cjs';
+import { PACKAGED_CLAUDE_ACP_ARG } from './acp/packaged-claude-acp.cjs';
+import { permissionSecurityWarnings } from './acp/permission-security.cjs';
+import { patchBlock, rejectPatch } from './acp/patch-decisions.cjs';
+import { getProviderAdapter, listProviderAdapters } from './provider-adapters.cjs';
+import { isSafeProviderSessionId } from './provider-session-id.cjs';
+import type { ProviderSessionIdentityResult } from './agent-manager-provider-types.js';
 
 type UnknownRecord = Record<string, unknown>;
 type PromptBlock = UnknownRecord & { type?: string; text?: string; path?: string };
@@ -47,41 +54,6 @@ interface AcpCheckpoint extends UnknownRecord {
   patchDecisions?: unknown;
   providerProof?: UnknownRecord & { token?: string; cwd?: string };
   complete?: boolean;
-}
-interface TranscriptEntry extends UnknownRecord {
-  id?: string;
-  type?: string;
-  content?: PromptBlock[];
-  toolCall?: UnknownRecord & { toolCallId?: string; requestedPath?: string; sessionId?: string };
-  update?: UnknownRecord & { sessionUpdate?: string };
-  status?: string;
-  title?: string;
-  _meta?: UnknownRecord & {
-    subagent_session_info?: { session_id?: string };
-    farming_patch_decisions?: Record<string, unknown>;
-  };
-}
-interface AcpSessionStateLike {
-  revision: number;
-  title?: string;
-  truncated?: boolean;
-  entries: TranscriptEntry[];
-  toolEntries: Map<string, TranscriptEntry>;
-  updates: Array<{ update?: UnknownRecord & { sessionUpdate?: string } }>;
-  availableCommands: unknown;
-  currentModeId: string;
-  configOptions: SessionConfigOption[];
-  beginPrompt(...args: unknown[]): unknown;
-  completePrompt(...args: unknown[]): unknown;
-  finishHistoryReplay(): void;
-  isInternalEntry(entry: TranscriptEntry): boolean;
-  recordAcceptedSteer(...args: unknown[]): unknown;
-  recordError(...args: unknown[]): unknown;
-  snapshot(...args: unknown[]): UnknownRecord;
-  touchEntry(...args: unknown[]): unknown;
-  transcriptSlice(...args: unknown[]): UnknownRecord;
-  exportCheckpoint(): UnknownRecord;
-  apply(notification: UnknownRecord): boolean;
 }
 interface AcpConnection {
   signal?: AbortSignal;
@@ -148,12 +120,12 @@ interface AcpBinding {
   modes: SessionResponse['modes'] | null; configOptions: SessionConfigOption[];
   pendingPermissions: Map<string, PermissionRequest>; permissionResolvers: Map<string, (value: unknown) => void>;
   pendingElicitations: Map<string, ElicitationRequest>; elicitationResolvers: Map<string, (value: unknown) => void>;
-  activeElicitations: Map<string, ElicitationRequest>; subagentStates: Map<string, AcpSessionStateLike>;
+  activeElicitations: Map<string, ElicitationRequest>; subagentStates: Map<string, AcpSessionState>;
   subagentControls: Map<string, SubagentControl>; nextSubagentGeneration: number;
-  interactionOrigins: Map<string, unknown>; activeTurn: AcpTurn | null; nextTurnId: number;
-  supportsSteer: boolean; historyReplayActive: boolean; sessionState: AcpSessionStateLike;
-  authTerminal: UnknownRecord; patchDecisions: Map<string, UnknownRecord>;
-  patchDecisionInFlight: Map<string, { promise: Promise<unknown> }>;
+  interactionOrigins: Map<string, string>; activeTurn: AcpTurn | null; nextTurnId: number;
+  supportsSteer: boolean; historyReplayActive: boolean; sessionState: AcpSessionState;
+  authTerminal: UnknownRecord; patchDecisions: Map<string, string>;
+  patchDecisionInFlight: Map<string, { decision: string; promise: Promise<unknown> }>;
   checkpointProof: unknown; sessionMutation: SessionMutation | null; configMutationTail: Promise<unknown> | null;
   stderr: string; exited: boolean; updatedAt: string;
 }
@@ -167,8 +139,26 @@ interface AcpRuntimeOptions extends PrepareAgentOptions {
   sessionSetupTimeoutMs?: number; requestTimeoutMs?: number; cancelTimeoutMs?: number;
   historyReplayMinWaitMs?: number; historyReplayQuietMs?: number; historyReplayMaxWaitMs?: number;
   deleteProviderSessionIdentity?: typeof deleteProviderSessionIdentity; describeAcpProcessGroup?: typeof describeAcpProcessGroup;
-  checkpointStore?: UnknownRecord; configDir?: string; checkpointOptions?: UnknownRecord;
-  clientFileSystem?: UnknownRecord; clientTerminals?: UnknownRecord; terminalSpawn?: typeof spawn;
+  checkpointStore?: Pick<
+    AcpCheckpointStore,
+    'dispose' | 'flush' | 'load' | 'markDirty' | 'schedule' | 'write'
+  >;
+  configDir?: string;
+  checkpointOptions?: { writeDelayMs?: unknown };
+  clientFileSystem?: Pick<AcpClientFileSystem, 'readTextFile' | 'writeTextFile'>;
+  clientTerminals?: Pick<
+    AcpClientTerminalManager,
+    | 'cleanupAgent'
+    | 'create'
+    | 'display'
+    | 'input'
+    | 'kill'
+    | 'output'
+    | 'release'
+    | 'resize'
+    | 'waitForExit'
+  >;
+  terminalSpawn?: typeof spawn;
   browserPermissionDecision?: (
     agentId: string,
     tool: string,
@@ -177,7 +167,7 @@ interface AcpRuntimeOptions extends PrepareAgentOptions {
 }
 interface PrepareAgentOptions extends UnknownRecord {
   agentId?: string; provider?: string; providerHomeId?: string; cwd?: string; sessionId?: string;
-  forkSourceSessionId?: string; forkSourceCheckpoint?: UnknownRecord; revisionBase?: number;
+  forkSourceSessionId?: string; forkSourceCheckpoint?: UnknownRecord | null; revisionBase?: number;
   approvalMode?: string; historyMode?: string; serviceTier?: string; identityOnly?: boolean;
   executable?: string; env?: NodeJS.ProcessEnv; runtimeEnv?: NodeJS.ProcessEnv;
   additionalDirectories?: string[]; mcpServers?: UnknownRecord[]; farmingSystemPrompt?: string;
@@ -193,9 +183,10 @@ interface ProviderSessionIdentity extends UnknownRecord {
   provider?: string; executable?: string; env?: NodeJS.ProcessEnv; cwd?: string;
   sessionId?: string; producerStopped?: boolean;
 }
-interface SavedCheckpoint extends UnknownRecord {
-  state?: AcpCheckpoint;
+interface SavedCheckpoint {
+  state?: unknown;
   exact?: boolean;
+  savedAt?: number;
   proof?: UnknownRecord & { token?: string; cwd?: string };
 }
 interface JsonSchemaProperty extends UnknownRecord {
@@ -210,7 +201,7 @@ function asErrorLike(error: unknown): ErrorLike {
 }
 
 const ADAPTER_VERSIONS = Object.freeze(Object.fromEntries(
-  (listProviderAdapters() as ProviderAdapterLike[])
+  listProviderAdapters()
     .filter(adapter => adapter.acp)
     .map(adapter => [adapter.id, adapter.acp!.version]),
 ));
@@ -334,10 +325,14 @@ function resolveAcpLaunch(provider: string, options: PrepareAgentOptions = {}) {
 }
 
 function codexAcpEnvironment(options: PrepareAgentOptions = {}) {
-  return getProviderAdapter('codex').prepareAcpEnvironment(options);
+  const adapter = getProviderAdapter('codex');
+  if (!adapter?.prepareAcpEnvironment) {
+    throw new Error('Codex ACP environment adapter is unavailable');
+  }
+  return adapter.prepareAcpEnvironment(options);
 }
 
-function selectedPermission(option: SessionConfigOption) {
+function selectedPermission(option: PermissionOption) {
   return { outcome: { outcome: 'selected', optionId: option.optionId } };
 }
 
@@ -404,7 +399,7 @@ function recordValue(value: unknown): UnknownRecord {
 function browserApprovalSessionState(
   binding: AcpBinding,
   request: UnknownRecord,
-): AcpSessionStateLike | null {
+): AcpSessionState | null {
   const requestSessionId = String(request.sessionId || '');
   if (!requestSessionId || requestSessionId === binding.sessionId) return binding.sessionState || null;
   return binding.subagentStates.get(requestSessionId) || null;
@@ -815,6 +810,41 @@ function attachProviderSessionIdentity(
 }
 
 class AcpRuntime extends EventEmitter {
+  declare bindings: Map<string, AcpBinding>;
+  declare spawn: typeof spawn;
+  declare createConnection: NonNullable<AcpRuntimeOptions['createConnection']> | null;
+  declare resolveLaunch: NonNullable<AcpRuntimeOptions['resolveLaunch']>;
+  declare maxUpdates: number | undefined;
+  declare initializeTimeoutMs: number;
+  declare sessionSetupTimeoutMs: number;
+  declare requestTimeoutMs: number;
+  declare cancelTimeoutMs: number;
+  declare historyReplayMinWaitMs: number;
+  declare historyReplayQuietMs: number;
+  declare historyReplayMaxWaitMs: number;
+  declare deleteProviderSessionIdentity: NonNullable<AcpRuntimeOptions['deleteProviderSessionIdentity']>;
+  declare describeProcessGroup: NonNullable<AcpRuntimeOptions['describeAcpProcessGroup']>;
+  declare checkpointStore: Pick<
+    AcpCheckpointStore,
+    'dispose' | 'flush' | 'load' | 'markDirty' | 'schedule' | 'write'
+  > | null;
+  declare disposing: boolean;
+  declare disposePromise: Promise<void> | null;
+  declare disposed: boolean;
+  declare clientFileSystem: Pick<AcpClientFileSystem, 'readTextFile' | 'writeTextFile'>;
+  declare clientTerminals: Pick<
+    AcpClientTerminalManager,
+    | 'cleanupAgent'
+    | 'create'
+    | 'display'
+    | 'input'
+    | 'kill'
+    | 'output'
+    | 'release'
+    | 'resize'
+    | 'waitForExit'
+  >;
+  declare browserPermissionDecision: NonNullable<AcpRuntimeOptions['browserPermissionDecision']>;
   constructor(options: AcpRuntimeOptions = {}) {
     super();
     this.spawn = options.spawn || spawn;
@@ -943,7 +973,12 @@ class AcpRuntime extends EventEmitter {
       nextTurnId: 1,
       supportsSteer: false,
       historyReplayActive: false,
-      sessionState: null as unknown as AcpSessionStateLike,
+      sessionState: new AcpSessionState({
+        provider,
+        sessionId: '',
+        cwd,
+        maxUpdates: this.maxUpdates,
+      }),
       authTerminal: null as unknown as UnknownRecord,
       patchDecisions: new Map(),
       patchDecisionInFlight: new Map(),
@@ -1105,7 +1140,9 @@ class AcpRuntime extends EventEmitter {
         delete binding.restartOptions.forkSourceSessionId;
         delete binding.restartOptions.forkSourceCheckpoint;
         delete binding.restartOptions.onForkSessionCreated;
-        if (forkUpdates?.updates?.some(item => item?.update?.sessionUpdate === 'available_commands_update')) {
+        if (forkUpdates?.updates?.some(
+          item => recordValue(item?.update).sessionUpdate === 'available_commands_update',
+        )) {
           binding.sessionState.availableCommands = clone(forkUpdates.availableCommands);
         }
         sessionResponse = {
@@ -1128,9 +1165,11 @@ class AcpRuntime extends EventEmitter {
             { allowDirty: true },
           );
           this.requireOpenBinding(binding);
-          restoredCheckpoint = this.restoreBindingCheckpoint(binding, saved?.state, {
-            sessionId: requestedSessionId,
-          });
+          restoredCheckpoint = this.restoreBindingCheckpoint(
+            binding,
+            recordValue(saved?.state) as AcpCheckpoint,
+            { sessionId: requestedSessionId },
+          );
           restoredCheckpointState = restoredCheckpoint?.sessionState || null;
         }
         if (capabilities.sessionCapabilities?.resume && restoredCheckpoint) {
@@ -1138,7 +1177,7 @@ class AcpRuntime extends EventEmitter {
             ? await this.checkpointMatchesProviderSession(connection, capabilities, sessionRequest, saved)
             : false;
           this.requireOpenBinding(binding);
-          if (providerStateMatches) {
+          if (providerStateMatches && restoredCheckpointState) {
             binding.sessionId = requestedSessionId;
             binding.sessionState = restoredCheckpointState;
             binding.subagentStates = restoredCheckpoint.subagentStates;
@@ -1335,7 +1374,9 @@ class AcpRuntime extends EventEmitter {
     }
   }
 
-  async createSessionIdentity(options: PrepareAgentOptions = {}) {
+  async createSessionIdentity(
+    options: PrepareAgentOptions = {},
+  ): Promise<ProviderSessionIdentityResult> {
     const agentId = `provider-session-${crypto.randomUUID()}`;
     let prepared = null;
     let result = null;
@@ -1394,6 +1435,9 @@ class AcpRuntime extends EventEmitter {
       }
     }
     if (failure) throw failure;
+    if (!result) {
+      throw new Error('Provider session identity completed without a result');
+    }
     return result;
   }
 
@@ -1419,11 +1463,15 @@ class AcpRuntime extends EventEmitter {
     return binding;
   }
 
-  isCurrentTurn(binding: AcpBinding, turn: AcpTurn) {
+  isCurrentTurn(binding: AcpBinding, turn: AcpTurn | null) {
     return this.isOpenBinding(binding) && binding.activeTurn === turn;
   }
 
-  requireCurrentTurn(binding: AcpBinding, turn: AcpTurn, phases: readonly string[] | null = null) {
+  requireCurrentTurn(
+    binding: AcpBinding,
+    turn: AcpTurn | null,
+    phases: readonly string[] | null = null,
+  ): asserts turn is AcpTurn {
     this.requireOpenBinding(binding);
     if (
       binding.activeTurn !== turn
@@ -1431,7 +1479,6 @@ class AcpRuntime extends EventEmitter {
     ) {
       throw new Error('No active Codex turn to steer');
     }
-    return turn;
   }
 
   beginTurn(binding: AcpBinding) {
@@ -1711,7 +1758,7 @@ class AcpRuntime extends EventEmitter {
   }
 
   async checkpointMatchesProviderSession(connection: AcpConnection, capabilities: InitializeResponse['agentCapabilities'] = {}, request: UnknownRecord, saved: SavedCheckpoint) {
-    const proof = saved?.state?.providerProof;
+    const proof = recordValue(recordValue(saved?.state).providerProof);
     if (
       !capabilities?.sessionCapabilities?.list
       || !proof
@@ -1790,7 +1837,7 @@ class AcpRuntime extends EventEmitter {
             cwd: binding.cwd,
             maxUpdates: this.maxUpdates,
           });
-          binding.subagentStates.set(notificationSessionId, targetState as AcpSessionStateLike);
+          binding.subagentStates.set(notificationSessionId, targetState);
         }
         if (!isPrimarySession && targetState) {
           this.ensureSubagentControl(binding, notificationSessionId);
@@ -2118,7 +2165,7 @@ class AcpRuntime extends EventEmitter {
         // into error.data.details. Classify the normalized message so the
         // ordered transcript and runtime snapshot cannot disagree.
         binding.sessionState.recordError(runtimeError.message, acpErrorKind(runtimeError));
-        binding.sessionState.completePrompt('error');
+        binding.sessionState.completePrompt();
         binding.state = 'error';
         binding.error = runtimeError.message;
         binding.updatedAt = new Date().toISOString();
@@ -2132,7 +2179,7 @@ class AcpRuntime extends EventEmitter {
     return this.enqueueTurnControl(turn, async () => {
       this.requireCurrentTurn(binding, turn);
       binding.stopReason = String(response?.stopReason || '');
-      binding.sessionState.completePrompt(binding.stopReason);
+      binding.sessionState.completePrompt();
       binding.state = 'idle';
       binding.error = '';
       binding.updatedAt = new Date().toISOString();
@@ -2406,8 +2453,8 @@ class AcpRuntime extends EventEmitter {
       if (!method) throw new Error('Unknown ACP authentication method');
       if (
         method.type === 'terminal'
-        || method?._meta?.type === 'terminal'
-        || method?._meta?.['terminal-auth']
+        || recordValue(method._meta).type === 'terminal'
+        || recordValue(method._meta)['terminal-auth']
       ) {
         const result = await this.startTerminalAuthentication(binding, method, mutation);
         terminalReservationTransferred = true;
@@ -2436,7 +2483,7 @@ class AcpRuntime extends EventEmitter {
     this.requireOpenBinding(binding);
     const mutation = this.beginSessionMutation(binding, 'logout');
     try {
-      if (binding.initializeResponse?.agentCapabilities?.auth?.logout == null) {
+      if (recordValue(binding.initializeResponse?.agentCapabilities?.auth).logout == null) {
         throw new Error(`${binding.provider} ACP Agent does not support logout`);
       }
       await withTimeout(binding.connection.logout({}), this.requestTimeoutMs, 'ACP logout');
@@ -2517,7 +2564,7 @@ class AcpRuntime extends EventEmitter {
     void Promise.resolve(this.clientTerminals.waitForExit(binding, {
       sessionId: binding.sessionId,
       terminalId: created.terminalId,
-    })).then(async (exit: UnknownRecord) => {
+    })).then(async (exit) => {
       if (!this.isOpenBinding(binding) || binding.sessionMutation !== mutation) return;
       if (exit.exitCode !== 0) {
         binding.authTerminal.state = 'failed';
@@ -2866,7 +2913,10 @@ class AcpRuntime extends EventEmitter {
     return { sessionId: binding.sessionId, configOptions: binding.configOptions };
   }
 
-  getSession(agentId: string, options: PrepareAgentOptions = {}) {
+  getSession(
+    agentId: string,
+    options: SnapshotOptions = {},
+  ): AcpSessionSnapshot {
     const binding = this.requireBinding(agentId);
     const runtimeState = {
       state: binding.state,
@@ -2914,7 +2964,7 @@ class AcpRuntime extends EventEmitter {
     return binding.sessionState.snapshot(runtimeState, options);
   }
 
-  getTranscriptSession(agentId: string, options: PrepareAgentOptions = {}) {
+  getTranscriptSession(agentId: string, options: TranscriptSliceOptions = {}) {
     const binding = this.requireBinding(agentId);
     const slice = binding.sessionState
       ? binding.sessionState.transcriptSlice(options)
@@ -3071,7 +3121,11 @@ class AcpRuntime extends EventEmitter {
     });
   }
 
-  getSubagentTranscriptSession(agentId: string, sessionId: string, options: PrepareAgentOptions = {}) {
+  getSubagentTranscriptSession(
+    agentId: string,
+    sessionId: string,
+    options: TranscriptSliceOptions = {},
+  ) {
     const binding = this.requireBinding(agentId);
     const id = String(sessionId || '');
     const state = binding.subagentStates.get(id);
@@ -3184,7 +3238,7 @@ class AcpRuntime extends EventEmitter {
     }
     if (promptWasActive && binding.sessionState) {
       if (error) binding.sessionState.recordError(binding.error, acpErrorKind(error));
-      binding.sessionState.completePrompt(binding.stopReason);
+      binding.sessionState.completePrompt();
     }
     if (turn) {
       turn.phase = 'completed';
@@ -3302,7 +3356,7 @@ class AcpRuntime extends EventEmitter {
   }
 }
 
-module.exports = {
+export {
   AcpRuntime,
   ADAPTER_VERSIONS,
   acpSessionRequestOptions,

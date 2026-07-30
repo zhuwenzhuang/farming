@@ -2,9 +2,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import * as readline from 'readline';
-const { stripCodexInternalContextBlocks } = require('./codex-transcript-sanitizer.cjs') as {
-  stripCodexInternalContextBlocks(value: unknown): string;
-};
+import { stripCodexInternalContextBlocks } from './codex-transcript-sanitizer.cjs';
 
 type JsonRecord = Record<string, unknown>;
 

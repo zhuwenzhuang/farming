@@ -1,8 +1,8 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
-const { atomicWriteJson } = require('./atomic-json-store.cjs');
-const storageLayout = require('./storage-layout.cjs');
+import { atomicWriteJson } from './atomic-json-store.cjs';
+import * as storageLayout from './storage-layout.cjs';
 
 const REVIEW_ID_PATTERN = /^review-[a-f0-9]{32}$/;
 const OBJECT_ID_PATTERN = /^[a-f0-9]{40,64}$/;

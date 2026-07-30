@@ -1,60 +1,21 @@
 import { EventEmitter } from 'events';
+import type {
+  CreateTerminalSessionResult,
+  TerminalAttachCheckpoint,
+  TerminalClearResult,
+  TerminalInput,
+  TerminalInputResult,
+  TerminalResizeResult,
+  TerminalSessionState,
+  TerminalSessionStatus,
+} from './agent-manager-engine-types.js';
 import * as path from 'path';
-
-interface SessionEngineConstructor {
-  new(): EventEmitter;
-}
-
-interface ScreenState {
-  cols: number;
-  outputSeq: number;
-  previewSnapshot: unknown;
-  previewText: string;
-  renderOutput: string;
-  rows: number;
-  runtimeEpoch: string;
-  stateRevision: number;
-  title?: string;
-}
-
-interface ScreenPreviewEvent {
-  cols: number;
-  previewSnapshot: unknown;
-  previewText: string;
-  rows: number;
-  title?: string;
-}
-
-interface ScreenWorker {
-  append(data: string, stateRevision: number, outputSeq: number): Promise<unknown>;
-  clear(stateRevision: number, outputSeq: number): Promise<ScreenState>;
-  dispose(): Promise<unknown>;
-  getState(options: { includeRenderOutput: boolean }): Promise<ScreenState>;
-  on(eventName: 'error', listener: (error: unknown) => void): unknown;
-  on(eventName: 'preview', listener: (event: ScreenPreviewEvent) => void): unknown;
-  resize(cols: number, rows: number, stateRevision: number): Promise<ScreenState>;
-}
-
-interface ScreenWorkerPool {
-  acquire(options: {
-    cols: number;
-    rows: number;
-    runtimeEpoch: string;
-    runtimeGeneration: number;
-  }): Promise<ScreenWorker>;
-  dispose(): Promise<unknown>;
-}
-
-interface ScreenWorkerPoolConstructor {
-  new(options: {
-    size: number;
-    workerOptions: {
-      cols: number;
-      previewSnapshot: boolean;
-      rows: number;
-    };
-  }): ScreenWorkerPool;
-}
+import {
+  TerminalScreenWorkerPool,
+  type TerminalScreenWorkerLike as ScreenWorker,
+} from './terminal-screen-worker-pool.cjs';
+import type { TerminalScreenWorkerState as ScreenState } from './terminal-screen-worker.cjs';
+import type { TerminalReducerFlowControl } from './terminal-reducer-flow-control.cjs';
 
 interface PtyProcess {
   kill(signal?: string): void;
@@ -88,6 +49,8 @@ interface ShellSessionOptions {
   env?: NodeJS.ProcessEnv;
   rows?: number;
   shellBusyIntegration?: unknown;
+  shellIntegrationPrepared?: boolean;
+  metadata?: Record<string, unknown>;
 }
 
 interface NormalizedShellSessionOptions extends ShellSessionOptions {
@@ -132,7 +95,7 @@ interface LocalSession {
   previewText: string;
   process: PtyProcess;
   reducerCommitQueue: Promise<unknown>;
-  reducerFlowControl: unknown;
+  reducerFlowControl: TerminalReducerFlowControl;
   renderOutput: string;
   runtimeEpoch: string;
   screenWorker: ScreenWorker | null;
@@ -150,7 +113,7 @@ interface LocalSession {
   startedAt: number;
   stateProofAvailable: boolean;
   stateRevision: number;
-  status: string;
+  status: TerminalSessionStatus;
   terminalBusy: boolean | null;
   title: string;
   exitFinalizing?: boolean;
@@ -165,65 +128,27 @@ interface RuntimeEpochOptions {
   expectedRuntimeEpoch?: string;
 }
 
-const sessionEngineModule: { SessionEngine: SessionEngineConstructor } = require('./session-engine.cjs');
+import * as sessionEngineModule from './session-engine.cjs';
 const { SessionEngine } = sessionEngineModule;
-const screenWorkerPoolModule: { TerminalScreenWorkerPool: ScreenWorkerPoolConstructor } = require('./terminal-screen-worker-pool.cjs');
-const { TerminalScreenWorkerPool } = screenWorkerPoolModule;
-const shellBusyIntegrationModule: {
-  applyShellBusyIntegration(options: NormalizedShellSessionOptions): NormalizedShellSessionOptions;
-  cleanupShellBusyIntegration(integration: unknown): void;
-  parseShellBusyMarkers(
-    data: string,
-    terminalBusy: boolean | null,
-    pending: string,
-  ): ShellBusyState;
-} = require('./shell-busy-integration.cjs');
+import * as shellBusyIntegrationModule from './shell-busy-integration.cjs';
 const {
   applyShellBusyIntegration,
   cleanupShellBusyIntegration,
   parseShellBusyMarkers,
 } = shellBusyIntegrationModule;
-const inputPartsModule: {
-  terminalInputToPtyString(input: unknown): string;
-} = require('./input-parts.cjs');
+import * as inputPartsModule from './input-parts.cjs';
 const { terminalInputToPtyString } = inputPartsModule;
-const terminalStatusModule: {
-  deriveTerminalStatus(options: Record<string, unknown>): unknown;
-} = require('./terminal-status.cjs');
+import * as terminalStatusModule from './terminal-status.cjs';
 const { deriveTerminalStatus } = terminalStatusModule;
-const agentEnvModule: {
-  normalizeInteractiveTerminalEnv(
-    env: NodeJS.ProcessEnv,
-    options: { stripNodeOptions: boolean; stripRuntimeShims: boolean },
-  ): void;
-} = require('./agent-env.cjs');
+import * as agentEnvModule from './agent-env.cjs';
 const { normalizeInteractiveTerminalEnv } = agentEnvModule;
-const runtimeGenerationModule: {
-  allocateNativePtyRuntimeGeneration(configDir: string): Promise<number>;
-  formatNativePtyRuntimeEpoch(runtimeGeneration: number): string;
-} = require('./native-pty-controller-generation.cjs');
+import * as runtimeGenerationModule from './native-pty-controller-generation.cjs';
 const {
   allocateNativePtyRuntimeGeneration,
   formatNativePtyRuntimeEpoch,
 } = runtimeGenerationModule;
-const storageLayout: {
-  farmingConfigDir(): string;
-} = require('./storage-layout.cjs');
-const reducerFlowControlModule: {
-  acknowledgeTerminalReducerData(
-    flowControl: unknown,
-    process: PtyProcess,
-    bytes: number,
-  ): Error | null;
-  createTerminalReducerFlowControl(): unknown;
-  ensureTerminalReducerFlowControl(session: LocalSession): unknown;
-  enqueueTerminalReducerData(
-    flowControl: unknown,
-    process: PtyProcess,
-    data: string,
-  ): { bytes: number; error: Error | null };
-  resetTerminalReducerFlowControl(flowControl: unknown, process: PtyProcess): void;
-} = require('./terminal-reducer-flow-control.cjs');
+import * as storageLayout from './storage-layout.cjs';
+import * as reducerFlowControlModule from './terminal-reducer-flow-control.cjs';
 const {
   acknowledgeTerminalReducerData,
   createTerminalReducerFlowControl,
@@ -231,20 +156,9 @@ const {
   enqueueTerminalReducerData,
   resetTerminalReducerFlowControl,
 } = reducerFlowControlModule;
-const terminalAttachCheckpointModule: {
-  captureTerminalAttachCheckpoint(
-    session: LocalSession,
-    options?: { requireCurrentCut?: boolean },
-  ): Promise<TerminalCheckpoint | null>;
-} = require('./terminal-attach-checkpoint.cjs');
+import * as terminalAttachCheckpointModule from './terminal-attach-checkpoint.cjs';
 const { captureTerminalAttachCheckpoint } = terminalAttachCheckpointModule;
-const terminalExitQuiescenceModule: {
-  acceptTerminalExitData(session: LocalSession): boolean;
-  waitForTerminalExitDataQuiescence(
-    session: LocalSession,
-    options: { flushMs?: number; isCurrent: () => boolean },
-  ): Promise<boolean>;
-} = require('./terminal-exit-quiescence.cjs');
+import * as terminalExitQuiescenceModule from './terminal-exit-quiescence.cjs';
 const {
   acceptTerminalExitData,
   waitForTerminalExitDataQuiescence,
@@ -397,14 +311,19 @@ function normalizeShellSessionOptions(
 
   normalized.env.SHELL = normalized.env.SHELL || options.command || shellName;
 
-  return applyShellBusyIntegration(normalized);
+  return {
+    ...normalized,
+    ...applyShellBusyIntegration(normalized),
+    agentId: normalized.agentId,
+    command: normalized.command,
+  };
 }
 
 class LocalSessionEngine extends SessionEngine {
   configDir: string;
   terminalExitDataFlushMs: number | undefined;
   sessions: Map<string, LocalSession>;
-  screenWorkerPool: ScreenWorkerPool;
+  screenWorkerPool: TerminalScreenWorkerPool;
 
   constructor(options: LocalSessionEngineOptions = {}) {
     super();
@@ -421,7 +340,7 @@ class LocalSessionEngine extends SessionEngine {
     });
   }
 
-  async createSession(options: ShellSessionOptions): Promise<{ sessionId: string; status: string }> {
+  async createSession(options: ShellSessionOptions): Promise<CreateTerminalSessionResult> {
     const normalized = normalizeShellSessionOptions(options);
     const previewCols = normalized.cols || 80;
     const previewRows = normalized.rows || 30;
@@ -738,9 +657,9 @@ class LocalSessionEngine extends SessionEngine {
 
   async sendInput(
     sessionId: string,
-    input: unknown,
+    input: TerminalInput,
     options: RuntimeEpochOptions = {},
-  ): Promise<Record<string, unknown>> {
+  ): Promise<TerminalInputResult> {
     const session = this.sessions.get(sessionId);
     if (!session || !session.process || session.status === 'exited' || session.exitFinalizing === true) {
       throw new Error('Session not available');
@@ -761,13 +680,13 @@ class LocalSessionEngine extends SessionEngine {
 
   async interruptSession(
     sessionId: string,
-    input: unknown = '\x03',
+    input: TerminalInput = '\x03',
     options: RuntimeEpochOptions = {},
-  ): Promise<Record<string, unknown>> {
+  ): Promise<TerminalInputResult> {
     return this.sendInput(sessionId, input, options);
   }
 
-  async getSessionAttachCheckpoint(sessionId: string): Promise<TerminalCheckpoint | null> {
+  async getSessionAttachCheckpoint(sessionId: string): Promise<TerminalAttachCheckpoint | null> {
     const session = this.sessions.get(sessionId);
     if (!session) return null;
     const checkpoint = await captureTerminalAttachCheckpoint(session);
@@ -778,7 +697,7 @@ class LocalSessionEngine extends SessionEngine {
     sessionId: string,
     cols: number,
     rows: number,
-  ): Promise<Record<string, unknown>> {
+  ): Promise<TerminalResizeResult> {
     const session = this.sessions.get(sessionId);
     if (!session || !session.process || !session.process.resize) {
       return { status: 'resize-rejected', reason: 'session-unavailable', resized: false };
@@ -899,7 +818,7 @@ class LocalSessionEngine extends SessionEngine {
   async clearBuffer(
     sessionId: string,
     options: RuntimeEpochOptions = {},
-  ): Promise<Record<string, unknown>> {
+  ): Promise<TerminalClearResult> {
     const session = this.sessions.get(sessionId);
     if (!session || session.status === 'exited' || session.exitFinalizing === true) {
       return { cleared: false };
@@ -1015,7 +934,7 @@ class LocalSessionEngine extends SessionEngine {
     if (typeof killTimer.unref === 'function') killTimer.unref();
   }
 
-  async getSessionState(sessionId: string): Promise<Record<string, unknown> | null> {
+  async getSessionState(sessionId: string): Promise<TerminalSessionState | null> {
     const session = this.sessions.get(sessionId);
     if (!session) return null;
     const snapshotOutput = session.output;
@@ -1050,6 +969,9 @@ class LocalSessionEngine extends SessionEngine {
       terminalBusy: session.terminalBusy,
       shellCommand: session.shellCommand || '',
       shellLastCommand: session.shellLastCommand || '',
+      shellCwd: session.shellCwd || '',
+      shellLastEvent: session.shellLastEvent || '',
+      shellLastExitCode: session.shellLastExitCode ?? null,
       shellCommandStartedAt: session.shellCommandStartedAt ?? null,
       shellLastCommandStartedAt: session.shellLastCommandStartedAt ?? null,
       shellLastCommandFinishedAt: session.shellLastCommandFinishedAt ?? null,
@@ -1083,6 +1005,10 @@ class LocalSessionEngine extends SessionEngine {
       : null;
     if (this.sessions.get(sessionId) !== session) return '';
     return (screenState && screenState.previewText) || session.previewText;
+  }
+
+  consumeRuntimeRotation(): null {
+    return null;
   }
 
   dispose(): Promise<PromiseSettledResult<unknown>[]> {

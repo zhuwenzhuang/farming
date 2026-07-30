@@ -7,7 +7,7 @@ import {
 const fsp = require('fs/promises');
 const os = require('os');
 const path = require('path');
-const { isSafeProviderSessionId, isTemporaryProviderSessionId } = require('./provider-session-id.cjs');
+import { isSafeProviderSessionId, isTemporaryProviderSessionId } from './provider-session-id.cjs';
 
 const CACHE_TTL_MS = 5_000;
 const CONTEXT_TAIL_BYTES = 512 * 1024;

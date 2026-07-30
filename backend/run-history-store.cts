@@ -1,6 +1,6 @@
 const fs = require('fs');
-const { atomicWriteJson } = require('./atomic-json-store.cjs');
-const storageLayout = require('./storage-layout.cjs');
+import { atomicWriteJson } from './atomic-json-store.cjs';
+import * as storageLayout from './storage-layout.cjs';
 
 type RunHistoryEntry = Record<string, unknown>;
 

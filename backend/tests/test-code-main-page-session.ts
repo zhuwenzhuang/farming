@@ -179,7 +179,7 @@ async function run() {
       mainPageSessionSource.includes('AUTO_RESUME_AGENT_SESSION_PROVIDERS.has(normalized)') &&
       serverSource.includes('function autoResumeMainPageAgentSessions()') &&
       serverSource.includes('await agentManager.whenRecovered()') &&
-      serverSource.includes('const knownSessionByKey = new Map(knownSessions.map((session: ServerRecord) => [') &&
+      serverSource.includes('const knownSessionByKey = new Map(knownSessions.map(session => [') &&
       serverSource.includes('knownSessionByKey.get(mainPageAgentSessionKey(') &&
       serverSource.includes('findActiveAgentClaimingSession(agentManager.getState().agents') &&
       mainPageSessionSource.includes("agent.providerSessionKey === sessionKey") &&
@@ -192,7 +192,7 @@ async function run() {
       serverSource.includes("customTitle: hasRequestedCustomTitle") &&
       serverSource.includes('customTitleExplicit: hasRequestedCustomTitle') &&
       serverSource.includes("res.status(400).json({ error: 'customTitle must be a string' })") &&
-      serverSource.includes('const workingDirectory = session && (session.cwd || session.workspace) ? (session.cwd || session.workspace) : null') &&
+      serverSource.includes('const workingDirectory = session?.cwd || session?.workspace || null') &&
       serverSource.includes("savedSession?.projectWorkspace || (session ? (session.workspace || session.cwd || '') : workingDirectory)") &&
       serverSource.includes('const worktree = await inspectGitWorktree(candidate)') &&
       serverSource.includes('void autoResumeMainPageAgentSessions()'),

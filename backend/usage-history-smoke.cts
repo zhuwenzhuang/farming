@@ -29,9 +29,7 @@ interface UsageHistoryClientLike {
   }): Promise<UsageHistoryResult>;
 }
 
-const { UsageHistoryClient } = require('./usage-history-client.cjs') as {
-  UsageHistoryClient: new (options: { configDir: string }) => UsageHistoryClientLike;
-};
+import { UsageHistoryClient } from './usage-history-client.cjs';
 
 async function runUsageHistorySmoke(): Promise<{
   schemaVersion: unknown;
@@ -74,7 +72,9 @@ async function runUsageHistorySmoke(): Promise<{
       fresh: true,
     });
     const total = result.providers.codex.events.reduce(
-      (sum, event) => sum + event.totalTokens,
+      (sum, event) => (
+        sum + (typeof event.totalTokens === 'number' ? event.totalTokens : 0)
+      ),
       0,
     );
     if (

@@ -4,41 +4,13 @@ const crypto = require('crypto') as typeof import('crypto');
 const fs = require('fs') as typeof import('fs');
 const net = require('net') as typeof import('net');
 const path = require('path') as typeof import('path');
-const {
-  nativePtyHostPrivateSocketNamePattern,
-  nativePtyHostSocketPath,
-} = require('./native-pty-host-path.cjs') as {
-  nativePtyHostPrivateSocketNamePattern(socketPath: string): RegExp;
-  nativePtyHostSocketPath(configDir?: string): string;
-};
-const {
-  nativePtyHostRuntimeIdentity,
-  nativePtyHostRuntimeIdentityMatches,
-  normalizeNativePtyHostRuntimeIdentity,
-} = require('./native-pty-host-identity.cjs') as {
-  nativePtyHostRuntimeIdentity(): Readonly<NativePtyHostRuntimeIdentity>;
-  nativePtyHostRuntimeIdentityMatches(expected: unknown, actual: unknown): boolean;
-  normalizeNativePtyHostRuntimeIdentity(value: unknown): NativePtyHostRuntimeIdentity | null;
-};
-const {
-  allocateNativePtyControllerGeneration,
-  positiveGeneration,
-} = require('./native-pty-controller-generation.cjs') as {
-  allocateNativePtyControllerGeneration(configDir: string): Promise<number>;
-  positiveGeneration(value: unknown): number;
-};
-const { isTemporaryProviderSessionId } = require('./provider-session-id.cjs') as {
-  isTemporaryProviderSessionId(sessionId: unknown): boolean;
-};
-const storageLayout = require('./storage-layout.cjs') as {
-  nativePtyHostLogFile(configDir: string): string;
-};
-const { deserializeTerminalState } = require('./terminal-state-serialization.cjs') as {
-  deserializeTerminalState(serialized: unknown): SerializedTerminalStateEntry[];
-};
-const { probeUnixSocket } = require('./terminal-runtime-cleanup.cjs') as {
-  probeUnixSocket(socketPath: string): Promise<UnixSocketProbe>;
-};
+import { nativePtyHostPrivateSocketNamePattern, nativePtyHostSocketPath } from './native-pty-host-path.cjs';
+import { nativePtyHostRuntimeIdentity, nativePtyHostRuntimeIdentityMatches, normalizeNativePtyHostRuntimeIdentity } from './native-pty-host-identity.cjs';
+import { allocateNativePtyControllerGeneration, positiveGeneration } from './native-pty-controller-generation.cjs';
+import { isTemporaryProviderSessionId } from './provider-session-id.cjs';
+import * as storageLayout from './storage-layout.cjs';
+import { deserializeTerminalState } from './terminal-state-serialization.cjs';
+import { probeUnixSocket } from './terminal-runtime-cleanup.cjs';
 
 interface NativePtyHostRuntimeIdentity {
   protocolVersion: number;

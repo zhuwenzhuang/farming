@@ -1,10 +1,6 @@
 const path = require('path');
-const { chatCapabilitiesForProvider } = require('./chat-runtime.cjs');
-const {
-  createProviderSessionId,
-  createTemporaryProviderSessionId,
-  isSafeProviderSessionId,
-} = require('./provider-session-id.cjs');
+import { chatCapabilitiesForProvider } from './chat-runtime.cjs';
+import { createProviderSessionId, createTemporaryProviderSessionId, isSafeProviderSessionId } from './provider-session-id.cjs';
 
 type ProviderId = 'codex' | 'claude' | 'opencode' | 'qoder' | 'qwen';
 type ProviderRuntime = 'terminal' | 'acp' | 'json';

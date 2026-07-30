@@ -862,7 +862,7 @@ function run() {
     'server should coalesce terminal preview broadcasts so live output does not flood the UI'
   );
   assert(
-      serverSource.includes('const pendingResumeStarts = new Map()') &&
+      serverSource.includes('const pendingResumeStarts = new Map') &&
       serverSource.includes('function resumedAgentStartKey') &&
       serverSource.includes('const pendingStart = pendingResumeStarts.get(pendingResumeId)') &&
       serverSource.includes('reused: true') &&

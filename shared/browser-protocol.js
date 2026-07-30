@@ -106,7 +106,10 @@ function validateClientMessage(value) {
                 && (!Object.prototype.hasOwnProperty.call(value, 'delivery') || value.delivery === 'prompt' || value.delivery === 'steer');
             break;
         case 'acp-permission-response':
-            valid = stringField(value, 'agentId') && stringField(value, 'requestId');
+            valid = stringField(value, 'agentId')
+                && stringField(value, 'requestId')
+                && stringField(value, 'optionId')
+                && (!Object.prototype.hasOwnProperty.call(value, 'cancelled') || typeof value.cancelled === 'boolean');
             break;
         case 'focus-agent':
             valid = value.agentId === null || stringField(value, 'agentId');

@@ -1,27 +1,4 @@
-interface BrowserResourceManager {
-  action(id: string, input: unknown): Promise<unknown>;
-  capability(): unknown;
-  create(input: {
-    name: unknown;
-    ownerAgentId: string;
-    ownerType: 'agent' | 'project';
-    projectRootId: string;
-    url: unknown;
-    workspace: string;
-  }): unknown;
-  delete(id: string): Promise<unknown>;
-  get(id: string): Record<string, unknown>;
-  installManagedChromium(): Promise<unknown>;
-  navigate(id: string, url: unknown): Promise<unknown>;
-  off(event: 'deleted' | 'resource', listener: (value: unknown) => void): unknown;
-  on(event: 'deleted' | 'resource', listener: (value: unknown) => void): unknown;
-  refreshCapability(): Promise<unknown>;
-  rename(id: string, name: unknown): unknown;
-  requireEnabled(): void;
-  snapshot(): unknown;
-  start(id: string): Promise<unknown>;
-  stop(id: string): Promise<unknown>;
-}
+import type { BrowserResourceManager } from './browser-resource-manager.cjs';
 
 interface WorkspaceRoot {
   canonicalPath: string;
@@ -319,7 +296,7 @@ function createBrowserRouter(
     try {
       requireRequestOwnership(manager, req, req.params.id);
       requireActiveOwner(manager, agentStateReader, req.params.id);
-      res.json(await manager.action(req.params.id, req.body));
+      res.json(await manager.action(req.params.id, recordValue(req.body)));
     } catch (error) {
       sendError(res, error);
     }

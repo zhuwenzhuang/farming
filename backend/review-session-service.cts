@@ -17,23 +17,8 @@ const { createTwoFilesPatch, diffLines } = require('diff') as {
     removed?: boolean;
   }>;
 };
-const { OBJECT_ID_PATTERN, REVIEW_ID_PATTERN } = require('./review-session-store.cjs') as {
-  OBJECT_ID_PATTERN: RegExp;
-  REVIEW_ID_PATTERN: RegExp;
-};
-const {
-  filterWorkingCopyChangeItems,
-  normalizeModifiedWithinDays,
-  normalizeWorkingCopyScope,
-} = require('./review-diff-service.cjs') as {
-  filterWorkingCopyChangeItems(
-    root: string,
-    items: WorkingCopyChange[],
-    options: { modifiedWithinDays?: unknown; scope: ReviewScope },
-  ): WorkingCopyChange[];
-  normalizeModifiedWithinDays(value: unknown): number | undefined;
-  normalizeWorkingCopyScope(value: unknown): ReviewScope | undefined;
-};
+import { OBJECT_ID_PATTERN, REVIEW_ID_PATTERN } from './review-session-store.cjs';
+import { filterWorkingCopyChangeItems, normalizeModifiedWithinDays, normalizeWorkingCopyScope } from './review-diff-service.cjs';
 
 const MAX_CAPTURE_FILES = 2000;
 const MAX_CAPTURE_PATHS = 256;
@@ -100,8 +85,8 @@ interface ReviewStateStore {
 }
 
 interface GitResult {
-  stderr?: string;
-  stdout: string;
+  stderr?: string | Buffer;
+  stdout: string | Buffer;
 }
 
 interface ReviewFileService {
@@ -410,7 +395,7 @@ class ReviewSessionService {
     }
     const { stdout } = await this.git(root, ['rev-parse', '--show-toplevel']);
     try {
-      return fs.realpathSync.native(stdout.trim());
+      return fs.realpathSync.native(String(stdout).trim());
     } catch {
       throw new ReviewSessionError('review root is not a git repository');
     }
@@ -421,7 +406,7 @@ class ReviewSessionService {
       throw new ReviewSessionError('review base is required');
     }
     const { stdout } = await this.git(root, ['rev-parse', '--verify', `${base.trim()}^{commit}`]);
-    const resolved = stdout.trim();
+    const resolved = String(stdout).trim();
     if (!OBJECT_ID_PATTERN.test(resolved)) throw new ReviewSessionError('review base is invalid');
     return resolved;
   }
@@ -438,7 +423,7 @@ class ReviewSessionService {
         await this.git(root, ['add', '-A', '--', ...paths], { env });
       }
       const { stdout } = await this.git(root, ['write-tree'], { env });
-      const tree = stdout.trim();
+      const tree = String(stdout).trim();
       if (!OBJECT_ID_PATTERN.test(tree)) throw new ReviewSessionError('git did not produce a review tree', 500);
       return tree;
     } finally {
@@ -470,12 +455,12 @@ class ReviewSessionService {
       if (!present) continue;
       fs.writeFileSync(contentFile, side === 'base' ? change.oldText : change.newText, 'utf8');
       const { stdout: blobOutput } = await this.git(root, ['hash-object', '-w', contentFile]);
-      const blob = blobOutput.trim();
+      const blob = String(blobOutput).trim();
       if (!OBJECT_ID_PATTERN.test(blob)) throw new ReviewSessionError('git did not produce a review blob', 500);
       await this.git(root, ['update-index', '--add', '--cacheinfo', '100644', blob, change.path], { env });
     }
     const { stdout } = await this.git(root, ['write-tree'], { env });
-    const tree = stdout.trim();
+    const tree = String(stdout).trim();
     if (!OBJECT_ID_PATTERN.test(tree)) throw new ReviewSessionError('git did not produce a review tree', 500);
     return tree;
   }

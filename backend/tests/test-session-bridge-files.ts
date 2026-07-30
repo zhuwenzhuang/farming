@@ -95,7 +95,7 @@ function run() {
     'server should not mark plain background output as unread'
   );
   assert(
-    server.includes('deliverSessionStreamToClients(wss.clients, stream') &&
+    server.includes('deliverSessionStreamToClients(Array.from(wss.clients), stream') &&
       sessionStreamProtocol.includes("client.streamScope === 'focused'") &&
       server.includes("client.previewScope !== 'none'"),
     'server should suppress background streams and previews for a focused CRT terminal'

@@ -1,10 +1,9 @@
 import { terminalInputReady } from './terminal-status.cjs';
+import type { LifecycleOperationResult } from './agent-manager-lifecycle-types.js';
 
 const express = require('express');
 const crypto = require('crypto');
-const { runtimeKind } = require('./agent-runtime-binding.cjs') as {
-  runtimeKind(agent: Record<string, unknown> | null | undefined): 'terminal' | 'acp' | 'json';
-};
+import { runtimeKind } from './agent-runtime-binding.cjs';
 const DEFAULT_INITIAL_INPUT_TIMEOUT_MS = 30000;
 
 interface ExpressRequest {
@@ -63,7 +62,7 @@ interface AgentRecord extends Record<string, unknown> {
 
 interface AgentState {
   agents: AgentRecord[];
-  mainAgentId?: string;
+  mainAgentId?: string | null;
 }
 
 interface TerminalReadinessState {
@@ -89,10 +88,12 @@ interface TerminalReadiness {
   expectedStartedAt: number;
 }
 
-interface MutationResult extends Record<string, unknown> {
+interface MutationResult {
+  accepted?: boolean;
   cleared?: boolean;
   error?: string;
   reason?: string;
+  sent?: boolean;
   status?: string;
 }
 
@@ -101,7 +102,7 @@ interface CreateOutcome {
   status: number;
 }
 
-interface RecordedCreateResult {
+interface RecordedCreateResult extends LifecycleOperationResult {
   controlApi?: CreateOutcome;
 }
 
@@ -157,7 +158,7 @@ interface AgentManager {
     agentId: string,
     input: string,
     options: { expectedRuntimeEpoch: string },
-  ): Promise<MutationResult> | MutationResult;
+  ): Promise<MutationResult | undefined> | MutationResult | undefined;
   startAgent(
     command: string,
     workspace: string | null,
@@ -335,8 +336,10 @@ function createControlRouter(
   async function runTerminalMutation(
     agentId: string,
     expectedRuntimeEpoch: string,
-    operation: (input: { expectedRuntimeEpoch: string }) => Promise<MutationResult> | MutationResult,
-  ): Promise<MutationResult> {
+    operation: (
+      input: { expectedRuntimeEpoch: string },
+    ) => Promise<MutationResult | undefined> | MutationResult | undefined,
+  ): Promise<MutationResult | undefined> {
     const current = findAgent(agentManager.getState(), agentId);
     if (!current || current.runtimeEpoch !== expectedRuntimeEpoch) {
       return { status: 'rejected', reason: 'runtime-epoch-mismatch' };

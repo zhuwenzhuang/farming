@@ -2,7 +2,7 @@ const fs = require('fs');
 const net = require('net');
 const os = require('os');
 const path = require('path');
-const { nativePtyHostSocketPath } = require('./native-pty-host-path.cjs');
+import { nativePtyHostSocketPath } from './native-pty-host-path.cjs';
 
 interface TerminalRuntimeCleanupOptions {
   configDir?: string;

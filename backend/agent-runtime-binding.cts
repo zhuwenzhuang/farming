@@ -48,7 +48,7 @@ interface JsonRuntimeBinding extends RuntimeBindingFields {
 type RuntimeBinding = TerminalRuntimeBinding | AcpRuntimeBinding | JsonRuntimeBinding;
 
 interface RuntimeBindingSource {
-  kind?: RuntimeKind;
+  kind?: unknown;
   state?: string;
   error?: string;
   stopReason?: string;
@@ -148,14 +148,15 @@ function bindingFromLegacy(agent: RuntimeAgentSource | null | undefined): Runtim
   }
 }
 
-function runtimeBindingFor(kind: 'acp', source?: RuntimeBindingSource): AcpRuntimeBinding;
-function runtimeBindingFor(kind: 'json', source?: RuntimeBindingSource): JsonRuntimeBinding;
-function runtimeBindingFor(kind: 'terminal', source?: RuntimeBindingSource): TerminalRuntimeBinding;
-function runtimeBindingFor(kind: unknown, source?: RuntimeBindingSource): RuntimeBinding;
-function runtimeBindingFor(kind: unknown, source: RuntimeBindingSource = {}): RuntimeBinding {
+function runtimeBindingFor(kind: 'acp', source?: RuntimeBindingSource | null): AcpRuntimeBinding;
+function runtimeBindingFor(kind: 'json', source?: RuntimeBindingSource | null): JsonRuntimeBinding;
+function runtimeBindingFor(kind: 'terminal', source?: RuntimeBindingSource | null): TerminalRuntimeBinding;
+function runtimeBindingFor(kind: unknown, source?: RuntimeBindingSource | null): RuntimeBinding;
+function runtimeBindingFor(kind: unknown, source: RuntimeBindingSource | null = {}): RuntimeBinding {
+  const normalizedSource = source || {};
   switch (kind) {
-    case 'acp': return acpBinding(source);
-    case 'json': return jsonBinding(source);
+    case 'acp': return acpBinding(normalizedSource);
+    case 'json': return jsonBinding(normalizedSource);
     default: return terminalBinding();
   }
 }
@@ -178,36 +179,42 @@ function runtimeBindingOf(
 ): RuntimeBinding | null;
 function runtimeBindingOf(
   agent: RuntimeAgentSource | null | undefined,
-  expectedKind?: RuntimeKind,
+  expectedKind: unknown,
+): RuntimeBinding | null;
+function runtimeBindingOf(
+  agent: RuntimeAgentSource | null | undefined,
+  expectedKind?: unknown,
 ): RuntimeBinding | null {
   const binding = bindingFromLegacy(agent);
-  return !expectedKind || binding.kind === expectedKind ? binding : null;
+  return !expectedKind || (isRuntimeKind(expectedKind) && binding.kind === expectedKind)
+    ? binding
+    : null;
 }
 
 function replaceRuntimeBinding(
   agent: RuntimeAgentSource,
   kind: 'acp',
-  source?: RuntimeBindingSource,
+  source?: RuntimeBindingSource | null,
 ): AcpRuntimeBinding;
 function replaceRuntimeBinding(
   agent: RuntimeAgentSource,
   kind: 'json',
-  source?: RuntimeBindingSource,
+  source?: RuntimeBindingSource | null,
 ): JsonRuntimeBinding;
 function replaceRuntimeBinding(
   agent: RuntimeAgentSource,
   kind: 'terminal',
-  source?: RuntimeBindingSource,
+  source?: RuntimeBindingSource | null,
 ): TerminalRuntimeBinding;
 function replaceRuntimeBinding(
   agent: RuntimeAgentSource,
   kind: unknown,
-  source?: RuntimeBindingSource,
+  source?: RuntimeBindingSource | null,
 ): RuntimeBinding;
 function replaceRuntimeBinding(
   agent: RuntimeAgentSource,
   kind: unknown,
-  source: RuntimeBindingSource = {},
+  source: RuntimeBindingSource | null = {},
 ): RuntimeBinding {
   const binding = runtimeBindingFor(kind, source);
   agent.runtimeBinding = binding;

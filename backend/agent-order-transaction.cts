@@ -6,8 +6,8 @@ interface AgentOrderTransactionAgent {
   id: string;
   agentRecordId?: string;
   persistentSessionId?: string;
-  projectOrder?: number;
-  pinnedOrder?: number;
+  projectOrder?: number | null;
+  pinnedOrder?: number | null;
   [key: string]: unknown;
 }
 

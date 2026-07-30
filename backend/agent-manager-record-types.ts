@@ -372,7 +372,7 @@ export interface AgentManagerSettings extends Record<string, unknown> {
   mainPageSessionKeys?: string[];
   pinnedProjectWorkspaces: string[];
   projectNames: Record<string, string>;
-  projectOperations: Record<string, ProjectOperation>;
+  projectOperations?: Record<string, ProjectOperation>;
   projectWorkspaces: string[];
   restReminderIntervalSeconds: number | null;
   searchTimeoutMs: number;

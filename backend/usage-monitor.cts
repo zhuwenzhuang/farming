@@ -2,12 +2,13 @@ const os = require('os') as typeof import('os');
 const path = require('path') as typeof import('path');
 const { execFile } = require('child_process') as typeof import('child_process');
 const { promisify } = require('util') as typeof import('util');
-const { UsageHistoryClient } = require('./usage-history-client.cjs') as {
-  UsageHistoryClient: new (options: { configDir: string }) => UsageHistoryClientLike;
-};
-const { attachQuotaForecasts } = require('./usage-forecast.cjs') as {
-  attachQuotaForecasts(quota: unknown, options?: { now?: unknown }): unknown;
-};
+import {
+  UsageHistoryClient,
+  type UsageHistoryEvent,
+  type UsageHistoryProvider,
+  type UsageHistoryResult,
+} from './usage-history-client.cjs';
+import { attachQuotaForecasts } from './usage-forecast.cjs';
 
 type DataRecord = Record<string, unknown>;
 type ProviderHomes = Record<string, Array<string | { path?: unknown }> | undefined>;
@@ -21,36 +22,11 @@ interface TokenBreakdown extends DataRecord {
   unattributedTokens: number;
 }
 
-interface UsageEvent extends DataRecord {
-  timestamp?: unknown;
-  totalTokens?: unknown;
-  agentId?: unknown;
-  agentLabel?: unknown;
-  sessionId?: unknown;
-}
+type UsageEvent = UsageHistoryEvent;
 
 type ProviderEvents = Record<string, UsageEvent[] | undefined>;
 
-interface UsageHistoryProvider extends DataRecord {
-  events: UsageEvent[];
-  quotaCandidates: Array<{
-    timestamp?: unknown;
-    rateLimits?: unknown;
-  }>;
-  available: boolean;
-  reason?: string;
-  source?: string;
-  fileCount: number;
-}
-
-interface CCStatisticsResult extends DataRecord {
-  source: string;
-  providers: {
-    codex: UsageHistoryProvider;
-    claude: UsageHistoryProvider;
-  };
-  cache: DataRecord & { scan_complete?: boolean };
-}
+type CCStatisticsResult = UsageHistoryResult;
 
 interface UsageHistoryClientLike {
   collect(options: {

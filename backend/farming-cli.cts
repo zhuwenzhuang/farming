@@ -3,8 +3,8 @@ import type { IncomingHttpHeaders, IncomingMessage, OutgoingHttpHeaders } from '
 const fs = require('fs');
 const http = require('http');
 const https = require('https');
-const { renderMainAgentSkills } = require('./main-agent-skills.cjs');
-const storageLayout = require('./storage-layout.cjs');
+import { renderMainAgentSkills } from './main-agent-skills.cjs';
+import * as storageLayout from './storage-layout.cjs';
 
 interface AuthOptions {
   authDisabled?: boolean;

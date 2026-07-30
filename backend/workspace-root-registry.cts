@@ -1,7 +1,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { WorkspaceFileError } = require('./workspace-file-service.cjs');
+import { WorkspaceFileError } from './workspace-file-service.cjs';
 
 const GLOBAL_WORKSPACE_FILES_AGENT_ID = '__farming_global_files__';
 const GLOBAL_WORKSPACE_ROOT_ID = 'wroot_global';
@@ -33,7 +33,7 @@ interface WorkspaceRootOptions {
 interface WorkspaceRootAgentManager {
   configManager?: {
     getSettings?(): unknown;
-  };
+  } | null;
   getAgentWorkspaceRoot?(agentId: string): unknown;
   getState?(): unknown;
 }

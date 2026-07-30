@@ -330,10 +330,10 @@ function writeZshFiles(tempDir: string, options: ShellIntegrationFileOptions = {
   ].join('\n'));
 }
 
-function applyShellBusyIntegration(
-  options: ShellBusyIntegrationOptions,
-): AppliedShellBusyIntegrationOptions {
-  const normalized: AppliedShellBusyIntegrationOptions = {
+function applyShellBusyIntegration<T extends ShellBusyIntegrationOptions>(
+  options: T,
+): Omit<T, 'args' | 'env'> & AppliedShellBusyIntegrationOptions {
+  const normalized: Omit<T, 'args' | 'env'> & AppliedShellBusyIntegrationOptions = {
     ...options,
     args: [...(options.args || [])],
     env: { ...(options.env || {}) },

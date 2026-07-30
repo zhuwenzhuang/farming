@@ -248,7 +248,7 @@ class BrowserResourceStore {
     return { ...resource };
   }
 
-  createRunningTab(input: RunningBrowserTabInput): BrowserResource | null {
+  createRunningTab(input: RunningBrowserTabInput): BrowserResource {
     const resource = this.create(input);
     return this.update(resource.id, {
       status: 'running',
@@ -263,9 +263,9 @@ class BrowserResourceStore {
     });
   }
 
-  update(id: string, patch: BrowserResourcePatch): BrowserResource | null {
+  update(id: string, patch: BrowserResourcePatch): BrowserResource {
     const current = this.resources.get(id);
-    if (!current) return null;
+    if (!current) throw new Error(`Browser resource does not exist: ${id}`);
     const next = normalizeResource({
       ...current,
       ...patch,
@@ -307,4 +307,11 @@ class BrowserResourceStore {
 export {
   BrowserResourceStore,
   RESOURCE_ID_RE,
+};
+export type {
+  BrowserProcessIdentity,
+  BrowserResource,
+  BrowserResourceCreateInput,
+  BrowserResourcePatch,
+  RunningBrowserTabInput,
 };

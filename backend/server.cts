@@ -1,4 +1,9 @@
 import type { ClientMessage } from '../shared/browser-protocol.js';
+import type { Dirent } from 'fs';
+import type { AgentSession } from './agent-session-history.cjs';
+import type { ForkMode, KillAgentResult } from './agent-manager-lifecycle-types.js';
+import type { AcpConfigValue } from './agent-manager-provider-types.js';
+import type { AgentRecord, ProjectMembershipPatch } from './agent-manager-record-types.js';
 
 type ServerClientMessage = ClientMessage & Record<string, unknown>;
 
@@ -6,7 +11,7 @@ interface ServerRecord {
   [key: string]: unknown;
   absolutePath?: string;
   acpHistoryMode?: string;
-  agentId: string;
+  agentId?: string;
   agentRuntimeMode?: string;
   allowUnarchiveArchived?: boolean;
   archived?: boolean;
@@ -17,16 +22,16 @@ interface ServerRecord {
   displayPinned?: boolean;
   error?: string;
   fork?: boolean;
-  id: string;
-  isDirectory: () => boolean;
-  isFile: () => boolean;
+  id?: string;
+  isDirectory?: () => boolean;
+  isFile?: () => boolean;
   kind?: string;
   launchPermissionMode?: string;
-  name: string;
+  name?: string;
   projectLabel?: string;
-  provider: string;
-  providerHomeId: string;
-  providerSessionKey: string;
+  provider?: string;
+  providerHomeId?: string;
+  providerSessionKey?: string;
   readAttentionSeq?: number;
   readingAnchor?: string;
   readOutputEpoch?: string;
@@ -39,6 +44,40 @@ interface ServerRecord {
   task?: string;
   warning?: string;
   workspace?: string;
+}
+
+type RuntimeKind = ReturnType<typeof runtimeKind>;
+type AgentStartCallback = NonNullable<Parameters<AgentManager['startAgent']>[2]>;
+type SessionStream = ReturnType<typeof coalesceSessionStream>;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function optionalString(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined;
+}
+
+function requiredString(value: unknown): string {
+  return typeof value === 'string' ? value : '';
+}
+
+function optionalNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function isAcpConfigValue(value: unknown): value is AcpConfigValue {
+  return value === null
+    || ['string', 'number', 'boolean'].includes(typeof value)
+    || (Array.isArray(value) && value.every(item => typeof item === 'string'));
+}
+
+function isRuntimeKind(value: string): value is RuntimeKind {
+  return value === 'terminal' || value === 'acp' || value === 'json';
+}
+
+function isForkMode(value: string): value is ForkMode {
+  return value === 'conversation' || value === 'same-worktree' || value === 'new-worktree';
 }
 
 interface HttpRequest {
@@ -107,7 +146,9 @@ interface WebSocketClient {
   close(code?: number, reason?: string): void;
   send(data: string): void;
   terminate(): void;
-  on(event: string, listener: (...args: never[]) => void): void;
+  off(event: string, listener: (...args: never[]) => void): WebSocketClient;
+  on(event: string, listener: (...args: never[]) => void): WebSocketClient;
+  once(event: string, listener: (...args: never[]) => void): WebSocketClient;
 }
 
 interface ServerError extends Error {
@@ -142,6 +183,17 @@ interface ResumeOptions {
   rememberMainPageSession?: boolean;
 }
 
+interface ResumeAgentResult {
+  agentId?: string;
+  archived?: boolean;
+  claimed?: boolean;
+  error?: string;
+  pending?: boolean;
+  projectWorkspace?: string;
+  reused?: boolean;
+  status?: number;
+}
+
 interface KillOptions {
   acknowledgeUnprovenAcpExit?: boolean;
 }
@@ -168,77 +220,46 @@ const crypto = require('crypto');
 const { execFile } = require('child_process');
 const { promisify } = require('util');
 const { URLSearchParams, pathToFileURL } = require('url');
-const AgentManager = require('./agent-manager.cjs');
-const { runtimeKind } = require('./agent-runtime-binding.cjs');
-const { ConfigManager } = require('./config-manager.cjs');
-const { ThemeManager } = require('./theme-manager.cjs');
-const { TokenAuth, encodeCookieToken } = require('./auth.cjs');
-const { getLocalIPs, getPrimaryLocalIP } = require('./network.cjs');
-const { listAvailableAgents, resolveCompatibleCodexExecutable } = require('./executable-discovery.cjs');
-const { readClaudeSettingsSummary } = require('./claude-settings.cjs');
-const { listCodexModelOptions } = require('./codex-models.cjs');
-const { listCodexSessions } = require('./codex-session-history.cjs');
-const {
-  buildAgentSessionResumeCommand,
-  findAgentSession,
-  isSafeSessionId,
-  listAgentSessions,
-  normalizeProvider,
-  paginateAgentSessions,
-  resolveCodexResumeModelProvider,
-  searchAgentSessions,
-} = require('./agent-session-history.cjs');
-const {
-  findActiveAgentClaimingSession,
-  mainPageAgentSessionKey,
-  mainPageAgentSessionFromKey,
-  mainPageAgentSessionsToAutoResume,
-  resumedAgentSource,
-} = require('./main-page-session.cjs');
-const { discoverAgentWorkspaces } = require('./workspace-discovery.cjs');
-const { inspectGitWorktree } = require('./git-worktree-info.cjs');
-const { createWorkspaceDirectoryRouter } = require('./workspace-directory.cjs');
-const { createControlRouter } = require('./control-api.cjs');
-const { WorkspaceFileService, WorkspaceFileError } = require('./workspace-file-service.cjs');
-const { createWorkspaceFileRouter, resolveWorkspaceRoot } = require('./workspace-file-router.cjs');
-const { WorkspaceRootRegistry, rootIdForPath } = require('./workspace-root-registry.cjs');
-const {
-  BrowserResourceManager,
-  createBrowserRouter,
-} = require('../extensions/browser/backend/index.cjs');
-const {
-  ComputerResourceManager,
-  createComputerRouter,
-} = require('../extensions/computer/backend/index.cjs');
-const { UsageMonitor } = require('./usage-monitor.cjs');
-const { CodexContextWindowReader } = require('./codex-context-window.cjs');
-const { AsyncCache } = require('./async-cache.cjs');
-const { getMainAgentSkillsCatalog } = require('./main-agent-skills.cjs');
-const { discoverAgentExtensions, discoverSlashCommands } = require('./slash-command-discovery.cjs');
-const { FarmingUpdateService } = require('./update-service.cjs');
-const { inputPartsFromMessage } = require('./input-parts.cjs');
-const { cleanupTerminalRuntime } = require('./terminal-runtime-cleanup.cjs');
-const { QrShareTicketStore, SHARE_TICKET_TTL_MS } = require('./qr-share-tickets.cjs');
-const { ReviewStateStore } = require('./review-state-store.cjs');
-const { createReviewStateRouter } = require('./review-state-router.cjs');
-const { ReviewDiffService } = require('./review-diff-service.cjs');
-const { createReviewDiffRouter } = require('./review-diff-router.cjs');
-const { ReviewSessionStore } = require('./review-session-store.cjs');
-const { ReviewSessionService } = require('./review-session-service.cjs');
-const { createReviewSessionRouter } = require('./review-session-router.cjs');
-const {
-  applyIndexHtmlAppearance,
-  normalizeBasePath,
-  routePath,
-  rewriteIndexHtmlForBasePath,
-  appendIndexHtmlAssetToken,
-} = require('./index-html.cjs');
-const { decodeAcpTranscriptMedia } = require('./acp-transcript.cjs');
-const {
-  coalesceSessionStream,
-  deliverSessionStreamToClients,
-  shouldBroadcastSessionStreamImmediately,
-} = require('./session-stream-protocol.cjs');
+import { AgentManager } from './agent-manager.cjs';
+import { runtimeKind } from './agent-runtime-binding.cjs';
+import { ConfigManager } from './config-manager.cjs';
+import { ThemeManager } from './theme-manager.cjs';
+import { TokenAuth, encodeCookieToken } from './auth.cjs';
+import { getLocalIPs, getPrimaryLocalIP } from './network.cjs';
+import { listAvailableAgents, resolveCompatibleCodexExecutable } from './executable-discovery.cjs';
+import { readClaudeSettingsSummary } from './claude-settings.cjs';
+import { listCodexModelOptions } from './codex-models.cjs';
+import { listCodexSessions } from './codex-session-history.cjs';
+import { buildAgentSessionResumeCommand, findAgentSession, isSafeSessionId, listAgentSessions, normalizeProvider, paginateAgentSessions, resolveCodexResumeModelProvider, searchAgentSessions } from './agent-session-history.cjs';
+import { findActiveAgentClaimingSession, mainPageAgentSessionKey, mainPageAgentSessionFromKey, mainPageAgentSessionsToAutoResume, resumedAgentSource } from './main-page-session.cjs';
+import { discoverAgentWorkspaces } from './workspace-discovery.cjs';
+import { inspectGitWorktree } from './git-worktree-info.cjs';
+import { createWorkspaceDirectoryRouter } from './workspace-directory.cjs';
+import { createControlRouter } from './control-api.cjs';
+import { WorkspaceFileService, WorkspaceFileError } from './workspace-file-service.cjs';
+import { createWorkspaceFileRouter, resolveWorkspaceRoot } from './workspace-file-router.cjs';
+import { WorkspaceRootRegistry, rootIdForPath } from './workspace-root-registry.cjs';
+import { BrowserResourceManager, createBrowserRouter } from '../extensions/browser/backend/index.cjs';
+import { ComputerResourceManager, createComputerRouter } from '../extensions/computer/backend/index.cjs';
+import { UsageMonitor } from './usage-monitor.cjs';
+import { CodexContextWindowReader } from './codex-context-window.cjs';
+import { AsyncCache } from './async-cache.cjs';
+import { getMainAgentSkillsCatalog } from './main-agent-skills.cjs';
+import { discoverAgentExtensions, discoverSlashCommands } from './slash-command-discovery.cjs';
+import { FarmingUpdateService } from './update-service.cjs';
+import { inputPartsFromMessage } from './input-parts.cjs';
+import { cleanupTerminalRuntime } from './terminal-runtime-cleanup.cjs';
+import { QrShareTicketStore, SHARE_TICKET_TTL_MS } from './qr-share-tickets.cjs';
+import { ReviewStateStore } from './review-state-store.cjs';
+import { createReviewStateRouter } from './review-state-router.cjs';
+import { ReviewDiffService } from './review-diff-service.cjs';
+import { createReviewDiffRouter } from './review-diff-router.cjs';
+import { ReviewSessionStore } from './review-session-store.cjs';
+import { ReviewSessionService } from './review-session-service.cjs';
+import { createReviewSessionRouter } from './review-session-router.cjs';
+import { applyIndexHtmlAppearance, normalizeBasePath, routePath, rewriteIndexHtmlForBasePath, appendIndexHtmlAssetToken } from './index-html.cjs';
+import { decodeAcpTranscriptMedia } from './acp-transcript.cjs';
+import { coalesceSessionStream, deliverSessionStreamToClients, shouldBroadcastSessionStreamImmediately } from './session-stream-protocol.cjs';
 const {
   MIN_PROTOCOL_VERSION,
   PROTOCOL_VERSION,
@@ -250,7 +271,7 @@ const {
   initializeWebSocketLiveness,
   startWebSocketLivenessMonitor,
 } = require('../shared/websocket-liveness.js');
-const { probeAgentManagerBusinessHealth } = require('./business-health.cjs');
+import { probeAgentManagerBusinessHealth } from './business-health.cjs';
 
 const BASE_PATH = normalizeBasePath(process.env.FARMING_BASE_PATH || '/');
 const PORT = process.env.PORT || 3000;
@@ -289,7 +310,9 @@ const browserResourceManager = new BrowserResourceManager({
   getBrowserSettings: () => configManager.getSettings(),
 });
 
-const agentManager = new AgentManager(configManager, {
+const agentManager = new AgentManager(
+  configManager,
+  {
   controlUrl: `http://127.0.0.1:${PORT}${BASE_PATH}`,
   tokenFile: tokenAuth.getTokenFile(),
   authDisabled: !authEnabled,
@@ -301,7 +324,8 @@ const agentManager = new AgentManager(configManager, {
     input: Record<string, unknown>,
   ) => browserResourceManager.permissionDecision(agentId, tool, input),
   computerMcpEnabled: () => configManager.getSettings().computerExtensionEnabled === true,
-});
+  },
+);
 
 async function requireAgentRecoveryForHttp(res: HttpResponse) {
   try {
@@ -319,7 +343,9 @@ async function requireAgentRecoveryForHttp(res: HttpResponse) {
 
 const themeManager = new ThemeManager({ configDir: configManager.farmingDir });
 const workspaceFileService = new WorkspaceFileService();
-const workspaceRootRegistry = new WorkspaceRootRegistry(agentManager);
+const workspaceRootRegistry = new WorkspaceRootRegistry(
+  agentManager,
+);
 const computerResourceManager = new ComputerResourceManager({
   configDir: configManager.farmingDir,
   isEnabled: () => configManager.getSettings().computerExtensionEnabled === true,
@@ -430,9 +456,9 @@ const agentSessionsCache = new AsyncCache(() => {
   staleMs: 5 * 60_000,
 });
 
-function withSearchTimeout(promise: Promise<unknown>, timeoutMs: number) {
+function withSearchTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise((_, reject) => {
+  const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
       const error = new Error('Agent search timed out');
       error.code = 'ETIMEDOUT';
@@ -455,11 +481,19 @@ const reviewStateStore = new ReviewStateStore(configManager.farmingDir, {
     },
   },
 });
-const reviewDiffService = new ReviewDiffService(agentManager, workspaceFileService);
+const reviewDiffService = new ReviewDiffService(
+  agentManager as ConstructorParameters<typeof ReviewDiffService>[0],
+  workspaceFileService as ConstructorParameters<typeof ReviewDiffService>[1],
+);
 const reviewSessionStore = new ReviewSessionStore(configManager.farmingDir);
 const reviewSessionService = new ReviewSessionService(workspaceFileService, reviewSessionStore, reviewStateStore, {
   resolveAgentRoot: (agentId: string) => agentManager.getAgentWorkspaceRoot(agentId),
-  resolveAcpReviewChanges: (agentId: string, itemIds: readonly string[]) => agentManager.getAcpReviewChanges(agentId, itemIds),
+  resolveAcpReviewChanges: (agentId: unknown, itemIds: unknown) => {
+    if (typeof agentId !== 'string' || !Array.isArray(itemIds) || !itemIds.every(item => typeof item === 'string')) {
+      throw new Error('ACP review request is invalid');
+    }
+    return agentManager.getAcpReviewChanges(agentId, itemIds);
+  },
 });
 const workspaceDiscoveryCache = new AsyncCache((key: string) => {
   const request = JSON.parse(key);
@@ -592,12 +626,12 @@ async function listWorkspacePathCompletions(partialPath: string, limit = 12) {
   const maxResults = Math.max(1, Math.min(Number(limit) || 12, 100));
 
   return entries
-    .filter((entry: ServerRecord) => entry.isDirectory())
-    .filter((entry: ServerRecord) => normalizedPrefix.startsWith('.') || !entry.name.startsWith('.'))
-    .filter((entry: ServerRecord) => !normalizedPrefix || entry.name.toLowerCase().startsWith(normalizedPrefix))
-    .sort((a: ServerRecord, b: ServerRecord) => a.name.localeCompare(b.name))
+    .filter((entry: Dirent) => entry.isDirectory())
+    .filter((entry: Dirent) => normalizedPrefix.startsWith('.') || !entry.name.startsWith('.'))
+    .filter((entry: Dirent) => !normalizedPrefix || entry.name.toLowerCase().startsWith(normalizedPrefix))
+    .sort((a: Dirent, b: Dirent) => a.name.localeCompare(b.name))
     .slice(0, maxResults)
-    .map((entry: ServerRecord) => {
+    .map((entry: Dirent) => {
       const fullPath = path.join(query.parent, entry.name);
       const displayPath = query.raw.startsWith('~')
         ? path.join(query.displayParent || '~', entry.name)
@@ -814,23 +848,30 @@ app.get(`${crtEntryPath}/crt-mermaid-renderer.js`, (_req, res) => {
 app.use(`${crtEntryPath}/`, express.static(crtFrontendDir, { index: false }));
 app.use(BASE_PATH || '/', express.static(staticAppDir, { index: false }));
 
-app.use(routePath(BASE_PATH, '/api/files'), createWorkspaceFileRouter(agentManager, workspaceFileService, {
+app.use(routePath(BASE_PATH, '/api/files'), createWorkspaceFileRouter(
+  agentManager as Parameters<typeof createWorkspaceFileRouter>[0],
+  workspaceFileService,
+  {
   rootRegistry: workspaceRootRegistry,
-}));
+  },
+));
 app.use(routePath(BASE_PATH, '/api/browsers'), createBrowserRouter(
   browserResourceManager,
   workspaceRootRegistry,
-  agentManager,
+  agentManager as Parameters<typeof createBrowserRouter>[2],
 ));
 app.use(routePath(BASE_PATH, '/api/computers'), createComputerRouter(
   computerResourceManager,
   workspaceRootRegistry,
-  agentManager,
+  agentManager as Parameters<typeof createComputerRouter>[2],
 ));
 
 app.use(routePath(BASE_PATH, '/api/review-sessions'), createReviewSessionRouter(reviewSessionService));
 app.use(routePath(BASE_PATH, '/api/reviews'), createReviewDiffRouter(reviewDiffService, reviewSessionService));
-app.use(routePath(BASE_PATH, '/api/reviews'), createReviewStateRouter(reviewStateStore));
+app.use(
+  routePath(BASE_PATH, '/api/reviews'),
+  createReviewStateRouter(reviewStateStore as Parameters<typeof createReviewStateRouter>[0]),
+);
 
 if (process.env.NODE_ENV === 'test' && process.env.FARMING_E2E_FAKE_EXECUTABLES === '1') {
   app.post(routePath(BASE_PATH, '/api/control/e2e/close-websockets'), express.json(), (_req, res) => {
@@ -842,11 +883,14 @@ if (process.env.NODE_ENV === 'test' && process.env.FARMING_E2E_FAKE_EXECUTABLES 
   });
 }
 
-app.use(routePath(BASE_PATH, '/api/control'), createControlRouter(agentManager, {
+app.use(routePath(BASE_PATH, '/api/control'), createControlRouter(
+  agentManager,
+  {
   notifyUpdate: broadcastState,
   allowConcurrentTestControl: process.env.NODE_ENV === 'test'
     && process.env.FARMING_E2E_FAKE_EXECUTABLES === '1',
-}));
+  },
+));
 
 app.get([
   BASE_PATH || '/',
@@ -909,8 +953,8 @@ app.get(routePath(BASE_PATH, '/api/skills'), (_req, res) => {
 
 app.get(routePath(BASE_PATH, '/api/agent-extensions'), (_req, res) => {
   const agents = getAvailableAgentsForRequest()
-    .filter((agent: ServerRecord) => agent.category === 'coding')
-    .map((agent: ServerRecord) => {
+    .filter(agent => agent.category === 'coding')
+    .map(agent => {
       const provider = String(agent.name || agent.command || '').trim().toLowerCase();
       const configuredHomes = configManager.getAgentHomes(provider);
       const homes = configuredHomes.length > 0
@@ -921,12 +965,12 @@ app.get(routePath(BASE_PATH, '/api/agent-extensions'), (_req, res) => {
         name: agent.name,
         description: agent.description || '',
         discoverySupported: provider === 'codex' || provider === 'claude',
-        homes: homes.map((home: ServerRecord) => ({
+        homes: homes.map(home => ({
           id: home.id,
           extensions: discoverAgentExtensions({
             provider,
             providerHomePath: home.path,
-          }).map((extension: ServerRecord) => ({
+          }).map(extension => ({
             id: extension.command,
             command: extension.command,
             name: extension.label,
@@ -990,7 +1034,7 @@ async function cleanupExpiredImageAttachments(options: { force?: boolean } = {})
   lastImageAttachmentGcAt = now;
 
   const attachmentsDir = imageAttachmentsDir();
-  let entries = [];
+  let entries: Dirent[] = [];
   try {
     entries = await fs.promises.readdir(attachmentsDir, { withFileTypes: true });
   } catch (caught) {
@@ -1002,7 +1046,7 @@ async function cleanupExpiredImageAttachments(options: { force?: boolean } = {})
   }
 
   const cutoff = now - IMAGE_ATTACHMENT_RETENTION_MS;
-  await Promise.all(entries.map(async (entry: ServerRecord) => {
+  await Promise.all(entries.map(async (entry) => {
     if (!entry.isFile() || (!IMAGE_ATTACHMENT_FILENAME_RE.test(entry.name) && !AUDIO_ATTACHMENT_FILENAME_RE.test(entry.name))) return;
 
     const filePath = path.join(attachmentsDir, entry.name);
@@ -1135,12 +1179,12 @@ app.post(routePath(BASE_PATH, '/api/codex/context-windows'), express.json(), asy
   try {
     const requestedIds = Array.isArray(req.body?.agentIds)
       ? req.body.agentIds
-        .map((value: string) => String(value || '').trim())
+        .map((value: unknown) => String(value || '').trim())
         .filter(Boolean)
         .slice(0, 20)
       : [];
     const requestedIdSet = new Set(requestedIds);
-    const agents = agentManager.getState().agents.filter((agent: ServerRecord) => requestedIdSet.has(agent.id));
+    const agents = agentManager.getState().agents.filter(agent => requestedIdSet.has(agent.id));
     const contextWindows = await codexContextWindowReader.readForAgents(agents);
     res.json({ contextWindows });
   } catch (caught) {
@@ -1203,6 +1247,16 @@ app.get(routePath(BASE_PATH, '/api/codex/sessions'), async (req, res) => {
   res.json({ sessions });
 });
 
+function providerSessionDisplayStates(): Map<string, Record<string, unknown>> {
+  const states = new Map<string, Record<string, unknown>>();
+  for (const record of configManager.listAgentSessionRecords()) {
+    if (typeof record.providerSessionKey === 'string' && record.providerSessionKey) {
+      states.set(record.providerSessionKey, record);
+    }
+  }
+  return states;
+}
+
 app.get(routePath(BASE_PATH, '/api/agent-sessions'), async (req, res) => {
   try {
     const requestedLimit = Number(req.query.limit);
@@ -1211,20 +1265,18 @@ app.get(routePath(BASE_PATH, '/api/agent-sessions'), async (req, res) => {
     const cacheOptions = req.query.force === '1'
       ? { force: true }
       : (req.query.fresh === '1' ? { maxAgeMs: INTERACTIVE_REFRESH_CACHE_MAX_AGE_MS } : {});
-    const sessions = await agentSessionsCache.get(
+    const sessions = (await agentSessionsCache.get(
       JSON.stringify(configManager.getSettings().agentHomes || {}),
       cacheOptions
-    );
+    )) ?? [];
     const page = paginateAgentSessions(sessions, { limit: Math.max(1, limit), cursor });
     if (page.invalidCursor) {
       res.status(400).json({ error: 'Invalid Agent session cursor' });
       return;
     }
-    const displayStateByKey = new Map<string, ServerRecord>(configManager.listAgentSessionRecords()
-      .filter((record: ServerRecord) => record && record.providerSessionKey)
-      .map((record: ServerRecord) => [record.providerSessionKey, record] as [string, ServerRecord]));
+    const displayStateByKey = providerSessionDisplayStates();
     res.json({
-      sessions: page.sessions.map((session: ServerRecord) => {
+      sessions: page.sessions.map(session => {
         const key = mainPageAgentSessionKey(session.provider, session.id, session.providerHomeId);
         const displayState = displayStateByKey.get(key);
         return typeof displayState?.displayPinned === 'boolean'
@@ -1251,23 +1303,21 @@ app.get(routePath(BASE_PATH, '/api/agent-sessions/search'), async (req, res) => 
     const cacheOptions = req.query.force === '1'
       ? { force: true }
       : (req.query.fresh === '1' ? { maxAgeMs: INTERACTIVE_REFRESH_CACHE_MAX_AGE_MS } : {});
-    const sessions = await withSearchTimeout(
+    const sessions = (await withSearchTimeout(
       agentSessionsCache.get(
         JSON.stringify(settings.agentHomes || {}),
         cacheOptions
       ),
-      settings.searchTimeoutMs
-    );
+      Number(settings.searchTimeoutMs) || 10_000
+    )) ?? [];
     const result = searchAgentSessions(sessions, query, {
       limit,
       projectNames: settings.projectNames,
     });
-    const displayStateByKey = new Map<string, ServerRecord>(configManager.listAgentSessionRecords()
-      .filter((record: ServerRecord) => record && record.providerSessionKey)
-      .map((record: ServerRecord) => [record.providerSessionKey, record] as [string, ServerRecord]));
+    const displayStateByKey = providerSessionDisplayStates();
     res.json({
       ...result,
-      sessions: result.sessions.map((session: ServerRecord) => {
+      sessions: result.sessions.map(session => {
         const key = mainPageAgentSessionKey(session.provider, session.id, session.providerHomeId);
         const displayState = displayStateByKey.get(key);
         return typeof displayState?.displayPinned === 'boolean'
@@ -1320,6 +1370,7 @@ app.post(routePath(BASE_PATH, '/api/main-page-agent-sessions'), express.json(), 
   if (operation === 'add') {
     [...sessionKeys].reverse().forEach(sessionKey => {
       const session = mainPageAgentSessionFromKey(sessionKey);
+      if (!session) return;
       configManager.rememberMainPageSessionKey(sessionKey, {
         provider: session.provider,
         providerSessionId: session.sessionId,
@@ -1357,7 +1408,7 @@ app.get(routePath(BASE_PATH, '/api/workspaces/discovered'), (req, res) => {
   const agent = typeof req.query.agent === 'string' ? req.query.agent : '';
   const cacheToken = JSON.stringify({ limit, agent });
   workspaceDiscoveryCache.get(cacheToken)
-    .then((workspaces: ServerRecord) => {
+    .then(workspaces => {
       res.json({ workspaces });
     })
     .catch((error: unknown) => {
@@ -1496,7 +1547,11 @@ app.post(routePath(BASE_PATH, '/api/agents/:agentId/acp-terminals/:terminalId/ki
 
 app.post(routePath(BASE_PATH, '/api/agents/:agentId/acp-terminals/:terminalId/input'), express.json({ limit: '96kb' }), (req, res) => {
   try {
-    res.json(agentManager.inputAcpTerminal(req.params.agentId, req.params.terminalId, req.body?.input));
+    res.json(agentManager.inputAcpTerminal(
+      req.params.agentId,
+      req.params.terminalId,
+      requiredString(req.body?.input),
+    ));
   } catch (caught) {
     const error = caughtError(caught);
     const message = error && error.message ? error.message : 'Failed to write ACP terminal input';
@@ -1510,8 +1565,8 @@ app.post(routePath(BASE_PATH, '/api/agents/:agentId/acp-terminals/:terminalId/re
     res.json(agentManager.resizeAcpTerminal(
       req.params.agentId,
       req.params.terminalId,
-      req.body?.cols,
-      req.body?.rows,
+      Number(req.body?.cols),
+      Number(req.body?.rows),
     ));
   } catch (caught) {
     const error = caughtError(caught);
@@ -1534,11 +1589,15 @@ app.post(routePath(BASE_PATH, '/api/agents/:agentId/acp-subagents/:sessionId/can
 
 app.post(routePath(BASE_PATH, '/api/agents/:agentId/acp-patches/:toolCallId/decision'), express.json({ limit: '16kb' }), async (req, res) => {
   try {
+    const decision = req.body?.decision;
+    if (decision !== 'accept' && decision !== 'reject') {
+      throw new Error('ACP patch decision is invalid');
+    }
     res.json(await agentManager.decideAcpPatch(
       req.params.agentId,
       req.params.toolCallId,
-      req.body?.path,
-      req.body?.decision,
+      requiredString(req.body?.path),
+      decision,
     ));
   } catch (caught) {
     const error = caughtError(caught);
@@ -1566,8 +1625,8 @@ app.post(routePath(BASE_PATH, '/api/agents/:agentId/acp-permission'), express.js
   try {
     const result = agentManager.respondToAcpPermission(
       req.params.agentId,
-      req.body?.requestId,
-      req.body?.optionId,
+      requiredString(req.body?.requestId),
+      requiredString(req.body?.optionId),
       req.body?.cancelled === true
     );
     res.json(result);
@@ -1582,8 +1641,8 @@ app.post(routePath(BASE_PATH, '/api/agents/:agentId/acp-elicitation'), express.j
   try {
     const result = agentManager.respondToAcpElicitation(
       req.params.agentId,
-      req.body?.requestId,
-      req.body?.action,
+      requiredString(req.body?.requestId),
+      requiredString(req.body?.action),
       req.body?.content
     );
     res.json(result);
@@ -1596,7 +1655,7 @@ app.post(routePath(BASE_PATH, '/api/agents/:agentId/acp-elicitation'), express.j
 
 app.post(routePath(BASE_PATH, '/api/agents/:agentId/acp-session/authenticate'), express.json(), async (req, res) => {
   try {
-    res.json(await agentManager.authenticateAcpAgent(req.params.agentId, req.body?.methodId));
+    res.json(await agentManager.authenticateAcpAgent(req.params.agentId, requiredString(req.body?.methodId)));
   } catch (caught) {
     const error = caughtError(caught);
     const message = error && error.message ? error.message : 'Failed to authenticate ACP Agent';
@@ -1654,7 +1713,11 @@ app.patch(routePath(BASE_PATH, '/api/agents/:agentId/acp-session'), express.json
       res.json(await agentManager.setAcpSessionConfigOptions(req.params.agentId, req.body.configOptions));
       return;
     }
-    if (typeof req.body?.configId === 'string' && Object.prototype.hasOwnProperty.call(req.body, 'value')) {
+    if (
+      typeof req.body?.configId === 'string'
+      && Object.prototype.hasOwnProperty.call(req.body, 'value')
+      && isAcpConfigValue(req.body.value)
+    ) {
       res.json(await agentManager.setAcpSessionConfigOption(
         req.params.agentId,
         req.body.configId,
@@ -1680,9 +1743,9 @@ app.post(routePath(BASE_PATH, '/api/agents/:agentId/codex-terminal-profile'), ex
   res.once('close', abortClosedResponse);
   try {
     const profile = await agentManager.setCodexTerminalProfile(req.params.agentId, {
-      model: req.body?.model,
-      effort: req.body?.effort,
-      serviceTier: req.body?.serviceTier,
+      model: optionalString(req.body?.model),
+      effort: optionalString(req.body?.effort),
+      serviceTier: optionalString(req.body?.serviceTier),
     }, {
       signal: requestAbort.signal,
       timeoutMs: 44_000,
@@ -1836,6 +1899,10 @@ app.patch(routePath(BASE_PATH, '/api/agents/:agentId'), express.json(), async (r
   }
 
   if (typeof body.agentRuntimeMode === 'string') {
+    if (!isRuntimeKind(body.agentRuntimeMode)) {
+      res.status(400).json({ error: 'Unsupported Agent runtime mode' });
+      return;
+    }
     const result = await agentManager.restartAgentRuntimeMode(req.params.agentId, body.agentRuntimeMode) as ServerRecord;
     if (result.error) {
       const status = result.error === 'Agent not found' ? 404 : 400;
@@ -1864,8 +1931,8 @@ app.post(routePath(BASE_PATH, '/api/agents/:agentId/reorder'), express.json(), a
   if (!await requireAgentRecoveryForHttp(res)) return;
   await agentManager.whenAgentLifecycleIdle(req.params.agentId);
   const result = agentManager.reorderAgent(req.params.agentId, {
-    beforeAgentId: req.body?.beforeAgentId,
-    afterAgentId: req.body?.afterAgentId,
+    beforeAgentId: optionalString(req.body?.beforeAgentId),
+    afterAgentId: optionalString(req.body?.afterAgentId),
   });
   if (result.error) {
     const status = result.error === 'Agent not found'
@@ -1881,6 +1948,10 @@ app.post(routePath(BASE_PATH, '/api/agents/:agentId/reorder'), express.json(), a
 app.post(routePath(BASE_PATH, '/api/agents/:agentId/fork'), express.json(), async (req, res) => {
   if (!await requireAgentRecoveryForHttp(res)) return;
   const mode = req.body && typeof req.body.mode === 'string' ? req.body.mode : 'same-worktree';
+  if (!isForkMode(mode)) {
+    res.status(400).json({ error: 'Unsupported Fork mode' });
+    return;
+  }
   const targetRuntime = req.body && typeof req.body.targetRuntime === 'string'
     ? req.body.targetRuntime
     : '';
@@ -1895,9 +1966,9 @@ app.post(routePath(BASE_PATH, '/api/agents/:agentId/fork'), express.json(), asyn
   }
   const result = await agentManager.forkAgent(req.params.agentId, mode, {
     requestId,
-    ...(targetRuntime ? { targetRuntime } : {}),
+    ...(targetRuntime === 'chat' ? { targetRuntime: 'chat' } : {}),
     ...(Number.isSafeInteger(req.body?.expectedRevision)
-      ? { expectedRevision: req.body.expectedRevision }
+      ? { expectedRevision: optionalNumber(req.body.expectedRevision) }
       : {}),
   });
   if (result.error) {
@@ -2010,6 +2081,7 @@ app.post(routePath(BASE_PATH, '/api/projects/create-worktree'), express.json(), 
   try {
     const root = resolveProjectActionRoot(typeof req.body?.rootId === 'string' ? req.body.rootId : '');
     const created = await agentManager.createPermanentWorktree(root.canonicalPath, { requestId });
+    if (!isRecord(created)) throw new Error('Project worktree creation returned an invalid result');
     broadcastState();
     res.status(201).json({
       ...created,
@@ -2022,7 +2094,7 @@ app.post(routePath(BASE_PATH, '/api/projects/create-worktree'), express.json(), 
       error: error.message || 'Failed to create permanent worktree',
       requestId,
       ...(operation?.state === 'pending' ? { retryable: true } : {}),
-      ...(['unknown', 'blocked'].includes(operation?.state) ? { uncertain: true } : {}),
+      ...(['unknown', 'blocked'].includes(operation?.state || '') ? { uncertain: true } : {}),
     });
   }
 });
@@ -2061,8 +2133,8 @@ app.post(routePath(BASE_PATH, '/api/agent-sessions/:provider/:sessionId/resume')
   await startResumedAgentSession(req, res, req.params.provider, req.params.sessionId);
 });
 
-const pendingResumeStarts = new Map();
-const pendingProjectWorkspaceResolutions = new Map();
+const pendingResumeStarts = new Map<string, Promise<ResumeAgentResult>>();
+const pendingProjectWorkspaceResolutions = new Map<string, Promise<string>>();
 
 function resumedAgentStartKey(provider: string, sessionId: string, options: ResumeOptions = {}) {
   return [
@@ -2078,8 +2150,8 @@ function findResumedAgent(provider: string, sessionId: string, providerHomeId = 
   return findActiveAgentClaimingSession(agentManager.getState().agents, provider, { id: sessionId, providerHomeId });
 }
 
-function isMainAgentSessionWorkspace(session: ServerRecord) {
-  const values = [session && session.cwd, session && session.workspace];
+function isMainAgentSessionWorkspace(session: AgentSession | null) {
+  const values = [session?.cwd, session?.workspace];
   return values.some(value => {
     const normalized = String(value || '').trim().replace(/[\\/]+$/, '');
     return normalized === '~/.farming' || /(^|[/\\])\.farming$/.test(normalized);
@@ -2132,7 +2204,11 @@ function savedFarmingAgentSession(provider: string, sessionId: string, providerH
     : null;
 }
 
-async function resumeAgentSessionById(provider: string, rawSessionId: string, options: ResumeOptions = {}) {
+async function resumeAgentSessionById(
+  provider: string,
+  rawSessionId: string,
+  options: ResumeOptions = {},
+): Promise<ResumeAgentResult> {
   const normalizedProvider = normalizeProvider(provider);
   const sessionId = String(rawSessionId || '').trim();
   const providerHomeId = typeof options.providerHomeId === 'string' && options.providerHomeId.trim() ? options.providerHomeId.trim() : 'default';
@@ -2155,7 +2231,7 @@ async function resumeAgentSessionById(provider: string, rawSessionId: string, op
       const projectWorkspace = requestedAsMain
         ? ''
         : await canonicalProjectWorkspace(
-          existingAgent.gitWorktree?.workspace || existingAgent.projectWorkspace || existingAgent.cwd
+          existingAgent.gitWorktree?.workspace || existingAgent.projectWorkspace || existingAgent.cwd || null
         );
       return { agentId: existingAgent.id, projectWorkspace, reused: true };
     }
@@ -2176,7 +2252,7 @@ async function resumeAgentSessionById(provider: string, rawSessionId: string, op
     };
   }
 
-  const startPromise = (async () => {
+  const startPromise: Promise<ResumeAgentResult> = (async (): Promise<ResumeAgentResult> => {
     let session = await findAgentSession(normalizedProvider, sessionId, {
       limit: 1000,
       providerLimit: 1000,
@@ -2224,7 +2300,7 @@ async function resumeAgentSessionById(provider: string, rawSessionId: string, op
       if (claimingAgent) {
         if (shouldRememberMainPageSession) rememberMainPageAgentSession(normalizedProvider, sessionId, providerHomeId);
         const projectWorkspace = await canonicalProjectWorkspace(
-          claimingAgent.gitWorktree?.workspace || claimingAgent.projectWorkspace || claimingAgent.cwd
+          claimingAgent.gitWorktree?.workspace || claimingAgent.projectWorkspace || claimingAgent.cwd || null
         );
         return { agentId: claimingAgent.id, projectWorkspace, reused: true, claimed: true };
       }
@@ -2243,17 +2319,17 @@ async function resumeAgentSessionById(provider: string, rawSessionId: string, op
     const hasRequestedCustomTitle = Object.prototype.hasOwnProperty.call(options, 'customTitle');
     const savedAttentionSeq = Number(savedSession?.attentionSeq) || 0;
     const savedReadAttentionSeq = Number(savedSession?.readAttentionSeq) || 0;
-    const workingDirectory = session && (session.cwd || session.workspace) ? (session.cwd || session.workspace) : null;
+    const workingDirectory = session?.cwd || session?.workspace || null;
     const projectWorkspace = resumeAsMain
       ? ''
       : await canonicalProjectWorkspace(
-        savedSession?.projectWorkspace || (session ? (session.workspace || session.cwd || '') : workingDirectory)
+        String(savedSession?.projectWorkspace || (session ? (session.workspace || session.cwd || '') : workingDirectory) || '')
       );
     const command = buildAgentSessionResumeCommand(normalizedProvider, sessionId, {
       fork: shouldFork,
       cwd: workingDirectory,
       modelProvider: normalizedProvider === 'codex'
-        ? resolveCodexResumeModelProvider(session ? session.providerHomePath : '')
+        ? resolveCodexResumeModelProvider(session?.providerHomePath || '')
         : '',
     });
 
@@ -2261,10 +2337,10 @@ async function resumeAgentSessionById(provider: string, rawSessionId: string, op
       return { error: 'invalid session id', status: 400 };
     }
 
-    return new Promise((resolve) => {
+    return new Promise<ResumeAgentResult>((resolve) => {
       const resolvedProviderHomeId = session ? (session.providerHomeId || providerHomeId) : providerHomeId;
       const resumeSource = resumedAgentSource(normalizedProvider, sessionId, resolvedProviderHomeId);
-      const startResult = agentManager.startAgent(command, workingDirectory, (agentId: string, error: unknown) => {
+      const startResult = agentManager.startAgent(command, workingDirectory, (agentId, error) => {
         if (error) {
           resolve({ error, status: 400 });
           return;
@@ -2405,6 +2481,10 @@ async function startResumedAgentSession(req: HttpRequest, res: HttpResponse, pro
     res.status(result.status || 400).json({ error: result.error });
     return;
   }
+  if (!result.agentId) {
+    res.status(500).json({ error: 'Agent session resume returned no Agent identity' });
+    return;
+  }
 
   let projectMembership = {
     projectWorkspaces: configManager.getSettings().projectWorkspaces || [],
@@ -2473,18 +2553,18 @@ async function autoResumeMainPageAgentSessions() {
   const sessions = mainPageAgentSessionsToAutoResume(configManager.getSettings());
   if (sessions.length === 0) return;
 
-  let knownSessions;
+  let knownSessions: AgentSession[];
   try {
-    knownSessions = await agentSessionsCache.get(
+    knownSessions = (await agentSessionsCache.get(
       JSON.stringify(configManager.getSettings().agentHomes || {}),
       { maxAgeMs: INTERACTIVE_REFRESH_CACHE_MAX_AGE_MS }
-    );
+    )) ?? [];
   } catch (caught) {
     const error = caughtError(caught);
     console.warn('Failed to load Agent session catalog for auto-resume:', error && (error.message || error));
     return;
   }
-  const knownSessionByKey = new Map(knownSessions.map((session: ServerRecord) => [
+  const knownSessionByKey = new Map(knownSessions.map(session => [
     mainPageAgentSessionKey(session.provider, session.id, session.providerHomeId || 'default'),
     session,
   ]));
@@ -2572,8 +2652,11 @@ app.post(routePath(BASE_PATH, '/api/settings'), express.json(), async (req, res)
     : currentSettings.computerExtensionEnabled === true;
   if ((changesBrowserExtension && browserExtensionEnabled) || changesBrowserConfiguration) {
     const desiredSelection = browserResourceManager.browserSelection({
-      ...currentSettings,
-      ...settingsPatch,
+      browserSource: optionalString(settingsPatch.browserSource) ?? currentSettings.browserSource,
+      browserExecutablePath:
+        optionalString(settingsPatch.browserExecutablePath) ?? currentSettings.browserExecutablePath,
+      browserExternalCdpUrl:
+        optionalString(settingsPatch.browserExternalCdpUrl) ?? currentSettings.browserExternalCdpUrl,
     });
     const probe = await browserResourceManager.probeCapability(desiredSelection);
     if (
@@ -2833,7 +2916,7 @@ function restartMainAgent(ws: WebSocketClient, command: string) {
         }
       }
 
-      await agentManager.startAgent(normalizedCommand, null, (agentId: string, error: unknown) => {
+      await agentManager.startAgent(normalizedCommand, null, (agentId, error) => {
         if (error) {
           ws.send(JSON.stringify({ type: 'error', message: error }));
         } else if (agentId) {
@@ -2859,7 +2942,7 @@ async function killAgentFromMessage(ws: WebSocketClient, agentId: string, option
       acknowledgeUnprovenAcpExit: options.acknowledgeUnprovenAcpExit === true,
     });
     const result = requested.result;
-    if (result?.error) {
+    if (result && 'error' in result && result.error) {
       ws.send(JSON.stringify({ type: 'error', message: result.error }));
     } else if (result?.accepted) {
       ws.send(JSON.stringify({ type: 'agent-delete-accepted', ...result }));
@@ -2887,7 +2970,10 @@ async function killAgentFromMessage(ws: WebSocketClient, agentId: string, option
   }
 }
 
-async function sendInputMessage(ws: WebSocketClient, data: ServerClientMessage) {
+async function sendInputMessage(
+  ws: WebSocketClient,
+  data: Extract<ClientMessage, { type: 'input' }>,
+) {
   const targetAgentId = resolveInputTargetAgentId(ws, data);
   if (!targetAgentId) return;
 
@@ -2896,7 +2982,10 @@ async function sendInputMessage(ws: WebSocketClient, data: ServerClientMessage) 
   await agentManager.sendInput(targetAgentId, inputParts);
 }
 
-async function sendComposerInputMessage(ws: WebSocketClient, data: ServerClientMessage) {
+async function sendComposerInputMessage(
+  ws: WebSocketClient,
+  data: Extract<ClientMessage, { type: 'composer-input' }>,
+) {
   const targetAgentId = resolveInputTargetAgentId(ws, data);
   const requestId = typeof data.requestId === 'string' ? data.requestId.trim() : '';
   const delivery = data.delivery === 'steer' || data.delivery === 'prompt'
@@ -3021,7 +3110,7 @@ function handleMessage(ws: WebSocketClient, data: ServerClientMessage) {
               ? data.projectWorkspace
               : workspace
           );
-        agentManager.startAgent(data.command, workspace, (agentId: string, error: unknown) => {
+        agentManager.startAgent(data.command, workspace, (agentId, error) => {
           if (error) {
             ws.send(JSON.stringify({ type: 'error', message: error }));
           } else if (agentId) {
@@ -3162,7 +3251,7 @@ function handleMessage(ws: WebSocketClient, data: ServerClientMessage) {
   }
 }
 
-const { resolveInputTargetAgentId } = require('./input-routing.cjs');
+import { resolveInputTargetAgentId } from './input-routing.cjs';
 
 function sendWorkspaceFileWatchError(ws: WebSocketClient, error: unknown) {
   if (ws.readyState !== WebSocket.OPEN) return;
@@ -3233,7 +3322,7 @@ async function watchWorkspaceFiles(ws: WebSocketClient, data: ServerClientMessag
       ready: null,
     };
     record.ready = (async () => {
-      const unsubscribe = await workspaceFileService.subscribe(root, (event: Record<string, unknown>) => {
+      const unsubscribe = await workspaceFileService.subscribe(root, (event) => {
         if (!isCurrentWorkspaceFileWatch(ws, data.agentId, record) || ws.readyState !== WebSocket.OPEN) return;
         ws.send(JSON.stringify({
           type: 'workspace-file-event',
@@ -3326,6 +3415,13 @@ const PREVIEW_BROADCAST_INTERVAL_MS = 500;
 const SESSION_STREAM_BROADCAST_INTERVAL_MS = 33;
 const AGENT_ACTIVITY_BROADCAST_DELAY_MS = SESSION_STREAM_BROADCAST_INTERVAL_MS;
 const MAX_SESSION_STREAM_CLIENT_BUFFERED_AMOUNT = 4 * 1024 * 1024;
+
+type AgentScopedServerEvent = Record<string, unknown> & { agentId: string };
+
+function isAgentScopedServerEvent(value: unknown): value is AgentScopedServerEvent {
+  return isRecord(value) && typeof value.agentId === 'string' && value.agentId.length > 0;
+}
+
 let stateBroadcastTimer: ReturnType<typeof setTimeout> | null = null;
 let lastStateBroadcastAt = 0;
 const pendingPreviewBroadcasts = new Map();
@@ -3430,7 +3526,7 @@ agentManager.on('provider-session-updated', () => {
   scheduleBroadcastState();
 });
 
-function broadcastAgentActivity(activity: ServerRecord) {
+function broadcastAgentActivity(activity: AgentScopedServerEvent) {
   const message = JSON.stringify({
     type: 'agent-activity',
     activity,
@@ -3442,8 +3538,8 @@ function broadcastAgentActivity(activity: ServerRecord) {
   });
 }
 
-function scheduleAgentActivityBroadcast(activity: ServerRecord) {
-  if (!activity || !activity.agentId) return;
+function scheduleAgentActivityBroadcast(activity: unknown) {
+  if (!isAgentScopedServerEvent(activity)) return;
   const agentId = activity.agentId;
   const existing = pendingAgentActivityBroadcasts.get(agentId);
   if (existing) {
@@ -3463,9 +3559,10 @@ function scheduleAgentActivityBroadcast(activity: ServerRecord) {
 
 agentManager.onAgentActivity(scheduleAgentActivityBroadcast);
 
-function scheduleAgentUpdate(update: ServerRecord) {
+function scheduleAgentUpdate(update: unknown) {
+  if (!isAgentScopedServerEvent(update)) return;
   const patch = sanitizeAgentUpdatePatch(update?.patch);
-  if (!update?.agentId || !patch) return;
+  if (!patch) return;
   const existing = pendingAgentUpdates.get(update.agentId);
   if (existing) {
     Object.assign(existing.patch, patch);
@@ -3490,9 +3587,9 @@ function scheduleAgentUpdate(update: ServerRecord) {
 
 agentManager.on('agent-update', scheduleAgentUpdate);
 
-function scheduleAcpSessionRevision(session: ServerRecord) {
+function scheduleAcpSessionRevision(session: unknown) {
   if (
-    !session?.agentId
+    !isAgentScopedServerEvent(session)
     || !Number.isFinite(Number(session.revision))
     || typeof session.updatedAt !== 'string'
   ) return;
@@ -3522,8 +3619,8 @@ function scheduleAcpSessionRevision(session: ServerRecord) {
 
 agentManager.on('acp-session-revision', scheduleAcpSessionRevision);
 
-function broadcastAgentRead(read: ServerRecord) {
-  if (!read || !read.agentId) return;
+function broadcastAgentRead(read: unknown) {
+  if (!isAgentScopedServerEvent(read)) return;
   const message = JSON.stringify({ type: 'agent-read', read });
   wss.clients.forEach((client) => {
     if (client.readyState === WebSocket.OPEN) {
@@ -3534,16 +3631,16 @@ function broadcastAgentRead(read: ServerRecord) {
 
 agentManager.on('agent-read', broadcastAgentRead);
 
-function sessionStreamKey(stream: ServerRecord) {
-  return `${stream.agentId || ''}\0${stream.sessionSource || ''}`;
+function sessionStreamKey(stream: AgentScopedServerEvent) {
+  return `${stream.agentId}\0${stream.sessionSource || ''}`;
 }
 
-function broadcastSessionStream(stream: ServerRecord) {
+function broadcastSessionStream(stream: SessionStream) {
   const message = JSON.stringify({
     type: 'session-output',
     stream
   });
-  deliverSessionStreamToClients(wss.clients, stream, {
+  deliverSessionStreamToClients(Array.from(wss.clients), stream, {
     openState: WebSocket.OPEN,
     maxBufferedAmount: MAX_SESSION_STREAM_CLIENT_BUFFERED_AMOUNT,
     message,
@@ -3558,8 +3655,8 @@ function flushSessionStreams() {
   streams.forEach(broadcastSessionStream);
 }
 
-function scheduleSessionStreamBroadcast(stream: ServerRecord) {
-  if (!stream || !stream.agentId) return;
+function scheduleSessionStreamBroadcast(stream: unknown) {
+  if (!isAgentScopedServerEvent(stream)) return;
   const now = Date.now();
   if (shouldBroadcastSessionStreamImmediately({
     pendingCount: pendingSessionStreams.size,
@@ -3581,15 +3678,16 @@ function scheduleSessionStreamBroadcast(stream: ServerRecord) {
   }
 }
 
-agentManager.onSessionStream((stream: ServerRecord) => {
+agentManager.onSessionStream((stream) => {
   scheduleSessionStreamBroadcast(stream);
 });
 
-agentManager.onSessionPreview((preview: ServerRecord) => {
-  schedulePreviewBroadcast(preview);
+agentManager.onSessionPreview((preview) => {
+  if (isAgentScopedServerEvent(preview)) schedulePreviewBroadcast(preview);
 });
 
-agentManager.onSystemStats((systemStats: ServerRecord) => {
+agentManager.onSystemStats((systemStats) => {
+  if (!isRecord(systemStats)) return;
   const usageSnapshot = agentManager.getAgentUsageSnapshots();
   const message = JSON.stringify({ 
     type: 'system-stats', 
@@ -3671,7 +3769,7 @@ if (require.main === module) {
   startServer();
 }
 
-module.exports = {
+export {
   app,
   server,
   wss,

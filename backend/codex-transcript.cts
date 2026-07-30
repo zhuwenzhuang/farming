@@ -1,16 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const {
-  heartbeatAssistantMessage,
-  heartbeatUserMessage,
-  isCodexInjectedContextMessage,
-  stripCodexInternalContextBlocks,
-} = require('./codex-transcript-sanitizer.cjs') as {
-  heartbeatAssistantMessage(value: unknown): string;
-  heartbeatUserMessage(value: unknown): string;
-  isCodexInjectedContextMessage(value: unknown): boolean;
-  stripCodexInternalContextBlocks(value: unknown): string;
-};
+import { heartbeatAssistantMessage, heartbeatUserMessage, isCodexInjectedContextMessage, stripCodexInternalContextBlocks } from './codex-transcript-sanitizer.cjs';
 
 type DataRecord = Record<string, unknown>;
 
@@ -73,7 +63,7 @@ function isTranscriptFile(value: unknown): value is TranscriptFile {
   return isDataRecord(value) && typeof value.name === 'string' && typeof value.content === 'string';
 }
 
-interface TranscriptBuildOptions extends DataRecord {
+export interface TranscriptBuildOptions extends DataRecord {
   maxTurns?: number;
   renderedAttachmentKinds?: string[];
 }
@@ -2478,7 +2468,7 @@ function buildTranscriptFromEvents(events: unknown[], options: TranscriptBuildOp
   return buildTranscriptFromLines(lines, options);
 }
 
-module.exports = {
+export {
   DEFAULT_MAX_TURNS,
   buildTranscriptFromEvents,
   buildTranscriptFromLines,

@@ -17,12 +17,11 @@ type VerifyExecutable = (
   },
 ) => Promise<ExecutableVerification>;
 
-const { verifyExecutable } = require('../../../backend/runtime-dependency-manager.cjs') as {
-  verifyExecutable: VerifyExecutable;
-};
-const { AGENT_BROWSER_VERSION } = require('./agent-browser-runtime.cjs') as {
-  AGENT_BROWSER_VERSION: string;
-};
+import {
+  verifyExecutable,
+  type ExecFileImplementation,
+} from '../../../backend/runtime-dependency-manager.cjs';
+import { AGENT_BROWSER_VERSION } from './agent-browser-runtime.cjs';
 
 type BrowserKind =
   | 'brave'
@@ -53,7 +52,7 @@ interface BrowserDiscoveryOptions {
   env?: NodeJS.ProcessEnv;
   executableKind?: unknown;
   executablePath?: unknown;
-  execFile?: unknown;
+  execFile?: ExecFileImplementation;
   externalCdpUrl?: unknown;
   managedBrowserPath?: unknown;
   platform?: NodeJS.Platform;
@@ -297,4 +296,9 @@ export {
   discoverBrowserRuntime,
   managedAgentBrowserPath,
   normalizeExternalCdpUrl,
+};
+export type {
+  BrowserCandidate,
+  BrowserDiscoveryOptions,
+  BrowserExecutable,
 };

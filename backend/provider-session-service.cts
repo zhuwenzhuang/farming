@@ -5,19 +5,12 @@ import {
   listCodexSessionIdentities,
 } from './codex-session-history.cjs';
 
-const { findAgentSession } = require('./agent-session-history.cjs') as {
-  findAgentSession: FindAgentSession;
-};
-const { mainPageAgentSessionKey } = require('./main-page-session.cjs') as {
-  mainPageAgentSessionKey(
-    provider: unknown,
-    sessionId: unknown,
-    providerHomeId?: unknown,
-  ): string;
-};
-const { isTemporaryProviderSessionId } = require('./provider-session-id.cjs') as {
-  isTemporaryProviderSessionId(sessionId: unknown): boolean;
-};
+import {
+  findAgentSession,
+  type AgentSessionHistoryOptions,
+} from './agent-session-history.cjs';
+import { mainPageAgentSessionKey } from './main-page-session.cjs';
+import { isTemporaryProviderSessionId } from './provider-session-id.cjs';
 
 const CODEX_RESOLVE_COOLDOWN_MS = 1000;
 const CODEX_MATCH_WINDOW_MS = 30 * 1000;
@@ -32,13 +25,13 @@ interface ProviderSessionAgent {
   id: string;
   cwd?: string;
   projectWorkspace?: string;
-  gitWorktree?: GitWorktree;
+  gitWorktree?: GitWorktree | null;
   providerHomeId?: string;
   providerHomePath?: string;
   providerSessionId?: string;
   providerSessionKey?: string;
   providerSessionProvider?: string;
-  providerSessionResolvedAt?: number;
+  providerSessionResolvedAt?: number | null;
   providerSessionSource?: string;
   providerSessionTemporary?: boolean;
   providerSessionTitle?: string;
@@ -71,7 +64,7 @@ interface FindAgentSessionOptions {
   providerHomes: unknown;
 }
 
-interface SessionUpdatedEvent {
+export interface SessionUpdatedEvent {
   agentId: string;
   provider: string;
   sessionId: string;
@@ -80,33 +73,29 @@ interface SessionUpdatedEvent {
   title?: string;
 }
 
-interface ProviderSessionChange {
+export interface ProviderSessionChange {
   kind?: 'known-session' | 'session-updated';
   event?: SessionUpdatedEvent;
   refreshWorkspace?: string;
 }
 
-interface ProviderSessionAgentStore {
-  get(agentId: string): ProviderSessionAgent | undefined;
-  values(): IterableIterator<ProviderSessionAgent>;
+interface ProviderSessionAgentStore<Agent extends ProviderSessionAgent = ProviderSessionAgent> {
+  get(agentId: string): Agent | undefined;
+  values(): IterableIterator<Agent>;
 }
 
-type FindAgentSession = (
-  provider: string,
-  sessionId: string,
-  options: FindAgentSessionOptions,
-) => PromiseLike<ProviderHistorySession | null | undefined>;
+type FindAgentSession = typeof findAgentSession;
 
 type ListCodexSessionIdentities = (
   options: CodexSessionIdentityOptions,
 ) => PromiseLike<CodexSessionIdentity[]> | CodexSessionIdentity[];
 
-interface ProviderSessionServiceOptions {
-  agents?: ProviderSessionAgentStore;
+interface ProviderSessionServiceOptions<Agent extends ProviderSessionAgent = ProviderSessionAgent> {
+  agents?: ProviderSessionAgentStore<Agent>;
   codexStartupRetryDelaysMs?: readonly number[];
-  commit?: (agent: ProviderSessionAgent, change: ProviderSessionChange) => void;
+  commit?: (agent: Agent, change: ProviderSessionChange) => void;
   findAgentSession?: FindAgentSession;
-  getProviderHomes?: () => unknown;
+  getProviderHomes?: () => AgentSessionHistoryOptions['providerHomes'];
   listCodexSessionIdentities?: ListCodexSessionIdentities;
 }
 
@@ -155,10 +144,10 @@ function timestampMs(value: unknown): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-class ProviderSessionService {
-  agents: ProviderSessionAgentStore;
-  getProviderHomes: () => unknown;
-  commit: (agent: ProviderSessionAgent, change: ProviderSessionChange) => void;
+class ProviderSessionService<Agent extends ProviderSessionAgent = ProviderSessionAgent> {
+  agents: ProviderSessionAgentStore<Agent>;
+  getProviderHomes: () => AgentSessionHistoryOptions['providerHomes'];
+  commit: (agent: Agent, change: ProviderSessionChange) => void;
   listCodexSessionIdentities: ListCodexSessionIdentities;
   findAgentSession: FindAgentSession;
   codexStartupRetryDelaysMs: readonly number[];
@@ -166,8 +155,8 @@ class ProviderSessionService {
   codexIdentityScans: Map<string, Promise<CodexSessionIdentity[]>>;
   codexStartupRetries: Map<string, StartupRetry>;
 
-  constructor(options: ProviderSessionServiceOptions = {}) {
-    this.agents = options.agents || new Map<string, ProviderSessionAgent>();
+  constructor(options: ProviderSessionServiceOptions<Agent> = {}) {
+    this.agents = options.agents || new Map<string, Agent>();
     this.getProviderHomes = options.getProviderHomes || (() => undefined);
     this.commit = options.commit || (() => {});
     this.listCodexSessionIdentities = options.listCodexSessionIdentities
@@ -275,7 +264,7 @@ class ProviderSessionService {
     agentId: string,
     provider: string,
     sessionId: string,
-  ): ProviderSessionAgent | null {
+  ): Agent | null {
     const agent = this.agents.get(agentId);
     if (!agent || !provider || !sessionId || isTemporaryProviderSessionId(sessionId)) return null;
     agent.providerSessionProvider = provider;

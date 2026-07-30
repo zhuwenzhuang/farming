@@ -2,9 +2,7 @@ const crypto = require('crypto') as typeof import('crypto');
 const fs = require('fs') as typeof import('fs');
 const path = require('path') as typeof import('path');
 const { spawn } = require('child_process') as typeof import('child_process');
-const { nodePty } = require('../packaged-node-pty.cjs') as {
-  nodePty: typeof import('node-pty');
-};
+import { nodePty } from '../packaged-node-pty.cjs';
 
 const fsp = fs.promises;
 const DEFAULT_MAX_FILE_BYTES = 8 * 1024 * 1024;

@@ -1,36 +1,32 @@
 const MAX_LIFECYCLE_OPERATIONS = 32;
 const TERMINAL_OPERATION_STATES = new Set(['succeeded', 'failed', 'cancelled']);
+const LIFECYCLE_OPERATION_TYPES = new Set<LifecycleOperationType>([
+  'create',
+  'update',
+  'delete',
+  'archive',
+  'fork',
+]);
+const LIFECYCLE_OPERATION_STATES = new Set<LifecycleOperationState>([
+  'intent',
+  'pending',
+  'runtime-pending',
+  'membership-pending',
+  'provider-archive-pending',
+  'blocked',
+  'succeeded',
+  'failed',
+  'cancelled',
+]);
 
-interface LifecyclePreviousState extends Record<string, unknown> {
-  acpAdditionalDirectories?: string[];
-  acpMcpServers?: unknown[];
-}
-
-interface LifecycleOperationRequest extends Record<string, unknown> {
-  force?: boolean;
-  previousRuntimeAgentId?: string;
-  previousState?: LifecyclePreviousState;
-  signature?: string;
-  workspace?: string;
-}
-
-interface LifecycleOperation {
-  id: string;
-  type: string;
-  state: string;
-  requestKey: string;
-  request: LifecycleOperationRequest;
-  result: Record<string, unknown> | null;
-  startedAt: number;
-  updatedAt: number;
-  finishedAt: number | null;
-  error: string;
-}
-
-interface LifecycleJournal {
-  sequence: number;
-  entries: LifecycleOperation[];
-}
+import type {
+  LifecycleJournal,
+  LifecycleOperation,
+  LifecycleOperationRequest,
+  LifecycleOperationResult,
+  LifecycleOperationState,
+  LifecycleOperationType,
+} from './agent-manager-lifecycle-types.js';
 
 interface LifecycleSource {
   lifecycleJournal?: unknown;
@@ -52,6 +48,16 @@ function cloneRecord(value: unknown): LifecycleOperationRequest | null {
   return record ? JSON.parse(JSON.stringify(record)) as LifecycleOperationRequest : null;
 }
 
+function lifecycleOperationType(value: unknown): LifecycleOperationType | null {
+  const type = String(value || '') as LifecycleOperationType;
+  return LIFECYCLE_OPERATION_TYPES.has(type) ? type : null;
+}
+
+function lifecycleOperationState(value: unknown): LifecycleOperationState | null {
+  const state = String(value || '') as LifecycleOperationState;
+  return LIFECYCLE_OPERATION_STATES.has(state) ? state : null;
+}
+
 function compactLifecycleEntries(entries: LifecycleOperation[]): LifecycleOperation[] {
   const recentIds = new Set(entries.slice(-MAX_LIFECYCLE_OPERATIONS).map(operation => operation.id));
   return entries.filter(operation => (
@@ -64,8 +70,8 @@ function normalizeOperation(operation: unknown): LifecycleOperation | null {
   const record = objectRecord(operation);
   if (!record) return null;
   const id = String(record.id || '').trim();
-  const type = String(record.type || '').trim();
-  const state = String(record.state || '').trim();
+  const type = lifecycleOperationType(record.type);
+  const state = lifecycleOperationState(record.state);
   if (!id || !type || !state) return null;
   return {
     id,
@@ -73,7 +79,7 @@ function normalizeOperation(operation: unknown): LifecycleOperation | null {
     state,
     requestKey: String(record.requestKey || ''),
     request: cloneRecord(record.request) || {},
-    result: cloneRecord(record.result),
+    result: cloneRecord(record.result) as LifecycleOperationResult | null,
     startedAt: Number(record.startedAt) || 0,
     updatedAt: Number(record.updatedAt) || 0,
     finishedAt: Number(record.finishedAt) || null,
@@ -130,10 +136,14 @@ function beginLifecycleOperation(
     return { conflict: active };
   }
 
+  const operationType = lifecycleOperationType(type);
+  if (!operationType) {
+    throw new Error(`Unsupported lifecycle operation type: ${String(type || '')}`);
+  }
   journal.sequence += 1;
-  const operation = {
+  const operation: LifecycleOperation = {
     id: `aop_${journal.sequence}`,
-    type: String(type || ''),
+    type: operationType,
     state: 'pending',
     requestKey: String(requestKey || ''),
     request: cloneRecord(request) || {},
@@ -160,7 +170,11 @@ function transitionLifecycleOperation(
   const operation = journal.entries.find(candidate => candidate.id === operationId);
   if (!operation) return null;
   if (TERMINAL_OPERATION_STATES.has(operation.state)) return operation;
-  operation.state = String(state || operation.state);
+  const nextState = lifecycleOperationState(state || operation.state);
+  if (!nextState) {
+    throw new Error(`Unsupported lifecycle operation state: ${String(state || '')}`);
+  }
+  operation.state = nextState;
   operation.error = String(error || '');
   operation.updatedAt = now;
   operation.finishedAt = TERMINAL_OPERATION_STATES.has(operation.state) ? now : null;

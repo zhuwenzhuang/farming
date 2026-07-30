@@ -1,16 +1,23 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { atomicWriteJson } = require('./atomic-json-store.cjs');
-const { ensureMainAgentSkillFiles } = require('./main-agent-skills.cjs');
-const { ensureFarmingAgentBootstrapFile } = require('./farming-agent-bootstrap.cjs');
-const { normalizeClaudeModelValue } = require('./claude-settings.cjs');
-const { isTemporaryProviderSessionId } = require('./provider-session-id.cjs');
-const { FarmingSessionStore, MAX_MAIN_PAGE_SESSION_KEYS } = require('./farming-session-store.cjs');
-const { RunHistoryStore } = require('./run-history-store.cjs');
-const { isSupportedHistoryAgent } = require('./cli-agents.cjs');
-const storageLayout = require('./storage-layout.cjs');
-const { COMPUTER_IMAGE } = require('../extensions/computer/backend/computer-constants.cjs');
+import { atomicWriteJson } from './atomic-json-store.cjs';
+import { ensureMainAgentSkillFiles } from './main-agent-skills.cjs';
+import { ensureFarmingAgentBootstrapFile } from './farming-agent-bootstrap.cjs';
+import { normalizeClaudeModelValue } from './claude-settings.cjs';
+import { isTemporaryProviderSessionId } from './provider-session-id.cjs';
+import { FarmingSessionStore, MAX_MAIN_PAGE_SESSION_KEYS } from './farming-session-store.cjs';
+import { RunHistoryStore } from './run-history-store.cjs';
+import { isSupportedHistoryAgent } from './cli-agents.cjs';
+import * as storageLayout from './storage-layout.cjs';
+import { COMPUTER_IMAGE } from '../extensions/computer/backend/computer-constants.cjs';
+import type {
+  AgentDisplayState,
+  AgentRecord,
+  PersistedAgentPrivateMetadata,
+  ProjectMembershipPatch,
+  ProjectOperation as AgentProjectOperation,
+} from './agent-manager-record-types.js';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -19,7 +26,7 @@ interface ConfigManagerOptions {
   writeJson?: (file: string, value: unknown) => void;
 }
 
-interface AgentHome {
+export interface AgentHome {
   id: string;
   path: string;
 }
@@ -46,25 +53,7 @@ interface AgentLaunchProfiles {
   claude: ClaudeLaunchProfile;
 }
 
-interface ProjectOperation {
-  id: string;
-  type: string;
-  state: string;
-  signature: string;
-  request: object;
-  result: object | null;
-  error: string;
-  startedAt: number;
-  updatedAt: number;
-  finishedAt: number | null;
-}
-
-interface ProjectMembership {
-  mountWorkspace?: unknown;
-  removeWorkspace?: unknown;
-}
-
-interface Settings extends JsonRecord {
+export interface PublicSettings extends JsonRecord {
   agentHomes: AgentHomes;
   agentLaunchProfiles: AgentLaunchProfiles;
   appearance: string;
@@ -91,15 +80,24 @@ interface Settings extends JsonRecord {
   lastMainWorkspace: string;
   pinnedProjectWorkspaces: string[];
   projectNames: Record<string, string>;
-  projectOperations: Record<string, ProjectOperation>;
   projectWorkspaces: string[];
   restReminderIntervalSeconds: number | null;
-  searchTimeoutMs: unknown;
-  theme: unknown;
+  searchTimeoutMs: number;
+  theme: string;
   version: string;
   workspace: string;
   workspaceHistory: string[];
 }
+
+export interface Settings extends PublicSettings {
+  projectOperations: Record<string, AgentProjectOperation>;
+}
+
+export type PublicSettingsSnapshot = PublicSettings & {
+  mainPageSessionKeys: string[];
+  projectOperations?: never;
+  taskHistory: JsonRecord[];
+};
 
 interface SessionStoreLike {
   ensureRecordForAgent(agent: JsonRecord, patch: JsonRecord): string;
@@ -140,13 +138,19 @@ function spreadableObject(value: unknown): object {
 
 function validProjectOperationEntry(
   entry: [string, unknown],
-): entry is [string, JsonRecord] {
+): entry is [string, JsonRecord & Pick<AgentProjectOperation, 'state' | 'type'>] {
   const [id, operation] = entry;
   const record = objectRecord(operation);
   return PROJECT_OPERATION_ID_PATTERN.test(id)
     && record !== null
-    && ['create-worktree', 'delete-worktree'].includes(record.type as string)
-    && ['pending', 'unknown', 'succeeded', 'failed', 'blocked'].includes(record.state as string);
+    && (record.type === 'create-worktree' || record.type === 'delete-worktree')
+    && (
+      record.state === 'pending'
+      || record.state === 'unknown'
+      || record.state === 'succeeded'
+      || record.state === 'failed'
+      || record.state === 'blocked'
+    );
 }
 
 function splitCodexModelPreset(preset: unknown): { model: string; effort: string } {
@@ -262,7 +266,7 @@ function cloneAgentHomes(agentHomes: AgentHomes): AgentHomes {
 
 class ConfigManager {
   farmingDir: string;
-  settings: Settings;
+  settings!: Settings;
   settingsFile: string;
   sessionStore: SessionStoreLike;
   runHistoryStore: RunHistoryStoreLike;
@@ -278,7 +282,6 @@ class ConfigManager {
       normalizeTaskHistory: (entries: unknown) => this.normalizeTaskHistory(entries),
     });
     this.writeJson = typeof options.writeJson === 'function' ? options.writeJson : atomicWriteJson;
-    this.settings = null as unknown as Settings;
   }
 
   expandWorkspacePath(workspace: unknown): string {
@@ -543,7 +546,7 @@ class ConfigManager {
       const legacyTimeoutMs = Number(rawSettings.workspaceFileSearchTimeoutMs);
       this.settings.searchTimeoutMs = legacyTimeoutMs === LEGACY_DEFAULT_WORKSPACE_FILE_SEARCH_TIMEOUT_MS
         ? DEFAULT_SEARCH_TIMEOUT_MS
-        : rawSettings.workspaceFileSearchTimeoutMs;
+        : legacyTimeoutMs;
     }
     delete this.settings.workspaceFileSearchTimeoutMs;
     if (
@@ -691,29 +694,30 @@ class ConfigManager {
     return normalized;
   }
 
-  normalizeProjectOperations(projectOperations: unknown): Record<string, ProjectOperation> {
+  normalizeProjectOperations(projectOperations: unknown): Record<string, AgentProjectOperation> {
     const source = objectRecord(projectOperations);
     if (!source) return {};
-    const entries: Array<[string, ProjectOperation]> = Object.entries(source)
+    const entries: Array<[string, AgentProjectOperation]> = Object.entries(source)
       .filter(validProjectOperationEntry)
       .sort((left, right) => (Number(right[1].updatedAt) || 0) - (Number(left[1].updatedAt) || 0))
       .map(([id, operation]) => {
-        return [id, {
+        const normalizedOperation: AgentProjectOperation = {
           id,
-          type: operation.type as string,
-          state: operation.state as string,
+          type: operation.type,
+          state: operation.state,
           signature: typeof operation.signature === 'string' ? operation.signature.slice(0, 128) : '',
-          request: operation.request && typeof operation.request === 'object'
-            ? JSON.parse(JSON.stringify(operation.request))
+          request: objectRecord(operation.request)
+            ? objectRecord(JSON.parse(JSON.stringify(operation.request))) || {}
             : {},
-          result: operation.result && typeof operation.result === 'object'
-            ? JSON.parse(JSON.stringify(operation.result))
+          result: objectRecord(operation.result)
+            ? objectRecord(JSON.parse(JSON.stringify(operation.result)))
             : null,
           error: typeof operation.error === 'string' ? operation.error.slice(0, 2000) : '',
           startedAt: Number(operation.startedAt) || 0,
           updatedAt: Number(operation.updatedAt) || 0,
           finishedAt: Number(operation.finishedAt) || null,
-        }];
+        };
+        return [id, normalizedOperation];
       });
     const unresolved = entries.filter(([, operation]) => (
       ['pending', 'unknown', 'blocked'].includes(operation.state)
@@ -901,7 +905,10 @@ class ConfigManager {
     existingProfiles: unknown = {},
     incomingProfiles: unknown = {},
   ): AgentLaunchProfiles {
-    const merged: Record<string, JsonRecord> = {};
+    const merged: AgentLaunchProfiles = {
+      codex: cloneLaunchProfile(DEFAULT_CODEX_LAUNCH_PROFILE),
+      claude: cloneLaunchProfile(DEFAULT_CLAUDE_LAUNCH_PROFILE),
+    };
     for (const [agentName, defaultProfile] of Object.entries(DEFAULT_AGENT_LAUNCH_PROFILES)) {
       merged[agentName] = {
         ...defaultProfile,
@@ -909,7 +916,7 @@ class ConfigManager {
         ...spreadableObject(objectProperty(incomingProfiles, agentName)),
       };
     }
-    return merged as unknown as AgentLaunchProfiles;
+    return merged;
   }
 
   applyCodexProfileToLegacySettings(
@@ -949,27 +956,27 @@ class ConfigManager {
     return this.settings ? this.settings.dangerouslySkipAgentPermissionsByDefault === true : false;
   }
 
-  getCodexApprovalMode(): unknown {
+  getCodexApprovalMode(): string {
     if (!this.settings) return 'approve';
     return this.getAgentLaunchProfile('codex').approvalMode;
   }
 
-  getCodexModelPreset(): unknown {
+  getCodexModelPreset(): string {
     if (!this.settings) return 'gpt-5.5:xhigh';
     return this.getAgentLaunchProfile('codex').modelPreset;
   }
 
-  getCodexModel(): unknown {
+  getCodexModel(): string {
     if (!this.settings) return 'gpt-5.5';
     return this.getAgentLaunchProfile('codex').model;
   }
 
-  getCodexReasoningEffort(): unknown {
+  getCodexReasoningEffort(): string {
     if (!this.settings) return 'xhigh';
     return this.getAgentLaunchProfile('codex').reasoningEffort;
   }
 
-  getCodexServiceTier(): unknown {
+  getCodexServiceTier(): string {
     if (!this.settings) return 'default';
     return this.getAgentLaunchProfile('codex').serviceTier;
   }
@@ -1004,6 +1011,9 @@ class ConfigManager {
     };
   }
 
+  getAgentLaunchProfile(agentName: 'codex'): CodexLaunchProfile;
+  getAgentLaunchProfile(agentName: 'claude'): ClaudeLaunchProfile;
+  getAgentLaunchProfile(agentName: unknown): JsonRecord;
   getAgentLaunchProfile(agentName: unknown): JsonRecord {
     const profiles = this.getAgentLaunchProfiles();
     const profileName = String(agentName);
@@ -1011,9 +1021,11 @@ class ConfigManager {
     return profile ? { ...profile } : {};
   }
 
-  getSettings(): JsonRecord {
-    const publicSettings: JsonRecord = { ...this.settings };
-    delete publicSettings.projectOperations;
+  getSettings(): PublicSettingsSnapshot {
+    const {
+      projectOperations: _privateProjectOperations,
+      ...publicSettings
+    } = this.settings;
     return {
       ...publicSettings,
       instanceName: this.getInstanceName(),
@@ -1023,7 +1035,11 @@ class ConfigManager {
     };
   }
 
-  mountProjectWorkspace(workspace: unknown): JsonRecord {
+  mountProjectWorkspace(workspace: unknown): {
+    workspace: string;
+    projectWorkspaces: string[];
+    pinnedProjectWorkspaces: string[];
+  } {
     const expanded = this.expandWorkspacePath(workspace);
     const resolved = expanded ? path.resolve(expanded) : '';
     let canonicalWorkspace = '';
@@ -1113,14 +1129,21 @@ class ConfigManager {
     }
   }
 
-  getProjectOperation(requestId: unknown): ProjectOperation | null {
+  getProjectOperation(requestId: unknown): AgentProjectOperation | null {
     const id = String(requestId || '').trim();
     if (!PROJECT_OPERATION_ID_PATTERN.test(id)) return null;
     const operation = this.settings.projectOperations?.[id];
     return operation ? JSON.parse(JSON.stringify(operation)) : null;
   }
 
-  commitProjectOperation(operation: unknown, membership: ProjectMembership = {}): JsonRecord {
+  commitProjectOperation(
+    operation: AgentProjectOperation,
+    membership: ProjectMembershipPatch = {},
+  ): {
+    operation: AgentProjectOperation;
+    pinnedProjectWorkspaces: string[];
+    projectWorkspaces: string[];
+  } {
     const operationId = String(objectProperty(operation, 'id'));
     const normalized = this.normalizeProjectOperations({ [operationId]: operation });
     const nextOperation = normalized[operationId];
@@ -1192,23 +1215,41 @@ class ConfigManager {
     return this.sessionStore ? this.sessionStore.removeMainPageSessionKeys(keys) : [];
   }
 
-  ensureAgentSessionRecord(agent: JsonRecord, patch: JsonRecord = {}): string {
-    return this.sessionStore ? this.sessionStore.ensureRecordForAgent(agent, patch) : '';
+  ensureAgentSessionRecord(
+    agent: AgentRecord,
+    patch: Partial<PersistedAgentPrivateMetadata> = {},
+  ): string {
+    return this.sessionStore ? this.sessionStore.ensureRecordForAgent(agent, { ...patch }) : '';
   }
 
-  getAgentSessionRecordForProviderSessionKey(sessionKey: string): JsonRecord | null {
-    return this.sessionStore ? this.sessionStore.getRecordForProviderSessionKey(sessionKey) : null;
+  getAgentSessionRecordForProviderSessionKey(sessionKey: string): PersistedAgentPrivateMetadata | null {
+    const record = this.sessionStore
+      ? this.sessionStore.getRecordForProviderSessionKey(sessionKey)
+      : null;
+    return record && typeof record.id === 'string'
+      ? { ...record, id: record.id }
+      : null;
   }
 
-  setProviderSessionDisplayState(sessionKey: string, patch: JsonRecord = {}): string {
-    return this.sessionStore ? this.sessionStore.setProviderSessionDisplayState(sessionKey, patch) : '';
+  setProviderSessionDisplayState(
+    sessionKey: string,
+    patch: Partial<AgentDisplayState> = {},
+  ): string {
+    return this.sessionStore
+      ? this.sessionStore.setProviderSessionDisplayState(sessionKey, { ...patch })
+      : '';
   }
 
-  listAgentSessionRecords(): JsonRecord[] {
-    return this.sessionStore ? this.sessionStore.listAgentRecords() : [];
+  listAgentSessionRecords(): PersistedAgentPrivateMetadata[] {
+    const records = this.sessionStore ? this.sessionStore.listAgentRecords() : [];
+    return records.flatMap(record => (
+      typeof record.id === 'string'
+        ? [{ ...record, id: record.id }]
+        : []
+    ));
   }
 
-  rememberAgentSessionRecord(agent: JsonRecord): string {
+  rememberAgentSessionRecord(agent: AgentRecord): string {
     return this.sessionStore ? this.sessionStore.rememberAgent(agent) : '';
   }
 

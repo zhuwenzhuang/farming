@@ -110,30 +110,11 @@ function errorString(error: unknown, field = 'message'): string {
   return value ? String(value) : '';
 }
 
-const { run: runControlCli } = require('./farming-cli.cjs') as {
-  run(argv: string[]): Promise<number> | number;
-};
-const { PACKAGED_CODEX_ACP_ARG, runPackagedCodexAcp } = require('./acp/packaged-codex-acp.cjs') as {
-  PACKAGED_CODEX_ACP_ARG: string;
-  runPackagedCodexAcp(): Promise<void>;
-};
-const { PACKAGED_CLAUDE_ACP_ARG, runPackagedClaudeAcp } = require('./acp/packaged-claude-acp.cjs') as {
-  PACKAGED_CLAUDE_ACP_ARG: string;
-  runPackagedClaudeAcp(): Promise<void>;
-};
-const {
-  SERVER_PROCESS_IDENTITY_FORMAT,
-  matchingProcessIdentity,
-  readServerProcessIdentity,
-} = require('./server-process-identity.cjs') as {
-  SERVER_PROCESS_IDENTITY_FORMAT: string;
-  matchingProcessIdentity(
-    expected: ExpectedProcessIdentity | null | undefined,
-    current: ServerProcessIdentity | null | undefined,
-  ): boolean;
-  readServerProcessIdentity(pid: unknown): ServerProcessIdentity | null;
-};
-const storageLayout = require('./storage-layout.cjs') as StorageLayout;
+import { run as runControlCli } from './farming-cli.cjs';
+import { PACKAGED_CODEX_ACP_ARG, runPackagedCodexAcp } from './acp/packaged-codex-acp.cjs';
+import { PACKAGED_CLAUDE_ACP_ARG, runPackagedClaudeAcp } from './acp/packaged-claude-acp.cjs';
+import { SERVER_PROCESS_IDENTITY_FORMAT, matchingProcessIdentity, readServerProcessIdentity } from './server-process-identity.cjs';
+import * as storageLayout from './storage-layout.cjs';
 
 const SERVER_MODE_ARG = '--farming-server';
 const SERVER_MODE_ENV = 'FARMING_RUN_SERVER';

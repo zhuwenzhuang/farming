@@ -1,9 +1,25 @@
 import { SessionEngine } from './session-engine.cjs';
 import { cleanupShellBusyIntegration } from './shell-busy-integration.cjs';
+import type {
+  CreateTerminalSessionOptions,
+  CreateTerminalSessionResult,
+  NativeRuntimeRotationRecord,
+  RecoveredEngineSession,
+  RuntimeEngineMetadata,
+  RuntimeEngineMetadataPatch,
+  RuntimeEpochOptions,
+  TerminalAttachCheckpoint,
+  TerminalClearResult,
+  TerminalInput,
+  TerminalInputResult,
+  TerminalKillResult,
+  TerminalResizeResult,
+  TerminalSessionState,
+} from './agent-manager-engine-types.js';
 
 interface NativePtyClient {
   canConnectWithoutStartingHost?(): boolean;
-  consumeRuntimeRotation?(): unknown;
+  consumeRuntimeRotation?(): NativeRuntimeRotationRecord | null;
   disconnect(options: { preserveHost: boolean }): void;
   on(eventName: string, listener: (payload?: unknown) => void): unknown;
   request<T = unknown>(
@@ -13,13 +29,12 @@ interface NativePtyClient {
   ): Promise<T>;
 }
 
-const { NativePtyHostClient } = require('./native-pty-host-client.cjs') as {
-  NativePtyHostClient: new (options: Record<string, unknown>) => NativePtyClient;
-};
-const { normalizeShellSessionOptions } = require('./local-session-engine.cjs') as {
-  normalizeShellSessionOptions(options: Record<string, unknown>): Record<string, unknown>;
-};
-const { compareNativePtyRuntimeEpochs } = require('./native-pty-controller-generation.cjs');
+import { NativePtyHostClient } from './native-pty-host-client.cjs';
+import {
+  normalizeShellSessionOptions,
+  type ShellSessionOptions,
+} from './local-session-engine.cjs';
+import { compareNativePtyRuntimeEpochs } from './native-pty-controller-generation.cjs';
 
 interface NativeSessionEngineOptions {
   client?: NativePtyClient;
@@ -30,6 +45,12 @@ interface NativeSessionEngineOptions {
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isShellSessionOptions(value: unknown): value is ShellSessionOptions {
+  return isObject(value)
+    && typeof value.agentId === 'string'
+    && typeof value.command === 'string';
 }
 
 function isRecoverableConnectError(error: unknown): boolean {
@@ -195,15 +216,28 @@ class NativeSessionEngine extends SessionEngine {
     return 'buffer';
   }
 
-  override async createSession(options: unknown): Promise<unknown> {
+  override async createSession(
+    options: CreateTerminalSessionOptions,
+  ): Promise<CreateTerminalSessionResult> {
     // Prepare the startup plan in the server process. A native PTY host may
     // deliberately survive a server restart, so it must not retain authority
     // over how newly created shells source rc files or choose a prompt.
-    const preparedOptions = normalizeShellSessionOptions(isObject(options) ? options : {});
+    const rawOptions: Record<string, unknown> = isObject(options) ? options : {};
+    const requestedOptions: ShellSessionOptions = isShellSessionOptions(rawOptions)
+      ? rawOptions
+      : {
+        ...rawOptions,
+        agentId: typeof rawOptions.agentId === 'string' ? rawOptions.agentId : '',
+        command: typeof rawOptions.command === 'string' ? rawOptions.command : '',
+      };
+    const preparedOptions = normalizeShellSessionOptions(requestedOptions);
     preparedOptions.shellIntegrationPrepared = true;
     let result;
     try {
-      result = await this.client.request('createSession', { options: preparedOptions });
+      result = await this.client.request<CreateTerminalSessionResult>(
+        'createSession',
+        { options: preparedOptions },
+      );
     } catch (error) {
       cleanupShellBusyIntegration(preparedOptions.shellBusyIntegration);
       throw error;
@@ -215,10 +249,10 @@ class NativeSessionEngine extends SessionEngine {
 
   override async sendInput(
     sessionId: string,
-    input: unknown,
-    options: { expectedRuntimeEpoch?: string } = {},
-  ): Promise<unknown> {
-    return this.client.request('sendInput', {
+    input: TerminalInput,
+    options: RuntimeEpochOptions = {},
+  ): Promise<TerminalInputResult> {
+    return this.client.request<TerminalInputResult>('sendInput', {
       sessionId,
       input,
       expectedRuntimeEpoch: options.expectedRuntimeEpoch || '',
@@ -229,21 +263,25 @@ class NativeSessionEngine extends SessionEngine {
 
   override async interruptSession(
     sessionId: string,
-    input: unknown = '\x03',
-    options: { expectedRuntimeEpoch?: string } = {},
-  ): Promise<unknown> {
+    input: TerminalInput = '\x03',
+    options: RuntimeEpochOptions = {},
+  ): Promise<TerminalInputResult> {
     return this.sendInput(sessionId, input, options);
   }
 
-  override async resizeSession(sessionId: string, cols: number, rows: number): Promise<unknown> {
-    return this.client.request('resizeSession', { sessionId, cols, rows });
+  override async resizeSession(
+    sessionId: string,
+    cols: number,
+    rows: number,
+  ): Promise<TerminalResizeResult> {
+    return this.client.request<TerminalResizeResult>('resizeSession', { sessionId, cols, rows });
   }
 
   override async clearBuffer(
     sessionId: string,
-    options: { expectedRuntimeEpoch?: string } = {},
-  ): Promise<unknown> {
-    return this.client.request('clearBuffer', {
+    options: RuntimeEpochOptions = {},
+  ): Promise<TerminalClearResult> {
+    return this.client.request<TerminalClearResult>('clearBuffer', {
       sessionId,
       expectedRuntimeEpoch: options.expectedRuntimeEpoch || '',
     }, {
@@ -251,28 +289,31 @@ class NativeSessionEngine extends SessionEngine {
     });
   }
 
-  override async killSession(sessionId: string): Promise<unknown> {
-    const result = await this.client.request('killSession', { sessionId });
+  override async killSession(sessionId: string): Promise<TerminalKillResult | void> {
+    const result = await this.client.request<TerminalKillResult | void>('killSession', { sessionId });
     this.activeSessionIds.delete(sessionId);
     this.activeSessionEpochs.delete(sessionId);
     return result;
   }
 
-  override async getSessionState(sessionId: string): Promise<unknown> {
-    return this.client.request('getSessionState', { sessionId });
+  override async getSessionState(sessionId: string): Promise<TerminalSessionState | null> {
+    return this.client.request<TerminalSessionState | null>('getSessionState', { sessionId });
   }
 
-  async getSessionAttachCheckpoint(sessionId: string): Promise<unknown> {
-    return this.client.request('getSessionAttachCheckpoint', { sessionId });
+  async getSessionAttachCheckpoint(sessionId: string): Promise<TerminalAttachCheckpoint | null> {
+    return this.client.request<TerminalAttachCheckpoint | null>(
+      'getSessionAttachCheckpoint',
+      { sessionId },
+    );
   }
 
-  override async getSessionPreview(sessionId: string): Promise<unknown> {
-    return this.client.request('getSessionPreview', { sessionId });
+  override async getSessionPreview(sessionId: string): Promise<string> {
+    return this.client.request<string>('getSessionPreview', { sessionId });
   }
 
   override async recoverSessions(
     options: { startHost?: boolean } = {},
-  ): Promise<Record<string, unknown>[]> {
+  ): Promise<RecoveredEngineSession[]> {
     const startHost = options.startHost === true;
     if (
       !startHost &&
@@ -283,7 +324,11 @@ class NativeSessionEngine extends SessionEngine {
       return [];
     }
     try {
-      const recovered = await this.client.request<unknown[]>('recoverSessions', {}, { startHost });
+      const recovered = await this.client.request<RecoveredEngineSession[]>(
+        'recoverSessions',
+        {},
+        { startHost },
+      );
       for (const entry of recovered || []) {
         const sessionId = nativeSessionId(entry);
         if (!sessionId) continue;
@@ -294,18 +339,24 @@ class NativeSessionEngine extends SessionEngine {
           this.activeSessionEpochs.set(sessionId, runtimeEpoch);
         }
       }
-      return recovered.filter(isObject);
+      return recovered;
     } catch (error) {
       if (isRecoverableConnectError(error)) return [];
       throw error;
     }
   }
 
-  async updateSessionMetadata(sessionId: string, patch: unknown): Promise<unknown> {
-    return this.client.request('updateSessionMetadata', { sessionId, patch });
+  async updateSessionMetadata(
+    sessionId: string,
+    patch: RuntimeEngineMetadataPatch,
+  ): Promise<RuntimeEngineMetadata | null> {
+    return this.client.request<RuntimeEngineMetadata | null>(
+      'updateSessionMetadata',
+      { sessionId, patch },
+    );
   }
 
-  override consumeRuntimeRotation(): unknown {
+  override consumeRuntimeRotation(): NativeRuntimeRotationRecord | null {
     return typeof this.client.consumeRuntimeRotation === 'function'
       ? this.client.consumeRuntimeRotation()
       : null;

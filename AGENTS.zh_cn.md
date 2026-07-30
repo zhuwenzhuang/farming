@@ -668,7 +668,7 @@ CRT 皮肤效果开关存储在 `~/.farming/settings.json` 的 `crtSkinEffectsEn
 - **theme**：UI 主题名称（默认：terminal）
 - **heartbeatInterval**：心跳检测和系统监控间隔（单位：毫秒，默认：1000）
 - **dangerouslySkipAgentPermissionsByDefault**：是否默认让支持的 coding agent（如 Codex、Claude、OpenCode、Qoder、Qwen、Aider、GitHub Copilot CLI、Amazon Q）使用各自最激进的权限绕过启动 flag
-- **browserExtensionEnabled**：默认关闭；控制 Browser Resource 集成，不代表自动向 Agent 挂载 MCP
+- **browserExtensionEnabled**：默认关闭；启用后会把 Browser MCP Tool Catalog 投影到新建的 ACP Session，Terminal 仍通过 CLI 按需访问
 - **browserSource / browserExecutablePath / browserExternalCdpUrl**：由插件界面选择的浏览器来源；外部 Endpoint 必须位于回环地址
 - **searchTimeoutMs**：Project Files 搜索与 Agent 历史搜索共用的超时时间，默认 15 秒。
 - **defaultLaunchAgent**：New Agent 对话框默认聚焦的 agent provider（当前 `codex` / `claude`）；composer 不提供 Codex / Claude provider 热切换

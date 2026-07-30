@@ -7,7 +7,7 @@ interface UsageWorkerRequest extends Record<string, unknown> {
   nowMs?: number;
 }
 
-interface UsageHistoryCache extends Record<string, unknown> {
+export interface UsageHistoryCache extends Record<string, unknown> {
   committed_bytes?: unknown;
   discovered_files?: unknown;
   enumerated_entries?: unknown;
@@ -17,8 +17,30 @@ interface UsageHistoryCache extends Record<string, unknown> {
   scan_complete?: boolean;
 }
 
-interface UsageHistoryResult extends Record<string, unknown> {
-  cache?: UsageHistoryCache;
+export interface UsageHistoryEvent extends Record<string, unknown> {
+  agentId?: unknown;
+  agentLabel?: unknown;
+  sessionId?: unknown;
+  timestamp?: unknown;
+  totalTokens?: unknown;
+}
+
+export interface UsageHistoryProvider extends Record<string, unknown> {
+  available: boolean;
+  events: UsageHistoryEvent[];
+  fileCount: number;
+  quotaCandidates: Array<Record<string, unknown>>;
+  reason?: string;
+  source?: string;
+}
+
+export interface UsageHistoryResult extends Record<string, unknown> {
+  cache: UsageHistoryCache;
+  providers: {
+    claude: UsageHistoryProvider;
+    codex: UsageHistoryProvider;
+  };
+  source: string;
   sampledAt?: unknown;
 }
 

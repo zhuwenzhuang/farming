@@ -2,32 +2,17 @@ const express = require('express');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { inspectGitWorktree } = require('./git-worktree-info.cjs');
+import { inspectGitWorktree } from './git-worktree-info.cjs';
 interface WorkspaceFileApiError extends Error {
   details: Record<string, unknown>;
   statusCode: number;
 }
 
-const { WorkspaceFileError } = require('./workspace-file-service.cjs') as {
-  WorkspaceFileError: new (message: string, statusCode?: number, details?: Record<string, unknown>) => WorkspaceFileApiError;
-};
-const { PreviewSessionManager } = require('./preview-session-manager.cjs');
-const {
-  GLOBAL_WORKSPACE_FILES_AGENT_ID,
-  GLOBAL_WORKSPACE_FILES_ROOT,
-  GLOBAL_WORKSPACE_ROOT_ID,
-  PROJECT_FILES_WORKSPACE_PREFIX,
-  WorkspaceRootRegistry,
-  projectWorkspaceFromLegacyRef,
-} = require('./workspace-root-registry.cjs');
+import { WorkspaceFileError } from './workspace-file-service.cjs';
+import { PreviewSessionManager } from './preview-session-manager.cjs';
+import { GLOBAL_WORKSPACE_FILES_AGENT_ID, GLOBAL_WORKSPACE_FILES_ROOT, GLOBAL_WORKSPACE_ROOT_ID, PROJECT_FILES_WORKSPACE_PREFIX, WorkspaceRootRegistry, projectWorkspaceFromLegacyRef } from './workspace-root-registry.cjs';
 
 type InputRecord = Record<string, unknown>;
-
-interface AgentWorkspaceStateEntry {
-  cwd?: unknown;
-  gitWorktree?: { workspace?: unknown } | null;
-  projectWorkspace?: unknown;
-}
 
 interface AgentManager {
   configManager?: {
@@ -36,10 +21,10 @@ interface AgentManager {
       searchTimeoutMs?: unknown;
       workspaceHistory?: unknown;
     };
-  };
+  } | null;
   getState?: () => {
-    agents?: AgentWorkspaceStateEntry[];
-    taskHistory?: AgentWorkspaceStateEntry[];
+    agents?: InputRecord[];
+    taskHistory?: InputRecord[];
   };
 }
 
@@ -60,6 +45,12 @@ interface PreviewFileResult {
   size: number;
 }
 
+interface ResourceFileResult {
+  buffer: Buffer;
+  path: string;
+  size: number;
+}
+
 interface WorkspaceFileServiceLike {
   blame(root: string, userPath: unknown): Promise<unknown>;
   blameCapability(root: string, userPath: unknown, options?: ReadOptions): Promise<unknown>;
@@ -75,7 +66,7 @@ interface WorkspaceFileServiceLike {
   moveEntry(root: string, sourcePath: unknown, targetDirectory: unknown, options?: MutationVersionOptions): Promise<unknown>;
   readFile(root: string, userPath: unknown, options?: ReadOptions): Promise<unknown>;
   readPreviewFile(root: string, userPath: unknown, options?: ReadOptions): Promise<PreviewFileResult>;
-  readResourceFile(root: string, userPath: unknown, options?: ReadOptions): Promise<PreviewFileResult>;
+  readResourceFile(root: string, userPath: unknown, options?: ReadOptions): Promise<ResourceFileResult>;
   renameEntry(root: string, sourcePath: unknown, name: unknown, options?: MutationVersionOptions): Promise<unknown>;
   search(root: string, query: unknown, options?: InputRecord): Promise<unknown>;
   writeFile(root: string, userPath: unknown, content: unknown, options?: InputRecord): Promise<unknown>;
@@ -262,9 +253,10 @@ function collectCandidateAllowedRoots(agentManager: AgentManager) {
     ? agentManager.getState()
     : {};
   for (const agent of state.agents || []) {
+    const worktree = isRecord(agent.gitWorktree) ? agent.gitWorktree : {};
     roots.push(agent && agent.projectWorkspace);
     roots.push(agent && agent.cwd);
-    roots.push(agent && agent.gitWorktree && agent.gitWorktree.workspace);
+    roots.push(worktree.workspace);
   }
   for (const entry of state.taskHistory || []) {
     roots.push(entry && entry.projectWorkspace);
@@ -841,18 +833,21 @@ function createWorkspaceFileRouter(
   return router;
 }
 
-module.exports = {
+const PROJECT_FILES_AGENT_PREFIX = PROJECT_FILES_WORKSPACE_PREFIX;
+const projectWorkspaceFromFilesAgentId = projectWorkspaceFromFilesId;
+
+export {
   GLOBAL_WORKSPACE_FILES_AGENT_ID,
   GLOBAL_WORKSPACE_FILES_ROOT,
   PROJECT_FILES_WORKSPACE_PREFIX,
-  PROJECT_FILES_AGENT_PREFIX: PROJECT_FILES_WORKSPACE_PREFIX,
+  PROJECT_FILES_AGENT_PREFIX,
   assertGlobalWorkspacePathAllowed,
   assertExactExternalFileReadable,
   createWorkspaceFileRouter,
   globalWorkspaceAllowedRoots,
   isGlobalWorkspaceFilesAgentId,
   projectWorkspaceFromFilesId,
-  projectWorkspaceFromFilesAgentId: projectWorkspaceFromFilesId,
+  projectWorkspaceFromFilesAgentId,
   resolveWorkspaceRoot,
   sendWorkspaceFileError,
 };

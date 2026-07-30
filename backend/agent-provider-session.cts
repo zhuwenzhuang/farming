@@ -2,35 +2,13 @@
 
 import { parseCommand } from './cli-agents.cjs';
 
-const { getProviderAdapter, providerForProgram } = require('./provider-adapters.cjs');
-const { isSafeProviderSessionId } = require('./provider-session-id.cjs');
-
-interface AgentProviderSessionPlan {
-  provider: string;
-  id: string;
-  precreate: boolean;
-  temporary: boolean;
-  source: string;
-  forkedFromProviderSessionId: string;
-  providerHomeId?: string;
-  identityWorkspace?: string;
-  resumeInsertIndex?: number | null;
-  error?: string;
-  args: string[];
-}
-
-interface ExactResumeSession {
-  provider: string;
-  providerHomeId: string;
-  sessionId: string;
-}
-
-interface AgentProviderSessionOptions {
-  command?: string;
-  program?: string;
-  args?: string[];
-  source?: string;
-}
+import { getProviderAdapter, providerForProgram } from './provider-adapters.cjs';
+import { isSafeProviderSessionId } from './provider-session-id.cjs';
+import type {
+  AgentProviderSessionPlan,
+  AgentProviderSessionPlanOptions,
+  ExactResumeSession,
+} from './agent-manager-provider-types.js';
 
 function sessionFromExactResumeSource(source: unknown): ExactResumeSession | null {
   const match = String(source || '').match(/^([a-z0-9_-]+)-history:(?:home:([A-Za-z0-9._-]+):)?([A-Za-z0-9._:-]+)$/);
@@ -58,7 +36,7 @@ function emptyPlan(args: string[]): AgentProviderSessionPlan {
 }
 
 function buildAgentProviderSessionPlan(
-  { command, program, args, source }: AgentProviderSessionOptions = {},
+  { command, program, args, source }: AgentProviderSessionPlanOptions = {},
 ): AgentProviderSessionPlan {
   const sourceSession = sessionFromExactResumeSource(source);
   const rawParts = parseCommand(command) as string[];
@@ -91,7 +69,7 @@ function buildAgentProviderSessionPlan(
   if (!plan || (!plan.id && plan.precreate !== true)) return emptyPlan(launchArgs);
   return {
     provider,
-    id: plan.id,
+    id: plan.id || '',
     precreate: plan.precreate === true,
     temporary: plan.temporary === true,
     source: plan.source || '',

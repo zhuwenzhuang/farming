@@ -4,22 +4,13 @@ import * as fsp from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
 import * as readline from 'readline';
-const codexSessionHistory: {
-  formatAutomationRRuleLabel(rrule: string): string;
-  hasTemporaryWorkspaceReference(value: unknown): boolean;
-  isTemporaryWorkspace(value: unknown): boolean;
-  listCodexSessions(options?: ProviderListOptions): Promise<AgentSession[]>;
-} = require('./codex-session-history.cjs');
-const {
+import {
   formatAutomationRRuleLabel,
   hasTemporaryWorkspaceReference,
   isTemporaryWorkspace,
   listCodexSessions,
-} = codexSessionHistory;
-const providerSessionIdModule: {
-  isSafeProviderSessionId(value: unknown): boolean;
-} = require('./provider-session-id.cjs');
-const { isSafeProviderSessionId } = providerSessionIdModule;
+} from './codex-session-history.cjs';
+import { isSafeProviderSessionId } from './provider-session-id.cjs';
 
 const DEFAULT_LIMIT = 60;
 const DEFAULT_SCAN_LIMIT = 500;

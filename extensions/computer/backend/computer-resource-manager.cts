@@ -4,21 +4,8 @@ const { promisify } = require('util');
 const crypto = require('crypto');
 const http = require('http');
 const WebSocket = require('ws');
-const {
-  COMPUTER_CONTAINER_CPUS,
-  COMPUTER_CONTAINER_MEMORY,
-  COMPUTER_CONTAINER_PIDS,
-  COMPUTER_CONTAINER_SHM_SIZE,
-  COMPUTER_DRIVER_BIN,
-  COMPUTER_DRIVER_VERSION,
-  COMPUTER_IMAGE,
-  COMPUTER_IMAGE_INDEX_DIGEST,
-  COMPUTER_USER,
-} = require('./computer-constants.cjs');
-const {
-  ComputerResourceStore,
-  publicResource,
-} = require('./computer-resource-store.cjs');
+import { COMPUTER_CONTAINER_CPUS, COMPUTER_CONTAINER_MEMORY, COMPUTER_CONTAINER_PIDS, COMPUTER_CONTAINER_SHM_SIZE, COMPUTER_DRIVER_BIN, COMPUTER_DRIVER_VERSION, COMPUTER_IMAGE, COMPUTER_IMAGE_INDEX_DIGEST, COMPUTER_USER } from './computer-constants.cjs';
+import { ComputerResourceStore, publicResource } from './computer-resource-store.cjs';
 
 const execFileAsync = promisify(execFile);
 const INACTIVE_AGENT_STATUSES = new Set(['dead', 'error', 'exited', 'stopped']);

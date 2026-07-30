@@ -6,7 +6,7 @@ interface TerminalReducerFlowControlOptions {
   lowWatermarkBytes?: number;
 }
 
-interface TerminalReducerFlowControl {
+export interface TerminalReducerFlowControl {
   pendingBytes: number;
   paused: boolean;
   reducerBlocked: boolean;
@@ -20,7 +20,7 @@ interface TerminalFlowControlProcess {
   resume?(): void;
 }
 
-interface TerminalReducerFlowControlSession {
+export interface TerminalReducerFlowControlSession {
   reducerFlowControl?: TerminalReducerFlowControl | null;
 }
 

@@ -67,3 +67,7 @@ export {
   matchingProcessIdentity,
   readServerProcessIdentity,
 };
+export type {
+  ExpectedServerProcessIdentity,
+  ServerProcessIdentity,
+};

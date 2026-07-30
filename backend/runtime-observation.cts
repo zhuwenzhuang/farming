@@ -1,6 +1,6 @@
 import { deriveTerminalStatus } from './terminal-status.cjs';
 
-const { runtimeKind, runtimeState } = require('./agent-runtime-binding.cjs');
+import { runtimeKind, runtimeState } from './agent-runtime-binding.cjs';
 
 const WORKING_STATES = new Set(['working', 'interrupting']);
 const WAITING_STATES = new Set(['waiting-for-input', 'waiting-for-permission']);
@@ -8,7 +8,7 @@ const IDLE_STATES = new Set(['idle', 'connected', 'ready']);
 
 type RuntimeObservationPhase = 'working' | 'waiting' | 'idle' | 'starting' | 'exited' | 'unknown';
 
-interface TerminalObservationStatus {
+export interface TerminalObservationStatus {
   activity: string;
   kind?: string;
   source?: string;
@@ -23,7 +23,7 @@ interface RuntimeObservationAgent {
   previewText?: string;
   providerSessionProvider?: string;
   sessionTitle?: string;
-  startedAt?: number;
+  startedAt?: number | null;
   status?: string;
   terminalBusy?: boolean | null;
   terminalStatus?: TerminalObservationStatus;

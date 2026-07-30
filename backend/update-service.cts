@@ -4,12 +4,11 @@ const http = require('http') as typeof import('http');
 const https = require('https') as typeof import('https');
 const os = require('os') as typeof import('os');
 const path = require('path') as typeof import('path');
-const { readServerProcessIdentity } = require('./server-process-identity.cjs') as {
-  readServerProcessIdentity: (
-    pid: unknown,
-  ) => ServerProcessIdentity | null | Promise<ServerProcessIdentity | null>;
-};
-const storageLayout = require('./storage-layout.cjs') as StorageLayout;
+const { readServerProcessIdentity } = require('./server-process-identity.cjs') as Pick<
+  typeof import('./server-process-identity.cjs'),
+  'readServerProcessIdentity'
+>;
+import * as storageLayout from './storage-layout.cjs';
 
 interface ServerProcessIdentity {
   pid: number;

@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const storageLayout = require('./storage-layout.cjs');
+import * as storageLayout from './storage-layout.cjs';
 
 type ThemeSettings = Record<string, unknown>;
 

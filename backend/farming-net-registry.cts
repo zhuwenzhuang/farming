@@ -3,14 +3,14 @@ const path = require('path');
 
 type EndpointScope = 'this-device' | 'intranet' | 'remote' | 'tunnel';
 
-interface FarmingNetEndpoint {
+export interface FarmingNetEndpoint {
   label: string;
   primary: boolean;
   scope: EndpointScope;
   url: string;
 }
 
-interface FarmingNetInstance {
+export interface FarmingNetInstance {
   description: string;
   endpoints: FarmingNetEndpoint[];
   federated: boolean;
@@ -21,7 +21,7 @@ interface FarmingNetInstance {
   platform: string;
 }
 
-interface FarmingNetRegistry {
+export interface FarmingNetRegistry {
   instances: FarmingNetInstance[];
   subtitle: string;
   title: string;

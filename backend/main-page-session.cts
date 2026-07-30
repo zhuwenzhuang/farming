@@ -3,7 +3,7 @@
 import * as path from 'path';
 import { parseCommand } from './cli-agents.cjs';
 
-const { isSafeProviderSessionId } = require('./provider-session-id.cjs');
+import { isSafeProviderSessionId } from './provider-session-id.cjs';
 
 const AUTO_RESUME_AGENT_SESSION_PROVIDERS = new Set(['codex', 'claude', 'opencode', 'qoder', 'qwen']);
 

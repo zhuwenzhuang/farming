@@ -1,8 +1,8 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { atomicWriteJson } = require('../../../backend/atomic-json-store.cjs');
-const storageLayout = require('../../../backend/storage-layout.cjs');
+import { atomicWriteJson } from '../../../backend/atomic-json-store.cjs';
+import * as storageLayout from '../../../backend/storage-layout.cjs';
 
 const STORE_VERSION = 1;
 const RESOURCE_ID_RE = /^computer_[A-Za-z0-9_-]+$/;

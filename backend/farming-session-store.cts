@@ -2,10 +2,10 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { isDeepStrictEqual } = require('util');
-const { atomicWriteJson } = require('./atomic-json-store.cjs');
-const { legacyRuntimeMetadata } = require('./agent-runtime-binding.cjs');
-const { lifecycleJournal } = require('./agent-lifecycle-journal.cjs');
-const storageLayout = require('./storage-layout.cjs');
+import { atomicWriteJson } from './atomic-json-store.cjs';
+import { legacyRuntimeMetadata } from './agent-runtime-binding.cjs';
+import { lifecycleJournal } from './agent-lifecycle-journal.cjs';
+import * as storageLayout from './storage-layout.cjs';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -32,6 +32,7 @@ interface FarmingSessionStoreInitOptions {
 
 interface AgentRecord extends JsonRecord {
   id: string;
+  lifecycleJournal?: unknown;
 }
 
 interface AgentStateRecord extends JsonRecord {

@@ -1,10 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
-const {
-  matchingProcessIdentity,
-  readServerProcessIdentity,
-} = require('./server-process-identity.cjs');
+import { matchingProcessIdentity, readServerProcessIdentity } from './server-process-identity.cjs';
 
 type NpmUpdateAction = 'prepare' | 'apply';
 

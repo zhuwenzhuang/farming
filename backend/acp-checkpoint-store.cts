@@ -3,7 +3,7 @@ const fs = require('fs/promises');
 const path = require('path');
 const { promisify } = require('util');
 const zlib = require('zlib');
-const storageLayout = require('./storage-layout.cjs');
+import * as storageLayout from './storage-layout.cjs';
 
 type Gzip = (data: Buffer, options: { level: number }) => Promise<Buffer>;
 type Gunzip = (data: Buffer) => Promise<Buffer>;

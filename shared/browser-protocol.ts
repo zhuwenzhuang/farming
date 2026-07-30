@@ -41,6 +41,8 @@ export interface AcpPermissionResponseMessage extends ExtensibleMessage {
   type: 'acp-permission-response'
   agentId: string
   requestId: string
+  optionId: string
+  cancelled?: boolean
 }
 
 export interface FocusAgentMessage extends ExtensibleMessage {
@@ -324,7 +326,12 @@ export function validateClientMessage(value: unknown): ValidationResult<ClientMe
         && stringField(value, 'requestId', true)
         && (!Object.prototype.hasOwnProperty.call(value, 'delivery') || value.delivery === 'prompt' || value.delivery === 'steer')
       break
-    case 'acp-permission-response': valid = stringField(value, 'agentId') && stringField(value, 'requestId'); break
+    case 'acp-permission-response':
+      valid = stringField(value, 'agentId')
+        && stringField(value, 'requestId')
+        && stringField(value, 'optionId')
+        && (!Object.prototype.hasOwnProperty.call(value, 'cancelled') || typeof value.cancelled === 'boolean')
+      break
     case 'focus-agent': valid = value.agentId === null || stringField(value, 'agentId'); break
     case 'resize-agent': valid = stringField(value, 'agentId') && finiteField(value, 'cols') && finiteField(value, 'rows'); break
     case 'unwatch-workspace-files': valid = stringField(value, 'agentId', true); break

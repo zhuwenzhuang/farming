@@ -1,5 +1,6 @@
-type MaybePromise<Value> = Value | Promise<Value>;
+import type { LifecycleJournal } from './agent-manager-lifecycle-types.js';
 
+type MaybePromise<Value> = Value | Promise<Value>;
 type TerminalInput = string | readonly unknown[];
 type TerminalSessionStatus = 'running' | 'stopping' | 'stopped' | 'exited' | 'dead';
 type TerminalTransitionKind = 'clear' | 'resize';
@@ -24,7 +25,8 @@ interface RuntimeEngineMetadata extends Record<string, unknown> {
   forkRequestId?: string;
   forkedFromProviderSessionId?: string;
   launchPermissionMode?: string;
-  lifecycleJournal?: unknown;
+  lifecycleJournal?: LifecycleJournal;
+  lastActivityAt?: number;
   mainWorkspace?: string;
   parentAgentId?: string;
   persistentSessionId?: string;
@@ -38,7 +40,7 @@ interface RuntimeEngineMetadata extends Record<string, unknown> {
   providerSessionId?: string;
   providerSessionKey?: string;
   providerSessionProvider?: string;
-  providerSessionResolvedAt?: number | string | null;
+  providerSessionResolvedAt?: number | null;
   providerSessionSource?: string;
   providerSessionTemporary?: boolean;
   providerSessionTitle?: string;
@@ -103,7 +105,8 @@ interface TerminalAttachCheckpoint extends TerminalStateCursor, TerminalDimensio
   title: string;
 }
 
-interface TerminalStatusContract extends Record<string, unknown> {
+interface TerminalStatusContract {
+  activity: string;
   command?: string;
   cwd?: string;
   status?: string;
@@ -507,8 +510,8 @@ export type {
   TerminalSessionPreviewEvent,
   TerminalSessionSnapshotEvent,
   TerminalSessionState,
-  TerminalSessionStateEvent,
   TerminalSessionStatus,
+  TerminalSessionStateEvent,
   TerminalSessionTitleEvent,
   TerminalSessionTransitionEvent,
   TerminalStateCursor,

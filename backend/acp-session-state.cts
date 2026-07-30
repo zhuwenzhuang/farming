@@ -3,23 +3,8 @@ const MAX_ACP_UPDATE_LOG_VALUE_CHARS = 32 * 1024;
 const MAX_CODEX_SUBAGENTS = 128;
 const MAX_CODEX_SUBAGENT_ID_CHARS = 160;
 const MAX_CODEX_SUBAGENT_NAME_CHARS = 120;
-const {
-  visibleUserMessageText,
-} = require('./codex-transcript.cjs') as {
-  visibleUserMessageText(
-    text: unknown,
-    options?: { renderedAttachmentKinds?: string[] },
-  ): string;
-};
-const {
-  isCodexContextCompactionMessage,
-  isCodexInjectedContextMessage,
-  stripCodexInternalContextBlocks,
-} = require('./codex-transcript-sanitizer.cjs') as {
-  isCodexContextCompactionMessage(value: unknown): boolean;
-  isCodexInjectedContextMessage(value: unknown): boolean;
-  stripCodexInternalContextBlocks(value: unknown): string;
-};
+import { visibleUserMessageText } from './codex-transcript.cjs';
+import { isCodexContextCompactionMessage, isCodexInjectedContextMessage, stripCodexInternalContextBlocks } from './codex-transcript-sanitizer.cjs';
 
 type DataRecord = Record<string, unknown>;
 
@@ -40,9 +25,13 @@ interface AcpMeta extends DataRecord {
     status?: unknown;
   };
   contextCompaction?: unknown;
+  subagent_session_info?: {
+    session_id?: unknown;
+  };
+  farming_patch_decisions?: Record<string, unknown>;
 }
 
-interface AcpEntry extends DataRecord {
+export interface AcpEntry extends DataRecord {
   id?: unknown;
   type?: unknown;
   role?: unknown;
@@ -61,7 +50,7 @@ interface AcpEntry extends DataRecord {
   internal?: boolean;
 }
 
-interface AcpUpdate extends DataRecord {
+export interface AcpUpdate extends DataRecord {
   sessionUpdate?: unknown;
   toolCallId?: unknown;
   messageId?: unknown;
@@ -78,6 +67,11 @@ interface AcpUpdate extends DataRecord {
   updatedAt?: unknown;
   status?: unknown;
   summary?: unknown;
+}
+
+export interface AcpSessionSnapshot extends DataRecord {
+  entries: AcpEntry[];
+  sessionId: string;
 }
 
 interface AcpNotification {
@@ -100,7 +94,7 @@ interface AcceptedSteerOptions {
   insertionIndex?: unknown;
 }
 
-interface TranscriptSliceOptions {
+export interface TranscriptSliceOptions {
   maxTurns?: unknown;
   sinceRevision?: unknown;
 }
@@ -109,7 +103,7 @@ interface SanitizedEntriesOptions {
   forTranscript?: boolean;
 }
 
-interface SnapshotOptions {
+export interface SnapshotOptions {
   includeEntries?: boolean;
   includeUpdates?: boolean;
 }
@@ -136,7 +130,7 @@ interface CodexSubagents {
   agents: CodexSubagent[];
 }
 
-interface AcpUpdateLog {
+export interface AcpUpdateLog {
   sequence: number;
   at: string;
   update: unknown;
@@ -866,9 +860,13 @@ class AcpSessionState {
     return false;
   }
 
-  snapshot(extra: DataRecord = {}, options: SnapshotOptions = {}) {
+  snapshot(
+    extra: DataRecord = {},
+    options: SnapshotOptions = {},
+  ): AcpSessionSnapshot {
     const entries = options.includeEntries === false ? [] : this.sanitizedEntries(0);
-    const snapshot: DataRecord = {
+    const snapshot: AcpSessionSnapshot = {
+      ...clone(extra),
       version: 2,
       protocol: 'acp',
       provider: this.provider,
@@ -884,7 +882,6 @@ class AcpSessionState {
       currentModeId: this.currentModeId,
       configOptions: clone(this.configOptions),
       codexSubagents: clone(this.codexSubagents),
-      ...clone(extra),
     };
     if (options.includeUpdates === true) snapshot.updates = clone(this.updates);
     return snapshot;

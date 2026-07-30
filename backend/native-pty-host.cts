@@ -10,54 +10,12 @@ import type {
   PtyProcess,
   ShellSessionOptions,
 } from './local-session-engine.cts';
-
-interface ScreenState {
-  cols: number;
-  outputSeq: number;
-  previewSnapshot: unknown;
-  previewText: string;
-  renderOutput: string;
-  rows: number;
-  runtimeEpoch: string;
-  stateRevision: number;
-  title?: string;
-}
-
-interface ScreenWorker {
-  append(data: string, stateRevision: number, outputSeq: number): Promise<unknown>;
-  clear(stateRevision: number, outputSeq: number): Promise<ScreenState>;
-  dispose(): Promise<unknown>;
-  getState(options?: { includeRenderOutput?: boolean }): Promise<ScreenState>;
-  on(eventName: 'error', listener: (error: unknown) => void): unknown;
-  on(eventName: 'preview', listener: (event: {
-    cols: number;
-    previewSnapshot: unknown;
-    previewText: string;
-    rows: number;
-    title?: string;
-  }) => void): unknown;
-  resize(cols: number, rows: number, stateRevision: number): Promise<ScreenState>;
-}
-
-interface ScreenWorkerPool {
-  acquire(options: {
-    cols: number;
-    rows: number;
-    runtimeEpoch: string;
-  }): Promise<ScreenWorker>;
-  dispose(): Promise<unknown>;
-}
-
-interface ScreenWorkerPoolConstructor {
-  new(options: {
-    size: number;
-    workerOptions: {
-      cols: number;
-      previewSnapshot: boolean;
-      rows: number;
-    };
-  }): ScreenWorkerPool;
-}
+import {
+  TerminalScreenWorkerPool,
+  type TerminalScreenWorkerLike as ScreenWorker,
+} from './terminal-screen-worker-pool.cjs';
+import type { TerminalScreenWorkerState as ScreenState } from './terminal-screen-worker.cjs';
+import type { TerminalReducerFlowControl } from './terminal-reducer-flow-control.cjs';
 
 interface RuntimeIdentity {
   buildId?: string;
@@ -125,7 +83,7 @@ interface NativePtySession {
   previewText: string;
   process: PtyProcess;
   reducerCommitQueue: Promise<unknown>;
-  reducerFlowControl: unknown;
+  reducerFlowControl: TerminalReducerFlowControl;
   renderOutput: string;
   rotationFrozen?: boolean;
   runtimeEpoch: string;
@@ -245,95 +203,38 @@ interface ReducerDelivery {
   error: Error | null;
 }
 
-const screenWorkerPoolModule: { TerminalScreenWorkerPool: ScreenWorkerPoolConstructor } = require('./terminal-screen-worker-pool.cjs');
-const { TerminalScreenWorkerPool } = screenWorkerPoolModule;
-const nativePtyHostPathModule: {
-  nativePtyHostPrivateSocketPath(socketPath: string): string;
-  nativePtyHostSocketPath(configDir: string): string;
-} = require('./native-pty-host-path.cjs');
+import * as nativePtyHostPathModule from './native-pty-host-path.cjs';
 const {
   nativePtyHostPrivateSocketPath,
   nativePtyHostSocketPath,
 } = nativePtyHostPathModule;
-const inputPartsModule: { terminalInputToPtyString(input: unknown): string } = require('./input-parts.cjs');
+import * as inputPartsModule from './input-parts.cjs';
 const { terminalInputToPtyString } = inputPartsModule;
-const agentEnvModule: {
-  normalizeInteractiveTerminalEnv(
-    env: NodeJS.ProcessEnv,
-    options: { stripNodeOptions: boolean; stripRuntimeShims: boolean },
-  ): NodeJS.ProcessEnv;
-} = require('./agent-env.cjs');
+import * as agentEnvModule from './agent-env.cjs';
 const { normalizeInteractiveTerminalEnv } = agentEnvModule;
-const shellBusyIntegrationModule: {
-  cleanupShellBusyIntegration(integration: unknown): void;
-  parseShellBusyMarkers(
-    data: string,
-    terminalBusy: boolean | null,
-    pending: string,
-  ): ShellBusyState;
-} = require('./shell-busy-integration.cjs');
+import * as shellBusyIntegrationModule from './shell-busy-integration.cjs';
 const {
   cleanupShellBusyIntegration,
   parseShellBusyMarkers,
 } = shellBusyIntegrationModule;
-const localSessionEngineModule: {
-  createPtyProcess(
-    command: string,
-    args: string[] | undefined,
-    options: {
-      cols: number;
-      cwd?: string;
-      env: NodeJS.ProcessEnv;
-      name: string;
-      rows: number;
-    },
-  ): PtyProcess;
-  extractLatestTerminalTitle(data: unknown): string | null;
-  normalizeShellSessionOptions(options: NativeSessionCreateOptions): NormalizedNativeSessionOptions;
-} = require('./local-session-engine.cjs');
+import * as localSessionEngineModule from './local-session-engine.cjs';
 const {
   extractLatestTerminalTitle,
   normalizeShellSessionOptions,
   createPtyProcess,
 } = localSessionEngineModule;
-const terminalStatusModule: { deriveTerminalStatus(options: Record<string, unknown>): unknown } = require('./terminal-status.cjs');
+import * as terminalStatusModule from './terminal-status.cjs';
 const { deriveTerminalStatus } = terminalStatusModule;
-const terminalRuntimeCleanupModule: {
-  probeUnixSocket(socketPath: string): Promise<{ active: boolean }>;
-} = require('./terminal-runtime-cleanup.cjs');
+import * as terminalRuntimeCleanupModule from './terminal-runtime-cleanup.cjs';
 const { probeUnixSocket } = terminalRuntimeCleanupModule;
-const nativePtyHostIdentityModule: {
-  nativePtyHostRuntimeIdentity(): RuntimeIdentity;
-} = require('./native-pty-host-identity.cjs');
+import * as nativePtyHostIdentityModule from './native-pty-host-identity.cjs';
 const { nativePtyHostRuntimeIdentity } = nativePtyHostIdentityModule;
-const runtimeGenerationModule: {
-  allocateNativePtyRuntimeGeneration(configDir: string): Promise<number>;
-  formatNativePtyRuntimeEpoch(runtimeGeneration: number): string;
-} = require('./native-pty-controller-generation.cjs');
+import * as runtimeGenerationModule from './native-pty-controller-generation.cjs';
 const {
   allocateNativePtyRuntimeGeneration,
   formatNativePtyRuntimeEpoch,
 } = runtimeGenerationModule;
-const reducerFlowControlModule: {
-  acknowledgeTerminalReducerData(
-    flowControl: unknown,
-    process: PtyProcess,
-    bytes: number,
-  ): Error | null;
-  createTerminalReducerFlowControl(): unknown;
-  ensureTerminalReducerFlowControl(session: NativePtySession): unknown;
-  enqueueTerminalReducerData(
-    flowControl: unknown,
-    process: PtyProcess,
-    data: string,
-  ): ReducerDelivery;
-  resetTerminalReducerFlowControl(flowControl: unknown, process: PtyProcess): void;
-  setTerminalExternalFlowControlBlocked(
-    flowControl: unknown,
-    process: PtyProcess,
-    blocked: boolean,
-  ): Error | null;
-} = require('./terminal-reducer-flow-control.cjs');
+import * as reducerFlowControlModule from './terminal-reducer-flow-control.cjs';
 const {
   acknowledgeTerminalReducerData,
   createTerminalReducerFlowControl,
@@ -342,28 +243,14 @@ const {
   resetTerminalReducerFlowControl,
   setTerminalExternalFlowControlBlocked,
 } = reducerFlowControlModule;
-const terminalStateSerializationModule: {
-  normalizeTerminalStateEntry(value: unknown): ReviveState | null;
-  serializeTerminalState(entries: unknown[]): string;
-} = require('./terminal-state-serialization.cjs');
+import * as terminalStateSerializationModule from './terminal-state-serialization.cjs';
 const {
   normalizeTerminalStateEntry,
   serializeTerminalState,
 } = terminalStateSerializationModule;
-const terminalAttachCheckpointModule: {
-  captureTerminalAttachCheckpoint(
-    session: NativePtySession,
-    options?: { requireCurrentCut?: boolean },
-  ): Promise<TerminalCheckpoint | null>;
-} = require('./terminal-attach-checkpoint.cjs');
+import * as terminalAttachCheckpointModule from './terminal-attach-checkpoint.cjs';
 const { captureTerminalAttachCheckpoint } = terminalAttachCheckpointModule;
-const terminalExitQuiescenceModule: {
-  acceptTerminalExitData(session: NativePtySession): boolean;
-  waitForTerminalExitDataQuiescence(
-    session: NativePtySession,
-    options: { flushMs?: number; isCurrent: () => boolean },
-  ): Promise<boolean>;
-} = require('./terminal-exit-quiescence.cjs');
+import * as terminalExitQuiescenceModule from './terminal-exit-quiescence.cjs';
 const {
   acceptTerminalExitData,
   waitForTerminalExitDataQuiescence,
@@ -461,7 +348,7 @@ class NativePtyHost {
   clientMaxRequestBytes: number;
   idleExitMs: number;
   disposed: boolean;
-  screenWorkerPool: ScreenWorkerPool;
+  screenWorkerPool: TerminalScreenWorkerPool;
   server: net.Server | null | undefined;
 
   constructor(options: NativePtyHostOptions = {}) {
@@ -1016,14 +903,20 @@ class NativePtyHost {
         });
       }
     }
-    const metadata = {
+    const persistedCommand = normalized.metadata?.command;
+    const persistedStartedAt = normalized.metadata?.startedAt;
+    const metadata: SessionMetadata = {
       ...(normalized.metadata || {}),
       protocolVersion: 1,
       engineName: 'native',
       agentId,
-      command: normalized.metadata?.command || normalized.command,
+      command: typeof persistedCommand === 'string' && persistedCommand
+        ? persistedCommand
+        : normalized.command,
       cwd: normalized.cwd || process.cwd(),
-      startedAt: normalized.metadata?.startedAt || Date.now(),
+      startedAt: typeof persistedStartedAt === 'number' && Number.isFinite(persistedStartedAt)
+        ? persistedStartedAt
+        : Date.now(),
     };
 
     let ptyProcess: PtyProcess;

@@ -6,24 +6,12 @@ const os = require('os');
 const path = require('path');
 import type { IncomingMessage, Server, ServerResponse } from 'http';
 
-interface FarmingNetEndpoint {
-  label: string;
-  primary: boolean;
-  scope: string;
-  url: string;
-}
-
-interface FarmingNetInstance {
-  endpoints: FarmingNetEndpoint[];
-  federated: boolean;
-  id: string;
-  [key: string]: unknown;
-}
-
-interface FarmingNetRegistry {
-  instances: FarmingNetInstance[];
-  [key: string]: unknown;
-}
+import type {
+  FarmingNetEndpoint,
+  FarmingNetInstance,
+  FarmingNetRegistry,
+} from './farming-net-registry.cjs';
+import type { FarmingNetSigningIdentity } from './farming-net-pass.cjs';
 
 interface BrowserFarmingNetEndpoint extends FarmingNetEndpoint {
   launchUrl: string;
@@ -35,15 +23,6 @@ interface BrowserFarmingNetInstance extends FarmingNetInstance {
 
 interface BrowserFarmingNetRegistry extends FarmingNetRegistry {
   instances: BrowserFarmingNetInstance[];
-}
-
-interface FarmingNetSigningIdentity {
-  issuer: string;
-  privateKey: unknown;
-  privateKeyFile: string;
-  publicKey: unknown;
-  publicKeyFile: string;
-  publicKeyPem: string;
 }
 
 type FarmingNetRequestHandler = (
@@ -101,37 +80,10 @@ interface StaticAsset {
   type: string;
 }
 
-const { TokenAuth } = require('./auth.cjs') as {
-  TokenAuth: new (options: TokenAuthOptions) => TokenAuthLike;
-};
-const {
-  createFarmingNetPass,
-  loadOrCreateFarmingNetSigningIdentity,
-  PASS_QUERY_PARAM,
-} = require('./farming-net-pass.cjs') as {
-  createFarmingNetPass(
-    identity: FarmingNetSigningIdentity,
-    options: {
-      audience: string;
-      subject: string;
-      ttlSeconds?: string;
-    },
-  ): string;
-  loadOrCreateFarmingNetSigningIdentity(options: {
-    privateKeyFile: string;
-    publicKeyFile: string;
-  }): FarmingNetSigningIdentity;
-  PASS_QUERY_PARAM: string;
-};
-const { loadFarmingNetRegistry } = require('./farming-net-registry.cjs') as {
-  loadFarmingNetRegistry(filePath: string): FarmingNetRegistry;
-};
-const storageLayout = require('./storage-layout.cjs') as {
-  farmingNetInstancesFile(configDir: string): string;
-  farmingNetServerStateFile(configDir: string): string;
-  farmingNetSigningPrivateKeyFile(configDir: string): string;
-  farmingNetSigningPublicKeyFile(configDir: string): string;
-};
+import { TokenAuth } from './auth.cjs';
+import { createFarmingNetPass, loadOrCreateFarmingNetSigningIdentity, PASS_QUERY_PARAM } from './farming-net-pass.cjs';
+import { loadFarmingNetRegistry } from './farming-net-registry.cjs';
+import * as storageLayout from './storage-layout.cjs';
 
 const DEFAULT_PORT = 6693;
 const DEFAULT_BASE_PATH = '/farming-net';

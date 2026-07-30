@@ -139,7 +139,11 @@ async function run() {
   try {
     const errors = [];
     createEngine.on('session-error', event => errors.push(event));
-    await createEngine.createSession({ agentId: 'fallback-agent-id' });
+    await createEngine.createSession({
+      agentId: 'fallback-agent-id',
+      command: '/bin/sh',
+      cwd: '/tmp',
+    });
     assert.strictEqual(createOptions.shellIntegrationPrepared, true, 'the server should prepare shell startup before a persistent host receives it');
     createClient.emit('host-exit', { code: 9, signal: null });
     assert.strictEqual(errors.length, 1, 'created native session should be tracked by returned sessionId');

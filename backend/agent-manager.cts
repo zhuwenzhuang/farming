@@ -2,6 +2,7 @@ import { EventEmitter } from 'events';
 import type {
   AcpConfigChange,
   AcpConfigValue,
+  AcpTranscriptEntry,
   AcpBindingContract,
   AcpForkOptions,
   AcpPrepareResult,
@@ -15,7 +16,7 @@ import type {
   AgentForkResult,
   AgentHistorySession,
   AgentRestartResult,
-  AcpRuntimeContract,
+  AcpRuntimeContract as DeclaredAcpRuntimeContract,
   ArchiveCodexSessionContract,
   BuildAgentProviderSessionPlanContract,
   ExactResumeSession,
@@ -28,7 +29,6 @@ import type {
   CreateProviderSessionIdentityContract,
   DeleteProviderSessionIdentityContract,
   ProviderSessionIdentityRequest,
-  ProviderSessionServiceChange,
   ProviderSessionIdentity,
   ProviderSessionRollbackIdentity,
   ProviderResumeOptions,
@@ -52,7 +52,7 @@ import type {
   TerminalSessionStateEvent,
   TerminalSessionTitleEvent,
   TerminalSessionTransitionEvent,
-  SessionEngineBridgeContract,
+  SessionEngineBridgeContract as DeclaredSessionEngineBridgeContract,
   RecoveredEngineSession,
   RuntimeEngineMetadata,
   RuntimeRotationRecord,
@@ -89,6 +89,7 @@ import type {
   TerminalRecoveryCandidate,
   WorktreeListEntry,
 } from './agent-manager-record-types.js';
+import type { AgentHome } from './config-manager.cjs';
 import type {
   ErrorLike,
   ArchiveAgentOptions,
@@ -103,6 +104,7 @@ import type {
   LifecycleOperationResult,
   LifecycleOperationState,
   LifecycleOperationType,
+  LifecyclePreviousState,
 } from './agent-manager-lifecycle-types.js';
 
 const { execFile } = require('child_process');
@@ -111,94 +113,48 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { promisify } = require('util');
-const { SystemMonitor } = require('./system-monitor.cjs');
-const { SessionEngineBridge } = require('./session-engine-bridge.cjs');
-const { isSupportedHistoryAgent, parseCommand, resolveLaunchCommand } = require('./cli-agents.cjs');
-const {
-  buildAgentSessionResumeCommand,
-  findAgentSession,
-} = require('./agent-session-history.cjs');
-const { archiveCodexSession, unarchiveCodexSession } = require('./codex-session-archive.cjs');
-const { buildAgentProviderSessionPlan, sessionFromExactResumeSource } = require('./agent-provider-session.cjs') as {
-  buildAgentProviderSessionPlan: BuildAgentProviderSessionPlanContract;
-  sessionFromExactResumeSource: SessionFromExactResumeSourceContract;
-};
-const { resolveAgentExecutable, resolveCompatibleCodexExecutable } = require('./executable-discovery.cjs');
-const { ensureMainAgentSkillFiles, renderMainAgentBootstrap } = require('./main-agent-skills.cjs');
-const {
-  appendOpenCodeBootstrap,
-  renderFarmingAgentBootstrap,
-} = require('./farming-agent-bootstrap.cjs');
-const { mainPageAgentSessionKey, resumedAgentSource } = require('./main-page-session.cjs');
-const storageLayout = require('./storage-layout.cjs');
-const { isSafeProviderSessionId, isTemporaryProviderSessionId } = require('./provider-session-id.cjs');
-const { ProviderSessionService } = require('./provider-session-service.cjs');
-const {
-  legacyRuntimeMetadata,
-  publicRuntimeBinding,
-  replaceRuntimeBinding,
-  RuntimeAgentMap,
-  runtimeBindingFor,
-  runtimeBindingOf,
-  runtimeKind,
-} = require('./agent-runtime-binding.cjs');
-const { deriveRuntimeObservation } = require('./runtime-observation.cjs');
-const {
-  applyProviderHomeEnvironment,
-  getProviderAdapter,
-  isFreshAcpSessionSource,
-  providerAcpForkMode,
-  providerCapabilities,
-  providerForProgram,
-  providerSupportsRuntime,
-} = require('./provider-adapters.cjs');
-const { deriveTerminalStatus } = require('./terminal-status.cjs');
-const { JsonCliRuntime } = require('./json-cli-runtime.cjs');
-const {
-  AcpRuntime,
-  stopPersistedAcpProcessGroup,
-} = require('./acp-runtime.cjs');
-const { chatRuntimeForProvider, isChatMode } = require('./chat-runtime.cjs');
-const {
-  acpTranscriptEntries,
-  acpTranscriptMedia,
-  acpToolChanges,
-  acpToolDetail,
-  acpToolReviewChanges,
-} = require('./acp-transcript.cjs');
-const {
-  applyCodexTerminalProfile,
-  codexTerminalProfileFromOutput,
-  codexTerminalProfileFromPreview,
-} = require('./codex-terminal-profile.cjs');
-const {
-  ensureAgentOrders,
-  finiteOrder,
-  nextPinnedOrder,
-  reorderedPinnedAgentOrders,
-  reorderedProjectAgentOrders,
-} = require('./agent-order.cjs');
-const { commitAgentOrderTransaction } = require('./agent-order-transaction.cjs');
-const {
-  buildInteractiveAgentBaseEnv,
-  normalizeInteractiveTerminalEnv,
-  resolveUserShellEnvSync,
-} = require('./agent-env.cjs');
-const { inspectGitWorktree } = require('./git-worktree-info.cjs');
-const { deserializeTerminalState } = require('./terminal-state-serialization.cjs');
-const { compareNativePtyRuntimeEpochs } = require('./native-pty-controller-generation.cjs');
-const { canonicalWorkspacePath } = require('./workspace-root-registry.cjs');
-const { mergeBrowserMcpServer } = require('../extensions/browser/backend/agent-capability.cjs');
-const { mergeComputerMcpServer } = require('../extensions/computer/backend/agent-capability.cjs');
-const {
-  TERMINAL_OPERATION_STATES,
-  activeLifecycleOperation,
-  beginLifecycleOperation,
-  latestLifecycleOperation,
-  lifecycleJournal,
-  setLifecycleOperationResult,
-  transitionLifecycleOperation,
-} = require('./agent-lifecycle-journal.cjs');
+import { SystemMonitor } from './system-monitor.cjs';
+import { SessionEngineBridge } from './session-engine-bridge.cjs';
+import { isSupportedHistoryAgent, parseCommand, resolveLaunchCommand } from './cli-agents.cjs';
+import { buildAgentSessionResumeCommand, findAgentSession } from './agent-session-history.cjs';
+import { archiveCodexSession, unarchiveCodexSession } from './codex-session-archive.cjs';
+import { buildAgentProviderSessionPlan, sessionFromExactResumeSource } from './agent-provider-session.cjs';
+import { resolveAgentExecutable, resolveCompatibleCodexExecutable } from './executable-discovery.cjs';
+import { ensureMainAgentSkillFiles, renderMainAgentBootstrap } from './main-agent-skills.cjs';
+import { appendOpenCodeBootstrap, renderFarmingAgentBootstrap } from './farming-agent-bootstrap.cjs';
+import { mainPageAgentSessionKey, resumedAgentSource } from './main-page-session.cjs';
+import * as storageLayout from './storage-layout.cjs';
+import { isSafeProviderSessionId, isTemporaryProviderSessionId } from './provider-session-id.cjs';
+import {
+  ProviderSessionService,
+  type ProviderSessionChange,
+} from './provider-session-service.cjs';
+import { legacyRuntimeMetadata, publicRuntimeBinding, replaceRuntimeBinding, RuntimeAgentMap, runtimeBindingFor, runtimeBindingOf, runtimeKind } from './agent-runtime-binding.cjs';
+import {
+  deriveRuntimeObservation,
+  type TerminalObservationStatus,
+} from './runtime-observation.cjs';
+import { applyProviderHomeEnvironment, getProviderAdapter, isFreshAcpSessionSource, providerAcpForkMode, providerCapabilities, providerForProgram, providerSupportsRuntime } from './provider-adapters.cjs';
+import { deriveTerminalStatus } from './terminal-status.cjs';
+import {
+  JsonCliRuntime,
+  type JsonAgentRegistration,
+} from './json-cli-runtime.cjs';
+import { AcpRuntime, stopPersistedAcpProcessGroup } from './acp-runtime.cjs';
+import { chatRuntimeForProvider, isChatMode } from './chat-runtime.cjs';
+import { acpTranscriptEntries, acpTranscriptMedia, acpToolChanges, acpToolDetail, acpToolReviewChanges } from './acp-transcript.cjs';
+import { applyCodexTerminalProfile, codexTerminalProfileFromOutput, codexTerminalProfileFromPreview } from './codex-terminal-profile.cjs';
+import { ensureAgentOrders, finiteOrder, nextPinnedOrder, reorderedPinnedAgentOrders, reorderedProjectAgentOrders } from './agent-order.cjs';
+import { commitAgentOrderTransaction } from './agent-order-transaction.cjs';
+import { buildInteractiveAgentBaseEnv, normalizeInteractiveTerminalEnv, resolveUserShellEnvSync } from './agent-env.cjs';
+import { inspectGitWorktree } from './git-worktree-info.cjs';
+import { deserializeTerminalState } from './terminal-state-serialization.cjs';
+import type { TranscriptBuildOptions } from './codex-transcript.cjs';
+import { compareNativePtyRuntimeEpochs } from './native-pty-controller-generation.cjs';
+import { canonicalWorkspacePath } from './workspace-root-registry.cjs';
+import { mergeBrowserMcpServer } from '../extensions/browser/backend/agent-capability.cjs';
+import { mergeComputerMcpServer } from '../extensions/computer/backend/agent-capability.cjs';
+import { TERMINAL_OPERATION_STATES, activeLifecycleOperation, beginLifecycleOperation, latestLifecycleOperation, lifecycleJournal, setLifecycleOperationResult, transitionLifecycleOperation } from './agent-lifecycle-journal.cjs';
 
 type UnknownRecord = Record<string, unknown>;
 type AgentRecord = TypedAgentRecord;
@@ -217,11 +173,15 @@ type RecoveredSessionStateInput = Partial<Omit<TerminalSessionState, 'status'>> 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
+
+function isAcpTranscriptEntry(value: unknown): value is AcpTranscriptEntry {
+  return isRecord(value);
+}
 interface LifecycleJournalContract {
   entries: LifecycleOperation[];
 }
 
-interface RuntimeBindingContract extends UnknownRecord {
+interface RuntimeBindingContract {
   kind: RuntimeKind;
   state?: string;
   error?: string;
@@ -297,8 +257,19 @@ interface CodexTerminalProfileOptions {
 }
 
 type PersistentAgentUpdateAdmission =
-  | { error: string; operation?: never; deduplicated?: never }
-  | { error?: undefined; operation: LifecycleOperation; deduplicated?: boolean };
+  | {
+      conflict?: LifecycleOperation;
+      error: string;
+      operation?: never;
+      deduplicated?: never;
+      joined?: never;
+    }
+  | {
+      error?: undefined;
+      operation: LifecycleOperation;
+      deduplicated?: boolean;
+      joined?: boolean;
+    };
 
 interface AgentOrderNeighbors {
   afterAgentId?: string;
@@ -343,6 +314,7 @@ interface AgentSessionViewContract extends UnknownRecord {
   runtimeEpoch?: string;
   outputSeq?: number | null;
   stateRevision?: number | null;
+  terminalStatus?: TerminalObservationStatus;
 }
 
 interface ComposerContentPart extends UnknownRecord {
@@ -382,6 +354,16 @@ interface AgentUsageRate {
   sampledAt: number;
   source: string;
   windowMs: number;
+}
+
+export interface AgentPublicState extends UnknownRecord {
+  id: AgentId;
+}
+
+export interface AgentManagerState {
+  agents: AgentPublicState[];
+  mainAgentId: AgentId | null;
+  taskHistory: UnknownRecord[];
 }
 
 interface TerminalStatusOverrides extends Record<string, unknown> {
@@ -469,7 +451,7 @@ interface KillAgentAdmission {
 
 interface AgentManagerConfigContract extends AgentManagerConfig {
   appendTaskHistory?(entry: UnknownRecord): void;
-  getAgentHome(provider: string, homeId?: string): UnknownRecord | null;
+  getAgentHome(provider: string, homeId?: string): AgentHome | null;
   getAgentLaunchProfiles(): UnknownRecord;
   getCodexApprovalMode(): string;
   getCodexModel(): string;
@@ -488,36 +470,31 @@ interface AgentShellEnvCacheEntry {
   resolvedAt: number;
 }
 
-interface JsonCliRuntimeContract {
-  bindings: Map<string, unknown>;
-  dispose(): Promise<void>;
-  getEvents(agentId: string): unknown[];
-  getTranscript(agentId: string, options?: UnknownRecord): { jsonEvents?: unknown[] };
-  interruptAgent(agentId: string, options?: UnknownRecord): Promise<unknown>;
-  on(event: 'agent-runtime', listener: (event: JsonRuntimeEvent) => void): unknown;
-  on(event: 'transcript', listener: (event: JsonTranscriptEvent) => void): unknown;
-  registerAgent(options: UnknownRecord): Promise<unknown> | unknown;
-  submitComposerMessage(
-    agentId: string,
-    content: string,
-    options?: ComposerSendOptions,
-  ): Promise<ComposerSubmissionResult>;
-  unregisterAgent(agentId: string): void;
-  unregisterAgentAndWait(agentId: string): Promise<boolean>;
-  resumeAfterDisposeAbort?(): void;
-}
+type JsonCliRuntimeContract = Pick<
+  JsonCliRuntime,
+  | 'bindings'
+  | 'dispose'
+  | 'getEvents'
+  | 'getTranscript'
+  | 'interruptAgent'
+  | 'on'
+  | 'registerAgent'
+  | 'resumeAfterDisposeAbort'
+  | 'submitComposerMessage'
+  | 'unregisterAgent'
+  | 'unregisterAgentAndWait'
+>;
+
+type AcpRuntimeContract = DeclaredAcpRuntimeContract;
+type SessionEngineBridgeContract = DeclaredSessionEngineBridgeContract;
 
 interface ProviderSessionServiceRuntimeContract {
   activate(agentId: string): void;
   bindConfirmed(agentId: string, provider: unknown, sessionId: string): void;
   dispose(): void;
-  observe(agentId: string, options?: { force?: boolean }): Promise<boolean> | boolean;
+  observe(agentId: string, options?: { force?: boolean }): void;
   resolveTemporaryCodex(agentId: string, options?: { force?: boolean }): Promise<boolean>;
   stop(agentId: string): void;
-}
-
-interface SystemMonitorContract {
-  getSystemStats(): Promise<UnknownRecord>;
 }
 
 interface TerminalSize {
@@ -615,9 +592,11 @@ const CREATE_ROLLBACK_FIELDS: string[] = [
 ];
 const execFileAsync = promisify(execFile);
 
-function createRollbackState(record: AgentRecord | null | undefined): UnknownRecord | null {
-  if (!record || typeof record !== 'object') return null;
-  const state: UnknownRecord = {};
+function createRollbackState(
+  record: AgentRecord | null | undefined,
+): LifecyclePreviousState | undefined {
+  if (!record || typeof record !== 'object') return undefined;
+  const state: LifecycleOperationRequest = {};
   for (const field of CREATE_ROLLBACK_FIELDS) {
     const value = Object.prototype.hasOwnProperty.call(record, field)
       ? record[field]
@@ -628,11 +607,20 @@ function createRollbackState(record: AgentRecord | null | undefined): UnknownRec
   state.visibleOnMainPage = record.visibleOnMainPage === true;
   state.archived = record.archived === true;
   state.customTitle = typeof record.customTitle === 'string' ? record.customTitle : '';
-  return state;
+  return {
+    ...state,
+    runtimeAgentId: String(state.runtimeAgentId || ''),
+    visibleOnMainPage: state.visibleOnMainPage === true,
+    archived: state.archived === true,
+    customTitle: typeof state.customTitle === 'string' ? state.customTitle : '',
+  };
 }
 
-function createFailurePatch(operation: UnknownRecord | null | undefined, fallbackRuntimeAgentId = ''): UnknownRecord {
-  const request = isRecord(operation?.request) ? operation.request : null;
+function createFailurePatch(
+  operation: LifecycleOperation | null | undefined,
+  fallbackRuntimeAgentId = '',
+): UnknownRecord {
+  const request = operation?.request;
   const previousState = request?.previousState;
   if (previousState && typeof previousState === 'object') {
     return JSON.parse(JSON.stringify(previousState));
@@ -1335,7 +1323,7 @@ class AgentManager extends EventEmitter {
   declare disposeFrozen: boolean;
   declare disposePromise: Promise<void> | null;
   declare disposed: boolean;
-  declare systemMonitor: SystemMonitorContract;
+  declare systemMonitor: SystemMonitor;
   declare startTime: number;
   declare providerSessionService: ProviderSessionServiceRuntimeContract;
   declare recoveryPromise: Promise<void>;
@@ -1344,9 +1332,12 @@ class AgentManager extends EventEmitter {
   declare taskHistory: UnknownRecord[];
   declare lastZombieSweepAt: number;
 
-  constructor(configManager: UnknownRecord | null | undefined, options: AgentManagerOptions = {}) {
+  constructor(
+    configManager: AgentManagerConfigContract | null | undefined,
+    options: AgentManagerOptions = {},
+  ) {
     super();
-    this.configManager = configManager as AgentManagerConfigContract | null | undefined;
+    this.configManager = configManager;
     this.controlUrl = options.controlUrl || '';
     this.tokenFile = options.tokenFile || '';
     this.authDisabled = options.authDisabled === true;
@@ -1443,7 +1434,7 @@ class AgentManager extends EventEmitter {
     this.providerSessionService = new ProviderSessionService({
       agents: this.agents,
       getProviderHomes: () => this.configManager?.getSettings?.()?.agentHomes,
-      commit: (agent: TypedAgentRecord, change: ProviderSessionServiceChange = {}) => {
+      commit: (agent: TypedAgentRecord, change: ProviderSessionChange = {}) => {
         if (change.kind === 'session-updated') this.ensurePersistentAgentSession(agent);
         this.updateEngineProviderSessionMetadata(agent);
         this.rememberMainPageProviderSession(agent);
@@ -2559,11 +2550,19 @@ class AgentManager extends EventEmitter {
         if (blockedOperation) {
           recoveredAgent.status = 'error';
           recoveredAgent.engineStatus = 'lifecycle-blocked';
-          const runtime = runtimeBindingOf(recoveredAgent, 'acp');
+          const runtime = replaceRuntimeBinding(
+            recoveredAgent,
+            'acp',
+            runtimeBindingOf(recoveredAgent, 'acp'),
+          );
           runtime.state = 'error';
           runtime.error = `Agent ${blockedOperation.type} operation ${blockedOperation.id} must be resolved before restart`;
         } else {
-          runtimeBindingOf(recoveredAgent, 'acp').state = 'connecting';
+          replaceRuntimeBinding(
+            recoveredAgent,
+            'acp',
+            runtimeBindingOf(recoveredAgent, 'acp'),
+          ).state = 'connecting';
         }
         this.agents.set(agentId, recoveredAgent);
         void this.refreshAgentWorktree(agentId);
@@ -2622,7 +2621,9 @@ class AgentManager extends EventEmitter {
           agent.structuredRuntimeProcess = null;
           this.ensurePersistentAgentSession(agent);
         }
-        const executableName = getProviderAdapter(provider).executable;
+        const providerAdapter = getProviderAdapter(provider);
+        if (!providerAdapter) throw new Error(`Unsupported Agent provider: ${provider}`);
+        const executableName = providerAdapter.executable;
         const executable = resolveAgentExecutable(executableName) || executableName;
         const approvalMode = agent.launchPermissionMode || (
           provider === 'codex' && this.configManager.getCodexApprovalMode
@@ -2695,7 +2696,11 @@ class AgentManager extends EventEmitter {
         this.rememberMainPageProviderSession(agent);
       } catch (caughtError: unknown) {
       const error = caughtError as ErrorRecord;
-        const runtime = runtimeBindingOf(agent, 'acp');
+        const runtime = replaceRuntimeBinding(
+          agent,
+          'acp',
+          runtimeBindingOf(agent, 'acp'),
+        );
         runtime.state = 'error';
         runtime.error = `ACP recovery failed: ${error && (error.message || error)}`;
         const cleanupUncertain = error?.code === 'ACP_PROCESS_CLEANUP_UNCERTAIN';
@@ -3195,8 +3200,8 @@ class AgentManager extends EventEmitter {
     agent: TypedAgentRecord,
     type: LifecycleOperationType,
     requestKey: string,
-    request: UnknownRecord = {},
-  ) {
+    request: LifecycleOperationRequest = {},
+  ): PersistentAgentUpdateAdmission {
     const previousJournal = agent.lifecycleJournal
       ? JSON.parse(JSON.stringify(agent.lifecycleJournal))
       : null;
@@ -3225,7 +3230,7 @@ class AgentManager extends EventEmitter {
       return { error: `Failed to persist Agent ${type} intent: ${error.message || error}` };
     }
     return {
-      operation: activeLifecycleOperation(agent) || result.operation,
+      operation: activeLifecycleOperation(agent) ?? result.operation,
       joined: result.joined,
     };
   }
@@ -3305,10 +3310,10 @@ class AgentManager extends EventEmitter {
     if (operation?.type !== 'update') return null;
     const request = operation.request || {};
     if (Object.prototype.hasOwnProperty.call(request, 'customTitle')) {
-      return this.renameAgent(agent.id, request.customTitle);
+      return this.renameAgent(agent.id, String(request.customTitle || ''));
     }
     if (Object.prototype.hasOwnProperty.call(request, 'task')) {
-      return this.setAgentTask(agent.id, request.task);
+      return this.setAgentTask(agent.id, String(request.task || ''));
     }
     return this.updateAgentFlags(agent.id, request);
   }
@@ -3853,13 +3858,13 @@ class AgentManager extends EventEmitter {
       projected = mergeBrowserMcpServer(projected, {
         cliBinDir: this.cliBinDir,
         agentEnv,
-      });
+      }).filter(isRecord);
     }
     if (this.computerMcpEnabled()) {
       projected = mergeComputerMcpServer(projected, {
         cliBinDir: this.cliBinDir,
         agentEnv,
-      });
+      }).filter(isRecord);
     }
     return projected;
   }
@@ -4505,7 +4510,7 @@ class AgentManager extends EventEmitter {
           ? this.configManager.getCodexServiceTier()
           : 'default'));
     const launch = resolveLaunchCommand(command, {
-      dangerouslySkipPermissions,
+      dangerouslySkipPermissions: dangerouslySkipPermissions === true,
       agentLaunchProfiles: this.configManager && this.configManager.getAgentLaunchProfiles
         ? this.configManager.getAgentLaunchProfiles()
         : undefined,
@@ -4922,7 +4927,7 @@ class AgentManager extends EventEmitter {
         structuredProcessStartGated: useAcp && process.platform !== 'win32',
       },
     );
-    if (createAdmission.error) {
+    if ('error' in createAdmission) {
       finishStartLifecycle();
       if (callback) callback(null, createAdmission.error);
       return null;
@@ -5135,6 +5140,7 @@ class AgentManager extends EventEmitter {
 
       if (useJsonCli) {
         const jsonRuntime = runtimeBindingOf(agentRecord, 'json');
+        if (!jsonRuntime) throw new Error('JSON runtime binding was not installed');
         this.jsonCliRuntime.registerAgent({
           agentId,
           provider: structuredRuntimeProvider,
@@ -5144,13 +5150,14 @@ class AgentManager extends EventEmitter {
           sessionId: agentRecord.providerSessionTemporary ? '' : agentRecord.providerSessionId,
           approvalMode: agentRecord.launchPermissionMode || 'approve',
           autoApprove: options.dangerouslySkipPermissions === true,
-          initialEvents: jsonRuntime.events,
+          initialEvents: jsonRuntime.events.filter(isRecord),
         });
         structuredRuntimeRegistered = true;
       }
 
       if (useAcp) {
         const acpRuntime = runtimeBindingOf(agentRecord, 'acp');
+        if (!acpRuntime) throw new Error('ACP runtime binding was not installed');
         const sessionOptionsKey = agentRecord.providerSessionId && !agentRecord.providerSessionTemporary
           ? mainPageAgentSessionKey(
               structuredRuntimeProvider,
@@ -5530,7 +5537,7 @@ class AgentManager extends EventEmitter {
 
   async sendInput(
     agentId: AgentId,
-    input: string,
+    input: TerminalInput,
     options: TerminalInputOptions = {},
   ): Promise<TerminalInputResult | undefined> {
     return this.enqueueInputOperation(agentId, () => this.sendInputNow(agentId, input, options));
@@ -5808,7 +5815,11 @@ class AgentManager extends EventEmitter {
       // make a fresh Terminal look user-authored, because that would remove
       // the safe fresh-session path into ACP Chat before the provider has
       // materialized a resumable history record.
-      sendInput: async (input: string) => this.sendInputNow(agentId, input, { markUserInput: false }),
+      sendInput: async (input: TerminalInput) => this.sendInputNow(
+        agentId,
+        input,
+        { markUserInput: false },
+      ),
     });
     agent.codexTerminalProfile = {
       model: applied.model,
@@ -5883,6 +5894,7 @@ class AgentManager extends EventEmitter {
       });
       if (result.steered !== true) {
         const runtime = runtimeBindingOf(agent, 'acp');
+        if (!runtime) throw new Error('ACP runtime binding is unavailable');
         runtime.state = 'idle';
         runtime.stopReason = result.stopReason || '';
       }
@@ -5914,10 +5926,15 @@ class AgentManager extends EventEmitter {
   getAcpTranscript(agentId: AgentId, options: Partial<AcpSessionRequestOptions> = {}) {
     this.requireLiveAcpAgent(agentId);
     const transcript = this.acpRuntime.getTranscriptSession(agentId, options);
+    const entries = Array.isArray(transcript.entries)
+      ? transcript.entries.filter(isAcpTranscriptEntry)
+      : [];
     return {
       ...transcript,
-      entries: acpTranscriptEntries(transcript.entries, {
-        mediaPathPrefix: options.mediaPathPrefix,
+      entries: acpTranscriptEntries(entries, {
+        mediaPathPrefix: typeof options.mediaPathPrefix === 'string'
+          ? options.mediaPathPrefix
+          : undefined,
       }),
     };
   }
@@ -5945,8 +5962,11 @@ class AgentManager extends EventEmitter {
       changes: acpToolChanges(entry),
       ...(subagentSession ? { subagentSession } : {}),
       terminals: (Array.isArray(entry.content) ? entry.content : [])
-        .filter((block: AcpPromptBlock) => block.type === 'terminal')
-        .map((block: AcpPromptBlock) => ({ terminalId: String(block.terminalId || ''), ...(block.terminal ? { terminal: block.terminal } : {}) })),
+        .filter((block) => block.type === 'terminal')
+        .map((block) => ({
+          terminalId: String(block.terminalId || ''),
+          ...(block.terminal ? { terminal: block.terminal } : {}),
+        })),
     };
   }
 
@@ -6302,7 +6322,7 @@ class AgentManager extends EventEmitter {
       `rename:${customTitle}`,
       { customTitle },
     );
-    if (admission.error) return { error: `Failed to rename Agent: ${admission.error}` };
+    if ('error' in admission) return { error: `Failed to rename Agent: ${admission.error}` };
     if (admission.deduplicated) {
       return { agentId, customTitle, operationId: admission.operation.id, deduplicated: true };
     }
@@ -6351,7 +6371,7 @@ class AgentManager extends EventEmitter {
       `task:${nextTask}`,
       { task: nextTask },
     );
-    if (admission.error) return { error: `Failed to update Agent task: ${admission.error}` };
+    if ('error' in admission) return { error: `Failed to update Agent task: ${admission.error}` };
     if (admission.deduplicated) {
       return { agentId, task: nextTask, operationId: admission.operation.id, deduplicated: true };
     }
@@ -6426,7 +6446,9 @@ class AgentManager extends EventEmitter {
           persistedFlags,
         )
       : null;
-    if (admission?.error) return { error: `Failed to update Agent: ${admission.error}` };
+    if (admission && 'error' in admission) {
+      return { error: `Failed to update Agent: ${admission.error}` };
+    }
 
     const staged: AgentRecord = {
       ...agent,
@@ -6584,7 +6606,7 @@ class AgentManager extends EventEmitter {
       String(beforeAgentId || ''),
       String(afterAgentId || ''),
     );
-    if (result.error) return result;
+    if ('error' in result) return result;
     return this.commitAgentOrderUpdates(agentId, result.updates, 'projectOrder');
   }
 
@@ -6598,7 +6620,7 @@ class AgentManager extends EventEmitter {
       String(beforeAgentId || ''),
       String(afterAgentId || ''),
     );
-    if (result.error) return result;
+    if ('error' in result) return result;
     return this.commitAgentOrderUpdates(agentId, result.updates, 'pinnedOrder');
   }
 
@@ -6786,7 +6808,9 @@ class AgentManager extends EventEmitter {
       return { agentId, agentRuntimeMode: nextMode };
     }
     const turnActive = currentKind === 'acp'
-      ? ['working', 'waiting-for-permission', 'interrupting'].includes(runtimeBindingOf(agent, 'acp').state)
+      ? ['working', 'waiting-for-permission', 'interrupting'].includes(
+          runtimeBindingOf(agent, 'acp')?.state || '',
+        )
       : this.isAgentAttentionTurnActive(agent);
     if (turnActive) {
       return { error: 'Interrupt the active Agent turn before switching Chat and Terminal.' };
@@ -7444,7 +7468,7 @@ class AgentManager extends EventEmitter {
         workspace: target,
         branch,
       });
-      if (admission.error) throw new Error(admission.error);
+      if ('error' in admission) throw new Error(admission.error);
       operation = admission.operation || null;
     }
 
@@ -7823,7 +7847,7 @@ class AgentManager extends EventEmitter {
         sourceWorkspace: inspected.sourceWorkspace,
         force: options.force === true,
       });
-      if (admission.error) return { ...inspected, error: admission.error };
+      if ('error' in admission) return { ...inspected, error: admission.error };
       operation = admission.operation || null;
     }
 
@@ -8051,7 +8075,7 @@ class AgentManager extends EventEmitter {
             expectedRevision: Number.isSafeInteger(options.expectedRevision) ? options.expectedRevision : null,
           },
         );
-        if (admission.error) return { error: admission.error };
+        if ('error' in admission) return { error: admission.error };
         const result = await this.forkAgentUntracked(agentId, mode, {
           ...options,
           requestId: '',
@@ -8163,7 +8187,7 @@ class AgentManager extends EventEmitter {
         cwd: targetWorkspace,
         providerHomePath: agent.providerHomePath || '',
       })
-      : (agent.forkCommand || agent.command);
+      : String(agent.forkCommand || agent.command || '');
 
     return new Promise<AgentForkResult>(resolve => {
       this.startAgent(forkCommand, targetWorkspace, (forkedAgentId: AgentId | null, error?: string | null) => {
@@ -8483,7 +8507,7 @@ class AgentManager extends EventEmitter {
       { providerHomeId, providerHomePath },
       'unarchive',
       async () => {
-        let session: AgentHistorySession | null;
+        let session: Awaited<ReturnType<typeof findAgentSession>>;
         try {
           session = await findAgentSession('codex', sessionId, {
             limit: 1000,
@@ -8617,7 +8641,7 @@ class AgentManager extends EventEmitter {
       reason: options.reason || 'manual-archive',
       structuredProcessProofRequired: runtimeKind(agent) === 'acp',
     });
-    if (admission.error) return { agentId, error: admission.error };
+    if ('error' in admission) return { agentId, error: admission.error };
     const operationId = admission.operation.id;
     const killResult = await this.killAgent(agentId, {
       reason: options.reason || 'manual-archive',
@@ -8815,6 +8839,11 @@ class AgentManager extends EventEmitter {
             structuredProcessProofRequired: runtimeKind(agent) === 'acp',
           },
         );
+        if (admittedDelete.conflict) {
+          throw new Error(
+            `Delete conflicts with Agent operation ${admittedDelete.conflict.id}`,
+          );
+        }
         const persistentSessionId = this.ensurePersistentAgentSession(agent);
         if (
           typeof this.configManager?.ensureAgentSessionRecord === 'function'
@@ -8836,7 +8865,7 @@ class AgentManager extends EventEmitter {
       reason: options.reason || 'manual-kill',
       structuredProcessProofRequired: runtimeKind(agent) === 'acp',
     });
-    if (admitted.error) return { error: admitted.error };
+    if ('error' in admitted) return { error: admitted.error };
     return {
       operationId: admitted.operation.id,
       completesBlockedCreate: false,
@@ -8894,7 +8923,7 @@ class AgentManager extends EventEmitter {
           let queuedOptions = options;
           if (options.persistDeleteOperation !== false && !options.persistentOperationId) {
             const admitted = this.admitPersistentDelete(agent, options);
-            if (admitted.error) return { agentId, error: admitted.error };
+            if ('error' in admitted) return { agentId, error: admitted.error };
             queuedOptions = {
               ...options,
               persistentOperationId: admitted.operationId,
@@ -8910,7 +8939,7 @@ class AgentManager extends EventEmitter {
     let admittedOptions = options;
     if (options.persistDeleteOperation !== false && !options.persistentOperationId) {
       const admitted = this.admitPersistentDelete(agent, options);
-      if (admitted.error) return Promise.resolve({ agentId, error: admitted.error });
+      if ('error' in admitted) return Promise.resolve({ agentId, error: admitted.error });
       admittedOptions = {
         ...options,
         persistentOperationId: admitted.operationId,
@@ -9092,7 +9121,7 @@ class AgentManager extends EventEmitter {
         reason: options.reason || 'manual-kill',
         structuredProcessProofRequired: runtimeKind(agent) === 'acp',
       });
-      if (admittedDelete.error) {
+      if ('error' in admittedDelete) {
         return { agentId, error: admittedDelete.error, stopped: true, retryable: true };
       }
       persistentOperationId = admittedDelete.operation.id;
@@ -9504,8 +9533,8 @@ class AgentManager extends EventEmitter {
     };
   }
   
-  getState() {
-    const state: UnknownRecord = {
+  getState(): AgentManagerState {
+    const state: AgentManagerState = {
       mainAgentId: this.mainAgentId,
       agents: [],
       taskHistory: this.taskHistory
@@ -9523,9 +9552,7 @@ class AgentManager extends EventEmitter {
         previewText: agent.previewText || '',
       });
 
-      const stateAgents = state.agents;
-      if (!Array.isArray(stateAgents)) throw new Error('Agent state accumulator is invalid');
-      stateAgents.push({
+      state.agents.push({
         id: agent.id,
         command: agent.command,
         engineName: agent.engineName || '',
@@ -9717,8 +9744,19 @@ class AgentManager extends EventEmitter {
   }
 }
 
+export {
+  AgentManager,
+  AGENT_USAGE_RATE_WINDOW_MS,
+  SESSION_OUTPUT_LIMIT,
+  ZOMBIE_IDLE_MS,
+  trimSessionOutput,
+};
+
+Object.assign(AgentManager, {
+  AgentManager,
+  AGENT_USAGE_RATE_WINDOW_MS,
+  SESSION_OUTPUT_LIMIT,
+  ZOMBIE_IDLE_MS,
+  trimSessionOutput,
+});
 module.exports = AgentManager;
-module.exports.SESSION_OUTPUT_LIMIT = SESSION_OUTPUT_LIMIT;
-module.exports.AGENT_USAGE_RATE_WINDOW_MS = AGENT_USAGE_RATE_WINDOW_MS;
-module.exports.ZOMBIE_IDLE_MS = ZOMBIE_IDLE_MS;
-module.exports.trimSessionOutput = trimSessionOutput;

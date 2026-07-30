@@ -1,6 +1,7 @@
-const { buildTranscriptFromEvents } = require('./codex-transcript.cjs') as {
-  buildTranscriptFromEvents(events: JsonEvent[], options: unknown): unknown;
-};
+import {
+  buildTranscriptFromEvents,
+  type TranscriptBuildOptions,
+} from './codex-transcript.cjs';
 
 const DEFAULT_MAX_EVENTS = 12_000;
 
@@ -296,7 +297,7 @@ class AgentJsonStreamParser {
     return [...events, ...this.appendEvents(this.adapter.flush())];
   }
 
-  transcript(options: unknown = {}): unknown {
+  transcript(options: TranscriptBuildOptions = {}): unknown {
     return buildTranscriptFromEvents(this.events, options);
   }
 
@@ -318,4 +319,7 @@ class AgentJsonStreamParser {
 export {
   AgentJsonStreamParser,
   JsonlStreamDecoder,
+};
+export type {
+  TranscriptBuildOptions,
 };

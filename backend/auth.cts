@@ -11,17 +11,14 @@ interface FarmingNetPassVerifierLike {
   verify(pass: unknown): { valid: boolean };
 }
 
-const { FarmingNetPassVerifier, PASS_QUERY_PARAM } = require('./farming-net-pass.cjs') as {
-  FarmingNetPassVerifier: new (options: { trustFile: string }) => FarmingNetPassVerifierLike;
-  PASS_QUERY_PARAM: string;
-};
+import { FarmingNetPassVerifier, PASS_QUERY_PARAM } from './farming-net-pass.cjs';
 
 interface PoeticTokenInfo extends Omit<CreatedPoeticToken, 'locale' | 'style'> {
   locale?: CreatedPoeticToken['locale'];
   style: CreatedPoeticToken['style'] | 'configured' | 'persisted';
 }
 
-const storageLayout = require('./storage-layout.cjs');
+import * as storageLayout from './storage-layout.cjs';
 
 interface TokenAuthOptions {
   basePath?: string;

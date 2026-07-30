@@ -21,6 +21,25 @@ assert.strictEqual(validateClientMessage({ type: 'composer-input', agentId: 'a',
 assert.strictEqual(validateClientMessage({ type: 'composer-input', agentId: 'a', message: 'steer', requestId: 'request-1', delivery: 'steer' }).ok, true);
 assert.strictEqual(validateClientMessage({ type: 'composer-input', agentId: 'a', message: 'steer', requestId: 'request-1', delivery: 'next' }).ok, false);
 assert.strictEqual(validateClientMessage({ type: 'composer-input', agentId: 'a', message: 'steer', requestId: 1 }).ok, false);
+assert.strictEqual(validateClientMessage({
+  type: 'acp-permission-response',
+  agentId: 'a',
+  requestId: 'permission-1',
+  optionId: 'allow',
+  cancelled: false,
+}).ok, true);
+assert.strictEqual(validateClientMessage({
+  type: 'acp-permission-response',
+  agentId: 'a',
+  requestId: 'permission-1',
+}).ok, false);
+assert.strictEqual(validateClientMessage({
+  type: 'acp-permission-response',
+  agentId: 'a',
+  requestId: 'permission-1',
+  optionId: 'allow',
+  cancelled: 'false',
+}).ok, false);
 assert.strictEqual(validateClientMessage({ type: 'business-health-probe', requestId: 'health-1' }).ok, true);
 assert.strictEqual(validateClientMessage({ type: 'business-health-probe', requestId: 1 }).ok, false);
 assert.strictEqual(validateClientMessage({ type: 'unknown' }).ok, false);

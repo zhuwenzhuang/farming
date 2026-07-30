@@ -21,7 +21,7 @@ interface FarmingNetPrivateKeyDetails {
   publicDetails: FarmingNetPublicKeyDetails;
 }
 
-interface FarmingNetSigningIdentity {
+export interface FarmingNetSigningIdentity {
   issuer: string;
   privateKey: KeyObject;
   privateKeyFile: string;

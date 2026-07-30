@@ -5,20 +5,11 @@ import { execFile, spawn, type ChildProcess } from 'child_process';
 import { Readable, Transform, type TransformCallback } from 'stream';
 import { pipeline } from 'stream/promises';
 import extractZip from 'extract-zip';
-const storageLayout = require('../../../backend/storage-layout.cjs');
-const {
-  runtimePlatformKey,
-  verifyExecutable,
-} = require('../../../backend/runtime-dependency-manager.cjs');
-const {
-  runtimeExecutableInvocation,
-} = require('../../../backend/runtime-executable-invocation.cjs');
-const {
-  AGENT_BROWSER_VERSION,
-} = require('./agent-browser-runtime.cjs');
-const {
-  managedAgentBrowserPath,
-} = require('./executable-discovery.cjs');
+import * as storageLayout from '../../../backend/storage-layout.cjs';
+import { runtimePlatformKey, verifyExecutable } from '../../../backend/runtime-dependency-manager.cjs';
+import { runtimeExecutableInvocation } from '../../../backend/runtime-executable-invocation.cjs';
+import { AGENT_BROWSER_VERSION } from './agent-browser-runtime.cjs';
+import { managedAgentBrowserPath } from './executable-discovery.cjs';
 
 const MANIFEST_FORMAT = 'farming-managed-chromium-v1';
 const INSTALL_TIMEOUT_MS = 15 * 60_000;
@@ -1026,7 +1017,7 @@ class ManagedChromiumInstaller {
   }
 }
 
-module.exports = {
+export {
   GOOGLE_METADATA_URL,
   INSTALL_TIMEOUT_MS,
   MANIFEST_FORMAT,

@@ -5,9 +5,8 @@ import {
   type SpawnOptionsWithoutStdio,
 } from 'child_process';
 
-const { AgentJsonStreamParser } = require('./agent-json-stream.cjs') as {
-  AgentJsonStreamParser: new (options: AgentJsonStreamParserOptions) => AgentJsonStreamParser;
-};
+import { AgentJsonStreamParser } from './agent-json-stream.cjs';
+import type { TranscriptBuildOptions } from './codex-transcript.cjs';
 
 const MAX_EVENTS = 12_000;
 const PROCESS_EXIT_TIMEOUT_MS = 1500;
@@ -21,20 +20,6 @@ type SpawnProcess = (
     stdio: ['pipe', 'pipe', 'pipe'];
   },
 ) => ChildProcessWithoutNullStreams;
-
-interface AgentJsonStreamParserOptions {
-  provider: string;
-  operationId: string;
-  prompt?: string;
-}
-
-interface AgentJsonStreamParser {
-  events: JsonEvent[];
-  readonly sessionId: string;
-  push(chunk: unknown): JsonEvent[];
-  flush(): JsonEvent[];
-  transcript(options?: unknown): unknown;
-}
 
 interface JsonTurnOptions {
   provider: string;
@@ -51,7 +36,7 @@ interface JsonTurnCommand {
   stdin: string;
 }
 
-interface JsonAgentRegistration {
+export interface JsonAgentRegistration {
   agentId: string;
   provider: string;
   executable: string;
@@ -64,7 +49,7 @@ interface JsonAgentRegistration {
   initialEvents?: JsonEvent[];
 }
 
-interface JsonAgentBinding extends JsonAgentRegistration {
+export interface JsonAgentBinding extends JsonAgentRegistration {
   events: JsonEvent[];
   ownsProcessGroup: boolean;
   child: ChildProcessWithoutNullStreams | null;
@@ -322,7 +307,10 @@ class JsonCliRuntime extends EventEmitter {
     return [...(this.bindings.get(agentId)?.events || [])];
   }
 
-  getTranscript(agentId: string, options: unknown = {}): JsonRuntimeTranscript {
+  getTranscript(
+    agentId: string,
+    options: TranscriptBuildOptions = {},
+  ): JsonRuntimeTranscript {
     const binding = this.bindings.get(agentId);
     if (!binding) throw new Error('JSON CLI Agent is not registered');
     const parser = new AgentJsonStreamParser({

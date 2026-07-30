@@ -1,13 +1,16 @@
-const { TerminalScreenWorker } = require('./terminal-screen-worker.cjs') as {
-  TerminalScreenWorker: TerminalScreenWorkerConstructor;
-};
+import {
+  TerminalScreenWorker,
+  type TerminalScreenWorkerOptions,
+  type TerminalScreenWorkerPreview,
+  type TerminalScreenWorkerState,
+} from './terminal-screen-worker.cjs';
 
 const DEFAULT_POOL_SIZE = 3;
 const DEFAULT_RETRY_DELAY_MS = 250;
 const MAX_RETRY_DELAY_MS = 5000;
 
-interface TerminalScreenWorkerLike {
-  append(data: string, stateRevision: number, outputSeq?: number | null): Promise<TerminalScreenWorkerState> | undefined;
+export interface TerminalScreenWorkerLike {
+  append(data: string, stateRevision: number, outputSeq?: number | null): Promise<unknown> | undefined;
   clear(stateRevision: number, outputSeq?: number | null): Promise<TerminalScreenWorkerState>;
   dispose(): Promise<unknown>;
   getState(options?: Record<string, unknown>): Promise<TerminalScreenWorkerState>;
@@ -17,26 +20,11 @@ interface TerminalScreenWorkerLike {
   setRuntimeEpoch(runtimeEpoch: string, cols: number, rows: number): Promise<unknown>;
 }
 
-interface TerminalScreenWorkerPreview {
-  cols: number;
-  previewSnapshot: unknown;
-  previewText: string;
-  rows: number;
-  title: string;
+export interface TerminalScreenWorkerConstructor {
+  new(options?: TerminalScreenWorkerOptions): TerminalScreenWorkerLike;
 }
 
-interface TerminalScreenWorkerState extends TerminalScreenWorkerPreview {
-  outputSeq?: number;
-  renderOutput: string;
-  runtimeEpoch?: string;
-  stateRevision?: number;
-}
-
-interface TerminalScreenWorkerConstructor {
-  new(options?: Record<string, unknown>): TerminalScreenWorkerLike;
-}
-
-interface TerminalScreenWorkerPoolOptions {
+export interface TerminalScreenWorkerPoolOptions {
   retryDelayMs?: number;
   size?: unknown;
   workerOptions?: Record<string, unknown>;

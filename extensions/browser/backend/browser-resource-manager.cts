@@ -2,18 +2,33 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { EventEmitter } = require('events');
-const storageLayout = require('../../../backend/storage-layout.cjs');
-const {
+import * as storageLayout from '../../../backend/storage-layout.cjs';
+import {
   matchingProcessIdentity,
   readServerProcessIdentity,
-} = require('../../../backend/server-process-identity.cjs');
-const { BrowserResourceStore, RESOURCE_ID_RE } = require('./browser-resource-store.cjs');
-const { AgentBrowserRuntime } = require('./agent-browser-runtime.cjs');
-const {
+  type ServerProcessIdentity,
+} from '../../../backend/server-process-identity.cjs';
+import {
+  BrowserResourceStore,
+  RESOURCE_ID_RE,
+  type BrowserResource,
+  type BrowserResourceCreateInput,
+  type BrowserResourcePatch,
+  type BrowserProcessIdentity,
+  type RunningBrowserTabInput,
+} from './browser-resource-store.cjs';
+import {
+  AgentBrowserRuntime,
+  type RuntimeOptions,
+} from './agent-browser-runtime.cjs';
+import {
   discoverBrowserExecutables,
   discoverBrowserRuntime,
-} = require('./executable-discovery.cjs');
-const { ManagedChromiumInstaller } = require('./managed-chromium-installer.cjs');
+  type BrowserCandidate,
+  type BrowserDiscoveryOptions,
+  type BrowserExecutable,
+} from './executable-discovery.cjs';
+import { ManagedChromiumInstaller } from './managed-chromium-installer.cjs';
 
 const MAX_VIEWER_BUFFER_BYTES = 2 * 1024 * 1024;
 const VIEWER_RESIZE_SETTLE_MS = 80;
@@ -24,35 +39,6 @@ const INACTIVE_AGENT_STATUSES = new Set(['dead', 'error', 'exited', 'stopped']);
 
 type BrowserResourceStatus = 'stopped' | 'starting' | 'running' | 'stopping' | 'failed';
 type BrowserResourceOwnerType = 'agent' | 'project';
-type BrowserProcessIdentity = {
-  format: string;
-  pid: number;
-  processGroupId: number;
-  startedAt: string;
-};
-type BrowserResource = {
-  autoName: boolean;
-  browserKind: string;
-  createdAt: number;
-  error: string;
-  generation: number;
-  id: string;
-  name: string;
-  ownerAgentId: string;
-  ownerType: BrowserResourceOwnerType;
-  processIdentity: BrowserProcessIdentity | null;
-  projectRootId: string;
-  revision: number;
-  runtimeKind: string;
-  sessionGeneration: number;
-  sessionId: string;
-  status: BrowserResourceStatus;
-  tabId: string;
-  title: string;
-  updatedAt: number;
-  url: string;
-  workspace: string;
-};
 type BrowserTab = {
   active?: boolean;
   tabId: string;
@@ -66,13 +52,7 @@ type BrowserTabsEvent = {
   tabs?: BrowserTab[];
 };
 type BrowserMetadata = { title?: string; url?: string };
-type BrowserCapability = {
-  agentBrowserPath?: string;
-  cdpUrl?: string;
-  error?: string;
-  kind: string;
-  path: string;
-};
+type BrowserCapability = BrowserExecutable;
 type BrowserSelection = {
   executablePath: string;
   externalCdpUrl: string;
@@ -83,7 +63,7 @@ type BrowserSettings = {
   browserExternalCdpUrl?: string;
   browserSource?: string;
 };
-type BrowserOption = { kind: string; path: string };
+type BrowserOption = BrowserCandidate;
 type BrowserMessage = Record<string, unknown> & {
   claim?: boolean;
   deviceScaleFactor?: number;
@@ -148,7 +128,7 @@ interface BrowserRuntime {
   download(input: BrowserMessage): Promise<unknown>;
   wheel(input: BrowserMessage): Promise<void>;
   pointer(input: BrowserMessage): Promise<void>;
-  resize(input: BrowserViewport): Promise<void>;
+  resize(input: BrowserViewport): Promise<unknown>;
   insertText(text: string): Promise<void>;
   on<Value>(event: string, listener: (value: Value) => void): this;
   once<Value>(event: string, listener: (value: Value) => void): this;
@@ -185,10 +165,10 @@ interface BrowserResourceStoreLike {
   init(): void;
   list(): BrowserResource[];
   get(id: string): BrowserResource | null;
-  create(input: Record<string, unknown>): BrowserResource;
-  createRunningTab(input: Record<string, unknown>): BrowserResource;
-  update(id: string, patch: Record<string, unknown>): BrowserResource;
-  delete(id: string): void;
+  create(input: BrowserResourceCreateInput): BrowserResource;
+  createRunningTab(input: RunningBrowserTabInput): BrowserResource;
+  update(id: string, patch: BrowserResourcePatch): BrowserResource;
+  delete(id: string): boolean | void;
 }
 type ChromiumInstaller = {
   browserOption(): { path?: string } | null;
@@ -199,13 +179,17 @@ type BrowserManagerOptions = Record<string, unknown> & {
   configDir: string;
   store?: BrowserResourceStoreLike;
   chromiumInstaller?: ChromiumInstaller;
-  discoverExecutable?: (selection: Record<string, unknown>) => Promise<BrowserCapability>;
+  discoverExecutable?: (
+    selection: BrowserDiscoveryOptions,
+  ) => Promise<BrowserCapability | null>;
   discoverBrowserOptions?: () => BrowserOption[];
   getBrowserSettings?: () => BrowserSettings;
-  createRuntime?: (input: Record<string, unknown>) => BrowserRuntime;
-  recoverRuntime?: (input: Record<string, unknown>) => Promise<unknown>;
+  createRuntime?: (input: RuntimeOptions) => BrowserRuntime;
+  recoverRuntime?: (input: RuntimeOptions) => Promise<unknown>;
   isEnabled?: () => boolean;
-  readProcessIdentity?: (pid: number) => Promise<BrowserProcessIdentity | null>;
+  readProcessIdentity?: (
+    pid: number,
+  ) => ServerProcessIdentity | null | Promise<ServerProcessIdentity | null>;
   killProcessGroup?: (processGroupId: number, signal: NodeJS.Signals) => void;
   wait?: (durationMs: number) => Promise<void>;
   scheduleTimeout?: typeof setTimeout;
@@ -374,13 +358,17 @@ class BrowserResourceManager extends EventEmitter {
   readonly configDir: string;
   readonly store: BrowserResourceStoreLike;
   readonly chromiumInstaller: ChromiumInstaller;
-  readonly discoverExecutable: (selection: Record<string, unknown>) => Promise<BrowserCapability>;
+  readonly discoverExecutable: (
+    selection: BrowserDiscoveryOptions,
+  ) => Promise<BrowserCapability | null>;
   readonly discoverBrowserOptions: () => BrowserOption[];
   readonly getBrowserSettings: () => BrowserSettings;
-  readonly createRuntime: (input: Record<string, unknown>) => BrowserRuntime;
-  readonly recoverRuntime: (input: Record<string, unknown>) => Promise<unknown>;
+  readonly createRuntime: (input: RuntimeOptions) => BrowserRuntime;
+  readonly recoverRuntime: (input: RuntimeOptions) => Promise<unknown>;
   readonly isEnabled: () => boolean;
-  readonly readProcessIdentity: (pid: number) => Promise<BrowserProcessIdentity | null>;
+  readonly readProcessIdentity: (
+    pid: number,
+  ) => ServerProcessIdentity | null | Promise<ServerProcessIdentity | null>;
   readonly killProcessGroup: (processGroupId: number, signal: NodeJS.Signals) => void;
   readonly wait: (durationMs: number) => Promise<void>;
   readonly scheduleTimeout: typeof setTimeout;
@@ -404,7 +392,6 @@ class BrowserResourceManager extends EventEmitter {
     this.discoverExecutable = options.discoverExecutable || (selection => discoverBrowserRuntime({
       ...options,
       ...selection,
-      configDir: this.configDir,
       managedBrowserPath: this.chromiumInstaller.browserOption()?.path || '',
     }));
     this.discoverBrowserOptions = options.discoverBrowserOptions
@@ -466,7 +453,6 @@ class BrowserResourceManager extends EventEmitter {
           await this.recoverRuntime({
             id: resource.sessionId || resource.id,
             generation: resource.sessionGeneration || resource.generation,
-            browserKind: resource.browserKind,
             processIdentity: resource.processIdentity,
             configDir: this.configDir,
             profileDir: storageLayout.browserProfileDir(
@@ -585,7 +571,7 @@ class BrowserResourceManager extends EventEmitter {
 
   async probeCapability(selection: BrowserSelection = this.browserSelection()): Promise<{
     browserOptions: BrowserOption[];
-    runtimeCapability: BrowserCapability;
+    runtimeCapability: BrowserCapability | null;
   }> {
     const browserOptions = this.discoverBrowserOptions();
     const selectedOption = browserOptions.find(option => option.path === selection.executablePath);
@@ -598,7 +584,9 @@ class BrowserResourceManager extends EventEmitter {
     return { browserOptions, runtimeCapability };
   }
 
-  async refreshCapability(selection: BrowserSelection = this.browserSelection()): Promise<BrowserCapability> {
+  async refreshCapability(
+    selection: BrowserSelection = this.browserSelection(),
+  ): Promise<BrowserCapability | null> {
     const probe = await this.probeCapability(selection);
     this.browserOptions = probe.browserOptions;
     this.runtimeCapability = probe.runtimeCapability;
@@ -707,7 +695,7 @@ class BrowserResourceManager extends EventEmitter {
         );
       }
       const executable = await this.refreshCapability();
-      if (!executable || executable.error) {
+      if (!executable || executable.error || !executable.agentBrowserPath) {
         const failed = this.store.update(id, {
           status: 'failed',
           error: executable?.error
@@ -1684,7 +1672,7 @@ class BrowserResourceManager extends EventEmitter {
   }
 }
 
-module.exports = {
+export {
   BrowserResourceManager,
   browserError,
   externalBrowserFailure,

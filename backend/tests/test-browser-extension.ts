@@ -353,7 +353,11 @@ async function testBrowserResourceManager() {
   const manager = new BrowserResourceManager({
     configDir,
     isEnabled: () => enabled,
-    discoverExecutable: () => ({ kind: 'chrome', path: '/fake/chrome' }),
+    discoverExecutable: () => ({
+      kind: 'chrome',
+      path: '/fake/chrome',
+      agentBrowserPath: '/fake/agent-browser',
+    }),
     createRuntime: options => {
       const runtime = new FakeBrowserRuntime(options);
       runtimes.push(runtime);
@@ -725,7 +729,11 @@ async function testBrowserResourceManager() {
     const killedGroups = [];
     const restartedManager = new BrowserResourceManager({
       configDir,
-      discoverExecutable: () => ({ kind: 'chrome', path: '/fake/chrome' }),
+      discoverExecutable: () => ({
+        kind: 'chrome',
+        path: '/fake/chrome',
+        agentBrowserPath: '/fake/agent-browser',
+      }),
       createRuntime: options => new FakeBrowserRuntime(options),
       readProcessIdentity: async pid => (
         orphanedAlive && pid === orphanedIdentity.pid ? orphanedIdentity : null
@@ -761,7 +769,11 @@ async function testBrowserResourceManager() {
     manager.store.update(blocked.id, { status: 'running', processIdentity: blockedIdentity });
     const permissionManager = new BrowserResourceManager({
       configDir,
-      discoverExecutable: () => ({ kind: 'chrome', path: '/fake/chrome' }),
+      discoverExecutable: () => ({
+        kind: 'chrome',
+        path: '/fake/chrome',
+        agentBrowserPath: '/fake/agent-browser',
+      }),
       createRuntime: options => new FakeBrowserRuntime(options),
       readProcessIdentity: async pid => (pid === blockedIdentity.pid ? blockedIdentity : null),
       killProcessGroup: () => {
@@ -799,6 +811,7 @@ async function testExternalBrowserErrorRedaction() {
       kind: 'external-cdp',
       path: '',
       cdpUrl: 'http://127.0.0.1:9222/',
+      agentBrowserPath: '/fake/agent-browser',
     }),
     createRuntime: options => {
       const runtime = new EventEmitter();
@@ -858,7 +871,11 @@ async function testAgentOwnedBrowserIsolationAndLifecycle() {
   const runtimes = [];
   const manager = new BrowserResourceManager({
     configDir,
-    discoverExecutable: () => ({ kind: 'chrome', path: '/fake/chrome' }),
+    discoverExecutable: () => ({
+      kind: 'chrome',
+      path: '/fake/chrome',
+      agentBrowserPath: '/fake/agent-browser',
+    }),
     createRuntime: options => {
       const runtime = new FakeBrowserRuntime(options);
       runtimes.push(runtime);

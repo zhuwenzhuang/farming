@@ -1,13 +1,7 @@
 const crypto = require('crypto') as typeof import('crypto');
 const fs = require('fs') as typeof import('fs');
 const path = require('path') as typeof import('path');
-const { resolveWorkspacePath } = require('./client-services.cjs') as {
-  resolveWorkspacePath(
-    binding: { cwd: string },
-    requestedPath: unknown,
-    options?: { allowMissing?: boolean },
-  ): Promise<string>;
-};
+import { resolveWorkspacePath } from './client-services.cjs';
 
 const fsp = fs.promises;
 

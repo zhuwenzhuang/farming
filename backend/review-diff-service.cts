@@ -170,10 +170,7 @@ interface ComparisonBranch {
   name: string;
 }
 
-const { WorkspaceFileError, parseUnifiedDiffRows } = require('./workspace-file-service.cjs') as {
-  WorkspaceFileError: new (message: string, statusCode: number) => WorkspaceFileErrorInstance;
-  parseUnifiedDiffRows(patch: unknown): DiffHunk[];
-};
+import { WorkspaceFileError, parseUnifiedDiffRows } from './workspace-file-service.cjs';
 
 const MAX_REVIEW_FILES = 200;
 const MAX_WORKING_COPY_SCAN_FILES = 2000;

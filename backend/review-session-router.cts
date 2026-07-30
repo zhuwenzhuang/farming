@@ -4,9 +4,7 @@ interface ReviewSessionApiError extends Error {
   statusCode: number;
 }
 
-const { ReviewSessionError } = require('./review-session-service.cjs') as {
-  ReviewSessionError: new (...args: unknown[]) => ReviewSessionApiError;
-};
+import { ReviewSessionError } from './review-session-service.cjs';
 
 interface ExpressRequest {
   body?: Record<string, unknown>;

@@ -4,7 +4,7 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 
-const storageLayout = require('./storage-layout.cjs');
+import * as storageLayout from './storage-layout.cjs';
 
 const LOCK_RETRY_MS = 10;
 const LOCK_TIMEOUT_MS = 5000;

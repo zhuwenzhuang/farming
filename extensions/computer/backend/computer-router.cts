@@ -1,30 +1,7 @@
 const express = require('express');
 const http = require('http');
 
-interface ComputerResourceManager {
-  capability(refresh?: boolean): Promise<unknown>;
-  prepare(): Promise<unknown>;
-  requireEnabled(): void;
-  snapshot(): { collectionRevision: number; resources: unknown[] };
-  get(id: string): Record<string, unknown>;
-  create(input: Record<string, unknown>): unknown;
-  rename(id: string, name: unknown): unknown;
-  start(id: string): Promise<unknown>;
-  stop(id: string): Promise<unknown>;
-  delete(id: string): Promise<unknown>;
-  takeControl(id: string, owner: 'agent' | 'human'): unknown;
-  callTool(id: string, tool: string, input: Record<string, unknown>, caller?: 'agent' | 'human'): Promise<unknown>;
-  viewerConfig(id: string): {
-    host: string;
-    port: number;
-    password: string;
-    viewOnly: boolean;
-    generation: number;
-    controlEpoch: number;
-  };
-  on(event: string, listener: (value: unknown) => void): void;
-  off(event: string, listener: (value: unknown) => void): void;
-}
+import type { ComputerResourceManager } from './computer-resource-manager.cjs';
 
 interface WorkspaceRootRegistry {
   resolve(rootId: string): {
@@ -186,7 +163,7 @@ function createComputerRouter(
         ownerAgentId: agentId,
         projectRootId: root.rootId,
         workspace: root.canonicalPath,
-        name: body.name,
+        ...(typeof body.name === 'string' ? { name: body.name } : {}),
       }));
     } catch (caught) {
       sendError(res, caught);

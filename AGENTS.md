@@ -234,7 +234,7 @@ Farming stores runtime settings under `~/.farming/settings.json` by default. Bac
 - `projectWorkspaces` (the persisted Projects membership; Agent, file, restored Project session, and Git-worktree entry points all add the same workspace identity, while only Remove Project deletes it)
 - `pinnedProjectWorkspaces` (the ordered pinned-Project queue; pinned Projects render before ordinary Projects, a newly pinned Project appends after existing pins, and unpinning restores the ordinary Project order)
 - `dangerouslySkipAgentPermissionsByDefault` (launch supported coding agents such as Codex, Claude, OpenCode, Qoder, Qwen, Aider, GitHub Copilot CLI, and Amazon Q with their provider-specific dangerous permission-skip flags by default)
-- `browserExtensionEnabled` (disabled by default; controls Browser Resource integration and does not imply automatic Agent MCP attachment)
+- `browserExtensionEnabled` (disabled by default; when enabled, projects the Browser MCP catalog into newly created ACP Sessions, while Terminal access remains on demand through the CLI)
 - `browserSource`, `browserExecutablePath`, and `browserExternalCdpUrl` (the Plugins-selected Browser source; external endpoints must stay on loopback)
 - `crtSkinEffectsEnabled` (controls only the CRT skin's scanlines, mask, vignette, and infrequent scan beam; Farming Code must not read or apply it)
 - `crtDynamicHeatEnabled` (disabled by default; lets the CRT skin apply activity-level classes for dynamic Agent colors and sizing)

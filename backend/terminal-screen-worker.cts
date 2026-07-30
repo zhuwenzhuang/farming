@@ -10,10 +10,25 @@ const DEFAULT_STATE_REQUEST_HARD_TIMEOUT_MS = 5000;
 const PACKAGED_WORKER_FILE = 'terminal-screen-worker-thread.pkg.js';
 const SOURCE_WORKER_FILE = 'terminal-screen-worker-thread.cjs';
 
-interface TerminalScreenWorkerOptions extends Record<string, unknown> {
+export interface TerminalScreenWorkerOptions extends Record<string, unknown> {
   requestTimeoutMs?: number;
   stateRequestHardTimeoutMs?: number;
   WorkerClass?: TerminalWorkerConstructor;
+}
+
+export interface TerminalScreenWorkerPreview {
+  cols: number;
+  previewSnapshot: unknown;
+  previewText: string;
+  rows: number;
+  title: string;
+}
+
+export interface TerminalScreenWorkerState extends TerminalScreenWorkerPreview {
+  outputSeq: number;
+  renderOutput: string;
+  runtimeEpoch: string;
+  stateRevision: number;
 }
 
 interface TerminalWorkerLike {
@@ -320,19 +335,29 @@ class TerminalScreenWorker extends EventEmitter {
     });
   }
 
-  resize(cols: number, rows: number, stateRevision: number): Promise<unknown> {
-    return this.request('resize', { cols, rows, stateRevision });
+  resize(
+    cols: number,
+    rows: number,
+    stateRevision: number,
+  ): Promise<TerminalScreenWorkerState> {
+    return this.request(
+      'resize',
+      { cols, rows, stateRevision },
+    ) as Promise<TerminalScreenWorkerState>;
   }
 
   setRuntimeEpoch(runtimeEpoch: string, cols: number, rows: number): Promise<unknown> {
     return this.request('set-runtime-epoch', { runtimeEpoch, cols, rows });
   }
 
-  clear(stateRevision: number, outputSeq: number | null = null): Promise<unknown> {
-    return this.request('clear', { stateRevision, outputSeq });
+  clear(
+    stateRevision: number,
+    outputSeq: number | null = null,
+  ): Promise<TerminalScreenWorkerState> {
+    return this.request('clear', { stateRevision, outputSeq }) as Promise<TerminalScreenWorkerState>;
   }
 
-  getState(options: TerminalScreenStateOptions = {}): Promise<unknown> {
+  getState(options: TerminalScreenStateOptions = {}): Promise<TerminalScreenWorkerState> {
     if (!this.stateRequestInFlight) {
       const request = this.request('get-state', {
         // A full checkpoint can satisfy callers that only need metadata too,
@@ -363,9 +388,9 @@ class TerminalScreenWorker extends EventEmitter {
     const timeoutMs = typeof options.timeoutMs === 'number' && Number.isFinite(options.timeoutMs)
       ? Math.max(1, Math.floor(options.timeoutMs))
       : null;
-    if (timeoutMs === null) return sharedRequest;
+    if (timeoutMs === null) return sharedRequest as Promise<TerminalScreenWorkerState>;
 
-    return new Promise<unknown>((resolve, reject) => {
+    return new Promise<TerminalScreenWorkerState>((resolve, reject) => {
       const timer = setTimeout(() => {
         const error = Object.assign(
           new Error('Terminal screen worker request timed out: get-state'),
@@ -377,7 +402,7 @@ class TerminalScreenWorker extends EventEmitter {
       sharedRequest.then(
         (state) => {
           clearTimeout(timer);
-          resolve(state);
+          resolve(state as TerminalScreenWorkerState);
         },
         (error) => {
           clearTimeout(timer);

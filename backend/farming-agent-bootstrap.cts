@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const storageLayout = require('./storage-layout.cjs');
+import * as storageLayout from './storage-layout.cjs';
 
 const sourceFile = path.join(__dirname, 'farming-agent-bootstrap.zh_cn.md');
 

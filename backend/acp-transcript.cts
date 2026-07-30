@@ -6,11 +6,7 @@ const { createTwoFilesPatch, diffLines } = require('diff') as {
   ): string;
   diffLines(oldText: string, newText: string): Array<{ count?: number; added?: boolean; removed?: boolean }>;
 };
-const {
-  isCodexContextCompactionMessage,
-} = require('./codex-transcript-sanitizer.cjs') as {
-  isCodexContextCompactionMessage(value: unknown): boolean;
-};
+import { isCodexContextCompactionMessage } from './codex-transcript-sanitizer.cjs';
 
 type DataRecord = Record<string, unknown>;
 
@@ -597,12 +593,17 @@ function acpTranscriptEntries(entries: unknown, options: TranscriptOptions = {})
   return projected;
 }
 
-module.exports = {
+const acpToolChanges = (entry: unknown): unknown =>
+  patchChanges(dataRecord(entry).content, { includeDiff: true });
+const acpToolReviewChanges = (entry: unknown): unknown =>
+  patchReviewChanges(dataRecord(entry).content);
+
+export {
   acpTranscriptEntries,
   acpTranscriptMedia,
-  acpToolChanges: (entry: unknown) => patchChanges(dataRecord(entry).content, { includeDiff: true }),
-  acpToolDetail: detailForTool,
-  acpToolReviewChanges: (entry: unknown) => patchReviewChanges(dataRecord(entry).content),
+  acpToolChanges,
+  detailForTool as acpToolDetail,
+  acpToolReviewChanges,
   acpTranscriptToolEntry,
   decodeAcpTranscriptMedia,
 };

@@ -3665,7 +3665,7 @@ class WorkspaceFileService {
   }
 }
 
-module.exports = {
+export {
   WorkspaceFileService,
   WorkspaceFileError,
   DEFAULT_MAX_FILE_SIZE,

@@ -1,5 +1,5 @@
-const { ComputerResourceManager } = require('./computer-resource-manager.cjs');
-const { createComputerRouter } = require('./computer-router.cjs');
+import { ComputerResourceManager } from './computer-resource-manager.cjs';
+import { createComputerRouter } from './computer-router.cjs';
 
 export {
   ComputerResourceManager,
