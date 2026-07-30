@@ -10,7 +10,7 @@
 }
 
 .code-agent-row:has(.code-agent-resource-action-slot:not(:empty)) .code-agent-row-actions {
-  right: 31px;
+  width: 93px;
 }
 
 .code-agent-resource-slot:empty {
@@ -19,15 +19,7 @@
 
 .code-agent-resource-slot .farming-browser-section {
   margin-top: 0;
-  margin-left: 28px;
-}
-
-.farming-agent-resources-toggle.active {
-  color: #30372f;
-}
-
-.farming-agent-resources-toggle svg {
-  fill: currentColor;
+  margin-left: 14px;
 }
 
 .code-settings-browser-row .code-settings-row-copy small {
@@ -585,10 +577,6 @@
 body.code-mode[data-appearance='dark'] .farming-browser-section,
 body.code-mode[data-appearance='dark'] .farming-browser-row {
   color: #c9d1d9;
-}
-
-body.code-mode[data-appearance='dark'] .farming-agent-resources-toggle.active {
-  color: #f0f6fc;
 }
 
 body.code-mode[data-appearance='dark'] .farming-browser-section > header {

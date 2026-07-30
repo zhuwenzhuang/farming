@@ -8,6 +8,8 @@ import {
   PencilGlyph,
   PlusGlyph,
   SquareGlyph,
+  VisibilityGlyph,
+  VisibilityOffGlyph,
 } from '@/components/IconGlyphs'
 import type { ProjectGroup } from '@/components/code/types'
 import type { UiPreferences } from '@/lib/ui-preferences'
@@ -288,14 +290,6 @@ function BrowserSection({
   )
 }
 
-function AgentResourcesGlyph() {
-  return (
-    <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-      <path d="M2.5 2.5h4v4h-4v-4Zm7 0h4v4h-4v-4Zm-7 7h4v4h-4v-4Zm7 0h4v4h-4v-4Z" />
-    </svg>
-  )
-}
-
 function AgentResourceToggle({
   expanded,
   copy,
@@ -308,7 +302,7 @@ function AgentResourceToggle({
   return (
     <button
       type="button"
-      className={`code-agent-row-action farming-agent-resources-toggle ${expanded ? 'active' : ''}`}
+      className="code-agent-row-action farming-agent-resources-toggle"
       data-testid="code-agent-resources-toggle"
       aria-expanded={expanded}
       aria-label={expanded ? copy.hideResources : copy.showResources}
@@ -319,7 +313,7 @@ function AgentResourceToggle({
         onToggle()
       }}
     >
-      <AgentResourcesGlyph />
+      {expanded ? <VisibilityOffGlyph /> : <VisibilityGlyph />}
     </button>
   )
 }

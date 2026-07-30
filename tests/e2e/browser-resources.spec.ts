@@ -226,8 +226,15 @@ test('mounts Agent-owned Browsers behind nested resource controls without layout
   const createdBrowser = await createResponse.json() as { id: string }
 
   const resourcesToggle = agentRow.getByTestId('code-agent-resources-toggle')
-  await expect(resourcesToggle).toBeVisible()
+  const rowActions = agentRow.locator('.code-agent-row-actions')
+  await expect(rowActions).toHaveCSS('opacity', '0')
   await expect(resourcesToggle).toHaveAttribute('aria-expanded', 'false')
+  await agentRow.hover()
+  await expect(rowActions).toHaveCSS('opacity', '1')
+  const resourcesToggleBox = await resourcesToggle.boundingBox()
+  const pinBox = await agentRow.getByTestId('code-agent-row-pin').boundingBox()
+  if (!resourcesToggleBox || !pinBox) throw new Error('Agent row actions must have measurable bounds')
+  expect(resourcesToggleBox.x).toBeLessThan(pinBox.x)
   const resourceSlot = page.locator(
     `[data-testid="code-agent-resource-slot"][data-agent-id="${agentId}"]`,
   )
@@ -237,6 +244,10 @@ test('mounts Agent-owned Browsers behind nested resource controls without layout
   await expect(resourcesToggle).toHaveAttribute('aria-expanded', 'true')
   const browserSection = resourceSlot.getByTestId('farming-browser-section')
   await expect(browserSection).toBeVisible()
+  const agentRowBox = await agentRow.boundingBox()
+  const browserSectionBox = await browserSection.boundingBox()
+  if (!agentRowBox || !browserSectionBox) throw new Error('Agent Browser hierarchy must have measurable bounds')
+  expect(Math.round(browserSectionBox.x - agentRowBox.x)).toBe(14)
   const browserRow = browserSection.getByTestId('farming-browser-row')
   await expect(browserRow).toBeVisible()
   expect(await browserRow.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
@@ -253,6 +264,7 @@ test('mounts Agent-owned Browsers behind nested resource controls without layout
   await browserSection.locator('.farming-browser-section-toggle').click()
   await browserSection.getByTestId('farming-browser-row').click()
   await expect(page.getByTestId('farming-browser-viewer')).toBeVisible()
+  await agentRow.hover()
   await resourcesToggle.click()
   await expect(resourceSlot.getByTestId('farming-browser-section')).toHaveCount(0)
   await expect(page.getByTestId('farming-browser-viewer')).toBeVisible()
