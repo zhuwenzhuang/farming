@@ -1,0 +1,89 @@
+import { useEffect, useState } from 'react'
+import { appPath } from '@/lib/base-path'
+import type { UiPreferences } from '@/lib/ui-preferences'
+import type { BrowserResource } from './types'
+
+function viewerWebSocketUrl(resource: BrowserResource) {
+  const url = new URL(appPath(`/api/browsers/${encodeURIComponent(resource.id)}/viewer`), window.location.href)
+  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
+  return url.href
+}
+
+function previewCopy(language: UiPreferences['language']) {
+  const zh = language === 'zh'
+  return {
+    close: zh ? '隐藏浏览器预览' : 'Hide browser preview',
+    open: zh ? '打开完整浏览器' : 'Open full browser',
+    waiting: zh ? '正在连接浏览器画面…' : 'Connecting to browser…',
+  }
+}
+
+export function BrowserActivityPreview({
+  resource,
+  language,
+  onOpen,
+  onDismiss,
+}: {
+  resource: BrowserResource
+  language: UiPreferences['language']
+  onOpen: () => void
+  onDismiss: () => void
+}) {
+  const copy = previewCopy(language)
+  const [frame, setFrame] = useState('')
+
+  useEffect(() => {
+    if (resource.status !== 'running') {
+      setFrame('')
+      return undefined
+    }
+    let cancelled = false
+    let reconnectTimer = 0
+    let socket: WebSocket | null = null
+    const connect = () => {
+      if (cancelled) return
+      socket = new WebSocket(viewerWebSocketUrl(resource))
+      socket.onmessage = event => {
+        const message = JSON.parse(String(event.data)) as {
+          type?: string
+          data?: string
+          format?: 'jpeg' | 'png'
+        }
+        if (message.type !== 'browser-frame' || !message.data) return
+        setFrame(`data:image/${message.format === 'png' ? 'png' : 'jpeg'};base64,${message.data}`)
+      }
+      socket.onclose = () => {
+        if (!cancelled) reconnectTimer = window.setTimeout(connect, 1_000)
+      }
+    }
+    connect()
+    return () => {
+      cancelled = true
+      window.clearTimeout(reconnectTimer)
+      socket?.close()
+    }
+  }, [resource.generation, resource.id, resource.status])
+
+  return (
+    <aside
+      className="farming-browser-activity-preview"
+      data-testid="farming-browser-activity-preview"
+      aria-label={copy.open}
+    >
+      <header>
+        <span className="farming-browser-activity-dot" aria-hidden="true" />
+        <strong title={resource.title || resource.name}>{resource.title || resource.name}</strong>
+        <button type="button" aria-label={copy.close} title={copy.close} onClick={onDismiss}>×</button>
+      </header>
+      <button
+        type="button"
+        className="farming-browser-activity-frame"
+        aria-label={copy.open}
+        title={copy.open}
+        onClick={onOpen}
+      >
+        {frame ? <img src={frame} alt="" draggable={false} /> : <span>{copy.waiting}</span>}
+      </button>
+    </aside>
+  )
+}

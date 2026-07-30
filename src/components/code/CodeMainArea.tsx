@@ -11,6 +11,7 @@ import type { WorkspaceNavigationFileInput } from '@/lib/workspace-navigation-hi
 import { isCompactViewport, isTouchInputViewport } from '@/lib/responsive-mode'
 import type { UiPreferences } from '@/lib/ui-preferences'
 import { isWorkspaceHtmlFile, isWorkspaceMarkdownFile, isWorkspaceSvgFile } from '@/lib/workspace-editor-model'
+import { BrowserActivityPreview } from '../../../extensions/browser/frontend/BrowserActivityPreview'
 import { BrowserViewer } from '../../../extensions/browser/frontend/BrowserViewer'
 import type { BrowserResource } from '../../../extensions/browser/frontend/types'
 import type { BrowserResourcesController } from '../../../extensions/browser/frontend/useBrowserResources'
@@ -558,6 +559,7 @@ export function CodeMainArea({
   const [terminalComposerCollapsed, setTerminalComposerCollapsed] = useState(readTerminalComposerCollapsed)
   const [chatComposerCollapseRequested, setChatComposerCollapseRequested] = useState(false)
   const [runtimeSwitchExpandedAgentId, setRuntimeSwitchExpandedAgentId] = useState<string | null>(null)
+  const [dismissedBrowserPreviewKey, setDismissedBrowserPreviewKey] = useState('')
   const previousActiveRuntimeRef = useRef<{ agentId: string | null; kind: 'acp' | 'terminal' | null }>({
     agentId: null,
     kind: null,
@@ -601,6 +603,14 @@ export function CodeMainArea({
     && !computerWorkspaceVisible
     && !(showFileEditor && openWorkspaceFile)
   const acpComposerActive = isAcpRuntime(activeAgent)
+  const activeBrowserPreview = activeAgent
+    ? (browserController.byAgentId.get(activeAgent.id) ?? [])
+      .filter(resource => resource.status === 'running')
+      .sort((left, right) => right.updatedAt - left.updatedAt)[0] ?? null
+    : null
+  const activeBrowserPreviewKey = activeBrowserPreview
+    ? `${activeBrowserPreview.id}:${activeBrowserPreview.generation}`
+    : ''
   const terminalComposerActive = activeAgent?.runtimeBinding.kind === 'terminal'
   const composerCollapseRequested = terminalComposerActive
     ? (runtimeSwitchExpandedAgentId === activeAgent?.id ? false : terminalComposerCollapsed)
@@ -867,6 +877,17 @@ export function CodeMainArea({
           ))
         )}
       </div>
+
+      {agentWorkspaceVisible
+        && activeBrowserPreview
+        && activeBrowserPreviewKey !== dismissedBrowserPreviewKey ? (
+          <BrowserActivityPreview
+            resource={activeBrowserPreview}
+            language={language}
+            onOpen={() => onOpenBrowserResource(activeBrowserPreview)}
+            onDismiss={() => setDismissedBrowserPreviewKey(activeBrowserPreviewKey)}
+          />
+        ) : null}
 
       {agentWorkspaceVisible ? (
         composerCollapsed ? (

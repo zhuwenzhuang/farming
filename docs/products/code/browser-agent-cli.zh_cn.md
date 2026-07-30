@@ -18,6 +18,13 @@ Farming Browser 让 Agent 操作自己拥有的 Browser，同时用户可以在 
 内置 Chromium，并且它只保存在 Farming 的数据目录中。Farming 会根据当前网络探测
 受支持的下载源；一个源失败后会继续尝试其他源。
 
+Browser Tool 直接使用 Coding Agent Provider 的 Session 权限模式，Browser 插件不再
+提供第二套权限策略。当 Provider 发起询问且用户为当前 Session 允许 Browser 请求后，
+Farming 会复用该授权，避免同一 Origin 上的后续 Browser Tool 重复询问；新 Origin
+仍会再次询问。Provider 的 Full access / skip-permissions 模式可以不询问而执行普通
+Browser Tool。外部个人浏览器挂载，以及操作系统的摄像头、麦克风和认证权限，仍然是
+彼此独立的边界。
+
 ## Agent 工作流
 
 Browser 在 ACP Session 创建时已经启用的情况下，Agent 会获得细粒度的 `browser_*`
@@ -66,6 +73,10 @@ list → 复用或创建 → start → navigate → snapshot
 也不会关闭已经打开的 Viewer。同一 Agent、同一浏览器来源下的 Resource 共享浏览器
 登录状态；即使处于同一个 Project，不同 Agent 也不会共享 Session、Profile、Cookie
 或 Storage。用户可以随时打开 Viewer，在同一个页面上查看、点击、滚动或输入。
+
+当前 Agent 使用 Browser 时，Farming 会在 Chat 右上角叠放一个轻量只读预览。它只
+订阅现有 Viewer 画面，不会调整页面尺寸或争夺控制权；点击可进入完整 Viewer，关闭
+预览也不会停止 Browser。
 
 Agent 在 Chat/Terminal 间切换时保留 Browser Ownership。停止或归档 Agent 会停止其
 Browser Runtime，但保留 Row 与 Profile；恢复 Agent 后按需启动。删除 Agent 会删除

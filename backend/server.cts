@@ -283,12 +283,23 @@ function resolveCliBinDir() {
   return path.join(__dirname, '..', 'bin');
 }
 
+const browserResourceManager = new BrowserResourceManager({
+  configDir: configManager.farmingDir,
+  isEnabled: () => configManager.getSettings().browserExtensionEnabled === true,
+  getBrowserSettings: () => configManager.getSettings(),
+});
+
 const agentManager = new AgentManager(configManager, {
   controlUrl: `http://127.0.0.1:${PORT}${BASE_PATH}`,
   tokenFile: tokenAuth.getTokenFile(),
   authDisabled: !authEnabled,
   cliBinDir: resolveCliBinDir(),
   browserMcpEnabled: () => configManager.getSettings().browserExtensionEnabled === true,
+  browserPermissionDecision: (
+    agentId: string,
+    tool: string,
+    input: Record<string, unknown>,
+  ) => browserResourceManager.permissionDecision(agentId, tool, input),
   computerMcpEnabled: () => configManager.getSettings().computerExtensionEnabled === true,
 });
 
@@ -309,11 +320,6 @@ async function requireAgentRecoveryForHttp(res: HttpResponse) {
 const themeManager = new ThemeManager({ configDir: configManager.farmingDir });
 const workspaceFileService = new WorkspaceFileService();
 const workspaceRootRegistry = new WorkspaceRootRegistry(agentManager);
-const browserResourceManager = new BrowserResourceManager({
-  configDir: configManager.farmingDir,
-  isEnabled: () => configManager.getSettings().browserExtensionEnabled === true,
-  getBrowserSettings: () => configManager.getSettings(),
-});
 const computerResourceManager = new ComputerResourceManager({
   configDir: configManager.farmingDir,
   isEnabled: () => configManager.getSettings().computerExtensionEnabled === true,

@@ -140,6 +140,8 @@ interface AcpBinding {
   agentId: string; provider: string; providerHomeId: string; cwd: string;
   sessionRequestOptions: AcpSessionRequestOptions; env: NodeJS.ProcessEnv; launch: AcpLaunch;
   restartOptions: PrepareAgentOptions; approvalMode: string; ownsProcessGroup: boolean;
+  farmingBrowserApprovedSites: Set<string>;
+  farmingBrowserApprovalScopes: Map<string, string>;
   child: import('child_process').ChildProcessWithoutNullStreams | null;
   connection: AcpConnection; initializeResponse: InitializeResponse;
   sessionId: string; untrustedSessionId: string; state: string; error: string; stopReason: string;
@@ -167,6 +169,11 @@ interface AcpRuntimeOptions extends PrepareAgentOptions {
   deleteProviderSessionIdentity?: typeof deleteProviderSessionIdentity; describeAcpProcessGroup?: typeof describeAcpProcessGroup;
   checkpointStore?: UnknownRecord; configDir?: string; checkpointOptions?: UnknownRecord;
   clientFileSystem?: UnknownRecord; clientTerminals?: UnknownRecord; terminalSpawn?: typeof spawn;
+  browserPermissionDecision?: (
+    agentId: string,
+    tool: string,
+    input: UnknownRecord,
+  ) => { requiresApproval?: boolean; scopeKey?: string; site?: string } | null;
 }
 interface PrepareAgentOptions extends UnknownRecord {
   agentId?: string; provider?: string; providerHomeId?: string; cwd?: string; sessionId?: string;
@@ -380,6 +387,116 @@ function autoPermissionResponse(request: UnknownRecord, approvalMode: string) {
     return option ? selectedPermission(option) : { outcome: { outcome: 'cancelled' } };
   }
   return null;
+}
+
+const FARMING_BROWSER_SERVER_NAME = 'farming-browser';
+const FARMING_BROWSER_RESOURCE_TOOLS = new Set([
+  'browser_list',
+  'browser_stop',
+]);
+
+function recordValue(value: unknown): UnknownRecord {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as UnknownRecord
+    : {};
+}
+
+function browserApprovalSessionState(
+  binding: AcpBinding,
+  request: UnknownRecord,
+): AcpSessionStateLike | null {
+  const requestSessionId = String(request.sessionId || '');
+  if (!requestSessionId || requestSessionId === binding.sessionId) return binding.sessionState || null;
+  return binding.subagentStates.get(requestSessionId) || null;
+}
+
+function farmingBrowserApprovalTarget(
+  binding: AcpBinding,
+  request: UnknownRecord,
+): { arguments: UnknownRecord; tool: string } | null {
+  const toolCall = recordValue(request.toolCall);
+  const toolCallId = String(request.toolCallId || toolCall.toolCallId || '');
+  const sessionState = browserApprovalSessionState(binding, request);
+  const entry = toolCallId
+    ? sessionState?.toolEntries?.get(toolCallId)
+      || sessionState?.entries?.find(candidate => candidate.id === toolCallId)
+    : null;
+  const rawInput = recordValue(entry?.rawInput || toolCall.rawInput);
+  if (rawInput.server !== FARMING_BROWSER_SERVER_NAME) return null;
+  const tool = String(rawInput.tool || '');
+  if (!tool.startsWith('browser_')) return null;
+  return {
+    tool,
+    arguments: recordValue(rawInput.arguments),
+  };
+}
+
+function browserSiteScope(value: unknown): { requiresApproval: boolean; scopeKey: string; site: string } {
+  const text = String(value || '').trim();
+  if (!text || text === 'about:blank') {
+    return { requiresApproval: false, scopeKey: '', site: '' };
+  }
+  try {
+    const url = new URL(/^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(text) ? text : `https://${text}`);
+    if (!['http:', 'https:'].includes(url.protocol) || !url.host) {
+      return { requiresApproval: true, scopeKey: '', site: '' };
+    }
+    return {
+      requiresApproval: true,
+      scopeKey: `site:${url.origin.toLowerCase()}`,
+      site: url.host.toLowerCase(),
+    };
+  } catch {
+    return { requiresApproval: true, scopeKey: '', site: '' };
+  }
+}
+
+function defaultBrowserPermissionDecision(
+  target: { arguments: UnknownRecord; tool: string },
+): { requiresApproval: boolean; scopeKey: string; site: string } {
+  if (FARMING_BROWSER_RESOURCE_TOOLS.has(target.tool)) {
+    return { requiresApproval: false, scopeKey: '', site: '' };
+  }
+  if (target.tool === 'browser_open' || target.tool === 'browser_navigate') {
+    return browserSiteScope(target.arguments.url);
+  }
+  const browserId = String(target.arguments.browserId || '');
+  return {
+    requiresApproval: true,
+    scopeKey: browserId ? `browser:${browserId}` : '',
+    site: '',
+  };
+}
+
+function shouldAutoApproveFarmingBrowser(
+  binding: AcpBinding,
+  decision: { requiresApproval?: boolean; scopeKey?: string },
+): { approve: boolean; scopeKey: string } {
+  const scopeKey = String(decision.scopeKey || '');
+  if (decision.requiresApproval !== true) {
+    return { approve: true, scopeKey };
+  }
+  return {
+    approve: Boolean(scopeKey && binding.farmingBrowserApprovedSites.has(scopeKey)),
+    scopeKey,
+  };
+}
+
+function automaticBrowserPermissionResponse(request: UnknownRecord) {
+  const options = Array.isArray(request.options) ? request.options : [];
+  const option = options.find(item => item.kind === 'allow_once')
+    || options.find(item => item.kind === 'allow_always');
+  return option ? selectedPermission(option) : { outcome: { outcome: 'cancelled' } };
+}
+
+function automaticBrowserElicitationResponse(request: UnknownRecord) {
+  const properties = recordValue(recordValue(request.requestedSchema).properties);
+  return {
+    action: 'accept',
+    content: Object.prototype.hasOwnProperty.call(properties, 'persist')
+      ? { persist: 'once' }
+      : {},
+  };
 }
 
 function validateElicitationContent(request: UnknownRecord, content: unknown) {
@@ -721,6 +838,11 @@ class AcpRuntime extends EventEmitter {
     this.disposed = false;
     this.clientFileSystem = options.clientFileSystem || new AcpClientFileSystem();
     this.clientTerminals = options.clientTerminals || new AcpClientTerminalManager({ spawn: options.terminalSpawn });
+    this.browserPermissionDecision = typeof options.browserPermissionDecision === 'function'
+      ? options.browserPermissionDecision
+      : (_agentId: string, tool: string, input: UnknownRecord) => (
+          defaultBrowserPermissionDecision({ tool, arguments: input })
+        );
   }
 
   /**
@@ -793,6 +915,8 @@ class AcpRuntime extends EventEmitter {
       launch,
       restartOptions: { ...options, agentId, provider },
       approvalMode: options.approvalMode || 'approve',
+      farmingBrowserApprovedSites: new Set(),
+      farmingBrowserApprovalScopes: new Map(),
       ownsProcessGroup: process.platform !== 'win32',
       child: null,
       connection: null as unknown as AcpConnection,
@@ -1730,6 +1854,16 @@ class AcpRuntime extends EventEmitter {
     ) {
       return { outcome: { outcome: 'cancelled' } };
     }
+    const browserTarget = farmingBrowserApprovalTarget(binding, request);
+    const browserDecision = browserTarget
+      ? this.browserPermissionDecisionFor(binding, browserTarget)
+      : null;
+    const browserAutomatic = browserDecision
+      ? shouldAutoApproveFarmingBrowser(binding, browserDecision)
+      : null;
+    if (browserAutomatic?.approve) {
+      return automaticBrowserPermissionResponse(request);
+    }
     const automatic = autoPermissionResponse(request, binding.approvalMode);
     if (automatic) return automatic;
     const requestId = `acp-permission-${crypto.randomUUID()}`;
@@ -1741,6 +1875,9 @@ class AcpRuntime extends EventEmitter {
       : 'agent';
     pending.securityWarnings = permissionSecurityWarnings(pending);
     binding.pendingPermissions.set(requestId, pending);
+    if (browserAutomatic?.scopeKey) {
+      binding.farmingBrowserApprovalScopes.set(requestId, browserAutomatic.scopeKey);
+    }
     this.emitRuntime(binding);
     return new Promise(resolve => binding.permissionResolvers.set(requestId, resolve));
   }
@@ -1755,7 +1892,12 @@ class AcpRuntime extends EventEmitter {
       const option = pending.options.find((item: PermissionOption) => item.optionId === optionId);
       if (!option) throw new Error('Unknown ACP permission option');
       response = selectedPermission(option);
+      const scopeKey = binding.farmingBrowserApprovalScopes.get(requestId);
+      if (option.kind === 'allow_always' && scopeKey) {
+        binding.farmingBrowserApprovedSites.add(scopeKey);
+      }
     }
+    binding.farmingBrowserApprovalScopes.delete(requestId);
     binding.permissionResolvers.delete(requestId);
     binding.pendingPermissions.delete(requestId);
     const origin = binding.interactionOrigins.get(requestId);
@@ -1778,6 +1920,17 @@ class AcpRuntime extends EventEmitter {
     if (!['form', 'url'].includes(String(request?.mode || ''))) {
       return { action: 'cancel' };
     }
+    const browserTarget = farmingBrowserApprovalTarget(binding, request);
+    const browserDecision = browserTarget
+      ? this.browserPermissionDecisionFor(binding, browserTarget)
+      : null;
+    const browserAutomatic = browserDecision
+      ? shouldAutoApproveFarmingBrowser(binding, browserDecision)
+      : null;
+    if (browserAutomatic?.approve || (browserTarget && binding.approvalMode === 'full')) {
+      return automaticBrowserElicitationResponse(request);
+    }
+    if (browserTarget && binding.approvalMode === 'ask') return { action: 'cancel' };
     const requestId = `acp-elicitation-${crypto.randomUUID()}`;
     const cloned = JSON.parse(JSON.stringify(request));
     const protocolRequestId = Object.prototype.hasOwnProperty.call(cloned, 'requestId')
@@ -1792,6 +1945,9 @@ class AcpRuntime extends EventEmitter {
     };
     binding.interactionOrigins.set(requestId, binding.state);
     binding.pendingElicitations.set(requestId, pending);
+    if (browserAutomatic?.scopeKey) {
+      binding.farmingBrowserApprovalScopes.set(requestId, browserAutomatic.scopeKey);
+    }
     binding.state = 'waiting-for-input';
     this.emitRuntime(binding);
     return new Promise(resolve => binding.elicitationResolvers.set(requestId, resolve));
@@ -1808,6 +1964,12 @@ class AcpRuntime extends EventEmitter {
     const response = normalizedAction === 'accept'
       ? { action: 'accept', ...(pending.mode === 'form' ? { content: validateElicitationContent(pending, content) } : {}) }
       : { action: normalizedAction };
+    const scopeKey = binding.farmingBrowserApprovalScopes.get(id);
+    const persist = String(recordValue(response.content).persist || '');
+    if (normalizedAction === 'accept' && scopeKey && ['session', 'always'].includes(persist)) {
+      binding.farmingBrowserApprovedSites.add(scopeKey);
+    }
+    binding.farmingBrowserApprovalScopes.delete(id);
     binding.elicitationResolvers.delete(id);
     binding.pendingElicitations.delete(id);
     if (pending.mode === 'url' && normalizedAction === 'accept') {
@@ -1819,6 +1981,18 @@ class AcpRuntime extends EventEmitter {
     resolve(response);
     this.emitRuntime(binding);
     return response;
+  }
+
+  browserPermissionDecisionFor(
+    binding: AcpBinding,
+    target: { arguments: UnknownRecord; tool: string },
+  ) {
+    try {
+      return this.browserPermissionDecision(binding.agentId, target.tool, target.arguments)
+        || defaultBrowserPermissionDecision(target);
+    } catch {
+      return { requiresApproval: true, scopeKey: '', site: '' };
+    }
   }
 
   completeElicitation(binding: AcpBinding, notification: UnknownRecord) {
@@ -2064,6 +2238,7 @@ class AcpRuntime extends EventEmitter {
       binding.pendingPermissions.clear();
       binding.elicitationResolvers.clear();
       binding.pendingElicitations.clear();
+      binding.farmingBrowserApprovalScopes.clear();
       binding.activeElicitations.clear();
       binding.interactionOrigins.clear();
       this.emitRuntime(binding);
@@ -2134,6 +2309,7 @@ class AcpRuntime extends EventEmitter {
       binding.permissionResolvers.get(requestId)?.({ outcome: { outcome: 'cancelled' } });
       binding.permissionResolvers.delete(requestId);
       binding.pendingPermissions.delete(requestId);
+      binding.farmingBrowserApprovalScopes.delete(requestId);
       binding.interactionOrigins.delete(requestId);
     }
     for (const [requestId, pending] of binding.pendingElicitations.entries()) {
@@ -2141,6 +2317,7 @@ class AcpRuntime extends EventEmitter {
       binding.elicitationResolvers.get(requestId)?.({ action: 'cancel' });
       binding.elicitationResolvers.delete(requestId);
       binding.pendingElicitations.delete(requestId);
+      binding.farmingBrowserApprovalScopes.delete(requestId);
       binding.interactionOrigins.delete(requestId);
     }
     for (const [elicitationId, active] of binding.activeElicitations.entries()) {
@@ -3021,6 +3198,7 @@ class AcpRuntime extends EventEmitter {
     binding.pendingPermissions.clear();
     binding.elicitationResolvers.clear();
     binding.pendingElicitations.clear();
+    binding.farmingBrowserApprovalScopes.clear();
     binding.activeElicitations.clear();
     binding.interactionOrigins.clear();
     binding.subagentStates.clear();
@@ -3047,6 +3225,7 @@ class AcpRuntime extends EventEmitter {
     binding.pendingPermissions.clear();
     binding.elicitationResolvers.clear();
     binding.pendingElicitations.clear();
+    binding.farmingBrowserApprovalScopes.clear();
     binding.activeElicitations.clear();
     binding.interactionOrigins.clear();
     binding.subagentStates.clear();

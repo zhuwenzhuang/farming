@@ -19,6 +19,14 @@ is not required. Managed Chromium is downloaded only after you click Install
 and stays inside Farming's data directory. Farming checks its supported download
 sources for the current network and tries another source if one fails.
 
+Browser tools use the coding Agent Provider's Session permission mode; the
+Browser plugin adds no second permission policy. When the Provider asks and the
+user grants a Browser request for the Session, Farming reuses that grant for
+later Browser tools on the same origin. A new origin asks again. Provider Full
+access / skip-permissions mode may run ordinary Browser tools without asking.
+External personal-browser attachment and operating-system camera, microphone,
+or authentication permissions remain separate boundaries.
+
 ## Agent Workflow
 
 ACP Agents receive the granular `browser_*` tool catalog when Browser is enabled
@@ -69,6 +77,11 @@ same Agent and using the same Browser source share browser sign-in state.
 Different Agents do not share Sessions, profiles, cookies, or storage even when
 they use the same Project. A person can open the Viewer at any time to see,
 click, scroll, or type on the same page.
+
+While the active Agent is using a Browser, Farming shows a small passive preview
+over the upper-right corner of its Chat. The preview only observes the existing
+Viewer stream: it does not resize the page or take control. Click it to open the
+full Viewer, or dismiss it without stopping the Browser.
 
 Chat/Terminal switches retain Browser ownership. Stopping or archiving the Agent
 stops its Browser runtime but retains the row and profile; resuming starts it on

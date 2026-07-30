@@ -265,6 +265,70 @@ test('mounts Agent-owned Browsers behind nested resource controls without layout
     .toBe('stopped')
 })
 
+test('shows a passive active-Agent Browser preview and opens the full Viewer on demand', async ({
+  page,
+  workspaceRoot,
+}, testInfo) => {
+  const workspace = path.join(workspaceRoot, 'agent-browser-activity-preview')
+  fs.mkdirSync(workspace, { recursive: true })
+  const enableResponse = await page.request.post('/farming/api/settings', {
+    data: { browserExtensionEnabled: true },
+  })
+  expect(enableResponse.ok()).toBeTruthy()
+  await openFarming(page)
+  const agentResponse = await page.request.post('/farming/api/control/agents', {
+    data: { command: 'codex', workspace },
+  })
+  const agent = await agentResponse.json() as { agentId?: string, error?: string }
+  expect(agentResponse.ok(), agent.error || 'Failed to create preview Agent').toBeTruthy()
+  const agentId = agent.agentId as string
+  const agentRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
+  await expect(agentRow).toBeVisible({ timeout: 30_000 })
+  await agentRow.click()
+
+  const createResponse = await page.request.post('/farming/api/browsers', {
+    data: {
+      rootId: projectFilesWorkspaceId(workspace),
+      agentId,
+      name: 'Live Browser work',
+      url: targetUrl,
+    },
+  })
+  expect(createResponse.ok()).toBeTruthy()
+  const createdBrowser = await createResponse.json() as { id: string }
+  const startResponse = await page.request.post(`/farming/api/browsers/${createdBrowser.id}/start`)
+  expect(startResponse.ok()).toBeTruthy()
+
+  const preview = page.getByTestId('farming-browser-activity-preview')
+  await expect(preview).toBeVisible({ timeout: 30_000 })
+  await expect(preview.locator('img')).toBeVisible({ timeout: 30_000 })
+  const previewBox = await preview.boundingBox()
+  expect(previewBox?.width).toBeGreaterThanOrEqual(230)
+  expect(previewBox?.width).toBeLessThanOrEqual(250)
+  expect(previewBox?.height).toBeLessThan(190)
+  const previewScreenshot = testInfo.outputPath('agent-browser-activity-preview.png')
+  await page.getByTestId('code-main').screenshot({ path: previewScreenshot })
+  await testInfo.attach('agent-browser-activity-preview', {
+    path: previewScreenshot,
+    contentType: 'image/png',
+  })
+
+  await preview.locator('.farming-browser-activity-frame').click()
+  const viewer = page.getByTestId('farming-browser-viewer')
+  await expect(viewer).toBeVisible()
+  await viewer.getByRole('button', { name: 'Back to Agent' }).click()
+  await expect(preview).toBeVisible()
+  await preview.getByRole('button', { name: 'Hide browser preview' }).click()
+  await expect(preview).toHaveCount(0)
+
+  const resourcesResponse = await page.request.get('/farming/api/browsers')
+  const resourcesSnapshot = await resourcesResponse.json() as {
+    resources: Array<{ id: string, status: string }>
+  }
+  expect(resourcesSnapshot.resources.find(resource => resource.id === createdBrowser.id)?.status)
+    .toBe('running')
+})
+
 test('deletes a Browser directly without a confirmation dialog', async ({
   page,
   workspaceRoot,
@@ -333,11 +397,12 @@ test('offers an explicit managed Chromium install when no browser is available',
     hasText: 'Install Farming-managed Chromium, choose a system browser, or use an external CDP endpoint on loopback.',
   })).toBeVisible()
   await expect(pluginsPanel.getByText('Not ready', { exact: true })).toBeVisible()
-  await expect(pluginsPanel.getByRole('button', { name: 'Enable' })).toBeDisabled()
+  const browserPlugin = pluginsPanel.getByTestId('code-plugin-browser')
+  await expect(browserPlugin.getByRole('button', { name: 'Enable' })).toBeDisabled()
   await pluginsPanel.getByRole('button', { name: 'Install managed Chromium' }).click()
   await expect(pluginsPanel.getByRole('option', { name: 'Farming-managed Chromium' })).toBeEnabled()
   await expect(pluginsPanel.getByRole('button', { name: 'Install managed Chromium' })).toHaveCount(0)
-  await expect(pluginsPanel.getByRole('button', { name: 'Enable' })).toBeEnabled()
+  await expect(browserPlugin.getByRole('button', { name: 'Enable' })).toBeEnabled()
   const screenshot = testInfo.outputPath('browser-plugin-install-required.png')
   await pluginsPanel.screenshot({ path: screenshot })
   await testInfo.attach('browser-plugin-install-required', {
@@ -681,6 +746,7 @@ test('selects the Browser source in Plugins without restarting Farming', async (
   const browserSource = pluginsPanel.getByRole('combobox', { name: 'Browser source' })
   const apply = pluginsPanel.getByRole('button', { name: 'Apply' })
 
+  await expect(pluginsPanel.getByRole('combobox', { name: 'Browser permissions' })).toHaveCount(0)
   await expect(browserSource.locator('option')).toContainText([
     'Choose an available Chromium automatically',
     'Google Chrome',
@@ -728,7 +794,8 @@ test('matches the focused Viewer viewport and restores the previous Viewer on cl
   await expect(pluginsPanel.getByTestId('code-plugin-section-farming')).toBeVisible()
   await expect(pluginsPanel.getByTestId('code-plugin-section-agent-codex')).toBeVisible()
   await expect(pluginsPanel.getByTestId('code-plugin-section-agent-claude')).toBeVisible()
-  const browserToggle = pluginsPanel.getByRole('button', { name: 'Disable' })
+  const browserPlugin = pluginsPanel.getByTestId('code-plugin-browser')
+  const browserToggle = browserPlugin.getByRole('button', { name: 'Disable' })
   const browserHint = pluginsPanel.getByText(
     'Let Agents operate webpages and view the same browser in Farming.',
     { exact: true },
@@ -755,10 +822,10 @@ test('matches the focused Viewer viewport and restores the previous Viewer on cl
     contentType: 'image/png',
   })
   await browserToggle.click()
-  await expect(pluginsPanel.getByRole('button', { name: 'Enable' })).toHaveAttribute('aria-pressed', 'false')
+  await expect(browserPlugin.getByRole('button', { name: 'Enable' })).toHaveAttribute('aria-pressed', 'false')
   await expect(browserSection).toHaveCount(0)
-  await pluginsPanel.getByRole('button', { name: 'Enable' }).click()
-  await expect(pluginsPanel.getByRole('button', { name: 'Disable' })).toHaveAttribute('aria-pressed', 'true')
+  await browserPlugin.getByRole('button', { name: 'Enable' }).click()
+  await expect(browserPlugin.getByRole('button', { name: 'Disable' })).toHaveAttribute('aria-pressed', 'true')
   await expect(browserSection).toHaveCount(0)
   await pluginsPanel.getByRole('button', { name: 'Back to workspace' }).click()
   const createResponse = await page.request.post('/farming/api/browsers', {

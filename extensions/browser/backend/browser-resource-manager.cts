@@ -300,6 +300,21 @@ function normalizeUrl(value: unknown): string {
   }
 }
 
+function browserSiteScope(value: unknown): { scopeKey: string; site: string } | null {
+  const input = String(value || '').trim();
+  if (!input || input === 'about:blank') return null;
+  try {
+    const parsed = new URL(normalizeUrl(input));
+    if (!['http:', 'https:'].includes(parsed.protocol) || !parsed.host) return null;
+    return {
+      scopeKey: `site:${parsed.origin.toLowerCase()}`,
+      site: parsed.host.toLowerCase(),
+    };
+  } catch {
+    return null;
+  }
+}
+
 function tabResourceName(tab: BrowserTab): string {
   const title = String(tab?.title || '').trim();
   if (title) return title.slice(0, 120);
@@ -614,6 +629,27 @@ class BrowserResourceManager extends EventEmitter {
   get(id: string) {
     this.requireEnabled();
     return publicResource(this.requireStored(id), this.store.revision);
+  }
+
+  permissionDecision(agentId: string, tool: string, input: Record<string, unknown> = {}) {
+    if (['browser_list', 'browser_stop'].includes(tool)) {
+      return { requiresApproval: false, scopeKey: '', site: '' };
+    }
+    if (tool === 'browser_open' || tool === 'browser_navigate') {
+      const site = browserSiteScope(input.url);
+      return site
+        ? { requiresApproval: true, ...site }
+        : { requiresApproval: false, scopeKey: '', site: '' };
+    }
+    const browserId = String(input.browserId || '');
+    const resource = browserId ? this.store.get(browserId) : null;
+    if (!resource || resource.ownerType !== 'agent' || resource.ownerAgentId !== agentId) {
+      return { requiresApproval: true, scopeKey: '', site: '' };
+    }
+    const site = browserSiteScope(resource.url);
+    return site
+      ? { requiresApproval: true, ...site }
+      : { requiresApproval: false, scopeKey: '', site: '' };
   }
 
   create(input: Record<string, unknown>) {

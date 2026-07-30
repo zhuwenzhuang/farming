@@ -493,6 +493,95 @@
   line-height: 16px;
 }
 
+.farming-browser-activity-preview {
+  position: absolute;
+  top: 54px;
+  right: 22px;
+  z-index: 18;
+  width: 240px;
+  overflow: hidden;
+  border: 1px solid #d8dcd4;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 6px 20px rgba(31, 35, 30, 0.14);
+  backdrop-filter: blur(8px);
+}
+
+.farming-browser-activity-preview > header {
+  height: 30px;
+  padding: 0 7px 0 9px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #424941;
+}
+
+.farming-browser-activity-preview > header strong {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.farming-browser-activity-preview > header button {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #737a72;
+  font: 400 18px/20px system-ui, sans-serif;
+  cursor: pointer;
+}
+
+.farming-browser-activity-preview > header button:hover,
+.farming-browser-activity-preview > header button:focus-visible {
+  background: #eef0eb;
+  color: #252a25;
+  outline: none;
+}
+
+.farming-browser-activity-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: #2da44e;
+  box-shadow: 0 0 0 2px rgba(45, 164, 78, 0.12);
+}
+
+.farming-browser-activity-frame {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border: 0;
+  border-top: 1px solid #e2e5df;
+  background: #f1f3ef;
+  color: #737a72;
+  cursor: pointer;
+}
+
+.farming-browser-activity-frame img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
+  background: #ffffff;
+}
+
+.farming-browser-activity-frame span {
+  padding: 12px;
+  font-size: 11px;
+}
+
 body.code-mode[data-appearance='dark'] .farming-browser-section,
 body.code-mode[data-appearance='dark'] .farming-browser-row {
   color: #c9d1d9;
@@ -584,7 +673,37 @@ body.code-mode[data-appearance='dark'] .farming-browser-placeholder button {
   background: #161b22;
 }
 
+.code-mode[data-appearance='dark'] .farming-browser-activity-preview {
+  border-color: #3a3f3a;
+  background: rgba(31, 33, 31, 0.96);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.code-mode[data-appearance='dark'] .farming-browser-activity-preview > header {
+  color: #d7dcd5;
+}
+
+.code-mode[data-appearance='dark'] .farming-browser-activity-preview > header button {
+  color: #9da59c;
+}
+
+.code-mode[data-appearance='dark'] .farming-browser-activity-preview > header button:hover,
+.code-mode[data-appearance='dark'] .farming-browser-activity-preview > header button:focus-visible {
+  background: #343834;
+  color: #f0f2ef;
+}
+
+.code-mode[data-appearance='dark'] .farming-browser-activity-frame {
+  border-top-color: #3a3f3a;
+  background: #242724;
+  color: #9da59c;
+}
+
 @media (max-width: 700px) {
+  .farming-browser-activity-preview {
+    display: none;
+  }
+
   .farming-browser-toolbar {
     padding-inline: 5px;
   }

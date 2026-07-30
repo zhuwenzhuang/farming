@@ -426,6 +426,11 @@ interface AgentManagerOptions extends UnknownRecord {
   archiveCodexSession?: ArchiveCodexSessionContract;
   authDisabled?: boolean;
   browserMcpEnabled?: boolean | (() => boolean);
+  browserPermissionDecision?: (
+    agentId: string,
+    tool: string,
+    input: UnknownRecord,
+  ) => { requiresApproval?: boolean; scopeKey?: string; site?: string } | null;
   computerMcpEnabled?: boolean | (() => boolean);
   cliBinDir?: string;
   controlUrl?: string;
@@ -1282,6 +1287,7 @@ class AgentManager extends EventEmitter {
   declare tokenFile: string;
   declare authDisabled: boolean;
   declare browserMcpEnabled: () => boolean;
+  declare browserPermissionDecision: NonNullable<AgentManagerOptions['browserPermissionDecision']>;
   declare computerMcpEnabled: () => boolean;
   declare skipExecutablePreflight: boolean;
   declare cliBinDir: string;
@@ -1347,6 +1353,9 @@ class AgentManager extends EventEmitter {
     this.browserMcpEnabled = typeof options.browserMcpEnabled === 'function'
       ? options.browserMcpEnabled
       : () => options.browserMcpEnabled === true;
+    this.browserPermissionDecision = typeof options.browserPermissionDecision === 'function'
+      ? options.browserPermissionDecision
+      : () => null;
     this.computerMcpEnabled = typeof options.computerMcpEnabled === 'function'
       ? options.computerMcpEnabled
       : () => options.computerMcpEnabled === true;
@@ -1394,6 +1403,7 @@ class AgentManager extends EventEmitter {
     this.jsonCliRuntime = options.jsonCliRuntime || new JsonCliRuntime();
     this.acpRuntime = options.acpRuntime || new AcpRuntime({
       ...(this.configManager?.farmingDir ? { configDir: this.configManager.farmingDir } : {}),
+      browserPermissionDecision: this.browserPermissionDecision,
       ...(process.env.FARMING_E2E_FAKE_ACP_AGENT === '1'
         ? {
             resolveLaunch: () => ({

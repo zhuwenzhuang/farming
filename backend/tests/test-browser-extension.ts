@@ -893,6 +893,64 @@ async function testAgentOwnedBrowserIsolationAndLifecycle() {
     });
     assert.strictEqual(first.ownerType, 'agent');
     assert.strictEqual(first.ownerAgentId, 'agent_a');
+    assert.deepStrictEqual(manager.permissionDecision('agent_a', 'browser_list', {}), {
+      requiresApproval: false,
+      scopeKey: '',
+      site: '',
+    });
+    assert.deepStrictEqual(manager.permissionDecision('agent_a', 'browser_snapshot', {
+      browserId: first.id,
+    }), {
+      requiresApproval: false,
+      scopeKey: '',
+      site: '',
+    });
+    manager.store.update(first.id, { url: 'https://example.com/account' });
+    assert.deepStrictEqual(manager.permissionDecision('agent_a', 'browser_get', {
+      browserId: first.id,
+    }), {
+      requiresApproval: true,
+      scopeKey: 'site:https://example.com',
+      site: 'example.com',
+    });
+    assert.deepStrictEqual(manager.permissionDecision('agent_a', 'browser_start', {
+      browserId: first.id,
+    }), {
+      requiresApproval: true,
+      scopeKey: 'site:https://example.com',
+      site: 'example.com',
+    });
+    assert.deepStrictEqual(manager.permissionDecision('agent_a', 'browser_snapshot', {
+      browserId: first.id,
+    }), {
+      requiresApproval: true,
+      scopeKey: 'site:https://example.com',
+      site: 'example.com',
+    });
+    assert.deepStrictEqual(manager.permissionDecision('agent_a', 'browser_navigate', {
+      browserId: first.id,
+      url: 'https://other.example/path',
+    }), {
+      requiresApproval: true,
+      scopeKey: 'site:https://other.example',
+      site: 'other.example',
+    });
+    assert.deepStrictEqual(manager.permissionDecision('agent_a', 'browser_navigate', {
+      browserId: first.id,
+      url: 'example.com/path',
+    }), {
+      requiresApproval: true,
+      scopeKey: 'site:https://example.com',
+      site: 'example.com',
+    });
+    assert.deepStrictEqual(manager.permissionDecision('agent_b', 'browser_snapshot', {
+      browserId: first.id,
+    }), {
+      requiresApproval: true,
+      scopeKey: '',
+      site: '',
+    });
+    manager.store.update(first.id, { url: 'about:blank' });
     await manager.start(first.id);
     await manager.start(second.id);
     assert.strictEqual(runtimes.length, 1, 'Browsers owned by one Agent may share one Session');
@@ -1208,6 +1266,10 @@ function testBrowserUiAndPackagingWiring() {
   const projectRoot = path.join(__dirname, '..', '..');
   const workspaceSource = fs.readFileSync(path.join(projectRoot, 'src', 'components', 'CodeWorkspace.tsx'), 'utf8');
   const mainAreaSource = fs.readFileSync(path.join(projectRoot, 'src', 'components', 'code', 'CodeMainArea.tsx'), 'utf8');
+  const activityPreviewSource = fs.readFileSync(
+    path.join(projectRoot, 'extensions', 'browser', 'frontend', 'BrowserActivityPreview.tsx'),
+    'utf8',
+  );
   const sidebarSource = fs.readFileSync(path.join(projectRoot, 'extensions', 'browser', 'frontend', 'BrowserSidebarPortals.tsx'), 'utf8');
   const serverSource = fs.readFileSync(path.join(projectRoot, 'backend', 'server.cts'), 'utf8');
   const routerSource = fs.readFileSync(
@@ -1218,6 +1280,12 @@ function testBrowserUiAndPackagingWiring() {
   assert(workspaceSource.includes('<BrowserSidebarPortals'));
   assert(workspaceSource.includes("setMainPaneMode('browser')"));
   assert(mainAreaSource.includes('<BrowserViewer'));
+  assert(mainAreaSource.includes('<BrowserActivityPreview'));
+  assert(activityPreviewSource.includes('new WebSocket('));
+  assert(
+    !activityPreviewSource.includes('.send('),
+    'the passive Agent Browser preview must never claim or resize the interactive Viewer viewport',
+  );
   assert(!sidebarSource.includes('window.confirm'), 'Browser row close must remove directly without a redundant confirmation');
   assert(serverSource.includes("createBrowserRouter("));
   assert(serverSource.includes("browserResourceManager,"));

@@ -1777,6 +1777,211 @@ async function run() {
     runtime.respondPermission('agent-acp-permission', pending[1].requestId, 'allow');
     assert.strictEqual(runtime.getSession('agent-acp-permission').state, 'idle');
 
+    const browserApprovalRequest = (toolCallId, tool, args = {}) => {
+      permissionBinding.sessionState.apply({
+        sessionId: permissionBinding.sessionId,
+        update: {
+          sessionUpdate: 'tool_call',
+          toolCallId,
+          title: tool,
+          status: 'pending',
+          rawInput: {
+            server: 'farming-browser',
+            tool,
+            arguments: args,
+          },
+        },
+      });
+      return {
+        sessionId: permissionBinding.sessionId,
+        mode: 'form',
+        toolCallId,
+        message: `Allow ${tool}?`,
+        requestedSchema: {
+          type: 'object',
+          required: ['persist'],
+          properties: {
+            persist: { type: 'string', enum: ['once', 'session', 'always'] },
+          },
+        },
+        _meta: { codex_approval_kind: 'mcp_tool_call' },
+      };
+    };
+    permissionBinding.sessionState.apply({
+      sessionId: permissionBinding.sessionId,
+      update: {
+        sessionUpdate: 'tool_call',
+        toolCallId: 'browser-standard-open',
+        title: 'browser_open',
+        status: 'pending',
+        rawInput: {
+          server: 'farming-browser',
+          tool: 'browser_open',
+          arguments: { url: 'https://standard.example/' },
+        },
+      },
+    });
+    const standardBrowserApproval = runtime.requestPermission(permissionBinding, {
+      sessionId: permissionBinding.sessionId,
+      toolCall: { toolCallId: 'browser-standard-open', title: 'Open Browser' },
+      options: [
+        { optionId: 'allow-standard-once', name: 'Allow once', kind: 'allow_once' },
+        { optionId: 'allow-standard-session', name: 'Allow this Session', kind: 'allow_always' },
+      ],
+    });
+    const pendingStandardBrowserApproval = runtime.getSession('agent-acp-permission').pendingPermissions[0];
+    runtime.respondPermission(
+      'agent-acp-permission',
+      pendingStandardBrowserApproval.requestId,
+      'allow-standard-session',
+    );
+    assert.deepStrictEqual(await standardBrowserApproval, {
+      outcome: {
+        outcome: 'selected',
+        optionId: 'allow-standard-session',
+      },
+    });
+    permissionBinding.sessionState.apply({
+      sessionId: permissionBinding.sessionId,
+      update: {
+        sessionUpdate: 'tool_call',
+        toolCallId: 'browser-standard-navigate',
+        title: 'browser_navigate',
+        status: 'pending',
+        rawInput: {
+          server: 'farming-browser',
+          tool: 'browser_navigate',
+          arguments: { url: 'https://standard.example/docs' },
+        },
+      },
+    });
+    assert.deepStrictEqual(runtime.requestPermission(permissionBinding, {
+      sessionId: permissionBinding.sessionId,
+      toolCall: { toolCallId: 'browser-standard-navigate', title: 'Navigate Browser' },
+      options: [{ optionId: 'allow-standard-next', name: 'Allow once', kind: 'allow_once' }],
+    }), {
+      outcome: {
+        outcome: 'selected',
+        optionId: 'allow-standard-next',
+      },
+    });
+
+    const externalBrowserApproval = runtime.requestElicitation(
+      permissionBinding,
+      browserApprovalRequest('browser-open-external', 'browser_open', {
+        url: 'https://example.com/',
+      }),
+    );
+    const pendingBrowserApproval = runtime.getSession('agent-acp-permission').pendingElicitations[0];
+    assert.strictEqual(pendingBrowserApproval.toolCallId, 'browser-open-external');
+    runtime.respondElicitation(
+      'agent-acp-permission',
+      pendingBrowserApproval.requestId,
+      'accept',
+      { persist: 'session' },
+    );
+    assert.deepStrictEqual(await externalBrowserApproval, {
+      action: 'accept',
+      content: { persist: 'session' },
+    });
+    assert.deepStrictEqual(
+      runtime.requestElicitation(
+        permissionBinding,
+        browserApprovalRequest('browser-navigate-after-session', 'browser_navigate', {
+          url: 'https://example.com/docs',
+        }),
+      ),
+      { action: 'accept', content: { persist: 'once' } },
+      'a Browser session grant must cover later Farming Browser tools, not only the approved MCP tool name',
+    );
+
+    const differentSiteApproval = runtime.requestElicitation(
+      permissionBinding,
+      browserApprovalRequest('browser-navigate-different-site', 'browser_navigate', {
+        url: 'https://other.example/',
+      }),
+    );
+    const pendingDifferentSite = runtime.getSession('agent-acp-permission').pendingElicitations[0];
+    assert.strictEqual(pendingDifferentSite.toolCallId, 'browser-navigate-different-site');
+    runtime.respondElicitation(
+      'agent-acp-permission',
+      pendingDifferentSite.requestId,
+      'cancel',
+    );
+    assert.deepStrictEqual(await differentSiteApproval, { action: 'cancel' });
+
+    const savedApprovalMode = permissionBinding.approvalMode;
+    permissionBinding.approvalMode = 'full';
+    assert.deepStrictEqual(
+      runtime.requestElicitation(
+        permissionBinding,
+        browserApprovalRequest('browser-open-agent-full', 'browser_open', {
+          url: 'https://agent-full.example/',
+        }),
+      ),
+      { action: 'accept', content: { persist: 'once' } },
+      'Provider Full access should bypass ordinary Farming Browser approval',
+    );
+    permissionBinding.sessionState.apply({
+      sessionId: permissionBinding.sessionId,
+      update: {
+        sessionUpdate: 'tool_call',
+        toolCallId: 'browser-standard-agent-full',
+        title: 'browser_open',
+        status: 'pending',
+        rawInput: {
+          server: 'farming-browser',
+          tool: 'browser_open',
+          arguments: { url: 'https://standard-agent-full.example/' },
+        },
+      },
+    });
+    assert.deepStrictEqual(runtime.requestPermission(permissionBinding, {
+      sessionId: permissionBinding.sessionId,
+      toolCall: { toolCallId: 'browser-standard-agent-full', title: 'Open Browser' },
+      options: [
+        { optionId: 'allow-agent-full-once', name: 'Allow once', kind: 'allow_once' },
+        { optionId: 'reject-agent-full', name: 'Reject', kind: 'reject_once' },
+      ],
+    }), {
+      outcome: {
+        outcome: 'selected',
+        optionId: 'allow-agent-full-once',
+      },
+    });
+    assert.strictEqual(runtime.getSession('agent-acp-permission').pendingPermissions.length, 0);
+    assert.strictEqual(runtime.getSession('agent-acp-permission').pendingElicitations.length, 0);
+    permissionBinding.approvalMode = savedApprovalMode;
+
+    permissionBinding.sessionState.apply({
+      sessionId: permissionBinding.sessionId,
+      update: {
+        sessionUpdate: 'tool_call',
+        toolCallId: 'unrelated-mcp-tool',
+        title: 'Unrelated MCP tool',
+        status: 'pending',
+        rawInput: {
+          server: 'third-party-server',
+          tool: 'browser_open',
+          arguments: { url: 'https://example.com/' },
+        },
+      },
+    });
+    const unrelatedMcpApproval = runtime.requestElicitation(permissionBinding, {
+      ...browserApprovalRequest('unused-browser-entry', 'browser_open', {
+        url: 'https://example.com/',
+      }),
+      toolCallId: 'unrelated-mcp-tool',
+    });
+    const pendingUnrelatedApproval = runtime.getSession('agent-acp-permission').pendingElicitations[0];
+    assert.strictEqual(pendingUnrelatedApproval.toolCallId, 'unrelated-mcp-tool');
+    runtime.respondElicitation(
+      'agent-acp-permission',
+      pendingUnrelatedApproval.requestId,
+      'cancel',
+    );
+    assert.deepStrictEqual(await unrelatedMcpApproval, { action: 'cancel' });
+
     const constrainedElicitation = runtime.requestElicitation(permissionBinding, {
       sessionId: permissionBinding.sessionId,
       mode: 'form',
