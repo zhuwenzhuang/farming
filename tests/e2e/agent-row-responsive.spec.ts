@@ -78,13 +78,85 @@ test('reveals more Agent row information as the sidebar widens', async ({ page, 
   const projectGroup = page.getByTestId('code-project-group').filter({ has: row })
   const projectRow = projectGroup.locator('.code-project-row')
   await projectRow.hover()
+  await projectGroup.getByTestId('code-project-actions').click()
+  const projectMenu = page.getByTestId('code-project-context-menu')
+  await expect(projectMenu).toBeVisible()
+  const pinProject = projectMenu.getByRole('menuitem', { name: 'Pin project' })
+  await expect(pinProject.locator('svg[data-icon-kind="pin"]')).toHaveCount(1)
+  await page.waitForTimeout(1700)
+  await expect(page.getByTestId('code-project-hover-preview')).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  const mountResponse = await page.request.post('/farming/api/projects/mount', {
+    data: { workspace: projectDir },
+  })
+  expect(mountResponse.ok()).toBeTruthy()
+  const pinResponse = await page.request.post('/farming/api/projects/pin', {
+    data: { workspace: projectDir, pinned: true },
+  })
+  expect(pinResponse.ok()).toBeTruthy()
+  await expect.poll(async () => {
+    const response = await page.request.get('/farming/api/settings')
+    const data = await response.json()
+    return data.settings?.pinnedProjectWorkspaces?.includes(projectDir) === true
+  }).toBe(true)
+  await projectGroup.getByTestId('code-project-actions').click()
+  const unpinProject = page.getByTestId('code-project-context-menu').getByRole('menuitem', { name: 'Unpin project' })
+  await expect(unpinProject).toBeVisible()
+  await expect(unpinProject.locator('svg[data-icon-kind="unpin"]')).toHaveCount(1)
+  await page.keyboard.press('Escape')
+  const unpinResponse = await page.request.post('/farming/api/projects/pin', {
+    data: { workspace: projectDir, pinned: false },
+  })
+  expect(unpinResponse.ok()).toBeTruthy()
+  await expect.poll(async () => {
+    const response = await page.request.get('/farming/api/settings')
+    const data = await response.json()
+    return data.settings?.pinnedProjectWorkspaces?.includes(projectDir) === true
+  }).toBe(false)
+  await page.evaluate(id => {
+    const testWindow = window as typeof window & {
+      __farmingAgentActivityTest?: { update: (agentId: string, patch: unknown) => void }
+    }
+    testWindow.__farmingAgentActivityTest?.update(id, {
+      unread: true,
+      runtimeObservation: {
+        kind: 'shell',
+        phase: 'working',
+        confidence: 'authoritative',
+        source: 'structured-runtime',
+        observerVersion: 'project-hover-test',
+        observedAt: Date.now(),
+      },
+    })
+  }, agentId)
+  await expect(row).toHaveClass(/unread/)
+  await page.mouse.move(1000, 100)
+  await projectRow.hover()
   const projectPreview = page.getByTestId('code-project-hover-preview')
   await expect(projectPreview).toBeVisible()
   await expect(projectPreview).toContainText(path.basename(projectDir))
-  await expect(projectPreview).toContainText('1 Agent · 1 active')
+  await expect(projectPreview).toContainText('1 Agent · 1 unread · 1 running')
   await expect(projectPreview).toContainText(projectDir)
   await page.mouse.move(1000, 100)
   await expect(projectPreview).toHaveCount(0)
+  await page.evaluate(id => {
+    const testWindow = window as typeof window & {
+      __farmingAgentActivityTest?: { update: (agentId: string, patch: unknown) => void }
+    }
+    testWindow.__farmingAgentActivityTest?.update(id, {
+      unread: false,
+      runtimeObservation: {
+        kind: 'shell',
+        phase: 'idle',
+        confidence: 'authoritative',
+        source: 'structured-runtime',
+        observerVersion: 'project-hover-test',
+        observedAt: Date.now(),
+      },
+    })
+  }, agentId)
+  await expect(row).not.toHaveClass(/unread/)
+  await expect(row.getByTestId('code-agent-row-age')).toHaveCount(1)
 
   await resizeSidebar(page, 480)
   const roomy = await rowProjection(row)

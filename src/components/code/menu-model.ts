@@ -1,4 +1,4 @@
-export type ContextMenuIconKind = 'pin' | 'folder' | 'worktree' | 'rename' | 'check' | 'archive' | 'trash'
+export type ContextMenuIconKind = 'pin' | 'unpin' | 'folder' | 'worktree' | 'rename' | 'check' | 'archive' | 'trash'
 
 export type ContextMenuEntry =
   | {

@@ -265,7 +265,7 @@ export interface CodeCopy {
   agentSessions: string
   recentWorkspaces: string
   agentsSessionsSummary: (agents: number, sessions: number) => string
-  projectAgentsSummary: (agents: number, active: number) => string
+  projectAgentsSummary: (agents: number, unread: number, running: number) => string
   restore: string
   continueRun: string
   open: string
@@ -781,7 +781,11 @@ const EN_COPY: CodeCopy = {
   agentSessions: 'Agent Sessions',
   recentWorkspaces: 'Recent Workspaces',
   agentsSessionsSummary: (agents, sessions) => `${agents} agents · ${sessions} sessions`,
-  projectAgentsSummary: (agents, active) => `${agents} Agent${agents === 1 ? '' : 's'} · ${active} active`,
+  projectAgentsSummary: (agents, unread, running) => [
+    `${agents} Agent${agents === 1 ? '' : 's'}`,
+    `${unread} unread`,
+    `${running} running`,
+  ].join(' · '),
   restore: 'Restore',
   continueRun: 'Continue',
   open: 'Open',
@@ -1333,7 +1337,11 @@ const ZH_COPY: CodeCopy = {
   agentSessions: 'Agent 会话',
   recentWorkspaces: '最近工作区',
   agentsSessionsSummary: (agents, sessions) => `${agents} 个 Agent · ${sessions} 个会话`,
-  projectAgentsSummary: (agents, active) => `${agents} 个 Agent · ${active} 个活跃`,
+  projectAgentsSummary: (agents, unread, running) => [
+    `${agents} 个 Agent`,
+    `${unread} 个未读`,
+    `${running} 个运行中`,
+  ].join(' · '),
   restore: '恢复',
   continueRun: '继续',
   open: '打开',

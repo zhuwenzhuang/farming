@@ -169,6 +169,11 @@ function snapshot(agentId: string) {
   return entries.get(agentId)?.value ?? null
 }
 
+export function agentWithCurrentLiveState(agent: Agent): Agent {
+  const liveState = snapshot(agent.id)
+  return liveState ? { ...agent, ...liveState } : agent
+}
+
 function useAgentLiveSubscription(agent: Agent | null | undefined, kind: SubscriptionKind): Agent | null {
   const agentId = agent?.id ?? ''
   const subscribeToAgent = useCallback(

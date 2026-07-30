@@ -61,7 +61,7 @@ import { isCompactViewport } from '@/lib/responsive-mode'
 import { projectFilesWorkspaceId } from '@/lib/project-workspaces'
 import { formatWorkspaceForDisplay } from '@/lib/workspace-options'
 import { stableProjectSourceAgentId } from './workspace-derived'
-import { useAgentWithLiveState } from '@/lib/agent-live-state'
+import { agentWithCurrentLiveState, useAgentWithLiveState } from '@/lib/agent-live-state'
 import { useAgentReorder } from './useAgentReorder'
 import { useDismissiblePopover } from './useDismissiblePopover'
 import { UsagePanel } from './UsagePanel'
@@ -100,7 +100,8 @@ type ProjectPreviewTarget = {
   name: string
   workspace: string
   agentCount: number
-  activeAgentCount: number
+  unreadCount: number
+  runningCount: number
   branch: string
   worktreeCount: number
   pinned: boolean
@@ -496,6 +497,8 @@ export function CodeSidebar({
       className={`code-sidebar ${sidebarCollapsed ? 'collapsed' : ''}`}
       data-testid="code-sidebar"
       onMouseLeave={resetAgentPreview}
+      onPointerDownCapture={hideAgentPreview}
+      onContextMenuCapture={hideAgentPreview}
     >
       <div className="code-nav">
         <div className="code-nav-top-row">
@@ -1598,9 +1601,6 @@ function ProjectSection({
   const projectAgentCount = projectAgents.length
     + project.agentSessions.filter(session => session.archived !== true).length
     + (project.hiddenAgentSessionCount ?? 0)
-  const activeProjectAgentCount = projectAgents.filter(agent => (
-    agent.status !== 'dead' && agent.status !== 'stopped'
-  )).length
   const openWorktreeMenu = (event: ReactMouseEvent<HTMLButtonElement>) => {
     event.preventDefault()
     event.stopPropagation()
@@ -1623,7 +1623,12 @@ function ProjectSection({
           name: project.name,
           workspace: project.workspace,
           agentCount: projectAgentCount,
-          activeAgentCount: activeProjectAgentCount,
+          unreadCount: projectAgents.filter(agent => agentWithCurrentLiveState(agent).unread === true).length
+            + project.agentSessions.filter(session => session.archived !== true && session.unread === true).length,
+          runningCount: projectAgents.filter(agent => buildAgentRowDisplayState({
+            kind: 'agent',
+            agent: agentWithCurrentLiveState(agent),
+          }, now).turnActive).length,
           branch: currentWorktreeName,
           worktreeCount: repositoryWorktreeCount,
           pinned: project.pinned === true,
@@ -1998,7 +2003,7 @@ function ProjectHoverPreview({
       </div>
       <div className="code-project-hover-preview-line">
         <span className="code-project-hover-preview-icon"><ProjectPreviewAgentsIcon /></span>
-        <span>{copy.projectAgentsSummary(preview.agentCount, preview.activeAgentCount)}</span>
+        <span>{copy.projectAgentsSummary(preview.agentCount, preview.unreadCount, preview.runningCount)}</span>
       </div>
       <div className="code-project-hover-preview-line">
         <span className="code-project-hover-preview-icon"><AgentPreviewFolderIcon /></span>
