@@ -177,7 +177,12 @@ type ChromiumInstaller = {
   status(): unknown;
 };
 type IsolatedBrowserProvider = {
-  acquire(owner: { ownerKey: string }): Promise<{ cdpUrl: string; leaseKey: string }>;
+  acquire(owner: {
+    ownerAgentId: string;
+    ownerKey: string;
+    projectRootId: string;
+    workspace: string;
+  }): Promise<{ cdpUrl: string; leaseKey: string }>;
   capability(refresh?: boolean): Promise<Record<string, unknown>>;
   deleteOwner(ownerKey: string): Promise<void>;
   prepare(): Promise<unknown>;
@@ -834,7 +839,10 @@ class BrowserResourceManager extends EventEmitter {
             );
           }
           const isolated = await this.isolatedBrowserProvider.acquire({
+            ownerAgentId: resource.ownerAgentId,
             ownerKey: browserOwnerKey(resource),
+            projectRootId: resource.projectRootId,
+            workspace: resource.workspace,
           });
           externalCdpUrl = isolated.cdpUrl;
           isolatedLeaseKey = isolated.leaseKey;

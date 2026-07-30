@@ -602,6 +602,12 @@ class ConfigManager {
     this.settings.browserExternalCdpUrl = this.normalizeBrowserSetting(this.settings.browserExternalCdpUrl)
       || 'http://127.0.0.1:9222';
     this.settings.computerExtensionEnabled = this.settings.computerExtensionEnabled === true;
+    if (
+      this.settings.browserExtensionEnabled
+      && this.settings.browserSource === 'isolated'
+    ) {
+      this.settings.computerExtensionEnabled = true;
+    }
     this.settings.computerCompatibilityMode = this.settings.computerCompatibilityMode === true;
     this.settings.computerImage = this.normalizeBrowserSetting(this.settings.computerImage) || COMPUTER_IMAGE;
     this.settings.codeContentFontSize = this.normalizeContentFontSize(
@@ -1352,6 +1358,12 @@ class ConfigManager {
     nextSettings.browserExternalCdpUrl = this.normalizeBrowserSetting(nextSettings.browserExternalCdpUrl)
       || 'http://127.0.0.1:9222';
     nextSettings.computerExtensionEnabled = nextSettings.computerExtensionEnabled === true;
+    if (
+      nextSettings.browserExtensionEnabled
+      && nextSettings.browserSource === 'isolated'
+    ) {
+      nextSettings.computerExtensionEnabled = true;
+    }
     nextSettings.computerCompatibilityMode = nextSettings.computerCompatibilityMode === true;
     nextSettings.computerImage = this.normalizeBrowserSetting(nextSettings.computerImage) || COMPUTER_IMAGE;
     nextSettings.codeContentFontSize = this.normalizeContentFontSize(

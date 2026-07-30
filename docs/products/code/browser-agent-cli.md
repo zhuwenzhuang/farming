@@ -11,12 +11,13 @@ Open **Plugins → Browser**:
 
 1. Keep **Automatic** selected, or choose a detected local Chromium browser.
 2. If the host cannot run Chromium, click **Prepare isolated Browser** once.
-   Farming downloads the pinned upstream CUA Browser image and then manages its
-   separate Agent-owned container and private CDP endpoint. It does not reuse
-   the full Computer desktop container.
+   Farming prepares the pinned Computer image and a verified Linux Chromium
+   cache. The Agent's visible Computer owns the container and private CDP
+   endpoint; multiple Browser Resources are tabs in that same desktop.
 
 Enable the Browser plugin after the selected source is ready. A Farming restart
-is not required. Chromium is never downloaded during normal install, update, or
+is not required. Enabling Isolated Browser also enables its visible Computer
+Resource. Chromium is never downloaded during normal install, update, or
 Server startup. Users do not configure Docker, ports, or CDP addresses. On
 older Linux hosts, Farming automatically uses the statically linked
 `agent-browser` artifact from the same pinned package, so the host glibc does

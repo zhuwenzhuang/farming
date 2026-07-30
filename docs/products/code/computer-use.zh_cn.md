@@ -13,12 +13,11 @@ Farming 不随包交付桌面镜像，也不会在安装、更新或 Server 启�
 审查的上游 `trycua/xfce-cua` 镜像，并校验锁定的 Cua Driver 版本，成功后才允许
 启用 Computer。
 
-同一个 Extension 也拥有 Browser 可选“隔离浏览器”来源的 Docker 边界。该路径在
-**插件 → 浏览器**中单独准备锁定的上游 `trycua/cuabot` 镜像，只把 Chromium CDP
-发布到回环地址，并私下交给 Farming 现有的 `agent-browser` Runtime；它不会增加
+同一个 Extension 也拥有 Browser 可选“隔离浏览器”来源。**插件 → 浏览器**会准备
+锁定的 Computer 镜像和经过校验的 Linux Chromium Cache。Farming 把 Cache 只读
+挂载到 Agent 可见的 Computer 中，仅在回环地址暴露 Chromium CDP，再私下交给已有
+`agent-browser` Runtime。它既不会创建第二台隐藏 Browser Container，也不会增加
 第二套 Browser Automation 实现。
-隔离 Browser 使用独立容器，因为经过审查的完整 Computer Desktop 镜像不包含
-Chromium；两者只共享 Computer Extension 已校验的 Docker Ownership Boundary。
 
 部分旧 Docker Engine 的默认 seccomp Profile 无法运行该镜像。只有 Probe 明确
 报告这一兼容问题时，用户才应先关闭 Computer、显式启用兼容模式、重新准备，再启用
@@ -28,12 +27,15 @@ Chromium；两者只共享 Computer Extension 已校验的 Docker Ownership Boun
 
 一个 Agent 打开一台隔离 Computer。稳定的 Farming Agent Record 拥有 Resource
 和精确 Docker Container；Project 只保留为 Workspace 隔离边界。不同 Agent
-绝不会共享 Container、Desktop、Session 或 Viewer Password。
+绝不会共享 Container、Desktop、Session、Viewer Password、Browser Profile 或
+CDP Endpoint。同一 Agent 的多个 Browser Resource 是该 Computer 中的多个 Tab。
 
 - Chat/Terminal 切换和权限重启保留 Computer。
 - 停止或归档 Agent 会停止 Container，但保留 Resource。
 - 删除 Agent 会删除它精确拥有的 Container 与 Resource。
 - 关闭插件只停止 Computer，不删除保留状态。
+- Browser Session 正在租用 Computer 时，用户直接 Stop/Delete 会明确失败；需先停止
+  对应 Browser。
 
 任何破坏性操作前，Farming 都会校验 Container ID 与 Ownership Label。Container
 只在回环地址暴露 noVNC，再由带鉴权的 Farming Server 代理给 Viewer。

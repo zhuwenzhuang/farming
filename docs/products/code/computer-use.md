@@ -15,14 +15,12 @@ update, or Server startup. The user explicitly prepares Computer in
 `trycua/xfce-cua` image at the exact digest shown by the plugin and verifies the
 pinned Cua Driver version before Computer can be enabled.
 
-The same extension also owns the Docker boundary for Browser's optional
-Isolated Browser source. That path is prepared separately in
-**Plugins → Browser** from the pinned upstream `trycua/cuabot` image. It exposes
-Chromium's CDP only on loopback and hands it privately to Farming's existing
-`agent-browser` runtime; it does not add a second Browser automation path.
-The Browser container is separate from the full Computer container because the
-reviewed desktop image does not include Chromium. They share only the Computer
-extension's verified Docker ownership boundary.
+The same extension also owns Browser's optional Isolated Browser source.
+**Plugins → Browser** prepares the pinned Computer image plus a verified Linux
+Chromium cache. Farming mounts that cache read-only into the Agent's visible
+Computer, exposes Chromium's CDP only on loopback, and hands it privately to
+the existing `agent-browser` runtime. There is no second hidden Browser
+container and no second Browser automation path.
 
 Some older Docker Engines cannot run the image with their default seccomp
 profile. If the probe reports this exact incompatibility, disable Computer,
@@ -34,12 +32,15 @@ plugin. Farming does not retry with a weaker sandbox silently.
 An Agent opens one isolated Computer. Its stable Farming Agent record owns the
 Resource and exact Docker container; the Project remains the workspace
 isolation boundary. Different Agents never share the container, desktop,
-session, or Viewer password.
+session, Viewer password, Browser profile, or CDP endpoint. Multiple Browser
+Resources from one Agent are tabs inside that same Computer.
 
 - Chat/Terminal switches and permission restarts retain the Computer.
 - Stopping or archiving the Agent stops the container but retains the Resource.
 - Deleting the Agent removes its exact owned container and Resource.
 - Disabling the plugin stops Computers without deleting their retained state.
+- While an active Browser Session is using the Computer, direct Stop or Delete
+  fails visibly; stop those Browsers first.
 
 Farming verifies the container id and ownership labels before every destructive
 operation. The container exposes noVNC only on loopback; the authenticated

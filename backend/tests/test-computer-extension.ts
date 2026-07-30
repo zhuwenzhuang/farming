@@ -13,6 +13,7 @@ const {
 const {
   COMPUTER_IMAGE,
 } = require('../../extensions/computer/backend/computer-constants.cjs');
+const storageLayout = require('../storage-layout.cjs');
 
 const CONTAINER_ID = 'a'.repeat(64);
 
@@ -101,6 +102,9 @@ class FakeDocker {
       return { stdout: 'sha256:image\n', stderr: '' };
     }
     if (args[0] === 'run') {
+      if (args.includes('farming.dev/kind=computer-browser-probe')) {
+        return { stdout: 'Chromium 140.0\n', stderr: '' };
+      }
       return { stdout: 'cua-driver 0.12.4\n', stderr: '' };
     }
     if (args[0] === 'create') {
@@ -122,8 +126,19 @@ class FakeDocker {
           NetworkSettings: {
             Ports: {
               '6901/tcp': [{ HostIp: '127.0.0.1', HostPort: String(this.viewerPort) }],
+              '9223/tcp': [{ HostIp: '127.0.0.1', HostPort: String(this.viewerPort) }],
             },
           },
+          HostConfig: {
+            PortBindings: {
+              '6901/tcp': [{ HostIp: '127.0.0.1', HostPort: '' }],
+              '9223/tcp': [{ HostIp: '127.0.0.1', HostPort: '' }],
+            },
+          },
+          Mounts: [{
+            Destination: '/opt/farming/chromium',
+            RW: false,
+          }],
         }]),
         stderr: '',
       };
@@ -220,6 +235,37 @@ async function run() {
     assert.strictEqual(fake.labels['farming.dev/resource'], created.id);
     assert.strictEqual(fake.labels['farming.dev/owner-agent'], 'agent_owner');
     assert.strictEqual(manager.viewerConfig(created.id).viewOnly, true);
+    assert(fake.calls.some(args =>
+      args[0] === 'create'
+      && args.includes('127.0.0.1::9223')
+      && args.some(value => String(value).endsWith(':/opt/farming/chromium:ro'))
+    ));
+
+    const browserExecutable = path.join(
+      storageLayout.managedChromiumRootDir(tempDir),
+      '0.32.3',
+      'linux-x64-computer',
+      'chrome',
+    );
+    fs.mkdirSync(path.dirname(browserExecutable), { recursive: true });
+    fs.writeFileSync(browserExecutable, '#!/bin/sh\n', { mode: 0o700 });
+    assert.strictEqual(
+      await manager.verifyBrowserExecutable(browserExecutable),
+      'Chromium 140.0',
+    );
+    const browserLease = await manager.acquireBrowser({
+      ownerAgentId: 'agent_owner',
+      projectRootId: 'root_project',
+      workspace,
+      executablePath: browserExecutable,
+    });
+    assert.strictEqual(browserLease.leaseKey, created.id);
+    assert.strictEqual(browserLease.cdpUrl, `http://127.0.0.1:${viewerPort}`);
+    assert.throws(
+      () => manager.stop(created.id),
+      error => error.code === 'COMPUTER_IN_USE_BY_BROWSER',
+    );
+    await manager.releaseBrowser(browserLease.leaseKey);
 
     const firstObservation = await manager.callTool(created.id, 'get_desktop_state', {});
     assert.strictEqual(firstObservation.structuredContent.tool, 'get_desktop_state');

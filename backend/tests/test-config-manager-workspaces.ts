@@ -64,8 +64,21 @@ function run() {
     assert.strictEqual(manager.getSettings().browserSource, 'isolated');
     manager.updateSettings({ browserExtensionEnabled: true });
     assert.strictEqual(manager.getSettings().browserExtensionEnabled, true);
+    assert.strictEqual(
+      manager.getSettings().computerExtensionEnabled,
+      true,
+      'an enabled isolated Browser must expose its owning Computer Resource',
+    );
+    manager.updateSettings({ computerExtensionEnabled: false });
+    assert.strictEqual(
+      manager.getSettings().computerExtensionEnabled,
+      true,
+      'the owning Computer cannot be hidden while isolated Browser is enabled',
+    );
     manager.updateSettings({ browserExtensionEnabled: false });
     assert.strictEqual(manager.getSettings().browserExtensionEnabled, false);
+    manager.updateSettings({ computerExtensionEnabled: false });
+    assert.strictEqual(manager.getSettings().computerExtensionEnabled, false);
     assert.strictEqual(
       fs
         .readFileSync(path.join(farmingDir, 'farming-agent-bootstrap.zh_cn.md'), 'utf8')

@@ -303,9 +303,14 @@ function resolveCliBinDir() {
   return path.join(__dirname, '..', 'bin');
 }
 
-const isolatedBrowserProvider = new IsolatedBrowserProvider({
+const computerResourceManager = new ComputerResourceManager({
   configDir: configManager.farmingDir,
   getSettings: () => configManager.getSettings(),
+  isEnabled: () => configManager.getSettings().computerExtensionEnabled === true,
+});
+const isolatedBrowserProvider = new IsolatedBrowserProvider({
+  configDir: configManager.farmingDir,
+  computerResourceManager,
 });
 const browserResourceManager = new BrowserResourceManager({
   configDir: configManager.farmingDir,
@@ -350,71 +355,43 @@ const workspaceFileService = new WorkspaceFileService();
 const workspaceRootRegistry = new WorkspaceRootRegistry(
   agentManager,
 );
-const computerResourceManager = new ComputerResourceManager({
-  configDir: configManager.farmingDir,
-  isEnabled: () => configManager.getSettings().computerExtensionEnabled === true,
-  getSettings: () => configManager.getSettings(),
-});
-let browserAgentReconcileRequested = false;
-let browserAgentReconcileRunning = false;
-const reconcileBrowserAgentLifecycle = () => {
-  browserAgentReconcileRequested = true;
-  if (browserAgentReconcileRunning) return;
-  browserAgentReconcileRunning = true;
+let agentResourceReconcileRequested = false;
+let agentResourceReconcileRunning = false;
+const reconcileAgentResourceLifecycle = () => {
+  agentResourceReconcileRequested = true;
+  if (agentResourceReconcileRunning) return;
+  agentResourceReconcileRunning = true;
   void (async () => {
     try {
       await agentManager.whenRecovered();
-      while (browserAgentReconcileRequested) {
-        browserAgentReconcileRequested = false;
+      while (agentResourceReconcileRequested) {
+        agentResourceReconcileRequested = false;
         const agents = agentManager.getState().agents;
         await browserResourceManager.reconcileAgentLifecycle(Array.isArray(agents) ? agents : []);
-      }
-    } catch (error) {
-      console.warn('Failed to reconcile Agent-owned Browser resources:', caughtError(error).message || error);
-    } finally {
-      browserAgentReconcileRunning = false;
-      if (browserAgentReconcileRequested) reconcileBrowserAgentLifecycle();
-    }
-  })();
-};
-const browserRuntimeRecoveryPromise = isolatedBrowserProvider.recover()
-  .then(() => browserResourceManager.init())
-  .then(() => {
-  agentManager.on('update', reconcileBrowserAgentLifecycle);
-  reconcileBrowserAgentLifecycle();
-}).catch((error: unknown) => {
-  console.warn('Failed to recover Browser runtimes:', caughtError(error).message || error);
-  return null;
-});
-let computerAgentReconcileRequested = false;
-let computerAgentReconcileRunning = false;
-const reconcileComputerAgentLifecycle = () => {
-  computerAgentReconcileRequested = true;
-  if (computerAgentReconcileRunning) return;
-  computerAgentReconcileRunning = true;
-  void (async () => {
-    try {
-      await agentManager.whenRecovered();
-      while (computerAgentReconcileRequested) {
-        computerAgentReconcileRequested = false;
-        const agents = agentManager.getState().agents;
         await computerResourceManager.reconcileAgentLifecycle(Array.isArray(agents) ? agents : []);
       }
     } catch (error) {
-      console.warn('Failed to reconcile Agent-owned Computer resources:', caughtError(error).message || error);
+      console.warn('Failed to reconcile Agent-owned resources:', caughtError(error).message || error);
     } finally {
-      computerAgentReconcileRunning = false;
-      if (computerAgentReconcileRequested) reconcileComputerAgentLifecycle();
+      agentResourceReconcileRunning = false;
+      if (agentResourceReconcileRequested) reconcileAgentResourceLifecycle();
     }
   })();
 };
-const computerRuntimeRecoveryPromise = computerResourceManager.init().then(() => {
-  agentManager.on('update', reconcileComputerAgentLifecycle);
-  reconcileComputerAgentLifecycle();
-}).catch((error: unknown) => {
+const computerRuntimeRecoveryPromise = computerResourceManager.init().catch((error: unknown) => {
   console.warn('Failed to recover Computer runtimes:', caughtError(error).message || error);
   return null;
 });
+const browserRuntimeRecoveryPromise = computerRuntimeRecoveryPromise
+  .then(() => isolatedBrowserProvider.recover())
+  .then(() => browserResourceManager.init())
+  .then(() => {
+    agentManager.on('update', reconcileAgentResourceLifecycle);
+    reconcileAgentResourceLifecycle();
+  }).catch((error: unknown) => {
+    console.warn('Failed to recover Browser runtimes:', caughtError(error).message || error);
+    return null;
+  });
 const updateService = new FarmingUpdateService({
   rootDir: path.join(__dirname, '..'),
   configDir: configManager.farmingDir,
@@ -2639,21 +2616,31 @@ app.post(routePath(BASE_PATH, '/api/settings'), express.json(), async (req, res)
     'computerImage',
     'computerCompatibilityMode',
   ];
+  const currentSettings = configManager.getSettings();
+  const requestsIsolatedBrowser = (
+    Object.prototype.hasOwnProperty.call(settingsPatch, 'browserExtensionEnabled')
+      ? settingsPatch.browserExtensionEnabled === true
+      : currentSettings.browserExtensionEnabled === true
+  ) && (
+    optionalString(settingsPatch.browserSource) ?? currentSettings.browserSource
+  ) === 'isolated';
+  if (requestsIsolatedBrowser) {
+    settingsPatch.computerExtensionEnabled = true;
+  }
   const changesBrowserExtension = Object.prototype.hasOwnProperty.call(settingsPatch, 'browserExtensionEnabled');
   const changesBrowserConfiguration = browserConfigurationKeys.some(key =>
     Object.prototype.hasOwnProperty.call(settingsPatch, key)
   );
-  const changesComputerExtension = Object.prototype.hasOwnProperty.call(settingsPatch, 'computerExtensionEnabled');
+  let changesComputerExtension = Object.prototype.hasOwnProperty.call(settingsPatch, 'computerExtensionEnabled');
   const changesComputerConfiguration = computerConfigurationKeys.some(key =>
     Object.prototype.hasOwnProperty.call(settingsPatch, key)
   );
-  const currentSettings = configManager.getSettings();
   const browserExtensionEnabled = settingsPatch.browserExtensionEnabled === true;
   const desiredBrowserEnabled = changesBrowserExtension
     ? browserExtensionEnabled
     : currentSettings.browserExtensionEnabled === true;
-  const computerExtensionEnabled = settingsPatch.computerExtensionEnabled === true;
-  const desiredComputerEnabled = changesComputerExtension
+  let computerExtensionEnabled = settingsPatch.computerExtensionEnabled === true;
+  let desiredComputerEnabled = changesComputerExtension
     ? computerExtensionEnabled
     : currentSettings.computerExtensionEnabled === true;
   if ((changesBrowserExtension && browserExtensionEnabled) || changesBrowserConfiguration) {
@@ -2675,6 +2662,15 @@ app.post(routePath(BASE_PATH, '/api/settings'), express.json(), async (req, res)
         code: 'BROWSER_EXECUTABLE_NOT_FOUND',
       });
       return;
+    }
+    if (
+      desiredBrowserEnabled
+      && probe.runtimeCapability?.kind === 'isolated-computer'
+    ) {
+      settingsPatch.computerExtensionEnabled = true;
+      changesComputerExtension = true;
+      computerExtensionEnabled = true;
+      desiredComputerEnabled = true;
     }
   }
   if (

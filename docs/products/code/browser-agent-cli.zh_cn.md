@@ -11,10 +11,11 @@ Farming Browser 让 Agent 操作自己拥有的 Browser，同时用户可以在 
 
 1. 保持**自动**，或选择已发现的本机 Chromium 浏览器。
 2. 宿主机无法运行 Chromium 时，只需显式点击一次**准备隔离浏览器**；Farming 会下载
-   锁定的上游 CUA Browser 镜像，并自动管理一台独立的 Agent-owned Container 与内部
-   CDP Endpoint；它不会复用完整 Computer 的桌面 Container。
+   锁定的 Computer 镜像与经过校验的 Linux Chromium Cache。Agent 可见的 Computer
+   拥有 Container 与内部 CDP Endpoint；多个 Browser Resource 是同一桌面中的 Tab。
 
-浏览器来源就绪后启用 Browser 插件，无需重启 Farming。普通安装、更新和 Server 启动
+浏览器来源就绪后启用 Browser 插件，无需重启 Farming。启用隔离 Browser 时，也会启用
+其可见的 Computer Resource。普通安装、更新和 Server 启动
 绝不会下载 Chromium，用户也不需要配置 Docker、端口或 CDP 地址。在旧 Linux
 宿主机上，Farming 会自动使用同一个锁定 Package 中静态链接的 `agent-browser`
 Artifact，因此 Browser Daemon 不依赖宿主机 glibc。

@@ -2,8 +2,11 @@ const { EventEmitter } = require('events');
 const { execFile } = require('child_process');
 const { promisify } = require('util');
 const crypto = require('crypto');
+const fs = require('fs');
 const http = require('http');
+const path = require('path');
 const WebSocket = require('ws');
+import * as storageLayout from '../../../backend/storage-layout.cjs';
 import { COMPUTER_CONTAINER_CPUS, COMPUTER_CONTAINER_MEMORY, COMPUTER_CONTAINER_PIDS, COMPUTER_CONTAINER_SHM_SIZE, COMPUTER_DRIVER_BIN, COMPUTER_DRIVER_VERSION, COMPUTER_IMAGE, COMPUTER_IMAGE_INDEX_DIGEST, COMPUTER_USER } from './computer-constants.cjs';
 import { ComputerResourceStore, publicResource } from './computer-resource-store.cjs';
 
@@ -41,6 +44,29 @@ const SCREENSHOT_TOOLS = new Set([
 const DRIVER_CALL_TIMEOUT_MS = 45_000;
 const DOCKER_TIMEOUT_MS = 90_000;
 const START_TIMEOUT_MS = 45_000;
+const COMPUTER_BROWSER_CDP_PORT = '9223/tcp';
+const COMPUTER_BROWSER_MOUNT = '/opt/farming/chromium';
+const COMPUTER_BROWSER_RELAY_SCRIPT = [
+  'import select,socket',
+  'listener=socket.socket()',
+  'listener.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)',
+  'listener.bind(("0.0.0.0",9223))',
+  'listener.listen(32)',
+  'while True:',
+  ' client,_=listener.accept()',
+  ' upstream=socket.create_connection(("127.0.0.1",9222),timeout=5)',
+  ' sockets=[client,upstream]',
+  ' while sockets:',
+  '  readable,_,failed=select.select(sockets,[],sockets,30)',
+  '  if failed: break',
+  '  if not readable: continue',
+  '  for source in readable:',
+  '   data=source.recv(65536)',
+  '   if not data: sockets=[]; break',
+  '   (upstream if source is client else client).sendall(data)',
+  ' client.close()',
+  ' upstream.close()',
+].join('\n');
 
 type ControlOwner = 'agent' | 'human';
 
@@ -105,26 +131,38 @@ function safeNamePart(value: string): string {
 }
 
 function parsePort(inspect: Record<string, unknown>): number {
+  return parsePublishedPort(inspect, '6901/tcp');
+}
+
+function parsePublishedPort(inspect: Record<string, unknown>, containerPort: string): number {
   const networkSettings = recordValue(inspect.NetworkSettings);
   const ports = recordValue(networkSettings.Ports);
-  const mappings = ports['6901/tcp'];
+  const mappings = ports[containerPort];
   if (!Array.isArray(mappings) || mappings.length !== 1) return 0;
-  const port = Number(recordValue(mappings[0]).HostPort);
+  const mapping = recordValue(mappings[0]);
+  if (mapping.HostIp !== '127.0.0.1') return 0;
+  const port = Number(mapping.HostPort);
   return Number.isSafeInteger(port) && port > 0 && port <= 65535 ? port : 0;
 }
 
-function waitForHttp(port: number, timeoutMs = START_TIMEOUT_MS): Promise<void> {
+function waitForHttpPath(
+  port: number,
+  requestPath: string,
+  failureMessage: string,
+  failureCode: string,
+  timeoutMs = START_TIMEOUT_MS,
+): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   return new Promise((resolve, reject) => {
     const attempt = () => {
       if (Date.now() >= deadline) {
-        reject(computerError('Computer Viewer did not become ready in time', 504, 'COMPUTER_VIEWER_TIMEOUT'));
+        reject(computerError(failureMessage, 504, failureCode));
         return;
       }
       const request = http.get({
         hostname: '127.0.0.1',
         port,
-        path: '/vnc.html',
+        path: requestPath,
         timeout: 2_000,
       }, (response: { statusCode?: number; resume(): void }) => {
         response.resume();
@@ -141,6 +179,26 @@ function waitForHttp(port: number, timeoutMs = START_TIMEOUT_MS): Promise<void> 
   });
 }
 
+function waitForHttp(port: number, timeoutMs = START_TIMEOUT_MS): Promise<void> {
+  return waitForHttpPath(
+    port,
+    '/vnc.html',
+    'Computer Viewer did not become ready in time',
+    'COMPUTER_VIEWER_TIMEOUT',
+    timeoutMs,
+  );
+}
+
+function waitForCdp(port: number, timeoutMs = START_TIMEOUT_MS): Promise<void> {
+  return waitForHttpPath(
+    port,
+    '/json/version',
+    'Computer Chromium did not expose DevTools in time',
+    'COMPUTER_BROWSER_CDP_TIMEOUT',
+    timeoutMs,
+  );
+}
+
 class ComputerResourceManager extends EventEmitter {
   readonly configDir: string;
   readonly isEnabled: () => boolean;
@@ -152,6 +210,7 @@ class ComputerResourceManager extends EventEmitter {
   readonly stopAdmissions = new Map<string, number>();
   readonly controlAdmissions = new Map<string, number>();
   readonly viewerSockets = new Map<string, Set<ViewerSocket>>();
+  readonly browserLeases = new Map<string, number>();
   capabilityCache: Record<string, unknown> | null = null;
   preparePromise: Promise<unknown> | null = null;
 
@@ -269,6 +328,140 @@ class ComputerResourceManager extends EventEmitter {
     const resource = this.store.create(input);
     this.emitResource(resource);
     return publicResource(resource, this.store.revision);
+  }
+
+  async acquireBrowser(input: {
+    ownerAgentId: string;
+    projectRootId: string;
+    workspace: string;
+    executablePath: string;
+  }): Promise<{ cdpUrl: string; leaseKey: string }> {
+    this.requireEnabled();
+    const executablePath = this.browserExecutableInContainer(input.executablePath);
+    const resource = this.create({
+      ownerAgentId: input.ownerAgentId,
+      projectRootId: input.projectRootId,
+      workspace: input.workspace,
+      name: 'Computer',
+    });
+    if (
+      resource.projectRootId !== input.projectRootId
+      || resource.workspace !== input.workspace
+    ) {
+      throw computerError(
+        'The Agent Computer belongs to a different Project workspace',
+        409,
+        'COMPUTER_BROWSER_OWNER_MISMATCH',
+      );
+    }
+    await this.ensureBrowserCacheMount(resource.id);
+    await this.start(resource.id);
+    const result = await this.enqueue(resource.id, async () => {
+      const current = this.privateResource(resource.id);
+      if (current.status !== 'running' || !current.containerId) {
+        throw computerError(
+          'Computer stopped before Chromium could start',
+          409,
+          'COMPUTER_NOT_RUNNING',
+        );
+      }
+      const inspect = await this.inspectOwnedContainer(current);
+      const cdpPort = parsePublishedPort(inspect, COMPUTER_BROWSER_CDP_PORT);
+      if (!cdpPort) {
+        throw computerError(
+          'Computer container has no loopback DevTools port',
+          409,
+          'COMPUTER_BROWSER_PORT_MISSING',
+        );
+      }
+      try {
+        await waitForCdp(cdpPort, 500);
+      } catch {
+        const displayReady = await this.waitForContainer(current.containerId, [
+          'test', '-S', '/tmp/.X11-unix/X1',
+        ]);
+        if (!displayReady) {
+          throw computerError(
+            'Computer desktop did not become ready for Chromium',
+            504,
+            'COMPUTER_BROWSER_DISPLAY_TIMEOUT',
+          );
+        }
+        let chromiumReady = await this.waitForContainer(current.containerId, [
+          'python3', '-c',
+          'import urllib.request; urllib.request.urlopen("http://127.0.0.1:9222/json/version", timeout=1)',
+        ], 500);
+        if (!chromiumReady) {
+          await this.docker([
+            'exec', '-d', '-u', COMPUTER_USER,
+            '-e', 'HOME=/home/cua',
+            '-e', 'DISPLAY=:1',
+            current.containerId,
+            executablePath,
+            '--no-sandbox',
+            '--remote-debugging-port=9222',
+            '--user-data-dir=/home/cua/.farming-browser',
+            '--no-first-run',
+            '--no-default-browser-check',
+            'about:blank',
+          ], { timeoutMs: 10_000 });
+          chromiumReady = await this.waitForContainer(current.containerId, [
+            'python3', '-c',
+            'import urllib.request; urllib.request.urlopen("http://127.0.0.1:9222/json/version", timeout=1)',
+          ]);
+        }
+        if (!chromiumReady) {
+          throw computerError(
+            'Chromium did not expose its internal DevTools endpoint',
+            504,
+            'COMPUTER_BROWSER_CHROMIUM_TIMEOUT',
+          );
+        }
+        await this.docker([
+          'exec', '-d', current.containerId,
+          'python3', '-c', COMPUTER_BROWSER_RELAY_SCRIPT,
+        ], { timeoutMs: 10_000 });
+        await waitForCdp(cdpPort);
+      }
+      this.browserLeases.set(
+        resource.id,
+        (this.browserLeases.get(resource.id) || 0) + 1,
+      );
+      return { cdpUrl: `http://127.0.0.1:${cdpPort}`, leaseKey: resource.id };
+    });
+    return result;
+  }
+
+  releaseBrowser(leaseKey: string): Promise<void> {
+    const current = this.browserLeases.get(leaseKey) || 0;
+    if (current <= 1) this.browserLeases.delete(leaseKey);
+    else this.browserLeases.set(leaseKey, current - 1);
+    return Promise.resolve();
+  }
+
+  async verifyBrowserExecutable(executablePath: string): Promise<string> {
+    const containerPath = this.browserExecutableInContainer(executablePath);
+    const result = await this.docker([
+      'run',
+      '--rm',
+      '--label', 'farming.dev/kind=computer-browser-probe',
+      '--label', `farming.dev/config=${this.configFingerprint}`,
+      ...(this.compatibilityMode() ? ['--security-opt', 'seccomp=unconfined'] : []),
+      '--entrypoint', containerPath,
+      '-v', `${this.browserCacheRoot()}:${COMPUTER_BROWSER_MOUNT}:ro`,
+      this.imageRef(),
+      '--no-sandbox',
+      '--version',
+    ], { timeoutMs: 30_000 });
+    const version = result.stdout.trim() || result.stderr.trim();
+    if (!/(?:Google Chrome|Chromium)/i.test(version)) {
+      throw computerError(
+        `Computer Chromium verification returned an unexpected version: ${version}`,
+        409,
+        'COMPUTER_BROWSER_VERSION_MISMATCH',
+      );
+    }
+    return version;
   }
 
   rename(id: string, name: unknown) {
@@ -400,6 +593,8 @@ class ComputerResourceManager extends EventEmitter {
             '--pids-limit', COMPUTER_CONTAINER_PIDS,
             '--add-host', 'host.docker.internal:host-gateway',
             '-p', '127.0.0.1::6901',
+            '-p', '127.0.0.1::9223',
+            '-v', `${this.browserCacheRoot()}:${COMPUTER_BROWSER_MOUNT}:ro`,
             '-e', `VNC_PW=${password}`,
             ...(this.compatibilityMode() ? ['--security-opt', 'seccomp=unconfined'] : []),
             this.imageRef(),
@@ -439,6 +634,13 @@ class ComputerResourceManager extends EventEmitter {
 
   stop(id: string, internal = false): Promise<unknown> {
     if (!internal) this.requireEnabled();
+    if (!internal && (this.browserLeases.get(id) || 0) > 0) {
+      throw computerError(
+        'Stop the Agent Browsers using this Computer first',
+        409,
+        'COMPUTER_IN_USE_BY_BROWSER',
+      );
+    }
     this.holdStopAdmission(id);
     return this.enqueue(id, async () => {
       const resource = this.privateResource(id);
@@ -480,6 +682,13 @@ class ComputerResourceManager extends EventEmitter {
 
   async delete(id: string, internal = false): Promise<unknown> {
     if (!internal) this.requireEnabled();
+    if (!internal && (this.browserLeases.get(id) || 0) > 0) {
+      throw computerError(
+        'Delete the Agent Browsers using this Computer first',
+        409,
+        'COMPUTER_IN_USE_BY_BROWSER',
+      );
+    }
     this.holdStopAdmission(id);
     try {
       await this.stop(id, true);
@@ -490,6 +699,7 @@ class ComputerResourceManager extends EventEmitter {
           await this.docker(['rm', resource.containerId], { timeoutMs: 30_000 });
         }
         this.closeViewers(id, 4000, 'Computer deleted');
+        this.browserLeases.delete(id);
         this.store.remove(id);
         this.emit('deleted', { id, collectionRevision: this.store.revision });
         return { id, collectionRevision: this.store.revision };
@@ -732,6 +942,84 @@ class ComputerResourceManager extends EventEmitter {
       ['farming.dev/owner-agent', resource.ownerAgentId],
       ['farming.dev/image-digest', COMPUTER_IMAGE_INDEX_DIGEST],
     ];
+  }
+
+  private browserCacheRoot(): string {
+    const root = storageLayout.managedChromiumRootDir(this.configDir);
+    fs.mkdirSync(root, { recursive: true, mode: 0o700 });
+    return root;
+  }
+
+  private hasBrowserRuntimeWiring(inspect: Record<string, unknown>): boolean {
+    const mounts = Array.isArray(inspect.Mounts) ? inspect.Mounts : [];
+    return mounts.some(mount =>
+      recordValue(mount).Destination === COMPUTER_BROWSER_MOUNT
+      && recordValue(mount).RW === false
+    ) && Boolean(recordValue(recordValue(inspect.HostConfig).PortBindings)[COMPUTER_BROWSER_CDP_PORT]);
+  }
+
+  private async ensureBrowserCacheMount(id: string): Promise<void> {
+    const resource = this.privateResource(id);
+    if (!resource.containerId) return;
+    const inspect = await this.inspectOwnedContainer(resource);
+    if (this.hasBrowserRuntimeWiring(inspect)) return;
+    await this.resetContainer(id);
+  }
+
+  async resetContainer(id: string): Promise<void> {
+    await this.stop(id, true);
+    this.holdStopAdmission(id);
+    try {
+      await this.enqueue(id, async () => {
+        const resource = this.privateResource(id);
+        if (resource.containerId) {
+          await this.inspectOwnedContainer(resource);
+          await this.docker(['rm', resource.containerId], { timeoutMs: 30_000 });
+        }
+        this.patch(resource.id, {
+          containerId: '',
+          containerName: '',
+          vncPassword: '',
+          viewerPort: 0,
+          sessionId: '',
+          status: 'stopped',
+          error: '',
+        });
+      });
+    } finally {
+      this.releaseStopAdmission(id);
+    }
+  }
+
+  private browserExecutableInContainer(executablePath: string): string {
+    const root = this.browserCacheRoot();
+    const resolved = path.resolve(String(executablePath || '').trim());
+    const relative = path.relative(root, resolved);
+    if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) {
+      throw computerError(
+        'Computer Chromium must come from Farming managed runtime storage',
+        400,
+        'COMPUTER_BROWSER_EXECUTABLE_INVALID',
+      );
+    }
+    return `${COMPUTER_BROWSER_MOUNT}/${relative.split(path.sep).join('/')}`;
+  }
+
+  private async waitForContainer(
+    containerId: string,
+    command: string[],
+    timeoutMs = START_TIMEOUT_MS,
+  ): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      try {
+        await this.docker(['exec', containerId, ...command], { timeoutMs: 3_000 });
+        return true;
+      } catch {
+        await new Promise(resolve => setTimeout(resolve, 250));
+      }
+    }
+    return false;
   }
 
   private async inspectOwnedContainer(resource: {
