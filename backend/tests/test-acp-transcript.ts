@@ -457,6 +457,16 @@ const removedPlanTranscript = acpSessionTranscript({
 });
 assert.strictEqual(removedPlanTranscript.plan, undefined);
 
+const persistentPlanTranscript = acpSessionTranscript({
+  state: 'working',
+  plan: { entries: [{ content: 'Keep driving the next turn', status: 'in_progress' }] },
+  entries: [
+    { id: 'user-after-plan', type: 'message', role: 'user', content: [{ type: 'text', text: 'Continue' }] },
+  ],
+});
+assert.strictEqual(persistentPlanTranscript.plan.currentStep, 'Keep driving the next turn');
+assert.strictEqual(persistentPlanTranscript.turns[0].processItems.length, 0);
+
 const largeToolTranscript = acpSessionTranscript({
   revision: 7,
   delta: true,

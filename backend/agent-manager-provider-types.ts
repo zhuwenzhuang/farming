@@ -488,7 +488,7 @@ export interface AcpRuntimeContract {
   inputTerminal(agentId: string, terminalId: string, input: string): unknown;
   resizeTerminal(agentId: string, terminalId: string, cols: number, rows: number): unknown;
   cancelSubagent(agentId: string, sessionId: string): Promise<unknown>;
-  decidePatch(agentId: string, toolCallId: string, requestedPath: string, decision: 'accept' | 'reject'): Promise<unknown>;
+  decidePatch(agentId: string, toolCallId: string, requestedPath: string, decision: 'keep' | 'revert'): Promise<unknown>;
   cancel(agentId: string): Promise<unknown>;
   hasBinding(agentId: string): boolean;
   unregisterAgent(agentId: string): void;

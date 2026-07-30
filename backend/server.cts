@@ -1591,8 +1591,13 @@ app.post(routePath(BASE_PATH, '/api/agents/:agentId/acp-subagents/:sessionId/can
 
 app.post(routePath(BASE_PATH, '/api/agents/:agentId/acp-patches/:toolCallId/decision'), express.json({ limit: '16kb' }), async (req, res) => {
   try {
-    const decision = req.body?.decision;
-    if (decision !== 'accept' && decision !== 'reject') {
+    const requestedDecision = req.body?.decision;
+    const decision = requestedDecision === 'accept'
+      ? 'keep'
+      : requestedDecision === 'reject'
+        ? 'revert'
+        : requestedDecision;
+    if (decision !== 'keep' && decision !== 'revert') {
       throw new Error('ACP patch decision is invalid');
     }
     res.json(await agentManager.decideAcpPatch(

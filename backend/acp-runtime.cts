@@ -3013,6 +3013,9 @@ class AcpRuntime extends EventEmitter {
       error: binding.error,
       errorKind: binding.error ? acpErrorKind(binding.error) : '',
       stopReason: binding.stopReason,
+      plan: binding.sessionState?.plan == null
+        ? null
+        : JSON.parse(JSON.stringify(binding.sessionState.plan)),
       ...slice,
     };
   }
@@ -3046,7 +3049,7 @@ class AcpRuntime extends EventEmitter {
     return binding.patchDecisions.get(`${String(toolCallId || '')}\n${String(requestedPath || '')}`) || '';
   }
 
-  async decidePatch(agentId: string, toolCallId: string, requestedPath: string, decision: 'accept' | 'reject') {
+  async decidePatch(agentId: string, toolCallId: string, requestedPath: string, decision: 'keep' | 'revert') {
     const binding = this.requireBinding(agentId);
     this.requireOpenBinding(binding);
     if (

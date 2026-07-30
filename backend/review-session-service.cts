@@ -548,6 +548,16 @@ class ReviewSessionService {
     agentId: unknown,
     itemIds: unknown,
   ): Promise<{ changes: HistoricalReviewChange[]; root: string }> {
+    const { rawChanges, workspaceRoot } = await this.resolveAcpPreviewChanges(agentId, itemIds);
+    const root = await this.resolveRoot(undefined, agentId);
+    const changes = normalizeHistoricalReviewChanges(root, rawChanges, workspaceRoot);
+    return { changes, root };
+  }
+
+  async resolveAcpPreviewChanges(
+    agentId: unknown,
+    itemIds: unknown,
+  ): Promise<{ rawChanges: unknown; workspaceRoot: string }> {
     const requestedWorkspace = typeof agentId === 'string' && agentId.trim()
       ? this.resolveAgentRoot?.(agentId.trim())
       : '';
@@ -557,7 +567,7 @@ class ReviewSessionService {
     } catch {
       throw new ReviewSessionError('review agent workspace does not exist', 404);
     }
-    const root = await this.resolveRoot(undefined, agentId);
+    if (!workspaceRoot) throw new ReviewSessionError('review agent workspace does not exist', 404);
     let rawChanges;
     try {
       const resolveAcpReviewChanges = this.resolveAcpReviewChanges;
@@ -570,14 +580,14 @@ class ReviewSessionService {
         : message.includes('invalid') ? 400 : 409;
       throw new ReviewSessionError(message, status);
     }
-    const changes = normalizeHistoricalReviewChanges(root, rawChanges, workspaceRoot || root);
-    return { changes, root };
+    return { rawChanges, workspaceRoot };
   }
 
   async previewFromAcp({ agentId, itemIds }: AcpReviewInput): Promise<{
     changes: ReturnType<typeof historicalPreviewChange>[];
   }> {
-    const { changes } = await this.resolveAcpChanges(agentId, itemIds);
+    const { rawChanges, workspaceRoot } = await this.resolveAcpPreviewChanges(agentId, itemIds);
+    const changes = normalizeHistoricalReviewChanges(workspaceRoot, rawChanges, workspaceRoot);
     return { changes: changes.map(historicalPreviewChange) };
   }
 

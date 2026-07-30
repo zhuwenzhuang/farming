@@ -151,6 +151,31 @@ async function run() {
     ]);
     assert.match(historicalPreview.changes[0].diff, /-historical old/);
     assert.match(historicalPreview.changes[0].diff, /\+historical new/);
+    const nonGitWorkspace = path.join(temporaryRoot, 'non-git-workspace');
+    fs.mkdirSync(nonGitWorkspace);
+    const nonGitPreviewService = new ReviewSessionService(fileService, sessionStore, stateStore, {
+      resolveAcpReviewChanges(agentId, itemIds) {
+        assert.strictEqual(agentId, 'agent-non-git');
+        assert.deepStrictEqual(itemIds, ['tool-1']);
+        return [{
+          kind: 'updated',
+          oldText: 'before\n',
+          newText: 'after\n',
+          path: path.join(nonGitWorkspace, 'note.txt'),
+        }];
+      },
+      resolveAgentRoot: agentId => agentId === 'agent-non-git' ? nonGitWorkspace : '',
+    });
+    const nonGitPreview = await nonGitPreviewService.previewFromAcp({ agentId: 'agent-non-git', itemIds: ['tool-1'] });
+    assert.deepStrictEqual(nonGitPreview.changes.map(({ diff: _diff, ...change }) => change), [
+      { added: 1, kind: 'updated', path: 'note.txt', removed: 1 },
+    ]);
+    assert.match(nonGitPreview.changes[0].diff, /-before/);
+    assert.match(nonGitPreview.changes[0].diff, /\+after/);
+    await assert.rejects(
+      () => nonGitPreviewService.createFromAcp({ agentId: 'agent-non-git', itemIds: ['tool-1'] }),
+      /not a git repository/,
+    );
     const first = await service.create({ base: 'HEAD', root: repository });
 
     assert.strictEqual(first.base, base);

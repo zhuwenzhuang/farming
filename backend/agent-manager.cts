@@ -6055,7 +6055,7 @@ class AgentManager extends EventEmitter {
     return this.acpRuntime.cancelSubagent(agentId, sessionId);
   }
 
-  decideAcpPatch(agentId: AgentId, toolCallId: string, requestedPath: string, decision: 'accept' | 'reject') {
+  decideAcpPatch(agentId: AgentId, toolCallId: string, requestedPath: string, decision: 'keep' | 'revert') {
     this.assertAgentOperationAdmission();
     this.getAcpSession(agentId);
     return this.acpRuntime.decidePatch(agentId, toolCallId, requestedPath, decision);
