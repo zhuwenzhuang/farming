@@ -1058,7 +1058,6 @@ npm run test:e2e:local
 npm run test:e2e:remote
 npm run test:e2e:workspaces:local
 npm run test:e2e:workspaces:remote
-npm run test:e2e:legacy
 
 # server-backed 旧测试需要已有 localhost:3000 服务时再显式运行
 FARMING_INCLUDE_SERVER_TESTS=1 npm test

@@ -93,7 +93,6 @@
     "test:e2e:visual:capture": "FARMING_VISUAL_OUTPUT_DIR=${FARMING_VISUAL_OUTPUT_DIR:-.tmp/visual-capture} playwright test tests/e2e/visual-regression.spec.ts --project=chromium --workers=1 --retries=0",
     "test:e2e:visual:compare": "node scripts/compare-visual-revisions.cjs",
     "test:e2e:visual:self-test": "node scripts/compare-visual-revisions.cjs --self-test",
-    "test:e2e:legacy": "npm run test:e2e:local",
     "test:e2e:local": "FARMING_BASE_PATH=/farming npm run build && tsx scripts/e2e.ts local",
     "test:e2e:remote": "FARMING_BASE_PATH=/farming npm run build && tsx scripts/e2e.ts remote",
     "test:remote-terminal:smoke": "tsx scripts/smoke-remote-terminal.ts",
