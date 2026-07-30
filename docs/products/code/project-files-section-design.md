@@ -118,6 +118,7 @@ Current implementation boundaries:
 - Dirty and externally changed files should update both editor tabs and tree decoration.
 - Single-child directory chains should be compacted into one visible directory row, for example `tmp/ata2/assets`, to avoid over-indenting a path that carries no branching information.
 - Expanding a directory should hydrate compactable single-child chains below its immediate children in the same interaction, so a click on `src` can reveal stable rows such as `main/java` without first showing `main` and then morphing after a second click.
+- An explicit file reveal is owned by one reveal request. Opening from Chat, Terminal, search, or a file link must not start a second active-file reveal in parallel; the tree scrolls internally first, then applies one nearest-position correction to the Project list. Active-file observation remains only as a fallback for transitions without an explicit reveal request, such as selecting the next editor after a close.
 - Directory icons should prefer stable content signals from loaded descendant file extensions. When no content signal is available, the fallback must use a stable path for the visible row rather than the changing basename of a compacted path.
 
 ## Search And Jump

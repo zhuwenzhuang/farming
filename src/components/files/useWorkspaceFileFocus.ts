@@ -208,7 +208,6 @@ export function useWorkspaceFileFocus({
       const row = Array.from(treeViewportRef.current?.querySelectorAll<HTMLElement>('[data-file-path]') ?? [])
         .find(element => element.dataset.filePath === filePath)
       if (!row) return
-      row.scrollIntoView({ block: 'nearest' })
       revealRowInProjectScroller(row, emphasizeLocation)
       if (shouldFocusTree) focusWithoutScrolling(row.closest<HTMLElement>('[role="tree"]'))
     }

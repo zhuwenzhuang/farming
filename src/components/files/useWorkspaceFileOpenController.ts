@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   deletedWorkspaceDiffPlaceholderFile,
   shouldOpenMissingWorkspaceFileAsDiff,
-  shouldRevealSelectedWorkspaceOpenFile,
   type WorkspaceFileOpenTarget,
 } from '@/lib/workspace-open-files'
 import {
@@ -17,7 +16,6 @@ interface UseWorkspaceFileOpenControllerOptions {
   agentId: string | null
   onClearSearch: () => void
   onOpenFile: (agentId: string, file: WorkspaceFile, target?: WorkspaceFileOpenTarget) => void
-  onRevealFilePath: (filePath: string) => Promise<void>
   onSelectOpenFile?: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => boolean
 }
 
@@ -25,7 +23,6 @@ export function useWorkspaceFileOpenController({
   agentId,
   onClearSearch,
   onOpenFile,
-  onRevealFilePath,
   onSelectOpenFile,
 }: UseWorkspaceFileOpenControllerOptions) {
   const fileOpenRequestRef = useRef(0)
@@ -82,7 +79,6 @@ export function useWorkspaceFileOpenController({
     if (onSelectOpenFile?.(agentId, filePath, target)) {
       clearOpenFilePending()
       onClearSearch()
-      if (shouldRevealSelectedWorkspaceOpenFile(target)) void onRevealFilePath(filePath)
       return
     }
     scheduleOpenFilePending(requestId, requestAgentId, filePath)
@@ -96,7 +92,6 @@ export function useWorkspaceFileOpenController({
       clearOpenFilePending()
       onOpenFile(requestAgentId, file, target)
       onClearSearch()
-      if (shouldRevealSelectedWorkspaceOpenFile(target)) void onRevealFilePath(filePath)
     } catch (error) {
       if (
         fileOpenRequestRef.current !== requestId
@@ -111,7 +106,7 @@ export function useWorkspaceFileOpenController({
       }
       setOpenFileError(error instanceof Error ? error.message : 'Failed to open file')
     }
-  }, [agentId, clearOpenFilePending, onClearSearch, onOpenFile, onRevealFilePath, onSelectOpenFile, scheduleOpenFilePending])
+  }, [agentId, clearOpenFilePending, onClearSearch, onOpenFile, onSelectOpenFile, scheduleOpenFilePending])
 
   return {
     openFileError,

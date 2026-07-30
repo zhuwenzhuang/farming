@@ -199,7 +199,6 @@ export function ProjectFilesSection({
     agentId,
     onClearSearch: clearFileSearch,
     onOpenFile,
-    onRevealFilePath: revealFilePath,
     onSelectOpenFile,
   })
 
@@ -358,6 +357,11 @@ export function ProjectFilesSection({
   const openEditorContextMenu = useCallback((x: number, y: number, file: OpenProjectFileSummary) => {
     openFileContextMenu(x, y, openEditorFileContextNode(file))
   }, [openFileContextMenu])
+
+  useEffect(() => {
+    if (revealRequest?.kind !== 'file' || revealRequest.path !== activeFilePath) return
+    lastAutoRevealedActivePathRef.current = activeFilePath
+  }, [activeFilePath, revealRequest])
 
   const {
     filesCollapsed,

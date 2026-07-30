@@ -222,6 +222,7 @@ Files
 - 隐藏 `.git`、`.farming`、`node_modules`、`dist`、`build`、`coverage` 等目录
 - 当前打开文件高亮
 - 当前打开文件应在 Explorer 中自动 reveal，避免从 terminal/path 跳转打开后左侧只高亮但不可见
+- 显式文件定位只由一个 reveal request 持有。从 Chat、Terminal、搜索或文件链接打开时，不得并行启动第二条 active-file reveal；文件树先完成内部滚动，再对 Project 列表做一次 nearest 位置校正。active-file 监听只作为没有显式 reveal request 的状态转换兜底，例如关闭当前 tab 后选中下一个编辑器。
 - 打开文件的 working copy 身份按 `workspaceRoot + path` 去重；多个 Agent 指向同一 workspace 的同一路径时只保留一个 editor tab。来源 Agent 单独作为可选关联保存，且只有关联仍有效时才显示返回入口
 - 当前打开文件的 active 高亮和 tree selection 要分离：active file 用左侧细条 + 很浅背景表示右侧 editor 对应关系，tree selection 用浅底色交给 tree engine 维护键盘焦点和轻量选择态
 - 搜索入口复用 `/api/files/search`，结果点击直接打开对应文件并定位 Monaco 到匹配行；搜索结果列表只在有输入时出现，不变成独立页面

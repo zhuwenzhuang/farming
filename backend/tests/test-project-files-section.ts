@@ -382,7 +382,7 @@ function run() {
       openFilesSource.includes('function shouldRevealSelectedWorkspaceOpenFile') &&
       fileOpenControllerSource.includes('deletedWorkspaceDiffPlaceholderFile') &&
       fileOpenControllerSource.includes('shouldOpenMissingWorkspaceFileAsDiff') &&
-      fileOpenControllerSource.includes('shouldRevealSelectedWorkspaceOpenFile') &&
+      !fileOpenControllerSource.includes('shouldRevealSelectedWorkspaceOpenFile') &&
       !fileOpenControllerSource.includes('function deletedDiffPlaceholderFile') &&
       !fileOpenControllerSource.includes('function shouldOpenMissingFileAsDiff') &&
       !fileOpenControllerSource.includes('function shouldRevealSelectedOpenFile') &&
@@ -390,7 +390,9 @@ function run() {
       openFilesSource.includes("view: change.gitStatus === 'untracked' ? 'editor' : 'diff'") &&
       openFilesSource.includes('revealInTree: false') &&
       fileOpenControllerSource.includes('onSelectOpenFile?.(agentId, filePath, target)') &&
-      fileOpenControllerSource.includes('if (shouldRevealSelectedWorkspaceOpenFile(target)) void onRevealFilePath(filePath)') &&
+	      !fileOpenControllerSource.includes('onRevealFilePath') &&
+	      fileSectionSource.includes("if (revealRequest?.kind !== 'file' || revealRequest.path !== activeFilePath) return") &&
+	      fileSectionSource.includes('lastAutoRevealedActivePathRef.current = activeFilePath') &&
 	      fileOpenControllerSource.includes('onClearSearch()') &&
 	      fileSectionSource.includes('onSelectOpenFile,') &&
 	      fileOpenControllerSource.includes('error instanceof WorkspaceFileApiError && error.status === 404') &&
