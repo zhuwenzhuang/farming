@@ -49,7 +49,12 @@ function writeFakeNpm(rootDir, callsFile, { requireFallback = false, runtimeExit
     `const packageRoot = path.join(prefix, 'lib', 'node_modules', 'farming-code');`,
     `fs.mkdirSync(path.join(packageRoot, 'bin'), { recursive: true });`,
     `fs.writeFileSync(path.join(packageRoot, 'package.json'), JSON.stringify({ name: 'farming-code', version }));`,
-    `fs.writeFileSync(path.join(packageRoot, 'bin', 'farming'), 'process.exit(${runtimeExitCode});\\n');`,
+    `fs.writeFileSync(path.join(packageRoot, 'bin', 'farming'), ${JSON.stringify([
+      `const fs = require('fs');`,
+      `fs.writeFileSync(${JSON.stringify(`${callsFile}.runtime`)}, JSON.stringify(process.argv.slice(2)));`,
+      `process.exit(${runtimeExitCode});`,
+      '',
+    ].join('\n'))});`,
     '',
   ].join('\n'), { mode: 0o755 });
   return command;
@@ -224,6 +229,10 @@ async function run() {
   assert.strictEqual(JSON.parse(fs.readFileSync(path.join(preparePayload.stagingPackageRoot, 'package.json'))).version, '2.3.0');
   const prepareArguments = JSON.parse(fs.readFileSync(prepareCalls, 'utf8').trim());
   assert.deepStrictEqual(prepareArguments.slice(0, 4), ['install', '--global', '--prefix', preparePayload.stagingPrefix]);
+  assert.deepStrictEqual(
+    JSON.parse(fs.readFileSync(`${prepareCalls}.runtime`, 'utf8')),
+    ['runtime', 'prepare', '--config-dir', preparePayload.configDir, '--no-activate'],
+  );
 
   const failedPrepareRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-npm-helper-prepare-failure.'));
   const failedPreparePayload = payloadFor(failedPrepareRoot, { npmCommand: '/usr/bin/false' });

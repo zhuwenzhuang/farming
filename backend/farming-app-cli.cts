@@ -92,6 +92,7 @@ interface WaitForDaemonStopOptions {
 }
 
 interface PrepareStartupOptions {
+  activate?: boolean;
   force?: boolean;
 }
 
@@ -1141,11 +1142,13 @@ async function prepareStartupDependencies(
   }
   const { prepareRuntimeDependencies } = require('./runtime-dependency-manager.cjs') as {
     prepareRuntimeDependencies(options: {
+      activate?: boolean;
       configDir: string;
       env: NodeJS.ProcessEnv;
     }): Promise<unknown>;
   };
   return prepareRuntimeDependencies({
+    activate: options.activate,
     configDir: env.FARMING_CONFIG_DIR,
     env,
   });
@@ -1370,7 +1373,7 @@ function usage(): string {
   farming stop
   farming logs
   farming url
-  farming runtime prepare [--config-dir ~/.farming]
+  farming runtime prepare [--config-dir ~/.farming] [--no-activate]
   farming review <git-dir> <old-revision> <new-revision|now> [--branch <branch>] [--no-open]
 
 Agent control commands are also available:
@@ -1439,9 +1442,13 @@ async function run(argv: string[] = process.argv.slice(2)): Promise<number> {
   }
 
   if (argv[0] === 'runtime' && argv[1] === 'prepare') {
-    const parsed = parseServerArgs(['start', ...argv.slice(2)]);
+    const activate = !argv.slice(2).includes('--no-activate');
+    const parsed = parseServerArgs([
+      'start',
+      ...argv.slice(2).filter(arg => arg !== '--no-activate'),
+    ]);
     const env = buildServerEnv(parsed.env);
-    const result = await prepareStartupDependencies(env, { force: true });
+    const result = await prepareStartupDependencies(env, { activate, force: true });
     console.log(JSON.stringify(result, null, 2));
     return 0;
   }

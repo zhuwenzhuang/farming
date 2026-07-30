@@ -77,6 +77,14 @@ function runtimeDependenciesActiveFile(configDir: string): string {
   return path.join(runtimeDependenciesDir(configDir), 'active.json');
 }
 
+function runtimeDependencyBindingsDir(configDir: string): string {
+  return path.join(runtimeDependenciesDir(configDir), 'bindings');
+}
+
+function runtimeDependencyBindingFile(configDir: string, bindingId: string): string {
+  return path.join(runtimeDependencyBindingsDir(configDir), `${bindingId}.json`);
+}
+
 function runtimeDependenciesLockDir(configDir: string): string {
   return path.join(runtimeDependenciesDir(configDir), '.prepare.lock');
 }
@@ -194,6 +202,8 @@ export {
   managedChromiumRootDir,
   managedChromiumVersionDir,
   runtimeDependenciesActiveFile,
+  runtimeDependencyBindingFile,
+  runtimeDependencyBindingsDir,
   runtimeDependenciesDir,
   runtimeDependenciesLockDir,
   nativePtyControllerGenerationFile,

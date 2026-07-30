@@ -36,6 +36,14 @@ function run() {
       path.join(configDir, 'runtimes', 'active.json'),
     );
     assert.strictEqual(
+      storageLayout.runtimeDependencyBindingsDir(configDir),
+      path.join(configDir, 'runtimes', 'bindings'),
+    );
+    assert.strictEqual(
+      storageLayout.runtimeDependencyBindingFile(configDir, 'manifest_example'),
+      path.join(configDir, 'runtimes', 'bindings', 'manifest_example.json'),
+    );
+    assert.strictEqual(
       storageLayout.runtimeDependenciesLockDir(configDir),
       path.join(configDir, 'runtimes', '.prepare.lock'),
     );

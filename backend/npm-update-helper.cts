@@ -325,6 +325,7 @@ async function prepareNpmUpdate(payload: NpmUpdatePayload): Promise<void> {
       'prepare',
       '--config-dir',
       payload.configDir,
+      '--no-activate',
     ], {
       cwd: payload.configDir,
       env: commandEnvironment(),

@@ -20,6 +20,7 @@
 ## 部署与访问
 
 - [安全与可信网络说明](../../SECURITY.zh_cn.md)
+- [运行依赖版本与更新绑定](runtime-dependencies.zh_cn.md)
 - [连接外部 CDP 浏览器](../products/code/external-cdp-browser.zh_cn.md)
 - [使用 Farming Net 管理多套部署](../products/net/README.zh_cn.md)
 

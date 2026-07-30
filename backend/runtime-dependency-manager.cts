@@ -15,6 +15,8 @@ interface StorageLayout {
   farmingConfigDir(env?: NodeJS.ProcessEnv): string;
   runtimeDependenciesDir(configDir: string): string;
   runtimeDependenciesActiveFile(configDir: string): string;
+  runtimeDependencyBindingFile(configDir: string, bindingId: string): string;
+  runtimeDependencyBindingsDir(configDir: string): string;
   runtimeDependenciesLockDir(configDir: string): string;
 }
 
@@ -133,8 +135,11 @@ type InstallRuntime = (
 ) => Promise<ResolvedRuntime>;
 
 interface RuntimeManagerOptions extends RuntimePlatformOptions, DownloadOptions, LockOptions {
+  activate?: boolean;
   configDir?: string;
+  dependencyIds?: readonly string[];
   installRuntime?: InstallRuntime;
+  retainedBindings?: number;
 }
 
 interface ActiveRuntimeDependency {
@@ -146,6 +151,7 @@ interface ActiveRuntimeDependency {
 
 interface ActiveRuntimeManifest {
   schemaVersion: number;
+  bindingId?: string;
   manifestId: string;
   platformKey: string;
   dependencies: Record<string, ActiveRuntimeDependency>;
@@ -195,6 +201,7 @@ const MIRROR_LOOKUP_TIMEOUT_MS = 3_000;
 const LOCK_TIMEOUT_MS = 180_000;
 const LOCK_STALE_MS = 10 * 60_000;
 const LOCK_POLL_MS = 100;
+const DEFAULT_RETAINED_BINDINGS = 3;
 const SAFE_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const AUTHORITATIVE_NPM_ORIGIN = new URL(SOURCE_CONFIG.authoritativeNpmRegistry).origin;
 
@@ -216,6 +223,8 @@ const DEPENDENCIES: readonly RuntimeDependencyDefinition[] = Object.freeze([
     allowSystem: false,
   },
 ]);
+
+const DEPENDENCY_BY_ID = new Map(DEPENDENCIES.map(definition => [definition.id, definition]));
 
 function errorCode(error: unknown): string {
   if (!error || typeof error !== 'object' || !('code' in error)) return '';
@@ -253,6 +262,65 @@ function safeRelative(value: unknown, label = 'entry'): string {
     throw new Error(`Invalid runtime dependency ${label}`);
   }
   return text;
+}
+
+function selectedDependencyDefinitions(ids: readonly string[] | undefined): RuntimeDependencyDefinition[] {
+  if (ids === undefined) return [...DEPENDENCIES];
+  const requested = new Set(ids.map(id => safeSegment(id, 'id')));
+  for (const id of requested) {
+    if (!DEPENDENCY_BY_ID.has(id)) throw new Error(`Unknown runtime dependency: ${id}`);
+  }
+  return DEPENDENCIES.filter(definition => requested.has(definition.id));
+}
+
+function runtimeBindingId(manifestId: string, platformKey: string): string {
+  return `${safeSegment(manifestId, 'manifest id')}.${safeSegment(platformKey, 'platform key')}`;
+}
+
+function normalizeRuntimeBinding(value: ActiveRuntimeManifest | null): ActiveRuntimeManifest | null {
+  if (!value || !SAFE_SEGMENT.test(String(value.manifestId || ''))) return null;
+  if (!SAFE_SEGMENT.test(String(value.platformKey || ''))) return null;
+  if (!value.dependencies || typeof value.dependencies !== 'object') return null;
+  return {
+    schemaVersion: Number(value.schemaVersion) || 1,
+    bindingId: SAFE_SEGMENT.test(String(value.bindingId || ''))
+      ? String(value.bindingId)
+      : String(value.manifestId),
+    manifestId: String(value.manifestId),
+    platformKey: String(value.platformKey),
+    dependencies: value.dependencies,
+    preparedAt: String(value.preparedAt || ''),
+  };
+}
+
+function readRuntimeBinding(configDir: string, bindingId: string): ActiveRuntimeManifest | null {
+  if (!SAFE_SEGMENT.test(bindingId)) return null;
+  return normalizeRuntimeBinding(readJson<ActiveRuntimeManifest>(
+    storageLayout.runtimeDependencyBindingFile(configDir, bindingId),
+  ));
+}
+
+function writeRuntimeBinding(configDir: string, binding: ActiveRuntimeManifest): void {
+  const bindingId = safeSegment(binding.bindingId, 'binding id');
+  fs.mkdirSync(storageLayout.runtimeDependencyBindingsDir(configDir), { recursive: true, mode: 0o700 });
+  writeJsonAtomic(
+    storageLayout.runtimeDependencyBindingFile(configDir, bindingId),
+    binding,
+  );
+}
+
+function runtimeBindings(configDir: string): ActiveRuntimeManifest[] {
+  const bindingsDir = storageLayout.runtimeDependencyBindingsDir(configDir);
+  if (!fs.existsSync(bindingsDir)) return [];
+  const bindings: ActiveRuntimeManifest[] = [];
+  for (const entry of fs.readdirSync(bindingsDir, { withFileTypes: true })) {
+    if (!entry.isFile() || !entry.name.endsWith('.json')) continue;
+    const bindingId = entry.name.slice(0, -'.json'.length);
+    if (!SAFE_SEGMENT.test(bindingId)) continue;
+    const binding = readRuntimeBinding(configDir, bindingId);
+    if (binding && binding.bindingId === bindingId) bindings.push(binding);
+  }
+  return bindings;
 }
 
 function isMuslRuntime(): boolean {
@@ -948,6 +1016,7 @@ function applyRuntimeEnvironment(
 }
 
 async function prepareRuntimeDependencies(options: RuntimeManagerOptions = {}): Promise<{
+  binding: ActiveRuntimeManifest;
   manifestId: string;
   platformKey: string;
   dependencies: ResolvedRuntime[];
@@ -960,7 +1029,7 @@ async function prepareRuntimeDependencies(options: RuntimeManagerOptions = {}): 
   const releaseLock = await acquirePrepareLock(configDir, options);
   const prepared: ResolvedRuntime[] = [];
   try {
-    for (const definition of DEPENDENCIES) {
+    for (const definition of selectedDependencyDefinitions(options.dependencyIds)) {
       const selectedPlatformKey = dependencyPlatformKey(
         definition.id,
         platformKey,
@@ -980,19 +1049,29 @@ async function prepareRuntimeDependencies(options: RuntimeManagerOptions = {}): 
       prepared.push(runtime);
     }
     applyRuntimeEnvironment(env, prepared);
-    writeJsonAtomic(storageLayout.runtimeDependenciesActiveFile(configDir), {
-      schemaVersion: 1,
+    const bindingId = runtimeBindingId(MANIFEST.manifestId, platformKey);
+    const existing = readRuntimeBinding(configDir, bindingId);
+    const binding: ActiveRuntimeManifest = {
+      schemaVersion: 2,
+      bindingId,
       manifestId: MANIFEST.manifestId,
       platformKey,
-      dependencies: Object.fromEntries(prepared.map(item => [item.id, {
-        version: item.version,
-        platformKey: item.platformKey,
-        source: item.source,
-        executablePath: item.executablePath,
-      }])),
+      dependencies: {
+        ...(existing?.platformKey === platformKey ? existing.dependencies : {}),
+        ...Object.fromEntries(prepared.map(item => [item.id, {
+          version: item.version,
+          platformKey: item.platformKey,
+          source: item.source,
+          executablePath: item.executablePath,
+        }])),
+      },
       preparedAt: new Date().toISOString(),
-    });
-    return { manifestId: MANIFEST.manifestId, platformKey, dependencies: prepared };
+    };
+    writeRuntimeBinding(configDir, binding);
+    if (options.activate !== false) {
+      writeJsonAtomic(storageLayout.runtimeDependenciesActiveFile(configDir), binding);
+    }
+    return { binding, manifestId: MANIFEST.manifestId, platformKey, dependencies: prepared };
   } finally {
     releaseLock();
   }
@@ -1003,17 +1082,60 @@ async function pruneRuntimeDependencies(
 ): Promise<{ removed: string[] }> {
   const env = options.env || process.env;
   const configDir = options.configDir || storageLayout.farmingConfigDir(env);
-  const active = readJson<ActiveRuntimeManifest>(
-    storageLayout.runtimeDependenciesActiveFile(configDir),
-  );
-  if (!active || active.manifestId !== MANIFEST.manifestId) return { removed: [] };
   const releaseLock = await acquirePrepareLock(configDir, options);
   const removed: string[] = [];
   try {
-    const latest = readJson<ActiveRuntimeManifest>(
+    const active = normalizeRuntimeBinding(readJson<ActiveRuntimeManifest>(
       storageLayout.runtimeDependenciesActiveFile(configDir),
+    ));
+    const storedBindings = runtimeBindings(configDir).sort((left, right) => (
+      (Date.parse(right.preparedAt || '') || 0) - (Date.parse(left.preparedAt || '') || 0)
+    ));
+    if (!active && storedBindings.length === 0) return { removed };
+    const retainedCount = Math.max(
+      1,
+      Math.min(10, Math.floor(Number(options.retainedBindings) || DEFAULT_RETAINED_BINDINGS)),
     );
-    if (!latest || latest.manifestId !== MANIFEST.manifestId) return { removed };
+    const retainedIds = new Set<string>();
+    if (active?.bindingId) retainedIds.add(active.bindingId);
+    for (const binding of storedBindings) {
+      if (retainedIds.size >= retainedCount) break;
+      if (binding.bindingId) retainedIds.add(binding.bindingId);
+    }
+    const retainedBindings = storedBindings.filter(binding => (
+      binding.bindingId && retainedIds.has(binding.bindingId)
+    ));
+    if (active && !retainedBindings.some(binding => binding.bindingId === active.bindingId)) {
+      retainedBindings.push(active);
+    }
+    for (const binding of storedBindings) {
+      if (!binding.bindingId || retainedIds.has(binding.bindingId)) continue;
+      const bindingFile = storageLayout.runtimeDependencyBindingFile(configDir, binding.bindingId);
+      fs.rmSync(bindingFile, { force: true });
+      removed.push(bindingFile);
+    }
+
+    const keepDirs = new Map<string, Set<string>>();
+    for (const binding of retainedBindings) {
+      for (const [id, dependency] of Object.entries(binding.dependencies || {})) {
+        if (dependency.source !== 'managed') continue;
+        if (!DEPENDENCY_BY_ID.has(id)) continue;
+        const selectedPlatform = safeSegment(
+          dependency.platformKey || binding.platformKey,
+          'platform key',
+        );
+        const keepDir = dependencyCacheDir(
+          configDir,
+          id,
+          safeSegment(dependency.version, 'version'),
+          selectedPlatform,
+        );
+        const paths = keepDirs.get(id) || new Set<string>();
+        paths.add(path.resolve(keepDir));
+        keepDirs.set(id, paths);
+      }
+    }
+
     for (const definition of DEPENDENCIES) {
       const dependencyRoot = path.join(
         storageLayout.runtimeDependenciesDir(configDir),
@@ -1026,27 +1148,10 @@ async function pruneRuntimeDependencies(
         removed.push(dependencyRoot);
         continue;
       }
-      const activeDependency = latest.dependencies?.[definition.id];
-      const dependencyPlatform = safeSegment(
-        activeDependency?.platformKey || latest.platformKey,
-        'platform key',
-      );
-      const keepDir = activeDependency?.source === 'managed'
-        ? dependencyCacheDir(
-            configDir,
-            definition.id,
-            MANIFEST.dependencies[definition.id].version,
-            dependencyPlatform,
-          )
-        : '';
-      const keepVersionDir = keepDir ? path.dirname(keepDir) : '';
+      const dependencyKeepDirs = keepDirs.get(definition.id) || new Set<string>();
       for (const versionEntry of fs.readdirSync(dependencyRoot, { withFileTypes: true })) {
         const versionDir = path.join(dependencyRoot, versionEntry.name);
-        if (
-          !versionEntry.isDirectory()
-          || !keepDir
-          || path.resolve(versionDir) !== path.resolve(keepVersionDir)
-        ) {
+        if (!versionEntry.isDirectory()) {
           fs.rmSync(versionDir, { recursive: true, force: true });
           removed.push(versionDir);
           continue;
@@ -1055,10 +1160,14 @@ async function pruneRuntimeDependencies(
           const platformDir = path.join(versionDir, platformEntry.name);
           if (
             platformEntry.isDirectory()
-            && path.resolve(platformDir) === path.resolve(keepDir)
+            && dependencyKeepDirs.has(path.resolve(platformDir))
           ) continue;
           fs.rmSync(platformDir, { recursive: true, force: true });
           removed.push(platformDir);
+        }
+        if (fs.readdirSync(versionDir).length === 0) {
+          fs.rmdirSync(versionDir);
+          removed.push(versionDir);
         }
       }
       if (fs.readdirSync(dependencyRoot).length === 0) fs.rmdirSync(dependencyRoot);
@@ -1081,7 +1190,11 @@ export {
   managedRuntimeUsesConfiguredLoader,
   prepareRuntimeDependencies,
   pruneRuntimeDependencies,
+  readRuntimeBinding,
   runtimeArtifactDownloadUrls,
+  runtimeBindingId,
+  runtimeBindings,
   runtimePlatformKey,
+  selectedDependencyDefinitions,
   verifyExecutable,
 };

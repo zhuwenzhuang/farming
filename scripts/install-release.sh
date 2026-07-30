@@ -287,7 +287,7 @@ prepare_release_runtime_dependencies() {
   fi
   ensure_glibc_runtime
   log "Preparing startup dependencies before the restart window ..."
-  run_release_cli "${SOURCE_DIR}" runtime prepare --config-dir "$(effective_config_dir)"
+  run_release_cli "${SOURCE_DIR}" runtime prepare --config-dir "$(effective_config_dir)" --no-activate
 }
 
 stop_server() {

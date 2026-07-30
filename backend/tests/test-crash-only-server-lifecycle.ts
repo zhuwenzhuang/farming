@@ -68,7 +68,7 @@ function run() {
 
   assert(
     deploySource.includes('prepare_remote_runtime_dependencies()') &&
-      deploySource.includes('bin/farming runtime prepare --config-dir ${config_dir}') &&
+      deploySource.includes('bin/farming runtime prepare --config-dir ${config_dir} --no-activate') &&
       deploySource.includes('prepare_remote_runtime_dependencies\n  write_source_release_metadata') &&
       deploySource.indexOf('prepare_remote_runtime_dependencies\n  write_source_release_metadata')
         < deploySource.indexOf('cmd_start "$@"'),
@@ -77,7 +77,7 @@ function run() {
 
   assert(
     releaseInstallerSource.includes('prepare_release_runtime_dependencies()') &&
-      releaseInstallerSource.includes('run_release_cli "${SOURCE_DIR}" runtime prepare') &&
+      releaseInstallerSource.includes('run_release_cli "${SOURCE_DIR}" runtime prepare --config-dir "$(effective_config_dir)" --no-activate') &&
       releaseInstallerSource.includes(
         'ensure_prerequisites\n  prepare_release_runtime_dependencies\n  stop_server',
       ),

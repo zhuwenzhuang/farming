@@ -21,6 +21,7 @@ Browser commands are disclosed gradually through `farming browser --help`.
 ## Deployment And Access
 
 - [Security and trusted-network guidance](../../SECURITY.md)
+- [Runtime dependency versions and update bindings](runtime-dependencies.md)
 - [Connect an external CDP browser](../products/code/external-cdp-browser.md)
 - [Farming Net for several deployments](../products/net/README.md)
 

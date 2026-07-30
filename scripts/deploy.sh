@@ -217,9 +217,9 @@ prepare_remote_runtime_dependencies() {
   if [ -n "${RUNTIME_NPM_MIRROR}" ]; then
     printf -v mirror_prefix 'FARMING_RUNTIME_NPM_MIRROR=%q ' "${RUNTIME_NPM_MIRROR}"
   fi
-  prepare_command="${mirror_prefix}${remote_node} bin/farming runtime prepare --config-dir ${config_dir}"
+  prepare_command="${mirror_prefix}${remote_node} bin/farming runtime prepare --config-dir ${config_dir} --no-activate"
   if remote_uses_glibc; then
-    prepare_command="${mirror_prefix}FARMING_NODE_LD=${REMOTE_GLIBC_ROOT}/lib/ld-2.28.so FARMING_NODE_LIBRARY_PATH=${REMOTE_GLIBC_ROOT}/lib ${REMOTE_GLIBC_ROOT}/lib/ld-2.28.so --library-path ${REMOTE_GLIBC_ROOT}/lib ${remote_node} bin/farming runtime prepare --config-dir ${config_dir}"
+    prepare_command="${mirror_prefix}FARMING_NODE_LD=${REMOTE_GLIBC_ROOT}/lib/ld-2.28.so FARMING_NODE_LIBRARY_PATH=${REMOTE_GLIBC_ROOT}/lib ${REMOTE_GLIBC_ROOT}/lib/ld-2.28.so --library-path ${REMOTE_GLIBC_ROOT}/lib ${remote_node} bin/farming runtime prepare --config-dir ${config_dir} --no-activate"
   fi
   log "Preparing startup dependencies before the restart window ..."
   remote "cd ${REMOTE_DIR} && ${prepare_command}"

@@ -15,8 +15,12 @@ const {
   managedRuntimeUsesConfiguredLoader,
   prepareRuntimeDependencies,
   pruneRuntimeDependencies,
+  readRuntimeBinding,
   runtimeArtifactDownloadUrls,
+  runtimeBindingId,
+  runtimeBindings,
   runtimePlatformKey,
+  selectedDependencyDefinitions,
   verifyExecutable,
 } = require('../runtime-dependency-manager.cjs');
 const { buildManifest } = require('../../scripts/build-runtime-dependency-manifest');
@@ -70,6 +74,11 @@ async function run() {
   );
   assert.strictEqual(managedRuntimeUsesConfiguredLoader('codex'), false);
   assert.strictEqual(managedRuntimeUsesConfiguredLoader('claude'), false);
+  assert.deepStrictEqual(
+    selectedDependencyDefinitions(['agentBrowser', 'codex']).map(definition => definition.id),
+    ['codex', 'agentBrowser'],
+  );
+  assert.throws(() => selectedDependencyDefinitions(['unknown']), /Unknown runtime dependency/);
   assert.strictEqual(
     dependencyPlatformKey('agentBrowser', 'linux-x64', {
       FARMING_NODE_LD: '/runtime/ld-2.28.so',
@@ -229,8 +238,68 @@ async function run() {
   assert.strictEqual(env.FARMING_AGENT_BROWSER_BIN, managedAgentBrowser);
   assert.strictEqual(env.FARMING_RUNTIME_MANIFEST_ID, MANIFEST.manifestId);
   const active = JSON.parse(fs.readFileSync(storageLayout.runtimeDependenciesActiveFile(root), 'utf8'));
+  const activeBindingId = runtimeBindingId(MANIFEST.manifestId, runtimePlatformKey());
+  assert.strictEqual(active.schemaVersion, 2);
+  assert.strictEqual(active.bindingId, activeBindingId);
   assert.strictEqual(active.manifestId, MANIFEST.manifestId);
   assert.deepStrictEqual(Object.keys(active.dependencies), ['codex', 'claude', 'agentBrowser']);
+  assert.deepStrictEqual(readRuntimeBinding(root, activeBindingId), active);
+  assert.deepStrictEqual(runtimeBindings(root), [active]);
+
+  const partialRoot = path.join(root, 'partial');
+  const partialEnv: NodeJS.ProcessEnv = {
+    PATH: process.env.PATH,
+    FARMING_CODEX_BIN: env.FARMING_CODEX_BIN,
+    FARMING_CLAUDE_BIN: env.FARMING_CLAUDE_BIN,
+  };
+  const partialBrowser = await prepareRuntimeDependencies({
+    activate: false,
+    configDir: partialRoot,
+    dependencyIds: ['agentBrowser'],
+    env: partialEnv,
+    installRuntime,
+  });
+  assert.deepStrictEqual(partialBrowser.dependencies.map(item => item.id), ['agentBrowser']);
+  assert.strictEqual(fs.existsSync(storageLayout.runtimeDependenciesActiveFile(partialRoot)), false);
+  assert.deepStrictEqual(
+    Object.keys(readRuntimeBinding(partialRoot, activeBindingId).dependencies),
+    ['agentBrowser'],
+  );
+  const partialCodex = await prepareRuntimeDependencies({
+    configDir: partialRoot,
+    dependencyIds: ['codex'],
+    env: partialEnv,
+  });
+  assert.deepStrictEqual(partialCodex.dependencies.map(item => item.id), ['codex']);
+  assert.deepStrictEqual(
+    Object.keys(JSON.parse(
+      fs.readFileSync(storageLayout.runtimeDependenciesActiveFile(partialRoot), 'utf8'),
+    ).dependencies),
+    ['agentBrowser', 'codex'],
+  );
+
+  const stagedRoot = path.join(root, 'staged');
+  fs.mkdirSync(storageLayout.runtimeDependenciesDir(stagedRoot), { recursive: true });
+  fs.writeFileSync(storageLayout.runtimeDependenciesActiveFile(stagedRoot), JSON.stringify({
+    schemaVersion: 1,
+    manifestId: 'running-manifest',
+    platformKey: runtimePlatformKey(),
+    dependencies: {},
+    preparedAt: '2026-07-30T09:00:00.000Z',
+  }));
+  await prepareRuntimeDependencies({
+    activate: false,
+    configDir: stagedRoot,
+    dependencyIds: ['agentBrowser'],
+    env: { PATH: process.env.PATH },
+    installRuntime,
+  });
+  assert.strictEqual(
+    JSON.parse(fs.readFileSync(storageLayout.runtimeDependenciesActiveFile(stagedRoot), 'utf8')).manifestId,
+    'running-manifest',
+    'preparing an update must not replace the running release binding',
+  );
+  assert(readRuntimeBinding(stagedRoot, activeBindingId));
 
   const legacyConfigDir = path.join(root, 'legacy-glibc');
   const legacyEnv: NodeJS.ProcessEnv = {
@@ -310,6 +379,56 @@ async function run() {
   assert(!fs.existsSync(oldCodexCache));
   assert.strictEqual(fs.readFileSync(path.join(outsideCache, 'keep.txt'), 'utf8'), 'keep');
 
+  const multiRoot = path.join(root, 'multi-binding');
+  const multiPlatform = runtimePlatformKey();
+  const bindingVersions = [
+    ['active-binding', '0.40.0', '2026-07-30T10:00:00.000Z'],
+    ['prepared-binding', '0.41.0', '2026-07-30T12:00:00.000Z'],
+    ['previous-binding', '0.39.0', '2026-07-30T11:00:00.000Z'],
+    ['stale-binding', '0.38.0', '2026-07-29T10:00:00.000Z'],
+  ];
+  fs.mkdirSync(storageLayout.runtimeDependencyBindingsDir(multiRoot), { recursive: true });
+  for (const [bindingId, version, preparedAt] of bindingVersions) {
+    const cacheDir = dependencyCacheDir(multiRoot, 'agentBrowser', version, multiPlatform);
+    fs.mkdirSync(cacheDir, { recursive: true });
+    fs.writeFileSync(path.join(cacheDir, 'runtime'), bindingId);
+    const binding = {
+      schemaVersion: 2,
+      bindingId,
+      manifestId: bindingId,
+      platformKey: multiPlatform,
+      dependencies: {
+        agentBrowser: {
+          version,
+          platformKey: multiPlatform,
+          source: 'managed',
+          executablePath: path.join(cacheDir, 'agent-browser'),
+        },
+      },
+      preparedAt,
+    };
+    fs.writeFileSync(
+      storageLayout.runtimeDependencyBindingFile(multiRoot, bindingId),
+      JSON.stringify(binding),
+    );
+    if (bindingId === 'active-binding') {
+      fs.writeFileSync(storageLayout.runtimeDependenciesActiveFile(multiRoot), JSON.stringify(binding));
+    }
+  }
+  const multiPruned = await pruneRuntimeDependencies({
+    configDir: multiRoot,
+    env,
+    retainedBindings: 3,
+  });
+  for (const version of ['0.40.0', '0.41.0', '0.39.0']) {
+    assert(fs.existsSync(dependencyCacheDir(multiRoot, 'agentBrowser', version, multiPlatform)));
+  }
+  assert(!fs.existsSync(dependencyCacheDir(multiRoot, 'agentBrowser', '0.38.0', multiPlatform)));
+  assert(!fs.existsSync(storageLayout.runtimeDependencyBindingFile(multiRoot, 'stale-binding')));
+  assert(multiPruned.removed.includes(
+    storageLayout.runtimeDependencyBindingFile(multiRoot, 'stale-binding'),
+  ));
+
   const staleInjectedEnv = {
     PATH: [
       binDir,
@@ -352,7 +471,7 @@ async function run() {
     /FARMING_CODEX_BIN must provide codex 0\.144\.6/,
   );
 
-  console.log('✓ startup dependencies keep agent-browser managed and publish one active manifest');
+  console.log('✓ startup dependencies publish retained multi-version bindings and activate atomically');
 }
 
 run().catch(error => {
