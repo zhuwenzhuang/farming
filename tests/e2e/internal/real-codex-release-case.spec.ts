@@ -412,6 +412,10 @@ async function sendCodeAcpPromptAndSteer(page: Page) {
   await expect(send).toHaveAttribute('data-action', 'send')
   await send.click()
   await expect(input).toHaveValue('')
+  const queuedFollowUp = page.getByTestId('code-acp-pending-followup-row')
+    .filter({ hasText: ACP_FOLLOW_UP_ACK }).last()
+  await expect(queuedFollowUp).toBeVisible()
+  await queuedFollowUp.getByTestId('code-acp-pending-followup-steer').click()
 }
 
 async function switchCodeRuntime(page: Page, agentId: string, mode: 'terminal' | 'chat') {

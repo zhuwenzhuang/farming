@@ -159,11 +159,13 @@ function codexServiceTierConfirmations(
 ): CodexServiceTierConfirmation[] {
   const text = stripAnsi(outputText).replace(/\r/g, '\n');
   return Array.from(text.matchAll(
-    /(?:^|\n)\s*[•●]\s+(?:Service tier set to\s+(priority|default)\b|Fast mode is\s+(on|off)\b)/gi
+    /(?:^|\n)\s*[•●]\s+(?:Service tier set to\s+(priority|default)\b|Fast mode is\s+(on|off)\b|已(开启|关闭)\s*Fast\s*模式)/gi
   )).map(match => {
     const fast = match[1]
       ? normalizedValue(match[1]) === 'priority'
-      : normalizedValue(match[2]) === 'on';
+      : match[2]
+        ? normalizedValue(match[2]) === 'on'
+        : match[3] === '开启';
     return {
       serviceTier: fast ? 'priority' : 'default',
       fast,

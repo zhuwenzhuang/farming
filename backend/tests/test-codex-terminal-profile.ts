@@ -77,6 +77,12 @@ async function run() {
     { serviceTier: 'priority', fast: true },
     { serviceTier: 'default', fast: false },
   ], 'current Codex Fast confirmations should release the Terminal input queue');
+  assert.deepStrictEqual(codexServiceTierConfirmations(
+    '• 已开启 Fast 模式。\n• 已关闭 Fast 模式。'
+  ), [
+    { serviceTier: 'priority', fast: true },
+    { serviceTier: 'default', fast: false },
+  ], 'localized Codex Fast confirmations should release the Terminal input queue');
   assert.deepStrictEqual(
     newCodexServiceTierConfirmation(
       '• Service tier set to default',
