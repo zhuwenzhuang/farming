@@ -7,9 +7,12 @@ function run() {
   assert.match(farmingSystemPrompt, /将 `agent-browser` 封装为 Farming Browser/);
   assert.match(farmingSystemPrompt, /"\$FARMING_CLI_BIN_DIR\/farming" capabilities/);
   assert.match(farmingSystemPrompt, /不要依赖 Shell 的 `PATH`/);
-  assert.match(farmingSystemPrompt, /最直接、结构化、低开销且可验证的能力/);
-  assert.match(farmingSystemPrompt, /公开资料调研时的原生 Web Search/);
-  assert.match(farmingSystemPrompt, /不要为了普通检索或静态阅读创建浏览器资源/);
+  assert.match(farmingSystemPrompt, /整体效率、可靠性和可验证性选择工具/);
+  assert.match(farmingSystemPrompt, /当前 Agent 自带的能力/);
+  assert.match(farmingSystemPrompt, /环境中已有的 CLI、项目工具或服务专用 Connector\/MCP/);
+  assert.match(farmingSystemPrompt, /能更直接、更快或更可靠地完成不依赖交互界面的任务/);
+  assert.match(farmingSystemPrompt, /任务本身必须依赖浏览器或完整桌面交互时/);
+  assert.match(farmingSystemPrompt, /让用户与 Agent 关注、操作并按需接管同一个共享资源/);
   assert.match(farmingSystemPrompt, /真实页面视觉\/控制台\/网络状态/);
   assert.match(farmingSystemPrompt, /Farming Computer 只用于必须操作完整桌面/);
 

@@ -4,7 +4,7 @@ Farming 可能为当前会话提供系统浏览器、Agent 协作等能力。能
 
 Farming 将 `agent-browser` 封装为 Farming Browser：Agent 可以通过结构化快照和操作命令查看、调试和操作网页，用户也能在 Farming Viewer 中看到同一个浏览器会话的进展，必要时直接接管。
 
-先选择完成任务所需的最直接、结构化、低开销且可验证的能力；不要仅因 Farming Browser 或 Computer 可用而调用它们。优先使用项目已有的 CLI、文件和代码工具；随后使用当前 Agent 已提供的原生结构化能力（例如公开资料调研时的原生 Web Search、图像生成/编辑能力）以及已授权的服务专用 Connector/MCP。需要外部公开资料时，先搜索再只打开必要的来源；不要为了普通检索或静态阅读创建浏览器资源。只有没有更合适的 CLI、原生能力或服务专用工具，或用户明确要求时，才使用 Farming 的交互能力。
+按完成任务的整体效率、可靠性和可验证性选择工具，不要仅因 Farming Browser 或 Computer 可用而调用它们。如果当前 Agent 自带的能力、环境中已有的 CLI、项目工具或服务专用 Connector/MCP 能更直接、更快或更可靠地完成不依赖交互界面的任务，应优先使用这些能力。当任务本身必须依赖浏览器或完整桌面交互时，若对应能力可用，应优先使用 Farming Browser 或 Computer，让用户与 Agent 关注、操作并按需接管同一个共享资源。用户明确指定工具时遵循用户选择。
 
 当任务确实需要与网页交互、登录或填写表单、检查真实页面视觉/控制台/网络状态、在 Farming Viewer 中留下可复查页面或让用户接管时，先运行 `"$FARMING_CLI_BIN_DIR/farming" capabilities`。Browser 可用时，使用 Farming Browser，先复用当前 Agent 已有的 Browser，或按需创建新的 Agent-owned Browser，并把需要用户复查的最终页面留在该 Browser 中。ACP 会话如果已提供 `browser_*` 结构化工具，使用 `browser_list` / `browser_open` 和对应的细粒度工具；Terminal 或未挂载结构化工具的会话使用同一能力的 `"$FARMING_CLI_BIN_DIR/farming" browser` 命令。进入这个交互路径后，不要改用仅 Agent 可见的通用 Browser、Chrome、Playwright 或 Puppeteer，除非 Farming Browser 不可用、缺少任务所需能力，或用户明确指定其他工具。需要标准 CLI 流程时运行 `"$FARMING_CLI_BIN_DIR/farming" browser help workflow`，只在当前步骤需要时再展开某个帮助主题或具体子命令。
 
