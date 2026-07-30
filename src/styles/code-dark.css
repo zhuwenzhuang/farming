@@ -2678,6 +2678,17 @@ body.code-mode[data-appearance='dark'] .code-pending-followup {
   color: var(--code-dark-text-soft);
 }
 
+body.code-mode[data-appearance='dark'] .code-acp-composer-stack {
+  --code-acp-composer-surface: rgba(22, 27, 34, 0.82);
+  --code-acp-composer-border: rgba(240, 246, 252, 0.1);
+}
+
+body.code-mode[data-appearance='dark'] .code-acp-composer-stack > .code-pending-followup,
+body.code-mode[data-appearance='dark'] .code-acp-composer-stack > .code-composer {
+  border-color: var(--code-acp-composer-border) !important;
+  background: var(--code-acp-composer-surface) !important;
+}
+
 body.code-mode[data-appearance='dark'] .code-pending-followup-icon,
 body.code-mode[data-appearance='dark'] .code-pending-followup-actions button,
 body.code-mode[data-appearance='dark'] .code-acp-submission-status {
@@ -3313,6 +3324,11 @@ body.code-mode[data-appearance='dark'].code-compact-layout .code-composer {
   box-shadow:
     0 16px 42px rgba(1, 4, 9, 0.22),
     inset 0 0 0 1px rgba(240, 246, 252, 0.045) !important;
+}
+
+body.code-mode[data-appearance='dark'].code-compact-layout .code-acp-composer-stack {
+  --code-acp-composer-surface: rgba(22, 27, 34, 0.78);
+  --code-acp-composer-border: rgba(240, 246, 252, 0.08);
 }
 
 body.code-mode[data-appearance='dark'].code-compact-layout .code-composer:focus-within,

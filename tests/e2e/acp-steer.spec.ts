@@ -165,8 +165,9 @@ test('keeps queued follow-ups separate and steers each selected message', async 
       composerOverflow: composer.scrollHeight > composer.clientHeight + 1,
       composerKeepsRestingHeight: composerRect.height >= 70 && composerRect.height <= 74,
       pendingOutsideComposer: !composer.contains(pending),
-      pendingOverlapsComposer: pendingRect.bottom - composerRect.top >= 9
-        && pendingRect.bottom - composerRect.top <= 11,
+      pendingOverlapsComposer: pendingRect.bottom - composerRect.top >= 13
+        && pendingRect.bottom - composerRect.top <= 15,
+      surfacesMatch: getComputedStyle(pending).backgroundColor === getComputedStyle(composer).backgroundColor,
       pendingOverflow: pending.scrollWidth > pending.clientWidth + 1
         || pending.scrollHeight > pending.clientHeight + 1,
       rowInsidePending: Boolean(rowRect
@@ -183,6 +184,7 @@ test('keeps queued follow-ups separate and steers each selected message', async 
     composerKeepsRestingHeight: true,
     pendingOutsideComposer: true,
     pendingOverlapsComposer: true,
+    surfacesMatch: true,
     pendingOverflow: false,
     rowInsidePending: true,
     actionsInsidePending: true,

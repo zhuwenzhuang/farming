@@ -12229,9 +12229,17 @@ body.code-mode .code-history-agent-icon .agent-launch-icon,
 }
 
 .code-acp-composer-stack {
+  --code-acp-composer-surface: #ffffff;
+  --code-acp-composer-border: #d9ddd4;
   min-width: 0;
   display: flex;
   flex-direction: column;
+}
+
+.code-acp-composer-stack > .code-pending-followup,
+.code-acp-composer-stack > .code-composer {
+  border-color: var(--code-acp-composer-border);
+  background: var(--code-acp-composer-surface);
 }
 
 .code-acp-composer-stack > .code-pending-followup {
@@ -17853,6 +17861,8 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
   }
 
   body.code-mode.code-compact-layout .code-acp-composer-stack {
+    --code-acp-composer-surface: rgba(255, 255, 255, 0.74);
+    --code-acp-composer-border: rgba(255, 255, 255, 0.62);
     position: absolute;
     left: 4px;
     bottom: var(--mobile-composer-viewport-gap, max(8px, env(safe-area-inset-bottom)));
@@ -17864,7 +17874,7 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
   }
 
   body.code-mode.code-compact-layout .code-acp-composer-stack > .code-pending-followup {
-    margin: 0 14px -10px;
+    margin: 0 14px -14px;
     pointer-events: auto;
   }
 
@@ -17903,7 +17913,7 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
 
   body.code-mode.code-compact-layout .code-acp-composer-stack > .code-pending-followup {
     gap: 2px;
-    padding: 3px 10px 12px;
+    padding: 3px 10px 16px;
     overflow-x: hidden;
     overflow-y: auto;
   }
