@@ -43,6 +43,13 @@ Open the authenticated Farming URL on your phone. Use the drawer to switch
 Projects and Agents; Chat, Terminal, and Files each use the full screen. Phone
 access is best for checking progress and sending short follow-ups.
 
+### Content Text Size
+
+**Settings → Interface → Content text size** changes the readable content in
+Chat and its composer, Terminal, Markdown previews, and the file editor and
+diff. Navigation, buttons, status labels, and other system UI keep their fixed
+size. Farming Code and Farming CRT store this preference separately.
+
 ## More
 
 - [Farming CRT](../crt/README.md)

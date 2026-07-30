@@ -20,6 +20,7 @@ import {
   type PetAppearance,
 } from '@/lib/pet/rest-reminder'
 import type { UiPreferences } from '@/lib/ui-preferences'
+import { MAX_CONTENT_FONT_SIZE, MIN_CONTENT_FONT_SIZE } from '@/lib/content-font-size'
 import { usePetDefaultAppearance } from './pet/usePetDefaultAppearance'
 import type { AgentHomeSetting, AgentHomesSettings, GlobalSettings } from './types'
 import type { AgentLaunchOption } from './agent-launch-options'
@@ -128,6 +129,7 @@ function panelCopy(language: UiPreferences['language']) {
     dark: zh ? '深色' : 'Dark',
     interface: zh ? '界面' : 'Interface',
     interfaceSkin: zh ? '界面皮肤' : 'Interface skin',
+    contentTextSize: zh ? '正文字号' : 'Content text size',
     farmingCode: 'Farming Code',
     farmingCrt: 'Farming CRT',
     farmingPet: 'Farming Pet',
@@ -867,6 +869,23 @@ export function AgentHomesSettingsPanel({
                     )}
                   >{copy.farmingCrt}</button>
                 </div>
+              </div>
+              <div className="code-settings-choice-row code-settings-content-font-size-row">
+                <div className="code-settings-row-copy">
+                  <strong>{copy.contentTextSize}</strong>
+                </div>
+                <input
+                  type="range"
+                  min={String(MIN_CONTENT_FONT_SIZE)}
+                  max={String(MAX_CONTENT_FONT_SIZE)}
+                  step="1"
+                  value={uiPreferences.codeContentFontSize}
+                  aria-label={copy.contentTextSize}
+                  onChange={event => onUpdateUiPreferences({
+                    codeContentFontSize: Number(event.target.value),
+                  })}
+                />
+                <output>{uiPreferences.codeContentFontSize} px</output>
               </div>
             </div>
           </section>

@@ -238,38 +238,39 @@ async function testSettingsWritesOnlyCarryAndCommitTheirPatch() {
     globalSettings = {
       workspace: '/stale/workspace',
       workspaceHistory: ['/stale/workspace'],
+      crtContentFontSize: 14,
       crtTerminalFontSize: 15,
       crtSkinEffectsEnabled: true
     };
   `);
   const first = harness.evaluate(`
-    globalSettings.crtTerminalFontSize = 16;
-    saveGlobalSettings({ crtTerminalFontSize: 16 });
+    globalSettings.crtContentFontSize = 15;
+    saveGlobalSettings({ crtContentFontSize: 15 });
   `);
   const second = harness.evaluate(`
-    globalSettings.crtTerminalFontSize = 17;
-    saveGlobalSettings({ crtTerminalFontSize: 17 });
+    globalSettings.crtContentFontSize = 16;
+    saveGlobalSettings({ crtContentFontSize: 16 });
   `);
   await new Promise(resolve => setImmediate(resolve));
-  assert.deepStrictEqual(JSON.parse(harness.requests[0].options.body), { crtTerminalFontSize: 16 });
+  assert.deepStrictEqual(JSON.parse(harness.requests[0].options.body), { crtContentFontSize: 15 });
   assert.strictEqual(harness.requests.length, 1, 'settings writes should admit only one request at a time');
 
   harness.requests[0].deferred.resolve(response({
     success: true,
-    settings: { crtTerminalFontSize: 16, workspace: '/other-writer' },
+    settings: { crtContentFontSize: 15, workspace: '/other-writer' },
   }));
   await first;
   assert.strictEqual(harness.requests.length, 2, 'the latest settings value should run after the first request settles');
-  assert.deepStrictEqual(JSON.parse(harness.requests[1].options.body), { crtTerminalFontSize: 17 });
+  assert.deepStrictEqual(JSON.parse(harness.requests[1].options.body), { crtContentFontSize: 16 });
   harness.requests[1].deferred.resolve(response({
     success: true,
-    settings: { crtTerminalFontSize: 17, workspace: '/latest-response' },
+    settings: { crtContentFontSize: 16, workspace: '/latest-response' },
   }));
   await second;
   assert.deepStrictEqual(JSON.parse(harness.evaluate(`JSON.stringify({
-    fontSize: globalSettings.crtTerminalFontSize,
+    fontSize: globalSettings.crtContentFontSize,
     workspace: globalSettings.workspace
-  })`)), { fontSize: 17, workspace: '/stale/workspace' });
+  })`)), { fontSize: 16, workspace: '/stale/workspace' });
 }
 
 async function run() {

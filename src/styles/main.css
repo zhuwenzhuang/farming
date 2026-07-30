@@ -28,6 +28,10 @@ body {
 }
 
 body.code-mode {
+  --code-content-font-size: 14px;
+  --code-content-line-height: 20px;
+  --code-editor-font-size: 13px;
+  --code-editor-line-height: 21px;
   --code-light-surface: #ffffff;
   --code-light-ink: #1a1c1f;
   --code-light-accent: #339cff;
@@ -6007,8 +6011,8 @@ body.code-mode .code-instance-name {
   border-radius: 17px;
   background: rgba(31, 35, 40, 0.06);
   color: #1f2328;
-  font-size: 14px;
-  line-height: 20px;
+  font-size: var(--code-content-font-size);
+  line-height: var(--code-content-line-height);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   user-select: text;
@@ -6134,8 +6138,8 @@ body.code-mode .code-instance-name {
   border-top: 1px solid rgba(31, 35, 40, 0.08);
   background: rgba(255, 255, 255, 0.58);
   color: #24292f;
-  font-size: 13px;
-  line-height: 19px;
+  font-size: var(--code-editor-font-size);
+  line-height: calc(var(--code-editor-font-size) + 6px);
   padding: 10px;
   white-space: pre-wrap;
   word-break: break-word;
@@ -6590,8 +6594,8 @@ body.code-mode .code-instance-name {
 .code-acp-progress-update {
   padding: 8px 0 5px;
   color: #24292f;
-  font-size: 14px;
-  line-height: 20px;
+  font-size: var(--code-content-font-size);
+  line-height: var(--code-content-line-height);
   overflow-wrap: anywhere;
 }
 
@@ -7035,6 +7039,8 @@ body.code-mode .code-instance-name {
   border-radius: 0;
   background: #0d1117;
   color: #d0d7de;
+  font-size: max(10px, calc(var(--code-content-font-size) - 2px));
+  line-height: 1.35;
   white-space: pre-wrap;
 }
 
@@ -7373,8 +7379,8 @@ body.code-mode .code-instance-name {
   min-width: 0;
   max-width: 820px;
   padding: 0;
-  font-size: 14px;
-  line-height: 20px;
+  font-size: var(--code-content-font-size);
+  line-height: var(--code-content-line-height);
   user-select: text;
   -webkit-user-select: text;
 }
@@ -7385,8 +7391,8 @@ body.code-mode .code-instance-name {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
-  font-size: 14px;
-  line-height: 20px;
+  font-size: var(--code-content-font-size);
+  line-height: var(--code-content-line-height);
   overflow: visible;
 }
 
@@ -7458,23 +7464,23 @@ body.code-mode .code-instance-name {
 }
 
 .code-agent-transcript-assistant.code-markdown-preview h1 {
-  font-size: 24px;
+  font-size: calc(var(--code-content-font-size) + 10px);
 }
 
 .code-agent-transcript-assistant.code-markdown-preview h2 {
-  font-size: 20px;
+  font-size: calc(var(--code-content-font-size) + 6px);
 }
 
 .code-agent-transcript-assistant.code-markdown-preview h3,
 .code-agent-transcript-assistant.code-markdown-preview h4 {
-  font-size: 17px;
-  line-height: 22px;
+  font-size: calc(var(--code-content-font-size) + 3px);
+  line-height: calc(var(--code-content-line-height) + 2px);
 }
 
 .code-agent-transcript-assistant.code-markdown-preview h5,
 .code-agent-transcript-assistant.code-markdown-preview h6 {
-  font-size: 15px;
-  line-height: 20px;
+  font-size: calc(var(--code-content-font-size) + 1px);
+  line-height: var(--code-content-line-height);
 }
 
 .code-agent-transcript-assistant.code-markdown-preview code {
@@ -8760,7 +8766,7 @@ button.code-agent-transcript-result-summary:focus-visible {
   display: none;
 }
 
-.code-file-editor-fallback-textarea {
+body.code-mode .code-file-editor-fallback-textarea {
   flex: 1;
   min-height: 0;
   width: 100%;
@@ -8769,8 +8775,8 @@ button.code-agent-transcript-result-summary:focus-visible {
   background: #ffffff;
   color: #24292f;
   font-family: var(--font-mono, "SF Mono", Menlo, Consolas, monospace);
-  font-size: 13px;
-  line-height: 21px;
+  font-size: var(--code-editor-font-size);
+  line-height: var(--code-editor-line-height);
   outline: 0;
   resize: none;
   white-space: pre;
@@ -8788,7 +8794,7 @@ button.code-agent-transcript-result-summary:focus-visible {
   position: absolute;
   z-index: 21;
   width: 166px;
-  height: 21px;
+  height: var(--code-editor-line-height);
   display: inline-flex;
   align-items: center;
   justify-content: flex-start;
@@ -8801,7 +8807,7 @@ button.code-agent-transcript-result-summary:focus-visible {
   pointer-events: auto;
   font-family: var(--font-mono, "SF Mono", Menlo, Consolas, monospace);
   font-size: 12px;
-  line-height: 21px;
+  line-height: var(--code-editor-line-height);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -8889,7 +8895,7 @@ button.code-agent-transcript-result-summary:focus-visible {
   margin: 0 auto;
   padding: 30px 36px 52px;
   color: #24292f;
-  font-size: 14px;
+  font-size: var(--code-content-font-size);
   line-height: 1.54;
   overflow-wrap: anywhere;
 }
@@ -8937,17 +8943,17 @@ button.code-agent-transcript-result-summary:focus-visible {
 .code-markdown-preview h1 {
   padding-bottom: 10px;
   border-bottom: 1px solid rgba(36, 41, 47, 0.12);
-  font-size: 26px;
+  font-size: calc(var(--code-content-font-size) + 12px);
 }
 
 .code-markdown-preview h2 {
   padding-bottom: 8px;
   border-bottom: 1px solid rgba(36, 41, 47, 0.1);
-  font-size: 21px;
+  font-size: calc(var(--code-content-font-size) + 7px);
 }
 
 .code-markdown-preview h3 {
-  font-size: 17px;
+  font-size: calc(var(--code-content-font-size) + 3px);
 }
 
 .code-markdown-preview p,
@@ -11747,7 +11753,7 @@ body.code-mode .code-history-agent-icon .agent-launch-icon,
   margin: 0;
   overflow: hidden;
   color: #5f6661;
-  font-size: 13px;
+  font-size: max(10px, calc(var(--code-content-font-size) - 1px));
   font-weight: 430;
   line-height: 1.28;
   text-overflow: ellipsis;
@@ -13763,7 +13769,7 @@ body.code-mode .code-history-agent-icon .agent-launch-icon,
   border-radius: 999px;
 }
 
-.code-composer textarea {
+body.code-mode .code-composer textarea {
   width: 100%;
   min-height: 42px;
   max-height: 132px;
@@ -13772,7 +13778,7 @@ body.code-mode .code-history-agent-icon .agent-launch-icon,
   outline: 0;
   color: #24292f;
   background: transparent;
-  font-size: 14px;
+  font-size: var(--code-content-font-size);
   font-weight: 400;
   line-height: 1.42;
   white-space: pre-wrap;
@@ -13780,7 +13786,7 @@ body.code-mode .code-history-agent-icon .agent-launch-icon,
   word-break: break-word;
 }
 
-.code-composer textarea::placeholder {
+body.code-mode .code-composer textarea::placeholder {
   color: #9aa09a;
   font-weight: 400;
 }
@@ -14014,7 +14020,7 @@ body.code-mode .code-history-agent-icon .agent-launch-icon,
 .code-composer-add:disabled,
 .code-composer-send:disabled,
 .code-composer-mic:disabled,
-.code-composer textarea:disabled {
+body.code-mode .code-composer textarea:disabled {
   opacity: 0.45;
   cursor: not-allowed;
 }
@@ -17281,14 +17287,14 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
   body.code-mode.code-compact-layout .code-composer textarea {
     min-height: 22px;
     max-height: 66px;
-    font-size: 14px;
+    font-size: var(--code-content-font-size);
     line-height: 1.34;
   }
 
   body.code-mode.code-compact-layout.code-mobile-touch .code-composer textarea {
     /* Keep touch browsers at 16px so focusing the Composer does not trigger
        viewport zoom. Narrow desktop windows can use the denser 14px size. */
-    font-size: 16px;
+    font-size: max(16px, var(--code-content-font-size));
   }
 
   body.code-mode.code-compact-layout .code-composer-toolbar {
@@ -18611,6 +18617,7 @@ body.code-mode[data-appearance='dark'] .code-settings-inline-choice > span {
 }
 
 .code-settings-search-timeout-row input[type='range'],
+.code-settings-content-font-size-row input[type='range'],
 .code-settings-pet-rest-row input[type='range'] {
   flex: 1 1 auto;
   min-width: 84px;
@@ -19145,6 +19152,7 @@ body.code-mode[data-appearance='dark'] .code-settings-update-actions button:disa
 body.code-mode[data-appearance='dark'] .code-settings-update-version select,
 body.code-mode[data-appearance='dark'] .code-agent-home-form input,
 body.code-mode[data-appearance='dark'] .code-settings-search-timeout-row input[type='range'],
+body.code-mode[data-appearance='dark'] .code-settings-content-font-size-row input[type='range'],
 body.code-mode[data-appearance='dark'] .code-settings-pet-rest-row input[type='range'] {
   background: transparent;
   border-color: #30363d;

@@ -31,9 +31,10 @@ let globalSettings = {
     dangerouslySkipAgentPermissionsByDefault: false,
     crtSkinEffectsEnabled: true,
     crtDynamicHeatEnabled: false,
+    crtContentFontSize: 14,
     crtTerminalFontSize: 15
 };
-let crtTerminalFontSizeSaveTimer = null;
+let crtContentFontSizeSaveTimer = null;
 let workspaceHistorySelection = -1;
 let workspaceHistoryExpanded = false;
 let pendingMainAgentLaunch = false;
@@ -608,6 +609,9 @@ const TERMINAL_FONT_FAMILY = typeof window !== 'undefined' && window.FarmingTerm
     ? window.FarmingTerminalBridge.DEFAULT_FONT_FAMILY
     : '"JetBrains Mono", "SF Mono", Menlo, Monaco, "Cascadia Mono", "Segoe UI Mono", "Sarasa Mono SC", "PingFang SC", "Hiragino Sans GB", "Noto Sans Mono CJK SC", "Microsoft YaHei UI", monospace';
 const DEFAULT_TERMINAL_FONT_SIZE = 15;
+const DEFAULT_CONTENT_FONT_SIZE = 14;
+const MIN_CONTENT_FONT_SIZE = 10;
+const MAX_CONTENT_FONT_SIZE = 20;
 const MIN_TERMINAL_FONT_SIZE = 10;
 const MAX_TERMINAL_FONT_SIZE = 20;
 const TERMINAL_SCROLLBACK = 5000;
@@ -876,8 +880,14 @@ function normalizeCrtTerminalFontSize(value) {
         return DEFAULT_TERMINAL_FONT_SIZE;
     return Math.min(MAX_TERMINAL_FONT_SIZE, Math.max(MIN_TERMINAL_FONT_SIZE, Math.round(fontSize)));
 }
+function normalizeCrtContentFontSize(value) {
+    const fontSize = Number(value);
+    if (!Number.isFinite(fontSize))
+        return DEFAULT_CONTENT_FONT_SIZE;
+    return Math.min(MAX_CONTENT_FONT_SIZE, Math.max(MIN_CONTENT_FONT_SIZE, Math.round(fontSize)));
+}
 function getCrtTerminalFontSize() {
-    return normalizeCrtTerminalFontSize(globalSettings.crtTerminalFontSize);
+    return normalizeCrtTerminalFontSize(normalizeCrtContentFontSize(globalSettings.crtContentFontSize) + 1);
 }
 async function createTerminalInstance(options = {}) {
     if (window.FarmingTerminalBridge && window.FarmingTerminalBridge.createInstance) {
@@ -2669,6 +2679,9 @@ async function loadGlobalSettings() {
             ...globalSettings,
             ...(data.settings || {})
         };
+        applyCrtContentFontSize(data.settings?.crtContentFontSize === undefined
+            ? Number(globalSettings.crtTerminalFontSize) - 1
+            : globalSettings.crtContentFontSize);
         if (globalSettings.instanceName) {
             document.title = `${globalSettings.instanceName} · Farming CRT`;
         }
@@ -2801,17 +2814,22 @@ function renderThemeList() {
     });
     restoreCrtNavigationSelection();
 }
-function applyCrtTerminalFontSize(value) {
-    const fontSize = normalizeCrtTerminalFontSize(value);
-    globalSettings.crtTerminalFontSize = fontSize;
-    const input = document.getElementById('crt-terminal-font-size');
-    const output = document.getElementById('crt-terminal-font-size-value');
+function applyCrtContentFontSize(value) {
+    const contentFontSize = normalizeCrtContentFontSize(value);
+    const terminalFontSize = normalizeCrtTerminalFontSize(contentFontSize + 1);
+    globalSettings.crtContentFontSize = contentFontSize;
+    globalSettings.crtTerminalFontSize = terminalFontSize;
+    const root = document.getElementById('farming-crt');
+    const input = document.getElementById('crt-content-font-size');
+    const output = document.getElementById('crt-content-font-size-value');
+    root?.style.setProperty('--crt-chat-font-size', `${contentFontSize}px`);
+    root?.style.setProperty('--crt-chat-line-height', `${contentFontSize + 6}px`);
     if (input)
-        input.value = String(fontSize);
+        input.value = String(contentFontSize);
     if (output)
-        output.textContent = `${fontSize} px`;
+        output.textContent = `${contentFontSize} px`;
     if (terminal && terminal.options)
-        terminal.options.fontSize = fontSize;
+        terminal.options.fontSize = terminalFontSize;
     if (terminal && fitAddon && focusedAgentId && typeof requestAnimationFrame === 'function') {
         requestAnimationFrame(() => {
             if (!terminal || !fitAddon || !focusedAgentId)
@@ -2819,21 +2837,21 @@ function applyCrtTerminalFontSize(value) {
             sendSessionResize();
         });
     }
-    return fontSize;
+    return contentFontSize;
 }
-function scheduleCrtTerminalFontSizeSave() {
-    if (crtTerminalFontSizeSaveTimer)
-        clearTimeout(crtTerminalFontSizeSaveTimer);
-    crtTerminalFontSizeSaveTimer = setTimeout(() => {
-        crtTerminalFontSizeSaveTimer = null;
-        void saveGlobalSettings({ crtTerminalFontSize: globalSettings.crtTerminalFontSize });
+function scheduleCrtContentFontSizeSave() {
+    if (crtContentFontSizeSaveTimer)
+        clearTimeout(crtContentFontSizeSaveTimer);
+    crtContentFontSizeSaveTimer = setTimeout(() => {
+        crtContentFontSizeSaveTimer = null;
+        void saveGlobalSettings({ crtContentFontSize: globalSettings.crtContentFontSize });
     }, 150);
 }
 function initDisplaySettings() {
     const crtContainer = document.getElementById('crt-effects-container');
     const crtToggle = document.getElementById('crt-effects');
     const dynamicHeatToggle = document.getElementById('dynamic-heat');
-    const terminalFontSizeInput = document.getElementById('crt-terminal-font-size');
+    const contentFontSizeInput = document.getElementById('crt-content-font-size');
     if (crtContainer) {
         if (currentTheme === 'terminal') {
             crtContainer.style.display = 'block';
@@ -2859,11 +2877,11 @@ function initDisplaySettings() {
             await saveGlobalSettings({ crtDynamicHeatEnabled: dynamicHeatToggle.checked });
         };
     }
-    if (terminalFontSizeInput) {
-        applyCrtTerminalFontSize(globalSettings.crtTerminalFontSize);
-        terminalFontSizeInput.oninput = () => {
-            applyCrtTerminalFontSize(terminalFontSizeInput.value);
-            scheduleCrtTerminalFontSizeSave();
+    if (contentFontSizeInput) {
+        applyCrtContentFontSize(globalSettings.crtContentFontSize);
+        contentFontSizeInput.oninput = () => {
+            applyCrtContentFontSize(contentFontSizeInput.value);
+            scheduleCrtContentFontSizeSave();
         };
     }
 }

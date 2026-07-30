@@ -69,6 +69,8 @@ export interface PublicSettings extends JsonRecord {
   codexModelPreset: string;
   codexReasoningEffort: string;
   codexServiceTier: string;
+  codeContentFontSize: number;
+  crtContentFontSize: number;
   crtDynamicHeatEnabled: boolean;
   crtSkinEffectsEnabled: boolean;
   crtTerminalFontSize: number;
@@ -206,6 +208,10 @@ const LEGACY_DEFAULT_WORKSPACE_FILE_SEARCH_TIMEOUT_MS = 3000;
 const DEFAULT_SEARCH_TIMEOUT_MS = 15000;
 const MIN_SEARCH_TIMEOUT_MS = 3000;
 const MAX_SEARCH_TIMEOUT_MS = 180000;
+const DEFAULT_CODE_CONTENT_FONT_SIZE = 14;
+const DEFAULT_CRT_CONTENT_FONT_SIZE = 14;
+const MIN_CONTENT_FONT_SIZE = 10;
+const MAX_CONTENT_FONT_SIZE = 20;
 const DEFAULT_CRT_TERMINAL_FONT_SIZE = 15;
 const MIN_CRT_TERMINAL_FONT_SIZE = 10;
 const MAX_CRT_TERMINAL_FONT_SIZE = 20;
@@ -235,6 +241,8 @@ const PERSISTED_SETTING_KEYS = new Set([
   'computerExtensionEnabled',
   'computerCompatibilityMode',
   'computerImage',
+  'codeContentFontSize',
+  'crtContentFontSize',
   'crtSkinEffectsEnabled',
   'crtDynamicHeatEnabled',
   'crtTerminalFontSize',
@@ -480,6 +488,8 @@ class ConfigManager {
         computerExtensionEnabled: false,
         computerCompatibilityMode: false,
         computerImage: COMPUTER_IMAGE,
+        codeContentFontSize: DEFAULT_CODE_CONTENT_FONT_SIZE,
+        crtContentFontSize: DEFAULT_CRT_CONTENT_FONT_SIZE,
         crtSkinEffectsEnabled: true,
         crtDynamicHeatEnabled: false,
         crtTerminalFontSize: DEFAULT_CRT_TERMINAL_FONT_SIZE,
@@ -524,6 +534,8 @@ class ConfigManager {
       computerExtensionEnabled: false,
       computerCompatibilityMode: false,
       computerImage: COMPUTER_IMAGE,
+      codeContentFontSize: DEFAULT_CODE_CONTENT_FONT_SIZE,
+      crtContentFontSize: DEFAULT_CRT_CONTENT_FONT_SIZE,
       crtSkinEffectsEnabled: true,
       crtDynamicHeatEnabled: false,
       crtTerminalFontSize: DEFAULT_CRT_TERMINAL_FONT_SIZE,
@@ -592,9 +604,19 @@ class ConfigManager {
     this.settings.computerExtensionEnabled = this.settings.computerExtensionEnabled === true;
     this.settings.computerCompatibilityMode = this.settings.computerCompatibilityMode === true;
     this.settings.computerImage = this.normalizeBrowserSetting(this.settings.computerImage) || COMPUTER_IMAGE;
+    this.settings.codeContentFontSize = this.normalizeContentFontSize(
+      this.settings.codeContentFontSize,
+      DEFAULT_CODE_CONTENT_FONT_SIZE,
+    );
+    this.settings.crtContentFontSize = this.normalizeContentFontSize(
+      rawSettings.crtContentFontSize === undefined
+        ? Number(this.settings.crtTerminalFontSize) - 1
+        : this.settings.crtContentFontSize,
+      DEFAULT_CRT_CONTENT_FONT_SIZE,
+    );
     this.settings.crtSkinEffectsEnabled = this.settings.crtSkinEffectsEnabled !== false;
     this.settings.crtDynamicHeatEnabled = this.settings.crtDynamicHeatEnabled === true;
-    this.settings.crtTerminalFontSize = this.normalizeCrtTerminalFontSize(this.settings.crtTerminalFontSize);
+    this.settings.crtTerminalFontSize = this.crtTerminalFontSizeFromContent(this.settings.crtContentFontSize);
     this.normalizeAgentLaunchSettings(launchRawSettings);
     this.pruneUnknownSettings();
     ensureMainAgentSkillFiles(this.farmingDir);
@@ -621,6 +643,18 @@ class ConfigManager {
     return Math.min(
       MAX_SEARCH_TIMEOUT_MS,
       Math.max(MIN_SEARCH_TIMEOUT_MS, Math.round(timeoutMs))
+    );
+  }
+
+  normalizeContentFontSize(value: unknown, fallback: number): number {
+    const fontSize = Number(value);
+    if (!Number.isFinite(fontSize)) return fallback;
+    return Math.min(MAX_CONTENT_FONT_SIZE, Math.max(MIN_CONTENT_FONT_SIZE, Math.round(fontSize)));
+  }
+
+  crtTerminalFontSizeFromContent(value: unknown): number {
+    return this.normalizeCrtTerminalFontSize(
+      this.normalizeContentFontSize(value, DEFAULT_CRT_CONTENT_FONT_SIZE) + 1,
     );
   }
 
@@ -1320,9 +1354,23 @@ class ConfigManager {
     nextSettings.computerExtensionEnabled = nextSettings.computerExtensionEnabled === true;
     nextSettings.computerCompatibilityMode = nextSettings.computerCompatibilityMode === true;
     nextSettings.computerImage = this.normalizeBrowserSetting(nextSettings.computerImage) || COMPUTER_IMAGE;
+    nextSettings.codeContentFontSize = this.normalizeContentFontSize(
+      nextSettings.codeContentFontSize,
+      DEFAULT_CODE_CONTENT_FONT_SIZE,
+    );
+    nextSettings.crtContentFontSize = this.normalizeContentFontSize(
+      Object.prototype.hasOwnProperty.call(settingsPatch, 'crtContentFontSize')
+        ? settingsPatch.crtContentFontSize
+        : (
+            Object.prototype.hasOwnProperty.call(settingsPatch, 'crtTerminalFontSize')
+              ? Number(settingsPatch.crtTerminalFontSize) - 1
+              : nextSettings.crtContentFontSize
+          ),
+      DEFAULT_CRT_CONTENT_FONT_SIZE,
+    );
     nextSettings.crtSkinEffectsEnabled = nextSettings.crtSkinEffectsEnabled !== false;
     nextSettings.crtDynamicHeatEnabled = nextSettings.crtDynamicHeatEnabled === true;
-    nextSettings.crtTerminalFontSize = this.normalizeCrtTerminalFontSize(nextSettings.crtTerminalFontSize);
+    nextSettings.crtTerminalFontSize = this.crtTerminalFontSizeFromContent(nextSettings.crtContentFontSize);
     this.normalizeAgentLaunchSettings(settingsPatch, nextSettings);
     this.pruneUnknownSettings(nextSettings);
     this.writeSettingsFile(nextSettings);
@@ -1332,8 +1380,12 @@ class ConfigManager {
 
 export {
   ConfigManager,
+  DEFAULT_CODE_CONTENT_FONT_SIZE,
+  DEFAULT_CRT_CONTENT_FONT_SIZE,
   DEFAULT_CRT_TERMINAL_FONT_SIZE,
   DEFAULT_SEARCH_TIMEOUT_MS,
+  MAX_CONTENT_FONT_SIZE,
   MAX_CRT_TERMINAL_FONT_SIZE,
+  MIN_CONTENT_FONT_SIZE,
   MIN_CRT_TERMINAL_FONT_SIZE,
 };

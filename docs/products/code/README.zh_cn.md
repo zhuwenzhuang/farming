@@ -38,6 +38,12 @@ Agent 可以操作一台隔离的 Linux 桌面，用户则在 Farming 中观察�
 在手机上打开 Farming 的带鉴权 URL。通过抽屉切换 Project 和 Agent；Chat、Terminal
 与 Files 会分别使用完整屏幕。手机更适合查看进度和发送简短跟进。
 
+### 正文字号
+
+**设置 → 界面 → 正文字号**会调整 Chat 与输入框、Terminal、Markdown 预览，以及文件
+编辑器和 Diff 中供用户阅读的内容。导航、按钮、状态标签等系统界面仍保持固定字号。
+Farming Code 与 Farming CRT 分别保存自己的设置。
+
 ## 更多
 
 - [Farming CRT](../crt/README.zh_cn.md)

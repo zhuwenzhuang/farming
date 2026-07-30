@@ -1,4 +1,9 @@
 import * as monaco from 'monaco-editor'
+import {
+  codeEditorFontSize,
+  codeEditorLineHeight,
+  readCodeContentFontSize,
+} from '@/lib/content-font-size'
 import EditorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
 import CssWorker from 'monaco-editor/esm/vs/language/css/css.worker?worker'
 import HtmlWorker from 'monaco-editor/esm/vs/language/html/html.worker?worker'
@@ -170,6 +175,24 @@ function workspaceEditorWordWrapValue(wordWrapEnabled?: boolean) {
   return wordWrapEnabled === true || isNarrowWorkspaceEditorViewport() ? 'on' : 'off'
 }
 
+export function workspaceEditorFontOptions(): Pick<
+  monaco.editor.IStandaloneEditorConstructionOptions,
+  'fontSize' | 'lineHeight'
+> {
+  const contentFontSize = readCodeContentFontSize()
+  return {
+    fontSize: codeEditorFontSize(contentFontSize),
+    lineHeight: codeEditorLineHeight(contentFontSize),
+  }
+}
+
+export function updateWorkspaceEditorContentFontSize(
+  editor: monaco.editor.ICodeEditor | monaco.editor.IStandaloneDiffEditor,
+) {
+  editor.updateOptions(workspaceEditorFontOptions())
+  editor.layout()
+}
+
 export function workspaceEditorCreateOptions({
   value,
   language,
@@ -183,8 +206,7 @@ export function workspaceEditorCreateOptions({
     automaticLayout: false,
     minimap: { enabled: false },
     scrollBeyondLastLine: false,
-    fontSize: 13,
-    lineHeight: 21,
+    ...workspaceEditorFontOptions(),
     tabSize: 2,
     insertSpaces: true,
     wordWrap: workspaceEditorWordWrapValue(wordWrapEnabled),

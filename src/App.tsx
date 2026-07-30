@@ -11,13 +11,16 @@ import { applyThemeAppearance } from '@/lib/theme'
 import { isCompactViewport, isIOSLikeTouchViewport, isTouchInputViewport } from '@/lib/responsive-mode'
 import {
   DEFAULT_UI_PREFERENCES,
+  normalizeContentFontSize,
   normalizeUiAppearance,
   normalizeUiLanguage,
   type UiPreferences,
 } from '@/lib/ui-preferences'
+import { applyCodeContentFontSize } from '@/lib/content-font-size'
 import {
   destroyTerminalSession,
   pruneTerminalSessions,
+  updateTerminalSessionContentFontSize,
 } from '@/lib/terminal-session-pool'
 import { appPath } from '@/lib/base-path'
 import { runtimeBindingForMode } from '@/lib/agent-runtime'
@@ -200,6 +203,8 @@ export function App() {
   const lastActiveWorkspaceRef = useRef<string | undefined>(undefined)
   const inputDialogReturnFocusRef = useRef<HTMLElement | null>(null)
   const inputDialogOpenRequestRef = useRef(0)
+  const uiPreferencesSaveRevisionRef = useRef(0)
+  const uiPreferencesSaveTailRef = useRef<Promise<void>>(Promise.resolve())
 
   useLayoutEffect(() => {
     openTerminalIdsRef.current = openTerminalIds
@@ -380,33 +385,54 @@ export function App() {
     return () => window.clearTimeout(timer)
   }, [commitPermissionSwitch, copy.agentRestartTimedOut, permissionSwitch])
   const updateUiPreferences = useCallback((patch: Partial<UiPreferences>) => {
-    const nextPreferences = {
-      appearance: normalizeUiAppearance(patch.appearance ?? uiPreferences.appearance),
-      language: normalizeUiLanguage(patch.language ?? uiPreferences.language),
+    const normalizedPatch: Partial<UiPreferences> = {}
+    if (Object.prototype.hasOwnProperty.call(patch, 'appearance')) {
+      normalizedPatch.appearance = normalizeUiAppearance(patch.appearance)
     }
+    if (Object.prototype.hasOwnProperty.call(patch, 'language')) {
+      normalizedPatch.language = normalizeUiLanguage(patch.language)
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, 'codeContentFontSize')) {
+      normalizedPatch.codeContentFontSize = normalizeContentFontSize(patch.codeContentFontSize)
+    }
+    const nextPreferences = {
+      ...uiPreferences,
+      ...normalizedPatch,
+    }
+    const requestRevision = uiPreferencesSaveRevisionRef.current + 1
+    uiPreferencesSaveRevisionRef.current = requestRevision
 
     setUiPreferences(nextPreferences)
-    fetch(appPath('/api/settings'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(nextPreferences),
-    })
+    const save = uiPreferencesSaveTailRef.current
+      .catch(() => {})
+      .then(() => fetch(appPath('/api/settings'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(normalizedPatch),
+      }))
       .then(response => response.json())
       .then((data: { settings?: Partial<UiPreferences> }) => {
+        if (uiPreferencesSaveRevisionRef.current !== requestRevision) return
         const settings = data.settings ?? {}
         setUiPreferences({
           appearance: normalizeUiAppearance(settings.appearance ?? nextPreferences.appearance),
+          codeContentFontSize: normalizeContentFontSize(
+            settings.codeContentFontSize ?? nextPreferences.codeContentFontSize,
+          ),
           language: normalizeUiLanguage(settings.language ?? nextPreferences.language),
         })
       })
       .catch(() => {
+        if (uiPreferencesSaveRevisionRef.current !== requestRevision) return
+        setUiPreferences(uiPreferences)
         setAppNotice({
           id: Date.now(),
           kind: 'error',
           message: 'Failed to save preferences',
         })
       })
-  }, [uiPreferences.appearance, uiPreferences.language])
+    uiPreferencesSaveTailRef.current = save
+  }, [uiPreferences])
 
   const refreshAgentContextWindows = useCallback((agentIds: string[]) => {
     const uniqueAgentIds = Array.from(new Set(agentIds.filter(Boolean)))
@@ -1138,6 +1164,11 @@ export function App() {
     return () => systemAppearance.removeEventListener('change', applyAppearance)
   }, [uiPreferences.appearance])
 
+  useLayoutEffect(() => {
+    const contentFontSize = applyCodeContentFontSize(uiPreferences.codeContentFontSize)
+    updateTerminalSessionContentFontSize(contentFontSize)
+  }, [uiPreferences.codeContentFontSize])
+
   useEffect(() => {
     let cancelled = false
     fetch(appPath('/api/settings'))
@@ -1147,6 +1178,7 @@ export function App() {
         const settings = data.settings ?? {}
         setUiPreferences({
           appearance: normalizeUiAppearance(settings.appearance),
+          codeContentFontSize: normalizeContentFontSize(settings.codeContentFontSize),
           language: normalizeUiLanguage(settings.language),
         })
       })

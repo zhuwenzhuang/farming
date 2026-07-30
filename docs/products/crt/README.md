@@ -16,6 +16,10 @@ Both interfaces open the same Agents and Sessions.
 In Farming Code, open **Settings → Interface** and choose **Farming CRT**. In CRT,
 press `S` to return to the interface setting.
 
+In CRT Settings, **Content Text Size** changes Chat, its composer, Markdown, and
+Terminal content without resizing navigation, status fields, or controls. CRT
+keeps this preference separate from Farming Code.
+
 ## Common Keys
 
 | Key | Action |

@@ -3,8 +3,6 @@ import {
   DEFAULT_FONT_FAMILY,
   DEFAULT_FONT_SIZE,
   DEFAULT_THEME,
-  SESSION_TERMINAL_FONT_DESKTOP,
-  SESSION_TERMINAL_FONT_MOBILE,
   createTerminalInstance,
   isXtermTerminal,
 } from '@/lib/terminal-engine'
@@ -97,6 +95,10 @@ import {
 import type { TerminalSearchOptions } from '@/lib/terminal-search'
 import { sendTerminalSessionMessage } from '@/lib/terminal-session-client'
 import type { TerminalInputPart } from '@/types/messages'
+import {
+  codeTerminalFontSize,
+  readCodeContentFontSize,
+} from '@/lib/content-font-size'
 
 export type { TerminalPathOpenTarget } from '@/lib/terminal-links'
 export { normalizeTerminalSelection } from '@/lib/terminal-selection'
@@ -3700,9 +3702,7 @@ function installTerminalTestApi() {
 }
 
 async function bootstrapSession(agentId: string, options: AttachOptions) {
-  const terminalFontSize = isCompactViewport()
-    ? SESSION_TERMINAL_FONT_MOBILE
-    : SESSION_TERMINAL_FONT_DESKTOP
+  const terminalFontSize = codeTerminalFontSize(readCodeContentFontSize(), isCompactViewport())
 
   const result = await createTerminalInstance({ fontSize: terminalFontSize })
   if (!result) {
@@ -4792,6 +4792,28 @@ export async function refreshTerminalSessionLayout(agentId: string, options: { a
     requestAnimationFrame(refresh)
   })
   return true
+}
+
+export function updateTerminalSessionContentFontSize(contentFontSize: unknown) {
+  const fontSize = codeTerminalFontSize(contentFontSize, isCompactViewport())
+  sessions.forEach(current => {
+    if (current instanceof Promise || current.disposed) return
+    if (current.hostEl.dataset.terminalFontSize === String(fontSize)) return
+    current.hostEl.dataset.terminalFontSize = String(fontSize)
+    if (current.terminal.options) current.terminal.options.fontSize = fontSize
+    updateTerminalImeOverlay(current.hostEl, current.terminal)
+    if (!isTerminalSessionAttached(current)) return
+    requestAnimationFrame(() => {
+      if (current.disposed || !isTerminalSessionAttached(current)) return
+      syncTerminalSize(current, { force: true })
+      scheduleTerminalRepaint(current)
+      requestAnimationFrame(() => {
+        if (current.disposed || !isTerminalSessionAttached(current)) return
+        syncTerminalSize(current, { force: true })
+        scheduleTerminalRepaint(current)
+      })
+    })
+  })
 }
 
 export async function scrollTerminalSessionToBottom(agentId: string) {

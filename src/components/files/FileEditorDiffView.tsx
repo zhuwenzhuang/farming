@@ -3,6 +3,8 @@ import * as monaco from 'monaco-editor'
 import {
   applyWorkspaceEditorMonacoTheme,
   configureWorkspaceEditorMonacoEnvironment,
+  updateWorkspaceEditorContentFontSize,
+  workspaceEditorFontOptions,
   workspaceEditorLanguageForPath,
   workspaceEditorMonacoThemeForAppearance,
 } from '@/lib/workspace-editor-monaco'
@@ -93,6 +95,7 @@ export function FileEditorDiffView({
       readOnly: true,
       minimap: { enabled: false },
       scrollBeyondLastLine: false,
+      ...workspaceEditorFontOptions(),
       fixedOverflowWidgets: true,
       renderOverviewRuler: true,
       enableSplitViewResizing: !isCompactViewport(),
@@ -108,10 +111,17 @@ export function FileEditorDiffView({
     diffEditorRef.current = diffEditor
     const resizeObserver = new ResizeObserver(() => diffEditor.layout())
     resizeObserver.observe(host)
-    const appearanceObserver = new MutationObserver(() => applyWorkspaceEditorMonacoTheme(diffEditor))
+    const appearanceObserver = new MutationObserver(records => {
+      if (records.some(record => record.attributeName === 'data-appearance')) {
+        applyWorkspaceEditorMonacoTheme(diffEditor)
+      }
+      if (records.some(record => record.attributeName === 'data-code-content-font-size')) {
+        updateWorkspaceEditorContentFontSize(diffEditor)
+      }
+    })
     appearanceObserver.observe(document.body, {
       attributes: true,
-      attributeFilter: ['data-appearance'],
+      attributeFilter: ['data-appearance', 'data-code-content-font-size'],
     })
     window.requestAnimationFrame(() => diffEditor.layout())
 

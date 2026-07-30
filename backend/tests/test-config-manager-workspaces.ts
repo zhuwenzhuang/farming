@@ -5,10 +5,13 @@ const path = require('path');
 
 const {
   ConfigManager,
+  DEFAULT_CODE_CONTENT_FONT_SIZE,
+  DEFAULT_CRT_CONTENT_FONT_SIZE,
   DEFAULT_CRT_TERMINAL_FONT_SIZE,
   DEFAULT_SEARCH_TIMEOUT_MS,
+  MAX_CONTENT_FONT_SIZE,
   MAX_CRT_TERMINAL_FONT_SIZE,
-  MIN_CRT_TERMINAL_FONT_SIZE,
+  MIN_CONTENT_FONT_SIZE,
 } = require('../config-manager.cjs');
 
 function run() {
@@ -70,6 +73,8 @@ function run() {
       true,
     );
     assert.strictEqual(settings.crtDynamicHeatEnabled, false);
+    assert.strictEqual(settings.codeContentFontSize, DEFAULT_CODE_CONTENT_FONT_SIZE);
+    assert.strictEqual(settings.crtContentFontSize, DEFAULT_CRT_CONTENT_FONT_SIZE);
     assert.strictEqual(DEFAULT_CRT_TERMINAL_FONT_SIZE, 15);
     assert.strictEqual(settings.crtTerminalFontSize, DEFAULT_CRT_TERMINAL_FONT_SIZE);
     assert.strictEqual(settings.defaultLaunchAgent, 'codex');
@@ -114,6 +119,7 @@ function run() {
     settings = manager.getSettings();
     assert.strictEqual(settings.crtSkinEffectsEnabled, false);
     assert.strictEqual(settings.crtDynamicHeatEnabled, true);
+    assert.strictEqual(settings.crtContentFontSize, 15);
     assert.strictEqual(settings.crtTerminalFontSize, 16);
     assert.strictEqual(JSON.parse(fs.readFileSync(path.join(farmingDir, 'settings.json'), 'utf8')).crtSkinEffectsEnabled, false);
     assert.strictEqual(JSON.parse(fs.readFileSync(path.join(farmingDir, 'settings.json'), 'utf8')).crtDynamicHeatEnabled, true);
@@ -248,11 +254,19 @@ function run() {
     assert.strictEqual(manager.getSettings().searchTimeoutMs, 180000);
     manager.updateSettings({ searchTimeoutMs: 'invalid' });
     assert.strictEqual(manager.getSettings().searchTimeoutMs, DEFAULT_SEARCH_TIMEOUT_MS);
-    manager.updateSettings({ crtTerminalFontSize: 1 });
-    assert.strictEqual(manager.getSettings().crtTerminalFontSize, MIN_CRT_TERMINAL_FONT_SIZE);
-    manager.updateSettings({ crtTerminalFontSize: 99 });
+    manager.updateSettings({ codeContentFontSize: 1, crtContentFontSize: 1 });
+    assert.strictEqual(manager.getSettings().codeContentFontSize, MIN_CONTENT_FONT_SIZE);
+    assert.strictEqual(manager.getSettings().crtContentFontSize, MIN_CONTENT_FONT_SIZE);
+    assert.strictEqual(manager.getSettings().crtTerminalFontSize, MIN_CONTENT_FONT_SIZE + 1);
+    manager.updateSettings({ codeContentFontSize: 99, crtContentFontSize: 99 });
+    assert.strictEqual(manager.getSettings().codeContentFontSize, MAX_CONTENT_FONT_SIZE);
+    assert.strictEqual(manager.getSettings().crtContentFontSize, MAX_CONTENT_FONT_SIZE);
     assert.strictEqual(manager.getSettings().crtTerminalFontSize, MAX_CRT_TERMINAL_FONT_SIZE);
+    manager.updateSettings({ crtTerminalFontSize: 16 });
+    assert.strictEqual(manager.getSettings().crtContentFontSize, 15);
+    assert.strictEqual(manager.getSettings().crtTerminalFontSize, 16);
     manager.updateSettings({ crtTerminalFontSize: 'invalid' });
+    assert.strictEqual(manager.getSettings().crtContentFontSize, DEFAULT_CRT_CONTENT_FONT_SIZE);
     assert.strictEqual(manager.getSettings().crtTerminalFontSize, DEFAULT_CRT_TERMINAL_FONT_SIZE);
 
     manager.updateSettings({
@@ -355,6 +369,7 @@ function run() {
     fs.mkdirSync(legacyDir, { recursive: true });
     fs.writeFileSync(path.join(legacyDir, 'settings.json'), JSON.stringify({
       dangerouslySkipAgentPermissionsByDefault: true,
+      crtTerminalFontSize: 18,
       workspaceFileSearchTimeoutMs: 3000,
       taskHistory: [{
         id: 'legacy-history-entry',
@@ -380,6 +395,8 @@ function run() {
     const legacyManager = new ConfigManager();
     legacyManager.init();
     assert.strictEqual(legacyManager.getSettings().codexApprovalMode, 'full');
+    assert.strictEqual(legacyManager.getSettings().crtContentFontSize, 17);
+    assert.strictEqual(legacyManager.getSettings().crtTerminalFontSize, 18);
     assert.strictEqual(legacyManager.getSettings().searchTimeoutMs, DEFAULT_SEARCH_TIMEOUT_MS);
     assert.strictEqual(legacyManager.getTaskHistory()[0].agentId, 'legacy-agent');
     assert.strictEqual(legacyManager.getTaskHistory().length, 1, 'unsupported legacy runs should be removed during history normalization');
@@ -388,6 +405,7 @@ function run() {
     assert.strictEqual(migratedLegacySettings.taskHistory, undefined);
     assert.strictEqual(migratedLegacySettings.workspaceFileSearchTimeoutMs, undefined);
     assert.strictEqual(migratedLegacySettings.searchTimeoutMs, DEFAULT_SEARCH_TIMEOUT_MS);
+    assert.strictEqual(migratedLegacySettings.crtContentFontSize, 17);
     assert.strictEqual(JSON.parse(fs.readFileSync(path.join(legacyDir, 'history', 'runs.json'), 'utf8'))[0].agentId, 'legacy-agent');
 
     const legacyCustomTimeoutDir = path.join(tmpRoot, '.farming-legacy-custom-timeout');

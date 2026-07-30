@@ -23,6 +23,9 @@ export interface GhosttyTerminal {
   select?(col: number, row: number, length: number): void
   cols?: number
   rows?: number
+  options?: {
+    fontSize?: number
+  }
   viewportY?: number
   getScrollbackLength?: () => number
   scrollToLine?: (line: number) => void

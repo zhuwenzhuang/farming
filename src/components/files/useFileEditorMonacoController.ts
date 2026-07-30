@@ -12,6 +12,7 @@ import {
   nativeWorkspaceEditorContextMenuEvent,
   pruneWorkspaceEditorModelState,
   registerWorkspaceEditorCommands,
+  updateWorkspaceEditorContentFontSize,
   updateWorkspaceEditorResponsiveOptions,
   workspaceEditorCreateOptions,
   workspaceEditorLanguageForPath,
@@ -202,10 +203,17 @@ export function useFileEditorMonacoController({
     host.addEventListener('contextmenu', handleNativeEditorContextMenu, true)
     resizeObserverRef.current = new ResizeObserver(() => editor.layout())
     resizeObserverRef.current.observe(host)
-    const appearanceObserver = new MutationObserver(() => applyWorkspaceEditorMonacoTheme(editor))
+    const appearanceObserver = new MutationObserver(records => {
+      if (records.some(record => record.attributeName === 'data-appearance')) {
+        applyWorkspaceEditorMonacoTheme(editor)
+      }
+      if (records.some(record => record.attributeName === 'data-code-content-font-size')) {
+        updateWorkspaceEditorContentFontSize(editor)
+      }
+    })
     appearanceObserver.observe(document.body, {
       attributes: true,
-      attributeFilter: ['data-appearance'],
+      attributeFilter: ['data-appearance', 'data-code-content-font-size'],
     })
 
     return () => {

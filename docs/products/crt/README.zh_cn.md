@@ -12,6 +12,9 @@ Farming CRT 是键盘优先的控制室界面，用来监控和控制多个 Agen
 
 在 Farming Code 中打开 **Settings → Interface**，选择 **Farming CRT**。在 CRT 中按 `S` 可以返回界面设置。
 
+CRT 设置中的 **Content Text Size** 会调整 Chat、输入框、Markdown 与 Terminal 正文，
+但不会改变导航、状态字段和操作控件；它与 Farming Code 的正文字号分别保存。
+
 ## 常用按键
 
 | 按键 | 操作 |

@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { createXtermTerminalInstance } from '@/lib/xterm'
+import {
+  codeTerminalFontSize,
+  readCodeContentFontSize,
+} from '@/lib/content-font-size'
 
 interface AcpEmbeddedTerminalProps {
   terminalId: string
@@ -18,6 +22,7 @@ export function AcpEmbeddedTerminal({
 }: AcpEmbeddedTerminalProps) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const terminalRef = useRef<Awaited<ReturnType<typeof createXtermTerminalInstance>>['terminal'] | null>(null)
+  const fitRef = useRef<(() => void) | null>(null)
   const renderedOutputRef = useRef('')
   const outputRef = useRef(output)
   const interactiveRef = useRef(interactive)
@@ -25,13 +30,30 @@ export function AcpEmbeddedTerminal({
   const resizeRef = useRef(onResize)
   const lastResizeRef = useRef('')
   const [error, setError] = useState('')
+  const [terminalFontSize, setTerminalFontSize] = useState(() => (
+    codeTerminalFontSize(readCodeContentFontSize())
+  ))
+  const terminalFontSizeRef = useRef(terminalFontSize)
   const outputLineCount = Math.max(1, output.replace(/\r/g, '').split('\n').length)
   const viewportRows = Math.min(8, Math.max(4, outputLineCount + 1))
-  const viewportHeight = viewportRows * 15 + 16
+  const viewportHeight = viewportRows * Math.ceil(terminalFontSize * 1.25) + 16
   outputRef.current = output
   interactiveRef.current = interactive
   inputRef.current = onInput
   resizeRef.current = onResize
+  terminalFontSizeRef.current = terminalFontSize
+
+  useEffect(() => {
+    const observer = new MutationObserver(records => {
+      if (!records.some(record => record.attributeName === 'data-code-content-font-size')) return
+      setTerminalFontSize(codeTerminalFontSize(readCodeContentFontSize()))
+    })
+    observer.observe(document.body, {
+      attributes: true,
+      attributeFilter: ['data-code-content-font-size'],
+    })
+    return () => observer.disconnect()
+  }, [])
 
   useEffect(() => {
     if (!interactive) return undefined
@@ -40,7 +62,7 @@ export function AcpEmbeddedTerminal({
     let disposed = false
     let resizeObserver: ResizeObserver | null = null
     let cleanup: (() => void) | undefined
-    void createXtermTerminalInstance({ fontSize: 12, theme: 'dark' }).then(({ terminal, fitAddon }) => {
+    void createXtermTerminalInstance({ fontSize: terminalFontSizeRef.current, theme: 'dark' }).then(({ terminal, fitAddon }) => {
       if (disposed) {
         terminal.dispose()
         fitAddon.dispose()
@@ -48,6 +70,7 @@ export function AcpEmbeddedTerminal({
       }
       terminal.loadAddon(fitAddon)
       terminal.open(host)
+      if (terminal.options) terminal.options.fontSize = terminalFontSizeRef.current
       host.querySelector('textarea')?.setAttribute('aria-label', 'Terminal input')
       terminalRef.current = terminal
       const initialOutput = outputRef.current
@@ -69,10 +92,12 @@ export function AcpEmbeddedTerminal({
         lastResizeRef.current = key
         void resizeRef.current(cols, rows).catch(() => {})
       }
+      fitRef.current = fit
       resizeObserver = new ResizeObserver(fit)
       resizeObserver.observe(host)
       window.requestAnimationFrame(fit)
       cleanup = () => {
+        fitRef.current = null
         resizeObserver?.disconnect()
         dataSubscription.dispose()
         fitAddon.dispose()
@@ -87,6 +112,13 @@ export function AcpEmbeddedTerminal({
       cleanup?.()
     }
   }, [interactive, terminalId])
+
+  useEffect(() => {
+    const terminal = terminalRef.current
+    if (!terminal) return
+    if (terminal.options) terminal.options.fontSize = terminalFontSize
+    window.requestAnimationFrame(() => fitRef.current?.())
+  }, [terminalFontSize])
 
   useEffect(() => {
     const terminal = terminalRef.current

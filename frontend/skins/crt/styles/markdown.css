@@ -40,21 +40,21 @@
 }
 
 #farming-crt .crt-markdown h1 {
-    font-size: 20px;
+    font-size: calc(var(--crt-chat-font-size) + 6px);
 }
 
 #farming-crt .crt-markdown h2 {
-    font-size: 18px;
+    font-size: calc(var(--crt-chat-font-size) + 4px);
 }
 
 #farming-crt .crt-markdown h3 {
-    font-size: 16px;
+    font-size: calc(var(--crt-chat-font-size) + 2px);
 }
 
 #farming-crt .crt-markdown h4,
 #farming-crt .crt-markdown h5,
 #farming-crt .crt-markdown h6 {
-    font-size: 14px;
+    font-size: var(--crt-chat-font-size);
 }
 
 #farming-crt .crt-markdown ul,
