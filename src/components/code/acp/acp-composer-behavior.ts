@@ -68,7 +68,7 @@ export function submitAcpDraft({
       ...state,
       draft: '',
       attachments: [],
-      mode: 'default' as const,
+      mode: state.mode === composerMode ? 'default' as const : state.mode,
     }
   }
   const queueFollowUp = () => {

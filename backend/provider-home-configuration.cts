@@ -86,27 +86,103 @@ function summarizeCodexConfiguration(contents: string): ConfigurationSummaryEntr
   return summary;
 }
 
-function jsoncString(contents: string, key: string): string {
-  const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const match = contents.match(new RegExp(`"${escapedKey}"\\s*:\\s*"((?:\\\\.|[^"\\\\])*)"`));
-  if (!match) return '';
+function stripJsoncComments(contents: string): string {
+  let result = '';
+  let inString = false;
+  let escaped = false;
+  let lineComment = false;
+  let blockComment = false;
+  for (let index = 0; index < contents.length; index += 1) {
+    const character = contents[index] || '';
+    const next = contents[index + 1] || '';
+    if (lineComment) {
+      if (character === '\n') {
+        lineComment = false;
+        result += character;
+      } else {
+        result += ' ';
+      }
+      continue;
+    }
+    if (blockComment) {
+      if (character === '*' && next === '/') {
+        blockComment = false;
+        result += '  ';
+        index += 1;
+      } else {
+        result += character === '\n' ? '\n' : ' ';
+      }
+      continue;
+    }
+    if (inString) {
+      result += character;
+      if (escaped) escaped = false;
+      else if (character === '\\') escaped = true;
+      else if (character === '"') inString = false;
+      continue;
+    }
+    if (character === '"') {
+      inString = true;
+      result += character;
+    } else if (character === '/' && next === '/') {
+      lineComment = true;
+      result += '  ';
+      index += 1;
+    } else if (character === '/' && next === '*') {
+      blockComment = true;
+      result += '  ';
+      index += 1;
+    } else {
+      result += character;
+    }
+  }
+  return result;
+}
+
+function stripJsoncTrailingCommas(contents: string): string {
+  let result = '';
+  let inString = false;
+  let escaped = false;
+  for (let index = 0; index < contents.length; index += 1) {
+    const character = contents[index] || '';
+    if (inString) {
+      result += character;
+      if (escaped) escaped = false;
+      else if (character === '\\') escaped = true;
+      else if (character === '"') inString = false;
+      continue;
+    }
+    if (character === '"') {
+      inString = true;
+      result += character;
+      continue;
+    }
+    if (character === ',') {
+      let lookahead = index + 1;
+      while (/\s/.test(contents[lookahead] || '')) lookahead += 1;
+      if (contents[lookahead] === '}' || contents[lookahead] === ']') {
+        result += ' ';
+        continue;
+      }
+    }
+    result += character;
+  }
+  return result;
+}
+
+function parseJsoncObject(contents: string): Record<string, unknown> {
   try {
-    return scalarText(JSON.parse(`"${match[1] || ''}"`));
+    const parsed = JSON.parse(stripJsoncTrailingCommas(stripJsoncComments(contents)));
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : {};
   } catch {
-    return '';
+    return {};
   }
 }
 
 function summarizeJsonConfiguration(provider: string, contents: string): ConfigurationSummaryEntry[] {
-  let settings: Record<string, unknown> = {};
-  try {
-    const parsed = JSON.parse(contents);
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      settings = parsed as Record<string, unknown>;
-    }
-  } catch {
-    // OpenCode commonly uses JSONC. Known scalar keys are still safe to surface.
-  }
+  const settings = parseJsoncObject(contents);
 
   const summary: ConfigurationSummaryEntry[] = [];
   const modelRecord = settings.model && typeof settings.model === 'object' && !Array.isArray(settings.model)
@@ -117,8 +193,7 @@ function summarizeJsonConfiguration(provider: string, contents: string): Configu
     : {};
   const model = scalarText(settings.model)
     || scalarText(modelRecord.name)
-    || scalarText(env.ANTHROPIC_MODEL)
-    || jsoncString(contents, 'model');
+    || scalarText(env.ANTHROPIC_MODEL);
   pushSummary(summary, 'model', model);
 
   if (provider === 'claude') {
@@ -126,7 +201,7 @@ function summarizeJsonConfiguration(provider: string, contents: string): Configu
     pushSummary(summary, 'permission', settings.permissionMode);
   }
   if (provider === 'opencode') {
-    pushSummary(summary, 'provider', settings.provider || jsoncString(contents, 'provider'));
+    pushSummary(summary, 'provider', settings.provider);
   }
   return summary;
 }

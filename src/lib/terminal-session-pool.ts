@@ -4508,6 +4508,12 @@ export async function attachTerminalSession(agentId: string, options: AttachOpti
   invalidateTerminalCheckpointRequest(record)
   TERMINAL_REPLAY.resetRecovery(record.replayState)
   TERMINAL_REPLAY.beginRecovery(record.replayState)
+  record.needsReconnectOutputSync = true
+  record.bootstrappingSnapshot = true
+  // A parked xterm still contains its previous visible buffer. Hide it before
+  // moving the host back into the live mount so the browser cannot paint that
+  // stale frame while the authoritative checkpoint request is in flight.
+  record.hostEl.classList.add('terminal-checkpoint-installing')
   appendHost(record, options.mountEl)
   if (record.parkedViewportState) {
     record.followOutput = record.parkedViewportState.following

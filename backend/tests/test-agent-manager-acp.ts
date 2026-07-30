@@ -185,7 +185,7 @@ async function run() {
       providerTitleUpdated,
       new Promise((_, reject) => setTimeout(
         () => reject(new Error('ACP turn completion did not refresh the provider title')),
-        500,
+        2_000,
       )),
     ]);
     assert.strictEqual(

@@ -33,7 +33,7 @@ During a full replay, xterm is hidden until its write callback completes. A user
 
 If reconnect, reattach, page resume, or a newer bootstrap cut supersedes a checkpoint that is already inside xterm's ordered write queue, invalidation releases the old install latch immediately. The stale write may drain in queue order, but its completion remains sequence-fenced and cannot commit; the replacement checkpoint queues behind it and remains able to reach a visible authoritative cut.
 
-Farming Code keeps that atomic paint boundary visible to the user with one centered recovery status owned by the terminal session pool. It distinguishes checkpoint request, screen installation, and retry backoff, and shows elapsed wait time plus the current attempt. The status disappears only after the authoritative cut has committed to xterm; renderer or invariant failures continue to use the terminal's explicit failure card.
+Farming Code keeps that atomic paint boundary visible to the user with one centered recovery status owned by the terminal session pool. It distinguishes checkpoint request, screen installation, and retry backoff, and shows elapsed wait time plus the current attempt. The status has a 500 ms presentation grace: a normal attach that commits its authoritative cut inside that window shows only the final terminal frame, while a slower recovery still exposes its live phase. A parked xterm host is hidden before it returns to the live mount, so its previous buffer cannot flash during that grace period. Once shown, the status disappears only after the authoritative cut has committed to xterm; renderer or invariant failures continue to use the terminal's explicit failure card.
 
 ## Browser Attachment Ownership
 

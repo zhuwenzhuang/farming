@@ -39,6 +39,7 @@ interface TerminalFollowState {
 }
 
 type TerminalSearchOptionKey = 'caseSensitive' | 'wholeWord' | 'regex'
+const TERMINAL_RECOVERY_NOTICE_GRACE_MS = 500
 
 function shouldSuppressRendererCursorForAgent(command?: string) {
   const program = String(command || '').trim().split(/\s+/)[0] || ''
@@ -146,6 +147,7 @@ export function AgentTerminalPane({
   const [terminalSearchResult, setTerminalSearchResult] = useState<TerminalSearchResult | null>(null)
   const [terminalError, setTerminalError] = useState<string | null>(null)
   const [terminalRecoveryStatus, setTerminalRecoveryStatus] = useState<TerminalRecoveryStatus>(initialTerminalRecoveryStatus)
+  const [terminalRecoveryVisible, setTerminalRecoveryVisible] = useState(false)
   const [terminalRecoveryClock, setTerminalRecoveryClock] = useState(Date.now)
   const handleFollowOutputChange = useCallback((state: TerminalFollowState) => {
     setFollowOutputStateKnown(true)
@@ -422,6 +424,24 @@ export function AgentTerminalPane({
     terminalRecoveryStatus.attempt > 1 ? copy.terminalRecoveryAttempt(terminalRecoveryStatus.attempt) : '',
   ].filter(Boolean).join(' · ')
 
+  useEffect(() => {
+    if (!terminalRecovering || terminalRecoveryStatus.startedAt === null) {
+      setTerminalRecoveryVisible(false)
+      return undefined
+    }
+    const remainingGrace = Math.max(
+      0,
+      TERMINAL_RECOVERY_NOTICE_GRACE_MS - (Date.now() - terminalRecoveryStatus.startedAt),
+    )
+    if (remainingGrace === 0) {
+      setTerminalRecoveryVisible(true)
+      return undefined
+    }
+    setTerminalRecoveryVisible(false)
+    const timeout = window.setTimeout(() => setTerminalRecoveryVisible(true), remainingGrace)
+    return () => window.clearTimeout(timeout)
+  }, [terminalRecovering, terminalRecoveryStatus.startedAt])
+
   return (
     <section
       className={`code-terminal-pane ${active ? 'active' : ''}`}
@@ -437,7 +457,7 @@ export function AgentTerminalPane({
         ref={terminalContainerRef}
         onClick={refreshTerminalLayoutAfterClick}
       />
-      {terminalRecovering ? (
+      {terminalRecovering && terminalRecoveryVisible ? (
         <div
           className="code-terminal-recovery"
           data-testid="code-terminal-recovery"

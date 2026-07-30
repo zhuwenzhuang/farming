@@ -65,6 +65,7 @@ const WORKSPACE_EDITOR_CONTEXT_MENU_IGNORE_SELECTOR = [
 let monacoEnvironmentConfigured = false
 let monacoLanguageMetadata: WorkspaceEditorLanguageMetadata[] | null = null
 let codexMonacoThemesDefined = false
+const scheduledEditorLayouts = new WeakMap<object, { frame: number; timeout: number }>()
 let workspaceEditorPreloadPromise: Promise<void> | null = null
 
 export function configureWorkspaceEditorMonacoEnvironment() {
@@ -150,9 +151,22 @@ export function applyWorkspaceEditorMonacoTheme(editor?: monaco.editor.IStandalo
   monaco.editor.setTheme(theme)
   editor?.updateOptions({ theme })
   if (editor && typeof window !== 'undefined') {
-    window.requestAnimationFrame(() => editor.layout())
-    window.setTimeout(() => editor.layout(), 80)
+    cancelWorkspaceEditorScheduledLayout(editor)
+    const frame = window.requestAnimationFrame(() => editor.layout())
+    const timeout = window.setTimeout(() => {
+      scheduledEditorLayouts.delete(editor)
+      editor.layout()
+    }, 80)
+    scheduledEditorLayouts.set(editor, { frame, timeout })
   }
+}
+
+export function cancelWorkspaceEditorScheduledLayout(editor: object) {
+  const scheduled = scheduledEditorLayouts.get(editor)
+  if (!scheduled || typeof window === 'undefined') return
+  window.cancelAnimationFrame(scheduled.frame)
+  window.clearTimeout(scheduled.timeout)
+  scheduledEditorLayouts.delete(editor)
 }
 
 export function isNarrowWorkspaceEditorViewport() {

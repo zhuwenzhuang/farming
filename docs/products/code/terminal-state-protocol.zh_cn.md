@@ -33,7 +33,7 @@ Code 与 CRT 共用 `frontend/terminal-replay.js` 中的浏览器协议实现，
 
 如果重连、重新 Attach、页面恢复或更新的 Bootstrap Cut 作废了一个已经进入 xterm 有序写队列的 Checkpoint，作废操作会立即释放旧的安装锁。旧写入仍可按队列顺序排空，但其完成回调受序号 Fence 保护，不能提交过期状态；替代 Checkpoint 会排在其后，并且始终能够推进到可见的权威 Cut。
 
-Farming Code 会用一个由 Terminal Session Pool 持有状态的中央恢复提示，把这段原子换屏边界显式呈现给用户。提示区分 Checkpoint 获取、画面安装和失败退避重试，并显示已等待时长与当前尝试次数；只有权威 Cut 已提交到 xterm 后才消失。Renderer 或 Checkpoint 不变量失败仍由 Terminal 的显式失败卡片负责。
+Farming Code 会用一个由 Terminal Session Pool 持有状态的中央恢复提示，把这段原子换屏边界显式呈现给用户。提示区分 Checkpoint 获取、画面安装和失败退避重试，并显示已等待时长与当前尝试次数。提示有 500 ms 展示宽限：普通 Attach 如果在这个窗口内提交权威 Cut，就只显示最终终端画面；确实较慢的恢复仍会显示实时阶段。停放的 xterm Host 会在回到可见 Mount 之前先隐藏，因此旧 Buffer 不会在这段宽限期内闪现。提示一旦出现，只有权威 Cut 已提交到 xterm 后才消失。Renderer 或 Checkpoint 不变量失败仍由 Terminal 的显式失败卡片负责。
 
 ## 浏览器 Attach 所有权
 

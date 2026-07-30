@@ -81,6 +81,7 @@ function sum(events) {
 
 async function run() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-usage-history-'));
+  try {
   const configDir = path.join(root, 'config');
   const codexRoot = path.join(root, 'codex');
   const claudeRoot = path.join(root, 'claude');
@@ -874,6 +875,9 @@ async function run() {
     'a persistent scanner error must stop automatic retries after a bounded audit');
 
   console.log('✓ TypeScript usage history is incremental, fork-safe, and Python-free');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 }
 
 run().catch((error) => {

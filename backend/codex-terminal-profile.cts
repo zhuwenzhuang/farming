@@ -277,7 +277,7 @@ function codexTerminalProfileFromPreview(
   return {
     model: normalizedValue(match[1]),
     effort: normalizedReasoning(match[2]),
-    fast: match[3] ? true : (confirmedTier ? confirmedTier.fast : null),
+    fast: match[3] ? true : (confirmedTier ? confirmedTier.fast : false),
   };
 }
 
@@ -518,7 +518,7 @@ async function applyCodexTerminalProfile({
     }
     if (!current) throw new Error('Codex Terminal stopped reporting its active model');
     if (current.fast !== wantsFast) {
-      const fastCommand = `/fast ${wantsFast ? 'on' : 'off'}`;
+      const fastCommand = '/fast';
       if (typeof readOutput === 'function') {
         const previousOutput = String(await runStep(
           readOutput,
@@ -528,7 +528,7 @@ async function applyCodexTerminalProfile({
           () => sendInput(terminalCommand(fastCommand)),
           `Timed out sending ${fastCommand}`,
         );
-        // `/fast on|off` is one non-interactive slash command. Once its full
+        // `/fast` is one non-interactive toggle command. Once its full
         // input has been accepted, later Terminal input cannot leak into a
         // picker and may proceed while confirmation is observed separately.
         markInputSafe();

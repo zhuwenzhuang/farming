@@ -1392,8 +1392,13 @@ function run() {
 	      editorDiffViewSource.includes('monaco.editor.getModel(uri)?.dispose()') &&
 	      editorDiffViewSource.includes('function createDiffTextModel') &&
 	      editorDiffViewSource.includes('renderSideBySide: !isCompactViewport()') &&
-		      editorDiffViewSource.includes('data-testid="code-file-diff-view"') &&
+	      editorDiffViewSource.includes('data-testid="code-file-diff-view"') &&
+	      editorDiffViewSource.includes('onKeyDownCapture={handleKeyDown}') &&
+	      editorDiffViewSource.includes("event.key !== 'Escape'") &&
+	      editorDiffViewSource.includes('viewRef.current?.focus({ preventScroll: true })') &&
 	      editorDiffViewSource.includes('data-testid="code-file-diff-monaco"') &&
+	      editorDiffViewSource.includes('cancelWorkspaceEditorScheduledLayout(diffEditor)') &&
+	      editorMonacoControllerSource.includes('cancelWorkspaceEditorScheduledLayout(editor)') &&
 		      editorSurfaceSource.includes('<FileEditorDiffView') &&
 		      editorModelSource.includes('function workspaceEditorSurfaceState') &&
 		      editorModelSource.includes('const showDiffView = options.diffOpen && !options.visualPreview') &&

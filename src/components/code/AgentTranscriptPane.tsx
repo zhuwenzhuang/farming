@@ -1266,14 +1266,18 @@ function processEntriesForTurn(items: AgentTranscriptProcessItem[], source: stri
 }
 
 function compactProcessEntries(entries: ProcessEntry[], turnStatus: AgentTranscriptTurn['status']) {
-  const eligible = turnStatus === 'inProgress'
-    ? entries.flatMap(entry => (
-        entry.kind === 'group'
-          ? entry.items.filter(item => !isProcessItemFailed(item) && !item.collaboration)
-          : []
-      ))
-    : []
+  const eligible = entries.flatMap(entry => {
+    if (entry.kind === 'item') {
+      return isUserSteerProcessItem(entry.item) ? [entry.item] : []
+    }
+    return turnStatus === 'inProgress'
+      ? entry.items.filter(item => !isProcessItemFailed(item) && !item.collaboration)
+      : []
+  })
   const selectedIndexes = new Set<number>()
+  eligible.forEach((item, index) => {
+    if (isUserSteerProcessItem(item)) selectedIndexes.add(index)
+  })
   for (let index = eligible.length - 1; index >= 0; index -= 1) {
     if (!isProcessItemRunning(eligible[index]!)) continue
     selectedIndexes.add(index)
@@ -2389,7 +2393,7 @@ function AgentTranscriptPatchResultCard({
           </div>
         ) : null}
       </div>
-      {source === 'acp' && reviewOpen ? (
+      {source === 'acp' && reviewOpen ? createPortal(
         <div className="code-agent-transcript-change-review-overlay" role="dialog" aria-modal="true" aria-label={copy.agentTranscriptReviewChanges} onMouseDown={() => setReviewOpen(false)}>
           <div className="code-agent-transcript-change-review-dialog" onMouseDown={event => event.stopPropagation()}>
             <header>
@@ -2456,7 +2460,8 @@ function AgentTranscriptPatchResultCard({
               }) : null}
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       ) : null}
     </section>
   )

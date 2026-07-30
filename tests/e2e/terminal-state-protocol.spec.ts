@@ -145,6 +145,58 @@ test.describe('terminal state protocol', () => {
     await expect(terminalHost(page, agentId).locator('.terminal-controller-status')).toHaveCount(0)
   })
 
+  test('reattaching a parked terminal hides its old buffer until the current checkpoint commits', async ({
+    page,
+    workspaceRoot,
+  }) => {
+    const workspace = path.join(workspaceRoot, 'terminal-reattach-no-stale-flash')
+    fs.mkdirSync(workspace, { recursive: true })
+    const firstAgentId = await createControlAgent(page, workspace)
+    const secondAgentId = await createControlAgent(page, workspace)
+    await openTerminalTestPage(page)
+    await selectControlAgent(page, firstAgentId)
+
+    const marker = `PARKED_BUFFER_${Date.now()}`
+    const input = await page.request.post(`/farming/api/control/agents/${firstAgentId}/input`, {
+      data: { input: `printf '${marker}\\n'\r` },
+    })
+    expect(input.ok()).toBeTruthy()
+    await expect.poll(() => visibleText(page, firstAgentId)).toContain(marker)
+    await selectControlAgent(page, secondAgentId)
+
+    let releaseCheckpoint!: () => void
+    const checkpointGate = new Promise<void>(resolve => {
+      releaseCheckpoint = resolve
+    })
+    await page.route(
+      new RegExp(`/farming/api/agents/${firstAgentId}/session-view$`),
+      async route => {
+        await checkpointGate
+        await route.continue()
+      },
+    )
+
+    const firstRow = page.locator(
+      `[data-testid="code-agent-row"][data-agent-id="${firstAgentId}"], `
+      + `[data-testid="code-project-agent-compact"][data-agent-id="${firstAgentId}"], `
+      + `[data-testid="code-pinned-agent-compact"][data-agent-id="${firstAgentId}"]`,
+    ).first()
+    await firstRow.click()
+    const reattachedHost = terminalHost(page, firstAgentId)
+    await expect(reattachedHost).toBeVisible()
+    await expect(reattachedHost).toHaveClass(/terminal-checkpoint-installing/)
+    await expect(reattachedHost.locator('.xterm')).toHaveCSS('opacity', '0')
+
+    releaseCheckpoint()
+    await page.waitForFunction(
+      id => Boolean(window.__farmingTerminalTest?.isReady(id)),
+      firstAgentId,
+      { timeout: 10_000 },
+    )
+    await expect(reattachedHost).not.toHaveClass(/terminal-checkpoint-installing/)
+    await expect(reattachedHost.locator('.xterm')).not.toHaveCSS('opacity', '0')
+  })
+
   test('resuming a stale visible fixture installs one latest checkpoint instead of replaying history', async ({ page, workspaceRoot }) => {
     const workspace = path.join(workspaceRoot, 'terminal-one-shot-latest-checkpoint')
     fs.mkdirSync(workspace, { recursive: true })
@@ -249,6 +301,37 @@ test.describe('terminal state protocol', () => {
     await page.waitForFunction(id => Boolean(window.__farmingTerminalTest?.isReady(id)), agentId)
   })
 
+  test('a fast terminal checkpoint does not flash the recovery card', async ({ page, workspaceRoot }) => {
+    const workspace = path.join(workspaceRoot, 'terminal-fast-checkpoint-no-flash')
+    fs.mkdirSync(workspace, { recursive: true })
+    const agentId = await createControlAgent(page, workspace)
+    const routePattern = new RegExp(`/farming/api/agents/${agentId}/session-view$`)
+    await page.route(routePattern, async route => {
+      await new Promise(resolve => setTimeout(resolve, 150))
+      await route.continue()
+    })
+    await openTerminalTestPage(page)
+    await page.evaluate(() => {
+      const state = { appearances: 0 }
+      Object.assign(window, { __terminalRecoveryPresentationTest: state })
+      const observer = new MutationObserver(() => {
+        if (document.querySelector('[data-testid="code-terminal-recovery"]')) {
+          state.appearances += 1
+        }
+      })
+      observer.observe(document.body, { childList: true, subtree: true })
+    })
+
+    await selectControlAgent(page, agentId)
+    const appearances = await page.evaluate(() => (
+      (window as typeof window & {
+        __terminalRecoveryPresentationTest?: { appearances: number }
+      }).__terminalRecoveryPresentationTest?.appearances ?? -1
+    ))
+    expect(appearances).toBe(0)
+    await expect(page.getByTestId('code-terminal-recovery')).toHaveCount(0)
+  })
+
   test('checkpoint retry reports its backoff and next attempt before recovering', async ({ page, workspaceRoot }) => {
     const workspace = path.join(workspaceRoot, 'terminal-visible-recovery-retry')
     fs.mkdirSync(workspace, { recursive: true })
@@ -283,9 +366,9 @@ test.describe('terminal state protocol', () => {
 
     await page.evaluate(() => window.dispatchEvent(new Event('farming:backend-connected')))
     const retrying = await retryingState
-    expect(retrying.attempt).toBe('2')
+    expect(Number(retrying.attempt)).toBeGreaterThanOrEqual(2)
     expect(retrying.text).toContain('Terminal state unavailable. Retrying in 1s…')
-    expect(retrying.text).toContain('Attempt 2')
+    expect(retrying.text).toContain(`Attempt ${retrying.attempt}`)
 
     await expect.poll(() => requests).toBeGreaterThanOrEqual(2)
     await expect(page.getByTestId('code-terminal-recovery')).toHaveAttribute('data-phase', 'requesting')

@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import * as monaco from 'monaco-editor'
 import {
   applyWorkspaceEditorMonacoTheme,
+  cancelWorkspaceEditorScheduledLayout,
   configureWorkspaceEditorMonacoEnvironment,
   updateWorkspaceEditorContentFontSize,
   workspaceEditorFontOptions,
@@ -71,11 +72,23 @@ export function FileEditorDiffView({
   onClose,
 }: FileEditorDiffViewProps) {
   const hostRef = useRef<HTMLDivElement>(null)
+  const viewRef = useRef<HTMLElement>(null)
   const diffEditorRef = useRef<monaco.editor.IStandaloneDiffEditor | null>(null)
   const originalModelRef = useRef<monaco.editor.ITextModel | null>(null)
   const modifiedModelRef = useRef<monaco.editor.ITextModel | null>(null)
   const showDiffEditor = canShowDiffEditor(diffState)
   const statusText = useMemo(() => diffStatusText(diffState, copy), [copy, diffState])
+
+  useEffect(() => {
+    viewRef.current?.focus({ preventScroll: true })
+  }, [])
+
+  const handleKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
+    if (event.key !== 'Escape') return
+    event.preventDefault()
+    event.stopPropagation()
+    onClose()
+  }
 
   useEffect(() => {
     if (!showDiffEditor) return undefined
@@ -123,11 +136,13 @@ export function FileEditorDiffView({
       attributes: true,
       attributeFilter: ['data-appearance', 'data-code-content-font-size'],
     })
-    window.requestAnimationFrame(() => diffEditor.layout())
+    const initialLayoutFrame = window.requestAnimationFrame(() => diffEditor.layout())
 
     return () => {
+      window.cancelAnimationFrame(initialLayoutFrame)
       resizeObserver.disconnect()
       appearanceObserver.disconnect()
+      cancelWorkspaceEditorScheduledLayout(diffEditor)
       diffEditor.dispose()
       originalModelRef.current?.dispose()
       modifiedModelRef.current?.dispose()
@@ -152,11 +167,19 @@ export function FileEditorDiffView({
       original: originalModel,
       modified: modifiedModel,
     })
-    window.requestAnimationFrame(() => diffEditor.layout())
+    const layoutFrame = window.requestAnimationFrame(() => diffEditor.layout())
+    return () => window.cancelAnimationFrame(layoutFrame)
   }, [diffState.diff, openFile, showDiffEditor])
 
   return (
-    <section className="code-file-diff-view" data-testid="code-file-diff-view" aria-label={copy.fileDiff}>
+    <section
+      ref={viewRef}
+      className="code-file-diff-view"
+      data-testid="code-file-diff-view"
+      aria-label={copy.fileDiff}
+      tabIndex={-1}
+      onKeyDownCapture={handleKeyDown}
+    >
       <header className="code-file-diff-header">
         <div className="code-file-diff-title">
           <strong>{copy.fileDiff}</strong>

@@ -73,7 +73,7 @@ async function run() {
           ].join('\n');
         } else if (input === '4') {
           profilePreview = '• Service tier set to default\n\n• Model changed to gpt-5.6-sol xhigh\n\ngpt-5.6-sol xhigh · /tmp';
-        } else if (Array.isArray(input) && input[0]?.text === '/fast on') {
+        } else if (Array.isArray(input) && input[0]?.text === '/fast') {
           // Leave the confirmation pending. The next user input must be
           // accepted after the complete direct command, without waiting for
           // this output to arrive.
@@ -106,7 +106,7 @@ async function run() {
       [{ type: 'paste', text: '/model' }, '\r'],
       '8',
       '4',
-      [{ type: 'paste', text: '/fast on' }, '\r'],
+      [{ type: 'paste', text: '/fast' }, '\r'],
       [{ type: 'paste', text: 'after profile' }, '\r'],
     ], 'later Terminal input should wait for model menus but not for direct Fast confirmation');
     assert.deepStrictEqual(

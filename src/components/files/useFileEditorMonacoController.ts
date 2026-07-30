@@ -7,6 +7,7 @@ import {
 } from '@/lib/workspace-editor-model'
 import {
   applyWorkspaceEditorMonacoTheme,
+  cancelWorkspaceEditorScheduledLayout,
   configureWorkspaceEditorMonacoEnvironment,
   disposeWorkspaceEditorModels,
   nativeWorkspaceEditorContextMenuEvent,
@@ -239,6 +240,7 @@ export function useFileEditorMonacoController({
       scrollSubscriptionRef.current = null
       changeSubscriptionRef.current?.dispose()
       changeSubscriptionRef.current = null
+      cancelWorkspaceEditorScheduledLayout(editor)
       editor.dispose()
       disposeWorkspaceEditorModels()
       editorViewStatesRef.current.clear()

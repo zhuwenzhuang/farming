@@ -126,6 +126,27 @@ async function run() {
   assert.strictEqual(state.submissions, undefined);
   assert.deepStrictEqual(state.history.entries, ['submitted draft']);
 
+  let acceptModeSubmission;
+  state = {
+    ...createDefaultAgentComposerState(),
+    draft: 'preserve a newer mode',
+  };
+  const modeResult = submitAcpDraft({
+    agent,
+    composerKey: 'acp:session-1',
+    draft: state.draft,
+    attachments: [],
+    composerMode: 'default',
+    turnActive: false,
+    sendMessage: () => new Promise(resolve => { acceptModeSubmission = resolve; }),
+    updateComposerState,
+  });
+  state = { ...state, mode: 'plan' };
+  acceptModeSubmission(true);
+  assert.strictEqual(await modeResult, true);
+  assert.strictEqual(state.draft, '');
+  assert.strictEqual(state.mode, 'plan', 'a late Prompt admission must not clear a newer Composer mode');
+
   let acceptOwnedSubmission;
   state = {
     ...createDefaultAgentComposerState(),
