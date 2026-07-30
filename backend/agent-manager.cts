@@ -129,7 +129,17 @@ import {
   ProviderSessionService,
   type ProviderSessionChange,
 } from './provider-session-service.cjs';
-import { legacyRuntimeMetadata, publicRuntimeBinding, replaceRuntimeBinding, RuntimeAgentMap, runtimeBindingFor, runtimeBindingOf, runtimeKind } from './agent-runtime-binding.cjs';
+import {
+  isAgentRuntimeModeRequest,
+  legacyRuntimeMetadata,
+  publicRuntimeBinding,
+  replaceRuntimeBinding,
+  RuntimeAgentMap,
+  runtimeBindingFor,
+  runtimeBindingOf,
+  runtimeKind,
+  type AgentRuntimeModeRequest,
+} from './agent-runtime-binding.cjs';
 import {
   deriveRuntimeObservation,
   type TerminalObservationStatus,
@@ -6775,7 +6785,10 @@ class AgentManager extends EventEmitter {
     );
   }
 
-  restartAgentRuntimeMode(agentId: AgentId, mode: RuntimeKind): Promise<AgentRestartResult> {
+  restartAgentRuntimeMode(agentId: AgentId, mode: unknown): Promise<AgentRestartResult> {
+    if (!isAgentRuntimeModeRequest(mode)) {
+      return Promise.resolve({ error: 'Unsupported Agent runtime mode' });
+    }
     return this.runAgentLifecycleOperation(
       agentId,
       `runtime-switch:${mode}`,
@@ -6788,19 +6801,13 @@ class AgentManager extends EventEmitter {
 
   async performAgentRuntimeModeRestart(
     agentId: AgentId,
-    mode: string,
+    mode: AgentRuntimeModeRequest,
     lifecycleToken: symbol,
   ): Promise<AgentRestartResult> {
     const agent = this.agents.get(agentId);
     if (!agent) return { error: 'Agent not found' };
     const provider = agent.providerSessionProvider || '';
-    const requestedMode: 'terminal' | 'acp' | 'chat' | '' = mode === 'terminal'
-      || mode === 'acp'
-      || mode === 'chat'
-      ? mode
-      : '';
-    const nextMode = requestedMode === 'acp' && provider === 'codex' ? 'chat' : requestedMode;
-    if (!nextMode) return { error: 'Unsupported Agent runtime mode' };
+    const nextMode = mode === 'acp' && provider === 'codex' ? 'chat' : mode;
     const currentKind = runtimeKind(agent);
     const currentMode = currentKind === 'acp'
       ? 'chat'

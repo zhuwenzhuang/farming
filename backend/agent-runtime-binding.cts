@@ -1,4 +1,5 @@
 type RuntimeKind = 'terminal' | 'acp' | 'json';
+type AgentRuntimeModeRequest = 'terminal' | 'acp' | 'chat';
 
 interface RuntimeBindingFields {
   state?: string;
@@ -89,9 +90,15 @@ interface RuntimeAgentSource extends RuntimeBindingSource {
 }
 
 const RUNTIME_KINDS = new Set<RuntimeKind>(['terminal', 'acp', 'json']);
+const AGENT_RUNTIME_MODE_REQUESTS = new Set<AgentRuntimeModeRequest>(['terminal', 'acp', 'chat']);
 
 function isRuntimeKind(value: unknown): value is RuntimeKind {
   return typeof value === 'string' && RUNTIME_KINDS.has(value as RuntimeKind);
+}
+
+function isAgentRuntimeModeRequest(value: unknown): value is AgentRuntimeModeRequest {
+  return typeof value === 'string'
+    && AGENT_RUNTIME_MODE_REQUESTS.has(value as AgentRuntimeModeRequest);
 }
 
 function terminalBinding(): TerminalRuntimeBinding {
@@ -315,7 +322,9 @@ function legacyRuntimeMetadata(agent: RuntimeAgentSource | null | undefined): Re
 }
 
 export {
+  type AgentRuntimeModeRequest,
   RuntimeAgentMap,
+  isAgentRuntimeModeRequest,
   installRuntimeBinding,
   legacyRuntimeMetadata,
   publicRuntimeBinding,

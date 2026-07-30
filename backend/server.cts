@@ -46,7 +46,6 @@ interface ServerRecord {
   workspace?: string;
 }
 
-type RuntimeKind = ReturnType<typeof runtimeKind>;
 type AgentStartCallback = NonNullable<Parameters<AgentManager['startAgent']>[2]>;
 type SessionStream = ReturnType<typeof coalesceSessionStream>;
 
@@ -70,10 +69,6 @@ function isAcpConfigValue(value: unknown): value is AcpConfigValue {
   return value === null
     || ['string', 'number', 'boolean'].includes(typeof value)
     || (Array.isArray(value) && value.every(item => typeof item === 'string'));
-}
-
-function isRuntimeKind(value: string): value is RuntimeKind {
-  return value === 'terminal' || value === 'acp' || value === 'json';
 }
 
 function isForkMode(value: string): value is ForkMode {
@@ -221,7 +216,7 @@ const { execFile } = require('child_process');
 const { promisify } = require('util');
 const { URLSearchParams, pathToFileURL } = require('url');
 import { AgentManager } from './agent-manager.cjs';
-import { runtimeKind } from './agent-runtime-binding.cjs';
+import { isAgentRuntimeModeRequest, runtimeKind } from './agent-runtime-binding.cjs';
 import { ConfigManager } from './config-manager.cjs';
 import { ThemeManager } from './theme-manager.cjs';
 import { TokenAuth, encodeCookieToken } from './auth.cjs';
@@ -1910,7 +1905,7 @@ app.patch(routePath(BASE_PATH, '/api/agents/:agentId'), express.json(), async (r
   }
 
   if (typeof body.agentRuntimeMode === 'string') {
-    if (!isRuntimeKind(body.agentRuntimeMode)) {
+    if (!isAgentRuntimeModeRequest(body.agentRuntimeMode)) {
       res.status(400).json({ error: 'Unsupported Agent runtime mode' });
       return;
     }

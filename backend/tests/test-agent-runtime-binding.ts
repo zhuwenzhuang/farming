@@ -1,5 +1,6 @@
 const assert = require('assert');
 const {
+  isAgentRuntimeModeRequest,
   installRuntimeBinding,
   publicRuntimeBinding,
   RuntimeAgentMap,
@@ -8,6 +9,12 @@ const {
 } = require('../agent-runtime-binding.cjs');
 
 function run() {
+  assert.strictEqual(isAgentRuntimeModeRequest('terminal'), true);
+  assert.strictEqual(isAgentRuntimeModeRequest('acp'), true);
+  assert.strictEqual(isAgentRuntimeModeRequest('chat'), true);
+  assert.strictEqual(isAgentRuntimeModeRequest('json'), false);
+  assert.strictEqual(isAgentRuntimeModeRequest({ mode: 'chat' }), false);
+
   assert.deepStrictEqual(publicRuntimeBinding({ agentRuntimeMode: 'terminal' }), { kind: 'terminal' });
   assert.deepStrictEqual(publicRuntimeBinding({
     agentRuntimeMode: 'acp',
