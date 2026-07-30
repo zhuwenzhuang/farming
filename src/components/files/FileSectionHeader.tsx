@@ -58,28 +58,6 @@ export function FileSectionHeader({
           </span>
           <span>{copy.files}</span>
         </button>
-        <button
-          type="button"
-          className="code-files-refresh"
-          data-testid="code-files-refresh"
-          data-refresh-status={refreshStatus}
-          title={refreshLabel}
-          aria-label={refreshLabel}
-          aria-busy={refreshStatus === 'refreshing'}
-          disabled={refreshStatus === 'refreshing'}
-          onClick={onRefreshFiles}
-        >
-          <span className="code-files-refresh-glyph" aria-hidden="true">
-            {refreshStatus === 'success'
-              ? <CheckGlyph />
-              : refreshStatus === 'error'
-                ? <ErrorGlyph />
-                : '↻'}
-          </span>
-        </button>
-        <span className="code-visually-hidden" role="status" aria-live="polite">
-          {refreshStatus === 'idle' ? '' : refreshLabel}
-        </span>
       </div>
       {!filesCollapsed && (
         <label className="code-file-search-box">
@@ -122,6 +100,34 @@ export function FileSectionHeader({
           />
         </label>
       )}
+      <span
+        className="code-files-header-actions"
+        data-testid="code-files-header-actions"
+        data-refresh-status={refreshStatus}
+      >
+        <button
+          type="button"
+          className="code-files-refresh"
+          data-testid="code-files-refresh"
+          data-refresh-status={refreshStatus}
+          title={refreshLabel}
+          aria-label={refreshLabel}
+          aria-busy={refreshStatus === 'refreshing'}
+          disabled={refreshStatus === 'refreshing'}
+          onClick={onRefreshFiles}
+        >
+          <span className="code-files-refresh-glyph" aria-hidden="true">
+            {refreshStatus === 'success'
+              ? <CheckGlyph />
+              : refreshStatus === 'error'
+                ? <ErrorGlyph />
+                : '↻'}
+          </span>
+        </button>
+      </span>
+      <span className="code-visually-hidden" role="status" aria-live="polite">
+        {refreshStatus === 'idle' ? '' : refreshLabel}
+      </span>
     </div>
   )
 }

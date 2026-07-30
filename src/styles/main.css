@@ -2096,6 +2096,26 @@ body.code-mode:not(.code-compact-layout) .code-agent-row.requires-resume .code-a
   min-width: 0;
 }
 
+.code-files-header-actions {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+.code-files-header:hover .code-files-header-actions,
+.code-files-header:focus-within .code-files-header-actions,
+.code-files-header-actions:not([data-refresh-status='idle']) {
+  opacity: 1;
+  pointer-events: auto;
+}
+
 .code-open-editors-title,
 .code-git-history-title,
 .code-files-title {
@@ -16244,14 +16264,28 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
   .code-open-editors-header,
   .code-files-header {
     display: grid;
-    grid-template-columns: minmax(0, 1fr);
     gap: 4px;
     align-items: stretch;
     padding-right: 4px;
   }
 
+  .code-open-editors-header {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .code-files-header {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
   .code-files-heading {
+    grid-column: 1;
+    grid-row: 1;
     width: 100%;
+  }
+
+  .code-files-header-actions {
+    grid-column: 2;
+    grid-row: 1;
   }
 
   .code-open-editors-title,
@@ -16260,6 +16294,7 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
   }
 
   .code-file-search-box {
+    grid-column: 1 / -1;
     grid-template-columns: minmax(0, 1fr);
     width: 100%;
   }
@@ -19418,6 +19453,11 @@ body.code-mode[data-appearance='dark'] .code-settings-language-choice {
 
   body.code-mode.code-compact-layout .code-agent-row-actions {
     display: none;
+  }
+
+  body.code-mode.code-compact-layout .code-files-header-actions {
+    opacity: 1;
+    pointer-events: auto;
   }
 
   body.code-mode.code-compact-layout .code-agent-row-more {

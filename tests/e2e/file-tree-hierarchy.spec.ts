@@ -170,6 +170,7 @@ test('preserves every visible directory level across sticky scroll, collapse, re
   await expect(meta).toHaveAttribute('aria-expanded', 'true')
   await expect(target).toBeVisible()
 
+  await files.locator('.code-files-header').hover()
   await files.getByTestId('code-files-refresh').click()
   await expect(target).toBeVisible()
   await expect.poll(() => stickyHierarchyMatchesFirstUncoveredRow(files)).toBe(true)

@@ -863,6 +863,8 @@ function run() {
       !fileSectionSource.includes('collapseFileTree') &&
       !fileSectionSource.includes('aria-label="New file"') &&
       fileSectionHeaderSource.includes('data-testid="code-files-refresh"') &&
+      fileSectionHeaderSource.includes('data-testid="code-files-header-actions"') &&
+      fileSectionHeaderSource.includes('className="code-files-header-actions"') &&
       fileSectionHeaderSource.includes('aria-label={refreshLabel}') &&
       !fileSectionSource.includes('aria-label="Collapse folders"') &&
       !fileSectionSource.includes('MAX_STICKY_ANCESTORS') &&
@@ -1740,6 +1742,10 @@ function run() {
       stylesSource.includes('.code-open-editors {\n  margin-top: 3px;\n  position: sticky') &&
       stylesSource.includes('.code-files-header {\n  position: sticky') &&
       stylesSource.includes('.code-files-refresh') &&
+      stylesSource.includes('.code-files-header-actions') &&
+      stylesSource.includes('.code-files-header:hover .code-files-header-actions') &&
+      stylesSource.includes('.code-files-header:focus-within .code-files-header-actions') &&
+      stylesSource.includes(".code-files-header-actions:not([data-refresh-status='idle'])") &&
       stylesSource.includes('top: calc(var(--code-project-sticky-height) + var(--code-agents-sticky-height, 0px) + var(--code-open-editors-sticky-height, 0px))') &&
       stylesSource.includes('.code-open-editors-list') &&
       stylesSource.includes('max-height: var(--code-open-editors-list-max-height, 196px)') &&
@@ -1955,7 +1961,9 @@ function run() {
       editorMonacoSource.includes('function defineCodexMonacoThemes') &&
       editorMonacoSource.includes('editor?.updateOptions({ theme })') &&
       editorMonacoSource.includes('window.requestAnimationFrame(() => editor.layout())') &&
-      editorMonacoControllerSource.includes('new MutationObserver(() => applyWorkspaceEditorMonacoTheme(editor))') &&
+      editorMonacoControllerSource.includes('const appearanceObserver = new MutationObserver(records => {') &&
+      editorMonacoControllerSource.includes("record.attributeName === 'data-appearance'") &&
+      editorMonacoControllerSource.includes('applyWorkspaceEditorMonacoTheme(editor)') &&
 	      darkStylesSource.includes("body.code-mode[data-appearance='dark'] .code-file-monaco") &&
 	      darkStylesSource.includes("body.code-mode[data-appearance='dark'] .code-file-editor-source-region") &&
 	      darkStylesSource.includes("body.code-mode[data-appearance='dark'] .code-file-diff-view") &&
