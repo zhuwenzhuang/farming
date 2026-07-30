@@ -2425,6 +2425,10 @@ export function CodeWorkspace({
           removeAcceptedFollowUp()
           return
         }
+        // Terminal Composer input is a raw PTY stream with no admission ACK.
+        // If the browser could not hand it to the socket, keep the visible
+        // queue intact so reconnect can retry only after the runtime is idle.
+        if (!isAcpRuntime(agent)) return
         updateExistingComposerStateForKey(composerKey, state => {
           if (!state.pendingFollowUp?.messages.some(candidate => candidate.id === message.id)) return state
           return {
@@ -3569,6 +3573,31 @@ export function CodeWorkspace({
       }
     }
   }, [focusWorkspaceFilesSearch, openProjectFile, resolveWorkspaceFileIdentity, revealWorkspaceFileInExplorer, selectOpenWorkspaceFile])
+
+  const openAgentHomeConfiguration = useCallback(async (target: {
+    exists: boolean
+    filePath: string
+    rootId: string
+  }) => {
+    try {
+      const file: WorkspaceFile = target.exists
+        ? await fetchWorkspaceFile(target.rootId, target.filePath)
+        : {
+            path: target.filePath,
+            content: '',
+            size: 0,
+            mtimeMs: 0,
+            sha1: '',
+          }
+      await openProjectFile(target.rootId, file, { revealInTree: false })
+    } catch (error) {
+      setCopyNotice({
+        id: Date.now(),
+        kind: 'error',
+        message: error instanceof Error ? error.message : 'Failed to open Agent Home configuration',
+      })
+    }
+  }, [openProjectFile])
 
   const restoreWorkspaceShareTarget = useCallback(async (target: WorkspaceShareTarget) => {
     importSharedReadingAnchor(target.kind === 'agent' ? target.readingAnchor : undefined)
@@ -5588,6 +5617,7 @@ export function CodeWorkspace({
         onNewAgent={onNewAgent}
         onOpenHistory={() => openWorkspaceViewFromSidebar('history')}
         onOpenPlugins={() => openWorkspaceViewFromSidebar('plugins')}
+        onOpenAgentHomeConfiguration={openAgentHomeConfiguration}
         onOpenSearch={openSearchFromSidebar}
         onOpenShare={() => requestEmptyHomeSidebarAction('share')}
         onOpenAppMode={() => requestEmptyHomeSidebarAction('focus')}

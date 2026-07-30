@@ -298,7 +298,11 @@ test.describe('iPhone mobile layout', () => {
       const composer = document.querySelector<HTMLElement>('[data-testid="code-acp-composer"]')?.getBoundingClientRect()
       const permission = document.querySelector<HTMLElement>('[data-testid="code-acp-permission-request"]')?.getBoundingClientRect()
       const actions = document.querySelector<HTMLElement>('[data-testid="code-acp-permission-request"] .code-acp-request-actions')?.getBoundingClientRect()
-      const controls = Array.from(document.querySelectorAll<HTMLElement>('[data-testid="code-acp-permission-request"] .code-acp-request-actions select, [data-testid="code-acp-permission-request"] .code-acp-request-actions button'))
+      const scope = document.querySelector<HTMLElement>('[data-testid="code-acp-permission-request"] .code-acp-request-actions .code-select-trigger')
+      const controls = [
+        scope,
+        ...document.querySelectorAll<HTMLElement>('[data-testid="code-acp-permission-request"] .code-acp-request-actions > button'),
+      ].filter((control): control is HTMLElement => Boolean(control))
       if (!composer || !permission || !actions || controls.length !== 4) throw new Error('Permission action geometry is incomplete')
       return {
         documentWidth: document.documentElement.scrollWidth,

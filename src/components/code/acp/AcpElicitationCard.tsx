@@ -1,4 +1,5 @@
 import { useMemo, useState, type FormEvent } from 'react'
+import { CodeSelect } from '@/components/CodeSelect'
 import type { AcpElicitationProperty, AcpPendingElicitation } from '@/types/agent'
 
 type ElicitationValue = string | number | boolean | string[]
@@ -122,14 +123,20 @@ export function AcpElicitationCard({ request, onRespond }: AcpElicitationCardPro
                 </fieldset>
               )
             }
-            return (
+            return options.length > 0 ? (
+              <div className="code-acp-select-question" key={name}>
+                <CodeSelect
+                  label={label}
+                  value={String(values[name] ?? '')}
+                  required={required.has(name)}
+                  options={options}
+                  onChange={value => setValues(current => ({ ...current, [name]: value }))}
+                />
+                {property.description ? <small>{property.description}</small> : null}
+              </div>
+            ) : (
               <label key={name}>
                 <span>{label}</span>
-                {options.length > 0 ? (
-                  <select value={String(values[name] ?? '')} required={required.has(name)} onChange={event => setValues(current => ({ ...current, [name]: event.target.value }))}>
-                    {options.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
-                  </select>
-                ) : (
                   <input
                     type={property.type === 'number' || property.type === 'integer'
                       ? 'number'
@@ -157,7 +164,6 @@ export function AcpElicitationCard({ request, onRespond }: AcpElicitationCardPro
                         : event.target.value,
                     }))}
                   />
-                )}
                 {property.description ? <small>{property.description}</small> : null}
               </label>
             )

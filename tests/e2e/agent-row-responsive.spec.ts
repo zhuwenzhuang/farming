@@ -56,7 +56,8 @@ test('reveals more Agent row information as the sidebar widens', async ({ page, 
   expect(renameResponse.ok()).toBeTruthy()
 
   const row = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
-  await expect(row.locator('.code-agent-name')).toHaveText(longTitle)
+  const title = row.locator('.code-agent-name')
+  await expect(title).toHaveText(longTitle)
   await expect(row.getByTestId('code-agent-row-age')).toHaveCount(1)
 
   const compact = await rowProjection(row)
@@ -64,6 +65,15 @@ test('reveals more Agent row information as the sidebar widens', async ({ page, 
   expect(compact.providerDisplay).toBe('none')
   expect(compact.ageDisplay).toBe('none')
   expect(compact.detailDisplay).toBe('none')
+
+  await row.hover()
+  const titleCard = page.getByTestId('code-agent-hover-title-card')
+  await expect(titleCard).toBeVisible()
+  await expect(titleCard).toHaveText(longTitle)
+  await expect(titleCard).toHaveCSS('font-size', '14px')
+  await expect(titleCard).toHaveCSS('font-weight', '400')
+  await page.mouse.move(1000, 100)
+  await expect(titleCard).toHaveCount(0)
 
   await resizeSidebar(page, 480)
   const roomy = await rowProjection(row)
@@ -81,4 +91,31 @@ test('reveals more Agent row information as the sidebar widens', async ({ page, 
   expect(wide.ageDisplay).not.toBe('none')
   expect(wide.detailDisplay).toBe('block')
   expect(wide.detail).toBe('bash')
+})
+
+test('hides Agent row actions after a clicked row loses hover', async ({ page, workspaceRoot }) => {
+  const projectDir = path.join(workspaceRoot, 'agent-row-actions')
+  fs.mkdirSync(projectDir, { recursive: true })
+
+  await openFarming(page)
+  const createResponse = await page.request.post('/farming/api/control/agents', {
+    data: { command: 'bash', workspace: projectDir },
+  })
+  expect(createResponse.ok()).toBeTruthy()
+  const { agentId } = await createResponse.json() as { agentId: string }
+  const row = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
+  const actions = row.locator('.code-agent-row-actions')
+
+  await expect(row).toBeVisible()
+  await row.click()
+  await expect(actions).toHaveCSS('opacity', '1')
+
+  await page.mouse.move(1000, 100)
+  await row.evaluate(element => (element as HTMLElement).focus())
+  await expect(row).toBeFocused()
+  await expect(actions).toHaveCSS('opacity', '0')
+
+  await page.keyboard.press('Tab')
+  await expect(row.getByTestId('code-agent-row-pin')).toBeFocused()
+  await expect(actions).toHaveCSS('opacity', '1')
 })

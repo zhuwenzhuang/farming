@@ -23,6 +23,7 @@ import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import { parse as parseYaml } from 'yaml'
 import 'katex/dist/katex.min.css'
+import { LocalErrorBoundary, LocalRenderFault } from '@/components/LocalErrorBoundary'
 import { writeClipboardText } from '@/lib/clipboard'
 import { rawWorkspaceFileUrl } from '@/lib/workspace-files'
 import { decodeMermaidCharacterReferences } from '@/lib/mermaid-source'
@@ -336,9 +337,39 @@ const MarkdownImage: Components['img'] = ({ src, alt, ...props }) => {
 }
 
 const MarkdownPre: Components['pre'] = ({ children, ...props }) => {
-  const { copy } = useMarkdownPreviewContext()
+  const { copy, openFile } = useMarkdownPreviewContext()
   const mermaidSource = mermaidCodeBlockSource(children)
-  if (mermaidSource !== null) return <MermaidBlock source={mermaidSource} copy={copy} />
+  if (mermaidSource !== null) {
+    const identity = `${openFile.agentId}:${openFile.file.path}`
+    return (
+      <LocalErrorBoundary
+        label="file Mermaid preview"
+        resetKey={mermaidSource}
+        fallback={(_error, retry) => (
+          <figure className="code-markdown-mermaid error" aria-label={copy.mermaidDiagram}>
+            <figcaption className="code-markdown-mermaid-error-title">{copy.mermaidRenderFailed}</figcaption>
+            <div className="code-file-diff-state error" role="alert">
+              <span>{copy.mermaidRenderFailed}</span>
+              <button
+                type="button"
+                className="code-file-editor-action reload"
+                aria-label={copy.retry}
+                title={copy.retry}
+                onClick={retry}
+              />
+            </div>
+            <pre className="code-markdown-mermaid-fallback">
+              <code className="language-mermaid">{mermaidSource}</code>
+            </pre>
+          </figure>
+        )}
+      >
+        <LocalRenderFault surface="file-markdown" identity={`${identity}:mermaid`}>
+          <MermaidBlock source={mermaidSource} copy={copy} />
+        </LocalRenderFault>
+      </LocalErrorBoundary>
+    )
+  }
   const language = codeBlockLanguage(children)
   return <pre {...props} data-language={language || undefined}>{children}</pre>
 }
@@ -770,6 +801,7 @@ export const FileEditorMarkdownPreview = forwardRef<HTMLElement, FileEditorMarkd
   const markdownDocument = splitMarkdownFrontMatter(source)
   const nextHeadingId = createHeadingIdFactory()
   const contextValue = { openFile, onOpenFilePath, copy, nextHeadingId }
+  const previewIdentity = `${openFile.agentId}:${openFile.file.path}`
 
   return (
     <section
@@ -786,14 +818,36 @@ export const FileEditorMarkdownPreview = forwardRef<HTMLElement, FileEditorMarkd
           {markdownDocument.frontMatter && (
             <MarkdownFrontMatterTable frontMatter={markdownDocument.frontMatter} copy={copy} />
           )}
-          <ReactMarkdown
-            remarkPlugins={[remarkGfm, remarkMath]}
-            rehypePlugins={[rehypeKatex, rehypeHighlight]}
-            components={MARKDOWN_COMPONENTS}
-            skipHtml
+          <LocalErrorBoundary
+            label="file Markdown preview"
+            resetKey={source}
+            fallback={(_error, retry) => (
+              <>
+                <div className="code-file-diff-state error" data-testid="code-file-markdown-render-error" role="alert">
+                  <span>{copy.filesRefreshFailed}</span>
+                  <button
+                    type="button"
+                    className="code-file-editor-action reload"
+                    aria-label={copy.retry}
+                    title={copy.retry}
+                    onClick={retry}
+                  />
+                </div>
+                <pre>{markdownDocument.body}</pre>
+              </>
+            )}
           >
-            {markdownDocument.body}
-          </ReactMarkdown>
+            <LocalRenderFault surface="file-markdown" identity={previewIdentity}>
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm, remarkMath]}
+                rehypePlugins={[rehypeKatex, rehypeHighlight]}
+                components={MARKDOWN_COMPONENTS}
+                skipHtml
+              >
+                {markdownDocument.body}
+              </ReactMarkdown>
+            </LocalRenderFault>
+          </LocalErrorBoundary>
         </article>
       </MarkdownPreviewContext.Provider>
     </section>

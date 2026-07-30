@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { Agent } from '@/types/agent'
 import {
   composerStateAliasKeysForAgent,
@@ -12,6 +12,11 @@ import {
   acpComposerStateKeyForAgent,
   isAcpComposerStateKey,
 } from './acp/acp-composer-state'
+import {
+  loadAgentComposerCheckpoint,
+  nextAgentComposerCheckpointTimestamp,
+  saveAgentComposerCheckpoint,
+} from './composer-persistence'
 
 type PermissionSwitchReplacement = {
   originalAgentId: string
@@ -32,7 +37,43 @@ export function useAgentComposerState({
   permissionSwitchReplacement,
   onDiscardAttachment,
 }: UseAgentComposerStateOptions) {
-  const [composerByAgentKey, setComposerByAgentKey] = useState<Record<string, AgentComposerState>>({})
+  const initialCheckpointRef = useRef<ReturnType<typeof loadAgentComposerCheckpoint> | null>(null)
+  if (initialCheckpointRef.current === null) {
+    initialCheckpointRef.current = loadAgentComposerCheckpoint()
+  }
+  const [composerByAgentKey, setComposerByAgentKey] = useState<Record<string, AgentComposerState>>(
+    initialCheckpointRef.current.states,
+  )
+  const composerStateUpdatedAtRef = useRef(initialCheckpointRef.current.updatedAtByKey)
+  const composerStateDeletedAtRef = useRef(new Map<string, number>())
+  const composerByAgentKeyRef = useRef(composerByAgentKey)
+  composerByAgentKeyRef.current = composerByAgentKey
+
+  const nextCheckpointTimestamp = useCallback((composerKey: string) => (
+    nextAgentComposerCheckpointTimestamp(
+      composerKey,
+      composerStateUpdatedAtRef.current,
+      composerStateDeletedAtRef.current,
+    )
+  ), [])
+
+  const persistComposerCheckpoint = useCallback(() => {
+    saveAgentComposerCheckpoint(
+      composerByAgentKeyRef.current,
+      composerStateUpdatedAtRef.current,
+      composerStateDeletedAtRef.current,
+    )
+  }, [])
+
+  useEffect(() => {
+    const timeout = window.setTimeout(persistComposerCheckpoint, 250)
+    return () => window.clearTimeout(timeout)
+  }, [composerByAgentKey, persistComposerCheckpoint])
+
+  useEffect(() => {
+    window.addEventListener('pagehide', persistComposerCheckpoint)
+    return () => window.removeEventListener('pagehide', persistComposerCheckpoint)
+  }, [persistComposerCheckpoint])
 
   useLayoutEffect(() => {
     const retainedComposerKeys = new Set(
@@ -76,6 +117,13 @@ export function useAgentComposerState({
           nextStateByKey[replacementKey] = replacementState
             ? mergeAgentComposerStates(replacementState, sourceState)
             : sourceState
+          composerStateUpdatedAtRef.current.set(replacementKey, Math.max(
+            nextCheckpointTimestamp(replacementKey),
+            (composerStateUpdatedAtRef.current.get(sourceKey) || 0) + 1,
+          ))
+          composerStateDeletedAtRef.current.delete(replacementKey)
+          composerStateDeletedAtRef.current.set(sourceKey, nextCheckpointTimestamp(sourceKey))
+          composerStateUpdatedAtRef.current.delete(sourceKey)
           delete nextStateByKey[sourceKey]
         }
         const replacementTerminalKey = replacementAgent
@@ -101,6 +149,13 @@ export function useAgentComposerState({
           nextStateByKey[canonicalKey] = nextStateByKey[canonicalKey]
             ? mergeAgentComposerStates(nextStateByKey[canonicalKey], aliasState)
             : aliasState
+          composerStateUpdatedAtRef.current.set(canonicalKey, Math.max(
+            nextCheckpointTimestamp(canonicalKey),
+            (composerStateUpdatedAtRef.current.get(aliasKey) || 0) + 1,
+          ))
+          composerStateDeletedAtRef.current.delete(canonicalKey)
+          composerStateDeletedAtRef.current.set(aliasKey, nextCheckpointTimestamp(aliasKey))
+          composerStateUpdatedAtRef.current.delete(aliasKey)
           delete nextStateByKey[aliasKey]
         })
         const acpCanonicalKey = acpComposerStateKeyForAgent(agent)
@@ -112,6 +167,13 @@ export function useAgentComposerState({
           nextStateByKey[acpCanonicalKey] = nextStateByKey[acpCanonicalKey]
             ? mergeAgentComposerStates(nextStateByKey[acpCanonicalKey], aliasState)
             : aliasState
+          composerStateUpdatedAtRef.current.set(acpCanonicalKey, Math.max(
+            nextCheckpointTimestamp(acpCanonicalKey),
+            (composerStateUpdatedAtRef.current.get(aliasKey) || 0) + 1,
+          ))
+          composerStateDeletedAtRef.current.delete(acpCanonicalKey)
+          composerStateDeletedAtRef.current.set(aliasKey, nextCheckpointTimestamp(aliasKey))
+          composerStateUpdatedAtRef.current.delete(aliasKey)
           delete nextStateByKey[aliasKey]
         })
       })
@@ -135,11 +197,13 @@ export function useAgentComposerState({
         }
         const nextStateByKey = mutable()
         state.attachments.forEach(onDiscardAttachment)
+        composerStateDeletedAtRef.current.set(composerKey, nextCheckpointTimestamp(composerKey))
+        composerStateUpdatedAtRef.current.delete(composerKey)
         delete nextStateByKey[composerKey]
       })
       return changed ? next : current
     })
-  }, [agents, onDiscardAttachment, permissionSwitchingAgentId, permissionSwitchReplacement])
+  }, [agents, nextCheckpointTimestamp, onDiscardAttachment, permissionSwitchingAgentId, permissionSwitchReplacement])
 
   const resolveComposerStateKey = useCallback((composerKey: string) => {
     if (!composerKey) return ''
@@ -166,9 +230,11 @@ export function useAgentComposerState({
       const previous = current[canonicalKey] ?? createDefaultAgentComposerState()
       const nextState = updater(previous)
       if (nextState === previous) return current
+      composerStateUpdatedAtRef.current.set(canonicalKey, nextCheckpointTimestamp(canonicalKey))
+      composerStateDeletedAtRef.current.delete(canonicalKey)
       return { ...current, [canonicalKey]: nextState }
     })
-  }, [resolveComposerStateKey])
+  }, [nextCheckpointTimestamp, resolveComposerStateKey])
 
   const updateExistingComposerStateForKey = useCallback((composerKey: string, updater: (state: AgentComposerState) => AgentComposerState) => {
     setComposerByAgentKey(current => {
@@ -178,9 +244,11 @@ export function useAgentComposerState({
       if (!previous) return current
       const nextState = updater(previous)
       if (nextState === previous) return current
+      composerStateUpdatedAtRef.current.set(canonicalKey, nextCheckpointTimestamp(canonicalKey))
+      composerStateDeletedAtRef.current.delete(canonicalKey)
       return { ...current, [canonicalKey]: nextState }
     })
-  }, [resolveComposerStateKey])
+  }, [nextCheckpointTimestamp, resolveComposerStateKey])
 
   return {
     composerByAgentKey,

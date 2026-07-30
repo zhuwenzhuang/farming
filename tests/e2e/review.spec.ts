@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { expect, test } from '@playwright/test'
+import { selectCodeOption } from './code-select'
 
 function git(root: string, ...args: string[]) {
   return execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim()
@@ -13,7 +14,7 @@ test('keeps Gerrit-style review controls and independent inline diffs working', 
 
   const review = page.getByTestId('review-page')
   await expect(review.getByRole('button', { name: 'Files', exact: true })).toBeVisible()
-  await expect(review.getByLabel('Patch set', { exact: true })).toHaveValue('Patchset 20')
+  await expect(review.getByLabel('Patch set', { exact: true })).toHaveAttribute('data-value', 'Patchset 20')
   await expect(review.getByRole('button', { name: 'DOWNLOAD' })).toHaveCount(0)
   await expect(review.getByRole('button', { name: 'EXPAND ALL' })).toBeVisible()
 
@@ -130,12 +131,12 @@ test('persists reviewed files and diff preferences across a refresh', async ({ p
   await expect(diagnoseSwitch).toHaveAttribute('aria-checked', 'true')
 
   await review.getByRole('button', { name: 'Diff preferences' }).click()
-  await page.getByLabel('Context', { exact: true }).selectOption('25')
+  await selectCodeOption(page.getByLabel('Context', { exact: true }), '25')
   await page.getByRole('button', { name: 'CANCEL' }).click()
   await expect(review.getByLabel('Diff for clis/diagnose.py').getByRole('button', { name: 'Show all 119 common lines' })).toBeVisible()
 
   await review.getByRole('button', { name: 'Diff preferences' }).click()
-  await page.getByLabel('Context', { exact: true }).selectOption('3')
+  await selectCodeOption(page.getByLabel('Context', { exact: true }), '3')
   await page.getByRole('button', { name: 'SAVE' }).click()
 
   const diagnoseDiff = review.getByLabel('Diff for clis/diagnose.py')
@@ -197,7 +198,7 @@ test('applies whitespace presentation preferences to the rendered diff', async (
   await review.getByRole('button', { name: 'Diff preferences' }).click()
   await page.getByLabel('Show tabs').uncheck()
   await page.getByLabel('Show trailing whitespace').uncheck()
-  await page.getByLabel('Ignore Whitespace').selectOption('TRAILING')
+  await selectCodeOption(page.getByLabel('Ignore Whitespace'), 'TRAILING')
   await page.getByRole('button', { name: 'SAVE' }).click()
 
   await expect(diagnoseDiff.locator('.review-tab-marker')).toHaveCount(0)
@@ -210,7 +211,7 @@ test('renders the full selected common context instead of silently truncating it
 
   const review = page.getByTestId('review-page')
   await review.getByRole('button', { name: 'Diff preferences' }).click()
-  await page.getByLabel('Context', { exact: true }).selectOption('100')
+  await selectCodeOption(page.getByLabel('Context', { exact: true }), '100')
   await page.getByRole('button', { name: 'SAVE' }).click()
 
   const diagnoseDiff = review.getByLabel('Diff for clis/diagnose.py')
@@ -237,8 +238,8 @@ test('keeps files, review state, comments, and expanded diffs scoped to each pat
 
   const review = page.getByTestId('review-page')
   const patchsetSelect = review.getByLabel('Patch set', { exact: true })
-  await patchsetSelect.selectOption('Patchset 19')
-  await expect(patchsetSelect).toHaveValue('Patchset 19')
+  await selectCodeOption(patchsetSelect, 'Patchset 19')
+  await expect(patchsetSelect).toHaveAttribute('data-value', 'Patchset 19')
   await expect(review.locator('[data-file-path="clis/fetch_quota_snapshot.py"]')).toHaveCount(0)
 
   const dataflow19 = review.locator('[data-file-path="clis/dataflow.py"]')
@@ -256,11 +257,11 @@ test('keeps files, review state, comments, and expanded diffs scoped to each pat
   await page.getByRole('button', { name: 'SAVE COMMENT' }).click()
   await expect(diagnose19.getByText('Reviewed', { exact: true })).toBeVisible()
 
-  await patchsetSelect.selectOption('Patchset 20')
+  await selectCodeOption(patchsetSelect, 'Patchset 20')
   await expect(review.getByText('Patchset 19 needs an explicit range.', { exact: true })).toHaveCount(0)
   await expect(review.getByLabel('Diff for clis/dataflow.py')).toHaveCount(0)
 
-  await patchsetSelect.selectOption('Patchset 19')
+  await selectCodeOption(patchsetSelect, 'Patchset 19')
   await expect(review.getByLabel('Diff for clis/dataflow.py')).toBeVisible()
   await expect(review.getByLabel('Diff for clis/diagnose.py')).toBeVisible()
   await expect(review.getByText('Patchset 19 needs an explicit range.', { exact: true })).toBeVisible()
@@ -869,7 +870,7 @@ test('uses the git-range endpoint when base and head are selected in the review 
   await expect(rangeFile.getByText('Reviewed', { exact: true })).toHaveCount(0)
 
   await review.getByRole('button', { name: 'Diff preferences' }).click()
-  await page.getByLabel('Context', { exact: true }).selectOption('25')
+  await selectCodeOption(page.getByLabel('Context', { exact: true }), '25')
   await page.getByRole('button', { name: 'SAVE' }).click()
   await expect.poll(() => loadedRangeFileDiff).toBe(2)
   expect(loadedContexts).toEqual(['10', '25'])

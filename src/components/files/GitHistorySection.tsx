@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { CheckGlyph, ChevronDownGlyph, ChevronRightGlyph, ExternalLinkGlyph } from '@/components/IconGlyphs'
+import { CodeSelect } from '@/components/CodeSelect'
 import { appPath } from '@/lib/base-path'
 import { toGitHistoryItemViewModelArray } from '@/lib/git-history-graph'
 import { iconForFilePath } from '@/lib/file-icons'
@@ -396,14 +397,16 @@ export function GitHistorySection({ agentId, copy, projectId, projectWorkspace }
                       {(commit.parentIds.length > 1 || commit.parentIds.length === 0) && (
                         <div className="code-git-history-details-header">
                           {commit.parentIds.length > 1 ? (
-                            <label className="code-git-history-parent-select">
-                              <span>{copy.gitHistoryParent}</span>
-                              <select value={selectedParent} onChange={event => selectParent(commit, event.target.value)}>
-                                {commit.parentIds.map((parent, index) => (
-                                  <option key={parent} value={parent}>{index + 1}: {parent.slice(0, 8)}</option>
-                                ))}
-                              </select>
-                            </label>
+                            <CodeSelect
+                              className="code-git-history-parent-select"
+                              label={copy.gitHistoryParent}
+                              value={selectedParent}
+                              options={commit.parentIds.map((parent, index) => ({
+                                value: parent,
+                                label: `${index + 1}: ${parent.slice(0, 8)}`,
+                              }))}
+                              onChange={value => selectParent(commit, value)}
+                            />
                           ) : (
                             <span className="code-git-history-root-label">{copy.gitHistoryRootCommit}</span>
                           )}

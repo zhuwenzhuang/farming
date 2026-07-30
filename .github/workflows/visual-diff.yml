@@ -1,0 +1,108 @@
+name: PR visual comparison
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/visual-diff.yml'
+      - 'index.html'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'playwright.config.ts'
+      - 'public/**'
+      - 'scripts/compare-visual-revisions.cjs'
+      - 'src/**/*.css'
+      - 'src/**/*.ts'
+      - 'src/**/*.tsx'
+      - 'tests/e2e/fixtures.ts'
+      - 'tests/e2e/visual-regression.spec.ts'
+      - 'vite.config.*'
+      - 'extensions/*/frontend/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: visual-diff-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  compare:
+    name: Base / head screenshots
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout head revision
+        uses: actions/checkout@v4
+        with:
+          path: head
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Checkout base revision
+        uses: actions/checkout@v4
+        with:
+          path: base
+          ref: ${{ github.event.pull_request.base.sha }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            head/package-lock.json
+            base/package-lock.json
+          registry-url: https://registry.npmjs.org
+
+      - name: Install head dependencies
+        working-directory: head
+        run: npm ci --registry=https://registry.npmjs.org/
+
+      - name: Install base dependencies
+        working-directory: base
+        run: npm ci --registry=https://registry.npmjs.org/
+
+      - name: Install the shared Chromium runtime
+        working-directory: head
+        run: npx playwright install --with-deps chromium
+
+      - name: Resolve the shared Chromium executable
+        id: chromium
+        working-directory: head
+        shell: bash
+        run: echo "path=$(node -e \"process.stdout.write(require('@playwright/test').chromium.executablePath())\")" >> "${GITHUB_OUTPUT}"
+
+      - name: Capture and compare exact revisions
+        id: visual
+        continue-on-error: true
+        working-directory: head
+        run: >-
+          npm run test:e2e:visual:compare --
+          --base-root "${GITHUB_WORKSPACE}/base"
+          --head-root "${GITHUB_WORKSPACE}/head"
+          --output "${GITHUB_WORKSPACE}/visual-diff"
+          --base-sha "${{ github.event.pull_request.base.sha }}"
+          --head-sha "${{ github.event.pull_request.head.sha }}"
+          --chromium-path "${{ steps.chromium.outputs.path }}"
+
+      - name: Publish visual comparison summary
+        if: always()
+        shell: bash
+        run: |
+          if [[ -f "${GITHUB_WORKSPACE}/visual-diff/summary.md" ]]; then
+            cat "${GITHUB_WORKSPACE}/visual-diff/summary.md" >> "${GITHUB_STEP_SUMMARY}"
+          else
+            echo "# Farming PR visual comparison" >> "${GITHUB_STEP_SUMMARY}"
+            echo "The comparison process stopped before it could write a report." >> "${GITHUB_STEP_SUMMARY}"
+          fi
+
+      - name: Upload base, head, diff, and report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-diff-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+          path: visual-diff/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Enforce the capture contract
+        if: always() && steps.visual.outcome == 'failure'
+        run: exit 1

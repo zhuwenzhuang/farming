@@ -3372,8 +3372,8 @@ function initDisplaySettings() {
     applyCrtContentFontSize(globalSettings.crtContentFontSize);
     contentFontSizeInput.oninput = () => {
       applyCrtContentFontSize(contentFontSizeInput.value);
-      scheduleCrtContentFontSizeSave();
     };
+    contentFontSizeInput.onchange = scheduleCrtContentFontSizeSave;
   }
 }
 

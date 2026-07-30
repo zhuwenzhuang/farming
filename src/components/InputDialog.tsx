@@ -5,6 +5,7 @@ import { appPath } from '@/lib/base-path'
 import { agentDisplayName, formatRelativeAge } from '@/lib/format'
 import { isTouchInputViewport as isMobileViewport } from '@/lib/responsive-mode'
 import type { CodeCopy } from '@/components/code/copy'
+import { CodeSelect } from '@/components/CodeSelect'
 import { AgentLaunchIcon } from '@/components/code/AgentLaunchIcon'
 import { normalizeAgentLaunchOptions } from '@/components/code/agent-launch-options'
 import { ArrowDownGlyph, ArrowUpGlyph, CheckGlyph, ChevronDownGlyph, CloseGlyph, ErrorGlyph, FolderGlyph, PlusGlyph } from '@/components/IconGlyphs'
@@ -1227,17 +1228,18 @@ export function InputDialog({
             {!mustStartMain && showWorkflowTaskFields && (
               <>
                 <p className="workspace-field-copy">Workflow:</p>
-                <select
-                  className="workflow-select fx-crt-panel"
-                  data-testid="workflow-template-select"
+                <CodeSelect
+                  ariaLabel="Workflow template"
+                  className="workflow-select"
+                  triggerClassName="fx-crt-panel"
+                  testId="workflow-template-select"
                   value={workflowId}
-                  onChange={e => setWorkflowId(e.target.value)}
-                  aria-label="Workflow template"
-                >
-                  {WORKFLOW_TEMPLATE_OPTIONS.map(opt => (
-                    <option key={opt.id || 'none'} value={opt.id}>{opt.label}</option>
-                  ))}
-                </select>
+                  options={WORKFLOW_TEMPLATE_OPTIONS.map(option => ({
+                    value: option.id,
+                    label: option.label,
+                  }))}
+                  onChange={setWorkflowId}
+                />
                 <p className="workspace-field-copy">Task (optional):</p>
                 <textarea
                   className="task-input fx-crt-panel"

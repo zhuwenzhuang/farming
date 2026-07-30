@@ -4,6 +4,7 @@ import path from 'node:path'
 import type { AddressInfo } from 'node:net'
 import type { Page } from '@playwright/test'
 import { expect, openFarming, test } from '../fixtures'
+import { codeSelectOptions, selectCodeOption } from '../code-select'
 
 const workspace = path.join(process.cwd(), '.tmp', 'real-browser-agent-use')
 const completionAnchor = 'REAL_BROWSER_AGENT_OK'
@@ -125,13 +126,10 @@ test.describe('real low-cost Agent uses Farming Browser', () => {
         && /farming-browser/i.test(await elicitation.innerText())
       ) {
         const scope = elicitation.getByRole('combobox', { name: 'Approval scope' })
-        const options = await scope.locator('option').evaluateAll(items => items.map(item => ({
-          value: (item as HTMLOptionElement).value,
-          label: item.textContent?.trim() || '',
-        })))
+        const options = await codeSelectOptions(scope)
         const selected = options.find(option => /session/i.test(option.label)) || options[0]
         expect(selected, 'Browser approval must expose a Session-capable choice').toBeTruthy()
-        await scope.selectOption(selected!.value)
+        await selectCodeOption(scope, selected!.value)
         const screenshotPath = testInfo.outputPath(`browser-approval-${approvalScreenshots.length + 1}.png`)
         await page.screenshot({ path: screenshotPath, fullPage: true, animations: 'disabled' })
         approvalScreenshots.push(screenshotPath)
@@ -143,12 +141,9 @@ test.describe('real low-cost Agent uses Farming Browser', () => {
       if (await permission.isVisible().catch(() => false)) {
         const scope = permission.getByRole('combobox', { name: 'Permission scope' })
         if (await scope.isVisible().catch(() => false)) {
-          const options = await scope.locator('option').evaluateAll(items => items.map(item => ({
-            value: (item as HTMLOptionElement).value,
-            label: item.textContent?.trim() || '',
-          })))
+          const options = await codeSelectOptions(scope)
           const selected = options.find(option => /session/i.test(option.label)) || options[0]
-          if (selected) await scope.selectOption(selected.value)
+          if (selected) await selectCodeOption(scope, selected.value)
         }
         const screenshotPath = testInfo.outputPath(`browser-approval-${approvalScreenshots.length + 1}.png`)
         await page.screenshot({ path: screenshotPath, fullPage: true, animations: 'disabled' })

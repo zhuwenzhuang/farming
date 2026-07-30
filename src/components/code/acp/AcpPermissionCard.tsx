@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { CodeSelect } from '@/components/CodeSelect'
 import type { AcpPendingPermission } from '@/types/agent'
 import type { CodeCopy } from '../copy'
 
@@ -114,13 +115,13 @@ export function AcpPermissionCard({ request, onRespond, copy }: AcpPermissionCar
       ) : null}
       <div className="code-acp-request-actions">
         {allowOptions.length > 1 ? (
-          <select
-            aria-label="Permission scope"
+          <CodeSelect
+            ariaLabel="Permission scope"
+            className="code-acp-permission-select"
             value={allowOptionId}
-            onChange={event => setAllowOptionId(event.target.value)}
-          >
-            {allowOptions.map(option => <option key={option.optionId} value={option.optionId}>{option.name}</option>)}
-          </select>
+            options={allowOptions.map(option => ({ value: option.optionId, label: option.name }))}
+            onChange={setAllowOptionId}
+          />
         ) : null}
         {allowOptions.length > 0 ? (
           <button

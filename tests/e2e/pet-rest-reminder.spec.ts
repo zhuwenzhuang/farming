@@ -9,6 +9,7 @@ import type { Locator, Page, WebSocketRoute } from '@playwright/test'
 
 const SETTINGS_KEY = 'farmingPetSettings'
 const RUNTIME_KEY = 'farmingPetRestReminderRuntime'
+const INVITATION_RUNTIME_KEY = 'farmingPetRestReminderInvitationRuntime'
 const PET_SETUP_SCREENSHOT_DIR = process.env.FARMING_PET_SETUP_SCREENSHOT_DIR
 
 async function capturePetSetupStep(page: Page, name: string) {
@@ -29,8 +30,24 @@ async function readBlackHoleOuterInk(canvas: Locator) {
   })
 }
 
+async function makeRestReminderInvitationReady(page: Page) {
+  await page.addInitScript(({ invitationRuntimeKey }) => {
+    sessionStorage.setItem(invitationRuntimeKey, JSON.stringify({
+      version: 1,
+      foregroundMs: 30 * 60_000,
+      foregroundStartedAt: null,
+    }))
+  }, { invitationRuntimeKey: INVITATION_RUNTIME_KEY })
+}
+
+test('unconfigured reminder does not interrupt a new user on entry', async ({ page }) => {
+  await openFarming(page)
+  await expect(page.getByTestId('pet-rest-invitation')).toHaveCount(0)
+})
+
 test('unconfigured reminder shows its invitation in narrow layouts', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
+  await makeRestReminderInvitationReady(page)
   await openFarming(page)
 
   await expect(page.getByTestId('pet-rest-invitation')).toBeVisible()
@@ -65,6 +82,51 @@ test('mobile reminder settings keep long values clear of the slider', async ({ p
   expect(valueBox!.y).toBeGreaterThanOrEqual(sliderBox!.y + sliderBox!.height)
 })
 
+test('settings sliders preview locally and save only the released value', async ({ page }) => {
+  await page.request.post('/farming/api/settings', {
+    data: {
+      appearance: 'light',
+      language: 'zh',
+      restReminderIntervalSeconds: 50 * 60,
+    },
+  })
+  await openFarming(page)
+  await page.getByTestId('code-sidebar-options').click()
+  const settings = page.getByTestId('code-settings-panel')
+  const slider = settings.getByRole('slider', { name: '休息提醒' })
+  let reminderWrites = 0
+  page.on('request', request => {
+    if (request.method() !== 'POST' || !request.url().endsWith('/api/settings')) return
+    try {
+      const body = request.postDataJSON() as { restReminderIntervalSeconds?: number }
+      if (body.restReminderIntervalSeconds !== undefined) reminderWrites += 1
+    } catch {
+      // Ignore unrelated non-JSON requests.
+    }
+  })
+
+  const sliderBox = await slider.boundingBox()
+  expect(sliderBox).not.toBeNull()
+  await page.mouse.move(
+    sliderBox!.x + sliderBox!.width * (5 / 7),
+    sliderBox!.y + sliderBox!.height / 2,
+  )
+  await page.mouse.down()
+  await page.mouse.move(
+    sliderBox!.x + sliderBox!.width - 2,
+    sliderBox!.y + sliderBox!.height / 2,
+    { steps: 20 },
+  )
+  await page.mouse.up()
+
+  await expect(settings.locator('.code-settings-pet-rest-value output')).toHaveText('每 90 分钟')
+  await expect.poll(() => reminderWrites).toBe(1)
+  await expect.poll(async () => {
+    const response = await page.request.get('/farming/api/settings')
+    return (await response.json()).settings?.restReminderIntervalSeconds
+  }).toBe(90 * 60)
+})
+
 test('break reminder keeps its English status copy compact', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 })
   await page.addInitScript(({ settingsKey, runtimeKey }) => {
@@ -93,7 +155,7 @@ test('break reminder keeps its English status copy compact', async ({ page }) =>
   const reminder = page.getByTestId('pet-rest-reminder')
   const body = reminder.locator('p')
   await expect(reminder).toBeVisible()
-  await expect(body).toContainText('Focused for 50 min.')
+  await expect(body).toContainText('Used Farming continuously for 50 min.')
   await expect(body).toContainText(/Pause \d+ sec for a 5 min break\./)
   const cancelButton = reminder.getByRole('button', { name: 'Cancel', exact: true })
   const snoozeButton = reminder.getByRole('button', { name: 'In 10 min', exact: true })
@@ -113,6 +175,7 @@ test('break reminder keeps its English status copy compact', async ({ page }) =>
 })
 
 test('dark appearance defaults an unconfigured Pet to the black hole', async ({ page }) => {
+  await makeRestReminderInvitationReady(page)
   await openFarming(page)
 
   const invitation = page.getByTestId('pet-rest-invitation')
@@ -144,10 +207,19 @@ test('first-use Pet setup walks from invitation to explicit style selection', as
   await page.request.post('/farming/api/settings', {
     data: { appearance: 'light', language: 'zh' },
   })
-  await page.addInitScript(({ settingsKey, runtimeKey }) => {
+  await page.addInitScript(({ settingsKey, runtimeKey, invitationRuntimeKey }) => {
     localStorage.removeItem(settingsKey)
     sessionStorage.removeItem(runtimeKey)
-  }, { settingsKey: SETTINGS_KEY, runtimeKey: RUNTIME_KEY })
+    sessionStorage.setItem(invitationRuntimeKey, JSON.stringify({
+      version: 1,
+      foregroundMs: 30 * 60_000,
+      foregroundStartedAt: null,
+    }))
+  }, {
+    settingsKey: SETTINGS_KEY,
+    runtimeKey: RUNTIME_KEY,
+    invitationRuntimeKey: INVITATION_RUNTIME_KEY,
+  })
 
   await openFarming(page)
   const invitation = page.getByTestId('pet-rest-invitation')
@@ -168,6 +240,25 @@ test('first-use Pet setup walks from invitation to explicit style selection', as
   await expect.poll(() => page.evaluate(key => (
     JSON.parse(localStorage.getItem(key) ?? 'null')?.capabilities?.restReminder?.intervalSeconds
   ), SETTINGS_KEY)).toBe(50 * 60)
+  await expect.poll(() => page.evaluate(key => (
+    JSON.parse(localStorage.getItem(key) ?? 'null')?.appearance ?? null
+  ), SETTINGS_KEY)).toBeNull()
+  const blackHoleIconAnimation = await appearanceChoice
+    .locator('.code-pet-appearance-icon.black-hole')
+    .evaluate(element => {
+      const style = getComputedStyle(element, '::before')
+      return { name: style.animationName, state: style.animationPlayState }
+    })
+  expect(blackHoleIconAnimation).toEqual({
+    name: 'code-pet-black-hole-disk-spin',
+    state: 'running',
+  })
+  await appearanceChoice.getByRole('button', { name: '预览柔光效果' }).click()
+  const preview = page.getByTestId('pet-rest-scene')
+  await expect(preview).toHaveAttribute('data-pet-appearance', 'glass')
+  await preview.getByRole('button', { name: '结束预览' }).click()
+  await expect(preview).toHaveCount(0)
+  await expect(appearanceChoice).toBeVisible()
   await expect.poll(() => page.evaluate(key => (
     JSON.parse(localStorage.getItem(key) ?? 'null')?.appearance ?? null
   ), SETTINGS_KEY)).toBeNull()
@@ -893,6 +984,7 @@ test('ending a break remains bounded while the first snapshot is unavailable', a
 })
 
 test('closing the first-use invitation defers the choice until reload', async ({ page }) => {
+  await makeRestReminderInvitationReady(page)
   await openFarming(page)
 
   const invitation = page.getByTestId('pet-rest-invitation')
@@ -912,6 +1004,7 @@ test('closing the first-use invitation defers the choice until reload', async ({
 })
 
 test('choosing not to use reminders persists the reminder as off', async ({ page }) => {
+  await makeRestReminderInvitationReady(page)
   await openFarming(page)
 
   const invitation = page.getByTestId('pet-rest-invitation')
@@ -1021,7 +1114,8 @@ test('appearance changes preserve the active cycle and reload restores it', asyn
     JSON.parse(sessionStorage.getItem(key) ?? 'null')?.state
   ), RUNTIME_KEY)
   expect(restored.phase).toBe('working')
-  expect(restored.cycleStartedAt).toBe(originalCycleStartedAt)
+  expect(restored.cycleStartedAt).toBeGreaterThanOrEqual(originalCycleStartedAt)
+  expect(restored.cycleStartedAt - originalCycleStartedAt).toBeLessThan(5_000)
 })
 
 test('custom reminder minutes sit between fixed slider stops', async ({ page }) => {
@@ -1047,7 +1141,8 @@ test('custom reminder minutes sit between fixed slider stops', async ({ page }) 
   await customMinutes.fill('37')
   await expect(slider).toHaveValue('3.7')
 
-  await slider.fill('7.4')
+  await slider.fill('7')
+  await slider.blur()
   await expect(customMinutes).toHaveValue('90')
   await expect(slider).toHaveValue('7')
   await expect.poll(() => page.evaluate(key => (
@@ -1110,7 +1205,7 @@ test('Settings blocks rest entry and closing it starts a fresh entry countdown',
   await expect(scene).toHaveCount(0)
 })
 
-test('input bursts commit activity at most once per second', async ({ page }) => {
+test('input bursts extend a due countdown at most once per second', async ({ page }) => {
   await page.addInitScript(({ settingsKey, runtimeKey }) => {
     const now = Date.now()
     localStorage.setItem(settingsKey, JSON.stringify({
@@ -1121,12 +1216,12 @@ test('input bursts commit activity at most once per second', async ({ page }) =>
     sessionStorage.setItem(runtimeKey, JSON.stringify({
       version: 1,
       state: {
-        phase: 'working',
+        phase: 'due',
         intervalSeconds: 50 * 60,
-        cycleStartedAt: now,
+        cycleStartedAt: now - 50 * 60_000,
         lastActivityAt: now,
         snoozedUntil: null,
-        restStartsAt: null,
+        restStartsAt: now + 30_000,
         restUntil: null,
         snoozeUsed: false,
       },

@@ -8,6 +8,7 @@ import {
   startAgentFromOpenDialog,
   test,
 } from './fixtures'
+import { codeSelectOptions, selectCodeOption } from './code-select'
 
 function git(root: string, ...args: string[]) {
   return execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim()
@@ -162,7 +163,8 @@ test('shows the VS Code-derived commit graph and opens commit changes in Review'
     return Math.abs((detailBox?.height ?? 0) - (placeholderBox?.height ?? 0))
   }).toBeLessThan(2)
   const parentSelect = details.getByLabel('Compare with parent')
-  await expect(parentSelect.locator('option')).toHaveCount(2)
+  await expect.poll(async () => (await codeSelectOptions(parentSelect)).length).toBe(2)
+  await page.keyboard.press('Escape')
   await expect(details.getByText('1 file changed', { exact: true })).toBeVisible()
   await expect(details.getByRole('button', { name: 'Review commit', exact: true })).toContainText('Review')
   await expect(details.getByRole('button', { name: /topic\.txt/ })).toBeVisible()
@@ -182,7 +184,7 @@ test('shows the VS Code-derived commit graph and opens commit changes in Review'
   await expect(topicReview.locator('[data-file-path="topic.txt"]')).toBeVisible()
   await topicReview.close()
 
-  await parentSelect.selectOption(topicCommit)
+  await selectCodeOption(parentSelect, topicCommit)
   await expect(details.getByRole('button', { name: /main\.txt/ })).toBeVisible()
   await expect(details.getByRole('button', { name: /topic\.txt/ })).toHaveCount(0)
 

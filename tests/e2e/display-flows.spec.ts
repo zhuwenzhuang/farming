@@ -379,8 +379,7 @@ test.describe('display-backed agent flows', () => {
     const guideGeometry = await page.evaluate(() => {
       const brace = document.querySelector<HTMLElement>('[data-testid="code-empty-home-brace"]')?.getBoundingClientRect()
       const guideHome = document.querySelector<HTMLElement>('.code-empty-home')?.getBoundingClientRect()
-      const guideLine = document.querySelector<HTMLElement>('.code-empty-home-origin')?.getBoundingClientRect()
-      const targetPath = document.querySelector<HTMLElement>('.code-empty-home-target-path')?.getBoundingClientRect()
+      const guideLine = document.querySelector<SVGSVGElement>('.code-empty-home-connector')?.getBoundingClientRect()
       const targetBrace = document.querySelector<HTMLElement>('[data-testid="code-empty-home-target-brace"]')?.getBoundingClientRect()
       const actionMap = document.querySelector<HTMLElement>('.code-empty-home-action-map')?.getBoundingClientRect()
       const actions = document.querySelector<HTMLElement>('.code-empty-home-actions')?.getBoundingClientRect()
@@ -424,16 +423,23 @@ test.describe('display-backed agent flows', () => {
       }
       const smallBraceWaist = getPathPoint('.code-empty-home-brace path', 0.5)
       const targetBraceWaist = getPathPoint('.code-empty-home-target-brace path', 0.5)
-      const connectorStart = getPathPoint('.code-empty-home-origin .code-empty-home-connector-base', 0)
-      const connectorJoinTop = getPathPoint('.code-empty-home-origin .code-empty-home-connector-base', 1)
-      const connectorJoinBottom = getPathPoint('.code-empty-home-target-path .code-empty-home-connector-base', 0)
-      const connectorTargetTurn = getPathPoint('.code-empty-home-target-path .code-empty-home-connector-base', 0.5)
-      const connectorEnd = getPathPoint('.code-empty-home-target-path .code-empty-home-connector-base', 1)
+      const connectorSelector = '.code-empty-home-connector .code-empty-home-connector-base'
+      const connectorStart = getPathPoint(connectorSelector, 0)
+      const connectorEnd = getPathPoint(connectorSelector, 1)
+      const connectorPath = document.querySelector<SVGPathElement>(connectorSelector)
+      const connectorTransform = connectorPath?.getScreenCTM()
+      const connectorSamples = connectorPath && connectorTransform
+        ? Array.from({ length: 101 }, (_, index) => {
+            const point = connectorPath.getPointAtLength(connectorPath.getTotalLength() * index / 100)
+            return new DOMPoint(point.x, point.y).matrixTransform(connectorTransform)
+          })
+        : []
+      const connectorSpread = connectorStart && connectorEnd ? connectorEnd.x - connectorStart.x : 0
       const connectorBaseStyle = getComputedStyle(
-        document.querySelector<SVGPathElement>('.code-empty-home-origin .code-empty-home-connector-base')!,
+        document.querySelector<SVGPathElement>(connectorSelector)!,
       )
       const connectorGrowthStyle = getComputedStyle(
-        document.querySelector<SVGPathElement>('.code-empty-home-origin .code-empty-home-connector-growth')!,
+        document.querySelector<SVGPathElement>('.code-empty-home-connector .code-empty-home-connector-growth')!,
       )
       const braceStyles = Array.from(
         document.querySelectorAll<SVGPathElement>('.code-empty-home-brace path, .code-empty-home-target-brace path'),
@@ -451,7 +457,7 @@ test.describe('display-backed agent flows', () => {
             document.querySelector('[data-testid="code-empty-home-brace"]'),
           )
           && document.querySelector('.code-empty-home')?.contains(
-            document.querySelector('.code-empty-home-origin'),
+            document.querySelector('.code-empty-home-connector'),
           )
           && document.querySelector('.code-empty-home')?.contains(
             document.querySelector('[data-testid="code-empty-home-target-brace"]'),
@@ -463,12 +469,6 @@ test.describe('display-backed agent flows', () => {
         connectorStartVerticalDelta: smallBraceWaist && connectorStart
           ? Math.abs(connectorStart.y - smallBraceWaist.y)
           : Number.POSITIVE_INFINITY,
-        connectorJoinDelta: connectorJoinTop && connectorJoinBottom
-          ? Math.hypot(
-            connectorJoinTop.x - connectorJoinBottom.x,
-            connectorJoinTop.y - connectorJoinBottom.y,
-          )
-          : Number.POSITIVE_INFINITY,
         connectorTargetGap: connectorEnd && targetBraceWaist
           ? targetBraceWaist.x - connectorEnd.x
           : Number.POSITIVE_INFINITY,
@@ -476,20 +476,21 @@ test.describe('display-backed agent flows', () => {
           ? Math.abs(connectorEnd.y - targetBraceWaist.y)
           : Number.POSITIVE_INFINITY,
         connectorStartAngle: getPathEndpointAngle(
-          '.code-empty-home-origin .code-empty-home-connector-base',
+          connectorSelector,
           'start',
         ),
         connectorTargetAngle: getPathEndpointAngle(
-          '.code-empty-home-target-path .code-empty-home-connector-base',
+          connectorSelector,
           'end',
         ),
-        connectorJoinTangentDelta: Math.abs(
-          getPathEndpointAngle('.code-empty-home-origin .code-empty-home-connector-base', 'end')
-          - getPathEndpointAngle('.code-empty-home-target-path .code-empty-home-connector-base', 'start')
-        ),
-        connectorTargetTurnback: connectorJoinBottom && connectorTargetTurn
-          ? connectorJoinBottom.x - connectorTargetTurn.x
+        connectorTopBulge: connectorStart && connectorSpread > 0
+          ? (Math.max(...connectorSamples.slice(0, 51).map(point => point.x)) - connectorStart.x) / connectorSpread
           : Number.NEGATIVE_INFINITY,
+        connectorBottomBulge: connectorStart && connectorSpread > 0
+          ? (Math.min(...connectorSamples.slice(50).map(point => point.x)) - connectorStart.x) / connectorSpread
+          : Number.POSITIVE_INFINITY,
+        connectorCubicCommandCount: connectorPath?.getAttribute('d')?.match(/[Cc]/g)?.length ?? 0,
+        connectorPathCount: document.querySelectorAll('.code-empty-home-connector > path').length,
         connectorBaseStrokeWidth: Number.parseFloat(connectorBaseStyle.strokeWidth),
         connectorGrowthStrokeWidth: Number.parseFloat(connectorGrowthStyle.strokeWidth),
         connectorStrokeDasharray: connectorBaseStyle.strokeDasharray,
@@ -532,21 +533,23 @@ test.describe('display-backed agent flows', () => {
     expect(guideGeometry.connectorStartGap).toBeGreaterThanOrEqual(2)
     expect(guideGeometry.connectorStartGap).toBeLessThanOrEqual(12)
     expect(guideGeometry.connectorStartVerticalDelta).toBeLessThanOrEqual(1)
-    expect(guideGeometry.connectorJoinDelta).toBeLessThanOrEqual(1)
     expect(guideGeometry.connectorTargetGap).toBeGreaterThanOrEqual(0)
     expect(guideGeometry.connectorTargetGap).toBeLessThanOrEqual(3)
     expect(guideGeometry.connectorTargetVerticalDelta).toBeLessThanOrEqual(1)
     expect(guideGeometry.connectorStartAngle).toBeLessThanOrEqual(12)
     expect(guideGeometry.connectorTargetAngle).toBeLessThanOrEqual(12)
-    expect(guideGeometry.connectorJoinTangentDelta).toBeLessThanOrEqual(8)
-    expect(guideGeometry.connectorTargetTurnback).toBeGreaterThanOrEqual(4)
+    expect(guideGeometry.connectorTopBulge).toBeGreaterThanOrEqual(0.65)
+    expect(guideGeometry.connectorTopBulge).toBeLessThanOrEqual(0.8)
+    expect(guideGeometry.connectorBottomBulge).toBeGreaterThanOrEqual(0.2)
+    expect(guideGeometry.connectorBottomBulge).toBeLessThanOrEqual(0.35)
+    expect(guideGeometry.connectorCubicCommandCount).toBe(1)
+    expect(guideGeometry.connectorPathCount).toBe(2)
     expect(guideGeometry.connectorBaseStrokeWidth).toBeLessThan(guideGeometry.connectorGrowthStrokeWidth)
     expect(guideGeometry.connectorBaseStrokeWidth).toBeCloseTo(0.85, 2)
     expect(guideGeometry.connectorGrowthStrokeWidth).toBeCloseTo(1.55, 2)
     expect(guideGeometry.connectorStrokeDasharray).not.toBe('none')
     expect(guideGeometry.connectorGrowthMasks).toEqual([
-      'url(#code-empty-home-origin-mask)',
-      'url(#code-empty-home-target-mask)',
+      'url(#code-empty-home-connector-mask)',
     ])
     expect(guideGeometry.braceStrokeWidths).toEqual([1.15, 1.55])
     expect(guideGeometry.braceStrokeDasharrays).toEqual(['none', 'none'])

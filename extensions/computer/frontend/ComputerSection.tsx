@@ -14,13 +14,13 @@ import type { ComputerResourcesController } from './useComputerResources'
 function copyFor(language: UiPreferences['language']) {
   const zh = language === 'zh'
   return {
-    title: zh ? '电脑' : 'Computer',
-    create: zh ? '创建电脑' : 'Create Computer',
-    start: zh ? '启动电脑' : 'Start Computer',
-    stop: zh ? '停止电脑' : 'Stop Computer',
-    remove: zh ? '删除电脑' : 'Delete Computer',
-    rename: zh ? '重命名电脑' : 'Rename Computer',
-    name: zh ? '电脑名称' : 'Computer name',
+    title: zh ? '桌面' : 'Desktops',
+    create: zh ? '创建隔离桌面' : 'Create Isolated Desktop',
+    start: zh ? '启动桌面' : 'Start Desktop',
+    stop: zh ? '停止桌面' : 'Stop Desktop',
+    remove: zh ? '删除桌面' : 'Delete Desktop',
+    rename: zh ? '重命名桌面' : 'Rename Desktop',
+    name: zh ? '桌面名称' : 'Desktop name',
     stopped: zh ? '已停止' : 'Stopped',
     starting: zh ? '启动中…' : 'Starting…',
     stopping: zh ? '停止中…' : 'Stopping…',
@@ -61,7 +61,7 @@ export function ComputerSection({
 }) {
   const copy = copyFor(language)
   const [renaming, setRenaming] = useState(false)
-  const [name, setName] = useState(resource?.name || 'Computer')
+  const [name, setName] = useState(resource?.name || 'Desktop')
   const create = async () => {
     const created = await controller.create(workspace, agentId)
     const running = await controller.start(created.id)

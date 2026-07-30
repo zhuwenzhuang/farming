@@ -168,6 +168,21 @@ Each story writes a `report.json`:
 - Archive / History concepts do not blur live agents with archived runs.
 - Every P2+ issue has screenshot, trace, or log evidence.
 
+## PR Visual Comparison
+
+UI pull requests run a Linux Chromium comparison against the exact immutable base and head SHAs. After the initial rollout, each revision uses its own checked-in visual capture contract and fixtures on the same runner and browser executable; only a base revision without that contract falls back to the head contract. A head-only scene is reported as added, while removing a base scene fails the capture contract. The workflow uploads an artifact containing `base/`, `head/`, `diff/`, `index.html`, `manifest.json`, logs, and a Markdown job summary.
+
+The capture contract covers a small information-rich matrix: Agent and Project row hover controls, wide and narrow queued follow-ups, the Changes hierarchy with its diff open, and Plugins in dark appearance. It uses anonymous workspaces, fake coding agents, fixed viewports, reduced motion, hidden carets and volatile age labels, plus two consecutive captures of every scene.
+
+Pixel differences are review evidence and do not fail the pull request because intentional UI work is expected to change pixels. The job fails only when capture fails twice, a base scene is deleted, required images are missing, dimensions differ, or consecutive captures differ by more than 0.1%. The exact SHA pair is the baseline; there is no mutable screenshot cache and no manual baseline-update operation. Re-running the same SHA pair is therefore idempotent.
+
+Local checks:
+
+```bash
+npm run test:e2e:visual:self-test
+FARMING_VISUAL_OUTPUT_DIR=.tmp/visual-capture npm run test:e2e:visual:capture
+```
+
 ## Entry Points
 
 ```bash

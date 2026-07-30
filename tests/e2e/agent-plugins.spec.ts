@@ -1,13 +1,21 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { expect, openFarming, test } from './fixtures'
+import { selectCodeOption } from './code-select'
 
 test('Plugins treats each Agent Home as an independent ordered Agent configuration', async ({ page, workspaceRoot }) => {
   await openFarming(page)
   const claudeDefaultHome = path.join(workspaceRoot, 'claude-default')
   const claudeWorkHome = path.join(workspaceRoot, 'claude-work')
+  const codexWorkHome = path.join(workspaceRoot, 'codex-work')
   fs.mkdirSync(claudeDefaultHome, { recursive: true })
   fs.mkdirSync(claudeWorkHome, { recursive: true })
+  fs.mkdirSync(codexWorkHome, { recursive: true })
+  fs.writeFileSync(path.join(codexWorkHome, 'config.toml'), [
+    'model = "gpt-5.6-sol"',
+    'model_reasoning_effort = "high"',
+    'service_tier = "priority"',
+  ].join('\n'))
   fs.writeFileSync(path.join(claudeDefaultHome, 'settings.json'), JSON.stringify({
     env: { ANTHROPIC_MODEL: 'claude-default-only' },
   }))
@@ -26,7 +34,7 @@ test('Plugins treats each Agent Home as an independent ordered Agent configurati
           },
           {
             id: 'work',
-            path: `${workspaceRoot}/codex-work`,
+            path: codexWorkHome,
             order: 0,
             newAgentDefaults: { model: 'inherit', reasoning: 'inherit', fast: 'inherit' },
           },
@@ -49,16 +57,6 @@ test('Plugins treats each Agent Home as an independent ordered Agent configurati
     },
   })
 
-  const catalogHomeRequests: string[] = []
-  page.on('request', request => {
-    const url = new URL(request.url())
-    if (url.pathname.endsWith('/api/codex/models')) {
-      catalogHomeRequests.push(`codex:${url.searchParams.get('homeId')}`)
-    }
-    if (url.pathname.endsWith('/api/claude/settings')) {
-      catalogHomeRequests.push(`claude:${url.searchParams.get('homeId')}`)
-    }
-  })
   await page.getByTestId('code-nav-plugins').click()
   const panel = page.getByTestId('code-plugins-panel')
   const agentSections = panel.locator('.code-plugin-agent-section')
@@ -71,46 +69,32 @@ test('Plugins treats each Agent Home as an independent ordered Agent configurati
   ])
 
   const openCode = panel.getByTestId('code-plugin-section-agent-opencode-default')
-  await expect(openCode.getByText('Use Agent configuration from this Home', { exact: true })).toBeVisible()
+  await expect(openCode.getByText(/Inherited from|was not found/)).toBeVisible()
   await expect(openCode.getByRole('combobox')).toHaveCount(0)
   await expect(panel.locator('.code-plugin-kind-section[open]')).toHaveCount(0)
-  await expect.poll(() => [...new Set(catalogHomeRequests)].sort()).toEqual([
-    'claude:default',
-    'claude:work',
-    'codex:default',
-    'codex:work',
-  ])
 
   const claudeDefault = panel.getByTestId('code-plugin-section-agent-claude-default')
   const claudeWork = panel.getByTestId('code-plugin-section-agent-claude-work')
-  await claudeDefault.locator('.code-plugin-agent-defaults > summary').click()
-  await claudeWork.locator('.code-plugin-agent-defaults > summary').click()
-  await expect(claudeDefault.getByLabel('Model').locator('option')).toHaveText([
-    'Inherit Agent config',
-    'claude-default-only',
-  ])
-  await expect(claudeWork.getByLabel('Model').locator('option')).toHaveText([
-    'Inherit Agent config',
-    'claude-work-only',
-  ])
+  await expect(claudeDefault.locator('.code-plugin-agent-configuration')).toContainText('Model: claude-default-only')
+  await expect(claudeWork.locator('.code-plugin-agent-configuration')).toContainText('Model: claude-work-only')
+  await expect(claudeDefault.getByRole('combobox')).toHaveCount(0)
+  await expect(claudeWork.getByRole('combobox')).toHaveCount(0)
 
   const work = panel.getByTestId('code-plugin-section-agent-codex-work')
   await expect(work.getByText('work', { exact: true })).toBeVisible()
-  await expect(work.getByText(`${workspaceRoot}/codex-work`, { exact: true })).toBeVisible()
+  await expect(work.getByText(codexWorkHome, { exact: true })).toBeVisible()
+  await expect(work.locator('.code-plugin-agent-configuration')).toContainText('Model: gpt-5.6-sol')
+  await expect(work.locator('.code-plugin-agent-configuration')).toContainText('Reasoning: high')
+  await expect(work.locator('.code-plugin-agent-configuration')).toContainText('Service tier: priority')
   await expect(panel.locator('.code-plugins-panel-header h2')).toHaveCSS('font-size', '18px')
   await expect(panel.locator('.code-plugin-agent-sections-header h3')).toHaveCSS('font-size', '14px')
   await expect(work.locator('.code-plugin-agent-identity h3 > span')).toHaveCSS('font-size', '13px')
   await expect(work.locator('.code-plugin-agent-identity h3 > small')).toHaveCSS('font-size', '13px')
   await expect(work.locator('.code-plugin-agent-identity p code')).toHaveCSS('font-size', '14px')
-  await expect(work.locator('.code-plugin-agent-defaults > summary strong')).toHaveCSS('font-size', '14px')
+  await expect(work.locator('.code-plugin-agent-configuration strong')).toHaveCSS('font-size', '14px')
   await expect(work.locator('.code-plugin-kind-section > summary span')).toHaveCSS('font-size', '13px')
-  const fastSelect = work.getByLabel('Fast')
-  await expect(fastSelect).toHaveCSS('appearance', 'none')
-  await expect(fastSelect).toHaveCSS('border-radius', '8px')
-  await expect(fastSelect).toHaveCSS('font-size', '14px')
-  await expect(panel.getByLabel('Browser source')).toHaveCSS('background-position', 'calc(100% - 10px) 50%')
   await page.locator('body').evaluate(body => { body.dataset.appearance = 'dark' })
-  await expect(fastSelect).toHaveCSS('background-repeat', 'no-repeat')
+  await expect(work.locator('.code-plugin-agent-configuration strong')).toHaveCSS('color', 'rgb(216, 216, 216)')
   await page.locator('body').evaluate(body => { body.dataset.appearance = 'light' })
   await work.getByRole('button', { name: 'Move down', exact: true }).click()
   await expect.poll(() => agentSections.evaluateAll(sections => (
@@ -119,21 +103,14 @@ test('Plugins treats each Agent Home as an independent ordered Agent configurati
     'code-plugin-section-agent-claude-default',
     'code-plugin-section-agent-codex-work',
   ])
-  await work.locator('.code-plugin-agent-defaults > summary').click()
-  await work.getByLabel('Fast').selectOption('on')
-  await expect.poll(async () => {
-    const response = await page.request.get('/farming/api/settings')
-    const body = await response.json()
-    return body.settings.agentHomes.codex
-      .find((home: { id: string }) => home.id === 'work')
-      ?.newAgentDefaults.fast
-  }).toBe('on')
-  await work.locator('.code-plugin-agent-defaults > summary').click()
-  await expect(work.locator('.code-plugin-agent-defaults > summary')).toContainText('Fast: On')
+  await work.getByRole('button', { name: 'Edit configuration', exact: true }).click()
+  await expect(page.getByTestId('code-file-editor')).toBeVisible()
+  await expect(page.getByTestId('code-file-editor').getByRole('tab', { selected: true })).toContainText('config.toml')
+  await page.getByTestId('code-nav-plugins').click()
 
   await panel.getByRole('button', { name: 'Add Agent', exact: true }).click()
   const form = panel.getByTestId('code-plugin-agent-form')
-  await form.getByLabel('Agent provider').selectOption('codex')
+  await selectCodeOption(form.getByLabel('Agent provider'), 'codex')
   await form.getByLabel('Home path').fill(`${workspaceRoot}/codex-work`)
   await form.getByLabel('Home name').fill('duplicate-work')
   const duplicateResponse = page.waitForResponse(response => (
@@ -143,11 +120,26 @@ test('Plugins treats each Agent Home as an independent ordered Agent configurati
   await form.getByRole('button', { name: 'Save', exact: true }).click()
   expect((await duplicateResponse).status()).toBe(409)
   await expect(panel.locator('.code-plugin-agent-form + .code-plugin-error')).toContainText('same Home path')
-  await form.getByLabel('Home path').fill(`${workspaceRoot}/codex-review`)
+  const codexReviewHome = path.join(workspaceRoot, 'codex-review')
+  await form.getByLabel('Home path').fill(codexReviewHome)
   await form.getByLabel('Home name').fill('review')
   await form.getByRole('button', { name: 'Save', exact: true }).click()
   const review = panel.getByTestId('code-plugin-section-agent-codex-review')
   await expect(review).toBeVisible()
+
+  await review.getByRole('button', { name: 'Edit configuration', exact: true }).click()
+  await expect(page.getByTestId('code-file-editor').getByRole('tab', { selected: true })).toContainText('config.toml')
+  await page.getByTestId('code-file-monaco').click()
+  await page.evaluate(() => {
+    const editor = window.__farmingFileEditorTest
+    if (!editor?.focus() || !editor.insertText('model = "gpt-5.6-terra"\n')) {
+      throw new Error('Failed to edit a new Agent Home configuration')
+    }
+  })
+  await page.getByRole('button', { name: 'Save file' }).click()
+  const reviewConfigFile = path.join(codexReviewHome, 'config.toml')
+  await expect.poll(() => fs.existsSync(reviewConfigFile) ? fs.readFileSync(reviewConfigFile, 'utf8') : '').toContain('gpt-5.6-terra')
+  await page.getByTestId('code-nav-plugins').click()
 
   page.once('dialog', dialog => dialog.accept())
   await review.getByRole('button', { name: 'Remove', exact: true }).click()

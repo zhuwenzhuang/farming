@@ -67,6 +67,29 @@ test('merges replacement composer state without discarding queued follow-up mess
 
   const merged = mergeAgentComposerStates(primary, incoming)
   assert.equal(merged.draft, 'new draft')
-  assert.deepEqual(merged.pendingFollowUp?.messages.map(message => message.id), ['new', 'old'])
+  assert.deepEqual(merged.pendingFollowUp?.messages.map(message => message.id), ['old', 'new'])
   assert.equal(merged.pendingFollowUp?.createdAt, 10)
+})
+
+test('deduplicates queued follow-ups by id while preserving deterministic FIFO order', () => {
+  const primary = createDefaultAgentComposerState()
+  primary.pendingFollowUp = {
+    createdAt: 20,
+    messages: [
+      { id: 'same', text: 'live copy', createdAt: 20 },
+      { id: 'later', text: 'later', createdAt: 30 },
+    ],
+  }
+  const incoming = createDefaultAgentComposerState()
+  incoming.pendingFollowUp = {
+    createdAt: 10,
+    messages: [
+      { id: 'first', text: 'first', createdAt: 10 },
+      { id: 'same', text: 'persisted copy', createdAt: 20 },
+    ],
+  }
+
+  const merged = mergeAgentComposerStates(primary, incoming)
+  assert.deepEqual(merged.pendingFollowUp?.messages.map(message => message.id), ['first', 'same', 'later'])
+  assert.equal(merged.pendingFollowUp?.messages[1]?.text, 'live copy')
 })

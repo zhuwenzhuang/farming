@@ -24,7 +24,7 @@ type MockComputer = {
   updatedAt: number
 }
 
-test('shows an Agent-owned Computer only when present and switches Viewer control epochs', async ({
+test('shows an Agent-owned Desktop only when present and switches Viewer control epochs', async ({
   page,
   workspaceRoot,
 }) => {
@@ -91,7 +91,9 @@ test('shows an Agent-owned Computer only when present and switches Viewer contro
 
   await page.getByTestId('code-nav-plugins').click()
   const computerPlugin = page.getByTestId('code-plugin-computer')
-  await expect(computerPlugin.getByRole('heading', { name: 'Computer', exact: true })).toBeVisible()
+  await expect(computerPlugin.getByRole('heading', { name: 'Computer Use', exact: true })).toBeVisible()
+  await expect(computerPlugin.getByText('Desktops', { exact: true })).toBeVisible()
+  await expect(computerPlugin.getByText('Isolated Desktop', { exact: true })).toBeVisible()
   await expect(computerPlugin.getByText('Disabled', { exact: true })).toBeVisible()
   await expect(computerPlugin.getByRole('button', { name: 'Enable' })).toBeEnabled()
 

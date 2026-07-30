@@ -144,6 +144,16 @@ class WorkspaceRootRegistry {
       .filter(Boolean);
   }
 
+  configuredAgentHomePaths(): string[] {
+    const settings = recordValue(this.agentManager?.configManager?.getSettings?.());
+    const agentHomes = recordValue(settings.agentHomes);
+    return Object.values(agentHomes)
+      .flatMap(homes => Array.isArray(homes) ? homes : [])
+      .map(recordValue)
+      .map(home => normalizeWorkspacePath(home.path))
+      .filter(Boolean);
+  }
+
   liveAgentPaths(): LiveAgentPath[] {
     const state = recordValue(this.agentManager?.getState?.());
     const agents = Array.isArray(state.agents) ? state.agents : [];
@@ -160,6 +170,9 @@ class WorkspaceRootRegistry {
     const activeRootIds = new Set([GLOBAL_WORKSPACE_ROOT_ID]);
     for (const projectPath of this.configuredProjectPaths()) {
       activeRootIds.add(this.register({ kind: 'directory', canonicalPath: projectPath }).rootId);
+    }
+    for (const homePath of this.configuredAgentHomePaths()) {
+      activeRootIds.add(this.register({ kind: 'agent-home', canonicalPath: homePath }).rootId);
     }
     for (const entry of this.liveAgentPaths()) {
       activeRootIds.add(this.register({ kind: 'directory', canonicalPath: entry.path }).rootId);

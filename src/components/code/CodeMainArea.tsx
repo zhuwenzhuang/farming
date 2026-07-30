@@ -277,6 +277,7 @@ interface CodeMainAreaProps {
   onNewAgent: (workspace?: string, command?: string) => void
   onOpenHistory: () => void
   onOpenPlugins: () => void
+  onOpenAgentHomeConfiguration: (target: { exists: boolean; filePath: string; rootId: string }) => void
   onOpenSearch: () => void
   onOpenShare: () => void
   onOpenAppMode: () => void
@@ -366,6 +367,15 @@ function EmptyWorkspaceGuide({
   onOpenAppMode: () => void
   copy: CodeCopy
 }) {
+  const homeRef = useRef<HTMLDivElement>(null)
+  const originBraceRef = useRef<HTMLSpanElement>(null)
+  const targetBraceRef = useRef<HTMLSpanElement>(null)
+  const [connectorBounds, setConnectorBounds] = useState<{
+    height: number
+    left: number
+    top: number
+    width: number
+  } | null>(null)
   const utilityActions: Array<{
     action: EmptyWorkspaceAction
     title: string
@@ -378,54 +388,88 @@ function EmptyWorkspaceGuide({
     { action: 'plugins', title: copy.plugins, description: copy.emptyWorkspacePluginsDescription, onClick: onOpenPlugins },
   ]
 
+  useLayoutEffect(() => {
+    const home = homeRef.current
+    const originBrace = originBraceRef.current
+    const targetBrace = targetBraceRef.current
+    if (!home || !originBrace || !targetBrace) return
+
+    const updateConnectorBounds = () => {
+      const homeRect = home.getBoundingClientRect()
+      const originRect = originBrace.getBoundingClientRect()
+      const targetRect = targetBrace.getBoundingClientRect()
+      if (homeRect.width === 0 || originRect.width === 0 || targetRect.width === 0) {
+        setConnectorBounds(null)
+        return
+      }
+      const left = originRect.right - homeRect.left + 5
+      const top = originRect.top + originRect.height / 2 - homeRect.top
+      const width = targetRect.left - homeRect.left - left
+      const height = targetRect.top + targetRect.height / 2 - homeRect.top - top
+      if (width <= 0 || height <= 0) {
+        setConnectorBounds(null)
+        return
+      }
+      setConnectorBounds(previous => {
+        const next = { height, left, top, width }
+        return previous
+          && previous.height === next.height
+          && previous.left === next.left
+          && previous.top === next.top
+          && previous.width === next.width
+          ? previous
+          : next
+      })
+    }
+
+    updateConnectorBounds()
+    const observer = new ResizeObserver(updateConnectorBounds)
+    observer.observe(home)
+    observer.observe(originBrace)
+    observer.observe(targetBrace)
+    return () => observer.disconnect()
+  }, [])
+
   return (
-    <div className="code-empty-home">
-      <span className="code-empty-home-brace" data-testid="code-empty-home-brace" aria-hidden="true">
+    <div ref={homeRef} className="code-empty-home">
+      <span ref={originBraceRef} className="code-empty-home-brace" data-testid="code-empty-home-brace" aria-hidden="true">
         <svg viewBox="0 0 12 28">
           <path d="M2 1.25h1.2c2.25 0 3.2 1.55 3.2 4.1v4.05c0 2.5 1.05 4.05 3.6 4.6-2.55.55-3.6 2.1-3.6 4.6v4.05c0 2.55-.95 4.1-3.2 4.1H2" />
         </svg>
       </span>
-      <svg className="code-empty-home-origin" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-        <defs>
-          <linearGradient id="code-empty-home-origin-weight" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stopColor="white" stopOpacity="0" />
-            <stop offset="1" stopColor="white" stopOpacity="0.65" />
-          </linearGradient>
-          <mask id="code-empty-home-origin-mask" maskUnits="objectBoundingBox">
-            <rect width="100%" height="100%" fill="url(#code-empty-home-origin-weight)" />
-          </mask>
-        </defs>
-        <path className="code-empty-home-connector-base" d="M9 0C52 0 76 70 76 100" />
-        <path
-          className="code-empty-home-connector-growth"
-          d="M9 0C52 0 76 70 76 100"
-          mask="url(#code-empty-home-origin-mask)"
-        />
-      </svg>
-      <svg className="code-empty-home-target-path" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-        <defs>
-          <linearGradient id="code-empty-home-target-weight" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stopColor="white" stopOpacity="0.65" />
-            <stop offset="0.5" stopColor="white" stopOpacity="1" />
-            <stop offset="1" stopColor="white" stopOpacity="1" />
-          </linearGradient>
-          <mask id="code-empty-home-target-mask" maskUnits="objectBoundingBox">
-            <rect width="100%" height="100%" fill="url(#code-empty-home-target-weight)" />
-          </mask>
-        </defs>
-        <path className="code-empty-home-connector-base" d="M76 0C76 4 0 50 98 50" />
-        <path
-          className="code-empty-home-connector-growth"
-          d="M76 0C76 4 0 50 98 50"
-          mask="url(#code-empty-home-target-mask)"
-        />
-      </svg>
+      {connectorBounds && (
+        <svg
+          className="code-empty-home-connector"
+          viewBox="0 0 100 100"
+          preserveAspectRatio="none"
+          style={connectorBounds}
+          aria-hidden="true"
+        >
+          <defs>
+            <linearGradient id="code-empty-home-connector-weight" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stopColor="white" stopOpacity="0" />
+              <stop offset="0.56" stopColor="white" stopOpacity="0.65" />
+              <stop offset="0.78" stopColor="white" stopOpacity="1" />
+              <stop offset="1" stopColor="white" stopOpacity="1" />
+            </linearGradient>
+            <mask id="code-empty-home-connector-mask" maskUnits="objectBoundingBox">
+              <rect width="100%" height="100%" fill="url(#code-empty-home-connector-weight)" />
+            </mask>
+          </defs>
+          <path className="code-empty-home-connector-base" d="M0 0C200 0-100 100 100 100" />
+          <path
+            className="code-empty-home-connector-growth"
+            d="M0 0C200 0-100 100 100 100"
+            mask="url(#code-empty-home-connector-mask)"
+          />
+        </svg>
+      )}
       <header className="code-empty-home-header">
         <h2>{copy.emptyWorkspaceWelcome}</h2>
         <p>{copy.emptyWorkspaceWelcomeDescription}</p>
       </header>
       <div className="code-empty-home-action-map">
-        <span className="code-empty-home-target-brace" data-testid="code-empty-home-target-brace" aria-hidden="true">
+        <span ref={targetBraceRef} className="code-empty-home-target-brace" data-testid="code-empty-home-target-brace" aria-hidden="true">
           <svg viewBox="0 0 30 100" preserveAspectRatio="none">
             <path d="M28 1h-2.4C16 1 14 8.5 14 20v14c0 8.6-4 13.9-14 16 10 2.1 14 7.4 14 16v14c0 11.5 2 19 11.6 19H28" />
           </svg>
@@ -515,6 +559,7 @@ export function CodeMainArea({
   onNewAgent,
   onOpenHistory,
   onOpenPlugins,
+  onOpenAgentHomeConfiguration,
   onOpenSearch,
   onOpenShare,
   onOpenAppMode,
@@ -740,6 +785,7 @@ export function CodeMainArea({
               onPrepareComputer={computerController.prepare}
               language={language}
               onBack={onBackToProjects}
+              onOpenAgentHomeConfiguration={onOpenAgentHomeConfiguration}
               onRefreshCapability={() => {
                 browserController.refreshCapability()
                 computerController.refreshCapability()

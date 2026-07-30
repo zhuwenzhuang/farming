@@ -352,10 +352,10 @@ function run() {
     });
     assert.deepStrictEqual(manager.getAgentLaunchProfileForHome('codex', 'work'), {
       approvalMode: 'approve',
-      model: 'gpt-5.6-sol',
-      reasoningEffort: 'high',
-      serviceTier: 'priority',
-      modelPreset: 'gpt-5.6-sol:high',
+      model: 'config',
+      reasoningEffort: 'config',
+      serviceTier: 'config',
+      modelPreset: 'config',
     });
     assert.strictEqual(manager.getSettings().agentHomes.codex[1].order, 1);
     assert.throws(() => manager.updateSettings({

@@ -224,6 +224,7 @@ import { getLocalIPs, getPrimaryLocalIP } from './network.cjs';
 import { listAvailableAgents, resolveCompatibleCodexExecutable } from './executable-discovery.cjs';
 import { readClaudeSettingsSummary } from './claude-settings.cjs';
 import { listCodexModelOptions } from './codex-models.cjs';
+import { readProviderHomeConfiguration } from './provider-home-configuration.cjs';
 import { applyProviderHomeEnvironment } from './provider-adapters.cjs';
 import { listCodexSessions } from './codex-session-history.cjs';
 import { buildAgentSessionResumeCommand, findAgentSession, isSafeSessionId, listAgentSessions, normalizeProvider, paginateAgentSessions, resolveCodexResumeModelProvider, searchAgentSessions } from './agent-session-history.cjs';
@@ -1000,6 +1001,10 @@ app.get(routePath(BASE_PATH, '/api/agent-extensions'), (_req, res) => {
           path: home.path,
           order: home.order,
           newAgentDefaults: home.newAgentDefaults,
+          configuration: {
+            rootId: rootIdForPath(home.path),
+            ...readProviderHomeConfiguration(provider, home.path),
+          },
           extensions: discoverAgentExtensions({
             provider,
             providerHomePath: home.path,

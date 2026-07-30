@@ -153,10 +153,12 @@ function isDefaultAgentComposerUiState(ui: AgentComposerUiState) {
 }
 
 export function mergeAgentComposerStates(primary: AgentComposerState, incoming: AgentComposerState): AgentComposerState {
-  const pendingMessages = [
-    ...(primary.pendingFollowUp?.messages || []),
-    ...(incoming.pendingFollowUp?.messages || []),
-  ]
+  const pendingMessagesById = new Map<string, AgentComposerPendingFollowUpMessage>()
+  for (const message of incoming.pendingFollowUp?.messages || []) pendingMessagesById.set(message.id, message)
+  for (const message of primary.pendingFollowUp?.messages || []) pendingMessagesById.set(message.id, message)
+  const pendingMessages = Array.from(pendingMessagesById.values()).sort((left, right) => (
+    left.createdAt - right.createdAt || left.id.localeCompare(right.id)
+  ))
   const pendingCreatedAt = Math.min(
     primary.pendingFollowUp?.createdAt ?? Number.POSITIVE_INFINITY,
     incoming.pendingFollowUp?.createdAt ?? Number.POSITIVE_INFINITY
@@ -165,6 +167,9 @@ export function mergeAgentComposerStates(primary: AgentComposerState, incoming: 
   for (const submission of [...(incoming.submissions || []), ...(primary.submissions || [])]) {
     submissionsById.set(submission.id, submission)
   }
+  const submissions = Array.from(submissionsById.values()).sort((left, right) => (
+    left.createdAt - right.createdAt || left.id.localeCompare(right.id)
+  ))
   return {
     ...primary,
     draft: primary.draft || incoming.draft,
@@ -180,7 +185,7 @@ export function mergeAgentComposerStates(primary: AgentComposerState, incoming: 
         createdAt: Number.isFinite(pendingCreatedAt) ? pendingCreatedAt : Date.now(),
       }
       : undefined,
-    submissions: submissionsById.size > 0 ? Array.from(submissionsById.values()) : undefined,
+    submissions: submissions.length > 0 ? submissions : undefined,
     ui: isDefaultAgentComposerUiState(primary.ui) ? incoming.ui : primary.ui,
   }
 }

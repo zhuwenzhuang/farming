@@ -12,12 +12,12 @@ function copyFor(language: UiPreferences['language']) {
     takeControl: zh ? '接管' : 'Take control',
     returnControl: zh ? '交还 Agent' : 'Return to Agent',
     stop: zh ? '停止' : 'Stop',
-    start: zh ? '启动电脑' : 'Start Computer',
-    agentControls: zh ? 'Agent 正在控制；当前为只读观察。' : 'The Agent controls this Computer; the Viewer is read-only.',
-    humanControls: zh ? '你正在控制这台电脑。' : 'You control this Computer.',
-    stopped: zh ? '电脑已停止' : 'Computer stopped',
-    failed: zh ? '电脑启动失败' : 'Computer failed',
-    viewerFailed: zh ? 'Computer Viewer 加载失败' : 'Computer Viewer failed',
+    start: zh ? '启动桌面' : 'Start Desktop',
+    agentControls: zh ? 'Agent 正在控制；当前为只读观察。' : 'The Agent controls this Desktop; the Viewer is read-only.',
+    humanControls: zh ? '你正在控制这个桌面。' : 'You control this Desktop.',
+    stopped: zh ? '桌面已停止' : 'Desktop stopped',
+    failed: zh ? '桌面启动失败' : 'Desktop failed',
+    viewerFailed: zh ? '桌面 Viewer 加载失败' : 'Desktop Viewer failed',
   }
 }
 
@@ -33,7 +33,7 @@ async function viewerConfig(resource: ComputerResource): Promise<ViewerConfig> {
     headers: { Accept: 'application/json' },
   })
   const data = await response.json().catch(() => ({})) as ViewerConfig & { error?: string }
-  if (!response.ok) throw new Error(data.error || `Computer Viewer failed (${response.status})`)
+  if (!response.ok) throw new Error(data.error || `Desktop Viewer failed (${response.status})`)
   return data
 }
 

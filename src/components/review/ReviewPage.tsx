@@ -21,6 +21,7 @@ import {
   DiffUnifiedGlyph,
   SettingsGlyph,
 } from '@/components/IconGlyphs'
+import { CodeSelect } from '@/components/CodeSelect'
 import { completeReviewFileDiffLoad, failReviewFileDiffLoad } from '@/lib/review/effects'
 import { reviewFileRowModel, type ReviewFileRowAction, type ReviewFileRowModel } from '@/lib/review/file-list'
 import { acpReviewCaptureRequestFromSearch, reviewSnapshotRequestFromLocation } from '@/lib/review/route-target'
@@ -1708,10 +1709,16 @@ export function ReviewPage() {
             </div>
             <span className="review-total-stats"><b>+{totalAdded}</b><i>−{totalRemoved}</i></span>
             {!externalReview ? <>
-              <select aria-label="Patch set" value={patchset} onChange={event => selectPatchset(event.target.value)}>
-                <option value="Patchset 20">Patchset 20</option>
-                <option value="Patchset 19">Patchset 19</option>
-              </select>
+              <CodeSelect
+                ariaLabel="Patch set"
+                className="review-patch-select"
+                value={patchset}
+                options={[
+                  { value: 'Patchset 20', label: 'Patchset 20' },
+                  { value: 'Patchset 19', label: 'Patchset 19' },
+                ]}
+                onChange={selectPatchset}
+              />
               <button type="button" className="review-commit" onClick={copyCommit} title="Copy commit">
                 {commitCopied ? 'Copied' : '34a15ae'}<CopyGlyph />
               </button>
@@ -1883,7 +1890,18 @@ export function ReviewPage() {
           <section className="review-preferences" role="dialog" aria-modal="true" aria-labelledby="review-preferences-title" onMouseDown={event => event.stopPropagation()}>
             <header><h2 id="review-preferences-title">Diff Preferences</h2></header>
             <div className="review-preferences-form">
-              <label>Context<select aria-label="Context" value={draftPreferences.context} onChange={event => setDraftPreferences(current => ({ ...current, context: Number(event.target.value) }))}><option value={3}>3 lines</option><option value={10}>10 lines</option><option value={25}>25 lines</option><option value={100}>100 lines</option></select></label>
+              <CodeSelect
+                className="review-preferences-select"
+                label="Context"
+                value={String(draftPreferences.context)}
+                options={[
+                  { value: '3', label: '3 lines' },
+                  { value: '10', label: '10 lines' },
+                  { value: '25', label: '25 lines' },
+                  { value: '100', label: '100 lines' },
+                ]}
+                onChange={value => setDraftPreferences(current => ({ ...current, context: Number(value) }))}
+              />
               <label className="checkbox-row">Fit to screen<input aria-label="Fit to screen" type="checkbox" checked={draftPreferences.fitToScreen} onChange={event => setDraftPreferences(current => ({ ...current, fitToScreen: event.target.checked }))} /></label>
               <label>Diff width<input aria-label="Diff width" type="number" autoComplete="off" data-form-type="other" min={40} max={240} value={draftPreferences.lineLength} onChange={event => setDraftPreferences(current => ({ ...current, lineLength: Number(event.target.value) || current.lineLength }))} /></label>
               <label>Tab width<input aria-label="Tab width" type="number" autoComplete="off" data-form-type="other" min={2} max={16} value={draftPreferences.tabSize} onChange={event => setDraftPreferences(current => ({ ...current, tabSize: Number(event.target.value) || current.tabSize }))} /></label>
@@ -1892,7 +1910,18 @@ export function ReviewPage() {
               <label className="checkbox-row">Show tabs<input aria-label="Show tabs" type="checkbox" checked={draftPreferences.showTabs} onChange={event => setDraftPreferences(current => ({ ...current, showTabs: event.target.checked }))} /></label>
               <label className="checkbox-row">Show trailing whitespace<input aria-label="Show trailing whitespace" type="checkbox" checked={draftPreferences.showTrailingWhitespace} onChange={event => setDraftPreferences(current => ({ ...current, showTrailingWhitespace: event.target.checked }))} /></label>
               <label className="checkbox-row">Syntax highlighting<input aria-label="Syntax highlighting" type="checkbox" checked={draftPreferences.syntaxHighlighting} onChange={event => setDraftPreferences(current => ({ ...current, syntaxHighlighting: event.target.checked }))} /></label>
-              <label>Ignore Whitespace<select aria-label="Ignore Whitespace" value={draftPreferences.ignoreWhitespace} onChange={event => setDraftPreferences(current => ({ ...current, ignoreWhitespace: event.target.value as IgnoreWhitespace }))}><option value="NONE">None</option><option value="TRAILING">Trailing</option><option value="LEADING_AND_TRAILING">Leading + trailing</option><option value="ALL">All</option></select></label>
+              <CodeSelect
+                className="review-preferences-select"
+                label="Ignore Whitespace"
+                value={draftPreferences.ignoreWhitespace}
+                options={[
+                  { value: 'NONE', label: 'None' },
+                  { value: 'TRAILING', label: 'Trailing' },
+                  { value: 'LEADING_AND_TRAILING', label: 'Leading + trailing' },
+                  { value: 'ALL', label: 'All' },
+                ]}
+                onChange={value => setDraftPreferences(current => ({ ...current, ignoreWhitespace: value as IgnoreWhitespace }))}
+              />
             </div>
             <footer><button type="button" onClick={() => setShowPreferences(false)}>CANCEL</button><button type="button" onClick={savePreferences}>SAVE</button></footer>
           </section>

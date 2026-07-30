@@ -56,6 +56,8 @@ Codex 协作活动与子 Agent 生命周期是两类不同的协议事实。`col
 
 ACP Composer 保留所有不依赖 PTY 输入的日常消息框行为：草稿与上下键历史、Enter/Shift+Enter 与中文输入法、文件选择、粘贴媒体预览、删除附件、语音输入、Agent 命令与 Skill、Goal/Plan 请求模式、排队的 follow-up、中断、存在精确 Codex 数据时的上下文窗口，以及 Agent 提供的权限和配置控件。排队的 follow-up 会在输入框上方使用同一视觉表面堆叠展示。在排队项进入 Prompt 或 Steer 准入之前，用户可以丢弃它，也可以将它移回输入框继续编辑；光标位于输入首行时，按上方向键会取回最新一条排队消息。取回会保留原始可编辑文本、请求模式和原生附件；已经开始准入的消息不能再通过编辑动作撤回。`+` 菜单包含附件、目标和计划，并且只有 Agent 声明 ACP logout 时才出现退出登录；Agent 命令通过 `/` 搜索，`$` 则搜索 Agent 实际宣告的 Skill 子集。只有实时 Agent 声明对应 prompt capability 时，上传图片或音频才会作为原生 ACP content block 发送；否则 Farming 会把它转换成与现有文本降级一致的可读本地路径上下文，避免不支持的媒体类型被静默丢弃。文本文件仍嵌入消息。
 
+Farming Code 会按稳定的 Terminal 或 ACP Composer 身份，把草稿、有界输入历史、排队 follow-up 和尚未完成对账的提交卡写入带版本的浏览器本地 checkpoint；运行时权威 owner 仍然是 React。Checkpoint 不保存已打开菜单、历史游标、尚未取得 ready 服务端路径的上传项或 blob 预览 URL。页面恢复后，原先处于提交中的消息会变为可见失败项，必须由用户使用同一 request id 显式对账；页面恢复绝不会自动重放结果不明确的 Prompt 或 Steer。损坏、过期或超额 checkpoint 会被安全忽略，不会阻塞 Composer；普通短 debounce 之外，页面隐藏时还会同步执行一次尽力 flush。
+
 Structured Composer 提交使用 request-id 幂等语义。遇到断线或明确 UNKNOWN 响应时，两套浏览器皮肤都保留同一个 request id；Farming Code 在有界 Admission Timeout 后也沿用同一个 id。没有活跃 Turn 时发送的普通 Prompt 会直接进入这条准入路径，不再先出现在可见的排队消息区。精确草稿会保留为可编辑状态，直到浏览器收到确定的 Admission ACK；此时只清理仍然完全匹配的草稿，迟到 ACK 不能清除更新输入或抢夺焦点。调用 ACP 前，Farming 会在 Agent Sidecar 中持久化一条有界记录，只包含 request id 与内容 hash。Provider `onSubmitted` 回调是准入线性化点：Farming 先持久化 `accepted`，再向浏览器确认。相同 id 与 hash 会 Join 或返回已提交结果，同一 id 携带不同 hash 会被拒绝。只要 Provider 可能已接管、但 Farming 无法证明 accepted 状态，记录就进入 UNKNOWN，Prompt 或 Steer 绝不会自动重放。
 
 对 Codex，Farming 会把选中的启动配置映射到 ACP adapter 的 `CODEX_CONFIG` 和 `INITIAL_AGENT_MODE`。因此 Terminal 与 Chat 之间切换时，会继承模型、推理强度、速度层级和对应的初始权限模式，不再静默回到 adapter 默认值。

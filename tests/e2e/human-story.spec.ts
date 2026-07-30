@@ -131,6 +131,13 @@ test.describe('human Farming Agent story', () => {
     await expect(page.getByTestId('code-pending-followup-row')).toHaveCount(2)
     await expect(page.getByTestId('code-pending-followup')).toContainText('follow up: make greeting excited')
 
+    await page.reload({ waitUntil: 'domcontentloaded' })
+    const firstReloadedAgentId = await page.getByTestId('code-agent-row').getAttribute('data-agent-id')
+    expect(firstReloadedAgentId).toBe(agentId)
+    await expect(page.getByTestId('code-pending-followup-row')).toHaveCount(2)
+    await expect(page.getByTestId('code-pending-followup-row').nth(0)).toContainText('add greeting to app.js')
+    await expect(page.getByTestId('code-pending-followup-row').nth(1)).toContainText('follow up: make greeting excited')
+
     await page.getByTestId('code-pending-followup-send-next').nth(1).click()
     await expect(page.getByTestId('code-pending-followup')).toContainText('add greeting to app.js')
     await expect(page.getByTestId('code-pending-followup')).not.toContainText('follow up: make greeting excited')
@@ -139,6 +146,11 @@ test.describe('human Farming Agent story', () => {
     await expect.poll(() => sessionText(page, agentId)).toContain('follow up: make greeting excited')
     expect(await sessionText(page, agentId)).not.toContain('add greeting to app.js')
     await expect.poll(() => sessionText(page, agentId)).toContain('Done · follow-up applied')
+    const restoredComposerInput = page.getByTestId('code-composer-input')
+    await restoredComposerInput.focus()
+    await page.keyboard.press('ArrowUp')
+    await expect(restoredComposerInput).toHaveValue('follow up: make greeting excited')
+    await restoredComposerInput.fill('')
 
     await page.reload({ waitUntil: 'domcontentloaded' })
     const reloadedAgentId = await page.getByTestId('code-agent-row').getAttribute('data-agent-id')

@@ -50,6 +50,15 @@ Chat and its composer, Terminal, Markdown previews, and the file editor and
 diff. Navigation, buttons, status labels, and other system UI keep their fixed
 size. Farming Code and Farming CRT store this preference separately.
 
+### Farming Pet
+
+Farming Pet offers an optional break reminder without interrupting a new user
+on entry. Its invitation appears after 30 minutes of foreground Farming use.
+Once enabled, the reminder counts foreground time in the current tab and
+resets a work cycle after five minutes away. The default cycle is 50 minutes
+of use followed by a five-minute break; intervals of 90 minutes or longer use
+a ten-minute break. Reminder styles can be previewed without saving a choice.
+
 ## More
 
 - [Farming CRT](../crt/README.md)

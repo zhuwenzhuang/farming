@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { CheckGlyph, ChevronLeftGlyph, CloseGlyph, ColorModeGlyph } from '@/components/IconGlyphs'
+import { CodeSelect } from '@/components/CodeSelect'
 import { appPath } from '@/lib/base-path'
 import {
   PET_SETTINGS_EVENT,
@@ -120,8 +121,8 @@ function panelCopy(language: UiPreferences['language']) {
     blackHole: zh ? '黑洞' : 'Black hole',
     breakReminder: zh ? '休息提醒' : 'Break reminder',
     breakReminderHint: zh
-      ? `按本页点击和输入计时，空闲 ${REST_REMINDER_IDLE_RESET_MINUTES} 分钟后重置。`
-      : `Counts clicks and input in this tab; resets after ${REST_REMINDER_IDLE_RESET_MINUTES} minutes idle.`,
+      ? `按本页前台可见时间计时，离开 ${REST_REMINDER_IDLE_RESET_MINUTES} 分钟后重置；90 分钟及以上休息 10 分钟。`
+      : `Counts foreground time in this tab; resets after ${REST_REMINDER_IDLE_RESET_MINUTES} minutes away. Intervals of 90 min or longer use a 10 min break.`,
     breakReminderValue: (seconds: number | null) => {
       if (!seconds || seconds <= 0) return zh ? '关闭' : 'Off'
       if (seconds === REST_REMINDER_TEST_INTERVAL_SECONDS) {
@@ -207,14 +208,18 @@ export function AgentHomesSettingsPanel({
   const defaultPetAppearance = usePetDefaultAppearance(uiPreferences.appearance)
   const closeButtonRef = useRef<HTMLButtonElement | null>(null)
   const searchTimeoutSaveTimerRef = useRef<number | null>(null)
+  const restReminderSaveRequestRef = useRef(0)
   const upgradeTargetVersionRef = useRef('')
   const panelScopeRef = useRef({ open, generation: 0 })
   const settingsLoadRequestRef = useRef(0)
   const [dangerouslySkipPermissions, setDangerouslySkipPermissions] = useState(false)
   const [searchTimeoutSeconds, setSearchTimeoutSeconds] = useState(15)
+  const [searchTimeoutDraftSeconds, setSearchTimeoutDraftSeconds] = useState<number | null>(null)
+  const [contentFontSizeDraft, setContentFontSizeDraft] = useState<number | null>(null)
   const [restReminderIntervalSeconds, setRestReminderIntervalSecondsState] = useState<number | null>(
     readRestReminderIntervalSeconds,
   )
+  const [restReminderSliderDraftSeconds, setRestReminderSliderDraftSeconds] = useState<number | null>(null)
   const [petAppearance, setPetAppearanceState] = useState<PetAppearance>(() => (
     readPetAppearance(undefined, defaultPetAppearance)
   ))
@@ -381,14 +386,35 @@ export function AgentHomesSettingsPanel({
     }, 120)
   }, [copy.saveFailed])
 
+  const commitSearchTimeout = useCallback(() => {
+    if (searchTimeoutDraftSeconds === null) return
+    const seconds = searchTimeoutDraftSeconds
+    setSearchTimeoutDraftSeconds(null)
+    setSearchTimeout(seconds)
+  }, [searchTimeoutDraftSeconds, setSearchTimeout])
+
+  const commitContentFontSize = useCallback(() => {
+    if (contentFontSizeDraft === null) return
+    const contentFontSize = contentFontSizeDraft
+    setContentFontSizeDraft(null)
+    onUpdateUiPreferences({ codeContentFontSize: contentFontSize })
+  }, [contentFontSizeDraft, onUpdateUiPreferences])
+
   const setRestReminderIntervalSeconds = useCallback(async (seconds: number) => {
-    if (!await persistRestReminderIntervalSeconds(seconds, defaultPetAppearance)) {
-      setError(copy.saveFailed)
-      return
-    }
-    setError('')
+    const requestId = restReminderSaveRequestRef.current + 1
+    restReminderSaveRequestRef.current = requestId
+    const previousSeconds = restReminderIntervalSeconds
     setRestReminderIntervalSecondsState(seconds)
-  }, [copy.saveFailed, defaultPetAppearance])
+    if (!await persistRestReminderIntervalSeconds(seconds, defaultPetAppearance)) {
+      if (restReminderSaveRequestRef.current === requestId) {
+        setRestReminderIntervalSecondsState(previousSeconds)
+        setError(copy.saveFailed)
+      }
+      return false
+    }
+    if (restReminderSaveRequestRef.current === requestId) setError('')
+    return true
+  }, [copy.saveFailed, defaultPetAppearance, restReminderIntervalSeconds])
 
   const setPetAppearance = useCallback((appearance: PetAppearance) => {
     if (!savePetAppearance(appearance)) {
@@ -399,11 +425,20 @@ export function AgentHomesSettingsPanel({
     setPetAppearanceState(appearance)
   }, [copy.saveFailed])
 
-  const restReminderSliderValue = restReminderSliderPosition(restReminderIntervalSeconds)
+  const displayedRestReminderIntervalSeconds = restReminderSliderDraftSeconds
+    ?? restReminderIntervalSeconds
+  const restReminderSliderValue = restReminderSliderPosition(displayedRestReminderIntervalSeconds)
 
   const setRestReminderSliderValue = useCallback((value: number) => {
-    setRestReminderIntervalSeconds(restReminderSliderIntervalSeconds(value))
-  }, [setRestReminderIntervalSeconds])
+    setRestReminderSliderDraftSeconds(restReminderSliderIntervalSeconds(value))
+  }, [])
+
+  const commitRestReminderSliderValue = useCallback(() => {
+    if (restReminderSliderDraftSeconds === null) return
+    const seconds = restReminderSliderDraftSeconds
+    setRestReminderSliderDraftSeconds(null)
+    void setRestReminderIntervalSeconds(seconds)
+  }, [restReminderSliderDraftSeconds, setRestReminderIntervalSeconds])
 
   const setCustomRestReminderMinutes = useCallback((value: string) => {
     if (value === '') {
@@ -630,13 +665,15 @@ export function AgentHomesSettingsPanel({
                   min={String(MIN_CONTENT_FONT_SIZE)}
                   max={String(MAX_CONTENT_FONT_SIZE)}
                   step="1"
-                  value={uiPreferences.codeContentFontSize}
+                  value={contentFontSizeDraft ?? uiPreferences.codeContentFontSize}
                   aria-label={copy.contentTextSize}
-                  onChange={event => onUpdateUiPreferences({
-                    codeContentFontSize: Number(event.target.value),
-                  })}
+                  onChange={event => setContentFontSizeDraft(Number(event.target.value))}
+                  onPointerUp={commitContentFontSize}
+                  onPointerCancel={commitContentFontSize}
+                  onKeyUp={commitContentFontSize}
+                  onBlur={commitContentFontSize}
                 />
-                <output>{uiPreferences.codeContentFontSize} px</output>
+                <output>{contentFontSizeDraft ?? uiPreferences.codeContentFontSize} px</output>
               </div>
             </div>
           </section>
@@ -655,11 +692,19 @@ export function AgentHomesSettingsPanel({
                   min="0"
                   max={String(SEARCH_TIMEOUT_OPTIONS_SECONDS.length - 1)}
                   step="1"
-                  value={SEARCH_TIMEOUT_OPTIONS_SECONDS.indexOf(searchTimeoutSeconds)}
+                  value={SEARCH_TIMEOUT_OPTIONS_SECONDS.indexOf(
+                    searchTimeoutDraftSeconds ?? searchTimeoutSeconds,
+                  )}
                   aria-label={copy.searchTimeout}
-                  onChange={event => setSearchTimeout(SEARCH_TIMEOUT_OPTIONS_SECONDS[Number(event.target.value)] ?? 15)}
+                  onChange={event => setSearchTimeoutDraftSeconds(
+                    SEARCH_TIMEOUT_OPTIONS_SECONDS[Number(event.target.value)] ?? 15,
+                  )}
+                  onPointerUp={commitSearchTimeout}
+                  onPointerCancel={commitSearchTimeout}
+                  onKeyUp={commitSearchTimeout}
+                  onBlur={commitSearchTimeout}
                 />
-                <output>{copy.searchTimeoutValue(searchTimeoutSeconds)}</output>
+                <output>{copy.searchTimeoutValue(searchTimeoutDraftSeconds ?? searchTimeoutSeconds)}</output>
               </div>
             </div>
           </section>
@@ -707,13 +752,17 @@ export function AgentHomesSettingsPanel({
                     step="any"
                     value={restReminderSliderValue}
                     aria-label={copy.breakReminder}
-                    aria-valuetext={copy.breakReminderValue(restReminderIntervalSeconds)}
+                    aria-valuetext={copy.breakReminderValue(displayedRestReminderIntervalSeconds)}
                     onChange={event => setRestReminderSliderValue(Number(event.target.value))}
+                    onPointerUp={commitRestReminderSliderValue}
+                    onPointerCancel={commitRestReminderSliderValue}
+                    onKeyUp={commitRestReminderSliderValue}
+                    onBlur={commitRestReminderSliderValue}
                   />
                   <span className="code-settings-pet-rest-off-marker">{copy.breakReminderOffMarker}</span>
                 </div>
                 <div className="code-settings-pet-rest-value">
-                  <output>{copy.breakReminderValue(restReminderIntervalSeconds)}</output>
+                  <output>{copy.breakReminderValue(displayedRestReminderIntervalSeconds)}</output>
                   <label className="code-settings-pet-rest-custom">
                     <span>{copy.customBreakReminder}</span>
                     <input
@@ -779,20 +828,17 @@ export function AgentHomesSettingsPanel({
                   disabled={updateBusy || (!updateReadyToRestart && !selectedVersion?.available)}
                 >{updateActionLabel}</button>}
               </div>
-              {updateVersions.length > 1 && <label className="code-settings-update-version">
-                <select
+              {updateVersions.length > 1 && <CodeSelect
+                className="code-settings-update-version"
+                ariaLabel={copy.targetVersion}
                   value={selectedUpdateAsset}
-                  aria-label={copy.targetVersion}
-                  onChange={event => setSelectedUpdateAsset(event.target.value)}
                   disabled={updateBusy || updateReadyToRestart || updateVersions.length === 0}
-                >
-                  {updateVersions.map(version => (
-                    <option key={version.assetName || version.version} value={version.assetName || ''}>
-                      {(version.version || version.assetName || '-')}{version.assetName && version.assetName !== version.version ? ` · ${version.assetName}` : ''}
-                    </option>
-                  ))}
-                </select>
-              </label>}
+                options={updateVersions.map(version => ({
+                  value: version.assetName || '',
+                  label: `${version.version || version.assetName || '-'}${version.assetName && version.assetName !== version.version ? ` · ${version.assetName}` : ''}`,
+                }))}
+                onChange={setSelectedUpdateAsset}
+              />}
               {updateError && <div className="code-settings-error" role="alert">{updateError}</div>}
             </div>
           </section>

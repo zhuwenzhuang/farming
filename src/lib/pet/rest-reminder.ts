@@ -3,14 +3,19 @@ import { appPath } from '../base-path.ts'
 export const PET_SETTINGS_STORAGE_KEY = 'farmingPetSettings'
 export const PET_SETTINGS_EVENT = 'farming-pet-settings'
 export const PET_REST_REMINDER_RUNTIME_STORAGE_KEY = 'farmingPetRestReminderRuntime'
+export const PET_REST_REMINDER_INVITATION_STORAGE_KEY = 'farmingPetRestReminderInvitationRuntime'
 
 export const REST_REMINDER_DEFAULT_INTERVAL_SECONDS = 50 * 60
 export const REST_REMINDER_BREAK_MINUTES = 5
+export const REST_REMINDER_LONG_BREAK_MINUTES = 10
+export const REST_REMINDER_LONG_INTERVAL_SECONDS = 90 * 60
 export const REST_REMINDER_ENTRY_COUNTDOWN_SECONDS = 30
 export const REST_REMINDER_TEST_ENTRY_COUNTDOWN_SECONDS = 5
 export const REST_REMINDER_SNOOZE_MINUTES = 10
 export const REST_REMINDER_IDLE_RESET_MINUTES = 5
 export const REST_REMINDER_IDLE_RESET_MS = REST_REMINDER_IDLE_RESET_MINUTES * 60_000
+export const REST_REMINDER_INVITATION_MINUTES = 30
+export const REST_REMINDER_INVITATION_MS = REST_REMINDER_INVITATION_MINUTES * 60_000
 export const REST_REMINDER_TEST_INTERVAL_SECONDS = 5
 export const REST_REMINDER_CUSTOM_MINUTES_MIN = 1
 export const REST_REMINDER_CUSTOM_MINUTES_MAX = 240
@@ -23,10 +28,13 @@ export const REST_REMINDER_INTERVAL_PRESETS_SECONDS = [
   REST_REMINDER_DEFAULT_INTERVAL_SECONDS,
   60 * 60,
   90 * 60,
-  2 * 60 * 60,
-  3 * 60 * 60,
-  4 * 60 * 60,
 ] as const
+
+export function restReminderBreakMinutes(intervalSeconds: number) {
+  return intervalSeconds >= REST_REMINDER_LONG_INTERVAL_SECONDS
+    ? REST_REMINDER_LONG_BREAK_MINUTES
+    : REST_REMINDER_BREAK_MINUTES
+}
 
 export function restReminderSliderPosition(intervalSeconds: number | null): number {
   const normalized = intervalSeconds ?? 0
@@ -287,7 +295,7 @@ export interface RestReminderState {
   phase: RestReminderPhase
   intervalSeconds: number
   cycleStartedAt: number | null
-  lastActivityAt: number | null
+  backgroundedAt: number | null
   snoozedUntil: number | null
   restStartsAt: number | null
   restUntil: number | null
@@ -295,12 +303,19 @@ export interface RestReminderState {
 }
 
 interface StoredRestReminderRuntime {
-  version: 1
+  version: 2
   state: RestReminderState
 }
 
+interface LegacyStoredRestReminderRuntime {
+  version: 1
+  state: Omit<RestReminderState, 'backgroundedAt'> & { lastActivityAt: number | null }
+}
+
 export type RestReminderEvent =
-  | { type: 'activity'; now: number }
+  | { type: 'foreground'; now: number }
+  | { type: 'background'; now: number }
+  | { type: 'interaction'; now: number }
   | { type: 'deadline'; now: number }
   | { type: 'snooze'; now: number }
   | { type: 'dismiss'; now: number }
@@ -310,7 +325,7 @@ export function createRestReminderState(intervalSeconds: number): RestReminderSt
     phase: 'armed',
     intervalSeconds,
     cycleStartedAt: null,
-    lastActivityAt: null,
+    backgroundedAt: null,
     snoozedUntil: null,
     restStartsAt: null,
     restUntil: null,
@@ -322,7 +337,7 @@ function beginRest(state: RestReminderState, now: number): RestReminderState {
   return {
     ...createRestReminderState(state.intervalSeconds),
     phase: 'resting',
-    restUntil: now + REST_REMINDER_BREAK_MINUTES * 60_000,
+    restUntil: now + restReminderBreakMinutes(state.intervalSeconds) * 60_000,
     snoozeUsed: state.snoozeUsed,
   }
 }
@@ -347,12 +362,7 @@ function advanceRestReminder(
     return state
   }
 
-  if (
-    state.lastActivityAt !== null
-    && now - state.lastActivityAt >= REST_REMINDER_IDLE_RESET_MS
-  ) {
-    return createRestReminderState(state.intervalSeconds)
-  }
+  if (state.backgroundedAt !== null) return state
 
   if (
     state.phase === 'working'
@@ -410,14 +420,48 @@ export function reconfigureRestReminderInterval(
   }
   if (state.intervalSeconds === normalized) return state
   const configured = { ...state, intervalSeconds: normalized }
+  const activeNow = configured.backgroundedAt ?? now
   if (
     configured.phase === 'working'
     && configured.cycleStartedAt !== null
-    && now - configured.cycleStartedAt >= normalized * 1000
+    && activeNow - configured.cycleStartedAt >= normalized * 1000
   ) {
-    return beginRestCountdown(configured, now)
+    return beginRestCountdown(configured, activeNow)
   }
   return configured
+}
+
+function beginForegroundCycle(state: RestReminderState, now: number): RestReminderState {
+  return {
+    ...createRestReminderState(state.intervalSeconds),
+    phase: 'working',
+    cycleStartedAt: now,
+  }
+}
+
+function resumeForeground(state: RestReminderState, now: number): RestReminderState {
+  if (state.phase === 'resting') return advanceRestReminder(state, now)
+  if (state.phase === 'armed') return beginForegroundCycle(state, now)
+  if (state.backgroundedAt === null) return advanceRestReminder(state, now)
+
+  const backgroundDuration = Math.max(0, now - state.backgroundedAt)
+  if (backgroundDuration >= REST_REMINDER_IDLE_RESET_MS) {
+    return beginForegroundCycle(state, now)
+  }
+
+  return advanceRestReminder({
+    ...state,
+    backgroundedAt: null,
+    cycleStartedAt: state.cycleStartedAt === null
+      ? null
+      : state.cycleStartedAt + backgroundDuration,
+    snoozedUntil: state.snoozedUntil === null
+      ? null
+      : state.snoozedUntil + backgroundDuration,
+    restStartsAt: state.restStartsAt === null
+      ? null
+      : state.restStartsAt + backgroundDuration,
+  }, now)
 }
 
 export function reduceRestReminder(
@@ -427,81 +471,64 @@ export function reduceRestReminder(
   // A concrete user action wins over a delayed countdown callback. This keeps
   // the rest scene from appearing over a click or keystroke that is already
   // being handled by the page.
-  if (event.type === 'activity' && state.phase === 'due') {
+  if (event.type === 'interaction' && state.phase === 'due') {
     return {
       ...state,
-      lastActivityAt: event.now,
       restStartsAt: event.now
         + restReminderEntryCountdownSeconds(state.intervalSeconds) * 1000,
     }
   }
 
   if (event.type === 'dismiss') {
-    return createRestReminderState(state.intervalSeconds)
+    return beginForegroundCycle(state, event.now)
   }
 
   if (event.type === 'snooze' && state.phase === 'due' && !state.snoozeUsed) {
     return {
       ...createRestReminderState(state.intervalSeconds),
       phase: 'snoozed',
-      lastActivityAt: event.now,
       snoozedUntil: event.now + REST_REMINDER_SNOOZE_MINUTES * 60_000,
       snoozeUsed: true,
     }
   }
 
+  if (event.type === 'background') {
+    if (state.phase === 'resting' || state.backgroundedAt !== null) return state
+    return { ...state, backgroundedAt: event.now }
+  }
+
+  if (event.type === 'foreground') return resumeForeground(state, event.now)
+
   const advanced = advanceRestReminder(state, event.now)
 
   if (event.type === 'deadline') return advanced
 
-  if (event.type === 'snooze') {
-    return advanced
-  }
-
-  if (advanced.phase === 'resting') {
-    return advanced
-  }
-
-  if (advanced.phase === 'due') {
+  if (event.type === 'interaction' && advanced.phase === 'due') {
     return {
       ...advanced,
-      lastActivityAt: event.now,
       restStartsAt: event.now
         + restReminderEntryCountdownSeconds(advanced.intervalSeconds) * 1000,
     }
   }
 
-  if (advanced.phase === 'armed') {
-    return {
-      ...advanced,
-      phase: 'working',
-      cycleStartedAt: event.now,
-      lastActivityAt: event.now,
-    }
-  }
-
-  return { ...advanced, lastActivityAt: event.now }
+  return advanced
 }
 
 export function nextRestReminderDeadline(state: RestReminderState): number | null {
   if (state.phase === 'resting') return state.restUntil
+  if (state.backgroundedAt !== null) return null
   if (state.phase === 'due') return state.restStartsAt
   if (state.phase === 'armed') return null
 
-  const idleAt = state.lastActivityAt === null
-    ? null
-    : state.lastActivityAt + REST_REMINDER_IDLE_RESET_MS
-
   if (state.phase === 'working' && state.cycleStartedAt !== null) {
-    const dueAt = state.cycleStartedAt + state.intervalSeconds * 1000
-    return idleAt === null ? dueAt : Math.min(dueAt, idleAt)
+    return state.cycleStartedAt + state.intervalSeconds * 1000
   }
 
   if (state.phase === 'snoozed' && state.snoozedUntil !== null) {
-    return idleAt === null ? state.snoozedUntil : Math.min(state.snoozedUntil, idleAt)
+    return state.snoozedUntil
   }
 
-  return idleAt
+  return null
 }
 
 function isNullableFiniteNumber(value: unknown): value is number | null {
@@ -517,7 +544,7 @@ function normalizeStoredRestReminderState(value: unknown): RestReminderState | n
     || !state.intervalSeconds
     || state.intervalSeconds <= 0
     || !isNullableFiniteNumber(state.cycleStartedAt)
-    || !isNullableFiniteNumber(state.lastActivityAt)
+    || !isNullableFiniteNumber(state.backgroundedAt)
     || !isNullableFiniteNumber(state.snoozedUntil)
     || !isNullableFiniteNumber(state.restStartsAt)
     || !isNullableFiniteNumber(state.restUntil)
@@ -529,23 +556,30 @@ function normalizeStoredRestReminderState(value: unknown): RestReminderState | n
     phase: state.phase as RestReminderPhase,
     intervalSeconds: state.intervalSeconds,
     cycleStartedAt: state.cycleStartedAt,
-    lastActivityAt: state.lastActivityAt,
+    backgroundedAt: state.backgroundedAt,
     snoozedUntil: state.snoozedUntil,
     restStartsAt: state.restStartsAt,
     restUntil: state.restUntil,
     snoozeUsed: state.snoozeUsed,
   }
   if (
-    (normalized.phase === 'working'
-      && (normalized.cycleStartedAt === null || normalized.lastActivityAt === null))
+    (normalized.phase === 'working' && normalized.cycleStartedAt === null)
     || (normalized.phase === 'due' && normalized.restStartsAt === null)
-    || (normalized.phase === 'snoozed'
-      && (normalized.snoozedUntil === null || normalized.lastActivityAt === null))
+    || (normalized.phase === 'snoozed' && normalized.snoozedUntil === null)
     || (normalized.phase === 'resting' && normalized.restUntil === null)
   ) {
     return null
   }
   return normalized
+}
+
+function normalizeLegacyRestReminderState(value: unknown): RestReminderState | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const legacy = value as Partial<LegacyStoredRestReminderRuntime['state']>
+  return normalizeStoredRestReminderState({
+    ...legacy,
+    backgroundedAt: null,
+  })
 }
 
 export function readRestReminderRuntimeState(
@@ -558,9 +592,12 @@ export function readRestReminderRuntimeState(
     const target = storage ?? window.sessionStorage
     const raw = target.getItem(PET_REST_REMINDER_RUNTIME_STORAGE_KEY)
     if (raw === null) return null
-    const stored = JSON.parse(raw) as Partial<StoredRestReminderRuntime>
-    if (stored.version !== 1) return null
-    const state = normalizeStoredRestReminderState(stored.state)
+    const stored = JSON.parse(raw) as Partial<
+      StoredRestReminderRuntime | LegacyStoredRestReminderRuntime
+    >
+    const state = stored.version === 2
+      ? normalizeStoredRestReminderState(stored.state)
+      : (stored.version === 1 ? normalizeLegacyRestReminderState(stored.state) : null)
     if (!state) return null
     const configured = reconfigureRestReminderInterval(state, intervalSeconds, now)
     return advanceRestReminder(configured, now)
@@ -579,7 +616,7 @@ export function saveRestReminderRuntimeState(
     if (state === null) {
       target.removeItem(PET_REST_REMINDER_RUNTIME_STORAGE_KEY)
     } else {
-      const stored: StoredRestReminderRuntime = { version: 1, state }
+      const stored: StoredRestReminderRuntime = { version: 2, state }
       target.setItem(PET_REST_REMINDER_RUNTIME_STORAGE_KEY, JSON.stringify(stored))
     }
     return true

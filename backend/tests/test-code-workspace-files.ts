@@ -930,7 +930,9 @@ function run() {
       workspaceSource.includes('const nativeAttachments = isStructuredRuntime(activeAgent)') &&
       workspaceSource.includes('composerPromptAttachments(composerAttachments)') &&
       workspaceSource.includes('sendComposerMessageToAgent(activeAgent, message, nativeAttachments)') &&
-      workspaceSource.includes('function createPendingFollowUpMessage(text: string, attachments: ComposerPromptAttachment[] = [])') &&
+      workspaceSource.includes('export function createPendingFollowUpMessage(') &&
+      workspaceSource.includes('editableText = text') &&
+      workspaceSource.includes("composerMode: ComposerMode = 'default'") &&
       workspaceSource.includes('function removePendingFollowUpMessage(') &&
       workspaceSource.includes('const pendingFollowUpAutoFlushRef = useRef<Record<string, string>>({})') &&
       workspaceSource.includes('const latestDraft = submittedDraft ?? composerTextareaRef.current?.value ?? draft') &&

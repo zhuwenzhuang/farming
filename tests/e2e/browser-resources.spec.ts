@@ -13,6 +13,7 @@ import {
   startAgentFromOpenDialog,
   test,
 } from './fixtures'
+import { codeSelectOptions, selectCodeOption } from './code-select'
 
 let targetServer: http.Server
 let targetUrl = ''
@@ -785,7 +786,7 @@ test('keeps Browser startup, navigation, frames, and interaction within local bu
   await page.request.delete(`/farming/api/browsers/${createdBrowser.id}`)
 })
 
-test('uses dark native colors for the Browser source menu', async ({ page }) => {
+test('uses Farming dark colors for the Browser source menu', async ({ page }) => {
   await openFarming(page)
   await page.getByTestId('code-nav-plugins').click()
   const pluginsPanel = page.getByTestId('code-plugins-panel')
@@ -794,18 +795,12 @@ test('uses dark native colors for the Browser source menu', async ({ page }) => 
   await page.evaluate(() => {
     document.body.dataset.appearance = 'dark'
   })
-  await expect(browserSource).toHaveCSS('color-scheme', 'dark')
-  const optionColors = await browserSource.locator('option').first().evaluate(option => {
-    const style = getComputedStyle(option)
-    return {
-      background: style.backgroundColor,
-      color: style.color,
-    }
-  })
-  expect(optionColors).toEqual({
-    background: 'rgb(33, 33, 33)',
-    color: 'rgb(255, 255, 255)',
-  })
+  await expect(browserSource).toBeEnabled({ timeout: 30_000 })
+  await browserSource.click()
+  const menu = browserSource.locator('xpath=..').getByRole('listbox')
+  await expect(menu).toHaveCSS('background-color', 'rgb(22, 27, 34)')
+  await expect(menu).toHaveCSS('border-radius', '12px')
+  await expect(menu.getByRole('option').first()).toHaveCSS('color', 'rgb(230, 237, 243)')
 })
 
 test('selects the Browser source in Plugins without restarting Farming', async ({ page }) => {
@@ -816,23 +811,23 @@ test('selects the Browser source in Plugins without restarting Farming', async (
   const apply = pluginsPanel.getByRole('button', { name: 'Apply' })
 
   await expect(pluginsPanel.getByRole('combobox', { name: 'Browser permissions' })).toHaveCount(0)
-  await expect(browserSource.locator('option')).toContainText([
+  await expect(browserSource).toBeEnabled({ timeout: 30_000 })
+  const options = await codeSelectOptions(browserSource)
+  expect(options.map(option => option.label)).toEqual([
     'Automatic (local first, then isolated)',
     'Google Chrome',
     'Isolated Browser (Docker)',
   ])
   await expect(pluginsPanel.getByRole('textbox', { name: 'CDP address' })).toHaveCount(0)
-  await browserSource.selectOption('system:')
+  await selectCodeOption(browserSource, 'system:')
   if (await apply.isEnabled()) await apply.click()
-  await expect(browserSource).toHaveValue('system:')
+  await expect(browserSource).toHaveAttribute('data-value', 'system:')
   await expect(apply).toBeDisabled()
 
-  const localChrome = await browserSource.locator('option').evaluateAll(options =>
-    options.map(option => (option as HTMLOptionElement).value)
-      .find(value => value.startsWith('system:') && value !== 'system:')
-  )
+  const localChrome = options.map(option => option.value)
+    .find(value => value.startsWith('system:') && value !== 'system:')
   expect(localChrome).toBeTruthy()
-  await browserSource.selectOption(localChrome)
+  await selectCodeOption(browserSource, localChrome!)
   await apply.click()
   await expect(apply).toBeDisabled()
   await expect(pluginsPanel.locator('small').filter({ hasText: 'System Chromium ·' })).toBeVisible()

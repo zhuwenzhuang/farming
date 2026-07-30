@@ -66,19 +66,29 @@
 }
 
 .review-patch-info strong { color: #202124; font-size: 16px; font-weight: 600; }
-.review-patch-info select {
-  appearance: none;
+.review-patch-select {
+  display: inline-block;
+  vertical-align: middle;
+}
+.review-patch-select .code-select-trigger {
+  height: 28px;
   min-width: 0;
-  padding: 3px 18px 3px 3px;
+  padding: 3px 5px;
   border: 0;
-  border-radius: 2px;
-  background: linear-gradient(45deg, transparent 50%, #7a8188 50%) calc(100% - 7px) 50% / 5px 5px no-repeat,
-    linear-gradient(135deg, #7a8188 50%, transparent 50%) calc(100% - 3px) 50% / 5px 5px no-repeat;
+  border-radius: 4px;
+  background: transparent;
   color: #6a7279;
-  cursor: pointer;
   font: inherit;
 }
-.review-patch-info select:hover { background-color: #f5f6f7; color: #31383f; }
+.review-patch-select .code-select-trigger:hover,
+.review-patch-select.open .code-select-trigger {
+  background-color: #f5f6f7;
+  color: #31383f;
+  box-shadow: none;
+}
+.review-patch-select .code-select-menu {
+  min-width: 150px;
+}
 .review-patch-info > svg { width: 15px; height: 15px; fill: #87909a; }
 
 .review-patch-static {
@@ -759,8 +769,37 @@
   font-weight: 600;
 }
 
-.review-preferences-form label > input,
-.review-preferences-form label > select {
+.review-preferences-select {
+  grid-column: 1 / -1;
+  grid-template-columns: minmax(220px, 1fr) minmax(220px, 282px);
+  align-items: center;
+  column-gap: 28px;
+}
+
+.review-preferences-select .code-select-label {
+  color: #6c7378;
+  font-size: 17px;
+  font-weight: 600;
+  line-height: normal;
+}
+
+.review-preferences-select .code-select-trigger {
+  min-height: 40px;
+  height: 40px;
+  border-color: #cbd1d6;
+  border-radius: 3px;
+  color: #30363d;
+  font-weight: 400;
+}
+
+.review-preferences-select .code-select-menu {
+  right: 0;
+  left: auto;
+  width: 282px;
+  min-width: 282px;
+}
+
+.review-preferences-form label > input {
   width: 100%;
   min-height: 40px;
   padding: 0 10px;

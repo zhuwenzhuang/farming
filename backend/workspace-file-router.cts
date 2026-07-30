@@ -30,6 +30,7 @@ interface AgentManager {
 
 interface WorkspaceRoot {
   canonicalPath: string;
+  kind?: string;
   rootId: string;
 }
 
@@ -420,9 +421,13 @@ function createWorkspaceFileRouter(
     res.json({ roots: rootRegistry.list() });
   });
 
-  const resolveRequestRoot = (source: unknown): { root: string; rootId: string } => {
+  const resolveRequestRoot = (source: unknown): { kind: string; root: string; rootId: string } => {
     const workspaceRoot = rootRegistry.resolve(workspaceRef(source));
-    return { root: workspaceRoot.canonicalPath, rootId: workspaceRoot.rootId };
+    return {
+      kind: String(workspaceRoot.kind || ''),
+      root: workspaceRoot.canonicalPath,
+      rootId: workspaceRoot.rootId,
+    };
   };
 
   router.get('/tree', async (req: HttpRequest, res: HttpResponse) => {
@@ -575,7 +580,8 @@ function createWorkspaceFileRouter(
       const body = req.body || {};
       const rootRef = workspaceRef(body);
       assertWritableWorkspaceAgent(rootRef);
-      const { root, rootId } = resolveRequestRoot(body);
+      const { kind, root, rootId } = resolveRequestRoot(body);
+      if (kind === 'agent-home') await fs.promises.mkdir(root, { recursive: true });
       const file = await fileService.writeFile(root, body.path || '', body.content, {
         baseSha1: body.baseSha1,
         overwrite: body.overwrite === true,

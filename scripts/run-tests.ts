@@ -55,6 +55,8 @@ const testFiles = fs.readdirSync(testsDir)
   .filter(f => process.env.FARMING_INCLUDE_SERVER_TESTS === '1' || !serverBackedTests.has(f))
   .sort();
 const stateTestFiles = [
+  path.join(__dirname, '..', 'tests', 'composer-persistence.test.ts'),
+  path.join(__dirname, '..', 'tests', 'composer-state.test.ts'),
   path.join(__dirname, '..', 'tests', 'review-state.test.ts'),
 ].filter(fs.existsSync);
 

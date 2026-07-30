@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { CodeSelect } from '@/components/CodeSelect'
 import { appPath } from '@/lib/base-path'
 import { getBackendConnectionSnapshot } from '@/lib/backend-live-status'
 import {
@@ -13,7 +14,6 @@ import {
 import type { UiLanguage } from '@/lib/ui-preferences'
 import type { BrowserCapability } from '../../../extensions/browser/frontend/types'
 import type { ComputerCapability } from '../../../extensions/computer/frontend/types'
-import type { CodexModelOption } from './types'
 
 type NewAgentDefaults = {
   model: string
@@ -41,6 +41,15 @@ type AgentExtensionGroup = {
     path: string
     order: number
     newAgentDefaults: NewAgentDefaults
+    configuration: {
+      exists: boolean
+      filePath: string
+      rootId: string
+      summary: Array<{
+        key: 'approval' | 'model' | 'permission' | 'provider' | 'reasoning' | 'sandbox' | 'serviceTier'
+        value: string
+      }>
+    }
     extensions: AgentExtension[]
   }>
 }
@@ -54,11 +63,6 @@ type AgentHomeDraft = {
 type AgentConfiguration = {
   provider: AgentExtensionGroup
   home: AgentExtensionGroup['homes'][number]
-}
-
-type AgentHomeOptionCatalog = {
-  models: CodexModelOption[]
-  reasoning: Array<{ value: string; label: string }>
 }
 
 type SelectedAgentExtension = AgentExtension & {
@@ -90,7 +94,7 @@ function pluginCopy(language: UiLanguage) {
     agentExtensions: zh ? 'Agent 扩展' : 'Agent extensions',
     agentExtensionsDescription: zh ? '按 Agent 查看已安装的 Skill、插件和命令。' : 'Installed skills, plugins, and commands grouped by Agent.',
     addAgent: zh ? '添加 Agent' : 'Add Agent',
-    edit: zh ? '编辑' : 'Edit',
+    edit: zh ? '编辑配置' : 'Edit configuration',
     remove: zh ? '删除' : 'Remove',
     save: zh ? '保存' : 'Save',
     cancel: zh ? '取消' : 'Cancel',
@@ -98,14 +102,20 @@ function pluginCopy(language: UiLanguage) {
     moveDown: zh ? '下移' : 'Move down',
     dragToReorder: zh ? '拖动调整 Agent 顺序' : 'Drag to reorder Agents',
     unavailableAgent: zh ? '未安装' : 'Not installed',
-    newAgentDefaults: zh ? '新 Agent 默认设置' : 'New Agent defaults',
     model: zh ? '模型' : 'Model',
+    provider: zh ? '提供方' : 'Provider',
     reasoning: zh ? '推理强度' : 'Reasoning',
-    fast: 'Fast',
-    inheritAgentConfig: zh ? '继承 Agent 配置' : 'Inherit Agent config',
-    fastOn: zh ? '开启' : 'On',
-    fastOff: zh ? '关闭' : 'Off',
-    unsupportedDefault: zh ? '使用此 Home 中的 Agent 配置' : 'Use Agent configuration from this Home',
+    serviceTier: zh ? '服务等级' : 'Service tier',
+    approval: zh ? '审批' : 'Approval',
+    sandbox: zh ? '沙箱' : 'Sandbox',
+    permission: zh ? '权限' : 'Permission',
+    homeConfiguration: zh ? 'Home 配置' : 'Home configuration',
+    inheritConfiguration: (filePath: string) => zh
+      ? `继承 ${filePath}`
+      : `Inherited from ${filePath}`,
+    missingConfiguration: (filePath: string) => zh
+      ? `未找到 ${filePath}；编辑后首次保存会创建它。`
+      : `${filePath} was not found; the first save after editing will create it.`,
     agentProvider: zh ? 'Agent 类型' : 'Agent provider',
     homeName: zh ? 'Home 名称' : 'Home name',
     homePath: zh ? 'Home 路径' : 'Home path',
@@ -158,24 +168,29 @@ function pluginCopy(language: UiLanguage) {
     enable: zh ? '启用' : 'Enable',
     disable: zh ? '停用' : 'Disable',
     saveFailed: zh ? '浏览器插件设置保存失败' : 'Failed to save Browser plugin settings',
-    computer: zh ? '电脑' : 'Computer',
+    computer: 'Computer Use',
     computerDescription: zh
-      ? '让 Agent 在隔离的 Linux 桌面中操作应用，并在 Farming 中观察或接管同一个桌面。'
-      : 'Let Agents operate an isolated Linux desktop that you can observe or take over in Farming.',
+      ? '让 Agent 查看并操作桌面，你可以在 Farming 中观察或接管。'
+      : 'Let Agents see and operate desktops that you can observe or take over in Farming.',
     dockerUnavailable: zh ? '未检测到 Docker' : 'Docker not available',
-    computerRuntimeReady: zh ? '运行时已准备' : 'Runtime ready',
-    computerRuntimeMissing: zh ? '运行时未准备' : 'Runtime not prepared',
-    prepareComputer: zh ? '准备运行时' : 'Prepare runtime',
+    computerRuntimeReady: zh ? '隔离桌面已安装' : 'Isolated Desktop installed',
+    computerRuntimeMissing: zh ? '隔离桌面未安装' : 'Isolated Desktop not installed',
+    desktopTargets: zh ? '桌面' : 'Desktops',
+    isolatedDesktop: zh ? '隔离桌面' : 'Isolated Desktop',
+    isolatedDesktopDescription: zh
+      ? '独立的 Linux 桌面，适合并行任务。需要 Docker。'
+      : 'An independent Linux desktop for parallel work. Requires Docker.',
+    prepareComputer: zh ? '安装隔离桌面' : 'Install isolated desktop',
     preparingComputer: zh ? '正在下载并验证…' : 'Downloading and verifying…',
     computerRuntimeHint: zh
-      ? '显式下载固定版本的上游 CUA XFCE 镜像（约 1.3 GB）；Farming 不维护自己的镜像。'
-      : 'Explicitly downloads the pinned upstream CUA XFCE image (about 1.3 GB); Farming does not maintain its own image.',
+      ? '显式下载固定版本的官方 CUA XFCE 镜像（下载约 472 MB，本地约 1.3 GB）。'
+      : 'Explicitly downloads the pinned official CUA XFCE image (about 472 MB download and 1.3 GB on disk).',
     compatibilityMode: zh ? '旧版 Docker 兼容模式' : 'Legacy Docker compatibility mode',
     compatibilityHint: zh
       ? '仅在旧 Docker 的 seccomp 阻止 CUA 启动时启用；该模式会对隔离容器关闭 seccomp。'
       : 'Enable only when old Docker seccomp blocks CUA startup; this disables seccomp for the isolated container.',
-    computerSaveFailed: zh ? '电脑插件设置保存失败' : 'Failed to save Computer plugin settings',
-    computerPrepareFailed: zh ? 'Computer 运行时准备失败' : 'Failed to prepare Computer runtime',
+    computerSaveFailed: zh ? 'Computer Use 插件设置保存失败' : 'Failed to save Computer Use plugin settings',
+    computerPrepareFailed: zh ? '隔离桌面安装失败' : 'Failed to install Isolated Desktop',
   }
 }
 
@@ -208,6 +223,21 @@ function extensionKindLabel(kind: string, copy: ReturnType<typeof pluginCopy>) {
     .filter(Boolean)
     .map(part => part.slice(0, 1).toUpperCase() + part.slice(1))
     .join(' ') || kind
+}
+
+function configurationSummaryLabel(
+  key: AgentExtensionGroup['homes'][number]['configuration']['summary'][number]['key'],
+  copy: ReturnType<typeof pluginCopy>,
+) {
+  return {
+    approval: copy.approval,
+    model: copy.model,
+    permission: copy.permission,
+    provider: copy.provider,
+    reasoning: copy.reasoning,
+    sandbox: copy.sandbox,
+    serviceTier: copy.serviceTier,
+  }[key]
 }
 
 function agentExtensionKindGroups(home: AgentExtensionGroup['homes'][number]) {
@@ -253,12 +283,16 @@ function normalizeAgentExtensionGroups(rawGroups: AgentExtensionGroup[]) {
       path: String(home.path || ''),
       order: Number.isFinite(Number(home.order)) ? Number(home.order) : fallbackOrder++,
       newAgentDefaults: {
-        model: String(home.newAgentDefaults?.model || 'inherit'),
-        reasoning: String(home.newAgentDefaults?.reasoning || 'inherit'),
-        fast: home.newAgentDefaults?.fast === 'on' || home.newAgentDefaults?.fast === 'off'
-          ? home.newAgentDefaults.fast
-          : 'inherit',
+        model: 'inherit',
+        reasoning: 'inherit',
+        fast: 'inherit',
       } satisfies NewAgentDefaults,
+      configuration: {
+        exists: home.configuration?.exists === true,
+        filePath: String(home.configuration?.filePath || ''),
+        rootId: String(home.configuration?.rootId || ''),
+        summary: Array.isArray(home.configuration?.summary) ? home.configuration.summary : [],
+      },
       extensions: Array.isArray(home.extensions) ? home.extensions : [],
     })),
   }))
@@ -271,7 +305,7 @@ function settingsHomes(groups: AgentExtensionGroup[]) {
       id: home.id,
       path: home.path,
       order: home.order,
-      newAgentDefaults: home.newAgentDefaults,
+      newAgentDefaults: { model: 'inherit', reasoning: 'inherit', fast: 'inherit' },
     })),
   ]))
 }
@@ -286,18 +320,6 @@ function homeIdForPath(homePath: string) {
     .slice(0, 64) || 'home'
 }
 
-function reasoningOptionsForModel(model: string, catalog: CodexModelOption[]) {
-  const exact = catalog.find(option => option.value === model)
-  const values = exact?.reasoningLevels?.map(option => ({
-    value: option.value,
-    label: option.label,
-  })) || catalog.flatMap(option => option.reasoningLevels || []).map(option => ({
-    value: option.value,
-    label: option.label,
-  }))
-  return [...new Map(values.map(option => [option.value, option])).values()]
-}
-
 export function PluginsPanel({
   capability,
   loading,
@@ -306,6 +328,7 @@ export function PluginsPanel({
   onPrepareComputer,
   language,
   onBack,
+  onOpenAgentHomeConfiguration,
   onRefreshCapability,
 }: {
   capability: BrowserCapability | null
@@ -315,6 +338,7 @@ export function PluginsPanel({
   onPrepareComputer: () => Promise<ComputerCapability>
   language: UiLanguage
   onBack: () => void
+  onOpenAgentHomeConfiguration: (target: { exists: boolean; filePath: string; rootId: string }) => void
   onRefreshCapability: () => void
 }) {
   const copy = useMemo(() => pluginCopy(language), [language])
@@ -337,10 +361,7 @@ export function PluginsPanel({
   const [agentGroupsError, setAgentGroupsError] = useState('')
   const [agentSaving, setAgentSaving] = useState(false)
   const [agentDraft, setAgentDraft] = useState<AgentHomeDraft | null>(null)
-  const [editingAgentKey, setEditingAgentKey] = useState('')
-  const [editingHomePath, setEditingHomePath] = useState('')
   const [draggingAgentKey, setDraggingAgentKey] = useState('')
-  const [agentHomeCatalogs, setAgentHomeCatalogs] = useState<Record<string, AgentHomeOptionCatalog>>({})
   const [selectedExtension, setSelectedExtension] = useState<SelectedAgentExtension | null>(null)
   const agentGroupsRequestRef = useRef(0)
   const agentSaveRequestRef = useRef<number | null>(null)
@@ -430,56 +451,6 @@ export function PluginsPanel({
     }
   }, [loadAgentGroups])
 
-  useEffect(() => {
-    let cancelled = false
-    const catalogHomes = agentGroups.flatMap(provider => (
-      provider.id === 'codex' || provider.id === 'claude'
-        ? provider.homes.map(home => ({ provider: provider.id, homeId: home.id }))
-        : []
-    ))
-    if (catalogHomes.length === 0) {
-      setAgentHomeCatalogs({})
-      return () => {
-        cancelled = true
-      }
-    }
-    void Promise.all(catalogHomes.map(async ({ provider, homeId }) => {
-      const emptyCatalog: AgentHomeOptionCatalog = { models: [], reasoning: [] }
-      try {
-        const params = new URLSearchParams({ homeId })
-        const response = await fetch(appPath(
-          provider === 'codex'
-            ? `/api/codex/models?${params.toString()}`
-            : `/api/claude/settings?${params.toString()}`
-        ))
-        const data = response.ok ? await response.json() : {}
-        if (provider === 'codex') {
-          return [agentConfigurationKey(provider, homeId), {
-            models: Array.isArray(data.catalog) ? data.catalog : [],
-            reasoning: [],
-          }] as const
-        }
-        const settings = data.settings && typeof data.settings === 'object' ? data.settings : {}
-        return [agentConfigurationKey(provider, homeId), {
-          models: Array.isArray(settings.modelOptions) ? settings.modelOptions : [],
-          reasoning: Array.isArray(settings.effortOptions)
-            ? settings.effortOptions.map((option: { value: string; label?: string }) => ({
-                value: option.value,
-                label: option.label || option.value,
-              }))
-            : [],
-        }] as const
-      } catch {
-        return [agentConfigurationKey(provider, homeId), emptyCatalog] as const
-      }
-    })).then(entries => {
-      if (!cancelled) setAgentHomeCatalogs(Object.fromEntries(entries))
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [agentGroups])
-
   const saveAgentGroups = useCallback(async (nextGroups: AgentExtensionGroup[]) => {
     if (!agentPanelScopeRef.current.mounted || agentSaveRequestRef.current) return false
     const generation = agentPanelScopeRef.current.generation
@@ -529,31 +500,6 @@ export function PluginsPanel({
     }
   }, [copy.saveAgentFailed, loadAgentGroups])
 
-  const updateHome = useCallback((
-    providerId: string,
-    homeId: string,
-    updater: (home: AgentExtensionGroup['homes'][number]) => AgentExtensionGroup['homes'][number],
-  ) => agentGroups.map(provider => (
-    provider.id === providerId
-      ? {
-          ...provider,
-          homes: provider.homes.map(home => home.id === homeId ? updater(home) : home),
-        }
-      : provider
-  )), [agentGroups])
-
-  const saveHomeDefaults = useCallback((
-    providerId: string,
-    homeId: string,
-    patch: Partial<NewAgentDefaults>,
-  ) => {
-    const nextGroups = updateHome(providerId, homeId, home => ({
-      ...home,
-      newAgentDefaults: { ...home.newAgentDefaults, ...patch },
-    }))
-    void saveAgentGroups(nextGroups)
-  }, [saveAgentGroups, updateHome])
-
   const submitAgentDraft = useCallback(() => {
     if (!agentDraft || agentSaving) return
     const providerId = agentDraft.provider
@@ -583,6 +529,12 @@ export function PluginsPanel({
               reasoning: 'inherit',
               fast: 'inherit',
             } satisfies NewAgentDefaults,
+            configuration: {
+              exists: false,
+              filePath: '',
+              rootId: '',
+              summary: [],
+            },
             extensions: [],
           }],
         }
@@ -591,21 +543,6 @@ export function PluginsPanel({
       if (saved) setAgentDraft(null)
     })
   }, [agentDraft, agentGroups, agentSaving, copy.invalidHome, saveAgentGroups])
-
-  const saveEditedHomePath = useCallback((providerId: string, homeId: string) => {
-    const nextPath = editingHomePath.trim()
-    if (!nextPath) {
-      setAgentGroupsError(copy.invalidHome)
-      return
-    }
-    const nextGroups = updateHome(providerId, homeId, home => ({ ...home, path: nextPath }))
-    void saveAgentGroups(nextGroups).then(saved => {
-      if (saved) {
-        setEditingAgentKey('')
-        setEditingHomePath('')
-      }
-    })
-  }, [copy.invalidHome, editingHomePath, saveAgentGroups, updateHome])
 
   const removeAgentConfiguration = useCallback((providerId: string, homeId: string) => {
     if (homeId === 'default' || agentSaving) return
@@ -836,26 +773,25 @@ export function PluginsPanel({
             </div>
             <p>{copy.browserDescription}</p>
             <div className="code-plugin-browser-settings">
-              <label>
-                <span>{copy.browserChoice}</span>
-                <select
-                  value={browserChoice}
-                  disabled={saving || preparingIsolatedBrowser}
-                  onChange={event => {
-                    browserChoiceDirtyRef.current = true
-                    setBrowserChoice(event.target.value)
-                    setError('')
-                  }}
-                >
-                  <option value="system:">{copy.automaticBrowser}</option>
-                  {(capability?.options || []).filter(option => option.kind !== 'managed-chromium').map(option => (
-                    <option key={option.path} value={`system:${option.path}`}>
-                      {browserKindName(option.kind)}
-                    </option>
-                  ))}
-                  <option value="isolated">{copy.isolatedBrowser}</option>
-                </select>
-              </label>
+              <CodeSelect
+                className="code-plugin-select"
+                label={copy.browserChoice}
+                value={browserChoice}
+                disabled={(loading && capability === null) || saving || preparingIsolatedBrowser}
+                options={[
+                  { value: 'system:', label: copy.automaticBrowser },
+                  ...(capability?.options || []).filter(option => option.kind !== 'managed-chromium').map(option => ({
+                    value: `system:${option.path}`,
+                    label: browserKindName(option.kind),
+                  })),
+                  { value: 'isolated', label: copy.isolatedBrowser },
+                ]}
+                onChange={value => {
+                  browserChoiceDirtyRef.current = true
+                  setBrowserChoice(value)
+                  setError('')
+                }}
+              />
               <button
                 type="button"
                 className="code-plugin-browser-apply"
@@ -907,7 +843,7 @@ export function PluginsPanel({
                 <small>{copy.compatibilityHint}</small>
               </div>
             ) : null}
-            {(error || capability?.isolated?.error) && (
+            {(error || (capability?.isolated?.dockerAvailable !== false && capability?.isolated?.error)) && (
               <div className="code-plugin-error" role="alert">
                 {error || capability?.isolated?.error}
               </div>
@@ -935,6 +871,15 @@ export function PluginsPanel({
               </span>
             </div>
             <p>{copy.computerDescription}</p>
+            <div className="code-plugin-desktop-targets">
+              <strong>{copy.desktopTargets}</strong>
+              <div className="code-plugin-desktop-target">
+                <div>
+                  <span>{copy.isolatedDesktop}</span>
+                  <small>{copy.isolatedDesktopDescription}</small>
+                </div>
+              </div>
+            </div>
             <div className="code-plugin-computer-settings">
               <label>
                 <input
@@ -961,9 +906,9 @@ export function PluginsPanel({
               )}
             </div>
             <small>{copy.computerRuntimeHint}</small>
-            {(computerError || (!computerCapability?.dockerAvailable && computerCapability?.error)) && (
+            {computerError && (
               <div className="code-plugin-error" role="alert">
-                {computerError || computerCapability?.error}
+                {computerError}
               </div>
             )}
           </div>
@@ -1010,20 +955,19 @@ export function PluginsPanel({
         </header>
         {agentDraft ? (
           <div className="code-plugin-agent-form" data-testid="code-plugin-agent-form">
-            <label>
-              <span>{copy.agentProvider}</span>
-              <select
-                value={agentDraft.provider}
-                disabled={agentSaving}
-                onChange={event => setAgentDraft(current => current
-                  ? { ...current, provider: event.target.value }
-                  : current)}
-              >
-                {agentGroups.filter(group => group.available).map(group => (
-                  <option key={group.id} value={group.id}>{agentDisplayName(group)}</option>
-                ))}
-              </select>
-            </label>
+            <CodeSelect
+              className="code-plugin-select"
+              label={copy.agentProvider}
+              value={agentDraft.provider}
+              disabled={agentSaving}
+              options={agentGroups.filter(group => group.available).map(group => ({
+                value: group.id,
+                label: agentDisplayName(group),
+              }))}
+              onChange={value => setAgentDraft(current => current
+                ? { ...current, provider: value }
+                : current)}
+            />
             <label>
               <span>{copy.homePath}</span>
               <input
@@ -1066,47 +1010,13 @@ export function PluginsPanel({
           const key = agentConfigurationKey(provider.id, home.id)
           const extensionCount = home.extensions.length
           const kindGroups = agentExtensionKindGroups(home)
-          const supportsManagedDefaults = provider.id === 'codex' || provider.id === 'claude'
-          const homeCatalog = agentHomeCatalogs[key] || { models: [], reasoning: [] }
-          const modelCatalog = supportsManagedDefaults ? homeCatalog.models : []
-          const reasoningCatalog = provider.id === 'codex'
-            ? reasoningOptionsForModel(home.newAgentDefaults.model, homeCatalog.models)
-            : (provider.id === 'claude' ? homeCatalog.reasoning : [])
-          const modelOptions = home.newAgentDefaults.model !== 'inherit'
-            && !modelCatalog.some(option => option.value === home.newAgentDefaults.model)
-            ? [{
-                value: home.newAgentDefaults.model,
-                label: home.newAgentDefaults.model,
-              }, ...modelCatalog]
-            : modelCatalog
-          const reasoningOptions = home.newAgentDefaults.reasoning !== 'inherit'
-            && !reasoningCatalog.some(option => option.value === home.newAgentDefaults.reasoning)
-            ? [{
-                value: home.newAgentDefaults.reasoning,
-                label: home.newAgentDefaults.reasoning,
-              }, ...reasoningCatalog]
-            : reasoningCatalog
-          const selectedModelOption = modelOptions.find(option => option.value === home.newAgentDefaults.model)
-          const selectedReasoningOption = reasoningOptions.find(option => option.value === home.newAgentDefaults.reasoning)
-          const defaultOverrideLabels = supportsManagedDefaults
-            ? [
-                home.newAgentDefaults.model !== 'inherit'
-                  ? `${copy.model}: ${selectedModelOption?.displayName
-                    || selectedModelOption?.label
-                    || home.newAgentDefaults.model}`
-                  : '',
-                home.newAgentDefaults.reasoning !== 'inherit'
-                  ? `${copy.reasoning}: ${selectedReasoningOption?.label
-                    || home.newAgentDefaults.reasoning}`
-                  : '',
-                provider.id === 'codex' && home.newAgentDefaults.fast !== 'inherit'
-                  ? `${copy.fast}: ${home.newAgentDefaults.fast === 'on' ? copy.fastOn : copy.fastOff}`
-                  : '',
-              ].filter(Boolean)
-            : []
-          const defaultsSummary = supportsManagedDefaults
-            ? (defaultOverrideLabels.join(' · ') || copy.inheritAgentConfig)
-            : copy.unsupportedDefault
+          const configurationSummary = home.configuration.summary.length > 0
+            ? home.configuration.summary.map(entry => (
+                `${configurationSummaryLabel(entry.key, copy)}: ${entry.value}`
+              )).join(' · ')
+            : home.configuration.exists
+              ? copy.inheritConfiguration(home.configuration.filePath)
+              : copy.missingConfiguration(home.configuration.filePath)
           return (
             <section
               key={key}
@@ -1139,29 +1049,7 @@ export function PluginsPanel({
                     {!provider.available ? <em>{copy.unavailableAgent}</em> : null}
                     <small>{copy.count(extensionCount)}</small>
                   </h3>
-                  {editingAgentKey === key ? (
-                    <div className="code-plugin-agent-path-edit">
-                      <input
-                        autoFocus
-                        type="text"
-                        value={editingHomePath}
-                        disabled={agentSaving}
-                        onChange={event => setEditingHomePath(event.target.value)}
-                        onKeyDown={event => {
-                          if (event.key === 'Enter') saveEditedHomePath(provider.id, home.id)
-                          if (event.key === 'Escape') setEditingAgentKey('')
-                        }}
-                      />
-                      <button type="button" disabled={agentSaving} onClick={() => saveEditedHomePath(provider.id, home.id)}>
-                        {copy.save}
-                      </button>
-                      <button type="button" disabled={agentSaving} onClick={() => setEditingAgentKey('')}>
-                        {copy.cancel}
-                      </button>
-                    </div>
-                  ) : (
-                    <p><code>{home.path}</code></p>
-                  )}
+                  <p><code>{home.path}</code></p>
                 </div>
                 <div className="code-plugin-agent-actions">
                   <button
@@ -1180,13 +1068,10 @@ export function PluginsPanel({
                   ><ArrowDownGlyph /></button>
                   <button
                     type="button"
-                    disabled={agentSaving}
+                    disabled={agentSaving || !home.configuration.rootId || !home.configuration.filePath}
                     aria-label={copy.edit}
                     title={copy.edit}
-                    onClick={() => {
-                      setEditingAgentKey(key)
-                      setEditingHomePath(home.path)
-                    }}
+                    onClick={() => onOpenAgentHomeConfiguration(home.configuration)}
                   ><PencilGlyph /></button>
                   {home.id !== 'default' ? (
                     <button
@@ -1200,68 +1085,10 @@ export function PluginsPanel({
                 </div>
               </header>
 
-              {supportsManagedDefaults ? (
-                <details className="code-plugin-agent-defaults">
-                  <summary>
-                    <strong>{copy.newAgentDefaults}</strong>
-                    <span>{defaultsSummary}</span>
-                  </summary>
-                  <div className="code-plugin-agent-default-controls">
-                    <label>
-                      <span>{copy.model}</span>
-                      <select
-                        value={home.newAgentDefaults.model}
-                        disabled={agentSaving}
-                        onChange={event => saveHomeDefaults(provider.id, home.id, {
-                          model: event.target.value,
-                          reasoning: 'inherit',
-                        })}
-                      >
-                        <option value="inherit">{copy.inheritAgentConfig}</option>
-                        {modelOptions.map(option => (
-                          <option key={option.value} value={option.value}>{option.displayName || option.label}</option>
-                        ))}
-                      </select>
-                    </label>
-                    <label>
-                      <span>{copy.reasoning}</span>
-                      <select
-                        value={home.newAgentDefaults.reasoning}
-                        disabled={agentSaving}
-                        onChange={event => saveHomeDefaults(provider.id, home.id, {
-                          reasoning: event.target.value,
-                        })}
-                      >
-                        <option value="inherit">{copy.inheritAgentConfig}</option>
-                        {reasoningOptions.map(option => (
-                          <option key={option.value} value={option.value}>{option.label}</option>
-                        ))}
-                      </select>
-                    </label>
-                    {provider.id === 'codex' ? (
-                      <label>
-                        <span>{copy.fast}</span>
-                        <select
-                          value={home.newAgentDefaults.fast}
-                          disabled={agentSaving}
-                          onChange={event => saveHomeDefaults(provider.id, home.id, {
-                            fast: event.target.value as NewAgentDefaults['fast'],
-                          })}
-                        >
-                          <option value="inherit">{copy.inheritAgentConfig}</option>
-                          <option value="on">{copy.fastOn}</option>
-                          <option value="off">{copy.fastOff}</option>
-                        </select>
-                      </label>
-                    ) : null}
-                  </div>
-                </details>
-              ) : (
-                <div className="code-plugin-agent-defaults unsupported">
-                  <strong>{copy.newAgentDefaults}</strong>
-                  <span>{defaultsSummary}</span>
-                </div>
-              )}
+              <div className="code-plugin-agent-configuration">
+                <strong>{copy.homeConfiguration}</strong>
+                <span>{configurationSummary}</span>
+              </div>
 
               {!provider.discoverySupported ? (
                 <p className="code-plugin-agent-note">{copy.unsupportedDiscovery}</p>

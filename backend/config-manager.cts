@@ -1245,37 +1245,20 @@ class ConfigManager {
     const profile = this.getAgentLaunchProfile(provider);
     const home = this.getAgentHome(provider, homeId);
     if (!home) return profile;
-    const defaults = home.newAgentDefaults;
     if (provider === 'codex') {
-      const model = defaults.model === 'inherit'
-        ? 'config'
-        : this.normalizeCodexModelId(defaults.model);
-      const reasoningEffort = defaults.reasoning === 'inherit'
-        ? 'config'
-        : this.normalizeCodexReasoningEffort(defaults.reasoning);
-      const serviceTier = defaults.fast === 'inherit'
-        ? 'config'
-        : (defaults.fast === 'on' ? 'priority' : 'default');
       return {
         ...profile,
-        model,
-        reasoningEffort,
-        serviceTier,
-        modelPreset: joinCodexModelPreset(
-          model,
-          reasoningEffort === 'config' ? '' : reasoningEffort,
-        ),
+        model: 'config',
+        reasoningEffort: 'config',
+        serviceTier: 'config',
+        modelPreset: 'config',
       };
     }
     if (provider === 'claude') {
       return {
         ...profile,
-        model: defaults.model === 'inherit'
-          ? 'config'
-          : this.normalizeClaudeModel(defaults.model),
-        effort: defaults.reasoning === 'inherit'
-          ? 'config'
-          : this.normalizeClaudeEffort(defaults.reasoning),
+        model: 'config',
+        effort: 'config',
       };
     }
     return profile;

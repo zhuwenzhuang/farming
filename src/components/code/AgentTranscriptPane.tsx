@@ -35,6 +35,7 @@ import {
   CopyGlyph,
   ForkGlyph,
 } from '@/components/IconGlyphs'
+import { LocalErrorBoundary, LocalRenderFault } from '@/components/LocalErrorBoundary'
 import { MermaidBlock } from '@/components/files/FileEditorMarkdownPreview'
 import { appPath } from '@/lib/base-path'
 import { showUrlOpenMenu } from '@/lib/url-open-menu'
@@ -575,6 +576,29 @@ function agentTranscriptUrlTransform(value: string, key: string) {
     return normalizeTranscriptHref(value)
   }
   return defaultUrlTransform(value)
+}
+
+function TranscriptLocalErrorFallback({
+  copy,
+  message = copy.agentTranscriptUnavailable,
+  onRetry,
+  testId,
+}: {
+  copy: CodeCopy
+  message?: string
+  onRetry: () => void
+  testId: string
+}) {
+  return (
+    <div
+      className="code-agent-transcript-terminal-sync-error"
+      data-testid={testId}
+      role="alert"
+    >
+      <span>{message}</span>
+      <button type="button" onClick={onRetry}>{copy.retry}</button>
+    </div>
+  )
 }
 
 function AgentTranscriptUserImages({ images }: { images: AgentTranscriptUserImage[] }) {
@@ -1866,6 +1890,37 @@ function AgentTranscriptProcessItemView({
   )
 }
 
+function SafeAgentTranscriptProcessItemView(
+  props: Parameters<typeof AgentTranscriptProcessItemView>[0],
+) {
+  const resetKey = [
+    props.item.id,
+    props.item.status || '',
+    String(props.item.detail?.length || 0),
+    props.item.detailTruncated ? 'truncated' : 'complete',
+    String(props.item.terminals?.length || 0),
+    String(props.item.subagentTranscript?.turns.length || 0),
+  ].join('\u0000')
+  return (
+    <LocalErrorBoundary
+      label="transcript tool"
+      resetKey={resetKey}
+      fallback={(_error, retry) => (
+        <TranscriptLocalErrorFallback
+          copy={props.copy}
+          message={`${props.item.title}: ${props.copy.agentTranscriptUnavailable}`}
+          onRetry={retry}
+          testId="code-agent-transcript-tool-render-error"
+        />
+      )}
+    >
+      <LocalRenderFault surface="transcript-tool" identity={props.item.id}>
+        <AgentTranscriptProcessItemView {...props} />
+      </LocalRenderFault>
+    </LocalErrorBoundary>
+  )
+}
+
 function AgentTranscriptCollaborationSpace({
   agents,
   processItems,
@@ -1970,7 +2025,7 @@ function AgentTranscriptCollaborationSpace({
         const item = itemById.get(processItemId)
         if (!item) return null
         return (
-          <AgentTranscriptProcessItemView
+          <SafeAgentTranscriptProcessItemView
             key={item.id}
             item={item}
             copy={copy}
@@ -1993,9 +2048,11 @@ function AgentTranscriptCollaborationSpace({
 function AgentTranscriptProgressUpdate({
   item,
   markdownComponents,
+  copy,
 }: {
   item: AgentTranscriptProcessItem
   markdownComponents: Components
+  copy: CodeCopy
 }) {
   const progressText = String(item.detail || '').trim()
   if (!progressText) return null
@@ -2004,15 +2061,32 @@ function AgentTranscriptProgressUpdate({
       className="code-acp-progress-update code-markdown-preview"
       data-testid="code-acp-progress-update"
     >
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm, remarkMath]}
-        rehypePlugins={[rehypeKatex, rehypeHighlight]}
-        components={markdownComponents}
-        skipHtml
-        urlTransform={agentTranscriptUrlTransform}
+      <LocalErrorBoundary
+        label="transcript progress Markdown"
+        resetKey={progressText}
+        fallback={(_error, retry) => (
+          <>
+            <TranscriptLocalErrorFallback
+              copy={copy}
+              onRetry={retry}
+              testId="code-agent-transcript-markdown-render-error"
+            />
+            <pre>{progressText}</pre>
+          </>
+        )}
       >
-        {progressText}
-      </ReactMarkdown>
+        <LocalRenderFault surface="transcript-markdown" identity={item.id}>
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm, remarkMath]}
+            rehypePlugins={[rehypeKatex, rehypeHighlight]}
+            components={markdownComponents}
+            skipHtml
+            urlTransform={agentTranscriptUrlTransform}
+          >
+            {progressText}
+          </ReactMarkdown>
+        </LocalRenderFault>
+      </LocalErrorBoundary>
     </div>
   )
 }
@@ -2126,7 +2200,7 @@ function AgentTranscriptProcessGroupView({
       {detailOpen ? (
         <div className="code-agent-transcript-process-group-list">
           {items.map(item => (
-            <AgentTranscriptProcessItemView
+            <SafeAgentTranscriptProcessItemView
               key={item.id}
               item={item}
               copy={copy}
@@ -2741,7 +2815,32 @@ function AgentTranscriptTurnView({
     },
     pre: ({ children, ...props }) => {
       const mermaidSource = mermaidCodeBlockSource(children)
-      if (mermaidSource !== null) return <MermaidBlock source={mermaidSource} copy={copy} />
+      if (mermaidSource !== null) {
+        return (
+          <LocalErrorBoundary
+            label="transcript Mermaid"
+            resetKey={mermaidSource}
+            fallback={(_error, retry) => (
+              <figure className="code-markdown-mermaid error" aria-label={copy.mermaidDiagram}>
+                <figcaption className="code-markdown-mermaid-error-title">{copy.mermaidRenderFailed}</figcaption>
+                <TranscriptLocalErrorFallback
+                  copy={copy}
+                  message={copy.mermaidRenderFailed}
+                  onRetry={retry}
+                  testId="code-agent-transcript-mermaid-render-error"
+                />
+                <pre className="code-markdown-mermaid-fallback">
+                  <code className="language-mermaid">{mermaidSource}</code>
+                </pre>
+              </figure>
+            )}
+          >
+            <LocalRenderFault surface="transcript-mermaid" identity={turn.id}>
+              <MermaidBlock source={mermaidSource} copy={copy} />
+            </LocalRenderFault>
+          </LocalErrorBoundary>
+        )
+      }
       return <pre {...props}>{children}</pre>
     },
   }), [copy, onOpenFile, workspaceRoot])
@@ -2792,7 +2891,7 @@ function AgentTranscriptTurnView({
               data-testid="code-agent-transcript-process-compact-list"
             >
               {compactProcess.items.map(item => (
-                <AgentTranscriptProcessItemView
+                <SafeAgentTranscriptProcessItemView
                   key={item.id}
                   item={item}
                   title={source === 'acp' ? compactAcpActionLabel(item, copy) : item.title}
@@ -2851,11 +2950,12 @@ function AgentTranscriptTurnView({
                       key={entry.item.id}
                       item={entry.item}
                       markdownComponents={markdownComponents}
+                      copy={copy}
                     />
                   )
                 }
                 return (
-                  <AgentTranscriptProcessItemView
+                  <SafeAgentTranscriptProcessItemView
                     key={entry.item.id}
                     item={entry.item}
                     copy={copy}
@@ -2900,15 +3000,32 @@ function AgentTranscriptTurnView({
         <div className="code-agent-transcript-answer">
           {answerMessage ? (
             <div className="code-agent-transcript-assistant code-markdown-preview">
-              <ReactMarkdown
-                remarkPlugins={[remarkGfm, remarkMath]}
-                rehypePlugins={[rehypeKatex, rehypeHighlight]}
-                components={markdownComponents}
-                skipHtml
-                urlTransform={agentTranscriptUrlTransform}
+              <LocalErrorBoundary
+                label="transcript answer Markdown"
+                resetKey={answerMessage}
+                fallback={(_error, retry) => (
+                  <>
+                    <TranscriptLocalErrorFallback
+                      copy={copy}
+                      onRetry={retry}
+                      testId="code-agent-transcript-markdown-render-error"
+                    />
+                    <pre>{answerMessage}</pre>
+                  </>
+                )}
               >
-                {answerMessage}
-              </ReactMarkdown>
+                <LocalRenderFault surface="transcript-markdown" identity={turn.id}>
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm, remarkMath]}
+                    rehypePlugins={[rehypeKatex, rehypeHighlight]}
+                    components={markdownComponents}
+                    skipHtml
+                    urlTransform={agentTranscriptUrlTransform}
+                  >
+                    {answerMessage}
+                  </ReactMarkdown>
+                </LocalRenderFault>
+              </LocalErrorBoundary>
             </div>
           ) : null}
           <AgentTranscriptResultImages images={resultImages} />
@@ -2965,6 +3082,17 @@ function AgentTranscriptTurnView({
 }
 
 const StableAgentTranscriptTurnView = memo(AgentTranscriptTurnView)
+
+function transcriptTurnResetKey(turn: AgentTranscriptTurn) {
+  return [
+    turn.id,
+    turn.status,
+    String(turn.userMessage.length),
+    String(turn.finalMessage.length),
+    String(turn.completedAt || ''),
+    turn.processItems.map(item => `${item.id}:${item.status || ''}:${item.detail?.length || 0}`).join('\u0001'),
+  ].join('\u0000')
+}
 
 export function AgentTranscriptPane({
   agentId,
@@ -3547,32 +3675,48 @@ export function AgentTranscriptPane({
                 : !openProcessTurnIds.has(turn.id)
               : openProcessTurnIds.has(turn.id)
             return (
-              <StableAgentTranscriptTurnView
+              <LocalErrorBoundary
                 key={turn.id}
-                turn={turn}
-                copy={copy}
-                onOpenFile={onOpenWorkspaceFilePath ? handleOpenFile : undefined}
-                onOpenUrlInFarming={onOpenUrlInFarming}
-                workspaceRoot={workspaceRoot}
-                processOpen={processOpen}
-                groupProcessActions={groupProcessActions}
-                source={source}
-                onToggleProcess={handleToggleProcess}
-                onLoadProcessItemDetail={source === 'acp' ? handleLoadProcessItemDetail : undefined}
-                onLoadPatchChanges={source === 'acp' ? handleLoadPatchChanges : undefined}
-                onDecidePatch={source === 'acp' ? handleDecidePatch : undefined}
-                gitDiffAvailable={gitDiffAvailable}
-                onStopTerminal={source === 'acp' ? handleStopTerminal : undefined}
-                onInputTerminal={source === 'acp' ? handleInputTerminal : undefined}
-                onResizeTerminal={source === 'acp' ? handleResizeTerminal : undefined}
-                onStopSubagent={source === 'acp' ? handleStopSubagent : undefined}
-                subagentStates={transcript?.codexSubagents?.agents || []}
-                openCollaborationAgentIds={openCollaborationAgentIds}
-                setOpenCollaborationAgentIds={setOpenCollaborationAgentIds}
-                openCollaborationActivityIds={openCollaborationActivityIds}
-                setOpenCollaborationActivityIds={setOpenCollaborationActivityIds}
-                onFork={index === turns.length - 1 && turn.status !== 'inProgress' ? onForkLatest : undefined}
-              />
+                label="transcript turn"
+                resetKey={transcriptTurnResetKey(turn)}
+                fallback={(_error, retry) => (
+                  <article className="code-agent-transcript-turn" data-turn-id={turn.id}>
+                    <TranscriptLocalErrorFallback
+                      copy={copy}
+                      onRetry={retry}
+                      testId="code-agent-transcript-turn-render-error"
+                    />
+                  </article>
+                )}
+              >
+                <LocalRenderFault surface="transcript-turn" identity={turn.id}>
+                  <StableAgentTranscriptTurnView
+                    turn={turn}
+                    copy={copy}
+                    onOpenFile={onOpenWorkspaceFilePath ? handleOpenFile : undefined}
+                    onOpenUrlInFarming={onOpenUrlInFarming}
+                    workspaceRoot={workspaceRoot}
+                    processOpen={processOpen}
+                    groupProcessActions={groupProcessActions}
+                    source={source}
+                    onToggleProcess={handleToggleProcess}
+                    onLoadProcessItemDetail={source === 'acp' ? handleLoadProcessItemDetail : undefined}
+                    onLoadPatchChanges={source === 'acp' ? handleLoadPatchChanges : undefined}
+                    onDecidePatch={source === 'acp' ? handleDecidePatch : undefined}
+                    gitDiffAvailable={gitDiffAvailable}
+                    onStopTerminal={source === 'acp' ? handleStopTerminal : undefined}
+                    onInputTerminal={source === 'acp' ? handleInputTerminal : undefined}
+                    onResizeTerminal={source === 'acp' ? handleResizeTerminal : undefined}
+                    onStopSubagent={source === 'acp' ? handleStopSubagent : undefined}
+                    subagentStates={transcript?.codexSubagents?.agents || []}
+                    openCollaborationAgentIds={openCollaborationAgentIds}
+                    setOpenCollaborationAgentIds={setOpenCollaborationAgentIds}
+                    openCollaborationActivityIds={openCollaborationActivityIds}
+                    setOpenCollaborationActivityIds={setOpenCollaborationActivityIds}
+                    onFork={index === turns.length - 1 && turn.status !== 'inProgress' ? onForkLatest : undefined}
+                  />
+                </LocalRenderFault>
+              </LocalErrorBoundary>
             )
           })}
         </div>

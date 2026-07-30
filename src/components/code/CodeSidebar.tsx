@@ -1588,7 +1588,6 @@ function ProjectSection({
               type="button"
               className="code-project-worktree"
               data-testid="code-project-worktree"
-              title={`${currentWorktreeName} · ${repositoryWorktreeCount} ${copy.worktrees.toLocaleLowerCase()} · ${copy.showWorktrees}`}
               aria-label={`${currentWorktreeName} · ${repositoryWorktreeCount} ${copy.worktrees}`}
               aria-haspopup="dialog"
               aria-expanded={worktreeMenu ? true : undefined}
@@ -1916,29 +1915,51 @@ function AgentHoverPreview({
   preview: AgentPreviewTarget & { x: number; y: number; width: number; branch: string }
   now: number
 }) {
+  const titleRef = useRef<HTMLElement>(null)
+  const [titleOverflow, setTitleOverflow] = useState(false)
+  const ageLabel = formatRelativeAge(preview.lastActive, now)
+  useLayoutEffect(() => {
+    const title = titleRef.current
+    setTitleOverflow(Boolean(title && title.scrollWidth > title.clientWidth + 1))
+  }, [ageLabel, preview.key, preview.title, preview.width])
+  const titleCardLeft = preview.x + preview.width + 10
+  const titleCardWidth = Math.min(360, window.innerWidth - titleCardLeft - 12)
+
   return (
-    <div
-      className="code-agent-hover-preview"
-      data-testid="code-agent-hover-preview"
-      style={{ left: preview.x, top: preview.y, width: preview.width }}
-      aria-hidden="true"
-    >
-      <div className="code-agent-hover-preview-header">
-        <strong>{preview.title}</strong>
-        <span>{formatRelativeAge(preview.lastActive, now)}</span>
-      </div>
-      <div className="code-agent-hover-preview-line">
-        <span className="code-agent-hover-preview-icon"><AgentPreviewFolderIcon /></span>
-        <div className="code-agent-hover-preview-project">
-          <span className="code-agent-hover-preview-project-name">{preview.project}</span>
-          {preview.provider && <AgentLaunchIcon name={preview.provider} variant="color" className="code-agent-hover-preview-provider-icon" />}
+    <>
+      <div
+        className="code-agent-hover-preview"
+        data-testid="code-agent-hover-preview"
+        style={{ left: preview.x, top: preview.y, width: preview.width }}
+        aria-hidden="true"
+      >
+        <div className="code-agent-hover-preview-header">
+          <strong ref={titleRef}>{preview.title}</strong>
+          <span>{ageLabel}</span>
+        </div>
+        <div className="code-agent-hover-preview-line">
+          <span className="code-agent-hover-preview-icon"><AgentPreviewFolderIcon /></span>
+          <div className="code-agent-hover-preview-project">
+            <span className="code-agent-hover-preview-project-name">{preview.project}</span>
+            {preview.provider && <AgentLaunchIcon name={preview.provider} variant="color" className="code-agent-hover-preview-provider-icon" />}
+          </div>
+        </div>
+        <div className="code-agent-hover-preview-line">
+          <span className="code-agent-hover-preview-icon"><AgentPreviewBranchIcon /></span>
+          <span>{preview.branch || '—'}</span>
         </div>
       </div>
-      <div className="code-agent-hover-preview-line">
-        <span className="code-agent-hover-preview-icon"><AgentPreviewBranchIcon /></span>
-        <span>{preview.branch || '—'}</span>
-      </div>
-    </div>
+      {titleOverflow && titleCardWidth >= 180 && (
+        <div
+          className="code-agent-hover-title-card"
+          data-testid="code-agent-hover-title-card"
+          style={{ left: titleCardLeft, top: preview.y, width: titleCardWidth }}
+          aria-hidden="true"
+        >
+          {preview.title}
+        </div>
+      )}
+    </>
   )
 }
 
@@ -2092,7 +2113,6 @@ function AgentRow({
     }
     if (liveAgentId) onOpenAgentMenu?.(event, liveAgentId)
   }
-
   return (
     <>
     <div

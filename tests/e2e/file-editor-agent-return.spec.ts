@@ -38,3 +38,60 @@ test('keeps the source Agent return action across Markdown document links', asyn
   await page.getByTestId('code-file-editor-back').click()
   await expect(page.getByTestId('code-terminal-grid')).toBeVisible()
 })
+
+test('keeps file editing available when a local preview render fails and recovers', async ({ page }) => {
+  const workspaceRoot = path.join(PLAYWRIGHT_WORKSPACE_ROOT, 'file-preview-error-boundary')
+  fs.rmSync(workspaceRoot, { recursive: true, force: true })
+  fs.mkdirSync(workspaceRoot, { recursive: true })
+  fs.writeFileSync(path.join(workspaceRoot, 'README.md'), '# Preview boundary\n')
+
+  await openFarming(page)
+  await openNewAgentDialog(page)
+  await startAgentFromOpenDialog(page, 'bash', workspaceRoot)
+
+  const project = page.getByTestId('code-project-group').filter({ hasText: path.basename(workspaceRoot) })
+  const files = project.getByTestId('code-files-section')
+  const filesTitle = files.locator('.code-files-title').first()
+  if (await filesTitle.getAttribute('aria-expanded') !== 'true') await filesTitle.click()
+  await files.locator('[data-testid="code-file-row"][data-file-path="README.md"]').click()
+
+  const editor = page.getByTestId('code-file-editor')
+  const sourceToggle = editor.locator('.code-file-editor-action.source-preview')
+  await expect(editor.getByTestId('code-file-markdown-preview')).toBeVisible()
+  await sourceToggle.click()
+  await expect(editor.getByTestId('code-file-monaco')).toBeVisible()
+  expect(await page.evaluate(() => window.__farmingFileEditorTest?.insertText('\nRetry keeps this draft.') === true)).toBe(true)
+
+  await page.evaluate(() => {
+    window.__farmingLocalRenderFaults = ['file-preview']
+  })
+  await sourceToggle.click()
+  const previewError = editor.getByTestId('code-file-preview-render-error')
+  await expect(previewError).toBeVisible()
+  await expect(editor.getByRole('tab', { selected: true })).toContainText('README.md')
+  await expect(editor.locator('.code-file-editor-dirty')).toBeVisible()
+  await expect(page.getByTestId('app-error-fallback')).toHaveCount(0)
+
+  await page.evaluate(() => {
+    window.__farmingLocalRenderFaults = []
+  })
+  await previewError.getByRole('button', { name: 'Retry' }).click()
+  await expect(editor.getByTestId('code-file-markdown-preview')).toContainText('Retry keeps this draft.')
+
+  await page.evaluate(() => {
+    window.__farmingLocalRenderFaults = ['file-markdown']
+  })
+  await editor.locator('.code-file-editor-action.markdown-split').click()
+  const markdownError = editor.getByTestId('code-file-markdown-render-error')
+  await expect(markdownError).toBeVisible()
+  await expect(editor.getByTestId('code-file-monaco')).toBeVisible()
+
+  await page.evaluate(() => {
+    window.__farmingLocalRenderFaults = []
+  })
+  expect(await page.evaluate(() => window.__farmingFileEditorTest?.insertText('\nReset key recovered.') === true)).toBe(true)
+  await expect(markdownError).toHaveCount(0)
+  await expect(editor.getByTestId('code-file-markdown-preview')).toContainText('Reset key recovered.')
+  await expect(editor.locator('.code-file-editor-dirty')).toBeVisible()
+  await expect(page.getByTestId('app-error-fallback')).toHaveCount(0)
+})

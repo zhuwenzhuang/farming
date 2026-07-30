@@ -285,6 +285,21 @@ Linux 目标每轮都要记录：
 - Archive / History 概念无双态错觉：归档后不再表现为 live agent，继续运行路径明确。
 - 所有 P2 以上问题都有截图、trace 或日志证据。
 
+## PR 自动视觉对比
+
+涉及 UI 的 Pull Request 会在 Linux Chromium 中，对精确且不可变的 base SHA 和 head SHA 自动截图。首次上线后，两个 revision 会在同一 runner、同一 Chromium 可执行文件上分别使用自己提交内的视觉捕获协议和 fixture；只有 base 尚无该协议时才回退到 head 协议。head 新增场景会标记为 added，删除 base 已有场景则违反捕获协议并失败。Workflow 随后上传包含 `base/`、`head/`、`diff/`、`index.html`、`manifest.json`、日志和 Markdown Job Summary 的 artifact。
+
+捕获协议只保留一组小而信息密集的场景：Agent 与 Project 行的 hover 控件、宽/窄布局下的排队 follow-up、展开 Changes 层级并打开 diff，以及深色 Plugins 页面。场景使用匿名 workspace 和 fake coding agent，固定 viewport、reduced motion，隐藏光标和会变化的 age 文本，并对每个场景连续截图两次。
+
+像素变化只作为评审证据，不会让 Pull Request 失败，因为有意的 UI 修改本来就会改变像素。只有连续两次捕获失败、删除 base 已有场景、缺少必需图片、图片尺寸不同，或连续截图差异超过 0.1% 时才会失败。权威基线就是精确的 SHA 对，不使用可漂移的截图缓存，也没有手工更新 baseline 的操作；因此同一 SHA 对重新运行应得到幂等结果。
+
+本地检查：
+
+```bash
+npm run test:e2e:visual:self-test
+FARMING_VISUAL_OUTPUT_DIR=.tmp/visual-capture npm run test:e2e:visual:capture
+```
+
 ## 当前可执行入口
 
 现有稳定入口：

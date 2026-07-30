@@ -1,4 +1,5 @@
 import { useRef, type RefObject } from 'react'
+import { LocalErrorBoundary, LocalRenderFault } from '@/components/LocalErrorBoundary'
 import {
   workspaceEditorSurfaceState,
   type WorkspaceEditorFileMode,
@@ -47,6 +48,47 @@ interface FileEditorSurfaceProps {
   onShowBlameDetail: (line: FileEditorBlameLine) => void
 }
 
+function filePreviewResetKey(openFile: OpenWorkspaceFile) {
+  return [
+    openFile.agentId,
+    openFile.workspaceRoot,
+    openFile.file.path,
+    openFile.file.sha1 || '',
+    String(openFile.revision),
+  ].join('\u0000')
+}
+
+function FilePreviewRenderError({
+  activeTabDomId,
+  copy,
+  onRetry,
+}: {
+  activeTabDomId: string
+  copy: CodeCopy
+  onRetry: () => void
+}) {
+  return (
+    <section
+      className="code-file-preview-panel"
+      data-testid="code-file-preview-render-error"
+      role="tabpanel"
+      aria-labelledby={activeTabDomId}
+      tabIndex={-1}
+    >
+      <div className="code-file-diff-state error" role="alert">
+        <span>{copy.filesRefreshFailed}</span>
+        <button
+          type="button"
+          className="code-file-editor-action reload"
+          aria-label={copy.retry}
+          title={copy.retry}
+          onClick={onRetry}
+        />
+      </div>
+    </section>
+  )
+}
+
 export function FileEditorSurface({
   activeTabDomId,
   blame,
@@ -80,6 +122,8 @@ export function FileEditorSurface({
   })
   const markdownPreviewRef = useRef<HTMLElement | null>(null)
   const showEditorStatusbar = surface.showEditorOverlays || surface.showMarkdownPreview
+  const previewIdentity = `${openFile.agentId}:${openFile.file.path}`
+  const previewResetKey = filePreviewResetKey(openFile)
 
   return (
     <>
@@ -105,13 +149,23 @@ export function FileEditorSurface({
           tabIndex={-1}
         />
         {surface.showMarkdownSplit && (
-          <FileEditorMarkdownPreview
-            ref={markdownPreviewRef}
-            activeTabDomId={activeTabDomId}
-            openFile={openFile}
-            onOpenFilePath={onOpenFilePath}
-            copy={copy}
-          />
+          <LocalErrorBoundary
+            label="file Markdown split preview"
+            resetKey={previewResetKey}
+            fallback={(_error, retry) => (
+              <FilePreviewRenderError activeTabDomId={activeTabDomId} copy={copy} onRetry={retry} />
+            )}
+          >
+            <LocalRenderFault surface="file-preview" identity={`${previewIdentity}:markdown`}>
+              <FileEditorMarkdownPreview
+                ref={markdownPreviewRef}
+                activeTabDomId={activeTabDomId}
+                openFile={openFile}
+                onOpenFilePath={onOpenFilePath}
+                copy={copy}
+              />
+            </LocalRenderFault>
+          </LocalErrorBoundary>
         )}
       </div>
       {surface.showDiffOnlyPreview && (
@@ -126,12 +180,22 @@ export function FileEditorSurface({
         </section>
       )}
       {surface.showMarkdownPreview && (
-        <FileEditorMarkdownPreview
-          activeTabDomId={activeTabDomId}
-          openFile={openFile}
-          onOpenFilePath={onOpenFilePath}
-          copy={copy}
-        />
+        <LocalErrorBoundary
+          label="file Markdown preview"
+          resetKey={previewResetKey}
+          fallback={(_error, retry) => (
+            <FilePreviewRenderError activeTabDomId={activeTabDomId} copy={copy} onRetry={retry} />
+          )}
+        >
+          <LocalRenderFault surface="file-preview" identity={`${previewIdentity}:markdown`}>
+            <FileEditorMarkdownPreview
+              activeTabDomId={activeTabDomId}
+              openFile={openFile}
+              onOpenFilePath={onOpenFilePath}
+              copy={copy}
+            />
+          </LocalRenderFault>
+        </LocalErrorBoundary>
       )}
       {surface.showEditorOverlays && blameOpen && blame?.isGitRepo && (
         <FileEditorInlineBlameLayer
@@ -142,12 +206,24 @@ export function FileEditorSurface({
           onShowDetail={onShowBlameDetail}
         />
       )}
-      <FileEditorPreviewPanel
-        openFile={openFile}
-        activeTabDomId={activeTabDomId}
-        copy={copy}
-        sourcePreviewOpen={surface.showSourcePreview}
-      />
+      {(surface.showSourcePreview || editorMode.visualPreview) && (
+        <LocalErrorBoundary
+          label="file visual preview"
+          resetKey={`${previewResetKey}\u0000${surface.showSourcePreview ? 'open' : 'closed'}`}
+          fallback={(_error, retry) => (
+            <FilePreviewRenderError activeTabDomId={activeTabDomId} copy={copy} onRetry={retry} />
+          )}
+        >
+          <LocalRenderFault surface="file-preview" identity={`${previewIdentity}:visual`}>
+            <FileEditorPreviewPanel
+              openFile={openFile}
+              activeTabDomId={activeTabDomId}
+              copy={copy}
+              sourcePreviewOpen={surface.showSourcePreview}
+            />
+          </LocalRenderFault>
+        </LocalErrorBoundary>
+      )}
       {surface.showEditorOverlays && blameOpen && blameDetailLine && (
         <FileEditorBlameDetail
           filePath={openFile.file.path}

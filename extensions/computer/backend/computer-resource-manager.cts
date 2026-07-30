@@ -342,7 +342,7 @@ class ComputerResourceManager extends EventEmitter {
       ownerAgentId: input.ownerAgentId,
       projectRootId: input.projectRootId,
       workspace: input.workspace,
-      name: 'Computer',
+      name: 'Desktop',
     });
     if (
       resource.projectRootId !== input.projectRootId

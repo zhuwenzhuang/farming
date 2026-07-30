@@ -12,8 +12,9 @@ import {
 } from '@/lib/pet/intents'
 import {
   PET_SETTINGS_EVENT,
-  REST_REMINDER_BREAK_MINUTES,
+  PET_REST_REMINDER_INVITATION_STORAGE_KEY,
   REST_REMINDER_DEFAULT_INTERVAL_SECONDS,
+  REST_REMINDER_INVITATION_MS,
   REST_REMINDER_SNOOZE_MINUTES,
   isPetSettingsStorageKey,
   loadRestReminderIntervalSeconds,
@@ -21,6 +22,7 @@ import {
   persistRestReminderIntervalSeconds,
   readPetAppearance,
   readRestReminderIntervalSeconds,
+  restReminderBreakMinutes,
   savePetAppearance,
   restReminderEntryCountdownSeconds,
   type PetAppearance,
@@ -39,6 +41,117 @@ interface FarmingPetProps {
 
 const PET_OWNER_ATTRIBUTE = 'data-farming-pet-owner'
 const PET_OWNER_EVENT = 'farming:pet-owner-change'
+const PET_APPEARANCE_PREVIEW_SECONDS = 30
+
+interface StoredInvitationRuntime {
+  version: 1
+  foregroundMs: number
+  foregroundStartedAt: number | null
+}
+
+function readInvitationRuntime(): StoredInvitationRuntime {
+  try {
+    const parsed = JSON.parse(
+      window.sessionStorage.getItem(PET_REST_REMINDER_INVITATION_STORAGE_KEY) ?? 'null',
+    ) as Partial<StoredInvitationRuntime> | null
+    if (
+      parsed?.version === 1
+      && typeof parsed.foregroundMs === 'number'
+      && Number.isFinite(parsed.foregroundMs)
+      && parsed.foregroundMs >= 0
+      && (parsed.foregroundStartedAt === null
+        || (typeof parsed.foregroundStartedAt === 'number'
+          && Number.isFinite(parsed.foregroundStartedAt)))
+    ) {
+      return {
+        version: 1,
+        foregroundMs: parsed.foregroundMs,
+        foregroundStartedAt: parsed.foregroundStartedAt,
+      }
+    }
+  } catch {
+    // Start a fresh invitation timer when session storage is unavailable or invalid.
+  }
+  return { version: 1, foregroundMs: 0, foregroundStartedAt: null }
+}
+
+function useRestReminderInvitationReady(enabled: boolean) {
+  const [ready, setReady] = useState(false)
+
+  useEffect(() => {
+    if (!enabled) {
+      setReady(false)
+      return undefined
+    }
+
+    let runtime = readInvitationRuntime()
+    let timeout: number | null = null
+    const persist = () => {
+      try {
+        window.sessionStorage.setItem(
+          PET_REST_REMINDER_INVITATION_STORAGE_KEY,
+          JSON.stringify(runtime),
+        )
+      } catch {
+        // The delayed invitation still works for this page lifetime.
+      }
+    }
+    const elapsedAt = (now: number) => runtime.foregroundMs + (
+      runtime.foregroundStartedAt === null ? 0 : Math.max(0, now - runtime.foregroundStartedAt)
+    )
+    const schedule = () => {
+      if (timeout !== null) window.clearTimeout(timeout)
+      timeout = null
+      const now = Date.now()
+      const elapsed = elapsedAt(now)
+      if (elapsed >= REST_REMINDER_INVITATION_MS) {
+        runtime = { version: 1, foregroundMs: REST_REMINDER_INVITATION_MS, foregroundStartedAt: null }
+        persist()
+        setReady(true)
+        return
+      }
+      if (document.visibilityState === 'hidden') return
+      if (runtime.foregroundStartedAt === null) {
+        runtime = { ...runtime, foregroundStartedAt: now }
+        persist()
+      }
+      timeout = window.setTimeout(schedule, REST_REMINDER_INVITATION_MS - elapsed)
+    }
+    const onVisibilityChange = () => {
+      const now = Date.now()
+      if (document.visibilityState === 'hidden') {
+        runtime = {
+          version: 1,
+          foregroundMs: Math.min(REST_REMINDER_INVITATION_MS, elapsedAt(now)),
+          foregroundStartedAt: null,
+        }
+        persist()
+        if (timeout !== null) window.clearTimeout(timeout)
+        timeout = null
+        return
+      }
+      schedule()
+    }
+
+    schedule()
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+      if (timeout !== null) window.clearTimeout(timeout)
+      if (runtime.foregroundStartedAt !== null) {
+        const now = Date.now()
+        runtime = {
+          version: 1,
+          foregroundMs: Math.min(REST_REMINDER_INVITATION_MS, elapsedAt(now)),
+          foregroundStartedAt: null,
+        }
+        persist()
+      }
+    }
+  }, [enabled])
+
+  return ready
+}
 
 export function FarmingPet(props: FarmingPetProps) {
   const [ownerId] = useState(() => (
@@ -99,25 +212,44 @@ function petCopy(language: UiLanguage) {
     defaultAppearance: zh ? '默认' : 'Default',
     blackHole: zh ? '黑洞' : 'Black hole',
     blackHoleHint: zh ? '更醒目的动态提示' : 'A more noticeable animated reminder',
+    preview: zh ? '预览' : 'Preview',
+    previewAppearance: (appearance: PetAppearance) => {
+      const appearanceName = appearance === 'black-hole'
+        ? (zh ? '黑洞' : 'black hole')
+        : (zh ? '柔光' : 'soft glow')
+      return zh ? `预览${appearanceName}效果` : `Preview ${appearanceName}`
+    },
+    previewTitle: (appearance: PetAppearance) => appearance === 'black-hole'
+      ? (zh ? '黑洞预览' : 'Black hole preview')
+      : (zh ? '柔光预览' : 'Soft glow preview'),
+    previewBody: zh ? '这是休息开始时看到的效果。' : 'This is the scene shown when a break starts.',
+    endPreview: zh ? '结束预览' : 'End preview',
     dueTitle: zh ? '休息提醒' : 'Break reminder',
     dueAnnouncement: (intervalSeconds: number) => {
       const countdownSeconds = restReminderEntryCountdownSeconds(intervalSeconds)
+      const breakMinutes = restReminderBreakMinutes(intervalSeconds)
       return zh
-        ? `休息提醒已出现。暂停操作 ${countdownSeconds} 秒后，开始 ${REST_REMINDER_BREAK_MINUTES} 分钟休息。`
-        : `Break reminder shown. Pause for ${countdownSeconds} sec to start a ${REST_REMINDER_BREAK_MINUTES} min break.`
+        ? `休息提醒已出现。暂停操作 ${countdownSeconds} 秒后，开始 ${breakMinutes} 分钟休息。`
+        : `Break reminder shown. Pause for ${countdownSeconds} sec to start a ${breakMinutes} min break.`
     },
-    dueBody: (intervalSeconds: number, countdownSeconds: number) => zh
-      ? <>已专注 {formatActivityInterval(language, intervalSeconds)}。<br />暂停操作 <strong className="code-pet-countdown">{countdownSeconds} 秒</strong>后，开始 {REST_REMINDER_BREAK_MINUTES} 分钟休息。</>
-      : <>Focused for {formatActivityInterval(language, intervalSeconds)}.<br />Pause <strong className="code-pet-countdown">{countdownSeconds} sec</strong> for a {REST_REMINDER_BREAK_MINUTES} min break.</>,
+    dueBody: (intervalSeconds: number, countdownSeconds: number) => {
+      const breakMinutes = restReminderBreakMinutes(intervalSeconds)
+      return zh
+        ? <>已连续操作 Farming {formatActivityInterval(language, intervalSeconds)}。<br />暂停操作 <strong className="code-pet-countdown">{countdownSeconds} 秒</strong>后，开始 {breakMinutes} 分钟休息。</>
+        : <>Used Farming continuously for {formatActivityInterval(language, intervalSeconds)}.<br />Pause <strong className="code-pet-countdown">{countdownSeconds} sec</strong> for a {breakMinutes} min break.</>
+    },
     cancelBreak: zh ? '取消' : 'Cancel',
     snooze: zh ? `${REST_REMINDER_SNOOZE_MINUTES} 分钟后` : `In ${REST_REMINDER_SNOOZE_MINUTES} min`,
     restingTitle: zh ? '休息一下' : 'Take a break',
     restingBody: zh ? '让眼睛和注意力暂停片刻。' : 'Pause for a moment and rest your eyes and attention.',
     restingStatus: zh ? '休息中' : 'Resting',
     blackHoleError: zh ? '黑洞显示失败' : 'Black hole unavailable',
-    restStartedAnnouncement: zh
-      ? `${REST_REMINDER_BREAK_MINUTES} 分钟休息已经开始。可随时选择结束休息。`
-      : `Your ${REST_REMINDER_BREAK_MINUTES}-minute break has started. You can end it at any time.`,
+    restStartedAnnouncement: (intervalSeconds: number) => {
+      const breakMinutes = restReminderBreakMinutes(intervalSeconds)
+      return zh
+        ? `${breakMinutes} 分钟休息已经开始。可随时选择结束休息。`
+        : `Your ${breakMinutes}-minute break has started. You can end it at any time.`
+    },
     endBreak: zh ? '结束休息' : 'End break',
     settingsSaveFailed: zh ? '无法保存 Pet 设置，请重试。' : 'Could not save Pet settings. Try again.',
     runtimeSaveTitle: zh ? 'Pet 计时无法保存' : 'Pet timer cannot be saved',
@@ -150,11 +282,18 @@ function FarmingPetController({
   const [appearance, setAppearance] = useState<PetAppearance>(() => (
     readPetAppearance(undefined, defaultAppearance)
   ))
+  const [appearancePreview, setAppearancePreview] = useState<{
+    appearance: PetAppearance
+    restUntil: number
+  } | null>(null)
   const [startupInvitationDismissed, setStartupInvitationDismissed] = useState(false)
   const [restReminderSetupOption, setRestReminderSetupOption] = useState<'appearance' | null>(null)
   const [settingsError, setSettingsError] = useState('')
   const [persistenceNoticeDismissed, setPersistenceNoticeDismissed] = useState(false)
   const [countdownNow, setCountdownNow] = useState(Date.now)
+  const invitationReady = useRestReminderInvitationReady(
+    settingsLoaded && intervalSeconds === null,
+  )
   const {
     state: restReminder,
     pageVisible,
@@ -222,6 +361,15 @@ function FarmingPetController({
     return () => window.clearInterval(interval)
   }, [pageVisible, restReminder?.phase, restReminder?.restStartsAt])
 
+  useEffect(() => {
+    if (!appearancePreview) return undefined
+    const timeout = window.setTimeout(
+      () => setAppearancePreview(null),
+      Math.max(0, appearancePreview.restUntil - Date.now()),
+    )
+    return () => window.clearTimeout(timeout)
+  }, [appearancePreview])
+
   const tryRestReminder = useCallback(async () => {
     if (await persistRestReminderIntervalSeconds(
       REST_REMINDER_DEFAULT_INTERVAL_SECONDS,
@@ -249,6 +397,12 @@ function FarmingPetController({
     setAppearance(nextAppearance)
     setRestReminderSetupOption(null)
   }, [copy.settingsSaveFailed])
+  const previewAppearance = useCallback((nextAppearance: PetAppearance) => {
+    setAppearancePreview({
+      appearance: nextAppearance,
+      restUntil: Date.now() + PET_APPEARANCE_PREVIEW_SECONDS * 1000,
+    })
+  }, [])
 
   const intent = useMemo<PetIntent | null>(() => {
     if (!settingsLoaded) return null
@@ -257,6 +411,10 @@ function FarmingPetController({
       intervalSeconds,
       restReminderSetupOption,
     )
+    if (
+      !invitationReady
+      && notificationIntent?.option === 'invitation'
+    ) return null
     if (
       startupInvitationDismissed
       && notificationIntent?.option === 'invitation'
@@ -281,12 +439,39 @@ function FarmingPetController({
     return null
   }, [
     intervalSeconds,
+    invitationReady,
     restReminder,
     restReminderEntryBlocked,
     restReminderSetupOption,
     settingsLoaded,
     startupInvitationDismissed,
   ])
+
+  if (appearancePreview) {
+    const endPreview = () => setAppearancePreview(null)
+    if (appearancePreview.appearance === 'black-hole') {
+      return (
+        <BlackHolePetRestScene
+          statusLabel={copy.previewTitle('black-hole')}
+          errorLabel={copy.blackHoleError}
+          endLabel={copy.endPreview}
+          restUntil={appearancePreview.restUntil}
+          active={pageVisible}
+          onEnd={endPreview}
+        />
+      )
+    }
+    return (
+      <GlassPetRestScene
+        title={copy.previewTitle('glass')}
+        body={copy.previewBody}
+        endLabel={copy.endPreview}
+        restUntil={appearancePreview.restUntil}
+        active={pageVisible}
+        onEnd={endPreview}
+      />
+    )
+  }
 
   if (!intent) {
     if (!persistenceFailed || persistenceNoticeDismissed) return null
@@ -313,7 +498,9 @@ function FarmingPetController({
       return (
         <>
           <span className="code-visually-hidden" role="status" aria-live="polite">
-            {copy.restStartedAnnouncement}
+            {copy.restStartedAnnouncement(
+              restReminder?.intervalSeconds ?? REST_REMINDER_DEFAULT_INTERVAL_SECONDS,
+            )}
           </span>
           <BlackHolePetRestScene
             statusLabel={copy.restingStatus}
@@ -387,32 +574,31 @@ function FarmingPetController({
         actions={[]}
       >
         <div className="code-pet-appearance-options" role="group" aria-label={copy.appearanceTitle}>
-          <button
-            type="button"
-            className={appearance === 'glass' ? 'selected' : undefined}
-            aria-pressed={appearance === 'glass'}
-            onClick={() => chooseAppearance('glass')}
-          >
-            <span className="code-pet-appearance-icon glass" aria-hidden="true" />
-            <span>
-              <strong>{copy.softGlow}</strong>
-              <small>{copy.softGlowHint}</small>
-            </span>
-            {defaultAppearance === 'glass' && <em>{copy.defaultAppearance}</em>}
-          </button>
-          <button
-            type="button"
-            className={appearance === 'black-hole' ? 'selected' : undefined}
-            aria-pressed={appearance === 'black-hole'}
-            onClick={() => chooseAppearance('black-hole')}
-          >
-            <span className="code-pet-appearance-icon black-hole" aria-hidden="true" />
-            <span>
-              <strong>{copy.blackHole}</strong>
-              <small>{copy.blackHoleHint}</small>
-            </span>
-            {defaultAppearance === 'black-hole' && <em>{copy.defaultAppearance}</em>}
-          </button>
+          {(['glass', 'black-hole'] as const).map(option => (
+            <div className="code-pet-appearance-option" key={option}>
+              <button
+                type="button"
+                className={`code-pet-appearance-select${appearance === option ? ' selected' : ''}`}
+                aria-pressed={appearance === option}
+                onClick={() => chooseAppearance(option)}
+              >
+                <span className={`code-pet-appearance-icon ${option}`} aria-hidden="true" />
+                <span>
+                  <strong>{option === 'glass' ? copy.softGlow : copy.blackHole}</strong>
+                  <small>{option === 'glass' ? copy.softGlowHint : copy.blackHoleHint}</small>
+                </span>
+                {defaultAppearance === option && <em>{copy.defaultAppearance}</em>}
+              </button>
+              <button
+                type="button"
+                className="code-pet-appearance-preview"
+                aria-label={copy.previewAppearance(option)}
+                onClick={() => previewAppearance(option)}
+              >
+                {copy.preview}
+              </button>
+            </div>
+          ))}
         </div>
       </PetBubble>
     )

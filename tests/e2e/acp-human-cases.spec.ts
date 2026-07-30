@@ -243,6 +243,80 @@ test.describe('ACP human-like browser matrix', () => {
     expect(metrics.inlineCodeFontSize).toBeLessThan(14)
   })
 
+  test('isolates transcript Markdown, tool, and turn render failures', async ({ page, workspaceRoot }) => {
+    const workspace = path.join(workspaceRoot, 'acp-local-error-boundaries')
+    fs.mkdirSync(workspace, { recursive: true })
+    fs.writeFileSync(path.join(workspace, 'README.md'), '# Local error boundaries\n')
+    fs.writeFileSync(path.join(workspace, 'display-fixture.txt'), 'before\n')
+
+    const agentId = await createAcpAgent(page, workspace)
+    await openFarming(page)
+    await agentRow(page, agentId).click()
+    await sendAcpMessage(page, 'rich timeline')
+
+    const turn = page.locator('.code-agent-transcript-turn').filter({ hasText: 'rich timeline' })
+    await expect(turn.getByText('Rich ACP timeline complete.', { exact: true })).toBeVisible({ timeout: 20_000 })
+    const turnId = await turn.getAttribute('data-turn-id')
+    expect(turnId).toBeTruthy()
+    const processSummary = turn.getByTestId('code-agent-transcript-process-summary')
+
+    await page.evaluate((fault) => {
+      window.__farmingLocalRenderFaults = [fault]
+    }, `transcript-markdown:${turnId}`)
+    await processSummary.click()
+    const markdownError = turn.getByTestId('code-agent-transcript-markdown-render-error')
+    await expect(markdownError).toBeVisible()
+    await expect(turn).toContainText('Rich ACP timeline complete.')
+    await expect(page.getByTestId('code-acp-composer')).toBeVisible()
+    await expect(page.getByTestId('app-error-fallback')).toHaveCount(0)
+
+    await page.evaluate(() => {
+      window.__farmingLocalRenderFaults = []
+    })
+    await markdownError.getByRole('button', { name: 'Retry' }).click()
+    await expect(turn.getByText('Rich ACP timeline complete.', { exact: true })).toBeVisible()
+
+    if (await processSummary.getAttribute('aria-expanded') !== 'true') await processSummary.click()
+    const actionGroup = turn.getByTestId('code-agent-transcript-process-group').first()
+    const groupToggle = actionGroup.getByTestId('code-agent-transcript-process-group-toggle')
+    if (await groupToggle.getAttribute('aria-expanded') !== 'true') await groupToggle.click()
+    const readItem = actionGroup.getByTestId('code-agent-transcript-process-item').filter({ hasText: 'Read ACP display fixtures' })
+    await expect(readItem).toBeVisible()
+    const itemId = await readItem.getAttribute('data-process-item-id')
+    expect(itemId).toBeTruthy()
+
+    await page.evaluate((fault) => {
+      window.__farmingLocalRenderFaults = [fault]
+    }, `transcript-tool:${itemId}`)
+    await readItem.getByTestId('code-agent-transcript-process-item-toggle').click()
+    const toolError = actionGroup.getByTestId('code-agent-transcript-tool-render-error')
+    await expect(toolError).toBeVisible()
+    await expect(turn.getByText('Rich ACP timeline complete.', { exact: true })).toBeVisible()
+    await expect(page.getByTestId('app-error-fallback')).toHaveCount(0)
+
+    await page.evaluate(() => {
+      window.__farmingLocalRenderFaults = []
+    })
+    await toolError.getByRole('button', { name: 'Retry' }).click()
+    await expect(actionGroup.getByTestId('code-agent-transcript-process-item').filter({ hasText: 'Read ACP display fixtures' })).toBeVisible()
+
+    await page.evaluate((fault) => {
+      window.__farmingLocalRenderFaults = [fault]
+    }, `transcript-turn:${turnId}`)
+    await processSummary.click()
+    const turnError = page.getByTestId('code-agent-transcript-turn-render-error')
+    await expect(turnError).toBeVisible()
+    await expect(page.getByTestId('code-acp-composer')).toBeVisible()
+    await expect(agentRow(page, agentId)).toBeVisible()
+    await expect(page.getByTestId('app-error-fallback')).toHaveCount(0)
+
+    await page.evaluate(() => {
+      window.__farmingLocalRenderFaults = []
+    })
+    await turnError.getByRole('button', { name: 'Retry' }).click()
+    await expect(page.locator('.code-agent-transcript-turn').filter({ hasText: 'Rich ACP timeline complete.' })).toBeVisible()
+  })
+
   test('shows readable Codex collaboration summaries and keeps raw Process evidence secondary', async ({ page, workspaceRoot }) => {
     const workspace = path.join(workspaceRoot, 'acp-codex-collaboration')
     fs.mkdirSync(workspace, { recursive: true })
@@ -1270,6 +1344,23 @@ test.describe('ACP human-like browser matrix', () => {
     const diagramId = await diagram.getAttribute('id')
     await page.waitForTimeout(2_500)
     await expect(diagram).toHaveAttribute('id', diagramId || '')
+
+    const turnId = await turn.getAttribute('data-turn-id')
+    expect(turnId).toBeTruthy()
+    await page.evaluate((fault) => {
+      window.__farmingLocalRenderFaults = [fault]
+    }, `transcript-mermaid:${turnId}`)
+    await turn.getByTestId('code-agent-transcript-process-summary').click()
+    const mermaidError = turn.getByTestId('code-agent-transcript-mermaid-render-error')
+    await expect(mermaidError).toBeVisible()
+    await expect(answer).toContainText('Phase-aware rich answer.')
+    await expect(page.getByTestId('app-error-fallback')).toHaveCount(0)
+
+    await page.evaluate(() => {
+      window.__farmingLocalRenderFaults = []
+    })
+    await mermaidError.getByRole('button', { name: 'Retry' }).click()
+    await expect(answer.locator('.code-markdown-mermaid-canvas > svg')).toBeVisible({ timeout: 15_000 })
   })
 
   test('opens and stops a live ACP subagent without leaving the parent chat', async ({ page, workspaceRoot }) => {

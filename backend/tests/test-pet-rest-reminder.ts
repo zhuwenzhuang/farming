@@ -59,9 +59,9 @@ const path = require('path');
   assert(petSource.includes("endBreak: zh ? '结束休息' : 'End break'"));
   assert(petSource.includes("cancelBreak: zh ? '取消' : 'Cancel'"));
   assert(petSource.includes("snooze: zh ? `${REST_REMINDER_SNOOZE_MINUTES} 分钟后` : `In ${REST_REMINDER_SNOOZE_MINUTES} min`"));
-  assert(petSource.includes('已专注 {formatActivityInterval(language, intervalSeconds)}。<br />暂停操作'));
+  assert(petSource.includes('已连续操作 Farming {formatActivityInterval(language, intervalSeconds)}。<br />暂停操作'));
   assert(petSource.includes('className="code-pet-countdown">{countdownSeconds} 秒</strong>'));
-  assert(petSource.includes('Focused for {formatActivityInterval(language, intervalSeconds)}.<br />Pause'));
+  assert(petSource.includes('Used Farming continuously for {formatActivityInterval(language, intervalSeconds)}.<br />Pause'));
   assert(petSource.includes('className="code-pet-countdown">{countdownSeconds} sec</strong>'));
   assert(bubbleSource.includes('body: ReactNode'));
   assert(!petSource.includes('start-break'));
@@ -77,9 +77,7 @@ const path = require('path');
   assert(capabilitySource.includes('const ACTIVITY_COMMIT_INTERVAL_MS = 1000'));
   assert(capabilitySource.includes('entryBlockedRef.current = entryBlocked'));
   assert(capabilitySource.includes("if (entryBlocked && state.phase !== 'resting') return undefined"));
-  assert(capabilitySource.includes(
-    "commit(reduceRestReminder(current, { type: 'activity', now: Date.now() }))",
-  ));
+  assert(capabilitySource.includes("type: entryBlocked ? 'background' : 'foreground'"));
   assert(sidebarSource.includes('restReminderEntryBlocked={'));
   assert(sidebarSource.includes('|| brandDialogOpen'));
   assert(sidebarSource.includes('|| instanceNameDialogOpen'));
@@ -90,12 +88,15 @@ const path = require('path');
   assert(workspaceSource.includes('|| Boolean(renameDialog)'));
   assert(workspaceSource.includes('|| Boolean(killDialog)'));
   assert(workspaceSource.includes('|| Boolean(deleteWorktreeDialog)'));
-  assert(capabilitySource.includes("window.addEventListener('pointerdown', recordActivity, true)"));
-  assert(capabilitySource.includes('pendingActivityAtRef'));
+  assert(capabilitySource.includes("window.addEventListener('pointerdown', recordInteraction, true)"));
+  assert(capabilitySource.includes('pendingInteractionAtRef'));
   assert(capabilitySource.includes('readRestReminderRuntimeState(interval)'));
   assert(capabilitySource.includes("document.addEventListener('visibilitychange', syncVisibility)"));
   assert(capabilitySource.includes('if (!pageVisible || !state) return undefined'));
   assert(petSource.includes('active={pageVisible}'));
+  assert(petSource.includes('REST_REMINDER_INVITATION_MS'));
+  assert(petSource.includes('code-pet-appearance-preview'));
+  assert(mainCssSource.includes('code-pet-black-hole-disk-spin'));
   assert(
     petSource.includes("const PET_OWNER_ATTRIBUTE = 'data-farming-pet-owner'")
       && petSource.includes("const PET_OWNER_EVENT = 'farming:pet-owner-change'")
@@ -375,13 +376,16 @@ const path = require('path');
   assert(settingsSource.includes('code-settings-pet-rest-custom'));
   assert(settingsSource.includes('code-settings-pet-appearance-options'));
   assert(settingsSource.includes('data-pet-snapshot-exclude'));
-  assert(settingsSource.includes('aria-valuetext={copy.breakReminderValue(restReminderIntervalSeconds)}'));
-  assert(settingsSource.includes('按本页点击和输入计时'));
+  assert(settingsSource.includes('aria-valuetext={copy.breakReminderValue(displayedRestReminderIntervalSeconds)}'));
+  assert(settingsSource.includes('按本页前台可见时间计时'));
   assert(settingsSource.includes('value={restReminderSliderValue}'));
   assert(settingsSource.includes('step="any"'));
   assert(settingsSource.includes('REST_REMINDER_INTERVAL_PRESETS_SECONDS.length - 1'));
   assert(settingsSource.includes('restReminderSliderIntervalSeconds(value)'));
   assert(settingsSource.includes('onChange={event => setRestReminderSliderValue(Number(event.target.value))}'));
+  assert(settingsSource.includes('onPointerUp={commitRestReminderSliderValue}'));
+  assert(settingsSource.includes('onPointerUp={commitContentFontSize}'));
+  assert(settingsSource.includes('onPointerUp={commitSearchTimeout}'));
   assert(settingsSource.includes('onChange={event => setCustomRestReminderMinutes(event.currentTarget.value)}'));
 
   const importedRestReminder = await import('../../src/lib/pet/rest-reminder.ts');
@@ -398,6 +402,7 @@ const path = require('path');
     PET_SETTINGS_STORAGE_KEY,
     PET_REST_REMINDER_RUNTIME_STORAGE_KEY,
     REST_REMINDER_BREAK_MINUTES,
+    REST_REMINDER_LONG_BREAK_MINUTES,
     REST_REMINDER_CUSTOM_MINUTES_MAX,
     REST_REMINDER_ENTRY_COUNTDOWN_SECONDS,
     REST_REMINDER_TEST_ENTRY_COUNTDOWN_SECONDS,
@@ -414,6 +419,7 @@ const path = require('path');
     readRestReminderIntervalSeconds,
     reconfigureRestReminderInterval,
     reduceRestReminder,
+    restReminderBreakMinutes,
     restReminderEntryCountdownSeconds,
     savePetAppearance,
     saveRestReminderRuntimeState,
@@ -437,8 +443,10 @@ const path = require('path');
   assert.strictEqual(restReminderSliderIntervalSeconds(3.6), 40 * 60);
   assert.strictEqual(
     restReminderSliderIntervalSeconds(REST_REMINDER_INTERVAL_PRESETS_SECONDS.length - 1),
-    4 * 60 * 60,
+    90 * 60,
   );
+  assert.strictEqual(restReminderBreakMinutes(50 * 60), REST_REMINDER_BREAK_MINUTES);
+  assert.strictEqual(restReminderBreakMinutes(90 * 60), REST_REMINDER_LONG_BREAK_MINUTES);
   assert.strictEqual(
     restReminderEntryCountdownSeconds(REST_REMINDER_TEST_INTERVAL_SECONDS),
     REST_REMINDER_TEST_ENTRY_COUNTDOWN_SECONDS,
@@ -528,7 +536,7 @@ const path = require('path');
 
   const start = 1_000_000;
   let previewState = createRestReminderState(REST_REMINDER_TEST_INTERVAL_SECONDS);
-  previewState = reduceRestReminder(previewState, { type: 'activity', now: start });
+  previewState = reduceRestReminder(previewState, { type: 'foreground', now: start });
   assert.strictEqual(nextRestReminderDeadline(previewState), start + 5_000);
   previewState = reduceRestReminder(previewState, { type: 'deadline', now: start + 5_000 });
   assert.strictEqual(previewState.phase, 'due');
@@ -556,7 +564,7 @@ const path = require('path');
 
   let backgroundWorkState = createRestReminderState(REST_REMINDER_TEST_INTERVAL_SECONDS);
   backgroundWorkState = reduceRestReminder(backgroundWorkState, {
-    type: 'activity',
+    type: 'foreground',
     now: start,
   });
   backgroundWorkState = reduceRestReminder(backgroundWorkState, {
@@ -577,7 +585,7 @@ const path = require('path');
   // cover the interaction.
   const delayedActivityAt = backgroundRestStartsAt + 100;
   previewState = reduceRestReminder(previewState, {
-    type: 'activity',
+    type: 'interaction',
     now: delayedActivityAt,
   });
   assert.strictEqual(previewState.phase, 'due');
@@ -602,17 +610,17 @@ const path = require('path');
   assert.strictEqual(state.phase, 'armed');
   assert.strictEqual(nextRestReminderDeadline(state), null);
 
-  state = reduceRestReminder(state, { type: 'activity', now: start });
+  state = reduceRestReminder(state, { type: 'foreground', now: start });
   assert.strictEqual(state.phase, 'working');
   assert.strictEqual(state.cycleStartedAt, start);
-  assert.strictEqual(nextRestReminderDeadline(state), start + REST_REMINDER_IDLE_RESET_MS);
+  assert.strictEqual(nextRestReminderDeadline(state), start + 50 * 60_000);
 
   assert.strictEqual(saveRestReminderRuntimeState(state, runtimeStorage), true);
   assert(runtimeValues.has(PET_REST_REMINDER_RUNTIME_STORAGE_KEY));
   const restoredState = readRestReminderRuntimeState(50 * 60, start + 60_000, runtimeStorage);
   assert.strictEqual(restoredState.phase, 'working');
   assert.strictEqual(restoredState.cycleStartedAt, start);
-  assert.strictEqual(restoredState.lastActivityAt, start);
+  assert.strictEqual(restoredState.backgroundedAt, null);
 
   const longerIntervalState = reconfigureRestReminderInterval(
     restoredState,
@@ -650,18 +658,6 @@ const path = require('path');
   assert.strictEqual(runtimeValues.has(PET_REST_REMINDER_RUNTIME_STORAGE_KEY), false);
 
   state = reduceRestReminder(state, {
-    type: 'activity',
-    now: start + REST_REMINDER_IDLE_RESET_MS - 1,
-  });
-  assert.strictEqual(state.cycleStartedAt, start);
-  for (let minute = 8; minute <= 48; minute += 4) {
-    state = reduceRestReminder(state, {
-      type: 'activity',
-      now: start + minute * 60_000,
-    });
-  }
-
-  state = reduceRestReminder(state, {
     type: 'deadline',
     now: start + 50 * 60_000,
   });
@@ -678,11 +674,11 @@ const path = require('path');
   assert.strictEqual(state.phase, 'snoozed');
   assert.strictEqual(state.snoozeUsed, true);
   state = reduceRestReminder(state, {
-    type: 'activity',
+    type: 'interaction',
     now: start + 54 * 60_000,
   });
   state = reduceRestReminder(state, {
-    type: 'activity',
+    type: 'interaction',
     now: start + 58 * 60_000,
   });
 
@@ -716,13 +712,27 @@ const path = require('path');
   });
   assert.strictEqual(state.phase, 'armed');
 
-  state = reduceRestReminder(state, { type: 'activity', now: start });
+  state = reduceRestReminder(state, { type: 'foreground', now: start });
   state = reduceRestReminder(state, {
-    type: 'activity',
-    now: start + REST_REMINDER_IDLE_RESET_MS,
+    type: 'background',
+    now: start + 10 * 60_000,
+  });
+  assert.strictEqual(nextRestReminderDeadline(state), null);
+  state = reduceRestReminder(state, {
+    type: 'foreground',
+    now: start + 12 * 60_000,
   });
   assert.strictEqual(state.phase, 'working');
-  assert.strictEqual(state.cycleStartedAt, start + REST_REMINDER_IDLE_RESET_MS);
+  assert.strictEqual(state.cycleStartedAt, start + 2 * 60_000);
+  state = reduceRestReminder(state, {
+    type: 'background',
+    now: start + 20 * 60_000,
+  });
+  state = reduceRestReminder(state, {
+    type: 'foreground',
+    now: start + 20 * 60_000 + REST_REMINDER_IDLE_RESET_MS,
+  });
+  assert.strictEqual(state.cycleStartedAt, start + 20 * 60_000 + REST_REMINDER_IDLE_RESET_MS);
 
   console.log('Pet rest reminder tests passed.');
 })().catch(error => {

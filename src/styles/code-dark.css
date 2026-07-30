@@ -206,7 +206,7 @@ body.code-mode[data-appearance='dark'] .code-project-title-action:focus-visible 
 body.code-mode[data-appearance='dark'] .code-file-search-box,
 body.code-mode[data-appearance='dark'] .workspace-input input,
 body.code-mode[data-appearance='dark'] .workspace-directory-picker,
-body.code-mode[data-appearance='dark'] .workspace-input select.workflow-select,
+body.code-mode[data-appearance='dark'] .workspace-input .workflow-select .code-select-trigger,
 body.code-mode[data-appearance='dark'] .workspace-input textarea.task-input,
 body.code-mode[data-appearance='dark'] .code-file-operation-dialog input {
   background: var(--code-dark-bg-panel);
@@ -319,7 +319,8 @@ body.code-mode[data-appearance='dark'] .code-file-search-results {
   box-shadow: 0 16px 36px rgba(0, 0, 0, 0.42);
 }
 
-body.code-mode[data-appearance='dark'] .code-agent-hover-preview {
+body.code-mode[data-appearance='dark'] .code-agent-hover-preview,
+body.code-mode[data-appearance='dark'] .code-agent-hover-title-card {
   border-color: var(--code-dark-border);
   background: rgba(22, 27, 34, 0.98);
   box-shadow: 0 16px 36px rgba(0, 0, 0, 0.36);
@@ -415,8 +416,6 @@ body.code-mode[data-appearance='dark'] .code-plugin-agent-actions button,
 body.code-mode[data-appearance='dark'] .code-plugin-agent-path-edit button,
 body.code-mode[data-appearance='dark'] .code-plugin-agent-form-actions button,
 body.code-mode[data-appearance='dark'] .code-plugin-agent-form input,
-body.code-mode[data-appearance='dark'] .code-plugin-agent-form select,
-body.code-mode[data-appearance='dark'] .code-plugin-agent-defaults select,
 body.code-mode[data-appearance='dark'] .code-plugin-agent-path-edit input {
   border-color: var(--code-dark-border);
   background: var(--code-dark-bg);
@@ -429,6 +428,7 @@ body.code-mode[data-appearance='dark'] .code-plugin-agent-identity h3 > span {
 }
 
 body.code-mode[data-appearance='dark'] .code-plugin-agent-defaults strong,
+body.code-mode[data-appearance='dark'] .code-plugin-agent-configuration strong,
 body.code-mode[data-appearance='dark'] .code-plugin-agent-identity p code {
   color: var(--code-dark-text-soft);
 }
@@ -515,61 +515,22 @@ body.code-mode[data-appearance='dark'] .code-plugin-toggle {
   background: rgba(22, 27, 34, 0.66);
 }
 
-body.code-mode[data-appearance='dark'] .code-plugin-browser-settings label {
-  color: var(--code-dark-text-muted);
+body.code-mode[data-appearance='dark'] .code-plugin-desktop-target {
+  border-color: #30363d;
+  background: #161b22;
+  color: #e6edf3;
 }
 
-body.code-mode[data-appearance='dark'] .code-plugin-browser-settings select,
+body.code-mode[data-appearance='dark'] .code-plugin-desktop-target small {
+  color: #8b949e;
+}
+
 body.code-mode[data-appearance='dark'] .code-plugin-browser-settings input,
 body.code-mode[data-appearance='dark'] .code-plugin-browser-apply,
 body.code-mode[data-appearance='dark'] .code-plugin-browser-install {
   border-color: var(--code-dark-border);
   background: rgba(22, 27, 34, 0.66);
   color: var(--code-dark-text-soft);
-}
-
-body.code-mode[data-appearance='dark'] .code-plugin-browser-settings select {
-  color-scheme: dark;
-}
-
-body.code-mode[data-appearance='dark'] .code-plugin-browser-settings option {
-  background: var(--code-dark-bg-panel);
-  color: var(--code-dark-text);
-}
-
-body.code-mode[data-appearance='dark'] .code-plugin-browser-settings select,
-body.code-mode[data-appearance='dark'] .code-plugin-agent-form select,
-body.code-mode[data-appearance='dark'] .code-plugin-agent-defaults select {
-  border-color: #30363d;
-  background-color: #161b22;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 14 14'%3E%3Cpath d='m3.5 5.25 3.5 3.5 3.5-3.5' fill='none' stroke='%238b949e' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-  background-position: right 10px center;
-  background-repeat: no-repeat;
-  background-size: 14px;
-  color: #e6edf3;
-  color-scheme: dark;
-}
-
-body.code-mode[data-appearance='dark'] .code-plugin-browser-settings select:hover:not(:disabled),
-body.code-mode[data-appearance='dark'] .code-plugin-agent-form select:hover:not(:disabled),
-body.code-mode[data-appearance='dark'] .code-plugin-agent-defaults select:hover:not(:disabled) {
-  border-color: #484f58;
-  background-color: #21262d;
-}
-
-body.code-mode[data-appearance='dark'] .code-plugin-browser-settings select:focus,
-body.code-mode[data-appearance='dark'] .code-plugin-agent-form select:focus,
-body.code-mode[data-appearance='dark'] .code-plugin-agent-defaults select:focus {
-  border-color: rgba(88, 166, 255, 0.58);
-  box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.16);
-}
-
-body.code-mode[data-appearance='dark'] .code-plugin-browser-settings select:disabled,
-body.code-mode[data-appearance='dark'] .code-plugin-agent-form select:disabled,
-body.code-mode[data-appearance='dark'] .code-plugin-agent-defaults select:disabled {
-  border-color: #30363d;
-  background-color: #161b22;
-  color: #8b949e;
 }
 
 body.code-mode[data-appearance='dark'] .code-plugin-browser-apply:hover:not(:disabled),
@@ -734,8 +695,7 @@ body.code-mode[data-appearance='dark'] .code-empty-home-card-copy > span {
   color: var(--code-dark-text-muted);
 }
 
-body.code-mode[data-appearance='dark'] .code-empty-home-origin,
-body.code-mode[data-appearance='dark'] .code-empty-home-target-path {
+body.code-mode[data-appearance='dark'] .code-empty-home-connector {
   color: rgba(139, 148, 158, 0.28);
 }
 
@@ -1163,7 +1123,7 @@ body.code-mode[data-appearance='dark'] .code-git-history-section {
 body.code-mode[data-appearance='dark'] .code-git-history-header,
 body.code-mode[data-appearance='dark'] .code-git-history-subject,
 body.code-mode[data-appearance='dark'] .code-git-history-change,
-body.code-mode[data-appearance='dark'] .code-git-history-parent-select select {
+body.code-mode[data-appearance='dark'] .code-git-history-parent-select .code-select-trigger {
   color: var(--code-dark-text-soft);
 }
 
@@ -1190,7 +1150,7 @@ body.code-mode[data-appearance='dark'] .code-git-history-reference-more {
   color: var(--code-dark-text-muted);
 }
 
-body.code-mode[data-appearance='dark'] .code-git-history-parent-select select {
+body.code-mode[data-appearance='dark'] .code-git-history-parent-select .code-select-trigger {
   border-color: var(--code-dark-border);
   background: var(--code-dark-bg-soft);
 }
@@ -3067,7 +3027,7 @@ body.code-mode[data-appearance='dark'] .agent-launch-icon-theme-dark {
   display: block;
 }
 
-body.code-mode[data-appearance='dark'] .workspace-input select.workflow-select:focus,
+body.code-mode[data-appearance='dark'] .workspace-input .workflow-select .code-select-trigger:focus-visible,
 body.code-mode[data-appearance='dark'] .workspace-input textarea.task-input:focus,
 body.code-mode[data-appearance='dark'] .workspace-input input:focus {
   border-color: rgba(88, 166, 255, 0.58);
@@ -3083,11 +3043,6 @@ body.code-mode[data-appearance='dark'] .code-rename-dialog input {
 body.code-mode[data-appearance='dark'] .code-rename-dialog input:focus {
   border-color: rgba(88, 166, 255, 0.58);
   box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.16);
-}
-
-body.code-mode[data-appearance='dark'] .workspace-input select.workflow-select option {
-  background: var(--code-dark-bg-panel);
-  color: var(--code-dark-text);
 }
 
 body.code-mode[data-appearance='dark'] .workspace-home-trigger,
