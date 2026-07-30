@@ -128,6 +128,8 @@ test('keeps queued follow-ups separate and steers each selected message', async 
 
   await openFarming(page)
   await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect(page.locator('body')).toHaveClass(/code-compact-layout/)
   await expect.poll(async () => {
     const state = await page.request.get('/farming/api/control/agents')
     const body = await state.json() as {
@@ -145,6 +147,44 @@ test('keeps queued follow-ups separate and steers each selected message', async 
   await page.getByTestId('code-acp-composer-send').click()
   await expect(input).toHaveValue('')
   await expect(page.getByTestId('code-acp-pending-followup-row')).toContainText('?')
+  expect(await page.getByTestId('code-acp-composer-stack').evaluate(stack => {
+    const composer = stack.querySelector<HTMLElement>('[data-testid="code-acp-composer"]')
+    const pending = stack.querySelector<HTMLElement>(':scope > [data-testid="code-acp-pending-followup"]')
+    if (!composer || !pending) return null
+    const composerRect = composer.getBoundingClientRect()
+    const pendingRect = pending.getBoundingClientRect()
+    const rowRect = pending.querySelector('[data-testid="code-acp-pending-followup-row"]')?.getBoundingClientRect()
+    const actionsRect = pending.querySelector('.code-pending-followup-actions')?.getBoundingClientRect()
+    const inputRect = composer.querySelector('textarea')?.getBoundingClientRect()
+    const toolbarRect = composer.querySelector('[data-testid="code-acp-composer-toolbar"]')?.getBoundingClientRect()
+    return {
+      composerOverflow: composer.scrollHeight > composer.clientHeight + 1,
+      composerKeepsRestingHeight: composerRect.height >= 70 && composerRect.height <= 74,
+      pendingOutsideComposer: !composer.contains(pending),
+      pendingAboveComposer: pendingRect.bottom <= composerRect.top,
+      pendingOverflow: pending.scrollWidth > pending.clientWidth + 1
+        || pending.scrollHeight > pending.clientHeight + 1,
+      rowInsidePending: Boolean(rowRect
+        && rowRect.left >= pendingRect.left - 1
+        && rowRect.right <= pendingRect.right + 1),
+      actionsInsidePending: Boolean(actionsRect
+        && actionsRect.left >= pendingRect.left - 1
+        && actionsRect.right <= pendingRect.right + 1),
+      composerRowsDoNotOverlap: Boolean(inputRect && toolbarRect && inputRect.bottom <= toolbarRect.top + 1),
+      toolbarInsideComposer: Boolean(toolbarRect && toolbarRect.bottom <= composerRect.bottom + 1),
+    }
+  })).toEqual({
+    composerOverflow: false,
+    composerKeepsRestingHeight: true,
+    pendingOutsideComposer: true,
+    pendingAboveComposer: true,
+    pendingOverflow: false,
+    rowInsidePending: true,
+    actionsInsidePending: true,
+    composerRowsDoNotOverlap: true,
+    toolbarInsideComposer: true,
+  })
+  await page.setViewportSize({ width: 1280, height: 720 })
 
   await input.fill('inspect the separate issue')
   await page.getByTestId('code-acp-composer-send').click()

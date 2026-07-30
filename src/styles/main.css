@@ -12198,6 +12198,16 @@ body.code-mode .code-history-agent-icon .agent-launch-icon,
   z-index: 4;
 }
 
+.code-acp-composer-stack {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.code-acp-composer-stack > .code-pending-followup {
+  margin: 0 12px 6px;
+}
+
 .code-composer-collapse-zone {
   position: absolute;
   top: -18px;
@@ -17804,6 +17814,30 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
       box-shadow 160ms ease;
   }
 
+  body.code-mode.code-compact-layout .code-acp-composer-stack {
+    position: absolute;
+    left: 4px;
+    bottom: var(--mobile-composer-viewport-gap, max(8px, env(safe-area-inset-bottom)));
+    z-index: 56;
+    width: calc(var(--app-visual-width, 100vw) - 8px);
+    max-width: calc(var(--app-visual-width, 100vw) - 8px);
+    gap: 6px;
+    pointer-events: none;
+  }
+
+  body.code-mode.code-compact-layout .code-acp-composer-stack > .code-pending-followup {
+    margin: 0;
+    pointer-events: auto;
+  }
+
+  body.code-mode.code-compact-layout .code-acp-composer-stack > .code-composer {
+    position: relative;
+    left: auto;
+    bottom: auto;
+    width: 100%;
+    max-width: 100%;
+  }
+
   body.code-mode.code-compact-layout .code-composer-shell {
     height: 0;
     min-height: 0;
@@ -17819,8 +17853,7 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
     pointer-events: auto;
   }
 
-  body.code-mode.code-compact-layout .code-composer.recording,
-  body.code-mode.code-compact-layout .code-composer.has-pending-followup {
+  body.code-mode.code-compact-layout .code-composer.recording {
     --mobile-composer-height: var(--mobile-composer-expanded-height, 118px);
     height: var(--mobile-composer-height);
     min-height: var(--mobile-composer-height);
@@ -17828,6 +17861,20 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
     grid-template-rows: minmax(0, 1fr) 44px;
     gap: 4px;
     padding: 5px 5px 4px;
+  }
+
+  body.code-mode.code-compact-layout .code-acp-composer-stack > .code-pending-followup {
+    gap: 2px;
+    padding: 4px 6px;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  body.code-mode.code-compact-layout .code-acp-composer-stack > .code-pending-followup .code-pending-followup-row {
+    grid-template-columns: 16px minmax(0, 1fr) auto;
+    gap: 6px;
+    min-height: 34px;
+    padding: 2px 0;
   }
 
   body.code-mode.code-compact-layout .code-composer.has-attachments {

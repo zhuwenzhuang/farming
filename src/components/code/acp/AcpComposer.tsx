@@ -126,7 +126,7 @@ export function AcpComposer({
   const compositionActiveRef = useRef(false)
   const lastCompositionEndAtRef = useRef(0)
   const latestDraftRef = useRef(draft)
-  const composerRef = useRef<HTMLElement | null>(null)
+  const composerRef = useRef<HTMLDivElement | null>(null)
   const [focused, setFocused] = useState(false)
   const [selectionStart, setSelectionStart] = useState(draft.length)
   const [activeCommandIndex, setActiveCommandIndex] = useState(0)
@@ -286,11 +286,10 @@ export function AcpComposer({
   ].filter(Boolean).join(' ')
 
   return (
-    <footer
+    <div
       ref={composerRef}
-      className={composerClasses}
-      data-testid="code-acp-composer"
-      onClick={handleComposerClick}
+      className="code-acp-composer-stack"
+      data-testid="code-acp-composer-stack"
     >
       {(submissions.length > 0 || pendingFollowUp) && active ? (
         <div className="code-pending-followup code-acp-pending-items" data-testid="code-acp-pending-followup">
@@ -339,6 +338,11 @@ export function AcpComposer({
           ))}
         </div>
       ) : null}
+      <footer
+        className={composerClasses}
+        data-testid="code-acp-composer"
+        onClick={handleComposerClick}
+      >
       {active ? permissions.map(permission => (
         <AcpPermissionCard key={permission.requestId} request={permission} onRespond={onRespondToPermission} copy={copy} />
       )) : null}
@@ -586,6 +590,7 @@ export function AcpComposer({
           </button>
         </div>
       </div>
-    </footer>
+      </footer>
+    </div>
   )
 }
