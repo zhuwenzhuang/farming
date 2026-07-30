@@ -10,6 +10,8 @@ export interface AgentComposerPendingFollowUpMessage {
   text: string
   createdAt: number
   attachments?: ComposerPromptAttachment[]
+  editableText?: string
+  composerMode?: ComposerMode
 }
 
 export interface AgentComposerPendingFollowUp {
@@ -59,7 +61,12 @@ export function createDefaultAgentComposerState(): AgentComposerState {
   }
 }
 
-export function createPendingFollowUpMessage(text: string, attachments: ComposerPromptAttachment[] = []): AgentComposerPendingFollowUpMessage {
+export function createPendingFollowUpMessage(
+  text: string,
+  attachments: ComposerPromptAttachment[] = [],
+  editableText = text,
+  composerMode: ComposerMode = 'default'
+): AgentComposerPendingFollowUpMessage {
   const randomId = typeof crypto !== 'undefined' && 'randomUUID' in crypto
     ? crypto.randomUUID()
     : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
@@ -68,6 +75,39 @@ export function createPendingFollowUpMessage(text: string, attachments: Composer
     text,
     createdAt: Date.now(),
     ...(attachments.length > 0 ? { attachments } : {}),
+    ...(editableText !== text ? { editableText } : {}),
+    ...(composerMode !== 'default' ? { composerMode } : {}),
+  }
+}
+
+export function restorePendingFollowUpMessageForEdit(
+  state: AgentComposerState,
+  messageId: string
+): AgentComposerState {
+  const message = state.pendingFollowUp?.messages.find(candidate => candidate.id === messageId)
+  if (!message) return state
+
+  const restoredText = message.editableText ?? message.text
+  const draft = !restoredText
+    ? state.draft
+    : !state.draft.trim()
+      ? restoredText
+      : state.draft === restoredText || state.draft.startsWith(`${restoredText}\n`)
+        ? state.draft
+        : `${restoredText}\n${state.draft}`
+  const restoredAttachments: ComposerAttachment[] = (message.attachments || []).map((attachment, index) => ({
+    ...attachment,
+    id: `restored-${message.id}-${index}`,
+    status: 'ready',
+  }))
+
+  return {
+    ...state,
+    draft,
+    attachments: [...state.attachments, ...restoredAttachments],
+    mode: state.draft.trim() ? state.mode : (message.composerMode ?? 'default'),
+    history: { ...state.history, cursor: null },
+    pendingFollowUp: removePendingFollowUpMessage(state.pendingFollowUp, messageId),
   }
 }
 

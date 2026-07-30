@@ -207,6 +207,7 @@ export interface CodeCopy {
   sendQueuedMessage: string
   steerQueuedMessage: string
   discardQueuedMessage: string
+  editQueuedMessage: string
   messageAwaitingAcceptance: string
   messageNotAccepted: string
   addContext: string
@@ -721,6 +722,7 @@ const EN_COPY: CodeCopy = {
   sendQueuedMessage: 'Send next',
   steerQueuedMessage: 'Steer',
   discardQueuedMessage: 'Discard queued message',
+  editQueuedMessage: 'Remove from queue and edit',
   messageAwaitingAcceptance: 'Waiting for Agent',
   messageNotAccepted: 'Not accepted',
   addContext: 'Add context',
@@ -1271,6 +1273,7 @@ const ZH_COPY: CodeCopy = {
   sendQueuedMessage: '当前轮后发送',
   steerQueuedMessage: 'Steer',
   discardQueuedMessage: '丢弃排队消息',
+  editQueuedMessage: '移出队列并编辑',
   messageAwaitingAcceptance: '等待 Agent 接收',
   messageNotAccepted: '未被接收',
   addContext: '添加上下文',

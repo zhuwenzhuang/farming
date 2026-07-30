@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent, type CSSProperties, type KeyboardEvent, type MouseEvent, type RefObject } from 'react'
-import { ArrowUpGlyph, CloseGlyph, PlusGlyph, ReplyGlyph } from '@/components/IconGlyphs'
+import { ArrowUpGlyph, CloseGlyph, PencilGlyph, PlusGlyph, ReplyGlyph } from '@/components/IconGlyphs'
 import type { AcpPendingElicitation, AcpPendingPermission, AgentContextWindowUsage } from '@/types/agent'
 import { ComposerAttachments, type ComposerAttachmentView } from '../ComposerAttachments'
+import type { AgentComposerPendingFollowUp } from '../composer-state'
 import type { ComposerHistoryDirection, ComposerHistoryNavigationInput } from '../composer-history'
 import {
   composerDraftForSubmit,
@@ -68,7 +69,7 @@ export interface AcpComposerProps {
   attachments: ComposerAttachmentView[]
   composerMode: ComposerMode
   contextWindow: AgentContextWindowUsage | null
-  pendingFollowUp: { messages: Array<{ id: string; text: string; createdAt: number; attachments?: Array<{ name: string }> }>; createdAt: number } | null
+  pendingFollowUp: AgentComposerPendingFollowUp | null
   submissions: Array<{ id: string; text: string; createdAt: number; status: 'submitting' | 'failed'; attachments?: Array<{ name: string }> }>
   canSteerPendingFollowUp: boolean
   submitAction: 'send' | 'interrupt' | 'disabled'
@@ -85,6 +86,7 @@ export interface AcpComposerProps {
   onSubmit: (draft?: string) => void
   onInterrupt: () => void
   onDiscardPendingFollowUp: (messageId: string) => void
+  onEditPendingFollowUp: (messageId: string) => boolean
   onSteerPendingFollowUp: (messageId: string) => void
   onRetrySubmission: (messageId: string) => void
   onDiscardSubmission: (messageId: string) => void
@@ -126,6 +128,7 @@ export function AcpComposer({
   onSubmit,
   onInterrupt,
   onDiscardPendingFollowUp,
+  onEditPendingFollowUp,
   onSteerPendingFollowUp,
   onRetrySubmission,
   onDiscardSubmission,
@@ -234,6 +237,23 @@ export function AcpComposer({
       event.stopPropagation()
       insertCommand(selectedCommand.name)
       return
+    }
+    if (
+      event.key === 'ArrowUp'
+      && event.currentTarget.selectionStart === event.currentTarget.selectionEnd
+      && event.currentTarget.value.lastIndexOf('\n', Math.max(0, event.currentTarget.selectionStart - 1)) === -1
+    ) {
+      const latestQueuedMessage = pendingFollowUp?.messages[pendingFollowUp.messages.length - 1]
+      if (latestQueuedMessage && onEditPendingFollowUp(latestQueuedMessage.id)) {
+        event.preventDefault()
+        event.stopPropagation()
+        window.requestAnimationFrame(() => {
+          const textarea = textareaRef.current
+          if (!textarea) return
+          textarea.setSelectionRange(textarea.value.length, textarea.value.length)
+        })
+        return
+      }
     }
     if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
       const direction = event.key === 'ArrowUp' ? 'previous' : 'next'
@@ -348,6 +368,9 @@ export function AcpComposer({
                 ) : null}
                 <button type="button" className="icon" data-testid="code-acp-pending-followup-discard" aria-label={copy.discardQueuedMessage} onClick={() => onDiscardPendingFollowUp(message.id)}>
                   <TrashGlyph />
+                </button>
+                <button type="button" className="icon" data-testid="code-acp-pending-followup-edit" aria-label={copy.editQueuedMessage} onClick={() => onEditPendingFollowUp(message.id)}>
+                  <PencilGlyph />
                 </button>
               </div>
             </div>

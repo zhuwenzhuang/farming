@@ -82,7 +82,7 @@ export function submitAcpDraft({
         pendingFollowUp: {
           messages: [
             ...(cleared.pendingFollowUp?.messages || []),
-            createPendingFollowUpMessage(text, promptAttachments),
+            createPendingFollowUpMessage(text, promptAttachments, draft, composerMode),
           ],
           createdAt: cleared.pendingFollowUp?.createdAt || Date.now(),
         },

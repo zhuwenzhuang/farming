@@ -145,6 +145,7 @@ import {
   DEFAULT_AGENT_COMPOSER_STATE,
   removePendingFollowUpMessage,
   removeComposerSubmission,
+  restorePendingFollowUpMessageForEdit,
   type AgentComposerPendingFollowUpMessage,
   type AgentComposerState,
 } from './code/composer-state'
@@ -2071,7 +2072,10 @@ export function CodeWorkspace({
         return {
           ...state,
           pendingFollowUp: {
-            messages: [...(existing?.messages || []), createPendingFollowUpMessage(message)],
+            messages: [
+              ...(existing?.messages || []),
+              createPendingFollowUpMessage(message, [], latestDraft, composerMode),
+            ],
             createdAt: existing?.createdAt || Date.now(),
           },
         }
@@ -2320,6 +2324,30 @@ export function CodeWorkspace({
     })
     focusComposerTextarea()
   }, [activeAgent, activeComposerKey, focusComposerTextarea, updateComposerStateForKey])
+
+  const editPendingFollowUp = useCallback((messageId: string) => {
+    if (!activeAgent || !activeComposerKey) return false
+    const message = composerByAgentKey[activeComposerKey]?.pendingFollowUp?.messages.find(candidate => (
+      candidate.id === messageId
+    ))
+    if (!message) return false
+    if (
+      pendingFollowUpAutoFlushRef.current[activeComposerKey] === messageId
+      || acpSubmissionAdmissionsRef.current.has(`${activeComposerKey}:${messageId}`)
+    ) return false
+
+    updateComposerStateForKey(activeComposerKey, state => (
+      restorePendingFollowUpMessageForEdit(state, messageId)
+    ))
+    focusComposerTextarea()
+    return true
+  }, [
+    activeAgent,
+    activeComposerKey,
+    composerByAgentKey,
+    focusComposerTextarea,
+    updateComposerStateForKey,
+  ])
 
   useEffect(() => {
     const activeAgentIds = new Set(activeAgents.map(agent => agent.id))
@@ -5428,6 +5456,7 @@ export function CodeWorkspace({
           onSubmit: submitAcpDraft,
           onInterrupt: interruptActiveAgent,
           onDiscardPendingFollowUp: discardPendingFollowUp,
+          onEditPendingFollowUp: editPendingFollowUp,
           onSteerPendingFollowUp: steerPendingFollowUp,
           onRetrySubmission: retryAcpSubmission,
           onDiscardSubmission: discardAcpSubmission,
@@ -5497,6 +5526,7 @@ export function CodeWorkspace({
           onInterrupt: interruptActiveAgent,
           onSendPendingFollowUp: sendPendingFollowUp,
           onDiscardPendingFollowUp: discardPendingFollowUp,
+          onEditPendingFollowUp: editPendingFollowUp,
           onPasteAttachment: handlePasteAttachment,
           onAttachmentFiles: handleAttachmentFiles,
           onChooseAttachmentFile: chooseAttachmentFile,

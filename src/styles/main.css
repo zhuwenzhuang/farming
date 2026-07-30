@@ -12243,7 +12243,9 @@ body.code-mode .code-history-agent-icon .agent-launch-icon,
 }
 
 .code-acp-composer-stack > .code-pending-followup {
-  margin: 0 12px 6px;
+  margin: 0 12px -8px;
+  padding-bottom: 18px;
+  border-radius: 12px 12px 0 0;
 }
 
 .code-composer-collapse-zone {
@@ -17923,6 +17925,10 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
     gap: 8px;
     min-height: 30px;
     padding: 1px 0;
+  }
+
+  body.code-mode.code-compact-layout .code-pending-followup-steer-icon {
+    display: none;
   }
 
   body.code-mode.code-compact-layout .code-composer.has-attachments {

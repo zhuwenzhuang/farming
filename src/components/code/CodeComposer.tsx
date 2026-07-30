@@ -17,6 +17,7 @@ import {
   ChevronRightGlyph,
   CloseGlyph,
   HandGlyph,
+  PencilGlyph,
   PlusGlyph,
   ReplyGlyph,
 } from '@/components/IconGlyphs'
@@ -53,12 +54,7 @@ import type {
   ComposerHistoryNavigationInput,
 } from './composer-history'
 import { ComposerMicIcon, formatContextTokens } from './composer-presentation'
-
-interface PendingFollowUpMessage {
-  id: string
-  text: string
-  createdAt: number
-}
+import type { AgentComposerPendingFollowUp } from './composer-state'
 
 function composerModeLabel(copy: CodeCopy, mode: ComposerMode) {
   if (mode === 'goal') return copy.goalMode
@@ -137,7 +133,7 @@ interface CodeComposerProps {
   currentServiceTierOptions: CodexServiceTierOption[]
   permissionModeOptions: PermissionModeOption[]
   contextWindow: AgentContextWindowUsage | null
-  pendingFollowUp: { messages: PendingFollowUpMessage[]; createdAt: number } | null
+  pendingFollowUp: AgentComposerPendingFollowUp | null
   submitAction: 'send' | 'interrupt' | 'disabled'
   speechSupported: boolean
   speechListening: boolean
@@ -153,6 +149,7 @@ interface CodeComposerProps {
   onInterrupt: () => void
   onSendPendingFollowUp: (messageId: string) => void
   onDiscardPendingFollowUp: (messageId: string) => void
+  onEditPendingFollowUp: (messageId: string) => boolean
   onPasteAttachment: (event: ClipboardEvent<HTMLElement>) => void
   onAttachmentFiles: (event: ChangeEvent<HTMLInputElement>) => void
   onChooseAttachmentFile: () => void
@@ -221,6 +218,7 @@ export function CodeComposer({
   onInterrupt,
   onSendPendingFollowUp,
   onDiscardPendingFollowUp,
+  onEditPendingFollowUp,
   onPasteAttachment,
   onAttachmentFiles,
   onChooseAttachmentFile,
@@ -458,7 +456,7 @@ export function CodeComposer({
           {pendingFollowUp.messages.map(message => (
             <div className="code-pending-followup-row" data-testid="code-pending-followup-row" key={message.id}>
               <span className="code-pending-followup-icon" aria-hidden="true"><ReplyGlyph /></span>
-              <p>{message.text}</p>
+              <p>{message.text || message.attachments?.map(attachment => attachment.name).join(', ')}</p>
               <div className="code-pending-followup-actions">
                 <button
                   type="button"
@@ -476,6 +474,15 @@ export function CodeComposer({
                   onClick={() => onDiscardPendingFollowUp(message.id)}
                 >
                   <CloseGlyph />
+                </button>
+                <button
+                  type="button"
+                  className="icon"
+                  data-testid="code-pending-followup-edit"
+                  aria-label={copy.editQueuedMessage}
+                  onClick={() => onEditPendingFollowUp(message.id)}
+                >
+                  <PencilGlyph />
                 </button>
               </div>
             </div>
@@ -606,6 +613,25 @@ export function CodeComposer({
                 event.preventDefault()
                 event.stopPropagation()
                 insertSlashCommand(selectedSlashCommand)
+                return
+              }
+            }
+
+            if (
+              event.key === 'ArrowUp'
+              && event.currentTarget.selectionStart === event.currentTarget.selectionEnd
+              && event.currentTarget.value.lastIndexOf('\n', Math.max(0, event.currentTarget.selectionStart - 1)) === -1
+            ) {
+              const latestQueuedMessage = pendingFollowUp?.messages[pendingFollowUp.messages.length - 1]
+              if (latestQueuedMessage && onEditPendingFollowUp(latestQueuedMessage.id)) {
+                event.preventDefault()
+                event.stopPropagation()
+                window.requestAnimationFrame(() => {
+                  const textarea = textareaRef.current
+                  if (!textarea) return
+                  textarea.setSelectionRange(textarea.value.length, textarea.value.length)
+                  updateSelectionFromTextarea(textarea)
+                })
                 return
               }
             }

@@ -58,18 +58,26 @@ test('queues a follow-up and explicitly sends negotiated Codex ACP steer', async
   await expect(page.getByTestId('code-acp-pending-followup-row')).toHaveCount(1)
   await expect(page.getByTestId('code-acp-pending-followup-row')).toContainText('focus on the attached image')
   await expect(page.getByTestId('code-agent-transcript-steer')).toHaveCount(0)
+  await page.getByTestId('code-acp-pending-followup-edit').click()
+  await expect(page.getByTestId('code-acp-pending-followup-row')).toHaveCount(0)
+  await expect(input).toHaveValue('focus on the attached image')
+  await expect(page.getByTestId('code-composer-attachment')).toHaveCount(1)
+  await input.fill('focus on the attached image after editing')
+  await page.getByTestId('code-acp-composer-send').click()
+  await expect(input).toHaveValue('')
+  await expect(page.getByTestId('code-acp-pending-followup-row')).toContainText('focus on the attached image after editing')
   await page.getByTestId('code-acp-pending-followup-steer').click()
   await expect(page.getByTestId('code-acp-pending-followup-row')).toHaveCount(0)
 
   const steer = page.getByTestId('code-agent-transcript-steer')
-  await expect(steer).toContainText('focus on the attached image')
+  await expect(steer).toContainText('focus on the attached image after editing')
   await expect(steer.getByTestId('code-agent-transcript-user-images').locator('img')).toHaveCount(1)
   const steerTime = steer.getByTestId('code-agent-transcript-steer-time')
   await expect(steerTime).toHaveCount(1)
   await expect(steerTime).toHaveCSS('opacity', '0')
   await steer.locator('.code-agent-transcript-steer-bubble').hover()
   await expect(steerTime).toHaveCSS('opacity', '1')
-  await expect(page.getByText('Steer accepted: focus on the attached image', { exact: true })).toBeVisible()
+  await expect(page.getByText('Steer accepted: focus on the attached image after editing', { exact: true })).toBeVisible()
   const turn = page.locator('.code-agent-transcript-turn').filter({ hasText: 'hold for steer without user echo' })
   await expect(turn).toHaveCount(1)
   expect(await turn.evaluate(element => {
@@ -100,7 +108,7 @@ test('queues a follow-up and explicitly sends negotiated Codex ACP steer', async
     steerInsideProcess: true,
     flow: [
       { kind: 'commentary', text: 'Waiting for steering.' },
-      { kind: 'steer', text: 'focus on the attached image' },
+      { kind: 'steer', text: 'focus on the attached image after editing' },
     ],
   })
   await expect(page.locator('.code-agent-transcript-turn')).toHaveCount(1)
@@ -108,7 +116,7 @@ test('queues a follow-up and explicitly sends negotiated Codex ACP steer', async
   await page.reload()
   await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
   await expect(page.getByTestId('code-agent-transcript-steer')).toHaveCount(1)
-  await expect(page.getByTestId('code-agent-transcript-steer')).toContainText('focus on the attached image')
+  await expect(page.getByTestId('code-agent-transcript-steer')).toContainText('focus on the attached image after editing')
   await expect(page.getByTestId('code-agent-transcript-steer-time')).toHaveCount(1)
   await expect(page.locator('.code-agent-transcript-turn')).toHaveCount(1)
   expect(sessionRevisionMessages.some(message => (
@@ -151,6 +159,8 @@ test('keeps queued follow-ups separate and steers each selected message', async 
   const queuedGlyphPath = await page.getByTestId('code-acp-pending-followup-queue-icon').locator('path').getAttribute('d')
   const steerGlyphPath = await page.getByTestId('code-acp-pending-followup-steer').locator('path').getAttribute('d')
   expect(queuedGlyphPath).not.toBe(steerGlyphPath)
+  await expect(page.getByTestId('code-acp-pending-followup-steer').locator('svg')).toBeHidden()
+  await expect(page.getByTestId('code-acp-pending-followup-edit')).toBeVisible()
   expect(await page.getByTestId('code-acp-composer-stack').evaluate(stack => {
     const composer = stack.querySelector<HTMLElement>('[data-testid="code-acp-composer"]')
     const pending = stack.querySelector<HTMLElement>(':scope > [data-testid="code-acp-pending-followup"]')
@@ -197,21 +207,49 @@ test('keeps queued follow-ups separate and steers each selected message', async 
   await expect(page.getByTestId('code-acp-pending-followup-row')).toHaveCount(2)
   await expect(page.getByTestId('code-acp-pending-followup-row').nth(0)).toContainText('你自己先看看自己迭代到合理的展示吧。')
   await expect(page.getByTestId('code-acp-pending-followup-row').nth(1)).toContainText('自己看看')
+  await input.focus()
+  await page.keyboard.press('ArrowUp')
+  await expect(page.getByTestId('code-acp-pending-followup-row')).toHaveCount(1)
+  await expect(input).toHaveValue('自己看看')
+  await input.fill('自己再看看')
+  await page.getByTestId('code-acp-composer-send').click()
+  await expect(input).toHaveValue('')
+  await expect(page.getByTestId('code-acp-pending-followup-row')).toHaveCount(2)
+  await expect(page.getByTestId('code-acp-pending-followup-row').nth(1)).toContainText('自己再看看')
   await page.setViewportSize({ width: 1280, height: 720 })
   await expect(page.getByTestId('code-agent-transcript-steer')).toHaveCount(0)
+  expect(await page.getByTestId('code-acp-composer-stack').evaluate(stack => {
+    const composer = stack.querySelector<HTMLElement>('[data-testid="code-acp-composer"]')
+    const pending = stack.querySelector<HTMLElement>(':scope > [data-testid="code-acp-pending-followup"]')
+    if (!composer || !pending) return null
+    const composerRect = composer.getBoundingClientRect()
+    const pendingRect = pending.getBoundingClientRect()
+    const pendingStyle = getComputedStyle(pending)
+    return {
+      pendingOverlapsComposer: pendingRect.bottom - composerRect.top >= 7
+        && pendingRect.bottom - composerRect.top <= 9,
+      surfacesMatch: pendingStyle.backgroundColor === getComputedStyle(composer).backgroundColor,
+      bottomCornersJoinComposer: pendingStyle.borderBottomLeftRadius === '0px'
+        && pendingStyle.borderBottomRightRadius === '0px',
+    }
+  })).toEqual({
+    pendingOverlapsComposer: true,
+    surfacesMatch: true,
+    bottomCornersJoinComposer: true,
+  })
 
   await page.getByTestId('code-acp-pending-followup-steer').nth(0).click()
   await page.getByTestId('code-acp-pending-followup-steer').nth(0).click()
   await expect(page.getByTestId('code-acp-pending-followup-row')).toHaveCount(0)
   await expect(page.getByTestId('code-acp-submission')).toHaveCount(2)
   await expect(page.getByTestId('code-acp-submission').nth(0)).toContainText('你自己先看看自己迭代到合理的展示吧。')
-  await expect(page.getByTestId('code-acp-submission').nth(1)).toContainText('自己看看')
+  await expect(page.getByTestId('code-acp-submission').nth(1)).toContainText('自己再看看')
 
   await expect(page.getByTestId('code-acp-submission')).toHaveCount(0)
   await expect(page.getByTestId('code-agent-transcript-steer')).toHaveCount(2)
   await expect(page.locator('.code-agent-transcript-steer-bubble')).toHaveText([
     '你自己先看看自己迭代到合理的展示吧。',
-    '自己看看',
+    '自己再看看',
   ])
 
   await input.fill('live progress')
