@@ -46,8 +46,13 @@ progressive CLI path.
 Control has one explicit owner. While the Agent owns it, the user sees a
 read-only live desktop. **Take control** reloads the Viewer into an interactive
 epoch and blocks Agent actions. **Return to Agent** closes that epoch, and the
-Agent must observe the desktop again before acting. A timed-out action has an
-uncertain outcome and is never replayed automatically.
+Agent must obtain a fresh desktop, browser, window, or accessibility-tree
+observation before acting; metadata-only reads do not clear that fence.
+Control changes and lifecycle removal close new admissions and drain already
+accepted actions before advancing the epoch or removing the container. Farming
+admits only tools declared by its pinned Cua manifest, and a stopped, exited,
+failed, dead, or archived Agent cannot restart its Computer. A timed-out action
+has an uncertain outcome and is never replayed automatically.
 
 The initial runtime is intentionally limited to the pinned Linux Cua Driver
 contract. It is not a general third-party Computer provider API.

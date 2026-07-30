@@ -9,21 +9,28 @@ import { ComputerResourceStore, publicResource } from './computer-resource-store
 
 const execFileAsync = promisify(execFile);
 const INACTIVE_AGENT_STATUSES = new Set(['dead', 'error', 'exited', 'stopped']);
-const OBSERVE_TOOLS = new Set([
-  'check_permissions',
+const CUA_TOOL_MANIFEST = require('./cua-tools.json') as {
+  tools?: Array<{
+    upstreamName?: unknown;
+    annotations?: { readOnlyHint?: unknown };
+  }>;
+};
+const SUPPORTED_UPSTREAM_TOOLS = new Set(
+  (CUA_TOOL_MANIFEST.tools || [])
+    .map(tool => String(tool.upstreamName || '').trim())
+    .filter(Boolean),
+);
+const READ_ONLY_TOOLS = new Set(
+  (CUA_TOOL_MANIFEST.tools || [])
+    .filter(tool => tool.annotations?.readOnlyHint === true)
+    .map(tool => String(tool.upstreamName || '').trim())
+    .filter(Boolean),
+);
+const STATE_OBSERVATION_TOOLS = new Set([
   'get_accessibility_tree',
-  'get_agent_cursor_state',
   'get_browser_state',
-  'get_config',
-  'get_cursor_position',
   'get_desktop_state',
-  'get_recording_state',
-  'get_screen_size',
-  'get_session_state',
   'get_window_state',
-  'health_report',
-  'list_apps',
-  'list_windows',
 ]);
 const SCREENSHOT_TOOLS = new Set([
   'get_browser_state',
@@ -143,6 +150,7 @@ class ComputerResourceManager extends EventEmitter {
   readonly configFingerprint: string;
   readonly operations = new Map<string, Promise<unknown>>();
   readonly stopAdmissions = new Map<string, number>();
+  readonly controlAdmissions = new Map<string, number>();
   readonly viewerSockets = new Map<string, Set<ViewerSocket>>();
   capabilityCache: Record<string, unknown> | null = null;
   preparePromise: Promise<unknown> | null = null;
@@ -356,7 +364,9 @@ class ComputerResourceManager extends EventEmitter {
 
   start(id: string): Promise<unknown> {
     this.requireEnabled();
+    this.assertTransitionAdmissionOpen(id);
     return this.enqueue(id, async () => {
+      this.assertTransitionAdmissionOpen(id);
       let resource = this.privateResource(id);
       if (resource.status === 'running') return publicResource(resource, this.store.revision);
       const generation = resource.generation + 1;
@@ -470,39 +480,69 @@ class ComputerResourceManager extends EventEmitter {
 
   async delete(id: string, internal = false): Promise<unknown> {
     if (!internal) this.requireEnabled();
-    await this.stop(id, true);
-    const resource = this.privateResource(id);
-    if (resource.containerId) {
-      await this.inspectOwnedContainer(resource);
-      await this.docker(['rm', resource.containerId], { timeoutMs: 30_000 });
+    this.holdStopAdmission(id);
+    try {
+      await this.stop(id, true);
+      return await this.enqueue(id, async () => {
+        const resource = this.privateResource(id);
+        if (resource.containerId) {
+          await this.inspectOwnedContainer(resource);
+          await this.docker(['rm', resource.containerId], { timeoutMs: 30_000 });
+        }
+        this.closeViewers(id, 4000, 'Computer deleted');
+        this.store.remove(id);
+        this.emit('deleted', { id, collectionRevision: this.store.revision });
+        return { id, collectionRevision: this.store.revision };
+      });
+    } finally {
+      this.releaseStopAdmission(id);
     }
-    this.closeViewers(id, 4000, 'Computer deleted');
-    const removed = this.store.remove(id);
-    this.emit('deleted', { id, collectionRevision: this.store.revision });
-    return removed
-      ? { id, collectionRevision: this.store.revision }
-      : { id, collectionRevision: this.store.revision };
   }
 
-  takeControl(id: string, owner: ControlOwner) {
+  takeControl(id: string, owner: ControlOwner): Promise<unknown> {
+    this.requireEnabled();
     const resource = this.privateResource(id);
     if (resource.status !== 'running') {
       throw computerError('Computer is not running', 409, 'COMPUTER_NOT_RUNNING');
     }
-    if (owner === resource.controlOwner) return publicResource(resource, this.store.revision);
-    this.closeViewers(id, 4002, 'Computer control changed');
-    return this.patch(id, {
-      controlOwner: owner,
-      controlEpoch: resource.controlEpoch + 1,
-      needsObserve: owner === 'agent',
-    });
+    if (owner === resource.controlOwner) {
+      return Promise.resolve(publicResource(resource, this.store.revision));
+    }
+    if (this.isStopping(id)) {
+      throw computerError('Computer is stopping', 409, 'COMPUTER_STOPPING');
+    }
+    if (this.isControlChanging(id)) {
+      throw computerError('Computer control is changing', 409, 'COMPUTER_CONTROL_CHANGING');
+    }
+    this.holdControlAdmission(id);
+    return this.enqueue(id, async () => {
+      const current = this.privateResource(id);
+      if (current.status !== 'running') {
+        throw computerError('Computer is not running', 409, 'COMPUTER_NOT_RUNNING');
+      }
+      if (owner === current.controlOwner) {
+        return publicResource(current, this.store.revision);
+      }
+      this.closeViewers(id, 4002, 'Computer control changed');
+      return this.patch(id, {
+        controlOwner: owner,
+        controlEpoch: current.controlEpoch + 1,
+        needsObserve: owner === 'agent',
+      });
+    }).finally(() => this.releaseControlAdmission(id));
   }
 
   callTool(id: string, tool: string, input: Record<string, unknown>, caller: ControlOwner = 'agent') {
     this.requireEnabled();
+    if (!SUPPORTED_UPSTREAM_TOOLS.has(tool)) {
+      throw computerError(`Computer tool is not supported: ${tool}`, 400, 'COMPUTER_TOOL_NOT_SUPPORTED');
+    }
     const resource = this.privateResource(id);
     if (this.isStopping(id)) {
       throw computerError('Computer is stopping', 409, 'COMPUTER_STOPPING');
+    }
+    if (this.isControlChanging(id)) {
+      throw computerError('Computer control is changing', 409, 'COMPUTER_CONTROL_CHANGING');
     }
     if (resource.status !== 'running') {
       throw computerError('Computer is not running', 409, 'COMPUTER_NOT_RUNNING');
@@ -514,7 +554,7 @@ class ComputerResourceManager extends EventEmitter {
         'COMPUTER_CONTROL_OWNER_MISMATCH',
       );
     }
-    if (caller === 'agent' && resource.needsObserve && !OBSERVE_TOOLS.has(tool)) {
+    if (caller === 'agent' && resource.needsObserve && !READ_ONLY_TOOLS.has(tool)) {
       throw computerError(
         'Observe the Computer after human control before sending another action',
         409,
@@ -532,9 +572,6 @@ class ComputerResourceManager extends EventEmitter {
         || current.controlOwner !== caller
       ) {
         throw computerError('Computer ownership changed before this action ran', 409, 'COMPUTER_STALE_ADMISSION');
-      }
-      if (this.isStopping(id)) {
-        throw computerError('Computer is stopping', 409, 'COMPUTER_STOPPING');
       }
       const args = { ...input };
       if ('session' in args || this.toolAcceptsSession(tool)) args.session = current.sessionId;
@@ -564,7 +601,7 @@ class ComputerResourceManager extends EventEmitter {
         throw error;
       }
       const latest = this.privateResource(id);
-      if (caller === 'agent' && OBSERVE_TOOLS.has(tool) && latest.needsObserve) {
+      if (caller === 'agent' && STATE_OBSERVATION_TOOLS.has(tool) && latest.needsObserve) {
         this.patch(id, { needsObserve: false, error: '' });
       }
       return result;
@@ -599,21 +636,28 @@ class ComputerResourceManager extends EventEmitter {
 
   async resetAllContainers(): Promise<void> {
     for (const candidate of this.store.list()) {
-      await this.stop(candidate.id, true);
-      const resource = this.privateResource(candidate.id);
-      if (resource.containerId) {
-        await this.inspectOwnedContainer(resource);
-        await this.docker(['rm', resource.containerId], { timeoutMs: 30_000 });
+      this.holdStopAdmission(candidate.id);
+      try {
+        await this.stop(candidate.id, true);
+        await this.enqueue(candidate.id, async () => {
+          const resource = this.privateResource(candidate.id);
+          if (resource.containerId) {
+            await this.inspectOwnedContainer(resource);
+            await this.docker(['rm', resource.containerId], { timeoutMs: 30_000 });
+          }
+          this.patch(resource.id, {
+            containerId: '',
+            containerName: '',
+            vncPassword: '',
+            viewerPort: 0,
+            sessionId: '',
+            status: 'stopped',
+            error: '',
+          });
+        });
+      } finally {
+        this.releaseStopAdmission(candidate.id);
       }
-      this.patch(resource.id, {
-        containerId: '',
-        containerName: '',
-        vncPassword: '',
-        viewerPort: 0,
-        sessionId: '',
-        status: 'stopped',
-        error: '',
-      });
     }
   }
 
@@ -850,6 +894,29 @@ class ComputerResourceManager extends EventEmitter {
 
   private isStopping(id: string): boolean {
     return (this.stopAdmissions.get(id) || 0) > 0;
+  }
+
+  private holdControlAdmission(id: string): void {
+    this.controlAdmissions.set(id, (this.controlAdmissions.get(id) || 0) + 1);
+  }
+
+  private releaseControlAdmission(id: string): void {
+    const next = (this.controlAdmissions.get(id) || 1) - 1;
+    if (next <= 0) this.controlAdmissions.delete(id);
+    else this.controlAdmissions.set(id, next);
+  }
+
+  private isControlChanging(id: string): boolean {
+    return (this.controlAdmissions.get(id) || 0) > 0;
+  }
+
+  private assertTransitionAdmissionOpen(id: string): void {
+    if (this.isStopping(id)) {
+      throw computerError('Computer is stopping', 409, 'COMPUTER_STOPPING');
+    }
+    if (this.isControlChanging(id)) {
+      throw computerError('Computer control is changing', 409, 'COMPUTER_CONTROL_CHANGING');
+    }
   }
 
   private enqueue<T>(id: string, action: () => Promise<T>): Promise<T> {

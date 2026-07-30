@@ -50,6 +50,31 @@ function assertRequestOwner(
   }
 }
 
+function assertOwnerActive(
+  manager: ComputerResourceManager,
+  agentStateReader: AgentStateReader | undefined,
+  id: string,
+): void {
+  const resource = manager.get(id);
+  const owner = ownerAgent(agentStateReader, String(resource.ownerAgentId || ''));
+  if (!owner) {
+    throw Object.assign(new Error('Computer owner Agent was not found'), {
+      status: 404,
+      code: 'COMPUTER_OWNER_NOT_FOUND',
+    });
+  }
+  const operation = String(recordValue(owner.lifecycleOperation).type || '');
+  const preservesRuntime = operation === 'permission-restart' || operation === 'runtime-switch';
+  const inactive = owner.archived === true
+    || (!preservesRuntime && ['dead', 'error', 'exited', 'stopped'].includes(String(owner.status || '')));
+  if (inactive) {
+    throw Object.assign(new Error('Computer owner Agent is not active'), {
+      status: 409,
+      code: 'COMPUTER_OWNER_INACTIVE',
+    });
+  }
+}
+
 function sendError(res: any, caught: unknown): void {
   const error = caught as Error;
   res.status(Number(error.status) || 500).json({
@@ -179,16 +204,24 @@ function createComputerRouter(
     }
   });
 
-  for (const operation of ['start', 'stop'] as const) {
-    router.post(`/:id/${operation}`, async (req: any, res: any) => {
-      try {
-        assertRequestOwner(manager, req, req.params.id);
-        res.json(await manager[operation](req.params.id));
-      } catch (caught) {
-        sendError(res, caught);
-      }
-    });
-  }
+  router.post('/:id/start', async (req: any, res: any) => {
+    try {
+      assertRequestOwner(manager, req, req.params.id);
+      assertOwnerActive(manager, agentStateReader, req.params.id);
+      res.json(await manager.start(req.params.id));
+    } catch (caught) {
+      sendError(res, caught);
+    }
+  });
+
+  router.post('/:id/stop', async (req: any, res: any) => {
+    try {
+      assertRequestOwner(manager, req, req.params.id);
+      res.json(await manager.stop(req.params.id));
+    } catch (caught) {
+      sendError(res, caught);
+    }
+  });
 
   router.delete('/:id', async (req: any, res: any) => {
     try {
@@ -199,7 +232,7 @@ function createComputerRouter(
     }
   });
 
-  router.post('/:id/control', (req: any, res: any) => {
+  router.post('/:id/control', async (req: any, res: any) => {
     try {
       assertRequestOwner(manager, req, req.params.id);
       const owner = recordValue(req.body).owner;
@@ -207,7 +240,7 @@ function createComputerRouter(
         res.status(400).json({ error: 'Computer control owner must be agent or human' });
         return;
       }
-      res.json(manager.takeControl(req.params.id, owner));
+      res.json(await manager.takeControl(req.params.id, owner));
     } catch (caught) {
       sendError(res, caught);
     }

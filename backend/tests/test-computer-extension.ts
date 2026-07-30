@@ -77,6 +77,8 @@ class FakeDocker {
   toolCalls: string[];
   blockTool: string | null;
   releaseTool: (() => void) | null;
+  blockRemove: boolean;
+  releaseRemove: (() => void) | null;
 
   constructor(viewerPort) {
     this.viewerPort = viewerPort;
@@ -87,6 +89,8 @@ class FakeDocker {
     this.toolCalls = [];
     this.blockTool = null;
     this.releaseTool = null;
+    this.blockRemove = false;
+    this.releaseRemove = null;
   }
 
   run = async args => {
@@ -133,6 +137,11 @@ class FakeDocker {
       return { stdout: `${CONTAINER_ID}\n`, stderr: '' };
     }
     if (args[0] === 'rm') {
+      if (this.blockRemove) {
+        await new Promise<void>(resolve => {
+          this.releaseRemove = resolve;
+        });
+      }
       this.removed = true;
       return { stdout: `${CONTAINER_ID}\n`, stderr: '' };
     }
@@ -214,13 +223,38 @@ async function run() {
 
     const firstObservation = await manager.callTool(created.id, 'get_desktop_state', {});
     assert.strictEqual(firstObservation.structuredContent.tool, 'get_desktop_state');
-    manager.takeControl(created.id, 'human');
+    assert.throws(
+      () => manager.callTool(created.id, 'not_a_real_cua_tool', {}),
+      error => error.code === 'COMPUTER_TOOL_NOT_SUPPORTED' && error.status === 400,
+    );
+    assert(!fake.toolCalls.includes('not_a_real_cua_tool'));
+
+    fake.blockTool = 'type_text';
+    fake.releaseTool = null;
+    const admittedBeforeControl = manager.callTool(created.id, 'type_text', { text: 'accepted-before-control' });
+    while (!fake.releaseTool) {
+      await new Promise(resolve => setImmediate(resolve));
+    }
+    const takingControl = manager.takeControl(created.id, 'human');
+    assert.throws(
+      () => manager.callTool(created.id, 'get_desktop_state', {}),
+      error => error.code === 'COMPUTER_CONTROL_CHANGING',
+    );
+    fake.releaseTool();
+    await admittedBeforeControl;
+    await takingControl;
     assert.strictEqual(manager.viewerConfig(created.id).viewOnly, false);
     assert.throws(
       () => manager.callTool(created.id, 'click', { x: 1, y: 1 }),
       error => error.code === 'COMPUTER_CONTROL_OWNER_MISMATCH',
     );
-    manager.takeControl(created.id, 'agent');
+    await manager.takeControl(created.id, 'agent');
+    await manager.callTool(created.id, 'health_report', {});
+    assert.strictEqual(
+      manager.get(created.id).needsObserve,
+      true,
+      'metadata-only reads must not clear the post-takeover observation fence',
+    );
     assert.throws(
       () => manager.callTool(created.id, 'click', { x: 1, y: 1 }),
       error => error.code === 'COMPUTER_OBSERVE_REQUIRED',
@@ -229,6 +263,7 @@ async function run() {
     await manager.callTool(created.id, 'click', { x: 1, y: 1 });
 
     fake.blockTool = 'type_text';
+    fake.releaseTool = null;
     const admitted = manager.callTool(created.id, 'type_text', { text: 'accepted' });
     while (!fake.releaseTool) {
       await new Promise(resolve => setImmediate(resolve));
@@ -244,13 +279,51 @@ async function run() {
     assert.strictEqual(manager.get(created.id).status, 'stopped');
 
     await manager.start(created.id);
-    await manager.resetAllContainers();
+    fake.blockRemove = true;
+    const resetting = manager.resetAllContainers();
+    while (!fake.releaseRemove) {
+      await new Promise(resolve => setImmediate(resolve));
+    }
+    assert.throws(
+      () => manager.start(created.id),
+      error => error.code === 'COMPUTER_STOPPING',
+    );
+    fake.releaseRemove();
+    await resetting;
+    fake.blockRemove = false;
     const reset = manager.get(created.id);
     assert.strictEqual(reset.status, 'stopped');
     assert.strictEqual(reset.containerId, '');
     assert.strictEqual(fake.removed, true);
 
+    const deleteCandidate = manager.create({
+      ownerAgentId: 'agent_delete',
+      projectRootId: 'root_project',
+      workspace,
+      name: 'Delete Candidate',
+    });
+    await manager.start(deleteCandidate.id);
+    fake.blockRemove = true;
+    fake.releaseRemove = null;
+    const deleting = manager.delete(deleteCandidate.id);
+    while (!fake.releaseRemove) {
+      await new Promise(resolve => setImmediate(resolve));
+    }
+    assert.throws(
+      () => manager.start(deleteCandidate.id),
+      error => error.code === 'COMPUTER_STOPPING',
+    );
+    fake.releaseRemove();
+    await deleting;
+    fake.blockRemove = false;
+    assert.throws(
+      () => manager.get(deleteCandidate.id),
+      error => error.code === 'COMPUTER_NOT_FOUND',
+    );
+
     const app = express();
+    let ownerStatus = 'running';
+    let ownerLifecycleOperation: { type: string } | undefined;
     app.use('/api/computers', createComputerRouter(
       manager,
       {
@@ -266,6 +339,8 @@ async function run() {
             agents: [{
               id: 'agent_owner',
               projectWorkspace: workspace,
+              status: ownerStatus,
+              lifecycleOperation: ownerLifecycleOperation,
             }, {
               id: 'agent_other',
               projectWorkspace: workspace,
@@ -286,6 +361,26 @@ async function run() {
       );
       assert.strictEqual(forbidden.status, 403);
       assert.strictEqual(forbidden.body.code, 'COMPUTER_OWNER_MISMATCH');
+      ownerStatus = 'stopped';
+      const inactive = await requestJson(
+        apiPort,
+        'POST',
+        `/api/computers/${encodeURIComponent(created.id)}/start`,
+        undefined,
+        { 'X-Farming-Agent-Id': 'agent_owner' },
+      );
+      assert.strictEqual(inactive.status, 409);
+      assert.strictEqual(inactive.body.code, 'COMPUTER_OWNER_INACTIVE');
+      ownerLifecycleOperation = { type: 'runtime-switch' };
+      const retainedDuringSwitch = await requestJson(
+        apiPort,
+        'POST',
+        `/api/computers/${encodeURIComponent(created.id)}/start`,
+        undefined,
+        { 'X-Farming-Agent-Id': 'agent_owner' },
+      );
+      assert.strictEqual(retainedDuringSwitch.status, 200);
+      assert.strictEqual(retainedDuringSwitch.body.status, 'running');
       const filtered = await requestJson(
         apiPort,
         'GET',

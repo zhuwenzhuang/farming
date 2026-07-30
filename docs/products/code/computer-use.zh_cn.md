@@ -39,8 +39,11 @@ Contract；运行 `farming computer help workflow` 可查看渐进式 CLI 流程
 
 控制权始终只有一个明确 Owner。Agent 控制时，用户看到只读实时桌面；点击**接管**
 会把 Viewer 重新加载为新的可交互 Epoch，并阻止 Agent Action；点击**交还 Agent**
-会关闭该 Epoch，Agent 必须重新观察桌面后才能继续操作。Action 超时代表结果不确定，
-Farming 绝不会自动重放。
+会关闭该 Epoch，Agent 必须重新获取 Desktop、Browser、Window 或 Accessibility
+Tree 的状态观察后才能继续操作；只读取普通 Metadata 不能解除这一栅栏。控制权切换和
+生命周期删除都会先关闭新准入、排空已经接收的 Action，再推进 Epoch 或删除 Container。
+Farming 只接收锁定 Cua Manifest 中声明的 Tool；已停止、退出、失败、死亡或归档的
+Agent 不能重新启动其 Computer。Action 超时代表结果不确定，Farming 绝不会自动重放。
 
 首版 Runtime 有意只支持锁定的 Linux Cua Driver Contract，尚不是通用的第三方
 Computer Provider API。

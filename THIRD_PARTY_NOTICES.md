@@ -73,6 +73,11 @@ Farming accepts only the version-locked sources and integrity values declared
 by its release manifest. The `agent-browser` license text is included at
 `backend/data/LICENSE.agent-browser`.
 
+The optional Computer plugin interoperates with the version-pinned Cua Driver
+0.12.4 and `trycua/xfce-cua` container image. Farming does not bundle that
+container image in its release package. Cua is licensed under MIT; its license
+text is included at `backend/data/LICENSE.cua`.
+
 Farming vendors `ghostty-web` distribution files under
 `frontend/vendor/ghostty-web` for the optional Ghostty debug renderer. The
 source package is `ghostty-web` 0.4.0, licensed under MIT. Its license is kept
