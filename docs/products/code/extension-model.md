@@ -34,6 +34,31 @@ Farming Code exposes these capabilities through one Plugins view. A compact puzz
 
 The same view owns Agent configuration. One provider plus one Agent Home id is one independent Agent configuration: `Codex · default` and `Codex · work` are separate entries, even though both use Codex. Each entry stays compact for scanning: its fresh-Agent defaults and extension groups are summaries that expand only on request. Every provider-facing catalog, settings, session, and extension read resolves the exact configured Home first, and every cache key includes that Home identity; a default Home result must never populate another Home. Skills, plugins, and commands are discovered and rendered under the exact Home that owns them; Farming never merges extensions from multiple Homes into a provider-wide list. The ordered `agentHomes` registry in global Farming settings is authoritative. A new entry appends, drag or keyboard movement rewrites its stable numeric order, and only a non-default entry may be removed. Agent Home management therefore no longer appears in general Settings.
 
+### Agent Home Metadata And Identity
+
+Agent Home metadata has three explicit ownership layers:
+
+```text
+Global settings: agentHomes[provider][]
+  owns enabled Home id, path, order, and fresh-Agent defaults
+                    |
+                    | selected when Farming creates an Agent
+                    v
+Private Farming agent_* record
+  owns immutable providerHomeId + providerHomePath binding snapshot
+                    |
+                    | combined with the provider's stable Session id
+                    v
+Provider Session identity
+  provider + providerHomeId + providerSessionId
+```
+
+The settings registry controls only which configurations accept fresh Agents. Removing a non-default entry does not rewrite or delete existing Agent records. History, recovery, runtime replacement, catalogs used by a live Agent, and provider operations continue resolving the exact path retained by those private records. Re-adding the same Home id is legal only with that same canonical path while any private binding survives. Changing a Home path is legal only before the Home owns a persisted Agent binding; otherwise the user creates another Home. Within one provider, canonical Home paths are unique, so one provider store cannot be scanned and presented as two different Agent identities.
+
+The Settings snapshot owns Home mutation admission. Add and reorder commit atomically with the snapshot; an invalid duplicate id/path or a referenced-id path change fails without changing settings. Remove unregisters the configuration for fresh Agents while retained private bindings keep existing Sessions live. On restart, a configured Home that conflicts with a retained binding fails visibly instead of silently relabeling Sessions.
+
+OpenCode requires one extra join because its provider Session listing is global rather than partitioned by configuration directory. Farming records the Home selected when it creates or first adopts that Session, refuses to bind the same OpenCode Session to a second Home, and joins the private binding back into History. An externally created OpenCode Session with no Farming binding remains associated with the configured default Home until the user first adopts it.
+
 Each Agent configuration also owns the defaults used only when Farming creates a fresh Agent: model, reasoning effort, and Fast where the provider supports it. `inherit` is the default and means Farming supplies no corresponding provider override. Codex maps explicit Fast on/off to priority/default service tier; Claude supports model and effort but not Fast; providers without a supported pre-start configuration contract remain provider-managed. Terminal and ACP Chat resolve the same Home defaults at their shared Agent-start boundary. Resuming an existing provider Session preserves that Session's profile instead of replacing it with fresh-Agent defaults.
 
 Farming ships one default optional HTTPS public mirror for the pinned runtime tarball. Farming uses it only when a bounded exact-version metadata lookup returns the same version and SRI; otherwise, or if that download later fails, Farming uses the authoritative npm URL from the manifest. `FARMING_RUNTIME_NPM_MIRROR` may override the packaged candidate or disable it with `off`.

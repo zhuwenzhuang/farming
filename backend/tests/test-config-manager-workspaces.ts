@@ -358,6 +358,79 @@ function run() {
       modelPreset: 'gpt-5.6-sol:high',
     });
     assert.strictEqual(manager.getSettings().agentHomes.codex[1].order, 1);
+    assert.throws(() => manager.updateSettings({
+      agentHomes: {
+        ...manager.getSettings().agentHomes,
+        codex: [
+          ...manager.getSettings().agentHomes.codex,
+          {
+            id: 'duplicate-default',
+            path: path.join(os.homedir(), '.codex'),
+            order: 2,
+            newAgentDefaults: { model: 'inherit', reasoning: 'inherit', fast: 'inherit' },
+          },
+        ],
+      },
+    }), /same Home path/i, 'one provider path must not be registered under two Home ids');
+
+    manager.ensureAgentSessionRecord({
+      id: 'agent-home-binding-test',
+      providerSessionProvider: 'codex',
+      providerHomeId: 'work',
+      providerHomePath: manager.getAgentHome('codex', 'work').path,
+      providerSessionId: '019f0000-0000-7000-8000-000000000901',
+      providerSessionKey: 'agent-session:codex:home:work:019f0000-0000-7000-8000-000000000901',
+      providerSessionTemporary: false,
+    });
+    assert.throws(() => manager.updateSettings({
+      agentHomes: {
+        ...manager.getSettings().agentHomes,
+        codex: manager.getSettings().agentHomes.codex.map(home => home.id === 'work'
+          ? { ...home, path: '~/.codex-work-moved' }
+          : home),
+      },
+    }), /already owns persisted Agent sessions/i, 'a referenced Home id must not be rebound to another path');
+
+    manager.updateSettings({
+      agentHomes: {
+        ...manager.getSettings().agentHomes,
+        codex: manager.getSettings().agentHomes.codex.filter(home => home.id !== 'work'),
+      },
+    });
+    assert.strictEqual(manager.getAgentHome('codex', 'work'), null, 'removed Homes must not accept fresh Agents');
+    assert.strictEqual(
+      manager.getKnownAgentHome('codex', 'work').path,
+      path.join(os.homedir(), '.codex-work'),
+      'persisted Agent bindings must retain a removed Home path for history and recovery',
+    );
+    assert.throws(() => manager.updateSettings({
+      agentHomes: {
+        ...manager.getSettings().agentHomes,
+        codex: [
+          ...manager.getSettings().agentHomes.codex,
+          {
+            id: 'work',
+            path: '~/.codex-work-reused',
+            order: 1,
+            newAgentDefaults: { model: 'inherit', reasoning: 'inherit', fast: 'inherit' },
+          },
+        ],
+      },
+    }), /already owns persisted Agent sessions/i, 'a removed Home id must not be reused for another path');
+    manager.updateSettings({
+      agentHomes: {
+        ...manager.getSettings().agentHomes,
+        codex: [
+          ...manager.getSettings().agentHomes.codex,
+          {
+            id: 'work',
+            path: '~/.codex-work',
+            order: 1,
+            newAgentDefaults: { model: 'gpt-5.6-sol', reasoning: 'high', fast: 'on' },
+          },
+        ],
+      },
+    });
     manager.updateSettings({
       defaultLaunchAgent: 'claude',
       agentLaunchProfiles: {

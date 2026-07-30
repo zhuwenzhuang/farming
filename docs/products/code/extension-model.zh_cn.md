@@ -34,6 +34,31 @@ Farming Code 通过统一的插件页面呈现这些能力。左上角的紧凑�
 
 同一个页面也拥有 Agent 配置。一个 Provider 加一个 Agent Home ID 就是一份独立 Agent 配置：`Codex · default` 与 `Codex · work` 是两个 Agent，即使它们都使用 Codex。每一项常态只保留便于扫读的摘要，新 Agent 默认值与扩展分类只在用户需要时展开。所有面向 Provider 的 Catalog、Settings、Session 与 Extension 读取都必须先解析精确 Home，缓存键也必须包含该 Home 身份；默认 Home 的结果绝不能填充到其他 Home。Skill、Plugin 与 Command 只在拥有它们的精确 Home 下发现和展示；Farming 不会再把多个 Home 的扩展合并成 Provider 级列表。全局 Farming Settings 中有序的 `agentHomes` Registry 是权威状态。新增项追加到末尾，拖拽或键盘移动会重写稳定的数字顺序，只有非 `default` 项可以删除。因此 Agent Home 管理不再出现在通用 Settings 中。
 
+### Agent Home 元数据与身份
+
+Agent Home 元数据有三层明确的所有权：
+
+```text
+全局 Settings：agentHomes[provider][]
+  拥有已启用 Home 的 id、path、order 与新 Agent 默认值
+                    |
+                    | Farming 新建 Agent 时选择
+                    v
+私有 Farming agent_* Record
+  拥有不可变的 providerHomeId + providerHomePath 绑定快照
+                    |
+                    | 与 Provider 稳定 Session ID 组合
+                    v
+Provider Session Identity
+  provider + providerHomeId + providerSessionId
+```
+
+Settings Registry 只决定哪些配置可以接收新 Agent。移除非默认项不会改写或删除已有 Agent Record；History、Recovery、Runtime Replacement、存活 Agent 使用的 Catalog 与 Provider Operation 继续解析私有 Record 保留的精确路径。只要仍有私有绑定，同一个 Home ID 就只能以原 canonical path 重新加入。Home 尚未拥有持久化 Agent 绑定时才能改路径；一旦被引用，用户应新建另一个 Home。同一 Provider 内 canonical Home path 必须唯一，避免把同一份 Provider Store 扫描并展示成两个 Agent Identity。
+
+Settings Snapshot 是 Home Mutation 的权威 Admission Owner。Add 与 Reorder 随 Snapshot 原子提交；重复 ID/Path 或已被引用的 ID 改路径会失败，且不修改 Settings。Remove 只取消该配置接收新 Agent，保留的私有绑定继续保证已有 Session 可用。重启时，如果当前配置与保留绑定冲突，Farming 会显式失败，绝不会静默给 Session 改归属。
+
+OpenCode 需要额外一次 Join，因为它的 Provider Session List 是全局的，并不按配置目录分区。Farming 在创建或首次接管 Session 时记录所选 Home，拒绝把同一个 OpenCode Session 再绑定到第二个 Home，并在 History 中重新 Join 私有绑定。没有 Farming 绑定的外部 OpenCode Session 暂时归到已配置的默认 Home，直到用户首次接管。
+
 每份 Agent 配置还拥有只用于 Farming 新建 Agent 时的默认值：Provider 支持时包括 Model、Reasoning Effort 和 Fast。默认值 `inherit` 表示 Farming 不向 Provider 传入对应覆盖参数。Codex 把显式 Fast 开关映射到 Priority/Default Service Tier；Claude 支持 Model 与 Effort，但不支持 Fast；没有受支持的启动前配置 Contract 的 Provider 继续由自身管理。Terminal 与 ACP Chat 在共享的 Agent Start 边界解析同一份 Home 默认值。恢复已有 Provider Session 时保留该 Session 的 Profile，不会用“新 Agent 默认值”覆盖它。
 
 Farming 随发行包提供一个默认可选的 HTTPS 公共镜像。只有有界的精确版本元数据查询返回相同版本与 SRI时才使用镜像；否则，或镜像下载随后失败时，Farming 都使用 Manifest 中的权威 npm URL。`FARMING_RUNTIME_NPM_MIRROR` 可以覆盖包内候选，或设为 `off` 关闭。

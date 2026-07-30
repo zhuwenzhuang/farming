@@ -363,13 +363,13 @@ export function PluginsPanel({
     setComputerCompatibilityMode(computerCapability.compatibilityMode)
   }, [computerCapability])
 
-  const loadAgentGroups = useCallback(async () => {
+  const loadAgentGroups = useCallback(async (options: { preserveError?: boolean } = {}) => {
     if (!agentPanelScopeRef.current.mounted || agentSaveRequestRef.current) return
     const generation = agentPanelScopeRef.current.generation
     const requestId = agentGroupsRequestRef.current + 1
     agentGroupsRequestRef.current = requestId
     setAgentGroupsLoading(true)
-    setAgentGroupsError('')
+    if (!options.preserveError) setAgentGroupsError('')
     try {
       const response = await fetchAgentSettings(appPath('/api/agent-extensions'), {
         headers: { Accept: 'application/json' },
@@ -524,7 +524,7 @@ export function PluginsPanel({
         && agentPanelScopeRef.current.mounted
       ) {
         setAgentSaving(false)
-        if (reconcileAfterSave) void loadAgentGroups()
+        if (reconcileAfterSave) void loadAgentGroups({ preserveError: true })
       }
     }
   }, [copy.saveAgentFailed, loadAgentGroups])

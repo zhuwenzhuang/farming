@@ -308,6 +308,28 @@ function run() {
   assert.strictEqual(workRecord.providerHomeId, 'work');
   assert.strictEqual(workRecord.providerHomePath, '/homes/codex-work');
   assert.strictEqual(workRecord.providerSessionId, 'resolved-codex-session');
+  store.ensureRecordForAgent({
+    id: 'agent-opencode-work',
+    providerHomeId: 'work',
+    providerHomePath: '/homes/opencode-work',
+    providerSessionProvider: 'opencode',
+    providerSessionId: 'ses_global_identity',
+    providerSessionKey: 'agent-session:opencode:home:work:ses_global_identity',
+    providerSessionTemporary: false,
+  });
+  assert.throws(
+    () => store.ensureRecordForAgent({
+      id: 'agent-opencode-default',
+      providerHomeId: 'default',
+      providerHomePath: '/homes/opencode',
+      providerSessionProvider: 'opencode',
+      providerSessionId: 'ses_global_identity',
+      providerSessionKey: 'agent-session:opencode:ses_global_identity',
+      providerSessionTemporary: false,
+    }),
+    /already bound to Agent Home "work"/,
+    'one global OpenCode session must keep one stable Farming Home owner',
+  );
   assert.throws(
     () => store.ensureRecordForAgent({
       id: 'agent-invalid-stable-rebind',

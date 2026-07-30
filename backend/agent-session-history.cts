@@ -180,8 +180,16 @@ interface OpenCodeListOptions {
 interface AgentSessionHistoryOptions extends ProviderListOptions {
   providerHomeId?: string;
   providerHomes?: Partial<Record<AgentProvider, ProviderHome[]>>;
+  providerSessionBindings?: ProviderSessionHomeBinding[];
   providerLimit?: number;
   providers?: unknown[];
+}
+
+interface ProviderSessionHomeBinding {
+  provider: string;
+  providerHomeId: string;
+  providerHomePath: string;
+  providerSessionId: string;
 }
 
 interface ResumeCommandOptions {
@@ -1357,11 +1365,28 @@ async function listAgentSessions(
       opencodeHome: providerHomePath,
       runOpenCodeSessionList: options.runOpenCodeSessionList,
     });
-    sessions.push(...homeSessions.map(session => ({
-      ...session,
-      providerHomeId,
-      providerHomePath,
-    })));
+    const bindingsBySession = new Map<string, ProviderSessionHomeBinding[]>();
+    for (const binding of options.providerSessionBindings || []) {
+      if (normalizeProvider(binding?.provider) !== 'opencode') continue;
+      const sessionId = String(binding?.providerSessionId || '').trim();
+      if (!sessionId) continue;
+      const bindings = bindingsBySession.get(sessionId) || [];
+      bindings.push(binding);
+      bindingsBySession.set(sessionId, bindings);
+    }
+    sessions.push(...homeSessions.map(session => {
+      const bindings = bindingsBySession.get(String(session.id || '')) || [];
+      const exactBindings = new Map(bindings.map(binding => [
+        `${binding.providerHomeId}\0${binding.providerHomePath}`,
+        binding,
+      ]));
+      const binding = exactBindings.size === 1 ? [...exactBindings.values()][0] : null;
+      return {
+        ...session,
+        providerHomeId: binding?.providerHomeId || providerHomeId,
+        providerHomePath: binding?.providerHomePath || providerHomePath,
+      };
+    }));
   }
 
   return dedupeAgentSessions(sessions)
@@ -1417,5 +1442,6 @@ export type {
   AgentSessionSearchResult,
   ProviderHome,
   ProviderListOptions,
+  ProviderSessionHomeBinding,
   ResumeCommandOptions,
 };

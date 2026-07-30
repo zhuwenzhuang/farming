@@ -416,18 +416,32 @@ const codexModelOptionsCache = new AsyncCache((homePath: string) => listCodexMod
   ttlMs: 5 * 60_000,
   staleMs: 5 * 60_000,
 });
-function configuredProviderHomes() {
-  const settings = configManager.getSettings();
-  const agentHomes = settings.agentHomes && typeof settings.agentHomes === 'object' ? settings.agentHomes : {};
+function configuredProviderMetadata() {
   const result: Record<string, Array<{ id: string; path: string }>> = {};
-  for (const [provider, homes] of Object.entries(agentHomes)) {
-    if (!Array.isArray(homes)) continue;
-    result[provider] = homes.map(home => ({
+  const settings = configManager.getSettings();
+  const records = configManager.listAgentSessionRecords();
+  const homeBindings = configManager.agentHomeBindings(records);
+  const providers = Object.keys(settings.agentHomes || {});
+  for (const provider of providers) {
+    result[provider] = configManager.getKnownAgentHomes(provider, homeBindings).map(home => ({
       id: String(home.id || 'default'),
-      path: configManager.expandWorkspacePath(String(home.path || '')),
+      path: String(home.path || ''),
     })).filter(home => home.id && home.path);
   }
-  return result;
+  const providerSessionBindings = records.flatMap(record => {
+    const provider = String(record.provider || '').trim().toLowerCase();
+    const providerHomeId = String(record.providerHomeId || 'default').trim() || 'default';
+    const providerHomePath = configManager.expandWorkspacePath(String(record.providerHomePath || ''));
+    const providerSessionId = String(record.providerSessionId || '').trim();
+    return provider && providerHomePath && providerSessionId && record.providerSessionTemporary !== true
+      ? [{ provider, providerHomeId, providerHomePath, providerSessionId }]
+      : [];
+  });
+  return { providerHomes: result, providerSessionBindings };
+}
+
+function configuredProviderHomes() {
+  return configuredProviderMetadata().providerHomes;
 }
 
 function requestedProviderHome(provider: string, rawHomeId: unknown) {
@@ -437,18 +451,19 @@ function requestedProviderHome(provider: string, rawHomeId: unknown) {
   if (!/^[A-Za-z0-9._-]+$/.test(homeId)) {
     return { error: 'Invalid Agent Home id', home: null, status: 400 };
   }
-  const home = configManager.getAgentHome(provider, homeId);
+  const home = configManager.getKnownAgentHome(provider, homeId);
   return home
     ? { error: '', home, status: 200 }
     : { error: `Unknown ${provider} Agent Home: ${homeId}`, home: null, status: 404 };
 }
 
 const agentSessionsCache = new AsyncCache(() => {
+  const providerMetadata = configuredProviderMetadata();
   return listAgentSessions({
     limit: 5000,
     providerLimit: 5000,
     scanLimit: 5000,
-    providerHomes: configuredProviderHomes(),
+    ...providerMetadata,
   });
 }, {
   ttlMs: 30_000,
@@ -2805,7 +2820,19 @@ app.post(routePath(BASE_PATH, '/api/settings'), express.json(), async (req, res)
       return;
     }
   }
-  configManager.updateSettings(settingsPatch);
+  try {
+    configManager.updateSettings(settingsPatch);
+  } catch (caught) {
+    const error = caughtError(caught);
+    if (error?.code && String(error.code).startsWith('AGENT_HOME_')) {
+      res.status(Number(error.status) || 409).json({
+        error: error.message || 'Agent Home configuration conflicts with persisted Agent metadata',
+        code: error.code,
+      });
+      return;
+    }
+    throw caught;
+  }
   if (changesBrowserExtension || changesBrowserConfiguration) {
     await browserResourceManager.refreshCapability();
   }

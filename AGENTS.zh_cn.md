@@ -675,7 +675,7 @@ CRT 皮肤效果开关存储在 `~/.farming/settings.json` 的 `crtSkinEffectsEn
 - **searchTimeoutMs**：Project Files 搜索与 Agent 历史搜索共用的超时时间，默认 15 秒。
 - **defaultLaunchAgent**：New Agent 对话框默认聚焦的 agent provider（当前 `codex` / `claude`）；composer 不提供 Codex / Claude provider 热切换
 - **agentLaunchProfiles**：按 provider 保存启动能力；Codex profile 会转换成 `codex --model`、reasoning/service tier 和 approval/sandbox 参数，Claude profile 会转换成 `claude --permission-mode`、`--model`、`--effort`
-- **agentHomes**：管理 Codex、Claude、OpenCode、Qoder 的 agent home 元数据；每项只包含稳定 `id` 和配置目录 `path`，每个 provider 都保留不可删除的 `default` home，例如 `codex/default -> ~/.codex`、`codex/zwz -> ~/.codex.zwz`
+- **agentHomes**：管理当前允许新建 Agent 的有序全局 Agent Home Registry；一个 `provider + home id` 就是一份 Agent 配置，每项拥有 canonical 唯一的 `path` 和新 Agent 的 Model/Reasoning/Fast 默认值，每个 Provider 都保留不可删除的 `default` Home。已有 Session 的私有 `agent_*` Record 会保留不可变的 `providerHomeId + providerHomePath` 绑定，因此移除非默认配置后 History 与 Recovery 仍解析原 Home；只要绑定存在，同一个 Home ID 就绝不能改指其他路径。
 - **agentLaunchProfiles.codex.approvalMode**：Codex 权限模式（`ask` / `approve` / `full` / `custom`）
 - **agentLaunchProfiles.codex.model / reasoningEffort / serviceTier**：Codex 模型、智能和速度；UI 从本机 `codex debug models` 动态生成模型目录
 - **agentLaunchProfiles.claude.permissionMode / model / effort**：Claude 权限、模型和 effort；`config` 表示沿用 Claude 自己的配置

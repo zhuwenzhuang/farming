@@ -39,6 +39,12 @@ export interface AgentHome {
 
 type AgentHomes = Record<string, AgentHome[]>;
 
+interface AgentHomeBinding {
+  provider: string;
+  providerHomeId: string;
+  providerHomePath: string;
+}
+
 interface CodexLaunchProfile extends JsonRecord {
   approvalMode: string;
   model: string;
@@ -335,6 +341,62 @@ class ConfigManager {
     return value;
   }
 
+  canonicalAgentHomePath(homePath: unknown): string {
+    const expanded = this.expandWorkspacePath(homePath);
+    if (!expanded) return '';
+    const resolved = path.resolve(expanded);
+    let canonical = resolved;
+    try {
+      canonical = fs.realpathSync.native(resolved);
+    } catch {
+      // A Home may be configured before its provider creates the directory.
+    }
+    return process.platform === 'win32' ? canonical.toLowerCase() : canonical;
+  }
+
+  agentHomeBindings(records: PersistedAgentPrivateMetadata[] = this.listAgentSessionRecords()): AgentHomeBinding[] {
+    const bindings = new Map<string, AgentHomeBinding>();
+    for (const record of records) {
+      const provider = String(record.provider || '').trim().toLowerCase();
+      const providerHomeId = String(record.providerHomeId || 'default').trim() || 'default';
+      const providerHomePath = this.expandWorkspacePath(record.providerHomePath);
+      if (!provider || !providerHomePath) continue;
+      const key = `${provider}\0${providerHomeId}`;
+      const existing = bindings.get(key);
+      if (
+        existing
+        && this.canonicalAgentHomePath(existing.providerHomePath) !== this.canonicalAgentHomePath(providerHomePath)
+      ) {
+        const error = new Error(
+          `${provider} Agent Home "${providerHomeId}" has persisted sessions in more than one path`,
+        ) as Error & { code?: string; status?: number };
+        error.code = 'AGENT_HOME_BINDING_CONFLICT';
+        error.status = 409;
+        throw error;
+      }
+      bindings.set(key, { provider, providerHomeId, providerHomePath });
+    }
+    return [...bindings.values()];
+  }
+
+  assertAgentHomeBindings(nextHomes: AgentHomes): void {
+    for (const binding of this.agentHomeBindings()) {
+      const configured = (nextHomes[binding.provider] || [])
+        .find(home => home.id === binding.providerHomeId);
+      if (
+        configured
+        && this.canonicalAgentHomePath(configured.path) !== this.canonicalAgentHomePath(binding.providerHomePath)
+      ) {
+        const error = new Error(
+          `${binding.provider} Agent Home "${binding.providerHomeId}" already owns persisted Agent sessions at ${binding.providerHomePath}`,
+        ) as Error & { code?: string; status?: number };
+        error.code = 'AGENT_HOME_REFERENCED';
+        error.status = 409;
+        throw error;
+      }
+    }
+  }
+
   isTemporaryWorkspace(workspace: unknown): boolean {
     const resolved = path.resolve(this.expandWorkspacePath(workspace));
     return resolved === '/tmp'
@@ -622,6 +684,7 @@ class ConfigManager {
     const legacyMainPageSessionKeys = this.normalizeMainPageSessionKeys(this.settings.mainPageSessionKeys);
     delete this.settings.mainPageSessionKeys;
     this.sessionStore.init({ legacyMainPageSessionKeys });
+    this.assertAgentHomeBindings(this.settings.agentHomes);
     const legacyTaskHistory = this.normalizeTaskHistory(this.settings.taskHistory);
     delete this.settings.taskHistory;
     this.runHistoryStore.init({ legacyTaskHistory });
@@ -728,6 +791,7 @@ class ConfigManager {
       if (!Array.isArray(rawHomes)) return;
 
       const seenIds = new Set<string>();
+      const seenPaths = new Map<string, string>();
       const homes: AgentHome[] = [];
       rawHomes.forEach((rawHome, homeIndex) => {
         const record = objectRecord(rawHome);
@@ -737,8 +801,24 @@ class ConfigManager {
         if (!id || !homePath) return;
         if (!/^[A-Za-z0-9._-]+$/.test(id)) return;
         const idKey = id.toLowerCase();
-        if (seenIds.has(idKey)) return;
+        if (seenIds.has(idKey)) {
+          const error = new Error(`${provider} contains more than one Agent Home named "${id}"`) as Error & { code?: string; status?: number };
+          error.code = 'AGENT_HOME_DUPLICATE_ID';
+          error.status = 409;
+          throw error;
+        }
         seenIds.add(idKey);
+        const canonicalPath = this.canonicalAgentHomePath(homePath);
+        const existingPathHomeId = seenPaths.get(canonicalPath);
+        if (existingPathHomeId) {
+          const error = new Error(
+            `${provider} Agent Homes "${existingPathHomeId}" and "${id}" use the same Home path`,
+          ) as Error & { code?: string; status?: number };
+          error.code = 'AGENT_HOME_DUPLICATE_PATH';
+          error.status = 409;
+          throw error;
+        }
+        seenPaths.set(canonicalPath, id);
         const rawDefaults = objectRecord(record.newAgentDefaults) || {};
         const model = String(rawDefaults.model || 'inherit').trim();
         const reasoning = String(rawDefaults.reasoning || 'inherit').trim();
@@ -766,6 +846,23 @@ class ConfigManager {
       const providerHomes = normalized[provider] || [];
       if (!providerHomes.some(home => String(home.id || '').toLowerCase() === 'default')) {
         normalized[provider] = [{ ...defaultHome }, ...providerHomes];
+      }
+    }
+
+    for (const [provider, homes] of Object.entries(normalized)) {
+      const ownersByPath = new Map<string, string>();
+      for (const home of homes) {
+        const canonicalPath = this.canonicalAgentHomePath(home.path);
+        const existingHomeId = ownersByPath.get(canonicalPath);
+        if (existingHomeId && existingHomeId !== home.id) {
+          const error = new Error(
+            `${provider} Agent Homes "${existingHomeId}" and "${home.id}" use the same Home path`,
+          ) as Error & { code?: string; status?: number };
+          error.code = 'AGENT_HOME_DUPLICATE_PATH';
+          error.status = 409;
+          throw error;
+        }
+        ownersByPath.set(canonicalPath, home.id);
       }
     }
 
@@ -1092,6 +1189,31 @@ class ConfigManager {
     const normalizedHomeId = String(homeId || 'default').trim();
     const homes = this.getAgentHomes(normalizedProvider);
     return homes.find(home => home.id === normalizedHomeId) || null;
+  }
+
+  getKnownAgentHomes(
+    provider: unknown,
+    bindings: AgentHomeBinding[] = this.agentHomeBindings(),
+  ): AgentHome[] {
+    const normalizedProvider = String(provider || '').trim().toLowerCase();
+    const homes = this.getAgentHomes(normalizedProvider);
+    const knownIds = new Set(homes.map(home => home.id));
+    for (const binding of bindings) {
+      if (binding.provider !== normalizedProvider || knownIds.has(binding.providerHomeId)) continue;
+      knownIds.add(binding.providerHomeId);
+      homes.push({
+        id: binding.providerHomeId,
+        path: binding.providerHomePath,
+        order: Number.MAX_SAFE_INTEGER,
+        newAgentDefaults: { model: 'inherit', reasoning: 'inherit', fast: 'inherit' },
+      });
+    }
+    return homes;
+  }
+
+  getKnownAgentHome(provider: unknown, homeId: unknown = 'default'): AgentHome | null {
+    const normalizedHomeId = String(homeId || 'default').trim();
+    return this.getKnownAgentHomes(provider).find(home => home.id === normalizedHomeId) || null;
   }
 
   getDefaultLaunchAgent(): string {
@@ -1432,6 +1554,7 @@ class ConfigManager {
     nextSettings.projectOperations = this.normalizeProjectOperations(nextSettings.projectOperations);
     nextSettings.instanceName = this.normalizeInstanceName(nextSettings.instanceName);
     nextSettings.agentHomes = this.normalizeAgentHomes(nextSettings.agentHomes);
+    this.assertAgentHomeBindings(nextSettings.agentHomes);
     delete nextSettings.updateUrl;
     nextSettings.searchTimeoutMs = this.normalizeSearchTimeoutMs(nextSettings.searchTimeoutMs);
     delete nextSettings.codexRuntimeMode;

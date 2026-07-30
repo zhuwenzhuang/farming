@@ -119,6 +119,15 @@ test('Plugins treats each Agent Home as an independent ordered Agent configurati
   await panel.getByRole('button', { name: 'Add Agent', exact: true }).click()
   const form = panel.getByTestId('code-plugin-agent-form')
   await form.getByLabel('Agent provider').selectOption('codex')
+  await form.getByLabel('Home path').fill(`${workspaceRoot}/codex-work`)
+  await form.getByLabel('Home name').fill('duplicate-work')
+  const duplicateResponse = page.waitForResponse(response => (
+    response.url().endsWith('/farming/api/settings')
+    && response.request().method() === 'POST'
+  ))
+  await form.getByRole('button', { name: 'Save', exact: true }).click()
+  expect((await duplicateResponse).status()).toBe(409)
+  await expect(panel.locator('.code-plugin-agent-form + .code-plugin-error')).toContainText('same Home path')
   await form.getByLabel('Home path').fill(`${workspaceRoot}/codex-review`)
   await form.getByLabel('Home name').fill('review')
   await form.getByRole('button', { name: 'Save', exact: true }).click()

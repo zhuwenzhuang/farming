@@ -541,6 +541,22 @@ class FarmingSessionStore {
   ): string {
     const parsed = parseProviderSessionKey(sessionKey);
     if (!parsed) return '';
+    if (parsed.provider === 'opencode') {
+      const conflictingBinding = this.listStoredAgentRecords().find(record => {
+        const existing = parseProviderSessionKey(record.providerSessionKey);
+        return existing?.provider === 'opencode'
+          && existing.sessionId === parsed.sessionId
+          && existing.providerHomeId !== parsed.providerHomeId;
+      });
+      if (conflictingBinding) {
+        const error = new Error(
+          `OpenCode session ${parsed.sessionId} is already bound to Agent Home "${String(conflictingBinding.providerHomeId || 'default')}"`,
+        ) as Error & { code?: string; status?: number };
+        error.code = 'AGENT_HOME_SESSION_CONFLICT';
+        error.status = 409;
+        throw error;
+      }
+    }
     this.ensureIndex();
     const indexedId = this.providerSessionRecords.get(sessionKey);
     const existingId = typeof indexedId === 'string' ? indexedId : '';

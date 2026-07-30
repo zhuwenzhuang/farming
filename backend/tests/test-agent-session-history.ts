@@ -438,6 +438,12 @@ async function run() {
     limit: 10,
     providerLimit: 10,
     runOpenCodeSessionList,
+    providerSessionBindings: [{
+      provider: 'opencode',
+      providerHomeId: 'work',
+      providerHomePath: path.join(root, 'opencode-work'),
+      providerSessionId: openCodeId,
+    }],
     providerHomes: {
       codex: [
         { id: 'default', path: codexHome },
@@ -471,14 +477,30 @@ async function run() {
   assert.deepStrictEqual(sessions.find(session => session.provider === 'qoder').capabilities, ['resume', 'fork']);
   assert.deepStrictEqual(sessions.find(session => session.provider === 'qwen').capabilities, ['resume']);
   assert.deepStrictEqual(sessions.find(session => session.provider === 'opencode').capabilities, ['resume', 'fork']);
-  assert.strictEqual(sessions.find(session => session.provider === 'opencode').providerHomeId, 'default');
+  assert.strictEqual(sessions.find(session => session.provider === 'opencode').providerHomeId, 'work');
+  assert.strictEqual(
+    sessions.find(session => session.provider === 'opencode').providerHomePath,
+    path.join(root, 'opencode-work'),
+  );
 
   const foundClaude = await findAgentSession('claude', claudeId, { claudeHome, limit: 10, providerHomes: { claude: [{ id: 'default', path: claudeHome }] } });
   const foundAltCodex = await findAgentSession('codex', altCodexId, { limit: 10, providerHomeId: 'zwz', providerHomes: { codex: [{ id: 'default', path: codexHome }, { id: 'zwz', path: codexAltHome }] } });
-  const foundOpenCode = await findAgentSession('opencode', openCodeId, { limit: 10, runOpenCodeSessionList, providerHomes: { opencode: [{ id: 'default', path: path.join(root, 'opencode') }] } });
+  const foundOpenCode = await findAgentSession('opencode', openCodeId, {
+    limit: 10,
+    providerHomeId: 'work',
+    runOpenCodeSessionList,
+    providerHomes: { opencode: [{ id: 'default', path: path.join(root, 'opencode') }] },
+    providerSessionBindings: [{
+      provider: 'opencode',
+      providerHomeId: 'work',
+      providerHomePath: path.join(root, 'opencode-work'),
+      providerSessionId: openCodeId,
+    }],
+  });
   assert.strictEqual(foundAltCodex.providerHomeId, 'zwz');
   assert.strictEqual(foundClaude.id, claudeId);
   assert.strictEqual(foundOpenCode.id, openCodeId);
+  assert.strictEqual(foundOpenCode.providerHomeId, 'work');
   assert.strictEqual(buildAgentSessionResumeCommand('codex', codexId), `codex resume ${codexId}`);
   assert.strictEqual(
     buildAgentSessionResumeCommand('codex', codexId, { cwd: '/repo/codex with space' }),
