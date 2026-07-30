@@ -742,7 +742,8 @@ export function CodeWorkspace({
   const projectListRef = useRef<HTMLDivElement>(null)
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null)
   const codexModelsLoadedAtRef = useRef(0)
-  const codexModelsLoadingRef = useRef(false)
+  const codexModelsLoadedHomeRef = useRef('')
+  const codexModelsRequestRef = useRef(0)
   const codexModelsRetryOnReconnectRef = useRef(false)
   const resumeAgentSessionRef = useRef<(provider: string, sessionId: string, providerHomeId?: string) => void>(() => {})
   const activeTerminalIdRef = useRef<string | null>(activeTerminalId)
@@ -1037,6 +1038,7 @@ export function CodeWorkspace({
     [activeAgents, activeTerminalId, hiddenMainAgent]
   )
   const activeAgent = useAgentWithLiveRuntimeState(structuralActiveAgent)
+  const activeProviderHomeId = activeAgent?.providerHomeId || 'default'
   const activeAcpRuntime = isAcpRuntime(activeAgent) ? activeAgent.runtimeBinding : null
   const activeAgentPermissionSwitching = Boolean(
     activeAgent && activeAgent.id === permissionSwitchingAgentId
@@ -1491,15 +1493,19 @@ export function CodeWorkspace({
   const loadCodexModels = useCallback(() => {
     const catalogAgeMs = Date.now() - codexModelsLoadedAtRef.current
     if (
-      codexModelsLoadingRef.current
-      || (codexModelsLoadedAtRef.current > 0 && catalogAgeMs <= CODEX_MODEL_CATALOG_TTL_MS)
+      codexModelsLoadedHomeRef.current === activeProviderHomeId
+      && codexModelsLoadedAtRef.current > 0
+      && catalogAgeMs <= CODEX_MODEL_CATALOG_TTL_MS
     ) {
       return () => {}
     }
 
     let cancelled = false
-    codexModelsLoadingRef.current = true
-    fetch(appPath('/api/codex/models'))
+    const requestId = codexModelsRequestRef.current + 1
+    codexModelsRequestRef.current = requestId
+    setCodexModelOptions([])
+    const params = new URLSearchParams({ homeId: activeProviderHomeId })
+    fetch(appPath(`/api/codex/models?${params.toString()}`))
       .then(async response => {
         const data = await response.json().catch(() => ({})) as {
           catalog?: CodexModelOption[]
@@ -1512,16 +1518,18 @@ export function CodeWorkspace({
         return data
       })
       .then((data: { catalog?: CodexModelOption[]; models?: LegacyCodexModelOption[] }) => {
-        if (cancelled) return
+        if (cancelled || codexModelsRequestRef.current !== requestId) return
         const options = normalizeModelCatalog(data)
         if (options.length === 0) throw new Error('Codex model catalog did not contain any visible models')
         codexModelsLoadedAtRef.current = Date.now()
+        codexModelsLoadedHomeRef.current = activeProviderHomeId
         codexModelsRetryOnReconnectRef.current = false
         setCodexModelOptions(options)
       })
       .catch(error => {
-        if (cancelled) return
+        if (cancelled || codexModelsRequestRef.current !== requestId) return
         codexModelsLoadedAtRef.current = 0
+        codexModelsLoadedHomeRef.current = ''
         if (!getBackendConnectionSnapshot().connected) {
           codexModelsRetryOnReconnectRef.current = true
           return
@@ -1533,17 +1541,15 @@ export function CodeWorkspace({
           message: error instanceof Error ? error.message : 'Failed to load Codex model catalog',
         })
       })
-      .finally(() => {
-        codexModelsLoadingRef.current = false
-      })
 
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [activeProviderHomeId])
   const loadClaudeSettings = useCallback(() => {
     let cancelled = false
-    fetch(appPath('/api/claude/settings'))
+    const params = new URLSearchParams({ homeId: activeProviderHomeId })
+    fetch(appPath(`/api/claude/settings?${params.toString()}`))
       .then(response => response.json())
       .then((data: { settings?: ClaudeSettingsSummary }) => {
         if (cancelled) return
@@ -1556,7 +1562,7 @@ export function CodeWorkspace({
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [activeProviderHomeId])
   const fetchSearchedAgentSessions = useCallback(async (query: string, signal: AbortSignal) => {
     const params = new URLSearchParams({
       q: query,
@@ -1703,14 +1709,14 @@ export function CodeWorkspace({
     }
   }, [activeView, fetchSearchedAgentSessions, hasSearchQuery, normalizedSearch, searchOpen])
 
-  const loadSlashCommands = useCallback((provider: string, workspace?: string) => {
+  const loadSlashCommands = useCallback((provider: string, homeId: string, workspace?: string) => {
     if (provider !== 'codex' && provider !== 'claude') {
       setDiscoveredSlashCommands([])
       return () => {}
     }
 
     let cancelled = false
-    const params = new URLSearchParams({ provider })
+    const params = new URLSearchParams({ provider, homeId })
     if (workspace) params.set('workspace', workspace)
 
     fetch(appPath(`/api/slash-commands?${params.toString()}`))
@@ -4930,17 +4936,23 @@ export function CodeWorkspace({
     window.addEventListener('farming-agent-homes-saved', handleAgentHomesSaved)
     return () => window.removeEventListener('farming-agent-homes-saved', handleAgentHomesSaved)
   }, [loadAgentSessions, loadGlobalSettings])
-  useEffect(() => loadClaudeSettings(), [loadClaudeSettings])
+  useEffect(() => {
+    if (composerAgentKind !== 'claude') return undefined
+    return loadClaudeSettings()
+  }, [composerAgentKind, loadClaudeSettings])
+  useEffect(() => {
+    if (codexModelsLoadedHomeRef.current !== activeProviderHomeId) setCodexModelOptions([])
+  }, [activeProviderHomeId])
   useEffect(
-    () => loadSlashCommands(composerAgentKind || '', activeAgent?.cwd),
-    [activeAgent?.cwd, composerAgentKind, loadSlashCommands]
+    () => loadSlashCommands(composerAgentKind || '', activeProviderHomeId, activeAgent?.cwd),
+    [activeAgent?.cwd, activeProviderHomeId, composerAgentKind, loadSlashCommands]
   )
   useEffect(() => {
-    if (!modelMenuOpen) return undefined
+    if (!modelMenuOpen || composerAgentKind !== 'codex') return undefined
     return loadCodexModels()
-  }, [loadCodexModels, modelMenuOpen])
+  }, [composerAgentKind, loadCodexModels, modelMenuOpen])
   useEffect(() => {
-    if (!modelMenuOpen) {
+    if (!modelMenuOpen || composerAgentKind !== 'codex') {
       codexModelsRetryOnReconnectRef.current = false
       return undefined
     }
@@ -4951,11 +4963,7 @@ export function CodeWorkspace({
     }
     window.addEventListener('farming:backend-connected', retryRecoverableLoad)
     return () => window.removeEventListener('farming:backend-connected', retryRecoverableLoad)
-  }, [loadCodexModels, modelMenuOpen])
-  useEffect(() => {
-    if (!modelMenuOpen || composerAgentKind !== 'claude') return undefined
-    return loadClaudeSettings()
-  }, [composerAgentKind, loadClaudeSettings, modelMenuOpen])
+  }, [composerAgentKind, loadCodexModels, modelMenuOpen])
   useEffect(() => loadAgentSessions(), [loadAgentSessions])
 
   useEffect(() => {

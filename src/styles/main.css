@@ -6051,7 +6051,7 @@ body.code-mode .code-instance-name {
 
 .code-agent-transcript-plan-driver .code-agent-transcript-plan-list {
   margin: 3px 0 0;
-  padding: 6px 0 0;
+  padding: 6px 0 0 24px;
 }
 
 .code-agent-transcript-plan-driver-detail {
@@ -6751,7 +6751,7 @@ body.code-mode .code-instance-name {
 
 .code-agent-transcript-process-group {
   position: relative;
-  padding: 1px 0 1px 18px;
+  padding: 1px 0;
   color: #7d858d;
 }
 
@@ -6787,19 +6787,12 @@ body.code-mode .code-instance-name {
   display: grid;
   gap: 3px;
   margin-top: 4px;
-  padding-left: 2px;
-}
-
-.code-agent-transcript-process-group.running > .code-agent-transcript-process-group-summary > .code-agent-transcript-process-dot {
-  background: transparent;
-  border: 2px solid #6e7781;
-  border-top-color: transparent;
-  animation: codeTranscriptSpin 900ms linear infinite;
+  padding-left: 16px;
 }
 
 .code-agent-transcript-process-item {
   position: relative;
-  padding: 1px 0 1px 18px;
+  padding: 1px 0;
   color: #8c959f;
 }
 
@@ -6812,16 +6805,6 @@ body.code-mode .code-instance-name {
   color: #8c959f;
   font-size: 13px;
   font-weight: 400;
-}
-
-.code-agent-transcript-process-dot {
-  position: absolute;
-  left: 2px;
-  top: 10px;
-  width: 7px;
-  height: 7px;
-  border-radius: 999px;
-  background: rgba(110, 119, 129, 0.72);
 }
 
 .code-agent-transcript-process-title-text {
@@ -7425,92 +7408,35 @@ body.code-mode .code-instance-name {
   display: grid;
   gap: 6px;
   margin: 6px 0 2px;
-  padding: 8px 0 2px;
-  list-style: none;
+  padding: 8px 0 2px 24px;
+  list-style: decimal;
 }
 
 .code-agent-transcript-plan-list li {
-  display: grid;
-  grid-template-columns: 14px minmax(0, 1fr);
-  align-items: start;
-  gap: 8px;
-  color: #57606a;
+  display: list-item;
+  padding-left: 2px;
+  color: #6e7781;
   font-size: 13px;
   line-height: 1.45;
 }
 
-.code-agent-transcript-plan-marker {
-  width: 8px;
-  height: 8px;
-  margin-top: 4px;
-  border-radius: 999px;
-  border: 1px solid rgba(110, 119, 129, 0.5);
-  background: transparent;
+.code-agent-transcript-plan-list li.completed {
+  opacity: 0.62;
 }
 
-.code-agent-transcript-plan-list li.completed .code-agent-transcript-plan-marker {
-  border-color: #1f883d;
-  background: #1f883d;
+.code-agent-transcript-plan-list li.running {
+  color: #24292f;
+  font-weight: 520;
 }
 
-.code-agent-transcript-plan-list li.running .code-agent-transcript-plan-marker {
-  border-color: #6e7781;
-  border-top-color: transparent;
-  animation: codeTranscriptSpin 900ms linear infinite;
+.code-agent-transcript-plan-list li::marker {
+  color: #8c959f;
+  font-variant-numeric: tabular-nums;
 }
 
-.code-agent-transcript-process-item.command .code-agent-transcript-process-dot {
-  background: #1f883d;
-}
-
-.code-agent-transcript-process-item.patch .code-agent-transcript-process-dot {
-  background: #8250df;
-}
-
-.code-agent-transcript-process-item.mcp .code-agent-transcript-process-dot,
-.code-agent-transcript-process-item.tool .code-agent-transcript-process-dot,
-.code-agent-transcript-process-item.tool-output .code-agent-transcript-process-dot {
-  background: #0969da;
-}
-
-.code-agent-transcript-process-item.reasoning .code-agent-transcript-process-dot,
-.code-agent-transcript-process-item.plan .code-agent-transcript-process-dot {
-  background: #9a6700;
-}
-
-.code-agent-transcript-process-item.web-search .code-agent-transcript-process-dot {
-  background: #0a7ea4;
-}
-
-.code-agent-transcript-process-item:not(.status-running):not(.status-failed):not(.error):not(.status-warning):not(.warning)
-  .code-agent-transcript-process-dot {
-  width: 6px;
-  height: 6px;
-  background: #8c959f;
-  opacity: 0.52;
-}
-
-.code-agent-transcript-process-item.status-running .code-agent-transcript-process-dot {
-  background: transparent;
-  border: 2px solid #6e7781;
-  border-top-color: transparent;
-  animation: codeTranscriptSpin 900ms linear infinite;
-}
-
-.code-agent-transcript-process-item.status-failed .code-agent-transcript-process-dot,
-.code-agent-transcript-process-item.error .code-agent-transcript-process-dot {
-  background: #cf222e;
-}
-
-.code-agent-transcript-process-item.status-warning .code-agent-transcript-process-dot,
-.code-agent-transcript-process-item.warning .code-agent-transcript-process-dot {
-  background: #bf8700;
-}
-
-@keyframes codeTranscriptSpin {
-  to {
-    transform: rotate(360deg);
-  }
+.code-agent-transcript-plan-list li.running::marker {
+  color: #57606a;
+  font-weight: 600;
 }
 
 .code-agent-transcript-assistant {
@@ -7895,14 +7821,19 @@ body.code-mode .code-instance-name {
 }
 
 .code-agent-transcript-result-card {
-  width: fit-content;
-  max-width: min(940px, 100%);
-  display: grid;
-  gap: 8px;
+  width: min(620px, calc(100vw - 84px));
+  max-width: 100%;
 }
 
 .code-agent-transcript-result-header {
-  display: contents;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 7px 5px 12px;
+  border: 1px solid rgba(31, 35, 40, 0.12);
+  border-radius: 14px;
+  background: rgba(246, 248, 250, 0.9);
 }
 
 .code-agent-transcript-result-card.expanded {
@@ -7923,22 +7854,19 @@ body.code-mode .code-instance-name {
 }
 
 .code-agent-transcript-result-summary {
-  min-height: 52px;
+  min-width: 0;
+  min-height: 36px;
+  flex: 1;
   display: inline-flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 7px;
-  max-width: 100%;
-  padding: 11px 17px;
-  border: 1px solid rgba(31, 35, 40, 0.12);
-  border-radius: 20px;
-  background: rgba(255, 255, 255, 0.88);
-  box-shadow: 0 1px 0 rgba(31, 35, 40, 0.03);
+  padding: 5px 4px;
   color: #6e7781;
   font: inherit;
-  font-size: 16px;
+  font-size: 14px;
   font-weight: 500;
-  line-height: 22px;
+  line-height: 20px;
   white-space: nowrap;
 }
 
@@ -7958,6 +7886,108 @@ button.code-agent-transcript-result-summary:focus-visible {
 
 .code-agent-transcript-result-summary .removed {
   color: #cf222e;
+}
+
+.code-agent-transcript-result-actions {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 6px;
+}
+
+.code-agent-transcript-result-review.git-diff {
+  background: transparent;
+  color: #57606a;
+}
+
+.code-agent-transcript-change-review-overlay {
+  position: fixed;
+  z-index: 80;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 32px;
+  background: rgba(17, 24, 39, 0.38);
+}
+
+.code-agent-transcript-change-review-dialog {
+  display: grid;
+  width: min(960px, 100%);
+  max-height: min(760px, calc(100vh - 64px));
+  overflow: hidden;
+  border: 1px solid rgba(31, 35, 40, 0.15);
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 24px 80px rgba(17, 24, 39, 0.2);
+}
+
+.code-agent-transcript-change-review-dialog > header,
+.code-agent-transcript-change-review-file > header {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.code-agent-transcript-change-review-dialog > header {
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(31, 35, 40, 0.08);
+  color: #57606a;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.code-agent-transcript-change-review-dialog > header .added,
+.code-agent-transcript-change-review-file .added {
+  color: #1f883d;
+}
+
+.code-agent-transcript-change-review-dialog > header .removed,
+.code-agent-transcript-change-review-file .removed {
+  color: #cf222e;
+}
+
+.code-agent-transcript-change-review-dialog > header > button {
+  width: 28px;
+  height: 28px;
+  margin-left: auto;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #57606a;
+  cursor: pointer;
+}
+
+.code-agent-transcript-change-review-dialog > header > button:hover,
+.code-agent-transcript-change-review-dialog > header > button:focus-visible {
+  background: rgba(31, 35, 40, 0.08);
+}
+
+.code-agent-transcript-change-review-dialog > header > button svg {
+  width: 14px;
+  height: 14px;
+}
+
+.code-agent-transcript-change-review-body {
+  overflow: auto;
+}
+
+.code-agent-transcript-change-review-file + .code-agent-transcript-change-review-file {
+  border-top: 1px solid rgba(31, 35, 40, 0.08);
+}
+
+.code-agent-transcript-change-review-file > header {
+  padding: 9px 14px;
+  background: #f6f8fa;
+}
+
+.code-agent-transcript-change-review-file .code-agent-transcript-result-file-path {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: #24292f;
+  font: 12px/18px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .code-agent-transcript-result-icon {
@@ -17749,12 +17779,6 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
 
   body.code-mode.code-compact-layout .code-agent-transcript-markdown-file-link .code-agent-transcript-file-label {
     margin-left: 0;
-  }
-
-  body.code-mode.code-compact-layout .code-agent-transcript-process-group.running > .code-agent-transcript-process-group-summary > .code-agent-transcript-process-dot,
-  body.code-mode.code-compact-layout .code-agent-transcript-process-item.status-running .code-agent-transcript-process-dot,
-  body.code-mode.code-compact-layout .code-agent-transcript-plan-list li.running .code-agent-transcript-plan-marker {
-    animation: none;
   }
 
   body.code-mode.code-compact-layout .code-agent-transcript-jump-bottom {

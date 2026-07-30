@@ -224,6 +224,7 @@ import { getLocalIPs, getPrimaryLocalIP } from './network.cjs';
 import { listAvailableAgents, resolveCompatibleCodexExecutable } from './executable-discovery.cjs';
 import { readClaudeSettingsSummary } from './claude-settings.cjs';
 import { listCodexModelOptions } from './codex-models.cjs';
+import { applyProviderHomeEnvironment } from './provider-adapters.cjs';
 import { listCodexSessions } from './codex-session-history.cjs';
 import { buildAgentSessionResumeCommand, findAgentSession, isSafeSessionId, listAgentSessions, normalizeProvider, paginateAgentSessions, resolveCodexResumeModelProvider, searchAgentSessions } from './agent-session-history.cjs';
 import { findActiveAgentClaimingSession, mainPageAgentSessionKey, mainPageAgentSessionFromKey, mainPageAgentSessionsToAutoResume, resumedAgentSource } from './main-page-session.cjs';
@@ -409,7 +410,9 @@ const usageSummaryCache = new AsyncCache(() => usageMonitor.getUsageSummary(), {
   ttlMs: 15_000,
   staleMs: 2 * 60_000,
 });
-const codexModelOptionsCache = new AsyncCache(() => listCodexModelOptions(), {
+const codexModelOptionsCache = new AsyncCache((homePath: string) => listCodexModelOptions({
+  env: applyProviderHomeEnvironment({ ...process.env }, 'codex', homePath),
+}), {
   ttlMs: 5 * 60_000,
   staleMs: 5 * 60_000,
 });
@@ -425,6 +428,19 @@ function configuredProviderHomes() {
     })).filter(home => home.id && home.path);
   }
   return result;
+}
+
+function requestedProviderHome(provider: string, rawHomeId: unknown) {
+  const homeId = typeof rawHomeId === 'string' && rawHomeId.trim()
+    ? rawHomeId.trim()
+    : 'default';
+  if (!/^[A-Za-z0-9._-]+$/.test(homeId)) {
+    return { error: 'Invalid Agent Home id', home: null, status: 400 };
+  }
+  const home = configManager.getAgentHome(provider, homeId);
+  return home
+    ? { error: '', home, status: 200 }
+    : { error: `Unknown ${provider} Agent Home: ${homeId}`, home: null, status: 404 };
 }
 
 const agentSessionsCache = new AsyncCache(() => {
@@ -990,7 +1006,18 @@ app.get(routePath(BASE_PATH, '/api/agent-extensions'), (_req, res) => {
 app.get(routePath(BASE_PATH, '/api/slash-commands'), (req, res) => {
   const provider = typeof req.query.provider === 'string' ? req.query.provider : '';
   const workspace = typeof req.query.workspace === 'string' ? req.query.workspace : '';
-  res.json({ commands: discoverSlashCommands({ provider, workspace }) });
+  const requested = requestedProviderHome(provider, req.query.homeId);
+  if (!requested.home) {
+    res.status(requested.status).json({ error: requested.error });
+    return;
+  }
+  res.json({
+    commands: discoverSlashCommands({
+      provider,
+      providerHomePath: requested.home.path,
+      workspace,
+    }),
+  });
 });
 
 const IMAGE_ATTACHMENT_EXTENSIONS: Record<string, string> = {
@@ -1125,8 +1152,13 @@ app.post(
 );
 
 app.get(routePath(BASE_PATH, '/api/codex/models'), async (req, res) => {
+  const requested = requestedProviderHome('codex', req.query.homeId);
+  if (!requested.home) {
+    res.status(requested.status).json({ error: requested.error });
+    return;
+  }
   try {
-    const catalog = await codexModelOptionsCache.get('catalog');
+    const catalog = await codexModelOptionsCache.get(requested.home.path);
     res.json(catalog);
   } catch (caught) {
     const error = caughtError(caught);
@@ -1139,7 +1171,16 @@ app.get(routePath(BASE_PATH, '/api/codex/models'), async (req, res) => {
 });
 
 app.get(routePath(BASE_PATH, '/api/claude/settings'), (req, res) => {
-  res.json({ settings: readClaudeSettingsSummary() });
+  const requested = requestedProviderHome('claude', req.query.homeId);
+  if (!requested.home) {
+    res.status(requested.status).json({ error: requested.error });
+    return;
+  }
+  res.json({
+    settings: readClaudeSettingsSummary({
+      settingsFile: path.join(requested.home.path, 'settings.json'),
+    }),
+  });
 });
 
 app.get(routePath(BASE_PATH, '/api/usage'), async (req, res) => {
@@ -1241,11 +1282,16 @@ function warmCodexExecutableVersionCache() {
 }
 
 app.get(routePath(BASE_PATH, '/api/codex/sessions'), async (req, res) => {
+  const requested = requestedProviderHome('codex', req.query.homeId);
+  if (!requested.home) {
+    res.status(requested.status).json({ error: requested.error });
+    return;
+  }
   const requestedLimit = Number(req.query.limit);
   const limit = Number.isFinite(requestedLimit) ? Math.max(0, Math.min(1000, requestedLimit)) : 40;
   const requestedScanLimit = Number(req.query.scanLimit);
   const scanLimit = Number.isFinite(requestedScanLimit) ? Math.max(limit, Math.min(5000, requestedScanLimit)) : undefined;
-  const sessions = await listCodexSessions({ limit, scanLimit });
+  const sessions = await listCodexSessions({ codexHome: requested.home.path, limit, scanLimit });
   res.json({ sessions });
 });
 

@@ -56,6 +56,11 @@ type AgentConfiguration = {
   home: AgentExtensionGroup['homes'][number]
 }
 
+type AgentHomeOptionCatalog = {
+  models: CodexModelOption[]
+  reasoning: Array<{ value: string; label: string }>
+}
+
 type SelectedAgentExtension = AgentExtension & {
   agentName: string
   homeId: string
@@ -335,9 +340,7 @@ export function PluginsPanel({
   const [editingAgentKey, setEditingAgentKey] = useState('')
   const [editingHomePath, setEditingHomePath] = useState('')
   const [draggingAgentKey, setDraggingAgentKey] = useState('')
-  const [codexModels, setCodexModels] = useState<CodexModelOption[]>([])
-  const [claudeModels, setClaudeModels] = useState<CodexModelOption[]>([])
-  const [claudeReasoning, setClaudeReasoning] = useState<Array<{ value: string; label: string }>>([])
+  const [agentHomeCatalogs, setAgentHomeCatalogs] = useState<Record<string, AgentHomeOptionCatalog>>({})
   const [selectedExtension, setSelectedExtension] = useState<SelectedAgentExtension | null>(null)
   const agentGroupsRequestRef = useRef(0)
   const agentSaveRequestRef = useRef<number | null>(null)
@@ -429,34 +432,53 @@ export function PluginsPanel({
 
   useEffect(() => {
     let cancelled = false
-    void Promise.all([
-      fetch(appPath('/api/codex/models'))
-        .then(response => response.ok ? response.json() : {})
-        .then((data: { catalog?: CodexModelOption[] }) => {
-          if (!cancelled) setCodexModels(Array.isArray(data.catalog) ? data.catalog : [])
-        }),
-      fetch(appPath('/api/claude/settings'))
-        .then(response => response.ok ? response.json() : {})
-        .then((data: {
-          settings?: {
-            modelOptions?: CodexModelOption[]
-            effortOptions?: Array<{ value: string; label?: string }>
-          }
-        }) => {
-          if (cancelled) return
-          setClaudeModels(Array.isArray(data.settings?.modelOptions) ? data.settings.modelOptions : [])
-          setClaudeReasoning(Array.isArray(data.settings?.effortOptions)
-            ? data.settings.effortOptions.map(option => ({
+    const catalogHomes = agentGroups.flatMap(provider => (
+      provider.id === 'codex' || provider.id === 'claude'
+        ? provider.homes.map(home => ({ provider: provider.id, homeId: home.id }))
+        : []
+    ))
+    if (catalogHomes.length === 0) {
+      setAgentHomeCatalogs({})
+      return () => {
+        cancelled = true
+      }
+    }
+    void Promise.all(catalogHomes.map(async ({ provider, homeId }) => {
+      const emptyCatalog: AgentHomeOptionCatalog = { models: [], reasoning: [] }
+      try {
+        const params = new URLSearchParams({ homeId })
+        const response = await fetch(appPath(
+          provider === 'codex'
+            ? `/api/codex/models?${params.toString()}`
+            : `/api/claude/settings?${params.toString()}`
+        ))
+        const data = response.ok ? await response.json() : {}
+        if (provider === 'codex') {
+          return [agentConfigurationKey(provider, homeId), {
+            models: Array.isArray(data.catalog) ? data.catalog : [],
+            reasoning: [],
+          }] as const
+        }
+        const settings = data.settings && typeof data.settings === 'object' ? data.settings : {}
+        return [agentConfigurationKey(provider, homeId), {
+          models: Array.isArray(settings.modelOptions) ? settings.modelOptions : [],
+          reasoning: Array.isArray(settings.effortOptions)
+            ? settings.effortOptions.map((option: { value: string; label?: string }) => ({
                 value: option.value,
                 label: option.label || option.value,
               }))
-            : [])
-        }),
-    ]).catch(() => {})
+            : [],
+        }] as const
+      } catch {
+        return [agentConfigurationKey(provider, homeId), emptyCatalog] as const
+      }
+    })).then(entries => {
+      if (!cancelled) setAgentHomeCatalogs(Object.fromEntries(entries))
+    })
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [agentGroups])
 
   const saveAgentGroups = useCallback(async (nextGroups: AgentExtensionGroup[]) => {
     if (!agentPanelScopeRef.current.mounted || agentSaveRequestRef.current) return false
@@ -1045,12 +1067,11 @@ export function PluginsPanel({
           const extensionCount = home.extensions.length
           const kindGroups = agentExtensionKindGroups(home)
           const supportsManagedDefaults = provider.id === 'codex' || provider.id === 'claude'
-          const modelCatalog = provider.id === 'codex'
-            ? codexModels
-            : (provider.id === 'claude' ? claudeModels : [])
+          const homeCatalog = agentHomeCatalogs[key] || { models: [], reasoning: [] }
+          const modelCatalog = supportsManagedDefaults ? homeCatalog.models : []
           const reasoningCatalog = provider.id === 'codex'
-            ? reasoningOptionsForModel(home.newAgentDefaults.model, codexModels)
-            : (provider.id === 'claude' ? claudeReasoning : [])
+            ? reasoningOptionsForModel(home.newAgentDefaults.model, homeCatalog.models)
+            : (provider.id === 'claude' ? homeCatalog.reasoning : [])
           const modelOptions = home.newAgentDefaults.model !== 'inherit'
             && !modelCatalog.some(option => option.value === home.newAgentDefaults.model)
             ? [{

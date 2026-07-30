@@ -647,12 +647,13 @@ function run() {
       terminalComposerSource.includes("window.matchMedia('(max-width: 980px)')") &&
       workspaceSource.includes('if (activeAgentCapabilities.composer.permissionMode || activeAgentCapabilities.composer.modelPicker) return') &&
       workspaceSource.includes("return { ...closed, mode: 'default' }") &&
-      workspaceSource.includes("fetch(appPath('/api/codex/models'))") &&
-      workspaceSource.includes("fetch(appPath('/api/claude/settings'))") &&
+      workspaceSource.includes('`/api/codex/models?${params.toString()}`') &&
+      workspaceSource.includes('`/api/claude/settings?${params.toString()}`') &&
+      workspaceSource.includes("new URLSearchParams({ provider, homeId })") &&
       workspaceSource.includes('normalizeClaudeSettingsSummary') &&
       workspaceSource.includes('resolvedClaudeModel') &&
       workspaceSource.includes('resolvedClaudeEffort') &&
-      workspaceSource.includes('if (!modelMenuOpen) return undefined') &&
+      workspaceSource.includes("if (!modelMenuOpen || composerAgentKind !== 'codex') return undefined") &&
       workspaceSource.includes('return loadCodexModels()') &&
       !workspaceSource.includes('useEffect(() => loadCodexModels(), [loadCodexModels])') &&
       workspaceSource.includes('const AGENT_SESSION_PAGE_SIZE = 60') &&

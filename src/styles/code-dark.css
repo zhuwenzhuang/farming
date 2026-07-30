@@ -1876,10 +1876,6 @@ body.code-mode[data-appearance='dark'] .code-agent-transcript-process-item {
   color: var(--code-dark-text-muted);
 }
 
-body.code-mode[data-appearance='dark'] .code-agent-transcript-process-dot {
-  background: rgba(139, 148, 158, 0.72);
-}
-
 body.code-mode[data-appearance='dark'] .code-agent-transcript-process-status {
   background: transparent;
   color: var(--code-dark-text-muted);
@@ -1986,18 +1982,12 @@ body.code-mode[data-appearance='dark'] .code-agent-transcript-plan-list li {
   color: var(--code-dark-text-muted);
 }
 
-body.code-mode[data-appearance='dark'] .code-agent-transcript-plan-marker {
-  border-color: rgba(139, 148, 158, 0.5);
+body.code-mode[data-appearance='dark'] .code-agent-transcript-plan-list li.running {
+  color: var(--code-dark-text);
 }
 
-body.code-mode[data-appearance='dark'] .code-agent-transcript-plan-list li.completed .code-agent-transcript-plan-marker {
-  border-color: #3fb950;
-  background: #3fb950;
-}
-
-body.code-mode[data-appearance='dark'] .code-agent-transcript-plan-list li.running .code-agent-transcript-plan-marker {
-  border-color: var(--code-dark-text-muted);
-  border-top-color: transparent;
+body.code-mode[data-appearance='dark'] .code-agent-transcript-plan-list li.running::marker {
+  color: var(--code-dark-text-soft);
 }
 
 body.code-mode[data-appearance='dark'] .code-agent-transcript-result-summary {
@@ -2036,6 +2026,34 @@ body.code-mode[data-appearance='dark'] .code-agent-transcript-result-details {
 body.code-mode[data-appearance='dark'] .code-agent-transcript-result-card.expanded .code-agent-transcript-result-header {
   border-color: var(--code-dark-border);
   background: rgba(22, 27, 34, 0.96);
+}
+
+body.code-mode[data-appearance='dark'] .code-agent-transcript-result-header,
+body.code-mode[data-appearance='dark'] .code-agent-transcript-change-review-dialog {
+  border-color: var(--code-dark-border);
+  background: var(--code-dark-bg-panel);
+}
+
+body.code-mode[data-appearance='dark'] .code-agent-transcript-change-review-dialog > header,
+body.code-mode[data-appearance='dark'] .code-agent-transcript-change-review-file + .code-agent-transcript-change-review-file {
+  border-color: var(--code-dark-border);
+}
+
+body.code-mode[data-appearance='dark'] .code-agent-transcript-change-review-file > header {
+  background: rgba(139, 148, 158, 0.08);
+}
+
+body.code-mode[data-appearance='dark'] .code-agent-transcript-change-review-file .code-agent-transcript-result-file-path {
+  color: var(--code-dark-text);
+}
+
+body.code-mode[data-appearance='dark'] .code-agent-transcript-change-review-dialog > header > button {
+  color: var(--code-dark-text-muted);
+}
+
+body.code-mode[data-appearance='dark'] .code-agent-transcript-change-review-dialog > header > button:hover,
+body.code-mode[data-appearance='dark'] .code-agent-transcript-change-review-dialog > header > button:focus-visible {
+  background: rgba(139, 148, 158, 0.16);
 }
 
 body.code-mode[data-appearance='dark'] .code-agent-transcript-result-card.expanded .code-agent-transcript-result-summary {
@@ -2090,51 +2108,6 @@ body.code-mode[data-appearance='dark'] .code-agent-transcript-result-review {
   border-color: var(--code-dark-border);
   background: rgba(22, 27, 34, 0.9);
   color: var(--code-dark-text);
-}
-
-body.code-mode[data-appearance='dark'] .code-agent-transcript-process-item.command .code-agent-transcript-process-dot {
-  background: #3fb950;
-}
-
-body.code-mode[data-appearance='dark'] .code-agent-transcript-process-item.patch .code-agent-transcript-process-dot {
-  background: #a371f7;
-}
-
-body.code-mode[data-appearance='dark'] .code-agent-transcript-process-item.mcp .code-agent-transcript-process-dot,
-body.code-mode[data-appearance='dark'] .code-agent-transcript-process-item.tool .code-agent-transcript-process-dot,
-body.code-mode[data-appearance='dark'] .code-agent-transcript-process-item.tool-output .code-agent-transcript-process-dot {
-  background: #58a6ff;
-}
-
-body.code-mode[data-appearance='dark'] .code-agent-transcript-process-item.reasoning .code-agent-transcript-process-dot,
-body.code-mode[data-appearance='dark'] .code-agent-transcript-process-item.plan .code-agent-transcript-process-dot {
-  background: #d29922;
-}
-
-body.code-mode[data-appearance='dark'] .code-agent-transcript-process-item.web-search .code-agent-transcript-process-dot {
-  background: #39c5cf;
-}
-
-body.code-mode[data-appearance='dark'] .code-agent-transcript-process-item.status-running .code-agent-transcript-process-dot {
-  background: transparent;
-  border-color: var(--code-dark-text-muted);
-  border-top-color: transparent;
-}
-
-body.code-mode[data-appearance='dark'] .code-agent-transcript-process-group.running > .code-agent-transcript-process-group-summary > .code-agent-transcript-process-dot {
-  background: transparent;
-  border-color: var(--code-dark-text-muted);
-  border-top-color: transparent;
-}
-
-body.code-mode[data-appearance='dark'] .code-agent-transcript-process-item.status-failed .code-agent-transcript-process-dot,
-body.code-mode[data-appearance='dark'] .code-agent-transcript-process-item.error .code-agent-transcript-process-dot {
-  background: #ff7b72;
-}
-
-body.code-mode[data-appearance='dark'] .code-agent-transcript-process-item.status-warning .code-agent-transcript-process-dot,
-body.code-mode[data-appearance='dark'] .code-agent-transcript-process-item.warning .code-agent-transcript-process-dot {
-  background: #d29922;
 }
 
 body.code-mode[data-appearance='dark'] .code-agent-transcript-state,

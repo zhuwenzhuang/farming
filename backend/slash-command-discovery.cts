@@ -493,9 +493,18 @@ function discoverAgentExtensions({
 function discoverSlashCommands({
   provider,
   homeDir = os.homedir(),
+  providerHomePath,
   workspace,
 }: DiscoveryOptions = {}): DiscoveredCommand[] {
   const normalizedProvider = normalizeProvider(provider);
+  if (normalizedProvider && normalizeWorkspace(providerHomePath)) {
+    return discoverAgentExtensions({
+      provider: normalizedProvider,
+      providerHomePath,
+      workspace,
+      homeDir,
+    });
+  }
   if (normalizedProvider === 'codex') {
     return discoverCodexSkillMentions({ homeDir, workspace });
   }

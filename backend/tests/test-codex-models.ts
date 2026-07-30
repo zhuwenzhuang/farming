@@ -61,12 +61,14 @@ async function run() {
 
   let observedExecOptions = null;
   const liveCatalog = await listCodexModelOptions({
+    env: { CODEX_HOME: '/tmp/codex-work' },
     execFile(_bin, _args, execOptions, callback) {
       observedExecOptions = execOptions;
       callback(null, raw, '');
     },
   });
   assert.strictEqual(observedExecOptions.timeout, DEFAULT_CODEX_MODELS_TIMEOUT_MS);
+  assert.strictEqual(observedExecOptions.env.CODEX_HOME, '/tmp/codex-work');
   assert.strictEqual(DEFAULT_CODEX_MODELS_TIMEOUT_MS, 15_000);
   assert.strictEqual(liveCatalog.source, 'codex');
   assert.deepStrictEqual(liveCatalog.catalog.map(option => option.value), ['gpt-5.5', 'gpt-5.4']);

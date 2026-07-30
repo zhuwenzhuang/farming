@@ -140,7 +140,7 @@
   min-height: 32px;
   position: relative;
   display: grid;
-  grid-template-columns: 8px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   align-items: center;
   gap: 7px;
   margin: 0 4px 0 0;
@@ -150,6 +150,10 @@
   cursor: default;
   font-size: 13px;
   line-height: 16px;
+}
+
+.farming-browser-row.running {
+  grid-template-columns: minmax(0, 1fr) 7px;
 }
 
 .farming-browser-row:hover,
@@ -167,21 +171,9 @@
 .farming-browser-status {
   width: 7px;
   height: 7px;
+  justify-self: end;
   border-radius: 999px;
-  background: #9aa198;
-}
-
-.farming-browser-status.running {
   background: #2da44e;
-}
-
-.farming-browser-status.failed {
-  background: #cf4a4a;
-}
-
-.farming-browser-status.starting,
-.farming-browser-status.stopping {
-  background: #bf8700;
 }
 
 .farming-browser-row-copy {

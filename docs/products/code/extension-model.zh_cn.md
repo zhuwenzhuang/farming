@@ -32,7 +32,7 @@ Farming Code 后续应通过 Extension 扩展能力，而不是把每一种新�
 
 Farming Code 通过统一的插件页面呈现这些能力。左上角的紧凑拼图按钮和空白欢迎页上的大型“插件”入口进入同一个页面；插件生命周期、Agent Home 管理与新 Agent 默认值都归属这里，不再堆进通用设置。每一次变更仍然必须由用户显式操作。
 
-同一个页面也拥有 Agent 配置。一个 Provider 加一个 Agent Home ID 就是一份独立 Agent 配置：`Codex · default` 与 `Codex · work` 是两个 Agent，即使它们都使用 Codex。每一项常态只保留便于扫读的摘要，新 Agent 默认值与扩展分类只在用户需要时展开。Skill、Plugin 与 Command 只在拥有它们的精确 Home 下发现和展示；Farming 不会再把多个 Home 的扩展合并成 Provider 级列表。全局 Farming Settings 中有序的 `agentHomes` Registry 是权威状态。新增项追加到末尾，拖拽或键盘移动会重写稳定的数字顺序，只有非 `default` 项可以删除。因此 Agent Home 管理不再出现在通用 Settings 中。
+同一个页面也拥有 Agent 配置。一个 Provider 加一个 Agent Home ID 就是一份独立 Agent 配置：`Codex · default` 与 `Codex · work` 是两个 Agent，即使它们都使用 Codex。每一项常态只保留便于扫读的摘要，新 Agent 默认值与扩展分类只在用户需要时展开。所有面向 Provider 的 Catalog、Settings、Session 与 Extension 读取都必须先解析精确 Home，缓存键也必须包含该 Home 身份；默认 Home 的结果绝不能填充到其他 Home。Skill、Plugin 与 Command 只在拥有它们的精确 Home 下发现和展示；Farming 不会再把多个 Home 的扩展合并成 Provider 级列表。全局 Farming Settings 中有序的 `agentHomes` Registry 是权威状态。新增项追加到末尾，拖拽或键盘移动会重写稳定的数字顺序，只有非 `default` 项可以删除。因此 Agent Home 管理不再出现在通用 Settings 中。
 
 每份 Agent 配置还拥有只用于 Farming 新建 Agent 时的默认值：Provider 支持时包括 Model、Reasoning Effort 和 Fast。默认值 `inherit` 表示 Farming 不向 Provider 传入对应覆盖参数。Codex 把显式 Fast 开关映射到 Priority/Default Service Tier；Claude 支持 Model 与 Effort，但不支持 Fast；没有受支持的启动前配置 Contract 的 Provider 继续由自身管理。Terminal 与 ACP Chat 在共享的 Agent Start 边界解析同一份 Home 默认值。恢复已有 Provider Session 时保留该 Session 的 Profile，不会用“新 Agent 默认值”覆盖它。
 
@@ -82,7 +82,7 @@ Farming 的 Browser Extension 拥有每个 Browser Resource 身份，以及 View
 
 MVP 有意只支持一套操作实现：锁定版本的 `agent-browser` Command 与 Stream Protocol，通过系统浏览器 Executable 或 Agent Computer 的私有回环 CDP Endpoint 进入。旧受管 Chromium 和 External CDP 设置只保留读取兼容。结构化 Agent Surface 已覆盖导航与等待、DOM 交互、检查与 JavaScript、Console/Error/Network 诊断、Cookie/Storage、Frame/Dialog 和 Project 级 Upload/Download。Computer 仍是浏览器原生窗口框架、Dialog 与任意 Linux 应用的独立完整桌面操作入口；选择隔离来源时，两个 Viewer 观察同一个 Chromium。
 
-每个 Browser 都有持久唯一 ID、一个 Agent Owner，以及用于文件隔离的 Project Root。在侧栏中它默认隐藏在 **Agent → Resources → Browsers** 下；展开或收起这两层都不会改变 Runtime 或 Viewer 状态。隔离 Computer 是 Agent 下另一条可见 Resource，Browser Stop/Delete 后仍保留。Browser 仍可通过 `browser` URL Query Parameter 直接打开。删除系统浏览器 Row 时必须先停止精确 Runtime，再删除独立 Profile；删除隔离 Browser Row 只关闭其 Tab/Session，删除 Agent 才拥有精确 Computer 删除；删除旧 External CDP Row 时只关闭 Farming 创建的 Target。
+每个 Browser 都有持久唯一 ID、一个 Agent Owner，以及用于文件隔离的 Project Root。在侧栏中它默认隐藏在 **Agent → Resources → Browsers** 下；展开或收起这两层都不会改变 Runtime 或 Viewer 状态。Browser 处于 stopped、failed、starting 或 stopping 时不显示状态点，只有真正 running 后才在行的最右侧显示一个绿点。隔离 Computer 是 Agent 下另一条可见 Resource，Browser Stop/Delete 后仍保留。Browser 仍可通过 `browser` URL Query Parameter 直接打开。删除系统浏览器 Row 时必须先停止精确 Runtime，再删除独立 Profile；删除隔离 Browser Row 只关闭其 Tab/Session，删除 Agent 才拥有精确 Computer 删除；删除旧 External CDP Row 时只关闭 Farming 创建的 Target。
 
 Viewer 地址栏接受完整 HTTP(S) URL 或裸 Host。裸公网域名默认补全为 HTTPS；回环地址、IP 字面量、单段内网 Host 和显式非默认端口默认使用 HTTP。Farming 不会猜测 `www` Host。导航失败会明确显示；下一次导航开始时会清除旧错误，成功后也不会残留上一次失败提示。Viewer 键盘输入通过隐藏文本代理接收，因此已提交的输入法文字和粘贴内容可以进入页面；普通 ASCII 按键仍走低延迟的流式通道。
 

@@ -328,7 +328,7 @@ test('Terminal Codex uses the live matrix and applies profile changes immediatel
   fs.mkdirSync(workspace, { recursive: true })
   fs.writeFileSync(path.join(workspace, 'README.md'), '# Terminal model matrix fixture\n')
 
-  await page.route('**/farming/api/codex/models', route => route.fulfill({
+  await page.route('**/farming/api/codex/models**', route => route.fulfill({
     json: { catalog: TERMINAL_MODEL_CATALOG, source: 'fixture' },
   }))
   const terminalProfiles: MatrixState[] = []
@@ -410,7 +410,7 @@ test('Terminal Codex uses the live matrix and applies profile changes immediatel
 test('Terminal Codex keeps live profile controls disabled while a turn is active', async ({ page, workspaceRoot }) => {
   const workspace = path.join(workspaceRoot, 'terminal-model-matrix-busy')
   fs.mkdirSync(workspace, { recursive: true })
-  await page.route('**/farming/api/codex/models', route => route.fulfill({
+  await page.route('**/farming/api/codex/models**', route => route.fulfill({
     json: { catalog: TERMINAL_MODEL_CATALOG, source: 'fixture' },
   }))
   await page.request.post('/farming/api/settings', {
@@ -450,7 +450,7 @@ test('Terminal Codex expires its browser catalog and reports refresh failure wit
   })
 
   let catalogRequests = 0
-  await page.route('**/farming/api/codex/models', route => {
+  await page.route('**/farming/api/codex/models**', route => {
     catalogRequests += 1
     if (catalogRequests === 1) {
       return route.fulfill({ json: { catalog: TERMINAL_MODEL_CATALOG, source: 'fixture' } })
@@ -506,7 +506,7 @@ test('Terminal Codex expires its browser catalog and reports refresh failure wit
 test('Terminal picker follows the active footer instead of the global launch profile', async ({ page, workspaceRoot }) => {
   const workspace = path.join(workspaceRoot, 'terminal-live-model-profile')
   fs.mkdirSync(workspace, { recursive: true })
-  await page.route('**/farming/api/codex/models', route => route.fulfill({
+  await page.route('**/farming/api/codex/models**', route => route.fulfill({
     json: { catalog: TERMINAL_MODEL_CATALOG, source: 'fixture' },
   }))
   const terminalProfiles: MatrixState[] = []
@@ -588,7 +588,7 @@ test('Terminal matrix explains unavailable Fast and Ultra without changing layou
     reasoningLevels: model.reasoningLevels.filter(reasoning => reasoning.value !== 'ultra'),
     serviceTiers: model.serviceTiers.filter(tier => tier.value !== 'priority'),
   }))
-  await page.route('**/farming/api/codex/models', route => route.fulfill({
+  await page.route('**/farming/api/codex/models**', route => route.fulfill({
     json: { catalog: limitedCatalog, source: 'fixture' },
   }))
   await page.request.post('/farming/api/settings', {

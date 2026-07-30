@@ -1,7 +1,19 @@
+import fs from 'node:fs'
+import path from 'node:path'
 import { expect, openFarming, test } from './fixtures'
 
 test('Plugins treats each Agent Home as an independent ordered Agent configuration', async ({ page, workspaceRoot }) => {
   await openFarming(page)
+  const claudeDefaultHome = path.join(workspaceRoot, 'claude-default')
+  const claudeWorkHome = path.join(workspaceRoot, 'claude-work')
+  fs.mkdirSync(claudeDefaultHome, { recursive: true })
+  fs.mkdirSync(claudeWorkHome, { recursive: true })
+  fs.writeFileSync(path.join(claudeDefaultHome, 'settings.json'), JSON.stringify({
+    env: { ANTHROPIC_MODEL: 'claude-default-only' },
+  }))
+  fs.writeFileSync(path.join(claudeWorkHome, 'settings.json'), JSON.stringify({
+    env: { ANTHROPIC_MODEL: 'claude-work-only' },
+  }))
   await page.request.post('/farming/api/settings', {
     data: {
       agentHomes: {
@@ -19,16 +31,34 @@ test('Plugins treats each Agent Home as an independent ordered Agent configurati
             newAgentDefaults: { model: 'inherit', reasoning: 'inherit', fast: 'inherit' },
           },
         ],
-        claude: [{
-          id: 'default',
-          path: '~/.claude',
-          order: 1,
-          newAgentDefaults: { model: 'inherit', reasoning: 'inherit', fast: 'inherit' },
-        }],
+        claude: [
+          {
+            id: 'default',
+            path: claudeDefaultHome,
+            order: 1,
+            newAgentDefaults: { model: 'inherit', reasoning: 'inherit', fast: 'inherit' },
+          },
+          {
+            id: 'work',
+            path: claudeWorkHome,
+            order: 3,
+            newAgentDefaults: { model: 'inherit', reasoning: 'inherit', fast: 'inherit' },
+          },
+        ],
       },
     },
   })
 
+  const catalogHomeRequests: string[] = []
+  page.on('request', request => {
+    const url = new URL(request.url())
+    if (url.pathname.endsWith('/api/codex/models')) {
+      catalogHomeRequests.push(`codex:${url.searchParams.get('homeId')}`)
+    }
+    if (url.pathname.endsWith('/api/claude/settings')) {
+      catalogHomeRequests.push(`claude:${url.searchParams.get('homeId')}`)
+    }
+  })
   await page.getByTestId('code-nav-plugins').click()
   const panel = page.getByTestId('code-plugins-panel')
   const agentSections = panel.locator('.code-plugin-agent-section')
@@ -44,6 +74,25 @@ test('Plugins treats each Agent Home as an independent ordered Agent configurati
   await expect(openCode.getByText('Use Agent configuration from this Home', { exact: true })).toBeVisible()
   await expect(openCode.getByRole('combobox')).toHaveCount(0)
   await expect(panel.locator('.code-plugin-kind-section[open]')).toHaveCount(0)
+  await expect.poll(() => [...new Set(catalogHomeRequests)].sort()).toEqual([
+    'claude:default',
+    'claude:work',
+    'codex:default',
+    'codex:work',
+  ])
+
+  const claudeDefault = panel.getByTestId('code-plugin-section-agent-claude-default')
+  const claudeWork = panel.getByTestId('code-plugin-section-agent-claude-work')
+  await claudeDefault.locator('.code-plugin-agent-defaults > summary').click()
+  await claudeWork.locator('.code-plugin-agent-defaults > summary').click()
+  await expect(claudeDefault.getByLabel('Model').locator('option')).toHaveText([
+    'Inherit Agent config',
+    'claude-default-only',
+  ])
+  await expect(claudeWork.getByLabel('Model').locator('option')).toHaveText([
+    'Inherit Agent config',
+    'claude-work-only',
+  ])
 
   const work = panel.getByTestId('code-plugin-section-agent-codex-work')
   await expect(work.getByText('work', { exact: true })).toBeVisible()

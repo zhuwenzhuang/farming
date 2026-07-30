@@ -123,6 +123,24 @@ function run() {
     assert(codexExtensions.some(command => command.command === '$pdf:pdf'));
     assert(!JSON.stringify(codexExtensions).includes('secret'), 'Codex extension catalog should not expose skill body text');
 
+    const alternateCodexHome = path.join(tmpRoot, 'codex-work');
+    mkdirp(path.join(alternateCodexHome, 'skills', 'work-only'));
+    fs.writeFileSync(path.join(alternateCodexHome, 'skills', 'work-only', 'SKILL.md'), [
+      '---',
+      'name: work-only',
+      'description: Work Home only',
+      '---',
+      '',
+    ].join('\n'));
+    const alternateCodexCommands = discoverSlashCommands({
+      provider: 'codex',
+      providerHomePath: alternateCodexHome,
+      homeDir,
+      workspace,
+    });
+    assert(alternateCodexCommands.some(command => command.command === '$work-only'));
+    assert(!alternateCodexCommands.some(command => command.command === '$pdf:pdf'));
+
     const claudeExtensions = discoverAgentExtensions({
       provider: 'claude',
       providerHomePath: path.join(homeDir, '.claude'),

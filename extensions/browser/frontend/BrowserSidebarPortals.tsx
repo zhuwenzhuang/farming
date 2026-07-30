@@ -113,7 +113,6 @@ function BrowserRow({
   const [renaming, setRenaming] = useState(false)
   const [name, setName] = useState(resource.name)
   const busy = resource.status === 'starting' || resource.status === 'stopping'
-  const sidebarStatus = resource.status === 'failed' ? 'stopped' : resource.status
   const submitRename = async () => {
     const next = name.trim()
     setRenaming(false)
@@ -128,7 +127,7 @@ function BrowserRow({
   }
   return (
     <div
-      className={`farming-browser-row ${active ? 'active' : ''}`}
+      className={`farming-browser-row ${active ? 'active' : ''} ${resource.status === 'running' ? 'running' : ''}`}
       data-testid="farming-browser-row"
       data-browser-id={resource.id}
       role="button"
@@ -141,7 +140,6 @@ function BrowserRow({
         }
       }}
     >
-      <span className={`farming-browser-status ${sidebarStatus}`} aria-hidden="true" />
       <span className="farming-browser-row-copy">
         {renaming ? (
           <input
@@ -167,6 +165,7 @@ function BrowserRow({
           {resourceStatusLabel(resource, copy)}
         </span>
       </span>
+      {resource.status === 'running' ? <span className="farming-browser-status" aria-hidden="true" /> : null}
       <span className="farming-browser-row-actions">
         <button
           type="button"

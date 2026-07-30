@@ -57,7 +57,7 @@ interface CodexCommandError extends Error {
 type CodexModelsExec = (
   executable: string,
   args: string[],
-  options: { maxBuffer: number; timeout: number },
+  options: { env?: NodeJS.ProcessEnv; maxBuffer: number; timeout: number },
   callback: (
     error: CodexCommandError | null,
     stdout: string | Buffer,
@@ -67,6 +67,7 @@ type CodexModelsExec = (
 
 interface ListCodexModelOptions {
   codexBin?: string;
+  env?: NodeJS.ProcessEnv;
   execFile?: CodexModelsExec;
   timeout?: number;
 }
@@ -232,6 +233,7 @@ function listCodexModelOptions(
   return new Promise<CodexModelListResult>((resolve, reject) => {
     try {
       runExecFile(codexBin, ['debug', 'models'], {
+        ...(options.env ? { env: options.env } : {}),
         timeout,
         maxBuffer: 20 * 1024 * 1024,
       }, (error, stdout, stderr) => {

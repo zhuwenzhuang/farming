@@ -75,6 +75,7 @@ export interface CodeCopy {
   agentTranscriptFork: string
   agentTranscriptForkedFromAgent: string
   agentTranscriptReviewChanges: string
+  agentTranscriptGitDiff: string
   agentTranscriptShowChanges: string
   agentTranscriptShowMoreChanges: (count: number) => string
   agentTranscriptLoadingChanges: string
@@ -559,6 +560,7 @@ const EN_COPY: CodeCopy = {
   agentTranscriptFork: 'Fork conversation',
   agentTranscriptForkedFromAgent: 'Forked from agent',
   agentTranscriptReviewChanges: 'Review',
+  agentTranscriptGitDiff: 'Git diff',
   agentTranscriptShowChanges: 'Show file changes',
   agentTranscriptShowMoreChanges: (count) => `Show more files · ${count} remaining`,
   agentTranscriptLoadingChanges: 'Loading exact changes…',
@@ -1072,6 +1074,7 @@ const ZH_COPY: CodeCopy = {
   agentTranscriptFork: '分叉对话',
   agentTranscriptForkedFromAgent: '从 Agent 分叉',
   agentTranscriptReviewChanges: 'Review',
+  agentTranscriptGitDiff: 'Git diff',
   agentTranscriptShowChanges: '展开文件改动',
   agentTranscriptShowMoreChanges: (count) => `展开更多文件 · 还剩 ${count} 个`,
   agentTranscriptLoadingChanges: '正在加载准确改动…',

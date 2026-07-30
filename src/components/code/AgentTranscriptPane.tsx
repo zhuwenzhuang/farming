@@ -33,7 +33,6 @@ import {
   ChevronRightGlyph,
   CloseGlyph,
   CopyGlyph,
-  DifferenceGlyph,
   ForkGlyph,
 } from '@/components/IconGlyphs'
 import { MermaidBlock } from '@/components/files/FileEditorMarkdownPreview'
@@ -1405,14 +1404,6 @@ function patchResultSummary(fileCount: number, failed: boolean) {
   return fileCount === 1 ? '1 file changed' : `${fileCount} files changed`
 }
 
-const PATCH_RESULT_FILE_PAGE_SIZE = 4
-
-function patchResultFileParts(path: string) {
-  const segments = normalizeTranscriptPath(path).split('/').filter(Boolean)
-  const name = segments.pop() || path
-  return { name, directory: segments.join('/') }
-}
-
 function patchDiffLineClass(line: string) {
   if (line.startsWith('+') && !line.startsWith('+++')) return 'added'
   if (line.startsWith('-') && !line.startsWith('---')) return 'removed'
@@ -1764,14 +1755,17 @@ function AgentTranscriptProcessItemView({
   const details = (
     <>
       {planItems ? (
-        <ul className="code-agent-transcript-plan-list">
+        <ol className="code-agent-transcript-plan-list">
           {planItems.map((entry, index) => (
-            <li key={`${index}-${entry.text}`} className={entry.status}>
-              <span className="code-agent-transcript-plan-marker" aria-hidden="true" />
+            <li
+              key={`${index}-${entry.text}`}
+              className={entry.status}
+              aria-current={entry.status === 'running' ? 'step' : undefined}
+            >
               <span>{entry.text}</span>
             </li>
           ))}
-        </ul>
+        </ol>
       ) : null}
       <AgentTranscriptProcessImages images={images} />
       <AgentTranscriptAudios audios={audios} />
@@ -1819,7 +1813,6 @@ function AgentTranscriptProcessItemView({
       data-status={item.status || ''}
     >
       <div className="code-agent-transcript-process-title">
-        <span className="code-agent-transcript-process-dot" aria-hidden="true" />
         {expandable ? (
           <button
             type="button"
@@ -2050,8 +2043,11 @@ function AgentTranscriptPlanDriver({ plan }: { plan: AgentTranscriptProcessItem 
         items ? (
           <ol className="code-agent-transcript-plan-list">
             {items.map((item, index) => (
-              <li key={`${index}:${item.text}`} className={item.status}>
-                <span className="code-agent-transcript-plan-marker" aria-hidden="true" />
+              <li
+                key={`${index}:${item.text}`}
+                className={item.status}
+                aria-current={item.status === 'running' ? 'step' : undefined}
+              >
                 <span>{item.text}</span>
               </li>
             ))}
@@ -2124,7 +2120,6 @@ function AgentTranscriptProcessGroupView({
           toggleTranscriptDisclosureWithStableAnchor(event.currentTarget, () => onToggleGroup(groupId))
         }}
       >
-        <span className="code-agent-transcript-process-dot" aria-hidden="true" />
         <span className="code-agent-transcript-process-title-text">{summaryLabel || processGroupLabel(items)}</span>
         <ChevronRightGlyph className="code-agent-transcript-process-item-chevron" />
       </button>
@@ -2157,21 +2152,20 @@ function AgentTranscriptPatchResultCard({
   items,
   copy,
   onLoadPatchChanges,
-  onCreateReview,
   onDecidePatch,
   source,
   workspaceRoot,
+  gitDiffAvailable,
 }: {
   items: AgentTranscriptProcessItem[]
   copy: CodeCopy
   onLoadPatchChanges?: (itemIds: string[]) => Promise<AgentTranscriptPatchChange[]>
-  onCreateReview?: (itemIds: string[]) => string
   onDecidePatch?: (itemId: string, path: string, decision: 'keep' | 'revert') => Promise<{ action: string }>
   source: AgentTranscriptPaneProps['source']
   workspaceRoot?: string
+  gitDiffAvailable: boolean
 }) {
-  const [detailOpen, setDetailOpen] = useState(false)
-  const [visibleFileCount, setVisibleFileCount] = useState(PATCH_RESULT_FILE_PAGE_SIZE)
+  const [reviewOpen, setReviewOpen] = useState(false)
   const [detailedChanges, setDetailedChanges] = useState<AgentTranscriptPatchChange[] | null>(null)
   const [detailError, setDetailError] = useState('')
   const embeddedDecisions = useMemo(() => Object.fromEntries(items.flatMap(item => (
@@ -2200,8 +2194,6 @@ function AgentTranscriptPatchResultCard({
   const totalAdded = rows.reduce((sum, row) => sum + Number(row.added.replace('+', '') || 0), 0)
   const totalRemoved = rows.reduce((sum, row) => sum + Number(row.removed.replace('-', '') || 0), 0)
   const summary = patchResultSummary(rows.length, failed)
-  const visibleRows = rows.slice(0, visibleFileCount)
-  const hiddenRowCount = rows.length - visibleRows.length
   const embeddedChanges = items.flatMap(item => item.changes || [])
   const hasCompleteEmbeddedDiff = embeddedRows.length > 0 && embeddedRows.every(row => (
     embeddedChanges.some(change => (
@@ -2242,38 +2234,25 @@ function AgentTranscriptPatchResultCard({
       .finally(() => setDecidingPath(''))
   }, [copy.agentTranscriptUnavailable, decidingPath, onDecidePatch, patchTargetForPath])
   const handleReview = useCallback(() => {
-    if (!workspaceRoot) return
-    if (source === 'acp' && reviewPaths.length === 0) return
-    if (source === 'acp' && onCreateReview) {
-      window.open(onCreateReview(items.map(item => item.id)), '_blank', 'noopener,noreferrer')
-      return
-    }
-    const params = new URLSearchParams({ root: workspaceRoot })
     if (source === 'acp') {
-      reviewPaths.forEach(path => params.append('path', path))
-    }
-    window.open(appPath(`/review?${params.toString()}`), '_blank', 'noopener,noreferrer')
-  }, [items, onCreateReview, reviewPaths, source, workspaceRoot])
-  const handleSummary = useCallback((event: ReactMouseEvent<HTMLButtonElement>) => {
-    if (source !== 'acp') {
-      handleReview()
+      setReviewOpen(true)
+      if (detailedChanges || hasCompleteEmbeddedDiff || !onLoadPatchChanges) return
+      setDetailError('')
+      void onLoadPatchChanges(items.map(item => item.id))
+        .then(setDetailedChanges)
+        .catch(error => setDetailError(error instanceof Error ? error.message : copy.agentTranscriptUnavailable))
       return
     }
-    toggleTranscriptDisclosureWithStableAnchor(event.currentTarget, () => {
-      setDetailOpen(current => !current)
-    })
-    if (detailOpen || detailedChanges || hasCompleteEmbeddedDiff || !onLoadPatchChanges) return
-    setDetailError('')
-    void onLoadPatchChanges(items.map(item => item.id))
-      .then(setDetailedChanges)
-      .catch(error => setDetailError(error instanceof Error ? error.message : copy.agentTranscriptUnavailable))
-  }, [copy.agentTranscriptUnavailable, detailOpen, detailedChanges, handleReview, hasCompleteEmbeddedDiff, items, onLoadPatchChanges, source])
+    if (!workspaceRoot) return
+    const params = new URLSearchParams({ root: workspaceRoot })
+    window.open(appPath(`/review?${params.toString()}`), '_blank', 'noopener,noreferrer')
+  }, [copy.agentTranscriptUnavailable, detailedChanges, hasCompleteEmbeddedDiff, items, onLoadPatchChanges, source, workspaceRoot])
+  const handleGitDiff = useCallback(() => {
+    if (!workspaceRoot) return
+    window.open(appPath(`/review?${new URLSearchParams({ root: workspaceRoot }).toString()}`), '_blank', 'noopener,noreferrer')
+  }, [workspaceRoot])
   const summaryContent = (
     <>
-      <DifferenceGlyph
-        className="code-agent-transcript-result-icon"
-        data-testid="code-agent-transcript-result-icon"
-      />
       <span>{summary}</span>
       {totalAdded ? <span className="added">+{totalAdded}</span> : null}
       {totalRemoved ? <span className="removed">-{totalRemoved}</span> : null}
@@ -2281,63 +2260,69 @@ function AgentTranscriptPatchResultCard({
   )
   return (
     <section
-      className={`code-agent-transcript-result-card ${detailOpen ? 'expanded' : ''} ${failed ? 'failed' : ''}`}
+      className={`code-agent-transcript-result-card ${failed ? 'failed' : ''}`}
       data-testid="code-agent-transcript-result-card"
     >
       <div className="code-agent-transcript-result-header">
+        <div className="code-agent-transcript-result-summary" data-testid="code-agent-transcript-result-summary" aria-label={summary}>
+          {summaryContent}
+        </div>
         {workspaceRoot && rows.length > 0 ? (
-          <button
-            type="button"
-            className="code-agent-transcript-result-summary"
-            data-testid="code-agent-transcript-result-summary"
-            aria-label={`${summary}. ${source === 'acp' ? copy.agentTranscriptShowChanges : copy.agentTranscriptReviewChanges}`}
-            aria-expanded={source === 'acp' ? detailOpen : undefined}
-            onClick={handleSummary}
-          >
-            {summaryContent}
-            {source === 'acp' ? <ChevronRightGlyph className="code-agent-transcript-result-chevron" /> : null}
-          </button>
-        ) : (
-          <div className="code-agent-transcript-result-summary" aria-label={summary}>
-            {summaryContent}
+          <div className="code-agent-transcript-result-actions">
+            <button
+              type="button"
+              className="code-agent-transcript-result-review"
+              aria-label={`${copy.agentTranscriptReviewChanges}: ${reviewPaths.length} workspace ${reviewPaths.length === 1 ? 'file' : 'files'}`}
+              onClick={handleReview}
+            >
+              {copy.agentTranscriptReviewChanges}
+            </button>
+            {gitDiffAvailable ? (
+              <button type="button" className="code-agent-transcript-result-review git-diff" onClick={handleGitDiff}>
+                {copy.agentTranscriptGitDiff}
+              </button>
+            ) : null}
           </div>
-        )}
-        {source === 'acp' && detailOpen && reviewPaths.length > 0 ? (
-          <button
-            type="button"
-            className="code-agent-transcript-result-review"
-            aria-label={`${copy.agentTranscriptReviewChanges}: ${reviewPaths.length} workspace ${reviewPaths.length === 1 ? 'file' : 'files'}`}
-            onClick={handleReview}
-          >
-            {copy.agentTranscriptReviewChanges}
-          </button>
         ) : null}
       </div>
-      {source === 'acp' && detailOpen ? (
-        <div className="code-agent-transcript-result-details" data-testid="code-agent-transcript-result-details">
-          <div className="code-agent-transcript-result-files">
-            {visibleRows.map(row => {
+      {source === 'acp' && reviewOpen ? (
+        <div className="code-agent-transcript-change-review-overlay" role="dialog" aria-modal="true" aria-label={copy.agentTranscriptReviewChanges} onMouseDown={() => setReviewOpen(false)}>
+          <div className="code-agent-transcript-change-review-dialog" onMouseDown={event => event.stopPropagation()}>
+            <header>
+              <span>{summary}</span>
+              {totalAdded ? <span className="added">+{totalAdded}</span> : null}
+              {totalRemoved ? <span className="removed">-{totalRemoved}</span> : null}
+              <button type="button" aria-label={copy.close} title={copy.close} onClick={() => setReviewOpen(false)}><CloseGlyph /></button>
+            </header>
+            <div className="code-agent-transcript-change-review-body" data-testid="code-agent-transcript-result-details">
+              {!hasCompleteEmbeddedDiff && !detailedChanges && !detailError ? (
+                <div className="code-agent-transcript-result-loading">{copy.agentTranscriptLoadingChanges}</div>
+              ) : null}
+              {detailError ? (
+                <div className="code-agent-transcript-result-error" role="alert">
+                  <span>{copy.agentTranscriptChangesUnavailable}</span>
+                  <details>
+                    <summary>{copy.agentTranscriptTechnicalDetails}</summary>
+                    <code>{detailError}</code>
+                  </details>
+                </div>
+              ) : null}
+              {detailedChanges || hasCompleteEmbeddedDiff ? rows.map(row => {
               const path = patchRowDisplayPath(row, workspaceRoot)
-              const fileParts = patchResultFileParts(path)
               const changes = availableChanges.filter(change => (
                 (workspaceRelativeTranscriptPath(change.path, workspaceRoot) || change.path) === path
               ))
               const patchTarget = patchTargetForPath(path)
               const decision = patchDecisions[path]
               return (
-                <details className="code-agent-transcript-result-file" key={`${items[0]?.id || 'patch'}:${path}`}>
-                  <summary title={path}>
-                    <TranscriptFileIcon filePath={path} />
-                    <span className="code-agent-transcript-result-file-copy">
-                      <span className="code-agent-transcript-result-file-name code-agent-transcript-result-file-path">{fileParts.name}</span>
-                      {fileParts.directory ? <span className="code-agent-transcript-result-file-directory">{fileParts.directory}</span> : null}
-                    </span>
+                <section className="code-agent-transcript-change-review-file" key={`${items[0]?.id || 'patch'}:${path}`}>
+                  <header title={path}>
+                    <span className="code-agent-transcript-result-file-path">{path}</span>
                     <span className="code-agent-transcript-result-file-stats">
                       {row.added ? <span className="added">{row.added}</span> : null}
                       {row.removed ? <span className="removed">{row.removed}</span> : null}
                     </span>
-                    <ChevronRightGlyph className="code-agent-transcript-result-file-chevron" />
-                  </summary>
+                  </header>
                   {changes.map((change, changeIndex) => change.diff ? (
                     <pre className="code-agent-transcript-result-diff" key={`${path}:${changeIndex}`}>
                       {change.diff.split('\n').map((line, lineIndex) => (
@@ -2362,34 +2347,11 @@ function AgentTranscriptPatchResultCard({
                       {decisionErrors[path] ? <small role="alert">{decisionErrors[path]}</small> : null}
                     </div>
                   ) : null}
-                </details>
+                </section>
               )
-            })}
-          </div>
-          {hiddenRowCount > 0 ? (
-            <button
-              type="button"
-              className="code-agent-transcript-result-show-more"
-              onClick={() => setVisibleFileCount(current => Math.min(
-                rows.length,
-                current + PATCH_RESULT_FILE_PAGE_SIZE,
-              ))}
-            >
-              {copy.agentTranscriptShowMoreChanges(hiddenRowCount)}
-            </button>
-          ) : null}
-          {!hasCompleteEmbeddedDiff && !detailedChanges && !detailError ? (
-            <div className="code-agent-transcript-result-loading">{copy.agentTranscriptLoadingChanges}</div>
-          ) : null}
-          {detailError ? (
-            <div className="code-agent-transcript-result-error" role="alert">
-              <span>{copy.agentTranscriptChangesUnavailable}</span>
-              <details>
-                <summary>{copy.agentTranscriptTechnicalDetails}</summary>
-                <code>{detailError}</code>
-              </details>
+              }) : null}
             </div>
-          ) : null}
+          </div>
         </div>
       ) : null}
     </section>
@@ -2408,8 +2370,8 @@ function AgentTranscriptTurnView({
   onToggleProcess,
   onLoadProcessItemDetail,
   onLoadPatchChanges,
-  onCreatePatchReview,
   onDecidePatch,
+  gitDiffAvailable,
   onStopTerminal,
   onInputTerminal,
   onResizeTerminal,
@@ -2432,8 +2394,8 @@ function AgentTranscriptTurnView({
   onToggleProcess: (turnId: string) => void
   onLoadProcessItemDetail?: (itemId: string) => Promise<AgentTranscriptProcessPresentation>
   onLoadPatchChanges?: (itemIds: string[]) => Promise<AgentTranscriptPatchChange[]>
-  onCreatePatchReview?: (itemIds: string[]) => string
   onDecidePatch?: (itemId: string, path: string, decision: 'keep' | 'revert') => Promise<{ action: string }>
+  gitDiffAvailable: boolean
   onStopTerminal?: (terminalId: string) => Promise<void>
   onInputTerminal?: (terminalId: string, input: string) => Promise<void>
   onResizeTerminal?: (terminalId: string, cols: number, rows: number) => Promise<void>
@@ -2991,10 +2953,10 @@ function AgentTranscriptTurnView({
             items={patchResults}
             copy={copy}
             onLoadPatchChanges={onLoadPatchChanges}
-            onCreateReview={onCreatePatchReview}
             onDecidePatch={onDecidePatch}
             source={source}
             workspaceRoot={workspaceRoot}
+            gitDiffAvailable={gitDiffAvailable}
           />
         </div>
       ) : null}
@@ -3033,6 +2995,7 @@ export function AgentTranscriptPane({
   const [turnLimit, setTurnLimit] = useState(() => initialTranscriptTurnLimit(source))
   const [loadingOlder, setLoadingOlder] = useState(false)
   const [showJumpToBottom, setShowJumpToBottom] = useState(false)
+  const [gitDiffAvailable, setGitDiffAvailable] = useState(false)
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const pendingPrependAnchorRef = useRef<{ scrollTop: number; scrollHeight: number } | null>(null)
   const followBottomRef = useRef(true)
@@ -3339,6 +3302,17 @@ export function AgentTranscriptPane({
     workspaceRoot,
     onOpenFile: onOpenWorkspaceFilePath ? handleOpenFile : undefined,
   }), [handleOpenFile, onOpenWorkspaceFilePath, workspaceRoot])
+  useEffect(() => {
+    let cancelled = false
+    setGitDiffAvailable(false)
+    void fetch(appPath(`/api/files/worktrees?agentId=${encodeURIComponent(agentId)}`))
+      .then(response => response.ok ? response.json() : null)
+      .then(value => {
+        if (!cancelled) setGitDiffAvailable(value?.worktrees?.isGitRepo === true)
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [agentId])
   const handleLoadProcessItemDetail = useCallback(async (itemId: string) => {
     const response = await fetch(appPath(
       `/api/agents/${encodeURIComponent(agentId)}/acp-tool-details/${encodeURIComponent(itemId)}`,
@@ -3356,11 +3330,6 @@ export function AgentTranscriptPane({
   const handleLoadPatchChanges = useCallback((itemIds: string[]) => (
     loadAcpReviewPreview(agentId, itemIds)
   ), [agentId])
-  const handleCreatePatchReview = useCallback((itemIds: string[]) => {
-    const params = new URLSearchParams({ agentId })
-    itemIds.forEach(itemId => params.append('acpItem', itemId))
-    return appPath(`/review?${params.toString()}`)
-  }, [agentId])
   const handleDecidePatch = useCallback(async (itemId: string, path: string, decision: 'keep' | 'revert') => {
     const response = await fetch(appPath(
       `/api/agents/${encodeURIComponent(agentId)}/acp-patches/${encodeURIComponent(itemId)}/decision`,
@@ -3591,8 +3560,8 @@ export function AgentTranscriptPane({
                 onToggleProcess={handleToggleProcess}
                 onLoadProcessItemDetail={source === 'acp' ? handleLoadProcessItemDetail : undefined}
                 onLoadPatchChanges={source === 'acp' ? handleLoadPatchChanges : undefined}
-                onCreatePatchReview={source === 'acp' ? handleCreatePatchReview : undefined}
                 onDecidePatch={source === 'acp' ? handleDecidePatch : undefined}
+                gitDiffAvailable={gitDiffAvailable}
                 onStopTerminal={source === 'acp' ? handleStopTerminal : undefined}
                 onInputTerminal={source === 'acp' ? handleInputTerminal : undefined}
                 onResizeTerminal={source === 'acp' ? handleResizeTerminal : undefined}
