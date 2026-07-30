@@ -603,26 +603,30 @@ test.describe('ACP human-like browser matrix', () => {
       await expect(usage).toHaveAttribute('aria-label', /190k \/ 200k tokens used/i)
     })
     const richTurn = page.locator('.code-agent-transcript-turn').filter({ hasText: 'rich timeline' })
-    await test.step('11 collapse completed process details by default', async () => {
-      await expect(richTurn.getByTestId('code-agent-transcript-process-summary')).toHaveAttribute('aria-expanded', 'false')
-    })
-    await test.step('12 expand a completed process without moving to another turn', async () => {
-      await richTurn.getByTestId('code-agent-transcript-process-summary').click()
+    await test.step('11 keep the commentary flow visible while evidence stays folded', async () => {
       await expect(richTurn.getByTestId('code-agent-transcript-process-summary')).toHaveAttribute('aria-expanded', 'true')
+      await expect(richTurn.getByTestId('code-agent-transcript-process-group-toggle')).toHaveAttribute('aria-expanded', 'false')
     })
-    await test.step('13 surface concise intermediate commentary', async () => {
+    await test.step('12 render full intermediate commentary in the ordered flow', async () => {
       await expect(richTurn.getByText('I found the display boundary and am checking the typed ACP content.')).toBeVisible()
     })
-    await test.step('14 retain reasoning as an expandable process item', async () => {
-      await expect(richTurn.getByText('Reasoning', { exact: true })).toBeVisible()
+    await test.step('13 render the current plan as one independent floating driver', async () => {
+      const plan = page.getByTestId('code-agent-transcript-plan-driver')
+      await expect(plan).toBeVisible()
+      await expect(plan).toContainText('Plan')
+      await expect(plan).toContainText('3/3')
+      await expect(plan).toContainText('Inspect the source')
+      await expect(richTurn.getByText('Plan', { exact: true })).toHaveCount(0)
     })
-    await test.step('15 render an execution plan with the correct meaning', async () => {
-      await expect(richTurn.getByText('Plan', { exact: true })).toBeVisible()
-    })
-    await test.step('16 group completed actions into a compact reversible summary', async () => {
+    await test.step('14 group reasoning and tools into one compact reversible segment', async () => {
       const actionGroup = richTurn.getByTestId('code-agent-transcript-process-group').first()
       await expect(actionGroup).toBeVisible()
       await actionGroup.getByTestId('code-agent-transcript-process-group-toggle').click()
+    })
+    await test.step('15 retain reasoning as an individually folded child item', async () => {
+      const reasoning = richTurn.getByTestId('code-agent-transcript-process-item').filter({ hasText: 'Reasoning' })
+      await expect(reasoning).toBeVisible()
+      await expect(reasoning.getByTestId('code-agent-transcript-process-item-toggle')).toHaveAttribute('aria-expanded', 'false')
     })
     const readItem = richTurn.getByTestId('code-agent-transcript-process-item').filter({ hasText: 'Read ACP display fixtures' })
     await test.step('17 retain the typed read-tool title and location', async () => {
@@ -1198,6 +1202,7 @@ test.describe('ACP human-like browser matrix', () => {
       .filter({ hasText: 'Run failing command' })
     const syncError = failedItem.getByTestId('code-acp-terminal-sync-error')
     await expect(syncError).toContainText('Terminal status could not be synchronized.', { timeout: 10_000 })
+    await expect(failedItem).not.toContainText('Input\n')
     await expect(failedItem.locator('.code-agent-transcript-terminal')).toHaveCount(0)
     await expect(failedItem.getByTestId('code-acp-terminal-stop')).toHaveCount(0)
 
@@ -1208,7 +1213,7 @@ test.describe('ACP human-like browser matrix', () => {
     await expect(failedItem.locator('.code-agent-transcript-terminal-meta')).toContainText('Exit 2')
   })
 
-  test('shows one live action until the user opens dense process evidence', async ({ page, workspaceRoot }) => {
+  test('segments dense evidence around full commentary while keeping every detail folded', async ({ page, workspaceRoot }) => {
     test.setTimeout(60_000)
     const workspace = path.join(workspaceRoot, 'acp-dense-multi-step-progress')
     fs.mkdirSync(workspace, { recursive: true })
@@ -1220,50 +1225,32 @@ test.describe('ACP human-like browser matrix', () => {
     const turn = page.locator('.code-agent-transcript-turn').filter({ hasText: 'dense multi-step progress' }).last()
     const processSummary = turn.getByTestId('code-agent-transcript-process-summary')
     await expect(processSummary).toContainText(/Process|Working for/, { timeout: 10_000 })
-    expect(await processSummary.getAttribute('aria-expanded')).toBe('false')
-    await expect(turn.getByTestId('code-agent-transcript-process-group')).toHaveCount(0)
-    await expect(turn.getByTestId('code-agent-transcript-process-item')).toHaveCount(1)
-    await expect(turn.getByTestId('code-agent-transcript-process-earlier')).toHaveCount(0)
-    await expect(turn.getByTestId('code-agent-transcript-process-item')
-      .filter({ hasText: 'Run verification step 24' })).toBeVisible()
-    await expect(turn.getByTestId('code-agent-transcript-process-item')
-      .filter({ hasText: 'Run verification step 23' })).toHaveCount(0)
-    await expect(turn.getByTestId('code-agent-transcript-process-item')
-      .filter({ hasText: 'Failed: Run verification step 2' })).toHaveCount(0)
-    await expect(turn.getByTestId('code-agent-transcript-process-item')
-      .filter({ hasText: /^Reasoning/ })).toHaveCount(0)
-    const failedItems = turn.locator('[data-testid="code-agent-transcript-process-item"][data-status="failed"]')
-    await expect(failedItems).toHaveCount(0)
-    const activeAction = turn.getByTestId('code-agent-transcript-process-item')
-      .filter({ hasText: 'Run verification step 24' })
-    await expect(activeAction).toBeVisible()
-    await expect(turn.getByTestId('code-acp-progress-update')).toHaveCount(0)
-    await expect(turn).not.toContainText('The second verification phase passed; final checks are running.')
-
-    await activeAction.getByTestId('code-agent-transcript-process-item-toggle').click()
-    await processSummary.click()
     await expect(processSummary).toHaveAttribute('aria-expanded', 'true')
-    await expect(turn.getByTestId('code-agent-transcript-process-group')).toHaveCount(24)
-    const activeFullGroup = turn.getByTestId('code-agent-transcript-process-group')
-      .filter({ hasText: 'Run verification step 24' })
-    await expect(activeFullGroup.getByTestId('code-agent-transcript-process-group-toggle')).toHaveAttribute('aria-expanded', 'true')
+    const groups = turn.getByTestId('code-agent-transcript-process-group')
+    await expect(groups).toHaveCount(3)
+    expect(await groups.getByTestId('code-agent-transcript-process-group-toggle').evaluateAll(
+      toggles => toggles.map(toggle => toggle.getAttribute('aria-expanded')),
+    )).toEqual(['false', 'false', 'false'])
+    await expect(turn.getByTestId('code-agent-transcript-process-item')).toHaveCount(0)
+    await expect(turn.getByTestId('code-acp-progress-update')).toHaveCount(2)
     const fullProgress = turn.getByTestId('code-acp-progress-update').last()
     expect((await fullProgress.boundingBox())?.height || 0).toBeGreaterThan(60)
     await expect(fullProgress).toContainText('The second verification phase passed; final checks are running.')
     await expect(fullProgress.getByRole('link', { name: 'Details' })).toBeVisible()
-    const thought = turn.getByTestId('code-agent-transcript-process-item').filter({ hasText: 'Reasoning' })
-    await expect(thought).toHaveCount(24)
-    await expect(thought.filter({ hasText: 'Reasoning checkpoint 24' })
-      .getByTestId('code-agent-transcript-process-item-toggle')).toHaveAttribute('aria-expanded', 'true')
-    await processSummary.click()
-    await expect(processSummary).toHaveAttribute('aria-expanded', 'false')
-    await expect(turn.getByTestId('code-agent-transcript-process-group')).toHaveCount(0)
-    await expect(turn.getByTestId('code-agent-transcript-process-item')).toHaveCount(1)
+    const activeGroup = groups.nth(2)
+    await activeGroup.getByTestId('code-agent-transcript-process-group-toggle').click()
+    await expect(activeGroup.getByTestId('code-agent-transcript-process-group-toggle')).toHaveAttribute('aria-expanded', 'true')
+    const activeAction = activeGroup.getByTestId('code-agent-transcript-process-item')
+      .filter({ hasText: 'Run verification step 24' })
+    const activeThought = activeGroup.getByTestId('code-agent-transcript-process-item')
+      .filter({ hasText: 'Reasoning' }).last()
+    await expect(activeAction.getByTestId('code-agent-transcript-process-item-toggle')).toHaveAttribute('aria-expanded', 'false')
+    await expect(activeThought.getByTestId('code-agent-transcript-process-item-toggle')).toHaveAttribute('aria-expanded', 'false')
 
     await expect(page.getByText('Dense multi-step progress complete.', { exact: true })).toBeVisible({ timeout: 15_000 })
-    await expect(processSummary).toHaveAttribute('aria-expanded', 'false')
-    await expect(turn.getByTestId('code-acp-progress-update')).toHaveCount(0)
-    await expect(turn.getByTestId('code-agent-transcript-process-item')).toHaveCount(0)
+    await expect(processSummary).toHaveAttribute('aria-expanded', 'true')
+    await expect(turn.getByTestId('code-acp-progress-update')).toHaveCount(2)
+    await expect(activeAction.getByTestId('code-agent-transcript-process-item-toggle')).toHaveAttribute('aria-expanded', 'false')
   })
 
   test('keeps a phase-marked rich answer visible after a trailing thought and renders encoded Mermaid source', async ({ page, workspaceRoot }) => {
@@ -1418,7 +1405,7 @@ test.describe('ACP human-like browser matrix', () => {
     expect(fs.readFileSync(path.join(workspace, 'decision-conflict.txt'), 'utf8')).toBe('newer human change\n')
   })
 
-  test('keeps a large ACP file-change list compact until the user asks for more', async ({ page, workspaceRoot }) => {
+  test('uses ACP diffs in a non-Git workspace while keeping a large file-change list compact', async ({ page, workspaceRoot }) => {
     test.setTimeout(60_000)
     const workspace = path.join(workspaceRoot, 'acp-patch-many-files')
     fs.mkdirSync(workspace, { recursive: true })
@@ -1439,6 +1426,12 @@ test.describe('ACP human-like browser matrix', () => {
     await expect(turn.getByRole('button', { name: 'Show more files · 2 remaining' })).toBeVisible()
     await expect(turn.getByText('decision-many-5.txt', { exact: true })).toHaveCount(0)
     await expect(turn.getByText('src/features/very-long-feature-name', { exact: true })).toHaveCount(4)
+    await expect(turn.locator('.code-agent-transcript-result-error')).toHaveCount(0)
+    const firstFile = turn.locator('.code-agent-transcript-result-file').filter({ hasText: 'decision-many-1.txt' })
+    await firstFile.locator('summary').click()
+    await expect(firstFile.locator('.code-agent-transcript-result-diff')).toContainText(
+      '+after src/features/very-long-feature-name/decision-many-1.txt',
+    )
 
     await turn.getByRole('button', { name: 'Show more files · 2 remaining' }).click()
     await expect(turn.locator('.code-agent-transcript-result-file')).toHaveCount(6)

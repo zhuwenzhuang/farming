@@ -50,18 +50,21 @@ assert.strictEqual(transcript.turns.length, 1);
 assert.strictEqual(transcript.turns[0].userMessage, 'Fix it');
 assert.strictEqual(transcript.turns[0].finalMessage, 'Done');
 assert.deepStrictEqual(transcript.turns[0].processItems.map(entry => entry.title), [
-  'Progress update', 'Reasoning', 'Run tests', 'Plan',
+  'Progress update', 'Reasoning', 'Run tests',
 ]);
 assert.strictEqual(transcript.turns[0].processItems[2].type, 'patch');
-assert.deepStrictEqual(transcript.turns[0].processItems[2].changes, [{
+const [transcriptPatchChange] = transcript.turns[0].processItems[2].changes;
+const { diff: transcriptPatchDiff, ...transcriptPatchSummary } = transcriptPatchChange;
+assert.deepStrictEqual(transcriptPatchSummary, {
   added: 1,
   kind: 'updated',
   path: '/tmp/a.js',
   removed: 1,
-}]);
-assert.strictEqual(transcript.turns[0].processItems[3].completedSteps, 1);
-assert.strictEqual(transcript.turns[0].processItems[3].totalSteps, 1);
-assert.strictEqual(transcript.turns[0].processItems[3].currentStep, '');
+});
+assert.match(transcriptPatchDiff, /-old[\s\S]*\+new/);
+assert.strictEqual(transcript.plan.completedSteps, 1);
+assert.strictEqual(transcript.plan.totalSteps, 1);
+assert.strictEqual(transcript.plan.currentStep, '');
 assert.match(transcript.turns[0].processItems[2].detail, /^Updated \/tmp\/a\.js/);
 assert.match(transcript.turns[0].processItems[2].detail, /Input\n[\s\S]*npm test/);
 assert.match(transcript.turns[0].processItems[2].detail, /File: \/tmp\/a\.js/);
@@ -197,6 +200,7 @@ const compactTool = acpTranscriptToolEntry({
 });
 assert.strictEqual(compactTool.transcriptDetailTruncated, true);
 assert.strictEqual(compactTool.transcriptChanges[0].path, '/tmp/large.js');
+assert.match(compactTool.transcriptChanges[0].diff, /\+new/);
 assert.deepStrictEqual(compactTool.locations, [{
   path: '/tmp/large.js',
   lineNumber: 4,
@@ -439,9 +443,19 @@ const activePlanTranscript = acpSessionTranscript({
     },
   ],
 });
-assert.strictEqual(activePlanTranscript.turns[0].processItems[0].completedSteps, 1);
-assert.strictEqual(activePlanTranscript.turns[0].processItems[0].totalSteps, 3);
-assert.strictEqual(activePlanTranscript.turns[0].processItems[0].currentStep, 'Update parser');
+assert.strictEqual(activePlanTranscript.turns[0].processItems.length, 0);
+assert.strictEqual(activePlanTranscript.plan.completedSteps, 1);
+assert.strictEqual(activePlanTranscript.plan.totalSteps, 3);
+assert.strictEqual(activePlanTranscript.plan.currentStep, 'Update parser');
+
+const removedPlanTranscript = acpSessionTranscript({
+  state: 'working',
+  plan: null,
+  entries: [
+    { id: 'user-plan-removed', type: 'message', role: 'user', content: [{ type: 'text', text: 'Continue' }] },
+  ],
+});
+assert.strictEqual(removedPlanTranscript.plan, undefined);
 
 const largeToolTranscript = acpSessionTranscript({
   revision: 7,

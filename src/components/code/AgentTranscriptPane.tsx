@@ -75,7 +75,11 @@ import {
   type AgentTranscriptUserFile,
   type AgentTranscriptUserImage,
 } from './acp/acp-entry-projection'
-import { acpActionGroupLabel, isAcpProgressUpdate } from './acp/acp-progress-timeline'
+import {
+  acpActionGroupLabel,
+  acpProgressFlowEntries,
+  isAcpProgressUpdate,
+} from './acp/acp-progress-timeline'
 import { terminalTargetFilePath } from './workspace-file-view'
 import 'katex/dist/katex.min.css'
 
@@ -1183,7 +1187,8 @@ type ProcessEntry =
   | { kind: 'item'; item: AgentTranscriptProcessItem }
   | { kind: 'group'; id: string; items: AgentTranscriptProcessItem[] }
 
-function processEntriesForTurn(items: AgentTranscriptProcessItem[]) {
+function processEntriesForTurn(items: AgentTranscriptProcessItem[], source: string) {
+  if (source === 'acp') return acpProgressFlowEntries(items)
   const entries: ProcessEntry[] = []
   let group: AgentTranscriptProcessItem[] = []
   const flushGroup = () => {
@@ -1748,10 +1753,13 @@ function AgentTranscriptProcessItemView({
   const detail = copyableDetail && detailDuplicatesTerminalOutcome(copyableDetail, terminals)
     ? ''
     : copyableDetail
+  const visibleDetail = terminalOutcomeSyncFailed && item.terminalIds?.length
+    ? ''
+    : detail
   const hasCopyableDetail = !!copyableDetail || locations.length > 0
-  const hasDetail = !!detail
-  const planItems = item.type === 'plan' && detail ? planDetailItems(detail) : null
-  const expandable = hasExpandableProcessItemContent(item, detail, planItems)
+  const hasDetail = !!visibleDetail
+  const planItems = item.type === 'plan' && visibleDetail ? planDetailItems(visibleDetail) : null
+  const expandable = hasExpandableProcessItemContent(item, visibleDetail, planItems)
   const displayTitle = title || item.title
   const details = (
     <>
@@ -1798,8 +1806,8 @@ function AgentTranscriptProcessItemView({
         />
       ) : null}
       {!planItems && hasDetail && shouldRenderDetailAsProse(item) ? (
-        <div className="code-agent-transcript-process-detail">{plainTextBlock(detail)}</div>
-      ) : !planItems && hasDetail ? <pre>{detail}</pre> : null}
+        <div className="code-agent-transcript-process-detail">{plainTextBlock(visibleDetail)}</div>
+      ) : !planItems && hasDetail ? <pre>{visibleDetail}</pre> : null}
     </>
   )
   return (
@@ -2016,6 +2024,46 @@ function AgentTranscriptProgressUpdate({
   )
 }
 
+function AgentTranscriptPlanDriver({ plan }: { plan: AgentTranscriptProcessItem }) {
+  const [open, setOpen] = useState(true)
+  const items = planDetailItems(String(plan.detail || ''))
+  const progress = plan.totalSteps
+    ? `${plan.completedSteps || 0}/${plan.totalSteps}`
+    : ''
+  return (
+    <aside
+      className={`code-agent-transcript-plan-driver ${open ? 'expanded' : ''}`}
+      data-testid="code-agent-transcript-plan-driver"
+      aria-label="Current plan"
+    >
+      <button
+        type="button"
+        className="code-agent-transcript-plan-driver-summary"
+        aria-expanded={open}
+        onClick={() => setOpen(current => !current)}
+      >
+        <span>Plan</span>
+        {progress ? <small>{progress}</small> : null}
+        <ChevronRightGlyph className="code-agent-transcript-plan-driver-chevron" />
+      </button>
+      {open ? (
+        items ? (
+          <ol className="code-agent-transcript-plan-list">
+            {items.map((item, index) => (
+              <li key={`${index}:${item.text}`} className={item.status}>
+                <span className="code-agent-transcript-plan-marker" aria-hidden="true" />
+                <span>{item.text}</span>
+              </li>
+            ))}
+          </ol>
+        ) : (
+          <div className="code-agent-transcript-plan-driver-detail">{plan.detail}</div>
+        )
+      ) : null}
+    </aside>
+  )
+}
+
 function AgentTranscriptProcessGroupView({
   groupId,
   items,
@@ -2155,6 +2203,12 @@ function AgentTranscriptPatchResultCard({
   const visibleRows = rows.slice(0, visibleFileCount)
   const hiddenRowCount = rows.length - visibleRows.length
   const embeddedChanges = items.flatMap(item => item.changes || [])
+  const hasCompleteEmbeddedDiff = embeddedRows.length > 0 && embeddedRows.every(row => (
+    embeddedChanges.some(change => (
+      (workspaceRelativeTranscriptPath(change.path, workspaceRoot) || change.path) === row.path
+      && typeof change.diff === 'string'
+    ))
+  ))
   const detailedChangePaths = new Set((detailedChanges || []).map(change => change.path))
   const availableChanges = detailedChanges
     ? [
@@ -2208,12 +2262,12 @@ function AgentTranscriptPatchResultCard({
     toggleTranscriptDisclosureWithStableAnchor(event.currentTarget, () => {
       setDetailOpen(current => !current)
     })
-    if (detailOpen || detailedChanges || !onLoadPatchChanges) return
+    if (detailOpen || detailedChanges || hasCompleteEmbeddedDiff || !onLoadPatchChanges) return
     setDetailError('')
     void onLoadPatchChanges(items.map(item => item.id))
       .then(setDetailedChanges)
       .catch(error => setDetailError(error instanceof Error ? error.message : copy.agentTranscriptUnavailable))
-  }, [copy.agentTranscriptUnavailable, detailOpen, detailedChanges, handleReview, items, onLoadPatchChanges, source])
+  }, [copy.agentTranscriptUnavailable, detailOpen, detailedChanges, handleReview, hasCompleteEmbeddedDiff, items, onLoadPatchChanges, source])
   const summaryContent = (
     <>
       <DifferenceGlyph
@@ -2324,7 +2378,7 @@ function AgentTranscriptPatchResultCard({
               {copy.agentTranscriptShowMoreChanges(hiddenRowCount)}
             </button>
           ) : null}
-          {!detailedChanges && !detailError ? (
+          {!hasCompleteEmbeddedDiff && !detailedChanges && !detailError ? (
             <div className="code-agent-transcript-result-loading">{copy.agentTranscriptLoadingChanges}</div>
           ) : null}
           {detailError ? (
@@ -2409,7 +2463,7 @@ function AgentTranscriptTurnView({
     () => resolvedProcessItems.filter(isUserSteerProcessItem),
     [resolvedProcessItems],
   )
-  const hasAnyProcess = resolvedProcessItems.some(item => !isUserSteerProcessItem(item))
+  const hasAnyProcess = resolvedProcessItems.length > 0
   const patchResults = resolvedProcessItems.filter(isPatchResultItem)
   const userImages = turn.userImages || []
   const userAudios = turn.userAudios || []
@@ -2422,11 +2476,7 @@ function AgentTranscriptTurnView({
   const [forking, setForking] = useState(false)
   const forkingRef = useRef(false)
   const [openProcessItemIds, setOpenProcessItemIds] = useState<Set<string>>(() => new Set())
-  const [closedLiveProcessItemIds, setClosedLiveProcessItemIds] = useState<Set<string>>(() => new Set())
   const [terminalOutcomeSyncFailedItemIds, setTerminalOutcomeSyncFailedItemIds] = useState<Set<string>>(() => new Set())
-  const manuallyToggledProcessItemIdsRef = useRef(new Set<string>())
-  const autoExpandedTerminalItemIdsRef = useRef(new Set<string>())
-  const autoHandledTerminalItemIdsRef = useRef(new Set<string>())
   const observedRunningTerminalItemIdsRef = useRef(new Set<string>())
   const refreshedTerminalOutcomeItemIdsRef = useRef(new Set<string>())
   const syncingTerminalOutcomeItemIdsRef = useRef(new Set<string>())
@@ -2441,7 +2491,6 @@ function AgentTranscriptTurnView({
   const mainProcessItems = useMemo(
     () => resolvedProcessItems.filter(item => (
       !collaborationProcessItemIds.has(item.id)
-      && !isUserSteerProcessItem(item)
     )),
     [collaborationProcessItemIds, resolvedProcessItems],
   )
@@ -2452,20 +2501,13 @@ function AgentTranscriptTurnView({
   const hasProcess = mainProcessItems.length > 0
   const processEntries = useMemo(() => (
     groupProcessActions
-      ? processEntriesForTurn(mainProcessItems)
+      ? processEntriesForTurn(mainProcessItems, source)
       : mainProcessItems.map(item => ({ kind: 'item' as const, item }))
-  ), [groupProcessActions, mainProcessItems])
+  ), [groupProcessActions, mainProcessItems, source])
   const compactProcess = useMemo(
     () => compactProcessEntries(processEntries, turn.status),
     [processEntries, turn.status],
   )
-  const latestLiveThoughtId = useMemo(() => {
-    if (turn.status !== 'inProgress') return ''
-    return [...resolvedProcessItems]
-      .reverse()
-      .find(item => ['reasoning', 'thought'].includes(item.type) && Boolean(String(item.detail || '').trim()))
-      ?.id || ''
-  }, [resolvedProcessItems, turn.status])
   const runningCompaction = turn.status === 'inProgress'
     ? [...mainProcessItems]
       .reverse()
@@ -2560,51 +2602,6 @@ function AgentTranscriptTurnView({
     refresh(0)
   }, [loadFullProcessDetail])
   useEffect(() => {
-    if (source !== 'acp' || turn.status !== 'inProgress' || processOpen) return undefined
-    const candidates = compactProcess.items.filter(item => (
-      item.terminalIds?.length
-      && isProcessItemRunning(item)
-      && !autoHandledTerminalItemIdsRef.current.has(item.id)
-      && !manuallyToggledProcessItemIdsRef.current.has(item.id)
-    ))
-    if (candidates.length === 0) return undefined
-    let stopped = false
-    const checkForOutput = () => candidates.forEach(item => {
-      void loadFullProcessDetail(item, true).then(presentation => {
-        if (stopped || autoHandledTerminalItemIdsRef.current.has(item.id)) return
-        const hasRealOutput = presentation.terminals?.some(terminal => Boolean(terminal.terminal?.output?.trim()))
-        if (!hasRealOutput) return
-        autoHandledTerminalItemIdsRef.current.add(item.id)
-        autoExpandedTerminalItemIdsRef.current.add(item.id)
-        setOpenProcessItemIds(current => new Set([...current, item.id]))
-      }).catch(() => {})
-    })
-    const timer = window.setInterval(checkForOutput, 500)
-    return () => {
-      stopped = true
-      window.clearInterval(timer)
-    }
-  }, [compactProcess.items, loadFullProcessDetail, processOpen, source, turn.status])
-  useEffect(() => {
-    const itemById = new Map(resolvedProcessItems.map(item => [item.id, item]))
-    const completed = [...autoExpandedTerminalItemIdsRef.current]
-      .filter(itemId => {
-        const item = itemById.get(itemId)
-        return !item || !isProcessItemRunning(item)
-      })
-    if (completed.length === 0) return
-    setOpenProcessItemIds(current => {
-      const next = new Set(current)
-      for (const itemId of completed) {
-        const item = itemById.get(itemId)
-        if (!(item && isProcessItemFailed(item))
-          && !manuallyToggledProcessItemIdsRef.current.has(itemId)) next.delete(itemId)
-        autoExpandedTerminalItemIdsRef.current.delete(itemId)
-      }
-      return next
-    })
-  }, [resolvedProcessItems])
-  useEffect(() => {
     resolvedProcessItems
       .filter(item => item.terminalIds?.length && isProcessItemRunning(item))
       .forEach(item => observedRunningTerminalItemIdsRef.current.add(item.id))
@@ -2669,16 +2666,6 @@ function AgentTranscriptTurnView({
     onToggleProcess(turn.id)
   }, [onToggleProcess, turn.id])
   const handleToggleProcessItem = useCallback((itemId: string) => {
-    manuallyToggledProcessItemIdsRef.current.add(itemId)
-    if (itemId === latestLiveThoughtId && !openProcessItemIds.has(itemId)) {
-      setClosedLiveProcessItemIds(current => {
-        const next = new Set(current)
-        if (next.has(itemId)) next.delete(itemId)
-        else next.add(itemId)
-        return next
-      })
-      return
-    }
     const opening = !openProcessItemIds.has(itemId)
     if (opening) {
       const item = resolvedProcessItems.find(candidate => candidate.id === itemId)
@@ -2692,7 +2679,7 @@ function AgentTranscriptTurnView({
       else next.add(itemId)
       return next
     })
-  }, [latestLiveThoughtId, loadFullProcessDetail, openProcessItemIds, resolvedProcessItems])
+  }, [loadFullProcessDetail, openProcessItemIds, resolvedProcessItems])
   const handleStopTerminal = useCallback(async (itemId: string, terminalId: string) => {
     if (!onStopTerminal) return
     await onStopTerminal(terminalId)
@@ -2809,8 +2796,6 @@ function AgentTranscriptTurnView({
         </div>
       ) : null}
 
-      {userSteerItems.map(item => <AgentTranscriptSteerItem key={item.id} item={item} />)}
-
       {hasAnyProcess ? (
         <div className={`code-agent-transcript-process ${effectiveProcessOpen ? 'expanded' : ''}`}>
           {hasProcess || collaborationAgents.length > 0 ? (
@@ -2885,9 +2870,7 @@ function AgentTranscriptTurnView({
                       copy={copy}
                       copiedItemId={copiedItemId}
                       detailOpen={groupOpen}
-                      openProcessItemIds={latestLiveThoughtId && !closedLiveProcessItemIds.has(latestLiveThoughtId)
-                        ? new Set([...openProcessItemIds, latestLiveThoughtId])
-                        : openProcessItemIds}
+                      openProcessItemIds={openProcessItemIds}
                       onToggleGroup={handleToggleProcessItem}
                       onToggleItem={handleToggleProcessItem}
                       onCopy={handleCopyItem}
@@ -2915,10 +2898,7 @@ function AgentTranscriptTurnView({
                     item={entry.item}
                     copy={copy}
                     copied={copiedItemId === entry.item.id}
-                    detailOpen={openProcessItemIds.has(entry.item.id) || (
-                      entry.item.id === latestLiveThoughtId
-                      && !closedLiveProcessItemIds.has(entry.item.id)
-                    )}
+                    detailOpen={openProcessItemIds.has(entry.item.id)}
                     onToggle={handleToggleProcessItem}
                     onCopy={handleCopyItem}
                     onStopTerminal={handleStopTerminal}
@@ -3553,7 +3533,10 @@ export function AgentTranscriptPane({
 
   return (
     <TranscriptFileOpenContext.Provider value={transcriptFileOpenContext}>
-      <div className="code-agent-transcript" data-testid="code-agent-transcript">
+      <div
+        className={`code-agent-transcript ${source === 'acp' && transcript?.plan ? 'has-plan-driver' : ''}`}
+        data-testid="code-agent-transcript"
+      >
       {forkedFromAgent ? (
         <div className="code-agent-transcript-fork-origin" data-testid="code-agent-transcript-fork-origin" role="note">
           <span aria-hidden="true" />
@@ -3563,6 +3546,9 @@ export function AgentTranscriptPane({
           </span>
           <span aria-hidden="true" />
         </div>
+      ) : null}
+      {source === 'acp' && transcript?.plan ? (
+        <AgentTranscriptPlanDriver plan={transcript.plan} />
       ) : null}
       {loading || awaitingAcpHistory ? (
         <div className="code-agent-transcript-state subtle">{copy.agentTranscriptSyncing}</div>
@@ -3586,8 +3572,10 @@ export function AgentTranscriptPane({
           onTouchCancel={handleTouchEnd}
         >
           {turns.map((turn, index) => {
-            const processOpen = source === 'acp' && turn.status === 'inProgress'
-              ? openLiveProcessTurnIds.has(turn.id)
+            const processOpen = source === 'acp'
+              ? turn.status === 'inProgress'
+                ? !openLiveProcessTurnIds.has(turn.id)
+                : !openProcessTurnIds.has(turn.id)
               : openProcessTurnIds.has(turn.id)
             return (
               <StableAgentTranscriptTurnView

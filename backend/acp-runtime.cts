@@ -168,7 +168,8 @@ interface AcpRuntimeOptions extends PrepareAgentOptions {
 interface PrepareAgentOptions extends UnknownRecord {
   agentId?: string; provider?: string; providerHomeId?: string; cwd?: string; sessionId?: string;
   forkSourceSessionId?: string; forkSourceCheckpoint?: UnknownRecord | null; revisionBase?: number;
-  approvalMode?: string; historyMode?: string; serviceTier?: string; identityOnly?: boolean;
+  approvalMode?: string; historyMode?: string; model?: string; reasoningEffort?: string;
+  serviceTier?: string; identityOnly?: boolean;
   executable?: string; env?: NodeJS.ProcessEnv; runtimeEnv?: NodeJS.ProcessEnv;
   additionalDirectories?: string[]; mcpServers?: UnknownRecord[]; farmingSystemPrompt?: string;
   requireLoad?: boolean; expectedRevision?: number; retainForCleanup?: boolean;
@@ -1268,6 +1269,36 @@ class AcpRuntime extends EventEmitter {
       binding.configOptions = sessionResponse?.configOptions || [];
       binding.sessionState.currentModeId = String(binding.modes?.currentModeId || '');
       binding.sessionState.configOptions = JSON.parse(JSON.stringify(binding.configOptions));
+      if (provider === 'claude' && historyMode === 'new') {
+        const changes: SessionConfigChange[] = [];
+        if (options.model && options.model !== 'config') {
+          const modelOption = binding.configOptions.find(option => (
+            option.type === 'select'
+            && (
+              option.category === 'model'
+              || /(^|[\s_-])model([\s_-]|$)/i.test(`${option.id} ${option.name || ''}`)
+            )
+          ));
+          if (!modelOption) {
+            throw new Error('Claude ACP Agent did not advertise a Model configuration option');
+          }
+          changes.push({ configId: modelOption.id, value: options.model });
+        }
+        if (options.reasoningEffort && options.reasoningEffort !== 'config') {
+          const reasoningOption = binding.configOptions.find(option => (
+            option.type === 'select'
+            && (
+              option.category === 'thought_level'
+              || /(reasoning|thought|effort)/i.test(`${option.id} ${option.name || ''}`)
+            )
+          ));
+          if (!reasoningOption) {
+            throw new Error('Claude ACP Agent did not advertise a Reasoning configuration option');
+          }
+          changes.push({ configId: reasoningOption.id, value: options.reasoningEffort });
+        }
+        if (changes.length > 0) await this.applySessionConfigOptionsNow(binding, changes);
+      }
       if (provider === 'codex' && options.serviceTier && options.serviceTier !== 'config') {
         const fastOption = binding.configOptions.find(option => (
           option.type === 'boolean'

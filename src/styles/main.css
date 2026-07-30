@@ -3011,7 +3011,7 @@ body.code-mode .code-file-change-group-toggle {
 }
 
 .code-file-change-row {
-  --change-indent: 18px;
+  --change-indent: 6px;
   --change-guide-width: 0px;
   min-width: 0;
   border-radius: 4px;
@@ -5979,6 +5979,88 @@ body.code-mode .code-instance-name {
   scrollbar-color: rgba(87, 96, 106, 0.16) transparent;
   user-select: text;
   -webkit-user-select: text;
+}
+
+.code-agent-transcript.has-plan-driver .code-agent-transcript-scroll {
+  padding-right: clamp(306px, 27vw, 358px);
+}
+
+.code-agent-transcript-plan-driver {
+  position: absolute;
+  top: 56px;
+  right: clamp(18px, 2.6vw, 36px);
+  z-index: 4;
+  width: min(286px, calc(100% - 36px));
+  max-height: min(42vh, 360px);
+  box-sizing: border-box;
+  overflow: auto;
+  padding: 9px 11px 10px;
+  border: 1px solid rgba(31, 35, 40, 0.09);
+  border-radius: 13px;
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: 0 8px 28px rgba(31, 35, 40, 0.08);
+  backdrop-filter: blur(14px) saturate(1.08);
+  -webkit-backdrop-filter: blur(14px) saturate(1.08);
+}
+
+.code-agent-transcript-plan-driver-summary {
+  width: 100%;
+  min-height: 24px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #57606a;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+}
+
+.code-agent-transcript-plan-driver-summary > span {
+  color: #24292f;
+  font-weight: 550;
+}
+
+.code-agent-transcript-plan-driver-summary > small {
+  margin-left: auto;
+  color: #8c959f;
+  font-size: 11px;
+}
+
+.code-agent-transcript-plan-driver-summary:focus-visible {
+  border-radius: 6px;
+  outline: 2px solid rgba(9, 105, 218, 0.24);
+  outline-offset: 2px;
+}
+
+.code-agent-transcript-plan-driver-chevron {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  fill: currentColor;
+  opacity: 0.66;
+  transition: transform 160ms ease;
+}
+
+.code-agent-transcript-plan-driver.expanded .code-agent-transcript-plan-driver-chevron {
+  transform: rotate(90deg);
+}
+
+.code-agent-transcript-plan-driver .code-agent-transcript-plan-list {
+  margin: 3px 0 0;
+  padding: 6px 0 0;
+}
+
+.code-agent-transcript-plan-driver-detail {
+  padding-top: 6px;
+  color: #57606a;
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .code-agent-transcript-fork-origin {
@@ -17424,6 +17506,21 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
     overscroll-behavior: contain;
     touch-action: pan-y pinch-zoom;
     -webkit-overflow-scrolling: touch;
+  }
+
+  body.code-mode.code-compact-layout .code-agent-transcript.has-plan-driver .code-agent-transcript-scroll {
+    padding-top: 126px;
+    padding-right: 3px;
+  }
+
+  body.code-mode.code-compact-layout .code-agent-transcript-plan-driver {
+    top: 7px;
+    right: 7px;
+    left: 7px;
+    width: auto;
+    max-height: 112px;
+    padding: 7px 10px 8px;
+    border-radius: 11px;
   }
 
   body.code-mode.code-compact-layout .code-agent-transcript-turn:last-child {

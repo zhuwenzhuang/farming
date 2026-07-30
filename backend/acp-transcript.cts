@@ -21,6 +21,7 @@ function dataRecord(value: unknown): DataRecord {
 interface TranscriptOptions extends DataRecord {
   includeDiff?: boolean;
   maxInlineDetailChars?: number;
+  maxInlinePatchDiffChars?: number;
   maxInlineToolDetailChars?: number;
   mediaPathPrefix?: string;
 }
@@ -40,6 +41,7 @@ interface ValidatedTranscriptMedia {
 const MAX_RENDERED_DIFF_CHARS = 64 * 1024;
 const MAX_INLINE_TOOL_DETAIL_CHARS = 4 * 1024;
 const MAX_TRANSCRIPT_INLINE_TOOL_DETAIL_CHARS = 64 * 1024;
+const MAX_TRANSCRIPT_INLINE_PATCH_DIFF_CHARS = 64 * 1024;
 const MAX_TRANSCRIPT_MEDIA_BYTES = 25 * 1024 * 1024;
 const MAX_TRANSCRIPT_MEDIA_BASE64_CHARS = Math.ceil(MAX_TRANSCRIPT_MEDIA_BYTES / 3) * 4;
 const MAX_EMBEDDED_RESOURCE_TEXT_CHARS = 4 * 1024;
@@ -513,11 +515,19 @@ function acpTranscriptToolEntry(entry: DataRecord, options: TranscriptOptions = 
     ? Math.max(0, Math.min(MAX_INLINE_TOOL_DETAIL_CHARS, Math.floor(requestedInlineDetailChars)))
     : MAX_INLINE_TOOL_DETAIL_CHARS;
   const decisions = dataRecord(dataRecord(entry._meta).farming_patch_decisions);
-  const changes = patchChanges(entry.content).map(change => ({
+  const requestedInlinePatchDiffChars = Number(options.maxInlinePatchDiffChars);
+  const inlinePatchDiffChars = Number.isFinite(requestedInlinePatchDiffChars)
+    ? Math.max(0, Math.min(MAX_TRANSCRIPT_INLINE_PATCH_DIFF_CHARS, Math.floor(requestedInlinePatchDiffChars)))
+    : MAX_TRANSCRIPT_INLINE_PATCH_DIFF_CHARS;
+  const exactChanges = patchChanges(entry.content, { includeDiff: true });
+  const exactDiffChars = exactChanges.reduce((total, change) => total + String(change.diff || '').length, 0);
+  const includeInlineDiffs = exactDiffChars > 0 && exactDiffChars <= inlinePatchDiffChars;
+  const changes = exactChanges.map(change => ({
     path: change.path,
     kind: change.kind,
     added: change.added,
     removed: change.removed,
+    ...(includeInlineDiffs && change.diff ? { diff: change.diff } : {}),
     ...(decisions[change.path]
       ? { decision: decisions[change.path] }
       : {}),
@@ -569,6 +579,7 @@ function acpTranscriptEntries(entries: unknown, options: TranscriptOptions = {})
   let remainingInlineDetailChars = Number.isFinite(requestedBudget)
     ? Math.max(0, Math.floor(requestedBudget))
     : MAX_TRANSCRIPT_INLINE_TOOL_DETAIL_CHARS;
+  let remainingInlinePatchDiffChars = MAX_TRANSCRIPT_INLINE_PATCH_DIFF_CHARS;
   const source = Array.isArray(entries) ? entries : [];
   const projected = new Array(source.length);
 
@@ -582,11 +593,21 @@ function acpTranscriptEntries(entries: unknown, options: TranscriptOptions = {})
     }
     const projectedEntry = acpTranscriptToolEntry(entry, {
       maxInlineDetailChars: remainingInlineDetailChars,
+      maxInlinePatchDiffChars: remainingInlinePatchDiffChars,
       mediaPathPrefix: options.mediaPathPrefix,
     });
     remainingInlineDetailChars = Math.max(
       0,
       remainingInlineDetailChars - String(projectedEntry.transcriptDetail || '').length
+    );
+    remainingInlinePatchDiffChars = Math.max(
+      0,
+      remainingInlinePatchDiffChars - (Array.isArray(projectedEntry.transcriptChanges)
+        ? projectedEntry.transcriptChanges.reduce(
+          (total: number, change: DataRecord) => total + String(change.diff || '').length,
+          0
+        )
+        : 0)
     );
     projected[index] = projectedEntry;
   }

@@ -40,6 +40,15 @@ test('Plugins treats each Agent Home as an independent ordered Agent configurati
     'code-plugin-section-agent-codex-default',
   ])
 
+  const openCode = panel.getByTestId('code-plugin-section-agent-opencode-default')
+  await expect(openCode.getByLabel('Model')).toBeDisabled()
+  await expect(openCode.getByLabel('Model').locator('option')).toHaveText([
+    'Use Agent configuration from this Home',
+  ])
+  await expect(openCode.getByLabel('Reasoning').locator('option')).toHaveText([
+    'Use Agent configuration from this Home',
+  ])
+
   const work = panel.getByTestId('code-plugin-section-agent-codex-work')
   await expect(work.getByText('work', { exact: true })).toBeVisible()
   await expect(work.getByText(`${workspaceRoot}/codex-work`, { exact: true })).toBeVisible()

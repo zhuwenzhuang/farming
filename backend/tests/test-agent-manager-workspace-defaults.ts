@@ -336,6 +336,65 @@ async function run() {
       homeProfileManager.engineBridge.dispose();
     }
 
+    const claudeHomeLaunches = [];
+    const claudeHomeProfileManager = new AgentManager({
+      getWorkspace: () => process.cwd(),
+      getHeartbeatInterval: () => 60_000,
+      getTaskHistory: () => [],
+      getDangerouslySkipAgentPermissionsByDefault: () => false,
+      getAgentLaunchProfiles: () => ({
+        claude: { permissionMode: 'default', model: 'config', effort: 'config' },
+      }),
+      getAgentLaunchProfileForHome(provider, homeId) {
+        assert.strictEqual(provider, 'claude');
+        assert.strictEqual(homeId, 'work');
+        return {
+          permissionMode: 'default',
+          model: 'claude-opus-test',
+          effort: 'max',
+        };
+      },
+      getAgentHome(provider, homeId) {
+        assert.strictEqual(provider, 'claude');
+        assert.strictEqual(homeId, 'work');
+        return {
+          id: 'work',
+          path: path.join(os.homedir(), '.claude-work'),
+          order: 1,
+          newAgentDefaults: { model: 'claude-opus-test', reasoning: 'max', fast: 'inherit' },
+        };
+      },
+    }, { skipExecutablePreflight: true });
+    claudeHomeProfileManager.engineBridge.resolve = () => ({
+      engineName: 'local',
+      engine: {
+        async createSession(options) {
+          claudeHomeLaunches.push(options);
+        },
+      },
+      spec: { category: 'coding' },
+    });
+    try {
+      await startAgent(claudeHomeProfileManager, 'claude', process.cwd(), {
+        wantsMain: false,
+        providerHomeId: 'work',
+      });
+      assert(claudeHomeLaunches[0].args.includes('claude-opus-test'));
+      assert(claudeHomeLaunches[0].args.includes('max'));
+
+      await startAgent(
+        claudeHomeProfileManager,
+        'claude --resume 11111111-2222-4333-8444-555555555555',
+        process.cwd(),
+        { wantsMain: false, providerHomeId: 'work' },
+      );
+      assert(!claudeHomeLaunches[1].args.includes('--model'));
+      assert(!claudeHomeLaunches[1].args.includes('--effort'));
+    } finally {
+      clearInterval(claudeHomeProfileManager.heartbeatInterval);
+      claudeHomeProfileManager.engineBridge.dispose();
+    }
+
     console.log('✓ AgentManager uses .farming identity workspace for main agent and project cwd for sub agents by default');
   } finally {
     clearInterval(manager.heartbeatInterval);

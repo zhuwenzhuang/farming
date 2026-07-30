@@ -1815,6 +1815,7 @@ function ProjectSection({
                 agentId={filesWorkspaceId}
                 agentLaunchOptions={agentLaunchOptions}
                 activeFilePath={activeProjectFile?.file.path}
+                activeFileRevealInTree={activeProjectFile?.revealInTree}
                 openFiles={projectOpenWorkspaceFiles
                   .map(file => ({
                     agentId: file.agentId,

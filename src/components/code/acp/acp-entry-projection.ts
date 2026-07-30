@@ -134,6 +134,7 @@ export interface AgentTranscript {
   replaceFromTurnId?: string
   stopReason?: string
   truncated?: boolean
+  plan?: AgentTranscriptProcessItem
   codexSubagents?: {
     version: number
     rootThreadId: string
@@ -245,12 +246,15 @@ function patchLineStats(oldText: string, newText: string) {
 function patchChanges(content: unknown, decisions: AcpRecord = {}): AgentTranscriptPatchChange[] {
   return diffBlocks(content).map(block => {
     const path = stringValue(block.path).trim()
-    const stats = patchLineStats(stringValue(block.oldText), stringValue(block.newText))
+    const oldText = stringValue(block.oldText)
+    const newText = stringValue(block.newText)
+    const stats = patchLineStats(oldText, newText)
     return {
       path,
       kind: diffAction(block).toLowerCase(),
       added: stats.added,
       removed: stats.removed,
+      diff: boundedDiffText(createTwoFilesPatch(path, path, oldText, newText, 'before', 'after', { context: 3 })),
       ...(stringValue(decisions[path]) ? { decision: stringValue(decisions[path]) } : {}),
     }
   })
@@ -457,7 +461,15 @@ function planDetail(planValue: unknown) {
   const plan = record(planValue)
   const entries = list(plan.entries).map(record)
   if (entries.length > 0) {
-    return entries.map(entry => `${stringValue(entry.status) || 'pending'}: ${stringValue(entry.content || entry.title)}`).join('\n')
+    return entries.map(entry => {
+      const status = stringValue(entry.status).toLowerCase()
+      const marker = status === 'completed'
+        ? 'x'
+        : ['in_progress', 'in-progress', 'running'].includes(status)
+          ? '>'
+          : ' '
+      return `[${marker}] ${stringValue(entry.content || entry.title)}`
+    }).join('\n')
   }
   if (plan.type === 'markdown') return stringValue(plan.content)
   if (plan.type === 'file') return stringValue(plan.uri)
@@ -547,6 +559,7 @@ function processEntry(entry: AcpRecord): AgentTranscriptProcessItem | null {
         kind: stringValue(change.kind),
         added: Number(change.added || 0),
         removed: Number(change.removed || 0),
+        ...(typeof change.diff === 'string' ? { diff: change.diff } : {}),
         ...(stringValue(change.decision) ? { decision: stringValue(change.decision) } : {}),
       }))
       : patchChanges(entry.content, record(record(entry._meta).farming_patch_decisions))
@@ -649,6 +662,17 @@ function finishTurn(turn: MutableTurn | null, keepTailAsProgress: boolean): Agen
 
 export function projectAcpTranscript(sessionValue: unknown, options: { maxTurns?: number } = {}): AgentTranscript {
   const session = record(sessionValue)
+  const sessionEntries = list(session.entries)
+  const historicalPlanEntry = [...sessionEntries].reverse().map(record).find(entry => entry.type === 'plan')
+  const hasPlanSnapshot = Object.prototype.hasOwnProperty.call(session, 'plan')
+  const planValue = hasPlanSnapshot ? session.plan : historicalPlanEntry?.plan
+  const plan = planValue == null
+    ? undefined
+    : processEntry({
+        id: stringValue(record(planValue).planId) || stringValue(historicalPlanEntry?.id) || 'active-plan',
+        type: 'plan',
+        plan: planValue,
+      }) || undefined
   const turns: AgentTranscriptTurn[] = []
   let current: MutableTurn | null = null
   let sequence = 0
@@ -658,7 +682,7 @@ export function projectAcpTranscript(sessionValue: unknown, options: { maxTurns?
     if (finished) turns.push(finished)
     current = null
   }
-  for (const value of list(session.entries)) {
+  for (const value of sessionEntries) {
     const entry = record(value)
     if (entry.type === 'message' && entry.role === 'user') {
       if (isCodexSteerEntry(entry)) {
@@ -733,6 +757,7 @@ export function projectAcpTranscript(sessionValue: unknown, options: { maxTurns?
       continue
     }
     if (current.internal || entry.internal === true) continue
+    if (entry.type === 'plan') continue
     const process = processEntry(entry)
     if (process && isGeneratedMediaTool(entry)) {
       current.resultImages = uniqueByUrl([...current.resultImages, ...(process.images || [])])
@@ -780,6 +805,7 @@ export function projectAcpTranscript(sessionValue: unknown, options: { maxTurns?
     revision: Number(session.revision || 0), delta: session.delta === true,
     replaceFromTurnId: session.delta === true ? stringValue(visibleTurns[0]?.id) : '',
     stopReason: stringValue(session.stopReason),
+    plan,
     ...(codexSubagents ? { codexSubagents } : {}),
     hasMoreBefore: session.hasMoreBefore === true || turns.length > visibleTurns.length,
     turnLimit: maxTurns, truncated: session.truncated === true, turns: visibleTurns,

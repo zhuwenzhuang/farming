@@ -77,17 +77,31 @@ test('queues a follow-up and explicitly sends negotiated Codex ACP steer', async
     const steerIndex = children.findIndex(child => child.matches('[data-testid="code-agent-transcript-steer"]'))
     const processIndex = children.findIndex(child => child.matches('.code-agent-transcript-process'))
     const answerIndex = children.findIndex(child => child.matches('.code-agent-transcript-answer'))
+    const flow = Array.from(element.querySelectorAll(
+      '.code-agent-transcript-process-list > .code-acp-progress-update, '
+      + '.code-agent-transcript-process-list > [data-testid="code-agent-transcript-steer"]',
+    )).map(child => ({
+      kind: child.matches('[data-testid="code-agent-transcript-steer"]') ? 'steer' : 'commentary',
+      text: child.matches('[data-testid="code-agent-transcript-steer"]')
+        ? child.querySelector('.code-agent-transcript-steer-bubble > div:first-child')?.textContent?.trim() || ''
+        : child.textContent?.trim() || '',
+    }))
     return {
       steerIndex,
       processIndex,
       answerIndex,
       steerInsideProcess: Boolean(element.querySelector('.code-agent-transcript-process [data-testid="code-agent-transcript-steer"]')),
+      flow,
     }
   })).toEqual({
-    steerIndex: 1,
-    processIndex: 2,
-    answerIndex: 3,
-    steerInsideProcess: false,
+    steerIndex: -1,
+    processIndex: 1,
+    answerIndex: 2,
+    steerInsideProcess: true,
+    flow: [
+      { kind: 'commentary', text: 'Waiting for steering.' },
+      { kind: 'steer', text: 'focus on the attached image' },
+    ],
   })
   await expect(page.locator('.code-agent-transcript-turn')).toHaveCount(1)
 

@@ -44,7 +44,7 @@ type FileChangeTreeNode =
 
 function changeTreeDepthStyle(depth: number) {
   return {
-    '--change-indent': `${18 + depth * 12}px`,
+    '--change-indent': `${6 + depth * 12}px`,
     '--change-guide-width': `${depth * 12}px`,
   } as CSSProperties
 }
@@ -159,6 +159,7 @@ interface FileChangeRowProps {
   activeFilePath?: string
   change: WorkspaceFileChange
   copy: CodeCopy
+  depth: number
   onOpenChange: (change: WorkspaceFileChange) => void
 }
 
@@ -166,6 +167,7 @@ function FileChangeRow({
   activeFilePath,
   change,
   copy,
+  depth,
   onOpenChange,
 }: FileChangeRowProps) {
   const active = activeFilePath === change.path
@@ -180,6 +182,7 @@ function FileChangeRow({
       data-file-path={change.path}
       data-file-type="file"
       title={workspaceFileChangeTitle(change, gitStatusTitle)}
+      style={changeTreeDepthStyle(depth)}
     >
       <button
         type="button"
@@ -227,6 +230,7 @@ function FileChangeTreeRows({
                 activeFilePath={activeFilePath}
                 change={node.change}
                 copy={copy}
+                depth={depth}
                 onOpenChange={onOpenChange}
               />
             </div>

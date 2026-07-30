@@ -93,7 +93,7 @@ function pluginCopy(language: UiLanguage) {
     inheritAgentConfig: zh ? '继承 Agent 配置' : 'Inherit Agent config',
     fastOn: zh ? '开启' : 'On',
     fastOff: zh ? '关闭' : 'Off',
-    unsupportedDefault: zh ? '由 Agent 管理' : 'Managed by Agent',
+    unsupportedDefault: zh ? '使用此 Home 中的 Agent 配置' : 'Use Agent configuration from this Home',
     agentProvider: zh ? 'Agent 类型' : 'Agent provider',
     homeName: zh ? 'Home 名称' : 'Home name',
     homePath: zh ? 'Home 路径' : 'Home path',
@@ -1038,10 +1038,12 @@ export function PluginsPanel({
           const extensionCount = home.extensions.length
           const kindGroups = agentExtensionKindGroups(home)
           const supportsManagedDefaults = provider.id === 'codex' || provider.id === 'claude'
-          const modelCatalog = provider.id === 'codex' ? codexModels : claudeModels
+          const modelCatalog = provider.id === 'codex'
+            ? codexModels
+            : (provider.id === 'claude' ? claudeModels : [])
           const reasoningCatalog = provider.id === 'codex'
             ? reasoningOptionsForModel(home.newAgentDefaults.model, codexModels)
-            : claudeReasoning
+            : (provider.id === 'claude' ? claudeReasoning : [])
           const modelOptions = home.newAgentDefaults.model !== 'inherit'
             && !modelCatalog.some(option => option.value === home.newAgentDefaults.model)
             ? [{

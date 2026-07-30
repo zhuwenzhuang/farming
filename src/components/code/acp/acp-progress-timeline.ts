@@ -1,8 +1,13 @@
 export interface AcpProgressTimelineItem {
+  id?: string
   type?: string
   kind?: string
   status?: string
 }
+
+export type AcpProgressFlowEntry<T extends AcpProgressTimelineItem> =
+  | { kind: 'item'; item: T }
+  | { kind: 'group'; id: string; items: T[] }
 
 type ActionKind = 'edit' | 'read' | 'search' | 'execute' | 'fetch' | 'tool'
 
@@ -51,4 +56,37 @@ export function acpActionGroupLabel(items: AcpProgressTimelineItem[]) {
 
 export function isAcpProgressUpdate(item: AcpProgressTimelineItem) {
   return String(item.type || '').trim().toLowerCase() === 'progress'
+}
+
+function isAcpProgressBoundary(item: AcpProgressTimelineItem) {
+  const type = String(item.type || '').trim().toLowerCase()
+  return type === 'progress' || type === 'user-steer'
+}
+
+export function acpProgressFlowEntries<T extends AcpProgressTimelineItem>(
+  items: T[],
+): AcpProgressFlowEntry<T>[] {
+  const entries: AcpProgressFlowEntry<T>[] = []
+  let evidence: T[] = []
+  const flushEvidence = () => {
+    if (evidence.length === 0) return
+    entries.push({
+      kind: 'group',
+      id: `group:${String(evidence[0]?.id || '')}`,
+      items: evidence,
+    })
+    evidence = []
+  }
+
+  for (const item of items) {
+    if (String(item.type || '').trim().toLowerCase() === 'plan') continue
+    if (!isAcpProgressBoundary(item)) {
+      evidence.push(item)
+      continue
+    }
+    flushEvidence()
+    entries.push({ kind: 'item', item })
+  }
+  flushEvidence()
+  return entries
 }

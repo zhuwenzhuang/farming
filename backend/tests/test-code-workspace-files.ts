@@ -1422,16 +1422,18 @@ function run() {
       !transcriptPaneSource.includes('closedLiveProcessTurnIds') &&
       transcriptPaneSource.includes('COMPACT_PROCESS_ACTION_LIMIT = 1') &&
       transcriptPaneSource.includes('data-testid="code-agent-transcript-process-compact-list"') &&
-      transcriptPaneSource.includes('autoExpandedTerminalItemIdsRef') &&
-      transcriptPaneSource.includes('const timer = window.setInterval(checkForOutput, 500)') &&
+      transcriptPaneSource.includes('acpProgressFlowEntries(items)') &&
+      !transcriptPaneSource.includes('autoExpandedTerminalItemIdsRef') &&
+      !transcriptPaneSource.includes('const timer = window.setInterval(checkForOutput, 500)') &&
       transcriptPaneSource.includes('compactAcpActionLabel(item, copy)') &&
       transcriptPaneSource.includes('showStatus={false}') &&
       transcriptPaneSource.includes('entry.items.some(item => openProcessItemIds.has(item.id))') &&
       !copySource.includes('agentTranscriptEarlierActions: count =>') &&
       acpProgressTimelineSource.includes("return String(item.type || '').trim().toLowerCase() === 'progress'") &&
+      acpProgressTimelineSource.includes("type === 'progress' || type === 'user-steer'") &&
       acpProgressTimelineSource.includes("return 'Reasoning'") &&
       !terminalPaneSource.includes('code-acp-progress-update'),
-    'ACP Chat should show one compact live tool row, auto-expand real long-running terminal output, and preserve progress in the full ordered evidence'
+    'ACP Chat should show one compact live tool row and preserve progress and steer boundaries in the full ordered evidence'
   );
 
   const keyboardSource = read('src/hooks/useKeyboard.ts');

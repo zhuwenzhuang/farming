@@ -494,6 +494,7 @@ function run() {
 	      fileSectionSource.includes('useWorkspaceFileFocus({') &&
 	      fileSectionSource.includes('const lastAutoRevealedActivePathRef = useRef<string | null>(null)') &&
 	      fileSectionSource.includes('if (!activeFilePath || filesCollapsed || !directories[\'\']) return') &&
+	      fileSectionSource.includes('if (activeFileRevealInTree === false)') &&
 	      fileSectionSource.includes('lastAutoRevealedActivePathRef.current = activeFilePath') &&
 	      fileSectionSource.includes('cancelPendingFileFocus,') &&
 	      fileSectionSource.includes('focusFileSearchInput,') &&

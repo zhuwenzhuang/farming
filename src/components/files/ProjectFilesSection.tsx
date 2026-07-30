@@ -48,6 +48,7 @@ interface ProjectFilesSectionProps {
   agentId: string | null
   agentLaunchOptions: AgentLaunchOption[]
   activeFilePath?: string
+  activeFileRevealInTree?: boolean
   revealRequest?: { path: string; kind: 'directory' | 'file'; requestId: number }
   focusSearchRequest?: { requestId: number; query?: string }
   editorDirtyFilePaths?: ReadonlySet<string>
@@ -98,6 +99,7 @@ export function ProjectFilesSection({
   agentId,
   agentLaunchOptions,
   activeFilePath,
+  activeFileRevealInTree,
   revealRequest,
   focusSearchRequest,
   editorDirtyFilePaths = EMPTY_FILE_PATHS,
@@ -399,10 +401,14 @@ export function ProjectFilesSection({
 
   useEffect(() => {
     if (!activeFilePath || filesCollapsed || !directories['']) return
+    if (activeFileRevealInTree === false) {
+      lastAutoRevealedActivePathRef.current = activeFilePath
+      return
+    }
     if (lastAutoRevealedActivePathRef.current === activeFilePath) return
     lastAutoRevealedActivePathRef.current = activeFilePath
     void revealFilePath(activeFilePath)
-  }, [activeFilePath, directories, filesCollapsed, revealFilePath])
+  }, [activeFilePath, activeFileRevealInTree, directories, filesCollapsed, revealFilePath])
 
   const {
     focusStickyDirectory,

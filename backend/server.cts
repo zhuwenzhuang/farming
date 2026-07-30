@@ -2385,7 +2385,7 @@ async function resumeAgentSessionById(
         readOutputSeq: savedSession?.readOutputSeq,
         autoReadInitialAttention: options.autoReadInitialAttention === true
           && savedAttentionSeq <= savedReadAttentionSeq,
-        preserveProviderSessionProfile: normalizedProvider === 'codex',
+        preserveProviderSessionProfile: normalizedProvider === 'codex' || normalizedProvider === 'claude',
       });
       Promise.resolve(startResult).catch((error) => {
         resolve({ error: error.message || 'failed to resume agent session', status: 500 });

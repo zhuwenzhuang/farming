@@ -300,6 +300,25 @@ function run() {
   assert.strictEqual(selectedThroughWorkspace.files.length, 1);
   assert.strictEqual(selectedThroughWorkspace.files[0].agentId, stableFilesId);
 
+  const openedFromChanges = openWorkspaceFileFromRead({
+    activeFile: null,
+    files: [],
+    closedFileCache: new Map(),
+  }, stableFilesId, workspaceFile('src/Changed.tsx'), {
+    workspaceRoot: '/repo',
+    diffOnly: true,
+    revealInTree: false,
+  });
+  assert.strictEqual(openedFromChanges.activeFile.revealInTree, false);
+  const reopenedFromFiles = selectWorkspaceOpenFile(
+    openedFromChanges,
+    stableFilesId,
+    'src/Changed.tsx',
+    { workspaceRoot: '/repo', diffOnly: false },
+  );
+  assert(reopenedFromFiles);
+  assert.strictEqual(reopenedFromFiles.activeFile.revealInTree, undefined);
+
   const firstTab = workingCopy({ file: workspaceFile('src/First.tsx') });
   const secondTab = workingCopy({ file: workspaceFile('src/Second.tsx') });
   const thirdTab = workingCopy({ file: workspaceFile('src/Third.tsx') });
@@ -384,17 +403,20 @@ function run() {
     },
     diffRequestId: undefined,
     diffOnly: undefined,
+    revealInTree: undefined,
     transient: undefined,
     exactExternal: undefined,
   });
   assert.deepStrictEqual(workspaceOpenFileRequestForTarget({
     view: 'diff',
     diffOnly: true,
+    revealInTree: false,
     gitStatus: 'deleted',
   }, { cursorRequestId: 7, diffRequestId: 9 }), {
     cursor: undefined,
     diffRequestId: 9,
     diffOnly: true,
+    revealInTree: false,
     transient: undefined,
     exactExternal: undefined,
   });
@@ -405,6 +427,7 @@ function run() {
     cursor: undefined,
     diffRequestId: undefined,
     diffOnly: undefined,
+    revealInTree: undefined,
     transient: true,
     exactExternal: true,
   });

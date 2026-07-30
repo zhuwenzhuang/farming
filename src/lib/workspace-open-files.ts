@@ -38,6 +38,7 @@ export interface WorkspaceOpenFileRequest {
   cursor?: WorkspaceFileCursor
   diffRequestId?: number
   diffOnly?: boolean
+  revealInTree?: boolean
   workspaceRoot?: string
   sourceAgentId?: string
   transient?: boolean
@@ -69,6 +70,7 @@ export interface OpenWorkspaceFile {
   cursor?: WorkspaceFileCursor
   diffRequestId?: number
   diffOnly?: boolean
+  revealInTree?: boolean
   transient?: boolean
   exactExternal?: boolean
 }
@@ -156,6 +158,7 @@ export function workspaceOpenFileRequestForTarget(
     cursor: workspaceFileCursorForTarget(target, requestIds.cursorRequestId),
     diffRequestId: workspaceFileDiffRequestForTarget(target, requestIds.diffRequestId),
     diffOnly: workspaceFileDiffOnlyForTarget(target),
+    revealInTree: target?.revealInTree,
     transient: target?.transient,
     exactExternal: target?.exactExternal,
   }
@@ -389,6 +392,7 @@ export function createWorkspaceOpenFile(
     cursor: request.cursor,
     diffRequestId: request.diffRequestId,
     diffOnly: request.diffOnly,
+    revealInTree: request.revealInTree,
     transient: request.transient,
     exactExternal: request.exactExternal,
   }
@@ -433,6 +437,7 @@ export function openWorkspaceFileFromRead(
     cursor: request.cursor,
     diffRequestId: request.diffRequestId,
     diffOnly: request.diffOnly === true,
+    revealInTree: request.revealInTree,
     transient: nextTransient,
     exactExternal: request.exactExternal ?? baseFile.exactExternal,
   }
@@ -461,7 +466,14 @@ export function selectWorkspaceOpenFile(
   const request = normalizeWorkspaceOpenFileRequest(options)
   const nextFile = findOpenWorkspaceFile(state.files, agentId, filePath, request.workspaceRoot)
   if (!nextFile) return null
-  const hasViewRequest = Boolean(request.cursor || request.diffRequestId || request.diffOnly !== undefined || nextFile.diffRequestId)
+  const hasViewRequest = Boolean(
+    request.cursor
+    || request.diffRequestId
+    || request.diffOnly !== undefined
+    || request.revealInTree !== undefined
+    || nextFile.diffRequestId
+    || nextFile.revealInTree !== undefined
+  )
   const identityChanged = nextFile.agentId !== agentId
     || Boolean(request.workspaceRoot && request.workspaceRoot !== nextFile.workspaceRoot)
     || Boolean(request.sourceAgentId && request.sourceAgentId !== nextFile.sourceAgentId)
@@ -474,6 +486,7 @@ export function selectWorkspaceOpenFile(
         cursor: request.cursor ?? nextFile.cursor,
         diffRequestId: request.diffRequestId,
         diffOnly: request.diffOnly ?? nextFile.diffOnly,
+        revealInTree: request.revealInTree,
         transient: request.transient ?? nextFile.transient,
       }
     : nextFile

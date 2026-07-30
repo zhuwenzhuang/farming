@@ -787,10 +787,23 @@ function applyTerminalStateCursor(
   return true;
 }
 
-function codexCommandContinuesSession(command: string): boolean {
+function providerCommandContinuesSession(command: string): boolean {
   const parts = parseCommand(command);
-  return path.basename(parts[0] || '') === 'codex'
-    && parts.slice(1).some((arg: string) => arg === 'resume' || arg === 'fork');
+  const provider = agentHomeProviderForProgram(parts[0] || '');
+  const args = parts.slice(1);
+  if (provider === 'codex') {
+    return args.some((arg: string) => arg === 'resume' || arg === 'fork');
+  }
+  if (provider === 'claude') {
+    return args.some((arg: string) => (
+      arg === '--resume'
+      || arg.startsWith('--resume=')
+      || arg === '--continue'
+      || arg === '-c'
+      || arg === '--fork-session'
+    ));
+  }
+  return false;
 }
 
 function preserveCodexSessionProfileOptions() {
@@ -4516,7 +4529,7 @@ class AgentManager extends EventEmitter {
         && this.configManager.getDangerouslySkipAgentPermissionsByDefault()
       );
     const preserveProviderSessionProfile = options.preserveProviderSessionProfile === true
-      || codexCommandContinuesSession(command);
+      || providerCommandContinuesSession(command);
     const launchProvider = agentHomeProviderForProgram(command);
     const requestedLaunchHomeId = typeof options.providerHomeId === 'string' && options.providerHomeId.trim()
       ? options.providerHomeId.trim()
@@ -4529,7 +4542,11 @@ class AgentManager extends EventEmitter {
     const configuredLaunchProfiles = this.configManager && this.configManager.getAgentLaunchProfiles
       ? this.configManager.getAgentLaunchProfiles()
       : {};
-    if (launchProvider) configuredLaunchProfiles[launchProvider] = homeLaunchProfile;
+    if (launchProvider) {
+      configuredLaunchProfiles[launchProvider] = preserveProviderSessionProfile && launchProvider === 'claude'
+        ? { ...homeLaunchProfile, model: 'config', effort: 'config' }
+        : homeLaunchProfile;
+    }
     const codexModel = preserveProviderSessionProfile
       ? 'config'
       : (typeof options.codexModel === 'string'
@@ -5231,7 +5248,11 @@ class AgentManager extends EventEmitter {
           providerHomeId: agentRecord.providerHomeId || 'default',
           approvalMode: agentRecord.launchPermissionMode || 'approve',
           model: codexModel,
-          reasoningEffort: codexReasoningEffort,
+          reasoningEffort: !preserveProviderSessionProfile
+            && structuredRuntimeProvider === 'claude'
+            && typeof homeLaunchProfile.effort === 'string'
+            ? homeLaunchProfile.effort
+            : codexReasoningEffort,
           serviceTier: codexServiceTier,
           farmingSystemPrompt: renderFarmingAgentBootstrap(),
           additionalDirectories,

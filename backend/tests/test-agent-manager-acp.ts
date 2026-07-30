@@ -259,6 +259,73 @@ async function run() {
     await manager.dispose();
   }
 
+  const claudeProfileRuntime = new AcpRuntime({
+    ...TEST_PROCESS_IDENTITY,
+    resolveLaunch: () => ({ command: process.execPath, args: ['--import', require.resolve('tsx'), fixture], version: 'test' }),
+  });
+  const claudeProfileManager = new AgentManager(config({
+    getAgentHome(provider, homeId) {
+      assert.strictEqual(provider, 'claude');
+      assert.strictEqual(homeId, 'work');
+      return {
+        id: 'work',
+        path: path.join(os.homedir(), '.claude-work'),
+        order: 1,
+        newAgentDefaults: { model: 'claude-opus-test', reasoning: 'max', fast: 'inherit' },
+      };
+    },
+    getAgentLaunchProfileForHome(provider, homeId) {
+      assert.strictEqual(provider, 'claude');
+      assert.strictEqual(homeId, 'work');
+      return {
+        permissionMode: 'default',
+        model: 'claude-opus-test',
+        effort: 'max',
+      };
+    },
+  }), { acpRuntime: claudeProfileRuntime, skipExecutablePreflight: true });
+  try {
+    const freshAgentId = await new Promise(resolve => {
+      claudeProfileManager.startAgent('claude', process.cwd(), (id, error) => {
+        assert.ifError(error);
+        resolve(id);
+      }, { agentRuntimeMode: 'chat', wantsMain: false, providerHomeId: 'work' });
+    });
+    const freshBinding = claudeProfileRuntime.bindings.get(freshAgentId);
+    assert.strictEqual(freshBinding.env.CLAUDE_CONFIG_DIR, path.join(os.homedir(), '.claude-work'));
+    assert.strictEqual(freshBinding.restartOptions.reasoningEffort, 'max');
+    assert.strictEqual(
+      freshBinding.configOptions.find(option => option.id === 'model')?.currentValue,
+      'claude-opus-test',
+      'a fresh Claude Chat should apply the selected Home model before its first Prompt',
+    );
+    assert.strictEqual(
+      freshBinding.configOptions.find(option => option.id === 'reasoning')?.currentValue,
+      'max',
+      'a fresh Claude Chat should apply the selected Home reasoning before its first Prompt',
+    );
+
+    const resumedAgentId = await new Promise(resolve => {
+      claudeProfileManager.startAgent('claude --resume existing-session', process.cwd(), (id, error) => {
+        assert.ifError(error);
+        resolve(id);
+      }, { agentRuntimeMode: 'chat', wantsMain: false, providerHomeId: 'work' });
+    });
+    const resumedBinding = claudeProfileRuntime.bindings.get(resumedAgentId);
+    assert.strictEqual(
+      resumedBinding.configOptions.find(option => option.id === 'model')?.currentValue,
+      'gpt-5.5',
+      'a resumed Claude Chat must preserve the provider session model',
+    );
+    assert.strictEqual(
+      resumedBinding.configOptions.find(option => option.id === 'reasoning')?.currentValue,
+      'high',
+      'a resumed Claude Chat must preserve the provider session reasoning',
+    );
+  } finally {
+    await claudeProfileManager.dispose();
+  }
+
   const codexRuntime = new AcpRuntime({
     ...TEST_PROCESS_IDENTITY,
     resolveLaunch: () => ({ command: process.execPath, args: ['--import', require.resolve('tsx'), fixture], version: 'test' }),

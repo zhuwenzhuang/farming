@@ -860,13 +860,17 @@ test.describe('display-backed agent flows', () => {
     const projectDir = path.join(workspaceRoot, 'project-changes')
     fs.mkdirSync(projectDir, { recursive: true })
     const changedFilePath = path.join(projectDir, 'review-target.txt')
+    const nestedChangedFilePath = path.join(projectDir, 'tracked/deep/no-reveal.txt')
+    fs.mkdirSync(path.dirname(nestedChangedFilePath), { recursive: true })
     fs.writeFileSync(changedFilePath, 'before\n')
+    fs.writeFileSync(nestedChangedFilePath, 'nested before\n')
     execFileSync('git', ['init'], { cwd: projectDir })
     execFileSync('git', ['config', 'user.name', 'Farming E2E'], { cwd: projectDir })
     execFileSync('git', ['config', 'user.email', 'farming-e2e@example.com'], { cwd: projectDir })
-    execFileSync('git', ['add', 'review-target.txt'], { cwd: projectDir })
+    execFileSync('git', ['add', 'review-target.txt', 'tracked/deep/no-reveal.txt'], { cwd: projectDir })
     execFileSync('git', ['commit', '-m', 'seed review target'], { cwd: projectDir })
     fs.writeFileSync(changedFilePath, 'before\nafter\n')
+    fs.writeFileSync(nestedChangedFilePath, 'nested before\nnested after\n')
     fs.mkdirSync(path.join(projectDir, 'scratch'), { recursive: true })
     fs.writeFileSync(path.join(projectDir, 'scratch/scratch.log'), 'temporary\n')
     fs.mkdirSync(path.join(projectDir, 'delete-dir'), { recursive: true })
@@ -928,6 +932,32 @@ test.describe('display-backed agent flows', () => {
     await expect(page.getByTestId('code-file-diff-view')).toBeVisible()
     await expect(page.getByTestId('code-file-diff-monaco')).toBeVisible()
     await expect(changeRow).toHaveClass(/active/)
+    const trackedDirectory = trackedGroup.locator(
+      '[data-testid="code-file-change-directory-row"][data-file-path="tracked/deep"]',
+    )
+    await expect(trackedDirectory).toBeVisible()
+    expect(await trackedDirectory.evaluate(element => (
+      getComputedStyle(element).getPropertyValue('--change-indent').trim()
+    ))).toBe('6px')
+    await trackedDirectory.click()
+    const nestedChangeRow = trackedGroup.locator(
+      '[data-testid="code-file-change-row"][data-file-path="tracked/deep/no-reveal.txt"]',
+    )
+    await expect(nestedChangeRow).toBeVisible()
+    expect(await nestedChangeRow.evaluate(element => (
+      getComputedStyle(element).getPropertyValue('--change-indent').trim()
+    ))).toBe('18px')
+    const filesTreeRootDirectory = filesSection.locator(
+      '[data-testid="code-file-row"][data-file-path="tracked"]',
+    )
+    await expect(filesTreeRootDirectory).toHaveAttribute('aria-expanded', 'false')
+    await nestedChangeRow.click()
+    await expect(activeFileTabName(page)).toHaveText('no-reveal.txt')
+    await expect(page.getByTestId('code-file-diff-view')).toBeVisible()
+    await expect(filesTreeRootDirectory).toHaveAttribute('aria-expanded', 'false')
+    await expect(filesSection.locator(
+      '[data-testid="code-file-row"][data-file-path="tracked/deep/no-reveal.txt"]',
+    )).toHaveCount(0)
     const untrackedTitle = untrackedGroup.getByRole('button', { name: /Untracked/ })
     const untrackedRefresh = page.waitForResponse(response => response.url().includes('/api/files/changes'))
     await untrackedTitle.click()
