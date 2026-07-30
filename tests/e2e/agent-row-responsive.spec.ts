@@ -75,6 +75,17 @@ test('reveals more Agent row information as the sidebar widens', async ({ page, 
   await page.mouse.move(1000, 100)
   await expect(titleCard).toHaveCount(0)
 
+  const projectGroup = page.getByTestId('code-project-group').filter({ has: row })
+  const projectRow = projectGroup.locator('.code-project-row')
+  await projectRow.hover()
+  const projectPreview = page.getByTestId('code-project-hover-preview')
+  await expect(projectPreview).toBeVisible()
+  await expect(projectPreview).toContainText(path.basename(projectDir))
+  await expect(projectPreview).toContainText('1 Agent · 1 active')
+  await expect(projectPreview).toContainText(projectDir)
+  await page.mouse.move(1000, 100)
+  await expect(projectPreview).toHaveCount(0)
+
   await resizeSidebar(page, 480)
   const roomy = await rowProjection(row)
   expect(roomy.title).toBe(longTitle)

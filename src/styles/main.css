@@ -1664,6 +1664,64 @@ body.code-resizing-sidebar {
 .code-agent-dot.stopped { background: #8c959f; }
 .code-agent-dot.dead { background: #cf222e; }
 
+.code-project-hover-preview {
+  position: fixed;
+  z-index: 120;
+  box-sizing: border-box;
+  border: 1px solid rgba(31, 35, 40, 0.12);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 12px 28px rgba(31, 35, 40, 0.10), 0 1px 3px rgba(31, 35, 40, 0.06);
+  color: #1f2328;
+  font-size: 14px;
+  line-height: 1.25;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.code-project-hover-preview-header,
+.code-project-hover-preview-line {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  padding: 11px 14px;
+}
+
+.code-project-hover-preview-header strong,
+.code-project-hover-preview-line > span:nth-child(2) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.code-project-hover-preview-header strong {
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.code-project-hover-preview-line {
+  grid-template-columns: 18px minmax(0, 1fr);
+  border-top: 1px solid rgba(31, 35, 40, 0.09);
+  color: #3e4540;
+}
+
+.code-project-hover-preview-icon,
+.code-project-hover-preview-pin {
+  color: #7b8078;
+  display: inline-grid;
+  place-items: center;
+}
+
+.code-project-hover-preview-icon svg,
+.code-project-hover-preview-pin svg {
+  width: 16px;
+  height: 16px;
+  display: block;
+}
+
 .code-agent-hover-preview {
   position: fixed;
   z-index: 120;

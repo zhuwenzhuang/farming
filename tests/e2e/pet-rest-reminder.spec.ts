@@ -82,7 +82,7 @@ test('mobile reminder settings keep long values clear of the slider', async ({ p
   expect(valueBox!.y).toBeGreaterThanOrEqual(sliderBox!.y + sliderBox!.height)
 })
 
-test('settings sliders preview locally and save only the released value', async ({ page }) => {
+test('settings sliders stage locally and save only the released value', async ({ page }) => {
   await page.request.post('/farming/api/settings', {
     data: {
       appearance: 'light',
@@ -94,37 +94,72 @@ test('settings sliders preview locally and save only the released value', async 
   await page.getByTestId('code-sidebar-options').click()
   const settings = page.getByTestId('code-settings-panel')
   const slider = settings.getByRole('slider', { name: '休息提醒' })
-  let reminderWrites = 0
+  const writes = { reminder: 0, contentFontSize: 0, searchTimeout: 0 }
   page.on('request', request => {
     if (request.method() !== 'POST' || !request.url().endsWith('/api/settings')) return
     try {
-      const body = request.postDataJSON() as { restReminderIntervalSeconds?: number }
-      if (body.restReminderIntervalSeconds !== undefined) reminderWrites += 1
+      const body = request.postDataJSON() as {
+        restReminderIntervalSeconds?: number
+        codeContentFontSize?: number
+        searchTimeoutMs?: number
+      }
+      if (body.restReminderIntervalSeconds !== undefined) writes.reminder += 1
+      if (body.codeContentFontSize !== undefined) writes.contentFontSize += 1
+      if (body.searchTimeoutMs !== undefined) writes.searchTimeout += 1
     } catch {
       // Ignore unrelated non-JSON requests.
     }
   })
 
-  const sliderBox = await slider.boundingBox()
-  expect(sliderBox).not.toBeNull()
-  await page.mouse.move(
-    sliderBox!.x + sliderBox!.width * (5 / 7),
-    sliderBox!.y + sliderBox!.height / 2,
-  )
-  await page.mouse.down()
-  await page.mouse.move(
-    sliderBox!.x + sliderBox!.width - 2,
-    sliderBox!.y + sliderBox!.height / 2,
-    { steps: 20 },
-  )
-  await page.mouse.up()
+  const dragToMaximum = async (target: Locator) => {
+    const [box, range] = await Promise.all([
+      target.boundingBox(),
+      target.evaluate(element => {
+        const input = element as HTMLInputElement
+        return {
+          min: Number(input.min),
+          max: Number(input.max),
+          value: Number(input.value),
+        }
+      }),
+    ])
+    expect(box).not.toBeNull()
+    const ratio = (range.value - range.min) / (range.max - range.min)
+    await page.mouse.move(
+      box!.x + box!.width * ratio,
+      box!.y + box!.height / 2,
+    )
+    await page.mouse.down()
+    await page.mouse.move(
+      box!.x + box!.width - 2,
+      box!.y + box!.height / 2,
+      { steps: 20 },
+    )
+    await page.mouse.up()
+  }
+
+  await dragToMaximum(slider)
 
   await expect(settings.locator('.code-settings-pet-rest-value output')).toHaveText('每 90 分钟')
-  await expect.poll(() => reminderWrites).toBe(1)
+  await expect.poll(() => writes.reminder).toBe(1)
   await expect.poll(async () => {
     const response = await page.request.get('/farming/api/settings')
     return (await response.json()).settings?.restReminderIntervalSeconds
   }).toBe(90 * 60)
+
+  await dragToMaximum(settings.getByRole('slider', { name: '正文字号' }))
+  await expect.poll(() => writes.contentFontSize).toBe(1)
+  await expect.poll(async () => {
+    const response = await page.request.get('/farming/api/settings')
+    return (await response.json()).settings?.codeContentFontSize
+  }).toBe(20)
+
+  await dragToMaximum(settings.getByRole('slider', { name: '搜索超时' }))
+  await expect.poll(() => writes.searchTimeout).toBe(1)
+  await expect.poll(async () => {
+    const response = await page.request.get('/farming/api/settings')
+    return (await response.json()).settings?.searchTimeoutMs
+  }).toBe(180_000)
 })
 
 test('break reminder keeps its English status copy compact', async ({ page }) => {

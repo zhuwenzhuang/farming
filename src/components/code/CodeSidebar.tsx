@@ -59,6 +59,7 @@ import { mobileActionMenuPoint, outwardContextMenuPoint } from './menu-position'
 import { ShareQrButton } from './ShareQrButton'
 import { isCompactViewport } from '@/lib/responsive-mode'
 import { projectFilesWorkspaceId } from '@/lib/project-workspaces'
+import { formatWorkspaceForDisplay } from '@/lib/workspace-options'
 import { stableProjectSourceAgentId } from './workspace-derived'
 import { useAgentWithLiveState } from '@/lib/agent-live-state'
 import { useAgentReorder } from './useAgentReorder'
@@ -92,6 +93,17 @@ type AgentPreviewTarget = {
   lastActive: number
   provider?: PreviewAgentIconName
   workspaceRootId?: string
+}
+
+type ProjectPreviewTarget = {
+  key: string
+  name: string
+  workspace: string
+  agentCount: number
+  activeAgentCount: number
+  branch: string
+  worktreeCount: number
+  pinned: boolean
 }
 
 type PreviewAgentIconName = 'codex' | 'claude' | 'opencode' | 'qoder' | 'qwen' | 'bash' | 'zsh'
@@ -281,6 +293,11 @@ export function CodeSidebar({
     width: number
     branch: string
   }) | null>(null)
+  const [projectPreview, setProjectPreview] = useState<(ProjectPreviewTarget & {
+    x: number
+    y: number
+    width: number
+  }) | null>(null)
   const previewTimerRef = useRef<number | null>(null)
   const previewBrowsingRef = useRef(false)
   const branchCacheRef = useRef(new Map<string, { branch: string; expiresAt: number }>())
@@ -310,6 +327,7 @@ export function CodeSidebar({
   const hideAgentPreview = useCallback(() => {
     clearPreviewTimer()
     setAgentPreview(null)
+    setProjectPreview(null)
   }, [clearPreviewTimer])
   const resetAgentPreview = useCallback(() => {
     previewBrowsingRef.current = false
@@ -330,6 +348,7 @@ export function CodeSidebar({
       const cachedBranch = target.workspaceRootId ? branchCacheRef.current.get(target.workspaceRootId) : undefined
       const branch = cachedBranch && cachedBranch.expiresAt > Date.now() ? cachedBranch.branch : ''
       previewBrowsingRef.current = true
+      setProjectPreview(null)
       setAgentPreview({ ...target, x, y, width, branch })
       if (!target.workspaceRootId || branch) return
       fetch(appPath(`/api/files/branch?rootId=${encodeURIComponent(target.workspaceRootId)}`))
@@ -342,6 +361,24 @@ export function CodeSidebar({
         .catch(() => {
           branchCacheRef.current.set(target.workspaceRootId!, { branch: '', expiresAt: Date.now() + 30_000 })
         })
+    }, delay)
+  }, [clearPreviewTimer])
+
+  const showProjectPreview = useCallback((event: AgentPreviewAnchorEvent, target: ProjectPreviewTarget) => {
+    clearPreviewTimer()
+    const anchor = event.currentTarget
+    const delay = previewBrowsingRef.current ? 0 : 1500
+    previewTimerRef.current = window.setTimeout(() => {
+      previewTimerRef.current = null
+      if (!anchor.matches(':hover')) return
+      const rect = anchor.getBoundingClientRect()
+      const x = rect.right + 10
+      const width = Math.min(320, window.innerWidth - x - 12)
+      if (width < 200) return
+      const y = Math.max(8, Math.min(rect.top - 4, window.innerHeight - 188))
+      previewBrowsingRef.current = true
+      setAgentPreview(null)
+      setProjectPreview({ ...target, x, y, width })
     }, delay)
   }, [clearPreviewTimer])
 
@@ -637,6 +674,7 @@ export function CodeSidebar({
             onNewAgent={onNewAgent}
             onStartAgent={onStartAgent}
             onOpenProjectMenu={onOpenProjectMenu}
+            onShowProjectPreview={showProjectPreview}
             onOpenAgent={onOpenAgent}
             onUpdateAgentFlags={onUpdateAgentFlags}
             onReorderAgent={onReorderAgent}
@@ -737,6 +775,9 @@ export function CodeSidebar({
           preview={agentPreview}
           now={now}
         />
+      )}
+      {projectPreview && (
+        <ProjectHoverPreview preview={projectPreview} copy={copy} />
       )}
       {brandDialogOpen && (
         <BrandAboutDialog
@@ -1305,6 +1346,7 @@ interface ProjectSectionProps {
   onNewAgent: (workspace?: string, command?: string, returnFocusTarget?: HTMLElement | null) => void
   onStartAgent: (command: string, workspace: string, options?: { projectWorkspace?: string }) => void
   onOpenProjectMenu: (event: ContextMenuTriggerEvent, projectId: string) => void
+  onShowProjectPreview: (event: AgentPreviewAnchorEvent, target: ProjectPreviewTarget) => void
   onOpenAgent: (agentId: string) => void
   onUpdateAgentFlags: (agent: Agent, flags: Partial<Pick<Agent, 'pinned' | 'archived'>>) => void
   onReorderAgent: (agentId: string, beforeAgentId: string, afterAgentId: string) => void
@@ -1345,6 +1387,7 @@ function ProjectSection({
   onNewAgent,
   onStartAgent,
   onOpenProjectMenu,
+  onShowProjectPreview,
   onOpenAgent,
   onUpdateAgentFlags,
   onReorderAgent,
@@ -1551,6 +1594,13 @@ function ProjectSection({
     ? currentWorktree.branch || `detached@${currentWorktree.head.slice(0, 7)}`
     : ''
   const repositoryWorktreeCount = repositoryWorktrees?.items.length || 0
+  const projectAgents = project.agents.filter(agent => !agent.isMain && agent.archived !== true)
+  const projectAgentCount = projectAgents.length
+    + project.agentSessions.filter(session => session.archived !== true).length
+    + (project.hiddenAgentSessionCount ?? 0)
+  const activeProjectAgentCount = projectAgents.filter(agent => (
+    agent.status !== 'dead' && agent.status !== 'stopped'
+  )).length
   const openWorktreeMenu = (event: ReactMouseEvent<HTMLButtonElement>) => {
     event.preventDefault()
     event.stopPropagation()
@@ -1565,7 +1615,21 @@ function ProjectSection({
 
   return (
     <section ref={projectGroupRef} className="code-project-group" data-testid="code-project-group">
-      <div ref={projectRowRef} className="code-project-row">
+      <div
+        ref={projectRowRef}
+        className="code-project-row"
+        onMouseEnter={event => onShowProjectPreview(event, {
+          key: `project:${project.id}`,
+          name: project.name,
+          workspace: project.workspace,
+          agentCount: projectAgentCount,
+          activeAgentCount: activeProjectAgentCount,
+          branch: currentWorktreeName,
+          worktreeCount: repositoryWorktreeCount,
+          pinned: project.pinned === true,
+        })}
+        onMouseLeave={onHideAgentPreview}
+      >
         <span className="code-project-title-content">
           <button
             type="button"
@@ -1908,6 +1972,48 @@ function previewTargetForSession(session: AgentSessionHistoryItem, rowState: Ret
   }
 }
 
+function ProjectHoverPreview({
+  preview,
+  copy,
+}: {
+  preview: ProjectPreviewTarget & { x: number; y: number; width: number }
+  copy: CodeCopy
+}) {
+  const worktreeLabel = preview.branch
+    ? preview.worktreeCount > 1
+      ? `${preview.branch} · ${preview.worktreeCount} ${copy.worktrees}`
+      : preview.branch
+    : ''
+  return (
+    <div
+      className="code-project-hover-preview"
+      data-testid="code-project-hover-preview"
+      style={{ left: preview.x, top: preview.y, width: preview.width }}
+      aria-hidden="true"
+    >
+      <div className="code-project-hover-preview-header">
+        <span className="code-project-hover-preview-icon"><AgentPreviewFolderIcon /></span>
+        <strong>{preview.name}</strong>
+        {preview.pinned && <span className="code-project-hover-preview-pin"><AgentPinIcon /></span>}
+      </div>
+      <div className="code-project-hover-preview-line">
+        <span className="code-project-hover-preview-icon"><ProjectPreviewAgentsIcon /></span>
+        <span>{copy.projectAgentsSummary(preview.agentCount, preview.activeAgentCount)}</span>
+      </div>
+      <div className="code-project-hover-preview-line">
+        <span className="code-project-hover-preview-icon"><AgentPreviewFolderIcon /></span>
+        <span>{formatWorkspaceForDisplay(preview.workspace)}</span>
+      </div>
+      {worktreeLabel && (
+        <div className="code-project-hover-preview-line">
+          <span className="code-project-hover-preview-icon"><AgentPreviewBranchIcon /></span>
+          <span>{worktreeLabel}</span>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function AgentHoverPreview({
   preview,
   now,
@@ -1967,6 +2073,14 @@ function AgentPreviewFolderIcon() {
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
       <path fill="currentColor" d="M1.5 3.75C1.5 2.784 2.284 2 3.25 2h3.104c.464 0 .91.184 1.237.513l.841.842c.14.14.33.22.528.22h3.79c.966 0 1.75.784 1.75 1.75v6.925c0 .966-.784 1.75-1.75 1.75H3.25a1.75 1.75 0 0 1-1.75-1.75V3.75Zm1.75-.75a.75.75 0 0 0-.75.75v8.5c0 .414.336.75.75.75h9.5a.75.75 0 0 0 .75-.75V5.325a.75.75 0 0 0-.75-.75H8.96a1.75 1.75 0 0 1-1.235-.512l-.841-.842A.75.75 0 0 0 6.354 3H3.25Z" />
+    </svg>
+  )
+}
+
+function ProjectPreviewAgentsIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+      <path fill="currentColor" d="M8 1.5C4.41 1.5 1.5 4.08 1.5 7.25c0 1.34.53 2.58 1.43 3.56l-.7 2.46a.75.75 0 0 0 .93.92l2.68-.8c.68.22 1.4.36 2.16.36 3.59 0 6.5-2.58 6.5-5.75S11.59 1.5 8 1.5Zm0 1c3.09 0 5.5 2.18 5.5 4.75S11.09 12 8 12c-.72 0-1.41-.13-2.04-.36a.5.5 0 0 0-.32-.01l-2.21.66.57-2a.5.5 0 0 0-.13-.5A4.5 4.5 0 0 1 2.5 7.25C2.5 4.68 4.91 2.5 8 2.5Z" />
     </svg>
   )
 }
