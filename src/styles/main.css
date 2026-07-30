@@ -10959,9 +10959,11 @@ body.code-mode.code-compact-layout .code-empty-workspace-compact {
 }
 
 .code-plugins-panel-header h2 {
-  margin: 1px 0 4px;
-  font-size: 24px;
-  line-height: 1.25;
+  margin: 3px 0 4px;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 24px;
+  letter-spacing: 0;
 }
 
 .code-plugins-panel-header p,
@@ -10970,8 +10972,8 @@ body.code-mode.code-compact-layout .code-empty-workspace-compact {
 .code-plugin-card p {
   margin: 0;
   color: #657087;
-  font-size: 14px;
-  line-height: 1.5;
+  font-size: 13px;
+  line-height: 18px;
 }
 
 .code-plugin-section,
@@ -10995,8 +10997,9 @@ body.code-mode.code-compact-layout .code-empty-workspace-compact {
 .code-plugin-section-header h3,
 .code-plugin-agent-sections-header h3 {
   margin: 0 0 3px;
-  font-size: 16px;
-  font-weight: 620;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
 }
 
 .code-plugin-agent-add,
@@ -11010,7 +11013,7 @@ body.code-mode.code-compact-layout .code-empty-workspace-compact {
   background: #fff;
   color: #39423b;
   font: inherit;
-  font-size: 12px;
+  font-size: 13px;
   cursor: pointer;
 }
 
@@ -11090,7 +11093,8 @@ body.code-mode.code-compact-layout .code-empty-workspace-compact {
 .code-plugin-agent-form label > span,
 .code-plugin-agent-defaults label > span {
   color: #6f796f;
-  font-size: 11px;
+  font-size: 13px;
+  line-height: 18px;
 }
 
 .code-plugin-agent-form input,
@@ -11106,7 +11110,7 @@ body.code-mode.code-compact-layout .code-empty-workspace-compact {
   background: #fff;
   color: #2f3831;
   font: inherit;
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .code-plugin-agent-form-actions {
@@ -11123,8 +11127,8 @@ body.code-mode.code-compact-layout .code-empty-workspace-compact {
 .code-plugin-section-header > span {
   flex: none;
   color: #7a847a;
-  font-size: 12px;
-  line-height: 1.5;
+  font-size: 13px;
+  line-height: 18px;
 }
 
 .code-plugin-agent-section {
@@ -11168,7 +11172,7 @@ body.code-mode.code-compact-layout .code-empty-workspace-compact {
   border-radius: 999px;
   background: #eef1ec;
   color: #657087;
-  font-size: 10px;
+  font-size: 13px;
   font-style: normal;
   font-weight: 550;
 }
@@ -11180,7 +11184,7 @@ body.code-mode.code-compact-layout .code-empty-workspace-compact {
 
 .code-plugin-agent-identity h3 > small {
   color: #8a9187;
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 450;
 }
 
@@ -11192,7 +11196,7 @@ body.code-mode.code-compact-layout .code-empty-workspace-compact {
 
 .code-plugin-agent-identity p code {
   color: #7a847a;
-  font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font: 14px/20px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
 .code-plugin-agent-actions {
@@ -11216,7 +11220,8 @@ body.code-mode.code-compact-layout .code-empty-workspace-compact {
 .code-plugin-agent-defaults {
   margin-left: 16px;
   color: #657087;
-  font-size: 11px;
+  font-size: 13px;
+  line-height: 18px;
 }
 
 .code-plugin-agent-defaults > summary,
@@ -11260,7 +11265,7 @@ body.code-mode.code-compact-layout .code-empty-workspace-compact {
 
 .code-plugin-agent-defaults strong {
   color: #39423b;
-  font-size: 11px;
+  font-size: 14px;
   font-weight: 560;
 }
 
@@ -11294,8 +11299,8 @@ body.code-mode.code-compact-layout .code-empty-workspace-compact {
 .code-plugin-agent-note {
   margin: 0 0 0 34px;
   color: #92998f;
-  font-size: 11px;
-  line-height: 1.45;
+  font-size: 13px;
+  line-height: 18px;
 }
 
 .code-plugin-agent-section .code-plugin-kind-section {
@@ -11318,8 +11323,12 @@ body.code-mode.code-compact-layout .code-empty-workspace-compact {
 }
 
 .code-plugin-agent-section .code-plugin-kind-section > summary strong {
-  font-size: 11px;
+  font-size: 14px;
   font-weight: 560;
+}
+
+.code-plugin-agent-section .code-plugin-kind-section > summary span {
+  font-size: 13px;
 }
 
 .code-plugin-kind-section + .code-plugin-kind-section {
@@ -11363,14 +11372,14 @@ body.code-mode.code-compact-layout .code-empty-workspace-compact {
 }
 
 .code-plugin-kind-section > summary strong {
-  font-size: 13px;
-  font-weight: 620;
+  font-size: 14px;
+  font-weight: 600;
 }
 
 .code-plugin-kind-section > summary span {
   margin-left: auto;
   color: #7a847a;
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .code-plugin-kind-section[open] > summary {
@@ -11416,8 +11425,8 @@ body.code-mode.code-compact-layout .code-empty-workspace-compact {
 .code-plugin-extension-title strong {
   min-width: 0;
   overflow: hidden;
-  font-size: 13px;
-  font-weight: 620;
+  font-size: 14px;
+  font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -11428,7 +11437,7 @@ body.code-mode.code-compact-layout .code-empty-workspace-compact {
   border-radius: 999px;
   background: #eef1ec;
   color: #657087;
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .code-plugin-extension-meta {
@@ -11442,7 +11451,7 @@ body.code-mode.code-compact-layout .code-empty-workspace-compact {
   min-width: 0;
   overflow: hidden;
   color: #39423b;
-  font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font: 13px/18px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -11450,15 +11459,15 @@ body.code-mode.code-compact-layout .code-empty-workspace-compact {
 .code-plugin-extension-meta span {
   flex: none;
   color: #7a847a;
-  font-size: 10px;
+  font-size: 13px;
 }
 
 .code-plugin-extension p,
 .code-plugin-empty {
   margin: 0;
   color: #657087;
-  font-size: 12px;
-  line-height: 1.45;
+  font-size: 13px;
+  line-height: 18px;
 }
 
 .code-plugin-extension p {
@@ -11515,13 +11524,14 @@ body.code-mode.code-compact-layout .code-empty-workspace-compact {
 
 .code-plugin-detail-dialog h3 {
   margin-top: 3px;
-  font-size: 20px;
-  font-weight: 650;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 24px;
 }
 
 .code-plugin-detail-dialog small {
   color: #7a847a;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .code-plugin-detail-dialog > header > button {
@@ -11554,12 +11564,12 @@ body.code-mode.code-compact-layout .code-empty-workspace-compact {
   flex-wrap: wrap;
   gap: 7px;
   color: #657087;
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .code-plugin-detail-meta code {
   color: #39423b;
-  font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font: 13px/18px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
 .code-plugin-detail-dialog > p {
@@ -11638,13 +11648,14 @@ body.code-mode.code-compact-layout .code-empty-workspace-compact {
 
 .code-plugin-card-title h3 {
   margin: 0;
-  font-size: 16px;
-  font-weight: 620;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
 }
 
 .code-plugin-card small {
   color: #7a847a;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .code-plugin-browser-settings {
@@ -11683,7 +11694,8 @@ body.code-mode.code-compact-layout .code-empty-workspace-compact {
   display: grid;
   gap: 4px;
   color: #697269;
-  font-size: 11px;
+  font-size: 13px;
+  line-height: 18px;
 }
 
 .code-plugin-browser-settings select,
@@ -11697,11 +11709,62 @@ body.code-mode.code-compact-layout .code-empty-workspace-compact {
   background: #ffffff;
   color: #39423b;
   font: inherit;
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .code-plugin-browser-settings select {
   width: 260px;
+}
+
+.code-plugin-browser-settings select,
+.code-plugin-agent-form select,
+.code-plugin-agent-defaults select {
+  appearance: none;
+  -webkit-appearance: none;
+  height: 34px;
+  padding: 0 34px 0 10px;
+  border: 1px solid #d8dbd2;
+  border-radius: 8px;
+  background-color: #ffffff;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 14 14'%3E%3Cpath d='m3.5 5.25 3.5 3.5 3.5-3.5' fill='none' stroke='%23657067' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-position: right 10px center;
+  background-repeat: no-repeat;
+  background-size: 14px;
+  color: #24292f;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.35;
+  outline: none;
+}
+
+.code-plugin-browser-settings select:hover:not(:disabled),
+.code-plugin-agent-form select:hover:not(:disabled),
+.code-plugin-agent-defaults select:hover:not(:disabled) {
+  border-color: #b7beb3;
+  background-color: #fafbf9;
+}
+
+.code-plugin-browser-settings select:focus,
+.code-plugin-agent-form select:focus,
+.code-plugin-agent-defaults select:focus {
+  border-color: #7d8779;
+  box-shadow: 0 0 0 3px rgba(125, 135, 121, 0.16);
+}
+
+.code-plugin-browser-settings select:disabled,
+.code-plugin-agent-form select:disabled,
+.code-plugin-agent-defaults select:disabled {
+  border-color: #e0e3dd;
+  background-color: #f4f5f2;
+  color: #8a9187;
+  cursor: default;
+}
+
+.code-plugin-browser-settings select option,
+.code-plugin-agent-form select option,
+.code-plugin-agent-defaults select option {
+  background: #ffffff;
+  color: #24292f;
 }
 
 .code-plugin-browser-settings .code-plugin-browser-cdp {
@@ -11719,7 +11782,7 @@ body.code-mode.code-compact-layout .code-empty-workspace-compact {
   color: #39423b;
   cursor: pointer;
   font: inherit;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .code-plugin-browser-apply:hover:not(:disabled),
@@ -11737,7 +11800,7 @@ body.code-mode.code-compact-layout .code-empty-workspace-compact {
 
 .code-plugin-status {
   color: #6d766d;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .code-plugin-status.enabled {
@@ -11775,8 +11838,8 @@ body.code-mode.code-compact-layout .code-empty-workspace-compact {
 
 .code-plugin-error {
   color: #b42318;
-  font-size: 12px;
-  line-height: 1.45;
+  font-size: 13px;
+  line-height: 18px;
 }
 
 .code-search-panel {
