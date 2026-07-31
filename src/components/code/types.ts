@@ -56,6 +56,7 @@ export type AgentHomesSettings = Record<string, AgentHomeSetting[]>
 export interface GlobalSettings extends WorkspaceHistorySettings {
   instanceName?: string
   appearance?: UiAppearance
+  composerFollowUpBehavior?: 'queue' | 'steer'
   language?: UiLanguage
   restReminderIntervalSeconds?: number | null
   dangerouslySkipAgentPermissionsByDefault?: boolean

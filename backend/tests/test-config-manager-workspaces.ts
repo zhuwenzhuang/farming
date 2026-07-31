@@ -303,6 +303,12 @@ function run() {
     manager.updateSettings({ dangerouslySkipAgentPermissionsByDefault: false });
     assert.strictEqual(manager.getDangerouslySkipAgentPermissionsByDefault(), false);
 
+    assert.strictEqual(manager.getSettings().composerFollowUpBehavior, 'queue');
+    manager.updateSettings({ composerFollowUpBehavior: 'steer' });
+    assert.strictEqual(manager.getSettings().composerFollowUpBehavior, 'steer');
+    manager.updateSettings({ composerFollowUpBehavior: 'invalid' });
+    assert.strictEqual(manager.getSettings().composerFollowUpBehavior, 'queue');
+
     manager.updateSettings({ codexRuntimeMode: 'not-a-runtime' });
     assert.strictEqual(manager.getSettings().codexRuntimeMode, undefined);
 

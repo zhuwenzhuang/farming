@@ -82,6 +82,7 @@ export interface PublicSettings extends JsonRecord {
   codexReasoningEffort: string;
   codexServiceTier: string;
   codeContentFontSize: number;
+  composerFollowUpBehavior: string;
   crtContentFontSize: number;
   crtDynamicHeatEnabled: boolean;
   crtSkinEffectsEnabled: boolean;
@@ -279,6 +280,7 @@ const PERSISTED_SETTING_KEYS = new Set([
   'computerCompatibilityMode',
   'computerImage',
   'codeContentFontSize',
+  'composerFollowUpBehavior',
   'crtContentFontSize',
   'crtSkinEffectsEnabled',
   'crtDynamicHeatEnabled',
@@ -585,6 +587,7 @@ class ConfigManager {
         computerCompatibilityMode: false,
         computerImage: COMPUTER_IMAGE,
         codeContentFontSize: DEFAULT_CODE_CONTENT_FONT_SIZE,
+        composerFollowUpBehavior: 'queue',
         crtContentFontSize: DEFAULT_CRT_CONTENT_FONT_SIZE,
         crtSkinEffectsEnabled: true,
         crtDynamicHeatEnabled: false,
@@ -631,6 +634,7 @@ class ConfigManager {
       computerCompatibilityMode: false,
       computerImage: COMPUTER_IMAGE,
       codeContentFontSize: DEFAULT_CODE_CONTENT_FONT_SIZE,
+      composerFollowUpBehavior: 'queue',
       crtContentFontSize: DEFAULT_CRT_CONTENT_FONT_SIZE,
       crtSkinEffectsEnabled: true,
       crtDynamicHeatEnabled: false,
@@ -711,6 +715,9 @@ class ConfigManager {
       this.settings.codeContentFontSize,
       DEFAULT_CODE_CONTENT_FONT_SIZE,
     );
+    this.settings.composerFollowUpBehavior = this.normalizeComposerFollowUpBehavior(
+      this.settings.composerFollowUpBehavior,
+    );
     this.settings.crtContentFontSize = this.normalizeContentFontSize(
       rawSettings.crtContentFontSize === undefined
         ? Number(this.settings.crtTerminalFontSize) - 1
@@ -753,6 +760,10 @@ class ConfigManager {
     const fontSize = Number(value);
     if (!Number.isFinite(fontSize)) return fallback;
     return Math.min(MAX_CONTENT_FONT_SIZE, Math.max(MIN_CONTENT_FONT_SIZE, Math.round(fontSize)));
+  }
+
+  normalizeComposerFollowUpBehavior(value: unknown): 'queue' | 'steer' {
+    return value === 'steer' ? 'steer' : 'queue';
   }
 
   crtTerminalFontSizeFromContent(value: unknown): number {
@@ -1571,6 +1582,9 @@ class ConfigManager {
     nextSettings.codeContentFontSize = this.normalizeContentFontSize(
       nextSettings.codeContentFontSize,
       DEFAULT_CODE_CONTENT_FONT_SIZE,
+    );
+    nextSettings.composerFollowUpBehavior = this.normalizeComposerFollowUpBehavior(
+      nextSettings.composerFollowUpBehavior,
     );
     nextSettings.crtContentFontSize = this.normalizeContentFontSize(
       Object.prototype.hasOwnProperty.call(settingsPatch, 'crtContentFontSize')

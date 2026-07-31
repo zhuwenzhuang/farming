@@ -20,7 +20,11 @@ import {
   restReminderSliderPosition,
   type PetAppearance,
 } from '@/lib/pet/rest-reminder'
-import type { UiPreferences } from '@/lib/ui-preferences'
+import {
+  normalizeComposerFollowUpBehavior,
+  type ComposerFollowUpBehavior,
+  type UiPreferences,
+} from '@/lib/ui-preferences'
 import { MAX_CONTENT_FONT_SIZE, MIN_CONTENT_FONT_SIZE } from '@/lib/content-font-size'
 import { usePetDefaultAppearance } from './pet/usePetDefaultAppearance'
 import type { GlobalSettings } from './types'
@@ -71,6 +75,7 @@ interface AgentHomesSettingsPanelProps {
   uiPreferences: UiPreferences
   onClose: () => void
   onPreviewPetAppearance: (appearance: PetAppearance) => void
+  onSyncUiPreferences: (preferences: Partial<UiPreferences>) => void
   onUpdateUiPreferences: (preferences: Partial<UiPreferences>) => void
 }
 
@@ -150,6 +155,13 @@ function panelCopy(language: UiPreferences['language']) {
     english: 'English',
     chinese: '中文',
     search: zh ? '搜索' : 'Search',
+    composer: 'Composer',
+    followUpBehavior: zh ? '后续消息行为' : 'Follow-up behavior',
+    followUpBehaviorHint: zh
+      ? 'Agent 工作时，新消息默认排队到下一轮，或直接调整当前轮。按 ⌘/Ctrl + Enter 可仅对当前一条反向发送。'
+      : 'While an Agent is working, queue messages for the next turn or steer the current turn. Press ⌘/Ctrl + Enter to use the opposite behavior once.',
+    queue: 'Queue',
+    steer: 'Steer',
     agentPermissions: zh ? 'Agent 权限' : 'Agent Permissions',
     dangerousSkipLabel: zh ? '默认跳过所有 agent 权限检查' : 'Skip all agent permission checks by default',
     dangerousSkipHint: zh
@@ -210,6 +222,7 @@ export function AgentHomesSettingsPanel({
   uiPreferences,
   onClose,
   onPreviewPetAppearance,
+  onSyncUiPreferences,
   onUpdateUiPreferences,
 }: AgentHomesSettingsPanelProps) {
   const copy = useMemo(() => panelCopy(language), [language])
@@ -221,6 +234,7 @@ export function AgentHomesSettingsPanel({
   const panelScopeRef = useRef({ open, generation: 0 })
   const settingsLoadRequestRef = useRef(0)
   const [dangerouslySkipPermissions, setDangerouslySkipPermissions] = useState(false)
+  const [composerFollowUpBehavior, setComposerFollowUpBehavior] = useState<ComposerFollowUpBehavior | null>(null)
   const [searchTimeoutSeconds, setSearchTimeoutSeconds] = useState(15)
   const [searchTimeoutDraftSeconds, setSearchTimeoutDraftSeconds] = useState<number | null>(null)
   const [contentFontSizeDraft, setContentFontSizeDraft] = useState<number | null>(null)
@@ -253,6 +267,7 @@ export function AgentHomesSettingsPanel({
     settingsLoadRequestRef.current = requestId
     setLoading(true)
     setError('')
+    setComposerFollowUpBehavior(null)
     fetch(appPath('/api/settings'))
       .then(async settingsResponse => {
         if (!settingsResponse.ok) throw new Error(copy.loadFailed)
@@ -263,6 +278,11 @@ export function AgentHomesSettingsPanel({
           || !panelScopeRef.current.open
         ) return
         setDangerouslySkipPermissions(data.settings?.dangerouslySkipAgentPermissionsByDefault === true)
+        const nextFollowUpBehavior = normalizeComposerFollowUpBehavior(
+          data.settings?.composerFollowUpBehavior,
+        )
+        setComposerFollowUpBehavior(nextFollowUpBehavior)
+        onSyncUiPreferences({ composerFollowUpBehavior: nextFollowUpBehavior })
         setSearchTimeoutSeconds(nearestSearchTimeoutSeconds(Number(data.settings?.searchTimeoutMs ?? 15000)))
       })
       .catch(() => {
@@ -279,7 +299,7 @@ export function AgentHomesSettingsPanel({
           && panelScopeRef.current.open
         ) setLoading(false)
       })
-  }, [copy.loadFailed])
+  }, [copy.loadFailed, onSyncUiPreferences])
 
   useEffect(() => {
     panelScopeRef.current.open = open
@@ -305,6 +325,11 @@ export function AgentHomesSettingsPanel({
   useEffect(() => {
     setPetAppearanceState(readPetAppearance(undefined, defaultPetAppearance))
   }, [defaultPetAppearance, open])
+
+  useEffect(() => {
+    if (!open || composerFollowUpBehavior === null) return
+    setComposerFollowUpBehavior(uiPreferences.composerFollowUpBehavior)
+  }, [composerFollowUpBehavior, open, uiPreferences.composerFollowUpBehavior])
 
   useEffect(() => {
     const onSetting = (event: Event) => {
@@ -524,6 +549,11 @@ export function AgentHomesSettingsPanel({
       })
       .finally(() => setSaving(false))
   }, [copy.saveFailed, copy.saved])
+
+  const saveComposerFollowUpBehavior = useCallback((behavior: ComposerFollowUpBehavior) => {
+    setComposerFollowUpBehavior(behavior)
+    onUpdateUiPreferences({ composerFollowUpBehavior: behavior })
+  }, [onUpdateUiPreferences])
 
   const updatePhase = updateStatus?.state?.phase || ''
   useEffect(() => {
@@ -791,6 +821,34 @@ export function AgentHomesSettingsPanel({
                     />
                     <span>{copy.customBreakReminderUnit}</span>
                   </label>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section className="code-settings-section">
+            <div className="code-settings-section-heading">
+              <div><h3>{copy.composer}</h3></div>
+            </div>
+            <div className="code-settings-card">
+              <div className="code-settings-choice-row" data-testid="code-settings-follow-up-behavior">
+                <div className="code-settings-row-copy">
+                  <strong>{copy.followUpBehavior}</strong>
+                  <small>{copy.followUpBehaviorHint}</small>
+                </div>
+                <div className="code-settings-segmented" role="group" aria-label={copy.followUpBehavior}>
+                  {(['queue', 'steer'] as const).map(behavior => (
+                    <button
+                      key={behavior}
+                      type="button"
+                      className={composerFollowUpBehavior === behavior ? 'active' : ''}
+                      aria-pressed={composerFollowUpBehavior === behavior}
+                      disabled={composerFollowUpBehavior === null}
+                      onClick={() => saveComposerFollowUpBehavior(behavior)}
+                    >
+                      {behavior === 'queue' ? copy.queue : copy.steer}
+                    </button>
+                  ))}
                 </div>
               </div>
             </div>

@@ -1,5 +1,8 @@
 const assert = require('assert');
-const { submitAcpDraft } = require('../../src/components/code/acp/acp-composer-behavior.ts');
+const {
+  resolveAcpFollowUpBehavior,
+  submitAcpDraft,
+} = require('../../src/components/code/acp/acp-composer-behavior.ts');
 const { createDefaultAgentComposerState } = require('../../src/components/code/composer-state.ts');
 
 function readyImage() {
@@ -27,8 +30,8 @@ async function run() {
     state = updater(state);
   };
   const sent = [];
-  const sendMessage = (_agent, text, attachments, requestId) => {
-    sent.push({ text, attachments, requestId });
+  const sendMessage = (_agent, text, attachments, requestId, delivery) => {
+    sent.push({ text, attachments, requestId, delivery });
     return true;
   };
 
@@ -69,6 +72,7 @@ async function run() {
   assert.strictEqual(sent[0].text, 'send now');
   assert.strictEqual(sent[0].attachments[0].name, 'screen.png');
   assert.strictEqual(sent[0].requestId, undefined, 'the transport should own the ordinary Prompt request id');
+  assert.strictEqual(sent[0].delivery, 'prompt');
   assert.strictEqual(state.draft, '');
   assert.strictEqual(state.submissions, undefined);
 
@@ -85,12 +89,26 @@ async function run() {
     attachments: [steerAttachment],
     composerMode: 'default',
     turnActive: true,
+    followUpBehavior: 'steer',
     sendMessage,
     updateComposerState,
   }), true);
-  assert.strictEqual(sent.length, 1, 'a running ACP turn should queue even when steer is supported');
-  assert.strictEqual(state.pendingFollowUp.messages[0].text, 'change direction now');
-  assert.strictEqual(state.pendingFollowUp.messages[0].attachments[0].path, '/tmp/screen.png');
+  assert.strictEqual(sent.length, 2, 'Steer mode should submit directly into the running ACP turn');
+  assert.strictEqual(sent[1].text, 'change direction now');
+  assert.strictEqual(sent[1].attachments[0].path, '/tmp/screen.png');
+  assert.strictEqual(sent[1].delivery, 'steer');
+  assert.strictEqual(state.pendingFollowUp, undefined);
+  assert.strictEqual(state.draft, '');
+
+  assert.strictEqual(resolveAcpFollowUpBehavior('queue', false, true), 'queue');
+  assert.strictEqual(resolveAcpFollowUpBehavior('queue', true, true), 'steer');
+  assert.strictEqual(resolveAcpFollowUpBehavior('steer', false, true), 'steer');
+  assert.strictEqual(resolveAcpFollowUpBehavior('steer', true, true), 'queue');
+  assert.strictEqual(
+    resolveAcpFollowUpBehavior('steer', false, false),
+    'queue',
+    'providers without Steer support must retain Queue behavior',
+  );
 
   let acceptDelayedSubmission;
   const delayedSubmission = new Promise(resolve => {

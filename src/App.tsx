@@ -11,6 +11,7 @@ import { applyThemeAppearance } from '@/lib/theme'
 import { isCompactViewport, isIOSLikeTouchViewport, isTouchInputViewport } from '@/lib/responsive-mode'
 import {
   DEFAULT_UI_PREFERENCES,
+  normalizeComposerFollowUpBehavior,
   normalizeContentFontSize,
   normalizeUiAppearance,
   normalizeUiLanguage,
@@ -405,6 +406,11 @@ export function App() {
     if (Object.prototype.hasOwnProperty.call(patch, 'codeContentFontSize')) {
       normalizedPatch.codeContentFontSize = normalizeContentFontSize(patch.codeContentFontSize)
     }
+    if (Object.prototype.hasOwnProperty.call(patch, 'composerFollowUpBehavior')) {
+      normalizedPatch.composerFollowUpBehavior = normalizeComposerFollowUpBehavior(
+        patch.composerFollowUpBehavior,
+      )
+    }
     const nextPreferences = {
       ...uiPreferences,
       ...normalizedPatch,
@@ -429,6 +435,9 @@ export function App() {
           codeContentFontSize: normalizeContentFontSize(
             settings.codeContentFontSize ?? nextPreferences.codeContentFontSize,
           ),
+          composerFollowUpBehavior: normalizeComposerFollowUpBehavior(
+            settings.composerFollowUpBehavior ?? nextPreferences.composerFollowUpBehavior,
+          ),
           language: normalizeUiLanguage(settings.language ?? nextPreferences.language),
         })
       })
@@ -443,6 +452,19 @@ export function App() {
       })
     uiPreferencesSaveTailRef.current = save
   }, [uiPreferences])
+
+  const syncUiPreferences = useCallback((patch: Partial<UiPreferences>) => {
+    setUiPreferences(current => ({
+      ...current,
+      ...(Object.prototype.hasOwnProperty.call(patch, 'composerFollowUpBehavior')
+        ? {
+          composerFollowUpBehavior: normalizeComposerFollowUpBehavior(
+            patch.composerFollowUpBehavior,
+          ),
+        }
+        : {}),
+    }))
+  }, [])
 
   const refreshAgentContextWindows = useCallback((agentIds: string[]) => {
     const uniqueAgentIds = Array.from(new Set(agentIds.filter(Boolean)))
@@ -1207,6 +1229,7 @@ export function App() {
         setUiPreferences({
           appearance: normalizeUiAppearance(settings.appearance),
           codeContentFontSize: normalizeContentFontSize(settings.codeContentFontSize),
+          composerFollowUpBehavior: normalizeComposerFollowUpBehavior(settings.composerFollowUpBehavior),
           language: normalizeUiLanguage(settings.language),
         })
       })
@@ -1265,6 +1288,7 @@ export function App() {
         onBrowserResourceDeletion={ws.deleteBrowserResource}
         onComputerResource={ws.mergeComputerResource}
         onComputerResourceDeletion={ws.deleteComputerResource}
+        onSyncUiPreferences={syncUiPreferences}
         onUpdateUiPreferences={updateUiPreferences}
       />
 

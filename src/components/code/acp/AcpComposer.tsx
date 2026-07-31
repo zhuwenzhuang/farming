@@ -83,7 +83,7 @@ export interface AcpComposerProps {
   onDraftChange: (value: string) => void
   onNavigateHistory: (direction: ComposerHistoryDirection, input: ComposerHistoryNavigationInput) => string | null
   onRemoveAttachment: (id: string) => void
-  onSubmit: (draft?: string) => void
+  onSubmit: (draft?: string, options?: { oppositeFollowUpBehavior?: boolean }) => void
   onInterrupt: () => void
   onDiscardPendingFollowUp: (messageId: string) => void
   onEditPendingFollowUp: (messageId: string) => boolean
@@ -278,7 +278,10 @@ export function AcpComposer({
     if (!shouldSubmitComposerEnter(event, compositionActiveRef.current, lastCompositionEndAtRef.current)) return
     event.preventDefault()
     event.stopPropagation()
-    onSubmit(composerDraftForSubmit(event.currentTarget.value, latestDraftRef.current))
+    onSubmit(
+      composerDraftForSubmit(event.currentTarget.value, latestDraftRef.current),
+      { oppositeFollowUpBehavior: event.metaKey || event.ctrlKey },
+    )
   }
 
   const toggleMenu = (menu: Exclude<AcpComposerMenu, null>) => {

@@ -12,6 +12,7 @@ import {
   type ComposerPromptAttachment,
 } from '../composer-message'
 import type { ComposerMode } from '../types'
+import type { ComposerFollowUpBehavior } from '@/lib/ui-preferences'
 
 interface SubmitAcpDraftInput {
   agent: Agent | null
@@ -20,11 +21,13 @@ interface SubmitAcpDraftInput {
   attachments: ComposerAttachment[]
   composerMode: ComposerMode
   turnActive: boolean
+  followUpBehavior?: ComposerFollowUpBehavior
   sendMessage: (
     agent: Agent,
     message: string,
     attachments?: ComposerPromptAttachment[],
     requestId?: string,
+    delivery?: 'prompt' | 'steer',
   ) => boolean | Promise<boolean>
   updateComposerState: (
     key: string,
@@ -41,6 +44,17 @@ export function isAcpComposerAvailable(agent: Agent | null) {
   )
 }
 
+export function resolveAcpFollowUpBehavior(
+  configured: ComposerFollowUpBehavior,
+  oppositeForMessage: boolean,
+  canSteer: boolean,
+): ComposerFollowUpBehavior {
+  const requested = oppositeForMessage
+    ? configured === 'queue' ? 'steer' : 'queue'
+    : configured
+  return requested === 'steer' && canSteer ? 'steer' : 'queue'
+}
+
 /**
  * ACP chat submits one user message through the structured runtime path. Files
  * and uploaded image paths use the existing composer message representation;
@@ -53,6 +67,7 @@ export function submitAcpDraft({
   attachments,
   composerMode,
   turnActive,
+  followUpBehavior = 'queue',
   sendMessage,
   updateComposerState,
 }: SubmitAcpDraftInput) {
@@ -90,7 +105,7 @@ export function submitAcpDraft({
     })
     return true
   }
-  if (turnActive) return queueFollowUp()
+  if (turnActive && followUpBehavior === 'queue') return queueFollowUp()
 
   const settlePrompt = (accepted: boolean) => {
     if (!accepted) return false
@@ -109,7 +124,13 @@ export function submitAcpDraft({
 
   let submitted: boolean | Promise<boolean>
   try {
-    submitted = sendMessage(agent, text, promptAttachments)
+    submitted = sendMessage(
+      agent,
+      text,
+      promptAttachments,
+      undefined,
+      turnActive ? 'steer' : 'prompt',
+    )
   } catch {
     return false
   }

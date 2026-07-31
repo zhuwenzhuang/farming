@@ -84,6 +84,7 @@ import {
   isAcpComposerAvailable,
   respondToAcpElicitation,
   respondToAcpPermission,
+  resolveAcpFollowUpBehavior,
   submitAcpDraft as submitAcpComposerDraft,
 } from './code/acp/acp-composer-behavior'
 import { acpComposerStateAliasKeysForAgent, acpComposerStateKeyForAgent } from './code/acp/acp-composer-state'
@@ -394,6 +395,7 @@ interface CodeWorkspaceProps {
   onBrowserResourceDeletion: (deletion: BrowserResourceDeletion) => void
   onComputerResource: (resource: ComputerResource) => void
   onComputerResourceDeletion: (deletion: ComputerResourceDeletion) => void
+  onSyncUiPreferences: (patch: Partial<UiPreferences>) => void
   onUpdateUiPreferences: (patch: Partial<UiPreferences>) => void
 }
 
@@ -612,6 +614,7 @@ export function CodeWorkspace({
   onBrowserResourceDeletion,
   onComputerResource,
   onComputerResourceDeletion,
+  onSyncUiPreferences,
   onUpdateUiPreferences,
 }: CodeWorkspaceProps) {
   recordPerformanceTestRender('codeWorkspace')
@@ -2195,7 +2198,10 @@ export function CodeWorkspace({
     })
   }, [activeAgent, activeComposerKey, composerAttachments, composerMode, draft, focusComposerTextarea, sendComposerMessageToAgent, updateComposerStateForKey])
 
-  const submitAcpDraft = useCallback((submittedDraft?: string) => {
+  const submitAcpDraft = useCallback((
+    submittedDraft?: string,
+    options?: { oppositeFollowUpBehavior?: boolean },
+  ) => {
     const latestDraft = submittedDraft ?? composerTextareaRef.current?.value ?? draft
     const promptStartFenced = Boolean(
       activeAcpRuntime
@@ -2209,12 +2215,17 @@ export function CodeWorkspace({
       attachments: composerAttachments,
       composerMode,
       turnActive: activeAgentTurnActive || promptStartFenced,
-      sendMessage: (agent, message, attachments, requestId) => sendComposerMessageToAgent(
+      followUpBehavior: resolveAcpFollowUpBehavior(
+        uiPreferences.composerFollowUpBehavior,
+        options?.oppositeFollowUpBehavior === true,
+        activeAgent?.providerCapabilities.supportsSteer === true,
+      ),
+      sendMessage: (agent, message, attachments, requestId, delivery) => sendComposerMessageToAgent(
         agent,
         message,
         attachments,
         requestId,
-        'prompt',
+        delivery,
       ),
       updateComposerState: updateComposerStateForKey,
     })
@@ -2227,7 +2238,7 @@ export function CodeWorkspace({
     }
     if (typeof submitted === 'boolean') commitAccepted(submitted, true)
     else void submitted.then(accepted => commitAccepted(accepted, false))
-  }, [activeAcpRuntime, activeAgent, activeAgentTurnActive, activeComposerKey, composerAttachments, composerMode, draft, focusComposerTextarea, sendComposerMessageToAgent, updateComposerStateForKey])
+  }, [activeAcpRuntime, activeAgent, activeAgentTurnActive, activeComposerKey, composerAttachments, composerMode, draft, focusComposerTextarea, sendComposerMessageToAgent, uiPreferences.composerFollowUpBehavior, updateComposerStateForKey])
 
   const retryAcpSubmission = useCallback((messageId: string) => {
     if (!activeAgent || !activeComposerKey) return
@@ -5469,6 +5480,7 @@ export function CodeWorkspace({
         uiPreferences={uiPreferences}
         onClose={() => setSettingsPanelOpen(false)}
         onPreviewPetAppearance={previewPetAppearanceFromSettings}
+        onSyncUiPreferences={onSyncUiPreferences}
         onUpdateUiPreferences={onUpdateUiPreferences}
       />
 

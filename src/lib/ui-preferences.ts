@@ -6,16 +6,19 @@ import {
 export type UiAppearance = 'system' | 'light' | 'dark'
 export type ResolvedUiAppearance = Exclude<UiAppearance, 'system'>
 export type UiLanguage = 'en' | 'zh'
+export type ComposerFollowUpBehavior = 'queue' | 'steer'
 
 export interface UiPreferences {
   appearance: UiAppearance
   codeContentFontSize: number
+  composerFollowUpBehavior: ComposerFollowUpBehavior
   language: UiLanguage
 }
 
 export const DEFAULT_UI_PREFERENCES: UiPreferences = {
   appearance: 'system',
   codeContentFontSize: DEFAULT_CODE_CONTENT_FONT_SIZE,
+  composerFollowUpBehavior: 'queue',
   language: 'en',
 }
 
@@ -29,6 +32,10 @@ export function normalizeUiLanguage(value: unknown): UiLanguage {
   return value === 'zh' || value === 'en'
     ? value
     : DEFAULT_UI_PREFERENCES.language
+}
+
+export function normalizeComposerFollowUpBehavior(value: unknown): ComposerFollowUpBehavior {
+  return value === 'steer' ? 'steer' : 'queue'
 }
 
 export { normalizeContentFontSize }
