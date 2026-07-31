@@ -34,7 +34,7 @@ function run() {
   const agentManagerSource = fs.readFileSync(path.resolve(__dirname, '../agent-manager.cts'), 'utf8');
   assert(
     serverSource.includes("agentManager.resolveAgentShellEnv('', { maxAgeMs: INTERACTIVE_REFRESH_CACHE_MAX_AGE_MS })")
-      && serverSource.includes('return listAvailableAgents(pathEnv)')
+      && serverSource.includes('return withLaunchCapabilities(listAvailableAgents(pathEnv))')
       && serverSource.includes("res.setHeader('Cache-Control', 'no-store')"),
     'executable discovery requests should use a short backend shell PATH cache without HTTP caching'
   );

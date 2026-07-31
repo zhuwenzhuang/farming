@@ -400,6 +400,8 @@ async function run() {
         },
         subagentStates: new Map(),
         patchDecisions: new Map(),
+        deferredConfigChanges: new Map(),
+        deferredModeId: null,
         checkpointProof: null,
       });
     };
