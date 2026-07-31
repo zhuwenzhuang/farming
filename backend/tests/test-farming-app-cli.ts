@@ -4,6 +4,7 @@ const fs = require('fs');
 const net = require('net');
 const os = require('os');
 const path = require('path');
+const YAML = require('yaml');
 const {
   buildCleanEnvExecArgs,
   buildCleanEnvExecCommand,
@@ -851,6 +852,26 @@ async function runTests() {
     assert(releaseWorkflowSource.includes('Smoke-test macOS app bundle'));
     assert(releaseWorkflowSource.includes('body.replaceAll(`](./v${version}.zh_cn.md)`, `](./release-notes/v${version}.zh_cn.md)`)'));
     assert(releaseWorkflowSource.includes('body.replaceAll(`](./v${version}.md)`, `](./release-notes/v${version}.md)`)'));
+    assert(releaseWorkflowSource.includes('workflow_dispatch:'));
+    assert(!releaseWorkflowSource.includes("push:\n    tags:\n      - 'v*'"));
+    const npmPublishJob = releaseWorkflowSource.slice(
+      releaseWorkflowSource.indexOf('  publish-npm:'),
+      releaseWorkflowSource.indexOf('  publish-github-release:'),
+    );
+    const stagedReleaseJob = releaseWorkflowSource.slice(
+      releaseWorkflowSource.indexOf('  stage-release:'),
+      releaseWorkflowSource.indexOf('  publish-npm:'),
+    );
+    assert(npmPublishJob.includes('      - build-linux'));
+    assert(npmPublishJob.includes('      - build-macos'));
+    assert(stagedReleaseJob.includes('      - publish-npm'));
+    assert(stagedReleaseJob.includes('--draft'));
+    assert(stagedReleaseJob.includes('git push origin "refs/tags/${RELEASE_TAG}"'));
+    assert(releaseWorkflowSource.includes('gh release edit "${tag}" --repo "${GITHUB_REPOSITORY}" --draft=false'));
+    const releaseWorkflow = YAML.parse(releaseWorkflowSource);
+    assert.deepStrictEqual(releaseWorkflow.jobs['publish-npm'].needs, ['build-linux', 'build-macos']);
+    assert.deepStrictEqual(releaseWorkflow.jobs['stage-release'].needs, ['publish-npm']);
+    assert.deepStrictEqual(releaseWorkflow.jobs['publish-github-release'].needs, ['stage-release']);
   }
 
   {
