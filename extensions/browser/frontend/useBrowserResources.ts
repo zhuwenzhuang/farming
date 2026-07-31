@@ -45,7 +45,6 @@ export function useBrowserResources(options: {
       setLoading(false)
     }).catch(() => {
       if (!active) return
-      setCapability(null)
       setCapabilityError('Failed to check Browser availability')
       setLoading(false)
     })
@@ -101,7 +100,6 @@ export function useBrowserResources(options: {
   }, [onDeletion])
 
   const refreshCapability = useCallback(() => {
-    setCapability(null)
     setCapabilityError('')
     setLoading(true)
     setRefreshVersion(version => version + 1)

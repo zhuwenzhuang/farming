@@ -150,6 +150,32 @@ test('Plugins treats each Agent Home as an independent ordered Agent configurati
   await expect(review).toHaveCount(0)
 })
 
+test('Plugins keeps cached Agent Home configurations visible while refreshing', async ({ page }) => {
+  await openFarming(page)
+  await page.getByTestId('code-nav-plugins').click()
+  const panel = page.getByTestId('code-plugins-panel')
+  await panel.getByTestId('code-plugin-tab-homes').click()
+  const configurations = panel.locator('.code-plugin-agent-section')
+  await expect(configurations.first()).toBeVisible()
+  await panel.getByTestId('code-plugin-tab-farming').click()
+
+  let releaseRefresh: (() => void) | null = null
+  const refreshBlocked = new Promise<void>(resolve => {
+    releaseRefresh = resolve
+  })
+  await page.route('**/farming/api/agent-extensions', async route => {
+    await refreshBlocked
+    await route.continue()
+  })
+
+  await panel.getByTestId('code-plugin-tab-homes').click()
+  await expect(configurations.first()).toBeVisible()
+  await expect(panel.getByText('Loading Agent extensions...', { exact: true })).toHaveCount(0)
+
+  releaseRefresh?.()
+  await expect(configurations.first()).toBeVisible()
+})
+
 test('Plugins shows a read-only extension catalog from one exact Agent Home', async ({ page, workspaceRoot }) => {
   await openFarming(page)
   const codexHome = path.join(workspaceRoot, 'codex-catalog')

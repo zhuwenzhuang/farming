@@ -20,15 +20,20 @@ function providerSession(id: string, title: string) {
   }
 }
 
-test('entry pages replace old capability and History snapshots with current backend results', async ({ page }) => {
+test('entry pages preserve cached capabilities and History while refreshing current backend results', async ({ page }) => {
   let browserCapabilityRequests = 0
   let computerCapabilityRequests = 0
   let agentExtensionRequests = 0
   let failCurrentRequests = false
+  let blockCurrentCapabilityRefresh = false
+  let releaseCapabilityRefresh: (() => void) | null = null
+  const capabilityRefreshBlocked = new Promise<void>(resolve => {
+    releaseCapabilityRefresh = resolve
+  })
 
   await page.route('**/api/browsers/capability', async route => {
     browserCapabilityRequests += 1
-    if (browserCapabilityRequests > 1) await new Promise(resolve => setTimeout(resolve, 300))
+    if (blockCurrentCapabilityRefresh) await capabilityRefreshBlocked
     if (failCurrentRequests) {
       await route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"probe failed"}' })
       return
@@ -37,7 +42,7 @@ test('entry pages replace old capability and History snapshots with current back
   })
   await page.route('**/api/computers/capability', async route => {
     computerCapabilityRequests += 1
-    if (computerCapabilityRequests > 1) await new Promise(resolve => setTimeout(resolve, 300))
+    if (blockCurrentCapabilityRefresh) await capabilityRefreshBlocked
     if (failCurrentRequests) {
       await route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"probe failed"}' })
       return
@@ -71,18 +76,29 @@ test('entry pages replace old capability and History snapshots with current back
   const computerRequestsBeforePlugins = computerCapabilityRequests
 
   await page.getByTestId('code-nav-plugins').click()
-  await expect(page.getByTestId('code-plugin-browser')).toContainText('Checking')
-  await expect(page.getByTestId('code-plugin-computer')).toContainText('Checking')
+  await expect(page.getByTestId('code-plugin-browser')).not.toContainText('Checking')
+  await expect(page.getByTestId('code-plugin-computer')).not.toContainText('Checking')
   await expect.poll(() => browserCapabilityRequests).toBeGreaterThan(browserRequestsBeforePlugins)
   await expect.poll(() => computerCapabilityRequests).toBeGreaterThan(computerRequestsBeforePlugins)
   expect(agentExtensionRequests).toBe(0)
 
   await page.getByTestId('code-plugins-panel').getByRole('button', { name: 'Back to workspace' }).click()
+  blockCurrentCapabilityRefresh = true
+  const browserRequestsBeforeBlockedRefresh = browserCapabilityRequests
+  const computerRequestsBeforeBlockedRefresh = computerCapabilityRequests
+  await page.getByTestId('code-nav-plugins').click()
+  await expect(page.getByTestId('code-plugin-browser')).not.toContainText('Checking')
+  await expect(page.getByTestId('code-plugin-computer')).not.toContainText('Checking')
+  await expect.poll(() => browserCapabilityRequests).toBeGreaterThan(browserRequestsBeforeBlockedRefresh)
+  await expect.poll(() => computerCapabilityRequests).toBeGreaterThan(computerRequestsBeforeBlockedRefresh)
+  releaseCapabilityRefresh?.()
+  await page.getByTestId('code-plugins-panel').getByRole('button', { name: 'Back to workspace' }).click()
   await page.getByTestId('code-nav-history').click()
   const history = page.getByTestId('code-history-panel')
-  await expect(history.getByTestId('code-history-loading')).toBeVisible()
-  await expect(history).not.toContainText('Old provider session')
+  await expect(history.getByTestId('code-history-loading')).toBeHidden()
+  await expect(history).toContainText('Old provider session')
   await expect(history).toContainText('Current provider session')
+  await expect(history).not.toContainText('Old provider session')
 
   await history.getByTestId('code-history-back').click()
   failCurrentRequests = true
@@ -91,6 +107,6 @@ test('entry pages replace old capability and History snapshots with current back
   await expect(page.getByTestId('code-plugin-computer')).toContainText('Check failed')
   await page.getByTestId('code-plugins-panel').getByRole('button', { name: 'Back to workspace' }).click()
   await page.getByTestId('code-nav-history').click()
-  await expect(page.getByTestId('code-history-error')).toContainText('Failed to load current information')
-  await expect(page.getByTestId('code-history-panel')).not.toContainText('Current provider session')
+  await expect(page.getByTestId('code-history-refresh-error')).toContainText('Failed to load current information')
+  await expect(page.getByTestId('code-history-panel')).toContainText('Current provider session')
 })

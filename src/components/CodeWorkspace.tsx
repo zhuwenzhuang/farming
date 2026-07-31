@@ -1520,7 +1520,7 @@ export function CodeWorkspace({
         }
         applyLaunchSettings(settings)
       })
-      .catch(() => {})
+      .catch(() => undefined)
 
     return () => {
       cancelled = true
@@ -1672,10 +1672,6 @@ export function CodeWorkspace({
     if (fresh) {
       setAgentSessionsFreshLoading(true)
       setAgentSessionsFreshError('')
-      setAgentSessions([])
-      setAgentSessionNextCursor('')
-      setAgentSessionsHasMore(false)
-      setAgentSessionTotal(null)
     }
     fetchAgentSessions(fresh ? { fresh: true, signal: controller.signal } : { signal: controller.signal })
       .then(page => {
@@ -1689,10 +1685,6 @@ export function CodeWorkspace({
       .catch(() => {
         if (controller.signal.aborted) return
         if (!cancelled && generation === agentSessionsLoadGenerationRef.current) {
-          setAgentSessions([])
-          setAgentSessionNextCursor('')
-          setAgentSessionsHasMore(false)
-          setAgentSessionTotal(null)
           if (fresh) setAgentSessionsFreshError(copy.currentInfoLoadFailed)
         }
       })
@@ -1719,10 +1711,6 @@ export function CodeWorkspace({
     agentSessionsLoadGenerationRef.current += 1
     setAgentSessionsFreshLoading(true)
     setAgentSessionsFreshError('')
-    setAgentSessions([])
-    setAgentSessionNextCursor('')
-    setAgentSessionsHasMore(false)
-    setAgentSessionTotal(null)
   }, [])
   const refreshAgentSessions = useCallback(() => {
     if (agentSessionsRefreshInFlightRef.current) return agentSessionsRefreshInFlightRef.current
@@ -1733,10 +1721,7 @@ export function CodeWorkspace({
         setAgentSessionsHasMore(page.hasMore)
         setAgentSessionTotal(page.total)
       })
-      .catch(() => {
-        setAgentSessions([])
-        setAgentSessionTotal(null)
-      })
+      .catch(() => {})
       .finally(() => {
         if (agentSessionsRefreshInFlightRef.current === refresh) {
           agentSessionsRefreshInFlightRef.current = null

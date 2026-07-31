@@ -259,6 +259,33 @@ test.describe('display-backed agent flows', () => {
     await expect(page.getByTestId('agent-list-status')).toBeHidden()
   })
 
+  test('keeps cached agent choices stable while discovery refreshes', async ({ page }) => {
+    await mockCodexSessions(page)
+    let holdRefresh = false
+    let releaseRefresh: (() => void) | null = null
+    const refreshBlocked = new Promise<void>(resolve => {
+      releaseRefresh = resolve
+    })
+
+    await page.route('**/farming/api/executables', async route => {
+      if (holdRefresh) await refreshBlocked
+      await route.continue()
+    })
+
+    await openFarming(page)
+    await openNewAgentDialog(page)
+    await expect(page.getByTestId('agent-option-codex')).toBeVisible()
+    await page.getByTestId('input-dialog-close').click()
+
+    holdRefresh = true
+    await openNewAgentDialog(page)
+    await expect(page.getByTestId('agent-option-codex')).toBeVisible()
+    await expect(page.getByTestId('agent-list-status')).toBeHidden()
+
+    releaseRefresh?.()
+    await expect(page.getByTestId('agent-option-codex')).toBeFocused()
+  })
+
   test('keeps an in-progress Search query focused when the first agent loads', async ({ page, workspaceRoot }) => {
     await mockCodexSessions(page)
     await openFarming(page)

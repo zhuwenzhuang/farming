@@ -252,7 +252,6 @@ export function InputDialog({
       })
       .catch(() => {
         if (cancelled) return
-        setAgents([])
         setAgentLoadFailed(true)
       })
       .finally(() => {
@@ -828,6 +827,7 @@ export function InputDialog({
 
   const codingAgents = agents.filter(a => a.category === 'coding')
   const otherAgents = agents.filter(a => a.category !== 'coding')
+  const hasCachedAgents = agents.length > 0
 
   return (
     <div className="dialog-overlay" data-testid="dialog-overlay">
@@ -883,13 +883,13 @@ export function InputDialog({
 
         {!workspaceDirectoryBrowserOpen && step === 'agent-list' && (
           <div className="agent-list">
-            {!agentsLoaded && (
+            {!agentsLoaded && !hasCachedAgents && (
               <div className="agent-list-status fx-crt-panel" data-testid="agent-list-status">
                 <span className="agent-list-spinner" aria-hidden="true" />
                 <span>{copy.loadingAgents}</span>
               </div>
             )}
-            {agentsLoaded && agentLoadFailed && (
+            {agentsLoaded && agentLoadFailed && !hasCachedAgents && (
               <div className="agent-list-status fx-crt-panel" data-testid="agent-list-status">
                 {copy.agentListUnavailable}
               </div>

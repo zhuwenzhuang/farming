@@ -1025,7 +1025,7 @@ export function PluginsPanel({
                 className="code-plugin-select"
                 label={copy.browserChoice}
                 value={loading && capability === null ? 'system:' : browserChoice}
-                disabled={(loading && capability === null) || saving || preparingIsolatedBrowser}
+                disabled={loading || saving || preparingIsolatedBrowser}
                 options={[
                   ...((capability?.options || []).length === 0 ? [{
                     value: 'system:',
@@ -1053,6 +1053,7 @@ export function PluginsPanel({
                 className="code-plugin-browser-apply"
                 disabled={
                   saving
+                  || loading
                   || preparingIsolatedBrowser
                   || !browserChoiceDirty
                   || (browserChoice === 'isolated' && !isolatedBrowserReady)
@@ -1065,7 +1066,7 @@ export function PluginsPanel({
                 <button
                   type="button"
                   className="code-plugin-browser-install"
-                  disabled={preparingIsolatedBrowser}
+                  disabled={loading || preparingIsolatedBrowser}
                   onClick={() => void prepareIsolatedBrowser()}
                 >
                   {preparingIsolatedBrowser
@@ -1095,7 +1096,7 @@ export function PluginsPanel({
                   <input
                     type="checkbox"
                     checked={computerCompatibilityMode}
-                    disabled={computerSaving || computerPreparing || computerEnabled}
+                    disabled={computerLoading || computerSaving || computerPreparing || computerEnabled}
                     onChange={event => {
                       const next = event.currentTarget.checked
                       setComputerCompatibilityMode(next)
@@ -1116,11 +1117,11 @@ export function PluginsPanel({
           <button
             type="button"
             className={`code-plugin-toggle ${enabled ? 'active' : ''}`}
-            aria-pressed={loading || capabilityError ? false : enabled}
+            aria-pressed={capabilityError ? false : enabled}
             disabled={Boolean(capabilityError) || loading || saving || preparingIsolatedBrowser || (!browserReady && !enabled)}
             onClick={() => void toggleBrowser()}
           >
-            {loading ? copy.checking : capabilityError ? copy.checkFailed : enabled ? copy.disable : copy.enable}
+            {loading && capability === null ? copy.checking : capabilityError ? copy.checkFailed : enabled ? copy.disable : copy.enable}
           </button>
         </article>
         <article className="code-plugin-card" data-testid="code-plugin-computer">
@@ -1149,7 +1150,7 @@ export function PluginsPanel({
                 <input
                   type="checkbox"
                   checked={computerCompatibilityMode}
-                  disabled={computerSaving || computerPreparing || computerEnabled}
+                  disabled={computerLoading || computerSaving || computerPreparing || computerEnabled}
                   onChange={event => {
                     const next = event.currentTarget.checked
                     setComputerCompatibilityMode(next)
@@ -1162,7 +1163,7 @@ export function PluginsPanel({
               {!computerCapability?.imageReady && (
                 <button
                   type="button"
-                  disabled={computerPreparing || computerSaving || !computerCapability?.dockerAvailable}
+                  disabled={computerLoading || computerPreparing || computerSaving || !computerCapability?.dockerAvailable}
                   onClick={() => void prepareComputer()}
                 >
                   {computerPreparing ? copy.preparingComputer : copy.prepareComputer}
@@ -1185,7 +1186,7 @@ export function PluginsPanel({
           <button
             type="button"
             className={`code-plugin-toggle ${computerEnabled ? 'active' : ''}`}
-            aria-pressed={computerLoading || computerCapabilityError ? false : computerEnabled}
+            aria-pressed={computerCapabilityError ? false : computerEnabled}
             disabled={
               Boolean(computerCapabilityError)
               || computerLoading
@@ -1197,7 +1198,7 @@ export function PluginsPanel({
               computerExtensionEnabled: !computerEnabled,
             })}
           >
-            {computerLoading ? copy.checking : computerCapabilityError ? copy.checkFailed : computerEnabled ? copy.disable : copy.enable}
+            {computerLoading && computerCapability === null ? copy.checking : computerCapabilityError ? copy.checkFailed : computerEnabled ? copy.disable : copy.enable}
           </button>
         </article>
       </section> : null}
@@ -1281,7 +1282,7 @@ export function PluginsPanel({
           </div>
         ) : null}
         {agentGroupsError ? <div className="code-plugin-error" role="alert">{agentGroupsError}</div> : null}
-        {agentGroupsLoading ? (
+        {agentGroupsLoading && agentGroups.length === 0 ? (
           <p className="code-plugin-empty">{copy.loadingAgentExtensions}</p>
         ) : agentConfigurations.map((configuration, configurationIndex, configurations) => {
           const { provider, home } = configuration
@@ -1408,7 +1409,7 @@ export function PluginsPanel({
           </div>
         </header>
         {agentGroupsError ? <div className="code-plugin-error" role="alert">{agentGroupsError}</div> : null}
-        {agentGroupsLoading ? (
+        {agentGroupsLoading && agentGroups.length === 0 ? (
           <p className="code-plugin-empty">{copy.loadingAgentExtensions}</p>
         ) : extensionHomes.length === 0 ? (
           <p className="code-plugin-empty">{copy.noAgentExtensions}</p>

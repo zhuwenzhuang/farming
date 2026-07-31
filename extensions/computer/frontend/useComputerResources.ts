@@ -47,7 +47,6 @@ export function useComputerResources(options: {
       setLoading(false)
     }).catch(() => {
       if (!active) return
-      setCapability(null)
       setCapabilityError('Failed to check Computer Use availability')
       setLoading(false)
     })
@@ -111,7 +110,6 @@ export function useComputerResources(options: {
   }, [])
 
   const refreshCapability = useCallback(() => {
-    setCapability(null)
     setCapabilityError('')
     setLoading(true)
     setRefreshVersion(version => version + 1)

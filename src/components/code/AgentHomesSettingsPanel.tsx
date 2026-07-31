@@ -253,6 +253,7 @@ export function AgentHomesSettingsPanel({
   const [saving, setSaving] = useState(false)
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
+  const initialSettingsLoading = loading && composerFollowUpBehavior === null
   if (panelScopeRef.current.open !== open) {
     panelScopeRef.current = {
       open,
@@ -267,7 +268,6 @@ export function AgentHomesSettingsPanel({
     settingsLoadRequestRef.current = requestId
     setLoading(true)
     setError('')
-    setComposerFollowUpBehavior(null)
     fetch(appPath('/api/settings'))
       .then(async settingsResponse => {
         if (!settingsResponse.ok) throw new Error(copy.loadFailed)
@@ -918,8 +918,8 @@ export function AgentHomesSettingsPanel({
               <div>
                 <h3>{copy.agentPermissions}</h3>
               </div>
-              {(loading || saving || notice) && (
-                <span className="code-settings-status">{loading ? copy.loading : saving ? copy.saving : notice}</span>
+              {(initialSettingsLoading || saving || notice) && (
+                <span className="code-settings-status">{initialSettingsLoading ? copy.loading : saving ? copy.saving : notice}</span>
               )}
             </div>
             <div className="code-settings-choice-row dangerous">

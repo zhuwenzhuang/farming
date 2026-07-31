@@ -363,7 +363,7 @@ export function BrowserSidebarPortals({
   forceAvailable?: boolean
 }) {
   const copy = browserCopy(language)
-  const browserAvailable = controller.loading === false && controller.capability?.available === true
+  const browserAvailable = controller.capability?.available === true
   const available = forceAvailable || browserAvailable
   const [targets, setTargets] = useState(new Map<string, HTMLElement>())
   const [collapsed, setCollapsed] = useState(readCollapsed)

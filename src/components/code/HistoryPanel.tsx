@@ -460,11 +460,11 @@ export function HistoryPanel({
           )}
         </div>
       </div>
-      {loading ? (
+      {loading && totalHistoryItems === 0 ? (
         <div className="code-empty-workspace" data-testid="code-history-loading">
           <h2>{copy.loading}</h2>
         </div>
-      ) : error ? (
+      ) : error && totalHistoryItems === 0 ? (
         <div className="code-empty-workspace" data-testid="code-history-error" role="alert">
           <h2>{error}</h2>
         </div>
@@ -483,6 +483,7 @@ export function HistoryPanel({
         </div>
       ) : (
         <div className="code-history-list">
+          {error ? <div className="code-history-refresh-error" data-testid="code-history-refresh-error" role="status">{error}</div> : null}
           <section className="code-history-section" data-testid="code-history-agents">
             {historyPage.items.map(item => {
               if (item.kind === 'run') {
