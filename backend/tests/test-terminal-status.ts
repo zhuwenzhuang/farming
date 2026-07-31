@@ -272,6 +272,29 @@ function run() {
 
   assert.deepStrictEqual(
     pickStatus(deriveTerminalStatus({
+      command: 'codex',
+      cwd: '/repo',
+      previewText: '• Model changed to gpt-5.6-luna medium\n\n› Ask Codex\n\ngpt-5.6-luna medium · ~/repo',
+      terminalBusy: true,
+    })),
+    { kind: 'codex', activity: 'idle', busy: false },
+    'A direct Codex idle footer should override a stale native PTY busy marker'
+  );
+
+  assert.deepStrictEqual(
+    pickStatus(deriveTerminalStatus({
+      command: 'codex',
+      cwd: '/repo',
+      title: '⠋ Codex',
+      previewText: 'gpt-5.6-luna medium · ~/repo',
+      terminalBusy: false,
+    })),
+    { kind: 'codex', activity: 'busy', busy: true },
+    'A live Codex spinner title should stay busy even when the previous idle footer remains visible'
+  );
+
+  assert.deepStrictEqual(
+    pickStatus(deriveTerminalStatus({
       command: 'bash',
       cwd: '/repo',
       previewText: [

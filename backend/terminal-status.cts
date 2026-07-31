@@ -368,10 +368,10 @@ function deriveTerminalStatus(
     activity = 'exited';
   } else if (hasPromptIdleFallback) {
     activity = 'idle';
-  } else if (!SHELL_COMMANDS.has(commandName) && terminalBusy !== null) {
-    activity = terminalBusy ? 'busy' : 'idle';
   } else if (kind === 'codex') {
     activity = inferCodexActivity(title, previewText);
+  } else if (!SHELL_COMMANDS.has(commandName) && terminalBusy !== null) {
+    activity = terminalBusy ? 'busy' : 'idle';
   } else if (kind === 'claude') {
     activity = inferClaudeActivity(previewText);
   } else if (activityCommandName === 'opencode') {
