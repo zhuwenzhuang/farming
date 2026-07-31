@@ -161,6 +161,28 @@ git -C "${PROJECT_ROOT}" archive --format=tar HEAD -- \
   shared \
   THIRD_PARTY_NOTICES.md \
   index.html | tar -xf - -C "${APP_DIR}"
+
+# Backend runtime JavaScript is generated from .cts sources during `npm run build`
+# and is intentionally not tracked. Copy the exact generated counterpart of each
+# supported runtime source into the archive after the tracked-source snapshot.
+for runtime_root in \
+  "${PROJECT_ROOT}/backend" \
+  "${PROJECT_ROOT}/extensions/browser/backend" \
+  "${PROJECT_ROOT}/extensions/computer/backend"; do
+  while IFS= read -r source_path; do
+    runtime_path="${source_path%.cts}.cjs"
+    if [ ! -f "${runtime_path}" ]; then
+      echo "Generated backend runtime is missing: ${runtime_path}" >&2
+      exit 1
+    fi
+    relative_path="${runtime_path#${PROJECT_ROOT}/}"
+    mkdir -p "${APP_DIR}/$(dirname "${relative_path}")"
+    cp "${runtime_path}" "${APP_DIR}/${relative_path}"
+  done < <(find "${runtime_root}" \
+    \( -type d \( -name tests -o -name types -o -name vendor \) -prune \) \
+    -o \( -type f -name '*.cts' -print \))
+done
+
 cp "${PROJECT_ROOT}/package-lock.json" "${APP_DIR}/package-lock.json"
 cp "${PROJECT_ROOT}/backend/usage-history-scanner.generated.js" \
   "${APP_DIR}/backend/usage-history-scanner.generated.js"

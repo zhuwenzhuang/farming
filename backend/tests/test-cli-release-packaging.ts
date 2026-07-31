@@ -68,6 +68,13 @@ function run() {
     'standard App packaging must include the generated TypeScript usage scanner',
   );
   assert(
+    appPackageScript.includes('runtime_path="${source_path%.cts}.cjs"')
+      && appPackageScript.includes('Generated backend runtime is missing: ${runtime_path}')
+      && appPackageScript.includes('"${PROJECT_ROOT}/extensions/browser/backend"')
+      && appPackageScript.includes('"${PROJECT_ROOT}/extensions/computer/backend"'),
+    'standard App packaging must include generated backend, Browser, and Computer runtime modules',
+  );
+  assert(
     packageScript.includes('smoke-codex-acp-process.ts')
       && packageScript.includes('--arg --farming-codex-acp')
       && packageScript.includes('smoke-claude-acp-process.ts')
