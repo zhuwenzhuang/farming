@@ -13,6 +13,8 @@ const usageWorkerOutfile = process.env.FARMING_CLI_BUNDLE_USAGE_WORKER
   || path.join(projectRoot, 'backend', 'usage-history-worker.pkg.js');
 const packagedCodexBridge = path.join(projectRoot, 'backend', 'acp', 'packaged-codex-acp.cts');
 const packagedClaudeBridge = path.join(projectRoot, 'backend', 'acp', 'packaged-claude-acp.cts');
+const packagedCodexRuntimeBridge = path.join(projectRoot, 'backend', 'acp', 'packaged-codex-acp.cjs');
+const packagedClaudeRuntimeBridge = path.join(projectRoot, 'backend', 'acp', 'packaged-claude-acp.cjs');
 const packagedCodexEntry = path.join(projectRoot, 'dist', 'acp', 'codex-acp-1.1.4.mjs');
 const packagedClaudeEntry = path.join(projectRoot, 'dist', 'acp', 'claude-agent-acp-0.59.0.mjs');
 
@@ -46,10 +48,10 @@ const expressViewDynamicRequirePlugin: esbuild.Plugin = {
 const packagedAcpPlugin: esbuild.Plugin = {
   name: 'farming-packaged-acp',
   setup(build) {
-    build.onLoad({ filter: /packaged-(?:codex|claude)-acp\.cts$/ }, async (args) => {
+    build.onLoad({ filter: /packaged-(?:codex|claude)-acp\.(?:cjs|cts)$/ }, async (args) => {
       const filePath = path.resolve(args.path);
-      const isCodex = filePath === path.resolve(packagedCodexBridge);
-      const isClaude = filePath === path.resolve(packagedClaudeBridge);
+      const isCodex = [packagedCodexBridge, packagedCodexRuntimeBridge].some(candidate => filePath === path.resolve(candidate));
+      const isClaude = [packagedClaudeBridge, packagedClaudeRuntimeBridge].some(candidate => filePath === path.resolve(candidate));
       if (!isCodex && !isClaude) return null;
       const label = isCodex ? 'Codex' : 'Claude';
       const argument = isCodex ? '--farming-codex-acp' : '--farming-claude-acp';

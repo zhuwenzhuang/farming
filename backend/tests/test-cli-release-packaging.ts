@@ -47,7 +47,8 @@ function run() {
   assert(
     packagedAcpBridge.includes("PACKAGED_CODEX_ACP_ARG = '--farming-codex-acp'")
       && packagedAcpBridge.includes('omitted its embedded Codex ACP runtime')
-      && bundleCliScript.includes("'codex-acp-1.1.4.mjs'"),
+      && bundleCliScript.includes("'codex-acp-1.1.4.mjs'")
+      && bundleCliScript.includes('/packaged-(?:codex|claude)-acp\\.(?:cjs|cts)$/'),
     'standalone CLI must bundle a hidden entry for the pinned Codex ACP runtime',
   );
   assert(
