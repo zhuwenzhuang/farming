@@ -1494,6 +1494,8 @@ function testBrowserUiAndPackagingWiring() {
     'utf8',
   );
   const sidebarSource = fs.readFileSync(path.join(projectRoot, 'extensions', 'browser', 'frontend', 'BrowserSidebarPortals.tsx'), 'utf8');
+  const browserCss = fs.readFileSync(path.join(projectRoot, 'extensions', 'browser', 'frontend', 'browser.css'), 'utf8');
+  const computerCss = fs.readFileSync(path.join(projectRoot, 'extensions', 'computer', 'frontend', 'computer.css'), 'utf8');
   const serverSource = fs.readFileSync(path.join(projectRoot, 'backend', 'server.cts'), 'utf8');
   const packageJson = JSON.parse(fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf8'));
   assert(workspaceSource.includes('<BrowserSidebarPortals'));
@@ -1511,6 +1513,11 @@ function testBrowserUiAndPackagingWiring() {
   assert(serverSource.includes("browserResourceManager,"));
   assert(sidebarSource.includes('code-agent-resources-toggle'));
   assert(sidebarSource.includes('controller.byAgentId'));
+  assert(browserCss.includes('margin-left: 14px;'));
+  assert(
+    computerCss.includes('margin: 4px 8px 4px 14px;'),
+    'Agent Desktop and Browser sections must stay aligned at the same resource hierarchy level',
+  );
   assert.strictEqual(packageJson.dependencies['playwright-core'], undefined);
   assert.strictEqual(packageJson.bin['farming-browser'], 'extensions/browser/bin/farming-browser');
   assert(packageJson.files.includes('extensions/browser/backend/*.cjs'));
