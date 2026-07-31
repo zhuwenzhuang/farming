@@ -74,7 +74,7 @@ Create、Rename 和 Delete 还有一个小型浏览器所有权状态机。打�
 - 数据模型：稳定 node id、父子路径、目录懒加载、展开状态、文件变化后局部刷新
 - 可见行模型：Farming 按 Project workspace 维护唯一的打开目录集合；每次鼠标或键盘切换先同步提交一次期望状态，tree engine 再把它投影为可见行，并继续负责焦点、选择和键盘导航。Project 左栏里的 `Files` 展开后按当前可见行数自然撑高，滚动交给外层 project list，避免出现内外两个滚动条；当前可见行数由打开目录集合和 tree data 推导，不能依赖内部 viewport scrollHeight，否则容易留下空白或隐藏行
 - 层级表达：统一 chevron、缩进、低饱和 guide line、目录/文件行高和文本截断规则
-- 上下文保留：Project 左栏不在 `Files` 内部隐藏内容；长列表可以使用轻量 sticky ancestor stack 和浅阴影提示，但不能引入内部滚动窗口或固定高度裁切
+- 上下文保留：Project 左栏不在 `Files` 内部隐藏内容；长列表可以使用轻量 sticky ancestor 覆盖层和浅阴影提示，但不能引入内部滚动窗口或固定高度裁切。该覆盖层是单行路径面包屑，不是树层级的副本：无论中间目录是否存在同级目录，都把当前完整的已渲染祖先链折叠到同一行；该行固定使用根级缩进，点击后定位到路径中最深的祖先目录
 - 选择模型：active file 和 tree selection 分离，支持键盘焦点和轻量选择态；拖拽移动不是当前 P0 验收重点
 - 键盘模型：方向键、Enter/Space 与鼠标点击共用同一套同步展开状态转换；tree engine 继续统一管理焦点态、选择和打开文件行为
 - 移动模型：后端保留同 workspace 内 move 能力；前端当前优先保证搜索、跳转、重命名和删除，不把拖拽移动作为必要能力
@@ -308,7 +308,7 @@ Files
 - 从 Markdown 文档点击 workspace 内部链接时，目标文档继承当前文档的来源 Agent，文档间跳转后仍保留返回 Agent 的入口
 - 图片 / PDF / 二进制只读 preview；大文本用只读 Monaco 展示文件开头内容
 - 紧凑 tab strip
-- 轻量多文件 tabs：打开过的文件保留 tab，可切换、关闭、鼠标拖动排序，并保留各自 dirty / external changed 状态；从目录树鼠标单击打开的是 transient preview tab，再单击另一个干净文件会复用该 tab；搜索结果、`path:line`、键盘 Enter、diff/review 打开是正式 tab；编辑后 transient tab 固定为正式 tab；tab strip 支持键盘切换和关闭，active tab 应自动滚入可见区域；active tab 与内容之间的底边应比其余 tab strip 分隔线更浅；editor 区域支持 `Ctrl/Cmd+PageUp` / `Ctrl/Cmd+PageDown` 切换 tab、`Ctrl/Cmd+W` 关闭当前 tab
+- 轻量多文件 tabs：打开过的文件保留 tab，可切换、关闭、鼠标拖动排序，并保留各自 dirty / external changed 状态；从目录树鼠标单击打开的是斜体 transient preview tab，再单击另一个干净文件会复用该 tab；双击对应文件行或 tab 会把它固定为正式 tab；搜索结果、`path:line`、键盘 Enter、diff/review 打开也是正式 tab，开始编辑同样会固定 transient tab；tab strip 支持键盘切换和关闭，active tab 应自动滚入可见区域；active tab 与内容之间的底边应比其余 tab strip 分隔线更浅；editor 区域支持 `Ctrl/Cmd+PageUp` / `Ctrl/Cmd+PageDown` 切换 tab、`Ctrl/Cmd+W` 关闭当前 tab
 - editor tab 使用成熟 tablist 语义：只有 active tab 进入正常 Tab 顺序，左右方向键切换；tab 通过 `aria-controls` 关联 Monaco `tabpanel`，避免视觉 tab strip 和 DOM 语义脱节
 - editor tab 的可访问名称需要包含 basename、完整相对路径和 dirty / external changed 状态；close 按钮也使用完整相对路径，避免同名文件 tab 难以区分
 - tab strip 可水平滚动但不显示浏览器原生 scrollbar；大量文件时靠 active tab reveal、滚轮/触控板滚动和键盘切换保持可达性

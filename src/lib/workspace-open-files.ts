@@ -477,7 +477,8 @@ export function selectWorkspaceOpenFile(
   const identityChanged = nextFile.agentId !== agentId
     || Boolean(request.workspaceRoot && request.workspaceRoot !== nextFile.workspaceRoot)
     || Boolean(request.sourceAgentId && request.sourceAgentId !== nextFile.sourceAgentId)
-  const selectedFile = hasViewRequest || identityChanged
+  const transientChanged = request.transient !== undefined && request.transient !== nextFile.transient
+  const selectedFile = hasViewRequest || identityChanged || transientChanged
     ? {
         ...nextFile,
         agentId,
@@ -492,7 +493,9 @@ export function selectWorkspaceOpenFile(
     : nextFile
   return {
     activeFile: selectedFile,
-    files: hasViewRequest || identityChanged ? replaceOpenWorkspaceFile(state.files, selectedFile) : state.files,
+    files: hasViewRequest || identityChanged || transientChanged
+      ? replaceOpenWorkspaceFile(state.files, selectedFile)
+      : state.files,
     closedFileCache: state.closedFileCache,
   }
 }

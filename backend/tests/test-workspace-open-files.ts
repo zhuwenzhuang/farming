@@ -242,6 +242,17 @@ function run() {
     transient: true,
   });
   assert.strictEqual(firstTransient.activeFile.transient, true);
+  const pinnedBySelection = selectWorkspaceOpenFile(firstTransient, 'agent-1', 'src/One.tsx', {
+    workspaceRoot: '/repo',
+    transient: false,
+  });
+  assert(pinnedBySelection);
+  assert.strictEqual(pinnedBySelection.activeFile.transient, false);
+  const previewAfterPinned = openWorkspaceFileFromRead(pinnedBySelection, 'agent-1', workspaceFile('src/Two.tsx', 'two'), {
+    workspaceRoot: '/repo',
+    transient: true,
+  });
+  assert.deepStrictEqual(previewAfterPinned.files.map(file => file.file.path), ['src/One.tsx', 'src/Two.tsx']);
   const secondTransient = openWorkspaceFileFromRead(firstTransient, 'agent-1', workspaceFile('src/Two.tsx', 'two'), {
     workspaceRoot: '/repo',
     transient: true,

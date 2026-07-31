@@ -39,7 +39,12 @@ export interface WorkspaceFileTreeFocusRowCandidate {
   selected: boolean
 }
 
-export type WorkspaceFileStickyContextItem = { kind: 'directory'; key: string; node: WorkspaceFileTreeNode }
+export type WorkspaceFileStickyContextItem = {
+  kind: 'directory'
+  key: string
+  node: WorkspaceFileTreeNode
+  nodes: WorkspaceFileTreeNode[]
+}
 
 export type WorkspaceFileTreeRowClickIntent = 'toggle-directory' | 'open-file' | 'select'
 export type WorkspaceFileTreeActivationIntent = 'open-directory' | 'close-directory' | 'open-file' | 'none'
@@ -191,52 +196,26 @@ export function workspaceStickyDirectoryPathsForViewport(options: {
   stickyTop: number
   scrollerBottom: number
   rowHeight: number
-  maxRows: number
 }) {
   const rowHeight = Math.max(1, options.rowHeight)
-  const maxRows = Math.max(0, Math.floor(options.maxRows))
-  if (maxRows === 0) return []
-
-  let effectiveTop = options.stickyTop
-  let stickyPaths: string[] = []
-  let firstVisiblePath = firstVisibleWorkspaceFilePath(
-    options.rows,
-    effectiveTop,
-    options.scrollerBottom
-  )
-
-  for (let attempt = 0; attempt < options.rows.length + 1; attempt += 1) {
-    const nextStickyPaths = workspaceStickyDirectoryPaths(
-      firstVisiblePath,
-      options.rows,
-      effectiveTop
-    ).slice(-maxRows)
-    const nextEffectiveTop = options.stickyTop + nextStickyPaths.length * rowHeight
-
-    if (
-      nextEffectiveTop === effectiveTop &&
-      nextStickyPaths.length === stickyPaths.length &&
-      nextStickyPaths.every((path, index) => path === stickyPaths[index])
-    ) {
-      return nextStickyPaths
-    }
-
-    stickyPaths = nextStickyPaths
-    effectiveTop = nextEffectiveTop
-    firstVisiblePath = options.rows.find(row => (
-      row.top >= effectiveTop - 1 && row.top < options.scrollerBottom
-    ))?.path ?? ''
-  }
-
-  return stickyPaths
+  const stickyBottom = options.stickyTop + rowHeight
+  const firstUncoveredPath = options.rows.find(row => (
+    row.top >= stickyBottom - 1 && row.top < options.scrollerBottom
+  ))?.path ?? ''
+  return workspaceStickyDirectoryPaths(firstUncoveredPath, options.rows, stickyBottom)
 }
 
 export function workspaceStickyContextItems(options: {
-  visible: boolean
   directoryNodes: readonly WorkspaceFileTreeNode[]
 }): WorkspaceFileStickyContextItem[] {
-  if (!options.visible && options.directoryNodes.length === 0) return []
-  return options.directoryNodes.map(node => ({ kind: 'directory' as const, key: node.path, node }))
+  const node = options.directoryNodes[options.directoryNodes.length - 1]
+  if (!node) return []
+  return [{
+    kind: 'directory',
+    key: options.directoryNodes.map(item => item.path).join('\0'),
+    node,
+    nodes: [...options.directoryNodes],
+  }]
 }
 
 export function workspaceCompactStickyDirectoryLabel(nodes: readonly WorkspaceFileTreeNode[]) {

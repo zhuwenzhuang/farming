@@ -668,7 +668,7 @@ function run() {
 	      !fileSectionSource.includes('const rememberSelectedTreeNodes = useCallback') &&
 	      fileTreeRowInteractionsSource.includes('workspaceFileTreeRowClickIntent({') &&
 	      fileTreeRowInteractionsSource.includes('const handleRowMouseDown = useCallback') &&
-	      fileTreeRowInteractionsSource.includes("void onOpenFilePath(item.path, { transient: true })") &&
+	      fileTreeRowInteractionsSource.includes('void onOpenFilePath(item.path, { transient: event.detail < 2 })') &&
 	      fileTreeRowSource.includes('onMouseDown={handleRowMouseDown}') &&
 	      fileViewModelSource.includes('function workspaceFileTreeRowClickIntent') &&
 	      fileViewModelSource.includes("return 'toggle-directory'") &&
@@ -758,8 +758,8 @@ function run() {
       !fileSectionSource.includes('onFocus={rememberFocusedTreeNode}') &&
       !fileSectionSource.includes('onSelect={rememberSelectedTreeNodes}') &&
       fileSectionSource.includes('useWorkspaceFileStickyContext({') &&
-      fileStickyContextHookSource.includes('const [stickyDirectoryPaths, setStickyDirectoryPaths] = useState<string[]>([])') &&
-	      fileStickyContextHookSource.includes('const [stickyContextVisible, setStickyContextVisible] = useState(false)') &&
+	      fileStickyContextHookSource.includes('const [stickyDirectoryPaths, setStickyDirectoryPaths] = useState<string[]>([])') &&
+	      !fileStickyContextHookSource.includes('stickyContextVisible') &&
 	      fileStickyContextHookSource.includes('const stickyDirectoryNodes = useMemo(() =>') &&
 	      fileStickyContextHookSource.includes('const stickyContextItems = useMemo<FileStickyContextItem[]>') &&
 	      fileStickyContextHookSource.includes('workspaceStickyContextItems({') &&
@@ -776,17 +776,22 @@ function run() {
       fileStickyContextHookSource.includes("viewport?.closest<HTMLElement>('.code-project-list')") &&
       fileStickyContextHookSource.includes('window.requestAnimationFrame(() =>') &&
       fileStickyContextHookSource.includes("scroller?.addEventListener('scroll', refreshBeforePaint, { passive: true })") &&
-      fileStickyContextHookSource.includes('setStickyContextVisible(isWorkspaceStickyContextVisible(viewportRect.top, stickyTop))') &&
-      fileStickyContextHookSource.includes('workspaceStickyDirectoryPathsForViewport({') &&
-      fileStickyContextHookSource.includes('Math.max(1, availableRows - MIN_VISIBLE_FILE_ROWS)') &&
+	      fileStickyContextHookSource.includes('if (!isWorkspaceStickyContextVisible(viewportRect.top, stickyTop))') &&
+	      fileStickyContextHookSource.includes('workspaceStickyDirectoryPathsForViewport({') &&
       fileViewModelSource.includes('function firstVisibleWorkspaceFilePath') &&
       fileViewModelSource.includes('function workspaceStickyDirectoryPaths') &&
-      fileViewModelSource.includes('function workspaceStickyDirectoryPathsForViewport') &&
-      fileStickyContextHookSource.includes('setStickyDirectoryPaths(current =>') &&
+	      fileViewModelSource.includes('function workspaceStickyDirectoryPathsForViewport') &&
+	      !fileViewModelSource.includes('function constrainWorkspaceStickyDirectoryPaths') &&
+	      !fileStickyContextHookSource.includes('MAX_STICKY_VIEWPORT_RATIO') &&
+	      fileStickyContextHookSource.includes('setStickyDirectoryPaths(current =>') &&
 	      fileTreeViewSource.includes('<FileStickyContext') &&
 	      !fileSectionSource.includes('<FileStickyContext') &&
       fileStickyContextSource.includes('data-testid="code-file-sticky-stack"') &&
-      fileStickyContextSource.includes('className="code-file-row directory code-file-sticky-row"') &&
+	      fileStickyContextSource.includes('className="code-file-row directory code-file-sticky-row"') &&
+	      fileStickyContextSource.includes('style={workspaceFileTreeDepthStyle(0)}') &&
+	      fileStickyContextSource.includes('workspaceCompactStickyDirectoryLabel(item.nodes)') &&
+	      !fileStickyContextSource.includes('code-file-sticky-expanded-rows') &&
+	      !fileStickyContextSource.includes('code-file-sticky-compact-row') &&
 	      treeRowModelSource.includes('function workspaceFileTreeDescendantGitStatusClassName') &&
 	      fileStickyContextSource.includes('workspaceFileTreeDescendantGitStatusClassName(item.node.descendantGitStatus)') &&
 	      fileStickyContextSource.includes('className={descendantStatusClassName}') &&
@@ -1150,6 +1155,9 @@ function run() {
       editorTabsComponentSource.includes('role="tablist"') &&
       editorTabsComponentSource.includes('role="tab"') &&
       editorTabsComponentSource.includes('aria-selected={active}') &&
+	      editorTabsComponentSource.includes("file.transient ? 'preview' : ''") &&
+	      editorTabsComponentSource.includes("data-preview={file.transient ? 'true' : undefined}") &&
+	      editorTabsComponentSource.includes("onDoubleClick={() => onSelectOpenFile(file.agentId, file.file.path, { transient: false })}") &&
       editorSource.includes('workspaceEditorTabDomId') &&
       editorModelSource.includes('function safeWorkspaceEditorDomIdPart') &&
       editorModelSource.includes('function workspaceEditorTabDomId') &&
@@ -1812,7 +1820,7 @@ function run() {
 	      !stylesSource.includes('margin-left: -6px') &&
 	      stylesSource.includes('.code-file-row.active') &&
 	      stylesSource.includes('.code-file-row.active::after') &&
-	      stylesSource.includes('background: rgba(82, 99, 135, 0.075)') &&
+	      stylesSource.includes('background: rgba(0, 0, 0, 0.055)') &&
 	      stylesSource.includes('border: 0 !important') &&
       stylesSource.includes('.code-file-row:focus-visible') &&
       stylesSource.includes('.code-file-row.focused') &&
@@ -1837,7 +1845,7 @@ function run() {
       stylesSource.includes('.code-file-row::before') &&
       stylesSource.includes('repeating-linear-gradient') &&
       stylesSource.includes('opacity: 0.32') &&
-      stylesSource.includes('rgba(97, 105, 94, 0.14) 5px') &&
+      stylesSource.includes('rgba(101, 101, 101, 0.14) 5px') &&
       stylesSource.includes('.code-file-type-icon') &&
       stylesSource.includes('object-fit: contain') &&
       !stylesSource.includes('.code-file-type-icon.file::before') &&
@@ -1878,6 +1886,8 @@ function run() {
       stylesSource.includes('.code-file-editor-tabs::-webkit-scrollbar') &&
       stylesSource.includes('.code-file-editor-tab') &&
       stylesSource.includes('.code-file-editor-tab.active') &&
+	      stylesSource.includes('.code-file-editor-tab.preview .code-file-editor-tab-name') &&
+	      stylesSource.includes('font-style: italic') &&
       !stylesSource.includes('.code-file-editor-tab.dirty') &&
       stylesSource.includes('.code-file-editor-tab:focus-visible') &&
       stylesSource.includes('.code-file-editor-tab-name') &&

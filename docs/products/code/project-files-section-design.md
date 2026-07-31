@@ -40,7 +40,7 @@ This model intentionally does not claim transactions against arbitrary external 
 
 The Files section, including Git History, should expand into the outer project scroll flow. It should not create a second nested scrollbar inside the project sidebar. When many rows are visible, the whole project list scrolls as one surface.
 
-Long trees may use a lightweight sticky ancestor overlay and subtle shadow to show parent context, but that overlay must not change the scroll model.
+Long trees may use a lightweight sticky ancestor overlay and subtle shadow to show parent context, but that overlay must not change the scroll model. The overlay is one breadcrumb row, not a copy of the tree hierarchy: it folds the complete rendered ancestor chain into that row even when an intermediate directory has siblings. It always renders at root indentation, and clicking it reveals the deepest represented ancestor.
 
 ## Git History Graph
 
@@ -144,7 +144,7 @@ The right pane is a lightweight editor surface:
 - preview for image, PDF, and binary files;
 - readonly mode for oversized files;
 - tabs with mature `tablist` semantics, mouse drag reordering, and a lighter active-tab/content seam than the surrounding strip divider;
-- transient preview tabs for mouse clicks in the Explorer tree; search results, `path:line`, keyboard Enter, and review/diff opens create pinned tabs, and editing pins a transient tab;
+- transient preview tabs for mouse clicks in the Explorer tree; the preview label is italic, the next clean preview replaces it, and double-clicking either the tree row or its tab pins it. Search results, `path:line`, keyboard Enter, and review/diff opens create pinned tabs, and editing also pins a transient tab;
 - per-file Monaco model and view state;
 - breadcrumb as lightweight context on source, split-preview, and diff surfaces; pure rendered Markdown, HTML, image, PDF, and binary preview surfaces omit it;
 - dirty close confirmation.

@@ -133,8 +133,9 @@ export function FileEditorTabs({
               id={fileEditorTabDomId(file)}
               key={tabKey}
               ref={element => onSetTabRef(tabKey, element)}
-              className={`code-file-editor-tab ${active ? 'active' : ''} ${tabStateClass}`.trim()}
+              className={`code-file-editor-tab ${active ? 'active' : ''} ${file.transient ? 'preview' : ''} ${tabStateClass}`.trim()}
               draggable
+              data-preview={file.transient ? 'true' : undefined}
               data-dragging={tabDrag?.sourceKey === tabKey ? 'true' : undefined}
               data-drop-position={tabDrag?.targetKey === tabKey ? tabDrag.position : undefined}
               title={file.file.path}
@@ -178,6 +179,7 @@ export function FileEditorTabs({
                 }
                 onSelectOpenFile(file.agentId, file.file.path)
               }}
+              onDoubleClick={() => onSelectOpenFile(file.agentId, file.file.path, { transient: false })}
               onContextMenu={event => onOpenTabContextMenu(event, index)}
               onAuxClick={event => onTabAuxClick(event, index)}
               onKeyDown={event => onTabKeyDown(event, index)}

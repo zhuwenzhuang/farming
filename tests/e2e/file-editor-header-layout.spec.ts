@@ -14,6 +14,54 @@ function colorAlpha(value: string) {
   return match ? Number(match[1]) : value === 'transparent' ? 0 : 1
 }
 
+test('uses one italic preview tab and pins it on double click', async ({ page }) => {
+  const workspaceRoot = path.join(PLAYWRIGHT_WORKSPACE_ROOT, 'editor-preview-tabs')
+  fs.rmSync(workspaceRoot, { recursive: true, force: true })
+  fs.mkdirSync(workspaceRoot, { recursive: true })
+  fs.writeFileSync(path.join(workspaceRoot, 'one.txt'), 'one\n')
+  fs.writeFileSync(path.join(workspaceRoot, 'two.txt'), 'two\n')
+  fs.writeFileSync(path.join(workspaceRoot, 'three.txt'), 'three\n')
+
+  await openFarming(page)
+  await openNewAgentDialog(page)
+  await startAgentFromOpenDialog(page, 'bash', workspaceRoot)
+
+  const project = page.getByTestId('code-project-group').filter({ hasText: path.basename(workspaceRoot) })
+  await expect(project).toHaveCount(1, { timeout: 30_000 })
+  const files = project.getByTestId('code-files-section')
+  const filesTitle = files.locator('.code-files-title').first()
+  if (await filesTitle.getAttribute('aria-expanded') !== 'true') await filesTitle.click()
+
+  const editor = page.getByTestId('code-file-editor')
+  const oneRow = files.locator('[data-testid="code-file-row"][data-file-path="one.txt"]')
+  const twoRow = files.locator('[data-testid="code-file-row"][data-file-path="two.txt"]')
+  const threeRow = files.locator('[data-testid="code-file-row"][data-file-path="three.txt"]')
+
+  await oneRow.click()
+  const oneTab = editor.getByRole('tab').filter({ hasText: 'one.txt' })
+  await expect(oneTab).toHaveAttribute('data-preview', 'true')
+  await expect(oneTab.locator('.code-file-editor-tab-name')).toHaveCSS('font-style', 'italic')
+
+  await twoRow.click()
+  const twoTab = editor.getByRole('tab').filter({ hasText: 'two.txt' })
+  await expect(oneTab).toHaveCount(0)
+  await expect(twoTab).toHaveAttribute('data-preview', 'true')
+
+  await twoTab.dblclick()
+  await expect(twoTab).not.toHaveAttribute('data-preview', 'true')
+  await expect(twoTab.locator('.code-file-editor-tab-name')).toHaveCSS('font-style', 'normal')
+
+  await threeRow.click()
+  const threeTab = editor.getByRole('tab').filter({ hasText: 'three.txt' })
+  await expect(twoTab).toHaveCount(1)
+  await expect(threeTab).toHaveAttribute('data-preview', 'true')
+
+  await threeRow.dblclick()
+  await expect(threeTab).not.toHaveAttribute('data-preview', 'true')
+  await expect(threeTab.locator('.code-file-editor-tab-name')).toHaveCSS('font-style', 'normal')
+  await expect(editor.getByRole('tab')).toHaveCount(2)
+})
+
 test('overlays right-side file actions on overflowing tabs and shows a seamless breadcrumb', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   const workspaceRoot = path.join(PLAYWRIGHT_WORKSPACE_ROOT, 'editor-header-project')

@@ -12,8 +12,6 @@ import {
 } from '@/lib/workspace-file-view-model'
 
 export type FileStickyContextItem = WorkspaceFileStickyContextItem
-const MAX_STICKY_DIRECTORY_ROWS = 8
-const MIN_VISIBLE_FILE_ROWS = 4
 
 interface UseWorkspaceFileStickyContextOptions {
   filesCollapsed: boolean
@@ -50,7 +48,6 @@ export function useWorkspaceFileStickyContext({
   treeViewportRef,
 }: UseWorkspaceFileStickyContextOptions) {
   const [stickyDirectoryPaths, setStickyDirectoryPaths] = useState<string[]>([])
-  const [stickyContextVisible, setStickyContextVisible] = useState(false)
 
   const stickyDirectoryNodes = useMemo(() => (
     stickyDirectoryPaths
@@ -60,14 +57,12 @@ export function useWorkspaceFileStickyContext({
 
   const stickyContextItems = useMemo<FileStickyContextItem[]>(() => (
     workspaceStickyContextItems({
-      visible: stickyContextVisible,
       directoryNodes: stickyDirectoryNodes,
     })
-  ), [stickyContextVisible, stickyDirectoryNodes])
+  ), [stickyDirectoryNodes])
 
   const clearStickyContext = useCallback(() => {
     setStickyDirectoryPaths(current => current.length === 0 ? current : [])
-    setStickyContextVisible(false)
   }, [])
 
   const refreshStickyAncestors = useCallback(() => {
@@ -81,6 +76,11 @@ export function useWorkspaceFileStickyContext({
     const scrollerRect = scroller.getBoundingClientRect()
     const stickyTop = stickyContentTop(scroller, viewport)
     const viewportRect = viewport.getBoundingClientRect()
+    if (!isWorkspaceStickyContextVisible(viewportRect.top, stickyTop)) {
+      clearStickyContext()
+      return
+    }
+
     const rows = Array.from(viewport.querySelectorAll<HTMLElement>('[data-file-path]'))
     const rowSnapshots: WorkspaceFileRowSnapshot[] = rows.flatMap(row => {
       const path = row.dataset.filePath
@@ -94,20 +94,12 @@ export function useWorkspaceFileStickyContext({
       return
     }
 
-    setStickyContextVisible(isWorkspaceStickyContextVisible(viewportRect.top, stickyTop))
-
     const firstRowHeight = Math.max(1, rows[0]?.getBoundingClientRect().height ?? 24)
-    const availableRows = Math.floor(Math.max(0, scrollerRect.bottom - stickyTop) / firstRowHeight)
-    const maxStickyRows = Math.min(
-      MAX_STICKY_DIRECTORY_ROWS,
-      Math.max(1, availableRows - MIN_VISIBLE_FILE_ROWS)
-    )
     const nextStickyPaths = workspaceStickyDirectoryPathsForViewport({
       rows: rowSnapshots,
       stickyTop,
       scrollerBottom: scrollerRect.bottom,
       rowHeight: firstRowHeight,
-      maxRows: maxStickyRows,
     })
 
     setStickyDirectoryPaths(current => (

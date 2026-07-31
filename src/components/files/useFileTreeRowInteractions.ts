@@ -57,7 +57,7 @@ export function useFileTreeRowInteractions({
       || event.ctrlKey
       || event.shiftKey
     ) return
-    void onOpenFilePath(item.path, { transient: true })
+    void onOpenFilePath(item.path, { transient: event.detail < 2 })
   }, [isDirectory, item.path, onOpenFilePath])
 
   const handleRowClick = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {

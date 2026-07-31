@@ -1070,14 +1070,12 @@ function run() {
   });
   assert(ignoredDirectoryRowState.rowClasses.includes('ignored'));
   assert.deepStrictEqual(workspaceStickyContextItems({
-    visible: false,
     directoryNodes: [],
   }), []);
   assert.deepStrictEqual(workspaceStickyContextItems({
-    visible: true,
-    directoryNodes: [directory('src')],
-  }).map(item => `${item.kind}:${item.node.path}`), [
-    'directory:src',
+    directoryNodes: [directory('src'), directory('src/components')],
+  }).map(item => `${item.kind}:${item.node.path}:${item.nodes.length}`), [
+    'directory:src/components:2',
   ]);
   assert.strictEqual(workspaceCompactStickyDirectoryLabel([
     directory('Users/example'),
@@ -1157,17 +1155,17 @@ function run() {
   assert.strictEqual(firstVisibleWorkspaceFilePath(rowSnapshots, 50, 120), 'src/components');
   assert.deepStrictEqual(workspaceStickyDirectoryPaths('src/components/App.tsx', rowSnapshots, 70), ['src', 'src/components']);
   const deepPackageRows = [
-    { path: 'odps-sql', top: -140, bottom: -116 },
-    { path: 'odps-sql/odps-optimizer', top: -116, bottom: -92 },
-    { path: 'odps-sql/odps-optimizer/odps-optimizer-cbo', top: -92, bottom: -68 },
-    { path: 'odps-sql/odps-optimizer/odps-optimizer-cbo/src', top: -68, bottom: -44 },
-    { path: 'odps-sql/odps-optimizer/odps-optimizer-cbo/src/main', top: -44, bottom: -20 },
-    { path: 'odps-sql/odps-optimizer/odps-optimizer-cbo/src/main/java', top: -20, bottom: 4 },
-    { path: 'odps-sql/odps-optimizer/odps-optimizer-cbo/src/main/java/com/aliyun/odps/lot/cbo', top: 4, bottom: 28 },
-    { path: 'odps-sql/odps-optimizer/odps-optimizer-cbo/src/main/java/com/aliyun/odps/lot/cbo/plan', top: 28, bottom: 52 },
-    { path: 'odps-sql/odps-optimizer/odps-optimizer-cbo/src/main/java/com/aliyun/odps/lot/cbo/plan/splitting', top: 52, bottom: 76 },
-    { path: 'odps-sql/odps-optimizer/odps-optimizer-cbo/src/main/java/com/aliyun/odps/lot/cbo/plan/splitting/impl', top: 76, bottom: 100 },
-    { path: 'odps-sql/odps-optimizer/odps-optimizer-cbo/src/main/java/com/aliyun/odps/lot/cbo/plan/splitting/impl/meta', top: 100, bottom: 124 },
+    { path: 'odps-sql', top: -140, bottom: -116, depth: 0 },
+    { path: 'odps-sql/odps-optimizer', top: -116, bottom: -92, depth: 1 },
+    { path: 'odps-sql/odps-optimizer/odps-optimizer-cbo', top: -92, bottom: -68, depth: 2 },
+    { path: 'odps-sql/odps-optimizer/odps-optimizer-cbo/src', top: -68, bottom: -44, depth: 3 },
+    { path: 'odps-sql/odps-optimizer/odps-optimizer-cbo/src/main', top: -44, bottom: -20, depth: 4 },
+    { path: 'odps-sql/odps-optimizer/odps-optimizer-cbo/src/main/java', top: -20, bottom: 4, depth: 5 },
+    { path: 'odps-sql/odps-optimizer/odps-optimizer-cbo/src/main/java/com/aliyun/odps/lot/cbo', top: 4, bottom: 28, depth: 6 },
+    { path: 'odps-sql/odps-optimizer/odps-optimizer-cbo/src/main/java/com/aliyun/odps/lot/cbo/plan', top: 28, bottom: 52, depth: 7 },
+    { path: 'odps-sql/odps-optimizer/odps-optimizer-cbo/src/main/java/com/aliyun/odps/lot/cbo/plan/splitting', top: 52, bottom: 76, depth: 8 },
+    { path: 'odps-sql/odps-optimizer/odps-optimizer-cbo/src/main/java/com/aliyun/odps/lot/cbo/plan/splitting/impl', top: 76, bottom: 100, depth: 9 },
+    { path: 'odps-sql/odps-optimizer/odps-optimizer-cbo/src/main/java/com/aliyun/odps/lot/cbo/plan/splitting/impl/meta', top: 100, bottom: 124, depth: 10 },
     { path: 'odps-sql/odps-optimizer/odps-optimizer-cbo/src/main/java/com/aliyun/odps/lot/cbo/plan/splitting/impl/meta/AbstractVectorIndexDataClient.java', top: 124, bottom: 148 },
     { path: 'odps-sql/odps-optimizer/odps-optimizer-cbo/src/main/java/com/aliyun/odps/lot/cbo/plan/splitting/impl/meta/AnnIndexScanDataClient.java', top: 148, bottom: 172 },
     { path: 'odps-sql/odps-optimizer/odps-optimizer-cbo/src/main/java/com/aliyun/odps/lot/cbo/plan/splitting/impl/meta/ExpandingMetaClient.java', top: 172, bottom: 196 },
@@ -1197,40 +1195,28 @@ function run() {
       stickyTop: 40,
       scrollerBottom: 340,
       rowHeight: 24,
-      maxRows: 8,
     }),
     [
+      'odps-sql',
+      'odps-sql/odps-optimizer',
+      'odps-sql/odps-optimizer/odps-optimizer-cbo',
       'odps-sql/odps-optimizer/odps-optimizer-cbo/src',
       'odps-sql/odps-optimizer/odps-optimizer-cbo/src/main',
       'odps-sql/odps-optimizer/odps-optimizer-cbo/src/main/java',
       'odps-sql/odps-optimizer/odps-optimizer-cbo/src/main/java/com/aliyun/odps/lot/cbo',
       'odps-sql/odps-optimizer/odps-optimizer-cbo/src/main/java/com/aliyun/odps/lot/cbo/plan',
       'odps-sql/odps-optimizer/odps-optimizer-cbo/src/main/java/com/aliyun/odps/lot/cbo/plan/splitting',
-      'odps-sql/odps-optimizer/odps-optimizer-cbo/src/main/java/com/aliyun/odps/lot/cbo/plan/splitting/impl',
-      'odps-sql/odps-optimizer/odps-optimizer-cbo/src/main/java/com/aliyun/odps/lot/cbo/plan/splitting/impl/meta',
     ]
   );
   assert.deepStrictEqual(
     workspaceStickyDirectoryPathsForViewport({
-      rows: deepPackageRows,
+      rows: [
+        { path: 'alpha', top: 20, bottom: 44 },
+        { path: 'beta', top: 68, bottom: 92 },
+      ],
       stickyTop: 40,
       scrollerBottom: 340,
       rowHeight: 24,
-      maxRows: 3,
-    }),
-    [
-      'odps-sql/odps-optimizer/odps-optimizer-cbo/src/main/java/com/aliyun/odps/lot/cbo/plan/splitting',
-      'odps-sql/odps-optimizer/odps-optimizer-cbo/src/main/java/com/aliyun/odps/lot/cbo/plan/splitting/impl',
-      'odps-sql/odps-optimizer/odps-optimizer-cbo/src/main/java/com/aliyun/odps/lot/cbo/plan/splitting/impl/meta',
-    ]
-  );
-  assert.deepStrictEqual(
-    workspaceStickyDirectoryPathsForViewport({
-      rows: deepPackageRows,
-      stickyTop: 40,
-      scrollerBottom: 340,
-      rowHeight: 24,
-      maxRows: 0,
     }),
     []
   );

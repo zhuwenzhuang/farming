@@ -57,13 +57,53 @@ async function stickyHierarchyMatchesFirstUncoveredRow(section: Locator) {
         expectedStickyPaths.push(ancestorPath)
       }
     }
-    const actualStickyPaths = Array.from(
-      stack.querySelectorAll<HTMLElement>('.code-file-sticky-expanded-rows .code-file-sticky-row'),
-    )
-      .map(row => row.getAttribute('title') || '')
-      .filter(Boolean)
-    return actualStickyPaths.length > 0 &&
-      JSON.stringify(actualStickyPaths) === JSON.stringify(expectedStickyPaths.slice(-actualStickyPaths.length))
+    const actualStickyRows = Array.from(stack.querySelectorAll<HTMLElement>('.code-file-sticky-row'))
+    if (actualStickyRows.length !== 1 || expectedStickyPaths.length === 0) return false
+
+    const stickyRow = actualStickyRows[0]
+    const expectedTarget = expectedStickyPaths[expectedStickyPaths.length - 1]
+    if (stickyRow.getAttribute('title') !== expectedTarget) return false
+    if (stickyRow.style.getPropertyValue('--file-depth') !== '0') return false
+
+    const expectedLabel = expectedStickyPaths.map(path => (
+      rows.find(row => row.dataset.filePath === path)
+        ?.querySelector<HTMLElement>('.code-file-name')
+        ?.textContent
+        ?.trim() ?? ''
+    )).filter(Boolean).join('/')
+    const actualLabel = stickyRow.querySelector<HTMLElement>('.code-file-name')?.textContent?.trim() ?? ''
+    return actualLabel === expectedLabel
+  })
+}
+
+async function scrollFileRowIntoStickyRange(row: Locator) {
+  await row.evaluate(() => new Promise(resolve => window.setTimeout(resolve, 250)))
+  await row.evaluate(element => {
+    const scroller = element.closest<HTMLElement>('.code-project-list')
+    if (!scroller) return
+    const desiredTop = scroller.getBoundingClientRect().top + scroller.clientHeight * 0.55
+    scroller.scrollTop += element.getBoundingClientRect().top - desiredTop
+  })
+}
+
+async function sidebarRowPalette(section: Locator) {
+  return section.evaluate(element => {
+    const project = element.closest<HTMLElement>('.code-project-group')
+    const projectTitle = project?.querySelector<HTMLElement>('.code-project-title')
+    const header = element.querySelector<HTMLElement>('.code-files-header')
+    const fileRow = element.querySelector<HTMLElement>('.code-file-row.directory:not(.code-file-sticky-row):not(.ignored)')
+    const activeFileRow = element.querySelector<HTMLElement>('.code-file-row.active')
+    const stickyRow = element.querySelector<HTMLElement>('.code-file-sticky-row')
+    const openEditor = project?.querySelector<HTMLElement>('.code-open-editor-main')
+    if (!projectTitle || !header || !fileRow || !activeFileRow || !stickyRow || !openEditor) return null
+    return {
+      projectTitle: getComputedStyle(projectTitle).color,
+      filesHeader: getComputedStyle(header).color,
+      fileRow: getComputedStyle(fileRow).color,
+      activeFileBackground: getComputedStyle(activeFileRow).backgroundColor,
+      stickyRow: getComputedStyle(stickyRow).color,
+      openEditor: getComputedStyle(openEditor).color,
+    }
   })
 }
 
@@ -158,7 +198,24 @@ test('preserves every visible directory level across sticky scroll, collapse, re
 
   const target = files.locator(`[data-testid="code-file-row"][data-file-path="${TARGET_FILE}"]`)
   await expect(target).toBeVisible()
+  await scrollFileRowIntoStickyRange(target)
   await expect.poll(() => stickyHierarchyMatchesFirstUncoveredRow(files)).toBe(true)
+  const implPath = TARGET_FILE.slice(0, TARGET_FILE.indexOf('/meta/'))
+  await expect(files.locator(`[data-file-path="${implPath}/meta"]`)).toHaveCount(1)
+  await expect(files.locator(`[data-file-path="${implPath}/pangu"]`)).toHaveCount(1)
+  await expect(files.locator(`[data-file-path="${implPath}/vpc"]`)).toHaveCount(1)
+  await expect(files.getByTestId('code-file-sticky-stack').locator('.code-file-sticky-row')).toHaveCount(1)
+  const openEditors = page.getByTestId('code-open-editors')
+  const openEditorsTitle = openEditors.locator('.code-open-editors-title')
+  if (await openEditorsTitle.getAttribute('aria-expanded') !== 'true') await openEditorsTitle.click()
+  await expect.poll(() => sidebarRowPalette(files)).toEqual({
+    projectTitle: 'rgb(68, 68, 68)',
+    filesHeader: 'rgb(96, 96, 96)',
+    fileRow: 'rgb(74, 74, 74)',
+    activeFileBackground: 'rgba(0, 0, 0, 0.055)',
+    stickyRow: 'rgb(61, 61, 61)',
+    openEditor: 'rgb(68, 68, 68)',
+  })
 
   const metaPath = TARGET_FILE.slice(0, TARGET_FILE.lastIndexOf('/'))
   const meta = files.locator(`[data-testid="code-file-row"][data-file-path="${metaPath}"]`)
@@ -173,11 +230,13 @@ test('preserves every visible directory level across sticky scroll, collapse, re
   await files.locator('.code-files-header').hover()
   await files.getByTestId('code-files-refresh').click()
   await expect(target).toBeVisible()
+  await scrollFileRowIntoStickyRange(target)
   await expect.poll(() => stickyHierarchyMatchesFirstUncoveredRow(files)).toBe(true)
 
   await page.reload({ waitUntil: 'domcontentloaded' })
   const restoredFiles = page.getByTestId('code-files-section')
   const restoredTarget = restoredFiles.locator(`[data-testid="code-file-row"][data-file-path="${TARGET_FILE}"]`)
   await expect(restoredTarget).toBeVisible()
+  await scrollFileRowIntoStickyRange(restoredTarget)
   await expect.poll(() => stickyHierarchyMatchesFirstUncoveredRow(restoredFiles)).toBe(true)
 })
