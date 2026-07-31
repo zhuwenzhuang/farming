@@ -104,11 +104,35 @@ type FetchImplementation = (
   init?: RequestInit,
 ) => Promise<Response>;
 
+interface DownloadProgress {
+  receivedBytes: number;
+  totalBytes: number;
+  url: string;
+}
+
+interface DownloadRetry {
+  error: string;
+  nextUrl: string;
+  url: string;
+}
+
+export interface RuntimeDependencyProgress {
+  dependencyId: string;
+  message?: string;
+  phase: 'download' | 'ready' | 'retry' | 'verify';
+  receivedBytes?: number;
+  source?: 'managed' | 'system';
+  totalBytes?: number;
+  version: string;
+}
+
 interface DownloadOptions {
   env?: NodeJS.ProcessEnv;
   fetch?: FetchImplementation;
   mirrorLookupTimeoutMs?: number;
   downloadTimeoutMs?: number;
+  onDownloadProgress?: (progress: DownloadProgress) => void;
+  onDownloadRetry?: (retry: DownloadRetry) => void;
 }
 
 interface LockOptions {
@@ -139,6 +163,7 @@ interface RuntimeManagerOptions extends RuntimePlatformOptions, DownloadOptions,
   configDir?: string;
   dependencyIds?: readonly string[];
   installRuntime?: InstallRuntime;
+  onProgress?: (progress: RuntimeDependencyProgress) => void;
   retainedBindings?: number;
 }
 
@@ -225,6 +250,15 @@ const DEPENDENCIES: readonly RuntimeDependencyDefinition[] = Object.freeze([
 ]);
 
 const DEPENDENCY_BY_ID = new Map(DEPENDENCIES.map(definition => [definition.id, definition]));
+
+function notifyProgress<T>(listener: ((value: T) => void) | undefined, value: T): void {
+  if (!listener) return;
+  try {
+    listener(value);
+  } catch {
+    // Progress is observational and must never affect dependency preparation.
+  }
+}
 
 function errorCode(error: unknown): string {
   if (!error || typeof error !== 'object' || !('code' in error)) return '';
@@ -688,7 +722,10 @@ async function downloadArtifactFromUrl(
       throw new Error(`Runtime download failed with HTTP ${response.status}`);
     }
     const expectedSize = Number(artifact.size) || 0;
+    const responseSize = Number(response.headers.get('content-length')) || 0;
+    const progressTotal = expectedSize || responseSize;
     const limit = expectedSize || MAX_DOWNLOAD_BYTES;
+    notifyProgress(options.onDownloadProgress, { receivedBytes: 0, totalBytes: progressTotal, url });
     const meter = new Transform({
       transform(chunk: Buffer, _encoding: BufferEncoding, callback: TransformCallback) {
         received += chunk.length;
@@ -697,6 +734,11 @@ async function downloadArtifactFromUrl(
           return;
         }
         hash.update(chunk);
+        notifyProgress(options.onDownloadProgress, {
+          receivedBytes: received,
+          totalBytes: progressTotal,
+          url,
+        });
         callback(null, chunk);
       },
     });
@@ -736,9 +778,17 @@ async function downloadArtifact(
       return;
     } catch (error: unknown) {
       if (index === urls.length - 1) throw error;
-      console.warn(
-        `Runtime npm mirror download failed; retrying the authoritative npm registry: ${errorMessage(error)}`,
-      );
+      const retry = {
+        error: errorMessage(error),
+        nextUrl: urls[index + 1],
+        url,
+      };
+      if (options.onDownloadRetry) notifyProgress(options.onDownloadRetry, retry);
+      else {
+        console.warn(
+          `Runtime npm mirror download failed; retrying the authoritative npm registry: ${retry.error}`,
+        );
+      }
     }
   }
 }
@@ -929,10 +979,43 @@ async function installExactRuntime(
   const quarantine = `${cacheDir}.invalid-${Date.now()}-${crypto.randomUUID()}`;
   fs.mkdirSync(stagingDir, { recursive: true, mode: 0o700 });
   try {
-    await downloadArtifact(artifact, archivePath, options);
+    notifyProgress(options.onProgress, {
+      dependencyId: definition.id,
+      phase: 'download',
+      receivedBytes: 0,
+      totalBytes: Number(artifact.size) || 0,
+      version: dependency.version,
+    });
+    await downloadArtifact(artifact, archivePath, {
+      ...options,
+      onDownloadProgress: progress => {
+        notifyProgress(options.onDownloadProgress, progress);
+        notifyProgress(options.onProgress, {
+          dependencyId: definition.id,
+          phase: 'download',
+          receivedBytes: progress.receivedBytes,
+          totalBytes: progress.totalBytes,
+          version: dependency.version,
+        });
+      },
+      onDownloadRetry: retry => {
+        notifyProgress(options.onDownloadRetry, retry);
+        notifyProgress(options.onProgress, {
+          dependencyId: definition.id,
+          message: retry.error,
+          phase: 'retry',
+          version: dependency.version,
+        });
+      },
+    });
     const executablePath = await extractArtifact(artifact, archivePath, stagingDir);
     if (!fs.existsSync(executablePath)) throw new Error(`${definition.id} archive omitted ${artifact.entry}`);
     fs.chmodSync(executablePath, 0o700);
+    notifyProgress(options.onProgress, {
+      dependencyId: definition.id,
+      phase: 'verify',
+      version: dependency.version,
+    });
     if (dependency.managedProbe !== false) {
       const verification = await verifyExecutable(
         executablePath,
@@ -1047,6 +1130,12 @@ async function prepareRuntimeDependencies(options: RuntimeManagerOptions = {}): 
       }
       runtime.platformKey ||= selectedPlatformKey;
       prepared.push(runtime);
+      notifyProgress(options.onProgress, {
+        dependencyId: definition.id,
+        phase: 'ready',
+        source: runtime.source,
+        version: runtime.version,
+      });
     }
     applyRuntimeEnvironment(env, prepared);
     const bindingId = runtimeBindingId(MANIFEST.manifestId, platformKey);

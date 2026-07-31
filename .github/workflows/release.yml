@@ -553,7 +553,10 @@ jobs:
           if [[ "${version}" == *-* ]]; then
             dist_tag="next"
           fi
-          npm publish --access public --provenance --tag "${dist_tag}"
+          package_dir="${RUNNER_TEMP}/farming-npm-package"
+          npm run release:npm:pack -- "${package_dir}"
+          package_tarball="${package_dir}/farming-code-${version}.tgz"
+          npm publish "${package_tarball}" --access public --provenance --tag "${dist_tag}"
           published_sha="$(npm view "farming-code@${version}" gitHead 2>/dev/null || true)"
           if [[ "${published_sha}" != "${candidate_sha}" ]]; then
             echo "npm accepted farming-code@${version}, but its gitHead cannot prove this candidate: npm=${published_sha:-missing}, candidate=${candidate_sha}" >&2

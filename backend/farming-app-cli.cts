@@ -5,6 +5,8 @@ import * as os from 'os';
 import * as path from 'path';
 import { URLSearchParams } from 'url';
 import { execFileSync, spawn } from 'child_process';
+import { createRuntimeDependencyProgressRenderer } from './runtime-dependency-progress.cjs';
+import type { RuntimeDependencyProgress } from './runtime-dependency-manager.cjs';
 
 const packagedProcess = process as NodeJS.Process & { pkg?: unknown };
 
@@ -1145,13 +1147,23 @@ async function prepareStartupDependencies(
       activate?: boolean;
       configDir: string;
       env: NodeJS.ProcessEnv;
+      onProgress?: (progress: RuntimeDependencyProgress) => void;
     }): Promise<unknown>;
   };
-  return prepareRuntimeDependencies({
-    activate: options.activate,
-    configDir: env.FARMING_CONFIG_DIR,
-    env,
-  });
+  const progress = createRuntimeDependencyProgressRenderer({ env, stream: process.stderr });
+  try {
+    const result = await prepareRuntimeDependencies({
+      activate: options.activate,
+      configDir: env.FARMING_CONFIG_DIR,
+      env,
+      onProgress: progress.report,
+    });
+    progress.finish();
+    return result;
+  } catch (error: unknown) {
+    progress.abort();
+    throw error;
+  }
 }
 
 async function startForeground(parsed: ParsedServerOperation): Promise<void> {

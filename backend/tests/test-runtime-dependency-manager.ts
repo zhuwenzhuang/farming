@@ -152,21 +152,43 @@ async function run() {
   );
   const downloadedFixture = path.join(root, 'downloaded-fixture.tgz');
   const requestedUrls = [];
+  const downloadProgress = [];
+  const downloadRetries = [];
   await downloadArtifact(downloadArtifactFixture, downloadedFixture, {
     env: { FARMING_RUNTIME_NPM_MIRROR: 'https://registry.npmmirror.com/' },
     fetch: async url => {
       requestedUrls.push(String(url));
-      if (String(url).startsWith('https://registry.npmmirror.com/')) {
+      if (String(url) === 'https://registry.npmmirror.com/example/1.0.0') {
+        return new globalThis.Response(JSON.stringify({
+          version: '1.0.0',
+          dist: {
+            integrity: downloadArtifactFixture.integrity,
+            tarball: 'https://registry.npmmirror.com/example/-/example-1.0.0.tgz',
+          },
+        }));
+      }
+      if (String(url) === 'https://registry.npmmirror.com/example/-/example-1.0.0.tgz') {
         return new globalThis.Response('', { status: 404 });
       }
       return new globalThis.Response(downloadBody);
     },
+    onDownloadProgress: progress => downloadProgress.push(progress),
+    onDownloadRetry: retry => {
+      downloadRetries.push(retry);
+      throw new Error('progress observer failure must be isolated');
+    },
   });
   assert.deepStrictEqual(requestedUrls, [
     'https://registry.npmmirror.com/example/1.0.0',
+    'https://registry.npmmirror.com/example/-/example-1.0.0.tgz',
     downloadArtifactFixture.url,
   ]);
   assert.deepStrictEqual(fs.readFileSync(downloadedFixture), downloadBody);
+  assert.strictEqual(downloadRetries.length, 1);
+  assert.match(downloadRetries[0].error, /HTTP 404/);
+  assert.strictEqual(downloadProgress[0].receivedBytes, 0);
+  assert.strictEqual(downloadProgress.at(-1).receivedBytes, downloadBody.length);
+  assert.strictEqual(downloadProgress.at(-1).totalBytes, downloadBody.length);
   const mirroredFixture = path.join(root, 'mirrored-fixture.tgz');
   const mirroredUrls = [];
   await downloadArtifact(downloadArtifactFixture, mirroredFixture, {
@@ -226,7 +248,13 @@ async function run() {
       executablePath: managedAgentBrowser,
     };
   };
-  const result = await prepareRuntimeDependencies({ configDir: root, env, installRuntime });
+  const dependencyProgress = [];
+  const result = await prepareRuntimeDependencies({
+    configDir: root,
+    env,
+    installRuntime,
+    onProgress: progress => dependencyProgress.push(progress),
+  });
   assert.strictEqual(result.dependencies.length, 3);
   assert.deepStrictEqual(
     result.dependencies.map(item => item.source),
@@ -237,6 +265,14 @@ async function run() {
   assert.strictEqual(env.FARMING_AGENT_BROWSER_EXECUTABLE, env.FARMING_AGENT_BROWSER_BIN);
   assert.strictEqual(env.FARMING_AGENT_BROWSER_BIN, managedAgentBrowser);
   assert.strictEqual(env.FARMING_RUNTIME_MANIFEST_ID, MANIFEST.manifestId);
+  assert.deepStrictEqual(
+    dependencyProgress.map(progress => [progress.dependencyId, progress.phase, progress.source]),
+    [
+      ['codex', 'ready', 'system'],
+      ['claude', 'ready', 'system'],
+      ['agentBrowser', 'ready', 'managed'],
+    ],
+  );
   const active = JSON.parse(fs.readFileSync(storageLayout.runtimeDependenciesActiveFile(root), 'utf8'));
   const activeBindingId = runtimeBindingId(MANIFEST.manifestId, runtimePlatformKey());
   assert.strictEqual(active.schemaVersion, 2);

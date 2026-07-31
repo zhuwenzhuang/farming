@@ -8,7 +8,9 @@ CONFIG_DIR="${TMP_ROOT}/config"
 WORKSPACE_DIR="${TMP_ROOT}/workspace"
 PORT_VALUE="${FARMING_NPM_SMOKE_PORT:-6794}"
 NPM_CACHE="${TMP_ROOT}/npm-cache"
+NPM_PACK_CACHE="${TMP_ROOT}/npm-pack-cache"
 NPM_REGISTRY="${FARMING_NPM_SMOKE_REGISTRY:-https://registry.npmjs.org/}"
+INSTALL_LOG="${TMP_ROOT}/npm-install.log"
 NPM_MAJOR="$(npm --version | cut -d. -f1)"
 SERVER_PID=""
 NATIVE_HOST_PID=""
@@ -66,19 +68,30 @@ cleanup() {
 }
 trap cleanup EXIT
 
-mkdir -p "${PREFIX}" "${CONFIG_DIR}" "${WORKSPACE_DIR}"
+mkdir -p "${PREFIX}" "${CONFIG_DIR}" "${WORKSPACE_DIR}" "${NPM_CACHE}" "${NPM_PACK_CACHE}"
 cd "${PROJECT_ROOT}"
-NPM_CONFIG_CACHE="${NPM_CACHE}" NPM_CONFIG_REGISTRY="${NPM_REGISTRY}" \
-  npm pack --pack-destination "${TMP_ROOT}" --silent >/dev/null
-PACKAGE_TARBALL="$(find "${TMP_ROOT}" -maxdepth 1 -name 'farming-code-*.tgz' -print -quit)"
+PACKAGE_TARBALL="$(
+  NPM_CONFIG_CACHE="${NPM_PACK_CACHE}" FARMING_NPM_PACK_REGISTRY="${NPM_REGISTRY}" \
+    "${PROJECT_ROOT}/scripts/package-npm-release.sh" "${TMP_ROOT}"
+)"
 if [ -z "${PACKAGE_TARBALL}" ]; then
-  echo "npm pack did not create a farming-code tarball" >&2
+  echo "npm release pack did not create a farming-code tarball" >&2
   exit 1
 fi
 
-NPM_CONFIG_CACHE="${NPM_CACHE}" NPM_CONFIG_REGISTRY="${NPM_REGISTRY}" \
+if ! NPM_CONFIG_CACHE="${NPM_CACHE}" NPM_CONFIG_REGISTRY="${NPM_REGISTRY}" \
+  NPM_CONFIG_USERCONFIG=/dev/null \
   npm install --global --prefix "${PREFIX}" "${PACKAGE_TARBALL}" \
-    --ignore-scripts --no-audit --no-fund --silent
+    --offline --no-audit --no-fund >"${INSTALL_LOG}" 2>&1; then
+  echo "npm package did not install from its bundled production dependencies" >&2
+  cat "${INSTALL_LOG}" >&2
+  exit 1
+fi
+if grep -q '^npm warn allow-scripts' "${INSTALL_LOG}"; then
+  echo "npm package exposed install-script approval warnings" >&2
+  cat "${INSTALL_LOG}" >&2
+  exit 1
+fi
 PACKAGE_ROOT="${PREFIX}/lib/node_modules/farming-code"
 CODEX_ACP_VENDOR="${PACKAGE_ROOT}/dist/acp/codex-acp-1.1.4.mjs"
 CLAUDE_ACP_VENDOR="${PACKAGE_ROOT}/dist/acp/claude-agent-acp-0.59.0.mjs"
@@ -140,6 +153,7 @@ for runtime_module in \
   review-state-store \
   run-history-store \
   runtime-executable-invocation \
+  runtime-dependency-progress \
   runtime-dependency-manager \
   runtime-observation \
   server-process-identity \
@@ -337,4 +351,4 @@ fi
 wait_for_process_exit "${SERVER_PID}" "Farming server"
 wait_for_process_exit "${NATIVE_HOST_PID}" "native PTY host"
 wait_for_process_exit "${MAIN_BASH_PID}" "Main bash"
-echo "✓ npm package installs globally without package mutation, verifies Codex ACP, and stops its server/native PTY process tree"
+echo "✓ npm package installs offline without script warnings or package mutation, verifies Codex ACP, and stops its server/native PTY process tree"

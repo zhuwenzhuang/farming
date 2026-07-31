@@ -8,7 +8,10 @@ function run() {
   const configPath = path.join(root, 'pkg.config.cjs');
   const packageScript = fs.readFileSync(path.join(root, 'scripts/package-cli-release.sh'), 'utf8');
   const appPackageScript = fs.readFileSync(path.join(root, 'scripts/package-release.sh'), 'utf8');
+  const npmPackageScript = fs.readFileSync(path.join(root, 'scripts/package-npm-release.sh'), 'utf8');
   const npmSmokeScript = fs.readFileSync(path.join(root, 'scripts/smoke-npm-package.sh'), 'utf8');
+  const releaseWorkflow = fs.readFileSync(path.join(root, '.github/workflows/release.yml'), 'utf8');
+  const packageJson = require(path.join(root, 'package.json'));
   const bundleCliScript = fs.readFileSync(path.join(root, 'scripts/bundle-cli-runtime.ts'), 'utf8');
   const packagedAcpBridge = fs.readFileSync(path.join(root, 'backend/acp/packaged-codex-acp.cts'), 'utf8');
   const packagedClaudeAcpBridge = fs.readFileSync(path.join(root, 'backend/acp/packaged-claude-acp.cts'), 'utf8');
@@ -90,6 +93,33 @@ function run() {
     packageScript.includes('--farming-usage-history-smoke')
       && packageScript.includes('Usage History worker + SQLite smoke'),
     'native CLI targets must run the packaged Usage worker through SQLite before release',
+  );
+  assert.deepStrictEqual(
+    [...packageJson.bundledDependencies].sort(),
+    Object.keys(packageJson.dependencies).sort(),
+    'npm packages must bundle every direct production dependency',
+  );
+  assert(
+    npmSmokeScript.includes('--offline')
+      && npmSmokeScript.includes("grep -q '^npm warn allow-scripts'")
+      && !npmSmokeScript.includes('--ignore-scripts'),
+    'npm package smoke must install from the tarball alone under the default script policy without approval warnings',
+  );
+  assert(
+    npmPackageScript.includes('npm ci --omit=dev --ignore-scripts')
+      && npmPackageScript.includes('delete rootManifest.overrides')
+      && npmPackageScript.includes('rootManifest.gitHead = gitSha')
+      && npmPackageScript.includes("['@hono/node-server', rootManifest.overrides?.['@hono/node-server']]")
+      && npmPackageScript.includes("['dompurify', rootManifest.overrides?.dompurify]")
+      && npmPackageScript.includes("['qs', rootManifest.overrides?.qs]")
+      && npmPackageScript.includes("rootManifest.overrides?.['express@^4.22.2']?.['body-parser']"),
+    'npm packaging must stage the locked production tree and rewrite reviewed override edges before bundling',
+  );
+  assert(
+    npmSmokeScript.includes('scripts/package-npm-release.sh')
+      && releaseWorkflow.includes('npm run release:npm:pack')
+      && releaseWorkflow.includes('npm publish "${package_tarball}"'),
+    'npm smoke and publication must consume the same staged tarball',
   );
   assert(
     npmSmokeScript.includes('FARMING_NATIVE_PTY_HOST_PERSIST=0')
