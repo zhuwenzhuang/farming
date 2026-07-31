@@ -1153,7 +1153,7 @@ test.describe('ACP human-like browser matrix', () => {
     })
   })
 
-  test('opens ACP File Changes from the exact historical diff rather than the current worktree', async ({ page, workspaceRoot }) => {
+  test('opens ACP File Changes from history and falls back to the last committed Git diff', async ({ page, workspaceRoot }) => {
     test.setTimeout(60_000)
     const workspace = path.join(workspaceRoot, 'acp-historical-review')
     fs.mkdirSync(workspace, { recursive: true })
@@ -1182,6 +1182,36 @@ test.describe('ACP human-like browser matrix', () => {
     await expect(review.locator('.code-agent-transcript-result-loading')).toHaveCount(0)
     await expect(review.locator('.code-agent-transcript-result-error')).toHaveCount(0)
     await expect(review.locator('.code-agent-transcript-result-diff')).toContainText('+after')
+    await page.getByRole('dialog', { name: 'Review' }).getByRole('button', { name: 'Close' }).click()
+
+    fs.writeFileSync(path.join(workspace, 'display-fixture.txt'), 'after\n')
+    await page.reload()
+    await agentRow(page, agentId).click()
+    const dirtyTurn = page.locator(`[data-testid="code-agent-work-pane"][data-agent-id="${agentId}"]`)
+      .locator('.code-agent-transcript-turn')
+      .filter({ hasText: 'rich timeline' })
+      .last()
+    await expect(dirtyTurn.getByRole('button', { name: 'Git diff', exact: true })).toBeVisible()
+
+    execFileSync('git', ['add', 'display-fixture.txt'], { cwd: workspace, stdio: 'ignore' })
+    execFileSync('git', ['commit', '-m', 'commit ACP file change'], { cwd: workspace, stdio: 'ignore' })
+    const lastCommit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: workspace, encoding: 'utf8' }).trim()
+    const lastCommitParent = execFileSync('git', ['rev-parse', 'HEAD~1'], { cwd: workspace, encoding: 'utf8' }).trim()
+
+    await sendAcpMessage(page, 'usage warning')
+    await expect(page.getByText('Usage warning published.', { exact: true })).toBeVisible({ timeout: 15_000 })
+    const committedTurn = page.locator(`[data-testid="code-agent-work-pane"][data-agent-id="${agentId}"]`)
+      .locator('.code-agent-transcript-turn')
+      .filter({ hasText: 'rich timeline' })
+      .last()
+    const lastCommitButton = committedTurn.getByRole('button', { name: 'Git diff last commit', exact: true })
+    await expect(lastCommitButton).toBeVisible()
+    const popupPromise = page.waitForEvent('popup')
+    await lastCommitButton.click()
+    const reviewPage = await popupPromise
+    await expect.poll(() => new URL(reviewPage.url()).searchParams.get('base')).toBe(lastCommitParent)
+    expect(new URL(reviewPage.url()).searchParams.get('head')).toBe(lastCommit)
+    await reviewPage.close()
   })
 
   test('accepts human input in an ACP client terminal without switching to Terminal mode', async ({ page, workspaceRoot }) => {
