@@ -32,11 +32,9 @@ Chat 会保留这些 ACP 类型化 Part，不从 Assistant 普通文字中反推
 
 从历史恢复的 Chat 会一直保留稳定的同步界面，直到第一份非空且稳定的分页内容到达。连接阶段或过早进入 idle 的空 snapshot 不得替换已经可见的 transcript；可恢复的主页面 Agent 行也会先统一物化，再逐个准备大 transcript binding。
 
-后端会把完整的受支持历史元数据窗口保存在持久化物化索引中，并通过稳定 cursor 向 Farming Code 分页返回。索引按 Provider 与精确 Agent Home 分片；每个来源记录拥有其历史文件与目录的文件系统指纹，watcher 负责把该来源标记为 dirty，下一次列表或搜索请求再执行 single-flight reconcile。每次列表或搜索请求都会再次验证指纹：仍匹配时立即返回索引，只在变化时重建受影响来源。reconcile 只有在来源保持稳定时才能提交，旧扫描结果不能覆盖更新的文件系统 generation。OpenCode 的 `session list` 在读取时可能改写全局 SQLite，因此以命令返回后的数据库指纹作为提交点。持久化索引缺失或损坏时从 Provider 来源重建，不得冒充当前结果。
-
 页面状态会分别显示浏览器当前已经载入的 History 行数，以及后端发现的 Provider 会话总数。滚动接近项目列表底部时加载下一页；项目里的“显示更多”仍只控制已加载页面内的本地展示。Agent Search 会查询后端完整历史窗口，而不是只过滤浏览器已经加载的页面。匹配不区分大小写，覆盖可见的 Agent 或 Session 标题、Project 名称和路径，以及完整或部分 Resume ID；provider 元数据和 transcript 正文不参与搜索。后端返回的 Session identity 会被前端视为权威搜索命中，不会再被前端的标题过滤器丢弃。恢复历史时会在后端完整窗口内解析 provider 元数据，因此较老的 Session 在 Terminal 与 Chat 之间切换时仍能保留原工作区。Claude 与 Qoder 历史发现只把项目级 transcript 文件视为 Session；嵌套的子 Agent transcript 继承父会话身份，属于重放细节，不会生成重复 History 行。每条 provider Session 行都会显示紧凑 Resume ID，悬停可查看完整标识；相同标题因此可以直接区分，同时传给后端的恢复身份保持不变。
 
-打开 History 是一条刷新当前清单的边界，不是“先展示旧值再后台刷新”。Farming 会先清空上一次展示的 Provider Session 列表并显示“加载中”，再以 `no-store` 请求后端权威索引；只有该次响应可以填充页面。后端只有在所属来源的文件指纹证明快照仍然当前时，才能直接使用持久化索引。History 搜索使用同一契约。验证或 reconcile 等待期间与失败后，都不得把旧缓存行伪装成该次访问的答案。
+打开 History 是一条当前状态边界。Farming 会先清空上一次的 Provider Session 列表，在新请求成功前显示“加载中”；失败保持可见，且不得回退展示上一次访问的数据。History 搜索遵守同一契约。
 
 ACP update 一方面以有界且限制单条大小的诊断数据保留，另一方面归约到一条与 provider 无关的有序 entry stream。历史重放和实时更新使用同一个 reducer；相邻且 message id 兼容的 message chunk 合并，但 Codex phase 元数据会保留，并阻止 commentary 跨越 `final_answer` 边界合并。Codex steer 消息始终归属原始用户回合，不能成为 Transcript 增量切片的新回合边界。tool update 按 id 原位更新最初的 tool-call entry，plan entry 原位更新。usage、mode、command 和 config option 等 Session 元数据不混入对话流。runtime notification 只携带轻量失效信息：实时 Transcript revision 使用按 Agent 合并的 `acp-session-revision` 浏览器消息，而不是广播完整 workspace state；首次水合与重连仍接收权威完整状态。Transcript 读取使用单调递增的 revision，只替换受影响的 entry 后缀。首屏只携带有界 inline detail、patch 统计、媒体引用与 terminal id 组成的紧凑有序 tool envelope；准确 raw input/output 和 patch 仍保存在后端 checkpoint 中，通过 tool-detail endpoint 按需读取。新版 reader 必须显式协商 `external-v1` Transcript 媒体，确保滚动升级期间旧 reader 继续接收 inline 媒体；协商后的媒体 URL 使用不可变内容哈希而不是可变数组下标，精确内容已不再权威时必须 fail-closed。只有只读 Transcript GET 的传输失败可以进行有界自动重试；切换 view 会取消重试，prompt、终端输入及任何其他写路径都不得进入该重试行为。
 

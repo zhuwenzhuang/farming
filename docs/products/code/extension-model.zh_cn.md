@@ -32,13 +32,13 @@ Farming Code 后续应通过 Extension 扩展能力，而不是把每一种新�
 
 Farming Code 通过统一的插件页面呈现这些能力，并只在展示层拆成三个页签：**Farming** 放内置能力，**Agent Homes** 放 Provider Home 注册与配置摘要，**扩展**放从这些 Home 发现的 Skill、MCP、Hook、插件、命令和其他扩展类型。“扩展”先选择一份精确 Home，再在这份 Home 内按类型切换，避免把不同 Home 的目录混成一条无归属长列表。左上角的紧凑拼图按钮和空白欢迎页上的大型“插件”入口进入同一个页面；当前页签都只是浏览器本地展示状态，不会成为后端权威设置。插件生命周期与 Agent Home 管理都归属这里，不再堆进通用设置。每一次变更仍然必须由用户显式操作。
 
+打开 Plugins 是一条当前状态边界。Farming 会清空上一次 Browser 与 Computer Use 能力的展示结果，在新请求成功前显示“正在检查”。Agent Home 与扩展读取遵守同一规则：失败保持可见，且不得回退展示上一次访问的数据。
+
 Computer Use 使用明确的“能力 / Resource”层级：**Computer Use** 是插件能力，
 **桌面**是它操作的 Resource。Target 模型容纳本机桌面和隔离桌面，但 UI 只展示
 拥有持续验证 Runtime 的类型。因此当前只展示 Docker 支持的隔离桌面，不会放置
 一个无法真实使用的“本机桌面”选项。内部 `computer` API 和 `computer_*` Agent Tool
 仅是兼容名称，不再作为用户可见的 Resource 名称。
-
-打开 Plugins 是一条权威刷新边界。Farming 会在展示默认“Farming”页签前先作废上一次 Browser 与 Computer Use 探测的展示结果，新的后端探测完成前只显示“正在检查”。Agent Home 与扩展目录按页签加载：默认页签不会请求它们，进入“Agent Homes”或“扩展”时才请求新的后端权威结果。每个精确 Home 都有一份以 Provider 和 canonical path 为键的持久化 inventory snapshot；相关配置、Skill、Command、Hook、MCP 与插件路径都会记录指纹并被 watcher 监听。指纹未变时直接返回快照，dirty Home 以 single-flight reconcile，且不会重新扫描无关 Home。请求失败时保持明确失败，绝不回退展示上一次访问的快照。
 
 同一个页面也拥有 Agent 配置。一个 Provider 加一个 Agent Home ID 就是一份独立 Agent 配置：`Codex · default` 与 `Codex · work` 是两个 Agent，即使它们都使用 Codex。Agent Homes 中每一项常态只保留便于扫读的摘要：Farming 读取 Provider 自己拥有的配置文件，只把安全且可识别的字段显示为普通文字，不再把这个 Home 的扩展目录嵌套在配置行下面。点击编辑会在 Farming 现有文件编辑器中打开这份精确配置文件；文件尚不存在时，编辑器先建立空 Working Copy，只在用户保存时创建文件。所有面向 Provider 的 Catalog、Settings、Session 与 Extension 读取都必须先解析精确 Home，缓存键也必须包含该 Home 身份；默认 Home 的结果绝不能填充到其他 Home。“扩展”页签始终显式保留当前 Home，类型数量和搜索范围都限制在这份 Home 内，并且只展示当前选中类型的条目；Farming 不会把多个 Home 折叠成一个 Provider 级身份。全局 Farming Settings 中有序的 `agentHomes` Registry 是权威状态。新增项追加到末尾，拖拽或键盘移动会重写稳定的数字顺序，只有非 `default` 项可以删除。因此 Agent Home 管理不再出现在通用 Settings 中。
 

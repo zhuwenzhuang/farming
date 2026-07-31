@@ -1,4 +1,5 @@
 import * as os from 'os';
+import * as fsp from 'fs/promises';
 import * as path from 'path';
 import {
   compareAgentSessions,
@@ -53,7 +54,6 @@ function historyWatchPaths(provider: AgentProvider, homePath: string): string[] 
       path.join(homePath, 'sessions'),
       path.join(homePath, 'archived_sessions'),
       path.join(homePath, 'session_index.jsonl'),
-      path.join(homePath, '.codex-global-state.json'),
       path.join(homePath, 'automations'),
     ];
   }
@@ -79,6 +79,122 @@ function appendOnlyHistoryRoots(provider: AgentProvider, homePath: string): stri
     return [path.join(homePath, 'projects')];
   }
   return [];
+}
+
+function stringSet(value: unknown): Set<string> {
+  return new Set(Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string')
+    : []);
+}
+
+function stringRecord(value: unknown): Record<string, string> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  return Object.fromEntries(Object.entries(value as Record<string, unknown>)
+    .filter((entry): entry is [string, string] => typeof entry[1] === 'string'));
+}
+
+interface CodexSessionPresentation {
+  pinnedIds: Set<string>;
+  projectlessIds: Set<string>;
+  unreadIds: Set<string>;
+  workspaceHints: Record<string, string>;
+}
+
+async function readCodexSessionPresentation(homePath: string): Promise<CodexSessionPresentation | null> {
+  let state: Record<string, unknown> = {};
+  try {
+    const parsed = JSON.parse(await fsp.readFile(path.join(homePath, '.codex-global-state.json'), 'utf8'));
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      state = parsed as Record<string, unknown>;
+    }
+  } catch {
+    return null;
+  }
+  const atom = state['electron-persisted-atom-state'];
+  const unreadByHost = atom && typeof atom === 'object' && !Array.isArray(atom)
+    ? (atom as Record<string, unknown>)['unread-thread-ids-by-host-v1']
+    : null;
+  const localUnread = unreadByHost && typeof unreadByHost === 'object' && !Array.isArray(unreadByHost)
+    ? (unreadByHost as Record<string, unknown>).local
+    : null;
+  return {
+    pinnedIds: stringSet(state['pinned-thread-ids']),
+    projectlessIds: stringSet(state['projectless-thread-ids']),
+    unreadIds: stringSet(localUnread),
+    workspaceHints: stringRecord(state['thread-workspace-root-hints']),
+  };
+}
+
+function applyCodexSessionPresentation(
+  sessions: AgentSession[],
+  presentation: CodexSessionPresentation | null,
+): AgentSession[] {
+  if (!presentation) return sessions;
+  return sessions.map(session => {
+    const id = String(session.id || '').trim();
+    const workspaceHint = String(presentation.workspaceHints[id] || '').trim();
+    return {
+      ...session,
+      pinned: presentation.pinnedIds.has(id),
+      projectless: presentation.projectlessIds.has(id),
+      unread: presentation.unreadIds.has(id),
+      ...(workspaceHint ? { workspace: workspaceHint } : {}),
+    };
+  });
+}
+
+const SESSION_FILE_ID = /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/i;
+
+async function appendOnlySessionActivity(
+  provider: AgentProvider,
+  homePath: string,
+): Promise<Map<string, number>> {
+  const activity = new Map<string, number>();
+  let visited = 0;
+  const visit = async (directory: string, depth: number): Promise<void> => {
+    if (depth > 16 || visited >= 50_000) return;
+    let entries: import('fs').Dirent[];
+    try {
+      entries = await fsp.readdir(directory, { withFileTypes: true });
+    } catch (caught) {
+      const error = caught as NodeJS.ErrnoException;
+      if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') return;
+      throw caught;
+    }
+    for (const entry of entries) {
+      if (visited >= 50_000) return;
+      visited += 1;
+      const candidate = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        await visit(candidate, depth + 1);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      const id = entry.name.match(SESSION_FILE_ID)?.[1];
+      if (!id) continue;
+      try {
+        const stat = await fsp.stat(candidate);
+        activity.set(id, Math.max(activity.get(id) || 0, stat.mtimeMs));
+      } catch (caught) {
+        const error = caught as NodeJS.ErrnoException;
+        if (error?.code !== 'ENOENT' && error?.code !== 'ENOTDIR') throw caught;
+      }
+    }
+  };
+  await Promise.all(appendOnlyHistoryRoots(provider, homePath).map(root => visit(root, 0)));
+  return activity;
+}
+
+function applySessionActivity(
+  sessions: AgentSession[],
+  activity: Map<string, number>,
+): AgentSession[] {
+  return sessions.map(session => {
+    const id = String(session.id || '').trim();
+    const mtimeMs = activity.get(id) || 0;
+    if (mtimeMs <= Date.parse(String(session.updatedAt || session.createdAt || ''))) return session;
+    return { ...session, updatedAt: new Date(mtimeMs).toISOString() };
+  }).sort(compareAgentSessions);
 }
 
 function sourceKey(
@@ -173,7 +289,7 @@ class AgentSessionInventory {
         const key = sourceKey(provider, home, bindings);
         activeKeys.add(key);
         const fingerprintPaths = historyWatchPaths(provider, home.path);
-        return this.cache.get(key, {
+        const cached = this.cache.get(key, {
           backgroundRefresh: false,
           fingerprintPaths,
           fingerprintOptions: {
@@ -192,6 +308,17 @@ class AgentSessionInventory {
             scanLimit: INVENTORY_LIMIT,
           }),
         });
+        if (provider === 'opencode') return cached;
+        return Promise.all([
+          cached,
+          appendOnlySessionActivity(provider, home.path),
+          provider === 'codex' ? readCodexSessionPresentation(home.path) : null,
+        ]).then(([sessions, activity, presentation]) => applySessionActivity(
+          provider === 'codex'
+            ? applyCodexSessionPresentation(sessions, presentation)
+            : sessions,
+          activity,
+        ));
       }));
       if (revision !== this.revision) continue;
       await this.cache.retain(activeKeys);
@@ -203,7 +330,11 @@ class AgentSessionInventory {
 
 export {
   AgentSessionInventory,
+  applyCodexSessionPresentation,
+  applySessionActivity,
+  appendOnlySessionActivity,
   historyWatchPaths,
+  readCodexSessionPresentation,
 };
 export type {
   AgentSessionInventoryMetadata,

@@ -72,6 +72,25 @@ async function run() {
   assert.deepStrictEqual(stableValue, { value: 4444 });
   assert.strictEqual(unstableLoads, 2, 'a source change during reconciliation should discard and retry the old result');
 
+  const appendRoot = path.join(root, 'append-only');
+  const appendSource = path.join(appendRoot, 'session.jsonl');
+  fs.mkdirSync(appendRoot);
+  fs.writeFileSync(appendSource, 'first');
+  let appendLoads = 0;
+  const appendRequest = () => malformed.get('append-only', {
+    watchPaths: [appendRoot],
+    fingerprintOptions: { appendOnlyRoots: [appendRoot] },
+    load: () => {
+      appendLoads += 1;
+      const value = fs.readFileSync(appendSource, 'utf8');
+      if (appendLoads === 1) fs.appendFileSync(appendSource, '-second');
+      return value;
+    },
+  });
+  assert.strictEqual(await appendRequest(), 'first');
+  assert.strictEqual(await appendRequest(), 'first-second');
+  assert.strictEqual(appendLoads, 2, 'an append during load should stay dirty instead of failing or committing a false proof');
+
   await malformed.close();
   fs.rmSync(root, { recursive: true, force: true });
   console.log('test-authoritative-inventory-cache passed');

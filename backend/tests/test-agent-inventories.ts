@@ -13,8 +13,14 @@ async function run() {
   const skillsRoot = path.join(codexHome, 'skills', 'example');
   fs.mkdirSync(sessionsRoot, { recursive: true });
   fs.mkdirSync(skillsRoot, { recursive: true });
-  const sessionMarker = path.join(sessionsRoot, 'marker.jsonl');
-  fs.writeFileSync(sessionMarker, 'one');
+  const sessionId = '019fb51c-bf3a-77a0-801e-3c7e6df01a5f';
+  const sessionMarker = path.join(sessionsRoot, `rollout-${sessionId}.jsonl`);
+  const sessionIndex = path.join(codexHome, 'session_index.jsonl');
+  const globalState = path.join(codexHome, '.codex-global-state.json');
+  fs.writeFileSync(sessionMarker, 'x'.repeat(70 * 1024));
+  fs.writeFileSync(sessionIndex, 'one');
+  fs.writeFileSync(globalState, JSON.stringify({ usage: 1 }));
+  fs.utimesSync(sessionMarker, new Date('2026-07-31T00:00:00.000Z'), new Date('2026-07-31T00:00:00.000Z'));
   fs.writeFileSync(path.join(skillsRoot, 'SKILL.md'), '---\nname: Example\ndescription: First\n---\n');
 
   let historyLoads = 0;
@@ -22,13 +28,14 @@ async function run() {
     cacheFile: path.join(root, 'cache', 'history.json'),
     listSessions: async () => {
       historyLoads += 1;
-      const title = fs.readFileSync(sessionMarker, 'utf8');
+      const title = fs.readFileSync(sessionIndex, 'utf8');
       return [{
         provider: 'codex',
         providerHomeId: 'default',
-        id: 'session-1',
+        id: sessionId,
         title,
-        updatedAt: '2026-07-31T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+        pinned: false,
       }];
     },
   });
@@ -38,9 +45,20 @@ async function run() {
   });
 
   assert.strictEqual((await history.list(metadata))[0].title, 'one');
+  assert.strictEqual((await history.list(metadata))[0].updatedAt, '2026-07-31T00:00:00.000Z');
   assert.strictEqual((await history.list(metadata))[0].title, 'one');
   assert.strictEqual(historyLoads, 1);
-  fs.writeFileSync(sessionMarker, 'two-two');
+  fs.writeFileSync(globalState, JSON.stringify({ usage: 2 }));
+  assert.strictEqual((await history.list(metadata))[0].title, 'one');
+  assert.strictEqual(historyLoads, 1, 'unrelated Codex global-state churn should not rebuild History');
+  fs.appendFileSync(sessionMarker, 'new activity');
+  fs.utimesSync(sessionMarker, new Date('2026-07-31T00:01:00.000Z'), new Date('2026-07-31T00:01:00.000Z'));
+  assert.strictEqual((await history.list(metadata))[0].updatedAt, '2026-07-31T00:01:00.000Z');
+  assert.strictEqual(historyLoads, 1, 'Transcript appends should refresh activity without reparsing the inventory');
+  fs.writeFileSync(globalState, JSON.stringify({ usage: 3, 'pinned-thread-ids': [sessionId] }));
+  assert.strictEqual((await history.list(metadata))[0].pinned, true);
+  assert.strictEqual(historyLoads, 1, 'Codex presentation state should overlay without reparsing History');
+  fs.writeFileSync(sessionIndex, 'two-two');
   assert.strictEqual((await history.list(metadata))[0].title, 'two-two');
   assert.strictEqual(historyLoads, 2, 'History should reconcile a changed provider Home before returning');
 

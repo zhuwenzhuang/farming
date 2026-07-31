@@ -14,6 +14,7 @@ interface SnapshotDocument<Value> {
 }
 
 interface FingerprintOptions {
+  appendOnlyIdentityOnly?: boolean;
   appendOnlyPrefixBytes?: number;
   appendOnlyRoots?: string[];
   ignoredNames?: ReadonlySet<string>;
@@ -115,6 +116,10 @@ async function filesystemFingerprint(
 
     const kind = stat.isDirectory() ? 'd' : stat.isFile() ? 'f' : stat.isSymbolicLink() ? 'l' : 'o';
     if (stat.isFile() && isAppendOnlyFile(current)) {
+      if (options.appendOnlyIdentityOnly) {
+        hash.update(`${kind}\0${root}\0${relative}\0${stat.dev}\0${stat.ino}\0append-only\n`);
+        return;
+      }
       const length = Math.min(stat.size, appendOnlyPrefixBytes);
       const buffer = Buffer.alloc(length);
       const handle = await fsp.open(current, 'r');
@@ -332,14 +337,7 @@ class AuthoritativeInventoryCache<Value> {
           const relative = path.relative(root, changedPath);
           return relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
         })
-      ) {
-        try {
-          const prefixBytes = entry.fingerprintOptions.appendOnlyPrefixBytes || 64 * 1024;
-          if (fs.statSync(changedPath).size > prefixBytes) return;
-        } catch {
-          // A concurrent deletion must invalidate the inventory.
-        }
-      }
+      ) return;
       this.markDirty(entry);
     });
     watcher.on('error', () => {
@@ -357,18 +355,33 @@ class AuthoritativeInventoryCache<Value> {
       const before = entry.sourceMayChangeDuringLoad
         ? ''
         : await filesystemFingerprint(entry.fingerprintPaths, fingerprintOptions);
+      const hasAppendOnlyRoots = (fingerprintOptions.appendOnlyRoots || []).length > 0;
+      const stableBefore = !entry.sourceMayChangeDuringLoad && hasAppendOnlyRoots
+        ? await filesystemFingerprint(entry.fingerprintPaths, {
+            ...fingerprintOptions,
+            appendOnlyIdentityOnly: true,
+          })
+        : before;
       const value = await entry.load();
       if (entry.validate && !entry.validate(value)) {
         throw new Error(`Inventory loader returned an invalid value for ${entry.key}`);
       }
       const after = await filesystemFingerprint(entry.fingerprintPaths, fingerprintOptions);
+      const stableAfter = !entry.sourceMayChangeDuringLoad && hasAppendOnlyRoots
+        ? await filesystemFingerprint(entry.fingerprintPaths, {
+            ...fingerprintOptions,
+            appendOnlyIdentityOnly: true,
+          })
+        : after;
       if (
         !entry.sourceMayChangeDuringLoad
-        && (generation !== entry.generation || before !== after)
+        && (generation !== entry.generation || stableBefore !== stableAfter)
       ) continue;
       entry.value = value;
-      entry.fingerprint = after;
-      await this.snapshots?.set(entry.key, { fingerprint: after, value });
+      entry.fingerprint = before === after ? after : '';
+      if (entry.fingerprint) {
+        await this.snapshots?.set(entry.key, { fingerprint: after, value });
+      }
       return value;
     }
     throw new Error(`Inventory changed repeatedly while reconciling ${entry.key}`);
