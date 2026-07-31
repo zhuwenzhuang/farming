@@ -916,9 +916,11 @@ async function run() {
     };
     closeDuringPromptBinding.sessionState.currentModeId = 'default';
     let deferredModeCalls = 0;
+    const deferredModeIds = [];
     const applyDeferredMode = closeDuringPromptBinding.connection.setSessionMode;
     closeDuringPromptBinding.connection.setSessionMode = async request => {
       deferredModeCalls += 1;
+      deferredModeIds.push(request.modeId);
       return applyDeferredMode.call(closeDuringPromptBinding.connection, request);
     };
     closeDuringPromptBinding.configOptions = [
@@ -927,6 +929,67 @@ async function run() {
     closeDuringPromptBinding.sessionState.configOptions = JSON.parse(JSON.stringify(
       closeDuringPromptBinding.configOptions,
     ));
+    const writeCheckpoint = runtime.writeCheckpoint.bind(runtime);
+    let rejectFirstModeCheckpoint;
+    let modeCheckpointWrites = 0;
+    runtime.writeCheckpoint = async binding => {
+      if (binding !== closeDuringPromptBinding) return writeCheckpoint(binding);
+      modeCheckpointWrites += 1;
+      if (modeCheckpointWrites === 1) {
+        await new Promise((_, reject) => { rejectFirstModeCheckpoint = reject; });
+      }
+    };
+    const staleDeferredMode = runtime.setSessionMode('agent-acp-close-during-prompt', 'plan');
+    const staleDeferredModeRejected = assert.rejects(staleDeferredMode, /simulated stale mode checkpoint failure/);
+    for (let attempt = 0; attempt < 100 && !rejectFirstModeCheckpoint; attempt += 1) {
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    assert.strictEqual(typeof rejectFirstModeCheckpoint, 'function');
+    const concurrentDeferredMode = await runtime.setSessionMode('agent-acp-close-during-prompt', 'plan');
+    rejectFirstModeCheckpoint(new Error('simulated stale mode checkpoint failure'));
+    await staleDeferredModeRejected;
+    assert.strictEqual(concurrentDeferredMode.deferred, true);
+    assert.strictEqual(
+      runtime.getSession('agent-acp-close-during-prompt').deferredModeId,
+      'plan',
+      'a stale failed checkpoint must not erase a newer equal mode request',
+    );
+    let rejectFirstConfigCheckpoint;
+    let configCheckpointWrites = 0;
+    runtime.writeCheckpoint = async binding => {
+      if (binding !== closeDuringPromptBinding) return writeCheckpoint(binding);
+      configCheckpointWrites += 1;
+      if (configCheckpointWrites === 1) {
+        await new Promise((_, reject) => { rejectFirstConfigCheckpoint = reject; });
+      }
+    };
+    const staleDeferredConfig = runtime.setSessionConfigOption(
+      'agent-acp-close-during-prompt',
+      'toggle',
+      true,
+    );
+    const staleDeferredConfigRejected = assert.rejects(
+      staleDeferredConfig,
+      /simulated stale config checkpoint failure/,
+    );
+    for (let attempt = 0; attempt < 100 && !rejectFirstConfigCheckpoint; attempt += 1) {
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    assert.strictEqual(typeof rejectFirstConfigCheckpoint, 'function');
+    const concurrentDeferredConfig = await runtime.setSessionConfigOption(
+      'agent-acp-close-during-prompt',
+      'toggle',
+      true,
+    );
+    rejectFirstConfigCheckpoint(new Error('simulated stale config checkpoint failure'));
+    await staleDeferredConfigRejected;
+    assert.strictEqual(concurrentDeferredConfig.deferred, true);
+    assert.deepStrictEqual(
+      runtime.getSession('agent-acp-close-during-prompt').deferredConfigOptions,
+      [{ configId: 'toggle', value: true }],
+      'a stale failed checkpoint must not erase a newer equal config request',
+    );
+    runtime.writeCheckpoint = writeCheckpoint;
     let deferredConfigCalls = 0;
     let releaseDeferredConfig;
     const applyDeferredConfig = closeDuringPromptBinding.connection.setSessionConfigOption;
@@ -999,34 +1062,61 @@ async function run() {
       if (closeDuringPromptBinding.activeTurn?.phase === 'running') break;
       await new Promise(resolve => setTimeout(resolve, 10));
     }
-    closeDuringPromptBinding.connection.setSessionConfigOption = async () => {
+    let rejectFailedDeferredConfig;
+    let releaseRetriedDeferredConfig;
+    let failedDeferredConfigCalls = 0;
+    closeDuringPromptBinding.connection.setSessionConfigOption = request => new Promise((resolve, reject) => {
       deferredConfigCalls += 1;
-      throw new Error('simulated deferred configuration failure');
-    };
+      failedDeferredConfigCalls += 1;
+      if (failedDeferredConfigCalls === 1) {
+        rejectFailedDeferredConfig = () => reject(new Error('simulated deferred configuration failure'));
+        return;
+      }
+      releaseRetriedDeferredConfig = async () => resolve(
+        await applyDeferredConfig.call(closeDuringPromptBinding.connection, request),
+      );
+    });
     await runtime.setSessionMode('agent-acp-close-during-prompt', 'default');
     await runtime.setSessionConfigOption('agent-acp-close-during-prompt', 'toggle', false);
     await runtime.cancel('agent-acp-close-during-prompt');
     assert.strictEqual((await failedDeferredPrompt).stopReason, 'cancelled');
+    for (let attempt = 0; attempt < 100 && !rejectFailedDeferredConfig; attempt += 1) {
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    assert.strictEqual(typeof rejectFailedDeferredConfig, 'function');
+    await runtime.setSessionMode('agent-acp-close-during-prompt', 'default');
+    await runtime.setSessionConfigOption('agent-acp-close-during-prompt', 'toggle', false);
+    rejectFailedDeferredConfig();
+    for (let attempt = 0; attempt < 100 && !releaseRetriedDeferredConfig; attempt += 1) {
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    const retryingDeferredSnapshot = runtime.getSession('agent-acp-close-during-prompt');
+    assert.match(retryingDeferredSnapshot.error, /simulated deferred configuration failure/);
+    assert.strictEqual(
+      retryingDeferredSnapshot.deferredModeId,
+      'default',
+      'a newer equal mode request must survive the failed flush',
+    );
+    assert.deepStrictEqual(
+      retryingDeferredSnapshot.deferredConfigOptions,
+      [{ configId: 'toggle', value: false }],
+      'a newer equal config request must survive the failed flush',
+    );
+    assert.deepStrictEqual(
+      deferredModeIds.slice(-3),
+      ['default', 'plan', 'default'],
+      'a failed config must roll mode back before the preserved request retries it',
+    );
+    assert.strictEqual(typeof releaseRetriedDeferredConfig, 'function');
+    await releaseRetriedDeferredConfig();
     for (let attempt = 0; attempt < 100; attempt += 1) {
       const snapshot = runtime.getSession('agent-acp-close-during-prompt');
       if (!snapshot.deferredModeId && snapshot.deferredConfigOptions.length === 0) break;
       await new Promise(resolve => setTimeout(resolve, 10));
     }
-    const failedDeferredSnapshot = runtime.getSession('agent-acp-close-during-prompt');
-    assert.match(failedDeferredSnapshot.error, /simulated deferred configuration failure/);
-    assert.strictEqual(
-      failedDeferredSnapshot.currentModeId,
-      'plan',
-      'a later deferred config failure must roll the already-applied mode back',
-    );
-    assert.strictEqual(
-      failedDeferredSnapshot.configOptions.find(option => option.id === 'toggle')?.currentValue,
-      true,
-    );
-    closeDuringPromptBinding.connection.setSessionConfigOption = applyDeferredConfig;
-    await runtime.setSessionConfigOption('agent-acp-close-during-prompt', 'toggle', false);
     const recoveredDeferredSnapshot = runtime.getSession('agent-acp-close-during-prompt');
     assert.strictEqual(recoveredDeferredSnapshot.error, '');
+    assert.strictEqual(recoveredDeferredSnapshot.currentModeId, 'default');
     assert.strictEqual(
       recoveredDeferredSnapshot.configOptions.find(option => option.id === 'toggle')?.currentValue,
       false,

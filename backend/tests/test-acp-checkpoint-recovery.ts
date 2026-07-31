@@ -68,6 +68,41 @@ async function run() {
     }, 'Qoder history replay must recover media omitted by session/load from the Farming checkpoint');
     await qoderWarm.dispose();
 
+    const deferredDir = path.join(configDir, 'deferred-session-settings');
+    fs.mkdirSync(deferredDir, { recursive: true });
+    const deferredCold = runtime(deferredDir);
+    await prepare(deferredCold, 'agent-deferred-cold', deferredDir);
+    const deferredColdBinding = deferredCold.requireBinding('agent-deferred-cold');
+    deferredColdBinding.deferredModeId = 'plan';
+    deferredColdBinding.deferredConfigChanges.set('fast-mode', {
+      configId: 'fast-mode',
+      value: true,
+    });
+    await deferredCold.writeCheckpoint(deferredColdBinding);
+    await deferredCold.dispose();
+
+    const deferredWarm = runtime(deferredDir);
+    await prepare(deferredWarm, 'agent-deferred-warm', deferredDir);
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const snapshot = deferredWarm.getSession('agent-deferred-warm');
+      if (!snapshot.deferredModeId && snapshot.deferredConfigOptions.length === 0) break;
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    const deferredWarmSnapshot = deferredWarm.getSession('agent-deferred-warm');
+    assert.strictEqual(deferredWarmSnapshot.deferredModeId, '');
+    assert.deepStrictEqual(deferredWarmSnapshot.deferredConfigOptions, []);
+    assert.strictEqual(
+      deferredWarmSnapshot.currentModeId,
+      'plan',
+      'a recovered permission mode must apply at the first idle boundary',
+    );
+    assert.strictEqual(
+      deferredWarmSnapshot.configOptions.find(option => option.id === 'fast-mode')?.currentValue,
+      true,
+      'a recovered config change must apply before the next prompt can reach the provider',
+    );
+    await deferredWarm.dispose();
+
     const binding = warm.requireBinding('agent-warm');
     const childState = new AcpSessionState({
       provider: 'codex', sessionId: 'acp-child-session', cwd: configDir,

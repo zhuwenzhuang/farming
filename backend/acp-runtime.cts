@@ -131,6 +131,7 @@ interface AcpBinding {
   checkpointProof: unknown; sessionMutation: SessionMutation | null; configMutationTail: Promise<unknown> | null;
   deferredConfigChanges: Map<string, SessionConfigChange>;
   deferredConfigFlush: Promise<void> | null;
+  deferredModeGeneration: number;
   deferredModeId: string;
   stderr: string; exited: boolean; updatedAt: string;
 }
@@ -1027,6 +1028,7 @@ class AcpRuntime extends EventEmitter {
       configMutationTail: null,
       deferredConfigChanges: new Map(),
       deferredConfigFlush: null,
+      deferredModeGeneration: 0,
       deferredModeId: '',
       stderr: '',
       exited: false,
@@ -1600,6 +1602,7 @@ class AcpRuntime extends EventEmitter {
       || (!binding.deferredModeId && binding.deferredConfigChanges.size === 0)
     ) return;
     const modeId = binding.deferredModeId;
+    const modeGeneration = binding.deferredModeGeneration;
     const originalModeId = String(binding.sessionState?.currentModeId || binding.modes?.currentModeId || '');
     const changes = [...binding.deferredConfigChanges.values()];
     const flush = this.enqueueSessionConfigMutation(binding, async () => {
@@ -1628,17 +1631,17 @@ class AcpRuntime extends EventEmitter {
       }
     })
       .then(() => {
-        if (binding.deferredModeId === modeId) binding.deferredModeId = '';
+        if (binding.deferredModeGeneration === modeGeneration) binding.deferredModeId = '';
         for (const change of changes) {
-          if (binding.deferredConfigChanges.get(change.configId)?.value === change.value) {
+          if (binding.deferredConfigChanges.get(change.configId) === change) {
             binding.deferredConfigChanges.delete(change.configId);
           }
         }
         this.clearDeferredSessionError(binding);
       }, error => {
-        if (binding.deferredModeId === modeId) binding.deferredModeId = '';
+        if (binding.deferredModeGeneration === modeGeneration) binding.deferredModeId = '';
         for (const change of changes) {
-          if (binding.deferredConfigChanges.get(change.configId)?.value === change.value) {
+          if (binding.deferredConfigChanges.get(change.configId) === change) {
             binding.deferredConfigChanges.delete(change.configId);
           }
         }
@@ -2901,11 +2904,17 @@ class AcpRuntime extends EventEmitter {
         throw new Error(`ACP Agent did not advertise mode ${normalizedModeId}`);
       }
       const previousModeId = binding.deferredModeId;
+      const previousGeneration = binding.deferredModeGeneration;
+      const generation = binding.deferredModeGeneration + 1;
+      binding.deferredModeGeneration = generation;
       binding.deferredModeId = normalizedModeId;
       try {
         await this.writeCheckpoint(binding);
       } catch (error) {
-        binding.deferredModeId = previousModeId;
+        if (binding.deferredModeGeneration === generation) {
+          binding.deferredModeGeneration = previousGeneration;
+          binding.deferredModeId = previousModeId;
+        }
         throw error;
       }
       binding.updatedAt = new Date().toISOString();
@@ -3017,12 +3026,21 @@ class AcpRuntime extends EventEmitter {
         throw new Error(`ACP config option ${change.configId} requires a string value`);
       }
     }
-    const previous = new Map(binding.deferredConfigChanges);
-    for (const change of normalized) binding.deferredConfigChanges.set(change.configId, change);
+    const accepted = normalized.map(change => ({ configId: change.configId, value: change.value }));
+    const previous = new Map<string, SessionConfigChange | undefined>();
+    for (const change of accepted) {
+      if (!previous.has(change.configId)) previous.set(change.configId, binding.deferredConfigChanges.get(change.configId));
+      binding.deferredConfigChanges.set(change.configId, change);
+    }
     try {
       await this.writeCheckpoint(binding);
     } catch (error) {
-      binding.deferredConfigChanges = previous;
+      for (const change of accepted) {
+        if (binding.deferredConfigChanges.get(change.configId) !== change) continue;
+        const previousChange = previous.get(change.configId);
+        if (previousChange) binding.deferredConfigChanges.set(change.configId, previousChange);
+        else binding.deferredConfigChanges.delete(change.configId);
+      }
       throw error;
     }
     binding.updatedAt = new Date().toISOString();
