@@ -7,7 +7,6 @@ const { EventEmitter } = require('events');
 const express = require('express');
 const {
   discoverBrowserExecutable,
-  discoverBrowserExecutables,
   discoverBrowserRuntime,
   normalizeExternalCdpUrl,
 } = require('../../extensions/browser/backend/executable-discovery.cjs');
@@ -300,9 +299,6 @@ async function testManagedAgentBrowserDiscovery() {
   assert.strictEqual(missing.runtimeErrorCode, 'NOT_FOUND');
 
   const browserDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-managed-browser-discovery-'));
-  const browserPath = path.join(browserDir, 'chrome');
-  fs.writeFileSync(browserPath, 'fake');
-  fs.chmodSync(browserPath, 0o755);
   const systemBrowserPath = path.join(browserDir, 'google-chrome');
   fs.writeFileSync(systemBrowserPath, 'fake system chrome');
   fs.chmodSync(systemBrowserPath, 0o755);
@@ -312,39 +308,18 @@ async function testManagedAgentBrowserDiscovery() {
     assert.deepStrictEqual(
       discoverBrowserExecutable({
         source: 'system',
-        managedBrowserPath: browserPath,
         platform: 'linux',
       }),
       { kind: 'chrome', path: systemBrowserPath },
-      'system discovery should prefer an installed Chromium browser over the managed cache',
-    );
-    assert.deepStrictEqual(
-      discoverBrowserExecutable({
-        source: 'managed',
-        managedBrowserPath: browserPath,
-        platform: 'linux',
-      }),
-      { kind: 'managed-chromium', path: browserPath },
+      'system discovery should find an installed Chromium browser',
     );
     assert.strictEqual(
       discoverBrowserExecutable({
         source: 'system',
-        managedBrowserPath: browserPath,
         platform: 'freebsd',
       }),
       null,
-      'an unavailable system selection must not fall back to managed Chromium',
-    );
-    assert.deepStrictEqual(
-      discoverBrowserExecutables({
-        managedBrowserPath: browserPath,
-        platform: 'linux',
-      }).find(option => option.kind === 'managed-chromium'),
-      { kind: 'managed-chromium', path: browserPath },
-    );
-    assert.match(
-      discoverBrowserExecutable({ source: 'managed', platform: 'linux' }).error,
-      /Install or update/,
+      'an unavailable system selection must not fall back to another Browser source',
     );
   } finally {
     if (previousPath === undefined) delete process.env.PATH;
@@ -359,13 +334,6 @@ async function testBrowserResourceManager() {
   fs.mkdirSync(projectWorkspace);
   const runtimes = [];
   let enabled = false;
-  const absentInstallation = {
-    state: 'absent',
-    agentBrowserVersion: '0.32.3',
-    installedVersion: '',
-    updateAvailable: false,
-    error: '',
-  };
   const unavailableManager = new BrowserResourceManager({
     configDir,
     discoverExecutable: () => null,
@@ -381,7 +349,6 @@ async function testBrowserResourceManager() {
       externalCdpUrl: 'http://127.0.0.1:9222',
     },
     options: [],
-    installation: absentInstallation,
     message: 'Choose a local Chromium browser or prepare the isolated Browser runtime',
   });
   let migratedBrowserSettings = {
@@ -464,7 +431,6 @@ async function testBrowserResourceManager() {
         externalCdpUrl: 'http://127.0.0.1:9222',
       },
       options: [],
-      installation: absentInstallation,
       message: 'Browser extension is disabled',
     });
     assert.throws(() => manager.list(), /disabled/);
@@ -493,7 +459,6 @@ async function testBrowserResourceManager() {
         externalCdpUrl: 'http://127.0.0.1:9222',
       },
       options: [],
-      installation: absentInstallation,
       message: '',
     });
     const isolatedConfigDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-isolated-browser-manager-'));
@@ -1386,7 +1351,6 @@ async function testBrowserRouterAgentOwnership() {
     requireEnabled() {},
     refreshCapability: async () => {},
     capability: () => ({ enabled: true }),
-    installManagedChromium: async () => ({}),
     snapshot: () => ({ collectionRevision: 1, resources }),
     get: id => {
       const resource = resources.find(candidate => candidate.id === id);
@@ -1531,10 +1495,6 @@ function testBrowserUiAndPackagingWiring() {
   );
   const sidebarSource = fs.readFileSync(path.join(projectRoot, 'extensions', 'browser', 'frontend', 'BrowserSidebarPortals.tsx'), 'utf8');
   const serverSource = fs.readFileSync(path.join(projectRoot, 'backend', 'server.cts'), 'utf8');
-  const routerSource = fs.readFileSync(
-    path.join(projectRoot, 'extensions', 'browser', 'backend', 'browser-router.cjs'),
-    'utf8',
-  );
   const packageJson = JSON.parse(fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf8'));
   assert(workspaceSource.includes('<BrowserSidebarPortals'));
   assert(workspaceSource.includes("setMainPaneMode('browser')"));
@@ -1551,7 +1511,6 @@ function testBrowserUiAndPackagingWiring() {
   assert(serverSource.includes("browserResourceManager,"));
   assert(sidebarSource.includes('code-agent-resources-toggle'));
   assert(sidebarSource.includes('controller.byAgentId'));
-  assert(routerSource.includes('router.post("/install"'));
   assert.strictEqual(packageJson.dependencies['playwright-core'], undefined);
   assert.strictEqual(packageJson.bin['farming-browser'], 'extensions/browser/bin/farming-browser');
   assert(packageJson.files.includes('extensions/browser/backend/*.cjs'));

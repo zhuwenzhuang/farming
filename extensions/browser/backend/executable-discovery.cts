@@ -31,7 +31,6 @@ type BrowserKind =
   | 'edge'
   | 'external-cdp'
   | 'isolated-computer'
-  | 'managed-chromium'
   | string;
 
 interface BrowserCandidate {
@@ -55,7 +54,6 @@ interface BrowserDiscoveryOptions {
   executablePath?: unknown;
   execFile?: ExecFileImplementation;
   externalCdpUrl?: unknown;
-  managedBrowserPath?: unknown;
   platform?: NodeJS.Platform;
   source?: unknown;
 }
@@ -171,11 +169,7 @@ function discoverBrowserExecutables(options: BrowserDiscoveryOptions = {}): Brow
   if (platform === 'darwin') candidates = macBrowserCandidates();
   if (platform === 'linux') candidates = linuxBrowserCandidates();
   if (platform === 'win32') candidates = windowsBrowserCandidates(env);
-  const managed = executable(options.managedBrowserPath, 'managed-chromium');
-  return [
-    ...uniqueExecutables(candidates),
-    ...(managed ? [managed] : []),
-  ];
+  return uniqueExecutables(candidates);
 }
 
 function normalizeExternalCdpUrl(value: unknown): string {
@@ -214,13 +208,6 @@ function discoverBrowserExecutable(
   if (source === 'isolated') {
     return { kind: 'isolated-computer', path: '' };
   }
-  if (source === 'managed') {
-    return executable(options.managedBrowserPath, 'managed-chromium') || {
-      kind: 'managed-chromium',
-      path: String(options.managedBrowserPath || ''),
-      error: 'Install or update the Farming-managed Chromium for this agent-browser version',
-    };
-  }
   if (source === 'system') {
     const configuredPath = String(options.executablePath || '').trim();
     if (configuredPath) {
@@ -237,6 +224,7 @@ function discoverBrowserExecutable(
     if (platform === 'win32') systemBrowser = discoverWindowsBrowser(env);
     return systemBrowser;
   }
+  if (source) return null;
   const externalCdpInput = String(options.externalCdpUrl || env.FARMING_BROWSER_CDP_URL || '').trim();
   if (externalCdpInput) {
     const cdpUrl = normalizeExternalCdpUrl(externalCdpInput);
@@ -257,7 +245,7 @@ function discoverBrowserExecutable(
   if (platform === 'darwin') systemBrowser = discoverMacBrowser();
   if (platform === 'linux') systemBrowser = discoverLinuxBrowser();
   if (platform === 'win32') systemBrowser = discoverWindowsBrowser(env);
-  return systemBrowser || executable(options.managedBrowserPath, 'managed-chromium');
+  return systemBrowser;
 }
 
 async function discoverBrowserRuntime(

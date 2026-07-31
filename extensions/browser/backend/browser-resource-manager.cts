@@ -28,7 +28,6 @@ import {
   type BrowserDiscoveryOptions,
   type BrowserExecutable,
 } from './executable-discovery.cjs';
-import { ManagedChromiumInstaller } from './managed-chromium-installer.cjs';
 
 const MAX_VIEWER_BUFFER_BYTES = 2 * 1024 * 1024;
 const VIEWER_RESIZE_SETTLE_MS = 80;
@@ -174,11 +173,6 @@ interface BrowserResourceStoreLike {
   update(id: string, patch: BrowserResourcePatch): BrowserResource;
   delete(id: string): boolean | void;
 }
-type ChromiumInstaller = {
-  browserOption(): { path?: string } | null;
-  install(): Promise<unknown>;
-  status(): unknown;
-};
 type IsolatedBrowserProvider = {
   acquire(owner: {
     ownerAgentId: string;
@@ -194,7 +188,6 @@ type IsolatedBrowserProvider = {
 type BrowserManagerOptions = Record<string, unknown> & {
   configDir: string;
   store?: BrowserResourceStoreLike;
-  chromiumInstaller?: ChromiumInstaller;
   isolatedBrowserProvider?: IsolatedBrowserProvider;
   discoverExecutable?: (
     selection: BrowserDiscoveryOptions,
@@ -375,7 +368,6 @@ function resolveWorkspaceOutputFile(resource: BrowserResource, value: unknown): 
 class BrowserResourceManager extends EventEmitter {
   readonly configDir: string;
   readonly store: BrowserResourceStoreLike;
-  readonly chromiumInstaller: ChromiumInstaller;
   readonly isolatedBrowserProvider: IsolatedBrowserProvider | null;
   readonly discoverExecutable: (
     selection: BrowserDiscoveryOptions,
@@ -410,23 +402,15 @@ class BrowserResourceManager extends EventEmitter {
     super();
     this.configDir = options.configDir;
     this.store = options.store || new BrowserResourceStore(options.configDir);
-    this.chromiumInstaller = options.chromiumInstaller || new ManagedChromiumInstaller({
-      ...options,
-      configDir: this.configDir,
-    });
     this.isolatedBrowserProvider = options.isolatedBrowserProvider || null;
     this.discoverExecutable = options.discoverExecutable || (selection => discoverBrowserRuntime({
       ...options,
       ...selection,
-      managedBrowserPath: this.chromiumInstaller.browserOption()?.path || '',
     }));
     this.discoverBrowserOptions = options.discoverBrowserOptions
       || (options.discoverExecutable
         ? () => []
-        : () => discoverBrowserExecutables({
-          ...options,
-          managedBrowserPath: this.chromiumInstaller.browserOption()?.path || '',
-        }));
+        : () => discoverBrowserExecutables());
     this.getBrowserSettings = typeof options.getBrowserSettings === 'function'
       ? options.getBrowserSettings
       : () => ({ browserSource: 'system', browserExecutablePath: '', browserExternalCdpUrl: '' });
@@ -586,7 +570,6 @@ class BrowserResourceManager extends EventEmitter {
       selection,
       options: this.browserOptions.map(option => ({ kind: option.kind, path: option.path })),
       ...(this.isolatedBrowserCapability ? { isolated: this.isolatedBrowserCapability } : {}),
-      installation: this.chromiumInstaller.status(),
       message: !enabled
         ? 'Browser extension is disabled'
         : (executable?.error || (runnable
@@ -598,7 +581,7 @@ class BrowserResourceManager extends EventEmitter {
   browserSelection(settings: BrowserSettings = this.getBrowserSettings()): BrowserSelection {
     const source = settings?.browserSource;
     return {
-      source: source && ['external-cdp', 'isolated', 'managed'].includes(source) ? source : 'system',
+      source: source && ['external-cdp', 'isolated'].includes(source) ? source : 'system',
       executablePath: String(settings?.browserExecutablePath || ''),
       externalCdpUrl: String(settings?.browserExternalCdpUrl || 'http://127.0.0.1:9222'),
     };
@@ -624,7 +607,6 @@ class BrowserResourceManager extends EventEmitter {
           return { path: executablePath, missing: true };
         }
       }),
-      installation: this.chromiumInstaller.status(),
       isolatedBrowserCapability,
     });
   }
@@ -680,8 +662,7 @@ class BrowserResourceManager extends EventEmitter {
       let desiredSelection = selection || this.browserSelection();
       const browserOptions = this.discoverBrowserOptions();
       if (!selection && desiredSelection.source === 'system' && !desiredSelection.executablePath) {
-        const defaultBrowser = browserOptions
-          .find(option => option.kind !== 'managed-chromium');
+        const defaultBrowser = browserOptions[0];
         if (defaultBrowser) {
           this.saveBrowserSelection({
             source: 'system',
@@ -728,15 +709,6 @@ class BrowserResourceManager extends EventEmitter {
       this.capabilityRefreshPromise = null;
     });
     return this.capabilityRefreshPromise;
-  }
-
-  async installManagedChromium(): Promise<unknown> {
-    if (this.disposed) {
-      throw browserError('Browser manager is stopping', 503, 'BROWSER_MANAGER_STOPPING');
-    }
-    await this.chromiumInstaller.install();
-    await this.refreshCapability();
-    return this.capability();
   }
 
   async prepareIsolatedBrowser(): Promise<unknown> {

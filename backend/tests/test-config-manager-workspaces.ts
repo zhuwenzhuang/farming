@@ -59,7 +59,7 @@ function run() {
     manager.updateSettings({ browserSource: 'invalid' });
     assert.strictEqual(manager.getSettings().browserSource, 'system');
     manager.updateSettings({ browserSource: 'managed' });
-    assert.strictEqual(manager.getSettings().browserSource, 'managed');
+    assert.strictEqual(manager.getSettings().browserSource, 'system');
     manager.updateSettings({ browserSource: 'isolated' });
     assert.strictEqual(manager.getSettings().browserSource, 'isolated');
     manager.updateSettings({ browserExtensionEnabled: true });

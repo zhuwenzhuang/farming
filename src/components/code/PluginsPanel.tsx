@@ -1032,7 +1032,7 @@ export function PluginsPanel({
                     label: copy.noSystemBrowser,
                     disabled: true,
                   }] : []),
-                  ...(capability?.options || []).filter(option => option.kind !== 'managed-chromium').map(option => ({
+                  ...(capability?.options || []).map(option => ({
                     value: `system:${option.path}`,
                     label: browserKindName(option.kind),
                   })),

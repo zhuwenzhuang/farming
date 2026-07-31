@@ -65,16 +65,6 @@ async function test() {
   assert.match(formattedBrowserCapabilities, /farming browser help workflow/);
   assert.throws(() => parseArgs(['memory', 'report']), /Unknown command: memory/);
 
-  const managedBrowserCapabilities = farmingCapabilities({
-    enabled: true,
-    available: true,
-    browser: { kind: 'managed-chromium' },
-  });
-  assert.match(
-    managedBrowserCapabilities.capabilities[0].summary,
-    /Farming-managed Chromium/,
-  );
-
   const send = parseArgs(['send', 'agent-child', 'run', 'tests']);
   assert.deepStrictEqual(send, {
     command: 'send',

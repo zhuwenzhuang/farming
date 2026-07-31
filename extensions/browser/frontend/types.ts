@@ -34,7 +34,7 @@ export interface BrowserCapability {
   available: boolean
   browser: { kind: string; path: string } | null
   selection?: {
-    source: 'external-cdp' | 'isolated' | 'managed' | 'system'
+    source: 'external-cdp' | 'isolated' | 'system'
     executablePath: string
     externalCdpUrl: string
   }
@@ -48,12 +48,5 @@ export interface BrowserCapability {
     compatibilityMode?: boolean
     error?: string
   } | null
-  installation: {
-    state: 'absent' | 'failed' | 'installing' | 'ready'
-    agentBrowserVersion: string
-    installedVersion: string
-    updateAvailable: boolean
-    error: string
-  }
   message: string
 }

@@ -20,7 +20,7 @@ Browser Extension 是第一种实时 Resource 实现，集成默认关闭。插�
 
 准备隔离浏览器是插件页中唯一主要的 Browser 下载路径。用户显式操作后，Farming 会准备锁定的上游 Computer 镜像，通过有界且按延迟排序的下载源把 Linux Chromium 放入受管 Cache，确保只读挂载路径可由容器用户穿过，并以容器内真实的 `cua` 用户验证该 Executable 后才发布 Ready。标准 Docker Daemon Mirror（包括账号级阿里云镜像加速器）可以承接 Computer Pull，但不成为 Farming 自身配置。并发准备请求合并为同一操作；安装、更新和 Server 启动绝不会拉取镜像或 Chromium Archive。
 
-来源选择是普通持久化产品设置，不需要重启 Farming。Local Resource 由 Farming 把选中的 Chromium Executable 与独立 Profile 交给锁定版本的 `agent-browser`。隔离 Resource 的 Docker 创建、精确 Label、受管 Chromium 只读挂载和回环 CDP Relay 由 Computer Extension 管理，Endpoint 只在内部交给同一个 `agent-browser`。CDP 就绪探测必须先关闭并释放自己的 Relay Connection，才能放行 Browser Runtime，避免后续 agent-browser 连接被探测请求堵住。因此启用隔离 Browser 时也会保持 Computer 启用。Browser 仍只有一套 Automation 与 Viewer 实现。旧的受管 Chromium 与外部 CDP 设置只保留读取兼容，不再是普通插件选项。
+来源选择是普通持久化产品设置，不需要重启 Farming。Local Resource 由 Farming 把选中的 Chromium Executable 与独立 Profile 交给锁定版本的 `agent-browser`。隔离 Resource 的 Docker 创建、精确 Label、受管 Chromium 只读挂载和回环 CDP Relay 由 Computer Extension 管理，Endpoint 只在内部交给同一个 `agent-browser`。CDP 就绪探测必须先关闭并释放自己的 Relay Connection，才能放行 Browser Runtime，避免后续 agent-browser 连接被探测请求堵住。因此启用隔离 Browser 时也会保持 Computer 启用。Browser 仍只有一套 Automation 与 Viewer 实现。用户提供的外部 CDP 设置只保留读取兼容，不再是普通插件选项。
 
 受鉴权保护的 Viewer 代理 Runtime 的 Session-scoped WebSocket Stream。Frame 使用 JPEG 保持交互响应速度，Viewport、Pointer、Wheel、Keyboard 与 Text Input 则通过同一个 Session 返回。Viewer 按 Frame 上报的 CSS 尺寸绘制；Client 较慢时会丢弃已经被新 Frame 取代的内容。Agent Command 与人的输入因此操作同一个 Browser Identity，Farming 不再携带第二条原生 CDP Action Path。
 
@@ -115,7 +115,7 @@ Agent 仍然可以保留 Provider 原生或用户自行安装的工具。Farming
 
 Farming 的 Browser Extension 拥有每个 Browser Resource 身份，以及 Viewer 和 Agent Tool 共用的页面 Target。同一 Agent 与 Browser Source 下的 Resource 共享一个 agent-browser Session，不同 Agent 保持隔离。Local Session 拥有 Chromium Process 与隔离 Profile；隔离 Session 拥有 Computer Extension 管理的 Agent 精确可见 Computer 的一个 Lease。旧 External CDP Session 只拥有连接和创建的 Target，不拥有外部浏览器、Profile 或 Endpoint 生命周期。
 
-MVP 有意只支持一套操作实现：锁定版本的 `agent-browser` Command 与 Stream Protocol，通过系统浏览器 Executable 或 Agent Computer 的私有回环 CDP Endpoint 进入。旧受管 Chromium 和 External CDP 设置只保留读取兼容。结构化 Agent Surface 已覆盖导航与等待、DOM 交互、检查与 JavaScript、Console/Error/Network 诊断、Cookie/Storage、Frame/Dialog 和 Project 级 Upload/Download。Computer Use 仍是浏览器原生窗口框架、Dialog 与任意 Linux 应用的独立完整桌面能力；选择隔离来源时，它的桌面 Viewer 与 Browser Viewer 观察同一个 Chromium。
+MVP 有意只支持一套操作实现：锁定版本的 `agent-browser` Command 与 Stream Protocol，通过系统浏览器 Executable 或 Agent Computer 的私有回环 CDP Endpoint 进入。用户提供的 External CDP 设置只保留读取兼容。结构化 Agent Surface 已覆盖导航与等待、DOM 交互、检查与 JavaScript、Console/Error/Network 诊断、Cookie/Storage、Frame/Dialog 和 Project 级 Upload/Download。Computer Use 仍是浏览器原生窗口框架、Dialog 与任意 Linux 应用的独立完整桌面能力；选择隔离来源时，它的桌面 Viewer 与 Browser Viewer 观察同一个 Chromium。
 
 每个 Browser 都有持久唯一 ID、一个 Agent Owner，以及用于文件隔离的 Project Root。Browser 或 Computer Use 已启用且可用时，即使还没有创建第一个 Resource，Agent Row 也会显示 Resources 入口；Agent 菜单同时提供“创建浏览器”，在尚无桌面时还提供“创建隔离桌面”。这些 Resource 在侧栏中默认隐藏在 **Agent → Resources → 浏览器 / 桌面** 下；展开或收起这两层都不会改变 Runtime 或 Viewer 状态。Browser 处于 stopped、failed、starting 或 stopping 时不显示状态点，只有真正 running 后才在行的最右侧显示一个绿点。隔离桌面在 Browser Stop/Delete 后仍保留。Browser 仍可通过 `browser` URL Query Parameter 直接打开。删除系统浏览器 Row 时必须先停止精确 Runtime，再删除独立 Profile；删除隔离 Browser Row 只关闭其 Tab/Session，删除 Agent 才拥有精确桌面删除；删除旧 External CDP Row 时只关闭 Farming 创建的 Target。
 

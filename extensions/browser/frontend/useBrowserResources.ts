@@ -54,14 +54,6 @@ export function useBrowserResources(options: {
     }
   }, [refreshVersion])
 
-  useEffect(() => {
-    if (capability?.installation?.state !== 'installing') return undefined
-    const timeout = window.setTimeout(() => {
-      setRefreshVersion(version => version + 1)
-    }, 2_000)
-    return () => window.clearTimeout(timeout)
-  }, [capability?.installation?.state, refreshVersion])
-
   const create = useCallback(async (
     workspace: string,
     options: { agentId?: string; name?: string; url?: string } = {},
