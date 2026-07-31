@@ -43,7 +43,6 @@ ACP has no standard live-steer operation. Farming's pinned Codex adapter therefo
 - Exact Farming reducer checkpoints may skip a full `session/load` only when their provider, Agent Home, session, workspace, and freshness fences still match.
 - Missing, stale, corrupt, or dirty checkpoints stay on the visible bounded load/repair path.
 - Killing or switching an Agent unregisters its ACP session and closes the owned adapter process.
-- Persisted experimental `app-server` bindings are read as ACP bindings. Their Codex thread id is reused as the ACP session id when available; no App Server process is restarted.
 
 Chat-to-Terminal and Terminal-to-Chat are real runtime restarts that preserve the same resumable provider session. A fresh Terminal may switch to Chat only before user input has materialized a provider conversation; otherwise Farming requires a verified resumable session.
 
@@ -52,7 +51,7 @@ Chat-to-Terminal and Terminal-to-Chat are real runtime restarts that preserve th
 Changes to Codex Chat should cover:
 
 1. deterministic ACP protocol tests for initialization, new/load, prompt, cancel, updates, permissions, elicitation, authentication, tools, terminals, configuration, and mixed prompt parts;
-2. recovery tests for exact checkpoints, stale or dirty checkpoints, disconnects, and legacy App Server metadata migration;
+2. recovery tests for exact checkpoints, stale or dirty checkpoints, and disconnects;
 3. browser tests for Chat/Terminal switching, transcript rendering, permission/input cards, attachments, negotiated Codex steer, non-Codex queued follow-ups, cancellation, refresh, and reconnect;
 4. a low-volume real Codex smoke through `codex-acp`, including text, image, mixed-input steer, turn-end races, cancellation, and session resume.
 

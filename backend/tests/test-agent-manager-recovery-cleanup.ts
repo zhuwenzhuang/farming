@@ -265,7 +265,6 @@ async function run() {
 
   const providerSessionId = '11111111-1111-4111-8111-111111111111';
   const providerSessionKey = `agent-session:codex:${providerSessionId}`;
-  const appServerSessionKey = 'agent-session:codex:33333333-3333-4333-8333-333333333333';
   const rotationRecord = {
     id: 'fsess_rotation_test',
     runtimeAgentId: 'agent-before-upgrade',
@@ -309,22 +308,14 @@ async function run() {
     providerSessionId: '22222222-2222-4222-8222-222222222222',
     providerSessionKey: 'agent-session:codex:22222222-2222-4222-8222-222222222222',
   };
-  const appServerRecord = {
-    ...rotationRecord,
-    id: 'fsess_rotation_app_server',
-    runtimeAgentId: 'agent-app-server-before-upgrade',
-    providerSessionId: '33333333-3333-4333-8333-333333333333',
-    providerSessionKey: appServerSessionKey,
-    codexRuntimeMode: 'app-server',
-  };
   const rotationManager = new AgentManager({
     ...configManager(),
     farmingDir: testConfigDir,
     getMainPageSessionKeys() {
-      return [providerSessionKey, appServerSessionKey];
+      return [providerSessionKey];
     },
     listAgentSessionRecords() {
-      return [duplicateRecord, rotationRecord, hiddenRecord, appServerRecord];
+      return [duplicateRecord, rotationRecord, hiddenRecord];
     },
   });
   await rotationManager.whenRecovered();
@@ -456,7 +447,6 @@ async function run() {
         shellRotationRecord,
         temporaryCodexRotationRecord,
         hiddenRecord,
-        appServerRecord,
       ];
     },
   });
@@ -511,11 +501,6 @@ async function run() {
       serializedRotationManager.agents.has(temporaryCodexRotationRecord.runtimeAgentId),
       false,
       'a temporary Codex Terminal with user input must never be replaced by a fresh process after rotation'
-    );
-    assert.strictEqual(
-      serializedRotationManager.agents.has(appServerRecord.runtimeAgentId),
-      false,
-      'a hidden legacy App Server record must stay in History instead of migrating back into the main page'
     );
   } finally {
     await serializedRotationManager.dispose({ preserveTerminalHost: true });

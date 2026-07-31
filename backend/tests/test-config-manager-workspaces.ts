@@ -303,8 +303,6 @@ function run() {
     manager.updateSettings({ dangerouslySkipAgentPermissionsByDefault: false });
     assert.strictEqual(manager.getDangerouslySkipAgentPermissionsByDefault(), false);
 
-    manager.updateSettings({ codexRuntimeMode: 'app-server' });
-    assert.strictEqual(manager.getSettings().codexRuntimeMode, undefined);
     manager.updateSettings({ codexRuntimeMode: 'not-a-runtime' });
     assert.strictEqual(manager.getSettings().codexRuntimeMode, undefined);
 
