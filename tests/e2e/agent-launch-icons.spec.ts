@@ -1,7 +1,7 @@
 import { expect, openFarming, openNewAgentDialog, startAgentFromOpenDialog, test } from './fixtures'
 
 test.describe('agent launch icons', () => {
-  test('shows provider icons in the New Agent dialog and project launch menu', async ({ page, workspaceRoot }) => {
+  test('shows provider icons and project Chat shortcuts', async ({ page, workspaceRoot }) => {
     await page.route('**/api/executables', async route => {
       const response = await route.fetch()
       const payload = await response.json() as { agents: Array<Record<string, unknown>>; total: number }
@@ -12,6 +12,7 @@ test.describe('agent launch icons', () => {
         category: 'coding',
         supported: true,
         interactive: true,
+        capabilities: { supportsChat: true },
       })
       payload.agents.splice(3, 0, {
         name: 'qwen',
@@ -19,6 +20,7 @@ test.describe('agent launch icons', () => {
         category: 'coding',
         supported: true,
         interactive: true,
+        capabilities: { supportsChat: true },
       })
       payload.total = payload.agents.length
       await route.fulfill({ response, json: payload })
@@ -65,5 +67,29 @@ test.describe('agent launch icons', () => {
     for (const agentName of ['codex', 'claude', 'qoder', 'qwen', 'bash', 'zsh']) {
       await expect(page.getByTestId(`code-project-agent-launch-${agentName}`).locator(`.agent-launch-icon-${agentName}`)).toBeVisible()
     }
+    for (const agentName of ['codex', 'claude', 'qoder', 'qwen']) {
+      await expect(page.getByTestId(`code-project-agent-launch-chat-${agentName}`)).toBeVisible()
+    }
+    for (const agentName of ['bash', 'zsh']) {
+      await expect(page.getByTestId(`code-project-agent-launch-chat-${agentName}`)).toHaveCount(0)
+    }
+
+    const beforeResponse = await page.request.get('/farming/api/control/agents')
+    expect(beforeResponse.ok()).toBeTruthy()
+    const beforePayload = await beforeResponse.json() as { agents?: Array<{ id: string }> }
+    const beforeIds = new Set((beforePayload.agents ?? []).map(agent => agent.id))
+    await page.getByTestId('code-project-agent-launch-chat-codex').click()
+    await expect.poll(async () => {
+      const response = await page.request.get('/farming/api/control/agents')
+      if (!response.ok()) return false
+      const payload = await response.json() as {
+        agents?: Array<{ id: string; command?: string; runtimeBinding?: { kind?: string } }>
+      }
+      return (payload.agents ?? []).some(agent => (
+        !beforeIds.has(agent.id)
+        && agent.command === 'codex'
+        && agent.runtimeBinding?.kind === 'acp'
+      ))
+    }).toBe(true)
   })
 })

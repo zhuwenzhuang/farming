@@ -510,8 +510,11 @@ function run() {
       workspaceSource.includes('data-testid="code-project-new-agent-menu"') &&
       !workspaceSource.includes("launchMenuRef.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus()") &&
       workspaceSource.includes('code-project-agent-launch-${option.name}') &&
-      workspaceSource.includes('onClick={() => startProjectAgent(option.command || option.name)}') &&
-      workspaceSource.includes('onStartAgent(command, project.workspace)') &&
+      workspaceSource.includes('code-project-agent-launch-chat-${option.name}') &&
+      workspaceSource.includes("const supportsChat = option.capabilities?.supportsChat === true") &&
+      workspaceSource.includes("onClick={() => startProjectAgent(command, 'chat')}") &&
+      workspaceSource.includes("onStartAgent(command, project.workspace, agentRuntimeMode ? { agentRuntimeMode } : undefined)") &&
+      serverSource.includes('supportsChat: providerCapabilities(agent.name).supportsChat === true') &&
       workspaceSource.includes('onNewAgent(project.workspace, undefined, event.currentTarget)') &&
       workspaceSource.includes('agentMenu') &&
       workspaceSource.includes('projectMenu') &&

@@ -10455,6 +10455,43 @@ body.code-mode .code-file-editor-fallback-textarea {
   -webkit-backdrop-filter: blur(18px) saturate(1.08);
 }
 
+.code-project-launch-menu {
+  min-width: 190px;
+}
+
+.code-project-launch-option {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: stretch;
+  gap: 2px;
+}
+
+.code-project-launch-option.has-chat {
+  grid-template-columns: minmax(0, 1fr) 34px;
+}
+
+.code-project-launch-menu .code-project-launch-option > button {
+  min-width: 0;
+  width: 100%;
+}
+
+.code-project-launch-menu .code-project-agent-launch span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.code-project-launch-menu .code-project-agent-launch-chat {
+  justify-content: center;
+  padding: 7px;
+}
+
+.code-project-agent-launch-chat svg {
+  width: 16px;
+  height: 16px;
+  display: block;
+}
+
 .code-project-context-menu button,
 .code-project-launch-menu button {
   min-height: 34px;

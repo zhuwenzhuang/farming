@@ -13,11 +13,13 @@ Goal: create one project Agent without needing to understand Main Agent.
 3. Choose Codex, Claude Code, OpenCode, Qoder, bash, or zsh.
 4. Select an existing workspace and start the Agent.
 5. Confirm the new row appears under that project and becomes active.
+6. From an existing project's **+** menu, confirm Chat-capable Agent rows expose a Chat-bubble shortcut and use it to start directly in Chat.
 
 Expected:
 
 - the first-use path begins with **New Agent**, not a mandatory Main Agent setup;
 - coding Agent choices are enabled only when their executable/runtime is available;
+- the project **+** menu derives the Chat shortcut from provider capability; shell rows do not show it, and the main row action keeps its existing default launch behavior;
 - the Agent starts in the selected workspace;
 - opening the same page again does not create a duplicate process.
 

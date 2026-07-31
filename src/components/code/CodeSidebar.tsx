@@ -7,6 +7,7 @@ import type {
 import { createPortal } from 'react-dom'
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
+  ChatBubblesGlyph,
   ChevronDownGlyph,
   ChevronLeftGlyph,
   ChevronRightGlyph,
@@ -199,7 +200,7 @@ interface CodeSidebarProps {
   canLoadMoreAgentSessions: boolean
   onLoadMoreAgentSessions: () => void
   onNewAgent: (workspace?: string, command?: string, returnFocusTarget?: HTMLElement | null) => void
-  onStartAgent: (command: string, workspace: string, options?: { projectWorkspace?: string }) => void
+  onStartAgent: (command: string, workspace: string, options?: { projectWorkspace?: string; agentRuntimeMode?: 'terminal' | 'chat' | 'acp' }) => void
   onToggleSidebar: () => void
   onOpenSearch: () => void
   onOpenWorkspaceView: (view: WorkspaceView) => void
@@ -1347,7 +1348,7 @@ interface ProjectSectionProps {
   onToggleProjectSessions: (projectId: string) => void
   onMountProject: (workspace: string) => void
   onNewAgent: (workspace?: string, command?: string, returnFocusTarget?: HTMLElement | null) => void
-  onStartAgent: (command: string, workspace: string, options?: { projectWorkspace?: string }) => void
+  onStartAgent: (command: string, workspace: string, options?: { projectWorkspace?: string; agentRuntimeMode?: 'terminal' | 'chat' | 'acp' }) => void
   onOpenProjectMenu: (event: ContextMenuTriggerEvent, projectId: string) => void
   onShowProjectPreview: (event: AgentPreviewAnchorEvent, target: ProjectPreviewTarget) => void
   onOpenAgent: (agentId: string) => void
@@ -1579,7 +1580,7 @@ function ProjectSection({
     }
 
     const rect = event.currentTarget.getBoundingClientRect()
-    const menuWidth = 160
+    const menuWidth = 194
     const menuHeight = Math.min(260, agentLaunchOptions.length * 34 + 12)
     const point = isCompactViewport()
       ? mobileActionMenuPoint(rect, menuHeight, undefined, menuWidth)
@@ -1587,9 +1588,9 @@ function ProjectSection({
     setLaunchMenu(point)
   }
 
-  const startProjectAgent = (command: string) => {
+  const startProjectAgent = (command: string, agentRuntimeMode?: 'chat') => {
     setLaunchMenu(null)
-    onStartAgent(command, project.workspace)
+    onStartAgent(command, project.workspace, agentRuntimeMode ? { agentRuntimeMode } : undefined)
   }
   const currentWorktree = repositoryWorktrees?.items.find(item => item.current)
   const hasRepositoryWorktrees = Boolean(repositoryWorktrees?.isGitRepo && currentWorktree)
@@ -1719,18 +1720,42 @@ function ProjectSection({
             role="menu"
             style={{ left: launchMenu.x, top: launchMenu.y }}
           >
-            {agentLaunchOptions.map(option => (
-              <button
-                key={option.name}
-                type="button"
-                role="menuitem"
-                data-testid={`code-project-agent-launch-${option.name}`}
-                onClick={() => startProjectAgent(option.command || option.name)}
-              >
-                <AgentLaunchIcon name={option.name} />
-                <span>{agentDisplayName(option.name)}</span>
-              </button>
-            ))}
+            {agentLaunchOptions.map(option => {
+              const command = option.command || option.name
+              const displayName = agentDisplayName(option.name)
+              const supportsChat = option.capabilities?.supportsChat === true
+              return (
+                <div
+                  key={option.name}
+                  className={`code-project-launch-option ${supportsChat ? 'has-chat' : ''}`}
+                  role="none"
+                >
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="code-project-agent-launch"
+                    data-testid={`code-project-agent-launch-${option.name}`}
+                    onClick={() => startProjectAgent(command)}
+                  >
+                    <AgentLaunchIcon name={option.name} />
+                    <span>{displayName}</span>
+                  </button>
+                  {supportsChat && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="code-project-agent-launch-chat"
+                      data-testid={`code-project-agent-launch-chat-${option.name}`}
+                      aria-label={`${displayName} · ${copy.transcriptView}`}
+                      title={copy.transcriptView}
+                      onClick={() => startProjectAgent(command, 'chat')}
+                    >
+                      <ChatBubblesGlyph />
+                    </button>
+                  )}
+                </div>
+              )
+            })}
           </div>,
           document.body
         )}

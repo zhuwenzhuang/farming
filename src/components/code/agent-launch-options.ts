@@ -5,6 +5,9 @@ export interface AgentLaunchOption {
   category?: string
   supported?: boolean
   interactive?: boolean
+  capabilities?: {
+    supportsChat?: boolean
+  }
 }
 
 const PREFERRED_AGENT_ORDER = ['codex', 'claude', 'opencode', 'qoder', 'qwen', 'bash', 'zsh']

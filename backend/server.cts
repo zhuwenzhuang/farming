@@ -227,7 +227,7 @@ import { listAvailableAgents, resolveCompatibleCodexExecutable } from './executa
 import { readClaudeSettingsSummary } from './claude-settings.cjs';
 import { listCodexModelOptions } from './codex-models.cjs';
 import { readProviderHomeConfiguration } from './provider-home-configuration.cjs';
-import { applyProviderHomeEnvironment } from './provider-adapters.cjs';
+import { applyProviderHomeEnvironment, providerCapabilities } from './provider-adapters.cjs';
 import { listCodexSessions } from './codex-session-history.cjs';
 import { buildAgentSessionResumeCommand, findAgentSession, isSafeSessionId, normalizeProvider, paginateAgentSessions, resolveCodexResumeModelProvider, searchAgentSessions } from './agent-session-history.cjs';
 import { findActiveAgentClaimingSession, mainPageAgentSessionKey, mainPageAgentSessionFromKey, mainPageAgentSessionsToAutoResume, resumedAgentSource } from './main-page-session.cjs';
@@ -552,7 +552,7 @@ const materialIconDir = path.join(__dirname, '..', 'node_modules', 'material-ico
 
 function getAvailableAgentsForRequest() {
   if (process.env.FARMING_E2E_FAKE_EXECUTABLES === '1') {
-    return [
+    return withLaunchCapabilities([
       {
         name: 'codex',
         command: 'codex',
@@ -609,14 +609,23 @@ function getAvailableAgentsForRequest() {
         supported: true,
         interactive: true,
       },
-    ];
+    ]);
   }
 
   const shellEnv = agentManager.resolveAgentShellEnv('', { maxAgeMs: INTERACTIVE_REFRESH_CACHE_MAX_AGE_MS });
   const pathEnv = typeof shellEnv?.PATH === 'string' && shellEnv.PATH.trim()
     ? shellEnv.PATH
     : (process.env.PATH || '');
-  return listAvailableAgents(pathEnv);
+  return withLaunchCapabilities(listAvailableAgents(pathEnv));
+}
+
+function withLaunchCapabilities<T extends { name: string }>(agents: T[]) {
+  return agents.map(agent => ({
+    ...agent,
+    capabilities: {
+      supportsChat: providerCapabilities(agent.name).supportsChat === true,
+    },
+  }));
 }
 
 function normalizeWorkspaceCompletionInput(value: string) {

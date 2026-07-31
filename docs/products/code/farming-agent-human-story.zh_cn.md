@@ -13,11 +13,13 @@
 3. 选择 Codex、Claude Code、OpenCode、Qoder、bash 或 zsh。
 4. 选择已有 workspace 并启动。
 5. 确认新行出现在对应项目下，并成为 active Agent。
+6. 打开已有项目的 **+** 菜单，确认具备 Chat 能力的 Agent 行显示对话气泡快捷按钮，并可用它直接启动 Chat。
 
 期望：
 
 - 首次使用从 **New Agent** 开始，不强制配置 Main Agent；
 - coding Agent 只有在 executable/runtime 可用时才可启动；
+- 项目 **+** 菜单根据 provider capability 显示 Chat 快捷按钮；shell 行不显示，点击行主体仍保持原有默认启动行为；
 - Agent 在用户选择的 workspace 中运行；
 - 重新打开同一页面不会复制一份进程。
 
