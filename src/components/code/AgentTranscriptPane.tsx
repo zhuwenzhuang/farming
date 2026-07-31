@@ -52,7 +52,7 @@ import {
 } from '@/lib/reading-anchor'
 import { collectTerminalPathLinkMatches } from '@/lib/terminal-links'
 import { isCompactViewport } from '@/lib/responsive-mode'
-import { loadAcpReviewPreview } from '@/lib/review/api'
+import { loadAcpReviewPreview, loadReviewComparisonSources } from '@/lib/review/api'
 import type { WorkspaceFileOpenTarget } from '@/lib/workspace-open-files'
 import type { CodeCopy } from './copy'
 import { acpActivityKind, acpCompactPlanLabel, acpLiveToolActivityLabel, acpPlanProgress, type AcpActivityKind } from './acp/acp-activity-label'
@@ -82,6 +82,13 @@ import {
   isAcpProgressUpdate,
 } from './acp/acp-progress-timeline'
 import { terminalTargetFilePath } from './workspace-file-view'
+import {
+  transcriptGitDiffSearchParams,
+  transcriptGitDiffTargetForRepository,
+  unavailableTranscriptGitDiffTarget,
+  workingCopyTranscriptGitDiffTarget,
+  type TranscriptGitDiffTarget,
+} from './transcript-git-diff'
 import 'katex/dist/katex.min.css'
 
 interface AgentTranscriptProcessPresentation {
@@ -2262,14 +2269,14 @@ function AgentTranscriptPatchResultCard({
   onLoadPatchChanges,
   source,
   workspaceRoot,
-  gitDiffAvailable,
+  gitDiffTarget,
 }: {
   items: AgentTranscriptProcessItem[]
   copy: CodeCopy
   onLoadPatchChanges?: (itemIds: string[]) => Promise<AgentTranscriptPatchChange[]>
   source: AgentTranscriptPaneProps['source']
   workspaceRoot?: string
-  gitDiffAvailable: boolean
+  gitDiffTarget: TranscriptGitDiffTarget
 }) {
   const [reviewOpen, setReviewOpen] = useState(false)
   const [detailedChanges, setDetailedChanges] = useState<AgentTranscriptPatchChange[] | null>(null)
@@ -2329,9 +2336,9 @@ function AgentTranscriptPatchResultCard({
     window.open(appPath(`/review?${params.toString()}`), '_blank', 'noopener,noreferrer')
   }, [copy.agentTranscriptUnavailable, detailedChanges, hasCompleteEmbeddedDiff, items, onLoadPatchChanges, source, workspaceRoot])
   const handleGitDiff = useCallback(() => {
-    if (!workspaceRoot) return
-    window.open(appPath(`/review?${new URLSearchParams({ root: workspaceRoot }).toString()}`), '_blank', 'noopener,noreferrer')
-  }, [workspaceRoot])
+    if (!workspaceRoot || gitDiffTarget.kind === 'unavailable') return
+    window.open(appPath(`/review?${transcriptGitDiffSearchParams(workspaceRoot, gitDiffTarget).toString()}`), '_blank', 'noopener,noreferrer')
+  }, [gitDiffTarget, workspaceRoot])
   const summaryContent = (
     <>
       <span>{summary}</span>
@@ -2358,9 +2365,11 @@ function AgentTranscriptPatchResultCard({
             >
               {copy.agentTranscriptReviewChanges}
             </button>
-            {gitDiffAvailable ? (
+            {gitDiffTarget.kind !== 'unavailable' ? (
               <button type="button" className="code-agent-transcript-result-review git-diff" onClick={handleGitDiff}>
-                {copy.agentTranscriptGitDiff}
+                {gitDiffTarget.kind === 'last-commit'
+                  ? copy.agentTranscriptGitDiffLastCommit
+                  : copy.agentTranscriptGitDiff}
               </button>
             ) : null}
           </div>
@@ -2439,7 +2448,7 @@ function AgentTranscriptTurnView({
   onToggleProcess,
   onLoadProcessItemDetail,
   onLoadPatchChanges,
-  gitDiffAvailable,
+  gitDiffTarget,
   onStopTerminal,
   onInputTerminal,
   onResizeTerminal,
@@ -2462,7 +2471,7 @@ function AgentTranscriptTurnView({
   onToggleProcess: (turnId: string) => void
   onLoadProcessItemDetail?: (itemId: string) => Promise<AgentTranscriptProcessPresentation>
   onLoadPatchChanges?: (itemIds: string[]) => Promise<AgentTranscriptPatchChange[]>
-  gitDiffAvailable: boolean
+  gitDiffTarget: TranscriptGitDiffTarget
   onStopTerminal?: (terminalId: string) => Promise<void>
   onInputTerminal?: (terminalId: string, input: string) => Promise<void>
   onResizeTerminal?: (terminalId: string, cols: number, rows: number) => Promise<void>
@@ -3065,7 +3074,7 @@ function AgentTranscriptTurnView({
             onLoadPatchChanges={onLoadPatchChanges}
             source={source}
             workspaceRoot={workspaceRoot}
-            gitDiffAvailable={gitDiffAvailable}
+            gitDiffTarget={gitDiffTarget}
           />
         </div>
       ) : null}
@@ -3115,7 +3124,10 @@ export function AgentTranscriptPane({
   const [turnLimit, setTurnLimit] = useState(() => initialTranscriptTurnLimit(source))
   const [loadingOlder, setLoadingOlder] = useState(false)
   const [showJumpToBottom, setShowJumpToBottom] = useState(false)
-  const [gitDiffAvailable, setGitDiffAvailable] = useState(false)
+  const [gitDiffState, setGitDiffState] = useState<{
+    owner: string
+    target: TranscriptGitDiffTarget
+  }>({ owner: '', target: unavailableTranscriptGitDiffTarget })
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const pendingPrependAnchorRef = useRef<{ scrollTop: number; scrollHeight: number } | null>(null)
   const followBottomRef = useRef(true)
@@ -3335,6 +3347,19 @@ export function AgentTranscriptPane({
   }, [active, agentId, copy.agentTranscriptUnavailable, refreshSignal, source, turnLimit])
 
   const turns = useMemo(() => transcript?.turns || [], [transcript])
+  const latestTurn = turns[turns.length - 1]
+  const latestProcessItem = latestTurn?.processItems[latestTurn.processItems.length - 1]
+  const gitDiffRefreshKey = [
+    latestTurn?.id || '',
+    latestTurn?.status || '',
+    latestTurn?.completedAt || '',
+    latestProcessItem?.id || '',
+    latestProcessItem?.status || '',
+  ].join('\0')
+  const gitDiffOwner = `${agentId}\0${workspaceRoot || ''}`
+  const gitDiffTarget = gitDiffState.owner === gitDiffOwner
+    ? gitDiffState.target
+    : unavailableTranscriptGitDiffTarget
   const awaitingAcpHistory = source === 'acp'
     && !error
     && turns.length === 0
@@ -3423,16 +3448,30 @@ export function AgentTranscriptPane({
     onOpenFile: onOpenWorkspaceFilePath ? handleOpenFile : undefined,
   }), [handleOpenFile, onOpenWorkspaceFilePath, workspaceRoot])
   useEffect(() => {
+    if (!active || !workspaceRoot) return undefined
     let cancelled = false
-    setGitDiffAvailable(false)
     void fetch(appPath(`/api/files/worktrees?agentId=${encodeURIComponent(agentId)}`))
       .then(response => response.ok ? response.json() : null)
-      .then(value => {
-        if (!cancelled) setGitDiffAvailable(value?.worktrees?.isGitRepo === true)
+      .then(async value => {
+        if (cancelled) return
+        if (value?.worktrees?.isGitRepo !== true) {
+          setGitDiffState({ owner: gitDiffOwner, target: unavailableTranscriptGitDiffTarget })
+          return
+        }
+        let target = workingCopyTranscriptGitDiffTarget
+        try {
+          target = transcriptGitDiffTargetForRepository(
+            await loadReviewComparisonSources({ root: workspaceRoot }),
+          )
+        } catch {
+          // A repository without HEAD, or a transient comparison-source failure,
+          // still supports the existing working-copy review path.
+        }
+        if (!cancelled) setGitDiffState({ owner: gitDiffOwner, target })
       })
       .catch(() => {})
     return () => { cancelled = true }
-  }, [agentId])
+  }, [active, agentId, gitDiffOwner, gitDiffRefreshKey, workspaceRoot])
   const handleLoadProcessItemDetail = useCallback(async (itemId: string) => {
     const response = await fetch(appPath(
       `/api/agents/${encodeURIComponent(agentId)}/acp-tool-details/${encodeURIComponent(itemId)}`,
@@ -3682,7 +3721,7 @@ export function AgentTranscriptPane({
                     onToggleProcess={handleToggleProcess}
                     onLoadProcessItemDetail={source === 'acp' ? handleLoadProcessItemDetail : undefined}
                     onLoadPatchChanges={source === 'acp' ? handleLoadPatchChanges : undefined}
-                    gitDiffAvailable={gitDiffAvailable}
+                    gitDiffTarget={gitDiffTarget}
                     onStopTerminal={source === 'acp' ? handleStopTerminal : undefined}
                     onInputTerminal={source === 'acp' ? handleInputTerminal : undefined}
                     onResizeTerminal={source === 'acp' ? handleResizeTerminal : undefined}
