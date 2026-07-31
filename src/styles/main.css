@@ -1561,7 +1561,7 @@ body.code-resizing-sidebar {
 }
 
 .code-agent-row {
-  --code-agent-row-action-surface: #f6f7f3;
+  --code-agent-row-action-surface: #f7f7f6;
   min-width: 0;
   position: relative;
   display: grid;
@@ -1571,7 +1571,7 @@ body.code-resizing-sidebar {
   gap: 7px;
   padding: 4px 6px;
   /* 14px Agent labels need a lighter optical tone than the 13px file rows. */
-  color: #585e57;
+  color: #585858;
   text-align: left;
   font-size: 14px;
   font-weight: 400;
@@ -1609,18 +1609,18 @@ body.code-resizing-sidebar {
 }
 
 .code-agent-row.active {
-  --code-agent-row-action-surface: #e8e9e6;
+  --code-agent-row-action-surface: #e9e9e8;
   background: rgba(0, 0, 0, 0.055);
 }
 
 .code-agent-row.search-selected {
-  --code-agent-row-action-surface: #e5e6e2;
+  --code-agent-row-action-surface: #e6e6e5;
   background: rgba(0, 0, 0, 0.07);
   box-shadow: inset 0 0 0 1px rgba(31, 35, 40, 0.12);
 }
 
 .code-agent-row.unread .code-agent-name {
-  color: #242a24;
+  color: #242424;
   font-weight: 500;
 }
 
@@ -1629,7 +1629,7 @@ body.code-resizing-sidebar {
   width: 8px;
   height: 8px;
   border-radius: 999px;
-  background: #9aa198;
+  background: #9a9a9a;
   flex: 0 0 auto;
 }
 
@@ -1830,7 +1830,7 @@ body.code-resizing-sidebar {
 
 .code-session-show-more {
   grid-template-columns: minmax(0, 1fr) auto;
-  color: #6f766e;
+  color: #707070;
   font-size: 13px;
 }
 
@@ -1839,7 +1839,7 @@ body.code-resizing-sidebar {
 }
 
 .code-session-show-more:hover {
-  color: #343a34;
+  color: #343434;
 }
 
 .code-agent-list-controls {
@@ -1880,7 +1880,7 @@ body.code-resizing-sidebar {
   justify-content: flex-end;
   gap: 6px;
   min-width: 0;
-  color: #7b8078;
+  color: #7b7b7b;
   font-size: 12px;
   white-space: nowrap;
 }
@@ -1913,7 +1913,7 @@ body.code-resizing-sidebar {
 }
 
 .code-agent-row:hover:not(.active):not(.search-selected) {
-  --code-agent-row-action-surface: #e7e8e4;
+  --code-agent-row-action-surface: #e8e8e7;
 }
 
 .code-agent-row:hover .code-agent-age,
@@ -1931,7 +1931,7 @@ body.code-resizing-sidebar {
   border: 0;
   border-radius: 6px;
   background: transparent;
-  color: #687067;
+  color: #686868;
   cursor: pointer;
   position: relative;
 }
@@ -1939,7 +1939,7 @@ body.code-resizing-sidebar {
 .code-agent-row-action:hover,
 .code-agent-row-action:focus-visible {
   background: rgba(0, 0, 0, 0.08);
-  color: #242a24;
+  color: #242424;
   outline: none;
 }
 
@@ -1968,7 +1968,7 @@ body.code-mode:not(.code-compact-layout) .code-agent-row.requires-resume .code-a
   border: 0;
   border-radius: 6px;
   background: var(--code-agent-row-action-surface);
-  color: #687067;
+  color: #686868;
   cursor: pointer;
   opacity: 0;
   pointer-events: none;
@@ -1986,7 +1986,7 @@ body.code-mode:not(.code-compact-layout) .code-agent-row.requires-resume:focus-w
 body.code-mode:not(.code-compact-layout) .code-agent-row.requires-resume .code-agent-row-more:hover,
 body.code-mode:not(.code-compact-layout) .code-agent-row.requires-resume .code-agent-row-more:focus-visible {
   background: rgba(0, 0, 0, 0.08);
-  color: #242a24;
+  color: #242424;
   outline: none;
 }
 
@@ -2035,7 +2035,7 @@ body.code-mode:not(.code-compact-layout) .code-agent-row.requires-resume .code-a
   display: inline-grid;
   place-items: center;
   flex: 0 0 auto;
-  color: #7b8078;
+  color: #7b7b7b;
 }
 
 .code-agent-fork-new-worktree svg {
@@ -2073,7 +2073,7 @@ body.code-mode:not(.code-compact-layout) .code-agent-row.requires-resume .code-a
 }
 
 .code-agent-meta {
-  color: #7b8078;
+  color: #7b7b7b;
   font-size: 12px;
 }
 
@@ -2145,7 +2145,7 @@ body.code-mode:not(.code-compact-layout) .code-agent-row.requires-resume .code-a
   margin-right: 2px;
   padding-left: 14px;
   padding-bottom: 0;
-  background: #f6f7f3;
+  background: #f7f7f6;
   border-radius: 0 0 6px 6px;
 }
 

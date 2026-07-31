@@ -1644,7 +1644,7 @@ function run() {
 	      stylesSource.includes('.code-agent-unread') &&
 	      stylesSource.includes('.code-agent-row-actions') &&
 	      stylesSource.includes('.code-agent-row:hover .code-agent-row-actions') &&
-	      stylesSource.includes('--code-agent-row-action-surface: #e7e8e4;') &&
+	      stylesSource.includes('--code-agent-row-action-surface: #e8e8e7;') &&
 	      stylesSource.includes('background: linear-gradient(90deg, transparent 0, var(--code-agent-row-action-surface) 21px, var(--code-agent-row-action-surface) 100%);') &&
 	      darkStylesSource.includes('body.code-mode[data-appearance=\'dark\'] .code-agent-row:hover .code-agent-row-actions,') &&
 	      darkStylesSource.includes('--code-agent-row-action-surface: var(--code-dark-bg-hover);') &&
