@@ -5430,6 +5430,14 @@ export function CodeWorkspace({
         additionalAgentResourceIds={computerSectionAgentIds}
         renderAdditionalAgentResources={({ agentId, workspace }) => {
           const resource = computerResources.byAgentId.get(agentId) ?? null
+          const isolatedBrowserCount = (browserResources.byAgentId.get(agentId) ?? []).filter(browser => (
+            browser.browserKind === 'isolated-computer'
+            && (
+              browser.status === 'starting'
+              || browser.status === 'running'
+              || browser.status === 'stopping'
+            )
+          )).length
           return (
             <ComputerSection
               workspace={workspace}
@@ -5439,6 +5447,7 @@ export function CodeWorkspace({
               controller={computerResources}
               language={uiPreferences.language}
               collapsed={collapsedComputerAgentIds.has(agentId)}
+              isolatedBrowserCount={isolatedBrowserCount}
               onToggle={() => {
                 setCollapsedComputerAgentIds(current => {
                   const next = new Set(current)

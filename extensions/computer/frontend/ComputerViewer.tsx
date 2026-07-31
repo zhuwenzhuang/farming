@@ -67,7 +67,8 @@ export function ComputerViewer({
   const copy = copyFor(language)
   const [config, setConfig] = useState<ViewerConfig | null>(null)
   const [error, setError] = useState('')
-  const busy = resource.status === 'starting' || resource.status === 'stopping'
+  const [transitioning, setTransitioning] = useState(false)
+  const busy = transitioning || resource.status === 'starting' || resource.status === 'stopping'
 
   useEffect(() => {
     if (resource.status !== 'running') {
@@ -99,10 +100,30 @@ export function ComputerViewer({
     [config, resource],
   )
   const toggleControl = async () => {
-    await controller.takeControl(
-      resource.id,
-      resource.controlOwner === 'human' ? 'agent' : 'human',
-    )
+    setTransitioning(true)
+    setError('')
+    try {
+      await controller.takeControl(
+        resource.id,
+        resource.controlOwner === 'human' ? 'agent' : 'human',
+      )
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : copy.viewerFailed)
+    } finally {
+      setTransitioning(false)
+    }
+  }
+  const transition = async (operation: 'start' | 'stop') => {
+    setTransitioning(true)
+    setError('')
+    try {
+      if (operation === 'start') await controller.start(resource.id)
+      else await controller.stop(resource.id)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : copy.viewerFailed)
+    } finally {
+      setTransitioning(false)
+    }
   }
 
   return (
@@ -120,6 +141,7 @@ export function ComputerViewer({
             <button
               type="button"
               className="farming-computer-control-button"
+              disabled={busy}
               onClick={() => void toggleControl()}
             >
               {resource.controlOwner === 'human' ? copy.returnControl : copy.takeControl}
@@ -128,7 +150,8 @@ export function ComputerViewer({
               type="button"
               title={copy.stop}
               aria-label={copy.stop}
-              onClick={() => void controller.stop(resource.id)}
+              disabled={busy}
+              onClick={() => void transition('stop')}
             >
               <SquareGlyph />
             </button>
@@ -147,14 +170,14 @@ export function ComputerViewer({
           <div className="farming-computer-empty-state">
             <strong>{copy.failed}</strong>
             <span>{resource.error}</span>
-            <button type="button" disabled={busy} onClick={() => void controller.start(resource.id)}>
+            <button type="button" disabled={busy} onClick={() => void transition('start')}>
               {copy.start}
             </button>
           </div>
         ) : (
           <div className="farming-computer-empty-state">
             <strong>{copy.stopped}</strong>
-            <button type="button" disabled={busy} onClick={() => void controller.start(resource.id)}>
+            <button type="button" disabled={busy} onClick={() => void transition('start')}>
               {copy.start}
             </button>
           </div>

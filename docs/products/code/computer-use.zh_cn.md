@@ -63,6 +63,12 @@ Agent 绝不共享 Container、Desktop Session、Viewer Password、Browser Profi
 - 关闭 Computer Use 只停止桌面，不删除保留状态。
 - Browser 正在租用桌面时，必须先停止 Browser，才能停止或删除桌面。
 
+Agent 的 Resource 层级会先展示桌面，再展示它使用的 Browser 标签页。运行中的桌面
+行会同时保留当前控制者和仍在租用它的隔离 Browser 数量；数量不为零时，停止操作
+不可用并明确说明原因。重命名和删除属于行菜单中的次级操作；删除需要确认，任何
+生命周期命令失败都会保留在行内，不能被静默丢弃。停止或删除隔离 Browser 只释放
+它的桌面租约，不会删除 Agent 拥有的桌面。
+
 破坏性操作前，Farming 会校验 Container 身份和 Ownership Label。noVNC 只暴露在
 回环地址，并由带鉴权的 Farming Server 代理。
 

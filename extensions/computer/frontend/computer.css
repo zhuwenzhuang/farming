@@ -92,6 +92,7 @@
 
 .farming-computer-name { font-size: 13px; }
 .farming-computer-detail { color: var(--code-text-muted); font-size: 11px; }
+.farming-computer-detail.error { color: #c53d3d; }
 
 .farming-computer-copy input {
   width: 100%;
@@ -99,7 +100,7 @@
 }
 
 .farming-computer-actions {
-  width: 93px;
+  width: 61px;
   height: 28px;
   position: absolute;
   top: 50%;
@@ -135,6 +136,44 @@
   height: 24px;
 }
 
+.farming-computer-more-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.farming-computer-more-menu {
+  position: absolute;
+  z-index: 3;
+  top: calc(100% + 4px);
+  right: 0;
+  width: max-content;
+  min-width: 116px;
+  display: grid;
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid var(--code-border);
+  border-radius: 6px;
+  background: var(--code-bg);
+  box-shadow: 0 8px 18px rgba(31, 35, 40, 0.16);
+}
+
+.farming-computer-more-menu button {
+  width: auto;
+  min-width: 0;
+  padding: 0 8px;
+  color: var(--code-text);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+}
+
+.farming-computer-more-menu button:hover,
+.farming-computer-more-menu button:focus-visible {
+  background: var(--code-hover);
+}
+
+.farming-computer-more-menu button.danger { color: #c53d3d; }
+
 .farming-computer-actions svg,
 .farming-computer-empty svg {
   width: 13px;
@@ -156,6 +195,8 @@ body.code-mode[data-appearance='dark'] .farming-computer-resource-icon.running {
 body.code-mode[data-appearance='dark'] .farming-computer-resource-icon.failed { color: #ff7b72; }
 body.code-mode[data-appearance='dark'] .farming-computer-resource-icon.starting,
 body.code-mode[data-appearance='dark'] .farming-computer-resource-icon.stopping { color: #d29922; }
+body.code-mode[data-appearance='dark'] .farming-computer-detail.error,
+body.code-mode[data-appearance='dark'] .farming-computer-more-menu button.danger { color: #ff7b72; }
 
 .farming-computer-empty {
   display: flex;

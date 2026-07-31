@@ -72,6 +72,15 @@ password, Browser profile, or private endpoint.
 - An active Browser lease must be stopped before its Desktop can be stopped or
   deleted.
 
+The Agent resource hierarchy presents the Desktop before its Browser tabs. A
+running Desktop row keeps the current control owner visible and also reports the
+number of isolated Browser tabs that still lease it. While that count is
+non-zero, Stop is unavailable with an explicit explanation. Rename and Delete
+remain secondary actions under the row menu; Delete requires confirmation, and
+every failed lifecycle command stays visible on the row instead of being
+discarded. Stopping or deleting an isolated Browser releases only its lease and
+never removes the Agent-owned Desktop.
+
 Farming verifies container identity and ownership labels before destructive
 operations. noVNC is exposed only on loopback and proxied through the
 authenticated Farming Server.

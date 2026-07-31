@@ -31,6 +31,8 @@ test('shows an Agent-owned Desktop only when present and switches Viewer control
   const workspace = path.join(workspaceRoot, 'agent-owned-computer-project')
   fs.mkdirSync(workspace, { recursive: true })
   let resource: MockComputer | null = null
+  let deleteShouldFail = true
+  let deleteRequests = 0
   let browserCapabilityRequests = 0
   let computerCapabilityRequests = 0
 
@@ -131,6 +133,27 @@ test('shows an Agent-owned Desktop only when present and switches Viewer control
       body: JSON.stringify(resource),
     })
   })
+  await page.route('**/api/computers/computer_frontend_test', async route => {
+    if (route.request().method() !== 'DELETE') {
+      await route.continue()
+      return
+    }
+    deleteRequests += 1
+    if (deleteShouldFail) {
+      await route.fulfill({
+        status: 409,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: 'Stop the Browsers using this Desktop first' }),
+      })
+      return
+    }
+    const collectionRevision = (resource?.collectionRevision ?? 2) + 1
+    resource = null
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ id: 'computer_frontend_test', collectionRevision }),
+    })
+  })
   await page.route('**/api/computers/*/viewer/vnc.html*', route => route.fulfill({
     contentType: 'text/html',
     body: '<!doctype html><title>Mock Computer desktop</title><main>Mock Computer desktop</main>',
@@ -201,6 +224,17 @@ test('shows an Agent-owned Desktop only when present and switches Viewer control
   const computerCopyBoxBeforeHover = await computerCopy.boundingBox()
   await computerRow.hover()
   await expect(computerActions).toHaveCSS('opacity', '1')
+  await expect(computerActions.getByRole('button')).toHaveCount(2)
+  await expect(computerActions.getByRole('button', { name: 'Stop Desktop' })).toBeVisible()
+  const moreDesktopActions = computerActions.getByRole('button', { name: 'More' })
+  await moreDesktopActions.click()
+  const desktopMenu = computerRow.getByRole('menu')
+  await expect(desktopMenu.getByRole('menuitem', { name: 'Rename Desktop' })).toBeVisible()
+  const deleteDesktop = desktopMenu.getByRole('menuitem', { name: 'Delete Desktop' })
+  page.once('dialog', dialog => dialog.accept())
+  await deleteDesktop.click()
+  await expect.poll(() => deleteRequests).toBe(1)
+  await expect(computerRow).toContainText('Stop the Browsers using this Desktop first')
   const computerCopyBoxAfterHover = await computerCopy.boundingBox()
   if (!computerCopyBoxBeforeHover || !computerCopyBoxAfterHover) {
     throw new Error('Computer row copy must have measurable bounds')
@@ -218,4 +252,13 @@ test('shows an Agent-owned Desktop only when present and switches Viewer control
   await viewer.getByRole('button', { name: 'Return to Agent' }).click()
   await expect(viewer.getByRole('button', { name: 'Take control' })).toBeVisible()
   await expect(frame).toHaveAttribute('src', /view_only=1/)
+
+  await viewer.getByRole('button', { name: 'Back to Agent' }).click()
+  deleteShouldFail = false
+  await computerRow.hover()
+  await moreDesktopActions.click()
+  page.once('dialog', dialog => dialog.accept())
+  await computerRow.getByRole('menuitem', { name: 'Delete Desktop' }).click()
+  await expect.poll(() => deleteRequests).toBe(2)
+  await expect(computerSection.getByTestId('farming-computer-row')).toHaveCount(0)
 })

@@ -469,6 +469,11 @@ export function BrowserSidebarPortals({
         if (contentTarget && expanded) {
           portals.push(createPortal(
             <>
+              {renderAdditionalAgentResources?.({
+                agentId: agent.id,
+                workspace: project.workspace,
+                expanded,
+              })}
               {browserAvailable && (
                 <BrowserSection
                   workspace={project.workspace}
@@ -482,11 +487,6 @@ export function BrowserSidebarPortals({
                   onOpen={onOpen}
                 />
               )}
-              {renderAdditionalAgentResources?.({
-                agentId: agent.id,
-                workspace: project.workspace,
-                expanded,
-              })}
             </>,
             contentTarget,
             `browser-agent-section:${agent.id}`,
