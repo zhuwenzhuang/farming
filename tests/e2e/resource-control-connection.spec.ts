@@ -84,7 +84,33 @@ async function openTerminal(page: Page, agentId: string) {
   await row.click()
   await expect(page.locator(`.terminal-session-host[data-agent-id="${agentId}"]`))
     .toBeVisible({ timeout: 15_000 })
-  await page.waitForFunction(id => window.__farmingTerminalTest?.isReady(id) === true, agentId)
+  try {
+    await page.waitForFunction(
+      id => window.__farmingTerminalTest?.isReady(id) === true,
+      agentId,
+      { timeout: 30_000 },
+    )
+  } catch (caught) {
+    const diagnostics = await page.evaluate(
+      id => window.__farmingTerminalTest?.getBufferDiagnostics(id) ?? null,
+      agentId,
+    )
+    const checkpoint = await page.request
+      .get(`/farming/api/agents/${agentId}/session-view`, { timeout: 5_000 })
+      .then(async response => ({
+        body: await response.json().catch(() => null),
+        ok: response.ok(),
+        status: response.status(),
+      }))
+      .catch(error => ({
+        error: error instanceof Error ? error.message : String(error),
+      }))
+    throw new Error(
+      `Terminal ${agentId} did not become ready: diagnostics=${JSON.stringify(diagnostics)}; `
+      + `checkpoint=${JSON.stringify(checkpoint)}`,
+      { cause: caught },
+    )
+  }
 }
 
 test('three Farming pages keep one control WebSocket and do not starve terminal checkpoints', async ({

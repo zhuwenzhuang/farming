@@ -94,7 +94,6 @@ export function ComputerSection({
           onClick={onToggle}
         >
           <span aria-hidden="true">{collapsed ? <ChevronRightGlyph /> : <ChevronDownGlyph />}</span>
-          <DesktopGlyph className="farming-computer-section-icon" />
           <span>{copy.title}</span>
           {resource && <small>1</small>}
         </button>

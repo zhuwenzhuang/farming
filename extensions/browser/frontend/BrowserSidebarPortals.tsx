@@ -252,7 +252,6 @@ function BrowserSection({
           <span className="farming-browser-section-chevron" aria-hidden="true">
             {collapsed ? <ChevronRightGlyph /> : <ChevronDownGlyph />}
           </span>
-          <BrowserGlyph className="farming-browser-section-icon" />
           <span>{copy.browsers}</span>
           {resources.length > 0 && <small>{resources.length}</small>}
         </button>

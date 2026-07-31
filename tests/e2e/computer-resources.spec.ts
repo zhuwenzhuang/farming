@@ -27,7 +27,7 @@ type MockComputer = {
 test('shows an Agent-owned Desktop only when present and switches Viewer control epochs', async ({
   page,
   workspaceRoot,
-}) => {
+}, testInfo) => {
   const workspace = path.join(workspaceRoot, 'agent-owned-computer-project')
   fs.mkdirSync(workspace, { recursive: true })
   let resource: MockComputer | null = null
@@ -143,7 +143,15 @@ test('shows an Agent-owned Desktop only when present and switches Viewer control
   await expect(agentRow.getByTestId('code-agent-resources-toggle')).toBeVisible()
   await expect(agentRow).not.toContainText('0')
   await agentRow.click({ button: 'right' })
-  await expect(page.getByRole('menuitem', { name: 'Create Isolated Desktop' })).toBeVisible()
+  const createDesktopMenuItem = page.getByRole('menuitem', { name: 'Create Isolated Desktop' })
+  await expect(createDesktopMenuItem).toBeVisible()
+  await expect(createDesktopMenuItem.locator('.code-context-menu-icon.trailing')).toHaveCount(1)
+  const desktopMenuScreenshot = testInfo.outputPath('agent-desktop-menu.png')
+  await page.locator('.code-context-menu').screenshot({ path: desktopMenuScreenshot })
+  await testInfo.attach('agent-desktop-menu', {
+    path: desktopMenuScreenshot,
+    contentType: 'image/png',
+  })
   await page.keyboard.press('Escape')
 
   await expect.poll(() => browserCapabilityRequests).toBeGreaterThan(0)
@@ -156,6 +164,13 @@ test('shows an Agent-owned Desktop only when present and switches Viewer control
   await expect.poll(() => computerCapabilityRequests).toBeGreaterThan(computerRequestsBeforePlugins)
   const computerPlugin = page.getByTestId('code-plugin-computer')
   await expect(computerPlugin.getByRole('heading', { name: 'Computer Use', exact: true })).toBeVisible()
+  await expect(computerPlugin.locator('.code-plugin-card-icon svg')).toHaveCount(1)
+  const computerPluginScreenshot = testInfo.outputPath('computer-use-plugin.png')
+  await computerPlugin.screenshot({ path: computerPluginScreenshot })
+  await testInfo.attach('computer-use-plugin', {
+    path: computerPluginScreenshot,
+    contentType: 'image/png',
+  })
   await expect(computerPlugin.getByText('Desktops', { exact: true })).toBeVisible()
   await expect(computerPlugin.getByText('Isolated Desktop', { exact: true })).toBeVisible()
   await expect(computerPlugin.getByText('Enabled', { exact: true })).toBeVisible()
@@ -178,6 +193,10 @@ test('shows an Agent-owned Desktop only when present and switches Viewer control
   const computerActions = computerRow.locator('.farming-computer-actions')
   const computerCopy = computerRow.locator('.farming-computer-copy')
   await expect(computerRow).toContainText('Agent Computer')
+  const computerStatus = computerRow.locator('.farming-computer-resource-icon.running')
+  await expect(computerStatus).toHaveCount(1)
+  await expect(computerStatus).toHaveCSS('color', 'rgb(31, 157, 85)')
+  await expect(computerRow.locator('.farming-computer-status')).toHaveCount(0)
   await expect(computerActions).toHaveCSS('opacity', '0')
   const computerCopyBoxBeforeHover = await computerCopy.boundingBox()
   await computerRow.hover()

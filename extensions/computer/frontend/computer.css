@@ -32,12 +32,6 @@
   fill: currentColor;
 }
 
-.farming-computer-section-icon {
-  width: 14px;
-  height: 14px;
-  flex: 0 0 14px;
-}
-
 .farming-computer-section-toggle small {
   margin-left: auto;
   font-size: 11px;
