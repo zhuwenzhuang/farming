@@ -113,7 +113,7 @@ interface CreateMetadata {
 
 interface StartAgentOptions extends Record<string, unknown> {
   acpHistoryMode: 'load' | 'resume';
-  agentRuntimeMode: 'acp' | 'chat' | 'json' | 'terminal';
+  agentRuntimeMode: 'acp' | 'chat' | 'terminal';
   createInitialInputSignature: string;
   createRequestId: string;
   dangerouslySkipPermissions: boolean;
@@ -200,8 +200,8 @@ function controlError(code: string, message: string): ControlError {
   return Object.assign(new Error(message), { code });
 }
 
-function isRequestedRuntimeMode(value: unknown): value is 'acp' | 'chat' | 'json' {
-  return value === 'acp' || value === 'chat' || value === 'json';
+function isRequestedRuntimeMode(value: unknown): value is 'acp' | 'chat' {
+  return value === 'acp' || value === 'chat';
 }
 
 function ensureTrailingNewline(value: unknown): string {

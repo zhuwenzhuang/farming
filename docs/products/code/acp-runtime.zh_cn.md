@@ -82,7 +82,7 @@ ACP 的边界保持明确：
 
 `full` 权限模式会自动选择 Agent 提供的 allow 选项；`ask` 会自动选择 reject 选项；普通审批模式会暴露完整的 ACP permission request，并等待后端 API 的明确回答。
 
-ACP 启动、初始化、历史恢复、prompt、协议和 adapter 退出错误都会成为明确的 runtime error。有界控制请求会在超时后给出可操作错误；正常的长时间 prompt 不设置人为总时限。Farming 不会把用户指定的 ACP Agent 静默降级成 Terminal 或 JSON CLI。Agent 正在执行时拒绝 Chat / Terminal 切换。尚未收到用户输入的新 Terminal，在 provider 历史尚未落盘时可以直接建立新的 ACP session；Terminal 一旦收到输入，切换就必须确认保存的 session 仍可发现。空闲后切换会停止旧进程并启动目标 runtime，如果目标启动失败，会立即用原 runtime 恢复同一个 provider Session，并明确报告切换失败。
+ACP 启动、初始化、历史恢复、prompt、协议和 adapter 退出错误都会成为明确的 runtime error。有界控制请求会在超时后给出可操作错误；正常的长时间 prompt 不设置人为总时限。Farming 不会把用户指定的 ACP Agent 静默降级成 Terminal。Agent 正在执行时拒绝 Chat / Terminal 切换。尚未收到用户输入的新 Terminal，在 provider 历史尚未落盘时可以直接建立新的 ACP session；Terminal 一旦收到输入，切换就必须确认保存的 session 仍可发现。空闲后切换会停止旧进程并启动目标 runtime，如果目标启动失败，会立即用原 runtime 恢复同一个 provider Session，并明确报告切换失败。
 
 ## 后端 API
 

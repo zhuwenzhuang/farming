@@ -2,15 +2,10 @@ import type {
   AcpRuntimeBinding,
   Agent,
   AgentRuntimeBinding,
-  JsonRuntimeBinding,
 } from '@/types/agent'
 
 export function isAcpRuntime(agent: Agent | null | undefined): agent is Agent & { runtimeBinding: AcpRuntimeBinding } {
   return agent?.runtimeBinding.kind === 'acp'
-}
-
-export function isJsonRuntime(agent: Agent | null | undefined): agent is Agent & { runtimeBinding: JsonRuntimeBinding } {
-  return agent?.runtimeBinding.kind === 'json'
 }
 
 export function isStructuredRuntime(agent: Agent | null | undefined) {
@@ -22,11 +17,10 @@ export function runtimeState(agent: Agent | null | undefined) {
 }
 
 export function runtimeBindingForMode(
-  mode: 'terminal' | 'chat' | 'acp' | 'json' | undefined,
+  mode: 'terminal' | 'chat' | 'acp' | undefined,
   fallback: AgentRuntimeBinding,
 ): AgentRuntimeBinding {
   if (mode === 'terminal') return { kind: 'terminal' }
-  if (mode === 'json') return { kind: 'json', state: 'starting', error: '', transcriptUpdatedAt: '' }
   if (mode === 'acp') {
     return {
       kind: 'acp',

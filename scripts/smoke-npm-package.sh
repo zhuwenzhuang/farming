@@ -118,7 +118,6 @@ for runtime_module in \
   input-parts \
   input-routing \
   index-html \
-  json-cli-runtime \
   main-agent-skills \
   main-page-session \
   native-pty-controller-generation \

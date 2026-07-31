@@ -1507,19 +1507,6 @@ app.get(routePath(BASE_PATH, '/api/agents/:agentId/session-view'), async (req, r
   res.json({ session: sessionView });
 });
 
-app.get(routePath(BASE_PATH, '/api/agents/:agentId/json-cli-transcript'), async (req, res) => {
-  try {
-    const transcript = agentManager.getJsonCliTranscript(req.params.agentId, {
-      maxTurns: DEFAULT_TRANSCRIPT_MAX_TURNS,
-    });
-    res.json({ transcript });
-  } catch (caught) {
-    const error = caughtError(caught);
-    const message = error && error.message ? error.message : 'Failed to read JSON CLI transcript';
-    res.status(message === 'Agent not found' ? 404 : 409).json({ error: message });
-  }
-});
-
 app.get(routePath(BASE_PATH, '/api/agents/:agentId/acp-session'), async (req, res) => {
   try {
     res.json({
@@ -3259,7 +3246,7 @@ function handleMessage(ws: WebSocketClient, data: ServerClientMessage) {
           customTitle: typeof data.customTitle === 'string' ? data.customTitle : '',
           createRequestId: typeof data.requestId === 'string' ? data.requestId : '',
           codexApprovalMode: typeof data.codexApprovalMode === 'string' ? data.codexApprovalMode : undefined,
-          agentRuntimeMode: typeof data.agentRuntimeMode === 'string' && ['json', 'acp', 'chat'].includes(data.agentRuntimeMode) ? data.agentRuntimeMode : 'terminal',
+          agentRuntimeMode: typeof data.agentRuntimeMode === 'string' && ['acp', 'chat'].includes(data.agentRuntimeMode) ? data.agentRuntimeMode : 'terminal',
           acpHistoryMode: data.acpHistoryMode === 'resume' ? 'resume' : 'load',
           providerHomeId: typeof data.providerHomeId === 'string' ? data.providerHomeId : '',
           ...(Array.isArray(data.additionalDirectories) ? { additionalDirectories: data.additionalDirectories } : {}),

@@ -70,17 +70,9 @@ interface CrtProtocolAcpRuntimeBinding extends CrtProtocolRecord {
   sessionRevision: number;
 }
 
-interface CrtProtocolJsonRuntimeBinding extends CrtProtocolRecord {
-  kind: 'json';
-  state: string;
-  error: string;
-  transcriptUpdatedAt: string;
-}
-
 type CrtProtocolRuntimeBinding =
   | CrtProtocolTerminalRuntimeBinding
-  | CrtProtocolAcpRuntimeBinding
-  | CrtProtocolJsonRuntimeBinding;
+  | CrtProtocolAcpRuntimeBinding;
 
 interface CrtProtocolPreviewCell extends CrtProtocolRecord {
   char: string;
@@ -356,6 +348,16 @@ interface CrtComposerInputResult extends CrtProtocolRecord {
   uncertain?: boolean;
 }
 
+interface CrtProtocolResourceMetadataServerMessage extends CrtProtocolRecord {
+  type:
+    | 'browser-resource-snapshot'
+    | 'browser-resource-updated'
+    | 'browser-resource-deleted'
+    | 'computer-resource-snapshot'
+    | 'computer-resource-updated'
+    | 'computer-resource-deleted';
+}
+
 type CrtWebSocketServerMessage =
   | CrtProtocolHelloServerMessage
   | CrtProtocolErrorServerMessage
@@ -367,6 +369,7 @@ type CrtWebSocketServerMessage =
   | CrtProtocolSessionOutputServerMessage
   | CrtProtocolAgentActivityServerMessage
   | CrtProtocolSystemStatsServerMessage
+  | CrtProtocolResourceMetadataServerMessage
   | CrtComposerInputResult;
 
 interface CrtProtocolStructuredCommand extends CrtProtocolRecord {

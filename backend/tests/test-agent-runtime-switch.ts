@@ -120,31 +120,6 @@ const AgentManager = require('../agent-manager.cjs');
   manager.acpRuntime.getSession = originalGetAcpSession;
   manager.findRuntimeSwitchSession = originalFindRuntimeSwitchSession;
 
-  manager.agents.set('agent-legacy-app-server-switch', {
-    id: 'agent-legacy-app-server-switch',
-    command: 'codex',
-    forkCommand: 'codex',
-    cwd: '/tmp/project',
-    projectWorkspace: '/tmp/project',
-    providerSessionProvider: 'codex',
-    providerSessionId: sessionId,
-    providerSessionTemporary: false,
-    providerHomeId: 'zwz',
-    providerHomePath: codexHome,
-    providerSessionTitle: 'Legacy App Server demo',
-    codexRuntimeMode: 'app-server',
-    agentRuntimeMode: 'terminal',
-    status: 'running',
-    output: '',
-  });
-  killed = '';
-  started = null;
-  const appServerTerminalResult = await manager.restartAgentRuntimeMode('agent-legacy-app-server-switch', 'terminal');
-  assert.strictEqual(killed, 'agent-legacy-app-server-switch');
-  assert.strictEqual(started.options.codexRuntimeMode, undefined);
-  assert.strictEqual(started.options.agentRuntimeMode, 'terminal');
-  assert.strictEqual(appServerTerminalResult.agentRuntimeMode, 'terminal');
-
   manager.agents.set('agent-qoder-switch', {
     id: 'agent-qoder-switch',
     command: 'qodercli',
@@ -298,26 +273,6 @@ const AgentManager = require('../agent-manager.cjs');
   assert.strictEqual(usedQoderResult.error, 'The saved Agent session is no longer available in the selected Agent Home.');
   assert.strictEqual(killed, '');
   assert.strictEqual(started, null);
-
-  manager.agents.set('agent-stale', {
-    id: 'agent-stale',
-    cwd: '/tmp/project',
-    projectWorkspace: '/tmp/project',
-    providerSessionProvider: 'codex',
-    providerSessionId: '019f5577-59c5-7572-bb21-56b487be14d5',
-    providerSessionTemporary: false,
-    providerHomeId: 'zwz',
-    providerHomePath: '/tmp/codex-home-zwz',
-    agentRuntimeMode: 'json',
-  });
-  manager.findRuntimeSwitchSession = async () => null;
-  killed = '';
-  started = null;
-  const staleResult = await manager.restartAgentRuntimeMode('agent-stale', 'terminal');
-  assert.strictEqual(staleResult.error, 'The saved Agent session is no longer available in the selected Agent Home.');
-  assert.strictEqual(killed, '');
-  assert.strictEqual(started, null);
-  assert.strictEqual(manager.agents.has('agent-stale'), true);
 
   manager.agents.set('agent-active', {
     id: 'agent-active',

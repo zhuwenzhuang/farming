@@ -146,10 +146,6 @@ import {
 } from './runtime-observation.cjs';
 import { applyProviderHomeEnvironment, getProviderAdapter, isFreshAcpSessionSource, providerAcpForkMode, providerCapabilities, providerForProgram, providerSupportsRuntime } from './provider-adapters.cjs';
 import { deriveTerminalStatus } from './terminal-status.cjs';
-import {
-  JsonCliRuntime,
-  type JsonAgentRegistration,
-} from './json-cli-runtime.cjs';
 import { AcpRuntime, stopPersistedAcpProcessGroup } from './acp-runtime.cjs';
 import { chatRuntimeForProvider, isChatMode } from './chat-runtime.cjs';
 import { acpTranscriptEntries, acpTranscriptMedia, acpToolChanges, acpToolDetail, acpToolReviewChanges } from './acp-transcript.cjs';
@@ -171,7 +167,7 @@ type AgentRecord = TypedAgentRecord;
 
 type AgentId = string;
 type TerminalInput = string | readonly unknown[];
-type RuntimeKind = 'terminal' | 'acp' | 'json';
+type RuntimeKind = 'terminal' | 'acp';
 type ErrorRecord = Omit<ErrorLike, 'code'> & Record<string, unknown> & {
   code?: string | number;
 };
@@ -428,22 +424,10 @@ interface AgentManagerOptions extends UnknownRecord {
   controlUrl?: string;
   createProviderSessionIdentity?: CreateProviderSessionIdentityContract;
   deleteProviderSessionIdentity?: DeleteProviderSessionIdentityContract;
-  jsonCliRuntime?: JsonCliRuntimeContract;
   skipExecutablePreflight?: boolean;
   stopPersistedAcpProcessGroup?: StopPersistedAcpProcessGroupContract;
   tokenFile?: string;
   unarchiveCodexSession?: UnarchiveCodexSessionContract;
-}
-
-interface JsonRuntimeEvent {
-  agentId: string;
-  error?: string;
-  sessionId?: string;
-  state?: string;
-}
-
-interface JsonTranscriptEvent {
-  agentId: string;
 }
 
 interface AcceptedKillAgentResult {
@@ -480,21 +464,6 @@ interface AgentShellEnvCacheEntry {
   initialized: boolean;
   resolvedAt: number;
 }
-
-type JsonCliRuntimeContract = Pick<
-  JsonCliRuntime,
-  | 'bindings'
-  | 'dispose'
-  | 'getEvents'
-  | 'getTranscript'
-  | 'interruptAgent'
-  | 'on'
-  | 'registerAgent'
-  | 'resumeAfterDisposeAbort'
-  | 'submitComposerMessage'
-  | 'unregisterAgent'
-  | 'unregisterAgentAndWait'
->;
 
 type AcpRuntimeContract = DeclaredAcpRuntimeContract;
 type SessionEngineBridgeContract = DeclaredSessionEngineBridgeContract;
@@ -833,10 +802,6 @@ function agentHomeProviderForProgram(command: string): string {
   return providerForProgram(agentProgramName(command));
 }
 
-function isJsonCliAgent(agent: TypedAgentRecord): boolean {
-  return runtimeKind(agent) === 'json';
-}
-
 function isAcpAgent(agent: TypedAgentRecord): boolean {
   return runtimeKind(agent) === 'acp';
 }
@@ -911,8 +876,6 @@ function activeCodexTerminalProfile(agent: TypedAgentRecord, previewText: string
     || agentHomeProviderForProgram(agent.forkCommand || agent.command || '');
   if (
     provider !== 'codex'
-    || isJsonCliAgent(agent)
-    || isAcpAgent(agent)
     || runtimeKind(agent) !== 'terminal'
   ) {
     return null;
@@ -1318,7 +1281,6 @@ class AgentManager extends EventEmitter {
   declare codexSessionMutationQueues: Map<string, CodexSessionMutationAdmission<unknown>>;
   declare acpSessionOptionsByKey: Map<string, AcpSessionOptionsRecord>;
   declare permissionRestartSuppressedAgentIds: Set<AgentId>;
-  declare jsonCliRuntime: JsonCliRuntimeContract;
   declare createProviderSessionIdentity: CreateProviderSessionIdentityContract;
   declare deleteProviderSessionIdentity: DeleteProviderSessionIdentityContract;
   declare archiveCodexSession: ArchiveCodexSessionContract;
@@ -1398,7 +1360,6 @@ class AgentManager extends EventEmitter {
     // only through the private Farming session store.
     this.acpSessionOptionsByKey = new Map();
     this.permissionRestartSuppressedAgentIds = new Set();
-    this.jsonCliRuntime = options.jsonCliRuntime || new JsonCliRuntime();
     this.acpRuntime = options.acpRuntime || new AcpRuntime({
       ...(this.configManager?.farmingDir ? { configDir: this.configManager.farmingDir } : {}),
       browserPermissionDecision: this.browserPermissionDecision,
@@ -1463,7 +1424,6 @@ class AgentManager extends EventEmitter {
     this.lastZombieSweepAt = 0;
     this.startHeartbeat();
     this.bindEngineEvents();
-    this.bindJsonCliRuntimeEvents();
     this.bindAcpRuntimeEvents();
     if (this.configManager && this.configManager.farmingDir) {
       this.recoveryPromise = this.recoverEngineSessions()
@@ -1475,32 +1435,6 @@ class AgentManager extends EventEmitter {
           console.warn('Failed to recover engine sessions:', error instanceof Error ? error.message : String(error));
         });
     }
-  }
-
-  bindJsonCliRuntimeEvents() {
-    if (!this.jsonCliRuntime || typeof this.jsonCliRuntime.on !== 'function') return;
-    this.jsonCliRuntime.on('agent-runtime', ({ agentId, state, error, sessionId }: JsonRuntimeEvent) => {
-      const agent = this.agents.get(agentId);
-      if (!agent) return;
-      const runtime = runtimeBindingOf(agent, 'json');
-      if (!runtime) return;
-      runtime.state = state || '';
-      runtime.error = error || '';
-      if (sessionId) {
-        this.providerSessionService.bindConfirmed(agentId, agent.providerSessionProvider, sessionId);
-        this.ensurePersistentAgentSession(agent);
-      }
-      this.lastActivity.set(agentId, Date.now());
-      this.emit('update');
-    });
-    this.jsonCliRuntime.on('transcript', ({ agentId }: JsonTranscriptEvent) => {
-      const agent = this.agents.get(agentId);
-      const runtime = runtimeBindingOf(agent, 'json');
-      if (!runtime) return;
-      runtime.events = this.jsonCliRuntime.getEvents(agentId);
-      runtime.transcriptUpdatedAt = new Date().toISOString();
-      this.emit('update');
-    });
   }
 
   bindAcpRuntimeEvents() {
@@ -2539,7 +2473,7 @@ class AgentManager extends EventEmitter {
     for (const record of records) {
       const agentId = String(record.runtimeAgentId || '').trim();
       const provider = String(record.providerSessionProvider || record.provider || '').trim();
-      const sessionId = String(record.providerSessionId || record.codexAppServerThreadId || '').trim();
+      const sessionId = String(record.providerSessionId || '').trim();
       const blockedOperation = lifecycleOperationBlocksRuntimeStart(record);
       if (
         !agentId
@@ -2591,7 +2525,7 @@ class AgentManager extends EventEmitter {
     for (const record of records) {
       const agentId = String(record.runtimeAgentId || '').trim();
       const provider = String(record.providerSessionProvider || record.provider || '').trim();
-      const sessionId = String(record.providerSessionId || record.codexAppServerThreadId || '').trim();
+      const sessionId = String(record.providerSessionId || '').trim();
       const agent = this.agents.get(agentId);
       if (!agent || !sessionId || !providerSupportsRuntime(provider, 'acp')) continue;
       if (lifecycleOperationBlocksRuntimeStart(record)) continue;
@@ -2946,7 +2880,7 @@ class AgentManager extends EventEmitter {
   ): TypedAgentRecord {
     const wantsMain = metadata.wantsMain === true;
     const providerSessionProvider = String(metadata.providerSessionProvider || metadata.provider || '');
-    const providerSessionId = String(metadata.providerSessionId || metadata.codexAppServerThreadId || '');
+    const providerSessionId = String(metadata.providerSessionId || '');
     const runtimeBinding = runtimeBindingFor(runtimeKind(metadata), metadata);
     const agentRecordId = metadata.agentRecordId || metadata.persistentSessionId || metadata.id || '';
     const structuredRuntimeProcess = isRecord(metadata.structuredRuntimeProcess)
@@ -4014,26 +3948,12 @@ class AgentManager extends EventEmitter {
     await this.recoveryPromise;
     await this.drainAcceptedAgentOperations();
 
-    const jsonBindingIds = new Set<string>(
-      [...(this.jsonCliRuntime?.bindings?.keys?.() || [])]
-        .filter((id: unknown): id is string => typeof id === 'string'),
-    );
     const acpBindingIds = new Set<string>(
       [...(this.acpRuntime?.bindings?.keys?.() || [])]
         .filter((id: unknown): id is string => typeof id === 'string'),
     );
     const runtimeCleanupFailures: unknown[] = [];
-    let jsonCleanupFailed = false;
     let acpCleanupFailed = false;
-    if (this.jsonCliRuntime && typeof this.jsonCliRuntime.dispose === 'function') {
-      try {
-        await this.jsonCliRuntime.dispose();
-      } catch (caughtError: unknown) {
-      const error = caughtError as ErrorRecord;
-        jsonCleanupFailed = true;
-        runtimeCleanupFailures.push(error);
-      }
-    }
     if (this.acpRuntime && typeof this.acpRuntime.dispose === 'function') {
       try {
         await this.acpRuntime.dispose();
@@ -4058,7 +3978,6 @@ class AgentManager extends EventEmitter {
         agentStateChanged = true;
       }
     };
-    forgetStoppedStructuredAgents(jsonBindingIds, this.jsonCliRuntime, 'json');
     forgetStoppedStructuredAgents(acpBindingIds, this.acpRuntime, 'acp');
     const markUncertainStructuredAgents = (
       agentIds: Set<string>,
@@ -4079,12 +3998,10 @@ class AgentManager extends EventEmitter {
         agentStateChanged = true;
       }
     };
-    markUncertainStructuredAgents(jsonBindingIds, this.jsonCliRuntime, 'json', jsonCleanupFailed);
     markUncertainStructuredAgents(acpBindingIds, this.acpRuntime, 'acp', acpCleanupFailed);
     if (agentStateChanged) this.emit('update');
 
     if (runtimeCleanupFailures.length > 0) {
-      this.jsonCliRuntime?.resumeAfterDisposeAbort?.();
       this.acpRuntime?.resumeAfterDisposeAbort?.();
       throw new AggregateError(runtimeCleanupFailures, 'Agent runtime cleanup could not be verified');
     }
@@ -4760,28 +4677,21 @@ class AgentManager extends EventEmitter {
         resolvedProviderHomeId = defaultCodexHome.id || 'default';
       }
     }
-    const requestedRuntimeMode = typeof options.agentRuntimeMode === 'string'
-      ? options.agentRuntimeMode
+    const requestedRuntimeModeValue = (options as Record<string, unknown>).agentRuntimeMode;
+    const requestedRuntimeMode = typeof requestedRuntimeModeValue === 'string'
+      ? requestedRuntimeModeValue
       : '';
-    const requestedAgentRuntimeMode = ['json', 'acp', 'chat'].includes(requestedRuntimeMode)
-      ? requestedRuntimeMode
-      : 'terminal';
-    if (
-      requestedAgentRuntimeMode === 'json'
-      && options.allowLegacyJsonRuntime !== true
-    ) {
-      if (callback) {
-        callback(
-          null,
-          'JSON CLI Chat is a legacy compatibility reader and cannot create a new Agent. Use Chat (ACP) or Terminal.',
-        );
-      }
+    if (requestedRuntimeMode === 'json') {
+      if (callback) callback(null, 'JSON CLI runtime is no longer supported. Use Chat (ACP) or Terminal.');
       return null;
     }
+    const requestedAgentRuntimeMode = ['acp', 'chat'].includes(requestedRuntimeMode)
+      ? requestedRuntimeMode
+      : 'terminal';
     // A fresh structured runtime does not need a provider CLI resume id yet:
-    // ACP/JSON creates the provider session and writes the resulting id back
-    // after connecting. Fresh Terminal sessions are handled separately below.
-    const structuredRuntimeProvider = ['json', 'acp', 'chat'].includes(requestedAgentRuntimeMode)
+    // ACP creates the provider session and writes the resulting id back after
+    // connecting. Fresh Terminal sessions are handled separately below.
+    const structuredRuntimeProvider = ['acp', 'chat'].includes(requestedAgentRuntimeMode)
       ? String(homeProvider || '')
       : providerSessionPlan.provider;
     // `chat` is the only browser-facing structured-runtime request. Treat the
@@ -4792,9 +4702,6 @@ class AgentManager extends EventEmitter {
     const resolvedChatRuntime = requestedChatRuntime
       ? chatRuntimeForProvider(homeProvider)
       : (requestedAgentRuntimeMode === 'acp' ? 'acp' : '');
-    const useJsonCli = requestedAgentRuntimeMode === 'json'
-      && providerSupportsRuntime(structuredRuntimeProvider, 'json')
-      && process.env.FARMING_E2E_FAKE_EXECUTABLES !== '1';
     const useAcp = resolvedChatRuntime === 'acp'
       && providerSupportsRuntime(structuredRuntimeProvider, 'acp')
       && (
@@ -4826,7 +4733,7 @@ class AgentManager extends EventEmitter {
       task: typeof options.task === 'string' ? options.task : '',
       workflowTemplate: typeof options.workflowTemplate === 'string' ? options.workflowTemplate : '',
       source: typeof options.source === 'string' ? options.source : 'ui',
-      providerSessionProvider: useAcp || useJsonCli ? structuredRuntimeProvider : (providerSessionPlan.provider || ''),
+      providerSessionProvider: useAcp ? structuredRuntimeProvider : (providerSessionPlan.provider || ''),
       providerHomeId: resolvedProviderHomeId,
       providerHomePath,
       providerSessionId: acpGeneratedFreshSession ? '' : (providerSessionPlan.id || ''),
@@ -4848,12 +4755,7 @@ class AgentManager extends EventEmitter {
       structuredRuntimeProcess: null,
       runtimeBinding: useAcp
         ? runtimeBindingFor('acp', { state: 'connecting' })
-        : (useJsonCli
-          ? runtimeBindingFor('json', {
-            state: 'idle',
-            events: Array.isArray(options.jsonCliEvents) ? options.jsonCliEvents : [],
-          })
-          : runtimeBindingFor('terminal')),
+        : runtimeBindingFor('terminal'),
       forkedFromProviderSessionId: typeof options.forkedFromProviderSessionId === 'string'
         ? options.forkedFromProviderSessionId
         : (providerSessionPlan.forkedFromProviderSessionId || ''),
@@ -5000,7 +4902,6 @@ class AgentManager extends EventEmitter {
     if (
       providerSessionPlan.precreate === true
       && !useAcp
-      && !useJsonCli
     ) {
       const adapter = getProviderAdapter(providerSessionPlan.provider);
       if (typeof adapter?.terminalResumeArgs !== 'function') {
@@ -5178,23 +5079,6 @@ class AgentManager extends EventEmitter {
       this.lastActivity.set(agentId, Date.now());
       this.emit('update');
 
-      if (useJsonCli) {
-        const jsonRuntime = runtimeBindingOf(agentRecord, 'json');
-        if (!jsonRuntime) throw new Error('JSON runtime binding was not installed');
-        this.jsonCliRuntime.registerAgent({
-          agentId,
-          provider: structuredRuntimeProvider,
-          executable: spawnProgram,
-          env: this.buildAgentEnv(agentId, agentRecord),
-          cwd: workspace,
-          sessionId: agentRecord.providerSessionTemporary ? '' : agentRecord.providerSessionId,
-          approvalMode: agentRecord.launchPermissionMode || 'approve',
-          autoApprove: options.dangerouslySkipPermissions === true,
-          initialEvents: jsonRuntime.events.filter(isRecord),
-        });
-        structuredRuntimeRegistered = true;
-      }
-
       if (useAcp) {
         const acpRuntime = runtimeBindingOf(agentRecord, 'acp');
         if (!acpRuntime) throw new Error('ACP runtime binding was not installed');
@@ -5308,7 +5192,7 @@ class AgentManager extends EventEmitter {
         acpRuntime.error = '';
       }
 
-      if (!useJsonCli && !useAcp) {
+      if (!useAcp) {
         const serializeCodexStartup = agentRecord.providerSessionProvider === 'codex'
           && resolution.engineName === 'native';
         const startTerminal = async () => {
@@ -5377,17 +5261,7 @@ class AgentManager extends EventEmitter {
       const error = caughtError as ErrorRecord;
       console.error('Failed to start agent:', error);
       let runtimeCleanupError = null;
-      if (useJsonCli && structuredRuntimeRegistered) {
-        try {
-          const stopped = await this.jsonCliRuntime.unregisterAgentAndWait(agentId);
-          if (stopped !== true) {
-            throw new Error('JSON runtime binding disappeared before exit was verified', { cause: error });
-          }
-        } catch (caughtCleanupError: unknown) {
-      const cleanupError = caughtCleanupError as ErrorRecord;
-          runtimeCleanupError = cleanupError;
-        }
-      } else if (
+      if (
         useAcp
         && error?.runtimeCleanupVerified !== true
         && (structuredRuntimeRegistered || error?.runtimeCleanupAttempted === true)
@@ -5402,7 +5276,7 @@ class AgentManager extends EventEmitter {
       const cleanupError = caughtCleanupError as ErrorRecord;
           runtimeCleanupError = cleanupError;
         }
-      } else if (!useJsonCli && !useAcp) {
+      } else if (!useAcp) {
         try {
           await this.stopUncertainTerminalSession(resolution.engine, agentId);
         } catch (caughtEngineCleanupError: unknown) {
@@ -5831,8 +5705,6 @@ class AgentManager extends EventEmitter {
     if (!agent) throw new Error('Agent not found');
     if (
       agentProgramName(agent.command).toLowerCase() !== 'codex'
-      || isJsonCliAgent(agent)
-      || isAcpAgent(agent)
       || runtimeKind(agent) !== 'terminal'
     ) {
       throw new Error('This Agent is not using Codex Terminal');
@@ -5913,21 +5785,6 @@ class AgentManager extends EventEmitter {
       .join('')
       .trim();
 
-    if (isJsonCliAgent(agent)) {
-      const result = await this.jsonCliRuntime.submitComposerMessage(agentId, text, {
-        approvalMode: agent.launchPermissionMode || 'approve',
-      });
-      agent.providerSessionId = result.sessionId || agent.providerSessionId;
-      agent.providerSessionTemporary = !agent.providerSessionId;
-      this.ensurePersistentAgentSession(agent);
-      const submitted: ComposerSubmissionResult = {
-        kind: 'json',
-        sessionId: agent.providerSessionId,
-      };
-      options.onSubmitted?.(submitted);
-      return submitted;
-    }
-
     if (isAcpAgent(agent)) {
       this.requireLiveAcpAgent(agentId);
       const result = await this.acpRuntime.submitMessage(agentId, prompt, {
@@ -5953,13 +5810,6 @@ class AgentManager extends EventEmitter {
     const submitted: ComposerSubmissionResult = { kind: 'terminal' };
     options.onSubmitted?.(submitted);
     return submitted;
-  }
-
-  getJsonCliTranscript(agentId: AgentId, options: Record<string, unknown> = {}) {
-    const agent = this.agents.get(agentId);
-    if (!agent) throw new Error('Agent not found');
-    if (!isJsonCliAgent(agent)) throw new Error('Agent is not using the JSON CLI runtime');
-    return this.jsonCliRuntime.getTranscript(agentId, options);
   }
 
   getAcpSession(agentId: AgentId, options: Partial<AcpSessionRequestOptions> = {}) {
@@ -6149,7 +5999,7 @@ class AgentManager extends EventEmitter {
   ): Promise<TerminalInputResult | undefined> {
     const agent = this.agents.get(agentId);
     if (!agent) return;
-    if (isJsonCliAgent(agent) || isAcpAgent(agent)) return;
+    if (runtimeKind(agent) !== 'terminal') return;
     if (expectedRuntimeEpoch && agent.runtimeEpoch !== expectedRuntimeEpoch) {
       return { status: 'input-rejected', reason: 'runtime-epoch-mismatch' };
     }
@@ -6204,10 +6054,6 @@ class AgentManager extends EventEmitter {
     const agent = this.agents.get(agentId);
     if (!agent) return;
     try {
-      if (isJsonCliAgent(agent)) {
-        this.jsonCliRuntime.interruptAgent(agentId);
-        return;
-      }
       if (isAcpAgent(agent)) {
         await this.acpRuntime.cancel(agentId);
         return;
@@ -6233,12 +6079,12 @@ class AgentManager extends EventEmitter {
   agentSupportsTerminalInput(agentId: AgentId) {
     const agent = this.agents.get(agentId);
     if (!agent) return false;
-    return !isJsonCliAgent(agent) && !isAcpAgent(agent);
+    return runtimeKind(agent) === 'terminal';
   }
 
   async getAgentSessionAttachCheckpoint(agentId: AgentId): Promise<TerminalAttachCheckpoint | null> {
     const agent = this.agents.get(agentId);
-    if (!agent || isAcpAgent(agent) || isJsonCliAgent(agent)) {
+    if (!agent || runtimeKind(agent) !== 'terminal') {
       return null;
     }
     try {
@@ -6276,7 +6122,7 @@ class AgentManager extends EventEmitter {
   ): Promise<TerminalResizeResult> {
     const agent = this.agents.get(agentId);
     if (!agent) return { status: 'resize-rejected', reason: 'session-unavailable', resized: false };
-    if (isAcpAgent(agent) || isJsonCliAgent(agent)) {
+    if (runtimeKind(agent) !== 'terminal') {
       return { status: 'resize-rejected', reason: 'unsupported-session', resized: false };
     }
 
@@ -6318,7 +6164,7 @@ class AgentManager extends EventEmitter {
   ): Promise<TerminalClearResult | { cleared: true }> {
     const agent = this.agents.get(agentId);
     if (!agent) return { cleared: false };
-    if (isAcpAgent(agent) || isJsonCliAgent(agent)) return { cleared: false };
+    if (runtimeKind(agent) !== 'terminal') return { cleared: false };
     if (options.expectedRuntimeEpoch && agent.runtimeEpoch !== options.expectedRuntimeEpoch) {
       return { cleared: false, reason: 'runtime-epoch-mismatch' };
     }
@@ -6841,9 +6687,7 @@ class AgentManager extends EventEmitter {
     const provider = agent.providerSessionProvider || '';
     const nextMode = mode === 'acp' && provider === 'codex' ? 'chat' : mode;
     const currentKind = runtimeKind(agent);
-    const currentMode = currentKind === 'acp'
-      ? 'chat'
-      : (currentKind === 'json' ? 'json' : 'terminal');
+    const currentMode = currentKind === 'acp' ? 'chat' : 'terminal';
     const nextRuntimeKind = nextMode === 'chat' ? chatRuntimeForProvider(provider) : nextMode;
     if (currentMode === nextMode) {
       return { agentId, agentRuntimeMode: nextMode };
@@ -6910,11 +6754,6 @@ class AgentManager extends EventEmitter {
       pinnedOrder: finiteOrder(agent.pinnedOrder),
       customTitle: agent.customTitle || '',
       unread: agent.unread === true,
-      jsonCliEvents: isJsonCliAgent(agent)
-        ? this.jsonCliRuntime.getEvents(agentId)
-        : (isRecord(agent.runtimeResumeState) && Array.isArray(agent.runtimeResumeState.jsonEvents)
-            ? agent.runtimeResumeState.jsonEvents
-            : []),
     };
     let acpSessionOptions: AcpSessionRequestOptions = {
       cwd: effectiveAgentWorkspaceRoot(agent),
@@ -6954,7 +6793,6 @@ class AgentManager extends EventEmitter {
       agentRuntimeMode: nextMode,
       acpStartFresh: startsFreshChatSession && nextRuntimeKind === 'acp',
       codexApprovalMode: agent.launchPermissionMode || undefined,
-      jsonCliEvents: preserved.jsonCliEvents,
       runtimeSwitchVerifiedSessionId: startsFreshChatSession ? '' : sessionId,
       lifecycleToken,
       ...acpSessionOptions,
@@ -6967,7 +6805,6 @@ class AgentManager extends EventEmitter {
       ...restartOptions,
       agentRuntimeMode: originalMode,
       acpStartFresh: false,
-      ...(originalMode === 'json' ? { allowLegacyJsonRuntime: true } : {}),
     };
     const startReplacement = (options: ProviderStartOptions): Promise<RuntimeReplacementResult> => new Promise((resolve) => {
       let settled = false;
@@ -9013,7 +8850,7 @@ class AgentManager extends EventEmitter {
     const completesBlockedCreate = options.completesBlockedCreate === true;
     const cleanupFailure = (message: string, kind: string = ''): KillAgentResult => {
       const error = String(message || 'Failed to stop Agent runtime');
-      if (kind === 'acp' || kind === 'json') {
+      if (kind === 'acp') {
         return this.markStructuredAgentCleanupUncertain(
           agentId,
           kind,
@@ -9079,14 +8916,6 @@ class AgentManager extends EventEmitter {
             }
           }
         }
-      } else if (currentRuntimeKind === 'json') {
-        if (typeof this.jsonCliRuntime?.unregisterAgentAndWait !== 'function') {
-          return cleanupFailure('JSON runtime exit cannot be verified', 'json');
-        }
-        const stopped = await this.jsonCliRuntime.unregisterAgentAndWait(agentId);
-        if (stopped !== true) {
-          return cleanupFailure('JSON runtime binding is missing; process exit cannot be verified', 'json');
-        }
       } else {
         const engine = this.engineBridge.getEngine(agent.engineName);
         if (requireEngineExit && !engine) {
@@ -9129,7 +8958,7 @@ class AgentManager extends EventEmitter {
       }
       } catch (caughtError: unknown) {
       const error = caughtError as ErrorRecord;
-        if (currentRuntimeKind === 'acp' || currentRuntimeKind === 'json') {
+        if (currentRuntimeKind === 'acp') {
           return cleanupFailure(error.message || 'Failed to stop Agent runtime', currentRuntimeKind);
         }
         return cleanupFailure(error.message || 'Failed to stop Agent runtime');
@@ -9137,7 +8966,7 @@ class AgentManager extends EventEmitter {
         this.permissionRestartSuppressedAgentIds.delete(agentId);
       }
     }
-    if (currentRuntimeKind === 'acp' || currentRuntimeKind === 'json') {
+    if (currentRuntimeKind === 'acp') {
       agent.structuredRuntimeProcess = null;
     }
 
@@ -9287,7 +9116,6 @@ class AgentManager extends EventEmitter {
     this.agentUsageRateCache.delete(agentId);
     this.lastResizeByAgent.delete(agentId);
     this.providerSessionService.stop(agentId);
-    if (this.jsonCliRuntime) this.jsonCliRuntime.unregisterAgent(agentId);
     if (this.acpRuntime) this.acpRuntime.unregisterAgent(agentId);
 
     if (this.mainAgentId === agentId) {

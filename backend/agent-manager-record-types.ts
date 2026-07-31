@@ -2,7 +2,7 @@ export type AgentId = string;
 export type AgentRecordId = `agent_${string}` | `fsess_${string}`;
 export type ProviderSessionKey = `agent-session:${string}:${string}`;
 
-export type AgentRuntimeKind = 'terminal' | 'acp' | 'json';
+export type AgentRuntimeKind = 'terminal' | 'acp';
 
 export interface TerminalRuntimeBinding {
   kind: 'terminal';
@@ -24,15 +24,7 @@ export interface AcpRuntimeBinding {
   supportsSteer: boolean;
 }
 
-export interface JsonRuntimeBinding {
-  error: string;
-  events: unknown[];
-  kind: 'json';
-  state: string;
-  transcriptUpdatedAt: string;
-}
-
-export type RuntimeBinding = TerminalRuntimeBinding | AcpRuntimeBinding | JsonRuntimeBinding;
+export type RuntimeBinding = TerminalRuntimeBinding | AcpRuntimeBinding;
 
 export interface ProviderSessionBinding {
   providerHomeId: string;

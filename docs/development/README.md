@@ -16,7 +16,6 @@ the [documentation home](../README.md).
 - [ACP runtime](../products/code/acp-runtime.md)
 - [Codex runtime](../products/code/codex-runtime.md)
 - [Terminal state protocol](../products/code/terminal-state-protocol.md)
-- [Legacy JSON Chat compatibility](../products/code/json-chat-runtime.md)
 
 ## Product Architecture
 

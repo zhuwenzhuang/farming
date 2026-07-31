@@ -73,7 +73,7 @@ interface MainAgentResumeSession {
 
 export interface StartAgentOptions {
   providerHomeId?: string
-  agentRuntimeMode?: 'terminal' | 'chat' | 'acp' | 'json'
+  agentRuntimeMode?: 'terminal' | 'chat' | 'acp'
   resumeSession?: {
     provider: string
     id: string

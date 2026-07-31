@@ -1,5 +1,5 @@
 export type ProviderId = 'codex' | 'claude' | 'opencode' | 'qoder' | string;
-export type StructuredRuntimeKind = 'acp' | 'json' | 'terminal';
+export type StructuredRuntimeKind = 'acp' | 'terminal';
 export type AcpConfigValue = string | number | boolean | null | string[];
 
 export interface ProviderCapabilities extends Record<string, unknown> {
@@ -551,8 +551,7 @@ export interface ProviderStartOptions extends Record<string, unknown> {
   acpHistoryMode?: 'checkpoint' | 'load' | 'resume';
   acpStartFresh?: boolean;
   additionalDirectories?: string[];
-  agentRuntimeMode?: 'terminal' | 'acp' | 'chat' | 'json';
-  allowLegacyJsonRuntime?: boolean;
+  agentRuntimeMode?: 'terminal' | 'acp' | 'chat';
   claudePermissionMode?: string;
   codexApprovalMode?: string;
   codexModel?: string;

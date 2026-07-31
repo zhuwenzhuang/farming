@@ -46,7 +46,7 @@ type AgentFlagPatch = Partial<{
   readAttentionSeq: number
   readOutputEpoch: string
   readOutputSeq: number
-  agentRuntimeMode: 'terminal' | 'chat' | 'acp' | 'json'
+  agentRuntimeMode: 'terminal' | 'chat' | 'acp'
 }>
 type StartAgentExtras = {
   projectWorkspace?: string
@@ -54,7 +54,7 @@ type StartAgentExtras = {
   workflowTemplate?: string
   customTitle?: string
   codexApprovalMode?: string
-  agentRuntimeMode?: 'terminal' | 'chat' | 'acp' | 'json'
+  agentRuntimeMode?: 'terminal' | 'chat' | 'acp'
   dangerouslySkipPermissions?: boolean
   providerHomeId?: string
   additionalDirectories?: string[]

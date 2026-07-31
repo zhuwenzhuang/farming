@@ -199,17 +199,9 @@ export interface AcpRuntimeBinding {
   sessionRevision: number
 }
 
-export interface JsonRuntimeBinding {
-  kind: 'json'
-  state: string
-  error: string
-  transcriptUpdatedAt: string
-}
-
 export type AgentRuntimeBinding =
   | TerminalRuntimeBinding
   | AcpRuntimeBinding
-  | JsonRuntimeBinding
 
 export interface RuntimeObservation {
   kind: 'codex' | 'claude' | 'shell' | 'process' | 'unknown'
@@ -233,7 +225,7 @@ export interface WorkspaceRoot {
 }
 
 export interface ProviderCapabilities {
-  supportedRuntimes: Array<'terminal' | 'acp' | 'json'>
+  supportedRuntimes: Array<'terminal' | 'acp'>
   runtimeSwitch: boolean
   terminalProfile: boolean
   goals: boolean

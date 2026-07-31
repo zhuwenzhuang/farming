@@ -124,7 +124,7 @@ let globalSettingsSaveTail = Promise.resolve();
 const terminalPreviewSnapshots = new Map();
 const crtBrandPulseTimers = new Map();
 const SESSION_LINK_LIMIT = 6;
-const CRT_PROTOCOL_VERSION = 3;
+const CRT_PROTOCOL_VERSION = 4;
 const CRT_PREVIEW_RENDER_INTERVAL_MS = 1000;
 const CRT_STRUCTURED_PREVIEW_REFRESH_MS = 240;
 const CRT_AGENT_CARD_MIN_WIDTH = 200;
@@ -5938,8 +5938,6 @@ function structuredRuntimeKind(agent) {
     const kind = agent && agent.runtimeBinding && agent.runtimeBinding.kind;
     if (kind === 'acp')
         return 'ACP';
-    if (kind === 'json')
-        return 'JSON';
     return '';
 }
 function isStructuredRuntimeAgent(agent) {
@@ -6131,10 +6129,8 @@ function toggleCrtSessionRuntimeMode() {
     }
     void switchCrtSessionRuntimeMode(crtRuntimeView(agent) === 'chat' ? 'terminal' : 'chat');
 }
-function structuredTranscriptEndpoint(agent) {
-    if (agent.runtimeBinding.kind === 'acp')
-        return 'acp-transcript';
-    return 'json-cli-transcript';
+function structuredTranscriptEndpoint(_agent) {
+    return 'acp-transcript';
 }
 function structuredRuntimeStatus(agent) {
     if (!agent)

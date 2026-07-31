@@ -15,7 +15,6 @@
 - [ACP Runtime](../products/code/acp-runtime.zh_cn.md)
 - [Codex Runtime](../products/code/codex-runtime.zh_cn.md)
 - [Terminal State Protocol](../products/code/terminal-state-protocol.zh_cn.md)
-- [Legacy JSON Chat Compatibility](../products/code/json-chat-runtime.zh_cn.md)
 
 ## 产品架构
 

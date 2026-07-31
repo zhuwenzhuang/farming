@@ -1,4 +1,4 @@
-type RuntimeKind = 'terminal' | 'acp' | 'json';
+type RuntimeKind = 'terminal' | 'acp';
 type AgentRuntimeModeRequest = 'terminal' | 'acp' | 'chat';
 
 interface RuntimeBindingFields {
@@ -14,8 +14,6 @@ interface RuntimeBindingFields {
   activeElicitations?: unknown[];
   sessionUpdatedAt?: string;
   sessionRevision?: number;
-  events?: unknown[];
-  transcriptUpdatedAt?: string;
 }
 
 interface TerminalRuntimeBinding extends RuntimeBindingFields {
@@ -38,15 +36,7 @@ interface AcpRuntimeBinding extends RuntimeBindingFields {
   sessionRevision: number;
 }
 
-interface JsonRuntimeBinding extends RuntimeBindingFields {
-  kind: 'json';
-  state: string;
-  error: string;
-  transcriptUpdatedAt: string;
-  events: unknown[];
-}
-
-type RuntimeBinding = TerminalRuntimeBinding | AcpRuntimeBinding | JsonRuntimeBinding;
+type RuntimeBinding = TerminalRuntimeBinding | AcpRuntimeBinding;
 
 interface RuntimeBindingSource {
   kind?: unknown;
@@ -62,8 +52,6 @@ interface RuntimeBindingSource {
   activeElicitations?: unknown[];
   sessionUpdatedAt?: string;
   sessionRevision?: unknown;
-  events?: unknown[];
-  transcriptUpdatedAt?: string;
   acpState?: string;
   acpError?: string;
   acpStopReason?: string;
@@ -89,7 +77,7 @@ interface RuntimeAgentSource extends RuntimeBindingSource {
   lifecycleJournal?: unknown;
 }
 
-const RUNTIME_KINDS = new Set<RuntimeKind>(['terminal', 'acp', 'json']);
+const RUNTIME_KINDS = new Set<RuntimeKind>(['terminal', 'acp']);
 const AGENT_RUNTIME_MODE_REQUESTS = new Set<AgentRuntimeModeRequest>(['terminal', 'acp', 'chat']);
 
 function isRuntimeKind(value: unknown): value is RuntimeKind {
@@ -123,47 +111,27 @@ function acpBinding(source: RuntimeBindingSource = {}): AcpRuntimeBinding {
   };
 }
 
-function jsonBinding(source: RuntimeBindingSource = {}): JsonRuntimeBinding {
-  return {
-    kind: 'json',
-    state: source.state || source.jsonCliState || '',
-    error: source.error || source.jsonCliError || '',
-    transcriptUpdatedAt: source.transcriptUpdatedAt || source.jsonCliTranscriptUpdatedAt || '',
-    events: source.events || source.jsonCliEvents || [],
-  };
-}
-
 function runtimeKind(agent: RuntimeAgentSource | null | undefined): RuntimeKind {
   if (isRuntimeKind(agent?.runtimeBinding?.kind)) return agent.runtimeBinding.kind;
-  // App Server was an experimental Codex runtime. Persisted records migrate to
-  // ACP because codex-acp uses the same Codex thread id as its session id.
-  if (agent?.runtimeBinding?.kind === 'app-server' || agent?.codexRuntimeMode === 'app-server') return 'acp';
   if (agent?.agentRuntimeMode === 'acp') return 'acp';
-  if (agent?.agentRuntimeMode === 'json') return 'json';
   return 'terminal';
 }
 
 function bindingFromLegacy(agent: RuntimeAgentSource | null | undefined): RuntimeBinding {
   if (isRuntimeKind(agent?.runtimeBinding?.kind)) return agent.runtimeBinding as RuntimeBinding;
-  if (agent?.runtimeBinding?.kind === 'app-server' || agent?.codexRuntimeMode === 'app-server') {
-    return acpBinding({ state: 'connecting' });
-  }
   switch (runtimeKind(agent)) {
     case 'acp': return acpBinding(agent || {});
-    case 'json': return jsonBinding(agent || {});
     default: return terminalBinding();
   }
 }
 
 function runtimeBindingFor(kind: 'acp', source?: RuntimeBindingSource | null): AcpRuntimeBinding;
-function runtimeBindingFor(kind: 'json', source?: RuntimeBindingSource | null): JsonRuntimeBinding;
 function runtimeBindingFor(kind: 'terminal', source?: RuntimeBindingSource | null): TerminalRuntimeBinding;
 function runtimeBindingFor(kind: unknown, source?: RuntimeBindingSource | null): RuntimeBinding;
 function runtimeBindingFor(kind: unknown, source: RuntimeBindingSource | null = {}): RuntimeBinding {
   const normalizedSource = source || {};
   switch (kind) {
     case 'acp': return acpBinding(normalizedSource);
-    case 'json': return jsonBinding(normalizedSource);
     default: return terminalBinding();
   }
 }
@@ -172,10 +140,6 @@ function runtimeBindingOf(
   agent: RuntimeAgentSource | null | undefined,
   expectedKind: 'acp',
 ): AcpRuntimeBinding | null;
-function runtimeBindingOf(
-  agent: RuntimeAgentSource | null | undefined,
-  expectedKind: 'json',
-): JsonRuntimeBinding | null;
 function runtimeBindingOf(
   agent: RuntimeAgentSource | null | undefined,
   expectedKind: 'terminal',
@@ -203,11 +167,6 @@ function replaceRuntimeBinding(
   kind: 'acp',
   source?: RuntimeBindingSource | null,
 ): AcpRuntimeBinding;
-function replaceRuntimeBinding(
-  agent: RuntimeAgentSource,
-  kind: 'json',
-  source?: RuntimeBindingSource | null,
-): JsonRuntimeBinding;
 function replaceRuntimeBinding(
   agent: RuntimeAgentSource,
   kind: 'terminal',
@@ -241,18 +200,8 @@ const LEGACY_RUNTIME_FIELDS = [
 
 function installRuntimeBinding<T extends RuntimeAgentSource | null | undefined>(agent: T): T {
   if (!agent || typeof agent !== 'object') return agent;
-  const runtimeEvents = agent.runtimeBinding && 'events' in agent.runtimeBinding
-    ? agent.runtimeBinding.events
-    : undefined;
-  const jsonResumeEvents = Array.isArray(runtimeEvents)
-    ? runtimeEvents
-    : (Array.isArray(agent.jsonCliEvents) ? agent.jsonCliEvents : []);
   const binding = bindingFromLegacy(agent);
   agent.runtimeBinding = binding;
-  agent.runtimeResumeState = {
-    ...(agent.runtimeResumeState || {}),
-    jsonEvents: jsonResumeEvents,
-  };
   for (const name of ['agentRuntimeMode', 'codexRuntimeMode', 'jsonCliEvents', ...LEGACY_RUNTIME_FIELDS]) {
     delete agent[name];
   }
@@ -267,19 +216,11 @@ class RuntimeAgentMap extends Map {
 
 function publicRuntimeBinding(
   agent: RuntimeAgentSource | null | undefined,
-): RuntimeBinding | Omit<JsonRuntimeBinding, 'events'> {
+): RuntimeBinding {
   const binding = isRuntimeKind(agent?.runtimeBinding?.kind)
     ? agent.runtimeBinding as RuntimeBinding
     : bindingFromLegacy(agent);
   if (binding.kind === 'terminal') return terminalBinding();
-  if (binding.kind === 'json') {
-    return {
-      kind: 'json',
-      state: binding.state,
-      error: binding.error,
-      transcriptUpdatedAt: binding.transcriptUpdatedAt,
-    };
-  }
   return { ...binding };
 }
 
@@ -293,7 +234,7 @@ function runtimeState(agent: RuntimeAgentSource | null | undefined): string {
 function legacyRuntimeMetadata(agent: RuntimeAgentSource | null | undefined): Record<string, unknown> {
   const binding = bindingFromLegacy(agent);
   const metadata = {
-    agentRuntimeMode: ['acp', 'json'].includes(binding.kind) ? binding.kind : 'terminal',
+    agentRuntimeMode: binding.kind === 'acp' ? 'acp' : 'terminal',
   };
   if (binding.kind === 'acp') {
     return {
@@ -308,14 +249,6 @@ function legacyRuntimeMetadata(agent: RuntimeAgentSource | null | undefined): Re
       acpActiveElicitations: binding.activeElicitations,
       acpSessionUpdatedAt: binding.sessionUpdatedAt,
       acpSessionRevision: binding.sessionRevision,
-    };
-  }
-  if (binding.kind === 'json') {
-    return {
-      ...metadata,
-      jsonCliState: binding.state,
-      jsonCliError: binding.error,
-      jsonCliTranscriptUpdatedAt: binding.transcriptUpdatedAt,
     };
   }
   return metadata;

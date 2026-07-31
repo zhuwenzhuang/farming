@@ -32,20 +32,9 @@ interface CrtAcpRuntimeBinding extends CrtHistoryOpenRecord {
   pendingPermissions?: CrtPermissionRequest[];
 }
 
-interface CrtJsonRuntimeBinding extends CrtHistoryOpenRecord {
-  kind: 'json';
-  state?: string;
-  error?: string;
-  sessionRevision?: number;
-  sessionUpdatedAt?: string;
-  transcriptUpdatedAt?: string;
-  turnId?: string;
-}
-
 type CrtDiscriminatedRuntimeBinding =
   | CrtTerminalRuntimeBinding
-  | CrtAcpRuntimeBinding
-  | CrtJsonRuntimeBinding;
+  | CrtAcpRuntimeBinding;
 
 interface CrtProviderSession extends CrtSessionRecord {}
 

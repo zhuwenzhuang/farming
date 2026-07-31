@@ -178,28 +178,10 @@ async function run() {
       },
     );
     assert.strictEqual(unsupportedJsonStart, null);
-    assert.match(unsupportedJsonStartError, /legacy compatibility reader/i);
+    assert.match(unsupportedJsonStartError, /no longer supported/i);
     assert.strictEqual(manager.agents.has('agent-json-unsupported'), false);
 
     const ensurePersistentAgentSession = manager.ensurePersistentAgentSession;
-    manager.ensurePersistentAgentSession = () => {
-      throw new Error('session store unavailable');
-    };
-    let jsonStartError = '';
-    const failedJsonStart = await manager.startAgent('codex', process.cwd(), (_agentId, error) => {
-      jsonStartError = error || '';
-    }, {
-      wantsMain: false,
-      agentRuntimeMode: 'json',
-      allowLegacyJsonRuntime: true,
-      runtimeAgentId: 'agent-json-start-failure',
-    });
-    assert.strictEqual(failedJsonStart, null);
-    assert.match(jsonStartError, /session store unavailable/);
-    assert.strictEqual(manager.jsonCliRuntime.bindings.has('agent-json-start-failure'), false);
-    assert.strictEqual(manager.agents.has('agent-json-start-failure'), false);
-    manager.ensurePersistentAgentSession = ensurePersistentAgentSession;
-
     const originalAcpRuntime = manager.acpRuntime;
     let acpCleanupAttempts = 0;
     manager.acpRuntime = {
@@ -248,14 +230,11 @@ async function run() {
   const disposeGate = new Promise(resolve => {
     releaseDispose = resolve;
   });
-  const blockingJsonRuntime = new FakeStructuredRuntime();
-  blockingJsonRuntime.dispose = async () => disposeGate;
-  const emptyAcpRuntime = new FakeStructuredRuntime();
-  emptyAcpRuntime.dispose = async () => {};
+  const blockingAcpRuntime = new FakeStructuredRuntime();
+  blockingAcpRuntime.dispose = async () => disposeGate;
   const admissionManager = new AgentManager(configManager(), {
     skipExecutablePreflight: true,
-    jsonCliRuntime: blockingJsonRuntime,
-    acpRuntime: emptyAcpRuntime,
+    acpRuntime: blockingAcpRuntime,
   });
   const disposing = admissionManager.dispose();
   let rejectedStartError = '';
@@ -271,16 +250,13 @@ async function run() {
   await disposing;
   assert.strictEqual(admissionManager.disposed, true);
 
-  const recoveryFenceJsonRuntime = new FakeStructuredRuntime();
   let recoveryFenceRuntimeDisposed = false;
-  recoveryFenceJsonRuntime.dispose = async () => {
+  const recoveryFenceAcpRuntime = new FakeStructuredRuntime();
+  recoveryFenceAcpRuntime.dispose = async () => {
     recoveryFenceRuntimeDisposed = true;
   };
-  const recoveryFenceAcpRuntime = new FakeStructuredRuntime();
-  recoveryFenceAcpRuntime.dispose = async () => {};
   const recoveryFenceManager = new AgentManager(configManager(), {
     skipExecutablePreflight: true,
-    jsonCliRuntime: recoveryFenceJsonRuntime,
     acpRuntime: recoveryFenceAcpRuntime,
   });
   let releaseRecovery;
@@ -298,10 +274,6 @@ async function run() {
   await recoveryFencedDispose;
   assert.strictEqual(recoveryFenceRuntimeDisposed, true);
 
-  const successfulJsonRuntime = new FakeStructuredRuntime(['json-stopped']);
-  successfulJsonRuntime.dispose = async () => {
-    successfulJsonRuntime.bindings.delete('json-stopped');
-  };
   const retryableAcpRuntime = new FakeStructuredRuntime(['acp-retry']);
   let failAcpDispose = true;
   retryableAcpRuntime.dispose = async () => {
@@ -310,15 +282,7 @@ async function run() {
   };
   const partialManager = new AgentManager(configManager(), {
     skipExecutablePreflight: true,
-    jsonCliRuntime: successfulJsonRuntime,
     acpRuntime: retryableAcpRuntime,
-  });
-  partialManager.agents.set('json-stopped', {
-    id: 'json-stopped',
-    command: 'codex',
-    cwd: process.cwd(),
-    status: 'running',
-    runtimeBinding: { kind: 'json', state: 'idle' },
   });
   partialManager.agents.set('acp-retry', {
     id: 'acp-retry',
@@ -331,7 +295,6 @@ async function run() {
   await assert.rejects(partialManager.dispose(), /cleanup could not be verified/i);
   assert.strictEqual(partialManager.disposing, false);
   assert.strictEqual(partialManager.disposed, false);
-  assert.strictEqual(partialManager.agents.has('json-stopped'), false);
   assert.strictEqual(partialManager.agents.has('acp-retry'), true);
   assert.strictEqual(partialManager.agents.get('acp-retry').status, 'error');
   assert.strictEqual(partialManager.agents.get('acp-retry').engineStatus, 'cleanup-uncertain');
@@ -342,54 +305,34 @@ async function run() {
   assert.strictEqual(partialManager.agents.has('acp-retry'), false);
   assert.strictEqual(partialManager.disposed, true);
 
-  const killJsonRuntime = new FakeStructuredRuntime(['json-kill-retry']);
   const killAcpRuntime = new FakeStructuredRuntime(['acp-kill-retry']);
-  killJsonRuntime.unregisterAgentAndWait = async () => {
-    throw new Error('JSON descendant still live');
-  };
   killAcpRuntime.unregisterAgentAndWait = async () => {
     throw new Error('ACP descendant still live');
   };
   const killTruthManager = new AgentManager(configManager(), {
     skipExecutablePreflight: true,
-    jsonCliRuntime: killJsonRuntime,
     acpRuntime: killAcpRuntime,
   });
-  for (const [agentId, kind, command] of [
-    ['json-kill-retry', 'json', 'codex'],
-    ['acp-kill-retry', 'acp', 'claude'],
-  ]) {
-    killTruthManager.agents.set(agentId, {
-      id: agentId,
-      command,
-      cwd: process.cwd(),
-      status: 'running',
-      runtimeBinding: { kind, state: 'idle' },
-    });
-  }
-  for (const [agentId, kind] of [
-    ['json-kill-retry', 'json'],
-    ['acp-kill-retry', 'acp'],
-  ]) {
-    const result = await killTruthManager.killAgent(agentId);
-    assert.strictEqual(result.cleanupUncertain, true);
-    assert.strictEqual(result.retryable, true);
-    const retained = killTruthManager.agents.get(agentId);
-    assert.strictEqual(retained.status, 'error');
-    assert.strictEqual(retained.engineStatus, 'cleanup-uncertain');
-    assert.strictEqual(retained.runtimeBinding.kind, kind);
-    assert.strictEqual(retained.runtimeBinding.state, 'error');
-    assert.match(retained.runtimeBinding.error, /descendant still live/i);
-  }
-  killJsonRuntime.unregisterAgentAndWait = async agentId => {
-    killJsonRuntime.bindings.delete(agentId);
-    return true;
-  };
+  killTruthManager.agents.set('acp-kill-retry', {
+    id: 'acp-kill-retry',
+    command: 'claude',
+    cwd: process.cwd(),
+    status: 'running',
+    runtimeBinding: { kind: 'acp', state: 'idle' },
+  });
+  const killRetryResult = await killTruthManager.killAgent('acp-kill-retry');
+  assert.strictEqual(killRetryResult.cleanupUncertain, true);
+  assert.strictEqual(killRetryResult.retryable, true);
+  const retainedAcp = killTruthManager.agents.get('acp-kill-retry');
+  assert.strictEqual(retainedAcp.status, 'error');
+  assert.strictEqual(retainedAcp.engineStatus, 'cleanup-uncertain');
+  assert.strictEqual(retainedAcp.runtimeBinding.kind, 'acp');
+  assert.strictEqual(retainedAcp.runtimeBinding.state, 'error');
+  assert.match(retainedAcp.runtimeBinding.error, /descendant still live/i);
   killAcpRuntime.unregisterAgentAndWait = async agentId => {
     killAcpRuntime.bindings.delete(agentId);
     return true;
   };
-  assert.strictEqual((await killTruthManager.killAgent('json-kill-retry')).killed, true);
   assert.strictEqual((await killTruthManager.killAgent('acp-kill-retry')).killed, true);
   await killTruthManager.dispose();
 
@@ -462,13 +405,10 @@ async function run() {
   assert.strictEqual(recoveryFencedCleanupCalls, 1);
   await recoveryFencedManager.dispose();
 
-  const engineFailureJsonRuntime = new FakeStructuredRuntime();
-  engineFailureJsonRuntime.dispose = async () => {};
   const engineFailureAcpRuntime = new FakeStructuredRuntime();
   engineFailureAcpRuntime.dispose = async () => {};
   const engineFailureManager = new AgentManager(configManager(), {
     skipExecutablePreflight: true,
-    jsonCliRuntime: engineFailureJsonRuntime,
     acpRuntime: engineFailureAcpRuntime,
   });
   let providerDisposeCalls = 0;

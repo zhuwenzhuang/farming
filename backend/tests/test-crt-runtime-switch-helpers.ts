@@ -16,7 +16,6 @@ assert.strictEqual(formatCrtCompactTotalValue(2_467_206_586), '2.47B');
 assert.strictEqual(formatCrtCompactTotalValue(10_000), '10K');
 
 assert.strictEqual(crtRuntimeView({ runtimeBinding: { kind: 'acp' } }), 'chat');
-assert.strictEqual(crtRuntimeView({ runtimeBinding: { kind: 'json' } }), 'chat');
 assert.strictEqual(crtRuntimeView({ runtimeBinding: { kind: 'terminal' } }), 'terminal');
 
 assert.strictEqual(canSwitchCrtAgentRuntime({

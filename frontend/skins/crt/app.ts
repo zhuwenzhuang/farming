@@ -353,7 +353,7 @@ let globalSettingsSaveTail: Promise<unknown> = Promise.resolve();
 const terminalPreviewSnapshots = new Map<string, Record<string, unknown>>();
 const crtBrandPulseTimers = new Map<string, number>();
 const SESSION_LINK_LIMIT = 6;
-const CRT_PROTOCOL_VERSION = 3;
+const CRT_PROTOCOL_VERSION = 4;
 const CRT_PREVIEW_RENDER_INTERVAL_MS = 1000;
 const CRT_STRUCTURED_PREVIEW_REFRESH_MS = 240;
 const CRT_AGENT_CARD_MIN_WIDTH = 200;
@@ -6498,13 +6498,12 @@ function isCrtAgentInteractive(agent: CrtAgent | null | undefined): agent is Crt
 function structuredRuntimeKind(agent: CrtAgent | null | undefined) {
   const kind = agent && agent.runtimeBinding && agent.runtimeBinding.kind;
   if (kind === 'acp') return 'ACP';
-  if (kind === 'json') return 'JSON';
   return '';
 }
 
 function isStructuredRuntimeAgent(
   agent: CrtAgent | null | undefined,
-): agent is CrtAgent & { runtimeBinding: CrtAcpRuntimeBinding | CrtJsonRuntimeBinding } {
+): agent is CrtAgent & { runtimeBinding: CrtAcpRuntimeBinding } {
   return Boolean(structuredRuntimeKind(agent));
 }
 
@@ -6702,10 +6701,9 @@ function toggleCrtSessionRuntimeMode() {
 }
 
 function structuredTranscriptEndpoint(
-  agent: CrtAgent & { runtimeBinding: CrtAcpRuntimeBinding | CrtJsonRuntimeBinding },
+  _agent: CrtAgent & { runtimeBinding: CrtAcpRuntimeBinding },
 ) {
-  if (agent.runtimeBinding.kind === 'acp') return 'acp-transcript';
-  return 'json-cli-transcript';
+  return 'acp-transcript';
 }
 
 function structuredRuntimeStatus(agent: CrtAgent | null | undefined) {

@@ -3,7 +3,7 @@ import { chatCapabilitiesForProvider } from './chat-runtime.cjs';
 import { createProviderSessionId, createTemporaryProviderSessionId, isSafeProviderSessionId } from './provider-session-id.cjs';
 
 type ProviderId = 'codex' | 'claude' | 'opencode' | 'qoder' | 'qwen';
-type ProviderRuntime = 'terminal' | 'acp' | 'json';
+type ProviderRuntime = 'terminal' | 'acp';
 type ProviderAcpForkMode = 'source-then-load' | 'target-process';
 type GoalSubmission =
   | { kind: 'prompt' }
@@ -343,7 +343,7 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
     interruptInput: '\x1b',
     freshAcpSessionSources: ['codex-temporary'],
     commands: ['codex'],
-    supportedRuntimes: ['terminal', 'acp', 'json'],
+    supportedRuntimes: ['terminal', 'acp'],
     planSession: codexSessionPlan,
     terminalResumeArgs: (args, sessionId) => ['resume', sessionId, ...args],
     acp: { packageName: '@agentclientprotocol/codex-acp', version: '1.1.4' },
@@ -388,7 +388,7 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
     interruptInput: '\x03',
     freshAcpSessionSources: [],
     commands: ['opencode'],
-    supportedRuntimes: ['terminal', 'acp', 'json'],
+    supportedRuntimes: ['terminal', 'acp'],
     planSession: openCodeSessionPlan,
     terminalResumeArgs: (args, sessionId) => {
       const delimiterIndex = args.indexOf('--');
@@ -510,9 +510,7 @@ function listProviderAdapters(): readonly ProviderAdapter[] {
 function providerCapabilities(provider: unknown): PublicProviderCapabilities {
   const adapter = getProviderAdapter(provider);
   return {
-    supportedRuntimes: adapter
-      ? adapter.supportedRuntimes.filter(runtime => runtime !== 'json')
-      : ['terminal'],
+    supportedRuntimes: adapter ? [...adapter.supportedRuntimes] : ['terminal'],
     runtimeSwitch: adapter?.capabilities?.runtimeSwitch === true,
     terminalProfile: adapter?.capabilities?.terminalProfile === true,
     goals: adapter?.capabilities?.goals === true,

@@ -3,9 +3,7 @@ const {
   isAgentRuntimeModeRequest,
   installRuntimeBinding,
   publicRuntimeBinding,
-  RuntimeAgentMap,
   runtimeKind,
-  runtimeState,
 } = require('../agent-runtime-binding.cjs');
 
 function run() {
@@ -21,7 +19,6 @@ function run() {
     acpState: 'working',
     acpError: '',
     acpPendingPermissions: [{ requestId: 'permission-1' }],
-    codexAppServerState: 'idle',
   }), {
     kind: 'acp',
     state: 'working',
@@ -37,11 +34,10 @@ function run() {
     sessionUpdatedAt: '',
     sessionRevision: 0,
   });
-  assert.strictEqual(runtimeKind({ runtimeBinding: { kind: 'json', state: 'idle' } }), 'json');
-  assert.strictEqual(runtimeState({ runtimeBinding: { kind: 'app-server', state: 'working' } }), 'connecting');
+  assert.strictEqual(runtimeKind({ runtimeBinding: { kind: 'json', state: 'idle' } }), 'terminal');
   assert.deepStrictEqual(
     publicRuntimeBinding({ runtimeBinding: { kind: 'json', state: 'idle', error: '', transcriptUpdatedAt: '' } }),
-    { kind: 'json', state: 'idle', error: '', transcriptUpdatedAt: '' },
+    { kind: 'terminal' },
   );
   const acpAgent = installRuntimeBinding({
     agentRuntimeMode: 'acp',
@@ -55,18 +51,6 @@ function run() {
   acpAgent.runtimeBinding.state = 'idle';
   assert.strictEqual(acpAgent.runtimeBinding.state, 'idle');
 
-  const agents = new RuntimeAgentMap();
-  agents.set('app', {
-    codexRuntimeMode: 'app-server',
-    agentRuntimeMode: 'terminal',
-    codexAppServerState: 'idle',
-    codexAppServerHomePath: '/tmp/runtime-home',
-  });
-  const appAgent = agents.get('app');
-  assert.strictEqual(appAgent.runtimeBinding.kind, 'acp');
-  assert.strictEqual(appAgent.runtimeBinding.state, 'connecting');
-  assert.strictEqual(publicRuntimeBinding(appAgent).kind, 'acp');
-  assert.strictEqual('codexRuntimeMode' in appAgent, false);
   console.log('test-agent-runtime-binding passed');
 }
 
