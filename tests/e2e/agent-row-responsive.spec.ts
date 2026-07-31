@@ -137,6 +137,7 @@ test('reveals more Agent row information as the sidebar widens', async ({ page, 
   await expect(projectPreview).toContainText(path.basename(projectDir))
   await expect(projectPreview).toContainText('1 Agent · 1 unread · 1 running')
   await expect(projectPreview).toContainText(projectDir)
+  await expect(projectPreview.locator('.code-project-hover-preview-workspace')).toHaveCSS('font-size', '12px')
   await page.mouse.move(1000, 100)
   await expect(projectPreview).toHaveCount(0)
   await page.evaluate(id => {

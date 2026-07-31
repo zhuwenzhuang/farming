@@ -2007,7 +2007,7 @@ function ProjectHoverPreview({
       </div>
       <div className="code-project-hover-preview-line">
         <span className="code-project-hover-preview-icon"><AgentPreviewFolderIcon /></span>
-        <span>{formatWorkspaceForDisplay(preview.workspace)}</span>
+        <span className="code-project-hover-preview-workspace">{formatWorkspaceForDisplay(preview.workspace)}</span>
       </div>
       {worktreeLabel && (
         <div className="code-project-hover-preview-line">

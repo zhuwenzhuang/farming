@@ -103,6 +103,10 @@ import type { ComputerResource, ComputerResourceDeletion } from '../../extension
 import '../../extensions/computer/frontend/computer.css'
 import { AgentHomesSettingsPanel } from './code/AgentHomesSettingsPanel'
 import {
+  requestPetAppearancePreview,
+  type PetAppearance,
+} from '@/lib/pet/rest-reminder'
+import {
   canSwitchAgentRuntime,
   capabilitiesForAgent,
   agentKindForCommand,
@@ -4291,6 +4295,13 @@ export function CodeWorkspace({
     setSettingsPanelOpen(true)
   }, [])
 
+  const previewPetAppearanceFromSettings = useCallback((appearance: PetAppearance) => {
+    setSettingsPanelOpen(false)
+    requestPetAppearancePreview(appearance, {
+      onEnd: () => setSettingsPanelOpen(true),
+    })
+  }, [])
+
   const optionsMenuEntries = useMemo<ContextMenuEntry[]>(() => {
     if (isCompactViewport()) {
       return compactContextMenuEntries([
@@ -5448,6 +5459,7 @@ export function CodeWorkspace({
         language={uiPreferences.language}
         uiPreferences={uiPreferences}
         onClose={() => setSettingsPanelOpen(false)}
+        onPreviewPetAppearance={previewPetAppearanceFromSettings}
         onUpdateUiPreferences={onUpdateUiPreferences}
       />
 

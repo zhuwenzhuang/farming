@@ -3,6 +3,7 @@ import {
   useEffect,
   useLayoutEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react'
 import type { UiAppearance, UiLanguage } from '@/lib/ui-preferences'
@@ -292,6 +293,7 @@ function FarmingPetController({
     appearance: PetAppearance
     restUntil: number
   } | null>(null)
+  const appearancePreviewEndRef = useRef<(() => void) | null>(null)
   const [startupInvitationDismissed, setStartupInvitationDismissed] = useState(false)
   const [restReminderSetupOption, setRestReminderSetupOption] = useState<'appearance' | null>(null)
   const [settingsError, setSettingsError] = useState('')
@@ -362,8 +364,15 @@ function FarmingPetController({
 
   useEffect(() => {
     const onPreview = (event: Event) => {
-      const nextAppearance = (event as CustomEvent<{ appearance?: unknown }>).detail?.appearance
+      const detail = (event as CustomEvent<{
+        appearance?: unknown
+        onEnd?: unknown
+      }>).detail
+      const nextAppearance = detail?.appearance
       if (nextAppearance !== 'glass' && nextAppearance !== 'black-hole') return
+      appearancePreviewEndRef.current = typeof detail?.onEnd === 'function'
+        ? detail.onEnd as () => void
+        : null
       setAppearancePreview({
         appearance: nextAppearance,
         restUntil: Date.now() + PET_APPEARANCE_PREVIEW_SECONDS * 1000,
@@ -371,6 +380,19 @@ function FarmingPetController({
     }
     window.addEventListener(PET_APPEARANCE_PREVIEW_EVENT, onPreview)
     return () => window.removeEventListener(PET_APPEARANCE_PREVIEW_EVENT, onPreview)
+  }, [])
+
+  const endAppearancePreview = useCallback(() => {
+    setAppearancePreview(null)
+    const onEnd = appearancePreviewEndRef.current
+    appearancePreviewEndRef.current = null
+    onEnd?.()
+  }, [])
+
+  useEffect(() => () => {
+    const onEnd = appearancePreviewEndRef.current
+    appearancePreviewEndRef.current = null
+    onEnd?.()
   }, [])
 
   useEffect(() => {
@@ -383,11 +405,11 @@ function FarmingPetController({
   useEffect(() => {
     if (!appearancePreview) return undefined
     const timeout = window.setTimeout(
-      () => setAppearancePreview(null),
+      endAppearancePreview,
       Math.max(0, appearancePreview.restUntil - Date.now()),
     )
     return () => window.clearTimeout(timeout)
-  }, [appearancePreview])
+  }, [appearancePreview, endAppearancePreview])
 
   const tryRestReminder = useCallback(async () => {
     if (await persistRestReminderIntervalSeconds(
@@ -461,7 +483,6 @@ function FarmingPetController({
   ])
 
   if (appearancePreview) {
-    const endPreview = () => setAppearancePreview(null)
     if (appearancePreview.appearance === 'black-hole') {
       return (
         <BlackHolePetRestScene
@@ -470,7 +491,7 @@ function FarmingPetController({
           endLabel={copy.endPreview}
           restUntil={appearancePreview.restUntil}
           active={pageVisible}
-          onEnd={endPreview}
+          onEnd={endAppearancePreview}
         />
       )
     }
@@ -481,7 +502,7 @@ function FarmingPetController({
         endLabel={copy.endPreview}
         restUntil={appearancePreview.restUntil}
         active={pageVisible}
-        onEnd={endPreview}
+        onEnd={endAppearancePreview}
       />
     )
   }

@@ -17,6 +17,7 @@ interface FingerprintOptions {
   appendOnlyIdentityOnly?: boolean;
   appendOnlyPrefixBytes?: number;
   appendOnlyRoots?: string[];
+  appendTolerantPaths?: string[];
   ignoredNames?: ReadonlySet<string>;
   maxDepth?: number;
   maxEntries?: number;
@@ -83,6 +84,7 @@ async function filesystemFingerprint(
     : 50_000;
   const hash = crypto.createHash('sha256');
   const appendOnlyRoots = normalizedWatchPaths(options.appendOnlyRoots || []);
+  const appendTolerantPaths = new Set(normalizedWatchPaths(options.appendTolerantPaths || []));
   const appendOnlyPrefixBytes = typeof options.appendOnlyPrefixBytes === 'number'
     ? Math.max(1, Math.floor(options.appendOnlyPrefixBytes))
     : 64 * 1024;
@@ -94,6 +96,10 @@ async function filesystemFingerprint(
       const relative = path.relative(root, filePath);
       return relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
     })
+  );
+
+  const isAppendTolerantFile = (filePath: string) => (
+    isAppendOnlyFile(filePath) || appendTolerantPaths.has(path.resolve(filePath))
   );
 
   const visit = async (root: string, current: string, depth: number): Promise<void> => {
@@ -115,11 +121,11 @@ async function filesystemFingerprint(
     }
 
     const kind = stat.isDirectory() ? 'd' : stat.isFile() ? 'f' : stat.isSymbolicLink() ? 'l' : 'o';
+    if (stat.isFile() && options.appendOnlyIdentityOnly && isAppendTolerantFile(current)) {
+      hash.update(`${kind}\0${root}\0${relative}\0${stat.dev}\0${stat.ino}\0append-tolerant\n`);
+      return;
+    }
     if (stat.isFile() && isAppendOnlyFile(current)) {
-      if (options.appendOnlyIdentityOnly) {
-        hash.update(`${kind}\0${root}\0${relative}\0${stat.dev}\0${stat.ino}\0append-only\n`);
-        return;
-      }
       const length = Math.min(stat.size, appendOnlyPrefixBytes);
       const buffer = Buffer.alloc(length);
       const handle = await fsp.open(current, 'r');
@@ -355,8 +361,9 @@ class AuthoritativeInventoryCache<Value> {
       const before = entry.sourceMayChangeDuringLoad
         ? ''
         : await filesystemFingerprint(entry.fingerprintPaths, fingerprintOptions);
-      const hasAppendOnlyRoots = (fingerprintOptions.appendOnlyRoots || []).length > 0;
-      const stableBefore = !entry.sourceMayChangeDuringLoad && hasAppendOnlyRoots
+      const hasAppendTolerantSources = (fingerprintOptions.appendOnlyRoots || []).length > 0
+        || (fingerprintOptions.appendTolerantPaths || []).length > 0;
+      const stableBefore = !entry.sourceMayChangeDuringLoad && hasAppendTolerantSources
         ? await filesystemFingerprint(entry.fingerprintPaths, {
             ...fingerprintOptions,
             appendOnlyIdentityOnly: true,
@@ -367,7 +374,7 @@ class AuthoritativeInventoryCache<Value> {
         throw new Error(`Inventory loader returned an invalid value for ${entry.key}`);
       }
       const after = await filesystemFingerprint(entry.fingerprintPaths, fingerprintOptions);
-      const stableAfter = !entry.sourceMayChangeDuringLoad && hasAppendOnlyRoots
+      const stableAfter = !entry.sourceMayChangeDuringLoad && hasAppendTolerantSources
         ? await filesystemFingerprint(entry.fingerprintPaths, {
             ...fingerprintOptions,
             appendOnlyIdentityOnly: true,

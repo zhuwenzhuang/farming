@@ -2708,6 +2708,7 @@ app.post(routePath(BASE_PATH, '/api/settings'), express.json(), async (req, res)
   if (requestsIsolatedBrowser) {
     settingsPatch.computerExtensionEnabled = true;
   }
+  const changesAgentHomes = Object.prototype.hasOwnProperty.call(settingsPatch, 'agentHomes');
   const changesBrowserExtension = Object.prototype.hasOwnProperty.call(settingsPatch, 'browserExtensionEnabled');
   const changesBrowserConfiguration = browserConfigurationKeys.some(key =>
     Object.prototype.hasOwnProperty.call(settingsPatch, key)
@@ -2836,8 +2837,10 @@ app.post(routePath(BASE_PATH, '/api/settings'), express.json(), async (req, res)
     computerResourceManager.capabilityCache = null;
     await computerResourceManager.capability(true);
   }
-  agentSessionInventory.invalidate();
-  agentExtensionInventory.invalidate();
+  if (changesAgentHomes) {
+    agentSessionInventory.invalidate();
+    agentExtensionInventory.invalidate();
+  }
   res.json({
     success: true,
     settings: configManager.getSettings()

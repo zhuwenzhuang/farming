@@ -15,7 +15,6 @@ import {
   persistRestReminderIntervalSeconds,
   readPetAppearance,
   readRestReminderIntervalSeconds,
-  requestPetAppearancePreview,
   savePetAppearance,
   restReminderSliderIntervalSeconds,
   restReminderSliderPosition,
@@ -71,6 +70,7 @@ interface AgentHomesSettingsPanelProps {
   language: UiPreferences['language']
   uiPreferences: UiPreferences
   onClose: () => void
+  onPreviewPetAppearance: (appearance: PetAppearance) => void
   onUpdateUiPreferences: (preferences: Partial<UiPreferences>) => void
 }
 
@@ -209,6 +209,7 @@ export function AgentHomesSettingsPanel({
   language,
   uiPreferences,
   onClose,
+  onPreviewPetAppearance,
   onUpdateUiPreferences,
 }: AgentHomesSettingsPanelProps) {
   const copy = useMemo(() => panelCopy(language), [language])
@@ -742,7 +743,7 @@ export function AgentHomesSettingsPanel({
                         className="code-settings-pet-appearance-preview"
                         aria-label={copy.previewAppearance(option)}
                         title={copy.previewAppearance(option)}
-                        onClick={() => requestPetAppearancePreview(option)}
+                        onClick={() => onPreviewPetAppearance(option)}
                       >
                         <PlayGlyph />
                       </button>

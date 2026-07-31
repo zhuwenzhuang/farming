@@ -383,7 +383,7 @@ const path = require('path');
   assert(settingsSource.includes('code-settings-pet-rest-custom'));
   assert(settingsSource.includes('code-settings-pet-appearance-options'));
   assert(settingsSource.includes('code-settings-pet-appearance-preview'));
-  assert(settingsSource.includes('requestPetAppearancePreview(option)'));
+  assert(settingsSource.includes('onPreviewPetAppearance(option)'));
   assert(settingsSource.includes('data-pet-snapshot-exclude'));
   assert(settingsSource.includes('aria-valuetext={copy.breakReminderValue(displayedRestReminderIntervalSeconds)}'));
   assert(settingsSource.includes('按本页前台可见时间计时'));

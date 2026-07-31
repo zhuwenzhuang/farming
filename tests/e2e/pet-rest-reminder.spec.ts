@@ -331,6 +331,7 @@ test('first-use Pet setup walks from invitation to explicit style selection', as
   await expect(settings.getByRole('button', { name: '预览柔光效果' })).toBeVisible()
   await expect(settings.getByRole('button', { name: '预览黑洞效果' })).toBeVisible()
   await settings.getByRole('button', { name: '预览柔光效果' }).click()
+  await expect(settings).toHaveCount(0)
   const settingsPreview = page.getByTestId('pet-rest-scene')
   await expect(settingsPreview).toHaveAttribute('data-pet-appearance', 'glass')
   await settingsPreview.getByRole('button', { name: '结束预览' }).click()
@@ -338,6 +339,14 @@ test('first-use Pet setup walks from invitation to explicit style selection', as
   await expect(settings).toBeVisible()
   await expect(settings.getByRole('slider', { name: '休息提醒' }))
     .toHaveAttribute('aria-valuetext', '每 50 分钟')
+
+  await page.clock.install()
+  await settings.getByRole('button', { name: '预览黑洞效果' }).click()
+  await expect(settings).toHaveCount(0)
+  await expect(settingsPreview).toHaveAttribute('data-pet-appearance', 'black-hole')
+  await page.clock.fastForward(30_001)
+  await expect(settingsPreview).toHaveCount(0)
+  await expect(settings).toBeVisible()
   await capturePetSetupStep(page, '03-selected-black-hole')
 })
 
@@ -1154,7 +1163,7 @@ test('appearance changes preserve the active cycle and reload restores it', asyn
   const settings = page.getByTestId('code-settings-panel')
   await expect(settings).toBeVisible()
   await settings.getByRole('group', { name: 'Reminder style' })
-    .getByRole('button', { name: 'Black hole' })
+    .getByRole('button', { name: 'Black hole', exact: true })
     .click()
 
   await expect.poll(() => page.evaluate(key => (

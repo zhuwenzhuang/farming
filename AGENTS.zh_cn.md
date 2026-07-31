@@ -202,7 +202,7 @@ Codex steer 一旦被接受，就属于 Farming 自己负责的 transcript 状�
 
 每份已经准备的 Runtime Manifest 还必须在 `runtimes/bindings` 下拥有一份原子写入、按平台区分的绑定；`active.json` 只标识正在运行版本使用的绑定。Update、Bundle 与源码部署的准备阶段必须调用 `runtime prepare --no-activate`，因此准备新版本不能提前替换旧 Server 的 Active Binding。安装完成后的 Launcher 在开放端口前启用自己的精确绑定；回滚则自然重新启用旧版本绑定。Prune 保留 Active Binding 与最新两份待更新或回滚绑定，并从这些绑定记录推导应保留的每个 Cache 目录，而不是只根据当前执行 Package 的 Manifest 清理。
 
-实时 Codex Terminal 的模型修改必须跟随 CLI 实际渲染的 `/model` 与推理菜单，并在放行后续 Composer 输入前确认底部状态。不要用固定延时自动操作 TUI，也不要假设模型目录索引等同于可见菜单索引。`/fast on|off` 是非交互命令：完整输入被 PTY 接受后立即放行后续 Terminal 输入，确认过程在输入队列之外继续。当前 runtime 目录未宣告 Fast / Ultra 时，控件保持可见但禁用。
+实时 Codex Terminal 的模型修改必须跟随 CLI 实际渲染的 `/model` 与推理菜单，并在放行后续 Composer 输入前确认底部状态。不要用固定延时自动操作 TUI，也不要假设模型目录索引等同于可见菜单索引。`/fast` 是非交互 Toggle 命令：完整输入被 PTY 接受后立即放行后续 Terminal 输入，确认过程在输入队列之外继续。当前 runtime 目录未宣告 Fast / Ultra 时，控件保持可见但禁用。
 
 ACP 历史重放和实时更新必须归约到同一条有序 entry stream，不要在后端为 ACP 重建 `Turn -> Item` 模型。面向用户的结果/过程分组属于 ACP 前端的注意力投影：必须可逆、保留 entry 顺序与 tool 详情，并在不删除可见 automation 通知的前提下隐藏 Codex 内部 heartbeat/context 活动。
 

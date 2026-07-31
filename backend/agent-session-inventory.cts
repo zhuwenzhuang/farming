@@ -81,6 +81,13 @@ function appendOnlyHistoryRoots(provider: AgentProvider, homePath: string): stri
   return [];
 }
 
+function appendTolerantHistoryPaths(provider: AgentProvider, homePath: string): string[] {
+  return [
+    ...(provider === 'codex' ? [path.join(homePath, 'session_index.jsonl')] : []),
+    ...(provider === 'claude' ? [path.join(homePath, 'history.jsonl')] : []),
+  ];
+}
+
 function stringSet(value: unknown): Set<string> {
   return new Set(Array.isArray(value)
     ? value.filter((item): item is string => typeof item === 'string')
@@ -295,6 +302,7 @@ class AgentSessionInventory {
           fingerprintOptions: {
             appendOnlyPrefixBytes: 64 * 1024,
             appendOnlyRoots: appendOnlyHistoryRoots(provider, home.path),
+            appendTolerantPaths: appendTolerantHistoryPaths(provider, home.path),
           },
           watchPaths: provider === 'opencode' ? [] : fingerprintPaths,
           sourceMayChangeDuringLoad: provider === 'opencode',

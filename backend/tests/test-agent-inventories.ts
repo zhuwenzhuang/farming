@@ -8,6 +8,8 @@ const { AgentSessionInventory } = require('../agent-session-inventory.cjs');
 
 async function run() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-agent-inventories-'));
+  const caches: Array<{ close(): Promise<void> }> = [];
+  try {
   const codexHome = path.join(root, 'codex');
   const sessionsRoot = path.join(codexHome, 'sessions');
   const skillsRoot = path.join(codexHome, 'skills', 'example');
@@ -24,11 +26,13 @@ async function run() {
   fs.writeFileSync(path.join(skillsRoot, 'SKILL.md'), '---\nname: Example\ndescription: First\n---\n');
 
   let historyLoads = 0;
+  let appendSessionIndexDuringLoad = false;
   const history = new AgentSessionInventory({
     cacheFile: path.join(root, 'cache', 'history.json'),
     listSessions: async () => {
       historyLoads += 1;
       const title = fs.readFileSync(sessionIndex, 'utf8');
+      if (appendSessionIndexDuringLoad) fs.appendFileSync(sessionIndex, '-appended');
       return [{
         provider: 'codex',
         providerHomeId: 'default',
@@ -39,6 +43,7 @@ async function run() {
       }];
     },
   });
+  caches.push(history);
   const metadata = () => ({
     providerHomes: { codex: [{ id: 'default', path: codexHome }] },
     providerSessionBindings: [],
@@ -61,6 +66,16 @@ async function run() {
   fs.writeFileSync(sessionIndex, 'two-two');
   assert.strictEqual((await history.list(metadata))[0].title, 'two-two');
   assert.strictEqual(historyLoads, 2, 'History should reconcile a changed provider Home before returning');
+  fs.writeFileSync(sessionIndex, 'three');
+  appendSessionIndexDuringLoad = true;
+  assert.strictEqual((await history.list(metadata))[0].title, 'three');
+  appendSessionIndexDuringLoad = false;
+  assert.strictEqual(
+    (await history.list(metadata))[0].title,
+    'three-appended',
+    'The next read should converge after an append that raced the previous load',
+  );
+  assert.strictEqual(historyLoads, 4, 'An append-only source should not exhaust reconciliation retries');
 
   let extensionLoads = 0;
   const extensions = new AgentExtensionInventory({
@@ -80,6 +95,7 @@ async function run() {
     },
     readConfiguration: () => ({ exists: false, filePath: 'config.toml', summary: [] }),
   });
+  caches.push(extensions);
 
   assert.strictEqual((await extensions.get('codex', codexHome)).extensions[0].name, 'First');
   assert.strictEqual((await extensions.get('codex', codexHome)).extensions[0].name, 'First');
@@ -88,10 +104,11 @@ async function run() {
   assert.strictEqual((await extensions.get('codex', codexHome)).extensions[0].name, 'Second');
   assert.strictEqual(extensionLoads, 2, 'Plugins should reconcile a changed Home before returning');
 
-  await history.close();
-  await extensions.close();
-  fs.rmSync(root, { recursive: true, force: true });
   console.log('test-agent-inventories passed');
+  } finally {
+    await Promise.allSettled(caches.map(cache => cache.close()));
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 }
 
 run().catch((error: unknown) => {

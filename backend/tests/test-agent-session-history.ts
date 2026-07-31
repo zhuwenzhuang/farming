@@ -29,8 +29,20 @@ async function run() {
       && serverSource.includes("routePath(BASE_PATH, '/api/agent-sessions/search')"),
     'Agent session list and search APIs should use the authoritative inventory and expose explicit force refreshes'
   );
+  const settingsRoute = serverSource.slice(
+    serverSource.indexOf("app.post(routePath(BASE_PATH, '/api/settings')"),
+    serverSource.indexOf("app.post(routePath(BASE_PATH, '/api/themes/:themeId/set')"),
+  );
+  assert(
+    settingsRoute.includes("const changesAgentHomes = Object.prototype.hasOwnProperty.call(settingsPatch, 'agentHomes');")
+      && settingsRoute.includes('if (changesAgentHomes) {')
+      && settingsRoute.includes('agentSessionInventory.invalidate();')
+      && settingsRoute.includes('agentExtensionInventory.invalidate();'),
+    'Unrelated Settings writes must not invalidate Agent Home inventories',
+  );
 
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-agent-session-history-'));
+  try {
   const codexHome = path.join(root, 'codex');
   const codexAltHome = path.join(root, 'codex-alt');
   const claudeHome = path.join(root, 'claude');
@@ -696,8 +708,10 @@ async function run() {
       + `${productionShapeDirectoryReads} directory reads in ${productionShapeElapsedMs.toFixed(1)}ms`
   );
 
-  fs.rmSync(root, { recursive: true, force: true });
   console.log('✓ Agent session history unifies Codex, Claude, OpenCode, Qoder, and Qwen Code metadata');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 }
 
 run().catch(error => {

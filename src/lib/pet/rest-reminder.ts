@@ -91,10 +91,13 @@ export function restReminderEntryCountdownSeconds(intervalSeconds: number) {
 
 export type PetAppearance = 'glass' | 'black-hole'
 
-export function requestPetAppearancePreview(appearance: PetAppearance) {
+export function requestPetAppearancePreview(
+  appearance: PetAppearance,
+  options?: { onEnd?: () => void },
+) {
   if (typeof window === 'undefined') return
   window.dispatchEvent(new CustomEvent(PET_APPEARANCE_PREVIEW_EVENT, {
-    detail: { appearance },
+    detail: { appearance, onEnd: options?.onEnd },
   }))
 }
 

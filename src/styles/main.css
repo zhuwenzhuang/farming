@@ -1708,6 +1708,11 @@ body.code-resizing-sidebar {
   color: #3e4540;
 }
 
+.code-project-hover-preview-workspace {
+  font-size: 12px;
+  letter-spacing: -0.01em;
+}
+
 .code-project-hover-preview-icon,
 .code-project-hover-preview-pin {
   color: #7b8078;

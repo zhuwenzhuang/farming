@@ -68,7 +68,7 @@ Structured Composer 提交使用 request-id 幂等语义。遇到断线或明确
 
 在实时 ACP Session 中切换 Codex 模型时，Farming 会先让 adapter 选择兼容的推理强度回退值，再刷新模型目录并重新应用标准 config option。这样即使长时间运行的 Session 建立于 provider 或代理刷新模型元数据之前，Fast 等模型专属 capability 仍会与刷新后的模型元数据对齐。模型与推理强度可以作为一组 profile 原子更新。对于同时提供 Sol、Terra、Luna 的模型家族，Composer 默认提供一个可跨模型和普通推理强度连续拖动的平面、一根开启时会自动下拉的点击式红色 Ultra 摇杆，以及独立显示 `Fast OFF` / `Fast ON` 的速度按钮；**Advanced** 会连续变形回原有的逐级推理、模型与速度控件，并保留当前 profile。所有 provider 的 ACP 配置写入都会按实时 Session 串行执行；重复设置同一个目标值是幂等操作，Agent 返回的 config option 还必须明确确认目标值。浏览器在事务期间只保留一次乐观更新，忽略更早发起的旧刷新，之后再用确认后的 Session snapshot 校准，失败才回滚。Ultra 与 Fast 的位置在 capability 刷新前后保持稳定；实时 Session 没有宣告的控件会保留为灰色禁用态，而不是让菜单突然跳动。
 
-同一组控件也会更新空闲的原生 Codex Terminal，而不再只修改下一次启动的 profile。Farming 会通过 CLI 的交互式 `/model` 选择和幂等的 `/fast on` 或 `/fast off` 命令应用修改：等待真实模型与推理菜单出现，选择其中实际宣告的条目，再以底部状态确认结果；它不再猜测远端渲染需要多少毫秒。模型菜单确认期间不会提交后续输入。Fast 不同，它是单条非交互命令；完整命令被 PTY 接受后立即放行后续输入，确认过程在输入队列之外继续。Terminal 正在执行 Turn 时这些控件保持禁用，因为普通 TUI 输入可能排队成为任务输入，而不是立即执行配置命令。新 Terminal 选择 Standard 时会显式收到 `service_tier="default"`，因此用户 Codex 配置里的 Fast 值不会再造成 Farming 控件与真实 runtime 不一致；实时 Terminal 确认成功后再持久化启动 profile，避免展示未经验证的选择，也保证 Agent 重启后配置一致。这些 PTY 命令绝不会注入 ACP、旧 JSON、shell、Claude、OpenCode、Qoder 或其他非 Codex Terminal Session。
+同一组控件也会更新空闲的原生 Codex Terminal，而不再只修改下一次启动的 profile。Farming 会通过 CLI 的交互式 `/model` 选择和非交互的 `/fast` Toggle 命令应用修改：等待真实模型与推理菜单出现，选择其中实际宣告的条目，再以底部状态确认结果；它不再猜测远端渲染需要多少毫秒。模型菜单确认期间不会提交后续输入。Fast 不同，它是单条非交互 Toggle 命令；完整命令被 PTY 接受后立即放行后续输入，确认过程在输入队列之外继续。Terminal 正在执行 Turn 时这些控件保持禁用，因为普通 TUI 输入可能排队成为任务输入，而不是立即执行配置命令。新 Terminal 选择 Standard 时会显式收到 `service_tier="default"`，因此用户 Codex 配置里的 Fast 值不会再造成 Farming 控件与真实 runtime 不一致；实时 Terminal 确认成功后再持久化启动 profile，避免展示未经验证的选择，也保证 Agent 重启后配置一致。这些 PTY 命令绝不会注入 ACP、shell、Claude、OpenCode、Qoder 或其他非 Codex Terminal Session。
 
 ACP 的边界保持明确：
 
@@ -106,7 +106,7 @@ ACP 启动、初始化、历史恢复、prompt、协议和 adapter 退出错误�
 - WebSocket `start-agent` 接受 `agentRuntimeMode: "acp"`、可选的 `acpHistoryMode: "load" | "resume"`，以及标准 `additionalDirectories` / `mcpServers` Session 输入；`POST /api/control/agents` 接受相同的 ACP Session 输入。
 - WebSocket `acp-permission-response` 不经过 HTTP，也能回答同一条权限流程。
 
-Farming Code 中 Codex、Claude Code 和 OpenCode 的 Chat 控件现在默认选择 ACP。Chat 与 Terminal 之间切换会重启 Agent runtime，并恢复同一个 provider Session；replacement 会保留当前已展开的 Composer，不会突然套用“新开 Terminal 默认收起”的偏好。旧 JSON Chat Session 仍然可以读取，但不再作为新 Chat 的启动入口。
+Farming Code 中 Codex、Claude Code 和 OpenCode 的 Chat 控件选择 ACP。Chat 与 Terminal 之间切换会重启 Agent runtime，并恢复同一个 provider Session；replacement 会保留当前已展开的 Composer，不会突然套用“新开 Terminal 默认收起”的偏好。已移除的 JSON CLI Runtime 不再是启动、恢复或 Transcript 读取路径。
 
 新建 OpenCode Terminal 会先通过一个有界 ACP 进程创建精确的 provider Session，再启动原生 Terminal。新建 Codex Terminal 会立即启动并暂时使用关联 ID，用户元数据始终归稳定的 Farming Session 记录所有，native host 恢复时也一样。只有 Codex History 在有界启动窗口内出现唯一一个尚未占用、同时匹配 Agent Home 与 canonical Workspace、并带可信创建时间的候选项时，Farming 才确认该 ID；身份扫描只读取启动日期目录中的 rollout 头部，同一 Agent Home 的并发扫描共享一份 in-flight 结果。提交绑定时会再次同步检查占用关系，多个候选项或仅关联 Git worktree 的候选项会继续保持未解析。确认后的 provider ID 会挂接到同一份 Farming 记录，供后续 Chat/Terminal 恢复与 Fork 使用。提交 Terminal 输入时会先设置使用 fence，再等待 PTY 响应；fence 生效后，Chat、权限重启与 Fork 都必须等待精确 provider ID。如果 native host 运行时轮换时仍存在这种已使用但未取得精确 ID 的 Terminal，轮换必须终止并恢复旧 host，因为重新启动 `codex` 会静默替换原对话。
 
