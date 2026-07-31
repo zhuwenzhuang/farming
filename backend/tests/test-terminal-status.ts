@@ -295,6 +295,17 @@ function run() {
 
   assert.deepStrictEqual(
     pickStatus(deriveTerminalStatus({
+      command: 'codex',
+      cwd: '/repo',
+      previewText: '',
+      terminalBusy: true,
+    })),
+    { kind: 'codex', activity: 'busy', busy: true },
+    'A starting Codex process should retain its PTY busy marker until the TUI provides stronger evidence'
+  );
+
+  assert.deepStrictEqual(
+    pickStatus(deriveTerminalStatus({
       command: 'bash',
       cwd: '/repo',
       previewText: [

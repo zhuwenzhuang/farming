@@ -369,7 +369,10 @@ function deriveTerminalStatus(
   } else if (hasPromptIdleFallback) {
     activity = 'idle';
   } else if (kind === 'codex') {
-    activity = inferCodexActivity(title, previewText);
+    const inferredCodexActivity = inferCodexActivity(title, previewText);
+    activity = inferredCodexActivity === 'unknown' && terminalBusy !== null
+      ? (terminalBusy ? 'busy' : 'idle')
+      : inferredCodexActivity;
   } else if (!SHELL_COMMANDS.has(commandName) && terminalBusy !== null) {
     activity = terminalBusy ? 'busy' : 'idle';
   } else if (kind === 'claude') {
