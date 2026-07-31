@@ -19,6 +19,16 @@ export interface BrowserResource {
   updatedAt: number
 }
 
+export interface BrowserResourceCollection {
+  collectionRevision: number
+  resources: BrowserResource[]
+}
+
+export interface BrowserResourceDeletion {
+  id: string
+  collectionRevision: number
+}
+
 export interface BrowserCapability {
   enabled: boolean
   available: boolean

@@ -22,6 +22,10 @@ import { getBackendConnectionSnapshot } from '@/lib/backend-live-status'
 import { isAcpRuntime, isStructuredRuntime } from '@/lib/agent-runtime'
 import { useAgentWithLiveRuntimeState } from '@/lib/agent-live-state'
 import { recordPerformanceTestRender } from '@/lib/performance-test-observer'
+import {
+  foregroundHttpPriorityActive,
+  subscribeForegroundHttpPriority,
+} from '@/lib/foreground-http-priority'
 import { agentTitle } from '@/lib/format'
 import {
   GLOBAL_WORKSPACE_FILES_AGENT_ID,
@@ -89,11 +93,13 @@ import { CodeSidebar } from './code/CodeSidebar'
 import { LatestRequestFence } from './code/latest-request-fence'
 import { BrowserSidebarPortals } from '../../extensions/browser/frontend/BrowserSidebarPortals'
 import { useBrowserResources } from '../../extensions/browser/frontend/useBrowserResources'
-import type { BrowserResource } from '../../extensions/browser/frontend/types'
+import type { BrowserResourceState } from '../../extensions/browser/frontend/browser-resource-state'
+import type { BrowserResource, BrowserResourceDeletion } from '../../extensions/browser/frontend/types'
 import '../../extensions/browser/frontend/browser.css'
 import { ComputerSection } from '../../extensions/computer/frontend/ComputerSection'
 import { useComputerResources } from '../../extensions/computer/frontend/useComputerResources'
-import type { ComputerResource } from '../../extensions/computer/frontend/types'
+import type { ComputerResourceState } from '../../extensions/computer/frontend/computer-resource-state'
+import type { ComputerResource, ComputerResourceDeletion } from '../../extensions/computer/frontend/types'
 import '../../extensions/computer/frontend/computer.css'
 import { AgentHomesSettingsPanel } from './code/AgentHomesSettingsPanel'
 import {
@@ -310,7 +316,7 @@ export interface AgentFlagUpdateResult {
   restarted?: boolean
   restartedAgentId?: string
   launchPermissionMode?: string
-  agentRuntimeMode?: 'terminal' | 'chat' | 'acp' | 'json'
+  agentRuntimeMode?: 'terminal' | 'chat' | 'acp'
   switchFailed?: boolean
   uncertain?: boolean
   warning?: string
@@ -344,18 +350,20 @@ interface CodeWorkspaceProps {
   terminalFocusRequest: { agentId: string; nonce: number } | null
   remoteProjectWorkspaces: string[] | null
   remotePinnedProjectWorkspaces: string[] | null
+  browserResourceState: BrowserResourceState | null
+  computerResourceState: ComputerResourceState | null
   keyMap: Map<string, string>
   keyboardShortcutsEnabled: boolean
   uiPreferences: UiPreferences
   onOpenTerminal: (agentId: string, options?: { focusTerminal?: boolean }) => void
   onOpenTerminalWhenReady: (agentId: string, options?: { focusTerminal?: boolean }) => void
   onNewAgent: (workspace?: string, command?: string, returnFocusTarget?: HTMLElement | null, customTitle?: string) => void
-  onStartAgent: (command: string, workspace: string, options?: { projectWorkspace?: string; codexApprovalMode?: string; agentRuntimeMode?: 'terminal' | 'chat' | 'acp' | 'json'; dangerouslySkipPermissions?: boolean; providerHomeId?: string; additionalDirectories?: string[]; mcpServers?: Array<Record<string, unknown>> }) => void
+  onStartAgent: (command: string, workspace: string, options?: { projectWorkspace?: string; codexApprovalMode?: string; agentRuntimeMode?: 'terminal' | 'chat' | 'acp'; dangerouslySkipPermissions?: boolean; providerHomeId?: string; additionalDirectories?: string[]; mcpServers?: Array<Record<string, unknown>> }) => void
   onRenameAgent: (agentId: string, title: string) => void
   onUpdateAgentFlags: (
     agentId: string,
     flags: Partial<Pick<Agent, 'pinned' | 'unread' | 'archived' | 'launchPermissionMode' | 'readAttentionSeq'>>
-      & { agentRuntimeMode?: 'terminal' | 'chat' | 'acp' | 'json'; readOutputEpoch?: string; readOutputSeq?: number },
+      & { agentRuntimeMode?: 'terminal' | 'chat' | 'acp'; readOutputEpoch?: string; readOutputSeq?: number },
   ) => AgentFlagUpdateResponse | Promise<AgentFlagUpdateResponse>
   onOpenArchivedAgent: (agentId: string) => void
   onForkAgent: (
@@ -378,6 +386,10 @@ interface CodeWorkspaceProps {
     options?: { awaitResult?: boolean; requestId?: string; delivery?: 'prompt' | 'steer' },
   ) => boolean | Promise<boolean>
   onSessionOutput: (agentId: string, handler: (data: string, replace?: boolean, outputSeq?: number | null, runtimeEpoch?: string, stateRevision?: number | null, cols?: number, rows?: number, kind?: 'output' | 'resize' | 'clear') => void) => () => void
+  onBrowserResource: (resource: BrowserResource) => void
+  onBrowserResourceDeletion: (deletion: BrowserResourceDeletion) => void
+  onComputerResource: (resource: ComputerResource) => void
+  onComputerResourceDeletion: (deletion: ComputerResourceDeletion) => void
   onUpdateUiPreferences: (patch: Partial<UiPreferences>) => void
 }
 
@@ -572,6 +584,8 @@ export function CodeWorkspace({
   terminalFocusRequest,
   remoteProjectWorkspaces,
   remotePinnedProjectWorkspaces,
+  browserResourceState,
+  computerResourceState,
   keyMap,
   keyboardShortcutsEnabled,
   uiPreferences,
@@ -590,6 +604,10 @@ export function CodeWorkspace({
   onInterruptAgent,
   sendComposerInput,
   onSessionOutput,
+  onBrowserResource,
+  onBrowserResourceDeletion,
+  onComputerResource,
+  onComputerResourceDeletion,
   onUpdateUiPreferences,
 }: CodeWorkspaceProps) {
   recordPerformanceTestRender('codeWorkspace')
@@ -619,8 +637,16 @@ export function CodeWorkspace({
   const [mainPaneMode, setMainPaneMode] = useState<MainPaneMode>(() => (
     initialComputerResourceId() ? 'computer' : initialBrowserResourceId() ? 'browser' : 'terminal'
   ))
-  const browserResources = useBrowserResources()
-  const computerResources = useComputerResources()
+  const browserResources = useBrowserResources({
+    collection: browserResourceState,
+    onResource: onBrowserResource,
+    onDeletion: onBrowserResourceDeletion,
+  })
+  const computerResources = useComputerResources({
+    collection: computerResourceState,
+    onResource: onComputerResource,
+    onDeletion: onComputerResourceDeletion,
+  })
   const createBrowserResource = browserResources.create
   const startBrowserResource = browserResources.start
   const [initialWorkspaceSurface] = useState<CodeWorkspaceSurface | undefined>(() => (
@@ -647,7 +673,7 @@ export function CodeWorkspace({
   const activeComputerResource = activeComputerId
     ? computerResources.resources.find(resource => resource.id === activeComputerId) ?? null
     : null
-  const computerResourceAgentIds = useMemo(
+  const existingComputerResourceAgentIds = useMemo(
     () => new Set(computerResources.resources.map(resource => resource.ownerAgentId)),
     [computerResources.resources],
   )
@@ -686,10 +712,14 @@ export function CodeWorkspace({
   const [agentSessionNextCursor, setAgentSessionNextCursor] = useState('')
   const [agentSessionsHasMore, setAgentSessionsHasMore] = useState(false)
   const [agentSessionTotal, setAgentSessionTotal] = useState<number | null>(null)
+  const [agentSessionsFreshLoading, setAgentSessionsFreshLoading] = useState(false)
+  const [agentSessionsFreshError, setAgentSessionsFreshError] = useState('')
   const [searchedAgentSessions, setSearchedAgentSessions] = useState<AgentSessionHistoryItem[]>([])
   const [agentSessionSearchLoading, setAgentSessionSearchLoading] = useState(false)
   const agentSessionsLoadingRef = useRef(false)
   const agentSessionsRefreshInFlightRef = useRef<Promise<void> | null>(null)
+  const agentSessionsLoadGenerationRef = useRef(0)
+  const agentSessionsLoadAbortRef = useRef<AbortController | null>(null)
   const agentSessionLoadedCountRef = useRef(AGENT_SESSION_PAGE_SIZE)
   const [agentSessionPinnedOverrides, setAgentSessionPinnedOverrides] = useState<Record<string, boolean>>(
     () => loadSessionDisplayState().pinnedOverrides
@@ -964,6 +994,21 @@ export function CodeWorkspace({
     expandedSessionProjectIds,
     false
   ), [expandedSessionProjectIds, projectListProjects])
+  const computerSectionAgentIds = useMemo(() => {
+    const ids = new Set(existingComputerResourceAgentIds)
+    if (
+      computerResources.capability?.enabled === true
+      && computerResources.capability.available === true
+    ) {
+      projects.forEach(project => project.agents.forEach(agent => ids.add(agent.id)))
+    }
+    return ids
+  }, [
+    computerResources.capability?.available,
+    computerResources.capability?.enabled,
+    existingComputerResourceAgentIds,
+    projects,
+  ])
   const searchableProjects = useMemo(
     () => projectListProjectsForAgents(
       visibleLiveAgents,
@@ -1170,16 +1215,16 @@ export function CodeWorkspace({
   ])
 
   useEffect(() => {
-    if (browserResources.loading || !activeBrowserId || activeBrowserResource) return
+    if (browserResources.collectionLoading || !activeBrowserId || activeBrowserResource) return
     setActiveBrowserId(null)
     setMainPaneMode('terminal')
-  }, [activeBrowserId, activeBrowserResource, browserResources.loading])
+  }, [activeBrowserId, activeBrowserResource, browserResources.collectionLoading])
 
   useEffect(() => {
-    if (computerResources.loading || !activeComputerId || activeComputerResource) return
+    if (computerResources.collectionLoading || !activeComputerId || activeComputerResource) return
     setActiveComputerId(null)
     setMainPaneMode('terminal')
-  }, [activeComputerId, activeComputerResource, computerResources.loading])
+  }, [activeComputerId, activeComputerResource, computerResources.collectionLoading])
 
   useEffect(() => {
     const url = new URL(window.location.href)
@@ -1568,7 +1613,6 @@ export function CodeWorkspace({
     const params = new URLSearchParams({
       q: query,
       limit: String(AGENT_SESSION_SEARCH_LIMIT),
-      fresh: '1',
     })
     const response = await fetch(appPath(`/api/agent-sessions/search?${params.toString()}`), {
       signal,
@@ -1587,13 +1631,15 @@ export function CodeWorkspace({
       agentListState.claimedAgentSessionKeys
     )
   }, [agentListState.claimedAgentSessionKeys, agentSessionPinnedOverrides, fetchSearchedAgentSessions, mainPageSessionKeys])
-  const fetchAgentSessions = useCallback(async (options: { cursor?: string; limit?: number; fresh?: boolean } = {}) => {
+  const fetchAgentSessions = useCallback(async (options: { cursor?: string; limit?: number; fresh?: boolean; signal?: AbortSignal } = {}) => {
     const params = new URLSearchParams({ limit: String(options.limit || AGENT_SESSION_PAGE_SIZE) })
     if (options.cursor) params.set('cursor', options.cursor)
     if (options.fresh) params.set('fresh', '1')
     const response = await fetch(appPath(`/api/agent-sessions?${params.toString()}`), {
       cache: options.fresh ? 'no-store' : 'default',
+      signal: options.signal,
     })
+    if (!response.ok) throw new Error(`Failed to load Agent sessions: ${response.status}`)
     const data = await response.json() as {
       sessions?: AgentSessionHistoryItem[]
       nextCursor?: string
@@ -1610,9 +1656,23 @@ export function CodeWorkspace({
   }, [])
   const loadAgentSessions = useCallback((fresh = false) => {
     let cancelled = false
-    fetchAgentSessions({ fresh })
+    if (!fresh && foregroundHttpPriorityActive()) return () => {}
+    agentSessionsLoadAbortRef.current?.abort()
+    const controller = new AbortController()
+    agentSessionsLoadAbortRef.current = controller
+    const generation = agentSessionsLoadGenerationRef.current + 1
+    agentSessionsLoadGenerationRef.current = generation
+    if (fresh) {
+      setAgentSessionsFreshLoading(true)
+      setAgentSessionsFreshError('')
+      setAgentSessions([])
+      setAgentSessionNextCursor('')
+      setAgentSessionsHasMore(false)
+      setAgentSessionTotal(null)
+    }
+    fetchAgentSessions(fresh ? { fresh: true, signal: controller.signal } : { signal: controller.signal })
       .then(page => {
-        if (cancelled) return
+        if (cancelled || generation !== agentSessionsLoadGenerationRef.current) return
         setAgentSessions(page.sessions)
         setAgentSessionNextCursor(page.nextCursor)
         setAgentSessionsHasMore(page.hasMore)
@@ -1620,18 +1680,43 @@ export function CodeWorkspace({
         agentSessionLoadedCountRef.current = Math.max(AGENT_SESSION_PAGE_SIZE, page.sessions.length)
       })
       .catch(() => {
-        if (!cancelled) {
+        if (controller.signal.aborted) return
+        if (!cancelled && generation === agentSessionsLoadGenerationRef.current) {
           setAgentSessions([])
           setAgentSessionNextCursor('')
           setAgentSessionsHasMore(false)
           setAgentSessionTotal(null)
+          if (fresh) setAgentSessionsFreshError(copy.currentInfoLoadFailed)
+        }
+      })
+      .finally(() => {
+        if (agentSessionsLoadAbortRef.current === controller) agentSessionsLoadAbortRef.current = null
+        if (!cancelled && fresh && generation === agentSessionsLoadGenerationRef.current) {
+          setAgentSessionsFreshLoading(false)
         }
       })
 
     return () => {
       cancelled = true
+      controller.abort()
+      if (agentSessionsLoadAbortRef.current === controller) agentSessionsLoadAbortRef.current = null
+      if (fresh && generation === agentSessionsLoadGenerationRef.current) {
+        setAgentSessionsFreshLoading(false)
+      }
     }
-  }, [fetchAgentSessions])
+  }, [copy.currentInfoLoadFailed, fetchAgentSessions])
+  useEffect(() => subscribeForegroundHttpPriority(() => {
+    agentSessionsLoadAbortRef.current?.abort()
+  }), [])
+  const invalidateAgentSessionsForHistory = useCallback(() => {
+    agentSessionsLoadGenerationRef.current += 1
+    setAgentSessionsFreshLoading(true)
+    setAgentSessionsFreshError('')
+    setAgentSessions([])
+    setAgentSessionNextCursor('')
+    setAgentSessionsHasMore(false)
+    setAgentSessionTotal(null)
+  }, [])
   const refreshAgentSessions = useCallback(() => {
     if (agentSessionsRefreshInFlightRef.current) return agentSessionsRefreshInFlightRef.current
     const refresh = fetchAgentSessions({ limit: agentSessionLoadedCountRef.current, fresh: true })
@@ -2492,7 +2577,7 @@ export function CodeWorkspace({
   const startAgentWithLaunchProfile = useCallback((
     command: string,
     workspace: string,
-    options?: { projectWorkspace?: string; codexApprovalMode?: string; agentRuntimeMode?: 'terminal' | 'chat' | 'acp' | 'json'; dangerouslySkipPermissions?: boolean; providerHomeId?: string; additionalDirectories?: string[]; mcpServers?: Array<Record<string, unknown>> },
+    options?: { projectWorkspace?: string; codexApprovalMode?: string; agentRuntimeMode?: 'terminal' | 'chat' | 'acp'; dangerouslySkipPermissions?: boolean; providerHomeId?: string; additionalDirectories?: string[]; mcpServers?: Array<Record<string, unknown>> },
   ) => {
     setSearchQuery('')
     setSearchOpen(false)
@@ -2779,9 +2864,15 @@ export function CodeWorkspace({
   }, [closeSidebarForMobile, openSearch])
 
   const openWorkspaceViewFromSidebar = useCallback((view: WorkspaceView) => {
+    if (view === 'plugins') {
+      browserResources.refreshCapability()
+      computerResources.refreshCapability()
+    } else if (view === 'history') {
+      invalidateAgentSessionsForHistory()
+    }
     openWorkspaceView(view)
     closeSidebarForMobile()
-  }, [closeSidebarForMobile, openWorkspaceView])
+  }, [browserResources.refreshCapability, closeSidebarForMobile, computerResources.refreshCapability, invalidateAgentSessionsForHistory, openWorkspaceView])
 
   const toggleProject = useCallback((projectId: string) => {
     setCollapsedProjectIds(previous => {
@@ -3095,21 +3186,56 @@ export function CodeWorkspace({
     setMainPaneMode('terminal')
   }, [activeAgent, agents, browserReturnAgentId, openTerminalFromWorkspace])
 
-  const openComputerFromSidebar = useCallback((resource: ComputerResource) => {
+  const showComputerResource = useCallback((resource: ComputerResource) => {
     closeContextMenu()
     clearSearch()
-    setComputerReturnAgentId(activeTerminalId)
     setActiveComputerId(resource.id)
     setMainPaneMode('computer')
     onWorkspaceViewChange('projects')
     closeSidebarForMobile()
   }, [
-    activeTerminalId,
     clearSearch,
     closeContextMenu,
     closeSidebarForMobile,
     onWorkspaceViewChange,
   ])
+
+  const openComputerFromSidebar = useCallback((resource: ComputerResource) => {
+    setComputerReturnAgentId(activeTerminalId)
+    showComputerResource(resource)
+  }, [activeTerminalId, showComputerResource])
+
+  const createContextMenuAgentBrowser = useCallback(() => {
+    if (!contextMenuAgent) return
+    const agentId = contextMenuAgent.id
+    const workspace = projectWorkspaceForAgent(contextMenuAgent)
+    closeContextMenu()
+    setBrowserReturnAgentId(agentId)
+    void createBrowserResource(workspace, { agentId })
+      .then(resource => startBrowserResource(resource.id))
+      .then(showBrowserResource)
+      .catch(error => setCopyNotice({
+        id: Date.now(),
+        kind: 'error',
+        message: error instanceof Error ? error.message : copy.updateFailed,
+      }))
+  }, [closeContextMenu, contextMenuAgent, copy.updateFailed, createBrowserResource, showBrowserResource, startBrowserResource])
+
+  const createContextMenuAgentDesktop = useCallback(() => {
+    if (!contextMenuAgent) return
+    const agentId = contextMenuAgent.id
+    const workspace = projectWorkspaceForAgent(contextMenuAgent)
+    closeContextMenu()
+    setComputerReturnAgentId(agentId)
+    void computerResources.create(workspace, agentId)
+      .then(resource => computerResources.start(resource.id))
+      .then(showComputerResource)
+      .catch(error => setCopyNotice({
+        id: Date.now(),
+        kind: 'error',
+        message: error instanceof Error ? error.message : copy.updateFailed,
+      }))
+  }, [closeContextMenu, computerResources, contextMenuAgent, copy.updateFailed, showComputerResource])
 
   const backFromComputer = useCallback(() => {
     const returnAgent = computerReturnAgentId
@@ -5289,17 +5415,16 @@ export function CodeWorkspace({
         controller={browserResources}
         language={uiPreferences.language}
         onOpen={openBrowserFromSidebar}
-        forceAvailable={computerResourceAgentIds.size > 0}
-        additionalAgentResourceIds={computerResourceAgentIds}
+        forceAvailable={computerSectionAgentIds.size > 0}
+        additionalAgentResourceIds={computerSectionAgentIds}
         renderAdditionalAgentResources={({ agentId, workspace }) => {
           const resource = computerResources.byAgentId.get(agentId) ?? null
-          if (!resource) return null
           return (
             <ComputerSection
               workspace={workspace}
               agentId={agentId}
               resource={resource}
-              active={mainPaneMode === 'computer' && activeComputerId === resource.id}
+              active={mainPaneMode === 'computer' && activeComputerId === resource?.id}
               controller={computerResources}
               language={uiPreferences.language}
               collapsed={collapsedComputerAgentIds.has(agentId)}
@@ -5446,6 +5571,8 @@ export function CodeWorkspace({
         archivedRuns={visibleArchivedRuns}
         archivedAgents={visibleArchivedAgents}
         historyAgentSessions={visibleHistoryAgentSessions}
+        historyAgentSessionsLoading={agentSessionsFreshLoading}
+        historyAgentSessionsError={agentSessionsFreshError}
         providerSessionTotal={agentSessionTotal}
         canLoadMoreHistoryAgentSessions={agentSessionsHasMore}
         now={now}
@@ -5683,7 +5810,16 @@ export function CodeWorkspace({
         deleteWorktreeCancelButtonRef={deleteWorktreeCancelButtonRef}
         onContextMenuKeyDown={handleContextMenuKeyDown}
         runtimeSwitchDisabled={Boolean(permissionSwitchingAgentId)}
+        canCreateAgentBrowser={browserResources.capability?.available === true}
+        canCreateAgentDesktop={Boolean(
+          computerResources.capability?.enabled === true
+          && computerResources.capability.available === true
+          && contextMenuAgent
+          && !computerResources.byAgentId.has(contextMenuAgent.id)
+        )}
         onSwitchAgentRuntime={switchContextMenuAgentRuntime}
+        onCreateAgentBrowser={createContextMenuAgentBrowser}
+        onCreateAgentDesktop={createContextMenuAgentDesktop}
         onUpdateAgentFlags={updateContextMenuAgentFlags}
         onRenameAgent={renameContextMenuAgent}
         onRenameProject={renameContextMenuProject}
@@ -5763,6 +5899,11 @@ function CodexMenuEntries({ entries }: { entries: ContextMenuEntry[] }) {
               </span>
             )}
             <span>{entry.label}</span>
+            {entry.trailingIcon && (
+              <span className="code-context-menu-icon trailing" aria-hidden="true">
+                <ContextMenuIcon kind={entry.trailingIcon} />
+              </span>
+            )}
           </button>
         )
       })}

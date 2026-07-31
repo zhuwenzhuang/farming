@@ -94,9 +94,16 @@ const path = require('path');
   assert(capabilitySource.includes("document.addEventListener('visibilitychange', syncVisibility)"));
   assert(capabilitySource.includes('if (!pageVisible || !state) return undefined'));
   assert(petSource.includes('active={pageVisible}'));
-  assert(petSource.includes('REST_REMINDER_INVITATION_MS'));
+  assert(
+    petSource.includes('restReminderInvitationMs(')
+      && petSource.includes('__FARMING_E2E__'),
+    'the invitation timing override must stay behind the explicit E2E bridge',
+  );
+  assert(petSource.includes('PET_APPEARANCE_PREVIEW_EVENT'));
   assert(petSource.includes('code-pet-appearance-preview'));
-  assert(mainCssSource.includes('code-pet-black-hole-disk-spin'));
+  assert(petSource.includes('title={copy.previewAppearance(option)}'));
+  assert(petSource.includes('<PlayGlyph />'));
+  assert(mainCssSource.includes('code-pet-black-hole-disk-flow'));
   assert(
     petSource.includes("const PET_OWNER_ATTRIBUTE = 'data-farming-pet-owner'")
       && petSource.includes("const PET_OWNER_EVENT = 'farming:pet-owner-change'")
@@ -375,6 +382,8 @@ const path = require('path');
   assert(settingsSource.includes('5 秒（仅用于观察效果）'));
   assert(settingsSource.includes('code-settings-pet-rest-custom'));
   assert(settingsSource.includes('code-settings-pet-appearance-options'));
+  assert(settingsSource.includes('code-settings-pet-appearance-preview'));
+  assert(settingsSource.includes('requestPetAppearancePreview(option)'));
   assert(settingsSource.includes('data-pet-snapshot-exclude'));
   assert(settingsSource.includes('aria-valuetext={copy.breakReminderValue(displayedRestReminderIntervalSeconds)}'));
   assert(settingsSource.includes('按本页前台可见时间计时'));
@@ -421,6 +430,7 @@ const path = require('path');
     reduceRestReminder,
     restReminderBreakMinutes,
     restReminderEntryCountdownSeconds,
+    restReminderInvitationMs,
     savePetAppearance,
     saveRestReminderRuntimeState,
     saveRestReminderIntervalSeconds,
@@ -455,6 +465,11 @@ const path = require('path');
     restReminderEntryCountdownSeconds(50 * 60),
     REST_REMINDER_ENTRY_COUNTDOWN_SECONDS,
   );
+  assert.strictEqual(restReminderInvitationMs(''), 30 * 60_000);
+  assert.strictEqual(restReminderInvitationMs('?petRestInvitationSeconds=30'), 30 * 60_000);
+  assert.strictEqual(restReminderInvitationMs('?petRestInvitationSeconds=30', true), 30_000);
+  assert.strictEqual(restReminderInvitationMs('?petRestInvitationSeconds=0', true), 30 * 60_000);
+  assert.strictEqual(restReminderInvitationMs('?petRestInvitationSeconds=1801', true), 30 * 60_000);
   assert.strictEqual(
     normalizeRestReminderIntervalSeconds((REST_REMINDER_CUSTOM_MINUTES_MAX + 1) * 60),
     null,

@@ -10,11 +10,12 @@ import {
   resolvePetNotificationIntent,
   type PetIntent,
 } from '@/lib/pet/intents'
+import { PlayGlyph } from '@/components/IconGlyphs'
 import {
+  PET_APPEARANCE_PREVIEW_EVENT,
   PET_SETTINGS_EVENT,
   PET_REST_REMINDER_INVITATION_STORAGE_KEY,
   REST_REMINDER_DEFAULT_INTERVAL_SECONDS,
-  REST_REMINDER_INVITATION_MS,
   REST_REMINDER_SNOOZE_MINUTES,
   isPetSettingsStorageKey,
   loadRestReminderIntervalSeconds,
@@ -22,9 +23,11 @@ import {
   persistRestReminderIntervalSeconds,
   readPetAppearance,
   readRestReminderIntervalSeconds,
+  requestPetAppearancePreview,
   restReminderBreakMinutes,
   savePetAppearance,
   restReminderEntryCountdownSeconds,
+  restReminderInvitationMs,
   type PetAppearance,
 } from '@/lib/pet/rest-reminder'
 import { BlackHolePetRestScene } from './BlackHolePetRestScene'
@@ -84,6 +87,10 @@ function useRestReminderInvitationReady(enabled: boolean) {
       return undefined
     }
 
+    const invitationMs = restReminderInvitationMs(
+      window.location.search,
+      Boolean((window as Window & { __FARMING_E2E__?: boolean }).__FARMING_E2E__),
+    )
     let runtime = readInvitationRuntime()
     let timeout: number | null = null
     const persist = () => {
@@ -104,8 +111,8 @@ function useRestReminderInvitationReady(enabled: boolean) {
       timeout = null
       const now = Date.now()
       const elapsed = elapsedAt(now)
-      if (elapsed >= REST_REMINDER_INVITATION_MS) {
-        runtime = { version: 1, foregroundMs: REST_REMINDER_INVITATION_MS, foregroundStartedAt: null }
+      if (elapsed >= invitationMs) {
+        runtime = { version: 1, foregroundMs: invitationMs, foregroundStartedAt: null }
         persist()
         setReady(true)
         return
@@ -115,14 +122,14 @@ function useRestReminderInvitationReady(enabled: boolean) {
         runtime = { ...runtime, foregroundStartedAt: now }
         persist()
       }
-      timeout = window.setTimeout(schedule, REST_REMINDER_INVITATION_MS - elapsed)
+      timeout = window.setTimeout(schedule, invitationMs - elapsed)
     }
     const onVisibilityChange = () => {
       const now = Date.now()
       if (document.visibilityState === 'hidden') {
         runtime = {
           version: 1,
-          foregroundMs: Math.min(REST_REMINDER_INVITATION_MS, elapsedAt(now)),
+          foregroundMs: Math.min(invitationMs, elapsedAt(now)),
           foregroundStartedAt: null,
         }
         persist()
@@ -142,7 +149,7 @@ function useRestReminderInvitationReady(enabled: boolean) {
         const now = Date.now()
         runtime = {
           version: 1,
-          foregroundMs: Math.min(REST_REMINDER_INVITATION_MS, elapsedAt(now)),
+          foregroundMs: Math.min(invitationMs, elapsedAt(now)),
           foregroundStartedAt: null,
         }
         persist()
@@ -212,7 +219,6 @@ function petCopy(language: UiLanguage) {
     defaultAppearance: zh ? '默认' : 'Default',
     blackHole: zh ? '黑洞' : 'Black hole',
     blackHoleHint: zh ? '更醒目的动态提示' : 'A more noticeable animated reminder',
-    preview: zh ? '预览' : 'Preview',
     previewAppearance: (appearance: PetAppearance) => {
       const appearanceName = appearance === 'black-hole'
         ? (zh ? '黑洞' : 'black hole')
@@ -355,6 +361,19 @@ function FarmingPetController({
   }, [defaultAppearance])
 
   useEffect(() => {
+    const onPreview = (event: Event) => {
+      const nextAppearance = (event as CustomEvent<{ appearance?: unknown }>).detail?.appearance
+      if (nextAppearance !== 'glass' && nextAppearance !== 'black-hole') return
+      setAppearancePreview({
+        appearance: nextAppearance,
+        restUntil: Date.now() + PET_APPEARANCE_PREVIEW_SECONDS * 1000,
+      })
+    }
+    window.addEventListener(PET_APPEARANCE_PREVIEW_EVENT, onPreview)
+    return () => window.removeEventListener(PET_APPEARANCE_PREVIEW_EVENT, onPreview)
+  }, [])
+
+  useEffect(() => {
     if (!pageVisible || restReminder?.phase !== 'due') return undefined
     setCountdownNow(Date.now())
     const interval = window.setInterval(() => setCountdownNow(Date.now()), 1000)
@@ -397,12 +416,6 @@ function FarmingPetController({
     setAppearance(nextAppearance)
     setRestReminderSetupOption(null)
   }, [copy.settingsSaveFailed])
-  const previewAppearance = useCallback((nextAppearance: PetAppearance) => {
-    setAppearancePreview({
-      appearance: nextAppearance,
-      restUntil: Date.now() + PET_APPEARANCE_PREVIEW_SECONDS * 1000,
-    })
-  }, [])
 
   const intent = useMemo<PetIntent | null>(() => {
     if (!settingsLoaded) return null
@@ -593,9 +606,10 @@ function FarmingPetController({
                 type="button"
                 className="code-pet-appearance-preview"
                 aria-label={copy.previewAppearance(option)}
-                onClick={() => previewAppearance(option)}
+                title={copy.previewAppearance(option)}
+                onClick={() => requestPetAppearancePreview(option)}
               >
-                {copy.preview}
+                <PlayGlyph />
               </button>
             </div>
           ))}

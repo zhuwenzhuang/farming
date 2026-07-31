@@ -130,6 +130,8 @@ export interface CodeCopy {
   markAllAsRead: string
   renameAgent: string
   renameProject: string
+  createBrowser: string
+  createIsolatedDesktop: string
   archiveAgent: string
   reorderAgentFailed: string
   markAsRead: string
@@ -326,6 +328,7 @@ export interface CodeCopy {
   searchFilesOrJump: string
   openEditors: string
   loading: string
+  currentInfoLoadFailed: string
   searching: string
   noMatches: string
   searchIgnoredFolders: string
@@ -624,6 +627,8 @@ const EN_COPY: CodeCopy = {
   markAllAsRead: 'Mark all as read',
   renameAgent: 'Rename Agent',
   renameProject: 'Rename project',
+  createBrowser: 'Create Browser',
+  createIsolatedDesktop: 'Create Isolated Desktop',
   archiveAgent: 'Archive',
   reorderAgentFailed: 'Failed to reorder Agent',
   markAsRead: 'Mark as read',
@@ -846,6 +851,7 @@ const EN_COPY: CodeCopy = {
   searchFilesOrJump: 'Search files or jump to path line',
   openEditors: 'OPEN EDITORS',
   loading: 'Loading...',
+  currentInfoLoadFailed: 'Failed to load current information.',
   searching: 'Searching...',
   noMatches: 'No matches',
   searchIgnoredFolders: 'Also search ignored folders',
@@ -1144,6 +1150,8 @@ const ZH_COPY: CodeCopy = {
   markAllAsRead: '全部标为已读',
   renameAgent: '重命名 Agent',
   renameProject: '重命名项目',
+  createBrowser: '创建浏览器',
+  createIsolatedDesktop: '创建隔离桌面',
   archiveAgent: '归档',
   reorderAgentFailed: '调整 Agent 顺序失败',
   markAsRead: '标为已读',
@@ -1402,6 +1410,7 @@ const ZH_COPY: CodeCopy = {
   searchFilesOrJump: '搜索文件或跳转到路径行号',
   openEditors: '打开的编辑器',
   loading: '加载中...',
+  currentInfoLoadFailed: '当前信息加载失败。',
   searching: '搜索中...',
   noMatches: '无匹配',
   searchIgnoredFolders: '同时在已忽略目录中搜索',

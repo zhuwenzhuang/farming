@@ -12,15 +12,15 @@ Project Files 现在通过同一个内部 Viewer Registry 解析内置的 Markdo
 
 用户显式打开的已知 Project Root 之外的可读文件仍然只读。对于精确打开的外部 HTML，临时 Preview Session 只授权该 HTML 所在目录，以便加载相对资源；它不会把这个目录加入 Files 浏览、Search、编辑或 Git Scope。
 
-Browser Extension 是第一种实时 Resource 实现，集成默认关闭。插件页只提供“自动”“已发现的本机 Chromium”和“隔离浏览器”；自动模式优先使用兼容的本机 Executable，否则使用已经准备好的隔离运行时。普通用户不再配置 CDP 地址。只有“已启用且当前可用”时，Extension 才贡献 Browser UI，并接受 Browser API、EventSource、Viewer WebSocket、CLI 或 MCP 操作。
+Browser Extension 是第一种实时 Resource 实现，集成默认关闭。插件页按名称展示每个已发现的本机 Chromium，并始终把“隔离浏览器”作为独立的显式来源展示。首次发现的兼容本机浏览器会被持久化为初始选择；以后该 Executable 消失时，Browser 必须进入未就绪，不能静默切换来源。隔离浏览器会明确显示“需要 Docker”或“尚未准备”。普通用户不再配置 CDP 地址。只有“已启用且当前可用”时，Extension 才贡献 Browser UI，并接受 Browser API、Viewer WebSocket、CLI 或 MCP 操作。
 
-每个存活 Agent 可以拥有多个身份稳定、可重命名的 Browser Row，并具有显式的 `stopped -> starting -> running -> stopping -> stopped` 生命周期；启动或运行失败进入 `failed`。Project Root 仍然是文件、上传和下载的隔离边界，但不再是 Runtime Owner。同一 Agent、同一 Browser Source 下正在运行的 Row，是一个共享 agent-browser Session 中的多个带标签 Tab；即使属于同一个 Project，不同 Agent 也绝不共享 Session、Profile、Cookie 或 Storage。Local Session 拥有 Chromium Process 与隔离 Profile；隔离 Session 租用 Agent 唯一且可见的 Computer，内部回环 CDP 只是 Transport，不是用户配置。同一个 Browser 身份上的操作串行执行，Runtime Command 边界还会再次串行，因此服务 Viewer 的截图不能与 Agent Action 竞争。Stop 会先关闭新接收、排空已经接收的有界 Action，再关闭 Tab 与 Session；Computer Container 由 Agent 生命周期拥有，不归某一个 Browser Row。过期 Runtime 与 Viewer Generation 都会被拒绝。Agent 在 Chat/Terminal 间切换时保留两种 Resource；停止或归档 Agent 会停止 Runtime 但保留 Row 与 Profile；恢复后只按需重新启动；删除 Agent 会删除 Browser Resource、独立 Profile 与精确 Computer。Farming 重启时，之前仍处于运行态的 Browser Row 会标记为失败，并在恢复前只删除经过精确验证的旧版隐藏 Browser Container。每次持久化变更都会同时递增 Row Revision 与 Collection Revision。后端先注册实时事件监听，再发送权威 Collection Snapshot；UI 按 Revision 归约 HTTP、EventSource 与 Viewer 更新，因此传输乱序不能让状态回退，也不能删除更新的状态。
+每个存活 Agent 可以拥有多个身份稳定、可重命名的 Browser Row，并具有显式的 `stopped -> starting -> running -> stopping -> stopped` 生命周期；启动或运行失败进入 `failed`。Project Root 仍然是文件、上传和下载的隔离边界，但不再是 Runtime Owner。同一 Agent、同一 Browser Source 下正在运行的 Row，是一个共享 agent-browser Session 中的多个带标签 Tab；即使属于同一个 Project，不同 Agent 也绝不共享 Session、Profile、Cookie 或 Storage。Local Session 拥有 Chromium Process 与隔离 Profile；隔离 Session 租用 Agent 唯一且可见的 Computer，内部回环 CDP 只是 Transport，不是用户配置。同一个 Browser 身份上的操作串行执行，Runtime Command 边界还会再次串行，因此服务 Viewer 的截图不能与 Agent Action 竞争。Stop 会先关闭新接收、排空已经接收的有界 Action，再关闭 Tab 与 Session；Computer Container 由 Agent 生命周期拥有，不归某一个 Browser Row。过期 Runtime 与 Viewer Generation 都会被拒绝。Agent 在 Chat/Terminal 间切换时保留两种 Resource；停止或归档 Agent 会停止 Runtime 但保留 Row 与 Profile；恢复后只按需重新启动；删除 Agent 会删除 Browser Resource、独立 Profile 与精确 Computer。重启时，任何仍保留精确 Process Identity 的 Row 都必须再次进入 Cleanup，即使上一次失败已将其标记为 `failed`；Cleanup 所需的锁定版 `agent-browser` 独立解析，不能依赖当前选中的 Browser Source 是否可用。每次持久化变更都会同时递增 Row Revision 与 Collection Revision。每个 Farming 页面在版本化主 WebSocket 握手后接收 Browser 与 Computer 的权威完整快照，之后在同一条控制连接上接收带 Revision、按 Resource 合并的轻量元数据更新；每次重连都重新发送两份快照。HTTP 只保留当前 Capability 探测和生命周期命令；Browser JPEG 与 Desktop noVNC 画面继续使用独立的按需 WebSocket，避免图像背压阻塞 Chat、Terminal 或 Resource 元数据。打开 Terminal 属于前台准入：页面会先取消正在进行的低优先级 Usage 与 Agent Session 预取，再请求权威 Terminal Checkpoint，避免多页面后台导航耗尽 HTTP/1.1 连接槽。UI 按 Revision 归约 HTTP Response、主 WebSocket 快照、增量和 Viewer 更新，因此传输乱序不能让状态回退，也不能删除更新的状态。
 
 三个来源复用同一个版本精确锁定的 `agent-browser` Runtime。安装与更新准备阶段会在旧 Server 仍可用时下载 package-lock 锁定的公共 npm Tarball，校验 Integrity，并只把选中平台 Entry 提取到 Farming 的不可变 Cache。旧 Linux 上只有这个依赖选择同一 Package 中静态链接的 musl Entry，Codex 与 Claude 仍使用正常平台 Entry；Active Manifest 按依赖记录该选择，Cache Prune 因而不会误删正在使用的 Artifact。Server 启动时先校验 Cache，再打开端口；只有全新安装或条目缺失、损坏时才修复，且不复用系统安装的 `agent-browser`。
 
-准备隔离浏览器是插件页中唯一主要的 Browser 下载路径。用户显式操作后，Farming 会准备锁定的上游 Computer 镜像，通过有界且按延迟排序的下载源把 Linux Chromium 放入受管 Cache，并在 Computer 镜像内验证该 Executable 后才发布 Ready。标准 Docker Daemon Mirror（包括账号级阿里云镜像加速器）可以承接 Computer Pull，但不成为 Farming 自身配置。并发准备请求合并为同一操作；安装、更新和 Server 启动绝不会拉取镜像或 Chromium Archive。
+准备隔离浏览器是插件页中唯一主要的 Browser 下载路径。用户显式操作后，Farming 会准备锁定的上游 Computer 镜像，通过有界且按延迟排序的下载源把 Linux Chromium 放入受管 Cache，确保只读挂载路径可由容器用户穿过，并以容器内真实的 `cua` 用户验证该 Executable 后才发布 Ready。标准 Docker Daemon Mirror（包括账号级阿里云镜像加速器）可以承接 Computer Pull，但不成为 Farming 自身配置。并发准备请求合并为同一操作；安装、更新和 Server 启动绝不会拉取镜像或 Chromium Archive。
 
-来源选择是普通持久化产品设置，不需要重启 Farming。Local Resource 由 Farming 把选中的 Chromium Executable 与独立 Profile 交给锁定版本的 `agent-browser`。隔离 Resource 的 Docker 创建、精确 Label、受管 Chromium 只读挂载和回环 CDP Relay 由 Computer Extension 管理，Endpoint 只在内部交给同一个 `agent-browser`。因此启用隔离 Browser 时也会保持 Computer 启用。Browser 仍只有一套 Automation 与 Viewer 实现。旧的受管 Chromium 与外部 CDP 设置只保留读取兼容，不再是普通插件选项。
+来源选择是普通持久化产品设置，不需要重启 Farming。Local Resource 由 Farming 把选中的 Chromium Executable 与独立 Profile 交给锁定版本的 `agent-browser`。隔离 Resource 的 Docker 创建、精确 Label、受管 Chromium 只读挂载和回环 CDP Relay 由 Computer Extension 管理，Endpoint 只在内部交给同一个 `agent-browser`。CDP 就绪探测必须先关闭并释放自己的 Relay Connection，才能放行 Browser Runtime，避免后续 agent-browser 连接被探测请求堵住。因此启用隔离 Browser 时也会保持 Computer 启用。Browser 仍只有一套 Automation 与 Viewer 实现。旧的受管 Chromium 与外部 CDP 设置只保留读取兼容，不再是普通插件选项。
 
 受鉴权保护的 Viewer 代理 Runtime 的 Session-scoped WebSocket Stream。Frame 使用 JPEG 保持交互响应速度，Viewport、Pointer、Wheel、Keyboard 与 Text Input 则通过同一个 Session 返回。Viewer 按 Frame 上报的 CSS 尺寸绘制；Client 较慢时会丢弃已经被新 Frame 取代的内容。Agent Command 与人的输入因此操作同一个 Browser Identity，Farming 不再携带第二条原生 CDP Action Path。
 
@@ -30,7 +30,7 @@ Browser 插件在 ACP Session 创建边界处已启用时，Farming 会通过现
 
 Farming Code 后续应通过 Extension 扩展能力，而不是把每一种新资源和 Agent 能力直接加入核心产品。浏览器是当前最明确的例子，但不应因此在核心中形成一套一次性的浏览器子系统。
 
-Farming Code 通过统一的插件页面呈现这些能力。左上角的紧凑拼图按钮和空白欢迎页上的大型“插件”入口进入同一个页面；插件生命周期与 Agent Home 管理都归属这里，不再堆进通用设置。每一次变更仍然必须由用户显式操作。
+Farming Code 通过统一的插件页面呈现这些能力，并只在展示层拆成三个页签：**Farming** 放内置能力，**Agent Homes** 放 Provider Home 注册与配置摘要，**扩展**放从这些 Home 发现的 Skill、MCP、Hook、插件、命令和其他扩展类型。“扩展”先选择一份精确 Home，再在这份 Home 内按类型切换，避免把不同 Home 的目录混成一条无归属长列表。左上角的紧凑拼图按钮和空白欢迎页上的大型“插件”入口进入同一个页面；当前页签都只是浏览器本地展示状态，不会成为后端权威设置。插件生命周期与 Agent Home 管理都归属这里，不再堆进通用设置。每一次变更仍然必须由用户显式操作。
 
 Computer Use 使用明确的“能力 / Resource”层级：**Computer Use** 是插件能力，
 **桌面**是它操作的 Resource。Target 模型容纳本机桌面和隔离桌面，但 UI 只展示
@@ -38,7 +38,11 @@ Computer Use 使用明确的“能力 / Resource”层级：**Computer Use** 是
 一个无法真实使用的“本机桌面”选项。内部 `computer` API 和 `computer_*` Agent Tool
 仅是兼容名称，不再作为用户可见的 Resource 名称。
 
-同一个页面也拥有 Agent 配置。一个 Provider 加一个 Agent Home ID 就是一份独立 Agent 配置：`Codex · default` 与 `Codex · work` 是两个 Agent，即使它们都使用 Codex。每一项常态只保留便于扫读的摘要：Farming 读取 Provider 自己拥有的配置文件，只把安全且可识别的字段显示为普通文字，扩展分类仍在用户需要时展开。点击编辑会在 Farming 现有文件编辑器中打开这份精确配置文件；文件尚不存在时，编辑器先建立空 Working Copy，只在用户保存时创建文件。所有面向 Provider 的 Catalog、Settings、Session 与 Extension 读取都必须先解析精确 Home，缓存键也必须包含该 Home 身份；默认 Home 的结果绝不能填充到其他 Home。Skill、Plugin 与 Command 只在拥有它们的精确 Home 下发现和展示；Farming 不会再把多个 Home 的扩展合并成 Provider 级列表。全局 Farming Settings 中有序的 `agentHomes` Registry 是权威状态。新增项追加到末尾，拖拽或键盘移动会重写稳定的数字顺序，只有非 `default` 项可以删除。因此 Agent Home 管理不再出现在通用 Settings 中。
+打开 Plugins 是一条权威刷新边界。Farming 会在展示默认“Farming”页签前先作废上一次 Browser 与 Computer Use 探测的展示结果，新的后端探测完成前只显示“正在检查”。Agent Home 与扩展目录按页签加载：默认页签不会请求它们，进入“Agent Homes”或“扩展”时才请求新的后端权威结果。每个精确 Home 都有一份以 Provider 和 canonical path 为键的持久化 inventory snapshot；相关配置、Skill、Command、Hook、MCP 与插件路径都会记录指纹并被 watcher 监听。指纹未变时直接返回快照，dirty Home 以 single-flight reconcile，且不会重新扫描无关 Home。请求失败时保持明确失败，绝不回退展示上一次访问的快照。
+
+同一个页面也拥有 Agent 配置。一个 Provider 加一个 Agent Home ID 就是一份独立 Agent 配置：`Codex · default` 与 `Codex · work` 是两个 Agent，即使它们都使用 Codex。Agent Homes 中每一项常态只保留便于扫读的摘要：Farming 读取 Provider 自己拥有的配置文件，只把安全且可识别的字段显示为普通文字，不再把这个 Home 的扩展目录嵌套在配置行下面。点击编辑会在 Farming 现有文件编辑器中打开这份精确配置文件；文件尚不存在时，编辑器先建立空 Working Copy，只在用户保存时创建文件。所有面向 Provider 的 Catalog、Settings、Session 与 Extension 读取都必须先解析精确 Home，缓存键也必须包含该 Home 身份；默认 Home 的结果绝不能填充到其他 Home。“扩展”页签始终显式保留当前 Home，类型数量和搜索范围都限制在这份 Home 内，并且只展示当前选中类型的条目；Farming 不会把多个 Home 折叠成一个 Provider 级身份。全局 Farming Settings 中有序的 `agentHomes` Registry 是权威状态。新增项追加到末尾，拖拽或键盘移动会重写稳定的数字顺序，只有非 `default` 项可以删除。因此 Agent Home 管理不再出现在通用 Settings 中。
+
+第一版扩展目录刻意保持只读。解析器沿用 VS Code Agent Plugin parser 的 Format Adapter 结构，识别根目录 `plugin.json` 及固定 `skills/`、`mcp.json` 组件的 Agent Plugins v1，也兼容精确 Home 下 Provider 已经使用的 `.codex-plugin`、`.claude-plugin`、`.qoder-plugin`、`.plugin`、`.mcp.json`、Skill、Command 与 Hook 布局。Agent Plugins 包内路径会按真实文件系统解析，符号链接逃出 Plugin Root 时拒绝读取。只有 Provider 原生配置明确给出状态时，Farming 才显示“已启用”或“已停用”；其余统一显示“已配置”。Farming 不维护另一套 Enablement 数据库，不推测 Runtime 是否正在运行，也不展示 Provider 可能忽略的开关。每个条目保留相对 Home 的来源文件，“打开来源文件”直接复用 Agent Home 编辑器路径。
 
 ### Agent Home 元数据与身份
 
@@ -113,7 +117,7 @@ Farming 的 Browser Extension 拥有每个 Browser Resource 身份，以及 View
 
 MVP 有意只支持一套操作实现：锁定版本的 `agent-browser` Command 与 Stream Protocol，通过系统浏览器 Executable 或 Agent Computer 的私有回环 CDP Endpoint 进入。旧受管 Chromium 和 External CDP 设置只保留读取兼容。结构化 Agent Surface 已覆盖导航与等待、DOM 交互、检查与 JavaScript、Console/Error/Network 诊断、Cookie/Storage、Frame/Dialog 和 Project 级 Upload/Download。Computer Use 仍是浏览器原生窗口框架、Dialog 与任意 Linux 应用的独立完整桌面能力；选择隔离来源时，它的桌面 Viewer 与 Browser Viewer 观察同一个 Chromium。
 
-每个 Browser 都有持久唯一 ID、一个 Agent Owner，以及用于文件隔离的 Project Root。在侧栏中它默认隐藏在 **Agent → Resources → Browsers** 下；展开或收起这两层都不会改变 Runtime 或 Viewer 状态。Browser 处于 stopped、failed、starting 或 stopping 时不显示状态点，只有真正 running 后才在行的最右侧显示一个绿点。隔离桌面是 Agent 下另一条可见 Resource，Browser Stop/Delete 后仍保留。Browser 仍可通过 `browser` URL Query Parameter 直接打开。删除系统浏览器 Row 时必须先停止精确 Runtime，再删除独立 Profile；删除隔离 Browser Row 只关闭其 Tab/Session，删除 Agent 才拥有精确桌面删除；删除旧 External CDP Row 时只关闭 Farming 创建的 Target。
+每个 Browser 都有持久唯一 ID、一个 Agent Owner，以及用于文件隔离的 Project Root。Browser 或 Computer Use 已启用且可用时，即使还没有创建第一个 Resource，Agent Row 也会显示 Resources 入口；Agent 菜单同时提供“创建浏览器”，在尚无桌面时还提供“创建隔离桌面”。这些 Resource 在侧栏中默认隐藏在 **Agent → Resources → 浏览器 / 桌面** 下；展开或收起这两层都不会改变 Runtime 或 Viewer 状态。Browser 处于 stopped、failed、starting 或 stopping 时不显示状态点，只有真正 running 后才在行的最右侧显示一个绿点。隔离桌面在 Browser Stop/Delete 后仍保留。Browser 仍可通过 `browser` URL Query Parameter 直接打开。删除系统浏览器 Row 时必须先停止精确 Runtime，再删除独立 Profile；删除隔离 Browser Row 只关闭其 Tab/Session，删除 Agent 才拥有精确桌面删除；删除旧 External CDP Row 时只关闭 Farming 创建的 Target。
 
 Viewer 地址栏接受完整 HTTP(S) URL 或裸 Host。裸公网域名默认补全为 HTTPS；回环地址、IP 字面量、单段内网 Host 和显式非默认端口默认使用 HTTP。Farming 不会猜测 `www` Host。导航失败会明确显示；下一次导航开始时会清除旧错误，成功后也不会残留上一次失败提示。Viewer 键盘输入通过隐藏文本代理接收，因此已提交的输入法文字和粘贴内容可以进入页面；普通 ASCII 按键仍走低延迟的流式通道。
 

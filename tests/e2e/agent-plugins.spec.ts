@@ -59,6 +59,9 @@ test('Plugins treats each Agent Home as an independent ordered Agent configurati
 
   await page.getByTestId('code-nav-plugins').click()
   const panel = page.getByTestId('code-plugins-panel')
+  await expect(panel.getByTestId('code-plugin-tab-farming')).toHaveAttribute('aria-selected', 'true')
+  await panel.getByTestId('code-plugin-tab-homes').click()
+  await expect(panel.getByTestId('code-plugin-tab-homes')).toHaveAttribute('aria-selected', 'true')
   const agentSections = panel.locator('.code-plugin-agent-section')
   await expect.poll(() => agentSections.evaluateAll(sections => (
     sections.map(section => section.getAttribute('data-testid')).slice(0, 3)
@@ -71,7 +74,7 @@ test('Plugins treats each Agent Home as an independent ordered Agent configurati
   const openCode = panel.getByTestId('code-plugin-section-agent-opencode-default')
   await expect(openCode.getByText(/Inherited from|was not found/)).toBeVisible()
   await expect(openCode.getByRole('combobox')).toHaveCount(0)
-  await expect(panel.locator('.code-plugin-kind-section[open]')).toHaveCount(0)
+  await expect(panel.locator('.code-plugin-extension')).toHaveCount(0)
 
   const claudeDefault = panel.getByTestId('code-plugin-section-agent-claude-default')
   const claudeWork = panel.getByTestId('code-plugin-section-agent-claude-work')
@@ -92,7 +95,6 @@ test('Plugins treats each Agent Home as an independent ordered Agent configurati
   await expect(work.locator('.code-plugin-agent-identity h3 > small')).toHaveCSS('font-size', '13px')
   await expect(work.locator('.code-plugin-agent-identity p code')).toHaveCSS('font-size', '14px')
   await expect(work.locator('.code-plugin-agent-configuration strong')).toHaveCSS('font-size', '14px')
-  await expect(work.locator('.code-plugin-kind-section > summary span')).toHaveCSS('font-size', '13px')
   await page.locator('body').evaluate(body => { body.dataset.appearance = 'dark' })
   await expect(work.locator('.code-plugin-agent-configuration strong')).toHaveCSS('color', 'rgb(216, 216, 216)')
   await page.locator('body').evaluate(body => { body.dataset.appearance = 'light' })
@@ -107,6 +109,7 @@ test('Plugins treats each Agent Home as an independent ordered Agent configurati
   await expect(page.getByTestId('code-file-editor')).toBeVisible()
   await expect(page.getByTestId('code-file-editor').getByRole('tab', { selected: true })).toContainText('config.toml')
   await page.getByTestId('code-nav-plugins').click()
+  await panel.getByTestId('code-plugin-tab-homes').click()
 
   await panel.getByRole('button', { name: 'Add Agent', exact: true }).click()
   const form = panel.getByTestId('code-plugin-agent-form')
@@ -140,8 +143,95 @@ test('Plugins treats each Agent Home as an independent ordered Agent configurati
   const reviewConfigFile = path.join(codexReviewHome, 'config.toml')
   await expect.poll(() => fs.existsSync(reviewConfigFile) ? fs.readFileSync(reviewConfigFile, 'utf8') : '').toContain('gpt-5.6-terra')
   await page.getByTestId('code-nav-plugins').click()
+  await panel.getByTestId('code-plugin-tab-homes').click()
 
   page.once('dialog', dialog => dialog.accept())
   await review.getByRole('button', { name: 'Remove', exact: true }).click()
   await expect(review).toHaveCount(0)
+})
+
+test('Plugins shows a read-only extension catalog from one exact Agent Home', async ({ page, workspaceRoot }) => {
+  await openFarming(page)
+  const codexHome = path.join(workspaceRoot, 'codex-catalog')
+  const pluginRoot = path.join(codexHome, 'plugins', 'example')
+  fs.mkdirSync(path.join(codexHome, 'skills', 'home-skill'), { recursive: true })
+  fs.mkdirSync(path.join(pluginRoot, '.codex-plugin'), { recursive: true })
+  fs.mkdirSync(path.join(pluginRoot, 'skills', 'plugin-skill'), { recursive: true })
+  fs.mkdirSync(path.join(pluginRoot, 'hooks'), { recursive: true })
+  fs.writeFileSync(path.join(codexHome, 'config.toml'), [
+    '[mcp_servers.read-only-mcp]',
+    'command = "node"',
+    'enabled = false',
+  ].join('\n'))
+  fs.writeFileSync(path.join(codexHome, 'skills', 'home-skill', 'SKILL.md'), [
+    '---',
+    'name: Home Skill',
+    'description: Visible from this exact Home.',
+    '---',
+  ].join('\n'))
+  fs.writeFileSync(path.join(pluginRoot, '.codex-plugin', 'plugin.json'), JSON.stringify({
+    name: 'example-plugin',
+    version: '1.0.0',
+    description: 'A production-shaped Agent plugin.',
+    skills: './skills',
+    mcpServers: './mcp.json',
+    hooks: './hooks/hooks.json',
+  }))
+  fs.writeFileSync(path.join(pluginRoot, 'skills', 'plugin-skill', 'SKILL.md'), [
+    '---',
+    'name: Plugin Skill',
+    'description: Visible through the plugin manifest.',
+    '---',
+  ].join('\n'))
+  fs.writeFileSync(path.join(pluginRoot, 'mcp.json'), JSON.stringify({
+    mcpServers: { pluginMcp: { title: 'Plugin MCP', command: 'node' } },
+  }))
+  fs.writeFileSync(path.join(pluginRoot, 'hooks', 'hooks.json'), JSON.stringify({
+    hooks: { Stop: [{ hooks: [{ type: 'command', command: './stop.sh' }] }] },
+  }))
+  await page.request.post('/farming/api/settings', {
+    data: {
+      agentHomes: {
+        codex: [{
+          id: 'catalog',
+          path: codexHome,
+          order: 0,
+          newAgentDefaults: { model: 'inherit', reasoning: 'inherit', fast: 'inherit' },
+        }],
+      },
+    },
+  })
+
+  await page.getByTestId('code-nav-plugins').click()
+  const panel = page.getByTestId('code-plugins-panel')
+  await panel.getByTestId('code-plugin-tab-extensions').click()
+  await expect(panel.getByTestId('code-plugin-extension-home-codex-catalog')).toHaveAttribute('aria-selected', 'true')
+
+  await panel.getByTestId('code-plugin-extension-kind-skill').click()
+  await expect(panel.getByText('Home Skill', { exact: true })).toBeVisible()
+  await expect(panel.getByText('example-plugin: Plugin Skill', { exact: true })).toBeVisible()
+
+  await panel.getByTestId('code-plugin-extension-kind-mcp').click()
+  const disabledMcp = panel.getByRole('button', { name: /Read Only MCP/ })
+  await expect(disabledMcp).toContainText('Disabled')
+  await expect(panel.getByRole('button', { name: /Plugin MCP/ })).toContainText('Configured')
+
+  await panel.getByTestId('code-plugin-extension-kind-hook').click()
+  await expect(panel.getByText('example-plugin: Stop', { exact: true })).toBeVisible()
+
+  await panel.getByTestId('code-plugin-extension-kind-plugin').click()
+  await panel.getByRole('button', { name: /Example Plugin/ }).click()
+  const detail = panel.getByTestId('code-plugin-detail-dialog')
+  await expect(detail).toContainText('plugins/example/.codex-plugin/plugin.json')
+  await detail.getByRole('button', { name: 'Open source file' }).click()
+  await expect(page.getByTestId('code-file-editor').getByRole('tab', { selected: true })).toContainText('plugin.json')
+
+  fs.writeFileSync(path.join(codexHome, 'hooks.json'), JSON.stringify({
+    hooks: { SessionStart: [{ hooks: [{ type: 'command', command: './start.sh' }] }] },
+  }))
+  await page.getByTestId('code-nav-plugins').click()
+  await panel.getByTestId('code-plugin-tab-extensions').click()
+  await panel.getByRole('button', { name: 'Refresh', exact: true }).click()
+  await panel.getByTestId('code-plugin-extension-kind-hook').click()
+  await expect(panel.getByText('SessionStart', { exact: true })).toBeVisible()
 })

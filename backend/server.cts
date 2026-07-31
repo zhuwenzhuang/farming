@@ -1,6 +1,7 @@
 import type { ClientMessage } from '../shared/browser-protocol.js';
 import type { Dirent } from 'fs';
 import type { AgentSession } from './agent-session-history.cjs';
+import type { AgentSessionInventoryMetadata } from './agent-session-inventory.cjs';
 import type { ForkMode, KillAgentResult } from './agent-manager-lifecycle-types.js';
 import type { AcpConfigValue } from './agent-manager-provider-types.js';
 import type { AgentRecord, ProjectMembershipPatch } from './agent-manager-record-types.js';
@@ -134,6 +135,7 @@ interface WebSocketClient {
   previewScope?: 'none' | 'focused' | 'all';
   protocolVersion?: number;
   readyState: number;
+  resourceSnapshotPending?: boolean;
   streamScope?: 'focused' | 'all';
   workspaceFileUnsubscribes?: Map<string, WorkspaceFileWatchRecord> | null;
   protocolCompatible?: boolean;
@@ -227,7 +229,7 @@ import { listCodexModelOptions } from './codex-models.cjs';
 import { readProviderHomeConfiguration } from './provider-home-configuration.cjs';
 import { applyProviderHomeEnvironment } from './provider-adapters.cjs';
 import { listCodexSessions } from './codex-session-history.cjs';
-import { buildAgentSessionResumeCommand, findAgentSession, isSafeSessionId, listAgentSessions, normalizeProvider, paginateAgentSessions, resolveCodexResumeModelProvider, searchAgentSessions } from './agent-session-history.cjs';
+import { buildAgentSessionResumeCommand, findAgentSession, isSafeSessionId, normalizeProvider, paginateAgentSessions, resolveCodexResumeModelProvider, searchAgentSessions } from './agent-session-history.cjs';
 import { findActiveAgentClaimingSession, mainPageAgentSessionKey, mainPageAgentSessionFromKey, mainPageAgentSessionsToAutoResume, resumedAgentSource } from './main-page-session.cjs';
 import { discoverAgentWorkspaces } from './workspace-discovery.cjs';
 import { inspectGitWorktree } from './git-worktree-info.cjs';
@@ -246,10 +248,19 @@ import { UsageMonitor } from './usage-monitor.cjs';
 import { CodexContextWindowReader } from './codex-context-window.cjs';
 import { AsyncCache } from './async-cache.cjs';
 import { getMainAgentSkillsCatalog } from './main-agent-skills.cjs';
-import { discoverAgentExtensions, discoverSlashCommands } from './slash-command-discovery.cjs';
+import { AgentExtensionInventory } from './agent-extension-inventory.cjs';
+import { AgentSessionInventory } from './agent-session-inventory.cjs';
+import { discoverSlashCommands } from './slash-command-discovery.cjs';
+import { agentExtensionInventoryCacheFile, agentSessionInventoryCacheFile } from './storage-layout.cjs';
 import { FarmingUpdateService } from './update-service.cjs';
 import { inputPartsFromMessage } from './input-parts.cjs';
 import { cleanupTerminalRuntime } from './terminal-runtime-cleanup.cjs';
+import {
+  coalesceResourceBroadcast,
+  drainResourceBroadcasts,
+  resourceClientDelivery,
+  type ResourceBroadcastEvent,
+} from './resource-broadcast-protocol.cjs';
 import { QrShareTicketStore, SHARE_TICKET_TTL_MS } from './qr-share-tickets.cjs';
 import { ReviewStateStore } from './review-state-store.cjs';
 import { createReviewStateRouter } from './review-state-router.cjs';
@@ -294,6 +305,12 @@ server.on('close', () => clearInterval(websocketLivenessTimer));
 
 const configManager = new ConfigManager();
 configManager.init();
+const agentSessionInventory = new AgentSessionInventory({
+  cacheFile: agentSessionInventoryCacheFile(configManager.farmingDir),
+});
+const agentExtensionInventory = new AgentExtensionInventory({
+  cacheFile: agentExtensionInventoryCacheFile(configManager.farmingDir),
+});
 
 function resolveCliBinDir() {
   if (process.env.FARMING_CLI_BIN_DIR) {
@@ -318,6 +335,10 @@ const browserResourceManager = new BrowserResourceManager({
   configDir: configManager.farmingDir,
   isEnabled: () => configManager.getSettings().browserExtensionEnabled === true,
   getBrowserSettings: () => configManager.getSettings(),
+  saveBrowserSelection: selection => configManager.updateSettings({
+    browserSource: selection.source,
+    browserExecutablePath: selection.executablePath,
+  }),
   isolatedBrowserProvider,
 });
 
@@ -458,18 +479,11 @@ function requestedProviderHome(provider: string, rawHomeId: unknown) {
     : { error: `Unknown ${provider} Agent Home: ${homeId}`, home: null, status: 404 };
 }
 
-const agentSessionsCache = new AsyncCache(() => {
-  const providerMetadata = configuredProviderMetadata();
-  return listAgentSessions({
-    limit: 5000,
-    providerLimit: 5000,
-    scanLimit: 5000,
-    ...providerMetadata,
-  });
-}, {
-  ttlMs: 30_000,
-  staleMs: 5 * 60_000,
-});
+function currentAgentSessions(): Promise<AgentSession[]> {
+  return agentSessionInventory.list(
+    () => configuredProviderMetadata() as AgentSessionInventoryMetadata,
+  );
+}
 
 function withSearchTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -966,20 +980,17 @@ app.get(routePath(BASE_PATH, '/api/skills'), (_req, res) => {
   res.json({ skills: getMainAgentSkillsCatalog() });
 });
 
-app.get(routePath(BASE_PATH, '/api/agent-extensions'), (_req, res) => {
-  const availableAgents = getAvailableAgentsForRequest()
-    .filter(agent => agent.category === 'coding');
-  const availableByProvider = new Map(availableAgents.map(agent => [
-    String(agent.name || agent.command || '').trim().toLowerCase(),
-    agent,
-  ]));
-  const configuredProviders = Object.keys(configManager.getSettings().agentHomes || {})
-    .filter(provider => (
-      availableByProvider.has(provider)
-      || configManager.getAgentHomes(provider).some(home => home.id !== 'default')
-    ));
-  const agents = configuredProviders
-    .map(provider => {
+app.get(routePath(BASE_PATH, '/api/agent-extensions'), async (_req, res) => {
+  try {
+    const availableAgents = getAvailableAgentsForRequest()
+      .filter(agent => agent.category === 'coding');
+    const availableByProvider = new Map(availableAgents.map(agent => [
+      String(agent.name || agent.command || '').trim().toLowerCase(),
+      agent,
+    ]));
+    const configuredProviders = Object.keys(configManager.getSettings().agentHomes || {});
+    const retainedHomes: Array<{ provider: string; path: string }> = [];
+    const agents = await Promise.all(configuredProviders.map(async provider => {
       const agent = availableByProvider.get(provider);
       const configuredHomes = configManager.getAgentHomes(provider);
       const homes = configuredHomes.length > 0
@@ -995,32 +1006,36 @@ app.get(routePath(BASE_PATH, '/api/agent-extensions'), (_req, res) => {
         name: agent?.name || provider,
         description: agent?.description || '',
         available: Boolean(agent),
-        discoverySupported: provider === 'codex' || provider === 'claude',
-        homes: homes.map(home => ({
-          id: home.id,
-          path: home.path,
-          order: home.order,
-          newAgentDefaults: home.newAgentDefaults,
-          configuration: {
-            rootId: rootIdForPath(home.path),
-            ...readProviderHomeConfiguration(provider, home.path),
-          },
-          extensions: discoverAgentExtensions({
-            provider,
-            providerHomePath: home.path,
-          }).map(extension => ({
-            id: extension.command,
-            command: extension.command,
-            name: extension.label,
-            description: extension.description,
-            kind: extension.source === 'custom' ? 'command' : extension.source || 'command',
-            scope: extension.scope || '',
-          })),
+        discoverySupported: true,
+        homes: await Promise.all(homes.map(async home => {
+          if (home.path) retainedHomes.push({ provider, path: home.path });
+          const inventory = await agentExtensionInventory.get(provider, home.path);
+          return {
+            id: home.id,
+            path: home.path,
+            order: home.order,
+            newAgentDefaults: home.newAgentDefaults,
+            configuration: {
+              rootId: rootIdForPath(home.path),
+              ...inventory.configuration,
+            },
+            extensions: inventory.extensions.map(extension => ({
+              ...extension,
+              rootId: rootIdForPath(home.path),
+            })),
+          };
         })),
       };
-    });
-  res.setHeader('Cache-Control', 'no-store');
-  res.json({ agents });
+    }));
+    await agentExtensionInventory.retain(retainedHomes);
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ agents });
+  } catch (caught) {
+    const error = caughtError(caught);
+    console.error('Failed to read Agent extension inventory:', error);
+    res.setHeader('Cache-Control', 'no-store');
+    res.status(500).json({ error: error.message || 'Failed to read Agent extensions' });
+  }
 });
 
 app.get(routePath(BASE_PATH, '/api/slash-commands'), (req, res) => {
@@ -1327,16 +1342,12 @@ function providerSessionDisplayStates(): Map<string, Record<string, unknown>> {
 
 app.get(routePath(BASE_PATH, '/api/agent-sessions'), async (req, res) => {
   try {
+    res.setHeader('Cache-Control', 'no-store');
     const requestedLimit = Number(req.query.limit);
     const limit = Number.isFinite(requestedLimit) ? Math.max(0, Math.min(1000, requestedLimit)) : 60;
     const cursor = typeof req.query.cursor === 'string' ? req.query.cursor : '';
-    const cacheOptions = req.query.force === '1'
-      ? { force: true }
-      : (req.query.fresh === '1' ? { maxAgeMs: INTERACTIVE_REFRESH_CACHE_MAX_AGE_MS } : {});
-    const sessions = (await agentSessionsCache.get(
-      JSON.stringify(configManager.getSettings().agentHomes || {}),
-      cacheOptions
-    )) ?? [];
+    if (req.query.force === '1') agentSessionInventory.invalidate();
+    const sessions = await currentAgentSessions();
     const page = paginateAgentSessions(sessions, { limit: Math.max(1, limit), cursor });
     if (page.invalidCursor) {
       res.status(400).json({ error: 'Invalid Agent session cursor' });
@@ -1364,20 +1375,16 @@ app.get(routePath(BASE_PATH, '/api/agent-sessions'), async (req, res) => {
 
 app.get(routePath(BASE_PATH, '/api/agent-sessions/search'), async (req, res) => {
   try {
+    res.setHeader('Cache-Control', 'no-store');
     const query = typeof req.query.q === 'string' ? req.query.q : '';
     const requestedLimit = Number(req.query.limit);
     const limit = Number.isFinite(requestedLimit) ? Math.max(1, Math.min(1000, requestedLimit)) : 100;
     const settings = configManager.getSettings();
-    const cacheOptions = req.query.force === '1'
-      ? { force: true }
-      : (req.query.fresh === '1' ? { maxAgeMs: INTERACTIVE_REFRESH_CACHE_MAX_AGE_MS } : {});
-    const sessions = (await withSearchTimeout(
-      agentSessionsCache.get(
-        JSON.stringify(settings.agentHomes || {}),
-        cacheOptions
-      ),
+    if (req.query.force === '1') agentSessionInventory.invalidate();
+    const sessions = await withSearchTimeout(
+      currentAgentSessions(),
       Number(settings.searchTimeoutMs) || 10_000
-    )) ?? [];
+    );
     const result = searchAgentSessions(sessions, query, {
       limit,
       projectNames: settings.projectNames,
@@ -1451,7 +1458,7 @@ app.post(routePath(BASE_PATH, '/api/main-page-agent-sessions'), express.json(), 
   }
 
   const mainPageSessionKeys = configManager.getMainPageSessionKeys();
-  agentSessionsCache.invalidate();
+  agentSessionInventory.invalidate();
   res.json({ success: true, mainPageSessionKeys });
   scheduleBroadcastState();
 });
@@ -2615,10 +2622,7 @@ async function autoResumeMainPageAgentSessions() {
 
   let knownSessions: AgentSession[];
   try {
-    knownSessions = (await agentSessionsCache.get(
-      JSON.stringify(configManager.getSettings().agentHomes || {}),
-      { maxAgeMs: INTERACTIVE_REFRESH_CACHE_MAX_AGE_MS }
-    )) ?? [];
+    knownSessions = await currentAgentSessions();
   } catch (caught) {
     const error = caughtError(caught);
     console.warn('Failed to load Agent session catalog for auto-resume:', error && (error.message || error));
@@ -2832,7 +2836,8 @@ app.post(routePath(BASE_PATH, '/api/settings'), express.json(), async (req, res)
     computerResourceManager.capabilityCache = null;
     await computerResourceManager.capability(true);
   }
-  agentSessionsCache.invalidate();
+  agentSessionInventory.invalidate();
+  agentExtensionInventory.invalidate();
   res.json({
     success: true,
     settings: configManager.getSettings()
@@ -3161,6 +3166,7 @@ async function sendComposerInputMessage(
 async function sendBusinessHealthResult(ws: WebSocketClient, requestId: string) {
   const health = await probeAgentManagerBusinessHealth(agentManager);
   if (ws.readyState !== WebSocket.OPEN) return;
+  recoverResourceSnapshotIfReady(ws);
   ws.send(JSON.stringify({
     type: 'business-health-result',
     requestId,
@@ -3178,6 +3184,7 @@ function handleMessage(ws: WebSocketClient, data: ServerClientMessage) {
         return;
       }
       ws.protocolVersion = data.protocolVersion;
+      sendResourceSnapshots(ws);
       break;
     case 'business-health-probe':
       if (!ws.protocolVersion) {
@@ -3481,6 +3488,19 @@ function sendState(ws: WebSocketClient) {
   });
 }
 
+function sendResourceSnapshots(ws: WebSocketClient) {
+  if (ws.readyState !== WebSocket.OPEN || ws.protocolVersion !== PROTOCOL_VERSION) return;
+  ws.send(JSON.stringify({
+    type: 'browser-resource-snapshot',
+    snapshot: browserResourceManager.stateSnapshot(),
+  }));
+  ws.send(JSON.stringify({
+    type: 'computer-resource-snapshot',
+    snapshot: computerResourceManager.stateSnapshot(),
+  }));
+  ws.resourceSnapshotPending = false;
+}
+
 function previewForClient(preview: ServerRecord, client: WebSocketClient) {
   if (!preview || !client || client.focusedAgentId !== preview.agentId || !preview.previewSnapshot) {
     return preview;
@@ -3506,6 +3526,8 @@ const PREVIEW_BROADCAST_INTERVAL_MS = 500;
 const SESSION_STREAM_BROADCAST_INTERVAL_MS = 33;
 const AGENT_ACTIVITY_BROADCAST_DELAY_MS = SESSION_STREAM_BROADCAST_INTERVAL_MS;
 const MAX_SESSION_STREAM_CLIENT_BUFFERED_AMOUNT = 4 * 1024 * 1024;
+const RESOURCE_BROADCAST_INTERVAL_MS = 100;
+const MAX_RESOURCE_CLIENT_BUFFERED_AMOUNT = 512 * 1024;
 
 type AgentScopedServerEvent = Record<string, unknown> & { agentId: string };
 
@@ -3520,8 +3542,92 @@ const pendingAgentActivityBroadcasts = new Map();
 const pendingAgentUpdates = new Map();
 const pendingAcpSessionRevisions = new Map();
 const pendingSessionStreams = new Map();
+const pendingResourceBroadcasts = new Map<string, ResourceBroadcastEvent>();
 let sessionStreamBroadcastTimer: ReturnType<typeof setTimeout> | null = null;
 let lastSessionStreamBroadcastAt = 0;
+let resourceBroadcastTimer: ReturnType<typeof setTimeout> | null = null;
+
+function broadcastResourceEvent(event: ResourceBroadcastEvent) {
+  const message = JSON.stringify(event.message);
+  wss.clients.forEach(client => {
+    if (client.readyState !== WebSocket.OPEN || client.protocolVersion !== PROTOCOL_VERSION) return;
+    const delivery = resourceClientDelivery(
+      client.bufferedAmount,
+      client.resourceSnapshotPending === true,
+      MAX_RESOURCE_CLIENT_BUFFERED_AMOUNT,
+    );
+    if (delivery === 'defer') {
+      client.resourceSnapshotPending = true;
+      return;
+    }
+    if (delivery === 'snapshot') {
+      sendResourceSnapshots(client);
+      return;
+    }
+    client.send(message);
+  });
+}
+
+function recoverResourceSnapshotIfReady(client: WebSocketClient) {
+  if (client.readyState !== WebSocket.OPEN || client.protocolVersion !== PROTOCOL_VERSION) return;
+  const delivery = resourceClientDelivery(
+    client.bufferedAmount,
+    client.resourceSnapshotPending === true,
+    MAX_RESOURCE_CLIENT_BUFFERED_AMOUNT,
+  );
+  if (delivery === 'snapshot') sendResourceSnapshots(client);
+}
+
+function flushResourceBroadcasts() {
+  resourceBroadcastTimer = null;
+  drainResourceBroadcasts(pendingResourceBroadcasts).forEach(broadcastResourceEvent);
+}
+
+function scheduleResourceBroadcast(event: ResourceBroadcastEvent) {
+  coalesceResourceBroadcast(pendingResourceBroadcasts, event);
+  if (resourceBroadcastTimer) return;
+  resourceBroadcastTimer = setTimeout(flushResourceBroadcasts, RESOURCE_BROADCAST_INTERVAL_MS);
+}
+
+function scheduleResourceUpdate(domain: 'browser' | 'computer', resource: unknown) {
+  if (!isRecord(resource)) return;
+  const id = typeof resource.id === 'string' ? resource.id : '';
+  const collectionRevision = Number(resource.collectionRevision);
+  const revision = Number(resource.revision);
+  if (!id || !Number.isInteger(collectionRevision) || collectionRevision < 0 || !Number.isInteger(revision) || revision < 0) return;
+  scheduleResourceBroadcast({
+    domain,
+    id,
+    collectionRevision,
+    kind: 'updated',
+    message: {
+      type: `${domain}-resource-updated`,
+      resource,
+    },
+  });
+}
+
+function scheduleResourceDeletion(domain: 'browser' | 'computer', deletion: unknown) {
+  if (!isRecord(deletion)) return;
+  const id = typeof deletion.id === 'string' ? deletion.id : '';
+  const collectionRevision = Number(deletion.collectionRevision);
+  if (!id || !Number.isInteger(collectionRevision) || collectionRevision < 0) return;
+  scheduleResourceBroadcast({
+    domain,
+    id,
+    collectionRevision,
+    kind: 'deleted',
+    message: {
+      type: `${domain}-resource-deleted`,
+      deletion,
+    },
+  });
+}
+
+browserResourceManager.on('resource', (resource: unknown) => scheduleResourceUpdate('browser', resource));
+browserResourceManager.on('deleted', (deletion: unknown) => scheduleResourceDeletion('browser', deletion));
+computerResourceManager.on('resource', (resource: unknown) => scheduleResourceUpdate('computer', resource));
+computerResourceManager.on('deleted', (deletion: unknown) => scheduleResourceDeletion('computer', deletion));
 
 function broadcastState() {
   lastStateBroadcastAt = Date.now();
@@ -3613,7 +3719,7 @@ agentManager.onUpdate(() => {
 });
 
 agentManager.on('provider-session-updated', () => {
-  agentSessionsCache.invalidate();
+  agentSessionInventory.invalidate();
   scheduleBroadcastState();
 });
 

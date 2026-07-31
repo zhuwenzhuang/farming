@@ -82,7 +82,7 @@ function run() {
       pageVisibilitySource.includes('reducePageVisibilitySnapshot(current') &&
       appSource.includes('const pageVisible = usePageVisibility()') &&
       appSource.includes('CONTEXT_WINDOW_REFRESH_MS') &&
-      appSource.includes("fetch(appPath('/api/usage'))"),
+      appSource.includes("fetch(appPath('/api/usage'), { signal: controller.signal })"),
     'App should pause visible-only polling and restart heartbeat observation after the page becomes visible'
   );
 

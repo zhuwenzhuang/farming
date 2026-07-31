@@ -45,6 +45,13 @@ test('unconfigured reminder does not interrupt a new user on entry', async ({ pa
   await expect(page.getByTestId('pet-rest-invitation')).toHaveCount(0)
 })
 
+test('explicit test URL can shorten the first-use invitation delay', async ({ page }) => {
+  await page.goto('/farming/?petRestInvitationSeconds=1', { waitUntil: 'domcontentloaded' })
+  await expect(page.getByTestId('app-shell')).toBeVisible()
+  await expect(page.getByTestId('pet-rest-invitation')).toHaveCount(0)
+  await expect(page.getByTestId('pet-rest-invitation')).toBeVisible({ timeout: 3_000 })
+})
+
 test('unconfigured reminder shows its invitation in narrow layouts', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await makeRestReminderInvitationReady(page)
@@ -272,6 +279,9 @@ test('first-use Pet setup walks from invitation to explicit style selection', as
     .toHaveAttribute('aria-pressed', 'true')
   await expect(appearanceChoice.getByRole('button', { name: /^黑洞/ }))
     .toHaveAttribute('aria-pressed', 'false')
+  const softGlowPreviewButton = appearanceChoice.getByRole('button', { name: '预览柔光效果' })
+  await expect(softGlowPreviewButton).toHaveText('')
+  await expect(softGlowPreviewButton.locator('svg')).toHaveCount(1)
   await expect.poll(() => page.evaluate(key => (
     JSON.parse(localStorage.getItem(key) ?? 'null')?.capabilities?.restReminder?.intervalSeconds
   ), SETTINGS_KEY)).toBe(50 * 60)
@@ -285,7 +295,7 @@ test('first-use Pet setup walks from invitation to explicit style selection', as
       return { name: style.animationName, state: style.animationPlayState }
     })
   expect(blackHoleIconAnimation).toEqual({
-    name: 'code-pet-black-hole-disk-spin',
+    name: 'code-pet-black-hole-disk-flow',
     state: 'running',
   })
   await appearanceChoice.getByRole('button', { name: '预览柔光效果' }).click()
@@ -318,6 +328,14 @@ test('first-use Pet setup walks from invitation to explicit style selection', as
   await expect(settings.getByRole('group', { name: '提醒样式' })
     .getByRole('button', { name: '黑洞', exact: true }))
     .toHaveAttribute('aria-pressed', 'true')
+  await expect(settings.getByRole('button', { name: '预览柔光效果' })).toBeVisible()
+  await expect(settings.getByRole('button', { name: '预览黑洞效果' })).toBeVisible()
+  await settings.getByRole('button', { name: '预览柔光效果' }).click()
+  const settingsPreview = page.getByTestId('pet-rest-scene')
+  await expect(settingsPreview).toHaveAttribute('data-pet-appearance', 'glass')
+  await settingsPreview.getByRole('button', { name: '结束预览' }).click()
+  await expect(settingsPreview).toHaveCount(0)
+  await expect(settings).toBeVisible()
   await expect(settings.getByRole('slider', { name: '休息提醒' }))
     .toHaveAttribute('aria-valuetext', '每 50 分钟')
   await capturePetSetupStep(page, '03-selected-black-hole')

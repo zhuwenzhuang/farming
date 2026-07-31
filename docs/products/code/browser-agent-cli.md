@@ -9,8 +9,11 @@ interact with the same pages in Farming.
 
 Open **Plugins → Browser**:
 
-1. Keep **Automatic** selected, or choose a detected local Chromium browser.
-2. If the host cannot run Chromium, click **Prepare isolated Browser** once.
+1. Choose a detected local Chromium browser by name, or choose **Isolated Browser**.
+2. If Isolated Browser is disabled with a Docker requirement, install and start
+   [Docker Desktop](https://docs.docker.com/desktop/setup/install/mac-install/)
+   on macOS, then reopen Plugins so Farming performs a fresh probe.
+3. Click **Prepare isolated Browser** once.
    Farming prepares the pinned Computer image and a verified Linux Chromium
    cache. The Agent's visible Computer owns the container and private CDP
    endpoint; multiple Browser Resources are tabs in that same desktop.
@@ -22,6 +25,13 @@ Server startup. Users do not configure Docker, ports, or CDP addresses. On
 older Linux hosts, Farming automatically uses the statically linked
 `agent-browser` artifact from the same pinned package, so the host glibc does
 not need to run the Browser daemon.
+
+On macOS, the local Chromium source is the simplest choice for ordinary Browser
+Use and requires no Docker installation. Docker Desktop is the supported choice
+when an Agent needs an independent Linux Browser, parallel isolated desktops, or
+Computer Use. Isolated Browser is not a Safari/Firefox compatibility matrix;
+cross-engine testing belongs in a dedicated testing service rather than a
+silent Browser fallback.
 
 Browser tools use the coding Agent Provider's Session permission mode; the
 Browser plugin adds no second permission policy. When the Provider asks and the

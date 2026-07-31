@@ -124,36 +124,6 @@ function createComputerRouter(
     }
   });
 
-  router.get('/events', (req: any, res: any) => {
-    try {
-      manager.requireEnabled();
-    } catch (caught) {
-      sendError(res, caught);
-      return;
-    }
-    res.writeHead(200, {
-      'Cache-Control': 'no-cache, no-transform',
-      Connection: 'keep-alive',
-      'Content-Type': 'text/event-stream',
-      'X-Accel-Buffering': 'no',
-    });
-    const write = (event: string, value: unknown) => {
-      res.write(`event: ${event}\ndata: ${JSON.stringify(value)}\n\n`);
-    };
-    const onResources = (value: unknown) => write('resources', value);
-    const onResource = (value: unknown) => write('resource', value);
-    const onDeleted = (value: unknown) => write('deleted', value);
-    manager.on('resources', onResources);
-    manager.on('resource', onResource);
-    manager.on('deleted', onDeleted);
-    write('resources', manager.snapshot());
-    req.on('close', () => {
-      manager.off('resources', onResources);
-      manager.off('resource', onResource);
-      manager.off('deleted', onDeleted);
-    });
-  });
-
   router.post('/', (req: any, res: any) => {
     try {
       manager.requireEnabled();

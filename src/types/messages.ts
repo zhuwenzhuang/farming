@@ -1,4 +1,14 @@
 import type { Agent, AgentTerminalStatus, AppState, CodexTerminalProfile, RuntimeObservation, SystemStats, TerminalPreviewSnapshot } from './agent'
+import type {
+  BrowserResource,
+  BrowserResourceCollection,
+  BrowserResourceDeletion,
+} from '../../extensions/browser/frontend/types'
+import type {
+  ComputerResource,
+  ComputerResourceCollection,
+  ComputerResourceDeletion,
+} from '../../extensions/computer/frontend/types'
 
 // ---- Client → Server messages ----
 
@@ -20,7 +30,7 @@ export interface StartAgentMessage {
   projectWorkspace?: string
   asMain?: boolean
   codexApprovalMode?: string
-  agentRuntimeMode?: 'terminal' | 'chat' | 'acp' | 'json'
+  agentRuntimeMode?: 'terminal' | 'chat' | 'acp'
   providerHomeId?: string
   additionalDirectories?: string[]
   mcpServers?: Array<Record<string, unknown>>
@@ -286,6 +296,36 @@ export interface WorkspaceFileEventMessage {
   }
 }
 
+export interface BrowserResourceSnapshotMessage {
+  type: 'browser-resource-snapshot'
+  snapshot: BrowserResourceCollection
+}
+
+export interface BrowserResourceUpdateMessage {
+  type: 'browser-resource-updated'
+  resource: BrowserResource
+}
+
+export interface BrowserResourceDeletedMessage {
+  type: 'browser-resource-deleted'
+  deletion: BrowserResourceDeletion
+}
+
+export interface ComputerResourceSnapshotMessage {
+  type: 'computer-resource-snapshot'
+  snapshot: ComputerResourceCollection
+}
+
+export interface ComputerResourceUpdateMessage {
+  type: 'computer-resource-updated'
+  resource: ComputerResource
+}
+
+export interface ComputerResourceDeletedMessage {
+  type: 'computer-resource-deleted'
+  deletion: ComputerResourceDeletion
+}
+
 export type ServerMessage =
   | ProtocolServerHelloMessage
   | ProtocolErrorMessage
@@ -304,3 +344,9 @@ export type ServerMessage =
   | AgentReadMessage
   | WorkspaceFileWatchMessage
   | WorkspaceFileEventMessage
+  | BrowserResourceSnapshotMessage
+  | BrowserResourceUpdateMessage
+  | BrowserResourceDeletedMessage
+  | ComputerResourceSnapshotMessage
+  | ComputerResourceUpdateMessage
+  | ComputerResourceDeletedMessage

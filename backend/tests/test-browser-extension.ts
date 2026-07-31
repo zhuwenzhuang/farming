@@ -15,6 +15,7 @@ const {
   applyBrowserResource,
   applyBrowserResourceDeletion,
   applyBrowserResourceSnapshot,
+  emptyBrowserResourceState,
   mergeBrowserResource,
 } = require('../../extensions/browser/frontend/browser-resource-state.ts');
 const {
@@ -315,7 +316,7 @@ async function testManagedAgentBrowserDiscovery() {
         platform: 'linux',
       }),
       { kind: 'chrome', path: systemBrowserPath },
-      'automatic system selection should avoid a managed Chromium download when a system browser is already available',
+      'system discovery should prefer an installed Chromium browser over the managed cache',
     );
     assert.deepStrictEqual(
       discoverBrowserExecutable({
@@ -324,6 +325,15 @@ async function testManagedAgentBrowserDiscovery() {
         platform: 'linux',
       }),
       { kind: 'managed-chromium', path: browserPath },
+    );
+    assert.strictEqual(
+      discoverBrowserExecutable({
+        source: 'system',
+        managedBrowserPath: browserPath,
+        platform: 'freebsd',
+      }),
+      null,
+      'an unavailable system selection must not fall back to managed Chromium',
     );
     assert.deepStrictEqual(
       discoverBrowserExecutables({
@@ -374,6 +384,60 @@ async function testBrowserResourceManager() {
     installation: absentInstallation,
     message: 'Choose a local Chromium browser or prepare the isolated Browser runtime',
   });
+  let migratedBrowserSettings = {
+    browserSource: 'system',
+    browserExecutablePath: '',
+  };
+  let defaultBrowserProbes = 0;
+  const defaultBrowserManager = new BrowserResourceManager({
+    configDir,
+    getBrowserSettings: () => migratedBrowserSettings,
+    saveBrowserSelection: selection => {
+      migratedBrowserSettings = {
+        browserSource: selection.source,
+        browserExecutablePath: selection.executablePath,
+      };
+    },
+    discoverBrowserOptions: () => [{ kind: 'chrome', path: '/detected/chrome' }],
+    discoverExecutable: selection => {
+      defaultBrowserProbes += 1;
+      return selection.executablePath === '/detected/chrome'
+        ? { kind: 'chrome', path: selection.executablePath, agentBrowserPath: '/fake/agent-browser' }
+        : null;
+    },
+  });
+  await defaultBrowserManager.init();
+  assert.deepStrictEqual(migratedBrowserSettings, {
+    browserSource: 'system',
+    browserExecutablePath: '/detected/chrome',
+  });
+  assert.strictEqual(defaultBrowserManager.capability().selection.executablePath, '/detected/chrome');
+  await defaultBrowserManager.refreshCapability(undefined, { reuseVerified: true });
+  await defaultBrowserManager.refreshCapability(undefined, { reuseVerified: true });
+  assert.strictEqual(defaultBrowserProbes, 1, 'unchanged Browser capability reads should reuse the verified probe');
+  await defaultBrowserManager.refreshCapability();
+  assert.strictEqual(defaultBrowserProbes, 2, 'explicit capability changes should still run a full probe');
+  await defaultBrowserManager.dispose();
+  let missingBrowserSelectionSaved = false;
+  const missingBrowserManager = new BrowserResourceManager({
+    configDir,
+    getBrowserSettings: () => ({
+      browserSource: 'system',
+      browserExecutablePath: '/missing/chrome',
+    }),
+    saveBrowserSelection: () => {
+      missingBrowserSelectionSaved = true;
+    },
+    discoverBrowserOptions: () => [{ kind: 'chromium', path: '/detected/chromium' }],
+    discoverExecutable: selection => selection.executablePath === '/detected/chromium'
+      ? { kind: 'chromium', path: selection.executablePath, agentBrowserPath: '/fake/agent-browser' }
+      : null,
+  });
+  await missingBrowserManager.init();
+  assert.strictEqual(missingBrowserSelectionSaved, false);
+  assert.strictEqual(missingBrowserManager.capability().browser, null);
+  assert.strictEqual(missingBrowserManager.capability().selection.executablePath, '/missing/chrome');
+  await missingBrowserManager.dispose();
   const manager = new BrowserResourceManager({
     configDir,
     isEnabled: () => enabled,
@@ -442,7 +506,7 @@ async function testBrowserResourceManager() {
     };
     const isolatedManager = new BrowserResourceManager({
       configDir: isolatedConfigDir,
-      getBrowserSettings: () => ({ browserSource: 'system' }),
+      getBrowserSettings: () => ({ browserSource: 'isolated' }),
       isolatedBrowserProvider: {
         capability: async () => ({
           available: true,
@@ -479,7 +543,7 @@ async function testBrowserResourceManager() {
     try {
       await isolatedManager.init();
       assert.strictEqual(isolatedManager.capability().browser.kind, 'isolated-computer');
-      assert.strictEqual(isolatedManager.capability().selection.source, 'system');
+      assert.strictEqual(isolatedManager.capability().selection.source, 'isolated');
       const isolatedResource = isolatedManager.create({
         projectRootId: 'wroot_isolated',
         workspace: projectWorkspace,
@@ -530,6 +594,14 @@ async function testBrowserResourceManager() {
       collectionRevision: manager.store.revision,
       resources: [running],
     });
+    manager.isEnabled = () => false;
+    assert.strictEqual(
+      manager.stateSnapshot().resources.length,
+      1,
+      'The negotiated control protocol must hydrate persisted Browser metadata even while the plugin is disabled',
+    );
+    assert.throws(() => manager.snapshot(), /disabled/);
+    manager.isEnabled = () => true;
     assert.deepStrictEqual(transitions.slice(-2), ['starting', 'running']);
     assert.strictEqual(runtimes[0].startedUrl, 'http://localhost:3000/');
     assert.deepStrictEqual((await manager.action(created.id, { kind: 'snapshot' })).elements, [
@@ -1148,24 +1220,56 @@ async function testAgentBrowserRestartRecovery() {
       runtimeKind: 'agent-browser',
       processIdentity: null,
     });
+    const failedWithIdentity = seed.store.create({
+      projectRootId: 'wroot_recovery',
+      workspace: '/tmp/recovery',
+      name: 'Retry failed cleanup',
+      url: 'about:blank',
+    });
+    const failedIdentity = {
+      pid: 52_001,
+      processGroupId: 52_001,
+      startedAt: 'failed-agent-browser',
+      format: 'test-v1',
+    };
+    seed.store.update(failedWithIdentity.id, {
+      status: 'failed',
+      generation: 5,
+      browserKind: 'isolated-computer',
+      runtimeKind: 'agent-browser',
+      processIdentity: failedIdentity,
+      error: 'Previous cleanup failed',
+    });
     const recoveries = [];
     const recovered = new BrowserResourceManager({
       configDir,
-      discoverExecutable: () => ({
-        kind: 'external-cdp',
-        path: '',
-        cdpUrl: 'http://127.0.0.1:9222/',
-        agentBrowserPath: '/test/agent-browser',
-      }),
+      discoverExecutable: selection => selection.source === 'isolated'
+        ? {
+            kind: 'isolated-computer',
+            path: '',
+            agentBrowserPath: '/test/agent-browser',
+          }
+        : {
+            kind: 'chrome',
+            path: '/missing/chrome',
+            error: 'The selected Chromium browser is no longer available',
+          },
       recoverRuntime: async input => recoveries.push(input),
     });
     await recovered.init();
-    assert.strictEqual(recoveries.length, 2);
+    assert.strictEqual(recoveries.length, 3);
     assert(recoveries.some(input => input.id === created.id && input.generation === 7));
     assert(recoveries.some(input => input.id === local.id && input.generation === 3));
+    assert(recoveries.some(input => (
+      input.id === failedWithIdentity.id
+      && input.generation === 5
+      && input.processIdentity?.pid === failedIdentity.pid
+    )));
     assert.strictEqual(recovered.store.get(created.id).status, 'failed');
     assert.match(recovered.store.get(created.id).error, /cleaned up/);
     assert.strictEqual(recovered.store.get(local.id).processIdentity, null);
+    assert.strictEqual(recovered.store.get(failedWithIdentity.id).processIdentity, null);
+    assert.match(recovered.store.get(failedWithIdentity.id).error, /cleaned up/);
     await recovered.dispose();
   } finally {
     await seed.dispose();
@@ -1200,7 +1304,7 @@ function testBrowserResourceRevisionOrdering() {
   assert.deepStrictEqual(mergeBrowserResource([current], newer), [newer]);
 
   const running = applyBrowserResource(
-    { collectionRevision: 0, resources: [] },
+    emptyBrowserResourceState(),
     current,
   );
   assert.strictEqual(running.collectionRevision, 3);
@@ -1218,8 +1322,46 @@ function testBrowserResourceRevisionOrdering() {
     applyBrowserResourceDeletion(running, {
       id: current.id,
       collectionRevision: 4,
-    }),
-    { collectionRevision: 4, resources: [] },
+    }).resources,
+    [],
+  );
+
+  const snapshot = applyBrowserResourceSnapshot(emptyBrowserResourceState(), {
+    collectionRevision: 5,
+    resources: [],
+  });
+  assert.strictEqual(
+    applyBrowserResource(snapshot, { ...current, collectionRevision: 4 }),
+    snapshot,
+    'An update already covered by the authoritative snapshot must be ignored',
+  );
+  const browserA = { ...current, id: 'browser_a', revision: 4, collectionRevision: 7 };
+  const browserB = { ...current, id: 'browser_b', revision: 1, collectionRevision: 6 };
+  const withA = applyBrowserResource(snapshot, browserA);
+  const withBoth = applyBrowserResource(withA, browserB);
+  assert.deepStrictEqual(
+    withBoth.resources.map(resource => resource.id).sort(),
+    ['browser_a', 'browser_b'],
+    'A lower collection revision for another Resource must not be lost after an HTTP response arrives first',
+  );
+  assert.strictEqual(
+    applyBrowserResourceDeletion(withBoth, { id: browserA.id, collectionRevision: 6 }).resources.length,
+    2,
+    'A delayed delete must not remove a newer Resource revision',
+  );
+  const withoutB = applyBrowserResourceDeletion(withBoth, {
+    id: browserB.id,
+    collectionRevision: 8,
+  });
+  assert.strictEqual(
+    applyBrowserResource(withoutB, { ...browserB, collectionRevision: 7 }),
+    withoutB,
+    'A delayed update must not resurrect a deleted Resource',
+  );
+  assert.deepStrictEqual(
+    applyBrowserResourceSnapshot(withoutB, { collectionRevision: 9, resources: [] }).resources,
+    [],
+    'A reconnect snapshot must correct all prior incremental state',
   );
 }
 

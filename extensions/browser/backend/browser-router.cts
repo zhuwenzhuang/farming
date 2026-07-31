@@ -18,14 +18,11 @@ interface Request {
   body: unknown;
   params: Record<string, string>;
   get?(name: string): string | undefined;
-  on(event: 'close', listener: () => void): unknown;
 }
 
 interface Response {
   json(value: unknown): Response;
   status(status: number): Response;
-  write(chunk: string): boolean;
-  writeHead(status: number, headers: Record<string, string>): Response;
 }
 
 type RouteHandler = (request: Request, response: Response) => unknown;
@@ -134,7 +131,7 @@ function createBrowserRouter(
 
   router.get('/capability', async (_req, res) => {
     try {
-      await manager.refreshCapability();
+      await manager.refreshCapability(undefined, { reuseVerified: true });
       res.json(manager.capability());
     } catch (error) {
       sendError(res, error);
@@ -174,37 +171,6 @@ function createBrowserRouter(
     } catch (error) {
       sendError(res, error);
     }
-  });
-
-  router.get('/events', (req, res) => {
-    try {
-      manager.requireEnabled();
-    } catch (error) {
-      sendError(res, error);
-      return;
-    }
-    res.writeHead(200, {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache, no-transform',
-      Connection: 'keep-alive',
-      'X-Accel-Buffering': 'no',
-    });
-    const onResource = (resource: unknown) => {
-      res.write(`event: resource\ndata: ${JSON.stringify(resource)}\n\n`);
-    };
-    const onDeleted = (deletion: unknown) => {
-      res.write(`event: deleted\ndata: ${JSON.stringify(deletion)}\n\n`);
-    };
-    const keepalive = setInterval(() => res.write(': keepalive\n\n'), 25_000);
-    keepalive.unref?.();
-    manager.on('resource', onResource);
-    manager.on('deleted', onDeleted);
-    res.write(`event: resources\ndata: ${JSON.stringify(manager.snapshot())}\n\n`);
-    req.on('close', () => {
-      clearInterval(keepalive);
-      manager.off('resource', onResource);
-      manager.off('deleted', onDeleted);
-    });
   });
 
   router.post('/', (req, res) => {

@@ -20,6 +20,22 @@ import {
   protocolCompatible,
   validateServerMessage,
 } from '../../shared/browser-protocol.js'
+import {
+  applyBrowserResource,
+  applyBrowserResourceDeletion,
+  applyBrowserResourceSnapshot,
+  emptyBrowserResourceState,
+  type BrowserResourceState,
+} from '../../extensions/browser/frontend/browser-resource-state'
+import type { BrowserResource, BrowserResourceDeletion } from '../../extensions/browser/frontend/types'
+import {
+  applyComputerResource,
+  applyComputerResourceDeletion,
+  applyComputerResourceSnapshot,
+  emptyComputerResourceState,
+  type ComputerResourceState,
+} from '../../extensions/computer/frontend/computer-resource-state'
+import type { ComputerResource, ComputerResourceDeletion } from '../../extensions/computer/frontend/types'
 
 const LAST_MESSAGE_STATE_THROTTLE_MS = 1000
 const BUSINESS_HEALTH_INTERVAL_MS = 10_000
@@ -38,6 +54,8 @@ export interface WebSocketState {
   lastStartedAgentId: string | null
   projectWorkspaces: string[] | null
   pinnedProjectWorkspaces: string[] | null
+  browserResources: BrowserResourceState | null
+  computerResources: ComputerResourceState | null
 }
 
 function isInternalMainWorkspace(cwd?: string, parentAgentId?: string) {
@@ -77,7 +95,45 @@ export function useWebSocket() {
     lastStartedAgentId: null,
     projectWorkspaces: null,
     pinnedProjectWorkspaces: null,
+    browserResources: null,
+    computerResources: null,
   })
+
+  const mergeBrowserResource = useCallback((resource: BrowserResource) => {
+    setState(prev => {
+      const current = prev.browserResources
+      if (!current) return prev
+      const browserResources = applyBrowserResource(current, resource)
+      return browserResources === current ? prev : { ...prev, browserResources }
+    })
+  }, [])
+
+  const deleteBrowserResource = useCallback((deletion: BrowserResourceDeletion) => {
+    setState(prev => {
+      const current = prev.browserResources
+      if (!current) return prev
+      const browserResources = applyBrowserResourceDeletion(current, deletion)
+      return browserResources === current ? prev : { ...prev, browserResources }
+    })
+  }, [])
+
+  const mergeComputerResource = useCallback((resource: ComputerResource) => {
+    setState(prev => {
+      const current = prev.computerResources
+      if (!current) return prev
+      const computerResources = applyComputerResource(current, resource)
+      return computerResources === current ? prev : { ...prev, computerResources }
+    })
+  }, [])
+
+  const deleteComputerResource = useCallback((deletion: ComputerResourceDeletion) => {
+    setState(prev => {
+      const current = prev.computerResources
+      if (!current) return prev
+      const computerResources = applyComputerResourceDeletion(current, deletion)
+      return computerResources === current ? prev : { ...prev, computerResources }
+    })
+  }, [])
 
   // Session output callback — components can subscribe
   const outputListenersRef = useRef<Map<string, (
@@ -145,7 +201,7 @@ export function useWebSocket() {
     command: string,
     workspace?: string,
     asMain?: boolean,
-    extras?: { task?: string; workflowTemplate?: string; customTitle?: string; projectWorkspace?: string; codexApprovalMode?: string; agentRuntimeMode?: 'terminal' | 'chat' | 'acp' | 'json'; dangerouslySkipPermissions?: boolean; providerHomeId?: string; additionalDirectories?: string[]; mcpServers?: Array<Record<string, unknown>> }
+    extras?: { task?: string; workflowTemplate?: string; customTitle?: string; projectWorkspace?: string; codexApprovalMode?: string; agentRuntimeMode?: 'terminal' | 'chat' | 'acp'; dangerouslySkipPermissions?: boolean; providerHomeId?: string; additionalDirectories?: string[]; mcpServers?: Array<Record<string, unknown>> }
   ) => {
     const msg: StartAgentMessage = {
       type: 'start-agent',
@@ -634,6 +690,36 @@ export function useWebSocket() {
             case 'workspace-file-event':
               workspaceFileListenersRef.current.get(msg.event.agentId)?.forEach(listener => listener(msg.event))
               break
+            case 'browser-resource-snapshot':
+              setState(prev => {
+                const current = prev.browserResources ?? emptyBrowserResourceState()
+                const browserResources = applyBrowserResourceSnapshot(current, msg.snapshot)
+                return browserResources === current && prev.browserResources !== null
+                  ? prev
+                  : { ...prev, browserResources }
+              })
+              break
+            case 'browser-resource-updated':
+              mergeBrowserResource(msg.resource)
+              break
+            case 'browser-resource-deleted':
+              deleteBrowserResource(msg.deletion)
+              break
+            case 'computer-resource-snapshot':
+              setState(prev => {
+                const current = prev.computerResources ?? emptyComputerResourceState()
+                const computerResources = applyComputerResourceSnapshot(current, msg.snapshot)
+                return computerResources === current && prev.computerResources !== null
+                  ? prev
+                  : { ...prev, computerResources }
+              })
+              break
+            case 'computer-resource-updated':
+              mergeComputerResource(msg.resource)
+              break
+            case 'computer-resource-deleted':
+              deleteComputerResource(msg.deletion)
+              break
             case 'system-stats':
               updateBackendSystemStats(msg.stats ?? null)
               break
@@ -664,6 +750,8 @@ export function useWebSocket() {
           error: event.code === 4001 ? 'Farming token expired or is invalid' : prev.error,
           errorKind: event.code === 4001 ? 'error' : prev.errorKind,
           errorId: event.code === 4001 ? prev.errorId + 1 : prev.errorId,
+          browserResources: null,
+          computerResources: null,
         }))
         updateBackendConnectionStatus({
           connected: false,
@@ -708,5 +796,9 @@ export function useWebSocket() {
     restartMainAgent,
     onSessionOutput,
     watchWorkspaceFiles,
+    mergeBrowserResource,
+    deleteBrowserResource,
+    mergeComputerResource,
+    deleteComputerResource,
   }
 }

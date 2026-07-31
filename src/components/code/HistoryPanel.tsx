@@ -33,6 +33,8 @@ interface HistoryPanelProps {
   archivedRuns: TaskHistoryEntry[]
   archivedAgents: Agent[]
   agentSessions: AgentSessionHistoryItem[]
+  loading: boolean
+  error: string
   providerSessionTotal: number | null
   now: number
   onResumeSession: (provider: string, sessionId: string, providerHomeId?: string) => void
@@ -332,6 +334,8 @@ export function HistoryPanel({
   archivedRuns,
   archivedAgents,
   agentSessions,
+  loading,
+  error,
   providerSessionTotal,
   now,
   onResumeSession,
@@ -456,7 +460,15 @@ export function HistoryPanel({
           )}
         </div>
       </div>
-      {totalHistoryItems === 0 ? (
+      {loading ? (
+        <div className="code-empty-workspace" data-testid="code-history-loading">
+          <h2>{copy.loading}</h2>
+        </div>
+      ) : error ? (
+        <div className="code-empty-workspace" data-testid="code-history-error" role="alert">
+          <h2>{error}</h2>
+        </div>
+      ) : totalHistoryItems === 0 ? (
         <div className="code-empty-workspace">
           <h2>{copy.noHistoryYet}</h2>
           <p>{copy.noHistoryDescription}</p>

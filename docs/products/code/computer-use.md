@@ -41,6 +41,13 @@ Use → Desktops → Isolated Desktop** and installs it. Farming pulls the
 reviewed official `trycua/xfce-cua` image at its pinned digest and verifies the
 pinned CUA Driver before enabling the plugin.
 
+On macOS, Docker Desktop is the supported and simplest host for this release.
+Install and start it first, reopen Plugins for a fresh Docker probe, then click
+**Install isolated desktop**. A local Chromium Browser does not require Docker;
+Docker is needed here because CUA operates a complete independent Linux desktop.
+Other Docker-compatible runtimes may work when they expose a compatible `docker`
+CLI and daemon, but they are not part of the continuously verified product path.
+
 The amd64 image is approximately 472 MB compressed and 1.3 GB unpacked. Docker
 stores the image once and shares its layers across Desktop containers. Farming
 uses Docker's configured registry path; domestic or private-network acceleration

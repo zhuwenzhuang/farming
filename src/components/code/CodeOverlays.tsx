@@ -21,6 +21,12 @@ import {
 } from './menu-model'
 import type { CodeCopy } from './copy'
 import type { AgentSessionHistoryItem, ProjectGroup } from './types'
+import {
+  BrowserGlyph,
+  ChatBubblesGlyph,
+  DesktopGlyph,
+  TerminalSquareGlyph,
+} from '@/components/IconGlyphs'
 
 type AgentMenuState = { agentId: string; x: number; y: number } | null
 type ProjectMenuState = { projectId: string; x: number; y: number } | null
@@ -66,7 +72,11 @@ interface CodeOverlaysProps {
   deleteWorktreeCancelButtonRef: RefObject<HTMLButtonElement | null>
   onContextMenuKeyDown: (event: ReactKeyboardEvent<HTMLDivElement>) => void
   runtimeSwitchDisabled: boolean
+  canCreateAgentBrowser: boolean
+  canCreateAgentDesktop: boolean
   onSwitchAgentRuntime: (agentId: string, mode: 'terminal' | 'chat') => void
+  onCreateAgentBrowser: () => void
+  onCreateAgentDesktop: () => void
   onUpdateAgentFlags: (flags: Partial<Pick<Agent, 'pinned' | 'unread' | 'archived'>>) => void
   onRenameAgent: () => void
   onRenameProject: () => void
@@ -114,7 +124,11 @@ export function CodeOverlays({
   deleteWorktreeCancelButtonRef,
   onContextMenuKeyDown,
   runtimeSwitchDisabled,
+  canCreateAgentBrowser,
+  canCreateAgentDesktop,
   onSwitchAgentRuntime,
+  onCreateAgentBrowser,
+  onCreateAgentDesktop,
   onUpdateAgentFlags,
   onRenameAgent,
   onRenameProject,
@@ -151,6 +165,7 @@ export function CodeOverlays({
       type: 'item',
       id: 'switch-agent-runtime',
       label: agentChatMode ? copy.switchToTerminal : copy.switchToChat,
+      trailingIcon: agentChatMode ? 'terminal' : 'chat',
       hidden: !canSwitchAgentRuntime(contextMenuAgent),
       disabled: runtimeSwitchDisabled || isAgentTurnActive(contextMenuAgent),
       onSelect: () => {
@@ -159,6 +174,23 @@ export function CodeOverlays({
       },
     },
     { type: 'separator', id: 'agent-runtime-separator' },
+    {
+      type: 'item',
+      id: 'create-agent-browser',
+      label: copy.createBrowser,
+      trailingIcon: 'browser',
+      hidden: !canCreateAgentBrowser,
+      onSelect: onCreateAgentBrowser,
+    },
+    {
+      type: 'item',
+      id: 'create-agent-desktop',
+      label: copy.createIsolatedDesktop,
+      trailingIcon: 'desktop',
+      hidden: !canCreateAgentDesktop,
+      onSelect: onCreateAgentDesktop,
+    },
+    { type: 'separator', id: 'agent-resource-separator' },
     {
       type: 'item',
       id: 'pin-agent',
@@ -503,6 +535,11 @@ function ContextMenuEntries({ entries }: { entries: ContextMenuEntry[] }) {
               </span>
             )}
             <span>{entry.label}</span>
+            {entry.trailingIcon && (
+              <span className="code-context-menu-icon trailing" aria-hidden="true">
+                <ContextMenuIcon kind={entry.trailingIcon} />
+              </span>
+            )}
           </button>
         )
       })}
@@ -519,6 +556,11 @@ function RemoveProjectIcon() {
 }
 
 export function ContextMenuIcon({ kind }: { kind: ContextMenuIconKind }) {
+  if (kind === 'browser') return <BrowserGlyph />
+  if (kind === 'desktop') return <DesktopGlyph />
+  if (kind === 'chat') return <ChatBubblesGlyph />
+  if (kind === 'terminal') return <TerminalSquareGlyph />
+
   if (kind === 'pin') {
     return (
       <svg data-icon-kind="pin" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">

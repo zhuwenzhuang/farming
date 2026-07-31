@@ -36,6 +36,12 @@ Farming 不随发行包交付桌面镜像，也不会在普通安装、更新或
 Farming 按固定 Digest 拉取经过审查的官方 `trycua/xfce-cua` 镜像，并验证
 锁定的 CUA Driver，成功后才允许启用插件。
 
+在 macOS 上，本期正式支持且最简单的宿主方案是 Docker Desktop。先安装并启动它，
+重新打开插件页让 Farming 实时探测 Docker，再点击**安装隔离桌面**。本机 Chromium
+不需要 Docker；这里需要 Docker，是因为 CUA 操作的是完整、独立的 Linux 桌面。
+其他兼容 Docker 的 Runtime 在提供兼容的 `docker` CLI 和 Daemon 时可能可用，但不属于
+当前持续验证的产品路径。
+
 amd64 镜像压缩下载约 472 MB，解压后本地占用约 1.3 GB。Docker 只保存
 一份镜像，多个 Desktop Container 共享镜像层。Farming 使用 Docker 已配置的
 Registry 路径；国内或私有网络加速应配在 Docker Daemon 的 Registry Mirror 中，

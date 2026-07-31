@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { appPath } from '@/lib/base-path'
 import { projectFilesWorkspaceId } from '@/lib/project-workspaces'
-import type { ComputerCapability, ComputerResource } from './types'
-
-type ComputerCollection = {
-  collectionRevision: number
-  resources: ComputerResource[]
-}
+import type { ComputerResourceState } from './computer-resource-state'
+import type {
+  ComputerCapability,
+  ComputerResource,
+  ComputerResourceDeletion,
+} from './types'
 
 async function computerRequest<T>(pathname: string, init?: RequestInit): Promise<T> {
   const response = await fetch(appPath(pathname), {
@@ -22,71 +22,39 @@ async function computerRequest<T>(pathname: string, init?: RequestInit): Promise
   return data as T
 }
 
-export function useComputerResources() {
-  const [collection, setCollection] = useState<ComputerCollection>({
-    collectionRevision: 0,
-    resources: [],
-  })
+export function useComputerResources(options: {
+  collection: ComputerResourceState | null
+  onResource: (resource: ComputerResource) => void
+  onDeletion: (deletion: ComputerResourceDeletion) => void
+}) {
+  const { collection, onDeletion, onResource } = options
   const [capability, setCapability] = useState<ComputerCapability | null>(null)
+  const [capabilityError, setCapabilityError] = useState('')
   const [loading, setLoading] = useState(true)
   const [refreshVersion, setRefreshVersion] = useState(0)
 
   const mergeResource = useCallback((resource: ComputerResource) => {
-    setCollection(current => {
-      if (resource.collectionRevision < current.collectionRevision) return current
-      const resources = current.resources.some(item => item.id === resource.id)
-        ? current.resources.map(item => item.id === resource.id ? resource : item)
-        : [...current.resources, resource]
-      return {
-        collectionRevision: resource.collectionRevision,
-        resources,
-      }
-    })
-  }, [])
+    onResource(resource)
+  }, [onResource])
 
   useEffect(() => {
     let active = true
     setLoading(true)
-    Promise.all([
-      computerRequest<ComputerCapability>('/api/computers/capability'),
-      computerRequest<ComputerCollection>('/api/computers'),
-    ]).then(([nextCapability, nextCollection]) => {
+    setCapabilityError('')
+    computerRequest<ComputerCapability>('/api/computers/capability').then(nextCapability => {
       if (!active) return
       setCapability(nextCapability)
-      setCollection(nextCollection)
       setLoading(false)
     }).catch(() => {
-      if (active) setLoading(false)
+      if (!active) return
+      setCapability(null)
+      setCapabilityError('Failed to check Computer Use availability')
+      setLoading(false)
     })
     return () => {
       active = false
     }
   }, [refreshVersion])
-
-  useEffect(() => {
-    if (capability?.enabled !== true) return undefined
-    const events = new EventSource(appPath('/api/computers/events'))
-    events.addEventListener('resources', event => {
-      const next = JSON.parse((event as MessageEvent<string>).data) as ComputerCollection
-      setCollection(current => next.collectionRevision >= current.collectionRevision ? next : current)
-    })
-    events.addEventListener('resource', event => {
-      mergeResource(JSON.parse((event as MessageEvent<string>).data) as ComputerResource)
-    })
-    events.addEventListener('deleted', event => {
-      const deletion = JSON.parse((event as MessageEvent<string>).data) as {
-        id: string
-        collectionRevision: number
-      }
-      setCollection(current => deletion.collectionRevision < current.collectionRevision
-        ? current
-        : {
-            collectionRevision: deletion.collectionRevision,
-            resources: current.resources.filter(resource => resource.id !== deletion.id),
-          })
-    })
-    return () => events.close()
-  }, [capability?.enabled, mergeResource])
 
   const create = useCallback(async (workspace: string, agentId: string, name?: string) => {
     const resource = await computerRequest<ComputerResource>('/api/computers', {
@@ -120,15 +88,12 @@ export function useComputerResources() {
   }, [mergeResource])
 
   const remove = useCallback(async (id: string) => {
-    const deletion = await computerRequest<{ id: string; collectionRevision: number }>(
+    const deletion = await computerRequest<ComputerResourceDeletion>(
       `/api/computers/${encodeURIComponent(id)}`,
       { method: 'DELETE' },
     )
-    setCollection(current => ({
-      collectionRevision: deletion.collectionRevision,
-      resources: current.resources.filter(resource => resource.id !== deletion.id),
-    }))
-  }, [])
+    onDeletion(deletion)
+  }, [onDeletion])
 
   const takeControl = useCallback(async (id: string, owner: 'agent' | 'human') => {
     const resource = await computerRequest<ComputerResource>(
@@ -146,19 +111,24 @@ export function useComputerResources() {
   }, [])
 
   const refreshCapability = useCallback(() => {
+    setCapability(null)
+    setCapabilityError('')
+    setLoading(true)
     setRefreshVersion(version => version + 1)
   }, [])
 
-  const byAgentId = useMemo(() => new Map(collection.resources.map(resource => [
+  const byAgentId = useMemo(() => new Map((collection?.resources ?? []).map(resource => [
     resource.ownerAgentId,
     resource,
-  ])), [collection.resources])
+  ])), [collection?.resources])
 
   return {
-    resources: collection.resources,
+    resources: collection?.resources ?? [],
     byAgentId,
     capability,
+    capabilityError,
     loading,
+    collectionLoading: collection === null,
     create,
     start: useCallback((id: string) => transition(id, 'start'), [transition]),
     stop: useCallback((id: string) => transition(id, 'stop'), [transition]),

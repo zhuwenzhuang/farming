@@ -106,6 +106,11 @@ function recordValue(value: unknown): Record<string, unknown> {
     : {};
 }
 
+function pathInside(root: string, candidate: string): boolean {
+  const relative = path.relative(path.resolve(root), path.resolve(candidate));
+  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+}
+
 function computerError(message: string, status: number, code: string, extra: Record<string, unknown> = {}) {
   return Object.assign(new Error(message), { status, code, ...extra });
 }
@@ -159,21 +164,37 @@ function waitForHttpPath(
         reject(computerError(failureMessage, 504, failureCode));
         return;
       }
+      let successfulResponse = false;
+      let attemptFinished = false;
+      const retry = () => {
+        if (attemptFinished) return;
+        attemptFinished = true;
+        setTimeout(attempt, 250);
+      };
       const request = http.get({
         hostname: '127.0.0.1',
         port,
         path: requestPath,
         timeout: 2_000,
+        agent: false,
+        headers: { Connection: 'close' },
       }, (response: { statusCode?: number; resume(): void }) => {
         response.resume();
         if (Number(response.statusCode) >= 200 && Number(response.statusCode) < 500) {
-          resolve();
+          successfulResponse = true;
           return;
         }
-        setTimeout(attempt, 250);
       });
       request.on('timeout', () => request.destroy());
-      request.on('error', () => setTimeout(attempt, 250));
+      request.on('error', () => {
+        if (!successfulResponse) retry();
+      });
+      request.on('close', () => {
+        if (attemptFinished) return;
+        attemptFinished = true;
+        if (successfulResponse) resolve();
+        else setTimeout(attempt, 250);
+      });
     };
     attempt();
   });
@@ -338,6 +359,7 @@ class ComputerResourceManager extends EventEmitter {
   }): Promise<{ cdpUrl: string; leaseKey: string }> {
     this.requireEnabled();
     const executablePath = this.browserExecutableInContainer(input.executablePath);
+    this.ensureBrowserCacheTraversal(input.executablePath);
     const resource = this.create({
       ownerAgentId: input.ownerAgentId,
       projectRootId: input.projectRootId,
@@ -441,12 +463,15 @@ class ComputerResourceManager extends EventEmitter {
 
   async verifyBrowserExecutable(executablePath: string): Promise<string> {
     const containerPath = this.browserExecutableInContainer(executablePath);
+    this.ensureBrowserCacheTraversal(executablePath);
     const result = await this.docker([
       'run',
       '--rm',
       '--label', 'farming.dev/kind=computer-browser-probe',
       '--label', `farming.dev/config=${this.configFingerprint}`,
       ...(this.compatibilityMode() ? ['--security-opt', 'seccomp=unconfined'] : []),
+      '--user', COMPUTER_USER,
+      '-e', 'HOME=/home/cua',
       '--entrypoint', containerPath,
       '-v', `${this.browserCacheRoot()}:${COMPUTER_BROWSER_MOUNT}:ro`,
       this.imageRef(),
@@ -471,6 +496,10 @@ class ComputerResourceManager extends EventEmitter {
   }
 
   snapshot() {
+    return this.stateSnapshot();
+  }
+
+  stateSnapshot() {
     return this.store.snapshot();
   }
 
@@ -1003,6 +1032,22 @@ class ComputerResourceManager extends EventEmitter {
       );
     }
     return `${COMPUTER_BROWSER_MOUNT}/${relative.split(path.sep).join('/')}`;
+  }
+
+  private ensureBrowserCacheTraversal(executablePath: string): void {
+    const root = path.resolve(this.browserCacheRoot());
+    let current = path.dirname(path.resolve(String(executablePath || '').trim()));
+    while (current === root || pathInside(root, current)) {
+      const mode = fs.statSync(current).mode & 0o777;
+      if ((mode & 0o011) !== 0o011) fs.chmodSync(current, mode | 0o011);
+      if (current === root) return;
+      current = path.dirname(current);
+    }
+    throw computerError(
+      'Computer Chromium must come from Farming managed runtime storage',
+      400,
+      'COMPUTER_BROWSER_EXECUTABLE_INVALID',
+    );
   }
 
   private async waitForContainer(

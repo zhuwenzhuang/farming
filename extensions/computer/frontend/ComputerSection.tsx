@@ -3,6 +3,7 @@ import {
   ChevronDownGlyph,
   ChevronRightGlyph,
   CloseGlyph,
+  DesktopGlyph,
   PencilGlyph,
   PlusGlyph,
   SquareGlyph,
@@ -16,6 +17,7 @@ function copyFor(language: UiPreferences['language']) {
   return {
     title: zh ? '桌面' : 'Desktops',
     create: zh ? '创建隔离桌面' : 'Create Isolated Desktop',
+    createFailed: zh ? '隔离桌面创建失败' : 'Failed to create Isolated Desktop',
     start: zh ? '启动桌面' : 'Start Desktop',
     stop: zh ? '停止桌面' : 'Stop Desktop',
     remove: zh ? '删除桌面' : 'Delete Desktop',
@@ -63,9 +65,13 @@ export function ComputerSection({
   const [renaming, setRenaming] = useState(false)
   const [name, setName] = useState(resource?.name || 'Desktop')
   const create = async () => {
-    const created = await controller.create(workspace, agentId)
-    const running = await controller.start(created.id)
-    onOpen(running)
+    try {
+      const created = await controller.create(workspace, agentId)
+      const running = await controller.start(created.id)
+      onOpen(running)
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : copy.createFailed)
+    }
   }
   const detail = resource?.status === 'failed'
     ? resource.error || copy.failed
@@ -88,6 +94,7 @@ export function ComputerSection({
           onClick={onToggle}
         >
           <span aria-hidden="true">{collapsed ? <ChevronRightGlyph /> : <ChevronDownGlyph />}</span>
+          <DesktopGlyph className="farming-computer-section-icon" />
           <span>{copy.title}</span>
           {resource && <small>1</small>}
         </button>
@@ -109,7 +116,7 @@ export function ComputerSection({
               if (event.key === 'Enter' || event.key === ' ') onOpen(resource)
             }}
           >
-            <span className={`farming-computer-status ${resource.status}`} />
+            <span className={`farming-computer-resource-icon ${resource.status}`} aria-hidden="true"><DesktopGlyph /></span>
             <span className="farming-computer-copy">
               {renaming ? (
                 <input

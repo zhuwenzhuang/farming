@@ -6,8 +6,8 @@ exports.sanitizeAgentUpdatePatch = sanitizeAgentUpdatePatch;
 exports.validateClientMessage = validateClientMessage;
 exports.validateServerMessage = validateServerMessage;
 exports.protocolCompatible = protocolCompatible;
-exports.PROTOCOL_VERSION = 3;
-exports.MIN_PROTOCOL_VERSION = 3;
+exports.PROTOCOL_VERSION = 4;
+exports.MIN_PROTOCOL_VERSION = 4;
 const CLIENT_MESSAGE_TYPES = new Set([
     'protocol-hello',
     'business-health-probe',
@@ -42,6 +42,12 @@ const SERVER_MESSAGE_TYPES = new Set([
     'agent-read',
     'workspace-file-watch',
     'workspace-file-event',
+    'browser-resource-snapshot',
+    'browser-resource-updated',
+    'browser-resource-deleted',
+    'computer-resource-snapshot',
+    'computer-resource-updated',
+    'computer-resource-deleted',
 ]);
 function objectMessage(value) {
     return Boolean(value && typeof value === 'object' && !Array.isArray(value));
@@ -51,6 +57,28 @@ function stringField(value, name, optional = false) {
 }
 function finiteField(value, name) {
     return typeof value[name] === 'number' && Number.isFinite(value[name]);
+}
+function revisionField(value, name) {
+    return Number.isInteger(value[name]) && typeof value[name] === 'number' && value[name] >= 0;
+}
+function resourceSnapshot(value) {
+    return objectMessage(value)
+        && revisionField(value, 'collectionRevision')
+        && Array.isArray(value.resources)
+        && value.resources.every(resourceUpdate);
+}
+function resourceUpdate(value) {
+    return objectMessage(value)
+        && typeof value.id === 'string'
+        && value.id.length > 0
+        && revisionField(value, 'revision')
+        && revisionField(value, 'collectionRevision');
+}
+function resourceDeletion(value) {
+    return objectMessage(value)
+        && typeof value.id === 'string'
+        && value.id.length > 0
+        && revisionField(value, 'collectionRevision');
 }
 const AGENT_UPDATE_PATCH_VALIDATORS = {
     terminalInputReceived: (value) => typeof value === 'boolean',
@@ -195,6 +223,24 @@ function validateServerMessage(value) {
             break;
         case 'workspace-file-event':
             valid = objectMessage(value.event) && stringField(value.event, 'agentId');
+            break;
+        case 'browser-resource-snapshot':
+            valid = resourceSnapshot(value.snapshot);
+            break;
+        case 'browser-resource-updated':
+            valid = resourceUpdate(value.resource);
+            break;
+        case 'browser-resource-deleted':
+            valid = resourceDeletion(value.deletion);
+            break;
+        case 'computer-resource-snapshot':
+            valid = resourceSnapshot(value.snapshot);
+            break;
+        case 'computer-resource-updated':
+            valid = resourceUpdate(value.resource);
+            break;
+        case 'computer-resource-deleted':
+            valid = resourceDeletion(value.deletion);
             break;
     }
     return valid

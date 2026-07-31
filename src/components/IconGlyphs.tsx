@@ -122,6 +122,38 @@ export function PlusGlyph(props: IconGlyphProps) {
   )
 }
 
+export function BrowserGlyph(props: IconGlyphProps) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" focusable="false" {...props}>
+      <path d="M4 1C2.34315 1 1 2.34315 1 4V12C1 13.6569 2.34315 15 4 15H12C13.6569 15 15 13.6569 15 12V4C15 2.34315 13.6569 1 12 1H4ZM2 4C2 2.89543 2.89543 2 4 2H12C13.1046 2 14 2.89543 14 4H2ZM2 5H14V12C14 13.1046 13.1046 14 12 14H4C2.89543 14 2 13.1046 2 12V5Z" />
+    </svg>
+  )
+}
+
+export function DesktopGlyph(props: IconGlyphProps) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" focusable="false" {...props}>
+      <path d="M3 1C1.895 1 1 1.895 1 3V10C1 11.105 1.895 12 3 12H5V14H3.5C3.224 14 3 14.224 3 14.5C3 14.776 3.224 15 3.5 15H12.5C12.776 15 13 14.776 13 14.5C13 14.224 12.776 14 12.5 14H11V12H13C14.105 12 15 11.105 15 10V3C15 1.895 14.105 1 13 1H3ZM10 12V14H6V12H10ZM2 3C2 2.448 2.448 2 3 2H13C13.552 2 14 2.448 14 3V10C14 10.552 13.552 11 13 11H3C2.448 11 2 10.552 2 10V3Z" />
+    </svg>
+  )
+}
+
+export function ComputerUseGlyph(props: IconGlyphProps) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" focusable="false" {...props}>
+      <path d="M4.00165 2.99863C4.00165 2.17447 4.94264 1.70412 5.60184 2.19877L13.5993 8.19993C14.3679 8.77665 13.96 9.99978 12.9991 9.99978H9.05388C8.74293 9.99978 8.44968 10.1444 8.26043 10.3911L5.7951 13.6051C5.21352 14.3633 4.00165 13.952 4.00165 12.9964V2.99863ZM12.9991 8.99978L5.00165 2.99863V12.9964L7.46698 9.78251C7.84548 9.28907 8.43199 8.99978 9.05388 8.99978L12.9991 8.99978Z" />
+    </svg>
+  )
+}
+
+export function PlayGlyph(props: IconGlyphProps) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" focusable="false" {...props}>
+      <path d="M5 3.35c0-.78.86-1.26 1.53-.85l7 4.15a1 1 0 0 1 0 1.7l-7 4.15A1 1 0 0 1 5 11.65v-8.3Z" />
+    </svg>
+  )
+}
+
 export function FolderGlyph(props: IconGlyphProps) {
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" focusable="false" {...props}>

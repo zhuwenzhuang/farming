@@ -49,6 +49,18 @@ function usageHistoryCacheFile(configDir: string): string {
   return path.join(historyDir(configDir), 'usage-history-v2.sqlite3');
 }
 
+function inventoryCacheDir(configDir: string): string {
+  return path.join(configDir, 'cache');
+}
+
+function agentSessionInventoryCacheFile(configDir: string): string {
+  return path.join(inventoryCacheDir(configDir), 'agent-sessions-v1.json');
+}
+
+function agentExtensionInventoryCacheFile(configDir: string): string {
+  return path.join(inventoryCacheDir(configDir), 'agent-extensions-v1.json');
+}
+
 function browserResourcesDir(configDir: string): string {
   return path.join(configDir, 'browsers');
 }
@@ -183,6 +195,8 @@ function farmingNetTrustFile(configDir: string): string {
 
 export {
   acpCheckpointsDir,
+  agentExtensionInventoryCacheFile,
+  agentSessionInventoryCacheFile,
   agentStateFile,
   browserProfileDir,
   browserResourcesDir,
@@ -198,6 +212,7 @@ export {
   farmingNetTrustFile,
   farmingConfigDir,
   historyDir,
+  inventoryCacheDir,
   managedChromiumInstallLockDir,
   managedChromiumRootDir,
   managedChromiumVersionDir,

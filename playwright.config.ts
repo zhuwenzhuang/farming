@@ -102,6 +102,15 @@ export default defineConfig({
         browserName: 'webkit',
       },
     },
+    {
+      name: 'iphone-human-webkit',
+      testMatch: /(acp-human-cases|background-chat-continuity|human-story)\.spec\.ts/,
+      grep: /@iphone-human/,
+      use: {
+        ...devices['iPhone 14 Pro'],
+        browserName: 'webkit',
+      },
+    },
   ],
   webServer: {
     command: 'npm run build && exec tsx scripts/start-playwright-server.ts',

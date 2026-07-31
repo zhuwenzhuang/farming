@@ -58,6 +58,9 @@ type BrowserSelection = {
   externalCdpUrl: string;
   source: string;
 };
+type CapabilityRefreshOptions = {
+  reuseVerified?: boolean;
+};
 type BrowserSettings = {
   browserExecutablePath?: string;
   browserExternalCdpUrl?: string;
@@ -198,6 +201,7 @@ type BrowserManagerOptions = Record<string, unknown> & {
   ) => Promise<BrowserCapability | null>;
   discoverBrowserOptions?: () => BrowserOption[];
   getBrowserSettings?: () => BrowserSettings;
+  saveBrowserSelection?: (selection: Pick<BrowserSelection, 'executablePath' | 'source'>) => void;
   createRuntime?: (input: RuntimeOptions) => BrowserRuntime;
   recoverRuntime?: (input: RuntimeOptions) => Promise<unknown>;
   isEnabled?: () => boolean;
@@ -378,6 +382,9 @@ class BrowserResourceManager extends EventEmitter {
   ) => Promise<BrowserCapability | null>;
   readonly discoverBrowserOptions: () => BrowserOption[];
   readonly getBrowserSettings: () => BrowserSettings;
+  readonly saveBrowserSelection: (
+    selection: Pick<BrowserSelection, 'executablePath' | 'source'>,
+  ) => void;
   readonly createRuntime: (input: RuntimeOptions) => BrowserRuntime;
   readonly recoverRuntime: (input: RuntimeOptions) => Promise<unknown>;
   readonly isEnabled: () => boolean;
@@ -396,6 +403,8 @@ class BrowserResourceManager extends EventEmitter {
   runtimeCapability: BrowserCapability | null = null;
   browserOptions: BrowserOption[] = [];
   isolatedBrowserCapability: Record<string, unknown> | null = null;
+  capabilityProbeSignature = '';
+  capabilityRefreshPromise: Promise<BrowserCapability | null> | null = null;
 
   constructor(options: BrowserManagerOptions) {
     super();
@@ -421,6 +430,9 @@ class BrowserResourceManager extends EventEmitter {
     this.getBrowserSettings = typeof options.getBrowserSettings === 'function'
       ? options.getBrowserSettings
       : () => ({ browserSource: 'system', browserExecutablePath: '', browserExternalCdpUrl: '' });
+    this.saveBrowserSelection = typeof options.saveBrowserSelection === 'function'
+      ? options.saveBrowserSelection
+      : () => {};
     this.createRuntime = options.createRuntime || (input => new AgentBrowserRuntime(input));
     this.recoverRuntime = options.recoverRuntime || (input => AgentBrowserRuntime.recover(input));
     this.isEnabled = typeof options.isEnabled === 'function' ? options.isEnabled : () => true;
@@ -435,7 +447,8 @@ class BrowserResourceManager extends EventEmitter {
     this.store.init();
     await this.refreshCapability();
     const interrupted = this.store.list().filter(resource =>
-      ['running', 'starting', 'stopping'].includes(resource.status)
+      Boolean(resource.processIdentity)
+      || ['running', 'starting', 'stopping'].includes(resource.status)
     );
     const groups = new Map<string, BrowserResource[]>();
     for (const resource of interrupted) {
@@ -458,7 +471,9 @@ class BrowserResourceManager extends EventEmitter {
     relatedResources: BrowserResource[] = [resource],
   ): Promise<void> {
     if (resource.runtimeKind === 'agent-browser') {
-      const capability = this.runtimeCapability || await this.refreshCapability();
+      const capability = this.runtimeCapability?.agentBrowserPath
+        ? this.runtimeCapability
+        : await this.discoverExecutable({ source: 'isolated' });
       let runtimeError = null;
       if (!capability || capability.error || !capability.agentBrowserPath) {
         runtimeError = new Error(
@@ -589,25 +604,55 @@ class BrowserResourceManager extends EventEmitter {
     };
   }
 
-  async probeCapability(selection: BrowserSelection = this.browserSelection()): Promise<{
+  browserCapabilitySignature(
+    selection: BrowserSelection,
+    browserOptions: BrowserOption[],
+    isolatedBrowserCapability: Record<string, unknown> | null = this.isolatedBrowserCapability,
+  ): string {
+    const executablePaths = [...new Set([
+      ...browserOptions.map(option => option.path),
+      selection.executablePath,
+    ].filter(Boolean))].sort();
+    return JSON.stringify({
+      selection,
+      options: browserOptions.map(option => ({ kind: option.kind, path: option.path })),
+      executables: executablePaths.map(executablePath => {
+        try {
+          const stat = fs.statSync(executablePath);
+          return { path: executablePath, size: stat.size, mtimeMs: stat.mtimeMs };
+        } catch {
+          return { path: executablePath, missing: true };
+        }
+      }),
+      installation: this.chromiumInstaller.status(),
+      isolatedBrowserCapability,
+    });
+  }
+
+  async probeCapability(
+    selection: BrowserSelection = this.browserSelection(),
+    discoveredOptions?: BrowserOption[],
+    discoveredIsolatedCapability?: Record<string, unknown> | null,
+  ): Promise<{
     browserOptions: BrowserOption[];
     isolatedBrowserCapability: Record<string, unknown> | null;
     runtimeCapability: BrowserCapability | null;
   }> {
-    const browserOptions = this.discoverBrowserOptions();
+    const browserOptions = discoveredOptions || this.discoverBrowserOptions();
     const selectedOption = browserOptions.find(option => option.path === selection.executablePath);
-    const isolatedBrowserCapability = this.isolatedBrowserProvider
-      ? await this.isolatedBrowserProvider.capability()
-      : null;
+    const isolatedBrowserCapability = discoveredIsolatedCapability !== undefined
+      ? discoveredIsolatedCapability
+      : this.isolatedBrowserProvider
+        ? await this.isolatedBrowserProvider.capability()
+        : null;
     let runtimeCapability = await this.discoverExecutable({
       source: selection.source,
       executablePath: selection.executablePath,
       executableKind: selectedOption?.kind,
       externalCdpUrl: selection.externalCdpUrl,
     });
-    const automaticSelection = selection.source === 'system' && !selection.executablePath;
     if (
-      (selection.source === 'isolated' || (automaticSelection && !runtimeCapability))
+      selection.source === 'isolated'
       && isolatedBrowserCapability?.available === true
     ) {
       runtimeCapability = await this.discoverExecutable({ source: 'isolated' });
@@ -625,13 +670,64 @@ class BrowserResourceManager extends EventEmitter {
   }
 
   async refreshCapability(
-    selection: BrowserSelection = this.browserSelection(),
+    selection?: BrowserSelection,
+    options: CapabilityRefreshOptions = {},
   ): Promise<BrowserCapability | null> {
-    const probe = await this.probeCapability(selection);
-    this.browserOptions = probe.browserOptions;
-    this.isolatedBrowserCapability = probe.isolatedBrowserCapability;
-    this.runtimeCapability = probe.runtimeCapability;
-    return this.runtimeCapability;
+    if (options.reuseVerified && this.capabilityRefreshPromise) {
+      return this.capabilityRefreshPromise;
+    }
+    const refresh = async () => {
+      let desiredSelection = selection || this.browserSelection();
+      const browserOptions = this.discoverBrowserOptions();
+      if (!selection && desiredSelection.source === 'system' && !desiredSelection.executablePath) {
+        const defaultBrowser = browserOptions
+          .find(option => option.kind !== 'managed-chromium');
+        if (defaultBrowser) {
+          this.saveBrowserSelection({
+            source: 'system',
+            executablePath: defaultBrowser.path,
+          });
+          desiredSelection = {
+            ...desiredSelection,
+            executablePath: defaultBrowser.path,
+          };
+        }
+      }
+      const cachedIsolatedCapability = options.reuseVerified && this.isolatedBrowserProvider
+        ? await this.isolatedBrowserProvider.capability()
+        : undefined;
+      const signature = this.browserCapabilitySignature(
+        desiredSelection,
+        browserOptions,
+        cachedIsolatedCapability,
+      );
+      if (options.reuseVerified && signature === this.capabilityProbeSignature) {
+        this.browserOptions = browserOptions;
+        if (cachedIsolatedCapability !== undefined) {
+          this.isolatedBrowserCapability = cachedIsolatedCapability;
+        }
+        return this.runtimeCapability;
+      }
+      const probe = await this.probeCapability(
+        desiredSelection,
+        browserOptions,
+        cachedIsolatedCapability,
+      );
+      this.browserOptions = browserOptions;
+      this.isolatedBrowserCapability = probe.isolatedBrowserCapability;
+      this.runtimeCapability = probe.runtimeCapability;
+      this.capabilityProbeSignature = this.browserCapabilitySignature(
+        desiredSelection,
+        probe.browserOptions,
+        probe.isolatedBrowserCapability,
+      );
+      return this.runtimeCapability;
+    };
+    if (!options.reuseVerified) return refresh();
+    this.capabilityRefreshPromise = refresh().finally(() => {
+      this.capabilityRefreshPromise = null;
+    });
+    return this.capabilityRefreshPromise;
   }
 
   async installManagedChromium(): Promise<unknown> {
@@ -658,9 +754,14 @@ class BrowserResourceManager extends EventEmitter {
   }
 
   snapshot() {
+    this.requireEnabled();
+    return this.stateSnapshot();
+  }
+
+  stateSnapshot() {
     return {
       collectionRevision: this.store.revision,
-      resources: this.list(),
+      resources: this.store.list().map(resource => publicResource(resource, this.store.revision)),
     };
   }
 

@@ -23,6 +23,16 @@ export interface ComputerResource {
   updatedAt: number
 }
 
+export interface ComputerResourceCollection {
+  collectionRevision: number
+  resources: ComputerResource[]
+}
+
+export interface ComputerResourceDeletion {
+  id: string
+  collectionRevision: number
+}
+
 export interface ComputerCapability {
   available: boolean
   enabled: boolean

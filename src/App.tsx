@@ -26,6 +26,11 @@ import { appPath } from '@/lib/base-path'
 import { runtimeBindingForMode } from '@/lib/agent-runtime'
 import { recordPerformanceTestRender } from '@/lib/performance-test-observer'
 import {
+  foregroundHttpPriorityActive,
+  requestForegroundHttpPriority,
+  subscribeForegroundHttpPriority,
+} from '@/lib/foreground-http-priority'
+import {
   getBackendConnectionSnapshot,
   subscribeBackendConnectionStatus,
 } from '@/lib/backend-live-status'
@@ -205,6 +210,11 @@ export function App() {
   const inputDialogOpenRequestRef = useRef(0)
   const uiPreferencesSaveRevisionRef = useRef(0)
   const uiPreferencesSaveTailRef = useRef<Promise<void>>(Promise.resolve())
+  const usageRequestRef = useRef<AbortController | null>(null)
+
+  useEffect(() => subscribeForegroundHttpPriority(() => {
+    usageRequestRef.current?.abort()
+  }), [])
 
   useLayoutEffect(() => {
     openTerminalIdsRef.current = openTerminalIds
@@ -549,11 +559,13 @@ export function App() {
   // Keep the user intent separate from the authoritative agent list. A lifecycle
   // response may name an agent before the matching WebSocket state has rendered.
   const requestTerminalOpen = useCallback((agentId: string, options?: { focusTerminal?: boolean }) => {
+    requestForegroundHttpPriority()
     setPendingTerminalOpen({ agentId, options })
   }, [])
 
   const openTerminal = useCallback((agentId: string, options?: { focusTerminal?: boolean }) => {
     if (agentId === activeTerminalId && openTerminalIds.includes(agentId)) {
+      requestForegroundHttpPriority()
       activateTerminal(agentId, options)
       return
     }
@@ -1047,13 +1059,20 @@ export function App() {
     let firstLoadTimer: number | undefined
 
     const loadUsage = () => {
-      fetch(appPath('/api/usage'))
+      if (foregroundHttpPriorityActive()) return
+      usageRequestRef.current?.abort()
+      const controller = new AbortController()
+      usageRequestRef.current = controller
+      fetch(appPath('/api/usage'), { signal: controller.signal })
         .then(response => response.json())
         .then((data: { usage?: UsageSummary }) => {
           if (!cancelled) setUsageSummary(data.usage ?? null)
         })
         .catch(() => {
-          if (!cancelled) setUsageSummary(null)
+          if (!cancelled && !controller.signal.aborted) setUsageSummary(null)
+        })
+        .finally(() => {
+          if (usageRequestRef.current === controller) usageRequestRef.current = null
         })
     }
 
@@ -1062,6 +1081,8 @@ export function App() {
 
     return () => {
       cancelled = true
+      usageRequestRef.current?.abort()
+      usageRequestRef.current = null
       if (firstLoadTimer !== undefined) window.clearTimeout(firstLoadTimer)
       if (timer !== undefined) window.clearInterval(timer)
     }
@@ -1220,6 +1241,8 @@ export function App() {
         terminalFocusRequest={terminalFocusRequest}
         remoteProjectWorkspaces={ws.projectWorkspaces}
         remotePinnedProjectWorkspaces={ws.pinnedProjectWorkspaces}
+        browserResourceState={ws.browserResources}
+        computerResourceState={ws.computerResources}
         keyMap={keyMap}
         keyboardShortcutsEnabled={CODEX_SKIN_KEYBOARD_SHORTCUTS_ENABLED}
         uiPreferences={uiPreferences}
@@ -1238,6 +1261,10 @@ export function App() {
         onInterruptAgent={handleInterruptAgent}
         sendComposerInput={ws.sendComposerInput}
         onSessionOutput={ws.onSessionOutput}
+        onBrowserResource={ws.mergeBrowserResource}
+        onBrowserResourceDeletion={ws.deleteBrowserResource}
+        onComputerResource={ws.mergeComputerResource}
+        onComputerResourceDeletion={ws.deleteComputerResource}
         onUpdateUiPreferences={updateUiPreferences}
       />
 

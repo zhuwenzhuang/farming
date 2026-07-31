@@ -213,8 +213,11 @@ test('mounts Agent-owned Browsers behind nested resource controls without layout
   await openNewAgentDialog(page)
   const agentId = await startAgentFromOpenDialog(page, 'bash', workspace)
   const agentRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
-  await expect(agentRow.getByTestId('code-agent-resources-toggle')).toHaveCount(0)
+  await expect(agentRow.getByTestId('code-agent-resources-toggle')).toBeVisible()
   await expect(agentRow).not.toContainText('0')
+  await agentRow.click({ button: 'right' })
+  await expect(page.getByRole('menuitem', { name: 'Create Browser' })).toBeVisible()
+  await page.keyboard.press('Escape')
   const project = page.getByTestId('code-project-group').filter({ has: agentRow }).first()
   const projectRow = project.locator('.code-project-row')
   const projectActions = project.locator('.code-project-title-actions')
@@ -241,6 +244,8 @@ test('mounts Agent-owned Browsers behind nested resource controls without layout
 
   const resourcesToggle = agentRow.getByTestId('code-agent-resources-toggle')
   const rowActions = agentRow.locator('.code-agent-row-actions')
+  await page.mouse.move(1000, 100)
+  await agentRow.evaluate(element => (element as HTMLElement).blur())
   await expect(rowActions).toHaveCSS('opacity', '0')
   await expect(resourcesToggle).toHaveAttribute('aria-expanded', 'false')
   await agentRow.hover()
@@ -421,14 +426,17 @@ test('offers explicit isolated Browser preparation when no local browser is avai
   page,
 }, testInfo) => {
   let prepared = false
+  let selectedSource = 'system'
   await page.route('**/api/browsers/capability', route => route.fulfill({
     contentType: 'application/json',
     body: JSON.stringify({
       enabled: false,
-      available: prepared,
-      browser: prepared ? { kind: 'isolated-computer', path: '' } : null,
+      available: false,
+      browser: prepared && selectedSource === 'isolated'
+        ? { kind: 'isolated-computer', path: '' }
+        : null,
       selection: {
-        source: 'system',
+        source: selectedSource,
         executablePath: '',
         externalCdpUrl: 'http://127.0.0.1:9222',
       },
@@ -458,6 +466,22 @@ test('offers explicit isolated Browser preparation when no local browser is avai
       body: JSON.stringify({ success: true }),
     })
   })
+  await page.route('**/api/settings', async route => {
+    if (route.request().method() !== 'POST') {
+      await route.continue()
+      return
+    }
+    const patch = route.request().postDataJSON() as { browserSource?: string }
+    if (patch.browserSource !== 'isolated') {
+      await route.continue()
+      return
+    }
+    selectedSource = 'isolated'
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ settings: patch }),
+    })
+  })
   await openFarming(page)
   await expect(page.getByTestId('farming-browser-section')).toHaveCount(0)
   await page.getByTestId('code-nav-plugins').click()
@@ -469,9 +493,17 @@ test('offers explicit isolated Browser preparation when no local browser is avai
   await expect(pluginsPanel.getByText('Not ready', { exact: true })).toBeVisible()
   const browserPlugin = pluginsPanel.getByTestId('code-plugin-browser')
   await expect(browserPlugin.getByRole('button', { name: 'Enable' })).toBeDisabled()
+  await selectCodeOption(
+    pluginsPanel.getByRole('combobox', { name: 'Browser source' }),
+    'isolated',
+  )
   await pluginsPanel.getByRole('button', { name: 'Prepare isolated Browser' }).click()
-  await expect(pluginsPanel.getByRole('option', { name: 'Isolated Browser (Docker)' })).toBeEnabled()
+  const browserSource = pluginsPanel.getByRole('combobox', { name: 'Browser source' })
+  await browserSource.click()
+  await expect(pluginsPanel.getByRole('option', { name: 'Isolated Browser' })).toBeEnabled()
   await expect(pluginsPanel.getByRole('button', { name: 'Prepare isolated Browser' })).toHaveCount(0)
+  await browserSource.click()
+  await pluginsPanel.getByRole('button', { name: 'Apply' }).click()
   await expect(browserPlugin.getByRole('button', { name: 'Enable' })).toBeEnabled()
   const screenshot = testInfo.outputPath('browser-plugin-prepare-required.png')
   await pluginsPanel.screenshot({ path: screenshot })
@@ -479,6 +511,51 @@ test('offers explicit isolated Browser preparation when no local browser is avai
     path: screenshot,
     contentType: 'image/png',
   })
+})
+
+test('keeps Isolated Browser visible but disabled without Docker', async ({ page }) => {
+  await page.route('**/api/browsers/capability', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      enabled: true,
+      available: false,
+      browser: { kind: 'chrome', path: '/mock/chrome' },
+      selection: {
+        source: 'system',
+        executablePath: '/mock/chrome',
+        externalCdpUrl: 'http://127.0.0.1:9222',
+      },
+      options: [{ kind: 'chrome', path: '/mock/chrome' }],
+      isolated: {
+        available: false,
+        dockerAvailable: false,
+        imageReady: false,
+      },
+      installation: {
+        state: 'ready',
+        agentBrowserVersion: '0.32.3',
+        installedVersion: '0.32.3',
+        updateAvailable: false,
+        error: '',
+      },
+      message: '',
+    }),
+  }))
+  await openFarming(page)
+  await page.getByTestId('code-nav-plugins').click()
+  const browserPlugin = page.getByTestId('code-plugin-browser')
+  const browserSource = browserPlugin.getByRole('combobox', { name: 'Browser source' })
+
+  const options = await codeSelectOptions(browserSource)
+  const isolatedOption = options.find(option => option.value === 'isolated')
+  expect(isolatedOption?.label).toBe('Isolated Browser (requires Docker)')
+  expect(isolatedOption?.disabled).toBe(true)
+  await expect(browserPlugin.getByRole('option', { name: 'Isolated Browser (requires Docker)' })).toBeDisabled()
+  await expect(browserSource).toHaveAttribute('data-value', 'system:/mock/chrome')
+  await expect(browserPlugin.getByRole('button', { name: 'Prepare isolated Browser' })).toHaveCount(0)
+  await expect(browserPlugin.getByRole('button', { name: 'Apply' })).toBeDisabled()
+  await expect(browserPlugin.getByRole('link', { name: 'View Docker installation guide' }))
+    .toHaveAttribute('href', 'https://docs.docker.com/engine/install/')
 })
 
 test('keeps extension cards compact and opens the full description on demand', async ({
@@ -535,45 +612,58 @@ test('keeps extension cards compact and opens the full description on demand', a
             kind: 'hook',
             scope: 'Plugin',
           }],
+        }, {
+          id: 'work',
+          path: '/tmp/codex-work',
+          extensions: [{
+            id: '$work-only',
+            command: '$work-only',
+            name: 'Work-only skill',
+            description: 'Only available in the work Home.',
+            kind: 'skill',
+            scope: 'Project',
+          }],
         }],
       }],
     }),
   }))
   await openFarming(page)
   await page.getByTestId('code-nav-plugins').click()
+  await page.getByTestId('code-plugin-tab-extensions').click()
 
   const cards = page.locator('.code-plugin-extension')
-  await expect(cards).toHaveCount(5)
+  await expect(page.getByTestId('code-plugin-extension-home-codex-default')).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByTestId('code-plugin-extension-kind-skill')).toHaveAttribute('aria-selected', 'true')
+  await expect(cards).toHaveCount(2)
   const geometry = await cards.evaluateAll(elements => elements.map(element => {
-    const description = element.querySelector('p')
+    const description = element.querySelector('.code-plugin-extension-description')
     return {
       height: element.getBoundingClientRect().height,
-      lineClamp: description ? getComputedStyle(description).webkitLineClamp : '',
+      whiteSpace: description ? getComputedStyle(description).whiteSpace : '',
     }
   }))
-  expect(geometry.every(item => item.height === 126 && item.lineClamp === '3')).toBe(true)
+  expect(geometry.every(item => item.height >= 78 && item.whiteSpace === 'nowrap')).toBe(true)
 
-  const skillSection = page.locator('.code-plugin-kind-section[data-kind="skill"]')
-  const pluginSection = page.locator('.code-plugin-kind-section[data-kind="plugin"]')
-  const commandSection = page.locator('.code-plugin-kind-section[data-kind="command"]')
-  const hookSection = page.locator('.code-plugin-kind-section[data-kind="hook"]')
-  await expect(skillSection.locator('summary').getByText('Skill', { exact: true })).toBeVisible()
-  await expect(pluginSection.locator('summary').getByText('Plugin', { exact: true })).toBeVisible()
-  await expect(commandSection.locator('summary').getByText('Command', { exact: true })).toBeVisible()
-  await expect(hookSection.locator('summary').getByText('Hook', { exact: true })).toBeVisible()
-  await skillSection.locator('summary').click()
-  await expect(skillSection).toHaveJSProperty('open', false)
-  await expect(pluginSection).toHaveJSProperty('open', true)
+  await expect(page.getByTestId('code-plugin-extension-kind-mcp')).toBeDisabled()
+  await expect(page.getByTestId('code-plugin-extension-kind-hook')).toContainText('Hooks')
+  await expect(page.getByTestId('code-plugin-extension-kind-hook')).toContainText('1')
+  await expect(page.getByTestId('code-plugin-extension-kind-plugin')).toContainText('Plugins')
+  await expect(page.getByTestId('code-plugin-extension-kind-command')).toContainText('Commands')
 
-  await skillSection.locator('summary').click()
-  await pluginSection.locator('summary').click()
+  await page.getByTestId('code-plugin-extension-home-codex-work').click()
+  await expect(cards).toHaveCount(1)
+  await expect(cards).toContainText('Work-only skill')
+  await expect(page.getByTestId('code-plugin-extension-kind-plugin')).toBeDisabled()
+  await page.getByTestId('code-plugin-extension-home-codex-default').click()
+
+  await page.getByLabel('Search extensions').fill('Long skill')
+  await expect(cards).toHaveCount(1)
   await cards.filter({ hasText: 'Long skill' }).click()
   const detail = page.getByTestId('code-plugin-detail-dialog')
   await expect(detail).toBeVisible()
   await expect(detail.getByText(longDescription, { exact: true })).toBeVisible()
   await page.keyboard.press('Escape')
   await expect(detail).toHaveCount(0)
-  await expect(pluginSection).toHaveJSProperty('open', false)
 })
 
 test('keeps an edited browser address until Enter submits it', async ({
@@ -803,7 +893,7 @@ test('uses Farming dark colors for the Browser source menu', async ({ page }) =>
   await expect(menu.getByRole('option').first()).toHaveCSS('color', 'rgb(230, 237, 243)')
 })
 
-test('selects the Browser source in Plugins without restarting Farming', async ({ page }) => {
+test('shows explicit Browser sources without an Automatic choice', async ({ page }) => {
   await openFarming(page)
   await page.getByTestId('code-nav-plugins').click()
   const pluginsPanel = page.getByTestId('code-plugins-panel')
@@ -813,24 +903,11 @@ test('selects the Browser source in Plugins without restarting Farming', async (
   await expect(pluginsPanel.getByRole('combobox', { name: 'Browser permissions' })).toHaveCount(0)
   await expect(browserSource).toBeEnabled({ timeout: 30_000 })
   const options = await codeSelectOptions(browserSource)
-  expect(options.map(option => option.label)).toEqual([
-    'Automatic (local first, then isolated)',
-    'Google Chrome',
-    'Isolated Browser (Docker)',
-  ])
+  expect(options.map(option => option.label)).not.toContain('Automatic (local first, then isolated)')
+  expect(options.filter(option => option.value === 'isolated')).toHaveLength(1)
+  expect(options.find(option => option.value === 'isolated')?.label).toMatch(/^Isolated Browser/)
   await expect(pluginsPanel.getByRole('textbox', { name: 'CDP address' })).toHaveCount(0)
-  await selectCodeOption(browserSource, 'system:')
-  if (await apply.isEnabled()) await apply.click()
-  await expect(browserSource).toHaveAttribute('data-value', 'system:')
   await expect(apply).toBeDisabled()
-
-  const localChrome = options.map(option => option.value)
-    .find(value => value.startsWith('system:') && value !== 'system:')
-  expect(localChrome).toBeTruthy()
-  await selectCodeOption(browserSource, localChrome!)
-  await apply.click()
-  await expect(apply).toBeDisabled()
-  await expect(pluginsPanel.locator('small').filter({ hasText: 'System Chromium ·' })).toBeVisible()
 })
 
 test('matches the focused Viewer viewport and restores the previous Viewer on close', async ({
@@ -854,8 +931,10 @@ test('matches the focused Viewer viewport and restores the previous Viewer on cl
   await page.getByTestId('code-nav-plugins').click()
   const pluginsPanel = page.getByTestId('code-plugins-panel')
   await expect(pluginsPanel.getByTestId('code-plugin-section-farming')).toBeVisible()
+  await pluginsPanel.getByTestId('code-plugin-tab-homes').click()
   await expect(pluginsPanel.getByTestId('code-plugin-section-agent-codex-default')).toBeVisible()
   await expect(pluginsPanel.getByTestId('code-plugin-section-agent-claude-default')).toBeVisible()
+  await pluginsPanel.getByTestId('code-plugin-tab-farming').click()
   const browserPlugin = pluginsPanel.getByTestId('code-plugin-browser')
   const browserToggle = browserPlugin.getByRole('button', { name: 'Disable' })
   const browserHint = pluginsPanel.getByText(

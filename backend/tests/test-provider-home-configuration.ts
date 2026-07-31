@@ -53,14 +53,14 @@ assert.deepStrictEqual(summarizeJsonConfiguration('opencode', `{
   /* "provider": "commented-provider" */
   "model": "openai/new-model",
   "provider": "openai",
-  "note": "https://example.test/path/* literal */ and \\\"model\\\": \\\"embedded/old-model\\\"",
+  "note": ${JSON.stringify('https://example.test/path/* literal */ and "model": "embedded/old-model"')},
 }`), [
   { key: 'model', value: 'openai/new-model' },
   { key: 'provider', value: 'openai' },
 ]);
 
 assert.deepStrictEqual(summarizeJsonConfiguration('opencode', `{
-  "note": "\\\"model\\\": \\\"embedded/old-model\\\"",
+  "note": ${JSON.stringify('"model": "embedded/old-model"')},
 }`), []);
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-provider-home-config-'));

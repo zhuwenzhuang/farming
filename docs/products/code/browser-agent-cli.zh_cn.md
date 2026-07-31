@@ -9,8 +9,11 @@ Farming Browser 让 Agent 操作自己拥有的 Browser，同时用户可以在 
 
 打开**插件 → 浏览器**：
 
-1. 保持**自动**，或选择已发现的本机 Chromium 浏览器。
-2. 宿主机无法运行 Chromium 时，只需显式点击一次**准备隔离浏览器**；Farming 会下载
+1. 按名称选择已发现的本机 Chromium，或选择**隔离浏览器**。
+2. 如果隔离浏览器因为需要 Docker 而呈灰色不可选，macOS 用户先安装并启动
+   [Docker Desktop](https://docs.docker.com/desktop/setup/install/mac-install/)，
+   然后重新打开插件页，让 Farming 重新探测当前状态。
+3. 显式点击一次**准备隔离浏览器**；Farming 会下载
    锁定的 Computer 镜像与经过校验的 Linux Chromium Cache。Agent 可见的 Computer
    拥有 Container 与内部 CDP Endpoint；多个 Browser Resource 是同一桌面中的 Tab。
 
@@ -19,6 +22,11 @@ Farming Browser 让 Agent 操作自己拥有的 Browser，同时用户可以在 
 绝不会下载 Chromium，用户也不需要配置 Docker、端口或 CDP 地址。在旧 Linux
 宿主机上，Farming 会自动使用同一个锁定 Package 中静态链接的 `agent-browser`
 Artifact，因此 Browser Daemon 不依赖宿主机 glibc。
+
+在 macOS 上，普通 Browser Use 直接选择本机 Chromium 最简单，不需要安装 Docker。
+只有需要独立的 Linux Browser、并行隔离桌面或 Computer Use 时，才建议安装
+Docker Desktop。隔离浏览器不是 Safari/Firefox 兼容性测试矩阵；跨浏览器内核测试
+应由专门的测试服务承接，而不是成为 Browser Use 的静默回退。
 
 Browser Tool 直接使用 Coding Agent Provider 的 Session 权限模式，Browser 插件不再
 提供第二套权限策略。当 Provider 发起询问且用户为当前 Session 允许 Browser 请求后，

@@ -1,5 +1,5 @@
-export const PROTOCOL_VERSION = 3
-export const MIN_PROTOCOL_VERSION = 3
+export const PROTOCOL_VERSION = 4
+export const MIN_PROTOCOL_VERSION = 4
 
 type ObjectMessage = Record<string, unknown>
 
@@ -209,6 +209,36 @@ export interface WorkspaceFileEventMessage extends ExtensibleMessage {
   event: ObjectMessage & { agentId: string }
 }
 
+export interface BrowserResourceSnapshotMessage extends ExtensibleMessage {
+  type: 'browser-resource-snapshot'
+  snapshot: ObjectMessage & { collectionRevision: number; resources: unknown[] }
+}
+
+export interface BrowserResourceUpdateMessage extends ExtensibleMessage {
+  type: 'browser-resource-updated'
+  resource: ObjectMessage & { id: string; revision: number; collectionRevision: number }
+}
+
+export interface BrowserResourceDeletedMessage extends ExtensibleMessage {
+  type: 'browser-resource-deleted'
+  deletion: ObjectMessage & { id: string; collectionRevision: number }
+}
+
+export interface ComputerResourceSnapshotMessage extends ExtensibleMessage {
+  type: 'computer-resource-snapshot'
+  snapshot: ObjectMessage & { collectionRevision: number; resources: unknown[] }
+}
+
+export interface ComputerResourceUpdateMessage extends ExtensibleMessage {
+  type: 'computer-resource-updated'
+  resource: ObjectMessage & { id: string; revision: number; collectionRevision: number }
+}
+
+export interface ComputerResourceDeletedMessage extends ExtensibleMessage {
+  type: 'computer-resource-deleted'
+  deletion: ObjectMessage & { id: string; collectionRevision: number }
+}
+
 export type ServerMessage =
   | ProtocolServerHelloMessage
   | BusinessHealthResultMessage
@@ -227,6 +257,12 @@ export type ServerMessage =
   | AgentReadMessage
   | WorkspaceFileWatchMessage
   | WorkspaceFileEventMessage
+  | BrowserResourceSnapshotMessage
+  | BrowserResourceUpdateMessage
+  | BrowserResourceDeletedMessage
+  | ComputerResourceSnapshotMessage
+  | ComputerResourceUpdateMessage
+  | ComputerResourceDeletedMessage
 
 export type ValidationResult<Message> =
   | { ok: true; value: Message }
@@ -267,6 +303,12 @@ const SERVER_MESSAGE_TYPES: ReadonlySet<ServerMessage['type']> = new Set([
   'agent-read',
   'workspace-file-watch',
   'workspace-file-event',
+  'browser-resource-snapshot',
+  'browser-resource-updated',
+  'browser-resource-deleted',
+  'computer-resource-snapshot',
+  'computer-resource-updated',
+  'computer-resource-deleted',
 ])
 
 function objectMessage(value: unknown): value is ObjectMessage {
@@ -279,6 +321,32 @@ function stringField(value: ObjectMessage, name: string, optional = false): bool
 
 function finiteField(value: ObjectMessage, name: string): boolean {
   return typeof value[name] === 'number' && Number.isFinite(value[name])
+}
+
+function revisionField(value: ObjectMessage, name: string): boolean {
+  return Number.isInteger(value[name]) && typeof value[name] === 'number' && value[name] >= 0
+}
+
+function resourceSnapshot(value: unknown): boolean {
+  return objectMessage(value)
+    && revisionField(value, 'collectionRevision')
+    && Array.isArray(value.resources)
+    && value.resources.every(resourceUpdate)
+}
+
+function resourceUpdate(value: unknown): boolean {
+  return objectMessage(value)
+    && typeof value.id === 'string'
+    && value.id.length > 0
+    && revisionField(value, 'revision')
+    && revisionField(value, 'collectionRevision')
+}
+
+function resourceDeletion(value: unknown): boolean {
+  return objectMessage(value)
+    && typeof value.id === 'string'
+    && value.id.length > 0
+    && revisionField(value, 'collectionRevision')
 }
 
 const AGENT_UPDATE_PATCH_VALIDATORS = {
@@ -378,6 +446,12 @@ export function validateServerMessage(value: unknown): ValidationResult<ServerMe
     case 'agent-read': valid = objectMessage(value.read) && stringField(value.read, 'agentId'); break
     case 'workspace-file-watch': valid = stringField(value, 'agentId') && typeof value.watching === 'boolean'; break
     case 'workspace-file-event': valid = objectMessage(value.event) && stringField(value.event, 'agentId'); break
+    case 'browser-resource-snapshot': valid = resourceSnapshot(value.snapshot); break
+    case 'browser-resource-updated': valid = resourceUpdate(value.resource); break
+    case 'browser-resource-deleted': valid = resourceDeletion(value.deletion); break
+    case 'computer-resource-snapshot': valid = resourceSnapshot(value.snapshot); break
+    case 'computer-resource-updated': valid = resourceUpdate(value.resource); break
+    case 'computer-resource-deleted': valid = resourceDeletion(value.deletion); break
   }
   return valid
     ? { ok: true, value: value as ServerMessage }

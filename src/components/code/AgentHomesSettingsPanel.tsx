@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { CheckGlyph, ChevronLeftGlyph, CloseGlyph, ColorModeGlyph } from '@/components/IconGlyphs'
+import { CheckGlyph, ChevronLeftGlyph, CloseGlyph, ColorModeGlyph, PlayGlyph } from '@/components/IconGlyphs'
 import { CodeSelect } from '@/components/CodeSelect'
 import { appPath } from '@/lib/base-path'
 import {
@@ -15,6 +15,7 @@ import {
   persistRestReminderIntervalSeconds,
   readPetAppearance,
   readRestReminderIntervalSeconds,
+  requestPetAppearancePreview,
   savePetAppearance,
   restReminderSliderIntervalSeconds,
   restReminderSliderPosition,
@@ -119,6 +120,12 @@ function panelCopy(language: UiPreferences['language']) {
     petAppearance: zh ? '提醒样式' : 'Reminder style',
     softGlow: zh ? '柔光' : 'Soft glow',
     blackHole: zh ? '黑洞' : 'Black hole',
+    previewAppearance: (appearance: PetAppearance) => {
+      const appearanceName = appearance === 'black-hole'
+        ? (zh ? '黑洞' : 'black hole')
+        : (zh ? '柔光' : 'soft glow')
+      return zh ? `预览${appearanceName}效果` : `Preview ${appearanceName}`
+    },
     breakReminder: zh ? '休息提醒' : 'Break reminder',
     breakReminderHint: zh
       ? `按本页前台可见时间计时，离开 ${REST_REMINDER_IDLE_RESET_MINUTES} 分钟后重置；90 分钟及以上休息 10 分钟。`
@@ -719,24 +726,28 @@ export function AgentHomesSettingsPanel({
                   <strong>{copy.petAppearance}</strong>
                 </div>
                 <div className="code-settings-pet-appearance-options" role="group" aria-label={copy.petAppearance}>
-                  <button
-                    type="button"
-                    className={petAppearance === 'glass' ? 'selected' : undefined}
-                    aria-pressed={petAppearance === 'glass'}
-                    onClick={() => setPetAppearance('glass')}
-                  >
-                    <span className="code-pet-appearance-icon glass" aria-hidden="true" />
-                    <span>{copy.softGlow}</span>
-                  </button>
-                  <button
-                    type="button"
-                    className={petAppearance === 'black-hole' ? 'selected' : undefined}
-                    aria-pressed={petAppearance === 'black-hole'}
-                    onClick={() => setPetAppearance('black-hole')}
-                  >
-                    <span className="code-pet-appearance-icon black-hole" aria-hidden="true" />
-                    <span>{copy.blackHole}</span>
-                  </button>
+                  {(['glass', 'black-hole'] as const).map(option => (
+                    <div className="code-settings-pet-appearance-option" key={option}>
+                      <button
+                        type="button"
+                        className={`code-settings-pet-appearance-select${petAppearance === option ? ' selected' : ''}`}
+                        aria-pressed={petAppearance === option}
+                        onClick={() => setPetAppearance(option)}
+                      >
+                        <span className={`code-pet-appearance-icon ${option}`} aria-hidden="true" />
+                        <span>{option === 'glass' ? copy.softGlow : copy.blackHole}</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="code-settings-pet-appearance-preview"
+                        aria-label={copy.previewAppearance(option)}
+                        title={copy.previewAppearance(option)}
+                        onClick={() => requestPetAppearancePreview(option)}
+                      >
+                        <PlayGlyph />
+                      </button>
+                    </div>
+                  ))}
                 </div>
               </div>
               <div className="code-settings-choice-row code-settings-pet-rest-row">

@@ -235,7 +235,7 @@ function discoverBrowserExecutable(
     if (platform === 'darwin') systemBrowser = discoverMacBrowser();
     if (platform === 'linux') systemBrowser = discoverLinuxBrowser();
     if (platform === 'win32') systemBrowser = discoverWindowsBrowser(env);
-    return systemBrowser || executable(options.managedBrowserPath, 'managed-chromium');
+    return systemBrowser;
   }
   const externalCdpInput = String(options.externalCdpUrl || env.FARMING_BROWSER_CDP_URL || '').trim();
   if (externalCdpInput) {

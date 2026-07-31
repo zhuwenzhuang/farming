@@ -572,6 +572,7 @@ test.describe('display-backed agent flows', () => {
     await expect(page.getByTestId('code-plugins-panel')).toBeVisible()
     await expect(page.getByTestId('code-plugin-browser')).toBeVisible()
     await expect(page.getByTestId('code-plugin-section-farming')).toBeVisible()
+    await page.getByTestId('code-plugin-tab-homes').click()
     await expect(page.getByTestId('code-plugin-section-agent-codex-default')).toBeVisible()
     await expect(page.getByTestId('code-plugin-section-agent-claude-default')).toBeVisible()
     await expect(page.getByTestId('code-nav-plugins')).toHaveClass(/active/)

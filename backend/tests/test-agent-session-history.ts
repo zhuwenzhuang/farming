@@ -23,10 +23,11 @@ const {
 async function run() {
   const serverSource = fs.readFileSync(path.resolve(__dirname, '../server.cts'), 'utf8');
   assert(
-    serverSource.includes("req.query.force === '1'")
-      && serverSource.includes("req.query.fresh === '1' ? { maxAgeMs: INTERACTIVE_REFRESH_CACHE_MAX_AGE_MS } : {}")
+    serverSource.includes('const agentSessionInventory = new AgentSessionInventory({')
+      && serverSource.includes('return agentSessionInventory.list(')
+      && serverSource.includes("if (req.query.force === '1') agentSessionInventory.invalidate();")
       && serverSource.includes("routePath(BASE_PATH, '/api/agent-sessions/search')"),
-    'Agent session list and search APIs should expose bounded fresh reads and explicit force refreshes'
+    'Agent session list and search APIs should use the authoritative inventory and expose explicit force refreshes'
   );
 
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-agent-session-history-'));

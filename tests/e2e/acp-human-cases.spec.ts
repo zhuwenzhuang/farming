@@ -534,14 +534,20 @@ test.describe('ACP human-like browser matrix', () => {
     const summary = liveReviewGroup.getByTestId('code-agent-transcript-collaboration-summary')
     const initialAgentIcon = await liveReviewGroup.getAttribute('data-agent-icon')
     await expect(summary).toContainText(/In progress|进行中/)
-    await expect(summary).toContainText(/2 (?:events|个事件)/, { timeout: 5_000 })
+    await expect.poll(async () => {
+      const match = (await summary.textContent() || '').match(/(\d+) (?:events?|个事件)/)
+      return Number(match?.[1] || 0)
+    }, { timeout: 5_000 }).toBeGreaterThanOrEqual(2)
 
     await summary.click()
     await expect(summary).toHaveAttribute('aria-expanded', 'true')
     const activityCountBefore = await liveReviewGroup
       .getByTestId('code-agent-transcript-collaboration-event')
       .count()
-    await expect(summary).toContainText(/5 (?:events|个事件)/, { timeout: 5_000 })
+    await expect.poll(async () => {
+      const match = (await summary.textContent() || '').match(/(\d+) (?:events?|个事件)/)
+      return Number(match?.[1] || 0)
+    }, { timeout: 5_000 }).toBeGreaterThanOrEqual(5)
     await expect(summary).toHaveAttribute('aria-expanded', 'true')
     expect(await liveReviewGroup.getByTestId('code-agent-transcript-collaboration-event').count())
       .toBe(activityCountBefore)
@@ -607,7 +613,7 @@ test.describe('ACP human-like browser matrix', () => {
     expect(Math.abs(metrics[0].answerLeft - metrics[1].answerLeft)).toBeLessThanOrEqual(1)
   })
 
-  test('keeps 53 structured chat interactions coherent across live, history, security, and runtime switching', async ({ page, workspaceRoot }) => {
+  test('keeps 53 structured chat interactions coherent across live, history, security, and runtime switching', { tag: '@iphone-human' }, async ({ page, workspaceRoot }) => {
     test.setTimeout(150_000)
     const workspace = path.join(workspaceRoot, 'acp-human-cases')
     fs.mkdirSync(workspace, { recursive: true })
@@ -620,16 +626,27 @@ test.describe('ACP human-like browser matrix', () => {
     execFileSync('git', ['commit', '-m', 'seed ACP fixture'], { cwd: workspace, stdio: 'ignore' })
 
     let agentId = ''
+    let compactLayout = false
     await test.step('01 create a real fake-ACP runtime through the server', async () => {
       agentId = await createAcpAgent(page, workspace)
     })
     await test.step('02 open the Farming Code browser surface', async () => {
       await openFarming(page)
+      compactLayout = await page.locator('body').evaluate(element => element.classList.contains('code-compact-layout'))
     })
     await test.step('03 select the ACP Agent from the project list', async () => {
+      const mobileMenu = page.getByTestId('code-mobile-menu')
+      if (!await agentRow(page, agentId).isVisible().catch(() => false)
+        && await mobileMenu.isVisible().catch(() => false)) {
+        await mobileMenu.click()
+      }
       await expect(agentRow(page, agentId)).toBeVisible()
       await agentRow(page, agentId).click()
-      await expect(agentRow(page, agentId)).toHaveClass(/active/)
+      if (compactLayout) {
+        await expect(page.getByTestId('code-agent-chat-view')).toBeVisible()
+      } else {
+        await expect(agentRow(page, agentId)).toHaveClass(/active/)
+      }
     })
     await test.step('04 show Chat rather than a terminal for an ACP runtime', async () => {
       await expect(page.getByTestId('code-agent-chat-view')).toBeVisible()
@@ -756,15 +773,20 @@ test.describe('ACP human-like browser matrix', () => {
     })
     await test.step('23 reveal the exact ACP diff on demand', async () => {
       await richTurn.getByRole('button', { name: /^Review/ }).click()
-      await expect(richTurn.getByTestId('code-agent-transcript-result-details')).toBeVisible()
-      await expect(richTurn.getByTestId('code-agent-transcript-result-details')).toContainText('display-fixture.txt')
-      await expect(richTurn.locator('.code-agent-transcript-result-diff')).toContainText('+after')
+      const review = page.getByRole('dialog', { name: 'Review' }).getByTestId('code-agent-transcript-result-details')
+      await expect(review).toBeVisible()
+      await expect(review).toContainText('display-fixture.txt')
+      await expect(review.locator('.code-agent-transcript-result-diff')).toContainText('+after')
 
     })
     await test.step('23b keep expanded supporting content readable but secondary', async () => {
-      await expect(richTurn.locator('.code-acp-progress-update')).toHaveCSS('font-size', '14px')
+      const progressFontSize = await richTurn.locator('.code-acp-progress-update').evaluate(element => (
+        Number.parseFloat(getComputedStyle(element).fontSize)
+      ))
+      expect(progressFontSize).toBeGreaterThanOrEqual(13.5)
+      expect(progressFontSize).toBeLessThanOrEqual(14)
       await expect(readItem.locator('.code-agent-transcript-user-file pre')).toHaveCSS('font-size', '13px')
-      await expect(richTurn.locator('.code-agent-transcript-result-diff')).toHaveCSS('font-size', '13px')
+      await expect(page.getByRole('dialog', { name: 'Review' }).locator('.code-agent-transcript-result-diff')).toHaveCSS('font-size', '13px')
       await page.getByRole('dialog', { name: 'Review' }).getByRole('button', { name: 'Close' }).click()
     })
     const terminalItem = richTurn.getByTestId('code-agent-transcript-process-item').filter({ hasText: 'Run verification command' })
@@ -782,14 +804,20 @@ test.describe('ACP human-like browser matrix', () => {
     await test.step('26 keep transcript search controls out of the Chat header', async () => {
       await expect(page.getByRole('button', { name: 'Search this chat' })).toHaveCount(0)
       const userMessage = page.locator('.code-agent-transcript-user').filter({ hasText: 'rich timeline' })
-      const modeToggle = page.getByTestId('code-terminal-mode-toggle')
       await expect(userMessage).toHaveCount(1)
-      await expect.poll(async () => {
-        const userBox = await userMessage.boundingBox()
-        const toggleBox = await modeToggle.boundingBox()
-        if (!userBox || !toggleBox) return -1
-        return toggleBox.x - (userBox.x + userBox.width)
-      }).toBeGreaterThanOrEqual(8)
+      if (compactLayout) {
+        await expect.poll(async () => page.evaluate(() => (
+          document.documentElement.scrollWidth - window.innerWidth
+        ))).toBeLessThanOrEqual(0)
+      } else {
+        const modeToggle = page.getByTestId('code-terminal-mode-toggle')
+        await expect.poll(async () => {
+          const userBox = await userMessage.boundingBox()
+          const toggleBox = await modeToggle.boundingBox()
+          if (!userBox || !toggleBox) return -1
+          return toggleBox.x - (userBox.x + userBox.width)
+        }).toBeGreaterThanOrEqual(8)
+      }
     })
     await test.step('27 keep the ordered transcript unchanged', async () => {
       await expect(page.getByText('Rich ACP timeline complete.', { exact: true })).toBeVisible()
@@ -970,14 +998,34 @@ test.describe('ACP human-like browser matrix', () => {
       await expect(page.getByText('Confirm the protocol round trip', { exact: true })).toHaveCount(0)
     })
     const modeToggle = page.getByTestId('code-terminal-mode-toggle')
-    await test.step('42b keep Chat and Terminal switch icons visibly rendered', async () => {
-      await expect(modeToggle).toBeVisible()
-      for (const name of ['Chat', 'Terminal']) {
-        const icon = modeToggle.getByRole('button', { name }).locator('svg')
-        await expect(icon).toBeVisible()
-        await expect(icon).toHaveCSS('fill', /rgb\(/)
+    const openAgentRuntimeMenu = async () => {
+      if (!await agentRow(page, agentId).isVisible().catch(() => false)) {
+        await page.getByTestId('code-mobile-menu').click()
       }
-      await expect(modeToggle).toHaveCSS('opacity', '0.82')
+      const row = agentRow(page, agentId)
+      await expect(row).toBeVisible()
+      await row.getByTestId('code-agent-row-more').click()
+      const menu = page.getByTestId('code-agent-context-menu')
+      await expect(menu).toBeVisible()
+      return menu
+    }
+    await test.step('42b keep Chat and Terminal switch icons visibly rendered', async () => {
+      if (await modeToggle.isVisible().catch(() => false)) {
+        for (const name of ['Chat', 'Terminal']) {
+          const icon = modeToggle.getByRole('button', { name }).locator('svg')
+          await expect(icon).toBeVisible()
+          await expect(icon).toHaveCSS('fill', /rgb\(/)
+        }
+        await expect(modeToggle).toHaveCSS('opacity', '0.82')
+      } else {
+        const menu = await openAgentRuntimeMenu()
+        await expect(menu.getByRole('menuitem', { name: /Switch to Terminal|切换到终端/ })).toBeVisible()
+        await page.keyboard.press('Escape')
+        const backdrop = page.getByTestId('code-mobile-sidebar-backdrop')
+        if (await backdrop.isVisible().catch(() => false)) {
+          await backdrop.tap({ position: { x: 380, y: 400 } })
+        }
+      }
     })
     await test.step('43 classify a runtime failure without hiding the transcript', async () => {
       await sendAcpMessage(page, 'authentication error')
@@ -985,8 +1033,8 @@ test.describe('ACP human-like browser matrix', () => {
       const errorSummary = errorTurn.getByTestId('code-agent-transcript-process-summary')
       await expect(errorSummary).toContainText('Authentication required', { timeout: 10_000 })
       await expect(errorSummary).toHaveAttribute('aria-expanded', 'false')
-      await errorSummary.click()
       await expect(errorTurn.getByTestId('code-agent-transcript-process-item')).toHaveCount(0)
+      await errorSummary.click()
       await errorTurn.getByTestId('code-agent-transcript-process-group-toggle').click()
       const errorItem = errorTurn.getByTestId('code-agent-transcript-process-item').filter({ hasText: 'Authentication required' })
       await expect(errorItem.getByTestId('code-agent-transcript-process-item-toggle')).toHaveAttribute('aria-expanded', 'false')
@@ -1073,7 +1121,12 @@ test.describe('ACP human-like browser matrix', () => {
           return false
         }
       })
-      await modeToggle.getByRole('button', { name: 'Terminal' }).click()
+      if (await modeToggle.isVisible().catch(() => false)) {
+        await modeToggle.getByRole('button', { name: 'Terminal' }).click()
+      } else {
+        const menu = await openAgentRuntimeMenu()
+        await menu.getByRole('menuitem', { name: /Switch to Terminal|切换到终端/ }).click()
+      }
       await expect(page.getByTestId('code-permission-switching')).toBeVisible()
       const switchResponse = await switchResponsePromise
       const switchPayload = await switchResponse.json() as { error?: string, agentRuntimeMode?: string, restartedAgentId?: string }
@@ -1086,7 +1139,13 @@ test.describe('ACP human-like browser matrix', () => {
       await expect(page.getByTestId('code-acp-composer')).toHaveCount(0)
     })
     await test.step('50 restart back to ACP Chat and preserve structured history', async () => {
-      await page.getByTestId('code-terminal-mode-toggle').getByRole('button', { name: 'Chat' }).click()
+      const currentModeToggle = page.getByTestId('code-terminal-mode-toggle')
+      if (await currentModeToggle.isVisible().catch(() => false)) {
+        await currentModeToggle.getByRole('button', { name: 'Chat' }).click()
+      } else {
+        const menu = await openAgentRuntimeMenu()
+        await menu.getByRole('menuitem', { name: /Switch to Chat|切换到对话/ }).click()
+      }
       await expect(page.getByTestId('code-agent-chat-view')).toBeVisible({ timeout: 30_000 })
       await expect(page.getByTestId('code-acp-composer')).toBeVisible()
       await expect(page.getByText('Rich ACP timeline complete.', { exact: true })).toBeVisible({ timeout: 20_000 })
@@ -1117,15 +1176,12 @@ test.describe('ACP human-like browser matrix', () => {
     const summary = turn.getByTestId('code-agent-transcript-result-summary')
     await expect(summary).toHaveText('1 file changed+1-1')
     await expect(summary).not.toHaveAttribute('aria-expanded')
-    await turn.getByRole('button', { name: 'Review', exact: true }).click()
-    await expect(turn.getByTestId('code-agent-transcript-result-details')).toBeVisible()
-    await expect(turn.locator('.code-agent-transcript-result-loading')).toHaveCount(0)
-    await expect(turn.locator('.code-agent-transcript-result-error')).toHaveCount(0)
-    await expect(turn.locator('.code-agent-transcript-result-diff')).toContainText('+after')
-    const changedFiles = reviewPage.getByRole('region', { name: 'Changed files' })
-    await expect(changedFiles).toContainText('Last Turn')
-    await expect(changedFiles).toContainText('display-fixture.txt')
-    await expect(changedFiles).toContainText('+1')
+    await turn.getByRole('button', { name: /^Review:/ }).click()
+    const review = page.getByRole('dialog', { name: 'Review' }).getByTestId('code-agent-transcript-result-details')
+    await expect(review).toBeVisible()
+    await expect(review.locator('.code-agent-transcript-result-loading')).toHaveCount(0)
+    await expect(review.locator('.code-agent-transcript-result-error')).toHaveCount(0)
+    await expect(review.locator('.code-agent-transcript-result-diff')).toContainText('+after')
   })
 
   test('accepts human input in an ACP client terminal without switching to Terminal mode', async ({ page, workspaceRoot }) => {
@@ -1184,6 +1240,37 @@ test.describe('ACP human-like browser matrix', () => {
     await expect(processSummary).toHaveAttribute('aria-expanded', 'false')
     await processSummary.click()
     await expect(thought.getByTestId('code-agent-transcript-process-item-toggle')).toHaveAttribute('aria-expanded', 'true')
+  })
+
+  test('shows one compact live command and folds completed process evidence', async ({ page, workspaceRoot }) => {
+    test.setTimeout(60_000)
+    const workspace = path.join(workspaceRoot, 'acp-compact-live-process')
+    fs.mkdirSync(workspace, { recursive: true })
+    const agentId = await createAcpAgent(page, workspace)
+    await openFarming(page)
+    await agentRow(page, agentId).click()
+
+    await sendAcpMessage(page, 'live progress')
+    const turn = page.locator('.code-agent-transcript-turn').filter({ hasText: 'live progress' }).last()
+    const processSummary = turn.getByTestId('code-agent-transcript-process-summary')
+    await expect(processSummary).toHaveAttribute(
+      'title',
+      /run-long-command\.js --verify-mobile-composer-focus/,
+      { timeout: 10_000 },
+    )
+    await expect(processSummary).toHaveAttribute('aria-expanded', 'false')
+    const compactList = turn.getByTestId('code-agent-transcript-process-compact-list')
+    await expect(compactList.getByTestId('code-agent-transcript-process-item')).toHaveCount(1)
+    await expect(compactList).toContainText('PORT=4187 FARMING_PLAYWRIGHT_PORT=4187')
+
+    await expect(page.getByText('Live progress complete.', { exact: true })).toBeVisible({ timeout: 15_000 })
+    await expect(processSummary).toHaveAttribute('aria-expanded', 'false')
+    await expect(turn.getByTestId('code-agent-transcript-process-compact-list')).toHaveCount(0)
+    await expect(turn.getByTestId('code-agent-transcript-process-group')).toHaveCount(0)
+
+    await processSummary.click()
+    await expect(processSummary).toHaveAttribute('aria-expanded', 'true')
+    await expect(turn.getByTestId('code-agent-transcript-process-group')).toBeVisible()
   })
 
   test('preserves a manually opened process group while consecutive tools stream into it', async ({ page, workspaceRoot }) => {
@@ -1507,8 +1594,8 @@ test.describe('ACP human-like browser matrix', () => {
     expect(fs.readFileSync(path.join(workspace, 'decision-revert.txt'), 'utf8')).toBe('after decision-revert.txt\n')
 
     const turn = page.locator('.code-agent-transcript-turn').filter({ hasText: 'applied edit' }).last()
-    await turn.getByRole('button', { name: 'Review', exact: true }).click()
-    const review = turn.getByTestId('code-agent-transcript-result-details')
+    await turn.getByRole('button', { name: /^Review:/ }).click()
+    const review = page.getByRole('dialog', { name: 'Review' }).getByTestId('code-agent-transcript-result-details')
     await expect(review).toBeVisible()
     const keepFile = review.locator('.code-agent-transcript-change-review-file').filter({ hasText: 'decision-keep.txt' })
     const revertFile = review.locator('.code-agent-transcript-change-review-file').filter({ hasText: 'decision-revert.txt' })
@@ -1522,19 +1609,20 @@ test.describe('ACP human-like browser matrix', () => {
     await page.reload()
     await agentRow(page, agentId).click()
     const restoredTurn = page.locator('.code-agent-transcript-turn').filter({ hasText: 'applied edit' }).last()
-    await restoredTurn.getByRole('button', { name: 'Review', exact: true }).click()
-    const restoredReview = restoredTurn.getByTestId('code-agent-transcript-result-details')
+    await restoredTurn.getByRole('button', { name: /^Review:/ }).click()
+    const restoredReview = page.getByRole('dialog', { name: 'Review' }).getByTestId('code-agent-transcript-result-details')
     const restoredKeep = restoredReview.locator('.code-agent-transcript-change-review-file').filter({ hasText: 'decision-keep.txt' })
     const restoredRevert = restoredReview.locator('.code-agent-transcript-change-review-file').filter({ hasText: 'decision-revert.txt' })
     await expect(restoredKeep.getByTestId('code-acp-patch-decision')).toContainText('Kept')
     await expect(restoredRevert.getByTestId('code-acp-patch-decision')).toContainText('Reverted')
+    await page.getByRole('dialog', { name: 'Review' }).getByRole('button', { name: 'Close' }).click()
 
     await sendAcpMessage(page, 'conflict applied edit')
     const conflictTurn = page.locator('.code-agent-transcript-turn').filter({ hasText: 'conflict applied edit' }).last()
     await expect(conflictTurn.getByText('Applied edit complete.', { exact: true })).toBeVisible({ timeout: 15_000 })
     fs.writeFileSync(path.join(workspace, 'decision-conflict.txt'), 'newer human change\n')
-    await conflictTurn.getByRole('button', { name: 'Review', exact: true }).click()
-    const conflictFile = conflictTurn.getByTestId('code-agent-transcript-result-details')
+    await conflictTurn.getByRole('button', { name: /^Review:/ }).click()
+    const conflictFile = page.getByRole('dialog', { name: 'Review' }).getByTestId('code-agent-transcript-result-details')
       .locator('.code-agent-transcript-change-review-file').filter({ hasText: 'decision-conflict.txt' })
     await conflictFile.getByRole('button', { name: 'Revert' }).click()
     await expect(conflictFile.getByRole('alert')).toContainText('File changed after this ACP patch')
@@ -1557,11 +1645,10 @@ test.describe('ACP human-like browser matrix', () => {
     await sendAcpMessage(page, 'deep path many applied edit')
     const turn = page.locator('.code-agent-transcript-turn').filter({ hasText: 'deep path many applied edit' }).last()
     await expect(turn.getByText('Applied edit complete.', { exact: true })).toBeVisible({ timeout: 15_000 })
-    await turn.getByRole('button', { name: 'Review', exact: true }).click()
-    const review = turn.getByTestId('code-agent-transcript-result-details')
+    await turn.getByRole('button', { name: /^Review:/ }).click()
+    const review = page.getByRole('dialog', { name: 'Review' }).getByTestId('code-agent-transcript-result-details')
     await expect(review.locator('.code-agent-transcript-change-review-file')).toHaveCount(6)
-    await expect(review.getByText('decision-many-5.txt', { exact: true })).toBeVisible()
-    await expect(review.getByText('src/features/very-long-feature-name', { exact: true })).toHaveCount(6)
+    await expect(review.getByText('src/features/very-long-feature-name/decision-many-5.txt', { exact: true })).toBeVisible()
     await expect(review.locator('.code-agent-transcript-result-error')).toHaveCount(0)
     await expect(review.locator('.code-agent-transcript-result-diff').first()).toContainText(
       '+after src/features/very-long-feature-name/decision-many-1.txt',

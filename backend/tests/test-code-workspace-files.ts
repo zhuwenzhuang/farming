@@ -77,6 +77,8 @@ function run() {
   const urlOpenMenuSource = read('src/lib/url-open-menu.ts');
   const usePooledTerminalSource = read('src/hooks/usePooledTerminal.ts');
   const browserResourcesHookSource = read('extensions/browser/frontend/useBrowserResources.ts');
+  const computerResourcesHookSource = read('extensions/computer/frontend/useComputerResources.ts');
+  const foregroundHttpPrioritySource = read('src/lib/foreground-http-priority.ts');
   const xtermSource = read('src/lib/xterm.ts');
   const fileEditorMonacoSource = read('src/components/files/useFileEditorMonacoController.ts');
   const inputDialogSource = read('src/components/InputDialog.tsx');
@@ -107,6 +109,17 @@ function run() {
       && historyViewStyles.includes('justify-content: flex-start'),
     'History should top-align its column so refresh cannot strand the first page above scrollTop zero'
   );
+  assert(
+    foregroundHttpPrioritySource.includes('requestForegroundHttpPriority')
+      && foregroundHttpPrioritySource.includes('FOREGROUND_HTTP_HOLD_MS = 5_000')
+      && appSource.includes('requestForegroundHttpPriority()')
+      && appSource.includes('if (foregroundHttpPriorityActive()) return')
+      && appSource.includes("fetch(appPath('/api/usage'), { signal: controller.signal })")
+      && workspaceSource.includes('subscribeForegroundHttpPriority')
+      && workspaceSource.includes('agentSessionsLoadAbortRef.current?.abort()')
+      && workspaceSource.includes('signal: options.signal'),
+    'opening a Terminal must synchronously abort low-priority usage and Agent-session prefetches so session-view can acquire an HTTP connection',
+  );
 
   assert(
     appSource.includes('<CodeWorkspace') &&
@@ -120,6 +133,23 @@ function run() {
     settingsUpdateRouteSource.includes('scheduleBroadcastState();') &&
       !settingsUpdateRouteSource.includes('broadcastState();'),
     'rapid settings writes should be bounded by the shared state broadcast scheduler',
+  );
+
+  assert(
+    !browserResourcesHookSource.includes('EventSource')
+      && !computerResourcesHookSource.includes('EventSource')
+      && webSocketSource.includes("case 'browser-resource-snapshot':")
+      && webSocketSource.includes("case 'computer-resource-snapshot':"),
+    'Browser and Computer metadata must reuse the main versioned WebSocket instead of holding per-page SSE connections',
+  );
+  assert(
+    serverSource.includes('sendResourceSnapshots(ws);')
+      && serverSource.includes("browserResourceManager.on('resource'")
+      && serverSource.includes("computerResourceManager.on('resource'")
+      && serverSource.includes('coalesceResourceBroadcast(pendingResourceBroadcasts, event);')
+      && serverSource.includes('client.resourceSnapshotPending = true;')
+      && serverSource.includes('recoverResourceSnapshotIfReady(ws);'),
+    'the Server must hydrate resource snapshots after negotiation, coalesce lightweight deltas, and recover slow clients with a bounded snapshot path',
   );
 
   assert(
@@ -581,7 +611,7 @@ function run() {
       workspaceSource.includes('compactContextMenuEntries') &&
       workspaceSource.includes('function ContextMenuEntries') &&
 	      workspaceSource.includes('type ContextMenuEntry') &&
-	      workspaceSource.includes("export type ContextMenuIconKind = 'pin' | 'folder' | 'worktree' | 'rename' | 'check' | 'archive' | 'trash'") &&
+	      workspaceSource.includes("export type ContextMenuIconKind = 'pin' | 'unpin' | 'folder' | 'worktree' | 'rename' | 'check' | 'archive' | 'trash'") &&
 	      workspaceSource.includes('function ContextMenuIcon') &&
 	      workspaceSource.includes('agent?.canForkNewWorktree === true') &&
 	      workspaceSource.includes('projectCanArchive(contextMenuProject)') &&
@@ -659,8 +689,8 @@ function run() {
       workspaceSource.includes('const AGENT_SESSION_PAGE_SIZE = 60') &&
       workspaceSource.includes("params.set('cursor', options.cursor)") &&
       workspaceSource.includes("params.set('fresh', '1')") &&
+      !workspaceSource.includes("params.set('force', '1')") &&
       workspaceSource.includes("cache: options.fresh ? 'no-store' : 'default'") &&
-      workspaceSource.includes("fresh: '1'") &&
       workspaceSource.includes("cache: 'no-store'") &&
       workspaceSource.includes('const loadMoreAgentSessions = useCallback(async') &&
       workspaceSource.includes('setAgentSessionNextCursor(page.nextCursor)') &&
@@ -1175,14 +1205,14 @@ function run() {
       !terminalPaneSource.includes('TerminalDisplayMode') &&
       !terminalPaneSource.includes('transcriptAvailability') &&
 	      !agentWorkPaneSource.includes('CodexAppServerTranscriptPane') &&
-      agentWorkPaneSource.includes('JsonCliTranscriptPane') &&
+      !agentWorkPaneSource.includes('JsonCliTranscriptPane') &&
       agentWorkPaneSource.includes('AcpTranscriptPane') &&
       agentWorkPaneSource.includes("runtimeState={acpRuntime?.state || ''}") &&
       agentWorkPaneSource.includes("expectHistory={(agent.source || '').startsWith('codex-history:')}") &&
       agentWorkPaneSource.includes('AgentTerminalPane') &&
       !agentWorkPaneSource.includes('resizeAgent') &&
 	      !agentWorkPaneSource.includes('isCodexAppServerAgent') &&
-      agentWorkPaneSource.includes('const jsonRuntime = isJsonRuntime(agent)') &&
+      !agentWorkPaneSource.includes('isJsonRuntime') &&
       agentWorkPaneSource.includes('const acpRuntime = isAcpRuntime(agent)') &&
       agentWorkPaneSource.includes('data-testid="code-terminal-mode-toggle"') &&
       agentWorkPaneSource.includes('onRuntimeModeChange') &&
@@ -1423,7 +1453,8 @@ function run() {
       !transcriptPaneSource.includes('latestLiveProgressItem') &&
       transcriptPaneSource.includes('openLiveProcessTurnIds') &&
       !transcriptPaneSource.includes('closedLiveProcessTurnIds') &&
-      transcriptPaneSource.includes('COMPACT_PROCESS_ACTION_LIMIT = 1') &&
+      transcriptPaneSource.includes('function compactProcessEntries(') &&
+      transcriptPaneSource.includes('selectedIndexes.add(index)\n    break') &&
       transcriptPaneSource.includes('data-testid="code-agent-transcript-process-compact-list"') &&
       transcriptPaneSource.includes('acpProgressFlowEntries(items)') &&
       !transcriptPaneSource.includes('autoExpandedTerminalItemIdsRef') &&

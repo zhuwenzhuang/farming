@@ -2,6 +2,7 @@ import { appPath } from '../base-path.ts'
 
 export const PET_SETTINGS_STORAGE_KEY = 'farmingPetSettings'
 export const PET_SETTINGS_EVENT = 'farming-pet-settings'
+export const PET_APPEARANCE_PREVIEW_EVENT = 'farming-pet-appearance-preview'
 export const PET_REST_REMINDER_RUNTIME_STORAGE_KEY = 'farmingPetRestReminderRuntime'
 export const PET_REST_REMINDER_INVITATION_STORAGE_KEY = 'farmingPetRestReminderInvitationRuntime'
 
@@ -16,6 +17,7 @@ export const REST_REMINDER_IDLE_RESET_MINUTES = 5
 export const REST_REMINDER_IDLE_RESET_MS = REST_REMINDER_IDLE_RESET_MINUTES * 60_000
 export const REST_REMINDER_INVITATION_MINUTES = 30
 export const REST_REMINDER_INVITATION_MS = REST_REMINDER_INVITATION_MINUTES * 60_000
+export const REST_REMINDER_INVITATION_TEST_QUERY_PARAM = 'petRestInvitationSeconds'
 export const REST_REMINDER_TEST_INTERVAL_SECONDS = 5
 export const REST_REMINDER_CUSTOM_MINUTES_MIN = 1
 export const REST_REMINDER_CUSTOM_MINUTES_MAX = 240
@@ -29,6 +31,21 @@ export const REST_REMINDER_INTERVAL_PRESETS_SECONDS = [
   60 * 60,
   90 * 60,
 ] as const
+
+export function restReminderInvitationMs(search = '', allowTestOverride = false) {
+  if (!allowTestOverride) return REST_REMINDER_INVITATION_MS
+  const rawSeconds = new URLSearchParams(search).get(
+    REST_REMINDER_INVITATION_TEST_QUERY_PARAM,
+  )
+  if (rawSeconds === null) return REST_REMINDER_INVITATION_MS
+
+  const seconds = Number(rawSeconds)
+  return Number.isInteger(seconds)
+    && seconds >= 1
+    && seconds <= REST_REMINDER_INVITATION_MINUTES * 60
+    ? seconds * 1000
+    : REST_REMINDER_INVITATION_MS
+}
 
 export function restReminderBreakMinutes(intervalSeconds: number) {
   return intervalSeconds >= REST_REMINDER_LONG_INTERVAL_SECONDS
@@ -73,6 +90,13 @@ export function restReminderEntryCountdownSeconds(intervalSeconds: number) {
 }
 
 export type PetAppearance = 'glass' | 'black-hole'
+
+export function requestPetAppearancePreview(appearance: PetAppearance) {
+  if (typeof window === 'undefined') return
+  window.dispatchEvent(new CustomEvent(PET_APPEARANCE_PREVIEW_EVENT, {
+    detail: { appearance },
+  }))
+}
 
 type PetSettingsStorage = Pick<Storage, 'getItem' | 'setItem'>
 type PetRuntimeStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>

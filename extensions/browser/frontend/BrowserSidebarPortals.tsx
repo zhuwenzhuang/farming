@@ -2,6 +2,7 @@ import { createPortal } from 'react-dom'
 import { useCallback, useEffect, useLayoutEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import {
+  BrowserGlyph,
   ChevronDownGlyph,
   ChevronRightGlyph,
   CloseGlyph,
@@ -140,6 +141,7 @@ function BrowserRow({
         }
       }}
     >
+      <span className={`farming-browser-resource-icon ${resource.status}`} aria-hidden="true"><BrowserGlyph /></span>
       <span className="farming-browser-row-copy">
         {renaming ? (
           <input
@@ -165,7 +167,6 @@ function BrowserRow({
           {resourceStatusLabel(resource, copy)}
         </span>
       </span>
-      {resource.status === 'running' ? <span className="farming-browser-status" aria-hidden="true" /> : null}
       <span className="farming-browser-row-actions">
         <button
           type="button"
@@ -251,6 +252,7 @@ function BrowserSection({
           <span className="farming-browser-section-chevron" aria-hidden="true">
             {collapsed ? <ChevronRightGlyph /> : <ChevronDownGlyph />}
           </span>
+          <BrowserGlyph className="farming-browser-section-icon" />
           <span>{copy.browsers}</span>
           {resources.length > 0 && <small>{resources.length}</small>}
         </button>
@@ -449,7 +451,7 @@ export function BrowserSidebarPortals({
       {projects.flatMap(project => project.agents.flatMap(agent => {
         const resources = controller.byAgentId.get(agent.id) ?? []
         const hasAdditionalResources = additionalAgentResourceIds.has(agent.id)
-        if (resources.length === 0 && !hasAdditionalResources) return []
+        if (!browserAvailable && !hasAdditionalResources) return []
         const actionTarget = targets.get(`agent-action:${agent.id}`)
         const contentTarget = targets.get(`agent-content:${agent.id}`)
         const expanded = expandedResources.has(agent.id)
@@ -468,7 +470,7 @@ export function BrowserSidebarPortals({
         if (contentTarget && expanded) {
           portals.push(createPortal(
             <>
-              {resources.length > 0 && (
+              {browserAvailable && (
                 <BrowserSection
                   workspace={project.workspace}
                   ownerAgentId={agent.id}

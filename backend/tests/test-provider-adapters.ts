@@ -329,7 +329,7 @@ function run() {
     terminal: { kind: 'command', prefix: '/goal set' },
     acp: { kind: 'prompt' },
   });
-  assert.strictEqual(providerSupportsRuntime('opencode', 'json'), true);
+  assert.strictEqual(providerSupportsRuntime('opencode', 'json'), false);
   assert.strictEqual(providerSupportsRuntime('claude', 'json'), false);
   assert.strictEqual(providerAcpForkMode('claude'), 'target-process');
   assert.strictEqual(providerAcpForkMode('codex'), 'source-then-load');

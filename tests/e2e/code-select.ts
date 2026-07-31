@@ -5,6 +5,7 @@ export async function codeSelectOptions(trigger: Locator) {
   const options = trigger.locator('xpath=..').getByRole('option')
   await expect(options.first()).toBeVisible()
   return options.evaluateAll(items => items.map(item => ({
+    disabled: (item as HTMLButtonElement).disabled,
     label: item.textContent?.trim() || '',
     value: item.getAttribute('data-value') || '',
   })))

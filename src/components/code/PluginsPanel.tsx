@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { CodeSelect } from '@/components/CodeSelect'
 import { appPath } from '@/lib/base-path'
 import { getBackendConnectionSnapshot } from '@/lib/backend-live-status'
@@ -6,10 +7,16 @@ import {
   ArrowDownGlyph,
   ArrowLeftGlyph,
   ArrowUpGlyph,
+  AgentChipGlyph,
+  AgentSmartToyGlyph,
+  BrowserGlyph,
   CloseGlyph,
+  ComputerUseGlyph,
+  ForkGlyph,
   PencilGlyph,
   PlusGlyph,
   PuzzleGlyph,
+  TerminalSquareGlyph,
 } from '@/components/IconGlyphs'
 import type { UiLanguage } from '@/lib/ui-preferences'
 import type { BrowserCapability } from '../../../extensions/browser/frontend/types'
@@ -23,11 +30,13 @@ type NewAgentDefaults = {
 
 type AgentExtension = {
   id: string
-  command: string
   name: string
   description: string
   kind: string
   scope: string
+  status: 'configured' | 'enabled' | 'disabled'
+  sourceFile: string
+  rootId: string
 }
 
 type AgentExtensionGroup = {
@@ -67,11 +76,17 @@ type AgentConfiguration = {
 
 type SelectedAgentExtension = AgentExtension & {
   agentName: string
+  homeKey: string
   homeId: string
 }
 
-const EXTENSION_KIND_ORDER = ['plugin', 'skill', 'command']
+type PluginsTab = 'farming' | 'homes' | 'extensions'
+
+const EXTENSION_KIND_ORDER = ['skill', 'mcp', 'hook', 'plugin', 'command']
+const PLUGINS_TABS: PluginsTab[] = ['farming', 'homes', 'extensions']
 const AGENT_SETTINGS_REQUEST_TIMEOUT_MS = 15_000
+const DOCKER_DESKTOP_MAC_INSTALL_URL = 'https://docs.docker.com/desktop/setup/install/mac-install/'
+const DOCKER_ENGINE_INSTALL_URL = 'https://docs.docker.com/engine/install/'
 
 async function fetchAgentSettings(url: string, init?: RequestInit) {
   const controller = new AbortController()
@@ -89,10 +104,24 @@ function pluginCopy(language: UiLanguage) {
     title: zh ? '插件' : 'Plugins',
     description: zh ? '管理 Farming 和 Agent 可以使用的能力。' : 'Manage capabilities available to Farming and Agents.',
     back: zh ? '返回工作区' : 'Back to workspace',
+    tabs: {
+      farming: 'Farming',
+      homes: 'Agent Homes',
+      extensions: zh ? '扩展' : 'Extensions',
+    },
     farmingBuiltIn: zh ? 'Farming 内置' : 'Built into Farming',
     farmingBuiltInDescription: zh ? '由 Farming 提供并统一管理的能力。' : 'Capabilities provided and managed by Farming.',
+    agentHomes: 'Agent Homes',
+    agentHomesDescription: zh
+      ? '配置来自各自 Home；Farming 只显示可安全识别的摘要。'
+      : 'Configuration comes from each Home; Farming only shows safe recognized summaries.',
     agentExtensions: zh ? 'Agent 扩展' : 'Agent extensions',
-    agentExtensionsDescription: zh ? '按 Agent 查看已安装的 Skill、插件和命令。' : 'Installed skills, plugins, and commands grouped by Agent.',
+    agentExtensionsDescription: zh
+      ? '按 Home 查看发现的 Skill、MCP、Hook、插件和命令。'
+      : 'Skills, MCPs, hooks, plugins, and commands discovered in each Agent Home.',
+    searchExtensions: zh ? '搜索扩展' : 'Search extensions',
+    refresh: zh ? '刷新' : 'Refresh',
+    noMatchingExtensions: zh ? '没有匹配的扩展。' : 'No matching extensions.',
     addAgent: zh ? '添加 Agent' : 'Add Agent',
     edit: zh ? '编辑配置' : 'Edit configuration',
     remove: zh ? '删除' : 'Remove',
@@ -126,17 +155,33 @@ function pluginCopy(language: UiLanguage) {
     confirmRemoveAgent: (name: string) => zh ? `删除 ${name}？` : `Remove ${name}?`,
     loadingAgentExtensions: zh ? '正在读取 Agent 扩展…' : 'Loading Agent extensions…',
     agentExtensionsFailed: zh ? 'Agent 扩展读取失败' : 'Failed to load Agent extensions',
-    noAgentExtensions: zh ? '没有发现 Skill、插件或命令。' : 'No skills, plugins, or commands found.',
+    noAgentExtensions: zh ? '没有发现扩展。' : 'No extensions found.',
     unsupportedDiscovery: zh ? '这个 Agent 还没有统一的扩展发现接口。' : 'This Agent does not expose a unified extension discovery interface yet.',
     home: zh ? 'Home' : 'Home',
     count: (count: number) => zh ? `${count} 项` : `${count} items`,
     kind: {
       skill: zh ? 'Skill' : 'Skill',
+      mcp: 'MCP',
+      hook: 'Hook',
       plugin: zh ? '插件' : 'Plugin',
       command: zh ? '命令' : 'Command',
     },
+    kindTabs: {
+      skill: 'Skills',
+      mcp: 'MCPs',
+      hook: 'Hooks',
+      plugin: zh ? '插件' : 'Plugins',
+      command: zh ? '命令' : 'Commands',
+    },
     extensionDetails: zh ? '扩展详情' : 'Extension details',
     closeDetails: zh ? '关闭详情' : 'Close details',
+    source: zh ? '来源' : 'Source',
+    openSource: zh ? '打开来源文件' : 'Open source file',
+    extensionStatus: {
+      configured: zh ? '已配置' : 'Configured',
+      enabled: zh ? '已启用' : 'Enabled',
+      disabled: zh ? '已停用' : 'Disabled',
+    },
     browser: zh ? '浏览器' : 'Browser',
     browserDescription: zh
       ? '让 Agent 操作网页，并在 Farming 中查看同一个浏览器。'
@@ -145,17 +190,33 @@ function pluginCopy(language: UiLanguage) {
     disabled: zh ? '已停用' : 'Disabled',
     unavailable: zh ? '未就绪' : 'Not ready',
     checking: zh ? '正在检查…' : 'Checking…',
-    systemBrowser: zh ? '系统 Chromium' : 'System Chromium',
-    isolatedBrowser: zh ? '隔离浏览器（Docker）' : 'Isolated Browser (Docker)',
+    checkFailed: zh ? '检查失败' : 'Check failed',
+    browserCheckFailed: zh ? '浏览器当前状态检查失败。' : 'Failed to check the current Browser status.',
+    computerCheckFailed: zh ? 'Computer Use 当前状态检查失败。' : 'Failed to check the current Computer Use status.',
+    noSystemBrowser: zh ? '未发现系统 Chromium' : 'No system Chromium detected',
+    isolatedBrowser: zh ? '隔离浏览器' : 'Isolated Browser',
+    isolatedBrowserRequiresDocker: zh ? '隔离浏览器（需要 Docker）' : 'Isolated Browser (requires Docker)',
+    isolatedBrowserNotInstalled: zh ? '隔离浏览器（未安装）' : 'Isolated Browser (not installed)',
+    isolatedBrowserUnavailable: zh ? '隔离浏览器（暂不可用）' : 'Isolated Browser (unavailable)',
     browserChoice: zh ? '浏览器来源' : 'Browser source',
-    automaticBrowser: zh ? '自动（优先本机，否则隔离浏览器）' : 'Automatic (local first, then isolated)',
     applyBrowser: zh ? '应用' : 'Apply',
     prepareIsolatedBrowser: zh ? '准备隔离浏览器' : 'Prepare isolated Browser',
     preparingIsolatedBrowser: zh ? '正在下载并验证…' : 'Downloading and verifying…',
     isolatedBrowserHint: zh
-      ? '显式下载固定版本的上游 CUA Browser 镜像（约 2 GB）；之后由 Farming 自动管理容器和 CDP，不需要配置端口。'
-      : 'Explicitly downloads the pinned upstream CUA Browser image (about 2 GB); Farming then manages its container and CDP without port configuration.',
+      ? '显式下载固定版本的 Computer/CUA 镜像和独立 Chromium 缓存（合计约 2 GB）；之后由 Farming 自动管理容器和 CDP，不需要配置端口。'
+      : 'Explicitly downloads the pinned Computer/CUA image and a separate Chromium cache (about 2 GB total); Farming then manages the container and CDP without port configuration.',
     isolatedBrowserPrepareFailed: zh ? '隔离浏览器准备失败' : 'Failed to prepare isolated Browser',
+    isolatedBrowserDockerRequired: zh
+      ? '安装并启动 Docker 后，才能准备隔离浏览器。'
+      : 'Install and start Docker before preparing the isolated Browser.',
+    dockerMacGuidance: zh
+      ? '普通网页操作直接使用本机浏览器即可。需要隔离浏览器、并行桌面或 CUA 时，建议安装并启动 Docker Desktop；完成后重新打开插件页。'
+      : 'Use a local browser for ordinary webpage work. Install and start Docker Desktop only when you need an isolated Browser, parallel desktops, or CUA; then reopen Plugins.',
+    dockerHostGuidance: zh
+      ? '普通网页操作直接使用本机浏览器即可。需要隔离浏览器、并行桌面或 CUA 时，请安装并启动 Docker；完成后重新打开插件页。'
+      : 'Use a local browser for ordinary webpage work. Install and start Docker only when you need an isolated Browser, parallel desktops, or CUA; then reopen Plugins.',
+    installDockerDesktop: zh ? '安装 Docker Desktop' : 'Install Docker Desktop',
+    viewDockerInstallGuide: zh ? '查看 Docker 安装说明' : 'View Docker installation guide',
     isolatedCompatibilityRequired: zh
       ? '这台旧版 Docker 需要显式启用兼容模式后再重试。'
       : 'This older Docker Engine requires compatibility mode before retrying.',
@@ -196,7 +257,9 @@ function pluginCopy(language: UiLanguage) {
 
 function browserSource(capability: BrowserCapability | null, copy: ReturnType<typeof pluginCopy>) {
   if (!capability?.browser) return ''
-  return capability.browser.kind === 'isolated-computer' ? copy.isolatedBrowser : copy.systemBrowser
+  return capability.browser.kind === 'isolated-computer'
+    ? copy.isolatedBrowser
+    : browserKindName(capability.browser.kind)
 }
 
 function browserKindName(kind: string) {
@@ -217,12 +280,22 @@ function agentDisplayName(agent: Pick<AgentExtensionGroup, 'id' | 'name'>) {
 }
 
 function extensionKindLabel(kind: string, copy: ReturnType<typeof pluginCopy>) {
-  if (kind === 'skill' || kind === 'plugin' || kind === 'command') return copy.kind[kind]
+  if (kind === 'skill' || kind === 'mcp' || kind === 'hook' || kind === 'plugin' || kind === 'command') {
+    return copy.kind[kind]
+  }
   return kind
     .split(/[-_.]+/)
     .filter(Boolean)
     .map(part => part.slice(0, 1).toUpperCase() + part.slice(1))
     .join(' ') || kind
+}
+
+function extensionKindGlyph(kind: string) {
+  if (kind === 'skill') return <AgentSmartToyGlyph />
+  if (kind === 'mcp') return <AgentChipGlyph />
+  if (kind === 'hook') return <ForkGlyph />
+  if (kind === 'command') return <TerminalSquareGlyph />
+  return <PuzzleGlyph />
 }
 
 function configurationSummaryLabel(
@@ -240,23 +313,11 @@ function configurationSummaryLabel(
   }[key]
 }
 
-function agentExtensionKindGroups(home: AgentExtensionGroup['homes'][number]) {
-  const groups = new Map<string, AgentExtension[]>()
-  home.extensions.forEach(extension => {
-      const entries = groups.get(extension.kind) || []
-      entries.push(extension)
-      groups.set(extension.kind, entries)
-  })
-  return [...groups.entries()]
-    .map(([kind, extensions]) => ({ kind, extensions }))
-    .sort((left, right) => {
-      const leftIndex = EXTENSION_KIND_ORDER.indexOf(left.kind)
-      const rightIndex = EXTENSION_KIND_ORDER.indexOf(right.kind)
-      if (leftIndex === -1 && rightIndex === -1) return left.kind.localeCompare(right.kind)
-      if (leftIndex === -1) return 1
-      if (rightIndex === -1) return -1
-      return leftIndex - rightIndex
-    })
+function extensionKindTabLabel(kind: string, copy: ReturnType<typeof pluginCopy>) {
+  if (kind === 'skill' || kind === 'mcp' || kind === 'hook' || kind === 'plugin' || kind === 'command') {
+    return copy.kindTabs[kind]
+  }
+  return extensionKindLabel(kind, copy)
 }
 
 function agentConfigurationKey(provider: string, homeId: string) {
@@ -273,7 +334,7 @@ function orderedAgentConfigurations(groups: AgentExtensionGroup[]): AgentConfigu
     ))
 }
 
-function normalizeAgentExtensionGroups(rawGroups: AgentExtensionGroup[]) {
+function normalizeAgentExtensionGroups(rawGroups: AgentExtensionGroup[]): AgentExtensionGroup[] {
   let fallbackOrder = 0
   return rawGroups.map(provider => ({
     ...provider,
@@ -293,7 +354,22 @@ function normalizeAgentExtensionGroups(rawGroups: AgentExtensionGroup[]) {
         rootId: String(home.configuration?.rootId || ''),
         summary: Array.isArray(home.configuration?.summary) ? home.configuration.summary : [],
       },
-      extensions: Array.isArray(home.extensions) ? home.extensions : [],
+      extensions: Array.isArray(home.extensions) ? home.extensions.map(extension => {
+        const status: AgentExtension['status'] = extension.status === 'enabled' || extension.status === 'disabled'
+          ? extension.status
+          : 'configured'
+        return {
+          ...extension,
+          id: String(extension.id || ''),
+          name: String(extension.name || ''),
+          description: String(extension.description || ''),
+          kind: String(extension.kind || 'plugin'),
+          scope: String(extension.scope || ''),
+          status,
+          sourceFile: String(extension.sourceFile || ''),
+          rootId: String(extension.rootId || home.configuration?.rootId || ''),
+        }
+      }) : [],
     })),
   }))
 }
@@ -323,8 +399,10 @@ function homeIdForPath(homePath: string) {
 export function PluginsPanel({
   capability,
   loading,
+  capabilityError,
   computerCapability,
   computerLoading,
+  computerCapabilityError,
   onPrepareComputer,
   language,
   onBack,
@@ -333,8 +411,10 @@ export function PluginsPanel({
 }: {
   capability: BrowserCapability | null
   loading: boolean
+  capabilityError: string
   computerCapability: ComputerCapability | null
   computerLoading: boolean
+  computerCapabilityError: string
   onPrepareComputer: () => Promise<ComputerCapability>
   language: UiLanguage
   onBack: () => void
@@ -342,6 +422,10 @@ export function PluginsPanel({
   onRefreshCapability: () => void
 }) {
   const copy = useMemo(() => pluginCopy(language), [language])
+  const isMacHost = typeof navigator !== 'undefined'
+    && /Mac/.test(navigator.platform || navigator.userAgent)
+  const dockerInstallUrl = isMacHost ? DOCKER_DESKTOP_MAC_INSTALL_URL : DOCKER_ENGINE_INSTALL_URL
+  const dockerInstallLabel = isMacHost ? copy.installDockerDesktop : copy.viewDockerInstallGuide
   const [enabled, setEnabled] = useState(capability?.enabled === true)
   const [computerEnabled, setComputerEnabled] = useState(computerCapability?.enabled === true)
   const [computerCompatibilityMode, setComputerCompatibilityMode] = useState(
@@ -357,12 +441,16 @@ export function PluginsPanel({
   const [browserChoice, setBrowserChoice] = useState('system:')
   const browserChoiceDirtyRef = useRef(false)
   const [agentGroups, setAgentGroups] = useState<AgentExtensionGroup[]>([])
-  const [agentGroupsLoading, setAgentGroupsLoading] = useState(true)
+  const [agentGroupsLoading, setAgentGroupsLoading] = useState(false)
   const [agentGroupsError, setAgentGroupsError] = useState('')
   const [agentSaving, setAgentSaving] = useState(false)
   const [agentDraft, setAgentDraft] = useState<AgentHomeDraft | null>(null)
   const [draggingAgentKey, setDraggingAgentKey] = useState('')
   const [selectedExtension, setSelectedExtension] = useState<SelectedAgentExtension | null>(null)
+  const [activeTab, setActiveTab] = useState<PluginsTab>('farming')
+  const [activeExtensionHomeKey, setActiveExtensionHomeKey] = useState('')
+  const [activeExtensionKind, setActiveExtensionKind] = useState('skill')
+  const [extensionQuery, setExtensionQuery] = useState('')
   const agentGroupsRequestRef = useRef(0)
   const agentSaveRequestRef = useRef<number | null>(null)
   const agentSaveSequenceRef = useRef(0)
@@ -439,7 +527,6 @@ export function PluginsPanel({
       void loadAgentGroups()
     }
     window.addEventListener('farming:backend-connected', retryLoad)
-    void loadAgentGroups()
     return () => {
       agentPanelScopeRef.current = {
         mounted: false,
@@ -450,6 +537,11 @@ export function PluginsPanel({
       window.removeEventListener('farming:backend-connected', retryLoad)
     }
   }, [loadAgentGroups])
+
+  useEffect(() => {
+    if (activeTab === 'farming') return
+    void loadAgentGroups()
+  }, [activeTab, loadAgentGroups])
 
   const saveAgentGroups = useCallback(async (nextGroups: AgentExtensionGroup[]) => {
     if (!agentPanelScopeRef.current.mounted || agentSaveRequestRef.current) return false
@@ -724,24 +816,147 @@ export function PluginsPanel({
     : `system:${capability?.selection?.executablePath || ''}`
   const browserChoiceDirty = browserChoice !== savedBrowserChoice
   const isolatedBrowserReady = capability?.isolated?.imageReady === true
-  const showIsolatedBrowserPrepare = !isolatedBrowserReady
-    && capability?.isolated?.dockerAvailable === true
-    && (
-      browserChoice === 'isolated'
-      || (!browserReady && browserChoice === 'system:')
-    )
+  const isolatedBrowserSelected = browserChoice === 'isolated'
+  const isolatedBrowserDockerAvailable = capability?.isolated?.dockerAvailable === true
+  const showIsolatedBrowserPrepare = isolatedBrowserSelected
+    && !isolatedBrowserReady
+    && isolatedBrowserDockerAvailable
+  const isolatedBrowserLabel = capability?.isolated?.dockerAvailable === false
+    ? copy.isolatedBrowserRequiresDocker
+    : capability?.isolated?.dockerAvailable !== true
+      ? copy.isolatedBrowserUnavailable
+      : isolatedBrowserReady
+      ? copy.isolatedBrowser
+      : copy.isolatedBrowserNotInstalled
   const status = loading && capability === null
     ? copy.checking
+    : capabilityError
+      ? copy.checkFailed
     : browserReady
       ? enabled ? copy.enabled : copy.disabled
       : copy.unavailable
   const computerStatus = computerLoading && computerCapability === null
     ? copy.checking
+    : computerCapabilityError
+      ? copy.checkFailed
     : !computerCapability?.dockerAvailable
       ? copy.dockerUnavailable
       : computerCapability.imageReady
         ? computerEnabled ? copy.enabled : copy.disabled
         : copy.computerRuntimeMissing
+  const agentConfigurations = useMemo(() => orderedAgentConfigurations(agentGroups), [agentGroups])
+  const extensionHomes = useMemo(() => agentConfigurations.map(({ provider, home }) => {
+    const homeKey = agentConfigurationKey(provider.id, home.id)
+    return {
+      key: homeKey,
+      domId: `${provider.id}-${home.id}`,
+      label: `${agentDisplayName(provider)} · ${home.id}`,
+      extensions: home.extensions.map(extension => ({
+        ...extension,
+        agentName: `${agentDisplayName(provider)} · ${home.id}`,
+        homeKey,
+        homeId: home.id,
+      })),
+    }
+  }), [agentConfigurations])
+  const selectedExtensionHome = extensionHomes.find(home => home.key === activeExtensionHomeKey)
+    || extensionHomes[0]
+  const agentExtensions = useMemo(
+    () => extensionHomes.flatMap(home => home.extensions),
+    [extensionHomes],
+  )
+  const extensionKindCounts = useMemo(() => {
+    const counts = new Map<string, number>()
+    selectedExtensionHome?.extensions.forEach(extension => {
+      counts.set(extension.kind, (counts.get(extension.kind) || 0) + 1)
+    })
+    return counts
+  }, [selectedExtensionHome])
+  const extensionKinds = useMemo(() => {
+    const extras = [...extensionKindCounts.keys()]
+      .filter(kind => !EXTENSION_KIND_ORDER.includes(kind))
+      .sort((left, right) => left.localeCompare(right))
+    return [...EXTENSION_KIND_ORDER, ...extras].map(kind => ({
+      kind,
+      count: extensionKindCounts.get(kind) || 0,
+    }))
+  }, [extensionKindCounts])
+  const selectedExtensionKind = extensionKindCounts.get(activeExtensionKind)
+    ? activeExtensionKind
+    : extensionKinds.find(kind => kind.count > 0)?.kind || activeExtensionKind
+  const filteredAgentExtensions = useMemo(() => {
+    const query = extensionQuery.trim().toLocaleLowerCase()
+    const extensions = (selectedExtensionHome?.extensions || [])
+      .filter(extension => extension.kind === selectedExtensionKind)
+    if (!query) return extensions
+    return extensions.filter(extension => [
+      extension.name,
+      extension.description,
+      extension.sourceFile,
+      extension.kind,
+      extension.scope,
+      extension.agentName,
+    ].some(value => value.toLocaleLowerCase().includes(query)))
+  }, [extensionQuery, selectedExtensionHome, selectedExtensionKind])
+
+  const handleExtensionHomeKeyDown = useCallback((event: ReactKeyboardEvent<HTMLButtonElement>) => {
+    const selectedIndex = extensionHomes.findIndex(home => home.key === selectedExtensionHome?.key)
+    let nextIndex = selectedIndex
+    if (event.key === 'ArrowRight') nextIndex = (selectedIndex + 1) % extensionHomes.length
+    else if (event.key === 'ArrowLeft') nextIndex = (selectedIndex - 1 + extensionHomes.length) % extensionHomes.length
+    else if (event.key === 'Home') nextIndex = 0
+    else if (event.key === 'End') nextIndex = extensionHomes.length - 1
+    else return
+    const nextHome = extensionHomes[nextIndex]
+    if (!nextHome) return
+    event.preventDefault()
+    setActiveExtensionHomeKey(nextHome.key)
+    setExtensionQuery('')
+    window.requestAnimationFrame(() => {
+      document.getElementById(`code-plugin-extension-home-${nextHome.domId}`)?.focus()
+    })
+  }, [extensionHomes, selectedExtensionHome?.key])
+
+  const handleExtensionKindKeyDown = useCallback((event: ReactKeyboardEvent<HTMLButtonElement>) => {
+    const availableKinds = extensionKinds.filter(kind => kind.count > 0)
+    const selectedIndex = availableKinds.findIndex(kind => kind.kind === selectedExtensionKind)
+    let nextIndex = selectedIndex
+    if (event.key === 'ArrowRight') nextIndex = (selectedIndex + 1) % availableKinds.length
+    else if (event.key === 'ArrowLeft') nextIndex = (selectedIndex - 1 + availableKinds.length) % availableKinds.length
+    else if (event.key === 'Home') nextIndex = 0
+    else if (event.key === 'End') nextIndex = availableKinds.length - 1
+    else return
+    const nextKind = availableKinds[nextIndex]
+    if (!nextKind) return
+    event.preventDefault()
+    setActiveExtensionKind(nextKind.kind)
+    setExtensionQuery('')
+    window.requestAnimationFrame(() => {
+      document.getElementById(`code-plugin-extension-kind-${nextKind.kind}`)?.focus()
+    })
+  }, [extensionKinds, selectedExtensionKind])
+
+  const activateTab = useCallback((tab: PluginsTab) => {
+    setActiveTab(tab)
+    setSelectedExtension(null)
+  }, [])
+
+  const handleTabKeyDown = useCallback((event: ReactKeyboardEvent<HTMLButtonElement>) => {
+    const currentIndex = PLUGINS_TABS.indexOf(activeTab)
+    let nextIndex = currentIndex
+    if (event.key === 'ArrowRight') nextIndex = (currentIndex + 1) % PLUGINS_TABS.length
+    else if (event.key === 'ArrowLeft') nextIndex = (currentIndex - 1 + PLUGINS_TABS.length) % PLUGINS_TABS.length
+    else if (event.key === 'Home') nextIndex = 0
+    else if (event.key === 'End') nextIndex = PLUGINS_TABS.length - 1
+    else return
+    event.preventDefault()
+    const nextTab = PLUGINS_TABS[nextIndex]
+    if (!nextTab) return
+    activateTab(nextTab)
+    window.requestAnimationFrame(() => {
+      document.getElementById(`code-plugin-tab-${nextTab}`)?.focus()
+    })
+  }, [activeTab, activateTab])
 
   return (
     <div className="code-plugins-panel" data-testid="code-plugins-panel">
@@ -755,7 +970,40 @@ export function PluginsPanel({
         </div>
       </header>
 
-      <section className="code-plugin-section" data-testid="code-plugin-section-farming">
+      <div className="code-plugin-tabs" role="tablist" aria-label={copy.title}>
+        {PLUGINS_TABS.map(tab => {
+          const count = tab === 'farming'
+            ? 2
+            : tab === 'homes'
+              ? agentConfigurations.length
+              : agentExtensions.length
+          return (
+            <button
+              id={`code-plugin-tab-${tab}`}
+              key={tab}
+              type="button"
+              role="tab"
+              data-testid={`code-plugin-tab-${tab}`}
+              aria-selected={activeTab === tab}
+              aria-controls={`code-plugin-panel-${tab}`}
+              tabIndex={activeTab === tab ? 0 : -1}
+              onClick={() => activateTab(tab)}
+              onKeyDown={handleTabKeyDown}
+            >
+              <span>{copy.tabs[tab]}</span>
+              <small>{count}</small>
+            </button>
+          )
+        })}
+      </div>
+
+      {activeTab === 'farming' ? <section
+        id="code-plugin-panel-farming"
+        className="code-plugin-section code-plugin-tab-panel"
+        data-testid="code-plugin-section-farming"
+        role="tabpanel"
+        aria-labelledby="code-plugin-tab-farming"
+      >
         <header className="code-plugin-section-header">
           <div>
             <h3>{copy.farmingBuiltIn}</h3>
@@ -764,7 +1012,7 @@ export function PluginsPanel({
         </header>
         <article className="code-plugin-card" data-testid="code-plugin-browser">
           <span className="code-plugin-card-icon" aria-hidden="true">
-            <PuzzleGlyph />
+            <BrowserGlyph />
           </span>
           <div className="code-plugin-card-copy">
             <div className="code-plugin-card-title">
@@ -776,15 +1024,23 @@ export function PluginsPanel({
               <CodeSelect
                 className="code-plugin-select"
                 label={copy.browserChoice}
-                value={browserChoice}
+                value={loading && capability === null ? 'system:' : browserChoice}
                 disabled={(loading && capability === null) || saving || preparingIsolatedBrowser}
                 options={[
-                  { value: 'system:', label: copy.automaticBrowser },
+                  ...((capability?.options || []).length === 0 ? [{
+                    value: 'system:',
+                    label: copy.noSystemBrowser,
+                    disabled: true,
+                  }] : []),
                   ...(capability?.options || []).filter(option => option.kind !== 'managed-chromium').map(option => ({
                     value: `system:${option.path}`,
                     label: browserKindName(option.kind),
                   })),
-                  { value: 'isolated', label: copy.isolatedBrowser },
+                  {
+                    value: 'isolated',
+                    label: isolatedBrowserLabel,
+                    disabled: !isolatedBrowserDockerAvailable,
+                  },
                 ]}
                 onChange={value => {
                   browserChoiceDirtyRef.current = true
@@ -819,11 +1075,19 @@ export function PluginsPanel({
               ) : null}
             </div>
             <small>
-              {browserReady ? browserSource(capability, copy) : copy.unavailableHint}
-              {' · '}
-              {copy.browserChangeHint}
+              {loading && capability === null
+                ? copy.checking
+                : <>{browserReady ? browserSource(capability, copy) : copy.unavailableHint}{' · '}{copy.browserChangeHint}</>}
             </small>
             {showIsolatedBrowserPrepare ? <small>{copy.isolatedBrowserHint}</small> : null}
+            {capability?.isolated?.dockerAvailable === false
+              ? <small>
+                  {copy.isolatedBrowserDockerRequired}{' '}
+                  <a className="code-plugin-help-link" href={dockerInstallUrl} target="_blank" rel="noreferrer">
+                    {dockerInstallLabel}
+                  </a>
+                </small>
+              : null}
             {isolatedCompatibilityRequired ? (
               <div className="code-plugin-computer-settings">
                 <small>{copy.isolatedCompatibilityRequired}</small>
@@ -843,25 +1107,25 @@ export function PluginsPanel({
                 <small>{copy.compatibilityHint}</small>
               </div>
             ) : null}
-            {(error || (capability?.isolated?.dockerAvailable !== false && capability?.isolated?.error)) && (
+            {(error || capabilityError || (capability?.isolated?.dockerAvailable !== false && capability?.isolated?.error)) && (
               <div className="code-plugin-error" role="alert">
-                {error || capability?.isolated?.error}
+                {error || (capabilityError ? copy.browserCheckFailed : '') || capability?.isolated?.error}
               </div>
             )}
           </div>
           <button
             type="button"
             className={`code-plugin-toggle ${enabled ? 'active' : ''}`}
-            aria-pressed={enabled}
-            disabled={saving || preparingIsolatedBrowser || (!browserReady && !enabled)}
+            aria-pressed={loading || capabilityError ? false : enabled}
+            disabled={Boolean(capabilityError) || loading || saving || preparingIsolatedBrowser || (!browserReady && !enabled)}
             onClick={() => void toggleBrowser()}
           >
-            {enabled ? copy.disable : copy.enable}
+            {loading ? copy.checking : capabilityError ? copy.checkFailed : enabled ? copy.disable : copy.enable}
           </button>
         </article>
         <article className="code-plugin-card" data-testid="code-plugin-computer">
           <span className="code-plugin-card-icon" aria-hidden="true">
-            <PuzzleGlyph />
+            <ComputerUseGlyph />
           </span>
           <div className="code-plugin-card-copy">
             <div className="code-plugin-card-title">
@@ -906,18 +1170,26 @@ export function PluginsPanel({
               )}
             </div>
             <small>{copy.computerRuntimeHint}</small>
-            {computerError && (
+            {computerCapability?.dockerAvailable === false ? <small>
+              {isMacHost ? copy.dockerMacGuidance : copy.dockerHostGuidance}{' '}
+              <a className="code-plugin-help-link" href={dockerInstallUrl} target="_blank" rel="noreferrer">
+                {dockerInstallLabel}
+              </a>
+            </small> : null}
+            {(computerError || computerCapabilityError) && (
               <div className="code-plugin-error" role="alert">
-                {computerError}
+                {computerError || (computerCapabilityError ? copy.computerCheckFailed : '')}
               </div>
             )}
           </div>
           <button
             type="button"
             className={`code-plugin-toggle ${computerEnabled ? 'active' : ''}`}
-            aria-pressed={computerEnabled}
+            aria-pressed={computerLoading || computerCapabilityError ? false : computerEnabled}
             disabled={
-              computerSaving
+              Boolean(computerCapabilityError)
+              || computerLoading
+              || computerSaving
               || computerPreparing
               || (!computerCapability?.imageReady && !computerEnabled)
             }
@@ -925,16 +1197,22 @@ export function PluginsPanel({
               computerExtensionEnabled: !computerEnabled,
             })}
           >
-            {computerEnabled ? copy.disable : copy.enable}
+            {computerLoading ? copy.checking : computerCapabilityError ? copy.checkFailed : computerEnabled ? copy.disable : copy.enable}
           </button>
         </article>
-      </section>
+      </section> : null}
 
-      <div className="code-plugin-agent-sections" data-testid="code-plugin-agent-sections">
+      {activeTab === 'homes' ? <div
+        id="code-plugin-panel-homes"
+        className="code-plugin-agent-sections code-plugin-tab-panel"
+        data-testid="code-plugin-agent-sections"
+        role="tabpanel"
+        aria-labelledby="code-plugin-tab-homes"
+      >
         <header className="code-plugin-agent-sections-header">
           <div>
-            <h3>{copy.agentExtensions}</h3>
-            <p>{copy.agentExtensionsDescription}</p>
+            <h3>{copy.agentHomes}</h3>
+            <p>{copy.agentHomesDescription}</p>
           </div>
           <button
             type="button"
@@ -1005,11 +1283,10 @@ export function PluginsPanel({
         {agentGroupsError ? <div className="code-plugin-error" role="alert">{agentGroupsError}</div> : null}
         {agentGroupsLoading ? (
           <p className="code-plugin-empty">{copy.loadingAgentExtensions}</p>
-        ) : orderedAgentConfigurations(agentGroups).map((configuration, configurationIndex, configurations) => {
+        ) : agentConfigurations.map((configuration, configurationIndex, configurations) => {
           const { provider, home } = configuration
           const key = agentConfigurationKey(provider.id, home.id)
           const extensionCount = home.extensions.length
-          const kindGroups = agentExtensionKindGroups(home)
           const configurationSummary = home.configuration.summary.length > 0
             ? home.configuration.summary.map(entry => (
                 `${configurationSummaryLabel(entry.key, copy)}: ${entry.value}`
@@ -1092,48 +1369,135 @@ export function PluginsPanel({
 
               {!provider.discoverySupported ? (
                 <p className="code-plugin-agent-note">{copy.unsupportedDiscovery}</p>
-              ) : extensionCount === 0 ? (
-                <p className="code-plugin-agent-note">{copy.noAgentExtensions}</p>
-              ) : kindGroups.map(group => (
-                <details
-                  className="code-plugin-kind-section"
-                  data-kind={group.kind}
-                  key={group.kind}
-                >
-                  <summary>
-                    <strong>{extensionKindLabel(group.kind, copy)}</strong>
-                    <span>{copy.count(group.extensions.length)}</span>
-                  </summary>
-                  <div className="code-plugin-extension-list">
-                    {group.extensions.map(extension => (
-                      <button
-                        type="button"
-                        className="code-plugin-extension"
-                        key={extension.id}
-                        onClick={() => setSelectedExtension({
-                          ...extension,
-                          agentName: `${agentDisplayName(provider)} · ${home.id}`,
-                          homeId: home.id,
-                        })}
-                      >
-                        <div className="code-plugin-extension-title">
-                          <strong>{extension.name}</strong>
-                          <span>{extensionKindLabel(extension.kind, copy)}</span>
-                        </div>
-                        <div className="code-plugin-extension-meta">
-                          <code>{extension.command}</code>
-                          {extension.scope ? <span>{extension.scope}</span> : null}
-                        </div>
-                        <p>{extension.description}</p>
-                      </button>
-                    ))}
-                  </div>
-                </details>
-              ))}
+              ) : null}
             </section>
           )
         })}
-      </div>
+      </div> : null}
+
+      {activeTab === 'extensions' ? <section
+        id="code-plugin-panel-extensions"
+        className="code-plugin-extensions code-plugin-tab-panel"
+        data-testid="code-plugin-extensions"
+        role="tabpanel"
+        aria-labelledby="code-plugin-tab-extensions"
+      >
+        <header className="code-plugin-extensions-header">
+          <div>
+            <h3>{copy.agentExtensions}</h3>
+            <p>{copy.agentExtensionsDescription}</p>
+          </div>
+          <div className="code-plugin-extension-tools">
+            <label className="code-plugin-extension-search">
+              <span>{copy.searchExtensions}</span>
+              <input
+                type="search"
+                value={extensionQuery}
+                placeholder={copy.searchExtensions}
+                aria-label={copy.searchExtensions}
+                onChange={event => setExtensionQuery(event.target.value)}
+              />
+            </label>
+            <button
+              type="button"
+              disabled={agentGroupsLoading || agentSaving}
+              onClick={() => void loadAgentGroups()}
+            >
+              {copy.refresh}
+            </button>
+          </div>
+        </header>
+        {agentGroupsError ? <div className="code-plugin-error" role="alert">{agentGroupsError}</div> : null}
+        {agentGroupsLoading ? (
+          <p className="code-plugin-empty">{copy.loadingAgentExtensions}</p>
+        ) : extensionHomes.length === 0 ? (
+          <p className="code-plugin-empty">{copy.noAgentExtensions}</p>
+        ) : <>
+          <div className="code-plugin-extension-home-tabs" role="tablist" aria-label={copy.agentHomes}>
+            {extensionHomes.map(home => (
+              <button
+                id={`code-plugin-extension-home-${home.domId}`}
+                key={home.key}
+                type="button"
+                role="tab"
+                data-testid={`code-plugin-extension-home-${home.domId}`}
+                aria-selected={selectedExtensionHome?.key === home.key}
+                tabIndex={selectedExtensionHome?.key === home.key ? 0 : -1}
+                onClick={() => {
+                  setActiveExtensionHomeKey(home.key)
+                  setExtensionQuery('')
+                }}
+                onKeyDown={handleExtensionHomeKeyDown}
+              >
+                <span>{home.label}</span>
+                <small>{home.extensions.length}</small>
+              </button>
+            ))}
+          </div>
+          <div className="code-plugin-extension-kind-tabs" role="tablist" aria-label={copy.agentExtensions}>
+            {extensionKinds.map(kind => (
+              <button
+                id={`code-plugin-extension-kind-${kind.kind}`}
+                key={kind.kind}
+                type="button"
+                role="tab"
+                data-testid={`code-plugin-extension-kind-${kind.kind}`}
+                aria-selected={selectedExtensionKind === kind.kind}
+                disabled={kind.count === 0}
+                tabIndex={selectedExtensionKind === kind.kind ? 0 : -1}
+                onClick={() => {
+                  setActiveExtensionKind(kind.kind)
+                  setExtensionQuery('')
+                }}
+                onKeyDown={handleExtensionKindKeyDown}
+              >
+                <span>{extensionKindTabLabel(kind.kind, copy)}</span>
+                <small>{kind.count}</small>
+              </button>
+            ))}
+          </div>
+          {filteredAgentExtensions.length === 0 ? (
+          <p className="code-plugin-empty">
+            {extensionQuery.trim() ? copy.noMatchingExtensions : copy.noAgentExtensions}
+          </p>
+          ) : (
+          <section
+            className="code-plugin-extension-group"
+            data-kind={selectedExtensionKind}
+            role="tabpanel"
+            aria-labelledby={`code-plugin-extension-kind-${selectedExtensionKind}`}
+          >
+            <div className="code-plugin-extension-list">
+              {filteredAgentExtensions.map(extension => (
+                <button
+                  type="button"
+                  className="code-plugin-extension"
+                  key={`${extension.agentName}:${extension.id}`}
+                  onClick={() => setSelectedExtension(extension)}
+                >
+                  <span className="code-plugin-extension-icon" aria-hidden="true">{extensionKindGlyph(extension.kind)}</span>
+                  <span className="code-plugin-extension-copy">
+                    <span className="code-plugin-extension-title">
+                      <strong>{extension.name}</strong>
+                      <span>{extensionKindLabel(extension.kind, copy)}</span>
+                    </span>
+                    <span className="code-plugin-extension-meta">
+                      <code>{extension.sourceFile}</code>
+                      {extension.scope ? <span>{extension.scope}</span> : null}
+                      <span className={`code-plugin-extension-status ${extension.status}`}>
+                        {copy.extensionStatus[extension.status]}
+                      </span>
+                    </span>
+                    <span className="code-plugin-extension-description">{extension.description}</span>
+                  </span>
+                  <span className="code-plugin-extension-owner">{extension.agentName}</span>
+                </button>
+              ))}
+            </div>
+          </section>
+          )}
+        </>}
+      </section> : null}
 
       {selectedExtension ? (
         <div
@@ -1171,11 +1535,28 @@ export function PluginsPanel({
             </header>
             <div className="code-plugin-detail-meta">
               <span>{extensionKindLabel(selectedExtension.kind, copy)}</span>
-              <code>{selectedExtension.command}</code>
               {selectedExtension.scope ? <span>{selectedExtension.scope}</span> : null}
+              <span>{copy.extensionStatus[selectedExtension.status]}</span>
               {selectedExtension.homeId !== 'default' ? <span>{copy.home}: {selectedExtension.homeId}</span> : null}
             </div>
             <p>{selectedExtension.description}</p>
+            <div className="code-plugin-detail-source">
+              <span>{copy.source}</span>
+              <code>{selectedExtension.sourceFile}</code>
+            </div>
+            <button
+              type="button"
+              className="code-plugin-detail-open"
+              disabled={!selectedExtension.rootId || !selectedExtension.sourceFile}
+              onClick={() => onOpenAgentHomeConfiguration({
+                exists: true,
+                filePath: selectedExtension.sourceFile,
+                rootId: selectedExtension.rootId,
+              })}
+            >
+              <PencilGlyph />
+              <span>{copy.openSource}</span>
+            </button>
           </section>
         </div>
       ) : null}

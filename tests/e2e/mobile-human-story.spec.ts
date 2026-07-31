@@ -255,7 +255,7 @@ test.describe('mobile Farming Code user story', () => {
     await expect(mobileOptions).toBeVisible()
     await expect(mobileOptions.getByRole('menuitem', { name: 'Chat' })).toHaveCount(0)
     await expect(mobileOptions.getByRole('menuitem', { name: 'Terminal' })).toHaveCount(0)
-    await expect(mobileOptions.getByRole('menuitem', { name: 'Share page' })).toBeVisible()
+    await expect(mobileOptions.getByRole('menuitem', { name: 'Share current page' })).toBeVisible()
     await expect(mobileOptions).not.toContainText('Settings')
     await expect(page.getByTestId('code-mobile-more')).toHaveAttribute('aria-label', 'Open options')
     await page.keyboard.press('Escape')
@@ -322,19 +322,28 @@ test.describe('mobile Farming Code user story', () => {
         providerHomePath: '',
         providerSessionId: sessionId,
         providerSessionKey,
-        providerSessionSource: 'json-cli',
+        providerSessionSource: 'acp-load',
         providerCapabilities: {
-          supportedRuntimes: ['terminal', 'json'],
+          supportedRuntimes: ['terminal', 'acp'],
           runtimeSwitch: true,
           terminalProfile: true,
           goals: false,
           sessionFork: true,
         },
         runtimeBinding: {
-          kind: 'json',
+          kind: 'acp',
           state: 'working',
           error: '',
-          transcriptUpdatedAt: new Date().toISOString(),
+          stopReason: '',
+          supportsSteer: false,
+          supportsFork: false,
+          pendingPermission: null,
+          pendingPermissions: [],
+          pendingElicitation: null,
+          pendingElicitations: [],
+          activeElicitations: [],
+          sessionUpdatedAt: new Date().toISOString(),
+          sessionRevision: 1,
         },
         runtimeObservation: {
           kind: 'codex',
@@ -351,20 +360,27 @@ test.describe('mobile Farming Code user story', () => {
       mainAgentId: null,
       systemStats: null,
     })
-    await page.route(/\/farming\/api\/agents\/[^/]+\/json-cli-transcript(?:\?.*)?$/, async route => {
+    await page.route(/\/farming\/api\/agents\/[^/]+\/acp-transcript(?:\?.*)?$/, async route => {
       await route.fulfill({
         contentType: 'application/json',
         body: JSON.stringify({
           transcript: {
-            available: true,
             sessionId,
-            updatedAt: new Date('2026-07-10T00:00:00.000Z').toISOString(),
-            source: 'mobile-status-fixture',
-            turns: [
+            state: 'working',
+            revision: 1,
+            entries: [
               {
-                id: 'completed-turn',
-                userMessage: 'Keep long mobile transcript content readable without horizontal scrolling.',
-                finalMessage: [
+                id: 'completed-user',
+                type: 'message',
+                role: 'user',
+                content: [{ type: 'text', text: 'Keep long mobile transcript content readable without horizontal scrolling.' }],
+              },
+              {
+                id: 'completed-answer',
+                type: 'message',
+                role: 'assistant',
+                _meta: { codex: { phase: 'final_answer' } },
+                content: [{ type: 'text', text: [
                   'Mobile chat should wrap long commands and paths:',
                   '',
                   '```bash',
@@ -372,27 +388,37 @@ test.describe('mobile Farming Code user story', () => {
                   '```',
                   '',
                   'Inline paths such as `src/components/code/useMobileComposerHeight.ts` should wrap too.',
-                ].join('\n'),
-                startedAt: Date.now() - 120_000,
-                completedAt: Date.now() - 90_000,
-                durationMs: 30_000,
-                status: 'completed',
-                processItems: [
-                  { id: 'completed-patch', type: 'patch', title: 'Edited 2 files', detail: 'update src/components/code/useMobileComposerHeight.ts +34 -4\nupdate src/styles/main.css +21 -9', status: 'completed' },
-                ],
+                ].join('\n') }],
               },
               {
-                id: 'running-turn',
-                userMessage: 'Continue and keep the file changes close to the composer.',
-                finalMessage: 'The live answer keeps growing while its final line remains fully visible above the composer.',
-                startedAt: Date.now() - 45_000,
-                status: 'inProgress',
-                processItems: [
-                  { id: 'running-command', type: 'command', title: 'Ran mobile layout audit', detail: 'measuring visual viewport and composer gap', status: 'completed' },
-                  { id: 'running-patch', type: 'patch', title: 'Edited 3 files', detail: 'update src/components/code/CodeComposer.tsx +18 -6\nupdate src/components/code/useMobileComposerHeight.ts +11 -2\nupdate src/styles/main.css +29 -14', status: 'running' },
-                ],
+                id: 'running-user',
+                type: 'message',
+                role: 'user',
+                content: [{ type: 'text', text: 'Continue and keep the file changes close to the composer.' }],
+              },
+              {
+                id: 'running-answer',
+                type: 'message',
+                role: 'assistant',
+                _meta: { codex: { phase: 'final_answer' } },
+                content: [{ type: 'text', text: 'The live answer keeps growing while its final line remains fully visible above the composer.' }],
               },
             ],
+          },
+        }),
+      })
+    })
+    await page.route(/\/farming\/api\/agents\/[^/]+\/acp-session(?:\?.*)?$/, async route => {
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          session: {
+            sessionId,
+            state: 'working',
+            revision: 1,
+            entries: [],
+            availableCommands: [],
+            configOptions: [],
           },
         }),
       })
@@ -409,14 +435,14 @@ test.describe('mobile Farming Code user story', () => {
     await page.getByTestId('code-agent-transcript-scroll').evaluate(element => {
       element.scrollTop = element.scrollHeight
     })
-    const composerInput = page.getByTestId('code-composer-input')
+    const composerInput = page.getByTestId('code-acp-composer-input')
     await composerInput.click()
     await composerInput.fill('follow up\nkeep compact')
     await expect(composerInput).toBeFocused()
 
     const metrics = await page.evaluate(() => {
-      const composer = document.querySelector('[data-testid="code-composer"]') as HTMLElement | null
-      const input = document.querySelector('[data-testid="code-composer-input"]') as HTMLElement | null
+      const composer = document.querySelector('[data-testid="code-acp-composer"]') as HTMLElement | null
+      const input = document.querySelector('[data-testid="code-acp-composer-input"]') as HTMLElement | null
       const scroller = document.querySelector('[data-testid="code-agent-transcript-scroll"]') as HTMLElement | null
       const progressRows = document.querySelectorAll('.code-agent-transcript-progress')
       const runningTurn = document.querySelector(
@@ -463,7 +489,7 @@ test.describe('mobile Farming Code user story', () => {
     expect(metrics.inputHeight).toBeLessThanOrEqual(52)
     expect(metrics.inputAutocomplete).toBe('off')
     expect(metrics.inputMode).toBe('text')
-    expect(metrics.inputName).toBe('farming-chat-message')
+    expect(metrics.inputName).toBe('farming-acp-chat-message')
     expect(metrics.inputRole).toBeNull()
     expect(metrics.placeholderVisible).toBe(false)
     expect(metrics.progressRowCount).toBe(0)

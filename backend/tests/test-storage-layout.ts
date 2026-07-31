@@ -23,6 +23,15 @@ function run() {
     assert.strictEqual(storageLayout.sessionsDir(configDir), path.join(configDir, 'sessions'));
     assert.strictEqual(storageLayout.sessionIndexFile(configDir), path.join(configDir, 'sessions', 'index.json'));
     assert.strictEqual(storageLayout.historyDir(configDir), path.join(configDir, 'history'));
+    assert.strictEqual(storageLayout.inventoryCacheDir(configDir), path.join(configDir, 'cache'));
+    assert.strictEqual(
+      storageLayout.agentSessionInventoryCacheFile(configDir),
+      path.join(configDir, 'cache', 'agent-sessions-v1.json'),
+    );
+    assert.strictEqual(
+      storageLayout.agentExtensionInventoryCacheFile(configDir),
+      path.join(configDir, 'cache', 'agent-extensions-v1.json'),
+    );
     assert.strictEqual(storageLayout.runHistoryFile(configDir), path.join(configDir, 'history', 'runs.json'));
     assert.strictEqual(storageLayout.reviewStateFile(configDir), path.join(configDir, 'history', 'review-state.json'));
     assert.strictEqual(

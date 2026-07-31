@@ -14,8 +14,82 @@ const {
   COMPUTER_IMAGE,
 } = require('../../extensions/computer/backend/computer-constants.cjs');
 const storageLayout = require('../storage-layout.cjs');
+const { importTsModule } = require('./helpers/import-ts-module');
+const {
+  applyComputerResource,
+  applyComputerResourceDeletion,
+  applyComputerResourceSnapshot,
+  emptyComputerResourceState,
+} = importTsModule('extensions/computer/frontend/computer-resource-state.ts');
 
 const CONTAINER_ID = 'a'.repeat(64);
+
+function computerResource(id: string, revision: number, collectionRevision: number) {
+  return {
+    id,
+    ownerAgentId: 'agent_owner',
+    projectRootId: 'root_project',
+    workspace: '/tmp/project',
+    name: id,
+    status: 'running',
+    generation: 1,
+    revision,
+    collectionRevision,
+    controlOwner: 'agent',
+    controlEpoch: 0,
+    needsObserve: false,
+    containerId: CONTAINER_ID,
+    containerName: `farming-${id}`,
+    viewerPort: 5901,
+    sessionId: `session-${id}`,
+    error: '',
+    createdAt: revision,
+    updatedAt: revision,
+  };
+}
+
+function testComputerResourceRevisionOrdering() {
+  const snapshot = applyComputerResourceSnapshot(emptyComputerResourceState(), {
+    collectionRevision: 5,
+    resources: [],
+  });
+  const computerA = computerResource('computer_a', 2, 7);
+  const computerB = computerResource('computer_b', 1, 6);
+  assert.strictEqual(
+    applyComputerResource(snapshot, computerResource('covered', 1, 4)),
+    snapshot,
+    'Computer updates already covered by a snapshot must be ignored',
+  );
+  const withA = applyComputerResource(snapshot, computerA);
+  const withBoth = applyComputerResource(withA, computerB);
+  assert.deepStrictEqual(
+    withBoth.resources.map(resource => resource.id).sort(),
+    ['computer_a', 'computer_b'],
+    'A lower collection revision for another Computer must survive cross-transport reordering',
+  );
+  assert.strictEqual(
+    applyComputerResourceDeletion(withBoth, {
+      id: computerA.id,
+      collectionRevision: 6,
+    }).resources.length,
+    2,
+    'A delayed delete must not remove a newer Computer revision',
+  );
+  const withoutB = applyComputerResourceDeletion(withBoth, {
+    id: computerB.id,
+    collectionRevision: 8,
+  });
+  assert.strictEqual(
+    applyComputerResource(withoutB, computerResource(computerB.id, 1, 7)),
+    withoutB,
+    'A delayed update must not resurrect a deleted Computer',
+  );
+  assert.deepStrictEqual(
+    applyComputerResourceSnapshot(withoutB, { collectionRevision: 9, resources: [] }).resources,
+    [],
+    'A reconnect snapshot must correct Computer incremental state',
+  );
+}
 
 function listen(server) {
   return new Promise((resolve, reject) => {
@@ -185,7 +259,10 @@ class FakeDocker {
 }
 
 async function run() {
+  testComputerResourceRevisionOrdering();
+  const viewerConnectionHeaders = [];
   const viewer = http.createServer((_request, response) => {
+    viewerConnectionHeaders.push(_request.headers.connection);
     response.statusCode = 200;
     response.end('viewer');
   });
@@ -249,10 +326,29 @@ async function run() {
     );
     fs.mkdirSync(path.dirname(browserExecutable), { recursive: true });
     fs.writeFileSync(browserExecutable, '#!/bin/sh\n', { mode: 0o700 });
+    for (let directory = path.dirname(browserExecutable);; directory = path.dirname(directory)) {
+      fs.chmodSync(directory, 0o700);
+      if (directory === storageLayout.managedChromiumRootDir(tempDir)) break;
+    }
     assert.strictEqual(
       await manager.verifyBrowserExecutable(browserExecutable),
       'Chromium 140.0',
     );
+    for (let directory = path.dirname(browserExecutable);; directory = path.dirname(directory)) {
+      assert.strictEqual(
+        fs.statSync(directory).mode & 0o011,
+        0o011,
+        `container Browser cache directory must be traversable: ${directory}`,
+      );
+      if (directory === storageLayout.managedChromiumRootDir(tempDir)) break;
+    }
+    assert(fake.calls.some(args =>
+      args[0] === 'run'
+      && args.includes('farming.dev/kind=computer-browser-probe')
+      && args.includes('--user')
+      && args.includes('cua')
+      && args.includes('HOME=/home/cua')
+    ));
     const browserLease = await manager.acquireBrowser({
       ownerAgentId: 'agent_owner',
       projectRootId: 'root_project',
@@ -261,6 +357,11 @@ async function run() {
     });
     assert.strictEqual(browserLease.leaseKey, created.id);
     assert.strictEqual(browserLease.cdpUrl, `http://127.0.0.1:${viewerPort}`);
+    assert(
+      viewerConnectionHeaders.length >= 2
+      && viewerConnectionHeaders.every(value => value === 'close'),
+      'Computer readiness probes must release their connection before admitting the next runtime',
+    );
     assert.throws(
       () => manager.stop(created.id),
       error => error.code === 'COMPUTER_IN_USE_BY_BROWSER',

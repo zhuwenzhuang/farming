@@ -46,6 +46,34 @@ assert.strictEqual(validateClientMessage({ type: 'unknown' }).ok, false);
 assert.strictEqual(validateClientMessage(null).ok, false);
 assert.strictEqual(validateServerMessage({ type: 'state', state: { agents: [] } }).ok, true);
 assert.strictEqual(validateServerMessage({ type: 'state', state: {} }).ok, false);
+assert.strictEqual(validateServerMessage({
+  type: 'browser-resource-snapshot',
+  snapshot: { collectionRevision: 3, resources: [] },
+}).ok, true);
+assert.strictEqual(validateServerMessage({
+  type: 'browser-resource-snapshot',
+  snapshot: { collectionRevision: 3, resources: [{ id: '', revision: 1, collectionRevision: 3 }] },
+}).ok, false);
+assert.strictEqual(validateServerMessage({
+  type: 'browser-resource-updated',
+  resource: { id: 'browser-1', revision: 2, collectionRevision: 3 },
+}).ok, true);
+assert.strictEqual(validateServerMessage({
+  type: 'browser-resource-deleted',
+  deletion: { id: 'browser-1', collectionRevision: 4 },
+}).ok, true);
+assert.strictEqual(validateServerMessage({
+  type: 'computer-resource-snapshot',
+  snapshot: { collectionRevision: 5, resources: [] },
+}).ok, true);
+assert.strictEqual(validateServerMessage({
+  type: 'computer-resource-updated',
+  resource: { id: 'computer-1', revision: 1, collectionRevision: 6 },
+}).ok, true);
+assert.strictEqual(validateServerMessage({
+  type: 'computer-resource-deleted',
+  deletion: { id: 'computer-1', collectionRevision: -1 },
+}).ok, false);
 assert.strictEqual(validateServerMessage({ type: 'composer-input-result', requestId: 'request-1', agentId: 'a', accepted: true }).ok, true);
 assert.strictEqual(validateServerMessage({ type: 'composer-input-result', requestId: 'request-1', agentId: 'a', accepted: false, uncertain: true }).ok, true);
 assert.strictEqual(validateServerMessage({ type: 'composer-input-result', requestId: 'request-1', agentId: 'a', accepted: false, uncertain: 'true' }).ok, false);

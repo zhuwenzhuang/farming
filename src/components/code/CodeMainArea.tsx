@@ -269,6 +269,8 @@ interface CodeMainAreaProps {
   archivedRuns: TaskHistoryEntry[]
   archivedAgents: Agent[]
   historyAgentSessions: AgentSessionHistoryItem[]
+  historyAgentSessionsLoading: boolean
+  historyAgentSessionsError: string
   providerSessionTotal: number | null
   canLoadMoreHistoryAgentSessions: boolean
   now: number
@@ -551,6 +553,8 @@ export function CodeMainArea({
   archivedRuns,
   archivedAgents,
   historyAgentSessions,
+  historyAgentSessionsLoading,
+  historyAgentSessionsError,
   providerSessionTotal,
   canLoadMoreHistoryAgentSessions,
   now,
@@ -701,6 +705,11 @@ export function CodeMainArea({
     }
   }, [canCollapseComposer, chatComposerCollapseRequested])
 
+  const refreshPluginCapabilities = useCallback(() => {
+    browserController.refreshCapability()
+    computerController.refreshCapability()
+  }, [browserController.refreshCapability, computerController.refreshCapability])
+
   const updateComposerCollapsed = useCallback((collapsed: boolean) => {
     if (terminalComposerActive) {
       setRuntimeSwitchExpandedAgentId(null)
@@ -764,6 +773,8 @@ export function CodeMainArea({
               archivedRuns={archivedRuns}
               archivedAgents={archivedAgents}
               agentSessions={historyAgentSessions}
+              loading={historyAgentSessionsLoading}
+              error={historyAgentSessionsError}
               providerSessionTotal={providerSessionTotal}
               now={now}
               onResumeSession={onResumeHistorySession}
@@ -780,16 +791,15 @@ export function CodeMainArea({
             <PluginsPanel
               capability={browserController.capability}
               loading={browserController.loading}
+              capabilityError={browserController.capabilityError}
               computerCapability={computerController.capability}
               computerLoading={computerController.loading}
+              computerCapabilityError={computerController.capabilityError}
               onPrepareComputer={computerController.prepare}
               language={language}
               onBack={onBackToProjects}
               onOpenAgentHomeConfiguration={onOpenAgentHomeConfiguration}
-              onRefreshCapability={() => {
-                browserController.refreshCapability()
-                computerController.refreshCapability()
-              }}
+              onRefreshCapability={refreshPluginCapabilities}
             />
           ) : (
             <h2>{viewTitle(copy, activeView)}</h2>

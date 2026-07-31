@@ -2,13 +2,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { appPath } from '@/lib/base-path'
 import { projectFilesWorkspaceId } from '@/lib/project-workspaces'
 import {
-  applyBrowserResource,
-  applyBrowserResourceDeletion,
-  applyBrowserResourceSnapshot,
-  type BrowserResourceCollection,
-  type BrowserResourceDeletion,
+  type BrowserResourceState,
 } from './browser-resource-state'
-import type { BrowserCapability, BrowserResource } from './types'
+import type { BrowserCapability, BrowserResource, BrowserResourceDeletion } from './types'
 
 async function browserRequest<T>(pathname: string, init?: RequestInit): Promise<T> {
   const response = await fetch(appPath(pathname), {
@@ -24,65 +20,39 @@ async function browserRequest<T>(pathname: string, init?: RequestInit): Promise<
   return data as T
 }
 
-export function useBrowserResources() {
-  const [collection, setCollection] = useState<BrowserResourceCollection>({
-    collectionRevision: 0,
-    resources: [],
-  })
+export function useBrowserResources(options: {
+  collection: BrowserResourceState | null
+  onResource: (resource: BrowserResource) => void
+  onDeletion: (deletion: BrowserResourceDeletion) => void
+}) {
+  const { collection, onDeletion, onResource } = options
   const [capability, setCapability] = useState<BrowserCapability | null>(null)
+  const [capabilityError, setCapabilityError] = useState('')
   const [loading, setLoading] = useState(true)
   const [refreshVersion, setRefreshVersion] = useState(0)
 
   const mergeResource = useCallback((resource: BrowserResource) => {
-    setCollection(current => applyBrowserResource(current, resource))
-  }, [])
+    onResource(resource)
+  }, [onResource])
 
   useEffect(() => {
     let active = true
     setLoading(true)
-    void browserRequest<BrowserCapability>('/api/browsers/capability').then(async nextCapability => {
+    setCapabilityError('')
+    void browserRequest<BrowserCapability>('/api/browsers/capability').then(nextCapability => {
       if (!active) return
       setCapability(nextCapability)
-      if (!nextCapability.available) {
-        setCollection({ collectionRevision: 0, resources: [] })
-        setLoading(false)
-        return
-      }
-      const list = await browserRequest<BrowserResourceCollection>('/api/browsers')
-      if (!active) return
-      setCollection(current => applyBrowserResourceSnapshot(current, list))
       setLoading(false)
     }).catch(() => {
-      if (active) setLoading(false)
+      if (!active) return
+      setCapability(null)
+      setCapabilityError('Failed to check Browser availability')
+      setLoading(false)
     })
     return () => {
       active = false
     }
   }, [refreshVersion])
-
-  useEffect(() => {
-    if (capability?.available !== true) return undefined
-    let active = true
-    const events = new EventSource(appPath('/api/browsers/events'))
-    events.addEventListener('resources', event => {
-      if (!active) return
-      const payload = JSON.parse((event as MessageEvent<string>).data) as BrowserResourceCollection
-      setCollection(current => applyBrowserResourceSnapshot(current, payload))
-    })
-    events.addEventListener('resource', event => {
-      if (!active) return
-      mergeResource(JSON.parse((event as MessageEvent<string>).data) as BrowserResource)
-    })
-    events.addEventListener('deleted', event => {
-      if (!active) return
-      const payload = JSON.parse((event as MessageEvent<string>).data) as BrowserResourceDeletion
-      setCollection(current => applyBrowserResourceDeletion(current, payload))
-    })
-    return () => {
-      active = false
-      events.close()
-    }
-  }, [capability?.available, mergeResource])
 
   useEffect(() => {
     if (capability?.installation?.state !== 'installing') return undefined
@@ -135,40 +105,47 @@ export function useBrowserResources() {
       `/api/browsers/${encodeURIComponent(id)}`,
       { method: 'DELETE' },
     )
-    setCollection(current => applyBrowserResourceDeletion(current, deletion))
-  }, [])
+    onDeletion(deletion)
+  }, [onDeletion])
 
   const refreshCapability = useCallback(() => {
+    setCapability(null)
+    setCapabilityError('')
+    setLoading(true)
     setRefreshVersion(version => version + 1)
   }, [])
 
+  const resources = capability?.available === false ? [] : collection?.resources ?? []
+
   const byWorkspace = useMemo(() => {
     const result = new Map<string, BrowserResource[]>()
-    for (const resource of collection.resources) {
+    for (const resource of resources) {
       const current = result.get(resource.workspace) ?? []
       current.push(resource)
       result.set(resource.workspace, current)
     }
     return result
-  }, [collection.resources])
+  }, [resources])
 
   const byAgentId = useMemo(() => {
     const result = new Map<string, BrowserResource[]>()
-    for (const resource of collection.resources) {
+    for (const resource of resources) {
       if (resource.ownerType !== 'agent' || !resource.ownerAgentId) continue
       const current = result.get(resource.ownerAgentId) ?? []
       current.push(resource)
       result.set(resource.ownerAgentId, current)
     }
     return result
-  }, [collection.resources])
+  }, [resources])
 
   return {
-    resources: collection.resources,
+    resources,
     byWorkspace,
     byAgentId,
     capability,
+    capabilityError,
     loading,
+    collectionLoading: collection === null,
     create,
     rename,
     start,

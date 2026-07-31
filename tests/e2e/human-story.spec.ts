@@ -29,6 +29,17 @@ async function terminalCellCenter(page: import('@playwright/test').Page, agentId
   return cell
 }
 
+async function selectTerminalAgentOnCompactLayout(page: import('@playwright/test').Page, agentId: string) {
+  const row = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
+  const mobileMenu = page.getByTestId('code-mobile-menu')
+  if (!await row.isVisible().catch(() => false) && await mobileMenu.isVisible().catch(() => false)) {
+    await mobileMenu.click()
+  }
+  await expect(row).toBeVisible()
+  await row.click()
+  await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${agentId}"]`)).toBeVisible()
+}
+
 test.describe('human Farming Agent story', () => {
   test('defaults the desktop Terminal Composer open and remembers a manual collapse without hiding it on mobile', async ({ page, workspaceRoot }) => {
     await page.addInitScript(() => {
@@ -84,33 +95,34 @@ test.describe('human Farming Agent story', () => {
     await expect(page.getByTestId('code-composer-restore')).toHaveCount(0)
   })
 
-  test('restores the selected Agent after reloading with multiple live Agents', async ({ page, workspaceRoot }) => {
+  test('restores the selected Agent after reloading with multiple live Agents', { tag: '@iphone-human' }, async ({ page, workspaceRoot }) => {
     await openFarming(page)
     await openNewAgentDialog(page)
     const firstAgentId = await startAgentFromOpenDialog(page, 'bash', workspaceRoot)
     await openNewAgentDialog(page)
     const secondAgentId = await startAgentFromOpenDialog(page, 'bash', workspaceRoot)
 
+    await selectTerminalAgentOnCompactLayout(page, firstAgentId)
     const firstAgentRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${firstAgentId}"]`)
-    await firstAgentRow.click()
-    await expect(firstAgentRow).toHaveClass(/active/)
-    await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${firstAgentId}"]`)).toBeVisible()
+    if (await firstAgentRow.isVisible().catch(() => false)) await expect(firstAgentRow).toHaveClass(/active/)
 
     await page.reload({ waitUntil: 'domcontentloaded' })
-    await expect(firstAgentRow).toHaveClass(/active/)
     await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${firstAgentId}"]`)).toBeVisible()
     await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${secondAgentId}"]`)).toBeHidden()
+    if (await firstAgentRow.isVisible().catch(() => false)) await expect(firstAgentRow).toHaveClass(/active/)
 
     const terminalComposerInput = page.getByTestId('code-composer-input')
     await terminalComposerInput.fill('terminal draft survives composer collapse')
-    await page.locator('.code-composer-collapse-zone').hover()
-    await page.getByTestId('code-composer-collapse').click()
-    await expect(page.getByTestId('code-composer')).toHaveCount(0)
-    await page.getByTestId('code-composer-restore').click()
+    if (await page.locator('.code-composer-collapse-zone').count()) {
+      await page.locator('.code-composer-collapse-zone').hover()
+      await page.getByTestId('code-composer-collapse').click()
+      await expect(page.getByTestId('code-composer')).toHaveCount(0)
+      await page.getByTestId('code-composer-restore').click()
+    }
     await expect(terminalComposerInput).toHaveValue('terminal draft survives composer collapse')
   })
 
-  test('starts a Code-style agent, queues follow-ups while busy, and survives reopening the page', async ({ page, workspaceRoot }) => {
+  test('starts a Code-style agent, queues follow-ups while busy, and survives reopening the page', { tag: '@iphone-human' }, async ({ page, workspaceRoot }) => {
     await openFarming(page)
     await openNewAgentDialog(page)
 
@@ -132,7 +144,7 @@ test.describe('human Farming Agent story', () => {
     await expect(page.getByTestId('code-pending-followup')).toContainText('follow up: make greeting excited')
 
     await page.reload({ waitUntil: 'domcontentloaded' })
-    const firstReloadedAgentId = await page.getByTestId('code-agent-row').getAttribute('data-agent-id')
+    const firstReloadedAgentId = await page.locator('[data-testid="code-terminal-pane"]:visible').getAttribute('data-agent-id')
     expect(firstReloadedAgentId).toBe(agentId)
     await expect(page.getByTestId('code-pending-followup-row')).toHaveCount(2)
     await expect(page.getByTestId('code-pending-followup-row').nth(0)).toContainText('add greeting to app.js')
@@ -153,7 +165,7 @@ test.describe('human Farming Agent story', () => {
     await restoredComposerInput.fill('')
 
     await page.reload({ waitUntil: 'domcontentloaded' })
-    const reloadedAgentId = await page.getByTestId('code-agent-row').getAttribute('data-agent-id')
+    const reloadedAgentId = await page.locator('[data-testid="code-terminal-pane"]:visible').getAttribute('data-agent-id')
     expect(reloadedAgentId).toBe(agentId)
 
     await expect(page.getByTestId('code-composer').locator('textarea')).toBeEnabled()
@@ -162,7 +174,7 @@ test.describe('human Farming Agent story', () => {
     await expect(page.getByTestId('code-pending-followup')).toContainText('follow up after reopen')
   })
 
-  test('keeps terminal scroll anchored until the user jumps to latest output', async ({ page, workspaceRoot }) => {
+  test('keeps terminal scroll anchored until the user jumps to latest output', { tag: '@iphone-human' }, async ({ page, workspaceRoot }) => {
     await openFarming(page)
     await openNewAgentDialog(page)
     const agentId = await startAgentFromOpenDialog(page, 'codex', workspaceRoot)
@@ -242,7 +254,7 @@ test.describe('human Farming Agent story', () => {
   test.describe('touch mobile terminal', () => {
     test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
 
-    test('supports mobile terminal drag scroll and copy without page drift', async ({ page, workspaceRoot }) => {
+    test('supports mobile terminal drag scroll and copy without page drift', { tag: '@iphone-human' }, async ({ page, workspaceRoot }) => {
     await page.setViewportSize({ width: 390, height: 844 })
     await openFarming(page)
     if ((await page.getByTestId('code-workspace').getAttribute('class'))?.includes('sidebar-collapsed')) {
@@ -558,7 +570,7 @@ test.describe('human Farming Agent story', () => {
     }, { id: agentId, col: rows[secondRow].indexOf(secondFragment) + 1, row: secondRow })).toBeNull()
   })
 
-  test('delivers background shell output while another agent stays active', async ({ page, workspaceRoot }) => {
+  test('delivers background shell output while another agent stays active', { tag: '@iphone-human' }, async ({ page, workspaceRoot }) => {
     const firstWorkspace = path.join(workspaceRoot, 'first-agent')
     const secondWorkspace = path.join(workspaceRoot, 'second-agent')
     fs.mkdirSync(firstWorkspace, { recursive: true })
@@ -577,13 +589,8 @@ test.describe('human Farming Agent story', () => {
 
     const firstAgentId = await createAgent(firstWorkspace)
     const secondAgentId = await createAgent(secondWorkspace)
-    const firstRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${firstAgentId}"]`)
-    const secondRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${secondAgentId}"]`)
-
-    await expect(firstRow).toBeVisible()
-    await expect(secondRow).toBeVisible()
     await page.goto(`/farming/?agent=${encodeURIComponent(secondAgentId)}`, { waitUntil: 'domcontentloaded' })
-    await expect(secondRow).toHaveClass(/active/)
+    await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${secondAgentId}"]`)).toBeVisible()
     const inputResponse = await page.request.post(`/farming/api/control/agents/${firstAgentId}/input`, {
       data: { input: 'echo first-agent-output\r' },
     })
@@ -593,8 +600,8 @@ test.describe('human Farming Agent story', () => {
       const response = await page.request.get(`/farming/api/control/agents/${firstAgentId}/output?tail=2000`)
       return response.ok() ? (await response.text()).includes('first-agent-output') : false
     }).toBe(true)
-    await expect(secondRow).toHaveClass(/active/)
-    await expect(firstRow).not.toHaveClass(/active/)
+    await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${secondAgentId}"]`)).toBeVisible()
+    await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${firstAgentId}"]`)).toBeHidden()
 
   })
 
@@ -741,7 +748,7 @@ test.describe('human Farming Agent story', () => {
     await expect(page.locator(`[data-testid="code-agent-row"][data-agent-id="${secondBashAgentId}"]`)).not.toHaveClass(/active/)
   })
 
-  test('opens an existing project agent and completes a real file edit through the terminal', async ({ page, workspaceRoot }) => {
+  test('opens an existing project agent and completes a real file edit through the terminal', { tag: '@iphone-human' }, async ({ page, workspaceRoot }) => {
     const projectDir = path.join(workspaceRoot, 'tiny-feature')
     fs.mkdirSync(projectDir, { recursive: true })
     const appFile = path.join(projectDir, 'app.js')
@@ -757,14 +764,11 @@ test.describe('human Farming Agent story', () => {
     await openFarming(page)
     await openNewAgentDialog(page)
     const codexAgentId = await startAgentFromOpenDialog(page, 'codex', projectDir)
-    await expect(page.locator(`[data-testid="code-agent-row"][data-agent-id="${codexAgentId}"]`)).toBeVisible()
+    await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${codexAgentId}"]`)).toBeVisible()
 
     await openNewAgentDialog(page)
     const bashAgentId = await startAgentFromOpenDialog(page, 'bash', projectDir)
 
-    await expect.poll(() => page.getByTestId('code-agent-row').count()).toBeGreaterThanOrEqual(2)
-    await page.locator(`[data-testid="code-agent-row"][data-agent-id="${bashAgentId}"]`).click()
-    await expect(page.locator(`[data-testid="code-agent-row"][data-agent-id="${bashAgentId}"]`)).toHaveClass(/active/)
     await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${bashAgentId}"]`)).toBeVisible()
     await expect(page.getByTestId('code-composer').locator('textarea')).toBeEnabled()
     await expect.poll(async () => (await terminalRows(page, bashAgentId, 20)).join('\n')).toContain('$')
@@ -784,7 +788,7 @@ test.describe('human Farming Agent story', () => {
     expect(text).toContain('Farming')
   })
 
-  test('keeps pooled terminal hosts isolated while switching agents', async ({ page, workspaceRoot }) => {
+  test('keeps pooled terminal hosts isolated while switching agents', { tag: '@iphone-human' }, async ({ page, workspaceRoot }) => {
     const projectDir = path.join(workspaceRoot, 'terminal-isolation')
     fs.mkdirSync(projectDir, { recursive: true })
 
@@ -801,8 +805,6 @@ test.describe('human Farming Agent story', () => {
 
     await openNewAgentDialog(page)
     const bashAgentId = await startAgentFromOpenDialog(page, 'bash', projectDir)
-    await expect.poll(() => page.getByTestId('code-agent-row').count()).toBeGreaterThanOrEqual(2)
-
     const bashMarker = `BASH_ONLY_PANEL_${Date.now()}`
     await writeTerminalFixture(page, bashAgentId, [
       '[admin@test terminal-isolation]',
@@ -826,13 +828,13 @@ test.describe('human Farming Agent story', () => {
       ])
     }
 
-    await page.locator(`[data-testid="code-agent-row"][data-agent-id="${codexAgentId}"]`).click()
+    await selectTerminalAgentOnCompactLayout(page, codexAgentId)
     await expectIsolatedActiveHost(codexAgentId)
     const codexRows = (await terminalRows(page, codexAgentId, 40)).join('\n')
     expect(codexRows).toContain(codexMarker)
     expect(codexRows).not.toContain(bashMarker)
 
-    await page.locator(`[data-testid="code-agent-row"][data-agent-id="${bashAgentId}"]`).click()
+    await selectTerminalAgentOnCompactLayout(page, bashAgentId)
     await expectIsolatedActiveHost(bashAgentId)
     const bashRows = (await terminalRows(page, bashAgentId, 40)).join('\n')
     expect(bashRows).toContain(bashMarker)

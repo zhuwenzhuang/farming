@@ -207,11 +207,12 @@ async function waitForCodeTerminal(page: Page, agentId: string) {
   await expect(pane.getByTestId('code-terminal-status-card')).toHaveCount(0)
 }
 
-async function continueWithoutUntrustedHooks(page: Page, agentId: string, readyFooter: string) {
+async function continueWithoutUntrustedHooks(page: Page, agentId: string) {
   let startupState = 'waiting'
   await expect.poll(async () => {
     const rendered = (await codeRows(page, agentId)).join('\n')
-    startupState = rendered.includes(readyFooter)
+    const current = await agent(page, agentId)
+    startupState = current?.terminalStatus?.activity === 'idle'
       ? 'ready'
       : rendered.includes('Hooks need review') ? 'hooks' : 'waiting'
     return startupState
@@ -238,6 +239,7 @@ async function continueWithoutUntrustedHooks(page: Page, agentId: string, readyF
     currentIndex = nextIndex
   }
   await page.keyboard.press('Enter')
+  await waitForAgent(page, agentId, current => current.terminalStatus?.activity === 'idle', 60_000)
 }
 
 async function continueCrtWithoutUntrustedHooks(page: Page, readyAnchor: string) {
@@ -719,7 +721,27 @@ test.describe('real Codex pre-release composite case', () => {
     await expect(row).toBeVisible({ timeout: 60_000 })
     await row.click()
     await waitForCodeTerminal(page, agentId)
-    await continueWithoutUntrustedHooks(page, agentId, `${launchModel?.value} ${PRIMARY_EFFORT}`)
+    await continueWithoutUntrustedHooks(page, agentId)
+    let terminalProfileResponse
+    let terminalProfileBody: { error?: string } = {}
+    const terminalProfileDeadline = Date.now() + 60_000
+    do {
+      terminalProfileResponse = await page.request.post(
+        `/farming/api/agents/${encodeURIComponent(agentId)}/codex-terminal-profile`,
+        {
+          data: {
+            model: launchModel?.value,
+            effort: PRIMARY_EFFORT,
+            serviceTier: 'default',
+          },
+        },
+      )
+      terminalProfileBody = await terminalProfileResponse.json() as { error?: string }
+      if (terminalProfileResponse.ok()) break
+      if (terminalProfileBody.error !== 'Codex Terminal is not idle; wait for its composer before changing the model') break
+      await page.waitForTimeout(250)
+    } while (Date.now() < terminalProfileDeadline)
+    expect(terminalProfileResponse.ok(), terminalProfileBody.error || 'Failed to set the real Codex Terminal profile').toBeTruthy()
     await expect.poll(async () => (await codeRows(page, agentId)).join('\n'), { timeout: 60_000 })
       .toContain(`${launchModel?.value} ${PRIMARY_EFFORT}`)
     expect((await codeRows(page, agentId)).join('\n')).not.toContain('Do you trust the contents of this directory?')

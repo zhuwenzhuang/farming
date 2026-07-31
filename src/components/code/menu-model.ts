@@ -1,4 +1,4 @@
-export type ContextMenuIconKind = 'pin' | 'unpin' | 'folder' | 'worktree' | 'rename' | 'check' | 'archive' | 'trash'
+export type ContextMenuIconKind = 'pin' | 'unpin' | 'folder' | 'worktree' | 'rename' | 'check' | 'archive' | 'trash' | 'browser' | 'desktop' | 'chat' | 'terminal'
 
 export type ContextMenuEntry =
   | {
@@ -7,6 +7,7 @@ export type ContextMenuEntry =
     label: string
     ariaLabel?: string
     icon?: ContextMenuIconKind
+    trailingIcon?: ContextMenuIconKind
     removeIcon?: boolean
     checked?: boolean
     disabled?: boolean

@@ -3299,7 +3299,7 @@ export function AgentTranscriptPane({
       if (source === 'acp') {
         params.set('media', 'external-v1')
       }
-      const endpoint = source === 'acp' ? 'acp-transcript' : 'json-cli-transcript'
+      const endpoint = 'acp-transcript'
       let responseReceived = false
       fetch(appPath(`/api/agents/${encodeURIComponent(agentId)}/${endpoint}?${params.toString()}`), {
         signal: controller.signal,

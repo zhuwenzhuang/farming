@@ -85,6 +85,7 @@
 }
 
 .farming-browser-section-chevron svg,
+.farming-browser-section-icon,
 .farming-browser-new svg,
 .farming-browser-row-actions svg {
   width: 14px;
@@ -140,7 +141,7 @@
   min-height: 32px;
   position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: 16px minmax(0, 1fr);
   align-items: center;
   gap: 7px;
   margin: 0 4px 0 0;
@@ -150,10 +151,6 @@
   cursor: default;
   font-size: 13px;
   line-height: 16px;
-}
-
-.farming-browser-row.running {
-  grid-template-columns: minmax(0, 1fr) 7px;
 }
 
 .farming-browser-row:hover,
@@ -168,13 +165,23 @@
   outline-offset: -2px;
 }
 
-.farming-browser-status {
-  width: 7px;
-  height: 7px;
-  justify-self: end;
-  border-radius: 999px;
-  background: #2da44e;
+.farming-browser-resource-icon {
+  width: 16px;
+  height: 16px;
+  display: inline-grid;
+  place-items: center;
+  color: #7a8178;
 }
+
+.farming-browser-resource-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.farming-browser-resource-icon.running { color: #1f9d55; }
+.farming-browser-resource-icon.failed { color: #c53d3d; }
+.farming-browser-resource-icon.starting,
+.farming-browser-resource-icon.stopping { color: #ba7d12; }
 
 .farming-browser-row-copy {
   min-width: 0;
@@ -619,6 +626,12 @@ body.code-mode[data-appearance='dark'] .farming-browser-row-detail,
 body.code-mode[data-appearance='dark'] .farming-browser-empty {
   color: #8b949e;
 }
+
+body.code-mode[data-appearance='dark'] .farming-browser-resource-icon { color: #8b949e; }
+body.code-mode[data-appearance='dark'] .farming-browser-resource-icon.running { color: #3fb950; }
+body.code-mode[data-appearance='dark'] .farming-browser-resource-icon.failed { color: #ff7b72; }
+body.code-mode[data-appearance='dark'] .farming-browser-resource-icon.starting,
+body.code-mode[data-appearance='dark'] .farming-browser-resource-icon.stopping { color: #d29922; }
 
 body.code-mode[data-appearance='dark'] .farming-browser-row-copy input,
 body.code-mode[data-appearance='dark'] .farming-browser-toolbar input {

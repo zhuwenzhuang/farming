@@ -382,13 +382,98 @@ body.code-mode[data-appearance='dark'] .code-side-view-panel {
 body.code-mode[data-appearance='dark'] .code-plugins-panel-header p,
 body.code-mode[data-appearance='dark'] .code-plugin-section-header p,
 body.code-mode[data-appearance='dark'] .code-plugin-agent-sections-header p,
+body.code-mode[data-appearance='dark'] .code-plugin-extensions-header p,
 body.code-mode[data-appearance='dark'] .code-plugin-card p,
 body.code-mode[data-appearance='dark'] .code-plugin-card small,
 body.code-mode[data-appearance='dark'] .code-plugin-status,
 body.code-mode[data-appearance='dark'] .code-plugin-section-header > span,
 body.code-mode[data-appearance='dark'] .code-plugin-extension p,
+body.code-mode[data-appearance='dark'] .code-plugin-extension-description,
+body.code-mode[data-appearance='dark'] .code-plugin-extension-owner,
 body.code-mode[data-appearance='dark'] .code-plugin-empty {
   color: var(--code-dark-text-muted);
+}
+
+body.code-mode[data-appearance='dark'] .code-plugin-tabs {
+  background: var(--code-dark-bg-soft);
+}
+
+body.code-mode[data-appearance='dark'] .code-plugin-tabs > button {
+  color: var(--code-dark-text-muted);
+}
+
+body.code-mode[data-appearance='dark'] .code-plugin-tabs > button:hover,
+body.code-mode[data-appearance='dark'] .code-plugin-tabs > button:focus-visible {
+  background: var(--code-dark-bg-hover);
+  color: var(--code-dark-text);
+}
+
+body.code-mode[data-appearance='dark'] .code-plugin-tabs > button[aria-selected='true'] {
+  background: var(--code-dark-bg);
+  color: var(--code-dark-text);
+  box-shadow: inset 0 0 0 1px var(--code-dark-border);
+}
+
+body.code-mode[data-appearance='dark'] .code-plugin-tabs small,
+body.code-mode[data-appearance='dark'] .code-plugin-extension-home-tabs small,
+body.code-mode[data-appearance='dark'] .code-plugin-extension-kind-tabs small,
+body.code-mode[data-appearance='dark'] .code-plugin-extension-group > header span {
+  color: var(--code-dark-text-muted);
+}
+
+body.code-mode[data-appearance='dark'] .code-plugin-extension-home-tabs > button {
+  border-color: var(--code-dark-border);
+  background: var(--code-dark-bg-soft);
+  color: var(--code-dark-text-muted);
+}
+
+body.code-mode[data-appearance='dark'] .code-plugin-extension-kind-tabs {
+  background: var(--code-dark-bg-soft);
+}
+
+body.code-mode[data-appearance='dark'] .code-plugin-extension-kind-tabs > button {
+  color: var(--code-dark-text-muted);
+}
+
+body.code-mode[data-appearance='dark'] .code-plugin-extension-home-tabs > button:hover:not(:disabled),
+body.code-mode[data-appearance='dark'] .code-plugin-extension-home-tabs > button:focus-visible:not(:disabled),
+body.code-mode[data-appearance='dark'] .code-plugin-extension-kind-tabs > button:hover:not(:disabled),
+body.code-mode[data-appearance='dark'] .code-plugin-extension-kind-tabs > button:focus-visible:not(:disabled) {
+  background: var(--code-dark-bg-hover);
+  color: var(--code-dark-text);
+}
+
+body.code-mode[data-appearance='dark'] .code-plugin-extension-home-tabs > button[aria-selected='true'],
+body.code-mode[data-appearance='dark'] .code-plugin-extension-kind-tabs > button[aria-selected='true'] {
+  border-color: var(--code-dark-border-strong);
+  background: var(--code-dark-bg);
+  color: var(--code-dark-text);
+  box-shadow: none;
+}
+
+body.code-mode[data-appearance='dark'] .code-plugin-extension-group > header h3 {
+  color: var(--code-dark-text);
+}
+
+body.code-mode[data-appearance='dark'] .code-plugin-extension-search input {
+  border-color: var(--code-dark-border);
+  background: var(--code-dark-bg);
+  color: var(--code-dark-text);
+}
+
+body.code-mode[data-appearance='dark'] .code-plugin-extension-tools > button,
+body.code-mode[data-appearance='dark'] .code-plugin-detail-open {
+  border-color: var(--code-dark-border);
+  background: var(--code-dark-bg);
+  color: var(--code-dark-text);
+}
+
+body.code-mode[data-appearance='dark'] .code-plugin-extension-tools > button:hover:not(:disabled),
+body.code-mode[data-appearance='dark'] .code-plugin-extension-tools > button:focus-visible:not(:disabled),
+body.code-mode[data-appearance='dark'] .code-plugin-detail-open:hover:not(:disabled),
+body.code-mode[data-appearance='dark'] .code-plugin-detail-open:focus-visible:not(:disabled) {
+  border-color: var(--code-dark-border-strong);
+  background: var(--code-dark-bg-hover);
 }
 
 body.code-mode[data-appearance='dark'] .code-plugins-panel-header > button,
@@ -409,7 +494,8 @@ body.code-mode[data-appearance='dark'] .code-plugin-card {
 }
 
 body.code-mode[data-appearance='dark'] .code-plugin-agent-section,
-body.code-mode[data-appearance='dark'] .code-plugin-extension {
+body.code-mode[data-appearance='dark'] .code-plugin-extension-list,
+body.code-mode[data-appearance='dark'] .code-plugin-extension-icon {
   border-color: var(--code-dark-border);
 }
 
@@ -451,6 +537,18 @@ body.code-mode[data-appearance='dark'] .code-plugin-empty {
   background: var(--code-dark-bg-soft);
 }
 
+body.code-mode[data-appearance='dark'] .code-plugin-extension {
+  border-bottom-color: var(--code-dark-border);
+}
+
+body.code-mode[data-appearance='dark'] .code-plugin-extension-list {
+  background: var(--code-dark-bg-soft);
+}
+
+body.code-mode[data-appearance='dark'] .code-plugin-extension-icon {
+  color: var(--code-dark-text-muted);
+}
+
 body.code-mode[data-appearance='dark'] .code-plugin-kind-section > summary {
   background: var(--code-dark-bg-soft);
   color: var(--code-dark-text);
@@ -484,6 +582,18 @@ body.code-mode[data-appearance='dark'] .code-plugin-extension-meta span {
   color: var(--code-dark-text-muted);
 }
 
+body.code-mode[data-appearance='dark'] .code-plugin-extension-meta .code-plugin-extension-status {
+  background: var(--code-dark-bg-hover);
+}
+
+body.code-mode[data-appearance='dark'] .code-plugin-extension-meta .code-plugin-extension-status.enabled {
+  color: #71c782;
+}
+
+body.code-mode[data-appearance='dark'] .code-plugin-extension-meta .code-plugin-extension-status.disabled {
+  color: #c69494;
+}
+
 body.code-mode[data-appearance='dark'] .code-plugin-detail-dialog {
   border-color: var(--code-dark-border);
   background: var(--code-dark-bg);
@@ -497,6 +607,18 @@ body.code-mode[data-appearance='dark'] .code-plugin-detail-dialog > p {
 }
 
 body.code-mode[data-appearance='dark'] .code-plugin-detail-meta code {
+  color: var(--code-dark-text-soft);
+}
+
+body.code-mode[data-appearance='dark'] .code-plugin-detail-source {
+  background: var(--code-dark-bg-soft);
+}
+
+body.code-mode[data-appearance='dark'] .code-plugin-detail-source span {
+  color: var(--code-dark-text-muted);
+}
+
+body.code-mode[data-appearance='dark'] .code-plugin-detail-source code {
   color: var(--code-dark-text-soft);
 }
 

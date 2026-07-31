@@ -27,7 +27,18 @@ async function setPageVisibility(page: Page, state: 'hidden' | 'visible') {
   }, state)
 }
 
-test('keeps ACP Chat live while the browser page is hidden', async ({ page, workspaceRoot }) => {
+async function selectAgentOnCompactLayout(page: Page, agentId: string) {
+  const row = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
+  const mobileMenu = page.getByTestId('code-mobile-menu')
+  if (!await row.isVisible().catch(() => false) && await mobileMenu.isVisible().catch(() => false)) {
+    await mobileMenu.click()
+  }
+  await expect(row).toBeVisible()
+  await row.click()
+  await expect(page.getByTestId('code-agent-chat-view')).toBeVisible()
+}
+
+test('keeps ACP Chat live while the browser page is hidden', { tag: '@iphone-human' }, async ({ page, workspaceRoot }) => {
   const workspace = path.join(workspaceRoot, 'background-chat-continuity')
   fs.mkdirSync(workspace, { recursive: true })
   const agentId = await createAcpAgent(page, workspace)
@@ -39,19 +50,21 @@ test('keeps ACP Chat live while the browser page is hidden', async ({ page, work
   })
 
   await openFarming(page)
-  const row = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
-  await expect(row).toBeVisible()
-  await row.click()
+  await selectAgentOnCompactLayout(page, agentId)
   await expect(page.getByTestId('code-agent-chat-view')).toBeVisible()
   await expect(page.getByTestId('connection-status')).toHaveCount(0)
 
   const composerInput = page.getByTestId('code-acp-composer-input')
   await composerInput.fill('draft survives composer collapse')
-  await page.locator('.code-composer-collapse-zone').hover()
-  await page.getByTestId('code-composer-collapse').click()
-  await expect(page.getByTestId('code-acp-composer')).toHaveCount(0)
-  await expect(page.getByTestId('code-agent-chat-view')).toBeVisible()
-  await page.getByTestId('code-composer-restore').click()
+  if (await page.locator('.code-composer-collapse-zone').count()) {
+    await page.locator('.code-composer-collapse-zone').hover()
+    await page.getByTestId('code-composer-collapse').click()
+    await expect(page.getByTestId('code-acp-composer')).toHaveCount(0)
+    await expect(page.getByTestId('code-agent-chat-view')).toBeVisible()
+    await page.getByTestId('code-composer-restore').click()
+  } else {
+    await expect(page.getByTestId('code-acp-composer')).toBeVisible()
+  }
   await expect(composerInput).toHaveValue('draft survives composer collapse')
   await composerInput.fill('')
 
@@ -349,7 +362,7 @@ test('keeps retained Chat frontends mounted and refreshes them by revision after
   await expect(firstPane).toHaveCount(0)
 })
 
-test('rejects an older successful ACP transcript response that arrives after a newer one', async ({ page, workspaceRoot }) => {
+test('rejects an older successful ACP transcript response that arrives after a newer one', { tag: '@iphone-human' }, async ({ page, workspaceRoot }) => {
   const workspace = path.join(workspaceRoot, 'acp-transcript-response-order')
   fs.mkdirSync(workspace, { recursive: true })
   const agentId = await createAcpAgent(page, workspace)
@@ -433,7 +446,7 @@ test('rejects an older successful ACP transcript response that arrives after a n
   })
 
   await openFarming(page)
-  await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
+  await selectAgentOnCompactLayout(page, agentId)
   await expect(page.getByText('INITIAL response answer', { exact: true })).toBeVisible()
 
   await page.evaluate(() => {
@@ -513,7 +526,7 @@ test('keeps long ACP Chat stable when the Composer is collapsed and restored', a
   })
 
   await openFarming(page)
-  await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
+  await selectAgentOnCompactLayout(page, agentId)
   const transcriptScroll = page.getByTestId('code-agent-transcript-scroll')
   await expect(transcriptScroll).toContainText('Long conversation question 23')
   await transcriptScroll.evaluate(element => {
@@ -548,15 +561,13 @@ test('keeps long ACP Chat stable when the Composer is collapsed and restored', a
   await expect(page.getByTestId('code-agent-transcript-jump-bottom')).toBeVisible()
 })
 
-test('starts a short ACP turn at the top with a compact copy affordance', async ({ page, workspaceRoot }) => {
+test('starts a short ACP turn at the top with a compact copy affordance', { tag: '@iphone-human' }, async ({ page, workspaceRoot }) => {
   const workspace = path.join(workspaceRoot, 'compact-chat-tail')
   fs.mkdirSync(workspace, { recursive: true })
   const agentId = await createAcpAgent(page, workspace)
 
   await openFarming(page)
-  const row = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
-  await expect(row).toBeVisible()
-  await row.click()
+  await selectAgentOnCompactLayout(page, agentId)
 
   await page.getByTestId('code-acp-composer-input').fill('image attachment')
   await page.getByTestId('code-acp-composer-send').click()
@@ -626,7 +637,8 @@ test('starts a short ACP turn at the top with a compact copy affordance', async 
     }
   })
 
-  expect(geometry.userTopOffset).toBeGreaterThanOrEqual(30)
+  const compactLayout = await page.locator('body').evaluate(element => element.classList.contains('code-compact-layout'))
+  expect(geometry.userTopOffset).toBeGreaterThanOrEqual(compactLayout ? 0 : 30)
   expect(geometry.userTopOffset).toBeLessThanOrEqual(60)
   expect(geometry.answerGap).toBeGreaterThanOrEqual(16)
   expect(geometry.answerGap).toBeLessThanOrEqual(28)
@@ -641,7 +653,7 @@ test('starts a short ACP turn at the top with a compact copy affordance', async 
   })
 })
 
-test('keeps narrow Chat copyable and wraps long user text inside its bubble', async ({ page, workspaceRoot }) => {
+test('keeps narrow Chat copyable and wraps long user text inside its bubble', { tag: '@iphone-human' }, async ({ page, workspaceRoot }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   const workspace = path.join(workspaceRoot, 'narrow-chat-copy-wrap')
   fs.mkdirSync(workspace, { recursive: true })
@@ -653,7 +665,8 @@ test('keeps narrow Chat copyable and wraps long user text inside its bubble', as
   await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
 
   const input = page.getByTestId('code-acp-composer-input')
-  await expect(input).toHaveCSS('font-size', '14px')
+  const iosInput = await page.locator('body').evaluate(element => element.classList.contains('code-mobile-ios'))
+  await expect(input).toHaveCSS('font-size', iosInput ? '16px' : '14px')
   await input.fill(`image attachment ${'amap_order_id,'.repeat(120)}`)
   await page.getByTestId('code-acp-composer-send').click()
 
@@ -674,25 +687,28 @@ test('keeps narrow Chat copyable and wraps long user text inside its bubble', as
   )
 })
 
-test('forks the latest ACP answer into a new Chat Agent in the same workspace', async ({ page, workspaceRoot }) => {
+test('forks the latest ACP answer into a new Chat Agent in the same workspace', { tag: '@iphone-human' }, async ({ page, workspaceRoot }) => {
   const workspace = path.join(workspaceRoot, 'acp-conversation-fork')
   fs.mkdirSync(workspace, { recursive: true })
   const sourceAgentId = await createAcpAgent(page, workspace)
 
   await openFarming(page)
-  await page.locator(`[data-testid="code-agent-row"][data-agent-id="${sourceAgentId}"]`).click()
+  await selectAgentOnCompactLayout(page, sourceAgentId)
   await page.getByTestId('code-acp-composer-input').fill('phase-aware mermaid fork this conversation')
   await page.getByTestId('code-acp-composer-send').click()
   await expect(page.getByText('Phase-aware rich answer.', { exact: false })).toBeVisible()
 
-  const rows = page.getByTestId('code-agent-row')
-  const sourceAgentIds = await rows.evaluateAll(elements => (
+  const compactLayout = await page.locator('body').evaluate(element => element.classList.contains('code-compact-layout'))
+  const membershipItems = compactLayout
+    ? page.getByTestId('code-agent-work-pane')
+    : page.getByTestId('code-agent-row')
+  const sourceAgentIds = await membershipItems.evaluateAll(elements => (
     elements.map(element => element.getAttribute('data-agent-id')).filter(Boolean)
   ))
   await page.getByTestId('code-agent-transcript-fork').click()
-  await expect(rows).toHaveCount(sourceAgentIds.length + 1)
+  await expect(membershipItems).toHaveCount(sourceAgentIds.length + 1)
 
-  const agentIds = await rows.evaluateAll(elements => (
+  const agentIds = await membershipItems.evaluateAll(elements => (
     elements.map(element => element.getAttribute('data-agent-id')).filter(Boolean)
   ))
   const forkedAgentId = agentIds.find(id => !sourceAgentIds.includes(id))
@@ -706,15 +722,13 @@ test('forks the latest ACP answer into a new Chat Agent in the same workspace', 
   await expect(forkedPane.getByText('Phase-aware rich answer.', { exact: false })).toBeVisible()
 })
 
-test('keeps a human reader stationary while an ACP answer streams below', async ({ page, workspaceRoot }) => {
+test('keeps a human reader stationary while an ACP answer streams below', { tag: '@iphone-human' }, async ({ page, workspaceRoot }) => {
   const workspace = path.join(workspaceRoot, 'streaming-reader-scroll-stability')
   fs.mkdirSync(workspace, { recursive: true })
   const agentId = await createAcpAgent(page, workspace)
 
   await openFarming(page)
-  const row = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
-  await expect(row).toBeVisible()
-  await row.click()
+  await selectAgentOnCompactLayout(page, agentId)
 
   const transcript = page.getByTestId('code-agent-transcript-scroll')
   await page.getByTestId('code-acp-composer-input').fill('scroll stability')

@@ -8,7 +8,7 @@ type MockComputer = {
   projectRootId: string
   workspace: string
   name: string
-  status: 'running'
+  status: 'running' | 'stopped'
   generation: number
   revision: number
   collectionRevision: number
@@ -31,28 +31,82 @@ test('shows an Agent-owned Desktop only when present and switches Viewer control
   const workspace = path.join(workspaceRoot, 'agent-owned-computer-project')
   fs.mkdirSync(workspace, { recursive: true })
   let resource: MockComputer | null = null
+  let browserCapabilityRequests = 0
+  let computerCapabilityRequests = 0
 
-  await page.route('**/api/computers/capability', route => route.fulfill({
-    contentType: 'application/json',
-    body: JSON.stringify({
-      available: true,
-      enabled: false,
-      dockerAvailable: true,
-      imageReady: true,
-      image: 'trycua/xfce-cua@sha256:test',
-      imageDigest: 'sha256:test',
-      driverVersion: '0.12.4',
-      compatibilityMode: false,
-      error: '',
-    }),
-  }))
-  await page.route('**/api/computers', route => route.fulfill({
-    contentType: 'application/json',
-    body: JSON.stringify({
-      collectionRevision: resource?.collectionRevision ?? 1,
-      resources: resource ? [resource] : [],
-    }),
-  }))
+  await page.route('**/api/browsers/capability', async route => {
+    browserCapabilityRequests += 1
+    await route.continue()
+  })
+
+  await page.route('**/api/computers/capability', async route => {
+    computerCapabilityRequests += 1
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        available: true,
+        enabled: true,
+        dockerAvailable: true,
+        imageReady: true,
+        image: 'trycua/xfce-cua@sha256:test',
+        imageDigest: 'sha256:test',
+        driverVersion: '0.12.4',
+        compatibilityMode: false,
+        error: '',
+      }),
+    })
+  })
+  await page.route('**/api/computers', async route => {
+    if (route.request().method() === 'POST') {
+      const body = route.request().postDataJSON() as { agentId?: string }
+      const now = Date.now()
+      resource = {
+        id: 'computer_frontend_test',
+        ownerAgentId: body.agentId || '',
+        projectRootId: 'root_frontend_test',
+        workspace,
+        name: 'Agent Computer',
+        status: 'stopped',
+        generation: 0,
+        revision: 1,
+        collectionRevision: 2,
+        controlOwner: 'agent',
+        controlEpoch: 0,
+        needsObserve: false,
+        containerId: '',
+        containerName: 'farming-computer-frontend-test',
+        viewerPort: 0,
+        sessionId: '',
+        error: '',
+        createdAt: now,
+        updatedAt: now,
+      }
+      await route.fulfill({ contentType: 'application/json', body: JSON.stringify(resource) })
+      return
+    }
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        collectionRevision: resource?.collectionRevision ?? 1,
+        resources: resource ? [resource] : [],
+      }),
+    })
+  })
+  await page.route('**/api/computers/*/start', async route => {
+    if (!resource) throw new Error('Start route requires the mock Computer')
+    resource = {
+      ...resource,
+      status: 'running',
+      generation: resource.generation + 1,
+      revision: resource.revision + 1,
+      collectionRevision: resource.collectionRevision + 1,
+      controlEpoch: 1,
+      viewerPort: 6901,
+      sessionId: 'computer_frontend_test-g1',
+      updatedAt: Date.now(),
+    }
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify(resource) })
+  })
   await page.route('**/api/computers/*/viewer-config', route => route.fulfill({
     contentType: 'application/json',
     body: JSON.stringify({
@@ -86,43 +140,31 @@ test('shows an Agent-owned Desktop only when present and switches Viewer control
   await openNewAgentDialog(page)
   const agentId = await startAgentFromOpenDialog(page, 'bash', workspace)
   const agentRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
-  await expect(agentRow.getByTestId('code-agent-resources-toggle')).toHaveCount(0)
+  await expect(agentRow.getByTestId('code-agent-resources-toggle')).toBeVisible()
   await expect(agentRow).not.toContainText('0')
+  await agentRow.click({ button: 'right' })
+  await expect(page.getByRole('menuitem', { name: 'Create Isolated Desktop' })).toBeVisible()
+  await page.keyboard.press('Escape')
+
+  await expect.poll(() => browserCapabilityRequests).toBeGreaterThan(0)
+  await expect.poll(() => computerCapabilityRequests).toBeGreaterThan(0)
+  const browserRequestsBeforePlugins = browserCapabilityRequests
+  const computerRequestsBeforePlugins = computerCapabilityRequests
 
   await page.getByTestId('code-nav-plugins').click()
+  await expect.poll(() => browserCapabilityRequests).toBeGreaterThan(browserRequestsBeforePlugins)
+  await expect.poll(() => computerCapabilityRequests).toBeGreaterThan(computerRequestsBeforePlugins)
   const computerPlugin = page.getByTestId('code-plugin-computer')
   await expect(computerPlugin.getByRole('heading', { name: 'Computer Use', exact: true })).toBeVisible()
   await expect(computerPlugin.getByText('Desktops', { exact: true })).toBeVisible()
   await expect(computerPlugin.getByText('Isolated Desktop', { exact: true })).toBeVisible()
-  await expect(computerPlugin.getByText('Disabled', { exact: true })).toBeVisible()
-  await expect(computerPlugin.getByRole('button', { name: 'Enable' })).toBeEnabled()
+  await expect(computerPlugin.getByText('Enabled', { exact: true })).toBeVisible()
+  await expect(computerPlugin.getByRole('button', { name: 'Disable' })).toBeEnabled()
 
-  const now = Date.now()
-  resource = {
-    id: 'computer_frontend_test',
-    ownerAgentId: agentId,
-    projectRootId: 'root_frontend_test',
-    workspace,
-    name: 'Agent Computer',
-    status: 'running',
-    generation: 1,
-    revision: 1,
-    collectionRevision: 2,
-    controlOwner: 'agent',
-    controlEpoch: 1,
-    needsObserve: false,
-    containerId: 'container_frontend_test',
-    containerName: 'farming-computer-frontend-test',
-    viewerPort: 6901,
-    sessionId: 'computer_frontend_test-g1',
-    error: '',
-    createdAt: now,
-    updatedAt: now,
-  }
-  await page.reload({ waitUntil: 'domcontentloaded' })
-  await expect(page.getByTestId('app-shell')).toBeVisible()
-
+  await page.getByRole('button', { name: 'Back to workspace' }).click()
   const refreshedAgentRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
+  await refreshedAgentRow.click({ button: 'right' })
+  await page.getByRole('menuitem', { name: 'Create Isolated Desktop' }).click()
   const resourcesToggle = refreshedAgentRow.getByTestId('code-agent-resources-toggle')
   await refreshedAgentRow.hover()
   await expect(resourcesToggle).toBeVisible()
