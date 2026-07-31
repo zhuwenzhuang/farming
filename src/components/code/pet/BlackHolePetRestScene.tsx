@@ -19,6 +19,7 @@ interface BlackHolePetRestSceneProps {
   errorLabel: string
   restUntil: number
   active: boolean
+  preview?: boolean
   onEnd: () => void
 }
 
@@ -119,6 +120,7 @@ export function BlackHolePetRestScene({
   errorLabel,
   restUntil,
   active,
+  preview = false,
   onEnd,
 }: BlackHolePetRestSceneProps) {
   const [now, setNow] = useState(Date.now)
@@ -154,6 +156,7 @@ export function BlackHolePetRestScene({
       ),
       onError: message => setRenderError(message),
       onReady: () => setRenderError(null),
+      showcasePreset: preview ? 'gargantua' : undefined,
     })
     rendererRef.current = renderer
     renderer.setActive(active)
@@ -161,7 +164,7 @@ export function BlackHolePetRestScene({
       renderer.destroy()
       rendererRef.current = null
     }
-  }, [])
+  }, [preview])
 
   useEffect(() => {
     rendererRef.current?.setActive(active)

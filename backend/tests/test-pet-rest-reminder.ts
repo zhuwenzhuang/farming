@@ -100,6 +100,7 @@ const path = require('path');
     'the invitation timing override must stay behind the explicit E2E bridge',
   );
   assert(petSource.includes('PET_APPEARANCE_PREVIEW_EVENT'));
+  assert(petSource.includes("glass: 30") && petSource.includes("'black-hole': 60"));
   assert(petSource.includes('code-pet-appearance-preview'));
   assert(petSource.includes('title={copy.previewAppearance(option)}'));
   assert(petSource.includes('<PlayGlyph />'));
@@ -131,6 +132,7 @@ const path = require('path');
   assert(blackHoleSceneSource.includes('className="code-pet-black-hole-status"'));
   assert(blackHoleSceneSource.includes('<SevenSegmentTime value={remainingTime} />'));
   assert(blackHoleSceneSource.includes('rendererRef.current?.setActive(active)'));
+  assert(blackHoleSceneSource.includes("showcasePreset: preview ? 'gargantua' : undefined"));
   assert(blackHoleSceneSource.includes("event.key !== 'Escape'"));
   assert(!blackHoleSceneSource.includes('code-pet-close'));
   assert(blackHoleRendererSource.includes("canvas.getContext('webgl2'"));

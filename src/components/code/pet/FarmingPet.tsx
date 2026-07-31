@@ -45,7 +45,10 @@ interface FarmingPetProps {
 
 const PET_OWNER_ATTRIBUTE = 'data-farming-pet-owner'
 const PET_OWNER_EVENT = 'farming:pet-owner-change'
-const PET_APPEARANCE_PREVIEW_SECONDS = 30
+const PET_APPEARANCE_PREVIEW_SECONDS: Record<PetAppearance, number> = {
+  glass: 30,
+  'black-hole': 60,
+}
 
 interface StoredInvitationRuntime {
   version: 1
@@ -375,7 +378,7 @@ function FarmingPetController({
         : null
       setAppearancePreview({
         appearance: nextAppearance,
-        restUntil: Date.now() + PET_APPEARANCE_PREVIEW_SECONDS * 1000,
+        restUntil: Date.now() + PET_APPEARANCE_PREVIEW_SECONDS[nextAppearance] * 1000,
       })
     }
     window.addEventListener(PET_APPEARANCE_PREVIEW_EVENT, onPreview)
@@ -491,6 +494,7 @@ function FarmingPetController({
           endLabel={copy.endPreview}
           restUntil={appearancePreview.restUntil}
           active={pageVisible}
+          preview
           onEnd={endAppearancePreview}
         />
       )

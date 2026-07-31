@@ -526,6 +526,7 @@ interface BlackHoleRendererElements {
   homeElement: () => Element | null
   onError: (message: string) => void
   onReady: () => void
+  showcasePreset?: 'gargantua'
 }
 
 export interface BlackHolePetRenderer {
@@ -1500,6 +1501,7 @@ export function createBlackHolePetRenderer({
   homeElement,
   onError,
   onReady,
+  showcasePreset,
 }: BlackHoleRendererElements): BlackHolePetRenderer {
   let display: DisplayRenderer
   let compositor: CompositorRenderer
@@ -1549,6 +1551,9 @@ export function createBlackHolePetRenderer({
     : roamSeed
   const firstCycle = createEvolutionCycle(evolutionSeed, 0)
   const birthTarget = firstCycle[0]
+  const showcaseLook = showcasePreset === 'gargantua'
+    ? CYCLE_STATES[3]
+    : undefined
   const birthVariation = seedValue(roamSeed, 0, 12)
   const birth: DiskLook = {
     ...birthTarget,
@@ -1565,6 +1570,7 @@ export function createBlackHolePetRenderer({
     .map(state => state.phase)
     .join(',')
   canvas.dataset.birthPreset = birthTarget.phase
+  if (showcaseLook) canvas.dataset.showcasePreset = showcaseLook.phase
 
   const clearSchedule = () => {
     if (requestId) cancelAnimationFrame(requestId)
@@ -1656,7 +1662,7 @@ export function createBlackHolePetRenderer({
     const elapsed = Number.isFinite(testElapsed)
       ? Number(testElapsed)
       : (now - startedAt) / 1000
-    const look = macroAt(elapsed, birth, evolutionSeed)
+    const look = showcaseLook ?? macroAt(elapsed, birth, evolutionSeed)
     canvas.dataset.macroPhase = look.phase
     canvas.dataset.macroSize = look.size.toFixed(4)
     canvas.dataset.macroTemperature = look.temperature.toFixed(1)
@@ -1681,7 +1687,7 @@ export function createBlackHolePetRenderer({
       const exitElapsed = (exitingAt - startedAt) / 1000
       const frozenTime =
         exitElapsed + 0.45 * (1 - Math.exp(-(now - exitingAt) / 450))
-      const frozenLook = macroAt(frozenTime, birth, evolutionSeed)
+      const frozenLook = showcaseLook ?? macroAt(frozenTime, birth, evolutionSeed)
       pose = activePose(frozenTime, frozenLook, roamSeed, homeElement)
       const home = homePoint(homeElement)
       const returning = exitReturnsHome
