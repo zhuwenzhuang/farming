@@ -81,8 +81,6 @@ export interface CodeCopy {
   agentTranscriptLoadingChanges: string
   agentTranscriptChangesUnavailable: string
   agentTranscriptTechnicalDetails: string
-  agentTranscriptKeepChange: string
-  agentTranscriptRevertChange: string
   agentTranscriptChangeKept: string
   agentTranscriptChangeReverted: string
   agentTranscriptShowMoreFiles: (count: number) => string
@@ -574,8 +572,6 @@ const EN_COPY: CodeCopy = {
   agentTranscriptLoadingChanges: 'Loading exact changes…',
   agentTranscriptChangesUnavailable: 'Some exact file details could not be loaded.',
   agentTranscriptTechnicalDetails: 'Technical details',
-  agentTranscriptKeepChange: 'Keep',
-  agentTranscriptRevertChange: 'Revert',
   agentTranscriptChangeKept: 'Kept',
   agentTranscriptChangeReverted: 'Reverted',
   agentTranscriptShowMoreFiles: count => `Show ${count} more file${count === 1 ? '' : 's'}`,
@@ -1100,8 +1096,6 @@ const ZH_COPY: CodeCopy = {
   agentTranscriptLoadingChanges: '正在加载准确改动…',
   agentTranscriptChangesUnavailable: '部分准确文件详情无法加载。',
   agentTranscriptTechnicalDetails: '技术详情',
-  agentTranscriptKeepChange: '保留',
-  agentTranscriptRevertChange: '撤销',
   agentTranscriptChangeKept: '已保留',
   agentTranscriptChangeReverted: '已撤销',
   agentTranscriptShowMoreFiles: count => `显示另外 ${count} 个文件`,

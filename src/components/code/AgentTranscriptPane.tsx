@@ -2260,7 +2260,6 @@ function AgentTranscriptPatchResultCard({
   items,
   copy,
   onLoadPatchChanges,
-  onDecidePatch,
   source,
   workspaceRoot,
   gitDiffAvailable,
@@ -2268,7 +2267,6 @@ function AgentTranscriptPatchResultCard({
   items: AgentTranscriptProcessItem[]
   copy: CodeCopy
   onLoadPatchChanges?: (itemIds: string[]) => Promise<AgentTranscriptPatchChange[]>
-  onDecidePatch?: (itemId: string, path: string, decision: 'keep' | 'revert') => Promise<{ action: string }>
   source: AgentTranscriptPaneProps['source']
   workspaceRoot?: string
   gitDiffAvailable: boolean
@@ -2283,12 +2281,6 @@ function AgentTranscriptPatchResultCard({
       return [[displayPath, change.decision] as const]
     })
   ))), [items, workspaceRoot])
-  const [patchDecisions, setPatchDecisions] = useState<Record<string, string>>(embeddedDecisions)
-  const [decidingPath, setDecidingPath] = useState('')
-  const [decisionErrors, setDecisionErrors] = useState<Record<string, string>>({})
-  useEffect(() => {
-    setPatchDecisions(current => ({ ...embeddedDecisions, ...current }))
-  }, [embeddedDecisions])
   const embeddedRows = patchRowsForItems(items, workspaceRoot)
   const detailedRows = detailedChanges ? patchRowsForChanges(detailedChanges, workspaceRoot) : []
   const detailedRowsByPath = new Map(detailedRows.map(row => [row.path, row]))
@@ -2322,25 +2314,6 @@ function AgentTranscriptPatchResultCard({
     ? rows.map(row => workspaceRelativeTranscriptPath(row.path, workspaceRoot))
       .filter(path => path && !path.startsWith('/') && !path.split('/').includes('..'))
     : []
-  const patchTargetForPath = useCallback((displayPath: string) => {
-    const matches = items.flatMap(item => (item.changes || [])
-      .filter(change => (workspaceRelativeTranscriptPath(change.path, workspaceRoot) || change.path) === displayPath)
-      .map(change => ({ itemId: item.id, path: change.path })))
-    return matches.length === 1 ? matches[0] : null
-  }, [items, workspaceRoot])
-  const decidePatch = useCallback((displayPath: string, decision: 'keep' | 'revert') => {
-    const target = patchTargetForPath(displayPath)
-    if (!target || !onDecidePatch || decidingPath) return
-    setDecidingPath(displayPath)
-    setDecisionErrors(current => ({ ...current, [displayPath]: '' }))
-    void onDecidePatch(target.itemId, target.path, decision)
-      .then(result => setPatchDecisions(current => ({ ...current, [displayPath]: result.action })))
-      .catch(error => setDecisionErrors(current => ({
-        ...current,
-        [displayPath]: error instanceof Error ? error.message : copy.agentTranscriptUnavailable,
-      })))
-      .finally(() => setDecidingPath(''))
-  }, [copy.agentTranscriptUnavailable, decidingPath, onDecidePatch, patchTargetForPath])
   const handleReview = useCallback(() => {
     if (source === 'acp') {
       setReviewOpen(true)
@@ -2420,8 +2393,7 @@ function AgentTranscriptPatchResultCard({
               const changes = availableChanges.filter(change => (
                 (workspaceRelativeTranscriptPath(change.path, workspaceRoot) || change.path) === path
               ))
-              const patchTarget = patchTargetForPath(path)
-              const decision = patchDecisions[path]
+              const decision = embeddedDecisions[path]
               return (
                 <section className="code-agent-transcript-change-review-file" key={`${items[0]?.id || 'patch'}:${path}`}>
                   <header title={path}>
@@ -2438,21 +2410,9 @@ function AgentTranscriptPatchResultCard({
                       ))}
                     </pre>
                   ) : null)}
-                  {patchTarget && onDecidePatch ? (
+                  {decision ? (
                     <div className="code-agent-transcript-result-decision" data-testid="code-acp-patch-decision">
-                      {decision ? (
-                        <span>{decision === 'reverted' ? copy.agentTranscriptChangeReverted : copy.agentTranscriptChangeKept}</span>
-                      ) : (
-                        <>
-                          <button type="button" disabled={Boolean(decidingPath)} onClick={() => decidePatch(path, 'keep')}>
-                            {copy.agentTranscriptKeepChange}
-                          </button>
-                          <button type="button" className="revert" disabled={Boolean(decidingPath)} onClick={() => decidePatch(path, 'revert')}>
-                            {copy.agentTranscriptRevertChange}
-                          </button>
-                        </>
-                      )}
-                      {decisionErrors[path] ? <small role="alert">{decisionErrors[path]}</small> : null}
+                      <span>{decision === 'reverted' ? copy.agentTranscriptChangeReverted : copy.agentTranscriptChangeKept}</span>
                     </div>
                   ) : null}
                 </section>
@@ -2479,7 +2439,6 @@ function AgentTranscriptTurnView({
   onToggleProcess,
   onLoadProcessItemDetail,
   onLoadPatchChanges,
-  onDecidePatch,
   gitDiffAvailable,
   onStopTerminal,
   onInputTerminal,
@@ -2503,7 +2462,6 @@ function AgentTranscriptTurnView({
   onToggleProcess: (turnId: string) => void
   onLoadProcessItemDetail?: (itemId: string) => Promise<AgentTranscriptProcessPresentation>
   onLoadPatchChanges?: (itemIds: string[]) => Promise<AgentTranscriptPatchChange[]>
-  onDecidePatch?: (itemId: string, path: string, decision: 'keep' | 'revert') => Promise<{ action: string }>
   gitDiffAvailable: boolean
   onStopTerminal?: (terminalId: string) => Promise<void>
   onInputTerminal?: (terminalId: string, input: string) => Promise<void>
@@ -3105,7 +3063,6 @@ function AgentTranscriptTurnView({
             items={patchResults}
             copy={copy}
             onLoadPatchChanges={onLoadPatchChanges}
-            onDecidePatch={onDecidePatch}
             source={source}
             workspaceRoot={workspaceRoot}
             gitDiffAvailable={gitDiffAvailable}
@@ -3493,18 +3450,6 @@ export function AgentTranscriptPane({
   const handleLoadPatchChanges = useCallback((itemIds: string[]) => (
     loadAcpReviewPreview(agentId, itemIds)
   ), [agentId])
-  const handleDecidePatch = useCallback(async (itemId: string, path: string, decision: 'keep' | 'revert') => {
-    const response = await fetch(appPath(
-      `/api/agents/${encodeURIComponent(agentId)}/acp-patches/${encodeURIComponent(itemId)}/decision`,
-    ), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path, decision }),
-    })
-    const payload = await response.json().catch(() => ({})) as { action?: string; error?: string }
-    if (!response.ok || !payload.action) throw new Error(payload.error || 'Failed to decide file change')
-    return { action: payload.action }
-  }, [agentId])
   const handleStopTerminal = useCallback(async (terminalId: string) => {
     const response = await fetch(appPath(
       `/api/agents/${encodeURIComponent(agentId)}/acp-terminals/${encodeURIComponent(terminalId)}/kill`,
@@ -3737,7 +3682,6 @@ export function AgentTranscriptPane({
                     onToggleProcess={handleToggleProcess}
                     onLoadProcessItemDetail={source === 'acp' ? handleLoadProcessItemDetail : undefined}
                     onLoadPatchChanges={source === 'acp' ? handleLoadPatchChanges : undefined}
-                    onDecidePatch={source === 'acp' ? handleDecidePatch : undefined}
                     gitDiffAvailable={gitDiffAvailable}
                     onStopTerminal={source === 'acp' ? handleStopTerminal : undefined}
                     onInputTerminal={source === 'acp' ? handleInputTerminal : undefined}
