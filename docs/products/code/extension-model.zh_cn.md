@@ -40,6 +40,13 @@ Computer Use 使用明确的“能力 / Resource”层级：**Computer Use** 是
 一个无法真实使用的“本机桌面”选项。内部 `computer` API 和 `computer_*` Agent Tool
 仅是兼容名称，不再作为用户可见的 Resource 名称。
 
+Resource 含义不同不应产生不同的侧栏外壳。Farming Code 左侧栏中的 Browser、
+Desktop 及未来 Extension Row，都必须组合 Core 统一拥有的
+`code-sidebar-resource-*` 呈现契约，包括 Section Header、Row Geometry、Hover /
+Active / Focus、Action 浮现层、Action Button 尺寸和 Empty Row。Extension 只提供
+自己的 Icon、Label、Status 语义和 Action；Extension-local CSS 只保留 Viewer、
+语义菜单等真正属于该 Resource 的呈现。
+
 同一个页面也拥有 Agent 配置。一个 Provider 加一个 Agent Home ID 就是一份独立 Agent 配置：`Codex · default` 与 `Codex · work` 是两个 Agent，即使它们都使用 Codex。Agent Homes 中每一项常态只保留便于扫读的摘要：Farming 读取 Provider 自己拥有的配置文件，只把安全且可识别的字段显示为普通文字，不再把这个 Home 的扩展目录嵌套在配置行下面。点击编辑会把这份精确 Home 挂载为普通 Project，在 Farming 现有文件编辑器中打开配置文件，并在 Project 文件树中定位它；编辑、保存和导航因此全部复用普通 Project Files 链路。文件尚不存在时，编辑器先建立空 Working Copy，只在用户保存时创建文件。所有面向 Provider 的 Catalog、Settings、Session 与 Extension 读取都必须先解析精确 Home，缓存键也必须包含该 Home 身份；默认 Home 的结果绝不能填充到其他 Home。“扩展”页签始终显式保留当前 Home，类型数量和搜索范围都限制在这份 Home 内，并且只展示当前选中类型的条目；Farming 不会把多个 Home 折叠成一个 Provider 级身份。全局 Farming Settings 中有序的 `agentHomes` Registry 是权威状态。新增项追加到末尾，拖拽或键盘移动会重写稳定的数字顺序，只有非 `default` 项可以删除。因此 Agent Home 管理不再出现在通用 Settings 中。
 
 第一版扩展目录刻意保持只读。解析器沿用 VS Code Agent Plugin parser 的 Format Adapter 结构，识别根目录 `plugin.json` 及固定 `skills/`、`mcp.json` 组件的 Agent Plugins v1，也兼容精确 Home 下 Provider 已经使用的 `.codex-plugin`、`.claude-plugin`、`.qoder-plugin`、`.plugin`、`.mcp.json`、Skill、Command 与 Hook 布局。Agent Plugins 包内路径会按真实文件系统解析，符号链接逃出 Plugin Root 时拒绝读取。只有 Provider 原生配置明确给出状态时，Farming 才显示“已启用”或“已停用”；其余统一显示“已配置”。Farming 不维护另一套 Enablement 数据库，不推测 Runtime 是否正在运行，也不展示 Provider 可能忽略的开关。每个条目保留相对 Home 的来源文件，“打开来源文件”直接复用 Agent Home 编辑器路径。

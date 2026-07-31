@@ -35,7 +35,7 @@ import {
 } from '../IconGlyphs'
 import type { CodeCopy } from './copy'
 import type { AgentSessionHistoryItem, ProjectGroup, WorkspaceFileOpenTarget, WorkspaceView } from './types'
-import { PluginsPanel } from './PluginsPanel'
+import { PluginsPanel, type AgentHomeFileTarget } from './PluginsPanel'
 
 type ComposerProps = Omit<ComponentProps<typeof CodeComposer>, 'copy'>
 type AcpComposerProps = Omit<ComponentProps<typeof AcpComposer>, 'copy'>
@@ -279,7 +279,7 @@ interface CodeMainAreaProps {
   onNewAgent: (workspace?: string, command?: string) => void
   onOpenHistory: () => void
   onOpenPlugins: () => void
-  onOpenAgentHomeConfiguration: (target: { exists: boolean; filePath: string; rootId: string }) => void
+  onOpenAgentHomeConfiguration: (target: AgentHomeFileTarget) => void
   onOpenSearch: () => void
   onOpenShare: () => void
   onOpenAppMode: () => void

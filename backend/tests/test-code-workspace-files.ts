@@ -1161,7 +1161,8 @@ function run() {
       !workspaceSource.includes('setProjectWorkspaces(normalizeProjectWorkspaces(settings.projectWorkspaces))') &&
       !workspaceSource.includes('setPinnedProjectWorkspaces(normalizeProjectWorkspaces(settings.pinnedProjectWorkspaces))') &&
       workspaceSource.includes("appPath('/api/projects/mount')") &&
-      workspaceSource.includes('await mountProject(identity.workspaceRoot)') &&
+      workspaceSource.includes('const mountedWorkspace = await mountProject(identity.workspaceRoot)') &&
+      workspaceSource.includes('applyProjectMembership(membership || {})') &&
       workspaceSource.includes("appPath('/api/projects/remove')") &&
       workspaceSource.includes("appPath('/api/projects/pin')") &&
       workspaceSource.includes("appPath('/api/projects/name')") &&
@@ -1183,6 +1184,14 @@ function run() {
       serverSource.includes('projectWorkspaces: settings.projectWorkspaces || []') &&
       serverSource.includes('pinnedProjectWorkspaces: settings.pinnedProjectWorkspaces || []'),
     'Project membership should be owned by backend CRUD transitions instead of frontend render-derived settings writes'
+  );
+
+  assert(
+    workspaceSource.includes('projectFilesWorkspaceId(target.homePath)') &&
+      workspaceSource.includes('await openProjectFile(projectFilesWorkspaceId(target.homePath), file, { revealInTree: true })') &&
+      workspaceSource.includes('identity = resolveWorkspaceFileIdentity(projectFilesWorkspaceId(mountedWorkspace), target?.sourceAgentId)') &&
+      codeMainAreaSource.includes('onOpenAgentHomeConfiguration: (target: AgentHomeFileTarget) => void'),
+    'Agent Home configuration should mount the Home as a canonical Project and reveal the file through the normal Project Files editor path'
   );
 
   assert(

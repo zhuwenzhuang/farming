@@ -128,7 +128,7 @@ function BrowserRow({
   }
   return (
     <div
-      className={`farming-browser-row ${active ? 'active' : ''} ${resource.status === 'running' ? 'running' : ''}`}
+      className={`farming-browser-row code-sidebar-resource-row ${active ? 'active' : ''} ${resource.status === 'running' ? 'running' : ''}`}
       data-testid="farming-browser-row"
       data-browser-id={resource.id}
       role="button"
@@ -141,8 +141,8 @@ function BrowserRow({
         }
       }}
     >
-      <span className={`farming-browser-resource-icon ${resource.status}`} aria-hidden="true"><BrowserGlyph /></span>
-      <span className="farming-browser-row-copy">
+      <span className={`farming-browser-resource-icon code-sidebar-resource-icon ${resource.status}`} aria-hidden="true"><BrowserGlyph /></span>
+      <span className="farming-browser-row-copy code-sidebar-resource-copy">
         {renaming ? (
           <input
             autoFocus
@@ -161,13 +161,13 @@ function BrowserRow({
             }}
           />
         ) : (
-          <span className="farming-browser-row-name">{resource.name}</span>
+          <span className="farming-browser-row-name code-sidebar-resource-name">{resource.name}</span>
         )}
-        <span className="farming-browser-row-detail" title={resource.status === 'running' ? resource.url : undefined}>
+        <span className="farming-browser-row-detail code-sidebar-resource-detail" title={resource.status === 'running' ? resource.url : undefined}>
           {resourceStatusLabel(resource, copy)}
         </span>
       </span>
-      <span className="farming-browser-row-actions">
+      <span className="farming-browser-row-actions code-sidebar-resource-actions" data-action-count="3">
         <button
           type="button"
           title={copy.renameBrowser}
@@ -241,15 +241,15 @@ function BrowserSection({
     }
   }
   return (
-    <section className="farming-browser-section" data-testid="farming-browser-section">
-      <header>
+    <section className="farming-browser-section code-sidebar-resource-section" data-testid="farming-browser-section">
+      <header className="code-sidebar-resource-header">
         <button
           type="button"
-          className="farming-browser-section-toggle"
+          className="farming-browser-section-toggle code-sidebar-resource-section-toggle"
           aria-expanded={!collapsed}
           onClick={onToggle}
         >
-          <span className="farming-browser-section-chevron" aria-hidden="true">
+          <span className="farming-browser-section-chevron code-sidebar-resource-section-chevron" aria-hidden="true">
             {collapsed ? <ChevronRightGlyph /> : <ChevronDownGlyph />}
           </span>
           <span>{copy.browsers}</span>
@@ -257,7 +257,7 @@ function BrowserSection({
         </button>
         <button
           type="button"
-          className="farming-browser-new"
+          className="farming-browser-new code-sidebar-resource-header-action"
           title={copy.newBrowser}
           aria-label={copy.newBrowser}
           onClick={() => void createBrowser()}
@@ -266,7 +266,7 @@ function BrowserSection({
         </button>
       </header>
       {!collapsed && (
-        <div className="farming-browser-list">
+        <div className="farming-browser-list code-sidebar-resource-list">
           {resources.map(resource => (
             <BrowserRow
               key={resource.id}
@@ -280,7 +280,7 @@ function BrowserSection({
           {resources.length === 0 && (
             <button
               type="button"
-              className="farming-browser-empty"
+              className="farming-browser-empty code-sidebar-resource-empty"
               onClick={() => void createBrowser()}
             >
               <PlusGlyph />

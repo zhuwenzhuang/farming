@@ -289,6 +289,7 @@ async function renderApplication() {
   document.body.classList.add('code-mode')
   await import('./styles/tokens.css')
   await import('./styles/main.css')
+  await import('./styles/sidebar-resources.css')
   await import('./styles/code-dark.css')
   const { App } = await import('./App')
   root.render(<ApplicationErrorBoundary><App /></ApplicationErrorBoundary>)

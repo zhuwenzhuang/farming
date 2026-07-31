@@ -173,20 +173,28 @@ export function ComputerSection({
   const busy = operation !== null || resource?.status === 'starting' || resource?.status === 'stopping'
   const stopBlocked = resource?.status === 'running' && isolatedBrowserCount > 0
   return (
-    <section className="farming-computer-section" data-testid="farming-computer-section">
-      <header>
+    <section className="farming-computer-section code-sidebar-resource-section" data-testid="farming-computer-section">
+      <header className="code-sidebar-resource-header">
         <button
           type="button"
-          className="farming-computer-section-toggle"
+          className="farming-computer-section-toggle code-sidebar-resource-section-toggle"
           aria-expanded={!collapsed}
           onClick={onToggle}
         >
-          <span aria-hidden="true">{collapsed ? <ChevronRightGlyph /> : <ChevronDownGlyph />}</span>
+          <span className="code-sidebar-resource-section-chevron" aria-hidden="true">
+            {collapsed ? <ChevronRightGlyph /> : <ChevronDownGlyph />}
+          </span>
           <span>{copy.title}</span>
           {resource && <small>1</small>}
         </button>
         {!resource && (
-          <button type="button" title={copy.create} aria-label={copy.create} onClick={() => void create()}>
+          <button
+            type="button"
+            className="code-sidebar-resource-header-action"
+            title={copy.create}
+            aria-label={copy.create}
+            onClick={() => void create()}
+          >
             <PlusGlyph />
           </button>
         )}
@@ -194,7 +202,7 @@ export function ComputerSection({
       {!collapsed && (
         resource ? (
           <div
-            className={`farming-computer-row ${active ? 'active' : ''}`}
+            className={`farming-computer-row code-sidebar-resource-row ${active ? 'active' : ''}`}
             data-testid="farming-computer-row"
             role="button"
             tabIndex={0}
@@ -203,8 +211,8 @@ export function ComputerSection({
               if (event.key === 'Enter' || event.key === ' ') onOpen(resource)
             }}
           >
-            <span className={`farming-computer-resource-icon ${resource.status}`} aria-hidden="true"><DesktopGlyph /></span>
-            <span className="farming-computer-copy">
+            <span className={`farming-computer-resource-icon code-sidebar-resource-icon ${resource.status}`} aria-hidden="true"><DesktopGlyph /></span>
+            <span className="farming-computer-copy code-sidebar-resource-copy">
               {renaming ? (
                 <input
                   autoFocus
@@ -224,12 +232,15 @@ export function ComputerSection({
                     }
                   }}
                 />
-              ) : <span className="farming-computer-name">{resource.name}</span>}
-              <span className={`farming-computer-detail ${operationError ? 'error' : ''}`} title={operationError || resource.error}>
+              ) : <span className="farming-computer-name code-sidebar-resource-name">{resource.name}</span>}
+              <span
+                className={`farming-computer-detail code-sidebar-resource-detail ${operationError ? 'error' : ''}`}
+                title={operationError || resource.error}
+              >
                 {operation === 'remove' ? copy.removing : operation === 'stop' ? copy.stopping : operation === 'start' ? copy.starting : detail}
               </span>
             </span>
-            <span className="farming-computer-actions">
+            <span className="farming-computer-actions code-sidebar-resource-actions" data-action-count="2">
               <span title={stopBlocked ? copy.stopBrowsersFirst : undefined}>
                 <button
                   type="button"
@@ -293,7 +304,11 @@ export function ComputerSection({
             </span>
           </div>
         ) : (
-          <button type="button" className="farming-computer-empty" onClick={() => void create()}>
+          <button
+            type="button"
+            className="farming-computer-empty code-sidebar-resource-empty"
+            onClick={() => void create()}
+          >
             <PlusGlyph />
             <span>{copy.create}</span>
           </button>

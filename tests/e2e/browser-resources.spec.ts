@@ -277,6 +277,9 @@ test('mounts Agent-owned Browsers behind nested resource controls without layout
   expect(Math.round(browserSectionBox.x - agentRowBox.x)).toBe(14)
   const browserRow = browserSection.getByTestId('farming-browser-row')
   await expect(browserRow).toBeVisible()
+  await expect(browserRow).toHaveClass(/code-sidebar-resource-row/)
+  await expect(browserRow).toHaveCSS('border-radius', '8px')
+  await expect(browserRow).toHaveCSS('min-height', '32px')
   await expect(browserRow.locator('.farming-browser-resource-icon.stopped')).toHaveCount(1)
   expect(await browserRow.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
   const browserRowActions = browserRow.locator('.farming-browser-row-actions')
@@ -285,6 +288,8 @@ test('mounts Agent-owned Browsers behind nested resource controls without layout
   const browserCopyBoxBeforeHover = await browserRowCopy.boundingBox()
   await browserRow.hover()
   await expect(browserRowActions).toHaveCSS('opacity', '1')
+  await expect(browserRowActions.getByRole('button').first()).toHaveCSS('width', '22px')
+  await expect(browserRowActions.getByRole('button').first()).toHaveCSS('border-radius', '6px')
   const browserCopyBoxAfterHover = await browserRowCopy.boundingBox()
   if (!browserCopyBoxBeforeHover || !browserCopyBoxAfterHover) {
     throw new Error('Browser row copy must have measurable bounds')

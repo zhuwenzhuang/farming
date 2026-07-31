@@ -4,9 +4,7 @@ import { CodeSelect } from '@/components/CodeSelect'
 import { appPath } from '@/lib/base-path'
 import { getBackendConnectionSnapshot } from '@/lib/backend-live-status'
 import {
-  ArrowDownGlyph,
   ArrowLeftGlyph,
-  ArrowUpGlyph,
   AgentChipGlyph,
   AgentSmartToyGlyph,
   BrowserGlyph,
@@ -78,6 +76,14 @@ type SelectedAgentExtension = AgentExtension & {
   agentName: string
   homeKey: string
   homeId: string
+  homePath: string
+}
+
+export type AgentHomeFileTarget = {
+  exists: boolean
+  filePath: string
+  homePath: string
+  rootId: string
 }
 
 type PluginsTab = 'farming' | 'homes' | 'extensions'
@@ -127,8 +133,6 @@ function pluginCopy(language: UiLanguage) {
     remove: zh ? '删除' : 'Remove',
     save: zh ? '保存' : 'Save',
     cancel: zh ? '取消' : 'Cancel',
-    moveUp: zh ? '上移' : 'Move up',
-    moveDown: zh ? '下移' : 'Move down',
     dragToReorder: zh ? '拖动调整 Agent 顺序' : 'Drag to reorder Agents',
     unavailableAgent: zh ? '未安装' : 'Not installed',
     model: zh ? '模型' : 'Model',
@@ -418,7 +422,7 @@ export function PluginsPanel({
   onPrepareComputer: () => Promise<ComputerCapability>
   language: UiLanguage
   onBack: () => void
-  onOpenAgentHomeConfiguration: (target: { exists: boolean; filePath: string; rootId: string }) => void
+  onOpenAgentHomeConfiguration: (target: AgentHomeFileTarget) => void
   onRefreshCapability: () => void
 }) {
   const copy = useMemo(() => pluginCopy(language), [language])
@@ -670,6 +674,7 @@ export function PluginsPanel({
         order: orderByKey.get(agentConfigurationKey(provider.id, home.id)) ?? home.order,
       })),
     }))
+    setAgentGroups(nextGroups)
     void saveAgentGroups(nextGroups)
   }, [agentGroups, agentSaving, saveAgentGroups])
 
@@ -856,6 +861,7 @@ export function PluginsPanel({
         agentName: `${agentDisplayName(provider)} · ${home.id}`,
         homeKey,
         homeId: home.id,
+        homePath: home.path,
       })),
     }
   }), [agentConfigurations])
@@ -1284,7 +1290,7 @@ export function PluginsPanel({
         {agentGroupsError ? <div className="code-plugin-error" role="alert">{agentGroupsError}</div> : null}
         {agentGroupsLoading && agentGroups.length === 0 ? (
           <p className="code-plugin-empty">{copy.loadingAgentExtensions}</p>
-        ) : agentConfigurations.map((configuration, configurationIndex, configurations) => {
+        ) : agentConfigurations.map(configuration => {
           const { provider, home } = configuration
           const key = agentConfigurationKey(provider.id, home.id)
           const extensionCount = home.extensions.length
@@ -1300,14 +1306,8 @@ export function PluginsPanel({
               key={key}
               className={`code-plugin-section code-plugin-agent-section ${draggingAgentKey === key ? 'dragging' : ''}`}
               data-testid={`code-plugin-section-agent-${provider.id}-${home.id}`}
-              draggable={!agentSaving}
-              onDragStart={event => {
-                setDraggingAgentKey(key)
-                event.dataTransfer.effectAllowed = 'move'
-                event.dataTransfer.setData('text/plain', key)
-              }}
-              onDragEnd={() => setDraggingAgentKey('')}
               onDragOver={event => {
+                if (!draggingAgentKey) return
                 event.preventDefault()
                 event.dataTransfer.dropEffect = 'move'
               }}
@@ -1319,7 +1319,25 @@ export function PluginsPanel({
               }}
             >
               <header className="code-plugin-section-header code-plugin-agent-header">
-                <span className="code-plugin-agent-drag" aria-hidden="true" title={copy.dragToReorder}>⋮⋮</span>
+                <button
+                  type="button"
+                  className="code-plugin-agent-drag"
+                  draggable={!agentSaving}
+                  disabled={agentSaving}
+                  aria-label={copy.dragToReorder}
+                  title={copy.dragToReorder}
+                  onDragStart={event => {
+                    setDraggingAgentKey(key)
+                    event.dataTransfer.effectAllowed = 'move'
+                    event.dataTransfer.setData('text/plain', key)
+                  }}
+                  onDragEnd={() => setDraggingAgentKey('')}
+                  onKeyDown={event => {
+                    if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return
+                    event.preventDefault()
+                    moveAgentConfiguration(key, event.key === 'ArrowUp' ? -1 : 1)
+                  }}
+                >⋮⋮</button>
                 <div className="code-plugin-agent-identity">
                   <h3>
                     {agentDisplayName(provider)}
@@ -1332,24 +1350,13 @@ export function PluginsPanel({
                 <div className="code-plugin-agent-actions">
                   <button
                     type="button"
-                    disabled={agentSaving || configurationIndex === 0}
-                    aria-label={copy.moveUp}
-                    title={copy.moveUp}
-                    onClick={() => moveAgentConfiguration(key, -1)}
-                  ><ArrowUpGlyph /></button>
-                  <button
-                    type="button"
-                    disabled={agentSaving || configurationIndex === configurations.length - 1}
-                    aria-label={copy.moveDown}
-                    title={copy.moveDown}
-                    onClick={() => moveAgentConfiguration(key, 1)}
-                  ><ArrowDownGlyph /></button>
-                  <button
-                    type="button"
                     disabled={agentSaving || !home.configuration.rootId || !home.configuration.filePath}
                     aria-label={copy.edit}
                     title={copy.edit}
-                    onClick={() => onOpenAgentHomeConfiguration(home.configuration)}
+                    onClick={() => onOpenAgentHomeConfiguration({
+                      ...home.configuration,
+                      homePath: home.path,
+                    })}
                   ><PencilGlyph /></button>
                   {home.id !== 'default' ? (
                     <button
@@ -1552,6 +1559,7 @@ export function PluginsPanel({
               onClick={() => onOpenAgentHomeConfiguration({
                 exists: true,
                 filePath: selectedExtension.sourceFile,
+                homePath: selectedExtension.homePath,
                 rootId: selectedExtension.rootId,
               })}
             >

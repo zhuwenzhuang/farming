@@ -103,6 +103,7 @@ import type { ComputerResourceState } from '../../extensions/computer/frontend/c
 import type { ComputerResource, ComputerResourceDeletion } from '../../extensions/computer/frontend/types'
 import '../../extensions/computer/frontend/computer.css'
 import { AgentHomesSettingsPanel } from './code/AgentHomesSettingsPanel'
+import type { AgentHomeFileTarget } from './code/PluginsPanel'
 import {
   requestPetAppearancePreview,
   type PetAppearance,
@@ -2916,7 +2917,7 @@ export function CodeWorkspace({
     const normalizedWorkspace = trimmedWorkspace === '/'
       ? '/'
       : trimmedWorkspace.replace(/[\\/]+$/, '')
-    if (!normalizedWorkspace) return
+    if (!normalizedWorkspace) return ''
     const response = await fetch(appPath('/api/projects/mount'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -2925,16 +2926,20 @@ export function CodeWorkspace({
     const membership = await response.json().catch(() => null) as {
       error?: string
       workspace?: string
+      projectWorkspaces?: string[]
+      pinnedProjectWorkspaces?: string[]
     } | null
     if (!response.ok) throw new Error(membership?.error || `Project request failed (${response.status})`)
     const mountedWorkspace = membership?.workspace || normalizedWorkspace
+    applyProjectMembership(membership || {})
     setCollapsedProjectIds(current => {
       if (!current.has(mountedWorkspace)) return current
       const next = new Set(current)
       next.delete(mountedWorkspace)
       return next
     })
-  }, [])
+    return mountedWorkspace
+  }, [applyProjectMembership])
 
   const toggleProjectSessions = useCallback((projectId: string) => {
     setExpandedSessionProjectIds(previous => {
@@ -3265,11 +3270,15 @@ export function CodeWorkspace({
   ), [])
 
   const openProjectFile = useCallback(async (agentId: string, file: OpenWorkspaceFile['file'], target?: WorkspaceFileOpenTarget) => {
-    const identity = resolveWorkspaceFileIdentity(agentId, target?.sourceAgentId)
-    const projectWorkspace = projectWorkspaceFromFilesId(identity.filesId)
+    let identity = resolveWorkspaceFileIdentity(agentId, target?.sourceAgentId)
+    let projectWorkspace = projectWorkspaceFromFilesId(identity.filesId)
     if (identity.workspaceRoot) {
       try {
-        await mountProject(identity.workspaceRoot)
+        const mountedWorkspace = await mountProject(identity.workspaceRoot)
+        if (mountedWorkspace && mountedWorkspace !== identity.workspaceRoot) {
+          identity = resolveWorkspaceFileIdentity(projectFilesWorkspaceId(mountedWorkspace), target?.sourceAgentId)
+          projectWorkspace = projectWorkspaceFromFilesId(identity.filesId)
+        }
       } catch (error) {
         setCopyNotice({
           id: Date.now(),
@@ -3700,11 +3709,7 @@ export function CodeWorkspace({
     }
   }, [focusWorkspaceFilesSearch, openProjectFile, resolveWorkspaceFileIdentity, revealWorkspaceFileInExplorer, selectOpenWorkspaceFile])
 
-  const openAgentHomeConfiguration = useCallback(async (target: {
-    exists: boolean
-    filePath: string
-    rootId: string
-  }) => {
+  const openAgentHomeConfiguration = useCallback(async (target: AgentHomeFileTarget) => {
     try {
       const file: WorkspaceFile = target.exists
         ? await fetchWorkspaceFile(target.rootId, target.filePath)
@@ -3715,7 +3720,7 @@ export function CodeWorkspace({
             mtimeMs: 0,
             sha1: '',
           }
-      await openProjectFile(target.rootId, file, { revealInTree: false })
+      await openProjectFile(projectFilesWorkspaceId(target.homePath), file, { revealInTree: true })
     } catch (error) {
       setCopyNotice({
         id: Date.now(),

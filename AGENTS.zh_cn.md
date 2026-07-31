@@ -144,6 +144,7 @@ README 是产品入口，不是实现历史。只有顶层产品承诺、主要�
 - **应用内更新只支持 npm 安装**：源码、App Bundle 与独立 CLI 安装使用各自的手动部署路径；Server 不得把 GitHub Releases 当作更新源
 - **样式保持**：功能修复默认不得改变既有视觉风格、颜色、层级、交互气质；除非用户明确要求调整 UI，否则应优先通过更精确的作用域、局部覆盖和结构修复来解决问题，避免“顺手改样式”
 - **文案与页面表达变更需先确认**：未经用户明确同意，不得主动新增、删除或改写页面文案、提示语、说明文字，以及会改变页面表达方式的信息层；如确需调整，必须先与用户确认
+- **统一侧栏 Resource 呈现**：Farming Code 左侧栏中的 Resource Section 必须组合共享的 `code-sidebar-resource-*` 呈现契约。Section Header、Row Geometry、Hover / Active / Focus、Action 浮现层、Action Button 尺寸和 Empty Row 由 Core 统一拥有；Browser、Computer 及未来 Extension 只改变 Icon、Label、Status 语义和可用 Action，不得在 Extension 自己的 CSS 中分叉这些交互样式。
 
 ---
 

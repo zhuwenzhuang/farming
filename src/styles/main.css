@@ -11664,11 +11664,28 @@ body.code-mode.code-compact-layout .code-empty-workspace-compact {
 }
 
 .code-plugin-agent-drag {
+  width: 16px;
+  min-height: 20px;
+  padding: 0;
+  border: 0;
+  background: transparent;
   color: #a0a79e;
+  font: inherit;
   font-size: 13px;
   line-height: 20px;
   cursor: grab;
   user-select: none;
+}
+
+.code-plugin-agent-drag:hover:not(:disabled),
+.code-plugin-agent-drag:focus-visible:not(:disabled) {
+  color: #697269;
+  outline: 0;
+}
+
+.code-plugin-agent-drag:disabled {
+  cursor: default;
+  opacity: 0.48;
 }
 
 .code-plugin-agent-identity {

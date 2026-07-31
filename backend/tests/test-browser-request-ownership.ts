@@ -52,6 +52,17 @@ function run() {
     'Agent Home loads and saves should be bounded, reconcile uncertain saves, and reject results from an old panel generation'
   );
 
+  assert(
+    pluginsSource.includes('setAgentGroups(nextGroups)\n    void saveAgentGroups(nextGroups)')
+      && pluginsSource.includes('className="code-plugin-agent-drag"')
+      && pluginsSource.includes('draggable={!agentSaving}')
+      && pluginsSource.includes("event.key !== 'ArrowUp' && event.key !== 'ArrowDown'")
+      && !pluginsSource.includes('ArrowUpGlyph')
+      && !pluginsSource.includes('ArrowDownGlyph')
+      && !pluginsSource.includes('draggable={!agentSaving}\n              onDragStart'),
+    'Agent Home ordering should use one drag-handle interaction, remain keyboard operable, and update locally before save reconciliation'
+  );
+
   console.log('✓ Browser requests reject stale results after resource replacement or unmount');
 }
 

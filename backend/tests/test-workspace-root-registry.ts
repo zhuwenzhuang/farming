@@ -27,6 +27,12 @@ assert.strictEqual(registry.resolve(`__farming_project__:${encodeURIComponent(pr
 assert.strictEqual(registry.resolve(GLOBAL_WORKSPACE_ROOT_ID).accessPolicy.readOnly, true);
 assert.strictEqual(rootIdForPath('/'), GLOBAL_WORKSPACE_ROOT_ID);
 assert.strictEqual(registry.resolve(rootIdForPath(agentHome)).kind, 'agent-home');
+projectWorkspaces = [project, agentHome];
+assert.strictEqual(
+  registry.resolve(rootIdForPath(agentHome)).kind,
+  'agent-home',
+  'mounting an Agent Home as a Project must retain Agent Home write semantics',
+);
 assert.throws(() => registry.resolve('wroot_missing'), /workspace root not found/);
 
 projectWorkspaces = [];
