@@ -57,12 +57,27 @@ function optimisticConfigSession(
   }
 }
 
+function optimisticDeferredSession(session: AcpSessionSnapshot) {
+  const configured = optimisticConfigSession(session, {
+    configOptions: session.deferredConfigOptions || [],
+  }) || session
+  if (!session.deferredModeId) return configured
+  return {
+    ...configured,
+    currentModeId: session.deferredModeId,
+    modes: configured.modes
+      ? { ...configured.modes, currentModeId: session.deferredModeId }
+      : configured.modes,
+  }
+}
+
 export function useAcpSession(agentId: string, active: boolean, runtimeState: string) {
   const [session, setSession] = useState<AcpSessionSnapshot | null>(null)
   const [error, setError] = useState('')
   const [updatingId, setUpdatingId] = useState('')
   const [authenticatingId, setAuthenticatingId] = useState('')
   const [loggingOut, setLoggingOut] = useState(false)
+  const [configDeferred, setConfigDeferred] = useState(false)
   const sessionRef = useRef<AcpSessionSnapshot | null>(null)
   const scopeRef = useRef({ agentId, active })
   const refreshRequestRef = useRef(0)
@@ -94,8 +109,13 @@ export function useAcpSession(agentId: string, active: boolean, runtimeState: st
         || mutationRef.current
         || mutationSequenceRef.current !== requestMutationSequence
       ) return
-      sessionRef.current = body.session
-      setSession(body.session)
+      const nextSession = optimisticDeferredSession(body.session)
+      sessionRef.current = nextSession
+      setSession(nextSession)
+      setConfigDeferred(
+        (body.session.deferredConfigOptions?.length || 0) > 0
+        || Boolean(body.session.deferredModeId),
+      )
       setError('')
     } catch (nextError) {
       if (nextError instanceof DOMException && nextError.name === 'AbortError') return
@@ -122,6 +142,7 @@ export function useAcpSession(agentId: string, active: boolean, runtimeState: st
     setUpdatingId('')
     setAuthenticatingId('')
     setLoggingOut(false)
+    setConfigDeferred(false)
   }, [active, agentId])
 
   useEffect(() => {
@@ -157,11 +178,14 @@ export function useAcpSession(agentId: string, active: boolean, runtimeState: st
       })
       const body = await response.json().catch(() => null) as {
         modeId?: string
+        deferred?: boolean
         configOptions?: AcpSessionSnapshot['configOptions']
+        deferredConfigOptions?: AcpSessionSnapshot['deferredConfigOptions']
+        deferredModeId?: string
         error?: string
       } | null
       if (!response.ok) throw new Error(body?.error || `Failed to update ACP session (${response.status})`)
-      if (!configChangesConfirmed(body?.configOptions, configChanges)) {
+      if (body?.deferred !== true && !configChangesConfirmed(body?.configOptions, configChanges)) {
         throw new Error('ACP Agent did not confirm the requested configuration')
       }
       if (scopeRef.current.agentId !== requestAgentId || mutationRef.current?.sequence !== sequence) {
@@ -174,12 +198,18 @@ export function useAcpSession(agentId: string, active: boolean, runtimeState: st
             currentModeId: body.modeId,
             modes: current.modes ? { ...current.modes, currentModeId: body.modeId } : current.modes,
           } : {}),
-          ...(body?.configOptions ? { configOptions: body.configOptions } : {}),
+          ...(body?.configOptions && body.deferred !== true ? { configOptions: body.configOptions } : {}),
+          ...(body?.deferredConfigOptions ? { deferredConfigOptions: body.deferredConfigOptions } : {}),
+          ...(typeof body?.deferredModeId === 'string' ? { deferredModeId: body.deferredModeId } : {}),
         } : current
         sessionRef.current = next
         return next
       })
       setError('')
+      setConfigDeferred(
+        (body?.deferredConfigOptions?.length || 0) > 0
+        || Boolean(body?.deferredModeId),
+      )
       return true
     } catch (nextError) {
       if (
@@ -298,5 +328,19 @@ export function useAcpSession(agentId: string, active: boolean, runtimeState: st
     }
   }, [active, agentId, refresh])
 
-  return { session, error, updatingId, authenticatingId, loggingOut, setMode, setConfigOption, setConfigOptions, authenticate, logout }
+  return {
+    session,
+    error,
+    updatingId,
+    authenticatingId,
+    loggingOut,
+    configDeferred,
+    configOptionsDeferred: Boolean(session?.deferredConfigOptions?.length),
+    modeDeferred: Boolean(session?.deferredModeId),
+    setMode,
+    setConfigOption,
+    setConfigOptions,
+    authenticate,
+    logout,
+  }
 }

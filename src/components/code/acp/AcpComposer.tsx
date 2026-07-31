@@ -151,7 +151,7 @@ export function AcpComposer({
   const [activeCommandIndex, setActiveCommandIndex] = useState(0)
   const [openMenu, setOpenMenu] = useState<AcpComposerMenu>(null)
   const [modelPane, setModelPane] = useState<'model' | 'speed' | null>(null)
-  const { session, error: sessionError, updatingId, authenticatingId, loggingOut, setMode, setConfigOption, setConfigOptions, authenticate, logout } = useAcpSession(
+  const { session, error: sessionError, updatingId, authenticatingId, loggingOut, configDeferred, configOptionsDeferred, modeDeferred, setMode, setConfigOption, setConfigOptions, authenticate, logout } = useAcpSession(
     agentId,
     active,
     `${runtimeState}:${sessionUpdatedAt || ''}`,
@@ -305,11 +305,13 @@ export function AcpComposer({
     : ''
   const authenticationRequired = session?.errorKind === 'authentication'
     || /\b(?:auth(?:entication)?|login|sign[ -]?in|unauthorized|401)\b/i.test(runtimeError)
+  const deferredSessionError = runtimeError.startsWith('Deferred session change was not applied:')
   const hasAcpRequest = active && Boolean(
     permissions.length
     || elicitations.length
     || activeElicitations.length
     || authenticationRequired
+    || deferredSessionError
     || sessionError
   )
   const composerClasses = [
@@ -376,6 +378,20 @@ export function AcpComposer({
             </div>
           ))}
         </div>
+      ) : null}
+      {configDeferred ? (
+        <section className="code-acp-request code-acp-notice warning" data-testid="code-acp-config-deferred" role="status">
+          <p>{modeDeferred && configOptionsDeferred
+            ? copy.sessionSettingsDeferred
+            : modeDeferred
+              ? copy.permissionDeferred
+              : copy.configurationDeferred}</p>
+        </section>
+      ) : null}
+      {deferredSessionError ? (
+        <section className="code-acp-request" data-testid="code-acp-config-deferred-error" role="alert">
+          <p>{runtimeError}</p>
+        </section>
       ) : null}
       <footer
         className={composerClasses}

@@ -52,6 +52,8 @@ interface SessionConfigChange { configId: string; value: ConfigValue }
 interface AcpCheckpoint extends UnknownRecord {
   version?: number; sessionState?: UnknownRecord; subagentStates?: unknown;
   patchDecisions?: unknown;
+  deferredConfigChanges?: unknown;
+  deferredModeId?: unknown;
   providerProof?: UnknownRecord & { token?: string; cwd?: string };
   complete?: boolean;
 }
@@ -127,6 +129,9 @@ interface AcpBinding {
   authTerminal: UnknownRecord; patchDecisions: Map<string, string>;
   patchDecisionInFlight: Map<string, { decision: string; promise: Promise<unknown> }>;
   checkpointProof: unknown; sessionMutation: SessionMutation | null; configMutationTail: Promise<unknown> | null;
+  deferredConfigChanges: Map<string, SessionConfigChange>;
+  deferredConfigFlush: Promise<void> | null;
+  deferredModeId: string;
   stderr: string; exited: boolean; updatedAt: string;
 }
 interface AcpLaunch { command: string; args: string[]; version?: string }
@@ -1020,6 +1025,9 @@ class AcpRuntime extends EventEmitter {
       checkpointProof: null,
       sessionMutation: null,
       configMutationTail: null,
+      deferredConfigChanges: new Map(),
+      deferredConfigFlush: null,
+      deferredModeId: '',
       stderr: '',
       exited: false,
       updatedAt: new Date().toISOString(),
@@ -1206,6 +1214,10 @@ class AcpRuntime extends EventEmitter {
             { sessionId: requestedSessionId },
           );
           restoredCheckpointState = restoredCheckpoint?.sessionState || null;
+          if (restoredCheckpoint?.deferredConfigChanges instanceof Map) {
+            binding.deferredConfigChanges = restoredCheckpoint.deferredConfigChanges;
+          }
+          binding.deferredModeId = String(restoredCheckpoint?.deferredModeId || '');
         }
         if (capabilities.sessionCapabilities?.resume && restoredCheckpoint) {
           const providerStateMatches = restoredCheckpoint?.complete === true && saved?.exact === true
@@ -1352,6 +1364,7 @@ class AcpRuntime extends EventEmitter {
       this.scheduleCheckpoint(binding, { exact: true });
       this.emitRuntime(binding);
       this.emitSession(binding);
+      void this.flushDeferredSessionChanges(binding);
       return {
         sessionId: binding.sessionId,
         historyMode,
@@ -1575,6 +1588,82 @@ class AcpRuntime extends EventEmitter {
     binding.activeTurn = null;
     turn.phase = 'completed';
     turn.resolveCompletion?.(result);
+    void this.flushDeferredSessionChanges(binding);
+    return true;
+  }
+
+  async flushDeferredSessionChanges(binding: AcpBinding) {
+    if (
+      !this.isOpenBinding(binding)
+      || binding.activeTurn
+      || binding.deferredConfigFlush
+      || (!binding.deferredModeId && binding.deferredConfigChanges.size === 0)
+    ) return;
+    const modeId = binding.deferredModeId;
+    const originalModeId = String(binding.sessionState?.currentModeId || binding.modes?.currentModeId || '');
+    const changes = [...binding.deferredConfigChanges.values()];
+    const flush = this.enqueueSessionConfigMutation(binding, async () => {
+      let modeApplied = false;
+      try {
+        if (modeId) {
+          await this.setSessionModeNow(binding, modeId);
+          modeApplied = true;
+        }
+        if (changes.length > 0) await this.setSessionConfigOptionsNow(binding, changes);
+      } catch (error) {
+        if (modeApplied && originalModeId && originalModeId !== modeId) {
+          try {
+            await this.setSessionModeNow(binding, originalModeId);
+          } catch (rollbackError) {
+            if (error && typeof error === 'object') {
+              Object.defineProperty(error, 'modeRollbackError', {
+                value: rollbackError,
+                enumerable: false,
+                configurable: true,
+              });
+            }
+          }
+        }
+        throw error;
+      }
+    })
+      .then(() => {
+        if (binding.deferredModeId === modeId) binding.deferredModeId = '';
+        for (const change of changes) {
+          if (binding.deferredConfigChanges.get(change.configId)?.value === change.value) {
+            binding.deferredConfigChanges.delete(change.configId);
+          }
+        }
+        this.clearDeferredSessionError(binding);
+      }, error => {
+        if (binding.deferredModeId === modeId) binding.deferredModeId = '';
+        for (const change of changes) {
+          if (binding.deferredConfigChanges.get(change.configId)?.value === change.value) {
+            binding.deferredConfigChanges.delete(change.configId);
+          }
+        }
+        const rollbackError = recordValue(error).modeRollbackError;
+        const configRollbackError = recordValue(error).configRollbackError;
+        binding.error = `Deferred session change was not applied: ${acpErrorMessage(error)}${
+          configRollbackError ? ` Configuration rollback also failed: ${acpErrorMessage(configRollbackError)}` : ''
+        }${
+          rollbackError ? ` Permission mode rollback also failed: ${acpErrorMessage(rollbackError)}` : ''
+        }`;
+      })
+      .finally(() => {
+        if (binding.deferredConfigFlush === flush) binding.deferredConfigFlush = null;
+        if (!this.isOpenBinding(binding)) return;
+        binding.updatedAt = new Date().toISOString();
+        this.scheduleCheckpoint(binding, { exact: true });
+        this.emitRuntime(binding);
+        void this.flushDeferredSessionChanges(binding);
+      });
+    binding.deferredConfigFlush = flush;
+  }
+
+  clearDeferredSessionError(binding: AcpBinding) {
+    if (!binding.error.startsWith('Deferred session change was not applied:')) return false;
+    binding.error = '';
     return true;
   }
 
@@ -1585,6 +1674,7 @@ class AcpRuntime extends EventEmitter {
     binding.state = String(turn.previousState || 'idle');
     turn.resolveCompletion?.({ status: 'cancelled-before-submission' });
     this.emitRuntime(binding);
+    void this.flushDeferredSessionChanges(binding);
     return true;
   }
 
@@ -1753,6 +1843,11 @@ class AcpRuntime extends EventEmitter {
           state: state.exportCheckpoint(),
         })),
         patchDecisions: [...binding.patchDecisions.entries()],
+        deferredConfigChanges: [...binding.deferredConfigChanges.entries()].map(([configId, change]) => [
+          configId,
+          clone(change.value),
+        ]),
+        deferredModeId: binding.deferredModeId,
         providerProof: binding.checkpointProof ? clone(binding.checkpointProof) : null,
       }),
     };
@@ -1793,10 +1888,25 @@ class AcpRuntime extends EventEmitter {
         if (key && ['kept', 'reverted'].includes(decision)) patchDecisions.set(key, decision);
       }
     }
+    const deferredConfigChanges = new Map<string, SessionConfigChange>();
+    if (checkpoint.version === 2 && Array.isArray(checkpoint.deferredConfigChanges)) {
+      for (const item of checkpoint.deferredConfigChanges.slice(0, 32)) {
+        if (!Array.isArray(item) || item.length !== 2) continue;
+        const configId = String(item[0] || '');
+        const value = item[1] as ConfigValue;
+        if (!configId || !['string', 'boolean', 'number'].includes(typeof value)) continue;
+        deferredConfigChanges.set(configId, { configId, value });
+      }
+    }
+    const deferredModeId = checkpoint.version === 2 && typeof checkpoint.deferredModeId === 'string'
+      ? checkpoint.deferredModeId
+      : '';
     return {
       sessionState,
       subagentStates,
       patchDecisions,
+      deferredConfigChanges,
+      deferredModeId,
       providerProof: checkpoint.version === 2 ? clone(checkpoint.providerProof) : null,
       complete: checkpoint.version === 2 && checkpoint.complete === true,
     };
@@ -2782,10 +2892,40 @@ class AcpRuntime extends EventEmitter {
 
   async setSessionMode(agentId: string, modeId: string) {
     const binding = this.requireBinding(agentId);
+    if (binding.activeTurn || binding.deferredConfigFlush) {
+      const normalizedModeId = String(modeId || '');
+      const advertisedModes = Array.isArray(binding.modes?.availableModes)
+        ? binding.modes.availableModes
+        : [];
+      if (!normalizedModeId || !advertisedModes.some(mode => String(recordValue(mode).id || '') === normalizedModeId)) {
+        throw new Error(`ACP Agent did not advertise mode ${normalizedModeId}`);
+      }
+      const previousModeId = binding.deferredModeId;
+      binding.deferredModeId = normalizedModeId;
+      try {
+        await this.writeCheckpoint(binding);
+      } catch (error) {
+        binding.deferredModeId = previousModeId;
+        throw error;
+      }
+      binding.updatedAt = new Date().toISOString();
+      this.emitRuntime(binding);
+      return {
+        sessionId: binding.sessionId,
+        deferred: true,
+        modeId: normalizedModeId,
+        deferredModeId: normalizedModeId,
+      };
+    }
     this.requireConfigMutationReady(binding);
-    return this.enqueueSessionConfigMutation(binding, () => (
+    const result = await this.enqueueSessionConfigMutation(binding, () => (
       this.setSessionModeNow(binding, modeId)
     ));
+    if (this.clearDeferredSessionError(binding)) {
+      binding.updatedAt = new Date().toISOString();
+      this.emitRuntime(binding);
+    }
+    return result;
   }
 
   async setSessionModeNow(binding: AcpBinding, modeId: string) {
@@ -2805,10 +2945,18 @@ class AcpRuntime extends EventEmitter {
 
   async setSessionConfigOption(agentId: string, configId: string, value: ConfigValue) {
     const binding = this.requireBinding(agentId);
+    if (binding.activeTurn || binding.deferredConfigFlush) {
+      return this.deferSessionConfigChanges(binding, [{ configId: String(configId || ''), value }]);
+    }
     this.requireConfigMutationReady(binding);
-    return this.enqueueSessionConfigMutation(binding, () => (
+    const result = await this.enqueueSessionConfigMutation(binding, () => (
       this.setSessionConfigOptionNow(binding, configId, value)
     ));
+    if (this.clearDeferredSessionError(binding)) {
+      binding.updatedAt = new Date().toISOString();
+      this.emitRuntime(binding);
+    }
+    return result;
   }
 
   async setSessionConfigOptionNow(binding: AcpBinding, configId: string, value: ConfigValue) {
@@ -2840,10 +2988,52 @@ class AcpRuntime extends EventEmitter {
 
   async setSessionConfigOptions(agentId: string, changes: SessionConfigChange[]) {
     const binding = this.requireBinding(agentId);
+    if (binding.activeTurn || binding.deferredConfigFlush) {
+      return this.deferSessionConfigChanges(binding, changes);
+    }
     this.requireConfigMutationReady(binding);
-    return this.enqueueSessionConfigMutation(binding, () => (
+    const result = await this.enqueueSessionConfigMutation(binding, () => (
       this.setSessionConfigOptionsNow(binding, changes)
     ));
+    if (this.clearDeferredSessionError(binding)) {
+      binding.updatedAt = new Date().toISOString();
+      this.emitRuntime(binding);
+    }
+    return result;
+  }
+
+  async deferSessionConfigChanges(binding: AcpBinding, changes: SessionConfigChange[]) {
+    const normalized = Array.isArray(changes)
+      ? changes.filter(change => change && typeof change.configId === 'string' && change.configId)
+      : [];
+    if (normalized.length === 0) throw new Error('ACP config options are required');
+    for (const change of normalized) {
+      const option = binding.configOptions.find(candidate => candidate.id === change.configId);
+      if (!option) throw new Error(`ACP Agent did not advertise config option ${change.configId}`);
+      if (option.type === 'boolean' && typeof change.value !== 'boolean') {
+        throw new Error(`ACP config option ${change.configId} requires a boolean value`);
+      }
+      if (option.type === 'select' && typeof change.value !== 'string') {
+        throw new Error(`ACP config option ${change.configId} requires a string value`);
+      }
+    }
+    const previous = new Map(binding.deferredConfigChanges);
+    for (const change of normalized) binding.deferredConfigChanges.set(change.configId, change);
+    try {
+      await this.writeCheckpoint(binding);
+    } catch (error) {
+      binding.deferredConfigChanges = previous;
+      throw error;
+    }
+    binding.updatedAt = new Date().toISOString();
+    this.emitRuntime(binding);
+    return {
+      sessionId: binding.sessionId,
+      deferred: true,
+      configOptions: binding.configOptions,
+      deferredConfigOptions: [...binding.deferredConfigChanges.values()],
+      deferredModeId: binding.deferredModeId,
+    };
   }
 
   async setSessionConfigOptionsNow(binding: AcpBinding, changes: SessionConfigChange[]) {
@@ -3002,6 +3192,8 @@ class AcpRuntime extends EventEmitter {
       authMethods: binding.initializeResponse?.authMethods || [],
       modes: binding.modes,
       configOptions: binding.configOptions,
+      deferredConfigOptions: [...binding.deferredConfigChanges.values()],
+      deferredModeId: binding.deferredModeId,
       pendingPermission: binding.pendingPermissions.values().next().value || null,
       pendingPermissions: [...binding.pendingPermissions.values()],
       pendingElicitation: binding.pendingElicitations.values().next().value || null,

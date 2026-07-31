@@ -249,6 +249,61 @@ test('ACP model matrix responds locally, settles once, and morphs Advanced witho
   }
 })
 
+test('ACP model and permission changes show one deferred warning during an active turn', async ({ page, workspaceRoot }) => {
+  const workspace = path.join(workspaceRoot, 'deferred-acp-settings')
+  fs.mkdirSync(workspace, { recursive: true })
+  const agentId = await createAcpAgent(page, workspace)
+  const state: MatrixState = { model: 'gpt-5.6-terra', reasoning: 'medium', fast: false }
+  const deferredConfigOptions: Array<{ configId: string; value: string | boolean }> = []
+  let deferredModeId = ''
+
+  await page.route(/\/farming\/api\/agents\/[^/]+\/acp-session(?:\?includeEntries=0)?$/, async route => {
+    if (route.request().method() === 'GET') {
+      await route.fulfill({ json: { session: {
+        ...sessionSnapshot(state),
+        currentModeId: 'default',
+        modes: {
+          currentModeId: 'default',
+          availableModes: [
+            { id: 'default', name: 'Default' },
+            { id: 'plan', name: 'Plan' },
+          ],
+        },
+        deferredConfigOptions,
+        deferredModeId,
+      } } })
+      return
+    }
+    const body = route.request().postDataJSON() as {
+      modeId?: string
+      configOptions?: Array<{ configId: string; value: string | boolean }>
+    }
+    if (body.modeId) deferredModeId = body.modeId
+    if (body.configOptions) {
+      deferredConfigOptions.splice(0, deferredConfigOptions.length, ...body.configOptions)
+    }
+    await route.fulfill({ json: {
+      sessionId: 'model-matrix-session',
+      deferred: true,
+      ...(body.modeId ? { modeId: body.modeId, deferredModeId } : {}),
+      configOptions: sessionSnapshot(state).configOptions,
+      deferredConfigOptions,
+    } })
+  })
+
+  await openFarming(page)
+  await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
+  await page.getByTestId('code-acp-model-picker').click()
+  await page.getByTestId('code-model-matrix-cell-sol-high').click()
+  const warning = page.getByTestId('code-acp-config-deferred')
+  await expect(warning).toContainText('Model change will apply after the current turn finishes.')
+
+  await page.getByTestId('code-acp-mode').click()
+  await page.getByTestId('code-acp-mode-menu').getByRole('menuitemradio').filter({ hasText: 'Plan' }).click()
+  await expect(warning).toContainText('Session setting changes will apply after the current turn finishes.')
+  await expect(page.getByTestId('code-acp-mode')).toHaveAttribute('data-acp-value', 'plan')
+})
+
 test('mobile ACP keeps one compact Composer state and exposes model selection before keyboard focus', async ({ page, workspaceRoot }) => {
   await page.addInitScript(() => {
     Object.defineProperty(navigator, 'maxTouchPoints', { value: 1, configurable: true })

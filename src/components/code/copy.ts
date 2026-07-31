@@ -229,6 +229,9 @@ export interface CodeCopy {
   terminalProfileApplying: string
   terminalProfileApplied: string
   terminalProfileFailed: (message: string) => string
+  configurationDeferred: string
+  permissionDeferred: string
+  sessionSettingsDeferred: string
   agentRestartTimedOut: string
   permissionRestartHint: string
   modelAndReasoning: string
@@ -748,6 +751,9 @@ const EN_COPY: CodeCopy = {
   terminalProfileApplying: 'Applying model to Codex Terminal…',
   terminalProfileApplied: 'Codex Terminal model updated.',
   terminalProfileFailed: message => `Codex Terminal model was not changed: ${message}`,
+  configurationDeferred: 'Model change will apply after the current turn finishes.',
+  permissionDeferred: 'Permission change will apply after the current turn finishes.',
+  sessionSettingsDeferred: 'Session setting changes will apply after the current turn finishes.',
   agentRestartTimedOut: 'Agent restart timed out. The previous Agent remains available; try switching again.',
   permissionRestartHint: 'The running agent restarts to apply these permissions. If it has no resumable session id yet, a fresh session starts.',
   modelAndReasoning: 'Model and reasoning',
@@ -1307,6 +1313,9 @@ const ZH_COPY: CodeCopy = {
   terminalProfileApplying: '正在应用 Codex Terminal 模型…',
   terminalProfileApplied: 'Codex Terminal 模型已更新。',
   terminalProfileFailed: message => `Codex Terminal 模型未修改：${message}`,
+  configurationDeferred: '模型调整将在当前任务结束后生效。',
+  permissionDeferred: '权限调整将在当前任务结束后生效。',
+  sessionSettingsDeferred: '会话设置调整将在当前任务结束后生效。',
   agentRestartTimedOut: 'Agent 重启超时。原 Agent 仍然可用，请重新切换。',
   permissionRestartHint: '运行中的 Agent 会重启以应用权限；如果还没有可 resume 的 Session ID，则启动一个新会话。',
   modelAndReasoning: '模型与推理',

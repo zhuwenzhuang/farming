@@ -873,7 +873,10 @@ async function run() {
       env: process.env,
       approvalMode: 'full',
     });
-    const activePrompt = runtime.prompt('agent-acp-close-during-prompt', 'mobile interrupt');
+    const activePrompt = runtime.prompt('agent-acp-close-during-prompt', 'mobile interrupt').then(
+      value => ({ value, error: null }),
+      error => ({ value: null, error }),
+    );
     for (let attempt = 0; attempt < 100; attempt += 1) {
       if (runtime.bindings.get('agent-acp-close-during-prompt').activeTurn?.phase === 'running') break;
       await new Promise(resolve => setTimeout(resolve, 10));
@@ -903,9 +906,131 @@ async function run() {
       0,
       'authentication must be rejected before any provider side effect',
     );
+    const closeDuringPromptBinding = runtime.bindings.get('agent-acp-close-during-prompt');
+    closeDuringPromptBinding.modes = {
+      currentModeId: 'default',
+      availableModes: [
+        { id: 'default', name: 'Default' },
+        { id: 'plan', name: 'Plan' },
+      ],
+    };
+    closeDuringPromptBinding.sessionState.currentModeId = 'default';
+    let deferredModeCalls = 0;
+    const applyDeferredMode = closeDuringPromptBinding.connection.setSessionMode;
+    closeDuringPromptBinding.connection.setSessionMode = async request => {
+      deferredModeCalls += 1;
+      return applyDeferredMode.call(closeDuringPromptBinding.connection, request);
+    };
+    closeDuringPromptBinding.configOptions = [
+      { id: 'toggle', name: 'Toggle', type: 'boolean', currentValue: false },
+    ];
+    closeDuringPromptBinding.sessionState.configOptions = JSON.parse(JSON.stringify(
+      closeDuringPromptBinding.configOptions,
+    ));
+    let deferredConfigCalls = 0;
+    let releaseDeferredConfig;
+    const applyDeferredConfig = closeDuringPromptBinding.connection.setSessionConfigOption;
+    closeDuringPromptBinding.connection.setSessionConfigOption = request => new Promise(resolve => {
+      deferredConfigCalls += 1;
+      releaseDeferredConfig = async () => resolve(
+        await applyDeferredConfig.call(closeDuringPromptBinding.connection, request),
+      );
+    });
+    const firstDeferred = await runtime.setSessionConfigOption(
+      'agent-acp-close-during-prompt',
+      'toggle',
+      false,
+    );
+    const latestDeferred = await runtime.setSessionConfigOption(
+      'agent-acp-close-during-prompt',
+      'toggle',
+      true,
+    );
+    assert.strictEqual(firstDeferred.deferred, true);
+    assert.strictEqual(latestDeferred.deferred, true);
+    const deferredMode = await runtime.setSessionMode('agent-acp-close-during-prompt', 'plan');
+    assert.strictEqual(deferredMode.deferred, true);
+    assert.strictEqual(runtime.getSession('agent-acp-close-during-prompt').deferredModeId, 'plan');
+    assert.strictEqual(deferredModeCalls, 0, 'deferred mode must not reach the provider during a turn');
+    assert.strictEqual(deferredConfigCalls, 0, 'deferred configuration must not reach the provider during a turn');
+    assert.deepStrictEqual(
+      runtime.getSession('agent-acp-close-during-prompt').deferredConfigOptions,
+      [{ configId: 'toggle', value: true }],
+      'the latest deferred value must replace the earlier value for the same option',
+    );
+    const deferredCheckpoint = runtime.bindingCheckpoint(closeDuringPromptBinding).exportCheckpoint();
+    assert.strictEqual(deferredCheckpoint.deferredModeId, 'plan');
+    assert.deepStrictEqual(deferredCheckpoint.deferredConfigChanges, [['toggle', true]]);
     await runtime.cancel('agent-acp-close-during-prompt');
-    assert.strictEqual((await activePrompt).stopReason, 'cancelled');
+    const activePromptOutcome = await activePrompt;
+    if (activePromptOutcome.error) {
+      throw new Error(`${activePromptOutcome.error.message}\n${closeDuringPromptBinding.stderr}`);
+    }
+    const activePromptResult = activePromptOutcome.value;
+    assert.strictEqual(activePromptResult.stopReason, 'cancelled');
     assert.strictEqual(runtime.getSession('agent-acp-close-during-prompt').state, 'idle');
+    const promptAfterDeferred = runtime.prompt('agent-acp-close-during-prompt', 'after deferred settings');
+    for (let attempt = 0; attempt < 100 && !releaseDeferredConfig; attempt += 1) {
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    assert.strictEqual(
+      closeDuringPromptBinding.activeTurn?.phase,
+      'admitting',
+      'the next prompt must wait behind the deferred Session mutation',
+    );
+    assert.strictEqual(typeof releaseDeferredConfig, 'function');
+    await releaseDeferredConfig();
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      if (runtime.getSession('agent-acp-close-during-prompt').deferredConfigOptions.length === 0) break;
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    assert.strictEqual((await promptAfterDeferred).stopReason, 'end_turn');
+    assert.strictEqual(deferredConfigCalls, 1);
+    assert.strictEqual(deferredModeCalls, 1);
+    assert.strictEqual(runtime.getSession('agent-acp-close-during-prompt').deferredModeId, '');
+    assert.strictEqual(runtime.getSession('agent-acp-close-during-prompt').currentModeId, 'plan');
+    assert.strictEqual(
+      runtime.getSession('agent-acp-close-during-prompt').configOptions.find(option => option.id === 'toggle')?.currentValue,
+      true,
+    );
+
+    const failedDeferredPrompt = runtime.prompt('agent-acp-close-during-prompt', 'mobile interrupt');
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      if (closeDuringPromptBinding.activeTurn?.phase === 'running') break;
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    closeDuringPromptBinding.connection.setSessionConfigOption = async () => {
+      deferredConfigCalls += 1;
+      throw new Error('simulated deferred configuration failure');
+    };
+    await runtime.setSessionMode('agent-acp-close-during-prompt', 'default');
+    await runtime.setSessionConfigOption('agent-acp-close-during-prompt', 'toggle', false);
+    await runtime.cancel('agent-acp-close-during-prompt');
+    assert.strictEqual((await failedDeferredPrompt).stopReason, 'cancelled');
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const snapshot = runtime.getSession('agent-acp-close-during-prompt');
+      if (!snapshot.deferredModeId && snapshot.deferredConfigOptions.length === 0) break;
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    const failedDeferredSnapshot = runtime.getSession('agent-acp-close-during-prompt');
+    assert.match(failedDeferredSnapshot.error, /simulated deferred configuration failure/);
+    assert.strictEqual(
+      failedDeferredSnapshot.currentModeId,
+      'plan',
+      'a later deferred config failure must roll the already-applied mode back',
+    );
+    assert.strictEqual(
+      failedDeferredSnapshot.configOptions.find(option => option.id === 'toggle')?.currentValue,
+      true,
+    );
+    closeDuringPromptBinding.connection.setSessionConfigOption = applyDeferredConfig;
+    await runtime.setSessionConfigOption('agent-acp-close-during-prompt', 'toggle', false);
+    const recoveredDeferredSnapshot = runtime.getSession('agent-acp-close-during-prompt');
+    assert.strictEqual(recoveredDeferredSnapshot.error, '');
+    assert.strictEqual(
+      recoveredDeferredSnapshot.configOptions.find(option => option.id === 'toggle')?.currentValue,
+      false,
+    );
 
     await runtime.prepareAgent({
       agentId: 'agent-acp-config-isolation',
