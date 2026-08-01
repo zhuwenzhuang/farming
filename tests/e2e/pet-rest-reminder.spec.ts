@@ -535,14 +535,17 @@ test('dark black-hole status stays readable and manual exit fully evaporates in 
   const captureState = {
     luminance: Number(await compositor.getAttribute('data-corner-luminance')),
     background: await compositor.getAttribute('data-cloned-body-background'),
-    stylesheets: Number(await compositor.getAttribute('data-appearance-stylesheets')),
+    engine: await compositor.getAttribute('data-capture-engine'),
+    scale: Number(await compositor.getAttribute('data-capture-scale')),
+    sampling: await compositor.getAttribute('data-scene-sampling'),
   }
-  expect(captureState).toEqual({
-    luminance: expect.any(Number),
-    background: 'rgb(24, 24, 24)',
-    stylesheets: 1,
-  })
+  expect(captureState.background).toBe('rgb(24, 24, 24)')
+  expect(captureState.engine).toBe('snapdom')
+  expect(captureState.scale).toBeGreaterThanOrEqual(2)
+  expect(captureState.sampling).toBe('single-trilinear')
   expect(captureState.luminance).toBeLessThan(80)
+  await expect(scene.locator('.code-pet-black-hole-canvas'))
+    .toHaveAttribute('data-filament-sampling', 'screen-space')
   await expect(label).toHaveCSS('color', 'rgba(226, 235, 229, 0.82)')
   await expect(clock).toHaveCSS('color', 'rgb(231, 238, 233)')
   await expect(endBreak).toHaveCSS('color', 'rgba(238, 245, 240, 0.9)')
@@ -990,6 +993,8 @@ test('black-hole keeps its initial snapshot and one renderer for the full break'
   await expect(scene.locator('.code-pet-black-hole-status')).toHaveCount(1)
   await expect(scene.locator('.code-pet-black-hole-error')).toHaveCount(0)
   await expect(compositor).toHaveAttribute('data-refresh-state', 'idle')
+  await expect(compositor).toHaveAttribute('data-capture-engine', 'snapdom')
+  await expect(compositor).toHaveAttribute('data-scene-sampling', 'single-trilinear')
 
   const initialGeneration = Number(
     await compositor.getAttribute('data-scene-generation') ?? '0',

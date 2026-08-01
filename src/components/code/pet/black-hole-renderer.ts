@@ -1,4 +1,5 @@
 import { createXtermSnapshotOverlays } from '@/lib/xterm'
+import type { SnapdomPlugin } from '@zumer/snapdom'
 
 const DISPLAY_SIZE = 840
 const FILTER_SIZE = 920
@@ -6,16 +7,19 @@ const SHADOW_PX = 72
 const MAP_SCALE = 640
 const FIELD_INNER = 0.22
 const FIELD_OUTER = 0.46
-const BLUR_OFFSET_PX = 2
 const INITIAL_SCENE_RETRY_MIN_MS = 1_000
 const INITIAL_SCENE_RETRY_MAX_MS = 10_000
-const PET_SNAPSHOT_EXCLUDE_SELECTOR = [
+const PET_SNAPSHOT_EXCLUDE_SELECTORS = [
   '[data-pet-ui]',
   '[data-pet-snapshot-exclude]',
   '.code-pet-black-hole-rest',
   '.code-pet-glass-rest-overlay',
-].join(', ')
+]
+const PET_SNAPSHOT_EXCLUDE_SELECTOR = PET_SNAPSHOT_EXCLUDE_SELECTORS.join(', ')
 const FILE_ICON_SELECTOR = 'img.code-file-type-icon'
+const SCENE_CAPTURE_TARGET_SCALE = 2.5
+const SCENE_CAPTURE_MAX_PIXELS = 20_000_000
+const SCENE_CAPTURE_MAX_DIMENSION = 8_192
 const DISPLAY_CAP = 1792
 const RENDER_SCALE = 1.25
 const INTRO_SECONDS = 15
@@ -56,6 +60,13 @@ float wrappedNoise(vec2 p, float periodY) {
     mix(hash21(vec2(i.x, y1)), hash21(vec2(i.x + 1.0, y1)), f.x),
     f.y
   );
+}
+
+float filteredWrappedNoise(vec2 p, float periodY) {
+  float value = wrappedNoise(p, periodY);
+  float footprint = max(length(dFdx(p)), length(dFdy(p)));
+  float retainedDetail = 1.0 - smoothstep(0.30, 0.95, footprint);
+  return mix(0.5, value, retainedDetail);
 }
 
 vec2 rotate2d(vec2 value, float angle) {
@@ -284,14 +295,14 @@ void main() {
         float kepler = pow(innerRadius / diskRadius, 1.5);
         float gravity = sqrt(max(1.0 - 1.5 / diskRadius, 0.02));
         float swirl = diskRadius * wind * 0.12 - uTime * kepler * gravity * speed * 0.38;
-        float fineFilament = wrappedNoise(
+        float fineFilament = filteredWrappedNoise(
           vec2(
             diskRadius * 2.8 + 0.24 * sin(phi * 3.0 - swirl * 0.22),
             turns * 19.0 + swirl * 3.0 + diskRadius * 0.72
           ),
           19.0
         );
-        float broadFilament = wrappedNoise(
+        float broadFilament = filteredWrappedNoise(
           vec2(
             diskRadius * 1.35 + 0.38 * sin(phi * 2.0 + swirl * 0.16),
             turns * 8.0 + swirl * 1.35 - diskRadius * 0.55
@@ -463,10 +474,9 @@ void main() {
   vec2 displacement = valid
     ? (sourcePoint - point) * exp(-pow(pointLength / (7.0 * horizon), 2.0)) * edge
     : vec2(0.0);
-  float offsetPixels = length(displacement) * ${DISPLAY_SIZE.toFixed(1)};
   writeMap(
     displacement * ${DISPLAY_SIZE.toFixed(1)},
-    smoother(offsetPixels / ${BLUR_OFFSET_PX.toFixed(1)})
+    edge
   );
 }`
 
@@ -477,7 +487,6 @@ uniform vec2 uResolution;
 uniform vec2 uCenter;
 uniform float uScale;
 uniform float uOpacity;
-uniform float uPixelRatio;
 uniform sampler2D uScene;
 uniform sampler2D uHigh;
 uniform sampler2D uLow;
@@ -505,20 +514,7 @@ void main() {
     (packed / 65535.0 - 0.5) * ${MAP_SCALE.toFixed(1)} * uScale * uOpacity;
   displacement.y = -displacement.y;
   vec2 samplePixel = fragment + displacement;
-  float softness = high.b * uOpacity;
-  vec4 sharp = scene(samplePixel);
-  if (softness <= 0.01) {
-    outColor = sharp;
-    return;
-  }
-  vec2 offset = vec2(0.72) * uPixelRatio * softness;
-  vec4 soft = (
-    scene(samplePixel + vec2(offset.x, offset.y))
-    + scene(samplePixel + vec2(-offset.x, offset.y))
-    + scene(samplePixel + vec2(offset.x, -offset.y))
-    + scene(samplePixel - offset)
-  ) * 0.25;
-  outColor = mix(sharp, soft, softness * 0.72);
+  outColor = scene(samplePixel);
 }`
 
 interface BlackHoleRendererElements {
@@ -647,6 +643,7 @@ function createDisplayRenderer(canvas: HTMLCanvasElement): DisplayRenderer {
   })
   if (!glContext) throw new Error('WebGL 2 is required for the black-hole appearance.')
   const gl = glContext
+  canvas.dataset.filamentSampling = 'screen-space'
 
   const program = createProgram(gl, DISPLAY_SHADER)
   const resolution = gl.getUniformLocation(program, 'uResolution')
@@ -903,6 +900,20 @@ function rasterizeVisibleFileIcons() {
   return { sources, visibleCount }
 }
 
+function sceneCaptureScale(width: number, height: number) {
+  const pixelLimit = Math.sqrt(
+    SCENE_CAPTURE_MAX_PIXELS / Math.max(1, width * height),
+  )
+  const dimensionLimit = SCENE_CAPTURE_MAX_DIMENSION
+    / Math.max(1, width, height)
+  const available = Math.min(
+    SCENE_CAPTURE_TARGET_SCALE,
+    pixelLimit,
+    dimensionLimit,
+  )
+  return Math.max(0.5, Math.floor(available * 8) / 8)
+}
+
 async function createSceneImage() {
   const testWindow = window as Window & {
     __FARMING_E2E__?: boolean
@@ -920,113 +931,72 @@ async function createSceneImage() {
   }
   const width = window.innerWidth
   const height = window.innerHeight
-  const pixelRatio = Math.min(2, Math.max(1, window.devicePixelRatio || 1))
+  const captureScale = sceneCaptureScale(width, height)
   const captureStartedAt = performance.now()
-  const { default: html2canvas } = await import('html2canvas')
-  const appearanceStyles = Array.from(document.styleSheets).flatMap(sheet => {
-    if (!sheet.href) return []
-    try {
-      const cssText = Array.from(sheet.cssRules)
-        .map(rule => rule.cssText)
-        .join('\n')
-      return cssText.includes('body.code-mode[data-appearance=')
-        && cssText.includes('color-scheme: dark')
-        ? [{
-            href: sheet.href,
-            cssText,
-            media: (sheet.ownerNode as HTMLLinkElement | null)?.media ?? '',
-          }]
-        : []
-    } catch {
-      return []
-    }
-  })
+  const { snapdom } = await import('@zumer/snapdom')
   const backgroundColor = getComputedStyle(document.body).backgroundColor
     || '#101418'
   const removeXtermOverlays = createXtermSnapshotOverlays()
   const fileIcons = rasterizeVisibleFileIcons()
-  let excludedElementCount = 0
+  const excludedElementCount = document
+    .querySelectorAll(PET_SNAPSHOT_EXCLUDE_SELECTOR)
+    .length
   let remainingExcludedElementCount = 0
   let rasterizedFileIconCount = 0
-  let clonedBodyBackground = ''
-  try {
-    const image = await html2canvas(document.body, {
-      allowTaint: false,
-      backgroundColor,
-      foreignObjectRendering: false,
-      height,
-      ignoreElements: element => (
-        element.closest(PET_SNAPSHOT_EXCLUDE_SELECTOR) !== null
-        || element.tagName === 'SCRIPT'
-        || element.tagName === 'NOSCRIPT'
-        || element.tagName === 'VIDEO'
-        || element.tagName === 'BROWSER-MCP-CONTAINER'
-      ),
-      imageTimeout: 500,
-      logging: false,
-      onclone: clonedDocument => {
-        const clonedBody = clonedDocument.body
-        clonedBody.className = document.body.className
-        clonedBody.dataset.appearance = document.body.dataset.appearance
-          ?? 'light'
-        appearanceStyles.forEach(stylesheet => {
-          const link = Array.from(
-            clonedDocument.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]'),
-          ).find(candidate => candidate.href === stylesheet.href)
-          if (!link) return
-          const style = clonedDocument.createElement('style')
-          style.dataset.farmingAppearanceSnapshot = ''
-          style.media = stylesheet.media
-          style.textContent = stylesheet.cssText
-          link.replaceWith(style)
+  const clonedBodyBackground = backgroundColor
+  const snapshotPlugin: SnapdomPlugin = {
+    name: 'farming-black-hole-snapshot',
+    afterClone(context) {
+      const clone = context.clone
+      if (!clone) return
+      remainingExcludedElementCount = clone
+        .querySelectorAll(PET_SNAPSHOT_EXCLUDE_SELECTOR)
+        .length
+      clone
+        .querySelectorAll<HTMLElement>('[data-pet-xterm-snapshot]')
+        .forEach(overlay => {
+          overlay.style.visibility = 'visible'
         })
-        clonedBodyBackground = getComputedStyle(clonedBody).backgroundColor
-        const excludedElements = Array.from(
-          clonedDocument.querySelectorAll(PET_SNAPSHOT_EXCLUDE_SELECTOR),
-        )
-        excludedElementCount = excludedElements.length
-        excludedElements.forEach(element => element.remove())
-        remainingExcludedElementCount = clonedDocument
-          .querySelectorAll(PET_SNAPSHOT_EXCLUDE_SELECTOR)
-          .length
-        clonedBody.style.width = `${width}px`
-        clonedBody.style.height = `${height}px`
-        clonedBody.style.margin = '0'
-        clonedBody.style.overflow = 'hidden'
-        clonedDocument
-          .querySelectorAll<HTMLImageElement>(FILE_ICON_SELECTOR)
-          .forEach(image => {
-            const source = image.currentSrc || image.src
-            const rasterizedSource = fileIcons.sources.get(source)
-            if (!rasterizedSource) return
-            image.removeAttribute('srcset')
-            image.src = rasterizedSource
-            rasterizedFileIconCount += 1
-          })
-        clonedDocument
-          .querySelectorAll<HTMLElement>('[data-pet-xterm-snapshot]')
-          .forEach(overlay => {
-            overlay.style.visibility = 'visible'
-          })
-      },
-      removeContainer: true,
-      scale: pixelRatio,
-      scrollX: 0,
-      scrollY: 0,
-      useCORS: true,
-      width,
-      windowHeight: height,
-      windowWidth: width,
-      x: 0,
-      y: 0,
+      clone
+        .querySelectorAll<HTMLImageElement>(FILE_ICON_SELECTOR)
+        .forEach(image => {
+          const source = image.currentSrc || image.src
+          const rasterizedSource = fileIcons.sources.get(source)
+          if (!rasterizedSource) return
+          image.removeAttribute('srcset')
+          image.src = rasterizedSource
+          rasterizedFileIconCount += 1
+        })
+    },
+  }
+  try {
+    const image = await snapdom.toCanvas(document.body, {
+      backgroundColor,
+      cache: 'disabled',
+      clip: 'viewport',
+      compress: false,
+      dpr: captureScale,
+      embedFonts: true,
+      exclude: [
+        ...PET_SNAPSHOT_EXCLUDE_SELECTORS,
+        'script',
+        'noscript',
+        'video',
+        'browser-mcp-container',
+      ],
+      excludeMode: 'remove',
+      outerTransforms: false,
+      plugins: [snapshotPlugin],
+      scale: 1,
     })
     image.dataset.captureMs = String(Math.round(performance.now() - captureStartedAt))
+    image.dataset.captureEngine = 'snapdom'
+    image.dataset.captureScale = captureScale.toFixed(3)
     image.dataset.excludedPetElements = String(excludedElementCount)
     image.dataset.remainingPetElements = String(remainingExcludedElementCount)
     image.dataset.visibleFileIcons = String(fileIcons.visibleCount)
     image.dataset.rasterizedFileIcons = String(rasterizedFileIconCount)
     image.dataset.clonedBodyBackground = clonedBodyBackground
-    image.dataset.appearanceStylesheets = String(appearanceStyles.length)
     const context = image.getContext('2d', { willReadFrequently: true })
     if (context) {
       const pixel = context.getImageData(0, 0, 1, 1).data
@@ -1059,7 +1029,6 @@ function createCompositorRenderer(
   const center = gl.getUniformLocation(program, 'uCenter')
   const scale = gl.getUniformLocation(program, 'uScale')
   const opacity = gl.getUniformLocation(program, 'uOpacity')
-  const pixelRatioUniform = gl.getUniformLocation(program, 'uPixelRatio')
   const textures: WebGLTexture[] = []
 
   const texture = (unit: number, source: TexImageSource) => {
@@ -1116,6 +1085,8 @@ function createCompositorRenderer(
       gl.UNSIGNED_BYTE,
       image,
     )
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR)
+    gl.generateMipmap(gl.TEXTURE_2D)
   }
 
   return {
@@ -1131,6 +1102,19 @@ function createCompositorRenderer(
       canvas.dataset.captureMs = image instanceof HTMLCanvasElement
         ? image.dataset.captureMs
         : ''
+      canvas.dataset.captureEngine = image instanceof HTMLCanvasElement
+        ? (image.dataset.captureEngine ?? '')
+        : ''
+      canvas.dataset.captureScale = image instanceof HTMLCanvasElement
+        ? (image.dataset.captureScale ?? '')
+        : ''
+      canvas.dataset.captureWidth = image instanceof HTMLCanvasElement
+        ? String(image.width)
+        : ''
+      canvas.dataset.captureHeight = image instanceof HTMLCanvasElement
+        ? String(image.height)
+        : ''
+      canvas.dataset.sceneSampling = 'single-trilinear'
       canvas.dataset.excludedPetElements = image instanceof HTMLCanvasElement
         ? (image.dataset.excludedPetElements ?? '')
         : ''
@@ -1149,9 +1133,6 @@ function createCompositorRenderer(
       canvas.dataset.clonedBodyBackground = image instanceof HTMLCanvasElement
         ? (image.dataset.clonedBodyBackground ?? '')
         : ''
-      canvas.dataset.appearanceStylesheets = image instanceof HTMLCanvasElement
-        ? (image.dataset.appearanceStylesheets ?? '')
-        : ''
       canvas.style.opacity = '1'
     },
     draw(pose) {
@@ -1167,7 +1148,6 @@ function createCompositorRenderer(
       )
       gl.uniform1f(scale, pose.scale * pose.mass * pixelRatio)
       gl.uniform1f(opacity, pose.lensOpacity)
-      gl.uniform1f(pixelRatioUniform, pixelRatio)
       gl.drawArrays(gl.TRIANGLES, 0, 3)
     },
     destroy() {
