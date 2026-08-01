@@ -6135,6 +6135,12 @@ function getCrtMainAgentDialogAction({
   if (!needsMainAgent(currentState)) {
     return dialogActive && pendingMainAgent ? 'hide' : 'none';
   }
+  // A live regular Agent is already a valid supervision surface. Do not let
+  // the optional Main Agent onboarding dialog re-open over its session or the
+  // surrounding search/billing controls after an asynchronous state refresh.
+  if (getCrtLiveAgents(currentState).length > 0) {
+    return dialogActive && pendingMainAgent ? 'hide' : 'none';
+  }
   if (mainView !== 'agents' || dialogActive) return 'none';
   return 'show';
 }

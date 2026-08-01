@@ -8786,10 +8786,17 @@ button.code-agent-transcript-result-summary:focus-visible {
   flex: 1 1 auto;
   display: flex;
   align-items: flex-end;
+  box-sizing: border-box;
+  padding-right: var(--code-file-editor-actions-width, 0px);
   overflow-x: auto;
   overflow-y: hidden;
   overscroll-behavior-x: contain;
+  scroll-padding-right: var(--code-file-editor-actions-width, 0px);
   scrollbar-width: none;
+}
+
+.code-file-editor-tabs > .code-file-editor-tab {
+  scroll-margin-right: var(--code-file-editor-actions-width, 0px);
 }
 
 .code-file-editor-tabs::-webkit-scrollbar {

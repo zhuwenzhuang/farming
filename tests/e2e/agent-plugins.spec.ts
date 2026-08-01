@@ -5,12 +5,27 @@ import { selectCodeOption } from './code-select'
 
 test('Plugins treats each Agent Home as an independent ordered Agent configuration', async ({ page, workspaceRoot }) => {
   await openFarming(page)
-  const codexDefaultHome = path.join(workspaceRoot, 'codex-default')
-  const claudeDefaultHome = path.join(workspaceRoot, 'claude-default')
+  const currentSettingsResponse = await page.request.get('/farming/api/settings')
+  expect(currentSettingsResponse.ok()).toBeTruthy()
+  const currentSettings = await currentSettingsResponse.json() as {
+    settings?: {
+      agentHomes?: Record<string, Array<{
+        id: string
+        path: string
+        order?: number
+        newAgentDefaults?: { model?: string; reasoning?: string; fast?: string }
+      }>>
+    }
+  }
+  const codexDefault = currentSettings.settings?.agentHomes?.codex?.find(home => home.id === 'default')
+  const claudeDefault = currentSettings.settings?.agentHomes?.claude?.find(home => home.id === 'default')
+  expect(codexDefault?.path).toBeTruthy()
+  expect(claudeDefault?.path).toBeTruthy()
+
+  const claudePrimaryHome = path.join(workspaceRoot, 'claude-primary')
   const claudeWorkHome = path.join(workspaceRoot, 'claude-work')
   const codexWorkHome = path.join(workspaceRoot, 'codex-work')
-  fs.mkdirSync(codexDefaultHome, { recursive: true })
-  fs.mkdirSync(claudeDefaultHome, { recursive: true })
+  fs.mkdirSync(claudePrimaryHome, { recursive: true })
   fs.mkdirSync(claudeWorkHome, { recursive: true })
   fs.mkdirSync(codexWorkHome, { recursive: true })
   fs.writeFileSync(path.join(codexWorkHome, 'config.toml'), [
@@ -18,8 +33,8 @@ test('Plugins treats each Agent Home as an independent ordered Agent configurati
     'model_reasoning_effort = "high"',
     'service_tier = "priority"',
   ].join('\n'))
-  fs.writeFileSync(path.join(claudeDefaultHome, 'settings.json'), JSON.stringify({
-    env: { ANTHROPIC_MODEL: 'claude-default-only' },
+  fs.writeFileSync(path.join(claudePrimaryHome, 'settings.json'), JSON.stringify({
+    env: { ANTHROPIC_MODEL: 'claude-primary-only' },
   }))
   fs.writeFileSync(path.join(claudeWorkHome, 'settings.json'), JSON.stringify({
     env: { ANTHROPIC_MODEL: 'claude-work-only' },
@@ -29,10 +44,8 @@ test('Plugins treats each Agent Home as an independent ordered Agent configurati
       agentHomes: {
         codex: [
           {
-            id: 'default',
-            path: codexDefaultHome,
+            ...codexDefault!,
             order: 2,
-            newAgentDefaults: { model: 'inherit', reasoning: 'inherit', fast: 'inherit' },
           },
           {
             id: 'work',
@@ -43,8 +56,8 @@ test('Plugins treats each Agent Home as an independent ordered Agent configurati
         ],
         claude: [
           {
-            id: 'default',
-            path: claudeDefaultHome,
+            id: 'primary',
+            path: claudePrimaryHome,
             order: 1,
             newAgentDefaults: { model: 'inherit', reasoning: 'inherit', fast: 'inherit' },
           },
@@ -53,6 +66,10 @@ test('Plugins treats each Agent Home as an independent ordered Agent configurati
             path: claudeWorkHome,
             order: 3,
             newAgentDefaults: { model: 'inherit', reasoning: 'inherit', fast: 'inherit' },
+          },
+          {
+            ...claudeDefault!,
+            order: 4,
           },
         ],
       },
@@ -70,7 +87,7 @@ test('Plugins treats each Agent Home as an independent ordered Agent configurati
     sections.map(section => section.getAttribute('data-testid')).slice(0, 3)
   ))).toEqual([
     'code-plugin-section-agent-codex-work',
-    'code-plugin-section-agent-claude-default',
+    'code-plugin-section-agent-claude-primary',
     'code-plugin-section-agent-codex-default',
   ])
 
@@ -79,11 +96,11 @@ test('Plugins treats each Agent Home as an independent ordered Agent configurati
   await expect(openCode.getByRole('combobox')).toHaveCount(0)
   await expect(panel.locator('.code-plugin-extension')).toHaveCount(0)
 
-  const claudeDefault = panel.getByTestId('code-plugin-section-agent-claude-default')
+  const claudePrimary = panel.getByTestId('code-plugin-section-agent-claude-primary')
   const claudeWork = panel.getByTestId('code-plugin-section-agent-claude-work')
-  await expect(claudeDefault.locator('.code-plugin-agent-configuration')).toContainText('Model: claude-default-only')
+  await expect(claudePrimary.locator('.code-plugin-agent-configuration')).toContainText('Model: claude-primary-only')
   await expect(claudeWork.locator('.code-plugin-agent-configuration')).toContainText('Model: claude-work-only')
-  await expect(claudeDefault.getByRole('combobox')).toHaveCount(0)
+  await expect(claudePrimary.getByRole('combobox')).toHaveCount(0)
   await expect(claudeWork.getByRole('combobox')).toHaveCount(0)
 
   const work = panel.getByTestId('code-plugin-section-agent-codex-work')
@@ -105,7 +122,7 @@ test('Plugins treats each Agent Home as an independent ordered Agent configurati
   await expect.poll(() => agentSections.evaluateAll(sections => (
     sections.map(section => section.getAttribute('data-testid')).slice(0, 2)
   ))).toEqual([
-    'code-plugin-section-agent-claude-default',
+    'code-plugin-section-agent-claude-primary',
     'code-plugin-section-agent-codex-work',
   ])
   await work.getByRole('button', { name: 'Edit configuration', exact: true }).click()

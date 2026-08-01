@@ -1,4 +1,5 @@
 import {
+  useLayoutEffect,
   useRef,
   useState,
   type DragEvent as ReactDragEvent,
@@ -68,7 +69,21 @@ export function FileEditorTabs({
   actions,
 }: FileEditorTabsProps) {
   const [tabDrag, setTabDrag] = useState<FileEditorTabDragState | null>(null)
+  const tabStripRef = useRef<HTMLDivElement | null>(null)
   const draggedTabKeyRef = useRef<string | null>(null)
+
+  useLayoutEffect(() => {
+    const tabStrip = tabStripRef.current
+    const actionBar = tabStrip?.querySelector<HTMLElement>(':scope > .code-file-editor-actions')
+    if (!tabStrip || !actionBar) return
+    const syncActionWidth = () => {
+      tabStrip.style.setProperty('--code-file-editor-actions-width', `${Math.ceil(actionBar.getBoundingClientRect().width)}px`)
+    }
+    syncActionWidth()
+    const observer = new ResizeObserver(syncActionWidth)
+    observer.observe(actionBar)
+    return () => observer.disconnect()
+  }, [])
 
   const finishTabDrag = () => {
     setTabDrag(null)
@@ -78,7 +93,7 @@ export function FileEditorTabs({
   }
 
   return (
-    <div className="code-file-editor-tab-strip">
+    <div ref={tabStripRef} className="code-file-editor-tab-strip">
       <div className="code-file-editor-navigation">
         {openFile.sourceAgentId && (
           <>

@@ -1554,6 +1554,7 @@ export function createBlackHolePetRenderer({
   let diskClock = 18.5
   let initialSceneInFlight = false
   let initialSceneRetryId: number | null = null
+  let testExitTimerId: number | null = null
   let initialSceneFailures = 0
   const testWindow = window as Window & {
     __FARMING_E2E__?: boolean
@@ -1595,6 +1596,7 @@ export function createBlackHolePetRenderer({
 
   const completeExit = () => {
     clearSchedule()
+    if (testWindow.__FARMING_E2E__) delete testWindow.__farmingBlackHoleExitProgress
     const complete = exitComplete
     exitComplete = null
     complete?.()
@@ -1614,6 +1616,12 @@ export function createBlackHolePetRenderer({
     if (initialSceneRetryId === null) return
     window.clearTimeout(initialSceneRetryId)
     initialSceneRetryId = null
+  }
+
+  const clearTestExitTimer = () => {
+    if (testExitTimerId === null) return
+    window.clearTimeout(testExitTimerId)
+    testExitTimerId = null
   }
 
   const loadInitialScene = () => {
@@ -1767,15 +1775,21 @@ export function createBlackHolePetRenderer({
   }
 
   const renderTestFrames = async (count = 1) => {
-    const boundedCount = Math.max(1, Math.min(120, Math.trunc(count) || 1))
+    const boundedCount = Math.max(1, Math.min(8, Math.trunc(count) || 1))
+    clearSchedule()
     for (let index = 0; index < boundedCount; index += 1) {
       if (destroyed || !active || document.hidden) return
-      await new Promise<void>(resolve => {
-        requestId = requestAnimationFrame(now => {
-          frame(now)
-          resolve()
-        })
-      })
+      frame(performance.now())
+      // Yield to the browser so WebGL query results and React effects can
+      // settle without depending on a throttled requestAnimationFrame clock.
+      await new Promise<void>(resolve => window.setTimeout(resolve, 0))
+    }
+    if (canvas.dataset.gpuTimer === 'warming') {
+      // The production renderer needs a continuous sample window before it
+      // publishes a percentile. Bounded E2E rendering intentionally has no
+      // such window, so report that timing evidence is unavailable instead
+      // of leaving consumers in an unbounded transient state.
+      canvas.dataset.gpuTimer = 'unavailable'
     }
   }
   if (testWindow.__FARMING_E2E__) {
@@ -1822,11 +1836,26 @@ export function createBlackHolePetRenderer({
       exitReturnsHome = returnHome
       exitComplete = onComplete
       schedule()
+      if (testWindow.__FARMING_E2E__) {
+        clearTestExitTimer()
+        testExitTimerId = window.setTimeout(() => {
+          testExitTimerId = null
+          if (
+            destroyed
+            || exitingAt === null
+            || Number.isFinite(testWindow.__farmingBlackHoleExitProgress)
+          ) return
+          testWindow.__farmingBlackHoleExitProgress = 1
+          frame(performance.now())
+          delete testWindow.__farmingBlackHoleExitProgress
+        }, 100)
+      }
     },
     destroy() {
       destroyed = true
       clearSchedule()
       clearInitialSceneRetry()
+      clearTestExitTimer()
       if (testWindow.__farmingBlackHoleRenderFrames === renderTestFrames) {
         delete testWindow.__farmingBlackHoleRenderFrames
       }

@@ -172,7 +172,9 @@ test('overlays right-side file actions on overflowing tabs and shows a seamless 
       actionBottom: actionRect.bottom,
       actionLeft: actionRect.left,
       actionRight: actionRect.right,
+      actionWidth: actionRect.width,
       tabsRight: tabsRect.right,
+      tabsRightPadding: getComputedStyle(tabs).paddingRight,
       tabsOverflow: tabs.scrollWidth > tabs.clientWidth,
       tabTop: tabRect.top,
       tabBottom: tabRect.bottom,
@@ -195,6 +197,7 @@ test('overlays right-side file actions on overflowing tabs and shows a seamless 
   expect(headerLayout.actionBottom).toBeLessThanOrEqual(headerLayout.tabBottom)
   expect(headerLayout.actionLeft).toBeLessThan(headerLayout.tabsRight)
   expect(headerLayout.actionRight).toBeLessThanOrEqual(headerLayout.tabsRight)
+  expect(Number.parseFloat(headerLayout.tabsRightPadding)).toBeGreaterThanOrEqual(headerLayout.actionWidth)
   expect(headerLayout.tabsOverflow).toBe(true)
   expect(headerLayout.breadcrumbTop).toBeGreaterThanOrEqual(headerLayout.tabBottom)
   expect(headerLayout.actionBorderWidth).toBe('0px')

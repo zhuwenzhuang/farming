@@ -274,6 +274,10 @@ function run() {
     agents: [{ id: 'main-agent', status: 'running' }],
   };
   const missingMainAgentState = { mainAgentId: '', agents: [] };
+  const regularAgentOnlyState = {
+    mainAgentId: '',
+    agents: [{ id: 'regular-agent', status: 'running' }],
+  };
   assert.strictEqual(getCrtMainAgentDialogAction({
     currentState: missingMainAgentState,
     mainView: 'history',
@@ -288,6 +292,16 @@ function run() {
     currentState: missingMainAgentState,
     mainView: 'agents',
   }), 'show', 'the Agents view should still onboard a genuinely missing Main Agent');
+  assert.strictEqual(getCrtMainAgentDialogAction({
+    currentState: regularAgentOnlyState,
+    mainView: 'agents',
+  }), 'none', 'Main Agent onboarding should not cover an existing regular Agent supervision surface');
+  assert.strictEqual(getCrtMainAgentDialogAction({
+    currentState: regularAgentOnlyState,
+    mainView: 'agents',
+    dialogActive: true,
+    pendingMainAgent: true,
+  }), 'hide', 'a regular Agent should dismiss stale automatic Main Agent onboarding');
   assert.strictEqual(getCrtMainAgentDialogAction({
     currentState: missingMainAgentState,
     mainView: 'agents',
