@@ -1554,7 +1554,6 @@ export function createBlackHolePetRenderer({
   let diskClock = 18.5
   let initialSceneInFlight = false
   let initialSceneRetryId: number | null = null
-  let testExitTimerId: number | null = null
   let initialSceneFailures = 0
   const testWindow = window as Window & {
     __FARMING_E2E__?: boolean
@@ -1616,12 +1615,6 @@ export function createBlackHolePetRenderer({
     if (initialSceneRetryId === null) return
     window.clearTimeout(initialSceneRetryId)
     initialSceneRetryId = null
-  }
-
-  const clearTestExitTimer = () => {
-    if (testExitTimerId === null) return
-    window.clearTimeout(testExitTimerId)
-    testExitTimerId = null
   }
 
   const loadInitialScene = () => {
@@ -1836,26 +1829,11 @@ export function createBlackHolePetRenderer({
       exitReturnsHome = returnHome
       exitComplete = onComplete
       schedule()
-      if (testWindow.__FARMING_E2E__) {
-        clearTestExitTimer()
-        testExitTimerId = window.setTimeout(() => {
-          testExitTimerId = null
-          if (
-            destroyed
-            || exitingAt === null
-            || Number.isFinite(testWindow.__farmingBlackHoleExitProgress)
-          ) return
-          testWindow.__farmingBlackHoleExitProgress = 1
-          frame(performance.now())
-          delete testWindow.__farmingBlackHoleExitProgress
-        }, 100)
-      }
     },
     destroy() {
       destroyed = true
       clearSchedule()
       clearInitialSceneRetry()
-      clearTestExitTimer()
       if (testWindow.__farmingBlackHoleRenderFrames === renderTestFrames) {
         delete testWindow.__farmingBlackHoleRenderFrames
       }

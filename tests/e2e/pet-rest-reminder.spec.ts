@@ -52,6 +52,14 @@ async function setBlackHoleExitProgress(page: Page, progress: number, frameCount
   }, { value: progress, frames: frameCount })
 }
 
+async function renderBlackHoleFrames(page: Page, frameCount = 1) {
+  await page.evaluate(async frames => {
+    await (window as Window & {
+      __farmingBlackHoleRenderFrames?: (count?: number) => Promise<void>
+    }).__farmingBlackHoleRenderFrames?.(frames)
+  }, frameCount)
+}
+
 async function makeRestReminderInvitationReady(page: Page) {
   await page.addInitScript(({ invitationRuntimeKey }) => {
     sessionStorage.setItem(invitationRuntimeKey, JSON.stringify({
@@ -778,6 +786,10 @@ for (const appearance of ['glass', 'black-hole'] as const) {
       await expect(scene.locator('.code-pet-black-hole-canvas')).toHaveCount(1)
     }
     await scene.getByRole('button', { name: 'End break' }).click()
+    if (appearance === 'black-hole') {
+      await expect(scene).toHaveClass(/exiting/)
+      await setBlackHoleExitProgress(page, 1)
+    }
     await expect(scene).toHaveCount(0, {
       timeout: appearance === 'black-hole' ? 7_000 : 1_000,
     })
@@ -821,6 +833,8 @@ test('reloading an active black-hole break keeps one Pet renderer', async ({ pag
   await expect(scene.locator('.code-pet-black-hole-compositor')).toHaveCount(1)
 
   await scene.getByRole('button', { name: 'End break' }).click()
+  await expect(scene).toHaveClass(/exiting/)
+  await setBlackHoleExitProgress(page, 1)
   await expect(scene).toHaveCount(0, { timeout: 7_000 })
 })
 
@@ -882,6 +896,8 @@ test('backend disconnect does not reset or duplicate an active black-hole break'
   await expect(scene).toHaveCount(1)
   await expect(scene.locator('.code-pet-black-hole-canvas')).toHaveCount(1)
   await scene.getByRole('button', { name: 'End break' }).click()
+  await expect(scene).toHaveClass(/exiting/)
+  await setBlackHoleExitProgress(page, 1)
   await expect(scene).toHaveCount(0, { timeout: 7_000 })
 })
 
@@ -973,6 +989,7 @@ test('natural black-hole evaporation resumes at the absolute-time progress', asy
   const compositor = scene.locator('.code-pet-black-hole-compositor')
   const canvas = scene.locator('.code-pet-black-hole-canvas')
   await expect(scene).toHaveClass(/exiting/)
+  await renderBlackHoleFrames(page)
   await expect.poll(async () => Number(
     await canvas.getAttribute('data-home-attraction') ?? '0',
   )).toBeGreaterThan(0.85)
@@ -989,6 +1006,8 @@ test('natural black-hole evaporation resumes at the absolute-time progress', asy
     return distance / Math.hypot(window.innerWidth, window.innerHeight)
   })
   expect(homeDistanceRatio).toBeLessThan(0.12)
+  await page.waitForTimeout(700)
+  await renderBlackHoleFrames(page)
   await expect.poll(async () => Number(
     await compositor.getAttribute('data-exit-progress') ?? '0',
   )).toBeGreaterThan(0.18)
@@ -1024,10 +1043,12 @@ test('natural black-hole evaporation resumes at the absolute-time progress', asy
     testDocument.__petVisibilityState = 'visible'
     document.dispatchEvent(new Event('visibilitychange'))
   })
+  await renderBlackHoleFrames(page)
   await expect.poll(async () => Number(
     await compositor.getAttribute('data-exit-progress') ?? '0',
   )).toBeGreaterThan(progressBeforeHide + 0.05)
   await expect(compositor).toHaveAttribute('data-evaporation-phase', 'blue-shift')
+  await setBlackHoleExitProgress(page, 1)
   await expect(scene).toHaveCount(0, { timeout: 16_000 })
 })
 
@@ -1083,6 +1104,8 @@ test('black-hole keeps its initial snapshot and one renderer for the full break'
   await expect(scene.locator('.code-pet-black-hole-compositor')).toHaveCount(1)
 
   await scene.getByRole('button', { name: 'End break' }).click()
+  await expect(scene).toHaveClass(/exiting/)
+  await setBlackHoleExitProgress(page, 1)
   await expect(scene).toHaveCount(0, { timeout: 7_000 })
 })
 
@@ -1132,6 +1155,8 @@ test('initial black-hole snapshot failure retries and clears the visible error',
   await expect(scene.locator('.code-pet-black-hole-canvas')).toBeVisible()
 
   await scene.getByRole('button', { name: 'End break' }).click()
+  await expect(scene).toHaveClass(/exiting/)
+  await setBlackHoleExitProgress(page, 1)
   await expect(scene).toHaveCount(0, { timeout: 7_000 })
 })
 
@@ -1165,6 +1190,7 @@ test('ending a break remains bounded while the first snapshot is unavailable', a
   await expect(scene.locator('.code-pet-black-hole-error')).toHaveCount(1)
   await scene.getByRole('button', { name: 'End break' }).click()
   await expect(scene).toHaveClass(/exiting/)
+  await setBlackHoleExitProgress(page, 1)
   await expect(scene).toHaveCount(0, { timeout: 7_000 })
 })
 

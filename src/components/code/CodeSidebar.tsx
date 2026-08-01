@@ -58,7 +58,7 @@ import { BrandAboutDialog } from './BrandAboutDialog'
 import { InstanceNameDialog } from './InstanceNameDialog'
 import { mobileActionMenuPoint, outwardContextMenuPoint } from './menu-position'
 import { ShareQrButton } from './ShareQrButton'
-import { isCompactViewport } from '@/lib/responsive-mode'
+import { isCompactViewport, isTouchInputViewport } from '@/lib/responsive-mode'
 import { projectFilesWorkspaceId } from '@/lib/project-workspaces'
 import { formatWorkspaceForDisplay } from '@/lib/workspace-options'
 import { stableProjectSourceAgentId } from './workspace-derived'
@@ -2273,7 +2273,7 @@ function AgentRow({
     <div
       tabIndex={0}
       className={`code-agent-row ${providerIcon ? 'has-provider' : ''} ${requiresResume ? 'requires-resume' : ''} ${active ? 'active' : ''} ${searchSelected ? 'search-selected' : ''} ${rowState.pinned ? 'pinned' : ''} ${rowState.unread ? 'unread' : ''} ${dragging ? 'dragging' : ''} ${dropPosition ? `drop-${dropPosition}` : ''}`}
-      draggable={reorderable || undefined}
+      draggable={(reorderable && !isTouchInputViewport()) || undefined}
       data-testid={rowTestId}
       data-agent-id={liveAgent?.id}
       data-activity-level={liveAgent?.activityLevel}

@@ -32,7 +32,9 @@ function run() {
   assert(!workspace.includes('agentListOrderRef'));
   assert(workspace.includes('const reorderSidebarAgent = useCallback'));
   assert(workspace.includes("appPath(`/api/agent-sessions/${encodeURIComponent(contextMenuAgentSession.provider)}"));
-  assert(sidebar.includes('draggable={reorderable || undefined}'));
+  assert(sidebar.includes('isCompactViewport, isTouchInputViewport'));
+  assert(sidebar.includes("from '@/lib/responsive-mode'"));
+  assert(sidebar.includes('draggable={(reorderable && !isTouchInputViewport()) || undefined}'));
   assert(sidebar.includes('if (draggedRef.current)'));
   assert(!sidebar.includes('code-agent-drag-handle'));
   assert(sidebar.includes('useAgentReorder('));

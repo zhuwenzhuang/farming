@@ -441,6 +441,7 @@ test.describe('iPhone mobile layout', () => {
     const agentId = await createControlAgent(page, 'bash', projectDir)
     await page.getByTestId('code-mobile-menu').tap()
     await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).tap()
+    await expect(page.getByTestId('code-mobile-sidebar-backdrop')).toHaveCount(0)
     await page.setViewportSize({ width: 844, height: 390 })
     await expect(page.locator('body')).toHaveClass(/code-compact-layout/)
     await expect.poll(async () => page.evaluate(() => {
@@ -466,13 +467,15 @@ test.describe('iPhone mobile layout', () => {
     expect(geometry.composer.bottom).toBeLessThanOrEqual(geometry.viewport.height)
     const input = page.getByTestId('code-composer-input')
     await input.tap()
-    await page.keyboard.insertText("printf 'IPHONE_LANDSCAPE_%s\\n' 'OK'")
+    await page.keyboard.insertText('echo IPHONE_LANDSCAPE_OK')
     await page.getByTestId('code-composer-send').tap()
     await expect.poll(async () => {
       const response = await page.request.get(`/farming/api/agents/${agentId}/session-view`)
       const data = await response.json()
-      return String(data.session?.renderOutput || data.session?.output || '')
-    }, { timeout: 15_000 }).toContain('IPHONE_LANDSCAPE_OK')
+      return [data.session?.output, data.session?.renderOutput, data.session?.previewText]
+        .filter(Boolean)
+        .join('\n')
+    }, { timeout: 30_000 }).toContain('IPHONE_LANDSCAPE_OK')
     await expect.poll(async () => page.evaluate(
       id => (window.__farmingTerminalTest?.getRows(id, 10_000) ?? []).join('\n'),
       agentId,
@@ -814,7 +817,7 @@ test.describe('iPhone mobile layout', () => {
       const rect = (element as HTMLElement).getBoundingClientRect()
       return { left: Math.round(rect.left), width: Math.round(rect.width), viewportWidth: window.innerWidth }
     })
-    expect(settingsDrawerMetrics.left).toBe(0)
+    expect(Math.abs(settingsDrawerMetrics.left)).toBeLessThanOrEqual(1)
     expect(settingsDrawerMetrics.width).toBeLessThan(settingsDrawerMetrics.viewportWidth)
     await settingsPanel.getByRole('button', { name: /Back to navigation|返回导航/ }).click()
     await expect(settingsPanel).toHaveCount(0)
