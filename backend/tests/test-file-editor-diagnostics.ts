@@ -22,8 +22,10 @@ function run() {
   );
 
   assert(
-    designSource.includes('disable its semantic and suggestion diagnostics until Farming has a project-backed language service') &&
-      designZhSource.includes('接入基于真实 Project 的语言服务前关闭 semantic 和 suggestion diagnostics'),
+    designSource.includes("keep Monaco syntax diagnostics but disable Monaco's isolated semantic and suggestion diagnostics") &&
+      designSource.includes('Project-level diagnostics appear only through a connected VS Code Bridge and only for the saved file') &&
+      designZhSource.includes('保留 Monaco 的语法诊断，但关闭 Monaco 隔离环境中的 Semantic 和 Suggestion Diagnostics') &&
+      designZhSource.includes('项目级诊断只通过已连接的 VS Code Bridge 提供，并且只针对已保存文件'),
     'Project Files design docs should state the syntax-only diagnostics boundary'
   );
 
