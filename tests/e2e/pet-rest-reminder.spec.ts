@@ -466,23 +466,9 @@ test('black-hole lifecycle stays fluid across every macro phase', async ({ page 
   await expect(canvas).toHaveAttribute('data-gpu-timer', 'sampled', {
     timeout: 5_000,
   })
-  const readBackingGeometry = () => canvas.evaluate(element => {
-    const node = element as HTMLCanvasElement
-    const rect = node.getBoundingClientRect()
-    const ratio = node.width / (rect.width * window.devicePixelRatio)
-    const divisor = Math.max(1, Math.round(1 / ratio))
-    return {
-      backing: node.width,
-      ratio,
-      exactRatio: Math.abs(ratio - 1 / divisor) < 1e-6,
-      square: node.width === node.height,
-    }
-  })
-  await expect.poll(async () => (await readBackingGeometry()).exactRatio).toBe(true)
-  const geometry = await readBackingGeometry()
-  expect(geometry.square).toBe(true)
-  expect(geometry.backing).toBeLessThanOrEqual(1792)
-  expect(geometry.backing).toBeGreaterThanOrEqual(512)
+  await expect.poll(() => canvas.evaluate(element => (
+    (element as HTMLCanvasElement).width
+  ))).toBe(1792)
   const gpuTiming = await canvas.evaluate(element => ({
     samples: Number((element as HTMLCanvasElement).dataset.gpuSamples),
     p95Ms: Number((element as HTMLCanvasElement).dataset.gpuP95Ms),
@@ -579,7 +565,7 @@ test('dark black-hole status stays readable and manual exit fully evaporates in 
   expect(captureState.background).toBe('rgb(24, 24, 24)')
   expect(captureState.engine).toBe('snapdom')
   expect(captureState.scale).toBeGreaterThanOrEqual(2)
-  expect(captureState.sampling).toMatch(/^radial-gradient-(anisotropic|trilinear)$/)
+  expect(captureState.sampling).toBe('single-trilinear')
   expect(captureState.luminance).toBeLessThan(80)
   await expect(scene.locator('.code-pet-black-hole-canvas'))
     .toHaveAttribute('data-filament-sampling', 'screen-space')
@@ -1031,10 +1017,7 @@ test('black-hole keeps its initial snapshot and one renderer for the full break'
   await expect(scene.locator('.code-pet-black-hole-error')).toHaveCount(0)
   await expect(compositor).toHaveAttribute('data-refresh-state', 'idle')
   await expect(compositor).toHaveAttribute('data-capture-engine', 'snapdom')
-  await expect(compositor).toHaveAttribute(
-    'data-scene-sampling',
-    /^radial-gradient-(anisotropic|trilinear)$/,
-  )
+  await expect(compositor).toHaveAttribute('data-scene-sampling', 'single-trilinear')
 
   const initialGeneration = Number(
     await compositor.getAttribute('data-scene-generation') ?? '0',
