@@ -340,6 +340,7 @@ The Linux `glibc217` ABI bundle is separate from the normal release workflow. Bu
 
 Pre-release gate for public versions:
 
+- Treat a fully successful `CI` workflow for the exact release commit as the first non-negotiable publication gate. Do not dispatch or continue a release while any CI job is missing, pending, cancelled, or failed; fix the product or test failure, push a new candidate revision, and restart qualification from that revision.
 - Start from a clean worktree. Bump `package.json` and `package-lock.json` before dispatching a release; never move or reuse an existing `vX.Y.Z` tag.
 - Run the fast source checks first: `npm test`, `npm run typecheck`, `npm run lint`, `npm audit --omit=dev`, and `FARMING_BASE_PATH=/farming npm run build`.
 - Run focused Playwright specs for changed UI surfaces. Prefer small, targeted browser checks during iteration, then broaden only when the changed surface warrants it.
@@ -356,7 +357,7 @@ Pre-release gate for public versions:
 - Build release artifacts through the repo release scripts or GitHub release workflow, not by committing generated bundles.
 - Guard packaged dependencies: when packaging-related files change, compare package contents or manifests against the previous release so an update cannot accidentally drop required production dependencies, native assets, runtime files, or install scripts.
 - Smoke-test the built CLI/app bundle artifacts, not only the source checkout.
-- Push the release commit and require the `CI` workflow for that exact revision to complete successfully before publishing. Resolve every failed CI check; a green Release workflow is not a substitute for failed CI. The Release workflow must wait for and fail closed on that revision-bound CI result.
+- Push the release commit and require the `CI` workflow for that exact revision to complete successfully before publishing. A green Release workflow is not a substitute for failed CI. The Release workflow must wait for and fail closed on that revision-bound CI result.
 - Push the release commit, then manually dispatch `.github/workflows/release.yml` from that branch with the exact unprefixed `release_version` (`X.Y.Z`). The workflow runs all builds and smokes before npm publish. Only after npm has accepted the package and proved the matching source revision does it create the annotated `vX.Y.Z` tag and a draft GitHub Release, then make that draft public. Thus an npm failure creates no official tag or Release and the version remains reusable. If npm succeeds but GitHub Release publication fails, rerun the same dispatch to finish it; that version is valid and must not be reused. Watch the workflow and confirm Linux/macOS artifacts, checksums, manifest, npm package, and the public GitHub Release page using `release-notes/vX.Y.Z.md` exist before calling the release done.
 - The release workflow publishes `farming-code@X.Y.Z` to npm. Bootstrap the first public package with a scoped automation `NPM_TOKEN` repository secret; after that first package exists, configure npm Trusted Publishing for this repository and `.github/workflows/release.yml`, remove the token secret, and let GitHub OIDC publish with provenance. Never reuse an npm version or a Git tag whose matching npm package has been published.
 

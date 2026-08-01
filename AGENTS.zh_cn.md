@@ -650,6 +650,7 @@ CRT 皮肤效果开关存储在 `~/.farming/settings.json` 的 `crtSkinEffectsEn
 
 **公开版本发布前门禁：**
 
+- 把发布提交对应的完整 `CI` workflow 全部成功作为第一条、不可绕过的发布门禁。任何 CI Job 缺失、运行中、取消或失败时，都不得触发或继续发布；必须先修复产品或测试问题，push 新的候选 Revision，并从该 Revision 重新完成发布验收。
 - 从干净 worktree 开始。创建新 release tag 前必须同时更新 `package.json` 和 `package-lock.json` 版本号；不得移动或复用已有 `vX.Y.Z` tag。
 - 先跑快速源码检查：`npm test`、`npm run typecheck`、`npm run lint`、`npm audit --omit=dev` 和 `FARMING_BASE_PATH=/farming npm run build`。
 - 对本次改动涉及的 UI 面跑聚焦 Playwright；迭代中优先小而快的浏览器检查，只有变更面足够大时再扩大验证。
@@ -667,8 +668,8 @@ CRT 皮肤效果开关存储在 `~/.farming/settings.json` 的 `crtSkinEffectsEn
 - release 产物必须通过仓库 release 脚本或 GitHub release workflow 构建，不得提交生成出来的 bundle。
 - 守住打包依赖：凡是改到打包相关文件时，必须和上一版 package contents 或 manifest 对比，避免用户升级后缺 production dependency、native asset、runtime file 或 install script。
 - 对构建出的 CLI/app bundle 产物跑 smoke；不能只验证源码 checkout。
-- push release commit 后，发布前必须确认该精确 Revision 的 `CI` workflow 全部成功。任何 failed CI 都必须先解决；Release workflow 显示绿色不能替代失败的 CI。Release workflow 必须等待该 Revision 对应的 CI 结果，并在 CI 未成功时阻断发布。
-- 先 push release commit，再 push 新 `vX.Y.Z` tag；随后观察 GitHub Release workflow，确认 Linux/macOS 产物、checksum、manifest，以及使用 `release-notes/vX.Y.Z.md` 的 GitHub Release 页面都生成后，才算发布完成。
+- push release commit 后，发布前必须确认该精确 Revision 的 `CI` workflow 全部成功。Release workflow 显示绿色不能替代失败的 CI。Release workflow 必须等待该 Revision 对应的 CI 结果，并在 CI 未成功时阻断发布。
+- 先 push release commit，并确认该精确 Revision 的 `CI` 全部成功；然后从该分支手动触发 `.github/workflows/release.yml`，输入不带 `v` 前缀的精确 `release_version`（`X.Y.Z`）。Workflow 会先完成全部 Build 与 Smoke；只有 npm 接受包并证明其来源 Revision 一致后，才创建 annotated `vX.Y.Z` tag 和 Draft GitHub Release，再将 Draft 公开。因此 npm 失败时不会留下正式 tag 或 Release，该版本仍可复用；如果 npm 已成功但 GitHub Release 发布失败，必须重跑同一次 Dispatch 来完成发布，该版本有效且不得复用。观察整个 Workflow，确认 Linux/macOS 产物、checksum、manifest、npm package，以及使用 `release-notes/vX.Y.Z.md` 的公开 GitHub Release 页面都存在后，才算发布完成。
 
 ### 配置项说明
 
