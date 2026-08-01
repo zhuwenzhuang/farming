@@ -384,6 +384,24 @@ class FakeAgent implements Agent {
   async prompt(params: PromptRequest): Promise<PromptResponse> {
     const promptText = params.prompt?.map(block => block.type === 'text' ? block.text : '').join('') || '';
     const imageCount = params.prompt?.filter(block => block.type === 'image').length || 0;
+    if (promptText.includes('disconnect adapter once')) {
+      if (!hasSessionScenario(params.sessionId, 'adapter-disconnect-once')) {
+        markSessionScenario(params.sessionId, 'adapter-disconnect-once');
+        process.exit(23);
+      }
+      fs.writeFileSync(path.join(process.cwd(), '.adapter-disconnect-replayed'), '1');
+    }
+    if (promptText.includes('new explicit request after reconnect')) {
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          messageId: 'adapter-reconnect-answer',
+          content: { type: 'text', text: 'ACP reconnect reply' },
+        },
+      });
+      return { stopReason: 'end_turn' };
+    }
     if (promptText.includes('mobile interrupt')) {
       await client.sessionUpdate({
         sessionId: params.sessionId,

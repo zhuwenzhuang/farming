@@ -451,6 +451,7 @@ export function PluginsPanel({
   const [agentDraft, setAgentDraft] = useState<AgentHomeDraft | null>(null)
   const [draggingAgentKey, setDraggingAgentKey] = useState('')
   const [selectedExtension, setSelectedExtension] = useState<SelectedAgentExtension | null>(null)
+  const selectedExtensionTriggerRef = useRef<HTMLButtonElement | null>(null)
   const [activeTab, setActiveTab] = useState<PluginsTab>('farming')
   const [activeExtensionHomeKey, setActiveExtensionHomeKey] = useState('')
   const [activeExtensionKind, setActiveExtensionKind] = useState('skill')
@@ -945,6 +946,14 @@ export function PluginsPanel({
   const activateTab = useCallback((tab: PluginsTab) => {
     setActiveTab(tab)
     setSelectedExtension(null)
+  }, [])
+
+  const closeSelectedExtension = useCallback(() => {
+    setSelectedExtension(null)
+    window.requestAnimationFrame(() => {
+      const trigger = selectedExtensionTriggerRef.current
+      if (trigger?.isConnected) trigger.focus({ preventScroll: true })
+    })
   }, [])
 
   const handleTabKeyDown = useCallback((event: ReactKeyboardEvent<HTMLButtonElement>) => {
@@ -1481,7 +1490,10 @@ export function PluginsPanel({
                   type="button"
                   className="code-plugin-extension"
                   key={`${extension.agentName}:${extension.id}`}
-                  onClick={() => setSelectedExtension(extension)}
+                  onClick={event => {
+                    selectedExtensionTriggerRef.current = event.currentTarget
+                    setSelectedExtension(extension)
+                  }}
                 >
                   <span className="code-plugin-extension-icon" aria-hidden="true">{extensionKindGlyph(extension.kind)}</span>
                   <span className="code-plugin-extension-copy">
@@ -1511,7 +1523,7 @@ export function PluginsPanel({
         <div
           className="code-plugin-detail-backdrop"
           role="presentation"
-          onPointerDown={() => setSelectedExtension(null)}
+          onPointerDown={closeSelectedExtension}
         >
           <section
             className="code-plugin-detail-dialog"
@@ -1523,7 +1535,7 @@ export function PluginsPanel({
             onKeyDown={event => {
               if (event.key !== 'Escape') return
               event.stopPropagation()
-              setSelectedExtension(null)
+              closeSelectedExtension()
             }}
           >
             <header>
@@ -1536,7 +1548,7 @@ export function PluginsPanel({
                 autoFocus
                 aria-label={copy.closeDetails}
                 title={copy.closeDetails}
-                onClick={() => setSelectedExtension(null)}
+                onClick={closeSelectedExtension}
               >
                 <CloseGlyph />
               </button>

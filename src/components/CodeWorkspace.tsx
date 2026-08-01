@@ -2383,6 +2383,13 @@ export function CodeWorkspace({
     focusComposerTextarea()
   }, [activeAgent, activeAgentCanInterrupt, focusComposerTextarea, onInterruptAgent])
 
+  const reconnectActiveAcpAgent = useCallback(() => {
+    if (!activeAgent || !isAcpRuntime(activeAgent)) return
+    void fetch(appPath(`/api/agents/${encodeURIComponent(activeAgent.id)}/acp-session/reconnect`), {
+      method: 'POST',
+    })
+  }, [activeAgent])
+
   const respondToActiveAcpPermission = useCallback((requestId: string, optionId?: string, cancelled?: boolean) => {
     if (!activeAgent) return
     void respondToAcpPermission(activeAgent.id, requestId, optionId, cancelled === true)
@@ -3037,15 +3044,14 @@ export function CodeWorkspace({
       return
     }
 
-    if (event.key === 'ArrowDown') {
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      const target = event.target
+      const agentRow = target instanceof HTMLElement
+        ? target.closest<HTMLElement>('[data-testid="code-agent-row"], [data-testid="code-project-agent-compact"], [data-testid="code-pinned-agent-compact"], [data-testid="code-active-session-row"]')
+        : null
+      if (target !== event.currentTarget && target !== agentRow) return
       event.preventDefault()
-      openAdjacentVisibleTarget(1)
-      return
-    }
-
-    if (event.key === 'ArrowUp') {
-      event.preventDefault()
-      openAdjacentVisibleTarget(-1)
+      openAdjacentVisibleTarget(event.key === 'ArrowDown' ? 1 : -1)
     }
   }, [openAdjacentVisibleTarget, openSearch])
 
@@ -5630,6 +5636,7 @@ export function CodeWorkspace({
         archivedRuns={visibleArchivedRuns}
         archivedAgents={visibleArchivedAgents}
         historyAgentSessions={visibleHistoryAgentSessions}
+        openHistorySessionKeys={agentListState.claimedAgentSessionKeys}
         historyAgentSessionsLoading={agentSessionsFreshLoading}
         historyAgentSessionsError={agentSessionsFreshError}
         providerSessionTotal={agentSessionTotal}
@@ -5670,6 +5677,7 @@ export function CodeWorkspace({
           onRemoveAttachment: removeComposerAttachment,
           onSubmit: submitAcpDraft,
           onInterrupt: interruptActiveAgent,
+          onReconnect: reconnectActiveAcpAgent,
           onDiscardPendingFollowUp: discardPendingFollowUp,
           onEditPendingFollowUp: editPendingFollowUp,
           onSteerPendingFollowUp: steerPendingFollowUp,

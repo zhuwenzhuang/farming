@@ -37,12 +37,25 @@ async function run() {
   let releaseTurn = () => {};
   let releaseSubmission = () => {};
   let holdSubmission = false;
+  let rejectBeforeSubmission = false;
+  let reconnectRequired = false;
+  let reconnectCount = 0;
+  runtime.reconnectAgent = async () => {
+    if (!reconnectRequired) return { reconnected: false };
+    reconnectRequired = false;
+    reconnectCount += 1;
+    return { reconnected: true };
+  };
   runtime.submitMessage = async (
     _agentId,
     _prompt,
     options: { onSubmitted?: () => void } = {},
   ) => {
     submitCount += 1;
+    if (rejectBeforeSubmission) {
+      reconnectRequired = true;
+      throw new Error('simulated ACP connection closed before admission');
+    }
     if (holdSubmission) {
       await new Promise<void>(resolve => {
         releaseSubmission = resolve;
@@ -138,6 +151,25 @@ async function run() {
     const persistedIntent = configManager.sessionStore.readRecord(agent.persistentSessionId)
       .composerCommands.find(command => command.requestId === 'composer-request-2');
     assert.strictEqual(persistedIntent.state, 'intent', 'the crash-safe disk state remains conservative when accepted persistence fails');
+    releaseTurn();
+
+    rejectBeforeSubmission = true;
+    await assert.rejects(
+      () => manager.sendComposerMessage(agent.id, 'retry after reconnect', {
+        requestId: 'composer-request-reconnect',
+      }),
+      /connection closed before admission/,
+    );
+    const persistedFailure = configManager.sessionStore.readRecord(agent.persistentSessionId)
+      .composerCommands.find(command => command.requestId === 'composer-request-reconnect');
+    assert.strictEqual(persistedFailure.state, 'failed');
+    rejectBeforeSubmission = false;
+    const retriedAfterReconnect = await manager.sendComposerMessage(agent.id, 'retry after reconnect', {
+      requestId: 'composer-request-reconnect',
+    });
+    assert.strictEqual(retriedAfterReconnect.accepted, true);
+    assert.strictEqual(reconnectCount, 1, 'a definitive failed retry must reconnect before provider admission');
+    assert.strictEqual(submitCount, 5, 'the failed attempt and explicit retry should each submit at most once');
     releaseTurn();
 
     console.log('test-composer-admission-idempotency passed');

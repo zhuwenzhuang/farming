@@ -1042,6 +1042,12 @@ export function UsagePanel({
     <div
       className={`code-usage-panel ${collapsed ? 'collapsed' : ''} ${mobileDetailAvailable ? '' : 'mobile-unavailable'}`}
       data-testid="code-usage-panel"
+      onKeyDown={event => {
+        if (event.key !== 'Escape' || collapsed || event.defaultPrevented) return
+        event.preventDefault()
+        event.stopPropagation()
+        onToggleCollapsed()
+      }}
     >
       {mobileDetailAvailable && (
         <button

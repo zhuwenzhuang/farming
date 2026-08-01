@@ -185,6 +185,7 @@ export interface CodeCopy {
   forceDelete: string
   cancel: string
   retry: string
+  reconnect: string
   save: string
   stopAgentDescription: (title: string) => string
   acknowledgeUnprovenAcpExit: string
@@ -273,10 +274,13 @@ export interface CodeCopy {
   restore: string
   continueRun: string
   open: string
+  openOnMainPage: string
   archived: string
   pinned: string
   unread: string
   showMore: string
+  showMoreAgents: (count: number) => string
+  showMoreAgentSessions: (count: number) => string
   showLess: string
   showAgents: string
   hideAgents: string
@@ -684,6 +688,7 @@ const EN_COPY: CodeCopy = {
   forceDelete: 'Permanently Delete',
   cancel: 'Cancel',
   retry: 'Retry',
+  reconnect: 'Reconnect',
   save: 'Save',
   stopAgentDescription: title => `Stop ${title} and close its terminal.`,
   acknowledgeUnprovenAcpExit: 'Confirm Exit and Remove',
@@ -798,10 +803,13 @@ const EN_COPY: CodeCopy = {
   restore: 'Restore',
   continueRun: 'Continue',
   open: 'Open',
+  openOnMainPage: 'Open on main page',
   archived: 'Archived',
   pinned: 'Pinned',
   unread: 'Unread',
   showMore: 'Show more',
+  showMoreAgents: count => `Show ${count} more Agent${count === 1 ? '' : 's'}`,
+  showMoreAgentSessions: count => `Show ${count} more Agent session${count === 1 ? '' : 's'}`,
   showLess: 'Show less',
   showAgents: 'Show agents',
   hideAgents: 'Hide agents',
@@ -1209,6 +1217,7 @@ const ZH_COPY: CodeCopy = {
   forceDelete: '彻底删除',
   cancel: '取消',
   retry: '重试',
+  reconnect: '重新连接',
   save: '保存',
   stopAgentDescription: title => `停止 ${title} 并关闭它的终端。`,
   acknowledgeUnprovenAcpExit: '确认已退出并移除',
@@ -1359,10 +1368,13 @@ const ZH_COPY: CodeCopy = {
   restore: '恢复',
   continueRun: '继续',
   open: '打开',
+  openOnMainPage: '已在主页面打开',
   archived: '已归档',
   pinned: '已置顶',
   unread: '未读',
   showMore: '显示更多',
+  showMoreAgents: count => `再显示 ${count} 个 Agent`,
+  showMoreAgentSessions: count => `再显示 ${count} 个 Agent 会话`,
   showLess: '收起',
   showAgents: '展开 Agent',
   hideAgents: '隐藏 Agent',

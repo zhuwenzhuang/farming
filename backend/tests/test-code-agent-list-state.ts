@@ -108,8 +108,8 @@ function run() {
   );
   assert.deepStrictEqual(
     state.historyAgentSessions.map(item => item.id),
-    ['archived-main-page', 'history-open', 'older-unclaimed'],
-    'history keeps unclaimed non-main-page sessions and archived main-page sessions out of the active agent list'
+    ['claude-claimed', 'archived-main-page', 'history-open', 'code-claimed', 'older-unclaimed'],
+    'history keeps claimed sessions visible for main-page markers alongside unclaimed and archived history'
   );
   assert.deepStrictEqual(
     Array.from(claimedAgentSessionKeysForAgents([

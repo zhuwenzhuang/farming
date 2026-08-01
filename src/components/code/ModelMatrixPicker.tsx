@@ -81,12 +81,6 @@ function MatrixRocker({
     }, 650)
   }
 
-  function finishLandingKick() {
-    if (kickTimerRef.current !== null) window.clearTimeout(kickTimerRef.current)
-    kickTimerRef.current = null
-    setKicking(false)
-  }
-
   return (
     <div
       className={`code-model-matrix-rocker is-ultra ${active ? 'is-active' : ''} ${unavailable ? 'is-disabled' : ''}`}
@@ -109,10 +103,7 @@ function MatrixRocker({
             <span className="code-model-matrix-rocker-energy" />
           </span>
           <span className="code-model-matrix-rocker-knob-position">
-            <span
-              className={`code-model-matrix-rocker-knob ${kicking ? 'is-kicked' : ''}`}
-              onAnimationEnd={finishLandingKick}
-            />
+            <span className={`code-model-matrix-rocker-knob ${kicking ? 'is-kicked' : ''}`} />
           </span>
         </span>
       </button>

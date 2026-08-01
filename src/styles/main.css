@@ -12825,6 +12825,14 @@ body.code-mode.code-compact-layout .code-empty-workspace-compact {
   text-overflow: ellipsis;
 }
 
+.code-history-open-marker {
+  display: inline-block;
+  border-radius: 999px;
+  background: rgba(31, 35, 40, 0.07);
+  color: #57606a;
+  padding: 1px 6px;
+}
+
 .code-history-agent-icon {
   width: 14px;
   height: 14px;
@@ -14741,11 +14749,12 @@ body.code-mode .code-history-agent-icon .agent-launch-icon,
 }
 
 .code-model-matrix-rocker-control.is-kicked {
-  animation: code-model-rocker-impact 210ms 300ms cubic-bezier(.2, .8, .2, 1);
+  /* Rattle while approaching the detent, before the 340ms knob travel ends. */
+  animation: code-model-rocker-impact 120ms 190ms cubic-bezier(.2, .8, .2, 1);
 }
 
 .code-model-matrix-rocker-knob.is-kicked {
-  animation: code-model-rocker-kick 210ms 300ms cubic-bezier(.2, .8, .2, 1);
+  animation: code-model-rocker-kick 120ms 190ms cubic-bezier(.2, .8, .2, 1);
 }
 
 .code-model-matrix-shell[data-ultra='on']:has(.code-model-matrix-rocker-control.is-kicked) .code-model-matrix-fill {

@@ -1845,6 +1845,7 @@ function ProjectSection({
                         type="button"
                         className="code-agent-row code-session-show-more"
                         data-testid="code-session-show-more"
+                        aria-label={copy.showMoreAgentSessions(project.hiddenAgentSessionCount ?? 0)}
                         onClick={() => onToggleProjectSessions(project.id)}
                       >
                         <span className="code-agent-row-copy">
@@ -1879,6 +1880,7 @@ function ProjectSection({
                         type="button"
                         className={`code-agent-row code-session-show-more ${droppingAtProjectEnd ? 'drop-after' : ''}`}
                         data-testid="code-agent-show-more"
+                        aria-label={copy.showMoreAgents(hiddenProjectAgentCount)}
                         onClick={() => setProjectAgentsExpanded(true)}
                         onDragOver={updateProjectEndDropTarget}
                         onDrop={dropAgentAtProjectEnd}

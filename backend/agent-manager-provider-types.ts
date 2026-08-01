@@ -455,6 +455,10 @@ export interface AcpRuntimeContract {
   on(event: 'agent-runtime', listener: (event: AcpRuntimeEvent) => void): this;
   on(event: 'session', listener: (event: AcpSessionEvent) => void): this;
   prepareAgent(options?: AcpPrepareOptions): Promise<AcpPrepareResult>;
+  reconnectAgent(
+    agentId: string,
+    options?: { onProcessStopped?: () => Promise<void> | void },
+  ): Promise<Record<string, unknown>>;
   createSessionIdentity(options: ProviderSessionIdentityRequest): Promise<ProviderSessionIdentityResult>;
   submitMessage(agentId: string, prompt: AcpPromptBlock[], options?: AcpSubmitOptions): Promise<AcpSubmitResult>;
   getSession(agentId: string, options?: Record<string, unknown>): Record<string, unknown>;

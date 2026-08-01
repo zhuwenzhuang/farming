@@ -62,6 +62,10 @@ Linux 目标每轮都要记录：
 - 远程 Linux 上每个 story 使用单独端口，避免多个 dogfood agent 互相抢同一个 Farming server。
 - 真实 Codex / Claude smoke 可以复用目标机器现有登录态，但不能修改登录配置、默认模型配置或 quota/reset 相关状态。
 
+Playwright 服务必须用自己的临时配置根目录覆盖任何继承的
+`FARMING_CONFIG_DIR`。从正在运行的 Farming Agent 内启动测试时也必须如此，
+避免测试后端协调或停止父服务的 ACP 进程。
+
 推荐目录：
 
 ```text
@@ -100,6 +104,8 @@ Linux 目标每轮都要记录：
 - Codex model / reasoning / speed。
 - Claude settings 摘要、模型、effort、启动 permission mode。
 - agent launch profile 合并和手写 CLI 参数优先级；运行中切换权限会用所选 flag 重启，已有稳定 provider Session ID 时 resume、没有时启动新会话，并在替换过程中保持当前 agent 与 Chat / Terminal 视图。
+- 空 Workspace 的无效启动不得进入防重复锁，输入与 Start 必须保持可立即修改和重试。
+- 新建 Codex Chat Agent 必须在首个 Turn 仍运行时发布首任务 fallback 标题；后续 Provider 显式标题可以覆盖它。
 
 验收不变量：
 - UI 只展示真实可用或配置推导出的选项。
@@ -107,6 +113,8 @@ Linux 目标每轮都要记录：
 - Codex / Claude 切换不应展示做不到的统一能力。
 
 ### 3. Composer 和输入框
+
+所有已打开的 Composer 菜单都必须能用 Escape 关闭并把焦点恢复到输入框，包括焦点仍停留在菜单触发按钮上的情况。
 
 覆盖：
 - 普通文本、Enter、Shift+Enter、Ctrl/Cmd+Enter。
@@ -139,12 +147,16 @@ Linux 目标每轮都要记录：
 
 ### 5. Project / Sidebar / History
 
+焦点位于 History 搜索框时，Escape 必须像全局 Search 一样返回工作区。
+
 覆盖：
 - Project 分组、Files section、active agent、active session；Files 展开后，变更、未跟踪、历史和根级文件树行应保持一致的字号、行高、垂直节奏，以及箭头和文字起点，计数和 Review 操作可保留语义强调。
 - Pin / unread / rename / Move to History。
 - Move Project to History。
 - History 统一展示为 History Agents，按解析到的 agent/session 元数据更新时间排序；不在主页面 membership 中的 session 才出现在 History。
 - duplicate title 下的 resume id / run id 区分。
+- Agent 或 Session 的“显示更多”等独立控件收到方向键时，不得进入 Agent 导航或切换当前 Agent；两类分页控件同时出现时必须提供包含隐藏数量的不同可访问名称。
+- 关闭 Settings 或 Extension 详情后，焦点必须返回打开它的控件。
 
 验收不变量：
 - `Move to History` 表示把对象移出主页面并进入 History；Farming 不再把 archive 当成额外特殊状态。
@@ -165,6 +177,8 @@ Linux 目标每轮都要记录：
 - 大文件和二进制文件不进入危险保存链路。
 
 ### 7. Usage 和系统状态
+
+Usage 面板展开且焦点位于面板内部时，Escape 必须收起面板。
 
 覆盖：
 - Codex / Claude quota 摘要。

@@ -13,6 +13,10 @@ function run() {
   const releaseWorkflow = fs.readFileSync(path.join(root, '.github/workflows/release.yml'), 'utf8');
   const packageJson = require(path.join(root, 'package.json'));
   const bundleCliScript = fs.readFileSync(path.join(root, 'scripts/bundle-cli-runtime.ts'), 'utf8');
+  const prepareCodexAcpVendorScript = fs.readFileSync(
+    path.join(root, 'scripts/prepare-codex-acp-vendor.ts'),
+    'utf8',
+  );
   const packagedAcpBridge = fs.readFileSync(path.join(root, 'backend/acp/packaged-codex-acp.cts'), 'utf8');
   const packagedClaudeAcpBridge = fs.readFileSync(path.join(root, 'backend/acp/packaged-claude-acp.cts'), 'utf8');
   const previousEntry = process.env.FARMING_PKG_ENTRY;
@@ -63,6 +67,12 @@ function run() {
       && packagedClaudeAcpBridge.includes('omitted its embedded Claude ACP runtime')
       && bundleCliScript.includes("'claude-agent-acp-0.59.0.mjs'"),
     'standalone CLI must bundle a hidden entry for the pinned Claude ACP runtime',
+  );
+  assert(
+    prepareCodexAcpVendorScript.includes('fs.copyFileSync(sourceEntry, temporaryEntry)')
+      && prepareCodexAcpVendorScript.includes('fs.renameSync(temporaryEntry, targetEntry)')
+      && !prepareCodexAcpVendorScript.includes('fs.copyFileSync(sourceEntry, targetEntry)'),
+    'Codex ACP vendor preparation must atomically replace a potentially live adapter entry',
   );
   assert(
     appPackageScript.includes(

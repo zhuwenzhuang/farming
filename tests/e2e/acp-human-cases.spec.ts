@@ -99,6 +99,34 @@ test.describe('ACP human-like browser matrix', () => {
       .toHaveCount(0)
   })
 
+  test('reconnects an exited ACP adapter without replaying the interrupted request', async ({ page, workspaceRoot }) => {
+    const workspace = path.join(workspaceRoot, 'acp-adapter-reconnect')
+    fs.mkdirSync(workspace, { recursive: true })
+
+    const agentId = await createAcpAgent(page, workspace)
+    await openFarming(page)
+    await agentRow(page, agentId).click()
+    await sendAcpMessage(page, 'disconnect adapter once')
+
+    const reconnect = page.getByTestId('code-acp-reconnect')
+    await expect(reconnect).toBeVisible({ timeout: 15_000 })
+    await expect(page.getByText('ACP reply', { exact: true })).toHaveCount(0)
+
+    const reconnectResponsePromise = page.waitForResponse(response => (
+      response.request().method() === 'POST'
+      && response.url().includes(`/api/agents/${agentId}/acp-session/reconnect`)
+    ))
+    await reconnect.click()
+    const reconnectResponse = await reconnectResponsePromise
+    expect(reconnectResponse.ok()).toBeTruthy()
+    await expect(reconnectResponse.json()).resolves.toMatchObject({ reconnected: true })
+    await expect(page.getByTestId('code-acp-reconnect')).toHaveCount(0, { timeout: 15_000 })
+
+    await sendAcpMessage(page, 'new explicit request after reconnect')
+    await expect(page.getByText('ACP reconnect reply', { exact: true })).toBeVisible({ timeout: 15_000 })
+    expect(fs.existsSync(path.join(workspace, '.adapter-disconnect-replayed'))).toBe(false)
+  })
+
   test('paints the terminal checkpoint after switching from Chat', async ({ page, workspaceRoot }) => {
     const workspace = path.join(workspaceRoot, 'acp-chat-to-terminal')
     fs.mkdirSync(workspace, { recursive: true })

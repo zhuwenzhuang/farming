@@ -789,6 +789,11 @@ body.code-mode[data-appearance='dark'] .code-search-panel .code-empty-workspace 
   color: var(--code-dark-text-muted);
 }
 
+body.code-mode[data-appearance='dark'] .code-history-open-marker {
+  background: rgba(139, 148, 158, 0.16);
+  color: var(--code-dark-text-muted);
+}
+
 body.code-mode[data-appearance='dark'] .code-empty-workspace .code-empty-home-card {
   background: transparent;
   color: var(--code-dark-text);

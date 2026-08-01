@@ -625,6 +625,25 @@ index fb338ee..20191ea 100755
        }
        case "skill":
          return [{ type: "text", text: `skill:${input.name} (${input.path})` }];
+@@ -29498,4 +29962,8 @@ var CodexAcpServer = class _CodexAcpServer {
+         }
+       });
++      await this.publishFallbackSessionTitle(
++        sessionState,
++        this.createPromptFallbackTitle(params.prompt)
++      );
+       const turnCompleted = await Promise.race([
+         sendPromptPromise,
+@@ -29515,9 +29983,5 @@ var CodexAcpServer = class _CodexAcpServer {
+       if (error51) {
+         throw error51;
+       }
+-      await this.publishFallbackSessionTitle(
+-        sessionState,
+-        this.createPromptFallbackTitle(params.prompt)
+-      );
+       return {
+         stopReason: "end_turn",
 @@ -29805,6 +30269,9 @@ var CodexAppServerClient = class {
    async turnStart(params) {
      return await this.sendRequest({ method: "turn/start", params });

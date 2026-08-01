@@ -1751,6 +1751,15 @@ app.post(routePath(BASE_PATH, '/api/agents/:agentId/acp-session/logout'), async 
   }
 });
 
+app.post(routePath(BASE_PATH, '/api/agents/:agentId/acp-session/reconnect'), async (req, res) => {
+  try {
+    const result = await agentManager.reconnectAcpAgent(req.params.agentId);
+    res.json(result);
+  } catch (error) {
+    res.status(409).json({ error: caughtError(error).message || 'Failed to reconnect ACP Agent' });
+  }
+});
+
 app.post(routePath(BASE_PATH, '/api/agents/:agentId/acp-session/fork'), express.json(), async (req, res) => {
   try {
     res.json(await agentManager.forkAcpSession(req.params.agentId, req.body || {}));

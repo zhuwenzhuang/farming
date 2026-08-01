@@ -269,6 +269,7 @@ interface CodeMainAreaProps {
   archivedRuns: TaskHistoryEntry[]
   archivedAgents: Agent[]
   historyAgentSessions: AgentSessionHistoryItem[]
+  openHistorySessionKeys: ReadonlySet<string>
   historyAgentSessionsLoading: boolean
   historyAgentSessionsError: string
   providerSessionTotal: number | null
@@ -553,6 +554,7 @@ export function CodeMainArea({
   archivedRuns,
   archivedAgents,
   historyAgentSessions,
+  openHistorySessionKeys,
   historyAgentSessionsLoading,
   historyAgentSessionsError,
   providerSessionTotal,
@@ -782,6 +784,7 @@ export function CodeMainArea({
               archivedRuns={archivedRuns}
               archivedAgents={archivedAgents}
               agentSessions={historyAgentSessions}
+              openSessionKeys={openHistorySessionKeys}
               loading={historyAgentSessionsLoading}
               error={historyAgentSessionsError}
               providerSessionTotal={providerSessionTotal}

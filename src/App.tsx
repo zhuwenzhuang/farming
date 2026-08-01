@@ -589,6 +589,7 @@ export function App() {
   // response may name an agent before the matching WebSocket state has rendered.
   const requestTerminalOpen = useCallback((agentId: string, options?: { focusTerminal?: boolean }) => {
     requestForegroundHttpPriority()
+    setActiveWorkspaceView('projects')
     setPendingTerminalOpen({ agentId, options })
   }, [])
 
@@ -1072,7 +1073,6 @@ export function App() {
   useEffect(() => {
     if (!ws.error) return
     pendingStartRef.current = null
-    setPendingTerminalOpen(null)
     pendingMainRestartRef.current = null
     hiddenMainStartRequestedRef.current = false
     if (ws.errorKind === 'recoverable') {
@@ -1083,6 +1083,7 @@ export function App() {
       })
       return
     }
+    setPendingTerminalOpen(null)
     notifyError(ws.error)
   }, [copy.backendActionPending, notifyError, ws.error, ws.errorId, ws.errorKind])
 

@@ -7,7 +7,7 @@ import { spawnSync } from 'node:child_process';
 const projectRoot = path.join(__dirname, '..');
 const expectedVersion = '1.1.4';
 const expectedUpstreamSha256 = '7534a0ad3cc4c9affd0b2da5007fa53ea0f1d6fcd71b2c5ef202e2056a976a97';
-const expectedPatchedSha256 = '7d9647ad2af49d47311a785bf5abd2d317d7c7438ae9d4eacfe785ba37191718';
+const expectedPatchedSha256 = '2b0bf774e336d71816727a66cef47f6c088f4e85e76e412ebd0ed156eb7e2c44';
 const packageRoot = path.dirname(require.resolve('@agentclientprotocol/codex-acp/package.json'));
 const packageJsonPath = path.join(packageRoot, 'package.json');
 const sourceEntry = path.join(packageRoot, 'dist', 'index.js');
@@ -54,11 +54,19 @@ function prepareCodexAcpVendor({ copy = false } = {}): void {
 
   if (copy) {
     fs.mkdirSync(targetDirectory, { recursive: true });
-    fs.copyFileSync(sourceEntry, targetEntry);
-    fs.copyFileSync(sourceLicense, targetLicense);
-    if (sha256(targetEntry) !== expectedPatchedSha256) {
-      throw new Error('Copied codex-acp runtime failed its SHA-256 verification');
+    const temporaryEntry = `${targetEntry}.${process.pid}.${Date.now()}.tmp`;
+    try {
+      fs.copyFileSync(sourceEntry, temporaryEntry);
+      if (sha256(temporaryEntry) !== expectedPatchedSha256) {
+        throw new Error('Copied Codex ACP runtime failed its SHA-256 verification');
+      }
+      // The target can be the entry file of a live ACP adapter. Replace its
+      // directory entry atomically instead of truncating the running file.
+      fs.renameSync(temporaryEntry, targetEntry);
+    } finally {
+      fs.rmSync(temporaryEntry, { force: true });
     }
+    fs.copyFileSync(sourceLicense, targetLicense);
     console.log(`Prepared version-locked Codex ACP runtime at ${targetEntry}`);
   }
 }

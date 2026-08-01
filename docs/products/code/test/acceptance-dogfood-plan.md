@@ -58,6 +58,11 @@ Each dogfood story should use:
 - isolated browser context;
 - an artifact directory for screenshots, traces, console logs, transcripts, and reports.
 
+The Playwright server must replace any inherited `FARMING_CONFIG_DIR` with its
+own temporary config root. This remains mandatory when tests are launched from
+inside a live Farming Agent, so the test backend cannot reconcile or stop the
+parent server's ACP processes.
+
 Recommended layout:
 
 ```text
@@ -81,11 +86,11 @@ Cover first screen, token URL, WebSocket, heartbeat state, Main Agent / New Agen
 
 ### 2. Agent Launch Profiles
 
-Cover executable discovery, Codex model / reasoning / speed, Claude settings summary, launch permissions, and launch profile merging. Running permission changes should restart with the selected flags, resume when a stable provider session id exists, start fresh when it does not, and preserve the selected agent plus Chat / Terminal view throughout the replacement.
+Cover executable discovery, Codex model / reasoning / speed, Claude settings summary, launch permissions, and launch profile merging. An invalid empty workspace must remain immediately editable without entering the duplicate-start lock. A new Codex Chat Agent must publish its first-task fallback title while the first Turn is still active; a later explicit Provider title may replace it. Running permission changes should restart with the selected flags, resume when a stable provider session id exists, start fresh when it does not, and preserve the selected agent plus Chat / Terminal view throughout the replacement.
 
 ### 3. Composer And Input
 
-Cover plain text, Enter, Shift+Enter, Ctrl/Cmd+Enter, busy-agent follow-up queue, steer, slash commands, skill mentions, attachments, paste image, and keyboard shortcut boundaries.
+Cover plain text, Enter, Shift+Enter, Ctrl/Cmd+Enter, busy-agent follow-up queue, steer, slash commands, skill mentions, attachments, paste image, and keyboard shortcut boundaries. Every open Composer menu must close on Escape and restore focus to the Composer input, including when the menu trigger retains focus.
 
 Do not treat the bottom composer as the only input path. Real-agent smoke must also focus the embedded terminal itself and type directly into the CLI prompt, because Qoder / Claude Code / OpenCode users often work that way.
 
@@ -105,7 +110,7 @@ For terminal IME bugs, prefer the xterm.js / VS Code principle: let browser comp
 
 ### 5. Project / Sidebar / History
 
-Cover project grouping, Files section, active agent, pinned / unread sessions, rename, archive, archived runs, chats, duplicate titles, and continue behavior. Within an expanded Files section, Changes, Untracked, History, and root file-tree rows must share the same text size, line height, row rhythm, and root-level chevron / label alignment; counts and review actions may retain semantic emphasis.
+Cover project grouping, Files section, active agent, pinned / unread sessions, rename, archive, archived runs, chats, duplicate titles, and continue behavior. Arrow keys from an independent pagination or row action must not enter Agent navigation. Simultaneous Agent and session pagination controls must expose distinct accessible names with their hidden counts. Escape from the focused History search field must return to the workspace just like the global Search surface. Closing Settings or an Extension detail must restore focus to its opening control. Within an expanded Files section, Changes, Untracked, History, and root file-tree rows must share the same text size, line height, row rhythm, and root-level chevron / label alignment; counts and review actions may retain semantic emphasis.
 
 ### 6. Files / Editor
 
@@ -113,7 +118,7 @@ Cover Files expansion, lazy loading, search, `path:line`, text / image / binary 
 
 ### 7. Usage And System Status
 
-Cover provider-reported local usage summaries, the compact 24-hour heatmap with whole-hour buckets and axis labels, the 52-week daily token heatmap with a visually distinct recent seven days, compact token totals, and exact token readouts on cell hover. Clicking either chart must open the matching larger heatmap; the 52-week detail defaults to today and shows today's compact token total prominently, then temporarily switches the prominent value to any hovered or keyboard-focused day while preserving the exact readout below. Its lower chart must lazily switch to that day's zero-based 24-hour histogram, with every hourly bar aggregating exact provider-session attribution by Agent type; rapid day changes must cancel stale requests, and leaving a transient selection must return to today. Clip the whole Token King day cell into a crown silhouette and every non-king day above one billion tokens into a flame silhouette, preserving each cell's heat color instead of embedding an icon inside a square. The detail analysis must expose peak activity plus bounded comparisons derived from the same local token data, including recent-versus-previous seven days and cache share when daily breakdowns exist. Also cover token rate, CPU, memory, collapsed state, no-data state, and read failures. Providers without usable token telemetry and quota fields without real quota data must be omitted instead of rendered as unavailable placeholders. Never run reset actions.
+Cover provider-reported local usage summaries, the compact 24-hour heatmap with whole-hour buckets and axis labels, the 52-week daily token heatmap with a visually distinct recent seven days, compact token totals, and exact token readouts on cell hover. Clicking either chart must open the matching larger heatmap; the 52-week detail defaults to today and shows today's compact token total prominently, then temporarily switches the prominent value to any hovered or keyboard-focused day while preserving the exact readout below. Its lower chart must lazily switch to that day's zero-based 24-hour histogram, with every hourly bar aggregating exact provider-session attribution by Agent type; rapid day changes must cancel stale requests, and leaving a transient selection must return to today. Clip the whole Token King day cell into a crown silhouette and every non-king day above one billion tokens into a flame silhouette, preserving each cell's heat color instead of embedding an icon inside a square. The detail analysis must expose peak activity plus bounded comparisons derived from the same local token data, including recent-versus-previous seven days and cache share when daily breakdowns exist. Also cover token rate, CPU, memory, collapsed state, no-data state, and read failures. An expanded Usage panel must collapse on Escape while focus is inside it. Providers without usable token telemetry and quota fields without real quota data must be omitted instead of rendered as unavailable placeholders. Never run reset actions.
 
 For Codex and Claude, verify the first TypeScript Worker scan creates `usage-history-v2.sqlite3`, an unchanged refresh reads no JSONL content, an appended session reads only bytes after the stored offset, and a server restart reuses the same cache. Exercise a large non-usage tool-output line to prove the token-only adapter remains memory-bounded. Confirm long-term Codex rows scale with active session-hours rather than token events; copied forks and interleaved cumulative counters do not inflate totals; a bounded cold rebuild withholds incomplete Codex totals while the background Worker continues; and an incompatible cache recreates the database and WAL/SHM sidecars. Totals and hourly/session attribution must remain identical before and after a warm-cache refresh. Verify the same Node-only path on macOS and Linux and confirm no Python executable is probed or launched.
 
