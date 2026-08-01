@@ -198,6 +198,23 @@ function terminalPathFallbackMatch(lineText: string, matchers: readonly RegExp[]
   return null
 }
 
+function terminalPathTokenFallbackMatches(lineText: string): TerminalLinkMatch[] {
+  const matches: TerminalLinkMatch[] = []
+  const tokenPattern = /\S+/gu
+  for (const tokenMatch of lineText.matchAll(tokenPattern)) {
+    if (matches.length >= MAX_TERMINAL_PATH_LINKS_PER_LINE) break
+    const token = tokenMatch[0]
+    if (!token || token === lineText.trim()) continue
+    const fallback = terminalPathFallbackMatch(token, [TERMINAL_PATH_WHOLE_LINE_FALLBACK])
+    if (!fallback) continue
+    matches.push({
+      ...fallback,
+      startIndex: (tokenMatch.index ?? 0) + fallback.startIndex,
+    })
+  }
+  return matches
+}
+
 export function collectTerminalPathLinkMatches(lineText: string): TerminalLinkMatch[] {
   if (!lineText || lineText.length > MAX_TERMINAL_PATH_LINE_LENGTH) return []
 
@@ -226,8 +243,10 @@ export function collectTerminalPathLinkMatches(lineText: string): TerminalLinkMa
   }
 
   if (parsedMatches.length > 0) return parsedMatches.sort((a, b) => a.startIndex - b.startIndex)
-  const fallback = terminalPathFallbackMatch(lineText, [TERMINAL_PATH_WHOLE_LINE_FALLBACK])
-  return fallback ? [fallback] : []
+  const tokenFallbacks = terminalPathTokenFallbackMatches(lineText)
+  const wholeLineFallback = terminalPathFallbackMatch(lineText, [TERMINAL_PATH_WHOLE_LINE_FALLBACK])
+  if (tokenFallbacks.length === 0) return wholeLineFallback ? [wholeLineFallback] : []
+  return wholeLineFallback ? [...tokenFallbacks, wholeLineFallback] : tokenFallbacks
 }
 
 export function collectTerminalMultiLinePathLinkMatches(
@@ -331,6 +350,16 @@ export function parseTerminalUrlAtColumn(lineText: string, col: number) {
   return computeTerminalUrlLinkMatches(lineText).find(match => (
     col >= match.startIndex && col < match.startIndex + match.length
   ))?.text ?? null
+}
+
+export function parseExplicitTerminalUrlAtColumn(lineText: string, col: number) {
+  const match = computeTerminalUrlLinkMatches(lineText).find(candidate => (
+    col >= candidate.startIndex && col < candidate.startIndex + candidate.length
+  ))
+  if (!match) return null
+
+  const sourceText = lineText.slice(match.startIndex, match.startIndex + match.length)
+  return /^https?:\/\//iu.test(sourceText) ? match.text : null
 }
 
 export function collectTerminalUrlLinkMatches(lineText: string): TerminalLinkMatch[] {

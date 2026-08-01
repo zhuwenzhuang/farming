@@ -1560,6 +1560,7 @@ export function createBlackHolePetRenderer({
     __farmingBlackHoleElapsedSeconds?: number
     __farmingBlackHoleExitProgress?: number
     __farmingBlackHoleEvolutionSeed?: number
+    __farmingBlackHoleRenderFrames?: (count?: number) => Promise<void>
   }
   const startedAt = performance.now()
   const roamSeed = crypto.getRandomValues(new Uint32Array(1))[0] ?? 0
@@ -1762,7 +1763,23 @@ export function createBlackHolePetRenderer({
     applyPose(pose)
     if (sceneReady) compositor.draw(pose)
     display.draw(diskClock, pose.bodyOpacity, look, evaporation)
-    schedule()
+    if (!testWindow.__FARMING_E2E__) schedule()
+  }
+
+  const renderTestFrames = async (count = 1) => {
+    const boundedCount = Math.max(1, Math.min(120, Math.trunc(count) || 1))
+    for (let index = 0; index < boundedCount; index += 1) {
+      if (destroyed || !active || document.hidden) return
+      await new Promise<void>(resolve => {
+        requestId = requestAnimationFrame(now => {
+          frame(now)
+          resolve()
+        })
+      })
+    }
+  }
+  if (testWindow.__FARMING_E2E__) {
+    testWindow.__farmingBlackHoleRenderFrames = renderTestFrames
   }
 
   loadInitialScene()
@@ -1810,6 +1827,9 @@ export function createBlackHolePetRenderer({
       destroyed = true
       clearSchedule()
       clearInitialSceneRetry()
+      if (testWindow.__farmingBlackHoleRenderFrames === renderTestFrames) {
+        delete testWindow.__farmingBlackHoleRenderFrames
+      }
       document.removeEventListener('visibilitychange', onVisibilityChange)
       compositorCanvas.style.opacity = '0'
       compositor.destroy()

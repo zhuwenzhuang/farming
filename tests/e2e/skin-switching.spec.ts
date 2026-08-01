@@ -1281,6 +1281,7 @@ test('renders CRT Billing daily history with a secondary live oscilloscope', asy
   await page.getByTestId('code-sidebar-options').click()
   await page.getByTestId('code-settings-skin-crt').click()
   await expect(page).toHaveURL(new RegExp(`/farming/crt/\\?agent=${agentId}$`))
+  await expect(page.locator('#input-dialog')).not.toHaveClass(/active/)
   await page.getByRole('button', { name: 'Close session, Ctrl+Escape', exact: true }).click()
   await expect(page.locator('#session-modal')).not.toHaveClass(/active/)
   await expect(page.locator('#tokens-per-minute')).toHaveText('11K')

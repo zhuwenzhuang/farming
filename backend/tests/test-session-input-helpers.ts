@@ -740,12 +740,14 @@ function run() {
       terminalPoolSource.includes('function resolveTerminalPathTarget') &&
       terminalPoolSource.includes('function resolveTerminalLinkMatches') &&
       terminalPoolSource.includes('function cachedTerminalPathLink') &&
+      terminalPoolSource.includes('function readTerminalPathLinksAtMouseEvent') &&
       terminalPoolSource.includes('function readTerminalPathLinkAtMouseEvent') &&
       terminalPoolSource.includes('void resolveTerminalPathLinkAtMouseEvent(record, event).then') &&
-      terminalPoolSource.includes('const rawPathLink = record.pathOpenHandler ? readTerminalPathLinkAtMouseEvent(record, event) : null') &&
+      terminalPoolSource.includes('findTerminalPathLinkAtMouseEvent(record, event) ?? readTerminalPathLinkAtMouseEvent(record, event)') &&
       pooledTerminalHookSource.includes('onPathResolve?: (agentId: string, target: TerminalPathOpenTarget)') &&
       pooledTerminalHookSource.includes('onPathResolve: attachmentHandlers.onPathResolve') &&
       terminalLinksSource.includes('export function collectTerminalLinkMatches') &&
+      terminalLinksSource.includes('export function parseExplicitTerminalUrlAtColumn') &&
       terminalLinksSource.includes('export function parseTerminalUrlAtColumn') &&
       terminalLinksSource.includes('export function parseTerminalPathLinkAtColumn') &&
       terminalLinksSource.includes('export function parseTerminalPathTargetAtColumn') &&
@@ -776,15 +778,16 @@ function run() {
       terminalPoolSource.includes("if (match.kind === 'url' && !modifierActive) return") &&
       terminalPoolSource.includes("if (match.kind === 'path' && !pathDirectOpen) return") &&
       terminalPoolSource.includes("setTerminalLinkHoverTarget(record, providerTarget.kind === 'path' || active ? providerTarget.kind : null)") &&
-      terminalPoolSource.includes('openTargetMouseDown: { x: number; y: number; pathTarget: TerminalPathOpenTarget } | null') &&
+      terminalPoolSource.includes('openTargetMouseDown: { x: number; y: number; pathTargets: TerminalPathOpenTarget[] } | null') &&
       terminalPoolSource.includes('const mouseDownOpenTargetHandler = (event: MouseEvent) =>') &&
-      terminalPoolSource.includes('const pathLink = record.pathOpenHandler ? readTerminalPathLinkAtMouseEvent(record, event) : null') &&
+      terminalPoolSource.includes('readTerminalPathLinksAtMouseEvent(record, event).flatMap') &&
       terminalPoolSource.includes('event.stopImmediatePropagation()') &&
       terminalPoolSource.includes('clearTerminalSelectionState(record)') &&
       terminalPoolSource.includes('record.openTargetMouseDown = {') &&
-      terminalPoolSource.includes('pathTarget: pathLink.pathTarget') &&
+      terminalPoolSource.includes('pathTargets,') &&
       terminalPoolSource.includes('Math.hypot(event.clientX - mouseDown.x, event.clientY - mouseDown.y) > 4') &&
-      terminalPoolSource.includes('void resolveTerminalPathTarget(record, mouseDown.pathTarget).then') &&
+      terminalPoolSource.includes('for (const pathTarget of mouseDown.pathTargets)') &&
+      terminalPoolSource.includes('const resolvedTarget = await resolveTerminalPathTarget(record, pathTarget)') &&
       terminalPoolSource.includes("hostEl.addEventListener('mouseup', mouseUpOpenTargetHandler, true)") &&
       terminalPoolSource.includes("record.hostEl.removeEventListener('mouseup', record.mouseUpOpenTargetHandler, true)") &&
       terminalEngineSource.includes('registerLinkProvider?: (linkProvider: TerminalLinkProvider) => { dispose: () => void }') &&
@@ -797,8 +800,8 @@ function run() {
       terminalPoolSource.includes('if (!isCurrentAttachment(record, attachmentGeneration))') &&
       terminalPoolSource.includes('if (Date.now() < record.suppressClickUntil) return') &&
       terminalPoolSource.includes("if (match.kind === 'url' && findTerminalUrlAtMouseEvent(record, event) !== match.text) return") &&
-      terminalPoolSource.includes("if (match.kind === 'path' && readTerminalPathLinkAtMouseEvent(record, event)?.text !== match.text) return") &&
-      terminalPoolSource.includes('const pathLink = readTerminalPathLinkAtCell(record, cell)') &&
+      terminalPoolSource.includes("pathLink => pathLink.text === match.text") &&
+      terminalPoolSource.includes('const pathLinks = readTerminalPathLinksAtCell(record, cell)') &&
       terminalPoolSource.includes('collectTerminalMultiLinePathLinkMatches(') &&
       terminalPoolSource.includes('record.suppressClickUntil = Date.now() + 250'),
     'terminal link activation should reject stale attachment and cell matches without adding retry latency'

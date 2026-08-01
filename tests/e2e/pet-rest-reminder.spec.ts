@@ -30,6 +30,28 @@ async function readBlackHoleOuterInk(canvas: Locator) {
   })
 }
 
+async function setBlackHoleElapsed(page: Page, elapsedSeconds: number, frameCount = 1) {
+  await page.evaluate(async ({ value, frames }) => {
+    const testWindow = window as Window & {
+      __farmingBlackHoleElapsedSeconds?: number
+      __farmingBlackHoleRenderFrames?: (count?: number) => Promise<void>
+    }
+    testWindow.__farmingBlackHoleElapsedSeconds = value
+    await testWindow.__farmingBlackHoleRenderFrames?.(frames)
+  }, { value: elapsedSeconds, frames: frameCount })
+}
+
+async function setBlackHoleExitProgress(page: Page, progress: number, frameCount = 1) {
+  await page.evaluate(async ({ value, frames }) => {
+    const testWindow = window as Window & {
+      __farmingBlackHoleExitProgress?: number
+      __farmingBlackHoleRenderFrames?: (count?: number) => Promise<void>
+    }
+    testWindow.__farmingBlackHoleExitProgress = value
+    await testWindow.__farmingBlackHoleRenderFrames?.(frames)
+  }, { value: progress, frames: frameCount })
+}
+
 async function makeRestReminderInvitationReady(page: Page) {
   await page.addInitScript(({ invitationRuntimeKey }) => {
     sessionStorage.setItem(invitationRuntimeKey, JSON.stringify({
@@ -473,19 +495,11 @@ test('black-hole lifecycle stays fluid across every macro phase', async ({ page 
   expectReasonableEvolution(nextCycleOrder)
   expect(nextCycleOrder).not.toEqual(cycleOrder)
   expect(await canvas.getAttribute('data-birth-preset')).toBe('gargantua')
-  await page.evaluate(value => {
-    ;(window as Window & {
-      __farmingBlackHoleElapsedSeconds?: number
-    }).__farmingBlackHoleElapsedSeconds = value
-  }, 15.05)
+  await setBlackHoleElapsed(page, 15.05)
   await expect(canvas).toHaveAttribute('data-macro-phase', 'gargantua')
   const blazarSlot = cycleOrder.indexOf('blazar')
   const slotSeconds = 90 / lifecycle.length
-  await page.evaluate(value => {
-    ;(window as Window & {
-      __farmingBlackHoleElapsedSeconds?: number
-    }).__farmingBlackHoleElapsedSeconds = value
-  }, 15 + blazarSlot * slotSeconds + 0.05)
+  await setBlackHoleElapsed(page, 15 + blazarSlot * slotSeconds + 0.05, 30)
   await expect(canvas).toHaveAttribute('data-macro-phase', 'blazar')
   await expect.poll(() => canvas.getAttribute('data-gpu-timer'), {
     timeout: 5_000,
@@ -511,11 +525,7 @@ test('black-hole lifecycle stays fluid across every macro phase', async ({ page 
   for (let slot = 0; slot < lifecycle.length; slot += 1) {
     const phase = cycleOrder[slot]!
     const elapsed = 15 + slot * slotSeconds + 0.05
-    await page.evaluate(value => {
-      ;(window as Window & {
-        __farmingBlackHoleElapsedSeconds?: number
-      }).__farmingBlackHoleElapsedSeconds = value
-    }, elapsed)
+    await setBlackHoleElapsed(page, elapsed)
     await expect(canvas).toHaveAttribute('data-macro-phase', phase)
     const preset = await canvas.evaluate(element => ({
       temperature: Number((element as HTMLCanvasElement).dataset.macroTemperature),
@@ -538,11 +548,7 @@ test('black-hole lifecycle stays fluid across every macro phase', async ({ page 
   for (let slot = 0; slot < nextCycleOrder.length; slot += 1) {
     const phase = nextCycleOrder[slot]!
     const elapsed = 15 + 90 + slot * slotSeconds + 0.05
-    await page.evaluate(value => {
-      ;(window as Window & {
-        __farmingBlackHoleElapsedSeconds?: number
-      }).__farmingBlackHoleElapsedSeconds = value
-    }, elapsed)
+    await setBlackHoleElapsed(page, elapsed)
     await expect(canvas).toHaveAttribute('data-macro-phase', phase)
   }
 })
@@ -613,11 +619,7 @@ test('dark black-hole status stays readable and manual exit fully evaporates in 
 
   await endBreak.click()
   await expect(scene).toHaveClass(/exiting/)
-  await page.evaluate(() => {
-    ;(window as Window & {
-      __farmingBlackHoleExitProgress?: number
-    }).__farmingBlackHoleExitProgress = 0.55
-  })
+  await setBlackHoleExitProgress(page, 0.55, 30)
   await expect(compositor).toHaveAttribute('data-exit-progress', '0.5500')
   await expect(scene.locator('.code-pet-black-hole-compositor'))
     .toHaveAttribute('data-evaporation-phase', 'blue-shift')
@@ -653,11 +655,7 @@ test('dark black-hole status stays readable and manual exit fully evaporates in 
       ? 'visible'
       : `ink=${radiationInk.inkPixels}, sectors=${radiationInk.coveredSectors}`
   }, { timeout: 2_000 }).toBe('visible')
-  await page.evaluate(() => {
-    ;(window as Window & {
-      __farmingBlackHoleExitProgress?: number
-    }).__farmingBlackHoleExitProgress = 1
-  })
+  await setBlackHoleExitProgress(page, 1)
   await expect(scene).toHaveCount(0, { timeout: 7_000 })
 })
 

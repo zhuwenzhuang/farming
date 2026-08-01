@@ -11,7 +11,8 @@ import type { TerminalLinkProvider } from '@/lib/terminal-engine'
 import {
   collectTerminalLinkMatches,
   collectTerminalMultiLinePathLinkMatches,
-  parseTerminalPathLinkAtColumn,
+  collectTerminalPathLinkMatches,
+  parseExplicitTerminalUrlAtColumn,
   parseTerminalSearchAtColumn,
   parseTerminalUrlAtColumn,
   terminalTextColumnAtPixelOffset,
@@ -282,7 +283,7 @@ interface SessionRecord {
   suspendRendering: boolean
   cachedSelection: string
   lastNonEmptySelection: string
-  openTargetMouseDown: { x: number; y: number; pathTarget: TerminalPathOpenTarget } | null
+  openTargetMouseDown: { x: number; y: number; pathTargets: TerminalPathOpenTarget[] } | null
   dragSelection: {
     start: { col: number; row: number }
     active: boolean
@@ -2107,7 +2108,20 @@ async function resolveTerminalLinkMatches(record: SessionRecord, matches: Termin
     const resolvedTarget = await resolveTerminalPathTarget(record, match.pathTarget)
     return resolvedTarget ? { ...match, pathTarget: resolvedTarget } : null
   }))
-  return resolved.filter((match): match is TerminalLinkMatch => Boolean(match))
+  const available = resolved.filter((match): match is TerminalLinkMatch => Boolean(match))
+  const preferred: TerminalLinkMatch[] = []
+  for (const match of [...available].sort((a, b) => a.length - b.length || a.startIndex - b.startIndex)) {
+    if (
+      match.kind === 'path'
+      && preferred.some(existing => (
+        existing.kind === 'path'
+        && match.startIndex < existing.startIndex + existing.length
+        && existing.startIndex < match.startIndex + match.length
+      ))
+    ) continue
+    preferred.push(match)
+  }
+  return preferred.sort((a, b) => a.startIndex - b.startIndex)
 }
 
 function cachedTerminalPathLink(record: SessionRecord, match: TerminalLinkMatch) {
@@ -2205,7 +2219,10 @@ function installTerminalLinkProvider(record: SessionRecord) {
               if (!isCurrentAttachment(record, attachmentGeneration)) return
               const modifierActive = isTerminalOpenModifierActive(record, event)
               if (match.kind === 'url' && findTerminalUrlAtMouseEvent(record, event) !== match.text) return
-              if (match.kind === 'path' && readTerminalPathLinkAtMouseEvent(record, event)?.text !== match.text) return
+              if (
+                match.kind === 'path'
+                && !readTerminalPathLinksAtMouseEvent(record, event).some(pathLink => pathLink.text === match.text)
+              ) return
               if (match.kind === 'search' && findTerminalSearchAtMouseEvent(record, event) !== match.text) return
               if (match.kind === 'url' && !modifierActive) return
               if (match.kind === 'search' && !modifierActive) return
@@ -2346,25 +2363,35 @@ function readPreviousLogicalTerminalLines(
   return lines
 }
 
-function readTerminalPathLinkAtCell(
+function readTerminalPathLinksAtCell(
   record: SessionRecord,
   cell: { col: number; row: number },
 ) {
   const logicalLine = readLogicalTerminalLineAtCellWithRows(record, cell)
-  if (!logicalLine) return null
+  if (!logicalLine) return []
   // URL-shaped text is owned by the URL interaction. Treating its path
   // portion as a workspace path makes a plain click start file resolution and
   // briefly suppresses the modifier-click that should open the URL.
-  if (parseTerminalUrlAtColumn(logicalLine.text, logicalLine.col)) return null
-  const directLink = parseTerminalPathLinkAtColumn(logicalLine.text, logicalLine.col)
-  if (directLink) return directLink
+  if (parseExplicitTerminalUrlAtColumn(logicalLine.text, logicalLine.col)) return []
+  const directLinks = collectTerminalPathLinkMatches(logicalLine.text).filter(match => (
+    logicalLine.col >= match.startIndex
+    && logicalLine.col < match.startIndex + match.length
+  ))
+  if (directLinks.length > 0) return directLinks
   return collectTerminalMultiLinePathLinkMatches(
     logicalLine.text,
     readPreviousLogicalTerminalLines(record, logicalLine.startRow),
-  ).find(match => (
+  ).filter(match => (
     logicalLine.col >= match.startIndex
     && logicalLine.col < match.startIndex + match.length
-  )) ?? null
+  ))
+}
+
+function readTerminalPathLinkAtCell(
+  record: SessionRecord,
+  cell: { col: number; row: number },
+) {
+  return readTerminalPathLinksAtCell(record, cell)[0] ?? null
 }
 
 const TERMINAL_READING_ANCHOR_LINE_COUNT = 3
@@ -2488,21 +2515,31 @@ function readTerminalUrlLineAtCell(record: SessionRecord, cell: { col: number; r
   return readLogicalTerminalLineAtCell(record, cell)
 }
 
-function readTerminalPathLinkAtMouseEvent(record: SessionRecord, event: MouseEvent) {
+function readTerminalPathLinksAtMouseEvent(record: SessionRecord, event: MouseEvent | PointerEvent) {
   const cell = cellFromMouseEvent(record, event)
   if (cell) {
-    const pathLink = readTerminalPathLinkAtCell(record, cell)
-    if (pathLink) return pathLink
+    const pathLinks = readTerminalPathLinksAtCell(record, cell)
+    if (pathLinks.length > 0) return pathLinks
   }
 
   const domLine = readDomTerminalLineAtMouseEvent(record, event)
-  if (!domLine || parseTerminalUrlAtColumn(domLine.text, domLine.col)) return null
-  return parseTerminalPathLinkAtColumn(domLine.text, domLine.col)
+  if (!domLine || parseExplicitTerminalUrlAtColumn(domLine.text, domLine.col)) return []
+  return collectTerminalPathLinkMatches(domLine.text).filter(match => (
+    domLine.col >= match.startIndex
+    && domLine.col < match.startIndex + match.length
+  ))
+}
+
+function readTerminalPathLinkAtMouseEvent(record: SessionRecord, event: MouseEvent | PointerEvent) {
+  return readTerminalPathLinksAtMouseEvent(record, event)[0] ?? null
 }
 
 function findTerminalPathLinkAtMouseEvent(record: SessionRecord, event: MouseEvent) {
-  const pathLink = readTerminalPathLinkAtMouseEvent(record, event)
-  return pathLink ? cachedTerminalPathLink(record, pathLink) : null
+  for (const pathLink of readTerminalPathLinksAtMouseEvent(record, event)) {
+    const cached = cachedTerminalPathLink(record, pathLink)
+    if (cached) return cached
+  }
+  return null
 }
 
 function findTerminalPathTargetAtMouseEvent(record: SessionRecord, event: MouseEvent) {
@@ -2642,10 +2679,12 @@ function terminalOpenTargetKindAtMouseEvent(
 
 async function resolveTerminalPathLinkAtMouseEvent(record: SessionRecord, event: MouseEvent | PointerEvent) {
   if (!record.pathOpenHandler) return null
-  const pathLink = readTerminalPathLinkAtMouseEvent(record, event)
-  if (!pathLink?.pathTarget) return null
-  const resolvedTarget = await resolveTerminalPathTarget(record, pathLink.pathTarget)
-  return resolvedTarget ? { ...pathLink, pathTarget: resolvedTarget } : null
+  for (const pathLink of readTerminalPathLinksAtMouseEvent(record, event)) {
+    if (!pathLink.pathTarget) continue
+    const resolvedTarget = await resolveTerminalPathTarget(record, pathLink.pathTarget)
+    if (resolvedTarget) return { ...pathLink, pathTarget: resolvedTarget }
+  }
+  return null
 }
 
 function refreshTerminalLinkHoverTarget(record: SessionRecord, modifierActive?: boolean) {
@@ -2934,7 +2973,9 @@ function installTerminalContextMenu(record: SessionRecord, agentId: string) {
       })
       return
     }
-    const rawPathLink = record.pathOpenHandler ? readTerminalPathLinkAtMouseEvent(record, event) : null
+    const rawPathLink = record.pathOpenHandler
+      ? findTerminalPathLinkAtMouseEvent(record, event) ?? readTerminalPathLinkAtMouseEvent(record, event)
+      : null
     if (rawPathLink?.pathTarget) {
       event.preventDefault()
       event.stopPropagation()
@@ -3277,6 +3318,18 @@ function installTerminalTestApi() {
       record.terminal.scrollToLine?.(0)
       setFollowOutputState(record, isTerminalAtBottom(record), false, { allowClearUnread: true })
       forceTerminalRender(record)
+      // The fixture is the authoritative synthetic cut for this E2E record.
+      // If the host was reattached from the parking lot, complete the same
+      // visual readiness boundary as a committed checkpoint so the recovery
+      // overlay cannot keep intercepting interaction with the injected frame.
+      if (isTerminalSessionAttached(record)) {
+        record.hostEl.classList.remove('terminal-checkpoint-installing')
+        publishTerminalRecoveryStatus(record, 'ready')
+        if (!record.attachReadyNotified) {
+          record.attachReadyNotified = true
+          record.attachReadyHandler?.()
+        }
+      }
       await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
     },
     async resumeLive(agentId: string) {
@@ -4023,15 +4076,17 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
   const mouseDownOpenTargetHandler = (event: MouseEvent) => {
     record.openTargetMouseDown = null
     if (isMobileViewport() || event.button !== 0 || event.ctrlKey || event.metaKey || event.altKey) return
-    const pathLink = record.pathOpenHandler ? readTerminalPathLinkAtMouseEvent(record, event) : null
-    if (!pathLink?.pathTarget) return
+    const pathTargets = record.pathOpenHandler
+      ? readTerminalPathLinksAtMouseEvent(record, event).flatMap(link => link.pathTarget ? [link.pathTarget] : [])
+      : []
+    if (pathTargets.length === 0) return
     // Do not intercept mousedown: xterm needs it to start text selection when
     // the user drags across a path. The later mouseup/click path decides
     // whether this was a small click that should open the file.
     record.openTargetMouseDown = {
       x: event.clientX,
       y: event.clientY,
-      pathTarget: pathLink.pathTarget,
+      pathTargets,
     }
   }
   hostEl.addEventListener('mousedown', mouseDownOpenTargetHandler, true)
@@ -4090,15 +4145,17 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
     clearTerminalSelectionState(record)
     record.suppressClickUntil = Date.now() + 250
     const attachmentGeneration = record.attachGeneration
-    void resolveTerminalPathTarget(record, mouseDown.pathTarget).then(resolvedTarget => {
-      if (!isCurrentAttachment(record, attachmentGeneration)) return
-      if (!resolvedTarget) {
-        focusAttachedTerminalInput(record)
+    void (async () => {
+      for (const pathTarget of mouseDown.pathTargets) {
+        const resolvedTarget = await resolveTerminalPathTarget(record, pathTarget)
+        if (!isCurrentAttachment(record, attachmentGeneration)) return
+        if (!resolvedTarget) continue
+        record.pathOpenHandler?.(agentId, resolvedTarget)
+        record.suppressClickUntil = Date.now() + 250
         return
       }
-      record.pathOpenHandler?.(agentId, resolvedTarget)
-      record.suppressClickUntil = Date.now() + 250
-    })
+      focusAttachedTerminalInput(record)
+    })()
   }
   hostEl.addEventListener('mouseup', mouseUpOpenTargetHandler, true)
   record.mouseUpOpenTargetHandler = mouseUpOpenTargetHandler

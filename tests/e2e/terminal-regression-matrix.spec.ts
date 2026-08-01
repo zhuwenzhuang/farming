@@ -1326,6 +1326,9 @@ test.describe('terminal regression matrix', () => {
     await scenario('plain-clicking a unique terminal filename opens the workspace file', async () => {
       await writeTerminalFixture(page, bashAgentId, 'unique-only.log unique terminal filename\r\n')
       const cell = await cellForText(page, bashAgentId, 'unique-only.log', 2)
+      await expect.poll(async () => page.evaluate(({ id, col, row }) => (
+        window.__farmingTerminalTest?.getPathAtCell(id, col, row) ?? null
+      ), { id: bashAgentId, col: cell.col, row: cell.row })).toEqual({ path: 'unique-only.log' })
       await hoverTerminalCell(page, cell.x, cell.y)
       await expect.poll(async () => {
         return page.evaluate((id) => {

@@ -7,6 +7,7 @@ async function run() {
     collectTerminalMultiLinePathLinkMatches,
     collectTerminalPathLinkMatches,
     collectTerminalSearchLinkMatches,
+    parseExplicitTerminalUrlAtColumn,
     parseTerminalPathTargetAtColumn,
     parseTerminalUrlAtColumn,
     terminalLinkMatchRange,
@@ -26,6 +27,21 @@ async function run() {
     parseTerminalUrlAtColumn(boxedLine, boxedLine.indexOf('odps_src') + 3),
     reviewUrl,
     'terminal URL hit testing should keep underscores in code-review paths'
+  );
+  const filenameThatLooksLikeABareDomain = 'unique-only.log';
+  assert.strictEqual(
+    parseTerminalUrlAtColumn(filenameThatLooksLikeABareDomain, 2),
+    null
+  );
+  assert.strictEqual(
+    parseExplicitTerminalUrlAtColumn(filenameThatLooksLikeABareDomain, 2),
+    null,
+    'bare-domain-shaped filenames should remain eligible for workspace path resolution'
+  );
+  assert.strictEqual(
+    parseExplicitTerminalUrlAtColumn(reviewUrl, reviewUrl.indexOf('odps_src') + 3),
+    reviewUrl,
+    'explicit HTTP(S) URLs should retain URL ownership over their path portion'
   );
   assert.strictEqual(trimTerminalUrl(`${reviewUrl}.`), reviewUrl);
   const hyphenatedUrl = `${reviewUrl}----`;
@@ -163,6 +179,11 @@ async function run() {
     collectTerminalPathLinkMatches('Build failed on line 44'),
     [],
     'line prose without a file-like path should remain plain terminal text'
+  );
+  assert.deepStrictEqual(
+    collectTerminalPathLinkMatches('unique-only.log unique terminal filename')[0]?.pathTarget,
+    { path: 'unique-only.log' },
+    'a file-like token should be tried before a weaker whole-line path fallback'
   );
   assert.deepStrictEqual(
     collectTerminalPathLinkMatches(`${'x'.repeat(2001)} src/compiler.ts:1`),

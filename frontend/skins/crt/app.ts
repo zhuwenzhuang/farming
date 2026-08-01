@@ -6457,10 +6457,10 @@ function showInputDialog(prefill: CrtAgentLaunchPrefill | null = null) {
   selectDefaultNewAgentNavigation();
 }
 
-function hideInputDialog() {
+function hideInputDialog(options: { force?: boolean } = {}) {
   const needMainAgent = needsMainAgent();
 
-  if (needMainAgent) {
+  if (needMainAgent && options.force !== true) {
     return;
   }
 
@@ -8165,6 +8165,11 @@ async function openSession(agentId: string|null|undefined) {
 
   const agent = state.agents.find(a => a.id === agentId);
   if (!agent) return;
+  // A session selected from the URL or dashboard owns the foreground. An
+  // earlier empty-state render may have opened the launch dialog while the
+  // authoritative Agent state was still arriving; do not leave that stale
+  // overlay intercepting the live session.
+  hideInputDialog({ force: true });
   agentId = agent.id;
   crtNavigationKey = `agent:${agentId}`;
   void markCrtAgentReadIfNeeded(agent);

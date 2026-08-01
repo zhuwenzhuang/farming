@@ -382,6 +382,8 @@ export async function writeTerminalFixture(page: Page, agentId: string, text: st
     },
     { id: agentId, fixture: text }
   )
+  await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${agentId}"] [data-testid="code-terminal-recovery"]`))
+    .toBeHidden()
 }
 
 export async function writeTerminalRaw(page: Page, agentId: string, text: string) {

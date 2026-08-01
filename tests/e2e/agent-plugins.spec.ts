@@ -5,9 +5,11 @@ import { selectCodeOption } from './code-select'
 
 test('Plugins treats each Agent Home as an independent ordered Agent configuration', async ({ page, workspaceRoot }) => {
   await openFarming(page)
+  const codexDefaultHome = path.join(workspaceRoot, 'codex-default')
   const claudeDefaultHome = path.join(workspaceRoot, 'claude-default')
   const claudeWorkHome = path.join(workspaceRoot, 'claude-work')
   const codexWorkHome = path.join(workspaceRoot, 'codex-work')
+  fs.mkdirSync(codexDefaultHome, { recursive: true })
   fs.mkdirSync(claudeDefaultHome, { recursive: true })
   fs.mkdirSync(claudeWorkHome, { recursive: true })
   fs.mkdirSync(codexWorkHome, { recursive: true })
@@ -22,13 +24,13 @@ test('Plugins treats each Agent Home as an independent ordered Agent configurati
   fs.writeFileSync(path.join(claudeWorkHome, 'settings.json'), JSON.stringify({
     env: { ANTHROPIC_MODEL: 'claude-work-only' },
   }))
-  await page.request.post('/farming/api/settings', {
+  const settingsResponse = await page.request.post('/farming/api/settings', {
     data: {
       agentHomes: {
         codex: [
           {
             id: 'default',
-            path: '~/.codex',
+            path: codexDefaultHome,
             order: 2,
             newAgentDefaults: { model: 'inherit', reasoning: 'inherit', fast: 'inherit' },
           },
@@ -56,6 +58,7 @@ test('Plugins treats each Agent Home as an independent ordered Agent configurati
       },
     },
   })
+  expect(settingsResponse.ok()).toBeTruthy()
 
   await page.getByTestId('code-nav-plugins').click()
   const panel = page.getByTestId('code-plugins-panel')
