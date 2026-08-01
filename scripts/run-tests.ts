@@ -37,6 +37,10 @@ const serverBackedTests = new Set([
   'test-session-terminal-input-e2e.ts',
 ]);
 const exclusiveTestFiles = new Set([
+  // This test starts two complete Server processes in sequence. Running it in
+  // the shared worker pool can starve the first bounded startup on CI and does
+  // not add useful concurrency coverage to the isolation assertions.
+  'test-multi-config-isolation.ts',
   // This test intentionally replaces the native PTY host for its config root.
   // Keep it continuously covered, but do not overlap it with other
   // process-level native-host tests running under the same user.
@@ -46,6 +50,7 @@ const DEFAULT_TEST_TIMEOUT_MS = 45_000;
 const DEFAULT_TEST_CONCURRENCY = Math.min(4, Math.max(1, os.availableParallelism?.() || os.cpus().length));
 const MAX_TEST_CONCURRENCY = 16;
 const TEST_TIMEOUT_OVERRIDES_MS = new Map<string, number>([
+  ['test-multi-config-isolation.ts', 90_000],
   ['test-native-session-engine-shell-profiles.ts', 90_000],
   ['test-review-comparison-matrix.ts', 180_000],
   ['test-server-native-runtime-rotation.ts', 90_000],
