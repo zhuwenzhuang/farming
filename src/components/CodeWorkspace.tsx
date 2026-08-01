@@ -4319,10 +4319,11 @@ export function CodeWorkspace({
 
   const previewPetAppearanceFromSettings = useCallback((appearance: PetAppearance) => {
     setSettingsPanelOpen(false)
+    if (isMobileNavigationViewport()) autoCollapseSidebar()
     requestPetAppearancePreview(appearance, {
       onEnd: () => setSettingsPanelOpen(true),
     })
-  }, [])
+  }, [autoCollapseSidebar])
 
   const optionsMenuEntries = useMemo<ContextMenuEntry[]>(() => {
     if (isCompactViewport()) {

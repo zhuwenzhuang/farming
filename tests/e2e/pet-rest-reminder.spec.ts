@@ -89,6 +89,28 @@ test('mobile reminder settings keep long values clear of the slider', async ({ p
   expect(valueBox!.y).toBeGreaterThanOrEqual(sliderBox!.y + sliderBox!.height)
 })
 
+test('mobile Pet preview closes navigation before capturing the scene', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.request.post('/farming/api/settings', {
+    data: {
+      appearance: 'dark',
+      language: 'zh',
+      restReminderIntervalSeconds: 50 * 60,
+    },
+  })
+  await openFarming(page)
+
+  await page.getByTestId('code-mobile-menu').click()
+  await page.getByTestId('code-sidebar-options').click()
+  const settings = page.getByTestId('code-settings-panel')
+  await settings.getByRole('button', { name: '预览黑洞效果' }).click()
+
+  await expect(page.getByTestId('code-workspace')).toHaveClass(/sidebar-collapsed/)
+  await expect(page.getByTestId('code-mobile-sidebar-backdrop')).toHaveCount(0)
+  await expect(page.getByTestId('pet-rest-scene'))
+    .toHaveAttribute('data-pet-appearance', 'black-hole')
+})
+
 test('settings sliders stage locally and save only the released value', async ({ page }) => {
   await page.request.post('/farming/api/settings', {
     data: {
