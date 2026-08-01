@@ -26,6 +26,7 @@ function run() {
     stopReason: '',
     supportsSteer: false,
     supportsFork: false,
+    supportsRealtime: false,
     pendingPermission: null,
     pendingPermissions: [{ requestId: 'permission-1' }],
     pendingElicitation: null,

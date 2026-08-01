@@ -100,6 +100,13 @@ async function run() {
       if (agent && /[\r\n]/.test(String(input))) agent.terminalInputReceived = true;
       return { sent: true };
     },
+    async sendComposerMessage(agentId, message, options = {}) {
+      calls.push({ type: 'sendComposerMessage', agentId, message, options });
+      if (message === 'uncertain delivery') {
+        throw Object.assign(new Error('message outcome is unknown'), { uncertain: true });
+      }
+      return { kind: agents.get(agentId)?.agentRuntimeMode === 'terminal' ? 'terminal' : 'acp' };
+    },
     async clearAgentSessionBuffer(agentId, options) {
       calls.push({ type: 'clearAgentSessionBuffer', agentId, options });
       return { cleared: true, outputSeq: 7 };
@@ -296,6 +303,61 @@ async function run() {
       { name: 'docs', command: '/bin/docs-mcp', args: [], env: [] },
     ]);
 
+    const terminalMessage = await fetchJson(
+      baseUrl,
+      `/api/control/agents/${created.body.agentId}/messages`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ message: 'continue from voice', requestId: 'voice:turn-1' }),
+      },
+    );
+    assert.strictEqual(terminalMessage.response.status, 202);
+    assert.strictEqual(terminalMessage.body.accepted, true);
+    assert.deepStrictEqual(calls.at(-1), {
+      type: 'sendComposerMessage',
+      agentId: created.body.agentId,
+      message: 'continue from voice',
+      options: { requestId: 'voice:turn-1' },
+    });
+
+    const chatMessage = await fetchJson(
+      baseUrl,
+      `/api/control/agents/${chatCreated.body.agentId}/messages`,
+      {
+        method: 'POST',
+        headers: { 'Idempotency-Key': 'voice:turn-2' },
+        body: JSON.stringify({ message: 'inspect the structured session', delivery: 'steer' }),
+      },
+    );
+    assert.strictEqual(chatMessage.response.status, 202);
+    assert.deepStrictEqual(calls.at(-1), {
+      type: 'sendComposerMessage',
+      agentId: chatCreated.body.agentId,
+      message: 'inspect the structured session',
+      options: { requestId: 'voice:turn-2', delivery: 'steer' },
+    });
+
+    const missingMessageRequestId = await fetchJson(
+      baseUrl,
+      `/api/control/agents/${chatCreated.body.agentId}/messages`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ message: 'must be idempotent' }),
+      },
+    );
+    assert.strictEqual(missingMessageRequestId.response.status, 400);
+
+    const uncertainMessage = await fetchJson(
+      baseUrl,
+      `/api/control/agents/${chatCreated.body.agentId}/messages`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ message: 'uncertain delivery', requestId: 'voice:turn-3' }),
+      },
+    );
+    assert.strictEqual(uncertainMessage.response.status, 409);
+    assert.strictEqual(uncertainMessage.body.uncertain, true);
+
     createResultPersistenceFailure = 'simulated Create result disk failure';
     const undurableCreateRequestId = 'control-create-undurable-result';
     const undurableAgentId = `agent-${nextAgent + 1}`;
@@ -351,7 +413,7 @@ async function run() {
     assert.match(recoveryBlockedKill.body.error, /simulated recovery failure/);
     recoveryFailure = '';
 
-    console.log('✓ Control API serializes exact-runtime Terminal mutations and readiness-bound startup input');
+    console.log('✓ Control API serializes Terminal mutations and admits provider-neutral Agent messages');
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }

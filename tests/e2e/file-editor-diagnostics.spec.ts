@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { pathToFileURL } from 'node:url'
 import {
   expect,
   openFarming,
@@ -48,4 +49,68 @@ test('keeps TypeScript diagnostics syntax-only without project language service 
 
   const markers = await page.evaluate(() => window.__farmingFileEditorTest?.getMarkers() ?? [])
   expect(markers.some(marker => marker.message.includes('Cannot find module'))).toBe(false)
+})
+
+test('shows VS Code Bridge navigation and lazy call hierarchy for a saved file', async ({ page }) => {
+  const workspaceRoot = path.join(PLAYWRIGHT_WORKSPACE_ROOT, 'vscode-bridge-editor')
+  fs.rmSync(workspaceRoot, { recursive: true, force: true })
+  fs.mkdirSync(workspaceRoot, { recursive: true })
+  fs.writeFileSync(path.join(workspaceRoot, 'App.ts'), 'export function root() { child() }\nfunction child() {}\n')
+  const workspaceUri = pathToFileURL(fs.realpathSync(workspaceRoot)).toString()
+
+  await page.route('**/api/language-server/capability**', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      status: 'connected',
+      source: 'vscode',
+      detail: 'VS Code Bridge',
+      vscodeVersion: '1.99.0',
+      features: ['definition', 'callHierarchy', 'diagnostics'],
+      workspaces: [workspaceUri],
+    }),
+  }))
+  await page.route('**/api/language-server/request', async route => {
+    const body = route.request().postDataJSON() as { method: string; itemId?: string }
+    const result = body.method === 'diagnostics' ? []
+      : body.method === 'prepareCallHierarchy' ? [{
+          id: 'root',
+          name: 'root',
+          detail: 'function',
+          kind: 11,
+          path: 'App.ts',
+          range: { start: { line: 0, character: 16 }, end: { line: 0, character: 20 } },
+          selectionRange: { start: { line: 0, character: 16 }, end: { line: 0, character: 20 } },
+        }]
+        : body.method === 'incomingCalls' && body.itemId === 'root' ? [{ item: {
+            id: 'caller',
+            name: 'caller',
+            detail: 'incoming',
+            kind: 11,
+            path: 'App.ts',
+            range: { start: { line: 1, character: 0 }, end: { line: 1, character: 8 } },
+            selectionRange: { start: { line: 1, character: 0 }, end: { line: 1, character: 8 } },
+          }, ranges: [] }]
+          : []
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ result }) })
+  })
+
+  await openFarming(page)
+  await openNewAgentDialog(page)
+  await startAgentFromOpenDialog(page, 'bash', workspaceRoot)
+  const project = page.getByTestId('code-project-group').filter({ hasText: path.basename(workspaceRoot) })
+  const files = project.getByTestId('code-files-section')
+  await files.locator('.code-files-title').first().click()
+  await files.locator('[data-testid="code-file-row"][data-file-path="App.ts"]').click()
+  await expect(page.getByTestId('code-file-monaco')).toBeVisible()
+
+  await page.getByTestId('code-file-monaco').click({ button: 'right', position: { x: 220, y: 38 } })
+  const menu = page.getByTestId('code-editor-context-menu')
+  await expect(menu.getByRole('menuitem', { name: 'Go to Definition' })).toBeVisible()
+  await menu.getByRole('menuitem', { name: 'Call Hierarchy' }).click()
+  const panel = page.getByTestId('code-language-server-panel')
+  await expect(panel).toContainText('root')
+  await panel.getByRole('button', { name: 'Expand' }).click()
+  await expect(panel).toContainText('caller')
+  await panel.getByText('caller', { exact: true }).click()
+  await expect(page.getByTestId('code-file-editor-statusbar')).toContainText('Ln 2, Col 1')
 })

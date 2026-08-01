@@ -12,6 +12,11 @@ Farming Code 是默认的桌面与移动端工作区，用来跟进一个或多�
 
 ## 主要工作流
 
+### 桌面端与远程后端
+
+Electron MVP 把 Farming Code 复用为本地桌面界面，并连接已保存的本地或通过 SSH 到达的
+Farming 后端。详见 [Farming Desktop MVP](desktop-app.zh_cn.md)。
+
 ### Agent、Chat 与 Terminal
 
 在 Chat 中阅读结构化 Agent 结果，或在 Terminal 中直接使用 CLI。
@@ -19,6 +24,9 @@ Farming Code 是默认的桌面与移动端工作区，用来跟进一个或多�
 ### Files 与 Review
 
 不离开当前任务，就能浏览 Project Files、检查修改、做小范围编辑并打开 Review。
+
+用户管理的 VS Code Bridge 运行时，同一个编辑器可以复用 VS Code 已安装语言 Provider
+提供的跳转、符号、调用/类型层次结构和诊断。详见 [Language Server](language-server.zh_cn.md)。
 
 ### Search 与 History
 

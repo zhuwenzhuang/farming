@@ -1,22 +1,25 @@
 diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_modules/@agentclientprotocol/codex-acp/dist/index.js
-index fb338ee..20191ea 100755
+index fb338ee..1bba7d0 100755
 --- a/node_modules/@agentclientprotocol/codex-acp/dist/index.js
 +++ b/node_modules/@agentclientprotocol/codex-acp/dist/index.js
-@@ -23365,8 +23365,12 @@ function createAgentTextThoughtChunk(text, messageId, meta3) {
+@@ -23365,8 +23365,15 @@ function createAgentTextThoughtChunk(text, messageId, meta3) {
  // src/AcpExtensions.ts
  var LEGACY_SET_SESSION_MODEL_METHOD = "session/set_model";
  var GOAL_CONTROL_METHOD = "_codex/session/goal_control";
 +var STEER_METHOD = "_codex/session/steer";
++var REALTIME_START_METHOD = "_codex/session/realtime/start";
++var REALTIME_STOP_METHOD = "_codex/session/realtime/stop";
 +var SUBAGENT_STATE_VERSION = 1;
++var REALTIME_STATE_VERSION = 1;
 +var MAX_SUBAGENT_THREADS = 128;
 +var SUBAGENT_READ_CONCURRENCY = 8;
  function isExtMethodRequest(request) {
 -  return request.method === "authentication/status" || request.method === "authentication/logout" || request.method === LEGACY_SET_SESSION_MODEL_METHOD || request.method === GOAL_CONTROL_METHOD;
-+  return request.method === "authentication/status" || request.method === "authentication/logout" || request.method === LEGACY_SET_SESSION_MODEL_METHOD || request.method === GOAL_CONTROL_METHOD || request.method === STEER_METHOD;
++  return request.method === "authentication/status" || request.method === "authentication/logout" || request.method === LEGACY_SET_SESSION_MODEL_METHOD || request.method === GOAL_CONTROL_METHOD || request.method === STEER_METHOD || request.method === REALTIME_START_METHOD || request.method === REALTIME_STOP_METHOD;
  }
 
  // src/ThreadGoalSnapshot.ts
-@@ -26065,6 +26069,17 @@ var CodexAcpClient = class {
+@@ -26065,6 +26072,17 @@ var CodexAcpClient = class {
        additionalDirectories
      };
    }
@@ -34,7 +37,7 @@ index fb338ee..20191ea 100755
    async newSession(request) {
      const additionalDirectories = readAdditionalDirectories(request.cwd, request.additionalDirectories, request._meta);
      await this.refreshSkills(request.cwd, additionalDirectories);
-@@ -26112,6 +26127,54 @@ var CodexAcpClient = class {
+@@ -26112,6 +26130,54 @@ var CodexAcpClient = class {
      const response = await this.codexClient.threadGoalGet({ threadId: sessionId });
      return response?.goal ?? null;
    }
@@ -89,7 +92,7 @@ index fb338ee..20191ea 100755
    async setGoal(sessionId, objective, onTurnStarted) {
      return await this.codexClient.runGoalSet({
        threadId: sessionId,
-@@ -26316,6 +26379,14 @@ var CodexAcpClient = class {
+@@ -26316,6 +26382,28 @@ var CodexAcpClient = class {
        serviceTier
      }, onTurnStarted);
    }
@@ -101,10 +104,24 @@ index fb338ee..20191ea 100755
 +      clientUserMessageId: clientMessageId ?? null
 +    });
 +  }
++  async startRealtime(sessionId, sdp) {
++    return await this.codexClient.threadRealtimeStart({
++      threadId: sessionId,
++      outputModality: "audio",
++      version: "v3",
++      model: "gpt-live-1-boulder-alpha",
++      includeStartupContext: true,
++      flushTranscriptTailOnSessionEnd: true,
++      transport: { type: "webrtc", sdp }
++    });
++  }
++  async stopRealtime(sessionId) {
++    return await this.codexClient.threadRealtimeStop({ threadId: sessionId });
++  }
    async setCollaborationMode(sessionId, mode, currentModelId) {
      await this.codexClient.threadSettingsUpdate({
        threadId: sessionId,
-@@ -27352,6 +27423,53 @@ function imageBlocks(images) {
+@@ -27352,6 +27436,53 @@ function imageBlocks(images) {
      return path6 ? [{ type: "text", text: `[@image](${path6})` }] : [];
    });
  }
@@ -158,7 +175,7 @@ index fb338ee..20191ea 100755
  function contentBlocksFromResponseContent(content) {
    if (!Array.isArray(content)) {
      return [];
-@@ -28151,6 +28269,13 @@ var CodexAcpServer = class _CodexAcpServer {
+@@ -28151,6 +28282,14 @@ var CodexAcpServer = class _CodexAcpServer {
    closingSessions;
    sessionGenerations;
    sessionOpenGenerations;
@@ -169,10 +186,11 @@ index fb338ee..20191ea 100755
 +  subagentPublishDirty;
 +  subagentRecoveryTimers;
 +  subagentRecoveryAttempts;
++  realtimePublishQueues;
    constructor(connection, codexAcpClient, defaultAuthRequest, getExitCode, getRecentStderr) {
      this.sessions = /* @__PURE__ */ new Map();
      this.pendingMcpStartupSessions = /* @__PURE__ */ new Map();
-@@ -28159,6 +28284,13 @@ var CodexAcpServer = class _CodexAcpServer {
+@@ -28159,6 +28298,14 @@ var CodexAcpServer = class _CodexAcpServer {
      this.closingSessions = /* @__PURE__ */ new Map();
      this.sessionGenerations = /* @__PURE__ */ new Map();
      this.sessionOpenGenerations = /* @__PURE__ */ new Map();
@@ -183,20 +201,21 @@ index fb338ee..20191ea 100755
 +    this.subagentPublishDirty = /* @__PURE__ */ new Set();
 +    this.subagentRecoveryTimers = /* @__PURE__ */ new Map();
 +    this.subagentRecoveryAttempts = /* @__PURE__ */ new Map();
++    this.realtimePublishQueues = /* @__PURE__ */ new Map();
      this.connection = connection;
      this.codexAcpClient = codexAcpClient;
      this.defaultAuthRequest = defaultAuthRequest ?? null;
-@@ -28174,6 +28306,9 @@ var CodexAcpServer = class _CodexAcpServer {
+@@ -28174,6 +28321,9 @@ var CodexAcpServer = class _CodexAcpServer {
        (operation) => this.runWithProcessCheck(operation),
        () => this.refreshSessionsAuthState(null)
      );
 +    this.codexAcpClient.onClientTransportEvent((event) => {
-+      this.handleSubagentTransportEvent(event);
++      this.handleCodexTransportEvent(event);
 +    });
    }
    async initialize(_params) {
      logger.log("Initialize request received");
-@@ -28202,6 +28337,7 @@ var CodexAcpServer = class _CodexAcpServer {
+@@ -28202,6 +28352,7 @@ var CodexAcpServer = class _CodexAcpServer {
          sessionCapabilities: {
            resume: {},
            list: {},
@@ -204,7 +223,7 @@ index fb338ee..20191ea 100755
            close: {},
            delete: {},
            additionalDirectories: {}
-@@ -28210,6 +28346,12 @@ var CodexAcpServer = class _CodexAcpServer {
+@@ -28210,6 +28361,18 @@ var CodexAcpServer = class _CodexAcpServer {
            acp: false,
            http: true,
            sse: false
@@ -212,12 +231,18 @@ index fb338ee..20191ea 100755
 +        _meta: {
 +          codex: {
 +            steer: { method: STEER_METHOD, version: 1 },
-+            subagents: { version: SUBAGENT_STATE_VERSION }
++            subagents: { version: SUBAGENT_STATE_VERSION },
++            realtime: {
++              version: REALTIME_STATE_VERSION,
++              transport: "webrtc",
++              startMethod: REALTIME_START_METHOD,
++              stopMethod: REALTIME_STOP_METHOD
++            }
 +          }
          }
        },
        authMethods: getCodexAuthMethods(_params.clientCapabilities)
-@@ -28248,6 +28390,31 @@ var CodexAcpServer = class _CodexAcpServer {
+@@ -28248,6 +28411,50 @@ var CodexAcpServer = class _CodexAcpServer {
          }
          return {};
        }
@@ -246,10 +271,29 @@ index fb338ee..20191ea 100755
 +        }
 +        return { turnId: response.turnId };
 +      }
++      case REALTIME_START_METHOD: {
++        const sessionState = this.sessions.get(methodRequest.params.sessionId);
++        if (!sessionState) {
++          throw RequestError.invalidParams(void 0, `Unknown session: ${methodRequest.params.sessionId}`);
++        }
++        await this.runWithProcessCheck(() => this.codexAcpClient.startRealtime(
++          sessionState.sessionId,
++          methodRequest.params.sdp
++        ));
++        return {};
++      }
++      case REALTIME_STOP_METHOD: {
++        const sessionState = this.sessions.get(methodRequest.params.sessionId);
++        if (!sessionState) {
++          throw RequestError.invalidParams(void 0, `Unknown session: ${methodRequest.params.sessionId}`);
++        }
++        await this.runWithProcessCheck(() => this.codexAcpClient.stopRealtime(sessionState.sessionId));
++        return {};
++      }
      }
    }
    async checkAuthorization() {
-@@ -28462,6 +28629,7 @@ You have been logged out. Please try again.`);
+@@ -28462,6 +28669,7 @@ You have been logged out. Please try again.`);
        thread
      } = await this.getOrCreateSessionWithHistory(params);
      await this.streamThreadHistory(sessionId, thread);
@@ -257,7 +301,7 @@ index fb338ee..20191ea 100755
      logger.log("Session loaded", {
        sessionId,
        modelId: modelState.currentModelId,
-@@ -28473,6 +28641,22 @@ You have been logged out. Please try again.`);
+@@ -28473,6 +28681,22 @@ You have been logged out. Please try again.`);
        ...this.createSessionConfigOptionsResponse(this.getSessionState(sessionId))
      };
    }
@@ -280,7 +324,7 @@ index fb338ee..20191ea 100755
    async resumeSession(params) {
      logger.log("Resuming session...", { sessionId: params.sessionId });
      const [sessionId, modelState, modeState] = await this.getOrCreateSession(params);
-@@ -28481,6 +28665,7 @@ You have been logged out. Please try again.`);
+@@ -28481,6 +28705,7 @@ You have been logged out. Please try again.`);
        modelId: modelState.currentModelId,
        availableModelCount: modelState.availableModels.length
      });
@@ -288,7 +332,7 @@ index fb338ee..20191ea 100755
      return {
        models: modelState,
        modes: modeState,
-@@ -28522,6 +28707,7 @@ You have been logged out. Please try again.`);
+@@ -28522,6 +28747,7 @@ You have been logged out. Please try again.`);
          await activePrompt.completion;
        }
        await this.runWithProcessCheck(() => this.codexAcpClient.closeSession(params.sessionId));
@@ -296,7 +340,7 @@ index fb338ee..20191ea 100755
        logger.log("Session closed", { sessionId: params.sessionId });
      } finally {
        if (this.getSessionGeneration(params.sessionId) === closeGeneration) {
-@@ -28534,6 +28720,256 @@ You have been logged out. Please try again.`);
+@@ -28534,6 +28760,295 @@ You have been logged out. Please try again.`);
      }
      return {};
    }
@@ -315,6 +359,7 @@ index fb338ee..20191ea 100755
 +    if (recoveryTimer) clearTimeout(recoveryTimer);
 +    this.subagentRecoveryTimers.delete(rootThreadId);
 +    this.subagentRecoveryAttempts.delete(rootThreadId);
++    this.realtimePublishQueues.delete(rootThreadId);
 +  }
 +  rootThreadIdForSubagent(threadId) {
 +    if (this.sessions.has(threadId)) return threadId;
@@ -550,10 +595,48 @@ index fb338ee..20191ea 100755
 +      this.updateSubagent(rootThreadId, { threadId, status: "shutdown" });
 +    }
 +  }
++  handleCodexTransportEvent(event) {
++    if (event?.eventType !== "notification") return;
++    const method = event.method;
++    const supported = method === "thread/realtime/started" || method === "thread/realtime/transcript/delta" || method === "thread/realtime/transcript/done" || method === "thread/realtime/sdp" || method === "thread/realtime/error" || method === "thread/realtime/closed";
++    if (supported) {
++      const params = event.params ?? {};
++      const threadId = typeof params.threadId === "string" ? params.threadId : "";
++      if (threadId && this.sessions.has(threadId)) {
++        const publish = async () => {
++          const session = new ACPSessionConnection(this.connection, threadId);
++          await session.update({
++            sessionUpdate: "session_info_update",
++            _meta: {
++              codex: {
++                realtime: {
++                  version: REALTIME_STATE_VERSION,
++                  method,
++                  params
++                }
++              }
++            }
++          });
++        };
++        const previous = this.realtimePublishQueues.get(threadId);
++        const next = (previous ? previous.then(publish, publish) : publish()).catch((error51) => {
++          logger.error(`Failed to publish Codex realtime event for session ${threadId}`, error51);
++        });
++        this.realtimePublishQueues.set(threadId, next);
++        void next.finally(() => {
++          if (this.realtimePublishQueues.get(threadId) === next) {
++            this.realtimePublishQueues.delete(threadId);
++          }
++        });
++      }
++      return;
++    }
++    this.handleSubagentTransportEvent(event);
++  }
    async deleteSession(params) {
      logger.log("Deleting session...", { sessionId: params.sessionId });
      const sessionId = params.sessionId;
-@@ -28937,8 +29373,25 @@ You have been logged out. Please try again.`);
+@@ -28937,8 +29452,25 @@ You have been logged out. Please try again.`);
      );
      const threadUpdates = [];
      for (const turn of thread.turns) {
@@ -580,7 +663,7 @@ index fb338ee..20191ea 100755
          threadUpdates.push(...updates2);
        }
      }
-@@ -29040,11 +29493,11 @@ You have been logged out. Please try again.`);
+@@ -29040,11 +29572,11 @@ You have been logged out. Please try again.`);
          return [this.createPlanUpdate(item)];
      }
    }
@@ -594,7 +677,7 @@ index fb338ee..20191ea 100755
        for (const block of blocks) {
          updates.push(createUserMessageChunk(block, messageId));
        }
-@@ -29088,15 +29541,26 @@ ${item.text}`
+@@ -29088,15 +29620,26 @@ ${item.text}`
        }
      };
    }
@@ -625,7 +708,8 @@ index fb338ee..20191ea 100755
        }
        case "skill":
          return [{ type: "text", text: `skill:${input.name} (${input.path})` }];
-@@ -29498,4 +29962,8 @@ var CodexAcpServer = class _CodexAcpServer {
+@@ -29500,6 +30043,10 @@ ${item.text}`
+           logger.error(`Prompt for cancelled session ${params.sessionId} failed after prompt returned`, err);
          }
        });
 +      await this.publishFallbackSessionTitle(
@@ -634,7 +718,8 @@ index fb338ee..20191ea 100755
 +      );
        const turnCompleted = await Promise.race([
          sendPromptPromise,
-@@ -29515,9 +29983,5 @@ var CodexAcpServer = class _CodexAcpServer {
+         activePrompt.closeSignal,
+@@ -29517,10 +30064,6 @@ ${item.text}`
        if (error51) {
          throw error51;
        }
@@ -644,17 +729,24 @@ index fb338ee..20191ea 100755
 -      );
        return {
          stopReason: "end_turn",
-@@ -29805,6 +30269,9 @@ var CodexAppServerClient = class {
+         usage: this.buildPromptUsage(sessionState.lastTokenUsage),
+@@ -29805,6 +30348,15 @@ var CodexAppServerClient = class {
    async turnStart(params) {
      return await this.sendRequest({ method: "turn/start", params });
    }
 +  async turnSteer(params) {
 +    return await this.sendRequest({ method: "turn/steer", params });
 +  }
++  async threadRealtimeStart(params) {
++    return await this.sendRequest({ method: "thread/realtime/start", params });
++  }
++  async threadRealtimeStop(params) {
++    return await this.sendRequest({ method: "thread/realtime/stop", params });
++  }
    async runTurn(params, onTurnStarted) {
      const capturedCompletions = [];
      const releaseCapture = this.captureTurnCompletions(params.threadId, (event) => {
-@@ -30032,6 +30499,9 @@ var CodexAppServerClient = class {
+@@ -30032,6 +30584,9 @@ var CodexAppServerClient = class {
    async threadResume(params) {
      return await this.sendRequest({ method: "thread/resume", params });
    }
@@ -664,7 +756,7 @@ index fb338ee..20191ea 100755
    getThreadSettings(threadId) {
      return this.threadSettings.get(threadId);
    }
-@@ -30595,6 +31065,11 @@ var goalControlParamsParser = external_exports.object({
+@@ -30595,6 +31150,18 @@ var goalControlParamsParser = external_exports.object({
    sessionId: external_exports.string(),
    action: external_exports.enum(["pause", "clear"])
  }).passthrough();
@@ -673,13 +765,20 @@ index fb338ee..20191ea 100755
 +  prompt: external_exports.array(external_exports.unknown()),
 +  clientMessageId: external_exports.string().optional()
 +}).passthrough();
++var realtimeStartParamsParser = external_exports.object({
++  sessionId: external_exports.string(),
++  sdp: external_exports.string().min(1)
++}).passthrough();
++var realtimeStopParamsParser = external_exports.object({
++  sessionId: external_exports.string()
++}).passthrough();
  if (process.argv.includes("--version")) {
    console.log(`${package_default.name} ${package_default.version}`);
    process.exit(0);
-@@ -30667,5 +31142,5 @@ function startAcpServer() {
+@@ -30667,5 +31234,5 @@ function startAcpServer() {
          codexAcpServer = null;
        }
      });
 -  }).onRequest(methods.agent.initialize, (ctx) => getAgent().initialize(ctx.params)).onRequest(methods.agent.session.new, (ctx) => getAgent().newSession(ctx.params)).onRequest(methods.agent.session.load, (ctx) => getAgent().loadSession(ctx.params)).onRequest(methods.agent.session.list, (ctx) => getAgent().listSessions(ctx.params)).onRequest(methods.agent.session.delete, (ctx) => getAgent().deleteSession(ctx.params)).onRequest(methods.agent.session.resume, (ctx) => getAgent().resumeSession(ctx.params)).onRequest(methods.agent.session.close, (ctx) => getAgent().closeSession(ctx.params)).onRequest(methods.agent.session.setMode, (ctx) => getAgent().setSessionMode(ctx.params)).onRequest(methods.agent.session.setConfigOption, (ctx) => getAgent().setSessionConfigOption(ctx.params)).onRequest(methods.agent.authenticate, (ctx) => getAgent().authenticate(ctx.params)).onRequest(methods.agent.logout, (ctx) => getAgent().logout(ctx.params)).onRequest(methods.agent.providers.list, (ctx) => getAgent().listProviders(ctx.params)).onRequest(methods.agent.providers.set, (ctx) => getAgent().setProvider(ctx.params)).onRequest(methods.agent.providers.disable, (ctx) => getAgent().disableProvider(ctx.params)).onRequest(methods.agent.session.prompt, (ctx) => getAgent().prompt(ctx.params, ctx.signal)).onNotification(methods.agent.session.cancel, (ctx) => getAgent().cancel(ctx.params)).onRequest("authentication/status", emptyExtensionParamsParser, (ctx) => getAgent().extMethod("authentication/status", ctx.params)).onRequest("authentication/logout", emptyExtensionParamsParser, (ctx) => getAgent().extMethod("authentication/logout", ctx.params)).onRequest(LEGACY_SET_SESSION_MODEL_METHOD, legacySetSessionModelParamsParser, (ctx) => getAgent().extMethod(LEGACY_SET_SESSION_MODEL_METHOD, ctx.params)).onRequest(GOAL_CONTROL_METHOD, goalControlParamsParser, (ctx) => getAgent().extMethod(GOAL_CONTROL_METHOD, ctx.params)).connect(acpJsonStream);
-+  }).onRequest(methods.agent.initialize, (ctx) => getAgent().initialize(ctx.params)).onRequest(methods.agent.session.new, (ctx) => getAgent().newSession(ctx.params)).onRequest(methods.agent.session.load, (ctx) => getAgent().loadSession(ctx.params)).onRequest(methods.agent.session.fork, (ctx) => getAgent().unstable_forkSession(ctx.params)).onRequest(methods.agent.session.list, (ctx) => getAgent().listSessions(ctx.params)).onRequest(methods.agent.session.delete, (ctx) => getAgent().deleteSession(ctx.params)).onRequest(methods.agent.session.resume, (ctx) => getAgent().resumeSession(ctx.params)).onRequest(methods.agent.session.close, (ctx) => getAgent().closeSession(ctx.params)).onRequest(methods.agent.session.setMode, (ctx) => getAgent().setSessionMode(ctx.params)).onRequest(methods.agent.session.setConfigOption, (ctx) => getAgent().setSessionConfigOption(ctx.params)).onRequest(methods.agent.authenticate, (ctx) => getAgent().authenticate(ctx.params)).onRequest(methods.agent.logout, (ctx) => getAgent().logout(ctx.params)).onRequest(methods.agent.providers.list, (ctx) => getAgent().listProviders(ctx.params)).onRequest(methods.agent.providers.set, (ctx) => getAgent().setProvider(ctx.params)).onRequest(methods.agent.providers.disable, (ctx) => getAgent().disableProvider(ctx.params)).onRequest(methods.agent.session.prompt, (ctx) => getAgent().prompt(ctx.params, ctx.signal)).onNotification(methods.agent.session.cancel, (ctx) => getAgent().cancel(ctx.params)).onRequest("authentication/status", emptyExtensionParamsParser, (ctx) => getAgent().extMethod("authentication/status", ctx.params)).onRequest("authentication/logout", emptyExtensionParamsParser, (ctx) => getAgent().extMethod("authentication/logout", ctx.params)).onRequest(LEGACY_SET_SESSION_MODEL_METHOD, legacySetSessionModelParamsParser, (ctx) => getAgent().extMethod(LEGACY_SET_SESSION_MODEL_METHOD, ctx.params)).onRequest(GOAL_CONTROL_METHOD, goalControlParamsParser, (ctx) => getAgent().extMethod(GOAL_CONTROL_METHOD, ctx.params)).onRequest(STEER_METHOD, steerParamsParser, (ctx) => getAgent().extMethod(STEER_METHOD, ctx.params)).connect(acpJsonStream);
++  }).onRequest(methods.agent.initialize, (ctx) => getAgent().initialize(ctx.params)).onRequest(methods.agent.session.new, (ctx) => getAgent().newSession(ctx.params)).onRequest(methods.agent.session.load, (ctx) => getAgent().loadSession(ctx.params)).onRequest(methods.agent.session.fork, (ctx) => getAgent().unstable_forkSession(ctx.params)).onRequest(methods.agent.session.list, (ctx) => getAgent().listSessions(ctx.params)).onRequest(methods.agent.session.delete, (ctx) => getAgent().deleteSession(ctx.params)).onRequest(methods.agent.session.resume, (ctx) => getAgent().resumeSession(ctx.params)).onRequest(methods.agent.session.close, (ctx) => getAgent().closeSession(ctx.params)).onRequest(methods.agent.session.setMode, (ctx) => getAgent().setSessionMode(ctx.params)).onRequest(methods.agent.session.setConfigOption, (ctx) => getAgent().setSessionConfigOption(ctx.params)).onRequest(methods.agent.authenticate, (ctx) => getAgent().authenticate(ctx.params)).onRequest(methods.agent.logout, (ctx) => getAgent().logout(ctx.params)).onRequest(methods.agent.providers.list, (ctx) => getAgent().listProviders(ctx.params)).onRequest(methods.agent.providers.set, (ctx) => getAgent().setProvider(ctx.params)).onRequest(methods.agent.providers.disable, (ctx) => getAgent().disableProvider(ctx.params)).onRequest(methods.agent.session.prompt, (ctx) => getAgent().prompt(ctx.params, ctx.signal)).onNotification(methods.agent.session.cancel, (ctx) => getAgent().cancel(ctx.params)).onRequest("authentication/status", emptyExtensionParamsParser, (ctx) => getAgent().extMethod("authentication/status", ctx.params)).onRequest("authentication/logout", emptyExtensionParamsParser, (ctx) => getAgent().extMethod("authentication/logout", ctx.params)).onRequest(LEGACY_SET_SESSION_MODEL_METHOD, legacySetSessionModelParamsParser, (ctx) => getAgent().extMethod(LEGACY_SET_SESSION_MODEL_METHOD, ctx.params)).onRequest(GOAL_CONTROL_METHOD, goalControlParamsParser, (ctx) => getAgent().extMethod(GOAL_CONTROL_METHOD, ctx.params)).onRequest(STEER_METHOD, steerParamsParser, (ctx) => getAgent().extMethod(STEER_METHOD, ctx.params)).onRequest(REALTIME_START_METHOD, realtimeStartParamsParser, (ctx) => getAgent().extMethod(REALTIME_START_METHOD, ctx.params)).onRequest(REALTIME_STOP_METHOD, realtimeStopParamsParser, (ctx) => getAgent().extMethod(REALTIME_STOP_METHOD, ctx.params)).connect(acpJsonStream);
  }

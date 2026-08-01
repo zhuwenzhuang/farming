@@ -134,7 +134,49 @@ function resultFor(method, params) {
   if (method === 'thread/goal/get') {
     return { goal: null, revision: 0 };
   }
+  if (method === 'thread/realtime/start') {
+    if (params?.threadId !== sessionId || params?.outputModality !== 'audio') {
+      throw new Error(`Unexpected realtime start params: ${JSON.stringify(params)}`);
+    }
+    if (
+      params?.version !== 'v3'
+      || params?.model !== 'gpt-live-1-boulder-alpha'
+      || params?.includeStartupContext !== true
+      || params?.flushTranscriptTailOnSessionEnd !== true
+    ) {
+      throw new Error(`Expected the Codex Realtime v3 session contract: ${JSON.stringify(params)}`);
+    }
+    if (params?.transport?.type !== 'webrtc' || typeof params?.transport?.sdp !== 'string') {
+      throw new Error(`Expected a WebRTC SDP offer: ${JSON.stringify(params)}`);
+    }
+    return {};
+  }
+  if (method === 'thread/realtime/stop') {
+    if (params?.threadId !== sessionId) {
+      throw new Error(`Unexpected realtime stop params: ${JSON.stringify(params)}`);
+    }
+    return {};
+  }
   throw new Error(`Unexpected fake Codex app-server request: ${method} ${JSON.stringify(params)}`);
+}
+
+function notificationsFor(method) {
+  if (method === 'thread/realtime/start') {
+    return [{
+      method: 'thread/realtime/sdp',
+      params: { threadId: sessionId, sdp: 'v=0\r\nfake-answer' },
+    }, {
+      method: 'thread/realtime/transcript/done',
+      params: { threadId: sessionId, role: 'user', text: 'run focused tests' },
+    }];
+  }
+  if (method === 'thread/realtime/stop') {
+    return [{
+      method: 'thread/realtime/closed',
+      params: { threadId: sessionId },
+    }];
+  }
+  return [];
 }
 
 async function run() {
@@ -148,6 +190,9 @@ async function run() {
         id: request.id,
         result: resultFor(request.method, request.params),
       })}\n`);
+      for (const notification of notificationsFor(request.method)) {
+        process.stdout.write(`${JSON.stringify(notification)}\n`);
+      }
     } catch (error) {
       process.stdout.write(`${JSON.stringify({
         id: request.id,

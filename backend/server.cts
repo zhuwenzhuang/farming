@@ -244,6 +244,7 @@ import {
   IsolatedBrowserProvider,
   createComputerRouter,
 } from '../extensions/computer/backend/index.cjs';
+import { createLanguageServerRouter, VsCodeBridgeClient } from '../extensions/language-server/backend/index.cjs';
 import { UsageMonitor } from './usage-monitor.cjs';
 import { CodexContextWindowReader } from './codex-context-window.cjs';
 import { AsyncCache } from './async-cache.cjs';
@@ -346,6 +347,7 @@ const browserResourceManager = new BrowserResourceManager({
   }),
   isolatedBrowserProvider,
 });
+const vsCodeBridgeClient = new VsCodeBridgeClient();
 
 const agentManager = new AgentManager(
   configManager,
@@ -904,6 +906,10 @@ app.use(routePath(BASE_PATH, '/api/computers'), createComputerRouter(
   computerResourceManager,
   workspaceRootRegistry,
   agentManager as Parameters<typeof createComputerRouter>[2],
+));
+app.use(routePath(BASE_PATH, '/api/language-server'), createLanguageServerRouter(
+  vsCodeBridgeClient,
+  workspaceRootRegistry,
 ));
 
 app.use(routePath(BASE_PATH, '/api/review-sessions'), createReviewSessionRouter(reviewSessionService));
@@ -1757,6 +1763,27 @@ app.post(routePath(BASE_PATH, '/api/agents/:agentId/acp-session/reconnect'), asy
     res.json(result);
   } catch (error) {
     res.status(409).json({ error: caughtError(error).message || 'Failed to reconnect ACP Agent' });
+  }
+});
+
+app.post(routePath(BASE_PATH, '/api/agents/:agentId/acp-realtime/start'), express.json({ limit: '1mb' }), async (req, res) => {
+  try {
+    const sdp = typeof req.body?.sdp === 'string' ? req.body.sdp : '';
+    if (!sdp.trim()) {
+      res.status(400).json({ error: 'WebRTC SDP offer is required' });
+      return;
+    }
+    res.json(await agentManager.startAcpRealtime(req.params.agentId, sdp));
+  } catch (error) {
+    res.status(409).json({ error: caughtError(error).message || 'Failed to start Codex realtime voice' });
+  }
+});
+
+app.post(routePath(BASE_PATH, '/api/agents/:agentId/acp-realtime/stop'), async (req, res) => {
+  try {
+    res.json(await agentManager.stopAcpRealtime(req.params.agentId));
+  } catch (error) {
+    res.status(409).json({ error: caughtError(error).message || 'Failed to stop Codex realtime voice' });
   }
 });
 
@@ -3047,7 +3074,8 @@ function restartMainAgent(ws: WebSocketClient, command: string) {
           ws.send(JSON.stringify({ type: 'agent-started', agentId }));
         }
       }, {
-        wantsMain: true
+        wantsMain: true,
+        agentRuntimeMode: normalizedCommand === 'codex' ? 'chat' : 'terminal'
       });
     } catch (caught) {
     const error = caughtError(caught);
@@ -3841,6 +3869,14 @@ function scheduleAcpSessionRevision(session: unknown) {
 }
 
 agentManager.on('acp-session-revision', scheduleAcpSessionRevision);
+
+agentManager.on('acp-realtime', (event: unknown) => {
+  if (!isAgentScopedServerEvent(event) || typeof event.method !== 'string') return;
+  const message = JSON.stringify({ type: 'acp-realtime', event });
+  wss.clients.forEach((client) => {
+    if (client.readyState === WebSocket.OPEN) client.send(message);
+  });
+});
 
 function broadcastAgentRead(read: unknown) {
   if (!isAgentScopedServerEvent(read)) return;

@@ -90,7 +90,15 @@ interface InitializeResponse {
     loadSession?: boolean;
     sessionCapabilities?: UnknownRecord & { fork?: boolean; close?: boolean; resume?: boolean };
     promptCapabilities?: UnknownRecord;
-    _meta?: UnknownRecord & { codex?: UnknownRecord & { steer?: UnknownRecord & { method?: string; version?: number } } };
+    _meta?: UnknownRecord & { codex?: UnknownRecord & {
+      steer?: UnknownRecord & { method?: string; version?: number };
+      realtime?: UnknownRecord & {
+        version?: number;
+        transport?: string;
+        startMethod?: string;
+        stopMethod?: string;
+      };
+    } };
   };
 }
 interface SessionResponse extends UnknownRecord {
@@ -127,7 +135,7 @@ interface AcpBinding {
   activeElicitations: Map<string, ElicitationRequest>; subagentStates: Map<string, AcpSessionState>;
   subagentControls: Map<string, SubagentControl>; nextSubagentGeneration: number;
   interactionOrigins: Map<string, string>; activeTurn: AcpTurn | null; nextTurnId: number;
-  supportsSteer: boolean; historyReplayActive: boolean; sessionState: AcpSessionState;
+  supportsSteer: boolean; supportsRealtime: boolean; historyReplayActive: boolean; sessionState: AcpSessionState;
   authTerminal: UnknownRecord; patchDecisions: Map<string, string>;
   patchDecisionInFlight: Map<string, { decision: string; promise: Promise<unknown> }>;
   checkpointProof: unknown; sessionMutation: SessionMutation | null; configMutationTail: Promise<unknown> | null;
@@ -219,6 +227,15 @@ function asErrorLike(error: unknown): ErrorLike {
   return error && typeof error === 'object' ? error as ErrorLike : {};
 }
 
+function codexRealtimeStartError(error: unknown): Error {
+  const failure = asErrorLike(error);
+  const details = failure.data?.details || failure.cause?.data?.details || failure.message || '';
+  if (/unknown variant [`']v3[`']|expected [`']v1[`'] or [`']v2[`']/i.test(details)) {
+    return new Error('Installed Codex does not support Realtime v3. Update Codex and restart the Agent.');
+  }
+  return error instanceof Error ? error : new Error(String(error));
+}
+
 const ADAPTER_VERSIONS = Object.freeze(Object.fromEntries(
   listProviderAdapters()
     .filter(adapter => adapter.acp)
@@ -237,9 +254,11 @@ const IDENTITY_ADAPTER_TERMINATE_MS = 1_000;
 const IDENTITY_ADAPTER_KILL_MS = 1_000;
 const CODEX_SET_SESSION_MODEL_METHOD = 'session/set_model';
 const CODEX_STEER_METHOD = '_codex/session/steer';
+const CODEX_REALTIME_START_METHOD = '_codex/session/realtime/start';
+const CODEX_REALTIME_STOP_METHOD = '_codex/session/realtime/stop';
 const CODEX_ACP_PACKAGE = '@agentclientprotocol/codex-acp';
 const CODEX_ACP_VERSION = '1.1.4';
-const CODEX_ACP_SHA256 = '2b0bf774e336d71816727a66cef47f6c088f4e85e76e412ebd0ed156eb7e2c44';
+const CODEX_ACP_SHA256 = 'fac418af5a64d1f2818e02d5f8b6a09a2d80e352d68d7a5be405e7d296505d96';
 const CLAUDE_ACP_PACKAGE = '@agentclientprotocol/claude-agent-acp';
 const CLAUDE_ACP_VERSION = '0.59.0';
 const CLAUDE_ACP_SHA256 = 'a6aa515dd02382617bf46d9eac47b8a1022c6835bcf7a8d61e2c63939be2e49c';
@@ -681,6 +700,58 @@ function supportsCodexSteer(capabilities: InitializeResponse['agentCapabilities'
     && Number(capability.version) >= 1;
 }
 
+function supportsCodexRealtime(capabilities: InitializeResponse['agentCapabilities'] = {}) {
+  const capability = capabilities?._meta?.codex?.realtime;
+  return capability?.startMethod === CODEX_REALTIME_START_METHOD
+    && capability?.stopMethod === CODEX_REALTIME_STOP_METHOD
+    && capability?.transport === 'webrtc'
+    && Number.isFinite(Number(capability.version))
+    && Number(capability.version) >= 1;
+}
+
+function boundedRealtimeString(params: UnknownRecord, field: string, maxLength: number) {
+  const value = params[field];
+  return typeof value === 'string' && value.length <= maxLength ? value : null;
+}
+
+function sanitizeCodexRealtimeEvent(method: string, value: unknown) {
+  const params = recordValue(value);
+  const threadId = boundedRealtimeString(params, 'threadId', 256);
+  if (!threadId) return null;
+  const sanitized: UnknownRecord = { threadId };
+  if (method === 'thread/realtime/started') {
+    const realtimeSessionId = boundedRealtimeString(params, 'realtimeSessionId', 256);
+    const version = boundedRealtimeString(params, 'version', 64);
+    if (realtimeSessionId) sanitized.realtimeSessionId = realtimeSessionId;
+    if (version) sanitized.version = version;
+    return sanitized;
+  }
+  if (method === 'thread/realtime/transcript/delta') {
+    const role = boundedRealtimeString(params, 'role', 32);
+    const delta = boundedRealtimeString(params, 'delta', 64 * 1024);
+    return role !== null && delta !== null ? { ...sanitized, role, delta } : null;
+  }
+  if (method === 'thread/realtime/transcript/done') {
+    const role = boundedRealtimeString(params, 'role', 32);
+    const text = boundedRealtimeString(params, 'text', 64 * 1024);
+    return role !== null && text !== null ? { ...sanitized, role, text } : null;
+  }
+  if (method === 'thread/realtime/sdp') {
+    const sdp = boundedRealtimeString(params, 'sdp', 1_000_000);
+    return sdp !== null ? { ...sanitized, sdp } : null;
+  }
+  if (method === 'thread/realtime/error') {
+    const message = boundedRealtimeString(params, 'message', 8 * 1024);
+    return message !== null ? { ...sanitized, message } : null;
+  }
+  if (method === 'thread/realtime/closed') {
+    const reason = boundedRealtimeString(params, 'reason', 1024);
+    if (reason) sanitized.reason = reason;
+    return sanitized;
+  }
+  return null;
+}
+
 function isCodexSteerUnavailableError(error: unknown) {
   const failure = asErrorLike(error);
   const text = [
@@ -1095,6 +1166,7 @@ class AcpRuntime extends EventEmitter {
       activeTurn: null,
       nextTurnId: 1,
       supportsSteer: false,
+      supportsRealtime: false,
       historyReplayActive: false,
       sessionState: new AcpSessionState({
         provider,
@@ -1197,6 +1269,8 @@ class AcpRuntime extends EventEmitter {
       }
       binding.supportsSteer = binding.provider === 'codex'
         && supportsCodexSteer(binding.initializeResponse.agentCapabilities);
+      binding.supportsRealtime = binding.provider === 'codex'
+        && supportsCodexRealtime(binding.initializeResponse.agentCapabilities);
 
       const sessionRequest = { sessionId: requestedSessionId, ...binding.sessionRequestOptions };
       let sessionResponse!: SessionResponse;
@@ -2097,6 +2171,19 @@ class AcpRuntime extends EventEmitter {
         if (!this.isOpenBinding(binding) || binding.state === 'closed') return;
         const notificationSessionId = String(notification?.sessionId || '');
         const isPrimarySession = !binding.sessionId || !notificationSessionId || notificationSessionId === binding.sessionId;
+        const update = recordValue(notification.update);
+        const realtime = recordValue(recordValue(recordValue(update._meta).codex).realtime);
+        const realtimeMethod = typeof realtime.method === 'string' ? realtime.method : '';
+        const realtimeParams = sanitizeCodexRealtimeEvent(realtimeMethod, realtime.params);
+        if (isPrimarySession && Number(realtime.version) >= 1 && realtimeParams) {
+          this.emit('realtime', {
+            agentId: binding.agentId,
+            sessionId: notificationSessionId || binding.sessionId,
+            method: realtimeMethod,
+            params: realtimeParams,
+          });
+          return;
+        }
         let targetState = isPrimarySession ? binding.sessionState : binding.subagentStates.get(notificationSessionId);
         if (!targetState && notificationSessionId && binding.subagentStates.size < 32) {
           targetState = new AcpSessionState({
@@ -2116,13 +2203,13 @@ class AcpRuntime extends EventEmitter {
           if (parentTool) this.updateSubagentControlFromParent(binding, parentTool);
         }
         if (targetState?.apply(notification)) {
-          const update = notification.update as TranscriptEntry | undefined;
-          if (isPrimarySession && update) this.updateSubagentControlFromParent(binding, update);
-          if (isPrimarySession && update?.sessionUpdate === 'current_mode_update' && binding.modes) {
-            binding.modes = { ...binding.modes, currentModeId: String(update.currentModeId || '') };
+          const transcriptUpdate = notification.update as TranscriptEntry | undefined;
+          if (isPrimarySession && transcriptUpdate) this.updateSubagentControlFromParent(binding, transcriptUpdate);
+          if (isPrimarySession && transcriptUpdate?.sessionUpdate === 'current_mode_update' && binding.modes) {
+            binding.modes = { ...binding.modes, currentModeId: String(transcriptUpdate.currentModeId || '') };
           }
-          if (isPrimarySession && update?.sessionUpdate === 'config_option_update') {
-            binding.configOptions = JSON.parse(JSON.stringify(update.configOptions || []));
+          if (isPrimarySession && transcriptUpdate?.sessionUpdate === 'config_option_update') {
+            binding.configOptions = JSON.parse(JSON.stringify(transcriptUpdate.configOptions || []));
           }
           if (!isPrimarySession && binding.sessionState) {
             const parentTool = binding.sessionState.entries.find((entry: TranscriptEntry) => (
@@ -2767,6 +2854,38 @@ class AcpRuntime extends EventEmitter {
     }
   }
 
+  async startRealtime(agentId: string, sdp: string) {
+    const binding = this.requireBinding(agentId);
+    this.requireOpenBinding(binding);
+    if (!binding.supportsRealtime) throw new Error('Codex realtime voice is not supported by this ACP adapter');
+    if (!binding.sessionId) throw new Error('Codex realtime voice requires an active session');
+    if (typeof sdp !== 'string' || !sdp.trim() || sdp.length > 1_000_000) {
+      throw new Error('Codex realtime voice requires a valid WebRTC SDP offer');
+    }
+    try {
+      await withTimeout(binding.connection.request(CODEX_REALTIME_START_METHOD, {
+        sessionId: binding.sessionId,
+        sdp,
+      }) as Promise<unknown>, this.requestTimeoutMs, 'Codex realtime start');
+    } catch (error) {
+      throw codexRealtimeStartError(error);
+    }
+    this.requireOpenBinding(binding);
+    return { started: true, sessionId: binding.sessionId };
+  }
+
+  async stopRealtime(agentId: string) {
+    const binding = this.requireBinding(agentId);
+    this.requireOpenBinding(binding);
+    if (!binding.supportsRealtime) throw new Error('Codex realtime voice is not supported by this ACP adapter');
+    if (!binding.sessionId) throw new Error('Codex realtime voice requires an active session');
+    await withTimeout(binding.connection.request(CODEX_REALTIME_STOP_METHOD, {
+      sessionId: binding.sessionId,
+    }) as Promise<unknown>, this.requestTimeoutMs, 'Codex realtime stop');
+    this.requireOpenBinding(binding);
+    return { stopped: true, sessionId: binding.sessionId };
+  }
+
   terminalAuthenticationLaunch(binding: AcpBinding, method: UnknownRecord & { id?: string; type?: string; command?: string; args?: string[] }) {
     const metadata = method._meta && typeof method._meta === 'object' ? method._meta as UnknownRecord : {};
     const legacy = metadata['terminal-auth'] as UnknownRecord | undefined;
@@ -3376,6 +3495,7 @@ class AcpRuntime extends EventEmitter {
       errorKind: binding.error ? acpErrorKind(binding.error) : '',
       stopReason: binding.stopReason,
       supportsSteer: binding.supportsSteer === true,
+      supportsRealtime: binding.supportsRealtime === true,
       supportsFork: Boolean(
         binding.initializeResponse?.agentCapabilities?.sessionCapabilities?.fork
         && binding.initializeResponse?.agentCapabilities?.loadSession
@@ -3654,6 +3774,7 @@ class AcpRuntime extends EventEmitter {
       errorKind: binding.error ? acpErrorKind(binding.error) : '',
       stopReason: binding.stopReason,
       supportsSteer: binding.supportsSteer === true,
+      supportsRealtime: binding.supportsRealtime === true,
       supportsFork: Boolean(
         binding.initializeResponse?.agentCapabilities?.sessionCapabilities?.fork
         && binding.initializeResponse?.agentCapabilities?.loadSession
@@ -3825,7 +3946,12 @@ export {
   resolveAcpLaunch,
   stopPersistedAcpProcessGroup,
   supportsCodexSteer,
+  supportsCodexRealtime,
+  codexRealtimeStartError,
+  sanitizeCodexRealtimeEvent,
   isCodexSteerUnavailableError,
   CODEX_STEER_METHOD,
+  CODEX_REALTIME_START_METHOD,
+  CODEX_REALTIME_STOP_METHOD,
   deleteProviderSessionIdentity,
 };

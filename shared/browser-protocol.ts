@@ -239,6 +239,16 @@ export interface ComputerResourceDeletedMessage extends ExtensibleMessage {
   deletion: ObjectMessage & { id: string; collectionRevision: number }
 }
 
+export interface AcpRealtimeMessage extends ExtensibleMessage {
+  type: 'acp-realtime'
+  event: ObjectMessage & {
+    agentId: string
+    sessionId: string
+    method: string
+    params: ObjectMessage
+  }
+}
+
 export type ServerMessage =
   | ProtocolServerHelloMessage
   | BusinessHealthResultMessage
@@ -254,6 +264,7 @@ export type ServerMessage =
   | AgentActivityMessage
   | AgentUpdateMessage
   | AcpSessionRevisionMessage
+  | AcpRealtimeMessage
   | AgentReadMessage
   | WorkspaceFileWatchMessage
   | WorkspaceFileEventMessage
@@ -300,6 +311,7 @@ const SERVER_MESSAGE_TYPES: ReadonlySet<ServerMessage['type']> = new Set([
   'agent-activity',
   'agent-update',
   'acp-session-revision',
+  'acp-realtime',
   'agent-read',
   'workspace-file-watch',
   'workspace-file-event',
@@ -443,6 +455,13 @@ export function validateServerMessage(value: unknown): ValidationResult<ServerMe
     case 'agent-activity': valid = objectMessage(value.activity) && stringField(value.activity, 'agentId'); break
     case 'agent-update': valid = objectMessage(value.update) && stringField(value.update, 'agentId') && sanitizeAgentUpdatePatch(value.update.patch) !== null; break
     case 'acp-session-revision': valid = objectMessage(value.session) && stringField(value.session, 'agentId') && Number.isInteger(value.session.revision) && typeof value.session.revision === 'number' && value.session.revision >= 0 && stringField(value.session, 'updatedAt'); break
+    case 'acp-realtime':
+      valid = objectMessage(value.event)
+        && stringField(value.event, 'agentId')
+        && stringField(value.event, 'sessionId')
+        && stringField(value.event, 'method')
+        && objectMessage(value.event.params)
+      break
     case 'agent-read': valid = objectMessage(value.read) && stringField(value.read, 'agentId'); break
     case 'workspace-file-watch': valid = stringField(value, 'agentId') && typeof value.watching === 'boolean'; break
     case 'workspace-file-event': valid = objectMessage(value.event) && stringField(value.event, 'agentId'); break

@@ -40,6 +40,40 @@ body.code-mode[data-appearance='dark'] ::selection {
   color: #ffffff;
 }
 
+body.code-mode[data-appearance='dark'] .desktop-backend-bar,
+body.code-mode[data-appearance='dark'] .desktop-backend-dialog {
+  border-color: #383b39;
+  background: #202220;
+  color: #f1f3f1;
+}
+
+body.code-mode[data-appearance='dark'] .desktop-backend-bar select,
+body.code-mode[data-appearance='dark'] .desktop-backend-bar button,
+body.code-mode[data-appearance='dark'] .desktop-backend-dialog button,
+body.code-mode[data-appearance='dark'] .desktop-backend-dialog input,
+body.code-mode[data-appearance='dark'] .desktop-backend-dialog select {
+  border-color: #474b48;
+  background: #292c2a;
+  color: #f1f3f1;
+}
+
+body.code-mode[data-appearance='dark'] .desktop-backend-list,
+body.code-mode[data-appearance='dark'] .desktop-backend-row,
+body.code-mode[data-appearance='dark'] .desktop-backend-form {
+  border-color: #3c403d;
+}
+
+body.code-mode[data-appearance='dark'] .desktop-backend-status-label,
+body.code-mode[data-appearance='dark'] .desktop-backend-dialog p,
+body.code-mode[data-appearance='dark'] .desktop-backend-dialog small {
+  color: #a9afaa;
+}
+
+body.code-mode[data-appearance='dark'] .desktop-backend-form-error {
+  border-color: #6b3b39;
+  background: #372321;
+}
+
 body.code-mode[data-appearance='dark'] .code-sidebar {
   --code-dark-bg-soft: var(--code-dark-bg-sidebar);
 
@@ -152,6 +186,13 @@ body.code-mode[data-appearance='dark'] .code-composer-model-picker:hover,
 body.code-mode[data-appearance='dark'] .code-composer-mode-chip:hover {
   background: var(--code-dark-bg-hover);
   color: var(--code-dark-text);
+}
+
+body.code-mode[data-appearance='dark'] .code-composer-mic.realtime,
+body.code-mode[data-appearance='dark'] .code-composer-mic.realtime:hover,
+body.code-mode[data-appearance='dark'] .code-composer-mic.realtime.listening {
+  color: #111;
+  background: #f8f8f6;
 }
 
 body.code-mode[data-appearance='dark'] .code-agent-row-action {
@@ -1907,6 +1948,11 @@ body.code-mode[data-appearance='dark'] .code-agent-transcript-collaboration-agen
   color: var(--code-dark-text-soft);
 }
 
+body.code-mode[data-appearance='dark'] .code-agent-transcript-collaboration-agent.tone-0 svg { color: #69c5bd; }
+body.code-mode[data-appearance='dark'] .code-agent-transcript-collaboration-agent.tone-1 svg { color: #c69494; }
+body.code-mode[data-appearance='dark'] .code-agent-transcript-collaboration-agent.tone-2 svg { color: #a371f7; }
+body.code-mode[data-appearance='dark'] .code-agent-transcript-collaboration-agent.tone-3 svg { color: #d2b47c; }
+
 body.code-mode[data-appearance='dark'] .code-agent-transcript-collaboration-agent-labels > span {
   color: var(--code-dark-text);
 }
@@ -2656,6 +2702,37 @@ body.code-mode[data-appearance='dark'] .code-file-line-changes-panel {
   border-color: var(--code-dark-border);
   color: var(--code-dark-text);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+body.code-mode[data-appearance='dark'] .code-language-server-panel {
+  background: rgba(22, 27, 34, 0.98);
+  border-color: var(--code-dark-border);
+  color: var(--code-dark-text);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.42);
+}
+
+body.code-mode[data-appearance='dark'] .code-language-server-panel > header,
+body.code-mode[data-appearance='dark'] .code-language-server-directions,
+body.code-mode[data-appearance='dark'] .code-language-server-search {
+  border-color: var(--code-dark-border);
+}
+
+body.code-mode[data-appearance='dark'] .code-language-server-search input {
+  background: var(--code-dark-bg);
+  border-color: var(--code-dark-border);
+  color: var(--code-dark-text);
+}
+
+body.code-mode[data-appearance='dark'] .code-language-server-location span,
+body.code-mode[data-appearance='dark'] .code-language-server-location small,
+body.code-mode[data-appearance='dark'] .code-language-server-results > p,
+body.code-mode[data-appearance='dark'] .code-language-server-expand {
+  color: var(--code-dark-text-muted);
+}
+
+body.code-mode[data-appearance='dark'] .code-language-server-node-error,
+body.code-mode[data-appearance='dark'] .code-language-server-results > p.error {
+  color: #ff7b72;
 }
 
 body.code-mode[data-appearance='dark'] .code-file-line-changes-title code,

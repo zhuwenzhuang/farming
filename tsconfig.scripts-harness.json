@@ -23,6 +23,7 @@
     "scripts/generate-chinese-poetic-words.ts",
     "scripts/generate-poem-wordlists.ts",
     "scripts/repro-mobile-ime-layout.ts",
+    "scripts/smoke-desktop.ts",
     "scripts/smoke-remote-terminal-chaos.ts",
     "scripts/test-initial-main-agent-flow.ts",
     "tests/e2e/global-teardown.ts",

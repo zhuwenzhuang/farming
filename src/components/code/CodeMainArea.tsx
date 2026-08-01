@@ -240,6 +240,8 @@ function FileEditorFallback({
 
 interface CodeMainAreaProps {
   activeView: WorkspaceView
+  desktopConnectionsOpen: boolean
+  onDesktopConnectionsOpenChange: (open: boolean) => void
   activeBrowserResource: BrowserResource | null
   browserController: BrowserResourcesController
   onBackFromBrowser: () => void
@@ -525,6 +527,8 @@ function EmptyWorkspaceGuide({
 
 export function CodeMainArea({
   activeView,
+  desktopConnectionsOpen,
+  onDesktopConnectionsOpenChange,
   activeBrowserResource,
   browserController,
   onBackFromBrowser,
@@ -812,6 +816,8 @@ export function CodeMainArea({
               onBack={onBackToProjects}
               onOpenAgentHomeConfiguration={onOpenAgentHomeConfiguration}
               onRefreshCapability={refreshPluginCapabilities}
+              desktopConnectionsOpen={desktopConnectionsOpen}
+              onDesktopConnectionsOpenChange={onDesktopConnectionsOpenChange}
             />
           ) : (
             <h2>{viewTitle(copy, activeView)}</h2>

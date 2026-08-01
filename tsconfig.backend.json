@@ -19,6 +19,7 @@
     "backend/**/*.js",
     "backend/types/**/*.d.ts",
     "extensions/browser/backend/**/*.js",
+    "extensions/language-server/backend/**/*.js",
     "shared/**/*.js"
   ],
   "exclude": [

@@ -54,7 +54,6 @@ export interface CodeCopy {
   agentTranscriptProcessCount: (count: number) => string
   agentTranscriptCollaborationInProgress: string
   agentTranscriptCollaborationHeading: string
-  agentTranscriptCollaborationNoFinalState: string
   agentTranscriptCollaborationCompleted: string
   agentTranscriptCollaborationInterrupted: string
   agentTranscriptCollaborationFailed: string
@@ -239,7 +238,15 @@ export interface CodeCopy {
   speed: string
   startDictation: string
   stopDictation: string
+  startVoice: string
+  stopVoice: string
   speechUnsupported: string
+  voiceLabel: string
+  voiceLive: string
+  voiceConnecting: string
+  voiceStopped: string
+  voiceListening: string
+  realtimeVoiceAccessDenied: string
   mobileDictationHint: string
   sendMessage: string
   interruptAgent: string
@@ -440,6 +447,22 @@ export interface CodeCopy {
   hideBlame: string
   openLineChangesWithPreviousRevision: string
   openLineChangesWithWorkingFile: string
+  goToDefinition: string
+  findReferences: string
+  goToImplementation: string
+  callHierarchy: string
+  typeHierarchy: string
+  documentSymbols: string
+  workspaceSymbols: string
+  incomingCalls: string
+  outgoingCalls: string
+  supertypes: string
+  subtypes: string
+  languageServerSavedFilesOnly: string
+  languageServerUnavailable: string
+  languageServerNoResults: string
+  languageServerSearchSymbols: string
+  languageServerFeatureUnavailable: string
   lineChanges: string
   loadingLineChanges: string
   noLineChanges: string
@@ -550,7 +573,6 @@ const EN_COPY: CodeCopy = {
   agentTranscriptProcessCount: count => `${count} ${count === 1 ? 'event' : 'events'}`,
   agentTranscriptCollaborationInProgress: 'In progress',
   agentTranscriptCollaborationHeading: 'Collaborating agents',
-  agentTranscriptCollaborationNoFinalState: 'Status syncing',
   agentTranscriptCollaborationCompleted: 'Completed',
   agentTranscriptCollaborationInterrupted: 'Paused',
   agentTranscriptCollaborationFailed: 'Failed',
@@ -764,7 +786,15 @@ const EN_COPY: CodeCopy = {
   speed: 'Speed',
   startDictation: 'Start dictation',
   stopDictation: 'Stop dictation',
+  startVoice: 'Start realtime voice',
+  stopVoice: 'End realtime voice',
   speechUnsupported: 'Speech recognition is not supported in this browser',
+  voiceLabel: 'Voice',
+  voiceLive: 'live',
+  voiceConnecting: 'connecting',
+  voiceStopped: 'stopped',
+  voiceListening: 'Listening…',
+  realtimeVoiceAccessDenied: 'Codex Realtime voice is not enabled for this account yet.',
   mobileDictationHint: 'Use the microphone key on the iOS keyboard to dictate.',
   sendMessage: 'Send message',
   interruptAgent: 'Interrupt agent',
@@ -969,6 +999,22 @@ const EN_COPY: CodeCopy = {
   hideBlame: 'Hide Blame',
   openLineChangesWithPreviousRevision: 'Open Line Changes with Previous Revision',
   openLineChangesWithWorkingFile: 'Open Line Changes with Working File',
+  goToDefinition: 'Go to Definition',
+  findReferences: 'Find References',
+  goToImplementation: 'Go to Implementation',
+  callHierarchy: 'Call Hierarchy',
+  typeHierarchy: 'Type Hierarchy',
+  documentSymbols: 'Document Symbols',
+  workspaceSymbols: 'Workspace Symbols',
+  incomingCalls: 'Incoming Calls',
+  outgoingCalls: 'Outgoing Calls',
+  supertypes: 'Supertypes',
+  subtypes: 'Subtypes',
+  languageServerSavedFilesOnly: 'Language features use the last saved file.',
+  languageServerUnavailable: 'VS Code Bridge is unavailable.',
+  languageServerNoResults: 'No results.',
+  languageServerSearchSymbols: 'Search workspace symbols',
+  languageServerFeatureUnavailable: 'VS Code does not provide this language feature for the selected file.',
   lineChanges: 'Line changes',
   loadingLineChanges: 'Loading line changes...',
   noLineChanges: 'No line changes for this line.',
@@ -1079,7 +1125,6 @@ const ZH_COPY: CodeCopy = {
   agentTranscriptProcessCount: count => `${count} 个事件`,
   agentTranscriptCollaborationInProgress: '进行中',
   agentTranscriptCollaborationHeading: '协作 Agent',
-  agentTranscriptCollaborationNoFinalState: '状态同步中',
   agentTranscriptCollaborationCompleted: '已完成',
   agentTranscriptCollaborationInterrupted: '已暂停',
   agentTranscriptCollaborationFailed: '失败',
@@ -1329,7 +1374,15 @@ const ZH_COPY: CodeCopy = {
   speed: '速度',
   startDictation: '开始语音输入',
   stopDictation: '停止语音输入',
+  startVoice: '开始实时语音',
+  stopVoice: '结束实时语音',
   speechUnsupported: '当前浏览器不支持语音识别',
+  voiceLabel: '语音',
+  voiceLive: '实时',
+  voiceConnecting: '连接中',
+  voiceStopped: '已停止',
+  voiceListening: '正在聆听…',
+  realtimeVoiceAccessDenied: '当前账号尚未开通 Codex Realtime 语音权限。',
   mobileDictationHint: '请点 iOS 键盘上的麦克风进行听写。',
   sendMessage: '发送消息',
   interruptAgent: '中止 Agent',
@@ -1534,6 +1587,22 @@ const ZH_COPY: CodeCopy = {
   hideBlame: '隐藏 Blame',
   openLineChangesWithPreviousRevision: '打开与上一版的行变化',
   openLineChangesWithWorkingFile: '打开与工作区文件的行变化',
+  goToDefinition: '转到定义',
+  findReferences: '查找引用',
+  goToImplementation: '转到实现',
+  callHierarchy: '调用层次结构',
+  typeHierarchy: '类型层次结构',
+  documentSymbols: '文档符号',
+  workspaceSymbols: '工作区符号',
+  incomingCalls: '传入调用',
+  outgoingCalls: '传出调用',
+  supertypes: '父类型',
+  subtypes: '子类型',
+  languageServerSavedFilesOnly: '语言能力使用上次保存的文件。',
+  languageServerUnavailable: 'VS Code Bridge 不可用。',
+  languageServerNoResults: '没有结果。',
+  languageServerSearchSymbols: '搜索工作区符号',
+  languageServerFeatureUnavailable: 'VS Code 没有为当前文件提供这项语言能力。',
   lineChanges: '行变化',
   loadingLineChanges: '正在加载行变化...',
   noLineChanges: '这一行没有可显示的变化。',

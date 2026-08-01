@@ -1,0 +1,35 @@
+{
+  "name": "vscode-bridge",
+  "displayName": "Farming VS Code Bridge",
+  "description": "Exposes installed VS Code language providers to a local Farming backend.",
+  "version": "0.1.0",
+  "publisher": "farming",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zhuwenzhuang/farming.git"
+  },
+  "engines": {
+    "vscode": "^1.96.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "files": [
+    "extension.js",
+    "README.md"
+  ],
+  "extensionKind": [
+    "workspace"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./extension.js",
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false
+    },
+    "virtualWorkspaces": false
+  }
+}

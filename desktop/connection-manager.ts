@@ -1,0 +1,284 @@
+import { spawn, type ChildProcess } from 'node:child_process'
+import { EventEmitter } from 'node:events'
+import net from 'node:net'
+import type { DesktopBackendConnection, DesktopCapabilitySummary } from '../shared/desktop-contract.js'
+import type { StoredDesktopBackendProfile } from './profile-model.js'
+import { DesktopProfileStore } from './profile-store.js'
+import { bootstrapRemoteServer } from './remote-bootstrap.js'
+import { bearerCredential, joinUpstreamUrl } from './upstream.js'
+
+interface ConnectionRecord extends DesktopBackendConnection {
+  process: ChildProcess | null
+  targetBaseUrl: string
+  targetToken: string
+}
+
+export interface DesktopConnectionTarget {
+  baseUrl: string
+  token: string
+}
+
+const CONNECT_TIMEOUT_MS = 12_000
+const PROBE_INTERVAL_MS = 200
+const STDERR_LIMIT = 4_000
+
+function errorMessage(error: unknown) {
+  return (error instanceof Error ? error.message : String(error || 'Unknown error'))
+    .replace(/[\r\n]+/g, ' ')
+    .trim()
+    .slice(0, 800)
+}
+
+function delay(milliseconds: number) {
+  return new Promise(resolve => setTimeout(resolve, milliseconds))
+}
+
+async function unusedLoopbackPort() {
+  return await new Promise<number>((resolve, reject) => {
+    const server = net.createServer()
+    server.unref()
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address()
+      if (!address || typeof address === 'string') {
+        server.close(() => reject(new Error('Could not allocate a loopback port.')))
+        return
+      }
+      server.close(error => error ? reject(error) : resolve(address.port))
+    })
+  })
+}
+
+export function buildSshTunnelArgs(sshHost: string, remoteHost: string, remotePort: number, localPort: number) {
+  return [
+    '-N',
+    '-T',
+    '-o', 'BatchMode=yes',
+    '-o', 'ExitOnForwardFailure=yes',
+    '-o', 'ServerAliveInterval=15',
+    '-o', 'ServerAliveCountMax=3',
+    '-L', `127.0.0.1:${localPort}:${remoteHost}:${remotePort}`,
+    sshHost,
+  ]
+}
+
+export class DesktopConnectionManager extends EventEmitter {
+  private readonly records = new Map<string, ConnectionRecord>()
+
+  constructor(
+    private readonly profiles: DesktopProfileStore,
+    private readonly options: { appVersion: string; cacheDir: string } = { appVersion: '0.0.0', cacheDir: '' },
+  ) {
+    super()
+  }
+
+  list(): DesktopBackendConnection[] {
+    return this.profiles.list().map(profile => {
+      const record = this.records.get(profile.id)
+      return record
+        ? {
+          backendId: profile.id,
+          generation: record.generation,
+          status: record.status,
+          error: record.error,
+          message: record.message,
+          server: record.server,
+        }
+        : { backendId: profile.id, generation: 0, status: 'disconnected', error: '', message: '', server: null }
+    })
+  }
+
+  target(backendId: string | null): DesktopConnectionTarget | null {
+    if (!backendId) return null
+    const record = this.records.get(backendId)
+    if (!record || record.status !== 'ready') return null
+    return { baseUrl: record.targetBaseUrl, token: record.targetToken }
+  }
+
+  async connect(backendId: string) {
+    const profile = this.profiles.getStored(backendId)
+    if (!profile) throw new Error('Backend not found.')
+    const current = this.records.get(backendId)
+    if (current?.status === 'ready') return
+    if (current?.status === 'connecting') throw new Error('Backend is already connecting.')
+
+    const generation = (current?.generation ?? 0) + 1
+    current?.process?.kill()
+    const record: ConnectionRecord = {
+      backendId,
+      generation,
+      status: 'connecting',
+      error: '',
+      process: null,
+      targetBaseUrl: '',
+      targetToken: '',
+      message: 'Connecting…',
+      server: null,
+    }
+    this.records.set(backendId, record)
+    this.emitChange()
+
+    try {
+      if (profile.transport === 'direct') {
+        record.targetBaseUrl = `${profile.directUrl}${profile.basePath}`
+        record.targetToken = this.profiles.readToken(profile.id)
+        await this.probe(record, profile)
+      } else {
+        await this.connectSsh(record, profile)
+      }
+      if (!this.isCurrent(record)) return
+      record.status = 'ready'
+      record.error = ''
+      record.message = ''
+      this.emitChange()
+    } catch (error) {
+      if (!this.isCurrent(record)) return
+      record.process?.kill()
+      record.process = null
+      record.status = 'error'
+      record.error = errorMessage(error)
+      this.emitChange()
+      throw error
+    }
+  }
+
+  disconnect(backendId: string) {
+    const current = this.records.get(backendId)
+    const generation = (current?.generation ?? 0) + 1
+    current?.process?.kill()
+    this.records.set(backendId, {
+      backendId,
+      generation,
+      status: 'disconnected',
+      error: '',
+      process: null,
+      targetBaseUrl: '',
+      targetToken: '',
+      message: '',
+      server: null,
+    })
+    this.emitChange()
+  }
+
+  close() {
+    this.records.forEach(record => record.process?.kill())
+    this.records.clear()
+  }
+
+  private async connectSsh(record: ConnectionRecord, profile: StoredDesktopBackendProfile) {
+    const handshake = await bootstrapRemoteServer({
+      sshHost: profile.sshHost,
+      farmingHome: profile.farmingHome,
+      version: this.options.appVersion,
+      cacheDir: this.options.cacheDir,
+      onPhase: message => {
+        if (!this.isCurrent(record)) return
+        record.message = message
+        this.emitChange()
+      },
+    })
+    if (!this.isCurrent(record)) return
+    const localPort = await unusedLoopbackPort()
+    if (!this.isCurrent(record)) return
+    record.message = 'Opening SSH tunnel…'
+    record.targetBaseUrl = `http://127.0.0.1:${localPort}${handshake.basePath}`
+    record.targetToken = handshake.token
+    const child = spawn('ssh', buildSshTunnelArgs(profile.sshHost, handshake.host, handshake.port, localPort), {
+      stdio: ['ignore', 'ignore', 'pipe'],
+    })
+    record.process = child
+    let stderr = ''
+    child.stderr?.on('data', chunk => {
+      stderr = `${stderr}${String(chunk)}`.slice(-STDERR_LIMIT)
+    })
+    const exited = new Promise<never>((_resolve, reject) => {
+      child.once('error', reject)
+      child.once('exit', (code, signal) => {
+        const detail = stderr.trim() || `ssh exited with ${signal ? `signal ${signal}` : `code ${code ?? 'unknown'}`}`
+        reject(new Error(detail))
+      })
+    })
+    await Promise.race([this.probe(record, profile), exited])
+    record.message = 'Discovering remote capabilities…'
+    record.server = {
+      version: handshake.version,
+      platform: handshake.platform,
+      arch: handshake.arch,
+      farmingHome: handshake.farmingHome,
+      runtime: handshake.runtime,
+      capabilities: await this.discoverCapabilities(record),
+    }
+    child.once('exit', (code, signal) => {
+      if (!this.isCurrent(record) || record.status !== 'ready') return
+      record.process = null
+      record.status = 'error'
+      record.error = stderr.trim().slice(-STDERR_LIMIT)
+        || `SSH tunnel closed with ${signal ? `signal ${signal}` : `code ${code ?? 'unknown'}`}.`
+      this.emitChange()
+    })
+  }
+
+  private async probe(record: ConnectionRecord, profile: StoredDesktopBackendProfile) {
+    const deadline = Date.now() + CONNECT_TIMEOUT_MS
+    const token = record.targetToken || this.profiles.readToken(profile.id)
+    let lastError = ''
+    while (Date.now() < deadline && this.isCurrent(record)) {
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 1_500)
+      try {
+        const response = await fetch(joinUpstreamUrl(record.targetBaseUrl, '/api/auth/status'), {
+          headers: token ? { authorization: `Bearer ${bearerCredential(token)}` } : undefined,
+          signal: controller.signal,
+        })
+        if (response.ok) {
+          const body = await response.json() as { authRequired?: unknown }
+          if (typeof body.authRequired === 'boolean') return
+        }
+        lastError = `health probe returned HTTP ${response.status}`
+      } catch (error) {
+        lastError = errorMessage(error)
+      } finally {
+        clearTimeout(timeout)
+      }
+      await delay(PROBE_INTERVAL_MS)
+    }
+    if (!this.isCurrent(record)) throw new Error('Connection cancelled.')
+    throw new Error(`Farming backend did not become ready within ${CONNECT_TIMEOUT_MS / 1000}s${lastError ? `: ${lastError}` : '.'}`)
+  }
+
+  private async discoverCapabilities(record: ConnectionRecord): Promise<DesktopCapabilitySummary[]> {
+    const token = record.targetToken
+    const read = async (id: string, pathname: string) => {
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 3_000)
+      try {
+        const response = await fetch(joinUpstreamUrl(record.targetBaseUrl, pathname), {
+          headers: token ? { authorization: `Bearer ${bearerCredential(token)}` } : undefined,
+          signal: controller.signal,
+        })
+        if (!response.ok) return { id, state: `error (HTTP ${response.status})` }
+        const body = await response.json() as { available?: unknown; enabled?: unknown }
+        return {
+          id,
+          state: body.available === true ? 'available' : body.enabled === true ? 'unavailable' : 'disabled',
+        }
+      } catch {
+        return { id, state: 'unknown' }
+      } finally {
+        clearTimeout(timeout)
+      }
+    }
+    return Promise.all([
+      read('browser', '/api/browsers/capability'),
+      read('computer', '/api/computers/capability'),
+    ])
+  }
+
+  private isCurrent(record: ConnectionRecord) {
+    return this.records.get(record.backendId)?.generation === record.generation
+  }
+
+  private emitChange() {
+    this.emit('change')
+  }
+}

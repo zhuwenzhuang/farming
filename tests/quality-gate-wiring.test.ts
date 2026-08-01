@@ -26,6 +26,7 @@ test('typecheck gate keeps every required project including the strict unit test
   const requiredProjects = [
     'tsconfig.backend-runtime.json',
     'tsconfig.backend.json',
+    'tsconfig.desktop.json',
     'tsconfig.shared.json',
     'tsconfig.scripts.json',
     'tsconfig.scripts-harness.json',
@@ -60,6 +61,7 @@ test('lint gate fails on warnings and covers every checked source scope', () => 
   const requiredPatterns = [
     'backend/**/*.cts',
     'backend/tests/test-*.ts',
+    'desktop/**/*.ts',
     'extensions/*/backend/**/*.cts',
     'extensions/*/frontend/**/*.{ts,tsx}',
     'frontend/**/*.js',

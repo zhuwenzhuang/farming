@@ -26,6 +26,7 @@ interface FileEditorOverlaysProps {
   pendingCloseSaving: boolean
   showBlameContextAction: boolean
   showLineChangesContextActions: boolean
+  showLanguageServerActions: boolean
   tabContextMenu: FileEditorTabContextMenuState | null
   onCancelPendingClose: () => void
   onCloseEditorContextMenu: () => void
@@ -49,6 +50,7 @@ export function FileEditorOverlays({
   pendingCloseSaving,
   showBlameContextAction,
   showLineChangesContextActions,
+  showLanguageServerActions,
   tabContextMenu,
   onCancelPendingClose,
   onCloseEditorContextMenu,
@@ -68,6 +70,7 @@ export function FileEditorOverlays({
 	          readOnly={readOnly}
           showBlameContextAction={showBlameContextAction}
           showLineChangesContextActions={showLineChangesContextActions}
+          showLanguageServerActions={showLanguageServerActions}
           onClose={onCloseEditorContextMenu}
           onRunAction={action => void onRunEditorContextAction(action)}
         />

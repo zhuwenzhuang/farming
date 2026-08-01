@@ -85,6 +85,10 @@ export interface AcpComposerProps {
   activeElicitations: AcpPendingElicitation[]
   speechSupported: boolean
   speechListening: boolean
+  speechConnecting: boolean
+  speechRealtime: boolean
+  speechTranscript: string
+  speechError: string
   onDraftChange: (value: string) => void
   onNavigateHistory: (direction: ComposerHistoryDirection, input: ComposerHistoryNavigationInput) => string | null
   onRemoveAttachment: (id: string) => void
@@ -128,6 +132,10 @@ export function AcpComposer({
   activeElicitations,
   speechSupported,
   speechListening,
+  speechConnecting,
+  speechRealtime,
+  speechTranscript,
+  speechError,
   onDraftChange,
   onNavigateHistory,
   onRemoveAttachment,
@@ -451,6 +459,12 @@ export function AcpComposer({
           ) : null}
         </section>
       ) : null}
+      {active && (speechListening || speechTranscript || speechError) ? (
+        <section className="code-acp-request code-acp-notice code-acp-voice-status" data-testid="code-acp-voice-status" role={speechError ? 'alert' : 'status'}>
+          <header><strong>{copy.voiceLabel}</strong><span>{speechConnecting ? copy.voiceConnecting : speechListening ? copy.voiceLive : copy.voiceStopped}</span></header>
+          <p>{speechError || speechTranscript || copy.voiceListening}</p>
+        </section>
+      ) : null}
       {showCommands ? (
         <div className="code-slash-menu code-composer-menu" data-testid="code-acp-command-menu" role="listbox" aria-label="ACP commands">
           <div className="code-slash-menu-header">{commandTrigger?.trigger === '$' ? 'Skills' : 'Agent commands'}</div>
@@ -649,15 +663,16 @@ export function AcpComposer({
           {speechSupported ? (
             <button
               type="button"
-              className={`code-composer-mic ${speechListening ? 'listening' : ''}`}
+              className={`code-composer-mic ${speechRealtime ? 'realtime' : ''} ${speechConnecting ? 'connecting' : ''} ${speechListening ? 'listening' : ''}`}
               data-testid="code-acp-composer-mic"
-              aria-label={speechListening ? copy.stopDictation : copy.startDictation}
+              data-voice-mode={speechRealtime ? 'realtime' : 'dictation'}
+              aria-label={speechRealtime ? (speechListening ? copy.stopVoice : copy.startVoice) : (speechListening ? copy.stopDictation : copy.startDictation)}
               aria-pressed={speechListening}
               onClick={onToggleSpeechInput}
               disabled={!active}
-              title={speechListening ? copy.stopDictation : copy.startDictation}
+              title={speechRealtime ? (speechListening ? copy.stopVoice : copy.startVoice) : (speechListening ? copy.stopDictation : copy.startDictation)}
             >
-              <ComposerMicIcon listening={speechListening} />
+              <ComposerMicIcon listening={speechListening} realtime={speechRealtime} />
             </button>
           ) : null}
           <button

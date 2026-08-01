@@ -206,6 +206,14 @@ export function useAgentCompletionNotifications({
         event.summary,
       )
       try {
+        if (window.farmingDesktop) {
+          void window.farmingDesktop.showNotification({
+            agentId: latestAgent.id,
+            body: content.body,
+            title: content.title,
+          })
+          return
+        }
         const notification = new Notification(content.title, {
           body: content.body,
           tag: `farming-agent-${latestAgent.id}`,

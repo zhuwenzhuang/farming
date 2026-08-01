@@ -98,6 +98,11 @@ assert.deepStrictEqual(
     ['Review refresh', 'recorded', 'wait-browser'],
   ],
 );
+assert.deepStrictEqual(
+  acpCollaborationAgents(transcript.turns[0].processItems).map(agent => [agent.threadId, agent.status]),
+  [['thread-review', 'completed']],
+  'a historical wait result supplies the latest known Agent lifecycle state when no live snapshot is available',
+);
 
 const fallbackEvents = acpCollaborationEvents([{
   id: 'spawn-fallback',
@@ -236,6 +241,14 @@ assert.deepStrictEqual(
     ['thread-crt-races', 'running', 'thread-review-refresh'],
   ],
   'activity verbs never overwrite the authoritative child lifecycle snapshot',
+);
+assert.strictEqual(
+  acpCollaborationAgents(transcript.turns[0].processItems, [{
+    threadId: 'thread-review',
+    status: 'running',
+  }])[0].status,
+  'running',
+  'a live lifecycle snapshot overrides older status evidence recorded in the transcript',
 );
 const stateOnlyAncestors = acpCollaborationAgents([
   {

@@ -15,6 +15,7 @@ import type {
   TaskHistoryEntry,
   UsageSummary,
 } from '@/types/agent'
+import type { AcpRealtimeEvent } from '@/types/messages'
 import { CheckGlyph } from '@/components/IconGlyphs'
 import { appPath } from '@/lib/base-path'
 import { writeClipboardText } from '@/lib/clipboard'
@@ -393,6 +394,7 @@ interface CodeWorkspaceProps {
     options?: { awaitResult?: boolean; requestId?: string; delivery?: 'prompt' | 'steer' },
   ) => boolean | Promise<boolean>
   onSessionOutput: (agentId: string, handler: (data: string, replace?: boolean, outputSeq?: number | null, runtimeEpoch?: string, stateRevision?: number | null, cols?: number, rows?: number, kind?: 'output' | 'resize' | 'clear') => void) => () => void
+  onAcpRealtime: (agentId: string, handler: (event: AcpRealtimeEvent) => void) => () => void
   onBrowserResource: (resource: BrowserResource) => void
   onBrowserResourceDeletion: (deletion: BrowserResourceDeletion) => void
   onComputerResource: (resource: ComputerResource) => void
@@ -404,6 +406,14 @@ interface CodeWorkspaceProps {
 interface TerminalFollowState {
   following: boolean
   hasUnreadOutput: boolean
+}
+
+interface CodexRealtimeClient {
+  agentId: string
+  peer: RTCPeerConnection
+  stream: MediaStream
+  audio: HTMLAudioElement
+  connectionTimeout: number | null
 }
 
 const DEFAULT_SIDEBAR_WIDTH = 296
@@ -613,6 +623,7 @@ export function CodeWorkspace({
   onInterruptAgent,
   sendComposerInput,
   onSessionOutput,
+  onAcpRealtime,
   onBrowserResource,
   onBrowserResourceDeletion,
   onComputerResource,
@@ -701,6 +712,7 @@ export function CodeWorkspace({
     return result.successful
   }, [workspaceOpenFiles])
   const [searchOpen, setSearchOpen] = useState(false)
+  const [desktopConnectionsOpen, setDesktopConnectionsOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [searchSelectionIndex, setSearchSelectionIndex] = useState(0)
   const [projectWorkspaces, setProjectWorkspaces] = useState<string[]>([])
@@ -741,6 +753,9 @@ export function CodeWorkspace({
   const [optimisticallyArchivedAgentIds, setOptimisticallyArchivedAgentIds] = useState<Set<string>>(() => new Set())
   const [speechSupported, setSpeechSupported] = useState(false)
   const [speechListening, setSpeechListening] = useState(false)
+  const [speechConnecting, setSpeechConnecting] = useState(false)
+  const [speechTranscript, setSpeechTranscript] = useState('')
+  const [speechError, setSpeechError] = useState('')
   const [collapsedProjectIds, setCollapsedProjectIds] = useState<Set<string>>(() => new Set())
   const [expandedSessionProjectIds, setExpandedSessionProjectIds] = useState<Set<string>>(() => new Set())
   const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_SIDEBAR_WIDTH)
@@ -789,6 +804,7 @@ export function CodeWorkspace({
   const deleteWorktreeCancelButtonRef = useRef<HTMLButtonElement>(null)
   const projectListRef = useRef<HTMLDivElement>(null)
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null)
+  const codexRealtimeRef = useRef<CodexRealtimeClient | null>(null)
   const codexModelsLoadedAtRef = useRef(0)
   const codexModelsLoadedHomeRef = useRef('')
   const codexModelsRequestRef = useRef(0)
@@ -2904,6 +2920,7 @@ export function CodeWorkspace({
   }, [closeSidebarForMobile, openSearch])
 
   const openWorkspaceViewFromSidebar = useCallback((view: WorkspaceView) => {
+    setDesktopConnectionsOpen(false)
     if (view === 'plugins') {
       refreshBrowserCapability()
       refreshComputerCapability()
@@ -2913,6 +2930,18 @@ export function CodeWorkspace({
     openWorkspaceView(view)
     closeSidebarForMobile()
   }, [closeSidebarForMobile, invalidateAgentSessionsForHistory, openWorkspaceView, refreshBrowserCapability, refreshComputerCapability])
+
+  const openRemoteConnectionsFromSidebar = useCallback(() => {
+    refreshBrowserCapability()
+    refreshComputerCapability()
+    setDesktopConnectionsOpen(true)
+    openWorkspaceView('plugins')
+    closeSidebarForMobile()
+  }, [closeSidebarForMobile, openWorkspaceView, refreshBrowserCapability, refreshComputerCapability])
+
+  useEffect(() => {
+    if (activeView !== 'plugins') setDesktopConnectionsOpen(false)
+  }, [activeView])
 
   const toggleProject = useCallback((projectId: string) => {
     setCollapsedProjectIds(previous => {
@@ -4595,8 +4624,160 @@ export function CodeWorkspace({
     commitCodexProfile(displayedCodexModel, displayedCodexReasoningEffort, tier)
   }, [activeAgent, applyCodexTerminalProfile, displayedCodexModel, displayedCodexReasoningEffort, commitCodexProfile, composerAgentKind])
 
+  const stopCodexRealtime = useCallback((notifyBackend = true) => {
+    const client = codexRealtimeRef.current
+    if (!client) return
+    codexRealtimeRef.current = null
+    if (client.connectionTimeout !== null) window.clearTimeout(client.connectionTimeout)
+    client.peer.ontrack = null
+    client.peer.onconnectionstatechange = null
+    client.peer.close()
+    client.stream.getTracks().forEach(track => track.stop())
+    client.audio.pause()
+    client.audio.srcObject = null
+    setSpeechConnecting(false)
+    setSpeechListening(false)
+    if (!notifyBackend) return
+    void fetch(appPath(`/api/agents/${encodeURIComponent(client.agentId)}/acp-realtime/stop`), {
+      method: 'POST',
+    }).then(async response => {
+      if (response.ok) return
+      const body = await response.json().catch(() => null) as { error?: string } | null
+      throw new Error(body?.error || `Failed to stop voice (${response.status})`)
+    }).catch(error => {
+      setSpeechError(error instanceof Error ? error.message : 'Failed to stop Codex realtime voice')
+    })
+  }, [])
+
+  const startCodexRealtime = useCallback(async (agentId: string) => {
+    setSpeechError('')
+    setSpeechTranscript('')
+    let stream: MediaStream | null = null
+    let peer: RTCPeerConnection | null = null
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      peer = new RTCPeerConnection()
+      const audio = document.createElement('audio')
+      audio.autoplay = true
+      peer.ontrack = event => {
+        audio.srcObject = event.streams[0] || new MediaStream([event.track])
+        void audio.play().catch(() => {
+          setSpeechError('The browser blocked voice playback. Click the microphone again to retry.')
+        })
+      }
+      peer.addTrack(stream.getAudioTracks()[0]!, stream)
+      peer.createDataChannel('oai-events')
+      const offer = await peer.createOffer()
+      await peer.setLocalDescription(offer)
+      if (peer.iceGatheringState !== 'complete') {
+        const gatheringPeer = peer
+        await new Promise<void>(resolve => {
+          let settled = false
+          const finish = () => {
+            if (settled) return
+            settled = true
+            window.clearTimeout(timeout)
+            gatheringPeer.removeEventListener('icegatheringstatechange', handleStateChange)
+            resolve()
+          }
+          const handleStateChange = () => {
+            if (gatheringPeer.iceGatheringState === 'complete') finish()
+          }
+          const timeout = window.setTimeout(finish, 5_000)
+          gatheringPeer.addEventListener('icegatheringstatechange', handleStateChange)
+        })
+      }
+      const sdp = peer.localDescription?.sdp || ''
+      if (!sdp) throw new Error('The browser did not create a WebRTC offer')
+
+      const client: CodexRealtimeClient = { agentId, peer, stream, audio, connectionTimeout: null }
+      codexRealtimeRef.current = client
+      client.connectionTimeout = window.setTimeout(() => {
+        if (codexRealtimeRef.current !== client || client.peer.remoteDescription) return
+        setSpeechError('Codex realtime voice connection timed out')
+        stopCodexRealtime(false)
+      }, 20_000)
+      peer.onconnectionstatechange = () => {
+        if (codexRealtimeRef.current?.peer !== peer) return
+        if (peer?.connectionState === 'failed') {
+          setSpeechError('Codex realtime voice connection failed')
+          stopCodexRealtime(false)
+        }
+      }
+      setSpeechConnecting(true)
+      setSpeechListening(true)
+      const response = await fetch(appPath(`/api/agents/${encodeURIComponent(agentId)}/acp-realtime/start`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sdp }),
+      })
+      const body = await response.json().catch(() => null) as { error?: string } | null
+      if (!response.ok) throw new Error(body?.error || `Failed to start voice (${response.status})`)
+    } catch (error) {
+      if (codexRealtimeRef.current?.peer === peer) stopCodexRealtime(false)
+      else {
+        peer?.close()
+        stream?.getTracks().forEach(track => track.stop())
+      }
+      setSpeechListening(false)
+      setSpeechConnecting(false)
+      setSpeechError(error instanceof Error ? error.message : 'Failed to start Codex realtime voice')
+    }
+  }, [stopCodexRealtime])
+
+  useEffect(() => {
+    if (!activeAgent?.id || activeAcpRuntime?.supportsRealtime !== true) return undefined
+    return onAcpRealtime(activeAgent.id, event => {
+      const client = codexRealtimeRef.current
+      if (!client || client.agentId !== event.agentId) return
+      if (event.method === 'thread/realtime/sdp') {
+        const sdp = typeof event.params.sdp === 'string' ? event.params.sdp : ''
+        if (!sdp) return
+        void client.peer.setRemoteDescription({ type: 'answer', sdp }).then(() => {
+          if (client.connectionTimeout !== null) window.clearTimeout(client.connectionTimeout)
+          client.connectionTimeout = null
+          setSpeechConnecting(false)
+        }).catch(error => {
+          setSpeechError(error instanceof Error ? error.message : 'Failed to accept the Codex voice connection')
+          stopCodexRealtime(false)
+        })
+        return
+      }
+      if (event.method === 'thread/realtime/transcript/delta') {
+        if (event.params.role === 'user' && typeof event.params.delta === 'string') {
+          setSpeechTranscript(current => `${current}${event.params.delta}`)
+        }
+        return
+      }
+      if (event.method === 'thread/realtime/transcript/done') {
+        if (event.params.role === 'user' && typeof event.params.text === 'string') {
+          setSpeechTranscript(event.params.text)
+        }
+        return
+      }
+      if (event.method === 'thread/realtime/error') {
+        const message = typeof event.params.message === 'string' ? event.params.message : 'Codex realtime voice failed'
+        setSpeechError(/Voice session access denied|403 Forbidden/i.test(message) ? copy.realtimeVoiceAccessDenied : message)
+        stopCodexRealtime(false)
+        return
+      }
+      if (event.method === 'thread/realtime/closed') stopCodexRealtime(false)
+    })
+  }, [activeAcpRuntime?.supportsRealtime, activeAgent?.id, copy.realtimeVoiceAccessDenied, onAcpRealtime, stopCodexRealtime])
+
+  useEffect(() => {
+    const client = codexRealtimeRef.current
+    if (client && client.agentId !== activeAgent?.id) stopCodexRealtime()
+  }, [activeAgent?.id, stopCodexRealtime])
+
+  useEffect(() => () => stopCodexRealtime(), [stopCodexRealtime])
+
   const toggleSpeechInput = useCallback(() => {
     if (speechListening) {
+      if (codexRealtimeRef.current) {
+        stopCodexRealtime()
+        return
+      }
       recognitionRef.current?.stop()
       recognitionRef.current = null
       setSpeechListening(false)
@@ -4605,6 +4786,11 @@ export function CodeWorkspace({
 
     const targetComposerKey = activeComposerKey
     if (!targetComposerKey) return
+
+    if (activeAgent && activeAcpRuntime?.supportsRealtime === true) {
+      void startCodexRealtime(activeAgent.id)
+      return
+    }
 
     const mobileComposerFallback = isTouchInputViewport()
     const nativeMobileDictation = shouldUseNativeMobileDictation()
@@ -4674,7 +4860,7 @@ export function CodeWorkspace({
       setSpeechListening(false)
       if (mobileComposerFallback) focusComposerTextarea()
     }
-  }, [activeComposerKey, focusComposerTextarea, speechListening, speechSupported, uiPreferences.language, updateComposerStateForKey])
+  }, [activeAcpRuntime?.supportsRealtime, activeAgent, activeComposerKey, focusComposerTextarea, speechListening, speechSupported, startCodexRealtime, stopCodexRealtime, uiPreferences.language, updateComposerStateForKey])
 
   const toggleContextProjectPinned = useCallback(async () => {
     if (!contextMenuProject?.workspace) return
@@ -5401,6 +5587,7 @@ export function CodeWorkspace({
         hoverPreviewsPaused={Boolean(projectMenu)}
         emptyHomeActionRequest={emptyHomeSidebarActionRequest}
         activeView={activeView}
+        desktopConnectionsOpen={desktopConnectionsOpen}
         searchOpen={searchOpen}
         displayedProjects={projects}
         collapsedProjectIds={collapsedProjectIds}
@@ -5442,6 +5629,7 @@ export function CodeWorkspace({
         onToggleSidebar={toggleSidebar}
         onOpenSearch={openSearchFromSidebar}
         onOpenWorkspaceView={openWorkspaceViewFromSidebar}
+        onOpenRemoteConnections={openRemoteConnectionsFromSidebar}
         onOpenMainAgent={() => {
           if (!hiddenMainAgent) return
           setMainPaneMode('terminal')
@@ -5615,6 +5803,8 @@ export function CodeWorkspace({
 
       <CodeMainArea
         activeView={activeView}
+        desktopConnectionsOpen={desktopConnectionsOpen}
+        onDesktopConnectionsOpenChange={setDesktopConnectionsOpen}
         activeBrowserResource={mainPaneMode === 'browser' ? activeBrowserResource : null}
         browserController={browserResources}
         onBackFromBrowser={backFromBrowser}
@@ -5678,8 +5868,12 @@ export function CodeWorkspace({
               ? [activeAcpRuntime.pendingElicitation]
               : [],
           activeElicitations: activeAcpRuntime?.activeElicitations || [],
-          speechSupported,
+          speechSupported: speechSupported || activeAcpRuntime?.supportsRealtime === true,
           speechListening,
+          speechConnecting,
+          speechRealtime: activeAcpRuntime?.supportsRealtime === true,
+          speechTranscript,
+          speechError,
           onDraftChange: handleDraftChange,
           onNavigateHistory: navigateActiveComposerHistory,
           onRemoveAttachment: removeComposerAttachment,

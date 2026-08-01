@@ -6,7 +6,7 @@ Farming 现在提供一条面向 Codex、Claude Code、OpenCode 和 Qoder 的 Ag
 
 ## Provider 连接
 
-- Codex 使用锁定版本的 `@agentclientprotocol/codex-acp` adapter。一份版本锁定的 `patch-package` 增量增加可协商的 `_codex/session/steer` 扩展及其 `turn/steer` 转发，并增加由 Codex `thread/fork` 支撑的标准 ACP `session/fork`；如果上游包与审阅过的 patch 不再匹配，打包会直接失败。打包随后把精确的已打补丁 adapter 复制进发行包，并锁定其 SHA-256；开发和构建刷新会先校验临时副本，再原子替换目标入口，不能截断正在运行的 adapter。安装后的运行时只启动这个不可变产物，不依赖安装后修改依赖。单文件 CLI 通过内部进程入口打包该 adapter，原生产物 Smoke 必须经该入口完成 ACP `initialize` 握手。
+- Codex 使用锁定版本的 `@agentclientprotocol/codex-acp` adapter。一份版本锁定的 `patch-package` 增量增加可协商的 `_codex/session/steer` 扩展及其 `turn/steer` 转发、由 Codex `thread/realtime/*` 支撑的 WebRTC `_codex/session/realtime/start|stop` 扩展，并增加由 Codex `thread/fork` 支撑的标准 ACP `session/fork`；如果上游包与审阅过的 patch 不再匹配，打包会直接失败。打包随后把精确的已打补丁 adapter 复制进发行包，并锁定其 SHA-256；开发和构建刷新会先校验临时副本，再原子替换目标入口，不能截断正在运行的 adapter。安装后的运行时只启动这个不可变产物，不依赖安装后修改依赖。单文件 CLI 通过内部进程入口打包该 adapter，原生产物 Smoke 必须经该入口完成 ACP `initialize` 握手。
 - Claude Code 使用锁定版本的 `@agentclientprotocol/claude-agent-acp` adapter。
 - OpenCode 使用自身的 `opencode acp --cwd <workspace>` 命令。
 - Qoder 使用自身的 `qodercli --acp` 命令。Qoder 可能在 `session/load` 返回之后继续发送历史尾部，因此 Farming 会等待 replay stream 稳定后再暴露恢复完成的 Session。
@@ -16,7 +16,7 @@ Adapter 包使用精确版本的 production dependency。Farming 启动 Agent �
 
 ## Session 语义
 
-实时 Codex adapter 可以在标准 ACP capability 之外声明带版本的 `_codex/session/steer` 扩展。Farming 只根据 initialize 响应启用它，不会仅凭 provider 名称推断能力。
+实时 Codex adapter 可以在标准 ACP capability 之外声明带版本的 `_codex/session/steer` 与 WebRTC Realtime 扩展。Farming 只根据 initialize 响应分别启用它们，不会仅凭 provider 名称推断能力。Realtime 会显式启动 v3 `gpt-live-1-boulder-alpha` 对话；若省略版本，Codex 会选择旧 v1 路径，即使账号本身具备资格，当前 ChatGPT 后端也可能拒绝该请求。已安装 Codex 不认识 v3 时会得到明确升级提示，Farming 绝不把该 mutation 自动重试到 v1。Realtime SDP、转写、错误和关闭通知属于瞬时控制事件，不会归约到 Chat transcript 或随之持久化。
 
 只要 Agent 声明对应 capability，runtime 就支持 ACP 的 `initialize`、`authenticate`、`logout`、`session/new`、`session/load`、`session/resume`、`session/list`、`session/fork`、`session/delete`、`session/close`、`session/set_mode`、`session/set_config_option`、`session/prompt` 和 `session/cancel`。New、load、resume、fork 与 list 请求会保留标准的附加目录作用域；new、load、resume 与 fork 还会在 Adapter 边界保留客户端提供的命令型或 HTTP MCP Server 定义。统一的 WebSocket 与 Control HTTP Agent 启动接口都接受这两项标准 Session 输入，Chat/Terminal 或权限重启也会把它们带到 replacement ACP binding。这些输入不会进入浏览器可见的 Agent state，只保存在权限为 `0600` 的 Farming 私有 Session 记录中，以便崩溃恢复时重连相同作用域。Farming 不会为 Agent 未声明的可选方法伪造支持。
 
@@ -98,6 +98,7 @@ ACP 启动、初始化、历史恢复、prompt、协议和 adapter 退出错误�
 - `GET /api/agents/:agentId/acp-sessions` 通过当前 provider 连接调用 ACP Session 列表。
 - `PATCH /api/agents/:agentId/acp-session` 修改单个协商出的 mode/config option，也可以通过 `configOptions` 原子修改模型与推理 profile。
 - `POST /api/agents/:agentId/acp-session/reconnect` 在 adapter 异常退出后替换连接，同时保留精确的 Provider Session 和恢复作用域。
+- `POST /api/agents/:agentId/acp-realtime/start|stop` 会在准确的实时 Session 上启动或停止已协商的 Codex WebRTC 对话。Start 接收一份有界 SDP offer；answer 与生命周期事件通过 WebSocket `acp-realtime` 消息返回。
 - `POST /api/agents/:agentId/acp-permission` 回答待处理的 permission request。
 - `POST /api/agents/:agentId/acp-elicitation` 回答待处理的表单或 URL elicitation。
 - `POST /api/agents/:agentId/acp-session/authenticate` 启动协商得到的认证方式，包括托管 Terminal 认证。
