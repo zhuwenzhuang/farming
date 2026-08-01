@@ -940,6 +940,7 @@ class FakeAgent implements Agent {
           ],
         },
       });
+      await new Promise(resolve => setTimeout(resolve, 500));
       await client.sessionUpdate({
         sessionId: params.sessionId,
         update: {

@@ -467,6 +467,19 @@ const persistentPlanTranscript = acpSessionTranscript({
 assert.strictEqual(persistentPlanTranscript.plan.currentStep, 'Keep driving the next turn');
 assert.strictEqual(persistentPlanTranscript.turns[0].processItems.length, 0);
 
+const completedPlanTranscript = acpSessionTranscript({
+  state: 'idle',
+  plan: { entries: [
+    { content: 'Inspect code', status: 'completed' },
+    { content: 'Verify result', status: 'completed' },
+  ] },
+  entries: [
+    { id: 'user-plan-completed', type: 'message', role: 'user', content: [{ type: 'text', text: 'Finish it' }] },
+    { id: 'answer-plan-completed', type: 'message', role: 'assistant', content: [{ type: 'text', text: 'Done' }] },
+  ],
+});
+assert.strictEqual(completedPlanTranscript.plan.status, 'completed');
+
 const largeToolTranscript = acpSessionTranscript({
   revision: 7,
   delta: true,
@@ -907,6 +920,10 @@ const transcriptPaneSource = fs.readFileSync(
   path.join(__dirname, '..', '..', 'src', 'components', 'code', 'AgentTranscriptPane.tsx'),
   'utf8'
 );
+const darkStylesSource = fs.readFileSync(
+  path.join(__dirname, '..', '..', 'src', 'styles', 'code-dark.css'),
+  'utf8'
+);
 assert(
   serverSource.includes("req.query.media === 'external-v1'")
     && transcriptPaneSource.includes("params.set('media', 'external-v1')"),
@@ -917,6 +934,19 @@ assert(
     && transcriptPaneSource.includes("source === 'acp' && !responseReceived && reason instanceof TypeError")
     && transcriptPaneSource.includes("setError(transcriptRef.current?.available ? '' : copy.agentTranscriptUnavailable)"),
   'only read-only ACP transcript network failures should receive bounded retries and localized final errors'
+);
+assert(
+  transcriptPaneSource.includes("const activePlan = sessionPlan?.status === 'completed' ? undefined : sessionPlan")
+    && transcriptPaneSource.includes("className={`code-agent-transcript ${activePlan ? 'has-plan-driver' : ''}`}")
+    && transcriptPaneSource.includes('<AgentTranscriptPlanDriver plan={activePlan} />'),
+  'the view-attached plan driver should reserve space only while the authoritative plan is incomplete'
+);
+assert(
+  darkStylesSource.includes("body.code-mode[data-appearance='dark'] .code-agent-transcript-plan-driver {")
+    && darkStylesSource.includes('background: rgba(38, 38, 38, 0.86);')
+    && darkStylesSource.includes("body.code-mode[data-appearance='dark'] .code-agent-transcript-plan-driver-summary > span")
+    && darkStylesSource.includes('color: var(--code-dark-text);'),
+  'the plan driver should use the established dark appearance surface and readable title color'
 );
 
 console.log('ACP transcript tests passed');

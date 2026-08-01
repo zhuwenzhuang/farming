@@ -3615,6 +3615,8 @@ export function AgentTranscriptPane({
     // an ACP refresh cannot jump to the bottom during that first drag frame.
     textSelectionGestureRef.current = true
   }, [])
+  const sessionPlan = source === 'acp' ? transcript?.plan : undefined
+  const activePlan = sessionPlan?.status === 'completed' ? undefined : sessionPlan
   const handleToggleProcess = useCallback((turnId: string) => {
     const turn = turns.find(candidate => candidate.id === turnId)
     if (source === 'acp' && turn?.status === 'inProgress') {
@@ -3650,7 +3652,7 @@ export function AgentTranscriptPane({
   return (
     <TranscriptFileOpenContext.Provider value={transcriptFileOpenContext}>
       <div
-        className={`code-agent-transcript ${source === 'acp' && transcript?.plan ? 'has-plan-driver' : ''}`}
+        className={`code-agent-transcript ${activePlan ? 'has-plan-driver' : ''}`}
         data-testid="code-agent-transcript"
       >
       {forkedFromAgent ? (
@@ -3663,8 +3665,8 @@ export function AgentTranscriptPane({
           <span aria-hidden="true" />
         </div>
       ) : null}
-      {source === 'acp' && transcript?.plan ? (
-        <AgentTranscriptPlanDriver plan={transcript.plan} />
+      {activePlan ? (
+        <AgentTranscriptPlanDriver plan={activePlan} />
       ) : null}
       {loading || awaitingAcpHistory ? (
         <div className="code-agent-transcript-state subtle">{copy.agentTranscriptSyncing}</div>

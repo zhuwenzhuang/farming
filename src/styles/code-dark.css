@@ -2120,6 +2120,30 @@ body.code-mode[data-appearance='dark'] .code-agent-transcript-plan-list li.runni
   color: var(--code-dark-text-soft);
 }
 
+body.code-mode[data-appearance='dark'] .code-agent-transcript-plan-driver {
+  border-color: var(--code-dark-border);
+  background: rgba(38, 38, 38, 0.86);
+  color: var(--code-dark-text-soft);
+  box-shadow: 0 8px 28px var(--code-dark-shadow);
+}
+
+body.code-mode[data-appearance='dark'] .code-agent-transcript-plan-driver-summary,
+body.code-mode[data-appearance='dark'] .code-agent-transcript-plan-driver-detail {
+  color: var(--code-dark-text-soft);
+}
+
+body.code-mode[data-appearance='dark'] .code-agent-transcript-plan-driver-summary > span {
+  color: var(--code-dark-text);
+}
+
+body.code-mode[data-appearance='dark'] .code-agent-transcript-plan-driver-summary > small {
+  color: var(--code-dark-text-muted);
+}
+
+body.code-mode[data-appearance='dark'] .code-agent-transcript-plan-driver-summary:focus-visible {
+  outline-color: var(--code-dark-accent-soft);
+}
+
 body.code-mode[data-appearance='dark'] .code-agent-transcript-result-summary {
   border-color: var(--code-dark-border);
   background: rgba(22, 27, 34, 0.72);

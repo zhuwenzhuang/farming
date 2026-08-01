@@ -676,6 +676,16 @@ test.describe('ACP human-like browser matrix', () => {
     await test.step('08 render the optimistic user message once', async () => {
       await expect(page.getByText('rich timeline', { exact: true })).toHaveCount(1)
     })
+    await test.step('08b render the active plan on the dark appearance surface', async () => {
+      await page.locator('body').evaluate(body => { body.dataset.appearance = 'dark' })
+      const plan = page.getByTestId('code-agent-transcript-plan-driver')
+      await expect(plan).toBeVisible()
+      await expect(plan).toContainText('1/3')
+      await expect(plan).toHaveCSS('background-color', 'rgba(38, 38, 38, 0.86)')
+      await expect(plan).toHaveCSS('border-top-color', 'rgb(56, 56, 56)')
+      await expect(plan.locator('.code-agent-transcript-plan-driver-summary > span')).toHaveCSS('color', 'rgb(255, 255, 255)')
+      await page.locator('body').evaluate(body => { body.dataset.appearance = 'light' })
+    })
     await test.step('09 render the final answer after dynamic updates', async () => {
       await expect(page.getByText('Rich ACP timeline complete.', { exact: true })).toBeVisible({ timeout: 20_000 })
     })
@@ -715,16 +725,9 @@ test.describe('ACP human-like browser matrix', () => {
         return Math.abs(progressBox.x - summaryBox.x)
       }).toBeLessThanOrEqual(1)
     })
-    await test.step('13 render the current plan as one independent floating driver', async () => {
+    await test.step('13 remove the floating plan driver after every step completes', async () => {
       const plan = page.getByTestId('code-agent-transcript-plan-driver')
-      await expect(plan).toBeVisible()
-      await expect(plan).toContainText('Plan')
-      await expect(plan).toContainText('3/3')
-      await expect(plan).toContainText('Inspect the source')
-      await expect(plan.locator('.code-agent-transcript-plan-marker')).toHaveCount(0)
-      await expect(plan.locator('.code-agent-transcript-plan-list')).toHaveCSS('list-style-type', 'decimal')
-      await expect(plan.locator('.code-agent-transcript-plan-list')).toHaveCSS('padding-left', '24px')
-      await expect(plan.locator('.code-agent-transcript-plan-list li.completed').first()).toHaveCSS('opacity', '0.62')
+      await expect(plan).toHaveCount(0)
       await expect(richTurn.getByText('Plan', { exact: true })).toHaveCount(0)
     })
     await test.step('14 group reasoning and tools into one compact reversible segment', async () => {
