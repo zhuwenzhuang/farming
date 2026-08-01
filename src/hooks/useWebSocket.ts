@@ -1,6 +1,6 @@
 import { useEffect, useRef, useCallback, useState } from 'react'
 import type { Agent, TaskHistoryEntry } from '@/types/agent'
-import type { ClientMessage, ComposerInputAttachment, ComposerInputMessage, ServerMessage, StartAgentMessage, WorkspaceFileEventMessage } from '@/types/messages'
+import type { AcpRealtimeEvent, ClientMessage, ComposerInputAttachment, ComposerInputMessage, ServerMessage, StartAgentMessage, WorkspaceFileEventMessage } from '@/types/messages'
 import { appWsUrl } from '@/lib/base-path'
 import { setTerminalSessionTransport } from '@/lib/terminal-session-client'
 import {
@@ -147,6 +147,7 @@ export function useWebSocket() {
     kind?: 'output' | 'resize' | 'clear',
   ) => void>>(new Map())
   const workspaceFileListenersRef = useRef<Map<string, Set<(event: WorkspaceFileEventMessage['event']) => void>>>(new Map())
+  const acpRealtimeListenersRef = useRef<Map<string, Set<(event: AcpRealtimeEvent) => void>>>(new Map())
 
   const sendMessage = useCallback((msg: ClientMessage) => {
     const ws = wsRef.current
@@ -364,6 +365,21 @@ export function useWebSocket() {
       }
     }
   }, [sendMessage])
+
+  const onAcpRealtime = useCallback((agentId: string, handler: (event: AcpRealtimeEvent) => void) => {
+    let listeners = acpRealtimeListenersRef.current.get(agentId)
+    if (!listeners) {
+      listeners = new Set()
+      acpRealtimeListenersRef.current.set(agentId, listeners)
+    }
+    listeners.add(handler)
+    return () => {
+      const currentListeners = acpRealtimeListenersRef.current.get(agentId)
+      if (!currentListeners) return
+      currentListeners.delete(handler)
+      if (currentListeners.size === 0) acpRealtimeListenersRef.current.delete(agentId)
+    }
+  }, [])
 
   useEffect(() => {
     setTerminalSessionTransport(message => sendMessage(message))
@@ -647,6 +663,9 @@ export function useWebSocket() {
                 return changed ? { ...prev, agents } : prev
               })
               break
+            case 'acp-realtime':
+              acpRealtimeListenersRef.current.get(msg.event.agentId)?.forEach(listener => listener(msg.event))
+              break
             case 'session-preview':
               updateAgentLivePreview(msg.preview)
               break
@@ -813,6 +832,7 @@ export function useWebSocket() {
     interruptAgent,
     restartMainAgent,
     onSessionOutput,
+    onAcpRealtime,
     watchWorkspaceFiles,
     mergeBrowserResource,
     deleteBrowserResource,

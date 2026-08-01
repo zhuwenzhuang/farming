@@ -39,6 +39,7 @@ const SERVER_MESSAGE_TYPES = new Set([
     'agent-activity',
     'agent-update',
     'acp-session-revision',
+    'acp-realtime',
     'agent-read',
     'workspace-file-watch',
     'workspace-file-event',
@@ -214,6 +215,13 @@ function validateServerMessage(value) {
             break;
         case 'acp-session-revision':
             valid = objectMessage(value.session) && stringField(value.session, 'agentId') && Number.isInteger(value.session.revision) && typeof value.session.revision === 'number' && value.session.revision >= 0 && stringField(value.session, 'updatedAt');
+            break;
+        case 'acp-realtime':
+            valid = objectMessage(value.event)
+                && stringField(value.event, 'agentId')
+                && stringField(value.event, 'sessionId')
+                && stringField(value.event, 'method')
+                && objectMessage(value.event.params);
             break;
         case 'agent-read':
             valid = objectMessage(value.read) && stringField(value.read, 'agentId');

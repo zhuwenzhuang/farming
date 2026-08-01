@@ -30,6 +30,7 @@ flowchart LR
 - tool detail、diff、patch decision 和 ACP terminal；
 - 文本、图片和音频 prompt part；
 - 通过可协商、带版本的 adapter 扩展对活跃 Codex turn 执行实时 steer；
+- 挂到精确 Codex Chat Session 的可协商 Realtime v3 WebRTC 语音对话；
 - agent 声明支持时的 session mode 与 config option。
 
 能力以 ACP initialize 与 session metadata 为准。连接的 agent 未声明某项能力时，UI 必须禁用或隐藏相应控制。Codex 差异应停留在 provider adapter 边界，不能分叉通用生命周期或 Chat UI。
@@ -45,6 +46,8 @@ ACP 标准没有 live steer 操作。因此 Farming 锁定的 Codex adapter 会�
 - 结束或切换 Agent 时，注销 ACP session 并关闭所拥有的 adapter 进程。
 
 Chat 与 Terminal 的切换是真实运行时重启，并保留同一个可恢复 provider session。全新 Terminal 只有在用户尚未输入、provider conversation 尚未物化时才能直接切到 Chat；其他情况必须先验证 session 可恢复。
+
+把 Farming Main Agent 重启为 Codex 时会直接选择 Chat/ACP，使它成为第一版 Voice Main Agent。麦克风在同一个可见 Main Agent Session 上启动 Realtime，继续使用 Main Agent 指令、工具、权限和审计记录。这还不是规划中的隐藏 provider-neutral Voice Supervisor；其他已选中的 Codex Chat Agent 仍可复用同一条可协商的直达语音路径。
 
 ## 验证
 

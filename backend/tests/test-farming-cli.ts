@@ -71,7 +71,7 @@ async function test() {
     command: 'send',
     options: {
       agentId: 'agent-child',
-      input: 'run tests\r',
+      input: 'run tests',
     },
   });
 
@@ -149,6 +149,38 @@ async function test() {
     assert.strictEqual(disabledAuthorizationHeader, '', 'disabled auth control calls should not send Bearer credentials');
   } finally {
     server.close();
+
+    let sentPath = '';
+    let sentBody: Record<string, string> = {};
+    let sentOutput = '';
+    const messageServer = http.createServer((req, res) => {
+      sentPath = req.url || '';
+      const chunks: Buffer[] = [];
+      req.on('data', chunk => chunks.push(Buffer.from(chunk)));
+      req.on('end', () => {
+        sentBody = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+        res.statusCode = 202;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ accepted: true }));
+      });
+    });
+    const messagePort = await listen(messageServer);
+    const previousControlUrl = process.env.FARMING_CONTROL_URL;
+    process.env.FARMING_CONTROL_URL = `http://127.0.0.1:${messagePort}`;
+    try {
+      await run(['send', 'agent-child', 'run', 'tests'], {
+        stdout: { write(chunk) { sentOutput += chunk; } },
+      });
+      assert.strictEqual(sentPath, '/api/control/agents/agent-child/messages');
+      assert.strictEqual(sentBody.message, 'run tests');
+      assert.match(sentBody.requestId, /^cli:[0-9a-f-]+$/);
+      assert.strictEqual(sentOutput, 'Sent\n');
+    } finally {
+      if (previousControlUrl === undefined) delete process.env.FARMING_CONTROL_URL;
+      else process.env.FARMING_CONTROL_URL = previousControlUrl;
+      messageServer.close();
+    }
+
     if (previousDisableAuth === undefined) {
       delete process.env.FARMING_DISABLE_AUTH;
     } else {

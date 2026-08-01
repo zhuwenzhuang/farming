@@ -30,6 +30,7 @@ The supported ACP surface includes:
 - tool-call details, diffs, patch decisions, and ACP terminals;
 - text, image, and audio prompt parts;
 - live steer for the active Codex turn through a negotiated, versioned adapter extension;
+- a negotiated Realtime v3 WebRTC voice conversation attached to the exact Codex Chat Session;
 - session modes and configuration options when the agent advertises them.
 
 Capabilities come from ACP initialization and session metadata. The UI must disable or omit controls that the connected agent does not advertise. Codex-specific behavior must stay at the provider-adapter boundary rather than branching the generic lifecycle or Chat UI.
@@ -45,6 +46,8 @@ ACP has no standard live-steer operation. Farming's pinned Codex adapter therefo
 - Killing or switching an Agent unregisters its ACP session and closes the owned adapter process.
 
 Chat-to-Terminal and Terminal-to-Chat are real runtime restarts that preserve the same resumable provider session. A fresh Terminal may switch to Chat only before user input has materialized a provider conversation; otherwise Farming requires a verified resumable session.
+
+Restarting the Farming Main Agent as Codex selects Chat/ACP so it can be the first Voice Main Agent. Its microphone starts Realtime on that same visible Main Agent Session, preserving the Main Agent instructions, tools, permissions, and audit trail. This is not yet the planned hidden provider-neutral Voice Supervisor; other selected Codex Chat Agents can still use the same negotiated Direct voice path.
 
 ## Verification
 

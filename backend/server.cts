@@ -1751,6 +1751,36 @@ app.post(routePath(BASE_PATH, '/api/agents/:agentId/acp-session/logout'), async 
   }
 });
 
+app.post(routePath(BASE_PATH, '/api/agents/:agentId/acp-session/reconnect'), async (req, res) => {
+  try {
+    const result = await agentManager.reconnectAcpAgent(req.params.agentId);
+    res.json(result);
+  } catch (error) {
+    res.status(409).json({ error: caughtError(error).message || 'Failed to reconnect ACP Agent' });
+  }
+});
+
+app.post(routePath(BASE_PATH, '/api/agents/:agentId/acp-realtime/start'), express.json({ limit: '1mb' }), async (req, res) => {
+  try {
+    const sdp = typeof req.body?.sdp === 'string' ? req.body.sdp : '';
+    if (!sdp.trim()) {
+      res.status(400).json({ error: 'WebRTC SDP offer is required' });
+      return;
+    }
+    res.json(await agentManager.startAcpRealtime(req.params.agentId, sdp));
+  } catch (error) {
+    res.status(409).json({ error: caughtError(error).message || 'Failed to start Codex realtime voice' });
+  }
+});
+
+app.post(routePath(BASE_PATH, '/api/agents/:agentId/acp-realtime/stop'), async (req, res) => {
+  try {
+    res.json(await agentManager.stopAcpRealtime(req.params.agentId));
+  } catch (error) {
+    res.status(409).json({ error: caughtError(error).message || 'Failed to stop Codex realtime voice' });
+  }
+});
+
 app.post(routePath(BASE_PATH, '/api/agents/:agentId/acp-session/fork'), express.json(), async (req, res) => {
   try {
     res.json(await agentManager.forkAcpSession(req.params.agentId, req.body || {}));
@@ -3038,7 +3068,8 @@ function restartMainAgent(ws: WebSocketClient, command: string) {
           ws.send(JSON.stringify({ type: 'agent-started', agentId }));
         }
       }, {
-        wantsMain: true
+        wantsMain: true,
+        agentRuntimeMode: normalizedCommand === 'codex' ? 'chat' : 'terminal'
       });
     } catch (caught) {
     const error = caughtError(caught);
@@ -3832,6 +3863,14 @@ function scheduleAcpSessionRevision(session: unknown) {
 }
 
 agentManager.on('acp-session-revision', scheduleAcpSessionRevision);
+
+agentManager.on('acp-realtime', (event: unknown) => {
+  if (!isAgentScopedServerEvent(event) || typeof event.method !== 'string') return;
+  const message = JSON.stringify({ type: 'acp-realtime', event });
+  wss.clients.forEach((client) => {
+    if (client.readyState === WebSocket.OPEN) client.send(message);
+  });
+});
 
 function broadcastAgentRead(read: unknown) {
   if (!isAgentScopedServerEvent(read)) return;

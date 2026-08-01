@@ -117,4 +117,17 @@ assert.strictEqual(validateServerMessage({
   type: 'acp-session-revision',
   session: { agentId: 'a', revision: '12', updatedAt: '2026-07-29T03:00:00.000Z' },
 }).ok, false);
+assert.strictEqual(validateServerMessage({
+  type: 'acp-realtime',
+  event: {
+    agentId: 'a',
+    sessionId: 'session-1',
+    method: 'thread/realtime/sdp',
+    params: { sdp: 'v=0' },
+  },
+}).ok, true);
+assert.strictEqual(validateServerMessage({
+  type: 'acp-realtime',
+  event: { agentId: 'a', method: 'thread/realtime/sdp', params: 'v=0' },
+}).ok, false);
 console.log('browser protocol schema tests passed');

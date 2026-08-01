@@ -82,6 +82,7 @@
     "docs:product:screenshots": "tsx scripts/capture-product-screenshots.ts",
     "test": "tsx scripts/run-tests.ts",
     "test:pre-release:codex-ui": "FARMING_REAL_CODEX_BIN=\"$(command -v codex)\" FARMING_CODEX_BIN=\"$PWD/tests/e2e/fixtures/real-codex-no-update\" FARMING_REAL_CODEX_RELEASE_CASE=1 FARMING_E2E_REAL_CODEX=1 FARMING_PLAYWRIGHT_INTERNAL=1 playwright test tests/e2e/internal/real-codex-release-case.spec.ts --project=chromium --workers=1 --retries=0 --trace=retain-on-failure",
+    "test:voice-main-agent": "FARMING_CODEX_BIN=\"${FARMING_REALTIME_CODEX_BIN:-$([ -x '/Applications/ChatGPT.app/Contents/Resources/codex' ] && printf '%s' '/Applications/ChatGPT.app/Contents/Resources/codex' || command -v codex)}\" FARMING_E2E_REAL_CODEX=1 FARMING_PLAYWRIGHT_INTERNAL=1 playwright test tests/e2e/internal/real-codex-voice-main-agent.spec.ts --project=chromium --workers=1 --retries=0 --trace=retain-on-failure",
     "test:pre-release:terminal-input": "playwright test tests/e2e/terminal-input-performance.spec.ts --project=chromium --workers=1 --retries=0 --trace=retain-on-failure",
     "test:performance:transcript": "tsx backend/tests/test-acp-transcript-performance.ts",
     "test:performance:audit": "tsx tests/performance/agent-usage-hotpath.ts && FARMING_PLAYWRIGHT_INTERNAL=1 playwright test tests/e2e/internal/performance-bottlenecks.spec.ts --project=chromium --workers=1 --retries=0 --trace=retain-on-failure",

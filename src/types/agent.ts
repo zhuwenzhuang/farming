@@ -190,6 +190,7 @@ export interface AcpRuntimeBinding {
   stopReason: string
   supportsSteer: boolean
   supportsFork?: boolean
+  supportsRealtime?: boolean
   pendingPermission: AcpPendingPermission | null
   pendingPermissions: AcpPendingPermission[]
   pendingElicitation: AcpPendingElicitation | null

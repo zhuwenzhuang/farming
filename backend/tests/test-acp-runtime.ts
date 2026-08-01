@@ -3,7 +3,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
-const { AcpRuntime, acpErrorKind, acpSessionRequestOptions, autoPermissionResponse, codexAcpEnvironment, deleteProviderSessionIdentity, promptContentForCapabilities, resolveAcpLaunch, supportsCodexSteer } = require('../acp-runtime.cjs');
+const { AcpRuntime, acpErrorKind, acpSessionRequestOptions, autoPermissionResponse, codexAcpEnvironment, codexRealtimeStartError, deleteProviderSessionIdentity, promptContentForCapabilities, resolveAcpLaunch, sanitizeCodexRealtimeEvent, supportsCodexRealtime, supportsCodexSteer } = require('../acp-runtime.cjs');
 const { renderFarmingAgentBootstrap } = require('../farming-agent-bootstrap.cjs');
 const { claudeAcpEnvironment } = require('../provider-adapters.cjs');
 const { AcpSessionState } = require('../acp-session-state.cjs');
@@ -46,6 +46,35 @@ async function run() {
   assert.strictEqual(supportsCodexSteer({
     _meta: { codex: { steer: { method: '_codex/session/steer', version: 0 } } },
   }), false);
+  assert.strictEqual(supportsCodexRealtime({
+    _meta: { codex: { realtime: {
+      version: 1,
+      transport: 'webrtc',
+      startMethod: '_codex/session/realtime/start',
+      stopMethod: '_codex/session/realtime/stop',
+    } } },
+  }), true);
+  assert.strictEqual(supportsCodexRealtime({
+    _meta: { codex: { realtime: { version: 1, transport: 'websocket' } } },
+  }), false);
+  assert.match(
+    codexRealtimeStartError({
+      message: 'Internal error',
+      data: { details: 'Invalid request: unknown variant `v3`, expected `v1` or `v2`' },
+    }).message,
+    /Update Codex and restart the Agent/,
+  );
+  const unrelatedRealtimeError = new Error('Realtime transport failed');
+  assert.strictEqual(codexRealtimeStartError(unrelatedRealtimeError), unrelatedRealtimeError);
+  assert.deepStrictEqual(sanitizeCodexRealtimeEvent('thread/realtime/error', {
+    threadId: 'thread-1',
+    message: 'voice failed',
+    untrusted: 'not forwarded',
+  }), { threadId: 'thread-1', message: 'voice failed' });
+  assert.strictEqual(sanitizeCodexRealtimeEvent('thread/realtime/outputAudio/delta', {
+    threadId: 'thread-1',
+    audio: 'large payload',
+  }), null);
   let unsafeConnectionClose;
   const unsafeConnectionClosed = new Promise(resolve => {
     unsafeConnectionClose = resolve;
@@ -242,6 +271,7 @@ async function run() {
     model: 'gpt-5.5',
     model_reasoning_effort: 'xhigh',
     service_tier: 'priority',
+    features: { realtime_conversation: true },
     developer_instructions: farmingSystemPrompt,
   });
   assert.strictEqual(codexAcpEnvironment({ env: {}, approvalMode: 'ask' }).INITIAL_AGENT_MODE, 'read-only');
@@ -645,6 +675,18 @@ async function run() {
     const prepared = await preparing;
     assert.strictEqual(prepared.sessionId, 'acp-new-session');
     assert.strictEqual(prepared.historyMode, 'new');
+    assert.strictEqual(runtime.getSession('agent-acp-new').supportsRealtime, true);
+    const realtimeEvents = [];
+    runtime.on('realtime', event => realtimeEvents.push(event));
+    await runtime.startRealtime('agent-acp-new', 'v=0\r\nfake-offer');
+    assert.deepStrictEqual(realtimeEvents.map(event => event.method), [
+      'thread/realtime/sdp',
+      'thread/realtime/transcript/done',
+    ]);
+    assert.strictEqual(realtimeEvents[1].params.text, 'run the focused tests');
+    assert.strictEqual(runtime.getSession('agent-acp-new').entries.length, 0, 'ephemeral realtime events must not enter the transcript');
+    await runtime.stopRealtime('agent-acp-new');
+    assert.strictEqual(realtimeEvents.at(-1).method, 'thread/realtime/closed');
     const spawnedAdapterCountBeforeMissingForkCheckpoint = spawnedAdapters.length;
     await assert.rejects(
       runtime.prepareAgent({
@@ -2392,6 +2434,68 @@ async function run() {
     );
     assert.strictEqual(runtime.getSession('agent-acp-new').state, 'error');
     assert.strictEqual(runtime.getSession('agent-acp-new').stopReason, 'cancel_error');
+
+    await runtime.prepareAgent({
+      agentId: 'agent-acp-reconnect',
+      provider: 'codex',
+      cwd: process.cwd(),
+      env: process.env,
+      approvalMode: 'full',
+    });
+    await runtime.prompt('agent-acp-reconnect', 'before reconnect');
+    const disconnectedBinding = runtime.bindings.get('agent-acp-reconnect');
+    const disconnectedSessionId = disconnectedBinding.sessionId;
+    const disconnectedRevision = disconnectedBinding.sessionState.revision;
+    runtime.handleExit(disconnectedBinding, new Error('simulated adapter transport loss'));
+    await assert.rejects(
+      runtime.prompt('agent-acp-reconnect', 'must not use the dead binding'),
+      /not ready/,
+    );
+    let stoppedProcessNotifications = 0;
+    const reconnectOptions = {
+      onProcessStopped() {
+        stoppedProcessNotifications += 1;
+      },
+    };
+    const [firstReconnect, joinedReconnect] = await Promise.all([
+      runtime.reconnectAgent('agent-acp-reconnect', reconnectOptions),
+      runtime.reconnectAgent('agent-acp-reconnect', reconnectOptions),
+    ]);
+    assert.strictEqual(firstReconnect.reconnected, true);
+    assert.deepStrictEqual(joinedReconnect, firstReconnect, 'concurrent reconnects must join one replacement');
+    assert.strictEqual(stoppedProcessNotifications, 1);
+    const reconnectedSession = runtime.getSession('agent-acp-reconnect');
+    assert.strictEqual(reconnectedSession.sessionId, disconnectedSessionId);
+    assert.strictEqual(reconnectedSession.state, 'idle');
+    assert(
+      reconnectedSession.revision > disconnectedRevision,
+      'history recovery must advance the transcript revision fence',
+    );
+    assert.strictEqual(
+      (await runtime.prompt('agent-acp-reconnect', 'after reconnect')).stopReason,
+      'end_turn',
+      'a replacement binding must accept a new explicit prompt',
+    );
+
+    await runtime.prepareAgent({
+      agentId: 'agent-acp-reconnect-before-exit-event',
+      provider: 'codex',
+      cwd: process.cwd(),
+      env: process.env,
+      approvalMode: 'full',
+    });
+    const transportFailedBinding = runtime.bindings.get('agent-acp-reconnect-before-exit-event');
+    transportFailedBinding.connection.prompt = async () => {
+      throw new Error('ACP connection closed');
+    };
+    await assert.rejects(
+      runtime.prompt('agent-acp-reconnect-before-exit-event', 'transport fails before exit event'),
+      /connection closed/,
+    );
+    assert.strictEqual(transportFailedBinding.exited, false);
+    const recoveredBeforeExitEvent = await runtime.reconnectAgent('agent-acp-reconnect-before-exit-event');
+    assert.strictEqual(recoveredBeforeExitEvent.reconnected, true);
+    assert.strictEqual(runtime.getSession('agent-acp-reconnect-before-exit-event').state, 'idle');
   } finally {
     await runtime.dispose();
   }

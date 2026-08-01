@@ -15348,11 +15348,107 @@ body.code-mode .code-composer textarea::placeholder {
   background: #f1f2ed;
 }
 
+.code-composer-mic.realtime {
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  color: #111;
+  background: #fff;
+  box-shadow:
+    0 1px 2px rgba(31, 35, 40, 0.12),
+    0 5px 16px rgba(31, 35, 40, 0.12),
+    inset 0 0 0 1px rgba(31, 35, 40, 0.08);
+  cursor: pointer;
+  transition: box-shadow 140ms ease, transform 140ms ease;
+}
+
+.code-composer-mic.realtime:hover:not(:disabled) {
+  color: #111;
+  background: #fff;
+  box-shadow:
+    0 2px 4px rgba(31, 35, 40, 0.16),
+    0 8px 22px rgba(31, 35, 40, 0.16),
+    inset 0 0 0 1px rgba(31, 35, 40, 0.1);
+  transform: translateY(-1px);
+}
+
+.code-composer-mic.realtime.listening {
+  color: #111;
+  background: #fff;
+  box-shadow:
+    0 0 0 3px rgba(17, 17, 17, 0.12),
+    0 7px 20px rgba(31, 35, 40, 0.16),
+    inset 0 0 0 1px rgba(31, 35, 40, 0.12);
+}
+
+.code-composer-voice-wave {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  width: 22px;
+  height: 22px;
+}
+
+.code-composer-voice-wave i {
+  display: block;
+  width: 2.5px;
+  height: 8px;
+  border-radius: 999px;
+  background: currentColor;
+  transform-origin: center;
+}
+
+.code-composer-voice-wave i:nth-child(2),
+.code-composer-voice-wave i:nth-child(4) {
+  height: 14px;
+}
+
+.code-composer-voice-wave i:nth-child(3) {
+  height: 19px;
+}
+
+.code-composer-mic.realtime.listening:not(.connecting) .code-composer-voice-wave i {
+  animation: code-composer-voice-wave 820ms ease-in-out infinite alternate;
+}
+
+.code-composer-mic.realtime.listening:not(.connecting) .code-composer-voice-wave i:nth-child(2),
+.code-composer-mic.realtime.listening:not(.connecting) .code-composer-voice-wave i:nth-child(4) {
+  animation-delay: -280ms;
+}
+
+.code-composer-mic.realtime.listening:not(.connecting) .code-composer-voice-wave i:nth-child(3) {
+  animation-delay: -520ms;
+}
+
+.code-composer-mic.realtime.connecting .code-composer-voice-wave {
+  animation: code-composer-voice-connecting 900ms ease-in-out infinite alternate;
+}
+
+@keyframes code-composer-voice-wave {
+  from { transform: scaleY(0.55); }
+  to { transform: scaleY(1); }
+}
+
+@keyframes code-composer-voice-connecting {
+  from { opacity: 0.35; }
+  to { opacity: 1; }
+}
+
 .code-composer-mic svg {
   width: 16px;
   height: 16px;
   fill: currentColor;
   stroke: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .code-composer-mic.realtime,
+  .code-composer-mic.realtime .code-composer-voice-wave,
+  .code-composer-mic.realtime .code-composer-voice-wave i {
+    animation: none;
+    transition: none;
+  }
 }
 
 .code-composer-add:disabled,

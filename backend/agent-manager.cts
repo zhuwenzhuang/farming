@@ -9,6 +9,7 @@ import type {
   AcpPromptBlock,
   AcpProcessIdentity,
   AcpRuntimeEvent,
+  AcpRealtimeEvent,
   AcpSessionListOptions,
   AcpSessionRequestOptions,
   AcpSessionEvent,
@@ -1492,7 +1493,7 @@ class AgentManager extends EventEmitter {
 
   bindAcpRuntimeEvents() {
     if (!this.acpRuntime || typeof this.acpRuntime.on !== 'function') return;
-    this.acpRuntime.on('agent-runtime', ({ agentId, state, error, sessionId, stopReason, supportsSteer, supportsFork, pendingPermission, pendingPermissions, pendingElicitation, pendingElicitations, activeElicitations, updatedAt }: AcpRuntimeEvent) => {
+    this.acpRuntime.on('agent-runtime', ({ agentId, state, error, sessionId, stopReason, supportsSteer, supportsFork, supportsRealtime, pendingPermission, pendingPermissions, pendingElicitation, pendingElicitations, activeElicitations, updatedAt }: AcpRuntimeEvent) => {
       const agent = this.agents.get(agentId);
       if (!agent) return;
       const runtime = runtimeBindingOf(agent, 'acp');
@@ -1502,6 +1503,7 @@ class AgentManager extends EventEmitter {
       runtime.stopReason = stopReason || '';
       runtime.supportsSteer = supportsSteer === true;
       runtime.supportsFork = supportsFork === true;
+      runtime.supportsRealtime = supportsRealtime === true;
       runtime.pendingPermission = pendingPermission || null;
       runtime.pendingPermissions = Array.isArray(pendingPermissions) ? pendingPermissions : [];
       runtime.pendingElicitation = pendingElicitation || null;
@@ -1536,6 +1538,10 @@ class AgentManager extends EventEmitter {
         updatedAt: runtime.sessionUpdatedAt,
       });
       if (titleChanged) this.emit('update');
+    });
+    this.acpRuntime.on('realtime', (event: AcpRealtimeEvent) => {
+      if (!this.agents.has(event.agentId)) return;
+      this.emit('acp-realtime', event);
     });
   }
 
@@ -3852,6 +3858,7 @@ class AgentManager extends EventEmitter {
     });
     env.FARMING_AGENT_ID = agentId;
     env.FARMING_IS_MAIN_AGENT = agent.wantsMain ? '1' : '0';
+    env.FARMING_CLI_BIN_DIR = this.cliBinDir;
     env.FARMING_SKILLS_COMMAND = 'farming skills';
     env.FARMING_CAPABILITIES_COMMAND = 'farming capabilities';
     env.FARMING_MAIN_WORKSPACE = agent.mainWorkspace || '';
@@ -5622,17 +5629,13 @@ class AgentManager extends EventEmitter {
       }
       return Promise.reject(composerAdmissionError(detail, true));
     }
-    if (existing?.state === 'failed') {
-      return Promise.reject(new Error(existing.error || `Composer request ${requestId} was not accepted`));
-    }
-
     const intent: ComposerCommandRecord = {
       requestId,
       contentHash,
       state: 'intent',
       result: null,
       error: '',
-      createdAt: Date.now(),
+      createdAt: existing?.createdAt || Date.now(),
       updatedAt: Date.now(),
     };
     try {
@@ -5881,6 +5884,8 @@ class AgentManager extends EventEmitter {
 
     if (isAcpAgent(agent)) {
       this.requireLiveAcpAgent(agentId);
+      await this.reconnectAcpAgent(agentId);
+      this.requireLiveAcpAgent(agentId);
       const result = await this.acpRuntime.submitMessage(agentId, prompt, {
         delivery: options.delivery,
         onSubmitted: options.onSubmitted
@@ -5922,6 +5927,32 @@ class AgentManager extends EventEmitter {
   getAcpSession(agentId: AgentId, options: Partial<AcpSessionRequestOptions> = {}) {
     this.requireLiveAcpAgent(agentId);
     return this.acpRuntime.getSession(agentId, options);
+  }
+
+  async reconnectAcpAgent(agentId: AgentId) {
+    this.assertAgentOperationAdmission();
+    const agent = this.requireLiveAcpAgent(agentId);
+    const result = await this.acpRuntime.reconnectAgent(agentId, {
+      onProcessStopped: () => {
+        if (this.agents.get(agentId) !== agent) return;
+        agent.structuredRuntimeProcess = null;
+        this.ensurePersistentAgentSession(agent);
+      },
+    });
+    this.ensurePersistentAgentSession(agent);
+    return result;
+  }
+
+  startAcpRealtime(agentId: AgentId, sdp: string) {
+    this.assertAgentOperationAdmission();
+    this.getAcpSession(agentId);
+    return this.acpRuntime.startRealtime(agentId, sdp);
+  }
+
+  stopAcpRealtime(agentId: AgentId) {
+    this.assertAgentOperationAdmission();
+    this.getAcpSession(agentId);
+    return this.acpRuntime.stopRealtime(agentId);
   }
 
   getAcpTranscript(agentId: AgentId, options: Partial<AcpSessionRequestOptions> = {}) {

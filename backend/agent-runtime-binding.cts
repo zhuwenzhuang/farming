@@ -7,6 +7,7 @@ interface RuntimeBindingFields {
   stopReason?: string;
   supportsSteer?: boolean;
   supportsFork?: boolean;
+  supportsRealtime?: boolean;
   pendingPermission?: unknown;
   pendingPermissions?: unknown[];
   pendingElicitation?: unknown;
@@ -27,6 +28,7 @@ interface AcpRuntimeBinding extends RuntimeBindingFields {
   stopReason: string;
   supportsSteer: boolean;
   supportsFork: boolean;
+  supportsRealtime: boolean;
   pendingPermission: unknown;
   pendingPermissions: unknown[];
   pendingElicitation: unknown;
@@ -45,6 +47,7 @@ interface RuntimeBindingSource {
   stopReason?: string;
   supportsSteer?: boolean;
   supportsFork?: boolean;
+  supportsRealtime?: boolean;
   pendingPermission?: unknown;
   pendingPermissions?: unknown[];
   pendingElicitation?: unknown;
@@ -101,6 +104,7 @@ function acpBinding(source: RuntimeBindingSource = {}): AcpRuntimeBinding {
     stopReason: source.stopReason || source.acpStopReason || '',
     supportsSteer: source.supportsSteer === true,
     supportsFork: source.supportsFork === true,
+    supportsRealtime: source.supportsRealtime === true,
     pendingPermission: source.pendingPermission || source.acpPendingPermission || null,
     pendingPermissions: source.pendingPermissions || source.acpPendingPermissions || [],
     pendingElicitation: source.pendingElicitation || source.acpPendingElicitation || null,

@@ -203,6 +203,7 @@ export interface AcpRuntimeEvent extends Record<string, unknown> {
   stopReason?: string;
   supportsSteer?: boolean;
   supportsFork?: boolean;
+  supportsRealtime?: boolean;
   pendingPermission?: AcpPermissionRequest | null;
   pendingPermissions?: AcpPermissionRequest[];
   pendingElicitation?: AcpElicitationRequest | null;
@@ -215,6 +216,13 @@ export interface AcpSessionEvent extends Record<string, unknown> {
   agentId: string;
   revision?: number;
   title?: string;
+}
+
+export interface AcpRealtimeEvent extends Record<string, unknown> {
+  agentId: string;
+  sessionId: string;
+  method: string;
+  params: Record<string, unknown>;
 }
 
 export interface AcpSessionRequestOptions extends Record<string, unknown> {
@@ -454,9 +462,16 @@ export interface AcpRuntimeContract {
   bindings: ReadonlyMap<string, AcpBindingContract>;
   on(event: 'agent-runtime', listener: (event: AcpRuntimeEvent) => void): this;
   on(event: 'session', listener: (event: AcpSessionEvent) => void): this;
+  on(event: 'realtime', listener: (event: AcpRealtimeEvent) => void): this;
   prepareAgent(options?: AcpPrepareOptions): Promise<AcpPrepareResult>;
+  reconnectAgent(
+    agentId: string,
+    options?: { onProcessStopped?: () => Promise<void> | void },
+  ): Promise<Record<string, unknown>>;
   createSessionIdentity(options: ProviderSessionIdentityRequest): Promise<ProviderSessionIdentityResult>;
   submitMessage(agentId: string, prompt: AcpPromptBlock[], options?: AcpSubmitOptions): Promise<AcpSubmitResult>;
+  startRealtime(agentId: string, sdp: string): Promise<Record<string, unknown>>;
+  stopRealtime(agentId: string): Promise<Record<string, unknown>>;
   getSession(agentId: string, options?: Record<string, unknown>): Record<string, unknown>;
   getTranscriptSession(
     agentId: string,
