@@ -321,6 +321,14 @@ test('first-use Pet setup walks from invitation to explicit style selection', as
     name: 'code-pet-black-hole-disk-flow',
     state: 'running',
   })
+  const blackHoleIcon = appearanceChoice.locator('.code-pet-appearance-icon.black-hole')
+  const idleSpinDuration = await blackHoleIcon.evaluate(element => (
+    getComputedStyle(element, '::before').animationDuration
+  ))
+  await appearanceChoice.getByRole('button', { name: /^黑洞/ }).hover()
+  await expect.poll(() => blackHoleIcon.evaluate(element => (
+    getComputedStyle(element, '::before').animationDuration
+  ))).toBe(idleSpinDuration)
   await appearanceChoice.getByRole('button', { name: '预览柔光效果' }).click()
   const preview = page.getByTestId('pet-rest-scene')
   await expect(preview).toHaveAttribute('data-pet-appearance', 'glass')

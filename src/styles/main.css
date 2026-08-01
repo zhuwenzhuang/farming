@@ -4620,13 +4620,6 @@ body.code-mode[data-appearance='light'] .code-pet-black-hole-canvas {
   animation: code-pet-black-hole-disk-glow 1.4s ease-in-out infinite alternate;
 }
 
-.code-pet-appearance-select:hover .code-pet-appearance-icon.black-hole,
-.code-pet-appearance-select:focus-visible .code-pet-appearance-icon.black-hole,
-.code-settings-pet-appearance-options button:hover .code-pet-appearance-icon.black-hole,
-.code-settings-pet-appearance-options button:focus-visible .code-pet-appearance-icon.black-hole {
-  --code-pet-black-hole-spin-duration: 1.45s;
-}
-
 @keyframes code-pet-black-hole-disk-flow {
   from { transform: rotate(-13deg) scaleY(0.3) rotate(0deg); }
   to { transform: rotate(-13deg) scaleY(0.3) rotate(360deg); }
