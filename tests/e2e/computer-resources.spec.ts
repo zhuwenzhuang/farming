@@ -251,6 +251,7 @@ test('shows an Agent-owned Desktop only when present and switches Viewer control
   await expect(viewer).toBeVisible()
   const frame = viewer.locator('iframe')
   await expect(frame).toHaveAttribute('src', /view_only=1/)
+  await expect(frame).toHaveAttribute('src', /compression=0/)
   await viewer.getByRole('button', { name: 'Take control' }).click()
   await expect(viewer.getByRole('button', { name: 'Return to Agent' })).toBeVisible()
   await expect(frame).toHaveAttribute('src', /view_only=0/)

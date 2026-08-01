@@ -1260,10 +1260,23 @@ test.describe('display-backed agent flows', () => {
       const data = await response.json()
       return data.settings?.projectWorkspaces
     }).toEqual(expectedProjects)
-    await expect(project.locator('.code-project-worktree')).toContainText('feature/topic', { timeout: 30_000 })
+    const projectTitle = project.getByTestId('code-project-title')
+    const projectWorktree = project.getByTestId('code-project-worktree')
+    const openProjectActions = async (projectGroup: Locator = project) => {
+      await projectGroup.getByTestId('code-project-title').hover()
+      await projectGroup.getByTestId('code-project-actions').click()
+    }
+    await expect(projectWorktree).toContainText('feature/topic', { timeout: 30_000 })
     await expect(project.locator('.code-project-worktree-count')).toHaveText('2')
-    await project.hover()
-    const projectTitleBox = await project.getByTestId('code-project-title').boundingBox()
+    const idleProjectBackground = await projectTitle.evaluate(element => getComputedStyle(element).backgroundColor)
+    await projectTitle.hover()
+    await expect.poll(() => projectTitle.evaluate(element => getComputedStyle(element).backgroundColor))
+      .not.toBe(idleProjectBackground)
+    await projectWorktree.hover()
+    await expect.poll(() => projectTitle.evaluate(element => getComputedStyle(element).backgroundColor))
+      .toBe(idleProjectBackground)
+    await projectTitle.hover()
+    const projectTitleBox = await projectTitle.boundingBox()
     const projectVisibilityBox = await project.getByTestId('code-project-agent-visibility').boundingBox()
     const projectActionsBox = await project.getByTestId('code-project-actions').boundingBox()
     const projectNewAgentBox = await project.getByTestId('code-project-new-agent').boundingBox()
@@ -1276,7 +1289,7 @@ test.describe('display-backed agent flows', () => {
       expect(Math.abs(box.y + box.height / 2 - titleCenterY)).toBeLessThanOrEqual(1)
     }
 
-    await project.getByTestId('code-project-actions').click()
+    await openProjectActions()
     let projectContextMenu = page.getByTestId('code-project-context-menu')
     for (const label of [
       'Pin project',
@@ -1306,7 +1319,7 @@ test.describe('display-backed agent flows', () => {
     const settingsAfterStaleWrite = await staleSettingsResponse.json()
     expect(settingsAfterStaleWrite.settings?.projectWorkspaces).toEqual(expectedProjects)
     expect(settingsAfterStaleWrite.settings?.pinnedProjectWorkspaces).toEqual(expectedPinnedProjects)
-    await project.getByTestId('code-project-actions').click()
+    await openProjectActions()
     projectContextMenu = page.getByTestId('code-project-context-menu')
     await expect(projectContextMenu.getByRole('menuitem', { name: 'Unpin project' })).toBeVisible()
     await projectContextMenu.getByRole('menuitem', { name: 'Unpin project' }).click()
@@ -1318,7 +1331,7 @@ test.describe('display-backed agent flows', () => {
     const markUnreadResponse = await page.request.patch(`/farming/api/agents/${agentId}`, { data: { unread: true } })
     expect(markUnreadResponse.ok()).toBeTruthy()
     await expect(project.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)).toHaveClass(/unread/)
-    await project.getByTestId('code-project-actions').click()
+    await openProjectActions()
     projectContextMenu = page.getByTestId('code-project-context-menu')
     await expect(projectContextMenu.getByRole('menuitem', { name: 'Mark all as read' })).toBeEnabled()
     await projectContextMenu.getByRole('menuitem', { name: 'Mark all as read' }).click()
@@ -1326,10 +1339,10 @@ test.describe('display-backed agent flows', () => {
     const deleteOtherResponse = await page.request.delete(`/farming/api/control/agents/${otherAgentId}`)
     expect(deleteOtherResponse.ok()).toBeTruthy()
 
-    await project.getByTestId('code-project-actions').click()
+    await openProjectActions()
     await page.getByTestId('code-project-context-menu').getByRole('menuitem', { name: 'Reveal in Finder' }).click()
     await expect.poll(() => revealedProjectRootId).toMatch(/^wroot_[0-9a-f]{16}$/)
-    await project.getByTestId('code-project-actions').click()
+    await openProjectActions()
     await page.getByTestId('code-project-context-menu').getByRole('menuitem', { name: 'Create permanent worktree' }).click()
     await expect.poll(() => createdWorktreeRootId).toBe(revealedProjectRootId)
     await expect(page.getByTestId('code-copy-toast')).toHaveText('Permanent worktree created')
@@ -1344,7 +1357,7 @@ test.describe('display-backed agent flows', () => {
 
     const mainProject = page.getByTestId('code-project-group').filter({ hasText: 'base-repo' })
     await expect(mainProject).toHaveCount(1)
-    await mainProject.getByTestId('code-project-actions').click()
+    await openProjectActions(mainProject)
     const mainProjectRemove = page.getByTestId('code-project-context-menu').getByRole('menuitem', { name: 'Remove Project' })
     await expect(mainProjectRemove.locator('svg')).toHaveCount(1)
     await expect(mainProjectRemove).not.toHaveClass(/danger/)
@@ -1368,7 +1381,7 @@ test.describe('display-backed agent flows', () => {
     await page.getByTestId('code-file-editor').getByRole('button', { name: 'Close README.md' }).click()
     await expect(project).toHaveCount(1)
 
-    await project.getByTestId('code-project-actions').click()
+    await openProjectActions()
     const projectMenu = page.getByTestId('code-project-context-menu')
     await expect(projectMenu.getByRole('menuitem', { name: 'Remove Project' })).toBeEnabled()
     await projectMenu.getByRole('menuitem', { name: 'Remove Project' }).click()
@@ -1380,7 +1393,7 @@ test.describe('display-backed agent flows', () => {
     await startAgentFromOpenDialog(page, 'bash', permanentWorkspace)
     const permanentProject = page.getByTestId('code-project-group').filter({ hasText: 'base-repo-farming-fork-20260718-140000' })
     await expect(permanentProject).toHaveCount(1)
-    await permanentProject.getByTestId('code-project-actions').click()
+    await openProjectActions(permanentProject)
     const permanentDelete = page.getByTestId('code-project-context-menu').getByRole('menuitem', { name: 'Permanently Delete Worktree' })
     await expect(permanentDelete).toHaveClass(/danger/)
     await expect(permanentDelete.locator('svg')).toHaveCount(1)
@@ -1389,7 +1402,7 @@ test.describe('display-backed agent flows', () => {
     await page.getByTestId('code-delete-worktree-dialog').getByRole('button', { name: 'Cancel' }).click()
     await expect(page.getByTestId('code-delete-worktree-dialog')).toBeHidden()
 
-    await permanentProject.getByTestId('code-project-actions').click()
+    await openProjectActions(permanentProject)
     await page.getByTestId('code-project-context-menu').getByRole('menuitem', { name: 'Permanently Delete Worktree' }).click()
     await page.getByTestId('code-delete-worktree-dialog').getByRole('button', { name: 'Permanently Delete' }).click()
     await expect(permanentProject).toHaveCount(0)

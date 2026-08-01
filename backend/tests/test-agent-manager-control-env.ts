@@ -109,11 +109,17 @@ async function run() {
       category: 'coding',
       command: 'opencode',
       providerSessionProvider: 'opencode',
+      runtimeBinding: { kind: 'terminal' },
     });
     assert.deepStrictEqual(
       JSON.parse(openCodeEnv.OPENCODE_CONFIG_CONTENT).instructions,
       [startupPromptFile],
       'OpenCode must receive the Farming bootstrap through process-local instructions',
+    );
+    assert.strictEqual(
+      openCodeEnv.OPENTUI_NOTIFICATION_PROTOCOL,
+      'osc99',
+      'OpenCode Terminal should use the notification protocol Farming consumes from its PTY',
     );
     assert.strictEqual(
       fs.readFileSync(startupPromptFile, 'utf8').trim(),

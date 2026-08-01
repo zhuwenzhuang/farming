@@ -16,6 +16,7 @@ import {
 } from './terminal-screen-worker-pool.cjs';
 import type { TerminalScreenWorkerState as ScreenState } from './terminal-screen-worker.cjs';
 import type { TerminalReducerFlowControl } from './terminal-reducer-flow-control.cjs';
+import { TerminalNotificationParser } from './terminal-notification-parser.cjs';
 
 interface RuntimeIdentity {
   buildId?: string;
@@ -105,6 +106,7 @@ interface NativePtySession {
   stateRevision: number;
   status: string;
   terminalBusy: boolean | null;
+  terminalNotificationParser: TerminalNotificationParser;
   title: string;
 }
 
@@ -847,7 +849,9 @@ class NativePtyHost {
       client.controllerId !== this.activeControllerIdentity.id ||
       client.controllerGeneration !== this.activeControllerIdentity.generation
     ) {
-      throw new Error('Native pty mutation requires the active controller');
+      throw new Error(
+        'Native PTY control moved to another Farming Server; stop duplicate Servers and restart this Farming instance',
+      );
     }
   }
 
@@ -957,6 +961,7 @@ class NativePtyHost {
       title: restoredScreenState?.title || '',
       status: 'running',
       terminalBusy: null,
+      terminalNotificationParser: new TerminalNotificationParser(),
       shellCwd: '',
       shellLastExitCode: null,
       shellLastEvent: '',
@@ -1142,6 +1147,7 @@ class NativePtyHost {
 
     const data = busyState.data;
     if (!data) return;
+    const terminalNotifications = current.terminalNotificationParser.push(data);
 
     const reducerDelivery = enqueueTerminalReducerData(
       ensureTerminalReducerFlowControl(current),
@@ -1189,6 +1195,14 @@ class NativePtyHost {
           runtimeEpoch: latest.runtimeEpoch,
           outputSeq,
           stateRevision,
+        });
+        terminalNotifications.forEach(notification => {
+          this.emitSessionEvent('session-notification', {
+            sessionId,
+            ...notification,
+            runtimeEpoch: latest.runtimeEpoch,
+            outputSeq,
+          });
         });
         this.emitSessionEvent('session-activity', {
           sessionId,

@@ -100,7 +100,6 @@ const path = require('path');
     'the invitation timing override must stay behind the explicit E2E bridge',
   );
   assert(petSource.includes('PET_APPEARANCE_PREVIEW_EVENT'));
-  assert(petSource.includes("glass: 30") && petSource.includes("'black-hole': 60"));
   assert(petSource.includes('code-pet-appearance-preview'));
   assert(petSource.includes('title={copy.previewAppearance(option)}'));
   assert(petSource.includes('<PlayGlyph />'));
@@ -132,7 +131,13 @@ const path = require('path');
   assert(blackHoleSceneSource.includes('className="code-pet-black-hole-status"'));
   assert(blackHoleSceneSource.includes('<SevenSegmentTime value={remainingTime} />'));
   assert(blackHoleSceneSource.includes('rendererRef.current?.setActive(active)'));
-  assert(blackHoleSceneSource.includes("showcasePreset: preview ? 'gargantua' : undefined"));
+  assert(!blackHoleSceneSource.includes('preview?: boolean'));
+  assert(!blackHoleRendererSource.includes('showcasePreset'));
+  assert(
+    petSource.includes('restReminderBreakMinutes(previewIntervalSeconds) * 60_000')
+      && !petSource.includes('PET_APPEARANCE_PREVIEW_SECONDS'),
+    'appearance previews should use the complete configured break duration',
+  );
   assert(blackHoleSceneSource.includes("event.key !== 'Escape'"));
   assert(!blackHoleSceneSource.includes('code-pet-close'));
   assert(blackHoleRendererSource.includes("canvas.getContext('webgl2'"));
@@ -239,6 +244,11 @@ const path = require('path');
     'each 90-second cycle should follow a constrained low-to-high-to-cooling route and blend into the next randomized route',
   );
   assert(blackHoleRendererSource.includes('export const BLACK_HOLE_EXIT_SECONDS = 15'));
+  assert(
+    blackHoleRendererSource.includes('export const BLACK_HOLE_HOME_ATTRACTION_SECONDS = 60')
+      && blackHoleSceneSource.includes('rendererRef.current?.setRestUntil(restUntil)'),
+    'the renderer should receive the live rest deadline for the final-minute attraction',
+  );
   assert(blackHoleRendererSource.includes('crypto.getRandomValues'));
   assert(blackHoleRendererSource.includes('createCompositorRenderer'));
   assert(blackHoleRendererSource.includes('createSceneImage'));
@@ -333,6 +343,13 @@ const path = require('path');
     'manual and natural completion should have explicit return-home behavior',
   )
   assert(
+    blackHoleRendererSource.includes('canvas.dataset.homeAttraction = homeAttraction.toFixed(4)')
+      && blackHoleRendererSource.includes('homeElement,\n      homeAttraction,')
+      && blackHoleRendererSource.includes('? smoother(progress)')
+      && !blackHoleRendererSource.includes('? smoother((progress - 0.80) / 0.14)'),
+    'the home position should attract the black hole before evaporation and continue smoothly through exit',
+  )
+  assert(
     blackHoleSceneSource.includes('elapsedSeconds,'),
     'the rest scene should pass elapsed background time into the exit animation',
   )
@@ -346,16 +363,26 @@ const path = require('path');
   )
   assert(!blackHoleRendererSource.includes('<foreignObject'));
   assert(
-    blackHoleRendererSource.includes('diskFeed: 1 - smoother(progress / 0.32)')
+    blackHoleRendererSource.includes('const remainingBody = Math.max(0, 1 - smoother(progress))')
+      && blackHoleRendererSource.includes(
+        'diskFeed: Math.sqrt(Math.max(0, 1 - smoother(progress / 0.94)))',
+      )
       && blackHoleRendererSource.includes('hawking: smoother((progress - 0.12) / 0.78)'),
-    'disk quenching and the first thermal ring should overlap without a visually empty gap',
+    'the disk and body should evaporate continuously while the thermal ring develops',
+  );
+  assert(
+    blackHoleRendererSource.includes('body: remainingBody ** 0.35')
+      && blackHoleRendererSource.includes('lens: remainingBody')
+      && blackHoleRendererSource.includes(
+        'compositorCanvas.dataset.diskFeed = evaporation.diskFeed.toFixed(4)',
+      ),
+    'the full black-hole presentation should fade continuously instead of disappearing at the final frame',
   );
   assert(blackHoleRendererSource.includes('float photonRing'));
   assert(blackHoleRendererSource.includes('float secondaryRing'));
   assert(blackHoleRendererSource.includes('float echoRing'));
   assert(blackHoleRendererSource.includes('float flashEnvelope'));
   assert(!blackHoleRendererSource.includes('float radialRays'));
-  assert(blackHoleRendererSource.includes('? smoother((progress - 0.80) / 0.14)'));
   assert(blackHoleSceneSource.includes('className="code-pet-black-hole-compositor"'));
   assert(
     mainCssSource.includes(

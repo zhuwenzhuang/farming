@@ -48,6 +48,9 @@ function viewerUrl(resource: ComputerResource, config: ViewerConfig) {
   url.searchParams.set('resize', 'scale')
   url.searchParams.set('shared', '1')
   url.searchParams.set('view_only', config.viewOnly ? '1' : '0')
+  // The noVNC stream always crosses Farming's loopback-only proxy. Prefer
+  // lower encode latency over network compression for this local transport.
+  url.searchParams.set('compression', '0')
   url.searchParams.set('password', config.password)
   url.searchParams.set('path', path)
   return url.href

@@ -1,6 +1,7 @@
 import { useState, useCallback, useMemo, useEffect, useLayoutEffect, useRef } from 'react'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { usePageVisibility } from '@/hooks/usePageVisibility'
+import { useAgentCompletionNotifications } from '@/hooks/useAgentCompletionNotifications'
 import { useAgents } from '@/hooks/useAgents'
 import { useKeyboard, type Shortcut } from '@/hooks/useKeyboard'
 import { InputDialog } from '@/components/InputDialog'
@@ -173,6 +174,10 @@ export function App() {
   })
   const [activeTerminalId, setActiveTerminalId] = useState<string | null>(() => initialWorkspaceViewState.activeTerminalId ?? null)
   const [terminalFocusRequest, setTerminalFocusRequest] = useState<{ agentId: string; nonce: number } | null>(null)
+  const [notificationRevealRequest, setNotificationRevealRequest] = useState<{
+    agentId: string
+    nonce: number
+  } | null>(null)
   const [pendingTerminalOpen, setPendingTerminalOpen] = useState<{
     agentId: string
     options?: { focusTerminal?: boolean }
@@ -593,6 +598,20 @@ export function App() {
     }
     requestTerminalOpen(agentId, options)
   }, [activateTerminal, activeTerminalId, openTerminalIds, requestTerminalOpen])
+
+  const openAgentFromNotification = useCallback((agentId: string) => {
+    setNotificationRevealRequest(previous => ({
+      agentId,
+      nonce: (previous?.nonce ?? 0) + 1,
+    }))
+    openTerminal(agentId, { focusTerminal: false })
+  }, [openTerminal])
+
+  useAgentCompletionNotifications({
+    agents: ws.agents,
+    language: uiPreferences.language,
+    onOpenAgent: openAgentFromNotification,
+  })
 
   useEffect(() => {
     if (!pendingTerminalOpen) return
@@ -1262,6 +1281,7 @@ export function App() {
           : observedAgentReplacement ?? externalAgentReplacement}
         retainedAgentViewIds={effectiveRetainedAgentViewIds}
         terminalFocusRequest={terminalFocusRequest}
+        notificationRevealRequest={notificationRevealRequest}
         remoteProjectWorkspaces={ws.projectWorkspaces}
         remotePinnedProjectWorkspaces={ws.pinnedProjectWorkspaces}
         browserResourceState={ws.browserResources}

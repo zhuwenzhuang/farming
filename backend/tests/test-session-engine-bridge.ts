@@ -15,11 +15,15 @@ async function run() {
 
     const events = [];
     const busyEvents = [];
+    const notificationEvents = [];
     bridge.on('session-output', ({ sessionId, data }) => {
       events.push({ sessionId, data });
     });
     bridge.on('session-busy-state', ({ sessionId, terminalBusy }) => {
       busyEvents.push({ sessionId, terminalBusy });
+    });
+    bridge.on('session-notification', ({ sessionId, method, message }) => {
+      notificationEvents.push({ sessionId, method, message });
     });
 
     bridge.emit('session-output', {
@@ -35,6 +39,14 @@ async function run() {
       terminalBusy: true
     });
     assert.deepStrictEqual(busyEvents, [{ sessionId: 'agent-1', terminalBusy: true }]);
+
+    bridge.router.engines.local.emit('session-notification', {
+      sessionId: 'agent-1',
+      method: 'osc9',
+      title: '',
+      message: 'ready',
+    });
+    assert.deepStrictEqual(notificationEvents, [{ sessionId: 'agent-1', method: 'osc9', message: 'ready' }]);
 
     console.log('✓ Session engine bridge resolves and relays engine events');
   } finally {

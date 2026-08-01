@@ -354,6 +354,7 @@ interface CodeWorkspaceProps {
   } | null
   retainedAgentViewIds: string[]
   terminalFocusRequest: { agentId: string; nonce: number } | null
+  notificationRevealRequest: { agentId: string; nonce: number } | null
   remoteProjectWorkspaces: string[] | null
   remotePinnedProjectWorkspaces: string[] | null
   browserResourceState: BrowserResourceState | null
@@ -589,6 +590,7 @@ export function CodeWorkspace({
   permissionSwitchReplacement,
   retainedAgentViewIds,
   terminalFocusRequest,
+  notificationRevealRequest,
   remoteProjectWorkspaces,
   remotePinnedProjectWorkspaces,
   browserResourceState,
@@ -1313,6 +1315,25 @@ export function CodeWorkspace({
     focusAgentSession: focusAgentSessionRow,
     focusProject: focusProjectTitle,
   })
+  useEffect(() => {
+    if (!notificationRevealRequest) return
+    closeContextMenu()
+    setSearchOpen(false)
+    setSearchQuery('')
+    setSettingsPanelOpen(false)
+    setMobileShareUrl('')
+    setRenameDialog(null)
+    setKillDialog(null)
+    setDeleteWorktreeDialog(null)
+    setMainPaneMode('terminal')
+    if (isMobileNavigationViewport()) autoCollapseSidebar()
+    onWorkspaceViewChange('projects')
+  }, [
+    autoCollapseSidebar,
+    closeContextMenu,
+    notificationRevealRequest,
+    onWorkspaceViewChange,
+  ])
   const contextMenuAgent = useMemo(
     () => activeAgents.find(agent => agent.id === agentMenu?.agentId) ?? null,
     [activeAgents, agentMenu?.agentId]
@@ -5349,6 +5370,7 @@ export function CodeWorkspace({
     >
       <CodeSidebar
         sidebarCollapsed={sidebarCollapsed}
+        hoverPreviewsPaused={Boolean(projectMenu)}
         emptyHomeActionRequest={emptyHomeSidebarActionRequest}
         activeView={activeView}
         searchOpen={searchOpen}

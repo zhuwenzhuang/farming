@@ -45,10 +45,6 @@ interface FarmingPetProps {
 
 const PET_OWNER_ATTRIBUTE = 'data-farming-pet-owner'
 const PET_OWNER_EVENT = 'farming:pet-owner-change'
-const PET_APPEARANCE_PREVIEW_SECONDS: Record<PetAppearance, number> = {
-  glass: 30,
-  'black-hole': 60,
-}
 
 interface StoredInvitationRuntime {
   version: 1
@@ -229,11 +225,6 @@ function petCopy(language: UiLanguage) {
         : (zh ? '柔光' : 'soft glow')
       return zh ? `预览${appearanceName}效果` : `Preview ${appearanceName}`
     },
-    previewTitle: (appearance: PetAppearance) => appearance === 'black-hole'
-      ? (zh ? '黑洞预览' : 'Black hole preview')
-      : (zh ? '柔光预览' : 'Soft glow preview'),
-    previewBody: zh ? '这是休息开始时看到的效果。' : 'This is the scene shown when a break starts.',
-    endPreview: zh ? '结束预览' : 'End preview',
     dueTitle: zh ? '休息提醒' : 'Break reminder',
     dueAnnouncement: (intervalSeconds: number) => {
       const countdownSeconds = restReminderEntryCountdownSeconds(intervalSeconds)
@@ -376,9 +367,12 @@ function FarmingPetController({
       appearancePreviewEndRef.current = typeof detail?.onEnd === 'function'
         ? detail.onEnd as () => void
         : null
+      const previewIntervalSeconds = readRestReminderIntervalSeconds()
+        ?? REST_REMINDER_DEFAULT_INTERVAL_SECONDS
       setAppearancePreview({
         appearance: nextAppearance,
-        restUntil: Date.now() + PET_APPEARANCE_PREVIEW_SECONDS[nextAppearance] * 1000,
+        restUntil: Date.now()
+          + restReminderBreakMinutes(previewIntervalSeconds) * 60_000,
       })
     }
     window.addEventListener(PET_APPEARANCE_PREVIEW_EVENT, onPreview)
@@ -489,21 +483,20 @@ function FarmingPetController({
     if (appearancePreview.appearance === 'black-hole') {
       return (
         <BlackHolePetRestScene
-          statusLabel={copy.previewTitle('black-hole')}
+          statusLabel={copy.restingStatus}
           errorLabel={copy.blackHoleError}
-          endLabel={copy.endPreview}
+          endLabel={copy.endBreak}
           restUntil={appearancePreview.restUntil}
           active={pageVisible}
-          preview
           onEnd={endAppearancePreview}
         />
       )
     }
     return (
       <GlassPetRestScene
-        title={copy.previewTitle('glass')}
-        body={copy.previewBody}
-        endLabel={copy.endPreview}
+        title={copy.restingTitle}
+        body={copy.restingBody}
+        endLabel={copy.endBreak}
         restUntil={appearancePreview.restUntil}
         active={pageVisible}
         onEnd={endAppearancePreview}

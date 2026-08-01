@@ -26,6 +26,14 @@ import {
   type UiPreferences,
 } from '@/lib/ui-preferences'
 import { MAX_CONTENT_FONT_SIZE, MIN_CONTENT_FONT_SIZE } from '@/lib/content-font-size'
+import {
+  AGENT_COMPLETION_NOTIFICATIONS_EVENT,
+  AGENT_COMPLETION_NOTIFICATIONS_STORAGE_KEY,
+  agentNotificationPermission,
+  readAgentCompletionNotificationsEnabled,
+  saveAgentCompletionNotificationsEnabled,
+  type AgentNotificationPermission,
+} from '@/lib/agent-completion-notifications'
 import { usePetDefaultAppearance } from './pet/usePetDefaultAppearance'
 import type { GlobalSettings } from './types'
 
@@ -155,14 +163,23 @@ function panelCopy(language: UiPreferences['language']) {
     english: 'English',
     chinese: '中文',
     search: zh ? '搜索' : 'Search',
-    composer: 'Composer',
+    agent: 'Agent',
+    agentCompletionNotifications: zh ? '允许消息通知' : 'Allow message notifications',
+    agentCompletionNotificationsHint: zh
+      ? 'ACP 回合完成或 Terminal Agent 主动请求通知时，在 Farming 不在前台的情况下显示系统通知。'
+      : 'Show system notifications for ACP completion and Terminal Agent notification requests while Farming is not active.',
+    agentCompletionNotificationsBlocked: zh
+      ? '通知被浏览器阻止。请在站点设置中允许通知后重试。'
+      : 'Notifications are blocked. Allow them in the browser site settings, then try again.',
+    agentCompletionNotificationsUnsupported: zh
+      ? '当前浏览器或 Farming URL 不支持系统通知；请使用支持通知的浏览器和 HTTPS 地址。'
+      : 'System notifications require a supported browser and a secure HTTPS Farming URL.',
     followUpBehavior: zh ? '后续消息行为' : 'Follow-up behavior',
     followUpBehaviorHint: zh
       ? 'Agent 工作时，新消息默认排队到下一轮，或直接调整当前轮。按 ⌘/Ctrl + Enter 可仅对当前一条反向发送。'
       : 'While an Agent is working, queue messages for the next turn or steer the current turn. Press ⌘/Ctrl + Enter to use the opposite behavior once.',
     queue: 'Queue',
     steer: 'Steer',
-    agentPermissions: zh ? 'Agent 权限' : 'Agent Permissions',
     dangerousSkipLabel: zh ? '默认跳过所有 agent 权限检查' : 'Skip all agent permission checks by default',
     dangerousSkipHint: zh
       ? '开启后，新启动的 Codex、Claude、OpenCode、Qoder、Qwen、Aider、GitHub Copilot CLI、Amazon Q 等会使用各自的危险跳过权限 flag。只在可信沙箱中使用。'
@@ -238,6 +255,10 @@ export function AgentHomesSettingsPanel({
   const [searchTimeoutSeconds, setSearchTimeoutSeconds] = useState(15)
   const [searchTimeoutDraftSeconds, setSearchTimeoutDraftSeconds] = useState<number | null>(null)
   const [contentFontSizeDraft, setContentFontSizeDraft] = useState<number | null>(null)
+  const [completionNotificationsEnabled, setCompletionNotificationsEnabled] = useState(false)
+  const [completionNotificationPermission, setCompletionNotificationPermission] = useState<AgentNotificationPermission>(
+    agentNotificationPermission,
+  )
   const [restReminderIntervalSeconds, setRestReminderIntervalSecondsState] = useState<number | null>(
     readRestReminderIntervalSeconds,
   )
@@ -316,6 +337,11 @@ export function AgentHomesSettingsPanel({
   useEffect(() => {
     if (!open) return
     setSaving(false)
+    const permission = agentNotificationPermission()
+    setCompletionNotificationPermission(permission)
+    setCompletionNotificationsEnabled(
+      permission === 'granted' && readAgentCompletionNotificationsEnabled(),
+    )
     loadRestReminderIntervalSeconds(defaultPetAppearance)
       .then(setRestReminderIntervalSecondsState)
     loadSettings()
@@ -349,14 +375,53 @@ export function AgentHomesSettingsPanel({
         setRestReminderIntervalSecondsState(readRestReminderIntervalSeconds())
         setPetAppearanceState(readPetAppearance(undefined, defaultPetAppearance))
       }
+      if (event.key === AGENT_COMPLETION_NOTIFICATIONS_STORAGE_KEY) {
+        const permission = agentNotificationPermission()
+        setCompletionNotificationPermission(permission)
+        setCompletionNotificationsEnabled(
+          permission === 'granted' && readAgentCompletionNotificationsEnabled(),
+        )
+      }
+    }
+    const onCompletionNotificationSetting = () => {
+      const permission = agentNotificationPermission()
+      setCompletionNotificationPermission(permission)
+      setCompletionNotificationsEnabled(
+        permission === 'granted' && readAgentCompletionNotificationsEnabled(),
+      )
     }
     window.addEventListener(PET_SETTINGS_EVENT, onSetting)
+    window.addEventListener(AGENT_COMPLETION_NOTIFICATIONS_EVENT, onCompletionNotificationSetting)
     window.addEventListener('storage', onStorage)
     return () => {
       window.removeEventListener(PET_SETTINGS_EVENT, onSetting)
+      window.removeEventListener(AGENT_COMPLETION_NOTIFICATIONS_EVENT, onCompletionNotificationSetting)
       window.removeEventListener('storage', onStorage)
     }
   }, [defaultPetAppearance])
+
+  const toggleCompletionNotifications = useCallback(async () => {
+    if (completionNotificationsEnabled) {
+      if (saveAgentCompletionNotificationsEnabled(false)) setCompletionNotificationsEnabled(false)
+      return
+    }
+
+    let permission = agentNotificationPermission()
+    if (permission === 'default') {
+      try {
+        permission = await window.Notification.requestPermission()
+      } catch {
+        permission = agentNotificationPermission()
+      }
+    }
+    setCompletionNotificationPermission(permission)
+    if (permission !== 'granted') {
+      saveAgentCompletionNotificationsEnabled(false)
+      setCompletionNotificationsEnabled(false)
+      return
+    }
+    if (saveAgentCompletionNotificationsEnabled(true)) setCompletionNotificationsEnabled(true)
+  }, [completionNotificationsEnabled])
 
   useEffect(() => {
     if (!open) return undefined
@@ -718,6 +783,69 @@ export function AgentHomesSettingsPanel({
 
           <section className="code-settings-section code-settings-group">
             <div className="code-settings-section-heading">
+              <div><h3>{copy.agent}</h3></div>
+              {(initialSettingsLoading || saving || notice) && (
+                <span className="code-settings-status">{initialSettingsLoading ? copy.loading : saving ? copy.saving : notice}</span>
+              )}
+            </div>
+            <div className="code-settings-card">
+              <div className="code-settings-choice-row" data-testid="code-settings-follow-up-behavior">
+                <div className="code-settings-row-copy">
+                  <strong>{copy.followUpBehavior}</strong>
+                  <small>{copy.followUpBehaviorHint}</small>
+                </div>
+                <div className="code-settings-segmented" role="group" aria-label={copy.followUpBehavior}>
+                  {(['queue', 'steer'] as const).map(behavior => (
+                    <button
+                      key={behavior}
+                      type="button"
+                      className={composerFollowUpBehavior === behavior ? 'active' : ''}
+                      aria-pressed={composerFollowUpBehavior === behavior}
+                      disabled={composerFollowUpBehavior === null}
+                      onClick={() => saveComposerFollowUpBehavior(behavior)}
+                    >
+                      {behavior === 'queue' ? copy.queue : copy.steer}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="code-settings-choice-row" data-testid="code-settings-agent-completion-notifications">
+                <div className="code-settings-row-copy">
+                  <strong>{copy.agentCompletionNotifications}</strong>
+                  <small>{completionNotificationPermission === 'unsupported'
+                    ? copy.agentCompletionNotificationsUnsupported
+                    : completionNotificationPermission === 'denied'
+                      ? copy.agentCompletionNotificationsBlocked
+                      : copy.agentCompletionNotificationsHint}</small>
+                </div>
+                <button
+                  type="button"
+                  className={`code-settings-permission-toggle ${completionNotificationsEnabled ? 'active' : ''}`}
+                  role="switch"
+                  aria-label={copy.agentCompletionNotifications}
+                  aria-checked={completionNotificationsEnabled}
+                  disabled={completionNotificationPermission === 'unsupported' || completionNotificationPermission === 'denied'}
+                  onClick={() => void toggleCompletionNotifications()}
+                ><CheckGlyph /></button>
+              </div>
+              <div className="code-settings-choice-row">
+                <span>{copy.dangerousSkipLabel}</span>
+                <button
+                  type="button"
+                  className={`code-settings-permission-toggle ${dangerouslySkipPermissions ? 'active' : ''}`}
+                  role="checkbox"
+                  aria-label={copy.dangerousSkipLabel}
+                  aria-pressed={dangerouslySkipPermissions}
+                  disabled={saving}
+                  onClick={() => saveDangerouslySkipPermissions(!dangerouslySkipPermissions)}
+                ><CheckGlyph /></button>
+              </div>
+            </div>
+            {error && <div className="code-settings-error" role="alert">{error}</div>}
+          </section>
+
+          <section className="code-settings-section code-settings-group">
+            <div className="code-settings-section-heading">
               <div><h3>{copy.search}</h3></div>
             </div>
             <div className="code-settings-card">
@@ -828,34 +956,6 @@ export function AgentHomesSettingsPanel({
 
           <section className="code-settings-section">
             <div className="code-settings-section-heading">
-              <div><h3>{copy.composer}</h3></div>
-            </div>
-            <div className="code-settings-card">
-              <div className="code-settings-choice-row" data-testid="code-settings-follow-up-behavior">
-                <div className="code-settings-row-copy">
-                  <strong>{copy.followUpBehavior}</strong>
-                  <small>{copy.followUpBehaviorHint}</small>
-                </div>
-                <div className="code-settings-segmented" role="group" aria-label={copy.followUpBehavior}>
-                  {(['queue', 'steer'] as const).map(behavior => (
-                    <button
-                      key={behavior}
-                      type="button"
-                      className={composerFollowUpBehavior === behavior ? 'active' : ''}
-                      aria-pressed={composerFollowUpBehavior === behavior}
-                      disabled={composerFollowUpBehavior === null}
-                      onClick={() => saveComposerFollowUpBehavior(behavior)}
-                    >
-                      {behavior === 'queue' ? copy.queue : copy.steer}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </section>
-
-          <section className="code-settings-section">
-            <div className="code-settings-section-heading">
               <div>
                 <h3>{copy.updates}</h3>
               </div>
@@ -913,29 +1013,6 @@ export function AgentHomesSettingsPanel({
             </div>
           </section>
 
-          <section className="code-settings-section">
-            <div className="code-settings-section-heading">
-              <div>
-                <h3>{copy.agentPermissions}</h3>
-              </div>
-              {(initialSettingsLoading || saving || notice) && (
-                <span className="code-settings-status">{initialSettingsLoading ? copy.loading : saving ? copy.saving : notice}</span>
-              )}
-            </div>
-            <div className="code-settings-choice-row dangerous">
-              <span>{copy.dangerousSkipLabel}</span>
-              <button
-                type="button"
-                className={`code-settings-permission-toggle ${dangerouslySkipPermissions ? 'active' : ''}`}
-                role="checkbox"
-                aria-label={copy.dangerousSkipLabel}
-                aria-pressed={dangerouslySkipPermissions}
-                disabled={saving}
-                onClick={() => saveDangerouslySkipPermissions(!dangerouslySkipPermissions)}
-              ><CheckGlyph /></button>
-            </div>
-            {error && <div className="code-settings-error" role="alert">{error}</div>}
-          </section>
         </div>
       </aside>
     </div>

@@ -15,6 +15,7 @@ interface RuntimeEngineMetadata extends Record<string, unknown> {
   attentionOutputSeq?: number | null;
   attentionReason?: string;
   attentionSeq?: number;
+  attentionSummary?: string;
   attentionUpdatedAt?: number | null;
   category?: string;
   command?: string;
@@ -337,6 +338,13 @@ interface TerminalSessionBusyStateEvent extends TerminalSessionEventBase {
   terminalBusy?: boolean | null;
 }
 
+interface TerminalSessionNotificationEvent extends TerminalSessionEventBase {
+  message: string;
+  method: 'bel' | 'osc9' | 'osc99' | 'osc777';
+  outputSeq?: number;
+  title: string;
+}
+
 interface TerminalSessionExitEvent extends TerminalSessionEventBase {
   code: number | string;
   exitedAt: number;
@@ -355,6 +363,7 @@ interface EngineSessionEventMap {
   'session-busy-state': TerminalSessionBusyStateEvent;
   'session-error': TerminalSessionErrorEvent;
   'session-exited': TerminalSessionExitEvent;
+  'session-notification': TerminalSessionNotificationEvent;
   'session-output': TerminalSessionOutputEvent;
   'session-preview': TerminalSessionPreviewEvent;
   'session-started': TerminalSessionStateEvent;
@@ -506,6 +515,7 @@ export type {
   TerminalSessionBusyStateEvent,
   TerminalSessionErrorEvent,
   TerminalSessionExitEvent,
+  TerminalSessionNotificationEvent,
   TerminalSessionOutputEvent,
   TerminalSessionPreviewEvent,
   TerminalSessionSnapshotEvent,

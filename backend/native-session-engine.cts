@@ -112,6 +112,7 @@ class NativeSessionEngine extends SessionEngine {
       'session-title',
       'session-activity',
       'session-busy-state',
+      'session-notification',
       'session-exited',
       'session-error',
     ].forEach(eventName => {

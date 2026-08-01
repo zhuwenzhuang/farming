@@ -51,6 +51,9 @@ class SessionEngineBridge extends EventEmitter {
       engine.on('session-busy-state', (payload) => {
         this.emit('session-busy-state', { engineName, ...payload });
       });
+      engine.on('session-notification', (payload) => {
+        this.emit('session-notification', { engineName, ...payload });
+      });
       engine.on('session-exited', (payload) => {
         this.emit('session-exited', { engineName, ...payload });
       });

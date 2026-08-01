@@ -812,6 +812,8 @@ async function run() {
 
   const engine = new NativeSessionEngine({ configDir, socketPath });
   try {
+    const terminalNotifications = [];
+    engine.on('session-notification', notification => terminalNotifications.push(notification));
     await engine.createSession({
       agentId: 'native-smoke',
       command: 'bash',
@@ -851,6 +853,26 @@ async function run() {
     assert.strictEqual(state.terminalStatus.cwd, process.cwd());
     assert.strictEqual(typeof state.terminalStatus.busy, 'boolean');
 
+    await engine.sendInput(
+      'native-smoke',
+      "printf '\\033]9;Native ready\\007'; printf '\\033]99;i=native:p=body:e=1:d=1;TmF0aXZlIGtpdHR5IHJlYWR5\\033\\\\'; printf '\\007'\n",
+      terminalOptions,
+    );
+    await waitFor(
+      () => terminalNotifications.length >= 3 ? terminalNotifications : null,
+      'native terminal notifications',
+    );
+    assert.deepStrictEqual(
+      terminalNotifications.slice(-3).map(({ method, message }) => ({ method, message })),
+      [
+        { method: 'osc9', message: 'Native ready' },
+        { method: 'osc99', message: 'Native kitty ready' },
+        { method: 'bel', message: '' },
+      ],
+    );
+    const stateBeforeClear = await engine.getSessionState('native-smoke');
+    assert(stateBeforeClear?.outputSeq !== null);
+
     const clearResult = await engine.clearBuffer('native-smoke', terminalOptions);
     assert.strictEqual(clearResult.cleared, true, 'native session clear should report success');
     const clearedState = await waitFor(async () => {
@@ -861,7 +883,7 @@ async function run() {
         ? current
         : null;
     }, 'native pty clear');
-    assert.strictEqual(clearedState.outputSeq, state.outputSeq, 'clear changes terminal state but is not PTY output');
+    assert.strictEqual(clearedState.outputSeq, stateBeforeClear.outputSeq, 'clear changes terminal state but is not PTY output');
     assert.strictEqual(clearedState.output.includes('TERM=xterm-256color'), false, clearedState.output);
     assert.strictEqual(clearedState.renderOutput.includes('TERM=xterm-256color'), false, clearedState.renderOutput);
 

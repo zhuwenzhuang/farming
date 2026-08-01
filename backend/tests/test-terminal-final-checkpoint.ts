@@ -2,6 +2,7 @@ const assert = require('assert');
 const { LocalSessionEngine } = require('../local-session-engine.cjs');
 const { NativePtyHost } = require('../native-pty-host.cjs');
 const { createTerminalReducerFlowControl } = require('../terminal-reducer-flow-control.cjs');
+const { TerminalNotificationParser } = require('../terminal-notification-parser.cjs');
 
 type TerminalCheckpointFixture = {
   runtimeEpoch: string;
@@ -42,6 +43,7 @@ type TerminalSessionFixture = {
   previewRows: number;
   title: string;
   terminalBusy: boolean;
+  terminalNotificationParser: { push: (data: unknown) => unknown[] };
   reducerFlowControl: unknown;
   reducerCommitQueue: Promise<void>;
   process: {
@@ -83,6 +85,7 @@ function createSession(id: string): TerminalSessionFixture {
     previewRows: 24,
     title: '',
     terminalBusy: false,
+    terminalNotificationParser: new TerminalNotificationParser(),
     reducerFlowControl: createTerminalReducerFlowControl(),
     reducerCommitQueue: Promise.resolve(),
     process: { kill() {}, pause() {}, resume() {}, write() {} },

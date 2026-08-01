@@ -46,6 +46,7 @@ import type {
   TerminalSessionBusyStateEvent,
   TerminalSessionErrorEvent,
   TerminalSessionExitEvent,
+  TerminalSessionNotificationEvent,
   TerminalSessionOutputEvent,
   TerminalSessionPreviewEvent,
   TerminalSessionSnapshotEvent,
@@ -183,6 +184,46 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isAcpTranscriptEntry(value: unknown): value is AcpTranscriptEntry {
   return isRecord(value);
+}
+
+function agentNotificationSummary(value: unknown, limit = 240): string {
+  const normalized = String(value || '')
+    .replace(/!\[([^\]]*)\]\([^)]+\)/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/```[^\n]*/g, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/[*_~`]+/g, '')
+    .replace(/^\s{0,3}(?:#{1,6}|[-+>])\s+/gm, '')
+    .replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const characters = Array.from(normalized);
+  if (characters.length <= limit) return normalized;
+  const prefix = characters.slice(0, limit).join('');
+  const sentence = prefix.match(/^(.{40,220}?[。！？.!?])(?:\s|$)/u)?.[1];
+  return sentence || `${characters.slice(0, limit - 1).join('')}…`;
+}
+
+function acpLastAssistantNotificationSummary(transcript: unknown): string {
+  if (!isRecord(transcript) || !Array.isArray(transcript.entries)) return '';
+  for (let index = transcript.entries.length - 1; index >= 0; index -= 1) {
+    const entry = transcript.entries[index];
+    if (
+      !isRecord(entry)
+      || entry.type !== 'message'
+      || entry.role !== 'assistant'
+      || entry.internal === true
+      || !Array.isArray(entry.content)
+    ) continue;
+    const text = entry.content
+      .filter(isRecord)
+      .filter(content => content.type === 'text')
+      .map(content => String(content.text || ''))
+      .join(' ');
+    const summary = agentNotificationSummary(text);
+    if (summary) return summary;
+  }
+  return '';
 }
 interface LifecycleJournalContract {
   entries: LifecycleOperation[];
@@ -504,6 +545,13 @@ const CODEX_TERMINAL_START_READY_TIMEOUT_MS = 30_000;
 const WORKTREE_DELETE_START_DRAIN_TIMEOUT_MS = 30_000;
 const CODEX_TERMINAL_START_READY_POLL_MS = 50;
 const CODEX_TERMINAL_START_OUTPUT_LIMIT = 64 * 1024;
+const TERMINAL_NOTIFICATION_COMPLETION_SUPPRESS_MS = 10_000;
+const ACP_ATTENTION_STOP_REASONS = new Set([
+  'end_turn',
+  'max_tokens',
+  'max_turn_requests',
+  'refusal',
+]);
 const SHELL_PROMPT_ENV_KEYS: string[] = [
   'PS1',
   'PS2',
@@ -1824,6 +1872,21 @@ class AgentManager extends EventEmitter {
         this.observeAgentAttentionState(sessionId);
         this.emit('agent-update', { agentId: sessionId, patch: terminalMetadataPatch(agent) });
       });
+
+    this.engineBridge.on('session-notification', ({
+      sessionId,
+      runtimeEpoch,
+      message,
+      title,
+    }: TerminalSessionNotificationEvent) => {
+      const agent = this.agents.get(sessionId);
+      if (!agent || !terminalRuntimeEventMatches(agent, runtimeEpoch)) return;
+      agent.attentionSummary = agentNotificationSummary(message || title);
+      if (this.isAgentAttentionTurnActive(agent)) {
+        agent.terminalNotificationAttentionUntil = Date.now() + TERMINAL_NOTIFICATION_COMPLETION_SUPPRESS_MS;
+      }
+      this.recordAgentAttentionEvent(agent, 'terminal-notification');
+    });
 
     this.engineBridge.on('session-exited', ({
       sessionId,
@@ -3472,6 +3535,12 @@ class AgentManager extends EventEmitter {
     agent.lastObservedTurnActive = turnActive;
 
     if (wasTurnActive && !turnActive) {
+      const terminalNotificationUntil = finiteNumberOrNull(agent.terminalNotificationAttentionUntil);
+      delete agent.terminalNotificationAttentionUntil;
+      if (terminalNotificationUntil !== null && terminalNotificationUntil >= Date.now()) {
+        agent.attentionRequiresNewOutput = false;
+        return false;
+      }
       if (!hasAgentOutputAfterAttentionBaseline(agent)) {
         return false;
       }
@@ -3818,6 +3887,13 @@ class AgentManager extends EventEmitter {
     const provider = agent.providerSessionProvider || agentHomeProviderForProgram(agent.forkCommand || agent.command || '');
     if (provider === 'opencode' && env.FARMING_STARTUP_PROMPT_FILE) {
       Object.assign(env, appendOpenCodeBootstrap(env, env.FARMING_STARTUP_PROMPT_FILE));
+    }
+    if (
+      provider === 'opencode'
+      && runtimeKind(agent) === 'terminal'
+      && env.OPENTUI_NOTIFICATION_PROTOCOL === undefined
+    ) {
+      env.OPENTUI_NOTIFICATION_PROTOCOL = 'osc99';
     }
 
     return env;
@@ -5816,6 +5892,19 @@ class AgentManager extends EventEmitter {
         if (!runtime) throw new Error('ACP runtime binding is unavailable');
         runtime.state = 'idle';
         runtime.stopReason = result.stopReason || '';
+        if (
+          this.agents.get(agentId) === agent
+          && ACP_ATTENTION_STOP_REASONS.has(runtime.stopReason)
+        ) {
+          try {
+            agent.attentionSummary = acpLastAssistantNotificationSummary(
+              this.acpRuntime.getTranscriptSession(agentId, { maxTurns: 1 }),
+            );
+          } catch {
+            agent.attentionSummary = '';
+          }
+          this.recordAgentAttentionEvent(agent, 'turn-complete');
+        }
       }
       this.ensurePersistentAgentSession(agent);
       if (result.steered !== true) {
@@ -9323,6 +9412,7 @@ class AgentManager extends EventEmitter {
       attentionUpdatedAt: finiteNumberOrNull(agent.attentionUpdatedAt),
       readAttentionAt: finiteNumberOrNull(agent.readAttentionAt),
       attentionReason: agent.attentionReason || '',
+      attentionSummary: agent.attentionSummary || '',
       attentionOutputEpoch: agent.attentionOutputEpoch || '',
       attentionOutputSeq: finiteNumberOrNull(agent.attentionOutputSeq),
       readOutputEpoch: agent.readOutputEpoch || '',
@@ -9517,6 +9607,7 @@ class AgentManager extends EventEmitter {
         attentionUpdatedAt: finiteNumberOrNull(agent.attentionUpdatedAt),
         readAttentionAt: finiteNumberOrNull(agent.readAttentionAt),
         attentionReason: agent.attentionReason || '',
+        attentionSummary: agent.attentionSummary || '',
         attentionOutputEpoch: agent.attentionOutputEpoch || '',
         attentionOutputSeq: finiteNumberOrNull(agent.attentionOutputSeq),
         readOutputEpoch: agent.readOutputEpoch || '',

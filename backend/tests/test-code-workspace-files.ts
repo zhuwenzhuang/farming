@@ -1414,6 +1414,7 @@ function run() {
       acpSessionControlsSource.includes("session.provider === 'qoder' && session.agentInfo?.version === '1.0.43'") &&
       acpSessionControlsSource.includes('copy.acpModeDescription(mode.id, mode.description)') &&
       acpSessionControlsSource.includes('className="code-composer-model-picker"') &&
+      acpSessionControlsSource.includes("Boolean(updatingId) || session.state === 'connecting'") &&
       acpSessionControlsSource.includes('code-model-picker-menu code-composer-menu') &&
       acpSessionControlsSource.includes('code-model-submenu code-composer-menu') &&
       acpSessionControlsSource.includes('code-speed-submenu code-composer-menu') &&

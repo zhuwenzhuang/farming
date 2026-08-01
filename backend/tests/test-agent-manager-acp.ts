@@ -166,6 +166,7 @@ async function run() {
     );
     assert.deepStrictEqual(await elicitationPromise, { action: 'accept', content: { confirmed: true } });
     assert.strictEqual(manager.getState().agents.find(agent => agent.id === agentId).runtimeBinding.pendingElicitations.length, 0);
+    assert.strictEqual(live.attentionSeq, 0, 'an ACP elicitation returning to idle is not a completed prompt turn');
 
     let resolveProviderTitle;
     const providerTitleUpdated = new Promise(resolve => {
@@ -181,6 +182,13 @@ async function run() {
     const result = await manager.sendComposerMessage(agentId, 'phase-aware mermaid');
     assert.strictEqual(result.kind, 'acp');
     assert.strictEqual(result.stopReason, 'end_turn');
+    assert.strictEqual(live.attentionSeq, 1, 'an ACP end_turn response should create one attention event');
+    assert.strictEqual(live.attentionReason, 'turn-complete');
+    assert.match(live.attentionSummary, /^Phase-aware rich answer\./);
+    assert.strictEqual(live.unread, true);
+    runtime.emit('agent-runtime', { agentId, state: 'working', stopReason: '' });
+    runtime.emit('agent-runtime', { agentId, state: 'idle', stopReason: 'cancelled' });
+    assert.strictEqual(live.attentionSeq, 1, 'an ACP cancelled response should not report completed work');
     await Promise.race([
       providerTitleUpdated,
       new Promise((_, reject) => setTimeout(
@@ -404,6 +412,12 @@ async function run() {
     assert.strictEqual(steerResult.turnId, 'fake-active-turn');
     await firstTurn;
     assert.strictEqual((await queuedPrompt).stopReason, 'end_turn');
+    const codexAfterCompletedPrompts = codexManager.agents.get(codexAgentId);
+    assert(
+      codexAfterCompletedPrompts.attentionSeq >= 2,
+      'Codex ACP should create attention for each standard completed Prompt',
+    );
+    assert.strictEqual(codexAfterCompletedPrompts.attentionReason, 'turn-complete');
     const steeredEntries = codexManager.getAcpSession(codexAgentId).entries;
     const steeredUser = steeredEntries.find(entry => entry.role === 'user' && entry._meta?.codex?.steer === true);
     assert(steeredUser, 'accepted steer should appear once in the ordered ACP transcript');
@@ -546,11 +560,13 @@ async function run() {
     acpRuntime: providerRuntime,
     skipExecutablePreflight: true,
   });
+  providerManager.providerSessionService.observe = () => {};
   try {
     for (const { provider, command } of [
       { provider: 'claude', command: 'claude' },
       { provider: 'opencode', command: 'opencode' },
       { provider: 'qoder', command: 'qoder' },
+      { provider: 'qwen', command: 'qwen' },
     ]) {
       const providerAgentId = await new Promise(resolve => {
         providerManager.startAgent(command, process.cwd(), (id, error) => {
@@ -559,6 +575,7 @@ async function run() {
         }, {
           agentRuntimeMode: 'chat',
           codexServiceTier: 'default',
+          wantsMain: false,
         });
       });
       assert(providerAgentId, `${provider} ACP should start`);
@@ -603,6 +620,19 @@ async function run() {
         true,
         `${provider} ACP Fast should update through the shared runtime path`,
       );
+      const attentionSeqBeforePrompt = providerAgent.attentionSeq || 0;
+      const promptResult = await providerManager.sendComposerMessage(
+        providerAgentId,
+        `phase-aware mermaid ${provider} completion notification matrix`,
+      );
+      assert.strictEqual(promptResult.stopReason, 'end_turn');
+      assert.strictEqual(
+        providerAgent.attentionSeq,
+        attentionSeqBeforePrompt + 1,
+        `${provider} ACP end_turn should create one completion attention event`,
+      );
+      assert.strictEqual(providerAgent.attentionReason, 'turn-complete');
+      assert.match(providerAgent.attentionSummary, /^Phase-aware rich answer\./);
     }
   } finally {
     await providerManager.dispose();

@@ -16,6 +16,7 @@ import {
 } from './terminal-screen-worker-pool.cjs';
 import type { TerminalScreenWorkerState as ScreenState } from './terminal-screen-worker.cjs';
 import type { TerminalReducerFlowControl } from './terminal-reducer-flow-control.cjs';
+import { TerminalNotificationParser } from './terminal-notification-parser.cjs';
 
 interface PtyProcess {
   kill(signal?: string): void;
@@ -115,6 +116,7 @@ interface LocalSession {
   stateRevision: number;
   status: TerminalSessionStatus;
   terminalBusy: boolean | null;
+  terminalNotificationParser: TerminalNotificationParser;
   title: string;
   exitFinalizing?: boolean;
 }
@@ -389,6 +391,7 @@ class LocalSessionEngine extends SessionEngine {
       title: '',
       status: 'running',
       terminalBusy: null,
+      terminalNotificationParser: new TerminalNotificationParser(),
       shellCwd: '',
       shellLastExitCode: null,
       shellLastEvent: '',
@@ -582,6 +585,7 @@ class LocalSessionEngine extends SessionEngine {
 
     const data = busyState.data;
     if (!data) return;
+    const terminalNotifications = current.terminalNotificationParser.push(data);
     const reducerDelivery = enqueueTerminalReducerData(
       ensureTerminalReducerFlowControl(current),
       current.process,
@@ -628,6 +632,14 @@ class LocalSessionEngine extends SessionEngine {
         runtimeEpoch: latest.runtimeEpoch,
         outputSeq,
         stateRevision,
+      });
+      terminalNotifications.forEach(notification => {
+        this.emit('session-notification', {
+          sessionId: latest.id,
+          ...notification,
+          runtimeEpoch: latest.runtimeEpoch,
+          outputSeq,
+        });
       });
       this.emit('session-activity', {
         sessionId: latest.id,

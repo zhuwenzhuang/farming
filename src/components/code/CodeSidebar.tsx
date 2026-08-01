@@ -168,6 +168,7 @@ const ProjectFilesSection = lazy(() => import('../files/ProjectFilesSection').th
 
 interface CodeSidebarProps {
   sidebarCollapsed: boolean
+  hoverPreviewsPaused: boolean
   emptyHomeActionRequest: { kind: 'share' | 'focus'; nonce: number } | null
   activeView: WorkspaceView
   searchOpen: boolean
@@ -230,6 +231,7 @@ interface CodeSidebarProps {
 
 export function CodeSidebar({
   sidebarCollapsed,
+  hoverPreviewsPaused,
   emptyHomeActionRequest,
   activeView,
   searchOpen,
@@ -336,6 +338,7 @@ export function CodeSidebar({
     hideAgentPreview()
   }, [hideAgentPreview])
   const showAgentPreview = useCallback((event: AgentPreviewAnchorEvent, target: AgentPreviewTarget, compact = false) => {
+    if (hoverPreviewsPaused) return
     clearPreviewTimer()
     const anchor = event.currentTarget
     const delay = previewBrowsingRef.current ? 0 : (compact ? 450 : 1500)
@@ -364,9 +367,10 @@ export function CodeSidebar({
           branchCacheRef.current.set(target.workspaceRootId!, { branch: '', expiresAt: Date.now() + 30_000 })
         })
     }, delay)
-  }, [clearPreviewTimer])
+  }, [clearPreviewTimer, hoverPreviewsPaused])
 
   const showProjectPreview = useCallback((event: AgentPreviewAnchorEvent, target: ProjectPreviewTarget) => {
+    if (hoverPreviewsPaused) return
     clearPreviewTimer()
     const anchor = event.currentTarget
     const delay = previewBrowsingRef.current ? 0 : 1500
@@ -382,7 +386,11 @@ export function CodeSidebar({
       setAgentPreview(null)
       setProjectPreview({ ...target, x, y, width })
     }, delay)
-  }, [clearPreviewTimer])
+  }, [clearPreviewTimer, hoverPreviewsPaused])
+
+  useEffect(() => {
+    if (hoverPreviewsPaused) resetAgentPreview()
+  }, [hoverPreviewsPaused, resetAgentPreview])
 
   useEffect(() => () => clearPreviewTimer(), [clearPreviewTimer])
 

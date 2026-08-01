@@ -51,6 +51,19 @@ Farming Pet 提供可选的休息提醒，但不会在新用户刚进入界面�
 默认连续使用 50 分钟后休息五分钟；间隔达到 90 分钟及以上时休息十分钟。提醒样式支持预览，
 预览不会保存选择。
 
+### Agent 通知
+
+**设置 → Agent → 允许消息通知**可以在接收事件的 Farming 标签页都不在前台时显示浏览器本地
+系统通知。Farming 只会在用户显式开启该设置时请求浏览器通知权限。首次加载和重连只建立
+attention 基线，不会补发历史事件。通知正文显示 Agent 最后一条用户可见消息的有界纯文本
+摘要，而不是笼统的完成提示；点击通知会返回对应 Agent。带鉴权的 Farming URL 需要运行在
+支持系统通知的浏览器环境中，通常是 HTTPS 或 localhost。
+
+ACP Session 在 `session/prompt` 以标准的非取消 stop reason 结束时请求通知。Terminal Session
+则遵循 Agent TUI 自己的通知时机：Farming 识别其写入 PTY 的 OSC 9、OSC 99、OSC 777
+notification 和 BEL。Farming 推断的 Terminal 忙碌→空闲状态仍用于未读完成状态，但不会
+自行生成系统通知。
+
 ## 更多
 
 - [Farming CRT](../crt/README.zh_cn.md)

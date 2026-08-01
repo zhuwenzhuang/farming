@@ -2,6 +2,7 @@ const assert = require('assert');
 const { NativePtyHost } = require('../native-pty-host.cjs');
 const { LocalSessionEngine } = require('../local-session-engine.cjs');
 const { createTerminalReducerFlowControl } = require('../terminal-reducer-flow-control.cjs');
+const { TerminalNotificationParser } = require('../terminal-notification-parser.cjs');
 
 function deferred() {
   let resolve;
@@ -45,6 +46,7 @@ function createSession(id, commits) {
     title: '',
     status: 'running',
     terminalBusy: null,
+    terminalNotificationParser: new TerminalNotificationParser(),
     shellBusyMarkerPending: '',
     lastActivityAt: Date.now(),
     screenWorker: {

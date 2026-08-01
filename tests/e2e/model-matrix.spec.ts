@@ -36,11 +36,11 @@ const TERMINAL_MODEL_CATALOG = MODEL_OPTIONS.map(option => ({
   source: 'fixture',
 }))
 
-function sessionSnapshot(state: MatrixState) {
+function sessionSnapshot(state: MatrixState, runtimeState = 'ready') {
   return {
     provider: 'claude',
     sessionId: 'model-matrix-session',
-    state: 'ready',
+    state: runtimeState,
     error: '',
     stopReason: '',
     availableCommands: [],
@@ -81,6 +81,33 @@ function requestedState(route: Route, current: MatrixState) {
     return next
   }, { ...current })
 }
+
+test('ACP model controls wait for the initial session configuration to become ready', async ({ page, workspaceRoot }) => {
+  const workspace = path.join(workspaceRoot, 'model-matrix-connecting')
+  fs.mkdirSync(workspace, { recursive: true })
+  const agentId = await createAcpAgent(page, workspace)
+  const state: MatrixState = { model: 'gpt-5.6-terra', reasoning: 'medium', fast: false }
+  let patchCount = 0
+
+  await page.route(/\/farming\/api\/agents\/[^/]+\/acp-session(?:\?includeEntries=0)?$/, async route => {
+    if (route.request().method() === 'GET') {
+      await route.fulfill({ json: { session: sessionSnapshot(state, 'connecting') } })
+      return
+    }
+    patchCount += 1
+    await route.fulfill({ status: 409, json: { error: 'ACP Agent is not ready for configuration changes (connecting)' } })
+  })
+
+  await openFarming(page)
+  await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
+  await expect(page.getByTestId('code-acp-composer')).toBeVisible()
+  const picker = page.getByTestId('code-acp-model-picker')
+  await expect(picker).toBeVisible()
+  await expect(picker).toBeDisabled()
+  await picker.evaluate(button => (button as HTMLButtonElement).click())
+  expect(patchCount).toBe(0)
+  await expect(page.getByText('ACP Agent is not ready for configuration changes (connecting)')).toHaveCount(0)
+})
 
 test('ACP model matrix responds locally, settles once, and morphs Advanced without a layout jump', async ({ page, workspaceRoot }) => {
   const workspace = path.join(workspaceRoot, 'model-matrix')

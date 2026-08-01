@@ -249,7 +249,7 @@ export function AcpModelControl({
     : []
   const hasMatrix = Boolean(modelMatrixFamily(matrixModels, model?.currentValue || ''))
   if (!model && !reasoning && !fastMode && extraOptions.length === 0) return null
-  const disabled = Boolean(updatingId)
+  const disabled = Boolean(updatingId) || session.state === 'connecting'
 
   return (
     <div className="code-composer-menu-anchor model-picker">

@@ -22,6 +22,7 @@ const INTRO_SECONDS = 15
 const MIDDLE_CYCLE_SECONDS = 90
 export const BLACK_HOLE_EXIT_SECONDS = 15
 export const BLACK_HOLE_MANUAL_EXIT_SECONDS = 4.8
+export const BLACK_HOLE_HOME_ATTRACTION_SECONDS = 60
 const TOKEN_AREA_MIN = 0.01
 const TOKEN_AREA_MAX = 0.50
 const HOLE_SIZE_DIAL = 0.02
@@ -526,11 +527,11 @@ interface BlackHoleRendererElements {
   homeElement: () => Element | null
   onError: (message: string) => void
   onReady: () => void
-  showcasePreset?: 'gargantua'
 }
 
 export interface BlackHolePetRenderer {
   setActive: (active: boolean) => void
+  setRestUntil: (restUntil: number) => void
   beginExit: (
     onComplete: () => void,
     durationSeconds?: number,
@@ -1417,14 +1418,15 @@ function evaporationAt(progress: number): EvaporationState {
     }
   }
   const evaporation = clamp((progress - 0.16) / 0.76, 0, 1)
+  const remainingBody = Math.max(0, 1 - smoother(progress))
   return {
     progress,
     mass: Math.max(0.035, (1 - evaporation) ** (1 / 3)),
-    diskFeed: 1 - smoother(progress / 0.32),
+    diskFeed: Math.sqrt(Math.max(0, 1 - smoother(progress / 0.94))),
     hawking: smoother((progress - 0.12) / 0.78),
     burst: clamp((progress - 0.90) / 0.10, 0, 1),
-    body: 1 - smoother((progress - 0.955) / 0.035),
-    lens: 1 - smoother((progress - 0.82) / 0.12),
+    body: remainingBody ** 0.35,
+    lens: remainingBody,
   }
 }
 
@@ -1433,6 +1435,7 @@ function activePose(
   look: DiskLook,
   seed: number,
   homeElement: () => Element | null,
+  homeAttraction: number,
 ): Pose {
   const progress = clamp(elapsed / INTRO_SECONDS, 0, 1)
   const width = window.innerWidth
@@ -1486,8 +1489,8 @@ function activePose(
   const departure = smoother(progress)
   const visibility = smoother(clamp(elapsed / (INTRO_SECONDS * 0.55), 0, 1))
   return {
-    centerX: mix(homeUv.x, roam.x, departure) * width,
-    centerY: mix(homeUv.y, roam.y, departure) * height,
+    centerX: mix(mix(homeUv.x, roam.x, departure), homeUv.x, homeAttraction) * width,
+    centerY: mix(mix(homeUv.y, roam.y, departure), homeUv.y, homeAttraction) * height,
     scale,
     mass: 1,
     bodyOpacity: visibility,
@@ -1501,7 +1504,6 @@ export function createBlackHolePetRenderer({
   homeElement,
   onError,
   onReady,
-  showcasePreset,
 }: BlackHoleRendererElements): BlackHolePetRenderer {
   let display: DisplayRenderer
   let compositor: CompositorRenderer
@@ -1517,6 +1519,7 @@ export function createBlackHolePetRenderer({
     onError(message)
     return {
       setActive() {},
+      setRestUntil() {},
       beginExit(onComplete) {
         onComplete()
       },
@@ -1530,6 +1533,7 @@ export function createBlackHolePetRenderer({
   let exitingAt: number | null = null
   let exitDuration = BLACK_HOLE_EXIT_SECONDS
   let exitReturnsHome = true
+  let restUntil = Number.POSITIVE_INFINITY
   let exitComplete: (() => void) | null = null
   let requestId = 0
   let lastClockAt = 0
@@ -1551,9 +1555,6 @@ export function createBlackHolePetRenderer({
     : roamSeed
   const firstCycle = createEvolutionCycle(evolutionSeed, 0)
   const birthTarget = firstCycle[0]
-  const showcaseLook = showcasePreset === 'gargantua'
-    ? CYCLE_STATES[3]
-    : undefined
   const birthVariation = seedValue(roamSeed, 0, 12)
   const birth: DiskLook = {
     ...birthTarget,
@@ -1570,7 +1571,6 @@ export function createBlackHolePetRenderer({
     .map(state => state.phase)
     .join(',')
   canvas.dataset.birthPreset = birthTarget.phase
-  if (showcaseLook) canvas.dataset.showcasePreset = showcaseLook.phase
 
   const clearSchedule = () => {
     if (requestId) cancelAnimationFrame(requestId)
@@ -1662,14 +1662,27 @@ export function createBlackHolePetRenderer({
     const elapsed = Number.isFinite(testElapsed)
       ? Number(testElapsed)
       : (now - startedAt) / 1000
-    const look = showcaseLook ?? macroAt(elapsed, birth, evolutionSeed)
+    const look = macroAt(elapsed, birth, evolutionSeed)
     canvas.dataset.macroPhase = look.phase
     canvas.dataset.macroSize = look.size.toFixed(4)
     canvas.dataset.macroTemperature = look.temperature.toFixed(1)
     canvas.dataset.macroInclination = look.inclination.toFixed(4)
     canvas.dataset.macroOuterRadius = look.outerRadius.toFixed(3)
+    const homeAttraction = smoother(clamp(
+      1 - (restUntil - Date.now())
+        / (BLACK_HOLE_HOME_ATTRACTION_SECONDS * 1000),
+      0,
+      1,
+    ))
+    canvas.dataset.homeAttraction = homeAttraction.toFixed(4)
     let evaporation = evaporationAt(0)
-    let pose = activePose(elapsed, look, roamSeed, homeElement)
+    let pose = activePose(
+      elapsed,
+      look,
+      roamSeed,
+      homeElement,
+      homeAttraction,
+    )
 
     if (exitingAt !== null) {
       const progress = clamp((now - exitingAt) / (exitDuration * 1000), 0, 1)
@@ -1684,15 +1697,25 @@ export function createBlackHolePetRenderer({
             : 'final-release'
       compositorCanvas.dataset.hawking = evaporation.hawking.toFixed(4)
       compositorCanvas.dataset.finalBurst = evaporation.burst.toFixed(4)
+      compositorCanvas.dataset.diskFeed = evaporation.diskFeed.toFixed(4)
+      compositorCanvas.dataset.bodyOpacity = evaporation.body.toFixed(4)
+      compositorCanvas.dataset.lensOpacity = evaporation.lens.toFixed(4)
       const exitElapsed = (exitingAt - startedAt) / 1000
       const frozenTime =
         exitElapsed + 0.45 * (1 - Math.exp(-(now - exitingAt) / 450))
-      const frozenLook = showcaseLook ?? macroAt(frozenTime, birth, evolutionSeed)
-      pose = activePose(frozenTime, frozenLook, roamSeed, homeElement)
+      const frozenLook = macroAt(frozenTime, birth, evolutionSeed)
+      pose = activePose(
+        frozenTime,
+        frozenLook,
+        roamSeed,
+        homeElement,
+        homeAttraction,
+      )
       const home = homePoint(homeElement)
       const returning = exitReturnsHome
-        ? smoother((progress - 0.80) / 0.14)
+        ? smoother(progress)
         : 0
+      compositorCanvas.dataset.returnProgress = returning.toFixed(4)
       pose = {
         ...pose,
         centerX: mix(pose.centerX, home.x, returning),
@@ -1745,6 +1768,9 @@ export function createBlackHolePetRenderer({
         loadInitialScene()
         schedule()
       }
+    },
+    setRestUntil(nextRestUntil) {
+      restUntil = nextRestUntil
     },
     beginExit(
       onComplete,

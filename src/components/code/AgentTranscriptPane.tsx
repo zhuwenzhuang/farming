@@ -53,6 +53,7 @@ import {
 import { collectTerminalPathLinkMatches } from '@/lib/terminal-links'
 import { isCompactViewport } from '@/lib/responsive-mode'
 import { useSharedNow } from '@/lib/shared-now'
+import { isPageActive } from '@/hooks/usePageVisibility'
 import { loadAcpReviewPreview, loadReviewComparisonSources } from '@/lib/review/api'
 import type { WorkspaceFileOpenTarget } from '@/lib/workspace-open-files'
 import type { CodeCopy } from './copy'
@@ -2547,6 +2548,9 @@ function AgentTranscriptTurnView({
     () => compactProcessEntries(processEntries, turn.status),
     [processEntries, turn.status],
   )
+  const collapsedProgressItems = source === 'acp' && turn.status === 'inProgress'
+    ? mainProcessItems.filter(isAcpProgressUpdate)
+    : []
   const runningCompaction = turn.status === 'inProgress'
     ? [...mainProcessItems]
       .reverse()
@@ -2883,6 +2887,14 @@ function AgentTranscriptTurnView({
                 </span>
                 <ChevronRightGlyph className="code-agent-transcript-chevron" />
               </button>
+          {!effectiveProcessOpen && collapsedProgressItems.map(item => (
+            <AgentTranscriptProgressUpdate
+              key={item.id}
+              item={item}
+              markdownComponents={markdownComponents}
+              copy={copy}
+            />
+          ))}
           {!effectiveProcessOpen && compactProcess.items.length > 0 ? (
             <div
               className="code-agent-transcript-process-list code-agent-transcript-process-compact-list"
@@ -3152,7 +3164,7 @@ export function AgentTranscriptPane({
   useLayoutEffect(() => {
     const layoutChanged = previousViewportLayoutKeyRef.current !== viewportLayoutKey
     previousViewportLayoutKeyRef.current = viewportLayoutKey
-    if (!layoutChanged || !active || !followBottomRef.current) return
+    if (!layoutChanged || !active || !isPageActive() || !followBottomRef.current) return
     const element = scrollRef.current
     if (!element || userScrollGestureRef.current) return
     if (textSelectionGestureRef.current || hasTextSelectionWithin(element)) return
@@ -3361,7 +3373,7 @@ export function AgentTranscriptPane({
     && turns.length === 0
     && (runtimeState === 'connecting' || expectHistory)
   useEffect(() => {
-    if (!active || !transcript?.available || turns.length === 0) return
+    if (!active || !isPageActive() || !transcript?.available || turns.length === 0) return
     const element = scrollRef.current
     const nearBottom = element ? isTranscriptNearBottom(element) : followBottomRef.current
     if (element && (textSelectionGestureRef.current || hasTextSelectionWithin(element))) return
@@ -3399,7 +3411,7 @@ export function AgentTranscriptPane({
         element.scrollTop = element.scrollHeight
         clearReadingAnchor(readingAnchorAgentKey(agentId, 'chat'))
         setShowJumpToBottom(false)
-        if (active) onReadLatest?.()
+        if (active && isPageActive()) onReadLatest?.()
       })
       return
     }
@@ -3415,7 +3427,7 @@ export function AgentTranscriptPane({
       followBottomRef.current = true
       element.scrollTop = element.scrollHeight
       setShowJumpToBottom(false)
-      if (active) onReadLatest?.()
+      if (active && isPageActive()) onReadLatest?.()
     })
   }, [active, agentId, loading, onReadLatest, transcript?.available, transcript?.updatedAt, turns.length])
 
@@ -3587,7 +3599,7 @@ export function AgentTranscriptPane({
     followBottomRef.current = nearBottom
     saveTranscriptReadingAnchor(agentId, element)
     setShowJumpToBottom(!nearBottom && element.scrollHeight > element.clientHeight + TRANSCRIPT_BOTTOM_FOLLOW_THRESHOLD)
-    if (active && nearBottom) onReadLatest?.()
+    if (active && nearBottom && isPageActive()) onReadLatest?.()
     if (element.scrollTop <= TRANSCRIPT_LOAD_MORE_THRESHOLD) requestOlderTurns(element)
   }, [active, agentId, onReadLatest, requestOlderTurns])
   const handleWheel = useCallback((event: ReactWheelEvent<HTMLDivElement>) => {

@@ -59,6 +59,24 @@ resets a work cycle after five minutes away. The default cycle is 50 minutes
 of use followed by a five-minute break; intervals of 90 minutes or longer use
 a ten-minute break. Reminder styles can be previewed without saving a choice.
 
+### Agent Notifications
+
+**Settings → Agent → Allow message notifications** enables browser-local system
+notifications while no Farming tab receiving the event is active. Farming
+requests browser permission only from that explicit setting. Initial hydration
+and reconnect establish an attention baseline without replaying older events.
+The notification body uses a bounded plain-text excerpt of the Agent's latest
+visible message instead of a generic completion label. Clicking a notification
+returns to the matching Agent. The authenticated Farming URL must use a browser
+context that supports system notifications, normally HTTPS or localhost.
+
+ACP sessions request a notification when `session/prompt` settles with a
+standard non-cancelled stop reason. Terminal sessions instead follow the Agent
+TUI's own notification timing: Farming recognizes OSC 9, OSC 99, OSC 777
+notification, and BEL sequences written to the PTY. Farming's inferred Terminal
+busy-to-idle state still owns unread completion tracking, but does not create
+system notifications.
+
 ## More
 
 - [Farming CRT](../crt/README.md)

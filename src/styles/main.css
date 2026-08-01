@@ -451,7 +451,7 @@ body.code-resizing-sidebar {
 
 .code-nav-item:hover,
 .code-agent-row:hover,
-.code-project-row:hover .code-project-title {
+.code-project-row:hover:not(:has(.code-project-worktree:hover)) .code-project-title {
   background: rgba(0, 0, 0, 0.06);
 }
 
@@ -1388,7 +1388,7 @@ body.code-resizing-sidebar {
 
 .code-project-title-actions {
   position: absolute;
-  top: 3px;
+  top: 0;
   right: 0;
   z-index: 2;
   display: inline-flex;
@@ -2096,8 +2096,8 @@ body.code-mode:not(.code-compact-layout) .code-agent-row.requires-resume .code-a
   }
 
   .code-agent-row-provider-icon .agent-launch-icon {
-    width: 17px;
-    height: 17px;
+    width: 15px;
+    height: 15px;
     display: block;
   }
 
@@ -20853,8 +20853,8 @@ body.code-mode[data-appearance='dark'] .code-settings-language-choice {
   }
 
   body.code-mode.code-compact-layout .code-agent-row-provider-icon .agent-launch-icon {
-    width: 17px;
-    height: 17px;
+    width: 15px;
+    height: 15px;
     display: block;
   }
 

@@ -326,6 +326,57 @@ async function run() {
     assert.strictEqual(agent.readAttentionSeq, 0, 'manual shell unread marks must remain deliberate');
     assert.strictEqual(agent.unread, true);
 
+    for (const { provider, command, method, summary } of [
+      { provider: 'codex', command: 'codex', method: 'bel', summary: '' },
+      { provider: 'claude', command: 'claude', method: 'osc9', summary: 'Claude is ready to review.' },
+      { provider: 'opencode', command: 'opencode', method: 'osc99', summary: 'OpenCode finished the requested edit.' },
+      { provider: 'qoder', command: 'qodercli', method: 'osc99', summary: 'Qoder completed the task.' },
+      { provider: 'qwen', command: 'qwen', method: 'osc777', summary: 'Qwen has a result.' },
+    ]) {
+      const agentId = `terminal-notification-${provider}`;
+      const runtimeEpoch = `${agentId}-epoch`;
+      manager.agents.set(agentId, {
+        id: agentId,
+        command,
+        cwd: '/tmp',
+        output: '',
+        previewText: '',
+        engineName: 'local',
+        status: 'running',
+        runtimeEpoch,
+        terminalBusy: true,
+        attentionSeq: 0,
+        readAttentionSeq: 0,
+        unread: false,
+        attentionTrackingReady: true,
+        lastObservedTurnActive: true,
+        attentionSuppressUntil: 0,
+      });
+      manager.engineBridge.router.engines.local.emit('session-notification', {
+        sessionId: agentId,
+        method,
+        title: '',
+        message: summary,
+        runtimeEpoch,
+        outputSeq: 4,
+      });
+      agent = manager.agents.get(agentId);
+      assert.strictEqual(agent.attentionSeq, 1, `${provider} Terminal-native notifications should create attention`);
+      assert.strictEqual(agent.attentionReason, 'terminal-notification');
+      assert.strictEqual(agent.attentionSummary, summary);
+      assert.strictEqual(agent.unread, true);
+    }
+    manager.engineBridge.router.engines.local.emit('session-busy-state', {
+      sessionId: 'terminal-notification-codex',
+      terminalBusy: false,
+      runtimeEpoch: 'terminal-notification-codex-epoch',
+    });
+    assert.strictEqual(
+      manager.agents.get('terminal-notification-codex').attentionSeq,
+      1,
+      'the following inferred busy-to-idle edge must not overwrite the native notification event',
+    );
+
     manager.agents.set('main-agent', {
       id: 'main-agent',
       isMain: true,

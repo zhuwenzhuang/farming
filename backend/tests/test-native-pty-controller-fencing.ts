@@ -76,7 +76,7 @@ async function run() {
   releaseOldMutation();
   assert.strictEqual(await oldMutation, 'old-complete');
   await handoff;
-  assert.throws(() => host.assertActiveController(oldClient), /active controller/);
+  assert.throws(() => host.assertActiveController(oldClient), /control moved to another Farming Server/);
   assert.doesNotThrow(() => host.assertActiveController(newClient));
 
   let releaseDisconnectMutation;

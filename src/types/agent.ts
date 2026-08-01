@@ -292,6 +292,7 @@ export interface Agent {
   attentionUpdatedAt?: number | null
   readAttentionAt?: number | null
   attentionReason?: string
+  attentionSummary?: string
   attentionOutputEpoch?: string
   attentionOutputSeq?: number | null
   readOutputEpoch?: string

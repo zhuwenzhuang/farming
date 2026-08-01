@@ -119,6 +119,7 @@ test('settings sliders stage locally and save only the released value', async ({
   })
 
   const dragToMaximum = async (target: Locator) => {
+    await target.scrollIntoViewIfNeeded()
     const [box, range] = await Promise.all([
       target.boundingBox(),
       target.evaluate(element => {
@@ -301,7 +302,9 @@ test('first-use Pet setup walks from invitation to explicit style selection', as
   await appearanceChoice.getByRole('button', { name: '预览柔光效果' }).click()
   const preview = page.getByTestId('pet-rest-scene')
   await expect(preview).toHaveAttribute('data-pet-appearance', 'glass')
-  await preview.getByRole('button', { name: '结束预览' }).click()
+  await expect(preview).toContainText('休息一下')
+  await expect(preview).toContainText('让眼睛和注意力暂停片刻。')
+  await preview.getByRole('button', { name: '结束休息' }).click()
   await expect(preview).toHaveCount(0)
   await expect(appearanceChoice).toBeVisible()
   await expect.poll(() => page.evaluate(key => (
@@ -334,7 +337,9 @@ test('first-use Pet setup walks from invitation to explicit style selection', as
   await expect(settings).toHaveCount(0)
   const settingsPreview = page.getByTestId('pet-rest-scene')
   await expect(settingsPreview).toHaveAttribute('data-pet-appearance', 'glass')
-  await settingsPreview.getByRole('button', { name: '结束预览' }).click()
+  await expect(settingsPreview).toContainText('休息一下')
+  await expect(settingsPreview).toContainText('让眼睛和注意力暂停片刻。')
+  await settingsPreview.getByRole('button', { name: '结束休息' }).click()
   await expect(settingsPreview).toHaveCount(0)
   await expect(settings).toBeVisible()
   await expect(settings.getByRole('slider', { name: '休息提醒' }))
@@ -345,12 +350,14 @@ test('first-use Pet setup walks from invitation to explicit style selection', as
   await expect(settings).toHaveCount(0)
   await expect(settingsPreview).toHaveAttribute('data-pet-appearance', 'black-hole')
   await expect(settingsPreview.locator('.code-pet-black-hole-canvas'))
-    .toHaveAttribute('data-showcase-preset', 'gargantua')
+    .not.toHaveAttribute('data-showcase-preset', 'gargantua')
   await expect(settingsPreview.locator('.code-pet-black-hole-canvas'))
-    .toHaveAttribute('data-macro-phase', 'gargantua')
-  await page.clock.fastForward(30_001)
+    .toHaveAttribute('data-macro-phase', 'birth')
+  await expect(settingsPreview).toContainText('休息中')
+  await expect(settingsPreview.getByRole('button', { name: '结束休息' })).toBeVisible()
+  await page.clock.fastForward(4 * 60_000 + 1)
   await expect(settingsPreview).toBeVisible()
-  await page.clock.fastForward(30_000)
+  await page.clock.fastForward(60_000)
   await expect(settingsPreview).toHaveCount(0)
   await expect(settings).toBeVisible()
   await capturePetSetupStep(page, '03-selected-black-hole')
@@ -392,6 +399,7 @@ test('black-hole lifecycle changes shape within the 120 FPS GPU budget', async (
   await openFarming(page)
   const canvas = page.getByTestId('pet-rest-scene')
     .locator('.code-pet-black-hole-canvas')
+  await expect(canvas).toHaveAttribute('data-home-attraction', '0.0000')
   await expect(canvas).toHaveAttribute('data-intro-seconds', '15')
   await expect(canvas).toHaveAttribute('data-cycle-seconds', '90')
   const lifecycle = [
@@ -547,6 +555,17 @@ test('dark black-hole status stays readable and manual exit fully evaporates in 
   )).toBeGreaterThan(0.52)
   await expect(scene.locator('.code-pet-black-hole-compositor'))
     .toHaveAttribute('data-evaporation-phase', 'blue-shift')
+  const midEvaporation = await compositor.evaluate(element => ({
+    diskFeed: Number(element.getAttribute('data-disk-feed')),
+    bodyOpacity: Number(element.getAttribute('data-body-opacity')),
+    lensOpacity: Number(element.getAttribute('data-lens-opacity')),
+  }))
+  expect(midEvaporation.diskFeed).toBeGreaterThan(0.45)
+  expect(midEvaporation.diskFeed).toBeLessThan(0.85)
+  expect(midEvaporation.bodyOpacity).toBeGreaterThan(0.6)
+  expect(midEvaporation.bodyOpacity).toBeLessThan(0.9)
+  expect(midEvaporation.lensOpacity).toBeGreaterThan(0.25)
+  expect(midEvaporation.lensOpacity).toBeLessThan(0.65)
   await expect(scene.locator('.code-pet-black-hole-canvas'))
     .toHaveAttribute('data-radiation-probe', 'sampled')
   const exitCanvas = scene.locator('.code-pet-black-hole-canvas')
@@ -871,12 +890,32 @@ test('natural black-hole evaporation resumes at the absolute-time progress', asy
         snoozeUsed: false,
       },
     }))
+    ;(window as Window & {
+      __farmingBlackHoleElapsedSeconds?: number
+    }).__farmingBlackHoleElapsedSeconds = 82.55
   }, { settingsKey: SETTINGS_KEY, runtimeKey: RUNTIME_KEY })
 
   await openFarming(page)
   const scene = page.getByTestId('pet-rest-scene')
   const compositor = scene.locator('.code-pet-black-hole-compositor')
+  const canvas = scene.locator('.code-pet-black-hole-canvas')
   await expect(scene).toHaveClass(/exiting/)
+  await expect.poll(async () => Number(
+    await canvas.getAttribute('data-home-attraction') ?? '0',
+  )).toBeGreaterThan(0.85)
+  const homeDistanceRatio = await canvas.evaluate(element => {
+    const home = document.querySelector('.code-product-mark')
+      ?? document.querySelector('.code-product-pet-anchor')
+    if (!home) return Number.POSITIVE_INFINITY
+    const canvasRect = element.getBoundingClientRect()
+    const homeRect = home.getBoundingClientRect()
+    const distance = Math.hypot(
+      canvasRect.left + canvasRect.width / 2 - (homeRect.left + homeRect.width / 2),
+      canvasRect.top + canvasRect.height / 2 - (homeRect.top + homeRect.height / 2),
+    )
+    return distance / Math.hypot(window.innerWidth, window.innerHeight)
+  })
+  expect(homeDistanceRatio).toBeLessThan(0.12)
   await expect.poll(async () => Number(
     await compositor.getAttribute('data-exit-progress') ?? '0',
   )).toBeGreaterThan(0.18)

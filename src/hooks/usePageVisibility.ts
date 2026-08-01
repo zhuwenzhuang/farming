@@ -6,6 +6,11 @@ export function isPageVisible() {
   return document.visibilityState !== 'hidden'
 }
 
+export function isPageActive() {
+  if (typeof document === 'undefined') return true
+  return isPageVisible() && document.hasFocus()
+}
+
 export function usePageVisibilitySnapshot() {
   const [snapshot, setSnapshot] = useState(() => {
     const visible = isPageVisible()

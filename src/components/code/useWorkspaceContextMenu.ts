@@ -17,7 +17,7 @@ const MOBILE_PROJECT_CONTEXT_MENU_WIDTH = 286
 
 export type WorkspaceContextMenu =
   | { kind: 'agent'; agentId: string; x: number; y: number }
-  | { kind: 'project'; projectId: string; x: number; y: number }
+  | { kind: 'project'; projectId: string; x: number; y: number; focusFirstItem: boolean }
   | { kind: 'agent-session'; provider: string; sessionId: string; x: number; y: number }
   | { kind: 'options'; x: number; y: number; returnFocusTarget: HTMLElement | null }
 
@@ -60,7 +60,7 @@ export function useWorkspaceContextMenu({
   const [contextMenu, setContextMenu] = useState<WorkspaceContextMenu | null>(null)
   const contextMenuRef = useRef<HTMLDivElement>(null)
   const userNavigatedRef = useRef(false)
-  const focusIndexRef = useRef(0)
+  const focusIndexRef = useRef(-1)
   const closeContextMenu = useCallback(() => setContextMenu(null), [])
   const closeContextMenuAndRestoreFocus = useCallback(() => {
     const closingMenu = contextMenu
@@ -88,7 +88,12 @@ export function useWorkspaceContextMenu({
     const point = isCompactViewport()
       ? mobileActionMenuPoint(rect, estimatedHeight, undefined, MOBILE_PROJECT_CONTEXT_MENU_WIDTH)
       : outwardContextMenuPoint(rect, estimatedHeight)
-    setContextMenu({ kind: 'project', projectId, ...point })
+    setContextMenu({
+      kind: 'project',
+      projectId,
+      ...point,
+      focusFirstItem: isKeyboardMenuTrigger(event),
+    })
   }, [projects])
 
   const openAgentSessionMenu = useCallback((event: WorkspaceContextMenuTriggerEvent, provider: string, sessionId: string) => {
@@ -136,7 +141,9 @@ export function useWorkspaceContextMenu({
     if (event.key === 'Tab') {
       event.preventDefault()
       event.stopPropagation()
-      const nextIndex = currentIndex + (event.shiftKey ? -1 : 1)
+      const nextIndex = currentIndex === -1
+        ? (event.shiftKey ? buttons.length - 1 : 0)
+        : currentIndex + (event.shiftKey ? -1 : 1)
       if (nextIndex < 0 || nextIndex >= buttons.length) {
         closeContextMenuAndRestoreFocus()
         return true
@@ -145,7 +152,10 @@ export function useWorkspaceContextMenu({
     }
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       const direction = event.key === 'ArrowDown' ? 1 : -1
-      return focusMenuButton((currentIndex + direction + buttons.length) % buttons.length)
+      const nextIndex = currentIndex === -1
+        ? (direction > 0 ? 0 : buttons.length - 1)
+        : (currentIndex + direction + buttons.length) % buttons.length
+      return focusMenuButton(nextIndex)
     }
     if (event.key === 'Home' || event.key === 'End') {
       return focusMenuButton(event.key === 'Home' ? 0 : buttons.length - 1)
@@ -179,7 +189,8 @@ export function useWorkspaceContextMenu({
   useLayoutEffect(() => {
     if (!contextMenu) return
     userNavigatedRef.current = false
-    focusIndexRef.current = 0
+    focusIndexRef.current = -1
+    if (contextMenu.kind === 'project' && !contextMenu.focusFirstItem) return
     return scheduleFocusRetries(() => {
       if (userNavigatedRef.current) return
       const menu = contextMenuRef.current
