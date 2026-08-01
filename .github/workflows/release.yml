@@ -9,6 +9,7 @@ on:
         type: string
 
 permissions:
+  actions: read
   contents: write
 
 jobs:
@@ -70,6 +71,39 @@ jobs:
               exit 1
             fi
           fi
+
+      - name: Require successful CI for candidate revision
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          ci_run_id=""
+          for attempt in {1..30}; do
+            ci_run_id="$(
+              gh run list \
+                --repo "${GITHUB_REPOSITORY}" \
+                --workflow ci.yml \
+                --commit "${GITHUB_SHA}" \
+                --event push \
+                --limit 1 \
+                --json databaseId \
+                --jq '.[0].databaseId // empty'
+            )"
+            if [[ -n "${ci_run_id}" ]]; then
+              break
+            fi
+            if [[ "${attempt}" -eq 30 ]]; then
+              echo "No push CI run found for release candidate ${GITHUB_SHA}." >&2
+              exit 1
+            fi
+            sleep 10
+          done
+
+          echo "Release candidate is gated by CI run ${ci_run_id} for ${GITHUB_SHA}."
+          gh run watch "${ci_run_id}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --exit-status \
+            --interval 10
 
   build-linux:
     name: Build Linux artifacts

@@ -46,7 +46,7 @@ preserved in bundled `node_modules` when bundled dependencies are enabled.
 | `remark-gfm` | 4.0.1 | MIT | GitHub Flavored Markdown support |
 | `remark-math` | 6.0.0 | MIT | Markdown math syntax support |
 | `ripgrep` | 0.3.1 | MIT | Node wrapper for file search support |
-| `tar` | 7.5.19 | BlueOak-1.0.0 | Safe extraction of version-locked startup dependency archives |
+| `tar` | 7.5.22 | BlueOak-1.0.0 | Safe extraction of version-locked startup dependency archives |
 | `ws` | 8.21.0 | MIT | WebSocket server/client support |
 | `yaml` | 2.9.0 | ISC | YAML parsing |
 | `zod` | 3.25.76 | MIT | MCP tool input schema validation |

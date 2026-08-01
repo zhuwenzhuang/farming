@@ -651,7 +651,7 @@ CRT 皮肤效果开关存储在 `~/.farming/settings.json` 的 `crtSkinEffectsEn
 **公开版本发布前门禁：**
 
 - 从干净 worktree 开始。创建新 release tag 前必须同时更新 `package.json` 和 `package-lock.json` 版本号；不得移动或复用已有 `vX.Y.Z` tag。
-- 先跑快速源码检查：`npm test`、`npm run typecheck`、`npm run lint` 和 `FARMING_BASE_PATH=/farming npm run build`。
+- 先跑快速源码检查：`npm test`、`npm run typecheck`、`npm run lint`、`npm audit --omit=dev` 和 `FARMING_BASE_PATH=/farming npm run build`。
 - 对本次改动涉及的 UI 面跑聚焦 Playwright；迭代中优先小而快的浏览器检查，只有变更面足够大时再扩大验证。
 - 每个 Release Candidate 在聚焦的确定性浏览器检查通过后，都必须运行一次 `npm run test:pre-release:codex-ui`。这个真实 Codex 跨皮肤复合 Case 是发布阻断项，必须保存与 Revision 绑定的结果和 Artifact；具体见 `docs/products/code/real-codex-release-case.zh_cn.md`。
 - 每个 Release Candidate 都必须运行一次 `npm run test:pre-release:terminal-input`。这个确定性的 Loopback Gate 会切换已有 Agent、通过 xterm 连续输入和删除、拒绝由切换触发的完整 `state` Payload、要求已聚焦 Terminal 的 Preview 保持紧凑，并将按键到 PTY Output 的 p95 限制在 250 ms 以内。保存与 Revision 绑定的结果；失败时保留 Trace。远端 Dogfood 仍须单独做真人式 Smoke，不能用网络基准替代它。
@@ -667,6 +667,7 @@ CRT 皮肤效果开关存储在 `~/.farming/settings.json` 的 `crtSkinEffectsEn
 - release 产物必须通过仓库 release 脚本或 GitHub release workflow 构建，不得提交生成出来的 bundle。
 - 守住打包依赖：凡是改到打包相关文件时，必须和上一版 package contents 或 manifest 对比，避免用户升级后缺 production dependency、native asset、runtime file 或 install script。
 - 对构建出的 CLI/app bundle 产物跑 smoke；不能只验证源码 checkout。
+- push release commit 后，发布前必须确认该精确 Revision 的 `CI` workflow 全部成功。任何 failed CI 都必须先解决；Release workflow 显示绿色不能替代失败的 CI。Release workflow 必须等待该 Revision 对应的 CI 结果，并在 CI 未成功时阻断发布。
 - 先 push release commit，再 push 新 `vX.Y.Z` tag；随后观察 GitHub Release workflow，确认 Linux/macOS 产物、checksum、manifest，以及使用 `release-notes/vX.Y.Z.md` 的 GitHub Release 页面都生成后，才算发布完成。
 
 ### 配置项说明

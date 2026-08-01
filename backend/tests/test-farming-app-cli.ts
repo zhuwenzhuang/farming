@@ -1178,6 +1178,19 @@ async function runTests() {
     assert(stagedReleaseJob.includes('git push origin "refs/tags/${RELEASE_TAG}"'));
     assert(releaseWorkflowSource.includes('gh release edit "${tag}" --repo "${GITHUB_REPOSITORY}" --draft=false'));
     const releaseWorkflow = YAML.parse(releaseWorkflowSource);
+    assert.deepStrictEqual(releaseWorkflow.permissions, { actions: 'read', contents: 'write' });
+    const releaseCiGate = releaseWorkflow.jobs.preflight.steps.find(
+      step => step.name === 'Require successful CI for candidate revision',
+    );
+    assert(releaseCiGate, 'release preflight must require CI for the exact candidate revision');
+    assert.strictEqual(releaseCiGate.env.GH_TOKEN, '${{ github.token }}');
+    assert(
+      releaseCiGate.run.includes('--workflow ci.yml')
+        && releaseCiGate.run.includes('--commit "${GITHUB_SHA}"')
+        && releaseCiGate.run.includes('gh run watch "${ci_run_id}"')
+        && releaseCiGate.run.includes('--exit-status'),
+      'release preflight must find and fail closed on the candidate revision CI run',
+    );
     assert.deepStrictEqual(releaseWorkflow.jobs['publish-npm'].needs, ['build-linux', 'build-macos']);
     assert.deepStrictEqual(releaseWorkflow.jobs['stage-release'].needs, ['publish-npm']);
     assert.deepStrictEqual(releaseWorkflow.jobs['publish-github-release'].needs, ['stage-release']);
