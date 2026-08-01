@@ -144,10 +144,10 @@ const path = require('path');
   assert(
     blackHoleRendererSource.includes('uniform float uFilamentDetail;')
       && blackHoleRendererSource.includes(
-        'clamp((requestedSize / DISPLAY_CAP - 1) / 0.5, 0, 1)',
+        'const divisor = Math.max(1, Math.ceil(idealDevice / DISPLAY_CAP))',
       )
       && blackHoleRendererSource.includes(
-        'filamentDetail = mix(0.68, 0.52, cappedScale)',
+        'filamentDetail = divisor > 1 ? 0.5 : 0.65',
       )
       && blackHoleRendererSource.includes(
         'gl.uniform1f(filamentDetailUniform, filamentDetail)',
@@ -193,19 +193,21 @@ const path = require('path');
       && blackHoleRendererSource.includes('float edge = fieldFade(pointLength);')
       && blackHoleRendererSource.includes('pointLength / (7.0 * horizon)')
       && blackHoleRendererSource.includes('radius >= ${FIELD_OUTER.toFixed(2)}')
-      && blackHoleRendererSource.includes('outColor = scene(samplePixel);'),
+      && blackHoleRendererSource.includes('outColor = encodeSrgb(textureGrad('),
     'the lifecycle should exclude the pure-black state without weakening the full background UI lensing field',
   )
   assert(
     !blackHoleRendererSource.includes('workAreaShield')
-      && !blackHoleRendererSource.includes('uniform float uPixelRatio;')
+      && blackHoleRendererSource.includes('uniform float uPixelRatio;')
       && blackHoleRendererSource.includes('* uScale * uOpacity;')
-      && blackHoleRendererSource.includes('outColor = original;'),
+      && blackHoleRendererSource.includes(
+        'outColor = encodeSrgb(texture(uScene, sceneUv(fragment)));',
+      ),
     'the compositor should preserve full-screen background lensing without a protected bottom band',
   )
   assert(
     blackHoleRendererSource.includes(
-      'float shadowPixel = max(0.004, 1.25 * projection / uResolution.x);',
+      'float shadowPixel = max(0.004, 1.25 * projection / effectiveResolution);',
     )
       && blackHoleRendererSource.includes('float shadowCoverage =')
       && blackHoleRendererSource.includes(
@@ -276,8 +278,19 @@ const path = require('path');
     'the displacement map should retain the full smooth field without a second blur control',
   )
   assert(
-    blackHoleRendererSource.includes("canvas.dataset.sceneSampling = 'single-trilinear'"),
-    'the production compositor should use one mipmapped scene sample after displacement',
+    blackHoleRendererSource.includes('textureGrad(')
+      && blackHoleRendererSource.includes("gl.getExtension('EXT_texture_filter_anisotropic')")
+      && blackHoleRendererSource.includes('gl.SRGB8_ALPHA8')
+      && blackHoleRendererSource.includes('gl.LINEAR_MIPMAP_LINEAR'),
+    'the production compositor should filter the sRGB plate in linear light with an anisotropic mapping footprint',
+  )
+  assert(
+    blackHoleRendererSource.includes('premultipliedAlpha: true')
+      && !blackHoleRendererSource.includes('RENDER_SCALE')
+      && blackHoleRendererSource.includes('uniform float uFieldScale;')
+      && blackHoleRendererSource.includes('canvasCssSize: () => number')
+      && blackHoleRendererSource.includes('canvas.style.transform ='),
+    'the disk should composite premultiplied radiance and move on an exact-ratio backing store without per-frame layout',
   )
   assert(
     blackHoleMapShaderSource.includes('sourcePoint = mix(tracedSourcePoint, farSourcePoint, farMix)'),
@@ -397,9 +410,14 @@ const path = require('path');
       "body.code-mode[data-appearance='light'] .code-pet-black-hole-canvas",
     )
       && mainCssSource.includes('brightness(0.84)')
-      && mainCssSource.includes('saturate(1.28)')
-      && mainCssSource.includes('drop-shadow(0 8px 20px rgba(8, 10, 9, 0.28))'),
+      && mainCssSource.includes('saturate(1.28)'),
     'the light appearance should retain a defined body silhouette without changing the dark preset',
+  );
+  assert(
+    mainCssSource.includes('will-change: transform, opacity;')
+      && !mainCssSource.includes('drop-shadow(0 7px 16px rgba(8, 10, 9, 0.16))')
+      && !mainCssSource.includes('drop-shadow(0 8px 20px rgba(8, 10, 9, 0.28))'),
+    'the moving disk should stay on the compositor and avoid a full-canvas blur pass',
   );
 
   const settingsSource = fs.readFileSync(

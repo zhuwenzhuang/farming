@@ -21,7 +21,6 @@ const SCENE_CAPTURE_TARGET_SCALE = 2.5
 const SCENE_CAPTURE_MAX_PIXELS = 20_000_000
 const SCENE_CAPTURE_MAX_DIMENSION = 8_192
 const DISPLAY_CAP = 1792
-const RENDER_SCALE = 1.25
 const INTRO_SECONDS = 15
 const MIDDLE_CYCLE_SECONDS = 90
 export const BLACK_HOLE_EXIT_SECONDS = 15
@@ -129,6 +128,7 @@ uniform float uMass;
 uniform float uDiskFeed;
 uniform float uHawking;
 uniform float uFinalBurst;
+uniform float uFieldScale;
 out vec4 outColor;
 
 ${SHARED_SHADER}
@@ -154,7 +154,7 @@ vec4 evaporation(vec2 point, float baseHorizon, float horizon) {
   float heat = clamp(uHawking, 0.0, 1.0);
   float release = clamp(uFinalBurst, 0.0, 1.0);
   float distanceFromCenter = length(point);
-  float pixel = 1.5 / uResolution.x;
+  float pixel = 1.5 / (uResolution.x * uFieldScale);
   float q = distanceFromCenter / max(horizon, baseHorizon * 0.018);
   float heatEnvelope = smoother(heat / 0.10) * (1.0 - smoother(release));
   vec3 heatColor = mix(
@@ -210,7 +210,8 @@ vec4 evaporation(vec2 point, float baseHorizon, float horizon) {
 
 void main() {
   vec2 uv = vec2(gl_FragCoord.x, uResolution.y - gl_FragCoord.y) / uResolution;
-  vec2 point = uv - 0.5;
+  vec2 point = (uv - 0.5) / uFieldScale;
+  float effectiveResolution = uResolution.x * uFieldScale;
   float pointLength = length(point);
   float baseHorizon = ${(SHADOW_PX / DISPLAY_SIZE).toFixed(8)};
   float horizon = baseHorizon * max(uMass, 0.015);
@@ -340,7 +341,7 @@ void main() {
 
   if (!captured && dot(position, position) < 4.0) captured = true;
   vec3 starColor = vec3(0.0);
-  float shadowPixel = max(0.004, 1.25 * projection / uResolution.x);
+  float shadowPixel = max(0.004, 1.25 * projection / effectiveResolution);
   float shadowCoverage =
     1.0 - smoothstep(B_CRIT - shadowPixel, B_CRIT + shadowPixel, impact);
   float tracedCapture = captured ? 1.0 : 0.0;
@@ -487,34 +488,70 @@ uniform vec2 uResolution;
 uniform vec2 uCenter;
 uniform float uScale;
 uniform float uOpacity;
+uniform float uPixelRatio;
 uniform sampler2D uScene;
 uniform sampler2D uHigh;
 uniform sampler2D uLow;
 out vec4 outColor;
 
-vec4 scene(vec2 pixel) {
-  vec2 uv = clamp(pixel / uResolution, vec2(0.0), vec2(1.0));
-  return texture(uScene, uv);
+vec2 sceneUv(vec2 pixel) {
+  return clamp(pixel / uResolution, vec2(0.0), vec2(1.0));
+}
+
+vec2 lensDisplacement(vec2 relative) {
+  vec2 mapUv = relative / (${FILTER_SIZE.toFixed(1)} * uScale) + 0.5;
+  vec2 packed = texture(uHigh, mapUv).rg * 255.0 * 256.0
+    + texture(uLow, mapUv).rg * 255.0;
+  vec2 displacement =
+    (packed / 65535.0 - 0.5) * ${MAP_SCALE.toFixed(1)} * uScale * uOpacity;
+  return vec2(displacement.x, -displacement.y);
+}
+
+vec4 encodeSrgb(vec4 linear) {
+  vec3 low = linear.rgb * 12.92;
+  vec3 high = 1.055 * pow(max(linear.rgb, vec3(0.0)), vec3(1.0 / 2.4)) - 0.055;
+  return vec4(
+    mix(high, low, step(linear.rgb, vec3(0.0031308))),
+    linear.a
+  );
 }
 
 void main() {
   vec2 fragment = gl_FragCoord.xy;
-  vec4 original = scene(fragment);
   vec2 relative = fragment - uCenter;
   float radius = length(relative) / (${DISPLAY_SIZE.toFixed(1)} * uScale);
   if (radius >= ${FIELD_OUTER.toFixed(2)} || uOpacity <= 0.001) {
-    outColor = original;
+    outColor = encodeSrgb(texture(uScene, sceneUv(fragment)));
     return;
   }
-  vec2 mapUv = relative / (${FILTER_SIZE.toFixed(1)} * uScale) + 0.5;
-  vec4 high = texture(uHigh, mapUv);
-  vec4 low = texture(uLow, mapUv);
-  vec2 packed = high.rg * 255.0 * 256.0 + low.rg * 255.0;
-  vec2 displacement =
-    (packed / 65535.0 - 0.5) * ${MAP_SCALE.toFixed(1)} * uScale * uOpacity;
-  displacement.y = -displacement.y;
+
+  vec2 displacement = lensDisplacement(relative);
   vec2 samplePixel = fragment + displacement;
-  outColor = scene(samplePixel);
+
+  // The lens field is radial, so one forward sample reconstructs both axes of
+  // its local mapping footprint without four extra displacement-map lookups.
+  float pixels = max(length(relative), 1.0);
+  vec2 radial = relative / pixels;
+  vec2 tangent = vec2(-radial.y, radial.x);
+  float stride = max(1.0, uPixelRatio);
+  float delta = dot(displacement, radial);
+  float deltaAhead = dot(
+    lensDisplacement(relative + radial * stride),
+    radial
+  );
+  float radialScale = 1.0 + (deltaAhead - delta) / stride;
+  float tangentScale = 1.0 + delta / pixels;
+  vec2 dSdx =
+    radialScale * radial.x * radial + tangentScale * tangent.x * tangent;
+  vec2 dSdy =
+    radialScale * radial.y * radial + tangentScale * tangent.y * tangent;
+
+  outColor = encodeSrgb(textureGrad(
+    uScene,
+    sceneUv(samplePixel),
+    dSdx / uResolution,
+    dSdy / uResolution
+  ));
 }`
 
 interface BlackHoleRendererElements {
@@ -586,6 +623,7 @@ interface DisplayRenderer {
     evaporation: EvaporationState,
   ) => void
   resize: (cssSize: number) => void
+  canvasCssSize: () => number
   destroy: () => void
 }
 
@@ -634,10 +672,12 @@ function createDisplayRenderer(canvas: HTMLCanvasElement): DisplayRenderer {
   const preserveForVisualRegression = Boolean((
     window as Window & { __FARMING_E2E__?: boolean }
   ).__FARMING_E2E__)
+  // DISPLAY_SHADER already weights emitted radiance by coverage. Asking the
+  // browser to premultiply it again would dim low-opacity disks twice.
   const glContext = canvas.getContext('webgl2', {
     alpha: true,
     antialias: false,
-    premultipliedAlpha: false,
+    premultipliedAlpha: true,
     powerPreference: 'high-performance',
     preserveDrawingBuffer: preserveForVisualRegression,
   })
@@ -668,8 +708,11 @@ function createDisplayRenderer(canvas: HTMLCanvasElement): DisplayRenderer {
   const diskFeed = gl.getUniformLocation(program, 'uDiskFeed')
   const hawking = gl.getUniformLocation(program, 'uHawking')
   const finalBurst = gl.getUniformLocation(program, 'uFinalBurst')
+  const fieldScaleUniform = gl.getUniformLocation(program, 'uFieldScale')
   let renderSize = 0
-  let filamentDetail = 0.68
+  let cssCanvasSize = 0
+  let fieldScale = 1
+  let filamentDetail = 0.65
   let verificationPixels = new Uint8Array()
   let nextVerificationAt = 0
   let maximumVerificationInkPixels = 0
@@ -713,22 +756,30 @@ function createDisplayRenderer(canvas: HTMLCanvasElement): DisplayRenderer {
   return {
     resize(cssSize) {
       const pixelRatio = Math.min(2, Math.max(1, window.devicePixelRatio || 1))
-      const requestedSize = Math.max(
-        512,
-        Math.round(cssSize * pixelRatio * RENDER_SCALE),
+      const idealDevice = Math.max(512, Math.round(cssSize * pixelRatio))
+      // Keep the backing-to-CSS ratio at exactly 1/n. The field breathes inside
+      // a coarse allocation so the browser never applies a drifting resampler.
+      const divisor = Math.max(1, Math.ceil(idealDevice / DISPLAY_CAP))
+      const step = 64
+      const backing = Math.min(
+        DISPLAY_CAP,
+        Math.ceil(idealDevice / divisor / step) * step,
       )
-      const exact = Math.min(DISPLAY_CAP, requestedSize)
-      const nextSize = Math.round(exact / 16) * 16
-      const cappedScale = smoother(
-        clamp((requestedSize / DISPLAY_CAP - 1) / 0.5, 0, 1),
-      )
-      filamentDetail = mix(0.68, 0.52, cappedScale)
-      canvas.style.width = `${cssSize}px`
-      canvas.style.height = `${cssSize}px`
-      if (renderSize === nextSize) return
-      renderSize = nextSize
-      canvas.width = nextSize
-      canvas.height = nextSize
+      const nextCssSize = (backing * divisor) / pixelRatio
+      fieldScale = clamp(cssSize / nextCssSize, 0.05, 1)
+      filamentDetail = divisor > 1 ? 0.5 : 0.65
+      if (cssCanvasSize !== nextCssSize) {
+        cssCanvasSize = nextCssSize
+        canvas.style.width = `${nextCssSize}px`
+        canvas.style.height = `${nextCssSize}px`
+      }
+      if (renderSize === backing) return
+      renderSize = backing
+      canvas.width = backing
+      canvas.height = backing
+    },
+    canvasCssSize() {
+      return cssCanvasSize
     },
     draw(clock, alpha, look, evaporation) {
       resolveGpuQueries()
@@ -756,6 +807,7 @@ function createDisplayRenderer(canvas: HTMLCanvasElement): DisplayRenderer {
       gl.uniform1f(diskFeed, evaporation.diskFeed)
       gl.uniform1f(hawking, evaporation.hawking)
       gl.uniform1f(finalBurst, evaporation.burst)
+      gl.uniform1f(fieldScaleUniform, fieldScale)
       gl.clearColor(0, 0, 0, 0)
       gl.clear(gl.COLOR_BUFFER_BIT)
       const gpuQuery = gpuTimer && pendingGpuQueries.length < 8
@@ -789,8 +841,9 @@ function createDisplayRenderer(canvas: HTMLCanvasElement): DisplayRenderer {
         )
         const centerX = canvas.width / 2
         const centerY = canvas.height / 2
-        const innerRadius = Math.min(canvas.width, canvas.height) * 0.09
-        const outerRadius = Math.min(canvas.width, canvas.height) * 0.49
+        const fieldSize = Math.min(canvas.width, canvas.height) * fieldScale
+        const innerRadius = fieldSize * 0.09
+        const outerRadius = fieldSize * 0.49
         const sectors = new Uint16Array(48)
         let inkPixels = 0
         for (let y = 0; y < canvas.height; y += 2) {
@@ -1029,7 +1082,15 @@ function createCompositorRenderer(
   const center = gl.getUniformLocation(program, 'uCenter')
   const scale = gl.getUniformLocation(program, 'uScale')
   const opacity = gl.getUniformLocation(program, 'uOpacity')
+  const pixelRatioUniform = gl.getUniformLocation(program, 'uPixelRatio')
   const textures: WebGLTexture[] = []
+  const anisotropic = gl.getExtension('EXT_texture_filter_anisotropic')
+  const maxAnisotropy = anisotropic
+    ? Math.min(
+        4,
+        gl.getParameter(anisotropic.MAX_TEXTURE_MAX_ANISOTROPY_EXT) as number,
+      )
+    : 0
 
   const texture = (unit: number, source: TexImageSource) => {
     const result = gl.createTexture()
@@ -1077,15 +1138,25 @@ function createCompositorRenderer(
   ) => {
     gl.activeTexture(gl.TEXTURE0 + unit)
     gl.bindTexture(gl.TEXTURE_2D, target)
+    // Decode sRGB before mipmap/anisotropic filtering; COMPOSITOR_SHADER
+    // encodes the resulting linear color for the canvas again.
     gl.texImage2D(
       gl.TEXTURE_2D,
       0,
-      gl.RGBA,
+      gl.SRGB8_ALPHA8,
       gl.RGBA,
       gl.UNSIGNED_BYTE,
       image,
     )
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+    if (anisotropic && maxAnisotropy > 1) {
+      gl.texParameterf(
+        gl.TEXTURE_2D,
+        anisotropic.TEXTURE_MAX_ANISOTROPY_EXT,
+        maxAnisotropy,
+      )
+    }
     gl.generateMipmap(gl.TEXTURE_2D)
   }
 
@@ -1114,7 +1185,10 @@ function createCompositorRenderer(
       canvas.dataset.captureHeight = image instanceof HTMLCanvasElement
         ? String(image.height)
         : ''
-      canvas.dataset.sceneSampling = 'single-trilinear'
+      canvas.dataset.sceneSampling = maxAnisotropy > 1
+        ? 'radial-gradient-anisotropic'
+        : 'radial-gradient-trilinear'
+      canvas.dataset.sceneAnisotropy = String(maxAnisotropy)
       canvas.dataset.excludedPetElements = image instanceof HTMLCanvasElement
         ? (image.dataset.excludedPetElements ?? '')
         : ''
@@ -1148,6 +1222,7 @@ function createCompositorRenderer(
       )
       gl.uniform1f(scale, pose.scale * pose.mass * pixelRatio)
       gl.uniform1f(opacity, pose.lensOpacity)
+      gl.uniform1f(pixelRatioUniform, pixelRatio)
       gl.drawArrays(gl.TRIANGLES, 0, 3)
     },
     destroy() {
@@ -1626,11 +1701,11 @@ export function createBlackHolePetRenderer({
   const applyPose = (pose: Pose) => {
     const pixelRatio = Math.min(2, Math.max(1, window.devicePixelRatio || 1))
     const snap = (value: number) => Math.round(value * pixelRatio) / pixelRatio
-    const size = snap(DISPLAY_SIZE * pose.scale)
-    canvas.style.left = `${snap(pose.centerX - size / 2)}px`
-    canvas.style.top = `${snap(pose.centerY - size / 2)}px`
+    display.resize(DISPLAY_SIZE * pose.scale)
+    const size = display.canvasCssSize()
+    canvas.style.transform =
+      `translate3d(${snap(pose.centerX - size / 2)}px, ${snap(pose.centerY - size / 2)}px, 0)`
     canvas.style.opacity = String(pose.bodyOpacity)
-    display.resize(size)
   }
 
   function frame(now: number) {

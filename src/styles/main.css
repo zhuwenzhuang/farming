@@ -4142,8 +4142,9 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
 
 .code-pet-black-hole-canvas {
   z-index: 221;
-  will-change: left, top, width, height, opacity;
-  filter: drop-shadow(0 7px 16px rgba(8, 10, 9, 0.16));
+  top: 0;
+  left: 0;
+  will-change: transform, opacity;
 }
 
 body.code-mode[data-appearance='light'] .code-pet-black-hole-compositor {
@@ -4154,9 +4155,7 @@ body.code-mode[data-appearance='light'] .code-pet-black-hole-canvas {
   filter:
     brightness(0.84)
     contrast(1.08)
-    saturate(1.28)
-    drop-shadow(0 8px 20px rgba(8, 10, 9, 0.28))
-    drop-shadow(0 0 1px rgba(8, 10, 9, 0.24));
+    saturate(1.28);
 }
 
 .code-pet-black-hole-status {
