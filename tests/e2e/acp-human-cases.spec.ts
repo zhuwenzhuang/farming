@@ -181,11 +181,6 @@ test.describe('ACP human-like browser matrix', () => {
       },
     }))
     await openFarming(page)
-    await expect.poll(async () => {
-      const response = await page.request.get('/farming/api/control/agents')
-      const body = await response.json() as { mainAgentId?: string | null }
-      return body.mainAgentId ?? ''
-    }, { timeout: 30_000 }).not.toBe('')
 
     await page.getByTestId('code-new-agent').click()
     await expect(page.getByTestId('input-dialog')).toBeVisible()

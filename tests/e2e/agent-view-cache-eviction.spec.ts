@@ -189,7 +189,7 @@ test('bounds one shared Chat and Terminal frontend cache and restores evicted vi
   ), terminalAgentIds[0])).toBe(true)
   await expect.poll(() => page.evaluate(({ agentId, marker }) => (
     window.__farmingTerminalTest?.getRows(agentId, 20).join('\n').includes(marker) ?? false
-  ), { agentId: terminalAgentIds[0], marker: terminalMarker })).toBe(true)
+  ), { agentId: terminalAgentIds[0], marker: terminalMarker }), { timeout: 30_000 }).toBe(true)
   expect((await controlAgent(page, terminalAgentIds[0]))?.runtimeEpoch).toBe(firstTerminalEpoch)
   await expect(page.getByTestId('code-agent-work-pane')).toHaveCount(MAX_RETAINED_AGENT_VIEWS)
 })

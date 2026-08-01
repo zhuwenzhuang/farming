@@ -769,11 +769,16 @@ export function App() {
     const agentId = ws.lastStartedAgentId
     const pending = pendingStartRef.current
     if (!agentId || !pending || pending.beforeIds.has(agentId)) return
+    const startedAgent = ws.agents.find(agent => agent.id === agentId)
+    // The hidden Main Agent can finish while the New Agent dialog is waiting
+    // for a user-requested launch. Its shared agent-started event must not
+    // consume that pending launch or steal focus from the requested Agent.
+    if (!startedAgent || startedAgent.isMain || agentId === ws.mainAgentId) return
 
     pendingStartRef.current = null
     setDialog('none')
     requestTerminalOpen(agentId)
-  }, [requestTerminalOpen, ws.lastStartedAgentId])
+  }, [requestTerminalOpen, ws.agents, ws.lastStartedAgentId, ws.mainAgentId])
 
   const handleForkAgent = useCallback(async (
     agentId: string,
