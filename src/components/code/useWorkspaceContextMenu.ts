@@ -17,7 +17,7 @@ const MOBILE_PROJECT_CONTEXT_MENU_WIDTH = 286
 
 export type WorkspaceContextMenu =
   | { kind: 'agent'; agentId: string; x: number; y: number }
-  | { kind: 'project'; projectId: string; x: number; y: number; focusFirstItem: boolean }
+  | { kind: 'project'; projectId: string; x: number; y: number }
   | { kind: 'agent-session'; provider: string; sessionId: string; x: number; y: number }
   | { kind: 'options'; x: number; y: number; returnFocusTarget: HTMLElement | null }
 
@@ -92,7 +92,6 @@ export function useWorkspaceContextMenu({
       kind: 'project',
       projectId,
       ...point,
-      focusFirstItem: isKeyboardMenuTrigger(event),
     })
   }, [projects])
 
@@ -190,7 +189,6 @@ export function useWorkspaceContextMenu({
     if (!contextMenu) return
     userNavigatedRef.current = false
     focusIndexRef.current = -1
-    if (contextMenu.kind === 'project' && !contextMenu.focusFirstItem) return
     return scheduleFocusRetries(() => {
       if (userNavigatedRef.current) return
       const menu = contextMenuRef.current

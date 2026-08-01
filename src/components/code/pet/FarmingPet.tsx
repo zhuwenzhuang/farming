@@ -237,7 +237,7 @@ function petCopy(language: UiLanguage) {
       const breakMinutes = restReminderBreakMinutes(intervalSeconds)
       return zh
         ? <>已连续操作 Farming {formatActivityInterval(language, intervalSeconds)}。<br />暂停操作 <strong className="code-pet-countdown">{countdownSeconds} 秒</strong>后，开始 {breakMinutes} 分钟休息。</>
-        : <>Used Farming continuously for {formatActivityInterval(language, intervalSeconds)}.<br />Pause <strong className="code-pet-countdown">{countdownSeconds} sec</strong> for a {breakMinutes} min break.</>
+        : <>Farming has been active for {formatActivityInterval(language, intervalSeconds)}.<br />Pause <strong className="code-pet-countdown">{countdownSeconds} sec</strong> for a {breakMinutes} min break.</>
     },
     cancelBreak: zh ? '取消' : 'Cancel',
     snooze: zh ? `${REST_REMINDER_SNOOZE_MINUTES} 分钟后` : `In ${REST_REMINDER_SNOOZE_MINUTES} min`,

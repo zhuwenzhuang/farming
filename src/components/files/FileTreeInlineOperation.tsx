@@ -35,10 +35,18 @@ export function FileTreeInlineOperation({
   useLayoutEffect(() => {
     const input = inputRef.current
     if (!input) return
-    input.focus({ preventScroll: true })
-    if (document.activeElement === input) {
-      input.setSelectionRange(0, workspaceFileOperationSelectionEnd(fileOperationRef.current))
+    const focusAndSelectName = () => {
+      input.focus({ preventScroll: true })
+      if (document.activeElement === input) {
+        input.setSelectionRange(0, workspaceFileOperationSelectionEnd(fileOperationRef.current))
+      }
     }
+    focusAndSelectName()
+    // react-arborist restores focus after the row changes into its inline
+    // editor. Reclaim it on the next frame so the rename field, rather than
+    // the hidden tree focus target, owns the keyboard and selection.
+    const frame = requestAnimationFrame(focusAndSelectName)
+    return () => cancelAnimationFrame(frame)
   }, [fileOperation.item?.path, inputRef])
 
   return (

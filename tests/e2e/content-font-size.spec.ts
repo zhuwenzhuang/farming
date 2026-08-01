@@ -36,6 +36,7 @@ test('Farming Code changes only readable content and persists its own size', asy
   const systemFontSize = await systemButton.evaluate(element => getComputedStyle(element).fontSize)
 
   await range.fill('18')
+  await range.blur()
 
   await expect(page.locator('body')).toHaveAttribute('data-code-content-font-size', '18')
   await expect(terminalHost).toHaveAttribute('data-terminal-font-size', '16')

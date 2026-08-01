@@ -1588,9 +1588,10 @@ function ProjectSection({
     }
 
     const rect = event.currentTarget.getBoundingClientRect()
-    const menuWidth = 194
+    const compact = isCompactViewport()
+    const menuWidth = compact ? 190 : 194
     const menuHeight = Math.min(260, agentLaunchOptions.length * 34 + 12)
-    const point = isCompactViewport()
+    const point = compact
       ? mobileActionMenuPoint(rect, menuHeight, undefined, menuWidth)
       : outwardContextMenuPoint(rect, menuHeight, undefined, menuWidth)
     setLaunchMenu(point)

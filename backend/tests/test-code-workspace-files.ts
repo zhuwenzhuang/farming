@@ -1189,11 +1189,13 @@ function run() {
   );
 
   assert(
-    workspaceSource.includes('projectFilesWorkspaceId(target.homePath)') &&
-      workspaceSource.includes('await openProjectFile(projectFilesWorkspaceId(target.homePath), file, { revealInTree: true })') &&
+    workspaceSource.includes('workspaceOpenFiles.openFromRead(target.rootId, file, {') &&
+      workspaceSource.includes('workspaceRoot: target.homePath') &&
+      workspaceSource.includes('openWorkspaceFiles.forEach(file => ids.add(file.agentId))') &&
+      !workspaceSource.includes('await openProjectFile(projectFilesWorkspaceId(target.homePath), file, { revealInTree: true })') &&
       workspaceSource.includes('identity = resolveWorkspaceFileIdentity(projectFilesWorkspaceId(mountedWorkspace), target?.sourceAgentId)') &&
       codeMainAreaSource.includes('onOpenAgentHomeConfiguration: (target: AgentHomeFileTarget) => void'),
-    'Agent Home configuration should mount the Home as a canonical Project and reveal the file through the normal Project Files editor path'
+    'Agent Home configuration should preserve its exact authorized root identity without mounting a missing Home as an unrelated Project'
   );
 
   assert(

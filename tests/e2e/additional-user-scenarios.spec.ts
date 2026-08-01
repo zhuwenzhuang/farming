@@ -907,7 +907,7 @@ test.describe('additional Farming Code user scenarios', () => {
       await expect(menu).toBeVisible()
       await expect(menu.getByRole('menuitem', { name: 'Chat' })).toHaveCount(0)
       await expect(menu.getByRole('menuitem', { name: 'Terminal' })).toHaveCount(0)
-      await expect(menu.getByRole('menuitem', { name: 'Share page' })).toBeVisible()
+      await expect(menu.getByRole('menuitem', { name: 'Share current page' })).toBeVisible()
       await expect(menu).not.toContainText('Settings')
       await expect(menu).not.toContainText('Language')
       await expectMenuFitsViewport(page, 'code-options-menu')

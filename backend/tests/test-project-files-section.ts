@@ -551,9 +551,12 @@ function run() {
       fileFocusHookSource.includes('const retryTimeoutId = window.setTimeout(() => {') &&
       fileFocusHookSource.includes('fileTreeRevealTimeoutsRef.current.push(retryTimeoutId)') &&
       fileFocusHookSource.includes('const queueRevealFrame = (callback: () => void) =>') &&
+	      fileFocusHookSource.includes('const FILE_TREE_REVEAL_STABILITY_DELAYS = [240, 600, 1200]') &&
+	      fileFocusHookSource.includes('FILE_TREE_REVEAL_STABILITY_DELAYS.forEach(delay => {') &&
 	      fileSectionControllerHookSource.includes('void revealExplorerPath(revealRequest.path, revealRequest.kind)') &&
 	      !fileSectionSource.includes('void revealExplorerPath(revealRequest.path, revealRequest.kind)') &&
-      fileFocusHookSource.includes('if (focusRow && !treePositionRequested) {') &&
+      fileFocusHookSource.includes('if (focusRow) tree?.get(filePath)?.select()') &&
+      fileFocusHookSource.includes('if (focusRow && !rowRendered) {') &&
       fileFocusHookSource.includes('tree?.get(filePath)?.select()') &&
       fileFocusHookSource.includes("tree?.scrollTo(filePath, emphasizeLocation ? 'start' : 'smart')") &&
       fileSectionSource.includes('const fileOperationActiveRef = useRef(false)') &&
@@ -567,6 +570,7 @@ function run() {
       fileViewModelSource.includes('function workspaceFileTreeFocusTargetPath') &&
       fileFocusHookSource.includes("if (shouldFocusTree) focusWithoutScrolling(row.closest<HTMLElement>('[role=\"tree\"]'))") &&
       fileFocusHookSource.includes('scrollFileTreeToPath(visibleTargetPath, true, openTargetDirectory)') &&
+	      fileFocusHookSource.includes('queueRevealFrame(() => {') &&
 	      fileFocusHookSource.includes('treeRef.current?.open(directoryPath)') &&
 				      fileTreeControllerHookSource.includes('if (isDirectoryOpen(path)) {') &&
 				      !fileSectionSource.includes('if (nextOpen) {') &&

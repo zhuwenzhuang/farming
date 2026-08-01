@@ -8771,13 +8771,11 @@ button.code-agent-transcript-result-summary:focus-visible {
 }
 
 .code-file-editor-tab-strip > .code-file-editor-actions {
-  position: absolute;
-  top: 50%;
-  right: 0;
+  position: relative;
   z-index: 2;
+  flex: 0 0 auto;
   padding: 0 6px;
   background: inherit;
-  transform: translateY(-50%);
 }
 
 .code-file-editor-tabs {

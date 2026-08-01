@@ -263,7 +263,7 @@ test.describe('Farming Code dark skin', () => {
     await expectDarkSurface(page.locator('.code-settings-panel'), 'settings panel')
     await expectReadableDarkText(settingsPanel.locator('.code-settings-row-copy strong').first(), 'settings row label')
     await expectReadableMutedDarkText(settingsPanel.locator('.code-settings-search-timeout-row output'), 'search timeout value')
-    await expectReadableMutedDarkText(settingsPanel.locator('.code-settings-section-heading p').first(), 'settings section hint')
+    await expectReadableMutedDarkText(settingsPanel.locator('.code-settings-row-copy small').first(), 'settings row hint')
     await expectReadableDarkGlyph(settingsPanel.locator('.code-settings-inline-choice > svg').first(), 'appearance glyph')
     await expectDarkSeparator(settingsPanel.locator('.code-settings-section + .code-settings-section').first(), 'settings section')
     await saveScreenshot(testInfo, 'options-menu.png', page.locator('.code-settings-panel'))

@@ -2352,6 +2352,10 @@ function readTerminalPathLinkAtCell(
 ) {
   const logicalLine = readLogicalTerminalLineAtCellWithRows(record, cell)
   if (!logicalLine) return null
+  // URL-shaped text is owned by the URL interaction. Treating its path
+  // portion as a workspace path makes a plain click start file resolution and
+  // briefly suppresses the modifier-click that should open the URL.
+  if (parseTerminalUrlAtColumn(logicalLine.text, logicalLine.col)) return null
   const directLink = parseTerminalPathLinkAtColumn(logicalLine.text, logicalLine.col)
   if (directLink) return directLink
   return collectTerminalMultiLinePathLinkMatches(
@@ -2492,7 +2496,8 @@ function readTerminalPathLinkAtMouseEvent(record: SessionRecord, event: MouseEve
   }
 
   const domLine = readDomTerminalLineAtMouseEvent(record, event)
-  return domLine ? parseTerminalPathLinkAtColumn(domLine.text, domLine.col) : null
+  if (!domLine || parseTerminalUrlAtColumn(domLine.text, domLine.col)) return null
+  return parseTerminalPathLinkAtColumn(domLine.text, domLine.col)
 }
 
 function findTerminalPathLinkAtMouseEvent(record: SessionRecord, event: MouseEvent) {

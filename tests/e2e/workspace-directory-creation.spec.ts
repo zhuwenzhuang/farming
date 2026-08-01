@@ -100,9 +100,9 @@ test.describe('New Agent workspace directory creation', () => {
     await page.getByTestId('workspace-start').click()
 
     const prompt = page.getByTestId('workspace-directory-prompt')
-    await expect(prompt).toHaveCSS('background-color', 'rgb(22, 27, 34)')
+    await expect(prompt).toHaveCSS('background-color', 'rgb(33, 33, 33)')
     await expect(prompt).toHaveCSS('color', 'rgb(255, 255, 255)')
-    await expect(prompt.locator('code')).toHaveCSS('background-color', 'rgb(28, 33, 41)')
+    await expect(prompt.locator('code')).toHaveCSS('background-color', 'rgb(38, 38, 38)')
     await expect(page.getByTestId('workspace-directory-create')).toHaveCSS('background-color', 'rgb(51, 156, 255)')
   })
 
@@ -118,7 +118,7 @@ test.describe('New Agent workspace directory creation', () => {
     await page.goto('/farming/crt/', { waitUntil: 'networkidle' })
     await page.keyboard.press('n')
     await expect(page.locator('#input-dialog')).toHaveClass(/active/)
-    const bashOption = page.locator('#agent-list .agent-item[data-index="2"]')
+    const bashOption = page.getByRole('button', { name: /^bash\b/ })
     await expect(bashOption).toContainText('bash')
     await bashOption.click()
     await page.locator('#workspace-input').fill(workspace)

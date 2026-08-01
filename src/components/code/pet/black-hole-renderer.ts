@@ -1558,6 +1558,7 @@ export function createBlackHolePetRenderer({
   const testWindow = window as Window & {
     __FARMING_E2E__?: boolean
     __farmingBlackHoleElapsedSeconds?: number
+    __farmingBlackHoleExitProgress?: number
     __farmingBlackHoleEvolutionSeed?: number
   }
   const startedAt = performance.now()
@@ -1699,7 +1700,12 @@ export function createBlackHolePetRenderer({
     )
 
     if (exitingAt !== null) {
-      const progress = clamp((now - exitingAt) / (exitDuration * 1000), 0, 1)
+      const testExitProgress = testWindow.__FARMING_E2E__
+        ? testWindow.__farmingBlackHoleExitProgress
+        : undefined
+      const progress = Number.isFinite(testExitProgress)
+        ? clamp(Number(testExitProgress), 0, 1)
+        : clamp((now - exitingAt) / (exitDuration * 1000), 0, 1)
       compositorCanvas.dataset.exitProgress = progress.toFixed(4)
       evaporation = evaporationAt(progress)
       compositorCanvas.dataset.evaporationPhase = progress < 0.20

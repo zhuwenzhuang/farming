@@ -167,7 +167,7 @@ test.describe('workspace path suggestions', () => {
       const style = getComputedStyle(element)
       return { background: style.backgroundColor, color: style.color }
     })
-    expect(homeMenuMetrics.background).toBe('rgb(22, 27, 34)')
+    expect(homeMenuMetrics.background).toBe('rgb(33, 33, 33)')
     expect(homeMenuMetrics.color).toBe('rgb(255, 255, 255)')
     await page.getByTestId('agent-home-select').click()
     await expect(homeMenu).toBeHidden()
@@ -176,7 +176,7 @@ test.describe('workspace path suggestions', () => {
       const style = getComputedStyle(element)
       return { background: style.backgroundColor, color: style.color }
     })
-    expect(runtimeMetrics.background).toBe('rgb(22, 27, 34)')
+    expect(runtimeMetrics.background).toBe('rgb(33, 33, 33)')
     expect(runtimeMetrics.color).toBe('rgb(255, 255, 255)')
 
     await page.getByTestId('workspace-directory-picker').click()
@@ -186,7 +186,7 @@ test.describe('workspace path suggestions', () => {
       const style = getComputedStyle(element)
       return { background: style.backgroundColor, color: style.color }
     })
-    expect(directoryListMetrics.background).toBe('rgb(17, 22, 29)')
+    expect(directoryListMetrics.background).toBe('rgb(28, 28, 28)')
     await page.getByTestId('workspace-directory-browser-cancel').click()
   })
 

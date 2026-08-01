@@ -182,24 +182,20 @@ test('keeps persistent project and pinned Agent order', async ({ page, workspace
   await expect(project.getByTestId('code-agent-show-more')).toBeVisible()
   const density = await project.evaluate(element => {
     const list = element.querySelector<HTMLElement>('.code-agents-section > .code-agent-list')
-    const browsers = element.querySelector<HTMLElement>('[data-testid="farming-browser-section"]')
     const files = element.querySelector<HTMLElement>('[data-testid="code-files-section"]')
     const rows = list
       ? Array.from(list.querySelectorAll<HTMLElement>(':scope > [data-testid="code-agent-row"]'))
       : []
     const showMore = list?.querySelector<HTMLElement>(':scope > .code-agent-list-controls [data-testid="code-agent-show-more"]')
-    if (!list || !browsers || !files || rows.length < 2 || !showMore) throw new Error('Project density fixtures are incomplete')
+    if (!list || !files || rows.length < 2 || !showMore) throw new Error('Project density fixtures are incomplete')
     const rowRects = rows.map(row => row.getBoundingClientRect())
     const showMoreRect = showMore.getBoundingClientRect()
-    const followingSectionRects = [browsers, files]
-      .map(section => section.getBoundingClientRect())
-      .sort((a, b) => a.top - b.top)
+    const filesRect = files.getBoundingClientRect()
     return {
       rowHeights: rowRects.map(rect => rect.height),
       rowSteps: rowRects.slice(1).map((rect, index) => rect.top - rowRects[index].top),
       agentToControlGap: showMoreRect.top - rowRects.at(-1)!.bottom,
-      controlToNextSectionGap: followingSectionRects[0].top - showMoreRect.bottom,
-      followingSectionGap: followingSectionRects[1].top - followingSectionRects[0].bottom,
+      controlToNextSectionGap: filesRect.top - showMoreRect.bottom,
       showMoreHeight: showMoreRect.height,
     }
   })
@@ -208,7 +204,6 @@ test('keeps persistent project and pinned Agent order', async ({ page, workspace
   expect(density.showMoreHeight).toBe(28)
   expect(density.agentToControlGap).toBe(0)
   expect(density.controlToNextSectionGap).toBeLessThanOrEqual(2)
-  expect(density.followingSectionGap).toBeLessThanOrEqual(2)
   await sourceRow.dragTo(
     project.locator(`[data-testid="code-agent-row"][data-agent-id="${newestAgentId}"]`),
     { targetPosition: { x: 80, y: 2 } },

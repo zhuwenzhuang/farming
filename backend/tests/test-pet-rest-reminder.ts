@@ -61,7 +61,7 @@ const path = require('path');
   assert(petSource.includes("snooze: zh ? `${REST_REMINDER_SNOOZE_MINUTES} 分钟后` : `In ${REST_REMINDER_SNOOZE_MINUTES} min`"));
   assert(petSource.includes('已连续操作 Farming {formatActivityInterval(language, intervalSeconds)}。<br />暂停操作'));
   assert(petSource.includes('className="code-pet-countdown">{countdownSeconds} 秒</strong>'));
-  assert(petSource.includes('Used Farming continuously for {formatActivityInterval(language, intervalSeconds)}.<br />Pause'));
+  assert(petSource.includes('Farming has been active for {formatActivityInterval(language, intervalSeconds)}.<br />Pause'));
   assert(petSource.includes('className="code-pet-countdown">{countdownSeconds} sec</strong>'));
   assert(bubbleSource.includes('body: ReactNode'));
   assert(!petSource.includes('start-break'));

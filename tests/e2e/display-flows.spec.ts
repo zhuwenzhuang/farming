@@ -1125,6 +1125,7 @@ test.describe('display-backed agent flows', () => {
     await showLessAgents.click()
     await expect(projectGroup.getByTestId('code-agent-row')).toHaveCount(5)
     await expect(showMoreAgents).toBeVisible()
+    await projectGroup.getByTestId('code-project-title').hover()
     await agentVisibility.click()
     await expect(projectGroup.getByTestId('code-agent-row')).toHaveCount(0)
     await expect(showMoreAgents).toHaveCount(0)
@@ -1886,7 +1887,7 @@ test.describe('display-backed agent flows', () => {
     await inlineBlame.nth(0).click()
     const blameDetail = page.getByTestId('code-file-blame-detail')
     await expect(blameDetail).toContainText('Seed README blame')
-    await expect(blameDetail.getByRole('link', { name: 'Farming E2E' })).toBeVisible()
+    await expect(blameDetail.getByText('Farming E2E', { exact: true })).toBeVisible()
     await expect(blameDetail.getByRole('button', { name: 'Close blame details' })).toBeVisible()
     await expect(page.getByTestId('code-file-editor-statusbar')).not.toContainText('Seed README blame')
     await page.evaluate(() => {

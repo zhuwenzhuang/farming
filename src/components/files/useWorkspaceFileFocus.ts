@@ -19,6 +19,7 @@ import {
 
 const FILE_TREE_REVEAL_RETRY_DELAY_MS = 50
 const FILE_TREE_REVEAL_MAX_ATTEMPTS = 60
+const FILE_TREE_REVEAL_STABILITY_DELAYS = [240, 600, 1200]
 const FILE_TREE_LOCATION_HIGHLIGHT_MS = 6000
 const FILE_TREE_LOCATION_STABILITY_CHECK_MS = 80
 const FILE_TREE_LOCATION_STABILITY_MAX_ATTEMPTS = 100
@@ -171,7 +172,6 @@ export function useWorkspaceFileFocus({
   const scrollFileTreeToPath = useCallback((filePath: string, focusRow = false, emphasizeLocation = false) => {
     cancelPendingFileTreeScrollFocus()
     cancelPendingFileTreeLocationHighlight()
-    let treePositionRequested = false
 
     const scheduleLocationHighlight = () => {
       let stableChecks = 0
@@ -207,16 +207,17 @@ export function useWorkspaceFileFocus({
       })
       const row = Array.from(treeViewportRef.current?.querySelectorAll<HTMLElement>('[data-file-path]') ?? [])
         .find(element => element.dataset.filePath === filePath)
-      if (!row) return
+      if (!row) return false
       revealRowInProjectScroller(row, emphasizeLocation)
       if (shouldFocusTree) focusWithoutScrolling(row.closest<HTMLElement>('[role="tree"]'))
+      return true
     }
 
     const scroll = () => {
       const tree = treeRef.current
-      if (focusRow && !treePositionRequested) {
-        treePositionRequested = true
-        tree?.get(filePath)?.select()
+      if (focusRow) tree?.get(filePath)?.select()
+      const rowRendered = scrollRenderedRow()
+      if (focusRow && !rowRendered) {
         const scrollPromise = tree?.scrollTo(filePath, emphasizeLocation ? 'start' : 'smart')
         if (scrollPromise) {
           void scrollPromise.then(() => {
@@ -224,7 +225,6 @@ export function useWorkspaceFileFocus({
           })
         }
       }
-      scrollRenderedRow()
     }
 
     scroll()
@@ -298,7 +298,9 @@ export function useWorkspaceFileFocus({
       if (!revealIsCurrent()) return
       directoryPathsToOpen.forEach(directoryPath => treeRef.current?.open(directoryPath))
       refreshTreeLayout(directoryPathsToOpen)
-      scrollFileTreeToPath(visibleTargetPath, true, openTargetDirectory)
+      queueRevealFrame(() => {
+        scrollFileTreeToPath(visibleTargetPath, true, openTargetDirectory)
+      })
     }
     const queueRevealFrame = (callback: () => void) => {
       const frameId = window.requestAnimationFrame(() => {
@@ -309,6 +311,14 @@ export function useWorkspaceFileFocus({
       fileTreeRevealFrameRefs.current.push(frameId)
     }
     queueRevealFrame(reveal)
+    FILE_TREE_REVEAL_STABILITY_DELAYS.forEach(delay => {
+      const retryTimeoutId = window.setTimeout(() => {
+        fileTreeRevealTimeoutsRef.current = fileTreeRevealTimeoutsRef.current.filter(id => id !== retryTimeoutId)
+        if (!revealIsCurrent()) return
+        queueRevealFrame(reveal)
+      }, delay)
+      fileTreeRevealTimeoutsRef.current.push(retryTimeoutId)
+    })
   }, [openDirectoriesInLayout, refreshTreeLayout, scrollFileTreeToPath, treeRef])
 
   const revealFilePath = useCallback(async (filePath: string) => {
@@ -340,7 +350,7 @@ export function useWorkspaceFileFocus({
         activeElementIsSearchInput: document.activeElement === input,
         searchInputValue: input.value,
       })) return
-      input.focus()
+      input.focus({ preventScroll: true })
       if (shouldSelectWorkspaceFileSearchText({
         requestedSelect: selectText,
         searchInputValue: input.value,

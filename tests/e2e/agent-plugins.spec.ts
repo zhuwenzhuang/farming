@@ -98,7 +98,7 @@ test('Plugins treats each Agent Home as an independent ordered Agent configurati
   await page.locator('body').evaluate(body => { body.dataset.appearance = 'dark' })
   await expect(work.locator('.code-plugin-agent-configuration strong')).toHaveCSS('color', 'rgb(216, 216, 216)')
   await page.locator('body').evaluate(body => { body.dataset.appearance = 'light' })
-  await work.getByRole('button', { name: 'Move down', exact: true }).click()
+  await work.getByRole('button', { name: 'Drag to reorder Agents', exact: true }).press('ArrowDown')
   await expect.poll(() => agentSections.evaluateAll(sections => (
     sections.map(section => section.getAttribute('data-testid')).slice(0, 2)
   ))).toEqual([

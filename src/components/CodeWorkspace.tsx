@@ -887,8 +887,9 @@ export function CodeWorkspace({
     projectWorkspaces.forEach(workspace => ids.add(projectFilesWorkspaceId(workspace)))
     activeAgents.forEach(agent => ids.add(projectFilesWorkspaceId(projectWorkspaceForAgent(agent))))
     workspaceNavigationAgentIds.forEach(agentId => ids.add(agentId))
+    openWorkspaceFiles.forEach(file => ids.add(file.agentId))
     return ids
-  }, [activeAgents, projectWorkspaces, workspaceNavigationAgentIds])
+  }, [activeAgents, openWorkspaceFiles, projectWorkspaces, workspaceNavigationAgentIds])
 
   useEffect(() => {
     pruneWorkspaceNavigationEntries(entry => (
@@ -3747,6 +3748,7 @@ export function CodeWorkspace({
   }, [focusWorkspaceFilesSearch, openProjectFile, resolveWorkspaceFileIdentity, revealWorkspaceFileInExplorer, selectOpenWorkspaceFile])
 
   const openAgentHomeConfiguration = useCallback(async (target: AgentHomeFileTarget) => {
+    onWorkspaceViewChange('projects')
     try {
       const file: WorkspaceFile = target.exists
         ? await fetchWorkspaceFile(target.rootId, target.filePath)
@@ -3757,7 +3759,13 @@ export function CodeWorkspace({
             mtimeMs: 0,
             sha1: '',
           }
-      await openProjectFile(projectFilesWorkspaceId(target.homePath), file, { revealInTree: true })
+      closeContextMenu()
+      clearSearch()
+      setMainPaneMode('editor')
+      workspaceOpenFiles.openFromRead(target.rootId, file, {
+        workspaceRoot: target.homePath,
+      })
+      closeSidebarForMobile()
     } catch (error) {
       setCopyNotice({
         id: Date.now(),
@@ -3765,7 +3773,7 @@ export function CodeWorkspace({
         message: error instanceof Error ? error.message : 'Failed to open Agent Home configuration',
       })
     }
-  }, [openProjectFile])
+  }, [clearSearch, closeContextMenu, closeSidebarForMobile, onWorkspaceViewChange, workspaceOpenFiles])
 
   const restoreWorkspaceShareTarget = useCallback(async (target: WorkspaceShareTarget) => {
     importSharedReadingAnchor(target.kind === 'agent' ? target.readingAnchor : undefined)
