@@ -64,12 +64,8 @@ jobs:
             exit 1
           fi
           if npm view "farming-code@${RELEASE_VERSION}" version >/dev/null 2>&1; then
-            published_sha="$(npm view "farming-code@${RELEASE_VERSION}" gitHead 2>/dev/null || true)"
             candidate_sha="$(git rev-parse HEAD)"
-            if [[ "${published_sha}" != "${candidate_sha}" ]]; then
-              echo "farming-code@${RELEASE_VERSION} is already occupied by another source revision: npm=${published_sha:-missing}, candidate=${candidate_sha}" >&2
-              exit 1
-            fi
+            bash scripts/verify-npm-release-source.sh "farming-code@${RELEASE_VERSION}" "${candidate_sha}"
           fi
 
       - name: Require successful CI for candidate revision
@@ -492,11 +488,7 @@ jobs:
           if [[ -n "${release_json}" ]]; then
             is_draft="$(RELEASE_JSON="${release_json}" node -p "JSON.parse(process.env.RELEASE_JSON).isDraft")"
             if [[ "${is_draft}" != "true" ]]; then
-              published_sha="$(npm view "farming-code@${RELEASE_VERSION}" gitHead 2>/dev/null || true)"
-              if [[ "${published_sha}" != "${candidate_sha}" ]]; then
-                echo "GitHub Release ${RELEASE_TAG} is public without a matching npm package." >&2
-                exit 1
-              fi
+              bash scripts/verify-npm-release-source.sh "farming-code@${RELEASE_VERSION}" "${candidate_sha}"
               exit 0
             fi
             gh release upload "${RELEASE_TAG}" release-assets/* --clobber "${release_args[@]}"
@@ -575,11 +567,7 @@ jobs:
           version="$(node -p "require('./package.json').version")"
           candidate_sha="${GITHUB_SHA}"
           if npm view "farming-code@${version}" version >/dev/null 2>&1; then
-            published_sha="$(npm view "farming-code@${version}" gitHead 2>/dev/null || true)"
-            if [[ "${published_sha}" != "${candidate_sha}" ]]; then
-              echo "farming-code@${version} is already occupied by another source revision: npm=${published_sha:-missing}, candidate=${candidate_sha}" >&2
-              exit 1
-            fi
+            bash scripts/verify-npm-release-source.sh "farming-code@${version}" "${candidate_sha}"
             echo "published=true" >> "${GITHUB_OUTPUT}"
             exit 0
           fi
@@ -591,11 +579,7 @@ jobs:
           npm run release:npm:pack -- "${package_dir}"
           package_tarball="${package_dir}/farming-code-${version}.tgz"
           npm publish "${package_tarball}" --access public --provenance --tag "${dist_tag}"
-          published_sha="$(npm view "farming-code@${version}" gitHead 2>/dev/null || true)"
-          if [[ "${published_sha}" != "${candidate_sha}" ]]; then
-            echo "npm accepted farming-code@${version}, but its gitHead cannot prove this candidate: npm=${published_sha:-missing}, candidate=${candidate_sha}" >&2
-            exit 1
-          fi
+          bash scripts/verify-npm-release-source.sh "farming-code@${version}" "${candidate_sha}"
           echo "published=true" >> "${GITHUB_OUTPUT}"
 
   publish-github-release:

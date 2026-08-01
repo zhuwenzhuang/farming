@@ -10,6 +10,10 @@ function run() {
   const appPackageScript = fs.readFileSync(path.join(root, 'scripts/package-release.sh'), 'utf8');
   const npmPackageScript = fs.readFileSync(path.join(root, 'scripts/package-npm-release.sh'), 'utf8');
   const npmSmokeScript = fs.readFileSync(path.join(root, 'scripts/smoke-npm-package.sh'), 'utf8');
+  const npmSourceVerificationScript = fs.readFileSync(
+    path.join(root, 'scripts/verify-npm-release-source.sh'),
+    'utf8',
+  );
   const releaseWorkflow = fs.readFileSync(path.join(root, '.github/workflows/release.yml'), 'utf8');
   const packageJson = require(path.join(root, 'package.json'));
   const bundleCliScript = fs.readFileSync(path.join(root, 'scripts/bundle-cli-runtime.ts'), 'utf8');
@@ -130,6 +134,13 @@ function run() {
       && releaseWorkflow.includes('npm run release:npm:pack')
       && releaseWorkflow.includes('npm publish "${package_tarball}"'),
     'npm smoke and publication must consume the same staged tarball',
+  );
+  assert(
+    npmSourceVerificationScript.includes('attempt <= MAX_ATTEMPTS')
+      && npmSourceVerificationScript.includes('if [[ -n "${published_sha}" ]]')
+      && npmSourceVerificationScript.includes('sleep "${RETRY_DELAY_SECONDS}"')
+      && releaseWorkflow.match(/bash scripts\/verify-npm-release-source\.sh/g)?.length === 4,
+    'release source verification must retry missing npm gitHead metadata and reject a conflicting revision',
   );
   assert(
     npmSmokeScript.includes('FARMING_NATIVE_PTY_HOST_PERSIST=0')
