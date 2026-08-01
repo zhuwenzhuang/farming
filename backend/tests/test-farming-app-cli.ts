@@ -1161,6 +1161,9 @@ async function runTests() {
     assert(releaseWorkflowSource.includes('Smoke-test macOS app bundle'));
     assert(releaseWorkflowSource.includes('body.replaceAll(`](./v${version}.zh_cn.md)`, `](./release-notes/v${version}.zh_cn.md)`)'));
     assert(releaseWorkflowSource.includes('body.replaceAll(`](./v${version}.md)`, `](./release-notes/v${version}.md)`)'));
+    assert(releaseWorkflowSource.includes('node scripts/verify-release-notes.mjs "${RELEASE_VERSION}"'));
+    assert(releaseWorkflowSource.includes('RELEASE_CODENAME: ${{ steps.notes.outputs.codename }}'));
+    assert(releaseWorkflowSource.includes('--title "Farming ${RELEASE_VERSION} · ${RELEASE_CODENAME}"'));
     assert(releaseWorkflowSource.includes('workflow_dispatch:'));
     assert(!releaseWorkflowSource.includes("push:\n    tags:\n      - 'v*'"));
     const npmPublishJob = releaseWorkflowSource.slice(

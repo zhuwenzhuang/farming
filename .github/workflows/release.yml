@@ -63,6 +63,7 @@ jobs:
             echo "Missing release notes: ${notes_file}" >&2
             exit 1
           fi
+          node scripts/verify-release-notes.mjs "${RELEASE_VERSION}"
           if npm view "farming-code@${RELEASE_VERSION}" version >/dev/null 2>&1; then
             candidate_sha="$(git rev-parse HEAD)"
             bash scripts/verify-npm-release-source.sh "farming-code@${RELEASE_VERSION}" "${candidate_sha}"
@@ -368,6 +369,8 @@ jobs:
             echo "Missing release notes: ${notes_file}" >&2
             exit 1
           fi
+          node scripts/verify-release-notes.mjs "${RELEASE_VERSION}"
+          codename="$(node scripts/verify-release-notes.mjs "${RELEASE_VERSION}" --codename)"
           body_file="${RUNNER_TEMP}/release-notes-v${RELEASE_VERSION}.md"
           NOTES_FILE="${notes_file}" BODY_FILE="${body_file}" node <<'NODE'
           const fs = require('fs');
@@ -378,6 +381,7 @@ jobs:
           fs.writeFileSync(process.env.BODY_FILE, body);
           NODE
           echo "file=${body_file}" >> "${GITHUB_OUTPUT}"
+          echo "codename=${codename}" >> "${GITHUB_OUTPUT}"
 
       - name: Download release assets
         uses: actions/download-artifact@v4
@@ -453,6 +457,7 @@ jobs:
         env:
           RELEASE_TAG: ${{ steps.version.outputs.tag }}
           RELEASE_VERSION: ${{ steps.version.outputs.value }}
+          RELEASE_CODENAME: ${{ steps.notes.outputs.codename }}
           RELEASE_NOTES_FILE: ${{ steps.notes.outputs.file }}
         shell: bash
         run: |
@@ -492,14 +497,14 @@ jobs:
               exit 0
             fi
             gh release upload "${RELEASE_TAG}" release-assets/* --clobber "${release_args[@]}"
-            gh release edit "${RELEASE_TAG}" --title "Farming ${RELEASE_VERSION}" --notes-file "${RELEASE_NOTES_FILE}" "${release_args[@]}"
+            gh release edit "${RELEASE_TAG}" --title "Farming ${RELEASE_VERSION} · ${RELEASE_CODENAME}" --notes-file "${RELEASE_NOTES_FILE}" "${release_args[@]}"
           else
             create_args=(
               "${RELEASE_TAG}"
               release-assets/*
               --draft
               --verify-tag
-              --title "Farming ${RELEASE_VERSION}"
+              --title "Farming ${RELEASE_VERSION} · ${RELEASE_CODENAME}"
               --notes-file "${RELEASE_NOTES_FILE}"
             )
             if [[ "${RELEASE_VERSION}" == *-* ]]; then
