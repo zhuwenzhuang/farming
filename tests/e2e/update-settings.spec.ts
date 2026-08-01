@@ -98,6 +98,35 @@ test('update request errors stay inside the update card', async ({ page }) => {
   await expect(agentPermissionsSection.getByRole('alert')).toHaveCount(0)
 })
 
+test('an externally deployed newer package shows authoritative current state only', async ({ page }) => {
+  await page.route(/\/farming\/api\/update(?:\?.*)?$/, route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      update: {
+        method: 'npm',
+        current: { releaseVersion: '2.2.34', packageVersion: '2.2.34', type: 'npm' },
+        latest: { version: '2.2.34', assetName: '2.2.34', blockedReason: '' },
+        selected: { version: '', assetName: '', blockedReason: '' },
+        versions: [],
+        available: false,
+        installable: false,
+        state: { phase: 'idle' },
+      },
+    }),
+  }))
+
+  await openFarming(page)
+  await page.getByTestId('code-sidebar-options').click()
+
+  const card = page.getByTestId('code-settings-update-card')
+  await expect(card).toContainText('2.2.34')
+  await expect(card).toContainText('npm · Up to date')
+  await expect(card).not.toContainText('Update failed')
+  await expect(card.getByRole('combobox', { name: 'Target' })).toHaveCount(0)
+  await expect(page.getByTestId('code-settings-update-action')).toHaveText('Prepare update')
+  await expect(page.getByTestId('code-settings-update-action')).toBeDisabled()
+})
+
 test('non-npm installations expose no update source or enabled update action', async ({ page }) => {
   await page.route(/\/farming\/api\/update(?:\?.*)?$/, route => route.fulfill({
     contentType: 'application/json',

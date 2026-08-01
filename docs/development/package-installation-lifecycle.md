@@ -62,6 +62,18 @@ Preparing and selection publication are separate transitions. The selection is
 changed with compare-and-swap, so an update prepared against an older selection
 cannot overwrite a newer deployment. Only the initiating Config is stopped.
 
+The Config-local update operation record describes at most one still-relevant
+operation. It is not authoritative for the installed version or for UI state.
+Each record carries a format version and operation id, and every read reconciles
+it against the running version, Installation identity, and Package Selection.
+Detached helpers may publish a transition only while that same operation id
+still owns the record, so a timed-out helper cannot overwrite a later attempt.
+An external npm deployment that supersedes the target, an Installation change,
+an expired terminal result, or an unrecoverable legacy record converges to Idle.
+Terminal errors remain briefly visible while durable diagnostics stay in the
+update log. Registry versions older than the running version are not presented
+as update targets; rollback uses only verified local immutable Images.
+
 ## Safety And Liveness
 
 Safety depends on these invariants:

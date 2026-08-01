@@ -1,4 +1,5 @@
 const childProcess = require('child_process') as typeof import('child_process');
+const crypto = require('crypto') as typeof import('crypto');
 const fs = require('fs') as typeof import('fs');
 const http = require('http') as typeof import('http');
 const https = require('https') as typeof import('https');
@@ -95,9 +96,10 @@ interface CurrentVersion {
 }
 
 interface UpdateInstallState extends JsonObject {
+  format?: string;
+  operationId?: string;
   phase: string;
   method?: string;
-  targetMethod?: string;
   version?: string;
   previousVersion?: string;
   packageName?: string;
@@ -185,6 +187,9 @@ function errorMessage(error: unknown): string {
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const RESTART_RECOVERY_TIMEOUT_MS = 2 * 60 * 1000;
+const ACTIVE_UPDATE_TIMEOUT_MS = 30 * 60 * 1000;
+const TERMINAL_UPDATE_RETENTION_MS = 24 * 60 * 60 * 1000;
+const UPDATE_OPERATION_FORMAT = 'farming-update-operation-v1';
 const NPM_PACKAGE_NAME = 'farming-code';
 const DEFAULT_NPM_REGISTRY = 'https://registry.npmjs.org';
 
@@ -410,6 +415,7 @@ function npmVersionsFromMetadata(metadata: NpmMetadata | null | undefined, curre
     : [];
   return versions
     .filter(version => hasComparableVersion(version) && !version.includes('-'))
+    .filter(version => !hasComparableVersion(currentVersion) || compareVersions(version, currentVersion) >= 0)
     .sort((left, right) => compareVersions(right, left))
     .map(version => ({
       version,
@@ -497,56 +503,149 @@ class FarmingUpdateService {
 
   currentInstallState(): UpdateInstallState {
     const persisted = readJsonFile(this.updateStateFile);
-    if (persisted && persisted.method === this.installMethod) {
-      const state = persisted as UpdateInstallState;
-      if (state.phase !== 'restarting') return state;
+    const current = this.currentVersion();
+    const currentVersion = normalizeVersion(current.releaseVersion || current.packageVersion);
+    if (!persisted) return this.clearInstallState();
+    const state = persisted as UpdateInstallState;
+    if (state.method !== this.installMethod) return this.clearInstallState();
 
-      const current = this.currentVersion();
-      const currentVersion = normalizeVersion(current.releaseVersion || current.packageVersion);
-      const targetVersion = normalizeVersion(state.version);
+    const isCurrentFormat = state.format === UPDATE_OPERATION_FORMAT
+      && typeof state.operationId === 'string'
+      && state.operationId.length > 0;
+    if (!isCurrentFormat && state.phase !== 'restarting') return this.clearInstallState();
+
+    const normalized = isCurrentFormat ? state : {
+      ...state,
+      format: UPDATE_OPERATION_FORMAT,
+      operationId: crypto.randomUUID(),
+    };
+    if (
+      normalized.installationId
+      && (!this.packageInstallation || normalized.installationId !== this.packageInstallation.installationId)
+    ) return this.clearInstallState();
+
+    const targetVersion = normalizeVersion(normalized.version);
+    const previousVersion = normalizeVersion(normalized.previousVersion);
+    if (normalized.phase === 'restarting') {
       if (
         hasComparableVersion(currentVersion)
         && hasComparableVersion(targetVersion)
-        && compareVersions(currentVersion, targetVersion) >= 0
+        && currentVersion === targetVersion
       ) {
         return this.persistInstallState({
-          ...state,
+          ...normalized,
           phase: 'succeeded',
           error: '',
           completedAt: new Date(this.now()).toISOString(),
         });
       }
-
-      const restartingAt = Date.parse(String(state.restartingAt || state.preparedAt || state.startedAt || ''));
+      if (
+        currentVersion
+        && (
+          (previousVersion && currentVersion !== previousVersion)
+          || (!previousVersion && hasComparableVersion(targetVersion) && compareVersions(currentVersion, targetVersion) > 0)
+        )
+      ) return this.clearInstallState();
+      const restartingAt = Date.parse(String(
+        normalized.restartingAt || normalized.preparedAt || normalized.startedAt || '',
+      ));
       if (!Number.isFinite(restartingAt) || this.now() - restartingAt >= RESTART_RECOVERY_TIMEOUT_MS) {
         return this.persistInstallState({
-          ...state,
+          ...normalized,
           phase: 'failed',
-          error: `Farming did not restart into version ${targetVersion || state.version || 'unknown'} within 2 minutes; retry the update`,
+          error: `Farming did not restart into version ${targetVersion || normalized.version || 'unknown'} within 2 minutes; retry the update`,
           completedAt: new Date(this.now()).toISOString(),
         });
       }
-      return state;
+      return isCurrentFormat ? normalized : this.persistInstallState(normalized);
     }
-    const current = this.currentVersion();
-    const currentVersion = normalizeVersion(current.releaseVersion || current.packageVersion);
-    if (
-      persisted
-      && persisted.targetMethod === this.installMethod
-      && normalizeVersion(persisted.version) === currentVersion
-    ) {
-      return persisted as UpdateInstallState;
+
+    if (normalized.phase === 'rolling-back') {
+      if (currentVersion && previousVersion && currentVersion === previousVersion) {
+        return this.persistInstallState({
+          ...normalized,
+          phase: 'rolled-back',
+          version: previousVersion,
+          completedAt: new Date(this.now()).toISOString(),
+        });
+      }
+      if (currentVersion && targetVersion && currentVersion !== targetVersion) return this.clearInstallState();
+      const startedAt = Date.parse(String(normalized.restartingAt || normalized.startedAt || ''));
+      if (!Number.isFinite(startedAt) || this.now() - startedAt >= RESTART_RECOVERY_TIMEOUT_MS) {
+        return this.persistInstallState({
+          ...normalized,
+          phase: 'failed',
+          error: normalized.error || 'Farming rollback did not complete within 2 minutes; restart Farming manually',
+          completedAt: new Date(this.now()).toISOString(),
+        });
+      }
+      return normalized;
+    }
+
+    if (['installing', 'preparing-runtimes'].includes(normalized.phase)) {
+      if (previousVersion && currentVersion && previousVersion !== currentVersion) return this.clearInstallState();
+      const startedAt = Date.parse(String(normalized.startedAt || ''));
+      if (!Number.isFinite(startedAt)) return this.clearInstallState();
+      if (this.now() - startedAt >= ACTIVE_UPDATE_TIMEOUT_MS) {
+        return this.persistInstallState({
+          ...normalized,
+          phase: 'failed',
+          error: 'Farming update preparation did not complete within 30 minutes; retry the update',
+          completedAt: new Date(this.now()).toISOString(),
+        });
+      }
+      return normalized;
+    }
+
+    if (normalized.phase === 'ready-to-restart') {
+      if (!previousVersion || !currentVersion || previousVersion !== currentVersion) return this.clearInstallState();
+      const expectedCurrentImageId = String(normalized.expectedCurrentImageId || '').trim();
+      if (expectedCurrentImageId && this.packageInstallation) {
+        const selectedPointer = readCurrentPackagePointer(this.packageInstallation);
+        if (!selectedPointer || selectedPointer.imageId !== expectedCurrentImageId) return this.clearInstallState();
+      }
+      return normalized;
+    }
+
+    if (['succeeded', 'failed', 'rolled-back'].includes(normalized.phase)) {
+      const completedAt = Date.parse(String(normalized.completedAt || ''));
+      const resultVersion = normalizeVersion(normalized.version);
+      const versionStillRelevant = normalized.phase === 'failed'
+        ? Boolean(currentVersion && (currentVersion === previousVersion || currentVersion === resultVersion))
+        : Boolean(currentVersion && currentVersion === resultVersion);
+      if (
+        !versionStillRelevant
+        || !Number.isFinite(completedAt)
+        || this.now() - completedAt >= TERMINAL_UPDATE_RETENTION_MS
+      ) return this.clearInstallState();
+      return normalized;
+    }
+
+    return this.clearInstallState();
+  }
+
+  clearInstallState(): UpdateInstallState {
+    this.installState = { phase: 'idle' };
+    try {
+      fs.rmSync(this.updateStateFile, { force: true });
+    } catch {
+      // A read-only Config still presents authoritative runtime/package state.
     }
     return this.installState;
   }
 
   persistInstallState<T extends UpdateInstallState>(state: T): T {
-    this.installState = state;
+    const persisted = state.phase === 'idle' ? state : {
+      ...state,
+      format: UPDATE_OPERATION_FORMAT,
+      operationId: state.operationId || crypto.randomUUID(),
+    };
+    this.installState = persisted;
     fs.mkdirSync(this.configDir, { recursive: true });
     const temporaryPath = `${this.updateStateFile}.${process.pid}.tmp`;
-    fs.writeFileSync(temporaryPath, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
+    fs.writeFileSync(temporaryPath, `${JSON.stringify(persisted, null, 2)}\n`, { mode: 0o600 });
     fs.renameSync(temporaryPath, this.updateStateFile);
-    return state;
+    return persisted as T;
   }
 
   async npmMetadata(options: CheckOptions = {}): Promise<NpmMetadata> {
@@ -565,12 +664,14 @@ class FarmingUpdateService {
     const metadata = await this.npmMetadata(options);
     const target = await this.npmUpdateTarget();
     const versions = npmVersionsFromMetadata(metadata, currentVersion);
-    const latestVersion = normalizeVersion(metadata && metadata['dist-tags'] && metadata['dist-tags'].latest)
-      || versions[0]?.version
-      || '';
+    const registryLatestVersion = normalizeVersion(metadata && metadata['dist-tags'] && metadata['dist-tags'].latest);
+    const latestVersion = [currentVersion, registryLatestVersion, versions[0]?.version || '']
+      .filter(hasComparableVersion)
+      .sort((left, right) => compareVersions(right, left))[0] || '';
     const requestedVersion = normalizeVersion(options.assetName);
     const selected = versions.find(version => version.version === requestedVersion)
-      || versions.find(version => version.version === latestVersion)
+      || versions.find(version => version.available)
+      || versions.find(version => version.version === currentVersion)
       || versions[0]
       || null;
     const blockedReason = target.proven ? '' : target.error;
@@ -686,11 +787,13 @@ class FarmingUpdateService {
   async startNpmInstall(options: CheckOptions = {}): Promise<UpdateInstallState> {
     const status = await this.npmStatus({ force: true, assetName: options.assetName });
     if (!status.available) {
+      if (status.installable) return this.clearInstallState();
       return this.persistInstallState({
         method: 'npm',
-        phase: status.installable ? 'succeeded' : 'failed',
+        phase: 'failed',
         version: status.selected.version,
-        error: status.installable ? '' : (status.selected.blockedReason || 'No installable npm update is available'),
+        previousVersion: status.current.releaseVersion || status.current.packageVersion,
+        error: status.selected.blockedReason || 'No installable npm update is available',
         completedAt: new Date(this.now()).toISOString(),
       });
     }
@@ -701,12 +804,14 @@ class FarmingUpdateService {
         method: 'npm',
         phase: 'failed',
         version: status.selected.version,
+        previousVersion: status.current.releaseVersion || status.current.packageVersion,
         error: 'npm update metadata did not provide package integrity',
         completedAt: new Date(this.now()).toISOString(),
       });
     }
 
     const startedAt = new Date(this.now()).toISOString();
+    const operationId = crypto.randomUUID();
     fs.mkdirSync(this.updateStagingDir, { recursive: true });
     const stagingPrefix = fs.mkdtempSync(path.join(this.updateStagingDir, `npm-${status.selected.version}.`));
     const stagingPackageRoot = npmPackageRoot(
@@ -715,6 +820,7 @@ class FarmingUpdateService {
     );
     const state = this.persistInstallState({
       method: 'npm',
+      operationId,
       phase: 'installing',
       version: status.selected.version,
       previousVersion: status.current.releaseVersion || status.current.packageVersion,
@@ -733,6 +839,7 @@ class FarmingUpdateService {
     const nodePath = process.env.FARMING_NODE_BIN || process.execPath;
     const payload = {
       action: 'prepare',
+      operationId,
       packageName: this.npmPackageName,
       targetVersion: status.selected.version,
       previousVersion: status.current.releaseVersion || status.current.packageVersion,
@@ -855,6 +962,7 @@ class FarmingUpdateService {
     const restartingAt = new Date(this.now()).toISOString();
     const payload = {
       action: 'apply',
+      operationId: prepared.operationId,
       packageName: this.npmPackageName,
       targetVersion: prepared.version,
       previousVersion: prepared.previousVersion,

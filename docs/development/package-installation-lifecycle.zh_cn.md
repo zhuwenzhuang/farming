@@ -40,6 +40,8 @@ Config 状态与 Package Image 的归属不同。Config 状态继续按 canonica
 
 Prepare 与 Selection Publication 是两个独立转换。Selection 使用 Compare-and-swap，因此基于旧 Selection 准备的更新不能覆盖更新的部署。整个过程中只停止发起更新的 Config。
 
+Config 内的更新操作记录只描述一项仍相关的操作，不是安装版本或页面展示的权威来源。记录带有格式版本和操作 ID；Server 每次读取时都用当前运行版本、Installation 身份和 Package Selection 重新收敛。分离运行的 Helper 只有在同一操作 ID 仍拥有记录时才能发布状态转换，因此超时的旧 Helper 不能覆盖后续更新。外部 npm 部署已经越过目标版本、Installation 已变化、终态已过保留期或旧格式记录不再可恢复时，操作记录自动清除并呈现 Idle。终态错误只短期用于反馈，长期诊断保留在更新日志中。npm Registry 中低于当前版本的历史版本不作为更新目标展示；回退只使用已验证的本地不可变 Image。
+
 ## 安全性与活性
 
 安全性依赖以下不变式：

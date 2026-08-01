@@ -25,6 +25,7 @@ interface ProcessIdentityInput {
 
 interface NpmUpdatePayload {
   action: NpmUpdateAction;
+  operationId: string;
   packageName: string;
   targetVersion: string;
   previousVersion: string;
@@ -64,6 +65,8 @@ interface CommandOptions {
 }
 
 interface NpmUpdateState extends Record<string, unknown> {
+  format: 'farming-update-operation-v1';
+  operationId: string;
   method: 'npm';
   phase: string;
   version: string;
@@ -93,6 +96,39 @@ function writeJsonAtomic(filePath: string, value: unknown): void {
   const temporaryPath = `${filePath}.${process.pid}.tmp`;
   fs.writeFileSync(temporaryPath, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
   fs.renameSync(temporaryPath, filePath);
+}
+
+class SupersededUpdateOperationError extends Error {}
+
+function operationOwnsState(payload: NpmUpdatePayload): boolean {
+  try {
+    const state = JSON.parse(fs.readFileSync(payload.stateFile, 'utf8')) as Record<string, unknown>;
+    return state.format === 'farming-update-operation-v1'
+      && state.operationId === payload.operationId;
+  } catch {
+    return false;
+  }
+}
+
+function writeOperationState(
+  payload: NpmUpdatePayload,
+  phase: string,
+  extra: Record<string, unknown> = {},
+): void {
+  if (!operationOwnsState(payload)) {
+    throw new SupersededUpdateOperationError(`Update operation ${payload.operationId} is no longer current`);
+  }
+  writeJsonAtomic(payload.stateFile, stateFor(payload, phase, extra));
+}
+
+function writeOperationStateIfOwned(
+  payload: NpmUpdatePayload,
+  phase: string,
+  extra: Record<string, unknown> = {},
+): boolean {
+  if (!operationOwnsState(payload)) return false;
+  writeJsonAtomic(payload.stateFile, stateFor(payload, phase, extra));
+  return true;
 }
 
 function appendLog(logPath: string, message: string): void {
@@ -172,6 +208,7 @@ function validatePayload(payload: unknown): NpmUpdatePayload {
   if (!payload || typeof payload !== 'object') throw new Error('Missing npm update payload');
   const candidate = payload as Record<string, unknown>;
   if (!['prepare', 'apply'].includes(String(candidate.action))) throw new Error('Invalid npm update action');
+  if (!/^[0-9a-f-]{16,64}$/i.test(String(candidate.operationId || ''))) throw new Error('Invalid npm update operation id');
   if (!/^[A-Za-z0-9@/._-]+$/.test(String(candidate.packageName || ''))) throw new Error('Invalid npm package name');
   if (!/^[0-9A-Za-z.+-]+$/.test(String(candidate.targetVersion || ''))) throw new Error('Invalid npm target version');
   if (!/^[0-9A-Za-z.+-]+$/.test(String(candidate.previousVersion || ''))) throw new Error('Invalid npm previous version');
@@ -228,6 +265,8 @@ function stateFor(
   extra: Record<string, unknown> = {},
 ): NpmUpdateState {
   return {
+    format: 'farming-update-operation-v1',
+    operationId: payload.operationId,
     method: 'npm',
     phase,
     version: payload.targetVersion,
@@ -376,7 +415,7 @@ function installationContext(payload: NpmUpdatePayload): PackageInstallationCont
 async function prepareNpmUpdate(payload: NpmUpdatePayload): Promise<void> {
   try {
     const context = installationContext(payload);
-    writeJsonAtomic(payload.stateFile, stateFor(payload, 'installing'));
+    writeOperationState(payload, 'installing');
     const runningImage = publishRunningPackageImage(context, payload.activePackageRoot);
     const initialCurrent = initializeCurrentPackageImage(context, runningImage);
     fs.mkdirSync(String(payload.stagingPrefix), { recursive: true });
@@ -389,7 +428,7 @@ async function prepareNpmUpdate(payload: NpmUpdatePayload): Promise<void> {
       payload.targetIntegrity,
     );
     fs.rmSync(String(payload.stagingPrefix), { recursive: true, force: true });
-    writeJsonAtomic(payload.stateFile, stateFor(payload, 'preparing-runtimes'));
+    writeOperationState(payload, 'preparing-runtimes');
     appendLog(payload.logPath, `Preparing Farming ${payload.targetVersion} startup dependencies`);
     await runCommand(payload.nodePath, [
       path.join(targetImage.packageRoot, 'bin', 'farming'),
@@ -404,7 +443,7 @@ async function prepareNpmUpdate(payload: NpmUpdatePayload): Promise<void> {
       logPath: payload.logPath,
     });
     const preparedAt = new Date().toISOString();
-    writeJsonAtomic(payload.stateFile, stateFor(payload, 'ready-to-restart', {
+    writeOperationState(payload, 'ready-to-restart', {
       preparedAt,
       runtimePreparedAt: preparedAt,
       runningPackageRoot: runningImage.packageRoot,
@@ -414,9 +453,18 @@ async function prepareNpmUpdate(payload: NpmUpdatePayload): Promise<void> {
       expectedCurrentImageId: initialCurrent.imageId,
       stagingPrefix: undefined,
       stagingPackageRoot: undefined,
-    }));
+    });
     appendLog(payload.logPath, `Farming ${payload.targetVersion} is ready to restart`);
   } catch (error: unknown) {
+    if (error instanceof SupersededUpdateOperationError) {
+      appendLog(payload.logPath, error.message);
+      try {
+        fs.rmSync(payload.stagingPrefix, { recursive: true, force: true });
+      } catch (cleanupError: unknown) {
+        appendLog(payload.logPath, `Superseded update cleanup failed: ${errorMessage(cleanupError)}`);
+      }
+      return;
+    }
     const message = errorMessage(error);
     appendLog(payload.logPath, `Update preparation failed: ${message}`);
     try {
@@ -424,10 +472,10 @@ async function prepareNpmUpdate(payload: NpmUpdatePayload): Promise<void> {
     } catch (cleanupError: unknown) {
       appendLog(payload.logPath, `Update preparation cleanup failed: ${errorMessage(cleanupError)}`);
     }
-    writeJsonAtomic(payload.stateFile, stateFor(payload, 'failed', {
+    writeOperationStateIfOwned(payload, 'failed', {
       error: message,
       completedAt: new Date().toISOString(),
-    }));
+    });
   }
 }
 
@@ -448,20 +496,20 @@ async function applyNpmUpdate(payload: NpmUpdatePayload): Promise<void> {
     verifyInstalledVersion(payload, payload.targetVersion, targetImage.packageRoot);
 
     payload.restartingAt = payload.restartingAt || new Date().toISOString();
-    writeJsonAtomic(payload.stateFile, stateFor(payload, 'restarting', {
+    writeOperationState(payload, 'restarting', {
       preparedAt: payload.preparedAt,
-    }));
+    });
     await new Promise<void>(resolve => setTimeout(resolve, 1_000));
     await stopProcess(Number(payload.serverPid), payload.serverProcessIdentity);
     stoppedOldServer = true;
     activation = activatePackageImage(context, targetImage, String(payload.expectedCurrentImageId));
     await startServer(payload, targetImage.packageRoot);
 
-    writeJsonAtomic(payload.stateFile, stateFor(payload, 'succeeded', {
+    writeOperationStateIfOwned(payload, 'succeeded', {
       preparedAt: payload.preparedAt,
       activatedImageId: targetImage.imageId,
       completedAt: new Date().toISOString(),
-    }));
+    });
     appendLog(payload.logPath, `Farming updated to ${payload.targetVersion}`);
   } catch (error: unknown) {
     const message = errorMessage(error);
@@ -474,10 +522,10 @@ async function applyNpmUpdate(payload: NpmUpdatePayload): Promise<void> {
         if (!runningImage || runningImage.imageId !== payload.runningImageId) {
           throw new Error('Farming rollback package image is unavailable', { cause: error });
         }
-        writeJsonAtomic(payload.stateFile, stateFor(payload, 'rolling-back', {
+        writeOperationStateIfOwned(payload, 'rolling-back', {
           preparedAt: payload.preparedAt,
           error: message,
-        }));
+        });
         let selectionRollbackError = '';
         if (activation?.changed && activation.previous) {
           try {
@@ -499,43 +547,43 @@ async function applyNpmUpdate(payload: NpmUpdatePayload): Promise<void> {
         verifyInstalledVersion(payload, payload.previousVersion, runningImage.packageRoot);
         await startServer(payload, runningImage.packageRoot, payload.previousVersion);
         if (selectionRollbackError) {
-          writeJsonAtomic(payload.stateFile, stateFor(payload, 'failed', {
+          writeOperationStateIfOwned(payload, 'failed', {
             version: payload.previousVersion,
             attemptedVersion: payload.targetVersion,
             preparedAt: payload.preparedAt,
             error: `${message}; package selection rollback failed: ${selectionRollbackError}; `
               + `this Config restarted on ${payload.previousVersion}`,
             completedAt: new Date().toISOString(),
-          }));
+          });
           appendLog(
             payload.logPath,
             `Restarted this Config on ${payload.previousVersion}, but the package selection could not be rolled back`,
           );
           return;
         }
-        writeJsonAtomic(payload.stateFile, stateFor(payload, 'rolled-back', {
+        writeOperationStateIfOwned(payload, 'rolled-back', {
           version: payload.previousVersion,
           attemptedVersion: payload.targetVersion,
           preparedAt: payload.preparedAt,
           error: message,
           completedAt: new Date().toISOString(),
-        }));
+        });
         appendLog(payload.logPath, `Rolled back to ${payload.previousVersion}`);
         return;
       } catch (rollbackError: unknown) {
         const rollbackMessage = errorMessage(rollbackError);
-        writeJsonAtomic(payload.stateFile, stateFor(payload, 'failed', {
+        writeOperationStateIfOwned(payload, 'failed', {
           error: `${message}; rollback failed: ${rollbackMessage}`,
           completedAt: new Date().toISOString(),
-        }));
+        });
         return;
       }
     }
 
-    writeJsonAtomic(payload.stateFile, stateFor(payload, 'ready-to-restart', {
+    writeOperationStateIfOwned(payload, 'ready-to-restart', {
       preparedAt: payload.preparedAt,
       error: message,
-    }));
+    });
   }
 }
 

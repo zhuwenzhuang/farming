@@ -83,6 +83,7 @@ function payloadFor(rootDir, overrides = {}) {
   const stagingPrefix = path.join(installationRoot, 'staging', 'npm-2.3.0.test');
   return {
     action: 'prepare',
+    operationId: '00000000-0000-4000-8000-000000000010',
     packageName: 'farming-code',
     targetVersion: '2.3.0',
     previousVersion: '2.2.5',
@@ -110,6 +111,18 @@ function payloadFor(rootDir, overrides = {}) {
   };
 }
 
+function seedOperation(payload) {
+  fs.writeFileSync(payload.stateFile, `${JSON.stringify({
+    format: 'farming-update-operation-v1',
+    operationId: payload.operationId,
+    method: 'npm',
+    phase: 'installing',
+    version: payload.targetVersion,
+    previousVersion: payload.previousVersion,
+    startedAt: payload.startedAt,
+  })}\n`);
+}
+
 async function prepareFixture(rootDir, {
   requireFallback = false,
   runtimeExitCode = 0,
@@ -126,6 +139,7 @@ async function prepareFixture(rootDir, {
   });
   writePackage(payload.activePackageRoot, '2.2.5');
   writeCli(payload.activePackageRoot, runningStartExitCode, `${callsFile}.starts`);
+  seedOperation(payload);
   await runNpmUpdate(payload);
   const state = JSON.parse(fs.readFileSync(payload.stateFile, 'utf8'));
   return { callsFile, payload, state };
@@ -155,6 +169,19 @@ async function run() {
   assert.throws(() => validatePayload(payloadFor(validationRoot, { targetIntegrity: '' })), /Invalid npm target integrity/);
   assert.throws(() => validatePayload(payloadFor(validationRoot, { stagingPackageRoot: validationRoot })), /Invalid npm update stagingPackageRoot/);
   assert.throws(() => validatePayload(payloadFor(validationRoot, { npmFallbackRegistryUrl: 'file:///tmp/registry' })), /Invalid npm update registry/);
+
+  const supersededRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-npm-helper-superseded.'));
+  const supersededPayload = payloadFor(supersededRoot);
+  fs.writeFileSync(supersededPayload.stateFile, `${JSON.stringify({
+    format: 'farming-update-operation-v1',
+    operationId: '00000000-0000-4000-8000-000000000099',
+    method: 'npm',
+    phase: 'installing',
+  })}\n`);
+  await runNpmUpdate(supersededPayload);
+  const supersededState = JSON.parse(fs.readFileSync(supersededPayload.stateFile, 'utf8'));
+  assert.strictEqual(supersededState.operationId, '00000000-0000-4000-8000-000000000099');
+  assert.match(fs.readFileSync(supersededPayload.logPath, 'utf8'), /is no longer current/);
 
   const originalProcessKill = process.kill;
   process.kill = (pid, signal) => {
@@ -279,6 +306,8 @@ async function run() {
   const prepareFixtureResult = await prepareFixture(prepareRoot);
   const { callsFile: prepareCalls, payload: preparePayload, state: prepared } = prepareFixtureResult;
   assert.strictEqual(prepared.phase, 'ready-to-restart');
+  assert.strictEqual(prepared.format, 'farming-update-operation-v1');
+  assert.strictEqual(prepared.operationId, preparePayload.operationId);
   assert(prepared.runtimePreparedAt);
   assert.strictEqual(prepared.version, '2.3.0');
   assert.strictEqual(JSON.parse(fs.readFileSync(path.join(preparePayload.activePackageRoot, 'package.json'))).version, '2.2.5');
@@ -297,6 +326,7 @@ async function run() {
   const failedPreparePayload = payloadFor(failedPrepareRoot, { npmCommand: '/usr/bin/false' });
   writePackage(failedPreparePayload.activePackageRoot, '2.2.5');
   writeCli(failedPreparePayload.activePackageRoot, 0, path.join(failedPrepareRoot, 'starts'));
+  seedOperation(failedPreparePayload);
   await runNpmUpdate(failedPreparePayload);
   const failedPrepare = JSON.parse(fs.readFileSync(failedPreparePayload.stateFile, 'utf8'));
   assert.strictEqual(failedPrepare.phase, 'failed');

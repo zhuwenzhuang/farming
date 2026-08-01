@@ -73,7 +73,7 @@ async function run() {
       const state = service.currentInstallState();
       return {
         state,
-        persisted: JSON.parse(fs.readFileSync(stateFile, 'utf8')),
+        persisted: fs.existsSync(stateFile) ? JSON.parse(fs.readFileSync(stateFile, 'utf8')) : null,
       };
     } finally {
       fs.rmSync(rootDir, { recursive: true, force: true });
@@ -99,7 +99,8 @@ async function run() {
     version: '2.2.30',
     restartingAt: '2026-07-31T07:59:30.000Z',
   });
-  assert.strictEqual(supersededRestart.state.phase, 'succeeded');
+  assert.strictEqual(supersededRestart.state.phase, 'idle');
+  assert.strictEqual(supersededRestart.persisted, null);
 
   const recentRestart = reconcileRestartingState('2.2.29', {
     method: 'npm',
@@ -121,6 +122,76 @@ async function run() {
   assert.match(staleLegacyRestart.state.error, /did not restart into version 2\.2\.30 within 2 minutes; retry the update/i);
   assert.strictEqual(staleLegacyRestart.state.completedAt, '2026-07-31T08:00:00.000Z');
   assert.deepStrictEqual(staleLegacyRestart.persisted, staleLegacyRestart.state);
+
+  const staleFailedOperation = reconcileRestartingState('2.2.34', {
+    format: 'farming-update-operation-v1',
+    operationId: '00000000-0000-4000-8000-000000000001',
+    method: 'npm',
+    phase: 'failed',
+    version: '2.2.28',
+    previousVersion: '2.2.27',
+    completedAt: '2026-07-31T07:59:30.000Z',
+    error: 'old update failure',
+  });
+  assert.strictEqual(staleFailedOperation.state.phase, 'idle');
+  assert.strictEqual(staleFailedOperation.persisted, null);
+
+  const recentFailedOperation = reconcileRestartingState('2.2.29', {
+    format: 'farming-update-operation-v1',
+    operationId: '00000000-0000-4000-8000-000000000002',
+    method: 'npm',
+    phase: 'failed',
+    version: '2.2.30',
+    previousVersion: '2.2.29',
+    completedAt: '2026-07-31T07:59:30.000Z',
+    error: 'current update failure',
+  });
+  assert.strictEqual(recentFailedOperation.state.phase, 'failed');
+  assert.deepStrictEqual(recentFailedOperation.persisted, recentFailedOperation.state);
+
+  const expiredSucceededOperation = reconcileRestartingState('2.2.30', {
+    format: 'farming-update-operation-v1',
+    operationId: '00000000-0000-4000-8000-000000000003',
+    method: 'npm',
+    phase: 'succeeded',
+    version: '2.2.30',
+    previousVersion: '2.2.29',
+    completedAt: '2026-07-29T07:59:30.000Z',
+  });
+  assert.strictEqual(expiredSucceededOperation.state.phase, 'idle');
+  assert.strictEqual(expiredSucceededOperation.persisted, null);
+
+  const invalidActiveOperation = reconcileRestartingState('2.2.29', {
+    format: 'farming-update-operation-v1',
+    operationId: '00000000-0000-4000-8000-000000000004',
+    method: 'npm',
+    phase: 'installing',
+    version: '2.2.30',
+    previousVersion: '2.2.29',
+  });
+  assert.strictEqual(invalidActiveOperation.state.phase, 'idle');
+  assert.strictEqual(invalidActiveOperation.persisted, null);
+
+  const removedStateRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-removed-update-root-'));
+  const removedStateConfig = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-removed-update-config-'));
+  fs.writeFileSync(path.join(removedStateRoot, 'package.json'), JSON.stringify({
+    name: 'farming-code',
+    version: '2.2.29',
+  }));
+  const removedStateService = new FarmingUpdateService({
+    rootDir: removedStateRoot,
+    configDir: removedStateConfig,
+    installMethod: 'npm',
+  });
+  removedStateService.persistInstallState({
+    method: 'npm',
+    phase: 'failed',
+    version: '2.2.30',
+    previousVersion: '2.2.29',
+    completedAt: new Date().toISOString(),
+  });
+  fs.rmSync(path.join(removedStateConfig, 'farming-update.json'));
+  assert.strictEqual(removedStateService.currentInstallState().phase, 'idle');
 
   for (const installMethod of ['app-bundle', 'source-deploy', 'source', 'standalone-cli']) {
     const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), `farming-${installMethod}-update-root-`));
@@ -198,6 +269,10 @@ async function run() {
     npmVersionsFromMetadata(npmMetadata, '2.2.5').map(version => [version.version, version.available]),
     [['2.3.0', true], ['2.2.6', true], ['2.2.5', false]],
   );
+  assert.deepStrictEqual(
+    npmVersionsFromMetadata(npmMetadata, '2.2.6').map(version => [version.version, version.available]),
+    [['2.3.0', true], ['2.2.6', false]],
+  );
 
   const npmSpawned = [];
   const packageInstallationsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-package-installations-'));
@@ -229,6 +304,29 @@ async function run() {
   assert(npmStatus.target.installationRoot.startsWith(fs.realpathSync.native(packageInstallationsDir)));
   assert.strictEqual(npmStatus.target.activePackageRoot, fs.realpathSync.native(npmRoot));
   assert.deepStrictEqual(npmStatus.versions.map(version => version.version), ['2.3.0', '2.2.6', '2.2.5']);
+
+  const newerNpmPrefix = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-newer-npm-update-prefix-'));
+  const newerNpmRoot = path.join(newerNpmPrefix, 'lib', 'node_modules', 'farming-code');
+  fs.mkdirSync(path.join(newerNpmRoot, 'bin'), { recursive: true });
+  fs.writeFileSync(path.join(newerNpmRoot, 'package.json'), JSON.stringify({
+    name: 'farming-code',
+    version: '2.4.0',
+  }));
+  fs.writeFileSync(path.join(newerNpmRoot, 'bin', 'farming'), '#!/usr/bin/env node\n');
+  const newerNpmService = new FarmingUpdateService({
+    rootDir: newerNpmRoot,
+    configDir: fs.mkdtempSync(path.join(os.tmpdir(), 'farming-newer-npm-update-config-')),
+    npmPackageRoot: newerNpmRoot,
+    packageInstallationsDir,
+    fetchJson: async () => npmMetadata,
+  });
+  const newerNpmStatus = await newerNpmService.check({ force: true });
+  assert.strictEqual(newerNpmStatus.current.packageVersion, '2.4.0');
+  assert.strictEqual(newerNpmStatus.latest.version, '2.4.0');
+  assert.deepStrictEqual(newerNpmStatus.versions, []);
+  assert.strictEqual(newerNpmStatus.selected.version, '');
+  assert.strictEqual(newerNpmStatus.available, false);
+  assert.strictEqual(newerNpmStatus.installable, false);
 
   const previousNodeBin = process.env.FARMING_NODE_BIN;
   const previousNpmCommand = process.env.FARMING_NPM_COMMAND;
@@ -267,6 +365,9 @@ async function run() {
       targetImageId: targetImage.imageId,
       expectedCurrentImageId: currentPointer.imageId,
     });
+    const persistedPreparedState = JSON.parse(fs.readFileSync(path.join(npmConfigDir, 'farming-update.json'), 'utf8'));
+    assert.strictEqual(persistedPreparedState.format, 'farming-update-operation-v1');
+    assert.strictEqual(persistedPreparedState.operationId, npmInstallState.operationId);
     npmApplyState = await npmService.applyPreparedUpdate();
   } finally {
     if (previousNodeBin === undefined) delete process.env.FARMING_NODE_BIN;
@@ -294,6 +395,7 @@ async function run() {
   ]);
   assert(npmSpawned[0].args[3].endsWith('/backend/npm-update-helper.cjs'));
   const npmUpdatePayload = JSON.parse(npmSpawned[0].options.env.FARMING_NPM_UPDATE_PAYLOAD);
+  assert.match(npmUpdatePayload.operationId, /^[0-9a-f-]{16,64}$/i);
   assert.strictEqual(npmUpdatePayload.targetVersion, '2.2.6');
   assert.strictEqual(npmUpdatePayload.previousVersion, '2.2.5');
   assert.strictEqual(npmUpdatePayload.action, 'prepare');
@@ -307,6 +409,7 @@ async function run() {
   );
   assert.strictEqual(npmUpdatePayload.npmFallbackRegistryUrl, 'https://registry.npmjs.org');
   const npmApplyPayload = JSON.parse(npmSpawned[1].options.env.FARMING_NPM_UPDATE_PAYLOAD);
+  assert.strictEqual(npmApplyPayload.operationId, npmUpdatePayload.operationId);
   assert.strictEqual(npmApplyPayload.action, 'apply');
   assert.strictEqual(npmApplyPayload.restartingAt, npmApplyState.restartingAt);
   assert.strictEqual(npmApplyPayload.targetImageId, targetImage.imageId);
@@ -335,7 +438,8 @@ async function run() {
     rootDir: migratedRoot,
     configDir: migratedConfigDir,
   });
-  assert.strictEqual(migratedService.currentInstallState().phase, 'succeeded');
+  assert.strictEqual(migratedService.currentInstallState().phase, 'idle');
+  assert.strictEqual(fs.existsSync(path.join(migratedConfigDir, 'farming-update.json')), false);
 
   const npmMismatchService = new FarmingUpdateService({
     rootDir: npmRoot,
