@@ -23,6 +23,7 @@ preserved in bundled `node_modules` when bundled dependencies are enabled.
 | `@xterm/addon-webgl` | 0.19.0 | MIT | CRT terminal GPU renderer |
 | `@xterm/headless` | 6.0.0 | MIT | Backend terminal screen state |
 | `@xterm/xterm` | 6.0.0 | MIT | Browser terminal renderer |
+| `@zumer/snapdom` | 2.23.1 | MIT | Pet rest-scene DOM capture |
 | `ansi-to-html` | 0.7.2 | MIT | ANSI text rendering support |
 | `chokidar` | 5.0.0 | MIT | Filesystem watching |
 | `compression` | 1.8.1 | MIT | HTTP response compression |
@@ -31,7 +32,6 @@ preserved in bundled `node_modules` when bundled dependencies are enabled.
 | `extract-zip` | 2.0.1 | BSD-2-Clause | Managed Chromium archive extraction |
 | `ghostty-web` | 0.4.0 | MIT | Optional/debug terminal renderer assets |
 | `highlight.js` | 11.11.1 | BSD-3-Clause | Syntax highlighting |
-| `html2canvas` | 1.4.1 | MIT | Pet rest-scene snapshot capture |
 | `katex` | 0.17.0 | MIT | Mathematical notation rendering |
 | `material-icon-theme` | 5.36.1 | MIT | File and folder icons |
 | `mermaid` | 11.16.0 | MIT | Diagram rendering |
