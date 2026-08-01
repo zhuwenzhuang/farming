@@ -243,6 +243,24 @@ test.describe('ACP human-like browser matrix', () => {
     expect(metrics.inlineCodeFontSize).toBeLessThan(14)
   })
 
+  test('hides an incomplete ACP plan when its Turn ends', async ({ page, workspaceRoot }) => {
+    const workspace = path.join(workspaceRoot, 'acp-stale-ended-plan')
+    fs.mkdirSync(workspace, { recursive: true })
+    fs.writeFileSync(path.join(workspace, 'README.md'), '# Stale ended plan\n')
+    fs.writeFileSync(path.join(workspace, 'display-fixture.txt'), 'before\n')
+
+    const agentId = await createAcpAgent(page, workspace)
+    await openFarming(page)
+    await agentRow(page, agentId).click()
+    await sendAcpMessage(page, 'rich timeline')
+
+    const plan = page.getByTestId('code-agent-transcript-plan-driver')
+    await expect(plan).toBeVisible()
+    await expect(plan).toContainText('1/3')
+    await expect(page.getByText('Rich ACP timeline complete.', { exact: true })).toBeVisible({ timeout: 20_000 })
+    await expect(plan).toHaveCount(0)
+  })
+
   test('isolates transcript Markdown, tool, and turn render failures', async ({ page, workspaceRoot }) => {
     const workspace = path.join(workspaceRoot, 'acp-local-error-boundaries')
     fs.mkdirSync(workspace, { recursive: true })
@@ -725,7 +743,7 @@ test.describe('ACP human-like browser matrix', () => {
         return Math.abs(progressBox.x - summaryBox.x)
       }).toBeLessThanOrEqual(1)
     })
-    await test.step('13 remove the floating plan driver after every step completes', async () => {
+    await test.step('13 remove the stale floating plan driver after the turn completes', async () => {
       const plan = page.getByTestId('code-agent-transcript-plan-driver')
       await expect(plan).toHaveCount(0)
       await expect(richTurn.getByText('Plan', { exact: true })).toHaveCount(0)

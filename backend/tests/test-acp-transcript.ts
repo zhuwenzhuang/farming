@@ -480,6 +480,20 @@ const completedPlanTranscript = acpSessionTranscript({
 });
 assert.strictEqual(completedPlanTranscript.plan.status, 'completed');
 
+const staleEndedPlanTranscript = acpSessionTranscript({
+  state: 'idle',
+  plan: { entries: [
+    { content: 'Inspect code', status: 'completed' },
+    { content: 'Verify result', status: 'in_progress' },
+  ] },
+  entries: [
+    { id: 'user-stale-plan', type: 'message', role: 'user', content: [{ type: 'text', text: 'Finish it' }] },
+    { id: 'answer-stale-plan', type: 'message', role: 'assistant', content: [{ type: 'text', text: 'Done' }] },
+  ],
+});
+assert.strictEqual(staleEndedPlanTranscript.plan.status, 'running');
+assert.strictEqual(staleEndedPlanTranscript.turns.at(-1).status, 'completed');
+
 const largeToolTranscript = acpSessionTranscript({
   revision: 7,
   delta: true,
@@ -936,10 +950,11 @@ assert(
   'only read-only ACP transcript network failures should receive bounded retries and localized final errors'
 );
 assert(
-  transcriptPaneSource.includes("const activePlan = sessionPlan?.status === 'completed' ? undefined : sessionPlan")
+  transcriptPaneSource.includes("const activePlan = turns[turns.length - 1]?.status === 'inProgress'")
+    && transcriptPaneSource.includes("&& sessionPlan?.status !== 'completed'")
     && transcriptPaneSource.includes("className={`code-agent-transcript ${activePlan ? 'has-plan-driver' : ''}`}")
     && transcriptPaneSource.includes('<AgentTranscriptPlanDriver plan={activePlan} />'),
-  'the view-attached plan driver should reserve space only while the authoritative plan is incomplete'
+  'the view-attached plan driver should reserve space only while the authoritative plan is incomplete and the latest turn is active'
 );
 assert(
   darkStylesSource.includes("body.code-mode[data-appearance='dark'] .code-agent-transcript-plan-driver {")

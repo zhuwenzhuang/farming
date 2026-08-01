@@ -193,13 +193,14 @@ const path = require('path');
       && blackHoleRendererSource.includes('float edge = fieldFade(pointLength);')
       && blackHoleRendererSource.includes('pointLength / (7.0 * horizon)')
       && blackHoleRendererSource.includes('radius >= ${FIELD_OUTER.toFixed(2)}')
-      && blackHoleRendererSource.includes('outColor = mix(sharp, soft, softness * 0.72);'),
+      && blackHoleRendererSource.includes('outColor = scene(samplePixel);'),
     'the lifecycle should exclude the pure-black state without weakening the full background UI lensing field',
   )
   assert(
     !blackHoleRendererSource.includes('workAreaShield')
-      && blackHoleRendererSource.includes('float softness = high.b * uOpacity;')
-      && blackHoleRendererSource.includes('* uScale * uOpacity;'),
+      && !blackHoleRendererSource.includes('uniform float uPixelRatio;')
+      && blackHoleRendererSource.includes('* uScale * uOpacity;')
+      && blackHoleRendererSource.includes('outColor = original;'),
     'the compositor should preserve full-screen background lensing without a protected bottom band',
   )
   assert(
@@ -252,15 +253,15 @@ const path = require('path');
   assert(blackHoleRendererSource.includes('crypto.getRandomValues'));
   assert(blackHoleRendererSource.includes('createCompositorRenderer'));
   assert(blackHoleRendererSource.includes('createSceneImage'));
-  assert(blackHoleRendererSource.includes("await import('html2canvas')"));
+  assert(blackHoleRendererSource.includes("await import('@zumer/snapdom')"));
   assert(blackHoleRendererSource.includes('createXtermSnapshotOverlays'));
-  assert(blackHoleRendererSource.includes('foreignObjectRendering: false'));
-  assert(blackHoleRendererSource.includes("element.tagName === 'BROWSER-MCP-CONTAINER'"));
+  assert(blackHoleRendererSource.includes("excludeMode: 'remove'"));
+  assert(blackHoleRendererSource.includes("'browser-mcp-container'"));
   assert(blackHoleRendererSource.includes("highMap\n    .getContext('webgl2')"));
   assert(blackHoleRendererSource.includes("lowMap\n    .getContext('webgl2')"));
   assert(blackHoleRendererSource.includes('canvas.dataset.captureMs'));
-  assert(blackHoleRendererSource.includes('PET_SNAPSHOT_EXCLUDE_SELECTOR'));
-  assert(blackHoleRendererSource.includes('excludedElements.forEach(element => element.remove())'));
+  assert(blackHoleRendererSource.includes('PET_SNAPSHOT_EXCLUDE_SELECTORS'));
+  assert(blackHoleRendererSource.includes('plugins: [snapshotPlugin]'));
   assert(blackHoleRendererSource.includes('image.dataset.remainingPetElements'));
   assert(
     blackHoleRendererSource.includes("const FILE_ICON_SELECTOR = 'img.code-file-type-icon'")
@@ -271,12 +272,12 @@ const path = require('path');
     'the scene snapshot should rasterize loaded file SVGs before cloning them',
   );
   assert(
-    blackHoleRendererSource.includes('smoother(offsetPixels / ${BLUR_OFFSET_PX.toFixed(1)})'),
-    'production compositor should preserve the reference pixel-space blur activity',
+    blackHoleRendererSource.includes('writeMap(\n    displacement * ${DISPLAY_SIZE.toFixed(1)},\n    edge\n  );'),
+    'the displacement map should retain the full smooth field without a second blur control',
   )
   assert(
-    blackHoleRendererSource.includes('vec2(0.72) * uPixelRatio * softness'),
-    'production compositor should preserve the reference DPR-scaled blur taps',
+    blackHoleRendererSource.includes("canvas.dataset.sceneSampling = 'single-trilinear'"),
+    'the production compositor should use one mipmapped scene sample after displacement',
   )
   assert(
     blackHoleMapShaderSource.includes('sourcePoint = mix(tracedSourcePoint, farSourcePoint, farMix)'),
@@ -314,11 +315,11 @@ const path = require('path');
     'an unavailable first snapshot should retry and clear its visible failure after recovery',
   )
   assert(
-    blackHoleRendererSource.includes("cssText.includes('body.code-mode[data-appearance=')")
-      && blackHoleRendererSource.includes("cssText.includes('color-scheme: dark')")
-      && blackHoleRendererSource.includes("style.dataset.farmingAppearanceSnapshot = ''")
-      && blackHoleRendererSource.includes('link.replaceWith(style)'),
-    'the production snapshot clone should receive the already-loaded dark stylesheet synchronously',
+    blackHoleRendererSource.includes('const backgroundColor = getComputedStyle(document.body).backgroundColor')
+      && blackHoleRendererSource.includes('embedFonts: true')
+      && blackHoleRendererSource.includes('const clonedBodyBackground = backgroundColor')
+      && blackHoleRendererSource.includes('image.dataset.clonedBodyBackground = clonedBodyBackground'),
+    'the production snapshot should retain the current appearance background and embedded fonts',
   )
   assert(
     !blackHoleRendererSource.includes('|| (!sceneReady && exitingAt === null)')

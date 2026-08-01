@@ -3624,7 +3624,10 @@ export function AgentTranscriptPane({
     textSelectionGestureRef.current = true
   }, [])
   const sessionPlan = source === 'acp' ? transcript?.plan : undefined
-  const activePlan = sessionPlan?.status === 'completed' ? undefined : sessionPlan
+  const activePlan = turns[turns.length - 1]?.status === 'inProgress'
+    && sessionPlan?.status !== 'completed'
+    ? sessionPlan
+    : undefined
   const handleToggleProcess = useCallback((turnId: string) => {
     const turn = turns.find(candidate => candidate.id === turnId)
     if (source === 'acp' && turn?.status === 'inProgress') {

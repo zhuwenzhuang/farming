@@ -433,6 +433,7 @@ class AcpSessionState {
       ? clone(prompt)
       : [{ type: 'text', text: String(prompt || '') }];
     this.activePlanEntry = null;
+    this.plan = null;
     const startedAt = Date.now();
     return this.pushEntry({
       id: this.nextEntryId('user'),
@@ -483,6 +484,8 @@ class AcpSessionState {
 
   completePrompt(): void {
     this.completeContextCompactionTool();
+    this.activePlanEntry = null;
+    this.plan = null;
     // Runtime completion changes the visible state of the last turn. Touch the
     // existing entry so delta readers can refresh that turn without inventing
     // a protocol entry boundary.

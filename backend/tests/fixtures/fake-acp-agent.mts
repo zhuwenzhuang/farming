@@ -1023,21 +1023,6 @@ class FakeAgent implements Agent {
       await client.sessionUpdate({
         sessionId: params.sessionId,
         update: {
-          sessionUpdate: 'plan',
-          entries: releaseStory ? [
-            { content: 'Trace the authoritative checkpoint state', priority: 'high', status: 'completed' },
-            { content: 'Exercise reconnect and gap recovery', priority: 'high', status: 'completed' },
-            { content: 'Verify release gates and residual risk', priority: 'medium', status: 'completed' },
-          ] : [
-            { content: 'Inspect the source', priority: 'high', status: 'completed' },
-            { content: 'Apply the change', priority: 'medium', status: 'completed' },
-            { content: 'Verify the result', priority: 'medium', status: 'completed' },
-          ],
-        },
-      });
-      await client.sessionUpdate({
-        sessionId: params.sessionId,
-        update: {
           sessionUpdate: 'agent_message_chunk',
           messageId: 'rich-answer',
           content: {

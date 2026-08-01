@@ -342,11 +342,19 @@ async function run() {
   assert.strictEqual(explicitCompaction.status, 'completed');
   assert.strictEqual(explicitCompaction.summary, 'Kept parser findings');
   state.beginPrompt('limited');
+  assert.strictEqual(state.plan, null, 'a new Prompt must not inherit the previous Turn plan');
+  state.apply({ sessionId: 's1', update: {
+    sessionUpdate: 'plan_update',
+    plan: { type: 'items', planId: 'plan-2', entries: [{ content: 'Finish current turn', status: 'in_progress' }] },
+  } });
+  assert.strictEqual(state.plan.entries[0].content, 'Finish current turn');
   state.completePrompt('max_tokens');
-  assert.strictEqual(state.snapshot().entries.at(-1).content[0].text, 'limited');
-  assert(Number.isFinite(state.snapshot().entries.at(-1).turnStartedAt));
-  assert(Number.isFinite(state.snapshot().entries.at(-1).turnCompletedAt));
-  assert(Number.isFinite(state.snapshot().entries.at(-1).turnDurationMs));
+  assert.strictEqual(state.plan, null, 'a completed Prompt must clear its active plan');
+  const limitedPromptEntry = state.snapshot().entries.find(entry => entry.role === 'user' && entry.content?.[0]?.text === 'limited');
+  assert.strictEqual(limitedPromptEntry.content[0].text, 'limited');
+  assert(Number.isFinite(limitedPromptEntry.turnStartedAt));
+  assert(Number.isFinite(limitedPromptEntry.turnCompletedAt));
+  assert(Number.isFinite(limitedPromptEntry.turnDurationMs));
   const fullSlice = state.transcriptSlice({ maxTurns: 1 });
   assert.strictEqual(fullSlice.delta, false);
   assert.strictEqual(fullSlice.entries[0].role, 'user');
