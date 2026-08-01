@@ -1547,27 +1547,6 @@ class WorkspaceFileService {
     return { stdout, stderr };
   }
 
-  async listSearchFiles(root: string, searchPath: string, timeout: number): Promise<CommandResult> {
-    try {
-      return await this.execFile(this.gitPath, [
-        '-C',
-        root,
-        'ls-files',
-        '-co',
-        '--exclude-standard',
-        '--',
-        searchPath,
-      ], { cwd: root, timeout, maxBuffer: SEARCH_FILE_LIST_MAX_BUFFER });
-    } catch {
-      return this.execRipgrep([
-        '--files',
-        '--hidden',
-        ...searchExcludeGlobArgs(),
-        searchPath,
-      ], { cwd: root, timeout, maxBuffer: SEARCH_FILE_LIST_MAX_BUFFER });
-    }
-  }
-
   async collectGitIgnoredPathMatchCandidates(
     root: string,
     searchPath: string,
