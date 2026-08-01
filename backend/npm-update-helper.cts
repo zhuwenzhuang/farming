@@ -2,6 +2,18 @@ const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
 import { matchingProcessIdentity, readServerProcessIdentity } from './server-process-identity.cjs';
+import {
+  activatePackageImage,
+  initializeCurrentPackageImage,
+  packageImageForPointer,
+  publishPreparedPackageImage,
+  publishRunningPackageImage,
+  readCurrentPackagePointer,
+  readPackageImageRef,
+  resolvePackageInstallationContext,
+} from './package-installation.cjs';
+import type { ActivatePackageImageResult, PackageInstallationContext } from './package-installation.cjs';
+import { canonicalConfigDir } from './config-instance.cjs';
 
 type NpmUpdateAction = 'prepare' | 'apply';
 
@@ -18,16 +30,24 @@ interface NpmUpdatePayload {
   previousVersion: string;
   startedAt?: string;
   preparedAt?: string;
+  restartingAt?: string;
+  targetIntegrity: string;
   stateFile: string;
   logPath: string;
-  cliPath: string;
-  packageRoot: string;
+  activePackageRoot: string;
+  installationId: string;
+  installationRoot: string;
+  bootstrapPackageRoot: string;
   configDir: string;
-  stagingPrefix: string;
-  stagingPackageRoot: string;
+  stagingPrefix?: string;
+  stagingPackageRoot?: string;
+  runningPackageRoot?: string;
+  runningImageId?: string;
+  targetPackageRoot?: string;
+  targetImageId?: string;
+  expectedCurrentImageId?: string;
   nodePath: string;
   npmCommand?: string;
-  npmPrefix?: string;
   npmFallbackRegistryUrl?: string;
   serverPid?: number | string;
   serverProcessIdentity?: ProcessIdentityInput | null;
@@ -50,9 +70,10 @@ interface NpmUpdateState extends Record<string, unknown> {
   previousVersion: string;
   packageName: string;
   startedAt?: string;
+  restartingAt?: string;
   logPath: string;
-  stagingPrefix: string;
-  stagingPackageRoot: string;
+  stagingPrefix?: string;
+  stagingPackageRoot?: string;
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -154,11 +175,17 @@ function validatePayload(payload: unknown): NpmUpdatePayload {
   if (!/^[A-Za-z0-9@/._-]+$/.test(String(candidate.packageName || ''))) throw new Error('Invalid npm package name');
   if (!/^[0-9A-Za-z.+-]+$/.test(String(candidate.targetVersion || ''))) throw new Error('Invalid npm target version');
   if (!/^[0-9A-Za-z.+-]+$/.test(String(candidate.previousVersion || ''))) throw new Error('Invalid npm previous version');
-  for (const key of ['stateFile', 'logPath', 'cliPath', 'packageRoot', 'configDir', 'stagingPrefix', 'stagingPackageRoot']) {
+  if (!String(candidate.targetIntegrity || '').trim()) throw new Error('Invalid npm target integrity');
+  if (!/^[a-f0-9]{16}$/.test(String(candidate.installationId || ''))) throw new Error('Invalid npm installation id');
+  for (const key of [
+    'stateFile',
+    'logPath',
+    'activePackageRoot',
+    'installationRoot',
+    'bootstrapPackageRoot',
+    'configDir',
+  ]) {
     if (!path.isAbsolute(String(candidate[key] || ''))) throw new Error(`Invalid npm update ${key}`);
-  }
-  if (candidate.npmPrefix && !path.isAbsolute(String(candidate.npmPrefix))) {
-    throw new Error('Invalid npm update npmPrefix');
   }
   if (candidate.npmFallbackRegistryUrl) {
     let registry;
@@ -171,17 +198,26 @@ function validatePayload(payload: unknown): NpmUpdatePayload {
       throw new Error('Invalid npm update registry');
     }
   }
-  const expectedStagingRoot = path.join(
-    String(candidate.stagingPrefix),
-    'lib',
-    'node_modules',
-    String(candidate.packageName),
-  );
-  if (path.resolve(String(candidate.stagingPackageRoot)) !== path.resolve(expectedStagingRoot)) {
-    throw new Error('Invalid npm update stagingPackageRoot');
-  }
-  if (path.resolve(String(candidate.stagingPackageRoot)) === path.resolve(String(candidate.packageRoot))) {
-    throw new Error('npm update staging root must differ from the running package root');
+  if (candidate.action === 'prepare') {
+    for (const key of ['stagingPrefix', 'stagingPackageRoot']) {
+      if (!path.isAbsolute(String(candidate[key] || ''))) throw new Error(`Invalid npm update ${key}`);
+    }
+    const expectedStagingRoot = path.join(
+      String(candidate.stagingPrefix),
+      'lib',
+      'node_modules',
+      String(candidate.packageName),
+    );
+    if (path.resolve(String(candidate.stagingPackageRoot)) !== path.resolve(expectedStagingRoot)) {
+      throw new Error('Invalid npm update stagingPackageRoot');
+    }
+  } else {
+    for (const key of ['runningPackageRoot', 'targetPackageRoot']) {
+      if (!path.isAbsolute(String(candidate[key] || ''))) throw new Error(`Invalid npm update ${key}`);
+    }
+    for (const key of ['runningImageId', 'targetImageId', 'expectedCurrentImageId']) {
+      if (!/^[a-f0-9]{16}$/.test(String(candidate[key] || ''))) throw new Error(`Invalid npm update ${key}`);
+    }
   }
   return payload as NpmUpdatePayload;
 }
@@ -197,17 +233,27 @@ function stateFor(
     version: payload.targetVersion,
     previousVersion: payload.previousVersion,
     packageName: payload.packageName,
+    targetIntegrity: payload.targetIntegrity,
     startedAt: payload.startedAt,
+    restartingAt: payload.restartingAt,
     logPath: payload.logPath,
     stagingPrefix: payload.stagingPrefix,
     stagingPackageRoot: payload.stagingPackageRoot,
+    installationId: payload.installationId,
+    installationRoot: payload.installationRoot,
+    bootstrapPackageRoot: payload.bootstrapPackageRoot,
+    runningPackageRoot: payload.runningPackageRoot,
+    runningImageId: payload.runningImageId,
+    targetPackageRoot: payload.targetPackageRoot,
+    targetImageId: payload.targetImageId,
+    expectedCurrentImageId: payload.expectedCurrentImageId,
     ...extra,
   };
 }
 
-function startArguments(payload: NpmUpdatePayload): string[] {
+function startArguments(payload: NpmUpdatePayload, packageRoot: string): string[] {
   const args = [
-    payload.cliPath,
+    path.join(packageRoot, 'bin', 'farming'),
     'daemon',
     '--port', String(payload.port),
     '--base-path', payload.basePath,
@@ -223,22 +269,23 @@ function commandEnvironment(): NodeJS.ProcessEnv {
   delete env.FARMING_NPM_UPDATE_PAYLOAD;
   delete env.FARMING_RUN_SERVER;
   delete env.FARMING_RUN_NATIVE_PTY_HOST;
+  delete env.FARMING_ACTIVE_PACKAGE_ROOT;
+  delete env.FARMING_MANAGED_PACKAGE_ROOT;
   return env;
 }
 
 async function installPackage(
   payload: NpmUpdatePayload,
   version: string,
-  npmPrefix = payload.npmPrefix,
 ): Promise<void> {
   const packageSpec = `${payload.packageName}@${version}`;
-  return installPackageFromRegistry(payload, packageSpec, '', npmPrefix);
+  return installPackageFromRegistry(payload, packageSpec);
 }
 
 function verifyInstalledVersion(
   payload: NpmUpdatePayload,
   expectedVersion: string,
-  packageRoot = payload.packageRoot,
+  packageRoot: string,
 ): void {
   const packageJsonPath = path.join(packageRoot, 'package.json');
   let metadata: unknown;
@@ -276,11 +323,10 @@ async function installPackageFromRegistry(
   payload: NpmUpdatePayload,
   packageSpec: string,
   registryUrl = '',
-  npmPrefix = payload.npmPrefix,
 ): Promise<void> {
   appendLog(payload.logPath, `Installing ${packageSpec}${registryUrl ? ' from the update-status registry' : ''}`);
   const args = ['install', '--global'];
-  if (npmPrefix) args.push('--prefix', npmPrefix);
+  args.push('--prefix', String(payload.stagingPrefix));
   if (registryUrl) args.push('--registry', registryUrl);
   args.push(packageSpec, '--no-audit', '--no-fund');
   const offset = logSize(payload.logPath);
@@ -293,7 +339,7 @@ async function installPackageFromRegistry(
   } catch (error: unknown) {
     if (!registryUrl && payload.npmFallbackRegistryUrl && /(?:ETARGET|No matching version found)/.test(logSince(payload.logPath, offset))) {
       appendLog(payload.logPath, `Configured npm registry has no ${packageSpec}; retrying from the update-status registry`);
-      return installPackageFromRegistry(payload, packageSpec, payload.npmFallbackRegistryUrl, npmPrefix);
+      return installPackageFromRegistry(payload, packageSpec, payload.npmFallbackRegistryUrl);
     }
     throw error;
   }
@@ -301,26 +347,52 @@ async function installPackageFromRegistry(
 
 async function startServer(
   payload: NpmUpdatePayload,
+  packageRoot: string,
   version = payload.targetVersion,
 ): Promise<void> {
   appendLog(payload.logPath, `Starting Farming ${version}`);
-  await runCommand(payload.nodePath, startArguments(payload), {
+  await runCommand(payload.nodePath, startArguments(payload, packageRoot), {
     cwd: payload.configDir,
     env: commandEnvironment(),
     logPath: payload.logPath,
   });
 }
 
+function installationContext(payload: NpmUpdatePayload): PackageInstallationContext {
+  const context = resolvePackageInstallationContext(payload.activePackageRoot, {
+    ...process.env,
+    FARMING_PACKAGE_INSTALLATION_ID: payload.installationId,
+    FARMING_PACKAGE_INSTALLATION_ROOT: payload.installationRoot,
+    FARMING_BOOTSTRAP_PACKAGE_ROOT: payload.bootstrapPackageRoot,
+  });
+  if (
+    !context
+    || context.installationId !== payload.installationId
+    || canonicalConfigDir(context.installationRoot) !== canonicalConfigDir(payload.installationRoot)
+  ) throw new Error('Farming package installation identity changed during update');
+  return context;
+}
+
 async function prepareNpmUpdate(payload: NpmUpdatePayload): Promise<void> {
   try {
+    const context = installationContext(payload);
     writeJsonAtomic(payload.stateFile, stateFor(payload, 'installing'));
-    fs.mkdirSync(payload.stagingPrefix, { recursive: true });
-    await installPackage(payload, payload.targetVersion, payload.stagingPrefix);
-    verifyInstalledVersion(payload, payload.targetVersion, payload.stagingPackageRoot);
+    const runningImage = publishRunningPackageImage(context, payload.activePackageRoot);
+    const initialCurrent = initializeCurrentPackageImage(context, runningImage);
+    fs.mkdirSync(String(payload.stagingPrefix), { recursive: true });
+    await installPackage(payload, payload.targetVersion);
+    verifyInstalledVersion(payload, payload.targetVersion, String(payload.stagingPackageRoot));
+    const targetImage = publishPreparedPackageImage(
+      context,
+      String(payload.stagingPackageRoot),
+      payload.targetVersion,
+      payload.targetIntegrity,
+    );
+    fs.rmSync(String(payload.stagingPrefix), { recursive: true, force: true });
     writeJsonAtomic(payload.stateFile, stateFor(payload, 'preparing-runtimes'));
     appendLog(payload.logPath, `Preparing Farming ${payload.targetVersion} startup dependencies`);
     await runCommand(payload.nodePath, [
-      path.join(payload.stagingPackageRoot, 'bin', 'farming'),
+      path.join(targetImage.packageRoot, 'bin', 'farming'),
       'runtime',
       'prepare',
       '--config-dir',
@@ -335,6 +407,13 @@ async function prepareNpmUpdate(payload: NpmUpdatePayload): Promise<void> {
     writeJsonAtomic(payload.stateFile, stateFor(payload, 'ready-to-restart', {
       preparedAt,
       runtimePreparedAt: preparedAt,
+      runningPackageRoot: runningImage.packageRoot,
+      runningImageId: runningImage.imageId,
+      targetPackageRoot: targetImage.packageRoot,
+      targetImageId: targetImage.imageId,
+      expectedCurrentImageId: initialCurrent.imageId,
+      stagingPrefix: undefined,
+      stagingPackageRoot: undefined,
     }));
     appendLog(payload.logPath, `Farming ${payload.targetVersion} is ready to restart`);
   } catch (error: unknown) {
@@ -353,60 +432,87 @@ async function prepareNpmUpdate(payload: NpmUpdatePayload): Promise<void> {
 }
 
 async function applyNpmUpdate(payload: NpmUpdatePayload): Promise<void> {
-  const backupRoot = path.join(
-    path.dirname(payload.packageRoot),
-    `.${path.basename(payload.packageRoot)}.backup-${process.pid}`,
-  );
   let stoppedOldServer = false;
-  let movedOldPackage = false;
-  let movedNewPackage = false;
+  let activation: ActivatePackageImageResult | null = null;
   try {
-    verifyInstalledVersion(payload, payload.previousVersion, payload.packageRoot);
-    verifyInstalledVersion(payload, payload.targetVersion, payload.stagingPackageRoot);
-    if (fs.existsSync(backupRoot)) throw new Error(`npm update backup already exists: ${backupRoot}`);
+    const context = installationContext(payload);
+    const runningImage = readPackageImageRef(String(payload.runningPackageRoot));
+    const targetImage = readPackageImageRef(String(payload.targetPackageRoot));
+    if (!runningImage || runningImage.imageId !== payload.runningImageId) {
+      throw new Error('Farming rollback package image is missing or changed');
+    }
+    if (!targetImage || targetImage.imageId !== payload.targetImageId) {
+      throw new Error('Farming target package image is missing or changed');
+    }
+    verifyInstalledVersion(payload, payload.previousVersion, runningImage.packageRoot);
+    verifyInstalledVersion(payload, payload.targetVersion, targetImage.packageRoot);
 
+    payload.restartingAt = payload.restartingAt || new Date().toISOString();
     writeJsonAtomic(payload.stateFile, stateFor(payload, 'restarting', {
       preparedAt: payload.preparedAt,
     }));
     await new Promise<void>(resolve => setTimeout(resolve, 1_000));
     await stopProcess(Number(payload.serverPid), payload.serverProcessIdentity);
     stoppedOldServer = true;
-    fs.renameSync(payload.packageRoot, backupRoot);
-    movedOldPackage = true;
-    fs.renameSync(payload.stagingPackageRoot, payload.packageRoot);
-    movedNewPackage = true;
-    await startServer(payload);
+    activation = activatePackageImage(context, targetImage, String(payload.expectedCurrentImageId));
+    await startServer(payload, targetImage.packageRoot);
 
     writeJsonAtomic(payload.stateFile, stateFor(payload, 'succeeded', {
       preparedAt: payload.preparedAt,
+      activatedImageId: targetImage.imageId,
       completedAt: new Date().toISOString(),
     }));
     appendLog(payload.logPath, `Farming updated to ${payload.targetVersion}`);
-    try {
-      fs.rmSync(backupRoot, { recursive: true, force: true });
-      fs.rmSync(payload.stagingPrefix, { recursive: true, force: true });
-    } catch (cleanupError: unknown) {
-      appendLog(payload.logPath, `Update cleanup failed: ${errorMessage(cleanupError)}`);
-    }
   } catch (error: unknown) {
     const message = errorMessage(error);
     appendLog(payload.logPath, `Update apply failed: ${message}`);
 
     if (stoppedOldServer || !isProcessRunning(Number(payload.serverPid))) {
       try {
+        const context = installationContext(payload);
+        const runningImage = readPackageImageRef(String(payload.runningPackageRoot));
+        if (!runningImage || runningImage.imageId !== payload.runningImageId) {
+          throw new Error('Farming rollback package image is unavailable');
+        }
         writeJsonAtomic(payload.stateFile, stateFor(payload, 'rolling-back', {
           preparedAt: payload.preparedAt,
           error: message,
         }));
-        if (movedNewPackage && fs.existsSync(payload.packageRoot)) {
-          fs.mkdirSync(path.dirname(payload.stagingPackageRoot), { recursive: true });
-          fs.renameSync(payload.packageRoot, payload.stagingPackageRoot);
+        let selectionRollbackError = '';
+        if (activation?.changed && activation.previous) {
+          try {
+            const previousImage = packageImageForPointer(context, activation.previous);
+            if (!previousImage) throw new Error('Previous Farming package selection is unavailable');
+            activatePackageImage(context, previousImage, String(payload.targetImageId));
+          } catch (selectionError: unknown) {
+            const selected = readCurrentPackagePointer(context);
+            if (selected?.imageId === payload.targetImageId || !selected) {
+              selectionRollbackError = errorMessage(selectionError);
+            } else {
+              appendLog(
+                payload.logPath,
+                `Package selection moved independently to ${selected.imageId}; leaving it unchanged`,
+              );
+            }
+          }
         }
-        if (movedOldPackage && fs.existsSync(backupRoot)) {
-          fs.renameSync(backupRoot, payload.packageRoot);
+        verifyInstalledVersion(payload, payload.previousVersion, runningImage.packageRoot);
+        await startServer(payload, runningImage.packageRoot, payload.previousVersion);
+        if (selectionRollbackError) {
+          writeJsonAtomic(payload.stateFile, stateFor(payload, 'failed', {
+            version: payload.previousVersion,
+            attemptedVersion: payload.targetVersion,
+            preparedAt: payload.preparedAt,
+            error: `${message}; package selection rollback failed: ${selectionRollbackError}; `
+              + `this Config restarted on ${payload.previousVersion}`,
+            completedAt: new Date().toISOString(),
+          }));
+          appendLog(
+            payload.logPath,
+            `Restarted this Config on ${payload.previousVersion}, but the package selection could not be rolled back`,
+          );
+          return;
         }
-        verifyInstalledVersion(payload, payload.previousVersion, payload.packageRoot);
-        await startServer(payload, payload.previousVersion);
         writeJsonAtomic(payload.stateFile, stateFor(payload, 'rolled-back', {
           version: payload.previousVersion,
           attemptedVersion: payload.targetVersion,
@@ -415,11 +521,6 @@ async function applyNpmUpdate(payload: NpmUpdatePayload): Promise<void> {
           completedAt: new Date().toISOString(),
         }));
         appendLog(payload.logPath, `Rolled back to ${payload.previousVersion}`);
-        try {
-          fs.rmSync(payload.stagingPrefix, { recursive: true, force: true });
-        } catch (cleanupError: unknown) {
-          appendLog(payload.logPath, `Rollback cleanup failed: ${errorMessage(cleanupError)}`);
-        }
         return;
       } catch (rollbackError: unknown) {
         const rollbackMessage = errorMessage(rollbackError);
@@ -431,10 +532,9 @@ async function applyNpmUpdate(payload: NpmUpdatePayload): Promise<void> {
       }
     }
 
-    writeJsonAtomic(payload.stateFile, stateFor(payload, 'failed', {
+    writeJsonAtomic(payload.stateFile, stateFor(payload, 'ready-to-restart', {
       preparedAt: payload.preparedAt,
       error: message,
-      completedAt: new Date().toISOString(),
     }));
   }
 }

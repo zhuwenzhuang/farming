@@ -11,6 +11,11 @@ const {
   npmPackageRoot,
   npmVersionsFromMetadata,
 } = require('../update-service.cjs');
+const {
+  initializeCurrentPackageImage,
+  publishPreparedPackageImage,
+  publishRunningPackageImage,
+} = require('../package-installation.cjs');
 
 async function run() {
   const singleFlightRootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-update-single-flight-root-'));
@@ -47,6 +52,75 @@ async function run() {
   assert.strictEqual(normalizeVersion('v2.0.5'), '2.0.5');
   assert.strictEqual(compareVersions('2.0.5', '2.0.0'), 1);
   assert.strictEqual(compareVersions('2', '2.0.0'), 0);
+
+  const restartRecoveryNow = Date.parse('2026-07-31T08:00:00.000Z');
+  const reconcileRestartingState = (currentVersion, persistedState) => {
+    const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-update-restart-recovery-root-'));
+    const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-update-restart-recovery-config-'));
+    try {
+      fs.writeFileSync(path.join(rootDir, 'package.json'), JSON.stringify({
+        name: 'farming-code',
+        version: currentVersion,
+      }));
+      const stateFile = path.join(configDir, 'farming-update.json');
+      fs.writeFileSync(stateFile, JSON.stringify(persistedState));
+      const service = new FarmingUpdateService({
+        rootDir,
+        configDir,
+        installMethod: 'npm',
+        now: () => restartRecoveryNow,
+      });
+      const state = service.currentInstallState();
+      return {
+        state,
+        persisted: JSON.parse(fs.readFileSync(stateFile, 'utf8')),
+      };
+    } finally {
+      fs.rmSync(rootDir, { recursive: true, force: true });
+      fs.rmSync(configDir, { recursive: true, force: true });
+    }
+  };
+
+  const completedRestart = reconcileRestartingState('2.2.30', {
+    method: 'npm',
+    phase: 'restarting',
+    version: '2.2.30',
+    restartingAt: '2026-07-31T07:59:30.000Z',
+    error: 'stale helper error',
+  });
+  assert.strictEqual(completedRestart.state.phase, 'succeeded');
+  assert.strictEqual(completedRestart.state.error, '');
+  assert.strictEqual(completedRestart.state.completedAt, '2026-07-31T08:00:00.000Z');
+  assert.deepStrictEqual(completedRestart.persisted, completedRestart.state);
+
+  const supersededRestart = reconcileRestartingState('2.2.33', {
+    method: 'npm',
+    phase: 'restarting',
+    version: '2.2.30',
+    restartingAt: '2026-07-31T07:59:30.000Z',
+  });
+  assert.strictEqual(supersededRestart.state.phase, 'succeeded');
+
+  const recentRestart = reconcileRestartingState('2.2.29', {
+    method: 'npm',
+    phase: 'restarting',
+    version: '2.2.30',
+    restartingAt: '2026-07-31T07:59:30.000Z',
+  });
+  assert.strictEqual(recentRestart.state.phase, 'restarting');
+  assert.deepStrictEqual(recentRestart.persisted, recentRestart.state);
+
+  const staleLegacyRestart = reconcileRestartingState('2.2.29', {
+    method: 'npm',
+    phase: 'restarting',
+    version: '2.2.30',
+    preparedAt: '2026-07-31T07:57:00.000Z',
+    startedAt: '2026-07-31T07:56:00.000Z',
+  });
+  assert.strictEqual(staleLegacyRestart.state.phase, 'failed');
+  assert.match(staleLegacyRestart.state.error, /did not restart into version 2\.2\.30 within 2 minutes; retry the update/i);
+  assert.strictEqual(staleLegacyRestart.state.completedAt, '2026-07-31T08:00:00.000Z');
+  assert.deepStrictEqual(staleLegacyRestart.persisted, staleLegacyRestart.state);
 
   for (const installMethod of ['app-bundle', 'source-deploy', 'source', 'standalone-cli']) {
     const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), `farming-${installMethod}-update-root-`));
@@ -114,10 +188,10 @@ async function run() {
   const npmMetadata = {
     'dist-tags': { latest: '2.3.0' },
     versions: {
-      '2.2.5': { dist: { unpackedSize: 10 } },
-      '2.2.6': { dist: { unpackedSize: 11 } },
-      '2.3.0': { dist: { unpackedSize: 12 } },
-      '2.4.0-beta.1': { dist: { unpackedSize: 13 } },
+      '2.2.5': { dist: { integrity: 'sha512-225', unpackedSize: 10 } },
+      '2.2.6': { dist: { integrity: 'sha512-226', unpackedSize: 11 } },
+      '2.3.0': { dist: { integrity: 'sha512-230', unpackedSize: 12 } },
+      '2.4.0-beta.1': { dist: { integrity: 'sha512-beta', unpackedSize: 13 } },
     },
   };
   assert.deepStrictEqual(
@@ -126,20 +200,17 @@ async function run() {
   );
 
   const npmSpawned = [];
-  let resolvedNpmPrefix = '';
+  const packageInstallationsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-package-installations-'));
   const npmService = new FarmingUpdateService({
     rootDir: npmRoot,
     configDir: npmConfigDir,
     npmPackageRoot: npmRoot,
+    packageInstallationsDir,
     platform: 'darwin',
     arch: 'arm64',
     fetchJson: async url => {
       assert.strictEqual(String(url), 'https://registry.npmjs.org/farming-code');
       return npmMetadata;
-    },
-    getNpmGlobalRoot: async (_npmCommand, prefix) => {
-      resolvedNpmPrefix = prefix;
-      return npmGlobalRoot;
     },
     spawn: (command, args, options) => {
       const record = { command, args, options, unrefed: false };
@@ -155,42 +226,53 @@ async function run() {
   assert.strictEqual(npmStatus.latest.version, '2.3.0');
   assert.strictEqual(npmStatus.latest.source, 'https://registry.npmjs.org/farming-code');
   assert.strictEqual(npmStatus.target.proven, true);
-  assert.strictEqual(npmStatus.target.npmPrefix, npmPrefix);
-  assert.strictEqual(resolvedNpmPrefix, npmPrefix);
+  assert(npmStatus.target.installationRoot.startsWith(fs.realpathSync.native(packageInstallationsDir)));
+  assert.strictEqual(npmStatus.target.activePackageRoot, fs.realpathSync.native(npmRoot));
   assert.deepStrictEqual(npmStatus.versions.map(version => version.version), ['2.3.0', '2.2.6', '2.2.5']);
 
   const previousNodeBin = process.env.FARMING_NODE_BIN;
   const previousNpmCommand = process.env.FARMING_NPM_COMMAND;
-  const previousNpmPrefix = process.env.FARMING_NPM_PREFIX;
   const previousNodeLd = process.env.FARMING_NODE_LD;
   const previousNodeLibraryPath = process.env.FARMING_NODE_LIBRARY_PATH;
   process.env.FARMING_NODE_BIN = '/opt/farming/runtime/bin/node';
   process.env.FARMING_NPM_COMMAND = '/opt/farming/runtime/bin/npm';
-  process.env.FARMING_NPM_PREFIX = '/opt/farming/npm';
   process.env.FARMING_NODE_LD = '/opt/farming/glibc/lib/ld-linux-x86-64.so.2';
   process.env.FARMING_NODE_LIBRARY_PATH = '/opt/farming/glibc/lib';
   let npmInstallState;
   let npmApplyState;
+  let runningImage;
+  let targetImage;
   try {
     npmInstallState = await npmService.startInstall({ assetName: '2.2.6' });
-    npmService.persistInstallState({
-      ...npmInstallState,
-      phase: 'ready-to-restart',
-      preparedAt: new Date().toISOString(),
-    });
+    runningImage = publishRunningPackageImage(npmService.packageInstallation, npmRoot);
+    const currentPointer = initializeCurrentPackageImage(npmService.packageInstallation, runningImage);
     fs.mkdirSync(npmInstallState.stagingPackageRoot, { recursive: true });
     fs.writeFileSync(path.join(npmInstallState.stagingPackageRoot, 'package.json'), JSON.stringify({
       name: 'farming-code',
       version: '2.2.6',
     }));
+    targetImage = publishPreparedPackageImage(
+      npmService.packageInstallation,
+      npmInstallState.stagingPackageRoot,
+      '2.2.6',
+      'sha512-226',
+    );
+    npmService.persistInstallState({
+      ...npmInstallState,
+      phase: 'ready-to-restart',
+      preparedAt: new Date().toISOString(),
+      runningPackageRoot: runningImage.packageRoot,
+      runningImageId: runningImage.imageId,
+      targetPackageRoot: targetImage.packageRoot,
+      targetImageId: targetImage.imageId,
+      expectedCurrentImageId: currentPointer.imageId,
+    });
     npmApplyState = await npmService.applyPreparedUpdate();
   } finally {
     if (previousNodeBin === undefined) delete process.env.FARMING_NODE_BIN;
     else process.env.FARMING_NODE_BIN = previousNodeBin;
     if (previousNpmCommand === undefined) delete process.env.FARMING_NPM_COMMAND;
     else process.env.FARMING_NPM_COMMAND = previousNpmCommand;
-    if (previousNpmPrefix === undefined) delete process.env.FARMING_NPM_PREFIX;
-    else process.env.FARMING_NPM_PREFIX = previousNpmPrefix;
     if (previousNodeLd === undefined) delete process.env.FARMING_NODE_LD;
     else process.env.FARMING_NODE_LD = previousNodeLd;
     if (previousNodeLibraryPath === undefined) delete process.env.FARMING_NODE_LIBRARY_PATH;
@@ -199,6 +281,7 @@ async function run() {
 
   assert.strictEqual(npmInstallState.phase, 'installing');
   assert.strictEqual(npmApplyState.phase, 'restarting');
+  assert.match(npmApplyState.restartingAt, /^\d{4}-\d{2}-\d{2}T/);
   assert.strictEqual(npmSpawned.length, 2);
   assert(npmSpawned.every(record => record.options.detached === true));
   assert(npmSpawned.every(record => record.options.stdio === 'ignore'));
@@ -216,14 +299,18 @@ async function run() {
   assert.strictEqual(npmUpdatePayload.action, 'prepare');
   assert.strictEqual(npmUpdatePayload.configDir, npmConfigDir);
   assert.strictEqual(npmUpdatePayload.npmCommand, '/opt/farming/runtime/bin/npm');
-  assert.strictEqual(npmUpdatePayload.npmPrefix, npmPrefix);
-  assert.strictEqual(npmUpdatePayload.packageRoot, npmRoot);
-  assert(npmUpdatePayload.stagingPrefix.startsWith(path.join(npmConfigDir, 'updates', 'npm-2.2.6.')));
+  assert.strictEqual(npmUpdatePayload.activePackageRoot, fs.realpathSync.native(npmRoot));
+  assert(npmUpdatePayload.stagingPrefix.startsWith(path.join(npmUpdatePayload.installationRoot, 'staging', 'npm-2.2.6.')));
   assert.strictEqual(
     npmUpdatePayload.stagingPackageRoot,
     npmPackageRoot(path.join(npmUpdatePayload.stagingPrefix, 'lib', 'node_modules'), 'farming-code'),
   );
   assert.strictEqual(npmUpdatePayload.npmFallbackRegistryUrl, 'https://registry.npmjs.org');
+  const npmApplyPayload = JSON.parse(npmSpawned[1].options.env.FARMING_NPM_UPDATE_PAYLOAD);
+  assert.strictEqual(npmApplyPayload.action, 'apply');
+  assert.strictEqual(npmApplyPayload.restartingAt, npmApplyState.restartingAt);
+  assert.strictEqual(npmApplyPayload.targetImageId, targetImage.imageId);
+  assert.strictEqual(npmApplyPayload.runningImageId, runningImage.imageId);
   assert.strictEqual(JSON.parse(fs.readFileSync(path.join(npmConfigDir, 'farming-update.json'), 'utf8')).phase, 'restarting');
 
   const migratedRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-migrated-update-root-'));
@@ -253,9 +340,9 @@ async function run() {
   const npmMismatchService = new FarmingUpdateService({
     rootDir: npmRoot,
     configDir: fs.mkdtempSync(path.join(os.tmpdir(), 'farming-npm-mismatch-config-')),
-    npmPackageRoot: npmRoot,
+    npmPackageRoot: path.join(npmPrefix, 'different-active-root'),
+    packageInstallationContext: npmService.packageInstallation,
     fetchJson: async () => npmMetadata,
-    getNpmGlobalRoot: async () => path.join(os.tmpdir(), 'different-npm-root'),
     spawn: () => {
       throw new Error('npm update must not spawn when its target differs');
     },
@@ -263,20 +350,20 @@ async function run() {
   const npmMismatchStatus = await npmMismatchService.check({ force: true });
   assert.strictEqual(npmMismatchStatus.available, false);
   assert.strictEqual(npmMismatchStatus.installable, false);
-  assert.match(npmMismatchStatus.selected.blockedReason, /would target a different installation/);
+  assert.match(npmMismatchStatus.selected.blockedReason, /does not match the active immutable package identity/);
   const npmMismatchInstall = await npmMismatchService.startInstall({ assetName: '2.2.6' });
   assert.strictEqual(npmMismatchInstall.phase, 'failed');
 
   const npmUnprovenService = new FarmingUpdateService({
     rootDir: npmRoot,
     configDir: fs.mkdtempSync(path.join(os.tmpdir(), 'farming-npm-unproven-config-')),
+    npmPackageRoot: path.join(npmPrefix, 'unmanaged-root'),
     fetchJson: async () => npmMetadata,
-    getNpmGlobalRoot: async () => npmGlobalRoot,
   });
   const npmUnprovenStatus = await npmUnprovenService.check({ force: true });
   assert.strictEqual(npmUnprovenStatus.available, false);
   assert.strictEqual(npmUnprovenStatus.installable, false);
-  assert.match(npmUnprovenStatus.selected.blockedReason, /has no managed package-root provenance/);
+  assert.match(npmUnprovenStatus.selected.blockedReason, /has no managed installation identity/);
 
   console.log('✓ Farming in-app updates use npm only');
 }

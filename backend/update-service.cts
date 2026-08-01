@@ -9,6 +9,13 @@ const { readServerProcessIdentity } = require('./server-process-identity.cjs') a
   'readServerProcessIdentity'
 >;
 import * as storageLayout from './storage-layout.cjs';
+import {
+  ensurePackageInstallationDirectories,
+  readCurrentPackagePointer,
+  readPackageImageRef,
+  resolvePackageInstallationContext,
+} from './package-installation.cjs';
+import type { PackageInstallationContext } from './package-installation.cjs';
 
 interface ServerProcessIdentity {
   pid: number;
@@ -45,6 +52,7 @@ interface NodeScriptInvocation {
 
 interface NpmVersionMetadata {
   dist?: {
+    integrity?: unknown;
     unpackedSize?: unknown;
   };
 }
@@ -63,6 +71,7 @@ interface NpmVersion {
   blockedReason: string;
   installable: true;
   available: boolean;
+  integrity: string;
 }
 
 interface CheckOptions {
@@ -96,9 +105,19 @@ interface UpdateInstallState extends JsonObject {
   stagingPackageRoot?: string;
   startedAt?: string;
   preparedAt?: string;
+  restartingAt?: string;
   logPath?: string;
   error?: string;
   completedAt?: string;
+  installationId?: string;
+  installationRoot?: string;
+  bootstrapPackageRoot?: string;
+  runningImageId?: string;
+  runningPackageRoot?: string;
+  targetImageId?: string;
+  targetPackageRoot?: string;
+  targetIntegrity?: string;
+  expectedCurrentImageId?: string;
 }
 
 interface NpmCache {
@@ -109,8 +128,10 @@ interface NpmCache {
 
 interface ProvenNpmUpdateTarget {
   proven: true;
-  npmPrefix: string;
-  packageRoot: string;
+  installationId: string;
+  installationRoot: string;
+  bootstrapPackageRoot: string;
+  activePackageRoot: string;
 }
 
 interface UnprovenNpmUpdateTarget {
@@ -121,7 +142,6 @@ interface UnprovenNpmUpdateTarget {
 type NpmUpdateTarget = ProvenNpmUpdateTarget | UnprovenNpmUpdateTarget;
 
 type FetchJson = (url: string, options?: RequestOptions) => Promise<NpmMetadata>;
-type GetNpmGlobalRoot = (npmCommand: string, npmPrefix: string) => Promise<string>;
 
 interface FarmingUpdateServiceOptions {
   rootDir?: string;
@@ -130,14 +150,14 @@ interface FarmingUpdateServiceOptions {
   npmPackageName?: string;
   npmRegistryUrl?: string;
   npmPackageRoot?: string;
-  npmPrefix?: string;
+  packageInstallationsDir?: string;
+  packageInstallationContext?: PackageInstallationContext;
   platform?: string;
   arch?: string;
   configDir?: string;
   now?: () => number;
   fetchJson?: FetchJson;
   execFile?: typeof childProcess.execFile;
-  getNpmGlobalRoot?: GetNpmGlobalRoot;
   spawn?: SpawnProcess;
   updateStateFile?: string;
   updateLogFile?: string;
@@ -164,6 +184,7 @@ function errorMessage(error: unknown): string {
 }
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
+const RESTART_RECOVERY_TIMEOUT_MS = 2 * 60 * 1000;
 const NPM_PACKAGE_NAME = 'farming-code';
 const DEFAULT_NPM_REGISTRY = 'https://registry.npmjs.org';
 
@@ -347,11 +368,6 @@ function normalizePathForCompare(filePath: string): string {
   }
 }
 
-function pathIsInside(parentPath: string, childPath: string): boolean {
-  const relative = path.relative(path.resolve(parentPath), path.resolve(childPath));
-  return relative !== '' && !relative.startsWith('..') && !path.isAbsolute(relative);
-}
-
 function npmPackageRoot(npmRoot: string, packageName: unknown): string {
   return path.join(npmRoot, ...String(packageName || '').split('/').filter(Boolean));
 }
@@ -402,6 +418,7 @@ function npmVersionsFromMetadata(metadata: NpmMetadata | null | undefined, curre
       blockedReason: '',
       installable: true,
       available: compareVersions(version, currentVersion) > 0,
+      integrity: String(versionMetadata?.[version]?.dist?.integrity || '').trim(),
     }));
 }
 
@@ -411,13 +428,11 @@ class FarmingUpdateService {
   npmPackageName: string;
   npmRegistryUrl: string;
   npmPackageRoot: string;
-  npmPrefix: string;
+  packageInstallation: PackageInstallationContext | null;
   runtime: RuntimeTarget | null;
   configDir: string;
   now: () => number;
   fetchJson: FetchJson;
-  execFile: typeof childProcess.execFile;
-  getNpmGlobalRoot: GetNpmGlobalRoot;
   spawn: SpawnProcess;
   npmCache: NpmCache | null;
   installState: UpdateInstallState;
@@ -433,8 +448,17 @@ class FarmingUpdateService {
     });
     this.npmPackageName = options.npmPackageName || NPM_PACKAGE_NAME;
     this.npmRegistryUrl = options.npmRegistryUrl || process.env.FARMING_NPM_REGISTRY || DEFAULT_NPM_REGISTRY;
-    this.npmPackageRoot = options.npmPackageRoot || process.env.FARMING_MANAGED_PACKAGE_ROOT || '';
-    this.npmPrefix = options.npmPrefix || process.env.FARMING_NPM_PREFIX || '';
+    this.npmPackageRoot = options.npmPackageRoot || process.env.FARMING_ACTIVE_PACKAGE_ROOT
+      || process.env.FARMING_MANAGED_PACKAGE_ROOT || this.rootDir;
+    this.packageInstallation = options.packageInstallationContext || resolvePackageInstallationContext(
+      this.npmPackageRoot,
+      {
+        ...process.env,
+        ...(options.packageInstallationsDir
+          ? { FARMING_PACKAGE_INSTALLATIONS_DIR: options.packageInstallationsDir }
+          : {}),
+      },
+    );
     this.runtime = options.platform || options.arch
       ? {
         platform: normalizePlatform(options.platform || process.platform),
@@ -444,16 +468,15 @@ class FarmingUpdateService {
     this.configDir = options.configDir || path.join(os.homedir(), '.farming');
     this.now = options.now || (() => Date.now());
     this.fetchJson = options.fetchJson || requestJson;
-    this.execFile = options.execFile || childProcess.execFile;
-    this.getNpmGlobalRoot = options.getNpmGlobalRoot
-      || ((npmCommand, npmPrefix) => readNpmGlobalRoot(npmCommand, npmPrefix, this.execFile));
     this.spawn = options.spawn || childProcess.spawn;
     this.npmCache = null;
     this.installState = { phase: 'idle' };
     this.installStartPromise = null;
     this.updateStateFile = options.updateStateFile || storageLayout.updateStateFile(this.configDir);
     this.updateLogFile = options.updateLogFile || storageLayout.updateLogFile(this.configDir);
-    this.updateStagingDir = options.updateStagingDir || storageLayout.updateStagingDir(this.configDir);
+    this.updateStagingDir = options.updateStagingDir
+      || this.packageInstallation?.stagingDir
+      || storageLayout.updateStagingDir(this.configDir);
   }
 
   currentVersion(): CurrentVersion {
@@ -474,7 +497,37 @@ class FarmingUpdateService {
 
   currentInstallState(): UpdateInstallState {
     const persisted = readJsonFile(this.updateStateFile);
-    if (persisted && persisted.method === this.installMethod) return persisted as UpdateInstallState;
+    if (persisted && persisted.method === this.installMethod) {
+      const state = persisted as UpdateInstallState;
+      if (state.phase !== 'restarting') return state;
+
+      const current = this.currentVersion();
+      const currentVersion = normalizeVersion(current.releaseVersion || current.packageVersion);
+      const targetVersion = normalizeVersion(state.version);
+      if (
+        hasComparableVersion(currentVersion)
+        && hasComparableVersion(targetVersion)
+        && compareVersions(currentVersion, targetVersion) >= 0
+      ) {
+        return this.persistInstallState({
+          ...state,
+          phase: 'succeeded',
+          error: '',
+          completedAt: new Date(this.now()).toISOString(),
+        });
+      }
+
+      const restartingAt = Date.parse(String(state.restartingAt || state.preparedAt || state.startedAt || ''));
+      if (!Number.isFinite(restartingAt) || this.now() - restartingAt >= RESTART_RECOVERY_TIMEOUT_MS) {
+        return this.persistInstallState({
+          ...state,
+          phase: 'failed',
+          error: `Farming did not restart into version ${targetVersion || state.version || 'unknown'} within 2 minutes; retry the update`,
+          completedAt: new Date(this.now()).toISOString(),
+        });
+      }
+      return state;
+    }
     const current = this.currentVersion();
     const currentVersion = normalizeVersion(current.releaseVersion || current.packageVersion);
     if (
@@ -540,6 +593,7 @@ class FarmingUpdateService {
         assetName: selected?.assetName || '',
         assetSize: selected?.assetSize || 0,
         blockedReason: selected?.blockedReason || blockedReason,
+        integrity: selected?.integrity || '',
       },
       versions,
       runtime: this.runtime,
@@ -553,40 +607,27 @@ class FarmingUpdateService {
 
   async npmUpdateTarget(): Promise<NpmUpdateTarget> {
     const runningPackageRoot = String(this.npmPackageRoot || '').trim();
-    if (!path.isAbsolute(runningPackageRoot)) {
+    const installation = this.packageInstallation;
+    if (!path.isAbsolute(runningPackageRoot) || !installation) {
       return {
         proven: false,
-        error: 'npm update target could not be proven: the running package has no managed package-root provenance',
+        error: 'npm update target could not be proven: the running package has no managed installation identity',
       };
     }
-    const npmCommand = process.env.FARMING_NPM_COMMAND || 'npm';
-    const npmPrefix = this.npmPrefix || npmPrefixForPackageRoot(runningPackageRoot, this.npmPackageName);
-    if (!npmPrefix) {
+    if (normalizePathForCompare(runningPackageRoot) !== normalizePathForCompare(installation.activePackageRoot)) {
       return {
         proven: false,
-        error: 'npm update target could not be proven: the running package has no npm prefix',
+        error: 'npm update target does not match the active immutable package identity',
       };
     }
-    try {
-      const root = await this.getNpmGlobalRoot(npmCommand, npmPrefix);
-      const targetPackageRoot = npmPackageRoot(root, this.npmPackageName);
-      if (normalizePathForCompare(runningPackageRoot) !== normalizePathForCompare(targetPackageRoot)) {
-        return {
-          proven: false,
-          error: `npm update would target a different installation: running ${runningPackageRoot}; npm ${targetPackageRoot}`,
-        };
-      }
-      return {
-        proven: true,
-        npmPrefix,
-        packageRoot: targetPackageRoot,
-      };
-    } catch (error: unknown) {
-      return {
-        proven: false,
-        error: `npm update target could not be inspected: ${errorMessage(error)}`,
-      };
-    }
+    ensurePackageInstallationDirectories(installation);
+    return {
+      proven: true,
+      installationId: installation.installationId,
+      installationRoot: installation.installationRoot,
+      bootstrapPackageRoot: installation.bootstrapPackageRoot,
+      activePackageRoot: installation.activePackageRoot,
+    };
   }
 
   unsupportedStatus() {
@@ -654,6 +695,16 @@ class FarmingUpdateService {
       });
     }
     const target = status.target as ProvenNpmUpdateTarget;
+    const targetIntegrity = String(status.selected.integrity || '').trim();
+    if (!targetIntegrity) {
+      return this.persistInstallState({
+        method: 'npm',
+        phase: 'failed',
+        version: status.selected.version,
+        error: 'npm update metadata did not provide package integrity',
+        completedAt: new Date(this.now()).toISOString(),
+      });
+    }
 
     const startedAt = new Date(this.now()).toISOString();
     fs.mkdirSync(this.updateStagingDir, { recursive: true });
@@ -672,6 +723,11 @@ class FarmingUpdateService {
       stagingPackageRoot,
       startedAt,
       logPath: this.updateLogFile,
+      targetIntegrity,
+      installationId: target.installationId,
+      installationRoot: target.installationRoot,
+      bootstrapPackageRoot: target.bootstrapPackageRoot,
+      runningPackageRoot: target.activePackageRoot,
     });
     const helperPath = path.join(__dirname, 'npm-update-helper.cjs');
     const nodePath = process.env.FARMING_NODE_BIN || process.execPath;
@@ -680,14 +736,16 @@ class FarmingUpdateService {
       packageName: this.npmPackageName,
       targetVersion: status.selected.version,
       previousVersion: status.current.releaseVersion || status.current.packageVersion,
+      targetIntegrity,
       startedAt,
       stateFile: this.updateStateFile,
       logPath: this.updateLogFile,
-      cliPath: path.join(this.rootDir, 'bin', 'farming'),
-      packageRoot: target.packageRoot,
+      activePackageRoot: target.activePackageRoot,
+      installationId: target.installationId,
+      installationRoot: target.installationRoot,
+      bootstrapPackageRoot: target.bootstrapPackageRoot,
       nodePath,
       npmCommand: process.env.FARMING_NPM_COMMAND || 'npm',
-      npmPrefix: target.npmPrefix,
       stagingPrefix,
       stagingPackageRoot,
       npmFallbackRegistryUrl: this.npmRegistryUrl,
@@ -770,44 +828,52 @@ class FarmingUpdateService {
     }
     const target = await this.npmUpdateTarget();
     if (!target.proven) throw new Error(target.error);
-    if (!path.isAbsolute(String(prepared.stagingPrefix || '')) || !path.isAbsolute(String(prepared.stagingPackageRoot || ''))) {
-      throw new Error('Prepared npm update is missing its staging identity');
-    }
-    const preparedStagingPrefix = prepared.stagingPrefix as string;
-    const preparedStagingPackageRoot = prepared.stagingPackageRoot as string;
-    const stagingPrefix = normalizePathForCompare(preparedStagingPrefix);
-    if (!pathIsInside(normalizePathForCompare(this.updateStagingDir), stagingPrefix)) {
-      throw new Error('Prepared npm update is outside the Farming staging directory');
-    }
-    if (path.resolve(preparedStagingPackageRoot) !== path.resolve(npmPackageRoot(
-      path.join(preparedStagingPrefix, 'lib', 'node_modules'),
-      this.npmPackageName,
-    ))) {
-      throw new Error('Prepared npm update has an invalid package root');
-    }
-    const stagingPackageRoot = normalizePathForCompare(preparedStagingPackageRoot);
-    const stagedMetadata = readJsonFile(path.join(stagingPackageRoot, 'package.json')) || {};
-    if (normalizeVersion(stagedMetadata.version) !== normalizeVersion(prepared.version)) {
-      throw new Error('Prepared npm update is no longer available; prepare it again');
-    }
+    if (
+      prepared.installationId !== target.installationId
+      || normalizePathForCompare(String(prepared.installationRoot || '')) !== normalizePathForCompare(target.installationRoot)
+      || !path.isAbsolute(String(prepared.targetPackageRoot || ''))
+      || !path.isAbsolute(String(prepared.runningPackageRoot || ''))
+      || !String(prepared.targetImageId || '').trim()
+      || !String(prepared.runningImageId || '').trim()
+    ) throw new Error('Prepared npm update is missing its immutable package identity');
+    const targetImage = readPackageImageRef(String(prepared.targetPackageRoot));
+    const runningImage = readPackageImageRef(String(prepared.runningPackageRoot));
+    if (
+      !targetImage
+      || targetImage.imageId !== prepared.targetImageId
+      || normalizeVersion(targetImage.version) !== normalizeVersion(prepared.version)
+    ) throw new Error('Prepared npm update image is no longer available; prepare it again');
+    if (
+      !runningImage
+      || runningImage.imageId !== prepared.runningImageId
+      || normalizeVersion(runningImage.version) !== currentVersion
+    ) throw new Error('Prepared npm rollback image no longer matches the running Farming version');
+    const selectedPointer = readCurrentPackagePointer(this.packageInstallation!);
+    const expectedCurrentImageId = String(prepared.expectedCurrentImageId || selectedPointer?.imageId || '').trim();
+    if (!expectedCurrentImageId) throw new Error('Prepared npm update has no current package selection proof');
     const helperPath = path.join(__dirname, 'npm-update-helper.cjs');
+    const restartingAt = new Date(this.now()).toISOString();
     const payload = {
       action: 'apply',
       packageName: this.npmPackageName,
       targetVersion: prepared.version,
       previousVersion: prepared.previousVersion,
+      targetIntegrity: prepared.targetIntegrity,
       startedAt: prepared.startedAt,
       preparedAt: prepared.preparedAt,
+      restartingAt,
       stateFile: this.updateStateFile,
       logPath: prepared.logPath || this.updateLogFile,
-      cliPath: path.join(this.rootDir, 'bin', 'farming'),
-      packageRoot: target.packageRoot,
+      activePackageRoot: target.activePackageRoot,
+      installationId: target.installationId,
+      installationRoot: target.installationRoot,
+      bootstrapPackageRoot: target.bootstrapPackageRoot,
+      runningPackageRoot: runningImage.packageRoot,
+      runningImageId: runningImage.imageId,
+      targetPackageRoot: targetImage.packageRoot,
+      targetImageId: targetImage.imageId,
+      expectedCurrentImageId,
       nodePath,
-      npmCommand: process.env.FARMING_NPM_COMMAND || 'npm',
-      npmPrefix: target.npmPrefix,
-      npmFallbackRegistryUrl: this.npmRegistryUrl,
-      stagingPrefix,
-      stagingPackageRoot,
       serverPid: process.pid,
       serverProcessIdentity,
       configDir: this.configDir,
@@ -818,7 +884,7 @@ class FarmingUpdateService {
     };
     const env = { ...process.env, FARMING_NPM_UPDATE_PAYLOAD: JSON.stringify(payload) };
 
-    const state = this.persistInstallState({ ...prepared, phase: 'restarting', error: '' });
+    const state = this.persistInstallState({ ...prepared, phase: 'restarting', restartingAt, error: '' });
     const helperInvocation = nodeScriptInvocation(nodePath, helperPath);
     const spawnOptions: import('child_process').SpawnOptions = {
       cwd: this.configDir,

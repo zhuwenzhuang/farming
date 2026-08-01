@@ -10,6 +10,14 @@ import { createRuntimeDependencyProgressRenderer } from './runtime-dependency-pr
 import type { RuntimeDependencyProgress } from './runtime-dependency-manager.cjs';
 import { canonicalConfigDir } from './config-instance.cjs';
 import type { ServerProcessIdentity } from './server-process-identity.cjs';
+import {
+  applyPackageInstallationEnvironment,
+  prunePackageImages,
+  readPackageImageRef,
+  registerPackageImageUsage,
+  releasePackageImageUsage,
+  resolvePackageInstallationContext,
+} from './package-installation.cjs';
 
 const packagedProcess = process as NodeJS.Process & { pkg?: unknown };
 
@@ -222,14 +230,24 @@ function buildServerEnv(
 ): ServerEnv {
   const env: NodeJS.ProcessEnv = { ...baseEnv, ...overrides };
   delete env.PKG_EXECPATH;
-  if (!packagedProcess.pkg && !env.FARMING_MANAGED_PACKAGE_ROOT) {
-    try {
-      env.FARMING_MANAGED_PACKAGE_ROOT = fs.realpathSync(path.join(__dirname, '..'));
-    } catch {
-      // npm update verification will remain unavailable when the package root cannot be proven.
+  if (!packagedProcess.pkg) {
+    const activePackageRoot = path.resolve(
+      String(env.FARMING_ACTIVE_PACKAGE_ROOT || path.join(__dirname, '..')),
+    );
+    const installation = resolvePackageInstallationContext(activePackageRoot, env);
+    if (installation) {
+      applyPackageInstallationEnvironment(env, installation, activePackageRoot);
+    } else if (!env.FARMING_MANAGED_PACKAGE_ROOT) {
+      try {
+        env.FARMING_MANAGED_PACKAGE_ROOT = fs.realpathSync(activePackageRoot);
+      } catch {
+        // Source and non-managed deployments do not participate in package activation.
+      }
     }
   }
-  const cliBinDir = packagedProcess.pkg ? path.dirname(process.execPath) : path.join(__dirname, '..', 'bin');
+  const cliBinDir = packagedProcess.pkg
+    ? path.dirname(process.execPath)
+    : path.join(String(env.FARMING_ACTIVE_PACKAGE_ROOT || path.join(__dirname, '..')), 'bin');
   env.PORT = String(env.FARMING_PORT || env.PORT || DEFAULT_PORT);
   env.FARMING_BASE_PATH = env.FARMING_BASE_PATH || DEFAULT_BASE_PATH;
   env.FARMING_CONFIG_DIR = env.FARMING_CONFIG_DIR || defaultConfigDir(env);
@@ -1273,6 +1291,19 @@ async function cleanupFailedDaemonStart(
   if (Number(readServerState(configDir).pid) === childPid) {
     fs.rmSync(serverStateFile(configDir), { force: true });
   }
+  const activePackageRoot = String(process.env.FARMING_ACTIVE_PACKAGE_ROOT || '').trim();
+  if (activePackageRoot) {
+    const installation = resolvePackageInstallationContext(activePackageRoot, process.env);
+    if (installation) {
+      releasePackageImageUsage(
+        installation,
+        configDir,
+        expectedIdentity?.format === SERVER_PROCESS_IDENTITY_FORMAT
+          ? expectedIdentity as ServerProcessIdentity
+          : null,
+      );
+    }
+  }
   releaseServerConfigOwner(configDir, childPid, expectedIdentity);
 }
 
@@ -1341,6 +1372,19 @@ async function runServerInCurrentProcess(): Promise<void> {
   const env = canonicalizeServerConfigDir(buildServerEnv());
   process.env = env;
   const processIdentity = acquireServerConfigOwner(env.FARMING_CONFIG_DIR);
+  const activePackageRoot = String(env.FARMING_ACTIVE_PACKAGE_ROOT || '').trim();
+  const packageInstallation = activePackageRoot
+    ? resolvePackageInstallationContext(activePackageRoot, env)
+    : null;
+  const packageImage = activePackageRoot ? readPackageImageRef(activePackageRoot) : null;
+  if (packageInstallation && packageImage) {
+    registerPackageImageUsage(
+      packageInstallation,
+      env.FARMING_CONFIG_DIR,
+      packageImage,
+      processIdentity,
+    );
+  }
   fs.writeFileSync(pidFile(env.FARMING_CONFIG_DIR), String(process.pid), { mode: 0o600 });
   writeServerState(env.FARMING_CONFIG_DIR, env, process.pid, processIdentity, 'starting');
   const { startServer } = require('./server.cjs') as {
@@ -1369,6 +1413,13 @@ async function runServerInCurrentProcess(): Promise<void> {
     }).catch((error: unknown) => {
       console.warn(`Startup dependency cache cleanup failed: ${errorString(error) || error}`);
     });
+    if (packageInstallation) {
+      try {
+        prunePackageImages(packageInstallation);
+      } catch (error: unknown) {
+        console.warn(`Farming package image cleanup failed: ${errorString(error) || error}`);
+      }
+    }
   });
 }
 
@@ -1567,6 +1618,13 @@ async function stopDaemon(parsed: ParsedServerOperation): Promise<number> {
   await waitForDaemonStop(pid, port, { timeoutMs: serverStopTimeoutMs(env) });
   if (readPid(configDir) === pid) fs.rmSync(pidFile(configDir), { force: true });
   if (Number(readServerState(configDir).pid) === pid) fs.rmSync(serverStateFile(configDir), { force: true });
+  const activePackageRoot = String(env.FARMING_ACTIVE_PACKAGE_ROOT || '').trim();
+  if (activePackageRoot) {
+    const installation = resolvePackageInstallationContext(activePackageRoot, env);
+    if (installation) {
+      releasePackageImageUsage(installation, configDir, state.processIdentity as ServerProcessIdentity);
+    }
+  }
   releaseServerConfigOwner(configDir, pid, state.processIdentity);
   console.log(`Stopped Farming (PID ${pid})`);
   return 0;

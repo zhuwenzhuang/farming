@@ -11,6 +11,14 @@ const {
   validatePayload,
 } = require('../npm-update-helper.cjs');
 const { readServerProcessIdentity } = require('../farming-app-cli.cjs');
+const {
+  activatePackageImage,
+  packageInstallationId,
+  publishPreparedPackageImage,
+  readCurrentPackagePointer,
+  readPackageImageRef,
+  resolvePackageInstallationContext,
+} = require('../package-installation.cjs');
 
 function packageRoot(prefix) {
   return path.join(prefix, 'lib', 'node_modules', 'farming-code');
@@ -32,7 +40,11 @@ function writeCli(root, exitCode, observationsFile) {
   ].join('\n'));
 }
 
-function writeFakeNpm(rootDir, callsFile, { requireFallback = false, runtimeExitCode = 0 } = {}) {
+function writeFakeNpm(rootDir, callsFile, {
+  requireFallback = false,
+  runtimeExitCode = 0,
+  startExitCode = 0,
+} = {}) {
   const command = path.join(rootDir, 'fake-npm');
   fs.writeFileSync(command, [
     '#!/usr/bin/env node',
@@ -51,8 +63,12 @@ function writeFakeNpm(rootDir, callsFile, { requireFallback = false, runtimeExit
     `fs.writeFileSync(path.join(packageRoot, 'package.json'), JSON.stringify({ name: 'farming-code', version }));`,
     `fs.writeFileSync(path.join(packageRoot, 'bin', 'farming'), ${JSON.stringify([
       `const fs = require('fs');`,
-      `fs.writeFileSync(${JSON.stringify(`${callsFile}.runtime`)}, JSON.stringify(process.argv.slice(2)));`,
-      `process.exit(${runtimeExitCode});`,
+      `const path = require('path');`,
+      `const args = process.argv.slice(2);`,
+      `const metadata = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));`,
+      `if (args[0] === 'runtime') { fs.writeFileSync(${JSON.stringify(`${callsFile}.runtime`)}, JSON.stringify(args)); process.exit(${runtimeExitCode}); }`,
+      `fs.appendFileSync(${JSON.stringify(`${callsFile}.starts`)}, JSON.stringify({ version: metadata.version, cwd: process.cwd(), runServer: process.env.FARMING_RUN_SERVER, runNativeHost: process.env.FARMING_RUN_NATIVE_PTY_HOST }) + '\\n');`,
+      `process.exit(${startExitCode});`,
       '',
     ].join('\n'))});`,
     '',
@@ -61,22 +77,26 @@ function writeFakeNpm(rootDir, callsFile, { requireFallback = false, runtimeExit
 }
 
 function payloadFor(rootDir, overrides = {}) {
-  const npmPrefix = path.join(rootDir, 'npm');
-  const stagingPrefix = path.join(rootDir, 'updates', 'npm-2.3.0.test');
+  const activePackageRoot = path.join(rootDir, 'bootstrap', 'farming-code');
+  const installationId = packageInstallationId(activePackageRoot);
+  const installationRoot = path.join(rootDir, 'installation', installationId);
+  const stagingPrefix = path.join(installationRoot, 'staging', 'npm-2.3.0.test');
   return {
     action: 'prepare',
     packageName: 'farming-code',
     targetVersion: '2.3.0',
     previousVersion: '2.2.5',
+    targetIntegrity: 'sha512-target-230',
     startedAt: new Date().toISOString(),
     preparedAt: new Date().toISOString(),
     stateFile: path.join(rootDir, 'farming-update.json'),
     logPath: path.join(rootDir, 'farming-update.log'),
-    cliPath: path.join(packageRoot(npmPrefix), 'bin', 'farming'),
-    packageRoot: packageRoot(npmPrefix),
+    activePackageRoot,
+    installationId,
+    installationRoot,
+    bootstrapPackageRoot: activePackageRoot,
     nodePath: process.execPath,
     npmCommand: '/usr/bin/true',
-    npmPrefix,
     npmFallbackRegistryUrl: 'https://registry.example.test',
     stagingPrefix,
     stagingPackageRoot: packageRoot(stagingPrefix),
@@ -90,11 +110,49 @@ function payloadFor(rootDir, overrides = {}) {
   };
 }
 
+async function prepareFixture(rootDir, {
+  requireFallback = false,
+  runtimeExitCode = 0,
+  startExitCode = 0,
+  runningStartExitCode = 0,
+} = {}) {
+  const callsFile = path.join(rootDir, 'npm-calls');
+  const payload = payloadFor(rootDir, {
+    npmCommand: writeFakeNpm(rootDir, callsFile, {
+      requireFallback,
+      runtimeExitCode,
+      startExitCode,
+    }),
+  });
+  writePackage(payload.activePackageRoot, '2.2.5');
+  writeCli(payload.activePackageRoot, runningStartExitCode, `${callsFile}.starts`);
+  await runNpmUpdate(payload);
+  const state = JSON.parse(fs.readFileSync(payload.stateFile, 'utf8'));
+  return { callsFile, payload, state };
+}
+
+function applyPayloadFor(prepared, overrides = {}) {
+  return {
+    ...prepared.payload,
+    action: 'apply',
+    preparedAt: prepared.state.preparedAt,
+    restartingAt: new Date().toISOString(),
+    runningPackageRoot: prepared.state.runningPackageRoot,
+    runningImageId: prepared.state.runningImageId,
+    targetPackageRoot: prepared.state.targetPackageRoot,
+    targetImageId: prepared.state.targetImageId,
+    expectedCurrentImageId: prepared.state.expectedCurrentImageId,
+    stagingPrefix: undefined,
+    stagingPackageRoot: undefined,
+    ...overrides,
+  };
+}
+
 async function run() {
   const validationRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-npm-helper-validation.'));
   assert.throws(() => validatePayload({}), /Invalid npm update action/);
-  assert.throws(() => validatePayload(payloadFor(validationRoot, { npmPrefix: 'relative' })), /Invalid npm update npmPrefix/);
-  assert.throws(() => validatePayload(payloadFor(validationRoot, { packageRoot: 'relative' })), /Invalid npm update packageRoot/);
+  assert.throws(() => validatePayload(payloadFor(validationRoot, { installationRoot: 'relative' })), /Invalid npm update installationRoot/);
+  assert.throws(() => validatePayload(payloadFor(validationRoot, { targetIntegrity: '' })), /Invalid npm target integrity/);
   assert.throws(() => validatePayload(payloadFor(validationRoot, { stagingPackageRoot: validationRoot })), /Invalid npm update stagingPackageRoot/);
   assert.throws(() => validatePayload(payloadFor(validationRoot, { npmFallbackRegistryUrl: 'file:///tmp/registry' })), /Invalid npm update registry/);
 
@@ -146,16 +204,12 @@ async function run() {
     });
     const processIdentity = await readServerProcessIdentity(permissionServer.pid);
     assert(processIdentity, 'permission fixture must expose a process identity');
-    const permissionPayload = payloadFor(permissionRoot, {
-      action: 'apply',
+    const permissionPrepared = await prepareFixture(permissionRoot);
+    const permissionPayload = applyPayloadFor(permissionPrepared, {
       serverPid: permissionServer.pid,
       serverProcessIdentity: processIdentity,
     });
-    const observations = path.join(permissionRoot, 'cli-observations');
-    writePackage(permissionPayload.packageRoot, '2.2.5');
-    writePackage(permissionPayload.stagingPackageRoot, '2.3.0');
-    writeCli(permissionPayload.packageRoot, 0, observations);
-    writeCli(permissionPayload.stagingPackageRoot, 0, observations);
+    const observations = `${permissionPrepared.callsFile}.starts`;
 
     const originalKill = process.kill;
     process.kill = (pid, signal) => {
@@ -174,12 +228,19 @@ async function run() {
     }
 
     const failed = JSON.parse(fs.readFileSync(permissionPayload.stateFile, 'utf8'));
-    assert.strictEqual(failed.phase, 'failed');
+    assert.strictEqual(failed.phase, 'ready-to-restart');
     assert.match(failed.error, /lacks permission/);
     assert.match(failed.error, /stop and restart Farming/);
     assert.strictEqual(isProcessRunning(permissionServer.pid), true, 'permission failure must leave the old server running');
-    assert.strictEqual(JSON.parse(fs.readFileSync(path.join(permissionPayload.packageRoot, 'package.json'))).version, '2.2.5');
-    assert.strictEqual(JSON.parse(fs.readFileSync(path.join(permissionPayload.stagingPackageRoot, 'package.json'))).version, '2.3.0');
+    assert.strictEqual(JSON.parse(fs.readFileSync(path.join(permissionPayload.activePackageRoot, 'package.json'))).version, '2.2.5');
+    assert.strictEqual(readCurrentPackagePointer(resolvePackageInstallationContext(
+      permissionPayload.activePackageRoot,
+      {
+        FARMING_PACKAGE_INSTALLATION_ID: permissionPayload.installationId,
+        FARMING_PACKAGE_INSTALLATION_ROOT: permissionPayload.installationRoot,
+        FARMING_BOOTSTRAP_PACKAGE_ROOT: permissionPayload.bootstrapPackageRoot,
+      },
+    )).imageId, permissionPayload.runningImageId);
     assert.strictEqual(fs.existsSync(observations), false, 'permission failure must not start either package');
   } finally {
     if (permissionServer.exitCode === null && permissionServer.signalCode === null) permissionServer.kill('SIGKILL');
@@ -215,18 +276,16 @@ async function run() {
   }
 
   const prepareRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-npm-helper-prepare.'));
-  const prepareCalls = path.join(prepareRoot, 'npm-calls');
-  const preparePayload = payloadFor(prepareRoot, {
-    npmCommand: writeFakeNpm(prepareRoot, prepareCalls),
-  });
-  writePackage(preparePayload.packageRoot, '2.2.5');
-  await runNpmUpdate(preparePayload);
-  const prepared = JSON.parse(fs.readFileSync(preparePayload.stateFile, 'utf8'));
+  const prepareFixtureResult = await prepareFixture(prepareRoot);
+  const { callsFile: prepareCalls, payload: preparePayload, state: prepared } = prepareFixtureResult;
   assert.strictEqual(prepared.phase, 'ready-to-restart');
   assert(prepared.runtimePreparedAt);
   assert.strictEqual(prepared.version, '2.3.0');
-  assert.strictEqual(JSON.parse(fs.readFileSync(path.join(preparePayload.packageRoot, 'package.json'))).version, '2.2.5');
-  assert.strictEqual(JSON.parse(fs.readFileSync(path.join(preparePayload.stagingPackageRoot, 'package.json'))).version, '2.3.0');
+  assert.strictEqual(JSON.parse(fs.readFileSync(path.join(preparePayload.activePackageRoot, 'package.json'))).version, '2.2.5');
+  assert.strictEqual(JSON.parse(fs.readFileSync(path.join(prepared.targetPackageRoot, 'package.json'))).version, '2.3.0');
+  assert.strictEqual(fs.existsSync(preparePayload.stagingPrefix), false);
+  assert.strictEqual(readPackageImageRef(prepared.runningPackageRoot).imageId, prepared.runningImageId);
+  assert.strictEqual(readPackageImageRef(prepared.targetPackageRoot).imageId, prepared.targetImageId);
   const prepareArguments = JSON.parse(fs.readFileSync(prepareCalls, 'utf8').trim());
   assert.deepStrictEqual(prepareArguments.slice(0, 4), ['install', '--global', '--prefix', preparePayload.stagingPrefix]);
   assert.deepStrictEqual(
@@ -236,37 +295,30 @@ async function run() {
 
   const failedPrepareRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-npm-helper-prepare-failure.'));
   const failedPreparePayload = payloadFor(failedPrepareRoot, { npmCommand: '/usr/bin/false' });
-  writePackage(failedPreparePayload.packageRoot, '2.2.5');
+  writePackage(failedPreparePayload.activePackageRoot, '2.2.5');
+  writeCli(failedPreparePayload.activePackageRoot, 0, path.join(failedPrepareRoot, 'starts'));
   await runNpmUpdate(failedPreparePayload);
   const failedPrepare = JSON.parse(fs.readFileSync(failedPreparePayload.stateFile, 'utf8'));
   assert.strictEqual(failedPrepare.phase, 'failed');
-  assert.strictEqual(JSON.parse(fs.readFileSync(path.join(failedPreparePayload.packageRoot, 'package.json'))).version, '2.2.5');
+  assert.strictEqual(JSON.parse(fs.readFileSync(path.join(failedPreparePayload.activePackageRoot, 'package.json'))).version, '2.2.5');
   assert.strictEqual(fs.existsSync(failedPreparePayload.stagingPrefix), false);
 
   const failedRuntimeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-npm-helper-runtime-failure.'));
-  const failedRuntimeCalls = path.join(failedRuntimeRoot, 'npm-calls');
-  const failedRuntimePayload = payloadFor(failedRuntimeRoot, {
-    npmCommand: writeFakeNpm(failedRuntimeRoot, failedRuntimeCalls, { runtimeExitCode: 1 }),
-  });
-  writePackage(failedRuntimePayload.packageRoot, '2.2.5');
-  await runNpmUpdate(failedRuntimePayload);
-  const failedRuntime = JSON.parse(fs.readFileSync(failedRuntimePayload.stateFile, 'utf8'));
+  const failedRuntimePrepared = await prepareFixture(failedRuntimeRoot, { runtimeExitCode: 1 });
+  const failedRuntimePayload = failedRuntimePrepared.payload;
+  const failedRuntime = failedRuntimePrepared.state;
   assert.strictEqual(failedRuntime.phase, 'failed');
   assert.strictEqual(fs.existsSync(failedRuntimePayload.stagingPrefix), false);
   assert.strictEqual(
-    JSON.parse(fs.readFileSync(path.join(failedRuntimePayload.packageRoot, 'package.json'))).version,
+    JSON.parse(fs.readFileSync(path.join(failedRuntimePayload.activePackageRoot, 'package.json'))).version,
     '2.2.5',
     'runtime preparation failure must leave the running package untouched',
   );
 
   const fallbackRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-npm-helper-fallback.'));
-  const fallbackCallsFile = path.join(fallbackRoot, 'npm-calls');
-  const fallbackPayload = payloadFor(fallbackRoot, {
-    npmCommand: writeFakeNpm(fallbackRoot, fallbackCallsFile, { requireFallback: true }),
-  });
-  writePackage(fallbackPayload.packageRoot, '2.2.5');
-  await runNpmUpdate(fallbackPayload);
-  const fallback = JSON.parse(fs.readFileSync(fallbackPayload.stateFile, 'utf8'));
+  const fallbackPrepared = await prepareFixture(fallbackRoot, { requireFallback: true });
+  const fallbackCallsFile = fallbackPrepared.callsFile;
+  const fallback = fallbackPrepared.state;
   assert.strictEqual(fallback.phase, 'ready-to-restart');
   const fallbackCalls = fs.readFileSync(fallbackCallsFile, 'utf8').trim().split('\n').map(line => JSON.parse(line));
   assert.strictEqual(fallbackCalls.length, 2);
@@ -274,99 +326,101 @@ async function run() {
   assert.deepStrictEqual(fallbackCalls[1].slice(4, 6), ['--registry', 'https://registry.example.test']);
 
   const applyRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-npm-helper-apply.'));
-  const applyPayload = payloadFor(applyRoot, { action: 'apply' });
-  const applyObservations = path.join(applyRoot, 'cli-observations');
-  writePackage(applyPayload.packageRoot, '2.2.5');
-  writePackage(applyPayload.stagingPackageRoot, '2.3.0');
-  writeCli(applyPayload.packageRoot, 0, applyObservations);
-  writeCli(applyPayload.stagingPackageRoot, 0, applyObservations);
+  const applyPrepared = await prepareFixture(applyRoot);
+  const applyPayload = applyPayloadFor(applyPrepared);
+  const applyObservations = `${applyPrepared.callsFile}.starts`;
   await runNpmUpdate(applyPayload);
   const succeeded = JSON.parse(fs.readFileSync(applyPayload.stateFile, 'utf8'));
   assert.strictEqual(succeeded.phase, 'succeeded');
-  assert.strictEqual(JSON.parse(fs.readFileSync(path.join(applyPayload.packageRoot, 'package.json'))).version, '2.3.0');
-  assert.strictEqual(fs.existsSync(applyPayload.stagingPrefix), false);
+  assert.match(succeeded.restartingAt, /^\d{4}-\d{2}-\d{2}T/);
+  assert.strictEqual(JSON.parse(fs.readFileSync(path.join(applyPayload.activePackageRoot, 'package.json'))).version, '2.2.5');
+  assert.deepStrictEqual(
+    fs.readFileSync(applyObservations, 'utf8').trim().split('\n').map(line => JSON.parse(line).version),
+    ['2.3.0'],
+  );
+  assert.strictEqual(
+    readCurrentPackagePointer(resolvePackageInstallationContext(
+      applyPayload.activePackageRoot,
+      {
+        FARMING_PACKAGE_INSTALLATION_ID: applyPayload.installationId,
+        FARMING_PACKAGE_INSTALLATION_ROOT: applyPayload.installationRoot,
+        FARMING_BOOTSTRAP_PACKAGE_ROOT: applyPayload.bootstrapPackageRoot,
+      },
+    )).imageId,
+    applyPayload.targetImageId,
+  );
 
   const handoffServer = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
     stdio: 'ignore',
   });
+  const unaffectedServer = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+    stdio: 'ignore',
+  });
   const handoffRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-npm-helper-handoff.'));
   try {
-    await new Promise((resolve, reject) => {
-      handoffServer.once('spawn', resolve);
-      handoffServer.once('error', reject);
-    });
+    await Promise.all([handoffServer, unaffectedServer].map(child => new Promise((resolve, reject) => {
+      child.once('spawn', resolve);
+      child.once('error', reject);
+    })));
     const processIdentity = await readServerProcessIdentity(handoffServer.pid);
     assert(processIdentity, 'handoff fixture must expose a process identity');
-    const handoffPayload = payloadFor(handoffRoot, {
-      action: 'apply',
+    const handoffPrepared = await prepareFixture(handoffRoot);
+    const handoffPayload = applyPayloadFor(handoffPrepared, {
       serverPid: handoffServer.pid,
       serverProcessIdentity: processIdentity,
     });
-    const handoffObservations = path.join(handoffRoot, 'cli-observations');
-    writePackage(handoffPayload.packageRoot, '2.2.5');
-    writePackage(handoffPayload.stagingPackageRoot, '2.3.0');
-    writeCli(handoffPayload.packageRoot, 0, handoffObservations);
-    writeCli(handoffPayload.stagingPackageRoot, 0, handoffObservations);
+    const handoffObservations = `${handoffPrepared.callsFile}.starts`;
     const exited = new Promise(resolve => handoffServer.once('exit', (code, signal) => resolve({ code, signal })));
     await runNpmUpdate(handoffPayload);
     assert.deepStrictEqual(await exited, { code: null, signal: 'SIGKILL' });
+    assert.strictEqual(isProcessRunning(unaffectedServer.pid), true, 'another Farming instance must keep running');
     assert.strictEqual(JSON.parse(fs.readFileSync(handoffPayload.stateFile, 'utf8')).phase, 'succeeded');
-    assert.strictEqual(JSON.parse(fs.readFileSync(path.join(handoffPayload.packageRoot, 'package.json'))).version, '2.3.0');
+    assert.strictEqual(JSON.parse(fs.readFileSync(path.join(handoffPayload.activePackageRoot, 'package.json'))).version, '2.2.5');
     assert.deepStrictEqual(
       fs.readFileSync(handoffObservations, 'utf8').trim().split('\n').map(line => JSON.parse(line).version),
       ['2.3.0'],
     );
   } finally {
     if (handoffServer.exitCode === null && handoffServer.signalCode === null) handoffServer.kill('SIGKILL');
+    if (unaffectedServer.exitCode === null && unaffectedServer.signalCode === null) unaffectedServer.kill('SIGKILL');
   }
 
-  const switchFailureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-npm-helper-switch-failure.'));
-  const switchFailurePayload = payloadFor(switchFailureRoot, { action: 'apply' });
-  const switchFailureObservations = path.join(switchFailureRoot, 'cli-observations');
-  writePackage(switchFailurePayload.packageRoot, '2.2.5');
-  writePackage(switchFailurePayload.stagingPackageRoot, '2.3.0');
-  writeCli(switchFailurePayload.packageRoot, 0, switchFailureObservations);
-  writeCli(switchFailurePayload.stagingPackageRoot, 0, switchFailureObservations);
-  const originalRenameSync = fs.renameSync;
-  fs.renameSync = (source, destination) => {
-    if (
-      path.resolve(source) === path.resolve(switchFailurePayload.stagingPackageRoot)
-      && path.resolve(destination) === path.resolve(switchFailurePayload.packageRoot)
-    ) {
-      const error = new Error('Injected directory switch failure') as NodeJS.ErrnoException;
-      error.code = 'EIO';
-      throw error;
-    }
-    return originalRenameSync(source, destination);
-  };
-  try {
-    await runNpmUpdate(switchFailurePayload);
-  } finally {
-    fs.renameSync = originalRenameSync;
-  }
-  const switchRolledBack = JSON.parse(fs.readFileSync(switchFailurePayload.stateFile, 'utf8'));
-  assert.strictEqual(switchRolledBack.phase, 'rolled-back');
-  assert.match(switchRolledBack.error, /Injected directory switch failure/);
-  assert.strictEqual(JSON.parse(fs.readFileSync(path.join(switchFailurePayload.packageRoot, 'package.json'))).version, '2.2.5');
+  const selectionRaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-npm-helper-selection-race.'));
+  const selectionRacePrepared = await prepareFixture(selectionRaceRoot);
+  const selectionRacePayload = applyPayloadFor(selectionRacePrepared);
+  const selectionContext = resolvePackageInstallationContext(
+    selectionRacePayload.activePackageRoot,
+    {
+      FARMING_PACKAGE_INSTALLATION_ID: selectionRacePayload.installationId,
+      FARMING_PACKAGE_INSTALLATION_ROOT: selectionRacePayload.installationRoot,
+      FARMING_BOOTSTRAP_PACKAGE_ROOT: selectionRacePayload.bootstrapPackageRoot,
+    },
+  );
+  const newerPreparedRoot = path.join(selectionRaceRoot, 'newer-package');
+  writePackage(newerPreparedRoot, '2.4.0');
+  writeCli(newerPreparedRoot, 0, `${selectionRacePrepared.callsFile}.starts`);
+  const newerImage = publishPreparedPackageImage(selectionContext, newerPreparedRoot, '2.4.0', 'sha512-newer-240');
+  activatePackageImage(selectionContext, newerImage, selectionRacePayload.expectedCurrentImageId);
+  await runNpmUpdate(selectionRacePayload);
+  const selectionRaceResult = JSON.parse(fs.readFileSync(selectionRacePayload.stateFile, 'utf8'));
+  assert.strictEqual(selectionRaceResult.phase, 'rolled-back');
+  assert.match(selectionRaceResult.error, /selection changed/);
+  assert.strictEqual(readCurrentPackagePointer(selectionContext).imageId, newerImage.imageId);
   assert.deepStrictEqual(
-    fs.readFileSync(switchFailureObservations, 'utf8').trim().split('\n').map(line => JSON.parse(line).version),
+    fs.readFileSync(`${selectionRacePrepared.callsFile}.starts`, 'utf8').trim().split('\n').map(line => JSON.parse(line).version),
     ['2.2.5'],
   );
 
   const rollbackRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-npm-helper-rollback.'));
-  const rollbackPayload = payloadFor(rollbackRoot, { action: 'apply' });
-  const rollbackObservations = path.join(rollbackRoot, 'cli-observations');
-  writePackage(rollbackPayload.packageRoot, '2.2.5');
-  writePackage(rollbackPayload.stagingPackageRoot, '2.3.0');
-  writeCli(rollbackPayload.packageRoot, 0, rollbackObservations);
-  writeCli(rollbackPayload.stagingPackageRoot, 1, rollbackObservations);
+  const rollbackPrepared = await prepareFixture(rollbackRoot, { startExitCode: 1 });
+  const rollbackPayload = applyPayloadFor(rollbackPrepared);
+  const rollbackObservations = `${rollbackPrepared.callsFile}.starts`;
   await runNpmUpdate(rollbackPayload);
   const rolledBack = JSON.parse(fs.readFileSync(rollbackPayload.stateFile, 'utf8'));
   assert.strictEqual(rolledBack.phase, 'rolled-back');
   assert.strictEqual(rolledBack.version, '2.2.5');
   assert.strictEqual(rolledBack.attemptedVersion, '2.3.0');
-  assert.strictEqual(JSON.parse(fs.readFileSync(path.join(rollbackPayload.packageRoot, 'package.json'))).version, '2.2.5');
-  assert.strictEqual(fs.existsSync(rollbackPayload.stagingPrefix), false);
+  assert.strictEqual(JSON.parse(fs.readFileSync(path.join(rollbackPayload.activePackageRoot, 'package.json'))).version, '2.2.5');
   const observations = fs.readFileSync(rollbackObservations, 'utf8').trim().split('\n').map(line => JSON.parse(line));
   assert.deepStrictEqual(observations.map(item => item.version), ['2.3.0', '2.2.5']);
   observations.forEach(observation => {
@@ -376,24 +430,23 @@ async function run() {
   });
 
   const failedRollbackRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-npm-helper-rollback-failure.'));
-  const failedRollbackPayload = payloadFor(failedRollbackRoot, { action: 'apply' });
-  const failedRollbackObservations = path.join(failedRollbackRoot, 'cli-observations');
-  writePackage(failedRollbackPayload.packageRoot, '2.2.5');
-  writePackage(failedRollbackPayload.stagingPackageRoot, '2.3.0');
-  writeCli(failedRollbackPayload.packageRoot, 1, failedRollbackObservations);
-  writeCli(failedRollbackPayload.stagingPackageRoot, 1, failedRollbackObservations);
+  const failedRollbackPrepared = await prepareFixture(failedRollbackRoot, {
+    startExitCode: 1,
+    runningStartExitCode: 1,
+  });
+  const failedRollbackPayload = applyPayloadFor(failedRollbackPrepared);
+  const failedRollbackObservations = `${failedRollbackPrepared.callsFile}.starts`;
   await runNpmUpdate(failedRollbackPayload);
   const rollbackFailed = JSON.parse(fs.readFileSync(failedRollbackPayload.stateFile, 'utf8'));
   assert.strictEqual(rollbackFailed.phase, 'failed');
   assert.match(rollbackFailed.error, /rollback failed/);
-  assert.strictEqual(JSON.parse(fs.readFileSync(path.join(failedRollbackPayload.packageRoot, 'package.json'))).version, '2.2.5');
-  assert.strictEqual(JSON.parse(fs.readFileSync(path.join(failedRollbackPayload.stagingPackageRoot, 'package.json'))).version, '2.3.0');
+  assert.strictEqual(JSON.parse(fs.readFileSync(path.join(failedRollbackPayload.activePackageRoot, 'package.json'))).version, '2.2.5');
   assert.deepStrictEqual(
     fs.readFileSync(failedRollbackObservations, 'utf8').trim().split('\n').map(line => JSON.parse(line).version),
     ['2.3.0', '2.2.5'],
   );
 
-  console.log('✓ npm update helper covers kill permission, directory-switch, restart, and rollback failover');
+  console.log('✓ npm update helper covers immutable activation, multi-instance restart, and rollback failover');
 }
 
 run().catch(error => {

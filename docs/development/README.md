@@ -14,6 +14,7 @@ the [documentation home](../README.md).
 ## Runtime And Session Architecture
 
 - [Config instance isolation](config-instance-isolation.md)
+- [Package installation and update lifecycle](package-installation-lifecycle.md)
 - [ACP runtime](../products/code/acp-runtime.md)
 - [Codex runtime](../products/code/codex-runtime.md)
 - [Terminal state protocol](../products/code/terminal-state-protocol.md)

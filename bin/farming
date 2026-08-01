@@ -1,5 +1,22 @@
 #!/usr/bin/env node
-require('../backend/farming-app-cli.cjs').run().catch((error) => {
+const path = require('path');
+
+const bootstrapPackageRoot = path.resolve(__dirname, '..');
+let activePackageRoot = bootstrapPackageRoot;
+
+if (!process.pkg) {
+  const {
+    applyPackageInstallationEnvironment,
+    resolvePackageLaunch,
+  } = require('../backend/package-installation.cjs');
+  const resolved = resolvePackageLaunch(bootstrapPackageRoot, process.env);
+  activePackageRoot = resolved.packageRoot;
+  if (resolved.context) {
+    applyPackageInstallationEnvironment(process.env, resolved.context, activePackageRoot);
+  }
+}
+
+require(path.join(activePackageRoot, 'backend', 'farming-app-cli.cjs')).run().catch((error) => {
   console.error(error.message);
   process.exit(1);
 });
