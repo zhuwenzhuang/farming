@@ -472,7 +472,7 @@ async function applyNpmUpdate(payload: NpmUpdatePayload): Promise<void> {
         const context = installationContext(payload);
         const runningImage = readPackageImageRef(String(payload.runningPackageRoot));
         if (!runningImage || runningImage.imageId !== payload.runningImageId) {
-          throw new Error('Farming rollback package image is unavailable');
+          throw new Error('Farming rollback package image is unavailable', { cause: error });
         }
         writeJsonAtomic(payload.stateFile, stateFor(payload, 'rolling-back', {
           preparedAt: payload.preparedAt,
@@ -482,7 +482,7 @@ async function applyNpmUpdate(payload: NpmUpdatePayload): Promise<void> {
         if (activation?.changed && activation.previous) {
           try {
             const previousImage = packageImageForPointer(context, activation.previous);
-            if (!previousImage) throw new Error('Previous Farming package selection is unavailable');
+            if (!previousImage) throw new Error('Previous Farming package selection is unavailable', { cause: error });
             activatePackageImage(context, previousImage, String(payload.targetImageId));
           } catch (selectionError: unknown) {
             const selected = readCurrentPackagePointer(context);

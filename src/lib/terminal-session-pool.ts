@@ -669,7 +669,7 @@ function shouldAllowTerminalAutoFocus(hostEl: HTMLDivElement) {
   if (document.querySelector('.code-composer.menu-open, .code-composer-menu')) return false
   if (!(activeElement instanceof Element)) return true
   if (activeElement === document.body || hostEl.contains(activeElement)) return true
-  return !Boolean(activeElement.closest([
+  return !activeElement.closest([
     '.code-composer',
     '.code-composer-menu',
     '.code-context-menu',
@@ -683,7 +683,7 @@ function shouldAllowTerminalAutoFocus(hostEl: HTMLDivElement) {
     '[contenteditable="true"]',
     '[role="dialog"]',
     '[role="menu"]',
-  ].join(',')))
+  ].join(','))
 }
 
 function isTextEditingCopyTarget(target: EventTarget | null) {

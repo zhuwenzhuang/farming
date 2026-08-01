@@ -8,6 +8,7 @@ import * as crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { discoverUnitTestFiles } from './discover-unit-tests';
 
 /** Backend tests may dynamic-import TypeScript under src/; native node cannot load those without tsx. */
 const tsxCli = path.join(path.dirname(require.resolve('tsx/package.json')), 'dist', 'cli.mjs');
@@ -54,11 +55,7 @@ const testFiles = fs.readdirSync(testsDir)
   .filter(f => f.startsWith('test-') && f.endsWith('.ts'))
   .filter(f => process.env.FARMING_INCLUDE_SERVER_TESTS === '1' || !serverBackedTests.has(f))
   .sort();
-const stateTestFiles = [
-  path.join(__dirname, '..', 'tests', 'composer-persistence.test.ts'),
-  path.join(__dirname, '..', 'tests', 'composer-state.test.ts'),
-  path.join(__dirname, '..', 'tests', 'review-state.test.ts'),
-].filter(fs.existsSync);
+const unitTestFiles = discoverUnitTestFiles(path.join(projectRoot, 'tests'));
 
 interface TestRun {
   args: string[];
@@ -81,9 +78,9 @@ interface TestFailure {
 }
 
 const testRuns: TestRun[] = [
-  ...stateTestFiles.map(filePath => ({
+  ...unitTestFiles.map(filePath => ({
     args: [tsxCli, '--test', filePath],
-    label: path.basename(filePath),
+    label: path.relative(projectRoot, filePath),
   })),
   ...testFiles.map(file => ({
     args: [tsxCli, path.join(testsDir, file)],

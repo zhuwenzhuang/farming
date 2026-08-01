@@ -15,6 +15,7 @@
     "scripts/build-runtime-dependency-manifest.ts",
     "scripts/build-usage-history-scanner.ts",
     "scripts/bundle-cli-runtime.ts",
+    "scripts/discover-unit-tests.ts",
     "scripts/prepare-claude-acp-vendor.ts",
     "scripts/prepare-codex-acp-vendor.ts",
     "scripts/run-tests.ts",

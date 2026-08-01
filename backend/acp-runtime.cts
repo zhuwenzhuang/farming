@@ -668,7 +668,7 @@ function restoreMissingHistoryMedia(replayedState: AcpSessionState, checkpointSt
   return restored;
 }
 
-function supportsCodexSteer(capabilities: InitializeResponse['agentCapabilities'] = {} = {}) {
+function supportsCodexSteer(capabilities: InitializeResponse['agentCapabilities'] = {}) {
   const capability = capabilities?._meta?.codex?.steer;
   return capability?.method === CODEX_STEER_METHOD
     && Number.isFinite(Number(capability.version))

@@ -696,7 +696,6 @@ export function CodeComposer({
             <div className="code-composer-recording-wave" aria-hidden="true">
               {COMPOSER_VOICE_WAVEFORM_BARS.map((scale, index) => (
                 <span
-                  // eslint-disable-next-line react/no-array-index-key
                   key={index}
                   style={{ '--voice-bar-scale': scale, '--voice-bar-delay': `${index * 38}ms` } as CSSProperties}
                 />

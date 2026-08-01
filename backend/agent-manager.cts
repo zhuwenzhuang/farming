@@ -7243,7 +7243,7 @@ class AgentManager extends EventEmitter {
     } catch (caughtError: unknown) {
       const error = caughtError as ErrorRecord;
       const message = error && error.stderr ? String(error.stderr).trim() : '';
-      throw new Error(message || 'Source workspace is not inside a git repository', { cause: error });
+      throw new Error(message || 'Source workspace is not inside a git repository', { cause: caughtError });
     }
   }
 
@@ -7268,7 +7268,7 @@ class AgentManager extends EventEmitter {
     } catch (caughtError: unknown) {
       const error = caughtError as ErrorRecord;
       const message = error && error.stderr ? String(error.stderr).trim() : '';
-      throw new Error(message || 'Failed to create git worktree', { cause: error });
+      throw new Error(message || 'Failed to create git worktree', { cause: caughtError });
     }
 
     return target;
@@ -7347,7 +7347,7 @@ class AgentManager extends EventEmitter {
       const error = caughtError as ErrorRecord;
           if (error?.code !== 1) {
             const message = error && error.stderr ? String(error.stderr).trim() : '';
-            throw new Error(message || 'Failed to inspect git branches', { cause: error });
+            throw new Error(message || 'Failed to inspect git branches', { cause: caughtError });
           }
         }
 
@@ -7440,7 +7440,7 @@ class AgentManager extends EventEmitter {
           : 'unknown';
         this.commitPersistentProjectOperation(operation, state, null, detail);
       }
-      throw new Error(detail, { cause: error });
+      throw new Error(detail, { cause: caughtError });
     }
 
     const postcondition = await this.inspectGitWorktreePostcondition(root, target, branch);

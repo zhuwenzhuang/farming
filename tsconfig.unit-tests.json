@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "noUncheckedIndexedAccess": false,
+    "types": ["node", "vite/client"]
+  },
+  "include": ["tests/**/*.test.ts"]
+}

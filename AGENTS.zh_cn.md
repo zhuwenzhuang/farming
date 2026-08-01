@@ -95,7 +95,7 @@ README 是产品入口，不是实现历史。只有顶层产品承诺、主要�
 
 ### 3. 测试覆盖原则
 
-- **统一类型门禁**：`npm run typecheck` 必须同时检查 React 前端、由 `tsconfig.backend-runtime.json` 管理的严格后端与 Browser Resource TypeScript、由 `tsconfig.backend.json` 管理的剩余后端 checked JavaScript、逐文件检查的 classic browser TypeScript、共享协议 TypeScript、构建脚本 TypeScript、由 `tsconfig.tests.json` 管理的后端测试结构类型，以及 usage scanner。后端和 Browser Resource runtime 权威源码使用 `.cts`，领域类型与实现放在一起，删除被替代的 `.js`，运行时只加载生成的 `.cjs`；`npm run build:backend-runtime` 生成这些 CommonJS 产物。classic browser 与共享协议权威源码使用 `.ts`，`npm run build:classic-runtime` 在不破坏 UMD/global 行为的前提下生成原路径 `.js` 兼容产物。后端测试使用 `.ts` 并始终纳入测试类型门禁；动态测试夹具可以使用独立于生产 runtime 严格配置的测试配置，但不能绕过检查。发行包携带运行时 JavaScript，不直接执行 TypeScript。不能为了让门禁变绿而给文件加 `@ts-nocheck`，也不能用 `any` 替换领域类型。
+- **统一类型门禁**：`npm run typecheck` 必须同时检查 React 前端、由 `tsconfig.backend-runtime.json` 管理的严格后端与 Browser Resource TypeScript、由 `tsconfig.backend.json` 管理的剩余后端 checked JavaScript、逐文件检查的 classic browser TypeScript、共享协议 TypeScript、构建脚本 TypeScript、由 `tsconfig.tests.json` 管理的后端测试结构类型、由 `tsconfig.unit-tests.json` 管理的前端单元测试严格类型，以及 usage scanner。后端和 Browser Resource runtime 权威源码使用 `.cts`，领域类型与实现放在一起，删除被替代的 `.js`，运行时只加载生成的 `.cjs`；`npm run build:backend-runtime` 生成这些 CommonJS 产物。classic browser 与共享协议权威源码使用 `.ts`，`npm run build:classic-runtime` 在不破坏 UMD/global 行为的前提下生成原路径 `.js` 兼容产物。后端测试使用 `.ts` 并始终纳入测试类型门禁；动态测试夹具可以使用独立于生产 runtime 严格配置的测试配置，但不能绕过检查。发行包携带运行时 JavaScript，不直接执行 TypeScript。不能为了让门禁变绿而给文件加 `@ts-nocheck`，也不能用 `any` 替换领域类型。
 - **核心功能必须有测试**：Main Agent 验证、心跳检测、状态同步等
 - **后端测试位置**：`backend/tests/` 目录
 - **展示效果 E2E 位置**：`tests/e2e/` 目录，使用 Playwright Test 覆盖真实页面、真实 WebSocket / native pty session / xterm.js terminal 渲染链路

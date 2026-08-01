@@ -650,7 +650,7 @@ function finishTurn(turn: MutableTurn | null, keepTailAsProgress: boolean): Agen
     turn.finalMessage = lastAssistant.text
     turn.processItems.pop()
   }
-  const { internal, assistantMessages, ...finished } = turn
+  const { internal, assistantMessages: _assistantMessages, ...finished } = turn
   if (internal) finished.processItems = []
   return finished.userMessage || finished.finalMessage || finished.userImages.length > 0
     || finished.userAudios.length > 0 || finished.userFiles.length > 0

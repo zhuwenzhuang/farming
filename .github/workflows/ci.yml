@@ -38,6 +38,33 @@ jobs:
       - name: Build frontend
         run: FARMING_BASE_PATH=/farming npm run build
 
+  # Node 22 stays the authoritative gate and keeps sole ownership of lint, the
+  # dependency audit, the frontend build, and the Chromium shards. This job only
+  # proves the >=24 compatibility floor still typechecks and passes the test
+  # suite, so it costs one extra parallel job instead of a full matrix.
+  node24:
+    name: Node 24 compatibility
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: npm ci --registry=https://registry.npmjs.org/
+
+      - name: Typecheck on Node 24
+        run: npm run typecheck
+
+      - name: Run tests on Node 24
+        run: npm test
+
   browser:
     name: Chromium (${{ matrix.shard }})
     runs-on: ubuntu-latest

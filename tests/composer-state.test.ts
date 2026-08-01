@@ -9,7 +9,7 @@ import {
 import type { Agent } from '../src/types/agent'
 
 function agent(overrides: Partial<Agent> = {}): Agent {
-  return {
+  const base = {
     id: 'agent-1',
     command: 'codex',
     cwd: '/workspace',
@@ -17,13 +17,36 @@ function agent(overrides: Partial<Agent> = {}): Agent {
     previewText: '',
     status: 'running',
     isMain: false,
-    activityLevel: 'idle',
+    activityLevel: 'cold',
     lastActivity: 0,
     attentionScore: 0,
     isZombie: false,
+    providerCapabilities: {
+      supportedRuntimes: ['terminal', 'acp'],
+      runtimeSwitch: true,
+      terminalProfile: true,
+      goals: true,
+      goalSubmission: null,
+      sessionFork: true,
+      chatRuntime: 'acp',
+      supportsChat: true,
+      supportsSteer: true,
+    },
     providerSessionProvider: 'codex',
     providerSessionId: 'thread-1',
     providerHomeId: 'default',
+    runtimeBinding: { kind: 'terminal' },
+    runtimeObservation: {
+      kind: 'codex',
+      phase: 'idle',
+      confidence: 'authoritative',
+      source: 'structured-runtime',
+      observerVersion: 'test',
+      observedAt: 0,
+    },
+  } satisfies Agent
+  return {
+    ...base,
     ...overrides,
   }
 }

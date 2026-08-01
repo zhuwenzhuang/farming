@@ -52,6 +52,7 @@ import {
 } from '@/lib/reading-anchor'
 import { collectTerminalPathLinkMatches } from '@/lib/terminal-links'
 import { isCompactViewport } from '@/lib/responsive-mode'
+import { useSharedNow } from '@/lib/shared-now'
 import { loadAcpReviewPreview, loadReviewComparisonSources } from '@/lib/review/api'
 import type { WorkspaceFileOpenTarget } from '@/lib/workspace-open-files'
 import type { CodeCopy } from './copy'
@@ -301,11 +302,11 @@ function durationLabel(durationMs: number | null | undefined) {
   return rest ? `${minutes}m ${rest}s` : `${minutes}m`
 }
 
-function elapsedDurationLabel(startedAt: number | null | undefined) {
+function elapsedDurationLabel(startedAt: number | null | undefined, now = Date.now()) {
   const numeric = Number(startedAt)
   if (!Number.isFinite(numeric) || numeric <= 0) return ''
   const timestamp = numeric < 1_000_000_000_000 ? numeric * 1000 : numeric
-  return durationLabel(Math.max(0, Date.now() - timestamp))
+  return durationLabel(Math.max(0, now - timestamp))
 }
 
 function transcriptMessageTime(timestampValue: number | null | undefined) {
@@ -2518,7 +2519,7 @@ function AgentTranscriptTurnView({
   const observedRunningTerminalItemIdsRef = useRef(new Set<string>())
   const refreshedTerminalOutcomeItemIdsRef = useRef(new Set<string>())
   const syncingTerminalOutcomeItemIdsRef = useRef(new Set<string>())
-  const [, setProgressClock] = useState(0)
+  const progressClock = useSharedNow(turn.status === 'inProgress' && Boolean(turn.startedAt))
   const collaborationAgents = useMemo(
     () => acpCollaborationAgentsForTurn(resolvedProcessItems, subagentStates),
     [resolvedProcessItems, subagentStates],
@@ -2561,13 +2562,8 @@ function AgentTranscriptTurnView({
     Boolean(turn.userMessage) || userImages.length > 0 || userAudios.length > 0 || userFiles.length > 0
       || userSteerItems.length > 0 || hasAnyProcess
     )
-  useEffect(() => {
-    if (turn.status !== 'inProgress' || !turn.startedAt) return undefined
-    const timer = window.setInterval(() => setProgressClock(Date.now()), 30_000)
-    return () => window.clearInterval(timer)
-  }, [turn.startedAt, turn.status])
   const progressDuration = turn.status === 'inProgress'
-    ? elapsedDurationLabel(turn.startedAt)
+    ? elapsedDurationLabel(turn.startedAt, progressClock)
     : ''
   const activityTurn = resolvedProcessItems === turn.processItems
     ? turn

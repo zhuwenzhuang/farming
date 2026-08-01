@@ -5,6 +5,7 @@ import {
   createReviewState,
   DEFAULT_REVIEW_PREFERENCES,
   reviewStateForPatchset,
+  type ReviewFile,
 } from '../src/lib/review/state'
 import {
   createReviewStateFromSnapshot,
@@ -153,7 +154,7 @@ test('hydrates one loaded file diff without replacing file-list metadata or chan
       },
     ],
   })
-  const loaded = {
+  const loaded: ReviewFile = {
     added: 99,
     binary: true,
     diff: { hunks: [{ header: '@@ -1,1 +1,1 @@', newLines: 1, newStart: 1, oldLines: 1, oldStart: 1, rows: [] }] },

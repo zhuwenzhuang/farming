@@ -4,6 +4,7 @@ import {
   completeReviewFileDiffLoad,
   failReviewFileDiffLoad,
 } from '../src/lib/review/effects'
+import type { ReviewFileDiffLoadEffect } from '../src/lib/review/effects'
 import type { ReviewCatalog, ReviewEffect, ReviewFile } from '../src/lib/review/state'
 
 const effect: Extract<ReviewEffect, { type: 'load-file-diff' }> = {

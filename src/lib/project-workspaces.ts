@@ -5,7 +5,7 @@ const workspaceByRootId = new Map<string, string>()
 
 function normalizeProjectWorkspace(workspace: string) {
   const trimmed = workspace.trim()
-  return trimmed === '/' ? trimmed : trimmed.replace(/[\/]+$/, '')
+  return trimmed === '/' ? trimmed : trimmed.replace(/\/+$/, '')
 }
 
 function rootIdForWorkspace(workspace: string) {

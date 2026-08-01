@@ -49,7 +49,7 @@ function generateLinkSuffixRegex(endOfLineOnly: boolean) {
 }
 
 const LINK_SUFFIX_PATTERN = generateLinkSuffixRegex(false)
-const LINK_WITH_SUFFIX_PATH_PATTERN = /(?<path>(?:file:\/\/\/)?[^\s|<>\[\({][^\s|<>]*)$/
+const LINK_WITH_SUFFIX_PATH_PATTERN = /(?<path>(?:file:\/\/\/)?[^\s|<>[({][^\s|<>]*)$/
 
 function positiveInteger(value: string | undefined) {
   if (value === undefined) return undefined
@@ -114,7 +114,7 @@ function detectLinksViaSuffix(lineText: string) {
       suffix,
     })
 
-    for (const bracketMatch of pathText.matchAll(/[\[(](?![\])])/g)) {
+    for (const bracketMatch of pathText.matchAll(/[[(](?![\])])/g)) {
       results.push({
         path: {
           index: pathIndex + (prefix?.text.length || 0) + bracketMatch.index + 1,
