@@ -147,11 +147,29 @@ function collaborationStatus(status: string): AcpCollaborationStatus {
   return 'unknown'
 }
 
+function recordedCollaborationStatuses(items: AgentTranscriptProcessItem[]) {
+  const statuses = new Map<string, string>()
+  for (const item of items) {
+    const collaboration = item.collaboration
+    if (collaboration?.kind !== 'tool') continue
+    for (const [threadId, state] of Object.entries(collaboration.agentsStates || {})) {
+      if (state.status) statuses.set(threadId, state.status)
+    }
+  }
+  return statuses
+}
+
 export function acpCollaborationAgents(
   items: AgentTranscriptProcessItem[],
   states: AgentTranscriptSubagentState[] = [],
 ): AcpCollaborationAgent[] {
   const stateByThreadId = new Map(states.map(state => [state.threadId, state]))
+  const recordedStatusByThreadId = recordedCollaborationStatuses(items)
+  const statusForThread = (threadId: string) => collaborationStatus(
+    stateByThreadId.has(threadId)
+      ? stateByThreadId.get(threadId)?.status || ''
+      : recordedStatusByThreadId.get(threadId) || '',
+  )
   const groups = new Map<string, AcpCollaborationAgent>()
   for (const event of acpCollaborationEvents(items)) {
     const existing = groups.get(event.threadId)
@@ -186,7 +204,7 @@ export function acpCollaborationAgents(
       threadId: event.threadId,
       name: event.name,
       task: event.name,
-      status: collaborationStatus(stateByThreadId.get(event.threadId)?.status || ''),
+      status: statusForThread(event.threadId),
       parentThreadId: stateByThreadId.get(event.threadId)?.parentThreadId,
       tone: event.tone,
       icon: agentIcon(event.threadId),
@@ -205,7 +223,7 @@ export function acpCollaborationAgents(
   for (const agent of groups.values()) {
     const state = stateByThreadId.get(agent.threadId)
     if (state?.name?.trim()) agent.name = state.name.trim()
-    agent.status = collaborationStatus(state?.status || '')
+    agent.status = statusForThread(agent.threadId)
     agent.parentThreadId = state?.parentThreadId
   }
   for (const state of states) {

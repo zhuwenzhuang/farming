@@ -712,6 +712,7 @@ export function CodeWorkspace({
     return result.successful
   }, [workspaceOpenFiles])
   const [searchOpen, setSearchOpen] = useState(false)
+  const [desktopConnectionsOpen, setDesktopConnectionsOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [searchSelectionIndex, setSearchSelectionIndex] = useState(0)
   const [projectWorkspaces, setProjectWorkspaces] = useState<string[]>([])
@@ -2918,6 +2919,7 @@ export function CodeWorkspace({
   }, [closeSidebarForMobile, openSearch])
 
   const openWorkspaceViewFromSidebar = useCallback((view: WorkspaceView) => {
+    setDesktopConnectionsOpen(false)
     if (view === 'plugins') {
       refreshBrowserCapability()
       refreshComputerCapability()
@@ -2927,6 +2929,18 @@ export function CodeWorkspace({
     openWorkspaceView(view)
     closeSidebarForMobile()
   }, [closeSidebarForMobile, invalidateAgentSessionsForHistory, openWorkspaceView, refreshBrowserCapability, refreshComputerCapability])
+
+  const openRemoteConnectionsFromSidebar = useCallback(() => {
+    refreshBrowserCapability()
+    refreshComputerCapability()
+    setDesktopConnectionsOpen(true)
+    openWorkspaceView('plugins')
+    closeSidebarForMobile()
+  }, [closeSidebarForMobile, openWorkspaceView, refreshBrowserCapability, refreshComputerCapability])
+
+  useEffect(() => {
+    if (activeView !== 'plugins') setDesktopConnectionsOpen(false)
+  }, [activeView])
 
   const toggleProject = useCallback((projectId: string) => {
     setCollapsedProjectIds(previous => {
@@ -3059,15 +3073,14 @@ export function CodeWorkspace({
       return
     }
 
-    if (event.key === 'ArrowDown') {
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      const target = event.target
+      const agentRow = target instanceof HTMLElement
+        ? target.closest<HTMLElement>('[data-testid="code-agent-row"], [data-testid="code-project-agent-compact"], [data-testid="code-pinned-agent-compact"], [data-testid="code-active-session-row"]')
+        : null
+      if (target !== event.currentTarget && target !== agentRow) return
       event.preventDefault()
-      openAdjacentVisibleTarget(1)
-      return
-    }
-
-    if (event.key === 'ArrowUp') {
-      event.preventDefault()
-      openAdjacentVisibleTarget(-1)
+      openAdjacentVisibleTarget(event.key === 'ArrowDown' ? 1 : -1)
     }
   }, [openAdjacentVisibleTarget, openSearch])
 
@@ -5566,6 +5579,7 @@ export function CodeWorkspace({
         hoverPreviewsPaused={Boolean(projectMenu)}
         emptyHomeActionRequest={emptyHomeSidebarActionRequest}
         activeView={activeView}
+        desktopConnectionsOpen={desktopConnectionsOpen}
         searchOpen={searchOpen}
         displayedProjects={projects}
         collapsedProjectIds={collapsedProjectIds}
@@ -5607,6 +5621,7 @@ export function CodeWorkspace({
         onToggleSidebar={toggleSidebar}
         onOpenSearch={openSearchFromSidebar}
         onOpenWorkspaceView={openWorkspaceViewFromSidebar}
+        onOpenRemoteConnections={openRemoteConnectionsFromSidebar}
         onOpenMainAgent={() => {
           if (!hiddenMainAgent) return
           setMainPaneMode('terminal')
@@ -5780,6 +5795,8 @@ export function CodeWorkspace({
 
       <CodeMainArea
         activeView={activeView}
+        desktopConnectionsOpen={desktopConnectionsOpen}
+        onDesktopConnectionsOpenChange={setDesktopConnectionsOpen}
         activeBrowserResource={mainPaneMode === 'browser' ? activeBrowserResource : null}
         browserController={browserResources}
         onBackFromBrowser={backFromBrowser}
@@ -5809,6 +5826,7 @@ export function CodeWorkspace({
         archivedRuns={visibleArchivedRuns}
         archivedAgents={visibleArchivedAgents}
         historyAgentSessions={visibleHistoryAgentSessions}
+        openHistorySessionKeys={agentListState.claimedAgentSessionKeys}
         historyAgentSessionsLoading={agentSessionsFreshLoading}
         historyAgentSessionsError={agentSessionsFreshError}
         providerSessionTotal={agentSessionTotal}

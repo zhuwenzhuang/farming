@@ -60,6 +60,7 @@ const WORKSPACE_EDITOR_CONTEXT_MENU_IGNORE_SELECTOR = [
   '.code-file-blame-detail',
   '.code-file-inline-blame',
   '.code-file-line-changes-panel',
+  '.code-language-server-panel',
 ].join(', ')
 
 let monacoEnvironmentConfigured = false

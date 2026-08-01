@@ -19,6 +19,15 @@ import {
   resolvePackageInstallationContext,
 } from './package-installation.cjs';
 
+const DESKTOP_COMPAT_GLIBC_PATH = 'FARMING_DESKTOP_COMPAT_GLIBC_PATH';
+const DESKTOP_INHERITED_LD_LIBRARY_PATH = 'FARMING_DESKTOP_INHERITED_LD_LIBRARY_PATH';
+
+if (process.env[DESKTOP_COMPAT_GLIBC_PATH]) {
+  const inheritedLibraryPath = process.env[DESKTOP_INHERITED_LD_LIBRARY_PATH];
+  if (inheritedLibraryPath) process.env.LD_LIBRARY_PATH = inheritedLibraryPath;
+  else delete process.env.LD_LIBRARY_PATH;
+}
+
 const packagedProcess = process as NodeJS.Process & { pkg?: unknown };
 
 interface ExpectedProcessIdentity {
@@ -595,6 +604,13 @@ async function runServerBackedControlCli(argv: string[]): Promise<number> {
 
 function childInvocation(env: NodeJS.ProcessEnv = process.env): ChildInvocation {
   if (packagedProcess.pkg) {
+    const childEnv = { ...env };
+    const compatibilityPath = String(env[DESKTOP_COMPAT_GLIBC_PATH] || '').trim();
+    if (compatibilityPath) {
+      childEnv.LD_LIBRARY_PATH = env.LD_LIBRARY_PATH
+        ? `${compatibilityPath}:${env.LD_LIBRARY_PATH}`
+        : compatibilityPath;
+    }
     // Spawn env directly so it execs the packaged binary in-place. A shell
     // wrapper may keep its own PID while the listener belongs to a child,
     // making daemon ownership impossible to prove on Linux.
@@ -602,7 +618,7 @@ function childInvocation(env: NodeJS.ProcessEnv = process.env): ChildInvocation 
       command: '/usr/bin/env',
       // FARMING_RUN_SERVER selects the embedded server entry. Do not append a
       // sentinel argument: pkg may interpret it as an external script path.
-      args: buildCleanEnvExecArgs(env, process.execPath),
+      args: buildCleanEnvExecArgs(childEnv, process.execPath),
     };
   }
   const nodePath = env.FARMING_NODE_BIN || process.execPath;

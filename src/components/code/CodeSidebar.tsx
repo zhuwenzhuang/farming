@@ -16,6 +16,7 @@ import {
   NewAgentGlyph,
   PencilGlyph,
   PuzzleGlyph,
+  RemoteGlyph,
   SettingsGlyph,
   SearchGlyph,
   VisibilityGlyph,
@@ -171,6 +172,7 @@ interface CodeSidebarProps {
   hoverPreviewsPaused: boolean
   emptyHomeActionRequest: { kind: 'share' | 'focus'; nonce: number } | null
   activeView: WorkspaceView
+  desktopConnectionsOpen: boolean
   searchOpen: boolean
   displayedProjects: ProjectGroup[]
   collapsedProjectIds: Set<string>
@@ -205,6 +207,7 @@ interface CodeSidebarProps {
   onToggleSidebar: () => void
   onOpenSearch: () => void
   onOpenWorkspaceView: (view: WorkspaceView) => void
+  onOpenRemoteConnections: () => void
   onOpenMainAgent: () => void
   onRestartMainAgent: (command: 'codex' | 'claude' | 'opencode' | 'qoder' | 'qwen' | 'bash' | 'zsh') => void
   onProjectListKeyDown: (event: ReactKeyboardEvent<HTMLDivElement>) => void
@@ -234,6 +237,7 @@ export function CodeSidebar({
   hoverPreviewsPaused,
   emptyHomeActionRequest,
   activeView,
+  desktopConnectionsOpen,
   searchOpen,
   displayedProjects,
   collapsedProjectIds,
@@ -268,6 +272,7 @@ export function CodeSidebar({
   onToggleSidebar,
   onOpenSearch,
   onOpenWorkspaceView,
+  onOpenRemoteConnections,
   onOpenMainAgent,
   onRestartMainAgent,
   onProjectListKeyDown,
@@ -560,6 +565,18 @@ export function CodeSidebar({
                   <SearchGlyph />
                 </span>
               </button>
+              {window.farmingDesktop ? <button
+                type="button"
+                className={`code-sidebar-remote-toggle ${activeView === 'plugins' && desktopConnectionsOpen ? 'active' : ''}`}
+                data-testid="code-nav-remote-connections"
+                aria-label={language === 'zh' ? '远程连接' : 'Remote connections'}
+                title={language === 'zh' ? '远程连接' : 'Remote connections'}
+                onClick={onOpenRemoteConnections}
+              >
+                <span className="code-sidebar-remote-icon" aria-hidden="true">
+                  <RemoteGlyph />
+                </span>
+              </button> : null}
               <button
                 type="button"
                 className={`code-sidebar-history-toggle ${activeView === 'history' ? 'active' : ''}`}
@@ -575,7 +592,7 @@ export function CodeSidebar({
               </button>
               <button
                 type="button"
-                className={`code-sidebar-plugins-toggle ${activeView === 'plugins' ? 'active' : ''}`}
+                className={`code-sidebar-plugins-toggle ${activeView === 'plugins' && !desktopConnectionsOpen ? 'active' : ''}`}
                 data-testid="code-nav-plugins"
                 aria-label={copy.plugins}
                 title={copy.plugins}
@@ -1845,6 +1862,7 @@ function ProjectSection({
                         type="button"
                         className="code-agent-row code-session-show-more"
                         data-testid="code-session-show-more"
+                        aria-label={copy.showMoreAgentSessions(project.hiddenAgentSessionCount ?? 0)}
                         onClick={() => onToggleProjectSessions(project.id)}
                       >
                         <span className="code-agent-row-copy">
@@ -1879,6 +1897,7 @@ function ProjectSection({
                         type="button"
                         className={`code-agent-row code-session-show-more ${droppingAtProjectEnd ? 'drop-after' : ''}`}
                         data-testid="code-agent-show-more"
+                        aria-label={copy.showMoreAgents(hiddenProjectAgentCount)}
                         onClick={() => setProjectAgentsExpanded(true)}
                         onDragOver={updateProjectEndDropTarget}
                         onDrop={dropAgentAtProjectEnd}

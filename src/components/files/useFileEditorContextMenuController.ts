@@ -23,6 +23,8 @@ interface UseFileEditorContextMenuControllerOptions {
   onCloseTabContextMenu: () => void
   onOpenLineChanges: (mode: 'previous' | 'working', lineNumber: number) => Promise<void>
   onToggleBlame: () => Promise<void>
+  languageServerAvailable: boolean
+  onRunLanguageServerAction: (action: FileEditorContextAction) => Promise<void>
 }
 
 export function useFileEditorContextMenuController({
@@ -37,6 +39,8 @@ export function useFileEditorContextMenuController({
   onCloseTabContextMenu,
   onOpenLineChanges,
   onToggleBlame,
+  languageServerAvailable,
+  onRunLanguageServerAction,
 }: UseFileEditorContextMenuControllerOptions) {
   const [editorContextMenu, setEditorContextMenu] = useState<FileEditorContextMenuState | null>(null)
 
@@ -81,6 +85,19 @@ export function useFileEditorContextMenuController({
     closeEditorContextMenu()
     if (!editor) return
 
+    if ([
+      'go-to-definition',
+      'find-references',
+      'go-to-implementation',
+      'call-hierarchy',
+      'type-hierarchy',
+      'document-symbols',
+      'workspace-symbols',
+    ].includes(action)) {
+      await onRunLanguageServerAction(action)
+      return
+    }
+
     const model = editor.getModel()
     const selection = editor.getSelection()
     if (action === 'toggle-blame') {
@@ -118,15 +135,16 @@ export function useFileEditorContextMenuController({
       }
       editor.focus()
     }
-  }, [canShowBlame, canShowLineChanges, closeEditorContextMenu, editorContextMenu, editorRef, onOpenLineChanges, onToggleBlame, readOnly])
+  }, [canShowBlame, canShowLineChanges, closeEditorContextMenu, editorContextMenu, editorRef, onOpenLineChanges, onRunLanguageServerAction, onToggleBlame, readOnly])
 
   const showBlameContextAction = Boolean(editorContextMenu && editorContextMenu.kind === 'gutter' && canShowBlame && (blameOpen || blameCapability === 'available'))
   const showLineChangesContextActions = Boolean(editorContextMenu && editorContextMenu.kind === 'gutter' && canShowLineChanges)
+  const showLanguageServerActions = Boolean(editorContextMenu && editorContextMenu.kind === 'editor' && languageServerAvailable)
 
   useEffect(() => {
     const closeFloatingMenus = (event: MouseEvent) => {
       const target = event.target
-      if (target instanceof Element && target.closest('.code-editor-context-menu, .code-file-tab-context-menu, .code-file-blame-detail, .code-file-inline-blame, .code-file-line-changes-panel')) {
+      if (target instanceof Element && target.closest('.code-editor-context-menu, .code-file-tab-context-menu, .code-file-blame-detail, .code-file-inline-blame, .code-file-line-changes-panel, .code-language-server-panel')) {
         return
       }
       setEditorContextMenu(null)
@@ -152,5 +170,6 @@ export function useFileEditorContextMenuController({
     runEditorContextAction,
     showBlameContextAction,
     showLineChangesContextActions,
+    showLanguageServerActions,
   }
 }

@@ -4,9 +4,9 @@ import { execFileSync } from 'node:child_process'
 import type { Page } from '@playwright/test'
 import { expect, openFarming, terminalRows, test } from './fixtures'
 
-async function createAcpAgent(page: Page, workspace: string) {
+async function createAcpAgent(page: Page, workspace: string, command = 'claude') {
   const response = await page.request.post('/farming/api/control/agents', {
-    data: { command: 'claude', workspace, agentRuntimeMode: 'chat' },
+    data: { command, workspace, agentRuntimeMode: 'chat' },
   })
   expect(response.ok()).toBeTruthy()
   const payload = await response.json() as { agentId?: string }
@@ -26,6 +26,23 @@ async function sendAcpMessage(page: Page, text: string) {
 }
 
 test.describe('ACP human-like browser matrix', () => {
+  test('presents Codex Realtime as a circular live waveform control', async ({ page, workspaceRoot }) => {
+    const workspace = path.join(workspaceRoot, 'acp-realtime-waveform')
+    fs.mkdirSync(workspace, { recursive: true })
+
+    const agentId = await createAcpAgent(page, workspace, 'codex')
+    await openFarming(page)
+    await agentRow(page, agentId).click()
+
+    const voice = page.getByTestId('code-acp-composer-mic')
+    await expect(voice).toHaveAttribute('data-voice-mode', 'realtime')
+    await expect(voice.locator('.code-composer-voice-wave i')).toHaveCount(5)
+    await expect.poll(async () => voice.evaluate(element => {
+      const style = getComputedStyle(element)
+      return [style.width, style.height, style.borderRadius]
+    })).toEqual(['40px', '40px', '999px'])
+  })
+
   test('recovers a read-only transcript from bounded transport failures', async ({ page, workspaceRoot }) => {
     const workspace = path.join(workspaceRoot, 'acp-transcript-transport-retry')
     fs.mkdirSync(workspace, { recursive: true })
@@ -97,6 +114,34 @@ test.describe('ACP human-like browser matrix', () => {
     await expect(page.getByText('Transcript transport recovered.', { exact: true })).toBeVisible()
     await expect(page.getByText('This session’s Chat history could not be loaded.', { exact: true }))
       .toHaveCount(0)
+  })
+
+  test('reconnects an exited ACP adapter without replaying the interrupted request', async ({ page, workspaceRoot }) => {
+    const workspace = path.join(workspaceRoot, 'acp-adapter-reconnect')
+    fs.mkdirSync(workspace, { recursive: true })
+
+    const agentId = await createAcpAgent(page, workspace)
+    await openFarming(page)
+    await agentRow(page, agentId).click()
+    await sendAcpMessage(page, 'disconnect adapter once')
+
+    const reconnect = page.getByTestId('code-acp-reconnect')
+    await expect(reconnect).toBeVisible({ timeout: 15_000 })
+    await expect(page.getByText('ACP reply', { exact: true })).toHaveCount(0)
+
+    const reconnectResponsePromise = page.waitForResponse(response => (
+      response.request().method() === 'POST'
+      && response.url().includes(`/api/agents/${agentId}/acp-session/reconnect`)
+    ))
+    await reconnect.click()
+    const reconnectResponse = await reconnectResponsePromise
+    expect(reconnectResponse.ok()).toBeTruthy()
+    await expect(reconnectResponse.json()).resolves.toMatchObject({ reconnected: true })
+    await expect(page.getByTestId('code-acp-reconnect')).toHaveCount(0, { timeout: 15_000 })
+
+    await sendAcpMessage(page, 'new explicit request after reconnect')
+    await expect(page.getByText('ACP reconnect reply', { exact: true })).toBeVisible({ timeout: 15_000 })
+    expect(fs.existsSync(path.join(workspace, '.adapter-disconnect-replayed'))).toBe(false)
   })
 
   test('paints the terminal checkpoint after switching from Chat', async ({ page, workspaceRoot }) => {
@@ -449,7 +494,8 @@ test.describe('ACP human-like browser matrix', () => {
     expect(darkVisuals.cardBackground).toBe('rgba(0, 0, 0, 0)')
     expect(lightVisuals.cardBorderWidth).toBe('0px')
     expect(darkVisuals.cardBorderWidth).toBe('0px')
-    expect(darkVisuals.iconColor).toBe(lightVisuals.iconColor)
+    expect(lightVisuals.iconColor).not.toBe('rgb(140, 149, 159)')
+    expect(darkVisuals.iconColor).not.toBe(lightVisuals.iconColor)
 
     const browserGroup = groups.filter({ hasText: 'Browser guards' })
     const browserSummary = browserGroup.getByTestId('code-agent-transcript-collaboration-summary')
@@ -1210,7 +1256,32 @@ test.describe('ACP human-like browser matrix', () => {
       .locator('.code-agent-transcript-turn')
       .filter({ hasText: 'rich timeline' })
       .last()
-    await expect(dirtyTurn.getByRole('button', { name: 'Git diff', exact: true })).toBeVisible()
+    const dirtyReviewButton = dirtyTurn.getByRole('button', { name: /^Review:/ })
+    const dirtyGitDiffButton = dirtyTurn.getByRole('button', { name: 'Git diff', exact: true })
+    await expect(dirtyGitDiffButton).toBeVisible()
+    const [dirtyReviewStyle, dirtyGitDiffStyle] = await Promise.all([
+      dirtyReviewButton.evaluate(element => {
+        const style = getComputedStyle(element)
+        return {
+          backgroundColor: style.backgroundColor,
+          borderColor: style.borderColor,
+          borderRadius: style.borderRadius,
+          color: style.color,
+          padding: style.padding,
+        }
+      }),
+      dirtyGitDiffButton.evaluate(element => {
+        const style = getComputedStyle(element)
+        return {
+          backgroundColor: style.backgroundColor,
+          borderColor: style.borderColor,
+          borderRadius: style.borderRadius,
+          color: style.color,
+          padding: style.padding,
+        }
+      }),
+    ])
+    expect(dirtyGitDiffStyle).toEqual(dirtyReviewStyle)
 
     execFileSync('git', ['add', 'display-fixture.txt'], { cwd: workspace, stdio: 'ignore' })
     execFileSync('git', ['commit', '-m', 'commit ACP file change'], { cwd: workspace, stdio: 'ignore' })
@@ -1678,6 +1749,11 @@ test.describe('ACP human-like browser matrix', () => {
     await turn.getByRole('button', { name: /^Review:/ }).click()
     const review = page.getByRole('dialog', { name: 'Review' }).getByTestId('code-agent-transcript-result-details')
     await expect(review.locator('.code-agent-transcript-change-review-file')).toHaveCount(6)
+    const reviewViewport = await review.evaluate(element => ({
+      clientHeight: element.clientHeight,
+      scrollHeight: element.scrollHeight,
+    }))
+    expect(reviewViewport.scrollHeight).toBeGreaterThan(reviewViewport.clientHeight)
     await expect(review.getByText('src/features/very-long-feature-name/decision-many-5.txt', { exact: true })).toBeVisible()
     await expect(review.locator('.code-agent-transcript-result-error')).toHaveCount(0)
     await expect(review.locator('.code-agent-transcript-result-diff').first()).toContainText(

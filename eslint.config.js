@@ -188,7 +188,7 @@ module.exports = [
   },
   // Build/tooling scripts and the shared protocol sources are ES modules.
   {
-    files: ['scripts/**/*.ts', 'shared/**/*.ts'],
+    files: ['desktop/**/*.ts', 'scripts/**/*.ts', 'shared/**/*.ts'],
     languageOptions: {
       ecmaVersion: 2022,
       parser: typescriptParser,

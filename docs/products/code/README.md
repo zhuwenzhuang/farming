@@ -14,6 +14,12 @@ Install Farming, open its authenticated URL, and choose **New Agent**. See
 
 ## Main Workflows
 
+### Desktop And Remote Backends
+
+The Electron MVP reuses Farming Code as a local desktop interface and connects
+it to saved local or SSH-reached Farming backends. See
+[Farming Desktop MVP](desktop-app.md).
+
 ### Agents, Chat, And Terminal
 
 Read structured Agent results in Chat or work directly with the CLI in Terminal.
@@ -22,6 +28,10 @@ Read structured Agent results in Chat or work directly with the CLI in Terminal.
 
 Browse project files, inspect changes, make a focused edit, and open Review
 without leaving the task.
+
+When a user-managed VS Code Bridge is running, the same editor can reuse VS
+Code's installed language providers for navigation, symbols, call/type
+hierarchy, and diagnostics. See [Language Server](language-server.md).
 
 ### Search And History
 

@@ -1532,7 +1532,7 @@ function collaborationStatusLabel(status: AcpCollaborationStatus, copy: CodeCopy
   if (status === 'paused') return copy.agentTranscriptCollaborationInterrupted
   if (status === 'failed') return copy.agentTranscriptCollaborationFailed
   if (status === 'closed') return copy.agentTranscriptCollaborationClosed
-  return copy.agentTranscriptCollaborationNoFinalState
+  return ''
 }
 
 function CollaborationAgentGlyph({ icon }: { icon: number }) {
@@ -1622,7 +1622,12 @@ function AgentTranscriptCollaborationTimeline({
           data-testid="code-agent-transcript-collaboration-summary"
           aria-expanded={expandable ? agentOpen : undefined}
           disabled={!expandable}
-          title={`${agent.task || agent.name}${agent.task && agent.task !== agent.name ? ` · ${agent.name}` : ''} · ${statusLabel} · ${copy.agentTranscriptProcessCount(agent.events.length)}`}
+          title={[
+            agent.task || agent.name,
+            agent.task && agent.task !== agent.name ? agent.name : '',
+            statusLabel,
+            copy.agentTranscriptProcessCount(agent.events.length),
+          ].filter(Boolean).join(' · ')}
           onClick={clickEvent => {
             if (!expandable) return
             clickEvent.stopPropagation()
@@ -1644,7 +1649,9 @@ function AgentTranscriptCollaborationTimeline({
               {agent.task && agent.task !== agent.name ? <small>{agent.name}</small> : null}
             </span>
           </span>
-          <span className={`code-agent-transcript-collaboration-action ${agent.status}`}>{statusLabel}</span>
+          {statusLabel ? (
+            <span className={`code-agent-transcript-collaboration-action ${agent.status}`}>{statusLabel}</span>
+          ) : null}
           <span className="code-agent-transcript-collaboration-count">
             {copy.agentTranscriptProcessCount(agent.events.length)}
             {childAgents.length > 0 ? ` · ${copy.agentTranscriptCollaborationChildCount(childAgents.length)}` : ''}

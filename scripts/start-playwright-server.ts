@@ -13,7 +13,10 @@ fs.writeFileSync(path.join(configDir, 'server.json'), `${JSON.stringify({
 
 process.env.PORT = process.env.PORT || process.env.FARMING_PLAYWRIGHT_PORT || '4173';
 process.env.FARMING_BASE_PATH = process.env.FARMING_BASE_PATH || '/farming';
-process.env.FARMING_CONFIG_DIR = process.env.FARMING_CONFIG_DIR || configDir;
+// A Playwright server can be launched from inside a running Farming Agent and
+// therefore inherit that server's config root. Never reuse it: a second backend
+// would otherwise reconcile and stop the parent's live ACP processes.
+process.env.FARMING_CONFIG_DIR = configDir;
 process.env.FARMING_DISABLE_AUTH = process.env.FARMING_DISABLE_AUTH || '1';
 if (!useRealCodex) {
   process.env.FARMING_E2E_FAKE_EXECUTABLES = process.env.FARMING_E2E_FAKE_EXECUTABLES || '1';

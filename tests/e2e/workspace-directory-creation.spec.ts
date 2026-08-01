@@ -9,6 +9,19 @@ import {
 } from './fixtures'
 
 test.describe('New Agent workspace directory creation', () => {
+  test('keeps Start available when the workspace is empty', async ({ page }) => {
+    await openFarming(page)
+    await openNewAgentDialog(page)
+    await selectAgent(page, 'bash')
+
+    const startButton = page.getByTestId('workspace-start')
+    await expect(page.getByTestId('workspace-input')).toHaveValue('')
+    await startButton.click()
+
+    await expect(page.getByTestId('input-dialog')).toBeVisible()
+    expect(await startButton.isDisabled()).toBe(false)
+  })
+
   test('asks before creating a missing workspace and starts there after confirmation', async ({ page, workspaceRoot }) => {
     const workspace = path.join(workspaceRoot, 'brand-new-project')
     await openFarming(page)

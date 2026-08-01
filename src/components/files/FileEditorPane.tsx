@@ -21,6 +21,7 @@ import type { WorkspaceNavigationFileInput } from '@/lib/workspace-navigation-hi
 import type { CodeCopy } from '../code/copy'
 import { FileEditorHeader } from './FileEditorHeader'
 import { FileEditorOverlays } from './FileEditorOverlays'
+import { LanguageServerPanel } from './LanguageServerPanel'
 import { FileEditorSurface } from './FileEditorSurface'
 import { useFileEditorBlameController } from './useFileEditorBlameController'
 import { useFileEditorBlameOverlayController } from './useFileEditorBlameOverlayController'
@@ -31,6 +32,7 @@ import { useFileEditorMonacoController } from './useFileEditorMonacoController'
 import { useFileEditorShellKeyboard } from './useFileEditorShellKeyboard'
 import { useFileEditorTabsController } from './useFileEditorTabsController'
 import { useFileEditorWorkingCopyController } from './useFileEditorWorkingCopyController'
+import { useLanguageServerController } from './useLanguageServerController'
 
 export type { OpenWorkspaceFile, WorkspaceFileCursor } from '@/lib/workspace-open-files'
 
@@ -187,6 +189,14 @@ export function FileEditorPane({
     onOpenContextMenuRef: openEditorContextMenuRef,
   })
 
+  const languageServer = useLanguageServerController({
+    openFile,
+    openFiles,
+    editorRef,
+    onOpenFilePath,
+    unsupportedMessage: copy.languageServerFeatureUnavailable,
+  })
+
   const {
     blameOpen,
     blameLoading,
@@ -246,6 +256,7 @@ export function FileEditorPane({
     runEditorContextAction,
     showBlameContextAction,
     showLineChangesContextActions,
+    showLanguageServerActions,
   } = useFileEditorContextMenuController({
     blameCapability,
     blameOpen,
@@ -258,6 +269,8 @@ export function FileEditorPane({
     onCloseTabContextMenu: closeTabContextMenu,
     onOpenLineChanges: openLineChanges,
     onToggleBlame: toggleBlame,
+    languageServerAvailable: languageServer.available,
+    onRunLanguageServerAction: languageServer.runAction,
   })
   openEditorContextMenuRef.current = openEditorContextMenu
   closeEditorContextMenuRef.current = closeEditorContextMenu
@@ -384,6 +397,17 @@ export function FileEditorPane({
         onOpenFilePath={onOpenFilePath}
         onShowBlameDetail={showBlameDetail}
       />
+      {languageServer.navigator.open ? (
+        <LanguageServerPanel
+          state={languageServer.navigator}
+          copy={copy}
+          onClose={languageServer.closeNavigator}
+          onDirection={languageServer.changeDirection}
+          onToggleNode={node => void languageServer.toggleNode(node)}
+          onOpenNode={languageServer.openNode}
+          onSearch={query => void languageServer.searchWorkspaceSymbols(query)}
+        />
+      ) : null}
       <FileEditorOverlays
         blame={blame}
         blameError={blameError}
@@ -398,6 +422,7 @@ export function FileEditorPane({
         pendingCloseSaving={pendingCloseSaving}
         showBlameContextAction={showBlameContextAction}
         showLineChangesContextActions={showLineChangesContextActions}
+        showLanguageServerActions={showLanguageServerActions}
         tabContextMenu={tabContextMenu}
         onCancelPendingClose={cancelPendingClose}
         onCloseEditorContextMenu={closeEditorContextMenu}

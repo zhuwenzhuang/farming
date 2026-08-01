@@ -62,6 +62,10 @@ Linux 目标每轮都要记录：
 - 远程 Linux 上每个 story 使用单独端口，避免多个 dogfood agent 互相抢同一个 Farming server。
 - 真实 Codex / Claude smoke 可以复用目标机器现有登录态，但不能修改登录配置、默认模型配置或 quota/reset 相关状态。
 
+Playwright 服务必须用自己的临时配置根目录覆盖任何继承的
+`FARMING_CONFIG_DIR`。从正在运行的 Farming Agent 内启动测试时也必须如此，
+避免测试后端协调或停止父服务的 ACP 进程。
+
 推荐目录：
 
 ```text
@@ -108,6 +112,8 @@ Linux 目标每轮都要记录：
 
 ### 3. Composer 和输入框
 
+所有已打开的 Composer 菜单都必须能用 Escape 关闭并把焦点恢复到输入框，包括焦点仍停留在菜单触发按钮上的情况。
+
 覆盖：
 - 普通文本、Enter、Shift+Enter、Ctrl/Cmd+Enter。
 - busy agent follow-up 队列和 steer。
@@ -139,6 +145,8 @@ Linux 目标每轮都要记录：
 
 ### 5. Project / Sidebar / History
 
+焦点位于 History 搜索框时，Escape 必须像全局 Search 一样返回工作区。
+
 覆盖：
 - Project 分组、Files section、active agent、active session；Files 展开后，变更、未跟踪、历史和根级文件树行应保持一致的字号、行高、垂直节奏，以及箭头和文字起点，计数和 Review 操作可保留语义强调。
 - Pin / unread / rename / Move to History。
@@ -165,6 +173,8 @@ Linux 目标每轮都要记录：
 - 大文件和二进制文件不进入危险保存链路。
 
 ### 7. Usage 和系统状态
+
+Usage 面板展开且焦点位于面板内部时，Escape 必须收起面板。
 
 覆盖：
 - Codex / Claude quota 摘要。

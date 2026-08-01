@@ -214,21 +214,36 @@ test('ACP model matrix responds locally, settles once, and morphs Advanced witho
   const ultraMotion = await page.evaluate(() => {
     const control = document.querySelector('.code-model-matrix-rocker-control')
     const knob = document.querySelector('.code-model-matrix-rocker-knob')
+    const knobPosition = document.querySelector('.code-model-matrix-rocker-knob-position')
     const fillElement = document.querySelector('.code-model-matrix-fill')
     const summarize = (element: Element | null) => element?.getAnimations().map(animation => ({
       name: (animation as CSSAnimation).animationName,
       delay: Number(animation.effect?.getTiming().delay || 0),
       duration: Number(animation.effect?.getTiming().duration || 0),
     })) || []
+    const milliseconds = (value: string) => value.endsWith('ms')
+      ? Number.parseFloat(value)
+      : Number.parseFloat(value) * 1_000
+    const summarizeStyle = (element: Element | null) => {
+      if (!element) return null
+      const style = getComputedStyle(element)
+      return {
+        name: style.animationName,
+        delay: milliseconds(style.animationDelay),
+        duration: milliseconds(style.animationDuration),
+      }
+    }
     return {
-      control: summarize(control),
-      knob: summarize(knob),
+      control: summarizeStyle(control),
+      knob: summarizeStyle(knob),
+      travelDuration: knobPosition ? milliseconds(getComputedStyle(knobPosition).transitionDuration) : 0,
       fill: summarize(fillElement),
       fillShadow: fillElement ? getComputedStyle(fillElement).boxShadow : '',
     }
   })
-  expect(ultraMotion.control).toContainEqual({ name: 'code-model-rocker-impact', delay: 300, duration: 210 })
-  expect(ultraMotion.knob).toContainEqual({ name: 'code-model-rocker-kick', delay: 300, duration: 210 })
+  expect(ultraMotion.control).toEqual({ name: 'code-model-rocker-impact', delay: 190, duration: 120 })
+  expect(ultraMotion.knob).toEqual({ name: 'code-model-rocker-kick', delay: 190, duration: 120 })
+  expect(Number(ultraMotion.knob?.delay) + Number(ultraMotion.knob?.duration)).toBeLessThan(ultraMotion.travelDuration)
   expect(ultraMotion.fill).toContainEqual({ name: 'code-model-ultra-charge', delay: 0, duration: 620 })
   expect(ultraMotion.fillShadow).toContain('18px')
   await expect(ultra).toBeEnabled({ timeout: 2_000 })

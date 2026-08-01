@@ -59,6 +59,7 @@ function run() {
     filterHistoryAgentItems,
     formatHistoryResumeId,
     getHistoryAgentPage,
+    historyItemSessionKey,
     mergeHistoryAgentSessions,
   } = importTsModule('src/components/code/HistoryPanel.tsx');
   const claudeResumeId = 'd7450fc4-37bd-40b1-8523-02ce5b753082';
@@ -124,10 +125,12 @@ function run() {
   );
   assert.strictEqual(
     formatHistoryResumeId(codexResumeId),
-    '019f26d3…690129',
-    'History should expose a compact stable resume id without hiding the distinguishing suffix'
+    codexResumeId,
+    'History should expose the complete resume id'
   );
   assert.strictEqual(formatHistoryResumeId('short-id'), 'short-id');
+  const codexItem = items.find(item => historyItemSessionKey(item) === `agent-session:codex:${codexResumeId}`);
+  assert.ok(codexItem, 'History rows should expose the exact provider session key used by main-page agents');
 
   const sharedId = '019f26d3-7485-76d0-8a64-f5cf5d690130';
   const homeItems = buildHistoryAgentItems([], [], [

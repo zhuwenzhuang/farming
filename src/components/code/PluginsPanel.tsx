@@ -14,11 +14,15 @@ import {
   PencilGlyph,
   PlusGlyph,
   PuzzleGlyph,
+  RemoteGlyph,
   TerminalSquareGlyph,
 } from '@/components/IconGlyphs'
+import { DesktopConnectionsPanel } from '@/components/DesktopConnectionsPanel'
 import type { UiLanguage } from '@/lib/ui-preferences'
 import type { BrowserCapability } from '../../../extensions/browser/frontend/types'
 import type { ComputerCapability } from '../../../extensions/computer/frontend/types'
+import { fetchLanguageServerCapability } from '../../../extensions/language-server/frontend/client'
+import type { LanguageServerCapability } from '../../../extensions/language-server/frontend/types'
 
 type NewAgentDefaults = {
   model: string
@@ -256,6 +260,24 @@ function pluginCopy(language: UiLanguage) {
       : 'Enable only when old Docker seccomp blocks CUA startup; this disables seccomp for the isolated container.',
     computerSaveFailed: zh ? 'Computer Use 插件设置保存失败' : 'Failed to save Computer Use plugin settings',
     computerPrepareFailed: zh ? '隔离桌面安装失败' : 'Failed to install Isolated Desktop',
+    languageServer: 'Language Server',
+    languageServerDescription: zh
+      ? '使用已经运行的 VS Code 和它已安装的语言扩展，为文件编辑器提供跳转、引用、符号、层次结构和诊断。'
+      : 'Use a running VS Code and its installed language extensions for navigation, references, symbols, hierarchies, and diagnostics.',
+    languageServerConnected: zh ? '已连接' : 'Connected',
+    languageServerUnavailable: zh ? '不可用' : 'Unavailable',
+    languageServerError: zh ? '错误' : 'Error',
+    languageServerChecking: zh ? '正在发现…' : 'Discovering…',
+    languageServerHint: zh
+      ? '自动发现已安装并运行的 Farming VS Code Bridge；Farming 不安装或管理 VS Code 与 Language Server。'
+      : 'Automatically discovers an installed, running Farming VS Code Bridge. Farming does not install or manage VS Code or language servers.',
+    languageServerRetry: zh ? '重试' : 'Retry',
+    remoteConnections: zh ? '远程连接' : 'Remote connections',
+    remoteConnectionsDescription: zh
+      ? '管理桌面应用的本机环境和 SSH 远端；仅在需要时切换。'
+      : 'Manage the desktop app local environment and SSH remotes; switch only when needed.',
+    manage: zh ? '管理' : 'Manage',
+    builtIn: zh ? '内置' : 'Built-in',
   }
 }
 
@@ -412,6 +434,8 @@ export function PluginsPanel({
   onBack,
   onOpenAgentHomeConfiguration,
   onRefreshCapability,
+  desktopConnectionsOpen,
+  onDesktopConnectionsOpenChange,
 }: {
   capability: BrowserCapability | null
   loading: boolean
@@ -424,6 +448,8 @@ export function PluginsPanel({
   onBack: () => void
   onOpenAgentHomeConfiguration: (target: AgentHomeFileTarget) => void
   onRefreshCapability: () => void
+  desktopConnectionsOpen: boolean
+  onDesktopConnectionsOpenChange: (open: boolean) => void
 }) {
   const copy = useMemo(() => pluginCopy(language), [language])
   const isMacHost = typeof navigator !== 'undefined'
@@ -451,15 +477,36 @@ export function PluginsPanel({
   const [agentDraft, setAgentDraft] = useState<AgentHomeDraft | null>(null)
   const [draggingAgentKey, setDraggingAgentKey] = useState('')
   const [selectedExtension, setSelectedExtension] = useState<SelectedAgentExtension | null>(null)
+  const selectedExtensionTriggerRef = useRef<HTMLButtonElement | null>(null)
   const [activeTab, setActiveTab] = useState<PluginsTab>('farming')
   const [activeExtensionHomeKey, setActiveExtensionHomeKey] = useState('')
   const [activeExtensionKind, setActiveExtensionKind] = useState('skill')
   const [extensionQuery, setExtensionQuery] = useState('')
+  const [languageServerCapability, setLanguageServerCapability] = useState<LanguageServerCapability | null>(null)
+  const [languageServerLoading, setLanguageServerLoading] = useState(true)
+  const [languageServerError, setLanguageServerError] = useState('')
   const agentGroupsRequestRef = useRef(0)
   const agentSaveRequestRef = useRef<number | null>(null)
   const agentSaveSequenceRef = useRef(0)
   const retryOnReconnectRef = useRef(false)
   const agentPanelScopeRef = useRef({ mounted: true, generation: 0 })
+
+  const loadLanguageServerCapability = useCallback(async (refresh = false) => {
+    setLanguageServerLoading(true)
+    setLanguageServerError('')
+    try {
+      setLanguageServerCapability(await fetchLanguageServerCapability(refresh))
+    } catch (loadError) {
+      setLanguageServerCapability(null)
+      setLanguageServerError(loadError instanceof Error ? loadError.message : copy.languageServerError)
+    } finally {
+      setLanguageServerLoading(false)
+    }
+  }, [copy.languageServerError])
+
+  useEffect(() => {
+    void loadLanguageServerCapability()
+  }, [loadLanguageServerCapability])
 
   useEffect(() => {
     if (!capability || browserChoiceDirtyRef.current) return
@@ -947,6 +994,14 @@ export function PluginsPanel({
     setSelectedExtension(null)
   }, [])
 
+  const closeSelectedExtension = useCallback(() => {
+    setSelectedExtension(null)
+    window.requestAnimationFrame(() => {
+      const trigger = selectedExtensionTriggerRef.current
+      if (trigger?.isConnected) trigger.focus({ preventScroll: true })
+    })
+  }, [])
+
   const handleTabKeyDown = useCallback((event: ReactKeyboardEvent<HTMLButtonElement>) => {
     const currentIndex = PLUGINS_TABS.indexOf(activeTab)
     let nextIndex = currentIndex
@@ -964,6 +1019,15 @@ export function PluginsPanel({
     })
   }, [activeTab, activateTab])
 
+  if (desktopConnectionsOpen && window.farmingDesktop) {
+    return (
+      <DesktopConnectionsPanel
+        language={language}
+        onBack={() => onDesktopConnectionsOpenChange(false)}
+      />
+    )
+  }
+
   return (
     <div className="code-plugins-panel" data-testid="code-plugins-panel">
       <header className="code-plugins-panel-header">
@@ -979,7 +1043,7 @@ export function PluginsPanel({
       <div className="code-plugin-tabs" role="tablist" aria-label={copy.title}>
         {PLUGINS_TABS.map(tab => {
           const count = tab === 'farming'
-            ? 2
+            ? 3 + (window.farmingDesktop ? 1 : 0)
             : tab === 'homes'
               ? agentConfigurations.length
               : agentExtensions.length
@@ -1016,6 +1080,25 @@ export function PluginsPanel({
             <p>{copy.farmingBuiltInDescription}</p>
           </div>
         </header>
+        {window.farmingDesktop ? <article className="code-plugin-card" data-testid="code-plugin-remote-connections">
+          <span className="code-plugin-card-icon" aria-hidden="true">
+            <RemoteGlyph />
+          </span>
+          <div className="code-plugin-card-copy">
+            <div className="code-plugin-card-title">
+              <h3>{copy.remoteConnections}</h3>
+              <span className="code-plugin-status enabled">{copy.builtIn}</span>
+            </div>
+            <p>{copy.remoteConnectionsDescription}</p>
+          </div>
+          <button
+            type="button"
+            className="code-plugin-toggle"
+            onClick={() => onDesktopConnectionsOpenChange(true)}
+          >
+            {copy.manage}
+          </button>
+        </article> : null}
         <article className="code-plugin-card" data-testid="code-plugin-browser">
           <span className="code-plugin-card-icon" aria-hidden="true">
             <BrowserGlyph />
@@ -1205,6 +1288,46 @@ export function PluginsPanel({
             })}
           >
             {computerLoading && computerCapability === null ? copy.checking : computerCapabilityError ? copy.checkFailed : computerEnabled ? copy.disable : copy.enable}
+          </button>
+        </article>
+        <article className="code-plugin-card" data-testid="code-plugin-language-server">
+          <span className="code-plugin-card-icon" aria-hidden="true">
+            <PuzzleGlyph />
+          </span>
+          <div className="code-plugin-card-copy">
+            <div className="code-plugin-card-title">
+              <h3>{copy.languageServer}</h3>
+              <span className={`code-plugin-status ${languageServerCapability?.status === 'connected' ? 'enabled' : ''}`}>
+                {languageServerLoading
+                  ? copy.languageServerChecking
+                  : languageServerError || languageServerCapability?.status === 'error'
+                    ? copy.languageServerError
+                    : languageServerCapability?.status === 'connected'
+                      ? copy.languageServerConnected
+                      : copy.languageServerUnavailable}
+              </span>
+            </div>
+            <p>{copy.languageServerDescription}</p>
+            <small>{copy.languageServerHint}</small>
+            {languageServerCapability?.status === 'connected' ? (
+              <small>
+                {languageServerCapability.detail}
+                {languageServerCapability.vscodeVersion ? ` · VS Code ${languageServerCapability.vscodeVersion}` : ''}
+              </small>
+            ) : null}
+            {(languageServerError || languageServerCapability?.detail) && languageServerCapability?.status !== 'connected' ? (
+              <div className="code-plugin-error" role="alert">
+                {languageServerError || languageServerCapability?.detail}
+              </div>
+            ) : null}
+          </div>
+          <button
+            type="button"
+            className="code-plugin-toggle"
+            disabled={languageServerLoading}
+            onClick={() => void loadLanguageServerCapability(true)}
+          >
+            {languageServerLoading ? copy.checking : copy.languageServerRetry}
           </button>
         </article>
       </section> : null}
@@ -1481,7 +1604,10 @@ export function PluginsPanel({
                   type="button"
                   className="code-plugin-extension"
                   key={`${extension.agentName}:${extension.id}`}
-                  onClick={() => setSelectedExtension(extension)}
+                  onClick={event => {
+                    selectedExtensionTriggerRef.current = event.currentTarget
+                    setSelectedExtension(extension)
+                  }}
                 >
                   <span className="code-plugin-extension-icon" aria-hidden="true">{extensionKindGlyph(extension.kind)}</span>
                   <span className="code-plugin-extension-copy">
@@ -1511,7 +1637,7 @@ export function PluginsPanel({
         <div
           className="code-plugin-detail-backdrop"
           role="presentation"
-          onPointerDown={() => setSelectedExtension(null)}
+          onPointerDown={closeSelectedExtension}
         >
           <section
             className="code-plugin-detail-dialog"
@@ -1523,7 +1649,7 @@ export function PluginsPanel({
             onKeyDown={event => {
               if (event.key !== 'Escape') return
               event.stopPropagation()
-              setSelectedExtension(null)
+              closeSelectedExtension()
             }}
           >
             <header>
@@ -1536,7 +1662,7 @@ export function PluginsPanel({
                 autoFocus
                 aria-label={copy.closeDetails}
                 title={copy.closeDetails}
-                onClick={() => setSelectedExtension(null)}
+                onClick={closeSelectedExtension}
               >
                 <CloseGlyph />
               </button>

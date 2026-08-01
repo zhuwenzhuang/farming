@@ -672,12 +672,14 @@ test('keeps extension cards compact and opens the full description on demand', a
 
   await page.getByLabel('Search extensions').fill('Long skill')
   await expect(cards).toHaveCount(1)
-  await cards.filter({ hasText: 'Long skill' }).click()
+  const longSkillCard = cards.filter({ hasText: 'Long skill' })
+  await longSkillCard.click()
   const detail = page.getByTestId('code-plugin-detail-dialog')
   await expect(detail).toBeVisible()
   await expect(detail.getByText(longDescription, { exact: true })).toBeVisible()
   await page.keyboard.press('Escape')
   await expect(detail).toHaveCount(0)
+  await expect(longSkillCard).toBeFocused()
 })
 
 test('keeps an edited browser address until Enter submits it', async ({

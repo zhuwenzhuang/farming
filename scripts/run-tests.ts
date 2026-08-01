@@ -28,9 +28,11 @@ const projectRoot = path.join(__dirname, '..');
 const testsDir = path.join(projectRoot, 'backend', 'tests');
 const SOURCE_REVISION_PATHS = [
   'backend',
+  'desktop',
   'extensions',
   'frontend',
   'scripts',
+  'shared',
   'src',
   'tests',
   'package.json',

@@ -125,8 +125,9 @@ export function historyAgentSessionsForSessions(
 ) {
   return sessions.filter(session => {
     const sessionId = agentSessionId(session)
-    if (session.archived) return !claimedKeys.has(sessionId)
-    return !mainPageSessionKeys.has(sessionId) && !claimedKeys.has(sessionId)
+    if (claimedKeys.has(sessionId)) return true
+    if (session.archived) return true
+    return !mainPageSessionKeys.has(sessionId)
   })
 }
 

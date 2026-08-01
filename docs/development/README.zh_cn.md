@@ -20,6 +20,7 @@
 
 ## 产品架构
 
+- [Farming Desktop MVP](../products/code/desktop-app.zh_cn.md)
 - [Extension 与 Resource Model](../products/code/extension-model.zh_cn.md)
 - [Project Files Design](../products/code/project-files-section-design.zh_cn.md)
 - [Review Foundation](../products/code/review-foundation.zh_cn.md)

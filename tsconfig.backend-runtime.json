@@ -13,7 +13,8 @@
     "backend/**/*.cts",
     "backend/types/**/*.d.ts",
     "extensions/browser/backend/**/*.cts",
-    "extensions/computer/backend/**/*.cts"
+    "extensions/computer/backend/**/*.cts",
+    "extensions/language-server/backend/**/*.cts"
   ],
   "exclude": [
     "backend/tests/**",

@@ -344,8 +344,23 @@ export function AgentHomesSettingsPanel({
     loadRestReminderIntervalSeconds(defaultPetAppearance)
       .then(setRestReminderIntervalSecondsState)
     loadSettings()
-    window.requestAnimationFrame(() => closeButtonRef.current?.focus({ preventScroll: true }))
   }, [defaultPetAppearance, loadSettings, open])
+
+  useEffect(() => {
+    if (!open) return undefined
+    const returnFocusTarget = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null
+    const focusFrame = window.requestAnimationFrame(() => {
+      closeButtonRef.current?.focus({ preventScroll: true })
+    })
+    return () => {
+      window.cancelAnimationFrame(focusFrame)
+      if (returnFocusTarget?.isConnected) {
+        returnFocusTarget.focus({ preventScroll: true })
+      }
+    }
+  }, [open])
 
   useEffect(() => {
     setPetAppearanceState(readPetAppearance(undefined, defaultPetAppearance))

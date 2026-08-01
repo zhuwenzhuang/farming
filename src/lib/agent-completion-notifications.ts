@@ -56,6 +56,10 @@ export function saveAgentCompletionNotificationsEnabled(
 
 export function agentNotificationPermission(): AgentNotificationPermission {
   if (
+    typeof window !== 'undefined'
+    && (window as Window & { farmingDesktop?: unknown }).farmingDesktop
+  ) return 'granted'
+  if (
     typeof window === 'undefined'
     || !window.isSecureContext
     || !('Notification' in window)

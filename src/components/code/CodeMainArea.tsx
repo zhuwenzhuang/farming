@@ -240,6 +240,8 @@ function FileEditorFallback({
 
 interface CodeMainAreaProps {
   activeView: WorkspaceView
+  desktopConnectionsOpen: boolean
+  onDesktopConnectionsOpenChange: (open: boolean) => void
   activeBrowserResource: BrowserResource | null
   browserController: BrowserResourcesController
   onBackFromBrowser: () => void
@@ -269,6 +271,7 @@ interface CodeMainAreaProps {
   archivedRuns: TaskHistoryEntry[]
   archivedAgents: Agent[]
   historyAgentSessions: AgentSessionHistoryItem[]
+  openHistorySessionKeys: ReadonlySet<string>
   historyAgentSessionsLoading: boolean
   historyAgentSessionsError: string
   providerSessionTotal: number | null
@@ -524,6 +527,8 @@ function EmptyWorkspaceGuide({
 
 export function CodeMainArea({
   activeView,
+  desktopConnectionsOpen,
+  onDesktopConnectionsOpenChange,
   activeBrowserResource,
   browserController,
   onBackFromBrowser,
@@ -553,6 +558,7 @@ export function CodeMainArea({
   archivedRuns,
   archivedAgents,
   historyAgentSessions,
+  openHistorySessionKeys,
   historyAgentSessionsLoading,
   historyAgentSessionsError,
   providerSessionTotal,
@@ -782,6 +788,7 @@ export function CodeMainArea({
               archivedRuns={archivedRuns}
               archivedAgents={archivedAgents}
               agentSessions={historyAgentSessions}
+              openSessionKeys={openHistorySessionKeys}
               loading={historyAgentSessionsLoading}
               error={historyAgentSessionsError}
               providerSessionTotal={providerSessionTotal}
@@ -809,6 +816,8 @@ export function CodeMainArea({
               onBack={onBackToProjects}
               onOpenAgentHomeConfiguration={onOpenAgentHomeConfiguration}
               onRefreshCapability={refreshPluginCapabilities}
+              desktopConnectionsOpen={desktopConnectionsOpen}
+              onDesktopConnectionsOpenChange={onDesktopConnectionsOpenChange}
             />
           ) : (
             <h2>{viewTitle(copy, activeView)}</h2>

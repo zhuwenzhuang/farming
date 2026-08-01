@@ -10,6 +10,13 @@ export type FileEditorContextAction =
   | 'toggle-blame'
   | 'line-changes-previous'
   | 'line-changes-working'
+  | 'go-to-definition'
+  | 'find-references'
+  | 'go-to-implementation'
+  | 'call-hierarchy'
+  | 'type-hierarchy'
+  | 'document-symbols'
+  | 'workspace-symbols'
 
 interface FileEditorContextMenuProps {
   x: number
@@ -19,6 +26,7 @@ interface FileEditorContextMenuProps {
   readOnly: boolean
   showBlameContextAction: boolean
   showLineChangesContextActions: boolean
+  showLanguageServerActions: boolean
   onClose: () => void
   onRunAction: (action: FileEditorContextAction) => void
 }
@@ -31,6 +39,7 @@ export function FileEditorContextMenu({
   readOnly,
   showBlameContextAction,
   showLineChangesContextActions,
+  showLanguageServerActions,
   onClose,
   onRunAction,
 }: FileEditorContextMenuProps) {
@@ -67,6 +76,18 @@ export function FileEditorContextMenu({
           <button type="button" role="menuitem" onClick={() => onRunAction('line-changes-working')}>
             {copy.openLineChangesWithWorkingFile}
           </button>
+          <div className="code-editor-context-separator" role="separator" />
+        </>
+      )}
+      {showLanguageServerActions && (
+        <>
+          <button type="button" role="menuitem" onClick={() => onRunAction('go-to-definition')}>{copy.goToDefinition}</button>
+          <button type="button" role="menuitem" onClick={() => onRunAction('find-references')}>{copy.findReferences}</button>
+          <button type="button" role="menuitem" onClick={() => onRunAction('go-to-implementation')}>{copy.goToImplementation}</button>
+          <button type="button" role="menuitem" onClick={() => onRunAction('call-hierarchy')}>{copy.callHierarchy}</button>
+          <button type="button" role="menuitem" onClick={() => onRunAction('type-hierarchy')}>{copy.typeHierarchy}</button>
+          <button type="button" role="menuitem" onClick={() => onRunAction('document-symbols')}>{copy.documentSymbols}</button>
+          <button type="button" role="menuitem" onClick={() => onRunAction('workspace-symbols')}>{copy.workspaceSymbols}</button>
           <div className="code-editor-context-separator" role="separator" />
         </>
       )}

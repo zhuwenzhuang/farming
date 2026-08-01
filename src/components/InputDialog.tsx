@@ -550,11 +550,11 @@ export function InputDialog({
 
   const confirm = useCallback(async () => {
     if (!selectedAgent) return
-    if (!lockStartClick()) return
 
     const currentWorkspace = normalizeWorkspaceValue(inputRef.current?.value ?? workspace)
     const resolvedWorkspace = resolveWorkspaceToStart(currentWorkspace, mustStartMain, mainWorkspaceDefault)
     if (!resolvedWorkspace) return
+    if (!lockStartClick()) return
 
     if (mustStartMain) {
       await startPreparedAgent(resolvedWorkspace)

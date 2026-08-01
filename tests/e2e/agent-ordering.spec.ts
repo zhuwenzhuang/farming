@@ -19,6 +19,87 @@ async function projectAgentIds(project: import('@playwright/test').Locator) {
     .filter((id): id is string => Boolean(id)))
 }
 
+async function mockPaginatedProjectSessions(page: import('@playwright/test').Page, projectDir: string) {
+  const sessionIds = Array.from({ length: 6 }, (_, index) => `019f0000-0000-7000-8000-00000000020${index}`)
+  await page.route(/\/farming\/api\/agent-sessions(?:\?.*)?$/, async route => {
+    const now = Date.now()
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        sessions: sessionIds.map((id, index) => ({
+          provider: 'codex',
+          providerName: 'Codex',
+          capabilities: ['resume'],
+          id,
+          title: `Pagination session ${index + 1}`,
+          cwd: projectDir,
+          workspace: projectDir,
+          updatedAt: new Date(now - index * 60_000).toISOString(),
+          createdAt: new Date(now - (index + 60) * 60_000).toISOString(),
+          archived: false,
+          pinned: false,
+          unread: false,
+          projectless: false,
+          source: 'codex',
+        })),
+        total: sessionIds.length,
+      }),
+    })
+  })
+  const membershipResponse = await page.request.post('/farming/api/main-page-agent-sessions', {
+    data: {
+      operation: 'add',
+      sessionKeys: sessionIds.map(id => `agent-session:codex:${id}`),
+    },
+  })
+  expect(membershipResponse.ok()).toBeTruthy()
+}
+
+test('keeps Agent pagination controls out of arrow-key Agent navigation', async ({ page, workspaceRoot }) => {
+  const projectDir = path.join(workspaceRoot, 'agent-pagination-keyboard')
+  fs.mkdirSync(projectDir, { recursive: true })
+
+  await openFarming(page)
+  for (let index = 0; index < 6; index += 1) {
+    await createControlAgent(page, projectDir)
+  }
+
+  const project = page.getByTestId('code-project-group').filter({ hasText: path.basename(projectDir) })
+  const showMoreAgents = project.getByTestId('code-agent-show-more')
+  await expect(project.getByTestId('code-agent-row')).toHaveCount(5)
+  await expect(showMoreAgents).toBeVisible()
+  const activeAgent = page.locator('[data-testid="code-agent-row"].active')
+  await expect(activeAgent).toHaveCount(1)
+  const activeAgentId = await activeAgent.getAttribute('data-agent-id')
+
+  await showMoreAgents.focus()
+  await showMoreAgents.press('ArrowDown')
+
+  await expect(showMoreAgents).toBeFocused()
+  await expect(page.locator(`[data-testid="code-agent-row"][data-agent-id="${activeAgentId}"]`)).toHaveClass(/active/)
+})
+
+test('distinguishes Agent and session pagination controls for assistive technology', async ({ page, workspaceRoot }) => {
+  const projectDir = path.join(workspaceRoot, 'agent-pagination-labels')
+  fs.mkdirSync(projectDir, { recursive: true })
+  await mockPaginatedProjectSessions(page, projectDir)
+
+  await openFarming(page)
+  for (let index = 0; index < 6; index += 1) {
+    await createControlAgent(page, projectDir)
+  }
+
+  const project = page.getByTestId('code-project-group').filter({ hasText: path.basename(projectDir) })
+  const showMoreAgents = project.getByTestId('code-agent-show-more')
+  const showMoreSessions = project.getByTestId('code-session-show-more')
+  await expect(showMoreAgents).toBeVisible()
+  await expect(showMoreSessions).toBeVisible()
+  await expect(showMoreAgents).toHaveAttribute('aria-label', 'Show 1 more Agent')
+  await expect(showMoreSessions).toHaveAttribute('aria-label', 'Show 1 more Agent session')
+  await expect(showMoreAgents.locator('.code-agent-name')).toHaveText('Show more')
+  await expect(showMoreSessions.locator('.code-agent-name')).toHaveText('Show more')
+})
+
 test('keeps persistent project and pinned Agent order', async ({ page, workspaceRoot }) => {
   const projectDir = path.join(workspaceRoot, 'agent-ordering')
   fs.mkdirSync(projectDir, { recursive: true })

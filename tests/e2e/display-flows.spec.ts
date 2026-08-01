@@ -655,7 +655,7 @@ test.describe('display-backed agent flows', () => {
     const historyPrimary = historyRow.getByTestId('code-session-history-primary')
     await expect(historyPrimary).toBeVisible()
     const resumeId = historyRow.getByTestId('code-history-resume-id')
-    await expect(resumeId).toHaveText('Resume 019f0000…000221')
+    await expect(resumeId).toHaveText(`Resume ${sessionId}`)
     await expect(resumeId).toHaveAttribute('title', `Resume ID: ${sessionId}`)
     await expect(historyRow.locator('[role="link"]')).toHaveCount(0)
     const historyIcon = historyRow.locator('.code-history-agent-icon .agent-launch-icon-codex')
@@ -665,6 +665,7 @@ test.describe('display-backed agent flows', () => {
     await expect(historyIcon).toHaveCSS('height', '13px')
     await historyPrimary.click()
     await expect.poll(() => resumeRequests).toBe(1)
+    await expect(page.getByTestId('code-history-panel')).toBeHidden()
   })
 
   test('searches older provider History and renders one clear control', async ({ page, workspaceRoot }) => {

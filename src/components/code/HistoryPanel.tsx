@@ -33,6 +33,7 @@ interface HistoryPanelProps {
   archivedRuns: TaskHistoryEntry[]
   archivedAgents: Agent[]
   agentSessions: AgentSessionHistoryItem[]
+  openSessionKeys: ReadonlySet<string>
   loading: boolean
   error: string
   providerSessionTotal: number | null
@@ -82,10 +83,14 @@ function historyArchivedAgentIconName(agent: Agent) {
 function HistoryMeta({
   iconName,
   resumeId,
+  openOnMainPage,
+  openOnMainPageLabel,
   children,
 }: {
   iconName?: HistoryAgentIconName
   resumeId?: string
+  openOnMainPage?: boolean
+  openOnMainPageLabel: string
   children: ReactNode
 }) {
   return (
@@ -104,6 +109,14 @@ function HistoryMeta({
               title={`Resume ID: ${resumeId}`}
             >
               Resume {formatHistoryResumeId(resumeId)}
+            </span>
+            {' · '}
+          </>
+        )}
+        {openOnMainPage && (
+          <>
+            <span className="code-history-open-marker" data-testid="code-history-open-marker">
+              {openOnMainPageLabel}
             </span>
             {' · '}
           </>
@@ -160,9 +173,7 @@ function historySessionMeta(session: AgentSessionHistoryItem) {
 }
 
 export function formatHistoryResumeId(value: string) {
-  const resumeId = String(value || '').trim()
-  if (resumeId.length <= 20) return resumeId
-  return `${resumeId.slice(0, 8)}…${resumeId.slice(-6)}`
+  return String(value || '').trim()
 }
 
 function historyRunUpdatedAt(entry: TaskHistoryEntry) {
@@ -204,6 +215,15 @@ function historyItemResumeSession(item: HistoryAgentItem) {
 function historyItemResumeKey(item: HistoryAgentItem) {
   const resumed = historyItemResumeSession(item)
   return resumed ? `resume:${resumed.provider}:${resumed.providerHomeId || 'default'}:${resumed.sessionId}` : ''
+}
+
+export function historyItemSessionKey(item: HistoryAgentItem) {
+  const resumed = historyItemResumeSession(item)
+  return resumed ? agentSessionId({
+    provider: resumed.provider,
+    id: resumed.sessionId,
+    providerHomeId: resumed.providerHomeId,
+  }) : ''
 }
 
 function historyItemDisplayPriority(item: HistoryAgentItem) {
@@ -334,6 +354,7 @@ export function HistoryPanel({
   archivedRuns,
   archivedAgents,
   agentSessions,
+  openSessionKeys,
   loading,
   error,
   providerSessionTotal,
@@ -448,6 +469,12 @@ export function HistoryPanel({
             inputMode="search"
             value={query}
             onChange={event => setQuery(event.currentTarget.value)}
+            onKeyDown={event => {
+              if (event.key !== 'Escape') return
+              event.preventDefault()
+              event.stopPropagation()
+              onBack()
+            }}
             placeholder={copy.searchHistory}
             aria-label={copy.searchHistory}
             autoComplete="off"
@@ -486,6 +513,7 @@ export function HistoryPanel({
           {error ? <div className="code-history-refresh-error" data-testid="code-history-refresh-error" role="status">{error}</div> : null}
           <section className="code-history-section" data-testid="code-history-agents">
             {historyPage.items.map(item => {
+              const openOnMainPage = openSessionKeys.has(historyItemSessionKey(item))
               if (item.kind === 'run') {
                 const { entry } = item
                 return (
@@ -506,6 +534,8 @@ export function HistoryPanel({
                         <HistoryMeta
                           iconName={historyRunIconName(entry)}
                           resumeId={historyItemResumeSession(item)?.sessionId}
+                          openOnMainPage={openOnMainPage}
+                          openOnMainPageLabel={copy.openOnMainPage}
                         >
                           {historyRunMeta(entry)}
                         </HistoryMeta>
@@ -547,6 +577,8 @@ export function HistoryPanel({
                         <HistoryMeta
                           iconName={historyArchivedAgentIconName(agent)}
                           resumeId={historyItemResumeSession(item)?.sessionId}
+                          openOnMainPage={openOnMainPage}
+                          openOnMainPageLabel={copy.openOnMainPage}
                         >
                           {historyAgentMeta(agent)}
                         </HistoryMeta>
@@ -597,6 +629,8 @@ export function HistoryPanel({
                       <HistoryMeta
                         iconName={historyAgentIconName(session.provider)}
                         resumeId={session.id}
+                        openOnMainPage={openOnMainPage}
+                        openOnMainPageLabel={copy.openOnMainPage}
                       >
                         {historySessionMeta(session)}
                       </HistoryMeta>
