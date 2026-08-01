@@ -31,6 +31,7 @@ import {
 
 const MAX_VIEWER_BUFFER_BYTES = 2 * 1024 * 1024;
 const VIEWER_RESIZE_SETTLE_MS = 80;
+const VIEWER_METRICS_REPORT_MS = 5_000;
 const BROWSER_RECOVERY_TIMEOUT_MS = 5_000;
 const BROWSER_RECOVERY_POLL_MS = 100;
 const MAX_UPLOAD_FILES = 20;
@@ -83,6 +84,14 @@ type ViewerGeometry = {
   width: number;
 };
 type BrowserViewport = Pick<ViewerGeometry, 'deviceScaleFactor' | 'height' | 'width'>;
+type PendingViewerInput = {
+  binding: BrowserBinding;
+  enqueuedAt: number;
+  message: BrowserMessage;
+  rejecters: Array<(error: unknown) => void>;
+  resolvers: Array<(value: unknown) => void>;
+  viewer: BrowserViewer;
+};
 interface BrowserViewer {
   bufferedAmount?: number;
   readyState: number;
@@ -160,8 +169,10 @@ type BrowserSession = {
   processOwnerResourceId: string;
   projectRootId: string;
   ownerKey: string;
+  pendingViewerInputs: PendingViewerInput[];
   reconcilingTabs: Promise<unknown>;
   runtime: BrowserRuntime;
+  viewerInputDrainScheduled: boolean;
 };
 interface BrowserResourceStoreLike {
   revision: number;
@@ -397,6 +408,15 @@ class BrowserResourceManager extends EventEmitter {
   isolatedBrowserCapability: Record<string, unknown> | null = null;
   capabilityProbeSignature = '';
   capabilityRefreshPromise: Promise<BrowserCapability | null> | null = null;
+  viewerInputMetrics = {
+    admitted: 0,
+    coalescedMoves: 0,
+    coalescedWheels: 0,
+    executed: 0,
+    maxPending: 0,
+    maxWaitMs: 0,
+    reportStartedAt: Date.now(),
+  };
 
   constructor(options: BrowserManagerOptions) {
     super();
@@ -961,10 +981,12 @@ class BrowserResourceManager extends EventEmitter {
         activeResourceId: id,
         processOwnerResourceId: id,
         actionChain: Promise.resolve(),
+        pendingViewerInputs: [],
         reconcilingTabs: Promise.resolve(),
         initializing: true,
         isolatedLeaseKey,
         closing: false,
+        viewerInputDrainScheduled: false,
       };
       const binding = this.createBinding(session, starting);
       session.bindings.set(id, binding);
@@ -1360,15 +1382,101 @@ class BrowserResourceManager extends EventEmitter {
         'BROWSER_NOT_RUNNING',
       ));
     }
+    return this.enqueueViewerInput(binding, viewer, message);
+  }
+
+  enqueueViewerInput(
+    binding: BrowserBinding,
+    viewer: BrowserViewer,
+    message: BrowserMessage,
+  ): Promise<unknown> {
     const { session } = binding;
-    const next = (session.actionChain || Promise.resolve())
-      .catch(() => {})
-      .then(async () => {
-        await this.activateBinding(binding);
-        return this.performViewerMessage(binding, viewer, message);
-      });
-    session.actionChain = next;
-    return next;
+    this.viewerInputMetrics.admitted += 1;
+    return new Promise((resolve, reject) => {
+      const coalescible = message.type === 'wheel'
+        || (message.type === 'pointer' && message.action === 'move');
+      let merged = false;
+      if (coalescible) {
+        for (let index = session.pendingViewerInputs.length - 1; index >= 0; index -= 1) {
+          const pending = session.pendingViewerInputs[index];
+          const pendingCoalescible = pending.message.type === 'wheel'
+            || (pending.message.type === 'pointer' && pending.message.action === 'move');
+          if (!pendingCoalescible || pending.binding !== binding || pending.viewer !== viewer) break;
+          if (pending.message.type !== message.type) continue;
+          pending.message = message.type === 'wheel'
+            ? {
+                ...message,
+                deltaX: Number(pending.message.deltaX || 0) + Number(message.deltaX || 0),
+                deltaY: Number(pending.message.deltaY || 0) + Number(message.deltaY || 0),
+              }
+            : message;
+          pending.resolvers.push(resolve);
+          pending.rejecters.push(reject);
+          session.pendingViewerInputs.splice(index, 1);
+          session.pendingViewerInputs.push(pending);
+          if (message.type === 'wheel') this.viewerInputMetrics.coalescedWheels += 1;
+          else this.viewerInputMetrics.coalescedMoves += 1;
+          merged = true;
+          break;
+        }
+      }
+      if (!merged) {
+        session.pendingViewerInputs.push({
+          binding,
+          enqueuedAt: Date.now(),
+          message,
+          rejecters: [reject],
+          resolvers: [resolve],
+          viewer,
+        });
+      }
+      this.viewerInputMetrics.maxPending = Math.max(
+        this.viewerInputMetrics.maxPending,
+        session.pendingViewerInputs.length,
+      );
+      if (session.viewerInputDrainScheduled) return;
+      session.viewerInputDrainScheduled = true;
+      const next = (session.actionChain || Promise.resolve())
+        .catch(() => {})
+        .then(() => this.drainViewerInputs(session));
+      session.actionChain = next;
+    });
+  }
+
+  async drainViewerInputs(session: BrowserSession): Promise<void> {
+    const pending = session.pendingViewerInputs.splice(0);
+    session.viewerInputDrainScheduled = false;
+    for (const input of pending) {
+      this.viewerInputMetrics.maxWaitMs = Math.max(
+        this.viewerInputMetrics.maxWaitMs,
+        Date.now() - input.enqueuedAt,
+      );
+      try {
+        await this.activateBinding(input.binding);
+        const result = await this.performViewerMessage(input.binding, input.viewer, input.message);
+        this.viewerInputMetrics.executed += 1;
+        input.resolvers.forEach(resolve => resolve(result));
+      } catch (error) {
+        input.rejecters.forEach(reject => reject(error));
+      }
+    }
+    this.reportViewerInputMetrics();
+  }
+
+  reportViewerInputMetrics(): void {
+    if (process.env.FARMING_BROWSER_VIEWER_METRICS !== '1') return;
+    const now = Date.now();
+    if (now - this.viewerInputMetrics.reportStartedAt < VIEWER_METRICS_REPORT_MS) return;
+    console.info('[Farming Browser Viewer input metrics]', JSON.stringify(this.viewerInputMetrics));
+    this.viewerInputMetrics = {
+      admitted: 0,
+      coalescedMoves: 0,
+      coalescedWheels: 0,
+      executed: 0,
+      maxPending: 0,
+      maxWaitMs: 0,
+      reportStartedAt: now,
+    };
   }
 
   scheduleViewerResize(

@@ -177,7 +177,9 @@ class FakeBrowserRuntime extends EventEmitter {
     return { ok: true };
   }
 
-  async wheel() {}
+  async wheel(input) {
+    this.actionCalls.push({ kind: 'wheel', input });
+  }
   async pointer(input) {
     this.actionCalls.push({ kind: 'pointer', input });
   }
@@ -757,6 +759,61 @@ async function testBrowserResourceManager() {
     );
     viewer.emit('close');
 
+    let releaseViewerBlocker;
+    runtimes[0].click = () => new Promise(resolve => {
+      releaseViewerBlocker = () => resolve({ ok: true });
+    });
+    const viewerBlocker = manager.action(created.id, { kind: 'click', selector: '#viewer-blocker' });
+    const coalescingViewer = new FakeViewer();
+    manager.attachViewer(created.id, coalescingViewer);
+    await new Promise(resolve => setImmediate(resolve));
+    for (let index = 1; index <= 100; index += 1) {
+      coalescingViewer.emit('message', Buffer.from(JSON.stringify({
+        type: 'pointer',
+        generation: running.generation,
+        action: 'move',
+        x: index,
+        y: index,
+      })));
+      coalescingViewer.emit('message', Buffer.from(JSON.stringify({
+        type: 'wheel',
+        generation: running.generation,
+        deltaX: 0,
+        deltaY: 1,
+        x: index,
+        y: index,
+      })));
+    }
+    coalescingViewer.emit('message', Buffer.from(JSON.stringify({
+      type: 'pointer',
+      generation: running.generation,
+      action: 'down',
+      x: 100,
+      y: 100,
+      button: 'left',
+    })));
+    releaseViewerBlocker();
+    await viewerBlocker;
+    await manager.sessions.values().next().value.actionChain;
+    assert.deepStrictEqual(
+      runtimes[0].actionCalls.slice(-3).map(call => ({
+        kind: call.kind,
+        action: call.input.action,
+        deltaY: call.input.deltaY,
+        x: call.input.x,
+      })),
+      [
+        { kind: 'pointer', action: 'move', deltaY: undefined, x: 100 },
+        { kind: 'wheel', action: undefined, deltaY: 100, x: 100 },
+        { kind: 'pointer', action: 'down', deltaY: undefined, x: 100 },
+      ],
+      'Queued Viewer move and wheel input must coalesce without crossing the button-order barrier',
+    );
+    assert.strictEqual(manager.viewerInputMetrics.coalescedMoves, 99);
+    assert.strictEqual(manager.viewerInputMetrics.coalescedWheels, 99);
+    assert.strictEqual(manager.viewerInputMetrics.maxPending, 3);
+    coalescingViewer.emit('close');
+
     const navigated = await manager.navigate(created.id, 'https://example.com/path');
     assert.strictEqual(navigated.url, 'https://example.com/path');
     assert.strictEqual(navigated.title, 'Navigated');
@@ -767,6 +824,7 @@ async function testBrowserResourceManager() {
     const pendingAction = manager.action(created.id, { kind: 'click', selector: '#slow' });
     const lateViewer = new FakeViewer();
     manager.attachViewer(created.id, lateViewer);
+    const pointerCallsBeforeStop = runtimes[0].actionCalls.filter(call => call.kind === 'pointer').length;
     await new Promise(resolve => setImmediate(resolve));
     const stopPromise = manager.stop(created.id);
     assert.throws(
@@ -790,8 +848,8 @@ async function testBrowserResourceManager() {
     })));
     await new Promise(resolve => setImmediate(resolve));
     assert.strictEqual(
-      runtimes[0].actionCalls.some(call => call.kind === 'pointer'),
-      false,
+      runtimes[0].actionCalls.filter(call => call.kind === 'pointer').length,
+      pointerCallsBeforeStop,
       'Viewer input arriving after stopping begins must not reach the Browser runtime',
     );
     assert.strictEqual(lateViewer.messages.at(-1).type, 'browser-error');

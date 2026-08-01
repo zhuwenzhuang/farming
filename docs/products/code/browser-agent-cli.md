@@ -97,6 +97,20 @@ over the upper-right corner of its Chat. The preview only observes the existing
 Viewer stream: it does not resize the page or take control. Click it to open the
 full Viewer, or dismiss it without stopping the Browser.
 
+The full Viewer bounds high-frequency human input per animation frame: pointer
+movement keeps the latest position, wheel input preserves its accumulated
+distance, and button or keyboard events flush those pending inputs before they
+continue in order. Frame decoding likewise keeps at most one current decode and
+the latest waiting frame, preventing stale interaction or display work from
+building an ever-growing latency backlog.
+
+Farming repeats the same bounded coalescing for Viewer movement and wheel input
+that is still waiting behind serialized Browser actions on the Server. Button,
+keyboard, Viewer, and Browser Resource boundaries remain ordering barriers. For
+diagnostics, set `localStorage.farmingBrowserViewerMetrics = '1'` for periodic
+Viewer decode/input counters and start the Server with
+`FARMING_BROWSER_VIEWER_METRICS=1` for queue/coalescing counters.
+
 Chat/Terminal switches retain Browser ownership. Stopping or archiving the Agent
 stops its Browser runtime but retains the row and profile; resuming starts it on
 demand. Deleting the Agent deletes its Browser Resources and owned profiles.

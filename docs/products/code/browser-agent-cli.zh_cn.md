@@ -88,6 +88,17 @@ list → 复用或创建 → start → navigate → snapshot
 订阅现有 Viewer 画面，不会调整页面尺寸或争夺控制权；点击可进入完整 Viewer，关闭
 预览也不会停止 Browser。
 
+完整 Viewer 会按动画帧限制高频人工输入：鼠标移动只保留最新位置，滚轮保留累计
+距离，鼠标按键或键盘事件则先冲刷这些待发送输入，再继续严格保序。画面解码同样
+最多保留一个正在解码的帧和一个最新待解码帧，避免过期交互或画面任务不断积累成
+越来越长的延迟。
+
+对于仍在 Server 端等待串行 Browser Action 的 Viewer 移动与滚轮输入，Farming 会
+再次进行同样的有界合并；鼠标按键、键盘、Viewer 与 Browser Resource 边界仍是
+顺序屏障。诊断时可设置 `localStorage.farmingBrowserViewerMetrics = '1'` 查看周期性
+Viewer 解码/输入计数，并用 `FARMING_BROWSER_VIEWER_METRICS=1` 启动 Server 查看
+队列与合并计数。
+
 Agent 在 Chat/Terminal 间切换时保留 Browser Ownership。停止或归档 Agent 会停止其
 Browser Runtime，但保留 Row 与 Profile；恢复 Agent 后按需启动。删除 Agent 会删除
 它的 Browser Resource 与独立 Profile。

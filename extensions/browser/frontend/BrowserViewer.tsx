@@ -2,6 +2,11 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { ArrowLeftGlyph, ArrowRightGlyph, BackToAgentGlyph, CopyGlyph, SquareGlyph } from '@/components/IconGlyphs'
 import { appPath } from '@/lib/base-path'
 import type { UiPreferences } from '@/lib/ui-preferences'
+import {
+  BrowserViewerInputScheduler,
+  type BrowserViewerInputMessage,
+} from './browser-viewer-input-scheduler'
+import { applyBrowserViewerCanvasSize } from './browser-viewer-rendering'
 import type { BrowserResource } from './types'
 import type { BrowserResourcesController } from './useBrowserResources'
 
@@ -35,6 +40,23 @@ function viewerCopy(language: UiPreferences['language']) {
     connectionFailed: zh ? 'Browser Viewer 连接失败' : 'Browser Viewer connection failed',
     navigationFailed: zh ? '导航失败' : 'Navigation failed',
     transitionFailed: zh ? '浏览器状态切换失败' : 'Browser transition failed',
+  }
+}
+
+function emptyViewerMetrics() {
+  return {
+    canvasResizes: 0,
+    framesDecoded: 0,
+    framesPainted: 0,
+    framesReceived: 0,
+    framesReplaced: 0,
+    lastDecodeMs: 0,
+    maxDecodeMs: 0,
+    maxSocketBufferedBytes: 0,
+    movesReceived: 0,
+    movesSent: 0,
+    wheelsReceived: 0,
+    wheelsSent: 0,
   }
 }
 
@@ -89,10 +111,28 @@ export function BrowserViewer({
   const socketRef = useRef<WebSocket | null>(null)
   const moreButtonRef = useRef<HTMLButtonElement>(null)
   const moreMenuRef = useRef<HTMLDivElement>(null)
-  const imageSequenceRef = useRef(0)
   const paintFrameRef = useRef<number | null>(null)
   const resizeFrameRef = useRef<number | null>(null)
   const frameViewportRef = useRef<{ width: number; height: number } | null>(null)
+  const viewerMetricsRef = useRef(emptyViewerMetrics())
+  const resourceGenerationRef = useRef(resource.generation)
+  resourceGenerationRef.current = resource.generation
+  const inputSchedulerRef = useRef<BrowserViewerInputScheduler | null>(null)
+  if (!inputSchedulerRef.current) {
+    inputSchedulerRef.current = new BrowserViewerInputScheduler(
+      message => {
+        const socket = socketRef.current
+        if (!socket || socket.readyState !== WebSocket.OPEN) return
+        socket.send(JSON.stringify({ ...message, generation: resourceGenerationRef.current }))
+        const metrics = viewerMetricsRef.current
+        if (message.type === 'pointer' && message.action === 'move') metrics.movesSent += 1
+        if (message.type === 'wheel') metrics.wheelsSent += 1
+        metrics.maxSocketBufferedBytes = Math.max(metrics.maxSocketBufferedBytes, socket.bufferedAmount)
+      },
+      callback => window.requestAnimationFrame(callback),
+      frame => window.cancelAnimationFrame(frame),
+    )
+  }
   const [address, setAddress] = useState(resource.url)
   const [connected, setConnected] = useState(false)
   const [navigating, setNavigating] = useState(false)
@@ -102,6 +142,18 @@ export function BrowserViewer({
   useEffect(() => {
     if (!addressEditingRef.current) setAddress(resource.url)
   }, [resource.url])
+
+  useEffect(() => {
+    if (window.localStorage.getItem('farmingBrowserViewerMetrics') !== '1') return undefined
+    const timer = window.setInterval(() => {
+      console.info('[Farming Browser Viewer metrics]', {
+        resourceId: resource.id,
+        ...viewerMetricsRef.current,
+      })
+      viewerMetricsRef.current = emptyViewerMetrics()
+    }, 5_000)
+    return () => window.clearInterval(timer)
+  }, [resource.id])
 
   useEffect(() => {
     if (!moreOpen) return undefined
@@ -183,6 +235,59 @@ export function BrowserViewer({
     }
     let cancelled = false
     let reconnectTimer = 0
+    let decodingFrame = false
+    let pendingFrame: {
+      data: string
+      format?: 'jpeg' | 'png'
+      viewport?: { width: number; height: number }
+    } | null = null
+    const decodeNextFrame = () => {
+      const message = pendingFrame
+      if (!message) {
+        decodingFrame = false
+        return
+      }
+      pendingFrame = null
+      decodingFrame = true
+      const decodeStartedAt = window.performance.now()
+      const image = new Image()
+      image.onload = () => {
+        if (cancelled) return
+        const decodeMs = window.performance.now() - decodeStartedAt
+        const metrics = viewerMetricsRef.current
+        metrics.framesDecoded += 1
+        metrics.lastDecodeMs = decodeMs
+        metrics.maxDecodeMs = Math.max(metrics.maxDecodeMs, decodeMs)
+        if (paintFrameRef.current !== null) window.cancelAnimationFrame(paintFrameRef.current)
+        paintFrameRef.current = window.requestAnimationFrame(() => {
+          paintFrameRef.current = null
+          if (cancelled) return
+          const canvas = canvasRef.current
+          const context = canvas?.getContext('2d')
+          if (!canvas || !context) return
+          const frameViewport = message.viewport
+            && Number.isFinite(message.viewport.width)
+            && Number.isFinite(message.viewport.height)
+            ? message.viewport
+            : { width: image.naturalWidth, height: image.naturalHeight }
+          frameViewportRef.current = frameViewport
+          const paintMetrics = viewerMetricsRef.current
+          if (applyBrowserViewerCanvasSize(
+            canvas,
+            image.naturalWidth,
+            image.naturalHeight,
+            frameViewport,
+          )) paintMetrics.canvasResizes += 1
+          context.drawImage(image, 0, 0)
+          paintMetrics.framesPainted += 1
+        })
+        decodeNextFrame()
+      }
+      image.onerror = () => {
+        if (!cancelled) decodeNextFrame()
+      }
+      image.src = `data:image/${message.format === 'png' ? 'png' : 'jpeg'};base64,${message.data}`
+    }
     const connect = () => {
       if (cancelled) return
       const socket = new WebSocket(viewerWebSocketUrl(resource))
@@ -215,31 +320,15 @@ export function BrowserViewer({
           return
         }
         if (message.type !== 'browser-frame' || !message.data) return
-        const sequence = ++imageSequenceRef.current
-        const image = new Image()
-        image.onload = () => {
-          if (sequence !== imageSequenceRef.current) return
-          if (paintFrameRef.current !== null) window.cancelAnimationFrame(paintFrameRef.current)
-          paintFrameRef.current = window.requestAnimationFrame(() => {
-            paintFrameRef.current = null
-            if (sequence !== imageSequenceRef.current) return
-            const canvas = canvasRef.current
-            const context = canvas?.getContext('2d')
-            if (!canvas || !context) return
-            const frameViewport = message.viewport
-              && Number.isFinite(message.viewport.width)
-              && Number.isFinite(message.viewport.height)
-              ? message.viewport
-              : { width: image.naturalWidth, height: image.naturalHeight }
-            frameViewportRef.current = frameViewport
-            canvas.width = image.naturalWidth
-            canvas.height = image.naturalHeight
-            canvas.style.width = `${frameViewport.width}px`
-            canvas.style.height = `${frameViewport.height}px`
-            context.drawImage(image, 0, 0)
-          })
+        const metrics = viewerMetricsRef.current
+        metrics.framesReceived += 1
+        if (pendingFrame) metrics.framesReplaced += 1
+        pendingFrame = {
+          data: message.data,
+          format: message.format,
+          viewport: message.viewport,
         }
-        image.src = `data:image/${message.format === 'png' ? 'png' : 'jpeg'};base64,${message.data}`
+        if (!decodingFrame) decodeNextFrame()
       }
       socket.onclose = () => {
         if (socketRef.current === socket) socketRef.current = null
@@ -251,6 +340,8 @@ export function BrowserViewer({
     connect()
     return () => {
       cancelled = true
+      pendingFrame = null
+      inputSchedulerRef.current?.clear()
       window.clearTimeout(reconnectTimer)
       if (paintFrameRef.current !== null) window.cancelAnimationFrame(paintFrameRef.current)
       paintFrameRef.current = null
@@ -259,11 +350,12 @@ export function BrowserViewer({
     }
   }, [copy.connectionFailed, copy.viewerFailed, onOpenResource, onResource, resource.id, resource.status, sendViewerSize])
 
-  const send = useCallback((message: Record<string, unknown>) => {
-    const socket = socketRef.current
-    if (!socket || socket.readyState !== WebSocket.OPEN) return
-    socket.send(JSON.stringify({ ...message, generation: resource.generation }))
-  }, [resource.generation])
+  const send = useCallback((message: BrowserViewerInputMessage) => {
+    const metrics = viewerMetricsRef.current
+    if (message.type === 'pointer' && message.action === 'move') metrics.movesReceived += 1
+    if (message.type === 'wheel') metrics.wheelsReceived += 1
+    inputSchedulerRef.current?.enqueue(message)
+  }, [])
 
   const point = (event: {
     currentTarget: HTMLCanvasElement
