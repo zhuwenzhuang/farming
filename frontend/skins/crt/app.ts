@@ -1640,11 +1640,6 @@ function crtTitleComparisonKey(title: string) {
     .toLowerCase();
 }
 
-function truncateCrtAgentTitle(title: string) {
-  const text = String(title || '').trim();
-  return text.length <= 28 ? text : `${text.slice(0, 27)}…`;
-}
-
 function meaningfulCrtSessionTitle(
   title: unknown,
   agent: Pick<CrtAgent, 'command' | 'cwd' | 'projectWorkspace'>,
@@ -1671,13 +1666,13 @@ function meaningfulCrtSessionTitle(
     return '';
   }
 
-  return truncateCrtAgentTitle(text.replace(CRT_TITLE_STATUS_PREFIX_PATTERN, '').trim() || text);
+  return text.replace(CRT_TITLE_STATUS_PREFIX_PATTERN, '').trim() || text;
 }
 
 function getCrtAgentTitle(agent: CrtAgent|undefined) {
   if (!agent) return 'Agent';
   const customTitle = typeof agent.customTitle === 'string' ? agent.customTitle.trim() : '';
-  if (customTitle) return truncateCrtAgentTitle(customTitle);
+  if (customTitle) return customTitle;
   if (agent.isMain) return 'Main Agent';
 
   const providerTitle = meaningfulCrtSessionTitle(agent.providerSessionTitle, agent);

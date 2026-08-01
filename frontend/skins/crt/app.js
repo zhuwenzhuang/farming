@@ -1302,10 +1302,6 @@ function crtTitleComparisonKey(title) {
         .replace(/\s+/g, ' ')
         .toLowerCase();
 }
-function truncateCrtAgentTitle(title) {
-    const text = String(title || '').trim();
-    return text.length <= 28 ? text : `${text.slice(0, 27)}…`;
-}
 function meaningfulCrtSessionTitle(title, agent) {
     const text = typeof title === 'string' ? title.trim() : '';
     if (!text)
@@ -1327,14 +1323,14 @@ function meaningfulCrtSessionTitle(title, agent) {
     if (genericTitles.has(normalized) || crtWorkspaceBasenames(agent).includes(normalized)) {
         return '';
     }
-    return truncateCrtAgentTitle(text.replace(CRT_TITLE_STATUS_PREFIX_PATTERN, '').trim() || text);
+    return text.replace(CRT_TITLE_STATUS_PREFIX_PATTERN, '').trim() || text;
 }
 function getCrtAgentTitle(agent) {
     if (!agent)
         return 'Agent';
     const customTitle = typeof agent.customTitle === 'string' ? agent.customTitle.trim() : '';
     if (customTitle)
-        return truncateCrtAgentTitle(customTitle);
+        return customTitle;
     if (agent.isMain)
         return 'Main Agent';
     const providerTitle = meaningfulCrtSessionTitle(agent.providerSessionTitle, agent);

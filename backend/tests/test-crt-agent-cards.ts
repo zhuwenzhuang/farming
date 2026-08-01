@@ -412,6 +412,13 @@ function run() {
     'Qoder',
   );
 
+  const longTitle = '现在代码中有哪些是死功能，比如 json 的 chat 是否仍然存在';
+  assert.strictEqual(
+    getCrtAgentTitle({ ...titledAgent, customTitle: longTitle }),
+    longTitle,
+    'CRT title containers should receive the full title and apply responsive ellipsis themselves',
+  );
+
   assert.deepStrictEqual(
     getCrtPreviewCellStyle({ fg: 1, bg: 4, attributes: 0x05 }),
     {
@@ -491,6 +498,11 @@ function run() {
 
   const modalState = createSessionModalState(titledAgent, 'terminal', { crtEffects: true });
   assert.strictEqual(modalState.title, '修复终端缩略图展示');
+  assert.strictEqual(
+    createSessionModalState({ ...titledAgent, customTitle: longTitle }, 'terminal', { crtEffects: true }).title,
+    longTitle,
+    'an open CRT session should let the responsive header display the full title',
+  );
 
   console.log('✓ CRT cards use meaningful titles and working-state blink');
 }
