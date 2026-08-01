@@ -1,5 +1,6 @@
 const assert = require('assert');
 const http = require('http');
+const { bearerAuthorizationHeader } = require('../auth.cjs');
 const {
   farmingCapabilities,
   formatCapabilities,
@@ -105,9 +106,11 @@ async function test() {
   assert(skillsOutput.includes('明确模块间协议'));
   assert(!skillsOutput.includes('farming memory report'));
 
-  let encodedCookieHeader = null;
+  let authorizationHeader = null;
+  let authenticatedCookieHeader = null;
   const encodedServer = http.createServer((req, res) => {
-    encodedCookieHeader = req.headers.cookie || '';
+    authorizationHeader = req.headers.authorization || '';
+    authenticatedCookieHeader = req.headers.cookie || '';
     res.setHeader('Content-Type', 'application/json');
     res.end(JSON.stringify({ ok: true }));
   });
@@ -121,18 +124,21 @@ async function test() {
       true
     );
     assert.strictEqual(
-      encodedCookieHeader,
-      `farming_token=${encodeURIComponent('春山-秋水-云月-松风-星河-春夏秋冬')}`,
-      'control calls should percent-encode Chinese token cookies'
+      authorizationHeader,
+      bearerAuthorizationHeader('春山-秋水-云月-松风-星河-春夏秋冬'),
+      'control calls should transport UTF-8 tokens through a standard Bearer header'
     );
+    assert.strictEqual(authenticatedCookieHeader, '', 'machine control calls should not depend on legacy cookies');
   } finally {
     encodedServer.close();
   }
 
   process.env.FARMING_DISABLE_AUTH = '1';
   let cookieHeader = null;
+  let disabledAuthorizationHeader = null;
   const server = http.createServer((req, res) => {
     cookieHeader = req.headers.cookie || '';
+    disabledAuthorizationHeader = req.headers.authorization || '';
     res.setHeader('Content-Type', 'application/json');
     res.end(JSON.stringify({ ok: true }));
   });
@@ -140,6 +146,7 @@ async function test() {
   try {
     assert.strictEqual(await request('/api/control/agents', { baseUrl: `http://127.0.0.1:${port}` }).then(data => data.ok), true);
     assert.strictEqual(cookieHeader, '', 'disabled auth control calls should not require or send a token cookie');
+    assert.strictEqual(disabledAuthorizationHeader, '', 'disabled auth control calls should not send Bearer credentials');
   } finally {
     server.close();
     if (previousDisableAuth === undefined) {

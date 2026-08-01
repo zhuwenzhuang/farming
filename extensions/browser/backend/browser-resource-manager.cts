@@ -3,6 +3,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { EventEmitter } = require('events');
 import * as storageLayout from '../../../backend/storage-layout.cjs';
+import { canonicalConfigDir } from '../../../backend/config-instance.cjs';
 import {
   matchingProcessIdentity,
   readServerProcessIdentity,
@@ -420,8 +421,8 @@ class BrowserResourceManager extends EventEmitter {
 
   constructor(options: BrowserManagerOptions) {
     super();
-    this.configDir = options.configDir;
-    this.store = options.store || new BrowserResourceStore(options.configDir);
+    this.configDir = canonicalConfigDir(options.configDir);
+    this.store = options.store || new BrowserResourceStore(this.configDir);
     this.isolatedBrowserProvider = options.isolatedBrowserProvider || null;
     this.discoverExecutable = options.discoverExecutable || (selection => discoverBrowserRuntime({
       ...options,

@@ -38,6 +38,8 @@ async function run() {
       requests.push({
         method: request.method,
         url: request.url,
+        authorization: request.headers.authorization,
+        cookie: request.headers.cookie,
         agentId: request.headers['x-farming-agent-id'],
         body,
       });
@@ -135,6 +137,8 @@ async function run() {
     });
     assert.deepStrictEqual(result.structuredContent, { desktop: 'ready' });
     assert(requests.every(request => request.agentId === 'agent_test'));
+    assert(requests.every(request => request.authorization === 'Bearer dGVzdC10b2tlbg'));
+    assert(requests.every(request => request.cookie === undefined));
     assert(requests.some(request =>
       request.url === '/farming/api/computers/computer_test/tool/get_desktop_state'
     ));

@@ -4,7 +4,9 @@ const os = require('os');
 const path = require('path');
 const {
   TokenAuth,
+  bearerAuthorizationHeader,
   encodeCookieToken,
+  farmingAuthCookieName,
   getPoeticTokenEntropyBits,
 } = require('../auth.cjs');
 
@@ -22,8 +24,10 @@ function run() {
   try {
     const auth = new TokenAuth({ basePath: '/farming' });
     const token = auth.getToken();
+    const instanceCookieName = farmingAuthCookieName(configDir);
 
     assert.strictEqual(auth.getTokenFile(), path.join(configDir, '.session-token'));
+    assert.strictEqual(auth.getCookieName(), instanceCookieName);
     assert.strictEqual(fs.readFileSync(auth.getTokenFile(), 'utf8'), token);
     assert(token.length < 64, 'haiku token should be shorter than the old 64-char hex token');
     assert.match(token, /^[\u4e00-\u9fa5-]+$/, 'poetic token should use Chinese poetic words');
@@ -36,12 +40,68 @@ function run() {
     assert.strictEqual(auth.verify(token), true);
     assert.strictEqual(auth.verifyWebSocket({ url: `/farming/ws?token=${encodeURIComponent(token)}`, headers: {} }), true);
     assert.strictEqual(
-      auth.verifyWebSocket({ url: '/farming/ws', headers: { cookie: `other=1; farming_token=${encodeCookieToken(token)}` } }),
+      auth.verifyWebSocket({
+        url: '/farming/ws',
+        headers: { authorization: bearerAuthorizationHeader(token) },
+      }),
       true,
-      'cookie token with encoded Chinese passphrase should verify'
+      'the UTF-8 token transport encoding should authenticate through a standard Bearer header'
+    );
+    assert.strictEqual(
+      auth.verifyWebSocket({
+        url: '/farming/ws',
+        headers: { cookie: `other=1; ${instanceCookieName}=${encodeCookieToken(token)}` },
+      }),
+      true,
+      'the config-scoped cookie with an encoded Chinese passphrase should verify'
+    );
+    assert.strictEqual(
+      auth.verifyWebSocket({ url: '/farming/ws', headers: { cookie: `farming_token=${encodeCookieToken(token)}` } }),
+      true,
+      'the legacy cookie should remain a read-only authentication compatibility path'
     );
     assert.strictEqual(auth.verify(`${token}-wrong`), false);
     assert.strictEqual(auth.getTokenInfo().style, 'zh-classic-haiku');
+
+    let bearerNextCalled = false;
+    auth.middleware()({
+      headers: { authorization: bearerAuthorizationHeader(token), host: 'localhost' },
+      method: 'GET',
+      url: '/farming/api/settings',
+    }, {
+      end() {
+        assert.fail('a valid Bearer token should not end the response');
+      },
+      setHeader() {},
+      writeHead() {
+        assert.fail('a valid Bearer token should not write an error response');
+      },
+    }, () => {
+      bearerNextCalled = true;
+    });
+    assert.strictEqual(bearerNextCalled, true);
+
+    const otherConfigDir = path.join(configDir, 'other-config');
+    const otherAuth = new TokenAuth({
+      basePath: '/farming',
+      farmingDir: otherConfigDir,
+      token,
+    });
+    assert.notStrictEqual(otherAuth.getCookieName(), instanceCookieName);
+    assert.strictEqual(otherAuth.verifyWebSocket({
+      url: '/farming/ws',
+      headers: { cookie: `${instanceCookieName}=${encodeCookieToken(token)}` },
+    }), false, 'another config instance cookie should not authenticate this instance');
+    otherAuth.cleanup({ removeTokenFile: true });
+
+    const configLink = path.join(configDir, 'config-link');
+    fs.symlinkSync(configDir, configLink, 'dir');
+    const linkedAuth = new TokenAuth({ basePath: '/farming', farmingDir: configLink });
+    assert.strictEqual(
+      linkedAuth.getCookieName(),
+      instanceCookieName,
+      'symlink and real paths for the same config directory should share one cookie identity'
+    );
 
     process.env.FARMING_TOKEN_LOCALE = 'auto';
     const restartedAuth = new TokenAuth({ basePath: '/farming', farmingDir: configDir, timeZone: 'Asia/Tokyo' });
@@ -99,6 +159,10 @@ function run() {
       headers: { cookie: 'farming_token=wrong; farming_net_token=private-net-token' },
       url: '/farming-net/ws',
     }), true);
+    assert.strictEqual(netAuth.verifyWebSocket({
+      headers: { cookie: 'farming_token=private-net-token' },
+      url: '/farming-net/ws',
+    }), false, 'an explicit custom cookie name should not enable Farming legacy-cookie compatibility');
     netAuth.cleanup({ removeTokenFile: true });
 
     const targetDir = path.join(configDir, 'federated-target');
@@ -112,6 +176,10 @@ function run() {
       },
       token: 'target-private-token',
     });
+    assert.strictEqual(targetAuth.verifyWebSocket({
+      headers: { authorization: 'Bearer target-private-token' },
+      url: '/farming/ws',
+    }), true, 'header-safe configured tokens should also work as raw Bearer credentials');
     let passStatus = 0;
     let passHeaders: Record<string, string | string[]> = {};
     let passEnded = false;
@@ -136,7 +204,10 @@ function run() {
     assert.strictEqual(passStatus, 302);
     assert.strictEqual(passHeaders.Location, '/farming/?mode=compact');
     assert.strictEqual(passHeaders['Cache-Control'], 'no-store');
-    assert.match(passHeaders['Set-Cookie'], /^farming_token=target-private-token; Path=\//);
+    assert.match(
+      passHeaders['Set-Cookie'],
+      new RegExp(`^${targetAuth.getCookieName()}=target-private-token; Path=/farming;`),
+    );
     assert.strictEqual(passEnded, true);
     targetAuth.cleanup({ removeTokenFile: true });
 

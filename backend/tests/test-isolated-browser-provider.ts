@@ -1,4 +1,5 @@
 const assert = require('assert');
+const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -6,6 +7,7 @@ const {
   LEGACY_ISOLATED_BROWSER_IMAGE_DIGEST,
   IsolatedBrowserProvider,
 } = require('../../extensions/computer/backend/isolated-browser-provider.cjs');
+const { configInstanceFingerprint } = require('../config-instance.cjs');
 
 async function run() {
   const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-isolated-browser-provider-'));
@@ -75,7 +77,7 @@ async function run() {
           Config: {
             Labels: {
               'farming.dev/kind': 'isolated-browser',
-              'farming.dev/config': require('crypto').createHash('sha256')
+              'farming.dev/config': crypto.createHash('sha256')
                 .update(configDir)
                 .digest('hex')
                 .slice(0, 12),
@@ -140,6 +142,14 @@ async function run() {
 
     await provider.recover();
     assert.strictEqual(legacyExists, false);
+    assert(dockerCalls.some(args =>
+      args[0] === 'ps'
+      && args.includes(`label=farming.dev/config=${configInstanceFingerprint(configDir)}`)
+    ));
+    assert(dockerCalls.some(args =>
+      args[0] === 'ps'
+      && args.includes(`label=farming.dev/config=${crypto.createHash('sha256').update(configDir).digest('hex').slice(0, 12)}`)
+    ));
     assert(dockerCalls.some(args => args[0] === 'stop' && args.includes(legacyId)));
     assert(dockerCalls.some(args => args[0] === 'rm' && args.includes(legacyId)));
     console.log('Isolated Browser uses the visible Agent Computer regression test passed.');

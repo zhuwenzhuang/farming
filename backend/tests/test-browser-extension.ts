@@ -30,6 +30,8 @@ class FakeBrowserRuntime extends EventEmitter {
     super();
     this.id = options.id;
     this.generation = options.generation;
+    this.configDir = options.configDir;
+    this.profileDir = options.profileDir;
     this.externalCdpUrl = options.externalCdpUrl || '';
     this.startedUrl = '';
     this.closed = false;
@@ -334,6 +336,7 @@ async function testBrowserResourceManager() {
   const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-browser-extension-'));
   const projectWorkspace = path.join(configDir, 'project');
   fs.mkdirSync(projectWorkspace);
+  const canonicalConfigDir = fs.realpathSync.native(configDir);
   const runtimes = [];
   let enabled = false;
   const unavailableManager = new BrowserResourceManager({
@@ -423,6 +426,11 @@ async function testBrowserResourceManager() {
   });
   try {
     await manager.init();
+    assert.strictEqual(
+      manager.store.directory,
+      path.join(canonicalConfigDir, 'browsers'),
+      'Browser registry storage must stay under the canonical Config directory',
+    );
     assert.deepStrictEqual(manager.capability(), {
       enabled: false,
       available: false,
@@ -557,6 +565,12 @@ async function testBrowserResourceManager() {
     assert.strictEqual(running.generation, 1);
     assert.strictEqual(running.revision, 3);
     assert.strictEqual(running.collectionRevision, manager.store.revision);
+    assert.strictEqual(manager.configDir, canonicalConfigDir);
+    assert.strictEqual(
+      runtimes[0].profileDir,
+      path.join(canonicalConfigDir, 'browsers', created.id, 'profile'),
+      'Browser profiles must stay under the canonical Config directory',
+    );
     assert.deepStrictEqual(manager.snapshot(), {
       collectionRevision: manager.store.revision,
       resources: [running],

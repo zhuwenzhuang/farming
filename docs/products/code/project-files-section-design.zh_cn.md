@@ -108,31 +108,14 @@ Farming row renderer
 
 结论：当前继续使用 `react-arborist` 是合理的，因为它已经覆盖 Explorer 第一版最关键的行为骨架；后续如果需要 VS Code 更完整的 async tree/search/rename/accessibility 语义，再评估 `@headless-tree/react`。Theia / code-server 更适合作为行为参考或“Open in full IDE”旁路，不适合把它们的 navigator 直接裁进 Farming。
 
-当前实现落点：
+组件架构保持四个稳定边界：
 
-- `react-arborist`：目录树视图行为层，负责虚拟滚动、选择、焦点、键盘导航、rename，以及投影 Farming 的期望展开状态；它不是展开状态的权威来源。
-- `useWorkspaceFiles` / `/api/files/*`：Farming 文件 adapter，负责懒加载目录、显式刷新、git 状态、文本读写和冲突校验。
-- `src/lib/file-icons.ts`：Material Icon Theme manifest adapter，负责文件类型和目录类型 icon 解析。
-- `ProjectFilesSection`：Project 左栏里的 Files 组装层，负责把 Open Editors、Files header、搜索结果、目录树、sticky context、菜单和操作浮层接入同一个外层滚动流。
-- `GitHistorySection`：负责 History 的懒加载、有界分页、Commit 展开、Merge Parent 选择和 Review 路由。
-- `git-history-graph.ts` / `GitHistoryGraph`：分别承载固定版本的 VS Code SCM lane 算法适配与 SVG row renderer。
-- `FileSectionBody`：Files 展开后的 body 视图层，负责状态行、搜索结果、目录树视图以及传入 body 的命名 view model。
-- `FileSectionOverlays`：Files 浮层视图层，负责文件 context menu 和文件操作弹层。
-- `useWorkspaceFileSectionController`：Files / Open Editors section 状态层，负责折叠状态、Files 身份切换清理、reveal request、search focus request 和展开时的 tree refresh 调度。
-- `useWorkspaceFileTreeController`：目录树控制层，负责 tree refs、row frame 渲染、layout refresh、期望展开状态投影和最后焦点路径记录。
-- `FileTreeView`：目录树视图层，负责 viewport、sticky context、Arborist `Tree` 接线和 `FileTreeRow` node renderer。
-- `FileTreeRow`：单行 renderer，负责 VS Code-like 行高、缩进、chevron、active 行、git badge、父目录状态点和文件类型 decoration slot。
-- `useWorkspaceFileMenuController` / `useWorkspaceFileOperationController`：文件管理交互状态层，分别负责 context menu 生命周期以及新建、重命名、删除等 inline/dialog 操作。
-- `FileEditorPane`：Monaco editor 组装壳，继续负责当前文件、保存 / reload / 冲突流和 blame 接入。
-- `FileEditorHeader`：editor header 视图层，负责 tab strip 组合、breadcrumb 和 save / reload / overwrite action bar。
-- `useFileEditorWorkingCopyController`：working-copy 控制层，负责保存、reload、冲突响应和关闭前保存/放弃。
-- `FileEditorTabs` / `FileEditorTabContextMenu` / `useFileEditorTabsController`：editor tab 层，分别负责 tab strip 视图、tab menu 视图、键盘导航、关闭意图和 active tab 焦点恢复。
-- `FileEditorOverlays`：editor 浮层组合层，负责组合 `FileEditorContextMenu`、`FileEditorTabContextMenu`、`FileEditorSaveConfirmDialog` 和 blame 状态提示；`FileEditorPane` 只保留会影响 Monaco 或 open-file 状态的 action handler。
-- `FileEditorBlameDetail` / `FileEditorBlameToast`：blame 详情和状态提示视图层；`FileEditorPane` 仍负责 blame 加载、能力探测和 visible-range overlay 定位。
-- `FileEditorMarkdownPreview`：Markdown 源文件在 editor 主区域里的渲染 preview，不改变文件 tab、保存和 diff 语义。
-- `workspace-viewer-registry.ts`：源码文件的内部内置 Viewer 查询边界；当前映射 Markdown、SVG 和 HTML 扩展名，但不暴露公开的动态加载 API。
-- `FileEditorHtmlPreview`：负责沙箱化 HTML 草稿文档以及一个后端 Preview Session。Mount 创建 Session，Unmount 删除 Session；取消后才返回的创建结果会立即删除；创建失败保持在 Preview Pane 中可见。
-- `FileEditorPreviewPanel` / `FileEditorInlineBlameLayer`：preview 和 inline blame annotation 视图层，分别负责 HTML、图片、PDF、二进制 preview 以及可点击 blame 行渲染。Chat 中的绝对本地 PDF 链接必须先经过 workspace file 边界校验，并在此处打开，不能退化成浏览器路由。
+- **Project 组装层**：决定 Files、Open Editors、Changes 和 Git History 的位置，并维持侧栏唯一的外层滚动面。
+- **Explorer 行为层**：负责焦点、选择、键盘导航、虚拟化，以及对 workspace 级目录展开状态的投影；它不是文件系统事实的权威来源。
+- **Workspace 适配层**：负责路径授权、有界目录与 Git 读取、乐观版本校验、修改结果对账和显式刷新。
+- **Editor 与 Viewer 层**：负责工作副本、Tab、Monaco 状态、冲突呈现和有界 Preview。所有 Preview 共用同一套 workspace 授权与生命周期规则，不能形成独立的文件访问旁路。
+
+这里按职责描述边界，而不记录易变的私有组件名。内部 React 组合可以演进，但不能改变上述 Project、文件系统权威和恢复契约。
 
 ---
 

@@ -4,6 +4,7 @@ const fs = require('fs');
 const http = require('http');
 const https = require('https');
 import { renderMainAgentSkills } from './main-agent-skills.cjs';
+import { bearerAuthorizationHeader } from './auth.cjs';
 import * as storageLayout from './storage-layout.cjs';
 
 interface AuthOptions {
@@ -290,7 +291,7 @@ async function request<T = unknown>(pathname: string, options: RequestOptions = 
     ...(options.headers || {}),
   };
   if (token) {
-    headers.Cookie = `farming_token=${encodeURIComponent(token)}`;
+    headers.Authorization = bearerAuthorizationHeader(token);
   }
 
   if (options.body !== undefined) {

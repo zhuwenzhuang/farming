@@ -80,6 +80,8 @@ README 是产品入口，不是实现历史。只有顶层产品承诺、主要�
 
 新增模块、调整架构、更新依赖或测试结构并不自动触发 README 修改；应先判断哪份文档真正面向这项变化的读者。
 
+实现文档应描述稳定的高层概念：架构与组件边界、设计理由与取舍、用户故事、权威状态归属、状态转移、安全性与活性不变式、失败恢复语义以及验证方法。不要镜像私有函数名、字段列表、临时文件布局或逐步控制流程等易变的源码结构，除非它本身是运维者或外部集成必须依赖的稳定接口。精确实现机械应留在代码和测试中。
+
 ### 2. 代码简洁原则
 
 - **避免过度抽象**：一期原型优先简单实现，避免过早优化
@@ -170,6 +172,8 @@ README 是产品入口，不是实现历史。只有顶层产品承诺、主要�
 ```
 
 新的交互式 agent 默认由 `NativeSessionEngine` 托管，node-pty 进程运行在独立 native pty host 中，Farming 服务重启后通过本地 socket 重新挂回仍存活的 terminal。Farming Server 采用 crash-only 生命周期：SIGINT 和 SIGTERM 保持立即退出语义，不能安装调用 `AgentManager.dispose()`、等待 Agent Operation 或发布半关停状态的 Server Signal Handler。人工停止、部署重启和升级都先校验精确 Server Process Identity，再发送 SIGKILL，只等待进程退出与端口释放。Signal 返回 `EPERM` 或 `EACCES` 说明进程可能仍存在：此时不得修改包目录，必须提示用户由拥有该进程的系统账号或管理员重启 Farming 后再重试升级。正确性由启动恢复和对账负责，而不是退出前 Drain。活跃 Provider Turn 可以被中断并由 Provider 自己 Resume；Farming 只持久化并恢复 Farming 自有状态。native pty host 默认会跨 Farming server 进程丢失保留；当没有 live session 和 client 后会在空闲宽限期后退出。server 与 host 连接时必须交换 runtime 代码指纹；应用升级或指纹不一致时执行 Transactional Controlled Rotation：阻止新 Mutation，Drain 并 Freeze Reducer 的精确状态切面，序列化所有仍为 Live 的 Terminal，只有携带匹配 Preparation Token 才能关闭旧 Host，并在新 PTY Epoch 中恢复序列化 Screen。序列化失败必须恢复旧 Host 并终止轮换；已经接受用户输入但还没有精确 provider Session ID 的 Codex Terminal 同样不可重启，此时必须终止轮换并恢复旧 Host，不能在同一个 `agent_*` 记录下启动全新的 Codex 进程。Host 意外崩溃属于进程丢失，不能伪装成成功恢复。过时 Host 只能在共享 Socket 路径仍指向它自己的 Active Listener 时删除该路径；同一 Config 的启动或关闭发生重叠时，绝不能删除 Replacement Host 的 Socket。每个 Host 保留一个 Private Listener 路径；重新连接的 Server 只有在恰好找到一个匹配的 Live Private Listener 时才能恢复缺失的公开链接，多个匹配项必须显式失败，不能任意选择。只有希望 host 在每次 server 进程丢失后退出时才设置 `FARMING_NATIVE_PTY_HOST_PERSIST=0`。`LocalSessionEngine` 仅保留为 `FARMING_SESSION_ENGINE=local` 调试路径；产品 runtime 工作应面向 native pty host。
+
+同一 canonical `FARMING_CONFIG_DIR` 只能由一个 Server 使用。不同 Config 目录隔离 Farming 自有状态；项目目录和已配置的 Provider Home 仍是外部共享资源。
 
 Browser Resource 模块位于 `extensions/browser`，默认关闭。Browser 在 ACP Session 创建边界已启用时，Farming 会通过 Provider Adapter 自动投影完整的 `browser_*` MCP Tool Catalog；Terminal 仍通过 CLI 按需访问。它唯一受支持的操作与 Viewer Runtime，是 Farming 启动依赖 Manifest 声明的精确版本 `agent-browser`。Farming 不得用原生 CDP 重写 Browser Automation，不得把 Playwright 或 Puppeteer 加入生产包，不得把 Chromium 随发行包交付，也不得加入 WebDriver 或保留静默的第二套实现。全新 Server 打开端口前，Farming Launcher 必须准备并使用已校验的不可变 `agent-browser` Cache 条目。Chromium 是独立的显式可选依赖：普通安装、更新和启动绝不能下载它。**插件 → 浏览器**只向普通用户展示按名称区分的本机 Chromium Executable，以及始终可见的“隔离浏览器”，不暴露原始 CDP 配置。Farming 会把首次发现的兼容本机 Executable 持久化为初始选择；该 Executable 后续消失时，Browser 必须显式进入未就绪，不能静默切换到另一个本机或隔离来源。准备隔离浏览器必须由用户显式触发；Docker 不可用时页面必须明确显示该依赖。准备操作会拉取锁定的 Computer 镜像，并下载一份经过容器内校验的 Linux Chromium Cache；Farming 不维护自己的 Browser 或 Desktop Image。隔离运行时复用 Agent 唯一且可见的 Computer Container，把 Chromium Cache 只读挂载进去，只向宿主机回环地址发布 CDP，再把内部 Endpoint 交给同一个锁定版本的 `agent-browser`。同一 Agent 的多个 Browser Resource 是同一个 Browser Session 和同一 Computer Desktop 中的带标签 Tab。Browser Stop 关闭 Tab 和 `agent-browser` Session，但不会隐藏或删除 Agent-owned Computer；Container 生命周期由 Agent 的 Computer Resource 负责。Server 重启时只清理经过精确验证的旧版隐藏 Browser Container。用户提供的外部 CDP 设置只保留读取兼容，不再是主要 UI 选项。切换可见来源时，必须先校验目标配置并停止全部运行中的 Browser，清理成功后才提交设置；失败时保留旧选择。过期 Viewer Generation 必须被拒绝；受鉴权保护的 Viewer 代理 Runtime 的 JPEG WebSocket Stream，并把 Pointer、Keyboard、Wheel 与 Viewport Input 映射回同一个 Session。Browser Action 与 Runtime Command 都必须串行。支持的 Agent Surface 覆盖导航/等待、DOM 交互、结构化检查/JavaScript、Console/Error/Network 证据、Cookie/Storage、Frame/Dialog 和 Project 级 Upload/Download。Codex、Claude Code、OpenCode 和 Qoder 通过 Farming Bootstrap 与 `farming capabilities` 发现实时能力；已启用的 Browser Capability 自动投影到新 ACP Session，`farming browser` 与 `farming browser mcp` 仍操作同一 Browser Identity。
 
@@ -1040,7 +1044,7 @@ FARMING_NET_PORT=6693 FARMING_NET_BASE_PATH=/farming-net npm run start:net
 PORT=6695 FARMING_PORT=6695 FARMING_BASE_PATH=/farming FARMING_DISABLE_AUTH=1 npm start
 ```
 
-如果 `6694` 已被已有实例占用，就换成 `6695` 或其他空闲端口。不要只给后端设置 `FARMING_BASE_PATH=/farming` 却用普通 `npm run build` 的产物；分开执行时必须先运行 `FARMING_BASE_PATH=/farming npm run build`，再运行 `FARMING_BASE_PATH=/farming node backend/server.cjs`。否则 `dist/index.html` 会引用 `/assets/...`，在 `/farming/` 页面下 JS/CSS 404，表现为白屏。
+如果 `6694` 已被已有实例占用，就换成 `6695` 或其他空闲端口。不要只给后端设置 `FARMING_BASE_PATH=/farming` 却用普通 `npm run build` 的产物；分开执行时必须先运行 `FARMING_BASE_PATH=/farming npm run build`，再运行 `FARMING_BASE_PATH=/farming node bin/farming start`。否则 `dist/index.html` 会引用 `/assets/...`，在 `/farming/` 页面下 JS/CSS 404，表现为白屏。直接启动 `backend/server.cjs` 仅保留给测试工具。
 
 ### 2. 运行测试
 

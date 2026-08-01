@@ -41,6 +41,7 @@ async function run() {
       requests.push({
         method: request.method,
         url: request.url,
+        authorization: request.headers.authorization,
         cookie: request.headers.cookie,
         agentId: request.headers['x-farming-agent-id'],
         body,
@@ -248,7 +249,8 @@ async function run() {
     });
     const snapshotValue = JSON.parse(snapshot.content[0].text);
     assert.strictEqual(snapshotValue.elements[0].ref, 'e1');
-    assert.strictEqual(requests.at(-1).cookie, 'farming_token=test-token');
+    assert.strictEqual(requests.at(-1).authorization, 'Bearer dGVzdC10b2tlbg');
+    assert.strictEqual(requests.at(-1).cookie, undefined);
 
     const screenshot = await client.callTool({
       name: 'browser_screenshot',

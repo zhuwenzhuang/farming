@@ -44,6 +44,7 @@ export interface StructuredRuntimeProcessIdentity {
   pid: number;
   processGroupId: number;
   startedAt: string;
+  configInstanceFingerprint?: string;
 }
 
 export interface AcpSessionStartBinding {

@@ -1,4 +1,5 @@
 const assert = require('assert');
+const crypto = require('crypto');
 const fs = require('fs');
 const http = require('http');
 const os = require('os');
@@ -13,6 +14,7 @@ const {
 const {
   COMPUTER_IMAGE,
 } = require('../../extensions/computer/backend/computer-constants.cjs');
+const { configInstanceFingerprint } = require('../config-instance.cjs');
 const storageLayout = require('../storage-layout.cjs');
 const { importTsModule } = require('./helpers/import-ts-module');
 const {
@@ -309,17 +311,35 @@ async function run() {
     const running = await manager.start(created.id);
     assert.strictEqual(running.status, 'running');
     assert.strictEqual(fake.running, true);
+    assert.strictEqual(
+      fake.labels['farming.dev/config'],
+      configInstanceFingerprint(tempDir),
+      'Computer ownership labels must use the canonical Config identity',
+    );
     assert.strictEqual(fake.labels['farming.dev/resource'], created.id);
     assert.strictEqual(fake.labels['farming.dev/owner-agent'], 'agent_owner');
+    const currentConfigLabel = fake.labels['farming.dev/config'];
+    fake.labels['farming.dev/config'] = crypto.createHash('sha256')
+      .update(tempDir)
+      .digest('hex')
+      .slice(0, 12);
+    await manager.inspectOwnedContainer(manager.privateResource(created.id));
+    fake.labels['farming.dev/config'] = currentConfigLabel;
     assert.strictEqual(manager.viewerConfig(created.id).viewOnly, true);
-    assert(fake.calls.some(args =>
-      args[0] === 'create'
-      && args.includes('127.0.0.1::9223')
-      && args.some(value => String(value).endsWith(':/opt/farming/chromium:ro'))
-    ));
+    const createCall = fake.calls.find(args => args[0] === 'create');
+    assert(createCall);
+    assert(
+      createCall[createCall.indexOf('--name') + 1]
+        .startsWith(`farming-computer-${configInstanceFingerprint(tempDir)}-`),
+      'Computer container names must include the canonical Config identity',
+    );
+    assert(
+      createCall.includes('127.0.0.1::9223')
+      && createCall.some(value => String(value).endsWith(':/opt/farming/chromium:ro'))
+    );
 
     const browserExecutable = path.join(
-      storageLayout.managedChromiumRootDir(tempDir),
+      storageLayout.managedChromiumRootDir(manager.configDir),
       '0.32.3',
       'linux-x64-computer',
       'chrome',
@@ -328,7 +348,7 @@ async function run() {
     fs.writeFileSync(browserExecutable, '#!/bin/sh\n', { mode: 0o700 });
     for (let directory = path.dirname(browserExecutable);; directory = path.dirname(directory)) {
       fs.chmodSync(directory, 0o700);
-      if (directory === storageLayout.managedChromiumRootDir(tempDir)) break;
+      if (directory === storageLayout.managedChromiumRootDir(manager.configDir)) break;
     }
     assert.strictEqual(
       await manager.verifyBrowserExecutable(browserExecutable),
@@ -340,7 +360,7 @@ async function run() {
         0o011,
         `container Browser cache directory must be traversable: ${directory}`,
       );
-      if (directory === storageLayout.managedChromiumRootDir(tempDir)) break;
+      if (directory === storageLayout.managedChromiumRootDir(manager.configDir)) break;
     }
     assert(fake.calls.some(args =>
       args[0] === 'run'

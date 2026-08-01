@@ -248,6 +248,7 @@ export interface AcpProcessIdentity {
   pid: number;
   processGroupId: number;
   startedAt: string;
+  configInstanceFingerprint?: string;
 }
 
 export interface PersistedAcpProcessIdentity extends AcpProcessIdentity {
@@ -258,6 +259,8 @@ export interface StopPersistedAcpProcessResult extends Record<string, unknown> {
   stopped: boolean;
   alreadyExited?: boolean;
   missingProof?: boolean;
+  missingConfigScope?: boolean;
+  configScopeMismatch?: boolean;
   identityMismatch?: boolean;
   timedOut?: boolean;
 }

@@ -2,6 +2,7 @@ const fs = require('fs');
 const http = require('http');
 const https = require('https');
 const { URL } = require('url');
+const { bearerAuthorizationHeader } = require('../../../backend/auth.cjs');
 
 function connection(env: NodeJS.ProcessEnv = process.env) {
   const controlUrl = String(env.FARMING_CONTROL_URL || '').trim();
@@ -29,7 +30,7 @@ function requestJson(
       headers: {
         Accept: 'application/json',
         ...(payload ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } : {}),
-        ...(target.token ? { Cookie: `farming_token=${encodeURIComponent(target.token)}` } : {}),
+        ...(target.token ? { Authorization: bearerAuthorizationHeader(target.token) } : {}),
         ...(env.FARMING_AGENT_ID ? { 'X-Farming-Agent-Id': env.FARMING_AGENT_ID } : {}),
       },
     }, (response: any) => {

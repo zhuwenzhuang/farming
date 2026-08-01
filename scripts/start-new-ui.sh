@@ -5,4 +5,4 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 cd "$ROOT_DIR"
 npm run build
-FARMING_UI=react node backend/server.cjs
+FARMING_UI=react node bin/farming start --port 3000

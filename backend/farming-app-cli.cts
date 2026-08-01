@@ -1,4 +1,5 @@
 import * as fs from 'fs';
+import * as crypto from 'crypto';
 import * as http from 'http';
 import * as net from 'net';
 import * as os from 'os';
@@ -7,15 +8,10 @@ import { URLSearchParams } from 'url';
 import { execFileSync, spawn } from 'child_process';
 import { createRuntimeDependencyProgressRenderer } from './runtime-dependency-progress.cjs';
 import type { RuntimeDependencyProgress } from './runtime-dependency-manager.cjs';
+import { canonicalConfigDir } from './config-instance.cjs';
+import type { ServerProcessIdentity } from './server-process-identity.cjs';
 
 const packagedProcess = process as NodeJS.Process & { pkg?: unknown };
-
-interface ServerProcessIdentity {
-  format: string;
-  pid: number;
-  processGroupId: number;
-  startedAt: string;
-}
 
 interface ExpectedProcessIdentity {
   format?: unknown;
@@ -27,6 +23,8 @@ interface ExpectedProcessIdentity {
 interface StorageLayout {
   farmingConfigDir(env?: NodeJS.ProcessEnv): string;
   serverLogFile(configDir: string): string;
+  serverOwnerFile(configDir: string): string;
+  serverOwnerLockDir(configDir: string): string;
   serverPidFile(configDir: string): string;
   serverStateFile(configDir: string): string;
   sessionTokenFile(configDir: string): string;
@@ -83,6 +81,15 @@ interface ServerState {
   port?: unknown;
   processIdentity?: ExpectedProcessIdentity | null;
   updatedAt?: string;
+}
+
+interface ServerOwner {
+  claimId?: unknown;
+  configDir?: unknown;
+  phase?: unknown;
+  pid?: unknown;
+  processIdentity?: ExpectedProcessIdentity | null;
+  updatedAt?: unknown;
 }
 
 interface WaitForDaemonStopOptions {
@@ -615,11 +622,18 @@ function readServerState(configDir: string): ServerState {
   }
 }
 
-function canonicalConfigDir(configDir: string): string {
+function canonicalizeServerConfigDir(env: ServerEnv): ServerEnv {
+  ensureConfigDir(env.FARMING_CONFIG_DIR);
+  env.FARMING_CONFIG_DIR = canonicalConfigDir(env.FARMING_CONFIG_DIR);
+  return env;
+}
+
+function matchingCanonicalConfigDir(actual: unknown, expected: string): boolean {
+  if (typeof actual !== 'string' || !actual) return false;
   try {
-    return fs.realpathSync.native(configDir);
+    return canonicalConfigDir(actual) === canonicalConfigDir(expected);
   } catch {
-    return path.resolve(configDir);
+    return false;
   }
 }
 
@@ -693,6 +707,35 @@ function processHasExactEnvironment(
     } catch {
       return false;
     }
+  }
+}
+
+function processHasCanonicalConfigEnvironment(pid: number, configDir: string): boolean {
+  let actualConfigDir = '';
+  try {
+    const entry = fs.readFileSync(`/proc/${pid}/environ`, 'utf8')
+      .split('\0')
+      .find(value => value.startsWith('FARMING_CONFIG_DIR='));
+    actualConfigDir = entry?.slice('FARMING_CONFIG_DIR='.length) || '';
+  } catch {
+    if (/\s/.test(configDir)) return false;
+    try {
+      const environment = execFileSync(
+        '/bin/ps',
+        ['eww', '-p', String(pid), '-o', 'command='],
+        { encoding: 'utf8', timeout: 1_000, maxBuffer: 1024 * 1024 },
+      );
+      const match = environment.match(/(?:^|\s)FARMING_CONFIG_DIR=([^\s]+)(?:\s|$)/);
+      actualConfigDir = match?.[1] || '';
+    } catch {
+      return false;
+    }
+  }
+  if (!actualConfigDir) return false;
+  try {
+    return canonicalConfigDir(actualConfigDir) === canonicalConfigDir(configDir);
+  } catch {
+    return false;
   }
 }
 
@@ -808,8 +851,7 @@ async function assertServerProcessIdentity(
   const expected = state?.processIdentity;
   if (
     Number(state?.pid) !== pid
-    || canonicalConfigDir(typeof state?.configDir === 'string' ? state.configDir : '')
-      !== canonicalConfigDir(configDir)
+    || !matchingCanonicalConfigDir(state?.configDir, configDir)
     || !expected
     || Number(expected.pid) !== pid
     || !Number.isSafeInteger(Number(expected.processGroupId))
@@ -839,16 +881,13 @@ async function migrateLegacyServerIdentity(
 ): Promise<ServerProcessIdentity> {
   if (
     Number(state?.pid) !== pid
-    || canonicalConfigDir(typeof state?.configDir === 'string' ? state.configDir : '')
-      !== canonicalConfigDir(configDir)
+    || !matchingCanonicalConfigDir(state?.configDir, configDir)
     || !Number.isInteger(Number(state?.port))
     || Number(state.port) <= 0
     || Number(state.port) > 65535
     || !processLooksLikeFarmingServer(pid)
-    || !processHasExactEnvironment(pid, {
-      FARMING_CONFIG_DIR: configDir,
-      PORT: String(state.port),
-    })
+    || !processHasCanonicalConfigEnvironment(pid, configDir)
+    || !processHasExactEnvironment(pid, { PORT: String(state.port) })
   ) {
     throw new Error(
       `Refusing to stop Farming PID ${pid}: legacy server control metadata could not prove this process belongs to the config directory`,
@@ -898,6 +937,214 @@ function isRunning(pid: number): boolean {
       return true;
     }
     return false;
+  }
+}
+
+function assertServerProcessClaimAvailable(
+  configDir: string,
+  currentPid = process.pid,
+): void {
+  const existingPid = readPid(configDir);
+  if (!existingPid || existingPid === currentPid || !isRunning(existingPid)) return;
+  const state = readServerState(configDir);
+  if (state.processIdentity?.format === SERVER_PROCESS_IDENTITY_FORMAT) {
+    const current = readServerProcessIdentity(existingPid);
+    if (!matchingProcessIdentity(state.processIdentity, current)) return;
+  }
+  throw new Error(
+    `Farming config directory is already owned by live Server PID ${existingPid}. `
+    + 'Stop that Server before starting another one with the same config directory.',
+  );
+}
+
+function readServerOwner(configDir: string): ServerOwner {
+  try {
+    const value: unknown = JSON.parse(fs.readFileSync(storageLayout.serverOwnerFile(configDir), 'utf8'));
+    return value && typeof value === 'object' ? value as ServerOwner : {};
+  } catch (error: unknown) {
+    if (errorString(error, 'code') === 'ENOENT' || error instanceof SyntaxError) return {};
+    throw error;
+  }
+}
+
+function exactServerOwnerIdentity(owner: ServerOwner): ServerProcessIdentity | null {
+  const identity = owner.processIdentity;
+  if (
+    identity?.format !== SERVER_PROCESS_IDENTITY_FORMAT
+    || Number(identity.pid) !== Number(owner.pid)
+    || !Number.isSafeInteger(Number(identity.pid))
+    || Number(identity.pid) <= 0
+    || !Number.isSafeInteger(Number(identity.processGroupId))
+    || Number(identity.processGroupId) <= 0
+    || !String(identity.startedAt || '').trim()
+  ) return null;
+  return {
+    format: SERVER_PROCESS_IDENTITY_FORMAT,
+    pid: Number(identity.pid),
+    processGroupId: Number(identity.processGroupId),
+    startedAt: String(identity.startedAt),
+  };
+}
+
+function writeServerOwnerClaim(
+  claimDir: string,
+  configDir: string,
+  claimId: string,
+  processIdentity: ServerProcessIdentity,
+): void {
+  fs.mkdirSync(claimDir, { mode: 0o700 });
+  fs.writeFileSync(path.join(claimDir, 'owner.json'), `${JSON.stringify({
+    claimId,
+    pid: processIdentity.pid,
+    configDir: canonicalConfigDir(configDir),
+    processIdentity,
+    phase: 'claiming',
+    updatedAt: new Date().toISOString(),
+  }, null, 2)}\n`, { mode: 0o600 });
+}
+
+function quarantineServerOwnerLock(configDir: string, claimId: string): boolean {
+  const lockDir = storageLayout.serverOwnerLockDir(configDir);
+  const stale = `${lockDir}.stale-${claimId}`;
+  try {
+    fs.renameSync(lockDir, stale);
+  } catch (error: unknown) {
+    if (errorString(error, 'code') === 'ENOENT') return false;
+    if (errorString(error, 'code') === 'EEXIST' || errorString(error, 'code') === 'ENOTEMPTY') return false;
+    throw error;
+  }
+  return true;
+}
+
+function serverOwnerLockExists(lockDir: string): boolean {
+  try {
+    fs.lstatSync(lockDir);
+    return true;
+  } catch (error: unknown) {
+    if (errorString(error, 'code') === 'ENOENT') return false;
+    throw error;
+  }
+}
+
+function acquireServerConfigOwner(
+  configDir: string,
+  currentPid = process.pid,
+): ServerProcessIdentity {
+  const canonicalDir = canonicalConfigDir(configDir);
+  const currentIdentity = readServerProcessIdentity(currentPid);
+  if (!currentIdentity) throw new Error('server process identity could not be committed before startup');
+  const lockDir = storageLayout.serverOwnerLockDir(canonicalDir);
+
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const claimId = crypto.randomUUID();
+    const claimDir = `${lockDir}.claim-${claimId}`;
+    let published = false;
+    try {
+      writeServerOwnerClaim(claimDir, canonicalDir, claimId, currentIdentity);
+      if (!serverOwnerLockExists(lockDir)) {
+        try {
+          fs.renameSync(claimDir, lockDir);
+          published = true;
+        } catch (error: unknown) {
+          if (errorString(error, 'code') !== 'EEXIST' && errorString(error, 'code') !== 'ENOTEMPTY') throw error;
+        }
+      }
+      if (published) {
+        try {
+          assertServerProcessClaimAvailable(canonicalDir, currentPid);
+        } catch (error) {
+          fs.rmSync(lockDir, { recursive: true, force: true });
+          throw error;
+        }
+        return currentIdentity;
+      }
+    } finally {
+      fs.rmSync(claimDir, { recursive: true, force: true });
+    }
+
+    const owner = readServerOwner(canonicalDir);
+    const ownerPid = Number(owner.pid || owner.processIdentity?.pid || 0);
+    const ownerIdentity = exactServerOwnerIdentity(owner);
+    if (ownerPid === currentPid && ownerIdentity && matchingProcessIdentity(ownerIdentity, currentIdentity)) {
+      return currentIdentity;
+    }
+    if (ownerPid > 0) {
+      const liveOwner = readServerProcessIdentity(ownerPid);
+      if (liveOwner && !ownerIdentity) {
+        throw new Error(
+          `Farming config directory owner lock names live PID ${ownerPid}, but its process identity is incomplete. `
+          + 'Refusing to replace an owner that cannot be safely verified.',
+        );
+      }
+      if (ownerIdentity && matchingProcessIdentity(ownerIdentity, liveOwner)) {
+        throw new Error(
+          `Farming config directory is already owned by live Server PID ${ownerPid}. `
+          + 'Stop that Server before starting another one with the same config directory.',
+        );
+      }
+    }
+    const ownerClaimId = String(owner.claimId || '');
+    if (!ownerIdentity || !/^[0-9a-f-]{36}$/i.test(ownerClaimId)) {
+      throw new Error(
+        'Farming config directory owner lock has no verifiable process identity. '
+        + 'Prove that no Server uses this config directory before removing the lock manually.',
+      );
+    }
+    if (!quarantineServerOwnerLock(canonicalDir, ownerClaimId)) continue;
+  }
+  throw new Error('Farming config directory ownership changed repeatedly during startup');
+}
+
+function releaseServerConfigOwner(
+  configDir: string,
+  expectedPid: number,
+  expectedIdentity: ExpectedProcessIdentity | null | undefined,
+): void {
+  const owner = readServerOwner(configDir);
+  const ownerIdentity = exactServerOwnerIdentity(owner);
+  const claimId = String(owner.claimId || '');
+  if (
+    !ownerIdentity
+    || Number(owner.pid) !== Number(expectedPid)
+    || expectedIdentity?.format !== SERVER_PROCESS_IDENTITY_FORMAT
+    || !matchingProcessIdentity(expectedIdentity, ownerIdentity)
+    || !/^[0-9a-f-]{36}$/i.test(claimId)
+  ) return;
+  // Fence the exact published claim instead of deleting the shared path.
+  // If a replacement already moved this claim and published a new owner, the
+  // claim-specific quarantine path already exists and this rename cannot touch
+  // the replacement.
+  quarantineServerOwnerLock(configDir, claimId);
+}
+
+function clearProvenStaleServerConfigOwner(configDir: string): void {
+  const lockDir = storageLayout.serverOwnerLockDir(configDir);
+  if (!serverOwnerLockExists(lockDir)) return;
+  const owner = readServerOwner(configDir);
+  const ownerIdentity = exactServerOwnerIdentity(owner);
+  const ownerPid = Number(owner.pid || owner.processIdentity?.pid || 0);
+  const liveOwner = ownerPid > 0 ? readServerProcessIdentity(ownerPid) : null;
+  if (liveOwner && !ownerIdentity) {
+    throw new Error(
+      `Farming config directory owner lock names live PID ${ownerPid}, but its process identity is incomplete. `
+      + 'Refusing to remove an owner that cannot be safely verified.',
+    );
+  }
+  if (ownerIdentity && matchingProcessIdentity(ownerIdentity, liveOwner)) {
+    throw new Error(
+      `Farming config directory is still owned by live Server PID ${ownerPid}, but its control metadata is incomplete. `
+      + 'Retry after startup finishes or stop that exact process explicitly.',
+    );
+  }
+  const claimId = String(owner.claimId || '');
+  if (!ownerIdentity || !/^[0-9a-f-]{36}$/i.test(claimId)) {
+    throw new Error(
+      'Farming config directory owner lock has no verifiable process identity. '
+      + 'Prove that no Server uses this config directory before removing the lock manually.',
+    );
+  }
+  if (!quarantineServerOwnerLock(configDir, claimId)) {
+    throw new Error('Farming config directory owner lock changed while stale ownership was being cleared; retry');
   }
 }
 
@@ -1022,9 +1269,11 @@ async function cleanupFailedDaemonStart(
       await new Promise(resolve => setTimeout(resolve, SERVER_STOP_POLL_MS));
     }
   }
-  if (readPid(configDir) !== childPid) return;
-  fs.rmSync(pidFile(configDir), { force: true });
-  fs.rmSync(serverStateFile(configDir), { force: true });
+  if (readPid(configDir) === childPid) fs.rmSync(pidFile(configDir), { force: true });
+  if (Number(readServerState(configDir).pid) === childPid) {
+    fs.rmSync(serverStateFile(configDir), { force: true });
+  }
+  releaseServerConfigOwner(configDir, childPid, expectedIdentity);
 }
 
 function waitForServer(
@@ -1089,12 +1338,10 @@ function waitForServer(
 }
 
 async function runServerInCurrentProcess(): Promise<void> {
-  const env = buildServerEnv();
+  const env = canonicalizeServerConfigDir(buildServerEnv());
   process.env = env;
-  ensureConfigDir(env.FARMING_CONFIG_DIR);
+  const processIdentity = acquireServerConfigOwner(env.FARMING_CONFIG_DIR);
   fs.writeFileSync(pidFile(env.FARMING_CONFIG_DIR), String(process.pid), { mode: 0o600 });
-  const processIdentity = await readServerProcessIdentity(process.pid);
-  if (!processIdentity) throw new Error('server process identity could not be committed before startup');
   writeServerState(env.FARMING_CONFIG_DIR, env, process.pid, processIdentity, 'starting');
   const { startServer } = require('./server.cjs') as {
     startServer(): {
@@ -1167,7 +1414,7 @@ async function prepareStartupDependencies(
 }
 
 async function startForeground(parsed: ParsedServerOperation): Promise<void> {
-  const env = buildServerEnv(parsed.env);
+  const env = canonicalizeServerConfigDir(buildServerEnv(parsed.env));
   await prepareStartupDependencies(env);
   await adaptServerPort(env, parsed);
   env[SERVER_MODE_ENV] = '1';
@@ -1191,7 +1438,7 @@ async function startForeground(parsed: ParsedServerOperation): Promise<void> {
 }
 
 async function startDaemon(parsed: ParsedServerOperation): Promise<number> {
-  const env = await adaptServerPort(buildServerEnv(parsed.env), parsed);
+  const env = await adaptServerPort(canonicalizeServerConfigDir(buildServerEnv(parsed.env)), parsed);
   env[SERVER_MODE_ENV] = '1';
   const configDir = env.FARMING_CONFIG_DIR;
   ensureConfigDir(configDir);
@@ -1213,9 +1460,8 @@ async function startDaemon(parsed: ParsedServerOperation): Promise<number> {
       return 1;
     }
     if (state.phase === 'starting') {
-      console.warn(`Previous Farming startup (PID ${existingPid}) did not complete; replacing it.`);
-      const stopCode = await stopDaemon({ env });
-      if (stopCode !== 0) return stopCode;
+      console.log(`Farming is already starting (PID ${existingPid})`);
+      return 0;
     } else {
       if (state.port) env.PORT = String(state.port);
       if (state.basePath) env.FARMING_BASE_PATH = state.basePath;
@@ -1246,13 +1492,10 @@ async function startDaemon(parsed: ParsedServerOperation): Promise<number> {
   const childPid = child.pid;
   if (!childPid) throw new Error('server process did not report its PID after launch');
   child.unref();
-  fs.writeFileSync(pidFile(configDir), String(childPid));
-
   let processIdentity = null;
   try {
     processIdentity = await readServerProcessIdentity(childPid);
     if (!processIdentity) throw new Error('server process identity could not be verified after launch');
-    writeServerState(configDir, env, childPid, processIdentity, 'starting');
     await waitForServer(env, serverStartTimeoutMs(env), childPid);
     await waitForProcessStability(childPid, serverStartStabilityMs(env));
     await waitForServer(env, Math.min(serverStartTimeoutMs(env), 5_000), childPid);
@@ -1292,10 +1535,11 @@ async function startDaemon(parsed: ParsedServerOperation): Promise<number> {
 }
 
 async function stopDaemon(parsed: ParsedServerOperation): Promise<number> {
-  const env = buildServerEnv(parsed.env);
+  const env = canonicalizeServerConfigDir(buildServerEnv(parsed.env));
   const configDir = env.FARMING_CONFIG_DIR;
   const pid = readPid(configDir);
   if (!isRunning(pid)) {
+    clearProvenStaleServerConfigOwner(configDir);
     fs.rmSync(pidFile(configDir), { force: true });
     fs.rmSync(serverStateFile(configDir), { force: true });
     console.log('Farming is not running.');
@@ -1323,12 +1567,13 @@ async function stopDaemon(parsed: ParsedServerOperation): Promise<number> {
   await waitForDaemonStop(pid, port, { timeoutMs: serverStopTimeoutMs(env) });
   if (readPid(configDir) === pid) fs.rmSync(pidFile(configDir), { force: true });
   if (Number(readServerState(configDir).pid) === pid) fs.rmSync(serverStateFile(configDir), { force: true });
+  releaseServerConfigOwner(configDir, pid, state.processIdentity);
   console.log(`Stopped Farming (PID ${pid})`);
   return 0;
 }
 
 async function statusDaemon(parsed: ParsedServerOperation): Promise<number> {
-  const env = buildServerEnv(parsed.env);
+  const env = canonicalizeServerConfigDir(buildServerEnv(parsed.env));
   const configDir = env.FARMING_CONFIG_DIR;
   const pid = readPid(configDir);
   if (!isRunning(pid)) {
@@ -1507,6 +1752,9 @@ export {
   cleanupFailedDaemonStart,
   buildControlEnv,
   buildServerEnv,
+  acquireServerConfigOwner,
+  assertServerProcessClaimAvailable,
+  canonicalizeServerConfigDir,
   computeNodeHeapMb,
   defaultConfigDir,
   findAvailablePort,
@@ -1516,6 +1764,7 @@ export {
   reviewUrl,
   readServerState,
   readServerProcessIdentity,
+  releaseServerConfigOwner,
   serverStartTimeoutMs,
   serverStartStabilityMs,
   serverStopTimeoutMs,

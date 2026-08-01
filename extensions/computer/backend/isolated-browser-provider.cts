@@ -1,6 +1,10 @@
 const { execFile } = require('child_process');
 const { promisify } = require('util');
 const crypto = require('crypto');
+import {
+  canonicalConfigDir,
+  configInstanceFingerprint,
+} from '../../../backend/config-instance.cjs';
 import { ManagedChromiumInstaller } from '../../browser/backend/managed-chromium-installer.cjs';
 
 const execFileAsync = promisify(execFile);
@@ -56,16 +60,19 @@ function isolatedBrowserError(message: string, code: string, status = 409) {
 class IsolatedBrowserProvider {
   readonly computerResourceManager: ComputerResourceManagerLike;
   readonly configFingerprint: string;
+  readonly legacyConfigFingerprints: Set<string>;
   readonly chromiumInstaller: ChromiumInstallerLike;
   readonly docker: DockerRunner;
   preparePromise: Promise<unknown> | null = null;
 
   constructor(options: IsolatedBrowserProviderOptions) {
     this.computerResourceManager = options.computerResourceManager;
-    this.configFingerprint = crypto.createHash('sha256')
-      .update(options.configDir)
-      .digest('hex')
-      .slice(0, 12);
+    const configDir = canonicalConfigDir(options.configDir);
+    this.configFingerprint = configInstanceFingerprint(configDir);
+    this.legacyConfigFingerprints = new Set([
+      crypto.createHash('sha256').update(options.configDir).digest('hex').slice(0, 12),
+      crypto.createHash('sha256').update(configDir).digest('hex').slice(0, 12),
+    ]);
     this.docker = options.dockerRunner || (async (args, runOptions = {}) => {
       const result = await execFileAsync('docker', args, {
         encoding: 'utf8',
@@ -78,7 +85,7 @@ class IsolatedBrowserProvider {
       };
     });
     this.chromiumInstaller = options.chromiumInstaller || new ManagedChromiumInstaller({
-      configDir: options.configDir,
+      configDir,
       platform: 'linux',
       arch: process.arch,
       platformKey: `linux-${process.arch}-computer`,
@@ -122,18 +129,26 @@ class IsolatedBrowserProvider {
     // v2.2.30 briefly created hidden cuabot containers for isolated Browsers.
     // Remove only containers carrying this exact Farming instance and legacy
     // image identity. New Browser sessions are owned by visible Computers.
-    let listed: DockerResult;
-    try {
-      listed = await this.docker([
-        'ps', '-aq',
-        '--filter', 'label=farming.dev/kind=isolated-browser',
-        '--filter', `label=farming.dev/config=${this.configFingerprint}`,
-        '--filter', `label=farming.dev/image-digest=${LEGACY_ISOLATED_BROWSER_IMAGE_DIGEST}`,
-      ], { timeoutMs: 10_000 });
-    } catch {
-      return;
+    const ownedFingerprints = new Set([
+      this.configFingerprint,
+      ...this.legacyConfigFingerprints,
+    ]);
+    const ids = new Set<string>();
+    for (const fingerprint of ownedFingerprints) {
+      let listed: DockerResult;
+      try {
+        listed = await this.docker([
+          'ps', '-aq',
+          '--filter', 'label=farming.dev/kind=isolated-browser',
+          '--filter', `label=farming.dev/config=${fingerprint}`,
+          '--filter', `label=farming.dev/image-digest=${LEGACY_ISOLATED_BROWSER_IMAGE_DIGEST}`,
+        ], { timeoutMs: 10_000 });
+      } catch {
+        return;
+      }
+      for (const id of listed.stdout.split(/\s+/).filter(Boolean)) ids.add(id);
     }
-    for (const id of listed.stdout.split(/\s+/).filter(Boolean)) {
+    for (const id of ids) {
       const inspected = await this.docker(['inspect', id], { timeoutMs: 10_000 });
       const parsed = JSON.parse(inspected.stdout);
       const value = Array.isArray(parsed) && parsed[0] && typeof parsed[0] === 'object'
@@ -146,7 +161,7 @@ class IsolatedBrowserProvider {
       ) as Record<string, unknown>;
       if (
         labels['farming.dev/kind'] !== 'isolated-browser'
-        || labels['farming.dev/config'] !== this.configFingerprint
+        || !ownedFingerprints.has(String(labels['farming.dev/config'] || ''))
         || labels['farming.dev/image-digest'] !== LEGACY_ISOLATED_BROWSER_IMAGE_DIGEST
       ) continue;
       const state = value.State && typeof value.State === 'object'

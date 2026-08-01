@@ -106,9 +106,25 @@ async function run() {
   });
 
   assert.match(namespaceForResource(configDir, 'browser_test', 1), /^farming-[a-f0-9]{16}$/);
+  const configAlias = `${configDir}-alias`;
+  fs.symlinkSync(configDir, configAlias, process.platform === 'win32' ? 'junction' : 'dir');
+  try {
+    assert.strictEqual(
+      namespaceForResource(configAlias, 'browser_test', 1),
+      namespaceForResource(configDir, 'browser_test', 1),
+      'Browser runtime namespaces must use the canonical Config identity',
+    );
+  } finally {
+    fs.rmSync(configAlias, { force: true });
+  }
   assert.notStrictEqual(
     namespaceForResource(configDir, 'browser_test', 1),
     namespaceForResource(configDir, 'browser_other', 1),
+  );
+  assert.notStrictEqual(
+    namespaceForResource(path.join(configDir, 'other-config'), 'browser_test', 1),
+    namespaceForResource(configDir, 'browser_test', 1),
+    'different Config directories must not share a Browser runtime namespace',
   );
   const expectedSession = sessionForResource('browser_test', 7);
   assert.match(expectedSession, /^fb-[a-f0-9]{16}$/);

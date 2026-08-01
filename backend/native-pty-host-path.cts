@@ -3,17 +3,28 @@
 import * as crypto from 'crypto';
 import * as os from 'os';
 import * as path from 'path';
+import { canonicalConfigDir } from './config-instance.cjs';
 
 interface NativePtyPrivateSocketOptions {
   pid?: number;
   nonce?: string;
 }
 
+const PORTABLE_UNIX_SOCKET_PATH_BYTES = 103;
+
+function nativePtyHostUnixSocketPath(filename: string): string {
+  const temporaryPath = path.join(os.tmpdir(), filename);
+  if (Buffer.byteLength(temporaryPath) <= PORTABLE_UNIX_SOCKET_PATH_BYTES) {
+    return temporaryPath;
+  }
+  return path.join('/tmp', filename);
+}
+
 function nativePtyHostSocketPath(configDir?: string): string {
   const root = configDir || process.env.FARMING_CONFIG_DIR || path.join(os.homedir(), '.farming');
   const hash = crypto
     .createHash('sha1')
-    .update(path.resolve(root))
+    .update(canonicalConfigDir(root))
     .digest('hex')
     .slice(0, 12);
 
@@ -21,7 +32,9 @@ function nativePtyHostSocketPath(configDir?: string): string {
     return `\\\\.\\pipe\\farming-native-pty-${hash}`;
   }
 
-  return path.join(os.tmpdir(), `farming-native-pty-${process.getuid ? process.getuid() : 'user'}-${hash}.sock`);
+  return nativePtyHostUnixSocketPath(
+    `farming-native-pty-${process.getuid ? process.getuid() : 'user'}-${hash}.sock`,
+  );
 }
 
 function nativePtyHostPrivateSocketHash(socketPath: string): string {

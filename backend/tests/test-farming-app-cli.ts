@@ -1,5 +1,5 @@
 const assert = require('assert');
-const { execFileSync, fork, spawn } = require('child_process');
+const { execFileSync, fork, spawn, spawnSync } = require('child_process');
 const fs = require('fs');
 const net = require('net');
 const os = require('os');
@@ -12,9 +12,12 @@ const {
   cleanupFailedDaemonStart,
   buildControlEnv,
   buildServerEnv,
+  acquireServerConfigOwner,
+  assertServerProcessClaimAvailable,
   parseReviewArgs,
   parseServerArgs,
   readServerProcessIdentity,
+  releaseServerConfigOwner,
   resolveReviewTarget,
   reviewUrl,
   serverStartTimeoutMs,
@@ -58,7 +61,299 @@ function freePort() {
   });
 }
 
+function waitForOutput(child, pattern, timeoutMs = 10_000) {
+  return new Promise((resolve, reject) => {
+    let output = '';
+    const timeout = setTimeout(() => {
+      cleanup();
+      reject(new Error(`process ${child.pid} did not produce ${pattern} within ${timeoutMs}ms: ${output}`));
+    }, timeoutMs);
+    const onData = chunk => {
+      output += String(chunk);
+      if (!pattern.test(output)) return;
+      cleanup();
+      resolve(output);
+    };
+    const onExit = (code, signal) => {
+      cleanup();
+      reject(new Error(`process ${child.pid} exited before ${pattern} (${signal || code}): ${output}`));
+    };
+    const cleanup = () => {
+      clearTimeout(timeout);
+      child.stdout?.off('data', onData);
+      child.stderr?.off('data', onData);
+      child.off('exit', onExit);
+    };
+    child.stdout?.on('data', onData);
+    child.stderr?.on('data', onData);
+    child.on('exit', onExit);
+  });
+}
+
+function waitForCondition(predicate, description, timeoutMs = 15_000) {
+  const startedAt = Date.now();
+  return new Promise((resolve, reject) => {
+    const tick = () => {
+      const value = predicate();
+      if (value) {
+        resolve(value);
+        return;
+      }
+      if (Date.now() - startedAt >= timeoutMs) {
+        reject(new Error(`timed out waiting for ${description}`));
+        return;
+      }
+      setTimeout(tick, 25);
+    };
+    tick();
+  });
+}
+
+async function stopTestProcess(child) {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  const exited = new Promise(resolve => child.once('exit', resolve));
+  child.kill('SIGKILL');
+  await exited;
+}
+
+function spawnConfigOwner(configDir) {
+  return spawn(process.execPath, ['-e', [
+    "const { acquireServerConfigOwner } = require('./backend/farming-app-cli.cjs');",
+    'acquireServerConfigOwner(process.env.FARMING_CONFIG_DIR);',
+    "process.stdout.write('owner-ready\\n');",
+    'setInterval(() => {}, 1000);',
+  ].join(' ')], {
+    cwd: process.cwd(),
+    env: { ...process.env, FARMING_CONFIG_DIR: configDir },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+}
+
+function spawnRawServer(configDir, port) {
+  return spawn(process.execPath, ['backend/farming-app-cli.cjs'], {
+    cwd: process.cwd(),
+    env: {
+      ...process.env,
+      FARMING_CONFIG_DIR: configDir,
+      FARMING_DISABLE_AUTH: '1',
+      FARMING_RUN_SERVER: '1',
+      FARMING_SESSION_ENGINE: 'local',
+      FARMING_SKIP_RUNTIME_PREPARE: '1',
+      NODE_ENV: 'test',
+      PORT: String(port),
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+}
+
 async function runTests() {
+  {
+    const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-direct-server-rejected.'));
+    try {
+      const direct = spawnSync(process.execPath, ['backend/server.cjs'], {
+        cwd: process.cwd(),
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          FARMING_CONFIG_DIR: configDir,
+          NODE_ENV: '',
+        },
+      });
+      assert.strictEqual(direct.status, 1);
+      assert.match(direct.stderr, /Direct backend\/server\.cjs startup is unsupported/);
+      assert.deepStrictEqual(
+        fs.readdirSync(configDir),
+        [],
+        'an unsupported direct Server startup must fail before initializing Config-owned state',
+      );
+    } finally {
+      fs.rmSync(configDir, { recursive: true, force: true });
+    }
+  }
+
+  {
+    const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-server-claim.'));
+    const owner = spawnConfigOwner(configDir);
+    try {
+      await waitForOutput(owner, /owner-ready/);
+      const before = fs.readdirSync(configDir).sort();
+      assert.throws(
+        () => acquireServerConfigOwner(configDir),
+        new RegExp(`already owned by live Server PID ${owner.pid}`),
+      );
+      const duplicate = spawnSync(process.execPath, ['backend/farming-app-cli.cjs'], {
+        cwd: process.cwd(),
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          FARMING_CONFIG_DIR: configDir,
+          FARMING_DISABLE_AUTH: '1',
+          FARMING_RUN_SERVER: '1',
+          NODE_ENV: 'test',
+          PORT: String(await freePort()),
+        },
+      });
+      assert.strictEqual(duplicate.status, 1);
+      assert.match(duplicate.stderr, /already owned by live Server PID/);
+      assert.deepStrictEqual(
+        fs.readdirSync(configDir).sort(),
+        before,
+        'a rejected duplicate Server must not initialize AgentManager-owned config state',
+      );
+      assert.strictEqual(
+        fs.existsSync(storageLayout.nativePtyControllerGenerationFile(configDir)),
+        false,
+        'a rejected duplicate Server must not initialize the native PTY controller',
+      );
+    } finally {
+      await stopTestProcess(owner);
+      fs.rmSync(configDir, { recursive: true, force: true });
+    }
+  }
+
+  {
+    const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-server-release.'));
+    try {
+      const identity = acquireServerConfigOwner(configDir);
+      const owner = JSON.parse(fs.readFileSync(storageLayout.serverOwnerFile(configDir), 'utf8'));
+      releaseServerConfigOwner(configDir, process.pid, identity);
+      assert.strictEqual(fs.existsSync(storageLayout.serverOwnerLockDir(configDir)), false);
+      assert.strictEqual(
+        fs.existsSync(`${storageLayout.serverOwnerLockDir(configDir)}.stale-${owner.claimId}`),
+        true,
+        'release must fence the exact claim instead of deleting a potentially replaced owner path',
+      );
+    } finally {
+      fs.rmSync(configDir, { recursive: true, force: true });
+    }
+  }
+
+  {
+    const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-server-stale-owner.'));
+    const firstOwner = spawnConfigOwner(configDir);
+    let replacementOwner;
+    try {
+      await waitForOutput(firstOwner, /owner-ready/);
+      const firstRecord = JSON.parse(fs.readFileSync(storageLayout.serverOwnerFile(configDir), 'utf8'));
+      await stopTestProcess(firstOwner);
+
+      replacementOwner = spawnConfigOwner(configDir);
+      await waitForOutput(replacementOwner, /owner-ready/);
+      const replacementRecord = JSON.parse(fs.readFileSync(storageLayout.serverOwnerFile(configDir), 'utf8'));
+      assert.notStrictEqual(replacementRecord.claimId, firstRecord.claimId);
+      assert.strictEqual(replacementRecord.pid, replacementOwner.pid);
+      assert.strictEqual(
+        fs.existsSync(`${storageLayout.serverOwnerLockDir(configDir)}.stale-${firstRecord.claimId}`),
+        true,
+        'a precisely stale owner must be fenced before replacement',
+      );
+    } finally {
+      await stopTestProcess(firstOwner);
+      if (replacementOwner) await stopTestProcess(replacementOwner);
+      fs.rmSync(configDir, { recursive: true, force: true });
+    }
+  }
+
+  {
+    const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-server-unknown-owner.'));
+    try {
+      fs.mkdirSync(storageLayout.serverOwnerLockDir(configDir));
+      assert.throws(
+        () => acquireServerConfigOwner(configDir),
+        /owner lock has no verifiable process identity/,
+      );
+      assert.strictEqual(
+        fs.existsSync(storageLayout.serverOwnerLockDir(configDir)),
+        true,
+        'an owner with uncertain identity must fail closed instead of being age-reclaimed',
+      );
+    } finally {
+      fs.rmSync(configDir, { recursive: true, force: true });
+    }
+  }
+
+  {
+    const parentDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-server-symlink-owner.'));
+    const configDir = path.join(parentDir, 'config');
+    const aliasDir = path.join(parentDir, 'config-alias');
+    fs.mkdirSync(configDir);
+    fs.symlinkSync(configDir, aliasDir, process.platform === 'win32' ? 'junction' : 'dir');
+    const owner = spawnConfigOwner(configDir);
+    try {
+      await waitForOutput(owner, /owner-ready/);
+      assert.throws(
+        () => acquireServerConfigOwner(aliasDir),
+        new RegExp(`already owned by live Server PID ${owner.pid}`),
+      );
+    } finally {
+      await stopTestProcess(owner);
+      fs.rmSync(parentDir, { recursive: true, force: true });
+    }
+  }
+
+  {
+    const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-server-concurrent.'));
+    const firstPort = await freePort();
+    let secondPort = await freePort();
+    while (secondPort === firstPort) secondPort = await freePort();
+    const first = spawnRawServer(configDir, firstPort);
+    const second = spawnRawServer(configDir, secondPort);
+    let firstOutput = '';
+    let secondOutput = '';
+    first.stdout.on('data', chunk => { firstOutput += String(chunk); });
+    first.stderr.on('data', chunk => { firstOutput += String(chunk); });
+    second.stdout.on('data', chunk => { secondOutput += String(chunk); });
+    second.stderr.on('data', chunk => { secondOutput += String(chunk); });
+    try {
+      await waitForCondition(
+        () => [first, second].filter(child => child.exitCode !== null || child.signalCode !== null).length === 1,
+        'exactly one concurrent Server startup to be rejected',
+      );
+      await waitForCondition(() => {
+        try {
+          return JSON.parse(fs.readFileSync(serverStateFile(configDir), 'utf8')).phase === 'running';
+        } catch {
+          return false;
+        }
+      }, 'the winning concurrent Server to enter running state');
+
+      const winner = first.exitCode === null && first.signalCode === null ? first : second;
+      const loser = winner === first ? second : first;
+      const loserOutput = loser === first ? firstOutput : secondOutput;
+      const state = JSON.parse(fs.readFileSync(serverStateFile(configDir), 'utf8'));
+      const owner = JSON.parse(fs.readFileSync(storageLayout.serverOwnerFile(configDir), 'utf8'));
+      assert.strictEqual(loser.exitCode, 1);
+      assert.match(loserOutput, /already owned by live Server PID/);
+      assert.strictEqual(state.pid, winner.pid);
+      assert.strictEqual(owner.pid, winner.pid);
+      assert.strictEqual(state.port, winner === first ? firstPort : secondPort);
+    } finally {
+      await stopTestProcess(first);
+      await stopTestProcess(second);
+      fs.rmSync(configDir, { recursive: true, force: true });
+    }
+  }
+
+  {
+    const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-server-legacy-claim.'));
+    const owner = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+    try {
+      await new Promise((resolve, reject) => {
+        owner.once('spawn', resolve);
+        owner.once('error', reject);
+      });
+      fs.writeFileSync(storageLayout.serverPidFile(configDir), String(owner.pid));
+      assert.throws(
+        () => assertServerProcessClaimAvailable(configDir),
+        new RegExp(`already owned by live Server PID ${owner.pid}`),
+      );
+      assert.doesNotThrow(() => assertServerProcessClaimAvailable(configDir, owner.pid));
+    } finally {
+      await stopTestProcess(owner);
+      fs.rmSync(configDir, { recursive: true, force: true });
+    }
+  }
+
   {
     const parsed = parseServerArgs([
       'daemon',
@@ -378,6 +673,8 @@ async function runTests() {
 
   {
     const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-legacy-stop-daemon.'));
+    const configAlias = `${configDir}-alias`;
+    fs.symlinkSync(configDir, configAlias, process.platform === 'win32' ? 'junction' : 'dir');
     const fixture = path.join(__dirname, 'fixtures', 'farming-stop-server.ts');
     const port = await freePort();
     const token = 'legacy-config-token-019f98f3';
@@ -390,7 +687,7 @@ async function runTests() {
       env: {
         ...process.env,
         FARMING_RUN_SERVER: '1',
-        FARMING_CONFIG_DIR: configDir,
+        FARMING_CONFIG_DIR: configAlias,
         FARMING_BASE_PATH: '/farming',
         FARMING_TEST_PORT: String(port),
         FARMING_TEST_TOKEN: token,
@@ -444,6 +741,7 @@ async function runTests() {
       assert.strictEqual(await canBindPort(port), true);
     } finally {
       if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+      fs.rmSync(configAlias, { force: true });
       fs.rmSync(configDir, { recursive: true, force: true });
     }
   }

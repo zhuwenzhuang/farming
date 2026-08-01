@@ -221,7 +221,7 @@ import { AgentManager } from './agent-manager.cjs';
 import { isAgentRuntimeModeRequest, runtimeKind } from './agent-runtime-binding.cjs';
 import { ConfigManager } from './config-manager.cjs';
 import { ThemeManager } from './theme-manager.cjs';
-import { TokenAuth, encodeCookieToken } from './auth.cjs';
+import { TokenAuth } from './auth.cjs';
 import { getLocalIPs, getPrimaryLocalIP } from './network.cjs';
 import { listAvailableAgents, resolveCompatibleCodexExecutable } from './executable-discovery.cjs';
 import { readClaudeSettingsSummary } from './claude-settings.cjs';
@@ -284,6 +284,11 @@ const {
   startWebSocketLivenessMonitor,
 } = require('../shared/websocket-liveness.js');
 import { probeAgentManagerBusinessHealth } from './business-health.cjs';
+
+if (require.main === module && process.env.NODE_ENV !== 'test') {
+  console.error('Direct backend/server.cjs startup is unsupported; use `farming start` or `npm start`.');
+  process.exit(1);
+}
 
 const BASE_PATH = normalizeBasePath(process.env.FARMING_BASE_PATH || '/');
 const PORT = process.env.PORT || 3000;
@@ -714,10 +719,7 @@ app.get(routePath(BASE_PATH, '/j/:code'), (req, res) => {
   }
 
   if (authEnabled) {
-    res.setHeader(
-      'Set-Cookie',
-      `farming_token=${encodeCookieToken(ticket.token)}; Path=/; HttpOnly; SameSite=Lax`,
-    );
+    tokenAuth.setAuthenticatedCookie(res);
   }
   res.redirect(302, entryPathWithQuery(ticket.targetQuery));
 });

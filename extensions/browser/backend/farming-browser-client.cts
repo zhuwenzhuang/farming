@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as http from 'http';
 import * as https from 'https';
+import { bearerAuthorizationHeader } from '../../../backend/auth.cjs';
 import {
   farmingConfigDir,
   serverStateFile,
@@ -62,7 +63,7 @@ function requestJson(
       headers: {
         Accept: 'application/json',
         ...(payload ? { 'Content-Type': 'application/json', 'Content-Length': String(payload.length) } : {}),
-        ...(connection.token ? { Cookie: `farming_token=${encodeURIComponent(connection.token)}` } : {}),
+        ...(connection.token ? { Authorization: bearerAuthorizationHeader(connection.token) } : {}),
         ...(env.FARMING_AGENT_ID ? { 'X-Farming-Agent-Id': env.FARMING_AGENT_ID } : {}),
       },
     }, response => {

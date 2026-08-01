@@ -12,6 +12,7 @@
 
 ## Runtime 与 Session 架构
 
+- [Config 实例隔离](config-instance-isolation.zh_cn.md)
 - [ACP Runtime](../products/code/acp-runtime.zh_cn.md)
 - [Codex Runtime](../products/code/codex-runtime.zh_cn.md)
 - [Terminal State Protocol](../products/code/terminal-state-protocol.zh_cn.md)

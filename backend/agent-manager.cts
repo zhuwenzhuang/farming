@@ -158,6 +158,7 @@ import { deserializeTerminalState } from './terminal-state-serialization.cjs';
 import type { TranscriptBuildOptions } from './codex-transcript.cjs';
 import { compareNativePtyRuntimeEpochs } from './native-pty-controller-generation.cjs';
 import { canonicalWorkspacePath } from './workspace-root-registry.cjs';
+import { configInstanceFingerprint as fingerprintConfigInstance } from './config-instance.cjs';
 import { mergeBrowserMcpServer } from '../extensions/browser/backend/agent-capability.cjs';
 import { mergeComputerMcpServer } from '../extensions/computer/backend/agent-capability.cjs';
 import { TERMINAL_OPERATION_STATES, activeLifecycleOperation, beginLifecycleOperation, latestLifecycleOperation, lifecycleJournal, setLifecycleOperationResult, transitionLifecycleOperation } from './agent-lifecycle-journal.cjs';
@@ -1286,6 +1287,7 @@ class AgentManager extends EventEmitter {
   declare archiveCodexSession: ArchiveCodexSessionContract;
   declare unarchiveCodexSession: UnarchiveCodexSessionContract;
   declare stopPersistedAcpProcessGroup: StopPersistedAcpProcessGroupContract;
+  declare configInstanceFingerprint: string;
   declare allowUnprovenLegacyAcpRecovery: boolean;
   declare heartbeatInterval: ReturnType<typeof setInterval> | null;
   declare disposing: boolean;
@@ -1385,8 +1387,11 @@ class AgentManager extends EventEmitter {
       : deletePrecreatedProviderSession;
     this.archiveCodexSession = options.archiveCodexSession || archiveCodexSession;
     this.unarchiveCodexSession = options.unarchiveCodexSession || unarchiveCodexSession;
+    this.configInstanceFingerprint = this.configManager?.farmingDir
+      ? fingerprintConfigInstance(this.configManager.farmingDir)
+      : '';
     this.stopPersistedAcpProcessGroup = options.stopPersistedAcpProcessGroup
-      || stopPersistedAcpProcessGroup;
+      || ((identity) => stopPersistedAcpProcessGroup(identity, this.configInstanceFingerprint));
     // Upgrade compatibility is the product default: records created before
     // ACP process identities existed must still resume their provider Session.
     // Strict callers may opt out explicitly for cleanup-safety diagnostics.
@@ -2598,6 +2603,9 @@ class AgentManager extends EventEmitter {
             agent.structuredRuntimeProcess = {
               kind: 'acp-process-group',
               ...processIdentity,
+              ...(this.configInstanceFingerprint
+                ? { configInstanceFingerprint: this.configInstanceFingerprint }
+                : {}),
             };
             this.ensurePersistentAgentSession(agent);
           },
@@ -2892,6 +2900,13 @@ class AgentManager extends EventEmitter {
           pid: Number(metadata.structuredRuntimeProcess.pid),
           processGroupId: Number(metadata.structuredRuntimeProcess.processGroupId),
           startedAt: metadata.structuredRuntimeProcess.startedAt,
+          ...(typeof metadata.structuredRuntimeProcess.configInstanceFingerprint === 'string'
+            && metadata.structuredRuntimeProcess.configInstanceFingerprint.trim()
+            ? {
+                configInstanceFingerprint:
+                  metadata.structuredRuntimeProcess.configInstanceFingerprint.trim(),
+              }
+            : {}),
         }
       : null;
     const lifecycleOperation = activeLifecycleOperation(metadata);
@@ -5160,6 +5175,9 @@ class AgentManager extends EventEmitter {
             agentRecord.structuredRuntimeProcess = {
               kind: 'acp-process-group',
               ...processIdentity,
+              ...(this.configInstanceFingerprint
+                ? { configInstanceFingerprint: this.configInstanceFingerprint }
+                : {}),
             };
             this.ensurePersistentAgentSession(agentRecord);
           },

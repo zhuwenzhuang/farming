@@ -8,6 +8,7 @@ import {
   matchingProcessIdentity,
   readServerProcessIdentity,
 } from '../../../backend/server-process-identity.cjs';
+import { canonicalConfigDir } from '../../../backend/config-instance.cjs';
 import {
   runtimeExecutableInvocation,
 } from '../../../backend/runtime-executable-invocation.cjs';
@@ -120,7 +121,7 @@ const MAX_SCRIPT_LENGTH = 100_000;
 function namespaceForResource(configDir: string, id: unknown, generation: unknown): string {
   const digest = crypto
     .createHash('sha256')
-    .update(`${path.resolve(configDir)}:${String(id)}:${Number(generation)}`)
+    .update(`${canonicalConfigDir(configDir)}:${String(id)}:${Number(generation)}`)
     .digest('hex')
     .slice(0, 16);
   return `farming-${digest}`;
@@ -423,7 +424,7 @@ class AgentBrowserRuntime extends EventEmitter {
     super();
     this.id = options.id;
     this.generation = options.generation;
-    this.configDir = options.configDir;
+    this.configDir = canonicalConfigDir(options.configDir);
     this.agentBrowserPath = options.agentBrowserPath;
     this.requiredVersion = options.requiredVersion || AGENT_BROWSER_VERSION;
     this.executablePath = options.executablePath || '';

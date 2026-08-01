@@ -133,6 +133,14 @@ function serverStateFile(configDir: string): string {
   return path.join(configDir, 'farming-server.json');
 }
 
+function serverOwnerLockDir(configDir: string): string {
+  return path.join(configDir, '.farming-server-owner.lock');
+}
+
+function serverOwnerFile(configDir: string): string {
+  return path.join(serverOwnerLockDir(configDir), 'owner.json');
+}
+
 function serverLogFile(configDir: string): string {
   return path.join(configDir, 'farming-server.log');
 }
@@ -230,6 +238,8 @@ export {
   reviewSessionsFile,
   reviewStateFile,
   serverLogFile,
+  serverOwnerFile,
+  serverOwnerLockDir,
   serverPidFile,
   serverStateFile,
   sessionIndexFile,

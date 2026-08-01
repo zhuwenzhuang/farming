@@ -22,6 +22,7 @@ import { permissionSecurityWarnings } from './acp/permission-security.cjs';
 import { patchBlock, rejectPatch } from './acp/patch-decisions.cjs';
 import { getProviderAdapter, listProviderAdapters } from './provider-adapters.cjs';
 import { isSafeProviderSessionId } from './provider-session-id.cjs';
+import { configInstanceFingerprint as fingerprintConfigInstance } from './config-instance.cjs';
 import type { ProviderSessionIdentityResult } from './agent-manager-provider-types.js';
 
 type UnknownRecord = Record<string, unknown>;
@@ -183,9 +184,19 @@ interface PrepareAgentOptions extends UnknownRecord {
   onForkSessionCreated?: (sessionId: string) => Promise<void> | void;
   onSubmitted?: () => Promise<void> | void; delivery?: string;
 }
-interface ProcessIdentity { pid: number; processGroupId: number; startedAt: string }
+interface ProcessIdentity {
+  pid: number;
+  processGroupId: number;
+  startedAt: string;
+  configInstanceFingerprint?: string;
+}
 interface ProviderAdapterLike { id: string; acp?: { version: string } }
-interface PersistedProcessIdentity { pid?: number; processGroupId?: number; startedAt?: string }
+interface PersistedProcessIdentity {
+  pid?: number;
+  processGroupId?: number;
+  startedAt?: string;
+  configInstanceFingerprint?: string;
+}
 interface ProviderSessionIdentity extends UnknownRecord {
   provider?: string; executable?: string; env?: NodeJS.ProcessEnv; cwd?: string;
   sessionId?: string; producerStopped?: boolean;
@@ -758,8 +769,51 @@ async function describeAcpProcessGroup(pid: number) {
   };
 }
 
-async function stopPersistedAcpProcessGroup(identity: PersistedProcessIdentity | null | undefined) {
+async function readAcpProcessConfigFingerprint(pid: number) {
+  const processId = Number(pid);
+  if (!Number.isSafeInteger(processId) || processId <= 0) {
+    return { available: false, fingerprint: '' };
+  }
+  if (process.platform !== 'win32') {
+    try {
+      const environment = fs.readFileSync(`/proc/${processId}/environ`, 'utf8')
+        .split('\0')
+        .filter(Boolean);
+      const configEntry = environment.find((entry: string) => entry.startsWith('FARMING_CONFIG_DIR='));
+      const configDir = configEntry?.slice('FARMING_CONFIG_DIR='.length) || '';
+      return {
+        available: true,
+        fingerprint: configDir ? fingerprintConfigInstance(configDir) : '',
+      };
+    } catch {
+      // macOS and other systems without procfs fall through to ps.
+    }
+  }
+  try {
+    const { stdout } = await execFileAsync(
+      '/bin/ps',
+      ['eww', '-p', String(processId), '-o', 'command='],
+      { encoding: 'utf8', timeout: 1_000, maxBuffer: 1024 * 1024 },
+    );
+    const match = String(stdout || '').match(/(?:^|\s)FARMING_CONFIG_DIR=([^\s]+)/);
+    return {
+      available: true,
+      fingerprint: match?.[1] ? fingerprintConfigInstance(match[1]) : '',
+    };
+  } catch {
+    return { available: false, fingerprint: '' };
+  }
+}
+
+async function stopPersistedAcpProcessGroup(
+  identity: PersistedProcessIdentity | null | undefined,
+  currentConfigInstanceFingerprint?: string,
+) {
   const expected = identity && typeof identity === 'object' ? identity : null;
+  const currentConfigFingerprint = String(currentConfigInstanceFingerprint || '').trim();
+  if (!currentConfigFingerprint) {
+    return { stopped: false, missingConfigScope: true };
+  }
   if (
     !expected
     || !Number.isSafeInteger(Number(expected.pid))
@@ -767,6 +821,13 @@ async function stopPersistedAcpProcessGroup(identity: PersistedProcessIdentity |
     || !String(expected.startedAt || '').trim()
   ) {
     return { stopped: false, missingProof: true };
+  }
+  const persistedConfigFingerprint = String(expected.configInstanceFingerprint || '').trim();
+  if (
+    persistedConfigFingerprint
+    && persistedConfigFingerprint !== currentConfigFingerprint
+  ) {
+    return { stopped: false, configScopeMismatch: true };
   }
   const processGroupId = Number(expected.processGroupId);
   const groupHasExited = () => {
@@ -787,6 +848,15 @@ async function stopPersistedAcpProcessGroup(identity: PersistedProcessIdentity |
     )
   ) {
     return { stopped: false, identityMismatch: true };
+  }
+  if (!persistedConfigFingerprint) {
+    const observedConfig = await readAcpProcessConfigFingerprint(Number(expected.pid));
+    if (!observedConfig.available || !observedConfig.fingerprint) {
+      return { stopped: false, missingConfigScope: true };
+    }
+    if (observedConfig.fingerprint !== currentConfigFingerprint) {
+      return { stopped: false, configScopeMismatch: true };
+    }
   }
   const waitForExit = async (timeoutMs: number) => {
     const deadline = Date.now() + timeoutMs;
@@ -865,6 +935,7 @@ class AcpRuntime extends EventEmitter {
   declare historyReplayMaxWaitMs: number;
   declare deleteProviderSessionIdentity: NonNullable<AcpRuntimeOptions['deleteProviderSessionIdentity']>;
   declare describeProcessGroup: NonNullable<AcpRuntimeOptions['describeAcpProcessGroup']>;
+  declare configInstanceFingerprint: string;
   declare checkpointStore: Pick<
     AcpCheckpointStore,
     'dispose' | 'flush' | 'load' | 'markDirty' | 'schedule' | 'write'
@@ -901,6 +972,9 @@ class AcpRuntime extends EventEmitter {
     this.historyReplayMaxWaitMs = options.historyReplayMaxWaitMs ?? DEFAULT_HISTORY_REPLAY_MAX_WAIT_MS;
     this.deleteProviderSessionIdentity = options.deleteProviderSessionIdentity || deleteProviderSessionIdentity;
     this.describeProcessGroup = options.describeAcpProcessGroup || describeAcpProcessGroup;
+    this.configInstanceFingerprint = options.configDir
+      ? fingerprintConfigInstance(options.configDir)
+      : '';
     this.checkpointStore = options.checkpointStore
       || (options.configDir ? new AcpCheckpointStore(options.configDir, options.checkpointOptions) : null);
     this.bindings = new Map<string, AcpBinding>();
@@ -1072,7 +1146,12 @@ class AcpRuntime extends EventEmitter {
         if (!processIdentity) {
           throw new Error(`ACP process ${child.pid || ''} exited before its identity was persisted`);
         }
-        await options.onProcessStarted(processIdentity);
+        await options.onProcessStarted({
+          ...processIdentity,
+          ...(this.configInstanceFingerprint
+            ? { configInstanceFingerprint: this.configInstanceFingerprint }
+            : {}),
+        });
       }
       if (binding.ownsProcessGroup) {
         await new Promise<void>((resolve, reject) => {

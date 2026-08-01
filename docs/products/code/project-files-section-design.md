@@ -71,29 +71,14 @@ Directly copying VS Code workbench sources is not recommended because the explor
 
 Farming follows the same state boundary as VS Code's tree model: each pointer or keyboard toggle synchronously commits one transition to the workspace-scoped open-directory set before any asynchronous child loading starts. `react-arborist` projects that desired state and reports view changes, but its `onToggle` callback must not read a just-dispatched `node.isOpen` value and write it back as authoritative state. Rapid clicks are not debounced or coalesced; every accepted click must flip the model exactly once, and a late directory load must not reopen a directory the user closed afterward.
 
-Current implementation boundaries:
+The component architecture has four durable boundaries:
 
-- `react-arborist` owns view mechanics such as virtualization, focus, selection, and rendering the projected expand/collapse state; the workspace-scoped open-directory set is authoritative.
-- `useWorkspaceFiles` and `/api/files/*` are the Farming file adapter for lazy directories, file events, git state, text IO, and conflict checks.
-- `ProjectFilesSection` is the composition shell for the project sidebar section; row rendering, search results, sticky context, tree mechanics, file operations, and context-menu behavior live in focused components or controllers.
-- `GitHistorySection` owns lazy history loading, bounded pagination, commit expansion, merge-parent selection, and routing into Review.
-- `git-history-graph.ts` adapts the pinned VS Code SCM lane algorithm, while `GitHistoryGraph` hosts the adapted SVG row renderer.
-- `FileSectionBody` owns the expanded Files body: status rows, search results, tree view, and the named view models passed into that body.
-- `FileSectionOverlays` owns Files floating UI such as the file context menu and file-operation dialog.
-- `useWorkspaceFileSectionController` owns Files/Open Editors collapse state, Files-identity cleanup, reveal requests, search-focus requests, and tree refresh scheduling for the expanded section.
-- `useWorkspaceFileTreeController` owns tree refs, row-frame rendering, layout refresh, desired-open-state projection, and last-focused path tracking.
-- `FileTreeView` owns the tree viewport, sticky context, Arborist `Tree` wiring, and `FileTreeRow` node renderer.
-- `FileTreeRow` owns single-row rendering and decoration slots, while `useWorkspaceFileMenuController` and `useWorkspaceFileOperationController` own file-management interaction state.
-- `FileEditorPane` remains the Monaco composition shell for the active file, save/reload/conflict flow, and blame integration.
-- `FileEditorHeader` owns the editor tab strip composition, breadcrumbs, and save/reload/overwrite action bar.
-- `useFileEditorWorkingCopyController` owns save, reload, conflict response, and save-before-close behavior for open editor files.
-- `FileEditorTabs`, `FileEditorTabContextMenu`, and `useFileEditorTabsController` own editor tab rendering, tab menu actions, keyboard navigation, close intents, and active-tab focus restoration.
-- `FileEditorOverlays` owns editor floating UI composition, including `FileEditorContextMenu`, `FileEditorTabContextMenu`, `FileEditorSaveConfirmDialog`, and blame status toasts; `FileEditorPane` keeps only the action handlers and state transitions that affect Monaco or open-file state.
-- `FileEditorBlameDetail` and `FileEditorBlameToast` own blame detail/status presentation; `FileEditorPane` still owns blame loading, capability checks, and visible-range overlay placement.
-- `FileEditorMarkdownPreview` owns rendered Markdown source previews in the editor pane.
-- `workspace-viewer-registry.ts` is the internal built-in Viewer lookup for source files. It currently maps Markdown, SVG, and HTML extensions without exposing a public dynamic loading API.
-- `FileEditorHtmlPreview` owns the sandboxed HTML draft document and one backend Preview Session. Mount creates the session, unmount deletes it, late creation after cancellation is deleted immediately, and creation failure remains visible in the preview pane.
-- `FileEditorPreviewPanel` owns HTML, image, PDF, and binary preview composition, and `FileEditorInlineBlameLayer` owns inline blame annotation rows. Absolute local PDF links from Chat resolve through the workspace-file boundary and open in this pane instead of becoming browser routes.
+- **Project composition** owns Files, Open Editors, Changes, and Git History placement while preserving one outer sidebar scroll surface.
+- **Explorer behavior** owns focus, selection, keyboard navigation, virtualization, and projection of the workspace-scoped open-directory state. It does not own filesystem truth.
+- **Workspace adapter** owns path authorization, bounded directory and Git reads, optimistic version checks, mutation reconciliation, and explicit refresh.
+- **Editor and viewer surface** owns working copies, tabs, Monaco state, conflict presentation, and bounded previews. Preview implementations share the same workspace authorization and lifecycle rules rather than becoming independent file-access paths.
+
+These boundaries are intentionally described by responsibility rather than private component names. Internal React composition may change without changing the Project, filesystem-authority, or recovery contracts above.
 
 ## Visual Rules
 

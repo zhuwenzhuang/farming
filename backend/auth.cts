@@ -12,6 +12,7 @@ interface FarmingNetPassVerifierLike {
 }
 
 import { FarmingNetPassVerifier, PASS_QUERY_PARAM } from './farming-net-pass.cjs';
+import { configInstanceFingerprint } from './config-instance.cjs';
 
 interface PoeticTokenInfo extends Omit<CreatedPoeticToken, 'locale' | 'style'> {
   locale?: CreatedPoeticToken['locale'];
@@ -37,6 +38,7 @@ interface TokenAuthOptions {
 
 interface AuthRequest {
   headers: {
+    authorization?: string | string[];
     cookie?: string;
     host?: string;
   };
@@ -52,6 +54,8 @@ interface AuthResponse {
 
 type AuthNext = () => unknown;
 type AuthMiddleware = (req: AuthRequest, res: AuthResponse, next: AuthNext) => unknown;
+
+const LEGACY_COOKIE_NAME = 'farming_token';
 
 function normalizeBasePath(basePath: unknown): string {
   const normalized = String(basePath || '');
@@ -75,9 +79,27 @@ function decodeCookieToken(token: string): string {
   }
 }
 
-function normalizeCookieName(value: unknown): string {
+function encodeBearerTokenForTransport(token: unknown): string {
+  return Buffer.from(String(token), 'utf8').toString('base64url');
+}
+
+function bearerAuthorizationHeader(token: unknown): string {
+  return `Bearer ${encodeBearerTokenForTransport(token)}`;
+}
+
+function decodeBearerTokenFromTransport(credential: string): string | null {
+  if (!/^[A-Za-z0-9_-]+$/.test(credential)) return null;
+  try {
+    const decoded = Buffer.from(credential, 'base64url').toString('utf8');
+    return encodeBearerTokenForTransport(decoded) === credential ? decoded : null;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeCookieName(value: unknown, fallback: string): string {
   const cookieName = String(value || '').trim();
-  return /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(cookieName) ? cookieName : 'farming_token';
+  return /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(cookieName) ? cookieName : fallback;
 }
 
 function normalizeCookiePath(value: unknown): string {
@@ -88,6 +110,10 @@ function normalizeCookiePath(value: unknown): string {
 
 function escapeRegExp(value: unknown): string {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function farmingAuthCookieName(configDir: string): string {
+  return `${LEGACY_COOKIE_NAME}_${configInstanceFingerprint(configDir)}`;
 }
 
 function readExistingTokenFile(tokenFile: string): string {
@@ -105,6 +131,7 @@ class TokenAuth {
   authStatusPath: string;
   cookieName: string;
   cookiePath: string;
+  legacyCookieReadCompatible: boolean;
   redirectQueryToken: boolean;
   tokenFile: string;
   token: string;
@@ -116,8 +143,14 @@ class TokenAuth {
     this.disabled = options.disabled === true || isTruthyEnv(authEnv.FARMING_DISABLE_AUTH);
     this.basePath = normalizeBasePath(options.basePath || '/');
     this.authStatusPath = this.basePath ? `${this.basePath}/api/auth/status` : '/api/auth/status';
-    this.cookieName = normalizeCookieName(options.cookieName);
-    this.cookiePath = normalizeCookiePath(options.cookiePath);
+    const farmingDir = options.farmingDir || storageLayout.farmingConfigDir(authEnv);
+    if (!this.disabled && !fs.existsSync(farmingDir)) {
+      fs.mkdirSync(farmingDir, { recursive: true });
+    }
+    const explicitCookieName = normalizeCookieName(options.cookieName, '');
+    this.cookieName = explicitCookieName || farmingAuthCookieName(farmingDir);
+    this.cookiePath = normalizeCookiePath(options.cookiePath ?? (this.basePath || '/'));
+    this.legacyCookieReadCompatible = !explicitCookieName;
     this.redirectQueryToken = options.redirectQueryToken === true;
     this.tokenFile = '';
     this.token = '';
@@ -128,10 +161,6 @@ class TokenAuth {
       return;
     }
 
-    const farmingDir = options.farmingDir || storageLayout.farmingConfigDir();
-    if (!fs.existsSync(farmingDir)) {
-      fs.mkdirSync(farmingDir, { recursive: true });
-    }
     this.tokenFile = storageLayout.sessionTokenFile(farmingDir);
     if (options.farmingNetPassVerifier !== false) {
       this.farmingNetPassVerifier = options.farmingNetPassVerifier || new FarmingNetPassVerifier({
@@ -209,7 +238,24 @@ class TokenAuth {
     const queryToken = url.searchParams.get('token');
     if (queryToken) return queryToken;
 
+    const bearerToken = this.extractBearerToken(req);
+    if (bearerToken !== null) return bearerToken;
+
     return this.extractCookieToken(req);
+  }
+
+  extractBearerToken(req: AuthRequest): string | null {
+    const authorization = req.headers.authorization;
+    if (authorization === undefined) return null;
+    if (typeof authorization !== 'string') return '';
+    if (!/^\s*Bearer(?:\s|$)/i.test(authorization)) return null;
+
+    const match = authorization.match(/^\s*Bearer\s+([^\s]+)\s*$/i);
+    if (!match) return '';
+    const credential = match[1];
+    if (this.verify(credential)) return credential;
+    const decoded = decodeBearerTokenFromTransport(credential);
+    return decoded && this.verify(decoded) ? decoded : credential;
   }
 
   extractCookieToken(req: AuthRequest): string | null {
@@ -217,10 +263,15 @@ class TokenAuth {
     const match = cookies.match(new RegExp(`(?:^|;\\s*)${escapeRegExp(this.cookieName)}=([^;]+)`));
     if (match) return decodeCookieToken(match[1]);
 
+    if (this.legacyCookieReadCompatible && this.cookieName !== LEGACY_COOKIE_NAME) {
+      const legacyMatch = cookies.match(new RegExp(`(?:^|;\\s*)${LEGACY_COOKIE_NAME}=([^;]+)`));
+      if (legacyMatch) return decodeCookieToken(legacyMatch[1]);
+    }
+
     return null;
   }
 
-  setAuthenticatedCookie(res: AuthResponse): void {
+  setAuthenticatedCookie(res: Pick<AuthResponse, 'setHeader'>): void {
     res.setHeader('Set-Cookie',
       `${this.cookieName}=${encodeCookieToken(this.token)}; Path=${this.cookiePath}; HttpOnly; SameSite=Lax`);
   }
@@ -307,8 +358,10 @@ class TokenAuth {
 
 export {
   TokenAuth,
+  bearerAuthorizationHeader,
   decodeCookieToken,
   encodeCookieToken,
+  farmingAuthCookieName,
   generatePoeticToken,
   getPoeticTokenEntropyBits,
 };

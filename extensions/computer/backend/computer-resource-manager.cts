@@ -7,6 +7,10 @@ const http = require('http');
 const path = require('path');
 const WebSocket = require('ws');
 import * as storageLayout from '../../../backend/storage-layout.cjs';
+import {
+  canonicalConfigDir,
+  configInstanceFingerprint,
+} from '../../../backend/config-instance.cjs';
 import { COMPUTER_CONTAINER_CPUS, COMPUTER_CONTAINER_MEMORY, COMPUTER_CONTAINER_PIDS, COMPUTER_CONTAINER_SHM_SIZE, COMPUTER_DRIVER_BIN, COMPUTER_DRIVER_VERSION, COMPUTER_IMAGE, COMPUTER_IMAGE_INDEX_DIGEST, COMPUTER_USER } from './computer-constants.cjs';
 import { ComputerResourceStore, publicResource } from './computer-resource-store.cjs';
 
@@ -227,6 +231,7 @@ class ComputerResourceManager extends EventEmitter {
   readonly store: InstanceType<typeof ComputerResourceStore>;
   readonly docker: DockerRunner;
   readonly configFingerprint: string;
+  readonly legacyConfigFingerprints: Set<string>;
   readonly operations = new Map<string, Promise<unknown>>();
   readonly stopAdmissions = new Map<string, number>();
   readonly controlAdmissions = new Map<string, number>();
@@ -237,14 +242,15 @@ class ComputerResourceManager extends EventEmitter {
 
   constructor(options: ComputerManagerOptions) {
     super();
-    this.configDir = options.configDir;
+    this.configDir = canonicalConfigDir(options.configDir);
     this.isEnabled = options.isEnabled || (() => false);
     this.getSettings = options.getSettings || (() => ({}));
-    this.store = new ComputerResourceStore(options.configDir);
-    this.configFingerprint = crypto.createHash('sha256')
-      .update(options.configDir)
-      .digest('hex')
-      .slice(0, 12);
+    this.store = new ComputerResourceStore(this.configDir);
+    this.configFingerprint = configInstanceFingerprint(this.configDir);
+    this.legacyConfigFingerprints = new Set([
+      crypto.createHash('sha256').update(options.configDir).digest('hex').slice(0, 12),
+      crypto.createHash('sha256').update(this.configDir).digest('hex').slice(0, 12),
+    ]);
     this.docker = options.dockerRunner || (async (args, runOptions = {}) => {
       const result = await execFileAsync('docker', args, {
         encoding: 'utf8',
@@ -1083,6 +1089,9 @@ class ComputerResourceManager extends EventEmitter {
     }
     const labels = recordValue(recordValue(inspect.Config).Labels);
     for (const [key, value] of this.containerLabels(resource)) {
+      if (key === 'farming.dev/config' && this.legacyConfigFingerprints.has(String(labels[key] || ''))) {
+        continue;
+      }
       if (labels[key] !== value) {
         throw computerError(`Computer container ownership label mismatch: ${key}`, 409, 'COMPUTER_CONTAINER_OWNER_MISMATCH');
       }
