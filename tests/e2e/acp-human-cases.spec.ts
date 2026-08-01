@@ -384,11 +384,9 @@ test.describe('ACP human-like browser matrix', () => {
     ])
     expect(foldedTimelineBox).not.toBeNull()
     expect(foldedGroupBoxes.every(Boolean)).toBe(true)
-    expect((foldedGroupBoxes[1]?.y || 0) - (foldedGroupBoxes[0]?.y || 0)).toBeGreaterThan(20)
-    for (const groupBox of foldedGroupBoxes) {
-      expect(groupBox?.width || 0).toBeGreaterThan((foldedTimelineBox?.width || 0) * 0.8)
-      expect(groupBox?.width || 0).toBeLessThanOrEqual(foldedTimelineBox?.width || 0)
-    }
+    expect(Math.abs((foldedGroupBoxes[0]?.y || 0) - (foldedGroupBoxes[1]?.y || 0))).toBeLessThan(2)
+    expect((foldedGroupBoxes[0]?.width || 0) + (foldedGroupBoxes[1]?.width || 0))
+      .toBeLessThan(foldedTimelineBox?.width || 0)
     await expect(groups.nth(0).locator('.code-agent-transcript-collaboration-count')).toBeHidden()
     const reviewGroup = groups.nth(0)
     const reviewSummary = reviewGroup.locator(
@@ -399,9 +397,9 @@ test.describe('ACP human-like browser matrix', () => {
     await expect(reviewGroup.locator(
       ':scope > .code-agent-transcript-collaboration-summary .code-agent-transcript-collaboration-count',
     )).toBeVisible()
-    expect(Math.abs(
-      ((await reviewGroup.boundingBox())?.width || 0) - (foldedGroupBoxes[0]?.width || 0),
-    )).toBeLessThanOrEqual(2)
+    expect((await reviewGroup.boundingBox())?.width || 0).toBeGreaterThan(
+      (foldedGroupBoxes[0]?.width || 0) * 1.5,
+    )
     await expect(groups).toHaveCount(3)
     const nestedGroup = reviewGroup.getByTestId('code-agent-transcript-collaboration-group')
       .filter({ hasText: 'Crt races' })
