@@ -61,6 +61,10 @@ const DEFAULT_TEST_TIMEOUT_MS = 45_000;
 const DEFAULT_TEST_CONCURRENCY = Math.min(4, Math.max(1, os.availableParallelism?.() || os.cpus().length));
 const MAX_TEST_CONCURRENCY = 16;
 const TEST_TIMEOUT_OVERRIDES_MS = new Map<string, number>([
+  // This process-heavy suite starts, reconnects, and tears down several ACP
+  // adapter trees. Four-way Linux CI contention can exceed the unit-test
+  // default even though each transition remains independently bounded.
+  ['test-acp-runtime.ts', 90_000],
   ['test-multi-config-isolation.ts', 90_000],
   ['test-native-session-engine-shell-profiles.ts', 90_000],
   ['test-review-comparison-matrix.ts', 180_000],
