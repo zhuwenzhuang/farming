@@ -27,6 +27,7 @@ function agent(overrides: Partial<Agent> = {}): Agent {
       terminalProfile: true,
       goals: true,
       goalSubmission: null,
+      terminalSessionFork: true,
       sessionFork: true,
       chatRuntime: 'acp',
       supportsChat: true,

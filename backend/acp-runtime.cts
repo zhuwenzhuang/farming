@@ -2743,7 +2743,7 @@ class AcpRuntime extends EventEmitter {
     this.requireOpenBinding(binding);
     const mutation = this.beginSessionMutation(binding, 'logout');
     try {
-      if (recordValue(binding.initializeResponse?.agentCapabilities?.auth).logout == null) {
+      if (!recordValue(binding.initializeResponse?.agentCapabilities?.auth).logout) {
         throw new Error(`${binding.provider} ACP Agent does not support logout`);
       }
       await withTimeout(binding.connection.logout({}), this.requestTimeoutMs, 'ACP logout');
@@ -2974,14 +2974,14 @@ class AcpRuntime extends EventEmitter {
 
   async setSessionMode(agentId: string, modeId: string) {
     const binding = this.requireBinding(agentId);
+    const normalizedModeId = String(modeId || '');
+    const advertisedModes = Array.isArray(binding.modes?.availableModes)
+      ? binding.modes.availableModes
+      : [];
+    if (!normalizedModeId || !advertisedModes.some(mode => String(recordValue(mode).id || '') === normalizedModeId)) {
+      throw new Error(`ACP Agent did not advertise mode ${normalizedModeId}`);
+    }
     if (binding.activeTurn || binding.deferredConfigFlush) {
-      const normalizedModeId = String(modeId || '');
-      const advertisedModes = Array.isArray(binding.modes?.availableModes)
-        ? binding.modes.availableModes
-        : [];
-      if (!normalizedModeId || !advertisedModes.some(mode => String(recordValue(mode).id || '') === normalizedModeId)) {
-        throw new Error(`ACP Agent did not advertise mode ${normalizedModeId}`);
-      }
       const previousModeId = binding.deferredModeId;
       const previousGeneration = binding.deferredModeGeneration;
       const generation = binding.deferredModeGeneration + 1;
@@ -3007,7 +3007,7 @@ class AcpRuntime extends EventEmitter {
     }
     this.requireConfigMutationReady(binding);
     const result = await this.enqueueSessionConfigMutation(binding, () => (
-      this.setSessionModeNow(binding, modeId)
+      this.setSessionModeNow(binding, normalizedModeId)
     ));
     if (this.clearDeferredSessionError(binding)) {
       binding.updatedAt = new Date().toISOString();
@@ -3096,14 +3096,7 @@ class AcpRuntime extends EventEmitter {
       : [];
     if (normalized.length === 0) throw new Error('ACP config options are required');
     for (const change of normalized) {
-      const option = binding.configOptions.find(candidate => candidate.id === change.configId);
-      if (!option) throw new Error(`ACP Agent did not advertise config option ${change.configId}`);
-      if (option.type === 'boolean' && typeof change.value !== 'boolean') {
-        throw new Error(`ACP config option ${change.configId} requires a boolean value`);
-      }
-      if (option.type === 'select' && typeof change.value !== 'string') {
-        throw new Error(`ACP config option ${change.configId} requires a string value`);
-      }
+      this.requireSessionConfigOption(binding, change.configId, change.value);
     }
     const accepted = normalized.map(change => ({ configId: change.configId, value: change.value }));
     const previous = new Map<string, SessionConfigChange | undefined>();
@@ -3173,6 +3166,9 @@ class AcpRuntime extends EventEmitter {
   }
 
   async applySessionConfigOptionsNow(binding: AcpBinding, normalized: SessionConfigChange[]) {
+    for (const change of normalized) {
+      this.requireSessionConfigOption(binding, change.configId, change.value);
+    }
     const configById = new Map<string, SessionConfigOption>(
       (binding.configOptions || []).map(option => [option.id, option]),
     );
@@ -3239,7 +3235,7 @@ class AcpRuntime extends EventEmitter {
   async applySessionConfigOption(binding: AcpBinding, configId: string, value: ConfigValue, options: PrepareAgentOptions = {}) {
     this.requireOpenBinding(binding);
     const normalizedConfigId = String(configId || '');
-    const currentOption = binding.configOptions?.find(candidate => candidate.id === normalizedConfigId);
+    const currentOption = this.requireSessionConfigOption(binding, normalizedConfigId, value);
     if (options.force !== true && currentOption?.currentValue === value) {
       if (options.emit !== false) this.emitSession(binding);
       return { sessionId: binding.sessionId, configOptions: binding.configOptions };
@@ -3268,6 +3264,18 @@ class AcpRuntime extends EventEmitter {
     return { sessionId: binding.sessionId, configOptions: binding.configOptions };
   }
 
+  requireSessionConfigOption(binding: AcpBinding, configId: string, value: ConfigValue) {
+    const option = binding.configOptions?.find(candidate => candidate.id === configId);
+    if (!option) throw new Error(`ACP Agent did not advertise config option ${configId}`);
+    if (option.type === 'boolean' && typeof value !== 'boolean') {
+      throw new Error(`ACP config option ${configId} requires a boolean value`);
+    }
+    if (option.type === 'select' && typeof value !== 'string') {
+      throw new Error(`ACP config option ${configId} requires a string value`);
+    }
+    return option;
+  }
+
   getSession(
     agentId: string,
     options: SnapshotOptions = {},
@@ -3280,7 +3288,7 @@ class AcpRuntime extends EventEmitter {
       stopReason: binding.stopReason,
       supportsSteer: binding.supportsSteer === true,
       supportsFork: Boolean(
-        binding.initializeResponse?.agentCapabilities?.sessionCapabilities?.fork != null
+        binding.initializeResponse?.agentCapabilities?.sessionCapabilities?.fork
         && binding.initializeResponse?.agentCapabilities?.loadSession
       ),
       protocolVersion: binding.initializeResponse?.protocolVersion || null,
@@ -3558,7 +3566,7 @@ class AcpRuntime extends EventEmitter {
       stopReason: binding.stopReason,
       supportsSteer: binding.supportsSteer === true,
       supportsFork: Boolean(
-        binding.initializeResponse?.agentCapabilities?.sessionCapabilities?.fork != null
+        binding.initializeResponse?.agentCapabilities?.sessionCapabilities?.fork
         && binding.initializeResponse?.agentCapabilities?.loadSession
       ),
       pendingPermission: binding.pendingPermissions.values().next().value || null,

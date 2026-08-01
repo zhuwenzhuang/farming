@@ -25,6 +25,7 @@ interface CrtProtocolProviderCapabilities extends CrtProtocolRecord {
   supportedRuntimes: Array<'terminal' | 'acp' | 'json'>;
   runtimeSwitch: boolean;
   terminalProfile: boolean;
+  terminalSessionFork: boolean;
   sessionFork: boolean;
   chatRuntime: 'acp' | '';
   supportsChat: boolean;

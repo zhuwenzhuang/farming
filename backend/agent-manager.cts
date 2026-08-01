@@ -8025,6 +8025,14 @@ class AgentManager extends EventEmitter {
     if (!['same-worktree', 'new-worktree'].includes(mode)) {
       return { error: 'Unsupported fork mode' };
     }
+    const forkProvider = agent.providerSessionProvider
+      || agentHomeProviderForProgram(agent.forkCommand || agent.command || '');
+    const forkCapability = options.targetRuntime === 'chat'
+      ? 'sessionFork'
+      : 'terminalSessionFork';
+    if (forkProvider && providerCapabilities(forkProvider)[forkCapability] !== true) {
+      return { error: `${forkProvider} does not support session Fork` };
+    }
     if (options.targetRuntime === 'chat') {
       if (mode !== 'same-worktree') {
         return { error: 'Conversation Fork supports only the same worktree' };

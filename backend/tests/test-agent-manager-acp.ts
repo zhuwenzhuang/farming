@@ -218,6 +218,13 @@ async function run() {
       'Checking the final-answer phase.',
     );
     assert.strictEqual((await manager.forkAcpSession(agentId)).sessionId, 'acp-fork-session');
+    binding.modes = {
+      currentModeId: 'default',
+      availableModes: [
+        { id: 'default', name: 'Default' },
+        { id: 'plan', name: 'Plan' },
+      ],
+    };
     assert.strictEqual((await manager.setAcpSessionMode(agentId, 'plan')).modeId, 'plan');
     const subagentResult = await manager.sendComposerMessage(agentId, 'subagent preview');
     assert.strictEqual(subagentResult.stopReason, 'end_turn');

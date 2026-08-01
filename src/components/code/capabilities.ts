@@ -226,16 +226,30 @@ export function mergeSlashCommands(commands: SlashCommandOption[]) {
 export function capabilitiesForAgent(agent: Agent | null | undefined): AgentCapabilities {
   const kind = inferAgentTerminalState(agent).kind
   const runtimeKind = agent?.runtimeBinding.kind || 'terminal'
+  const providerCapabilities = agent?.providerCapabilities
+  const goalMode = Boolean(providerCapabilities?.goalSubmission)
+  const terminalProfile = runtimeKind === 'terminal'
+    && providerCapabilities?.terminalProfile === true
+  const providerManaged = Boolean(
+    agent?.providerSessionProvider
+    || providerCapabilities?.supportsChat === true
+  )
+  const canForkRuntime = Boolean(
+    agent
+    && (!providerManaged || providerCapabilities?.terminalSessionFork === true)
+  )
   const composer = kind === 'codex'
     ? {
         ...CODING_AGENT_COMPOSER_CAPABILITIES,
-        modelPicker: runtimeKind === 'terminal',
-        reasoningEffort: runtimeKind === 'terminal',
-        serviceTier: runtimeKind === 'terminal',
+        goalMode,
+        modelPicker: terminalProfile,
+        reasoningEffort: terminalProfile,
+        serviceTier: terminalProfile,
       }
     : kind === 'claude'
       ? {
           ...CODING_AGENT_COMPOSER_CAPABILITIES,
+          goalMode,
           // Claude Terminal currently has no verified live-profile adapter.
           // ACP renders provider-advertised config options in AcpComposer.
           modelPicker: false,
@@ -243,7 +257,7 @@ export function capabilitiesForAgent(agent: Agent | null | undefined): AgentCapa
         }
       : {
           ...BASIC_COMPOSER_CAPABILITIES,
-          goalMode: Boolean(agent?.providerCapabilities.goalSubmission),
+          goalMode,
         }
 
   return {
@@ -255,8 +269,8 @@ export function capabilitiesForAgent(agent: Agent | null | undefined): AgentCapa
       archive: Boolean(agent && !agent.isMain),
       markUnread: Boolean(agent),
       copyWorkingDirectory: Boolean(agent),
-      forkSameWorktree: Boolean(agent),
-      forkNewWorktree: agent?.canForkNewWorktree === true,
+      forkSameWorktree: canForkRuntime,
+      forkNewWorktree: canForkRuntime && agent?.canForkNewWorktree === true,
       kill: Boolean(
         agent
         && (

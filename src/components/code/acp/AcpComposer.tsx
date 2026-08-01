@@ -532,7 +532,7 @@ export function AcpComposer({
                   <span>{copy.attachFile}</span>
                   <small>{copy.fileContext}</small>
                 </button>
-                {session?.capabilities?.auth?.logout != null ? (
+                {session?.capabilities?.auth?.logout ? (
                   <button
                     type="button"
                     role="menuitem"

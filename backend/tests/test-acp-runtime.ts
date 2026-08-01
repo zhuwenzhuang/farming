@@ -1603,6 +1603,60 @@ async function run() {
     const session = runtime.getSession('agent-acp-new');
     assert.strictEqual(session.protocol, 'acp');
     assert.strictEqual(session.supportsFork, true);
+    const forkCapabilityBinding = runtime.bindings.get('agent-acp-new');
+    forkCapabilityBinding.initializeResponse.agentCapabilities.sessionCapabilities.fork = false;
+    assert.strictEqual(
+      runtime.getSession('agent-acp-new').supportsFork,
+      false,
+      'an explicit ACP fork=false capability must remain disabled in session snapshots',
+    );
+    let forkCapabilityRuntimeEvent;
+    const captureForkCapability = event => {
+      if (event.agentId === 'agent-acp-new') forkCapabilityRuntimeEvent = event;
+    };
+    runtime.on('agent-runtime', captureForkCapability);
+    runtime.emitRuntime(forkCapabilityBinding);
+    runtime.off('agent-runtime', captureForkCapability);
+    assert.strictEqual(
+      forkCapabilityRuntimeEvent.supportsFork,
+      false,
+      'an explicit ACP fork=false capability must remain disabled in runtime events',
+    );
+    forkCapabilityBinding.initializeResponse.agentCapabilities.sessionCapabilities.fork = {};
+    assert.strictEqual(runtime.getSession('agent-acp-new').supportsFork, true);
+    let unsupportedCapabilityCalls = 0;
+    const capabilityConnection = forkCapabilityBinding.connection;
+    const setSessionModeForCapabilityTest = capabilityConnection.setSessionMode;
+    capabilityConnection.setSessionMode = async request => {
+      unsupportedCapabilityCalls += 1;
+      return setSessionModeForCapabilityTest.call(capabilityConnection, request);
+    };
+    await assert.rejects(
+      runtime.setSessionMode('agent-acp-new', 'unadvertised-mode'),
+      /did not advertise mode/,
+    );
+    const setSessionConfigForCapabilityTest = capabilityConnection.setSessionConfigOption;
+    capabilityConnection.setSessionConfigOption = async request => {
+      unsupportedCapabilityCalls += 1;
+      return setSessionConfigForCapabilityTest.call(capabilityConnection, request);
+    };
+    await assert.rejects(
+      runtime.setSessionConfigOption('agent-acp-new', 'unadvertised-config', true),
+      /did not advertise config option/,
+    );
+    forkCapabilityBinding.initializeResponse.agentCapabilities.auth.logout = false;
+    const logoutForCapabilityTest = capabilityConnection.logout;
+    capabilityConnection.logout = async request => {
+      unsupportedCapabilityCalls += 1;
+      return logoutForCapabilityTest.call(capabilityConnection, request);
+    };
+    await assert.rejects(runtime.logout('agent-acp-new'), /does not support logout/);
+    assert.strictEqual(
+      unsupportedCapabilityCalls,
+      0,
+      'unadvertised ACP mutations must be rejected before reaching the Provider',
+    );
+    forkCapabilityBinding.initializeResponse.agentCapabilities.auth.logout = {};
     assert.strictEqual(session.entries.find(item => item.type === 'tool').status, 'completed');
     assert.strictEqual(session.entries.find(item => item.role === 'assistant').content[0].text, 'ACP reply');
     assert(emittedSessions.length > 0);
@@ -1620,6 +1674,13 @@ async function run() {
       (await runtime.forkSession('agent-acp-new', { expectedRevision: forkRevision })).sessionId,
       'acp-fork-session',
     );
+    forkCapabilityBinding.modes = {
+      currentModeId: 'default',
+      availableModes: [
+        { id: 'default', name: 'Default' },
+        { id: 'plan', name: 'Plan' },
+      ],
+    };
     assert.deepStrictEqual(await runtime.setSessionMode('agent-acp-new', 'plan'), {
       sessionId: 'acp-new-session', modeId: 'plan',
     });
@@ -1643,6 +1704,12 @@ async function run() {
     const fallbackProfile = await runtime.setSessionConfigOption('agent-acp-new', 'model', 'gpt-5.6-luna');
     assert.strictEqual(fallbackProfile.configOptions.find(option => option.id === 'reasoning')?.currentValue, 'max');
     assert.strictEqual(fallbackProfile.configOptions.find(option => option.id === 'fast-mode')?.currentValue, false);
+    newAgentBinding.configOptions.push({
+      id: 'show-thinking',
+      name: 'Show thinking',
+      type: 'boolean',
+      currentValue: false,
+    });
     const configured = await runtime.setSessionConfigOption('agent-acp-new', 'show-thinking', true);
     assert.strictEqual(configured.configOptions[0].currentValue, true);
     let serializedFastValue = false;

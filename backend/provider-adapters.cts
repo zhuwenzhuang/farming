@@ -68,6 +68,7 @@ interface ProviderCapabilitiesContract {
     terminal: GoalSubmission;
     acp: GoalSubmission;
   };
+  terminalSessionFork: boolean;
   sessionFork: boolean;
 }
 
@@ -97,6 +98,7 @@ interface PublicProviderCapabilities {
   terminalProfile: boolean;
   goals: boolean;
   goalSubmission: ProviderCapabilitiesContract['goalSubmission'] | null;
+  terminalSessionFork: boolean;
   sessionFork: boolean;
   chatRuntime: string;
   supportsChat: boolean;
@@ -353,6 +355,7 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
       terminalProfile: true,
       goals: false,
       goalSubmission: { terminal: { kind: 'prompt' }, acp: { kind: 'prompt' } },
+      terminalSessionFork: true,
       sessionFork: true,
     },
   },
@@ -377,6 +380,7 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
       terminalProfile: false,
       goals: false,
       goalSubmission: { terminal: { kind: 'command', prefix: '/goal' }, acp: { kind: 'prompt' } },
+      terminalSessionFork: true,
       sessionFork: true,
     },
   },
@@ -412,6 +416,7 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
       terminalProfile: false,
       goals: false,
       goalSubmission: { terminal: { kind: 'prompt' }, acp: { kind: 'prompt' } },
+      terminalSessionFork: true,
       sessionFork: true,
     },
   },
@@ -442,6 +447,7 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
       terminalProfile: false,
       goals: false,
       goalSubmission: { terminal: { kind: 'command', prefix: '/goal set' }, acp: { kind: 'prompt' } },
+      terminalSessionFork: true,
       sessionFork: true,
     },
   },
@@ -482,7 +488,8 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
       terminalProfile: false,
       goals: false,
       goalSubmission: { terminal: { kind: 'prompt' }, acp: { kind: 'prompt' } },
-      sessionFork: false,
+      terminalSessionFork: false,
+      sessionFork: true,
     },
   },
 ]);
@@ -515,6 +522,7 @@ function providerCapabilities(provider: unknown): PublicProviderCapabilities {
     terminalProfile: adapter?.capabilities?.terminalProfile === true,
     goals: adapter?.capabilities?.goals === true,
     goalSubmission: adapter?.capabilities?.goalSubmission || null,
+    terminalSessionFork: adapter?.capabilities?.terminalSessionFork === true,
     sessionFork: adapter?.capabilities?.sessionFork === true,
     ...(adapter
       ? chatCapabilitiesForProvider(provider)

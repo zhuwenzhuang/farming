@@ -17,6 +17,7 @@ async function run() {
   fs.mkdirSync(binDir, { recursive: true });
   writeFakeExecutable(path.join(binDir, 'codex'), 'codex 9.9.9\n');
   writeFakeExecutable(path.join(binDir, 'claude'), 'claude 9.9.9\n');
+  writeFakeExecutable(path.join(binDir, 'qwen'), 'qwen 9.9.9\n');
   fs.writeFileSync(path.join(repo, 'README.md'), 'fork fixture\n');
   execFileSync('git', ['-C', repo, 'init'], { stdio: 'ignore' });
   execFileSync('git', ['-C', repo, 'add', 'README.md'], { stdio: 'ignore' });
@@ -85,6 +86,28 @@ async function run() {
       captured.length,
       startsBeforeTemporaryFork,
       'a temporary Codex identity must not turn Fork into a fresh unrelated Agent',
+    );
+
+    const qwenSessionId = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+    const qwenId = await startAgent(manager, `qwen --resume ${qwenSessionId}`, repo, {
+      wantsMain: false,
+      source: `qwen-history:${qwenSessionId}`,
+    });
+    const startsBeforeQwenFork = captured.length;
+    const worktreesBeforeQwenFork = execFileSync(
+      'git',
+      ['-C', repo, 'worktree', 'list', '--porcelain'],
+      { encoding: 'utf8' },
+    );
+    const qwenSameWorktreeFork = await manager.forkAgent(qwenId, 'same-worktree');
+    assert.match(qwenSameWorktreeFork.error, /qwen.*does not support.*Fork/i);
+    const qwenNewWorktreeFork = await manager.forkAgent(qwenId, 'new-worktree');
+    assert.match(qwenNewWorktreeFork.error, /qwen.*does not support.*Fork/i);
+    assert.strictEqual(captured.length, startsBeforeQwenFork);
+    assert.strictEqual(
+      execFileSync('git', ['-C', repo, 'worktree', 'list', '--porcelain'], { encoding: 'utf8' }),
+      worktreesBeforeQwenFork,
+      'an unsupported Provider Fork must not create a worktree',
     );
 
     const sourceId = await startAgent(manager, 'bash', repo, { wantsMain: false });

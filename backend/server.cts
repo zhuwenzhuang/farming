@@ -2295,6 +2295,9 @@ async function resumeAgentSessionById(
   }
 
   const shouldFork = options.fork === true;
+  if (shouldFork && providerCapabilities(normalizedProvider).terminalSessionFork !== true) {
+    return { error: `${normalizedProvider} does not support session Fork`, status: 400 };
+  }
   const requestedAsMain = options.asMain === true && !shouldFork;
   const shouldRememberMainPageSession = options.rememberMainPageSession !== false && !shouldFork && !requestedAsMain;
   const pendingResumeId = resumedAgentStartKey(normalizedProvider, sessionId, {

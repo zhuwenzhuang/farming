@@ -233,6 +233,7 @@ export interface ProviderCapabilities {
     terminal: { kind: 'prompt' } | { kind: 'command'; prefix: string }
     acp: { kind: 'prompt' }
   } | null
+  terminalSessionFork: boolean
   sessionFork: boolean
   chatRuntime: 'acp' | ''
   supportsChat: boolean

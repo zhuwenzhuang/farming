@@ -158,6 +158,7 @@ function runtimeMenuAgent(agentId: string, workspace: string, mode: 'terminal' |
       runtimeSwitch: true,
       terminalProfile: true,
       goals: false,
+      terminalSessionFork: true,
       sessionFork: true,
       chatRuntime: 'acp',
       supportsChat: true,
@@ -328,6 +329,7 @@ test.describe('mobile Farming Code user story', () => {
           runtimeSwitch: true,
           terminalProfile: true,
           goals: false,
+          terminalSessionFork: true,
           sessionFork: true,
         },
         runtimeBinding: {

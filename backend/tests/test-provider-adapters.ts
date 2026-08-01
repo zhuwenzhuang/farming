@@ -288,6 +288,7 @@ function run() {
     terminalProfile: true,
     goals: false,
     goalSubmission: { terminal: { kind: 'prompt' }, acp: { kind: 'prompt' } },
+    terminalSessionFork: true,
     sessionFork: true,
     chatRuntime: 'acp',
     supportsChat: true,
@@ -301,6 +302,7 @@ function run() {
       terminalProfile: false,
       goals: false,
       goalSubmission: { terminal: { kind: 'command', prefix: '/goal' }, acp: { kind: 'prompt' } },
+      terminalSessionFork: true,
       sessionFork: true,
       chatRuntime: 'acp',
       supportsChat: true,
@@ -315,6 +317,7 @@ function run() {
       terminalProfile: false,
       goals: false,
       goalSubmission: null,
+      terminalSessionFork: false,
       sessionFork: false,
       chatRuntime: '',
       supportsChat: false,
@@ -364,7 +367,8 @@ function run() {
       args: ['--append-system-prompt', 'Farming bootstrap', '--acp'],
     },
   );
-  assert.strictEqual(providerCapabilities('qwen').sessionFork, false);
+  assert.strictEqual(providerCapabilities('qwen').terminalSessionFork, false);
+  assert.strictEqual(providerCapabilities('qwen').sessionFork, true);
   assert.deepStrictEqual(providerCapabilities('qwen').goalSubmission, {
     terminal: { kind: 'prompt' },
     acp: { kind: 'prompt' },

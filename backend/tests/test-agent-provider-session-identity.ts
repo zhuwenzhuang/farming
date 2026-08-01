@@ -552,7 +552,8 @@ async function run() {
     assert.strictEqual(qwenAgent.providerSessionProvider, 'qwen');
     assert.strictEqual(qwenAgent.providerSessionTemporary, false);
     assert.strictEqual(qwenAgent.providerCapabilities.supportsChat, true);
-    assert.strictEqual(qwenAgent.providerCapabilities.sessionFork, false);
+    assert.strictEqual(qwenAgent.providerCapabilities.terminalSessionFork, false);
+    assert.strictEqual(qwenAgent.providerCapabilities.sessionFork, true);
     assert.strictEqual(captured.at(-1).env.QWEN_HOME, providerHomes.qwen[0].path);
     assert(settings.mainPageSessionKeys.includes(`agent-session:qwen:${qwenAgent.providerSessionId}`));
 
