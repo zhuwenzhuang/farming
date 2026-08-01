@@ -32,11 +32,30 @@ jobs:
       - name: Run checks
         run: npm run check
 
+      # Tests own the cleanup of everything they create. Asserting this after the
+      # gate keeps leftovers from being normalized away by widening .gitignore.
+      - name: Assert the working tree stayed clean
+        run: npx tsx scripts/assert-clean-workspace.ts
+
       - name: Audit production dependencies
         run: npm audit --omit=dev
 
       - name: Build frontend
         run: FARMING_BASE_PATH=/farming npm run build
+
+      # The browser jobs serve this exact bundle, so the expensive half of the
+      # build (vite plus the CRT markdown bundles, both dominated by Monaco)
+      # happens once instead of once per shard. Everything the browser jobs need
+      # from `npm run build` lands in dist/: vite output, build:crt-markdown, and
+      # the ACP vendor copies from prepare:acp-vendor. Products that land next to
+      # their sources are rebuilt inside each browser job instead.
+      - name: Upload frontend build
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: dist
+          if-no-files-found: error
+          retention-days: 1
 
   # Node 22 stays the authoritative gate and keeps sole ownership of lint, the
   # dependency audit, the frontend build, and the Chromium shards. This job only
@@ -67,6 +86,7 @@ jobs:
 
   browser:
     name: Chromium (${{ matrix.shard }})
+    needs: check
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -86,8 +106,111 @@ jobs:
       - name: Install dependencies
         run: npm ci --registry=https://registry.npmjs.org/
 
+      - name: Download frontend build
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: dist
+
+      # The artifact only carries dist/. These prebuild outputs land next to
+      # their sources instead, so every shard still runs the four cheap
+      # transpile/codegen steps to reach the same state a full `npm run build`
+      # left behind. Only `prepare:acp-vendor` is skipped, because it writes into
+      # dist/acp and therefore rides along in the artifact.
+      - name: Prepare backend runtime
+        run: npm run build:backend-runtime
+
+      - name: Prepare classic frontend runtime
+        run: npm run build:classic-runtime
+
+      - name: Prepare usage history scanner
+        run: npm run build:usage-history
+
+      - name: Prepare runtime dependency manifest
+        run: npm run prepare:runtime-manifest
+
+      - name: Resolve Playwright version
+        id: playwright
+        run: |
+          echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-chromium-${{ steps.playwright.outputs.version }}
+
+      # Split from the browser download on purpose: the apt packages behind
+      # `--with-deps` are not part of the cached browser directory, while
+      # `install chromium` is a no-op once the cache restores.
+      - name: Install Chromium system dependencies
+        run: npx playwright install-deps chromium
+
       - name: Install Chromium for browser checks
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install chromium
 
       - name: Run Chromium browser checks
         run: npx playwright test --project=chromium --shard=${{ matrix.shard }}
+        env:
+          FARMING_PLAYWRIGHT_SKIP_BUILD: '1'
+
+  # The iphone-webkit project was defined but never gated, so mobile layout and
+  # WebKit regressions could only be caught by hand. It is a single spec with no
+  # screenshot baselines, so it runs unsharded next to the Chromium matrix.
+  mobile:
+    name: iPhone WebKit
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: npm ci --registry=https://registry.npmjs.org/
+
+      - name: Download frontend build
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: dist
+
+      - name: Prepare backend runtime
+        run: npm run build:backend-runtime
+
+      - name: Prepare classic frontend runtime
+        run: npm run build:classic-runtime
+
+      - name: Prepare usage history scanner
+        run: npm run build:usage-history
+
+      - name: Prepare runtime dependency manifest
+        run: npm run prepare:runtime-manifest
+
+      - name: Resolve Playwright version
+        id: playwright
+        run: |
+          echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-webkit-${{ steps.playwright.outputs.version }}
+
+      - name: Install WebKit system dependencies
+        run: npx playwright install-deps webkit
+
+      - name: Install WebKit for mobile checks
+        run: npx playwright install webkit
+
+      - name: Run iPhone WebKit checks
+        run: npx playwright test --project=iphone-webkit
+        env:
+          FARMING_PLAYWRIGHT_SKIP_BUILD: '1'

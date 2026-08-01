@@ -172,12 +172,15 @@ export function useAgentCompletionNotifications({
   }, [agents, language, onOpenAgent])
 
   useEffect(() => {
+    // `pendingTimersRef.current` is never reassigned after useRef initialization,
+    // so the timer map captured here is the same map the cleanup must drain.
+    const pendingTimers = pendingTimersRef.current
     coordinatorRef.current = new CompletionNotificationCoordinator()
     return () => {
       coordinatorRef.current?.dispose()
       coordinatorRef.current = null
-      pendingTimersRef.current.forEach(timer => window.clearTimeout(timer))
-      pendingTimersRef.current.clear()
+      pendingTimers.forEach(timer => window.clearTimeout(timer))
+      pendingTimers.clear()
     }
   }, [])
 

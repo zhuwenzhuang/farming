@@ -105,7 +105,12 @@ export function useBrowserResources(options: {
     setRefreshVersion(version => version + 1)
   }, [])
 
-  const resources = capability?.available === false ? [] : collection?.resources ?? []
+  // Memoized so the derived maps below (and consumers) keep a stable identity
+  // instead of seeing a fresh array on every render.
+  const resources = useMemo(
+    () => capability?.available === false ? [] : collection?.resources ?? [],
+    [capability?.available, collection?.resources],
+  )
 
   const byWorkspace = useMemo(() => {
     const result = new Map<string, BrowserResource[]>()

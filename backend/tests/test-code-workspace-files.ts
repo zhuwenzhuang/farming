@@ -178,7 +178,7 @@ function run() {
       workspaceSource.includes("entry.kind === 'agent'") &&
       workspaceSource.includes(': workspaceNavigationFileIds.has(entry.agentId)') &&
       workspaceSource.includes("} else if (!workspaceNavigationFileIds.has(entry.agentId)) {") &&
-      workspaceSource.includes('} catch {\n      return false\n    }\n  }, [\n    clearSearch,\n    closeSidebarForMobile,') &&
+      workspaceSource.includes('} catch {\n      return false\n    }\n  }, [\n    clearSearch,\n    closeContextMenu,\n    closeSidebarForMobile,') &&
       !workspaceSource.includes('focusWorkspaceFilesSearch(entry.agentId, entry.filePath)') &&
       workspaceSource.includes('restoreWorkspaceNavigationEntry(currentEntry)') &&
       workspaceSource.includes('workspaceNavigationShortcutDirection(event)') &&
@@ -215,7 +215,8 @@ function run() {
       !appSource.includes("key: '0', ctrl: true") &&
       appSource.includes('shortcuts.push({ key, ctrl: true') &&
       appSource.includes('hiddenMainStartRequestedRef') &&
-      appSource.includes("ws.startAgent('bash', undefined, true)") &&
+      appSource.includes('const startMainAgent = ws.startAgent') &&
+      appSource.includes("startMainAgent('bash', undefined, true)") &&
       appSource.includes('const handleRestartMainAgent') &&
       appSource.includes('ws.restartMainAgent(command)') &&
       appSource.includes('onRestartMainAgent={handleRestartMainAgent}') &&
@@ -578,7 +579,8 @@ function run() {
       workspaceSource.includes("if (target.kind === 'agent') focusAgentRow(target.agentId)") &&
       workspaceSource.includes("if (target.kind === 'project') focusProjectTitle(target.projectId)") &&
       workspaceSource.includes('let initializedSelection = false') &&
-      workspaceSource.includes("if (renameDialog.kind === 'project')") &&
+      workspaceSource.includes('const dialog = renameDialogStateRef.current') &&
+      workspaceSource.includes("if (dialog.kind === 'project')") &&
       workspaceSource.includes('input.setSelectionRange(cursorPosition, cursorPosition)') &&
       workspaceSource.includes('focusAgentRow(renameDialog.agentId)') &&
       workspaceSource.includes('const agentId = killDialog?.agentId') &&

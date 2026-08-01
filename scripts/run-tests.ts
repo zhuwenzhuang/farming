@@ -12,6 +12,17 @@ import { discoverUnitTestFiles } from './discover-unit-tests';
 
 /** Backend tests may dynamic-import TypeScript under src/; native node cannot load those without tsx. */
 const tsxCli = path.join(path.dirname(require.resolve('tsx/package.json')), 'dist', 'cli.mjs');
+/**
+ * Backend tests require the generated `.cjs` runtime, so raw stacks point at build
+ * output. `--enable-source-maps` redirects them through the emitted `.cjs.map` files
+ * to the `.cts` sources. It has to travel in NODE_OPTIONS rather than our argv: tsx
+ * re-spawns the test in a child process with its own execArgv, so a flag placed before
+ * `tsxCli` would be dropped. NODE_OPTIONS is inherited, so it also reaches the helper
+ * processes the tests spawn themselves.
+ */
+const testNodeOptions = [process.env.NODE_OPTIONS, '--enable-source-maps']
+  .filter((value): value is string => Boolean(value))
+  .join(' ');
 
 const projectRoot = path.join(__dirname, '..');
 const testsDir = path.join(projectRoot, 'backend', 'tests');
@@ -145,7 +156,7 @@ function runTest({ args, label, timeoutMs }: TestRun): Promise<TestResult> {
   return new Promise(resolve => {
     execFile(process.execPath, args, {
       timeout: Number(process.env.FARMING_TEST_TIMEOUT_MS) || timeoutMs || DEFAULT_TEST_TIMEOUT_MS,
-      env: { ...process.env, NODE_ENV: 'test' }
+      env: { ...process.env, NODE_ENV: 'test', NODE_OPTIONS: testNodeOptions }
     }, (error, stdout, stderr) => {
       resolve({
         label,

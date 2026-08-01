@@ -53,9 +53,12 @@ export function useWorkspaceFileOpenController({
   }, [clearOpenFilePending])
 
   useEffect(() => {
-    fileOpenScopeRef.current.mounted = true
+    // The scope object is created once by useRef and only mutated, so this is the
+    // same object the mount flag must be cleared on.
+    const fileOpenScope = fileOpenScopeRef.current
+    fileOpenScope.mounted = true
     return () => {
-      fileOpenScopeRef.current.mounted = false
+      fileOpenScope.mounted = false
       fileOpenRequestRef.current += 1
       if (fileOpenPendingTimerRef.current !== null) {
         window.clearTimeout(fileOpenPendingTimerRef.current)

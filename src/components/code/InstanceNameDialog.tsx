@@ -26,10 +26,13 @@ export function InstanceNameDialog({
   useEscapeKey(onClose, !saving)
 
   useEffect(() => {
+    // Same return-focus contract as the other sidebar dialogs: the trigger stays
+    // mounted while this dialog is open, so capture it at setup.
+    const returnFocusTarget = returnFocusRef.current
     inputRef.current?.focus({ preventScroll: true })
     inputRef.current?.select()
     return () => {
-      returnFocusRef.current?.focus({ preventScroll: true })
+      returnFocusTarget?.focus({ preventScroll: true })
     }
   }, [onClose, returnFocusRef])
 

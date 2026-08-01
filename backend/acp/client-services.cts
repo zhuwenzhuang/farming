@@ -3,6 +3,12 @@ const fs = require('fs') as typeof import('fs');
 const path = require('path') as typeof import('path');
 const { spawn } = require('child_process') as typeof import('child_process');
 import { nodePty } from '../packaged-node-pty.cjs';
+import * as terminalExitQuiescenceModule from '../terminal-exit-quiescence.cjs';
+
+const {
+  acceptTerminalExitData,
+  waitForTerminalExitDataQuiescence,
+} = terminalExitQuiescenceModule;
 
 const fsp = fs.promises;
 const DEFAULT_MAX_FILE_BYTES = 8 * 1024 * 1024;
@@ -37,6 +43,7 @@ interface ResolveWorkspacePathOptions {
 interface TerminalManagerOptions {
   spawn?: ChildSpawn;
   ptySpawn?: PtySpawn;
+  terminalExitDataFlushMs?: number;
 }
 
 interface ChildOutputStream {
@@ -104,6 +111,10 @@ interface TerminalRecordBase {
   outputLimit: number;
   truncated: boolean;
   exitStatus: TerminalExitStatus | null;
+  exitDataClosed: boolean;
+  exitFinalizing: boolean;
+  exitDataGeneration: number;
+  exitFinalizationPromise: Promise<void> | null;
   released: boolean;
   waiters: Array<(exitStatus: TerminalExitStatus) => void>;
 }
@@ -278,6 +289,7 @@ function trimUtf8Start(
 class AcpClientTerminalManager {
   spawn: ChildSpawn;
   ptySpawn: PtySpawn | null;
+  terminalExitDataFlushMs: number | undefined;
   terminals: Map<string, TerminalRecord>;
   pendingCreates: Map<string, number>;
 
@@ -290,6 +302,7 @@ class AcpClientTerminalManager {
       : typeof options.spawn === 'function'
         ? null
         : nodePty.spawn;
+    this.terminalExitDataFlushMs = options.terminalExitDataFlushMs;
     this.terminals = new Map();
     this.pendingCreates = new Map();
   }
@@ -360,11 +373,16 @@ class AcpClientTerminalManager {
       outputLimit: boundedOutputLimit(params.outputByteLimit),
       truncated: false,
       exitStatus: null,
+      exitDataClosed: false,
+      exitFinalizing: false,
+      exitDataGeneration: 0,
+      exitFinalizationPromise: null,
       released: false,
       waiters: [],
     };
     let record: TerminalRecord;
     const append = (chunk: Buffer | string): void => {
+      if (!acceptTerminalExitData(record)) return;
       const next = Buffer.concat([record.output, Buffer.from(chunk)]);
       const bounded = trimUtf8Start(next, record.outputLimit);
       record.output = bounded.buffer;
@@ -399,9 +417,9 @@ class AcpClientTerminalManager {
       child.stderr?.on('data', append);
       child.on('error', error => {
         append(`${error.message || error}\n`);
-        this.finish(record, { exitCode: null, signal: 'spawn-error' });
+        this.publishExit(record, { exitCode: null, signal: 'spawn-error' });
       });
-      child.on('close', (code, signal) => this.finish(record, {
+      child.on('close', (code, signal) => this.publishExit(record, {
         exitCode: Number.isInteger(code) ? code : null,
         signal: signal ? String(signal) : null,
       }));
@@ -424,7 +442,23 @@ class AcpClientTerminalManager {
   }
 
   finish(record: TerminalRecord, exitStatus: TerminalExitStatus): void {
+    if (record.exitStatus || record.exitFinalizationPromise) return;
+    const finalization = this.finalizeExit(record, exitStatus);
+    record.exitFinalizationPromise = finalization;
+  }
+
+  async finalizeExit(record: TerminalRecord, exitStatus: TerminalExitStatus): Promise<void> {
+    const quiesced = await waitForTerminalExitDataQuiescence(record, {
+      flushMs: this.terminalExitDataFlushMs,
+      isCurrent: () => this.terminals.get(record.terminalId) === record,
+    });
+    if (!quiesced) return;
+    this.publishExit(record, exitStatus);
+  }
+
+  publishExit(record: TerminalRecord, exitStatus: TerminalExitStatus): void {
     if (record.exitStatus) return;
+    record.exitDataClosed = true;
     record.exitStatus = exitStatus;
     record.endedAt = Date.now();
     const waiters = record.waiters.splice(0);
@@ -518,8 +552,8 @@ class AcpClientTerminalManager {
     for (const [terminalId, record] of this.terminals) {
       if (record.agentId !== agentId) continue;
       if (!record.exitStatus && !record.child.killed) record.child.kill('SIGTERM');
+      this.publishExit(record, { exitCode: null, signal: 'SIGTERM' });
       this.terminals.delete(terminalId);
-      this.finish(record, { exitCode: null, signal: 'SIGTERM' });
     }
   }
 }

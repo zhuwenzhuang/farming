@@ -152,7 +152,10 @@ export function useAcpSession(agentId: string, active: boolean, runtimeState: st
   }, [refresh, runtimeState])
 
   useEffect(() => {
-    if (!session?.authTerminal || !['running', 'completed'].includes(session.authTerminal.state)) return undefined
+    // Read the state field directly so the effect depends on it rather than the
+    // whole authTerminal object, avoiding needless interval restarts.
+    const authState = session?.authTerminal?.state
+    if (!authState || !['running', 'completed'].includes(authState)) return undefined
     const timer = window.setInterval(() => { void refresh() }, 500)
     return () => window.clearInterval(timer)
   }, [refresh, session?.authTerminal?.state, session?.authTerminal?.terminalId])

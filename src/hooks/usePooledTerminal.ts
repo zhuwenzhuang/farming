@@ -203,8 +203,11 @@ export function usePooledTerminal({
   }, [agentId, attachmentHandlers, farmingUrlOpenEnabled, inputDisabled, suppressRendererCursor])
 
   useEffect(() => {
-    if (!agentId || !bootstrapState?.runtimeEpoch || bootstrapState.stateRevision === null) return
-    updateTerminalSessionBootstrapState(agentId, bootstrapState).catch((error) => {
+    // The field-level deps below are the intentional triggers: `bootstrapState` is an
+    // object literal from the caller, so depending on it would reapply state every render.
+    const latestBootstrapState = latestHandlersRef.current.bootstrapState
+    if (!agentId || !latestBootstrapState?.runtimeEpoch || latestBootstrapState.stateRevision === null) return
+    updateTerminalSessionBootstrapState(agentId, latestBootstrapState).catch((error) => {
       console.error('Failed to apply terminal bootstrap state:', error)
     })
   }, [

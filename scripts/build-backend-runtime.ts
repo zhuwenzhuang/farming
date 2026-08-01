@@ -41,6 +41,11 @@ async function main(): Promise<void> {
     target: 'node22',
     legalComments: 'none',
     logLevel: 'warning',
+    // Separate `.cjs.map` files keep the emitted runtime readable and stay out of
+    // the published tarball, whose `files` globs only match `.cjs`. Node resolves
+    // them from the emitted `//# sourceMappingURL` when run with
+    // `--enable-source-maps`, so backend stacks point at the `.cts` sources.
+    sourcemap: true,
     banner: { js: generatedHeader },
   });
 
@@ -53,7 +58,14 @@ async function main(): Promise<void> {
       const source = fs.readFileSync(filePath, 'utf8');
       if (source.startsWith(generatedHeader) || source.startsWith(legacyGeneratedHeader)) {
         fs.rmSync(filePath, { force: true });
+        fs.rmSync(`${filePath}.map`, { force: true });
       }
+    }
+    // Sweep maps whose runtime module is already gone, so removing a `.cts`
+    // never leaves an orphan map behind.
+    for (const mapPath of collectFiles(runtimeRoot, '.cjs.map')) {
+      if (fs.existsSync(mapPath.slice(0, -'.map'.length))) continue;
+      fs.rmSync(mapPath, { force: true });
     }
   }
 }

@@ -1,4 +1,5 @@
 const js = require('@eslint/js');
+const reactHooksPlugin = require('eslint-plugin-react-hooks');
 const typescriptPlugin = require('@typescript-eslint/eslint-plugin');
 const typescriptParser = require('@typescript-eslint/parser');
 
@@ -11,11 +12,22 @@ const typescriptOwnedCoreRules = {
   'no-unused-vars': 'off',
 };
 
+// React state that a Hook reads must be declared as a dependency: a stale
+// closure is how a browser surface silently presents a previous visit's
+// snapshot as the answer to the current request, which this codebase forbids.
+// Both rules are errors because `npm run lint` runs with --max-warnings=0, so a
+// warning would fail the gate anyway without saying so.
+const reactHooksRules = {
+  'react-hooks/rules-of-hooks': 'error',
+  'react-hooks/exhaustive-deps': 'error',
+};
+
 // Only the non-type-aware recommended set: type-aware rules would require
 // projectService/program construction, which this lint gate deliberately avoids.
 const browserTypescriptRules = {
   ...typescriptPlugin.configs.recommended.rules,
   ...typescriptOwnedCoreRules,
+  ...reactHooksRules,
   '@typescript-eslint/no-unused-vars': ['warn', {
     argsIgnorePattern: '^_',
     varsIgnorePattern: '^_',
@@ -135,6 +147,7 @@ module.exports = [
     files: ['src/**/*.ts', 'extensions/*/frontend/**/*.ts'],
     plugins: {
       '@typescript-eslint': typescriptPlugin,
+      'react-hooks': reactHooksPlugin,
     },
     languageOptions: {
       ecmaVersion: 2022,
@@ -149,6 +162,7 @@ module.exports = [
     files: ['src/**/*.tsx', 'extensions/*/frontend/**/*.tsx'],
     plugins: {
       '@typescript-eslint': typescriptPlugin,
+      'react-hooks': reactHooksPlugin,
     },
     languageOptions: {
       ecmaVersion: 2022,

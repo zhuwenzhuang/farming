@@ -338,9 +338,7 @@ export function App() {
     commitPermissionSwitch(null)
   }, [
     commitPermissionSwitch,
-    permissionSwitch?.agent.id,
-    permissionSwitch?.replacementAgentId,
-    permissionSwitch?.requestSettled,
+    permissionSwitch,
     ws.agents,
   ])
 
@@ -500,6 +498,10 @@ export function App() {
       .catch(() => {})
   }, [])
 
+  // Bind startAgent outside the effect: calling it as ws.startAgent(...) would
+  // force the whole ws object (a fresh spread every render) into the deps and
+  // rerun this effect constantly. As a bare local it stays a stable callback dep.
+  const startMainAgent = ws.startAgent
   useEffect(() => {
     if (!ws.connected) return
     if (ws.mainAgentId || ws.agents.some(agent => agent.isMain)) {
@@ -509,8 +511,8 @@ export function App() {
     if (hiddenMainStartRequestedRef.current) return
 
     hiddenMainStartRequestedRef.current = true
-    ws.startAgent('bash', undefined, true)
-  }, [ws.agents, ws.connected, ws.mainAgentId, ws.startAgent])
+    startMainAgent('bash', undefined, true)
+  }, [startMainAgent, ws.agents, ws.connected, ws.mainAgentId])
 
   useEffect(() => {
     const updateVisualViewport = () => {
@@ -1028,10 +1030,7 @@ export function App() {
       if (interval !== undefined) window.clearInterval(interval)
     }
   }, [
-    activeTerminalAgent?.id,
-    activeTerminalAgent?.providerSessionId,
-    activeTerminalAgent?.providerSessionProvider,
-    activeTerminalAgent?.providerSessionTemporary,
+    activeTerminalAgent,
     pageVisible,
     refreshAgentContextWindows,
   ])

@@ -10,8 +10,8 @@ import { applyBrowserViewerCanvasSize } from './browser-viewer-rendering'
 import type { BrowserResource } from './types'
 import type { BrowserResourcesController } from './useBrowserResources'
 
-function viewerWebSocketUrl(resource: BrowserResource) {
-  const url = new URL(appPath(`/api/browsers/${encodeURIComponent(resource.id)}/viewer`), window.location.href)
+function viewerWebSocketUrl(resourceId: string) {
+  const url = new URL(appPath(`/api/browsers/${encodeURIComponent(resourceId)}/viewer`), window.location.href)
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
   return url.href
 }
@@ -290,7 +290,7 @@ export function BrowserViewer({
     }
     const connect = () => {
       if (cancelled) return
-      const socket = new WebSocket(viewerWebSocketUrl(resource))
+      const socket = new WebSocket(viewerWebSocketUrl(resource.id))
       socketRef.current = socket
       socket.onopen = () => {
         setConnected(true)

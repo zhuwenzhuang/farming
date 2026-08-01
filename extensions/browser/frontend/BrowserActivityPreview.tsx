@@ -3,8 +3,8 @@ import { appPath } from '@/lib/base-path'
 import type { UiPreferences } from '@/lib/ui-preferences'
 import type { BrowserResource } from './types'
 
-function viewerWebSocketUrl(resource: BrowserResource) {
-  const url = new URL(appPath(`/api/browsers/${encodeURIComponent(resource.id)}/viewer`), window.location.href)
+function viewerWebSocketUrl(resourceId: string) {
+  const url = new URL(appPath(`/api/browsers/${encodeURIComponent(resourceId)}/viewer`), window.location.href)
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
   return url.href
 }
@@ -42,7 +42,7 @@ export function BrowserActivityPreview({
     let socket: WebSocket | null = null
     const connect = () => {
       if (cancelled) return
-      socket = new WebSocket(viewerWebSocketUrl(resource))
+      socket = new WebSocket(viewerWebSocketUrl(resource.id))
       socket.onmessage = event => {
         const message = JSON.parse(String(event.data)) as {
           type?: string

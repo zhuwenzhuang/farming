@@ -75,9 +75,11 @@ test('keeps ACP Chat live while the browser page is hidden', { tag: '@iphone-hum
   await setPageVisibility(page, 'hidden')
   expect(await page.evaluate(() => document.visibilityState)).toBe('hidden')
 
-  await page.waitForTimeout(1_800)
+  await expect.poll(
+    async () => page.getByText('Streaming thought complete.', { exact: true }).count(),
+    { timeout: 15_000 },
+  ).toBe(1)
   expect(await page.evaluate(() => document.visibilityState)).toBe('hidden')
-  expect(await page.getByText('Streaming thought complete.', { exact: true }).count()).toBe(1)
   expect(backendSocketClosed).toBe(0)
 
   await setPageVisibility(page, 'visible')

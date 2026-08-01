@@ -484,7 +484,7 @@ export function InputDialog({
     if (!isMobileViewport()) {
       setTimeout(() => inputRef.current?.focus(), 50)
     }
-  }, [initialWorkspace, lockStartClick, mainWorkspaceDefault, mustStartMain, onStart, resumeStartOptions, settingsLoaded, workspace])
+  }, [agentHomes, initialWorkspace, lockStartClick, mainWorkspaceDefault, mustStartMain, onStart, resumeStartOptions, selectedHomeId, settingsLoaded, workspace])
 
   const persistWorkspaceHistory = useCallback(async (nextWorkspace: string) => {
     const nextHistory = buildWorkspaceHistory(nextWorkspace, workspaceHistory)

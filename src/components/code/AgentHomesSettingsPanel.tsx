@@ -322,16 +322,15 @@ export function AgentHomesSettingsPanel({
       })
   }, [copy.loadFailed, onSyncUiPreferences])
 
-  useEffect(() => {
-    panelScopeRef.current.open = open
-    return () => {
-      panelScopeRef.current = {
-        open: false,
-        generation: panelScopeRef.current.generation + 1,
-      }
-      settingsLoadRequestRef.current += 1
-      if (searchTimeoutSaveTimerRef.current !== null) window.clearTimeout(searchTimeoutSaveTimerRef.current)
+  // Unmount-only teardown; `panelScopeRef.current.open` is already kept in sync
+  // during render above.
+  useEffect(() => () => {
+    panelScopeRef.current = {
+      open: false,
+      generation: panelScopeRef.current.generation + 1,
     }
+    settingsLoadRequestRef.current += 1
+    if (searchTimeoutSaveTimerRef.current !== null) window.clearTimeout(searchTimeoutSaveTimerRef.current)
   }, [])
 
   useEffect(() => {

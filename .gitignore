@@ -19,9 +19,13 @@ releases/
 backend/usage-history-scanner.generated.js
 backend/*.cjs
 backend/**/*.cjs
+backend/*.cjs.map
+backend/**/*.cjs.map
 backend/*.pkg.js
 extensions/browser/backend/**/*.cjs
+extensions/browser/backend/**/*.cjs.map
 extensions/computer/backend/**/*.cjs
+extensions/computer/backend/**/*.cjs.map
 reference/
 docs/products/hive/
 .farming/

@@ -197,6 +197,24 @@ export function useWebSocket() {
     pending.resolve(accepted)
   }, [])
 
+  // The socket effect below must run exactly once: adding these handlers to its
+  // dependency array would tear down and reconnect the WebSocket whenever any of
+  // them is reidentified. Read them through a ref that is refreshed every render.
+  const latestHandlersRef = useRef({
+    settleComposerRequest,
+    mergeBrowserResource,
+    deleteBrowserResource,
+    mergeComputerResource,
+    deleteComputerResource,
+  })
+  latestHandlersRef.current = {
+    settleComposerRequest,
+    mergeBrowserResource,
+    deleteBrowserResource,
+    mergeComputerResource,
+    deleteComputerResource,
+  }
+
   const startAgent = useCallback((
     command: string,
     workspace?: string,
@@ -599,7 +617,7 @@ export function useWebSocket() {
               }))
               break
             case 'composer-input-result':
-              settleComposerRequest(msg.requestId, msg.accepted, msg.message || '', msg.uncertain !== true)
+              latestHandlersRef.current.settleComposerRequest(msg.requestId, msg.accepted, msg.message || '', msg.uncertain !== true)
               break
             case 'agent-started':
               setState(prev => ({ ...prev, lastStartedAgentId: msg.agentId }))
@@ -700,10 +718,10 @@ export function useWebSocket() {
               })
               break
             case 'browser-resource-updated':
-              mergeBrowserResource(msg.resource)
+              latestHandlersRef.current.mergeBrowserResource(msg.resource)
               break
             case 'browser-resource-deleted':
-              deleteBrowserResource(msg.deletion)
+              latestHandlersRef.current.deleteBrowserResource(msg.deletion)
               break
             case 'computer-resource-snapshot':
               setState(prev => {
@@ -715,10 +733,10 @@ export function useWebSocket() {
               })
               break
             case 'computer-resource-updated':
-              mergeComputerResource(msg.resource)
+              latestHandlersRef.current.mergeComputerResource(msg.resource)
               break
             case 'computer-resource-deleted':
-              deleteComputerResource(msg.deletion)
+              latestHandlersRef.current.deleteComputerResource(msg.deletion)
               break
             case 'system-stats':
               updateBackendSystemStats(msg.stats ?? null)

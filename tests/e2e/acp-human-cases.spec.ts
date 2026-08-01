@@ -987,13 +987,13 @@ test.describe('ACP human-like browser matrix', () => {
         /run-long-command\.js --verify-mobile-composer-focus/,
         { timeout: 10_000 },
       )
-      await sendPromise
       await page.getByTestId('code-acp-composer-input').fill('queued follow-up')
       await page.getByTestId('code-acp-composer-send').click()
       await expect(page.getByTestId('code-acp-pending-followup')).toContainText('queued follow-up')
       await page.getByTestId('code-acp-pending-followup-discard').click()
       await expect(page.getByTestId('code-acp-pending-followup')).toBeHidden()
-      await expect(page.getByText('Live progress complete.', { exact: true }).last()).toBeVisible({ timeout: 10_000 })
+      await sendPromise
+      await expect(activeLiveTurn.getByText('Live progress complete.', { exact: true })).toBeVisible({ timeout: 10_000 })
     })
     await test.step('39 expose an ACP form elicitation instead of looking stuck', async () => {
       await sendAcpMessage(page, 'exercise client services')

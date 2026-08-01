@@ -277,7 +277,7 @@ export function ShareQrButton({
         setLoading(false)
       }
     }
-  }, [copy.shareLinkFailed, shareTarget, shareTargetSignature])
+  }, [copy.shareLinkFailed, shareTarget])
 
   const closePopover = useCallback(() => {
     clearCloseTimer()

@@ -149,6 +149,7 @@ export function useWorkspaceFileSearch(agentId: string | null) {
     selectNext,
     selectPrevious,
     selectedMatch,
+    setSearchQuery,
     truncated,
     timeoutMs,
   ])

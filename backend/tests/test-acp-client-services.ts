@@ -105,6 +105,43 @@ async function run() {
     assert(display.durationMs >= 0);
     assert.strictEqual(display.interactive, true);
 
+    let trailingDataListener: ((data: string) => void) | null = null;
+    let trailingExitListener: ((event: { exitCode: number; signal?: number }) => void) | null = null;
+    const trailingTerminals = new AcpClientTerminalManager({
+      terminalExitDataFlushMs: 10,
+      ptySpawn() {
+        return {
+          killed: false,
+          onData(listener) { trailingDataListener = listener; },
+          onExit(listener) { trailingExitListener = listener; },
+          write() {},
+          resize() {},
+          kill() {},
+        };
+      },
+    });
+    const trailing = await trailingTerminals.create(binding, request({ command: 'fake-pty' }));
+    let trailingExitResolved = false;
+    const trailingExit = trailingTerminals.waitForExit(
+      binding,
+      request({ terminalId: trailing.terminalId }),
+    ).then(status => {
+      trailingExitResolved = true;
+      return status;
+    });
+    assert(trailingExitListener);
+    trailingExitListener({ exitCode: 0 });
+    await new Promise(resolve => setTimeout(resolve, 1));
+    assert.strictEqual(trailingExitResolved, false, 'PTY exit must wait for trailing output quiescence');
+    assert(trailingDataListener);
+    trailingDataListener('trailing-output');
+    assert.deepStrictEqual(await trailingExit, { exitCode: 0, signal: null });
+    assert.match(
+      trailingTerminals.output(binding, request({ terminalId: trailing.terminalId })).output,
+      /trailing-output/,
+    );
+    trailingTerminals.cleanupAgent(binding.agentId);
+
     const interactive = await terminals.create(binding, request({
       command: process.execPath,
       args: ['-e', "process.stdin.setEncoding('utf8'); process.stdout.write('ready>'); process.stdin.once('data', value => { process.stdout.write('echo:' + value.trim()); process.exit(0); })"],

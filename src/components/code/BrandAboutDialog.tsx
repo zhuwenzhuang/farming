@@ -22,9 +22,13 @@ export function BrandAboutDialog({
   useEscapeKey(onClose)
 
   useEffect(() => {
+    // The return target is the sidebar trigger that opened this dialog; it stays
+    // mounted for the dialog's lifetime, so capturing it here restores focus to
+    // the same element the cleanup would have read.
+    const returnFocusTarget = returnFocusRef.current
     closeButtonRef.current?.focus({ preventScroll: true })
     return () => {
-      returnFocusRef.current?.focus({ preventScroll: true })
+      returnFocusTarget?.focus({ preventScroll: true })
     }
   }, [onClose, returnFocusRef])
 

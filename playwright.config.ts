@@ -8,6 +8,11 @@ const port = Number(process.env.FARMING_PLAYWRIGHT_PORT || 4173)
 const baseURL = `http://127.0.0.1:${port}`
 const includeInternalTests = process.env.FARMING_PLAYWRIGHT_INTERNAL === '1'
 const useRealCodex = process.env.FARMING_E2E_REAL_CODEX === '1'
+// CI builds the frontend once in the Check job and hands dist/ to every browser
+// shard, so the shards set this to skip a rebuild they would only repeat. Local
+// runs leave it unset and keep building their own bundle first.
+const skipPlaywrightBuild = process.env.FARMING_PLAYWRIGHT_SKIP_BUILD === '1'
+const startPlaywrightServer = 'exec tsx scripts/start-playwright-server.ts'
 const localChromePath = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
 const executablePath = process.env.FARMING_PLAYWRIGHT_CHROME_PATH
   || (fs.existsSync(localChromePath) ? localChromePath : undefined)
@@ -113,7 +118,7 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'npm run build && exec tsx scripts/start-playwright-server.ts',
+    command: skipPlaywrightBuild ? startPlaywrightServer : `npm run build && ${startPlaywrightServer}`,
     url: `${baseURL}/farming/`,
     reuseExistingServer: false,
     timeout: 90_000,

@@ -76,7 +76,7 @@ function requestWithToken(port: number, token: string): Promise<{
     const request = http.request({
       host: '127.0.0.1',
       method: 'GET',
-      path: `/farming/?token=${encodeURIComponent(token)}`,
+      path: `/farming/api/executables?token=${encodeURIComponent(token)}`,
       port,
       timeout: 5_000,
     }, response => {

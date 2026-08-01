@@ -28,8 +28,8 @@ type ViewerConfig = {
   controlEpoch: number
 }
 
-async function viewerConfig(resource: ComputerResource): Promise<ViewerConfig> {
-  const response = await fetch(appPath(`/api/computers/${encodeURIComponent(resource.id)}/viewer-config`), {
+async function viewerConfig(resourceId: string): Promise<ViewerConfig> {
+  const response = await fetch(appPath(`/api/computers/${encodeURIComponent(resourceId)}/viewer-config`), {
     headers: { Accept: 'application/json' },
   })
   const data = await response.json().catch(() => ({})) as ViewerConfig & { error?: string }
@@ -80,7 +80,7 @@ export function ComputerViewer({
       return
     }
     let active = true
-    void viewerConfig(resource).then(next => {
+    void viewerConfig(resource.id).then(next => {
       if (!active) return
       setConfig(next)
       setError('')

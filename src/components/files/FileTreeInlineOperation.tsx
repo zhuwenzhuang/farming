@@ -1,4 +1,4 @@
-import { useLayoutEffect, type RefObject } from 'react'
+import { useLayoutEffect, useRef, type RefObject } from 'react'
 import {
   workspaceFileOperationSelectionEnd,
   type WorkspaceFileOperationState,
@@ -27,12 +27,17 @@ export function FileTreeInlineOperation({
   onInputName,
   onSubmit,
 }: FileTreeInlineOperationProps) {
+  // `fileOperation.name` changes on every keystroke, so the selection range is read
+  // through a ref: re-running the effect would reset the caret while the user types.
+  const fileOperationRef = useRef(fileOperation)
+  fileOperationRef.current = fileOperation
+
   useLayoutEffect(() => {
     const input = inputRef.current
     if (!input) return
     input.focus({ preventScroll: true })
     if (document.activeElement === input) {
-      input.setSelectionRange(0, workspaceFileOperationSelectionEnd(fileOperation))
+      input.setSelectionRange(0, workspaceFileOperationSelectionEnd(fileOperationRef.current))
     }
   }, [fileOperation.item?.path, inputRef])
 

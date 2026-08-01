@@ -158,7 +158,7 @@ const path = require('path');
       && blackHoleRendererSource.includes('diskRadius * 2.8 + 0.24 * sin(')
       && blackHoleRendererSource.includes('diskRadius * 1.35 + 0.38 * sin(')
       && blackHoleRendererSource.includes(
-        'float streaks = mix(0.84, 1.12 + contrast * 0.04, filament);',
+        'float streaks = 0.35 + contrast * flow * flow;',
       )
       && !blackHoleRendererSource.includes('wrappedNoiseAA(')
       && !blackHoleRendererSource.includes('fwidth(')

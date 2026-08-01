@@ -92,7 +92,7 @@ export function useWorkspaceFileOperationController({
     fileOperationRef.current = null
     fileOperationActiveRef.current = false
     setFileOperation(null)
-  }, [])
+  }, [fileOperationActiveRef])
 
   const isCurrentFileOperation = useCallback((operation: WorkspaceFileOperationOwnership) => {
     const current = fileOperationRef.current
@@ -105,7 +105,7 @@ export function useWorkspaceFileOperationController({
     fileOperationActiveRef.current = false
     setFileOperation(current => fileOperationRef.current === null ? null : current)
     return true
-  }, [isCurrentFileOperation])
+  }, [fileOperationActiveRef, isCurrentFileOperation])
 
   const releaseFileOperationForRetry = useCallback((operation: WorkspaceFileOperationOwnership) => {
     if (!isCurrentFileOperation(operation)) return false
@@ -138,7 +138,7 @@ export function useWorkspaceFileOperationController({
     fileOperationActiveRef.current = true
     setOpenFileError(null)
     setFileOperation(operation)
-  }, [agentId, setOpenFileError])
+  }, [agentId, fileOperationActiveRef, setOpenFileError])
 
   const closeFileOperation = useCallback(() => {
     const operation = fileOperationRef.current
@@ -359,7 +359,7 @@ export function useWorkspaceFileOperationController({
   useLayoutEffect(() => () => {
     fileOperationRef.current = null
     fileOperationActiveRef.current = false
-  }, [])
+  }, [fileOperationActiveRef])
 
   useEffect(() => {
     if (!fileOperation) return undefined

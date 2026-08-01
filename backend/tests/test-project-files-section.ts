@@ -843,7 +843,7 @@ function run() {
 		      !fileSectionSource.includes('workspaceFileContextMenuPosition') &&
 		      !fileSectionSource.includes('workspaceFileOperationTargetDirectory') &&
 		      !fileSectionSource.includes('navigator.clipboard?.writeText(item.path)') &&
-	      fileTreeInlineOperationSource.includes('workspaceFileOperationSelectionEnd(fileOperation)') &&
+	      fileTreeInlineOperationSource.includes('workspaceFileOperationSelectionEnd(fileOperationRef.current)') &&
 	      !fileSectionSource.includes('workspaceFileOperationSelectionEnd(fileOperation)') &&
 		      fileOperationControllerSource.includes('workspaceFileOperationSubmitName(operation)') &&
 	      !fileSectionSource.includes('workspaceFileOperationSubmitName(operation)') &&
@@ -861,7 +861,7 @@ function run() {
       fileOperationModelSource.includes("const extensionIndex = operation.name.lastIndexOf('.')") &&
 	      fileOperationControllerSource.includes('const closeInlineOperationOnEscape = (event: KeyboardEvent) =>') &&
 	      !fileSectionSource.includes('const closeInlineOperationOnEscape = (event: KeyboardEvent) =>') &&
-	      fileTreeInlineOperationSource.includes('input.setSelectionRange(0, workspaceFileOperationSelectionEnd(fileOperation))') &&
+	      fileTreeInlineOperationSource.includes('input.setSelectionRange(0, workspaceFileOperationSelectionEnd(fileOperationRef.current))') &&
       fileTreeInlineOperationSource.includes('defaultValue={fileOperation.name}') &&
       !fileTreeInlineOperationSource.includes('value={fileOperation.name}') &&
       fileTreeInlineOperationSource.includes('ref={inputRef}') &&
@@ -1328,7 +1328,8 @@ function run() {
 	      editorModelSource.includes('function shouldKeepWorkspaceEditorViewState') &&
 	      editorModelSource.includes('function shouldDisposeWorkspaceEditorModelUri') &&
 	      editorMonacoSource.includes('editorViewStates.delete(key)') &&
-	      editorMonacoControllerSource.includes('editorViewStatesRef.current.clear()') &&
+	      editorMonacoControllerSource.includes('const editorViewStates = editorViewStatesRef.current') &&
+	      editorMonacoControllerSource.includes('editorViewStates.clear()') &&
 	      editorMonacoSource.includes('monaco.editor.getModels().forEach(model =>') &&
 	      editorMonacoSource.includes('isWorkspaceEditorModelUri(model.uri)') &&
 	      editorModelSource.includes('function isWorkspaceEditorModelUri') &&
@@ -1468,7 +1469,8 @@ function run() {
       editorModelSource.includes('FALLBACK_LANGUAGE_ASSOCIATIONS') &&
 	      editorMonacoSource.includes('monaco.editor.setModelLanguage(model, languageId)') &&
 	      !editorMonacoControllerSource.includes('monaco.editor.setModelLanguage(model, languageId)') &&
-	      editorBlameControllerSource.includes('openFile.file.sha1, openFile.workspaceRoot') &&
+	      editorBlameControllerSource.includes('const currentOpenFileKey = openFileKey(openFile)') &&
+	      editorBlameControllerSource.includes('[blameOpen, loadBlame, openFile.file.sha1]') &&
 	      editorBlameControllerSource.includes('openFileKeyRef.current !== requestedFileKey') &&
       editorSource.includes('checkBlameCapability') &&
       editorBlameControllerSource.includes('fetchWorkspaceBlameCapability(openFile.agentId, openFile.file.path)') &&
@@ -1653,7 +1655,7 @@ function run() {
       fileSectionSource.includes("const loadedDirectoryPaths = ['', ...openDirectoryPaths]") &&
       fileSectionSource.includes('refreshDirectories(loadedDirectoryPaths)') &&
       fileSectionSource.includes('onRefreshOpenFiles(agentId, projectWorkspace)') &&
-      fileSectionSource.includes('fileChanges.refreshChanges()') &&
+      fileSectionSource.includes('refreshFileChanges()') &&
       fileSectionSource.includes('refreshing={filesRefreshStatus === \'refreshing\'}') &&
       fileSectionSource.includes('onRefreshFiles={refreshProjectFiles}') &&
       fileSectionHeaderSource.includes('data-refresh-status={refreshStatus}') &&

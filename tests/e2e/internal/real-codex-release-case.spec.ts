@@ -669,7 +669,7 @@ test.describe('real Codex pre-release composite case', () => {
       }
     })
 
-    const catalogResponse = await page.request.get('/farming/api/codex/models')
+    const catalogResponse = await page.request.get('/farming/api/codex/models?homeId=default')
     expect(catalogResponse.ok()).toBeTruthy()
     const catalogBody = await catalogResponse.json() as { catalog?: CodexCatalogModel[] }
     const catalog = catalogBody.catalog ?? []
@@ -738,7 +738,10 @@ test.describe('real Codex pre-release composite case', () => {
       )
       terminalProfileBody = await terminalProfileResponse.json() as { error?: string }
       if (terminalProfileResponse.ok()) break
-      if (terminalProfileBody.error !== 'Codex Terminal is not idle; wait for its composer before changing the model') break
+      if (![
+        'Codex Terminal is not idle; wait for its composer before changing the model',
+        'Wait for the active Codex Terminal turn to finish before changing its model',
+      ].includes(terminalProfileBody.error || '')) break
       await page.waitForTimeout(250)
     } while (Date.now() < terminalProfileDeadline)
     expect(terminalProfileResponse.ok(), terminalProfileBody.error || 'Failed to set the real Codex Terminal profile').toBeTruthy()
@@ -752,6 +755,9 @@ test.describe('real Codex pre-release composite case', () => {
       const picker = page.getByTestId('code-composer-model-picker')
       await expect(picker).toHaveAttribute('data-agent-model-preset', `${launchModel?.value}:${PRIMARY_EFFORT}`, { timeout: 60_000 })
       await picker.click()
+      await expect(picker).toHaveAttribute('aria-expanded', 'true')
+      await expect(page.getByTestId('code-model-menu')).toBeVisible()
+      await expect(page.getByTestId('code-model-matrix-picker')).toBeVisible({ timeout: 60_000 })
       const variant = PRIMARY_MODEL.match(/-(sol|terra|luna)$/i)?.[1]?.toLowerCase()
       expect(variant).toBeTruthy()
       const target = page.getByTestId(`code-model-matrix-cell-${variant}-${PRIMARY_EFFORT}`)

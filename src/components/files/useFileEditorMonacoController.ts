@@ -70,6 +70,7 @@ export function useFileEditorMonacoController({
   const onRecordNavigationCursorRef = useRef(onRecordNavigationCursor)
   const onSaveShortcutRef = useRef(onSaveShortcut)
   const openFileAgentIdRef = useRef(openFile.agentId)
+  const openFileDraftRef = useRef(openFile.draft)
   const openFilePathRef = useRef(openFile.file.path)
   const openFileWorkspaceRootRef = useRef(openFile.workspaceRoot)
   const wordWrapEnabledRef = useRef(wordWrapEnabled)
@@ -84,6 +85,7 @@ export function useFileEditorMonacoController({
   onRecordNavigationCursorRef.current = onRecordNavigationCursor
   onSaveShortcutRef.current = onSaveShortcut
   openFileAgentIdRef.current = openFile.agentId
+  openFileDraftRef.current = openFile.draft
   openFilePathRef.current = openFile.file.path
   openFileWorkspaceRootRef.current = openFile.workspaceRoot
   wordWrapEnabledRef.current = wordWrapEnabled
@@ -149,9 +151,11 @@ export function useFileEditorMonacoController({
 
     configureWorkspaceEditorMonacoEnvironment()
     applyWorkspaceEditorMonacoTheme()
+    // Read the seed content through refs: the editor is created once, and a later
+    // effect syncs model content, so depending on the draft would remount Monaco.
     const editor = monaco.editor.create(host, workspaceEditorCreateOptions({
-      value: openFile.draft,
-      language: workspaceEditorLanguageForPath(openFile.file.path, openFile.draft),
+      value: openFileDraftRef.current,
+      language: workspaceEditorLanguageForPath(openFilePathRef.current, openFileDraftRef.current),
       ariaLabel: editorLabelRef.current,
       wordWrapEnabled: wordWrapEnabledRef.current,
     }))
@@ -217,10 +221,14 @@ export function useFileEditorMonacoController({
       attributeFilter: ['data-appearance', 'data-code-content-font-size'],
     })
 
+    // The view-state map is created once by useRef and only mutated, so the map
+    // captured here is the same one the cleanup below saves into and clears.
+    const editorViewStates = editorViewStatesRef.current
+
     return () => {
       const activeModelId = activeEditorModelKeyRef.current
       if (activeModelId) {
-        editorViewStatesRef.current.set(activeModelId, editor.saveViewState())
+        editorViewStates.set(activeModelId, editor.saveViewState())
       }
       saveEditorReadingAnchor(editor)
       resizeObserverRef.current?.disconnect()
@@ -243,7 +251,7 @@ export function useFileEditorMonacoController({
       cancelWorkspaceEditorScheduledLayout(editor)
       editor.dispose()
       disposeWorkspaceEditorModels()
-      editorViewStatesRef.current.clear()
+      editorViewStates.clear()
       editorRef.current = null
       activeEditorModelKeyRef.current = null
     }

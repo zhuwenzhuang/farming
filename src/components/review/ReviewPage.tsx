@@ -808,8 +808,12 @@ function DiffRows({
   const autoExpandSignature = autoExpandGaps.map(gap => `${gap.key}:${gap.hiddenLines}:${gap.oldHiddenStart}:${gap.newHiddenStart}`).join('|')
   const onExpandContextRef = useRef(onExpandContext)
   onExpandContextRef.current = onExpandContext
+  // Read the gaps through a ref: autoExpandGaps is a fresh filtered array every
+  // render, so the effect triggers on the stable signature and reads latest gaps.
+  const autoExpandGapsRef = useRef(autoExpandGaps)
+  autoExpandGapsRef.current = autoExpandGaps
   useEffect(() => {
-    for (const gap of autoExpandGaps) {
+    for (const gap of autoExpandGapsRef.current) {
       onExpandContextRef.current(gap, 'all', {
         lines: gap.hiddenLines,
         newStart: gap.newHiddenStart,
@@ -1211,6 +1215,11 @@ export function ReviewPage() {
     }
   }
 
+  // applyReviewAction is a fresh closure every render; the hydration effect below
+  // reads it through a ref so it does not refetch on every render.
+  const applyReviewActionRef = useRef(applyReviewAction)
+  applyReviewActionRef.current = applyReviewAction
+
   useEffect(() => {
     document.body.classList.add('review-body')
     return () => document.body.classList.remove('review-body')
@@ -1354,7 +1363,7 @@ export function ReviewPage() {
     } catch {
       // Keep the in-memory diff settings usable when browser storage is unavailable.
     }
-  }, [reviewState.preferences])
+  }, [diffPreferences])
 
   useEffect(() => {
     if (externalReview || !reviewId || !catalogRef.current[patchset]) return
@@ -1362,7 +1371,7 @@ export function ReviewPage() {
     void loadReviewedPatchsetState(reviewId, patchset)
       .then(saved => {
         if (!active) return
-        applyReviewAction({
+        applyReviewActionRef.current({
           patchset,
           reviewedPaths: saved.reviewedPaths,
           reviewId,
@@ -1381,7 +1390,7 @@ export function ReviewPage() {
           catalogRef.current = nextCatalog
           setCatalog(nextCatalog)
         }
-        applyReviewAction({ comments: loadedComments, patchset, reviewId, type: 'hydrate-comments' })
+        applyReviewActionRef.current({ comments: loadedComments, patchset, reviewId, type: 'hydrate-comments' })
       })
       .catch(() => {
         // Comments remain empty until their review-state endpoint is available.
@@ -1389,6 +1398,7 @@ export function ReviewPage() {
     return () => { active = false }
   }, [externalReview, patchset, reviewId])
 
+  const expandedPathsSignature = patchsetState.expandedPaths.join('\0')
   useEffect(() => {
     const updateReviewingPath = () => {
       let nextPath = ''
@@ -1412,7 +1422,7 @@ export function ReviewPage() {
       document.body.removeEventListener('scroll', updateReviewingPath)
       window.removeEventListener('resize', updateReviewingPath)
     }
-  }, [patchset, patchsetState.expandedPaths.join('\0')])
+  }, [expandedPathsSignature, patchset])
 
   const reviewMutationPending = Boolean(patchsetState.pendingReview)
   const commentMutationPending = Boolean(patchsetState.pendingComment)

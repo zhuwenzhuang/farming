@@ -1307,6 +1307,16 @@ async function cleanupFailedDaemonStart(
   releaseServerConfigOwner(configDir, childPid, expectedIdentity);
 }
 
+function serverReadinessPath(
+  env: ServerEnv,
+  authDisabled: boolean,
+  token = '',
+): string {
+  const basePath = env.FARMING_BASE_PATH || DEFAULT_BASE_PATH;
+  if (authDisabled) return routePath(basePath, '/api/auth/status');
+  return `${routePath(basePath, '/api/executables')}?token=${encodeURIComponent(token)}`;
+}
+
 function waitForServer(
   env: ServerEnv,
   timeoutMs = serverStartTimeoutMs(env),
@@ -1331,9 +1341,7 @@ function waitForServer(
         setTimeout(tick, 250);
         return;
       }
-      const readyPath = authDisabled
-        ? routePath(env.FARMING_BASE_PATH || DEFAULT_BASE_PATH, '/api/auth/status')
-        : `${routePath(env.FARMING_BASE_PATH || DEFAULT_BASE_PATH, '/')}?token=${encodeURIComponent(token)}`;
+      const readyPath = serverReadinessPath(env, authDisabled, token);
       const req = http.request({
         host: '127.0.0.1',
         port,
@@ -1823,6 +1831,7 @@ export {
   readServerState,
   readServerProcessIdentity,
   releaseServerConfigOwner,
+  serverReadinessPath,
   serverStartTimeoutMs,
   serverStartStabilityMs,
   serverStopTimeoutMs,

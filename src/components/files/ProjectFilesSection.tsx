@@ -189,6 +189,7 @@ export function ProjectFilesSection({
   })
 
   const clearFileSearch = fileSearch.clear
+  const setFileSearchQuery = fileSearch.setQuery
 
   const {
     openFileError,
@@ -203,6 +204,9 @@ export function ProjectFilesSection({
   })
 
   const fileChanges = useWorkspaceFileChanges(readOnly ? null : agentId, openFiles)
+  // The hook returns a fresh object each render, so hold the stable callback itself
+  // instead of depending on `fileChanges` and rebuilding callbacks every render.
+  const refreshFileChanges = fileChanges.refreshChanges
   const [changesCollapsed, setChangesCollapsed] = useState(true)
 
   const refreshProjectFiles = useCallback(() => {
@@ -223,7 +227,7 @@ export function ProjectFilesSection({
     void (async () => {
       let refreshed = false
       try {
-        const changesRefreshed = await fileChanges.refreshChanges()
+        const changesRefreshed = await refreshFileChanges()
         const [directoriesRefreshed, openFilesRefreshed] = await Promise.all([
           refreshDirectories(loadedDirectoryPaths),
           agentId && onRefreshOpenFiles
@@ -251,7 +255,7 @@ export function ProjectFilesSection({
         filesRefreshResetTimerRef.current = null
       }, FILES_REFRESH_SUCCESS_VISIBLE_MS)
     })()
-  }, [agentId, fileChanges.refreshChanges, onRefreshOpenFiles, openDirectoryPaths, projectWorkspace, refreshDirectories, setOpenFileError])
+  }, [agentId, onRefreshOpenFiles, openDirectoryPaths, projectWorkspace, refreshDirectories, refreshFileChanges, setOpenFileError])
 
   useEffect(() => {
     filesRefreshRequestRef.current += 1
@@ -334,8 +338,8 @@ export function ProjectFilesSection({
 
   const updateFileSearchQuery = useCallback((query: string) => {
     setOpenFileError(null)
-    fileSearch.setQuery(query)
-  }, [fileSearch.setQuery, setOpenFileError])
+    setFileSearchQuery(query)
+  }, [setFileSearchQuery, setOpenFileError])
 
   const fileMenuLaunchWorkspace = useCallback(() => (
     joinWorkspaceDirectory(projectWorkspace, fileMenuTargetDirectory())
@@ -382,7 +386,7 @@ export function ProjectFilesSection({
     revealExplorerPath,
     revealRequest,
     rootDirectoryLoaded: Boolean(directories[''] && !directories[''].loading),
-    setFileSearchQuery: fileSearch.setQuery,
+    setFileSearchQuery,
     setOpenFileError,
     treeData,
   })

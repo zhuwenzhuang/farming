@@ -659,6 +659,10 @@ export function CodeWorkspace({
   })
   const createBrowserResource = browserResources.create
   const startBrowserResource = browserResources.start
+  // Detach the refreshCapability methods so calling them does not pull the whole
+  // resource controllers into the deps of the callers.
+  const refreshBrowserCapability = browserResources.refreshCapability
+  const refreshComputerCapability = computerResources.refreshCapability
   const [initialWorkspaceSurface] = useState<CodeWorkspaceSurface | undefined>(() => (
     loadCodeWorkspaceViewState().surface
   ))
@@ -776,6 +780,9 @@ export function CodeWorkspace({
   const searchInputRef = useRef<HTMLInputElement>(null)
   const renameInputRef = useRef<HTMLInputElement>(null)
   const renameDialogRef = useRef<HTMLFormElement>(null)
+  // Latest rename dialog state for focus effects that must not restart while the title is edited.
+  const renameDialogStateRef = useRef(renameDialog)
+  renameDialogStateRef.current = renameDialog
   const killDialogRef = useRef<HTMLDivElement>(null)
   const killCancelButtonRef = useRef<HTMLButtonElement>(null)
   const deleteWorktreeDialogRef = useRef<HTMLDivElement>(null)
@@ -1162,15 +1169,11 @@ export function CodeWorkspace({
       serviceTier: codexServiceTier,
     },
   ), [
-    pendingCodexTerminalProfile?.model,
-    pendingCodexTerminalProfile?.reasoningEffort,
-    pendingCodexTerminalProfile?.serviceTier,
-    activeAgent?.codexTerminalProfile?.model,
-    activeAgent?.codexTerminalProfile?.reasoningEffort,
-    activeAgent?.codexTerminalProfile?.serviceTier,
+    activeAgent?.codexTerminalProfile,
     codexModel,
     codexReasoningEffort,
     codexServiceTier,
+    pendingCodexTerminalProfile,
   ])
   const displayedCodexModel = displayedCodexProfile.model
   const displayedCodexReasoningEffort = displayedCodexProfile.reasoningEffort
@@ -1200,7 +1203,9 @@ export function CodeWorkspace({
   }, [activeTerminalId, activeView, mainPaneMode, recordWorkspaceNavigationAgent])
 
   useEffect(() => {
-    if (!openWorkspaceFile || mainPaneMode !== 'editor' || activeView !== 'projects') return
+    // Guard on the file path instead of the record so the deps stay field-level: the open-file
+    // record is rebuilt on every draft edit and would replay navigation entries per keystroke.
+    if (!openWorkspaceFile?.file.path || mainPaneMode !== 'editor' || activeView !== 'projects') return
     recordWorkspaceNavigationFile({
       agentId: openWorkspaceFile.agentId,
       filePath: openWorkspaceFile.file.path,
@@ -1385,7 +1390,8 @@ export function CodeWorkspace({
     : activeProjectWorkspace ?? lastProjectWorkspace ?? projects[0]?.workspace
   const showFileEditor = mainPaneMode === 'editor' && Boolean(openWorkspaceFile)
   const shareTarget = useMemo<WorkspaceShareTarget | null>(() => {
-    if (showFileEditor && openWorkspaceFile) {
+    // Field-level guard keeps the deps below field-level; the record identity changes on every edit.
+    if (showFileEditor && openWorkspaceFile?.file.path) {
       const workspaceRoot = openWorkspaceFile.workspaceRoot
         ?? activeAgents.find(agent => agent.id === openWorkspaceFile.agentId)?.projectWorkspace
         ?? activeAgents.find(agent => agent.id === openWorkspaceFile.agentId)?.cwd
@@ -2104,21 +2110,25 @@ export function CodeWorkspace({
         return next
       })
     }
-  }, [copy.terminalProfileApplied, copy.terminalProfileApplying, copy.terminalProfileFailed])
+  }, [copy])
 
   useEffect(() => {
-    const live = activeAgent?.codexTerminalProfile
-    if (!activeAgent || !live) return
+    // Read the profile field by field so a rebuilt agent record does not re-run this effect.
+    const agentId = activeAgent?.id
+    const liveModel = activeAgent?.codexTerminalProfile?.model
+    const liveReasoningEffort = activeAgent?.codexTerminalProfile?.reasoningEffort
+    const liveServiceTier = activeAgent?.codexTerminalProfile?.serviceTier
+    if (!agentId || !liveModel) return
     setPendingCodexTerminalProfiles(current => {
-      const pending = current.get(activeAgent.id)
+      const pending = current.get(agentId)
       if (
         !pending
-        || live.model !== pending.model
-        || live.reasoningEffort !== pending.reasoningEffort
-        || live.serviceTier !== pending.serviceTier
+        || liveModel !== pending.model
+        || liveReasoningEffort !== pending.reasoningEffort
+        || liveServiceTier !== pending.serviceTier
       ) return current
       const next = new Map(current)
-      next.delete(activeAgent.id)
+      next.delete(agentId)
       return next
     })
   }, [
@@ -2581,7 +2591,7 @@ export function CodeWorkspace({
     onWorkspaceViewChange('search')
     setSearchOpen(true)
     requestAnimationFrame(() => searchInputRef.current?.focus())
-  }, [closeActiveComposerMenus, expandSidebar, onWorkspaceViewChange])
+  }, [closeActiveComposerMenus, closeContextMenu, expandSidebar, onWorkspaceViewChange])
 
   const closeSidebarForMobile = useCallback(() => {
     if (isMobileNavigationViewport()) autoCollapseSidebar()
@@ -2878,7 +2888,7 @@ export function CodeWorkspace({
       clearSearch()
     }
     onWorkspaceViewChange(view)
-  }, [clearSearch, expandSidebar, onWorkspaceViewChange])
+  }, [clearSearch, closeContextMenu, expandSidebar, onWorkspaceViewChange])
 
   const openSearchFromSidebar = useCallback(() => {
     openSearch()
@@ -2887,14 +2897,14 @@ export function CodeWorkspace({
 
   const openWorkspaceViewFromSidebar = useCallback((view: WorkspaceView) => {
     if (view === 'plugins') {
-      browserResources.refreshCapability()
-      computerResources.refreshCapability()
+      refreshBrowserCapability()
+      refreshComputerCapability()
     } else if (view === 'history') {
       invalidateAgentSessionsForHistory()
     }
     openWorkspaceView(view)
     closeSidebarForMobile()
-  }, [browserResources.refreshCapability, closeSidebarForMobile, computerResources.refreshCapability, invalidateAgentSessionsForHistory, openWorkspaceView])
+  }, [closeSidebarForMobile, invalidateAgentSessionsForHistory, openWorkspaceView, refreshBrowserCapability, refreshComputerCapability])
 
   const toggleProject = useCallback((projectId: string) => {
     setCollapsedProjectIds(previous => {
@@ -3140,7 +3150,7 @@ export function CodeWorkspace({
         message: error instanceof Error ? error.message : copy.updateFailed,
       })
     }
-  }, [contextMenuAgentSession, copy.updateFailed, fetchAgentSessions, focusAgentSessionRow, mainPageSessionKeys])
+  }, [closeContextMenu, contextMenuAgentSession, copy.updateFailed, fetchAgentSessions, focusAgentSessionRow, mainPageSessionKeys])
 
   const archiveContextMenuAgentSession = useCallback(() => {
     if (!contextMenuAgentSession) return
@@ -3152,7 +3162,7 @@ export function CodeWorkspace({
     removeMainPageAgentSession(sessionId)
     closeContextMenu()
     window.requestAnimationFrame(() => projectListRef.current?.focus({ preventScroll: true }))
-  }, [contextMenuAgentSession, removeMainPageAgentSession])
+  }, [closeContextMenu, contextMenuAgentSession, removeMainPageAgentSession])
 
   const beginSidebarResize = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     event.preventDefault()
@@ -3168,7 +3178,7 @@ export function CodeWorkspace({
     setMainPaneMode('terminal')
     onWorkspaceViewChange('projects')
     onOpenTerminal(agentId, options)
-  }, [clearSearch, onOpenTerminal, onWorkspaceViewChange])
+  }, [clearSearch, closeContextMenu, onOpenTerminal, onWorkspaceViewChange])
 
   const showBrowserResource = useCallback((resource: BrowserResource) => {
     closeContextMenu()
@@ -3342,7 +3352,7 @@ export function CodeWorkspace({
       onOpenTerminal(identity.sourceAgentId, { focusTerminal: false })
     }
     closeSidebarForMobile()
-  }, [clearSearch, closeSidebarForMobile, createWorkspaceOpenFileRequest, mountProject, onOpenTerminal, onWorkspaceViewChange, resolveWorkspaceFileIdentity, workspaceOpenFiles])
+  }, [clearSearch, closeContextMenu, closeSidebarForMobile, createWorkspaceOpenFileRequest, mountProject, onOpenTerminal, onWorkspaceViewChange, resolveWorkspaceFileIdentity, workspaceOpenFiles])
 
   useEffect(() => {
     if (workspaceSurfaceRestoredRef.current || workspaceSurfaceRestoreStartedRef.current) return
@@ -3469,7 +3479,7 @@ export function CodeWorkspace({
       ...(query ? { query } : {}),
       requestId: workspaceFileSearchFocusRequestRef.current += 1,
     })
-  }, [clearSearch, expandSidebar, onWorkspaceViewChange, resolveWorkspaceFileIdentity])
+  }, [clearSearch, closeContextMenu, expandSidebar, onWorkspaceViewChange, resolveWorkspaceFileIdentity])
 
   const searchTerminalWord = useCallback((agentId: string, query: string) => {
     focusWorkspaceFilesSearch(agentId, query)
@@ -3499,7 +3509,7 @@ export function CodeWorkspace({
       kind,
       requestId: workspaceFileRevealRequestRef.current += 1,
     })
-  }, [clearSearch, expandSidebar, onWorkspaceViewChange, resolveWorkspaceFileIdentity])
+  }, [clearSearch, closeContextMenu, expandSidebar, onWorkspaceViewChange, resolveWorkspaceFileIdentity])
 
   const resolveTerminalPathTarget = useCallback(async (agentId: string, target: TerminalPathOpenTarget) => {
     const identity = resolveWorkspaceFileIdentity(agentId, agentId)
@@ -3666,7 +3676,7 @@ export function CodeWorkspace({
     }
     closeSidebarForMobile()
     return true
-  }, [clearSearch, closeSidebarForMobile, createWorkspaceOpenFileRequest, onOpenTerminal, onWorkspaceViewChange, openWorkspaceFiles, resolveWorkspaceFileIdentity, workspaceOpenFiles])
+  }, [clearSearch, closeContextMenu, closeSidebarForMobile, createWorkspaceOpenFileRequest, onOpenTerminal, onWorkspaceViewChange, openWorkspaceFiles, resolveWorkspaceFileIdentity, workspaceOpenFiles])
 
   const openWorkspaceFilePath = useCallback(async (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => {
     const requestedFilesId = target?.globalRoot ? GLOBAL_WORKSPACE_FILES_AGENT_ID : agentId
@@ -3815,6 +3825,7 @@ export function CodeWorkspace({
   }, [
     activeAgents,
     clearSearch,
+    closeContextMenu,
     closeSidebarForMobile,
     onOpenTerminal,
     onWorkspaceViewChange,
@@ -3873,7 +3884,7 @@ export function CodeWorkspace({
       cancelled = true
       if (retryTimer !== null) window.clearTimeout(retryTimer)
     }
-  }, [clearWorkspaceShareLocation, copy.sharedLocationUnavailable, pendingShareTarget, shareTargetRestoreTick])
+  }, [clearWorkspaceShareLocation, copy, pendingShareTarget, shareTargetRestoreTick])
 
   const restoreWorkspaceNavigationEntry = useCallback(async (entry: WorkspaceNavigationEntry) => {
     if (entry.kind === 'agent') {
@@ -3913,6 +3924,7 @@ export function CodeWorkspace({
     }
   }, [
     clearSearch,
+    closeContextMenu,
     closeSidebarForMobile,
     onOpenTerminal,
     onWorkspaceViewChange,
@@ -3977,7 +3989,7 @@ export function CodeWorkspace({
     }
     closeSidebarForMobile()
     return true
-  }, [activeAgents, clearSearch, closeSidebarForMobile, onOpenTerminal, onWorkspaceViewChange, workspaceNavigationFileIds, workspaceOpenFiles])
+  }, [activeAgents, clearSearch, closeContextMenu, closeSidebarForMobile, onOpenTerminal, onWorkspaceViewChange, workspaceNavigationFileIds, workspaceOpenFiles])
 
   const updateOpenWorkspaceFile = useCallback((
     target: WorkspaceOpenFileTarget,
@@ -4011,7 +4023,7 @@ export function CodeWorkspace({
     const currentTitle = agentTitle(contextMenuAgent)
     closeContextMenu()
     setRenameDialog({ kind: 'agent', agentId: contextMenuAgent.id, title: currentTitle })
-  }, [contextMenuAgent])
+  }, [closeContextMenu, contextMenuAgent])
 
   const renameContextMenuProject = useCallback(() => {
     if (!contextMenuProject) return
@@ -4023,7 +4035,7 @@ export function CodeWorkspace({
       workspace: contextMenuProject.workspace,
       title: contextMenuProject.name,
     })
-  }, [contextMenuProject])
+  }, [closeContextMenu, contextMenuProject])
 
   const closeRenameDialog = useCallback(() => {
     const target = renameDialog
@@ -4084,7 +4096,7 @@ export function CodeWorkspace({
     })
     if (focusTarget?.kind === 'agent') focusAgentRow(focusTarget.id)
     if (focusTarget?.kind === 'agent-session') focusAgentSessionRow(focusTarget.provider, agentSessionId(focusTarget))
-  }, [copy.copiedWorkingDirectory, copy.copyFailed, focusAgentRow, focusAgentSessionRow])
+  }, [closeContextMenu, copy.copiedWorkingDirectory, copy.copyFailed, focusAgentRow, focusAgentSessionRow])
 
   const killContextMenuAgent = useCallback(() => {
     if (!contextMenuAgent) return
@@ -4095,7 +4107,7 @@ export function CodeWorkspace({
       acknowledgeUnprovenAcpExit:
         contextMenuAgent.requiresProcessExitAcknowledgement === true,
     })
-  }, [contextMenuAgent])
+  }, [closeContextMenu, contextMenuAgent])
 
   const closeKillDialog = useCallback(() => {
     const agentId = killDialog?.agentId
@@ -4115,7 +4127,7 @@ export function CodeWorkspace({
     if (!contextMenuAgent) return
     closeContextMenu()
     onForkAgent(contextMenuAgent.id, mode)
-  }, [contextMenuAgent, onForkAgent])
+  }, [closeContextMenu, contextMenuAgent, onForkAgent])
 
   const updateContextMenuAgentFlags = useCallback((flags: Partial<Pick<Agent, 'pinned' | 'unread' | 'archived'>>) => {
     if (!contextMenuAgent) return
@@ -4129,7 +4141,7 @@ export function CodeWorkspace({
     if (flags.archived === true) archiveAgentOptimistically(agentId)
     else onUpdateAgentFlags(agentId, flags)
     if (flags.archived !== true) focusAgentRow(agentId)
-  }, [archiveAgentOptimistically, contextMenuAgent, focusAgentRow, onUpdateAgentFlags, removeMainPageAgentSession])
+  }, [archiveAgentOptimistically, closeContextMenu, contextMenuAgent, focusAgentRow, onUpdateAgentFlags, removeMainPageAgentSession])
 
   const updateSidebarAgentFlags = useCallback((agent: Agent, flags: Partial<Pick<Agent, 'pinned' | 'archived'>>) => {
     const agentId = agent.id
@@ -4142,7 +4154,7 @@ export function CodeWorkspace({
     if (flags.archived === true) archiveAgentOptimistically(agentId)
     else onUpdateAgentFlags(agentId, flags)
     if (flags.archived !== true) focusAgentRow(agentId)
-  }, [archiveAgentOptimistically, focusAgentRow, onUpdateAgentFlags, removeMainPageAgentSession])
+  }, [archiveAgentOptimistically, closeContextMenu, focusAgentRow, onUpdateAgentFlags, removeMainPageAgentSession])
 
   const reorderSidebarAgent = useCallback(async (
     agentId: string,
@@ -4293,29 +4305,29 @@ export function CodeWorkspace({
       if (error instanceof DOMException && error.name === 'AbortError') return
       setCopyNotice({ id: Date.now(), kind: 'error', message: error instanceof Error ? error.message : copy.shareLinkFailed })
     }
-  }, [copy.shareLinkFailed, shareTarget])
+  }, [closeContextMenu, copy.shareLinkFailed, shareTarget])
 
   const updateLanguagePreference = useCallback((language: UiPreferences['language']) => {
     closeContextMenu()
     onUpdateUiPreferences({ language })
-  }, [onUpdateUiPreferences])
+  }, [closeContextMenu, onUpdateUiPreferences])
 
   const updateAppearancePreference = useCallback((appearance: UiPreferences['appearance']) => {
     closeContextMenu()
     onUpdateUiPreferences({ appearance })
-  }, [onUpdateUiPreferences])
+  }, [closeContextMenu, onUpdateUiPreferences])
 
   const openSettingsPanel = useCallback(() => {
     closeContextMenu()
     setSettingsPanelOpen(true)
-  }, [])
+  }, [closeContextMenu])
 
   const openSettingsFromSidebar = useCallback((event: ReactMouseEvent<HTMLElement>) => {
     event.preventDefault()
     event.stopPropagation()
     closeContextMenu()
     setSettingsPanelOpen(true)
-  }, [])
+  }, [closeContextMenu])
 
   const previewPetAppearanceFromSettings = useCallback((appearance: PetAppearance) => {
     setSettingsPanelOpen(false)
@@ -4454,7 +4466,7 @@ export function CodeWorkspace({
     if (permissionSwitchingAgentId || !canSwitchAgentRuntime(agent) || isAgentTurnActive(agent)) return
     closeContextMenu()
     updateAgentRuntimeMode(agentId, mode)
-  }, [activeAgents, permissionSwitchingAgentId, updateAgentRuntimeMode])
+  }, [activeAgents, closeContextMenu, permissionSwitchingAgentId, updateAgentRuntimeMode])
 
   const commitCodexProfile = useCallback((model: string, effort: string, serviceTier: string) => {
     setCodexModel(model)
@@ -4673,7 +4685,7 @@ export function CodeWorkspace({
       })
     }
     window.requestAnimationFrame(() => focusProjectTitle(projectId))
-  }, [contextMenuProject, copy.copyFailed, focusProjectTitle])
+  }, [closeContextMenu, contextMenuProject, copy.copyFailed, focusProjectTitle])
 
   const revealContextProject = useCallback(async () => {
     if (!contextMenuProject?.workspace) return
@@ -4696,7 +4708,7 @@ export function CodeWorkspace({
       })
     }
     focusProjectTitle(projectId)
-  }, [contextMenuProject, copy.revealInFinderFailed, focusProjectTitle])
+  }, [closeContextMenu, contextMenuProject, copy.revealInFinderFailed, focusProjectTitle])
 
   const createContextProjectPermanentWorktree = useCallback(async () => {
     if (!contextMenuProject?.workspace) return
@@ -4732,7 +4744,7 @@ export function CodeWorkspace({
       })
     }
     focusProjectTitle(projectId)
-  }, [contextMenuProject, copy.permanentWorktreeCreated, copy.permanentWorktreeFailed, focusProjectTitle])
+  }, [closeContextMenu, contextMenuProject, copy.permanentWorktreeCreated, copy.permanentWorktreeFailed, focusProjectTitle])
 
   const markContextProjectRead = useCallback(() => {
     if (!contextMenuProject) return
@@ -4742,7 +4754,7 @@ export function CodeWorkspace({
     })
     closeContextMenu()
     focusProjectTitle(projectId)
-  }, [contextMenuProject, focusProjectTitle, markAgentReadIfNeeded])
+  }, [closeContextMenu, contextMenuProject, focusProjectTitle, markAgentReadIfNeeded])
 
   const archiveContextProject = useCallback(() => {
     if (!contextMenuProject) return
@@ -4762,7 +4774,7 @@ export function CodeWorkspace({
 
     closeContextMenu()
     restoreProjectListFocusRef.current = 'list'
-  }, [archiveAgentOptimistically, mainPageAgentSessions, contextMenuProject, removeMainPageAgentSessions])
+  }, [archiveAgentOptimistically, closeContextMenu, mainPageAgentSessions, contextMenuProject, removeMainPageAgentSessions])
 
   const removeContextProject = useCallback(async () => {
     if (
@@ -4791,7 +4803,7 @@ export function CodeWorkspace({
     }
     closeContextMenu()
     restoreProjectListFocusRef.current = 'list'
-  }, [contextMenuProject, copy.copyFailed])
+  }, [closeContextMenu, contextMenuProject, copy.copyFailed])
 
   const deleteContextWorktree = useCallback(() => {
     if (!contextMenuProject) return
@@ -4801,7 +4813,7 @@ export function CodeWorkspace({
       workspace: contextMenuProject.workspace,
       sessionHandles: contextMenuProject.agentSessions.map(agentSessionId),
     })
-  }, [contextMenuProject])
+  }, [closeContextMenu, contextMenuProject])
 
   const closeDeleteWorktreeDialog = useCallback(() => {
     const projectId = deleteWorktreeDialog?.projectId
@@ -5021,11 +5033,12 @@ export function CodeWorkspace({
 
     window.addEventListener('keydown', handleKeyDown, true)
     return () => window.removeEventListener('keydown', handleKeyDown, true)
-  }, [activeView, approvalMenuOpen, clearSearch, closeActiveComposerMenus, closeContextMenuAndRestoreFocus, closeDeleteWorktreeDialog, closeKillDialog, closeRenameDialog, contextMenu, deleteWorktreeDialog, dialogOpen, focusComposerTextarea, focusWorkspaceFilesSearch, handleContextMenuNavigation, keyboardShortcutsEnabled, killDialog, modelMenuOpen, navigateWorkspaceHistory, onWorkspaceViewChange, openSearch, plusMenuOpen, projectFileSearchId, projectFileSearchIdForShortcutTarget, renameDialog, reopenLastClosedWorkspaceFile, toggleSidebar])
+  }, [activeView, approvalMenuOpen, clearSearch, closeActiveComposerMenus, closeContextMenu, closeContextMenuAndRestoreFocus, closeDeleteWorktreeDialog, closeKillDialog, closeRenameDialog, contextMenu, contextMenuRef, deleteWorktreeDialog, dialogOpen, focusComposerTextarea, focusWorkspaceFilesSearch, handleContextMenuNavigation, keyboardShortcutsEnabled, killDialog, modelMenuOpen, navigateWorkspaceHistory, onWorkspaceViewChange, openSearch, plusMenuOpen, projectFileSearchId, projectFileSearchIdForShortcutTarget, renameDialog, reopenLastClosedWorkspaceFile, toggleSidebar])
 
   useEffect(() => {
-    if (!renameDialog) return
-    const initialTitle = renameDialog.title
+    const dialog = renameDialogStateRef.current
+    if (!dialog) return
+    const initialTitle = dialog.title
     let initializedSelection = false
     const focusRenameInput = () => {
       const input = renameInputRef.current
@@ -5036,7 +5049,7 @@ export function CodeWorkspace({
       }
       if (!initializedSelection && document.activeElement === input && input.value === initialTitle) {
         initializedSelection = true
-        if (renameDialog.kind === 'project') {
+        if (dialog.kind === 'project') {
           const cursorPosition = input.value.length
           input.setSelectionRange(cursorPosition, cursorPosition)
           return
@@ -5205,14 +5218,14 @@ export function CodeWorkspace({
 
     closeContextMenu()
     closeActiveComposerMenus()
-  }, [activeView, clearSearch, closeActiveComposerMenus, searchOpen])
+  }, [activeView, clearSearch, closeActiveComposerMenus, closeContextMenu, searchOpen])
 
   useEffect(() => {
     if (!dialogOpen) return
 
     closeContextMenu()
     closeActiveComposerMenus()
-  }, [closeActiveComposerMenus, dialogOpen])
+  }, [closeActiveComposerMenus, closeContextMenu, dialogOpen])
 
   useEffect(() => {
     if (activeView !== 'projects') return undefined

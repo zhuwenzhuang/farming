@@ -151,8 +151,12 @@ export function useRestReminderCapability(
     }))
   }, [clearInteractionTimer, commit, entryBlocked])
 
+  // Listener wiring only cares whether a reminder exists, not about each state
+  // transition, so keying on the boolean avoids re-binding on every tick.
+  const reminderActive = state !== null
+
   useEffect(() => {
-    if (state === null) return undefined
+    if (!reminderActive) return undefined
     const recordInteraction = (event: Event) => {
       if (isPetUiEvent(event)) return
       if (event instanceof KeyboardEvent && !isMeaningfulKey(event)) return
@@ -182,7 +186,7 @@ export function useRestReminderCapability(
       window.removeEventListener('keydown', recordInteraction, true)
       window.removeEventListener('input', recordInteraction, true)
     }
-  }, [commit, state !== null, stateWithPendingInteraction])
+  }, [commit, reminderActive, stateWithPendingInteraction])
 
   useEffect(() => {
     const syncVisibility = () => {

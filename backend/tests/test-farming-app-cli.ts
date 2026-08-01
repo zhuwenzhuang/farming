@@ -20,6 +20,7 @@ const {
   releaseServerConfigOwner,
   resolveReviewTarget,
   reviewUrl,
+  serverReadinessPath,
   serverStartTimeoutMs,
   serverStartStabilityMs,
   serverStopTimeoutMs,
@@ -147,6 +148,16 @@ function spawnRawServer(configDir, port) {
 }
 
 async function runTests() {
+  assert.strictEqual(
+    serverReadinessPath({ FARMING_BASE_PATH: '/farming' }, true),
+    '/farming/api/auth/status',
+  );
+  assert.strictEqual(
+    serverReadinessPath({ FARMING_BASE_PATH: '/farming' }, false, 'token with spaces'),
+    '/farming/api/executables?token=token%20with%20spaces',
+    'authenticated daemon readiness must not depend on a built frontend entry page',
+  );
+
   {
     const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-direct-server-rejected.'));
     try {

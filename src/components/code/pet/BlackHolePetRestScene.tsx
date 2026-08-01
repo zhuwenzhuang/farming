@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useId,
   useRef,
@@ -156,7 +157,8 @@ export function BlackHolePetRestScene({
       onReady: () => setRenderError(null),
     })
     rendererRef.current = renderer
-    renderer.setActive(active)
+    // The renderer is created once per mount; `active` and `restUntil` are pushed
+    // by the dedicated sync effects below, which also run on mount.
     return () => {
       renderer.destroy()
       rendererRef.current = null
@@ -176,7 +178,7 @@ export function BlackHolePetRestScene({
     if (mapUrl) statusMapRef.current?.setAttribute('href', mapUrl)
   }, [])
 
-  const finish = (
+  const finish = useCallback((
     durationSeconds = BLACK_HOLE_MANUAL_EXIT_SECONDS,
     returnHome = false,
     elapsedSeconds = 0,
@@ -190,7 +192,7 @@ export function BlackHolePetRestScene({
       returnHome,
       elapsedSeconds,
     )
-  }
+  }, [onEnd])
 
   useEffect(() => {
     if (!active) return undefined
@@ -204,7 +206,7 @@ export function BlackHolePetRestScene({
       Math.max(0, beginAt - Date.now()),
     )
     return () => window.clearTimeout(timeout)
-  }, [active, restUntil])
+  }, [active, finish, restUntil])
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {

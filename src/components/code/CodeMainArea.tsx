@@ -645,6 +645,10 @@ export function CodeMainArea({
   const activeAgent = activeTerminalId
     ? openAgents.find(agent => agent.id === activeTerminalId) || null
     : null
+  // Latest activeAgent read via ref so the layout effect below can inspect the
+  // whole object without depending on it — it only reruns on activeAgent?.id.
+  const activeAgentRef = useRef(activeAgent)
+  activeAgentRef.current = activeAgent
   const browserWorkspaceVisible = activeView === 'projects' && activeBrowserResource !== null
   const computerWorkspaceVisible = activeView === 'projects' && activeComputerResource !== null
   const agentWorkspaceVisible = activeView === 'projects'
@@ -673,18 +677,19 @@ export function CodeMainArea({
   useLayoutEffect(() => {
     const previous = previousActiveRuntimeRef.current
     const currentKind = acpComposerActive ? 'acp' : terminalComposerActive ? 'terminal' : null
+    const activeId = activeAgent?.id ?? null
     if (
       previous.kind === 'acp'
       && currentKind === 'terminal'
-      && activeAgent?.id
-      && replacesAgent(activeAgent, previous.agentId)
+      && activeId
+      && replacesAgent(activeAgentRef.current, previous.agentId)
     ) {
       // Runtime switching replaces the Agent id. Preserve the visible Chat
       // composer for that replacement without changing the user's normal
       // preference for newly opened Terminal sessions.
-      setRuntimeSwitchExpandedAgentId(activeAgent.id)
+      setRuntimeSwitchExpandedAgentId(activeId)
     }
-    previousActiveRuntimeRef.current = { agentId: activeAgent?.id ?? null, kind: currentKind }
+    previousActiveRuntimeRef.current = { agentId: activeId, kind: currentKind }
   }, [acpComposerActive, activeAgent?.id, terminalComposerActive])
 
   useEffect(() => {
@@ -705,10 +710,14 @@ export function CodeMainArea({
     }
   }, [canCollapseComposer, chatComposerCollapseRequested])
 
+  // Detach the refreshCapability methods so calling them does not pull the whole
+  // controller objects into the deps (they would rerun and remount the viewers).
+  const refreshBrowserCapability = browserController.refreshCapability
+  const refreshComputerCapability = computerController.refreshCapability
   const refreshPluginCapabilities = useCallback(() => {
-    browserController.refreshCapability()
-    computerController.refreshCapability()
-  }, [browserController.refreshCapability, computerController.refreshCapability])
+    refreshBrowserCapability()
+    refreshComputerCapability()
+  }, [refreshBrowserCapability, refreshComputerCapability])
 
   const updateComposerCollapsed = useCallback((collapsed: boolean) => {
     if (terminalComposerActive) {

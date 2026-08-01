@@ -2845,7 +2845,7 @@ function AgentTranscriptTurnView({
       }
       return <pre {...props}>{children}</pre>
     },
-  }), [copy, onOpenFile, workspaceRoot])
+  }), [copy, onOpenFile, turn.id, workspaceRoot])
 
   return (
     <article ref={turnRef} className={`code-agent-transcript-turn ${turn.status === 'inProgress' ? 'running' : ''}`} data-turn-id={turn.id}>

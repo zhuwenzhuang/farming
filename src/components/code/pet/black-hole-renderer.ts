@@ -311,8 +311,11 @@ void main() {
           8.0
         );
         float flow = mix(broadFilament, fineFilament, uFilamentDetail);
-        float filament = smoother(flow);
-        float streaks = mix(0.84, 1.12 + contrast * 0.04, filament);
+        // Squaring the blended octaves is what gives the disk its filament
+        // dynamic range (~5.6:1 at contrast 1.6). Remapping onto a narrow band
+        // around 1.0 instead flattens every preset into the same smooth haze
+        // and makes the contrast dial nearly inert.
+        float streaks = 0.35 + contrast * flow * flow;
         vec3 gasDirection = normalize(cross(diskNormal, diskPoint));
         float beta = clamp(
           inversesqrt(max(2.0 * (diskRadius - 1.0), 0.2)),

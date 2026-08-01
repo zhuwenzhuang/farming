@@ -275,6 +275,9 @@ export function WorkspaceDirectoryBrowser({
   }, [directoryStates, expandedPaths])
 
   useEffect(() => {
+    // The expansion request map is created once by useRef and only mutated, so the
+    // map captured here is the one holding the controllers this cleanup aborts.
+    const expansionRequests = expansionRequestsRef.current
     void browse(initialPath)
     const frame = requestAnimationFrame(() => {
       locationInputRef.current?.focus()
@@ -284,8 +287,8 @@ export function WorkspaceDirectoryBrowser({
       cancelAnimationFrame(frame)
       requestGenerationRef.current += 1
       rootRequestRef.current?.abort()
-      expansionRequestsRef.current.forEach(request => request.abort())
-      expansionRequestsRef.current.clear()
+      expansionRequests.forEach(request => request.abort())
+      expansionRequests.clear()
     }
   }, [browse, initialPath])
 

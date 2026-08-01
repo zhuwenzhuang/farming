@@ -36,7 +36,8 @@ export function useFileEditorBlameController({
 }: UseFileEditorBlameControllerOptions) {
   const blameRequestRef = useRef(0)
   const blameCapabilityRequestRef = useRef(0)
-  const openFileKeyRef = useRef(openFileKey(openFile))
+  const currentOpenFileKey = openFileKey(openFile)
+  const openFileKeyRef = useRef(currentOpenFileKey)
   const disabledRef = useRef(disabled)
   const [blameOpen, setBlameOpen] = useState(false)
   const [blameLoading, setBlameLoading] = useState(false)
@@ -44,7 +45,7 @@ export function useFileEditorBlameController({
   const [blameError, setBlameError] = useState<string | null>(null)
   const [blameCapability, setBlameCapability] = useState<BlameCapability>('unknown')
   const [blameDetail, setBlameDetail] = useState<BlameDetailState | null>(null)
-  openFileKeyRef.current = openFileKey(openFile)
+  openFileKeyRef.current = currentOpenFileKey
   disabledRef.current = disabled
 
   const blameLabelWidths = useMemo(() => {
@@ -64,7 +65,7 @@ export function useFileEditorBlameController({
       setBlameCapability('unavailable')
       return null
     }
-    const requestedFileKey = openFileKey(openFile)
+    const requestedFileKey = currentOpenFileKey
     const requestId = blameRequestRef.current + 1
     blameRequestRef.current = requestId
     setBlameLoading(true)
@@ -96,7 +97,7 @@ export function useFileEditorBlameController({
         && !disabledRef.current
       ) setBlameLoading(false)
     }
-  }, [disabled, openFile.agentId, openFile.file.path, openFile.file.sha1, openFile.workspaceRoot])
+  }, [currentOpenFileKey, disabled, openFile.agentId, openFile.file.path])
 
   const checkBlameCapability = useCallback(async (): Promise<BlameCapability | null> => {
     if (disabled) {
@@ -174,7 +175,8 @@ export function useFileEditorBlameController({
     return () => {
       cancelled = true
     }
-  }, [blameOpen, loadBlame])
+    // `openFile.file.sha1` re-runs the load after a save so open blame never shows stale lines.
+  }, [blameOpen, loadBlame, openFile.file.sha1])
 
   useEffect(() => {
     setBlameDetail(null)
