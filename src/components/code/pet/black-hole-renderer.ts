@@ -17,7 +17,13 @@ const PET_SNAPSHOT_EXCLUDE_SELECTORS = [
 ]
 const PET_SNAPSHOT_EXCLUDE_SELECTOR = PET_SNAPSHOT_EXCLUDE_SELECTORS.join(', ')
 const FILE_ICON_SELECTOR = 'img.code-file-type-icon'
-const SCENE_CAPTURE_TARGET_SCALE = 2.5
+const SNAPSHOT_FIXED_TITLE_WIDTH_SELECTOR = [
+  '.code-open-editors-title',
+  '.code-open-editors-title > span:last-child',
+  '.code-files-heading',
+  '.code-files-title',
+  '.code-files-title > span:last-child',
+].join(', ')
 const SCENE_CAPTURE_MAX_PIXELS = 20_000_000
 const SCENE_CAPTURE_MAX_DIMENSION = 8_192
 const DISPLAY_CAP = 1792
@@ -290,24 +296,19 @@ void main() {
       if (diskRadius > innerRadius && diskRadius < outerRadius) {
         float band = smoothstep(innerRadius, innerRadius * 1.25, diskRadius)
           * (1.0 - smoothstep(outerRadius * 0.70, outerRadius, diskRadius));
-        float phi = atan(dot(diskPoint, diskAxis), diskPoint.x);
-        float turns = phi / 6.2831853;
         float kepler = pow(innerRadius / diskRadius, 1.5);
         float gravity = sqrt(max(1.0 - 1.5 / diskRadius, 0.02));
         float swirl = diskRadius * wind * 0.12 - uTime * kepler * gravity * speed * 0.38;
+        // Cartesian disk-plane sampling avoids periodic annular troughs without
+        // changing the approved density/brightness range.
+        vec2 diskPlane = vec2(diskPoint.x, dot(diskPoint, diskAxis));
         float fineFilament = filteredWrappedNoise(
-          vec2(
-            diskRadius * 2.8 + 0.24 * sin(phi * 3.0 - swirl * 0.22),
-            turns * 19.0 + swirl * 3.0 + diskRadius * 0.72
-          ),
-          19.0
+          rotate2d(diskPlane, swirl * 0.18) * vec2(1.9, 3.4),
+          4096.0
         );
         float broadFilament = filteredWrappedNoise(
-          vec2(
-            diskRadius * 1.35 + 0.38 * sin(phi * 2.0 + swirl * 0.16),
-            turns * 8.0 + swirl * 1.35 - diskRadius * 0.55
-          ),
-          8.0
+          rotate2d(diskPlane, 1.7 + swirl * 0.10) * vec2(0.85, 1.55),
+          4096.0
         );
         float flow = mix(broadFilament, fineFilament, uFilamentDetail);
         float filament = smoother(flow);
@@ -492,14 +493,23 @@ uniform sampler2D uHigh;
 uniform sampler2D uLow;
 out vec4 outColor;
 
-vec4 scene(vec2 pixel) {
-  vec2 uv = clamp(pixel / uResolution, vec2(0.0), vec2(1.0));
+vec2 sceneUv(vec2 pixel) {
+  return clamp(pixel / uResolution, vec2(0.0), vec2(1.0));
+}
+
+vec4 sceneBase(vec2 pixel) {
+  vec2 uv = sceneUv(pixel);
+  return textureLod(uScene, uv, 0.0);
+}
+
+vec4 sceneRefracted(vec2 pixel) {
+  vec2 uv = sceneUv(pixel);
   return texture(uScene, uv);
 }
 
 void main() {
   vec2 fragment = gl_FragCoord.xy;
-  vec4 original = scene(fragment);
+  vec4 original = sceneBase(fragment);
   vec2 relative = fragment - uCenter;
   float radius = length(relative) / (${DISPLAY_SIZE.toFixed(1)} * uScale);
   if (radius >= ${FIELD_OUTER.toFixed(2)} || uOpacity <= 0.001) {
@@ -514,7 +524,7 @@ void main() {
     (packed / 65535.0 - 0.5) * ${MAP_SCALE.toFixed(1)} * uScale * uOpacity;
   displacement.y = -displacement.y;
   vec2 samplePixel = fragment + displacement;
-  outColor = scene(samplePixel);
+  outColor = sceneRefracted(samplePixel);
 }`
 
 interface BlackHoleRendererElements {
@@ -901,13 +911,14 @@ function rasterizeVisibleFileIcons() {
 }
 
 function sceneCaptureScale(width: number, height: number) {
+  const deviceScale = Math.min(2, Math.max(1, window.devicePixelRatio || 1))
   const pixelLimit = Math.sqrt(
     SCENE_CAPTURE_MAX_PIXELS / Math.max(1, width * height),
   )
   const dimensionLimit = SCENE_CAPTURE_MAX_DIMENSION
     / Math.max(1, width, height)
   const available = Math.min(
-    SCENE_CAPTURE_TARGET_SCALE,
+    deviceScale,
     pixelLimit,
     dimensionLimit,
   )
@@ -941,6 +952,10 @@ async function createSceneImage() {
   const excludedElementCount = document
     .querySelectorAll(PET_SNAPSHOT_EXCLUDE_SELECTOR)
     .length
+  const snapshotTitleWidths = Array.from(
+    document.querySelectorAll<HTMLElement>(SNAPSHOT_FIXED_TITLE_WIDTH_SELECTOR),
+    title => title.getBoundingClientRect().width,
+  )
   let remainingExcludedElementCount = 0
   let rasterizedFileIconCount = 0
   const clonedBodyBackground = backgroundColor
@@ -966,6 +981,19 @@ async function createSceneImage() {
           image.removeAttribute('srcset')
           image.src = rasterizedSource
           rasterizedFileIconCount += 1
+        })
+    },
+    beforeRender(context) {
+      context.clone
+        ?.querySelectorAll<HTMLElement>(SNAPSHOT_FIXED_TITLE_WIDTH_SELECTOR)
+        .forEach((title, index) => {
+          const width = snapshotTitleWidths[index]
+          if (!width) return
+          const widthPixels = `${width}px`
+          title.style.setProperty('width', widthPixels, 'important')
+          title.style.setProperty('min-width', widthPixels, 'important')
+          title.style.setProperty('flex', `0 0 ${widthPixels}`, 'important')
+          title.style.setProperty('white-space', 'nowrap', 'important')
         })
     },
   }
@@ -1094,8 +1122,12 @@ function createCompositorRenderer(
       sceneGeneration += 1
       canvas.dataset.sceneGeneration = String(sceneGeneration)
       const pixelRatio = Math.min(2, Math.max(1, window.devicePixelRatio || 1))
-      canvas.width = Math.round(window.innerWidth * pixelRatio)
-      canvas.height = Math.round(window.innerHeight * pixelRatio)
+      canvas.width = image instanceof HTMLCanvasElement
+        ? image.width
+        : Math.round(window.innerWidth * pixelRatio)
+      canvas.height = image instanceof HTMLCanvasElement
+        ? image.height
+        : Math.round(window.innerHeight * pixelRatio)
       canvas.style.width = `${window.innerWidth}px`
       canvas.style.height = `${window.innerHeight}px`
       uploadScene(0, sceneTexture, image)
@@ -1114,7 +1146,7 @@ function createCompositorRenderer(
       canvas.dataset.captureHeight = image instanceof HTMLCanvasElement
         ? String(image.height)
         : ''
-      canvas.dataset.sceneSampling = 'single-trilinear'
+      canvas.dataset.sceneSampling = 'one-to-one-base-filtered-lens'
       canvas.dataset.excludedPetElements = image instanceof HTMLCanvasElement
         ? (image.dataset.excludedPetElements ?? '')
         : ''
@@ -1305,7 +1337,9 @@ function createEvolutionCycle(seed: number, cycleIndex: number) {
   const highEnergy = seedValue(seed, cycleIndex, 22) >= 0
     ? [quasar, blazar]
     : [blazar, quasar]
-  return [...lowEnergy, ...warmDisk, inferno, ...highEnergy, cooling] as const
+  const cycle = [...lowEnergy, ...warmDisk, inferno, ...highEnergy, cooling] as const
+  if (cycleIndex !== 0) return cycle
+  return [gargantua, ...lowEnergy, ember, inferno, ...highEnergy, cooling] as const
 }
 
 function macroAt(
@@ -1534,7 +1568,7 @@ export function createBlackHolePetRenderer({
     ? Math.trunc(requestedEvolutionSeed!) >>> 0
     : roamSeed
   const firstCycle = createEvolutionCycle(evolutionSeed, 0)
-  const birthTarget = firstCycle[0]
+  const birthTarget = firstCycle[0]!
   const birthVariation = seedValue(roamSeed, 0, 12)
   const birth: DiskLook = {
     ...birthTarget,

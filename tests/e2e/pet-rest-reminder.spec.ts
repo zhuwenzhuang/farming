@@ -384,7 +384,12 @@ test('first-use Pet setup walks from invitation to explicit style selection', as
   await expect(settingsPreview.locator('.code-pet-black-hole-canvas'))
     .toHaveAttribute('data-macro-phase', 'birth')
   await expect(settingsPreview).toContainText('休息中')
-  await expect(settingsPreview.getByRole('button', { name: '结束休息' })).toBeVisible()
+  const lightEndBreak = settingsPreview.getByRole('button', { name: '结束休息' })
+  await expect(lightEndBreak).toBeVisible()
+  await expect(lightEndBreak).toHaveCSS('border-color', 'rgba(38, 48, 43, 0.32)')
+  await expect(lightEndBreak).toHaveCSS('color', 'rgba(27, 35, 31, 0.92)')
+  await expect(settingsPreview.locator('.code-pet-black-hole-canvas'))
+    .toHaveAttribute('data-birth-preset', 'gargantua')
   await page.clock.fastForward(4 * 60_000 + 1)
   await expect(settingsPreview).toBeVisible()
   await page.clock.fastForward(60_000)
@@ -457,12 +462,23 @@ test('black-hole lifecycle stays fluid across every macro phase', async ({ page 
     expect(new Set(order.slice(5, 7))).toEqual(new Set(['quasar', 'blazar']))
     expect(order[7]).toBe('cooling')
   }
-  expectReasonableEvolution(cycleOrder)
+  expect(cycleOrder).toHaveLength(lifecycle.length)
+  expect(new Set(cycleOrder)).toEqual(new Set(lifecycle))
+  expect(cycleOrder[0]).toBe('gargantua')
+  expect(new Set(cycleOrder.slice(1, 3))).toEqual(new Set(['zen', 'm87']))
+  expect(cycleOrder[3]).toBe('ember')
+  expect(cycleOrder[4]).toBe('inferno')
+  expect(new Set(cycleOrder.slice(5, 7))).toEqual(new Set(['quasar', 'blazar']))
+  expect(cycleOrder[7]).toBe('cooling')
   expectReasonableEvolution(nextCycleOrder)
   expect(nextCycleOrder).not.toEqual(cycleOrder)
-  expect(['zen', 'm87']).toContain(
-    await canvas.getAttribute('data-birth-preset'),
-  )
+  expect(await canvas.getAttribute('data-birth-preset')).toBe('gargantua')
+  await page.evaluate(value => {
+    ;(window as Window & {
+      __farmingBlackHoleElapsedSeconds?: number
+    }).__farmingBlackHoleElapsedSeconds = value
+  }, 15.05)
+  await expect(canvas).toHaveAttribute('data-macro-phase', 'gargantua')
   const blazarSlot = cycleOrder.indexOf('blazar')
   const slotSeconds = 90 / lifecycle.length
   await page.evaluate(value => {
@@ -569,11 +585,22 @@ test('dark black-hole status stays readable and manual exit fully evaporates in 
     engine: await compositor.getAttribute('data-capture-engine'),
     scale: Number(await compositor.getAttribute('data-capture-scale')),
     sampling: await compositor.getAttribute('data-scene-sampling'),
+    captureWidth: Number(await compositor.getAttribute('data-capture-width')),
+    captureHeight: Number(await compositor.getAttribute('data-capture-height')),
+    backing: await compositor.evaluate(element => ({
+      width: (element as HTMLCanvasElement).width,
+      height: (element as HTMLCanvasElement).height,
+    })),
   }
   expect(captureState.background).toBe('rgb(24, 24, 24)')
   expect(captureState.engine).toBe('snapdom')
-  expect(captureState.scale).toBeGreaterThanOrEqual(2)
-  expect(captureState.sampling).toBe('single-trilinear')
+  expect(captureState.scale).toBeGreaterThanOrEqual(1)
+  expect(captureState.scale).toBeLessThanOrEqual(2)
+  expect(captureState.sampling).toBe('one-to-one-base-filtered-lens')
+  expect(captureState.backing).toEqual({
+    width: captureState.captureWidth,
+    height: captureState.captureHeight,
+  })
   expect(captureState.luminance).toBeLessThan(80)
   await expect(scene.locator('.code-pet-black-hole-canvas'))
     .toHaveAttribute('data-filament-sampling', 'screen-space')
@@ -1025,7 +1052,10 @@ test('black-hole keeps its initial snapshot and one renderer for the full break'
   await expect(scene.locator('.code-pet-black-hole-error')).toHaveCount(0)
   await expect(compositor).toHaveAttribute('data-refresh-state', 'idle')
   await expect(compositor).toHaveAttribute('data-capture-engine', 'snapdom')
-  await expect(compositor).toHaveAttribute('data-scene-sampling', 'single-trilinear')
+  await expect(compositor).toHaveAttribute(
+    'data-scene-sampling',
+    'one-to-one-base-filtered-lens',
+  )
 
   const initialGeneration = Number(
     await compositor.getAttribute('data-scene-generation') ?? '0',

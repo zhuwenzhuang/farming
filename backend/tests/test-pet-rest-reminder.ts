@@ -155,8 +155,14 @@ const path = require('path');
       && blackHoleRendererSource.includes(
         'float flow = mix(broadFilament, fineFilament, uFilamentDetail);',
       )
-      && blackHoleRendererSource.includes('diskRadius * 2.8 + 0.24 * sin(')
-      && blackHoleRendererSource.includes('diskRadius * 1.35 + 0.38 * sin(')
+      && blackHoleRendererSource.includes(
+        'rotate2d(diskPlane, swirl * 0.18) * vec2(1.9, 3.4)',
+      )
+      && blackHoleRendererSource.includes(
+        'rotate2d(diskPlane, 1.7 + swirl * 0.10) * vec2(0.85, 1.55)',
+      )
+      && !blackHoleRendererSource.includes('diskRadius * 2.8')
+      && !blackHoleRendererSource.includes('diskRadius * 1.35')
       && blackHoleRendererSource.includes(
         'float streaks = mix(0.84, 1.12 + contrast * 0.04, filament);',
       )
@@ -193,7 +199,7 @@ const path = require('path');
       && blackHoleRendererSource.includes('float edge = fieldFade(pointLength);')
       && blackHoleRendererSource.includes('pointLength / (7.0 * horizon)')
       && blackHoleRendererSource.includes('radius >= ${FIELD_OUTER.toFixed(2)}')
-      && blackHoleRendererSource.includes('outColor = scene(samplePixel);'),
+      && blackHoleRendererSource.includes('outColor = sceneRefracted(samplePixel);'),
     'the lifecycle should exclude the pure-black state without weakening the full background UI lensing field',
   )
   assert(
@@ -235,14 +241,16 @@ const path = require('path');
       && blackHoleRendererSource.includes('const lowEnergy = seedValue(seed, cycleIndex, 20)')
       && blackHoleRendererSource.includes('const warmDisk = seedValue(seed, cycleIndex, 21)')
       && blackHoleRendererSource.includes('const highEnergy = seedValue(seed, cycleIndex, 22)')
+      && blackHoleRendererSource.includes('if (cycleIndex !== 0) return cycle')
       && blackHoleRendererSource.includes(
-        'return [...lowEnergy, ...warmDisk, inferno, ...highEnergy, cooling] as const',
+        'return [gargantua, ...lowEnergy, ember, inferno, ...highEnergy, cooling] as const',
       )
+      && blackHoleRendererSource.includes('const birthTarget = firstCycle[0]!')
       && blackHoleRendererSource.includes('const nextCycle = createEvolutionCycle(evolutionSeed, cycleIndex + 1)')
       && blackHoleRendererSource.includes('? nextCycle[0]')
       && blackHoleRendererSource.includes('canvas.dataset.cycleOrder = firstCycle.map')
       && blackHoleRendererSource.includes('canvas.dataset.birthPreset = birthTarget.phase'),
-    'each 90-second cycle should follow a constrained low-to-high-to-cooling route and blend into the next randomized route',
+    'the black hole and its first full phase should be Gargantua before later cycles follow the constrained route',
   );
   assert(blackHoleRendererSource.includes('export const BLACK_HOLE_EXIT_SECONDS = 15'));
   assert(
@@ -255,6 +263,27 @@ const path = require('path');
   assert(blackHoleRendererSource.includes('createSceneImage'));
   assert(blackHoleRendererSource.includes("await import('@zumer/snapdom')"));
   assert(blackHoleRendererSource.includes('createXtermSnapshotOverlays'));
+  assert(
+    blackHoleRendererSource.includes("'.code-open-editors-title'")
+      && blackHoleRendererSource.includes(
+        "'.code-open-editors-title > span:last-child'",
+      )
+      && blackHoleRendererSource.includes("'.code-files-heading'")
+      && blackHoleRendererSource.includes("'.code-files-title'")
+      && blackHoleRendererSource.includes(
+        "'.code-files-title > span:last-child'",
+      )
+      && blackHoleRendererSource.includes('title.getBoundingClientRect().width')
+      && blackHoleRendererSource.includes('beforeRender(context)')
+      && blackHoleRendererSource.includes(
+        "title.style.setProperty('flex', `0 0 ${widthPixels}`, 'important')",
+      )
+      && blackHoleRendererSource.includes(
+        "title.style.setProperty('white-space', 'nowrap', 'important')",
+      )
+      && !blackHoleRendererSource.includes('reconcile: true'),
+    'the black-hole snapshot should preserve sidebar title widths without globally reconciling the cloned page',
+  )
   assert(blackHoleRendererSource.includes("excludeMode: 'remove'"));
   assert(blackHoleRendererSource.includes("'browser-mcp-container'"));
   assert(blackHoleRendererSource.includes("highMap\n    .getContext('webgl2')"));
@@ -275,9 +304,27 @@ const path = require('path');
     blackHoleRendererSource.includes('writeMap(\n    displacement * ${DISPLAY_SIZE.toFixed(1)},\n    edge\n  );'),
     'the displacement map should retain the full smooth field without a second blur control',
   )
+  const compositorTextureFactoryStart = blackHoleRendererSource.indexOf('const texture = (')
+  const compositorTextureFactorySource = blackHoleRendererSource.slice(
+    compositorTextureFactoryStart,
+    blackHoleRendererSource.indexOf('gl.useProgram(program)', compositorTextureFactoryStart),
+  )
+  const compositorSceneUploadSource = blackHoleRendererSource.slice(
+    blackHoleRendererSource.indexOf('const uploadScene = ('),
+    blackHoleRendererSource.indexOf('\n\n  return {', blackHoleRendererSource.indexOf('const uploadScene = (')),
+  )
   assert(
-    blackHoleRendererSource.includes("canvas.dataset.sceneSampling = 'single-trilinear'"),
-    'the production compositor should use one mipmapped scene sample after displacement',
+    blackHoleRendererSource.includes('return textureLod(uScene, uv, 0.0);')
+      && blackHoleRendererSource.includes('return texture(uScene, uv);')
+      && blackHoleRendererSource.includes("canvas.dataset.sceneSampling = 'one-to-one-base-filtered-lens'")
+      && blackHoleRendererSource.includes('? image.width')
+      && blackHoleRendererSource.includes('? image.height')
+      && compositorTextureFactorySource.includes('gl.TEXTURE_MIN_FILTER, gl.LINEAR')
+      && !compositorTextureFactorySource.includes('gl.LINEAR_MIPMAP_LINEAR')
+      && !compositorTextureFactorySource.includes('gl.generateMipmap(gl.TEXTURE_2D)')
+      && compositorSceneUploadSource.includes('gl.LINEAR_MIPMAP_LINEAR')
+      && compositorSceneUploadSource.includes('gl.generateMipmap(gl.TEXTURE_2D)'),
+    'the compositor should keep base scene pixels one-to-one while filtering only refracted samples',
   )
   assert(
     blackHoleMapShaderSource.includes('sourcePoint = mix(tracedSourcePoint, farSourcePoint, farMix)'),
