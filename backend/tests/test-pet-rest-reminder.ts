@@ -155,10 +155,14 @@ const path = require('path');
       && blackHoleRendererSource.includes(
         'float flow = mix(broadFilament, fineFilament, uFilamentDetail);',
       )
-      && blackHoleRendererSource.includes('diskRadius * 2.8 + 0.24 * sin(')
-      && blackHoleRendererSource.includes('diskRadius * 1.35 + 0.38 * sin(')
       && blackHoleRendererSource.includes(
-        'float streaks = 0.35 + contrast * flow * flow;',
+        'rotate2d(diskPlane, swirl * 0.18) * vec2(1.9, 3.4)',
+      )
+      && blackHoleRendererSource.includes(
+        'rotate2d(diskPlane, 1.7 + swirl * 0.10) * vec2(0.85, 1.55)',
+      )
+      && blackHoleRendererSource.includes(
+        'float streaks = mix(0.72, 1.20 + contrast * 0.30, filament);',
       )
       && !blackHoleRendererSource.includes('wrappedNoiseAA(')
       && !blackHoleRendererSource.includes('fwidth(')

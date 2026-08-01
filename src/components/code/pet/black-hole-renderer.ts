@@ -291,31 +291,23 @@ void main() {
       if (diskRadius > innerRadius && diskRadius < outerRadius) {
         float band = smoothstep(innerRadius, innerRadius * 1.25, diskRadius)
           * (1.0 - smoothstep(outerRadius * 0.70, outerRadius, diskRadius));
-        float phi = atan(dot(diskPoint, diskAxis), diskPoint.x);
-        float turns = phi / 6.2831853;
         float kepler = pow(innerRadius / diskRadius, 1.5);
         float gravity = sqrt(max(1.0 - 1.5 / diskRadius, 0.02));
         float swirl = diskRadius * wind * 0.12 - uTime * kepler * gravity * speed * 0.38;
+        vec2 diskPlane = vec2(diskPoint.x, dot(diskPoint, diskAxis));
         float fineFilament = filteredWrappedNoise(
-          vec2(
-            diskRadius * 2.8 + 0.24 * sin(phi * 3.0 - swirl * 0.22),
-            turns * 19.0 + swirl * 3.0 + diskRadius * 0.72
-          ),
-          19.0
+          rotate2d(diskPlane, swirl * 0.18) * vec2(1.9, 3.4),
+          4096.0
         );
         float broadFilament = filteredWrappedNoise(
-          vec2(
-            diskRadius * 1.35 + 0.38 * sin(phi * 2.0 + swirl * 0.16),
-            turns * 8.0 + swirl * 1.35 - diskRadius * 0.55
-          ),
-          8.0
+          rotate2d(diskPlane, 1.7 + swirl * 0.10) * vec2(0.85, 1.55),
+          4096.0
         );
         float flow = mix(broadFilament, fineFilament, uFilamentDetail);
-        // Squaring the blended octaves is what gives the disk its filament
-        // dynamic range (~5.6:1 at contrast 1.6). Remapping onto a narrow band
-        // around 1.0 instead flattens every preset into the same smooth haze
-        // and makes the contrast dial nearly inert.
-        float streaks = 0.35 + contrast * flow * flow;
+        // Keep the contrast dial visible without turning the polar noise cells
+        // into dark annular troughs when the disk is close to face-on.
+        float filament = smoother(flow);
+        float streaks = mix(0.72, 1.20 + contrast * 0.30, filament);
         vec3 gasDirection = normalize(cross(diskNormal, diskPoint));
         float beta = clamp(
           inversesqrt(max(2.0 * (diskRadius - 1.0), 0.2)),
