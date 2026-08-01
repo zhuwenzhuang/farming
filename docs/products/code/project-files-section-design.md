@@ -161,7 +161,7 @@ The backend remains intentionally thin:
 - create / rename / delete / move;
 - search through `rg` where available;
 - bounded static HTML Preview Sessions served through the existing authenticated HTTP listener, with no second preview port and no script-capable fallback;
-- bounded git history, commit changes, status, diff, blame, and line changes through `git`;
+- bounded git history, commit changes, status, diff, blame, and line changes through `git`. Every git invocation is made deterministic before it is parsed: diagnostics are read in the C message locale, and paths are read as raw UTF-8, so a localized workstation and non-ASCII file names cannot change how a failure is classified or whether a path is recognized;
 - explicit refresh of the root, expanded directories, working-copy Changes, and currently open files from the stable Project Files id. The frontend does not subscribe to workspace watcher events until recursive coverage and bounded delivery are both correct.
 
 Farming should reuse mature tools instead of building a full custom IDE backend.

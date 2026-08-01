@@ -373,6 +373,7 @@ Files
 - Git History 每页默认 50 个 Commit，并设置硬上限；Commit 变更按点击懒加载，前端详情缓存保持有界。
 - Working Copy status 遇到超大 untracked 集合超过 Git 输出缓冲区时，返回已经完整读取的记录并标记 `truncated: true`；不能把这种情况伪装成干净 workspace。
 - 搜索、diff、blame 等 git / rg 操作使用 limit、timeout 或截断结果，避免无界输出。
+- 所有 git 调用在解析前先固定为确定形态：诊断信息按 C 消息 locale 读取，路径按原始 UTF-8 读取；本地化的开发机和非 ASCII 文件名都不能改变失败分类结果，也不能让某个路径无法被识别。
 - terminal 实时输出按有界块读取，并在 WebSocket fanout 前做短窗口合并。
 - terminal session 退出前先 flush 最后一段输出，随后释放 screen worker 并清理 session 状态。
 - Codex / Claude 大历史按最近文件和目录预算扫描，必要时用 index 数据兜底。

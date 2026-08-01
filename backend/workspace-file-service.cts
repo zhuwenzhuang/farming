@@ -706,12 +706,44 @@ function parentDirectory(filePath: unknown): string {
   return index === -1 ? '' : normalized.slice(0, index);
 }
 
+/**
+ * Git translates its diagnostics through gettext, so on a localized machine
+ * stderr no longer matches the English phrases that classify a missing
+ * repository, a repository without commits, or a path that is absent from a
+ * revision. Every Farming git invocation therefore pins the message locale.
+ */
+const GIT_MESSAGE_LOCALE_ENV: NodeJS.ProcessEnv = {
+  LANG: 'C',
+  LANGUAGE: 'C',
+  LC_ALL: 'C',
+  LC_MESSAGES: 'C',
+};
+
+/**
+ * Git octal-quotes non-ASCII paths in the commands that are not read with `-z`,
+ * which would never match the real relative paths Farming compares them to.
+ * Reading every path as raw UTF-8 keeps one path identity across git commands.
+ */
+const GIT_PATH_ENCODING_ARGS = ['-c', 'core.quotepath=false'];
+
+function gitCommandEnvironment(env: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
+  return { ...env, ...GIT_MESSAGE_LOCALE_ENV };
+}
+
+function gitCommandArgs(args: string[]): string[] {
+  return [...GIT_PATH_ENCODING_ARGS, ...args];
+}
+
 function execFileAsync(command: string, args: string[], options: CommandExecutionOptions = {}): Promise<CommandResult> {
   return new Promise<CommandResult>((resolve, reject) => {
     execFile(command, args, {
       encoding: 'utf8',
       maxBuffer: 2 * 1024 * 1024,
       ...options,
+      // The command helper merges request environments onto its own process
+      // environment; keep the direct path identical so a packaged runtime does
+      // not run commands with a stripped environment.
+      ...(options.env ? { env: { ...process.env, ...options.env } } : {}),
     }, (error: ProcessError | null, stdout: string | Buffer, stderr: string | Buffer) => {
       if (error) {
         error.stdout = stdout;
@@ -1411,9 +1443,11 @@ class WorkspaceFileService {
   }
 
   execFile(command: string, args: string[], options: CommandExecutionOptions = {}) {
-    return this.commandRunner.run(command, args, {
+    const git = command === this.gitPath;
+    return this.commandRunner.run(command, git ? gitCommandArgs(args) : args, {
       maxBuffer: 2 * 1024 * 1024,
       ...options,
+      ...(git ? { env: gitCommandEnvironment(options.env) } : {}),
     });
   }
 
@@ -3678,6 +3712,8 @@ export {
   parseUnifiedDiffHunks,
   selectUnifiedDiffHunk,
   resolveCommandRunnerNodePath,
+  gitCommandArgs,
+  gitCommandEnvironment,
   normalizeGitHistoryLimit,
   normalizeGitHistorySkip,
   parseGitHistoryChanges,

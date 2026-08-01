@@ -7,8 +7,22 @@ const { promisify } = require('util');
 const { ReviewSessionService, changedPathsFromNameStatus, normalizeHistoricalReviewChanges } = require('../review-session-service.cjs');
 const { ReviewSessionStore } = require('../review-session-store.cjs');
 const { ReviewStateStore } = require('../review-state-store.cjs');
+const { gitCommandEnvironment } = require('../workspace-file-service.cjs');
 
 const execFile = promisify(childProcess.execFile);
+
+/**
+ * Production always hands ReviewSessionService the real WorkspaceFileService,
+ * which merges per-command environments onto its own and pins git's message
+ * locale. Mirror that contract so this stub reproduces the stderr a localized
+ * workstation would classify, without losing a capture's temporary index.
+ */
+function execFileWithPinnedGitLocale(command, args, options: { env?: NodeJS.ProcessEnv } = {}) {
+  return execFile(command, args, {
+    ...options,
+    env: gitCommandEnvironment({ ...process.env, ...options.env }),
+  });
+}
 
 async function git(root, ...args) {
   const { stdout } = await execFile('git', ['-C', root, ...args], { encoding: 'utf8' });
@@ -59,7 +73,7 @@ async function run() {
       diffMaxBuffer: 8 * 1024 * 1024,
       diffTimeoutMs: 10_000,
       gitPath: 'git',
-      execFile,
+      execFile: execFileWithPinnedGitLocale,
       async changes() {
         return {
           items: [
