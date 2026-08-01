@@ -224,9 +224,17 @@ export function mergeSlashCommands(commands: SlashCommandOption[]) {
 }
 
 export function capabilitiesForAgent(agent: Agent | null | undefined): AgentCapabilities {
-  const kind = inferAgentTerminalState(agent).kind
+  const inferredKind = inferAgentTerminalState(agent).kind
   const runtimeKind = agent?.runtimeBinding.kind || 'terminal'
   const providerCapabilities = agent?.providerCapabilities
+  // Terminal text is a heuristic observation of the current screen. It may
+  // briefly fall back to the generic `process` kind while Codex redraws its
+  // composer, but that must not hide a capability the backend's exact provider
+  // adapter has already advertised.
+  const kind = runtimeKind === 'terminal'
+    && providerCapabilities?.terminalProfile === true
+    ? 'codex'
+    : inferredKind
   const goalMode = Boolean(providerCapabilities?.goalSubmission)
   const terminalProfile = runtimeKind === 'terminal'
     && providerCapabilities?.terminalProfile === true

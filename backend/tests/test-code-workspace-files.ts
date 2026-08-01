@@ -930,7 +930,10 @@ function run() {
       workspaceSource.includes('function isAgentTurnActive(agent: Agent | null | undefined)') &&
       workspaceSource.includes('export function inferAgentTerminalState(agent: Agent | null | undefined)') &&
       workspaceSource.includes('const phase = agent.runtimeObservation.phase') &&
-      workspaceSource.includes('const kind = inferAgentTerminalState(agent).kind') &&
+      workspaceSource.includes('const inferredKind = inferAgentTerminalState(agent).kind') &&
+      workspaceSource.includes("providerCapabilities?.terminalProfile === true") &&
+      workspaceSource.includes("? 'codex'") &&
+      workspaceSource.includes(': inferredKind') &&
       workspaceSource.includes('const [composerByAgentKey, setComposerByAgentKey]') &&
       workspaceSource.includes('history: ComposerHistoryState') &&
       workspaceSource.includes('history: createDefaultComposerHistoryState()') &&

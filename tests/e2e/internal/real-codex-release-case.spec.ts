@@ -762,9 +762,9 @@ test.describe('real Codex pre-release composite case', () => {
       expect(variant).toBeTruthy()
       const target = page.getByTestId(`code-model-matrix-cell-${variant}-${PRIMARY_EFFORT}`)
       await expect(target).toBeVisible()
+      await expect(target).toBeEnabled({ timeout: 60_000 })
       await target.press('Enter')
       await expect(picker).toHaveAttribute('data-agent-model-preset', `${PRIMARY_MODEL}:${PRIMARY_EFFORT}`, { timeout: 60_000 })
-      await expect(target).toBeEnabled({ timeout: 60_000 })
       await page.keyboard.press('Escape')
     })
 

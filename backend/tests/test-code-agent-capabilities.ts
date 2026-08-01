@@ -31,6 +31,11 @@ function agent(provider, goalSubmission, overrides = {}) {
 }
 
 function run() {
+  const codexTerminalCapabilities = capabilitiesForAgent(agent('codex', null)).composer;
+  assert.strictEqual(codexTerminalCapabilities.modelPicker, true);
+  assert.strictEqual(codexTerminalCapabilities.reasoningEffort, true);
+  assert.strictEqual(codexTerminalCapabilities.serviceTier, true);
+
   for (const provider of ['opencode', 'qoder']) {
     const capabilities = capabilitiesForAgent(agent(provider, {
       terminal: { kind: 'prompt' },
