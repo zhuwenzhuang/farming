@@ -507,7 +507,7 @@ test('black-hole lifecycle stays fluid across every macro phase', async ({ page 
   await expect(canvas).toHaveAttribute('data-macro-phase', 'gargantua')
   const blazarSlot = cycleOrder.indexOf('blazar')
   const slotSeconds = 90 / lifecycle.length
-  await setBlackHoleElapsed(page, 15 + blazarSlot * slotSeconds + 0.05, 30)
+  await setBlackHoleElapsed(page, 15 + blazarSlot * slotSeconds + 0.05)
   await expect(canvas).toHaveAttribute('data-macro-phase', 'blazar')
   await expect.poll(() => canvas.getAttribute('data-gpu-timer'), {
     timeout: 5_000,
