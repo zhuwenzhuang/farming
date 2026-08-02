@@ -79,6 +79,20 @@ function createHarness(
     setTimeout,
   };
   sandbox.exports = sandbox.module.exports;
+  sandbox.window = {
+    AbortController: globalThis.AbortController,
+    FarmingRuntimePaths: {
+      apiPath: (p) => `/api${p.startsWith('/') ? p : `/${p}`}`,
+      path: (p) => p,
+      webSocketUrl: (p) => `ws://localhost${p}`,
+    },
+    FarmingCrtMarkdownRenderer: {
+      render(_container, turns) {
+        renders.push(turns);
+      },
+    },
+    requestAnimationFrame: sandbox.requestAnimationFrame,
+  };
   vm.createContext(sandbox);
   vm.runInContext(appSource, sandbox, { filename: 'frontend/skins/crt/app.js' });
   sandbox.document = {
@@ -89,15 +103,6 @@ function createHarness(
   };
   sandbox.navigator = {
     clipboard: clipboardRead ? { readText: clipboardRead } : undefined,
-  };
-  sandbox.window = {
-    AbortController: globalThis.AbortController,
-    FarmingCrtMarkdownRenderer: {
-      render(_container, turns) {
-        renders.push(turns);
-      },
-    },
-    requestAnimationFrame: sandbox.requestAnimationFrame,
   };
   return {
     evaluate(source) {

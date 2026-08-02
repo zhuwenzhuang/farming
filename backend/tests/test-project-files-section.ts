@@ -809,7 +809,6 @@ function run() {
 	      !fileViewModelSource.includes('function openEditorsRevealScrollDelta') &&
 	      !fileStickyContextSource.includes('onRevealOpenEditors') &&
 	      !fileStickyContextSource.includes('onToggleFiles') &&
-      !workspaceSource.includes('projectName={project.name}') &&
       !fileSectionSource.includes('onToggleProject') &&
       !fileSectionSource.includes('refreshTreeScrollEdges') &&
       !fileSectionSource.includes('treeScrollEdges') &&

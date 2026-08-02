@@ -78,7 +78,7 @@ function run() {
   assert(
     app.includes('if (activeTerminalId !== agentId)') &&
       app.includes('ws.focusAgent(agentId)') &&
-      workspace.includes('markAgentReadIfNeeded(agentId, true, readCut)') &&
+      workspace.includes('markAgentReadIfNeeded(agent.id, true)') &&
       workspace.includes('readOutputEpoch: readCut.runtimeEpoch') &&
       workspace.includes('readOutputSeq: readCut.outputSeq') &&
       terminalPane.includes('const readCut = getReadCutNow()') &&
@@ -87,7 +87,7 @@ function run() {
   );
   assert(
     !terminalPane.includes('sessionBootstrapStateFromPayload') &&
-      !terminalPane.includes('bootstrapState,'),
+      terminalPane.includes('prefetchedTerminalSessionCheckpoint'),
     'Code must fetch the authoritative /session-view checkpoint instead of treating truncated Agent list output as serialized terminal state',
   );
   assert(

@@ -17,7 +17,7 @@ function run() {
   assert(settings.includes("`${appPath('/crt/')}${activeAgentId ? `?agent=${encodeURIComponent(activeAgentId)}` : ''}`"));
   assert(settings.includes("farmingCrt: 'Farming CRT'"));
   assert(!settings.includes('interfaceSkinHint'));
-  assert(crt.includes("RUNTIME_PATHS.path('/code/')"));
+  assert(crt.includes("requiredRuntimePaths().path('/code/')"));
   assert(crt.includes('openCrtAgentDeeplinkIfReady();'));
   assert.strictEqual(crtTheme.displayName, 'Farming CRT');
 

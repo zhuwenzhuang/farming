@@ -5718,9 +5718,6 @@ class AgentManager extends EventEmitter {
       }
       return Promise.reject(composerAdmissionError(detail, true));
     }
-    if (existing?.state === 'failed') {
-      return Promise.reject(new Error(existing.error || `Composer request ${requestId} was not accepted`));
-    }
 
     const intent: ComposerCommandRecord = {
       requestId,

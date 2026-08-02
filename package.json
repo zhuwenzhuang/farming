@@ -1,6 +1,6 @@
 {
   "name": "farming-code",
-  "version": "2.2.37",
+  "version": "2.2.38",
   "description": "Farming Code is a self-hosted browser workspace for running and supervising AI coding agents",
   "main": "backend/server.cjs",
   "bin": {
