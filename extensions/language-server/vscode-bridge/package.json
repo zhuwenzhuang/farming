@@ -10,7 +10,7 @@
     "url": "https://github.com/zhuwenzhuang/farming.git"
   },
   "engines": {
-    "vscode": "^1.96.0"
+    "vscode": "^1.85.0"
   },
   "categories": [
     "Other"

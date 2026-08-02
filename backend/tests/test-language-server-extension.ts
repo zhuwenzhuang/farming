@@ -33,6 +33,15 @@ async function requestJson(port: number, requestPath: string, body?: unknown) {
 }
 
 async function run() {
+  const bridgeManifest = JSON.parse(fs.readFileSync(path.join(
+    __dirname,
+    '../../extensions/language-server/vscode-bridge/package.json',
+  ), 'utf8')) as { engines?: { vscode?: string } };
+  assert.strictEqual(
+    bridgeManifest.engines?.vscode,
+    '^1.85.0',
+    'The user-managed Bridge should remain installable on the established VS Code Server baseline',
+  );
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-language-server-'));
   const workspaceInput = path.join(tempDir, 'workspace');
   const descriptorPath = path.join(tempDir, 'bridge.json');

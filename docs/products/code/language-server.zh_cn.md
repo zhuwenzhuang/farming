@@ -72,6 +72,7 @@ code --install-extension vscode-bridge-0.1.0.vsix
 使用 Remote SSH 时，从 VS Code 扩展视图把扩展安装到远端主机，并保持对应 VS Code Workspace 打开。扩展在 VS Code 启动后激活并发布描述文件，Farming 会自动发现，不需要任何 Farming 配置。
 
 标准发现位置覆盖 VS Code Server、VS Code Server Insiders、旧版 VS Code Remote、桌面 Code 和桌面 Code Insiders 的 Global Storage。扩展 ID 和存储身份都是 `farming.vscode-bridge`。
+Bridge 支持 VS Code 与 VS Code Server 1.85 及以上版本，已有远端安装无需仅为 Farming 单独升级。
 
 ## 验证
 

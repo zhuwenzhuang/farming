@@ -72,6 +72,7 @@ code --install-extension vscode-bridge-0.1.0.vsix
 For Remote SSH, install the extension into the remote host from the VS Code Extensions view, then keep that VS Code workspace open. The extension activates after VS Code startup, publishes its descriptor, and Farming discovers it automatically. No Farming setting is required.
 
 The standard discovery locations cover VS Code Server, VS Code Server Insiders, legacy VS Code Remote, desktop Code, and desktop Code Insiders global storage. The extension id and storage identity are `farming.vscode-bridge`.
+The Bridge supports VS Code and VS Code Server 1.85 or newer so existing remote installations do not need an upgrade solely for Farming.
 
 ## Verification
 
