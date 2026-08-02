@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict'
+import type { ChildProcess } from 'node:child_process'
+import { EventEmitter } from 'node:events'
 import http from 'node:http'
+import { PassThrough } from 'node:stream'
 import test from 'node:test'
 import { WebSocket, WebSocketServer } from 'ws'
 import {
@@ -28,11 +31,20 @@ type BackendMode =
   | 'stopping-health'
   | 'close-4001'
 
-async function fakeBackend(mode: BackendMode) {
+async function fakeBackend(mode: BackendMode, options: { hangCapabilities?: boolean } = {}) {
+  let capabilityRequestCount = 0
+  let capabilityAbortCount = 0
   const server = http.createServer((request, response) => {
     if (request.url?.endsWith('/api/auth/status')) {
       response.writeHead(200, { 'content-type': 'application/json' })
       response.end(JSON.stringify({ authRequired: false }))
+      return
+    }
+    if (options.hangCapabilities && request.url?.endsWith('/capability')) {
+      capabilityRequestCount += 1
+      response.once('close', () => {
+        if (!response.writableEnded) capabilityAbortCount += 1
+      })
       return
     }
     response.writeHead(404)
@@ -117,16 +129,51 @@ async function fakeBackend(mode: BackendMode) {
   assert.ok(address && typeof address !== 'string')
   return {
     baseUrl: `http://127.0.0.1:${address.port}`,
+    port: address.port,
     observed,
     sockets,
     upgradePaths,
     get upgradeAttempts() {
       return upgradeAttempts
     },
+    get capabilityRequestCount() {
+      return capabilityRequestCount
+    },
+    get capabilityAbortCount() {
+      return capabilityAbortCount
+    },
     async close() {
       sockets.forEach(socket => socket.terminate())
       await new Promise<void>(resolve => webSockets.close(() => resolve()))
       await new Promise<void>(resolve => server.close(() => resolve()))
+    },
+  }
+}
+
+function fakeSshChild() {
+  let killCount = 0
+  const child = new EventEmitter() as EventEmitter & {
+    stderr: PassThrough
+    exitCode: number | null
+    signalCode: NodeJS.Signals | null
+    kill: () => boolean
+  }
+  child.stderr = new PassThrough()
+  child.exitCode = null
+  child.signalCode = null
+  child.kill = () => {
+    killCount += 1
+    return true
+  }
+  return {
+    child: child as unknown as ChildProcess,
+    get killCount() {
+      return killCount
+    },
+    exit(message: string) {
+      child.stderr.write(message)
+      child.exitCode = 255
+      child.emit('exit', 255, null)
     },
   }
 }
@@ -151,6 +198,45 @@ function connectionManager(baseUrl: string, basePath = '') {
     readToken: () => '',
   } as unknown as DesktopProfileStore
   return new DesktopConnectionManager(profiles)
+}
+
+function sshConnectionManager(backendPort: number, child: ChildProcess) {
+  const profile: StoredDesktopBackendProfile = {
+    id: 'ssh-readiness-backend',
+    kind: 'remote',
+    name: 'SSH readiness backend',
+    transport: 'ssh',
+    sshHost: 'example.test',
+    remoteHost: '127.0.0.1',
+    remotePort: 6694,
+    basePath: '',
+    directUrl: '',
+    farmingHome: '',
+    encryptedToken: '',
+  }
+  const profiles = {
+    getStored: (backendId: string) => backendId === profile.id ? profile : null,
+    list: () => [{ ...profile, hasToken: false }],
+    readToken: () => '',
+  } as unknown as DesktopProfileStore
+  return new DesktopConnectionManager(profiles, {
+    appVersion: '2.2.37-test',
+    cacheDir: '',
+    bootstrapRemoteServer: async () => ({
+      protocolVersion: 1 as const,
+      version: '2.2.37-test',
+      platform: 'linux',
+      arch: 'x64',
+      farmingHome: '/tmp/farming-desktop-test',
+      host: '127.0.0.1' as const,
+      port: 6694,
+      basePath: '',
+      token: '',
+      runtime: 'system',
+    }),
+    allocateLoopbackPort: async () => backendPort,
+    spawnSshTunnel: () => child,
+  })
 }
 
 async function waitForSocketCleanup(sockets: Set<WebSocket>) {
@@ -291,6 +377,82 @@ test('desktop connection generation cannot become ready after cancellation', asy
     await assert.rejects(connecting, /cancel/i)
     assert.equal(manager.list()[0]?.status, 'disconnected')
     await waitForSocketCleanup(backend.sockets)
+  } finally {
+    manager.close()
+    await backend.close()
+  }
+})
+
+test('desktop SSH exit during capability discovery never becomes ready', async () => {
+  const backend = await fakeBackend('healthy-old-v4', { hangCapabilities: true })
+  const tunnel = fakeSshChild()
+  const manager = sshConnectionManager(backend.port, tunnel.child)
+  const statuses: string[] = []
+  manager.on('change', () => {
+    const status = manager.list()[0]?.status
+    if (status) statuses.push(status)
+  })
+  try {
+    const connecting = manager.connect('ssh-readiness-backend')
+    for (let attempt = 0; attempt < 1_000 && backend.capabilityRequestCount < 2; attempt += 1) {
+      await new Promise(resolve => setImmediate(resolve))
+    }
+    assert.equal(backend.capabilityRequestCount, 2, 'both capability requests must start before the SSH exit')
+    tunnel.exit('ssh tunnel lost during capability discovery')
+    await assert.rejects(connecting, /ssh tunnel lost during capability discovery/)
+    for (let attempt = 0; attempt < 1_000 && backend.capabilityAbortCount < 2; attempt += 1) {
+      await new Promise(resolve => setImmediate(resolve))
+    }
+    assert.equal(statuses.includes('ready'), false)
+    assert.equal(manager.target('ssh-readiness-backend'), null)
+    assert.equal(backend.capabilityAbortCount, 2)
+    assert.equal(tunnel.killCount, 1)
+    assert.equal(manager.list()[0]?.status, 'error')
+    assert.equal(manager.list()[0]?.server, null)
+    assert.match(manager.list()[0]?.error || '', /ssh tunnel lost during capability discovery/)
+  } finally {
+    manager.close()
+    await backend.close()
+  }
+})
+
+test('desktop SSH lifetime listener marks a ready tunnel error', async () => {
+  const backend = await fakeBackend('healthy-old-v4')
+  const tunnel = fakeSshChild()
+  const manager = sshConnectionManager(backend.port, tunnel.child)
+  try {
+    await manager.connect('ssh-readiness-backend')
+    assert.equal(manager.list()[0]?.status, 'ready')
+    assert.notEqual(manager.target('ssh-readiness-backend'), null)
+    tunnel.exit('ssh tunnel closed after readiness')
+    await new Promise(resolve => setImmediate(resolve))
+    assert.equal(manager.list()[0]?.status, 'error')
+    assert.equal(manager.list()[0]?.server, null)
+    assert.equal(manager.target('ssh-readiness-backend'), null)
+    assert.match(manager.list()[0]?.error || '', /ssh tunnel closed after readiness/)
+  } finally {
+    manager.close()
+    await backend.close()
+  }
+})
+
+test('desktop SSH late exit cannot mutate a disconnected generation', async () => {
+  const backend = await fakeBackend('healthy-old-v4', { hangCapabilities: true })
+  const tunnel = fakeSshChild()
+  const manager = sshConnectionManager(backend.port, tunnel.child)
+  try {
+    const connecting = manager.connect('ssh-readiness-backend')
+    for (let attempt = 0; attempt < 1_000 && backend.capabilityRequestCount < 2; attempt += 1) {
+      await new Promise(resolve => setImmediate(resolve))
+    }
+    assert.equal(backend.capabilityRequestCount, 2, 'both capability requests must start before disconnect')
+    manager.disconnect('ssh-readiness-backend')
+    await assert.rejects(connecting, /cancel/i)
+    tunnel.exit('late exit from obsolete SSH child')
+    await new Promise(resolve => setImmediate(resolve))
+    assert.equal(manager.list()[0]?.status, 'disconnected')
+    assert.equal(manager.list()[0]?.error, '')
+    assert.equal(manager.target('ssh-readiness-backend'), null)
   } finally {
     manager.close()
     await backend.close()

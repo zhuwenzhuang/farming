@@ -16,8 +16,25 @@ interface ConnectionRecord extends DesktopBackendConnection {
   abortController: AbortController | null
   attempt: Promise<void> | null
   process: ChildProcess | null
+  tunnel: SshTunnelState | null
   targetBaseUrl: string
   targetToken: string
+}
+
+interface SshTunnelState {
+  child: ChildProcess
+  abortController: AbortController
+  exitPromise: Promise<never>
+  failure: Error | null
+  stderr: string
+}
+
+interface DesktopConnectionManagerOptions {
+  appVersion: string
+  cacheDir: string
+  bootstrapRemoteServer?: typeof bootstrapRemoteServer
+  allocateLoopbackPort?: () => Promise<number>
+  spawnSshTunnel?: (sshHost: string, remoteHost: string, remotePort: number, localPort: number) => ChildProcess
 }
 
 export interface DesktopConnectionTarget {
@@ -82,12 +99,18 @@ export function buildSshTunnelArgs(sshHost: string, remoteHost: string, remotePo
   ]
 }
 
+function spawnSshTunnel(sshHost: string, remoteHost: string, remotePort: number, localPort: number) {
+  return spawn('ssh', buildSshTunnelArgs(sshHost, remoteHost, remotePort, localPort), {
+    stdio: ['ignore', 'ignore', 'pipe'],
+  })
+}
+
 export class DesktopConnectionManager extends EventEmitter {
   private readonly records = new Map<string, ConnectionRecord>()
 
   constructor(
     private readonly profiles: DesktopProfileStore,
-    private readonly options: { appVersion: string; cacheDir: string } = { appVersion: '0.0.0', cacheDir: '' },
+    private readonly options: DesktopConnectionManagerOptions = { appVersion: '0.0.0', cacheDir: '' },
   ) {
     super()
   }
@@ -124,6 +147,7 @@ export class DesktopConnectionManager extends EventEmitter {
 
     const generation = (current?.generation ?? 0) + 1
     current?.abortController?.abort()
+    current?.tunnel?.abortController.abort()
     current?.process?.kill()
     const abortController = new AbortController()
     const record: ConnectionRecord = {
@@ -134,6 +158,7 @@ export class DesktopConnectionManager extends EventEmitter {
       abortController,
       attempt: null,
       process: null,
+      tunnel: null,
       targetBaseUrl: '',
       targetToken: '',
       message: 'Connecting…',
@@ -146,17 +171,19 @@ export class DesktopConnectionManager extends EventEmitter {
   }
 
   private async runConnection(record: ConnectionRecord, profile: StoredDesktopBackendProfile) {
+    let tunnel: SshTunnelState | null = null
     try {
       if (profile.transport === 'direct') {
         record.targetBaseUrl = `${profile.directUrl}${profile.basePath}`
         record.targetToken = this.profiles.readToken(profile.id)
         await this.probe(record, profile)
       } else {
-        await this.connectSsh(record, profile)
+        tunnel = await this.connectSsh(record, profile)
       }
       if (!this.isCurrent(record)) {
         throw new DesktopBackendReadinessCancelledError('Farming backend connection was cancelled.')
       }
+      if (tunnel) this.assertTunnelReady(record, tunnel)
       record.status = 'ready'
       record.error = ''
       record.message = ''
@@ -165,10 +192,14 @@ export class DesktopConnectionManager extends EventEmitter {
       this.emitChange()
     } catch (error) {
       if (!this.isCurrent(record)) throw error
+      record.abortController?.abort(error)
+      record.tunnel?.abortController.abort(error)
       record.process?.kill()
       record.process = null
+      record.tunnel = null
       record.abortController = null
       record.attempt = null
+      record.server = null
       record.status = 'error'
       record.error = errorMessage(error)
       this.emitChange()
@@ -180,6 +211,7 @@ export class DesktopConnectionManager extends EventEmitter {
     const current = this.records.get(backendId)
     const generation = (current?.generation ?? 0) + 1
     current?.abortController?.abort()
+    current?.tunnel?.abortController.abort()
     current?.process?.kill()
     this.records.set(backendId, {
       backendId,
@@ -189,6 +221,7 @@ export class DesktopConnectionManager extends EventEmitter {
       abortController: null,
       attempt: null,
       process: null,
+      tunnel: null,
       targetBaseUrl: '',
       targetToken: '',
       message: '',
@@ -200,13 +233,14 @@ export class DesktopConnectionManager extends EventEmitter {
   close() {
     this.records.forEach(record => {
       record.abortController?.abort()
+      record.tunnel?.abortController.abort()
       record.process?.kill()
     })
     this.records.clear()
   }
 
   private async connectSsh(record: ConnectionRecord, profile: StoredDesktopBackendProfile) {
-    const handshake = await bootstrapRemoteServer({
+    const handshake = await (this.options.bootstrapRemoteServer ?? bootstrapRemoteServer)({
       sshHost: profile.sshHost,
       farmingHome: profile.farmingHome,
       version: this.options.appVersion,
@@ -218,45 +252,80 @@ export class DesktopConnectionManager extends EventEmitter {
         this.emitChange()
       },
     })
-    if (!this.isCurrent(record)) return
-    const localPort = await unusedLoopbackPort()
-    if (!this.isCurrent(record)) return
+    if (!this.isCurrent(record)) {
+      throw new DesktopBackendReadinessCancelledError('Farming backend connection was cancelled.')
+    }
+    const localPort = await (this.options.allocateLoopbackPort ?? unusedLoopbackPort)()
+    if (!this.isCurrent(record)) {
+      throw new DesktopBackendReadinessCancelledError('Farming backend connection was cancelled.')
+    }
     record.message = 'Opening SSH tunnel…'
     record.targetBaseUrl = `http://127.0.0.1:${localPort}${handshake.basePath}`
     record.targetToken = handshake.token
-    const child = spawn('ssh', buildSshTunnelArgs(profile.sshHost, handshake.host, handshake.port, localPort), {
-      stdio: ['ignore', 'ignore', 'pipe'],
-    })
+    const child = (this.options.spawnSshTunnel ?? spawnSshTunnel)(
+      profile.sshHost,
+      handshake.host,
+      handshake.port,
+      localPort,
+    )
     record.process = child
-    let stderr = ''
+    const tunnelAbortController = new AbortController()
+    let rejectExit!: (error: Error) => void
+    const tunnel: SshTunnelState = {
+      child,
+      abortController: tunnelAbortController,
+      exitPromise: new Promise<never>((_resolve, reject) => { rejectExit = reject }),
+      failure: null,
+      stderr: '',
+    }
+    record.tunnel = tunnel
     child.stderr?.on('data', chunk => {
-      stderr = `${stderr}${String(chunk)}`.slice(-STDERR_LIMIT)
+      tunnel.stderr = `${tunnel.stderr}${String(chunk)}`.slice(-STDERR_LIMIT)
     })
-    const exited = new Promise<never>((_resolve, reject) => {
-      child.once('error', reject)
-      child.once('exit', (code, signal) => {
-        const detail = stderr.trim() || `ssh exited with ${signal ? `signal ${signal}` : `code ${code ?? 'unknown'}`}`
-        reject(new Error(detail))
-      })
+    const latchFailure = (error: Error) => {
+      if (tunnel.failure) return
+      tunnel.failure = error
+      tunnel.abortController.abort(error)
+      rejectExit(error)
+      if (
+        !this.isCurrent(record)
+        || record.process !== child
+        || record.tunnel !== tunnel
+        || record.status !== 'ready'
+      ) return
+      record.process = null
+      record.tunnel = null
+      record.server = null
+      record.status = 'error'
+      record.error = errorMessage(error)
+      this.emitChange()
+    }
+    child.once('error', error => latchFailure(error))
+    child.once('exit', (code, signal) => {
+      const detail = tunnel.stderr.trim()
+        || `ssh exited with ${signal ? `signal ${signal}` : `code ${code ?? 'unknown'}`}`
+      latchFailure(new Error(detail))
     })
-    await Promise.race([this.probe(record, profile), exited])
+    if (child.exitCode !== null || child.signalCode !== null) {
+      const detail = tunnel.stderr.trim()
+        || `ssh exited with ${child.signalCode ? `signal ${child.signalCode}` : `code ${child.exitCode ?? 'unknown'}`}`
+      latchFailure(new Error(detail))
+    }
+    await Promise.race([this.probe(record, profile), tunnel.exitPromise])
     record.message = 'Discovering remote capabilities…'
+    const capabilities = await Promise.race([
+      this.discoverCapabilities(record, tunnel.abortController.signal),
+      tunnel.exitPromise,
+    ])
     record.server = {
       version: handshake.version,
       platform: handshake.platform,
       arch: handshake.arch,
       farmingHome: handshake.farmingHome,
       runtime: handshake.runtime,
-      capabilities: await this.discoverCapabilities(record),
+      capabilities,
     }
-    child.once('exit', (code, signal) => {
-      if (!this.isCurrent(record) || record.status !== 'ready') return
-      record.process = null
-      record.status = 'error'
-      record.error = stderr.trim().slice(-STDERR_LIMIT)
-        || `SSH tunnel closed with ${signal ? `signal ${signal}` : `code ${code ?? 'unknown'}`}.`
-      this.emitChange()
-    })
+    return tunnel
   }
 
   private async probe(record: ConnectionRecord, profile: StoredDesktopBackendProfile) {
@@ -321,7 +390,10 @@ export class DesktopConnectionManager extends EventEmitter {
     throw new Error(`Farming backend did not become ready within ${CONNECT_TIMEOUT_MS / 1000}s${lastError ? `: ${lastError}` : '.'}`)
   }
 
-  private async discoverCapabilities(record: ConnectionRecord): Promise<DesktopCapabilitySummary[]> {
+  private async discoverCapabilities(
+    record: ConnectionRecord,
+    tunnelSignal: AbortSignal,
+  ): Promise<DesktopCapabilitySummary[]> {
     const token = record.targetToken
     const read = async (id: string, pathname: string) => {
       const controller = new AbortController()
@@ -329,7 +401,11 @@ export class DesktopConnectionManager extends EventEmitter {
       try {
         const response = await fetch(joinUpstreamUrl(record.targetBaseUrl, pathname), {
           headers: token ? { authorization: `Bearer ${bearerCredential(token)}` } : undefined,
-          signal: controller.signal,
+          signal: AbortSignal.any([
+            controller.signal,
+            ...(record.abortController ? [record.abortController.signal] : []),
+            tunnelSignal,
+          ]),
         })
         if (!response.ok) return { id, state: `error (HTTP ${response.status})` }
         const body = await response.json() as { available?: unknown; enabled?: unknown }
@@ -338,6 +414,14 @@ export class DesktopConnectionManager extends EventEmitter {
           state: body.available === true ? 'available' : body.enabled === true ? 'unavailable' : 'disabled',
         }
       } catch {
+        if (record.abortController?.signal.aborted) {
+          throw new DesktopBackendReadinessCancelledError('Farming backend connection was cancelled.')
+        }
+        if (tunnelSignal.aborted) {
+          throw tunnelSignal.reason instanceof Error
+            ? tunnelSignal.reason
+            : new Error('SSH tunnel closed during capability discovery.')
+        }
         return { id, state: 'unknown' }
       } finally {
         clearTimeout(timeout)
@@ -347,6 +431,18 @@ export class DesktopConnectionManager extends EventEmitter {
       read('browser', '/api/browsers/capability'),
       read('computer', '/api/computers/capability'),
     ])
+  }
+
+  private assertTunnelReady(record: ConnectionRecord, tunnel: SshTunnelState) {
+    if (!this.isCurrent(record) || record.process !== tunnel.child || record.tunnel !== tunnel) {
+      throw new DesktopBackendReadinessCancelledError('Farming backend connection was cancelled.')
+    }
+    if (tunnel.failure) throw tunnel.failure
+    if (tunnel.child.exitCode !== null || tunnel.child.signalCode !== null) {
+      const detail = tunnel.stderr.trim()
+        || `ssh exited with ${tunnel.child.signalCode ? `signal ${tunnel.child.signalCode}` : `code ${tunnel.child.exitCode ?? 'unknown'}`}`
+      throw new Error(detail)
+    }
   }
 
   private isCurrent(record: ConnectionRecord) {
