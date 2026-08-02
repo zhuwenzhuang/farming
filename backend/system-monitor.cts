@@ -4,10 +4,15 @@ const fsp = require('fs/promises');
 const { execFile } = require('child_process');
 
 const DISK_STATS_TTL_MS = 30_000;
+const DARWIN_MEMORY_STATS_TTL_MS = 5_000;
+
+type DarwinMemoryProbe = () => Promise<number | null>;
 
 interface SystemMonitorOptions {
   diskStatsTtlMs?: number;
   now?: () => number;
+  platform?: NodeJS.Platform;
+  darwinMemoryProbe?: DarwinMemoryProbe;
 }
 
 interface DiskStats {
@@ -31,9 +36,16 @@ interface SystemStats {
 class SystemMonitor {
   private readonly diskStatsTtlMs: number;
   private readonly now: () => number;
+  private readonly platform: NodeJS.Platform;
+  private readonly darwinMemoryProbe: DarwinMemoryProbe;
   private diskStatsCache: {
     sampledAt: number;
     value: DiskStats | null;
+  };
+  private darwinMemoryStatsCache: {
+    value: number | null;
+    expiresAt: number;
+    inFlight: Promise<number | null> | null;
   };
 
   constructor(options: SystemMonitorOptions = {}) {
@@ -42,17 +54,24 @@ class SystemMonitor {
       ? options.diskStatsTtlMs
       : DISK_STATS_TTL_MS;
     this.now = typeof options.now === 'function' ? options.now : () => Date.now();
+    this.platform = options.platform || process.platform;
+    this.darwinMemoryProbe = options.darwinMemoryProbe || (() => this.darwinAvailableMemoryBytes());
     this.diskStatsCache = {
       sampledAt: 0,
       value: null,
+    };
+    this.darwinMemoryStatsCache = {
+      value: null,
+      expiresAt: 0,
+      inFlight: null,
     };
   }
 
   async getSystemStats(): Promise<SystemStats> {
     const stats = this.getBasicStats();
     stats.disk = await this.getCachedDiskStats().catch(() => this.diskStatsCache.value || null);
-    if (process.platform === 'darwin') {
-      const corrected = await this.darwinAvailableMemoryBytes();
+    if (this.platform === 'darwin') {
+      const corrected = await this.getCachedDarwinAvailableMemoryBytes();
       if (corrected !== null) {
         const totalMem = os.totalmem();
         const usedMem = Math.max(0, totalMem - corrected);
@@ -112,6 +131,32 @@ class SystemMonitor {
     });
   }
 
+  private getCachedDarwinAvailableMemoryBytes(): Promise<number | null> {
+    const now = this.now();
+    if (now < this.darwinMemoryStatsCache.expiresAt) {
+      return Promise.resolve(this.darwinMemoryStatsCache.value);
+    }
+    if (this.darwinMemoryStatsCache.inFlight) {
+      return this.darwinMemoryStatsCache.inFlight;
+    }
+
+    const inFlight = Promise.resolve()
+      .then(() => this.darwinMemoryProbe())
+      .catch(() => null)
+      .then(value => {
+        this.darwinMemoryStatsCache.value = value;
+        this.darwinMemoryStatsCache.expiresAt = this.now() + DARWIN_MEMORY_STATS_TTL_MS;
+        return value;
+      })
+      .finally(() => {
+        if (this.darwinMemoryStatsCache.inFlight === inFlight) {
+          this.darwinMemoryStatsCache.inFlight = null;
+        }
+      });
+    this.darwinMemoryStatsCache.inFlight = inFlight;
+    return inFlight;
+  }
+
   async getCachedDiskStats(): Promise<DiskStats | null> {
     const now = this.now();
     if (this.diskStatsCache.value && now - this.diskStatsCache.sampledAt < this.diskStatsTtlMs) {
@@ -146,6 +191,7 @@ class SystemMonitor {
 }
 
 export {
+  DARWIN_MEMORY_STATS_TTL_MS,
   DISK_STATS_TTL_MS,
   SystemMonitor,
 };
