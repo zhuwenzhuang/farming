@@ -68,7 +68,10 @@ Installation forms keep distinct preparation boundaries:
 - An **npm installation** runs the same included postinstall preparer inside the
   installed Bootstrap/Package Image. An update must prepare the target Image and
   its seed before that Image becomes selectable; live Images retain their own
-  seed unchanged.
+  seed unchanged. Postinstall invokes that package root's backend runtime CLI
+  directly and may write only its package-owned seed; it never enters the
+  Bootstrap Launcher, publishes an Image, or changes Current Selection. The
+  update owner performs verification and publication afterward.
 - A **macOS app bundle** does not run npm postinstall on the user's machine. Its
   release pipeline must place the prepared seed under
   `Contents/Resources/farming/.farming-runtime-seed` before signing. Absence or

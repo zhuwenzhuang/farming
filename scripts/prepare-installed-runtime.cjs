@@ -29,7 +29,7 @@ if (!fs.existsSync(runtimeEntry)) {
 }
 
 run(process.execPath, [
-  path.join(packageRoot, 'bin', 'farming'),
+  runtimeEntry,
   'runtime',
   'prepare',
   '--config-dir',

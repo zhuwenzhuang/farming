@@ -46,7 +46,9 @@ Hash、Platform 与报告版本，并把 Runtime Download Policy 设为 `forbid`
   所有，Pin 变化后由下一次显式安装替换。
 - **npm Installation** 在已安装的 Bootstrap/Package Image 内运行同一份随包 postinstall
   preparer。Update 必须在 Target Image 可被选择前准备好它及其 seed；Live Image 保留自己的
-  seed，不被原地修改。
+  seed，不被原地修改。Postinstall 只直接调用该 Package Root 内的 Backend Runtime CLI，且
+  只能写入该 Package 所有的 seed；它绝不进入 Bootstrap Launcher、发布 Image 或改变 Current
+  Selection。后续校验与发布由 Update Owner 执行。
 - **macOS App Bundle** 不在用户机器执行 npm postinstall。Release Pipeline 必须在签名前把
   seed 放入 `Contents/Resources/farming/.farming-runtime-seed`；缺失或损坏属于打包失败，
   不能授权 First Launch 下载。
