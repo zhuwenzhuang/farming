@@ -41,6 +41,7 @@
     "extensions/computer/bin/",
     "extensions/language-server/backend/*.cjs",
     "extensions/language-server/vscode-bridge/extension.js",
+    "extensions/language-server/vscode-bridge/http-handler.js",
     "extensions/language-server/vscode-bridge/request-lifecycle.js",
     "extensions/language-server/vscode-bridge/package.json",
     "extensions/language-server/vscode-bridge/README.md",

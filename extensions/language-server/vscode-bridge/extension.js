@@ -5,10 +5,10 @@ const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
 const vscode = require('vscode');
+const { createBridgeHttpHandler } = require('./http-handler');
 const { createRequestLifecycle } = require('./request-lifecycle');
 
 const PROTOCOL_VERSION = 1;
-const MAX_BODY_BYTES = 1024 * 1024;
 const HANDLE_TTL_MS = 10 * 60 * 1000;
 const MAX_HANDLES = 2_000;
 const PROVIDER_ACTIVATION_RETRY_MS = 250;
@@ -32,17 +32,6 @@ let activeToken = '';
 let activeInstanceId = '';
 let activeRequestLifecycle = null;
 const handles = new Map();
-
-function json(response, status, value) {
-  if (response.destroyed || response.writableEnded) return;
-  const body = Buffer.from(JSON.stringify(value));
-  response.writeHead(status, {
-    'Content-Type': 'application/json; charset=utf-8',
-    'Content-Length': body.length,
-    'Cache-Control': 'no-store',
-  });
-  response.end(body);
-}
 
 function rangeValue(range) {
   if (!range) return null;
@@ -270,57 +259,14 @@ async function executeRequest(input) {
   throw new Error('Unsupported Language Server method');
 }
 
-async function readBody(request) {
-  const chunks = [];
-  let size = 0;
-  for await (const chunk of request) {
-    const buffer = Buffer.from(chunk);
-    size += buffer.length;
-    if (size > MAX_BODY_BYTES) throw new Error('Request body is too large');
-    chunks.push(buffer);
-  }
-  return JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
-}
-
-async function handleRequest(request, response) {
-  if (request.headers.authorization !== `Bearer ${activeToken}`) {
-    json(response, 401, { error: 'Unauthorized', code: 'VSCODE_BRIDGE_UNAUTHORIZED' });
-    return;
-  }
-  const url = new URL(request.url || '/', 'http://127.0.0.1');
-  if (request.method === 'GET' && url.pathname === '/v1/health') {
-    const lifecycleState = activeRequestLifecycle?.state() || { requestState: 'stalled', stalledGenerations: [] };
-    json(response, 200, {
-      version: PROTOCOL_VERSION,
-      name: 'VS Code Bridge',
-      vscodeVersion: vscode.version,
-      features: FEATURES,
-      workspaces: workspaceFolders(),
-      requestState: lifecycleState.requestState,
-      ...(lifecycleState.requestState === 'stalled' ? {
-        detail: 'A VS Code language provider request is still running. Reload the VS Code window if this persists.',
-        stalledGeneration: lifecycleState.stalledGenerations[0],
-      } : {}),
-    });
-    return;
-  }
-  if (request.method === 'POST' && url.pathname === '/v1/request') {
-    try {
-      const input = await readBody(request);
-      if (!activeRequestLifecycle) throw new Error('VS Code Bridge is not active');
-      const result = await activeRequestLifecycle.run(() => executeRequest(input));
-      json(response, 200, result === UNSUPPORTED
-        ? { result: [], supported: false }
-        : { result, supported: true });
-    } catch (error) {
-      json(response, Number(error?.status) || 400, {
-        error: error instanceof Error ? error.message : String(error),
-        code: String(error?.code || 'VSCODE_BRIDGE_REQUEST_FAILED'),
-      });
-    }
-    return;
-  }
-  json(response, 404, { error: 'Not found', code: 'VSCODE_BRIDGE_NOT_FOUND' });
+function healthValue() {
+  return {
+    version: PROTOCOL_VERSION,
+    name: 'VS Code Bridge',
+    vscodeVersion: vscode.version,
+    features: FEATURES,
+    workspaces: workspaceFolders(),
+  };
 }
 
 async function activate(context) {
@@ -329,9 +275,17 @@ async function activate(context) {
   activeToken = crypto.randomBytes(32).toString('hex');
   activeInstanceId = crypto.randomUUID();
   activeDescriptor = path.join(context.globalStorageUri.fsPath, `bridge-${activeInstanceId}.json`);
-  activeServer = http.createServer((request, response) => {
-    void handleRequest(request, response);
-  });
+  activeServer = http.createServer(createBridgeHttpHandler({
+    token: activeToken,
+    lifecycle: activeRequestLifecycle,
+    health: healthValue,
+    executeRequest,
+    responseValue(result) {
+      return result === UNSUPPORTED
+        ? { result: [], supported: false }
+        : { result, supported: true };
+    },
+  }));
   await new Promise((resolve, reject) => {
     activeServer.once('error', reject);
     activeServer.listen(0, '127.0.0.1', resolve);

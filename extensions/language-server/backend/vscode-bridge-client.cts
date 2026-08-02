@@ -7,6 +7,8 @@ const BRIDGE_PROTOCOL_VERSION = 1;
 const HEALTH_TIMEOUT_MS = 2_000;
 const REQUEST_TIMEOUT_MS = 10_000;
 const DESCRIPTOR_CACHE_MS = 2_000;
+const PUBLIC_STALLED_CODE = 'LANGUAGE_SERVER_BRIDGE_STALLED';
+const BRIDGE_STALLED_CODE = 'VSCODE_BRIDGE_PROVIDER_STALLED';
 
 type BridgeState = 'connected' | 'unavailable' | 'error';
 
@@ -306,7 +308,7 @@ class VsCodeBridgeClient {
       capability: {
         status: 'error',
         source: 'vscode',
-        detail: invalidErrors.at(-1) || 'VS Code Bridge could not be reached',
+        detail: stalledBridges[0]?.detail || invalidErrors.at(-1) || 'VS Code Bridge could not be reached',
         vscodeVersion: '',
         features: [],
         workspaces: [],
@@ -332,7 +334,7 @@ class VsCodeBridgeClient {
     ));
     if (!bridge) {
       if (stalledBridge) {
-        throw bridgeError(stalledBridge.detail, 'LANGUAGE_SERVER_BRIDGE_STALLED', 503);
+        throw bridgeError(stalledBridge.detail, PUBLIC_STALLED_CODE, 503);
       }
       if (!discovery.bridges?.length || discovery.capability.status !== 'connected') {
         throw bridgeError(discovery.capability.detail, 'LANGUAGE_SERVER_UNAVAILABLE', 503);
@@ -347,6 +349,14 @@ class VsCodeBridgeClient {
       });
     } catch (error) {
       this.invalidate();
+      const value = recordValue(error);
+      if (value.code === BRIDGE_STALLED_CODE) {
+        throw bridgeError(
+          String(value.message || 'VS Code Bridge has a stalled language provider request. Reload the VS Code window.'),
+          PUBLIC_STALLED_CODE,
+          Number(value.status) || 503,
+        );
+      }
       throw error;
     }
   }

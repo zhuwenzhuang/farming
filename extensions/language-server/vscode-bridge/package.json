@@ -17,6 +17,7 @@
   ],
   "files": [
     "extension.js",
+    "http-handler.js",
     "request-lifecycle.js",
     "README.md"
   ],

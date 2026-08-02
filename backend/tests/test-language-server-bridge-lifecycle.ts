@@ -1,10 +1,15 @@
 import assert from 'node:assert';
+import http from 'node:http';
 
 const {
   DEFAULT_DEADLINE_MS,
+  SHUTDOWN_CODE,
   STALLED_CODE,
   createRequestLifecycle,
 } = require('../../extensions/language-server/vscode-bridge/request-lifecycle.js');
+const {
+  createBridgeHttpHandler,
+} = require('../../extensions/language-server/vscode-bridge/http-handler.js');
 
 interface Deferred<T> {
   promise: Promise<T>;
@@ -49,6 +54,45 @@ function fakeScheduler() {
 async function flushPromises(): Promise<void> {
   await Promise.resolve();
   await Promise.resolve();
+}
+
+async function listen(server: http.Server): Promise<number> {
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('test server did not bind TCP');
+  return address.port;
+}
+
+async function close(server: http.Server): Promise<void> {
+  if (!server.listening) return;
+  await new Promise<void>(resolve => server.close(() => resolve()));
+}
+
+async function requestJson(port: number, requestPath: string, body?: unknown) {
+  const response = await fetch(`http://127.0.0.1:${port}${requestPath}`, {
+    method: body === undefined ? 'GET' : 'POST',
+    headers: {
+      Authorization: 'Bearer wiring-token',
+      ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  return {
+    status: response.status,
+    cacheControl: response.headers.get('cache-control'),
+    body: await response.json() as Record<string, unknown>,
+  };
+}
+
+async function waitFor(predicate: () => boolean): Promise<void> {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    if (predicate()) return;
+    await new Promise<void>(resolve => setImmediate(resolve));
+  }
+  throw new Error('timed out waiting for test condition');
 }
 
 async function run() {
@@ -163,6 +207,72 @@ async function run() {
   await flushPromises();
   assert.strictEqual(generationsLifecycle.state().requestState, 'ready');
 
+  const wiringScheduler = fakeScheduler();
+  const wiringLifecycle = createRequestLifecycle({
+    schedule: wiringScheduler.schedule,
+    cancel: wiringScheduler.cancel,
+  });
+  let wiringProvider = deferred<string>();
+  let wiringProviderCalls = 0;
+  const wiringServer = http.createServer(createBridgeHttpHandler({
+    token: 'wiring-token',
+    lifecycle: wiringLifecycle,
+    health() {
+      return { version: 1, name: 'Wiring Bridge', workspaces: ['file:///workspace'] };
+    },
+    executeRequest() {
+      wiringProviderCalls += 1;
+      return wiringProvider.promise;
+    },
+    responseValue(result: unknown) {
+      return { result, supported: true };
+    },
+  }));
+  let wiringPort = 0;
+  try {
+    wiringPort = await listen(wiringServer);
+    const readyHealth = await requestJson(wiringPort, '/v1/health');
+    assert.strictEqual(readyHealth.status, 200);
+    assert.strictEqual(readyHealth.cacheControl, 'no-store');
+    assert.strictEqual(readyHealth.body.requestState, 'ready');
+
+    const deadlineResponse = requestJson(wiringPort, '/v1/request', { method: 'definition' });
+    await waitFor(() => wiringProviderCalls === 1 && wiringScheduler.ids().length === 1);
+    wiringScheduler.fire(wiringScheduler.ids()[0]);
+    const deadlineResult = await deadlineResponse;
+    assert.strictEqual(deadlineResult.status, 504);
+    assert.strictEqual(deadlineResult.body.code, STALLED_CODE);
+    assert.match(String(deadlineResult.body.error), /Reload the VS Code window/);
+
+    const stalledHealth = await requestJson(wiringPort, '/v1/health');
+    assert.strictEqual(stalledHealth.status, 200);
+    assert.strictEqual(stalledHealth.body.requestState, 'stalled');
+    assert.strictEqual(stalledHealth.body.stalledGeneration, 1);
+    assert.match(String(stalledHealth.body.detail), /Reload the VS Code window/);
+
+    const fencedResult = await requestJson(wiringPort, '/v1/request', { method: 'hover' });
+    assert.strictEqual(fencedResult.status, 503);
+    assert.strictEqual(fencedResult.body.code, STALLED_CODE);
+    assert.strictEqual(wiringProviderCalls, 1);
+
+    wiringProvider.resolve('late wiring result');
+    await flushPromises();
+    const recoveredHealth = await requestJson(wiringPort, '/v1/health');
+    assert.strictEqual(recoveredHealth.body.requestState, 'ready');
+
+    wiringProvider = deferred<string>();
+    const recoveredResponse = requestJson(wiringPort, '/v1/request', { method: 'definition' });
+    await waitFor(() => wiringProviderCalls === 2);
+    wiringProvider.resolve('recovered result');
+    const recoveredResult = await recoveredResponse;
+    assert.strictEqual(recoveredResult.status, 200);
+    assert.deepStrictEqual(recoveredResult.body, { result: 'recovered result', supported: true });
+    assert.deepStrictEqual(wiringScheduler.ids(), []);
+  } finally {
+    wiringLifecycle.dispose();
+    await close(wiringServer);
+  }
+
   const cleanupScheduler = fakeScheduler();
   const cleanupLifecycle = createRequestLifecycle({
     schedule: cleanupScheduler.schedule,
@@ -172,7 +282,11 @@ async function run() {
   const pendingResult = cleanupLifecycle.run(() => pendingProvider.promise);
   assert.strictEqual(cleanupScheduler.ids().length, 1);
   cleanupLifecycle.dispose();
-  await assert.rejects(pendingResult, (error: Error & { status?: number }) => error.status === 503);
+  await assert.rejects(pendingResult, (error: Error & { code?: string; status?: number }) => {
+    assert.strictEqual(error.code, SHUTDOWN_CODE);
+    assert.strictEqual(error.status, 503);
+    return true;
+  });
   assert.deepStrictEqual(cleanupScheduler.ids(), [], 'deactivation must cancel every owned deadline');
   assert.deepStrictEqual(cleanupLifecycle.state().inFlightGenerations, []);
   assert.deepStrictEqual(cleanupLifecycle.state().stalledGenerations, []);
@@ -180,7 +294,11 @@ async function run() {
   await assert.rejects(cleanupLifecycle.run(() => {
     disposedProviderCalls += 1;
     return Promise.resolve('must not run');
-  }), (error: Error & { status?: number }) => error.status === 503);
+  }), (error: Error & { code?: string; status?: number }) => {
+    assert.strictEqual(error.code, SHUTDOWN_CODE);
+    assert.strictEqual(error.status, 503);
+    return true;
+  });
   assert.strictEqual(disposedProviderCalls, 0);
   pendingProvider.resolve('ignored after cleanup');
   await flushPromises();
