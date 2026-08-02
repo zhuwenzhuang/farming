@@ -2064,13 +2064,17 @@ function AgentHoverPreview({
   now: number
 }) {
   const titleRef = useRef<HTMLElement>(null)
+  const previewRef = useRef<HTMLDivElement>(null)
   const [titleOverflow, setTitleOverflow] = useState(false)
+  const [titleCardTop, setTitleCardTop] = useState(preview.y)
   const ageLabel = formatRelativeAge(preview.lastActive, now)
   useLayoutEffect(() => {
     const title = titleRef.current
     setTitleOverflow(Boolean(title && title.scrollWidth > title.clientWidth + 1))
-  }, [ageLabel, preview.key, preview.title, preview.width])
-  const titleCardLeft = preview.x + preview.width + 10
+    const previewElement = previewRef.current
+    if (previewElement) setTitleCardTop(previewElement.getBoundingClientRect().bottom + 10)
+  }, [ageLabel, preview.branch, preview.key, preview.title, preview.width, preview.x, preview.y])
+  const titleCardLeft = preview.x
   const titleCardWidth = Math.min(360, window.innerWidth - titleCardLeft - 12)
 
   return (
@@ -2078,6 +2082,7 @@ function AgentHoverPreview({
       <div
         className="code-agent-hover-preview"
         data-testid="code-agent-hover-preview"
+        ref={previewRef}
         style={{ left: preview.x, top: preview.y, width: preview.width }}
         aria-hidden="true"
       >
@@ -2101,7 +2106,7 @@ function AgentHoverPreview({
         <div
           className="code-agent-hover-title-card"
           data-testid="code-agent-hover-title-card"
-          style={{ left: titleCardLeft, top: preview.y, width: titleCardWidth }}
+          style={{ left: titleCardLeft, top: titleCardTop, width: titleCardWidth }}
           aria-hidden="true"
         >
           {preview.title}

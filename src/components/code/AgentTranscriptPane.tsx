@@ -1501,7 +1501,7 @@ function toggleTranscriptDisclosureWithStableAnchor(anchor: HTMLElement, toggle:
   })
 }
 
-function AgentTranscriptSteerItem({ item }: { item: AgentTranscriptProcessItem }) {
+function AgentTranscriptSteerItem({ item, copy }: { item: AgentTranscriptProcessItem; copy: CodeCopy }) {
   const text = (item.detail || item.title || '').trim()
   const images = item.images || []
   const audios = item.audios || []
@@ -1511,11 +1511,14 @@ function AgentTranscriptSteerItem({ item }: { item: AgentTranscriptProcessItem }
   return (
     <div className="code-agent-transcript-steer" data-testid="code-agent-transcript-steer">
       <div className="code-agent-transcript-user code-agent-transcript-steer-bubble">
-        {text ? <div>{plainTextBlock(text)}</div> : null}
+        {text ? <div className="code-agent-transcript-steer-content">{plainTextBlock(text)}</div> : null}
         <AgentTranscriptUserImages images={images} />
         <AgentTranscriptAudios audios={audios} />
         <AgentTranscriptUserFiles files={files} />
         <AgentTranscriptTerminals terminals={terminals} />
+        <span className="code-agent-transcript-steer-label" data-testid="code-agent-transcript-steer-label">
+          {copy.steerQueuedMessage}
+        </span>
         <AgentTranscriptMessageTime timestamp={item.createdAt} kind="steer" />
       </div>
     </div>
@@ -1815,7 +1818,7 @@ function AgentTranscriptProcessItemView({
   onStopSubagent?: (sessionId: string) => Promise<void>
 }) {
   if (isUserSteerProcessItem(item)) {
-    return <AgentTranscriptSteerItem item={item} />
+    return <AgentTranscriptSteerItem item={item} copy={copy} />
   }
 
   const images = item.images || []

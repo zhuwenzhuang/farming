@@ -124,6 +124,8 @@ test('queues a follow-up and explicitly sends negotiated Codex ACP steer', async
 
   const steer = page.getByTestId('code-agent-transcript-steer')
   await expect(steer).toContainText('focus on the attached image after editing')
+  await expect(steer.getByTestId('code-agent-transcript-steer-label')).toHaveText('Steer')
+  await expect(page.locator('.code-agent-transcript-turn > .code-agent-transcript-user').getByTestId('code-agent-transcript-steer-label')).toHaveCount(0)
   await expect(steer.getByTestId('code-agent-transcript-user-images').locator('img')).toHaveCount(1)
   const steerTime = steer.getByTestId('code-agent-transcript-steer-time')
   await expect(steerTime).toHaveCount(1)
@@ -133,6 +135,12 @@ test('queues a follow-up and explicitly sends negotiated Codex ACP steer', async
   await expect(page.getByText('Steer accepted: focus on the attached image after editing', { exact: true })).toBeVisible()
   const latestSteerActivity = page.getByTestId('code-agent-transcript-latest-steer-activity')
   await expect(latestSteerActivity).toBeVisible()
+  await expect(latestSteerActivity).toHaveCSS('font-size', '14px')
+  await expect(latestSteerActivity).toHaveCSS('line-height', '20px')
+  expect(await latestSteerActivity.evaluate(element => {
+    const previous = element.previousElementSibling
+    return !previous || element.getBoundingClientRect().top >= previous.getBoundingClientRect().bottom
+  })).toBe(true)
   await expect.poll(() => latestSteerActivity.evaluate(element => (
     getComputedStyle(element, '::after').animationName
   ))).toBe('code-agent-transcript-latest-activity-sweep')
@@ -152,7 +160,7 @@ test('queues a follow-up and explicitly sends negotiated Codex ACP steer', async
     )).map(child => ({
       kind: child.matches('[data-testid="code-agent-transcript-steer"]') ? 'steer' : 'commentary',
       text: child.matches('[data-testid="code-agent-transcript-steer"]')
-        ? child.querySelector('.code-agent-transcript-steer-bubble > div:first-child')?.textContent?.trim() || ''
+        ? child.querySelector('.code-agent-transcript-steer-content')?.textContent?.trim() || ''
         : child.textContent?.trim() || '',
     }))
     return {
@@ -197,7 +205,7 @@ test('queues a follow-up and explicitly sends negotiated Codex ACP steer', async
     '.code-agent-transcript-process-list > .code-acp-progress-update, '
     + '.code-agent-transcript-process-list > [data-testid="code-agent-transcript-steer"]',
   )).map(child => child.matches('[data-testid="code-agent-transcript-steer"]')
-    ? child.querySelector('.code-agent-transcript-steer-bubble > div:first-child')?.textContent?.trim() || ''
+    ? child.querySelector('.code-agent-transcript-steer-content')?.textContent?.trim() || ''
     : child.textContent?.trim() || ''))).toEqual([
     'Waiting for steering.',
     'focus on the attached image after editing',
@@ -331,10 +339,11 @@ test('keeps queued follow-ups separate and steers each selected message', async 
 
   await expect(page.getByTestId('code-acp-submission')).toHaveCount(0)
   await expect(page.getByTestId('code-agent-transcript-steer')).toHaveCount(2)
-  await expect(page.locator('.code-agent-transcript-steer-bubble')).toHaveText([
+  await expect(page.locator('.code-agent-transcript-steer-content')).toHaveText([
     '你自己先看看自己迭代到合理的展示吧。',
     '自己再看看',
   ])
+  await expect(page.getByTestId('code-agent-transcript-steer-label')).toHaveText(['Steer', 'Steer'])
 
   await input.fill('live progress')
   await expect(page.getByTestId('code-acp-composer-send')).toHaveAttribute('data-action', 'send')
