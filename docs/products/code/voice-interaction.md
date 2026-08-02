@@ -146,14 +146,29 @@ an older operation is a no-op and cannot stop the newer conversation. The
 browser may therefore repeat stop after a reordered or uncertain start result
 without replaying the start mutation.
 
-Browser protocol v4 keeps `operationId` optional on incoming `acp-realtime`
-WebSocket events only for mixed-version compatibility with an older backend.
-New backends always emit a non-empty operation ID. The Voice Controller ignores
-an event whose operation ID is missing or does not match its current operation,
-so a legacy event cannot mutate a new voice conversation. HTTP Realtime start
-and stop mutations are not backward-compatible: both require a valid operation
-ID and return `400` before reaching Agent mutation code when it is absent. This
+Browser protocol v4 keeps `operationId` optional when parsing incoming
+`acp-realtime` WebSocket events so the shared v4 schema remains tolerant during
+staged deployment. This does not enable Voice against an older backend: without
+the extension acknowledgement described below, the Voice UI stays disabled and
+Realtime events are ignored. New backends always emit a non-empty operation ID.
+After negotiation, the Voice Controller still ignores an event whose operation
+ID is missing or does not match its current operation, so a malformed or stale
+event cannot mutate a new voice conversation. HTTP Realtime start and stop
+mutations are not backward-compatible: both require a valid operation ID and
+return `400` before reaching Agent mutation code when it is absent. This parser
 compatibility exception does not change any Terminal or Chat protocol field.
+
+Realtime events are also gated by the versioned `acp-realtime-v1` Browser
+protocol extension without changing protocol v4 itself. The initial Server
+hello advertises `availableExtensions`; the Client hello requests
+`requestedExtensions`; after recording their per-socket intersection, the
+Server sends a second compatible hello with `negotiatedExtensions`. The Voice
+UI remains disabled until that acknowledgement arrives. Events emitted before
+acknowledgement are dropped for that socket and are not replayed. An old Client
+does not request the extension and receives no Realtime events; a new Client
+connected to an old Server receives no acknowledgement and keeps Voice
+disabled. Closing a socket destroys its negotiated set, so every reconnect
+must negotiate again.
 
 Codex app-server Realtime notifications do not contain an operation ID. The
 reviewed ACP adapter therefore records the operation owner before forwarding

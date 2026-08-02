@@ -2,7 +2,9 @@ const assert = require('assert');
 const packageJson = require('../../package.json');
 const { importTsModule } = require('./helpers/import-ts-module');
 const {
+  ACP_REALTIME_PROTOCOL_EXTENSION,
   PROTOCOL_VERSION,
+  negotiateProtocolExtensions,
   protocolCompatible,
   validateClientMessage,
   validateServerMessage,
@@ -15,6 +17,53 @@ assert(
 
 assert.strictEqual(protocolCompatible(PROTOCOL_VERSION), true);
 assert.strictEqual(protocolCompatible(PROTOCOL_VERSION + 1), false);
+assert.strictEqual(validateClientMessage({ type: 'protocol-hello', protocolVersion: PROTOCOL_VERSION }).ok, true);
+assert.strictEqual(validateClientMessage({
+  type: 'protocol-hello',
+  protocolVersion: PROTOCOL_VERSION,
+  requestedExtensions: [ACP_REALTIME_PROTOCOL_EXTENSION],
+}).ok, true);
+assert.strictEqual(validateClientMessage({
+  type: 'protocol-hello',
+  protocolVersion: PROTOCOL_VERSION,
+  requestedExtensions: ACP_REALTIME_PROTOCOL_EXTENSION,
+}).ok, false);
+assert.strictEqual(validateClientMessage({
+  type: 'protocol-hello',
+  protocolVersion: PROTOCOL_VERSION,
+  requestedExtensions: Array.from({ length: 33 }, (_, index) => `extension-${index}`),
+}).ok, false);
+assert.strictEqual(validateServerMessage({
+  type: 'protocol-hello',
+  protocolVersion: PROTOCOL_VERSION,
+  minProtocolVersion: PROTOCOL_VERSION,
+}).ok, true);
+assert.strictEqual(validateServerMessage({
+  type: 'protocol-hello',
+  protocolVersion: PROTOCOL_VERSION,
+  minProtocolVersion: PROTOCOL_VERSION,
+  availableExtensions: [ACP_REALTIME_PROTOCOL_EXTENSION],
+}).ok, true);
+assert.strictEqual(validateServerMessage({
+  type: 'protocol-hello',
+  protocolVersion: PROTOCOL_VERSION,
+  minProtocolVersion: PROTOCOL_VERSION,
+  availableExtensions: [ACP_REALTIME_PROTOCOL_EXTENSION],
+  negotiatedExtensions: [ACP_REALTIME_PROTOCOL_EXTENSION],
+}).ok, true);
+assert.strictEqual(validateServerMessage({
+  type: 'protocol-hello',
+  protocolVersion: PROTOCOL_VERSION,
+  minProtocolVersion: PROTOCOL_VERSION,
+  negotiatedExtensions: [1],
+}).ok, false);
+assert.deepStrictEqual(
+  negotiateProtocolExtensions(
+    [ACP_REALTIME_PROTOCOL_EXTENSION, 'server-only-v1'],
+    [ACP_REALTIME_PROTOCOL_EXTENSION, 'client-only-v1', ACP_REALTIME_PROTOCOL_EXTENSION],
+  ),
+  [ACP_REALTIME_PROTOCOL_EXTENSION],
+);
 assert.strictEqual(validateClientMessage({ type: 'resize-agent', agentId: 'a', cols: 80, rows: 24 }).ok, true);
 assert.strictEqual(validateClientMessage({ type: 'resize-agent', agentId: 'a', cols: '80', rows: 24 }).ok, false);
 assert.strictEqual(validateClientMessage({ type: 'composer-input', agentId: 'a', message: 'steer', requestId: 'request-1' }).ok, true);

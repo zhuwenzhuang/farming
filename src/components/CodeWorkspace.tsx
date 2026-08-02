@@ -98,6 +98,7 @@ import {
   type CodexRealtimeSnapshot,
 } from './code/codex-realtime-controller'
 import { createCodexRealtimeHttpClient } from './code/codex-realtime-http'
+import { codexRealtimeVoiceAvailable } from './code/codex-realtime-capability'
 import { BrowserSidebarPortals } from '../../extensions/browser/frontend/BrowserSidebarPortals'
 import { useBrowserResources } from '../../extensions/browser/frontend/useBrowserResources'
 import type { BrowserResourceState } from '../../extensions/browser/frontend/browser-resource-state'
@@ -343,6 +344,7 @@ interface TerminalReadCut {
 type AgentFlagUpdateResponse = AgentFlagUpdateResult | boolean | void
 
 interface CodeWorkspaceProps {
+  acpRealtimeAvailable: boolean
   agents: Agent[]
   taskHistory: TaskHistoryEntry[]
   mainPageSessionKeys: string[]
@@ -593,6 +595,7 @@ export function applyPendingMainPageSessionKeyMutations(
 }
 
 export function CodeWorkspace({
+  acpRealtimeAvailable,
   agents,
   taskHistory,
   mainPageSessionKeys: remoteMainPageSessionKeys,
@@ -1128,6 +1131,10 @@ export function CodeWorkspace({
   const activeAgent = useAgentWithLiveRuntimeState(structuralActiveAgent)
   const activeProviderHomeId = activeAgent?.providerHomeId || 'default'
   const activeAcpRuntime = isAcpRuntime(activeAgent) ? activeAgent.runtimeBinding : null
+  const activeCodexRealtimeAvailable = codexRealtimeVoiceAvailable(
+    acpRealtimeAvailable,
+    activeAcpRuntime?.supportsRealtime === true,
+  )
   const activeAgentPermissionSwitching = Boolean(
     activeAgent && activeAgent.id === permissionSwitchingAgentId
   )
@@ -4680,20 +4687,20 @@ export function CodeWorkspace({
   }, [])
 
   useEffect(() => {
-    if (!activeAgent?.id || activeAcpRuntime?.supportsRealtime !== true) return undefined
+    if (!activeAgent?.id || !activeCodexRealtimeAvailable) return undefined
     return onAcpRealtime(activeAgent.id, event => {
       void codexRealtimeRef.current?.handleEvent(event)
     })
-  }, [activeAcpRuntime?.supportsRealtime, activeAgent?.id, onAcpRealtime])
+  }, [activeAgent?.id, activeCodexRealtimeAvailable, onAcpRealtime])
 
   useEffect(() => {
     codexRealtimeRef.current?.ownerChanged(
-      activeAcpRuntime?.supportsRealtime === true ? activeAgent?.id || null : null,
+      activeCodexRealtimeAvailable ? activeAgent?.id || null : null,
     )
-  }, [activeAcpRuntime?.supportsRealtime, activeAgent?.id])
+  }, [activeAgent?.id, activeCodexRealtimeAvailable])
 
   const toggleSpeechInput = useCallback(() => {
-    if (activeAgent && activeAcpRuntime?.supportsRealtime === true) {
+    if (activeAgent && activeCodexRealtimeAvailable) {
       const controller = codexRealtimeRef.current
       if (!controller) return
       if (controller.getSnapshot().phase === 'idle' || controller.getSnapshot().phase === 'failed') {
@@ -4781,7 +4788,7 @@ export function CodeWorkspace({
       setSpeechListening(false)
       if (mobileComposerFallback) focusComposerTextarea()
     }
-  }, [activeAcpRuntime?.supportsRealtime, activeAgent, activeComposerKey, focusComposerTextarea, speechListening, speechSupported, uiPreferences.language, updateComposerStateForKey])
+  }, [activeAgent, activeCodexRealtimeAvailable, activeComposerKey, focusComposerTextarea, speechListening, speechSupported, uiPreferences.language, updateComposerStateForKey])
 
   const toggleContextProjectPinned = useCallback(async () => {
     if (!contextMenuProject?.workspace) return
@@ -5787,10 +5794,10 @@ export function CodeWorkspace({
               ? [activeAcpRuntime.pendingElicitation]
               : [],
           activeElicitations: activeAcpRuntime?.activeElicitations || [],
-          speechSupported: speechSupported || activeAcpRuntime?.supportsRealtime === true,
+          speechSupported: speechSupported || activeCodexRealtimeAvailable,
           speechListening,
           speechConnecting,
-          speechRealtime: activeAcpRuntime?.supportsRealtime === true,
+          speechRealtime: activeCodexRealtimeAvailable,
           speechTranscript,
           speechError,
           onDraftChange: handleDraftChange,

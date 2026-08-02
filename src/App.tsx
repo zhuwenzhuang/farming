@@ -1267,6 +1267,7 @@ export function App() {
   return (
     <div className="app-container code-app-shell" data-testid="app-shell">
       <CodeWorkspace
+        acpRealtimeAvailable={ws.acpRealtimeAvailable}
         agents={displayedAgents}
         taskHistory={ws.taskHistory}
         mainPageSessionKeys={ws.mainPageSessionKeys}

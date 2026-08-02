@@ -16,7 +16,7 @@ Adapter 包使用精确版本的 production dependency。Farming 启动 Agent �
 
 ## Session 语义
 
-实时 Codex adapter 可以在标准 ACP capability 之外声明带版本的 `_codex/session/steer` 与 WebRTC Realtime 扩展。Farming 只根据 initialize 响应分别启用它们，不会仅凭 provider 名称推断能力。Realtime 会显式启动 v3 `gpt-live-1-boulder-alpha` 对话；若省略版本，Codex 会选择旧 v1 路径，即使账号本身具备资格，当前 ChatGPT 后端也可能拒绝该请求。已安装 Codex 不认识 v3 时会得到明确升级提示，Farming 绝不把该 mutation 自动重试到 v1。Realtime SDP、转写、错误和关闭通知属于瞬时控制事件，不会归约到 Chat transcript 或随之持久化。
+实时 Codex adapter 可以在标准 ACP capability 之外声明带版本的 `_codex/session/steer` 与 WebRTC Realtime 扩展。Farming 只根据 initialize 响应分别启用它们，不会仅凭 provider 名称推断能力。Realtime 会显式启动 v3 `gpt-live-1-boulder-alpha` 对话；若省略版本，Codex 会选择旧 v1 路径，即使账号本身具备资格，当前 ChatGPT 后端也可能拒绝该请求。已安装 Codex 不认识 v3 时会得到明确升级提示，Farming 绝不把该 mutation 自动重试到 v1。Realtime SDP、转写、错误和关闭通知属于瞬时控制事件，不会归约到 Chat transcript 或随之持久化。浏览器还必须在当前 protocol-v4 WebSocket 上确认带版本的 `acp-realtime-v1` 扩展，才会收到这些事件；未扩展的 Client 永远不会收到它们。
 
 只要 Agent 声明对应 capability，runtime 就支持 ACP 的 `initialize`、`authenticate`、`logout`、`session/new`、`session/load`、`session/resume`、`session/list`、`session/fork`、`session/delete`、`session/close`、`session/set_mode`、`session/set_config_option`、`session/prompt` 和 `session/cancel`。New、load、resume、fork 与 list 请求会保留标准的附加目录作用域；new、load、resume 与 fork 还会在 Adapter 边界保留客户端提供的命令型或 HTTP MCP Server 定义。统一的 WebSocket 与 Control HTTP Agent 启动接口都接受这两项标准 Session 输入，Chat/Terminal 或权限重启也会把它们带到 replacement ACP binding。这些输入不会进入浏览器可见的 Agent state，只保存在权限为 `0600` 的 Farming 私有 Session 记录中，以便崩溃恢复时重连相同作用域。Farming 不会为 Agent 未声明的可选方法伪造支持。
 

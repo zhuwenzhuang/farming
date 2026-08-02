@@ -1,5 +1,11 @@
 export const PROTOCOL_VERSION = 4
 export const MIN_PROTOCOL_VERSION = 4
+export const ACP_REALTIME_PROTOCOL_EXTENSION = 'acp-realtime-v1'
+export const AVAILABLE_PROTOCOL_EXTENSIONS = [ACP_REALTIME_PROTOCOL_EXTENSION] as const
+export const REQUESTED_PROTOCOL_EXTENSIONS = [ACP_REALTIME_PROTOCOL_EXTENSION] as const
+
+const MAX_PROTOCOL_EXTENSIONS = 32
+const MAX_PROTOCOL_EXTENSION_ID_LENGTH = 80
 
 type ObjectMessage = Record<string, unknown>
 
@@ -10,6 +16,7 @@ interface ExtensibleMessage extends ObjectMessage {
 export interface ProtocolClientHelloMessage extends ExtensibleMessage {
   type: 'protocol-hello'
   protocolVersion: number
+  requestedExtensions?: string[]
 }
 
 export interface BusinessHealthProbeMessage extends ExtensibleMessage {
@@ -98,6 +105,8 @@ export interface ProtocolServerHelloMessage extends ExtensibleMessage {
   type: 'protocol-hello'
   protocolVersion: number
   minProtocolVersion: number
+  availableExtensions?: string[]
+  negotiatedExtensions?: string[]
 }
 
 export interface BusinessHealthResultMessage extends ExtensibleMessage {
@@ -336,6 +345,37 @@ function finiteField(value: ObjectMessage, name: string): boolean {
   return typeof value[name] === 'number' && Number.isFinite(value[name])
 }
 
+function protocolExtensionsField(value: ObjectMessage, name: string): boolean {
+  if (!Object.prototype.hasOwnProperty.call(value, name)) return true
+  const extensions = value[name]
+  return Array.isArray(extensions)
+    && extensions.length <= MAX_PROTOCOL_EXTENSIONS
+    && extensions.every(extension => (
+      typeof extension === 'string'
+      && extension.length > 0
+      && extension.length <= MAX_PROTOCOL_EXTENSION_ID_LENGTH
+    ))
+}
+
+export function negotiateProtocolExtensions(
+  available: readonly string[] | undefined,
+  requested: readonly string[] | undefined,
+): string[] {
+  const availableSet = new Set(available || [])
+  return [...new Set(requested || [])].filter(extension => availableSet.has(extension))
+}
+
+export function acknowledgedProtocolExtensions(
+  requested: readonly string[] | undefined,
+  available: readonly string[] | undefined,
+  negotiated: readonly string[] | undefined,
+): string[] {
+  return negotiateProtocolExtensions(
+    negotiateProtocolExtensions(requested, available),
+    negotiated,
+  )
+}
+
 function revisionField(value: ObjectMessage, name: string): boolean {
   return Number.isInteger(value[name]) && typeof value[name] === 'number' && value[name] >= 0
 }
@@ -397,7 +437,10 @@ export function validateClientMessage(value: unknown): ValidationResult<ClientMe
   }
   let valid = true
   switch (value.type) {
-    case 'protocol-hello': valid = Number.isInteger(value.protocolVersion); break
+    case 'protocol-hello':
+      valid = Number.isInteger(value.protocolVersion)
+        && protocolExtensionsField(value, 'requestedExtensions')
+      break
     case 'business-health-probe': valid = stringField(value, 'requestId'); break
     case 'start-agent': valid = stringField(value, 'command'); break
     case 'input': valid = stringField(value, 'agentId', true) && (typeof value.input === 'string' || Array.isArray(value.inputParts)); break
@@ -433,7 +476,12 @@ export function validateServerMessage(value: unknown): ValidationResult<ServerMe
   }
   let valid = true
   switch (value.type) {
-    case 'protocol-hello': valid = Number.isInteger(value.protocolVersion) && Number.isInteger(value.minProtocolVersion); break
+    case 'protocol-hello':
+      valid = Number.isInteger(value.protocolVersion)
+        && Number.isInteger(value.minProtocolVersion)
+        && protocolExtensionsField(value, 'availableExtensions')
+        && protocolExtensionsField(value, 'negotiatedExtensions')
+      break
     case 'business-health-result':
       valid = stringField(value, 'requestId')
         && stringField(value, 'serverEpoch')

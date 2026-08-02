@@ -1,13 +1,20 @@
 // Generated from TypeScript. Do not edit.
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.MIN_PROTOCOL_VERSION = exports.PROTOCOL_VERSION = void 0;
+exports.REQUESTED_PROTOCOL_EXTENSIONS = exports.AVAILABLE_PROTOCOL_EXTENSIONS = exports.ACP_REALTIME_PROTOCOL_EXTENSION = exports.MIN_PROTOCOL_VERSION = exports.PROTOCOL_VERSION = void 0;
+exports.negotiateProtocolExtensions = negotiateProtocolExtensions;
+exports.acknowledgedProtocolExtensions = acknowledgedProtocolExtensions;
 exports.sanitizeAgentUpdatePatch = sanitizeAgentUpdatePatch;
 exports.validateClientMessage = validateClientMessage;
 exports.validateServerMessage = validateServerMessage;
 exports.protocolCompatible = protocolCompatible;
 exports.PROTOCOL_VERSION = 4;
 exports.MIN_PROTOCOL_VERSION = 4;
+exports.ACP_REALTIME_PROTOCOL_EXTENSION = 'acp-realtime-v1';
+exports.AVAILABLE_PROTOCOL_EXTENSIONS = [exports.ACP_REALTIME_PROTOCOL_EXTENSION];
+exports.REQUESTED_PROTOCOL_EXTENSIONS = [exports.ACP_REALTIME_PROTOCOL_EXTENSION];
+const MAX_PROTOCOL_EXTENSIONS = 32;
+const MAX_PROTOCOL_EXTENSION_ID_LENGTH = 80;
 const CLIENT_MESSAGE_TYPES = new Set([
     'protocol-hello',
     'business-health-probe',
@@ -58,6 +65,23 @@ function stringField(value, name, optional = false) {
 }
 function finiteField(value, name) {
     return typeof value[name] === 'number' && Number.isFinite(value[name]);
+}
+function protocolExtensionsField(value, name) {
+    if (!Object.prototype.hasOwnProperty.call(value, name))
+        return true;
+    const extensions = value[name];
+    return Array.isArray(extensions)
+        && extensions.length <= MAX_PROTOCOL_EXTENSIONS
+        && extensions.every(extension => (typeof extension === 'string'
+            && extension.length > 0
+            && extension.length <= MAX_PROTOCOL_EXTENSION_ID_LENGTH));
+}
+function negotiateProtocolExtensions(available, requested) {
+    const availableSet = new Set(available || []);
+    return [...new Set(requested || [])].filter(extension => availableSet.has(extension));
+}
+function acknowledgedProtocolExtensions(requested, available, negotiated) {
+    return negotiateProtocolExtensions(negotiateProtocolExtensions(requested, available), negotiated);
 }
 function revisionField(value, name) {
     return Number.isInteger(value[name]) && typeof value[name] === 'number' && value[name] >= 0;
@@ -117,7 +141,8 @@ function validateClientMessage(value) {
     let valid = true;
     switch (value.type) {
         case 'protocol-hello':
-            valid = Number.isInteger(value.protocolVersion);
+            valid = Number.isInteger(value.protocolVersion)
+                && protocolExtensionsField(value, 'requestedExtensions');
             break;
         case 'business-health-probe':
             valid = stringField(value, 'requestId');
@@ -170,7 +195,10 @@ function validateServerMessage(value) {
     let valid = true;
     switch (value.type) {
         case 'protocol-hello':
-            valid = Number.isInteger(value.protocolVersion) && Number.isInteger(value.minProtocolVersion);
+            valid = Number.isInteger(value.protocolVersion)
+                && Number.isInteger(value.minProtocolVersion)
+                && protocolExtensionsField(value, 'availableExtensions')
+                && protocolExtensionsField(value, 'negotiatedExtensions');
             break;
         case 'business-health-result':
             valid = stringField(value, 'requestId')

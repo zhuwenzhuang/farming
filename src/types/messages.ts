@@ -15,6 +15,7 @@ import type {
 export interface ProtocolClientHelloMessage {
   type: 'protocol-hello'
   protocolVersion: number
+  requestedExtensions?: string[]
 }
 
 export interface BusinessHealthProbeMessage {
@@ -141,6 +142,8 @@ export interface ProtocolServerHelloMessage {
   type: 'protocol-hello'
   protocolVersion: number
   minProtocolVersion: number
+  availableExtensions?: string[]
+  negotiatedExtensions?: string[]
 }
 
 export interface ProtocolErrorMessage {

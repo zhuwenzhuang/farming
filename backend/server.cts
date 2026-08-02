@@ -132,6 +132,7 @@ interface WebSocketClient {
   bufferedAmount: number;
   connectionId?: string;
   focusedAgentId?: string | null;
+  negotiatedProtocolExtensions?: Set<string>;
   previewScope?: 'none' | 'focused' | 'all';
   protocolVersion?: number;
   readyState: number;
@@ -275,7 +276,14 @@ import { createReviewSessionRouter } from './review-session-router.cjs';
 import { applyIndexHtmlAppearance, normalizeBasePath, routePath, rewriteIndexHtmlForBasePath, appendIndexHtmlAssetToken } from './index-html.cjs';
 import { decodeAcpTranscriptMedia } from './acp-transcript.cjs';
 import { coalesceSessionStream, deliverSessionStreamToClients, shouldBroadcastSessionStreamImmediately } from './session-stream-protocol.cjs';
+import { broadcastAcpRealtimeToNegotiatedClients } from './acp-realtime-websocket-delivery.cjs';
+import {
+  acknowledgeBrowserProtocolExtensions,
+  offerBrowserProtocolExtensions,
+} from './browser-protocol-websocket-handshake.cjs';
 const {
+  ACP_REALTIME_PROTOCOL_EXTENSION,
+  AVAILABLE_PROTOCOL_EXTENSIONS,
   MIN_PROTOCOL_VERSION,
   PROTOCOL_VERSION,
   protocolCompatible,
@@ -3031,11 +3039,11 @@ wss.on('connection', (ws, req) => {
     console.log('Client disconnected');
   });
   
-  ws.send(JSON.stringify({
-    type: 'protocol-hello',
-    protocolVersion: PROTOCOL_VERSION,
+  offerBrowserProtocolExtensions(ws, {
+    availableExtensions: AVAILABLE_PROTOCOL_EXTENSIONS,
     minProtocolVersion: MIN_PROTOCOL_VERSION,
-  }));
+    protocolVersion: PROTOCOL_VERSION,
+  });
   sendState(ws);
 });
 
@@ -3239,7 +3247,11 @@ function handleMessage(ws: WebSocketClient, data: ServerClientMessage) {
         ws.close(4002, `Unsupported Farming protocol version ${data.protocolVersion}`);
         return;
       }
-      ws.protocolVersion = data.protocolVersion;
+      acknowledgeBrowserProtocolExtensions(ws, data, {
+        availableExtensions: AVAILABLE_PROTOCOL_EXTENSIONS,
+        minProtocolVersion: MIN_PROTOCOL_VERSION,
+        protocolVersion: PROTOCOL_VERSION,
+      });
       sendResourceSnapshots(ws);
       break;
     case 'business-health-probe':
@@ -3874,9 +3886,10 @@ agentManager.on('acp-session-revision', scheduleAcpSessionRevision);
 
 agentManager.on('acp-realtime', (event: unknown) => {
   if (!isAgentScopedServerEvent(event) || typeof event.method !== 'string') return;
-  const message = JSON.stringify({ type: 'acp-realtime', event });
-  wss.clients.forEach((client) => {
-    if (client.readyState === WebSocket.OPEN) client.send(message);
+  broadcastAcpRealtimeToNegotiatedClients(wss.clients, event, {
+    extensionId: ACP_REALTIME_PROTOCOL_EXTENSION,
+    openState: WebSocket.OPEN,
+    protocolVersion: PROTOCOL_VERSION,
   });
 });
 

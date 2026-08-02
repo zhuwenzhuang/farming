@@ -121,12 +121,22 @@ Backend 是 `{ agentId, operationId }` 的顺序权威。若 stop 先于对应 s
 较新的对话。因此浏览器可以在 start 响应重排或结果不确定时重复 stop，而不会重放 start
 mutation。
 
-Browser protocol v4 只为兼容旧 Backend，允许收到的 `acp-realtime` WebSocket event
-缺少 `operationId`。新 Backend 始终发送非空 operation ID；Voice Controller 对缺失或
-不匹配当前 operation 的事件 fail-closed 忽略，因此旧事件不能修改新的语音对话。HTTP
-Realtime start/stop mutation 不提供这种向后兼容：两者都要求合法 operation ID，缺失时
-必须在进入 Agent mutation 之前返回 `400`。这条例外不改变任何 Terminal 或 Chat 协议
-字段。
+Browser protocol v4 在解析收到的 `acp-realtime` WebSocket event 时允许缺少
+`operationId`，使共享 v4 schema 在分阶段部署期间保持可解析。这并不代表 Voice 可以连接
+旧 Backend：没有下文所述的扩展 ACK，Voice UI 会保持禁用，Realtime event 也会被忽略。
+新 Backend 始终发送非空 operation ID；完成协商后，Voice Controller 仍会对缺失或不匹配
+当前 operation 的事件 fail-closed 忽略，因此格式错误或过期事件不能修改新的语音对话。
+HTTP Realtime start/stop mutation 不提供这种向后兼容：两者都要求合法 operation ID，缺失
+时必须在进入 Agent mutation 之前返回 `400`。这条 parser 兼容例外不改变任何 Terminal
+或 Chat 协议字段。
+
+Realtime event 还必须通过带版本的 `acp-realtime-v1` Browser protocol 扩展协商，
+无需改变 protocol v4 本身。Server 初始 hello 通过 `availableExtensions` 声明 offer；
+Client hello 通过 `requestedExtensions` 发出 request；Server 把两者交集写入当前 socket
+后，再发送带 `negotiatedExtensions` 的第二个兼容 hello。Voice UI 只有收到该 ACK 后才
+会启用。ACK 前产生的 event 会对该 socket 丢弃且不会补发。旧 Client 不请求扩展，因此
+永远不会收到 Realtime event；新 Client 连接旧 Server 时收不到 ACK，因此 Voice 保持
+禁用。socket 关闭即销毁协商集合，每次重连都必须重新协商。
 
 Codex app-server 的 Realtime notification 本身不含 operation ID。因此，经过审核的
 ACP adapter 会在转发 start 之前登记 operation owner，在每条 notification 到达时捕获

@@ -2,6 +2,7 @@ import { useEffect, useRef, useCallback, useState } from 'react'
 import type { Agent, TaskHistoryEntry } from '@/types/agent'
 import type { AcpRealtimeEvent, ClientMessage, ComposerInputAttachment, ComposerInputMessage, ServerMessage, StartAgentMessage, WorkspaceFileEventMessage } from '@/types/messages'
 import { appWsUrl } from '@/lib/base-path'
+import { createProtocolExtensionNegotiation } from '@/lib/browser-protocol-extension-negotiation'
 import { setTerminalSessionTransport } from '@/lib/terminal-session-client'
 import {
   markBackendDisconnected,
@@ -17,7 +18,9 @@ import {
   updateAgentLiveState,
 } from '@/lib/agent-live-state'
 import {
+  ACP_REALTIME_PROTOCOL_EXTENSION,
   PROTOCOL_VERSION,
+  REQUESTED_PROTOCOL_EXTENSIONS,
   protocolCompatible,
   validateServerMessage,
 } from '../../shared/browser-protocol.js'
@@ -44,6 +47,7 @@ const BUSINESS_HEALTH_DEADLINE_MS = 8_000
 const BUSINESS_HEALTH_RETRY_MS = 2_000
 
 export interface WebSocketState {
+  acpRealtimeAvailable: boolean
   agents: Agent[]
   taskHistory: TaskHistoryEntry[]
   mainPageSessionKeys: string[]
@@ -85,6 +89,7 @@ export function useWebSocket() {
   const composerRequestKeysRef = useRef(new Map<string, string>())
   const composerAcceptedRequestsRef = useRef(new Set<string>())
   const [state, setState] = useState<WebSocketState>({
+    acpRealtimeAvailable: false,
     agents: [],
     taskHistory: [],
     mainPageSessionKeys: [],
@@ -479,14 +484,19 @@ export function useWebSocket() {
         wsUrl += `?token=${token}`
       }
       const ws = new WebSocket(wsUrl)
+      const protocolExtensions = createProtocolExtensionNegotiation(
+        REQUESTED_PROTOCOL_EXTENSIONS,
+      )
       activeSocket = ws
       wsRef.current = ws
 
       ws.onopen = () => {
         if (disposed || wsRef.current !== ws) return
+        protocolExtensions.reset()
         lastMessageStateUpdateAt = Date.now()
         setState(prev => ({
           ...prev,
+          acpRealtimeAvailable: false,
           connected: true,
           error: null,
         }))
@@ -499,7 +509,11 @@ export function useWebSocket() {
           businessCheckedAt: null,
           businessServerEpoch: '',
         })
-        ws.send(JSON.stringify({ type: 'protocol-hello', protocolVersion: PROTOCOL_VERSION }))
+        ws.send(JSON.stringify({
+          type: 'protocol-hello',
+          protocolVersion: PROTOCOL_VERSION,
+          requestedExtensions: REQUESTED_PROTOCOL_EXTENSIONS,
+        }))
         sendBusinessProbe(ws)
         window.dispatchEvent(new Event('farming:backend-connected'))
         workspaceFileListenersRef.current.forEach((listeners, agentId) => {
@@ -521,7 +535,17 @@ export function useWebSocket() {
             case 'protocol-hello':
               if (!protocolCompatible(msg.protocolVersion)) {
                 ws.close(4002, `Unsupported Farming protocol version ${msg.protocolVersion}`)
+                break
               }
+              protocolExtensions.observeServerHello(msg)
+              setState(prev => {
+                const acpRealtimeAvailable = protocolExtensions.accepts(
+                  ACP_REALTIME_PROTOCOL_EXTENSION,
+                )
+                return prev.acpRealtimeAvailable === acpRealtimeAvailable
+                  ? prev
+                  : { ...prev, acpRealtimeAvailable }
+              })
               break
             case 'protocol-error':
               setState(prev => ({
@@ -665,6 +689,7 @@ export function useWebSocket() {
               })
               break
             case 'acp-realtime':
+              if (!protocolExtensions.accepts(ACP_REALTIME_PROTOCOL_EXTENSION)) break
               acpRealtimeListenersRef.current.get(msg.event.agentId)?.forEach(listener => listener(msg.event))
               break
             case 'session-preview':
@@ -775,6 +800,7 @@ export function useWebSocket() {
 
       ws.onclose = (event) => {
         if (disposed || wsRef.current !== ws) return
+        protocolExtensions.reset()
         resetBusinessProbeObservation()
         wsRef.current = null
         composerRequestResolversRef.current.forEach(({ resolve, timeout }) => {
@@ -784,6 +810,7 @@ export function useWebSocket() {
         composerRequestResolversRef.current.clear()
         setState(prev => ({
           ...prev,
+          acpRealtimeAvailable: false,
           connected: false,
           error: event.code === 4001 ? 'Farming token expired or is invalid' : prev.error,
           errorKind: event.code === 4001 ? 'error' : prev.errorKind,
