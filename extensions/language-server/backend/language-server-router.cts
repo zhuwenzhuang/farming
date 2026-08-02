@@ -139,6 +139,9 @@ function sanitizeBridgeValue(rootPath: string, value: unknown): unknown | typeof
   for (const [key, item] of Object.entries(source)) {
     if (key === 'uri') continue;
     const sanitized = sanitizeBridgeValue(rootPath, item);
+    if (sanitized === REJECTED_BRIDGE_LOCATION && key === 'item') {
+      return REJECTED_BRIDGE_LOCATION;
+    }
     if (sanitized !== REJECTED_BRIDGE_LOCATION) result[key] = sanitized;
   }
   return result;

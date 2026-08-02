@@ -76,6 +76,26 @@ async function run() {
     },
   });
 
+  assert.deepStrictEqual(sanitizeBridgeResult(workspace, [{
+    item: {
+      uri: pathToFileURL(outsideFile).toString(),
+      selectionRange: null,
+    },
+    ranges: [],
+  }, {
+    item: {
+      uri: pathToFileURL(path.join(workspace, 'src', 'main.ts')).toString(),
+      selectionRange: null,
+    },
+    ranges: [],
+  }]), [{
+    item: {
+      path: 'src/main.ts',
+      selectionRange: null,
+    },
+    ranges: [],
+  }]);
+
   const bridge = http.createServer(async (request, response) => {
     assert.strictEqual(request.headers.authorization, 'Bearer test-token');
     if (request.url === '/v1/health') {
