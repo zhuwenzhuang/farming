@@ -1641,11 +1641,17 @@ app.post(routePath(BASE_PATH, '/api/agents/:agentId/acp-terminals/:terminalId/in
 
 app.post(routePath(BASE_PATH, '/api/agents/:agentId/acp-terminals/:terminalId/resize'), express.json(), (req, res) => {
   try {
+    const cols = Number(req.body?.cols);
+    const rows = Number(req.body?.rows);
+    if (!Number.isInteger(cols) || cols < 1 || !Number.isInteger(rows) || rows < 1) {
+      res.status(400).json({ error: 'cols and rows must be positive integers' });
+      return;
+    }
     res.json(agentManager.resizeAcpTerminal(
       req.params.agentId,
       req.params.terminalId,
-      Number(req.body?.cols),
-      Number(req.body?.rows),
+      cols,
+      rows,
     ));
   } catch (caught) {
     const error = caughtError(caught);
