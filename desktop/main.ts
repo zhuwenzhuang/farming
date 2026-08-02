@@ -23,8 +23,11 @@ import { DesktopProfileStore } from './profile-store.js'
 import { saveAndActivateDesktopBackend } from './save-and-activate.js'
 import {
   DESKTOP_STARTUP_CANCEL_URL,
+  DESKTOP_STARTUP_REVEAL_DELAY_MS,
+  DesktopStartupVisibility,
   desktopStartupDataUrl,
 } from './startup-view.js'
+import { DesktopStartupResourceOwner } from './startup-resource-owner.js'
 
 let mainWindow: BrowserWindow | null = null
 let profiles: DesktopProfileStore | null = null
@@ -34,10 +37,13 @@ let localBackend: DesktopLocalBackend | null = null
 let pendingRendererUrl: string | null | undefined
 let focusRendererWhenReady = false
 let rendererDrainScheduled = false
+let startupRevealTimer: ReturnType<typeof setTimeout> | null = null
 let stopPromise: Promise<void> | null = null
 let startupFailureShown = false
 const lifecycle = new DesktopLifecycle()
 const backendActivations = new DesktopBackendActivationState()
+const desktopResources = new DesktopStartupResourceOwner()
+const startupVisibility = new DesktopStartupVisibility()
 const rendererWindowGenerations = new WeakMap<BrowserWindow, number>()
 const desktopIconPath = path.join(__dirname, 'assets', 'farming-desktop.png')
 
@@ -268,6 +274,7 @@ function createBrowserWindow() {
     minWidth: 900,
     minHeight: 600,
     show: false,
+    backgroundColor: '#f7f8f6',
     title: 'Farming',
     icon: desktopIconPath,
     webPreferences: {
@@ -305,7 +312,10 @@ async function createStartupWindow() {
   const window = createBrowserWindow()
   await window.loadURL(desktopStartupDataUrl('Preparing local Farming environment…'))
   if (window.isDestroyed()) throw new Error('Farming Desktop startup was cancelled.')
-  window.show()
+  startupRevealTimer = setTimeout(() => {
+    startupRevealTimer = null
+    if (!window.isDestroyed() && startupVisibility.reveal()) window.show()
+  }, DESKTOP_STARTUP_REVEAL_DELAY_MS)
 }
 
 function updateStartupProgress(message: string) {
@@ -318,6 +328,11 @@ function updateStartupProgress(message: string) {
 
 function createWindow() {
   if (!gateway || !lifecycle.isRunning()) return
+  if (startupRevealTimer) {
+    clearTimeout(startupRevealTimer)
+    startupRevealTimer = null
+  }
+  startupVisibility.complete()
   const desktopGateway = gateway
   const window = mainWindow && !mainWindow.isDestroyed() ? mainWindow : createBrowserWindow()
   const token = lifecycle.openWindow()
@@ -331,14 +346,15 @@ function stopDesktop(exitCode: number) {
   pendingRendererUrl = undefined
   focusRendererWhenReady = false
   rendererDrainScheduled = false
+  if (startupRevealTimer) {
+    clearTimeout(startupRevealTimer)
+    startupRevealTimer = null
+  }
+  startupVisibility.complete()
   backendActivations.cancelAll()
-  const managedConnections = connections
-  const managedGateway = gateway
   stopPromise = (async () => {
     try {
-      managedConnections?.close()
-      await managedGateway?.close()
-      await localBackend?.stop()
+      await desktopResources.stop()
     } catch (error) {
       console.error('Farming Desktop cleanup failed:', error)
     } finally {
@@ -362,10 +378,14 @@ void app.whenReady().then(async () => {
     injectedToken: process.env.FARMING_DESKTOP_LOCAL_BACKEND_TOKEN,
     cliPath: process.env.FARMING_DESKTOP_LOCAL_CLI,
     onProgress: updateStartupProgress,
+    signal: desktopResources.signal,
   })
   localBackend = desktopLocalBackend
+  desktopResources.own('local-backend', () => desktopLocalBackend.stop())
   await createStartupWindow()
+  desktopResources.guard()
   const localTarget = await desktopLocalBackend.start()
+  desktopResources.guard()
   const profileStore = new DesktopProfileStore(path.join(app.getPath('userData'), 'backends.json'), [localTarget])
   const connectionManager = new DesktopConnectionManager(profileStore, {
     appVersion: process.env.FARMING_DESKTOP_SERVER_VERSION || resolveDesktopServerVersion(
@@ -375,10 +395,13 @@ void app.whenReady().then(async () => {
     cacheDir: path.join(app.getPath('userData'), 'server-cache'),
   })
   const desktopGateway = new DesktopGateway(path.resolve(__dirname, '..', 'dist'), profileStore, connectionManager)
+  desktopResources.own('gateway', () => desktopGateway.close())
+  desktopResources.own('connection-manager', () => connectionManager.close())
   profiles = profileStore
   connections = connectionManager
   gateway = desktopGateway
   await desktopGateway.listen()
+  desktopResources.guard()
   lifecycle.start()
   connectionManager.on('change', broadcastState)
   registerIpc()
@@ -413,6 +436,8 @@ void app.whenReady().then(async () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
 }).catch(error => {
+  const phase = lifecycle.snapshot().appPhase
+  if (phase === 'stopping' || phase === 'stopped') return
   console.error('Farming Desktop failed to start:', error)
   showStartupFailure(error)
 })
