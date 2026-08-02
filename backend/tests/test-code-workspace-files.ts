@@ -851,7 +851,8 @@ function run() {
       workspaceSource.includes('const turnActive = terminalState.turnActive') &&
 	      workspaceSource.includes('statusIndicatorVisible: shouldShowAgentStatusIndicator(agent.status, turnActive)') &&
 	      workspaceSource.includes('const markAgentReadIfNeeded = useCallback') &&
-	      workspaceSource.includes('markAgentReadIfNeeded(agentId, true, readCut)') &&
+	      workspaceSource.includes('markAgentReadIfNeeded(agentId, false, readCut)') &&
+	      workspaceSource.includes('const readCutAdvanced = Boolean(readCut && (') &&
 	      workspaceSource.includes('readOutputEpoch: readCut.runtimeEpoch') &&
 	      workspaceSource.includes('readOutputSeq: readCut.outputSeq') &&
 	      workspaceSource.includes('const handleTerminalFollowOutputChange = useCallback') &&
@@ -952,8 +953,9 @@ function run() {
       workspaceSource.includes('scheduleFocusRetries(focusCancelButton, { runNow: false, delays: [180] })') &&
       workspaceSource.includes('}, { delays: [0, 80, 180, 360] })') &&
       workspaceSource.includes('const composerHasAttachmentMessage = composerAttachmentMessageBlocks(composerAttachments).length > 0') &&
+      workspaceSource.includes('const composerAttachmentsSendable = composerAttachmentsCanSubmit(composerAttachments)') &&
       workspaceSource.includes('const composerSubmitAction = activeCodexTerminalProfileApplying') &&
-      workspaceSource.includes("activeAgent && !composerAttachmentsUploading && (draft.trim() || composerHasAttachmentMessage)") &&
+      workspaceSource.includes("activeAgent && composerAttachmentsSendable && (draft.trim() || composerHasAttachmentMessage)") &&
       workspaceSource.includes('const interruptActiveAgent = useCallback') &&
       workspaceSource.includes('const sendComposerMessageToAgent = useCallback') &&
       workspaceSource.includes('terminalInputPartsForComposerMessage') &&
@@ -968,6 +970,7 @@ function run() {
       workspaceSource.includes('const nativeAttachments = isStructuredRuntime(activeAgent)') &&
       workspaceSource.includes('composerPromptAttachments(composerAttachments)') &&
       workspaceSource.includes('sendComposerMessageToAgent(activeAgent, message, nativeAttachments)') &&
+      workspaceSource.includes('!composerAttachmentsCanSubmit(composerAttachments)') &&
       workspaceSource.includes('export function createPendingFollowUpMessage(') &&
       workspaceSource.includes('editableText = text') &&
       workspaceSource.includes("composerMode: ComposerMode = 'default'") &&
@@ -1042,7 +1045,8 @@ function run() {
 	      workspaceSource.includes('formatAttachedImage({ ...uploaded, name })') &&
 	      workspaceSource.includes('onPasteAttachment: handlePasteAttachment') &&
 	      workspaceSource.includes("const route = isAudioFile(file) ? '/api/attachments/audio' : '/api/attachments/image'") &&
-	      workspaceSource.includes('fetch(composerAppPath(route)') &&
+	      workspaceSource.includes("import { appPath } from '@/lib/base-path'") &&
+	      workspaceSource.includes('fetch(appPath(route)') &&
       workspaceSource.includes('Image path: ${attachment.path}') &&
       workspaceSource.includes('formatComposerMessage') &&
       workspaceSource.includes("mode: 'default'") &&
@@ -1225,7 +1229,9 @@ function run() {
       !terminalPaneSource.includes('transcriptAvailability') &&
 	      !agentWorkPaneSource.includes('CodexAppServerTranscriptPane') &&
       !agentWorkPaneSource.includes('JsonCliTranscriptPane') &&
-      agentWorkPaneSource.includes('AcpTranscriptPane') &&
+	      agentWorkPaneSource.includes('AcpTranscriptPane') &&
+	      agentWorkPaneSource.includes('const readLatestChat = useCallback') &&
+	      agentWorkPaneSource.includes('onReadLatest={readLatestChat}') &&
       agentWorkPaneSource.includes("runtimeState={acpRuntime?.state || ''}") &&
       agentWorkPaneSource.includes("expectHistory={(agent.source || '').startsWith('codex-history:')}") &&
       agentWorkPaneSource.includes('AgentTerminalPane') &&

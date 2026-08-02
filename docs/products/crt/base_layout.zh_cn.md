@@ -157,6 +157,8 @@ Title bar 的文字和边框颜色跟随 `--agent-color`（由活跃度等级决
 
 CRT 会话窗口使用细边框、紧凑顶栏、终端优先焦点，以及符合整体 CRT 信息密度的小号等宽字体。受支持的会话实现位于 `frontend/skins/crt/`，不依赖已删除的 React modal 路径。
 
+CRT 的所有同源 API、WebSocket、Code 导航、主题和 vendor URL 都由 `frontend/runtime-paths.ts` 解析。运行时路径模块必须先于 bridge 和 loader 加载；模块缺失时必须明确初始化失败，不能静默退回站点根路径。
+
 Agent 卡片使用剩余正文高度展示底部对齐的实时终端尾部，或紧凑的结构化 Chat 轨迹。Chat 轨迹从清洗后的 Transcript 中展示最近可见的用户输入、Agent 回复和当前 Activity，不重建或重排 ACP Entry。内容过多时裁剪，禁止压缩文字。只有 Live Pending / Running Agent 占据 Dashboard 机位；Stopped、Dead 与 Archived Record 离开实时 Grid，可恢复历史仍保留在 History。Terminal Card 仅在后端终端状态为 Working 时闪烁，Chat 使用紧凑的 Activity Signal。卡片和会话标题使用与 Farming Code 相同的 Agent 标题优先级，并保持单行省略。
 
 ### 5.4 对话框

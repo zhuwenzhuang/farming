@@ -29,6 +29,8 @@ function run() {
   const pkgConfig = fs.readFileSync(pkgConfigPath, 'utf8');
   const server = fs.readFileSync(serverPath, 'utf8');
   const crtApp = fs.readFileSync(path.join(__dirname, '../../frontend/skins/crt/app.ts'), 'utf8');
+  const themeLoader = fs.readFileSync(path.join(__dirname, '../../frontend/theme-loader.ts'), 'utf8');
+  const ghosttyLoader = fs.readFileSync(path.join(__dirname, '../../frontend/ghostty-loader.ts'), 'utf8');
 
   assert(
     terminalBridge.includes('FarmingTerminalBridge'),
@@ -83,6 +85,19 @@ function run() {
     'CRT renderer speed must not pause the shared PTY'
   );
   assert(runtimePaths.includes("path('/ws')"), 'CRT runtime should connect to the base-path WebSocket');
+  assert(
+    crtApp.includes('function requiredRuntimePaths()')
+      && crtApp.includes('return requiredRuntimePaths().apiPath(path)')
+      && crtApp.includes('return requiredRuntimePaths().webSocketUrl()')
+      && crtApp.includes("location.assign(requiredRuntimePaths().path('/code/'))")
+      && !crtApp.includes(" : `/api")
+      && !crtApp.includes(" : '/code/'")
+      && themeLoader.includes('FarmingRuntimePaths must load before the theme loader')
+      && !themeLoader.includes(': `/api${path}`')
+      && ghosttyLoader.includes('FarmingRuntimePaths must load before the Ghostty loader')
+      && !ghosttyLoader.includes(": '/vendor/ghostty-web'"),
+    'CRT same-origin routes must fail explicitly when the shared runtime-path owner is unavailable',
+  );
   assert(
     indexHtml.indexOf('runtime-paths.js') < indexHtml.indexOf('terminal-bridge.js'),
     'CRT runtime paths should load before frontend bridges'
@@ -279,7 +294,7 @@ function run() {
       crtApp.includes('terminal.onData((data'),
     'CRT should use only xterm native input and IME handling',
   );
-  assert(crtApp.includes("RUNTIME_PATHS.path('/code/')"), 'CRT UI Theme settings should provide a Farming Code return path');
+  assert(crtApp.includes("requiredRuntimePaths().path('/code/')"), 'CRT UI Theme settings should provide a Farming Code return path');
   assert(crtApp.includes("displayName: 'Farming Code'"), 'CRT UI Theme settings should show Farming Code');
   assert(crtApp.includes('renderCrtTerminalSnapshot(outputTail, agent.previewSnapshot)'), 'CRT previews should preserve terminal snapshot colors');
   assert(crtApp.includes("data.type === 'session-preview'") && crtApp.includes('terminalPreviewSnapshots.set'), 'CRT should consume backend color preview snapshots');

@@ -1274,10 +1274,17 @@ function processEntriesForTurn(items: AgentTranscriptProcessItem[], source: stri
   return entries
 }
 
-function compactProcessEntries(entries: ProcessEntry[], turnStatus: AgentTranscriptTurn['status']) {
+function compactProcessEntries(
+  entries: ProcessEntry[],
+  turnStatus: AgentTranscriptTurn['status'],
+  source: string,
+) {
+  const showLiveAcpProgress = source === 'acp' && turnStatus === 'inProgress'
   const eligible = entries.flatMap(entry => {
     if (entry.kind === 'item') {
-      return isUserSteerProcessItem(entry.item) ? [entry.item] : []
+      return isUserSteerProcessItem(entry.item) || (showLiveAcpProgress && isAcpProgressUpdate(entry.item))
+        ? [entry.item]
+        : []
     }
     return turnStatus === 'inProgress'
       ? entry.items.filter(item => !isProcessItemFailed(item) && !item.collaboration)
@@ -1285,7 +1292,9 @@ function compactProcessEntries(entries: ProcessEntry[], turnStatus: AgentTranscr
   })
   const selectedIndexes = new Set<number>()
   eligible.forEach((item, index) => {
-    if (isUserSteerProcessItem(item)) selectedIndexes.add(index)
+    if (isUserSteerProcessItem(item) || (showLiveAcpProgress && isAcpProgressUpdate(item))) {
+      selectedIndexes.add(index)
+    }
   })
   for (let index = eligible.length - 1; index >= 0; index -= 1) {
     if (!isProcessItemRunning(eligible[index]!)) continue
@@ -2451,6 +2460,7 @@ function AgentTranscriptTurnView({
   onOpenFile,
   onOpenUrlInFarming,
   workspaceRoot,
+  clockActive,
   processOpen,
   groupProcessActions,
   source,
@@ -2474,6 +2484,7 @@ function AgentTranscriptTurnView({
   onOpenFile?: (filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void> | void
   onOpenUrlInFarming?: (url: string) => void
   workspaceRoot?: string
+  clockActive: boolean
   processOpen: boolean
   groupProcessActions: boolean
   source: AgentTranscriptPaneProps['source']
@@ -2527,7 +2538,7 @@ function AgentTranscriptTurnView({
   const observedRunningTerminalItemIdsRef = useRef(new Set<string>())
   const refreshedTerminalOutcomeItemIdsRef = useRef(new Set<string>())
   const syncingTerminalOutcomeItemIdsRef = useRef(new Set<string>())
-  const progressClock = useSharedNow(turn.status === 'inProgress' && Boolean(turn.startedAt))
+  const progressClock = useSharedNow(clockActive && turn.status === 'inProgress' && Boolean(turn.startedAt))
   const collaborationAgents = useMemo(
     () => acpCollaborationAgentsForTurn(resolvedProcessItems, subagentStates),
     [resolvedProcessItems, subagentStates],
@@ -2552,12 +2563,9 @@ function AgentTranscriptTurnView({
       : mainProcessItems.map(item => ({ kind: 'item' as const, item }))
   ), [groupProcessActions, mainProcessItems, source])
   const compactProcess = useMemo(
-    () => compactProcessEntries(processEntries, turn.status),
-    [processEntries, turn.status],
+    () => compactProcessEntries(processEntries, turn.status, source),
+    [processEntries, source, turn.status],
   )
-  const collapsedProgressItems = source === 'acp' && turn.status === 'inProgress'
-    ? mainProcessItems.filter(isAcpProgressUpdate)
-    : []
   const runningCompaction = turn.status === 'inProgress'
     ? [...mainProcessItems]
       .reverse()
@@ -2894,37 +2902,38 @@ function AgentTranscriptTurnView({
                 </span>
                 <ChevronRightGlyph className="code-agent-transcript-chevron" />
               </button>
-          {!effectiveProcessOpen && collapsedProgressItems.map(item => (
-            <AgentTranscriptProgressUpdate
-              key={item.id}
-              item={item}
-              markdownComponents={markdownComponents}
-              copy={copy}
-            />
-          ))}
           {!effectiveProcessOpen && compactProcess.items.length > 0 ? (
             <div
               className="code-agent-transcript-process-list code-agent-transcript-process-compact-list"
               data-testid="code-agent-transcript-process-compact-list"
             >
               {compactProcess.items.map(item => (
-                <SafeAgentTranscriptProcessItemView
-                  key={item.id}
-                  item={item}
-                  title={source === 'acp' ? compactAcpActionLabel(item, copy) : item.title}
-                  showStatus={false}
-                  copy={copy}
-                  copied={copiedItemId === item.id}
-                  detailOpen={openProcessItemIds.has(item.id)}
-                  onToggle={handleToggleProcessItem}
-                  onCopy={handleCopyItem}
-                  onStopTerminal={handleStopTerminal}
-                  onInputTerminal={handleInputTerminal}
-                  onResizeTerminal={handleResizeTerminal}
-                  terminalOutcomeSyncFailed={terminalOutcomeSyncFailedItemIds.has(item.id)}
-                  onRetryTerminalOutcome={handleRetryTerminalOutcome}
-                  onStopSubagent={onStopSubagent}
-                />
+                source === 'acp' && isAcpProgressUpdate(item) ? (
+                  <AgentTranscriptProgressUpdate
+                    key={item.id}
+                    item={item}
+                    markdownComponents={markdownComponents}
+                    copy={copy}
+                  />
+                ) : (
+                  <SafeAgentTranscriptProcessItemView
+                    key={item.id}
+                    item={item}
+                    title={source === 'acp' ? compactAcpActionLabel(item, copy) : item.title}
+                    showStatus={false}
+                    copy={copy}
+                    copied={copiedItemId === item.id}
+                    detailOpen={openProcessItemIds.has(item.id)}
+                    onToggle={handleToggleProcessItem}
+                    onCopy={handleCopyItem}
+                    onStopTerminal={handleStopTerminal}
+                    onInputTerminal={handleInputTerminal}
+                    onResizeTerminal={handleResizeTerminal}
+                    terminalOutcomeSyncFailed={terminalOutcomeSyncFailedItemIds.has(item.id)}
+                    onRetryTerminalOutcome={handleRetryTerminalOutcome}
+                    onStopSubagent={onStopSubagent}
+                  />
+                )
               ))}
             </div>
           ) : null}
@@ -3735,6 +3744,7 @@ export function AgentTranscriptPane({
                     onOpenFile={onOpenWorkspaceFilePath ? handleOpenFile : undefined}
                     onOpenUrlInFarming={onOpenUrlInFarming}
                     workspaceRoot={workspaceRoot}
+                    clockActive={active}
                     processOpen={processOpen}
                     groupProcessActions={groupProcessActions}
                     source={source}

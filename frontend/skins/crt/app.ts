@@ -393,14 +393,19 @@ const CRT_QODER_RUNTIME_TITLE_PATTERN = /^[◇✋✦⏲]/u;
 const RUNTIME_PATHS = typeof window !== 'undefined' ? window.FarmingRuntimePaths : null;
 const TERMINAL_REPLAY = (typeof window !== 'undefined' ? window.FarmingTerminalReplay : null) as FarmingTerminalReplay;
 
+function requiredRuntimePaths(): NonNullable<Window['FarmingRuntimePaths']> {
+  if (!RUNTIME_PATHS) {
+    throw new Error('FarmingRuntimePaths must load before the CRT application');
+  }
+  return RUNTIME_PATHS;
+}
+
 function farmingApiPath(path: string): string {
-  return RUNTIME_PATHS ? RUNTIME_PATHS.apiPath(path) : `/api${path.startsWith('/') ? path : `/${path}`}`;
+  return requiredRuntimePaths().apiPath(path);
 }
 
 function farmingWebSocketUrl(): string {
-  if (RUNTIME_PATHS) return RUNTIME_PATHS.webSocketUrl();
-  const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${protocol}//${location.host}`;
+  return requiredRuntimePaths().webSocketUrl();
 }
 
 function findDirectionalNavigationIndex(
@@ -3247,7 +3252,7 @@ function getUiThemeOptions() {
 
 function activateUiTheme(themeId: string) {
   if (themeId === FARMING_CODE_THEME.id) {
-    location.assign(RUNTIME_PATHS ? RUNTIME_PATHS.path('/code/') : '/code/');
+    location.assign(requiredRuntimePaths().path('/code/'));
     return;
   }
   setTheme(themeId);

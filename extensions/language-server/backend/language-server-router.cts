@@ -1,8 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import type { VsCodeBridgeClient } from './vscode-bridge-client.cjs';
-
 interface WorkspaceRoot {
   canonicalPath: string;
   kind: string;
@@ -34,6 +32,11 @@ interface Router {
 interface ExpressModule {
   Router(): Router;
   json(options: { limit: string }): RouteHandler;
+}
+
+interface LanguageServerClient {
+  capability(options?: { force?: boolean }): Promise<unknown>;
+  request(body: unknown): Promise<unknown>;
 }
 
 const express = require('express') as ExpressModule;
@@ -152,7 +155,7 @@ function sanitizeBridgeResult(rootPath: string, value: unknown): unknown {
   return sanitized === REJECTED_BRIDGE_LOCATION ? null : sanitized;
 }
 
-function createLanguageServerRouter(client: VsCodeBridgeClient, roots: WorkspaceRootRegistry): Router {
+function createLanguageServerRouter(client: LanguageServerClient, roots: WorkspaceRootRegistry): Router {
   const router = express.Router();
   router.use(express.json({ limit: '1mb' }));
 

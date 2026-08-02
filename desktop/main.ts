@@ -388,10 +388,12 @@ void app.whenReady().then(async () => {
   desktopResources.guard()
   const profileStore = new DesktopProfileStore(path.join(app.getPath('userData'), 'backends.json'), [localTarget])
   const connectionManager = new DesktopConnectionManager(profileStore, {
-    appVersion: process.env.FARMING_DESKTOP_SERVER_VERSION || resolveDesktopServerVersion(
-      app.getVersion(),
-      path.resolve(__dirname, '..', 'package.json'),
-    ),
+    appVersion: resolveDesktopServerVersion({
+      electronVersion: app.getVersion(),
+      packageJsonPath: path.resolve(__dirname, '..', 'package.json'),
+      isPackaged: app.isPackaged,
+      overrideVersion: process.env.FARMING_DESKTOP_SERVER_VERSION,
+    }),
     cacheDir: path.join(app.getPath('userData'), 'server-cache'),
   })
   const desktopGateway = new DesktopGateway(path.resolve(__dirname, '..', 'dist'), profileStore, connectionManager)

@@ -245,7 +245,12 @@ import {
   IsolatedBrowserProvider,
   createComputerRouter,
 } from '../extensions/computer/backend/index.cjs';
-import { createLanguageServerRouter, VsCodeBridgeClient } from '../extensions/language-server/backend/index.cjs';
+import {
+  LanguageServerService,
+  ManagedLanguageServerManager,
+  VsCodeBridgeClient,
+  createLanguageServerRouter,
+} from '../extensions/language-server/backend/index.cjs';
 import { UsageMonitor } from './usage-monitor.cjs';
 import { CodexContextWindowReader } from './codex-context-window.cjs';
 import { AsyncCache } from './async-cache.cjs';
@@ -349,6 +354,16 @@ const browserResourceManager = new BrowserResourceManager({
   isolatedBrowserProvider,
 });
 const vsCodeBridgeClient = new VsCodeBridgeClient();
+const managedLanguageServerManager = new ManagedLanguageServerManager({
+  configDir: configManager.farmingDir,
+});
+const languageServerService = new LanguageServerService(
+  managedLanguageServerManager,
+  vsCodeBridgeClient,
+);
+server.on('close', () => {
+  void languageServerService.dispose();
+});
 
 const agentManager = new AgentManager(
   configManager,
@@ -909,7 +924,7 @@ app.use(routePath(BASE_PATH, '/api/computers'), createComputerRouter(
   agentManager as Parameters<typeof createComputerRouter>[2],
 ));
 app.use(routePath(BASE_PATH, '/api/language-server'), createLanguageServerRouter(
-  vsCodeBridgeClient,
+  languageServerService,
   workspaceRootRegistry,
 ));
 

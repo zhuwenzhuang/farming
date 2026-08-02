@@ -3,6 +3,7 @@ const {
   appendDraftBlock,
   clipboardMediaFiles,
   composerAttachmentMessageBlocks,
+  composerAttachmentsCanSubmit,
   composerMessageForNativeAttachments,
   composerMessageWithAttachments,
   composerPromptAttachments,
@@ -50,8 +51,12 @@ function run() {
   }]);
   assert.strictEqual(
     composerMessageForNativeAttachments('', [{ ...readyImage, status: 'error', path: undefined, messageBlock: 'upload failed' }]),
-    'upload failed'
+    ''
   );
+  assert.strictEqual(composerAttachmentsCanSubmit([]), true);
+  assert.strictEqual(composerAttachmentsCanSubmit([readyImage]), true);
+  assert.strictEqual(composerAttachmentsCanSubmit([{ ...readyImage, status: 'uploading', path: undefined }]), false);
+  assert.strictEqual(composerAttachmentsCanSubmit([{ ...readyImage, status: 'error', path: undefined }]), false);
   assert.strictEqual(appendDraftBlock('hello', '   '), 'hello');
 
   assert.strictEqual(fileDisplayName(makeFile({ name: '' }), 'fallback.txt'), 'fallback.txt');
@@ -84,10 +89,10 @@ function run() {
   );
 
   const attachments = [
-    { messageBlock: 'Attached image: a.png\n\nImage path: /tmp/a.png' },
-    { messageBlock: '' },
-    {},
-    { messageBlock: 'Attached image: b.png\n\nImage path: /tmp/b.png' },
+    { status: 'ready', path: '/tmp/a.png', messageBlock: 'Attached image: a.png\n\nImage path: /tmp/a.png' },
+    { status: 'ready', path: '/tmp/empty.png', messageBlock: '' },
+    { status: 'error', messageBlock: 'upload failed' },
+    { status: 'ready', path: '/tmp/b.png', messageBlock: 'Attached image: b.png\n\nImage path: /tmp/b.png' },
   ];
   assert.deepStrictEqual(composerAttachmentMessageBlocks(attachments), [
     'Attached image: a.png\n\nImage path: /tmp/a.png',

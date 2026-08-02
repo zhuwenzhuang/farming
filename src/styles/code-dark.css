@@ -2980,9 +2980,33 @@ body.code-mode[data-appearance='dark'] .code-acp-request {
   color: var(--code-dark-text-soft);
 }
 
-body.code-mode[data-appearance='dark'] .code-acp-notice {
-  border-color: #806c2f;
-  background: rgba(75, 61, 26, 0.82);
+body.code-mode[data-appearance='dark'] .code-acp-feedback {
+  border-color: var(--code-dark-border);
+  background: var(--code-dark-bg-elevated);
+  color: var(--code-dark-text-muted);
+}
+
+body.code-mode[data-appearance='dark'] .code-acp-feedback::before {
+  background: #81907d;
+}
+
+body.code-mode[data-appearance='dark'] .code-acp-feedback.error {
+  border-color: rgba(250, 66, 62, 0.28);
+  background: rgba(62, 35, 35, 0.82);
+  color: #e2aaa5;
+}
+
+body.code-mode[data-appearance='dark'] .code-acp-feedback.error::before {
+  background: #d17870;
+}
+
+body.code-mode[data-appearance='dark'] .code-acp-session-error header span {
+  color: #ba8d88;
+}
+
+body.code-mode[data-appearance='dark'] .code-acp-session-error button:hover,
+body.code-mode[data-appearance='dark'] .code-acp-session-error button:focus-visible {
+  background: rgba(226, 170, 165, 0.1);
 }
 
 body.code-mode[data-appearance='dark'] .code-acp-request header strong,

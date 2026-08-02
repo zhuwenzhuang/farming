@@ -163,14 +163,17 @@ const CRT_TITLE_STATUS_PREFIX_PATTERN = /^[\s*＊✳✱✲✶·•◇✋✦⏲\u
 const CRT_QODER_RUNTIME_TITLE_PATTERN = /^[◇✋✦⏲]/u;
 const RUNTIME_PATHS = typeof window !== 'undefined' ? window.FarmingRuntimePaths : null;
 const TERMINAL_REPLAY = (typeof window !== 'undefined' ? window.FarmingTerminalReplay : null);
+function requiredRuntimePaths() {
+    if (!RUNTIME_PATHS) {
+        throw new Error('FarmingRuntimePaths must load before the CRT application');
+    }
+    return RUNTIME_PATHS;
+}
 function farmingApiPath(path) {
-    return RUNTIME_PATHS ? RUNTIME_PATHS.apiPath(path) : `/api${path.startsWith('/') ? path : `/${path}`}`;
+    return requiredRuntimePaths().apiPath(path);
 }
 function farmingWebSocketUrl() {
-    if (RUNTIME_PATHS)
-        return RUNTIME_PATHS.webSocketUrl();
-    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    return `${protocol}//${location.host}`;
+    return requiredRuntimePaths().webSocketUrl();
 }
 function findDirectionalNavigationIndex(rects, currentIndex, key, wrap = false) {
     if (!Array.isArray(rects) || rects.length === 0)
@@ -2763,7 +2766,7 @@ function getUiThemeOptions() {
 }
 function activateUiTheme(themeId) {
     if (themeId === FARMING_CODE_THEME.id) {
-        location.assign(RUNTIME_PATHS ? RUNTIME_PATHS.path('/code/') : '/code/');
+        location.assign(requiredRuntimePaths().path('/code/'));
         return;
     }
     setTheme(themeId);

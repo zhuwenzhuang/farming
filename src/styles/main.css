@@ -394,7 +394,6 @@ body.code-resizing-sidebar {
 .code-sidebar-focus-toggle,
 .code-sidebar-search-toggle,
 .code-sidebar-history-toggle,
-.code-sidebar-remote-toggle,
 .code-sidebar-plugins-toggle {
   width: 22px;
   height: 22px;
@@ -414,7 +413,6 @@ body.code-resizing-sidebar {
 .code-sidebar-focus-icon,
 .code-sidebar-search-icon,
 .code-sidebar-history-icon,
-.code-sidebar-remote-icon,
 .code-sidebar-plugins-icon {
   width: 12px;
   height: 12px;
@@ -431,7 +429,6 @@ body.code-resizing-sidebar {
 
 .code-sidebar-search-icon svg,
 .code-sidebar-history-icon svg,
-.code-sidebar-remote-icon svg,
 .code-sidebar-plugins-icon svg,
 .code-sidebar-toggle-icon svg {
   width: 16px;
@@ -447,8 +444,6 @@ body.code-resizing-sidebar {
 .code-sidebar-search-toggle.active,
 .code-sidebar-history-toggle:hover,
 .code-sidebar-history-toggle.active,
-.code-sidebar-remote-toggle:hover,
-.code-sidebar-remote-toggle.active,
 .code-sidebar-plugins-toggle:hover,
 .code-sidebar-plugins-toggle.active {
   background: rgba(0, 0, 0, 0.07);
@@ -6404,10 +6399,6 @@ body.code-mode .code-instance-name {
   scrollbar-color: rgba(87, 96, 106, 0.16) transparent;
   user-select: text;
   -webkit-user-select: text;
-}
-
-.code-agent-transcript.has-plan-driver .code-agent-transcript-scroll {
-  padding-right: clamp(306px, 27vw, 358px);
 }
 
 .code-agent-transcript-plan-driver {
@@ -13909,9 +13900,95 @@ body.code-mode .code-history-agent-icon .agent-launch-icon,
   color: #485049;
 }
 
-.code-acp-notice {
-  border-color: #eac54f;
-  background: rgba(255, 248, 220, 0.92);
+.code-acp-feedback {
+  width: fit-content;
+  max-width: min(680px, calc(100% - 24px));
+  box-sizing: border-box;
+  align-self: flex-start;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 12px 6px;
+  padding: 6px 9px;
+  border: 1px solid #dce2d8;
+  border-radius: 9px;
+  background: rgba(245, 247, 243, 0.94);
+  color: #687169;
+}
+
+.code-acp-feedback::before {
+  width: 5px;
+  height: 5px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: #778673;
+  content: '';
+}
+
+.code-acp-feedback.error {
+  border-color: rgba(166, 102, 95, 0.3);
+  background: rgba(250, 245, 244, 0.94);
+  color: #855c57;
+}
+
+.code-acp-feedback.error::before {
+  background: #a4665f;
+}
+
+.code-acp-feedback p {
+  min-width: 0;
+  margin: 0;
+  color: inherit;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.code-acp-session-error {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
+.code-acp-session-error::before {
+  grid-row: 1 / span 2;
+}
+
+.code-acp-session-error header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.code-acp-session-error header strong {
+  color: inherit;
+  font-size: 12px;
+}
+
+.code-acp-session-error header span {
+  color: #9b7772;
+  font-family: var(--code-mono-font, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 10px;
+}
+
+.code-acp-session-error button {
+  grid-column: 3;
+  grid-row: 1 / span 2;
+  align-self: center;
+  appearance: none;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 6px;
+}
+
+.code-acp-session-error button:hover,
+.code-acp-session-error button:focus-visible {
+  background: rgba(164, 102, 95, 0.09);
+  outline: 0;
 }
 
 .code-acp-request header,
@@ -19109,11 +19186,6 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
     -webkit-overflow-scrolling: touch;
   }
 
-  body.code-mode.code-compact-layout .code-agent-transcript.has-plan-driver .code-agent-transcript-scroll {
-    padding-top: 126px;
-    padding-right: 3px;
-  }
-
   body.code-mode.code-compact-layout .code-agent-transcript-plan-driver {
     top: 7px;
     right: 7px;
@@ -19299,6 +19371,12 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
 
   body.code-mode.code-compact-layout .code-acp-composer-stack > .code-pending-followup {
     margin: 0 14px -14px;
+    pointer-events: auto;
+  }
+
+  body.code-mode.code-compact-layout .code-acp-feedback {
+    max-width: calc(100% - 20px);
+    margin-inline: 10px;
     pointer-events: auto;
   }
 

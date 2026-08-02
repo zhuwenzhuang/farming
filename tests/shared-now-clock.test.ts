@@ -6,9 +6,10 @@ import {
   subscribeSharedNow,
 } from '../src/lib/shared-now'
 
-test('shared now clock starts on first subscriber and ticks every 30 seconds', () => {
+test('shared now clock starts on first subscriber and ticks every second', () => {
   mock.timers.enable({ apis: ['setInterval', 'Date'], now: 1_000_000 })
   try {
+    assert.equal(SHARED_NOW_TICK_MS, 1_000)
     let notified = 0
     const unsubscribe = subscribeSharedNow(() => { notified += 1 })
     try {
@@ -44,6 +45,24 @@ test('multiple subscribers share one timer and each gets one notification per ti
     } finally {
       unsubscribeFirst()
       unsubscribeSecond()
+    }
+  } finally {
+    mock.timers.reset()
+  }
+})
+
+test('a new subscriber refreshes a stale shared snapshot immediately', () => {
+  mock.timers.enable({ apis: ['setInterval', 'Date'], now: 7_000_000 })
+  try {
+    const unsubscribeFirst = subscribeSharedNow(() => {})
+    mock.timers.tick(SHARED_NOW_TICK_MS - 1)
+    assert.equal(getSharedNowSnapshot(), 7_000_000)
+    const unsubscribeSecond = subscribeSharedNow(() => {})
+    try {
+      assert.equal(getSharedNowSnapshot(), 7_000_000 + SHARED_NOW_TICK_MS - 1)
+    } finally {
+      unsubscribeSecond()
+      unsubscribeFirst()
     }
   } finally {
     mock.timers.reset()

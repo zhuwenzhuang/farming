@@ -42,8 +42,12 @@ export function ComposerAttachments({ attachments, onRemove }: ComposerAttachmen
             )}
             <span className="code-composer-attachment-name" title={attachment.name}>{attachment.name}</span>
             {attachment.status !== 'ready' && (
-              <span className="code-composer-attachment-status">
-                {attachment.status === 'uploading' ? 'Uploading' : 'Failed'}
+              <span
+                className="code-composer-attachment-status"
+                role={attachment.status === 'error' ? 'alert' : 'status'}
+                title={attachment.status === 'error' ? 'Remove this attachment and try again' : undefined}
+              >
+                {attachment.status === 'uploading' ? 'Uploading' : 'Upload failed'}
               </span>
             )}
             <button

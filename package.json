@@ -66,7 +66,7 @@
     "prepack": "FARMING_BASE_PATH=/farming npm run build",
     "postinstall": "node scripts/prepare-installed-runtime.cjs",
     "pretest": "npm run build:backend-runtime && npm run build:classic-runtime && npm run prepare:acp-vendor && npm run prepare:runtime-manifest && npm run build:usage-history",
-    "start": "npm run build && node bin/farming start --port 3000",
+    "start": "FARMING_BASE_PATH=${FARMING_BASE_PATH:-/farming} npm run build && node bin/farming start --port 3000",
     "start:net": "node backend/farming-net-server.cjs",
     "start:no-auth": "FARMING_DISABLE_AUTH=1 npm start",
     "predev:backend": "npm run build:backend-runtime && npm run build:classic-runtime && npm run prepare:acp-vendor && npm run build:usage-history && npm run build:crt-markdown",
@@ -182,6 +182,8 @@
     "remark-math": "^6.0.0",
     "ripgrep": "^0.3.1",
     "tar": "7.5.22",
+    "vscode-jsonrpc": "9.0.1",
+    "vscode-languageserver-protocol": "3.18.2",
     "ws": "^8.21.0",
     "yaml": "^2.9.0",
     "zod": "^3.25.76"
@@ -220,6 +222,8 @@
     "remark-math",
     "ripgrep",
     "tar",
+    "vscode-jsonrpc",
+    "vscode-languageserver-protocol",
     "ws",
     "yaml",
     "zod"
@@ -299,6 +303,8 @@
     "remark-math",
     "ripgrep",
     "tar",
+    "vscode-jsonrpc",
+    "vscode-languageserver-protocol",
     "ws",
     "yaml",
     "zod"

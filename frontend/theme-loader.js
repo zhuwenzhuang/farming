@@ -3,9 +3,9 @@
 let currentTheme = 'terminal';
 function themeApiPath(path) {
     const runtimePaths = window.FarmingRuntimePaths;
-    return runtimePaths
-        ? runtimePaths.apiPath(path)
-        : `/api${path}`;
+    if (!runtimePaths)
+        throw new Error('FarmingRuntimePaths must load before the theme loader');
+    return runtimePaths.apiPath(path);
 }
 async function loadTheme(themeId) {
     try {

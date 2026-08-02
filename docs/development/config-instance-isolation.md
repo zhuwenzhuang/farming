@@ -82,6 +82,34 @@ identity. Cleanup verifies Config scope before signalling a live process. Legacy
 records without Config identity may use exact live process-environment evidence;
 if that evidence is unavailable or ambiguous, cleanup fails visibly.
 
+## Runtime Base Path Contract
+
+The live Server is authoritative for the browser base path. It injects
+`window.__FARMING_BASE_PATH__` into the entry document before application
+modules load. The React application resolves same-origin HTTP, WebSocket,
+navigation, and asset paths only through `appPath` and `appWsUrl` in
+`src/lib/base-path.ts`. Feature code must not read Vite `BASE_URL`, consume the
+injected global, or implement another base-path helper.
+
+The minimal state model is:
+
+- **Owner:** the Server process and its configured `FARMING_BASE_PATH`;
+- **initialization trigger:** parsing the Server-generated entry document;
+- **guard:** normalize the injected path before any browser transport starts;
+- **effect:** every same-origin route is joined to that one normalized path;
+- **fallback:** Vite's build-time base is used only when no runtime path exists,
+  such as an isolated development or static-preview build;
+- **failure:** a missing or bypassed resolver must fail a continuous test rather
+  than silently target the origin root;
+- **recovery:** a base-path change requires a fresh entry-document load, which
+  establishes a new immutable browser routing snapshot.
+
+Build and startup scripts also pass the same default base path as a
+defense-in-depth check, but runtime correctness must not depend on build-time and
+Server paths matching. Tests must cover an artifact built for `/` while the live
+Server path is `/farming`, because installed, Desktop, preview, and remote
+surfaces intentionally use different build profiles.
+
 ## Correctness Argument
 
 Safety depends on these invariants:

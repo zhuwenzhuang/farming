@@ -280,6 +280,11 @@ test.describe('ACP human-like browser matrix', () => {
     const plan = page.getByTestId('code-agent-transcript-plan-driver')
     await expect(plan).toBeVisible()
     await expect(plan).toContainText('1/3')
+    await expect(plan).toHaveCSS('position', 'absolute')
+    expect(await page.getByTestId('code-agent-transcript-scroll').evaluate(element => {
+      const style = getComputedStyle(element)
+      return style.paddingRight === style.paddingLeft
+    })).toBe(true)
     await expect(page.getByText('Rich ACP timeline complete.', { exact: true })).toBeVisible({ timeout: 20_000 })
     await expect(plan).toHaveCount(0)
   })

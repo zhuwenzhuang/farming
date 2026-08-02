@@ -2,7 +2,7 @@ export type LanguageServerStatus = 'connected' | 'unavailable' | 'error'
 
 export interface LanguageServerCapability {
   status: LanguageServerStatus
-  source: 'vscode'
+  source: 'managed' | 'vscode'
   detail: string
   vscodeVersion: string
   features: string[]

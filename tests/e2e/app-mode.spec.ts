@@ -220,7 +220,15 @@ test('desktop connections are an embedded Farming plugin section, not a separate
   })
 
   await openFarming(page)
-  await page.getByTestId('code-nav-remote-connections').click()
+  await expect(page.getByTestId('code-nav-remote-connections')).toHaveCount(0)
+  await expect.poll(async () => {
+    const newAgent = await page.getByTestId('code-new-agent').boundingBox()
+    const collapse = await page.getByTestId('code-sidebar-toggle').boundingBox()
+    const newAgentCenter = (newAgent?.y ?? 0) + (newAgent?.height ?? 0) / 2
+    const collapseCenter = (collapse?.y ?? 100) + (collapse?.height ?? 0) / 2
+    return Math.abs(newAgentCenter - collapseCenter)
+  }).toBeLessThanOrEqual(1)
+  await page.getByTestId('code-nav-plugins').click()
 
   await expect(page.getByTestId('code-plugins-panel')).toBeVisible()
   await expect(page.getByTestId('code-plugin-tab-farming')).toHaveAttribute('aria-selected', 'true')

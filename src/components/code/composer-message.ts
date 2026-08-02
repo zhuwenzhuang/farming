@@ -1,23 +1,12 @@
 import type { ComposerMode } from './types'
 import type { Agent } from '@/types/agent'
+import { appPath } from '@/lib/base-path'
 
 const MAX_ATTACHED_FILE_CHARS = 50_000
 
 const COMPOSER_MODE_INSTRUCTIONS: Record<Exclude<ComposerMode, 'default'>, string> = {
   goal: 'Goal mode: Treat the following as the working goal for this agent. Track progress toward it and report clearly when it is complete or blocked.',
   plan: 'Plan mode: Inspect the relevant context first and respond with a concise plan before making code changes. Do not edit files until the plan is clear.',
-}
-
-function normalizeBasePath(baseUrl: string) {
-  if (!baseUrl || baseUrl === '/') return ''
-  return baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl
-}
-
-function composerAppPath(path = '/') {
-  const rawBaseUrl = (import.meta as { env?: { BASE_URL?: string } }).env?.BASE_URL || '/'
-  const basePath = normalizeBasePath(rawBaseUrl)
-  const normalizedPath = path.startsWith('/') ? path : `/${path}`
-  return basePath ? `${basePath}${normalizedPath}` : normalizedPath
 }
 
 export interface UploadedImageAttachment {
@@ -100,6 +89,7 @@ export function revokeComposerAttachmentPreview(attachment: ComposerAttachment) 
 
 export function composerAttachmentMessageBlocks(attachments: ComposerAttachment[]) {
   return attachments
+    .filter(attachment => attachment.status === 'ready' && Boolean(attachment.path))
     .map(attachment => attachment.messageBlock || '')
     .filter(Boolean)
 }
@@ -110,11 +100,12 @@ export function composerMessageWithAttachments(draft: string, attachments: Compo
 }
 
 export function composerMessageForNativeAttachments(draft: string, attachments: ComposerAttachment[]) {
-  const fallbackBlocks = attachments
-    .filter(attachment => !attachment.path)
-    .map(attachment => attachment.messageBlock || '')
-    .filter(Boolean)
-  return appendDraftBlock(draft.trimEnd(), fallbackBlocks.join('\n\n')).trimEnd()
+  void attachments
+  return draft.trimEnd()
+}
+
+export function composerAttachmentsCanSubmit(attachments: ComposerAttachment[]) {
+  return attachments.every(attachment => attachment.status === 'ready' && Boolean(attachment.path))
 }
 
 export function composerPromptAttachments(attachments: ComposerAttachment[]): ComposerPromptAttachment[] {
@@ -140,7 +131,7 @@ export function readFileText(file: File) {
 
 export async function uploadImageAttachment(file: File): Promise<UploadedImageAttachment> {
   const route = isAudioFile(file) ? '/api/attachments/audio' : '/api/attachments/image'
-  const response = await fetch(composerAppPath(route), {
+  const response = await fetch(appPath(route), {
     method: 'POST',
     headers: {
       'Content-Type': file.type || (isAudioFile(file) ? 'audio/wav' : 'image/png'),

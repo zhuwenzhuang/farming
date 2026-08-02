@@ -71,6 +71,12 @@ export function AgentWorkPane({
   const canSwitchRuntime = canSwitchAgentRuntime(agent)
   const runtimeSwitchDisabled = switching || isAgentTurnActive(agent)
   const canForkConversation = canForkAgentConversation(agent) && !isAgentTurnActive(agent)
+  const readLatestChat = useCallback(() => {
+    const attentionSeq = Number.isFinite(agent.attentionSeq) ? Math.max(0, Number(agent.attentionSeq)) : 0
+    const readAttentionSeq = Number.isFinite(agent.readAttentionSeq) ? Math.max(0, Number(agent.readAttentionSeq)) : 0
+    if (attentionSeq <= readAttentionSeq && !agent.unread) return
+    onReadLatest?.(agent.id)
+  }, [agent.attentionSeq, agent.id, agent.readAttentionSeq, agent.unread, onReadLatest])
 
   const activateChatView = useCallback((event: ReactPointerEvent) => {
     if (event.button !== 0) return
@@ -126,7 +132,7 @@ export function AgentWorkPane({
           aria-hidden={false}
           onPointerDown={activateChatView}
         >
-          <AcpTranscriptPane agentId={agent.id} workspaceRoot={agent.projectWorkspace || agent.cwd} active={active} viewportLayoutKey={viewportLayoutKey} runtimeState={acpRuntime?.state || ''} expectHistory={(agent.source || '').startsWith('codex-history:')} forkedFromAgent={Boolean(agent.parentAgentId && agent.forkedFromProviderSessionId)} refreshSignal={acpRuntime?.sessionRevision || (acpRuntime?.sessionUpdatedAt ? Date.parse(acpRuntime.sessionUpdatedAt) : 0)} onOpenWorkspaceFilePath={onOpenWorkspaceFilePath} onOpenUrlInFarming={url => onOpenUrlInFarming?.(agent.id, url)} onReadLatest={() => onReadLatest?.(agent.id)} onForkLatest={canForkConversation ? () => onForkAgent?.(agent.id, 'same-worktree', { targetRuntime: 'chat', expectedRevision: acpRuntime?.sessionRevision || 0 }) : undefined} copy={copy} />
+          <AcpTranscriptPane agentId={agent.id} workspaceRoot={agent.projectWorkspace || agent.cwd} active={active} viewportLayoutKey={viewportLayoutKey} runtimeState={acpRuntime?.state || ''} expectHistory={(agent.source || '').startsWith('codex-history:')} forkedFromAgent={Boolean(agent.parentAgentId && agent.forkedFromProviderSessionId)} refreshSignal={acpRuntime?.sessionRevision || (acpRuntime?.sessionUpdatedAt ? Date.parse(acpRuntime.sessionUpdatedAt) : 0)} onOpenWorkspaceFilePath={onOpenWorkspaceFilePath} onOpenUrlInFarming={url => onOpenUrlInFarming?.(agent.id, url)} onReadLatest={readLatestChat} onForkLatest={canForkConversation ? () => onForkAgent?.(agent.id, 'same-worktree', { targetRuntime: 'chat', expectedRevision: acpRuntime?.sessionRevision || 0 }) : undefined} copy={copy} />
         </div>
       ) : null}
       {switching ? (

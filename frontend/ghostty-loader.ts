@@ -23,9 +23,9 @@ try {
 
 ghosttyWindow.__ghosttyReadyPromise = shouldLoadGhostty ? (async () => {
   try {
-    const vendorPath = ghosttyWindow.FarmingRuntimePaths
-      ? ghosttyWindow.FarmingRuntimePaths.path('/vendor/ghostty-web')
-      : '/vendor/ghostty-web';
+    const runtimePaths = ghosttyWindow.FarmingRuntimePaths;
+    if (!runtimePaths) throw new Error('FarmingRuntimePaths must load before the Ghostty loader');
+    const vendorPath = runtimePaths.path('/vendor/ghostty-web');
     const { init, Terminal, FitAddon } = await import(`${vendorPath}/ghostty-web.js`) as GhosttyVendorModule;
     await init(`${vendorPath}/ghostty-vt.wasm`);
     ghosttyWindow.GhosttyWeb = {

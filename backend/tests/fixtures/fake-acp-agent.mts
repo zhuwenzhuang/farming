@@ -71,6 +71,7 @@ interface ActiveSteerTurn {
   received: number;
   release: () => void;
   echoUserMessage: boolean;
+  acceptedAsCommentary: boolean;
 }
 
 let activeSteerTurn: ActiveSteerTurn | null = null;
@@ -352,6 +353,7 @@ class FakeAgent implements Agent {
           sessionUpdate: 'agent_message_chunk',
           messageId: `steer-accepted-answer-${steerTurn.received + 1}`,
           content: { type: 'text', text: `Steer accepted: ${promptText}` },
+          ...(steerTurn.acceptedAsCommentary ? { _meta: { codex: { phase: 'commentary' } } } : {}),
         },
       });
       steerTurn.received += 1;
@@ -434,6 +436,7 @@ class FakeAgent implements Agent {
         received: 0,
         release: releaseSteerTurn,
         echoUserMessage: !promptText.includes('without user echo'),
+        acceptedAsCommentary: promptText.includes('post-steer commentary'),
       };
       await client.sessionUpdate({
         sessionId: params.sessionId,
@@ -444,6 +447,9 @@ class FakeAgent implements Agent {
         },
       });
       await steerTurnReleased;
+      if (promptText.includes('post-steer commentary')) {
+        await new Promise(resolve => setTimeout(resolve, 4_000));
+      }
       return { stopReason: 'end_turn' };
     }
     if (promptText.includes('phase-aware mermaid')) {

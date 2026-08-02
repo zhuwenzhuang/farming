@@ -4,6 +4,7 @@ import { addComposerHistoryEntry } from '../composer-history'
 import { createPendingFollowUpMessage } from '../composer-state'
 import type { AgentComposerState } from '../composer-state'
 import {
+  composerAttachmentsCanSubmit,
   composerMessageForNativeAttachments,
   composerPromptAttachments,
   formatComposerMessage,
@@ -71,6 +72,7 @@ export function submitAcpDraft({
   sendMessage,
   updateComposerState,
 }: SubmitAcpDraftInput) {
+  if (!composerAttachmentsCanSubmit(attachments)) return false
   const promptAttachments = composerPromptAttachments(attachments)
   const text = formatComposerMessage(composerMode, composerMessageForNativeAttachments(draft, attachments).trim())
   if ((!text && promptAttachments.length === 0) || !agent || !isAcpComposerAvailable(agent) || !composerKey) return false

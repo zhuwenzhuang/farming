@@ -73,6 +73,8 @@ CRT screen texture uses a flat phosphor-tinted black with static monochrome scan
 
 Session windows use thin borders, compact headers, terminal-first focus, and small monospace terminal type consistent with the global CRT density.
 
+All CRT same-origin API, WebSocket, Code-navigation, theme, and vendor URLs are resolved by `frontend/runtime-paths.ts`. The runtime-path module must load before bridges and loaders; a missing module is an explicit initialization failure, never a silent fallback to origin-root routes.
+
 Agent cards keep a uniform readable font and use their remaining body height for either a bottom-aligned live terminal tail or a compact structured-Chat trail. The Chat trail shows the latest visible user prompt, Agent response, and current activity from the sanitized transcript without reconstructing or reordering ACP entries. Excess content clips instead of compressing text. Only live pending/running Agents occupy dashboard bays; stopped, dead, and archived records leave the live grid while resumable history stays in History. A terminal card blinks only while the backend terminal state is working; Chat uses a compact activity signal. Card and session headers use the Farming Code agent-title priority and remain on one ellipsized line.
 
 ## Dialogs

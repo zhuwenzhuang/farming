@@ -16,7 +16,6 @@ import {
   NewAgentGlyph,
   PencilGlyph,
   PuzzleGlyph,
-  RemoteGlyph,
   SettingsGlyph,
   SearchGlyph,
   VisibilityGlyph,
@@ -206,7 +205,6 @@ interface CodeSidebarProps {
   onToggleSidebar: () => void
   onOpenSearch: () => void
   onOpenWorkspaceView: (view: WorkspaceView) => void
-  onOpenRemoteConnections: () => void
   onOpenMainAgent: () => void
   onRestartMainAgent: (command: 'codex' | 'claude' | 'opencode' | 'qoder' | 'qwen' | 'bash' | 'zsh') => void
   onProjectListKeyDown: (event: ReactKeyboardEvent<HTMLDivElement>) => void
@@ -270,7 +268,6 @@ export function CodeSidebar({
   onToggleSidebar,
   onOpenSearch,
   onOpenWorkspaceView,
-  onOpenRemoteConnections,
   onOpenMainAgent,
   onRestartMainAgent,
   onProjectListKeyDown,
@@ -564,18 +561,6 @@ export function CodeSidebar({
                   <SearchGlyph />
                 </span>
               </button>
-              {window.farmingDesktop ? <button
-                type="button"
-                className="code-sidebar-remote-toggle"
-                data-testid="code-nav-remote-connections"
-                aria-label={language === 'zh' ? '远程连接' : 'Remote connections'}
-                title={language === 'zh' ? '远程连接' : 'Remote connections'}
-                onClick={onOpenRemoteConnections}
-              >
-                <span className="code-sidebar-remote-icon" aria-hidden="true">
-                  <RemoteGlyph />
-                </span>
-              </button> : null}
               <button
                 type="button"
                 className={`code-sidebar-history-toggle ${activeView === 'history' ? 'active' : ''}`}

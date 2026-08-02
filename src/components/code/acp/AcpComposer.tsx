@@ -395,7 +395,7 @@ export function AcpComposer({
         </div>
       ) : null}
       {configDeferred ? (
-        <section className="code-acp-request code-acp-notice warning" data-testid="code-acp-config-deferred" role="status">
+        <section className="code-acp-feedback" data-testid="code-acp-config-deferred" role="status">
           <p>{modeDeferred && configOptionsDeferred
             ? copy.sessionSettingsDeferred
             : modeDeferred
@@ -404,7 +404,7 @@ export function AcpComposer({
         </section>
       ) : null}
       {deferredSessionError ? (
-        <section className="code-acp-request" data-testid="code-acp-config-deferred-error" role="alert">
+        <section className="code-acp-feedback error" data-testid="code-acp-config-deferred-error" role="alert">
           <p>{runtimeError}</p>
         </section>
       ) : null}
@@ -433,7 +433,7 @@ export function AcpComposer({
         />
       ) : null}
       {active && displayedSessionError ? (
-        <section className="code-acp-request code-acp-notice" data-testid="code-acp-error" role="alert">
+        <section className="code-acp-feedback error code-acp-session-error" data-testid="code-acp-error" role="alert">
           <header><strong>ACP</strong><span>{runtimeState || 'error'}</span></header>
           <p>{displayedSessionError}</p>
           {reconnectableSessionError ? (

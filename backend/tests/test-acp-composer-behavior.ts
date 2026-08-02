@@ -76,6 +76,26 @@ async function run() {
   assert.strictEqual(state.draft, '');
   assert.strictEqual(state.submissions, undefined);
 
+  state = {
+    ...createDefaultAgentComposerState(),
+    draft: 'do not fake an image send',
+    attachments: [{ ...readyImage(), status: 'error', path: undefined, error: 'Upload failed' }],
+  };
+  const sentBeforeFailedAttachment = sent.length;
+  assert.strictEqual(submitAcpDraft({
+    agent,
+    composerKey: 'acp:session-1',
+    draft: state.draft,
+    attachments: state.attachments,
+    composerMode: 'default',
+    turnActive: false,
+    sendMessage,
+    updateComposerState,
+  }), false);
+  assert.strictEqual(sent.length, sentBeforeFailedAttachment, 'a failed upload must not degrade into a text-only prompt');
+  assert.strictEqual(state.draft, 'do not fake an image send');
+  assert.strictEqual(state.attachments.length, 1);
+
   const steerAttachment = readyImage();
   state = {
     ...createDefaultAgentComposerState(),

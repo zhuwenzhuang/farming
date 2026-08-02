@@ -53,6 +53,30 @@ Config 自有 Registry、Browser Profile、Computer Owner Label 与名称、nati
 
 持久化 ACP Process Record 同时保存精确进程身份与 Config 身份。清理 live Process 之前必须先验证 Config Scope。旧记录如果没有 Config 身份，只能使用 live Process Environment 的精确证据；证据不可用或有歧义时，清理必须显式失败。
 
+## Runtime Base Path 契约
+
+live Server 是浏览器 Base Path 的权威所有者。Server 必须在应用模块加载前，
+通过入口文档注入 `window.__FARMING_BASE_PATH__`。React 应用的同源 HTTP、
+WebSocket、页面导航与静态资源路径，只能通过 `src/lib/base-path.ts` 中的
+`appPath` 和 `appWsUrl` 解析。功能代码不得自行读取 Vite `BASE_URL`、消费该
+注入全局变量，或再实现一套 Base Path Helper。
+
+最小状态模型如下：
+
+- **权威所有者：** Server 进程及其配置的 `FARMING_BASE_PATH`；
+- **初始化触发：** 浏览器解析 Server 生成的入口文档；
+- **守卫：** 任何浏览器 Transport 启动前，先规范化注入路径；
+- **效果：** 所有同源 Route 都与同一个规范化路径拼接；
+- **Fallback：** 只有在没有 Runtime 路径时，例如独立开发或静态预览构建，
+  才使用 Vite 的构建时 Base；
+- **失败：** 绕开或缺失共享 Resolver 必须被持续测试拦截，不能静默请求 Origin Root；
+- **恢复：** Base Path 变化必须重新加载入口文档，从而建立新的不可变浏览器路由快照。
+
+构建和启动脚本还必须传递相同的默认 Base Path，作为纵深防御；但运行时
+正确性不能依赖构建路径与 Server 路径恰好一致。测试必须覆盖“产物按 `/`
+构建、live Server 运行在 `/farming`”的情况，因为安装包、Desktop、预览和
+远程部署本来就会使用不同的构建 Profile。
+
 ## 正确性证明
 
 安全性依赖以下不变式：

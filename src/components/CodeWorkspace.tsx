@@ -123,6 +123,7 @@ import {
   appendDraftBlock,
   clipboardMediaFiles,
   composerAttachmentMessageBlocks,
+  composerAttachmentsCanSubmit,
   composerMessageForNativeAttachments,
   composerMessageWithAttachments,
   composerPromptAttachments,
@@ -701,7 +702,6 @@ export function CodeWorkspace({
     return result.successful
   }, [workspaceOpenFiles])
   const [searchOpen, setSearchOpen] = useState(false)
-  const [desktopConnectionsFocusRequest, setDesktopConnectionsFocusRequest] = useState(0)
   const [searchQuery, setSearchQuery] = useState('')
   const [searchSelectionIndex, setSearchSelectionIndex] = useState(0)
   const [projectWorkspaces, setProjectWorkspaces] = useState<string[]>([])
@@ -1264,10 +1264,10 @@ export function CodeWorkspace({
     if (url.href !== window.location.href) window.history.replaceState(window.history.state, '', url)
   }, [activeBrowserId, activeComputerId, mainPaneMode])
   const composerHasAttachmentMessage = composerAttachmentMessageBlocks(composerAttachments).length > 0
-  const composerAttachmentsUploading = composerAttachments.some(attachment => attachment.status === 'uploading')
+  const composerAttachmentsSendable = composerAttachmentsCanSubmit(composerAttachments)
   const composerSubmitAction = activeCodexTerminalProfileApplying
     ? 'disabled'
-    : activeAgent && !composerAttachmentsUploading && (draft.trim() || composerHasAttachmentMessage)
+    : activeAgent && composerAttachmentsSendable && (draft.trim() || composerHasAttachmentMessage)
       ? 'send'
       : activeAgentCanInterrupt
         ? 'interrupt'
@@ -1988,20 +1988,30 @@ export function CodeWorkspace({
     focusComposerTextarea()
   }, [focusComposerTextarea, updateActiveComposerState])
 
+  const activeAgentsRef = useRef(activeAgents)
+  activeAgentsRef.current = activeAgents
+  const onUpdateAgentFlagsRef = useRef(onUpdateAgentFlags)
+  onUpdateAgentFlagsRef.current = onUpdateAgentFlags
   const markAgentReadIfNeeded = useCallback((
     agentId: string,
     force = false,
     readCut: TerminalReadCut | null = null,
   ) => {
-    const agent = activeAgents.find(candidate => candidate.id === agentId)
+    const agent = activeAgentsRef.current.find(candidate => candidate.id === agentId)
     if (!agent) return
     const attentionSeq = Number.isFinite(agent.attentionSeq) ? Math.max(0, Number(agent.attentionSeq)) : 0
     const readAttentionSeq = Number.isFinite(agent.readAttentionSeq) ? Math.max(0, Number(agent.readAttentionSeq)) : 0
-    if (!force && attentionSeq <= readAttentionSeq && !agent.unread) return
+    const readOutputSeq = Number.isFinite(agent.readOutputSeq) ? Math.max(0, Number(agent.readOutputSeq)) : null
+    const readCutAdvanced = Boolean(readCut && (
+      agent.readOutputEpoch !== readCut.runtimeEpoch
+      || readOutputSeq === null
+      || readCut.outputSeq > readOutputSeq
+    ))
+    if (!force && attentionSeq <= readAttentionSeq && !agent.unread && !readCutAdvanced) return
     // `unread: false` means "read through the backend's current authoritative
     // attention cursor", so an explicit jump is safe even if this projection
     // is one websocket update behind.
-    onUpdateAgentFlags(agentId, {
+    onUpdateAgentFlagsRef.current(agentId, {
       unread: false,
       ...(readCut
         ? {
@@ -2010,10 +2020,10 @@ export function CodeWorkspace({
         }
         : {}),
     })
-  }, [activeAgents, onUpdateAgentFlags])
+  }, [])
 
   const markAgentReadLatest = useCallback((agentId: string, readCut: TerminalReadCut | null = null) => {
-    markAgentReadIfNeeded(agentId, true, readCut)
+    markAgentReadIfNeeded(agentId, false, readCut)
   }, [markAgentReadIfNeeded])
 
   const handleTerminalFollowOutputChange = useCallback((agentId: string, state: TerminalFollowState) => {
@@ -2166,7 +2176,7 @@ export function CodeWorkspace({
 
   const submitDraft = useCallback((submittedDraft?: string) => {
     const latestDraft = submittedDraft ?? composerTextareaRef.current?.value ?? draft
-    if (!activeAgent || !activeComposerKey || composerAttachments.some(attachment => attachment.status === 'uploading')) return
+    if (!activeAgent || !activeComposerKey || !composerAttachmentsCanSubmit(composerAttachments)) return
     const nativeAttachments = isStructuredRuntime(activeAgent)
       ? composerPromptAttachments(composerAttachments)
       : []
@@ -2914,14 +2924,6 @@ export function CodeWorkspace({
     openWorkspaceView(view)
     closeSidebarForMobile()
   }, [closeSidebarForMobile, invalidateAgentSessionsForHistory, openWorkspaceView, refreshBrowserCapability, refreshComputerCapability])
-
-  const openRemoteConnectionsFromSidebar = useCallback(() => {
-    refreshBrowserCapability()
-    refreshComputerCapability()
-    setDesktopConnectionsFocusRequest(request => request + 1)
-    openWorkspaceView('plugins')
-    closeSidebarForMobile()
-  }, [closeSidebarForMobile, openWorkspaceView, refreshBrowserCapability, refreshComputerCapability])
 
   const toggleProject = useCallback((projectId: string) => {
     setCollapsedProjectIds(previous => {
@@ -5451,7 +5453,6 @@ export function CodeWorkspace({
         onToggleSidebar={toggleSidebar}
         onOpenSearch={openSearchFromSidebar}
         onOpenWorkspaceView={openWorkspaceViewFromSidebar}
-        onOpenRemoteConnections={openRemoteConnectionsFromSidebar}
         onOpenMainAgent={() => {
           if (!hiddenMainAgent) return
           setMainPaneMode('terminal')
@@ -5625,7 +5626,6 @@ export function CodeWorkspace({
 
       <CodeMainArea
         activeView={activeView}
-        desktopConnectionsFocusRequest={desktopConnectionsFocusRequest}
         activeBrowserResource={mainPaneMode === 'browser' ? activeBrowserResource : null}
         browserController={browserResources}
         onBackFromBrowser={backFromBrowser}

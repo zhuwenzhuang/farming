@@ -2,6 +2,47 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { expect, openFarming, test } from './fixtures'
 
+test('blocks ACP submission when an image upload fails', async ({ page, workspaceRoot }) => {
+  const workspace = path.join(workspaceRoot, 'codex-acp-failed-upload')
+  fs.mkdirSync(workspace, { recursive: true })
+  const imagePath = path.join(workspace, 'failed.png')
+  fs.writeFileSync(
+    imagePath,
+    Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=', 'base64'),
+  )
+
+  const response = await page.request.post('/farming/api/control/agents', {
+    data: { command: 'codex', workspace, agentRuntimeMode: 'chat' },
+  })
+  expect(response.ok()).toBeTruthy()
+  const { agentId } = await response.json() as { agentId: string }
+
+  await page.route('**/farming/api/attachments/image', route => route.fulfill({
+    status: 500,
+    contentType: 'application/json',
+    body: JSON.stringify({ error: 'simulated upload failure' }),
+  }))
+  await openFarming(page)
+  await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
+
+  const input = page.getByTestId('code-acp-composer-input')
+  const send = page.getByTestId('code-acp-composer-send')
+  await input.fill('this draft must remain editable')
+  await page.getByTestId('code-acp-composer-file-input').setInputFiles(imagePath)
+
+  const attachment = page.getByTestId('code-composer-attachment')
+  await expect(attachment).toHaveClass(/error/)
+  await expect(attachment).toContainText('Upload failed')
+  await expect(send).toBeDisabled()
+  await expect(send).toHaveAttribute('data-action', 'disabled')
+  await input.press('Enter')
+  await expect(input).toHaveValue('this draft must remain editable')
+
+  await attachment.getByRole('button', { name: 'Remove failed.png' }).click()
+  await expect(send).toBeEnabled()
+  await expect(send).toHaveAttribute('data-action', 'send')
+})
+
 test('queues a follow-up and explicitly sends negotiated Codex ACP steer', async ({ page, workspaceRoot }) => {
   const sessionRevisionMessages: Array<{ agentId?: string; revision?: number }> = []
   page.on('websocket', socket => {
@@ -50,9 +91,13 @@ test('queues a follow-up and explicitly sends negotiated Codex ACP steer', async
   await page.reload()
   await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
   await expect(input).toHaveValue('unsent ACP draft survives reload')
-  await input.fill('hold for steer without user echo')
+  await input.fill('hold for steer without user echo with post-steer commentary')
   await page.getByTestId('code-acp-composer-send').click()
   await expect(page.getByTestId('code-acp-composer-send')).toHaveAttribute('data-action', 'interrupt')
+  const liveProcessSummary = page.getByTestId('code-agent-transcript-process-summary')
+  await expect(liveProcessSummary).toContainText(/Working for \d+s/, { timeout: 3_000 })
+  const initialWorkingLabel = await liveProcessSummary.textContent()
+  await expect.poll(() => liveProcessSummary.textContent(), { timeout: 3_000 }).not.toBe(initialWorkingLabel)
 
   await page.getByTestId('code-acp-composer-file-input').setInputFiles(imagePath)
   await expect(page.getByTestId('code-composer-attachment')).toHaveClass(/ready/)
@@ -86,15 +131,9 @@ test('queues a follow-up and explicitly sends negotiated Codex ACP steer', async
   await steer.locator('.code-agent-transcript-steer-bubble').hover()
   await expect(steerTime).toHaveCSS('opacity', '1')
   await expect(page.getByText('Steer accepted: focus on the attached image after editing', { exact: true })).toBeVisible()
-  const processSummary = page.getByTestId('code-agent-transcript-process-summary')
+  const processSummary = liveProcessSummary
   await expect(processSummary).toHaveAttribute('aria-expanded', 'false')
-  await processSummary.click()
-  await expect(processSummary).toHaveAttribute('aria-expanded', 'true')
-  await input.focus()
-  await page.keyboard.press('ArrowUp')
-  await expect(input).toHaveValue('focus on the attached image after editing')
-  await input.fill('')
-  const turn = page.locator('.code-agent-transcript-turn').filter({ hasText: 'hold for steer without user echo' })
+  const turn = page.locator('.code-agent-transcript-turn').filter({ hasText: 'hold for steer without user echo with post-steer commentary' })
   await expect(turn).toHaveCount(1)
   expect(await turn.evaluate(element => {
     const children = Array.from(element.children)
@@ -102,7 +141,8 @@ test('queues a follow-up and explicitly sends negotiated Codex ACP steer', async
     const processIndex = children.findIndex(child => child.matches('.code-agent-transcript-process'))
     const answerIndex = children.findIndex(child => child.matches('.code-agent-transcript-answer'))
     const flow = Array.from(element.querySelectorAll(
-      '.code-agent-transcript-process-list > .code-acp-progress-update, '
+      '.code-agent-transcript-process > .code-acp-progress-update, '
+      + '.code-agent-transcript-process-list > .code-acp-progress-update, '
       + '.code-agent-transcript-process-list > [data-testid="code-agent-transcript-steer"]',
     )).map(child => ({
       kind: child.matches('[data-testid="code-agent-transcript-steer"]') ? 'steer' : 'commentary',
@@ -120,14 +160,22 @@ test('queues a follow-up and explicitly sends negotiated Codex ACP steer', async
   })).toEqual({
     steerIndex: -1,
     processIndex: 1,
-    answerIndex: 2,
+    answerIndex: -1,
     steerInsideProcess: true,
     flow: [
       { kind: 'commentary', text: 'Waiting for steering.' },
       { kind: 'steer', text: 'focus on the attached image after editing' },
+      { kind: 'commentary', text: 'Steer accepted: focus on the attached image after editing' },
     ],
   })
   await expect(page.locator('.code-agent-transcript-turn')).toHaveCount(1)
+  await processSummary.click()
+  await expect(processSummary).toHaveAttribute('aria-expanded', 'true')
+  await input.focus()
+  await page.keyboard.press('ArrowUp')
+  await expect(input).toHaveValue('focus on the attached image after editing')
+  await input.fill('')
+  await expect.poll(() => page.getByTestId('code-acp-composer-send').getAttribute('data-action')).not.toBe('interrupt')
 
   await page.reload()
   await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
@@ -135,6 +183,18 @@ test('queues a follow-up and explicitly sends negotiated Codex ACP steer', async
   await expect(page.getByTestId('code-agent-transcript-steer')).toContainText('focus on the attached image after editing')
   await expect(page.getByTestId('code-agent-transcript-steer-time')).toHaveCount(1)
   await expect(page.locator('.code-agent-transcript-turn')).toHaveCount(1)
+  await processSummary.click()
+  await expect(processSummary).toHaveAttribute('aria-expanded', 'true')
+  expect(await turn.evaluate(element => Array.from(element.querySelectorAll(
+    '.code-agent-transcript-process-list > .code-acp-progress-update, '
+    + '.code-agent-transcript-process-list > [data-testid="code-agent-transcript-steer"]',
+  )).map(child => child.matches('[data-testid="code-agent-transcript-steer"]')
+    ? child.querySelector('.code-agent-transcript-steer-bubble > div:first-child')?.textContent?.trim() || ''
+    : child.textContent?.trim() || ''))).toEqual([
+    'Waiting for steering.',
+    'focus on the attached image after editing',
+    'Steer accepted: focus on the attached image after editing',
+  ])
   expect(sessionRevisionMessages.some(message => (
     message.agentId === agentId && Number.isFinite(message.revision)
   ))).toBe(true)

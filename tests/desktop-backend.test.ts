@@ -329,9 +329,46 @@ test('desktop development resolves its Server version from the repository manife
   const manifest = path.join(temporaryDir, 'package.json')
   try {
     fs.writeFileSync(manifest, JSON.stringify({ version: '2.2.37' }))
-    assert.equal(resolveDesktopServerVersion('0.0', manifest), '2.2.37')
-    assert.equal(resolveDesktopServerVersion('0.0.0', manifest), '2.2.37')
-    assert.equal(resolveDesktopServerVersion('2.3.0', manifest), '2.3.0')
+    assert.equal(resolveDesktopServerVersion({
+      electronVersion: '42.3.3',
+      packageJsonPath: manifest,
+      isPackaged: false,
+    }), '2.2.37')
+    assert.equal(resolveDesktopServerVersion({
+      electronVersion: '2.3.0',
+      packageJsonPath: manifest,
+      isPackaged: true,
+    }), '2.3.0')
+    assert.equal(resolveDesktopServerVersion({
+      electronVersion: '2.3.0',
+      packageJsonPath: manifest,
+      isPackaged: true,
+      overrideVersion: '2.4.0',
+    }), '2.4.0')
+    fs.writeFileSync(manifest, JSON.stringify({ name: 'farming-code' }))
+    assert.throws(() => resolveDesktopServerVersion({
+      electronVersion: '42.3.3',
+      packageJsonPath: manifest,
+      isPackaged: false,
+    }), /Farming Server version is missing or invalid/)
+    fs.writeFileSync(manifest, JSON.stringify({ version: 'Electron' }))
+    assert.throws(() => resolveDesktopServerVersion({
+      electronVersion: '42.3.3',
+      packageJsonPath: manifest,
+      isPackaged: false,
+    }), /Farming Server version is missing or invalid/)
+    fs.writeFileSync(manifest, '{invalid json')
+    assert.throws(() => resolveDesktopServerVersion({
+      electronVersion: '42.3.3',
+      packageJsonPath: manifest,
+      isPackaged: false,
+    }), /Could not resolve the Farming Server version/)
+    fs.rmSync(manifest)
+    assert.throws(() => resolveDesktopServerVersion({
+      electronVersion: '42.3.3',
+      packageJsonPath: manifest,
+      isPackaged: false,
+    }), /Could not resolve the Farming Server version/)
   } finally {
     fs.rmSync(temporaryDir, { recursive: true, force: true })
   }

@@ -1145,12 +1145,17 @@ export function App() {
 
   useEffect(() => {
     const liveIds = new Set(displayedAgents.filter(isOpenableAgent).map(agent => agent.id))
-    setOpenTerminalIds(ids => Array.from(new Set(ids.map(id => {
-      if (liveIds.has(id)) return id
-      return latestRestartDescendant(displayedAgents, id)?.id ?? id
-    }))).filter(id => (
-      liveIds.has(id) || permissionSwitchStateRef.current?.agent.id === id
-    )))
+    setOpenTerminalIds(ids => {
+      const nextIds = Array.from(new Set(ids.map(id => {
+        if (liveIds.has(id)) return id
+        return latestRestartDescendant(displayedAgents, id)?.id ?? id
+      }))).filter(id => (
+        liveIds.has(id) || permissionSwitchStateRef.current?.agent.id === id
+      ))
+      return nextIds.length === ids.length && nextIds.every((id, index) => id === ids[index])
+        ? ids
+        : nextIds
+    })
     setRetainedAgentViewIds(ids => reconcileAgentViewCache(ids, ids.map(id => {
       if (liveIds.has(id)) return id
       return latestRestartDescendant(displayedAgents, id)?.id ?? id

@@ -264,15 +264,15 @@ function pluginCopy(language: UiLanguage) {
     computerPrepareFailed: zh ? '隔离桌面安装失败' : 'Failed to install Isolated Desktop',
     languageServer: 'Language Server',
     languageServerDescription: zh
-      ? '使用已经运行的 VS Code 和它已安装的语言扩展，为文件编辑器提供跳转、引用、符号、层次结构和诊断。'
-      : 'Use a running VS Code and its installed language extensions for navigation, references, symbols, hierarchies, and diagnostics.',
+      ? '按文件类型自动启动语言服务，为文件编辑器提供跳转、引用、符号、层次结构和诊断。'
+      : 'Start language servers automatically by file type for navigation, references, symbols, hierarchies, and diagnostics.',
     languageServerConnected: zh ? '已连接' : 'Connected',
     languageServerUnavailable: zh ? '不可用' : 'Unavailable',
     languageServerError: zh ? '错误' : 'Error',
     languageServerChecking: zh ? '正在发现…' : 'Discovering…',
     languageServerHint: zh
-      ? '自动发现已安装并运行的 Farming VS Code Bridge；Farming 不安装或管理 VS Code 与 Language Server。'
-      : 'Automatically discovers an installed, running Farming VS Code Bridge. Farming does not install or manage VS Code or language servers.',
+      ? '优先使用 PATH 中的语言服务；C/C++ 与 Java 缺失时由 Farming 按需准备 clangd 或 JDTLS。'
+      : 'Uses language servers from PATH first; Farming prepares clangd or JDTLS on demand when C/C++ or Java needs one.',
     languageServerRetry: zh ? '重试' : 'Retry',
     remoteConnections: zh ? '远程连接' : 'Remote connections',
     remoteConnectionsDescription: zh
@@ -436,7 +436,6 @@ export function PluginsPanel({
   onBack,
   onOpenAgentHomeConfiguration,
   onRefreshCapability,
-  desktopConnectionsFocusRequest,
 }: {
   capability: BrowserCapability | null
   loading: boolean
@@ -449,7 +448,6 @@ export function PluginsPanel({
   onBack: () => void
   onOpenAgentHomeConfiguration: (target: AgentHomeFileTarget) => void
   onRefreshCapability: () => void
-  desktopConnectionsFocusRequest: number
 }) {
   const copy = useMemo(() => pluginCopy(language), [language])
   const isMacHost = typeof navigator !== 'undefined'
@@ -992,17 +990,6 @@ export function PluginsPanel({
     setActiveTab(tab)
     setSelectedExtension(null)
   }, [])
-
-  useEffect(() => {
-    if (!desktopConnectionsFocusRequest || !window.farmingDesktop) return
-    setActiveTab('farming')
-    setSelectedExtension(null)
-    window.requestAnimationFrame(() => {
-      const connections = document.getElementById('code-plugin-connections')
-      connections?.scrollIntoView({ block: 'start', behavior: 'smooth' })
-      connections?.focus({ preventScroll: true })
-    })
-  }, [desktopConnectionsFocusRequest])
 
   const closeSelectedExtension = useCallback(() => {
     setSelectedExtension(null)

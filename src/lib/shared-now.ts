@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react'
 
-export const SHARED_NOW_TICK_MS = 30_000
+export const SHARED_NOW_TICK_MS = 1_000
 
 type SharedNowListener = () => void
 
@@ -16,8 +16,8 @@ function tick() {
 }
 
 export function subscribeSharedNow(listener: SharedNowListener): () => void {
+  now = Date.now()
   if (leases.size === 0 && timer === null) {
-    now = Date.now()
     timer = setInterval(tick, SHARED_NOW_TICK_MS)
   }
   const lease: SharedNowLease = { listener }

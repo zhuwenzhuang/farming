@@ -117,6 +117,7 @@ const CLOSED_STATE: LanguageNavigatorState = {
 }
 
 function capabilityIncludesWorkspace(capability: LanguageServerCapability, workspaceRoot: string | undefined) {
+  if (capability.source === 'managed') return true
   if (!workspaceRoot) return true
   const normalizedRoot = workspaceRoot.replace(/\\/g, '/').replace(/\/$/, '')
   return capability.workspaces.some(value => {

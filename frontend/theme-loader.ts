@@ -29,9 +29,8 @@ let currentTheme = 'terminal'
 
 function themeApiPath(path: string) {
   const runtimePaths = (window as ThemeWindow).FarmingRuntimePaths
-  return runtimePaths
-    ? runtimePaths.apiPath(path)
-    : `/api${path}`
+  if (!runtimePaths) throw new Error('FarmingRuntimePaths must load before the theme loader')
+  return runtimePaths.apiPath(path)
 }
 
 async function loadTheme(themeId: string): Promise<void> {

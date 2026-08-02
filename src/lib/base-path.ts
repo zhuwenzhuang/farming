@@ -4,23 +4,32 @@ declare global {
   }
 }
 
-const runtimeBasePath = typeof window !== 'undefined' ? window.__FARMING_BASE_PATH__ : ''
-const rawBaseUrl = runtimeBasePath || import.meta.env?.BASE_URL || '/'
+const runtimeBasePath = typeof window !== 'undefined' ? (window.__FARMING_BASE_PATH__ ?? '') : ''
+const buildBaseUrl = import.meta.env?.BASE_URL || '/'
 
-function normalizeBasePath(baseUrl: string) {
+export function normalizeAppBasePath(baseUrl: string) {
   if (!baseUrl || baseUrl === '/') return ''
   return baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl
 }
 
-const basePath = normalizeBasePath(rawBaseUrl)
+export function resolveAppBasePath(runtimeBaseUrl: string, fallbackBaseUrl: string) {
+  return normalizeAppBasePath(runtimeBaseUrl || fallbackBaseUrl || '/')
+}
+
+export function resolveAppPath(baseUrl: string, path = '/') {
+  const basePath = normalizeAppBasePath(baseUrl)
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`
+  return basePath ? `${basePath}${normalizedPath}` : normalizedPath
+}
+
+const basePath = resolveAppBasePath(runtimeBasePath, buildBaseUrl)
 
 export function getBasePath() {
   return basePath
 }
 
 export function appPath(path = '/') {
-  const normalizedPath = path.startsWith('/') ? path : `/${path}`
-  return basePath ? `${basePath}${normalizedPath}` : normalizedPath
+  return resolveAppPath(basePath, path)
 }
 
 export function appWsUrl() {

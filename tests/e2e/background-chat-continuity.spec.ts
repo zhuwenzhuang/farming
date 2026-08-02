@@ -89,6 +89,69 @@ test('keeps ACP Chat live while the browser page is hidden', { tag: '@iphone-hum
   expect(backendSocketClosed).toBe(0)
 })
 
+test('does not repeat Chat read receipts when only live runtime state changes', async ({ page, workspaceRoot }) => {
+  const workspace = path.join(workspaceRoot, 'chat-read-receipt-stability')
+  fs.mkdirSync(workspace, { recursive: true })
+  const agentId = await createAcpAgent(page, workspace)
+  let readReceiptRequests = 0
+
+  await page.route(new RegExp(`/farming/api/agents/${agentId}$`), async route => {
+    const request = route.request()
+    if (request.method() === 'PATCH') {
+      const body = request.postDataJSON() as { unread?: unknown }
+      if (body.unread === false) readReceiptRequests += 1
+    }
+    await route.continue()
+  })
+  await page.route(new RegExp(`/farming/api/agents/${agentId}/acp-transcript(?:\\?.*)?$`), async route => {
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        transcript: {
+          sessionId: 'chat-read-receipt-stability-session',
+          state: 'idle',
+          revision: 1,
+          entries: [
+            {
+              id: 'read-receipt-user',
+              type: 'message',
+              role: 'user',
+              content: [{ type: 'text', text: 'Keep the read receipt stable.' }],
+            },
+            {
+              id: 'read-receipt-answer',
+              type: 'message',
+              role: 'assistant',
+              _meta: { codex: { phase: 'final_answer' } },
+              content: [{ type: 'text', text: 'The transcript content is unchanged.' }],
+            },
+          ],
+        },
+      }),
+    })
+  })
+
+  await openFarming(page)
+  await selectAgentOnCompactLayout(page, agentId)
+  await expect(page.getByText('The transcript content is unchanged.', { exact: true })).toBeVisible()
+  await page.waitForTimeout(300)
+  readReceiptRequests = 0
+
+  await page.evaluate(async id => {
+    const liveState = window.__farmingAgentActivityTest as unknown as {
+      update: (agentId: string, patch: Record<string, unknown>) => void
+    }
+    for (let index = 0; index < 12; index += 1) {
+      liveState.update(id, { terminalBusy: index % 2 === 0 })
+      await new Promise<void>(resolve => window.requestAnimationFrame(() => resolve()))
+    }
+  }, agentId)
+  await page.waitForTimeout(300)
+
+  expect(readReceiptRequests).toBe(0)
+  await expect(page.getByTestId('app-error-fallback')).toHaveCount(0)
+})
+
 test('keeps retained Chat frontends mounted and refreshes them by revision after Agent switches', async ({ page, workspaceRoot }) => {
   const workspace = path.join(workspaceRoot, 'agent-chat-view-cache')
   fs.mkdirSync(workspace, { recursive: true })
