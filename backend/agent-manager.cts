@@ -286,6 +286,8 @@ interface ComposerSubmissionResult extends Record<string, unknown> {
 }
 
 interface ComposerSendOptions extends ComposerMessageOptions {
+  expectedTerminalAgent?: AgentRecord;
+  expectedTerminalRuntimeEpoch?: string;
   onSubmitted?: (result: ComposerSubmissionResult) => void;
   requireConfirmedTerminalDelivery?: boolean;
   releaseInput?: () => void;
@@ -5606,6 +5608,9 @@ class AgentManager extends EventEmitter {
     const agent = this.agents.get(agentId);
     if (!agent) return Promise.reject(new Error('Agent not found'));
     const persistentTerminalDelivery = runtimeKind(agent) === 'terminal';
+    const terminalRuntimeEpoch = persistentTerminalDelivery
+      ? String(agent.runtimeEpoch || '')
+      : '';
     const prompt = normalizedComposerPrompt(message);
     const delivery = options.delivery === 'prompt' || options.delivery === 'steer'
       ? options.delivery
@@ -5709,6 +5714,8 @@ class AgentManager extends EventEmitter {
       : this.enqueueInputOperation(
           agentId,
           () => this.sendComposerMessageNow(agentId, prompt, {
+            expectedTerminalAgent: agent,
+            expectedTerminalRuntimeEpoch: terminalRuntimeEpoch,
             onSubmitted: (result: ComposerSubmissionResult) => onSubmitted(result),
             requireConfirmedTerminalDelivery: true,
           }),
@@ -5884,8 +5891,14 @@ class AgentManager extends EventEmitter {
   ): Promise<ComposerSubmissionResult> {
     const agent = this.agents.get(agentId);
     if (!agent) throw new Error('Agent not found');
-    if (options.requireConfirmedTerminalDelivery === true && isAcpAgent(agent)) {
-      throw new Error('Agent runtime changed before Terminal message delivery');
+    if (options.requireConfirmedTerminalDelivery === true) {
+      if (
+        runtimeKind(agent) !== 'terminal'
+        || agent !== options.expectedTerminalAgent
+        || agent.runtimeEpoch !== options.expectedTerminalRuntimeEpoch
+      ) {
+        throw new Error('Agent runtime changed before Terminal message delivery');
+      }
     }
     const prompt = normalizedComposerPrompt(message);
     const text = prompt
@@ -5932,7 +5945,10 @@ class AgentManager extends EventEmitter {
 
     const input: TerminalInput = [{ type: 'paste', text }, '\r'];
     if (options.requireConfirmedTerminalDelivery === true) {
-      const result = await this.sendInputNow(agentId, input, { throwOnUncertain: true });
+      const result = await this.sendInputNow(agentId, input, {
+        expectedRuntimeEpoch: options.expectedTerminalRuntimeEpoch,
+        throwOnUncertain: true,
+      });
       if (!result || !('sent' in result) || result.sent !== true) {
         const reason = result && 'reason' in result ? result.reason : 'Terminal runtime is unavailable';
         throw new Error(reason);

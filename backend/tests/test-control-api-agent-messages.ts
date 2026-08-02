@@ -39,6 +39,14 @@ async function postJson(baseUrl: string, pathname: string, body: Record<string, 
   return { response, body: await response.json() };
 }
 
+async function waitFor(predicate: () => boolean, message: string) {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if (predicate()) return;
+    await new Promise(resolve => setImmediate(resolve));
+  }
+  throw new Error(message);
+}
+
 async function run() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-control-agent-messages-'));
   const configManager = new ConfigManager({ configDir: root });
@@ -157,7 +165,7 @@ async function run() {
     assert.deepStrictEqual(terminalInputs[0], {
       agentId: terminalAgent.id,
       input: [{ type: 'paste', text: 'continue exactly once' }, '\r'],
-      options: { expectedRuntimeEpoch: '' },
+      options: { expectedRuntimeEpoch: 'terminal-epoch-1' },
     });
 
     const deduplicated = await postJson(baseUrl, terminalMessagePath, {
@@ -175,6 +183,57 @@ async function run() {
     assert.strictEqual(conflicting.response.status, 409);
     assert.match(conflicting.body.error, /different content/);
     assert.strictEqual(terminalInputs.length, 1);
+
+    let releaseBlockedInput!: () => void;
+    let markBlockedInputStarted!: () => void;
+    const blockedInputStarted = new Promise<void>(resolve => {
+      markBlockedInputStarted = resolve;
+    });
+    const blockedInputRelease = new Promise<void>(resolve => {
+      releaseBlockedInput = resolve;
+    });
+    const blockedInput = manager.enqueueInputOperation(terminalAgent.id, async () => {
+      markBlockedInputStarted();
+      await blockedInputRelease;
+    });
+    await blockedInputStarted;
+
+    const staleRuntimeRequest = postJson(baseUrl, terminalMessagePath, {
+      message: 'do not deliver to a replacement runtime',
+      requestId: 'terminal-message-stale-runtime',
+    });
+    await waitFor(
+      () => terminalAgent.composerCommands.some(
+        command => command.requestId === 'terminal-message-stale-runtime' && command.state === 'intent',
+      ),
+      'persistent Terminal request was not admitted behind the blocked input queue',
+    );
+    const writesBeforeRuntimeReplacement = terminalInputs.length;
+    terminalAgent.runtimeEpoch = 'terminal-epoch-2';
+    releaseBlockedInput();
+    await blockedInput;
+
+    const staleRuntime = await staleRuntimeRequest;
+    assert.strictEqual(staleRuntime.response.status, 409);
+    assert.strictEqual(staleRuntime.body.uncertain, false);
+    assert.match(staleRuntime.body.error, /runtime changed before Terminal message delivery/);
+    assert.strictEqual(
+      terminalInputs.length,
+      writesBeforeRuntimeReplacement,
+      'a queued message admitted for an old runtime epoch must perform zero PTY writes',
+    );
+
+    const retriedOnNewRuntime = await postJson(baseUrl, terminalMessagePath, {
+      message: 'do not deliver to a replacement runtime',
+      requestId: 'terminal-message-stale-runtime',
+    });
+    assert.strictEqual(retriedOnNewRuntime.response.status, 202);
+    assert.strictEqual(retriedOnNewRuntime.body.accepted, true);
+    assert.deepStrictEqual(terminalInputs.at(-1), {
+      agentId: terminalAgent.id,
+      input: [{ type: 'paste', text: 'do not deliver to a replacement runtime' }, '\r'],
+      options: { expectedRuntimeEpoch: 'terminal-epoch-2' },
+    });
 
     const rawInput = await postJson(
       baseUrl,
