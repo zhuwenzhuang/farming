@@ -349,16 +349,38 @@ async function run() {
 
     const permissionRestartStarts = [];
     const permissionRestartKills = [];
-    manager.engineBridge.resolve = () => ({
-      engineName: 'local',
-      engine: {
-        async createSession(options) {
-          permissionRestartStarts.push(options);
-        },
+    const permissionAuthoritativeRecords = new Map();
+    const previousPermissionEnsureAgentSessionRecord = manager.configManager.ensureAgentSessionRecord;
+    manager.configManager.ensureAgentSessionRecord = (agent, patch = {}) => {
+      const recordId = String(agent.agentRecordId || agent.persistentSessionId || '');
+      assert(recordId, 'permission restart test requires a stable canonical Agent record id');
+      const existing = permissionAuthoritativeRecords.get(recordId) || {};
+      permissionAuthoritativeRecords.set(recordId, {
+        ...existing,
+        ...agent,
+        runtimeAgentId: agent.id,
+        composerCommands: JSON.parse(JSON.stringify(agent.composerCommands || [])),
+        ...patch,
+        id: recordId,
+        agentRecordId: recordId,
+        persistentSessionId: recordId,
+      });
+      return recordId;
+    };
+    let permissionComposerWrites = 0;
+    let failNextPermissionRestartStart = false;
+    const permissionEngine = {
+      async createSession(options) {
+        permissionRestartStarts.push(options);
+        if (failNextPermissionRestartStart) {
+          failNextPermissionRestartStart = false;
+          throw new Error('simulated permission replacement start failure');
+        }
       },
-      spec: { category: 'coding' },
-    });
-    manager.engineBridge.getEngine = () => ({
+      async sendInput() {
+        permissionComposerWrites += 1;
+        return { sent: true };
+      },
       async killSession(sessionId) {
         permissionRestartKills.push(sessionId);
         manager.engineBridge.emit('session-exited', {
@@ -366,12 +388,19 @@ async function run() {
           code: 0,
           exitedAt: Date.now(),
         });
+        return { killed: true };
       },
       async updateSessionMetadata() {},
       async getSessionState() {
         return null;
       },
+    };
+    manager.engineBridge.resolve = () => ({
+      engineName: 'local',
+      engine: permissionEngine,
+      spec: { category: 'coding' },
     });
+    manager.engineBridge.getEngine = () => permissionEngine;
     const codexPermissionAgentId = 'agent-codex-permissions';
     manager.agents.set(codexPermissionAgentId, {
       id: codexPermissionAgentId,
@@ -406,7 +435,22 @@ async function run() {
       providerSessionProvider: 'codex',
       providerSessionId: 'codex-session-123',
       providerSessionTemporary: false,
+      agentRecordId: 'agent_record_permission_restart',
+      persistentSessionId: 'agent_record_permission_restart',
+      runtimeEpoch: 'permission-runtime-before-restart',
     });
+    const permissionComposerAdmission = await manager.sendPersistentComposerMessage(
+      codexPermissionAgentId,
+      'retain this command across permission restart',
+      'permission-restart-composer-ledger',
+    );
+    assert.strictEqual(permissionComposerAdmission.accepted, true);
+    assert.strictEqual(permissionComposerWrites, 1);
+    const permissionComposerCommands = JSON.parse(JSON.stringify(
+      manager.agents.get(codexPermissionAgentId).composerCommands,
+    ));
+    const permissionAgentRecordId = manager.agents.get(codexPermissionAgentId).agentRecordId;
+    assert.strictEqual(permissionAgentRecordId, 'agent_record_permission_restart');
 
     const runtimePermission = await manager.syncCodexTerminalPermissionMode(codexPermissionAgentId, 'full');
     assert.strictEqual(runtimePermission.error, undefined);
@@ -419,9 +463,79 @@ async function run() {
     assert.strictEqual(manager.agents.has(codexPermissionAgentId), false);
     const restartedCodex = manager.agents.get(runtimePermission.restartedAgentId);
     assert.strictEqual(restartedCodex.launchPermissionMode, 'full');
+    assert.strictEqual(restartedCodex.agentRecordId, permissionAgentRecordId);
+    assert.strictEqual(restartedCodex.persistentSessionId, permissionAgentRecordId);
     assert.strictEqual(restartedCodex.customTitle, 'Keep title');
     assert.strictEqual(restartedCodex.pinned, true);
+    assert.deepStrictEqual(restartedCodex.composerCommands, permissionComposerCommands);
     assert.deepStrictEqual(restartedCodex.restartedFromAgentIds, [codexPermissionAgentId]);
+    const permissionComposerRetry = await manager.sendPersistentComposerMessage(
+      runtimePermission.restartedAgentId,
+      'retain this command across permission restart',
+      'permission-restart-composer-ledger',
+    );
+    assert.strictEqual(permissionComposerRetry.deduplicated, true);
+    assert.strictEqual(
+      permissionComposerWrites,
+      1,
+      'permission restart must not replay an already accepted Terminal Composer request',
+    );
+
+    const failedPermissionSnapshots = [];
+    const permissionEnsureAgentSessionRecord = manager.configManager.ensureAgentSessionRecord;
+    manager.configManager.ensureAgentSessionRecord = (agent, patch = {}) => {
+      failedPermissionSnapshots.push({ ...agent, ...patch });
+      return permissionEnsureAgentSessionRecord(agent, patch);
+    };
+    failNextPermissionRestartStart = true;
+    let failedPermissionRestart;
+    try {
+      failedPermissionRestart = await manager.syncCodexTerminalPermissionMode(
+        runtimePermission.restartedAgentId,
+        'ask',
+      );
+    } finally {
+      manager.configManager.ensureAgentSessionRecord = permissionEnsureAgentSessionRecord;
+    }
+    assert.match(failedPermissionRestart.error, /simulated permission replacement start failure/);
+    const failedPermissionLedgerSnapshots = failedPermissionSnapshots
+      .filter(snapshot => Array.isArray(snapshot.composerCommands));
+    assert(failedPermissionLedgerSnapshots.length > 0, 'failed permission replacement must persist its rollback state');
+    assert.deepStrictEqual(
+      failedPermissionLedgerSnapshots.at(-1).composerCommands,
+      permissionComposerCommands,
+      'failed permission replacement rollback must not overwrite the canonical Composer ledger',
+    );
+    assert.strictEqual(
+      failedPermissionLedgerSnapshots.at(-1).agentRecordId,
+      permissionAgentRecordId,
+      'failed permission replacement rollback must remain bound to the canonical Agent record',
+    );
+    assert.strictEqual(
+      failedPermissionLedgerSnapshots.at(-1).persistentSessionId,
+      permissionAgentRecordId,
+    );
+    const authoritativePermissionRecord = permissionAuthoritativeRecords.get(permissionAgentRecordId);
+    assert(authoritativePermissionRecord, 'permission restart must retain its canonical Agent record');
+    assert.deepStrictEqual(
+      authoritativePermissionRecord.composerCommands,
+      permissionComposerCommands,
+      'failed permission replacement must leave the authoritative Composer ledger intact',
+    );
+    assert.strictEqual(authoritativePermissionRecord.id, permissionAgentRecordId);
+    assert.strictEqual(authoritativePermissionRecord.agentRecordId, permissionAgentRecordId);
+    assert.strictEqual(authoritativePermissionRecord.persistentSessionId, permissionAgentRecordId);
+    assert.strictEqual(
+      authoritativePermissionRecord.runtimeAgentId,
+      runtimePermission.restartedAgentId,
+      'failed replacement rollback must restore the prior canonical runtime owner',
+    );
+    assert.deepStrictEqual(
+      [...permissionAuthoritativeRecords.keys()],
+      [permissionAgentRecordId],
+      'permission restart must not create a second empty-ledger owner record',
+    );
+    manager.configManager.ensureAgentSessionRecord = previousPermissionEnsureAgentSessionRecord;
 
     const pendingCodexSessionId = 'tmp_uuid_11111111-2222-4333-8444-555555555555';
     const pendingCodexPermissionAgentId = 'agent-codex-pending-permissions';

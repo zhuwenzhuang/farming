@@ -50,14 +50,26 @@ const AgentManager = require('../agent-manager.cjs');
   });
   let killed = '';
   let started = null;
+  let terminalComposerWrites = 0;
   manager.killAgent = async agentId => {
     killed = agentId;
     manager.agents.delete(agentId);
   };
   manager.ensurePersistentAgentSession = () => 'fsess_test';
+  manager.engineBridge.getEngine = () => ({
+    async sendInput() {
+      terminalComposerWrites += 1;
+      return { sent: true };
+    },
+  });
   manager.startAgent = async (command, cwd, callback, options) => {
     started = { command, cwd, options };
-    manager.agents.set('agent-new', { id: 'agent-new', ...options, status: 'running' });
+    manager.agents.set('agent-new', {
+      id: 'agent-new',
+      ...options,
+      runtimeEpoch: 'runtime-new',
+      status: 'running',
+    });
     callback('agent-new');
     return 'agent-new';
   };
@@ -79,15 +91,32 @@ const AgentManager = require('../agent-manager.cjs');
     providerHomeId: 'zwz',
     providerHomePath: codexHome,
     providerSessionTitle: 'ACP demo',
+    agentRecordId: 'agent_record_acp_switch',
+    persistentSessionId: 'agent_record_acp_switch',
     agentRuntimeMode: 'terminal',
+    runtimeEpoch: 'runtime-acp-switch',
     status: 'running',
     output: '',
   });
+  const crossRuntimeAdmission = await manager.sendPersistentComposerMessage(
+    'agent-acp-switch',
+    'retain this command across Chat and Terminal',
+    'runtime-switch-composer-ledger',
+  );
+  assert.strictEqual(crossRuntimeAdmission.accepted, true);
+  assert.strictEqual(terminalComposerWrites, 1);
+  const crossRuntimeComposerCommands = JSON.parse(JSON.stringify(
+    manager.agents.get('agent-acp-switch').composerCommands,
+  ));
   killed = '';
   started = null;
   const acpResult = await manager.restartAgentRuntimeMode('agent-acp-switch', 'chat');
   assert.strictEqual(killed, 'agent-acp-switch');
   assert.strictEqual(started.options.agentRuntimeMode, 'chat');
+  assert.strictEqual(started.options.agentRecordId, 'agent_record_acp_switch');
+  assert.strictEqual(started.options.restoreRuntimeAgentIdOnFailure, 'agent-acp-switch');
+  assert.deepStrictEqual(started.options.composerCommands, crossRuntimeComposerCommands);
+  assert.deepStrictEqual(manager.agents.get('agent-new').composerCommands, crossRuntimeComposerCommands);
   assert.strictEqual(acpResult.agentRuntimeMode, 'chat');
 
   manager.agents.set('agent-live-acp-switch', {
@@ -102,22 +131,72 @@ const AgentManager = require('../agent-manager.cjs');
     providerHomeId: 'zwz',
     providerHomePath: codexHome,
     providerSessionTitle: 'Fresh ACP demo',
+    agentRecordId: 'agent_record_live_acp_switch',
+    persistentSessionId: 'agent_record_live_acp_switch',
     agentRuntimeMode: 'acp',
     acpState: 'idle',
     status: 'running',
     output: '',
   });
   const originalGetAcpSession = manager.acpRuntime.getSession.bind(manager.acpRuntime);
+  const originalHasAcpBinding = manager.acpRuntime.hasBinding.bind(manager.acpRuntime);
+  const originalReconnectAcpAgent = manager.acpRuntime.reconnectAgent.bind(manager.acpRuntime);
+  const originalSubmitAcpMessage = manager.acpRuntime.submitMessage.bind(manager.acpRuntime);
   const originalFindRuntimeSwitchSession = manager.findRuntimeSwitchSession.bind(manager);
   manager.acpRuntime.getSession = () => ({ sessionId, state: 'idle' });
+  manager.acpRuntime.hasBinding = agentId => agentId === 'agent-live-acp-switch';
+  manager.acpRuntime.reconnectAgent = async () => ({ reconnected: false });
+  let acpComposerSubmissions = 0;
+  manager.acpRuntime.submitMessage = async (agentId, prompt, options) => {
+    assert.strictEqual(agentId, 'agent-live-acp-switch');
+    assert.deepStrictEqual(prompt, [{
+      type: 'text',
+      text: 'accept this command through Chat before switching to Terminal',
+    }]);
+    acpComposerSubmissions += 1;
+    options.onSubmitted();
+    return { stopReason: 'end_turn' };
+  };
   manager.findRuntimeSwitchSession = async () => null;
+  const liveAcpAdmission = await manager.sendPersistentComposerMessage(
+    'agent-live-acp-switch',
+    'accept this command through Chat before switching to Terminal',
+    'chat-to-terminal-composer-ledger',
+    { delivery: 'prompt' },
+  );
+  assert.strictEqual(liveAcpAdmission.accepted, true);
+  assert.strictEqual(liveAcpAdmission.kind, 'acp');
+  assert.strictEqual(acpComposerSubmissions, 1);
+  const liveAcpComposerCommands = JSON.parse(JSON.stringify(
+    manager.agents.get('agent-live-acp-switch').composerCommands,
+  ));
   killed = '';
   started = null;
   const liveAcpResult = await manager.restartAgentRuntimeMode('agent-live-acp-switch', 'terminal');
   assert.strictEqual(killed, 'agent-live-acp-switch');
   assert.strictEqual(started.options.agentRuntimeMode, 'terminal');
+  assert.strictEqual(started.options.agentRecordId, 'agent_record_live_acp_switch');
+  assert.strictEqual(started.options.restoreRuntimeAgentIdOnFailure, 'agent-live-acp-switch');
+  assert.deepStrictEqual(started.options.composerCommands, liveAcpComposerCommands);
+  assert.deepStrictEqual(manager.agents.get('agent-new').composerCommands, liveAcpComposerCommands);
   assert.strictEqual(liveAcpResult.agentRuntimeMode, 'terminal');
+  const writesBeforeTerminalRetry = terminalComposerWrites;
+  const terminalRetry = await manager.sendPersistentComposerMessage(
+    'agent-new',
+    'accept this command through Chat before switching to Terminal',
+    'chat-to-terminal-composer-ledger',
+    { delivery: 'prompt' },
+  );
+  assert.strictEqual(terminalRetry.deduplicated, true);
+  assert.strictEqual(
+    terminalComposerWrites,
+    writesBeforeTerminalRetry,
+    'Chat to Terminal switch must not replay an accepted Composer request',
+  );
   manager.acpRuntime.getSession = originalGetAcpSession;
+  manager.acpRuntime.hasBinding = originalHasAcpBinding;
+  manager.acpRuntime.reconnectAgent = originalReconnectAcpAgent;
+  manager.acpRuntime.submitMessage = originalSubmitAcpMessage;
   manager.findRuntimeSwitchSession = originalFindRuntimeSwitchSession;
 
   manager.agents.set('agent-qoder-switch', {
@@ -303,19 +382,40 @@ const AgentManager = require('../agent-manager.cjs');
     providerSessionTemporary: false,
     providerHomeId: 'zwz',
     providerHomePath: codexHome,
+    agentRecordId: 'agent_record_runtime_rollback',
+    persistentSessionId: 'agent_record_runtime_rollback',
     agentRuntimeMode: 'terminal',
     terminalBusy: false,
+    runtimeEpoch: 'runtime-rollback',
+    composerCommands: [],
     status: 'running',
     output: '',
   });
+  const rollbackAdmission = await manager.sendPersistentComposerMessage(
+    'agent-rollback',
+    'retain this command when runtime switching rolls back',
+    'runtime-switch-rollback-ledger',
+  );
+  assert.strictEqual(rollbackAdmission.accepted, true);
+  const rollbackComposerCommands = JSON.parse(JSON.stringify(
+    manager.agents.get('agent-rollback').composerCommands,
+  ));
+  const writesBeforeRollback = terminalComposerWrites;
   let rollbackStarts = 0;
+  const rollbackStartOptions = [];
   manager.startAgent = async (command, cwd, callback, options) => {
     rollbackStarts += 1;
+    rollbackStartOptions.push(options);
     if (rollbackStarts === 1) {
       callback(null, 'ACP adapter failed');
       return null;
     }
-    manager.agents.set('agent-restored', { id: 'agent-restored', ...options, status: 'running' });
+    manager.agents.set('agent-restored', {
+      id: 'agent-restored',
+      ...options,
+      runtimeEpoch: 'runtime-restored',
+      status: 'running',
+    });
     callback('agent-restored');
     return 'agent-restored';
   };
@@ -325,7 +425,26 @@ const AgentManager = require('../agent-manager.cjs');
   assert.strictEqual(rollbackResult.restartedAgentId, 'agent-restored');
   assert.strictEqual(rollbackResult.agentRuntimeMode, 'terminal');
   assert.match(rollbackResult.warning, /Original runtime restored/);
+  assert.deepStrictEqual(rollbackStartOptions[0].composerCommands, rollbackComposerCommands);
+  assert.deepStrictEqual(rollbackStartOptions[1].composerCommands, rollbackComposerCommands);
+  assert.strictEqual(rollbackStartOptions[0].agentRecordId, 'agent_record_runtime_rollback');
+  assert.strictEqual(rollbackStartOptions[1].agentRecordId, 'agent_record_runtime_rollback');
+  assert.strictEqual(rollbackStartOptions[0].restoreRuntimeAgentIdOnFailure, 'agent-rollback');
+  assert.strictEqual(rollbackStartOptions[1].restoreRuntimeAgentIdOnFailure, 'agent-rollback');
+  assert.deepStrictEqual(manager.agents.get('agent-restored').composerCommands, rollbackComposerCommands);
+  assert.strictEqual(manager.agents.get('agent-restored').agentRecordId, 'agent_record_runtime_rollback');
   assert.strictEqual(manager.agents.get('agent-restored').runtimeBinding.kind, 'terminal');
+  const rollbackRetry = await manager.sendPersistentComposerMessage(
+    'agent-restored',
+    'retain this command when runtime switching rolls back',
+    'runtime-switch-rollback-ledger',
+  );
+  assert.strictEqual(rollbackRetry.deduplicated, true);
+  assert.strictEqual(
+    terminalComposerWrites,
+    writesBeforeRollback,
+    'runtime-switch rollback must not replay an already accepted Terminal Composer request',
+  );
 
   manager.agents.set('agent-uncertain-switch', {
     id: 'agent-uncertain-switch',

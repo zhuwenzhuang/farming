@@ -6983,6 +6983,8 @@ class AgentManager extends EventEmitter {
       providerHomeId: agent.providerHomeId || '',
       providerHomePath: agent.providerHomePath || '',
       providerSessionTitle: agent.providerSessionTitle || '',
+      agentRecordId: agent.agentRecordId || agent.persistentSessionId || '',
+      restoreRuntimeAgentIdOnFailure: agentId,
       restartedFromAgentId: agentId,
       restartedFromAgentIds: Array.from(new Set([
         ...(Array.isArray(agent.restartedFromAgentIds) ? agent.restartedFromAgentIds : []),
@@ -6991,6 +6993,7 @@ class AgentManager extends EventEmitter {
       ])),
       projectOrder: preserved.projectOrder,
       pinnedOrder: preserved.pinnedOrder,
+      composerCommands: normalizedComposerCommands(agent.composerCommands),
       agentRuntimeMode: nextMode,
       acpStartFresh: startsFreshChatSession && nextRuntimeKind === 'acp',
       codexApprovalMode: agent.launchPermissionMode || undefined,
@@ -7205,6 +7208,8 @@ class AgentManager extends EventEmitter {
       providerHomeId,
       providerHomePath: agent.providerHomePath || '',
       providerSessionTitle: agent.providerSessionTitle || '',
+      agentRecordId: agent.agentRecordId || agent.persistentSessionId || '',
+      restoreRuntimeAgentIdOnFailure: agentId,
       restartedFromAgentId: agentId,
       restartedFromAgentIds: Array.from(new Set([
         ...(Array.isArray(agent.restartedFromAgentIds) ? agent.restartedFromAgentIds : []),
@@ -7213,6 +7218,7 @@ class AgentManager extends EventEmitter {
       ])),
       projectOrder: finiteOrder(agent.projectOrder),
       pinnedOrder: finiteOrder(agent.pinnedOrder),
+      composerCommands: normalizedComposerCommands(agent.composerCommands),
       lifecycleToken,
       ...acpSessionOptions,
       ...(provider === 'codex' ? { codexApprovalMode: nextMode } : { claudePermissionMode: nextMode }),
