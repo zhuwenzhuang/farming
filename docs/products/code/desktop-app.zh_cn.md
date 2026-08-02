@@ -112,8 +112,10 @@ Renderer 没有 Node.js integration，也不会收到上游 token。自动发现
 
 每个后端都有稳定本地 ID。连接状态按 ID 隔离，并在 `disconnected`、`connecting`、
 `ready`、`error` 间转换。每次连接尝试增加 generation，旧结果不能覆盖新的断开或连接。
-只有 `/api/auth/status` 探测通过且能力读取结束后才进入 ready。切换后端时先连接目标，再
-更新 active ID、关闭 renderer WebSocket 并重载界面。
+只有 `/api/auth/status` 探测通过、有界控制 WebSocket 收到兼容 hello 与合法 state，并且
+匹配的 ready 业务健康响应证明协议双向可用后，连接才进入 ready。切换后端时先连接目标，
+再更新 active ID、关闭 renderer WebSocket 并重载界面。瞬时 WebSocket 启动结果只在同一
+generation deadline 内重试；取消和协议不兼容会快速失败。
 
 每个 connecting generation 统一拥有一个共享 Promise、一个 `AbortController`，以及本次
 bootstrap 命令、下载、上传和 tunnel 进程。重复连接会加入同一个 Promise；取消、断开、

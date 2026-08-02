@@ -2,6 +2,11 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import net from 'node:net'
 import type { DesktopBackendConnection, DesktopCapabilitySummary } from '../shared/desktop-contract.js'
+import {
+  DesktopBackendReadinessCancelledError,
+  DesktopBackendReadinessFatalError,
+  probeDesktopBackendWebSocket,
+} from './backend-readiness.js'
 import type { StoredDesktopBackendProfile } from './profile-model.js'
 import { DesktopProfileStore } from './profile-store.js'
 import { bootstrapRemoteServer } from './remote-bootstrap.js'
@@ -31,8 +36,21 @@ function errorMessage(error: unknown) {
     .slice(0, 800)
 }
 
-function delay(milliseconds: number) {
-  return new Promise(resolve => setTimeout(resolve, milliseconds))
+function delay(milliseconds: number, signal?: AbortSignal) {
+  if (signal?.aborted) {
+    return Promise.reject(new DesktopBackendReadinessCancelledError('Farming backend connection was cancelled.'))
+  }
+  return new Promise<void>((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      signal?.removeEventListener('abort', abort)
+      resolve()
+    }, milliseconds)
+    const abort = () => {
+      clearTimeout(timeout)
+      reject(new DesktopBackendReadinessCancelledError('Farming backend connection was cancelled.'))
+    }
+    signal?.addEventListener('abort', abort, { once: true })
+  })
 }
 
 async function unusedLoopbackPort() {
@@ -136,7 +154,9 @@ export class DesktopConnectionManager extends EventEmitter {
       } else {
         await this.connectSsh(record, profile)
       }
-      if (!this.isCurrent(record)) return
+      if (!this.isCurrent(record)) {
+        throw new DesktopBackendReadinessCancelledError('Farming backend connection was cancelled.')
+      }
       record.status = 'ready'
       record.error = ''
       record.message = ''
@@ -144,7 +164,7 @@ export class DesktopConnectionManager extends EventEmitter {
       record.attempt = null
       this.emitChange()
     } catch (error) {
-      if (!this.isCurrent(record)) return
+      if (!this.isCurrent(record)) throw error
       record.process?.kill()
       record.process = null
       record.abortController = null
@@ -244,26 +264,60 @@ export class DesktopConnectionManager extends EventEmitter {
     const token = record.targetToken || this.profiles.readToken(profile.id)
     let lastError = ''
     while (Date.now() < deadline && this.isCurrent(record)) {
+      const remainingBeforeHttpMs = deadline - Date.now()
+      if (remainingBeforeHttpMs <= 0) break
       const controller = new AbortController()
-      const timeout = setTimeout(() => controller.abort(), 1_500)
+      const timeout = setTimeout(() => controller.abort(), Math.min(1_500, remainingBeforeHttpMs))
+      let authenticated = false
       try {
         const response = await fetch(joinUpstreamUrl(record.targetBaseUrl, '/api/auth/status'), {
           headers: token ? { authorization: `Bearer ${bearerCredential(token)}` } : undefined,
-          signal: controller.signal,
+          signal: record.abortController
+            ? AbortSignal.any([controller.signal, record.abortController.signal])
+            : controller.signal,
         })
         if (response.ok) {
           const body = await response.json() as { authRequired?: unknown }
-          if (typeof body.authRequired === 'boolean') return
+          authenticated = typeof body.authRequired === 'boolean'
         }
-        lastError = `health probe returned HTTP ${response.status}`
+        if (!authenticated) lastError = `health probe returned HTTP ${response.status}`
       } catch (error) {
         lastError = errorMessage(error)
       } finally {
         clearTimeout(timeout)
       }
-      await delay(PROBE_INTERVAL_MS)
+      if (authenticated) {
+        if (!this.isCurrent(record)) {
+          throw new DesktopBackendReadinessCancelledError('Farming backend connection was cancelled.')
+        }
+        record.message = 'Checking Farming protocol…'
+        this.emitChange()
+        const remainingMs = deadline - Date.now()
+        if (remainingMs <= 0) break
+        try {
+          await probeDesktopBackendWebSocket({
+            baseUrl: record.targetBaseUrl,
+            token,
+            signal: record.abortController?.signal,
+            timeoutMs: Math.min(5_000, remainingMs),
+          })
+          return
+        } catch (error) {
+          if (
+            error instanceof DesktopBackendReadinessCancelledError
+            || error instanceof DesktopBackendReadinessFatalError
+          ) throw error
+          lastError = errorMessage(error)
+        }
+      }
+      const remainingMs = deadline - Date.now()
+      if (remainingMs > 0) {
+        await delay(Math.min(PROBE_INTERVAL_MS, remainingMs), record.abortController?.signal)
+      }
     }
-    if (!this.isCurrent(record)) throw new Error('Connection cancelled.')
+    if (!this.isCurrent(record)) {
+      throw new DesktopBackendReadinessCancelledError('Farming backend connection was cancelled.')
+    }
     throw new Error(`Farming backend did not become ready within ${CONNECT_TIMEOUT_MS / 1000}s${lastError ? `: ${lastError}` : '.'}`)
   }
 

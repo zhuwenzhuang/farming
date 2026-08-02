@@ -4,6 +4,12 @@ import http from 'node:http'
 import os from 'node:os'
 import path from 'node:path'
 import { _electron as electron } from 'playwright'
+import { WebSocketServer } from 'ws'
+import {
+  MIN_PROTOCOL_VERSION,
+  PROTOCOL_VERSION,
+  validateClientMessage,
+} from '../shared/browser-protocol'
 import type { FarmingDesktopBridge } from '../shared/desktop-contract'
 
 declare global {
@@ -15,6 +21,9 @@ declare global {
 const repoRoot = path.join(__dirname, '..')
 const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-desktop-smoke-'))
 let settingsRequestCount = 0
+let protocolHelloCount = 0
+let businessHealthProbeCount = 0
+let stateFrameCount = 0
 const backend = http.createServer((request, response) => {
   if (request.url === '/api/auth/status') {
     response.writeHead(200, { 'Content-Type': 'application/json' })
@@ -30,7 +39,55 @@ const backend = http.createServer((request, response) => {
   response.writeHead(404, { 'Content-Type': 'application/json' })
   response.end(JSON.stringify({ error: 'Not implemented by desktop smoke backend.' }))
 })
-backend.on('upgrade', (_request, socket) => socket.destroy())
+const backendWebSockets = new WebSocketServer({ noServer: true })
+backend.on('upgrade', (request, socket, head) => {
+  const pathname = new URL(request.url || '/', `http://${request.headers.host || 'localhost'}`).pathname
+  if (pathname !== '/ws') {
+    socket.destroy()
+    return
+  }
+  backendWebSockets.handleUpgrade(request, socket, head, client => {
+    backendWebSockets.emit('connection', client, request)
+  })
+})
+backendWebSockets.on('connection', socket => {
+  socket.send(JSON.stringify({
+    type: 'protocol-hello',
+    protocolVersion: PROTOCOL_VERSION,
+    minProtocolVersion: MIN_PROTOCOL_VERSION,
+    availableExtensions: [],
+  }))
+  socket.send(JSON.stringify({ type: 'state', state: { agents: [] } }))
+  stateFrameCount += 1
+  socket.on('message', data => {
+    const validation = validateClientMessage(JSON.parse(data.toString()))
+    if (!validation.ok) return
+    const message = validation.value
+    if (message.type === 'protocol-hello') {
+      protocolHelloCount += 1
+      socket.send(JSON.stringify({
+        type: 'protocol-hello',
+        protocolVersion: PROTOCOL_VERSION,
+        minProtocolVersion: MIN_PROTOCOL_VERSION,
+        availableExtensions: [],
+        negotiatedExtensions: [],
+      }))
+      return
+    }
+    if (message.type === 'business-health-probe') {
+      businessHealthProbeCount += 1
+      socket.send(JSON.stringify({
+        type: 'business-health-result',
+        requestId: message.requestId,
+        serverEpoch: 'desktop-smoke',
+        protocolVersion: PROTOCOL_VERSION,
+        status: 'ready',
+        agentCount: 0,
+        mainAgentId: null,
+      }))
+    }
+  })
+})
 
 async function listenBackend() {
   await new Promise<void>((resolve, reject) => {
@@ -98,6 +155,10 @@ async function main() {
     })
     assert.equal(initialBackendState.active?.kind, 'local')
     assert.equal(initialBackendState.connection?.status, 'ready')
+    await waitFor(
+      () => protocolHelloCount >= 2 && businessHealthProbeCount >= 2 && stateFrameCount >= 2,
+      'Desktop renderer did not complete a real bidirectional WebSocket handshake through the gateway.',
+    )
     const rendererAssets = await page.evaluate(async () => {
       const references = [
         ...Array.from(document.querySelectorAll<HTMLScriptElement>('script[src]'), element => element.src),
@@ -121,6 +182,8 @@ async function main() {
     assert.match(formText, /SSH host|SSH 主机/)
     assert.match(formText, /Farming Home/)
     assert.doesNotMatch(formText, /Remote listener|远端监听地址|Farming token|Base path/)
+    const protocolHelloBeforeActivation = protocolHelloCount
+    const businessHealthBeforeActivation = businessHealthProbeCount
     const activationReload = page.waitForEvent('framenavigated', {
       predicate: frame => frame === page.mainFrame(),
     })
@@ -139,6 +202,13 @@ async function main() {
 
     const appShell = page.getByTestId('app-shell')
     await appShell.waitFor({ state: 'visible' })
+    await waitFor(
+      () => (
+        protocolHelloCount >= protocolHelloBeforeActivation + 2
+        && businessHealthProbeCount >= businessHealthBeforeActivation + 2
+      ),
+      'Activated backend did not pass readiness and renderer WebSocket handshakes.',
+    )
     assert.match(await appShell.innerText(), /Farming/, 'Desktop application shell rendered no recognizable content.')
     const burstNavigation = page.waitForEvent('framenavigated', {
       predicate: frame => frame === page.mainFrame(),
@@ -256,6 +326,8 @@ async function main() {
     console.log('Desktop MVP smoke passed: local-first startup, built-in remote management, backend switching, and restart recovery.')
   } finally {
     await application?.close().catch(() => {})
+    backendWebSockets.clients.forEach(socket => socket.terminate())
+    await new Promise<void>(resolve => backendWebSockets.close(() => resolve()))
     await new Promise<void>(resolve => backend.close(() => resolve()))
     fs.rmSync(userDataDir, { recursive: true, force: true })
   }

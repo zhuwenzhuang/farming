@@ -123,9 +123,11 @@ forwards REST and WebSocket traffic. Electron executes only packaged local appli
 
 Connection state is isolated by stable backend ID and progresses through `disconnected`,
 `connecting`, `ready`, or `error`. Each attempt increments a generation so stale completion cannot
-overwrite a newer action. A connection becomes ready only after `/api/auth/status` succeeds and
-fresh capability reads finish. Switching connects the target before updating the active ID,
-closing renderer WebSockets, and reloading the UI.
+overwrite a newer action. A connection becomes ready only after `/api/auth/status` succeeds, a
+bounded control-WebSocket probe receives a compatible hello and legal state, and a matching ready
+business-health response proves bidirectional protocol traffic. Switching connects the target before
+updating the active ID, closing renderer WebSockets, and reloading the UI. Transient WebSocket startup
+results retry within the same generation deadline; cancellation and protocol incompatibility fail fast.
 
 Each connecting generation owns one shared Promise, one `AbortController`, its bootstrap commands,
 download, upload, and tunnel process. Repeated connection requests join that Promise. Cancel,
