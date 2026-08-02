@@ -4835,12 +4835,19 @@ class AgentManager extends EventEmitter {
     if (useAcp && ['codex', 'claude'].includes(structuredRuntimeProvider)) {
       resolvedExecutable = resolveFarmingOwnedExecutable(structuredRuntimeProvider);
     } else if (!useAcp && path.basename(program) === 'codex') {
-      const codexResolution = resolveTerminalCodexExecutable(options.requiredCliVersion || '', launchPathEnv);
-      if (!codexResolution.compatible) {
-        if (callback) callback(null, codexResolution.error || 'Codex CLI is not compatible with this session');
-        return null;
+      if (
+        process.env.FARMING_E2E_FAKE_EXECUTABLES === '1'
+        && process.env.FARMING_CODEX_BIN
+      ) {
+        resolvedExecutable = process.env.FARMING_CODEX_BIN;
+      } else {
+        const codexResolution = resolveTerminalCodexExecutable(options.requiredCliVersion || '', launchPathEnv);
+        if (!codexResolution.compatible) {
+          if (callback) callback(null, codexResolution.error || 'Codex CLI is not compatible with this session');
+          return null;
+        }
+        resolvedExecutable = codexResolution.path;
       }
-      resolvedExecutable = codexResolution.path;
     } else {
       resolvedExecutable = useAcp
         ? resolveAgentExecutable(program, launchPathEnv)
