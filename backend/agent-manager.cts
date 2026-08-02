@@ -2054,6 +2054,7 @@ class AgentManager extends EventEmitter {
         terminalInputReceived: Object.prototype.hasOwnProperty.call(persisted, 'terminalInputReceived')
           ? persisted.terminalInputReceived === true
           : engineMetadata.terminalInputReceived,
+        composerCommands: normalizedComposerCommands(persisted.composerCommands),
         customTitle: Object.prototype.hasOwnProperty.call(persisted, 'customTitle')
           ? persisted.customTitle
           : engineMetadata.customTitle,
@@ -2469,6 +2470,7 @@ class AgentManager extends EventEmitter {
         persistentSessionId: record.id || '',
         runtimeAgentId: record.runtimeAgentId || '',
         reviveTerminalState: record.serializedState || null,
+        composerCommands: normalizedComposerCommands(record.composerCommands),
         ...(provider === 'codex'
           ? {
               codexApprovalMode: record.launchPermissionMode || undefined,
@@ -4877,6 +4879,7 @@ class AgentManager extends EventEmitter {
       persistentSessionId: typeof options.agentRecordId === 'string'
         ? options.agentRecordId
         : (typeof options.persistentSessionId === 'string' ? options.persistentSessionId : ''),
+      composerCommands: normalizedComposerCommands(options.composerCommands),
       customTitle: typeof options.customTitle === 'string' ? options.customTitle.trim().slice(0, 80) : '',
       terminalBusy: null,
       shellCwd: '',

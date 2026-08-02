@@ -1,4 +1,5 @@
 const assert = require('assert');
+const crypto = require('crypto');
 const EventEmitter = require('events');
 const fs = require('fs');
 const os = require('os');
@@ -33,6 +34,38 @@ require.cache[sessionEngineBridgePath] = {
 const AgentManager = require('../agent-manager.cjs');
 const { serializeTerminalState } = require('../terminal-state-serialization.cjs');
 
+function composerCommand(requestId, message, state = 'accepted') {
+  const contentHash = crypto.createHash('sha256')
+    .update(JSON.stringify({
+      delivery: 'auto',
+      prompt: [{ text: message, type: 'text' }],
+    }))
+    .digest('hex');
+  return {
+    requestId,
+    contentHash,
+    state,
+    result: state === 'accepted' ? { kind: 'terminal' } : null,
+    error: state === 'unknown' ? 'delivery outcome is unknown' : '',
+    createdAt: 100,
+    updatedAt: 200,
+  };
+}
+
+const recoveredAcceptedCommand = composerCommand(
+  'recovered-terminal-accepted',
+  'do not replay after backend recovery',
+);
+const recoveredUnknownCommand = composerCommand(
+  'recovered-terminal-unknown',
+  'do not replay an uncertain backend recovery',
+  'unknown',
+);
+const rotationAcceptedCommand = composerCommand(
+  'rotated-terminal-accepted',
+  'do not replay after runtime rotation',
+);
+
 function configManager() {
   return {
     getWorkspace() {
@@ -43,6 +76,9 @@ function configManager() {
     },
     getCodingAgentEngine() {
       return 'local';
+    },
+    getDangerouslySkipAgentPermissionsByDefault() {
+      return false;
     },
     getVtBaseUrl() {
       return 'http://localhost:4020';
@@ -74,6 +110,7 @@ function configManager() {
           providerSessionWorkspace: '/repo',
           customTitle: 'Persisted Agent name',
           terminalInputReceived: true,
+          composerCommands: [recoveredAcceptedCommand, recoveredUnknownCommand],
           agentRuntimeMode: 'terminal',
           pinned: true,
           projectOrder: 4096,
@@ -236,6 +273,37 @@ async function run() {
       'an explicitly cleared persisted title must override stale native-host metadata',
     );
     assert.strictEqual(manager.agents.get('recovered-codex').terminalInputReceived, true);
+    assert.deepStrictEqual(
+      manager.agents.get('recovered-codex').composerCommands,
+      [recoveredAcceptedCommand, recoveredUnknownCommand],
+      'backend recovery must project the persisted Terminal Composer idempotency ledger over stale host metadata',
+    );
+    let recoveredTerminalWrites = 0;
+    manager.engineBridge.getEngine = () => ({
+      async sendInput() {
+        recoveredTerminalWrites += 1;
+        return { sent: true };
+      },
+    });
+    const recoveredDuplicate = await manager.sendPersistentComposerMessage(
+      'recovered-codex',
+      'do not replay after backend recovery',
+      'recovered-terminal-accepted',
+    );
+    assert.strictEqual(recoveredDuplicate.deduplicated, true);
+    await assert.rejects(
+      () => manager.sendPersistentComposerMessage(
+        'recovered-codex',
+        'do not replay an uncertain backend recovery',
+        'recovered-terminal-unknown',
+      ),
+      error => error?.uncertain === true,
+    );
+    assert.strictEqual(
+      recoveredTerminalWrites,
+      0,
+      'accepted and unknown Composer requests recovered with a live PTY must perform zero duplicate writes',
+    );
     assert(manager.agents.has('recovered-temporary-codex'), 'visible temporary Codex sessions should survive server recovery');
     assert.strictEqual(manager.agents.get('recovered-temporary-codex').providerSessionTemporary, true);
     assert.strictEqual(manager.agents.get('recovered-temporary-codex').persistentSessionId, 'fsess_recovered_temporary_codex');
@@ -291,6 +359,7 @@ async function run() {
     attentionOutputSeq: 42,
     readOutputEpoch: 'runtime-before-upgrade',
     readOutputSeq: 42,
+    composerCommands: [rotationAcceptedCommand],
     archived: false,
     updatedAt: 20,
   };
@@ -317,52 +386,87 @@ async function run() {
     listAgentSessionRecords() {
       return [duplicateRecord, rotationRecord, hiddenRecord];
     },
-  });
+  }, { skipExecutablePreflight: true });
   await rotationManager.whenRecovered();
-  const restoredStarts = [];
-  rotationManager.engineBridge = {
-    async recoverSessions() {
-      return [];
-    },
-    consumeRuntimeRotations() {
-      return [{
+  const rotationBridge = rotationManager.engineBridge;
+  const createdRotationSessions = [];
+  let rotatedTerminalWrites = 0;
+  const rotationEngine = {
+    on() {},
+    async createSession(options) {
+      createdRotationSessions.push(options);
+      const runtimeEpoch = 'runtime-after-upgrade';
+      rotationBridge.emit('session-started', {
         engineName: 'native',
-        previous: null,
-        current: { protocolVersion: 2, buildId: 'a'.repeat(64), version: '2.2.9' },
-      }];
+        sessionId: options.agentId,
+        status: 'running',
+        startedAt: 300,
+        runtimeEpoch,
+        outputSeq: 0,
+        stateRevision: 1,
+      });
+      rotationBridge.emit('session-output', {
+        engineName: 'native',
+        sessionId: options.agentId,
+        data: '\u001b[?25hCodex restored after runtime rotation',
+        runtimeEpoch,
+        outputSeq: 1,
+        stateRevision: 2,
+      });
+      return { created: true };
     },
-    getEngine() {
+    async sendInput() {
+      rotatedTerminalWrites += 1;
+      return { sent: true };
+    },
+    async killSession() {
+      return { killed: true };
+    },
+    async getSessionState() {
       return null;
+    },
+    async getSessionPreview() {
+      return '';
+    },
+    getSessionSource() {
+      return 'buffer';
     },
     dispose() {},
   };
-  rotationManager.startAgent = async (command, cwd, callback, options) => {
-    restoredStarts.push({ command, cwd, options });
-    const agentId = 'agent-after-upgrade';
-    rotationManager.agents.set(agentId, {
-      id: agentId,
-      providerSessionProvider: 'codex',
-      providerSessionId,
-      providerHomeId: 'default',
-      customTitle: '',
-    });
-    return agentId;
-  };
+  rotationBridge.recoverSessions = async () => [];
+  rotationBridge.consumeRuntimeRotations = () => [{
+    engineName: 'native',
+    previous: null,
+    current: { protocolVersion: 2, buildId: 'a'.repeat(64), version: '2.2.9' },
+  }];
+  rotationBridge.resolve = () => ({
+    engineName: 'native',
+    engine: rotationEngine,
+    spec: { category: 'coding' },
+  });
+  rotationBridge.getEngine = () => rotationEngine;
+  const previousFarmingCodexBin = process.env.FARMING_CODEX_BIN;
   try {
-    await rotationManager.recoverEngineSessions();
+    process.env.FARMING_CODEX_BIN = process.execPath;
+    try {
+      await rotationManager.recoverEngineSessions();
+    } finally {
+      if (previousFarmingCodexBin === undefined) delete process.env.FARMING_CODEX_BIN;
+      else process.env.FARMING_CODEX_BIN = previousFarmingCodexBin;
+    }
     assert.strictEqual(
-      restoredStarts.length,
+      createdRotationSessions.length,
       1,
       'only the newest authoritative main-page Terminal record should restart; duplicates and migrated ACP records must not'
     );
-    assert(restoredStarts[0].command.includes(providerSessionId), restoredStarts[0].command);
-    assert.strictEqual(restoredStarts[0].options.skipRecoveryWait, true);
-    assert.strictEqual(restoredStarts[0].options.persistentSessionId, rotationRecord.id);
-    assert.strictEqual(restoredStarts[0].options.runtimeAgentId, rotationRecord.runtimeAgentId);
-    assert.strictEqual(restoredStarts[0].options.attentionOutputEpoch, 'runtime-before-upgrade');
-    assert.strictEqual(restoredStarts[0].options.readOutputEpoch, 'runtime-before-upgrade');
-    assert.strictEqual(restoredStarts[0].options.readOutputSeq, 42);
-    const replacement = rotationManager.agents.get('agent-after-upgrade');
+    assert.strictEqual(
+      createdRotationSessions[0].agentId,
+      rotationRecord.runtimeAgentId,
+      'runtime rotation must retain the stable Runtime Agent id through real startAgent initialization',
+    );
+    assert.strictEqual(createdRotationSessions[0].reviveState, null);
+    const replacement = rotationManager.agents.get(rotationRecord.runtimeAgentId);
+    assert(replacement, 'real startAgent must install the replacement under the persisted Runtime Agent id');
     assert.strictEqual(replacement.customTitle, 'Pinned recovery');
     assert.strictEqual(replacement.pinned, true);
     assert.strictEqual(replacement.terminalInputReceived, true);
@@ -371,6 +475,22 @@ async function run() {
     assert.strictEqual(replacement.attentionOutputSeq, 42);
     assert.strictEqual(replacement.readOutputEpoch, 'runtime-before-upgrade');
     assert.strictEqual(replacement.readOutputSeq, 42);
+    assert.deepStrictEqual(
+      replacement.composerCommands,
+      [rotationAcceptedCommand],
+      'the real replacement agentRecord must retain the normalized Composer idempotency ledger',
+    );
+    const rotatedDuplicate = await rotationManager.sendPersistentComposerMessage(
+      rotationRecord.runtimeAgentId,
+      'do not replay after runtime rotation',
+      'rotated-terminal-accepted',
+    );
+    assert.strictEqual(rotatedDuplicate.deduplicated, true);
+    assert.strictEqual(
+      rotatedTerminalWrites,
+      0,
+      'an accepted Composer request must remain deduplicated after native PTY runtime rotation',
+    );
   } finally {
     await rotationManager.dispose({ preserveTerminalHost: true });
   }
