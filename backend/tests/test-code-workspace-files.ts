@@ -442,7 +442,7 @@ function run() {
       workspaceSource.includes("if (activeView !== 'search' && searchOpen)") &&
       workspaceSource.includes("if (activeView === 'projects') return") &&
       workspaceSource.includes('type WorkspaceContextMenu =') &&
-      workspaceSource.includes("| { kind: 'agent-session'; provider: string; sessionId: string; x: number; y: number }") &&
+      workspaceSource.includes("| { kind: 'agent-session'; provider: string; sessionId: string; x: number; y: number; focusFirstItem: boolean }") &&
       workspaceSource.includes('const [contextMenu, setContextMenu] = useState<WorkspaceContextMenu | null>(null)') &&
       workspaceSource.includes("agentMenu: contextMenu?.kind === 'agent' ? contextMenu : null") &&
       workspaceSource.includes('closeContextMenu()\n    closeActiveComposerMenus()') &&
@@ -998,11 +998,9 @@ function run() {
       workspaceSource.includes('recognition.onresult') &&
       workspaceSource.includes('transcript.trim()') &&
       workspaceSource.includes('function ComposerMicIcon') &&
-      workspaceSource.includes('code-composer-voice-wave') &&
       workspaceSource.includes('listening ? COMPOSER_MIC_FILLED_PATH : COMPOSER_MIC_REGULAR_PATH') &&
       terminalComposerSource.includes("from './composer-presentation'") &&
       acpComposerSource.includes("from '../composer-presentation'") &&
-      acpComposerSource.includes("data-voice-mode={speechRealtime ? 'realtime' : 'dictation'}") &&
       !terminalComposerSource.includes('function formatContextTokens') &&
       !acpComposerSource.includes('function formatContextTokens') &&
       workspaceSource.includes('M8 10.9995C9.654 10.9995 11 9.65351 11 7.99951V3.99951') &&
@@ -1114,7 +1112,6 @@ function run() {
     mainPageSessionSource.includes('function resumedAgentSource(') &&
       serverSource.includes("const MAIN_AGENT_RESTART_COMMANDS = new Set(['codex', 'claude', 'opencode', 'qoder', 'qwen', 'bash', 'zsh'])") &&
       serverSource.includes('function restartMainAgent(ws: WebSocketClient, command: string)') &&
-      serverSource.includes("agentRuntimeMode: normalizedCommand === 'codex' ? 'chat' : 'terminal'") &&
       serverSource.includes("case 'restart-main-agent'") &&
       serverSource.includes("case 'interrupt-agent'") &&
       serverSource.includes("routePath(BASE_PATH, '/api/attachments/image')") &&
@@ -1658,7 +1655,7 @@ function run() {
 		      stylesSource.includes('.code-project-agent-compact-status.running') &&
 		      stylesSource.includes('.code-project-agent-compact-unread') &&
 		      stylesSource.includes('.code-project-title-actions') &&
-		      stylesSource.includes('.code-project-row:hover .code-project-title-actions') &&
+		      stylesSource.includes('.code-project-row:hover:not(:has(.code-project-worktree:hover)) .code-project-title-actions') &&
 		      stylesSource.includes('.code-project-title-action svg') &&
 		      stylesSource.includes('.code-context-menu-icon') &&
 		      stylesSource.includes('.code-agent-fork-new-worktree svg') &&

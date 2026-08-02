@@ -1123,7 +1123,7 @@ export function UsagePanel({
               {restartMenuOpen && (
                 <div className="code-main-agent-restart-menu" data-testid="code-main-agent-restart-menu" role="menu">
                   {([
-                    ['codex', 'Codex Chat'],
+                    ['codex', 'Codex'],
                     ['claude', 'Claude Code'],
                     ['opencode', 'OpenCode'],
                     ['qoder', 'Qoder'],
