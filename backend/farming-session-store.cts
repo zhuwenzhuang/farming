@@ -95,7 +95,32 @@ const PRODUCT_STATE_FIELDS: string[] = [
   'readOutputEpoch',
   'readOutputSeq',
   'customTitle',
+  'title',
+  'titleUserSpecified',
 ];
+
+function titleValue(value: unknown, limit = 160): string {
+  return String(value || '').trim().slice(0, limit);
+}
+
+function normalizeTitleMetadata(record: JsonRecord, options: { explicitCustomTitle?: boolean } = {}): void {
+  const customTitle = titleValue(record.customTitle, 80);
+  if (customTitle) {
+    record.customTitle = customTitle;
+    record.title = customTitle;
+    record.titleUserSpecified = true;
+    return;
+  }
+
+  record.titleUserSpecified = false;
+  const providerTitle = titleValue(record.providerSessionTitle);
+  const sessionTitle = titleValue(record.sessionTitle);
+  const fallbackTitle = titleValue(record.task);
+  const nextTitle = options.explicitCustomTitle === true
+    ? (providerTitle || sessionTitle || fallbackTitle)
+    : (providerTitle || sessionTitle || titleValue(record.title) || fallbackTitle);
+  record.title = nextTitle;
+}
 
 function now(): number {
   return Date.now();
@@ -525,11 +550,14 @@ class FarmingSessionStore {
       ...(typeof agent.customTitle === 'string' && agent.customTitle
         ? { customTitle: agent.customTitle }
         : {}),
-      title: typeof agent.customTitle === 'string' && agent.customTitle
-        ? agent.customTitle
-        : (typeof agent.providerSessionTitle === 'string' && agent.providerSessionTitle
-          ? agent.providerSessionTitle
-          : (typeof agent.sessionTitle === 'string' ? agent.sessionTitle : '')),
+      title: titleValue(
+        agent.customTitle
+          || agent.providerSessionTitle
+          || agent.sessionTitle
+          || agent.title
+          || agent.task,
+      ),
+      titleUserSpecified: titleValue(agent.customTitle, 80).length > 0,
       startedAt: typeof agent.startedAt === 'number' ? agent.startedAt : null,
     };
   }
@@ -592,9 +620,9 @@ class FarmingSessionStore {
       updatedAt: now(),
     };
     delete record.visibleOnMainPage;
-    if (typeof record.customTitle === 'string' && record.customTitle) {
-      record.title = record.customTitle;
-    }
+    normalizeTitleMetadata(record, {
+      explicitCustomTitle: Object.prototype.hasOwnProperty.call(patch, 'customTitle'),
+    });
     const writtenId = this.writeRecord(record);
     for (const [key, recordId] of this.providerSessionRecords) {
       if (key !== sessionKey && recordId === writtenId) this.providerSessionRecords.delete(key);
@@ -663,6 +691,9 @@ class FarmingSessionStore {
       ...patch,
       updatedAt: now(),
     };
+    normalizeTitleMetadata(record, {
+      explicitCustomTitle: Object.prototype.hasOwnProperty.call(patch, 'customTitle'),
+    });
     return this.writeRecord(record);
   }
 

@@ -60,7 +60,7 @@ When collaboration details are folded, the top-level child Agents use compact in
 
 ACP uses its own composer, draft namespace, permission cards, session controls, dynamic command menu, and transcript adapter under `src/components/code/acp/`. Terminal continues to use `CodeComposer` and the PTY input path without ACP branches. ACP client terminals use an embedded xterm view for real keystrokes, selection, output, resize, and stop behavior; this component is not shared with the Terminal page.
 
-For a new Codex Session, the pinned adapter publishes a fallback title from the first non-empty text prompt before waiting for the first Turn to complete. A later explicit Provider thread name may replace that fallback.
+For a new Codex Session, the pinned adapter publishes a fallback title from the first non-empty text prompt before waiting for the first Turn to complete. A later explicit Provider thread name may replace that fallback. Farming persists the last known title in the private Agent metadata `title` field and records whether it was user-specified in `titleUserSpecified`; a non-empty user title remains authoritative across provider updates and restart.
 
 User, process, and result images share one click-to-enlarge viewer that closes from its close control, backdrop, or Escape without changing transcript state.
 

@@ -142,6 +142,7 @@ function run() {
   assert.strictEqual(resolvedRecord.agentRuntimeMode, 'acp');
   assert.strictEqual(resolvedRecord.acpState, 'idle');
   assert.strictEqual(resolvedRecord.title, '看下cron worker怎么加新模块');
+  assert.strictEqual(resolvedRecord.titleUserSpecified, false);
   assert.deepStrictEqual(resolvedRecord.acpAdditionalDirectories, ['/shared/docs']);
   assert.deepStrictEqual(resolvedRecord.acpMcpServers, [
     { name: 'docs', command: '/bin/docs-mcp', args: [], env: [] },
@@ -184,6 +185,23 @@ function run() {
     '用户自定义名称',
     'a resume snapshot without a custom title must not clear the Farming-owned name',
   );
+  assert.strictEqual(store.readRecord(tempRecordId).title, '用户自定义名称');
+  assert.strictEqual(store.readRecord(tempRecordId).titleUserSpecified, true);
+  store.ensureRecordForAgent({
+    id: 'agent-provider-title-refresh',
+    providerSessionProvider: 'codex',
+    providerSessionId: 'resolved-codex-session',
+    providerSessionKey: 'agent-session:codex:resolved-codex-session',
+    providerSessionTemporary: false,
+    providerSessionTitle: 'Codex generated summary',
+    customTitle: '',
+  });
+  assert.strictEqual(
+    store.readRecord(tempRecordId).title,
+    '用户自定义名称',
+    'a provider title refresh must not replace a user-specified title',
+  );
+  assert.strictEqual(store.readRecord(tempRecordId).titleUserSpecified, true);
   store.ensureRecordForAgent({
     id: 'agent-explicitly-cleared-title',
     providerSessionProvider: 'codex',
@@ -199,6 +217,8 @@ function run() {
     '',
     'an explicit empty custom-title patch must still clear the name',
   );
+  assert.strictEqual(store.readRecord(tempRecordId).title, '');
+  assert.strictEqual(store.readRecord(tempRecordId).titleUserSpecified, false);
 
   const collisionKey = 'agent-session:codex:collision-session';
   const canonicalCollisionId = store.ensureRecordForAgent({

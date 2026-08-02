@@ -102,6 +102,7 @@ export interface AgentDisplayState {
   projectOrder?: number | null;
   task?: string;
   title?: string;
+  titleUserSpecified?: boolean;
   visibleOnMainPage?: boolean;
   workflowTemplate?: string;
 }

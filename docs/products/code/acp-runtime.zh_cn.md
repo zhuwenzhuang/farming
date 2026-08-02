@@ -58,7 +58,7 @@ Farming Code 把“已打开 Agent”逻辑列表与有界前端工作集分开�
 
 ACP 在 `src/components/code/acp/` 下拥有独立的 composer、草稿命名空间、权限卡片、Session 控件、动态命令菜单和 transcript adapter。Terminal 继续使用 `CodeComposer` 与 PTY 输入路径，不加入 ACP 分支。ACP client terminal 使用内嵌 xterm 承接真实逐键输入、选择、输出、尺寸同步和停止操作；这个组件不会与 Terminal 页面共享。
 
-新建 Codex Session 会由锁定版本的 adapter 在等待首个 Turn 完成之前，根据第一条非空文本 prompt 发布 fallback 标题；Provider 后续给出的显式 thread name 可以覆盖它。
+新建 Codex Session 会由锁定版本的 adapter 在等待首个 Turn 完成之前，根据第一条非空文本 prompt 发布 fallback 标题；Provider 后续给出的显式 thread name 可以覆盖它。Farming 会把最后一个已知标题写入私有 Agent 元数据的 `title` 字段，并用 `titleUserSpecified` 记录它是否由用户指定；非空的用户标题在 Provider 更新和重启后仍保持最高优先级。
 
 用户图片、过程图片和结果图片共用同一个点击放大 Viewer，可通过关闭按钮、背景或 Escape 退出，且不会修改 transcript 状态。
 
