@@ -1276,6 +1276,7 @@ test.describe('display-backed agent flows', () => {
       .not.toBe(idleProjectBackground)
     await expect(project.locator('.code-project-title-actions')).toHaveCSS('opacity', '1')
     await projectWorktree.hover()
+    expect(await project.locator('.code-project-title-actions').evaluate(element => getComputedStyle(element).opacity)).toBe('0')
     await expect.poll(() => projectTitle.evaluate(element => getComputedStyle(element).backgroundColor))
       .toBe(idleProjectBackground)
     await expect(project.locator('.code-project-title-actions')).toHaveCSS('opacity', '0')

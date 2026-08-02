@@ -1653,13 +1653,14 @@ body.code-resizing-sidebar {
   overflow: hidden;
   opacity: 0;
   pointer-events: none;
-  transition: opacity 120ms ease;
+  transition: none;
 }
 
 .code-project-row:hover:not(:has(.code-project-worktree:hover)) .code-project-title-actions,
 .code-project-row:focus-within:not(:has(.code-project-worktree:hover, .code-project-worktree:focus)) .code-project-title-actions {
   opacity: 1;
   pointer-events: auto;
+  transition: opacity 120ms ease;
 }
 
 .code-project-row:hover {
