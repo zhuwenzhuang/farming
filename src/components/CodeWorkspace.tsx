@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useReducer, useRef, useState, useCallback } from 'react'
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import type {
   ChangeEvent as ReactChangeEvent,
   ClipboardEvent as ReactClipboardEvent,
@@ -15,7 +15,6 @@ import type {
   TaskHistoryEntry,
   UsageSummary,
 } from '@/types/agent'
-import type { AcpRealtimeEvent } from '@/types/messages'
 import { CheckGlyph } from '@/components/IconGlyphs'
 import { appPath } from '@/lib/base-path'
 import { writeClipboardText } from '@/lib/clipboard'
@@ -94,24 +93,6 @@ import { MobileShareSheet } from './code/MobileShareSheet'
 import { CodeOverlays, ContextMenuIcon } from './code/CodeOverlays'
 import { CodeSidebar } from './code/CodeSidebar'
 import { LatestRequestFence } from './code/latest-request-fence'
-import {
-  CodexRealtimeController,
-  type CodexRealtimeSnapshot,
-} from './code/codex-realtime-controller'
-import { createCodexRealtimeHttpClient } from './code/codex-realtime-http'
-import { codexRealtimeVoiceAvailable } from './code/codex-realtime-capability'
-import {
-  codexRealtimePresentationForAgent,
-  initialCodexRealtimePresentation,
-  reduceCodexRealtimePresentation,
-} from './code/codex-realtime-presentation'
-import {
-  isCurrentSpeechRecognition,
-  ownSpeechRecognition,
-  releaseSpeechRecognition,
-  stopSpeechRecognition,
-  type SpeechRecognitionOwner,
-} from './code/speech-recognition-lifecycle'
 import { BrowserSidebarPortals } from '../../extensions/browser/frontend/BrowserSidebarPortals'
 import { useBrowserResources } from '../../extensions/browser/frontend/useBrowserResources'
 import type { BrowserResourceState } from '../../extensions/browser/frontend/browser-resource-state'
@@ -208,6 +189,7 @@ import type {
   LegacyCodexModelOption,
   MainPaneMode,
   SearchTarget,
+  SpeechRecognitionLike,
   WindowWithSpeechRecognition,
   WorkspaceFileOpenTarget,
   WorkspaceView,
@@ -357,7 +339,6 @@ interface TerminalReadCut {
 type AgentFlagUpdateResponse = AgentFlagUpdateResult | boolean | void
 
 interface CodeWorkspaceProps {
-  acpRealtimeAvailable: boolean
   agents: Agent[]
   taskHistory: TaskHistoryEntry[]
   mainPageSessionKeys: string[]
@@ -414,7 +395,6 @@ interface CodeWorkspaceProps {
     options?: { awaitResult?: boolean; requestId?: string; delivery?: 'prompt' | 'steer' },
   ) => boolean | Promise<boolean>
   onSessionOutput: (agentId: string, handler: (data: string, replace?: boolean, outputSeq?: number | null, runtimeEpoch?: string, stateRevision?: number | null, cols?: number, rows?: number, kind?: 'output' | 'resize' | 'clear') => void) => () => void
-  onAcpRealtime: (agentId: string, handler: (event: AcpRealtimeEvent) => void) => () => void
   onBrowserResource: (resource: BrowserResource) => void
   onBrowserResourceDeletion: (deletion: BrowserResourceDeletion) => void
   onComputerResource: (resource: ComputerResource) => void
@@ -440,15 +420,6 @@ const TERMINAL_PATH_SEARCH_LIMIT = 12
 const OPEN_FILE_REFRESH_CONCURRENCY = 4
 const OPEN_FILE_REFRESH_TIMEOUT_MS = 15_000
 const AGENT_SESSION_PAGE_SIZE = 60
-
-let codexRealtimeOperationSequence = 0
-
-function createCodexRealtimeOperationId() {
-  const randomId = globalThis.crypto?.randomUUID?.()
-  if (randomId) return `voice:${randomId}`
-  codexRealtimeOperationSequence += 1
-  return `voice:${Date.now().toString(36)}:${codexRealtimeOperationSequence.toString(36)}`
-}
 const AGENT_SESSION_SEARCH_LIMIT = 1000
 const AGENT_SESSION_SEARCH_DEBOUNCE_MS = 150
 const CODEX_TERMINAL_PROFILE_REQUEST_TIMEOUT_MS = 35_000
@@ -608,7 +579,6 @@ export function applyPendingMainPageSessionKeyMutations(
 }
 
 export function CodeWorkspace({
-  acpRealtimeAvailable,
   agents,
   taskHistory,
   mainPageSessionKeys: remoteMainPageSessionKeys,
@@ -645,7 +615,6 @@ export function CodeWorkspace({
   onInterruptAgent,
   sendComposerInput,
   onSessionOutput,
-  onAcpRealtime,
   onBrowserResource,
   onBrowserResourceDeletion,
   onComputerResource,
@@ -776,11 +745,6 @@ export function CodeWorkspace({
   const [optimisticallyArchivedAgentIds, setOptimisticallyArchivedAgentIds] = useState<Set<string>>(() => new Set())
   const [speechSupported, setSpeechSupported] = useState(false)
   const [speechListening, setSpeechListening] = useState(false)
-  const [codexRealtimePresentation, dispatchCodexRealtimePresentation] = useReducer(
-    reduceCodexRealtimePresentation,
-    undefined,
-    initialCodexRealtimePresentation,
-  )
   const [collapsedProjectIds, setCollapsedProjectIds] = useState<Set<string>>(() => new Set())
   const [expandedSessionProjectIds, setExpandedSessionProjectIds] = useState<Set<string>>(() => new Set())
   const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_SIDEBAR_WIDTH)
@@ -828,8 +792,7 @@ export function CodeWorkspace({
   const deleteWorktreeDialogRef = useRef<HTMLDivElement>(null)
   const deleteWorktreeCancelButtonRef = useRef<HTMLButtonElement>(null)
   const projectListRef = useRef<HTMLDivElement>(null)
-  const recognitionOwnerRef = useRef<SpeechRecognitionOwner>({ current: null, stopping: null })
-  const codexRealtimeRef = useRef<CodexRealtimeController | null>(null)
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null)
   const codexModelsLoadedAtRef = useRef(0)
   const codexModelsLoadedHomeRef = useRef('')
   const codexModelsRequestRef = useRef(0)
@@ -885,8 +848,6 @@ export function CodeWorkspace({
   }, [])
   activeTerminalIdRef.current = activeTerminalId
   const copy = useMemo(() => codeCopyForLanguage(uiPreferences.language), [uiPreferences.language])
-  const realtimeCopyRef = useRef(copy)
-  realtimeCopyRef.current = copy
 
   useEffect(() => {
     saveSessionDisplayState({
@@ -1145,14 +1106,8 @@ export function CodeWorkspace({
     [activeAgents, activeTerminalId, hiddenMainAgent]
   )
   const activeAgent = useAgentWithLiveRuntimeState(structuralActiveAgent)
-  const displayedSpeechAgentIdRef = useRef(activeAgent?.id || null)
-  displayedSpeechAgentIdRef.current = activeAgent?.id || null
   const activeProviderHomeId = activeAgent?.providerHomeId || 'default'
   const activeAcpRuntime = isAcpRuntime(activeAgent) ? activeAgent.runtimeBinding : null
-  const activeCodexRealtimeAvailable = codexRealtimeVoiceAvailable(
-    acpRealtimeAvailable,
-    activeAcpRuntime?.supportsRealtime === true,
-  )
   const activeAgentPermissionSwitching = Boolean(
     activeAgent && activeAgent.id === permissionSwitchingAgentId
   )
@@ -2424,13 +2379,6 @@ export function CodeWorkspace({
     onInterruptAgent(activeAgent.id)
     focusComposerTextarea()
   }, [activeAgent, activeAgentCanInterrupt, focusComposerTextarea, onInterruptAgent])
-
-  const reconnectActiveAcpAgent = useCallback(() => {
-    if (!activeAgent || !isAcpRuntime(activeAgent)) return
-    void fetch(appPath(`/api/agents/${encodeURIComponent(activeAgent.id)}/acp-session/reconnect`), {
-      method: 'POST',
-    })
-  }, [activeAgent])
 
   const respondToActiveAcpPermission = useCallback((requestId: string, optionId?: string, cancelled?: boolean) => {
     if (!activeAgent) return
@@ -4663,82 +4611,10 @@ export function CodeWorkspace({
     commitCodexProfile(displayedCodexModel, displayedCodexReasoningEffort, tier)
   }, [activeAgent, applyCodexTerminalProfile, displayedCodexModel, displayedCodexReasoningEffort, commitCodexProfile, composerAgentKind])
 
-  useEffect(() => {
-    const applySnapshot = (snapshot: CodexRealtimeSnapshot) => {
-      dispatchCodexRealtimePresentation({
-        type: 'snapshot',
-        displayedAgentId: displayedSpeechAgentIdRef.current,
-        snapshot,
-      })
-    }
-    const realtimeHttp = createCodexRealtimeHttpClient({
-      fetch: window.fetch.bind(window),
-      buildPath: appPath,
-      scheduleTimeout: (callback, delayMs) => window.setTimeout(callback, delayMs),
-      clearScheduledTimeout: timerId => window.clearTimeout(timerId),
-    })
-    const controller = new CodexRealtimeController({
-      getUserMedia: () => navigator.mediaDevices.getUserMedia({ audio: true }),
-      createPeerConnection: () => new RTCPeerConnection(),
-      createAudio: () => document.createElement('audio'),
-      createOperationId: createCodexRealtimeOperationId,
-      startBackend: realtimeHttp.startBackend,
-      stopBackend: realtimeHttp.stopBackend,
-      scheduleTimeout: (callback, delayMs) => window.setTimeout(callback, delayMs),
-      clearScheduledTimeout: timerId => window.clearTimeout(timerId),
-      onSnapshot: applySnapshot,
-      onTranscript: event => {
-        dispatchCodexRealtimePresentation({
-          type: 'transcript',
-          displayedAgentId: displayedSpeechAgentIdRef.current,
-          event,
-        })
-      },
-      formatRealtimeError: message => (
-        /Voice session access denied|403 Forbidden/i.test(message)
-          ? realtimeCopyRef.current.realtimeVoiceAccessDenied
-          : message
-      ),
-    })
-    codexRealtimeRef.current = controller
-    return () => {
-      if (codexRealtimeRef.current === controller) codexRealtimeRef.current = null
-      void controller.dispose()
-    }
-  }, [])
-
-  useEffect(() => {
-    if (!activeAgent?.id || !activeCodexRealtimeAvailable) return undefined
-    return onAcpRealtime(activeAgent.id, event => {
-      void codexRealtimeRef.current?.handleEvent(event)
-    })
-  }, [activeAgent?.id, activeCodexRealtimeAvailable, onAcpRealtime])
-
-  useEffect(() => {
-    codexRealtimeRef.current?.ownerChanged(
-      activeCodexRealtimeAvailable ? activeAgent?.id || null : null,
-    )
-  }, [activeAgent?.id, activeCodexRealtimeAvailable])
-
-  useEffect(() => {
-    stopSpeechRecognition(recognitionOwnerRef.current, true)
-    dispatchCodexRealtimePresentation({ type: 'agentChanged', agentId: activeAgent?.id || null })
-    setSpeechListening(false)
-  }, [activeAgent?.id])
-
   const toggleSpeechInput = useCallback(() => {
-    if (activeAgent && activeCodexRealtimeAvailable) {
-      const controller = codexRealtimeRef.current
-      if (!controller) return
-      if (controller.getSnapshot().phase === 'idle' || controller.getSnapshot().phase === 'failed') {
-        dispatchCodexRealtimePresentation({ type: 'start', agentId: activeAgent.id })
-      }
-      void controller.toggle(activeAgent.id)
-      return
-    }
-
     if (speechListening) {
-      stopSpeechRecognition(recognitionOwnerRef.current, false)
+      recognitionRef.current?.stop()
+      recognitionRef.current = null
       setSpeechListening(false)
       return
     }
@@ -4766,14 +4642,18 @@ export function CodeWorkspace({
       recognitionStopTimer = null
     }
     const stopRecognitionIfCurrent = () => {
-      if (!isCurrentSpeechRecognition(recognitionOwnerRef.current, recognition)) return
-      if (stopSpeechRecognition(recognitionOwnerRef.current, false) === 'failed') setSpeechListening(false)
+      if (recognitionRef.current !== recognition) return
+      try {
+        recognition.stop()
+      } catch {
+        setSpeechListening(false)
+        recognitionRef.current = null
+      }
     }
     recognition.continuous = false
     recognition.interimResults = false
     recognition.lang = uiPreferences.language === 'zh' ? 'zh-CN' : (navigator.language || 'en-US')
     recognition.onresult = event => {
-      if (!isCurrentSpeechRecognition(recognitionOwnerRef.current, recognition)) return
       let transcript = ''
       for (let index = event.resultIndex; index < event.results.length; index += 1) {
         transcript += event.results[index]?.[0]?.transcript ?? ''
@@ -4790,29 +4670,27 @@ export function CodeWorkspace({
     }
     recognition.onerror = () => {
       clearRecognitionStopTimer()
-      if (!releaseSpeechRecognition(recognitionOwnerRef.current, recognition)) return
       setSpeechListening(false)
     }
     recognition.onspeechend = stopRecognitionIfCurrent
     recognition.onaudioend = stopRecognitionIfCurrent
     recognition.onend = () => {
       clearRecognitionStopTimer()
-      if (!releaseSpeechRecognition(recognitionOwnerRef.current, recognition)) return
       setSpeechListening(false)
+      recognitionRef.current = null
     }
-    ownSpeechRecognition(recognitionOwnerRef.current, recognition)
-    dispatchCodexRealtimePresentation({ type: 'reset' })
+    recognitionRef.current = recognition
     setSpeechListening(true)
     try {
       recognition.start()
       recognitionStopTimer = window.setTimeout(stopRecognitionIfCurrent, 60_000)
     } catch {
       clearRecognitionStopTimer()
-      releaseSpeechRecognition(recognitionOwnerRef.current, recognition)
+      recognitionRef.current = null
       setSpeechListening(false)
       if (mobileComposerFallback) focusComposerTextarea()
     }
-  }, [activeAgent, activeCodexRealtimeAvailable, activeComposerKey, focusComposerTextarea, speechListening, speechSupported, uiPreferences.language, updateComposerStateForKey])
+  }, [activeComposerKey, focusComposerTextarea, speechListening, speechSupported, uiPreferences.language, updateComposerStateForKey])
 
   const toggleContextProjectPinned = useCallback(async () => {
     if (!contextMenuProject?.workspace) return
@@ -5288,7 +5166,6 @@ export function CodeWorkspace({
   }, [pageVisible])
 
   useEffect(() => {
-    const speechRecognitionOwner = recognitionOwnerRef.current
     const speechViewportQuery = window.matchMedia('(max-width: 980px)')
     const updateSpeechSupported = () => {
       const SpeechRecognition = (window as WindowWithSpeechRecognition).SpeechRecognition
@@ -5300,7 +5177,8 @@ export function CodeWorkspace({
 
     return () => {
       speechViewportQuery.removeEventListener('change', updateSpeechSupported)
-      stopSpeechRecognition(speechRecognitionOwner, true)
+      recognitionRef.current?.stop()
+      recognitionRef.current = null
     }
   }, [])
 
@@ -5526,10 +5404,6 @@ export function CodeWorkspace({
   const workspaceStyle = {
     '--code-sidebar-width': `${sidebarCollapsed ? COLLAPSED_SIDEBAR_WIDTH : sidebarWidth}px`,
   } as CSSProperties
-  const activeSpeechPresentation = codexRealtimePresentationForAgent(
-    codexRealtimePresentation,
-    activeAgent?.id || null,
-  )
 
   return (
     <div
@@ -5822,20 +5696,13 @@ export function CodeWorkspace({
               ? [activeAcpRuntime.pendingElicitation]
               : [],
           activeElicitations: activeAcpRuntime?.activeElicitations || [],
-          speechSupported: speechSupported || activeCodexRealtimeAvailable,
-          speechListening: activeSpeechPresentation.owned
-            ? activeSpeechPresentation.listening
-            : speechListening,
-          speechConnecting: activeSpeechPresentation.connecting,
-          speechRealtime: activeCodexRealtimeAvailable,
-          speechTranscript: activeSpeechPresentation.transcript,
-          speechError: activeSpeechPresentation.error,
+          speechSupported,
+          speechListening,
           onDraftChange: handleDraftChange,
           onNavigateHistory: navigateActiveComposerHistory,
           onRemoveAttachment: removeComposerAttachment,
           onSubmit: submitAcpDraft,
           onInterrupt: interruptActiveAgent,
-          onReconnect: reconnectActiveAcpAgent,
           onDiscardPendingFollowUp: discardPendingFollowUp,
           onEditPendingFollowUp: editPendingFollowUp,
           onSteerPendingFollowUp: steerPendingFollowUp,

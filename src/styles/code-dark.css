@@ -188,13 +188,6 @@ body.code-mode[data-appearance='dark'] .code-composer-mode-chip:hover {
   color: var(--code-dark-text);
 }
 
-body.code-mode[data-appearance='dark'] .code-composer-mic.realtime,
-body.code-mode[data-appearance='dark'] .code-composer-mic.realtime:hover,
-body.code-mode[data-appearance='dark'] .code-composer-mic.realtime.listening {
-  color: #111;
-  background: #f8f8f6;
-}
-
 body.code-mode[data-appearance='dark'] .code-agent-row-action {
   color: var(--code-dark-text-muted);
 }

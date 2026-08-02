@@ -175,7 +175,6 @@ async function run() {
     assert(resolvedShells.some(shell => String(shell).endsWith('bash')) && resolvedShells.some(shell => String(shell).endsWith('zsh')), 'shell environment capture should be keyed by the target shell');
 
     const codingEnv = manager.buildAgentEnv('agent-coding', { wantsMain: false, category: 'coding' });
-    assert.strictEqual(codingEnv.FARMING_CLI_BIN_DIR, manager.cliBinDir);
     assert.strictEqual(codingEnv.FARMING_SHELL_CONTROLLED_PROMPT, undefined, 'coding CLIs should not inherit shell prompt policy');
     assert.strictEqual(codingEnv.FARMING_ANONYMIZE_SHELL_PROMPT, undefined, 'coding CLIs should not inherit shell anonymization policy');
 

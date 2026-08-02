@@ -26,8 +26,6 @@ const {
 } = require('../runtime-dependency-manager.cjs');
 const { buildManifest } = require('../../scripts/build-runtime-dependency-manifest');
 
-const TESTED_CODEX_REALTIME_V3_MIN_VERSION = '0.145.0';
-
 type RuntimeArtifactFixture = {
   url: string;
   archive?: string;
@@ -48,25 +46,8 @@ function writeVersionExecutable(directory, name, version) {
   return target;
 }
 
-function compareNumericVersions(left, right) {
-  const leftParts = String(left).split('.').map(Number);
-  const rightParts = String(right).split('.').map(Number);
-  for (let index = 0; index < Math.max(leftParts.length, rightParts.length); index += 1) {
-    const difference = (leftParts[index] || 0) - (rightParts[index] || 0);
-    if (difference !== 0) return difference;
-  }
-  return 0;
-}
-
 async function run() {
   assert.deepStrictEqual(buildManifest(), MANIFEST, 'checked-in runtime manifest must match package-lock');
-  assert(
-    compareNumericVersions(
-      MANIFEST.dependencies.codex.version,
-      TESTED_CODEX_REALTIME_V3_MIN_VERSION,
-    ) >= 0,
-    `managed Codex must support Realtime v3 (${TESTED_CODEX_REALTIME_V3_MIN_VERSION} or newer)`,
-  );
   assert.strictEqual(SOURCE_CONFIG.authoritativeNpmRegistry, 'https://registry.npmjs.org/');
   assert.strictEqual(SOURCE_CONFIG.defaultNpmMirror, 'https://registry.npmmirror.com/');
   const directInvocation = runtimeExecutableInvocation('/runtime/agent-browser', ['--version'], {});
@@ -317,11 +298,7 @@ async function run() {
   fs.mkdirSync(binDir);
   const env: NodeJS.ProcessEnv = {
     PATH: process.env.PATH,
-    FARMING_CODEX_BIN: writeVersionExecutable(
-      binDir,
-      'codex',
-      MANIFEST.dependencies.codex.version,
-    ),
+    FARMING_CODEX_BIN: writeVersionExecutable(binDir, 'codex', '0.144.6'),
     FARMING_CLAUDE_BIN: writeVersionExecutable(binDir, 'claude', '2.1.0'),
     FARMING_AGENT_BROWSER_BIN: writeVersionExecutable(binDir, 'agent-browser', '0.32.3'),
   };
@@ -581,10 +558,7 @@ async function run() {
   );
 
   const invalid = writeVersionExecutable(binDir, 'wrong-codex', '0.1.0');
-  assert.strictEqual(
-    (await verifyExecutable(invalid, MANIFEST.dependencies.codex.version)).valid,
-    false,
-  );
+  assert.strictEqual((await verifyExecutable(invalid, '0.144.6')).valid, false);
   await assert.rejects(
     prepareRuntimeDependencies({
       configDir: path.join(root, 'wrong'),
@@ -594,7 +568,7 @@ async function run() {
         FARMING_RUNTIME_MANIFEST_ID: '',
       },
     }),
-    /FARMING_CODEX_BIN must provide codex 0\.145\.0/,
+    /FARMING_CODEX_BIN must provide codex 0\.144\.6/,
   );
 
   console.log('✓ startup dependencies publish retained multi-version bindings and activate atomically');

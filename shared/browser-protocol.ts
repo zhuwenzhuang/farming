@@ -1,11 +1,5 @@
 export const PROTOCOL_VERSION = 4
 export const MIN_PROTOCOL_VERSION = 4
-export const ACP_REALTIME_PROTOCOL_EXTENSION = 'acp-realtime-v1'
-export const AVAILABLE_PROTOCOL_EXTENSIONS = [ACP_REALTIME_PROTOCOL_EXTENSION] as const
-export const REQUESTED_PROTOCOL_EXTENSIONS = [ACP_REALTIME_PROTOCOL_EXTENSION] as const
-
-const MAX_PROTOCOL_EXTENSIONS = 32
-const MAX_PROTOCOL_EXTENSION_ID_LENGTH = 80
 
 type ObjectMessage = Record<string, unknown>
 
@@ -16,7 +10,6 @@ interface ExtensibleMessage extends ObjectMessage {
 export interface ProtocolClientHelloMessage extends ExtensibleMessage {
   type: 'protocol-hello'
   protocolVersion: number
-  requestedExtensions?: string[]
 }
 
 export interface BusinessHealthProbeMessage extends ExtensibleMessage {
@@ -105,8 +98,6 @@ export interface ProtocolServerHelloMessage extends ExtensibleMessage {
   type: 'protocol-hello'
   protocolVersion: number
   minProtocolVersion: number
-  availableExtensions?: string[]
-  negotiatedExtensions?: string[]
 }
 
 export interface BusinessHealthResultMessage extends ExtensibleMessage {
@@ -248,17 +239,6 @@ export interface ComputerResourceDeletedMessage extends ExtensibleMessage {
   deletion: ObjectMessage & { id: string; collectionRevision: number }
 }
 
-export interface AcpRealtimeMessage extends ExtensibleMessage {
-  type: 'acp-realtime'
-  event: ObjectMessage & {
-    agentId: string
-    sessionId: string
-    operationId?: string
-    method: string
-    params: ObjectMessage
-  }
-}
-
 export type ServerMessage =
   | ProtocolServerHelloMessage
   | BusinessHealthResultMessage
@@ -274,7 +254,6 @@ export type ServerMessage =
   | AgentActivityMessage
   | AgentUpdateMessage
   | AcpSessionRevisionMessage
-  | AcpRealtimeMessage
   | AgentReadMessage
   | WorkspaceFileWatchMessage
   | WorkspaceFileEventMessage
@@ -321,7 +300,6 @@ const SERVER_MESSAGE_TYPES: ReadonlySet<ServerMessage['type']> = new Set([
   'agent-activity',
   'agent-update',
   'acp-session-revision',
-  'acp-realtime',
   'agent-read',
   'workspace-file-watch',
   'workspace-file-event',
@@ -343,37 +321,6 @@ function stringField(value: ObjectMessage, name: string, optional = false): bool
 
 function finiteField(value: ObjectMessage, name: string): boolean {
   return typeof value[name] === 'number' && Number.isFinite(value[name])
-}
-
-function protocolExtensionsField(value: ObjectMessage, name: string): boolean {
-  if (!Object.prototype.hasOwnProperty.call(value, name)) return true
-  const extensions = value[name]
-  return Array.isArray(extensions)
-    && extensions.length <= MAX_PROTOCOL_EXTENSIONS
-    && extensions.every(extension => (
-      typeof extension === 'string'
-      && extension.length > 0
-      && extension.length <= MAX_PROTOCOL_EXTENSION_ID_LENGTH
-    ))
-}
-
-export function negotiateProtocolExtensions(
-  available: readonly string[] | undefined,
-  requested: readonly string[] | undefined,
-): string[] {
-  const availableSet = new Set(available || [])
-  return [...new Set(requested || [])].filter(extension => availableSet.has(extension))
-}
-
-export function acknowledgedProtocolExtensions(
-  requested: readonly string[] | undefined,
-  available: readonly string[] | undefined,
-  negotiated: readonly string[] | undefined,
-): string[] {
-  return negotiateProtocolExtensions(
-    negotiateProtocolExtensions(requested, available),
-    negotiated,
-  )
 }
 
 function revisionField(value: ObjectMessage, name: string): boolean {
@@ -437,10 +384,7 @@ export function validateClientMessage(value: unknown): ValidationResult<ClientMe
   }
   let valid = true
   switch (value.type) {
-    case 'protocol-hello':
-      valid = Number.isInteger(value.protocolVersion)
-        && protocolExtensionsField(value, 'requestedExtensions')
-      break
+    case 'protocol-hello': valid = Number.isInteger(value.protocolVersion); break
     case 'business-health-probe': valid = stringField(value, 'requestId'); break
     case 'start-agent': valid = stringField(value, 'command'); break
     case 'input': valid = stringField(value, 'agentId', true) && (typeof value.input === 'string' || Array.isArray(value.inputParts)); break
@@ -476,12 +420,7 @@ export function validateServerMessage(value: unknown): ValidationResult<ServerMe
   }
   let valid = true
   switch (value.type) {
-    case 'protocol-hello':
-      valid = Number.isInteger(value.protocolVersion)
-        && Number.isInteger(value.minProtocolVersion)
-        && protocolExtensionsField(value, 'availableExtensions')
-        && protocolExtensionsField(value, 'negotiatedExtensions')
-      break
+    case 'protocol-hello': valid = Number.isInteger(value.protocolVersion) && Number.isInteger(value.minProtocolVersion); break
     case 'business-health-result':
       valid = stringField(value, 'requestId')
         && stringField(value, 'serverEpoch')
@@ -504,17 +443,6 @@ export function validateServerMessage(value: unknown): ValidationResult<ServerMe
     case 'agent-activity': valid = objectMessage(value.activity) && stringField(value.activity, 'agentId'); break
     case 'agent-update': valid = objectMessage(value.update) && stringField(value.update, 'agentId') && sanitizeAgentUpdatePatch(value.update.patch) !== null; break
     case 'acp-session-revision': valid = objectMessage(value.session) && stringField(value.session, 'agentId') && Number.isInteger(value.session.revision) && typeof value.session.revision === 'number' && value.session.revision >= 0 && stringField(value.session, 'updatedAt'); break
-    case 'acp-realtime':
-      valid = objectMessage(value.event)
-        && stringField(value.event, 'agentId')
-        && stringField(value.event, 'sessionId')
-        && (
-          value.event.operationId === undefined
-          || typeof value.event.operationId === 'string' && value.event.operationId.length > 0
-        )
-        && stringField(value.event, 'method')
-        && objectMessage(value.event.params)
-      break
     case 'agent-read': valid = objectMessage(value.read) && stringField(value.read, 'agentId'); break
     case 'workspace-file-watch': valid = stringField(value, 'agentId') && typeof value.watching === 'boolean'; break
     case 'workspace-file-event': valid = objectMessage(value.event) && stringField(value.event, 'agentId'); break

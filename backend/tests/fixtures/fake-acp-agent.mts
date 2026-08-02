@@ -140,15 +140,7 @@ class FakeAgent implements Agent {
         loadSession: true,
         promptCapabilities: { image: true, audio: true, embeddedContext: true },
         sessionCapabilities: { list: {}, resume: {}, fork: {}, delete: {}, close: {} },
-        _meta: { codex: {
-          steer: { method: '_codex/session/steer', version: 1 },
-          realtime: {
-            version: 1,
-            transport: 'webrtc',
-            startMethod: '_codex/session/realtime/start',
-            stopMethod: '_codex/session/realtime/stop',
-          },
-        } },
+        _meta: { codex: { steer: { method: '_codex/session/steer', version: 1 } } },
       },
       authMethods: [{
         id: 'fake-login',
@@ -329,51 +321,6 @@ class FakeAgent implements Agent {
   }
 
   async extMethod(method, params) {
-    if (method === '_codex/session/realtime/start') {
-      if (typeof params.sdp !== 'string' || !params.sdp.startsWith('v=0')) {
-        throw new Error('Realtime start requires an SDP offer');
-      }
-      await client.sessionUpdate({
-        sessionId: params.sessionId,
-        update: {
-          sessionUpdate: 'session_info_update',
-          _meta: { codex: { realtime: {
-            version: 1,
-            operationId: params.operationId,
-            method: 'thread/realtime/sdp',
-            params: { threadId: params.sessionId, sdp: 'v=0\r\nfake-answer' },
-          } } },
-        },
-      });
-      await client.sessionUpdate({
-        sessionId: params.sessionId,
-        update: {
-          sessionUpdate: 'session_info_update',
-          _meta: { codex: { realtime: {
-            version: 1,
-            operationId: params.operationId,
-            method: 'thread/realtime/transcript/done',
-            params: { threadId: params.sessionId, role: 'user', text: 'run the focused tests' },
-          } } },
-        },
-      });
-      return {};
-    }
-    if (method === '_codex/session/realtime/stop') {
-      await client.sessionUpdate({
-        sessionId: params.sessionId,
-        update: {
-          sessionUpdate: 'session_info_update',
-          _meta: { codex: { realtime: {
-            version: 1,
-            operationId: params.operationId,
-            method: 'thread/realtime/closed',
-            params: { threadId: params.sessionId, reason: 'client_stop' },
-          } } },
-        },
-      });
-      return {};
-    }
     if (method === '_codex/session/steer') {
       const steerTurn = activeSteerTurn;
       if (!steerTurn || steerTurn.sessionId !== params.sessionId) {
@@ -437,24 +384,6 @@ class FakeAgent implements Agent {
   async prompt(params: PromptRequest): Promise<PromptResponse> {
     const promptText = params.prompt?.map(block => block.type === 'text' ? block.text : '').join('') || '';
     const imageCount = params.prompt?.filter(block => block.type === 'image').length || 0;
-    if (promptText.includes('disconnect adapter once')) {
-      if (!hasSessionScenario(params.sessionId, 'adapter-disconnect-once')) {
-        markSessionScenario(params.sessionId, 'adapter-disconnect-once');
-        process.exit(23);
-      }
-      fs.writeFileSync(path.join(process.cwd(), '.adapter-disconnect-replayed'), '1');
-    }
-    if (promptText.includes('new explicit request after reconnect')) {
-      await client.sessionUpdate({
-        sessionId: params.sessionId,
-        update: {
-          sessionUpdate: 'agent_message_chunk',
-          messageId: 'adapter-reconnect-answer',
-          content: { type: 'text', text: 'ACP reconnect reply' },
-        },
-      });
-      return { stopReason: 'end_turn' };
-    }
     if (promptText.includes('mobile interrupt')) {
       await client.sessionUpdate({
         sessionId: params.sessionId,

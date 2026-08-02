@@ -1,7 +1,6 @@
 import type { IncomingHttpHeaders, IncomingMessage, OutgoingHttpHeaders } from 'node:http';
 
 const fs = require('fs');
-const crypto = require('crypto');
 const http = require('http');
 const https = require('https');
 import { renderMainAgentSkills } from './main-agent-skills.cjs';
@@ -275,7 +274,7 @@ function parseArgs(argv: string[]): ParsedArgs {
       command,
       options: {
         agentId,
-        input: text,
+        input: (text.endsWith('\r') || text.endsWith('\n')) ? text : `${text}\r`,
       },
     };
   }
@@ -502,12 +501,9 @@ async function run(argv: string[] = process.argv.slice(2), io: CliIo = process):
   }
 
   if (parsed.command === 'send') {
-    await request(`/api/control/agents/${encodeURIComponent(parsed.options.agentId)}/messages`, {
+    await request(`/api/control/agents/${encodeURIComponent(parsed.options.agentId)}/input`, {
       method: 'POST',
-      body: {
-        message: parsed.options.input,
-        requestId: `cli:${crypto.randomUUID()}`,
-      },
+      body: { input: parsed.options.input },
     });
     io.stdout.write('Sent\n');
     return 0;

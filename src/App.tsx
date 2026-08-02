@@ -1267,7 +1267,6 @@ export function App() {
   return (
     <div className="app-container code-app-shell" data-testid="app-shell">
       <CodeWorkspace
-        acpRealtimeAvailable={ws.acpRealtimeAvailable}
         agents={displayedAgents}
         taskHistory={ws.taskHistory}
         mainPageSessionKeys={ws.mainPageSessionKeys}
@@ -1310,7 +1309,6 @@ export function App() {
         onInterruptAgent={handleInterruptAgent}
         sendComposerInput={ws.sendComposerInput}
         onSessionOutput={ws.onSessionOutput}
-        onAcpRealtime={ws.onAcpRealtime}
         onBrowserResource={ws.mergeBrowserResource}
         onBrowserResourceDeletion={ws.deleteBrowserResource}
         onComputerResource={ws.mergeComputerResource}

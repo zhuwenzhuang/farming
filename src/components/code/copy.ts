@@ -184,7 +184,6 @@ export interface CodeCopy {
   forceDelete: string
   cancel: string
   retry: string
-  reconnect: string
   save: string
   stopAgentDescription: (title: string) => string
   acknowledgeUnprovenAcpExit: string
@@ -238,15 +237,7 @@ export interface CodeCopy {
   speed: string
   startDictation: string
   stopDictation: string
-  startVoice: string
-  stopVoice: string
   speechUnsupported: string
-  voiceLabel: string
-  voiceLive: string
-  voiceConnecting: string
-  voiceStopped: string
-  voiceListening: string
-  realtimeVoiceAccessDenied: string
   mobileDictationHint: string
   sendMessage: string
   interruptAgent: string
@@ -710,7 +701,6 @@ const EN_COPY: CodeCopy = {
   forceDelete: 'Permanently Delete',
   cancel: 'Cancel',
   retry: 'Retry',
-  reconnect: 'Reconnect',
   save: 'Save',
   stopAgentDescription: title => `Stop ${title} and close its terminal.`,
   acknowledgeUnprovenAcpExit: 'Confirm Exit and Remove',
@@ -786,15 +776,7 @@ const EN_COPY: CodeCopy = {
   speed: 'Speed',
   startDictation: 'Start dictation',
   stopDictation: 'Stop dictation',
-  startVoice: 'Start realtime voice',
-  stopVoice: 'End realtime voice',
   speechUnsupported: 'Speech recognition is not supported in this browser',
-  voiceLabel: 'Voice',
-  voiceLive: 'live',
-  voiceConnecting: 'connecting',
-  voiceStopped: 'stopped',
-  voiceListening: 'Listening…',
-  realtimeVoiceAccessDenied: 'Codex Realtime voice is not enabled for this account yet.',
   mobileDictationHint: 'Use the microphone key on the iOS keyboard to dictate.',
   sendMessage: 'Send message',
   interruptAgent: 'Interrupt agent',
@@ -1262,7 +1244,6 @@ const ZH_COPY: CodeCopy = {
   forceDelete: '彻底删除',
   cancel: '取消',
   retry: '重试',
-  reconnect: '重新连接',
   save: '保存',
   stopAgentDescription: title => `停止 ${title} 并关闭它的终端。`,
   acknowledgeUnprovenAcpExit: '确认已退出并移除',
@@ -1374,15 +1355,7 @@ const ZH_COPY: CodeCopy = {
   speed: '速度',
   startDictation: '开始语音输入',
   stopDictation: '停止语音输入',
-  startVoice: '开始实时语音',
-  stopVoice: '结束实时语音',
   speechUnsupported: '当前浏览器不支持语音识别',
-  voiceLabel: '语音',
-  voiceLive: '实时',
-  voiceConnecting: '连接中',
-  voiceStopped: '已停止',
-  voiceListening: '正在聆听…',
-  realtimeVoiceAccessDenied: '当前账号尚未开通 Codex Realtime 语音权限。',
   mobileDictationHint: '请点 iOS 键盘上的麦克风进行听写。',
   sendMessage: '发送消息',
   interruptAgent: '中止 Agent',

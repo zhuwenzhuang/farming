@@ -133,12 +133,6 @@ interface PersistCreateResult {
   error?: string;
 }
 
-interface ComposerMessageOptions {
-  [key: string]: unknown;
-  delivery?: 'prompt' | 'steer';
-  requestId: string;
-}
-
 interface AgentManager {
   agentSupportsTerminalInput?(agentId: string): boolean;
   clearAgentSessionBuffer(
@@ -159,11 +153,7 @@ interface AgentManager {
     agentId: string,
     options: { recordHistory: boolean },
   ): Promise<KillRequest>;
-  sendComposerMessage(
-    agentId: string,
-    input: string,
-    options?: ComposerMessageOptions,
-  ): Promise<unknown> | unknown;
+  sendComposerMessage(agentId: string, input: string): Promise<unknown> | unknown;
   sendInput(
     agentId: string,
     input: string,
@@ -565,48 +555,6 @@ function createControlRouter(
       ...(Array.isArray(body.mcpServers) ? { mcpServers: body.mcpServers } : {}),
       dangerouslySkipPermissions: body.dangerouslySkipPermissions === true,
     });
-  });
-
-  router.post('/agents/:agentId/messages', async (req, res) => {
-    const agentId = req.params.agentId;
-    if (!findAgent(agentManager.getState(), agentId)) {
-      res.status(404).json({ error: 'agent not found' });
-      return;
-    }
-
-    const message = typeof req.body.message === 'string' ? req.body.message : '';
-    if (!message.trim()) {
-      res.status(400).json({ error: 'message is required' });
-      return;
-    }
-
-    const requestId = (
-      typeof req.body.requestId === 'string' && req.body.requestId.trim()
-        ? req.body.requestId.trim()
-        : req.get('Idempotency-Key') || ''
-    );
-    if (!/^[A-Za-z0-9._:-]{1,160}$/.test(requestId)) {
-      res.status(400).json({ error: 'a valid requestId or Idempotency-Key is required' });
-      return;
-    }
-
-    const delivery = req.body.delivery === 'prompt' || req.body.delivery === 'steer'
-      ? req.body.delivery
-      : undefined;
-    try {
-      const result = await agentManager.sendComposerMessage(agentId, message, {
-        requestId,
-        ...(delivery ? { delivery } : {}),
-      });
-      notifyUpdate();
-      res.status(202).json({ accepted: true, agentId, requestId, result });
-    } catch (error) {
-      res.status(409).json({
-        error: errorMessage(error, 'Agent message was not accepted'),
-        requestId,
-        uncertain: isRecord(error) && error.uncertain === true,
-      });
-    }
   });
 
   router.post('/agents/:agentId/input', async (req, res) => {

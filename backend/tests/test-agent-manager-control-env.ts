@@ -75,7 +75,6 @@ async function run() {
 
     assert.strictEqual(captured[0].env.FARMING_AGENT_ID, parentId);
     assert.strictEqual(captured[0].env.FARMING_IS_MAIN_AGENT, '1');
-    assert.strictEqual(captured[0].env.FARMING_CLI_BIN_DIR, '/repo/bin');
     assert.strictEqual(captured[0].env.FARMING_CONTROL_URL, 'http://127.0.0.1:3000/farming');
     assert.strictEqual(captured[0].env.FARMING_TOKEN_FILE, path.join(farmingDir, '.session-token'));
     assert.strictEqual(captured[0].env.FARMING_SKILLS_COMMAND, 'farming skills');
@@ -102,7 +101,6 @@ async function run() {
     assert.strictEqual(captured[1].env.FARMING_AGENT_ID, childId);
     assert.strictEqual(captured[1].env.FARMING_PARENT_AGENT_ID, parentId);
     assert.strictEqual(captured[1].env.FARMING_IS_MAIN_AGENT, '0');
-    assert.strictEqual(captured[1].env.FARMING_CLI_BIN_DIR, '/repo/bin');
     assert.strictEqual(captured[1].env.FARMING_PROJECT_WORKSPACE, workspace);
     assert(captured[1].args.includes(farmingSystemPrompt), 'child Agents must receive the Farming bootstrap too');
 

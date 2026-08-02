@@ -132,7 +132,6 @@ interface WebSocketClient {
   bufferedAmount: number;
   connectionId?: string;
   focusedAgentId?: string | null;
-  negotiatedProtocolExtensions?: Set<string>;
   previewScope?: 'none' | 'focused' | 'all';
   protocolVersion?: number;
   readyState: number;
@@ -154,7 +153,6 @@ interface ServerError extends Error {
   statusCode?: number;
   stderr?: string;
   uncertain?: boolean;
-  realtimeStartOutcome?: 'rejected' | 'uncertain';
 }
 
 function caughtError(error: unknown): ServerError {
@@ -276,14 +274,7 @@ import { createReviewSessionRouter } from './review-session-router.cjs';
 import { applyIndexHtmlAppearance, normalizeBasePath, routePath, rewriteIndexHtmlForBasePath, appendIndexHtmlAssetToken } from './index-html.cjs';
 import { decodeAcpTranscriptMedia } from './acp-transcript.cjs';
 import { coalesceSessionStream, deliverSessionStreamToClients, shouldBroadcastSessionStreamImmediately } from './session-stream-protocol.cjs';
-import { broadcastAcpRealtimeToNegotiatedClients } from './acp-realtime-websocket-delivery.cjs';
-import {
-  acknowledgeBrowserProtocolExtensions,
-  offerBrowserProtocolExtensions,
-} from './browser-protocol-websocket-handshake.cjs';
 const {
-  ACP_REALTIME_PROTOCOL_EXTENSION,
-  AVAILABLE_PROTOCOL_EXTENSIONS,
   MIN_PROTOCOL_VERSION,
   PROTOCOL_VERSION,
   protocolCompatible,
@@ -1753,50 +1744,6 @@ app.post(routePath(BASE_PATH, '/api/agents/:agentId/acp-session/logout'), async 
   }
 });
 
-app.post(routePath(BASE_PATH, '/api/agents/:agentId/acp-session/reconnect'), async (req, res) => {
-  try {
-    const result = await agentManager.reconnectAcpAgent(req.params.agentId);
-    res.json(result);
-  } catch (error) {
-    res.status(409).json({ error: caughtError(error).message || 'Failed to reconnect ACP Agent' });
-  }
-});
-
-app.post(routePath(BASE_PATH, '/api/agents/:agentId/acp-realtime/start'), express.json({ limit: '1mb' }), async (req, res) => {
-  try {
-    const sdp = typeof req.body?.sdp === 'string' ? req.body.sdp : '';
-    const operationId = typeof req.body?.operationId === 'string' ? req.body.operationId.trim() : '';
-    if (!sdp.trim()) {
-      res.status(400).json({ error: 'WebRTC SDP offer is required', outcome: 'rejected' });
-      return;
-    }
-    if (!/^[A-Za-z0-9._:-]{1,160}$/.test(operationId)) {
-      res.status(400).json({ error: 'A valid Realtime operationId is required', outcome: 'rejected' });
-      return;
-    }
-    res.json(await agentManager.startAcpRealtime(req.params.agentId, sdp, operationId));
-  } catch (error) {
-    const failure = caughtError(error);
-    res.status(409).json({
-      error: failure.message || 'Failed to start Codex realtime voice',
-      outcome: failure.realtimeStartOutcome === 'uncertain' ? 'uncertain' : 'rejected',
-    });
-  }
-});
-
-app.post(routePath(BASE_PATH, '/api/agents/:agentId/acp-realtime/stop'), express.json(), async (req, res) => {
-  try {
-    const operationId = typeof req.body?.operationId === 'string' ? req.body.operationId.trim() : '';
-    if (!/^[A-Za-z0-9._:-]{1,160}$/.test(operationId)) {
-      res.status(400).json({ error: 'A valid Realtime operationId is required' });
-      return;
-    }
-    res.json(await agentManager.stopAcpRealtime(req.params.agentId, operationId));
-  } catch (error) {
-    res.status(409).json({ error: caughtError(error).message || 'Failed to stop Codex realtime voice' });
-  }
-});
-
 app.post(routePath(BASE_PATH, '/api/agents/:agentId/acp-session/fork'), express.json(), async (req, res) => {
   try {
     res.json(await agentManager.forkAcpSession(req.params.agentId, req.body || {}));
@@ -3039,11 +2986,11 @@ wss.on('connection', (ws, req) => {
     console.log('Client disconnected');
   });
   
-  offerBrowserProtocolExtensions(ws, {
-    availableExtensions: AVAILABLE_PROTOCOL_EXTENSIONS,
-    minProtocolVersion: MIN_PROTOCOL_VERSION,
+  ws.send(JSON.stringify({
+    type: 'protocol-hello',
     protocolVersion: PROTOCOL_VERSION,
-  });
+    minProtocolVersion: MIN_PROTOCOL_VERSION,
+  }));
   sendState(ws);
 });
 
@@ -3084,8 +3031,7 @@ function restartMainAgent(ws: WebSocketClient, command: string) {
           ws.send(JSON.stringify({ type: 'agent-started', agentId }));
         }
       }, {
-        wantsMain: true,
-        agentRuntimeMode: normalizedCommand === 'codex' ? 'chat' : 'terminal'
+        wantsMain: true
       });
     } catch (caught) {
     const error = caughtError(caught);
@@ -3247,11 +3193,7 @@ function handleMessage(ws: WebSocketClient, data: ServerClientMessage) {
         ws.close(4002, `Unsupported Farming protocol version ${data.protocolVersion}`);
         return;
       }
-      acknowledgeBrowserProtocolExtensions(ws, data, {
-        availableExtensions: AVAILABLE_PROTOCOL_EXTENSIONS,
-        minProtocolVersion: MIN_PROTOCOL_VERSION,
-        protocolVersion: PROTOCOL_VERSION,
-      });
+      ws.protocolVersion = data.protocolVersion;
       sendResourceSnapshots(ws);
       break;
     case 'business-health-probe':
@@ -3883,15 +3825,6 @@ function scheduleAcpSessionRevision(session: unknown) {
 }
 
 agentManager.on('acp-session-revision', scheduleAcpSessionRevision);
-
-agentManager.on('acp-realtime', (event: unknown) => {
-  if (!isAgentScopedServerEvent(event) || typeof event.method !== 'string') return;
-  broadcastAcpRealtimeToNegotiatedClients(wss.clients, event, {
-    extensionId: ACP_REALTIME_PROTOCOL_EXTENSION,
-    openState: WebSocket.OPEN,
-    protocolVersion: PROTOCOL_VERSION,
-  });
-});
 
 function broadcastAgentRead(read: unknown) {
   if (!isAgentScopedServerEvent(read)) return;

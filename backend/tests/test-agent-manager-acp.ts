@@ -92,11 +92,6 @@ async function run() {
       'an ACP transcript revision should use its dedicated per-Agent channel',
     );
     const binding = runtime.bindings.get(agentId);
-    assert.strictEqual(
-      binding.env.FARMING_CLI_BIN_DIR,
-      '/opt/farming/bin',
-      'ACP Agents must retain the exact Farming CLI directory even when a login shell rebuilds PATH',
-    );
     binding.sessionState.revision = nextSessionRevision;
     binding.sessionState.apply({
       sessionId: binding.sessionId,
@@ -385,7 +380,6 @@ async function run() {
       model: 'gpt-5.6-sol',
       model_reasoning_effort: 'high',
       service_tier: 'priority',
-      features: { realtime_conversation: true },
       developer_instructions: farmingSystemPrompt,
     });
     assert.strictEqual(codexAgent.providerCapabilities.supportsSteer, true);
@@ -732,7 +726,7 @@ async function run() {
     assert.strictEqual(recoveredBinding.env.INITIAL_AGENT_MODE, 'agent-full-access');
     assert.deepStrictEqual(
       Object.keys(JSON.parse(recoveredBinding.env.CODEX_CONFIG)),
-      ['features', 'developer_instructions'],
+      ['developer_instructions'],
       'ACP recovery may restore the Farming bootstrap but must let Codex resolve model settings from its Home',
     );
     assert.strictEqual(

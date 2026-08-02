@@ -15,7 +15,6 @@ import type {
 export interface ProtocolClientHelloMessage {
   type: 'protocol-hello'
   protocolVersion: number
-  requestedExtensions?: string[]
 }
 
 export interface BusinessHealthProbeMessage {
@@ -142,8 +141,6 @@ export interface ProtocolServerHelloMessage {
   type: 'protocol-hello'
   protocolVersion: number
   minProtocolVersion: number
-  availableExtensions?: string[]
-  negotiatedExtensions?: string[]
 }
 
 export interface ProtocolErrorMessage {
@@ -269,24 +266,6 @@ export interface AcpSessionRevisionMessage {
   }
 }
 
-export interface AcpRealtimeEvent {
-  agentId: string
-  sessionId: string
-  operationId?: string
-  method: 'thread/realtime/started'
-    | 'thread/realtime/transcript/delta'
-    | 'thread/realtime/transcript/done'
-    | 'thread/realtime/sdp'
-    | 'thread/realtime/error'
-    | 'thread/realtime/closed'
-  params: Record<string, unknown>
-}
-
-export interface AcpRealtimeMessage {
-  type: 'acp-realtime'
-  event: AcpRealtimeEvent
-}
-
 export interface SessionPreviewMessage {
   type: 'session-preview'
   preview: {
@@ -362,7 +341,6 @@ export type ServerMessage =
   | AgentActivityMessage
   | AgentUpdateMessage
   | AcpSessionRevisionMessage
-  | AcpRealtimeMessage
   | AgentReadMessage
   | WorkspaceFileWatchMessage
   | WorkspaceFileEventMessage
