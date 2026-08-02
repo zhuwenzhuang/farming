@@ -683,6 +683,63 @@ test('keeps extension cards compact and opens the full description on demand', a
   await expect(longSkillCard).toBeFocused()
 })
 
+test('loads Agent Home and extension counts when Plugins opens', async ({ page }) => {
+  let extensionRequests = 0
+  let releaseResponse = () => {}
+  const responseGate = new Promise<void>(resolve => {
+    releaseResponse = resolve
+  })
+  await page.route('**/api/agent-extensions', async route => {
+    extensionRequests += 1
+    await responseGate
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        agents: [{
+          id: 'codex',
+          name: 'codex',
+          description: 'Codex CLI',
+          discoverySupported: true,
+          homes: [{
+            id: 'default',
+            extensions: [{
+              id: '$review',
+              command: '$review',
+              name: 'Review',
+              description: 'Review changes.',
+              kind: 'skill',
+              scope: 'Personal',
+            }],
+          }, {
+            id: 'work',
+            extensions: [{
+              id: 'mcp:browser',
+              command: 'mcp:browser',
+              name: 'Browser',
+              description: 'Operate a browser.',
+              kind: 'mcp',
+              scope: 'Personal',
+            }],
+          }],
+        }],
+      }),
+    })
+  })
+
+  await openFarming(page)
+  await page.getByTestId('code-nav-plugins').click()
+
+  const homesTab = page.getByTestId('code-plugin-tab-homes')
+  const extensionsTab = page.getByTestId('code-plugin-tab-extensions')
+  await expect.poll(() => extensionRequests).toBe(1)
+  await expect(homesTab.locator('small')).toHaveText('…')
+  await expect(extensionsTab.locator('small')).toHaveText('…')
+
+  releaseResponse()
+  await expect(homesTab.locator('small')).toHaveText('2')
+  await expect(extensionsTab.locator('small')).toHaveText('2')
+})
+
 test('keeps an edited browser address until Enter submits it', async ({
   page,
   workspaceRoot,

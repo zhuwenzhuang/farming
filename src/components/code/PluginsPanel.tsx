@@ -468,7 +468,7 @@ export function PluginsPanel({
   const [browserChoice, setBrowserChoice] = useState('system:')
   const browserChoiceDirtyRef = useRef(false)
   const [agentGroups, setAgentGroups] = useState<AgentExtensionGroup[]>([])
-  const [agentGroupsLoading, setAgentGroupsLoading] = useState(false)
+  const [agentGroupsLoading, setAgentGroupsLoading] = useState(true)
   const [agentGroupsError, setAgentGroupsError] = useState('')
   const [agentSaving, setAgentSaving] = useState(false)
   const [agentDraft, setAgentDraft] = useState<AgentHomeDraft | null>(null)
@@ -587,9 +587,8 @@ export function PluginsPanel({
   }, [loadAgentGroups])
 
   useEffect(() => {
-    if (activeTab === 'farming') return
     void loadAgentGroups()
-  }, [activeTab, loadAgentGroups])
+  }, [loadAgentGroups])
 
   const saveAgentGroups = useCallback(async (nextGroups: AgentExtensionGroup[]) => {
     if (!agentPanelScopeRef.current.mounted || agentSaveRequestRef.current) return false
@@ -1043,6 +1042,10 @@ export function PluginsPanel({
         {PLUGINS_TABS.map(tab => {
           const count = tab === 'farming'
             ? 3 + (window.farmingDesktop ? 1 : 0)
+            : agentGroupsLoading && agentGroups.length === 0
+              ? '…'
+              : agentGroupsError && agentGroups.length === 0
+                ? '!'
             : tab === 'homes'
               ? agentConfigurations.length
               : agentExtensions.length
