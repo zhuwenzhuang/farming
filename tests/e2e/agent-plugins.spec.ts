@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import type { WebSocketRoute } from '@playwright/test'
 import { expect, openFarming, test } from './fixtures'
 import { selectCodeOption } from './code-select'
 
@@ -179,21 +180,73 @@ test('Plugins keeps cached Agent Home configurations visible while refreshing', 
   await expect(configurations.first()).toBeVisible()
   await panel.getByTestId('code-plugin-tab-farming').click()
 
+  let refreshRequests = 0
   let releaseRefresh: (() => void) | null = null
   const refreshBlocked = new Promise<void>(resolve => {
     releaseRefresh = resolve
   })
   await page.route('**/farming/api/agent-extensions', async route => {
+    refreshRequests += 1
     await refreshBlocked
     await route.continue()
   })
 
-  await panel.getByTestId('code-plugin-tab-homes').click()
+  try {
+    await panel.getByTestId('code-plugin-tab-extensions').click()
+    await panel.getByRole('button', { name: 'Refresh', exact: true }).click()
+    await expect.poll(() => refreshRequests).toBe(1)
+    await panel.getByTestId('code-plugin-tab-homes').click()
+    await expect(configurations.first()).toBeVisible()
+    await expect(panel.getByText('Loading Agent extensions...', { exact: true })).toHaveCount(0)
+  } finally {
+    releaseRefresh?.()
+  }
   await expect(configurations.first()).toBeVisible()
-  await expect(panel.getByText('Loading Agent extensions...', { exact: true })).toHaveCount(0)
+})
 
-  releaseRefresh?.()
-  await expect(configurations.first()).toBeVisible()
+test('Plugins reports a disconnected inventory read and retries after reconnecting', async ({ page }) => {
+  let outage = false
+  let activeSocket: WebSocketRoute | null = null
+  let inventoryRequests = 0
+  await page.routeWebSocket(/\/farming\/ws(?:\?|$)/, async socket => {
+    if (outage) {
+      await socket.close({ code: 1012, reason: 'Plugin inventory reconnect regression' })
+      return
+    }
+    activeSocket = socket
+    socket.connectToServer()
+  })
+  await page.route('**/farming/api/agent-extensions', async route => {
+    inventoryRequests += 1
+    if (outage) {
+      await route.abort('connectionfailed')
+      return
+    }
+    await route.continue()
+  })
+
+  await openFarming(page)
+  await expect.poll(() => Boolean(activeSocket)).toBe(true)
+  outage = true
+  await activeSocket?.close({ code: 1012, reason: 'Plugin inventory reconnect regression' })
+  await expect(page.getByTestId('connection-status')).toBeVisible()
+  await page.getByTestId('code-nav-plugins').click()
+
+  const panel = page.getByTestId('code-plugins-panel')
+  const homesCount = panel.getByTestId('code-plugin-tab-homes').locator('small')
+  const extensionsCount = panel.getByTestId('code-plugin-tab-extensions').locator('small')
+  await expect.poll(() => inventoryRequests).toBe(1)
+  await expect(homesCount).toHaveText('!')
+  await expect(extensionsCount).toHaveText('!')
+  await panel.getByTestId('code-plugin-tab-homes').click()
+  const inventoryAlert = panel.getByRole('alert').filter({ hasText: 'retry after reconnecting' })
+  await expect(inventoryAlert).toBeVisible()
+
+  outage = false
+  await expect.poll(() => inventoryRequests, { timeout: 8_000 }).toBe(2)
+  await expect(homesCount).not.toHaveText('!')
+  await expect(extensionsCount).not.toHaveText('!')
+  await expect(inventoryAlert).toHaveCount(0)
 })
 
 test('Plugins shows a read-only extension catalog from one exact Agent Home', async ({ page, workspaceRoot }) => {

@@ -162,6 +162,9 @@ function pluginCopy(language: UiLanguage) {
     confirmRemoveAgent: (name: string) => zh ? `删除 ${name}？` : `Remove ${name}?`,
     loadingAgentExtensions: zh ? '正在读取 Agent 扩展…' : 'Loading Agent extensions…',
     agentExtensionsFailed: zh ? 'Agent 扩展读取失败' : 'Failed to load Agent extensions',
+    agentExtensionsDisconnected: zh
+      ? 'Farming 后端暂不可用；重新连接后会自动重试。'
+      : 'Farming backend is unavailable; this will retry after reconnecting.',
     noAgentExtensions: zh ? '没有发现扩展。' : 'No extensions found.',
     unsupportedDiscovery: zh ? '这个 Agent 还没有统一的扩展发现接口。' : 'This Agent does not expose a unified extension discovery interface yet.',
     home: zh ? 'Home' : 'Home',
@@ -525,6 +528,7 @@ export function PluginsPanel({
     const generation = agentPanelScopeRef.current.generation
     const requestId = agentGroupsRequestRef.current + 1
     agentGroupsRequestRef.current = requestId
+    retryOnReconnectRef.current = false
     setAgentGroupsLoading(true)
     if (!options.preserveError) setAgentGroupsError('')
     try {
@@ -551,21 +555,20 @@ export function PluginsPanel({
         || !agentPanelScopeRef.current.mounted
         || agentSaveRequestRef.current
       ) return
-      if (!getBackendConnectionSnapshot().connected) {
-        retryOnReconnectRef.current = true
-        return
-      }
-      setAgentGroupsError(loadError instanceof Error ? loadError.message : copy.agentExtensionsFailed)
+      const disconnected = !getBackendConnectionSnapshot().connected
+      retryOnReconnectRef.current = disconnected
+      setAgentGroupsError(disconnected
+        ? copy.agentExtensionsDisconnected
+        : loadError instanceof Error ? loadError.message : copy.agentExtensionsFailed)
     } finally {
       if (
         agentGroupsRequestRef.current === requestId
         && agentPanelScopeRef.current.generation === generation
         && agentPanelScopeRef.current.mounted
         && !agentSaveRequestRef.current
-        && !retryOnReconnectRef.current
       ) setAgentGroupsLoading(false)
     }
-  }, [copy.agentExtensionsFailed])
+  }, [copy.agentExtensionsDisconnected, copy.agentExtensionsFailed])
 
   useEffect(() => {
     agentPanelScopeRef.current.mounted = true
@@ -1040,15 +1043,12 @@ export function PluginsPanel({
 
       <div className="code-plugin-tabs" role="tablist" aria-label={copy.title}>
         {PLUGINS_TABS.map(tab => {
-          const count = tab === 'farming'
-            ? 3 + (window.farmingDesktop ? 1 : 0)
-            : agentGroupsLoading && agentGroups.length === 0
-              ? '…'
-              : agentGroupsError && agentGroups.length === 0
-                ? '!'
-            : tab === 'homes'
-              ? agentConfigurations.length
-              : agentExtensions.length
+          let count: number | string
+          if (tab === 'farming') count = 3 + (window.farmingDesktop ? 1 : 0)
+          else if (agentGroupsError) count = '!'
+          else if (agentGroupsLoading && agentGroups.length === 0) count = '…'
+          else if (tab === 'homes') count = agentConfigurations.length
+          else count = agentExtensions.length
           return (
             <button
               id={`code-plugin-tab-${tab}`}
