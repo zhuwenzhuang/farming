@@ -660,12 +660,77 @@ test('desktop release mirrors keep the same bounded HTTP checksum contract', () 
   assert.doesNotMatch(script, /ulimit/)
   assert.match(script, /--max-filesize "\$limit"/)
   assert.match(script, /head -c "\$\(\(limit \+ 1\)\)"/)
-  assert.match(script, /mkfifo "\$fifo"/)
+  assert.match(script, /trap cleanup_download EXIT/)
+  assert.match(script, /trap abort_download HUP INT TERM/)
+  assert.match(script, /kill "\$wget_pid"/)
+  assert.match(script, /mkfifo "\$download_fifo"/)
   assert.match(script, /wait "\$wget_pid"/)
   assert.match(script, /actual_size=\$\(wc -c < "\$target"/)
   assert.match(script, /rm -f "\$target"/)
   assert.match(script, /download "\$sums_url" "\$sums" "\$checksum_limit"/)
   assert.match(script, /download "\$asset_url" "\$tmp" "\$asset_limit"/)
+})
+
+test('remote bootstrap TERM cleans its exact wget process and temporary files', async t => {
+  const temporaryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-desktop-wget-term-'))
+  const binaryDir = path.join(temporaryDir, 'bin')
+  const farmingHome = path.join(temporaryDir, 'home')
+  fs.mkdirSync(binaryDir)
+  const commandNames = ['awk', 'head', 'mkdir', 'mkfifo', 'rm', 'tr', 'uname', 'wc']
+  const commands = Object.fromEntries(commandNames.map(name => [
+    name,
+    spawnSync('/bin/sh', ['-c', `command -v ${name}`], { encoding: 'utf8' }).stdout.trim(),
+  ]))
+  if (Object.values(commands).some(target => !target)) {
+    fs.rmSync(temporaryDir, { recursive: true, force: true })
+    t.skip('The wget cancellation smoke requires standard shell tools.')
+    return
+  }
+  Object.entries(commands).forEach(([name, target]) => fs.symlinkSync(target, path.join(binaryDir, name)))
+  const fakeWget = path.join(binaryDir, 'wget')
+  fs.writeFileSync(fakeWget, `#!/bin/sh
+trap 'exit 0' HUP INT TERM
+while :; do
+  printf 'download-in-progress'
+  /bin/sleep 0.02
+done
+`)
+  fs.chmodSync(fakeWget, 0o700)
+  const child = spawn('/bin/sh', ['-s'], {
+    detached: true,
+    env: {
+      HOME: farmingHome,
+      PATH: binaryDir,
+      FARMING_HOME: farmingHome,
+      FARMING_RELEASE_ROOT: 'http://release.invalid',
+      FARMING_VERSION: 'term-version',
+    },
+    stdio: ['pipe', 'pipe', 'pipe'],
+  })
+  let stderr = ''
+  child.stderr.on('data', chunk => { stderr += String(chunk) })
+  child.stdin.end(buildRemoteBootstrapScript())
+  const installDir = path.join(farmingHome, 'server', 'term-version')
+  try {
+    const deadline = Date.now() + 2_000
+    while (
+      (!fs.existsSync(installDir) || fs.readdirSync(installDir).length === 0)
+      && Date.now() < deadline
+    ) await new Promise(resolve => setTimeout(resolve, 10))
+    assert.ok(fs.existsSync(installDir) && fs.readdirSync(installDir).length > 0, stderr)
+    process.kill(-child.pid!, 'SIGTERM')
+    const exitCode = await new Promise<number | null>((resolve, reject) => {
+      child.once('error', reject)
+      child.once('exit', resolve)
+    })
+    assert.notEqual(exitCode, 0)
+    assert.deepEqual(fs.readdirSync(installDir), [])
+  } finally {
+    if (child.exitCode === null) {
+      try { process.kill(-child.pid!, 'SIGKILL') } catch {}
+    }
+    fs.rmSync(temporaryDir, { recursive: true, force: true })
+  }
 })
 
 test('remote wget path deletes an oversized stream without relying on ulimit', async t => {

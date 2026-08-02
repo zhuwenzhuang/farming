@@ -392,6 +392,27 @@ if [ ! -x "$binary" ]; then
   sums_url="$FARMING_RELEASE_ROOT/v$FARMING_VERSION/farming_\${FARMING_VERSION}_checksums.txt"
   checksum_limit=262144
   asset_limit=536870912
+  wget_pid=
+  download_fifo=
+  cleanup_download() {
+    if [ -n "\${wget_pid:-}" ]; then
+      kill "$wget_pid" 2>/dev/null || true
+      wait "$wget_pid" 2>/dev/null || true
+      wget_pid=
+    fi
+    rm -f "$tmp" "$sums"
+    if [ -n "\${download_fifo:-}" ]; then
+      rm -f "$download_fifo"
+      download_fifo=
+    fi
+  }
+  abort_download() {
+    trap - EXIT HUP INT TERM
+    cleanup_download
+    exit 143
+  }
+  trap cleanup_download EXIT
+  trap abort_download HUP INT TERM
   download() {
     url=$1; target=$2; limit=$3; label=$4
     rm -f "$target"
@@ -403,16 +424,18 @@ if [ ! -x "$binary" ]; then
     elif command -v wget >/dev/null 2>&1 \
       && command -v mkfifo >/dev/null 2>&1 \
       && head -c 1 </dev/null >/dev/null 2>&1; then
-      fifo="$target.pipe.$$"
-      rm -f "$fifo"
-      if ! mkfifo "$fifo"; then return 1; fi
-      wget -q --timeout=15 --tries=1 -O - "$url" > "$fifo" &
+      download_fifo="$target.pipe.$$"
+      rm -f "$download_fifo"
+      if ! mkfifo "$download_fifo"; then return 1; fi
+      wget -q --timeout=15 --tries=1 -O - "$url" > "$download_fifo" &
       wget_pid=$!
       head_status=0
-      head -c "$((limit + 1))" < "$fifo" > "$target" || head_status=$?
+      head -c "$((limit + 1))" < "$download_fifo" > "$target" || head_status=$?
       wget_status=0
       wait "$wget_pid" || wget_status=$?
-      rm -f "$fifo"
+      wget_pid=
+      rm -f "$download_fifo"
+      download_fifo=
       actual_size=$(wc -c < "$target" | tr -d '[:space:]')
       if [ -z "$actual_size" ] || [ "$actual_size" -gt "$limit" ]; then
         rm -f "$target"
