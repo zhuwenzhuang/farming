@@ -167,10 +167,6 @@ function registerIpc() {
         focusRendererWhenReady = true
         const agent = encodeURIComponent(input.agentId)
         requestRendererNavigation(`${desktopGateway.origin()}/code/?agent=${agent}`)
-        mainWindow?.webContents.send('desktop:notification-clicked', {
-          agentId: input.agentId,
-          backendId: backendId || null,
-        })
       })().catch(() => {
         if (!lifecycle.isRunning()) return
         if (!mainWindow) createWindow()

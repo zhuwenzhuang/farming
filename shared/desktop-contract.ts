@@ -69,11 +69,6 @@ export interface DesktopNotificationInput {
   title: string
 }
 
-export interface DesktopNotificationClick {
-  agentId: string
-  backendId: string | null
-}
-
 export interface FarmingDesktopBridge {
   getState(): Promise<DesktopState>
   saveBackend(input: DesktopBackendInput): Promise<DesktopState>
@@ -83,5 +78,4 @@ export interface FarmingDesktopBridge {
   activateBackend(backendId: string): Promise<DesktopState>
   showNotification(input: DesktopNotificationInput): Promise<void>
   onStateChanged(listener: (state: DesktopState) => void): () => void
-  onNotificationClicked(listener: (event: DesktopNotificationClick) => void): () => void
 }
