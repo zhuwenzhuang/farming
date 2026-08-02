@@ -484,7 +484,7 @@ test.describe('human Farming Agent story', () => {
 
     const terminalContextMenu = page.getByTestId('code-terminal-context-menu')
     await expect(terminalContextMenu).toBeVisible()
-    await expect(terminalContextMenu.getByRole('menuitem', { name: /Copy|复制/ })).toBeFocused()
+    await expect(terminalContextMenu.getByRole('menuitem', { name: /Copy|复制/ })).not.toBeFocused()
     await terminalContextMenu.getByRole('menuitem', { name: /Copy|复制/ }).click()
     await expect.poll(async () => page.evaluate(() => navigator.clipboard.readText())).toBe(copyTarget)
     await expect(page.getByTestId('code-terminal-context-menu')).toHaveCount(0)
