@@ -1,29 +1,51 @@
 #!/usr/bin/env bash
 printf '\033[?25l\033[?25h'
 printf 'Fake Codex 0.142.3 ready\n'
+idle_footer='gpt-5.6-terra medium · ~/workspace'
+starts_busy=false
 if [[ " $* " == *" --farming-fixture-idle-profile "* ]]; then
-  printf 'gpt-5.6-terra medium · ~/workspace\n'
+  idle_footer='gpt-5.6-terra medium · ~/workspace'
+  printf '%s\n' "$idle_footer"
 elif [[ " $* " == *" --farming-fixture-live-profile "* ]]; then
-  printf 'gpt-5.6-sol xhigh fast · ~/workspace\n'
+  idle_footer='gpt-5.6-sol xhigh fast · ~/workspace'
+  printf '%s\n' "$idle_footer"
 elif [[ " $* " == *" resume "* ]]; then
   # A resumed provider session opens at its idle prompt. Keep fresh-agent
   # launches busy for the follow-up queue stories that intentionally exercise
   # steering while a turn is active.
-  printf 'Codex · ~/workspace\n'
+  idle_footer='Codex · ~/workspace'
+  printf '%s\n' "$idle_footer"
 else
+  starts_busy=true
   printf 'Working (fake) · esc to interrupt · /stop to close\n'
 fi
 
 while IFS= read -r line; do
-  printf 'received: %s\n' "$line"
-  if [[ "$line" == *"add greeting"* ]]; then
+  if [[ "$line" == *"/status"* ]]; then
+    printf 'OpenAI Codex (v0.142.3)\n'
+    printf '\n'
+    printf '  Model:                gpt-5.6-terra (reasoning medium)\n'
+    printf '  Directory:            ~/workspace\n'
+    printf '  Permissions:          Workspace (Ask for approval)\n'
+    printf '  Session:              019fc332-185d-4b1e-8000-fake00000001\n'
+    printf '\n'
+    printf '› \n'
+    printf '\n'
+    printf '%s\n' "$idle_footer"
+  elif [[ "$line" == *"add greeting"* ]]; then
     printf 'Edited app.js (+1 line)\n'
     printf 'Done · 1 file changed +1 -0\n'
+    printf '%s\n' "$idle_footer"
   elif [[ "$line" == *"follow up"* ]]; then
     printf 'Steered: %s\n' "$line"
     printf 'Done · follow-up applied\n'
+    if [[ "$starts_busy" == true ]]; then
+      printf 'Working (fake) · esc to interrupt · /stop to close\n'
+    else
+      printf '%s\n' "$idle_footer"
+    fi
   else
     printf 'Done · message handled\n'
+    printf '%s\n' "$idle_footer"
   fi
-  printf 'Working (fake) · esc to interrupt · /stop to close\n'
 done
