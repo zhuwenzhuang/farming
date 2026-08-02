@@ -812,13 +812,15 @@ test.describe('iPhone mobile layout', () => {
     const settingsPanel = page.getByTestId('code-settings-panel')
     await expect(settingsPanel).toBeVisible()
     await expect(page.getByTestId('code-mobile-share-sheet')).toHaveCount(0)
-    await page.waitForTimeout(220)
-    const settingsDrawerMetrics = await settingsPanel.locator('.code-settings-panel').evaluate(element => {
-      const rect = (element as HTMLElement).getBoundingClientRect()
-      return { left: Math.round(rect.left), width: Math.round(rect.width), viewportWidth: window.innerWidth }
-    })
-    expect(Math.abs(settingsDrawerMetrics.left)).toBeLessThanOrEqual(1)
-    expect(settingsDrawerMetrics.width).toBeLessThan(settingsDrawerMetrics.viewportWidth)
+    await expect.poll(async () => {
+      return settingsPanel.locator('.code-settings-panel').evaluate(element => {
+        const rect = (element as HTMLElement).getBoundingClientRect()
+        return Math.abs(Math.round(rect.left)) <= 1 && Math.round(rect.width) < window.innerWidth
+      })
+    }, {
+      message: 'settings drawer should finish its entrance animation flush with the viewport edge',
+      timeout: 5_000,
+    }).toBe(true)
     await settingsPanel.getByRole('button', { name: /Back to navigation|返回导航/ }).click()
     await expect(settingsPanel).toHaveCount(0)
     await expect(page.getByTestId('code-sidebar')).toBeVisible()
