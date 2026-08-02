@@ -4,6 +4,8 @@ import {
   languageNavigatorNodeRoot,
   languageNavigatorRequestIsCurrent,
   nextLanguageNavigatorDirectionSource,
+  resetLanguageNavigatorNodesForDirection,
+  sameLanguageNavigatorFile,
   type LanguageNavigatorSource,
 } from '../src/components/files/language-navigator-ownership'
 
@@ -67,4 +69,33 @@ test('direction change cannot relabel old nodes before the file-change effect ru
     filePath: '/workspace-a/main.ts',
     generation: 10,
   }, 'the node birth identity remains immutable')
+})
+
+test('pending hierarchy expansion is reset when direction changes and its old response is fenced', () => {
+  const activeFile = { rootId: 'agent-a', filePath: '/workspace-a/main.ts' }
+  const nodeSource = { ...activeFile, generation: 20 }
+  const pendingNodes = [{
+    key: 'root',
+    source: nodeSource,
+    loading: true,
+    expanded: true,
+    children: [{ key: 'pending-child', source: nodeSource, loading: true }],
+  }]
+  const directionSource = nextLanguageNavigatorDirectionSource(activeFile, nodeSource, 21)
+  assert(directionSource)
+
+  const resetNodes = resetLanguageNavigatorNodesForDirection(pendingNodes)
+  assert.equal(resetNodes[0].loading, false)
+  assert.equal(resetNodes[0].expanded, false)
+  assert.equal(resetNodes[0].children, undefined)
+  assert.equal(
+    languageNavigatorRequestIsCurrent(activeFile, directionSource, nodeSource),
+    false,
+    'the pending expansion response from the old direction must be dropped',
+  )
+  assert.equal(
+    sameLanguageNavigatorFile(directionSource, resetNodes[0].source),
+    true,
+    'the reset node remains eligible for a new expansion in the selected direction',
+  )
 })

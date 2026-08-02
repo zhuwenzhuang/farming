@@ -59,3 +59,15 @@ export function nextLanguageNavigatorDirectionSource(
   if (!currentSource || !languageNavigatorSourceIsActive(activeFile, currentSource)) return null
   return { rootId: currentSource.rootId, filePath: currentSource.filePath, generation }
 }
+
+export function resetLanguageNavigatorNodesForDirection<
+  Node extends { expanded?: boolean; loading?: boolean; error?: string },
+>(nodes: Node[]): Node[] {
+  return nodes.map(node => ({
+    ...node,
+    children: undefined,
+    expanded: false,
+    loading: false,
+    error: undefined,
+  }))
+}

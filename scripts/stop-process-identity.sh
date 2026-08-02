@@ -44,7 +44,13 @@ farming_signal_process_if_identity_matches() {
   local expected_started_at="$4"
   local expected_command="$5"
 
-  farming_process_identity_matches \
-    "${pid}" "${expected_uid}" "${expected_started_at}" "${expected_command}" || return 3
-  farming_send_signal "${signal_name}" "${pid}"
+  if ! farming_process_identity_matches \
+    "${pid}" "${expected_uid}" "${expected_started_at}" "${expected_command}"; then
+    echo "Skipping pid=${pid}: process identity changed before ${signal_name}." >&2
+    return 3
+  fi
+  if ! farming_send_signal "${signal_name}" "${pid}"; then
+    echo "Could not send ${signal_name} to verified Farming process pid=${pid}." >&2
+    return 4
+  fi
 }

@@ -100,21 +100,11 @@ signal_target_file() {
   local signal_name="$1"
   local input_file="$2"
   local owner_uid
-  local status
   owner_uid="$(id -u)"
   while IFS=$'\t' read -r pid _group started_at command; do
     [ -n "${pid}" ] || continue
-    if farming_signal_process_if_identity_matches \
-      "${signal_name}" "${pid}" "${owner_uid}" "${started_at}" "${command}" 2>/dev/null; then
-      continue
-    else
-      status=$?
-    fi
-    if [ "${status}" -eq 3 ]; then
-      echo "Skipping pid=${pid}: process identity changed before ${signal_name}." >&2
-    else
-      echo "Could not send ${signal_name} to verified Farming process pid=${pid}." >&2
-    fi
+    farming_signal_process_if_identity_matches \
+      "${signal_name}" "${pid}" "${owner_uid}" "${started_at}" "${command}" || true
   done < "${input_file}"
 }
 

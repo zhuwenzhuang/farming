@@ -14,6 +14,7 @@ import {
   languageNavigatorRequestIsCurrent,
   languageNavigatorSourceIsActive,
   nextLanguageNavigatorDirectionSource,
+  resetLanguageNavigatorNodesForDirection,
   sameLanguageNavigatorFile,
   sameLanguageNavigatorSource,
   type LanguageNavigatorSource,
@@ -306,7 +307,7 @@ export function useLanguageServerController({
           ...current,
           direction,
           source,
-          nodes: current.nodes.map(node => ({ ...node, children: undefined, expanded: false, error: undefined })),
+          nodes: resetLanguageNavigatorNodesForDirection(current.nodes),
         }
       : current)
   }, [navigator.source])
