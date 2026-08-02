@@ -1,6 +1,7 @@
 const os = require('os');
 const path = require('path');
 const fsp = require('fs/promises');
+const { execFile } = require('child_process');
 
 const DISK_STATS_TTL_MS = 30_000;
 
@@ -50,6 +51,18 @@ class SystemMonitor {
   async getSystemStats(): Promise<SystemStats> {
     const stats = this.getBasicStats();
     stats.disk = await this.getCachedDiskStats().catch(() => this.diskStatsCache.value || null);
+    if (process.platform === 'darwin') {
+      const corrected = await this.darwinAvailableMemoryBytes();
+      if (corrected !== null) {
+        const totalMem = os.totalmem();
+        const usedMem = Math.max(0, totalMem - corrected);
+        stats.memory = {
+          used: Math.round(usedMem / 1024 / 1024),
+          total: Math.round(totalMem / 1024 / 1024),
+          percentage: Math.round((usedMem / totalMem) * 100),
+        };
+      }
+    }
     return stats;
   }
 
@@ -71,6 +84,32 @@ class SystemMonitor {
       network: null,
       timestamp: Date.now()
     };
+  }
+
+  /**
+   * macOS `os.freemem()` reports only truly free pages, excluding the
+   * inactive, speculative, and purgeable pages the kernel can reclaim.
+   * On a typical Mac this makes the sidebar show "MEM 100%" while the
+   * system still has gigabytes of reclaimable memory. Parse `vm_stat`
+   * to include those reclaimable pages in the available total.
+   */
+  private darwinAvailableMemoryBytes(): Promise<number | null> {
+    return new Promise(resolve => {
+      execFile('vm_stat', [], { timeout: 3000, encoding: 'utf8' }, (error: unknown, stdout: string) => {
+        if (error || typeof stdout !== 'string') { resolve(null); return; }
+        let pageSize = 16384;
+        const pages: Record<string, number> = {};
+        for (const line of stdout.split('\n')) {
+          const sizeMatch = line.match(/page size of (\d+) bytes/);
+          if (sizeMatch) { pageSize = Number(sizeMatch[1]); continue; }
+          const pageMatch = line.match(/^Pages (free|inactive|speculative|purgeable):\s+(\d+)/);
+          if (pageMatch) pages[pageMatch[1]] = Number(pageMatch[2]);
+        }
+        const reclaimable = (pages.free || 0) + (pages.inactive || 0)
+          + (pages.speculative || 0) + (pages.purgeable || 0);
+        resolve(reclaimable > 0 ? reclaimable * pageSize : null);
+      });
+    });
   }
 
   async getCachedDiskStats(): Promise<DiskStats | null> {
