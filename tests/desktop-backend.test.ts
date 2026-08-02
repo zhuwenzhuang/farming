@@ -4,12 +4,25 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
+import {
+  DesktopBackendActivationState,
+} from '../desktop/backend-activation-state'
 import { resolveDesktopServerVersion } from '../desktop/app-version'
 import { buildSshTunnelArgs } from '../desktop/connection-manager'
 import { validateDesktopRendererAssets } from '../desktop/gateway'
 import { DesktopLifecycle } from '../desktop/lifecycle'
 import { DesktopLocalBackend, LOCAL_BACKEND_ID } from '../desktop/local-backend'
 import { allowsDesktopAudioPermission } from '../desktop/permissions'
+import { saveAndActivateDesktopBackend } from '../desktop/save-and-activate'
+import {
+  DESKTOP_STARTUP_CANCEL_URL,
+  DesktopStartupVisibility,
+  desktopStartupDocument,
+} from '../desktop/startup-view'
+import {
+  DesktopStartupCancelledError,
+  DesktopStartupResourceOwner,
+} from '../desktop/startup-resource-owner'
 import {
   normalizeDesktopBackendInput,
   publicDesktopBackendProfile,
@@ -110,6 +123,191 @@ test('desktop lifecycle batches ready-window invalidations before navigation beg
   assert.deepEqual(lifecycle.navigationReady(navigation), { kind: 'ready' })
 })
 
+test('editing the active backend invalidates its route before a replacement connection can fail', async () => {
+  const activations = new DesktopBackendActivationState()
+  const effects: string[] = []
+  let rejectConnection: (error: Error) => void = () => {}
+  const connection = new Promise<void>((_resolve, reject) => {
+    rejectConnection = reject
+  })
+  const operation = saveAndActivateDesktopBackend({
+    activations,
+    activeBackendId: 'backend-a',
+    editingBackendId: 'backend-a',
+    save: () => {
+      effects.push('save-profile')
+      return { id: 'backend-a' }
+    },
+    disconnect: () => effects.push('disconnect-old-target'),
+    closeActiveClientConnections: () => effects.push('close-old-clients'),
+    broadcastState: () => effects.push('broadcast-state'),
+    connect: () => {
+      effects.push('activate-dispatched')
+      return connection
+    },
+    assertRunning: () => effects.push('assert-running'),
+    setActiveBackendId: () => effects.push('commit-active'),
+    requestRendererNavigation: () => {
+      effects.push('request-navigation')
+      setImmediate(() => effects.push('scheduled-drain'))
+    },
+  }).catch(error => {
+    effects.push('save-response-rejected')
+    throw error
+  })
+
+  assert.deepEqual(effects, [
+    'save-profile',
+    'disconnect-old-target',
+    'close-old-clients',
+    'broadcast-state',
+    'activate-dispatched',
+  ])
+  rejectConnection(new Error('replacement backend is unreachable'))
+  await assert.rejects(operation, /replacement backend is unreachable/)
+  await new Promise(resolve => setImmediate(resolve))
+  assert.deepEqual(effects, [
+    'save-profile',
+    'disconnect-old-target',
+    'close-old-clients',
+    'broadcast-state',
+    'activate-dispatched',
+    'save-response-rejected',
+  ])
+})
+
+test('successful atomic save responds before its scheduled renderer drain', async () => {
+  const activations = new DesktopBackendActivationState()
+  const effects: string[] = []
+  const operation = saveAndActivateDesktopBackend({
+    activations,
+    activeBackendId: 'backend-a',
+    editingBackendId: 'backend-a',
+    save: () => ({ id: 'backend-a' }),
+    disconnect: () => effects.push('disconnect-old-target'),
+    closeActiveClientConnections: () => effects.push('close-old-clients'),
+    broadcastState: () => effects.push('broadcast-state'),
+    connect: async () => {
+      effects.push('activate-dispatched')
+    },
+    assertRunning: () => effects.push('assert-running'),
+    setActiveBackendId: () => effects.push('commit-active'),
+    requestRendererNavigation: () => {
+      effects.push('request-navigation')
+      setImmediate(() => effects.push('scheduled-drain'))
+    },
+  }).then(() => effects.push('save-response'))
+
+  await operation
+  assert.equal(effects.at(-1), 'save-response')
+  assert.equal(effects.includes('scheduled-drain'), false)
+  await new Promise(resolve => setImmediate(resolve))
+  assert.deepEqual(effects.slice(-3), ['request-navigation', 'save-response', 'scheduled-drain'])
+})
+
+test('backend activation ownership ignores unrelated mutations and rejects stale A/B completion', async () => {
+  const activations = new DesktopBackendActivationState()
+  const activationA = activations.begin('backend-a')
+  let resolveA: () => void = () => {}
+  let resolveB: () => void = () => {}
+  const connectionA = new Promise<void>(resolve => { resolveA = resolve })
+  const connectionB = new Promise<void>(resolve => { resolveB = resolve })
+  const committed: string[] = []
+  const completionA = connectionA.then(() => {
+    if (activations.claim(activationA)) committed.push('backend-a')
+  })
+
+  assert.deepEqual(
+    activations.backendChanged('backend-b', 'backend-b'),
+    { activationCancelled: false, invalidateActiveRoute: true },
+  )
+  assert.equal(activations.isCurrent(activationA), true)
+
+  const activationB = activations.begin('backend-b')
+  const completionB = connectionB.then(() => {
+    if (activations.claim(activationB)) committed.push('backend-b')
+  })
+  assert.equal(activations.isCurrent(activationA), false)
+  resolveB()
+  await completionB
+  resolveA()
+  await completionA
+  assert.deepEqual(committed, ['backend-b'])
+
+  const retryA = activations.begin('backend-a')
+  assert.deepEqual(
+    activations.backendChanged('backend-a', 'backend-b'),
+    { activationCancelled: true, invalidateActiveRoute: false },
+  )
+  assert.equal(activations.isCurrent(retryA), false)
+})
+
+test('desktop startup document exposes visible progress and a cancellation action', () => {
+  const document = desktopStartupDocument('Preparing local Farming environment…')
+  assert.match(document, /aria-live="polite"/)
+  assert.match(document, /Preparing local Farming environment/)
+  assert.match(document, /Cancel startup/)
+  assert.match(document, new RegExp(DESKTOP_STARTUP_CANCEL_URL.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+})
+
+test('desktop startup visibility suppresses the transient page on a fast launch', () => {
+  const fastLaunch = new DesktopStartupVisibility()
+  assert.equal(fastLaunch.complete(), true)
+  assert.equal(fastLaunch.reveal(), false)
+
+  const slowLaunch = new DesktopStartupVisibility()
+  assert.equal(slowLaunch.reveal(), true)
+  assert.equal(slowLaunch.reveal(), false)
+  assert.equal(slowLaunch.complete(), true)
+})
+
+test('startup resource owner cancels exactly as local start resolves', async () => {
+  const owner = new DesktopStartupResourceOwner()
+  const cleanup: string[] = []
+  owner.own('local-backend', async () => { cleanup.push('local-backend') })
+  let resolveLocalStart: () => void = () => {}
+  const localStart = new Promise<void>(resolve => { resolveLocalStart = resolve })
+  let managerCreated = false
+  const pipeline = (async () => {
+    await localStart
+    owner.guard()
+    managerCreated = true
+    owner.own('connection-manager', () => { cleanup.push('connection-manager') })
+  })()
+
+  resolveLocalStart()
+  const stopping = owner.stop()
+  await assert.rejects(pipeline, DesktopStartupCancelledError)
+  await stopping
+  assert.equal(managerCreated, false)
+  assert.deepEqual(cleanup, ['local-backend'])
+})
+
+test('startup resource owner cleans a gateway cancelled while listen is pending', async () => {
+  const owner = new DesktopStartupResourceOwner()
+  const cleanup: string[] = []
+  let resolveListen: () => void = () => {}
+  const listen = new Promise<void>(resolve => { resolveListen = resolve })
+  let committed = false
+  owner.own('local-backend', () => { cleanup.push('local-backend') })
+  const pipeline = (async () => {
+    owner.guard()
+    owner.own('gateway', async () => { cleanup.push('gateway') })
+    owner.own('connection-manager', () => { cleanup.push('connection-manager') })
+    await listen
+    owner.guard()
+    committed = true
+  })()
+  await Promise.resolve()
+
+  const stopping = owner.stop()
+  resolveListen()
+  await assert.rejects(pipeline, DesktopStartupCancelledError)
+  await stopping
+  assert.equal(committed, false)
+  assert.deepEqual(cleanup, ['connection-manager', 'gateway', 'local-backend'])
+})
+
 test('ships branded PNG and macOS icon assets for the desktop application', () => {
   const assetsDir = path.join(__dirname, '..', 'desktop', 'assets')
   const png = fs.readFileSync(path.join(assetsDir, 'farming-desktop.png'))
@@ -186,6 +384,7 @@ setInterval(() => {}, 1000)
     stop: { absoluteTimeoutMs: 200, idleTimeoutMs: 100, killGraceMs: 20 },
   }
   try {
+    const visibleProgress: string[] = []
     const progressing = new DesktopLocalBackend({
       configDir: path.join(temporaryDir, 'progressing-config'),
       electronExecutable: process.execPath,
@@ -194,10 +393,12 @@ setInterval(() => {}, 1000)
       cliPath: progressingCli,
       commandPolicies: policy,
       handshakeTimeoutMs: 100,
+      onProgress: message => visibleProgress.push(message),
     })
     const target = await progressing.start()
     assert.equal(target.token, 'watchdog-token')
     assert.equal(progressing.state(), 'ready')
+    assert.match(visibleProgress.join('\n'), /Downloading dependency/)
     await progressing.stop()
 
     const stalled = new DesktopLocalBackend({
@@ -230,6 +431,81 @@ setInterval(() => {}, 1000)
     await assert.rejects(starting, /was cancelled/)
     await stopping
     assert.equal(cancellable.state(), 'stopped')
+  } finally {
+    fs.rmSync(temporaryDir, { recursive: true, force: true })
+  }
+})
+
+test('local backend best-effort stop cleans a partially started failed daemon', async () => {
+  const temporaryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-desktop-local-failed-'))
+  const cli = path.join(temporaryDir, 'partial-cli.cjs')
+  const cleanupMarker = path.join(temporaryDir, 'cleanup-complete')
+  fs.writeFileSync(cli, `
+const fs = require('node:fs')
+const command = process.argv[2]
+if (command === 'daemon') {
+  process.stderr.write('daemon failed after partial startup\\n')
+  process.exit(2)
+}
+if (command === 'stop') {
+  fs.writeFileSync(${JSON.stringify(cleanupMarker)}, 'stopped')
+  process.exit(0)
+}
+`)
+  const runtime = new DesktopLocalBackend({
+    configDir: path.join(temporaryDir, 'config'),
+    electronExecutable: process.execPath,
+    resourcesPath: temporaryDir,
+    repositoryRoot: temporaryDir,
+    cliPath: cli,
+    commandPolicies: {
+      daemon: { absoluteTimeoutMs: 500, idleTimeoutMs: 200, killGraceMs: 20 },
+      stop: { absoluteTimeoutMs: 500, idleTimeoutMs: 200, killGraceMs: 20 },
+    },
+  })
+  try {
+    await assert.rejects(runtime.start(), /partial startup/)
+    assert.equal(runtime.state(), 'failed')
+    await runtime.stop()
+    assert.equal(runtime.state(), 'stopped')
+    assert.equal(fs.readFileSync(cleanupMarker, 'utf8'), 'stopped')
+  } finally {
+    fs.rmSync(temporaryDir, { recursive: true, force: true })
+  }
+})
+
+test('local backend cancellation interrupts a pending handshake before cleanup', async () => {
+  const temporaryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-desktop-local-handshake-'))
+  const cli = path.join(temporaryDir, 'handshake-cli.cjs')
+  const cleanupMarker = path.join(temporaryDir, 'cleanup-complete')
+  fs.writeFileSync(cli, `
+const fs = require('node:fs')
+if (process.argv[2] === 'stop') {
+  fs.writeFileSync(${JSON.stringify(cleanupMarker)}, 'stopped')
+  process.exit(0)
+}
+process.exit(0)
+`)
+  const runtime = new DesktopLocalBackend({
+    configDir: path.join(temporaryDir, 'config'),
+    electronExecutable: process.execPath,
+    resourcesPath: temporaryDir,
+    repositoryRoot: temporaryDir,
+    cliPath: cli,
+    handshakeTimeoutMs: 5_000,
+    commandPolicies: {
+      daemon: { absoluteTimeoutMs: 500, idleTimeoutMs: 200, killGraceMs: 20 },
+      stop: { absoluteTimeoutMs: 500, idleTimeoutMs: 200, killGraceMs: 20 },
+    },
+  })
+  try {
+    const starting = runtime.start()
+    await new Promise(resolve => setTimeout(resolve, 100))
+    const stoppedAt = Date.now()
+    await runtime.stop()
+    assert.ok(Date.now() - stoppedAt < 500, 'handshake cancellation must not wait for its five second deadline')
+    await assert.rejects(starting, /cancelled/)
+    assert.equal(fs.readFileSync(cleanupMarker, 'utf8'), 'stopped')
   } finally {
     fs.rmSync(temporaryDir, { recursive: true, force: true })
   }
