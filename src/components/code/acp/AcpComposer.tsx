@@ -197,8 +197,8 @@ export function AcpComposer({
       setOpenMenu(null)
       setModelPane(null)
     }
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return
+    const closeOnEscape = (event: Event) => {
+      if (!(event instanceof KeyboardEvent) || event.key !== 'Escape') return
       event.preventDefault()
       event.stopPropagation()
       setOpenMenu(null)
