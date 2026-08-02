@@ -28,6 +28,7 @@ interface BundleInfo {
   browserExtensionEntry: string;
   computerExtensionEntry: string;
   computerSchemaEntry: string;
+  languageServerExtensionEntry: string;
   release: ReleaseManifest;
 }
 
@@ -105,6 +106,7 @@ function readBundleRelease(archivePath: string): BundleInfo {
   const browserExtensionEntry = findBundleEntry(entries, '/extensions/browser/backend/index.cjs');
   const computerExtensionEntry = findBundleEntry(entries, '/extensions/computer/backend/index.cjs');
   const computerSchemaEntry = findBundleEntry(entries, '/extensions/computer/backend/cua-tools.json');
+  const languageServerExtensionEntry = findBundleEntry(entries, '/extensions/language-server/backend/index.cjs');
   return {
     entries,
     releaseEntry,
@@ -113,6 +115,7 @@ function readBundleRelease(archivePath: string): BundleInfo {
     browserExtensionEntry,
     computerExtensionEntry,
     computerSchemaEntry,
+    languageServerExtensionEntry,
     release: readArchiveJson(archivePath, releaseEntry),
   };
 }
@@ -143,6 +146,9 @@ function verifyReleaseBundle(archivePath: string): BundleInfo {
   }
   if (!bundle.computerSchemaEntry) {
     throw new Error(`release archive is missing extensions/computer/backend/cua-tools.json: ${archivePath}`);
+  }
+  if (!bundle.languageServerExtensionEntry) {
+    throw new Error(`release archive is missing extensions/language-server/backend/index.cjs: ${archivePath}`);
   }
   return bundle;
 }

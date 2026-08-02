@@ -169,7 +169,8 @@ git -C "${PROJECT_ROOT}" archive --format=tar HEAD -- \
 for runtime_root in \
   "${PROJECT_ROOT}/backend" \
   "${PROJECT_ROOT}/extensions/browser/backend" \
-  "${PROJECT_ROOT}/extensions/computer/backend"; do
+  "${PROJECT_ROOT}/extensions/computer/backend" \
+  "${PROJECT_ROOT}/extensions/language-server/backend"; do
   while IFS= read -r source_path; do
     runtime_path="${source_path%.cts}.cjs"
     if [ ! -f "${runtime_path}" ]; then

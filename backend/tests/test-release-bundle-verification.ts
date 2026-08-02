@@ -14,6 +14,7 @@ interface ArchiveOptions {
   missingBrowserExtension?: boolean;
   missingComputerExtension?: boolean;
   missingComputerSchema?: boolean;
+  missingLanguageServerExtension?: boolean;
   dirty?: boolean;
 }
 
@@ -37,6 +38,10 @@ function makeArchive(options: ArchiveOptions = {}) {
     if (!options.missingComputerSchema) {
       fs.writeFileSync(path.join(appDir, 'extensions', 'computer', 'backend', 'cua-tools.json'), '{}\n');
     }
+  }
+  if (!options.missingLanguageServerExtension) {
+    fs.mkdirSync(path.join(appDir, 'extensions', 'language-server', 'backend'), { recursive: true });
+    fs.writeFileSync(path.join(appDir, 'extensions', 'language-server', 'backend', 'index.cjs'), 'module.exports = {};\n');
   }
   fs.writeFileSync(path.join(appDir, 'RELEASE.json'), JSON.stringify({
     name: 'farming',
@@ -76,8 +81,12 @@ function run() {
     () => verifyReleaseBundle(makeArchive({ missingComputerSchema: true })),
     /missing extensions\/computer\/backend\/cua-tools\.json/,
   );
+  assert.throws(
+    () => verifyReleaseBundle(makeArchive({ missingLanguageServerExtension: true })),
+    /missing extensions\/language-server\/backend\/index\.cjs/,
+  );
 
-  console.log('✓ release bundle verification requires clean metadata and Browser/Computer runtime files');
+  console.log('✓ release bundle verification requires clean metadata and Browser/Computer/Language Server runtime files');
 }
 
 run();
