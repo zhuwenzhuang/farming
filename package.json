@@ -41,11 +41,6 @@
     "extensions/computer/bin/",
     "extensions/language-server/backend/*.cjs",
     "extensions/language-server/backend/LICENSE.opencode",
-    "extensions/language-server/vscode-bridge/extension.js",
-    "extensions/language-server/vscode-bridge/http-handler.js",
-    "extensions/language-server/vscode-bridge/request-lifecycle.js",
-    "extensions/language-server/vscode-bridge/package.json",
-    "extensions/language-server/vscode-bridge/README.md",
     "shared/*.js",
     "scripts/prepare-installed-runtime.cjs",
     "LICENSE",
@@ -117,7 +112,7 @@
     "typecheck:backend": "tsc -p tsconfig.backend-runtime.json && tsc -p tsconfig.backend.json",
     "pretypecheck": "npm run build:backend-runtime && npm run build:classic-runtime",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.backend-runtime.json && tsc -p tsconfig.backend.json && tsc -p tsconfig.desktop.json && tsx scripts/typecheck-classic-runtime.ts && tsc -p tsconfig.shared.json && tsc -p tsconfig.scripts.json && tsc -p tsconfig.scripts-harness.json && tsc -p tsconfig.tests.json && tsc -p tsconfig.unit-tests.json && tsc -p tsconfig.usage.json",
-    "lint": "eslint --max-warnings=0 \"backend/**/*.cts\" \"backend/tests/test-*.ts\" \"desktop/**/*.ts\" \"extensions/*/backend/**/*.cts\" \"extensions/*/frontend/**/*.{ts,tsx}\" \"extensions/language-server/vscode-bridge/*.js\" \"frontend/**/*.js\" \"frontend/**/*.ts\" \"scripts/**/*.ts\" \"shared/**/*.ts\" \"src/**/*.{ts,tsx}\" bin/farming --ignore-pattern \"frontend/vendor/**\" --ignore-pattern \"frontend/themes/**\"",
+    "lint": "eslint --max-warnings=0 \"backend/**/*.cts\" \"backend/tests/test-*.ts\" \"desktop/**/*.ts\" \"extensions/*/backend/**/*.cts\" \"extensions/*/frontend/**/*.{ts,tsx}\" \"frontend/**/*.js\" \"frontend/**/*.ts\" \"scripts/**/*.ts\" \"shared/**/*.ts\" \"src/**/*.{ts,tsx}\" bin/farming --ignore-pattern \"frontend/vendor/**\" --ignore-pattern \"frontend/themes/**\"",
     "check": "npm run typecheck && npm run lint && npm test"
   },
   "keywords": [

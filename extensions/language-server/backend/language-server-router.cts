@@ -40,7 +40,7 @@ interface LanguageServerClient {
 }
 
 const express = require('express') as ExpressModule;
-const REJECTED_BRIDGE_LOCATION = Symbol('rejected-bridge-location');
+const REJECTED_LANGUAGE_SERVER_LOCATION = Symbol('rejected-language-server-location');
 const SUPPORTED_METHODS = new Set([
   'hover',
   'definition',
@@ -125,34 +125,34 @@ function locationWithinRoot(rootPath: string, uri: unknown): { path: string } | 
   return { path: relative.split(path.sep).join('/') };
 }
 
-function sanitizeBridgeValue(rootPath: string, value: unknown): unknown | typeof REJECTED_BRIDGE_LOCATION {
+function sanitizeLanguageServerValue(rootPath: string, value: unknown): unknown | typeof REJECTED_LANGUAGE_SERVER_LOCATION {
   if (Array.isArray(value)) {
     return value
-      .map(item => sanitizeBridgeValue(rootPath, item))
-      .filter(item => item !== REJECTED_BRIDGE_LOCATION);
+      .map(item => sanitizeLanguageServerValue(rootPath, item))
+      .filter(item => item !== REJECTED_LANGUAGE_SERVER_LOCATION);
   }
   if (!value || typeof value !== 'object') return value;
   const source = value as Record<string, unknown>;
   const result: Record<string, unknown> = {};
   if ('uri' in source) {
     const location = locationWithinRoot(rootPath, source.uri);
-    if (!location) return REJECTED_BRIDGE_LOCATION;
+    if (!location) return REJECTED_LANGUAGE_SERVER_LOCATION;
     result.path = location.path;
   }
   for (const [key, item] of Object.entries(source)) {
     if (key === 'uri') continue;
-    const sanitized = sanitizeBridgeValue(rootPath, item);
-    if (sanitized === REJECTED_BRIDGE_LOCATION && key === 'item') {
-      return REJECTED_BRIDGE_LOCATION;
+    const sanitized = sanitizeLanguageServerValue(rootPath, item);
+    if (sanitized === REJECTED_LANGUAGE_SERVER_LOCATION && key === 'item') {
+      return REJECTED_LANGUAGE_SERVER_LOCATION;
     }
-    if (sanitized !== REJECTED_BRIDGE_LOCATION) result[key] = sanitized;
+    if (sanitized !== REJECTED_LANGUAGE_SERVER_LOCATION) result[key] = sanitized;
   }
   return result;
 }
 
-function sanitizeBridgeResult(rootPath: string, value: unknown): unknown {
-  const sanitized = sanitizeBridgeValue(rootPath, value);
-  return sanitized === REJECTED_BRIDGE_LOCATION ? null : sanitized;
+function sanitizeLanguageServerResult(rootPath: string, value: unknown): unknown {
+  const sanitized = sanitizeLanguageServerValue(rootPath, value);
+  return sanitized === REJECTED_LANGUAGE_SERVER_LOCATION ? null : sanitized;
 }
 
 function createLanguageServerRouter(client: LanguageServerClient, roots: WorkspaceRootRegistry): Router {
@@ -189,7 +189,7 @@ function createLanguageServerRouter(client: LanguageServerClient, roots: Workspa
       const response = recordValue(await client.request(payload));
       res.json({
         ...response,
-        result: sanitizeBridgeResult(root.canonicalPath, response.result),
+        result: sanitizeLanguageServerResult(root.canonicalPath, response.result),
       });
     } catch (error) {
       sendError(res, error);
@@ -199,4 +199,4 @@ function createLanguageServerRouter(client: LanguageServerClient, roots: Workspa
   return router;
 }
 
-export { createLanguageServerRouter, sanitizeBridgeResult };
+export { createLanguageServerRouter, sanitizeLanguageServerResult };

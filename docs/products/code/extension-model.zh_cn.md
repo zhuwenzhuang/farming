@@ -47,7 +47,7 @@ Active / Focus、Action 浮现层、Action Button 尺寸和 Empty Row。Extensio
 自己的 Icon、Label、Status 语义和 Action；Extension-local CSS 只保留 Viewer、
 语义菜单等真正属于该 Resource 的呈现。
 
-Language Server 是面向代码查看的内置托管能力。Farming 使用源自 OpenCode 的语言注册表匹配已保存文件，发现最近的 Project Root Marker，优先使用 `PATH` 中的标准 Server 命令，并按 Server 与 Root 惰性复用 stdio 进程。缺少 clangd 或 JDTLS 时可在精确 Config 缓存中准备；其他缺失命令会明确失败，并可使用现有用户管理的 VS Code Bridge 兼容路径。Farming 不提供手工传输或每语言表单，对输入与结果执行权威 Project Root 校验，并在 Farming Draft 未保存时隐藏语义操作。参见 [Language Server](./language-server.zh_cn.md)。
+Language Server 是面向代码查看的内置托管能力。Farming 使用源自 OpenCode 的语言注册表匹配已保存文件，发现最近的 Project Root Marker，优先使用 `PATH` 中的标准 Server 命令，并按 Server 与 Root 惰性复用 stdio 进程。缺少 clangd 或 JDTLS 时可在精确 Config 缓存中准备；其他缺失命令会明确失败。Farming 不提供手工传输或每语言表单，对输入与结果执行权威 Project Root 校验，并在 Farming Draft 未保存时隐藏语义操作。参见 [Language Server](./language-server.zh_cn.md)。
 
 同一个页面也拥有 Agent 配置。一个 Provider 加一个 Agent Home ID 就是一份独立 Agent 配置：`Codex · default` 与 `Codex · work` 是两个 Agent，即使它们都使用 Codex。Agent Homes 中每一项常态只保留便于扫读的摘要：Farming 读取 Provider 自己拥有的配置文件，只把安全且可识别的字段显示为普通文字，不再把这个 Home 的扩展目录嵌套在配置行下面。点击编辑会把这份精确 Home 挂载为普通 Project，在 Farming 现有文件编辑器中打开配置文件，并在 Project 文件树中定位它；编辑、保存和导航因此全部复用普通 Project Files 链路。文件尚不存在时，编辑器先建立空 Working Copy，只在用户保存时创建文件。所有面向 Provider 的 Catalog、Settings、Session 与 Extension 读取都必须先解析精确 Home，缓存键也必须包含该 Home 身份；默认 Home 的结果绝不能填充到其他 Home。“扩展”页签始终显式保留当前 Home，类型数量和搜索范围都限制在这份 Home 内，并且只展示当前选中类型的条目；Farming 不会把多个 Home 折叠成一个 Provider 级身份。全局 Farming Settings 中有序的 `agentHomes` Registry 是权威状态。新增项追加到末尾，拖拽或键盘移动会重写稳定的数字顺序，只有非 `default` 项可以删除。因此 Agent Home 管理不再出现在通用 Settings 中。
 

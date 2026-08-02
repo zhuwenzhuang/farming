@@ -22,7 +22,7 @@ clangd / JDTLS / PATH 中的其他 Server
 
 实现沿用 OpenCode 的语言注册表、向上查找 Root Marker、PATH 优先发现可执行文件，以及按 `server + root` 惰性启动和复用进程的做法。Farming 额外复用已有的权威 Project Root 授权，并把所有返回位置重新过滤到同一个 Project 内。
 
-现有的用户管理 VS Code Bridge 保留为兼容回退：只有注册的 Server 命令缺失时才尝试使用。托管 Server 的真实失败不会静默换 Provider 重放。
+托管 Server 的失败会明确返回；Farming 不会静默换 Provider 重放请求。
 
 ## 发现算法
 
@@ -45,7 +45,7 @@ clangd --background-index --clang-tidy
 
 Java 检测 Gradle Settings、Wrapper、Build 文件，经过 `<modules>` 关系验证的 Maven Parent 链，或者 Eclipse Project 文件。优先使用 `PATH` 中的 `jdtls`；否则要求 Java 21 或更高版本，并把官方 Eclipse JDTLS 最新 Snapshot 下载到 Config 独立缓存。JDTLS 的可变 Workspace 数据按 Project Root 隔离。
 
-其他注册语言使用 `PATH` 中的标准命令。命令缺失时明确失败，并可使用已就绪的 VS Code Bridge 兼容路径。
+其他注册语言使用 `PATH` 中的标准命令。命令缺失时明确失败。
 
 ## 注册语言
 
@@ -71,4 +71,4 @@ Java 检测 Gradle Settings、Wrapper、Build 文件，经过 `<modules>` 关系
 
 采用的 OpenCode 源码 Revision 和 MIT Notice 记录在 `THIRD_PARTY_NOTICES.md` 与 `extensions/language-server/backend/LICENSE.opencode`。
 
-聚焦回归测试使用真实的 Fake stdio Language Server，验证 Root 识别、初始化、打开文档、Hover、定义、诊断、层次结构 Handle、Workspace Symbol、进程复用和有界关闭。现有 Bridge 测试继续覆盖认证兼容路径与 Project 返回结果过滤。
+聚焦回归测试使用真实的 Fake stdio Language Server，验证 Root 识别、初始化、打开文档、Hover、定义、诊断、层次结构 Handle、Workspace Symbol、进程复用、有界关闭和 Project 返回结果过滤。

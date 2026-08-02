@@ -30,8 +30,7 @@ Browse project files, inspect changes, make a focused edit, and open Review
 without leaving the task.
 
 The same editor can start managed language servers on the Project host for
-navigation, symbols, call/type hierarchy, and diagnostics. A user-managed VS
-Code Bridge remains a compatibility source. See [Language Server](language-server.md).
+navigation, symbols, call/type hierarchy, and diagnostics. See [Language Server](language-server.md).
 
 ### Search And History
 

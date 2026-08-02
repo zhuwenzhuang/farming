@@ -51,8 +51,8 @@ test('keeps TypeScript diagnostics syntax-only without project language service 
   expect(markers.some(marker => marker.message.includes('Cannot find module'))).toBe(false)
 })
 
-test('shows VS Code Bridge navigation and lazy call hierarchy for a saved file', async ({ page }) => {
-  const workspaceRoot = path.join(PLAYWRIGHT_WORKSPACE_ROOT, 'vscode-bridge-editor')
+test('shows managed Language Server navigation and lazy call hierarchy for a saved file', async ({ page }) => {
+  const workspaceRoot = path.join(PLAYWRIGHT_WORKSPACE_ROOT, 'managed-language-server-editor')
   fs.rmSync(workspaceRoot, { recursive: true, force: true })
   fs.mkdirSync(workspaceRoot, { recursive: true })
   fs.writeFileSync(path.join(workspaceRoot, 'App.ts'), 'export function root() { child() }\nfunction child() {}\n')
@@ -62,9 +62,8 @@ test('shows VS Code Bridge navigation and lazy call hierarchy for a saved file',
     contentType: 'application/json',
     body: JSON.stringify({
       status: 'connected',
-      source: 'vscode',
-      detail: 'VS Code Bridge',
-      vscodeVersion: '1.99.0',
+      source: 'managed',
+      detail: 'Managed Language Server',
       features: ['definition', 'callHierarchy', 'diagnostics'],
       workspaces: [workspaceUri],
     }),

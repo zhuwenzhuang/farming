@@ -23,7 +23,7 @@ the [documentation home](../README.md).
 
 - [Farming Desktop MVP](../products/code/desktop-app.md)
 - [Extension and Resource model](../products/code/extension-model.md)
-- [Language Server and VS Code Bridge](../products/code/language-server.md)
+- [Language Server](../products/code/language-server.md)
 - [Project Files design](../products/code/project-files-section-design.md)
 - [Review foundation](../products/code/review-foundation.md)
 - [Farming CRT layout](../products/crt/base_layout.md)

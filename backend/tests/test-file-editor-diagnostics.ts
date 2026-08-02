@@ -25,7 +25,7 @@ function run() {
     designSource.includes("keep Monaco syntax diagnostics but disable Monaco's isolated semantic and suggestion diagnostics") &&
       designSource.includes('Project-level diagnostics appear through the managed Language Server path') &&
       designZhSource.includes('保留 Monaco 的语法诊断，但关闭 Monaco 隔离环境中的 Semantic 和 Suggestion Diagnostics') &&
-      designZhSource.includes('项目级诊断通过托管 Language Server 路径或 VS Code Bridge 兼容来源提供'),
+      designZhSource.includes('项目级诊断通过托管 Language Server 路径提供'),
     'Project Files design docs should state the syntax-only diagnostics boundary'
   );
 

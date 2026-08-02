@@ -248,7 +248,6 @@ import {
 import {
   LanguageServerService,
   ManagedLanguageServerManager,
-  VsCodeBridgeClient,
   createLanguageServerRouter,
 } from '../extensions/language-server/backend/index.cjs';
 import { UsageMonitor } from './usage-monitor.cjs';
@@ -353,14 +352,10 @@ const browserResourceManager = new BrowserResourceManager({
   }),
   isolatedBrowserProvider,
 });
-const vsCodeBridgeClient = new VsCodeBridgeClient();
 const managedLanguageServerManager = new ManagedLanguageServerManager({
   configDir: configManager.farmingDir,
 });
-const languageServerService = new LanguageServerService(
-  managedLanguageServerManager,
-  vsCodeBridgeClient,
-);
+const languageServerService = new LanguageServerService(managedLanguageServerManager);
 server.on('close', () => {
   void languageServerService.dispose();
 });

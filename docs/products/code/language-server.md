@@ -28,9 +28,8 @@ search, PATH-first executable discovery, and lazy `server + root` process
 reuse. Farming adds its existing authoritative Project-root authorization and
 filters every returned file location back to that same Project.
 
-The existing user-managed VS Code Bridge remains a compatibility fallback when
-a registered server command is absent. A managed server failure is not silently
-replayed through another provider.
+Managed server failures are returned explicitly; Farming does not silently
+replay a request through another provider.
 
 ## Discovery Algorithm
 
@@ -66,7 +65,7 @@ downloads the latest official Eclipse JDTLS snapshot into the Config-local
 cache. JDTLS mutable workspace data is isolated by Project root.
 
 Other registered languages use their normal command from `PATH`. Missing
-commands fail explicitly and may use a ready VS Code Bridge compatibility path.
+commands fail explicitly.
 
 ## Registered Languages
 
@@ -113,6 +112,5 @@ The adapted OpenCode source revision and MIT notice are recorded in
 
 Focused regression coverage uses a real fake stdio Language Server to verify
 root detection, initialization, document opening, hover, definitions,
-diagnostics, hierarchy handles, workspace symbols, process reuse, and bounded
-shutdown. The existing Bridge tests continue to cover its authenticated
-compatibility path and Project result filtering.
+diagnostics, hierarchy handles, workspace symbols, process reuse, bounded
+shutdown, and Project result filtering.
