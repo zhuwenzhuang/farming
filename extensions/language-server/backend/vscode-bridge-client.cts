@@ -24,6 +24,8 @@ interface BridgeHealth {
   vscodeVersion?: string;
   features?: string[];
   workspaces?: string[];
+  requestState?: string;
+  detail?: string;
 }
 
 interface LanguageServerCapability {
@@ -45,6 +47,7 @@ interface CachedDiscovery {
   expiresAt: number;
   capability: LanguageServerCapability;
   bridges?: Array<{ descriptor: BridgeDescriptor; health: BridgeHealth }>;
+  stalledBridges?: Array<{ descriptor: BridgeDescriptor; health: BridgeHealth; detail: string }>;
 }
 
 function descriptorCandidates(homeDir = os.homedir()): string[] {
@@ -255,15 +258,25 @@ class VsCodeBridgeClient {
         if (Number(health.version) !== BRIDGE_PROTOCOL_VERSION) {
           throw bridgeError('VS Code Bridge protocol version is incompatible', 'LANGUAGE_SERVER_BRIDGE_INCOMPATIBLE');
         }
-        return { descriptor: candidate.descriptor, health };
+        if (health.requestState === 'stalled') {
+          const detail = String(
+            health.detail || 'VS Code Bridge has a stalled language provider request. Reload the VS Code window.',
+          );
+          invalidErrors.push(detail);
+          return { state: 'stalled' as const, descriptor: candidate.descriptor, health, detail };
+        }
+        return { state: 'ready' as const, descriptor: candidate.descriptor, health };
       } catch (error) {
         invalidErrors.push(error instanceof Error ? error.message : String(error));
         return null;
       }
     }));
-    const bridges = healthResults.filter(
-      (value): value is { descriptor: BridgeDescriptor; health: BridgeHealth } => Boolean(value),
-    );
+    const bridges = healthResults
+      .filter(value => value?.state === 'ready')
+      .map(value => ({ descriptor: value.descriptor, health: value.health }));
+    const stalledBridges = healthResults
+      .filter(value => value?.state === 'stalled')
+      .map(value => ({ descriptor: value.descriptor, health: value.health, detail: value.detail }));
     if (bridges.length > 0) {
       const features = [...new Set(bridges.flatMap(bridge => (
         Array.isArray(bridge.health.features) ? bridge.health.features.map(String) : []
@@ -274,6 +287,7 @@ class VsCodeBridgeClient {
       this.cached = {
         expiresAt: this.now() + DESCRIPTOR_CACHE_MS,
         bridges,
+        ...(stalledBridges.length > 0 ? { stalledBridges } : {}),
         capability: {
           status: 'connected',
           source: 'vscode',
@@ -288,6 +302,7 @@ class VsCodeBridgeClient {
 
     this.cached = {
       expiresAt: this.now() + DESCRIPTOR_CACHE_MS,
+      ...(stalledBridges.length > 0 ? { stalledBridges } : {}),
       capability: {
         status: 'error',
         source: 'vscode',
@@ -306,15 +321,22 @@ class VsCodeBridgeClient {
 
   async request(body: unknown): Promise<unknown> {
     const discovery = await this.discover();
-    if (!discovery.bridges?.length || discovery.capability.status !== 'connected') {
-      throw bridgeError(discovery.capability.detail, 'LANGUAGE_SERVER_UNAVAILABLE', 503);
-    }
     const workspace = String(recordValue(body).workspace || '');
-    const bridge = discovery.bridges.find(candidate => (
+    const bridge = discovery.bridges?.find(candidate => (
+      Array.isArray(candidate.health.workspaces)
+      && candidate.health.workspaces.map(String).includes(workspace)
+    ));
+    const stalledBridge = discovery.stalledBridges?.find(candidate => (
       Array.isArray(candidate.health.workspaces)
       && candidate.health.workspaces.map(String).includes(workspace)
     ));
     if (!bridge) {
+      if (stalledBridge) {
+        throw bridgeError(stalledBridge.detail, 'LANGUAGE_SERVER_BRIDGE_STALLED', 503);
+      }
+      if (!discovery.bridges?.length || discovery.capability.status !== 'connected') {
+        throw bridgeError(discovery.capability.detail, 'LANGUAGE_SERVER_UNAVAILABLE', 503);
+      }
       throw bridgeError('The requested Project is not open in a discovered VS Code Bridge', 'LANGUAGE_SERVER_WORKSPACE_UNAVAILABLE', 503);
     }
     try {

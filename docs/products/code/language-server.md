@@ -50,12 +50,16 @@ Completion, rename, formatting, code actions, and Farming-managed language-serve
 The Farming backend owns the authoritative connection state:
 
 - `Unavailable`: no Bridge descriptor was discovered;
-- `Connected`: a discovered Bridge completed a bounded authenticated health request;
-- `Error`: a descriptor exists but is invalid, incompatible, or unreachable.
+- `Connected`: at least one discovered Bridge completed a bounded authenticated health request and reports its provider request path as ready;
+- `Error`: a descriptor exists but is invalid, incompatible, unreachable, or stalled with no ready Bridge remaining.
 
 Opening Plugins performs a fresh bounded discovery. Retry invalidates the short discovery cache. A request failure invalidates the active Bridge and the next operation discovers again. Farming never turns a failed or absent Bridge into a lower-quality language-server fallback.
 
 Each VS Code window writes a mode-`0600` instance descriptor containing a random bearer token and a random loopback port under its VS Code global storage directory. Farming health-checks the bounded discovered set, merges its capabilities, and routes each Project request to the Bridge instance that has that exact workspace open. Farming accepts only literal loopback HTTP endpoints owned by the current user. The backend validates every input file against an authoritative Project root and removes every result outside that same root before returning it to the browser. The Bridge independently accepts only workspaces open in its VS Code window and files owned by that workspace.
+
+Ready Bridges allow normal language-provider requests to run concurrently; the lifecycle is not a global single-flight lock. Each request also has a Bridge-local deadline that finishes before the backend's transport timeout. VS Code's public provider commands do not expose cancellation, so crossing that deadline returns `504 VSCODE_BRIDGE_PROVIDER_STALLED` without pretending to cancel, restart, or replay the underlying operation. The Bridge retains that exact Promise and generation, reports `requestState: stalled` from health, and rejects later provider requests quickly with `503 VSCODE_BRIDGE_PROVIDER_STALLED` before invoking VS Code again. It returns to ready only after every timed-out generation's original Promise actually settles; one old late result cannot clear another stalled generation.
+
+A stalled Bridge is excluded from connected capability and workspace inventory. If another ready Bridge has the same workspace open, Farming routes to that instance. If only a stalled instance owns the requested workspace, the request preserves the stalled error and its recovery instruction instead of reporting that the workspace is closed. An operation that never settles is a terminal failure for that VS Code window: reload the VS Code window to recreate its Extension Host. Farming does not automatically replay the query or restart VS Code.
 
 Hierarchy item handles are opaque, process-local, capacity-bounded, and expire after ten minutes. Losing or restarting the Bridge makes old handles fail explicitly; the user prepares the hierarchy again.
 
@@ -76,4 +80,4 @@ The Bridge supports VS Code and VS Code Server 1.85 or newer so existing remote 
 
 ## Verification
 
-The backend regression test covers authenticated discovery, protocol health, Project-root input validation, result filtering, and transition back to Unavailable. Frontend type checking covers Monaco provider registration and the hierarchy/symbol panel. A production-shaped acceptance pass should additionally use one real VS Code Remote SSH workspace and verify TypeScript definition/reference/call hierarchy, followed by one non-TypeScript language extension installed in that same VS Code Server.
+The backend regression tests cover authenticated discovery, protocol health, Project-root input validation, result filtering, transition back to Unavailable, concurrent healthy requests, the stalled deadline/fence/recovery generations, exact deactivation cleanup, and ready-Bridge fallback for the same workspace. Manifest regression checks keep every Bridge runtime helper in both the VSIX and Farming npm package file lists. Frontend type checking covers Monaco provider registration and the hierarchy/symbol panel. A production-shaped acceptance pass should additionally package the VSIX, then use one real VS Code Remote SSH workspace and verify TypeScript definition/reference/call hierarchy, followed by one non-TypeScript language extension installed in that same VS Code Server.

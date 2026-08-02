@@ -50,12 +50,16 @@ Completion、Rename、Formatting、Code Action 和 Farming 托管安装 Language
 Farming 后端拥有权威连接状态：
 
 - `Unavailable`：没有发现 Bridge 描述文件；
-- `Connected`：发现的 Bridge 在有界时间内通过认证健康检查；
-- `Error`：描述文件存在，但无效、不兼容或无法连接。
+- `Connected`：至少一个发现的 Bridge 在有界时间内通过认证健康检查，并报告 Provider 请求路径已就绪；
+- `Error`：描述文件存在，但无效、不兼容、无法连接，或者已经停滞且没有其他就绪 Bridge。
 
 打开插件页会做一次新的有界发现；重试会使短缓存失效。请求失败会使当前 Bridge 失效，下一次操作重新发现。Farming 不会把 Bridge 缺失或失败降级成质量更差的 Language Server 路径。
 
 每个 VS Code 窗口都会在 VS Code Global Storage 下写入权限为 `0600` 的实例描述文件，其中包含随机 Bearer Token 和随机回环端口。Farming 对有界的已发现实例集合做健康检查，合并能力，并按精确 Workspace 把每个 Project 请求路由到正确 Bridge。Farming 只接受当前用户拥有的字面回环 HTTP 端点。后端使用权威 Project 根目录校验每个输入文件，并在返回浏览器前剔除同一根目录之外的所有结果。Bridge 也会独立校验：只接受当前 VS Code 窗口已打开的 Workspace，以及属于该 Workspace 的文件。
+
+处于就绪状态的 Bridge 允许正常 Language Provider 请求并发执行，生命周期不是全局单飞锁。每个请求还有一个早于后端传输超时结束的 Bridge 本地 deadline。VS Code 的公共 Provider 命令不提供取消能力，因此越过 deadline 时会返回 `504 VSCODE_BRIDGE_PROVIDER_STALLED`，但不会假装已经取消、重启或重放底层操作。Bridge 会保留原始 Promise 及其 generation，在健康检查中报告 `requestState: stalled`，并在再次调用 VS Code 之前快速以 `503 VSCODE_BRIDGE_PROVIDER_STALLED` 拒绝后续 Provider 请求。只有全部已超时 generation 的原始 Promise 真正结束后才恢复就绪；一个旧请求的迟到结果不能清除另一个仍停滞的 generation。
+
+停滞的 Bridge 不会进入已连接能力和 Workspace 清单。若另一个就绪 Bridge 打开了同一 Workspace，Farming 会路由到该实例；若请求的 Workspace 只有停滞实例，Farming 会保留停滞错误及恢复提示，而不是误报 Workspace 未打开。若底层操作始终不结束，这是该 VS Code 窗口的终止失败：用户需要 Reload VS Code Window 来重建 Extension Host。Farming 不会自动重放查询或重启 VS Code。
 
 层次结构句柄不透明、只在 Bridge 进程内有效，有容量上限并在十分钟后过期。Bridge 丢失或重启后，旧句柄会明确失败，用户重新准备层次结构即可。
 
@@ -76,4 +80,4 @@ Bridge 支持 VS Code 与 VS Code Server 1.85 及以上版本，已有远端安�
 
 ## 验证
 
-后端回归测试覆盖认证发现、协议健康检查、Project 根目录输入约束、返回结果过滤和重新回到 Unavailable。前端类型检查覆盖 Monaco Provider 注册及层次结构/符号面板。生产形态验收还应使用真实 VS Code Remote SSH Workspace，先验证 TypeScript 的定义、引用和调用层次结构，再验证同一 VS Code Server 中安装的一种非 TypeScript 语言扩展。
+后端回归测试覆盖认证发现、协议健康检查、Project 根目录输入约束、返回结果过滤、重新回到 Unavailable、健康请求并发、停滞 deadline/fence/recovery generations、停用时精确清理，以及同一 Workspace 的就绪 Bridge 回退。Manifest 回归检查会确保 VSIX 与 Farming npm 包的文件清单都包含全部 Bridge 运行时 helper。前端类型检查覆盖 Monaco Provider 注册及层次结构/符号面板。生产形态验收还应实际打包 VSIX，再使用真实 VS Code Remote SSH Workspace，先验证 TypeScript 的定义、引用和调用层次结构，然后验证同一 VS Code Server 中安装的一种非 TypeScript 语言扩展。

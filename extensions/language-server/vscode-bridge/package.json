@@ -17,6 +17,7 @@
   ],
   "files": [
     "extension.js",
+    "request-lifecycle.js",
     "README.md"
   ],
   "extensionKind": [

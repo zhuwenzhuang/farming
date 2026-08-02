@@ -4,6 +4,8 @@ This user-managed VS Code extension exposes the language providers already activ
 
 It does not install or manage language servers. Install the language extensions you normally use in VS Code, install this Bridge into the same local or Remote SSH extension host, and keep the workspace open. Farming discovers the Bridge automatically; there are no Bridge settings, commands, or listening-port fields.
 
+Provider queries have a Bridge-local deadline. Because VS Code provider commands cannot be cancelled, a timed-out operation remains tracked and the Bridge reports itself as stalled until that exact operation settles. New queries are rejected without invoking another provider during that interval. If the operation never settles, reload the VS Code window; Farming does not replay the query or restart VS Code automatically. Other ready VS Code windows that have the same workspace open remain eligible for routing.
+
 For development packaging:
 
 ```bash

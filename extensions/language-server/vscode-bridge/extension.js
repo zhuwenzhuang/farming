@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
 const vscode = require('vscode');
+const { createRequestLifecycle } = require('./request-lifecycle');
 
 const PROTOCOL_VERSION = 1;
 const MAX_BODY_BYTES = 1024 * 1024;
@@ -29,9 +30,11 @@ let activeServer = null;
 let activeDescriptor = null;
 let activeToken = '';
 let activeInstanceId = '';
+let activeRequestLifecycle = null;
 const handles = new Map();
 
 function json(response, status, value) {
+  if (response.destroyed || response.writableEnded) return;
   const body = Buffer.from(JSON.stringify(value));
   response.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
@@ -286,25 +289,33 @@ async function handleRequest(request, response) {
   }
   const url = new URL(request.url || '/', 'http://127.0.0.1');
   if (request.method === 'GET' && url.pathname === '/v1/health') {
+    const lifecycleState = activeRequestLifecycle?.state() || { requestState: 'stalled', stalledGenerations: [] };
     json(response, 200, {
       version: PROTOCOL_VERSION,
       name: 'VS Code Bridge',
       vscodeVersion: vscode.version,
       features: FEATURES,
       workspaces: workspaceFolders(),
+      requestState: lifecycleState.requestState,
+      ...(lifecycleState.requestState === 'stalled' ? {
+        detail: 'A VS Code language provider request is still running. Reload the VS Code window if this persists.',
+        stalledGeneration: lifecycleState.stalledGenerations[0],
+      } : {}),
     });
     return;
   }
   if (request.method === 'POST' && url.pathname === '/v1/request') {
     try {
-      const result = await executeRequest(await readBody(request));
+      const input = await readBody(request);
+      if (!activeRequestLifecycle) throw new Error('VS Code Bridge is not active');
+      const result = await activeRequestLifecycle.run(() => executeRequest(input));
       json(response, 200, result === UNSUPPORTED
         ? { result: [], supported: false }
         : { result, supported: true });
     } catch (error) {
-      json(response, 400, {
+      json(response, Number(error?.status) || 400, {
         error: error instanceof Error ? error.message : String(error),
-        code: 'VSCODE_BRIDGE_REQUEST_FAILED',
+        code: String(error?.code || 'VSCODE_BRIDGE_REQUEST_FAILED'),
       });
     }
     return;
@@ -314,6 +325,7 @@ async function handleRequest(request, response) {
 
 async function activate(context) {
   await fs.promises.mkdir(context.globalStorageUri.fsPath, { recursive: true });
+  activeRequestLifecycle = createRequestLifecycle();
   activeToken = crypto.randomBytes(32).toString('hex');
   activeInstanceId = crypto.randomUUID();
   activeDescriptor = path.join(context.globalStorageUri.fsPath, `bridge-${activeInstanceId}.json`);
@@ -345,6 +357,8 @@ async function deactivate() {
   const descriptor = activeDescriptor;
   activeDescriptor = null;
   activeInstanceId = '';
+  activeRequestLifecycle?.dispose();
+  activeRequestLifecycle = null;
   handles.clear();
   if (activeServer) {
     const server = activeServer;

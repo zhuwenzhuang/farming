@@ -39,16 +39,28 @@ async function run() {
   const bridgeManifest = JSON.parse(fs.readFileSync(path.join(
     __dirname,
     '../../extensions/language-server/vscode-bridge/package.json',
-  ), 'utf8')) as { engines?: { vscode?: string } };
+  ), 'utf8')) as { engines?: { vscode?: string }; files?: string[] };
   assert.strictEqual(
     bridgeManifest.engines?.vscode,
     '^1.85.0',
     'The user-managed Bridge should remain installable on the established VS Code Server baseline',
   );
+  assert.ok(
+    bridgeManifest.files?.includes('request-lifecycle.js'),
+    'The request lifecycle helper must be included in the packaged VS Code extension',
+  );
+  const farmingManifest = JSON.parse(fs.readFileSync(path.join(__dirname, '../../package.json'), 'utf8')) as {
+    files?: string[];
+  };
+  assert.ok(
+    farmingManifest.files?.includes('extensions/language-server/vscode-bridge/request-lifecycle.js'),
+    'The request lifecycle helper must be included in the Farming npm package',
+  );
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-language-server-'));
   const workspaceInput = path.join(tempDir, 'workspace');
   const descriptorPath = path.join(tempDir, 'bridge.json');
   const secondDescriptorPath = path.join(tempDir, 'bridge-22222222-2222-4222-8222-222222222222.json');
+  const stalledDescriptorPath = path.join(tempDir, 'bridge-33333333-3333-4333-8333-333333333333.json');
   fs.mkdirSync(path.join(workspaceInput, 'src'), { recursive: true });
   const workspace = fs.realpathSync(workspaceInput);
   fs.writeFileSync(path.join(workspace, 'src', 'main.ts'), 'export const value = 1;\n');
@@ -157,6 +169,34 @@ async function run() {
     token: 'second-token',
   }), { mode: 0o600 });
 
+  let stalledBridgeReceivedRequest = false;
+  const stalledDetail = 'A test language provider is still running. Reload the VS Code window.';
+  const stalledBridge = http.createServer(async (request, response) => {
+    assert.strictEqual(request.headers.authorization, 'Bearer stalled-token');
+    if (request.url === '/v1/health') {
+      response.setHeader('Content-Type', 'application/json');
+      response.end(JSON.stringify({
+        version: 1,
+        name: 'Stalled VS Code Bridge',
+        vscodeVersion: '1.99.0',
+        features: ['definition'],
+        workspaces: [pathToFileURL(workspace).toString()],
+        requestState: 'stalled',
+        detail: stalledDetail,
+      }));
+      return;
+    }
+    stalledBridgeReceivedRequest = true;
+    response.statusCode = 500;
+    response.end(JSON.stringify({ error: 'stalled bridge must be fenced' }));
+  });
+  const stalledBridgePort = await listen(stalledBridge);
+  fs.writeFileSync(stalledDescriptorPath, JSON.stringify({
+    version: 1,
+    endpoint: `http://127.0.0.1:${stalledBridgePort}`,
+    token: 'stalled-token',
+  }), { mode: 0o600 });
+
   const client = new VsCodeBridgeClient({ descriptorPaths: [descriptorPath] });
   const capability = await client.capability({ force: true });
   assert.strictEqual(capability.status, 'connected');
@@ -185,6 +225,7 @@ async function run() {
       range: { start: { line: 0, character: 0 }, end: { line: 0, character: 5 } },
     }]);
     assert.strictEqual(secondBridgeReceivedRequest, false);
+    assert.strictEqual(stalledBridgeReceivedRequest, false);
 
     const escaped = await requestJson(apiPort, '/api/language-server/request', {
       rootId: 'root-test',
@@ -193,14 +234,49 @@ async function run() {
       position: { line: 0, character: 0 },
     });
     assert.strictEqual(escaped.status, 403);
+
+    fs.rmSync(descriptorPath, { force: true });
+    client.invalidate();
+    const fallbackCapability = await client.capability({ force: true });
+    assert.strictEqual(fallbackCapability.status, 'connected');
+    assert.deepStrictEqual(fallbackCapability.workspaces, [
+      pathToFileURL(path.join(tempDir, 'other-workspace')).toString(),
+    ]);
+    const stalledResult = await requestJson(apiPort, '/api/language-server/request', {
+      rootId: 'root-test',
+      method: 'definition',
+      filePath: 'src/main.ts',
+      position: { line: 0, character: 1 },
+    });
+    assert.strictEqual(stalledResult.status, 503);
+    assert.strictEqual(stalledResult.body.code, 'LANGUAGE_SERVER_BRIDGE_STALLED');
+    assert.strictEqual(stalledResult.body.error, stalledDetail);
+    assert.strictEqual(secondBridgeReceivedRequest, false);
+    assert.strictEqual(stalledBridgeReceivedRequest, false);
+
+    fs.rmSync(secondDescriptorPath, { force: true });
+    client.invalidate();
+    const stalledCapability = await client.capability({ force: true });
+    assert.strictEqual(stalledCapability.status, 'error');
+    assert.strictEqual(stalledCapability.detail, stalledDetail);
+    const onlyStalledResult = await requestJson(apiPort, '/api/language-server/request', {
+      rootId: 'root-test',
+      method: 'definition',
+      filePath: 'src/main.ts',
+      position: { line: 0, character: 1 },
+    });
+    assert.strictEqual(onlyStalledResult.status, 503);
+    assert.strictEqual(onlyStalledResult.body.code, 'LANGUAGE_SERVER_BRIDGE_STALLED');
   } finally {
     await close(api);
     await close(bridge);
     await close(secondBridge);
+    await close(stalledBridge);
   }
 
   fs.rmSync(descriptorPath, { force: true });
   fs.rmSync(secondDescriptorPath, { force: true });
+  fs.rmSync(stalledDescriptorPath, { force: true });
   client.invalidate();
   assert.strictEqual((await client.capability({ force: true })).status, 'unavailable');
   fs.rmSync(tempDir, { recursive: true, force: true });
