@@ -56,6 +56,9 @@ interface RuntimeDependencySourceConfig {
   defaultNpmMirror?: string;
 }
 
+const PREPARED_RUNTIME_SEED_ENV = 'FARMING_RUNTIME_SEED_DIR';
+const RUNTIME_DOWNLOAD_POLICY_ENV = 'FARMING_RUNTIME_DOWNLOAD_POLICY';
+
 interface RuntimeDependencyDefinition {
   id: string;
   envKeys: readonly string[];
@@ -963,7 +966,15 @@ async function findExactRuntime(
       );
     }
   }
-  return resolveCachedRuntime(configDir, definition.id, platformKey, { env });
+  const cached = await resolveCachedRuntime(configDir, definition.id, platformKey, { env });
+  if (cached) return cached;
+  const seedDir = String(env[PREPARED_RUNTIME_SEED_ENV] || '').trim();
+  if (!seedDir) return null;
+  if (!path.isAbsolute(seedDir)) {
+    throw new Error(`${PREPARED_RUNTIME_SEED_ENV} must be an absolute directory.`);
+  }
+  if (path.resolve(seedDir) === path.resolve(configDir)) return null;
+  return resolveCachedRuntime(seedDir, definition.id, platformKey, { env });
 }
 
 async function installExactRuntime(
@@ -972,6 +983,12 @@ async function installExactRuntime(
   platformKey: string,
   options: RuntimeManagerOptions = {},
 ): Promise<ResolvedRuntime> {
+  if (String(options.env?.[RUNTIME_DOWNLOAD_POLICY_ENV] || '').trim() === 'forbid') {
+    throw new Error(
+      `${definition.id} ${MANIFEST.dependencies[definition.id]?.version || ''} was not prepared during npm install; `
+      + 'run npm install again before starting Farming Desktop.',
+    );
+  }
   const { dependency, artifact } = dependencyManifest(definition.id, platformKey);
   const cacheDir = dependencyCacheDir(configDir, definition.id, dependency.version, platformKey);
   const stagingDir = `${cacheDir}.preparing-${process.pid}-${crypto.randomUUID()}`;

@@ -358,6 +358,43 @@ test('local backend lifecycle coalesces start and makes stop idempotent', async 
   assert.equal(runtime.state(), 'stopped')
 })
 
+test('desktop local startup is pinned to the npm-prepared runtime seed and forbids downloads', async () => {
+  const temporaryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-desktop-local-seed-'))
+  const cli = path.join(temporaryDir, 'seed-cli.cjs')
+  const observedEnv = path.join(temporaryDir, 'runtime-env.json')
+  fs.writeFileSync(cli, `
+const fs = require('node:fs')
+const path = require('node:path')
+if (process.argv[2] === 'stop') process.exit(0)
+fs.writeFileSync(${JSON.stringify(observedEnv)}, JSON.stringify({
+  policy: process.env.FARMING_RUNTIME_DOWNLOAD_POLICY,
+  seed: process.env.FARMING_RUNTIME_SEED_DIR,
+}))
+const configDir = process.argv[process.argv.indexOf('--config-dir') + 1]
+fs.mkdirSync(configDir, { recursive: true })
+fs.writeFileSync(path.join(configDir, 'farming-server.json'), JSON.stringify({ port: 43123, basePath: '/farming' }))
+fs.writeFileSync(path.join(configDir, '.session-token'), 'seed-token')
+process.exit(0)
+`)
+  const runtime = new DesktopLocalBackend({
+    configDir: path.join(temporaryDir, 'config'),
+    electronExecutable: process.execPath,
+    resourcesPath: temporaryDir,
+    repositoryRoot: temporaryDir,
+    cliPath: cli,
+  })
+  try {
+    await runtime.start()
+    assert.deepEqual(JSON.parse(fs.readFileSync(observedEnv, 'utf8')), {
+      policy: 'forbid',
+      seed: path.join(temporaryDir, '.farming-runtime-seed'),
+    })
+    await runtime.stop()
+  } finally {
+    fs.rmSync(temporaryDir, { recursive: true, force: true })
+  }
+})
+
 test('local backend startup watchdog accepts active dependency progress but bounds a stall', async () => {
   const temporaryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-desktop-local-watchdog-'))
   const progressingCli = path.join(temporaryDir, 'progressing-cli.cjs')

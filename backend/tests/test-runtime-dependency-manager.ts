@@ -1,4 +1,5 @@
 const assert = require('assert');
+const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -116,6 +117,69 @@ async function run() {
   }
 
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-runtime-manager.'));
+  const seedRoot = path.join(root, 'install-seed');
+  const targetRoot = path.join(root, 'desktop-target');
+  const seedPlatformKey = runtimePlatformKey();
+  const browserDependency = MANIFEST.dependencies.agentBrowser;
+  const browserArtifact = browserDependency.artifacts[seedPlatformKey];
+  const browserCache = dependencyCacheDir(
+    seedRoot,
+    'agentBrowser',
+    browserDependency.version,
+    seedPlatformKey,
+  );
+  fs.mkdirSync(browserCache, { recursive: true });
+  const seededBrowser = writeVersionExecutable(
+    browserCache,
+    browserArtifact.entry,
+    browserDependency.reportedVersion || browserDependency.version,
+  );
+  fs.writeFileSync(path.join(browserCache, 'runtime.json'), JSON.stringify({
+    schemaVersion: 1,
+    manifestId: MANIFEST.manifestId,
+    id: 'agentBrowser',
+    version: browserDependency.version,
+    platformKey: seedPlatformKey,
+    integrity: browserArtifact.integrity,
+    entry: browserArtifact.entry,
+    executableSha256: crypto.createHash('sha256').update(fs.readFileSync(seededBrowser)).digest('hex'),
+    installedAt: new Date().toISOString(),
+  }));
+  let seedFetches = 0;
+  const seeded = await prepareRuntimeDependencies({
+    configDir: targetRoot,
+    dependencyIds: ['agentBrowser'],
+    env: {
+      PATH: process.env.PATH,
+      FARMING_RUNTIME_DOWNLOAD_POLICY: 'forbid',
+      FARMING_RUNTIME_SEED_DIR: seedRoot,
+    },
+    fetch: async () => {
+      seedFetches += 1;
+      throw new Error('startup must not fetch a prepared runtime');
+    },
+  });
+  assert.strictEqual(seedFetches, 0);
+  assert.strictEqual(seeded.dependencies[0].executablePath, seededBrowser);
+  assert.strictEqual(seeded.dependencies[0].source, 'managed');
+  fs.appendFileSync(seededBrowser, '\ncorrupted after install\n');
+  await assert.rejects(
+    prepareRuntimeDependencies({
+      configDir: path.join(root, 'desktop-corrupt-seed'),
+      dependencyIds: ['agentBrowser'],
+      env: {
+        PATH: process.env.PATH,
+        FARMING_RUNTIME_DOWNLOAD_POLICY: 'forbid',
+        FARMING_RUNTIME_SEED_DIR: seedRoot,
+      },
+      fetch: async () => {
+        seedFetches += 1;
+        throw new Error('corrupt startup seed must not fall back to fetch');
+      },
+    }),
+    /was not prepared during npm install/,
+  );
+  assert.strictEqual(seedFetches, 0);
   const downloadBody = Buffer.from('verified runtime artifact');
   const downloadArtifactFixture = {
     url: 'https://registry.npmjs.org/example/-/example-1.0.0.tgz',

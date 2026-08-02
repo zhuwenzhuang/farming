@@ -5,9 +5,13 @@
 Farming Desktop packages the existing Farming Code React interface in Electron. It starts a local
 Farming backend before opening the first window, so first launch is immediately usable and never
 requires an SSH decision. Remote SSH management is a desktop-only built-in plugin in the existing
-Plugins view and can connect the same interface to multiple saved hosts when needed. A normal SSH
+Plugins view and can connect the same interface to multiple saved hosts when needed. Connections is
+an embedded, high-priority Farming section beside the other built-in capabilities, not a separate
+page; the desktop remote icon opens Plugins and focuses that section. A normal SSH
 profile stores only a name, an OpenSSH Host, and an optional Farming Home. Platform, architecture,
 version, port, base path, token, and capabilities are discovered during connection.
+Desktop focus-mode actions enter fullscreen directly; browser installation guidance remains a
+browser-only flow.
 
 ## Run
 
@@ -15,6 +19,12 @@ version, port, base path, token, and capabilities are discovered during connecti
 npm install
 npm run desktop
 ```
+
+`npm install` prepares the exact Codex, Claude Code, and agent-browser runtime artifacts for the
+current platform in a package-local, integrity-checked seed. Desktop startup is network-forbidden:
+it verifies and activates that seed for its isolated local Config instance, or fails with an
+actionable request to rerun `npm install`. It never downloads fixed runtime dependencies while the
+application is starting.
 
 Development runs and future macOS packages use the branded desktop icon sources in
 `desktop/assets/`; the runtime build copies the PNG beside the Electron main process for the Dock
@@ -35,6 +45,11 @@ freshly reads Browser and Computer capabilities. Development builds may set
 `FARMING_DESKTOP_SERVER_VERSION` to a published compatible version for dogfood. A checksum-serving
 HTTP(S) mirror with the same release layout may be selected through
 `FARMING_DESKTOP_RELEASE_ROOT`; credentials, query parameters, and fragments are rejected.
+When dogfooding an unpublished source checkout, build the matching CLI release and expose its
+artifact plus checksum through that development mirror. Pointing a newer Desktop build at an
+arbitrary older Server is unsupported because the bootstrap and runtime contracts evolve together.
+Artifact transfer uses the same system OpenSSH process with streamed standard input; Desktop never
+introduces a separate `scp` path.
 
 Legacy Linux discovery first reads `FARMING_SERVER_CUSTOM_GLIBC_LINKER`,
 `FARMING_SERVER_CUSTOM_GLIBC_PATH`, and `FARMING_SERVER_PATCHELF_PATH`, then the equivalent
@@ -75,9 +90,15 @@ callbacks never call `show`, `reload`, or `loadURL` directly.
 
 | Owner | States | Transition contract |
 | --- | --- | --- |
-| Application | `starting → running → stopping → stopped` | The Gateway, IPC, and stores must exist before `running`. Any quit or terminal startup failure enters `stopping` once. Connection and Gateway cleanup share one promise; only its completion enters `stopped` and exits Electron. |
+| Application | `starting → running → stopping → stopped` | One abortable startup owner acquires the local backend, Gateway, and Connection Manager. Every await is followed by an ownership guard. Any quit or terminal startup failure enters `stopping` once; reverse-order cleanup completes before Electron exits. |
 | Main window | `absent ↔ loading → ready`, or `loading → failed` | Opening increments a window generation. Every navigation captures that generation and the current renderer-route revision. Only the current generation may become ready, show, focus, fail startup, or schedule another navigation. |
-| Local backend | `idle → starting → ready → stopping → stopped`, or `starting → failed` | Concurrent starts share one promise and stop is idempotent. The app does not open a window until the local daemon has published a valid port, base path, and token. Desktop shutdown owns its bounded stop. |
+| Local backend | `idle → starting → ready → stopping → stopped`, or `starting → failed` | Concurrent starts share one promise and stop is idempotent. A lightweight startup window is visible immediately; the Farming renderer is loaded only after the daemon publishes a valid port, base path, and token. Failed or partial starts still receive an exact best-effort stop. |
+
+Runtime download belongs to `npm install`, not application startup. Startup verifies the prepared
+seed under bounded command and no-progress watchdogs and shows the current phase plus Cancel in the
+first window. Cancel aborts daemon execution and handshake polling immediately, then cleans every
+resource acquired by the same startup owner. An ambiguous command deadline reconciles the published
+daemon handshake before reporting failure; it never starts a second daemon blindly.
 
 Backend activation, saved-backend reconnection, active-backend removal, and notification navigation
 invalidate the renderer route by incrementing its revision. If the window is ready, one navigation
@@ -100,6 +121,17 @@ Connection state is isolated by stable backend ID and progresses through `discon
 overwrite a newer action. A connection becomes ready only after `/api/auth/status` succeeds and
 fresh capability reads finish. Switching connects the target before updating the active ID,
 closing renderer WebSockets, and reloading the UI.
+
+Each connecting generation owns one shared Promise, one `AbortController`, its bootstrap commands,
+download, upload, and tunnel process. Repeated connection requests join that Promise. Cancel,
+disconnect, profile mutation, removal, and application shutdown abort the exact generation and
+terminate its owned children with a bounded grace period. HTTP downloads have absolute, idle, and
+byte-count limits, reject oversized `Content-Length` before writing, stop unknown-length streams at
+the hard cap, publish progress, and remove incomplete files. Checksums and Server binaries use
+separate limits. Backend activation has an explicit backend owner and generation: unrelated profile B
+mutations cannot cancel activation A, while a newer activation supersedes only the conflicting owner.
+Save-and-activate is one main-process operation; editing the active profile closes old clients
+immediately but navigates only after the replacement connection succeeds.
 
 ## Security Boundary
 

@@ -46,6 +46,43 @@ Record for every real target:
 - `command -v claude`, `claude --version`;
 - Farming start command, port, base path, token state.
 
+## macOS Desktop Human-Story Gate
+
+Electron changes also require a real macOS desktop round. The operator must use visible controls,
+keyboard input, dialogs, and normal window lifecycle just as a user would. Do not pass a story by
+calling backend APIs, editing persisted state, or manipulating the renderer through developer
+tools. Diagnostic logs may explain a failure only after the visible path has reproduced it.
+
+Run at least these stories, with the local Mac as the default backend and a reusable SSH target for
+the remote stories:
+
+| # | Human story | Pass evidence |
+| --- | --- | --- |
+| 1 | Launch from a source checkout or packaged app | A useful local workspace appears without an SSH decision or white screen. |
+| 2 | Open the built-in Connections surface | This Mac is ready by default; remote management is optional. |
+| 3 | Add an SSH remote with only a name and OpenSSH Host | No port, listener, token, platform, or architecture fields are required. |
+| 4 | Submit missing or invalid SSH input, then edit or remove it | Validation and recovery remain visible and actionable. |
+| 5 | Cancel a connection during discovery or download | The exact attempt stops and the row returns to a stable disconnected state. |
+| 6 | Install a missing matching Server | Download progress is visible, checksum is verified, and failure is bounded. |
+| 7 | Connect to a legacy-glibc Linux target | A discovered compatible runtime starts without modifying system or VS Code files. |
+| 8 | Inspect a connected remote | Version, platform/architecture, runtime, and Farming Home are visible. |
+| 9 | Switch remote → local → remote | Window identity and data follow only the latest selection; a live Server is reused. |
+| 10 | Quit and relaunch the Mac app | Local starts usable and saved remotes remain available without a modal decision. |
+| 11 | Create a Bash Agent through the workspace chooser | The chosen workspace becomes the active project and terminal. |
+| 12 | Type a command in the terminal | Keystrokes, Enter, output, cwd, and exit status remain understandable. |
+| 13 | Expand Files and open a text file | The authoritative tree appears and the editor opens without leaving the app. |
+| 14 | Open History, search, clear, and return | Loading, no-match, results, and navigation are bounded and reversible. |
+| 15 | Archive the disposable test Agent | It leaves the live list; only genuinely resumable provider sessions appear as resumable history. |
+| 16 | Change appearance in Settings and restore System | The setting applies immediately and the previous navigation remains recoverable. |
+| 17 | Search projects and Agents globally | Results appear while typing and selecting an Agent exits Search normally. |
+| 18 | Enter and leave Focus mode | Electron toggles fullscreen directly and never shows browser-install guidance. |
+| 19 | Collapse and expand the sidebar | Essential navigation remains reachable and the previous surface is preserved. |
+| 20 | Open and close Share current page | The QR/link popover is readable, dismissible, and does not replace the current surface. |
+
+For each failure, record the last visible state and the owning lifecycle state before changing code.
+Fix the state-transition contract when ownership, cancellation, reordering, or recovery is involved;
+do not accept a timing delay as the product fix.
+
 ## Isolation
 
 Each dogfood story should use:

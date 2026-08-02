@@ -10,6 +10,8 @@ and explicit updater state machine.
 ## User Stories
 
 - A first-time npm user starts Farming with the version installed by npm.
+- After `npm install` completes, local application startup performs no runtime
+  artifact download.
 - An in-app update is prepared without stopping the current Server.
 - Updating Config A does not stop or replace the code used by live Config B.
 - New Configs use the selected version, while existing Configs remain on the
@@ -40,6 +42,41 @@ An explicit npm replacement changes the Bootstrap contents. The Launcher treats
 that new Bootstrap generation as an intentional deployment and publishes it as
 the selection for future launches. It never mutates Images already used by live
 processes.
+
+## Install-time Runtime Seed
+
+Codex, Claude Code, and agent-browser are platform-specific runtime artifacts,
+not application-startup downloads. The package manifest pins their versions and
+integrities. `npm install` prepares the current platform into
+`.farming-runtime-seed/`; each cache record binds the manifest id, dependency,
+version, platform, artifact integrity, entry path, and executable SHA-256.
+
+The Package Image or source installation owns its seed. Config instances only
+write their own active binding and may execute a verified artifact from that
+read-only seed. Startup verifies the cache record, executable hash, platform,
+and reported version before publishing the binding. It sets the runtime download
+policy to `forbid`: a missing, partial, wrong-platform, or corrupted seed fails
+explicitly with an instruction to rerun `npm install`; startup never repairs it
+from the network. Network acquisition, progress, retry, and integrity validation
+belong to the install/update preparing transition.
+
+Installation forms keep distinct preparation boundaries:
+
+- A **source checkout** runs the postinstall preparer after development
+  dependencies are installed. Its ignored seed belongs to that checkout and is
+  replaced by the next explicit install when pins change.
+- An **npm installation** runs the same included postinstall preparer inside the
+  installed Bootstrap/Package Image. An update must prepare the target Image and
+  its seed before that Image becomes selectable; live Images retain their own
+  seed unchanged.
+- A **macOS app bundle** does not run npm postinstall on the user's machine. Its
+  release pipeline must place the prepared seed under
+  `Contents/Resources/farming/.farming-runtime-seed` before signing. Absence or
+  damage is a packaging failure, not permission for first-launch download.
+- A **standalone or remote Server** follows its deployment artifact contract.
+  SSH remote discovery and versioned Server deployment may transfer artifacts
+  for the remote platform, but this is a user-requested connection transition,
+  not local application startup.
 
 ## Update State Machine
 
@@ -86,6 +123,8 @@ Safety depends on these invariants:
 5. Cleanup never removes Current, Previous, recent, or exactly live Images.
 6. Unreadable live-usage evidence stops cleanup instead of being interpreted as
    proof that an Image is unused.
+7. A launch never downloads a fixed runtime dependency; it accepts only a
+   verified Config cache, a verified Image-owned seed, or an explicit failure.
 
 Under normal filesystem, process-inspection, and npm availability, every update
 transition reaches success, rollback, or a visible bounded failure. An unrelated
@@ -119,3 +158,5 @@ Continuous verification should cover bootstrap and Image-local launch behavior,
 external npm replacement, atomic selection races, exact live usage retention,
 fail-closed cleanup, target startup failure, rollback failure, and two live
 Configs where only the initiating Config restarts into the new version.
+It must also use a fetch/network spy to prove that a valid install seed resolves
+with zero downloads and that a corrupted seed fails with zero fallback requests.

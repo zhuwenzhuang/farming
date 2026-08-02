@@ -79,7 +79,8 @@ if [ -z "${PACKAGE_TARBALL}" ]; then
   exit 1
 fi
 
-if ! NPM_CONFIG_CACHE="${NPM_CACHE}" NPM_CONFIG_REGISTRY="${NPM_REGISTRY}" \
+if ! FARMING_SKIP_INSTALL_RUNTIME_PREPARE=1 \
+  NPM_CONFIG_CACHE="${NPM_CACHE}" NPM_CONFIG_REGISTRY="${NPM_REGISTRY}" \
   NPM_CONFIG_USERCONFIG=/dev/null \
   npm install --global --prefix "${PREFIX}" "${PACKAGE_TARBALL}" \
     --offline --no-audit --no-fund >"${INSTALL_LOG}" 2>&1; then

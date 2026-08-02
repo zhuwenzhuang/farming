@@ -5,8 +5,11 @@
 Farming Desktop 使用 Electron 打包现有 Farming Code React 界面。首个窗口打开前会先启动
 本机 Farming Backend，因此第一次启动立即可用，不要求用户先决定是否连接 SSH。远程 SSH
 管理作为桌面专属的内置插件放在现有插件页中；需要时，同一份界面可连接多个已保存的远端。
+Connections 是 Farming 内置能力中的高优先级 Section，与 Browser、Computer 等能力共处同一
+插件页面，并非独立页面；桌面远端 icon 只负责打开 Plugins 并定位到该 Section。
 普通 SSH Profile 只保存名称、`~/.ssh/config` Host 和可选
 Farming Home；Server 的平台、架构、版本、端口、base path、token 和能力都在连接时发现。
+桌面端的专注模式会直接进入全屏；浏览器应用安装提示只属于浏览器路径。
 
 ## 运行
 
@@ -14,6 +17,11 @@ Farming Home；Server 的平台、架构、版本、端口、base path、token �
 npm install
 npm run desktop
 ```
+
+`npm install` 会为当前平台准备精确版本的 Codex、Claude Code 和 agent-browser artifact，放入
+Package 本地且经过完整性校验的 seed。桌面启动阶段禁止网络下载：它只校验该 seed，并为桌面
+隔离的 Config 实例激活；seed 缺失或损坏时会明确要求重新执行 `npm install`。固定运行依赖不会
+再混入应用启动过程。
 
 开发运行和后续 macOS 安装包统一使用 `desktop/assets/` 中的品牌桌面图标；运行时构建会把
 PNG 复制到 Electron 主进程旁，供 Dock 和窗口图标使用。
@@ -31,6 +39,11 @@ Browser/Computer 能力。默认从同版本 GitHub Release 下载单文件 CLI�
 `FARMING_DESKTOP_SERVER_VERSION` 指向一个已经发布的兼容版本进行 dogfood。也可通过
 `FARMING_DESKTOP_RELEASE_ROOT` 指定具有相同目录结构和 checksum 清单的 HTTP(S) 镜像；
 带凭证、query 或 fragment 的地址会被拒绝。
+测试尚未发布的源码版本时，应构建同版本 CLI release，并通过该开发镜像提供 artifact 和
+checksum。不要把较新的 Desktop 随意指向旧 Server；bootstrap 与 runtime 契约会随版本共同演进，
+跨版本组合不属于受支持路径。
+Artifact 传输复用同一个系统 OpenSSH 进程并通过标准输入流式写入；Desktop 不引入独立的
+`scp` 路径。
 
 旧 Linux 的发现顺序是 Farming 专用环境变量
 `FARMING_SERVER_CUSTOM_GLIBC_LINKER`、`FARMING_SERVER_CUSTOM_GLIBC_PATH`、
@@ -70,9 +83,14 @@ Electron 主进程统一拥有应用生命周期和 renderer 窗口生命周期�
 
 | Owner | 状态 | 转换契约 |
 | --- | --- | --- |
-| 应用 | `starting → running → stopping → stopped` | Gateway、IPC 和 Store 全部就绪后才能进入 `running`。任意退出或不可恢复的启动失败只能进入一次 `stopping`。Connection 与 Gateway 清理共享同一个 Promise；清理完成后才进入 `stopped` 并退出 Electron。 |
+| 应用 | `starting → running → stopping → stopped` | 一个可取消的 startup owner 依次拥有本机 Backend、Gateway 和 Connection Manager；每个 await 后都校验 owner。退出或不可恢复错误只进入一次 `stopping`，按逆序清理完成后才退出 Electron。 |
 | 主窗口 | `absent ↔ loading → ready`，或 `loading → failed` | 创建窗口会递增 window generation。每次导航都捕获该 generation 和当前 renderer-route revision。只有当前 generation 才能 ready、显示、聚焦、报告启动失败或触发下一次导航。 |
-| 本机 Backend | `idle → starting → ready → stopping → stopped`，或 `starting → failed` | 并发 start 复用一个 Promise，stop 保持幂等。只有本机 daemon 发布了合法 port、base path 和 token 后才允许开窗；桌面退出统一负责有界停止。 |
+| 本机 Backend | `idle → starting → ready → stopping → stopped`，或 `starting → failed` | 并发 start 复用一个 Promise，stop 保持幂等。轻量启动窗口会立即出现；只有 daemon 发布合法 port、base path 和 token 后才加载 Farming renderer。失败或部分启动也会执行精确的 best-effort stop。 |
+
+依赖下载属于 `npm install`，不属于应用启动。启动只在命令总时限和无进展 watchdog 下校验
+已准备的 seed，并在首个窗口显示当前阶段与取消操作。取消会立即中止 daemon 和握手轮询，
+再由同一个 startup owner 清理已经取得的全部资源。命令期限结果不确定时，会先核对 daemon
+已发布的权威握手，不会盲目再启动第二个 daemon。
 
 激活后端、重启时恢复已保存后端、删除活动后端和通知跳转，都会通过递增 revision 使 renderer
 路由失效。窗口 ready 时会在当前 IPC action 返回后排队一个导航 effect；同一轮事件中的多次
@@ -92,6 +110,15 @@ Renderer 没有 Node.js integration，也不会收到上游 token。自动发现
 `ready`、`error` 间转换。每次连接尝试增加 generation，旧结果不能覆盖新的断开或连接。
 只有 `/api/auth/status` 探测通过且能力读取结束后才进入 ready。切换后端时先连接目标，再
 更新 active ID、关闭 renderer WebSocket 并重载界面。
+
+每个 connecting generation 统一拥有一个共享 Promise、一个 `AbortController`，以及本次
+bootstrap 命令、下载、上传和 tunnel 进程。重复连接会加入同一个 Promise；取消、断开、
+修改或删除 Profile、应用退出都会取消精确 generation，并在有界宽限后终止其子进程。
+HTTP 下载同时有绝对期限、无进展期限和累计字节上限；过大的 `Content-Length` 会在写盘前
+拒绝，无长度的持续流会在硬上限中止，未完成文件始终清理。Checksum 与 Server binary 使用
+不同上限。后端激活由明确的 backend owner 与 generation 管理：修改无关 Profile B 不会取消
+正在进行的 A；新激活只会替代冲突 owner。保存并激活是一个主进程原子操作；编辑活动 Profile
+时立即关闭旧 client，但只有替换连接成功后才导航。
 
 ## 安全边界
 

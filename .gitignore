@@ -33,6 +33,7 @@ extensions/language-server/vscode-bridge/*.vsix
 reference/
 docs/products/hive/
 .farming/
+.farming-runtime-seed/
 .tmp/
 tmp/
 test-results/

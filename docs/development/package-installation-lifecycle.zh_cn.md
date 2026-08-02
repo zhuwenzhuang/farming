@@ -7,6 +7,7 @@
 ## 用户故事
 
 - 首次通过 npm 安装后，用户直接启动 npm 安装的版本。
+- `npm install` 完成后，本机应用启动不再下载运行 Artifact。
 - 应用内更新在不停止当前 Server 的情况下完成准备。
 - Config A 更新时，不会停止 Config B，也不会替换 Config B 正在执行的代码。
 - 新 Config 使用当前选中的版本；已运行 Config 继续使用启动时的精确版本。
@@ -25,6 +26,33 @@
 Config 状态与 Package Image 的归属不同。Config 状态继续按 canonical Config 目录隔离；同一 npm Installation 下的多个 Config 只读共享 Package Image。每个 Config 记录自己精确使用的 live Image，供清理时保护。
 
 显式 npm 替换会改变 Bootstrap 内容。Launcher 将新的 Bootstrap Generation 视为用户主动部署，把它发布为后续启动的 Selection，但绝不改写 live Process 正在使用的 Image。
+
+## 安装阶段 Runtime Seed
+
+Codex、Claude Code 和 agent-browser 是平台相关 Runtime Artifact，不属于应用启动下载。
+Package Manifest 固定其版本与完整性；`npm install` 会把当前平台准备到
+`.farming-runtime-seed/`。每条 Cache Record 都绑定 Manifest ID、Dependency、Version、
+Platform、Artifact Integrity、Entry Path 与 Executable SHA-256。
+
+Seed 由 Package Image 或 Source Installation 拥有。Config 实例只写自己的 Active Binding，
+并可执行只读 seed 中已经验证的 Artifact。启动在发布 Binding 前校验 Cache Record、Executable
+Hash、Platform 与报告版本，并把 Runtime Download Policy 设为 `forbid`。Seed 缺失、部分写入、
+平台不符或损坏时，启动明确失败并要求重新执行 `npm install`；绝不在启动中联网修复。网络获取、
+进度、重试与完整性校验属于 Install/Update 的 Preparing 转换。
+
+不同安装形态保持各自准备边界：
+
+- **Source Checkout** 在开发依赖安装后运行 postinstall preparer；Git 忽略的 seed 归该 Checkout
+  所有，Pin 变化后由下一次显式安装替换。
+- **npm Installation** 在已安装的 Bootstrap/Package Image 内运行同一份随包 postinstall
+  preparer。Update 必须在 Target Image 可被选择前准备好它及其 seed；Live Image 保留自己的
+  seed，不被原地修改。
+- **macOS App Bundle** 不在用户机器执行 npm postinstall。Release Pipeline 必须在签名前把
+  seed 放入 `Contents/Resources/farming/.farming-runtime-seed`；缺失或损坏属于打包失败，
+  不能授权 First Launch 下载。
+- **Standalone 或 Remote Server** 遵循自己的部署 Artifact 契约。SSH Remote Discovery 与
+  Versioned Server Deployment 可以为远端平台传输 Artifact，但这是用户发起的连接转换，不是
+  本机应用启动。
 
 ## 更新状态机
 
@@ -52,6 +80,8 @@ Config 内的更新操作记录只描述一项仍相关的操作，不是安装�
 4. Stop 与 Rollback 都以精确 Server Process Identity 和精确 Image 为目标。
 5. 清理永远保留 Current、Previous、近期以及所有精确 live Image。
 6. live 使用证据不可读时停止清理，不能把“不知道”解释成“无人使用”。
+7. 启动绝不下载固定 Runtime Dependency；它只能接受已验证的 Config Cache、Image 所有的
+   已验证 seed，或显式失败。
 
 在文件系统、进程检查和 npm 正常可用的前提下，每次更新转换最终都会成功、回退，或进入有界且可见的失败。无关 Config 不需要为了另一个 Config 的更新而停止。Selection 竞争失败时，发起 Config 从旧 Image 重启，并要求用户基于新 Selection 重试。
 
@@ -71,3 +101,5 @@ Config 内的更新操作记录只描述一项仍相关的操作，不是安装�
 ## 验证策略
 
 持续验证应覆盖 Bootstrap 与 Image-local 启动、外部 npm 替换、Selection 原子竞争、精确 live Usage 保护、fail-closed 清理、目标启动失败、Rollback 失败，以及两套 live Config 中只有发起 Config 重启到新版本的场景。
+还必须通过 Fetch/Network Spy 证明：合法安装 seed 以零下载完成解析，损坏 seed 也以零回退请求
+明确失败。

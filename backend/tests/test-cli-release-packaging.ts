@@ -115,9 +115,15 @@ function run() {
   );
   assert(
     npmSmokeScript.includes('--offline')
+      && npmSmokeScript.includes('FARMING_SKIP_INSTALL_RUNTIME_PREPARE=1')
       && npmSmokeScript.includes("grep -q '^npm warn allow-scripts'")
       && !npmSmokeScript.includes('--ignore-scripts'),
     'npm package smoke must install from the tarball alone under the default script policy without approval warnings',
+  );
+  assert(
+    packageJson.scripts?.postinstall === 'node scripts/prepare-installed-runtime.cjs'
+      && packageJson.files.includes('scripts/prepare-installed-runtime.cjs'),
+    'npm install must prepare platform runtimes before Farming can start',
   );
   assert(
     npmPackageScript.includes('npm ci --omit=dev --ignore-scripts')
