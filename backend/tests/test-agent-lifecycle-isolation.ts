@@ -347,6 +347,13 @@ async function run() {
       return { stopped: true, alreadyExited: true };
     },
   });
+  const resetRealtimeAgent = missingBindingManager.acpRealtimeOperations.resetAgent
+    .bind(missingBindingManager.acpRealtimeOperations);
+  let realtimeResetCalls = 0;
+  missingBindingManager.acpRealtimeOperations.resetAgent = agentId => {
+    realtimeResetCalls += 1;
+    resetRealtimeAgent(agentId);
+  };
   const persistedProcessIdentity = {
     kind: 'acp-process-group',
     pid: 1234,
@@ -364,10 +371,17 @@ async function run() {
   });
   const missingBindingDelete = await missingBindingManager.killAgent(
     'acp-missing-binding',
-    { persistDeleteOperation: false },
+    { persistDeleteOperation: false, retainAgentRecord: true },
   );
   assert.strictEqual(missingBindingDelete.killed, true);
+  assert.strictEqual(missingBindingDelete.retained, true);
   assert.deepStrictEqual(persistedCleanupIdentity, persistedProcessIdentity);
+  assert.strictEqual(
+    realtimeResetCalls,
+    1,
+    'verified persisted process cleanup must reset realtime ownership even when the record is retained',
+  );
+  assert.strictEqual(missingBindingManager.agents.has('acp-missing-binding'), true);
   await missingBindingManager.dispose();
 
   const recoveryFencedRuntime = new FakeStructuredRuntime(['agent-recovery-fenced-delete']);

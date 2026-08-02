@@ -1,5 +1,5 @@
 diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_modules/@agentclientprotocol/codex-acp/dist/index.js
-index fb338ee..1bba7d0 100755
+index fb338ee..7c65eeb 100755
 --- a/node_modules/@agentclientprotocol/codex-acp/dist/index.js
 +++ b/node_modules/@agentclientprotocol/codex-acp/dist/index.js
 @@ -23365,8 +23365,15 @@ function createAgentTextThoughtChunk(text, messageId, meta3) {
@@ -121,7 +121,7 @@ index fb338ee..1bba7d0 100755
    async setCollaborationMode(sessionId, mode, currentModelId) {
      await this.codexClient.threadSettingsUpdate({
        threadId: sessionId,
-@@ -27352,6 +27436,53 @@ function imageBlocks(images) {
+@@ -27352,6 +27440,53 @@ function imageBlocks(images) {
      return path6 ? [{ type: "text", text: `[@image](${path6})` }] : [];
    });
  }
@@ -175,7 +175,7 @@ index fb338ee..1bba7d0 100755
  function contentBlocksFromResponseContent(content) {
    if (!Array.isArray(content)) {
      return [];
-@@ -28151,6 +28282,14 @@ var CodexAcpServer = class _CodexAcpServer {
+@@ -28151,6 +28286,15 @@ var CodexAcpServer = class _CodexAcpServer {
    closingSessions;
    sessionGenerations;
    sessionOpenGenerations;
@@ -187,10 +187,11 @@ index fb338ee..1bba7d0 100755
 +  subagentRecoveryTimers;
 +  subagentRecoveryAttempts;
 +  realtimePublishQueues;
++  realtimeOperations;
    constructor(connection, codexAcpClient, defaultAuthRequest, getExitCode, getRecentStderr) {
      this.sessions = /* @__PURE__ */ new Map();
      this.pendingMcpStartupSessions = /* @__PURE__ */ new Map();
-@@ -28159,6 +28298,14 @@ var CodexAcpServer = class _CodexAcpServer {
+@@ -28159,6 +28303,15 @@ var CodexAcpServer = class _CodexAcpServer {
      this.closingSessions = /* @__PURE__ */ new Map();
      this.sessionGenerations = /* @__PURE__ */ new Map();
      this.sessionOpenGenerations = /* @__PURE__ */ new Map();
@@ -202,10 +203,11 @@ index fb338ee..1bba7d0 100755
 +    this.subagentRecoveryTimers = /* @__PURE__ */ new Map();
 +    this.subagentRecoveryAttempts = /* @__PURE__ */ new Map();
 +    this.realtimePublishQueues = /* @__PURE__ */ new Map();
++    this.realtimeOperations = /* @__PURE__ */ new Map();
      this.connection = connection;
      this.codexAcpClient = codexAcpClient;
      this.defaultAuthRequest = defaultAuthRequest ?? null;
-@@ -28174,6 +28321,9 @@ var CodexAcpServer = class _CodexAcpServer {
+@@ -28174,6 +28327,9 @@ var CodexAcpServer = class _CodexAcpServer {
        (operation) => this.runWithProcessCheck(operation),
        () => this.refreshSessionsAuthState(null)
      );
@@ -215,7 +217,7 @@ index fb338ee..1bba7d0 100755
    }
    async initialize(_params) {
      logger.log("Initialize request received");
-@@ -28202,6 +28352,7 @@ var CodexAcpServer = class _CodexAcpServer {
+@@ -28202,6 +28358,7 @@ var CodexAcpServer = class _CodexAcpServer {
          sessionCapabilities: {
            resume: {},
            list: {},
@@ -223,7 +225,7 @@ index fb338ee..1bba7d0 100755
            close: {},
            delete: {},
            additionalDirectories: {}
-@@ -28210,6 +28361,18 @@ var CodexAcpServer = class _CodexAcpServer {
+@@ -28210,6 +28367,18 @@ var CodexAcpServer = class _CodexAcpServer {
            acp: false,
            http: true,
            sse: false
@@ -242,7 +244,7 @@ index fb338ee..1bba7d0 100755
          }
        },
        authMethods: getCodexAuthMethods(_params.clientCapabilities)
-@@ -28248,6 +28411,50 @@ var CodexAcpServer = class _CodexAcpServer {
+@@ -28248,6 +28417,92 @@ var CodexAcpServer = class _CodexAcpServer {
          }
          return {};
        }
@@ -276,10 +278,39 @@ index fb338ee..1bba7d0 100755
 +        if (!sessionState) {
 +          throw RequestError.invalidParams(void 0, `Unknown session: ${methodRequest.params.sessionId}`);
 +        }
-+        await this.runWithProcessCheck(() => this.codexAcpClient.startRealtime(
-+          sessionState.sessionId,
-+          methodRequest.params.sdp
-+        ));
++        if (this.realtimeOperations.has(sessionState.sessionId)) {
++          throw RequestError.invalidRequest({ details: "A Realtime operation is already active" });
++        }
++        let resolveClosed;
++        const closed = new Promise((resolve) => {
++          resolveClosed = resolve;
++        });
++        const operation = {
++          operationId: methodRequest.params.operationId,
++          closed,
++          resolveClosed
++        };
++        this.realtimeOperations.set(sessionState.sessionId, operation);
++        try {
++          await this.runWithProcessCheck(() => this.codexAcpClient.startRealtime(
++            sessionState.sessionId,
++            methodRequest.params.sdp
++          ));
++        } catch (error51) {
++          if (error51 instanceof RequestError) {
++            if (this.realtimeOperations.get(sessionState.sessionId) === operation) {
++              this.realtimeOperations.delete(sessionState.sessionId);
++            }
++            throw new RequestError(error51.code, error51.message, {
++              ...error51.data,
++              realtimeStartOutcome: "rejected"
++            });
++          }
++          throw RequestError.internalError({
++            details: errorDetails(error51),
++            realtimeStartOutcome: "uncertain"
++          });
++        }
 +        return {};
 +      }
 +      case REALTIME_STOP_METHOD: {
@@ -287,13 +318,26 @@ index fb338ee..1bba7d0 100755
 +        if (!sessionState) {
 +          throw RequestError.invalidParams(void 0, `Unknown session: ${methodRequest.params.sessionId}`);
 +        }
++        const operation = this.realtimeOperations.get(sessionState.sessionId);
++        if (!operation || operation.operationId !== methodRequest.params.operationId) return {};
 +        await this.runWithProcessCheck(() => this.codexAcpClient.stopRealtime(sessionState.sessionId));
++        let timeout;
++        try {
++          await Promise.race([
++            operation.closed,
++            new Promise((_, reject) => {
++              timeout = setTimeout(() => reject(new Error("Timed out waiting for Realtime closed boundary")), 5e3);
++            })
++          ]);
++        } finally {
++          if (timeout) clearTimeout(timeout);
++        }
 +        return {};
 +      }
      }
    }
    async checkAuthorization() {
-@@ -28462,6 +28669,7 @@ You have been logged out. Please try again.`);
+@@ -28462,6 +28717,7 @@ You have been logged out. Please try again.`);
        thread
      } = await this.getOrCreateSessionWithHistory(params);
      await this.streamThreadHistory(sessionId, thread);
@@ -301,7 +345,7 @@ index fb338ee..1bba7d0 100755
      logger.log("Session loaded", {
        sessionId,
        modelId: modelState.currentModelId,
-@@ -28473,6 +28681,22 @@ You have been logged out. Please try again.`);
+@@ -28473,6 +28729,22 @@ You have been logged out. Please try again.`);
        ...this.createSessionConfigOptionsResponse(this.getSessionState(sessionId))
      };
    }
@@ -324,7 +368,7 @@ index fb338ee..1bba7d0 100755
    async resumeSession(params) {
      logger.log("Resuming session...", { sessionId: params.sessionId });
      const [sessionId, modelState, modeState] = await this.getOrCreateSession(params);
-@@ -28481,6 +28705,7 @@ You have been logged out. Please try again.`);
+@@ -28481,6 +28753,7 @@ You have been logged out. Please try again.`);
        modelId: modelState.currentModelId,
        availableModelCount: modelState.availableModels.length
      });
@@ -332,7 +376,7 @@ index fb338ee..1bba7d0 100755
      return {
        models: modelState,
        modes: modeState,
-@@ -28522,6 +28747,7 @@ You have been logged out. Please try again.`);
+@@ -28522,6 +28795,7 @@ You have been logged out. Please try again.`);
          await activePrompt.completion;
        }
        await this.runWithProcessCheck(() => this.codexAcpClient.closeSession(params.sessionId));
@@ -340,7 +384,7 @@ index fb338ee..1bba7d0 100755
        logger.log("Session closed", { sessionId: params.sessionId });
      } finally {
        if (this.getSessionGeneration(params.sessionId) === closeGeneration) {
-@@ -28534,6 +28760,295 @@ You have been logged out. Please try again.`);
+@@ -28534,6 +28808,308 @@ You have been logged out. Please try again.`);
      }
      return {};
    }
@@ -360,6 +404,9 @@ index fb338ee..1bba7d0 100755
 +    this.subagentRecoveryTimers.delete(rootThreadId);
 +    this.subagentRecoveryAttempts.delete(rootThreadId);
 +    this.realtimePublishQueues.delete(rootThreadId);
++    const realtimeOperation = this.realtimeOperations.get(rootThreadId);
++    realtimeOperation?.resolveClosed();
++    this.realtimeOperations.delete(rootThreadId);
 +  }
 +  rootThreadIdForSubagent(threadId) {
 +    if (this.sessions.has(threadId)) return threadId;
@@ -602,7 +649,8 @@ index fb338ee..1bba7d0 100755
 +    if (supported) {
 +      const params = event.params ?? {};
 +      const threadId = typeof params.threadId === "string" ? params.threadId : "";
-+      if (threadId && this.sessions.has(threadId)) {
++      const operation = this.realtimeOperations.get(threadId);
++      if (threadId && this.sessions.has(threadId) && operation) {
 +        const publish = async () => {
 +          const session = new ACPSessionConnection(this.connection, threadId);
 +          await session.update({
@@ -611,6 +659,7 @@ index fb338ee..1bba7d0 100755
 +              codex: {
 +                realtime: {
 +                  version: REALTIME_STATE_VERSION,
++                  operationId: operation.operationId,
 +                  method,
 +                  params
 +                }
@@ -623,6 +672,14 @@ index fb338ee..1bba7d0 100755
 +          logger.error(`Failed to publish Codex realtime event for session ${threadId}`, error51);
 +        });
 +        this.realtimePublishQueues.set(threadId, next);
++        if (method === "thread/realtime/closed") {
++          void next.finally(() => {
++            if (this.realtimeOperations.get(threadId) === operation) {
++              this.realtimeOperations.delete(threadId);
++            }
++            operation.resolveClosed();
++          });
++        }
 +        void next.finally(() => {
 +          if (this.realtimePublishQueues.get(threadId) === next) {
 +            this.realtimePublishQueues.delete(threadId);
@@ -636,7 +693,7 @@ index fb338ee..1bba7d0 100755
    async deleteSession(params) {
      logger.log("Deleting session...", { sessionId: params.sessionId });
      const sessionId = params.sessionId;
-@@ -28937,8 +29452,25 @@ You have been logged out. Please try again.`);
+@@ -28937,8 +29513,25 @@ You have been logged out. Please try again.`);
      );
      const threadUpdates = [];
      for (const turn of thread.turns) {
@@ -663,7 +720,7 @@ index fb338ee..1bba7d0 100755
          threadUpdates.push(...updates2);
        }
      }
-@@ -29040,11 +29572,11 @@ You have been logged out. Please try again.`);
+@@ -29040,11 +29633,11 @@ You have been logged out. Please try again.`);
          return [this.createPlanUpdate(item)];
      }
    }
@@ -677,7 +734,7 @@ index fb338ee..1bba7d0 100755
        for (const block of blocks) {
          updates.push(createUserMessageChunk(block, messageId));
        }
-@@ -29088,15 +29620,26 @@ ${item.text}`
+@@ -29088,15 +29681,26 @@ ${item.text}`
        }
      };
    }
@@ -708,7 +765,7 @@ index fb338ee..1bba7d0 100755
        }
        case "skill":
          return [{ type: "text", text: `skill:${input.name} (${input.path})` }];
-@@ -29500,6 +30043,10 @@ ${item.text}`
+@@ -29500,6 +30104,10 @@ ${item.text}`
            logger.error(`Prompt for cancelled session ${params.sessionId} failed after prompt returned`, err);
          }
        });
@@ -719,7 +776,7 @@ index fb338ee..1bba7d0 100755
        const turnCompleted = await Promise.race([
          sendPromptPromise,
          activePrompt.closeSignal,
-@@ -29517,10 +30064,6 @@ ${item.text}`
+@@ -29517,10 +30125,6 @@ ${item.text}`
        if (error51) {
          throw error51;
        }
@@ -730,7 +787,7 @@ index fb338ee..1bba7d0 100755
        return {
          stopReason: "end_turn",
          usage: this.buildPromptUsage(sessionState.lastTokenUsage),
-@@ -29805,6 +30348,15 @@ var CodexAppServerClient = class {
+@@ -29805,6 +30409,15 @@ var CodexAppServerClient = class {
    async turnStart(params) {
      return await this.sendRequest({ method: "turn/start", params });
    }
@@ -746,7 +803,7 @@ index fb338ee..1bba7d0 100755
    async runTurn(params, onTurnStarted) {
      const capturedCompletions = [];
      const releaseCapture = this.captureTurnCompletions(params.threadId, (event) => {
-@@ -30032,6 +30584,9 @@ var CodexAppServerClient = class {
+@@ -30032,6 +30645,9 @@ var CodexAppServerClient = class {
    async threadResume(params) {
      return await this.sendRequest({ method: "thread/resume", params });
    }
@@ -756,7 +813,7 @@ index fb338ee..1bba7d0 100755
    getThreadSettings(threadId) {
      return this.threadSettings.get(threadId);
    }
-@@ -30595,6 +31150,18 @@ var goalControlParamsParser = external_exports.object({
+@@ -30595,6 +31211,20 @@ var goalControlParamsParser = external_exports.object({
    sessionId: external_exports.string(),
    action: external_exports.enum(["pause", "clear"])
  }).passthrough();
@@ -767,15 +824,17 @@ index fb338ee..1bba7d0 100755
 +}).passthrough();
 +var realtimeStartParamsParser = external_exports.object({
 +  sessionId: external_exports.string(),
++  operationId: external_exports.string().regex(/^[A-Za-z0-9._:-]{1,160}$/),
 +  sdp: external_exports.string().min(1)
 +}).passthrough();
 +var realtimeStopParamsParser = external_exports.object({
-+  sessionId: external_exports.string()
++  sessionId: external_exports.string(),
++  operationId: external_exports.string().regex(/^[A-Za-z0-9._:-]{1,160}$/)
 +}).passthrough();
  if (process.argv.includes("--version")) {
    console.log(`${package_default.name} ${package_default.version}`);
    process.exit(0);
-@@ -30667,5 +31234,5 @@ function startAcpServer() {
+@@ -30667,5 +31297,5 @@ function startAcpServer() {
          codexAcpServer = null;
        }
      });

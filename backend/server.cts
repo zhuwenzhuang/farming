@@ -153,6 +153,7 @@ interface ServerError extends Error {
   statusCode?: number;
   stderr?: string;
   uncertain?: boolean;
+  realtimeStartOutcome?: 'rejected' | 'uncertain';
 }
 
 function caughtError(error: unknown): ServerError {
@@ -1775,19 +1776,33 @@ app.post(routePath(BASE_PATH, '/api/agents/:agentId/acp-session/reconnect'), asy
 app.post(routePath(BASE_PATH, '/api/agents/:agentId/acp-realtime/start'), express.json({ limit: '1mb' }), async (req, res) => {
   try {
     const sdp = typeof req.body?.sdp === 'string' ? req.body.sdp : '';
+    const operationId = typeof req.body?.operationId === 'string' ? req.body.operationId.trim() : '';
     if (!sdp.trim()) {
-      res.status(400).json({ error: 'WebRTC SDP offer is required' });
+      res.status(400).json({ error: 'WebRTC SDP offer is required', outcome: 'rejected' });
       return;
     }
-    res.json(await agentManager.startAcpRealtime(req.params.agentId, sdp));
+    if (!/^[A-Za-z0-9._:-]{1,160}$/.test(operationId)) {
+      res.status(400).json({ error: 'A valid Realtime operationId is required', outcome: 'rejected' });
+      return;
+    }
+    res.json(await agentManager.startAcpRealtime(req.params.agentId, sdp, operationId));
   } catch (error) {
-    res.status(409).json({ error: caughtError(error).message || 'Failed to start Codex realtime voice' });
+    const failure = caughtError(error);
+    res.status(409).json({
+      error: failure.message || 'Failed to start Codex realtime voice',
+      outcome: failure.realtimeStartOutcome === 'uncertain' ? 'uncertain' : 'rejected',
+    });
   }
 });
 
-app.post(routePath(BASE_PATH, '/api/agents/:agentId/acp-realtime/stop'), async (req, res) => {
+app.post(routePath(BASE_PATH, '/api/agents/:agentId/acp-realtime/stop'), express.json(), async (req, res) => {
   try {
-    res.json(await agentManager.stopAcpRealtime(req.params.agentId));
+    const operationId = typeof req.body?.operationId === 'string' ? req.body.operationId.trim() : '';
+    if (!/^[A-Za-z0-9._:-]{1,160}$/.test(operationId)) {
+      res.status(400).json({ error: 'A valid Realtime operationId is required' });
+      return;
+    }
+    res.json(await agentManager.stopAcpRealtime(req.params.agentId, operationId));
   } catch (error) {
     res.status(409).json({ error: caughtError(error).message || 'Failed to stop Codex realtime voice' });
   }

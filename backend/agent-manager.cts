@@ -149,6 +149,7 @@ import {
 import { applyProviderHomeEnvironment, getProviderAdapter, isFreshAcpSessionSource, providerAcpForkMode, providerCapabilities, providerForProgram, providerSupportsRuntime } from './provider-adapters.cjs';
 import { deriveTerminalStatus } from './terminal-status.cjs';
 import { AcpRuntime, stopPersistedAcpProcessGroup } from './acp-runtime.cjs';
+import { AcpRealtimeOperationCoordinator } from './acp-realtime-operation-coordinator.cjs';
 import { chatRuntimeForProvider, isChatMode } from './chat-runtime.cjs';
 import { acpTranscriptEntries, acpTranscriptMedia, acpToolChanges, acpToolDetail, acpToolReviewChanges } from './acp-transcript.cjs';
 import { applyCodexTerminalProfile, codexTerminalProfileFromOutput, codexTerminalProfileFromPreview } from './codex-terminal-profile.cjs';
@@ -1330,6 +1331,7 @@ class AgentManager extends EventEmitter {
   declare verifiedStoppedAgentIds: Set<AgentId>;
   declare codexSessionMutationQueues: Map<string, CodexSessionMutationAdmission<unknown>>;
   declare acpSessionOptionsByKey: Map<string, AcpSessionOptionsRecord>;
+  declare acpRealtimeOperations: AcpRealtimeOperationCoordinator;
   declare permissionRestartSuppressedAgentIds: Set<AgentId>;
   declare createProviderSessionIdentity: CreateProviderSessionIdentityContract;
   declare deleteProviderSessionIdentity: DeleteProviderSessionIdentityContract;
@@ -1410,6 +1412,7 @@ class AgentManager extends EventEmitter {
     // copy outside browser-facing Agent records; crash recovery persists it
     // only through the private Farming session store.
     this.acpSessionOptionsByKey = new Map();
+    this.acpRealtimeOperations = new AcpRealtimeOperationCoordinator();
     this.permissionRestartSuppressedAgentIds = new Set();
     this.acpRuntime = options.acpRuntime || new AcpRuntime({
       ...(this.configManager?.farmingDir ? { configDir: this.configManager.farmingDir } : {}),
@@ -5373,6 +5376,7 @@ class AgentManager extends EventEmitter {
             throw error?.adapterCleanupError
               || new Error('ACP runtime binding disappeared before exit was verified', { cause: error });
           }
+          this.acpRealtimeOperations.resetAgent(agentId);
         } catch (caughtCleanupError: unknown) {
       const cleanupError = caughtCleanupError as ErrorRecord;
           runtimeCleanupError = cleanupError;
@@ -5471,6 +5475,7 @@ class AgentManager extends EventEmitter {
       this.lastResizeByAgent.delete(agentId);
       this.providerSessionService.stop(agentId);
       if (this.acpRuntime) this.acpRuntime.unregisterAgent(agentId);
+      this.acpRealtimeOperations.resetAgent(agentId);
 
       if (this.mainAgentId === agentId) {
         this.mainAgentId = null;
@@ -5934,6 +5939,7 @@ class AgentManager extends EventEmitter {
     const agent = this.requireLiveAcpAgent(agentId);
     const result = await this.acpRuntime.reconnectAgent(agentId, {
       onProcessStopped: () => {
+        this.acpRealtimeOperations.resetAgent(agentId);
         if (this.agents.get(agentId) !== agent) return;
         agent.structuredRuntimeProcess = null;
         this.ensurePersistentAgentSession(agent);
@@ -5943,16 +5949,26 @@ class AgentManager extends EventEmitter {
     return result;
   }
 
-  startAcpRealtime(agentId: AgentId, sdp: string) {
+  startAcpRealtime(agentId: AgentId, sdp: string, operationId: string) {
     this.assertAgentOperationAdmission();
-    this.getAcpSession(agentId);
-    return this.acpRuntime.startRealtime(agentId, sdp);
+    const session = this.getAcpSession(agentId);
+    const ownerId = this.acpRuntime.realtimeOwner?.(agentId)
+      || `session:${String(session.sessionId || '')}`;
+    return this.acpRealtimeOperations.start(
+      agentId,
+      ownerId,
+      operationId,
+      () => this.acpRuntime.startRealtime(agentId, sdp, operationId, ownerId),
+      () => this.acpRuntime.stopRealtime(agentId, operationId, ownerId),
+    );
   }
 
-  stopAcpRealtime(agentId: AgentId) {
+  stopAcpRealtime(agentId: AgentId, operationId: string) {
     this.assertAgentOperationAdmission();
-    this.getAcpSession(agentId);
-    return this.acpRuntime.stopRealtime(agentId);
+    const session = this.getAcpSession(agentId);
+    const ownerId = this.acpRuntime.realtimeOwner?.(agentId)
+      || `session:${String(session.sessionId || '')}`;
+    return this.acpRealtimeOperations.stop(agentId, ownerId, operationId);
   }
 
   getAcpTranscript(agentId: AgentId, options: Partial<AcpSessionRequestOptions> = {}) {
@@ -6106,10 +6122,12 @@ class AgentManager extends EventEmitter {
     return this.acpRuntime.deleteSession(agentId, sessionId);
   }
 
-  closeAcpSession(agentId: AgentId) {
+  async closeAcpSession(agentId: AgentId) {
     this.assertAgentOperationAdmission();
     this.getAcpSession(agentId);
-    return this.acpRuntime.closeSession(agentId);
+    const result = await this.acpRuntime.closeSession(agentId);
+    this.acpRealtimeOperations.resetAgent(agentId);
+    return result;
   }
 
   setAcpSessionMode(agentId: AgentId, modeId: string) {
@@ -9025,6 +9043,7 @@ class AgentManager extends EventEmitter {
 
     const requireEngineExit = options.requireEngineExit !== false;
     const currentRuntimeKind = runtimeKind(agent);
+    let acpRuntimeExitVerified = false;
     if (!this.verifiedStoppedAgentIds.has(agentId)) {
       this.permissionRestartSuppressedAgentIds.add(agentId);
       try {
@@ -9033,6 +9052,7 @@ class AgentManager extends EventEmitter {
           return cleanupFailure('ACP runtime exit cannot be verified', 'acp');
         }
         const stopped = await this.acpRuntime.unregisterAgentAndWait(agentId);
+        acpRuntimeExitVerified = stopped === true;
         if (stopped !== true) {
           if (!agent.structuredRuntimeProcess) {
             if (
@@ -9060,8 +9080,10 @@ class AgentManager extends EventEmitter {
                 'acp',
               );
             }
+            acpRuntimeExitVerified = true;
           }
         }
+        if (acpRuntimeExitVerified) this.acpRealtimeOperations.resetAgent(agentId);
       } else {
         const engine = this.engineBridge.getEngine(agent.engineName);
         if (requireEngineExit && !engine) {
@@ -9254,6 +9276,7 @@ class AgentManager extends EventEmitter {
   }
 
   forgetStoppedAgentRecord(agentId: AgentId, options: KillAgentOptions = {}) {
+    this.acpRealtimeOperations.resetAgent(agentId);
     this.agents.delete(agentId);
     this.verifiedStoppedAgentIds.delete(agentId);
     this.lastActivity.delete(agentId);

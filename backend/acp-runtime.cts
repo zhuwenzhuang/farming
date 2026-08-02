@@ -30,11 +30,17 @@ type PromptBlock = UnknownRecord & { type?: string; text?: string; path?: string
 type ConfigValue = string | number | boolean | null | string[];
 
 interface ErrorLike {
+  name?: string;
   message?: string;
   code?: string | number;
-  data?: { code?: string | number; details?: string };
+  data?: {
+    code?: string | number;
+    details?: string;
+    realtimeStartOutcome?: 'rejected' | 'uncertain';
+  };
   cause?: ErrorLike;
   runtimeCleanupVerified?: boolean;
+  realtimeStartOutcome?: 'rejected' | 'uncertain';
 }
 type AcpSdk = typeof import('@agentclientprotocol/sdk');
 interface AcpClientHandlers { [key: string]: (request: UnknownRecord) => unknown }
@@ -121,7 +127,7 @@ interface SubagentControl {
   cancelPromise?: Promise<unknown> | null; [key: string]: unknown;
 }
 interface AcpBinding {
-  agentId: string; provider: string; providerHomeId: string; cwd: string;
+  agentId: string; generation: number; provider: string; providerHomeId: string; cwd: string;
   sessionRequestOptions: AcpSessionRequestOptions; env: NodeJS.ProcessEnv; launch: AcpLaunch;
   restartOptions: PrepareAgentOptions; approvalMode: string; ownsProcessGroup: boolean;
   farmingBrowserApprovedSites: Set<string>;
@@ -230,10 +236,19 @@ function asErrorLike(error: unknown): ErrorLike {
 function codexRealtimeStartError(error: unknown): Error {
   const failure = asErrorLike(error);
   const details = failure.data?.details || failure.cause?.data?.details || failure.message || '';
+  // Only an ACP RequestError proves that the peer returned a JSON-RPC error.
+  // Node transport codes such as ECONNRESET and EPIPE leave the mutation
+  // outcome unknown even though they also use an `error.code` field.
+  const outcome = failure.data?.realtimeStartOutcome === 'rejected'
+    ? 'rejected'
+    : 'uncertain';
+  let result: Error;
   if (/unknown variant [`']v3[`']|expected [`']v1[`'] or [`']v2[`']/i.test(details)) {
-    return new Error('Installed Codex does not support Realtime v3. Update Codex and restart the Agent.');
+    result = new Error('Installed Codex does not support Realtime v3. Update Codex and restart the Agent.');
+  } else {
+    result = error instanceof Error ? error : new Error(String(error));
   }
-  return error instanceof Error ? error : new Error(String(error));
+  return Object.assign(result, { realtimeStartOutcome: outcome });
 }
 
 const ADAPTER_VERSIONS = Object.freeze(Object.fromEntries(
@@ -258,7 +273,7 @@ const CODEX_REALTIME_START_METHOD = '_codex/session/realtime/start';
 const CODEX_REALTIME_STOP_METHOD = '_codex/session/realtime/stop';
 const CODEX_ACP_PACKAGE = '@agentclientprotocol/codex-acp';
 const CODEX_ACP_VERSION = '1.1.4';
-const CODEX_ACP_SHA256 = 'fac418af5a64d1f2818e02d5f8b6a09a2d80e352d68d7a5be405e7d296505d96';
+const CODEX_ACP_SHA256 = 'a019a74b0195b472cd63db9f0c33fad7349b8e43ce4263a0a2d202b14f0e1b07';
 const CLAUDE_ACP_PACKAGE = '@agentclientprotocol/claude-agent-acp';
 const CLAUDE_ACP_VERSION = '0.59.0';
 const CLAUDE_ACP_SHA256 = 'a6aa515dd02382617bf46d9eac47b8a1022c6835bcf7a8d61e2c63939be2e49c';
@@ -1018,6 +1033,7 @@ class AcpRuntime extends EventEmitter {
     'dispose' | 'flush' | 'load' | 'markDirty' | 'schedule' | 'write'
   > | null;
   declare reconnectOperations: Map<string, Promise<Record<string, unknown>>>;
+  declare nextBindingGeneration: number;
   declare disposing: boolean;
   declare disposePromise: Promise<void> | null;
   declare disposed: boolean;
@@ -1057,6 +1073,7 @@ class AcpRuntime extends EventEmitter {
       || (options.configDir ? new AcpCheckpointStore(options.configDir, options.checkpointOptions) : null);
     this.bindings = new Map<string, AcpBinding>();
     this.reconnectOperations = new Map();
+    this.nextBindingGeneration = 1;
     this.disposing = false;
     this.disposePromise = null;
     this.disposed = false;
@@ -1131,6 +1148,7 @@ class AcpRuntime extends EventEmitter {
     const sessionRequestOptions = acpSessionRequestOptions(options, cwd);
     const binding: AcpBinding = {
       agentId,
+      generation: this.nextBindingGeneration++,
       provider,
       providerHomeId: String(options.providerHomeId || 'default'),
       cwd,
@@ -2174,11 +2192,18 @@ class AcpRuntime extends EventEmitter {
         const update = recordValue(notification.update);
         const realtime = recordValue(recordValue(recordValue(update._meta).codex).realtime);
         const realtimeMethod = typeof realtime.method === 'string' ? realtime.method : '';
+        const realtimeOperationId = typeof realtime.operationId === 'string' ? realtime.operationId : '';
         const realtimeParams = sanitizeCodexRealtimeEvent(realtimeMethod, realtime.params);
-        if (isPrimarySession && Number(realtime.version) >= 1 && realtimeParams) {
+        if (
+          isPrimarySession
+          && Number(realtime.version) >= 1
+          && /^[A-Za-z0-9._:-]{1,160}$/.test(realtimeOperationId)
+          && realtimeParams
+        ) {
           this.emit('realtime', {
             agentId: binding.agentId,
             sessionId: notificationSessionId || binding.sessionId,
+            operationId: realtimeOperationId,
             method: realtimeMethod,
             params: realtimeParams,
           });
@@ -2854,17 +2879,29 @@ class AcpRuntime extends EventEmitter {
     }
   }
 
-  async startRealtime(agentId: string, sdp: string) {
+  realtimeOwner(agentId: string) {
     const binding = this.requireBinding(agentId);
+    return `${binding.generation}:${binding.sessionId}`;
+  }
+
+  async startRealtime(agentId: string, sdp: string, operationId: string, ownerId = '') {
+    const binding = this.requireBinding(agentId);
+    if (ownerId && ownerId !== `${binding.generation}:${binding.sessionId}`) {
+      throw new Error('Codex realtime start owner no longer matches the ACP binding');
+    }
     this.requireOpenBinding(binding);
     if (!binding.supportsRealtime) throw new Error('Codex realtime voice is not supported by this ACP adapter');
     if (!binding.sessionId) throw new Error('Codex realtime voice requires an active session');
     if (typeof sdp !== 'string' || !sdp.trim() || sdp.length > 1_000_000) {
       throw new Error('Codex realtime voice requires a valid WebRTC SDP offer');
     }
+    if (!/^[A-Za-z0-9._:-]{1,160}$/.test(operationId)) {
+      throw new Error('Codex realtime voice requires a valid operation ID');
+    }
     try {
       await withTimeout(binding.connection.request(CODEX_REALTIME_START_METHOD, {
         sessionId: binding.sessionId,
+        operationId,
         sdp,
       }) as Promise<unknown>, this.requestTimeoutMs, 'Codex realtime start');
     } catch (error) {
@@ -2874,13 +2911,20 @@ class AcpRuntime extends EventEmitter {
     return { started: true, sessionId: binding.sessionId };
   }
 
-  async stopRealtime(agentId: string) {
+  async stopRealtime(agentId: string, operationId: string, ownerId = '') {
     const binding = this.requireBinding(agentId);
+    if (ownerId && ownerId !== `${binding.generation}:${binding.sessionId}`) {
+      return { stopped: false, staleBinding: true, operationId };
+    }
     this.requireOpenBinding(binding);
     if (!binding.supportsRealtime) throw new Error('Codex realtime voice is not supported by this ACP adapter');
     if (!binding.sessionId) throw new Error('Codex realtime voice requires an active session');
+    if (!/^[A-Za-z0-9._:-]{1,160}$/.test(operationId)) {
+      throw new Error('Codex realtime voice requires a valid operation ID');
+    }
     await withTimeout(binding.connection.request(CODEX_REALTIME_STOP_METHOD, {
       sessionId: binding.sessionId,
+      operationId,
     }) as Promise<unknown>, this.requestTimeoutMs, 'Codex realtime stop');
     this.requireOpenBinding(binding);
     return { stopped: true, sessionId: binding.sessionId };

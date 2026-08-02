@@ -9,6 +9,7 @@ const { claudeAcpEnvironment } = require('../provider-adapters.cjs');
 const { AcpSessionState } = require('../acp-session-state.cjs');
 
 async function run() {
+  const { RequestError } = await import('@agentclientprotocol/sdk');
   const packagedProcess = process as NodeJS.Process & {
     pkg?: { entrypoint?: string };
   };
@@ -59,13 +60,69 @@ async function run() {
   }), false);
   assert.match(
     codexRealtimeStartError({
+      name: 'RequestError',
+      code: -32603,
       message: 'Internal error',
-      data: { details: 'Invalid request: unknown variant `v3`, expected `v1` or `v2`' },
+      data: {
+        details: 'Invalid request: unknown variant `v3`, expected `v1` or `v2`',
+        realtimeStartOutcome: 'rejected',
+      },
     }).message,
     /Update Codex and restart the Agent/,
   );
+  const applicationRealtimeError = Object.assign(new Error('Invalid Realtime request'), {
+    name: 'RequestError',
+    code: -32602,
+    data: { details: 'Invalid Realtime request', realtimeStartOutcome: 'rejected' },
+  });
+  assert.strictEqual(
+    (codexRealtimeStartError(applicationRealtimeError) as Error & { realtimeStartOutcome?: string })
+      .realtimeStartOutcome,
+    'rejected',
+  );
   const unrelatedRealtimeError = new Error('Realtime transport failed');
   assert.strictEqual(codexRealtimeStartError(unrelatedRealtimeError), unrelatedRealtimeError);
+  assert.strictEqual(
+    (unrelatedRealtimeError as Error & { realtimeStartOutcome?: string }).realtimeStartOutcome,
+    'uncertain',
+  );
+  for (const code of ['ECONNRESET', 'EPIPE']) {
+    const transportError = Object.assign(new Error(`Realtime transport failed: ${code}`), { code });
+    assert.strictEqual(
+      (codexRealtimeStartError(transportError) as Error & { realtimeStartOutcome?: string })
+        .realtimeStartOutcome,
+      'uncertain',
+      `${code} does not prove that the Realtime start was rejected`,
+    );
+  }
+  const wrappedTransportError = Object.assign(new Error('Internal error'), {
+    name: 'RequestError',
+    code: -32603,
+    data: { details: 'read ECONNRESET', realtimeStartOutcome: 'uncertain' },
+  });
+  assert.strictEqual(
+    (codexRealtimeStartError(wrappedTransportError) as Error & { realtimeStartOutcome?: string })
+      .realtimeStartOutcome,
+    'uncertain',
+    'an ACP internal error must retain the adapter transport uncertainty marker',
+  );
+  const sdkWrappedTransportError = RequestError.internalError({
+    details: 'write EPIPE',
+    realtimeStartOutcome: 'uncertain',
+  });
+  assert.strictEqual(
+    (codexRealtimeStartError(sdkWrappedTransportError) as Error & { realtimeStartOutcome?: string })
+      .realtimeStartOutcome,
+    'uncertain',
+    'the real ACP SDK RequestError shape must not turn a transport failure into rejection',
+  );
+  const unmarkedSdkError = RequestError.internalError({ details: 'ambiguous adapter failure' });
+  assert.strictEqual(
+    (codexRealtimeStartError(unmarkedSdkError) as Error & { realtimeStartOutcome?: string })
+      .realtimeStartOutcome,
+    'uncertain',
+    'unmarked RequestError codes are not ownership evidence',
+  );
   assert.deepStrictEqual(sanitizeCodexRealtimeEvent('thread/realtime/error', {
     threadId: 'thread-1',
     message: 'voice failed',
@@ -678,15 +735,42 @@ async function run() {
     assert.strictEqual(runtime.getSession('agent-acp-new').supportsRealtime, true);
     const realtimeEvents = [];
     runtime.on('realtime', event => realtimeEvents.push(event));
-    await runtime.startRealtime('agent-acp-new', 'v=0\r\nfake-offer');
+    await runtime.startRealtime('agent-acp-new', 'v=0\r\nfake-offer', 'voice-op-1');
     assert.deepStrictEqual(realtimeEvents.map(event => event.method), [
       'thread/realtime/sdp',
       'thread/realtime/transcript/done',
     ]);
     assert.strictEqual(realtimeEvents[1].params.text, 'run the focused tests');
+    assert.ok(realtimeEvents.every(event => event.operationId === 'voice-op-1'));
     assert.strictEqual(runtime.getSession('agent-acp-new').entries.length, 0, 'ephemeral realtime events must not enter the transcript');
-    await runtime.stopRealtime('agent-acp-new');
+    await runtime.stopRealtime('agent-acp-new', 'voice-op-1');
     assert.strictEqual(realtimeEvents.at(-1).method, 'thread/realtime/closed');
+    const originalRealtimeBinding = runtime.bindings.get('agent-acp-new');
+    const originalRealtimeOwner = runtime.realtimeOwner('agent-acp-new');
+    let replacementStopRequests = 0;
+    runtime.bindings.set('agent-acp-new', {
+      ...originalRealtimeBinding,
+      generation: originalRealtimeBinding.generation + 1,
+      sessionId: 'replacement-session',
+      connection: {
+        ...originalRealtimeBinding.connection,
+        async request() {
+          replacementStopRequests += 1;
+          return {};
+        },
+      },
+    });
+    assert.notStrictEqual(runtime.realtimeOwner('agent-acp-new'), originalRealtimeOwner);
+    assert.deepStrictEqual(
+      await runtime.stopRealtime('agent-acp-new', 'voice-op-old', originalRealtimeOwner),
+      { stopped: false, staleBinding: true, operationId: 'voice-op-old' },
+    );
+    assert.strictEqual(
+      replacementStopRequests,
+      0,
+      'an old Realtime stop owner must never call the replacement ACP binding',
+    );
+    runtime.bindings.set('agent-acp-new', originalRealtimeBinding);
     const spawnedAdapterCountBeforeMissingForkCheckpoint = spawnedAdapters.length;
     await assert.rejects(
       runtime.prepareAgent({

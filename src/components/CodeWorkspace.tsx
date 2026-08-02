@@ -93,6 +93,11 @@ import { MobileShareSheet } from './code/MobileShareSheet'
 import { CodeOverlays, ContextMenuIcon } from './code/CodeOverlays'
 import { CodeSidebar } from './code/CodeSidebar'
 import { LatestRequestFence } from './code/latest-request-fence'
+import {
+  CodexRealtimeController,
+  type CodexRealtimeSnapshot,
+} from './code/codex-realtime-controller'
+import { createCodexRealtimeHttpClient } from './code/codex-realtime-http'
 import { BrowserSidebarPortals } from '../../extensions/browser/frontend/BrowserSidebarPortals'
 import { useBrowserResources } from '../../extensions/browser/frontend/useBrowserResources'
 import type { BrowserResourceState } from '../../extensions/browser/frontend/browser-resource-state'
@@ -408,14 +413,6 @@ interface TerminalFollowState {
   hasUnreadOutput: boolean
 }
 
-interface CodexRealtimeClient {
-  agentId: string
-  peer: RTCPeerConnection
-  stream: MediaStream
-  audio: HTMLAudioElement
-  connectionTimeout: number | null
-}
-
 const DEFAULT_SIDEBAR_WIDTH = 296
 const MIN_SIDEBAR_WIDTH = 220
 const MAX_SIDEBAR_WIDTH = 840
@@ -428,6 +425,15 @@ const TERMINAL_PATH_SEARCH_LIMIT = 12
 const OPEN_FILE_REFRESH_CONCURRENCY = 4
 const OPEN_FILE_REFRESH_TIMEOUT_MS = 15_000
 const AGENT_SESSION_PAGE_SIZE = 60
+
+let codexRealtimeOperationSequence = 0
+
+function createCodexRealtimeOperationId() {
+  const randomId = globalThis.crypto?.randomUUID?.()
+  if (randomId) return `voice:${randomId}`
+  codexRealtimeOperationSequence += 1
+  return `voice:${Date.now().toString(36)}:${codexRealtimeOperationSequence.toString(36)}`
+}
 const AGENT_SESSION_SEARCH_LIMIT = 1000
 const AGENT_SESSION_SEARCH_DEBOUNCE_MS = 150
 const CODEX_TERMINAL_PROFILE_REQUEST_TIMEOUT_MS = 35_000
@@ -804,7 +810,7 @@ export function CodeWorkspace({
   const deleteWorktreeCancelButtonRef = useRef<HTMLButtonElement>(null)
   const projectListRef = useRef<HTMLDivElement>(null)
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null)
-  const codexRealtimeRef = useRef<CodexRealtimeClient | null>(null)
+  const codexRealtimeRef = useRef<CodexRealtimeController | null>(null)
   const codexModelsLoadedAtRef = useRef(0)
   const codexModelsLoadedHomeRef = useRef('')
   const codexModelsRequestRef = useRef(0)
@@ -860,6 +866,8 @@ export function CodeWorkspace({
   }, [])
   activeTerminalIdRef.current = activeTerminalId
   const copy = useMemo(() => codeCopyForLanguage(uiPreferences.language), [uiPreferences.language])
+  const realtimeCopyRef = useRef(copy)
+  realtimeCopyRef.current = copy
 
   useEffect(() => {
     saveSessionDisplayState({
@@ -4619,160 +4627,83 @@ export function CodeWorkspace({
     commitCodexProfile(displayedCodexModel, displayedCodexReasoningEffort, tier)
   }, [activeAgent, applyCodexTerminalProfile, displayedCodexModel, displayedCodexReasoningEffort, commitCodexProfile, composerAgentKind])
 
-  const stopCodexRealtime = useCallback((notifyBackend = true) => {
-    const client = codexRealtimeRef.current
-    if (!client) return
-    codexRealtimeRef.current = null
-    if (client.connectionTimeout !== null) window.clearTimeout(client.connectionTimeout)
-    client.peer.ontrack = null
-    client.peer.onconnectionstatechange = null
-    client.peer.close()
-    client.stream.getTracks().forEach(track => track.stop())
-    client.audio.pause()
-    client.audio.srcObject = null
-    setSpeechConnecting(false)
-    setSpeechListening(false)
-    if (!notifyBackend) return
-    void fetch(appPath(`/api/agents/${encodeURIComponent(client.agentId)}/acp-realtime/stop`), {
-      method: 'POST',
-    }).then(async response => {
-      if (response.ok) return
-      const body = await response.json().catch(() => null) as { error?: string } | null
-      throw new Error(body?.error || `Failed to stop voice (${response.status})`)
-    }).catch(error => {
-      setSpeechError(error instanceof Error ? error.message : 'Failed to stop Codex realtime voice')
-    })
-  }, [])
-
-  const startCodexRealtime = useCallback(async (agentId: string) => {
-    setSpeechError('')
-    setSpeechTranscript('')
-    let stream: MediaStream | null = null
-    let peer: RTCPeerConnection | null = null
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      peer = new RTCPeerConnection()
-      const audio = document.createElement('audio')
-      audio.autoplay = true
-      peer.ontrack = event => {
-        audio.srcObject = event.streams[0] || new MediaStream([event.track])
-        void audio.play().catch(() => {
-          setSpeechError('The browser blocked voice playback. Click the microphone again to retry.')
-        })
-      }
-      peer.addTrack(stream.getAudioTracks()[0]!, stream)
-      peer.createDataChannel('oai-events')
-      const offer = await peer.createOffer()
-      await peer.setLocalDescription(offer)
-      if (peer.iceGatheringState !== 'complete') {
-        const gatheringPeer = peer
-        await new Promise<void>(resolve => {
-          let settled = false
-          const finish = () => {
-            if (settled) return
-            settled = true
-            window.clearTimeout(timeout)
-            gatheringPeer.removeEventListener('icegatheringstatechange', handleStateChange)
-            resolve()
-          }
-          const handleStateChange = () => {
-            if (gatheringPeer.iceGatheringState === 'complete') finish()
-          }
-          const timeout = window.setTimeout(finish, 5_000)
-          gatheringPeer.addEventListener('icegatheringstatechange', handleStateChange)
-        })
-      }
-      const sdp = peer.localDescription?.sdp || ''
-      if (!sdp) throw new Error('The browser did not create a WebRTC offer')
-
-      const client: CodexRealtimeClient = { agentId, peer, stream, audio, connectionTimeout: null }
-      codexRealtimeRef.current = client
-      client.connectionTimeout = window.setTimeout(() => {
-        if (codexRealtimeRef.current !== client || client.peer.remoteDescription) return
-        setSpeechError('Codex realtime voice connection timed out')
-        stopCodexRealtime(false)
-      }, 20_000)
-      peer.onconnectionstatechange = () => {
-        if (codexRealtimeRef.current?.peer !== peer) return
-        if (peer?.connectionState === 'failed') {
-          setSpeechError('Codex realtime voice connection failed')
-          stopCodexRealtime(false)
-        }
-      }
-      setSpeechConnecting(true)
-      setSpeechListening(true)
-      const response = await fetch(appPath(`/api/agents/${encodeURIComponent(agentId)}/acp-realtime/start`), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sdp }),
-      })
-      const body = await response.json().catch(() => null) as { error?: string } | null
-      if (!response.ok) throw new Error(body?.error || `Failed to start voice (${response.status})`)
-    } catch (error) {
-      if (codexRealtimeRef.current?.peer === peer) stopCodexRealtime(false)
-      else {
-        peer?.close()
-        stream?.getTracks().forEach(track => track.stop())
-      }
-      setSpeechListening(false)
-      setSpeechConnecting(false)
-      setSpeechError(error instanceof Error ? error.message : 'Failed to start Codex realtime voice')
+  useEffect(() => {
+    const applySnapshot = (snapshot: CodexRealtimeSnapshot) => {
+      const listening = snapshot.phase === 'requesting-permission'
+        || snapshot.phase === 'connecting'
+        || snapshot.phase === 'live'
+        || snapshot.phase === 'stopping'
+      setSpeechListening(listening)
+      setSpeechConnecting(snapshot.phase === 'requesting-permission'
+        || snapshot.phase === 'connecting'
+        || snapshot.phase === 'stopping')
+      setSpeechError(snapshot.error)
     }
-  }, [stopCodexRealtime])
+    const realtimeHttp = createCodexRealtimeHttpClient({
+      fetch: window.fetch.bind(window),
+      buildPath: appPath,
+      scheduleTimeout: (callback, delayMs) => window.setTimeout(callback, delayMs),
+      clearScheduledTimeout: timerId => window.clearTimeout(timerId),
+    })
+    const controller = new CodexRealtimeController({
+      getUserMedia: () => navigator.mediaDevices.getUserMedia({ audio: true }),
+      createPeerConnection: () => new RTCPeerConnection(),
+      createAudio: () => document.createElement('audio'),
+      createOperationId: createCodexRealtimeOperationId,
+      startBackend: realtimeHttp.startBackend,
+      stopBackend: realtimeHttp.stopBackend,
+      scheduleTimeout: (callback, delayMs) => window.setTimeout(callback, delayMs),
+      clearScheduledTimeout: timerId => window.clearTimeout(timerId),
+      onSnapshot: applySnapshot,
+      onTranscript: event => {
+        if (event.method === 'thread/realtime/transcript/delta') {
+          if (event.params.role === 'user' && typeof event.params.delta === 'string') {
+            setSpeechTranscript(current => `${current}${event.params.delta}`)
+          }
+          return
+        }
+        if (event.params.role === 'user' && typeof event.params.text === 'string') {
+          setSpeechTranscript(event.params.text)
+        }
+      },
+      formatRealtimeError: message => (
+        /Voice session access denied|403 Forbidden/i.test(message)
+          ? realtimeCopyRef.current.realtimeVoiceAccessDenied
+          : message
+      ),
+    })
+    codexRealtimeRef.current = controller
+    return () => {
+      if (codexRealtimeRef.current === controller) codexRealtimeRef.current = null
+      void controller.dispose()
+    }
+  }, [])
 
   useEffect(() => {
     if (!activeAgent?.id || activeAcpRuntime?.supportsRealtime !== true) return undefined
     return onAcpRealtime(activeAgent.id, event => {
-      const client = codexRealtimeRef.current
-      if (!client || client.agentId !== event.agentId) return
-      if (event.method === 'thread/realtime/sdp') {
-        const sdp = typeof event.params.sdp === 'string' ? event.params.sdp : ''
-        if (!sdp) return
-        void client.peer.setRemoteDescription({ type: 'answer', sdp }).then(() => {
-          if (client.connectionTimeout !== null) window.clearTimeout(client.connectionTimeout)
-          client.connectionTimeout = null
-          setSpeechConnecting(false)
-        }).catch(error => {
-          setSpeechError(error instanceof Error ? error.message : 'Failed to accept the Codex voice connection')
-          stopCodexRealtime(false)
-        })
-        return
-      }
-      if (event.method === 'thread/realtime/transcript/delta') {
-        if (event.params.role === 'user' && typeof event.params.delta === 'string') {
-          setSpeechTranscript(current => `${current}${event.params.delta}`)
-        }
-        return
-      }
-      if (event.method === 'thread/realtime/transcript/done') {
-        if (event.params.role === 'user' && typeof event.params.text === 'string') {
-          setSpeechTranscript(event.params.text)
-        }
-        return
-      }
-      if (event.method === 'thread/realtime/error') {
-        const message = typeof event.params.message === 'string' ? event.params.message : 'Codex realtime voice failed'
-        setSpeechError(/Voice session access denied|403 Forbidden/i.test(message) ? copy.realtimeVoiceAccessDenied : message)
-        stopCodexRealtime(false)
-        return
-      }
-      if (event.method === 'thread/realtime/closed') stopCodexRealtime(false)
+      void codexRealtimeRef.current?.handleEvent(event)
     })
-  }, [activeAcpRuntime?.supportsRealtime, activeAgent?.id, copy.realtimeVoiceAccessDenied, onAcpRealtime, stopCodexRealtime])
+  }, [activeAcpRuntime?.supportsRealtime, activeAgent?.id, onAcpRealtime])
 
   useEffect(() => {
-    const client = codexRealtimeRef.current
-    if (client && client.agentId !== activeAgent?.id) stopCodexRealtime()
-  }, [activeAgent?.id, stopCodexRealtime])
-
-  useEffect(() => () => stopCodexRealtime(), [stopCodexRealtime])
+    codexRealtimeRef.current?.ownerChanged(
+      activeAcpRuntime?.supportsRealtime === true ? activeAgent?.id || null : null,
+    )
+  }, [activeAcpRuntime?.supportsRealtime, activeAgent?.id])
 
   const toggleSpeechInput = useCallback(() => {
-    if (speechListening) {
-      if (codexRealtimeRef.current) {
-        stopCodexRealtime()
-        return
+    if (activeAgent && activeAcpRuntime?.supportsRealtime === true) {
+      const controller = codexRealtimeRef.current
+      if (!controller) return
+      if (controller.getSnapshot().phase === 'idle' || controller.getSnapshot().phase === 'failed') {
+        setSpeechTranscript('')
       }
+      void controller.toggle(activeAgent.id)
+      return
+    }
+
+    if (speechListening) {
       recognitionRef.current?.stop()
       recognitionRef.current = null
       setSpeechListening(false)
@@ -4781,11 +4712,6 @@ export function CodeWorkspace({
 
     const targetComposerKey = activeComposerKey
     if (!targetComposerKey) return
-
-    if (activeAgent && activeAcpRuntime?.supportsRealtime === true) {
-      void startCodexRealtime(activeAgent.id)
-      return
-    }
 
     const mobileComposerFallback = isTouchInputViewport()
     const nativeMobileDictation = shouldUseNativeMobileDictation()
@@ -4855,7 +4781,7 @@ export function CodeWorkspace({
       setSpeechListening(false)
       if (mobileComposerFallback) focusComposerTextarea()
     }
-  }, [activeAcpRuntime?.supportsRealtime, activeAgent, activeComposerKey, focusComposerTextarea, speechListening, speechSupported, startCodexRealtime, stopCodexRealtime, uiPreferences.language, updateComposerStateForKey])
+  }, [activeAcpRuntime?.supportsRealtime, activeAgent, activeComposerKey, focusComposerTextarea, speechListening, speechSupported, uiPreferences.language, updateComposerStateForKey])
 
   const toggleContextProjectPinned = useCallback(async () => {
     if (!contextMenuProject?.workspace) return

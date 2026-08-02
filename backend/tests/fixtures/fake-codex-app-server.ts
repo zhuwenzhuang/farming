@@ -2,11 +2,44 @@
 ':' //; script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"; repo_dir="$script_dir"; while [ ! -x "$repo_dir/node_modules/.bin/tsx" ] && [ "$repo_dir" != "/" ]; do repo_dir="$(dirname -- "$repo_dir")"; done; if [ ! -x "$repo_dir/node_modules/.bin/tsx" ]; then echo "Pinned tsx runtime not found above $script_dir" >&2; exit 127; fi; exec "$repo_dir/node_modules/.bin/tsx" "$0" "$@"
 
 const readline = require('readline');
+const fs = require('fs');
+const path = require('path');
 
 const sessionId = '019f0000-0000-7000-8000-000000000999';
 const imagePath = process.env.FARMING_TEST_HISTORY_IMAGE_PATH || '';
 const dataUrl = process.env.FARMING_TEST_HISTORY_IMAGE_DATA_URL || '';
 const stallPrompt = process.env.FARMING_TEST_STALL_PROMPT === '1';
+const realtimeFenceDirectory = process.env.FARMING_TEST_REALTIME_FENCE_DIR || '';
+const loseFirstRealtimeStartResponse = process.env.FARMING_TEST_REALTIME_LOSE_START_RESPONSE === '1';
+let realtimeStartResponseLost = false;
+let realtimeStopPending = false;
+let realtimeReleaseWatcher: import('fs').FSWatcher | null = null;
+
+function sendNotification(method, params) {
+  process.stdout.write(`${JSON.stringify({ method, params })}\n`);
+}
+
+function publishRealtimeClosedAfterRelease() {
+  if (!realtimeFenceDirectory) return false;
+  const releasePath = path.join(realtimeFenceDirectory, 'release-closed');
+  const finish = () => {
+    if (!realtimeStopPending || !fs.existsSync(releasePath)) return;
+    realtimeStopPending = false;
+    realtimeReleaseWatcher?.close();
+    realtimeReleaseWatcher = null;
+    sendNotification('thread/realtime/sdp', {
+      threadId: sessionId,
+      sdp: 'v=0\r\nfake-delayed-a-answer',
+    });
+    sendNotification('thread/realtime/closed', { threadId: sessionId });
+  };
+  realtimeStopPending = true;
+  realtimeReleaseWatcher?.close();
+  realtimeReleaseWatcher = fs.watch(realtimeFenceDirectory, finish);
+  fs.writeFileSync(path.join(realtimeFenceDirectory, 'stop-response-returned'), '');
+  finish();
+  return true;
+}
 
 function thread() {
   return {
@@ -135,6 +168,9 @@ function resultFor(method, params) {
     return { goal: null, revision: 0 };
   }
   if (method === 'thread/realtime/start') {
+    if (realtimeStopPending) {
+      throw new Error('A replacement Realtime start crossed the unclosed operation fence');
+    }
     if (params?.threadId !== sessionId || params?.outputModality !== 'audio') {
       throw new Error(`Unexpected realtime start params: ${JSON.stringify(params)}`);
     }
@@ -171,6 +207,7 @@ function notificationsFor(method) {
     }];
   }
   if (method === 'thread/realtime/stop') {
+    if (publishRealtimeClosedAfterRelease()) return [];
     return [{
       method: 'thread/realtime/closed',
       params: { threadId: sessionId },
@@ -186,10 +223,17 @@ async function run() {
     const request = JSON.parse(line);
     if (request.id === undefined) continue;
     try {
-      process.stdout.write(`${JSON.stringify({
-        id: request.id,
-        result: resultFor(request.method, request.params),
-      })}\n`);
+      const result = resultFor(request.method, request.params);
+      if (
+        request.method === 'thread/realtime/start'
+        && loseFirstRealtimeStartResponse
+        && !realtimeStartResponseLost
+      ) {
+        realtimeStartResponseLost = true;
+        fs.writeFileSync(path.join(realtimeFenceDirectory, 'start-accepted-without-response'), '');
+      } else {
+        process.stdout.write(`${JSON.stringify({ id: request.id, result })}\n`);
+      }
       for (const notification of notificationsFor(request.method)) {
         process.stdout.write(`${JSON.stringify(notification)}\n`);
       }

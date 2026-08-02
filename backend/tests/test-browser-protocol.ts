@@ -122,10 +122,15 @@ assert.strictEqual(validateServerMessage({
   event: {
     agentId: 'a',
     sessionId: 'session-1',
+    operationId: 'voice-op-1',
     method: 'thread/realtime/sdp',
     params: { sdp: 'v=0' },
   },
 }).ok, true);
+assert.strictEqual(validateServerMessage({
+  type: 'acp-realtime',
+  event: { agentId: 'a', sessionId: 'session-1', method: 'thread/realtime/sdp', params: { sdp: 'v=0' } },
+}).ok, false);
 assert.strictEqual(validateServerMessage({
   type: 'acp-realtime',
   event: { agentId: 'a', method: 'thread/realtime/sdp', params: 'v=0' },

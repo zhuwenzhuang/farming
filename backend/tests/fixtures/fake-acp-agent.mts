@@ -339,6 +339,7 @@ class FakeAgent implements Agent {
           sessionUpdate: 'session_info_update',
           _meta: { codex: { realtime: {
             version: 1,
+            operationId: params.operationId,
             method: 'thread/realtime/sdp',
             params: { threadId: params.sessionId, sdp: 'v=0\r\nfake-answer' },
           } } },
@@ -350,6 +351,7 @@ class FakeAgent implements Agent {
           sessionUpdate: 'session_info_update',
           _meta: { codex: { realtime: {
             version: 1,
+            operationId: params.operationId,
             method: 'thread/realtime/transcript/done',
             params: { threadId: params.sessionId, role: 'user', text: 'run the focused tests' },
           } } },
@@ -364,6 +366,7 @@ class FakeAgent implements Agent {
           sessionUpdate: 'session_info_update',
           _meta: { codex: { realtime: {
             version: 1,
+            operationId: params.operationId,
             method: 'thread/realtime/closed',
             params: { threadId: params.sessionId, reason: 'client_stop' },
           } } },

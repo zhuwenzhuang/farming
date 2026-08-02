@@ -221,6 +221,7 @@ export interface AcpSessionEvent extends Record<string, unknown> {
 export interface AcpRealtimeEvent extends Record<string, unknown> {
   agentId: string;
   sessionId: string;
+  operationId: string;
   method: string;
   params: Record<string, unknown>;
 }
@@ -470,8 +471,14 @@ export interface AcpRuntimeContract {
   ): Promise<Record<string, unknown>>;
   createSessionIdentity(options: ProviderSessionIdentityRequest): Promise<ProviderSessionIdentityResult>;
   submitMessage(agentId: string, prompt: AcpPromptBlock[], options?: AcpSubmitOptions): Promise<AcpSubmitResult>;
-  startRealtime(agentId: string, sdp: string): Promise<Record<string, unknown>>;
-  stopRealtime(agentId: string): Promise<Record<string, unknown>>;
+  realtimeOwner?(agentId: string): string;
+  startRealtime(
+    agentId: string,
+    sdp: string,
+    operationId: string,
+    ownerId?: string,
+  ): Promise<Record<string, unknown>>;
+  stopRealtime(agentId: string, operationId: string, ownerId?: string): Promise<Record<string, unknown>>;
   getSession(agentId: string, options?: Record<string, unknown>): Record<string, unknown>;
   getTranscriptSession(
     agentId: string,

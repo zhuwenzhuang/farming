@@ -244,6 +244,7 @@ export interface AcpRealtimeMessage extends ExtensibleMessage {
   event: ObjectMessage & {
     agentId: string
     sessionId: string
+    operationId: string
     method: string
     params: ObjectMessage
   }
@@ -459,6 +460,7 @@ export function validateServerMessage(value: unknown): ValidationResult<ServerMe
       valid = objectMessage(value.event)
         && stringField(value.event, 'agentId')
         && stringField(value.event, 'sessionId')
+        && stringField(value.event, 'operationId')
         && stringField(value.event, 'method')
         && objectMessage(value.event.params)
       break
