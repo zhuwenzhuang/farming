@@ -239,7 +239,7 @@ function parseArgs(argv: string[]): ParsedArgs {
     // The server re-parses the command string with a shell-like tokenizer,
     // so arguments that carry whitespace or quotes must be single-quoted to
     // preserve their boundaries across the CLI → API → parseCommand round trip.
-    if (!childParts[0]) {
+    if (!(childParts[0] || '').trim()) {
       throw new Error('spawn requires a non-empty executable');
     }
     options.childCommand = childParts.map(part => (

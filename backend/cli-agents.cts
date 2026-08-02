@@ -416,7 +416,7 @@ function resolveLaunchCommand(
 ): ResolvedLaunchCommand {
   const parts = parseCommand(command);
   const rawProgram = parts[0] || '';
-  if (!rawProgram) {
+  if (!rawProgram.trim()) {
     throw new Error('spawn requires a non-empty executable');
   }
   const args = parts.slice(1);
