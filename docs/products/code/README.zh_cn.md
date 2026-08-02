@@ -25,8 +25,8 @@ Farming 后端。详见 [Farming Desktop MVP](desktop-app.zh_cn.md)。
 
 不离开当前任务，就能浏览 Project Files、检查修改、做小范围编辑并打开 Review。
 
-用户管理的 VS Code Bridge 运行时，同一个编辑器可以复用 VS Code 已安装语言 Provider
-提供的跳转、符号、调用/类型层次结构和诊断。详见 [Language Server](language-server.zh_cn.md)。
+同一个编辑器可以在 Project 所在主机启动托管 Language Server，提供跳转、符号、调用/类型
+层次结构和诊断；用户管理的 VS Code Bridge 保留为兼容来源。详见 [Language Server](language-server.zh_cn.md)。
 
 ### Search 与 History
 

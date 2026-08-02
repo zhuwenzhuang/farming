@@ -46,6 +46,7 @@ interface ManagedLanguageServerManagerOptions {
     root: string;
     workspaceRoot: string;
     env?: NodeJS.ProcessEnv;
+    onExit?: () => void;
   }) => Promise<ManagedClient>;
 }
 
@@ -308,6 +309,7 @@ class ManagedLanguageServerManager {
     if (active) return active;
     const task = (async () => {
       const launch = await this.launchCommand(definition, root);
+      let created: ManagedClient | null = null;
       const client = await this.clientFactory({
         id: definition.id,
         command: launch.command,
@@ -315,7 +317,11 @@ class ManagedLanguageServerManager {
         root,
         workspaceRoot,
         env: this.env,
+        onExit: () => {
+          if (created && this.clients.get(key) === created) this.clients.delete(key);
+        },
       });
+      created = client;
       const raced = this.clients.get(key);
       if (raced) {
         await client.dispose();
@@ -348,7 +354,13 @@ class ManagedLanguageServerManager {
     }
     if (method === 'workspaceSymbols') {
       const clients = [...this.clients.values()].filter(value => value.workspaceRoot === workspaceRoot);
-      if (clients.length === 0) return { result: [], supported: true };
+      if (clients.length === 0) {
+        throw languageServerError(
+          'No managed Language Server is running for this Project',
+          'LANGUAGE_SERVER_NOT_CONFIGURED',
+          503,
+        );
+      }
       const results = await Promise.all(clients.map(client => client.execute(payload)));
       return { result: results.flatMap(value => Array.isArray(value.result) ? value.result : []), supported: true };
     }

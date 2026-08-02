@@ -10,6 +10,9 @@ const {
 const {
   resolveLanguageServer,
 } = require('../../extensions/language-server/backend/language-server-registry.cjs');
+const {
+  LanguageServerService,
+} = require('../../extensions/language-server/backend/language-server-service.cjs');
 
 async function run() {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-managed-lsp-'));
@@ -42,6 +45,16 @@ async function run() {
     const java = await resolveLanguageServer(javaFile, javaRoot);
     assert.strictEqual(java?.definition.id, 'jdtls');
     assert.strictEqual(java?.root, javaRoot);
+
+    const gradleRoot = path.join(tempDir, 'gradle');
+    const gradleFile = path.join(gradleRoot, 'module', 'src', 'Main.java');
+    fs.mkdirSync(path.dirname(gradleFile), { recursive: true });
+    fs.writeFileSync(path.join(gradleRoot, 'settings.gradle'), "include 'module'\n");
+    fs.writeFileSync(path.join(gradleRoot, 'module', 'build.gradle'), 'plugins { id "java" }\n');
+    fs.writeFileSync(gradleFile, 'class Main {}\n');
+    const gradle = await resolveLanguageServer(gradleFile, gradleRoot);
+    assert.strictEqual(gradle?.definition.id, 'jdtls');
+    assert.strictEqual(gradle?.root, gradleRoot);
 
     const workspaceInput = path.join(tempDir, 'workspace');
     fs.mkdirSync(workspaceInput, { recursive: true });
@@ -91,6 +104,29 @@ async function run() {
       query: 'main',
     });
     assert.strictEqual((symbols.result as Array<{ name: string }>)[0].name, 'main');
+
+    const emptyManager = new ManagedLanguageServerManager({
+      configDir: path.join(tempDir, 'empty-config'),
+      definitions: [],
+    });
+    let bridgeRequests = 0;
+    const service = new LanguageServerService(emptyManager, {
+      async request() {
+        bridgeRequests += 1;
+        return { result: [{ name: 'bridge symbol' }], supported: true };
+      },
+    });
+    try {
+      const fallback = await service.request({
+        workspace: base.workspace,
+        method: 'workspaceSymbols',
+        query: 'bridge',
+      });
+      assert.deepStrictEqual(fallback, { result: [{ name: 'bridge symbol' }], supported: true });
+      assert.strictEqual(bridgeRequests, 1);
+    } finally {
+      await service.dispose();
+    }
   } finally {
     await manager.dispose();
     fs.rmSync(tempDir, { recursive: true, force: true });

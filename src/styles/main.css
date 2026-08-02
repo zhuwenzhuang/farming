@@ -649,7 +649,7 @@ body.code-resizing-sidebar {
   background: transparent;
   border: 2px solid rgba(45, 164, 78, 0.26);
   border-top-color: #2da44e;
-  animation: code-agent-running-spin 0.9s linear infinite;
+  animation: code-agent-running-spin 1.4s linear infinite;
 }
 
 .code-agent-rail-status.pending:not(.turn-active) { background: #d29922; }
@@ -1769,7 +1769,7 @@ body.code-resizing-sidebar {
   inset: 1px;
   border: 2px solid rgba(45, 164, 78, 0.2);
   border-top-color: #2da44e;
-  animation: code-agent-running-spin 0.9s linear infinite;
+  animation: code-agent-running-spin 1.4s linear infinite;
 }
 
 .code-project-agent-compact-status.pending {
@@ -1889,7 +1889,7 @@ body.code-resizing-sidebar {
   background: transparent;
   border: 2px solid rgba(45, 164, 78, 0.26);
   border-top-color: #2da44e;
-  animation: code-agent-running-spin 0.9s linear infinite;
+  animation: code-agent-running-spin 1.4s linear infinite;
 }
 
 @keyframes code-agent-running-spin {

@@ -42,7 +42,7 @@ ACP update 一方面以有界且限制单条大小的诊断数据保留，另一
 
 能力协商成功后，Codex 活跃 turn 期间提交的输入会作为 steer 发送，并保留在同一 turn 的原始有序位置，包括原生媒体 block。没有该扩展的 provider 继续显示排队 follow-up。
 
-较短的 Chat transcript 从阅读区域顶部开始，不再被压到贴近底部 Composer 的位置。长历史在读者停留于尾部时仍然跟随最新内容；读者查看较早内容时会保留明确的阅读位置，并在脱离尾部后显示跳转到最新位置的控件。
+较短的 Chat transcript 从阅读区域顶部开始，不再被压到贴近底部 Composer 的位置。长历史在读者停留于尾部时仍然跟随最新内容；读者查看较早内容时会保留明确的阅读位置，并在脱离尾部后显示跳转到最新位置的控件。只有明确的读者滚动或文本选择手势会脱离“跟随最新”；transcript 渲染和其它延迟内容高度变化仍会让视口紧贴尾部。
 
 Farming Code 把“已打开 Agent”逻辑列表与有界前端工作集分开。Chat DOM 和池化 xterm 共用一份最多二十个 Agent 的 LRU：激活 Agent 会把它移到最近使用端，当前活跃 Agent 受到保护；第二十一个需要保留的视图只会逐出最久未使用的非活跃浏览器视图，绝不会停止后端 ACP 或 PTY 进程。在缓存命中的 Agent 行之间切换时，旧 Chat 只隐藏，不卸载 transcript、展开状态或精确滚动位置；Search、History 和文件编辑器也只隐藏 Agent 工作区，不改变 LRU 顺序。非活跃且命中缓存的 Chat 不请求 transcript；再次选中时先展示保留视图，再使用保留的 revision 只请求发生变化的 ACP 后缀。被逐出的 Chat 会完整加载权威 transcript；被逐出的 Terminal 会从权威 session-view checkpoint 重新创建 xterm。
 

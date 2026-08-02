@@ -195,7 +195,7 @@ export function bindLanguageServerModels(files: readonly OpenWorkspaceFile[]) {
 export async function refreshLanguageServerDiagnostics(file: OpenWorkspaceFile) {
   const model = monaco.editor.getModel(workspaceEditorModelUriForFile(file))
   if (!model || file.dirty || file.externalChanged) {
-    if (model) monaco.editor.setModelMarkers(model, 'vscode-bridge', [])
+    if (model) monaco.editor.setModelMarkers(model, 'farming-language-server', [])
     return
   }
   const values = await requestLanguageServer<LanguageServerDiagnostic[]>({
@@ -209,11 +209,11 @@ export async function refreshLanguageServerDiagnostics(file: OpenWorkspaceFile) 
     monaco.MarkerSeverity.Info,
     monaco.MarkerSeverity.Hint,
   ]
-  monaco.editor.setModelMarkers(model, 'vscode-bridge', (values || []).map(diagnostic => ({
+  monaco.editor.setModelMarkers(model, 'farming-language-server', (values || []).map(diagnostic => ({
     ...rangeValue(diagnostic.range),
     message: diagnostic.message,
     severity: severity[diagnostic.severity] || monaco.MarkerSeverity.Info,
-    source: diagnostic.source || 'VS Code',
+    source: diagnostic.source || 'Language Server',
     code: diagnostic.code === undefined ? undefined : String(diagnostic.code),
   })))
 }

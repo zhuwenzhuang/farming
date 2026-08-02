@@ -1655,7 +1655,7 @@ function run() {
       !stylesSource.includes('box-shadow: inset 2px 0 0 rgba(95, 111, 69, 0.58);') &&
 	      stylesSource.includes('.code-agent-dot.running') &&
 	      stylesSource.includes('.code-agent-dot.turn-active') &&
-	      stylesSource.includes('animation: code-agent-running-spin 0.9s linear infinite;') &&
+	      stylesSource.includes('animation: code-agent-running-spin 1.4s linear infinite;') &&
 	      stylesSource.includes('.code-project-agent-strip') &&
 		      stylesSource.includes('.code-project-agent-compact.active') &&
 		      stylesSource.includes('.code-project-agent-compact-status.running') &&

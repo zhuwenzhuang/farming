@@ -22,7 +22,7 @@ Browser Extension 是第一种实时 Resource 实现，集成默认关闭。插�
 
 来源选择是普通持久化产品设置，不需要重启 Farming。Local Resource 由 Farming 把选中的 Chromium Executable 与独立 Profile 交给锁定版本的 `agent-browser`。隔离 Resource 的 Docker 创建、精确 Label、受管 Chromium 只读挂载和回环 CDP Relay 由 Computer Extension 管理，Endpoint 只在内部交给同一个 `agent-browser`。CDP 就绪探测必须先关闭并释放自己的 Relay Connection，才能放行 Browser Runtime，避免后续 agent-browser 连接被探测请求堵住。因此启用隔离 Browser 时也会保持 Computer 启用。Browser 仍只有一套 Automation 与 Viewer 实现。用户提供的外部 CDP 设置只保留读取兼容，不再是普通插件选项。
 
-受鉴权保护的 Viewer 代理 Runtime 的 Session-scoped WebSocket Stream。Frame 使用 JPEG 保持交互响应速度，Viewport、Pointer、Wheel、Keyboard 与 Text Input 则通过同一个 Session 返回。Viewer 按 Frame 上报的 CSS 尺寸绘制；Client 较慢时会丢弃已经被新 Frame 取代的内容。Agent Command 与人的输入因此操作同一个 Browser Identity，Farming 不再携带第二条原生 CDP Action Path。
+受鉴权保护的 Viewer 代理 Runtime 的 Session-scoped WebSocket Stream。工具栏会明确显示拥有该 Browser 的 Agent，说明它是共享控制的另一方。Frame 使用高质量 JPEG，在保持交互响应的同时提升文字可读性。Viewport、Pointer、Wheel、Keyboard 与 Text Input 则通过同一个 Session 返回。Viewer 按 Frame 上报的 CSS 尺寸绘制；Client 较慢时会丢弃已经被新 Frame 取代的内容。Agent Command 与人的输入因此操作同一个 Browser Identity，Farming 不再携带第二条原生 CDP Action Path。
 
 Browser 插件在 ACP Session 创建边界处已启用时，Farming 会通过现有 Provider Adapter，把完整且细粒度的 `browser_*` MCP Tool Catalog 挂载给 Codex、Claude Code、OpenCode 与 Qoder。`browser_open` 负责创建、挂载和启动当前 Agent 拥有的 Resource；其他工具分别保留生命周期、导航、交互、检查、诊断、状态与文件契约。CLI 是 Terminal 访问同一份能力 Contract 的 Transport，不是第二套实现。已经运行的 ACP Session 如果之后才启用 Browser，需要明确重启 Chat Runtime 后才能获得这些 Schema。
 
@@ -47,7 +47,7 @@ Active / Focus、Action 浮现层、Action Button 尺寸和 Empty Row。Extensio
 自己的 Icon、Label、Status 语义和 Action；Extension-local CSS 只保留 Viewer、
 语义菜单等真正属于该 Resource 的呈现。
 
-Language Server 是一个面向代码查看的内置插件，通过用户管理的 VS Code Bridge 工作。Farming 自动发现已经运行在 VS Code Extension Host 内的 Bridge，只把 Hover、跳转、符号、调用/类型层次结构和诊断代理到现有 Monaco 编辑器。VS Code 及其语言扩展继续拥有全部 Provider 配置和进程生命周期；Farming 不安装或启动 Bridge 与 Language Server，也不提供手工传输或每语言表单。连接状态是明确且权威的（`Connected`、`Unavailable` 或 `Error`），Bridge 两端都执行 Project 根目录校验，存在未保存修改的 Farming 草稿不会接收基于旧文件的语义结果。参见 [Language Server](./language-server.zh_cn.md)。
+Language Server 是面向代码查看的内置托管能力。Farming 使用源自 OpenCode 的语言注册表匹配已保存文件，发现最近的 Project Root Marker，优先使用 `PATH` 中的标准 Server 命令，并按 Server 与 Root 惰性复用 stdio 进程。缺少 clangd 或 JDTLS 时可在精确 Config 缓存中准备；其他缺失命令会明确失败，并可使用现有用户管理的 VS Code Bridge 兼容路径。Farming 不提供手工传输或每语言表单，对输入与结果执行权威 Project Root 校验，并在 Farming Draft 未保存时隐藏语义操作。参见 [Language Server](./language-server.zh_cn.md)。
 
 同一个页面也拥有 Agent 配置。一个 Provider 加一个 Agent Home ID 就是一份独立 Agent 配置：`Codex · default` 与 `Codex · work` 是两个 Agent，即使它们都使用 Codex。Agent Homes 中每一项常态只保留便于扫读的摘要：Farming 读取 Provider 自己拥有的配置文件，只把安全且可识别的字段显示为普通文字，不再把这个 Home 的扩展目录嵌套在配置行下面。点击编辑会把这份精确 Home 挂载为普通 Project，在 Farming 现有文件编辑器中打开配置文件，并在 Project 文件树中定位它；编辑、保存和导航因此全部复用普通 Project Files 链路。文件尚不存在时，编辑器先建立空 Working Copy，只在用户保存时创建文件。所有面向 Provider 的 Catalog、Settings、Session 与 Extension 读取都必须先解析精确 Home，缓存键也必须包含该 Home 身份；默认 Home 的结果绝不能填充到其他 Home。“扩展”页签始终显式保留当前 Home，类型数量和搜索范围都限制在这份 Home 内，并且只展示当前选中类型的条目；Farming 不会把多个 Home 折叠成一个 Provider 级身份。全局 Farming Settings 中有序的 `agentHomes` Registry 是权威状态。新增项追加到末尾，拖拽或键盘移动会重写稳定的数字顺序，只有非 `default` 项可以删除。因此 Agent Home 管理不再出现在通用 Settings 中。
 

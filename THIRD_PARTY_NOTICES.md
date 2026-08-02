@@ -47,6 +47,8 @@ preserved in bundled `node_modules` when bundled dependencies are enabled.
 | `remark-math` | 6.0.0 | MIT | Markdown math syntax support |
 | `ripgrep` | 0.3.1 | MIT | Node wrapper for file search support |
 | `tar` | 7.5.22 | BlueOak-1.0.0 | Safe extraction of version-locked startup dependency archives |
+| `vscode-jsonrpc` | 9.0.1 | MIT | Language Server JSON-RPC stream transport |
+| `vscode-languageserver-protocol` | 3.18.2 | MIT | Language Server Protocol types and contracts |
 | `ws` | 8.21.0 | MIT | WebSocket server/client support |
 | `yaml` | 2.9.0 | ISC | YAML parsing |
 | `zod` | 3.25.76 | MIT | MCP tool input schema validation |
@@ -109,6 +111,12 @@ The CRT skin bundles one font file under `frontend/skins/crt/fonts/`:
 The corresponding license texts are stored beside the font files.
 
 ## Adapted Source Code
+
+Farming's managed Language Server registry, root discovery, stdio client, and
+launch behavior adapt the OpenCode LSP implementation from commit
+`1882c33827cf0ce5c948b69ab5a87ed8f6790cf8`. OpenCode is licensed under the
+MIT License, Copyright (c) 2025 opencode. The retained license is stored at
+`extensions/language-server/backend/LICENSE.opencode`.
 
 Farming's Git history swimlane transform and graph-row renderer adapt the
 Visual Studio Code SCM history graph from Microsoft Visual Studio Code commit

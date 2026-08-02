@@ -300,9 +300,9 @@ async function run() {
     PATH: process.env.PATH,
     FARMING_CODEX_BIN: writeVersionExecutable(binDir, 'codex', '0.144.6'),
     FARMING_CLAUDE_BIN: writeVersionExecutable(binDir, 'claude', '2.1.0'),
-    FARMING_AGENT_BROWSER_BIN: writeVersionExecutable(binDir, 'agent-browser', '0.32.3'),
+    FARMING_AGENT_BROWSER_BIN: writeVersionExecutable(binDir, 'agent-browser', '0.33.2'),
   };
-  const managedAgentBrowser = writeVersionExecutable(binDir, 'managed-agent-browser', '0.32.3');
+  const managedAgentBrowser = writeVersionExecutable(binDir, 'managed-agent-browser', '0.33.2');
   const installRuntime = async (_configDir, definition) => {
     assert.strictEqual(definition.id, 'agentBrowser');
     return {

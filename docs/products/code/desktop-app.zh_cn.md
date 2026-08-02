@@ -6,7 +6,7 @@ Farming Desktop 使用 Electron 打包现有 Farming Code React 界面。首个�
 本机 Farming Backend，因此第一次启动立即可用，不要求用户先决定是否连接 SSH。远程 SSH
 管理作为桌面专属的内置插件放在现有插件页中；需要时，同一份界面可连接多个已保存的远端。
 Connections 是 Farming 内置能力中的高优先级 Section，与 Browser、Computer 等能力共处同一
-插件页面，并非独立页面；桌面远端 icon 只负责打开 Plugins 并定位到该 Section。
+插件页面，并非独立页面。
 普通 SSH Profile 只保存名称、`~/.ssh/config` Host 和可选
 Farming Home；Server 的平台、架构、版本、端口、base path、token 和能力都在连接时发现。
 桌面端的专注模式会直接进入全屏；浏览器应用安装提示只属于浏览器路径。
@@ -26,7 +26,7 @@ Package 本地且经过完整性校验的 seed。桌面启动阶段禁止网络�
 开发运行和后续 macOS 安装包统一使用 `desktop/assets/` 中的品牌桌面图标；运行时构建会把
 PNG 复制到 Electron 主进程旁，供 Dock 和窗口图标使用。
 
-打开 **插件 → 连接**（或桌面端远程图标），填写 `~/.ssh/config` 的 Host 即可。用户名、端口、`IdentityFile`、
+打开 **插件 → 连接**，填写 `~/.ssh/config` 的 Host 即可。用户名、端口、`IdentityFile`、
 `ProxyJump` 等高级 SSH 设置继续由 OpenSSH 管理。Farming Home 默认是
 `~/.farming-desktop`；其中 `server/<version>/` 保存版本化 Server，`data/` 是该桌面实例
 独立的 Config 目录。MVP 使用 `BatchMode=yes`，因此远端必须已经能通过密钥或

@@ -137,7 +137,7 @@ The right pane is a lightweight editor surface:
 - line-change inspection from the editor context menu;
 - a full-file diff surface for review when a file has working-tree changes.
 
-When the user-managed VS Code Bridge is connected, Monaco additionally delegates viewing-oriented semantic providers to the language extensions already active in that VS Code workspace: hover, definition, references, implementation, document symbols, and diagnostics. Farming owns cross-file navigation and the lazy call/type hierarchy and workspace-symbol panels, while VS Code owns language-provider configuration and lifecycle. These semantic operations intentionally use only the saved file; a dirty Farming draft disables the Bridge actions instead of presenting stale results. See [Language Server](./language-server.md).
+Monaco delegates viewing-oriented semantic providers to Farming's managed Language Server path: hover, definition, references, implementation, document symbols, and diagnostics. The backend selects a registered server from the saved file, starts it on the Project host, and owns cross-file navigation plus the lazy call/type hierarchy and workspace-symbol panels. The user-managed VS Code Bridge remains a compatibility source when a registered command is absent. These semantic operations intentionally use only the saved file; a dirty Farming draft disables them instead of presenting stale results. See [Language Server](./language-server.md).
 
 The editor should not always show a permanent `Saved` state. Save controls should be visible only when useful: dirty, saving, error, external changed, or explicitly available in context.
 
@@ -174,7 +174,7 @@ Large workspaces should stay usable through bounded operations:
 - HTML Preview Sessions have fixed expiry and capacity bounds, and each resource read keeps the preview-file size cap;
 - directory trees load lazily by directory;
 - after the Code workspace first renders, it starts one shared non-blocking preload of the dynamic file-editor module, Monaco core, and common syntax tokenizers; opening a file reuses that promise, while language workers remain demand-loaded and a background preload failure never reloads the page on its own;
-- TypeScript and JavaScript keep Monaco syntax diagnostics but disable Monaco's isolated semantic and suggestion diagnostics; virtual editor models do not load the workspace's compiler configuration, dependency declarations, or complete file graph. Project-level diagnostics appear only through a connected VS Code Bridge and only for the saved file;
+- TypeScript and JavaScript keep Monaco syntax diagnostics but disable Monaco's isolated semantic and suggestion diagnostics; virtual editor models do not load the workspace's compiler configuration, dependency declarations, or complete file graph. Project-level diagnostics appear through the managed Language Server path, or its VS Code Bridge compatibility source, and only for the saved file;
 - history defaults to 50 commits per page with a hard page cap, lazy commit-change loading, and a bounded frontend detail cache;
 - working-copy status returns complete records already captured plus `truncated: true` when a large untracked set exceeds the Git output buffer; it must never turn that condition into a false clean workspace;
 - file refresh is user-triggered: Git status and browser file requests time out, expanded directories refresh parent-first with at most six concurrent requests, and open files revalidate with at most four concurrent reads;

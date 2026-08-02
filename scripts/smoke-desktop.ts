@@ -171,7 +171,7 @@ async function main() {
     })
     assert.ok(rendererAssets.length > 0, 'Desktop renderer did not reference executable assets.')
     assert.deepEqual(rendererAssets.filter(asset => !asset.ok), [], 'Desktop renderer assets did not all return success.')
-    await page.getByTestId('code-nav-remote-connections').click()
+    await page.getByTestId('code-nav-plugins').click()
     await page.getByTestId('code-plugins-panel').waitFor()
     await page.getByTestId('desktop-connections-panel').waitFor()
     assert.equal(await page.getByTestId('code-plugin-tab-farming').count(), 1)
@@ -287,6 +287,32 @@ async function main() {
     )
     assert.deepEqual(rendererPageErrors, [], 'Desktop renderer emitted an uncaught page error.')
 
+    const removalReload = page.waitForEvent('framenavigated', {
+      predicate: frame => frame === page.mainFrame(),
+    })
+    const removalState = await page.evaluate(async () => {
+      const desktop = (window as Window & { farmingDesktop?: import('../shared/desktop-contract').FarmingDesktopBridge }).farmingDesktop
+      if (!desktop) throw new Error('Desktop bridge is missing.')
+      const current = await desktop.getState()
+      const active = current.profiles.find(profile => profile.id === current.activeBackendId)
+      if (!active || active.kind !== 'remote') throw new Error('Smoke remote backend is not active before removal.')
+      const next = await desktop.removeBackend(active.id)
+      return {
+        active: next.profiles.find(profile => profile.id === next.activeBackendId),
+        removedStillPresent: next.profiles.some(profile => profile.id === active.id),
+      }
+    })
+    assert.equal(removalState.active?.kind, 'local')
+    assert.equal(removalState.removedStillPresent, false)
+    await removalReload
+    await page.getByTestId('app-shell').waitFor({ state: 'visible' })
+    await page.waitForFunction(async () => {
+      const state = await window.farmingDesktop?.getState()
+      const active = state?.profiles.find(profile => profile.id === state.activeBackendId)
+      const connection = state?.connections.find(candidate => candidate.backendId === state.activeBackendId)
+      return active?.kind === 'local' && connection?.status === 'ready'
+    })
+
     const settingsBeforeRestart = settingsRequestCount
     await application.close()
     application = await electron.launch({
@@ -317,7 +343,7 @@ async function main() {
     assert.deepEqual(restartPageErrors, [], 'Restarted desktop renderer emitted an uncaught page error.')
     const screenshotPath = process.env.FARMING_DESKTOP_SMOKE_SCREENSHOT
     if (screenshotPath) {
-      await restartedPage.getByTestId('code-nav-remote-connections').click()
+      await restartedPage.getByTestId('code-nav-plugins').click()
       await restartedPage.getByTestId('code-plugins-panel').waitFor()
       await restartedPage.getByTestId('desktop-connections-panel').waitFor()
       fs.mkdirSync(path.dirname(screenshotPath), { recursive: true })

@@ -83,15 +83,16 @@ function mavenModule(pomContent: string, modulePath: string): boolean {
 }
 
 async function javaRoot(filePath: string, workspaceRoot: string): Promise<string | undefined> {
-  const gradleRoot = findNearestMarkerDirectory(filePath, workspaceRoot, [
-    'settings.gradle',
-    'settings.gradle.kts',
-    'gradlew',
-    'gradlew.bat',
-    'build.gradle',
-    'build.gradle.kts',
-  ]);
-  if (gradleRoot) return gradleRoot;
+  const settingsMarkers = ['settings.gradle', 'settings.gradle.kts'];
+  const settingsRoot = findNearestMarkerDirectory(filePath, workspaceRoot, settingsMarkers);
+  const wrapperRoot = settingsRoot
+    ? undefined
+    : findNearestMarkerDirectory(filePath, workspaceRoot, ['gradlew', 'gradlew.bat']);
+  if (wrapperRoot) return wrapperRoot;
+  if (settingsRoot) return settingsRoot;
+
+  const buildRoot = findNearestMarkerDirectory(filePath, workspaceRoot, ['build.gradle', 'build.gradle.kts']);
+  if (buildRoot) return buildRoot;
 
   const pomDirectories: string[] = [];
   let directory = path.dirname(filePath);
@@ -148,7 +149,7 @@ const LANGUAGE_SERVERS: LanguageServerDefinition[] = [
   { id: 'yaml-language-server', extensions: ['.yaml', '.yml'], command: ['yaml-language-server', '--stdio'] },
   { id: 'lua-language-server', extensions: ['.lua'], command: ['lua-language-server'], rootMarkers: ['.luarc.json', '.luarc.jsonc', '.luacheckrc', '.stylua.toml', 'stylua.toml'] },
   { id: 'intelephense', extensions: ['.php'], command: ['intelephense', '--stdio'], rootMarkers: ['composer.json', 'composer.lock', '.php-version'] },
-  { id: 'prisma', extensions: ['.prisma'], command: ['prisma-language-server', '--stdio'], rootMarkers: ['schema.prisma'] },
+  { id: 'prisma', extensions: ['.prisma'], command: ['prisma', 'language-server'], rootMarkers: ['schema.prisma'] },
   { id: 'dart', extensions: ['.dart'], command: ['dart', 'language-server', '--lsp'], rootMarkers: ['pubspec.yaml', 'analysis_options.yaml'] },
   { id: 'ocamllsp', extensions: ['.ml', '.mli'], command: ['ocamllsp'], rootMarkers: ['dune-project', 'dune-workspace', '.merlin', 'opam'] },
   { id: 'bash-language-server', extensions: ['.sh', '.bash', '.zsh', '.ksh'], command: ['bash-language-server', 'start'] },

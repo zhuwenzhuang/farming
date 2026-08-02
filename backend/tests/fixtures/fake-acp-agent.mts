@@ -1288,6 +1288,33 @@ class FakeAgent implements Agent {
       }
       return { stopReason: 'end_turn' };
     }
+    if (promptText.includes('bottom follow refresh')) {
+      const opening = Array.from(
+        { length: 36 },
+        (_, index) => `Follow paragraph ${String(index + 1).padStart(2, '0')}: the latest answer should remain attached to the viewport bottom.`,
+      ).join('\n\n');
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          messageId: 'bottom-follow-refresh-answer',
+          content: { type: 'text', text: opening },
+        },
+      });
+      await new Promise(resolve => setTimeout(resolve, 700));
+      for (let index = 1; index <= 3; index += 1) {
+        await client.sessionUpdate({
+          sessionId: params.sessionId,
+          update: {
+            sessionUpdate: 'agent_message_chunk',
+            messageId: 'bottom-follow-refresh-answer',
+            content: { type: 'text', text: `\n\nFollow tail ${index}: late layout growth must preserve follow-latest.` },
+          },
+        });
+        await new Promise(resolve => setTimeout(resolve, 300));
+      }
+      return { stopReason: 'end_turn' };
+    }
     if (promptText.includes('usage warning')) {
       await client.sessionUpdate({
         sessionId: params.sessionId,

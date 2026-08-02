@@ -26,6 +26,10 @@ function viewerCopy(language: UiPreferences['language']) {
     address: zh ? '浏览器地址' : 'Browser address',
     connected: zh ? 'Viewer 已连接' : 'Viewer connected',
     disconnected: zh ? 'Viewer 未连接' : 'Viewer disconnected',
+    sharedControl: (name: string) => zh ? `共享控制 · ${name}` : `Shared control · ${name}`,
+    sharedControlTitle: (name: string) => zh
+      ? `你和 ${name} 都可以控制这个浏览器标签页。`
+      : `You and ${name} can both control this browser tab.`,
     copyLink: zh ? '复制链接' : 'Copy link',
     more: zh ? '更多' : 'More',
     start: zh ? '启动' : 'Start',
@@ -90,6 +94,7 @@ export function BrowserViewer({
   resource,
   controller,
   language,
+  ownerName,
   onResource,
   onOpenResource,
   onBackToAgent,
@@ -97,6 +102,7 @@ export function BrowserViewer({
   resource: BrowserResource
   controller: BrowserResourcesController
   language: UiPreferences['language']
+  ownerName: string
   onResource: (resource: BrowserResource) => void
   onOpenResource: (resource: BrowserResource) => void
   onBackToAgent: () => void
@@ -457,6 +463,16 @@ export function BrowserViewer({
           />
           <span className={`farming-browser-connection ${connected ? 'connected' : ''} ${navigating ? 'navigating' : ''}`} title={connected ? copy.connected : copy.disconnected} />
         </form>
+        {ownerName ? (
+          <span
+            className="farming-browser-controller"
+            data-testid="farming-browser-controller"
+            title={copy.sharedControlTitle(ownerName)}
+          >
+            <span aria-hidden="true" />
+            <strong>{copy.sharedControl(ownerName)}</strong>
+          </span>
+        ) : null}
         <div className="farming-browser-more-wrap">
           <button
             ref={moreButtonRef}

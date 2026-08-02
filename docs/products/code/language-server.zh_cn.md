@@ -2,82 +2,73 @@
 
 > English version: [language-server.md](./language-server.md)
 
-状态：首个面向代码查看的 MVP。
+状态：Farming 托管的面向代码查看 MVP。
 
 ## 产品边界
 
-Language Server 是 Farming 内置插件，用来复用已经运行在 VS Code 内的语言能力。Farming 不安装、启动、停止、重启或配置 VS Code 及各个 Language Server，也不提供 Provider、Command、Args、Socket、初始化参数或每语言配置表单。
-
-首版只有一条产品路径：
+Language Server 是 Farming 内置能力。打开或查询受支持的已保存文件时，拥有该 Project 的后端会定位并通过 stdio 启动对应 Language Server。用户不需要配置命令、参数、Socket 或端口。
 
 ```text
 Farming Monaco 编辑器
         |
         | Farming 已认证 HTTP API
         v
-Farming 后端
+Project 所在主机的 Farming 后端
         |
-        | 回环地址、Token 认证的 Bridge 协议
+        | stdio Language Server Protocol
         v
-Farming VS Code Bridge 扩展
-        |
-        | VS Code 公共语言 Provider 命令
-        v
-已有 VS Code 扩展及其 Language Server
+clangd / JDTLS / PATH 中的其他 Server
 ```
 
-原生 VS Code Server 没有向外部应用公开语言 Provider 查询接口，因此一个很小的 VS Code Bridge 运行在已有 Extension Host 内。它只调用 VS Code 公共 Provider 命令，各语言扩展的配置和生命周期仍完全归 VS Code。Bridge 由用户管理：Farming 只发现并连接，不负责安装或启动。
+实现沿用 OpenCode 的语言注册表、向上查找 Root Marker、PATH 优先发现可执行文件，以及按 `server + root` 惰性启动和复用进程的做法。Farming 额外复用已有的权威 Project Root 授权，并把所有返回位置重新过滤到同一个 Project 内。
 
-Bridge 是运行在已有 VS Code Extension Host 内的纯 JavaScript，不会在 glibc 2.17 等老系统上增加另一套原生运行时要求。Language Server 是否兼容，仍由用户已有的 VS Code 扩展决定。
+现有的用户管理 VS Code Bridge 保留为兼容回退：只有注册的 Server 命令缺失时才尝试使用。托管 Server 的真实失败不会静默换 Provider 重放。
 
-## 首版能力
+## 发现算法
 
-实现与语言无关、按能力工作：
+处理一个文件请求时，Farming：
 
-- Hover；
-- 转到定义、引用和实现；
-- 文档符号和工作区符号；
-- 可惰性递归展开的传入/传出调用层次结构；
-- 可惰性递归展开的父类型/子类型层次结构；
-- 诊断。
+1. 使用权威 Project Root 校验相对文件路径；
+2. 根据扩展名匹配一个语言定义；
+3. 从文件目录向上查找到 Project Root，寻找该语言的 Marker；
+4. 使用最近的匹配目录；允许回退的语言在没有 Marker 时使用 Project Root；
+5. 从 `PATH` 查找启动命令；
+6. 按 `Language Server + Root` 启动一个 stdio 进程，并复用后续请求。
 
-只要对应 VS Code 扩展已经安装、激活并实现相应 Provider，同一条路径就适用于 TypeScript、JavaScript、Python、Go、Rust 和其他语言。不支持的层次结构或符号 Provider 会明确提示；Provider 已支持但没有匹配项时才显示空结果。Farming 不会用 References 伪造调用层次结构。
+C/C++ 查找 `compile_commands.json`、`compile_flags.txt` 或 `.clangd`，启动：
 
-Completion、Rename、Formatting、Code Action 和 Farming 托管安装 Language Server 不在首版范围。语言查询使用上次保存的文件。Farming 文件存在未保存修改时仍可正常做语法编辑，但暂时隐藏 Bridge 操作并清除远端诊断，避免把 VS Code 中的旧文本结果冒充当前结果。
-
-## 状态模型
-
-Farming 后端拥有权威连接状态：
-
-- `Unavailable`：没有发现 Bridge 描述文件；
-- `Connected`：至少一个发现的 Bridge 在有界时间内通过认证健康检查，并报告 Provider 请求路径已就绪；
-- `Error`：描述文件存在，但无效、不兼容、无法连接，或者已经停滞且没有其他就绪 Bridge。
-
-打开插件页会做一次新的有界发现；重试会使短缓存失效。请求失败会使当前 Bridge 失效，下一次操作重新发现。Farming 不会把 Bridge 缺失或失败降级成质量更差的 Language Server 路径。
-
-每个 VS Code 窗口都会在 VS Code Global Storage 下写入权限为 `0600` 的实例描述文件，其中包含随机 Bearer Token 和随机回环端口。Farming 对有界的已发现实例集合做健康检查，合并能力，并按精确 Workspace 把每个 Project 请求路由到正确 Bridge。Farming 只接受当前用户拥有的字面回环 HTTP 端点。后端使用权威 Project 根目录校验每个输入文件，并在返回浏览器前剔除同一根目录之外的所有结果。Bridge 也会独立校验：只接受当前 VS Code 窗口已打开的 Workspace，以及属于该 Workspace 的文件。
-
-处于就绪状态的 Bridge 允许正常 Language Provider 请求并发执行，生命周期不是全局单飞锁。每个请求还有一个早于后端传输超时结束的 Bridge 本地 deadline。VS Code 的公共 Provider 命令不提供取消能力，因此越过 deadline 时会返回 Farming 公开错误 `504 LANGUAGE_SERVER_BRIDGE_STALLED`，但不会假装已经取消、重启或重放底层操作。Bridge 会保留原始 Promise 及其 generation，在健康检查中报告 `requestState: stalled`，并在再次调用 VS Code 之前拒绝后续 Provider 请求；Farming 将这个 fence 公开为 `503 LANGUAGE_SERVER_BRIDGE_STALLED`。直接 Bridge 错误和健康检查发现的停滞都会归一成同一个公开错误码。只有全部已超时 generation 的原始 Promise 真正结束后才恢复就绪；一个旧请求的迟到结果不能清除另一个仍停滞的 generation。Extension shutdown 使用独立错误，不会被误报成 Provider 停滞。
-
-停滞的 Bridge 不会进入已连接能力和 Workspace 清单。若另一个就绪 Bridge 打开了同一 Workspace，Farming 会路由到该实例；若请求的 Workspace 只有停滞实例，Farming 会保留停滞错误及恢复提示，而不是误报 Workspace 未打开。若底层操作始终不结束，这是该 VS Code 窗口的终止失败：用户需要 Reload VS Code Window 来重建 Extension Host。Farming 不会自动重放查询或重启 VS Code。
-
-层次结构句柄不透明、只在 Bridge 进程内有效，有容量上限并在十分钟后过期。Bridge 丢失或重启后，旧句柄会明确失败，用户重新准备层次结构即可。
-
-## 用户管理的 Bridge
-
-参考 Bridge 源码位于 `extensions/language-server/vscode-bridge`。开发时可用 VS Code 官方扩展打包器打包，再通过 VS Code 安装：
-
-```bash
-cd extensions/language-server/vscode-bridge
-npx @vscode/vsce package
-code --install-extension vscode-bridge-0.1.0.vsix
+```text
+clangd --background-index --clang-tidy
 ```
 
-使用 Remote SSH 时，从 VS Code 扩展视图把扩展安装到远端主机，并保持对应 VS Code Workspace 打开。扩展在 VS Code 启动后激活并发布描述文件，Farming 会自动发现，不需要任何 Farming 配置。
+每个文件的 Include Path、宏、语言标准和其他编译参数由 clangd 从编译数据库读取，Farming 不解析也不生成这些参数。`PATH` 中没有 clangd 时，Farming 从官方 clangd GitHub 最新 Release 下载当前平台的 Archive 到 Config 独立缓存。
 
-标准发现位置覆盖 VS Code Server、VS Code Server Insiders、旧版 VS Code Remote、桌面 Code 和桌面 Code Insiders 的 Global Storage。扩展 ID 和存储身份都是 `farming.vscode-bridge`。
-Bridge 支持 VS Code 与 VS Code Server 1.85 及以上版本，已有远端安装无需仅为 Farming 单独升级。
+Java 检测 Gradle Settings、Wrapper、Build 文件，经过 `<modules>` 关系验证的 Maven Parent 链，或者 Eclipse Project 文件。优先使用 `PATH` 中的 `jdtls`；否则要求 Java 21 或更高版本，并把官方 Eclipse JDTLS 最新 Snapshot 下载到 Config 独立缓存。JDTLS 的可变 Workspace 数据按 Project Root 隔离。
 
-## 验证
+其他注册语言使用 `PATH` 中的标准命令。命令缺失时明确失败，并可使用已就绪的 VS Code Bridge 兼容路径。
 
-后端回归测试覆盖认证发现、协议健康检查、Project 根目录输入约束、返回结果过滤、重新回到 Unavailable、健康请求并发、停滞 deadline/fence/recovery generations、停用时精确清理，以及同一 Workspace 的就绪 Bridge 回退。Manifest 回归检查会确保 VSIX 与 Farming npm 包的文件清单都包含全部 Bridge 运行时 helper。前端类型检查覆盖 Monaco Provider 注册及层次结构/符号面板。生产形态验收还应实际打包 VSIX，再使用真实 VS Code Remote SSH Workspace，先验证 TypeScript 的定义、引用和调用层次结构，然后验证同一 VS Code Server 中安装的一种非 TypeScript 语言扩展。
+## 注册语言
+
+当前托管注册表包括 C/C++、Java、Kotlin、C#、F#、Go、Rust、Python、JavaScript/TypeScript、Deno、Vue、Svelte、Astro、Ruby、PHP、Swift、Objective-C、Dart、Lua、Elixir、Zig、OCaml、Shell、YAML、Terraform、LaTeX、Dockerfile、Prisma、Gleam、Clojure、Nix、Typst、Haskell 和 Julia。
+
+## 能力与已保存文件
+
+当前 UI 提供 Hover、定义、引用、实现、文档/工作区符号、调用/类型层次结构和诊断。托管进程从磁盘上的已保存文件接收 `didOpen` 和全量 `didChange`。Farming 编辑器仍会在 Working Copy 未保存时隐藏语义操作，避免把旧磁盘内容的结果冒充当前 Draft。
+
+只读查询有明确 Deadline。层次结构 Handle 不透明且只在当前进程内有效。Farming 后端关闭时停止托管进程；之后的请求会重新惰性启动。
+
+每个 `Server + Root` 遵循 `absent -> starting -> ready -> stopping -> absent`。启动失败会返回明确请求错误并保持 `absent`，之后的用户请求可以重试。已就绪进程退出后按精确身份移除，下一次请求启动新进程，不会继续写入过期 Transport。同一个 Key 的并发启动共享一个 Promise。
+
+## 安全与隔离
+
+- 文件输入通过 `WorkspaceRootRegistry` 解析；
+- 拒绝 Symlink Escape，并过滤同一 Project 之外的返回结果；
+- 进程运行在拥有 Project 的后端，包括 Remote SSH Backend；Desktop 不会为每次语言查询单独执行 SSH 命令；
+- 托管缓存和 JDTLS Workspace 数据位于精确 Farming Config 目录下，不同 Config 不共享可变语言状态；
+- 下载有大小上限，只能解压到 Config 独立的 Language Server 缓存。
+
+## 来源与验证
+
+采用的 OpenCode 源码 Revision 和 MIT Notice 记录在 `THIRD_PARTY_NOTICES.md` 与 `extensions/language-server/backend/LICENSE.opencode`。
+
+聚焦回归测试使用真实的 Fake stdio Language Server，验证 Root 识别、初始化、打开文档、Hover、定义、诊断、层次结构 Handle、Workspace Symbol、进程复用和有界关闭。现有 Bridge 测试继续覆盖认证兼容路径与 Project 返回结果过滤。

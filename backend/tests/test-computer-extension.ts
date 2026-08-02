@@ -340,7 +340,7 @@ async function run() {
 
     const browserExecutable = path.join(
       storageLayout.managedChromiumRootDir(manager.configDir),
-      '0.32.3',
+      '0.33.2',
       'linux-x64-computer',
       'chrome',
     );

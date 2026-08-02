@@ -29,9 +29,9 @@ Read structured Agent results in Chat or work directly with the CLI in Terminal.
 Browse project files, inspect changes, make a focused edit, and open Review
 without leaving the task.
 
-When a user-managed VS Code Bridge is running, the same editor can reuse VS
-Code's installed language providers for navigation, symbols, call/type
-hierarchy, and diagnostics. See [Language Server](language-server.md).
+The same editor can start managed language servers on the Project host for
+navigation, symbols, call/type hierarchy, and diagnostics. A user-managed VS
+Code Bridge remains a compatibility source. See [Language Server](language-server.md).
 
 ### Search And History
 

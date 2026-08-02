@@ -149,6 +149,41 @@
   background: #d29922;
 }
 
+.farming-browser-controller {
+  max-width: min(220px, 24vw);
+  min-width: 0;
+  height: 28px;
+  box-sizing: border-box;
+  flex: 0 1 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 9px;
+  border: 1px solid #d9ded4;
+  border-radius: 7px;
+  background: #f6f7f3;
+  color: #596159;
+}
+
+.farming-browser-controller > span {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border-radius: 50%;
+  background: #2da44e;
+  box-shadow: 0 0 0 2px rgba(45, 164, 78, 0.12);
+}
+
+.farming-browser-controller strong {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 550;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .farming-browser-viewport {
   min-height: 0;
   position: relative;
@@ -352,6 +387,12 @@ body.code-mode[data-appearance='dark'] .farming-browser-toolbar-separator {
   background: #30363d;
 }
 
+body.code-mode[data-appearance='dark'] .farming-browser-controller {
+  border-color: #30363d;
+  background: #161b22;
+  color: #b1bac4;
+}
+
 body.code-mode[data-appearance='dark'] .farming-browser-toolbar button,
 body.code-mode[data-appearance='dark'] .farming-browser-placeholder button {
   color: #9da7b1;
@@ -424,6 +465,11 @@ body.code-mode[data-appearance='dark'] .farming-browser-placeholder button {
 
   .farming-browser-toolbar form {
     margin-left: 1px;
+  }
+
+  .farming-browser-controller {
+    max-width: 112px;
+    padding-inline: 7px;
   }
 
 }

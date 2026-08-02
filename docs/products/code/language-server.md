@@ -2,82 +2,117 @@
 
 > Chinese version: [language-server.zh_cn.md](./language-server.zh_cn.md)
 
-Status: first viewing-oriented MVP.
+Status: managed viewing-oriented MVP.
 
 ## Product Boundary
 
-Language Server is a built-in Farming plugin that reuses language providers already running inside VS Code. Farming does not install, start, stop, restart, or configure VS Code or individual language servers. It also does not expose a provider selector or command, argument, socket, initialization-option, or per-language form.
-
-The supported path is deliberately singular:
+Language Server is a built-in Farming capability. Opening or querying a
+supported saved file causes the backend that owns that Project to locate and
+start the matching language server over stdio. Users do not configure commands,
+arguments, sockets, or ports.
 
 ```text
 Farming Monaco editor
         |
         | authenticated Farming HTTP API
         v
-Farming backend
+Farming backend on the Project host
         |
-        | loopback, token-authenticated bridge protocol
+        | stdio Language Server Protocol
         v
-Farming VS Code Bridge extension
-        |
-        | public VS Code language-provider commands
-        v
-Existing VS Code extensions and their language servers
+clangd / JDTLS / another server from PATH
 ```
 
-Stock VS Code Server does not expose its language-provider results as a public external API. The small VS Code Bridge therefore runs inside the existing VS Code extension host. It calls VS Code's public provider commands and leaves every language extension's configuration and lifecycle with VS Code. The Bridge is user-managed: Farming discovers it but never installs or launches it.
+The implementation adapts OpenCode's language registry, upward root-marker
+search, PATH-first executable discovery, and lazy `server + root` process
+reuse. Farming adds its existing authoritative Project-root authorization and
+filters every returned file location back to that same Project.
 
-Because the Bridge is plain JavaScript running in the already-compatible VS Code extension host, it adds no separate native runtime requirement on legacy hosts such as glibc 2.17 systems. Language-server compatibility remains exactly the compatibility provided by the user's installed VS Code extensions.
+The existing user-managed VS Code Bridge remains a compatibility fallback when
+a registered server command is absent. A managed server failure is not silently
+replayed through another provider.
 
-## First-release Capabilities
+## Discovery Algorithm
 
-The first release is language-agnostic and capability-driven. It provides:
+For a file request Farming:
 
-- hover;
-- go to definition, references, and implementation;
-- document and workspace symbols;
-- incoming and outgoing call hierarchy with lazy recursive expansion;
-- supertype and subtype hierarchy with lazy recursive expansion;
-- diagnostics.
+1. validates the relative file against the authoritative Project root;
+2. matches the file extension to one language definition;
+3. walks from the file's directory up to the Project root looking for that
+   language's markers;
+4. uses the nearest matching directory, or the Project root for definitions
+   that allow a fallback;
+5. finds the configured command on `PATH`;
+6. starts one stdio process per `language server + root` and reuses it for later
+   files and requests.
 
-The same code path works for TypeScript, JavaScript, Python, Go, Rust, and other languages when the corresponding VS Code extension is installed, active, and implements the requested provider. An unsupported hierarchy or symbol provider is reported explicitly, while a supported provider with no match shows an empty result; Farming does not synthesize call hierarchy from references.
+C and C++ use `compile_commands.json`, `compile_flags.txt`, or `.clangd` and
+start:
 
-Completion, rename, formatting, code actions, and Farming-managed language-server installation are intentionally outside this release. Language queries use the last saved file. A dirty Farming working copy keeps syntax editing available but temporarily withholds Bridge actions and clears remote diagnostics, because silently querying stale VS Code text would be misleading.
-
-## State Model
-
-The Farming backend owns the authoritative connection state:
-
-- `Unavailable`: no Bridge descriptor was discovered;
-- `Connected`: at least one discovered Bridge completed a bounded authenticated health request and reports its provider request path as ready;
-- `Error`: a descriptor exists but is invalid, incompatible, unreachable, or stalled with no ready Bridge remaining.
-
-Opening Plugins performs a fresh bounded discovery. Retry invalidates the short discovery cache. A request failure invalidates the active Bridge and the next operation discovers again. Farming never turns a failed or absent Bridge into a lower-quality language-server fallback.
-
-Each VS Code window writes a mode-`0600` instance descriptor containing a random bearer token and a random loopback port under its VS Code global storage directory. Farming health-checks the bounded discovered set, merges its capabilities, and routes each Project request to the Bridge instance that has that exact workspace open. Farming accepts only literal loopback HTTP endpoints owned by the current user. The backend validates every input file against an authoritative Project root and removes every result outside that same root before returning it to the browser. The Bridge independently accepts only workspaces open in its VS Code window and files owned by that workspace.
-
-Ready Bridges allow normal language-provider requests to run concurrently; the lifecycle is not a global single-flight lock. Each request also has a Bridge-local deadline that finishes before the backend's transport timeout. VS Code's public provider commands do not expose cancellation, so crossing that deadline returns public Farming error `504 LANGUAGE_SERVER_BRIDGE_STALLED` without pretending to cancel, restart, or replay the underlying operation. The Bridge retains that exact Promise and generation, reports `requestState: stalled` from health, and rejects later provider requests before invoking VS Code again; Farming exposes that fence as `503 LANGUAGE_SERVER_BRIDGE_STALLED`. Direct Bridge errors and health-observed stalls are normalized to this same public code. The Bridge returns to ready only after every timed-out generation's original Promise actually settles; one old late result cannot clear another stalled generation. Extension shutdown uses a distinct error and is never reported as a provider stall.
-
-A stalled Bridge is excluded from connected capability and workspace inventory. If another ready Bridge has the same workspace open, Farming routes to that instance. If only a stalled instance owns the requested workspace, the request preserves the stalled error and its recovery instruction instead of reporting that the workspace is closed. An operation that never settles is a terminal failure for that VS Code window: reload the VS Code window to recreate its Extension Host. Farming does not automatically replay the query or restart VS Code.
-
-Hierarchy item handles are opaque, process-local, capacity-bounded, and expire after ten minutes. Losing or restarting the Bridge makes old handles fail explicitly; the user prepares the hierarchy again.
-
-## User-managed Bridge
-
-The reference Bridge source is in `extensions/language-server/vscode-bridge`. For development it can be packaged with the standard VS Code extension packager and installed through VS Code:
-
-```bash
-cd extensions/language-server/vscode-bridge
-npx @vscode/vsce package
-code --install-extension vscode-bridge-0.1.0.vsix
+```text
+clangd --background-index --clang-tidy
 ```
 
-For Remote SSH, install the extension into the remote host from the VS Code Extensions view, then keep that VS Code workspace open. The extension activates after VS Code startup, publishes its descriptor, and Farming discovers it automatically. No Farming setting is required.
+clangd reads the per-file include paths, defines, language standard, and other
+compiler arguments from the compilation database. Farming does not parse or
+generate those arguments. When clangd is absent from `PATH`, Farming downloads
+the matching archive from the latest official clangd GitHub release into the
+Config-local language-server cache.
 
-The standard discovery locations cover VS Code Server, VS Code Server Insiders, legacy VS Code Remote, desktop Code, and desktop Code Insiders global storage. The extension id and storage identity are `farming.vscode-bridge`.
-The Bridge supports VS Code and VS Code Server 1.85 or newer so existing remote installations do not need an upgrade solely for Farming.
+Java detects Gradle settings/wrappers/build files, a verified Maven parent
+`<modules>` chain, or Eclipse project files. It uses a `jdtls` command from
+`PATH` when present. Otherwise Java 21 or newer is required and Farming
+downloads the latest official Eclipse JDTLS snapshot into the Config-local
+cache. JDTLS mutable workspace data is isolated by Project root.
 
-## Verification
+Other registered languages use their normal command from `PATH`. Missing
+commands fail explicitly and may use a ready VS Code Bridge compatibility path.
 
-The backend regression tests cover authenticated discovery, protocol health, Project-root input validation, result filtering, transition back to Unavailable, concurrent healthy requests, the stalled deadline/fence/recovery generations, exact deactivation cleanup, and ready-Bridge fallback for the same workspace. Manifest regression checks keep every Bridge runtime helper in both the VSIX and Farming npm package file lists. Frontend type checking covers Monaco provider registration and the hierarchy/symbol panel. A production-shaped acceptance pass should additionally package the VSIX, then use one real VS Code Remote SSH workspace and verify TypeScript definition/reference/call hierarchy, followed by one non-TypeScript language extension installed in that same VS Code Server.
+## Registered Languages
+
+The managed registry currently includes C/C++, Java, Kotlin, C#, F#, Go, Rust,
+Python, JavaScript/TypeScript, Deno, Vue, Svelte, Astro, Ruby, PHP, Swift,
+Objective-C, Dart, Lua, Elixir, Zig, OCaml, Shell, YAML, Terraform, LaTeX,
+Dockerfile, Prisma, Gleam, Clojure, Nix, Typst, Haskell, and Julia.
+
+## Capabilities And Saved Files
+
+The current UI exposes hover, definition, references, implementation, document
+and workspace symbols, call/type hierarchy, and diagnostics. Managed processes
+receive `didOpen` and full-text `didChange` notifications from the saved file on
+disk. The existing Farming editor still withholds semantic actions while its
+working copy is dirty, so results cannot describe an older disk version as the
+current draft.
+
+Read-only queries have bounded deadlines. Hierarchy handles are opaque and
+process-local. Server shutdown belongs to Farming backend shutdown; a later
+request lazily starts the process again.
+
+Each `server + root` follows `absent -> starting -> ready -> stopping ->
+absent`. A failed start returns an explicit request error and leaves the entry
+absent so a later user request may retry. An exited ready process is removed by
+exact identity; the next request starts a fresh process instead of writing to a
+stale transport. Concurrent starts for the same key join one Promise.
+
+## Security And Isolation
+
+- File inputs are resolved through `WorkspaceRootRegistry`.
+- Symlink escapes and results outside the same Project are rejected.
+- Processes run on the backend that owns the Project, including Remote SSH
+  backends; Desktop does not execute one SSH command per language query.
+- Managed caches and JDTLS workspace data live below the exact Farming Config
+  directory, so Config instances do not share mutable language state.
+- Downloads are bounded in size and extracted only below the Config-local
+  language-server cache.
+
+## Source And Verification
+
+The adapted OpenCode source revision and MIT notice are recorded in
+`THIRD_PARTY_NOTICES.md` and
+`extensions/language-server/backend/LICENSE.opencode`.
+
+Focused regression coverage uses a real fake stdio Language Server to verify
+root detection, initialization, document opening, hover, definitions,
+diagnostics, hierarchy handles, workspace symbols, process reuse, and bounded
+shutdown. The existing Bridge tests continue to cover its authenticated
+compatibility path and Project result filtering.

@@ -111,6 +111,7 @@ const AGENT_BROWSER_VERSION = '0.32.3';
 const DEFAULT_VIEWPORT = Object.freeze({ width: 1280, height: 720, deviceScaleFactor: 1 });
 const MAX_VIEWPORT_DIMENSION = 4096;
 const MAX_VIEWPORT_PIXELS = 8_000_000;
+const VIEWER_STREAM_QUALITY = 90;
 const COMMAND_TIMEOUT_MS = 30_000;
 const CLOSE_TIMEOUT_MS = 10_000;
 const PROCESS_EXIT_TIMEOUT_MS = 5_000;
@@ -474,6 +475,7 @@ class AgentBrowserRuntime extends EventEmitter {
       ...process.env,
       ...options.env,
       AGENT_BROWSER_NO_AUTO_DIALOG: 'true',
+      AGENT_BROWSER_STREAM_QUALITY: String(VIEWER_STREAM_QUALITY),
       ...(!this.externalCdpUrl ? {
         AGENT_BROWSER_EXECUTABLE_PATH: this.executablePath,
         AGENT_BROWSER_PROFILE: this.profileDir,

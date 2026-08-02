@@ -32,6 +32,7 @@ class LanguageServerService {
         'LANGUAGE_SERVER_NOT_CONFIGURED',
         'LANGUAGE_SERVER_RUNTIME_UNAVAILABLE',
         'LANGUAGE_SERVER_JAVA_UNAVAILABLE',
+        'LANGUAGE_SERVER_HIERARCHY_ITEM_EXPIRED',
       ].includes(code)) {
         throw managedError;
       }

@@ -339,6 +339,21 @@ test('ACP model and permission changes show one deferred warning during an activ
   await page.getByTestId('code-model-matrix-cell-sol-high').click()
   const warning = page.getByTestId('code-acp-config-deferred')
   await expect(warning).toContainText('Model change will apply after the current turn finishes.')
+  const feedbackMetrics = await warning.evaluate(element => {
+    const feedback = element.getBoundingClientRect()
+    const composer = element.parentElement?.querySelector<HTMLElement>('[data-testid="code-acp-composer"]')
+      ?.getBoundingClientRect()
+    const style = window.getComputedStyle(element)
+    return {
+      feedbackWidth: feedback.width,
+      feedbackHeight: feedback.height,
+      composerWidth: composer?.width || 0,
+      backgroundColor: style.backgroundColor,
+    }
+  })
+  expect(feedbackMetrics.feedbackWidth).toBeLessThan(feedbackMetrics.composerWidth * 0.75)
+  expect(feedbackMetrics.feedbackHeight).toBeLessThanOrEqual(36)
+  expect(feedbackMetrics.backgroundColor).toBe('rgba(245, 247, 243, 0.94)')
 
   await page.getByTestId('code-acp-mode').click()
   await page.getByTestId('code-acp-mode-menu').getByRole('menuitemradio').filter({ hasText: 'Plan' }).click()

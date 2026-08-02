@@ -141,6 +141,7 @@ async function run() {
   );
   assert.strictEqual(commandEnvironments[0].AGENT_BROWSER_PROFILE, profileDir);
   assert.strictEqual(commandEnvironments[0].AGENT_BROWSER_NO_AUTO_DIALOG, 'true');
+  assert.strictEqual(commandEnvironments[0].AGENT_BROWSER_STREAM_QUALITY, '90');
 
   const frames = [];
   runtime.on('frame', frame => frames.push(frame));

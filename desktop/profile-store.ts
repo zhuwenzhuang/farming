@@ -81,7 +81,9 @@ export class DesktopProfileStore {
     const next = this.state.profiles.filter(profile => profile.id !== backendId)
     if (next.length === this.state.profiles.length) throw new Error('Backend not found.')
     this.state.profiles = next
-    if (this.state.activeBackendId === backendId) this.state.activeBackendId = next[0]?.id ?? null
+    if (this.state.activeBackendId === backendId) {
+      this.state.activeBackendId = this.runtimeProfiles.keys().next().value ?? next[0]?.id ?? null
+    }
     this.writeState()
   }
 

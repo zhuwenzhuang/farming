@@ -613,8 +613,10 @@ test('keeps long ACP Chat stable when the Composer is collapsed and restored', a
   await expect.poll(bottomDistance).toBeLessThanOrEqual(2)
 
   const readingTop = await transcriptScroll.evaluate(element => {
+    element.dispatchEvent(new Event('touchstart', { bubbles: true }))
     element.scrollTop = Math.max(0, element.scrollHeight - element.clientHeight - 500)
     element.dispatchEvent(new Event('scroll', { bubbles: true }))
+    element.dispatchEvent(new Event('touchend', { bubbles: true }))
     return element.scrollTop
   })
   expect(readingTop).toBeGreaterThan(0)
@@ -805,8 +807,10 @@ test('keeps a human reader stationary while an ACP answer streams below', { tag:
 
   const readingPosition = await transcript.evaluate(element => {
     const bottom = Math.max(0, element.scrollHeight - element.clientHeight)
+    element.dispatchEvent(new Event('touchstart', { bubbles: true }))
     element.scrollTop = Math.max(0, bottom - 900)
     element.dispatchEvent(new Event('scroll', { bubbles: true }))
+    element.dispatchEvent(new Event('touchend', { bubbles: true }))
     return element.scrollTop
   })
   expect(await transcript.evaluate(element => (
@@ -826,4 +830,42 @@ test('keeps a human reader stationary while an ACP answer streams below', { tag:
   await expect.poll(async () => transcript.evaluate(element => (
     element.scrollHeight - element.clientHeight - element.scrollTop
   ))).toBeLessThanOrEqual(1)
+})
+
+test('keeps following the bottom when a new ACP turn first grows', async ({ page, workspaceRoot }) => {
+  const workspace = path.join(workspaceRoot, 'first-refresh-bottom-follow')
+  fs.mkdirSync(workspace, { recursive: true })
+  const agentId = await createAcpAgent(page, workspace)
+
+  await openFarming(page)
+  await selectAgentOnCompactLayout(page, agentId)
+
+  const transcript = page.getByTestId('code-agent-transcript-scroll')
+  const bottomDistance = () => transcript.evaluate(element => (
+    element.scrollHeight - element.clientHeight - element.scrollTop
+  ))
+
+  await page.getByTestId('code-acp-composer-input').fill('scroll stability')
+  await page.getByTestId('code-acp-composer-send').click()
+  await expect(page.getByText('Streaming tail 6', { exact: false })).toBeVisible({ timeout: 15_000 })
+  await expect.poll(bottomDistance).toBeLessThanOrEqual(2)
+
+  await transcript.evaluate(element => {
+    const latestTurn = element.querySelector<HTMLElement>('.code-agent-transcript-turn:last-child')
+    if (!latestTurn) throw new Error('Latest Chat turn is unavailable')
+    const delayedContent = document.createElement('div')
+    delayedContent.style.height = '480px'
+    latestTurn.append(delayedContent)
+  })
+  await expect.poll(bottomDistance).toBeLessThanOrEqual(2)
+
+  await page.getByTestId('code-acp-composer-input').fill('bottom follow refresh')
+  await page.getByTestId('code-acp-composer-send').click()
+  await expect(page.getByText('Follow paragraph 36', { exact: false })).toBeVisible({ timeout: 10_000 })
+  await expect.poll(bottomDistance).toBeLessThanOrEqual(2)
+  for (let index = 1; index <= 3; index += 1) {
+    await expect(page.getByText(`Follow tail ${index}`, { exact: false })).toBeVisible({ timeout: 10_000 })
+    await expect.poll(bottomDistance).toBeLessThanOrEqual(2)
+  }
+  await expect(page.getByTestId('code-agent-transcript-jump-bottom')).toHaveCount(0)
 })

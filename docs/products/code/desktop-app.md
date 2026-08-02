@@ -7,7 +7,7 @@ Farming backend before opening the first window, so first launch is immediately 
 requires an SSH decision. Remote SSH management is a desktop-only built-in plugin in the existing
 Plugins view and can connect the same interface to multiple saved hosts when needed. Connections is
 an embedded, high-priority Farming section beside the other built-in capabilities, not a separate
-page; the desktop remote icon opens Plugins and focuses that section. A normal SSH
+page. A normal SSH
 profile stores only a name, an OpenSSH Host, and an optional Farming Home. Platform, architecture,
 version, port, base path, token, and capabilities are discovered during connection.
 Desktop focus-mode actions enter fullscreen directly; browser installation guidance remains a
@@ -30,7 +30,7 @@ Development runs and future macOS packages use the branded desktop icon sources 
 `desktop/assets/`; the runtime build copies the PNG beside the Electron main process for the Dock
 and window icon.
 
-Open **Plugins → Connections** (or the desktop remote icon) and enter a `~/.ssh/config` Host.
+Open **Plugins → Connections** and enter a `~/.ssh/config` Host.
 OpenSSH continues to own user, port,
 `IdentityFile`, `ProxyJump`, and other advanced settings. Farming Home defaults to
 `~/.farming-desktop`; versioned Servers live under `server/<version>/` and the isolated Config

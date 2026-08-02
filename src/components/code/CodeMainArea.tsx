@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ComponentProps, type KeyboardEvent as ReactKeyboardEvent, type RefObject, type SyntheticEvent as ReactSyntheticEvent } from 'react'
 import type { Agent, TaskHistoryEntry } from '@/types/agent'
 import { isAcpRuntime } from '@/lib/agent-runtime'
+import { agentTitle } from '@/lib/format'
 import type { TerminalPathOpenTarget } from '@/lib/terminal-session-pool'
 import type {
   OpenWorkspaceFile,
@@ -666,6 +667,12 @@ export function CodeMainArea({
   const activeBrowserPreviewKey = activeBrowserPreview
     ? `${activeBrowserPreview.id}:${activeBrowserPreview.generation}`
     : ''
+  const browserOwnerAgent = activeBrowserResource?.ownerType === 'agent'
+    ? openAgents.find(agent => agent.id === activeBrowserResource.ownerAgentId) || null
+    : null
+  const browserOwnerName = browserOwnerAgent
+    ? agentTitle(browserOwnerAgent)
+    : activeBrowserResource?.ownerAgentId || ''
   const terminalComposerActive = activeAgent?.runtimeBinding.kind === 'terminal'
   const composerCollapseRequested = terminalComposerActive
     ? (runtimeSwitchExpandedAgentId === activeAgent?.id ? false : terminalComposerCollapsed)
@@ -822,6 +829,7 @@ export function CodeMainArea({
           resource={activeBrowserResource}
           controller={browserController}
           language={language}
+          ownerName={browserOwnerName}
           onResource={browserController.mergeResource}
           onOpenResource={onOpenBrowserResource}
           onBackToAgent={onBackFromBrowser}

@@ -15,6 +15,7 @@ import { validateDesktopRendererAssets } from '../desktop/gateway'
 import { DesktopLifecycle } from '../desktop/lifecycle'
 import { DesktopLocalBackend, LOCAL_BACKEND_ID } from '../desktop/local-backend'
 import { allowsDesktopAudioPermission } from '../desktop/permissions'
+import { DesktopProfileStore } from '../desktop/profile-store'
 import { saveAndActivateDesktopBackend } from '../desktop/save-and-activate'
 import {
   DESKTOP_STARTUP_CANCEL_URL,
@@ -369,6 +370,40 @@ test('desktop development resolves its Server version from the repository manife
       packageJsonPath: manifest,
       isPackaged: false,
     }), /Could not resolve the Farming Server version/)
+  } finally {
+    fs.rmSync(temporaryDir, { recursive: true, force: true })
+  }
+})
+
+test('removing the active remote backend falls back to the built-in local backend', () => {
+  const temporaryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-desktop-profiles-'))
+  const stateFile = path.join(temporaryDir, 'backends.json')
+  const localProfile: StoredDesktopBackendProfile = {
+    id: LOCAL_BACKEND_ID,
+    kind: 'local',
+    name: 'This Mac',
+    transport: 'direct',
+    sshHost: '',
+    remoteHost: '127.0.0.1',
+    remotePort: 0,
+    basePath: '/farming',
+    directUrl: 'http://127.0.0.1:43121',
+    farmingHome: path.join(temporaryDir, 'local'),
+    encryptedToken: '',
+  }
+  try {
+    const store = new DesktopProfileStore(stateFile, [{ profile: localProfile, token: 'local-token' }])
+    const remote = store.save({
+      name: 'Build host',
+      transport: 'direct',
+      directUrl: 'http://127.0.0.1:43122',
+    })
+    store.setActiveBackendId(remote.id)
+
+    store.remove(remote.id)
+
+    assert.equal(store.getActiveBackendId(), LOCAL_BACKEND_ID)
+    assert.deepEqual(store.list().map(profile => profile.id), [LOCAL_BACKEND_ID])
   } finally {
     fs.rmSync(temporaryDir, { recursive: true, force: true })
   }

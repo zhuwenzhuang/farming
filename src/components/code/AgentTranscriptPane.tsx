@@ -3172,6 +3172,35 @@ export function AgentTranscriptPane({
   const textSelectionGestureRef = useRef(false)
   const textSelectionHadRangeRef = useRef(false)
   const openWorkspaceFilePathRef = useRef(onOpenWorkspaceFilePath)
+  const markUserScrollGesture = useCallback(() => {
+    userScrollGestureRef.current = true
+    if (userScrollGestureTimerRef.current !== null) {
+      window.clearTimeout(userScrollGestureTimerRef.current)
+      userScrollGestureTimerRef.current = null
+    }
+  }, [])
+  const finishUserScrollGesture = useCallback(() => {
+    if (userScrollGestureTimerRef.current !== null) {
+      window.clearTimeout(userScrollGestureTimerRef.current)
+    }
+    // Keep the lock through iOS momentum scrolling. A short grace period is
+    // enough to absorb the trailing scroll events without disabling normal
+    // follow-latest behavior after the gesture settles.
+    userScrollGestureTimerRef.current = window.setTimeout(() => {
+      userScrollGestureRef.current = false
+      userScrollGestureTimerRef.current = null
+      const element = scrollRef.current
+      if (
+        !element
+        || !followBottomRef.current
+        || textSelectionGestureRef.current
+        || hasTextSelectionWithin(element)
+      ) return
+      element.scrollTop = element.scrollHeight
+      clearReadingAnchor(readingAnchorAgentKey(agentId, 'chat'))
+      setShowJumpToBottom(false)
+    }, 420)
+  }, [agentId])
 
   useLayoutEffect(() => {
     openWorkspaceFilePathRef.current = onOpenWorkspaceFilePath
@@ -3242,6 +3271,7 @@ export function AgentTranscriptPane({
       )
     }
     const finishSelectionGesture = () => {
+      if (userScrollGestureRef.current) finishUserScrollGesture()
       window.requestAnimationFrame(() => {
         textSelectionGestureRef.current = false
         updateSelectionState()
@@ -3258,7 +3288,7 @@ export function AgentTranscriptPane({
       textSelectionGestureRef.current = false
       textSelectionHadRangeRef.current = false
     }
-  }, [active])
+  }, [active, finishUserScrollGesture])
 
   useEffect(() => {
     if (!active) return undefined
@@ -3422,8 +3452,16 @@ export function AgentTranscriptPane({
     }
     if (followBottomRef.current) {
       pendingReadingAnchorRestoreRef.current = false
+      element.scrollTop = element.scrollHeight
+      clearReadingAnchor(readingAnchorAgentKey(agentId, 'chat'))
+      setShowJumpToBottom(false)
       window.requestAnimationFrame(() => {
-        if (textSelectionGestureRef.current || hasTextSelectionWithin(element)) return
+        if (
+          !followBottomRef.current
+          || userScrollGestureRef.current
+          || textSelectionGestureRef.current
+          || hasTextSelectionWithin(element)
+        ) return
         element.scrollTop = element.scrollHeight
         clearReadingAnchor(readingAnchorAgentKey(agentId, 'chat'))
         setShowJumpToBottom(false)
@@ -3446,6 +3484,27 @@ export function AgentTranscriptPane({
       if (active && isPageActive()) onReadLatest?.()
     })
   }, [active, agentId, loading, onReadLatest, transcript?.available, transcript?.updatedAt, turns.length])
+
+  useLayoutEffect(() => {
+    if (!active || !transcript?.available || turns.length === 0 || typeof ResizeObserver === 'undefined') {
+      return undefined
+    }
+    const element = scrollRef.current
+    if (!element) return undefined
+    const observer = new ResizeObserver(() => {
+      if (
+        !followBottomRef.current
+        || userScrollGestureRef.current
+        || textSelectionGestureRef.current
+        || hasTextSelectionWithin(element)
+      ) return
+      element.scrollTop = element.scrollHeight
+      clearReadingAnchor(readingAnchorAgentKey(agentId, 'chat'))
+      setShowJumpToBottom(false)
+    })
+    element.querySelectorAll<HTMLElement>('.code-agent-transcript-turn').forEach(turn => observer.observe(turn))
+    return () => observer.disconnect()
+  }, [active, agentId, transcript?.available, turns])
 
   useEffect(() => () => {
     const element = scrollRef.current
@@ -3573,25 +3632,6 @@ export function AgentTranscriptPane({
       return next
     })
   }, [loadingOlder, source, transcript?.hasMoreBefore, turnLimit])
-  const markUserScrollGesture = useCallback(() => {
-    userScrollGestureRef.current = true
-    if (userScrollGestureTimerRef.current !== null) {
-      window.clearTimeout(userScrollGestureTimerRef.current)
-      userScrollGestureTimerRef.current = null
-    }
-  }, [])
-  const finishUserScrollGesture = useCallback(() => {
-    if (userScrollGestureTimerRef.current !== null) {
-      window.clearTimeout(userScrollGestureTimerRef.current)
-    }
-    // Keep the lock through iOS momentum scrolling. A short grace period is
-    // enough to absorb the trailing scroll events without disabling normal
-    // follow-latest behavior after the gesture settles.
-    userScrollGestureTimerRef.current = window.setTimeout(() => {
-      userScrollGestureRef.current = false
-      userScrollGestureTimerRef.current = null
-    }, 420)
-  }, [])
   const handleTouchStart = useCallback(() => {
     markUserScrollGesture()
   }, [markUserScrollGesture])
@@ -3612,9 +3652,14 @@ export function AgentTranscriptPane({
       return
     }
     const nearBottom = isTranscriptNearBottom(element)
-    followBottomRef.current = nearBottom
-    saveTranscriptReadingAnchor(agentId, element)
-    setShowJumpToBottom(!nearBottom && element.scrollHeight > element.clientHeight + TRANSCRIPT_BOTTOM_FOLLOW_THRESHOLD)
+    if (nearBottom) followBottomRef.current = true
+    else if (userScrollGestureRef.current) followBottomRef.current = false
+    if (followBottomRef.current) clearReadingAnchor(readingAnchorAgentKey(agentId, 'chat'))
+    else saveTranscriptReadingAnchor(agentId, element)
+    setShowJumpToBottom(
+      !followBottomRef.current
+      && element.scrollHeight > element.clientHeight + TRANSCRIPT_BOTTOM_FOLLOW_THRESHOLD,
+    )
     if (active && nearBottom && isPageActive()) onReadLatest?.()
     if (element.scrollTop <= TRANSCRIPT_LOAD_MORE_THRESHOLD) requestOlderTurns(element)
   }, [active, agentId, onReadLatest, requestOlderTurns])
@@ -3635,10 +3680,11 @@ export function AgentTranscriptPane({
     ) {
       return
     }
+    markUserScrollGesture()
     // Pointer down starts before Selection becomes non-collapsed. Lock now so
     // an ACP refresh cannot jump to the bottom during that first drag frame.
     textSelectionGestureRef.current = true
-  }, [])
+  }, [markUserScrollGesture])
   const sessionPlan = source === 'acp' ? transcript?.plan : undefined
   const activePlan = turns[turns.length - 1]?.status === 'inProgress'
     && sessionPlan?.status !== 'completed'

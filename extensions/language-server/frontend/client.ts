@@ -40,7 +40,7 @@ export async function fetchLanguageServerCapability(refresh = false): Promise<La
   })
   const data = await response.json().catch(() => ({})) as LanguageServerCapability & { error?: string; code?: string }
   if (!response.ok) throw new LanguageServerError(
-    data.error || 'Failed to discover VS Code Bridge',
+    data.error || 'Failed to read Language Server capability',
     response.status,
     data.code || 'LANGUAGE_SERVER_ERROR',
   )

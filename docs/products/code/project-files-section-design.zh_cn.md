@@ -349,7 +349,7 @@ Files
 
 `search` 已作为 Files section 的内容搜索和行跳转入口接入。图片 preview 走受 workspace 边界保护的只读 raw 路由；HTML preview 走同一鉴权端口上的内存 Session，不新增监听端口，也不提供可执行 Script 的备用路径；普通二进制只打开元数据 viewer；过大文本在只读 Monaco 中展示文件开头内容，保留行号和编辑器滚动手感，但不进入文本保存链路。
 
-用户管理的 VS Code Bridge 连接后，Monaco 还会把面向查看的语义 Provider 委托给当前 VS Code Workspace 已激活的语言扩展：Hover、定义、引用、实现、文档符号和诊断。Farming 负责跨文件跳转以及惰性调用/类型层次结构和工作区符号面板，VS Code 负责语言 Provider 的配置与生命周期。这些语义操作有意只使用已保存文件；Farming 草稿有未保存修改时会禁用 Bridge 操作，而不是展示过期结果。参见 [Language Server](./language-server.zh_cn.md)。
+Monaco 会把面向查看的语义 Provider 委托给 Farming 托管的 Language Server 路径：Hover、定义、引用、实现、文档符号和诊断。后端根据已保存文件选择注册的 Server，在 Project 所在主机启动它，并负责跨文件跳转、惰性调用/类型层次结构和工作区符号面板。注册命令缺失时，用户管理的 VS Code Bridge 保留为兼容来源。这些语义操作有意只使用已保存文件；Farming 草稿有未保存修改时会禁用语义操作，而不是展示过期结果。参见 [Language Server](./language-server.zh_cn.md)。
 
 实现约束：
 
@@ -368,7 +368,7 @@ Files
 - 文件读写保留大小上限。
 - 目录树按目录懒加载，不一次性展开整棵仓库。
 - Code workspace 首次渲染后启动一次共享且不阻塞主界面的预热，提前加载动态文件编辑器、Monaco 核心和常用语言 tokenizer；真正打开文件时复用同一个 Promise，语言 worker 仍按需加载，后台预热失败本身不能触发页面刷新。
-- TypeScript 和 JavaScript 保留 Monaco 的语法诊断，但关闭 Monaco 隔离环境中的 Semantic 和 Suggestion Diagnostics；当前虚拟 Editor Model 不会加载 Workspace 的编译配置、依赖声明和完整文件图。项目级诊断只通过已连接的 VS Code Bridge 提供，并且只针对已保存文件。
+- TypeScript 和 JavaScript 保留 Monaco 的语法诊断，但关闭 Monaco 隔离环境中的 Semantic 和 Suggestion Diagnostics；当前虚拟 Editor Model 不会加载 Workspace 的编译配置、依赖声明和完整文件图。项目级诊断通过托管 Language Server 路径或 VS Code Bridge 兼容来源提供，并且只针对已保存文件。
 - 显式刷新只覆盖根目录和当前展开目录，按父级分层并限制为最多 6 个并发请求；任一 Git status 或文件请求都必须有有界超时。
 - Git History 每页默认 50 个 Commit，并设置硬上限；Commit 变更按点击懒加载，前端详情缓存保持有界。
 - Working Copy status 遇到超大 untracked 集合超过 Git 输出缓冲区时，返回已经完整读取的记录并标记 `truncated: true`；不能把这种情况伪装成干净 workspace。

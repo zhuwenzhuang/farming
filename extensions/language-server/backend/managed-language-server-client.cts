@@ -33,6 +33,7 @@ interface ManagedLanguageServerClientOptions {
   root: string;
   workspaceRoot: string;
   env?: NodeJS.ProcessEnv;
+  onExit?: () => void;
 }
 
 interface OpenDocument {
@@ -123,11 +124,13 @@ class ManagedLanguageServerClient {
   private readonly hierarchyHandles = new Map<string, HierarchyHandle>();
   private disposed = false;
   private diagnosticRevision = 0;
+  private readonly onExit: () => void;
 
   private constructor(options: ManagedLanguageServerClientOptions) {
     this.id = options.id;
     this.root = options.root;
     this.workspaceRoot = options.workspaceRoot;
+    this.onExit = options.onExit || (() => {});
     this.process = spawn(options.command, options.args, {
       cwd: options.root,
       env: options.env || process.env,
@@ -158,6 +161,7 @@ class ManagedLanguageServerClient {
     this.process.once('exit', () => {
       this.disposed = true;
       this.connection.dispose();
+      this.onExit();
       for (const waiters of this.diagnosticWaiters.values()) [...waiters].forEach(resolve => resolve());
       this.diagnosticWaiters.clear();
     });

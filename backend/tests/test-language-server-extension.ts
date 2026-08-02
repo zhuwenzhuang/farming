@@ -65,6 +65,10 @@ async function run() {
     farmingManifest.files?.includes('extensions/language-server/vscode-bridge/request-lifecycle.js'),
     'The request lifecycle helper must be included in the Farming npm package',
   );
+  assert.ok(
+    farmingManifest.files?.includes('extensions/language-server/backend/LICENSE.opencode'),
+    'The retained OpenCode MIT license must be included in the Farming npm package',
+  );
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-language-server-'));
   let bridge: http.Server | null = null;
   let secondBridge: http.Server | null = null;
