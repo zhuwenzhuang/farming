@@ -81,7 +81,7 @@ function requestAtPosition<T>(
     filePath: binding.filePath,
     method,
     position: positionValue(position),
-  })
+  }).catch(() => null)
 }
 
 function registerProviders() {
@@ -131,12 +131,16 @@ function registerProviders() {
       async provideDocumentSymbols(model) {
         const binding = bindingForModel(model)
         if (!binding) return []
-        const values = await requestLanguageServer<LanguageServerSymbol[]>({
-          rootId: binding.rootId,
-          filePath: binding.filePath,
-          method: 'documentSymbols',
-        })
-        return (values || []).map(documentSymbol)
+        try {
+          const values = await requestLanguageServer<LanguageServerSymbol[]>({
+            rootId: binding.rootId,
+            filePath: binding.filePath,
+            method: 'documentSymbols',
+          })
+          return (values || []).map(documentSymbol)
+        } catch {
+          return []
+        }
       },
     }),
   ]
