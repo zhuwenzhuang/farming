@@ -38,6 +38,18 @@ test('converges uncertain file and directory creation from an authoritative pare
   const parentRow = files.locator('[data-testid="code-file-row"][data-file-path="existing"]')
   await expect(parentRow).toBeVisible()
 
+  await parentRow.focus()
+  await parentRow.dispatchEvent('keydown', {
+    key: 'ContextMenu',
+    bubbles: true,
+    cancelable: true,
+  })
+  const keyboardFileMenu = page.getByTestId('code-file-context-menu')
+  await expect(keyboardFileMenu).toBeVisible()
+  await expect(keyboardFileMenu.getByRole('menuitem').first()).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(keyboardFileMenu).toHaveCount(0)
+
   const uncertainNames = new Set(['recovered.txt', 'recovered-directory'])
   await page.route('**/farming/api/files/entry', async route => {
     const request = route.request()
@@ -59,7 +71,10 @@ test('converges uncertain file and directory creation from an authoritative pare
   })
 
   await parentRow.click({ button: 'right' })
-  await page.getByTestId('code-file-context-menu').getByRole('menuitem', { name: 'New File' }).click()
+  const fileMenu = page.getByTestId('code-file-context-menu')
+  await expect(fileMenu).toBeVisible()
+  await expect(fileMenu.getByRole('menuitem').first()).not.toBeFocused()
+  await fileMenu.getByRole('menuitem', { name: 'New File' }).click()
   const newFileInput = page.getByTestId('code-file-operation-input')
   await newFileInput.fill('recovered.txt')
   await newFileInput.press('Enter')

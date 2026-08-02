@@ -315,10 +315,16 @@ test.describe('additional Farming Code user scenarios', () => {
       await expectNoDocumentOverflow(page)
     })
 
-    await scenario('agent context menu focuses first action and Escape closes it', async () => {
+    await scenario('pointer context menus do not steal focus and keyboard menus do', async () => {
       const row = page.getByTestId('code-agent-row').first()
       await row.click({ button: 'right' })
       const menu = page.getByTestId('code-agent-context-menu')
+      await expect(menu).toBeVisible()
+      await expect(menu.locator('button:not(:disabled)').first()).not.toBeFocused()
+      await page.keyboard.press('Escape')
+      await expect(menu).toHaveCount(0)
+      await row.focus()
+      await page.keyboard.press('Shift+F10')
       await expect(menu).toBeVisible()
       await expect(menu.locator('button:not(:disabled)').first()).toBeFocused()
       await page.keyboard.press('Escape')

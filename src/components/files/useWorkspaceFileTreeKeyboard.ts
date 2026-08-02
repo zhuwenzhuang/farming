@@ -26,7 +26,12 @@ interface UseWorkspaceFileTreeKeyboardOptions {
   focusFileSearchInput: () => void
   focusFileTreePath: (filePath: string | null) => void
   focusFileTreeTarget: (item: WorkspaceFileTreeNode | null) => void
-  openFileContextMenu: (x: number, y: number, item: WorkspaceFileTreeNode | null) => void
+  openFileContextMenu: (
+    x: number,
+    y: number,
+    item: WorkspaceFileTreeNode | null,
+    focusFirstItem?: boolean,
+  ) => void
   openFilePath: (filePath: string) => void | Promise<void>
   setDirectoryOpen: (path: string, open: boolean) => void
   startFileOperation: (kind: WorkspaceFileOperationKind, item?: WorkspaceFileTreeNode | null) => void
@@ -156,7 +161,7 @@ export function useWorkspaceFileTreeKeyboard({
       event.stopPropagation()
       const row = (event.target as HTMLElement | null)?.closest<HTMLElement>('[data-file-path]')
       const rect = row?.getBoundingClientRect()
-      openFileContextMenu(rect ? rect.left + 24 : 24, rect ? rect.top + rect.height : 24, node.data)
+      openFileContextMenu(rect ? rect.left + 24 : 24, rect ? rect.top + rect.height : 24, node.data, true)
       return
     }
 

@@ -7,6 +7,11 @@ interface FileEditorContextMenuState {
   y: number
   kind: 'gutter' | 'editor'
   lineNumber: number
+  focusFirstItem: boolean
+}
+
+function isKeyboardContextMenuEvent(event: MouseEvent) {
+  return event.button === 0 && !('pointerType' in event)
 }
 
 type BlameCapability = 'unknown' | 'available' | 'unavailable'
@@ -68,6 +73,7 @@ export function useFileEditorContextMenuController({
       y: Math.max(8, Math.min(event.event.posy, window.innerHeight - 230)),
       kind,
       lineNumber,
+      focusFirstItem: isKeyboardContextMenuEvent(event.event.browserEvent),
     }
     if (kind === 'gutter' && canShowBlame && !blameOpen) {
       void onCheckBlameCapability().then(capability => {

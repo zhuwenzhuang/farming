@@ -627,7 +627,10 @@ test.describe('mobile Farming Code user story', () => {
     }
     await expect(page.getByTestId('code-file-monaco')).toBeVisible()
     await page.getByTestId('code-file-monaco').click({ button: 'right', position: { x: 42, y: 38 } })
-    await page.getByTestId('code-editor-context-menu').getByRole('menuitem', { name: 'Annotate with Blame' }).click()
+    const editorContextMenu = page.getByTestId('code-editor-context-menu')
+    await expect(editorContextMenu).toBeVisible()
+    await expect(editorContextMenu.getByRole('menuitem').first()).not.toBeFocused()
+    await editorContextMenu.getByRole('menuitem', { name: 'Annotate with Blame' }).click()
     const inlineBlame = page.locator('.code-file-inline-blame')
     await expect(inlineBlame).toHaveCount(3)
     await expect.poll(async () => inlineBlame.first().evaluate(element => element.getBoundingClientRect().width)).toBeLessThanOrEqual(110)

@@ -23,6 +23,7 @@ interface FileEditorContextMenuProps {
   y: number
   copy: CodeCopy
   blameOpen: boolean
+  focusFirstItem: boolean
   readOnly: boolean
   showBlameContextAction: boolean
   showLineChangesContextActions: boolean
@@ -36,6 +37,7 @@ export function FileEditorContextMenu({
   y,
   copy,
   blameOpen,
+  focusFirstItem,
   readOnly,
   showBlameContextAction,
   showLineChangesContextActions,
@@ -48,6 +50,7 @@ export function FileEditorContextMenu({
     menuOpen: true,
     menuRef,
     onClose,
+    focusFirstItem,
   })
 
   return (

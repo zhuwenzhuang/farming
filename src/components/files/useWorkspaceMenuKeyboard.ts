@@ -5,6 +5,7 @@ interface UseWorkspaceMenuKeyboardOptions {
   menuRef: RefObject<HTMLElement | null>
   onClose: () => void
   onCloseWithFocusRestore?: () => void
+  focusFirstItem?: boolean
 }
 
 function focusFirstWorkspaceMenuItem(menu: HTMLElement | null) {
@@ -23,6 +24,7 @@ export function useWorkspaceMenuKeyboard({
   menuRef,
   onClose,
   onCloseWithFocusRestore = onClose,
+  focusFirstItem = false,
 }: UseWorkspaceMenuKeyboardOptions) {
   const handleMenuKeyDown = useCallback((event: ReactKeyboardEvent<HTMLElement>) => {
     if (event.key === 'Escape') {
@@ -55,9 +57,9 @@ export function useWorkspaceMenuKeyboard({
     if (!menuOpen) return undefined
 
     const focusFirstMenuItem = () => focusFirstWorkspaceMenuItem(menuRef.current)
-    const frameId = window.requestAnimationFrame(focusFirstMenuItem)
-    const timeoutId = window.setTimeout(focusFirstMenuItem, 120)
-    const lateTimeoutId = window.setTimeout(focusFirstMenuItem, 260)
+    const frameId = focusFirstItem ? window.requestAnimationFrame(focusFirstMenuItem) : undefined
+    const timeoutId = focusFirstItem ? window.setTimeout(focusFirstMenuItem, 120) : undefined
+    const lateTimeoutId = focusFirstItem ? window.setTimeout(focusFirstMenuItem, 260) : undefined
     const closeMenu = (event: PointerEvent) => {
       if (menuRef.current?.contains(event.target as Node)) return
       onClose()
@@ -69,18 +71,18 @@ export function useWorkspaceMenuKeyboard({
     document.addEventListener('pointerdown', closeMenu)
     document.addEventListener('keydown', closeOnEscape)
     return () => {
-      window.cancelAnimationFrame(frameId)
-      window.clearTimeout(timeoutId)
-      window.clearTimeout(lateTimeoutId)
+      if (frameId !== undefined) window.cancelAnimationFrame(frameId)
+      if (timeoutId !== undefined) window.clearTimeout(timeoutId)
+      if (lateTimeoutId !== undefined) window.clearTimeout(lateTimeoutId)
       document.removeEventListener('pointerdown', closeMenu)
       document.removeEventListener('keydown', closeOnEscape)
     }
-  }, [menuOpen, menuRef, onClose, onCloseWithFocusRestore])
+  }, [focusFirstItem, menuOpen, menuRef, onClose, onCloseWithFocusRestore])
 
   useLayoutEffect(() => {
-    if (!menuOpen) return
+    if (!menuOpen || !focusFirstItem) return
     menuRef.current?.querySelector<HTMLButtonElement>('button[role="menuitem"]:not(:disabled)')?.focus()
-  }, [menuOpen, menuRef])
+  }, [focusFirstItem, menuOpen, menuRef])
 
   return handleMenuKeyDown
 }

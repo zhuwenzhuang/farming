@@ -11,6 +11,7 @@ export interface WorkspaceFileContextMenuState {
   x: number
   y: number
   item: WorkspaceFileTreeNode | null
+  focusFirstItem: boolean
 }
 
 export interface WorkspaceFileOperationState {

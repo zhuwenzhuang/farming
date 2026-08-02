@@ -44,6 +44,7 @@ export function FileContextMenu({
     menuRef,
     onClose,
     onCloseWithFocusRestore,
+    focusFirstItem: fileMenu?.focusFirstItem === true,
   })
 
   if (!fileMenu) return null
@@ -67,7 +68,7 @@ export function FileContextMenu({
     >
       {canCreateInTarget && (
         <>
-          <button type="button" role="menuitem" autoFocus onClick={() => onStartOperation('new-file')}>
+          <button type="button" role="menuitem" onClick={() => onStartOperation('new-file')}>
             {copy.newFile}
           </button>
           <button type="button" role="menuitem" onClick={() => onStartOperation('new-folder')}>

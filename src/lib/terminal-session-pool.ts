@@ -2738,6 +2738,10 @@ function focusTerminalContextMenu(menu: HTMLElement) {
   firstEnabled?.focus()
 }
 
+function isKeyboardContextMenuEvent(event: MouseEvent) {
+  return event.button === 0 && !('pointerType' in event)
+}
+
 function createTerminalContextMenuItem(
   label: string,
   onClick: () => void,
@@ -2778,6 +2782,7 @@ function clearTerminalBuffer(record: SessionRecord) {
 
 function showTerminalContextMenu(record: SessionRecord, event: MouseEvent, selection: string) {
   hideTerminalContextMenu(record)
+  const focusFirstItem = isKeyboardContextMenuEvent(event)
 
   const position = clampContextMenuPosition(event.clientX, event.clientY)
   const menu = document.createElement('div')
@@ -2881,7 +2886,7 @@ function showTerminalContextMenu(record: SessionRecord, event: MouseEvent, selec
     window.removeEventListener('scroll', closeOnScrollOrResize, true)
   }
 
-  requestAnimationFrame(() => focusTerminalContextMenu(menu))
+  if (focusFirstItem) requestAnimationFrame(() => focusTerminalContextMenu(menu))
 }
 
 function clearNativeSelectionInside(hostEl: HTMLElement) {

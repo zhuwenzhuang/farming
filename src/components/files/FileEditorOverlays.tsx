@@ -10,6 +10,7 @@ import type { FileEditorTabContextMenuState } from './useFileEditorTabsControlle
 interface FileEditorContextMenuOverlayState {
   x: number
   y: number
+  focusFirstItem: boolean
 }
 
 interface FileEditorOverlaysProps {
@@ -65,6 +66,7 @@ export function FileEditorOverlays({
         <FileEditorContextMenu
           x={editorContextMenu.x}
           y={editorContextMenu.y}
+          focusFirstItem={editorContextMenu.focusFirstItem}
 	          copy={copy}
 	          blameOpen={blameOpen}
 	          readOnly={readOnly}

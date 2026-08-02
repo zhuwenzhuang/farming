@@ -35,6 +35,10 @@ function createUrlMenuItem(label: string, onClick: () => void, disabled = false)
   return button
 }
 
+function isKeyboardContextMenuEvent(event: MouseEvent) {
+  return event.button === 0 && !('pointerType' in event)
+}
+
 export function openExternalUrl(url: string) {
   window.open(url, '_blank', 'noopener,noreferrer')
 }
@@ -104,5 +108,7 @@ export function showUrlOpenMenu({
   document.addEventListener('keydown', closeOnKeydown, true)
   window.addEventListener('resize', cleanup)
   window.addEventListener('scroll', cleanup, true)
-  requestAnimationFrame(() => menu.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus())
+  if (isKeyboardContextMenuEvent(event)) {
+    requestAnimationFrame(() => menu.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus())
+  }
 }

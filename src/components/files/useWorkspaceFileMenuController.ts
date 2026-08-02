@@ -42,7 +42,12 @@ export function useWorkspaceFileMenuController({
     setFileMenu(null)
   }, [])
 
-  const openFileContextMenu = useCallback((x: number, y: number, item: WorkspaceFileTreeNode | null) => {
+  const openFileContextMenu = useCallback((
+    x: number,
+    y: number,
+    item: WorkspaceFileTreeNode | null,
+    focusFirstItem = false,
+  ) => {
     cancelPendingFileFocus()
     setOpenFileError(null)
     clearFileOperation()
@@ -50,6 +55,7 @@ export function useWorkspaceFileMenuController({
     setFileMenu({
       ...position,
       item,
+      focusFirstItem,
     })
   }, [agentLaunchOptionCount, cancelPendingFileFocus, clearFileOperation, setOpenFileError])
 
