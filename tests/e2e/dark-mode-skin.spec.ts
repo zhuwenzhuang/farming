@@ -353,10 +353,15 @@ test.describe('Farming Code dark skin', () => {
     await expectActiveTurnSpinner(codexAgentRow.locator('.code-agent-dot').first())
 
     await expect(page.getByTestId('code-composer-add')).toBeVisible()
-    await page.getByTestId('code-composer-add').click()
-    await expect(page.getByTestId('code-composer-plus-menu')).toBeVisible()
-    await expectDarkSurface(page.getByTestId('code-composer-plus-menu'), 'composer plus menu')
-    await saveScreenshot(testInfo, 'composer-plus-menu.png', page.getByTestId('code-composer-plus-menu'))
+    const composerPlusMenu = page.getByTestId('code-composer-plus-menu')
+    await expect(async () => {
+      if (await composerPlusMenu.isVisible()) await page.keyboard.press('Escape')
+      await expect(composerPlusMenu).toHaveCount(0)
+      await page.getByTestId('code-composer-add').click()
+      await expect(composerPlusMenu).toBeVisible({ timeout: 1_000 })
+      await expectDarkSurface(composerPlusMenu, 'composer plus menu')
+      await saveScreenshot(testInfo, 'composer-plus-menu.png', composerPlusMenu)
+    }).toPass({ timeout: 30_000 })
     await page.keyboard.press('Escape')
 
     await page.getByTestId('code-composer-approval').click()

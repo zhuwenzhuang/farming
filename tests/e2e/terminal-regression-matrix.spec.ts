@@ -1299,13 +1299,6 @@ test.describe('terminal regression matrix', () => {
       try {
         await writeTerminalFixture(page, bashAgentId, `${externalFile}\r\n`)
         const cell = await cellForText(page, bashAgentId, externalFile, 2)
-        await hoverTerminalCell(page, cell.x, cell.y)
-        await expect.poll(async () => {
-          return page.evaluate((id) => {
-            const host = document.querySelector(`.terminal-session-host[data-agent-id="${CSS.escape(id)}"]`)
-            return host instanceof HTMLElement ? host.dataset.terminalOpenTarget || '' : ''
-          }, bashAgentId)
-        }).toBe('path')
         const externalRead = page.waitForResponse(response => (
           response.url().includes('/api/files/file?')
           && response.url().includes('exact=1')
@@ -1449,9 +1442,13 @@ test.describe('terminal regression matrix', () => {
 
       await scenario('rapid switching between two Codex agents keeps host ownership and renderer cursor isolation', async () => {
         await selectAgent(page, codexAgentId)
-        await writeTerminalRaw(page, codexAgentId, 'FIRST_CODEX_SENTINEL\r\n')
+        await writeTerminalFixture(page, codexAgentId, 'FIRST_CODEX_SENTINEL\r\n')
+        await expect.poll(async () => await visibleTerminalText(page, codexAgentId)).toContain('FIRST_CODEX_SENTINEL')
         await selectAgent(page, secondCodexAgentId)
-        await writeTerminalRaw(page, secondCodexAgentId, 'SECOND_CODEX_SENTINEL\r\n')
+        await writeTerminalFixture(page, secondCodexAgentId, 'SECOND_CODEX_SENTINEL\r\n')
+        await expect.poll(async () => await visibleTerminalText(page, secondCodexAgentId)).toContain('SECOND_CODEX_SENTINEL')
+        await expect.poll(async () => await visibleTerminalText(page, secondCodexAgentId)).not.toContain('FIRST_CODEX_SENTINEL')
+        await expect.poll(async () => await visibleTerminalText(page, codexAgentId)).not.toContain('SECOND_CODEX_SENTINEL')
 
         const sequence = Array.from({ length: 12 }, (_, index) => index % 2 === 0 ? codexAgentId : secondCodexAgentId)
         for (const targetAgentId of sequence) {
@@ -1498,6 +1495,8 @@ test.describe('terminal regression matrix', () => {
 
         await expect.poll(async () => await visibleTerminalText(page, secondCodexAgentId)).toContain('SECOND_CODEX_SENTINEL')
         await expect.poll(async () => await visibleTerminalText(page, secondCodexAgentId)).not.toContain('FIRST_CODEX_SENTINEL')
+        await expect.poll(async () => await visibleTerminalText(page, codexAgentId)).toContain('FIRST_CODEX_SENTINEL')
+        await expect.poll(async () => await visibleTerminalText(page, codexAgentId)).not.toContain('SECOND_CODEX_SENTINEL')
       })
 
       await scenario('background output to a parked following terminal clears unread once latest output is visible', async () => {

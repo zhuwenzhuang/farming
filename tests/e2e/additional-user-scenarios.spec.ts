@@ -57,10 +57,14 @@ async function openModelSubmenuStably(
 ) {
   const trigger = page.getByTestId(triggerTestId)
   const submenu = page.getByTestId(submenuTestId)
+  const advancedToggle = page.getByTestId('code-model-matrix-advanced-toggle')
   await expect(async () => {
     if (await submenu.isVisible()) return
     if (!(await modelMenu.isVisible())) await modelPicker.click()
     await expect(modelMenu).toBeVisible({ timeout: 1_000 })
+    if (!(await trigger.isVisible()) && await advancedToggle.isVisible()) {
+      if ((await advancedToggle.getAttribute('aria-expanded')) !== 'true') await advancedToggle.click()
+    }
     await expect(trigger).toBeVisible({ timeout: 1_000 })
     await expect(trigger).toBeEnabled({ timeout: 1_000 })
     await trigger.click({ timeout: 2_000 })
@@ -883,7 +887,13 @@ test.describe('additional Farming Code user scenarios', () => {
       await expect(page.getByTestId('code-model-submenu')).toBeVisible()
       await expectMenuFitsViewport(page, 'code-model-menu')
       await expect.poll(async () => page.getByTestId('code-model-submenu').evaluate(element => getComputedStyle(element as HTMLElement).position)).toBe('static')
-      await page.getByTestId('code-speed-submenu-trigger').click()
+      await openModelSubmenuStably(
+        page,
+        page.getByTestId('code-composer-model-picker'),
+        modelMenu,
+        'code-speed-submenu-trigger',
+        'code-speed-submenu',
+      )
       await expect(page.getByTestId('code-speed-submenu')).toBeVisible()
       await expectMenuFitsViewport(page, 'code-model-menu')
       await expect.poll(async () => page.getByTestId('code-speed-submenu').evaluate(element => getComputedStyle(element as HTMLElement).position)).toBe('static')

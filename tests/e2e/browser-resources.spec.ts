@@ -1086,8 +1086,8 @@ test('matches the focused Viewer viewport and restores the previous Viewer on cl
       return false
     }
     const rect = canvas.getBoundingClientRect()
-    return canvas.width >= element.clientWidth
-      && canvas.height >= element.clientHeight
+    return canvas.width === element.clientWidth
+      && canvas.height === element.clientHeight
       && Math.round(rect.width) === element.clientWidth
       && Math.round(rect.height) === element.clientHeight
   })).toBe(true)
