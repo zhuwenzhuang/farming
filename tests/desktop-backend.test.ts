@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
+import { resolveDesktopServerVersion } from '../desktop/app-version'
 import { buildSshTunnelArgs } from '../desktop/connection-manager'
 import { validateDesktopRendererAssets } from '../desktop/gateway'
 import { DesktopLifecycle } from '../desktop/lifecycle'
@@ -14,7 +16,13 @@ import {
   type StoredDesktopBackendProfile,
 } from '../desktop/profile-model'
 import { bearerCredential, joinUpstreamUrl } from '../desktop/upstream'
-import { buildRemoteBootstrapScript, parseRemoteServerHandshake } from '../desktop/remote-bootstrap'
+import {
+  buildRemoteBootstrapScript,
+  buildRemoteUploadCommand,
+  normalizeDesktopReleaseRoot,
+  normalizeDesktopServerVersion,
+  parseRemoteServerHandshake,
+} from '../desktop/remote-bootstrap'
 
 test('desktop lifecycle coalesces route invalidations while a window is loading', () => {
   const lifecycle = new DesktopLifecycle()
@@ -110,6 +118,19 @@ test('ships branded PNG and macOS icon assets for the desktop application', () =
   assert.equal(png.readUInt32BE(20), 1024)
   assert.equal(png[25], 6, 'Desktop PNG must retain RGBA transparency for rounded macOS corners.')
   assert.equal(icns.subarray(0, 4).toString('ascii'), 'icns')
+})
+
+test('desktop development resolves its Server version from the repository manifest', () => {
+  const temporaryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-desktop-version-'))
+  const manifest = path.join(temporaryDir, 'package.json')
+  try {
+    fs.writeFileSync(manifest, JSON.stringify({ version: '2.2.37' }))
+    assert.equal(resolveDesktopServerVersion('0.0', manifest), '2.2.37')
+    assert.equal(resolveDesktopServerVersion('0.0.0', manifest), '2.2.37')
+    assert.equal(resolveDesktopServerVersion('2.3.0', manifest), '2.3.0')
+  } finally {
+    fs.rmSync(temporaryDir, { recursive: true, force: true })
+  }
 })
 
 test('local backend lifecycle coalesces start and makes stop idempotent', async () => {
@@ -227,15 +248,58 @@ test('remote bootstrap reuses a validated custom glibc runtime on legacy Linux',
   assert.match(script, /FARMING_NODE_LIBRARY_PATH=/)
   assert.match(script, /FARMING_DESKTOP_COMPAT_GLIBC_PATH=/)
   assert.match(script, /FARMING_DESKTOP_INHERITED_LD_LIBRARY_PATH=/)
-  assert.match(script, /before_size=/)
   assert.doesNotMatch(script, /--set-rpath/)
   assert.match(script, /--max-time 45/)
   assert.match(script, /mv "\$patched" "\$binary"/)
 })
 
+test('desktop release mirrors keep the same bounded HTTP checksum contract', () => {
+  assert.equal(normalizeDesktopReleaseRoot('https://releases.example.test/farming/'), 'https://releases.example.test/farming')
+  assert.throws(() => normalizeDesktopReleaseRoot('file:///tmp/releases'), /HTTP\(S\)/)
+  assert.throws(() => normalizeDesktopReleaseRoot('https://user:secret@example.test/releases'), /without credentials/)
+})
+
+test('remote Server upload publishes only a complete checksum-verified temporary file', () => {
+  const checksum = 'a'.repeat(64)
+  const command = buildRemoteUploadCommand({
+    farmingHome: '~/.farming-desktop',
+    version: '2.2.37',
+    expectedSize: 123_456,
+    expectedSha256: checksum,
+  })
+  assert.match(command, /farming\.upload\.\$\$/)
+  assert.match(command, /trap cleanup EXIT HUP INT TERM/)
+  assert.match(command, /actual_size=.*wc -c/)
+  assert.match(command, /actual_sha=.*sha256sum/)
+  assert.ok(command.indexOf('actual_sha=') < command.indexOf('mv "$tmp" "$install_dir/farming"'))
+  assert.equal(normalizeDesktopServerVersion('2.2.37'), '2.2.37')
+  assert.throws(() => normalizeDesktopServerVersion('2.2.37$(touch bad)'), /invalid/)
+
+  const temporaryHome = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-desktop-upload-'))
+  try {
+    const interrupted = spawnSync('sh', ['-c', buildRemoteUploadCommand({
+      farmingHome: temporaryHome,
+      version: '2.2.37',
+      expectedSize: 4,
+      expectedSha256: checksum,
+    })], { input: Buffer.from('abc') })
+    assert.equal(interrupted.status, 3)
+    assert.match(interrupted.stderr.toString(), /size mismatch/)
+    const installDir = path.join(temporaryHome, 'server', '2.2.37')
+    assert.equal(fs.existsSync(path.join(installDir, 'farming')), false)
+    assert.deepEqual(fs.existsSync(installDir) ? fs.readdirSync(installDir) : [], [])
+  } finally {
+    fs.rmSync(temporaryHome, { recursive: true, force: true })
+  }
+})
+
 test('desktop renderer validation rejects a backend-base-path build before opening a window', () => {
   const distDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-desktop-renderer-'))
   try {
+    assert.throws(
+      () => validateDesktopRendererAssets(distDir),
+      /Desktop renderer is missing .*index\.html.*desktop:build/,
+    )
     fs.mkdirSync(path.join(distDir, 'assets'))
     fs.writeFileSync(path.join(distDir, 'assets', 'app.js'), 'export {}\n')
     fs.writeFileSync(path.join(distDir, 'assets', 'app.css'), 'body {}\n')

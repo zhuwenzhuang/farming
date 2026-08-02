@@ -25,9 +25,28 @@ interface CommandResult {
 const HANDSHAKE_BEGIN = 'FARMING_DESKTOP_HANDSHAKE_BEGIN'
 const HANDSHAKE_END = 'FARMING_DESKTOP_HANDSHAKE_END'
 const NEED_UPLOAD = 'FARMING_DESKTOP_NEEDS_UPLOAD:'
-const RELEASE_ROOT = 'https://github.com/zhuwenzhuang/farming/releases/download'
+const DEFAULT_RELEASE_ROOT = 'https://github.com/zhuwenzhuang/farming/releases/download'
 const OUTPUT_LIMIT = 64 * 1024
 const RELEASE_DOWNLOAD_ATTEMPTS = 3
+
+export function normalizeDesktopServerVersion(value: unknown) {
+  const text = String(value || '').trim()
+  if (!/^[0-9A-Za-z][0-9A-Za-z.+-]{0,79}$/.test(text)) {
+    throw new Error('Desktop Server version is invalid.')
+  }
+  return text
+}
+
+export function normalizeDesktopReleaseRoot(value: unknown) {
+  const text = String(value || DEFAULT_RELEASE_ROOT).trim().replace(/\/+$/, '')
+  const url = new URL(text)
+  if ((url.protocol !== 'https:' && url.protocol !== 'http:') || url.username || url.password || url.search || url.hash) {
+    throw new Error('Desktop release root must be an HTTP(S) URL without credentials, query parameters, or a fragment.')
+  }
+  return url.toString().replace(/\/$/, '')
+}
+
+const RELEASE_ROOT = normalizeDesktopReleaseRoot(process.env.FARMING_DESKTOP_RELEASE_ROOT)
 
 export function desktopSshArgs(sshHost: string, remoteCommand?: string) {
   return [
@@ -50,6 +69,22 @@ function boundedOutput(current: string, chunk: Buffer | string) {
 
 function delay(milliseconds: number) {
   return new Promise(resolve => setTimeout(resolve, milliseconds))
+}
+
+function sha256File(file: string) {
+  const descriptor = fs.openSync(file, 'r')
+  const hash = createHash('sha256')
+  const buffer = Buffer.allocUnsafe(1024 * 1024)
+  try {
+    let bytesRead = 0
+    do {
+      bytesRead = fs.readSync(descriptor, buffer, 0, buffer.length, null)
+      if (bytesRead > 0) hash.update(buffer.subarray(0, bytesRead))
+    } while (bytesRead > 0)
+  } finally {
+    fs.closeSync(descriptor)
+  }
+  return hash.digest('hex')
 }
 
 async function fetchReleaseBytes(url: string, description: string) {
@@ -99,8 +134,12 @@ async function downloadUrlToFile(url: string, target: string, description: strin
   }
 }
 
-function runCommand(command: string, args: string[], options: { input?: Buffer | string; timeoutMs?: number } = {}) {
+function runCommand(command: string, args: string[], options: { input?: Buffer | string; inputFile?: string; timeoutMs?: number } = {}) {
   return new Promise<CommandResult>((resolve, reject) => {
+    if (options.input !== undefined && options.inputFile) {
+      reject(new Error('A command cannot use both buffered and streamed input.'))
+      return
+    }
     const child = spawn(command, args, { stdio: ['pipe', 'pipe', 'pipe'] })
     let stdout = ''
     let stderr = ''
@@ -115,8 +154,22 @@ function runCommand(command: string, args: string[], options: { input?: Buffer |
       clearTimeout(timeout)
       resolve({ code: code ?? 1, stdout, stderr })
     })
-    if (options.input) child.stdin.end(options.input)
-    else child.stdin.end()
+    child.stdin.once('error', error => {
+      stderr = boundedOutput(stderr, `stdin: ${error.message}`)
+      child.kill()
+    })
+    if (options.inputFile) {
+      const input = fs.createReadStream(options.inputFile)
+      input.once('error', error => {
+        stderr = boundedOutput(stderr, `input: ${error.message}`)
+        child.kill()
+      })
+      input.pipe(child.stdin)
+    } else if (options.input !== undefined) {
+      child.stdin.end(options.input)
+    } else {
+      child.stdin.end()
+    }
   })
 }
 
@@ -231,10 +284,8 @@ if [ "$needs_compat" = 1 ]; then
     patched="$binary.compat.$$"
     cp "$binary" "$patched"
     chmod 700 "$patched"
-    before_size=$(wc -c < "$patched" | tr -d '[:space:]')
     if ! "$compat_patchelf" --set-interpreter "$compat_alias" "$patched" \
       || [ "$("$compat_patchelf" --print-interpreter "$patched" 2>/dev/null || true)" != "$compat_alias" ] \
-      || [ "$(wc -c < "$patched" | tr -d '[:space:]')" != "$before_size" ] \
       || ! FARMING_DESKTOP_COMPAT_GLIBC_PATH="$compat_path" \
         FARMING_DESKTOP_INHERITED_LD_LIBRARY_PATH="\${LD_LIBRARY_PATH:-}" \
         LD_LIBRARY_PATH="$compat_path\${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
@@ -306,11 +357,11 @@ async function downloadReleaseAsset(version: string, asset: string, cacheDir: st
     const expected = line?.trim().split(/\s+/, 1)[0]
     if (!expected || !/^[a-f0-9]{64}$/i.test(expected)) throw new Error(`Release checksum does not list ${asset}.`)
     if (fs.existsSync(target)) {
-      const actual = createHash('sha256').update(fs.readFileSync(target)).digest('hex')
+      const actual = sha256File(target)
       if (actual === expected) return target
     }
     await downloadUrlToFile(assetUrl, temporary, `Downloading Farming Server ${version}`)
-    const actual = createHash('sha256').update(fs.readFileSync(temporary)).digest('hex')
+    const actual = sha256File(temporary)
     if (actual !== expected) throw new Error('Downloaded Farming Server checksum does not match its release manifest.')
     fs.chmodSync(temporary, 0o700)
     fs.renameSync(temporary, target)
@@ -321,11 +372,29 @@ async function downloadReleaseAsset(version: string, asset: string, cacheDir: st
   }
 }
 
+export function buildRemoteUploadCommand(options: {
+  farmingHome: string
+  version: string
+  expectedSize: number
+  expectedSha256: string
+}) {
+  const version = normalizeDesktopServerVersion(options.version)
+  if (!Number.isSafeInteger(options.expectedSize) || options.expectedSize < 1) {
+    throw new Error('Desktop Server upload size is invalid.')
+  }
+  if (!/^[a-f0-9]{64}$/i.test(options.expectedSha256)) {
+    throw new Error('Desktop Server upload checksum is invalid.')
+  }
+  return `set -eu; FARMING_HOME=${shellQuote(options.farmingHome)}; case "$FARMING_HOME" in '~') FARMING_HOME="$HOME" ;; '~/'*) FARMING_HOME="$HOME/\${FARMING_HOME#"~/"}" ;; esac; install_dir="$FARMING_HOME/server/${version}"; mkdir -p "$install_dir"; tmp="$install_dir/farming.upload.$$"; cleanup() { rm -f "$tmp"; }; trap cleanup EXIT HUP INT TERM; cat > "$tmp"; actual_size=$(wc -c < "$tmp" | tr -d '[:space:]'); [ "$actual_size" = "${options.expectedSize}" ] || { echo "Uploaded Farming Server size mismatch" >&2; exit 3; }; if command -v sha256sum >/dev/null 2>&1; then actual_sha=$(sha256sum "$tmp" | awk '{print $1}'); else actual_sha=$(shasum -a 256 "$tmp" | awk '{print $1}'); fi; [ "$actual_sha" = ${shellQuote(options.expectedSha256.toLowerCase())} ] || { echo "Uploaded Farming Server checksum mismatch" >&2; exit 3; }; chmod 700 "$tmp"; mv "$tmp" "$install_dir/farming"; trap - EXIT HUP INT TERM`
+}
+
 async function uploadReleaseAsset(sshHost: string, farmingHome: string, version: string, localFile: string) {
-  const command = `set -eu; FARMING_HOME=${shellQuote(farmingHome)}; case "$FARMING_HOME" in '~') FARMING_HOME="$HOME" ;; '~/'*) FARMING_HOME="$HOME/\${FARMING_HOME#"~/"}" ;; esac; install_dir="$FARMING_HOME/server/${version}"; mkdir -p "$install_dir"; tmp="$install_dir/farming.upload.$$"; cat > "$tmp"; chmod 700 "$tmp"; mv "$tmp" "$install_dir/farming"`
+  const expectedSize = fs.statSync(localFile).size
+  const expectedSha256 = sha256File(localFile)
+  const command = buildRemoteUploadCommand({ farmingHome, version, expectedSize, expectedSha256 })
   const result = await runCommand('ssh', desktopSshArgs(sshHost, command), {
-    input: fs.readFileSync(localFile),
-    timeoutMs: 180_000,
+    inputFile: localFile,
+    timeoutMs: 600_000,
   })
   if (result.code !== 0) throw new Error(result.stderr.trim() || 'Could not upload Farming Server through SSH.')
 }
@@ -337,7 +406,8 @@ export async function bootstrapRemoteServer(options: {
   cacheDir: string
   onPhase?: (message: string) => void
 }) {
-  const command = `FARMING_HOME=${shellQuote(options.farmingHome)} FARMING_VERSION=${shellQuote(options.version)} FARMING_RELEASE_ROOT=${shellQuote(RELEASE_ROOT)} sh -s`
+  const version = normalizeDesktopServerVersion(options.version)
+  const command = `FARMING_HOME=${shellQuote(options.farmingHome)} FARMING_VERSION=${shellQuote(version)} FARMING_RELEASE_ROOT=${shellQuote(RELEASE_ROOT)} sh -s`
   const run = () => runCommand('ssh', desktopSshArgs(options.sshHost, command), {
     input: buildRemoteBootstrapScript(),
     timeoutMs: 180_000,
@@ -351,9 +421,9 @@ export async function bootstrapRemoteServer(options: {
       throw new Error('Remote host requested an invalid Farming Server artifact.')
     }
     options.onPhase?.('Downloading Farming Server locally…')
-    const localFile = await downloadReleaseAsset(options.version, asset, options.cacheDir)
+    const localFile = await downloadReleaseAsset(version, asset, options.cacheDir)
     options.onPhase?.('Uploading Farming Server through SSH…')
-    await uploadReleaseAsset(options.sshHost, options.farmingHome, options.version, localFile)
+    await uploadReleaseAsset(options.sshHost, options.farmingHome, version, localFile)
     options.onPhase?.('Starting Farming Server…')
     result = await run()
   }

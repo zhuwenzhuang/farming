@@ -9,6 +9,7 @@ import {
   type IpcMainInvokeEvent,
 } from 'electron'
 import type { DesktopBackendInput, DesktopNotificationInput, DesktopState } from '../shared/desktop-contract.js'
+import { resolveDesktopServerVersion } from './app-version.js'
 import { DesktopConnectionManager } from './connection-manager.js'
 import { DesktopGateway } from './gateway.js'
 import { DesktopLifecycle, type DesktopNavigationToken } from './lifecycle.js'
@@ -290,7 +291,10 @@ void app.whenReady().then(async () => {
   const localTarget = await desktopLocalBackend.start()
   const profileStore = new DesktopProfileStore(path.join(app.getPath('userData'), 'backends.json'), [localTarget])
   const connectionManager = new DesktopConnectionManager(profileStore, {
-    appVersion: process.env.FARMING_DESKTOP_SERVER_VERSION || app.getVersion(),
+    appVersion: process.env.FARMING_DESKTOP_SERVER_VERSION || resolveDesktopServerVersion(
+      app.getVersion(),
+      path.resolve(__dirname, '..', 'package.json'),
+    ),
     cacheDir: path.join(app.getPath('userData'), 'server-cache'),
   })
   const desktopGateway = new DesktopGateway(path.resolve(__dirname, '..', 'dist'), profileStore, connectionManager)

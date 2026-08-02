@@ -2,8 +2,10 @@
 
 > English version: [desktop-app.md](./desktop-app.md)
 
-Farming Desktop 使用 Electron 打包现有 Farming Code React 界面，让一份本地界面连接
-多个已保存的远端。普通 SSH Profile 只保存名称、`~/.ssh/config` Host 和可选
+Farming Desktop 使用 Electron 打包现有 Farming Code React 界面。首个窗口打开前会先启动
+本机 Farming Backend，因此第一次启动立即可用，不要求用户先决定是否连接 SSH。远程 SSH
+管理作为桌面专属的内置插件放在现有插件页中；需要时，同一份界面可连接多个已保存的远端。
+普通 SSH Profile 只保存名称、`~/.ssh/config` Host 和可选
 Farming Home；Server 的平台、架构、版本、端口、base path、token 和能力都在连接时发现。
 
 ## 运行
@@ -16,7 +18,7 @@ npm run desktop
 开发运行和后续 macOS 安装包统一使用 `desktop/assets/` 中的品牌桌面图标；运行时构建会把
 PNG 复制到 Electron 主进程旁，供 Dock 和窗口图标使用。
 
-在 **管理后端**中填写 `~/.ssh/config` 的 Host 即可。用户名、端口、`IdentityFile`、
+打开 **插件 → 连接**（或桌面端远程图标），填写 `~/.ssh/config` 的 Host 即可。用户名、端口、`IdentityFile`、
 `ProxyJump` 等高级 SSH 设置继续由 OpenSSH 管理。Farming Home 默认是
 `~/.farming-desktop`；其中 `server/<version>/` 保存版本化 Server，`data/` 是该桌面实例
 独立的 Config 目录。MVP 使用 `BatchMode=yes`，因此远端必须已经能通过密钥或
@@ -26,14 +28,16 @@ glibc runtime，并可直接复用已存在的 VS Code sysroot 配置。
 连接状态机为：探测远端平台/架构 → 查找精确版本 → 远端下载并校验 → 必要时本地下载、
 校验后经 SSH 上传 → 启动或复用 daemon → 读取版本化握手 → 建立 loopback 隧道 → 重新读取
 Browser/Computer 能力。默认从同版本 GitHub Release 下载单文件 CLI；开发分支可用
-`FARMING_DESKTOP_SERVER_VERSION` 指向一个已经发布的兼容版本进行 dogfood。
+`FARMING_DESKTOP_SERVER_VERSION` 指向一个已经发布的兼容版本进行 dogfood。也可通过
+`FARMING_DESKTOP_RELEASE_ROOT` 指定具有相同目录结构和 checksum 清单的 HTTP(S) 镜像；
+带凭证、query 或 fragment 的地址会被拒绝。
 
 旧 Linux 的发现顺序是 Farming 专用环境变量
 `FARMING_SERVER_CUSTOM_GLIBC_LINKER`、`FARMING_SERVER_CUSTOM_GLIBC_PATH`、
 `FARMING_SERVER_PATCHELF_PATH`，然后是等价的三个 `VSCODE_SERVER_*` 变量。Desktop 只
 patch 已验证 artifact 的版本化副本：临时副本只把较短的 linker alias 设为 interpreter，
-启动时再传入 library path。临时副本必须保持字节数完全不变、回读到预期 interpreter，并
-通过启动自检后才会原子替换；保持字节数是为了保护 CLI 的内嵌资源偏移。它不会修改系统
+启动时再传入 library path。由于 patchelf 合法地重排 ELF 布局，验收依据是回读到精确的
+interpreter，并通过打包 CLI 的启动自检；通过后临时副本才会原子替换。它不会修改系统
 glibc 或 VS Code Server。daemon 同时收到既有的 `FARMING_NODE_LD` 和
 `FARMING_NODE_LIBRARY_PATH` 兼容契约，让托管子运行时自动选择或使用兼容旧系统的 artifact。
 仅启动所需的 library path 会在 Node 入口移除，避免污染系统工具；只有打包 Server 再次执行
@@ -49,11 +53,14 @@ glibc 或 VS Code Server。daemon 同时收到既有的 `FARMING_NODE_LD` 和
 Electron Desktop Gateway
         |
         +-- active backend 路由
+        +-- Desktop 拥有的本机 Farming Backend
         +-- 版本化远端 Server bootstrap
         +-- 原生系统通知
         |
         v
-Connection Manager -- 系统 OpenSSH bootstrap + 隧道 --> 远端 Farming Backend
+        +-- 本机 Backend
+        |
+        +-- Connection Manager -- 系统 OpenSSH bootstrap + 隧道 --> 远端 Farming Backend
 ```
 
 ## 生命周期状态机
@@ -65,6 +72,7 @@ Electron 主进程统一拥有应用生命周期和 renderer 窗口生命周期�
 | --- | --- | --- |
 | 应用 | `starting → running → stopping → stopped` | Gateway、IPC 和 Store 全部就绪后才能进入 `running`。任意退出或不可恢复的启动失败只能进入一次 `stopping`。Connection 与 Gateway 清理共享同一个 Promise；清理完成后才进入 `stopped` 并退出 Electron。 |
 | 主窗口 | `absent ↔ loading → ready`，或 `loading → failed` | 创建窗口会递增 window generation。每次导航都捕获该 generation 和当前 renderer-route revision。只有当前 generation 才能 ready、显示、聚焦、报告启动失败或触发下一次导航。 |
+| 本机 Backend | `idle → starting → ready → stopping → stopped`，或 `starting → failed` | 并发 start 复用一个 Promise，stop 保持幂等。只有本机 daemon 发布了合法 port、base path 和 token 后才允许开窗；桌面退出统一负责有界停止。 |
 
 激活后端、重启时恢复已保存后端、删除活动后端和通知跳转，都会通过递增 revision 使 renderer
 路由失效。窗口 ready 时会在当前 IPC action 返回后排队一个导航 effect；同一轮事件中的多次
@@ -88,10 +96,11 @@ Renderer 没有 Node.js integration，也不会收到上游 token。自动发现
 ## 安全边界
 
 - SSH 通过参数数组执行并遵循用户的 OpenSSH 配置；绝不关闭 host key 校验。
-- 自动下载先验证 GitHub Release SHA-256 清单；远端无法联网时，本地验证同一 artifact 后
-  通过已认证 SSH 通道上传。
+- 自动下载先验证所选 Release 的 SHA-256 清单；远端无法访问时，本地验证同一 artifact 后
+  通过已认证 SSH 通道流式上传。远端先写本次临时文件，再复核字节数和 SHA-256 后原子发布；
+  中断只删除该临时文件，不能替换已安装 Server。
 - 旧 Linux 兼容 runtime 的 linker、library path 和 patchelf 必须存在；私有 linker alias、
-  artifact 字节数不变、patch 后的 interpreter 和可执行自检必须全部通过。
+  patch 后的 interpreter 和可执行自检必须全部通过。
 - 自动发现的 token 不写入 Profile，也不会发送给 renderer。
 - Renderer 开启 context isolation 与 sandbox，并关闭 Node.js integration。
 - IPC 只接受精确 loopback Gateway origin；麦克风权限也仅允许该 origin 的 main frame。
@@ -99,7 +108,7 @@ Renderer 没有 Node.js integration，也不会收到上游 token。自动发现
 
 ## MVP 边界
 
-MVP 不支持 SSH 密码交互、Windows 远端、自动构建 glibc sysroot、企业镜像源或非 active 后端通知。握手协议当前为
+MVP 不支持 SSH 密码交互、Windows 远端、自动构建 glibc sysroot、带认证的企业镜像源或非 active 后端通知。握手协议当前为
 版本 1；握手缺失、端口非法或精确 Server artifact 不存在时明确失败，不猜测旧监听端口。
 可信本地 renderer 已可采集麦克风，但语音识别暂时仍沿用现有浏览器实现。
 
