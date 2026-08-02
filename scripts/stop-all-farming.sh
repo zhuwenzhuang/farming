@@ -3,6 +3,9 @@ set -euo pipefail
 
 GRACE_SECONDS=5
 DRY_RUN=0
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/stop-process-identity.sh
+source "${script_dir}/stop-process-identity.sh"
 
 usage() {
   cat <<'EOF'
@@ -28,17 +31,17 @@ task_tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/farming-stop-all.XXXXXX")"
 initial_targets="${task_tmp_dir}/initial-targets.tsv"
 current_targets="${task_tmp_dir}/current-targets.tsv"
 remaining_targets="${task_tmp_dir}/remaining-targets.tsv"
-server_pids="${task_tmp_dir}/server-pids.txt"
+signal_targets="${task_tmp_dir}/signal-targets.tsv"
 
 cleanup() {
-  rm -f "${initial_targets}" "${current_targets}" "${remaining_targets}" "${server_pids}"
+  rm -f "${initial_targets}" "${current_targets}" "${remaining_targets}" "${signal_targets}"
   rmdir "${task_tmp_dir}" 2>/dev/null || true
 }
 trap cleanup EXIT
 
 collect_targets() {
   local output_file="$1"
-  ps -axo uid=,pid=,ppid=,pgid=,command= | awk -v owner_uid="$(id -u)" '
+  ps -ww -axo uid=,pid=,ppid=,pgid=,lstart=,command= | awk -v owner_uid="$(id -u)" '
     function is_farming_seed(command) {
       return command ~ /\/backend\/farming-app-cli\.cjs([[:space:]]|$)/ \
         || command ~ /\/backend\/command-runner-child\.cjs([[:space:]]|$)/ \
@@ -53,8 +56,9 @@ collect_targets() {
       pid = $2
       parent[pid] = $3
       group[pid] = $4
-      command = $5
-      for (field = 6; field <= NF; field += 1) command = command " " $field
+      started[pid] = $5 " " $6 " " $7 " " $8 " " $9
+      command = $10
+      for (field = 11; field <= NF; field += 1) command = command " " $field
       commands[pid] = command
       if (is_farming_seed(command)) selected[pid] = 1
     }
@@ -71,7 +75,7 @@ collect_targets() {
         }
       }
       for (pid in selected) {
-        if (selected[pid]) print pid "\t" group[pid] "\t" commands[pid]
+        if (selected[pid]) print pid "\t" group[pid] "\t" started[pid] "\t" commands[pid]
       }
     }
   ' | sort -n > "${output_file}"
@@ -87,28 +91,47 @@ print_targets() {
   fi
   echo "Matched ${count} Farming process(es):"
   awk -F '\t' '{
-    command = length($3) > 180 ? substr($3, 1, 177) "..." : $3
+    command = length($4) > 180 ? substr($4, 1, 177) "..." : $4
     printf "  pid=%s pgid=%s %s\n", $1, $2, command
   }' "${input_file}"
 }
 
-signal_pid_file() {
+signal_target_file() {
   local signal_name="$1"
   local input_file="$2"
-  while IFS= read -r pid; do
+  local owner_uid
+  local status
+  owner_uid="$(id -u)"
+  while IFS=$'\t' read -r pid _group started_at command; do
     [ -n "${pid}" ] || continue
-    kill "-${signal_name}" "${pid}" 2>/dev/null || true
+    if farming_signal_process_if_identity_matches \
+      "${signal_name}" "${pid}" "${owner_uid}" "${started_at}" "${command}" 2>/dev/null; then
+      continue
+    else
+      status=$?
+    fi
+    if [ "${status}" -eq 3 ]; then
+      echo "Skipping pid=${pid}: process identity changed before ${signal_name}." >&2
+    else
+      echo "Could not send ${signal_name} to verified Farming process pid=${pid}." >&2
+    fi
+  done < "${input_file}"
+}
+
+filter_alive_targets() {
+  local input_file="$1"
+  local owner_uid
+  owner_uid="$(id -u)"
+  while IFS=$'\t' read -r pid group started_at command; do
+    [ -n "${pid}" ] || continue
+    if farming_process_identity_matches "${pid}" "${owner_uid}" "${started_at}" "${command}"; then
+      printf '%s\t%s\t%s\t%s\n' "${pid}" "${group}" "${started_at}" "${command}"
+    fi
   done < "${input_file}"
 }
 
 alive_from_targets() {
-  local input_file="$1"
-  while IFS=$'\t' read -r pid _group _command; do
-    [ -n "${pid}" ] || continue
-    if kill -0 "${pid}" 2>/dev/null; then
-      printf '%s\n' "${pid}"
-    fi
-  done < "${input_file}"
+  filter_alive_targets "$1" | cut -f1
 }
 
 collect_targets "${initial_targets}"
@@ -128,12 +151,12 @@ if awk -F '\t' -v current_pid="$$" '$1 == current_pid { found = 1 } END { exit !
   exit 2
 fi
 
-awk -F '\t' '$3 ~ /\/backend\/farming-app-cli\.cjs([[:space:]]|$)/ { print $1 }' \
-  "${initial_targets}" > "${server_pids}"
+awk -F '\t' '$4 ~ /\/backend\/farming-app-cli\.cjs([[:space:]]|$)/' \
+  "${initial_targets}" > "${signal_targets}"
 
-if [ -s "${server_pids}" ]; then
+if [ -s "${signal_targets}" ]; then
   echo "Requesting graceful shutdown..."
-  signal_pid_file TERM "${server_pids}"
+  signal_target_file TERM "${signal_targets}"
   for ((attempt = 0; attempt < GRACE_SECONDS * 10; attempt += 1)); do
     [ -z "$(alive_from_targets "${initial_targets}")" ] && break
     sleep 0.1
@@ -143,36 +166,31 @@ fi
 collect_targets "${current_targets}"
 {
   cat "${current_targets}"
-  while IFS=$'\t' read -r pid group command; do
-    if kill -0 "${pid}" 2>/dev/null; then
-      printf '%s\t%s\t%s\n' "${pid}" "${group}" "${command}"
-    fi
-  done < "${initial_targets}"
+  filter_alive_targets "${initial_targets}"
 } | sort -n -u > "${remaining_targets}"
 
 if [ -s "${remaining_targets}" ]; then
   echo "Stopping remaining Farming processes..."
-  cut -f1 "${remaining_targets}" > "${server_pids}"
-  signal_pid_file TERM "${server_pids}"
+  signal_target_file TERM "${remaining_targets}"
   sleep 2
-  alive_from_targets "${remaining_targets}" > "${server_pids}"
-  if [ -s "${server_pids}" ]; then
+  filter_alive_targets "${remaining_targets}" > "${signal_targets}"
+  if [ -s "${signal_targets}" ]; then
     echo "Forcing unresponsive Farming processes to exit..."
-    signal_pid_file KILL "${server_pids}"
+    signal_target_file KILL "${signal_targets}"
     sleep 0.2
   fi
 fi
 
 collect_targets "${current_targets}"
-alive_from_targets "${initial_targets}" > "${server_pids}"
-if [ -s "${current_targets}" ] || [ -s "${server_pids}" ]; then
+alive_from_targets "${initial_targets}" > "${signal_targets}"
+if [ -s "${current_targets}" ] || [ -s "${signal_targets}" ]; then
   echo "Some Farming processes are still running:" >&2
   if [ -s "${current_targets}" ]; then
     print_targets "${current_targets}" >&2
   else
     while IFS= read -r pid; do
       ps -p "${pid}" -o pid=,ppid=,pgid=,command= >&2 || true
-    done < "${server_pids}"
+    done < "${signal_targets}"
   fi
   exit 1
 fi
