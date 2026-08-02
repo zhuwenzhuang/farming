@@ -184,6 +184,7 @@ export interface CodeCopy {
   forceDelete: string
   cancel: string
   retry: string
+  reconnect: string
   save: string
   stopAgentDescription: (title: string) => string
   acknowledgeUnprovenAcpExit: string
@@ -701,6 +702,7 @@ const EN_COPY: CodeCopy = {
   forceDelete: 'Permanently Delete',
   cancel: 'Cancel',
   retry: 'Retry',
+  reconnect: 'Reconnect',
   save: 'Save',
   stopAgentDescription: title => `Stop ${title} and close its terminal.`,
   acknowledgeUnprovenAcpExit: 'Confirm Exit and Remove',
@@ -1244,6 +1246,7 @@ const ZH_COPY: CodeCopy = {
   forceDelete: '彻底删除',
   cancel: '取消',
   retry: '重试',
+  reconnect: '重新连接',
   save: '保存',
   stopAgentDescription: title => `停止 ${title} 并关闭它的终端。`,
   acknowledgeUnprovenAcpExit: '确认已退出并移除',

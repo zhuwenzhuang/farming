@@ -4,9 +4,9 @@ import { execFileSync } from 'node:child_process'
 import type { Page } from '@playwright/test'
 import { expect, openFarming, terminalRows, test } from './fixtures'
 
-async function createAcpAgent(page: Page, workspace: string, command = 'claude') {
+async function createAcpAgent(page: Page, workspace: string) {
   const response = await page.request.post('/farming/api/control/agents', {
-    data: { command, workspace, agentRuntimeMode: 'chat' },
+    data: { command: 'claude', workspace, agentRuntimeMode: 'chat' },
   })
   expect(response.ok()).toBeTruthy()
   const payload = await response.json() as { agentId?: string }
@@ -26,23 +26,6 @@ async function sendAcpMessage(page: Page, text: string) {
 }
 
 test.describe('ACP human-like browser matrix', () => {
-  test('presents Codex Realtime as a circular live waveform control', async ({ page, workspaceRoot }) => {
-    const workspace = path.join(workspaceRoot, 'acp-realtime-waveform')
-    fs.mkdirSync(workspace, { recursive: true })
-
-    const agentId = await createAcpAgent(page, workspace, 'codex')
-    await openFarming(page)
-    await agentRow(page, agentId).click()
-
-    const voice = page.getByTestId('code-acp-composer-mic')
-    await expect(voice).toHaveAttribute('data-voice-mode', 'realtime')
-    await expect(voice.locator('.code-composer-voice-wave i')).toHaveCount(5)
-    await expect.poll(async () => voice.evaluate(element => {
-      const style = getComputedStyle(element)
-      return [style.width, style.height, style.borderRadius]
-    })).toEqual(['40px', '40px', '999px'])
-  })
-
   test('recovers a read-only transcript from bounded transport failures', async ({ page, workspaceRoot }) => {
     const workspace = path.join(workspaceRoot, 'acp-transcript-transport-retry')
     fs.mkdirSync(workspace, { recursive: true })

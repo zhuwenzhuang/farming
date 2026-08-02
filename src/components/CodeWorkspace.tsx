@@ -2385,6 +2385,13 @@ export function CodeWorkspace({
     focusComposerTextarea()
   }, [activeAgent, activeAgentCanInterrupt, focusComposerTextarea, onInterruptAgent])
 
+  const reconnectActiveAcpAgent = useCallback(() => {
+    if (!activeAgent || !isAcpRuntime(activeAgent)) return
+    void fetch(appPath(`/api/agents/${encodeURIComponent(activeAgent.id)}/acp-session/reconnect`), {
+      method: 'POST',
+    })
+  }, [activeAgent])
+
   const respondToActiveAcpPermission = useCallback((requestId: string, optionId?: string, cancelled?: boolean) => {
     if (!activeAgent) return
     void respondToAcpPermission(activeAgent.id, requestId, optionId, cancelled === true)
@@ -5689,6 +5696,7 @@ export function CodeWorkspace({
           onRemoveAttachment: removeComposerAttachment,
           onSubmit: submitAcpDraft,
           onInterrupt: interruptActiveAgent,
+          onReconnect: reconnectActiveAcpAgent,
           onDiscardPendingFollowUp: discardPendingFollowUp,
           onEditPendingFollowUp: editPendingFollowUp,
           onSteerPendingFollowUp: steerPendingFollowUp,

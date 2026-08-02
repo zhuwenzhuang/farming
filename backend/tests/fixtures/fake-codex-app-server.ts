@@ -6,6 +6,7 @@ const readline = require('readline');
 const sessionId = '019f0000-0000-7000-8000-000000000999';
 const imagePath = process.env.FARMING_TEST_HISTORY_IMAGE_PATH || '';
 const dataUrl = process.env.FARMING_TEST_HISTORY_IMAGE_DATA_URL || '';
+const stallPrompt = process.env.FARMING_TEST_STALL_PROMPT === '1';
 
 function thread() {
   return {
@@ -80,6 +81,25 @@ function resultFor(method, params) {
       modelProvider: 'openai',
       reasoningEffort: 'medium',
       serviceTier: null,
+    };
+  }
+  if (method === 'thread/start' && stallPrompt) {
+    return {
+      thread: { ...thread(), turns: [] },
+      model: 'gpt-5.6',
+      modelProvider: 'openai',
+      reasoningEffort: 'medium',
+      serviceTier: null,
+    };
+  }
+  if (method === 'turn/start' && stallPrompt) {
+    return {
+      turn: {
+        id: 'turn-stalled-title',
+        items: [],
+        status: 'inProgress',
+        error: null,
+      },
     };
   }
   if (method === 'thread/read') {

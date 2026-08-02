@@ -34,6 +34,7 @@ interface ErrorLike {
   code?: string | number;
   data?: { code?: string | number; details?: string };
   cause?: ErrorLike;
+  runtimeCleanupVerified?: boolean;
 }
 type AcpSdk = typeof import('@agentclientprotocol/sdk');
 interface AcpClientHandlers { [key: string]: (request: UnknownRecord) => unknown }
@@ -238,7 +239,7 @@ const CODEX_SET_SESSION_MODEL_METHOD = 'session/set_model';
 const CODEX_STEER_METHOD = '_codex/session/steer';
 const CODEX_ACP_PACKAGE = '@agentclientprotocol/codex-acp';
 const CODEX_ACP_VERSION = '1.1.4';
-const CODEX_ACP_SHA256 = '7d9647ad2af49d47311a785bf5abd2d317d7c7438ae9d4eacfe785ba37191718';
+const CODEX_ACP_SHA256 = '2b0bf774e336d71816727a66cef47f6c088f4e85e76e412ebd0ed156eb7e2c44';
 const CLAUDE_ACP_PACKAGE = '@agentclientprotocol/claude-agent-acp';
 const CLAUDE_ACP_VERSION = '0.59.0';
 const CLAUDE_ACP_SHA256 = 'a6aa515dd02382617bf46d9eac47b8a1022c6835bcf7a8d61e2c63939be2e49c';
@@ -385,6 +386,11 @@ function acpErrorKind(error: unknown) {
   if (/\b(econn|enet|ehost|socket|network|connection|timed? out|timeout|dns)\b/.test(text)) return 'network';
   if (/\b(protocol|json-rpc|parse error|invalid request|method not found)\b/.test(text)) return 'protocol';
   return 'unknown';
+}
+
+function isReconnectableAcpTransportFailure(error: unknown) {
+  return /(?:connection|transport|socket).*(?:closed|lost|ended|reset|broken)|(?:adapter|process).*(?:exit|closed|stopped)/i
+    .test(acpErrorMessage(error));
 }
 
 function autoPermissionResponse(request: UnknownRecord, approvalMode: string) {
@@ -940,6 +946,7 @@ class AcpRuntime extends EventEmitter {
     AcpCheckpointStore,
     'dispose' | 'flush' | 'load' | 'markDirty' | 'schedule' | 'write'
   > | null;
+  declare reconnectOperations: Map<string, Promise<Record<string, unknown>>>;
   declare disposing: boolean;
   declare disposePromise: Promise<void> | null;
   declare disposed: boolean;
@@ -978,6 +985,7 @@ class AcpRuntime extends EventEmitter {
     this.checkpointStore = options.checkpointStore
       || (options.configDir ? new AcpCheckpointStore(options.configDir, options.checkpointOptions) : null);
     this.bindings = new Map<string, AcpBinding>();
+    this.reconnectOperations = new Map();
     this.disposing = false;
     this.disposePromise = null;
     this.disposed = false;
@@ -2886,6 +2894,87 @@ class AcpRuntime extends EventEmitter {
     this.requireOpenBinding(binding);
     await this.unregisterAgentAndWait(agentId, binding);
     return this.prepareAgent(options);
+  }
+
+  reconnectAgent(agentId: string, options: PrepareAgentOptions = {}): Promise<Record<string, unknown>> {
+    const existing = this.reconnectOperations.get(agentId);
+    if (existing) return existing;
+    const operation = this.performReconnectAgent(agentId, options);
+    this.reconnectOperations.set(agentId, operation);
+    void operation.finally(() => {
+      if (this.reconnectOperations.get(agentId) === operation) {
+        this.reconnectOperations.delete(agentId);
+      }
+    }).catch(() => {});
+    return operation;
+  }
+
+  async performReconnectAgent(agentId: string, options: PrepareAgentOptions = {}) {
+    const binding = this.requireBinding(agentId);
+    const recoverableTransportFailure = binding.state === 'error'
+      && binding.stopReason === 'error'
+      && isReconnectableAcpTransportFailure(binding.error);
+    if (!binding.exited && !recoverableTransportFailure) {
+      return { reconnected: false, sessionId: binding.sessionId, state: binding.state };
+    }
+    if (binding.stopReason !== 'error') {
+      throw new Error(`ACP Agent cannot reconnect after ${binding.stopReason || binding.state}`);
+    }
+    if (!isSafeProviderSessionId(binding.sessionId)) {
+      throw new Error('ACP Agent reconnect requires a safe exact provider session id');
+    }
+    if (binding.activeTurn) throw new Error('ACP Agent cannot reconnect while a turn is active');
+
+    const revisionBase = Number(binding.sessionState?.revision || 0);
+    const restartOptions = {
+      ...binding.restartOptions,
+      agentId: binding.agentId,
+      provider: binding.provider,
+      cwd: binding.cwd,
+      sessionId: binding.sessionId,
+      historyMode: 'checkpoint',
+      revisionBase,
+    };
+    delete restartOptions.forkSourceSessionId;
+    delete restartOptions.forkSourceCheckpoint;
+    delete restartOptions.onForkSessionCreated;
+
+    binding.state = 'reconnecting';
+    binding.error = '';
+    binding.updatedAt = new Date().toISOString();
+    this.emitRuntime(binding);
+    let oldProcessStopped = false;
+    try {
+      const identity = this.checkpointIdentity(binding);
+      if (this.checkpointStore && identity && binding.sessionState) {
+        await this.checkpointStore.write(identity, this.bindingCheckpoint(binding), { exact: false });
+      }
+      if (!this.isCurrentBinding(binding)) {
+        throw new Error('ACP Agent binding changed before reconnect');
+      }
+      oldProcessStopped = await this.unregisterAgentAndWait(agentId, binding);
+      if (!oldProcessStopped) throw new Error('ACP Agent reconnect could not stop the previous process');
+      if (typeof options.onProcessStopped === 'function') await options.onProcessStopped();
+      const prepared = await this.prepareAgent(restartOptions);
+      return { reconnected: true, ...prepared };
+    } catch (error) {
+      const failure = asErrorLike(error);
+      if (oldProcessStopped && failure.runtimeCleanupVerified === true && typeof options.onProcessStopped === 'function') {
+        await options.onProcessStopped();
+      }
+      let failedBinding = this.bindings.get(agentId);
+      if (!failedBinding) {
+        failedBinding = binding;
+        this.bindings.set(agentId, failedBinding);
+      }
+      failedBinding.exited = true;
+      failedBinding.state = 'error';
+      failedBinding.error = `ACP reconnect failed: ${acpErrorMessage(error)}`;
+      failedBinding.stopReason = 'error';
+      failedBinding.updatedAt = new Date().toISOString();
+      this.emitRuntime(failedBinding);
+      throw error;
+    }
   }
 
   async forkSession(agentId: string, options: PrepareAgentOptions = {}) {

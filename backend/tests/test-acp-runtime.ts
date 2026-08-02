@@ -2392,6 +2392,68 @@ async function run() {
     );
     assert.strictEqual(runtime.getSession('agent-acp-new').state, 'error');
     assert.strictEqual(runtime.getSession('agent-acp-new').stopReason, 'cancel_error');
+
+    await runtime.prepareAgent({
+      agentId: 'agent-acp-reconnect',
+      provider: 'codex',
+      cwd: process.cwd(),
+      env: process.env,
+      approvalMode: 'full',
+    });
+    await runtime.prompt('agent-acp-reconnect', 'before reconnect');
+    const disconnectedBinding = runtime.bindings.get('agent-acp-reconnect');
+    const disconnectedSessionId = disconnectedBinding.sessionId;
+    const disconnectedRevision = disconnectedBinding.sessionState.revision;
+    runtime.handleExit(disconnectedBinding, new Error('simulated adapter transport loss'));
+    await assert.rejects(
+      runtime.prompt('agent-acp-reconnect', 'must not use the dead binding'),
+      /not ready/,
+    );
+    let stoppedProcessNotifications = 0;
+    const reconnectOptions = {
+      onProcessStopped() {
+        stoppedProcessNotifications += 1;
+      },
+    };
+    const [firstReconnect, joinedReconnect] = await Promise.all([
+      runtime.reconnectAgent('agent-acp-reconnect', reconnectOptions),
+      runtime.reconnectAgent('agent-acp-reconnect', reconnectOptions),
+    ]);
+    assert.strictEqual(firstReconnect.reconnected, true);
+    assert.deepStrictEqual(joinedReconnect, firstReconnect, 'concurrent reconnects must join one replacement');
+    assert.strictEqual(stoppedProcessNotifications, 1);
+    const reconnectedSession = runtime.getSession('agent-acp-reconnect');
+    assert.strictEqual(reconnectedSession.sessionId, disconnectedSessionId);
+    assert.strictEqual(reconnectedSession.state, 'idle');
+    assert(
+      reconnectedSession.revision > disconnectedRevision,
+      'history recovery must advance the transcript revision fence',
+    );
+    assert.strictEqual(
+      (await runtime.prompt('agent-acp-reconnect', 'after reconnect')).stopReason,
+      'end_turn',
+      'a replacement binding must accept a new explicit prompt',
+    );
+
+    await runtime.prepareAgent({
+      agentId: 'agent-acp-reconnect-before-exit-event',
+      provider: 'codex',
+      cwd: process.cwd(),
+      env: process.env,
+      approvalMode: 'full',
+    });
+    const transportFailedBinding = runtime.bindings.get('agent-acp-reconnect-before-exit-event');
+    transportFailedBinding.connection.prompt = async () => {
+      throw new Error('ACP connection closed');
+    };
+    await assert.rejects(
+      runtime.prompt('agent-acp-reconnect-before-exit-event', 'transport fails before exit event'),
+      /connection closed/,
+    );
+    assert.strictEqual(transportFailedBinding.exited, false);
+    const recoveredBeforeExitEvent = await runtime.reconnectAgent('agent-acp-reconnect-before-exit-event');
+    assert.strictEqual(recoveredBeforeExitEvent.reconnected, true);
+    assert.strictEqual(runtime.getSession('agent-acp-reconnect-before-exit-event').state, 'idle');
   } finally {
     await runtime.dispose();
   }

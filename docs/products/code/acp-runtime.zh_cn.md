@@ -6,7 +6,7 @@ Farming 现在提供一条面向 Codex、Claude Code、OpenCode 和 Qoder 的 Ag
 
 ## Provider 连接
 
-- Codex 使用锁定版本的 `@agentclientprotocol/codex-acp` adapter。一份版本锁定的 `patch-package` 增量增加可协商的 `_codex/session/steer` 扩展及其 `turn/steer` 转发，并增加由 Codex `thread/fork` 支撑的标准 ACP `session/fork`；如果上游包与审阅过的 patch 不再匹配，打包会直接失败。打包随后把精确的已打补丁 adapter 复制进发行包，并锁定其 SHA-256；安装后的运行时只启动这个不可变产物，不依赖安装后修改依赖。单文件 CLI 通过内部进程入口打包该 adapter，原生产物 Smoke 必须经该入口完成 ACP `initialize` 握手。
+- Codex 使用锁定版本的 `@agentclientprotocol/codex-acp` adapter。一份版本锁定的 `patch-package` 增量增加可协商的 `_codex/session/steer` 扩展及其 `turn/steer` 转发，并增加由 Codex `thread/fork` 支撑的标准 ACP `session/fork`；如果上游包与审阅过的 patch 不再匹配，打包会直接失败。打包随后把精确的已打补丁 adapter 复制进发行包，并锁定其 SHA-256；开发和构建刷新会先校验临时副本，再原子替换目标入口，不能截断正在运行的 adapter。安装后的运行时只启动这个不可变产物，不依赖安装后修改依赖。单文件 CLI 通过内部进程入口打包该 adapter，原生产物 Smoke 必须经该入口完成 ACP `initialize` 握手。
 - Claude Code 使用锁定版本的 `@agentclientprotocol/claude-agent-acp` adapter。
 - OpenCode 使用自身的 `opencode acp --cwd <workspace>` 命令。
 - Qoder 使用自身的 `qodercli --acp` 命令。Qoder 可能在 `session/load` 返回之后继续发送历史尾部，因此 Farming 会等待 replay stream 稳定后再暴露恢复完成的 Session。
@@ -87,7 +87,7 @@ ACP 的边界保持明确：
 
 `full` 权限模式会自动选择 Agent 提供的 allow 选项；`ask` 会自动选择 reject 选项；普通审批模式会暴露完整的 ACP permission request，并等待后端 API 的明确回答。
 
-ACP 启动、初始化、历史恢复、prompt、协议和 adapter 退出错误都会成为明确的 runtime error。有界控制请求会在超时后给出可操作错误；正常的长时间 prompt 不设置人为总时限。Farming 不会把用户指定的 ACP Agent 静默降级成 Terminal。Agent 正在执行时拒绝 Chat / Terminal 切换。尚未收到用户输入的新 Terminal，在 provider 历史尚未落盘时可以直接建立新的 ACP session；Terminal 一旦收到输入，切换就必须确认保存的 session 仍可发现。空闲后切换会停止旧进程并启动目标 runtime，如果目标启动失败，会立即用原 runtime 恢复同一个 provider Session，并明确报告切换失败。
+ACP 启动、初始化、历史恢复、prompt、协议和 adapter 退出错误都会成为明确的 runtime error。Adapter 传输异常退出后，用户可以显式点击“重新连接”，下一条显式提交的消息也会先尝试恢复；同一 Agent 的并发恢复会合并成一次。恢复过程会写入 dirty revision fence，证明精确的旧进程组已经停止，再使用原 Workspace、Provider Home、附加目录和 MCP 作用域启动同一 Provider Session，并在接受新 prompt 前重新加载权威历史。断连时正在执行的 prompt 会以错误结束，且绝不自动重放；只有新的用户操作，或已经明确失败的 Composer 请求，才能在恢复后重新提交。如果旧进程清理结果不确定，恢复会保持失败，避免产生第二个存活 adapter。有界控制请求会在超时后给出可操作错误；正常的长时间 prompt 不设置人为总时限。Farming 不会把用户指定的 ACP Agent 静默降级成 Terminal。Agent 正在执行时拒绝 Chat / Terminal 切换。尚未收到用户输入的新 Terminal，在 provider 历史尚未落盘时可以直接建立新的 ACP session；Terminal 一旦收到输入，切换就必须确认保存的 session 仍可发现。空闲后切换会停止旧进程并启动目标 runtime，如果目标启动失败，会立即用原 runtime 恢复同一个 provider Session，并明确报告切换失败。
 
 ## 后端 API
 
@@ -97,6 +97,7 @@ ACP 启动、初始化、历史恢复、prompt、协议和 adapter 退出错误�
 - `GET /api/agents/:agentId/acp-tool-details/:toolCallId` 按需读取 Tool 的展开详情和准确的结构化 ACP patch。
 - `GET /api/agents/:agentId/acp-sessions` 通过当前 provider 连接调用 ACP Session 列表。
 - `PATCH /api/agents/:agentId/acp-session` 修改单个协商出的 mode/config option，也可以通过 `configOptions` 原子修改模型与推理 profile。
+- `POST /api/agents/:agentId/acp-session/reconnect` 在 adapter 异常退出后替换连接，同时保留精确的 Provider Session 和恢复作用域。
 - `POST /api/agents/:agentId/acp-permission` 回答待处理的 permission request。
 - `POST /api/agents/:agentId/acp-elicitation` 回答待处理的表单或 URL elicitation。
 - `POST /api/agents/:agentId/acp-session/authenticate` 启动协商得到的认证方式，包括托管 Terminal 认证。

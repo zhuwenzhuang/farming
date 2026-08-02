@@ -43,6 +43,11 @@ function findAcpCommandTrigger(draft: string, selectionStart: number) {
   }
 }
 
+function isReconnectableAcpFailure(runtimeState: string, error: string) {
+  if (runtimeState !== 'error') return false
+  return /(?:connection|transport|socket).*(?:closed|lost|ended|reset|broken)|(?:adapter|process).*(?:exit|closed|stopped)/i.test(error)
+}
+
 function QueuedFollowUpGlyph() {
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
@@ -85,6 +90,7 @@ export interface AcpComposerProps {
   onRemoveAttachment: (id: string) => void
   onSubmit: (draft?: string, options?: { oppositeFollowUpBehavior?: boolean }) => void
   onInterrupt: () => void
+  onReconnect: () => void
   onDiscardPendingFollowUp: (messageId: string) => void
   onEditPendingFollowUp: (messageId: string) => boolean
   onSteerPendingFollowUp: (messageId: string) => void
@@ -127,6 +133,7 @@ export function AcpComposer({
   onRemoveAttachment,
   onSubmit,
   onInterrupt,
+  onReconnect,
   onDiscardPendingFollowUp,
   onEditPendingFollowUp,
   onSteerPendingFollowUp,
@@ -309,13 +316,18 @@ export function AcpComposer({
   const authenticationRequired = session?.errorKind === 'authentication'
     || /\b(?:auth(?:entication)?|login|sign[ -]?in|unauthorized|401)\b/i.test(runtimeError)
   const deferredSessionError = runtimeError.startsWith('Deferred session change was not applied:')
+  const reconnectableSessionError = isReconnectableAcpFailure(
+    runtimeState,
+    `${runtimeError}\n${sessionError}`,
+  )
+  const displayedSessionError = sessionError || (reconnectableSessionError ? runtimeError : '')
   const hasAcpRequest = active && Boolean(
     permissions.length
     || elicitations.length
     || activeElicitations.length
     || authenticationRequired
     || deferredSessionError
-    || sessionError
+    || displayedSessionError
   )
   const composerClasses = [
     'code-composer',
@@ -420,10 +432,15 @@ export function AcpComposer({
           onAuthenticate={methodId => { void authenticate(methodId) }}
         />
       ) : null}
-      {active && sessionError ? (
+      {active && displayedSessionError ? (
         <section className="code-acp-request code-acp-notice" data-testid="code-acp-error" role="alert">
           <header><strong>ACP</strong><span>{runtimeState || 'error'}</span></header>
-          <p>{sessionError}</p>
+          <p>{displayedSessionError}</p>
+          {reconnectableSessionError ? (
+            <button type="button" data-testid="code-acp-reconnect" onClick={onReconnect}>
+              {copy.reconnect}
+            </button>
+          ) : null}
         </section>
       ) : null}
       {showCommands ? (

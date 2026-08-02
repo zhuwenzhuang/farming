@@ -5904,6 +5904,8 @@ class AgentManager extends EventEmitter {
 
     if (isAcpAgent(agent)) {
       this.requireLiveAcpAgent(agentId);
+      await this.reconnectAcpAgent(agentId);
+      this.requireLiveAcpAgent(agentId);
       const result = await this.acpRuntime.submitMessage(agentId, prompt, {
         delivery: options.delivery,
         onSubmitted: options.onSubmitted
@@ -5957,6 +5959,20 @@ class AgentManager extends EventEmitter {
   getAcpSession(agentId: AgentId, options: Partial<AcpSessionRequestOptions> = {}) {
     this.requireLiveAcpAgent(agentId);
     return this.acpRuntime.getSession(agentId, options);
+  }
+
+  async reconnectAcpAgent(agentId: AgentId) {
+    this.assertAgentOperationAdmission();
+    const agent = this.requireLiveAcpAgent(agentId);
+    const result = await this.acpRuntime.reconnectAgent(agentId, {
+      onProcessStopped: () => {
+        if (this.agents.get(agentId) !== agent) return;
+        agent.structuredRuntimeProcess = null;
+        this.ensurePersistentAgentSession(agent);
+      },
+    });
+    this.ensurePersistentAgentSession(agent);
+    return result;
   }
 
   getAcpTranscript(agentId: AgentId, options: Partial<AcpSessionRequestOptions> = {}) {
