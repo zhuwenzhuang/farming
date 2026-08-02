@@ -281,6 +281,10 @@ test.describe('ACP human-like browser matrix', () => {
     await expect(plan).toBeVisible()
     await expect(plan).toContainText('1/3')
     await expect(plan).toHaveCSS('position', 'absolute')
+    await expect(plan.locator('.code-agent-transcript-plan-driver-summary > span')).toHaveCSS('font-weight', '400')
+    const runningPlanStep = plan.locator('.code-agent-transcript-plan-list li.running')
+    await expect(runningPlanStep).toHaveCSS('font-weight', '400')
+    expect(await runningPlanStep.evaluate(element => getComputedStyle(element, '::marker').fontWeight)).toBe('400')
     expect(await page.getByTestId('code-agent-transcript-scroll').evaluate(element => {
       const style = getComputedStyle(element)
       return style.paddingRight === style.paddingLeft

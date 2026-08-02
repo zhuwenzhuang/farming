@@ -6437,7 +6437,7 @@ body.code-mode .code-instance-name {
 
 .code-agent-transcript-plan-driver-summary > span {
   color: #24292f;
-  font-weight: 550;
+  font-weight: 400;
 }
 
 .code-agent-transcript-plan-driver-summary > small {
@@ -7953,7 +7953,7 @@ body.code-mode .code-instance-name {
 
 .code-agent-transcript-plan-list li.running {
   color: #24292f;
-  font-weight: 520;
+  font-weight: 400;
 }
 
 .code-agent-transcript-plan-list li::marker {
@@ -7963,7 +7963,7 @@ body.code-mode .code-instance-name {
 
 .code-agent-transcript-plan-list li.running::marker {
   color: #57606a;
-  font-weight: 600;
+  font-weight: 400;
 }
 
 .code-agent-transcript-assistant {
