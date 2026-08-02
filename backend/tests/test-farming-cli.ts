@@ -71,6 +71,17 @@ async function test() {
     parseCommand(spawnWithBackslash.options.childCommand),
     ['printf', '%s', 'a\\b'],
   );
+  // An empty executable is rejected at the CLI boundary.
+  assert.throws(
+    () => parseArgs(['spawn', '--', '']),
+    /non-empty executable/,
+  );
+  // resolveLaunchCommand also rejects an empty program server-side.
+  const { resolveLaunchCommand } = require('../cli-agents.cjs');
+  assert.throws(
+    () => resolveLaunchCommand("''"),
+    /non-empty executable/,
+  );
 
   const list = parseArgs(['list', '--json', '--parent', 'agent-main']);
   assert.deepStrictEqual(list, {
