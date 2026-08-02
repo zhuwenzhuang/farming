@@ -1656,8 +1656,8 @@ body.code-resizing-sidebar {
   transition: opacity 120ms ease;
 }
 
-.code-project-row:hover .code-project-title-actions,
-.code-project-row:focus-within .code-project-title-actions {
+.code-project-row:hover:not(:has(.code-project-worktree:hover)) .code-project-title-actions,
+.code-project-row:focus-within:not(:has(.code-project-worktree:hover, .code-project-worktree:focus)) .code-project-title-actions {
   opacity: 1;
   pointer-events: auto;
 }
