@@ -43,6 +43,129 @@ test.describe('ACP human-like browser matrix', () => {
     })).toEqual(['40px', '40px', '999px'])
   })
 
+  test('does not show a Codex Voice transcript in another Chat Agent', async ({ page, workspaceRoot }) => {
+    const workspace = path.join(workspaceRoot, 'acp-realtime-owner-isolation')
+    fs.mkdirSync(workspace, { recursive: true })
+
+    const codexAgentId = await createAcpAgent(page, workspace, 'codex')
+    const claudeAgentId = await createAcpAgent(page, workspace, 'claude')
+    await page.addInitScript(() => {
+      class MockSpeechRecognition extends EventTarget {
+        continuous = false
+        interimResults = false
+        lang = 'en-US'
+        onresult: ((event: unknown) => void) | null = null
+        onerror: (() => void) | null = null
+        onend: (() => void) | null = null
+        onspeechend: (() => void) | null = null
+        onaudioend: (() => void) | null = null
+        stopCalls = 0
+
+        start() {
+          ;(window as unknown as { __voiceOwnerRecognition?: MockSpeechRecognition })
+            .__voiceOwnerRecognition = this
+        }
+
+        stop() { this.stopCalls += 1 }
+      }
+
+      ;(window as unknown as { SpeechRecognition?: typeof MockSpeechRecognition })
+        .SpeechRecognition = MockSpeechRecognition
+    })
+    await openFarming(page)
+    await agentRow(page, codexAgentId).click()
+    await page.evaluate(() => {
+      const audioContext = new AudioContext()
+      const oscillator = audioContext.createOscillator()
+      const destination = audioContext.createMediaStreamDestination()
+      oscillator.connect(destination)
+      oscillator.start()
+      Object.defineProperty(navigator.mediaDevices, 'getUserMedia', {
+        configurable: true,
+        value: async () => destination.stream,
+      })
+      RTCPeerConnection.prototype.setRemoteDescription = async () => undefined
+    })
+
+    await page.getByTestId('code-acp-composer-mic').click()
+    await expect(page.getByTestId('code-acp-voice-status')).toContainText('run the focused tests')
+
+    await agentRow(page, claudeAgentId).click()
+    await expect(page.getByTestId('code-acp-composer-input')).toBeVisible()
+    await expect(page.getByTestId('code-acp-voice-status')).toHaveCount(0)
+    await expect(page.getByText('run the focused tests', { exact: true })).toHaveCount(0)
+
+    const dictation = page.getByTestId('code-acp-composer-mic')
+    await expect(dictation).toHaveAttribute('data-voice-mode', 'dictation')
+    await dictation.click()
+    await expect(dictation).toHaveAttribute('aria-pressed', 'true')
+    await dictation.click()
+    await expect(dictation).toHaveAttribute('aria-pressed', 'false')
+    await page.evaluate(() => {
+      const recognition = (window as unknown as {
+        __voiceOwnerRecognition?: {
+          onresult: ((event: unknown) => void) | null
+          onend: (() => void) | null
+        }
+      }).__voiceOwnerRecognition
+      recognition?.onresult?.({
+        resultIndex: 0,
+        results: { length: 1, 0: { isFinal: true, 0: { transcript: 'late final dictation' } } },
+      })
+      recognition?.onend?.()
+    })
+    await expect(page.getByTestId('code-acp-composer-input')).toHaveValue('late final dictation')
+
+    await page.getByTestId('code-acp-composer-input').fill('')
+    await dictation.click()
+    const repeatedStopCalls = await page.evaluate(() => {
+      const recognition = (window as unknown as {
+        __voiceOwnerRecognition?: {
+          onaudioend: (() => void) | null
+          onend: (() => void) | null
+          onresult: ((event: unknown) => void) | null
+          onspeechend: (() => void) | null
+          stopCalls: number
+        }
+      }).__voiceOwnerRecognition
+      recognition?.onspeechend?.()
+      recognition?.onaudioend?.()
+      recognition?.onresult?.({
+        resultIndex: 0,
+        results: { length: 1, 0: { isFinal: true, 0: { transcript: 'one stop final result' } } },
+      })
+      recognition?.onend?.()
+      return recognition?.stopCalls
+    })
+    expect(repeatedStopCalls).toBe(1)
+    await expect(page.getByTestId('code-acp-composer-input')).toHaveValue('one stop final result')
+
+    await test.step('rejects a late dictation result after switching Agents', async () => {
+      const claudeInput = page.getByTestId('code-acp-composer-input')
+      await claudeInput.fill('claude draft')
+      await dictation.click()
+      await expect(dictation).toHaveAttribute('aria-pressed', 'true')
+
+      await agentRow(page, codexAgentId).click()
+      const codexInput = page.getByTestId('code-acp-composer-input')
+      await expect(codexInput).toBeVisible()
+      await codexInput.fill('codex draft')
+      await page.evaluate(() => {
+        const recognition = (window as unknown as {
+          __voiceOwnerRecognition?: { onresult: ((event: unknown) => void) | null }
+        }).__voiceOwnerRecognition
+        recognition?.onresult?.({
+          resultIndex: 0,
+          results: { length: 1, 0: { isFinal: true, 0: { transcript: 'stale Claude result' } } },
+        })
+      })
+      await expect(codexInput).toHaveValue('codex draft')
+
+      await agentRow(page, claudeAgentId).click()
+      await expect(page.getByTestId('code-acp-composer-input')).toHaveValue('claude draft')
+    })
+  })
+
   test('recovers a read-only transcript from bounded transport failures', async ({ page, workspaceRoot }) => {
     const workspace = path.join(workspaceRoot, 'acp-transcript-transport-retry')
     fs.mkdirSync(workspace, { recursive: true })

@@ -215,7 +215,7 @@ export class CodexRealtimeController {
     }
     if (this.current === operation) {
       this.current = null
-      this.publish('failed', null, message)
+      this.publish('failed', operation, message)
     }
   }
 
@@ -279,7 +279,7 @@ export class CodexRealtimeController {
       if (!result.accepted) {
         this.cleanupLocal(operation)
         this.current = null
-        this.publish('failed', null, 'Codex realtime voice start was cancelled')
+        this.publish('failed', operation, 'Codex realtime voice start was cancelled')
         return
       }
       this.publish(this.snapshot.phase === 'live' ? 'live' : 'connecting', operation, this.snapshot.error)
@@ -298,7 +298,7 @@ export class CodexRealtimeController {
       }
       this.cleanupLocal(operation)
       this.current = null
-      this.publish('failed', null, message)
+      this.publish('failed', operation, message)
     }
   }
 

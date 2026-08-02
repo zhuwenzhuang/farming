@@ -163,6 +163,14 @@ mutations are not backward-compatible: both require a valid operation ID and
 return `400` before reaching Agent mutation code when it is absent. This parser
 compatibility exception does not change any Terminal or Chat protocol field.
 
+The browser presents transient Voice activity, errors, and transcripts only for
+their exact Agent owner. Switching Agents clears that presentation and cancels
+any Web Speech dictation still targeting the previous Agent; delayed snapshots
+or transcript events from the previous Agent are ignored. An ownerless idle
+snapshot may clear activity but cannot populate content for the newly displayed
+Agent. Remaining on the same Agent preserves its final transcript after Voice
+returns to idle for post-turn review.
+
 Realtime events are also gated by the versioned `acp-realtime-v1` Browser
 protocol extension without changing protocol v4 itself. The initial Server
 hello advertises `availableExtensions`; the Client hello requests

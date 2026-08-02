@@ -269,6 +269,8 @@ test('remote SDP failure closes local media and reconciles an accepted start', a
   await harness.controller.handleEvent(sdpEvent('agent-a', operationId))
 
   assert.equal(harness.controller.getSnapshot().phase, 'failed')
+  assert.equal(harness.controller.getSnapshot().agentId, 'agent-a')
+  assert.equal(harness.controller.getSnapshot().operationId, operationId)
   assert.equal(harness.controller.getSnapshot().error, 'bad remote SDP')
   assert.equal(harness.peer.closed, true)
   assert.equal(harness.fakeStream.track.stopped, true)
@@ -286,9 +288,43 @@ test('connection timeout follows stop/reconcile without waiting for wall-clock t
   timeout?.()
   await failed
 
+  assert.equal(harness.controller.getSnapshot().agentId, 'agent-a')
   assert.equal(harness.controller.getSnapshot().error, 'Codex realtime voice connection timed out')
   assert.equal(harness.stopRequests.length, 1)
   assert.equal(harness.fakeStream.track.stopped, true)
+})
+
+test('an owner-bearing failed snapshot can retry and dispose the replacement operation', async () => {
+  const requests: Array<{ agentId: string, operationId: string }> = []
+  const stops: Array<{ agentId: string, operationId: string, keepalive: boolean }> = []
+  const harness = createHarness({
+    startBackend: async request => {
+      requests.push(request)
+      return { accepted: requests.length > 1 }
+    },
+    stopBackend: async request => {
+      stops.push(request)
+    },
+  })
+
+  await harness.controller.start('agent-a')
+  const failed = harness.controller.getSnapshot()
+  assert.equal(failed.phase, 'failed')
+  assert.equal(failed.agentId, 'agent-a')
+  assert.equal(failed.operationId, requests[0]?.operationId)
+
+  await harness.controller.toggle('agent-a')
+  const replacement = harness.controller.getSnapshot()
+  assert.equal(replacement.phase, 'connecting')
+  assert.equal(replacement.agentId, 'agent-a')
+  assert.notEqual(replacement.operationId, failed.operationId)
+
+  await harness.controller.dispose()
+  assert.deepEqual(stops, [{
+    agentId: 'agent-a',
+    operationId: replacement.operationId,
+    keepalive: true,
+  }])
 })
 
 test('dispose reconciles an in-flight accepted start with keepalive', async () => {

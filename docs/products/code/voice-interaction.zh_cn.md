@@ -133,6 +133,12 @@ HTTP Realtime start/stop mutation 不提供这种向后兼容：两者都要求�
 时必须在进入 Agent mutation 之前返回 `400`。这条 parser 兼容例外不改变任何 Terminal
 或 Chat 协议字段。
 
+Browser 只会向 transient Voice activity、error 与 transcript 的 exact Agent owner 展示
+这些状态。切换 Agent 会清除该 presentation，并取消仍以旧 Agent 为目标的 Web Speech
+dictation；旧 Agent 迟到的 snapshot 或 transcript event 会被忽略。没有 owner 的 idle
+snapshot 只能清除 activity，不能向新显示的 Agent 填入内容。只要仍停留在同一 Agent，
+Voice 回到 idle 后会保留最终 transcript，供 turn 后复核。
+
 Realtime event 还必须通过带版本的 `acp-realtime-v1` Browser protocol 扩展协商，
 无需改变 protocol v4 本身。Server 初始 hello 通过 `availableExtensions` 声明 offer；
 Client hello 通过 `requestedExtensions` 发出 request；Server 把两者交集写入当前 socket
