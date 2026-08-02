@@ -6786,6 +6786,49 @@ body.code-mode .code-instance-name {
   color: #6e7781;
 }
 
+.code-agent-transcript-latest-steer-activity {
+  position: relative;
+  width: min(620px, 100%);
+  min-width: 0;
+  height: 22px;
+  margin: -10px 0 18px;
+  overflow: hidden;
+  color: #8c959f;
+  font-size: 12px;
+  line-height: 22px;
+  white-space: nowrap;
+}
+
+.code-agent-transcript-latest-steer-activity > span {
+  position: relative;
+  z-index: 1;
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.code-agent-transcript-latest-steer-activity::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.8) 46%, transparent 54%);
+  transform: translateX(-100%);
+  animation: code-agent-transcript-latest-activity-sweep 1.8s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes code-agent-transcript-latest-activity-sweep {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .code-agent-transcript-latest-steer-activity::after {
+    animation: none;
+  }
+}
+
 .code-agent-transcript-process.expanded {
   border-bottom: 1px solid rgba(31, 35, 40, 0.12);
 }

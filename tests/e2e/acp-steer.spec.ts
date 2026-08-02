@@ -131,6 +131,11 @@ test('queues a follow-up and explicitly sends negotiated Codex ACP steer', async
   await steer.locator('.code-agent-transcript-steer-bubble').hover()
   await expect(steerTime).toHaveCSS('opacity', '1')
   await expect(page.getByText('Steer accepted: focus on the attached image after editing', { exact: true })).toBeVisible()
+  const latestSteerActivity = page.getByTestId('code-agent-transcript-latest-steer-activity')
+  await expect(latestSteerActivity).toBeVisible()
+  await expect.poll(() => latestSteerActivity.evaluate(element => (
+    getComputedStyle(element, '::after').animationName
+  ))).toBe('code-agent-transcript-latest-activity-sweep')
   const processSummary = liveProcessSummary
   await expect(processSummary).toHaveAttribute('aria-expanded', 'false')
   const turn = page.locator('.code-agent-transcript-turn').filter({ hasText: 'hold for steer without user echo with post-steer commentary' })
@@ -155,6 +160,7 @@ test('queues a follow-up and explicitly sends negotiated Codex ACP steer', async
       processIndex,
       answerIndex,
       steerInsideProcess: Boolean(element.querySelector('.code-agent-transcript-process [data-testid="code-agent-transcript-steer"]')),
+      latestActivityAfterProcess: element.querySelector('.code-agent-transcript-process + [data-testid="code-agent-transcript-latest-steer-activity"]') !== null,
       flow,
     }
   })).toEqual({
@@ -162,6 +168,7 @@ test('queues a follow-up and explicitly sends negotiated Codex ACP steer', async
     processIndex: 1,
     answerIndex: -1,
     steerInsideProcess: true,
+    latestActivityAfterProcess: true,
     flow: [
       { kind: 'commentary', text: 'Waiting for steering.' },
       { kind: 'steer', text: 'focus on the attached image after editing' },
@@ -182,6 +189,7 @@ test('queues a follow-up and explicitly sends negotiated Codex ACP steer', async
   await expect(page.getByTestId('code-agent-transcript-steer')).toHaveCount(1)
   await expect(page.getByTestId('code-agent-transcript-steer')).toContainText('focus on the attached image after editing')
   await expect(page.getByTestId('code-agent-transcript-steer-time')).toHaveCount(1)
+  await expect(page.getByTestId('code-agent-transcript-latest-steer-activity')).toHaveCount(0)
   await expect(page.locator('.code-agent-transcript-turn')).toHaveCount(1)
   await processSummary.click()
   await expect(processSummary).toHaveAttribute('aria-expanded', 'true')

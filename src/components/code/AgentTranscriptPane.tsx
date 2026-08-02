@@ -2478,6 +2478,7 @@ function AgentTranscriptTurnView({
   openCollaborationActivityIds,
   setOpenCollaborationActivityIds,
   onFork,
+  showLatestSteerActivity,
 }: {
   turn: AgentTranscriptTurn
   copy: CodeCopy
@@ -2502,6 +2503,7 @@ function AgentTranscriptTurnView({
   openCollaborationActivityIds: Set<string>
   setOpenCollaborationActivityIds: Dispatch<SetStateAction<Set<string>>>
   onFork?: () => Promise<void> | void
+  showLatestSteerActivity: boolean
 }) {
   const turnRef = useRef<HTMLElement | null>(null)
   const [loadedProcessDetails, setLoadedProcessDetails] = useState<Record<string, AgentTranscriptProcessPresentation>>({})
@@ -2598,6 +2600,7 @@ function AgentTranscriptTurnView({
     : turn.status === 'inProgress' && progressDuration
       ? copy.agentTranscriptWorkingFor(progressDuration)
       : turnProcessLabel(mainProcessTurn, copy, processSummaryWorkingLabel, planLabel)
+  const latestSteerActivityLabel = liveToolLabel || planLabel || workingLabel
   const loadFullProcessDetail = useCallback(async (item: AgentTranscriptProcessItem, force = false) => {
     if ((!item.detailTruncated && !item.terminalIds?.length && !item.subagentSessionId) || !onLoadProcessItemDetail) {
       return { detail: item.detail || '', terminals: item.terminals, subagentTranscript: item.subagentTranscript }
@@ -3100,6 +3103,17 @@ function AgentTranscriptTurnView({
             workspaceRoot={workspaceRoot}
             gitDiffTarget={gitDiffTarget}
           />
+        </div>
+      ) : null}
+
+      {showLatestSteerActivity ? (
+        <div
+          className="code-agent-transcript-latest-steer-activity"
+          data-testid="code-agent-transcript-latest-steer-activity"
+          role="status"
+          aria-live="polite"
+        >
+          <span>{latestSteerActivityLabel}</span>
         </div>
       ) : null}
     </article>
@@ -3807,6 +3821,12 @@ export function AgentTranscriptPane({
                     setOpenCollaborationAgentIds={setOpenCollaborationAgentIds}
                     openCollaborationActivityIds={openCollaborationActivityIds}
                     setOpenCollaborationActivityIds={setOpenCollaborationActivityIds}
+                    showLatestSteerActivity={
+                      source === 'acp'
+                      && index === turns.length - 1
+                      && turn.status === 'inProgress'
+                      && turn.processItems.some(isUserSteerProcessItem)
+                    }
                     onFork={index === turns.length - 1 && turn.status !== 'inProgress' ? onForkLatest : undefined}
                   />
                 </LocalRenderFault>
