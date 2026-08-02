@@ -2196,6 +2196,32 @@ function referenceServerNotificationMethods() {
 }
 
 {
+  const turns = buildTranscriptFromLines([
+    event('user_message', { turn_id: 'turn-tool-screenshot', message: '给个截图' }),
+    line('response_item', {
+      type: 'custom_tool_call',
+      id: 'screenshot-call',
+      call_id: 'call-screenshot',
+      name: 'exec',
+      input: 'view screenshot',
+    }),
+    line('response_item', {
+      type: 'custom_tool_call_output',
+      call_id: 'call-screenshot',
+      output: [
+        { type: 'input_text', text: 'Screenshot captured' },
+        { type: 'input_image', image_url: 'data:image/png;base64,AAAA' },
+      ],
+    }),
+    event('agent_message', { turn_id: 'turn-tool-screenshot', message: '截图如下。', phase: 'final_answer' }),
+  ]);
+
+  assert.strictEqual(turns[0].resultImages.length, 1);
+  assert.strictEqual(turns[0].resultImages[0].url, 'data:image/png;base64,AAAA');
+  assert.strictEqual(turns[0].processItems.find(item => item.id === 'call-screenshot').images.length, 0);
+}
+
+{
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-codex-transcript-image-'));
   const imagePath = path.join(tmpDir, 'sample.png');
   fs.writeFileSync(imagePath, Buffer.from(

@@ -45,6 +45,8 @@ flowchart LR
 - permission request、elicitation 与 authentication；
 - tool detail、diff、patch decision 和 ACP terminal；
 - 文本、图片和音频 prompt part；
+
+当 Codex 通过 `custom_tool_call_output` 发出图片（例如 `view_image` 返回的截图）时，Farming 会将其直接展示在 Agent 答复区域，而不是只收在折叠的 Tool 记录中；Tool 的文本详情仍保留在 Process 里。
 - 通过可协商、带版本的 adapter 扩展对活跃 Codex turn 执行实时 steer；
 - agent 声明支持时的 session mode 与 config option。
 

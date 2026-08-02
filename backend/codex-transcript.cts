@@ -34,6 +34,7 @@ interface TranscriptTurn extends DataRecord {
   id: string;
   userMessage: string;
   userImages: TranscriptImage[];
+  resultImages: TranscriptImage[];
   userAudios: DataRecord[];
   userFiles: TranscriptFile[];
   finalMessage: string;
@@ -739,6 +740,15 @@ function imagesFromStructuredOutput(output: unknown) {
     return images;
   }
   return [];
+}
+
+function appendResultImages(turn: TranscriptTurn, images: TranscriptImage[]) {
+  for (const image of images) {
+    if (turn.resultImages.length >= MAX_USER_IMAGES_PER_TURN) break;
+    if (!turn.resultImages.some(existing => existing.url === image.url)) {
+      turn.resultImages.push({ ...image, id: `result-image-${turn.resultImages.length + 1}` });
+    }
+  }
 }
 
 function commandText(command: unknown) {
@@ -1515,12 +1525,15 @@ function appendResponseItem(
   if (payload.type === 'function_call_output' || payload.type === 'custom_tool_call_output') {
     const callId = String(payload.call_id || '');
     const callMeta = functionCalls.get(callId);
+    const images = imagesFromStructuredOutput(payload.output);
+    const promoteImages = payload.type === 'custom_tool_call_output' && images.length > 0;
+    if (promoteImages) appendResultImages(turn, images);
     appendProcess(turn, {
       id: callId || payload.id,
       type: callMeta?.type || 'tool-output',
       title: callMeta?.title || 'Tool output',
       detail: summarizeStructuredOutput(payload.output),
-      images: imagesFromStructuredOutput(payload.output),
+      images: promoteImages ? [] : images,
       mergeDetail: true,
       status: 'completed',
     });
@@ -1594,6 +1607,7 @@ function newTurn(id: unknown = ''): TranscriptTurn {
     id: String(id || `turn-${Date.now()}-${Math.random().toString(36).slice(2)}`),
     userMessage: '',
     userImages: [],
+    resultImages: [],
     userAudios: [],
     userFiles: [],
     finalMessage: '',
@@ -1611,6 +1625,7 @@ function newTurn(id: unknown = ''): TranscriptTurn {
 function isEmptyTurn(turn: TranscriptTurn) {
   return !turn.userMessage &&
     (!Array.isArray(turn.userImages) || turn.userImages.length === 0) &&
+    (!Array.isArray(turn.resultImages) || turn.resultImages.length === 0) &&
     (!Array.isArray(turn.userAudios) || turn.userAudios.length === 0) &&
     (!Array.isArray(turn.userFiles) || turn.userFiles.length === 0) &&
     !turn.finalMessage &&

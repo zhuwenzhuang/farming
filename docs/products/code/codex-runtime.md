@@ -48,6 +48,8 @@ The supported ACP surface includes:
 - permission requests, elicitation, and authentication;
 - tool-call details, diffs, patch decisions, and ACP terminals;
 - text, image, and audio prompt parts;
+
+When Codex emits an image through a `custom_tool_call_output` (for example, a screenshot returned by `view_image`), Farming presents it in the Agent answer area instead of only inside the collapsed tool record. The tool's text detail remains available under Process.
 - live steer for the active Codex turn through a negotiated, versioned adapter extension;
 - session modes and configuration options when the agent advertises them.
 
