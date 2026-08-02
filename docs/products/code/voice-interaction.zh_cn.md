@@ -82,7 +82,7 @@ thread 构造原生的有界启动上下文；Farming 不自行拼装或复制�
 自动重试旧 v1 路径：较旧的 Codex executable 会得到升级提示；v3 请求仍返回 403 时，
 才视为账号、灰度或工作区权限问题。
 
-第一版 Main Agent 实现中，把 Main Agent 重启为 Codex 会直接启动 Chat/ACP。打开该
+第一版 Main Agent 实现中，选择 **Restart > Codex Chat** 会直接启动 Chat/ACP。打开该
 Main Agent 并点击麦克风后，Realtime 会挂到同一个可见 Main Agent Session，因此语音
 模型可以获得有界的最近 thread 上下文，并继续使用 Main Agent 已有指令和工具协调工作。
 Realtime handoff 会成为同一个 Codex thread 上的普通 turn，权限与工具活动则保留在

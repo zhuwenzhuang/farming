@@ -49,7 +49,7 @@ Chat-to-Terminal and Terminal-to-Chat are real runtime restarts that preserve th
 
 Codex Terminal model-profile controls follow the exact capability advertised by the backend provider adapter. A transient heuristic terminal-screen observation may update busy and lifecycle state, but it must not hide an advertised model control while Codex redraws its composer.
 
-Restarting the Farming Main Agent as Codex selects Chat/ACP so it can be the first Voice Main Agent. Its microphone starts Realtime on that same visible Main Agent Session, preserving the Main Agent instructions, tools, permissions, and audit trail. This is not yet the planned hidden provider-neutral Voice Supervisor; other selected Codex Chat Agents can still use the same negotiated Direct voice path.
+Choosing **Restart > Codex Chat** for the Farming Main Agent selects Chat/ACP so it can be the first Voice Main Agent. Its microphone starts Realtime on that same visible Main Agent Session, preserving the Main Agent instructions, tools, permissions, and audit trail. This is not yet the planned hidden provider-neutral Voice Supervisor; other selected Codex Chat Agents can still use the same negotiated Direct voice path.
 
 ## Verification
 

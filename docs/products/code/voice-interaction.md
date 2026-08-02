@@ -95,11 +95,11 @@ context. It also does not retry the legacy v1 route: older Codex executables
 fail with an upgrade instruction, while a v3 403 remains an account, rollout,
 or workspace entitlement failure.
 
-For the first Main Agent implementation, restarting Main Agent as Codex starts
-it in Chat/ACP mode. Opening that Main Agent and selecting its microphone
-attaches Realtime to the same visible Main Agent Session. The voice model can
-therefore receive bounded recent thread context and use the Main Agent's
-existing instructions and tools to coordinate work. A Realtime handoff becomes
+For the first Main Agent implementation, choosing **Restart > Codex Chat**
+starts Main Agent in Chat/ACP mode. Opening that Main Agent and selecting its
+microphone attaches Realtime to the same visible Main Agent Session. The voice
+model can therefore receive bounded recent thread context and use the Main
+Agent's existing instructions and tools to coordinate work. A Realtime handoff becomes
 an ordinary turn on that same Codex thread, while permissions and tool activity
 remain visible in the ordinary Chat audit trail. It does not create the planned
 hidden Supervisor Session.

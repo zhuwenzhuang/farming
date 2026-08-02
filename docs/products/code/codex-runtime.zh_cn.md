@@ -49,7 +49,7 @@ Chat 与 Terminal 的切换是真实运行时重启，并保留同一个可恢�
 
 Codex Terminal 的模型 Profile 控件以 Backend Provider Adapter 精确声明的能力为准。瞬时的启发式 Terminal Screen Observation 可以更新忙闲和生命周期状态，但 Codex 重绘 Composer 时不得因此隐藏已经声明的模型控件。
 
-把 Farming Main Agent 重启为 Codex 时会直接选择 Chat/ACP，使它成为第一版 Voice Main Agent。麦克风在同一个可见 Main Agent Session 上启动 Realtime，继续使用 Main Agent 指令、工具、权限和审计记录。这还不是规划中的隐藏 provider-neutral Voice Supervisor；其他已选中的 Codex Chat Agent 仍可复用同一条可协商的直达语音路径。
+为 Farming Main Agent 选择 **Restart > Codex Chat** 时会直接选择 Chat/ACP，使它成为第一版 Voice Main Agent。麦克风在同一个可见 Main Agent Session 上启动 Realtime，继续使用 Main Agent 指令、工具、权限和审计记录。这还不是规划中的隐藏 provider-neutral Voice Supervisor；其他已选中的 Codex Chat Agent 仍可复用同一条可协商的直达语音路径。
 
 ## 验证
 
