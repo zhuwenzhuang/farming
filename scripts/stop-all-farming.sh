@@ -42,14 +42,77 @@ trap cleanup EXIT
 collect_targets() {
   local output_file="$1"
   ps -ww -axo uid=,pid=,ppid=,pgid=,lstart=,command= | awk -v owner_uid="$(id -u)" '
-    function is_farming_seed(command) {
-      return command ~ /\/backend\/farming-app-cli\.cjs([[:space:]]|$)/ \
-        || command ~ /\/backend\/command-runner-child\.cjs([[:space:]]|$)/ \
-        || command ~ /\/backend\/native-pty-host\.cjs([[:space:]]|$)/ \
-        || command ~ /\/dist\/acp\/[^ ]+-acp-[^ ]+\.mjs([[:space:]]|$)/ \
-        || command ~ /\/bin\/farming[[:space:]]+browser[[:space:]]+mcp([[:space:]]|$)/ \
-        || command ~ /(^|[;&[:space:]])node[[:space:]]+([^ ]*\/)?bin\/farming[[:space:]]+(start|daemon)([[:space:]]|$)/ \
-        || command ~ /(Google Chrome|Chromium).*--user-data-dir=[^ ]*farming[-_.]/
+    function path_ends_with(value, suffix, prefix_length) {
+      if (value == suffix) return 1
+      prefix_length = length(value) - length(suffix)
+      return prefix_length > 0 \
+        && substr(value, prefix_length, 1) == "/" \
+        && substr(value, prefix_length + 1) == suffix
+    }
+
+    function is_node_executable(value) {
+      return value == "node" || value == "node.exe" || value ~ /\/node(\.exe)?$/
+    }
+
+    function is_linux_loader(value) {
+      return value ~ /(^|\/)(ld-linux[^\/]*|ld-musl[^\/]*|ld-[0-9]+(\.[0-9]+)*\.so)$/
+    }
+
+    function is_server_script(value) {
+      return path_ends_with(value, "backend/farming-app-cli.cjs")
+    }
+
+    function is_internal_script(value) {
+      return path_ends_with(value, "backend/command-runner-child.cjs") \
+        || path_ends_with(value, "backend/native-pty-host.cjs") \
+        || value ~ /(^|\/)dist\/acp\/[^\/[:space:]]+-acp-[^\/[:space:]]+\.mjs$/
+    }
+
+    function is_server_cli(cli_field, command) {
+      if (!path_ends_with($(cli_field), "bin/farming")) return 0
+      command = $(cli_field + 1)
+      return command == "start" || command == "daemon"
+    }
+
+    function is_browser_cli(cli_field) {
+      return path_ends_with($(cli_field), "bin/farming") \
+        && $(cli_field + 1) == "browser" \
+        && $(cli_field + 2) == "mcp"
+    }
+
+    function is_node_auxiliary_seed(node_field, script_field) {
+      if (!is_node_executable($(node_field))) return 0
+      return is_internal_script($(script_field)) \
+        || is_browser_cli(script_field)
+    }
+
+    function is_server_seed() {
+      return (is_node_executable($10) \
+          && (is_server_script($11) || is_server_cli(11))) \
+        || (is_linux_loader($10) && $11 == "--library-path" \
+          && is_node_executable($13) \
+          && (is_server_script($14) || is_server_cli(14))) \
+        || is_server_cli(10)
+    }
+
+    function is_chrome_seed(command) {
+      if (command !~ /--user-data-dir=[^ ]*farming[-_.]/) return 0
+      return $10 ~ /(^|\/)(google-chrome(-stable)?|chromium(-browser)?)$/ \
+        || command ~ /^\/[^[:space:]]*\/Google Chrome\.app\/Contents\/MacOS\/Google Chrome([[:space:]]|$)/ \
+        || command ~ /^\/[^[:space:]]*\/Chromium\.app\/Contents\/MacOS\/Chromium([[:space:]]|$)/
+    }
+
+    function farming_seed_kind(command) {
+      # Only executable/argv positions establish a Farming-owned root. A path
+      # mentioned by an unrelated command remains unowned; descendants of a
+      # verified root are added separately below.
+      if (is_server_seed()) return 2
+      if (is_node_auxiliary_seed(10, 11) \
+          || (is_linux_loader($10) && $11 == "--library-path" \
+            && is_node_auxiliary_seed(13, 14)) \
+          || is_browser_cli(10) \
+          || is_chrome_seed(command)) return 1
+      return 0
     }
 
     $1 == owner_uid {
@@ -60,7 +123,11 @@ collect_targets() {
       command = $10
       for (field = 11; field <= NF; field += 1) command = command " " $field
       commands[pid] = command
-      if (is_farming_seed(command)) selected[pid] = 1
+      seed_kind = farming_seed_kind(command)
+      if (seed_kind) {
+        selected[pid] = 1
+        graceful[pid] = seed_kind == 2 ? 1 : 0
+      }
     }
 
     END {
@@ -75,7 +142,7 @@ collect_targets() {
         }
       }
       for (pid in selected) {
-        if (selected[pid]) print pid "\t" group[pid] "\t" started[pid] "\t" commands[pid]
+        if (selected[pid]) print pid "\t" group[pid] "\t" started[pid] "\t" (graceful[pid] ? 1 : 0) "\t" commands[pid]
       }
     }
   ' | sort -n > "${output_file}"
@@ -91,8 +158,9 @@ print_targets() {
   fi
   echo "Matched ${count} Farming process(es):"
   awk -F '\t' '{
-    command = length($4) > 180 ? substr($4, 1, 177) "..." : $4
-    printf "  pid=%s pgid=%s %s\n", $1, $2, command
+    command = length($5) > 180 ? substr($5, 1, 177) "..." : $5
+    shutdown = $4 == 1 ? " shutdown=graceful" : ""
+    printf "  pid=%s pgid=%s%s %s\n", $1, $2, shutdown, command
   }' "${input_file}"
 }
 
@@ -101,7 +169,7 @@ signal_target_file() {
   local input_file="$2"
   local owner_uid
   owner_uid="$(id -u)"
-  while IFS=$'\t' read -r pid _group started_at command; do
+  while IFS=$'\t' read -r pid _group started_at _graceful command; do
     [ -n "${pid}" ] || continue
     farming_signal_process_if_identity_matches \
       "${signal_name}" "${pid}" "${owner_uid}" "${started_at}" "${command}" || true
@@ -112,10 +180,10 @@ filter_alive_targets() {
   local input_file="$1"
   local owner_uid
   owner_uid="$(id -u)"
-  while IFS=$'\t' read -r pid group started_at command; do
+  while IFS=$'\t' read -r pid group started_at graceful command; do
     [ -n "${pid}" ] || continue
     if farming_process_identity_matches "${pid}" "${owner_uid}" "${started_at}" "${command}"; then
-      printf '%s\t%s\t%s\t%s\n' "${pid}" "${group}" "${started_at}" "${command}"
+      printf '%s\t%s\t%s\t%s\t%s\n' "${pid}" "${group}" "${started_at}" "${graceful}" "${command}"
     fi
   done < "${input_file}"
 }
@@ -141,7 +209,7 @@ if awk -F '\t' -v current_pid="$$" '$1 == current_pid { found = 1 } END { exit !
   exit 2
 fi
 
-awk -F '\t' '$4 ~ /\/backend\/farming-app-cli\.cjs([[:space:]]|$)/' \
+awk -F '\t' '$4 == 1' \
   "${initial_targets}" > "${signal_targets}"
 
 if [ -s "${signal_targets}" ]; then
