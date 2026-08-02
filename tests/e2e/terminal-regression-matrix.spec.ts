@@ -1298,7 +1298,7 @@ test.describe('terminal regression matrix', () => {
       fs.writeFileSync(externalFile, '# External terminal file\n')
       try {
         await writeTerminalFixture(page, bashAgentId, `${externalFile}\r\n`)
-        const cell = await cellForText(page, bashAgentId, 'README.md', 2)
+        const cell = await cellForText(page, bashAgentId, externalFile, 2)
         await hoverTerminalCell(page, cell.x, cell.y)
         await expect.poll(async () => {
           return page.evaluate((id) => {
