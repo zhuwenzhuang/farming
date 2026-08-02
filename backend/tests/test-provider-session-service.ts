@@ -309,6 +309,36 @@ async function run() {
     'Analyze the Agent naming regression',
   );
 
+  let refreshedProviderTitle = 'first prompt fallback';
+  const refreshedTitleCommits = [];
+  agents.set('refresh-title', {
+    id: 'refresh-title',
+    cwd: workspace,
+    providerSessionProvider: 'codex',
+    providerSessionId: 'codex-session-a',
+    providerSessionTemporary: false,
+    providerSessionTitle: '',
+  });
+  const refreshedTitleService = new ProviderSessionService({
+    agents,
+    findAgentSession: async () => ({ title: refreshedProviderTitle }),
+    commit(agent, change) {
+      refreshedTitleCommits.push({ agent, change });
+    },
+  });
+  assert.strictEqual(await refreshedTitleService.resolveTitle('refresh-title', { force: true }), true);
+  assert.strictEqual(agents.get('refresh-title').providerSessionTitle, 'first prompt fallback');
+  refreshedProviderTitle = 'Summarize the title sync fix';
+  assert.strictEqual(await refreshedTitleService.resolveTitle('refresh-title', { force: true }), true);
+  assert.strictEqual(
+    agents.get('refresh-title').providerSessionTitle,
+    'Summarize the title sync fix',
+    'a later provider title must replace an earlier first-prompt fallback',
+  );
+  assert.strictEqual(refreshedTitleCommits.length, 2);
+  assert.strictEqual(await refreshedTitleService.resolveTitle('refresh-title', { force: true }), true);
+  assert.strictEqual(refreshedTitleCommits.length, 2, 'an unchanged title must not emit another update');
+
   const startupStartedAt = Date.now();
   agents.set('startup-retry', {
     id: 'startup-retry',

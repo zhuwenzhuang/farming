@@ -355,7 +355,6 @@ class ProviderSessionService<Agent extends ProviderSessionAgent = ProviderSessio
       || !agent.providerSessionId
       || agent.providerSessionTemporary === true
       || isTemporaryProviderSessionId(agent.providerSessionId)
-      || String(agent.providerSessionTitle || '').trim()
     ) {
       this.resolutions.delete(`title:${agentId}`);
       return Promise.resolve(false);
@@ -390,11 +389,14 @@ class ProviderSessionService<Agent extends ProviderSessionAgent = ProviderSessio
           || current.providerSessionProvider !== provider
           || current.providerSessionId !== sessionId
           || current.providerSessionTemporary === true
-          || String(current.providerSessionTitle || '').trim()
         ) {
           return false;
         }
 
+        // A provider may expose the first user message before it has persisted
+        // the generated thread title. Keep the lookup refreshable so the later
+        // authoritative title can replace that fallback.
+        if (String(current.providerSessionTitle || '').trim() === title) return true;
         current.providerSessionTitle = title;
         this.commit(current, {
           kind: 'session-updated',
