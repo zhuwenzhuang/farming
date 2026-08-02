@@ -114,6 +114,62 @@ The backend remains authoritative for Agent identity, lifecycle, runtime
 state, attention, messages, permissions, and mutations. Voice must not infer
 those facts from terminal text.
 
+### Codex Realtime connection state
+
+The browser Voice Controller owns exactly one foreground Realtime operation.
+Each operation snapshots `{ generation, agentId, operationId }` before the
+first asynchronous microphone step. `generation` increases on every start,
+stop, Agent change, and disposal. Every continuation after `getUserMedia`, SDP
+creation, ICE gathering, the start response, and remote SDP installation must
+still match all three owner fields before it can publish state or retain local
+media resources.
+
+The browser tracks the start outcome separately from presentation state:
+
+```text
+not-sent -> uncertain -> accepted
+                    \-> rejected
+```
+
+`not-sent` can be cancelled locally. `uncertain` means the request crossed the
+mutation boundary but no authoritative response has been observed. Both
+`uncertain` and `accepted` require an idempotent backend stop/reconcile; local
+peer cleanup alone is never sufficient. Timeout, peer failure, remote SDP
+failure, Agent change, and component disposal all follow that rule.
+
+The backend is the ordering authority for `{ agentId, operationId }`. A stop
+that arrives before its start records a cancellation tombstone for the full
+ACP binding-owner lifetime, so an arbitrarily late start cannot create a
+conversation. Authoritative binding termination releases those tombstones. A replacement start for the same
+Agent waits for the prior operation to finish reconciliation. A late stop for
+an older operation is a no-op and cannot stop the newer conversation. The
+browser may therefore repeat stop after a reordered or uncertain start result
+without replaying the start mutation.
+
+Codex app-server Realtime notifications do not contain an operation ID. The
+reviewed ACP adapter therefore records the operation owner before forwarding
+start, captures that exact owner when each notification arrives, and includes
+it in the ACP event delivered to Farming. Stop retains the old owner and does
+not resolve until the app-server `thread/realtime/closed` boundary has also
+been published to Farming. Only then may the backend send a replacement start.
+If that boundary cannot be observed within the bounded stop interval, the
+fence fails closed: replacement starts remain blocked until the authoritative
+ACP Session is closed or recovered.
+
+The backend operation owner also includes the ACP binding generation, not only
+the Agent ID. A stale stop closure presents its captured generation to the ACP
+runtime; if the Agent now has a replacement binding, the stop is a no-op and
+cannot reach the new Session. Coordinator state is reset only at authoritative
+old-owner termination points: successful explicit Session close, the
+`onProcessStopped` boundary during reconnect, verified unregister, an exact
+persisted ACP process-group stop during kill, and a verified ACP startup
+rollback. A transport error or manual acknowledgement of an unproven legacy
+process exit is not such a boundary and never clears a poisoned fence.
+
+The bounded terminal states are `idle`, `failed`, and `disposed`. Transient
+`requesting-permission`, `connecting`, `live`, and `stopping` states always
+either retain the exact operation owner or transition through stop/reconcile.
+
 ## Voice Action Gateway
 
 Voice, UI, CLI, and future MCP tools should share one typed action layer rather

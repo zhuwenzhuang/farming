@@ -95,6 +95,50 @@ Realtime handoff 会成为同一个 Codex thread 上的普通 turn，权限与�
 后端继续拥有 Agent 身份、生命周期、运行状态、attention、消息、权限和 mutation 的
 权威状态。语音层不能通过解析终端文本推断这些事实。
 
+### Codex Realtime 连接状态
+
+浏览器 Voice Controller 同一时间只拥有一个前台 Realtime operation。每个 operation
+在第一次异步麦克风步骤之前固定 `{ generation, agentId, operationId }`。每次 start、
+stop、Agent 切换与组件销毁都会递增 `generation`。`getUserMedia`、SDP 创建、ICE 收集、
+start 响应和远端 SDP 安装之后的每个 continuation，都必须重新核对这三个 owner 字段，
+之后才可以发布状态或继续持有本地媒体资源。
+
+浏览器把 start 结果与展示状态分开记录：
+
+```text
+not-sent -> uncertain -> accepted
+                    \-> rejected
+```
+
+`not-sent` 可以只在本地取消。`uncertain` 表示请求已经跨过 mutation 边界，但尚未观察到
+权威响应。`uncertain` 与 `accepted` 都必须执行幂等的 backend stop/reconcile；只清理本地
+Peer 不够。超时、Peer 失败、远端 SDP 失败、Agent 切换和组件销毁都遵守这一规则。
+
+Backend 是 `{ agentId, operationId }` 的顺序权威。若 stop 先于对应 start 到达，Backend
+会在整个 ACP binding-owner 生命周期内保留 cancellation tombstone，使任意晚到的 start
+都无法创建对话；只有权威 binding 终止才释放这些 tombstone。同一 Agent 的替换 start
+必须等待旧 operation 完成 reconcile。旧 operation 的迟到 stop 是 no-op，不能停止
+较新的对话。因此浏览器可以在 start 响应重排或结果不确定时重复 stop，而不会重放 start
+mutation。
+
+Codex app-server 的 Realtime notification 本身不含 operation ID。因此，经过审核的
+ACP adapter 会在转发 start 之前登记 operation owner，在每条 notification 到达时捕获
+这个精确 owner，并把它写入交给 Farming 的 ACP event。stop 会继续保留旧 owner，直到
+app-server 的 `thread/realtime/closed` 边界也已经发布给 Farming 后才返回；Backend 只有
+在此之后才能发送替换 start。如果有界 stop 时间内无法观察到该边界，fence 将 fail
+closed：在权威 ACP Session 被关闭或恢复之前，所有替换 start 都保持阻塞。
+
+Backend operation owner 还包含 ACP binding generation，而不只是 Agent ID。旧 stop
+closure 会把它捕获的 generation 交给 ACP runtime；如果该 Agent 当前已经使用替换
+binding，这次 stop 就是 no-op，不能触达新 Session。Coordinator 只在旧 owner 已权威
+终止的节点 reset：显式 Session close 成功、reconnect 的 `onProcessStopped` 边界、验证
+完成的 unregister、kill 中精确停止已持久化的 ACP 进程组，以及验证完成的 ACP 启动
+回滚。单纯 transport error 或对未证明退出的旧进程进行人工确认，都不是此类边界，
+绝不能清除 poisoned fence。
+
+有界终态为 `idle`、`failed` 与 `disposed`。临时的 `requesting-permission`、`connecting`、
+`live` 与 `stopping` 始终保留精确 operation owner，或者经过 stop/reconcile 后退出。
+
 ## Voice Action Gateway
 
 Voice、UI、CLI 和未来 MCP 工具应复用同一个类型化动作层，不能分别实现相互竞争的
