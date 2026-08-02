@@ -53,7 +53,8 @@ const lock = JSON.parse(
 ) as PackageLock;
 const packages = lock.packages || {};
 
-const CODEX_VERSION = '0.144.6';
+export const CODEX_REALTIME_V3_MIN_VERSION = '0.145.0';
+const CODEX_VERSION = CODEX_REALTIME_V3_MIN_VERSION;
 const CLAUDE_VERSION = '0.3.207';
 const AGENT_BROWSER_VERSION = '0.32.3';
 
