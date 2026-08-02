@@ -450,7 +450,7 @@ export function BrowserSidebarPortals({
       {projects.flatMap(project => project.agents.flatMap(agent => {
         const resources = controller.byAgentId.get(agent.id) ?? []
         const hasAdditionalResources = additionalAgentResourceIds.has(agent.id)
-        if (!browserAvailable && !hasAdditionalResources) return []
+        if (resources.length === 0 && !hasAdditionalResources) return []
         const actionTarget = targets.get(`agent-action:${agent.id}`)
         const contentTarget = targets.get(`agent-content:${agent.id}`)
         const expanded = expandedResources.has(agent.id)
@@ -474,7 +474,7 @@ export function BrowserSidebarPortals({
                 workspace: project.workspace,
                 expanded,
               })}
-              {browserAvailable && (
+              {browserAvailable && resources.length > 0 && (
                 <BrowserSection
                   workspace={project.workspace}
                   ownerAgentId={agent.id}

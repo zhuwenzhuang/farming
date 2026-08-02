@@ -1013,21 +1013,7 @@ export function CodeWorkspace({
     expandedSessionProjectIds,
     false
   ), [expandedSessionProjectIds, projectListProjects])
-  const computerSectionAgentIds = useMemo(() => {
-    const ids = new Set(existingComputerResourceAgentIds)
-    if (
-      computerResources.capability?.enabled === true
-      && computerResources.capability.available === true
-    ) {
-      projects.forEach(project => project.agents.forEach(agent => ids.add(agent.id)))
-    }
-    return ids
-  }, [
-    computerResources.capability?.available,
-    computerResources.capability?.enabled,
-    existingComputerResourceAgentIds,
-    projects,
-  ])
+  const computerSectionAgentIds = existingComputerResourceAgentIds
   const searchableProjects = useMemo(
     () => projectListProjectsForAgents(
       visibleLiveAgents,
