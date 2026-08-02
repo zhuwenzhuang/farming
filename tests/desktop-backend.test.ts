@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawn, spawnSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import http from 'node:http'
 import os from 'node:os'
@@ -38,6 +39,7 @@ import {
   normalizeDesktopReleaseRoot,
   normalizeDesktopServerVersion,
   parseRemoteServerHandshake,
+  runCommand,
   shellQuote,
 } from '../desktop/remote-bootstrap'
 
@@ -952,6 +954,239 @@ test('remote Server upload publishes only a complete checksum-verified temporary
     assert.deepEqual(fs.existsSync(installDir) ? fs.readdirSync(installDir) : [], [])
   } finally {
     fs.rmSync(temporaryHome, { recursive: true, force: true })
+  }
+})
+
+function capturedStreamCommand(
+  inputFile: string,
+  command: string,
+  args: string[],
+  options: { signal?: AbortSignal; timeoutMs?: number } = {},
+) {
+  let source: fs.ReadStream | null = null
+  const operation = runCommand(command, args, { ...options, inputFile }, {
+    createReadStream: file => {
+      source = fs.createReadStream(file)
+      return source
+    },
+  })
+  if (!source) throw new Error('Remote command did not create its streamed input source.')
+  return { operation, source }
+}
+
+function assertStreamReleased(source: fs.ReadStream, message: string) {
+  assert.equal(source.destroyed, true, `${message}: source was not destroyed`)
+  assert.equal(source.closed, true, `${message}: source file descriptor was not closed`)
+  assert.equal(Reflect.get(source, 'fd'), null, `${message}: source retained an open file descriptor`)
+}
+
+test('remote command releases its exact streamed input when the child exits early', async () => {
+  const temporaryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-desktop-command-input-'))
+  const inputFile = path.join(temporaryDir, 'sparse-input')
+  const cleanupSources: fs.ReadStream[] = []
+  try {
+    const descriptor = fs.openSync(inputFile, 'w')
+    try {
+      fs.ftruncateSync(descriptor, 64 * 1024 * 1024)
+    } finally {
+      fs.closeSync(descriptor)
+    }
+    const captured = capturedStreamCommand(inputFile, process.execPath, [
+      '-e',
+      'setTimeout(() => process.exit(7), 100)',
+    ], {
+      timeoutMs: 2_000,
+    })
+    cleanupSources.push(captured.source)
+    const result = await captured.operation
+    assert.equal(result.code, 7)
+    assertStreamReleased(captured.source, 'child early exit')
+  } finally {
+    cleanupSources.forEach(source => source.destroy())
+    fs.rmSync(temporaryDir, { recursive: true, force: true })
+  }
+})
+
+test('remote command releases streamed input on spawn error, cancellation, timeout, and input error', async t => {
+  const temporaryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-desktop-command-stop-input-'))
+  const inputFile = path.join(temporaryDir, 'sparse-input')
+  const cleanupSources: fs.ReadStream[] = []
+  const cleanupPids: number[] = []
+  const descriptor = fs.openSync(inputFile, 'w')
+  try {
+    fs.ftruncateSync(descriptor, 64 * 1024 * 1024)
+  } finally {
+    fs.closeSync(descriptor)
+  }
+  try {
+    await t.test('spawn error', async () => {
+      const captured = capturedStreamCommand(inputFile, path.join(temporaryDir, 'missing-command'), [])
+      cleanupSources.push(captured.source)
+      await assert.rejects(captured.operation, /ENOENT/)
+      assertStreamReleased(captured.source, 'spawn error')
+    })
+    await t.test('cancellation', async () => {
+      const controller = new AbortController()
+      const captured = capturedStreamCommand(inputFile, process.execPath, [
+        '-e',
+        'setInterval(() => {}, 1000)',
+      ], { signal: controller.signal, timeoutMs: 2_000 })
+      cleanupSources.push(captured.source)
+      controller.abort()
+      await assert.rejects(captured.operation, DesktopRemoteOperationCancelledError)
+      assertStreamReleased(captured.source, 'cancellation')
+    })
+    await t.test('timeout', async () => {
+      const captured = capturedStreamCommand(inputFile, process.execPath, [
+        '-e',
+        'setInterval(() => {}, 1000)',
+      ], { timeoutMs: 20 })
+      cleanupSources.push(captured.source)
+      await assert.rejects(captured.operation, /exceeded its 1 second deadline/)
+      assertStreamReleased(captured.source, 'timeout')
+    })
+    await t.test('input error', async () => {
+      const captured = capturedStreamCommand(
+        path.join(temporaryDir, 'missing-input'),
+        process.execPath,
+        ['-e', 'setInterval(() => {}, 1000)'],
+      )
+      cleanupSources.push(captured.source)
+      await assert.rejects(captured.operation, /ENOENT/)
+      assertStreamReleased(captured.source, 'input error')
+    })
+    await t.test('synchronous input setup error', async () => {
+      let spawnedPid: number | undefined
+      const operation = runCommand(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+        inputFile,
+        timeoutMs: 2_000,
+      }, {
+        createReadStream: () => { throw new Error('fixture setup failure') },
+        onSpawn: child => {
+          spawnedPid = child.pid
+          if (child.pid !== undefined) cleanupPids.push(child.pid)
+        },
+      })
+      await assert.rejects(operation, /fixture setup failure/)
+      if (spawnedPid === undefined) throw new Error('Fixture did not capture its child process.')
+      const exactPid = spawnedPid
+      assert.throws(
+        () => process.kill(exactPid, 0),
+        (error: unknown) => (error as NodeJS.ErrnoException)?.code === 'ESRCH',
+        'synchronous input setup failure rejected while its child process was still alive',
+      )
+    })
+  } finally {
+    cleanupSources.forEach(source => source.destroy())
+    cleanupPids.forEach(pid => {
+      try {
+        process.kill(pid, 'SIGKILL')
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error
+      }
+    })
+    fs.rmSync(temporaryDir, { recursive: true, force: true })
+  }
+})
+
+test('remote command rejects an input failure only after a SIGTERM-resistant child is dead', async () => {
+  const temporaryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-desktop-command-input-failure-'))
+  const inputFile = path.join(temporaryDir, 'sparse-input')
+  const descriptor = fs.openSync(inputFile, 'w')
+  try {
+    fs.ftruncateSync(descriptor, 64 * 1024 * 1024)
+  } finally {
+    fs.closeSync(descriptor)
+  }
+  const cleanupSources: fs.ReadStream[] = []
+  let spawnedPid: number | undefined
+  let exitSignal: NodeJS.Signals | null | undefined
+  let resolveReady: (() => void) | undefined
+  const ready = new Promise<void>(resolve => { resolveReady = resolve })
+  try {
+    let source: fs.ReadStream | null = null
+    const operation = runCommand(process.execPath, ['-e', [
+      `process.on('SIGTERM', () => {})`,
+      `process.stdout.write('ready\\n')`,
+      `setInterval(() => {}, 1000)`,
+    ].join(';')], { inputFile, timeoutMs: 5_000 }, {
+      createReadStream: file => {
+        source = fs.createReadStream(file)
+        cleanupSources.push(source)
+        return source
+      },
+      onSpawn: child => {
+        spawnedPid = child.pid
+        child.stdout?.once('data', () => resolveReady?.())
+        child.once('exit', (_code, signal) => { exitSignal = signal })
+      },
+    })
+    let settled = false
+    void operation.then(
+      () => { settled = true },
+      () => { settled = true },
+    )
+    await Promise.race([
+      ready,
+      new Promise<void>((_resolve, reject) => {
+        setTimeout(() => reject(new Error('SIGTERM-resistant child did not report ready within 1 second.')), 1_000)
+      }),
+    ])
+    if (!source || spawnedPid === undefined) throw new Error('Fixture did not capture its input source and child process.')
+    const exactSource: fs.ReadStream = source
+    const exactPid = spawnedPid
+    const sourceClosed = exactSource.closed
+      ? Promise.resolve()
+      : new Promise<void>(resolve => exactSource.once('close', resolve))
+    exactSource.destroy(new Error('fixture input failure'))
+    await sourceClosed
+
+    assert.equal(settled, false, 'input failure settled before terminating the child')
+    assert.doesNotThrow(() => process.kill(exactPid, 0), 'SIGTERM-resistant child exited before forced termination')
+    await assert.rejects(operation, /fixture input failure/)
+    assert.equal(exitSignal, 'SIGKILL')
+    assert.throws(
+      () => process.kill(exactPid, 0),
+      (error: unknown) => (error as NodeJS.ErrnoException)?.code === 'ESRCH',
+      'input failure rejected while its child process was still alive',
+    )
+    assertStreamReleased(exactSource, 'SIGTERM-resistant input failure')
+  } finally {
+    cleanupSources.forEach(source => source.destroy())
+    if (spawnedPid !== undefined) {
+      try {
+        process.kill(spawnedPid, 'SIGKILL')
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error
+      }
+    }
+    fs.rmSync(temporaryDir, { recursive: true, force: true })
+  }
+})
+
+test('remote command streams the complete payload before successful child completion', async () => {
+  const temporaryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-desktop-command-complete-input-'))
+  const inputFile = path.join(temporaryDir, 'payload')
+  const payload = Buffer.alloc(2 * 1024 * 1024, 0x5a)
+  fs.writeFileSync(inputFile, payload)
+  const expectedHash = createHash('sha256').update(payload).digest('hex')
+  const cleanupSources: fs.ReadStream[] = []
+  try {
+    const captured = capturedStreamCommand(inputFile, process.execPath, ['-e', [
+      `const { createHash } = require('node:crypto')`,
+      `const hash = createHash('sha256')`,
+      `let bytes = 0`,
+      `process.stdin.on('data', chunk => { bytes += chunk.length; hash.update(chunk) })`,
+      `process.stdin.on('end', () => console.log(JSON.stringify({ bytes, sha256: hash.digest('hex') })))`,
+    ].join(';')], { timeoutMs: 2_000 })
+    cleanupSources.push(captured.source)
+    const result = await captured.operation
+    assert.equal(result.code, 0)
+    assert.deepEqual(JSON.parse(result.stdout), { bytes: payload.length, sha256: expectedHash })
+    assertStreamReleased(captured.source, 'successful full input')
+  } finally {
+    cleanupSources.forEach(source => source.destroy())
+    fs.rmSync(temporaryDir, { recursive: true, force: true })
   }
 })
 

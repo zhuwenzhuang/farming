@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { spawn } from 'node:child_process'
+import { spawn, type ChildProcess } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 
@@ -247,11 +247,14 @@ export async function downloadDesktopReleaseUrl(
   throw new Error(`${description} failed after ${RELEASE_DOWNLOAD_ATTEMPTS} attempts${detail}`)
 }
 
-function runCommand(command: string, args: string[], options: {
+export function runCommand(command: string, args: string[], options: {
   input?: Buffer | string
   inputFile?: string
   timeoutMs?: number
   signal?: AbortSignal
+} = {}, dependencies: {
+  createReadStream?: (file: string) => fs.ReadStream
+  onSpawn?: (child: ChildProcess) => void
 } = {}) {
   return new Promise<CommandResult>((resolve, reject) => {
     if (options.input !== undefined && options.inputFile) {
@@ -259,11 +262,27 @@ function runCommand(command: string, args: string[], options: {
       return
     }
     const child = spawn(command, args, { stdio: ['pipe', 'pipe', 'pipe'] })
+    const processStarted = child.pid !== undefined
+    dependencies.onSpawn?.(child)
     let stdout = ''
     let stderr = ''
     let settled = false
-    let terminationReason: 'cancelled' | 'timeout' | null = null
+    let terminationReason: 'cancelled' | 'timeout' | 'input-failure' | null = null
+    let inputFailure: Error | null = null
     let killTimeout: NodeJS.Timeout | null = null
+    let input: fs.ReadStream | null = null
+    let inputCleanup: Promise<void> | null = null
+    const stopInput = () => {
+      if (inputCleanup) return inputCleanup
+      const source = input
+      if (!source) return Promise.resolve()
+      source.unpipe(child.stdin)
+      inputCleanup = source.closed
+        ? Promise.resolve()
+        : new Promise<void>(resolve => source.once('close', resolve))
+      source.destroy()
+      return inputCleanup
+    }
     const cleanup = () => {
       clearTimeout(timeout)
       if (killTimeout) clearTimeout(killTimeout)
@@ -273,11 +292,13 @@ function runCommand(command: string, args: string[], options: {
       if (settled) return
       settled = true
       cleanup()
-      operation()
+      void stopInput().then(operation)
     }
-    const terminate = (reason: 'cancelled' | 'timeout') => {
+    const terminate = (reason: 'cancelled' | 'timeout' | 'input-failure', error?: Error) => {
       if (settled || terminationReason) return
       terminationReason = reason
+      if (reason === 'input-failure') inputFailure = error || new Error('Remote command input failed.')
+      void stopInput()
       child.kill('SIGTERM')
       killTimeout = setTimeout(() => {
         if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
@@ -290,26 +311,43 @@ function runCommand(command: string, args: string[], options: {
     child.stdout.on('data', chunk => { stdout = boundedOutput(stdout, chunk) })
     child.stderr.on('data', chunk => { stderr = boundedOutput(stderr, chunk) })
     child.once('error', error => {
-      finish(() => reject(error))
+      if (terminationReason === 'input-failure' && processStarted && child.exitCode === null && child.signalCode === null) {
+        stderr = boundedOutput(stderr, `process: ${error.message}`)
+        return
+      }
+      finish(() => {
+        if (terminationReason === 'cancelled') reject(new DesktopRemoteOperationCancelledError())
+        else if (terminationReason === 'timeout') reject(new Error(`Remote command exceeded its ${Math.ceil((options.timeoutMs ?? 120_000) / 1000)} second deadline.`))
+        else if (terminationReason === 'input-failure') reject(inputFailure)
+        else reject(error)
+      })
     })
     child.once('exit', code => {
       finish(() => {
         if (terminationReason === 'cancelled') reject(new DesktopRemoteOperationCancelledError())
         else if (terminationReason === 'timeout') reject(new Error(`Remote command exceeded its ${Math.ceil((options.timeoutMs ?? 120_000) / 1000)} second deadline.`))
+        else if (terminationReason === 'input-failure') reject(inputFailure)
         else resolve({ code: code ?? 1, stdout, stderr })
       })
     })
     child.stdin.once('error', error => {
       stderr = boundedOutput(stderr, `stdin: ${error.message}`)
+      void stopInput()
       child.kill()
     })
     if (options.inputFile) {
-      const input = fs.createReadStream(options.inputFile)
+      try {
+        input = (dependencies.createReadStream ?? fs.createReadStream)(options.inputFile)
+      } catch (error) {
+        terminate('input-failure', error instanceof Error ? error : new Error(String(error)))
+        return
+      }
       input.once('error', error => {
         stderr = boundedOutput(stderr, `input: ${error.message}`)
-        child.kill()
+        terminate('input-failure', error)
       })
-      input.pipe(child.stdin)
+      if (terminationReason) void stopInput()
+      else input.pipe(child.stdin)
     } else if (options.input !== undefined) {
       child.stdin.end(options.input)
     } else {
