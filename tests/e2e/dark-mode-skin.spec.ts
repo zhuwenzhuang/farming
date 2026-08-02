@@ -351,12 +351,7 @@ test.describe('Farming Code dark skin', () => {
     await codexAgentRow.click()
     await getAgentIdFromRow(page)
     await expectActiveTurnSpinner(codexAgentRow.locator('.code-agent-dot').first())
-    await page.getByTestId('code-composer').locator('textarea').fill('queued dark followup')
-    await page.getByTestId('code-composer-send').click()
-    await expect(page.getByTestId('code-pending-followup')).toBeVisible()
-    await expectDarkSurface(page.getByTestId('code-pending-followup'), 'pending follow-up')
-    await page.getByTestId('code-pending-followup-discard').click()
-    await expect(page.getByTestId('code-pending-followup')).toBeHidden()
+
     await expect(page.getByTestId('code-composer-add')).toBeVisible()
     await page.getByTestId('code-composer-add').click()
     await expect(page.getByTestId('code-composer-plus-menu')).toBeVisible()
@@ -375,6 +370,13 @@ test.describe('Farming Code dark skin', () => {
     await expectDarkSurface(page.getByTestId('code-model-menu'), 'model menu')
     await saveScreenshot(testInfo, 'model-menu.png', page.getByTestId('code-model-menu'))
     await page.keyboard.press('Escape')
+
+    await page.getByTestId('code-composer').locator('textarea').fill('queued dark followup')
+    await page.getByTestId('code-composer-send').click()
+    await expect(page.getByTestId('code-pending-followup')).toBeVisible()
+    await expectDarkSurface(page.getByTestId('code-pending-followup'), 'pending follow-up')
+    await page.getByTestId('code-pending-followup-discard').click()
+    await expect(page.getByTestId('code-pending-followup')).toBeHidden()
 
     await page.setViewportSize({ width: 390, height: 844 })
     await page.waitForTimeout(250)

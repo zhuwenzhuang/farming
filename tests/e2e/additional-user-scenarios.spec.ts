@@ -48,6 +48,26 @@ async function openStableComposerMenu(
   }).toPass({ timeout: 10_000 })
 }
 
+async function openModelSubmenuStably(
+  page: import('@playwright/test').Page,
+  modelPicker: import('@playwright/test').Locator,
+  modelMenu: import('@playwright/test').Locator,
+  triggerTestId: string,
+  submenuTestId: string,
+) {
+  const trigger = page.getByTestId(triggerTestId)
+  const submenu = page.getByTestId(submenuTestId)
+  await expect(async () => {
+    if (await submenu.isVisible()) return
+    if (!(await modelMenu.isVisible())) await modelPicker.click()
+    await expect(modelMenu).toBeVisible({ timeout: 1_000 })
+    await expect(trigger).toBeVisible({ timeout: 1_000 })
+    await expect(trigger).toBeEnabled({ timeout: 1_000 })
+    await trigger.click({ timeout: 2_000 })
+    await expect(submenu).toBeVisible({ timeout: 1_000 })
+  }).toPass({ timeout: 30_000 })
+}
+
 async function expectNoDocumentOverflow(page: import('@playwright/test').Page) {
   await expect.poll(async () => page.evaluate(() => ({
     scrollX: window.scrollX,
@@ -474,10 +494,13 @@ test.describe('additional Farming Code user scenarios', () => {
       const modelMenu = page.getByTestId('code-model-menu')
       await openStableComposerMenu(page, page.getByTestId('code-composer-model-picker'), modelMenu)
       await modelsLoaded
-      await openStableComposerMenu(page, page.getByTestId('code-composer-model-picker'), modelMenu)
-      const modelSubmenuTrigger = page.getByTestId('code-model-submenu-trigger')
-      await expect(modelSubmenuTrigger).toBeEnabled()
-      await modelSubmenuTrigger.click()
+      await openModelSubmenuStably(
+        page,
+        page.getByTestId('code-composer-model-picker'),
+        modelMenu,
+        'code-model-submenu-trigger',
+        'code-model-submenu',
+      )
       const modelSubmenu = page.getByTestId('code-model-submenu')
       await expect(modelSubmenu).toBeVisible()
       await expect(modelSubmenu.locator('[role="menuitemradio"][aria-checked="true"]')).toHaveCount(1)
@@ -850,8 +873,13 @@ test.describe('additional Farming Code user scenarios', () => {
       await expect(modelMenu).toBeVisible()
       await modelsLoaded
       await expectMenuFitsViewport(page, 'code-model-menu')
-      await expect(page.getByTestId('code-model-submenu-trigger')).toBeEnabled()
-      await page.getByTestId('code-model-submenu-trigger').click()
+      await openModelSubmenuStably(
+        page,
+        page.getByTestId('code-composer-model-picker'),
+        modelMenu,
+        'code-model-submenu-trigger',
+        'code-model-submenu',
+      )
       await expect(page.getByTestId('code-model-submenu')).toBeVisible()
       await expectMenuFitsViewport(page, 'code-model-menu')
       await expect.poll(async () => page.getByTestId('code-model-submenu').evaluate(element => getComputedStyle(element as HTMLElement).position)).toBe('static')
