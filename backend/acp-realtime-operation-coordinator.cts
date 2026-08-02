@@ -1,5 +1,11 @@
 type RealtimeStartResult = Record<string, unknown>;
 
+const DEFAULT_CANCELLED_OPERATION_LIMIT = 256;
+
+interface RealtimeOperationCoordinatorOptions {
+  cancelledOperationLimit?: number;
+}
+
 interface RealtimeOperation {
   agentId: string;
   ownerId: string;
@@ -26,9 +32,26 @@ function rejectedStart(error: unknown) {
   );
 }
 
+function saturatedStartError() {
+  return Object.assign(
+    new Error('Realtime operation safety history is full. Restart Codex Chat before starting voice again.'),
+    { realtimeStartOutcome: 'rejected' as const },
+  );
+}
+
 export class AcpRealtimeOperationCoordinator {
   private readonly current = new Map<string, RealtimeOperation>();
   private readonly cancelled = new Map<string, Set<string>>();
+  private readonly saturated = new Set<string>();
+  private readonly cancelledOperationLimit: number;
+
+  constructor(options: RealtimeOperationCoordinatorOptions = {}) {
+    const limit = options.cancelledOperationLimit ?? DEFAULT_CANCELLED_OPERATION_LIMIT;
+    if (!Number.isSafeInteger(limit) || limit < 1) {
+      throw new Error('cancelledOperationLimit must be a positive safe integer');
+    }
+    this.cancelledOperationLimit = limit;
+  }
 
   private ownerKey(agentId: string, ownerId: string) {
     return `${agentId}\u0000${ownerId}`;
@@ -37,13 +60,21 @@ export class AcpRealtimeOperationCoordinator {
   private rememberCancelled(agentId: string, ownerId: string, operationId: string) {
     const key = this.ownerKey(agentId, ownerId);
     const operationIds = this.cancelled.get(key) || new Set<string>();
-    operationIds.delete(operationId);
+    if (operationIds.has(operationId) || this.saturated.has(key)) return;
+    if (operationIds.size >= this.cancelledOperationLimit) {
+      this.saturated.add(key);
+      return;
+    }
     operationIds.add(operationId);
     this.cancelled.set(key, operationIds);
   }
 
   private wasCancelled(agentId: string, ownerId: string, operationId: string) {
     return this.cancelled.get(this.ownerKey(agentId, ownerId))?.has(operationId) === true;
+  }
+
+  private isSaturated(agentId: string, ownerId: string) {
+    return this.saturated.has(this.ownerKey(agentId, ownerId));
   }
 
   private ensureStopped(operation: RealtimeOperation) {
@@ -87,16 +118,21 @@ export class AcpRealtimeOperationCoordinator {
     start: () => Promise<RealtimeStartResult>,
     stop: () => Promise<unknown>,
   ): Promise<RealtimeStartResult> {
-    if (this.wasCancelled(agentId, ownerId, operationId)) return cancelledResult(operationId);
-
     let existing = this.current.get(agentId);
+    if (existing?.ownerId === ownerId && existing.operationId === operationId) {
+      if (!existing.cancelled) return existing.result;
+      await this.ensureStopped(existing);
+      return cancelledResult(operationId);
+    }
+    if (this.wasCancelled(agentId, ownerId, operationId)) return cancelledResult(operationId);
     if (existing && existing.ownerId !== ownerId) {
+      if (this.isSaturated(agentId, ownerId)) throw saturatedStartError();
       this.current.delete(agentId);
       existing = undefined;
     }
-    if (existing?.operationId === operationId) return existing.result;
     if (existing) await this.cancel(existing);
     if (this.wasCancelled(agentId, ownerId, operationId)) return cancelledResult(operationId);
+    if (this.isSaturated(agentId, ownerId)) throw saturatedStartError();
 
     const operation: RealtimeOperation = {
       agentId,
@@ -166,6 +202,9 @@ export class AcpRealtimeOperationCoordinator {
     this.current.delete(agentId);
     for (const key of this.cancelled.keys()) {
       if (key.startsWith(`${agentId}\u0000`)) this.cancelled.delete(key);
+    }
+    for (const key of this.saturated) {
+      if (key.startsWith(`${agentId}\u0000`)) this.saturated.delete(key);
     }
   }
 }

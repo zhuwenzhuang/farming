@@ -59,6 +59,184 @@ async function run() {
   }
 
   {
+    const coordinator = new AcpRealtimeOperationCoordinator({ cancelledOperationLimit: 2 });
+    let probeStarts = 0;
+    let probeStops = 0;
+    let freshStarts = 0;
+    await coordinator.stop('agent-saturated', 'binding-1', 'voice-op-0');
+    await coordinator.stop('agent-saturated', 'binding-1', 'voice-op-0');
+    await coordinator.stop('agent-saturated', 'binding-1', 'voice-op-1');
+    assert.deepStrictEqual(
+      await coordinator.start(
+        'agent-saturated',
+        'binding-1',
+        'voice-op-capacity-probe',
+        async () => {
+          probeStarts += 1;
+          return { started: true };
+        },
+        async () => {
+          probeStops += 1;
+        },
+      ),
+      { started: true, operationId: 'voice-op-capacity-probe' },
+      'a duplicate stop must not consume unique tombstone capacity',
+    );
+    await coordinator.stop('agent-saturated', 'binding-1', 'voice-op-overflow');
+
+    assert.deepStrictEqual(
+      await coordinator.start(
+        'agent-saturated',
+        'binding-1',
+        'voice-op-0',
+        async () => {
+          freshStarts += 1;
+          return { started: true };
+        },
+        async () => {},
+      ),
+      { started: false, cancelled: true, operationId: 'voice-op-0' },
+      'saturation must not evict the oldest late-start evidence',
+    );
+    await assert.rejects(
+      coordinator.start(
+        'agent-saturated',
+        'binding-1',
+        'voice-op-fresh',
+        async () => {
+          freshStarts += 1;
+          return { started: true };
+        },
+        async () => {},
+      ),
+      error => error instanceof Error
+        && /Restart Codex Chat/.test(error.message)
+        && (error as Error & { realtimeStartOutcome?: string }).realtimeStartOutcome === 'rejected',
+    );
+    assert.strictEqual(probeStarts, 1);
+    assert.strictEqual(probeStops, 1, 'a saturated replacement must still reconcile the different current operation');
+    assert.strictEqual(freshStarts, 0, 'a saturated owner must reject before provider start mutation');
+
+    coordinator.resetAgent('agent-saturated');
+    assert.deepStrictEqual(
+      await coordinator.start(
+        'agent-saturated',
+        'binding-2',
+        'voice-op-fresh',
+        async () => {
+          freshStarts += 1;
+          return { started: true };
+        },
+        async () => {},
+      ),
+      { started: true, operationId: 'voice-op-fresh' },
+    );
+    assert.strictEqual(freshStarts, 1, 'authoritative reset must admit the new binding owner');
+  }
+
+  {
+    const coordinator = new AcpRealtimeOperationCoordinator({ cancelledOperationLimit: 1 });
+    const closed = deferred<void>();
+    const stopCalled = deferred<void>();
+    let starts = 0;
+    let stops = 0;
+    assert.deepStrictEqual(
+      await coordinator.start(
+        'agent-current-overflow',
+        'binding-1',
+        'voice-op-live',
+        async () => {
+          starts += 1;
+          return { started: true };
+        },
+        async () => {
+          stops += 1;
+          stopCalled.resolve();
+          await closed.promise;
+        },
+      ),
+      { started: true, operationId: 'voice-op-live' },
+    );
+    await coordinator.stop('agent-current-overflow', 'binding-1', 'voice-op-filler');
+    const stopping = coordinator.stop('agent-current-overflow', 'binding-1', 'voice-op-live');
+    const duplicateStop = coordinator.stop('agent-current-overflow', 'binding-1', 'voice-op-live');
+    let duplicateSettled = false;
+    const duplicateStart = coordinator.start(
+      'agent-current-overflow',
+      'binding-1',
+      'voice-op-live',
+      async () => {
+        starts += 1;
+        return { started: true };
+      },
+      async () => {},
+    ).finally(() => {
+      duplicateSettled = true;
+    });
+    await stopCalled.promise;
+    await Promise.resolve();
+    assert.strictEqual(
+      duplicateSettled,
+      false,
+      'a cancelled duplicate start must remain pending until the exact provider stop closes',
+    );
+    assert.strictEqual(starts, 1, 'a cancelled duplicate must not invoke provider start again');
+    assert.strictEqual(stops, 1, 'duplicate exact stops must share one reconciliation');
+    closed.resolve();
+    assert.deepStrictEqual(await duplicateStart, {
+      started: false,
+      cancelled: true,
+      operationId: 'voice-op-live',
+    });
+    await Promise.all([stopping, duplicateStop]);
+  }
+
+  {
+    const coordinator = new AcpRealtimeOperationCoordinator({ cancelledOperationLimit: 2 });
+    const stopCalled = deferred<void>();
+    const stopFailure = deferred<void>();
+    let starts = 0;
+    let stops = 0;
+    await coordinator.start(
+      'agent-current-stop-failed',
+      'binding-1',
+      'voice-op-live',
+      async () => {
+        starts += 1;
+        return { started: true };
+      },
+      async () => {
+        stops += 1;
+        stopCalled.resolve();
+        await stopFailure.promise;
+      },
+    );
+    await coordinator.stop('agent-current-stop-failed', 'binding-1', 'voice-op-filler');
+    const stopping = coordinator.stop('agent-current-stop-failed', 'binding-1', 'voice-op-live');
+    const duplicateStart = coordinator.start(
+      'agent-current-stop-failed',
+      'binding-1',
+      'voice-op-live',
+      async () => {
+        starts += 1;
+        return { started: true };
+      },
+      async () => {},
+    );
+    const uncertainFence = (error: unknown) => error instanceof Error
+      && /provider stop failed/.test(error.message)
+      && (error as Error & { realtimeStartOutcome?: string }).realtimeStartOutcome === 'uncertain'
+      && (error as Error & { realtimeFenceFailed?: boolean }).realtimeFenceFailed === true;
+    const observedStop = assert.rejects(stopping, uncertainFence);
+    const observedDuplicate = assert.rejects(duplicateStart, uncertainFence);
+    await stopCalled.promise;
+    stopFailure.reject(new Error('provider stop failed'));
+    await Promise.all([observedStop, observedDuplicate]);
+    assert.strictEqual(starts, 1, 'a failed exact reconciliation must not invoke provider start again');
+    assert.strictEqual(stops, 1, 'a duplicate start must reuse the one failed provider stop');
+  }
+
+  {
     const coordinator = new AcpRealtimeOperationCoordinator();
     const firstStart = deferred<Record<string, unknown>>();
     const firstStopCalled = deferred<void>();
@@ -236,6 +414,55 @@ async function run() {
     assert.strictEqual(newBindingStops, 0, 'a delayed old operation stop must not stop the new binding owner');
     await coordinator.stop('agent-reconnected', 'binding-b', 'voice-op-b');
     assert.strictEqual(newBindingStops, 1);
+  }
+
+  {
+    const coordinator = new AcpRealtimeOperationCoordinator({ cancelledOperationLimit: 1 });
+    let delayedOldStarts = 0;
+    let liveOwnerStops = 0;
+    await coordinator.stop('agent-old-tombstone', 'binding-a', 'voice-op-old');
+    await coordinator.stop('agent-old-tombstone', 'binding-a', 'voice-op-overflow');
+    await coordinator.start(
+      'agent-old-tombstone',
+      'binding-b',
+      'voice-op-live',
+      async () => ({ started: true }),
+      async () => {
+        liveOwnerStops += 1;
+      },
+    );
+    assert.deepStrictEqual(
+      await coordinator.start(
+        'agent-old-tombstone',
+        'binding-a',
+        'voice-op-old',
+        async () => {
+          delayedOldStarts += 1;
+          return { started: true };
+        },
+        async () => {},
+      ),
+      { started: false, cancelled: true, operationId: 'voice-op-old' },
+      'an old-owner tombstone must not delete a different live owner',
+    );
+    assert.strictEqual(delayedOldStarts, 0);
+    await assert.rejects(
+      coordinator.start(
+        'agent-old-tombstone',
+        'binding-a',
+        'voice-op-fresh',
+        async () => {
+          delayedOldStarts += 1;
+          return { started: true };
+        },
+        async () => {},
+      ),
+      /Restart Codex Chat/,
+      'a saturated old owner must reject without deleting a different live owner',
+    );
+    assert.strictEqual(delayedOldStarts, 0);
+    await coordinator.stop('agent-old-tombstone', 'binding-b', 'voice-op-live');
+    assert.strictEqual(liveOwnerStops, 1, 'the live owner must remain exactly stoppable after an old delayed start');
   }
 
   for (const recoveryBoundary of [

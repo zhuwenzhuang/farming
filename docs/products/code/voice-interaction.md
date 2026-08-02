@@ -140,11 +140,16 @@ failure, Agent change, and component disposal all follow that rule.
 The backend is the ordering authority for `{ agentId, operationId }`. A stop
 that arrives before its start records a cancellation tombstone for the full
 ACP binding-owner lifetime, so an arbitrarily late start cannot create a
-conversation. Authoritative binding termination releases those tombstones. A replacement start for the same
-Agent waits for the prior operation to finish reconciliation. A late stop for
-an older operation is a no-op and cannot stop the newer conversation. The
-browser may therefore repeat stop after a reordered or uncertain start result
-without replaying the start mutation.
+conversation. The set is capped at 256 unique operation IDs per binding owner.
+The next distinct stop never evicts older evidence; it saturates that owner and
+rejects every otherwise-new start before provider mutation with an instruction
+to restart Codex Chat. Known tombstones still return cancelled, and an exact
+duplicate of the currently cancelling operation does not start again.
+Authoritative binding termination releases both tombstones and saturation. A
+replacement start for the same Agent waits for the prior operation to finish
+reconciliation. A late stop for an older operation is a no-op and cannot stop
+the newer conversation. The browser may therefore repeat stop after a reordered
+or uncertain start result without replaying the start mutation.
 
 Browser protocol v4 keeps `operationId` optional when parsing incoming
 `acp-realtime` WebSocket events so the shared v4 schema remains tolerant during

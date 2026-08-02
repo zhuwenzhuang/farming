@@ -15,7 +15,7 @@ async function currentMainAgent(page: Page): Promise<PublicAgent | undefined> {
   return body.agents?.find(agent => agent.isMain === true)
 }
 
-test('labels the Codex Main Agent restart as Chat and starts the fake ACP runtime', async ({ page }) => {
+test('labels Codex Main Agent as Chat and rejects a saturated fake ACP voice fence', async ({ page }) => {
   await openFarming(page)
 
   let initialMainAgent: PublicAgent | undefined
@@ -33,18 +33,42 @@ test('labels the Codex Main Agent restart as Chat and starts the fake ACP runtim
   await expect(codexChatRestart).toHaveText('Codex Chat')
   await codexChatRestart.click()
 
+  let replacementMainAgent: PublicAgent | undefined
   await expect.poll(async () => {
-    const replacement = await currentMainAgent(page)
+    replacementMainAgent = await currentMainAgent(page)
     return {
-      command: replacement?.command,
-      isReplacement: Boolean(replacement?.id && replacement.id !== initialMainAgent?.id),
-      runtimeKind: replacement?.runtimeBinding?.kind,
-      runtimeState: replacement?.runtimeBinding?.state,
+      command: replacementMainAgent?.command,
+      isReplacement: Boolean(replacementMainAgent?.id && replacementMainAgent.id !== initialMainAgent?.id),
+      runtimeKind: replacementMainAgent?.runtimeBinding?.kind,
+      runtimeState: replacementMainAgent?.runtimeBinding?.state,
     }
   }, { timeout: 30_000 }).toEqual({
     command: 'codex',
     isReplacement: true,
     runtimeKind: 'acp',
     runtimeState: 'idle',
+  })
+  expect(replacementMainAgent?.id).toBeTruthy()
+
+  const stopIds = Array.from({ length: 257 }, (_, index) => `saturation-stop-${index}`)
+  for (let offset = 0; offset < stopIds.length; offset += 32) {
+    const responses = await Promise.all(stopIds.slice(offset, offset + 32).map(operationId => (
+      page.request.post(
+        `/farming/api/agents/${encodeURIComponent(replacementMainAgent?.id || '')}/acp-realtime/stop`,
+        { data: { operationId } },
+      )
+    )))
+    expect(responses.every(response => response.ok())).toBe(true)
+  }
+
+  const saturatedStart = await page.request.post(
+    `/farming/api/agents/${encodeURIComponent(replacementMainAgent?.id || '')}/acp-realtime/start`,
+    { data: { operationId: 'saturation-start-fresh', sdp: 'v=0\r\nfake-offer' } },
+  )
+  expect(saturatedStart.status()).toBe(409)
+  const saturatedBody = await saturatedStart.json()
+  expect(saturatedBody).toMatchObject({
+    outcome: 'rejected',
+    error: expect.stringMatching(/Restart Codex Chat/),
   })
 })

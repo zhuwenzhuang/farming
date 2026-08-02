@@ -116,10 +116,13 @@ Peer 不够。超时、Peer 失败、远端 SDP 失败、Agent 切换和组件�
 
 Backend 是 `{ agentId, operationId }` 的顺序权威。若 stop 先于对应 start 到达，Backend
 会在整个 ACP binding-owner 生命周期内保留 cancellation tombstone，使任意晚到的 start
-都无法创建对话；只有权威 binding 终止才释放这些 tombstone。同一 Agent 的替换 start
-必须等待旧 operation 完成 reconcile。旧 operation 的迟到 stop 是 no-op，不能停止
-较新的对话。因此浏览器可以在 start 响应重排或结果不确定时重复 stop，而不会重放 start
-mutation。
+都无法创建对话。每个 binding owner 最多保留 256 个不同 operation ID；下一个不同 stop
+不会淘汰任何旧证据，而会把该 owner 标记为 saturated，并在 provider mutation 之前拒绝
+所有其他新 start，提示用户 Restart Codex Chat。已知 tombstone 仍返回 cancelled，当前
+正在取消的 exact operation 的重复 start 也不会再次启动。只有权威 binding 终止才同时
+释放 tombstone 与 saturation。同一 Agent 的替换 start 必须等待旧 operation 完成
+reconcile。旧 operation 的迟到 stop 是 no-op，不能停止较新的对话。因此浏览器可以在
+start 响应重排或结果不确定时重复 stop，而不会重放 start mutation。
 
 Browser protocol v4 在解析收到的 `acp-realtime` WebSocket event 时允许缺少
 `operationId`，使共享 v4 schema 在分阶段部署期间保持可解析。这并不代表 Voice 可以连接
