@@ -39,10 +39,11 @@ async function postJson(baseUrl: string, pathname: string, body: Record<string, 
   return { response, body: await response.json() };
 }
 
-async function waitFor(predicate: () => boolean, message: string) {
-  for (let attempt = 0; attempt < 100; attempt += 1) {
+async function waitFor(predicate: () => boolean, message: string, deadlineMs = 5000) {
+  const deadline = Date.now() + deadlineMs;
+  while (Date.now() < deadline) {
     if (predicate()) return;
-    await new Promise(resolve => setImmediate(resolve));
+    await new Promise(resolve => setTimeout(resolve, 10));
   }
   throw new Error(message);
 }
@@ -202,12 +203,19 @@ async function run() {
       message: 'do not deliver to a replacement runtime',
       requestId: 'terminal-message-stale-runtime',
     });
-    await waitFor(
-      () => terminalAgent.composerCommands.some(
-        command => command.requestId === 'terminal-message-stale-runtime' && command.state === 'intent',
-      ),
-      'persistent Terminal request was not admitted behind the blocked input queue',
-    );
+    try {
+      await waitFor(
+        () => terminalAgent.composerCommands.some(
+          command => command.requestId === 'terminal-message-stale-runtime' && command.state === 'intent',
+        ),
+        'persistent Terminal request was not admitted behind the blocked input queue',
+      );
+    } catch (waitError) {
+      releaseBlockedInput();
+      await blockedInput;
+      await Promise.allSettled([staleRuntimeRequest]);
+      throw waitError;
+    }
     const writesBeforeRuntimeReplacement = terminalInputs.length;
     terminalAgent.runtimeEpoch = 'terminal-epoch-2';
     releaseBlockedInput();
