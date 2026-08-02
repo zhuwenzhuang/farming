@@ -859,6 +859,7 @@ body.code-mode[data-appearance='dark'] .code-model-menu-header,
 body.code-mode[data-appearance='dark'] .code-empty-workspace,
 body.code-mode[data-appearance='dark'] .code-search-panel-header span,
 body.code-mode[data-appearance='dark'] .code-search-result-group h3,
+body.code-mode[data-appearance='dark'] .code-search-result-project,
 body.code-mode[data-appearance='dark'] .code-search-result-copy span,
 body.code-mode[data-appearance='dark'] .code-history-meta,
 body.code-mode[data-appearance='dark'] .code-history-actions span {

@@ -844,6 +844,67 @@ async function run() {
   } finally {
     await stalePtyManager.dispose();
   }
+
+  const registrationRuntime = new AcpRuntime({
+    ...TEST_PROCESS_IDENTITY,
+    resolveLaunch: () => ({ command: process.execPath, args: ['--import', require.resolve('tsx'), fixture], version: 'test' }),
+  });
+  const prepareAgent = registrationRuntime.prepareAgent.bind(registrationRuntime);
+  let releasePrepareAgent;
+  const prepareAgentGate = new Promise(resolve => {
+    releasePrepareAgent = resolve;
+  });
+  registrationRuntime.prepareAgent = async (...args) => {
+    await prepareAgentGate;
+    return prepareAgent(...args);
+  };
+  const registrationManager = new AgentManager(config(), {
+    acpRuntime: registrationRuntime,
+    skipExecutablePreflight: true,
+  });
+  try {
+    let registeredAgentId = null;
+    let completedAgentId = null;
+    let resolveRegisteredAgent;
+    const registered = new Promise(resolve => {
+      resolveRegisteredAgent = resolve;
+    });
+    const start = registrationManager.startAgent(
+      'claude',
+      process.cwd(),
+      (agentId, error) => {
+        assert.ifError(error);
+        completedAgentId = agentId;
+      },
+      {
+        agentRuntimeMode: 'chat',
+        wantsMain: false,
+        onAgentRegistered: agentId => {
+          registeredAgentId = agentId;
+          resolveRegisteredAgent();
+        },
+      },
+    );
+    await Promise.race([
+      registered,
+      new Promise((_, reject) => setTimeout(
+        () => reject(new Error('ACP Agent was not registered before initialization')),
+        2_000,
+      )),
+    ]);
+    const registeredAgent = registrationManager.agents.get(registeredAgentId);
+    assert(registeredAgent);
+    assert.strictEqual(registeredAgent.runtimeBinding.kind, 'acp');
+    assert.strictEqual(registeredAgent.runtimeBinding.state, 'connecting');
+    assert.strictEqual(completedAgentId, null, 'the final start callback must wait for ACP initialization');
+
+    releasePrepareAgent();
+    assert.strictEqual(await start, registeredAgentId);
+    assert.strictEqual(completedAgentId, registeredAgentId);
+  } finally {
+    releasePrepareAgent?.();
+    await registrationManager.dispose();
+  }
   console.log('agent manager ACP tests passed');
 }
 

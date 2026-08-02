@@ -118,6 +118,8 @@ type TerminalOutputHandler = (
 type TerminalTransitionKind = 'output' | 'resize' | 'clear'
 
 const TERMINAL_CHECKPOINT_REQUEST_TIMEOUT_MS = 5000
+const TERMINAL_CHECKPOINT_PREFETCH_TTL_MS = 15_000
+const TERMINAL_CHECKPOINT_PREFETCH_LIMIT = 24
 const TERMINAL_RESIZE_SETTLE_MS = 250
 const TERMINAL_RESIZE_DELIVERY_TIMEOUT_MS = 1500
 const TERMINAL_RESIZE_REDRAW_QUIET_MS = 50
@@ -607,6 +609,97 @@ async function fetchSessionBootstrapState(
   }
   const data = await response.json() as SessionDataPayload
   return sessionBootstrapStateFromPayload(data)
+}
+
+type PrefetchedTerminalCheckpoint = {
+  fetchedAt: number
+  state: SessionBootstrapState
+}
+
+const prefetchedTerminalCheckpoints = new Map<string, PrefetchedTerminalCheckpoint>()
+const terminalCheckpointPrefetches = new Map<string, Promise<void>>()
+
+function hasTerminalCheckpointProof(
+  state: SessionBootstrapState,
+): state is SessionBootstrapState & {
+  outputSeq: number
+  stateRevision: number
+  cols: number
+  rows: number
+} {
+  return Boolean(
+    state.runtimeEpoch
+    && Number.isFinite(state.outputSeq)
+    && Number.isFinite(state.stateRevision)
+    && Number.isFinite(state.cols)
+    && Number.isFinite(state.rows)
+  )
+}
+
+function trimPrefetchedTerminalCheckpoints(now = Date.now()) {
+  for (const [agentId, checkpoint] of prefetchedTerminalCheckpoints) {
+    if (now - checkpoint.fetchedAt > TERMINAL_CHECKPOINT_PREFETCH_TTL_MS) {
+      prefetchedTerminalCheckpoints.delete(agentId)
+    }
+  }
+  while (prefetchedTerminalCheckpoints.size > TERMINAL_CHECKPOINT_PREFETCH_LIMIT) {
+    const oldestAgentId = prefetchedTerminalCheckpoints.keys().next().value
+    if (!oldestAgentId) return
+    prefetchedTerminalCheckpoints.delete(oldestAgentId)
+  }
+}
+
+export function prefetchTerminalSessionCheckpoint(agentId: string): Promise<void> {
+  if (!agentId) return Promise.resolve()
+  trimPrefetchedTerminalCheckpoints()
+  const inFlight = terminalCheckpointPrefetches.get(agentId)
+  if (inFlight) return inFlight
+
+  const controller = new AbortController()
+  const timeout = window.setTimeout(
+    () => controller.abort(new DOMException('Terminal checkpoint prefetch timed out', 'TimeoutError')),
+    TERMINAL_CHECKPOINT_REQUEST_TIMEOUT_MS,
+  )
+  const prefetch = (async () => {
+    try {
+      const state = await fetchSessionBootstrapState(agentId, controller.signal)
+      if (hasTerminalCheckpointProof(state)) {
+        prefetchedTerminalCheckpoints.delete(agentId)
+        prefetchedTerminalCheckpoints.set(agentId, { fetchedAt: Date.now(), state })
+        trimPrefetchedTerminalCheckpoints()
+      }
+    } catch {
+      // A prefetch is an optional latency optimization. The normal attach path
+      // retains its authoritative checkpoint request and recovery behavior.
+    } finally {
+      window.clearTimeout(timeout)
+      terminalCheckpointPrefetches.delete(agentId)
+    }
+  })()
+  terminalCheckpointPrefetches.set(agentId, prefetch)
+  return prefetch
+}
+
+export function prefetchedTerminalSessionCheckpoint(
+  agentId: string,
+  expected: Pick<SessionBootstrapState, 'runtimeEpoch' | 'outputSeq' | 'stateRevision'>,
+) {
+  trimPrefetchedTerminalCheckpoints()
+  const checkpoint = prefetchedTerminalCheckpoints.get(agentId)
+  console.log('prefetched checkpoint lookup', agentId, expected, checkpoint?.state)
+  if (!checkpoint) return undefined
+  const state = checkpoint.state
+  if (
+    state.runtimeEpoch !== expected.runtimeEpoch
+    || !hasTerminalCheckpointProof(state)
+    || expected.outputSeq === null
+    || expected.stateRevision === null
+    || state.outputSeq < expected.outputSeq
+    || state.stateRevision < expected.stateRevision
+  ) {
+    return undefined
+  }
+  return state
 }
 
 async function fetchSessionBootstrapStateForCurrentTerminal(record: SessionRecord) {

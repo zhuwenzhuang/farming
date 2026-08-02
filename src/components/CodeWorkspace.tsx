@@ -4137,7 +4137,13 @@ export function CodeWorkspace({
   const forkContextMenuAgent = useCallback((mode: 'same-worktree' | 'new-worktree') => {
     if (!contextMenuAgent) return
     closeContextMenu()
-    onForkAgent(contextMenuAgent.id, mode)
+    const forkOptions = contextMenuAgent.runtimeBinding.kind === 'acp'
+      ? {
+          targetRuntime: 'chat' as const,
+          expectedRevision: contextMenuAgent.runtimeBinding.sessionRevision,
+        }
+      : undefined
+    onForkAgent(contextMenuAgent.id, mode, forkOptions)
   }, [closeContextMenu, contextMenuAgent, onForkAgent])
 
   const updateContextMenuAgentFlags = useCallback((flags: Partial<Pick<Agent, 'pinned' | 'unread' | 'archived'>>) => {

@@ -302,6 +302,8 @@ test.describe('additional Farming Code user scenarios', () => {
       await searchInput.fill(path.basename(projectDir))
       await expect(page.getByTestId('code-search-panel')).toBeVisible()
       await expect(page.getByTestId('code-search-result')).toHaveCount(2)
+      await expect(page.getByTestId('code-search-result-project')).toHaveCount(2)
+      await expect(page.getByTestId('code-search-result-project').first()).toHaveText(path.basename(projectDir))
       await searchInput.fill('not-a-real-agent-name')
       await expect(page.getByTestId('code-empty-search')).toBeVisible()
       await page.getByTestId('code-search-box').getByRole('button', { name: 'Clear search' }).click()

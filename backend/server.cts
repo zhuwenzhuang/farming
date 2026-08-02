@@ -3229,6 +3229,7 @@ function handleMessage(ws: WebSocketClient, data: ServerClientMessage) {
       break;
     case 'start-agent': {
       const workspace = typeof data.workspace === 'string' ? data.workspace : null;
+      const revealChatAgentWhileConnecting = data.agentRuntimeMode === 'chat';
       void (async () => {
         const projectWorkspace = data.asMain === true
           ? ''
@@ -3285,6 +3286,13 @@ function handleMessage(ws: WebSocketClient, data: ServerClientMessage) {
           agentRuntimeMode: typeof data.agentRuntimeMode === 'string' && ['acp', 'chat'].includes(data.agentRuntimeMode) ? data.agentRuntimeMode : 'terminal',
           acpHistoryMode: data.acpHistoryMode === 'resume' ? 'resume' : 'load',
           providerHomeId: typeof data.providerHomeId === 'string' ? data.providerHomeId : '',
+          ...(revealChatAgentWhileConnecting ? {
+            onAgentRegistered: (agentId: string) => {
+              ws.agentId = agentId;
+              broadcastState();
+              ws.send(JSON.stringify({ type: 'agent-started', agentId }));
+            },
+          } : {}),
           ...(Array.isArray(data.additionalDirectories) ? { additionalDirectories: data.additionalDirectories } : {}),
           ...(Array.isArray(data.mcpServers) ? { mcpServers: data.mcpServers } : {}),
           ...(data.dangerouslySkipPermissions === true ? { dangerouslySkipPermissions: true } : {}),

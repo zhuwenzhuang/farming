@@ -79,6 +79,12 @@ function run() {
     runtimeBinding: { kind: 'acp', supportsFork: true },
   })), true);
 
+  const chatActions = capabilitiesForAgent(agent('codex', null, {
+    runtimeBinding: { kind: 'acp', supportsFork: true },
+  })).actions;
+  assert.strictEqual(chatActions.forkSameWorktree, true);
+  assert.strictEqual(chatActions.forkNewWorktree, false);
+
   const undeclaredCodex = capabilitiesForAgent(agent('codex', null, {
     providerCapabilities: {
       goalSubmission: null,

@@ -3,7 +3,13 @@ import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent
 import type { Agent } from '@/types/agent'
 import { usePooledTerminal } from '@/hooks/usePooledTerminal'
 import { isTouchInputViewport as isMobileViewport } from '@/lib/responsive-mode'
-import type { TerminalPathOpenTarget, TerminalRecoveryStatus, TerminalSearchDirection, TerminalSearchResult } from '@/lib/terminal-session-pool'
+import {
+  prefetchedTerminalSessionCheckpoint,
+  type TerminalPathOpenTarget,
+  type TerminalRecoveryStatus,
+  type TerminalSearchDirection,
+  type TerminalSearchResult,
+} from '@/lib/terminal-session-pool'
 import type { TerminalSearchOptions } from '@/lib/terminal-search'
 import type { CodeCopy } from './code/copy'
 import {
@@ -167,6 +173,11 @@ export function AgentTerminalPane({
     setTerminalRecoveryStatus(status)
     setTerminalRecoveryClock(Date.now())
   }, [])
+  const bootstrapState = prefetchedTerminalSessionCheckpoint(agent.id, {
+    runtimeEpoch: agent.runtimeEpoch || '',
+    outputSeq: agent.outputSeq ?? null,
+    stateRevision: agent.stateRevision ?? null,
+  })
 
   const {
     focus,
@@ -190,6 +201,7 @@ export function AgentTerminalPane({
     onRecoveryStatusChange: handleTerminalRecoveryStatus,
     onReady: handleTerminalReady,
     onError: handleTerminalError,
+    bootstrapState,
   })
 
   useEffect(() => {

@@ -130,6 +130,14 @@ test('queues a follow-up and explicitly sends negotiated Codex ACP steer', async
   const steerTime = steer.getByTestId('code-agent-transcript-steer-time')
   await expect(steerTime).toHaveCount(1)
   await expect(steerTime).toHaveCSS('opacity', '0')
+  expect(await steer.getByTestId('code-agent-transcript-steer-meta').evaluate(element => {
+    const labelRect = element.querySelector('[data-testid="code-agent-transcript-steer-label"]')?.getBoundingClientRect()
+    const timeRect = element.querySelector('[data-testid="code-agent-transcript-steer-time"]')?.getBoundingClientRect()
+    if (!labelRect || !timeRect) return false
+    const labelCenter = labelRect.top + labelRect.height / 2
+    const timeCenter = timeRect.top + timeRect.height / 2
+    return labelRect.left < timeRect.left && Math.abs(labelCenter - timeCenter) < 1
+  })).toBe(true)
   await steer.locator('.code-agent-transcript-steer-bubble').hover()
   await expect(steerTime).toHaveCSS('opacity', '1')
   await expect(page.getByText('Steer accepted: focus on the attached image after editing', { exact: true })).toBeVisible()

@@ -314,7 +314,6 @@ async function run() {
       return { sessionId: options.sessionId, historyMode: 'load' };
     };
     const acpChatFork = await manager.forkAgent(resumedCodexId, 'same-worktree', {
-      targetRuntime: 'chat',
       expectedRevision: 17,
     });
     assert.strictEqual(acpChatFork.error, undefined);
@@ -331,6 +330,7 @@ async function run() {
     assert.strictEqual(acpChatForkAgent.source, 'ui-fork-acp-chat');
     assert.strictEqual(acpChatForkAgent.forkedFromProviderSessionId, codexSessionId);
     assert.strictEqual(fs.realpathSync(acpChatForkAgent.projectWorkspace), fs.realpathSync(repo));
+    sourceAcpAgent.runtimeBinding = { kind: 'terminal' };
     manager.acpRuntime.getSessionRequestOptions = originalGetSessionRequestOptions;
     manager.acpRuntime.forkSession = originalForkSession;
     manager.acpRuntime.prepareAgent = originalPrepareAgent;

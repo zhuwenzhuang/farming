@@ -613,6 +613,9 @@ function run() {
       workspaceSource.includes('Fork into new worktree') &&
       workspaceSource.includes("onForkAgent('same-worktree')") &&
       workspaceSource.includes("onForkAgent('new-worktree')") &&
+      workspaceSource.includes("contextMenuAgent.runtimeBinding.kind === 'acp'") &&
+      workspaceSource.includes("targetRuntime: 'chat'") &&
+      workspaceSource.includes('expectedRevision: contextMenuAgent.runtimeBinding.sessionRevision') &&
       workspaceSource.includes('compactContextMenuEntries') &&
       workspaceSource.includes('function ContextMenuEntries') &&
 	      workspaceSource.includes('type ContextMenuEntry') &&

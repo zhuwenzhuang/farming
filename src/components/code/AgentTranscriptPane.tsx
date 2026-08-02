@@ -1516,10 +1516,12 @@ function AgentTranscriptSteerItem({ item, copy }: { item: AgentTranscriptProcess
         <AgentTranscriptAudios audios={audios} />
         <AgentTranscriptUserFiles files={files} />
         <AgentTranscriptTerminals terminals={terminals} />
-        <span className="code-agent-transcript-steer-label" data-testid="code-agent-transcript-steer-label">
-          {copy.steerQueuedMessage}
-        </span>
-        <AgentTranscriptMessageTime timestamp={item.createdAt} kind="steer" />
+        <div className="code-agent-transcript-steer-meta" data-testid="code-agent-transcript-steer-meta">
+          <span className="code-agent-transcript-steer-label" data-testid="code-agent-transcript-steer-label">
+            {copy.steerQueuedMessage}
+          </span>
+          <AgentTranscriptMessageTime timestamp={item.createdAt} kind="steer" />
+        </div>
       </div>
     </div>
   )

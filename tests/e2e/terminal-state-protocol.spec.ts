@@ -1196,6 +1196,40 @@ test.describe('terminal state protocol', () => {
     }
   })
 
+  test('preloads a parked terminal checkpoint after new background attention', async ({ page, workspaceRoot }) => {
+    page.on('console', message => console.log('browser-console', message.text()))
+    const workspace = path.join(workspaceRoot, 'parked-checkpoint-prefetch')
+    fs.mkdirSync(workspace, { recursive: true })
+    const parkedAgentId = await createControlAgent(page, workspace)
+    const activeAgentId = await createControlAgent(page, workspace)
+    await openTerminalTestPage(page)
+    await selectControlAgent(page, parkedAgentId)
+    await selectControlAgent(page, activeAgentId)
+
+    const routePattern = new RegExp('/farming/api/agents/' + parkedAgentId + '/session-view$')
+    let checkpointRequests = 0
+    const handler = async (route: import('@playwright/test').Route) => {
+      checkpointRequests += 1
+      const response = await route.fetch()
+      console.log('prefetch-checkpoint', checkpointRequests, await response.json())
+      await route.fulfill({ response })
+    }
+    await page.route(routePattern, handler)
+    try {
+      const unread = await page.request.patch('/farming/api/agents/' + parkedAgentId, {
+        data: { unread: true },
+      })
+      expect(unread.ok()).toBeTruthy()
+      await expect.poll(() => checkpointRequests, { timeout: 10_000 }).toBe(1)
+
+      await selectControlAgent(page, parkedAgentId)
+      await page.waitForTimeout(300)
+      expect(checkpointRequests).toBe(1)
+    } finally {
+      await page.unroute(routePattern, handler)
+    }
+  })
+
   test('1013 backpressure close reconnects through an authoritative checkpoint', async ({ page, workspaceRoot }) => {
     const workspace = path.join(workspaceRoot, 'terminal-backpressure-reconnect')
     fs.mkdirSync(workspace, { recursive: true })

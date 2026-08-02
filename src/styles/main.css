@@ -2147,9 +2147,9 @@ body.code-resizing-sidebar {
   position: absolute;
   top: 50%;
   right: 100%;
-  width: 21px;
+  width: 12px;
   height: 28px;
-  background: linear-gradient(90deg, transparent 0, var(--code-agent-row-fade-surface) 21px, var(--code-agent-row-fade-surface) 100%);
+  background: linear-gradient(90deg, transparent 0, var(--code-agent-row-fade-surface) 12px, var(--code-agent-row-fade-surface) 100%);
   pointer-events: none;
   transform: translateY(-50%);
   z-index: 1;
@@ -2345,11 +2345,7 @@ body.code-mode:not(.code-compact-layout) .code-agent-row.requires-resume .code-a
 
 .code-agent-name {
   font-weight: 400;
-  text-overflow: clip;
-  -webkit-mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 24px), transparent 100%);
-  mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 24px), transparent 100%);
-  -webkit-mask-repeat: no-repeat;
-  mask-repeat: no-repeat;
+  text-overflow: ellipsis;
 }
 
 .code-agent-meta {
@@ -6816,10 +6812,18 @@ body.code-mode .code-instance-name {
   margin-bottom: 0;
 }
 
-.code-agent-transcript-steer-label {
+.code-agent-transcript-steer-meta {
   position: absolute;
   top: calc(100% + 2px);
   left: 10px;
+  right: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 16px;
+}
+
+.code-agent-transcript-steer-label {
   color: #8c959f;
   font-size: 10px;
   font-weight: 400;
@@ -6827,6 +6831,16 @@ body.code-mode .code-instance-name {
   letter-spacing: 0.02em;
   user-select: none;
   -webkit-user-select: none;
+}
+
+.code-agent-transcript-steer-meta .code-agent-transcript-message-time-steer {
+  position: static;
+}
+
+.code-agent-transcript-steer-bubble:hover .code-agent-transcript-message-time-steer,
+.code-agent-transcript-steer-bubble:focus-within .code-agent-transcript-message-time-steer {
+  opacity: 1;
+  transform: translateY(0);
 }
 
 .code-agent-transcript-process {
@@ -13503,6 +13517,13 @@ body.code-mode.code-compact-layout .code-empty-workspace-compact {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.code-search-result-copy .code-search-result-project {
+  color: #4f564e;
+  font-size: 11px;
+  font-weight: 550;
+  line-height: 1.25;
 }
 
 .code-history-panel {

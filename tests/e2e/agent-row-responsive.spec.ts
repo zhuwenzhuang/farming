@@ -29,6 +29,7 @@ async function rowProjection(row: ReturnType<Page['locator']>) {
       title: title.textContent,
       titleClientWidth: Math.round(title.getBoundingClientRect().width),
       titleScrollWidth: title.scrollWidth,
+      titleTextOverflow: getComputedStyle(title).textOverflow,
       providerDisplay: getComputedStyle(provider).display,
       ageDisplay: getComputedStyle(age).display,
       detailDisplay: getComputedStyle(detail).display,
@@ -62,6 +63,7 @@ test('reveals more Agent row information as the sidebar widens', async ({ page, 
 
   const compact = await rowProjection(row)
   expect(compact.titleScrollWidth).toBeGreaterThan(compact.titleClientWidth)
+  expect(compact.titleTextOverflow).toBe('ellipsis')
   expect(compact.providerDisplay).toBe('none')
   expect(compact.ageDisplay).toBe('none')
   expect(compact.detailDisplay).toBe('none')
@@ -169,12 +171,14 @@ test('reveals more Agent row information as the sidebar widens', async ({ page, 
       textOverflow: getComputedStyle(title).textOverflow,
       fadeContent: fadeStyle.content,
       fadeBackgroundImage: fadeStyle.backgroundImage,
+      fadeWidth: fadeStyle.width,
       fadeSurface: rowStyle.getPropertyValue('--code-agent-row-fade-surface').trim(),
     }
   })
   expect(activeTitlePresentation.textOverflow).toBe('clip')
   expect(activeTitlePresentation.fadeContent).toBe('""')
   expect(activeTitlePresentation.fadeBackgroundImage).toContain('linear-gradient')
+  expect(activeTitlePresentation.fadeWidth).toBe('12px')
   expect(activeTitlePresentation.fadeBackgroundImage).toContain('rgb(233, 233, 232)')
   expect(activeTitlePresentation.fadeSurface).toBe('#e9e9e8')
   await page.mouse.move(1000, 100)

@@ -243,6 +243,7 @@ interface RuntimeBindingContract {
 interface AgentStartOptions extends UnknownRecord {
   createRequestId?: string;
   lifecycleToken?: symbol;
+  onAgentRegistered?: (agentId: AgentId) => void;
   projectWorkspace?: string;
   providerSessionId?: string;
   providerSessionProvider?: string;
@@ -862,6 +863,16 @@ function agentHomeProviderForProgram(command: string): string {
 
 function isAcpAgent(agent: TypedAgentRecord): boolean {
   return runtimeKind(agent) === 'acp';
+}
+
+function forkTargetRuntime(
+  agent: TypedAgentRecord,
+  requestedTargetRuntime?: ForkAgentOptions['targetRuntime'],
+): 'terminal' | 'chat' {
+  if (requestedTargetRuntime === 'chat' || requestedTargetRuntime === 'terminal') {
+    return requestedTargetRuntime;
+  }
+  return runtimeKind(agent) === 'acp' ? 'chat' : 'terminal';
 }
 
 function normalizedComposerPrompt(message: unknown): ComposerContentPart[] {
@@ -5202,6 +5213,20 @@ class AgentManager extends EventEmitter {
       void this.refreshAgentWorktree(agentId);
       this.lastActivity.set(agentId, Date.now());
       this.emit('update');
+      // A Chat view can safely attach as soon as this authoritative record
+      // exists. ACP initialization continues below and reports any failure on
+      // this same record, rather than requiring a speculative second launch.
+      if (useAcp && typeof options.onAgentRegistered === 'function') {
+        try {
+          options.onAgentRegistered(agentId);
+        } catch (registrationError) {
+          console.warn(
+            'Failed to publish registered Agent:',
+            agentId,
+            caughtError(registrationError).message || registrationError,
+          );
+        }
+      }
 
       if (useAcp) {
         const acpRuntime = runtimeBindingOf(agentRecord, 'acp');
@@ -8207,15 +8232,16 @@ class AgentManager extends EventEmitter {
     if (!['same-worktree', 'new-worktree'].includes(mode)) {
       return { error: 'Unsupported fork mode' };
     }
+    const targetRuntime = forkTargetRuntime(agent, options.targetRuntime);
     const forkProvider = agent.providerSessionProvider
       || agentHomeProviderForProgram(agent.forkCommand || agent.command || '');
-    const forkCapability = options.targetRuntime === 'chat'
+    const forkCapability = targetRuntime === 'chat'
       ? 'sessionFork'
       : 'terminalSessionFork';
     if (forkProvider && providerCapabilities(forkProvider)[forkCapability] !== true) {
       return { error: `${forkProvider} does not support session Fork` };
     }
-    if (options.targetRuntime === 'chat') {
+    if (targetRuntime === 'chat') {
       if (mode !== 'same-worktree') {
         return { error: 'Conversation Fork supports only the same worktree' };
       }

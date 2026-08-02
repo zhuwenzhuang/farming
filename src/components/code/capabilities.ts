@@ -244,7 +244,11 @@ export function capabilitiesForAgent(agent: Agent | null | undefined): AgentCapa
   )
   const canForkRuntime = Boolean(
     agent
-    && (!providerManaged || providerCapabilities?.terminalSessionFork === true)
+    && (
+      runtimeKind === 'acp'
+        ? canForkAgentConversation(agent)
+        : (!providerManaged || providerCapabilities?.terminalSessionFork === true)
+    )
   )
   const composer = kind === 'codex'
     ? {
@@ -278,7 +282,9 @@ export function capabilitiesForAgent(agent: Agent | null | undefined): AgentCapa
       markUnread: Boolean(agent),
       copyWorkingDirectory: Boolean(agent),
       forkSameWorktree: canForkRuntime,
-      forkNewWorktree: canForkRuntime && agent?.canForkNewWorktree === true,
+      forkNewWorktree: canForkRuntime
+        && runtimeKind !== 'acp'
+        && agent?.canForkNewWorktree === true,
       kill: Boolean(
         agent
         && (

@@ -21,6 +21,7 @@ import {
 import { applyCodeContentFontSize } from '@/lib/content-font-size'
 import {
   destroyTerminalSession,
+  prefetchTerminalSessionCheckpoint,
   pruneTerminalSessions,
   updateTerminalSessionContentFontSize,
 } from '@/lib/terminal-session-pool'
@@ -217,10 +218,36 @@ export function App() {
   const uiPreferencesSaveRevisionRef = useRef(0)
   const uiPreferencesSaveTailRef = useRef<Promise<void>>(Promise.resolve())
   const usageRequestRef = useRef<AbortController | null>(null)
+  const observedTerminalAttentionSeqRef = useRef(new Map<string, number>())
 
   useEffect(() => subscribeForegroundHttpPriority(() => {
     usageRequestRef.current?.abort()
   }), [])
+
+  useEffect(() => {
+    const observed = observedTerminalAttentionSeqRef.current
+    const currentAgentIds = new Set<string>()
+    for (const agent of ws.agents) {
+      currentAgentIds.add(agent.id)
+      const attentionSeq = agent.attentionSeq ?? 0
+      const previousAttentionSeq = observed.get(agent.id)
+      observed.set(agent.id, attentionSeq)
+      // Existing unread items may have been created before this browser
+      // connected. Only warm the checkpoint for newly completed background
+      // work, where a later click can reuse a fresh checkpoint that covers
+      // the browser's published terminal cut.
+      if (
+        previousAttentionSeq === undefined
+        || attentionSeq <= previousAttentionSeq
+        || agent.unread !== true
+        || agent.runtimeBinding.kind !== 'terminal'
+      ) continue
+      void prefetchTerminalSessionCheckpoint(agent.id)
+    }
+    for (const agentId of observed.keys()) {
+      if (!currentAgentIds.has(agentId)) observed.delete(agentId)
+    }
+  }, [ws.agents])
 
   useLayoutEffect(() => {
     openTerminalIdsRef.current = openTerminalIds

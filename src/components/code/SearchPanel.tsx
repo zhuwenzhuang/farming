@@ -1,6 +1,7 @@
 import { useEffect, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from 'react'
 import { ArrowLeftGlyph, CloseGlyph, SearchGlyph } from '@/components/IconGlyphs'
 import { agentDisplayName } from '@/lib/format'
+import { formatWorkspaceForDisplay } from '@/lib/workspace-options'
 import type { Agent } from '@/types/agent'
 import {
   agentSessionId,
@@ -115,11 +116,13 @@ export function SearchPanel({
         <div className="code-search-results">
           {displayedProjects.map(project => (
             <section key={project.id} className="code-search-result-group">
-              <h3>{project.name}</h3>
+              <h3 title={project.workspace ? formatWorkspaceForDisplay(project.workspace) : project.name}>{project.name}</h3>
               {project.agents.map(agent => (
                 <AgentSearchResult
                   key={agent.id}
                   agent={agent}
+                  projectName={project.name}
+                  projectWorkspace={project.workspace}
                   selected={agent.id === selectedAgentId}
                   onOpen={() => onOpenAgent(agent.id)}
                 />
@@ -141,6 +144,7 @@ export function SearchPanel({
                   >
                     <span className="code-search-result-copy">
                       <strong>{session.title || copy.sessionFallbackTitle(session.providerName)}</strong>
+                      <SearchResultProjectName name={project.name} workspace={project.workspace} />
                       <span>{sessionDetail}</span>
                     </span>
                   </button>
@@ -156,10 +160,14 @@ export function SearchPanel({
 
 function AgentSearchResult({
   agent,
+  projectName,
+  projectWorkspace,
   selected,
   onOpen,
 }: {
   agent: Agent
+  projectName: string
+  projectWorkspace: string
   selected: boolean
   onOpen: () => void
 }) {
@@ -179,8 +187,22 @@ function AgentSearchResult({
       )}
       <span className="code-search-result-copy">
         <strong>{rowState.title}</strong>
+        <SearchResultProjectName name={projectName} workspace={projectWorkspace} />
         <span>{providerLabel || compactPath(projectWorkspaceForAgent(agent))}</span>
       </span>
     </button>
+  )
+}
+
+function SearchResultProjectName({ name, workspace }: { name: string; workspace: string }) {
+  if (!name) return null
+  return (
+    <span
+      className="code-search-result-project"
+      data-testid="code-search-result-project"
+      title={workspace ? formatWorkspaceForDisplay(workspace) : name}
+    >
+      {name}
+    </span>
   )
 }
