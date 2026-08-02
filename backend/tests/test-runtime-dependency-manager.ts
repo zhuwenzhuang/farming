@@ -24,10 +24,9 @@ const {
   selectedDependencyDefinitions,
   verifyExecutable,
 } = require('../runtime-dependency-manager.cjs');
-const {
-  CODEX_REALTIME_V3_MIN_VERSION,
-  buildManifest,
-} = require('../../scripts/build-runtime-dependency-manifest');
+const { buildManifest } = require('../../scripts/build-runtime-dependency-manifest');
+
+const TESTED_CODEX_REALTIME_V3_MIN_VERSION = '0.145.0';
 
 type RuntimeArtifactFixture = {
   url: string;
@@ -64,9 +63,9 @@ async function run() {
   assert(
     compareNumericVersions(
       MANIFEST.dependencies.codex.version,
-      CODEX_REALTIME_V3_MIN_VERSION,
+      TESTED_CODEX_REALTIME_V3_MIN_VERSION,
     ) >= 0,
-    `managed Codex must support Realtime v3 (${CODEX_REALTIME_V3_MIN_VERSION} or newer)`,
+    `managed Codex must support Realtime v3 (${TESTED_CODEX_REALTIME_V3_MIN_VERSION} or newer)`,
   );
   assert.strictEqual(SOURCE_CONFIG.authoritativeNpmRegistry, 'https://registry.npmjs.org/');
   assert.strictEqual(SOURCE_CONFIG.defaultNpmMirror, 'https://registry.npmmirror.com/');
