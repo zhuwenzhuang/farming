@@ -37,6 +37,7 @@ interface ExpressModule {
 }
 
 const express = require('express') as ExpressModule;
+const REJECTED_BRIDGE_LOCATION = Symbol('rejected-bridge-location');
 const SUPPORTED_METHODS = new Set([
   'hover',
   'definition',
@@ -121,24 +122,31 @@ function locationWithinRoot(rootPath: string, uri: unknown): { path: string } | 
   return { path: relative.split(path.sep).join('/') };
 }
 
-function sanitizeBridgeResult(rootPath: string, value: unknown): unknown {
+function sanitizeBridgeValue(rootPath: string, value: unknown): unknown | typeof REJECTED_BRIDGE_LOCATION {
   if (Array.isArray(value)) {
-    return value.map(item => sanitizeBridgeResult(rootPath, item)).filter(item => item !== null);
+    return value
+      .map(item => sanitizeBridgeValue(rootPath, item))
+      .filter(item => item !== REJECTED_BRIDGE_LOCATION);
   }
   if (!value || typeof value !== 'object') return value;
   const source = value as Record<string, unknown>;
   const result: Record<string, unknown> = {};
   if ('uri' in source) {
     const location = locationWithinRoot(rootPath, source.uri);
-    if (!location) return null;
+    if (!location) return REJECTED_BRIDGE_LOCATION;
     result.path = location.path;
   }
   for (const [key, item] of Object.entries(source)) {
     if (key === 'uri') continue;
-    const sanitized = sanitizeBridgeResult(rootPath, item);
-    if (sanitized !== null) result[key] = sanitized;
+    const sanitized = sanitizeBridgeValue(rootPath, item);
+    if (sanitized !== REJECTED_BRIDGE_LOCATION) result[key] = sanitized;
   }
   return result;
+}
+
+function sanitizeBridgeResult(rootPath: string, value: unknown): unknown {
+  const sanitized = sanitizeBridgeValue(rootPath, value);
+  return sanitized === REJECTED_BRIDGE_LOCATION ? null : sanitized;
 }
 
 function createLanguageServerRouter(client: VsCodeBridgeClient, roots: WorkspaceRootRegistry): Router {

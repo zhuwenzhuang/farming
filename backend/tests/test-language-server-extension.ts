@@ -7,7 +7,10 @@ import { pathToFileURL } from 'node:url';
 import express from 'express';
 
 const { VsCodeBridgeClient } = require('../../extensions/language-server/backend/vscode-bridge-client.cjs');
-const { createLanguageServerRouter } = require('../../extensions/language-server/backend/language-server-router.cjs');
+const {
+  createLanguageServerRouter,
+  sanitizeBridgeResult,
+} = require('../../extensions/language-server/backend/language-server-router.cjs');
 
 async function listen(server: http.Server): Promise<number> {
   await new Promise<void>((resolve, reject) => {
@@ -49,6 +52,29 @@ async function run() {
   fs.mkdirSync(path.join(workspaceInput, 'src'), { recursive: true });
   const workspace = fs.realpathSync(workspaceInput);
   fs.writeFileSync(path.join(workspace, 'src', 'main.ts'), 'export const value = 1;\n');
+  const outsideFile = path.join(tempDir, 'private.txt');
+  fs.writeFileSync(outsideFile, 'private\n');
+
+  assert.deepStrictEqual(sanitizeBridgeResult(workspace, {
+    selectionRange: null,
+    nested: {
+      value: null,
+      items: [
+        null,
+        { uri: pathToFileURL(path.join(workspace, 'src', 'main.ts')).toString(), selectionRange: null },
+        { uri: pathToFileURL(outsideFile).toString(), selectionRange: null },
+      ],
+    },
+  }), {
+    selectionRange: null,
+    nested: {
+      value: null,
+      items: [
+        null,
+        { path: 'src/main.ts', selectionRange: null },
+      ],
+    },
+  });
 
   const bridge = http.createServer(async (request, response) => {
     assert.strictEqual(request.headers.authorization, 'Bearer test-token');
