@@ -1,8 +1,7 @@
 const assert = require('assert');
 const {
   resolveAcpFollowUpBehavior,
-  submitAcpDraft: submitAcpDraftBehavior,
-  submitQueuedAcpFollowUp,
+  submitAcpDraft,
 } = require('../../src/components/code/acp/acp-composer-behavior.ts');
 const { createDefaultAgentComposerState } = require('../../src/components/code/composer-state.ts');
 
@@ -30,16 +29,6 @@ async function run() {
   const updateComposerState = (_key, updater) => {
     state = updater(state);
   };
-  const prepareComposerStateForTransport = (_key, updater) => {
-    const next = updater(state);
-    if (next === state) return false;
-    state = next;
-    return true;
-  };
-  const submitAcpDraft = input => submitAcpDraftBehavior({
-    ...input,
-    prepareComposerStateForTransport,
-  });
   const sent = [];
   const sendMessage = (_agent, text, attachments, requestId, delivery) => {
     sent.push({ text, attachments, requestId, delivery });
@@ -82,7 +71,7 @@ async function run() {
   assert.strictEqual(sent.length, 1);
   assert.strictEqual(sent[0].text, 'send now');
   assert.strictEqual(sent[0].attachments[0].name, 'screen.png');
-  assert.match(sent[0].requestId, /^pending-/, 'the Composer checkpoint should own the ordinary Prompt request id');
+  assert.strictEqual(sent[0].requestId, undefined, 'the transport should own the ordinary Prompt request id');
   assert.strictEqual(sent[0].delivery, 'prompt');
   assert.strictEqual(state.draft, '');
   assert.strictEqual(state.submissions, undefined);
@@ -143,8 +132,7 @@ async function run() {
   });
   assert.strictEqual(state.draft, 'submitted draft', 'an ordinary Prompt must remain in the Composer until admission succeeds');
   assert.strictEqual(state.attachments.length, 1);
-  assert.strictEqual(state.submissions.length, 1, 'an ordinary Prompt must be staged before transport');
-  assert.strictEqual(state.submissions[0].status, 'submitting');
+  assert.strictEqual(state.submissions, undefined, 'an ordinary Prompt must not enter the visible submission staging area');
   state = {
     ...state,
     draft: 'newer draft',
@@ -193,7 +181,7 @@ async function run() {
     updateComposerState,
   });
   assert.strictEqual(state.draft, 'clear only after acceptance');
-  assert.strictEqual(state.submissions.length, 1);
+  assert.strictEqual(state.submissions, undefined);
   acceptOwnedSubmission(true);
   assert.strictEqual(await ownedResult, true);
   assert.strictEqual(state.draft, '');
@@ -255,109 +243,7 @@ async function run() {
   rejectSubmission(false);
   assert.strictEqual(await rejectedResult, false);
   assert.strictEqual(state.draft, 'keep failed submission separate');
-  assert.strictEqual(state.submissions.length, 1);
-  assert.strictEqual(state.submissions[0].status, 'failed', 'a rejected ordinary Prompt must keep its stable retry id');
-
-  state = {
-    ...createDefaultAgentComposerState(),
-    draft: 'synchronous transport failure',
-  };
-  assert.strictEqual(submitAcpDraft({
-    agent,
-    composerKey: 'acp:session-1',
-    draft: state.draft,
-    attachments: [],
-    composerMode: 'default',
-    turnActive: false,
-    sendMessage: () => { throw new Error('socket closed'); },
-    updateComposerState,
-  }), false);
-  assert.strictEqual(state.submissions.length, 1);
-  assert.strictEqual(state.submissions[0].status, 'failed');
-  assert.match(state.submissions[0].id, /^pending-/);
-
-  state = {
-    ...createDefaultAgentComposerState(),
-    draft: 'asynchronous transport failure',
-  };
-  assert.strictEqual(await submitAcpDraft({
-    agent,
-    composerKey: 'acp:session-1',
-    draft: state.draft,
-    attachments: [],
-    composerMode: 'default',
-    turnActive: false,
-    sendMessage: () => Promise.reject(new Error('socket closed')),
-    updateComposerState,
-  }), false);
-  assert.strictEqual(state.submissions.length, 1);
-  assert.strictEqual(state.submissions[0].status, 'failed');
-  assert.match(state.submissions[0].id, /^pending-/);
-
-  const sentBeforePersistenceFailure = sent.length;
-  state = {
-    ...createDefaultAgentComposerState(),
-    draft: 'do not send without a durable browser intent',
-  };
-  assert.strictEqual(submitAcpDraftBehavior({
-    agent,
-    composerKey: 'acp:session-1',
-    draft: state.draft,
-    attachments: [],
-    composerMode: 'default',
-    turnActive: false,
-    sendMessage,
-    updateComposerState,
-    prepareComposerStateForTransport: () => false,
-  }), false);
-  assert.strictEqual(sent.length, sentBeforePersistenceFailure);
-  assert.strictEqual(state.draft, 'do not send without a durable browser intent');
-
-  const queuedMessage = {
-    id: 'pending-manual-send',
-    text: 'do not send a queued message without persistence',
-    editableText: 'do not send a queued message without persistence',
-    createdAt: 1,
-  };
-  state = {
-    ...createDefaultAgentComposerState(),
-    pendingFollowUp: { createdAt: 1, messages: [queuedMessage] },
-  };
-  let queuedSendCount = 0;
-  assert.strictEqual(submitQueuedAcpFollowUp({
-    agent,
-    composerKey: 'acp:session-1',
-    message: queuedMessage,
-    delivery: 'prompt',
-    sendMessage: () => { queuedSendCount += 1; return true; },
-    updateComposerState,
-    prepareComposerStateForTransport: () => false,
-  }), false);
-  assert.strictEqual(queuedSendCount, 0, 'manual ACP pending send must stop before transport when storage fails');
-  assert.deepStrictEqual(state.pendingFollowUp.messages, [queuedMessage]);
-  assert.strictEqual(state.submissions, undefined);
-
-  let queuedRequest;
-  assert.strictEqual(submitQueuedAcpFollowUp({
-    agent,
-    composerKey: 'acp:session-1',
-    message: queuedMessage,
-    delivery: 'prompt',
-    sendMessage: (_agent, text, attachments, requestId, delivery) => {
-      queuedRequest = { text, attachments, requestId, delivery };
-      return true;
-    },
-    updateComposerState,
-    prepareComposerStateForTransport,
-  }), true);
-  assert.deepStrictEqual(queuedRequest, {
-    text: queuedMessage.text,
-    attachments: undefined,
-    requestId: queuedMessage.id,
-    delivery: 'prompt',
-  });
-  assert.strictEqual(state.pendingFollowUp, undefined);
-  assert.strictEqual(state.submissions, undefined);
+  assert.strictEqual(state.submissions, undefined, 'a rejected ordinary Prompt must stay editable instead of becoming a staged retry row');
 
   state = {
     ...createDefaultAgentComposerState(),

@@ -5,7 +5,6 @@ import {
   composerStateKeyForAgent,
   createDefaultAgentComposerState,
   mergeAgentComposerStates,
-  type AgentComposerAdmission,
   type AgentComposerState,
 } from './composer-state'
 import {
@@ -32,21 +31,6 @@ interface UseAgentComposerStateOptions {
   onDiscardAttachment: (attachment: AgentComposerState['attachments'][number]) => void
 }
 
-function sameComposerAdmission(left: AgentComposerAdmission, right: AgentComposerAdmission) {
-  return left.id === right.id
-    && left.composerKey === right.composerKey
-    && left.text === right.text
-    && left.createdAt === right.createdAt
-    && left.attachments === right.attachments
-    && left.editableText === right.editableText
-    && left.composerMode === right.composerMode
-    && left.status === right.status
-    && left.historyRecorded === right.historyRecorded
-    && left.delivery === right.delivery
-    && left.origin === right.origin
-    && left.draftAttachmentIds === right.draftAttachmentIds
-}
-
 export function useAgentComposerState({
   agents,
   permissionSwitchingAgentId,
@@ -62,9 +46,6 @@ export function useAgentComposerState({
   )
   const composerStateUpdatedAtRef = useRef(initialCheckpointRef.current.updatedAtByKey)
   const composerStateDeletedAtRef = useRef(new Map<string, number>())
-  const composerAdmissionsRef = useRef(initialCheckpointRef.current.admissions)
-  const composerAdmissionUpdatedAtRef = useRef(initialCheckpointRef.current.admissionUpdatedAtById)
-  const composerAdmissionDeletedAtRef = useRef(initialCheckpointRef.current.admissionDeletedAtById)
   const composerByAgentKeyRef = useRef(composerByAgentKey)
   composerByAgentKeyRef.current = composerByAgentKey
 
@@ -76,53 +57,11 @@ export function useAgentComposerState({
     )
   ), [])
 
-  const nextAdmissionTimestamp = useCallback((requestId: string, now = Date.now()) => (
-    nextAgentComposerCheckpointTimestamp(
-      requestId,
-      composerAdmissionUpdatedAtRef.current,
-      composerAdmissionDeletedAtRef.current,
-      now,
-    )
-  ), [])
-
-  const synchronizeComposerAdmissions = useCallback((states: Record<string, AgentComposerState>) => {
-    const projected = new Map<string, AgentComposerAdmission>()
-    Object.entries(states).forEach(([composerKey, state]) => {
-      for (const submission of state.submissions || []) {
-        projected.set(submission.id, { ...submission, composerKey })
-      }
-    })
-    for (const requestId of composerAdmissionsRef.current.keys()) {
-      if (projected.has(requestId)) continue
-      const deletedAt = nextAdmissionTimestamp(requestId)
-      composerAdmissionsRef.current.delete(requestId)
-      composerAdmissionUpdatedAtRef.current.delete(requestId)
-      composerAdmissionDeletedAtRef.current.set(requestId, deletedAt)
-    }
-    for (const [requestId, admission] of projected) {
-      const current = composerAdmissionsRef.current.get(requestId)
-      if (current && sameComposerAdmission(current, admission)) continue
-      composerAdmissionsRef.current.set(requestId, admission)
-      composerAdmissionUpdatedAtRef.current.set(
-        requestId,
-        nextAdmissionTimestamp(requestId),
-      )
-      composerAdmissionDeletedAtRef.current.delete(requestId)
-    }
-  }, [nextAdmissionTimestamp])
-
   const persistComposerCheckpoint = useCallback(() => {
     saveAgentComposerCheckpoint(
       composerByAgentKeyRef.current,
       composerStateUpdatedAtRef.current,
       composerStateDeletedAtRef.current,
-      undefined,
-      undefined,
-      {
-        admissions: composerAdmissionsRef.current,
-        updatedAtById: composerAdmissionUpdatedAtRef.current,
-        deletedAtById: composerAdmissionDeletedAtRef.current,
-      },
     )
   }, [])
 
@@ -262,13 +201,9 @@ export function useAgentComposerState({
         composerStateUpdatedAtRef.current.delete(composerKey)
         delete nextStateByKey[composerKey]
       })
-      if (changed) {
-        synchronizeComposerAdmissions(next)
-        composerByAgentKeyRef.current = next
-      }
       return changed ? next : current
     })
-  }, [agents, nextCheckpointTimestamp, onDiscardAttachment, permissionSwitchingAgentId, permissionSwitchReplacement, synchronizeComposerAdmissions])
+  }, [agents, nextCheckpointTimestamp, onDiscardAttachment, permissionSwitchingAgentId, permissionSwitchReplacement])
 
   const resolveComposerStateKey = useCallback((composerKey: string) => {
     if (!composerKey) return ''
@@ -297,12 +232,9 @@ export function useAgentComposerState({
       if (nextState === previous) return current
       composerStateUpdatedAtRef.current.set(canonicalKey, nextCheckpointTimestamp(canonicalKey))
       composerStateDeletedAtRef.current.delete(canonicalKey)
-      const next = { ...current, [canonicalKey]: nextState }
-      synchronizeComposerAdmissions(next)
-      composerByAgentKeyRef.current = next
-      return next
+      return { ...current, [canonicalKey]: nextState }
     })
-  }, [nextCheckpointTimestamp, resolveComposerStateKey, synchronizeComposerAdmissions])
+  }, [nextCheckpointTimestamp, resolveComposerStateKey])
 
   const updateExistingComposerStateForKey = useCallback((composerKey: string, updater: (state: AgentComposerState) => AgentComposerState) => {
     setComposerByAgentKey(current => {
@@ -314,63 +246,13 @@ export function useAgentComposerState({
       if (nextState === previous) return current
       composerStateUpdatedAtRef.current.set(canonicalKey, nextCheckpointTimestamp(canonicalKey))
       composerStateDeletedAtRef.current.delete(canonicalKey)
-      const next = { ...current, [canonicalKey]: nextState }
-      synchronizeComposerAdmissions(next)
-      composerByAgentKeyRef.current = next
-      return next
+      return { ...current, [canonicalKey]: nextState }
     })
-  }, [nextCheckpointTimestamp, resolveComposerStateKey, synchronizeComposerAdmissions])
-
-  const prepareComposerStateForTransport = useCallback((
-    composerKey: string,
-    updater: (state: AgentComposerState) => AgentComposerState,
-  ) => {
-    const canonicalKey = resolveComposerStateKey(composerKey)
-    if (!canonicalKey) return false
-    const current = composerByAgentKeyRef.current
-    const previous = current[canonicalKey] ?? createDefaultAgentComposerState()
-    const nextState = updater(previous)
-    if (nextState === previous) return false
-
-    const previousUpdatedAt = new Map(composerStateUpdatedAtRef.current)
-    const previousDeletedAt = new Map(composerStateDeletedAtRef.current)
-    const previousAdmissions = new Map(composerAdmissionsRef.current)
-    const previousAdmissionUpdatedAt = new Map(composerAdmissionUpdatedAtRef.current)
-    const previousAdmissionDeletedAt = new Map(composerAdmissionDeletedAtRef.current)
-    const next = { ...current, [canonicalKey]: nextState }
-    composerStateUpdatedAtRef.current.set(canonicalKey, nextCheckpointTimestamp(canonicalKey))
-    composerStateDeletedAtRef.current.delete(canonicalKey)
-    synchronizeComposerAdmissions(next)
-
-    const persisted = saveAgentComposerCheckpoint(
-      next,
-      composerStateUpdatedAtRef.current,
-      composerStateDeletedAtRef.current,
-      undefined,
-      undefined,
-      {
-        admissions: composerAdmissionsRef.current,
-        updatedAtById: composerAdmissionUpdatedAtRef.current,
-        deletedAtById: composerAdmissionDeletedAtRef.current,
-      },
-    )
-    if (!persisted) {
-      composerStateUpdatedAtRef.current = previousUpdatedAt
-      composerStateDeletedAtRef.current = previousDeletedAt
-      composerAdmissionsRef.current = previousAdmissions
-      composerAdmissionUpdatedAtRef.current = previousAdmissionUpdatedAt
-      composerAdmissionDeletedAtRef.current = previousAdmissionDeletedAt
-      return false
-    }
-    composerByAgentKeyRef.current = next
-    setComposerByAgentKey(next)
-    return true
-  }, [nextCheckpointTimestamp, resolveComposerStateKey, synchronizeComposerAdmissions])
+  }, [nextCheckpointTimestamp, resolveComposerStateKey])
 
   return {
     composerByAgentKey,
     updateComposerStateForKey,
     updateExistingComposerStateForKey,
-    prepareComposerStateForTransport,
   }
 }

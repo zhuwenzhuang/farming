@@ -23,12 +23,6 @@ export interface AgentComposerSubmission extends AgentComposerPendingFollowUpMes
   status: 'submitting' | 'failed'
   historyRecorded?: boolean
   delivery?: 'prompt' | 'steer'
-  origin?: 'draft' | 'queued'
-  draftAttachmentIds?: string[]
-}
-
-export interface AgentComposerAdmission extends AgentComposerSubmission {
-  composerKey: string
 }
 
 export interface AgentComposerUiState {
@@ -135,17 +129,6 @@ export function removeComposerSubmission(
   if (!submissions) return undefined
   const remaining = submissions.filter(message => message.id !== messageId)
   return remaining.length > 0 ? remaining : undefined
-}
-
-export function composerSubmissionOwnsDraft(
-  state: AgentComposerState,
-  submission: AgentComposerSubmission,
-) {
-  if (submission.origin !== 'draft') return false
-  const draftAttachmentIds = submission.draftAttachmentIds || []
-  return state.draft === (submission.editableText ?? submission.text)
-    && state.attachments.length === draftAttachmentIds.length
-    && state.attachments.every((attachment, index) => attachment.id === draftAttachmentIds[index])
 }
 
 export function closeComposerMenusForState(state: AgentComposerState): AgentComposerState {

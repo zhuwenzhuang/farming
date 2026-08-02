@@ -1,15 +1,8 @@
 import type { Agent } from '@/types/agent'
 import { appPath } from '@/lib/base-path'
 import { addComposerHistoryEntry } from '../composer-history'
-import {
-  createPendingFollowUpMessage,
-  removePendingFollowUpMessage,
-  removeComposerSubmission,
-} from '../composer-state'
-import type {
-  AgentComposerPendingFollowUpMessage,
-  AgentComposerState,
-} from '../composer-state'
+import { createPendingFollowUpMessage } from '../composer-state'
+import type { AgentComposerState } from '../composer-state'
 import {
   composerMessageForNativeAttachments,
   composerPromptAttachments,
@@ -40,20 +33,6 @@ interface SubmitAcpDraftInput {
     key: string,
     updater: (state: AgentComposerState) => AgentComposerState,
   ) => void
-  prepareComposerStateForTransport: (
-    key: string,
-    updater: (state: AgentComposerState) => AgentComposerState,
-  ) => boolean
-}
-
-interface SubmitQueuedAcpFollowUpInput {
-  agent: Agent
-  composerKey: string
-  message: AgentComposerPendingFollowUpMessage
-  delivery: 'prompt' | 'steer'
-  sendMessage: SubmitAcpDraftInput['sendMessage']
-  updateComposerState: SubmitAcpDraftInput['updateComposerState']
-  prepareComposerStateForTransport: SubmitAcpDraftInput['prepareComposerStateForTransport']
 }
 
 export function isAcpComposerAvailable(agent: Agent | null) {
@@ -91,7 +70,6 @@ export function submitAcpDraft({
   followUpBehavior = 'queue',
   sendMessage,
   updateComposerState,
-  prepareComposerStateForTransport,
 }: SubmitAcpDraftInput) {
   const promptAttachments = composerPromptAttachments(attachments)
   const text = formatComposerMessage(composerMode, composerMessageForNativeAttachments(draft, attachments).trim())
@@ -129,56 +107,19 @@ export function submitAcpDraft({
   }
   if (turnActive && followUpBehavior === 'queue') return queueFollowUp()
 
-  const delivery = turnActive ? 'steer' as const : 'prompt' as const
-  const pendingMessage = createPendingFollowUpMessage(text, promptAttachments, draft, composerMode)
-  const submission = {
-    ...pendingMessage,
-    editableText: draft,
-    composerMode,
-    status: 'submitting' as const,
-    delivery,
-    origin: 'draft' as const,
-    draftAttachmentIds: attachments.map(attachment => attachment.id),
-  }
-  const prepared = prepareComposerStateForTransport(composerKey, state => {
-    const duplicate = state.submissions?.some(candidate => (
-      candidate.origin === 'draft'
-      && candidate.text === submission.text
-      && candidate.editableText === submission.editableText
-      && candidate.delivery === submission.delivery
-      && JSON.stringify(candidate.attachments || []) === JSON.stringify(submission.attachments || [])
-      && JSON.stringify(candidate.draftAttachmentIds || []) === JSON.stringify(submission.draftAttachmentIds)
-    ))
-    if (duplicate) return state
-    return { ...state, submissions: [...(state.submissions || []), submission] }
-  })
-  if (!prepared) return false
-
   const settlePrompt = (accepted: boolean) => {
+    if (!accepted) return false
     updateComposerState(composerKey, state => {
-      const currentSubmission = state.submissions?.find(candidate => candidate.id === submission.id)
-      if (!currentSubmission) return state
-      if (!accepted) {
-        return {
-          ...state,
-          submissions: state.submissions?.map(candidate => (
-            candidate.id === submission.id
-              ? { ...candidate, status: 'failed' as const }
-              : candidate
-          )),
-        }
-      }
       const cleared = clearOwnedDraft(state)
       if (cleared !== state) {
         attachments.forEach(revokeComposerAttachmentPreview)
       }
       return {
         ...cleared,
-        history: addComposerHistoryEntry(cleared.history, currentSubmission.editableText ?? currentSubmission.text),
-        submissions: removeComposerSubmission(cleared.submissions, submission.id),
+        history: addComposerHistoryEntry(cleared.history, draft),
       }
     })
-    return accepted
+    return true
   }
 
   let submitted: boolean | Promise<boolean>
@@ -187,68 +128,14 @@ export function submitAcpDraft({
       agent,
       text,
       promptAttachments,
-      submission.id,
-      delivery,
+      undefined,
+      turnActive ? 'steer' : 'prompt',
     )
   } catch {
-    settlePrompt(false)
     return false
   }
   if (typeof submitted === 'boolean') return settlePrompt(submitted)
-  return submitted.then(settlePrompt, () => settlePrompt(false))
-}
-
-export function submitQueuedAcpFollowUp({
-  agent,
-  composerKey,
-  message,
-  delivery,
-  sendMessage,
-  updateComposerState,
-  prepareComposerStateForTransport,
-}: SubmitQueuedAcpFollowUpInput): boolean | Promise<boolean> {
-  const prepared = prepareComposerStateForTransport(composerKey, state => {
-    if (!state.pendingFollowUp?.messages.some(candidate => candidate.id === message.id)) return state
-    return {
-      ...state,
-      pendingFollowUp: removePendingFollowUpMessage(state.pendingFollowUp, message.id),
-      submissions: [
-        ...(state.submissions || []),
-        {
-          ...message,
-          status: 'submitting' as const,
-          historyRecorded: true,
-          delivery,
-          origin: 'queued' as const,
-        },
-      ],
-    }
-  })
-  if (!prepared) return false
-
-  const settle = (accepted: boolean) => {
-    updateComposerState(composerKey, state => {
-      if (!state.submissions?.some(candidate => candidate.id === message.id)) return state
-      return {
-        ...state,
-        submissions: accepted
-          ? removeComposerSubmission(state.submissions, message.id)
-          : state.submissions.map(candidate => (
-            candidate.id === message.id ? { ...candidate, status: 'failed' as const } : candidate
-          )),
-      }
-    })
-    return accepted
-  }
-
-  let submitted: boolean | Promise<boolean>
-  try {
-    submitted = sendMessage(agent, message.text, message.attachments, message.id, delivery)
-  } catch {
-    return settle(false)
-  }
-  if (typeof submitted === 'boolean') return settle(submitted)
-  return submitted.then(settle, () => settle(false))
+  return submitted.then(settlePrompt, () => false)
 }
 
 export function respondToAcpPermission(
