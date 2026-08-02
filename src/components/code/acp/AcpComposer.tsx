@@ -197,8 +197,20 @@ export function AcpComposer({
       setOpenMenu(null)
       setModelPane(null)
     }
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      event.stopPropagation()
+      setOpenMenu(null)
+      setModelPane(null)
+      requestAnimationFrame(() => textareaRef.current?.focus({ preventScroll: true }))
+    }
     document.addEventListener('pointerdown', closeOutside)
-    return () => document.removeEventListener('pointerdown', closeOutside)
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.removeEventListener('pointerdown', closeOutside)
+      document.removeEventListener('keydown', closeOnEscape)
+    }
   }, [openMenu])
 
   const insertCommand = (name: string) => {

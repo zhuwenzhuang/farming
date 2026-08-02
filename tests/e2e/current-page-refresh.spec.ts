@@ -74,13 +74,14 @@ test('entry pages preserve cached capabilities and History while refreshing curr
   await expect.poll(() => computerCapabilityRequests).toBeGreaterThan(0)
   const browserRequestsBeforePlugins = browserCapabilityRequests
   const computerRequestsBeforePlugins = computerCapabilityRequests
+  const extensionRequestsBeforePlugins = agentExtensionRequests
 
   await page.getByTestId('code-nav-plugins').click()
   await expect(page.getByTestId('code-plugin-browser')).not.toContainText('Checking')
   await expect(page.getByTestId('code-plugin-computer')).not.toContainText('Checking')
   await expect.poll(() => browserCapabilityRequests).toBeGreaterThan(browserRequestsBeforePlugins)
   await expect.poll(() => computerCapabilityRequests).toBeGreaterThan(computerRequestsBeforePlugins)
-  expect(agentExtensionRequests).toBe(0)
+  await expect.poll(() => agentExtensionRequests).toBeGreaterThan(extensionRequestsBeforePlugins)
 
   await page.getByTestId('code-plugins-panel').getByRole('button', { name: 'Back to workspace' }).click()
   blockCurrentCapabilityRefresh = true

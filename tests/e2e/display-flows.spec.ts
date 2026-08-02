@@ -2025,7 +2025,7 @@ test.describe('display-backed agent flows', () => {
       clientY: 240,
     })
     await expect(page.getByTestId('code-file-context-menu')).toBeVisible()
-    await expect(page.getByTestId('code-file-context-menu').getByRole('menuitem', { name: 'New File' })).toBeFocused()
+    await expect(page.getByTestId('code-file-context-menu').getByRole('menuitem', { name: 'New File' })).not.toBeFocused()
     await page.keyboard.press('Escape')
     await expect(page.getByTestId('code-file-context-menu')).toBeHidden()
     await loadedDeepRow.dispatchEvent('contextmenu', {
@@ -2848,7 +2848,7 @@ test.describe('display-backed agent flows', () => {
     await activeCodexSessionMore.click()
     const codexSessionContextMenu = page.getByTestId('code-session-context-menu')
     await expect(codexSessionContextMenu).toBeVisible()
-    await expect(codexSessionContextMenu.getByRole('menuitem', { name: 'Open Session' })).toBeFocused()
+    await expect(codexSessionContextMenu.getByRole('menuitem', { name: 'Open Session' })).not.toBeFocused()
     await expect(codexSessionContextMenu.getByRole('menuitem', { name: 'Unpin chat' })).toBeVisible()
     await expect(codexSessionContextMenu.getByRole('menuitem', { name: 'Archive' })).toBeVisible()
     await expect(codexSessionContextMenu.getByRole('menuitem', { name: 'Copy working directory' })).toBeVisible()
@@ -3475,6 +3475,8 @@ test.describe('display-backed agent flows', () => {
     await childDirectoryRow.click({ button: 'right' })
     const fileContextMenu = page.getByTestId('code-file-context-menu')
     await expect(fileContextMenu).toBeVisible()
+    await expect(fileContextMenu.getByRole('menuitem', { name: 'New File' })).not.toBeFocused()
+    await fileContextMenu.getByRole('menuitem', { name: 'New File' }).focus()
     await expect(fileContextMenu.getByRole('menuitem', { name: 'New File' })).toBeFocused()
     await page.keyboard.press('ArrowDown')
     await expect(fileContextMenu.getByRole('menuitem', { name: 'New Folder' })).toBeFocused()

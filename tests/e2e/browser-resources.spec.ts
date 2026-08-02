@@ -313,9 +313,10 @@ test('mounts Agent-owned Browsers behind nested resource controls without layout
   await browserSection.getByTestId('farming-browser-row').click()
   const viewer = page.getByTestId('farming-browser-viewer')
   await expect(viewer).toBeVisible()
-  await expect(viewer.getByTestId('farming-browser-controller')).toHaveText('Shared control · bash')
+  const browserOwnerName = await agentRow.locator('.code-agent-name').textContent() ?? ''
+  await expect(viewer.getByTestId('farming-browser-controller')).toHaveText(`Shared control · ${browserOwnerName}`)
   await expect(viewer.getByTestId('farming-browser-controller'))
-    .toHaveAttribute('title', 'You and bash can both control this browser tab.')
+    .toHaveAttribute('title', `You and ${browserOwnerName} can both control this browser tab.`)
   const addressInput = viewer.getByRole('textbox', { name: 'Browser address' })
   await expect(addressInput).toBeEnabled()
   await addressInput.fill(targetUrl)
