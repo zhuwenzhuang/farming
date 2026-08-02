@@ -358,6 +358,47 @@ test('events from stopped operation A cannot mutate replacement operation B', as
   assert.equal(harness.transcripts.length, 0)
 })
 
+test('legacy events without an operation ID cannot mutate the active operation', async () => {
+  const harness = createHarness()
+  await harness.controller.start('agent-a')
+  const operationId = harness.startRequests[0]?.operationId
+  assert.ok(operationId)
+  const peer = harness.peer
+  const stopCount = harness.stopRequests.length
+
+  await harness.controller.handleEvent({
+    agentId: 'agent-a',
+    sessionId: 'session-1',
+    method: 'thread/realtime/sdp',
+    params: { sdp: 'v=0' },
+  })
+  await harness.controller.handleEvent({
+    agentId: 'agent-a',
+    sessionId: 'session-1',
+    method: 'thread/realtime/error',
+    params: { message: 'legacy failure' },
+  })
+  await harness.controller.handleEvent({
+    agentId: 'agent-a',
+    sessionId: 'session-1',
+    method: 'thread/realtime/closed',
+    params: {},
+  })
+  await harness.controller.handleEvent({
+    agentId: 'agent-a',
+    sessionId: 'session-1',
+    method: 'thread/realtime/transcript/done',
+    params: { role: 'user', text: 'legacy transcript' },
+  })
+
+  assert.equal(harness.controller.getSnapshot().operationId, operationId)
+  assert.equal(harness.controller.getSnapshot().phase, 'connecting')
+  assert.equal(peer.remoteDescription, null)
+  assert.equal(peer.closed, false)
+  assert.equal(harness.stopRequests.length, stopCount)
+  assert.equal(harness.transcripts.length, 0)
+})
+
 function createHttpTimers() {
   const timers = new Map<number, () => void>()
   let timerId = 0

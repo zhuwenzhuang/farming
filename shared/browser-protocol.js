@@ -220,7 +220,8 @@ function validateServerMessage(value) {
             valid = objectMessage(value.event)
                 && stringField(value.event, 'agentId')
                 && stringField(value.event, 'sessionId')
-                && stringField(value.event, 'operationId')
+                && (value.event.operationId === undefined
+                    || typeof value.event.operationId === 'string' && value.event.operationId.length > 0)
                 && stringField(value.event, 'method')
                 && objectMessage(value.event.params);
             break;

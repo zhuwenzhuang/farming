@@ -146,6 +146,15 @@ an older operation is a no-op and cannot stop the newer conversation. The
 browser may therefore repeat stop after a reordered or uncertain start result
 without replaying the start mutation.
 
+Browser protocol v4 keeps `operationId` optional on incoming `acp-realtime`
+WebSocket events only for mixed-version compatibility with an older backend.
+New backends always emit a non-empty operation ID. The Voice Controller ignores
+an event whose operation ID is missing or does not match its current operation,
+so a legacy event cannot mutate a new voice conversation. HTTP Realtime start
+and stop mutations are not backward-compatible: both require a valid operation
+ID and return `400` before reaching Agent mutation code when it is absent. This
+compatibility exception does not change any Terminal or Chat protocol field.
+
 Codex app-server Realtime notifications do not contain an operation ID. The
 reviewed ACP adapter therefore records the operation owner before forwarding
 start, captures that exact owner when each notification arrives, and includes

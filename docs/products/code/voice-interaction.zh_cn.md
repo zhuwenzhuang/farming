@@ -121,6 +121,13 @@ Backend 是 `{ agentId, operationId }` 的顺序权威。若 stop 先于对应 s
 较新的对话。因此浏览器可以在 start 响应重排或结果不确定时重复 stop，而不会重放 start
 mutation。
 
+Browser protocol v4 只为兼容旧 Backend，允许收到的 `acp-realtime` WebSocket event
+缺少 `operationId`。新 Backend 始终发送非空 operation ID；Voice Controller 对缺失或
+不匹配当前 operation 的事件 fail-closed 忽略，因此旧事件不能修改新的语音对话。HTTP
+Realtime start/stop mutation 不提供这种向后兼容：两者都要求合法 operation ID，缺失时
+必须在进入 Agent mutation 之前返回 `400`。这条例外不改变任何 Terminal 或 Chat 协议
+字段。
+
 Codex app-server 的 Realtime notification 本身不含 operation ID。因此，经过审核的
 ACP adapter 会在转发 start 之前登记 operation owner，在每条 notification 到达时捕获
 这个精确 owner，并把它写入交给 Farming 的 ACP event。stop 会继续保留旧 owner，直到

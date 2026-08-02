@@ -269,7 +269,7 @@ export interface AcpSessionRevisionMessage {
 export interface AcpRealtimeEvent {
   agentId: string
   sessionId: string
-  operationId: string
+  operationId?: string
   method: 'thread/realtime/started'
     | 'thread/realtime/transcript/delta'
     | 'thread/realtime/transcript/done'
