@@ -4,6 +4,7 @@ import type { AcpRealtimeEvent, ClientMessage, ComposerInputAttachment, Composer
 import { appWsUrl } from '@/lib/base-path'
 import { setTerminalSessionTransport } from '@/lib/terminal-session-client'
 import {
+  markBackendDisconnected,
   resetBackendConnectionStatus,
   updateBackendConnectionStatus,
   updateBackendSystemStats,
@@ -790,10 +791,7 @@ export function useWebSocket() {
           browserResources: null,
           computerResources: null,
         }))
-        updateBackendConnectionStatus({
-          connected: false,
-          disconnectedAt: Date.now(),
-        })
+        markBackendDisconnected()
         window.dispatchEvent(new CustomEvent('farming:backend-disconnected', {
           detail: { code: event.code, reason: event.reason },
         }))
@@ -815,10 +813,7 @@ export function useWebSocket() {
       if (wsRef.current === activeSocket) {
         wsRef.current = null
       }
-      updateBackendConnectionStatus({
-        connected: false,
-        disconnectedAt: Date.now(),
-      })
+      markBackendDisconnected()
       activeSocket?.close()
     }
   }, [])

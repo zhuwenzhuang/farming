@@ -27,6 +27,7 @@ function run() {
   const pluginsPanelSource = read('src/components/code/PluginsPanel.tsx');
   const serverSource = read('backend/server.cts');
   const livenessSource = read('shared/websocket-liveness.ts');
+  const liveStatusModule = importTsModule('src/lib/backend-live-status.ts');
 
   assert(
       liveStatusSource.includes('everConnected: boolean') &&
@@ -38,6 +39,7 @@ function run() {
       webSocketSource.includes('function markBackendMessage') &&
       webSocketSource.includes('markBackendMessage()') &&
       webSocketSource.includes('updateBackendConnectionStatus') &&
+      webSocketSource.includes('markBackendDisconnected()') &&
       webSocketSource.includes('event.code === 4001') &&
       webSocketSource.includes('Farming token expired or is invalid'),
     'The isolated backend status store should track transport and business-protocol health independently'
@@ -185,6 +187,28 @@ function run() {
     visibleSince: foregroundAt,
     now: foregroundAt + BACKEND_INITIAL_CONNECT_GRACE_MS,
   }), 'lost', 'An uninterrupted outage should escalate after the full grace window');
+
+  liveStatusModule.resetBackendConnectionStatus();
+  liveStatusModule.updateBackendConnectionStatus({ connected: true, disconnectedAt: null });
+  liveStatusModule.markBackendDisconnected(foregroundAt);
+  assert.strictEqual(
+    liveStatusModule.getBackendConnectionSnapshot().disconnectedAt,
+    foregroundAt,
+    'The first close should record when the outage began',
+  );
+  liveStatusModule.markBackendDisconnected(foregroundAt + 1_000);
+  assert.strictEqual(
+    liveStatusModule.getBackendConnectionSnapshot().disconnectedAt,
+    foregroundAt,
+    'A failed reconnect must not restart the outage grace period',
+  );
+  liveStatusModule.updateBackendConnectionStatus({ connected: true, disconnectedAt: null });
+  liveStatusModule.markBackendDisconnected(foregroundAt + 2_000);
+  assert.strictEqual(
+    liveStatusModule.getBackendConnectionSnapshot().disconnectedAt,
+    foregroundAt + 2_000,
+    'A later outage after a successful reconnect should get a fresh timestamp',
+  );
   assert.strictEqual(classifyBackendConnection({
     connected: false,
     lastMessageAt: backgroundMessageAt,

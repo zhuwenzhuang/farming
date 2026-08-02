@@ -64,6 +64,18 @@ export function updateBackendConnectionStatus(patch: Partial<BackendConnectionSn
   notify(connectionListeners)
 }
 
+export function markBackendDisconnected(disconnectedAt = Date.now()) {
+  updateBackendConnectionStatus({
+    connected: false,
+    // Preserve the beginning of one continuous outage. Failed reconnects can
+    // close once per second; moving this timestamp on every close would keep
+    // the UI inside its initial grace period forever.
+    disconnectedAt: connectionSnapshot.connected || connectionSnapshot.disconnectedAt === null
+      ? disconnectedAt
+      : connectionSnapshot.disconnectedAt,
+  })
+}
+
 export function getBackendConnectionSnapshot() {
   return connectionSnapshot
 }
