@@ -1,15 +1,15 @@
 export class TargetBindingRegistry<Binding> {
-  private readonly targets = new Map<string, { sourceKey: string; binding: Binding }>()
+  private readonly targets = new Map<string, { sources: Set<string>; binding: Binding }>()
   private readonly targetsBySource = new Map<string, Set<string>>()
 
   set(sourceKey: string, targetKey: string, binding: Binding) {
-    const previous = this.targets.get(targetKey)
-    if (previous && previous.sourceKey !== sourceKey) {
-      const previousTargets = this.targetsBySource.get(previous.sourceKey)
-      previousTargets?.delete(targetKey)
-      if (previousTargets?.size === 0) this.targetsBySource.delete(previous.sourceKey)
+    const existing = this.targets.get(targetKey)
+    if (existing) {
+      existing.sources.add(sourceKey)
+      existing.binding = binding
+    } else {
+      this.targets.set(targetKey, { sources: new Set([sourceKey]), binding })
     }
-    this.targets.set(targetKey, { sourceKey, binding })
     const sourceTargets = this.targetsBySource.get(sourceKey) || new Set<string>()
     sourceTargets.add(targetKey)
     this.targetsBySource.set(sourceKey, sourceTargets)
@@ -23,7 +23,11 @@ export class TargetBindingRegistry<Binding> {
     const sourceTargets = this.targetsBySource.get(sourceKey)
     if (!sourceTargets) return
     sourceTargets.forEach(targetKey => {
-      if (this.targets.get(targetKey)?.sourceKey === sourceKey) this.targets.delete(targetKey)
+      const entry = this.targets.get(targetKey)
+      if (entry) {
+        entry.sources.delete(sourceKey)
+        if (entry.sources.size === 0) this.targets.delete(targetKey)
+      }
     })
     this.targetsBySource.delete(sourceKey)
   }
