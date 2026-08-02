@@ -93,6 +93,13 @@ absent so a later user request may retry. An exited ready process is removed by
 exact identity; the next request starts a fresh process instead of writing to a
 stale transport. Concurrent starts for the same key join one Promise.
 
+The plugin information status is derived from live managed processes that have
+completed initialization: with no active process it shows “Ready on demand”,
+and it shows “Connected” only when at least one real `server + root` connection
+exists. The capability snapshot lists each connected Project, language server,
+and language root; built-in registry availability is not presented as a
+connected Project.
+
 ## Security And Isolation
 
 - File inputs are resolved through `WorkspaceRootRegistry`.

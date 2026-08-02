@@ -529,7 +529,6 @@ export interface ProviderSessionServiceChange extends Record<string, unknown> {
 
 export interface ProviderSessionServiceContract {
   observe(agentId: string, options?: { force?: boolean }): Promise<boolean> | boolean;
-  resolveTemporaryCodex(agentId: string, options?: { force?: boolean }): Promise<boolean>;
 }
 
 export interface AgentManagerProviderDependencies extends Record<string, unknown> {

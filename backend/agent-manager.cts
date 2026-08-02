@@ -155,7 +155,14 @@ import { deriveTerminalStatus } from './terminal-status.cjs';
 import { AcpRuntime, stopPersistedAcpProcessGroup } from './acp-runtime.cjs';
 import { chatRuntimeForProvider, isChatMode } from './chat-runtime.cjs';
 import { acpTranscriptEntries, acpTranscriptMedia, acpToolChanges, acpToolDetail, acpToolReviewChanges } from './acp-transcript.cjs';
-import { applyCodexTerminalProfile, codexTerminalProfileFromOutput, codexTerminalProfileFromPreview } from './codex-terminal-profile.cjs';
+import {
+  applyCodexTerminalProfile,
+  codexTerminalProfileFromOutput,
+  codexTerminalProfileFromPreview,
+  codexTerminalSessionIdFromStatus,
+  isCodexTerminalComposerPreview,
+  resolveCodexTerminalSessionId,
+} from './codex-terminal-profile.cjs';
 import { ensureAgentOrders, finiteOrder, nextPinnedOrder, reorderedPinnedAgentOrders, reorderedProjectAgentOrders } from './agent-order.cjs';
 import { commitAgentOrderTransaction } from './agent-order-transaction.cjs';
 import { buildInteractiveAgentBaseEnv, normalizeInteractiveTerminalEnv, resolveUserShellEnvSync } from './agent-env.cjs';
@@ -523,9 +530,15 @@ type SessionEngineBridgeContract = DeclaredSessionEngineBridgeContract;
 interface ProviderSessionServiceRuntimeContract {
   activate(agentId: string): void;
   bindConfirmed(agentId: string, provider: unknown, sessionId: string): void;
+  confirm(agentId: string, session: {
+    provider: string;
+    sessionId: string;
+    source?: string;
+    title?: string;
+    workspace?: string;
+  }): boolean;
   dispose(): void;
   observe(agentId: string, options?: { force?: boolean }): void;
-  resolveTemporaryCodex(agentId: string, options?: { force?: boolean }): Promise<boolean>;
   stop(agentId: string): void;
 }
 
@@ -552,6 +565,7 @@ const UNCERTAIN_TERMINAL_STOP_TIMEOUT_MS = 5_000;
 const TERMINAL_STOP_STATE_READ_TIMEOUT_MS = 1_000;
 const TERMINAL_STOP_POLL_MS = 50;
 const CODEX_TERMINAL_START_READY_TIMEOUT_MS = 30_000;
+const CODEX_TERMINAL_STATUS_TIMEOUT_MS = 5_000;
 const WORKTREE_DELETE_START_DRAIN_TIMEOUT_MS = 30_000;
 const CODEX_TERMINAL_START_READY_POLL_MS = 50;
 const CODEX_TERMINAL_START_OUTPUT_LIMIT = 64 * 1024;
@@ -936,6 +950,19 @@ function hasSubmittedTerminalInput(input: TerminalInput) {
     // Remove complete bracketed-paste spans before looking for a submission.
     const withoutBracketedPaste = text.replace(/\x1b\[200~[\s\S]*?\x1b\[201~/g, '');
     return /[\r\n]/.test(withoutBracketedPaste);
+  });
+}
+
+function hasTerminalDraftInput(input: TerminalInput) {
+  const parts = Array.isArray(input) ? input : [input];
+  return parts.some((part: unknown) => {
+    if (isRecord(part) && part.type === 'paste') {
+      return String(part.text || '').length > 0;
+    }
+    const text = String(part || '')
+      .replace(/\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, '')
+      .replace(/[\u0000-\u001f\u007f-\u009f]/g, '');
+    return text.length > 0;
   });
 }
 
@@ -1334,6 +1361,8 @@ class AgentManager extends EventEmitter {
   declare inputQueues: Map<AgentId, Promise<unknown>>;
   declare composerAdmissions: Map<string, ComposerAdmissionEntry>;
   declare codexTerminalProfileQueues: Map<AgentId, Promise<unknown>>;
+  declare codexTerminalIdentityAttempts: Map<AgentId, string>;
+  declare codexTerminalIdentityPromises: Map<AgentId, Promise<boolean>>;
   declare codexTerminalStartQueues: Map<string, Promise<unknown>>;
   declare codexTerminalStartOutput: Map<AgentId, string>;
   declare agentWorktreeResolveGeneration: Map<AgentId, number>;
@@ -1414,6 +1443,8 @@ class AgentManager extends EventEmitter {
     this.inputQueues = new Map();
     this.composerAdmissions = new Map();
     this.codexTerminalProfileQueues = new Map();
+    this.codexTerminalIdentityAttempts = new Map();
+    this.codexTerminalIdentityPromises = new Map();
     this.codexTerminalStartQueues = new Map();
     this.codexTerminalStartOutput = new Map();
     this.agentWorktreeResolveGeneration = new Map();
@@ -1607,9 +1638,6 @@ class AgentManager extends EventEmitter {
             startupOutput.slice(-CODEX_TERMINAL_START_OUTPUT_LIMIT),
           );
         }
-        if (agent.providerSessionProvider === 'codex' && agent.providerSessionTemporary === true) {
-          void this.providerSessionService.resolveTemporaryCodex(sessionId);
-        }
         const outputAt = Date.now();
         agent.lastEngineOutputAt = outputAt;
         this.lastActivity.set(sessionId, outputAt);
@@ -1739,6 +1767,7 @@ class AgentManager extends EventEmitter {
           }
           this.emit('session-stream', stream);
         }
+        void this.resolveCodexTerminalIdentityFromPreview(sessionId, agent.previewText);
         this.observeAgentAttentionState(sessionId);
         this.emit('update');
       });
@@ -1773,6 +1802,7 @@ class AgentManager extends EventEmitter {
           terminalStatus,
           runtimeObservation: deriveRuntimeObservation({ ...agent, terminalStatus }),
         });
+        void this.resolveCodexTerminalIdentityFromPreview(sessionId, agent.previewText);
         this.observeAgentAttentionState(sessionId);
         if (titleChanged) {
           this.emit('update');
@@ -2136,6 +2166,7 @@ class AgentManager extends EventEmitter {
       }
       this.rememberMainPageProviderSession(agentRecord);
       this.providerSessionService.activate(agentId);
+      void this.resolveCodexTerminalIdentityFromCurrentView(agentId);
       changed = true;
     }
 
@@ -4146,6 +4177,8 @@ class AgentManager extends EventEmitter {
     this.resizeDrains.clear();
     this.inputQueues.clear();
     this.codexTerminalProfileQueues.clear();
+    this.codexTerminalIdentityAttempts.clear();
+    this.codexTerminalIdentityPromises.clear();
     this.codexTerminalStartQueues.clear();
     this.codexTerminalStartOutput.clear();
     this.acpSessionOptionsByKey.clear();
@@ -5406,6 +5439,7 @@ class AgentManager extends EventEmitter {
       }
 
       this.providerSessionService.activate(agentId);
+      void this.resolveCodexTerminalIdentityFromCurrentView(agentId);
       finishStartLifecycle();
       if (callback) callback(agentId);
       this.emit('update');
@@ -5521,6 +5555,8 @@ class AgentManager extends EventEmitter {
       this.outputEvents.delete(agentId);
       this.agentUsageRateCache.delete(agentId);
       this.lastResizeByAgent.delete(agentId);
+      this.codexTerminalIdentityAttempts.delete(agentId);
+      this.codexTerminalIdentityPromises.delete(agentId);
       this.providerSessionService.stop(agentId);
       if (this.acpRuntime) this.acpRuntime.unregisterAgent(agentId);
 
@@ -5828,6 +5864,159 @@ class AgentManager extends EventEmitter {
       agentId,
       () => this.sendComposerMessageNow(agentId, message, { delivery: options.delivery }),
     );
+  }
+
+  confirmCodexTerminalStatusIdentity(
+    agentId: AgentId,
+    sessionId: string,
+    expectedAgent: TypedAgentRecord,
+    expectedRuntimeEpoch: string,
+  ): boolean {
+    const current = this.agents.get(agentId);
+    if (
+      current !== expectedAgent
+      || runtimeKind(current) !== 'terminal'
+      || current.providerSessionProvider !== 'codex'
+      || current.providerSessionTemporary !== true
+      || (expectedRuntimeEpoch && current.runtimeEpoch !== expectedRuntimeEpoch)
+      || !isSafeProviderSessionId(sessionId)
+    ) {
+      return false;
+    }
+    return this.providerSessionService.confirm(agentId, {
+      provider: 'codex',
+      sessionId,
+      source: 'codex-terminal-status',
+      workspace: current.projectWorkspace || current.cwd || '',
+    });
+  }
+
+  resolveCodexTerminalIdentityFromPreview(
+    agentId: AgentId,
+    previewText: string,
+  ): Promise<boolean> {
+    const agent = this.agents.get(agentId);
+    if (
+      !agent
+      || runtimeKind(agent) !== 'terminal'
+      || agent.providerSessionProvider !== 'codex'
+      || agent.providerSessionTemporary !== true
+      || agent.terminalDraftInputReceived === true
+      || !isRunningAgentRuntimeStatus(agent.status)
+    ) {
+      return Promise.resolve(false);
+    }
+
+    const runtimeEpoch = String(agent.runtimeEpoch || '');
+    const sessionId = codexTerminalSessionIdFromStatus(previewText);
+    if (sessionId) {
+      return Promise.resolve(this.confirmCodexTerminalStatusIdentity(
+        agentId,
+        sessionId,
+        agent,
+        runtimeEpoch,
+      ));
+    }
+    if (!isCodexTerminalComposerPreview(previewText)) return Promise.resolve(false);
+
+    const attemptKey = runtimeEpoch || `started:${Number(agent.startedAt) || 0}`;
+    if (this.codexTerminalIdentityAttempts.get(agentId) === attemptKey) {
+      return this.codexTerminalIdentityPromises.get(agentId) || Promise.resolve(false);
+    }
+    this.codexTerminalIdentityAttempts.set(agentId, attemptKey);
+
+    const operation = this.enqueueInputOperation(agentId, async () => {
+      const current = this.agents.get(agentId);
+      if (
+        current !== agent
+        || current.providerSessionTemporary !== true
+        || (runtimeEpoch && current.runtimeEpoch !== runtimeEpoch)
+      ) {
+        return false;
+      }
+      const view = await this.getAgentSessionView(agentId);
+      const currentPreview = String(view?.previewText || '');
+      const renderedSessionId = codexTerminalSessionIdFromStatus(currentPreview);
+      if (renderedSessionId) {
+        return this.confirmCodexTerminalStatusIdentity(
+          agentId,
+          renderedSessionId,
+          agent,
+          runtimeEpoch,
+        );
+      }
+      if (!isCodexTerminalComposerPreview(currentPreview)) {
+        if (this.codexTerminalIdentityAttempts.get(agentId) === attemptKey) {
+          this.codexTerminalIdentityAttempts.delete(agentId);
+        }
+        return false;
+      }
+
+      const resolvedSessionId = await resolveCodexTerminalSessionId({
+        timeoutMs: CODEX_TERMINAL_STATUS_TIMEOUT_MS,
+        readPreview: async () => {
+          const nextView = await this.getAgentSessionView(agentId);
+          if (!nextView) throw new Error('Agent not found');
+          return nextView.previewText;
+        },
+        sendInput: async (input: TerminalInput) => {
+          const result = await this.sendInputNow(agentId, input, {
+            expectedRuntimeEpoch: runtimeEpoch,
+            markUserInput: false,
+            throwOnUncertain: true,
+          });
+          if (!result) throw new Error('Codex Terminal is not available');
+          if ('status' in result && result.status === 'input-rejected') {
+            throw new Error('Codex Terminal runtime changed before /status');
+          }
+          return result;
+        },
+      });
+      return this.confirmCodexTerminalStatusIdentity(
+        agentId,
+        resolvedSessionId,
+        agent,
+        runtimeEpoch,
+      );
+    }).catch((error: unknown) => {
+      console.warn(
+        `Failed to resolve Codex Terminal session id for ${agentId}:`,
+        error instanceof Error ? error.message : String(error),
+      );
+      return false;
+    });
+    this.codexTerminalIdentityPromises.set(agentId, operation);
+    void operation.finally(() => {
+      if (this.codexTerminalIdentityPromises.get(agentId) === operation) {
+        this.codexTerminalIdentityPromises.delete(agentId);
+      }
+    });
+    return operation;
+  }
+
+  async resolveCodexTerminalIdentityFromCurrentView(agentId: AgentId): Promise<boolean> {
+    const agent = this.agents.get(agentId);
+    if (
+      !agent
+      || runtimeKind(agent) !== 'terminal'
+      || agent.providerSessionProvider !== 'codex'
+      || agent.providerSessionTemporary !== true
+    ) {
+      return false;
+    }
+    try {
+      const view = await this.getAgentSessionView(agentId);
+      return this.resolveCodexTerminalIdentityFromPreview(
+        agentId,
+        String(view?.previewText || agent.previewText || ''),
+      );
+    } catch (error) {
+      console.warn(
+        `Failed to inspect Codex Terminal session id for ${agentId}:`,
+        error instanceof Error ? error.message : String(error),
+      );
+      return false;
+    }
   }
 
   async setCodexTerminalProfile(
@@ -6222,6 +6411,13 @@ class AgentManager extends EventEmitter {
     if (!engine) return;
 
     const submittedUserInput = markUserInput && hasSubmittedTerminalInput(input);
+    if (
+      markUserInput
+      && !submittedUserInput
+      && hasTerminalDraftInput(input)
+    ) {
+      agent.terminalDraftInputReceived = true;
+    }
     if (submittedUserInput && agent.terminalInputReceived !== true) {
       agent.terminalInputReceived = true;
       this.ensurePersistentAgentSession(agent);
@@ -6232,6 +6428,7 @@ class AgentManager extends EventEmitter {
     try {
       const result = await engine.sendInput(agentId, input, { expectedRuntimeEpoch });
       if (submittedUserInput) {
+        agent.terminalDraftInputReceived = false;
         this.providerSessionService.observe(agentId, { force: true });
       }
       return result;
@@ -8267,7 +8464,7 @@ class AgentManager extends EventEmitter {
       );
     }
     if (agent.providerSessionProvider === 'codex' && agent.providerSessionTemporary === true) {
-      await this.providerSessionService.resolveTemporaryCodex(agentId, { force: true });
+      await this.resolveCodexTerminalIdentityFromPreview(agentId, agent.previewText || '');
       if (agent.providerSessionTemporary === true) {
         return { error: 'Fork requires a resumable Codex session. Try again after the session id is available.' };
       }
@@ -9350,6 +9547,8 @@ class AgentManager extends EventEmitter {
     this.outputEvents.delete(agentId);
     this.agentUsageRateCache.delete(agentId);
     this.lastResizeByAgent.delete(agentId);
+    this.codexTerminalIdentityAttempts.delete(agentId);
+    this.codexTerminalIdentityPromises.delete(agentId);
     this.providerSessionService.stop(agentId);
     if (this.acpRuntime) this.acpRuntime.unregisterAgent(agentId);
 

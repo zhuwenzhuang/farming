@@ -261,6 +261,7 @@ function mergeSessions(groups: AgentSession[][]): AgentSession[] {
 class AgentSessionInventory {
   private readonly cache: AuthoritativeInventoryCache<AgentSession[]>;
   private readonly listSessions: typeof listAgentSessions;
+  private pendingList: Promise<AgentSession[]> | null = null;
   private revision = 0;
 
   constructor(options: AgentSessionInventoryOptions) {
@@ -281,7 +282,20 @@ class AgentSessionInventory {
     return this.cache.close();
   }
 
-  async list(
+  list(
+    metadata: () => AgentSessionInventoryMetadata,
+  ): Promise<AgentSession[]> {
+    if (this.pendingList) return this.pendingList;
+    const pending = this.load(metadata);
+    this.pendingList = pending;
+    const clearPending = () => {
+      if (this.pendingList === pending) this.pendingList = null;
+    };
+    void pending.then(clearPending, clearPending);
+    return pending;
+  }
+
+  private async load(
     metadata: () => AgentSessionInventoryMetadata,
   ): Promise<AgentSession[]> {
     for (let attempt = 0; attempt < 3; attempt += 1) {

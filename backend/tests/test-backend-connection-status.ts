@@ -90,10 +90,9 @@ function run() {
 
   assert(
     codeWorkspaceSource.includes('const pageVisible = usePageVisibility()') &&
-      codeWorkspaceSource.includes('if (!pageVisible) return undefined') &&
-      codeWorkspaceSource.includes('window.setInterval(refreshAgentSessions, 5_000)') &&
+      !codeWorkspaceSource.includes('window.setInterval(refreshAgentSessions, 5_000)') &&
       codeWorkspaceSource.includes('window.setInterval(() => setNow(Date.now()), 60_000)'),
-    'Code workspace should pause session-id polling and relative-time ticks while the page is hidden'
+    'Code workspace should use event-driven session-id refresh and pause relative-time ticks while the page is hidden'
   );
 
   assert(

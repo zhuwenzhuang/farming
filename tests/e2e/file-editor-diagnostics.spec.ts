@@ -51,6 +51,51 @@ test('keeps TypeScript diagnostics syntax-only without project language service 
   expect(markers.some(marker => marker.message.includes('Cannot find module'))).toBe(false)
 })
 
+test('shows Language Server readiness without inventing a connected project', async ({ page }) => {
+  await page.route('**/api/language-server/capability**', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      status: 'ready',
+      source: 'managed',
+      detail: '33 built-in language definitions · servers start on demand',
+      features: ['definition', 'diagnostics'],
+      workspaces: [],
+      connections: [],
+    }),
+  }))
+
+  await openFarming(page)
+  await page.getByTestId('code-nav-plugins').click()
+  const card = page.getByTestId('code-plugin-language-server')
+  await expect(card.getByText('Ready on demand', { exact: true })).toBeVisible()
+  await expect(card.getByText('Connected', { exact: true })).toHaveCount(0)
+  await expect(card).toContainText('No project language server is running')
+})
+
+test('lists live Language Server projects and roots', async ({ page }) => {
+  const workspaceUri = pathToFileURL('/workspaces/managed-project').toString()
+  const rootUri = pathToFileURL('/workspaces/managed-project/module').toString()
+  await page.route('**/api/language-server/capability**', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      status: 'connected',
+      source: 'managed',
+      detail: '33 built-in language definitions · 1 active server · 1 project',
+      features: ['definition', 'diagnostics'],
+      workspaces: [workspaceUri],
+      connections: [{ id: 'typescript', root: rootUri, workspace: workspaceUri }],
+    }),
+  }))
+
+  await openFarming(page)
+  await page.getByTestId('code-nav-plugins').click()
+  const card = page.getByTestId('code-plugin-language-server')
+  await expect(card.getByText('Connected', { exact: true })).toBeVisible()
+  await expect(card).toContainText('typescript')
+  await expect(card).toContainText('/workspaces/managed-project')
+  await expect(card).toContainText('/workspaces/managed-project/module')
+})
+
 test('shows managed Language Server navigation and lazy call hierarchy for a saved file', async ({ page }) => {
   const workspaceRoot = path.join(PLAYWRIGHT_WORKSPACE_ROOT, 'managed-language-server-editor')
   fs.rmSync(workspaceRoot, { recursive: true, force: true })
@@ -66,6 +111,7 @@ test('shows managed Language Server navigation and lazy call hierarchy for a sav
       detail: 'Managed Language Server',
       features: ['definition', 'callHierarchy', 'diagnostics'],
       workspaces: [workspaceUri],
+      connections: [{ id: 'typescript', root: workspaceUri, workspace: workspaceUri }],
     }),
   }))
   await page.route('**/api/language-server/request', async route => {

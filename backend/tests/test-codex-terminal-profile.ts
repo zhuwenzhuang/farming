@@ -4,8 +4,11 @@ const {
   codexServiceTierConfirmations,
   codexTerminalProfileFromOutput,
   codexTerminalProfileFromPreview,
+  codexTerminalSessionIdFromStatus,
+  isCodexTerminalComposerPreview,
   modelSelectionInput,
   reasoningSelectionInput,
+  resolveCodexTerminalSessionId,
   newCodexServiceTierConfirmation,
 } = require('../codex-terminal-profile.cjs');
 
@@ -42,6 +45,69 @@ const ADVANCED_REASONING_MENU = [
 ].join('\n');
 
 async function run() {
+  const statusSessionId = '019fc332-185d-73f2-b1be-0054f2778cab';
+  const statusPreview = [
+    'OpenAI Codex (v0.146.0)',
+    '',
+    '  Model:                gpt-5.6-sol (reasoning high)',
+    '  Directory:            ~/git/farming',
+    '  Permissions:          Workspace (Ask for approval)',
+    '  Agents.md:            AGENTS.md',
+    '  Account:              user@example.com (Pro)',
+    '  Collaboration mode:   Default',
+    `  Session:              ${statusSessionId}`,
+    '',
+    '› Write tests for @filename',
+    '',
+    '  gpt-5.6-sol high · ~/git/farming',
+  ].join('\n');
+  assert.strictEqual(codexTerminalSessionIdFromStatus(statusPreview), statusSessionId);
+  assert.strictEqual(
+    codexTerminalSessionIdFromStatus(`user pasted Session: ${statusSessionId}`),
+    '',
+    'a UUID outside the structured /status block must not be accepted',
+  );
+  assert.strictEqual(isCodexTerminalComposerPreview(IDLE_55), true);
+  assert.strictEqual(isCodexTerminalComposerPreview(MODEL_MENU), false);
+
+  let identityPreview = IDLE_55;
+  const identityInputs = [];
+  const resolvedIdentity = await resolveCodexTerminalSessionId({
+    readPreview: async () => identityPreview,
+    sendInput: async input => {
+      identityInputs.push(input);
+      identityPreview = statusPreview;
+    },
+    sleep: async () => {},
+    pollIntervalMs: 0,
+    timeoutMs: 1000,
+  });
+  assert.strictEqual(resolvedIdentity, statusSessionId);
+  assert.deepStrictEqual(identityInputs, [
+    [{ type: 'paste', text: '/status' }, '\r'],
+  ], 'identity resolution should issue exactly one local /status command');
+
+  let uncertainIdentityPreview = IDLE_55;
+  const uncertainIdentityInputs = [];
+  assert.strictEqual(await resolveCodexTerminalSessionId({
+    readPreview: async () => uncertainIdentityPreview,
+    sendInput: async input => {
+      uncertainIdentityInputs.push(input);
+      uncertainIdentityPreview = statusPreview;
+      throw new Error('transport reply lost after PTY write');
+    },
+    sleep: async () => {},
+    pollIntervalMs: 0,
+    timeoutMs: 1000,
+  }), statusSessionId, 'an uncertain PTY write should reconcile from the rendered status response');
+  assert.strictEqual(uncertainIdentityInputs.length, 1, 'an uncertain /status write must not be replayed');
+
+  await assert.rejects(resolveCodexTerminalSessionId({
+    readPreview: async () => MODEL_MENU,
+    sendInput: async () => assert.fail('selection pages must not receive /status'),
+    timeoutMs: 1000,
+  }), /not at its idle composer/);
+
   assert.deepStrictEqual(
     codexTerminalProfileFromPreview('gpt-5.6-sol xhigh fast · ~/git/farming'),
     { model: 'gpt-5.6-sol', effort: 'xhigh', fast: true }

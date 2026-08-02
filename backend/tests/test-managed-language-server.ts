@@ -65,12 +65,25 @@ async function run() {
       position: { line: 0, character: 1 },
     };
 
-    assert.strictEqual(manager.capability().source, 'managed');
+    const idleCapability = manager.capability();
+    assert.strictEqual(idleCapability.source, 'managed');
+    assert.strictEqual(idleCapability.status, 'ready');
+    assert.deepStrictEqual(idleCapability.workspaces, []);
+    assert.deepStrictEqual(idleCapability.connections, []);
     const definition = await manager.request({ ...base, method: 'definition' });
     assert.strictEqual(definition.supported, true);
     assert.deepStrictEqual(definition.result, [{
       uri: pathToFileURL(file).toString(),
       range: { start: { line: 0, character: 0 }, end: { line: 0, character: 4 } },
+    }]);
+
+    const activeCapability = manager.capability();
+    assert.strictEqual(activeCapability.status, 'connected');
+    assert.deepStrictEqual(activeCapability.workspaces, [pathToFileURL(workspace).toString()]);
+    assert.deepStrictEqual(activeCapability.connections, [{
+      id: 'fake',
+      root: pathToFileURL(workspace).toString(),
+      workspace: pathToFileURL(workspace).toString(),
     }]);
 
     const hover = await manager.request({ ...base, method: 'hover' });

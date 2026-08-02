@@ -133,6 +133,93 @@ async function run() {
       'a confirmed Terminal profile should be published immediately instead of waiting for another PTY preview'
     );
 
+    const identitySessionId = '019fc332-185d-73f2-b1be-0054f2778cab';
+    const identityCalls = [];
+    let identityPreview = 'Select a startup option\n  1. Continue\n  2. Exit';
+    manager.engineBridge.getEngine = () => ({
+      async getSessionState() {
+        return {
+          status: 'running',
+          runtimeEpoch: 'epoch-identity',
+          previewText: identityPreview,
+          output: identityPreview,
+          renderOutput: identityPreview,
+        };
+      },
+      async sendInput(agentId, input) {
+        identityCalls.push({
+          agentId,
+          input,
+          inputReceived: manager.agents.get(agentId)?.terminalInputReceived === true,
+        });
+        if (Array.isArray(input) && input[0]?.text === '/status') {
+          identityPreview = [
+            'OpenAI Codex (v0.146.0)',
+            '  Model:                gpt-5.6-sol (reasoning high)',
+            '  Directory:            /tmp',
+            '  Permissions:          Workspace (Ask for approval)',
+            '  Agents.md:            AGENTS.md',
+            '  Account:              user@example.com (Pro)',
+            '  Collaboration mode:   Default',
+            `  Session:              ${identitySessionId}`,
+            '',
+            '› Ask Codex',
+            '',
+            '  gpt-5.6-sol high · /tmp',
+          ].join('\n');
+        }
+        return { sent: true };
+      },
+    });
+    manager.agents.set('agent-status-identity', {
+      id: 'agent-status-identity',
+      command: 'codex',
+      cwd: '/tmp',
+      engineName: 'local',
+      status: 'running',
+      agentRuntimeMode: 'terminal',
+      runtimeEpoch: 'epoch-identity',
+      providerSessionProvider: 'codex',
+      providerSessionId: 'tmp_uuid-status-identity',
+      providerSessionTemporary: true,
+      terminalInputReceived: false,
+    });
+    assert.strictEqual(await manager.resolveCodexTerminalIdentityFromPreview(
+      'agent-status-identity',
+      identityPreview,
+    ), false);
+    assert.deepStrictEqual(identityCalls, [], 'startup selection pages must not receive /status');
+
+    identityPreview = '› Ask Codex\n\n  gpt-5.6-sol high · /tmp';
+    await manager.sendInput('agent-status-identity', 'draft text');
+    assert.strictEqual(await manager.resolveCodexTerminalIdentityFromPreview(
+      'agent-status-identity',
+      identityPreview,
+    ), false, 'an existing user draft must fence internal /status input');
+    assert.strictEqual(manager.agents.get('agent-status-identity').terminalDraftInputReceived, true);
+    await manager.sendInput('agent-status-identity', '\r');
+    assert.strictEqual(manager.agents.get('agent-status-identity').terminalDraftInputReceived, false);
+    manager.agents.get('agent-status-identity').terminalInputReceived = false;
+    identityCalls.length = 0;
+    await Promise.all([
+      manager.resolveCodexTerminalIdentityFromPreview('agent-status-identity', identityPreview),
+      manager.resolveCodexTerminalIdentityFromPreview('agent-status-identity', identityPreview),
+      manager.sendInput('agent-status-identity', [{ type: 'paste', text: 'user task' }, '\r']),
+    ]);
+    assert.deepStrictEqual(identityCalls.map(call => call.input), [
+      [{ type: 'paste', text: '/status' }, '\r'],
+      [{ type: 'paste', text: 'user task' }, '\r'],
+    ], '/status should run once and stay serialized ahead of later user input');
+    assert.deepStrictEqual(identityCalls.map(call => call.inputReceived), [false, true]);
+    assert.strictEqual(
+      manager.agents.get('agent-status-identity').providerSessionId,
+      identitySessionId,
+    );
+    assert.strictEqual(
+      manager.agents.get('agent-status-identity').providerSessionSource,
+      'codex-terminal-status',
+    );
+
     const profileUpdateOrder = [];
     let finishFirstProfile;
     manager.setCodexTerminalProfileNow = async (agentId, profile, options) => {

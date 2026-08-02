@@ -22,7 +22,7 @@ import type { UiLanguage } from '@/lib/ui-preferences'
 import type { BrowserCapability } from '../../../extensions/browser/frontend/types'
 import type { ComputerCapability } from '../../../extensions/computer/frontend/types'
 import { fetchLanguageServerCapability } from '../../../extensions/language-server/frontend/client'
-import type { LanguageServerCapability } from '../../../extensions/language-server/frontend/types'
+import type { LanguageServerCapability, LanguageServerConnection } from '../../../extensions/language-server/frontend/types'
 
 type NewAgentDefaults = {
   model: string
@@ -268,12 +268,19 @@ function pluginCopy(language: UiLanguage) {
       ? '按文件类型自动启动语言服务，为文件编辑器提供跳转、引用、符号、层次结构和诊断。'
       : 'Start language servers automatically by file type for navigation, references, symbols, hierarchies, and diagnostics.',
     languageServerConnected: zh ? '已连接' : 'Connected',
+    languageServerReady: zh ? '按需待命' : 'Ready on demand',
     languageServerUnavailable: zh ? '不可用' : 'Unavailable',
     languageServerError: zh ? '错误' : 'Error',
     languageServerChecking: zh ? '正在发现…' : 'Discovering…',
     languageServerHint: zh
       ? '优先使用 PATH 中的语言服务；C/C++ 与 Java 缺失时由 Farming 按需准备 clangd 或 JDTLS。'
       : 'Uses language servers from PATH first; Farming prepares clangd or JDTLS on demand when C/C++ or Java needs one.',
+    languageServerNoProjects: zh
+      ? '当前没有运行中的项目级语言服务；打开支持的已保存文件后会按需启动。'
+      : 'No project language server is running; one starts on demand when you open a supported saved file.',
+    languageServerProjects: zh ? '已连接项目' : 'Connected projects',
+    languageServerProject: zh ? '项目' : 'Project',
+    languageServerRoot: zh ? '语言根目录' : 'Language root',
     languageServerRetry: zh ? '重试' : 'Retry',
     remoteConnections: zh ? '远程连接' : 'Remote connections',
     remoteConnectionsDescription: zh
@@ -297,6 +304,28 @@ function browserKindName(kind: string) {
   if (kind === 'edge') return 'Microsoft Edge'
   if (kind === 'chromium') return 'Chromium'
   return 'Chromium'
+}
+
+function languageServerPath(value: string) {
+  try {
+    const url = new URL(value)
+    let pathname = decodeURIComponent(url.pathname)
+    if (/^\/[A-Za-z]:/.test(pathname)) pathname = pathname.slice(1)
+    return pathname.replace(/\/$/, '') || pathname
+  } catch {
+    return value
+  }
+}
+
+function languageServerConnections(capability: LanguageServerCapability | null): LanguageServerConnection[] {
+  if (!capability) return []
+  if (capability.connections?.length) return capability.connections
+  return capability.workspaces.map(workspace => ({ id: '', root: workspace, workspace }))
+}
+
+function sameLanguageServerPath(left: string, right: string) {
+  return languageServerPath(left).replace(/\\/g, '/').replace(/\/$/, '')
+    === languageServerPath(right).replace(/\\/g, '/').replace(/\/$/, '')
 }
 
 function agentDisplayName(agent: Pick<AgentExtensionGroup, 'id' | 'name'>) {
@@ -878,6 +907,17 @@ export function PluginsPanel({
       : isolatedBrowserReady
       ? copy.isolatedBrowser
       : copy.isolatedBrowserNotInstalled
+  const activeLanguageServerConnections = languageServerConnections(languageServerCapability)
+  const languageServerHasActiveConnections = activeLanguageServerConnections.length > 0
+  const languageServerStatus = languageServerLoading
+    ? copy.languageServerChecking
+    : languageServerError || languageServerCapability?.status === 'error'
+      ? copy.languageServerError
+      : languageServerHasActiveConnections
+        ? copy.languageServerConnected
+        : languageServerCapability?.status === 'ready' || languageServerCapability?.status === 'connected'
+          ? copy.languageServerReady
+          : copy.languageServerUnavailable
   const status = loading && capability === null
     ? copy.checking
     : capabilityError
@@ -1269,25 +1309,56 @@ export function PluginsPanel({
           <div className="code-plugin-card-copy">
             <div className="code-plugin-card-title">
               <h3>{copy.languageServer}</h3>
-              <span className={`code-plugin-status ${languageServerCapability?.status === 'connected' ? 'enabled' : ''}`}>
-                {languageServerLoading
-                  ? copy.languageServerChecking
-                  : languageServerError || languageServerCapability?.status === 'error'
-                    ? copy.languageServerError
-                    : languageServerCapability?.status === 'connected'
-                      ? copy.languageServerConnected
-                      : copy.languageServerUnavailable}
+              <span className={`code-plugin-status ${languageServerHasActiveConnections ? 'enabled' : ''}`}>
+                {languageServerStatus}
               </span>
             </div>
             <p>{copy.languageServerDescription}</p>
             <small>{copy.languageServerHint}</small>
-            {languageServerCapability?.status === 'connected' ? (
+            {languageServerCapability
+              && !languageServerError
+              && !languageServerHasActiveConnections
+              && (languageServerCapability.status === 'ready' || languageServerCapability.status === 'connected') ? (
+              <small>{copy.languageServerNoProjects}</small>
+            ) : null}
+            {languageServerCapability?.detail && !languageServerError && languageServerCapability.status !== 'error' ? (
               <small>
                 {languageServerCapability.detail}
                 {languageServerCapability.vscodeVersion ? ` · VS Code ${languageServerCapability.vscodeVersion}` : ''}
               </small>
             ) : null}
-            {(languageServerError || languageServerCapability?.detail) && languageServerCapability?.status !== 'connected' ? (
+            {languageServerHasActiveConnections ? (
+              <div className="code-plugin-language-server-connections">
+                <strong>{copy.languageServerProjects}</strong>
+                <ul>
+                  {activeLanguageServerConnections.map((connection, index) => {
+                    const projectPath = languageServerPath(connection.workspace)
+                    const rootPath = languageServerPath(connection.root)
+                    return (
+                      <li
+                        key={`${connection.id}:${connection.workspace}:${connection.root}:${index}`}
+                        title={`${connection.id || copy.languageServer} · ${projectPath}`}
+                      >
+                        <span className="code-plugin-language-server-server">
+                          {connection.id || copy.languageServer}
+                        </span>
+                        <span className="code-plugin-language-server-project">
+                          {copy.languageServerProject}: {projectPath}
+                        </span>
+                        {!sameLanguageServerPath(connection.workspace, connection.root) ? (
+                          <span className="code-plugin-language-server-root">
+                            {copy.languageServerRoot}: {rootPath}
+                          </span>
+                        ) : null}
+                      </li>
+                    )
+                  })}
+                </ul>
+              </div>
+            ) : null}
+            {(languageServerError
+              || languageServerCapability?.status === 'error'
+              || (languageServerCapability?.status === 'unavailable' && languageServerCapability.detail)) ? (
               <div className="code-plugin-error" role="alert">
                 {languageServerError || languageServerCapability?.detail}
               </div>

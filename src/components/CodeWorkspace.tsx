@@ -407,6 +407,13 @@ interface TerminalFollowState {
   hasUnreadOutput: boolean
 }
 
+interface AgentSessionPage {
+  sessions: AgentSessionHistoryItem[]
+  nextCursor: string
+  hasMore: boolean
+  total: number
+}
+
 const DEFAULT_SIDEBAR_WIDTH = 296
 const MIN_SIDEBAR_WIDTH = 220
 const MAX_SIDEBAR_WIDTH = 840
@@ -733,6 +740,7 @@ export function CodeWorkspace({
   const [agentSessionSearchLoading, setAgentSessionSearchLoading] = useState(false)
   const agentSessionsLoadingRef = useRef(false)
   const agentSessionsRefreshInFlightRef = useRef<Promise<void> | null>(null)
+  const agentSessionsFirstPageRequestRef = useRef<{ limit: number; fresh: boolean; promise: Promise<AgentSessionPage> } | null>(null)
   const agentSessionsLoadGenerationRef = useRef(0)
   const agentSessionsLoadAbortRef = useRef<AbortController | null>(null)
   const agentSessionLoadedCountRef = useRef(AGENT_SESSION_PAGE_SIZE)
@@ -845,6 +853,8 @@ export function CodeWorkspace({
   }, [])
   activeTerminalIdRef.current = activeTerminalId
   const copy = useMemo(() => codeCopyForLanguage(uiPreferences.language), [uiPreferences.language])
+  const currentInfoLoadFailedRef = useRef(copy.currentInfoLoadFailed)
+  currentInfoLoadFailedRef.current = copy.currentInfoLoadFailed
 
   useEffect(() => {
     saveSessionDisplayState({
@@ -1677,6 +1687,20 @@ export function CodeWorkspace({
       total: Number.isFinite(data.total) ? Math.max(sessions.length, Math.floor(data.total as number)) : sessions.length,
     }
   }, [])
+  const fetchAgentSessionPage = useCallback((options: { cursor?: string; limit?: number; fresh?: boolean; signal?: AbortSignal } = {}) => {
+    if (options.cursor) return fetchAgentSessions(options)
+    const limit = options.limit || AGENT_SESSION_PAGE_SIZE
+    const fresh = options.fresh === true
+    const current = agentSessionsFirstPageRequestRef.current
+    if (current?.limit === limit && current.fresh === fresh) return current.promise
+    const request = fetchAgentSessions({ ...options, limit }).finally(() => {
+      if (agentSessionsFirstPageRequestRef.current?.promise === request) {
+        agentSessionsFirstPageRequestRef.current = null
+      }
+    })
+    agentSessionsFirstPageRequestRef.current = { limit, fresh, promise: request }
+    return request
+  }, [fetchAgentSessions])
   const loadAgentSessions = useCallback((fresh = false) => {
     let cancelled = false
     if (!fresh && foregroundHttpPriorityActive()) return () => {}
@@ -1689,7 +1713,7 @@ export function CodeWorkspace({
       setAgentSessionsFreshLoading(true)
       setAgentSessionsFreshError('')
     }
-    fetchAgentSessions(fresh ? { fresh: true, signal: controller.signal } : { signal: controller.signal })
+    fetchAgentSessionPage(fresh ? { fresh: true, signal: controller.signal } : { signal: controller.signal })
       .then(page => {
         if (cancelled || generation !== agentSessionsLoadGenerationRef.current) return
         setAgentSessions(page.sessions)
@@ -1701,7 +1725,7 @@ export function CodeWorkspace({
       .catch(() => {
         if (controller.signal.aborted) return
         if (!cancelled && generation === agentSessionsLoadGenerationRef.current) {
-          if (fresh) setAgentSessionsFreshError(copy.currentInfoLoadFailed)
+          if (fresh) setAgentSessionsFreshError(currentInfoLoadFailedRef.current)
         }
       })
       .finally(() => {
@@ -1719,7 +1743,7 @@ export function CodeWorkspace({
         setAgentSessionsFreshLoading(false)
       }
     }
-  }, [copy.currentInfoLoadFailed, fetchAgentSessions])
+  }, [fetchAgentSessionPage])
   useEffect(() => subscribeForegroundHttpPriority(() => {
     agentSessionsLoadAbortRef.current?.abort()
   }), [])
@@ -1730,7 +1754,7 @@ export function CodeWorkspace({
   }, [])
   const refreshAgentSessions = useCallback(() => {
     if (agentSessionsRefreshInFlightRef.current) return agentSessionsRefreshInFlightRef.current
-    const refresh = fetchAgentSessions({ limit: agentSessionLoadedCountRef.current, fresh: true })
+    const refresh = fetchAgentSessionPage({ limit: agentSessionLoadedCountRef.current, fresh: true })
       .then(page => {
         setAgentSessions(page.sessions)
         setAgentSessionNextCursor(page.nextCursor)
@@ -1745,12 +1769,12 @@ export function CodeWorkspace({
       })
     agentSessionsRefreshInFlightRef.current = refresh
     return refresh
-  }, [fetchAgentSessions])
+  }, [fetchAgentSessionPage])
   const loadMoreAgentSessions = useCallback(async () => {
     if (!agentSessionsHasMore || !agentSessionNextCursor || agentSessionsLoadingRef.current) return false
     agentSessionsLoadingRef.current = true
     try {
-      const page = await fetchAgentSessions({ cursor: agentSessionNextCursor })
+      const page = await fetchAgentSessionPage({ cursor: agentSessionNextCursor })
       setAgentSessions(current => {
         const seen = new Set(current.map(agentSessionId))
         const next = [...current]
@@ -1772,7 +1796,7 @@ export function CodeWorkspace({
     } finally {
       agentSessionsLoadingRef.current = false
     }
-  }, [agentSessionNextCursor, agentSessionsHasMore, fetchAgentSessions])
+  }, [agentSessionNextCursor, agentSessionsHasMore, fetchAgentSessionPage])
 
   useEffect(() => {
     const searchActive = (activeView === 'search' || searchOpen) && hasSearchQuery
@@ -2806,16 +2830,6 @@ export function CodeWorkspace({
     })
     if (discoveredSession) refreshAgentSessions()
   }, [activeAgents, refreshAgentSessions, updateLocalMainPageSessionKeys])
-
-  useEffect(() => {
-    if (!pageVisible) return undefined
-    const hasTemporaryProviderSession = activeAgents.some(agent => agent.providerSessionTemporary === true)
-    if (!hasTemporaryProviderSession) return undefined
-
-    refreshAgentSessions()
-    const timer = window.setInterval(refreshAgentSessions, 5_000)
-    return () => window.clearInterval(timer)
-  }, [activeAgents, pageVisible, refreshAgentSessions])
 
   const focusActiveProjectListTargetNow = useCallback(() => {
     const activeAgentId = activeTerminalIdRef.current

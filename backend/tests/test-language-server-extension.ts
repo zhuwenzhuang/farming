@@ -17,6 +17,12 @@ function run() {
       && pluginsPanelSource.includes('<LanguageServerGlyph />'),
     'The Language Server plugin card should use its dedicated code glyph',
   );
+  assert.ok(
+    pluginsPanelSource.includes('languageServerReady')
+      && pluginsPanelSource.includes('languageServerHasActiveConnections')
+      && pluginsPanelSource.includes('code-plugin-language-server-connections'),
+    'The Language Server plugin card should distinguish idle readiness from active project connections',
+  );
 
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-language-server-'));
   try {

@@ -196,6 +196,7 @@ export interface AgentRecord extends Record<string, unknown>, AgentDisplayState,
   status?: string;
   structuredRuntimeProcess?: StructuredRuntimeProcessIdentity | null;
   terminalInputReceived?: boolean;
+  terminalDraftInputReceived?: boolean;
   attentionBaselineOutputAt?: number | null;
   attentionBaselineOutputSeq?: number | null;
   attentionRequiresNewOutput?: boolean;

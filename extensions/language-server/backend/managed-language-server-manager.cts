@@ -12,7 +12,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFile, execFileSync, spawnSync } from 'node:child_process';
 import { promisify } from 'node:util';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { ManagedLanguageServerClient, languageServerError } from './managed-language-server-client.cjs';
 import {
   LANGUAGE_SERVERS,
@@ -153,16 +153,28 @@ class ManagedLanguageServerManager {
   }
 
   capability() {
+    const connections = [...this.clients.values()]
+      .sort((left, right) => `${left.workspaceRoot}\0${left.id}\0${left.root}`.localeCompare(`${right.workspaceRoot}\0${right.id}\0${right.root}`))
+      .map(client => ({
+        id: client.id,
+        root: pathToFileURL(client.root).toString(),
+        workspace: pathToFileURL(client.workspaceRoot).toString(),
+      }));
+    const workspaces = [...new Set(connections.map(connection => connection.workspace))];
+    const active = connections.length > 0;
     return {
-      status: 'connected' as const,
+      status: active ? 'connected' as const : 'ready' as const,
       source: 'managed' as const,
-      detail: `${this.definitions.length} built-in language definitions · servers start on demand`,
+      detail: active
+        ? `${this.definitions.length} built-in language definitions · ${connections.length} active server${connections.length === 1 ? '' : 's'} · ${workspaces.length} project${workspaces.length === 1 ? '' : 's'}`
+        : `${this.definitions.length} built-in language definitions · servers start on demand`,
       vscodeVersion: '',
       features: [
         'hover', 'definition', 'references', 'implementation', 'documentSymbols',
         'workspaceSymbols', 'callHierarchy', 'typeHierarchy', 'diagnostics',
       ],
-      workspaces: [],
+      workspaces,
+      connections,
     };
   }
 

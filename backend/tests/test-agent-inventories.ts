@@ -27,6 +27,7 @@ async function run() {
 
   let historyLoads = 0;
   let appendSessionIndexDuringLoad = false;
+  let metadataReads = 0;
   const history = new AgentSessionInventory({
     cacheFile: path.join(root, 'cache', 'history.json'),
     listSessions: async () => {
@@ -44,12 +45,23 @@ async function run() {
     },
   });
   caches.push(history);
-  const metadata = () => ({
-    providerHomes: { codex: [{ id: 'default', path: codexHome }] },
-    providerSessionBindings: [],
-  });
+  const metadata = () => {
+    metadataReads += 1;
+    return {
+      providerHomes: { codex: [{ id: 'default', path: codexHome }] },
+      providerSessionBindings: [],
+    };
+  };
 
-  assert.strictEqual((await history.list(metadata))[0].title, 'one');
+  const concurrentHistory = await Promise.all([
+    history.list(metadata),
+    history.list(metadata),
+    history.list(metadata),
+  ]);
+  assert.strictEqual(concurrentHistory[0][0].title, 'one');
+  assert.deepStrictEqual(concurrentHistory[1], concurrentHistory[0]);
+  assert.deepStrictEqual(concurrentHistory[2], concurrentHistory[0]);
+  assert.strictEqual(metadataReads, 1, 'Concurrent History readers should share one filesystem inventory pass');
   assert.strictEqual((await history.list(metadata))[0].updatedAt, '2026-07-31T00:00:00.000Z');
   assert.strictEqual((await history.list(metadata))[0].title, 'one');
   assert.strictEqual(historyLoads, 1);

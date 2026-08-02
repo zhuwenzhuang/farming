@@ -771,7 +771,10 @@ function run() {
       workspaceSource.includes('let discoveredSession = false') &&
       workspaceSource.includes('if (discoveredSession) refreshAgentSessions()') &&
       workspaceSource.includes('agentSessionsRefreshInFlightRef') &&
+      workspaceSource.includes('agentSessionsFirstPageRequestRef') &&
+      workspaceSource.includes('if (current?.limit === limit && current.fresh === fresh) return current.promise') &&
       workspaceSource.includes('agent.providerSessionTemporary === true') &&
+      !workspaceSource.includes('window.setInterval(refreshAgentSessions, 5_000)') &&
       workspaceSource.includes('agent.providerSessionKey || resumedAgentSessionIdFromSource(agent.source)') &&
       workspaceSource.includes('refreshAgentSessions') &&
       workspaceSource.includes('agentSessionPinnedOverrides') &&

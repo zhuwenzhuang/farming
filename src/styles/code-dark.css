@@ -213,16 +213,6 @@ body.code-mode[data-appearance='dark'] .code-agent-row-actions {
   --code-agent-row-action-surface: var(--code-dark-bg-soft);
 }
 
-body.code-mode[data-appearance='dark'] .code-agent-row {
-  --code-agent-row-fade-surface: var(--code-dark-bg-soft);
-}
-
-body.code-mode[data-appearance='dark'] .code-agent-row:hover,
-body.code-mode[data-appearance='dark'] .code-agent-row.active,
-body.code-mode[data-appearance='dark'] .code-agent-row.search-selected {
-  --code-agent-row-fade-surface: var(--code-dark-bg-hover);
-}
-
 body.code-mode[data-appearance='dark'] .code-agent-row:hover .code-agent-row-actions,
 body.code-mode[data-appearance='dark'] .code-agent-row.active .code-agent-row-actions,
 body.code-mode[data-appearance='dark'] .code-agent-row.search-selected .code-agent-row-actions {
@@ -718,6 +708,24 @@ body.code-mode[data-appearance='dark'] .code-plugin-card-icon {
 
 body.code-mode[data-appearance='dark'] .code-plugin-status.enabled {
   color: #56c277;
+}
+
+body.code-mode[data-appearance='dark'] .code-plugin-language-server-connections > strong {
+  color: var(--code-dark-text-muted);
+}
+
+body.code-mode[data-appearance='dark'] .code-plugin-language-server-connections li {
+  border-color: var(--code-dark-border);
+  background: var(--code-dark-bg-soft);
+}
+
+body.code-mode[data-appearance='dark'] .code-plugin-language-server-server {
+  color: var(--code-dark-text-soft);
+}
+
+body.code-mode[data-appearance='dark'] .code-plugin-language-server-project,
+body.code-mode[data-appearance='dark'] .code-plugin-language-server-root {
+  color: var(--code-dark-text-muted);
 }
 
 body.code-mode[data-appearance='dark'] .code-plugin-toggle {

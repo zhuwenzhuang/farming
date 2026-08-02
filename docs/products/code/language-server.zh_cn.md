@@ -59,6 +59,8 @@ Java 检测 Gradle Settings、Wrapper、Build 文件，经过 `<modules>` 关系
 
 每个 `Server + Root` 遵循 `absent -> starting -> ready -> stopping -> absent`。启动失败会返回明确请求错误并保持 `absent`，之后的用户请求可以重试。已就绪进程退出后按精确身份移除，下一次请求启动新进程，不会继续写入过期 Transport。同一个 Key 的并发启动共享一个 Promise。
 
+插件信息中的状态来自当前存活且已经完成初始化的托管进程：没有活跃进程时显示“按需待命”，只有至少一个真实的 `Server + Root` 连接时才显示“已连接”。能力快照会列出当前连接的 Project、语言 Server 和语言根目录；它不会把“内置注册表可用”当成项目已经连接。
+
 ## 安全与隔离
 
 - 文件输入通过 `WorkspaceRootRegistry` 解析；

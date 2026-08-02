@@ -1,4 +1,10 @@
-export type LanguageServerStatus = 'connected' | 'unavailable' | 'error'
+export type LanguageServerStatus = 'connected' | 'ready' | 'unavailable' | 'error'
+
+export interface LanguageServerConnection {
+  id: string
+  root: string
+  workspace: string
+}
 
 export interface LanguageServerCapability {
   status: LanguageServerStatus
@@ -7,6 +13,7 @@ export interface LanguageServerCapability {
   vscodeVersion: string
   features: string[]
   workspaces: string[]
+  connections: LanguageServerConnection[]
 }
 
 export interface LanguageServerPosition {

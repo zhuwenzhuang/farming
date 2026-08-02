@@ -42,6 +42,8 @@ Chat 会保留这些 ACP 类型化 Part，不从 Assistant 普通文字中反推
 
 页面状态会分别显示浏览器当前已经载入的 History 行数，以及后端发现的 Provider 会话总数。滚动接近项目列表底部时加载下一页；项目里的“显示更多”仍只控制已加载页面内的本地展示。Agent Search 会查询后端完整历史窗口，而不是只过滤浏览器已经加载的页面。匹配不区分大小写，覆盖可见的 Agent 或 Session 标题、Project 名称和路径，以及完整或部分 Resume ID；provider 元数据和 transcript 正文不参与搜索。后端返回的 Session identity 会被前端视为权威搜索命中，不会再被前端的标题过滤器丢弃。恢复历史时会在后端完整窗口内解析 provider 元数据，因此较老的 Session 在 Terminal 与 Chat 之间切换时仍能保留原工作区。Claude 与 Qoder 历史发现只把项目级 transcript 文件视为 Session；嵌套的子 Agent transcript 继承父会话身份，属于重放细节，不会生成重复 History 行。每条 provider Session 行都会显示紧凑 Resume ID，悬停可查看完整标识；相同标题因此可以直接区分，同时传给后端的恢复身份保持不变。
 
+临时 Terminal Provider 身份不会轮询或扫描 History。它们升级为已确认身份仍由后端负责；该状态转换只触发一次前端刷新。浏览器会合并尺寸相同且时间重叠的首屏读取，并发后端 inventory 读取也共享同一次权威文件系统扫描，因此显式触发的初始 hydration、History 和多个浏览器不会重复放大同一轮用户请求的扫描。
+
 打开 History 是一条当前状态边界。Farming 会先清空上一次的 Provider Session 列表，在新请求成功前显示“加载中”；失败保持可见，且不得回退展示上一次访问的数据。History 搜索遵守同一契约。
 
 ACP update 一方面以有界且限制单条大小的诊断数据保留，另一方面归约到一条与 provider 无关的有序 entry stream。历史重放和实时更新使用同一个 reducer；相邻且 message id 兼容的 message chunk 合并，但 Codex phase 元数据会保留，并阻止 commentary 跨越 `final_answer` 边界合并。Codex steer 消息始终归属原始用户回合，不能成为 Transcript 增量切片的新回合边界。tool update 按 id 原位更新最初的 tool-call entry，plan entry 原位更新。usage、mode、command 和 config option 等 Session 元数据不混入对话流。runtime notification 只携带轻量失效信息：实时 Transcript revision 使用按 Agent 合并的 `acp-session-revision` 浏览器消息，而不是广播完整 workspace state；首次水合与重连仍接收权威完整状态。Transcript 读取使用单调递增的 revision，只替换受影响的 entry 后缀。首屏只携带有界 inline detail、patch 统计、媒体引用与 terminal id 组成的紧凑有序 tool envelope；准确 raw input/output 和 patch 仍保存在后端 checkpoint 中，通过 tool-detail endpoint 按需读取。新版 reader 必须显式协商 `external-v1` Transcript 媒体，确保滚动升级期间旧 reader 继续接收 inline 媒体；协商后的媒体 URL 使用不可变内容哈希而不是可变数组下标，精确内容已不再权威时必须 fail-closed。只有只读 Transcript GET 的传输失败可以进行有界自动重试；切换 view 会取消重试，prompt、终端输入及任何其他写路径都不得进入该重试行为。
@@ -124,7 +126,7 @@ ACP 启动、初始化、历史恢复、prompt、协议和 adapter 退出错误�
 
 Farming Code 中 Codex、Claude Code 和 OpenCode 的 Chat 控件选择 ACP。Chat 与 Terminal 之间切换会重启 Agent runtime，并恢复同一个 provider Session；replacement 会保留当前已展开的 Composer，不会突然套用“新开 Terminal 默认收起”的偏好。已移除的 JSON CLI Runtime 不再是启动、恢复或 Transcript 读取路径。
 
-新建 OpenCode Terminal 会先通过一个有界 ACP 进程创建精确的 provider Session，再启动原生 Terminal。新建 Codex Terminal 会立即启动并暂时使用关联 ID，用户元数据始终归稳定的 Farming Session 记录所有，native host 恢复时也一样。只有 Codex History 在有界启动窗口内出现唯一一个尚未占用、同时匹配 Agent Home 与 canonical Workspace、并带可信创建时间的候选项时，Farming 才确认该 ID；身份扫描只读取启动日期目录中的 rollout 头部，同一 Agent Home 的并发扫描共享一份 in-flight 结果。提交绑定时会再次同步检查占用关系，多个候选项或仅关联 Git worktree 的候选项会继续保持未解析。确认后的 provider ID 会挂接到同一份 Farming 记录，供后续 Chat/Terminal 恢复与 Fork 使用。提交 Terminal 输入时会先设置使用 fence，再等待 PTY 响应；fence 生效后，Chat、权限重启与 Fork 都必须等待精确 provider ID。如果 native host 运行时轮换时仍存在这种已使用但未取得精确 ID 的 Terminal，轮换必须终止并恢复旧 host，因为重新启动 `codex` 会静默替换原对话。
+新建 OpenCode Terminal 会先通过一个有界 ACP 进程创建精确的 provider Session，再启动原生 Terminal。新建和 Fork 的 Codex Terminal 会立即启动并暂时使用关联 ID，用户元数据始终归稳定的 Farming Session 记录所有，native host 恢复时也一样。当渲染后的 TUI 到达普通空闲 Composer 时，Farming 会在后续用户输入之前串行执行一次内部 `/status`，并且只从结构化状态区严格提取 UUID。选择页、执行中的 Turn、菜单、尚未提交的用户草稿、任意终端文字、过期 runtime epoch，以及已经被另一个存活 Agent 占用的身份，都不能提交绑定。PTY 写入结果不确定时只从渲染结果对账，绝不重放命令；同一个 runtime epoch 内稍晚到达的合法状态结果仍可完成这次尝试。失败会继续保持临时身份，绝不回退到 History 发现。确认后的 provider ID 会原子挂接到同一份 Farming 记录，供后续 Chat/Terminal 恢复与 Fork 使用。Farming 自己发送的 `/status` 不会设置用户输入 fence。提交用户 Terminal 输入时仍会先设置使用 fence，再等待 PTY 响应；fence 生效后，Chat、权限重启与 Fork 都必须等待精确 provider ID。如果 native host 运行时轮换时仍存在这种已使用但未取得精确 ID 的 Terminal，轮换必须终止并恢复旧 host，因为重新启动 `codex` 会静默替换原对话。
 
 Terminal 模式继续使用 `NativeSessionEngine`。ACP 是新启动或重启 Agent 时选择的结构化 runtime，不会同时复制一份 Terminal 进程。
 

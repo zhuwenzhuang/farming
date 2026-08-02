@@ -24,12 +24,14 @@ async function rowProjection(row: ReturnType<Page['locator']>) {
     const age = element.querySelector<HTMLElement>('.code-agent-relative-age')
     const detail = element.querySelector<HTMLElement>('.code-agent-meta')
     if (!title || !provider || !age || !detail) throw new Error('Responsive Agent row fields are missing')
+    const titleStyle = getComputedStyle(title)
     return {
       rowHeight: Math.round((element as HTMLElement).getBoundingClientRect().height),
       title: title.textContent,
       titleClientWidth: Math.round(title.getBoundingClientRect().width),
       titleScrollWidth: title.scrollWidth,
-      titleTextOverflow: getComputedStyle(title).textOverflow,
+      titleTextOverflow: titleStyle.textOverflow,
+      titleMaskImage: titleStyle.maskImage || titleStyle.getPropertyValue('-webkit-mask-image'),
       providerDisplay: getComputedStyle(provider).display,
       ageDisplay: getComputedStyle(age).display,
       detailDisplay: getComputedStyle(detail).display,
@@ -63,7 +65,8 @@ test('reveals more Agent row information as the sidebar widens', async ({ page, 
 
   const compact = await rowProjection(row)
   expect(compact.titleScrollWidth).toBeGreaterThan(compact.titleClientWidth)
-  expect(compact.titleTextOverflow).toBe('ellipsis')
+  expect(compact.titleTextOverflow).toBe('clip')
+  expect(compact.titleMaskImage).toContain('linear-gradient')
   expect(compact.providerDisplay).toBe('none')
   expect(compact.ageDisplay).toBe('none')
   expect(compact.detailDisplay).toBe('none')
@@ -163,41 +166,27 @@ test('reveals more Agent row information as the sidebar widens', async ({ page, 
   await expect(row.locator('.code-agent-dot.turn-active')).toHaveCount(1)
   const activeTitlePresentation = await row.evaluate(element => {
     const title = element.querySelector<HTMLElement>('.code-agent-name')
-    const dot = element.querySelector<HTMLElement>('.code-agent-dot.turn-active')
-    if (!title || !dot) throw new Error('Active Agent row presentation is missing')
-    const rowStyle = getComputedStyle(element)
-    const fadeStyle = getComputedStyle(dot, '::before')
+    if (!title) throw new Error('Active Agent row presentation is missing')
+    const titleStyle = getComputedStyle(title)
     return {
-      textOverflow: getComputedStyle(title).textOverflow,
-      fadeContent: fadeStyle.content,
-      fadeBackgroundImage: fadeStyle.backgroundImage,
-      fadeWidth: fadeStyle.width,
-      fadeSurface: rowStyle.getPropertyValue('--code-agent-row-fade-surface').trim(),
+      textOverflow: titleStyle.textOverflow,
+      maskImage: titleStyle.maskImage || titleStyle.getPropertyValue('-webkit-mask-image'),
     }
   })
   expect(activeTitlePresentation.textOverflow).toBe('clip')
-  expect(activeTitlePresentation.fadeContent).toBe('""')
-  expect(activeTitlePresentation.fadeBackgroundImage).toContain('linear-gradient')
-  expect(activeTitlePresentation.fadeWidth).toBe('12px')
-  expect(activeTitlePresentation.fadeBackgroundImage).toContain('rgb(233, 233, 232)')
-  expect(activeTitlePresentation.fadeSurface).toBe('#e9e9e8')
+  expect(activeTitlePresentation.maskImage).toContain('linear-gradient')
   await row.hover()
-  const hoverActionPresentation = await row.evaluate(element => {
+  const hoverActionLayers = await row.evaluate(element => {
     const dot = element.querySelector<HTMLElement>('.code-agent-dot.turn-active')
     const actions = element.querySelector<HTMLElement>('.code-agent-row-actions')
     if (!dot || !actions) throw new Error('Active Agent row actions are missing')
-    const dotBox = dot.getBoundingClientRect()
-    const actionsBox = actions.getBoundingClientRect()
     return {
-      actionsOpacity: getComputedStyle(actions).opacity,
-      actionsZIndex: Number.parseInt(getComputedStyle(actions).zIndex, 10),
-      dotZIndex: Number.parseInt(getComputedStyle(dot).zIndex, 10),
-      actionsCoverDot: actionsBox.left <= dotBox.left && actionsBox.right >= dotBox.right,
+      actionsZIndex: getComputedStyle(actions).zIndex,
+      dotOpacity: getComputedStyle(dot).opacity,
     }
   })
-  expect(hoverActionPresentation.actionsOpacity).toBe('1')
-  expect(hoverActionPresentation.actionsZIndex).toBeGreaterThan(hoverActionPresentation.dotZIndex)
-  expect(hoverActionPresentation.actionsCoverDot).toBe(true)
+  expect(hoverActionLayers.actionsZIndex).toBe('3')
+  expect(hoverActionLayers.dotOpacity).toBe('0')
   await page.mouse.move(1000, 100)
   await projectRow.hover()
   const projectPreview = page.getByTestId('code-project-hover-preview')
@@ -261,6 +250,7 @@ test('hides Agent row actions after a clicked row loses hover', async ({ page, w
   await expect(row).toBeVisible()
   await row.click()
   await expect(actions).toHaveCSS('opacity', '1')
+  await expect(actions).toHaveCSS('z-index', '3')
 
   await page.mouse.move(1000, 100)
   await row.evaluate(element => (element as HTMLElement).focus())

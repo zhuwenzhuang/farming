@@ -70,6 +70,15 @@ interface ApplyCodexTerminalProfileOptions {
   timeoutMs?: number;
 }
 
+interface ResolveCodexTerminalSessionOptions {
+  pollIntervalMs?: number;
+  readPreview: AsyncReader;
+  sendInput: SendInput;
+  signal?: AbortSignal;
+  sleep?: SleepFunction;
+  timeoutMs?: number;
+}
+
 interface ProfileMatchOptions {
   includeFast?: boolean;
 }
@@ -196,6 +205,22 @@ function newCodexServiceTierConfirmation(
 
 function terminalCommand(command: string): TerminalCommand {
   return [{ type: 'paste', text: command }, '\r'];
+}
+
+function codexTerminalSessionIdFromStatus(previewText: unknown): string {
+  const text = stripAnsi(previewText).replace(/\r\n?/g, '\n');
+  const matches = Array.from(text.matchAll(
+    /(?:^|\n)\s*Directory:\s*[^\n]*\n(?:[^\n]*\n){0,8}?\s*Session:\s*([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\s*(?:\n|$)/gi
+  ));
+  return String(matches.at(-1)?.[1] || '').toLowerCase();
+}
+
+function isCodexTerminalComposerPreview(previewText: unknown): boolean {
+  const preview = String(previewText || '');
+  return Boolean(codexTerminalProfileFromPreview(preview))
+    && !codexModelMenuOptions(preview)
+    && !codexReasoningMenuOptions(preview)
+    && !codexAdvancedReasoningMenuOptions(preview);
 }
 
 function numberedOptionsAfter(
@@ -598,6 +623,57 @@ async function applyCodexTerminalProfile({
   }
 }
 
+async function resolveCodexTerminalSessionId({
+  readPreview,
+  sendInput,
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+  pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
+  sleep: sleepFn = sleep,
+  signal,
+}: ResolveCodexTerminalSessionOptions): Promise<string> {
+  const totalTimeoutMs = Math.max(1, Number.isFinite(timeoutMs) ? timeoutMs : DEFAULT_TIMEOUT_MS);
+  const deadline = Date.now() + totalTimeoutMs;
+  const initialPreview = String(await callWithDeadline(readPreview, {
+    deadline,
+    signal,
+    timeoutMessage: 'Timed out reading the Codex Terminal composer',
+  }) || '');
+  if (!isCodexTerminalComposerPreview(initialPreview)) {
+    throw new Error('Codex Terminal is not at its idle composer');
+  }
+
+  let sendError: unknown = null;
+  try {
+    await callWithDeadline(() => sendInput(terminalCommand('/status')), {
+      deadline,
+      signal,
+      timeoutMessage: 'Timed out sending /status to Codex Terminal',
+    });
+  } catch (error) {
+    // PTY delivery is an uncertain commit. Reconcile from the rendered status
+    // response instead of replaying a command that may already have arrived.
+    sendError = error;
+  }
+
+  try {
+    const status = await waitForPreview(
+      readPreview,
+      preview => codexTerminalSessionIdFromStatus(preview) || null,
+      {
+        deadline,
+        pollIntervalMs,
+        sleep: sleepFn,
+        signal,
+        timeoutMessage: 'Codex Terminal did not report its Session id after /status',
+      },
+    );
+    return status.result;
+  } catch (error) {
+    if (sendError) throw sendError;
+    throw error;
+  }
+}
+
 export {
   DEFAULT_POLL_INTERVAL_MS,
   DEFAULT_TIMEOUT_MS,
@@ -608,11 +684,14 @@ export {
   codexModelMenuOptions,
   codexReasoningMenuOptions,
   codexTerminalProfileFromPreview,
+  codexTerminalSessionIdFromStatus,
+  isCodexTerminalComposerPreview,
   modelSelectionInput,
   moreReasoningSelectionInput,
   newCodexServiceTierConfirmation,
   normalizedReasoning,
   reasoningSelectionInput,
+  resolveCodexTerminalSessionId,
   terminalCommand,
   validateTargetProfile,
   waitForPreview,
@@ -625,6 +704,7 @@ export type {
   CodexTerminalProfileTarget,
   DeadlineOptions,
   NumberedMenuOption,
+  ResolveCodexTerminalSessionOptions,
   TerminalCommand,
   TerminalInput,
   ValidatedCodexTerminalProfile,
