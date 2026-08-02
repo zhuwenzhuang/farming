@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
+  composerSubmissionOwnsDraft,
   composerStateAliasKeysForAgent,
   composerStateKeyForAgent,
   createDefaultAgentComposerState,
@@ -116,4 +117,32 @@ test('deduplicates queued follow-ups by id while preserving deterministic FIFO o
   const merged = mergeAgentComposerStates(primary, incoming)
   assert.deepEqual(merged.pendingFollowUp?.messages.map(message => message.id), ['first', 'same', 'later'])
   assert.equal(merged.pendingFollowUp?.messages[1]?.text, 'live copy')
+})
+
+test('matches a retry to the exact draft and Unicode attachment ids it owns', () => {
+  const state = createDefaultAgentComposerState()
+  state.draft = 'retry this exact draft'
+  state.attachments = [{
+    id: '附件 截图 1.png',
+    kind: 'image',
+    name: '截图 1.png',
+    type: 'image/png',
+    size: 12,
+    status: 'ready',
+    path: '/tmp/截图 1.png',
+  }]
+  const submission = {
+    id: 'request-retry',
+    text: state.draft,
+    editableText: state.draft,
+    createdAt: 1,
+    status: 'failed' as const,
+    delivery: 'prompt' as const,
+    origin: 'draft' as const,
+    draftAttachmentIds: ['附件 截图 1.png'],
+  }
+
+  assert.equal(composerSubmissionOwnsDraft(state, submission), true)
+  assert.equal(composerSubmissionOwnsDraft({ ...state, draft: 'newer draft' }, submission), false)
+  assert.equal(composerSubmissionOwnsDraft({ ...state, attachments: [] }, submission), false)
 })
