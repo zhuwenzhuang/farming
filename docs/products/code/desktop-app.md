@@ -83,6 +83,11 @@ Electron desktop gateway
         +-- Connection manager -- system OpenSSH bootstrap + tunnel --> remote Farming backend
 ```
 
+Desktop owns only Connection concerns and operating-system adaptation. Agent, Project, Session,
+Terminal, Files, plugin, and voice business logic stays in the shared React frontend and Farming
+backend. A feature that neither selects a backend nor requires a native OS capability must not gain
+a desktop-specific implementation or state machine.
+
 ## Lifecycle State Machine
 
 The Electron main process owns one application lifecycle and one renderer-window lifecycle. Backend

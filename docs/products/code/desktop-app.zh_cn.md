@@ -76,6 +76,10 @@ Electron Desktop Gateway
         +-- Connection Manager -- 系统 OpenSSH bootstrap + 隧道 --> 远端 Farming Backend
 ```
 
+Desktop 只拥有 Connection 与操作系统适配。Agent、Project、Session、Terminal、Files、插件和
+Voice 的业务逻辑继续归共享 React 前端与 Farming Backend。既不选择 Backend、也不需要原生
+OS 能力的功能，不得新增 Desktop 专属实现或状态机。
+
 ## 生命周期状态机
 
 Electron 主进程统一拥有应用生命周期和 renderer 窗口生命周期。后端回调不能直接调用
