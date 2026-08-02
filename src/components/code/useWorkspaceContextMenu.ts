@@ -17,7 +17,7 @@ const MOBILE_PROJECT_CONTEXT_MENU_WIDTH = 286
 
 export type WorkspaceContextMenu =
   | { kind: 'agent'; agentId: string; x: number; y: number; focusFirstItem: boolean }
-  | { kind: 'project'; projectId: string; x: number; y: number; focusFirstItem: boolean }
+  | { kind: 'project'; projectId: string; x: number; y: number; returnFocusTarget: HTMLElement; focusFirstItem: boolean }
   | { kind: 'agent-session'; provider: string; sessionId: string; x: number; y: number; focusFirstItem: boolean }
   | { kind: 'options'; x: number; y: number; returnFocusTarget: HTMLElement | null; focusFirstItem: boolean }
 
@@ -31,12 +31,16 @@ interface UseWorkspaceContextMenuOptions {
   focusProject: (projectId: string) => void
 }
 
-function isKeyboardMenuTrigger(event: WorkspaceContextMenuTriggerEvent) {
+function isKeyboardEvent(event: WorkspaceContextMenuTriggerEvent): event is ReactKeyboardEvent<HTMLElement> {
   return 'key' in event
 }
 
+function isKeyboardMenuTrigger(event: WorkspaceContextMenuTriggerEvent) {
+  return isKeyboardEvent(event) || (event.type === 'click' && event.detail === 0)
+}
+
 function acceptsKeyboardMenuTrigger(event: WorkspaceContextMenuTriggerEvent) {
-  return !isKeyboardMenuTrigger(event) || event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')
+  return !isKeyboardEvent(event) || event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')
 }
 
 function prepareMenuTrigger(event: WorkspaceContextMenuTriggerEvent) {
@@ -47,10 +51,12 @@ function prepareMenuTrigger(event: WorkspaceContextMenuTriggerEvent) {
 }
 
 function anchoredMenuPoint(event: WorkspaceContextMenuTriggerEvent, estimatedHeight: number) {
-  if (isKeyboardMenuTrigger(event)) {
+  const pointBelowTarget = () => {
     const rect = event.currentTarget.getBoundingClientRect()
     return clampContextMenuPoint(rect.left + 24, rect.top + rect.height, estimatedHeight)
   }
+  if (isKeyboardEvent(event)) return pointBelowTarget()
+  if (event.type === 'click' && event.detail === 0) return pointBelowTarget()
   return clampContextMenuPoint(event.clientX, event.clientY, estimatedHeight)
 }
 
@@ -66,7 +72,15 @@ export function useWorkspaceContextMenu({
     const closingMenu = contextMenu
     setContextMenu(null)
     if (closingMenu?.kind === 'agent') focusAgent(closingMenu.agentId)
-    else if (closingMenu?.kind === 'project') focusProject(closingMenu.projectId)
+    else if (closingMenu?.kind === 'project') {
+      window.requestAnimationFrame(() => {
+        if (closingMenu.returnFocusTarget.isConnected) {
+          closingMenu.returnFocusTarget.focus({ preventScroll: true })
+        } else {
+          focusProject(closingMenu.projectId)
+        }
+      })
+    }
     else if (closingMenu?.kind === 'agent-session') focusAgentSession(closingMenu.provider, closingMenu.sessionId)
     else if (closingMenu?.kind === 'options' && closingMenu.returnFocusTarget) {
       window.requestAnimationFrame(() => closingMenu.returnFocusTarget?.focus({ preventScroll: true }))
@@ -92,6 +106,7 @@ export function useWorkspaceContextMenu({
       kind: 'project',
       projectId,
       ...point,
+      returnFocusTarget: event.currentTarget,
       focusFirstItem: isKeyboardMenuTrigger(event),
     })
   }, [projects])
@@ -115,7 +130,7 @@ export function useWorkspaceContextMenu({
       x: Math.max(8, rect.right - 164),
       y: Math.min(window.innerHeight - 12, rect.bottom + 6),
       returnFocusTarget: event.currentTarget,
-      focusFirstItem: false,
+      focusFirstItem: isKeyboardMenuTrigger(event),
     })
   }, [])
 

@@ -94,6 +94,17 @@ test('reveals more Agent row information as the sidebar widens', async ({ page, 
   await page.waitForTimeout(1700)
   await expect(page.getByTestId('code-project-hover-preview')).toHaveCount(0)
   await page.keyboard.press('Escape')
+  const projectActions = projectGroup.getByTestId('code-project-actions')
+  await expect(projectActions).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(projectMenu).toBeVisible()
+  await expect(pinProject).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(projectActions).toBeFocused()
+  await page.keyboard.press('Space')
+  await expect(projectMenu).toBeVisible()
+  await expect(pinProject).toBeFocused()
+  await page.keyboard.press('Escape')
   const mountResponse = await page.request.post('/farming/api/projects/mount', {
     data: { workspace: projectDir },
   })
