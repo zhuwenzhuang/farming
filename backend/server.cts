@@ -223,7 +223,7 @@ import { ConfigManager } from './config-manager.cjs';
 import { ThemeManager } from './theme-manager.cjs';
 import { TokenAuth } from './auth.cjs';
 import { getLocalIPs, getPrimaryLocalIP } from './network.cjs';
-import { listAvailableAgents, resolveCompatibleCodexExecutable } from './executable-discovery.cjs';
+import { listAvailableAgents, resolveTerminalCodexExecutable } from './executable-discovery.cjs';
 import { readClaudeSettingsSummary } from './claude-settings.cjs';
 import { listCodexModelOptions } from './codex-models.cjs';
 import { readProviderHomeConfiguration } from './provider-home-configuration.cjs';
@@ -1334,7 +1334,7 @@ app.post(routePath(BASE_PATH, '/api/update/restart'), express.json(), async (req
 function warmCodexExecutableVersionCache() {
   const startedAt = Date.now();
   try {
-    const result = resolveCompatibleCodexExecutable('');
+    const result = resolveTerminalCodexExecutable('');
     if (result.path) {
       console.log(`Codex executable ready: ${result.version || 'unknown version'} (${Date.now() - startedAt}ms)`);
     }

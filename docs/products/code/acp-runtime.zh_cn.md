@@ -8,11 +8,19 @@ Farming 现在提供一条面向 Codex、Claude Code、OpenCode 和 Qoder 的 Ag
 
 - Codex 使用锁定版本的 `@agentclientprotocol/codex-acp` adapter。一份版本锁定的 `patch-package` 增量增加可协商的 `_codex/session/steer` 扩展及其 `turn/steer` 转发，并增加由 Codex `thread/fork` 支撑的标准 ACP `session/fork`；如果上游包与审阅过的 patch 不再匹配，打包会直接失败。打包随后把精确的已打补丁 adapter 复制进发行包，并锁定其 SHA-256；开发和构建刷新会先校验临时副本，再原子替换目标入口，不能截断正在运行的 adapter。安装后的运行时只启动这个不可变产物，不依赖安装后修改依赖。单文件 CLI 通过内部进程入口打包该 adapter，原生产物 Smoke 必须经该入口完成 ACP `initialize` 握手。
 - Claude Code 使用锁定版本的 `@agentclientprotocol/claude-agent-acp` adapter。
+- 内置 ACP Adapter 必须启动 ACP 专用的 Farming 自有 Provider Runtime，不得复用
+  Native Terminal 选择的系统 Executable；两条选择链必须相互独立，以保证协议行为
+  确定，并保证 Chat/Terminal Session 切换安全。
 - OpenCode 使用自身的 `opencode acp --cwd <workspace>` 命令。
 - Qoder 使用自身的 `qodercli --acp` 命令。Qoder 可能在 `session/load` 返回之后继续发送历史尾部，因此 Farming 会等待 replay stream 稳定后再暴露恢复完成的 Session。
 - 四者都通过官方 `@agentclientprotocol/sdk`，在子进程 stdio 上使用按行分隔的 JSON-RPC 通信。
 
 Adapter 包使用精确版本的 production dependency。Farming 启动 Agent 时不会执行 `npx latest`。
+
+ACP Adapter 与 Provider Runtime 的 Pin 应尽量刷新到最新兼容版本。只有在已审阅的
+Patch 与 Integrity 契约、ACP initialize、Session load/resume 以及 Chat/Terminal
+切换全部通过后，刷新才算完成。ACP 长期明显落后于用户版本属于兼容性问题，不能
+通过让 Terminal 也使用这份过期 Executable 来规避。
 
 ## Session 语义
 

@@ -9,6 +9,25 @@ Farming exposes two user-facing Codex surfaces:
 
 The user chooses Chat or Terminal, never a transport implementation. Legacy JSONL remains a read-only compatibility source for older history. Farming no longer starts, connects to, or owns a Codex App Server.
 
+## Executable ownership and version policy
+
+Terminal and ACP are separate executable-ownership boundaries:
+
+- A native Codex Terminal prefers the user's system Codex executable. Farming
+  may select its own verified executable only when that version is strictly
+  newer than the best system candidate. Equal versions use the system
+  executable; if no system executable is available, the Farming-owned one is
+  used. Terminal startup must not report that a user should upgrade a lower
+  Farming copy when the selected system copy is already usable.
+- Codex ACP always uses Farming's own pinned adapter and Farming-owned Codex
+  runtime, independent of the Terminal executable choice. The ACP runtime must
+  never inherit a system Terminal path merely because it is present in the
+  Server environment.
+- ACP pins should track the latest compatible provider release. Updating a pin
+  requires the reviewed adapter patch/integrity checks and Chat/Terminal
+  switching, resume, and real-provider smoke coverage; protocol compatibility is
+  more important than blindly following a registry `latest` tag.
+
 ## ACP boundary
 
 The browser uses the same Chat contracts for every ACP provider. `AgentManager` delegates the session to `AcpRuntime`, while the Codex provider adapter supplies only Codex-specific executable discovery, environment, launch profile, and normalized capabilities.

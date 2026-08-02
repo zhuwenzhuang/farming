@@ -255,7 +255,8 @@
       "body-parser": "1.20.6"
     },
     "qs": "6.15.3",
-    "dompurify": "3.4.12"
+    "dompurify": "3.4.12",
+    "@openai/codex": "0.146.0"
   },
   "allowScripts": {
     "esbuild@0.27.7": true,

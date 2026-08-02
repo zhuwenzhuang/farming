@@ -255,7 +255,7 @@ async function run() {
   assert.strictEqual(claudeAcpEnvironment({
     env: { CLAUDE_CODE_EXECUTABLE: '/custom/claude' },
     executable: '/opt/claude/bin/claude',
-  }).CLAUDE_CODE_EXECUTABLE, '/custom/claude');
+  }).CLAUDE_CODE_EXECUTABLE, '/opt/claude/bin/claude');
   assert.deepStrictEqual(acpSessionRequestOptions({
     additionalDirectories: ['../shared', '../shared', '/tmp/absolute'],
     mcpServers: [{ name: 'docs', command: '/bin/docs-mcp', args: ['--stdio'] }],

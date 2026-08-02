@@ -1,4 +1,5 @@
 const { execFile } = require('child_process');
+import { resolveTerminalCodexExecutable } from './executable-discovery.cjs';
 
 const DEFAULT_CODEX_MODELS_TIMEOUT_MS = 15_000;
 
@@ -224,7 +225,9 @@ function buildModelOptions(models: unknown[], source = 'codex'): CodexModelOptio
 function listCodexModelOptions(
   options: ListCodexModelOptions = {},
 ): Promise<CodexModelListResult> {
-  const codexBin = options.codexBin || process.env.FARMING_CODEX_BIN || 'codex';
+  const codexBin = options.codexBin
+    || resolveTerminalCodexExecutable('', options.env?.PATH || process.env.PATH || '').path
+    || 'codex';
   const timeout = typeof options.timeout === 'number' && Number.isFinite(options.timeout)
     ? Math.max(1, options.timeout)
     : DEFAULT_CODEX_MODELS_TIMEOUT_MS;

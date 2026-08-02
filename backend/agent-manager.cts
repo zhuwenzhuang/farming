@@ -120,7 +120,12 @@ import { isSupportedHistoryAgent, parseCommand, resolveLaunchCommand } from './c
 import { buildAgentSessionResumeCommand, findAgentSession } from './agent-session-history.cjs';
 import { archiveCodexSession, unarchiveCodexSession } from './codex-session-archive.cjs';
 import { buildAgentProviderSessionPlan, sessionFromExactResumeSource } from './agent-provider-session.cjs';
-import { resolveAgentExecutable, resolveCompatibleCodexExecutable } from './executable-discovery.cjs';
+import {
+  resolveAgentExecutable,
+  resolveFarmingOwnedExecutable,
+  resolveTerminalCodexExecutable,
+  resolveTerminalExecutable,
+} from './executable-discovery.cjs';
 import { ensureMainAgentSkillFiles, renderMainAgentBootstrap } from './main-agent-skills.cjs';
 import { appendOpenCodeBootstrap, renderFarmingAgentBootstrap } from './farming-agent-bootstrap.cjs';
 import { mainPageAgentSessionKey, resumedAgentSource } from './main-page-session.cjs';
@@ -2639,7 +2644,12 @@ class AgentManager extends EventEmitter {
         const providerAdapter = getProviderAdapter(provider);
         if (!providerAdapter) throw new Error(`Unsupported Agent provider: ${provider}`);
         const executableName = providerAdapter.executable;
-        const executable = resolveAgentExecutable(executableName) || executableName;
+        const executable = ['codex', 'claude'].includes(provider)
+          ? resolveFarmingOwnedExecutable(provider)
+          : (resolveAgentExecutable(executableName) || executableName);
+        if (['codex', 'claude'].includes(provider) && !executable) {
+          throw new Error(`${provider} ACP requires a Farming-owned executable, but none is available`);
+        }
         const approvalMode = agent.launchPermissionMode || (
           provider === 'codex' && this.configManager.getCodexApprovalMode
             ? this.configManager.getCodexApprovalMode()
@@ -4622,34 +4632,6 @@ class AgentManager extends EventEmitter {
     const launchPathEnv = typeof userShellEnv?.PATH === 'string' && userShellEnv.PATH.trim()
       ? userShellEnv.PATH
       : (process.env.PATH || '');
-    const resolvedExecutable = resolveAgentExecutable(program, launchPathEnv);
-    let spawnProgram = resolvedExecutable || program;
-    if (path.basename(program) === 'codex') {
-      const codexResolution = resolveCompatibleCodexExecutable(options.requiredCliVersion || '', launchPathEnv);
-      if (!codexResolution.compatible) {
-        if (callback) callback(null, codexResolution.error || 'Codex CLI is not compatible with this session');
-        return null;
-      }
-      spawnProgram = codexResolution.path || spawnProgram;
-    }
-    if (
-      launch.spec
-      && path.basename(program) === program
-      && !resolvedExecutable
-      && !this.skipExecutablePreflight
-      && process.env.FARMING_E2E_FAKE_EXECUTABLES !== '1'
-    ) {
-      const displayName = launch.spec.name === 'opencode'
-        ? 'OpenCode'
-        : launch.spec.name.charAt(0).toUpperCase() + launch.spec.name.slice(1);
-      if (callback) {
-        callback(
-          null,
-          `${displayName} executable "${program}" was not found in the user shell PATH. Install it or refresh the Agent list, then try again.`
-        );
-      }
-      return null;
-    }
 
     const parentAgentId = typeof options.parentAgentId === 'string' ? options.parentAgentId : '';
     const parentAgent = parentAgentId ? this.agents.get(parentAgentId) : null;
@@ -4805,6 +4787,50 @@ class AgentManager extends EventEmitter {
         process.env.FARMING_E2E_FAKE_EXECUTABLES !== '1'
         || process.env.FARMING_E2E_FAKE_ACP_AGENT === '1'
       );
+    let resolvedExecutable = '';
+    if (useAcp && ['codex', 'claude'].includes(structuredRuntimeProvider)) {
+      resolvedExecutable = resolveFarmingOwnedExecutable(structuredRuntimeProvider);
+    } else if (!useAcp && path.basename(program) === 'codex') {
+      const codexResolution = resolveTerminalCodexExecutable(options.requiredCliVersion || '', launchPathEnv);
+      if (!codexResolution.compatible) {
+        if (callback) callback(null, codexResolution.error || 'Codex CLI is not compatible with this session');
+        return null;
+      }
+      resolvedExecutable = codexResolution.path;
+    } else {
+      resolvedExecutable = useAcp
+        ? resolveAgentExecutable(program, launchPathEnv)
+        : resolveTerminalExecutable(program, launchPathEnv).path;
+    }
+    const spawnProgram = resolvedExecutable || program;
+    if (
+      useAcp
+      && ['codex', 'claude'].includes(structuredRuntimeProvider)
+      && !resolvedExecutable
+    ) {
+      if (callback) {
+        callback(null, `${structuredRuntimeProvider} ACP requires a Farming-owned executable, but none is available.`);
+      }
+      return null;
+    }
+    if (
+      launch.spec
+      && path.basename(program) === program
+      && !resolvedExecutable
+      && !this.skipExecutablePreflight
+      && process.env.FARMING_E2E_FAKE_EXECUTABLES !== '1'
+    ) {
+      const displayName = launch.spec.name === 'opencode'
+        ? 'OpenCode'
+        : launch.spec.name.charAt(0).toUpperCase() + launch.spec.name.slice(1);
+      if (callback) {
+        callback(
+          null,
+          `${displayName} executable "${program}" was not found in the user shell PATH. Install it or refresh the Agent list, then try again.`
+        );
+      }
+      return null;
+    }
     const acpGeneratedFreshSession = useAcp
       && isFreshAcpSessionSource(structuredRuntimeProvider, providerSessionPlan.source);
     const agentRecord = {

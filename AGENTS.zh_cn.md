@@ -83,6 +83,11 @@ Farming Backend
 - Coding Agent 的结构化 Chat 通过 Provider Adapter 使用 ACP。Provider 特有的
   Discovery、Capability、Executable 与 Session 行为应留在该边界，不要把
   Provider 名称判断散落到通用 Lifecycle 或 UI 代码中。
+- Executable 的所有权按 Runtime Mode 区分：Native Terminal 优先使用用户的
+  系统 Executable，只有在 Farming 自有 Executable 的已验证版本更高时才选择
+  自有版本；ACP 独立使用 Farming 自有且锁定版本的 Adapter/Runtime，不得继承
+  Terminal 的选择结果。ACP Pin 必须保持足够新，并用选定 Provider 版本验证
+  Chat/Terminal 切换。
 - Browser 与 Computer 能力位于 `extensions/`，并组合共享的 Resource 与协议
   契约。不要为已经支持的能力再创建一套未经同等测试的实现。
 - 声称展示当前 Capability、Inventory、Configuration 或 Health 的页面必须发起

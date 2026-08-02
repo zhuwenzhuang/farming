@@ -6,6 +6,23 @@ Farming keeps platform executables such as Codex, Claude Code, and
 `agent-browser` outside the application package. Each Farming release pins exact
 versions, download integrity, executable entries, and supported platform keys.
 
+## Runtime ownership by mode
+
+Runtime selection has two independent consumers:
+
+- Native Terminal resolution is system-first. It selects the user's system
+  executable when available, and selects the verified Farming-owned executable
+  only when the latter is strictly newer. Equal versions resolve to the system
+  executable; no system candidate falls back to the Farming-owned runtime.
+- ACP resolution is Farming-owned. Bundled ACP adapters and their provider
+  runtimes use the exact Farming pin and do not inherit the Terminal-selected
+  executable from the Server environment.
+
+Runtime bindings and provider launch paths must preserve these two choices as
+distinct sources; one `executablePath` must not silently serve both policies. ACP pins are updated
+toward the latest compatible release and are accepted only after adapter patch,
+integrity, protocol, and Chat/Terminal switching verification.
+
 Prepared executables are immutable and stored by dependency, version, and
 platform under the Farming configuration directory. A successful preparation
 atomically writes a version binding that records the exact executable selected for every

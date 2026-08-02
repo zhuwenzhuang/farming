@@ -2,7 +2,7 @@ const { execFile } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const { promisify } = require('util');
-import { resolveCompatibleCodexExecutable } from './executable-discovery.cjs';
+import { resolveTerminalCodexExecutable } from './executable-discovery.cjs';
 
 type CodexArchiveAction = 'archive' | 'unarchive';
 
@@ -53,7 +53,7 @@ async function runCodexSessionArchiveCommand(
   session: CodexArchiveSession = {},
   options: CodexSessionArchiveOptions = {},
 ): Promise<CodexArchiveResult> {
-  const resolveExecutable = options.resolveCompatibleCodexExecutable || resolveCompatibleCodexExecutable;
+  const resolveExecutable = options.resolveCompatibleCodexExecutable || resolveTerminalCodexExecutable;
   const runExecFile = options.execFileAsync || execFileAsync;
   const processEnv = options.processEnv || process.env;
   const directoryExists = options.directoryExists || ((directory) => {

@@ -11,7 +11,10 @@ const {
   listAvailableAgents,
   parseCliVersion,
   resolveAgentExecutable,
-  resolveCompatibleCodexExecutable
+  resolveCompatibleCodexExecutable,
+  resolveFarmingOwnedExecutable,
+  resolveTerminalCodexExecutable,
+  resolveTerminalExecutable,
 } = require('../executable-discovery.cjs');
 
 function makeTempDir() {
@@ -41,8 +44,9 @@ function run() {
   assert(
     agentManagerSource.includes("this.resolveAgentShellEnv('', { maxAgeMs: AGENT_DISCOVERY_CACHE_MAX_AGE_MS })")
       && agentManagerSource.includes('resolveAgentExecutable(program, launchPathEnv)')
-      && agentManagerSource.includes("resolveCompatibleCodexExecutable(options.requiredCliVersion || '', launchPathEnv)"),
-    'Agent launch should resolve executables against the same short-lived user shell PATH'
+      && agentManagerSource.includes("resolveTerminalCodexExecutable(options.requiredCliVersion || '', launchPathEnv)")
+      && agentManagerSource.includes('resolveFarmingOwnedExecutable(structuredRuntimeProvider)'),
+    'Agent launch should separate Terminal PATH resolution from Farming-owned ACP resolution'
   );
 
   assert.deepStrictEqual(
@@ -131,6 +135,43 @@ function run() {
     });
     assert.strictEqual(incompatibleCodex.compatible, false);
     assert(incompatibleCodex.error.includes('older than this session'), 'old-only codex should produce an actionable error');
+
+    const systemCodex = writeExecutable(tempDir, 'system-codex');
+    const farmingCodex = writeExecutable(tempDir, 'farming-codex');
+    const sameVersion = resolveTerminalCodexExecutable('', '', {
+      systemCandidates: [systemCodex],
+      farmingCandidates: [farmingCodex],
+      readVersion(filePath) {
+        return filePath === systemCodex ? '0.146.0' : '0.146.0';
+      },
+    });
+    assert.strictEqual(sameVersion.path, systemCodex, 'equal versions should prefer the system Codex');
+
+    clearExecutableVersionCache();
+    const newerFarming = resolveTerminalCodexExecutable('', '', {
+      systemCandidates: [systemCodex],
+      farmingCandidates: [farmingCodex],
+      readVersion(filePath) {
+        return filePath === systemCodex ? '0.146.0' : '0.147.0';
+      },
+    });
+    assert.strictEqual(newerFarming.path, farmingCodex, 'a newer Farming Codex may replace the system Codex');
+
+    clearExecutableVersionCache();
+    const newerSystem = resolveTerminalExecutable('claude', '', {
+      systemCandidates: [systemCodex],
+      farmingCandidates: [farmingCodex],
+      readVersion(filePath) {
+        return filePath === systemCodex ? '2.2.0' : '2.1.0';
+      },
+    });
+    assert.strictEqual(newerSystem.path, systemCodex, 'a newer system executable should win for Terminal');
+    assert.strictEqual(newerSystem.source, 'system');
+    assert.strictEqual(
+      resolveFarmingOwnedExecutable('codex', { farmingCandidates: [farmingCodex] }),
+      farmingCodex,
+      'ACP should resolve its explicit Farming-owned executable',
+    );
     assert(names.includes('bash'), 'bash should remain available as a launch option');
     assert(names.includes('qwen'), 'an installed qwen executable should be exposed as a launch option');
 

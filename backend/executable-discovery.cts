@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 import { getUserLaunchAgents } from './cli-agents.cjs';
+import * as storageLayout from './storage-layout.cjs';
 
 interface LaunchAgent {
   command?: string;
@@ -24,7 +25,10 @@ type ExecutableRunner = (
 interface ExecutableResolutionOptions {
   cacheVersions?: boolean;
   candidates?: string[];
+  farmingCandidates?: string[];
+  preferSystem?: boolean;
   readVersion?: ExecutableVersionReader;
+  systemCandidates?: string[];
 }
 
 interface CodexExecutableResolution {
@@ -38,6 +42,12 @@ interface CodexExecutableResolution {
 interface AvailableLaunchAgent extends LaunchAgent {
   available: true;
   resolvedPath: string;
+}
+
+interface TerminalExecutableResolution {
+  path: string;
+  source: 'farming' | 'system' | '';
+  version: string;
 }
 
 const DEFAULT_CODEX_APP_BIN = '/Applications/Codex.app/Contents/Resources/codex';
@@ -127,6 +137,179 @@ function clearExecutableVersionCache(): void {
   executableVersionCache.clear();
 }
 
+function dedupeExecutableCandidates(candidates: string[]): string[] {
+  const seen = new Set<string>();
+  return candidates.filter(candidate => {
+    const normalized = path.resolve(String(candidate || ''));
+    if (!normalized || seen.has(normalized)) return false;
+    seen.add(normalized);
+    return true;
+  });
+}
+
+function activeManagedExecutable(agentName: string, env: NodeJS.ProcessEnv): string {
+  const configDir = String(env.FARMING_CONFIG_DIR || '').trim();
+  if (!configDir) return '';
+  try {
+    const activePath = storageLayout.runtimeDependenciesActiveFile(configDir);
+    const active = JSON.parse(fs.readFileSync(activePath, 'utf8')) as {
+      dependencies?: Record<string, { source?: string; executablePath?: string }>;
+    };
+    const dependencyId = agentName === 'claude' ? 'claude' : agentName === 'codex' ? 'codex' : '';
+    const dependency = dependencyId ? active.dependencies?.[dependencyId] : undefined;
+    return dependency?.source === 'managed' && dependency.executablePath
+      ? path.resolve(dependency.executablePath)
+      : '';
+  } catch {
+    return '';
+  }
+}
+
+function packageOwnedExecutableCandidates(agentName: string): string[] {
+  const packageRoot = path.resolve(__dirname, '..');
+  if (agentName === 'codex') {
+    return [path.join(
+      packageRoot,
+      'node_modules',
+      '.bin',
+      process.platform === 'win32' ? 'codex.cmd' : 'codex',
+    )];
+  }
+  if (agentName === 'claude') {
+    return [path.join(
+      packageRoot,
+      'node_modules',
+      '@anthropic-ai',
+      `claude-agent-sdk-${process.platform}-${process.arch}`,
+      process.platform === 'win32' ? 'claude.exe' : 'claude',
+    )];
+  }
+  return [];
+}
+
+function isFarmingOwnedPath(candidate: string, env: NodeJS.ProcessEnv): boolean {
+  const resolved = path.resolve(candidate);
+  const packageNodeModules = path.resolve(__dirname, '..', 'node_modules');
+  if (resolved === packageNodeModules || resolved.startsWith(`${packageNodeModules}${path.sep}`)) {
+    return true;
+  }
+  const configDir = String(env.FARMING_CONFIG_DIR || '').trim();
+  if (configDir) {
+    const runtimeRoot = path.resolve(configDir, 'runtimes');
+    if (resolved === runtimeRoot || resolved.startsWith(`${runtimeRoot}${path.sep}`)) return true;
+  }
+  const seedDir = String(env.FARMING_RUNTIME_SEED_DIR || '').trim();
+  if (seedDir) {
+    const seedRoot = path.resolve(seedDir);
+    if (resolved === seedRoot || resolved.startsWith(`${seedRoot}${path.sep}`)) return true;
+  }
+  return false;
+}
+
+function getFarmingOwnedExecutableCandidates(
+  agentName: string,
+  env: NodeJS.ProcessEnv = process.env,
+): string[] {
+  const configuredKey = agentName === 'codex'
+    ? 'FARMING_CODEX_BIN'
+    : agentName === 'claude'
+      ? 'FARMING_CLAUDE_BIN'
+      : '';
+  const acpKey = agentName === 'codex'
+    ? 'FARMING_ACP_CODEX_BIN'
+    : agentName === 'claude'
+      ? 'FARMING_ACP_CLAUDE_BIN'
+      : '';
+  const explicitAcp = acpKey ? String(env[acpKey] || '').trim() : '';
+  const configured = configuredKey ? String(env[configuredKey] || '').trim() : '';
+  return dedupeExecutableCandidates([
+    ...(explicitAcp ? [explicitAcp] : []),
+    activeManagedExecutable(agentName, env),
+    ...packageOwnedExecutableCandidates(agentName),
+    ...(configured && isFarmingOwnedPath(configured, env) ? [configured] : []),
+  ]);
+}
+
+function getSystemExecutableCandidates(
+  agentName: string,
+  pathEnv = process.env.PATH || '',
+  env: NodeJS.ProcessEnv = process.env,
+): string[] {
+  const owned = new Set(getFarmingOwnedExecutableCandidates(agentName, env).map(candidate => path.resolve(candidate)));
+  const defaults = agentName === 'codex'
+    ? [DEFAULT_CODEX_APP_BIN, DEFAULT_CHATGPT_APP_CODEX_BIN]
+    : [];
+  return dedupeExecutableCandidates([
+    ...defaults,
+    ...getPathDirectories(pathEnv).map(dir => path.join(dir, agentName)),
+  ]).filter(candidate => !owned.has(path.resolve(candidate)));
+}
+
+function inspectExecutableCandidates(
+  candidates: string[],
+  readVersion: ExecutableVersionReader,
+  options: ExecutableResolutionOptions = {},
+): Array<{ path: string; version: string }> {
+  return dedupeExecutableCandidates(candidates)
+    .filter(isExecutable)
+    .map(candidate => ({
+      path: candidate,
+      version: readCachedExecutableCliVersion(candidate, readVersion, options),
+    }));
+}
+
+function newestKnownExecutable(
+  candidates: Array<{ path: string; version: string }>,
+): { path: string; version: string } | null {
+  return candidates
+    .filter(candidate => Boolean(candidate.version))
+    .sort((left, right) => compareCliVersions(right.version, left.version))[0] || null;
+}
+
+function resolveFarmingOwnedExecutable(
+  agentName: string,
+  options: ExecutableResolutionOptions = {},
+): string {
+  const candidates = options.farmingCandidates || getFarmingOwnedExecutableCandidates(agentName);
+  return dedupeExecutableCandidates(candidates).find(isExecutable) || '';
+}
+
+function resolveTerminalExecutable(
+  agentName: string,
+  pathEnv = process.env.PATH || '',
+  options: ExecutableResolutionOptions = {},
+): TerminalExecutableResolution {
+  const readVersion = typeof options.readVersion === 'function'
+    ? options.readVersion
+    : readExecutableCliVersion;
+  const farming = inspectExecutableCandidates(
+    options.farmingCandidates || getFarmingOwnedExecutableCandidates(agentName),
+    readVersion,
+    options,
+  );
+  const system = inspectExecutableCandidates(
+    options.systemCandidates || getSystemExecutableCandidates(agentName, pathEnv),
+    readVersion,
+    options,
+  );
+  if (system.length > 0) {
+    const newestSystem = newestKnownExecutable(system);
+    const newestFarming = newestKnownExecutable(farming);
+    if (
+      newestFarming
+      && newestSystem
+      && compareCliVersions(newestFarming.version, newestSystem.version) > 0
+    ) {
+      return { ...newestFarming, source: 'farming' };
+    }
+    return { ...(newestSystem || system[0]), source: 'system' };
+  }
+  if (farming.length > 0) {
+    return { ...(newestKnownExecutable(farming) || farming[0]), source: 'farming' };
+  }
+  return { path: '', source: '', version: '' };
+}
+
 function getPreferredExecutableCandidates(
   agentName: string,
   pathEnv = process.env.PATH || '',
@@ -162,22 +345,28 @@ function resolveCompatibleCodexExecutable(
   const readVersion = typeof options.readVersion === 'function'
     ? options.readVersion
     : readExecutableCliVersion;
-  const rawCandidates = Array.isArray(options.candidates)
-    ? options.candidates
-    : getPreferredExecutableCandidates('codex', pathEnv);
-  const seen = new Set();
-  const inspected = rawCandidates
-    .filter(Boolean)
-    .filter(candidate => {
-      if (seen.has(candidate)) return false;
-      seen.add(candidate);
-      return true;
-    })
-    .filter(isExecutable)
-    .map(candidate => ({
-      path: candidate,
-      version: readCachedExecutableCliVersion(candidate, readVersion, options),
-    }));
+  const groups = options.preferSystem
+    ? [
+        {
+          source: 'system' as const,
+          candidates: options.systemCandidates || getSystemExecutableCandidates('codex', pathEnv),
+        },
+        {
+          source: 'farming' as const,
+          candidates: options.farmingCandidates || getFarmingOwnedExecutableCandidates('codex'),
+        },
+      ]
+    : [{
+        source: 'legacy' as const,
+        candidates: Array.isArray(options.candidates)
+          ? options.candidates
+          : getPreferredExecutableCandidates('codex', pathEnv),
+      }];
+  const inspectedBySource = groups.map(group => ({
+    source: group.source,
+    candidates: inspectExecutableCandidates(group.candidates, readVersion, options),
+  }));
+  const inspected = inspectedBySource.flatMap(group => group.candidates);
 
   if (inspected.length === 0) {
     return {
@@ -190,6 +379,35 @@ function resolveCompatibleCodexExecutable(
   }
 
   if (!normalizedRequired) {
+    if (options.preferSystem) {
+      const system = inspectedBySource.find(group => group.source === 'system')?.candidates || [];
+      const farming = inspectedBySource.find(group => group.source === 'farming')?.candidates || [];
+      const newestSystem = newestKnownExecutable(system);
+      const newestFarming = newestKnownExecutable(farming);
+      if (
+        newestFarming
+        && newestSystem
+        && compareCliVersions(newestFarming.version, newestSystem.version) > 0
+      ) {
+        return {
+          path: newestFarming.path,
+          version: newestFarming.version,
+          requiredVersion: '',
+          compatible: true,
+          error: '',
+        };
+      }
+      const selected = newestSystem || system[0] || newestFarming || farming[0];
+      if (selected) {
+        return {
+          path: selected.path,
+          version: selected.version,
+          requiredVersion: '',
+          compatible: true,
+          error: '',
+        };
+      }
+    }
     const selected = inspected[0];
     return {
       path: selected.path,
@@ -198,6 +416,52 @@ function resolveCompatibleCodexExecutable(
       compatible: true,
       error: '',
     };
+  }
+
+  if (options.preferSystem) {
+    const system = inspectedBySource.find(group => group.source === 'system')?.candidates || [];
+    const farming = inspectedBySource.find(group => group.source === 'farming')?.candidates || [];
+    const compatibleSystem = newestKnownExecutable(system.filter(candidate => (
+      candidate.version && compareCliVersions(candidate.version, normalizedRequired) >= 0
+    )));
+    const compatibleFarming = newestKnownExecutable(farming.filter(candidate => (
+      candidate.version && compareCliVersions(candidate.version, normalizedRequired) >= 0
+    )));
+    if (
+      compatibleFarming
+      && compatibleSystem
+      && compareCliVersions(compatibleFarming.version, compatibleSystem.version) > 0
+    ) {
+      return {
+        path: compatibleFarming.path,
+        version: compatibleFarming.version,
+        requiredVersion: normalizedRequired,
+        compatible: true,
+        error: '',
+      };
+    }
+    if (compatibleSystem || compatibleFarming) {
+      const selected = compatibleSystem || compatibleFarming;
+      return {
+        path: selected!.path,
+        version: selected!.version,
+        requiredVersion: normalizedRequired,
+        compatible: true,
+        error: '',
+      };
+    }
+    const unknownSystem = system.find(candidate => !candidate.version);
+    const unknownFarming = farming.find(candidate => !candidate.version);
+    const unknown = unknownSystem || unknownFarming;
+    if (unknown) {
+      return {
+        path: unknown.path,
+        version: '',
+        requiredVersion: normalizedRequired,
+        compatible: true,
+        error: '',
+      };
+    }
   }
 
   const compatibleKnown = inspected.find(candidate => (
@@ -239,6 +503,17 @@ function resolveCompatibleCodexExecutable(
   };
 }
 
+function resolveTerminalCodexExecutable(
+  requiredVersion = '',
+  pathEnv = process.env.PATH || '',
+  options: ExecutableResolutionOptions = {},
+): CodexExecutableResolution {
+  return resolveCompatibleCodexExecutable(requiredVersion, pathEnv, {
+    ...options,
+    preferSystem: true,
+  });
+}
+
 function listAvailableAgents(pathEnv = process.env.PATH || ''): AvailableLaunchAgent[] {
   return getUserLaunchAgents()
     .map((agent) => ({
@@ -254,6 +529,8 @@ function listAvailableAgents(pathEnv = process.env.PATH || ''): AvailableLaunchA
 
 export {
   getPathDirectories,
+  getFarmingOwnedExecutableCandidates,
+  getSystemExecutableCandidates,
   getPreferredExecutableCandidates,
   compareCliVersions,
   clearExecutableVersionCache,
@@ -262,5 +539,8 @@ export {
   parseCliVersion,
   readExecutableCliVersion,
   resolveAgentExecutable,
-  resolveCompatibleCodexExecutable
+  resolveCompatibleCodexExecutable,
+  resolveFarmingOwnedExecutable,
+  resolveTerminalCodexExecutable,
+  resolveTerminalExecutable,
 };

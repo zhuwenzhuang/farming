@@ -297,7 +297,7 @@ function codexAcpEnvironment(
   options: ProviderEnvironmentOptions = {},
 ): NodeJS.ProcessEnv {
   const env = { ...(options.env || process.env) };
-  if (options.executable && !env.CODEX_PATH) env.CODEX_PATH = options.executable;
+  if (options.executable) env.CODEX_PATH = options.executable;
   let config: Record<string, unknown> = {};
   if (env.CODEX_CONFIG) {
     try {
@@ -330,7 +330,7 @@ function claudeAcpEnvironment(
   options: ProviderEnvironmentOptions = {},
 ): NodeJS.ProcessEnv {
   const env = { ...(options.env || process.env) };
-  if (options.executable && !env.CLAUDE_CODE_EXECUTABLE) {
+  if (options.executable) {
     env.CLAUDE_CODE_EXECUTABLE = options.executable;
   }
   return env;

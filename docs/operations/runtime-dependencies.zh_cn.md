@@ -6,6 +6,20 @@ Farming 不把 Codex、Claude Code 和 `agent-browser` 等平台程序放进应�
 每个 Farming 版本都会固定它们的精确版本、下载完整性、可执行文件入口和支持的
 平台类型。
 
+## 按 Runtime Mode 区分所有权
+
+Runtime 选择面向两个相互独立的消费者：
+
+- Native Terminal 采用系统优先策略。系统 Executable 存在时优先使用用户版本，
+  只有在 Farming 自有 Executable 的已验证版本严格更高时才选择自有版本；版本相等
+  时使用系统版本；系统候选不存在时才回退到 Farming 自有 Runtime。
+- ACP 采用 Farming 自有策略。内置 ACP Adapter 及其 Provider Runtime 使用 Farming
+  的精确 Pin，不得从 Server 环境继承 Terminal 选择出的 Executable。
+
+Runtime Binding 与 Provider 启动路径必须分别保留这两条选择结果；同一个
+`executablePath` 不得在没有显式证明的情况下同时承担两种策略。ACP Pin 应尽量更新到最新兼容版本，并且
+只有在 Adapter Patch、Integrity、Protocol 以及 Chat/Terminal 切换验证通过后才接受。
+
 准备完成的程序按“依赖、版本、平台”存放在 Farming 配置目录中，安装后保持不可变。
 每次成功准备都会原子写入一份版本绑定，记录每个依赖实际选择的精确程序。正在运行的
 Server 只有一个生效绑定；已经准备好的更新使用另一份尚未生效的绑定。

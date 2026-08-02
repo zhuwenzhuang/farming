@@ -9,6 +9,22 @@ Farming 对用户提供两种 Codex 形态：
 
 用户只选择 Chat 或 Terminal，不选择底层传输实现。旧 JSONL 仅作为历史兼容读取来源。Farming 不再启动、连接或管理 Codex App Server。
 
+## Executable 所有权与版本策略
+
+Terminal 与 ACP 是两条相互独立的 Executable 所有权边界：
+
+- Native Codex Terminal 优先使用用户的系统 Codex Executable。只有在
+  Farming 自有 Executable 的已验证版本严格高于系统候选版本时，才选择自有
+  版本；版本相等时使用系统版本；系统版本不存在时才使用 Farming 自有版本。
+  Terminal 启动不得在用户系统版本已经可用时，因较低的 Farming 副本而提示用户
+  升级。
+- Codex ACP 始终使用 Farming 自有且锁定版本的 Adapter 与 Codex Runtime，
+  独立于 Terminal 的 Executable 选择结果。ACP Runtime 不得因为 Server 环境中
+  存在系统路径，就继承 Terminal 的系统 Executable。
+- ACP Pin 应尽量跟随最新的兼容 Provider Release。更新 Pin 必须通过已审阅的
+  Adapter Patch/Integrity 校验，以及 Chat/Terminal 切换、Resume 和真实 Provider
+  Smoke；协议兼容性优先于盲目跟随 registry 的 `latest` Tag。
+
 ## ACP 边界
 
 浏览器对所有 ACP provider 使用同一套 Chat 契约。`AgentManager` 把 session 委托给 `AcpRuntime`；Codex provider adapter 只提供 Codex 特有的可执行文件发现、环境、启动 profile 和归一化能力。

@@ -8,11 +8,21 @@ Farming has an Agent Client Protocol runtime for Codex, Claude Code, OpenCode, a
 
 - Codex uses the pinned `@agentclientprotocol/codex-acp` adapter. A version-locked `patch-package` delta adds the negotiated `_codex/session/steer` extension with `turn/steer` forwarding, plus standard ACP `session/fork` backed by Codex `thread/fork`. Packaging fails if the pinned upstream package no longer matches the reviewed patch, then copies the exact patched adapter into the release under a locked SHA-256. Development and build refreshes verify a temporary copy and atomically replace the target entry, so they cannot truncate a live adapter. Installed packages launch that immutable artifact and never rely on post-install mutation. Standalone CLI builds bundle it behind an internal process entry and must complete an ACP `initialize` handshake as part of native artifact smoke.
 - Claude Code uses the pinned `@agentclientprotocol/claude-agent-acp` adapter.
+- Bundled ACP adapters launch the Farming-owned provider runtime selected for
+  ACP. They do not reuse the system executable selected for a native Terminal;
+  this separation is required for deterministic protocol behavior and safe
+  Chat/Terminal session switching.
 - OpenCode uses its native `opencode acp --cwd <workspace>` command.
 - Qoder uses its native `qodercli --acp` command. Qoder can emit the tail of a loaded history after `session/load` returns, so Farming waits for the replay stream to settle before exposing the restored session.
 - All four communicate through the official `@agentclientprotocol/sdk` over newline-delimited JSON-RPC on subprocess stdio.
 
 Adapter package versions are exact production dependencies. Farming does not run `npx latest` during Agent startup.
+
+ACP adapter and provider-runtime pins should be refreshed toward the latest
+compatible release. A refresh is accepted only after the reviewed patch and
+integrity contract, ACP initialization, session load/resume, and Chat/Terminal
+switching pass; keeping a materially stale ACP runtime is a compatibility bug,
+not a reason to make Terminal use the same stale executable.
 
 ## Session Semantics
 

@@ -93,6 +93,11 @@ Execution environment
   provider-specific discovery, capability, executable, and session behavior at
   that boundary rather than scattering provider-name checks through generic
   lifecycle or UI code.
+- Executable ownership is runtime-mode-specific: native Terminals prefer the
+  user's system executable, selecting a verified Farming-owned executable only
+  when it is strictly newer; ACP uses Farming-owned, pinned adapter/runtime
+  artifacts independently of Terminal resolution. Keep ACP pins current and
+  verify Chat/Terminal switching against the selected provider versions.
 - Browser and Computer capabilities live in `extensions/` and must compose the
   shared Resource and protocol contracts. Do not create a second untested
   implementation of a supported capability.

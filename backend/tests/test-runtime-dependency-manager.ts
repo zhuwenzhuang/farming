@@ -298,7 +298,7 @@ async function run() {
   fs.mkdirSync(binDir);
   const env: NodeJS.ProcessEnv = {
     PATH: process.env.PATH,
-    FARMING_CODEX_BIN: writeVersionExecutable(binDir, 'codex', '0.144.6'),
+    FARMING_CODEX_BIN: writeVersionExecutable(binDir, 'codex', '0.146.0'),
     FARMING_CLAUDE_BIN: writeVersionExecutable(binDir, 'claude', '2.1.0'),
     FARMING_AGENT_BROWSER_BIN: writeVersionExecutable(binDir, 'agent-browser', '0.33.2'),
   };
@@ -558,7 +558,7 @@ async function run() {
   );
 
   const invalid = writeVersionExecutable(binDir, 'wrong-codex', '0.1.0');
-  assert.strictEqual((await verifyExecutable(invalid, '0.144.6')).valid, false);
+  assert.strictEqual((await verifyExecutable(invalid, '0.146.0')).valid, false);
   await assert.rejects(
     prepareRuntimeDependencies({
       configDir: path.join(root, 'wrong'),
@@ -568,7 +568,7 @@ async function run() {
         FARMING_RUNTIME_MANIFEST_ID: '',
       },
     }),
-    /FARMING_CODEX_BIN must provide codex 0\.144\.6/,
+    /FARMING_CODEX_BIN must provide codex 0\.146\.0/,
   );
 
   console.log('✓ startup dependencies publish retained multi-version bindings and activate atomically');

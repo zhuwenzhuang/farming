@@ -62,12 +62,12 @@ files under `dist/acp/`:
 | Package | Version | License | Purpose |
 | --- | --- | --- | --- |
 | `@agentclientprotocol/codex-acp` | 1.1.4 | Apache-2.0 | Reviewed and patched Codex ACP adapter |
-| `@openai/codex` | 0.144.6 | Apache-2.0 | Codex executable discovery and launch bridge; platform CLI binaries are excluded |
+| `@openai/codex` | 0.146.0 | Apache-2.0 | Codex executable discovery and launch bridge; platform CLI binaries are excluded |
 | `@agentclientprotocol/claude-agent-acp` | 0.59.0 | Apache-2.0 | Claude Code ACP adapter |
 | `@anthropic-ai/claude-agent-sdk` | 0.3.207 | Anthropic commercial terms | Claude Agent SDK bridge; platform CLI binaries are excluded |
 
 Before starting a fresh Server, Farming may prepare the exact Codex CLI
-0.144.6, Claude Agent SDK CLI package 0.3.207, and `agent-browser` 0.32.3
+0.146.0, Claude Agent SDK CLI package 0.3.207, and `agent-browser` 0.32.3
 platform artifacts in its private runtime cache. They are not part of the npm
 or application package and remain independent works under their own terms.
 Farming accepts only the version-locked sources and integrity values declared
