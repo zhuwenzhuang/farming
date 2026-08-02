@@ -16,10 +16,10 @@ import type { ProjectGroup } from './types'
 const MOBILE_PROJECT_CONTEXT_MENU_WIDTH = 286
 
 export type WorkspaceContextMenu =
-  | { kind: 'agent'; agentId: string; x: number; y: number }
-  | { kind: 'project'; projectId: string; x: number; y: number }
-  | { kind: 'agent-session'; provider: string; sessionId: string; x: number; y: number }
-  | { kind: 'options'; x: number; y: number; returnFocusTarget: HTMLElement | null }
+  | { kind: 'agent'; agentId: string; x: number; y: number; focusFirstItem: boolean }
+  | { kind: 'project'; projectId: string; x: number; y: number; focusFirstItem: boolean }
+  | { kind: 'agent-session'; provider: string; sessionId: string; x: number; y: number; focusFirstItem: boolean }
+  | { kind: 'options'; x: number; y: number; returnFocusTarget: HTMLElement | null; focusFirstItem: boolean }
 
 type WorkspaceContextMenuTriggerEvent = ReactMouseEvent<HTMLElement> | ReactKeyboardEvent<HTMLElement>
 
@@ -76,7 +76,7 @@ export function useWorkspaceContextMenu({
     if (!prepareMenuTrigger(event)) return
     const height = estimateAgentContextMenuHeight(agents.find(agent => agent.id === agentId))
     const point = anchoredMenuPoint(event, height)
-    setContextMenu({ kind: 'agent', agentId, ...point })
+    setContextMenu({ kind: 'agent', agentId, ...point, focusFirstItem: isKeyboardMenuTrigger(event) })
   }, [agents])
   const openProjectMenu = useCallback((event: WorkspaceContextMenuTriggerEvent, projectId: string) => {
     if (!prepareMenuTrigger(event)) return
@@ -92,13 +92,20 @@ export function useWorkspaceContextMenu({
       kind: 'project',
       projectId,
       ...point,
+      focusFirstItem: isKeyboardMenuTrigger(event),
     })
   }, [projects])
 
   const openAgentSessionMenu = useCallback((event: WorkspaceContextMenuTriggerEvent, provider: string, sessionId: string) => {
     if (!prepareMenuTrigger(event)) return
     const point = anchoredMenuPoint(event, estimateContextMenuHeight(3))
-    setContextMenu({ kind: 'agent-session', provider, sessionId, ...point })
+    setContextMenu({
+      kind: 'agent-session',
+      provider,
+      sessionId,
+      ...point,
+      focusFirstItem: isKeyboardMenuTrigger(event),
+    })
   }, [])
   const openOptionsContextMenu = useCallback((event: ReactMouseEvent<HTMLElement>) => {
     prepareMenuTrigger(event)
@@ -108,6 +115,7 @@ export function useWorkspaceContextMenu({
       x: Math.max(8, rect.right - 164),
       y: Math.min(window.innerHeight - 12, rect.bottom + 6),
       returnFocusTarget: event.currentTarget,
+      focusFirstItem: false,
     })
   }, [])
 
@@ -189,6 +197,7 @@ export function useWorkspaceContextMenu({
     if (!contextMenu) return
     userNavigatedRef.current = false
     focusIndexRef.current = -1
+    if (!contextMenu.focusFirstItem) return
     return scheduleFocusRetries(() => {
       if (userNavigatedRef.current) return
       const menu = contextMenuRef.current
