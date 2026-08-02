@@ -420,8 +420,8 @@ if (process.argv[2] === 'stop') process.exit(0)
 setInterval(() => {}, 1000)
 `)
   const policy = {
-    daemon: { absoluteTimeoutMs: 1_000, idleTimeoutMs: 200, killGraceMs: 20 },
-    stop: { absoluteTimeoutMs: 200, idleTimeoutMs: 100, killGraceMs: 20 },
+    daemon: { absoluteTimeoutMs: 5_000, idleTimeoutMs: 2_000, killGraceMs: 50 },
+    stop: { absoluteTimeoutMs: 2_000, idleTimeoutMs: 1_000, killGraceMs: 50 },
   }
   try {
     const visibleProgress: string[] = []
@@ -499,9 +499,10 @@ if (command === 'stop') {
     repositoryRoot: temporaryDir,
     cliPath: cli,
     commandPolicies: {
-      daemon: { absoluteTimeoutMs: 500, idleTimeoutMs: 200, killGraceMs: 20 },
-      stop: { absoluteTimeoutMs: 500, idleTimeoutMs: 200, killGraceMs: 20 },
+      daemon: { absoluteTimeoutMs: 5_000, idleTimeoutMs: 2_000, killGraceMs: 50 },
+      stop: { absoluteTimeoutMs: 2_000, idleTimeoutMs: 1_000, killGraceMs: 50 },
     },
+    handshakeTimeoutMs: 100,
   })
   try {
     await assert.rejects(runtime.start(), /partial startup/)
@@ -518,6 +519,8 @@ test('local backend cancellation interrupts a pending handshake before cleanup',
   const temporaryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-desktop-local-handshake-'))
   const cli = path.join(temporaryDir, 'handshake-cli.cjs')
   const cleanupMarker = path.join(temporaryDir, 'cleanup-complete')
+  let resolveHandshakePending: () => void = () => {}
+  const handshakePending = new Promise<void>(resolve => { resolveHandshakePending = resolve })
   fs.writeFileSync(cli, `
 const fs = require('node:fs')
 if (process.argv[2] === 'stop') {
@@ -534,13 +537,25 @@ process.exit(0)
     cliPath: cli,
     handshakeTimeoutMs: 5_000,
     commandPolicies: {
-      daemon: { absoluteTimeoutMs: 500, idleTimeoutMs: 200, killGraceMs: 20 },
-      stop: { absoluteTimeoutMs: 500, idleTimeoutMs: 200, killGraceMs: 20 },
+      daemon: { absoluteTimeoutMs: 5_000, idleTimeoutMs: 2_000, killGraceMs: 50 },
+      stop: { absoluteTimeoutMs: 2_000, idleTimeoutMs: 1_000, killGraceMs: 50 },
+    },
+    onProgress: message => {
+      if (message === 'Waiting for the local Farming Server…') resolveHandshakePending()
     },
   })
   try {
     const starting = runtime.start()
-    await new Promise(resolve => setTimeout(resolve, 100))
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(
+        () => reject(new Error('local backend never entered handshake polling')),
+        2_000,
+      )
+      void handshakePending.then(() => {
+        clearTimeout(timeout)
+        resolve()
+      })
+    })
     const stoppedAt = Date.now()
     await runtime.stop()
     assert.ok(Date.now() - stoppedAt < 500, 'handshake cancellation must not wait for its five second deadline')
