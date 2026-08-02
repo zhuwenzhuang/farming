@@ -11,6 +11,7 @@ import {
   CloseGlyph,
   ComputerUseGlyph,
   ForkGlyph,
+  LanguageServerGlyph,
   PencilGlyph,
   PlusGlyph,
   PuzzleGlyph,
@@ -1263,7 +1264,7 @@ export function PluginsPanel({
         </article>
         <article className="code-plugin-card" data-testid="code-plugin-language-server">
           <span className="code-plugin-card-icon" aria-hidden="true">
-            <PuzzleGlyph />
+            <LanguageServerGlyph />
           </span>
           <div className="code-plugin-card-copy">
             <div className="code-plugin-card-title">

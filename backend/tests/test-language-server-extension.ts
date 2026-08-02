@@ -37,6 +37,14 @@ async function requestJson(port: number, requestPath: string, body?: unknown) {
 }
 
 async function run() {
+  const iconGlyphsSource = fs.readFileSync(path.join(__dirname, '../../src/components/IconGlyphs.tsx'), 'utf8');
+  const pluginsPanelSource = fs.readFileSync(path.join(__dirname, '../../src/components/code/PluginsPanel.tsx'), 'utf8');
+  assert.ok(
+    iconGlyphsSource.includes('export function LanguageServerGlyph')
+      && iconGlyphsSource.includes('M9.80307 3.0431C10.0554 3.15525')
+      && pluginsPanelSource.includes('<LanguageServerGlyph />'),
+    'The Language Server plugin card should use its dedicated code glyph',
+  );
   const bridgeManifest = JSON.parse(fs.readFileSync(path.join(
     __dirname,
     '../../extensions/language-server/vscode-bridge/package.json',
