@@ -14,7 +14,6 @@ import {
   PencilGlyph,
   PlusGlyph,
   PuzzleGlyph,
-  RemoteGlyph,
   TerminalSquareGlyph,
 } from '@/components/IconGlyphs'
 import { DesktopConnectionsPanel } from '@/components/DesktopConnectionsPanel'
@@ -434,8 +433,7 @@ export function PluginsPanel({
   onBack,
   onOpenAgentHomeConfiguration,
   onRefreshCapability,
-  desktopConnectionsOpen,
-  onDesktopConnectionsOpenChange,
+  desktopConnectionsFocusRequest,
 }: {
   capability: BrowserCapability | null
   loading: boolean
@@ -448,8 +446,7 @@ export function PluginsPanel({
   onBack: () => void
   onOpenAgentHomeConfiguration: (target: AgentHomeFileTarget) => void
   onRefreshCapability: () => void
-  desktopConnectionsOpen: boolean
-  onDesktopConnectionsOpenChange: (open: boolean) => void
+  desktopConnectionsFocusRequest: number
 }) {
   const copy = useMemo(() => pluginCopy(language), [language])
   const isMacHost = typeof navigator !== 'undefined'
@@ -994,6 +991,17 @@ export function PluginsPanel({
     setSelectedExtension(null)
   }, [])
 
+  useEffect(() => {
+    if (!desktopConnectionsFocusRequest || !window.farmingDesktop) return
+    setActiveTab('farming')
+    setSelectedExtension(null)
+    window.requestAnimationFrame(() => {
+      const connections = document.getElementById('code-plugin-connections')
+      connections?.scrollIntoView({ block: 'start', behavior: 'smooth' })
+      connections?.focus({ preventScroll: true })
+    })
+  }, [desktopConnectionsFocusRequest])
+
   const closeSelectedExtension = useCallback(() => {
     setSelectedExtension(null)
     window.requestAnimationFrame(() => {
@@ -1018,15 +1026,6 @@ export function PluginsPanel({
       document.getElementById(`code-plugin-tab-${nextTab}`)?.focus()
     })
   }, [activeTab, activateTab])
-
-  if (desktopConnectionsOpen && window.farmingDesktop) {
-    return (
-      <DesktopConnectionsPanel
-        language={language}
-        onBack={() => onDesktopConnectionsOpenChange(false)}
-      />
-    )
-  }
 
   return (
     <div className="code-plugins-panel" data-testid="code-plugins-panel">
@@ -1080,25 +1079,7 @@ export function PluginsPanel({
             <p>{copy.farmingBuiltInDescription}</p>
           </div>
         </header>
-        {window.farmingDesktop ? <article className="code-plugin-card" data-testid="code-plugin-remote-connections">
-          <span className="code-plugin-card-icon" aria-hidden="true">
-            <RemoteGlyph />
-          </span>
-          <div className="code-plugin-card-copy">
-            <div className="code-plugin-card-title">
-              <h3>{copy.remoteConnections}</h3>
-              <span className="code-plugin-status enabled">{copy.builtIn}</span>
-            </div>
-            <p>{copy.remoteConnectionsDescription}</p>
-          </div>
-          <button
-            type="button"
-            className="code-plugin-toggle"
-            onClick={() => onDesktopConnectionsOpenChange(true)}
-          >
-            {copy.manage}
-          </button>
-        </article> : null}
+        {window.farmingDesktop ? <DesktopConnectionsPanel language={language} /> : null}
         <article className="code-plugin-card" data-testid="code-plugin-browser">
           <span className="code-plugin-card-icon" aria-hidden="true">
             <BrowserGlyph />

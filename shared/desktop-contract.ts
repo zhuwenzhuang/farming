@@ -71,7 +71,7 @@ export interface DesktopNotificationInput {
 
 export interface FarmingDesktopBridge {
   getState(): Promise<DesktopState>
-  saveBackend(input: DesktopBackendInput): Promise<DesktopState>
+  saveAndActivateBackend(input: DesktopBackendInput): Promise<DesktopState>
   removeBackend(backendId: string): Promise<DesktopState>
   connectBackend(backendId: string): Promise<DesktopState>
   disconnectBackend(backendId: string): Promise<DesktopState>

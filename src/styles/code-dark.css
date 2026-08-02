@@ -435,6 +435,42 @@ body.code-mode[data-appearance='dark'] .code-plugin-empty {
   color: var(--code-dark-text-muted);
 }
 
+body.code-mode[data-appearance='dark'] .desktop-connections-form {
+  border-color: var(--code-dark-border);
+  background: var(--code-dark-bg-soft);
+}
+
+body.code-mode[data-appearance='dark'] .desktop-connections-list,
+body.code-mode[data-appearance='dark'] .desktop-connections-empty,
+body.code-mode[data-appearance='dark'] .desktop-connections-form input,
+body.code-mode[data-appearance='dark'] .desktop-connections-add,
+body.code-mode[data-appearance='dark'] .desktop-connection-actions button,
+body.code-mode[data-appearance='dark'] .desktop-connections-form button {
+  border-color: var(--code-dark-border);
+  background: var(--code-dark-bg);
+  color: var(--code-dark-text);
+}
+
+body.code-mode[data-appearance='dark'] .desktop-connections-header h3,
+body.code-mode[data-appearance='dark'] .desktop-connections-section h4,
+body.code-mode[data-appearance='dark'] .desktop-connection-copy strong,
+body.code-mode[data-appearance='dark'] .desktop-connections-form h4,
+body.code-mode[data-appearance='dark'] .desktop-connections-form label {
+  color: var(--code-dark-text);
+}
+
+body.code-mode[data-appearance='dark'] .desktop-connections-header p,
+body.code-mode[data-appearance='dark'] .desktop-connections-section header p,
+body.code-mode[data-appearance='dark'] .desktop-connections-empty,
+body.code-mode[data-appearance='dark'] .desktop-connection-copy small,
+body.code-mode[data-appearance='dark'] .desktop-connections-form small {
+  color: var(--code-dark-text-muted);
+}
+
+body.code-mode[data-appearance='dark'] .desktop-active-environment {
+  color: var(--code-dark-text-muted);
+}
+
 body.code-mode[data-appearance='dark'] .code-plugin-tabs {
   background: var(--code-dark-bg-soft);
 }

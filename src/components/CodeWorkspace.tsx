@@ -712,7 +712,7 @@ export function CodeWorkspace({
     return result.successful
   }, [workspaceOpenFiles])
   const [searchOpen, setSearchOpen] = useState(false)
-  const [desktopConnectionsOpen, setDesktopConnectionsOpen] = useState(false)
+  const [desktopConnectionsFocusRequest, setDesktopConnectionsFocusRequest] = useState(0)
   const [searchQuery, setSearchQuery] = useState('')
   const [searchSelectionIndex, setSearchSelectionIndex] = useState(0)
   const [projectWorkspaces, setProjectWorkspaces] = useState<string[]>([])
@@ -2920,7 +2920,6 @@ export function CodeWorkspace({
   }, [closeSidebarForMobile, openSearch])
 
   const openWorkspaceViewFromSidebar = useCallback((view: WorkspaceView) => {
-    setDesktopConnectionsOpen(false)
     if (view === 'plugins') {
       refreshBrowserCapability()
       refreshComputerCapability()
@@ -2934,14 +2933,10 @@ export function CodeWorkspace({
   const openRemoteConnectionsFromSidebar = useCallback(() => {
     refreshBrowserCapability()
     refreshComputerCapability()
-    setDesktopConnectionsOpen(true)
+    setDesktopConnectionsFocusRequest(request => request + 1)
     openWorkspaceView('plugins')
     closeSidebarForMobile()
   }, [closeSidebarForMobile, openWorkspaceView, refreshBrowserCapability, refreshComputerCapability])
-
-  useEffect(() => {
-    if (activeView !== 'plugins') setDesktopConnectionsOpen(false)
-  }, [activeView])
 
   const toggleProject = useCallback((projectId: string) => {
     setCollapsedProjectIds(previous => {
@@ -5587,7 +5582,6 @@ export function CodeWorkspace({
         hoverPreviewsPaused={Boolean(projectMenu)}
         emptyHomeActionRequest={emptyHomeSidebarActionRequest}
         activeView={activeView}
-        desktopConnectionsOpen={desktopConnectionsOpen}
         searchOpen={searchOpen}
         displayedProjects={projects}
         collapsedProjectIds={collapsedProjectIds}
@@ -5803,8 +5797,7 @@ export function CodeWorkspace({
 
       <CodeMainArea
         activeView={activeView}
-        desktopConnectionsOpen={desktopConnectionsOpen}
-        onDesktopConnectionsOpenChange={setDesktopConnectionsOpen}
+        desktopConnectionsFocusRequest={desktopConnectionsFocusRequest}
         activeBrowserResource={mainPaneMode === 'browser' ? activeBrowserResource : null}
         browserController={browserResources}
         onBackFromBrowser={backFromBrowser}

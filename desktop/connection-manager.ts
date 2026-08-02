@@ -8,6 +8,8 @@ import { bootstrapRemoteServer } from './remote-bootstrap.js'
 import { bearerCredential, joinUpstreamUrl } from './upstream.js'
 
 interface ConnectionRecord extends DesktopBackendConnection {
+  abortController: AbortController | null
+  attempt: Promise<void> | null
   process: ChildProcess | null
   targetBaseUrl: string
   targetToken: string
@@ -95,20 +97,24 @@ export class DesktopConnectionManager extends EventEmitter {
     return { baseUrl: record.targetBaseUrl, token: record.targetToken }
   }
 
-  async connect(backendId: string) {
+  connect(backendId: string): Promise<void> {
     const profile = this.profiles.getStored(backendId)
-    if (!profile) throw new Error('Backend not found.')
+    if (!profile) return Promise.reject(new Error('Backend not found.'))
     const current = this.records.get(backendId)
-    if (current?.status === 'ready') return
-    if (current?.status === 'connecting') throw new Error('Backend is already connecting.')
+    if (current?.status === 'ready') return Promise.resolve()
+    if (current?.status === 'connecting' && current.attempt) return current.attempt
 
     const generation = (current?.generation ?? 0) + 1
+    current?.abortController?.abort()
     current?.process?.kill()
+    const abortController = new AbortController()
     const record: ConnectionRecord = {
       backendId,
       generation,
       status: 'connecting',
       error: '',
+      abortController,
+      attempt: null,
       process: null,
       targetBaseUrl: '',
       targetToken: '',
@@ -117,7 +123,11 @@ export class DesktopConnectionManager extends EventEmitter {
     }
     this.records.set(backendId, record)
     this.emitChange()
+    record.attempt = this.runConnection(record, profile)
+    return record.attempt
+  }
 
+  private async runConnection(record: ConnectionRecord, profile: StoredDesktopBackendProfile) {
     try {
       if (profile.transport === 'direct') {
         record.targetBaseUrl = `${profile.directUrl}${profile.basePath}`
@@ -130,11 +140,15 @@ export class DesktopConnectionManager extends EventEmitter {
       record.status = 'ready'
       record.error = ''
       record.message = ''
+      record.abortController = null
+      record.attempt = null
       this.emitChange()
     } catch (error) {
       if (!this.isCurrent(record)) return
       record.process?.kill()
       record.process = null
+      record.abortController = null
+      record.attempt = null
       record.status = 'error'
       record.error = errorMessage(error)
       this.emitChange()
@@ -145,12 +159,15 @@ export class DesktopConnectionManager extends EventEmitter {
   disconnect(backendId: string) {
     const current = this.records.get(backendId)
     const generation = (current?.generation ?? 0) + 1
+    current?.abortController?.abort()
     current?.process?.kill()
     this.records.set(backendId, {
       backendId,
       generation,
       status: 'disconnected',
       error: '',
+      abortController: null,
+      attempt: null,
       process: null,
       targetBaseUrl: '',
       targetToken: '',
@@ -161,7 +178,10 @@ export class DesktopConnectionManager extends EventEmitter {
   }
 
   close() {
-    this.records.forEach(record => record.process?.kill())
+    this.records.forEach(record => {
+      record.abortController?.abort()
+      record.process?.kill()
+    })
     this.records.clear()
   }
 
@@ -171,6 +191,7 @@ export class DesktopConnectionManager extends EventEmitter {
       farmingHome: profile.farmingHome,
       version: this.options.appVersion,
       cacheDir: this.options.cacheDir,
+      signal: record.abortController?.signal,
       onPhase: message => {
         if (!this.isCurrent(record)) return
         record.message = message

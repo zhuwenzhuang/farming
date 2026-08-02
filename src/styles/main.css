@@ -12702,16 +12702,23 @@ body.code-mode.code-compact-layout .code-empty-workspace-compact {
 }
 
 .desktop-connections-panel {
-  width: min(820px, 100%);
-  margin: 0 auto;
-  display: grid;
-  gap: 26px;
+  scroll-margin-top: 16px;
+}
+
+.code-plugin-section > .desktop-connections-panel {
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0;
+}
+
+.code-plugin-section > .desktop-connections-panel:focus-visible {
+  outline: 2px solid #7da687;
+  outline-offset: 2px;
 }
 
 .desktop-connections-header {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
+  display: grid;
+  gap: 4px;
 }
 
 .desktop-connections-header > button {
@@ -12733,11 +12740,14 @@ body.code-mode.code-compact-layout .code-empty-workspace-compact {
   outline: 0;
 }
 
-.desktop-connections-header h2 {
-  margin: 3px 0 4px;
-  font-size: 18px;
-  font-weight: 600;
-  line-height: 24px;
+.desktop-connections-content {
+  gap: 18px;
+}
+
+.desktop-active-environment {
+  color: #657087;
+  font-size: 12px;
+  font-weight: 500;
 }
 
 .desktop-connections-header p,
@@ -12761,8 +12771,8 @@ body.code-mode.code-compact-layout .code-empty-workspace-compact {
   gap: 16px;
 }
 
-.desktop-connections-section h3,
-.desktop-connections-form h3 {
+.desktop-connections-section h4,
+.desktop-connections-form h4 {
   margin: 0 0 3px;
   font-size: 14px;
   font-weight: 600;

@@ -172,7 +172,6 @@ interface CodeSidebarProps {
   hoverPreviewsPaused: boolean
   emptyHomeActionRequest: { kind: 'share' | 'focus'; nonce: number } | null
   activeView: WorkspaceView
-  desktopConnectionsOpen: boolean
   searchOpen: boolean
   displayedProjects: ProjectGroup[]
   collapsedProjectIds: Set<string>
@@ -237,7 +236,6 @@ export function CodeSidebar({
   hoverPreviewsPaused,
   emptyHomeActionRequest,
   activeView,
-  desktopConnectionsOpen,
   searchOpen,
   displayedProjects,
   collapsedProjectIds,
@@ -322,6 +320,7 @@ export function CodeSidebar({
   const [standaloneAppWindow, setStandaloneAppWindow] = useState(isStandaloneAppWindow)
   const [appModeDialogOpen, setAppModeDialogOpen] = useState(false)
   const [appInstallPrompt, setAppInstallPrompt] = useState<AppInstallPromptEvent | null>(null)
+  const desktopApp = Boolean(window.farmingDesktop)
   const handledEmptyHomeActionRef = useRef(0)
   const loadMoreNearProjectListEnd = useCallback((element: HTMLDivElement) => {
     if (!canLoadMoreAgentSessions) return
@@ -443,12 +442,12 @@ export function CodeSidebar({
     if (!emptyHomeActionRequest || handledEmptyHomeActionRef.current === emptyHomeActionRequest.nonce) return
     handledEmptyHomeActionRef.current = emptyHomeActionRequest.nonce
     if (emptyHomeActionRequest.kind !== 'focus') return
-    if (standaloneAppWindow) {
+    if (desktopApp || standaloneAppWindow) {
       toggleFocusMode()
       return
     }
     setAppModeDialogOpen(true)
-  }, [emptyHomeActionRequest, standaloneAppWindow, toggleFocusMode])
+  }, [desktopApp, emptyHomeActionRequest, standaloneAppWindow, toggleFocusMode])
   const installApp = useCallback(() => {
     const prompt = appInstallPrompt
     if (!prompt) return
@@ -539,11 +538,11 @@ export function CodeSidebar({
               type="button"
               className={`code-sidebar-focus-toggle ${focusModeActive ? 'active' : ''}`}
               data-testid="code-sidebar-focus-toggle"
-              aria-label={copy.appModeOpen}
-              title={copy.appModeOpen}
-              aria-haspopup="dialog"
-              aria-expanded={appModeDialogOpen}
-              onClick={() => setAppModeDialogOpen(true)}
+              aria-label={desktopApp ? copy.emptyWorkspaceFocus : copy.appModeOpen}
+              title={desktopApp ? copy.emptyWorkspaceFocus : copy.appModeOpen}
+              aria-haspopup={desktopApp ? undefined : 'dialog'}
+              aria-expanded={desktopApp ? undefined : appModeDialogOpen}
+              onClick={desktopApp ? toggleFocusMode : () => setAppModeDialogOpen(true)}
             >
               <span className="code-sidebar-focus-icon">
                 <FocusModeGlyph />
@@ -567,7 +566,7 @@ export function CodeSidebar({
               </button>
               {window.farmingDesktop ? <button
                 type="button"
-                className={`code-sidebar-remote-toggle ${activeView === 'plugins' && desktopConnectionsOpen ? 'active' : ''}`}
+                className="code-sidebar-remote-toggle"
                 data-testid="code-nav-remote-connections"
                 aria-label={language === 'zh' ? '远程连接' : 'Remote connections'}
                 title={language === 'zh' ? '远程连接' : 'Remote connections'}
@@ -592,7 +591,7 @@ export function CodeSidebar({
               </button>
               <button
                 type="button"
-                className={`code-sidebar-plugins-toggle ${activeView === 'plugins' && !desktopConnectionsOpen ? 'active' : ''}`}
+                className={`code-sidebar-plugins-toggle ${activeView === 'plugins' ? 'active' : ''}`}
                 data-testid="code-nav-plugins"
                 aria-label={copy.plugins}
                 title={copy.plugins}

@@ -78,13 +78,13 @@ async function main() {
       console.error(`[renderer:error] ${error.message}`)
     })
     console.log(`Desktop window opened at ${page.url()}`)
+    await page.getByTestId('app-shell').waitFor({ state: 'visible' })
     const initialState = await page.evaluate(() => ({
       desktopBridge: typeof (window as Window & { farmingDesktop?: unknown }).farmingDesktop,
       text: document.body.innerText.slice(0, 500),
     }))
     console.log(`Desktop renderer state: ${JSON.stringify(initialState)}`)
     assert.equal(initialState.desktopBridge, 'object', 'Electron preload bridge was not installed.')
-    await page.getByTestId('app-shell').waitFor({ state: 'visible' })
     assert.equal(await page.getByRole('dialog').count(), 0, 'Desktop first launch must not force a backend decision.')
     assert.equal(await page.getByTestId('desktop-backend-bar').count(), 0, 'Desktop must not add a backend bar above the web UI.')
     const initialBackendState = await page.evaluate(async () => {
@@ -111,7 +111,10 @@ async function main() {
     assert.ok(rendererAssets.length > 0, 'Desktop renderer did not reference executable assets.')
     assert.deepEqual(rendererAssets.filter(asset => !asset.ok), [], 'Desktop renderer assets did not all return success.')
     await page.getByTestId('code-nav-remote-connections').click()
+    await page.getByTestId('code-plugins-panel').waitFor()
     await page.getByTestId('desktop-connections-panel').waitFor()
+    assert.equal(await page.getByTestId('code-plugin-tab-farming').count(), 1)
+    assert.equal(await page.getByRole('button', { name: 'Back to Plugins' }).count(), 0)
     assert.equal(await page.getByTestId('desktop-connection-local').count(), 1)
     await page.locator('.desktop-connections-add').click()
     const formText = await page.locator('.desktop-connections-form').innerText()
@@ -124,14 +127,13 @@ async function main() {
     await page.evaluate(async backendUrl => {
       const desktop = (window as Window & { farmingDesktop?: import('../shared/desktop-contract').FarmingDesktopBridge }).farmingDesktop
       if (!desktop) throw new Error('Desktop bridge is missing.')
-      const saved = await desktop.saveBackend({
+      const activated = await desktop.saveAndActivateBackend({
         name: 'Smoke backend',
         transport: 'direct',
         directUrl: backendUrl,
       })
-      const id = saved.profiles.find(profile => profile.name === 'Smoke backend')?.id
-      if (!id) throw new Error('Smoke backend was not saved.')
-      await desktop.activateBackend(id)
+      const id = activated.profiles.find(profile => profile.name === 'Smoke backend')?.id
+      if (!id || activated.activeBackendId !== id) throw new Error('Smoke backend was not saved and activated atomically.')
     }, `http://127.0.0.1:${backendPort}`)
     await activationReload
 
@@ -177,20 +179,19 @@ async function main() {
     const failedConnection = await page.evaluate(async () => {
       const desktop = (window as Window & { farmingDesktop?: import('../shared/desktop-contract').FarmingDesktopBridge }).farmingDesktop
       if (!desktop) throw new Error('Desktop bridge is missing.')
-      const saved = await desktop.saveBackend({
-        name: 'Unavailable backend',
-        transport: 'direct',
-        directUrl: 'http://127.0.0.1:1',
-      })
-      const id = saved.profiles.find(profile => profile.name === 'Unavailable backend')?.id
-      if (!id) throw new Error('Unavailable smoke backend was not saved.')
       let message = ''
       try {
-        await desktop.activateBackend(id)
+        await desktop.saveAndActivateBackend({
+          name: 'Unavailable backend',
+          transport: 'direct',
+          directUrl: 'http://127.0.0.1:1',
+        })
       } catch (error) {
         message = error instanceof Error ? error.message : String(error)
       }
       const state = await desktop.getState()
+      const id = state.profiles.find(profile => profile.name === 'Unavailable backend')?.id
+      if (!id) throw new Error('Unavailable smoke backend was not persisted before activation failed.')
       return {
         activeName: state.profiles.find(profile => profile.id === state.activeBackendId)?.name,
         failedStatus: state.connections.find(connection => connection.backendId === id)?.status,
@@ -247,6 +248,7 @@ async function main() {
     const screenshotPath = process.env.FARMING_DESKTOP_SMOKE_SCREENSHOT
     if (screenshotPath) {
       await restartedPage.getByTestId('code-nav-remote-connections').click()
+      await restartedPage.getByTestId('code-plugins-panel').waitFor()
       await restartedPage.getByTestId('desktop-connections-panel').waitFor()
       fs.mkdirSync(path.dirname(screenshotPath), { recursive: true })
       await restartedPage.screenshot({ path: screenshotPath, fullPage: true })

@@ -8,7 +8,7 @@ import type {
 
 const bridge: FarmingDesktopBridge = {
   getState: () => ipcRenderer.invoke('desktop:get-state') as Promise<DesktopState>,
-  saveBackend: (input: DesktopBackendInput) => ipcRenderer.invoke('desktop:save-backend', input) as Promise<DesktopState>,
+  saveAndActivateBackend: (input: DesktopBackendInput) => ipcRenderer.invoke('desktop:save-and-activate-backend', input) as Promise<DesktopState>,
   removeBackend: (backendId: string) => ipcRenderer.invoke('desktop:remove-backend', backendId) as Promise<DesktopState>,
   connectBackend: (backendId: string) => ipcRenderer.invoke('desktop:connect-backend', backendId) as Promise<DesktopState>,
   disconnectBackend: (backendId: string) => ipcRenderer.invoke('desktop:disconnect-backend', backendId) as Promise<DesktopState>,
