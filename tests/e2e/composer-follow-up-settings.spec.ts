@@ -13,6 +13,7 @@ test('Composer follow-up behavior refreshes from settings and persists Queue or 
   const queue = row.getByRole('button', { name: 'Queue', exact: true })
   const steer = row.getByRole('button', { name: 'Steer', exact: true })
 
+  await expect(row.locator('.code-settings-row-copy small')).toHaveCount(0)
   await expect(steer).toHaveAttribute('aria-pressed', 'true')
   await expect(queue).toHaveAttribute('aria-pressed', 'false')
 

@@ -175,9 +175,6 @@ function panelCopy(language: UiPreferences['language']) {
       ? '当前浏览器或 Farming URL 不支持系统通知；请使用支持通知的浏览器和 HTTPS 地址。'
       : 'System notifications require a supported browser and a secure HTTPS Farming URL.',
     followUpBehavior: zh ? '后续消息行为' : 'Follow-up behavior',
-    followUpBehaviorHint: zh
-      ? 'Agent 工作时，新消息默认排队到下一轮，或直接调整当前轮。按 ⌘/Ctrl + Enter 可仅对当前一条反向发送。'
-      : 'While an Agent is working, queue messages for the next turn or steer the current turn. Press ⌘/Ctrl + Enter to use the opposite behavior once.',
     queue: 'Queue',
     steer: 'Steer',
     dangerousSkipLabel: zh ? '默认跳过所有 agent 权限检查' : 'Skip all agent permission checks by default',
@@ -806,7 +803,6 @@ export function AgentHomesSettingsPanel({
               <div className="code-settings-choice-row" data-testid="code-settings-follow-up-behavior">
                 <div className="code-settings-row-copy">
                   <strong>{copy.followUpBehavior}</strong>
-                  <small>{copy.followUpBehaviorHint}</small>
                 </div>
                 <div className="code-settings-segmented" role="group" aria-label={copy.followUpBehavior}>
                   {(['queue', 'steer'] as const).map(behavior => (
