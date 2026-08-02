@@ -211,7 +211,7 @@ export function AcpComposer({
       document.removeEventListener('pointerdown', closeOutside)
       document.removeEventListener('keydown', closeOnEscape)
     }
-  }, [openMenu])
+  }, [openMenu, textareaRef])
 
   const insertCommand = (name: string) => {
     if (!commandTrigger) return
