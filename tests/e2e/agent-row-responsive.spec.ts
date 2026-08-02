@@ -163,10 +163,10 @@ test('reveals more Agent row information as the sidebar widens', async ({ page, 
   await expect(row.locator('.code-agent-dot.turn-active')).toHaveCount(1)
   const activeTitlePresentation = await row.evaluate(element => {
     const title = element.querySelector<HTMLElement>('.code-agent-name')
-    const trailing = element.querySelector<HTMLElement>('.code-agent-row-trailing')
-    if (!title || !trailing) throw new Error('Active Agent row presentation is missing')
+    const dot = element.querySelector<HTMLElement>('.code-agent-dot.turn-active')
+    if (!title || !dot) throw new Error('Active Agent row presentation is missing')
     const rowStyle = getComputedStyle(element)
-    const fadeStyle = getComputedStyle(trailing, '::before')
+    const fadeStyle = getComputedStyle(dot, '::before')
     return {
       textOverflow: getComputedStyle(title).textOverflow,
       fadeContent: fadeStyle.content,
@@ -181,6 +181,23 @@ test('reveals more Agent row information as the sidebar widens', async ({ page, 
   expect(activeTitlePresentation.fadeWidth).toBe('12px')
   expect(activeTitlePresentation.fadeBackgroundImage).toContain('rgb(233, 233, 232)')
   expect(activeTitlePresentation.fadeSurface).toBe('#e9e9e8')
+  await row.hover()
+  const hoverActionPresentation = await row.evaluate(element => {
+    const dot = element.querySelector<HTMLElement>('.code-agent-dot.turn-active')
+    const actions = element.querySelector<HTMLElement>('.code-agent-row-actions')
+    if (!dot || !actions) throw new Error('Active Agent row actions are missing')
+    const dotBox = dot.getBoundingClientRect()
+    const actionsBox = actions.getBoundingClientRect()
+    return {
+      actionsOpacity: getComputedStyle(actions).opacity,
+      actionsZIndex: Number.parseInt(getComputedStyle(actions).zIndex, 10),
+      dotZIndex: Number.parseInt(getComputedStyle(dot).zIndex, 10),
+      actionsCoverDot: actionsBox.left <= dotBox.left && actionsBox.right >= dotBox.right,
+    }
+  })
+  expect(hoverActionPresentation.actionsOpacity).toBe('1')
+  expect(hoverActionPresentation.actionsZIndex).toBeGreaterThan(hoverActionPresentation.dotZIndex)
+  expect(hoverActionPresentation.actionsCoverDot).toBe(true)
   await page.mouse.move(1000, 100)
   await projectRow.hover()
   const projectPreview = page.getByTestId('code-project-hover-preview')

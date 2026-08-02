@@ -98,6 +98,18 @@ function run() {
     'Attached image: a.png\n\nImage path: /tmp/a.png',
     'Attached image: b.png\n\nImage path: /tmp/b.png',
   ]);
+  assert.deepStrictEqual(
+    composerAttachmentMessageBlocks([{
+      kind: 'image',
+      status: 'ready',
+      path: '/tmp/restored.png',
+      name: 'restored.png',
+      type: 'image/png',
+      size: 12,
+    }]),
+    ['Attached image: restored.png\n\nImage path: /tmp/restored.png'],
+    'a restored ready attachment must still form a sendable message without an ephemeral message block',
+  );
   assert.strictEqual(
     composerMessageWithAttachments('Please inspect', attachments),
     'Please inspect\n\nAttached image: a.png\n\nImage path: /tmp/a.png\n\nAttached image: b.png\n\nImage path: /tmp/b.png'

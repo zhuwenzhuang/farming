@@ -901,6 +901,30 @@ async function run() {
     releasePrepareAgent();
     assert.strictEqual(await start, registeredAgentId);
     assert.strictEqual(completedAgentId, registeredAgentId);
+
+    const originalConsoleWarn = console.warn;
+    const registrationWarnings: unknown[][] = [];
+    console.warn = (...args: unknown[]) => {
+      registrationWarnings.push(args);
+    };
+    try {
+      const faultedRegistrationAgentId = await registrationManager.startAgent(
+        'claude',
+        process.cwd(),
+        (agentId, error) => assert.ifError(error),
+        {
+          agentRuntimeMode: 'chat',
+          wantsMain: false,
+          onAgentRegistered: () => {
+            throw new Error('registration observer failed');
+          },
+        },
+      );
+      assert(faultedRegistrationAgentId, 'a failed registration observer must not stop ACP startup');
+      assert(registrationWarnings.some(args => String(args[0]).includes('Failed to publish registered Agent:')));
+    } finally {
+      console.warn = originalConsoleWarn;
+    }
   } finally {
     releasePrepareAgent?.();
     await registrationManager.dispose();

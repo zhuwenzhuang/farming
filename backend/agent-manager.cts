@@ -5220,10 +5220,11 @@ class AgentManager extends EventEmitter {
         try {
           options.onAgentRegistered(agentId);
         } catch (registrationError) {
+          const error = registrationError as ErrorRecord;
           console.warn(
             'Failed to publish registered Agent:',
             agentId,
-            caughtError(registrationError).message || registrationError,
+            error.message || registrationError,
           );
         }
       }

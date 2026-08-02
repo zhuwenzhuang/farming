@@ -2138,11 +2138,7 @@ body.code-resizing-sidebar {
   text-overflow: clip;
 }
 
-.code-agent-row:has(.code-agent-dot.turn-active) .code-agent-row-trailing {
-  position: relative;
-}
-
-.code-agent-row:has(.code-agent-dot.turn-active) .code-agent-row-trailing::before {
+.code-agent-row:has(.code-agent-dot.turn-active) .code-agent-dot.turn-active::before {
   content: '';
   position: absolute;
   top: 50%;
@@ -2185,6 +2181,7 @@ body.code-resizing-sidebar {
 .code-agent-row:has(.code-agent-row-actions :focus-visible) .code-agent-row-actions {
   opacity: 1;
   pointer-events: auto;
+  z-index: 3;
 }
 
 .code-agent-row:hover:not(.active):not(.search-selected) {

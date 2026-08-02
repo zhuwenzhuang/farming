@@ -1197,7 +1197,6 @@ test.describe('terminal state protocol', () => {
   })
 
   test('preloads a parked terminal checkpoint after new background attention', async ({ page, workspaceRoot }) => {
-    page.on('console', message => console.log('browser-console', message.text()))
     const workspace = path.join(workspaceRoot, 'parked-checkpoint-prefetch')
     fs.mkdirSync(workspace, { recursive: true })
     const parkedAgentId = await createControlAgent(page, workspace)
@@ -1210,9 +1209,7 @@ test.describe('terminal state protocol', () => {
     let checkpointRequests = 0
     const handler = async (route: import('@playwright/test').Route) => {
       checkpointRequests += 1
-      const response = await route.fetch()
-      console.log('prefetch-checkpoint', checkpointRequests, await response.json())
-      await route.fulfill({ response })
+      await route.continue()
     }
     await page.route(routePattern, handler)
     try {

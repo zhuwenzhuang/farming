@@ -76,6 +76,26 @@ async function run() {
   assert.strictEqual(state.draft, '');
   assert.strictEqual(state.submissions, undefined);
 
+  const imageOnlyAttachment = readyImage();
+  state = {
+    ...createDefaultAgentComposerState(),
+    attachments: [imageOnlyAttachment],
+  };
+  assert.strictEqual(submitAcpDraft({
+    agent,
+    composerKey: 'acp:session-1',
+    draft: '',
+    attachments: [imageOnlyAttachment],
+    composerMode: 'default',
+    turnActive: false,
+    sendMessage,
+    updateComposerState,
+  }), true);
+  assert.strictEqual(sent.length, 2, 'an ACP Composer must submit a ready image without text');
+  assert.strictEqual(sent[1].text, '');
+  assert.strictEqual(sent[1].attachments[0].name, 'screen.png');
+  assert.strictEqual(state.attachments.length, 0);
+
   state = {
     ...createDefaultAgentComposerState(),
     draft: 'do not fake an image send',
@@ -113,10 +133,10 @@ async function run() {
     sendMessage,
     updateComposerState,
   }), true);
-  assert.strictEqual(sent.length, 2, 'Steer mode should submit directly into the running ACP turn');
-  assert.strictEqual(sent[1].text, 'change direction now');
-  assert.strictEqual(sent[1].attachments[0].path, '/tmp/screen.png');
-  assert.strictEqual(sent[1].delivery, 'steer');
+  assert.strictEqual(sent.length, 3, 'Steer mode should submit directly into the running ACP turn');
+  assert.strictEqual(sent[2].text, 'change direction now');
+  assert.strictEqual(sent[2].attachments[0].path, '/tmp/screen.png');
+  assert.strictEqual(sent[2].delivery, 'steer');
   assert.strictEqual(state.pendingFollowUp, undefined);
   assert.strictEqual(state.draft, '');
 

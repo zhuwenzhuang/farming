@@ -686,16 +686,13 @@ export function prefetchedTerminalSessionCheckpoint(
 ) {
   trimPrefetchedTerminalCheckpoints()
   const checkpoint = prefetchedTerminalCheckpoints.get(agentId)
-  console.log('prefetched checkpoint lookup', agentId, expected, checkpoint?.state)
   if (!checkpoint) return undefined
   const state = checkpoint.state
   if (
     state.runtimeEpoch !== expected.runtimeEpoch
     || !hasTerminalCheckpointProof(state)
-    || expected.outputSeq === null
-    || expected.stateRevision === null
-    || state.outputSeq < expected.outputSeq
-    || state.stateRevision < expected.stateRevision
+    || (expected.outputSeq !== null && state.outputSeq < expected.outputSeq)
+    || (expected.stateRevision !== null && state.stateRevision < expected.stateRevision)
   ) {
     return undefined
   }
@@ -972,12 +969,7 @@ function replayPendingSnapshot(record: SessionRecord, generation = record.attach
 function seedTerminalCheckpoint(record: SessionRecord, state?: SessionBootstrapState) {
   if (!state || record.fixtureOverrideActive) return false
   const checkpoint = terminalReplayCheckpoint(state)
-  if (TERMINAL_REPLAY.evaluateCheckpoint(record.replayState, checkpoint).action !== 'install') return false
-  if (
-    state.runtimeEpoch === record.snapshotRuntimeEpoch &&
-    record.snapshotStateRevision !== null &&
-    state.stateRevision! <= record.snapshotStateRevision
-  ) return false
+  if (TERMINAL_REPLAY.evaluateCheckpoint(record.replayState, checkpoint).action === 'reject') return false
 
   record.snapshotOutput = state.output
   record.snapshotRuntimeEpoch = state.runtimeEpoch

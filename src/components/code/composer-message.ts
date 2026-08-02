@@ -90,7 +90,19 @@ export function revokeComposerAttachmentPreview(attachment: ComposerAttachment) 
 export function composerAttachmentMessageBlocks(attachments: ComposerAttachment[]) {
   return attachments
     .filter(attachment => attachment.status === 'ready' && Boolean(attachment.path))
-    .map(attachment => attachment.messageBlock || '')
+    .map(attachment => {
+      if (attachment.messageBlock) return attachment.messageBlock
+      if (!attachment.name || !attachment.type || !attachment.path) return ''
+      const uploaded = {
+        path: attachment.path,
+        name: attachment.name,
+        type: attachment.type,
+        size: attachment.size,
+      }
+      return attachment.kind === 'audio'
+        ? formatAttachedAudio(uploaded)
+        : formatAttachedImage(uploaded)
+    })
     .filter(Boolean)
 }
 
