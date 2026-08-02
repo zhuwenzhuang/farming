@@ -2,6 +2,7 @@ import * as monaco from 'monaco-editor'
 import { workspaceEditorModelUriForFile } from '@/lib/workspace-editor-monaco'
 import type { OpenWorkspaceFile } from '@/lib/workspace-open-files'
 import { LanguageServerError, requestLanguageServer } from './client'
+import { TargetBindingRegistry } from './target-binding-registry'
 import type {
   LanguageServerDiagnostic,
   LanguageServerLocation,
@@ -17,7 +18,7 @@ interface ModelBinding {
 }
 
 const bindings = new Map<string, ModelBinding>()
-const targetBindings = new Map<string, ModelBinding>()
+const targetBindings = new TargetBindingRegistry<ModelBinding>()
 let providerDisposables: monaco.IDisposable[] | null = null
 let editorOpener: ((binding: ModelBinding, selection?: monaco.IRange | monaco.IPosition) => Promise<void> | void) | null = null
 
@@ -36,19 +37,24 @@ function bindingForModel(model: monaco.editor.ITextModel) {
   return binding && !binding.dirty ? binding : null
 }
 
-function targetUri(binding: ModelBinding, filePath: string) {
+function targetUri(sourceModel: monaco.editor.ITextModel, binding: ModelBinding, filePath: string) {
   const uri = workspaceEditorModelUriForFile({
     agentId: binding.rootId,
     workspaceRoot: binding.workspaceRoot,
     file: { path: filePath },
   } as Pick<OpenWorkspaceFile, 'agentId' | 'file' | 'workspaceRoot'>)
-  targetBindings.set(uri.toString(), { ...binding, filePath })
+  targetBindings.set(sourceModel.uri.toString(), uri.toString(), { ...binding, filePath })
   return uri
 }
 
-function locations(binding: ModelBinding, values: LanguageServerLocation[] | null | undefined): monaco.languages.Location[] {
+function locations(
+  sourceModel: monaco.editor.ITextModel,
+  binding: ModelBinding,
+  values: LanguageServerLocation[] | null | undefined,
+): monaco.languages.Location[] {
+  if (sourceModel.isDisposed()) return []
   return (values || []).map(value => ({
-    uri: targetUri(binding, value.path),
+    uri: targetUri(sourceModel, binding, value.path),
     range: rangeValue(value.selectionRange || value.range),
   }))
 }
@@ -94,6 +100,11 @@ function requestAtPosition<T>(
 function registerProviders() {
   if (providerDisposables) return
   providerDisposables = [
+    monaco.editor.onWillDisposeModel(model => {
+      const key = model.uri.toString()
+      bindings.delete(key)
+      targetBindings.deleteSource(key)
+    }),
     monaco.editor.registerEditorOpener({
       openCodeEditor(_source, resource, selectionOrPosition) {
         const binding = targetBindings.get(resource.toString()) || bindings.get(resource.toString())
@@ -117,21 +128,21 @@ function registerProviders() {
       async provideDefinition(model, position) {
         const binding = bindingForModel(model)
         if (!binding) return null
-        return locations(binding, await requestAtPosition<LanguageServerLocation[]>(model, position, 'definition'))
+        return locations(model, binding, await requestAtPosition<LanguageServerLocation[]>(model, position, 'definition'))
       },
     }),
     monaco.languages.registerReferenceProvider('*', {
       async provideReferences(model, position) {
         const binding = bindingForModel(model)
         if (!binding) return null
-        return locations(binding, await requestAtPosition<LanguageServerLocation[]>(model, position, 'references'))
+        return locations(model, binding, await requestAtPosition<LanguageServerLocation[]>(model, position, 'references'))
       },
     }),
     monaco.languages.registerImplementationProvider('*', {
       async provideImplementation(model, position) {
         const binding = bindingForModel(model)
         if (!binding) return null
-        return locations(binding, await requestAtPosition<LanguageServerLocation[]>(model, position, 'implementation'))
+        return locations(model, binding, await requestAtPosition<LanguageServerLocation[]>(model, position, 'implementation'))
       },
     }),
     monaco.languages.registerDocumentSymbolProvider('*', {
