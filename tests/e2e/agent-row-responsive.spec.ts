@@ -149,6 +149,25 @@ test('reveals more Agent row information as the sidebar widens', async ({ page, 
     })
   }, agentId)
   await expect(row).toHaveClass(/unread/)
+  await expect(row.locator('.code-agent-dot.turn-active')).toHaveCount(1)
+  const activeTitlePresentation = await row.evaluate(element => {
+    const title = element.querySelector<HTMLElement>('.code-agent-name')
+    const trailing = element.querySelector<HTMLElement>('.code-agent-row-trailing')
+    if (!title || !trailing) throw new Error('Active Agent row presentation is missing')
+    const rowStyle = getComputedStyle(element)
+    const fadeStyle = getComputedStyle(trailing, '::before')
+    return {
+      textOverflow: getComputedStyle(title).textOverflow,
+      fadeContent: fadeStyle.content,
+      fadeBackgroundImage: fadeStyle.backgroundImage,
+      fadeSurface: rowStyle.getPropertyValue('--code-agent-row-fade-surface').trim(),
+    }
+  })
+  expect(activeTitlePresentation.textOverflow).toBe('clip')
+  expect(activeTitlePresentation.fadeContent).toBe('""')
+  expect(activeTitlePresentation.fadeBackgroundImage).toContain('linear-gradient')
+  expect(activeTitlePresentation.fadeBackgroundImage).toContain('rgb(233, 233, 232)')
+  expect(activeTitlePresentation.fadeSurface).toBe('#e9e9e8')
   await page.mouse.move(1000, 100)
   await projectRow.hover()
   const projectPreview = page.getByTestId('code-project-hover-preview')

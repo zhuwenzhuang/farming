@@ -213,6 +213,16 @@ body.code-mode[data-appearance='dark'] .code-agent-row-actions {
   --code-agent-row-action-surface: var(--code-dark-bg-soft);
 }
 
+body.code-mode[data-appearance='dark'] .code-agent-row {
+  --code-agent-row-fade-surface: var(--code-dark-bg-soft);
+}
+
+body.code-mode[data-appearance='dark'] .code-agent-row:hover,
+body.code-mode[data-appearance='dark'] .code-agent-row.active,
+body.code-mode[data-appearance='dark'] .code-agent-row.search-selected {
+  --code-agent-row-fade-surface: var(--code-dark-bg-hover);
+}
+
 body.code-mode[data-appearance='dark'] .code-agent-row:hover .code-agent-row-actions,
 body.code-mode[data-appearance='dark'] .code-agent-row.active .code-agent-row-actions,
 body.code-mode[data-appearance='dark'] .code-agent-row.search-selected .code-agent-row-actions {
