@@ -3759,9 +3759,35 @@ test.describe('display-backed agent flows', () => {
     await expect(mobileAgentMenu).toBeVisible()
     await expect(mobileAgentMenu.getByRole('menuitem', { name: 'Archive' })).toBeVisible()
     await expect(mobileAgentMenu.getByRole('menuitem', { name: 'Unpin Agent' })).toBeFocused()
-	    await mobileAgentMenu.getByRole('menuitem', { name: 'Archive' }).click()
-	    await expect(mobileRow).toBeHidden()
-	    await expect(primaryRow).toBeFocused()
+    let releaseArchiveRequest = () => {}
+    let markArchiveRequestStarted = () => {}
+    const archiveRequestStarted = new Promise<void>(resolve => {
+      markArchiveRequestStarted = resolve
+    })
+    await page.route(`/farming/api/agents/${agentId}`, async route => {
+      if (route.request().method() !== 'PATCH') {
+        await route.continue()
+        return
+      }
+      const body = route.request().postDataJSON() as { archived?: boolean }
+      if (body.archived !== true) {
+        await route.continue()
+        return
+      }
+      markArchiveRequestStarted()
+      await new Promise<void>(release => {
+        releaseArchiveRequest = release
+      })
+      await route.continue()
+    })
+    await mobileAgentMenu.getByRole('menuitem', { name: 'Archive' }).click()
+    await archiveRequestStarted
+    try {
+      await expect(mobileRow).toBeHidden()
+      await expect(primaryRow).toBeFocused()
+    } finally {
+      releaseArchiveRequest()
+    }
 
 	    await page.getByTestId('code-nav-history').click()
     await expect(page.getByTestId('code-history-agents')).toBeVisible()

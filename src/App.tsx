@@ -922,6 +922,12 @@ export function App() {
       ? ws.agents.find(agent => agent.id === agentId) ?? null
       : null
     const switchingAgent = permissionAgent
+    if (flags.archived === true) {
+      // Archive removes the sidebar row optimistically. Close the matching
+      // workspace at the same time so selection moves to its stable neighbor
+      // instead of waiting for the HTTP response or a WebSocket update.
+      closeTerminal(agentId, { focusNextTerminal: false })
+    }
     if (switchingAgent) {
       if (permissionSwitchRequestRef.current) return false
       permissionSwitchRequestRef.current = agentId
@@ -967,9 +973,6 @@ export function App() {
         return false
       }
       if (data?.warning) notifyError(data.warning)
-      if (flags.archived === true) {
-        closeTerminal(agentId, { focusNextTerminal: false })
-      }
       if (data?.restartedAgentId) {
         const restartedAgentId = data.restartedAgentId
         const current = permissionSwitchStateRef.current
