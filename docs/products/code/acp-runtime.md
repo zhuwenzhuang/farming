@@ -93,6 +93,8 @@ ACP boundaries remain explicit:
 - The composer accepts images and audio, but native blocks are capability-negotiated independently. Incoming embedded resources and resource links are rendered, while arbitrary outbound resource-link construction is not exposed as a composer control.
 - Editing an old prompt with a repository checkpoint and truncating later turns is not part of base ACP. Farming does not present that optional client-side capability as protocol support.
 
+An explicit `input_image` / `inputImage` tool-result block that an Agent sends into the conversation is promoted to the same default-visible result-media surface as generated media. Its tool metadata remains reversible under Process; ordinary ACP tool media without that explicit output marker remains in the tool detail.
+
 ## Permissions And Failure Behavior
 
 `full` permission mode selects an advertised allow option automatically. `ask` selects an advertised reject option. The normal approval mode exposes the full pending ACP permission request and waits for an explicit response through the backend API.

@@ -617,8 +617,19 @@ function processEntry(entry: AcpRecord): AgentTranscriptProcessItem | null {
   return null
 }
 
-function isGeneratedMediaTool(entry: AcpRecord) {
+function hasExplicitOutputMedia(value: unknown, depth = 0): boolean {
+  if (depth > 4) return false
+  if (Array.isArray(value)) return value.some(item => hasExplicitOutputMedia(item, depth + 1))
+  const item = record(value)
+  const type = stringValue(item.type).toLowerCase()
+  if (type === 'input_image' || type === 'inputimage') return true
+  return ['content', 'content_items', 'contentItems', 'output', 'result']
+    .some(field => hasExplicitOutputMedia(item[field], depth + 1))
+}
+
+function isDefaultVisibleMediaTool(entry: AcpRecord) {
   if (entry.type !== 'tool') return false
+  if (hasExplicitOutputMedia(entry.rawOutput)) return true
   if (entry.generatedMedia === true) return true
   const title = stringValue(entry.title).trim().toLowerCase()
   const id = stringValue(entry.id).trim().toLowerCase()
@@ -759,7 +770,7 @@ export function projectAcpTranscript(sessionValue: unknown, options: { maxTurns?
     if (current.internal || entry.internal === true) continue
     if (entry.type === 'plan') continue
     const process = processEntry(entry)
-    if (process && isGeneratedMediaTool(entry)) {
+    if (process && isDefaultVisibleMediaTool(entry)) {
       current.resultImages = uniqueByUrl([...current.resultImages, ...(process.images || [])])
       current.resultAudios = uniqueByUrl([...current.resultAudios, ...(process.audios || [])])
       current.resultFiles.push(...(process.files || []))

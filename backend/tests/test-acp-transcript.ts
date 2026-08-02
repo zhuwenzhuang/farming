@@ -682,6 +682,22 @@ assert.match(generatedMediaTranscript.turns[0].resultImages[0].url, /^data:image
 assert.strictEqual(generatedMediaTranscript.turns[0].processItems[0].images, undefined);
 assert.strictEqual(generatedMediaTranscript.turns[0].finalMessage, '');
 
+const explicitOutputImageTranscript = acpSessionTranscript({
+  entries: [
+    { id: 'user-share-image', type: 'message', role: 'user', content: [{ type: 'text', text: 'Show me the screenshot' }] },
+    {
+      id: 'shared-screenshot',
+      type: 'tool',
+      title: 'Used exec',
+      status: 'completed',
+      content: [{ type: 'content', content: { type: 'image', mimeType: 'image/png', data: 'aGVsbG8=' } }],
+      rawOutput: [{ type: 'input_image', image_url: 'data:image/png;base64,aGVsbG8=' }],
+    },
+  ],
+});
+assert.match(explicitOutputImageTranscript.turns[0].resultImages[0].url, /^data:image\/png;base64,/);
+assert.strictEqual(explicitOutputImageTranscript.turns[0].processItems[0].images, undefined);
+
 const compactedTranscript = acpSessionTranscript({
   entries: [
     { id: 'user-compacted', type: 'message', role: 'user', content: [{ type: 'text', text: 'Continue' }] },

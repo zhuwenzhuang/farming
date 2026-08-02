@@ -91,6 +91,8 @@ ACP 的边界保持明确：
 - Composer 接受图片和音频，但两种原生 block 分别按实时 capability 协商。收到的 Embedded Resource 与 Resource Link 可以渲染，但 Composer 暂不提供任意 Resource Link 的主动构造控件。
 - “编辑旧问题、按仓库检查点回滚并截断后续 Turn”不属于基础 ACP。Farming 不会把这种可选客户端能力伪装成协议已支持。
 
+Agent 发送到对话中的显式 `input_image` / `inputImage` Tool 结果块，会与生成媒体一样提升到默认可见的结果媒体区域。对应 Tool 元数据仍可在 Process 中可逆地展开；没有该显式输出标记的普通 ACP Tool 媒体仍保留在 Tool 详情中。
+
 ## 权限与失败行为
 
 `full` 权限模式会自动选择 Agent 提供的 allow 选项；`ask` 会自动选择 reject 选项；普通审批模式会暴露完整的 ACP permission request，并等待后端 API 的明确回答。
