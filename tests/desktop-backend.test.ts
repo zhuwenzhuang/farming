@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import fs from 'node:fs'
+import http from 'node:http'
 import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
@@ -32,6 +33,8 @@ import { bearerCredential, joinUpstreamUrl } from '../desktop/upstream'
 import {
   buildRemoteBootstrapScript,
   buildRemoteUploadCommand,
+  DesktopRemoteOperationCancelledError,
+  downloadDesktopReleaseUrl,
   normalizeDesktopReleaseRoot,
   normalizeDesktopServerVersion,
   parseRemoteServerHandshake,
@@ -606,12 +609,199 @@ test('remote bootstrap reuses a validated custom glibc runtime on legacy Linux',
   assert.doesNotMatch(script, /--set-rpath/)
   assert.match(script, /--max-time 45/)
   assert.match(script, /mv "\$patched" "\$binary"/)
+  assert.match(script, /Remote Server output \(last 30 lines\)/)
+  assert.match(script, /tail -c 4096/)
 })
 
 test('desktop release mirrors keep the same bounded HTTP checksum contract', () => {
   assert.equal(normalizeDesktopReleaseRoot('https://releases.example.test/farming/'), 'https://releases.example.test/farming')
   assert.throws(() => normalizeDesktopReleaseRoot('file:///tmp/releases'), /HTTP\(S\)/)
   assert.throws(() => normalizeDesktopReleaseRoot('https://user:secret@example.test/releases'), /without credentials/)
+  const script = buildRemoteBootstrapScript()
+  assert.match(script, /checksum_limit=262144/)
+  assert.match(script, /asset_limit=536870912/)
+  assert.doesNotMatch(script, /ulimit/)
+  assert.match(script, /--max-filesize "\$limit"/)
+  assert.match(script, /head -c "\$\(\(limit \+ 1\)\)"/)
+  assert.match(script, /mkfifo "\$fifo"/)
+  assert.match(script, /wait "\$wget_pid"/)
+  assert.match(script, /actual_size=\$\(wc -c < "\$target"/)
+  assert.match(script, /rm -f "\$target"/)
+  assert.match(script, /download "\$sums_url" "\$sums" "\$checksum_limit"/)
+  assert.match(script, /download "\$asset_url" "\$tmp" "\$asset_limit"/)
+})
+
+test('remote wget path deletes an oversized stream without relying on ulimit', async t => {
+  const temporaryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-desktop-wget-cap-'))
+  const binaryDir = path.join(temporaryDir, 'bin')
+  const farmingHome = path.join(temporaryDir, 'home')
+  fs.mkdirSync(binaryDir)
+  const commandNames = ['awk', 'head', 'mkdir', 'mkfifo', 'rm', 'tr', 'uname', 'wc', 'wget']
+  const commands = Object.fromEntries(commandNames.map(name => [
+    name,
+    spawnSync('/bin/sh', ['-c', `command -v ${name}`], { encoding: 'utf8' }).stdout.trim(),
+  ]))
+  if (Object.values(commands).some(target => !target)) {
+    fs.rmSync(temporaryDir, { recursive: true, force: true })
+    t.skip('The wget cap smoke requires standard shell tools and wget.')
+    return
+  }
+  Object.entries(commands).forEach(([name, target]) => fs.symlinkSync(target, path.join(binaryDir, name)))
+  const server = http.createServer((_request, response) => {
+    response.writeHead(200)
+    response.end(Buffer.alloc(262_145, 0x61))
+  })
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', resolve)
+  })
+  const address = server.address()
+  assert.ok(address && typeof address !== 'string')
+  try {
+    const child = spawn('/bin/sh', ['-s'], {
+      env: {
+        HOME: farmingHome,
+        PATH: binaryDir,
+        FARMING_HOME: farmingHome,
+        FARMING_RELEASE_ROOT: `http://127.0.0.1:${address.port}`,
+        FARMING_VERSION: 'test-version',
+      },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    })
+    let stdout = ''
+    let stderr = ''
+    child.stdout.on('data', chunk => { stdout += String(chunk) })
+    child.stderr.on('data', chunk => { stderr += String(chunk) })
+    child.stdin.end(buildRemoteBootstrapScript())
+    const exitCode = await new Promise<number | null>((resolve, reject) => {
+      child.once('error', reject)
+      child.once('exit', resolve)
+    })
+    assert.equal(exitCode, 42, `${stdout}\n${stderr}`)
+    assert.match(stderr, /Release checksum exceeds its 262144 byte limit/)
+    const installDir = path.join(farmingHome, 'server', 'test-version')
+    assert.deepEqual(fs.readdirSync(installDir), [])
+  } finally {
+    await new Promise<void>(resolve => server.close(() => resolve()))
+    fs.rmSync(temporaryDir, { recursive: true, force: true })
+  }
+})
+
+test('desktop release download reports progress and has bounded cancellation and stalls', async () => {
+  const temporaryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-desktop-download-'))
+  const sockets = new Set<import('node:net').Socket>()
+  let writeFailureStreamsClosed = 0
+  let activeWriteFailureStreams = 0
+  const server = http.createServer((request, response) => {
+    if (request.url === '/progress') {
+      response.writeHead(200, { 'content-length': '12' })
+      response.write('hello ')
+      setTimeout(() => response.end('world!'), 15)
+      return
+    }
+    if (request.url === '/oversized-header') {
+      response.writeHead(200, { 'content-length': '1000' })
+      response.end('too large')
+      return
+    }
+    if (request.url === '/unbounded') {
+      response.writeHead(200)
+      response.write('12345678')
+      response.end('overflow')
+      return
+    }
+    if (request.url === '/write-failure') {
+      response.writeHead(200)
+      activeWriteFailureStreams += 1
+      const interval = setInterval(() => response.write('streaming-body'), 5)
+      response.once('close', () => {
+        clearInterval(interval)
+        activeWriteFailureStreams -= 1
+        writeFailureStreamsClosed += 1
+      })
+      return
+    }
+    response.writeHead(200, { 'content-length': '12' })
+    response.write('stalled')
+  })
+  server.on('connection', socket => {
+    sockets.add(socket)
+    socket.on('close', () => sockets.delete(socket))
+  })
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', resolve)
+  })
+  const address = server.address()
+  assert.ok(address && typeof address !== 'string')
+  const root = `http://127.0.0.1:${address.port}`
+  try {
+    const progress: string[] = []
+    const completed = path.join(temporaryDir, 'completed')
+    await downloadDesktopReleaseUrl(`${root}/progress`, completed, 'Test download', {
+      timeoutMs: 500,
+      idleTimeoutMs: 100,
+      onProgress: message => progress.push(message),
+    })
+    assert.equal(fs.readFileSync(completed, 'utf8'), 'hello world!')
+    assert.match(progress.join('\n'), /100%/)
+    assert.match(progress.at(-1) || '', /downloaded, verifying/)
+
+    const stalled = path.join(temporaryDir, 'stalled')
+    await assert.rejects(
+      downloadDesktopReleaseUrl(`${root}/stall`, stalled, 'Stalled download', {
+        timeoutMs: 160,
+        idleTimeoutMs: 25,
+      }),
+      /produced no download progress|deadline/,
+    )
+    assert.equal(fs.existsSync(stalled), false)
+
+    const controller = new AbortController()
+    const cancelled = path.join(temporaryDir, 'cancelled')
+    const cancellation = downloadDesktopReleaseUrl(`${root}/stall`, cancelled, 'Cancelled download', {
+      signal: controller.signal,
+      timeoutMs: 500,
+      idleTimeoutMs: 250,
+    })
+    setTimeout(() => controller.abort(), 20)
+    await assert.rejects(cancellation, DesktopRemoteOperationCancelledError)
+    assert.equal(fs.existsSync(cancelled), false)
+
+    const oversizedHeader = path.join(temporaryDir, 'oversized-header')
+    await assert.rejects(
+      downloadDesktopReleaseUrl(`${root}/oversized-header`, oversizedHeader, 'Oversized header', {
+        maxBytes: 16,
+      }),
+      /exceeds the 16 byte limit/,
+    )
+    assert.equal(fs.existsSync(oversizedHeader), false)
+
+    const unbounded = path.join(temporaryDir, 'unbounded')
+    await assert.rejects(
+      downloadDesktopReleaseUrl(`${root}/unbounded`, unbounded, 'Unbounded download', {
+        maxBytes: 12,
+      }),
+      /exceeds the 12 byte limit/,
+    )
+    assert.equal(fs.existsSync(unbounded), false)
+
+    const unwritableTarget = path.join(temporaryDir, 'missing-parent', 'target')
+    await assert.rejects(
+      downloadDesktopReleaseUrl(`${root}/write-failure`, unwritableTarget, 'Write failure', {
+        timeoutMs: 3_000,
+        idleTimeoutMs: 500,
+      }),
+      /failed after 3 attempts/,
+    )
+    await new Promise(resolve => setTimeout(resolve, 20))
+    assert.equal(writeFailureStreamsClosed, 3)
+    assert.equal(activeWriteFailureStreams, 0)
+  } finally {
+    sockets.forEach(socket => socket.destroy())
+    await new Promise<void>(resolve => server.close(() => resolve()))
+    fs.rmSync(temporaryDir, { recursive: true, force: true })
+  }
 })
 
 test('remote Server upload publishes only a complete checksum-verified temporary file', () => {

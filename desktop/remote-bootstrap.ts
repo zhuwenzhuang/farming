@@ -28,6 +28,23 @@ const NEED_UPLOAD = 'FARMING_DESKTOP_NEEDS_UPLOAD:'
 const DEFAULT_RELEASE_ROOT = 'https://github.com/zhuwenzhuang/farming/releases/download'
 const OUTPUT_LIMIT = 64 * 1024
 const RELEASE_DOWNLOAD_ATTEMPTS = 3
+const RELEASE_DOWNLOAD_TIMEOUT_MS = 5 * 60_000
+const RELEASE_DOWNLOAD_IDLE_TIMEOUT_MS = 30_000
+const RELEASE_DOWNLOAD_MAX_BYTES = 512 * 1024 * 1024
+const RELEASE_CHECKSUM_MAX_BYTES = 256 * 1024
+
+class DesktopReleaseSizeLimitError extends Error {
+  readonly code = 'FARMING_DESKTOP_RELEASE_SIZE_LIMIT'
+}
+
+export class DesktopRemoteOperationCancelledError extends Error {
+  readonly code = 'FARMING_DESKTOP_REMOTE_CANCELLED'
+
+  constructor(message = 'Remote connection was cancelled.') {
+    super(message)
+    this.name = 'DesktopRemoteOperationCancelledError'
+  }
+}
 
 export function normalizeDesktopServerVersion(value: unknown) {
   const text = String(value || '').trim()
@@ -71,6 +88,22 @@ function delay(milliseconds: number) {
   return new Promise(resolve => setTimeout(resolve, milliseconds))
 }
 
+function abortableDelay(milliseconds: number, signal?: AbortSignal) {
+  if (!signal) return delay(milliseconds)
+  if (signal.aborted) return Promise.reject(new DesktopRemoteOperationCancelledError())
+  return new Promise<void>((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      signal.removeEventListener('abort', abort)
+      resolve()
+    }, milliseconds)
+    const abort = () => {
+      clearTimeout(timeout)
+      reject(new DesktopRemoteOperationCancelledError())
+    }
+    signal.addEventListener('abort', abort, { once: true })
+  })
+}
+
 function sha256File(file: string) {
   const descriptor = fs.openSync(file, 'r')
   const hash = createHash('sha256')
@@ -87,54 +120,139 @@ function sha256File(file: string) {
   return hash.digest('hex')
 }
 
-async function fetchReleaseBytes(url: string, description: string) {
+async function writeAll(handle: fs.promises.FileHandle, chunk: Uint8Array) {
+  let offset = 0
+  while (offset < chunk.byteLength) {
+    const result = await handle.write(chunk, offset, chunk.byteLength - offset)
+    if (result.bytesWritten <= 0) throw new Error('Desktop release download made no write progress.')
+    offset += result.bytesWritten
+  }
+}
+
+export async function downloadDesktopReleaseUrl(
+  url: string,
+  target: string,
+  description: string,
+  options: {
+    signal?: AbortSignal
+    timeoutMs?: number
+    idleTimeoutMs?: number
+    maxBytes?: number
+    onProgress?: (message: string) => void
+  } = {},
+) {
+  const maxBytes = options.maxBytes ?? RELEASE_DOWNLOAD_MAX_BYTES
+  if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) throw new Error('Desktop release byte limit is invalid.')
   let lastError: unknown = null
+  const deadline = Date.now() + (options.timeoutMs ?? RELEASE_DOWNLOAD_TIMEOUT_MS)
   for (let attempt = 1; attempt <= RELEASE_DOWNLOAD_ATTEMPTS; attempt++) {
+    if (options.signal?.aborted) throw new DesktopRemoteOperationCancelledError()
+    const remaining = deadline - Date.now()
+    if (remaining <= 0) break
+    const controller = new AbortController()
+    let timeoutReason: 'absolute' | 'idle' | null = null
+    let idleTimeout: NodeJS.Timeout | null = null
+    const absoluteTimeout = setTimeout(() => {
+      timeoutReason = 'absolute'
+      controller.abort()
+    }, remaining)
+    const abort = () => controller.abort()
+    const armIdleTimeout = () => {
+      if (idleTimeout) clearTimeout(idleTimeout)
+      idleTimeout = setTimeout(() => {
+        timeoutReason = 'idle'
+        controller.abort()
+      }, options.idleTimeoutMs ?? RELEASE_DOWNLOAD_IDLE_TIMEOUT_MS)
+    }
+    options.signal?.addEventListener('abort', abort, { once: true })
+    armIdleTimeout()
+    let handle: fs.promises.FileHandle | null = null
+    let reader: ReadableStreamDefaultReader<Uint8Array> | null = null
+    let completed = false
     try {
-      const response = await fetch(url)
+      const response = await fetch(url, { signal: controller.signal })
       if (!response.ok) {
         const error = new Error(`${description} returned HTTP ${response.status}.`)
         if (response.status < 500) throw error
         lastError = error
+      } else if (!response.body) {
+        throw new Error(`${description} returned an empty response.`)
       } else {
-        return Buffer.from(await response.arrayBuffer())
+        const totalHeader = Number(response.headers.get('content-length'))
+        const total = Number.isSafeInteger(totalHeader) && totalHeader > 0 ? totalHeader : null
+        if (total !== null && total > maxBytes) {
+          controller.abort()
+          throw new DesktopReleaseSizeLimitError(`${description} exceeds the ${maxBytes} byte limit.`)
+        }
+        reader = response.body.getReader()
+        handle = await fs.promises.open(target, 'w', 0o600)
+        let received = 0
+        let reported = -1
+        while (true) {
+          const chunk = await reader.read()
+          if (chunk.done) break
+          armIdleTimeout()
+          if (received + chunk.value.byteLength > maxBytes) {
+            controller.abort()
+            throw new DesktopReleaseSizeLimitError(`${description} exceeds the ${maxBytes} byte limit.`)
+          }
+          await writeAll(handle, chunk.value)
+          received += chunk.value.byteLength
+          const percent = total ? Math.min(100, Math.floor((received / total) * 100)) : null
+          const progressStep = percent === null ? Math.floor(received / (5 * 1024 * 1024)) : Math.floor(percent / 5)
+          if (progressStep !== reported) {
+            reported = progressStep
+            const receivedMb = (received / (1024 * 1024)).toFixed(1)
+            options.onProgress?.(total && percent !== null
+              ? `${description}: ${percent}% · ${receivedMb} / ${(total / (1024 * 1024)).toFixed(1)} MB`
+              : `${description}: ${receivedMb} MB`)
+          }
+        }
+        await handle.close()
+        handle = null
+        options.onProgress?.(`${description}: downloaded, verifying…`)
+        completed = true
+        return
       }
     } catch (error) {
-      lastError = error
+      controller.abort()
+      await reader?.cancel().catch(() => {})
+      await handle?.close().catch(() => {})
+      handle = null
+      fs.rmSync(target, { force: true })
+      if (options.signal?.aborted) throw new DesktopRemoteOperationCancelledError()
+      if (error instanceof DesktopReleaseSizeLimitError) throw error
+      if (timeoutReason) {
+        lastError = new Error(timeoutReason === 'idle'
+          ? `${description} produced no download progress for ${Math.ceil((options.idleTimeoutMs ?? RELEASE_DOWNLOAD_IDLE_TIMEOUT_MS) / 1000)} seconds.`
+          : `${description} exceeded its ${Math.ceil((options.timeoutMs ?? RELEASE_DOWNLOAD_TIMEOUT_MS) / 1000)} second deadline.`)
+      } else {
+        lastError = error
+      }
       if (error instanceof Error && /HTTP 4\d\d/.test(error.message)) throw error
+    } finally {
+      if (!completed) {
+        controller.abort()
+        await reader?.cancel().catch(() => {})
+      }
+      clearTimeout(absoluteTimeout)
+      if (idleTimeout) clearTimeout(idleTimeout)
+      options.signal?.removeEventListener('abort', abort)
     }
-    if (attempt < RELEASE_DOWNLOAD_ATTEMPTS) await delay(attempt * 500)
+    if (attempt < RELEASE_DOWNLOAD_ATTEMPTS && Date.now() < deadline) {
+      await abortableDelay(attempt * 500, options.signal)
+    }
   }
   const detail = lastError instanceof Error ? `: ${lastError.message}` : ''
   throw new Error(`${description} failed after ${RELEASE_DOWNLOAD_ATTEMPTS} attempts${detail}`)
 }
 
-async function downloadUrlToFile(url: string, target: string, description: string) {
-  let curlError = ''
-  try {
-    const result = await runCommand('curl', [
-      '-fsSL',
-      '--retry', '2',
-      '--retry-delay', '1',
-      '--connect-timeout', '10',
-      '--max-time', '300',
-      '-o', target,
-      url,
-    ], { timeoutMs: 330_000 })
-    if (result.code === 0) return
-    curlError = result.stderr.trim()
-  } catch (error) {
-    curlError = error instanceof Error ? error.message : String(error)
-  }
-  try {
-    fs.writeFileSync(target, await fetchReleaseBytes(url, description), { mode: 0o600 })
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error)
-    throw new Error(`${detail}${curlError ? `; curl: ${curlError}` : ''}`, { cause: error })
-  }
-}
-
-function runCommand(command: string, args: string[], options: { input?: Buffer | string; inputFile?: string; timeoutMs?: number } = {}) {
+function runCommand(command: string, args: string[], options: {
+  input?: Buffer | string
+  inputFile?: string
+  timeoutMs?: number
+  signal?: AbortSignal
+} = {}) {
   return new Promise<CommandResult>((resolve, reject) => {
     if (options.input !== undefined && options.inputFile) {
       reject(new Error('A command cannot use both buffered and streamed input.'))
@@ -143,16 +261,43 @@ function runCommand(command: string, args: string[], options: { input?: Buffer |
     const child = spawn(command, args, { stdio: ['pipe', 'pipe', 'pipe'] })
     let stdout = ''
     let stderr = ''
-    const timeout = setTimeout(() => child.kill(), options.timeoutMs ?? 120_000)
+    let settled = false
+    let terminationReason: 'cancelled' | 'timeout' | null = null
+    let killTimeout: NodeJS.Timeout | null = null
+    const cleanup = () => {
+      clearTimeout(timeout)
+      if (killTimeout) clearTimeout(killTimeout)
+      options.signal?.removeEventListener('abort', abort)
+    }
+    const finish = (operation: () => void) => {
+      if (settled) return
+      settled = true
+      cleanup()
+      operation()
+    }
+    const terminate = (reason: 'cancelled' | 'timeout') => {
+      if (settled || terminationReason) return
+      terminationReason = reason
+      child.kill('SIGTERM')
+      killTimeout = setTimeout(() => {
+        if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
+      }, 2_000)
+    }
+    const abort = () => terminate('cancelled')
+    const timeout = setTimeout(() => terminate('timeout'), options.timeoutMs ?? 120_000)
+    options.signal?.addEventListener('abort', abort, { once: true })
+    if (options.signal?.aborted) abort()
     child.stdout.on('data', chunk => { stdout = boundedOutput(stdout, chunk) })
     child.stderr.on('data', chunk => { stderr = boundedOutput(stderr, chunk) })
     child.once('error', error => {
-      clearTimeout(timeout)
-      reject(error)
+      finish(() => reject(error))
     })
     child.once('exit', code => {
-      clearTimeout(timeout)
-      resolve({ code: code ?? 1, stdout, stderr })
+      finish(() => {
+        if (terminationReason === 'cancelled') reject(new DesktopRemoteOperationCancelledError())
+        else if (terminationReason === 'timeout') reject(new Error(`Remote command exceeded its ${Math.ceil((options.timeoutMs ?? 120_000) / 1000)} second deadline.`))
+        else resolve({ code: code ?? 1, stdout, stderr })
+      })
     })
     child.stdin.once('error', error => {
       stderr = boundedOutput(stderr, `stdin: ${error.message}`)
@@ -245,8 +390,52 @@ if [ ! -x "$binary" ]; then
   sums="$binary.checksums.$$"
   asset_url="$FARMING_RELEASE_ROOT/v$FARMING_VERSION/$asset"
   sums_url="$FARMING_RELEASE_ROOT/v$FARMING_VERSION/farming_\${FARMING_VERSION}_checksums.txt"
-  download() { if command -v curl >/dev/null 2>&1; then curl -fsSL --connect-timeout 10 --max-time 45 "$1" -o "$2"; elif command -v wget >/dev/null 2>&1; then wget -q --timeout=15 --tries=1 -O "$2" "$1"; else return 1; fi; }
-  if download "$sums_url" "$sums" && download "$asset_url" "$tmp"; then
+  checksum_limit=262144
+  asset_limit=536870912
+  download() {
+    url=$1; target=$2; limit=$3; label=$4
+    rm -f "$target"
+    if command -v curl >/dev/null 2>&1; then
+      if ! curl -fsSL --connect-timeout 10 --max-time 45 --max-filesize "$limit" "$url" -o "$target"; then
+        rm -f "$target"
+        return 1
+      fi
+    elif command -v wget >/dev/null 2>&1 \
+      && command -v mkfifo >/dev/null 2>&1 \
+      && head -c 1 </dev/null >/dev/null 2>&1; then
+      fifo="$target.pipe.$$"
+      rm -f "$fifo"
+      if ! mkfifo "$fifo"; then return 1; fi
+      wget -q --timeout=15 --tries=1 -O - "$url" > "$fifo" &
+      wget_pid=$!
+      head_status=0
+      head -c "$((limit + 1))" < "$fifo" > "$target" || head_status=$?
+      wget_status=0
+      wait "$wget_pid" || wget_status=$?
+      rm -f "$fifo"
+      actual_size=$(wc -c < "$target" | tr -d '[:space:]')
+      if [ -z "$actual_size" ] || [ "$actual_size" -gt "$limit" ]; then
+        rm -f "$target"
+        echo "$label exceeds its $limit byte limit" >&2
+        return 1
+      fi
+      if [ "$head_status" -ne 0 ] || [ "$wget_status" -ne 0 ]; then
+        rm -f "$target"
+        return 1
+      fi
+    else
+      rm -f "$target"
+      return 1
+    fi
+    actual_size=$(wc -c < "$target" | tr -d '[:space:]')
+    if [ -z "$actual_size" ] || [ "$actual_size" -gt "$limit" ]; then
+      rm -f "$target"
+      echo "$label exceeds its $limit byte limit" >&2
+      return 1
+    fi
+  }
+  if download "$sums_url" "$sums" "$checksum_limit" "Release checksum" \
+    && download "$asset_url" "$tmp" "$asset_limit" "Farming Server"; then
     expected=$(awk -v name="$asset" '$2 == name || $2 == "*" name { print $1; exit }' "$sums")
     if [ -z "$expected" ]; then rm -f "$tmp" "$sums"; echo "Release checksum does not list $asset" >&2; exit 3; fi
     if command -v sha256sum >/dev/null 2>&1; then actual=$(sha256sum "$tmp" | awk '{print $1}'); else actual=$(shasum -a 256 "$tmp" | awk '{print $1}'); fi
@@ -317,6 +506,10 @@ else
 fi
 if [ "\${daemon_status:-0}" -ne 0 ]; then
   echo "Remote Farming Server failed to start. See $bootstrap_log on the remote host." >&2
+  if [ -s "$bootstrap_log" ]; then
+    echo "Remote Server output (last 30 lines):" >&2
+    tail -n 30 "$bootstrap_log" 2>/dev/null | tail -c 4096 >&2 || true
+  fi
   exit 4
 fi
 state="$FARMING_HOME/data/farming-server.json"
@@ -339,7 +532,13 @@ echo "${HANDSHAKE_END}"
 `
 }
 
-async function downloadReleaseAsset(version: string, asset: string, cacheDir: string) {
+async function downloadReleaseAsset(
+  version: string,
+  asset: string,
+  cacheDir: string,
+  signal?: AbortSignal,
+  onPhase?: (message: string) => void,
+) {
   const targetDir = path.join(cacheDir, version)
   const target = path.join(targetDir, asset)
   const sumsUrl = `${RELEASE_ROOT}/v${version}/farming_${version}_checksums.txt`
@@ -349,7 +548,11 @@ async function downloadReleaseAsset(version: string, asset: string, cacheDir: st
   const sumsFile = path.join(targetDir, `.checksums.${nonce}.tmp`)
   const temporary = `${target}.${nonce}.tmp`
   try {
-    await downloadUrlToFile(sumsUrl, sumsFile, 'Downloading Farming Server checksums')
+    await downloadDesktopReleaseUrl(sumsUrl, sumsFile, 'Downloading Farming Server checksums', {
+      signal,
+      maxBytes: RELEASE_CHECKSUM_MAX_BYTES,
+      onProgress: onPhase,
+    })
     const line = fs.readFileSync(sumsFile, 'utf8').split(/\r?\n/).find(value => {
       const [, name = ''] = value.trim().split(/\s+/, 2)
       return name.replace(/^\*/, '') === asset
@@ -360,7 +563,11 @@ async function downloadReleaseAsset(version: string, asset: string, cacheDir: st
       const actual = sha256File(target)
       if (actual === expected) return target
     }
-    await downloadUrlToFile(assetUrl, temporary, `Downloading Farming Server ${version}`)
+    await downloadDesktopReleaseUrl(assetUrl, temporary, `Downloading Farming Server ${version}`, {
+      signal,
+      maxBytes: RELEASE_DOWNLOAD_MAX_BYTES,
+      onProgress: onPhase,
+    })
     const actual = sha256File(temporary)
     if (actual !== expected) throw new Error('Downloaded Farming Server checksum does not match its release manifest.')
     fs.chmodSync(temporary, 0o700)
@@ -388,13 +595,20 @@ export function buildRemoteUploadCommand(options: {
   return `set -eu; FARMING_HOME=${shellQuote(options.farmingHome)}; FARMING_VERSION=${shellQuote(version)}; case "$FARMING_HOME" in '~') FARMING_HOME="$HOME" ;; '~/'*) FARMING_HOME="$HOME/\${FARMING_HOME#"~/"}" ;; esac; install_dir="$FARMING_HOME/server/$FARMING_VERSION"; mkdir -p "$install_dir"; tmp="$install_dir/farming.upload.$$"; cleanup() { rm -f "$tmp"; }; trap cleanup EXIT HUP INT TERM; cat > "$tmp"; actual_size=$(wc -c < "$tmp" | tr -d '[:space:]'); [ "$actual_size" = "${options.expectedSize}" ] || { echo "Uploaded Farming Server size mismatch" >&2; exit 3; }; if command -v sha256sum >/dev/null 2>&1; then actual_sha=$(sha256sum "$tmp" | awk '{print $1}'); else actual_sha=$(shasum -a 256 "$tmp" | awk '{print $1}'); fi; [ "$actual_sha" = ${shellQuote(options.expectedSha256.toLowerCase())} ] || { echo "Uploaded Farming Server checksum mismatch" >&2; exit 3; }; chmod 700 "$tmp"; mv "$tmp" "$install_dir/farming"; trap - EXIT HUP INT TERM`
 }
 
-async function uploadReleaseAsset(sshHost: string, farmingHome: string, version: string, localFile: string) {
+async function uploadReleaseAsset(
+  sshHost: string,
+  farmingHome: string,
+  version: string,
+  localFile: string,
+  signal?: AbortSignal,
+) {
   const expectedSize = fs.statSync(localFile).size
   const expectedSha256 = sha256File(localFile)
   const command = buildRemoteUploadCommand({ farmingHome, version, expectedSize, expectedSha256 })
   const result = await runCommand('ssh', desktopSshArgs(sshHost, command), {
     inputFile: localFile,
     timeoutMs: 600_000,
+    signal,
   })
   if (result.code !== 0) throw new Error(result.stderr.trim() || 'Could not upload Farming Server through SSH.')
 }
@@ -405,12 +619,14 @@ export async function bootstrapRemoteServer(options: {
   version: string
   cacheDir: string
   onPhase?: (message: string) => void
+  signal?: AbortSignal
 }) {
   const version = normalizeDesktopServerVersion(options.version)
   const command = `FARMING_HOME=${shellQuote(options.farmingHome)} FARMING_VERSION=${shellQuote(version)} FARMING_RELEASE_ROOT=${shellQuote(RELEASE_ROOT)} sh -s`
   const run = () => runCommand('ssh', desktopSshArgs(options.sshHost, command), {
     input: buildRemoteBootstrapScript(),
     timeoutMs: 180_000,
+    signal: options.signal,
   })
   options.onPhase?.('Detecting and starting Farming Server…')
   let result = await run()
@@ -421,9 +637,20 @@ export async function bootstrapRemoteServer(options: {
       throw new Error('Remote host requested an invalid Farming Server artifact.')
     }
     options.onPhase?.('Downloading Farming Server locally…')
-    const localFile = await downloadReleaseAsset(version, asset, options.cacheDir)
+    let localFile = ''
+    try {
+      localFile = await downloadReleaseAsset(version, asset, options.cacheDir, options.signal, options.onPhase)
+    } catch (error) {
+      if (error instanceof Error && /checksums returned HTTP 404/.test(error.message)) {
+        throw new Error(
+          `Farming Server v${version} is not published. Source builds can set FARMING_DESKTOP_SERVER_VERSION to a published compatible version.`,
+          { cause: error },
+        )
+      }
+      throw error
+    }
     options.onPhase?.('Uploading Farming Server through SSH…')
-    await uploadReleaseAsset(options.sshHost, options.farmingHome, version, localFile)
+    await uploadReleaseAsset(options.sshHost, options.farmingHome, version, localFile, options.signal)
     options.onPhase?.('Starting Farming Server…')
     result = await run()
   }
