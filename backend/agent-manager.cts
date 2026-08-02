@@ -257,6 +257,7 @@ type AgentStartCallback = (
 interface TerminalInputOptions extends UnknownRecord {
   expectedRuntimeEpoch?: string;
   markUserInput?: boolean;
+  throwOnUncertain?: boolean;
 }
 
 interface ComposerMessageOptions extends UnknownRecord {
@@ -286,6 +287,7 @@ interface ComposerSubmissionResult extends Record<string, unknown> {
 
 interface ComposerSendOptions extends ComposerMessageOptions {
   onSubmitted?: (result: ComposerSubmissionResult) => void;
+  requireConfirmedTerminalDelivery?: boolean;
   releaseInput?: () => void;
 }
 
@@ -5603,9 +5605,7 @@ class AgentManager extends EventEmitter {
   ): Promise<unknown> {
     const agent = this.agents.get(agentId);
     if (!agent) return Promise.reject(new Error('Agent not found'));
-    if (runtimeKind(agent) === 'terminal') {
-      return Promise.reject(new Error('Persistent Composer admission requires a structured runtime'));
-    }
+    const persistentTerminalDelivery = runtimeKind(agent) === 'terminal';
     const prompt = normalizedComposerPrompt(message);
     const delivery = options.delivery === 'prompt' || options.delivery === 'steer'
       ? options.delivery
@@ -5687,7 +5687,7 @@ class AgentManager extends EventEmitter {
       }
     };
 
-    const completion = isAcpAgent(agent)
+    const completion = !persistentTerminalDelivery
       ? (delivery === 'steer'
         ? this.sendComposerMessageNow(agentId, prompt, {
             delivery,
@@ -5710,6 +5710,7 @@ class AgentManager extends EventEmitter {
           agentId,
           () => this.sendComposerMessageNow(agentId, prompt, {
             onSubmitted: (result: ComposerSubmissionResult) => onSubmitted(result),
+            requireConfirmedTerminalDelivery: true,
           }),
         );
     void Promise.resolve(completion).then((result: unknown) => {
@@ -5717,13 +5718,16 @@ class AgentManager extends EventEmitter {
     }).catch((caughtError: unknown) => {
       if (submitted) return;
       const error = caughtError as ErrorRecord;
+      const uncertain = persistentTerminalDelivery
+        && isRecord(error)
+        && error.uncertain === true;
       const failed: ComposerCommandRecord = {
         ...intent,
-        state: 'failed',
+        state: uncertain ? 'unknown' : 'failed',
         error: error.message || String(error),
         updatedAt: Date.now(),
       };
-      let uncertain = false;
+      let outcomeUncertain = uncertain;
       try {
         this.commitComposerCommand(agent, failed);
       } catch (caughtPersistError: unknown) {
@@ -5731,9 +5735,9 @@ class AgentManager extends EventEmitter {
         failed.state = 'unknown';
         failed.error = `${failed.error}; failed to persist rejection: ${persistError.message || persistError}`;
         this.setComposerCommandInMemory(agent, failed);
-        uncertain = true;
+        outcomeUncertain = true;
       }
-      rejectAdmission(composerAdmissionError(String(failed.error || ''), uncertain));
+      rejectAdmission(composerAdmissionError(String(failed.error || ''), outcomeUncertain));
     });
     void admissionPromise.finally(() => {
       if (this.composerAdmissions.get(admissionKey) === entry) {
@@ -5880,6 +5884,9 @@ class AgentManager extends EventEmitter {
   ): Promise<ComposerSubmissionResult> {
     const agent = this.agents.get(agentId);
     if (!agent) throw new Error('Agent not found');
+    if (options.requireConfirmedTerminalDelivery === true && isAcpAgent(agent)) {
+      throw new Error('Agent runtime changed before Terminal message delivery');
+    }
     const prompt = normalizedComposerPrompt(message);
     const text = prompt
       .filter((content: ComposerContentPart) => content.type === 'text')
@@ -5923,7 +5930,16 @@ class AgentManager extends EventEmitter {
       return { kind: 'acp', ...result };
     }
 
-    await this.sendInputNow(agentId, [{ type: 'paste', text }, '\r']);
+    const input: TerminalInput = [{ type: 'paste', text }, '\r'];
+    if (options.requireConfirmedTerminalDelivery === true) {
+      const result = await this.sendInputNow(agentId, input, { throwOnUncertain: true });
+      if (!result || !('sent' in result) || result.sent !== true) {
+        const reason = result && 'reason' in result ? result.reason : 'Terminal runtime is unavailable';
+        throw new Error(reason);
+      }
+    } else {
+      await this.sendInputNow(agentId, input);
+    }
     const submitted: ComposerSubmissionResult = { kind: 'terminal' };
     options.onSubmitted?.(submitted);
     return submitted;
@@ -6151,7 +6167,11 @@ class AgentManager extends EventEmitter {
   async sendInputNow(
     agentId: AgentId,
     input: TerminalInput,
-    { markUserInput = true, expectedRuntimeEpoch = '' }: TerminalInputOptions = {},
+    {
+      markUserInput = true,
+      expectedRuntimeEpoch = '',
+      throwOnUncertain = false,
+    }: TerminalInputOptions = {},
   ): Promise<TerminalInputResult | undefined> {
     const agent = this.agents.get(agentId);
     if (!agent) return;
@@ -6182,6 +6202,12 @@ class AgentManager extends EventEmitter {
       console.error('Failed to send input:', error);
       if (isSessionNotAvailableError(error)) {
         this.markAgentSessionDead(agentId, error);
+      }
+      if (throwOnUncertain) {
+        throw composerAdmissionError(
+          `Terminal input may have been accepted, but delivery could not be confirmed: ${error.message || error}`,
+          true,
+        );
       }
       return;
     }
