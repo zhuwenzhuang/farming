@@ -10,12 +10,21 @@ import {
 } from 'electron'
 import type { DesktopBackendInput, DesktopNotificationInput, DesktopState } from '../shared/desktop-contract.js'
 import { resolveDesktopServerVersion } from './app-version.js'
+import {
+  applyDesktopBackendChange,
+  DesktopBackendActivationState,
+} from './backend-activation-state.js'
 import { DesktopConnectionManager } from './connection-manager.js'
 import { DesktopGateway } from './gateway.js'
 import { DesktopLifecycle, type DesktopNavigationToken } from './lifecycle.js'
 import { DesktopLocalBackend, LOCAL_BACKEND_ID } from './local-backend.js'
 import { allowsDesktopAudioPermission } from './permissions.js'
 import { DesktopProfileStore } from './profile-store.js'
+import { saveAndActivateDesktopBackend } from './save-and-activate.js'
+import {
+  DESKTOP_STARTUP_CANCEL_URL,
+  desktopStartupDataUrl,
+} from './startup-view.js'
 
 let mainWindow: BrowserWindow | null = null
 let profiles: DesktopProfileStore | null = null
@@ -28,6 +37,8 @@ let rendererDrainScheduled = false
 let stopPromise: Promise<void> | null = null
 let startupFailureShown = false
 const lifecycle = new DesktopLifecycle()
+const backendActivations = new DesktopBackendActivationState()
+const rendererWindowGenerations = new WeakMap<BrowserWindow, number>()
 const desktopIconPath = path.join(__dirname, 'assets', 'farming-desktop.png')
 
 const userDataOverride = process.env.FARMING_DESKTOP_USER_DATA_DIR
@@ -64,19 +75,37 @@ function registerIpc() {
     validateSender(event)
     return state()
   })
-  ipcMain.handle('desktop:save-backend', (event, input: DesktopBackendInput) => {
+  ipcMain.handle('desktop:save-and-activate-backend', async (event, input: DesktopBackendInput) => {
     validateSender(event)
-    const saved = profileStore.save(input)
-    if (input.id) connectionManager.disconnect(saved.id)
-    broadcastState()
+    await saveAndActivateDesktopBackend({
+      activations: backendActivations,
+      activeBackendId: profileStore.getActiveBackendId(),
+      editingBackendId: input.id,
+      save: () => profileStore.save(input),
+      disconnect: backendId => connectionManager.disconnect(backendId),
+      closeActiveClientConnections: () => desktopGateway.closeClientConnections(),
+      broadcastState,
+      connect: backendId => connectionManager.connect(backendId),
+      assertRunning: () => {
+        if (!lifecycle.isRunning()) throw new Error('Desktop is stopping.')
+      },
+      setActiveBackendId: backendId => profileStore.setActiveBackendId(backendId),
+      requestRendererNavigation: () => requestRendererNavigation(null),
+    })
     return state()
   })
   ipcMain.handle('desktop:remove-backend', (event, backendId: string) => {
     validateSender(event)
-    const wasActive = profileStore.getActiveBackendId() === backendId
-    connectionManager.disconnect(backendId)
+    applyDesktopBackendChange(
+      backendActivations,
+      backendId,
+      profileStore.getActiveBackendId(),
+      {
+        disconnect: () => connectionManager.disconnect(backendId),
+        invalidateActiveRoute: () => requestRendererNavigation(null),
+      },
+    )
     profileStore.remove(backendId)
-    if (wasActive) requestRendererNavigation(null)
     broadcastState()
     return state()
   })
@@ -88,14 +117,23 @@ function registerIpc() {
   })
   ipcMain.handle('desktop:disconnect-backend', (event, backendId: string) => {
     validateSender(event)
-    connectionManager.disconnect(backendId)
-    if (profileStore.getActiveBackendId() === backendId) desktopGateway.closeClientConnections()
+    applyDesktopBackendChange(backendActivations, backendId, profileStore.getActiveBackendId(), {
+      disconnect: () => connectionManager.disconnect(backendId),
+      invalidateActiveRoute: () => requestRendererNavigation(null),
+    })
     return state()
   })
   ipcMain.handle('desktop:activate-backend', async (event, backendId: string) => {
     validateSender(event)
-    await connectionManager.connect(backendId)
+    const activation = backendActivations.begin(backendId)
+    try {
+      await connectionManager.connect(backendId)
+    } catch (error) {
+      backendActivations.cancel(activation)
+      throw error
+    }
     if (!lifecycle.isRunning()) throw new Error('Desktop is stopping.')
+    if (!backendActivations.claim(activation)) return state()
     profileStore.setActiveBackendId(backendId)
     broadcastState()
     requestRendererNavigation(null)
@@ -112,8 +150,15 @@ function registerIpc() {
     notification.on('click', () => {
       void (async () => {
         if (backendId) {
-          await connectionManager.connect(backendId)
+          const activation = backendActivations.begin(backendId)
+          try {
+            await connectionManager.connect(backendId)
+          } catch (error) {
+            backendActivations.cancel(activation)
+            throw error
+          }
           if (!lifecycle.isRunning()) return
+          if (!backendActivations.claim(activation)) return
           profileStore.setActiveBackendId(backendId)
           broadcastState()
         }
@@ -122,6 +167,10 @@ function registerIpc() {
         focusRendererWhenReady = true
         const agent = encodeURIComponent(input.agentId)
         requestRendererNavigation(`${desktopGateway.origin()}/code/?agent=${agent}`)
+        mainWindow?.webContents.send('desktop:notification-clicked', {
+          agentId: input.agentId,
+          backendId: backendId || null,
+        })
       })().catch(() => {
         if (!lifecycle.isRunning()) return
         if (!mainWindow) createWindow()
@@ -215,10 +264,7 @@ function requestRendererNavigation(url: string | null) {
   })
 }
 
-function createWindow() {
-  if (!gateway || !lifecycle.isRunning()) return
-  const desktopGateway = gateway
-  const token = lifecycle.openWindow()
+function createBrowserWindow() {
   const preload = path.join(__dirname, 'preload.js')
   const window = new BrowserWindow({
     width: 1440,
@@ -238,16 +284,48 @@ function createWindow() {
   mainWindow = window
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   window.webContents.on('will-navigate', (event, url) => {
-    if (new URL(url).origin !== desktopGateway.origin()) event.preventDefault()
+    if (url === DESKTOP_STARTUP_CANCEL_URL) {
+      event.preventDefault()
+      void stopDesktop(0)
+      return
+    }
+    if (lifecycle.snapshot().appPhase === 'starting' && url.startsWith('data:text/html')) return
+    if (!gateway || new URL(url).origin !== gateway.origin()) event.preventDefault()
   })
   window.on('closed', () => {
-    lifecycle.closeWindow(token.windowGeneration)
+    const rendererGeneration = rendererWindowGenerations.get(window)
+    if (rendererGeneration !== undefined) lifecycle.closeWindow(rendererGeneration)
     if (mainWindow === window) {
       mainWindow = null
       pendingRendererUrl = undefined
       focusRendererWhenReady = false
     }
+    if (lifecycle.snapshot().appPhase === 'starting') void stopDesktop(0)
   })
+  return window
+}
+
+async function createStartupWindow() {
+  const window = createBrowserWindow()
+  await window.loadURL(desktopStartupDataUrl('Preparing local Farming environment…'))
+  if (window.isDestroyed()) throw new Error('Farming Desktop startup was cancelled.')
+  window.show()
+}
+
+function updateStartupProgress(message: string) {
+  const window = mainWindow
+  if (!window || window.isDestroyed() || lifecycle.snapshot().appPhase !== 'starting') return
+  void window.webContents.executeJavaScript(
+    `globalThis.farmingDesktopStartupProgress?.(${JSON.stringify(message)})`,
+  ).catch(() => {})
+}
+
+function createWindow() {
+  if (!gateway || !lifecycle.isRunning()) return
+  const desktopGateway = gateway
+  const window = mainWindow && !mainWindow.isDestroyed() ? mainWindow : createBrowserWindow()
+  const token = lifecycle.openWindow()
+  rendererWindowGenerations.set(window, token.windowGeneration)
   void navigateWindow(window, token, desktopGateway.bootstrapUrl())
 }
 
@@ -257,6 +335,7 @@ function stopDesktop(exitCode: number) {
   pendingRendererUrl = undefined
   focusRendererWhenReady = false
   rendererDrainScheduled = false
+  backendActivations.cancelAll()
   const managedConnections = connections
   const managedGateway = gateway
   stopPromise = (async () => {
@@ -286,8 +365,10 @@ void app.whenReady().then(async () => {
     injectedUrl: process.env.FARMING_DESKTOP_LOCAL_BACKEND_URL,
     injectedToken: process.env.FARMING_DESKTOP_LOCAL_BACKEND_TOKEN,
     cliPath: process.env.FARMING_DESKTOP_LOCAL_CLI,
+    onProgress: updateStartupProgress,
   })
   localBackend = desktopLocalBackend
+  await createStartupWindow()
   const localTarget = await desktopLocalBackend.start()
   const profileStore = new DesktopProfileStore(path.join(app.getPath('userData'), 'backends.json'), [localTarget])
   const connectionManager = new DesktopConnectionManager(profileStore, {

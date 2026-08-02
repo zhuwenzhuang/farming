@@ -240,7 +240,7 @@ function parseArgs(argv: string[]): ParsedArgs {
     // so arguments that carry whitespace or quotes must be single-quoted to
     // preserve their boundaries across the CLI → API → parseCommand round trip.
     options.childCommand = childParts.map(part => (
-      /[\s"'\\]/.test(part) ? `'${part.replace(/'/g, "'\\''")}'` : part
+      part === '' || /[\s"'\\]/.test(part) ? `'${part.replace(/'/g, "'\\''")}'` : part
     )).join(' ').trim();
     if (!options.childCommand) {
       throw new Error('spawn requires a child command');

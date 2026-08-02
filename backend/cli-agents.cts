@@ -254,8 +254,16 @@ function parseCommand(command: unknown): string[] {
   let current = '';
   let quote = '';
   let escaping = false;
+  let hasToken = false;
 
   for (const char of input) {
+    if (quote === "'") {
+      // Single quotes: everything is literal except the closing quote.
+      if (char === "'") quote = '';
+      else current += char;
+      continue;
+    }
+
     if (escaping) {
       current += char;
       escaping = false;
@@ -278,22 +286,25 @@ function parseCommand(command: unknown): string[] {
 
     if (char === '"' || char === "'") {
       quote = char;
+      hasToken = true;
       continue;
     }
 
     if (/\s/.test(char)) {
-      if (current) {
+      if (current || hasToken) {
         parts.push(current);
         current = '';
+        hasToken = false;
       }
       continue;
     }
 
     current += char;
+    hasToken = true;
   }
 
   if (escaping) current += '\\';
-  if (current) parts.push(current);
+  if (current || hasToken) parts.push(current);
   return parts;
 }
 

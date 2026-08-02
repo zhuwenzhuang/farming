@@ -1,7 +1,7 @@
 import * as monaco from 'monaco-editor'
 import { workspaceEditorModelUriForFile } from '@/lib/workspace-editor-monaco'
 import type { OpenWorkspaceFile } from '@/lib/workspace-open-files'
-import { requestLanguageServer } from './client'
+import { LanguageServerError, requestLanguageServer } from './client'
 import type {
   LanguageServerDiagnostic,
   LanguageServerLocation,
@@ -69,6 +69,10 @@ function positionValue(position: monaco.Position) {
   return { line: position.lineNumber - 1, character: position.column - 1 }
 }
 
+function isLanguageServerUnavailable(error: unknown): boolean {
+  return error instanceof LanguageServerError && error.unavailable
+}
+
 function requestAtPosition<T>(
   model: monaco.editor.ITextModel,
   position: monaco.Position,
@@ -81,7 +85,10 @@ function requestAtPosition<T>(
     filePath: binding.filePath,
     method,
     position: positionValue(position),
-  }).catch(() => null)
+  }).catch((error: unknown) => {
+    if (isLanguageServerUnavailable(error)) return null
+    throw error
+  })
 }
 
 function registerProviders() {
@@ -138,8 +145,9 @@ function registerProviders() {
             method: 'documentSymbols',
           })
           return (values || []).map(documentSymbol)
-        } catch {
-          return []
+        } catch (error) {
+          if (isLanguageServerUnavailable(error)) return []
+          throw error
         }
       },
     }),

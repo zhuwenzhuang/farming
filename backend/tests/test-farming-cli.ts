@@ -59,6 +59,18 @@ async function test() {
     parseCommand(spawnWithQuote.options.childCommand),
     ['echo', 'it\'s a "test"'],
   );
+  // Empty string arguments are preserved.
+  const spawnWithEmpty = parseArgs(['spawn', '--', 'printf', '%s', '']);
+  assert.deepStrictEqual(
+    parseCommand(spawnWithEmpty.options.childCommand),
+    ['printf', '%s', ''],
+  );
+  // Backslashes inside arguments are preserved literally.
+  const spawnWithBackslash = parseArgs(['spawn', '--', 'printf', '%s', 'a\\b']);
+  assert.deepStrictEqual(
+    parseCommand(spawnWithBackslash.options.childCommand),
+    ['printf', '%s', 'a\\b'],
+  );
 
   const list = parseArgs(['list', '--json', '--parent', 'agent-main']);
   assert.deepStrictEqual(list, {
