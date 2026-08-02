@@ -185,7 +185,10 @@ export function bindLanguageServerModels(files: readonly OpenWorkspaceFile[]) {
     })
   })
   for (const key of bindings.keys()) {
-    if (!live.has(key)) bindings.delete(key)
+    if (!live.has(key)) {
+      bindings.delete(key)
+      targetBindings.deleteSource(key)
+    }
   }
 }
 
