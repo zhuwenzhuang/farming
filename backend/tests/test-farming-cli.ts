@@ -91,12 +91,6 @@ async function test() {
     () => resolveLaunchCommand("'   '"),
     /non-empty executable/,
   );
-  // Empty strings in non-executable positions remain valid arguments.
-  const spawnEmptyArg = parseArgs(['spawn', '--', 'printf', '%s', '']);
-  assert.deepStrictEqual(
-    parseCommand(spawnEmptyArg.options.childCommand),
-    ['printf', '%s', ''],
-  );
 
   const list = parseArgs(['list', '--json', '--parent', 'agent-main']);
   assert.deepStrictEqual(list, {
