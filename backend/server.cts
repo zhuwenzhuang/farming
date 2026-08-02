@@ -236,6 +236,7 @@ import { discoverAgentWorkspaces } from './workspace-discovery.cjs';
 import { inspectGitWorktree } from './git-worktree-info.cjs';
 import { createWorkspaceDirectoryRouter } from './workspace-directory.cjs';
 import { createControlRouter } from './control-api.cjs';
+import { createAcpTerminalResizeHandler } from './acp-terminal-resize-handler.cjs';
 import { WorkspaceFileService, WorkspaceFileError } from './workspace-file-service.cjs';
 import { createWorkspaceFileRouter, resolveWorkspaceRoot } from './workspace-file-router.cjs';
 import { WorkspaceRootRegistry, rootIdForPath } from './workspace-root-registry.cjs';
@@ -1640,29 +1641,7 @@ app.post(routePath(BASE_PATH, '/api/agents/:agentId/acp-terminals/:terminalId/in
   }
 });
 
-app.post(routePath(BASE_PATH, '/api/agents/:agentId/acp-terminals/:terminalId/resize'), express.json(), (req, res) => {
-  try {
-    const cols = req.body?.cols;
-    const rows = req.body?.rows;
-    if (typeof cols !== 'number' || typeof rows !== 'number'
-      || !Number.isSafeInteger(cols) || cols < 2 || cols > 1000
-      || !Number.isSafeInteger(rows) || rows < 1 || rows > 1000) {
-      res.status(400).json({ error: 'cols (2-1000) and rows (1-1000) must be safe integers' });
-      return;
-    }
-    res.json(agentManager.resizeAcpTerminal(
-      req.params.agentId,
-      req.params.terminalId,
-      cols,
-      rows,
-    ));
-  } catch (caught) {
-    const error = caughtError(caught);
-    const message = error && error.message ? error.message : 'Failed to resize ACP terminal';
-    const status = message === 'Agent not found' || message === 'Unknown ACP terminal' ? 404 : 409;
-    res.status(status).json({ error: message });
-  }
-});
+app.post(routePath(BASE_PATH, '/api/agents/:agentId/acp-terminals/:terminalId/resize'), express.json(), createAcpTerminalResizeHandler(agentManager));
 
 app.post(routePath(BASE_PATH, '/api/agents/:agentId/acp-subagents/:sessionId/cancel'), async (req, res) => {
   try {
