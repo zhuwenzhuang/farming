@@ -22,6 +22,7 @@ import {
   normalizeDesktopReleaseRoot,
   normalizeDesktopServerVersion,
   parseRemoteServerHandshake,
+  shellQuote,
 } from '../desktop/remote-bootstrap'
 
 test('desktop lifecycle coalesces route invalidations while a window is loading', () => {
@@ -154,6 +155,84 @@ test('local backend lifecycle coalesces start and makes stop idempotent', async 
   assert.equal(target.token, 'local-token')
   await Promise.all([runtime.stop(), runtime.stop()])
   assert.equal(runtime.state(), 'stopped')
+})
+
+test('local backend startup watchdog accepts active dependency progress but bounds a stall', async () => {
+  const temporaryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-desktop-local-watchdog-'))
+  const progressingCli = path.join(temporaryDir, 'progressing-cli.cjs')
+  const stalledCli = path.join(temporaryDir, 'stalled-cli.cjs')
+  fs.writeFileSync(progressingCli, `
+const fs = require('node:fs')
+const path = require('node:path')
+const command = process.argv[2]
+if (command === 'stop') process.exit(0)
+const configIndex = process.argv.indexOf('--config-dir')
+const configDir = process.argv[configIndex + 1]
+const progress = setInterval(() => process.stdout.write('Downloading dependency...\\n'), 20)
+setTimeout(() => {
+  clearInterval(progress)
+  fs.mkdirSync(configDir, { recursive: true })
+  fs.writeFileSync(path.join(configDir, 'farming-server.json'), JSON.stringify({ port: 43122, basePath: '/farming' }))
+  fs.writeFileSync(path.join(configDir, '.session-token'), 'watchdog-token')
+  process.exit(0)
+}, 140)
+`)
+  fs.writeFileSync(stalledCli, `
+if (process.argv[2] === 'stop') process.exit(0)
+setInterval(() => {}, 1000)
+`)
+  const policy = {
+    daemon: { absoluteTimeoutMs: 1_000, idleTimeoutMs: 200, killGraceMs: 20 },
+    stop: { absoluteTimeoutMs: 200, idleTimeoutMs: 100, killGraceMs: 20 },
+  }
+  try {
+    const progressing = new DesktopLocalBackend({
+      configDir: path.join(temporaryDir, 'progressing-config'),
+      electronExecutable: process.execPath,
+      resourcesPath: temporaryDir,
+      repositoryRoot: temporaryDir,
+      cliPath: progressingCli,
+      commandPolicies: policy,
+      handshakeTimeoutMs: 100,
+    })
+    const target = await progressing.start()
+    assert.equal(target.token, 'watchdog-token')
+    assert.equal(progressing.state(), 'ready')
+    await progressing.stop()
+
+    const stalled = new DesktopLocalBackend({
+      configDir: path.join(temporaryDir, 'stalled-config'),
+      electronExecutable: process.execPath,
+      resourcesPath: temporaryDir,
+      repositoryRoot: temporaryDir,
+      cliPath: stalledCli,
+      commandPolicies: policy,
+      handshakeTimeoutMs: 100,
+    })
+    await assert.rejects(stalled.start(), /produced no command progress/)
+    assert.equal(stalled.state(), 'failed')
+
+    const cancellable = new DesktopLocalBackend({
+      configDir: path.join(temporaryDir, 'cancelled-config'),
+      electronExecutable: process.execPath,
+      resourcesPath: temporaryDir,
+      repositoryRoot: temporaryDir,
+      cliPath: stalledCli,
+      handshakeTimeoutMs: 100,
+      commandPolicies: {
+        daemon: { absoluteTimeoutMs: 5_000, idleTimeoutMs: 5_000, killGraceMs: 20 },
+        stop: policy.stop,
+      },
+    })
+    const starting = cancellable.start()
+    await new Promise(resolve => setTimeout(resolve, 30))
+    const stopping = cancellable.stop()
+    await assert.rejects(starting, /was cancelled/)
+    await stopping
+    assert.equal(cancellable.state(), 'stopped')
+  } finally {
+    fs.rmSync(temporaryDir, { recursive: true, force: true })
+  }
 })
 
 test('normalizes an SSH backend without weakening OpenSSH host verification', () => {
@@ -346,4 +425,13 @@ test('grants only main-frame microphone access to the exact desktop gateway orig
   }), false)
   assert.equal(allowsDesktopAudioPermission({ ...baseRequest, isMainFrame: false, mediaTypes: ['audio'] }), false)
   assert.equal(allowsDesktopAudioPermission({ ...baseRequest, permission: 'notifications', mediaTypes: ['audio'] }), false)
+})
+
+test('shellQuote neutralizes shell metacharacters in remote bootstrap arguments', () => {
+  assert.equal(shellQuote('2.2.37'), "'2.2.37'")
+  const adversarial = '2.2.37"; rm -rf /; echo "'
+  assert.equal(shellQuote(adversarial), `'2.2.37"; rm -rf /; echo "'`)
+  assert.equal(shellQuote("it's"), "'it'\\''s'")
+  const script = buildRemoteBootstrapScript()
+  assert.match(script, /\$FARMING_VERSION/)
 })

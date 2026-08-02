@@ -59,7 +59,7 @@ export function desktopSshArgs(sshHost: string, remoteCommand?: string) {
   ]
 }
 
-function shellQuote(value: string) {
+export function shellQuote(value: string) {
   return `'${value.replace(/'/g, `'\\''`)}'`
 }
 

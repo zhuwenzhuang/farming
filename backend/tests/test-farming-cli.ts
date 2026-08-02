@@ -42,6 +42,24 @@ async function test() {
   assert.strictEqual(spawn.options.parent, 'agent-main');
   assert.strictEqual(spawn.options.childCommand, 'claude --model sonnet');
 
+  // Arguments that carry whitespace or quotes survive the CLI → API →
+  // parseCommand round trip with their boundaries intact.
+  const { parseCommand } = require('../cli-agents.cjs');
+  const spawnWithSpaces = parseArgs([
+    'spawn', '--', 'grep', 'foo bar', 'file.txt',
+  ]);
+  assert.deepStrictEqual(
+    parseCommand(spawnWithSpaces.options.childCommand),
+    ['grep', 'foo bar', 'file.txt'],
+  );
+  const spawnWithQuote = parseArgs([
+    'spawn', '--', 'echo', 'it\'s a "test"',
+  ]);
+  assert.deepStrictEqual(
+    parseCommand(spawnWithQuote.options.childCommand),
+    ['echo', 'it\'s a "test"'],
+  );
+
   const list = parseArgs(['list', '--json', '--parent', 'agent-main']);
   assert.deepStrictEqual(list, {
     command: 'list',
