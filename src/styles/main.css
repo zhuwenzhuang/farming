@@ -6221,7 +6221,7 @@ body.code-mode .code-instance-name {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  resize: both;
+  resize: none;
   box-shadow: none;
 }
 

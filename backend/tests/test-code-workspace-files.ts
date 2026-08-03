@@ -1723,7 +1723,7 @@ function run() {
       stylesSource.includes('.code-composer-mode-chip') &&
       stylesSource.includes('.code-composer-toolbar') &&
       !stylesSource.includes('.code-composer-goal') &&
-      stylesSource.includes('resize: both') &&
+      stylesSource.includes('overflow: hidden;\n  resize: none;\n  box-shadow: none;') &&
       stylesSource.includes('body.code-mode .input-dialog') &&
       stylesSource.includes('body.code-mode .workspace-history-index') &&
       stylesSource.includes('body.code-mode .workspace-history-item.active') &&
@@ -1736,7 +1736,7 @@ function run() {
       !stylesSource.includes('.code-traffic') &&
       !stylesSource.includes('.code-thread-tab') &&
       !stylesSource.includes('.code-terminal-actions'),
-    'main.css should include Codex mode shell, embedded resizable panes, Code-styled dialogs, and the left-side agent context menu without fake window/tab/terminal chrome'
+    'main.css should include Codex mode shell, fixed embedded panes, Code-styled dialogs, and the left-side agent context menu without fake window/tab/terminal chrome'
   );
 
   assert(
