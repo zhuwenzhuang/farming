@@ -1369,6 +1369,12 @@ function compactProcessEntries(
   turnStatus: AgentTranscriptTurn['status'],
   source: string,
 ) {
+  if (source === 'acp' && turnStatus === 'inProgress') {
+    return {
+      entries,
+      items: entries.flatMap(entry => entry.kind === 'group' ? entry.items : [entry.item]),
+    }
+  }
   const showLiveAcpProgress = source === 'acp' && turnStatus === 'inProgress'
   const eligible = entries.flatMap(entry => {
     if (entry.kind === 'item') {
@@ -1392,7 +1398,10 @@ function compactProcessEntries(
     break
   }
   const items = eligible.filter((_item, index) => selectedIndexes.has(index))
-  return { items }
+  return {
+    entries: items.map(item => ({ kind: 'item' as const, item })),
+    items,
+  }
 }
 
 function compactAcpActionLabel(item: AgentTranscriptProcessItem, copy: CodeCopy) {
@@ -1940,7 +1949,9 @@ function AgentTranscriptProcessItemView({
   const files = item.files || []
   const locations = item.locations || []
   const terminals = item.terminals || []
-  const copyableDetail = item.detail && item.detail.trim() !== item.title.trim() ? item.detail : ''
+  const copyableDetail = item.detail && (
+    item.type === 'thought' || item.detail.trim() !== item.title.trim()
+  ) ? item.detail : ''
   const detail = copyableDetail && detailDuplicatesTerminalOutcome(copyableDetail, terminals)
     ? ''
     : copyableDetail
@@ -3029,13 +3040,39 @@ function AgentTranscriptTurnView({
                 </span>
                 <ChevronRightGlyph className="code-agent-transcript-chevron" />
               </button>
-          {!effectiveProcessOpen && compactProcess.items.length > 0 ? (
+          {!effectiveProcessOpen && compactProcess.entries.length > 0 ? (
             <div
               className="code-agent-transcript-process-list code-agent-transcript-process-compact-list"
               data-testid="code-agent-transcript-process-compact-list"
             >
-              {compactProcess.items.map(item => (
-                source === 'acp' && isAcpProgressUpdate(item) ? (
+              {compactProcess.entries.map(entry => {
+                if (entry.kind === 'group') {
+                  const groupOpen = openProcessItemIds.has(entry.id)
+                    || entry.items.some(item => openProcessItemIds.has(item.id))
+                  return (
+                    <AgentTranscriptProcessGroupView
+                      key={entry.id}
+                      groupId={entry.id}
+                      items={entry.items}
+                      summaryLabel={source === 'acp' ? acpActionGroupLabel(entry.items) : undefined}
+                      copy={copy}
+                      copiedItemId={copiedItemId}
+                      detailOpen={groupOpen}
+                      openProcessItemIds={openProcessItemIds}
+                      onToggleGroup={handleToggleProcessItem}
+                      onToggleItem={handleToggleProcessItem}
+                      onCopy={handleCopyItem}
+                      onStopTerminal={handleStopTerminal}
+                      onInputTerminal={handleInputTerminal}
+                      onResizeTerminal={handleResizeTerminal}
+                      terminalOutcomeSyncFailedItemIds={terminalOutcomeSyncFailedItemIds}
+                      onRetryTerminalOutcome={handleRetryTerminalOutcome}
+                      onStopSubagent={onStopSubagent}
+                    />
+                  )
+                }
+                const item = entry.item
+                return source === 'acp' && isAcpProgressUpdate(item) ? (
                   <AgentTranscriptProgressUpdate
                     key={item.id}
                     item={item}
@@ -3061,7 +3098,7 @@ function AgentTranscriptTurnView({
                     onStopSubagent={onStopSubagent}
                   />
                 )
-              ))}
+              })}
             </div>
           ) : null}
               {effectiveProcessOpen && hasProcess ? (

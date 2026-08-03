@@ -50,7 +50,7 @@ assert.strictEqual(transcript.turns.length, 1);
 assert.strictEqual(transcript.turns[0].userMessage, 'Fix it');
 assert.strictEqual(transcript.turns[0].finalMessage, 'Done');
 assert.deepStrictEqual(transcript.turns[0].processItems.map(entry => entry.title), [
-  'Progress update', 'Reasoning', 'Run tests',
+  'Progress update', 'Inspecting', 'Run tests',
 ]);
 assert.strictEqual(transcript.turns[0].processItems[2].type, 'patch');
 const [transcriptPatchChange] = transcript.turns[0].processItems[2].changes;
@@ -548,6 +548,64 @@ assert.deepStrictEqual(authenticationErrorTranscript.turns[0].processItems[0], {
   status: 'failed',
 });
 
+const duplicateProviderErrorText = 'stream disconnected before completion: request to http://example.invalid/v1/responses failed';
+const duplicateProviderErrorTranscript = acpSessionTranscript({
+  state: 'error',
+  error: duplicateProviderErrorText,
+  errorKind: 'network',
+  stopReason: 'error',
+  entries: [
+    { id: 'user-provider-error', type: 'message', role: 'user', content: [{ type: 'text', text: 'Continue' }] },
+    {
+      id: 'answer-provider-error',
+      type: 'message',
+      role: 'assistant',
+      content: [{ type: 'text', text: duplicateProviderErrorText }],
+      _meta: { codex: { phase: 'final_answer' } },
+    },
+    {
+      id: 'error-provider-error',
+      type: 'error',
+      kind: 'network',
+      message: `Internal error: ${duplicateProviderErrorText}`,
+      status: 'failed',
+    },
+  ],
+});
+assert.strictEqual(
+  duplicateProviderErrorTranscript.turns[0].finalMessage,
+  '',
+  'a provider failure already represented in Process must not be repeated as the final answer',
+);
+assert.strictEqual(duplicateProviderErrorTranscript.turns[0].processItems.length, 1);
+assert.strictEqual(
+  duplicateProviderErrorTranscript.turns[0].processItems[0].detail,
+  `Internal error: ${duplicateProviderErrorText}`,
+);
+
+const partialAnswerBeforeProviderErrorTranscript = acpSessionTranscript({
+  state: 'error',
+  error: duplicateProviderErrorText,
+  errorKind: 'network',
+  stopReason: 'error',
+  entries: [
+    { id: 'user-partial-provider-error', type: 'message', role: 'user', content: [{ type: 'text', text: 'Continue' }] },
+    {
+      id: 'answer-partial-provider-error',
+      type: 'message',
+      role: 'assistant',
+      content: [{ type: 'text', text: 'Partial result before the connection failed.' }],
+      _meta: { codex: { phase: 'final_answer' } },
+    },
+    { id: 'error-after-partial-answer', type: 'error', kind: 'network', message: duplicateProviderErrorText, status: 'failed' },
+  ],
+});
+assert.strictEqual(
+  partialAnswerBeforeProviderErrorTranscript.turns[0].finalMessage,
+  'Partial result before the connection failed.',
+  'a distinct partial answer must remain visible beside the structured provider failure',
+);
+
 const structuredTranscript = acpSessionTranscript({
   entries: [
     {
@@ -962,11 +1020,58 @@ const externalToolMediaTranscript = acpSessionTranscript({
   state: 'idle',
   entries: externalToolMediaEntries,
 });
+assert.strictEqual(externalToolMediaEntries[1].explicitOutputMedia, true);
 assert.match(
-  externalToolMediaTranscript.turns[0].processItems[0].images[0].url,
+  externalToolMediaTranscript.turns[0].resultImages[0].url,
   /^\/farming\/api\/agents\/agent-1\/acp-media\/external-tool-media\/[a-f0-9]{64}$/,
-  'backend-projected direct tool media should remain visible through the frontend projection'
+  'backend-projected raw tool media should render in the answer area by default'
 );
+assert.strictEqual(externalToolMediaTranscript.turns[0].processItems[0].images, undefined);
+
+const explicitOutputMediaEntry = {
+  id: 'explicit-output-media',
+  type: 'tool',
+  kind: 'other',
+  title: 'Used exec',
+  status: 'completed',
+  rawOutput: [
+    { type: 'input_text', text: 'Screenshot captured' },
+    { type: 'input_image', image_url: `data:image/png;base64,${originalMediaData}` },
+  ],
+};
+const projectedExplicitOutputEntries = acpTranscriptEntries([
+  {
+    id: 'explicit-output-media-user',
+    type: 'message',
+    role: 'user',
+    content: [{ type: 'text', text: 'Show the screenshot' }],
+  },
+  explicitOutputMediaEntry,
+], {
+  mediaPathPrefix: '/farming/api/agents/agent-1/acp-media',
+});
+assert.strictEqual(projectedExplicitOutputEntries[1].explicitOutputMedia, true);
+assert.match(
+  projectedExplicitOutputEntries[1].content[0].url,
+  /^\/farming\/api\/agents\/agent-1\/acp-media\/explicit-output-media\/[a-f0-9]{64}$/,
+  'array-shaped input_image output should survive the compact transcript boundary'
+);
+const explicitOutputMediaId = projectedExplicitOutputEntries[1].content[0].url.split('/').at(-1);
+assert.strictEqual(
+  acpTranscriptMedia(explicitOutputMediaEntry, explicitOutputMediaId).data,
+  originalMediaData,
+  'the projected input_image URL should resolve through the authoritative media endpoint'
+);
+const projectedExplicitOutputTranscript = acpSessionTranscript({
+  state: 'idle',
+  entries: projectedExplicitOutputEntries,
+});
+assert.match(
+  projectedExplicitOutputTranscript.turns[0].resultImages[0].url,
+  /^\/farming\/api\/agents\/agent-1\/acp-media\/explicit-output-media\/[a-f0-9]{64}$/,
+  'explicit tool output media should render in the answer area by default'
+);
+assert.strictEqual(projectedExplicitOutputTranscript.turns[0].processItems[0].images, undefined);
 
 const serverSource = fs.readFileSync(path.join(__dirname, '..', 'server.cts'), 'utf8');
 const transcriptPaneSource = fs.readFileSync(

@@ -276,6 +276,18 @@ function transcriptMediaValue(block: unknown): DataRecord | null {
   if (!block || typeof block !== 'object') return null;
   const candidate = block as DataRecord;
   if (candidate.type === 'image' || candidate.type === 'audio') return candidate;
+  const normalizedType = String(candidate.type || '').replace(/_/g, '').toLowerCase();
+  if (normalizedType === 'inputimage') {
+    const url = String(candidate.image_url || candidate.imageUrl || candidate.url || '');
+    const dataUrl = url.match(/^data:([^;,]+);base64,([a-z0-9+/]*={0,2})$/i);
+    if (dataUrl) {
+      return { type: 'image', mimeType: dataUrl[1], data: dataUrl[2] };
+    }
+    if (/^https?:\/\//i.test(url)) {
+      return { type: 'image', mimeType: String(candidate.mimeType || ''), url };
+    }
+    return null;
+  }
   if (
     candidate.type === 'content'
     && candidate.content
@@ -285,6 +297,17 @@ function transcriptMediaValue(block: unknown): DataRecord | null {
     return candidate.content as DataRecord;
   }
   return null;
+}
+
+function rawTranscriptOutputBlocks(rawOutput: unknown): unknown[] {
+  if (Array.isArray(rawOutput)) return rawOutput;
+  const output = dataRecord(rawOutput);
+  const result = dataRecord(output.result);
+  if (Array.isArray(result.content)) return result.content;
+  if (Array.isArray(output.content)) return output.content;
+  if (Array.isArray(output.content_items)) return output.content_items;
+  if (Array.isArray(output.contentItems)) return output.contentItems;
+  return [];
 }
 
 function validatedTranscriptMedia(block: unknown): ValidatedTranscriptMedia | null {
@@ -346,11 +369,7 @@ function acpTranscriptMedia(entry: DataRecord, requestedMediaId: unknown) {
   const mediaId = String(requestedMediaId || '').trim().toLowerCase();
   if (!/^[a-f0-9]{64}$/.test(mediaId)) return null;
   const direct = Array.isArray(entry?.content) ? entry.content : [];
-  const output = dataRecord(entry.rawOutput);
-  const result = dataRecord(output.result);
-  const raw = Array.isArray(result.content)
-    ? result.content
-    : (Array.isArray(output.content) ? output.content : []);
+  const raw = rawTranscriptOutputBlocks(entry.rawOutput);
   for (const block of [...direct, ...raw]) {
     const media = transcriptMediaValue(block);
     if (!media) continue;
@@ -361,13 +380,14 @@ function acpTranscriptMedia(entry: DataRecord, requestedMediaId: unknown) {
 
 function transcriptMediaBlocks(entry: DataRecord, options: TranscriptOptions = {}) {
   const direct = Array.isArray(entry?.content) ? entry.content : [];
-  const output = dataRecord(entry.rawOutput);
-  const result = dataRecord(output.result);
-  const raw = Array.isArray(result.content)
-    ? result.content
-    : (Array.isArray(output.content) ? output.content : []);
+  const raw = rawTranscriptOutputBlocks(entry.rawOutput);
   const blocks = [...direct, ...raw].flatMap((block: unknown) => {
     if (!isDataRecord(block)) return [];
+    const normalizedType = String(block.type || '').replace(/_/g, '').toLowerCase();
+    if (normalizedType === 'inputimage') {
+      const media = transcriptMediaValue(block);
+      return media ? [compactTranscriptMedia(media, entry, options)] : [];
+    }
     if (block.type === 'terminal') return [{ type: 'terminal', terminalId: String(block.terminalId || '') }];
     if (block.type === 'image' || block.type === 'audio') {
       return [compactTranscriptMedia(block, entry, options)];
@@ -451,6 +471,12 @@ function generatedMediaTool(entry: DataRecord) {
     || title === 'image generation'
     || title === 'audio generation'
     || String(output.savedPath || '').includes('/generated_images/');
+}
+
+function explicitOutputMediaTool(entry: DataRecord) {
+  return rawTranscriptOutputBlocks(entry.rawOutput).some((block: unknown) => (
+    transcriptMediaValue(block) !== null
+  ));
 }
 
 function boundedCollaborationString(value: unknown, maxChars: number): string {
@@ -570,6 +596,7 @@ function acpTranscriptToolEntry(entry: DataRecord, options: TranscriptOptions = 
     transcriptPatchSummary: patchSummary,
     transcriptChanges: changes,
     generatedMedia: generatedMediaTool(entry),
+    explicitOutputMedia: explicitOutputMediaTool(entry),
     internal: entry.internal === true,
   };
 }

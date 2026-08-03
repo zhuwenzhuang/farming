@@ -180,6 +180,18 @@ function contentText(content: unknown) {
     .trim()
 }
 
+function thoughtTitle(detail: string) {
+  const firstLine = detail.split(/\r?\n/)
+    .map(line => line.trim())
+    .find(Boolean)
+    ?.replace(/\[([^\]]+)]\([^)]*\)/g, '$1')
+    .replace(/^[\s>*_`#-]+|[\s*_`]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim() || ''
+  if (!firstLine || firstLine.toLowerCase() === 'reasoning') return 'Reasoning'
+  return firstLine.length <= 96 ? firstLine : `${firstLine.slice(0, 95).trimEnd()}…`
+}
+
 function isInternalCompactionMessage(text: string) {
   const trimmed = text.trim()
   return /^(?:#{1,3}\s*)?(?:\*{1,2}|_{1,2})?Handoff Summary(?:\*{1,2}|_{1,2})?(?:[ \t]*:|[ \t]*(?:\r?\n|$))/i.test(trimmed)
@@ -541,7 +553,7 @@ function processEntry(entry: AcpRecord): AgentTranscriptProcessItem | null {
   }
   if (entry.type === 'thought') {
     const detail = contentText(entry.content)
-    return detail ? { id: stringValue(entry.id), type: 'thought', title: 'Reasoning', detail, status: 'completed' } : null
+    return detail ? { id: stringValue(entry.id), type: 'thought', title: thoughtTitle(detail), detail, status: 'completed' } : null
   }
   if (entry.type === 'tool') {
     const subagent = record(record(entry._meta).subagent_session_info)
@@ -641,6 +653,7 @@ function hasExplicitOutputMedia(value: unknown, depth = 0): boolean {
 
 function isDefaultVisibleMediaTool(entry: AcpRecord) {
   if (entry.type !== 'tool') return false
+  if (entry.explicitOutputMedia === true) return true
   if (hasExplicitOutputMedia(entry.rawOutput)) return true
   if (entry.generatedMedia === true) return true
   const title = stringValue(entry.title).trim().toLowerCase()
@@ -664,6 +677,13 @@ function finishTurn(turn: MutableTurn | null, keepTailAsProgress: boolean): Agen
   if (!turn) return null
   const lastAssistant = turn.assistantMessages[turn.assistantMessages.length - 1]
   const lastProcess = turn.processItems[turn.processItems.length - 1]
+  const answerText = turn.finalMessage.trim().replace(/\r\n/g, '\n')
+  const duplicateError = answerText && turn.processItems.some(item => {
+    if (item.type !== 'error') return false
+    const errorText = stringValue(item.detail).trim().replace(/\r\n/g, '\n')
+    return errorText === answerText || errorText.replace(/^Internal error:\s*/i, '') === answerText
+  })
+  if (duplicateError) turn.finalMessage = ''
   if (turn.internal && lastAssistant?.text) {
     turn.finalMessage = lastAssistant.text
   } else if (!turn.finalMessage && !keepTailAsProgress && lastAssistant?.text && lastAssistant.processItemId

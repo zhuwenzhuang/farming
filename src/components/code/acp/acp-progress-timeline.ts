@@ -70,6 +70,11 @@ export function acpProgressFlowEntries<T extends AcpProgressTimelineItem>(
   let evidence: T[] = []
   const flushEvidence = () => {
     if (evidence.length === 0) return
+    if (evidence.every(item => actionKind(item) === null)) {
+      entries.push(...evidence.map(item => ({ kind: 'item' as const, item })))
+      evidence = []
+      return
+    }
     entries.push({
       kind: 'group',
       id: `group:${String(evidence[0]?.id || '')}`,
