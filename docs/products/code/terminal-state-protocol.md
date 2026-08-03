@@ -53,6 +53,8 @@ Continuous browser-test capacity is finite, so the architecture must not accumul
 
 ## Input And Resize
 
+Every non-main coding Terminal receives the shared Farming bootstrap and a runtime-scoped title token. After understanding the task, the Agent uses `farming title` to publish a concise adaptive title through the authenticated control API. Codex, Claude Code, OpenCode, Qoder, and Qwen use the same path; Farming does not parse terminal prose to infer the title. Runtime replacement rotates the token and rejects late writes from the old PTY process. User renames remain authoritative, and title failure never blocks terminal input.
+
 Input is xterm's raw `onData` stream and is written directly to the PTY. Farming does not add input acknowledgements, deduplication, automatic replay, controller leases, or takeover UI. Several Code or CRT views may write to the same PTY; the server serializes writes in arrival order. Selecting an existing Agent is a local view change, not an excuse to refresh the full state document. The focused terminal receives live output before its delayed lightweight activity projection, and its preview omits the already-authoritative screen snapshot.
 
 The release gate `npm run test:pre-release:terminal-input` uses two deterministic local Bash sessions. It switches between existing Agents, types and deletes through xterm, rejects a full `state` frame after focus, requires focused previews to stay below 8 KiB, and enforces a loopback key-to-`session-output` p95 of at most 250 ms. This is a regression bound for the local product path, not a claim about arbitrary remote network latency; the release checklist separately requires a human-like remote dogfood smoke.

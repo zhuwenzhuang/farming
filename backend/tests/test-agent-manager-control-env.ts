@@ -74,6 +74,8 @@ async function run() {
     });
 
     assert.strictEqual(captured[0].env.FARMING_AGENT_ID, parentId);
+    assert.match(captured[0].env.FARMING_AGENT_TITLE_TOKEN, /^[A-Za-z0-9_-]{32}$/);
+    assert.strictEqual(captured[0].env.FARMING_CLI_BIN_DIR, '/repo/bin');
     assert.strictEqual(captured[0].env.FARMING_IS_MAIN_AGENT, '1');
     assert.strictEqual(captured[0].env.FARMING_CONTROL_URL, 'http://127.0.0.1:3000/farming');
     assert.strictEqual(captured[0].env.FARMING_TOKEN_FILE, path.join(farmingDir, '.session-token'));
@@ -99,6 +101,13 @@ async function run() {
 
     assert.strictEqual(captured[1].cwd, workspace, 'child should inherit parent project workspace by default');
     assert.strictEqual(captured[1].env.FARMING_AGENT_ID, childId);
+    assert.match(captured[1].env.FARMING_AGENT_TITLE_TOKEN, /^[A-Za-z0-9_-]{32}$/);
+    assert.strictEqual(captured[1].env.FARMING_CLI_BIN_DIR, '/repo/bin');
+    assert.notStrictEqual(
+      captured[1].env.FARMING_AGENT_TITLE_TOKEN,
+      captured[0].env.FARMING_AGENT_TITLE_TOKEN,
+      'each Agent runtime must receive an isolated title-update token',
+    );
     assert.strictEqual(captured[1].env.FARMING_PARENT_AGENT_ID, parentId);
     assert.strictEqual(captured[1].env.FARMING_IS_MAIN_AGENT, '0');
     assert.strictEqual(captured[1].env.FARMING_PROJECT_WORKSPACE, workspace);
@@ -125,6 +134,10 @@ async function run() {
       fs.readFileSync(startupPromptFile, 'utf8').trim(),
       farmingSystemPrompt,
       'the OpenCode instructions file must contain the same bootstrap as other providers',
+    );
+    assert(
+      farmingSystemPrompt.includes('farming" title "简短任务标题"'),
+      'the shared Terminal and ACP bootstrap must require concise Agent-managed titles',
     );
 
     const state = manager.getState();

@@ -53,6 +53,8 @@ Code 与 CRT 统一以 xterm.js WebGL 作为唯一受支持的产品 Renderer。
 
 ## 输入与 Resize
 
+每个非 Main 的 Coding Terminal 都会收到共享的 Farming Bootstrap 和限定于当前 Runtime 的标题 Token。Agent 理解任务后，通过 `farming title` 及带认证的 Control API 发布简短自适应标题。Codex、Claude Code、OpenCode、Qoder 与 Qwen 共用同一条路径；Farming 不会解析 Terminal 文本来猜测标题。Runtime 替换会轮换 Token，并拒绝旧 PTY 进程的迟到写入。用户重命名始终最高优先，标题更新失败也不得阻塞 Terminal 输入。
+
 Input 直接来自 xterm `onData`，并按原始字节写入 PTY。Farming 不增加输入 ACK、去重、自动重放、Controller Lease 或 Takeover UI。多个 Code/CRT 页面可以同时输入，服务端按到达顺序串行写入。切换已有 Agent 只是本地 View 变化，不能借机刷新完整 `state` 文档。已聚焦 Terminal 的 Live Output 必须先于延迟的小型 Activity Projection 到达；其 Preview 也不再携带浏览器已经拥有的权威屏幕 Snapshot。
 
 发布 Gate `npm run test:pre-release:terminal-input` 使用两个确定性的本地 Bash Session：在已有 Agent 之间切换、通过 xterm 连续输入和删除、拒绝 Focus 后完整 `state` Frame、要求已聚焦 Preview 小于 8 KiB，并将 Loopback 的按键到 `session-output` p95 限制在 250 ms。它约束的是本地产品路径的回归，不宣称任意远端网络延迟；Release Checklist 仍要求单独进行真人式远端 Dogfood Smoke。

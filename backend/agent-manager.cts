@@ -640,6 +640,7 @@ const CREATE_ROLLBACK_FIELDS: string[] = [
   'archivedAt',
   'visibleOnMainPage',
   'customTitle',
+  'adaptiveTitle',
   'title',
   'startedAt',
 ];
@@ -2095,6 +2096,9 @@ class AgentManager extends EventEmitter {
         customTitle: Object.prototype.hasOwnProperty.call(persisted, 'customTitle')
           ? persisted.customTitle
           : engineMetadata.customTitle,
+        adaptiveTitle: Object.prototype.hasOwnProperty.call(persisted, 'adaptiveTitle')
+          ? persisted.adaptiveTitle
+          : engineMetadata.adaptiveTitle,
         lifecycleJournal: lifecycleJournal(persisted),
         ...legacyRuntimeMetadata(persisted),
         pinned: persisted.pinned === true,
@@ -2495,6 +2499,7 @@ class AgentManager extends EventEmitter {
         projectOrder: finiteOrder(record.projectOrder),
         pinnedOrder: finiteOrder(record.pinnedOrder),
         customTitle: record.customTitle || '',
+        adaptiveTitle: record.adaptiveTitle || '',
         pinned: record.pinned === true,
         attentionSeq: finiteNonNegativeInteger(record.attentionSeq),
         readAttentionSeq: finiteNonNegativeInteger(record.readAttentionSeq),
@@ -3096,6 +3101,7 @@ class AgentManager extends EventEmitter {
       lifecycleJournal: lifecycleJournal(metadata),
       composerCommands: normalizedComposerCommands(metadata.composerCommands),
       customTitle: metadata.customTitle || '',
+      adaptiveTitle: metadata.adaptiveTitle || '',
       terminalBusy: typeof state.terminalBusy === 'boolean' ? state.terminalBusy : null,
       shellCwd: state.shellCwd || metadata.cwd || '',
       shellLastExitCode: typeof state.shellLastExitCode === 'number' ? state.shellLastExitCode : null,
@@ -3224,6 +3230,7 @@ class AgentManager extends EventEmitter {
           ? record.workflowTemplate
           : (agent.workflowTemplate || '');
         agent.customTitle = typeof record.customTitle === 'string' ? record.customTitle : '';
+        agent.adaptiveTitle = typeof record.adaptiveTitle === 'string' ? record.adaptiveTitle : '';
         agent.pinned = record.pinned === true;
         agent.projectOrder = finiteOrder(record.projectOrder);
         agent.pinnedOrder = finiteOrder(record.pinnedOrder);
@@ -3553,6 +3560,7 @@ class AgentManager extends EventEmitter {
       projectOrder: finiteOrder(agent.projectOrder),
       pinnedOrder: finiteOrder(agent.pinnedOrder),
       customTitle: agent.customTitle || '',
+      adaptiveTitle: agent.adaptiveTitle || '',
     })).catch((caught: unknown) => {
       const error = caught as ErrorRecord;
       console.warn('Failed to update provider session metadata:', error && (error.message || error));
@@ -3908,7 +3916,10 @@ class AgentManager extends EventEmitter {
       stripRuntimeShims: process.env.FARMING_STRIP_AGENT_LD_LIBRARY_PATH !== '0',
       stripNodeOptions: process.env.FARMING_STRIP_AGENT_NODE_OPTIONS !== '0',
     });
+    env.FARMING_CLI_BIN_DIR = this.cliBinDir;
     env.FARMING_AGENT_ID = agentId;
+    agent.titleUpdateToken = crypto.randomBytes(24).toString('base64url');
+    env.FARMING_AGENT_TITLE_TOKEN = agent.titleUpdateToken;
     env.FARMING_IS_MAIN_AGENT = agent.wantsMain ? '1' : '0';
     env.FARMING_SKILLS_COMMAND = 'farming skills';
     env.FARMING_CAPABILITIES_COMMAND = 'farming capabilities';
@@ -4250,6 +4261,7 @@ class AgentManager extends EventEmitter {
       restartedFromAgentIds: agent.restartedFromAgentIds,
       persistentSessionId: agent.persistentSessionId,
       customTitle: agent.customTitle,
+      adaptiveTitle: agent.adaptiveTitle,
       pinned: agent.pinned,
       projectOrder: finiteOrder(agent.projectOrder),
       pinnedOrder: finiteOrder(agent.pinnedOrder),
@@ -4953,6 +4965,8 @@ class AgentManager extends EventEmitter {
         : (typeof options.persistentSessionId === 'string' ? options.persistentSessionId : ''),
       composerCommands: normalizedComposerCommands(options.composerCommands),
       customTitle: typeof options.customTitle === 'string' ? options.customTitle.trim().slice(0, 80) : '',
+      adaptiveTitle: typeof options.adaptiveTitle === 'string' ? options.adaptiveTitle.trim().slice(0, 80) : '',
+      titleUpdateToken: '',
       terminalBusy: null,
       shellCwd: '',
       shellLastExitCode: null,
@@ -6668,6 +6682,43 @@ class AgentManager extends EventEmitter {
     return { agentId, customTitle, operationId: operation.id };
   }
 
+  setAgentAdaptiveTitle(agentId: AgentId, title: string, token: string): UnknownRecord {
+    if (this.disposing) {
+      return { error: 'Farming is shutting down; Agent title updates are not accepted' };
+    }
+    const lifecycleOperation = this.agentLifecycleOperations.get(agentId);
+    if (lifecycleOperation) {
+      return { error: `Agent lifecycle change already in progress: ${lifecycleOperation.label}` };
+    }
+    const agent = this.agents.get(agentId);
+    if (!agent) return { error: 'Agent not found' };
+    if (this.isMainAgentRecord(agentId, agent)) {
+      return { error: 'Main Agent keeps its fixed title' };
+    }
+    if (!token || token !== agent.titleUpdateToken) {
+      return { error: 'Agent title update belongs to an expired runtime' };
+    }
+
+    const adaptiveTitle = String(title || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+    if (!adaptiveTitle) return { error: 'Agent title is required' };
+    if (adaptiveTitle === agent.adaptiveTitle) {
+      return { agentId, adaptiveTitle, deduplicated: true };
+    }
+
+    const staged: TypedAgentRecord = { ...agent, adaptiveTitle };
+    try {
+      this.ensurePersistentAgentSession(staged, { adaptiveTitle });
+    } catch (caughtError: unknown) {
+      const error = caughtError as ErrorRecord;
+      return { error: `Failed to update Agent title: ${error.message || error}`, retryable: true };
+    }
+    agent.adaptiveTitle = adaptiveTitle;
+    setAgentRecordId(agent, staged.agentRecordId || staged.persistentSessionId || '');
+    this.updateEngineProviderSessionMetadata(agent);
+    this.emit('update');
+    return { agentId, adaptiveTitle };
+  }
+
   setAgentTask(agentId: AgentId, task: string): UnknownRecord {
     if (this.disposing) {
       return { error: 'Farming is shutting down; Agent updates are not accepted' };
@@ -7179,6 +7230,7 @@ class AgentManager extends EventEmitter {
       projectOrder: finiteOrder(agent.projectOrder),
       pinnedOrder: finiteOrder(agent.pinnedOrder),
       customTitle: agent.customTitle || '',
+      adaptiveTitle: agent.adaptiveTitle || '',
       unread: agent.unread === true,
     };
     let acpSessionOptions: AcpSessionRequestOptions = {
@@ -7208,6 +7260,7 @@ class AgentManager extends EventEmitter {
       providerHomeId: agent.providerHomeId || '',
       providerHomePath: agent.providerHomePath || '',
       providerSessionTitle: agent.providerSessionTitle || '',
+      adaptiveTitle: agent.adaptiveTitle || '',
       agentRecordId: agent.agentRecordId || agent.persistentSessionId || '',
       restoreRuntimeAgentIdOnFailure: agentId,
       restartedFromAgentId: agentId,
@@ -7433,6 +7486,7 @@ class AgentManager extends EventEmitter {
       providerHomeId,
       providerHomePath: agent.providerHomePath || '',
       providerSessionTitle: agent.providerSessionTitle || '',
+      adaptiveTitle: agent.adaptiveTitle || '',
       agentRecordId: agent.agentRecordId || agent.persistentSessionId || '',
       restoreRuntimeAgentIdOnFailure: agentId,
       restartedFromAgentId: agentId,
@@ -7456,6 +7510,7 @@ class AgentManager extends EventEmitter {
       projectOrder: finiteOrder(agent.projectOrder),
       pinnedOrder: finiteOrder(agent.pinnedOrder),
       customTitle: agent.customTitle || '',
+      adaptiveTitle: agent.adaptiveTitle || '',
       unread: agent.unread === true,
       attentionSeq: finiteNonNegativeInteger(agent.attentionSeq),
       readAttentionSeq: finiteNonNegativeInteger(agent.readAttentionSeq),
@@ -7489,6 +7544,7 @@ class AgentManager extends EventEmitter {
           restartedAgent.projectOrder = preserved.projectOrder;
           restartedAgent.pinnedOrder = preserved.pinnedOrder;
           restartedAgent.customTitle = preserved.customTitle;
+          restartedAgent.adaptiveTitle = preserved.adaptiveTitle;
           restartedAgent.unread = preserved.unread;
           restartedAgent.attentionSeq = preserved.attentionSeq;
           restartedAgent.readAttentionSeq = preserved.readAttentionSeq;
@@ -7499,6 +7555,7 @@ class AgentManager extends EventEmitter {
             projectOrder: restartedAgent.projectOrder,
             pinnedOrder: restartedAgent.pinnedOrder,
             customTitle: restartedAgent.customTitle,
+            adaptiveTitle: restartedAgent.adaptiveTitle,
             unread: restartedAgent.unread,
             attentionSeq: restartedAgent.attentionSeq,
             readAttentionSeq: restartedAgent.readAttentionSeq,
@@ -8898,8 +8955,9 @@ class AgentManager extends EventEmitter {
       command: agent.command || '',
       cwd: agent.cwd || '',
       projectWorkspace: effectiveAgentWorkspaceRoot(agent),
-      title: agent.customTitle || agent.sessionTitle || agent.task || '',
+      title: agent.customTitle || agent.adaptiveTitle || agent.sessionTitle || agent.task || '',
       customTitle: agent.customTitle || '',
+      adaptiveTitle: agent.adaptiveTitle || '',
       task: agent.task || '',
       workflowTemplate: agent.workflowTemplate || '',
       source: providerHistorySource || agent.source || 'ui',
@@ -9732,6 +9790,7 @@ class AgentManager extends EventEmitter {
       runtimeBinding: publicRuntimeBinding(agent),
       forkedFromProviderSessionId: agent.forkedFromProviderSessionId || '',
       customTitle: agent.customTitle || '',
+      adaptiveTitle: agent.adaptiveTitle || '',
       pinned: agent.pinned === true,
       projectOrder: finiteOrder(agent.projectOrder),
       pinnedOrder: finiteOrder(agent.pinnedOrder),
@@ -9927,6 +9986,7 @@ class AgentManager extends EventEmitter {
         restartedFromAgentIds: Array.isArray(agent.restartedFromAgentIds) ? agent.restartedFromAgentIds : [],
         launchPermissionMode: agent.launchPermissionMode || '',
         customTitle: agent.customTitle || '',
+        adaptiveTitle: agent.adaptiveTitle || '',
         pinned: agent.pinned === true,
         projectOrder: finiteOrder(agent.projectOrder),
         pinnedOrder: finiteOrder(agent.pinnedOrder),

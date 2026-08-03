@@ -169,6 +169,11 @@ interface AgentManager {
     input: string,
     options: { expectedRuntimeEpoch: string },
   ): Promise<MutationResult | undefined> | MutationResult | undefined;
+  setAgentAdaptiveTitle(
+    agentId: string,
+    title: string,
+    token: string,
+  ): Record<string, unknown>;
   startAgent(
     command: string,
     workspace: string | null,
@@ -638,6 +643,23 @@ function createControlRouter(
       return;
     }
     res.json({ success: true });
+  });
+
+  router.post('/agents/:agentId/title', (req, res) => {
+    const agentId = req.params.agentId;
+    if (!findAgent(agentManager.getState(), agentId)) {
+      res.status(404).json({ error: 'agent not found' });
+      return;
+    }
+    const title = typeof req.body.title === 'string' ? req.body.title : '';
+    const token = typeof req.body.token === 'string' ? req.body.token : '';
+    const result = agentManager.setAgentAdaptiveTitle(agentId, title, token);
+    if (typeof result.error === 'string' && result.error) {
+      res.status(result.error.includes('expired runtime') ? 409 : 400).json(result);
+      return;
+    }
+    notifyUpdate();
+    res.json(result);
   });
 
   router.post('/agents/:agentId/clear', async (req, res) => {

@@ -95,6 +95,7 @@ const PRODUCT_STATE_FIELDS: string[] = [
   'readOutputEpoch',
   'readOutputSeq',
   'customTitle',
+  'adaptiveTitle',
   'title',
   'titleUserSpecified',
 ];
@@ -113,12 +114,13 @@ function normalizeTitleMetadata(record: JsonRecord, options: { explicitCustomTit
   }
 
   record.titleUserSpecified = false;
+  const adaptiveTitle = titleValue(record.adaptiveTitle, 80);
   const providerTitle = titleValue(record.providerSessionTitle);
   const sessionTitle = titleValue(record.sessionTitle);
   const fallbackTitle = titleValue(record.task);
   const nextTitle = options.explicitCustomTitle === true
-    ? (providerTitle || sessionTitle || fallbackTitle)
-    : (providerTitle || sessionTitle || titleValue(record.title) || fallbackTitle);
+    ? (adaptiveTitle || providerTitle || sessionTitle || fallbackTitle)
+    : (adaptiveTitle || providerTitle || sessionTitle || titleValue(record.title) || fallbackTitle);
   record.title = nextTitle;
 }
 
@@ -550,8 +552,12 @@ class FarmingSessionStore {
       ...(typeof agent.customTitle === 'string' && agent.customTitle
         ? { customTitle: agent.customTitle }
         : {}),
+      ...(titleValue(agent.adaptiveTitle, 80)
+        ? { adaptiveTitle: titleValue(agent.adaptiveTitle, 80) }
+        : {}),
       title: titleValue(
         agent.customTitle
+          || agent.adaptiveTitle
           || agent.providerSessionTitle
           || agent.sessionTitle
           || agent.title

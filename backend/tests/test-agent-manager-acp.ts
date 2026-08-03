@@ -92,6 +92,8 @@ async function run() {
       'an ACP transcript revision should use its dedicated per-Agent channel',
     );
     const binding = runtime.bindings.get(agentId);
+    assert.match(binding.env.FARMING_AGENT_TITLE_TOKEN, /^[A-Za-z0-9_-]{32}$/);
+    assert.strictEqual(binding.env.FARMING_CLI_BIN_DIR, '/opt/farming/bin');
     binding.sessionState.revision = nextSessionRevision;
     binding.sessionState.apply({
       sessionId: binding.sessionId,
@@ -583,6 +585,16 @@ async function run() {
       assert.strictEqual(providerAgent.providerSessionProvider, provider);
       assert.strictEqual(providerAgent.runtimeBinding.kind, 'acp');
       const providerBinding = providerRuntime.bindings.get(providerAgentId);
+      assert.match(
+        providerBinding.env.FARMING_AGENT_TITLE_TOKEN,
+        /^[A-Za-z0-9_-]{32}$/,
+        `${provider} ACP must receive a runtime-scoped title token`,
+      );
+      assert.strictEqual(
+        providerBinding.env.FARMING_CLI_BIN_DIR,
+        path.join(__dirname, '..', '..', 'bin'),
+        `${provider} ACP must receive the exact Farming CLI directory`,
+      );
       assert.strictEqual(
         providerBinding.restartOptions.farmingSystemPrompt,
         farmingSystemPrompt,

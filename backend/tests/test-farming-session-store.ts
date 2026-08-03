@@ -161,6 +161,20 @@ function run() {
   assert.strictEqual(fs.statSync(indexFile).mode & 0o777, 0o600);
 
   store.ensureRecordForAgent({
+    id: 'agent-adaptive-title',
+    providerSessionProvider: 'codex',
+    providerSessionId: 'resolved-codex-session',
+    providerSessionKey: 'agent-session:codex:resolved-codex-session',
+    providerSessionTemporary: false,
+    adaptiveTitle: '修复跨运行时标题更新',
+  }, {
+    adaptiveTitle: '修复跨运行时标题更新',
+  });
+  assert.strictEqual(store.readRecord(tempRecordId).adaptiveTitle, '修复跨运行时标题更新');
+  assert.strictEqual(store.readRecord(tempRecordId).title, '修复跨运行时标题更新');
+  assert.strictEqual(store.readRecord(tempRecordId).titleUserSpecified, false);
+
+  store.ensureRecordForAgent({
     id: 'agent-renamed-codex',
     persistentSessionId: tempRecordId,
     providerSessionProvider: 'codex',
@@ -217,7 +231,7 @@ function run() {
     '',
     'an explicit empty custom-title patch must still clear the name',
   );
-  assert.strictEqual(store.readRecord(tempRecordId).title, '');
+  assert.strictEqual(store.readRecord(tempRecordId).title, '修复跨运行时标题更新');
   assert.strictEqual(store.readRecord(tempRecordId).titleUserSpecified, false);
 
   const collisionKey = 'agent-session:codex:collision-session';

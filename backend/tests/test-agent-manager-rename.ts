@@ -42,6 +42,36 @@ async function run() {
 
   try {
     const agentId = await startAgent(manager, 'bash', tmpRoot, { wantsMain: false });
+    const titleToken = manager.agents.get(agentId).titleUpdateToken;
+    assert(titleToken, 'each launched runtime should receive a title-update generation token');
+    assert.match(
+      manager.setAgentAdaptiveTitle(agentId, 'Ignored stale title', 'stale-token').error,
+      /expired runtime/,
+    );
+    const adaptiveTitle = manager.setAgentAdaptiveTitle(
+      agentId,
+      '  Fix cross-runtime titles  ',
+      titleToken,
+    );
+    assert.strictEqual(adaptiveTitle.error, undefined);
+    assert.strictEqual(adaptiveTitle.adaptiveTitle, 'Fix cross-runtime titles');
+    assert.strictEqual(
+      agentTitle(manager.getState().agents.find(agent => agent.id === agentId)),
+      'Fix cross-runtime titles',
+    );
+    assert.strictEqual(
+      persistedAgentSnapshots.at(-1).adaptiveTitle,
+      'Fix cross-runtime titles',
+      'an Agent-managed title must persist before it becomes visible',
+    );
+    const oldTitleToken = manager.agents.get(agentId).titleUpdateToken;
+    const replacementEnv = manager.buildAgentEnv(agentId, manager.agents.get(agentId));
+    assert.notStrictEqual(replacementEnv.FARMING_AGENT_TITLE_TOKEN, oldTitleToken);
+    assert.match(
+      manager.setAgentAdaptiveTitle(agentId, 'Late old-runtime title', oldTitleToken).error,
+      /expired runtime/,
+      'a replaced runtime must not publish a late title',
+    );
     const restoredTitleAgentId = await startAgent(manager, 'bash', tmpRoot, {
       wantsMain: false,
       customTitle: `  ${'Restored title '.repeat(8)}  `,
@@ -191,6 +221,12 @@ async function run() {
       manager.getState().agents.find(agent => agent.id === agentId).customTitle,
       ''
     );
+    assert.strictEqual(
+      agentTitle(manager.getState().agents.find(agent => agent.id === agentId)),
+      'Fix cross-runtime titles',
+      'clearing a user rename should reveal the Agent-managed title',
+    );
+    manager.agents.get(agentId).adaptiveTitle = '';
 
     manager.engineBridge.emit('session-title', {
       sessionId: agentId,

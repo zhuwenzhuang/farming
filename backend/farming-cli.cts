@@ -98,6 +98,7 @@ type ParsedArgs =
     }
   | { command: 'output'; options: { agentId: string; tail: number } }
   | { command: 'send'; options: { agentId: string; input: string } }
+  | { command: 'title'; options: { title: string } }
   | { command: 'kill'; options: { agentId: string } };
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -116,12 +117,14 @@ function usage(): string {
   farming spawn [--workspace <path>] [--task <text>] [--parent <agentId>] [--json] -- <command...>
   farming output <agentId> [--tail <chars>]
   farming send <agentId> <text...>
+  farming title <concise-title...>
   farming kill <agentId>
 
 Examples:
   farming spawn --workspace /repo --task "Inspect this module for bugs" -- claude
   farming skills
   farming capabilities
+  farming title "Fix ACP session titles"
   farming list --parent "$FARMING_AGENT_ID"
   farming output agent-123 --tail 2000
   farming send agent-123 "Please run the focused tests"`;
@@ -277,6 +280,12 @@ function parseArgs(argv: string[]): ParsedArgs {
         input: (text.endsWith('\r') || text.endsWith('\n')) ? text : `${text}\r`,
       },
     };
+  }
+
+  if (command === 'title') {
+    const title = rest.join(' ').replace(/\s+/g, ' ').trim();
+    if (!title) throw new Error('title requires a concise title');
+    return { command, options: { title } };
   }
 
   if (command === 'kill') {
@@ -506,6 +515,23 @@ async function run(argv: string[] = process.argv.slice(2), io: CliIo = process):
       body: { input: parsed.options.input },
     });
     io.stdout.write('Sent\n');
+    return 0;
+  }
+
+  if (parsed.command === 'title') {
+    const agentId = String(process.env.FARMING_AGENT_ID || '').trim();
+    const token = String(process.env.FARMING_AGENT_TITLE_TOKEN || '').trim();
+    if (!agentId || !token) {
+      throw new Error('title is available only inside the current Farming Agent runtime');
+    }
+    const result = await request<{ adaptiveTitle?: string }>(
+      `/api/control/agents/${encodeURIComponent(agentId)}/title`,
+      {
+        method: 'POST',
+        body: { title: parsed.options.title, token },
+      },
+    );
+    io.stdout.write(`Title updated: ${result.adaptiveTitle || parsed.options.title}\n`);
     return 0;
   }
 

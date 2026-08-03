@@ -64,7 +64,9 @@ Farming Code 把“已打开 Agent”逻辑列表与有界前端工作集分开�
 
 ACP 在 `src/components/code/acp/` 下拥有独立的 composer、草稿命名空间、权限卡片、Session 控件、动态命令菜单和 transcript adapter。Terminal 继续使用 `CodeComposer` 与 PTY 输入路径，不加入 ACP 分支。ACP client terminal 使用内嵌 xterm 承接真实逐键输入、选择、输出、尺寸同步和停止操作；这个组件不会与 Terminal 页面共享。
 
-新建 Codex Session 会由锁定版本的 adapter 在等待首个 Turn 完成之前，根据第一条非空文本 prompt 发布 fallback 标题；Provider 后续给出的显式 thread name 可以覆盖它。Farming 会把最后一个已知标题写入私有 Agent 元数据的 `title` 字段，并用 `titleUserSpecified` 记录它是否由用户指定；非空的用户标题在 Provider 更新和重启后仍保持最高优先级。
+每个非 Main 的 ACP Coding Agent 都会收到同一份 Farming Bootstrap 和限定于当前 Runtime 的标题 Token。Agent 理解任务后，通过 `farming title` 提交简短的自适应标题；Codex、Claude Code、OpenCode、Qoder 与 Qwen 共用这条 Provider-neutral 路径。Farming 在私有 Agent 元数据中持久化 `adaptiveTitle`，展示优先级依次为：用户重命名、自适应 Agent 标题、Provider Session 标题、Runtime Session 标题、Agent 类型。Runtime 重启会轮换 Token，因此被替换进程的迟到更新会被拒绝。标题更新失败只保留现有 fallback，不得阻塞 Prompt。
+
+新建 Codex Session 仍由锁定版本的 Adapter 在首个 Turn 完成前，把第一条非空文本 Prompt 发布为即时 fallback；在 Agent 发布自适应标题前，Provider 后续给出的显式 Thread Name 可以替换该 fallback。Farming 用 `titleUserSpecified` 记录自定义标题是否由用户指定；非空用户标题在自适应标题、Provider 更新和重启后始终保持最高优先级。
 
 用户图片、过程图片和结果图片共用同一个点击放大 Viewer，可通过关闭按钮、背景或 Escape 退出，且不会修改 transcript 状态。
 

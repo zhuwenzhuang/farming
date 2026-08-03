@@ -260,6 +260,7 @@ export interface Agent {
   previewRows?: number
   codexTerminalProfile?: CodexTerminalProfile | null
   sessionTitle?: string
+  adaptiveTitle?: string
   customTitle?: string
   parentAgentId?: string
   task?: string

@@ -33,6 +33,7 @@ export type LifecycleOperationState =
 export interface LifecyclePreviousState {
   acpAdditionalDirectories?: readonly string[];
   acpMcpServers?: readonly unknown[];
+  adaptiveTitle?: string;
   archived?: boolean;
   customTitle?: string;
   runtimeAgentId?: string;

@@ -94,6 +94,7 @@ export interface WorkspaceIdentity {
 }
 
 export interface AgentDisplayState {
+  adaptiveTitle?: string;
   archived?: boolean;
   archivedAt?: number | null;
   customTitle?: string;
@@ -197,6 +198,7 @@ export interface AgentRecord extends Record<string, unknown>, AgentDisplayState,
   structuredRuntimeProcess?: StructuredRuntimeProcessIdentity | null;
   terminalInputReceived?: boolean;
   terminalDraftInputReceived?: boolean;
+  titleUpdateToken?: string;
   attentionBaselineOutputAt?: number | null;
   attentionBaselineOutputSeq?: number | null;
   attentionRequiresNewOutput?: boolean;

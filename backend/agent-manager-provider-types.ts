@@ -552,6 +552,7 @@ export interface AgentDisposeOptions {
 }
 
 export interface ProviderStartOptions extends Record<string, unknown> {
+  adaptiveTitle?: string;
   acpForkSourceCheckpoint?: AcpBindingCheckpoint | null;
   acpForkSourceSessionId?: string;
   acpHistoryMode?: 'checkpoint' | 'load' | 'resume';
