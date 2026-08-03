@@ -43,7 +43,7 @@ Config Owner 只有三个有业务意义的状态：
 - 精确死亡或已证明 PID 复用的 Owner 可以先隔离再回收；
 - 无法读取、格式损坏、身份不完整或权限结果不明确的 Owner 一律 fail closed，需要运维者检查。
 
-这里没有 Heartbeat，也没有 TTL。时间久不能证明 Owner 已经死亡。正常停止只会释放仍与目标 Server 精确匹配的 Claim，并先隔离该 Claim，再让共享 Owner 路径重新可用；崩溃后由下次启动执行同样的证明和恢复。
+这里没有 Heartbeat，也没有 TTL。时间久不能证明 Owner 已经死亡。正常停止会先在精确身份验证后发送 `SIGTERM`，经过有界宽限期后，仅当同一进程身份仍然存活时才发送 `SIGKILL`；它只会释放仍与目标 Server 精确匹配的 Claim，并先隔离该 Claim，再让共享 Owner 路径重新可用。崩溃后由下次启动执行同样的证明和恢复。
 
 ## Runtime 与鉴权隔离
 

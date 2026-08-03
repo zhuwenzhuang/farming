@@ -1,5 +1,9 @@
 const http = require('http');
 
+if (process.env.FARMING_TEST_IGNORE_SIGTERM === '1') {
+  process.on('SIGTERM', () => {});
+}
+
 const basePath = String(process.env.FARMING_BASE_PATH || '/farming').replace(/\/$/, '');
 const server = http.createServer((req, res) => {
   if (req.url === `${basePath}/api/settings`) {

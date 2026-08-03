@@ -60,7 +60,9 @@ When a claim already exists:
   closed and requires operator investigation.
 
 There is no heartbeat or time-to-live. Age is not proof that an owner is dead.
-Normal stop releases only the claim that still matches the exact Server being
+Normal stop sends `SIGTERM` only after exact identity verification, waits for a
+bounded grace period, and sends `SIGKILL` only if that same process identity is
+still live. It releases only the claim that still matches the exact Server being
 stopped, fencing that claim before the shared owner path becomes available.
 After a crash, the next startup performs the same proof before recovery.
 

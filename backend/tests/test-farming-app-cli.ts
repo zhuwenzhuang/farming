@@ -23,6 +23,7 @@ const {
   serverReadinessPath,
   serverStartTimeoutMs,
   serverStartStabilityMs,
+  serverStopGraceMs,
   serverStopTimeoutMs,
   serverStateFile,
   splitControlArgs,
@@ -483,6 +484,9 @@ async function runTests() {
     assert.strictEqual(serverStopTimeoutMs({}), 30_000);
     assert.strictEqual(serverStopTimeoutMs({ FARMING_STOP_TIMEOUT_MS: '12000' }), 12_000);
     assert.strictEqual(serverStopTimeoutMs({ FARMING_SERVER_STOP_TIMEOUT_MS: '45000' }), 45_000);
+    assert.strictEqual(serverStopGraceMs({}), 5_000);
+    assert.strictEqual(serverStopGraceMs({ FARMING_STOP_GRACE_MS: '25' }), 25);
+    assert.strictEqual(serverStopGraceMs({ FARMING_SERVER_STOP_GRACE_MS: '45000' }), 30_000);
   }
 
   {
@@ -519,6 +523,10 @@ async function runTests() {
     const child = fork(fixture, [], {
       detached: true,
       execArgv: ['--import', require.resolve('tsx')],
+      env: {
+        ...process.env,
+        FARMING_TEST_IGNORE_SIGTERM: '1',
+      },
       stdio: ['ignore', 'ignore', 'inherit', 'ipc'],
     });
     const childMessage = (type: string) => new Promise<{ type: string; port: number }>((resolve, reject) => {
@@ -559,7 +567,9 @@ async function runTests() {
       }));
 
       const originalKill = process.kill;
+      const stopSignals: NodeJS.Signals[] = [];
       process.kill = (pid, signal) => {
+        if (pid === child.pid && signal) stopSignals.push(signal);
         if (pid === child.pid && signal === 'SIGKILL') {
           const error: ErrorWithCode = new Error('Operation not permitted');
           error.code = 'EPERM';
@@ -568,19 +578,24 @@ async function runTests() {
         return originalKill(pid, signal);
       };
       try {
+        const parsed = parseServerArgs(['stop', '--config-dir', configDir]);
+        parsed.env.FARMING_STOP_GRACE_MS = '25';
         await assert.rejects(
-          stopDaemon(parseServerArgs(['stop', '--config-dir', configDir])),
+          stopDaemon(parsed),
           /lacks permission.*operating-system user that owns the process/s,
         );
       } finally {
         process.kill = originalKill;
       }
+      assert.deepStrictEqual(stopSignals, ['SIGTERM', 'SIGKILL']);
       assert.doesNotThrow(() => process.kill(child.pid, 0));
       assert.strictEqual(fs.existsSync(storageLayout.serverPidFile(configDir)), true);
       assert.strictEqual(fs.existsSync(serverStateFile(configDir)), true);
 
       const exited = new Promise(resolve => child.once('exit', (code, signal) => resolve({ code, signal })));
-      assert.strictEqual(await stopDaemon(parseServerArgs(['stop', '--config-dir', configDir])), 0);
+      const parsed = parseServerArgs(['stop', '--config-dir', configDir]);
+      parsed.env.FARMING_STOP_GRACE_MS = '25';
+      assert.strictEqual(await stopDaemon(parsed), 0);
       assert.deepStrictEqual(await exited, { code: null, signal: 'SIGKILL' });
       assert.strictEqual(fs.existsSync(storageLayout.serverPidFile(configDir)), false);
       assert.strictEqual(fs.existsSync(serverStateFile(configDir)), false);
@@ -675,7 +690,7 @@ async function runTests() {
       }));
       const exited = new Promise(resolve => starting.once('exit', (code, signal) => resolve({ code, signal })));
       assert.strictEqual(await stopDaemon(parseServerArgs(['stop', '--config-dir', configDir])), 0);
-      assert.deepStrictEqual(await exited, { code: null, signal: 'SIGKILL' });
+      assert.deepStrictEqual(await exited, { code: null, signal: 'SIGTERM' });
     } finally {
       if (starting.exitCode === null && starting.signalCode === null) starting.kill('SIGKILL');
       fs.rmSync(configDir, { recursive: true, force: true });
@@ -746,7 +761,7 @@ async function runTests() {
 
       const exited = new Promise(resolve => child.once('exit', (code, signal) => resolve({ code, signal })));
       assert.strictEqual(await stopDaemon(parseServerArgs(['stop', '--config-dir', configDir])), 0);
-      assert.deepStrictEqual(await exited, { code: null, signal: 'SIGKILL' });
+      assert.deepStrictEqual(await exited, { code: null, signal: 'SIGTERM' });
       assert.strictEqual(fs.existsSync(storageLayout.serverPidFile(configDir)), false);
       assert.strictEqual(fs.existsSync(serverStateFile(configDir)), false);
       assert.strictEqual(await canBindPort(port), true);
@@ -809,7 +824,7 @@ async function runTests() {
       }));
       const exited = new Promise(resolve => child.once('exit', (code, signal) => resolve({ code, signal })));
       assert.strictEqual(await stopDaemon(parseServerArgs(['stop', '--config-dir', configDir])), 0);
-      assert.deepStrictEqual(await exited, { code: null, signal: 'SIGKILL' });
+      assert.deepStrictEqual(await exited, { code: null, signal: 'SIGTERM' });
       assert.strictEqual(fs.existsSync(storageLayout.serverPidFile(configDir)), false);
       assert.strictEqual(fs.existsSync(serverStateFile(configDir)), false);
       assert.strictEqual(await canBindPort(port), true);

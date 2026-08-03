@@ -152,6 +152,7 @@ const DEFAULT_BASE_PATH = '/farming';
 const DEFAULT_SERVER_START_TIMEOUT_MS = 30_000;
 const DEFAULT_SERVER_START_STABILITY_MS = 1_500;
 const DEFAULT_SERVER_STOP_TIMEOUT_MS = 30_000;
+const DEFAULT_SERVER_STOP_GRACE_MS = 5_000;
 const SERVER_STOP_POLL_MS = 100;
 const SERVER_COMMANDS = new Set(['start', 'serve', 'daemon', 'stop', 'status', 'logs', 'url', 'help']);
 const CONTROL_COMMANDS = new Set(['skills', 'capabilities', 'list', 'spawn', 'output', 'send', 'title', 'kill']);
@@ -1222,6 +1223,40 @@ function serverStopTimeoutMs(env: NodeJS.ProcessEnv): number {
   return DEFAULT_SERVER_STOP_TIMEOUT_MS;
 }
 
+function serverStopGraceMs(env: NodeJS.ProcessEnv): number {
+  const parsed = Number(env.FARMING_STOP_GRACE_MS || env.FARMING_SERVER_STOP_GRACE_MS);
+  if (Number.isFinite(parsed) && parsed >= 0) return Math.min(parsed, 30_000);
+  return DEFAULT_SERVER_STOP_GRACE_MS;
+}
+
+async function waitForExactProcessExit(
+  pid: number,
+  expectedIdentity: ServerProcessIdentity,
+  timeoutMs: number,
+): Promise<boolean> {
+  const startedAt = Date.now();
+  while (matchingProcessIdentity(expectedIdentity, readServerProcessIdentity(pid))) {
+    if (Date.now() - startedAt >= timeoutMs) return false;
+    await new Promise(resolve => setTimeout(resolve, SERVER_STOP_POLL_MS));
+  }
+  return true;
+}
+
+function signalServer(pid: number, signal: NodeJS.Signals): void {
+  try {
+    process.kill(pid, signal);
+  } catch (error: unknown) {
+    if (errorString(error, 'code') === 'EPERM' || errorString(error, 'code') === 'EACCES') {
+      throw new Error(
+        `Farming cannot stop server ${pid} because this command lacks permission. `
+        + 'Run it as the operating-system user that owns the process (or as an administrator), then start Farming again.',
+        { cause: error },
+      );
+    }
+    if (errorString(error, 'code') !== 'ESRCH') throw error;
+  }
+}
+
 async function waitForDaemonStop(
   pid: number,
   port: number,
@@ -1622,34 +1657,31 @@ async function stopDaemon(parsed: ParsedServerOperation): Promise<number> {
   }
   const state = readServerState(configDir);
   const port = Number(state.port || env.PORT || DEFAULT_PORT);
+  let processIdentity: ServerProcessIdentity;
   if (state.processIdentity?.format === SERVER_PROCESS_IDENTITY_FORMAT) {
-    await assertServerProcessIdentity(configDir, pid, state);
+    processIdentity = await assertServerProcessIdentity(configDir, pid, state);
   } else {
-    await migrateLegacyServerIdentity(configDir, pid, state);
+    processIdentity = await migrateLegacyServerIdentity(configDir, pid, state);
   }
-  try {
-    process.kill(pid, 'SIGKILL');
-  } catch (error: unknown) {
-    if (errorString(error, 'code') === 'EPERM' || errorString(error, 'code') === 'EACCES') {
-      throw new Error(
-        `Farming cannot stop server ${pid} because this command lacks permission. `
-        + 'Run it as the operating-system user that owns the process (or as an administrator), then start Farming again.',
-        { cause: error },
-      );
-    }
-    if (errorString(error, 'code') !== 'ESRCH') throw error;
+  signalServer(pid, 'SIGTERM');
+  const exitedGracefully = await waitForExactProcessExit(pid, processIdentity, serverStopGraceMs(env));
+  if (!exitedGracefully && matchingProcessIdentity(processIdentity, readServerProcessIdentity(pid))) {
+    signalServer(pid, 'SIGKILL');
   }
-  await waitForDaemonStop(pid, port, { timeoutMs: serverStopTimeoutMs(env) });
+  await waitForDaemonStop(pid, port, {
+    timeoutMs: serverStopTimeoutMs(env),
+    isRunning: targetPid => matchingProcessIdentity(processIdentity, readServerProcessIdentity(targetPid)),
+  });
   if (readPid(configDir) === pid) fs.rmSync(pidFile(configDir), { force: true });
   if (Number(readServerState(configDir).pid) === pid) fs.rmSync(serverStateFile(configDir), { force: true });
   const activePackageRoot = String(env.FARMING_ACTIVE_PACKAGE_ROOT || '').trim();
   if (activePackageRoot) {
     const installation = resolvePackageInstallationContext(activePackageRoot, env);
     if (installation) {
-      releasePackageImageUsage(installation, configDir, state.processIdentity as ServerProcessIdentity);
+      releasePackageImageUsage(installation, configDir, processIdentity);
     }
   }
-  releaseServerConfigOwner(configDir, pid, state.processIdentity);
+  releaseServerConfigOwner(configDir, pid, processIdentity);
   console.log(`Stopped Farming (PID ${pid})`);
   return 0;
 }
@@ -1851,6 +1883,7 @@ export {
   serverReadinessPath,
   serverStartTimeoutMs,
   serverStartStabilityMs,
+  serverStopGraceMs,
   serverStopTimeoutMs,
   splitControlArgs,
   stopDaemon,
