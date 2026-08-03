@@ -50,6 +50,9 @@ interface TerminalScreenSnapshot {
 
 interface TerminalWithPrivateCore extends Terminal {
   _core?: {
+    coreMouseService?: {
+      activeEncoding?: string;
+    };
     coreService?: {
       isCursorHidden?: boolean;
     };
@@ -167,6 +170,22 @@ function getTerminalCursorVisible(terminal: Terminal): boolean {
   return isCursorHidden !== true;
 }
 
+function getTerminalMouseEncodingSequence(terminal: Terminal): string {
+  const privateTerminal = terminal as TerminalWithPrivateCore;
+  switch (privateTerminal._core?.coreMouseService?.activeEncoding) {
+    case 'UTF8':
+      return '\x1b[?1005h';
+    case 'SGR':
+      return '\x1b[?1006h';
+    case 'URXVT':
+      return '\x1b[?1015h';
+    case 'SGR_PIXELS':
+      return '\x1b[?1016h';
+    default:
+      return '';
+  }
+}
+
 class TerminalScreenState {
   private readonly includePreviewSnapshot: boolean;
   private readonly scrollback: number;
@@ -232,10 +251,11 @@ class TerminalScreenState {
     const serialized = this.serializeAddon.serialize({
       scrollback: this.scrollback,
     });
-    // SerializeAddon preserves screen contents and most terminal modes, but it
-    // omits DECTCEM (CSI ? 25 h/l). Make the cursor state explicit so a fresh
-    // browser terminal does not fall back to its visible-cursor default.
-    this.renderOutput = `${serialized}\x1b[?25${getTerminalCursorVisible(this.terminal) ? 'h' : 'l'}`;
+    // SerializeAddon omits DECTCEM and the active mouse encoding. Preserve both
+    // so a restored TUI keeps the same cursor and mouse input protocol.
+    const mouseEncoding = getTerminalMouseEncodingSequence(this.terminal);
+    const cursorVisibility = `\x1b[?25${getTerminalCursorVisible(this.terminal) ? 'h' : 'l'}`;
+    this.renderOutput = `${serialized}${mouseEncoding}${cursorVisibility}`;
     this.renderOutputDirty = false;
   }
 
@@ -315,6 +335,7 @@ export {
   collectViewportSnapshot,
   collectViewportText,
   getTerminalCursorVisible,
+  getTerminalMouseEncodingSequence,
 };
 
 export type {
