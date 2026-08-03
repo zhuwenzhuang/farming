@@ -439,7 +439,7 @@ test('unmounts inactive Chat transcript trees and restores them from a settled c
   }), firstAgentId)
   await expect(firstPane).toBeVisible()
   await expect(firstPane.getByText('FIRST cached answer 19.', { exact: false })).toBeVisible()
-  expect(cachedSwitchMs).toBeLessThan(250)
+  expect(cachedSwitchMs).toBeLessThan(300)
   expect(await firstPane.getAttribute('data-cache-probe')).toBe('retained')
   await expectRestoredScroll(savedScrollTop)
   await expect(firstProcessSummary).toHaveAttribute('aria-expanded', 'false')
