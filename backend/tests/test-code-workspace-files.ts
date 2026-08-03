@@ -1373,6 +1373,7 @@ function run() {
       messagesSource.includes('InterruptAgentMessage') &&
       stylesSource.includes('.code-composer-send.interrupt') &&
       stylesSource.includes('place-items: center') &&
+      stylesSource.includes('.code-composer-send:not(:disabled) {\n  background: #111;') &&
       stylesSource.includes('background: #111') &&
       stylesSource.includes('color: #fff') &&
       stylesSource.includes('background: #8e9294') &&

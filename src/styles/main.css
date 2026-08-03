@@ -16318,8 +16318,12 @@ body.code-mode .code-composer textarea::placeholder {
   fill: currentColor;
 }
 
+.code-composer-send:not(:disabled) {
+  background: #111;
+}
+
 .code-composer-send:not(:disabled):hover {
-  background: #737b79;
+  background: #000;
 }
 
 .code-composer-send.interrupt {

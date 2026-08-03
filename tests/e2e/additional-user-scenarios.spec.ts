@@ -593,6 +593,28 @@ test.describe('additional Farming Code user scenarios', () => {
     console.log(`additional desktop user scenarios executed ${checked.length} scenarios`)
   })
 
+  test('desktop composer visually distinguishes disabled and send states', async ({ page, workspaceRoot }) => {
+    const workspace = path.join(workspaceRoot, 'composer-submit-state')
+    fs.mkdirSync(workspace, { recursive: true })
+
+    await openFarming(page)
+    const agentId = await createControlAgent(page, 'bash', workspace)
+    await selectAgentById(page, agentId)
+
+    const textarea = page.getByTestId('code-composer-input')
+    const send = page.getByTestId('code-composer-send')
+    await textarea.fill('')
+    await expect(send).toBeDisabled()
+    await expect(send).toHaveAttribute('data-action', 'disabled')
+    const disabledBackground = await send.evaluate(element => getComputedStyle(element).backgroundColor)
+
+    await textarea.fill('echo composer-enabled-state')
+    await expect(send).toBeEnabled()
+    await expect(send).toHaveAttribute('data-action', 'send')
+    await expect.poll(() => send.evaluate(element => getComputedStyle(element).backgroundColor)).toBe('rgb(17, 17, 17)')
+    expect(await send.evaluate(element => getComputedStyle(element).backgroundColor)).not.toBe(disabledBackground)
+  })
+
   test.describe('touch mobile scenarios', () => {
     test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
 
