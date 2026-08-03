@@ -3,7 +3,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
-const { AcpRuntime, acpErrorKind, acpSessionRequestOptions, autoPermissionResponse, codexAcpEnvironment, deleteProviderSessionIdentity, promptContentForCapabilities, resolveAcpLaunch, supportsCodexSteer } = require('../acp-runtime.cjs');
+const { AcpRuntime, acpErrorKind, acpSessionRequestOptions, autoPermissionResponse, codexAcpEnvironment, deleteProviderSessionIdentity, normalizeCodexHostMessageUpdate, promptContentForCapabilities, resolveAcpLaunch, supportsCodexSteer } = require('../acp-runtime.cjs');
 const { renderFarmingAgentBootstrap } = require('../farming-agent-bootstrap.cjs');
 const { claudeAcpEnvironment } = require('../provider-adapters.cjs');
 const { AcpSessionState } = require('../acp-session-state.cjs');
@@ -615,6 +615,93 @@ async function run() {
   } });
   promptCompletedCompactionState.completePrompt();
   assert.strictEqual(promptCompletedCompactionState.snapshot().entries[0].status, 'completed');
+
+  const visualizationWorkspace = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-acp-visualization-'));
+  try {
+    const visualizationSessionId = '019fc4eb-9000-7000-8000-000000000001';
+    const codexHome = path.join(visualizationWorkspace, 'codex-home');
+    const visualizationDirectory = path.join(codexHome, 'visualizations', '2026', '08', '03', visualizationSessionId);
+    fs.mkdirSync(visualizationDirectory, { recursive: true });
+    fs.writeFileSync(path.join(visualizationDirectory, 'chart.html'), '<div>chart</div>');
+    const normalizedVisualization = await normalizeCodexHostMessageUpdate({
+      provider: 'codex', cwd: visualizationWorkspace, env: { CODEX_HOME: codexHome },
+      sessionId: visualizationSessionId,
+      sessionRequestOptions: { additionalDirectories: [], cwd: visualizationWorkspace, mcpServers: [] },
+    }, {
+      sessionId: visualizationSessionId,
+      update: {
+        sessionUpdate: 'agent_message_chunk',
+        messageId: 'visualization-answer',
+        content: { type: 'text', text: 'Result\n\n::codex-inline-vis{file="chart.html"}' },
+        _meta: { codex: { phase: 'final_answer' } },
+      },
+    });
+    assert.strictEqual(normalizedVisualization.length, 2);
+    assert.strictEqual(normalizedVisualization[0].update.content.text, 'Result');
+    assert.strictEqual(normalizedVisualization[1].update.content.type, 'resource_link');
+    assert.strictEqual(normalizedVisualization[1].update.content.mimeType, 'text/html');
+    assert.deepStrictEqual(normalizedVisualization[1].update.content._meta.farming, {
+      presentation: 'inline-visualization', source: 'codex-host-directive', version: 1,
+    });
+    assert.match(normalizedVisualization[1].update.content.uri, /^file:\/\//);
+    assert(normalizedVisualization[1].update.content.uri.endsWith('/chart.html'));
+
+    const codeBlockVisualization = await normalizeCodexHostMessageUpdate({
+      provider: 'codex', cwd: visualizationWorkspace, env: { CODEX_HOME: codexHome },
+      sessionId: visualizationSessionId,
+      sessionRequestOptions: { additionalDirectories: [], cwd: visualizationWorkspace, mcpServers: [] },
+    }, {
+      sessionId: visualizationSessionId,
+      update: {
+        sessionUpdate: 'agent_message_chunk',
+        messageId: 'literal-directive',
+        content: { type: 'text', text: '```text\n::codex-inline-vis{file="chart.html"}\n```' },
+      },
+    });
+    assert.strictEqual(codeBlockVisualization.length, 1);
+    assert.match(codeBlockVisualization[0].update.content.text, /::codex-inline-vis/);
+
+    const streamingBinding = {
+      provider: 'codex', cwd: visualizationWorkspace, env: { CODEX_HOME: codexHome },
+      sessionId: visualizationSessionId,
+      sessionRequestOptions: { additionalDirectories: [], cwd: visualizationWorkspace, mcpServers: [] },
+      codexInlineVisualizationStreams: new Map(),
+    };
+    const partialDirective = await normalizeCodexHostMessageUpdate(streamingBinding, {
+      sessionId: visualizationSessionId,
+      update: {
+        sessionUpdate: 'agent_message_chunk', messageId: 'streamed-directive',
+        content: { type: 'text', text: 'Before\n::codex-inline-vis{file="cha' },
+      },
+    });
+    assert.strictEqual(partialDirective.length, 1);
+    assert.strictEqual(partialDirective[0].update.content.text, 'Before\n');
+    const completedDirective = await normalizeCodexHostMessageUpdate(streamingBinding, {
+      sessionId: visualizationSessionId,
+      update: {
+        sessionUpdate: 'agent_message_chunk', messageId: 'streamed-directive',
+        content: { type: 'text', text: 'rt.html"}' },
+      },
+    });
+    assert.strictEqual(completedDirective.length, 1);
+    assert.strictEqual(completedDirective[0].update.content.type, 'resource_link');
+
+    const streamedCodeBinding = { ...streamingBinding, codexInlineVisualizationStreams: new Map() };
+    const streamedCodeUpdates = [];
+    for (const text of ['```te', 'xt\n::codex-inline-vis{file="chart.html"}', '\n```']) {
+      streamedCodeUpdates.push(...await normalizeCodexHostMessageUpdate(streamedCodeBinding, {
+        sessionId: visualizationSessionId,
+        update: {
+          sessionUpdate: 'agent_message_chunk', messageId: 'streamed-code',
+          content: { type: 'text', text },
+        },
+      }));
+    }
+    assert.strictEqual(streamedCodeUpdates.some(item => item.update.content.type === 'resource_link'), false);
+    assert.match(streamedCodeUpdates.map(item => item.update.content.text || '').join(''), /::codex-inline-vis/);
+  } finally {
+    fs.rmSync(visualizationWorkspace, { recursive: true, force: true });
+  }
 
   const fixture = path.join(__dirname, 'fixtures', 'fake-acp-agent.mts');
   const spawnedAdapters = [];

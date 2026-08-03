@@ -1,10 +1,12 @@
 import { EventEmitter } from 'events';
 const crypto = require('crypto');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { execFile, spawn } = require('child_process');
 const { Readable, Writable } = require('stream');
 const { createRequire } = require('module');
+const { pathToFileURL } = require('url');
 const { promisify } = require('util');
 const packageJson = require('../package.json');
 import { AcpCheckpointStore } from './acp-checkpoint-store.cjs';
@@ -23,6 +25,11 @@ import { patchBlock, rejectPatch } from './acp/patch-decisions.cjs';
 import { getProviderAdapter, listProviderAdapters } from './provider-adapters.cjs';
 import { isSafeProviderSessionId } from './provider-session-id.cjs';
 import { configInstanceFingerprint as fingerprintConfigInstance } from './config-instance.cjs';
+import {
+  consumeCodexInlineVisualizationStream,
+  createCodexInlineVisualizationStreamState,
+  stripCodexInternalContextBlocks,
+} from './codex-transcript-sanitizer.cjs';
 import type { ProviderSessionIdentityResult } from './agent-manager-provider-types.js';
 
 type UnknownRecord = Record<string, unknown>;
@@ -135,6 +142,7 @@ interface AcpBinding {
   deferredConfigFlush: Promise<void> | null;
   deferredModeGeneration: number;
   deferredModeId: string;
+  codexInlineVisualizationStreams: Map<string, ReturnType<typeof createCodexInlineVisualizationStreamState>>;
   stderr: string; exited: boolean; updatedAt: string;
 }
 interface AcpLaunch { command: string; args: string[]; version?: string }
@@ -640,6 +648,132 @@ function promptContentForCapabilities(content: unknown, capabilities: Initialize
   });
 }
 
+const MAX_CODEX_INLINE_VISUALIZATION_BYTES = 2 * 1024 * 1024;
+const trustedInlineVisualizationNotifications = new WeakSet<object>();
+
+function codexVisualizationThreadDirectory(binding: Pick<AcpBinding, 'env' | 'sessionId' | 'sessionRequestOptions'>, sessionId: string) {
+  const codexHome = path.resolve(String(binding.env?.CODEX_HOME || path.join(os.homedir(), '.codex')));
+  const visualizationsDirectory = path.join(codexHome, 'visualizations');
+  const threadId = String(sessionId || binding.sessionId || '');
+  const uuid = threadId.match(/^([0-9a-f]{8})-([0-9a-f]{4})-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+  if (!uuid) return { threadDirectory: '', visualizationsDirectory };
+  const grantedThreadDirectories = (binding.sessionRequestOptions?.additionalDirectories || [])
+    .map(directory => path.resolve(String(directory || '')))
+    .filter(directory => {
+      const relative = path.relative(visualizationsDirectory, directory);
+      const parts = relative.split(path.sep);
+      return !relative.startsWith('..') && !path.isAbsolute(relative)
+        && parts.length === 4 && parts[3] === threadId;
+    });
+  if (grantedThreadDirectories.length === 1) {
+    return { threadDirectory: grantedThreadDirectories[0], visualizationsDirectory };
+  }
+  const timestamp = Number.parseInt(`${uuid[1]}${uuid[2]}`, 16);
+  const createdAt = new Date(timestamp);
+  if (!Number.isFinite(createdAt.getTime())) return { threadDirectory: '', visualizationsDirectory };
+  const year = String(createdAt.getUTCFullYear()).padStart(4, '0');
+  const month = String(createdAt.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(createdAt.getUTCDate()).padStart(2, '0');
+  return {
+    threadDirectory: path.join(visualizationsDirectory, year, month, day, threadId),
+    visualizationsDirectory,
+  };
+}
+
+async function resolveCodexInlineVisualization(binding: AcpBinding, sessionId: string, requestedFile: string) {
+  const file = String(requestedFile || '').trim();
+  if (!file || path.basename(file) !== file || path.extname(file) !== '.html') return '';
+  const { threadDirectory, visualizationsDirectory } = codexVisualizationThreadDirectory(binding, sessionId);
+  if (!threadDirectory) return '';
+  try {
+    const [canonicalVisualizations, canonicalThread] = await Promise.all([
+      fs.promises.realpath(visualizationsDirectory),
+      fs.promises.realpath(threadDirectory),
+    ]);
+    if (!canonicalThread.startsWith(`${canonicalVisualizations}${path.sep}`)) return '';
+    const candidate = await fs.promises.realpath(path.join(canonicalThread, file));
+    if (!candidate.startsWith(`${canonicalThread}${path.sep}`)) return '';
+    const metadata = await fs.promises.stat(candidate);
+    if (!metadata.isFile() || metadata.size > MAX_CODEX_INLINE_VISUALIZATION_BYTES) return '';
+    const source = await fs.promises.readFile(candidate);
+    new TextDecoder('utf-8', { fatal: true }).decode(source);
+    return candidate;
+  } catch {
+    return '';
+  }
+}
+
+async function normalizeCodexHostMessageUpdate(binding: AcpBinding, notification: UnknownRecord) {
+  const update = notification.update as UnknownRecord | undefined;
+  const content = update?.content as UnknownRecord | undefined;
+  if (binding.provider !== 'codex' || update?.sessionUpdate !== 'agent_message_chunk' || content?.type !== 'text') {
+    return [notification];
+  }
+  const messageId = String(update.messageId || '');
+  const streamKey = `${String(notification.sessionId || binding.sessionId)}\0${messageId}`;
+  const streaming = binding.codexInlineVisualizationStreams instanceof Map && Boolean(messageId);
+  const stream = streaming
+    ? binding.codexInlineVisualizationStreams.get(streamKey) || createCodexInlineVisualizationStreamState()
+    : createCodexInlineVisualizationStreamState();
+  if (streaming) binding.codexInlineVisualizationStreams.set(streamKey, stream);
+  const consumed = consumeCodexInlineVisualizationStream(stream, content.text, !streaming);
+  const directives = consumed.directives;
+  const normalized: UnknownRecord[] = [];
+  const visibleText = streaming ? consumed.text : stripCodexInternalContextBlocks(consumed.text);
+  if (visibleText) {
+    normalized.push({ ...notification, update: { ...update, content: { ...content, text: visibleText } } });
+  }
+  for (const directive of directives.slice(0, 8)) {
+    const resolved = await resolveCodexInlineVisualization(binding, String(notification.sessionId || ''), directive.file);
+    const normalizedNotification = {
+      ...notification,
+      update: {
+        ...update,
+        content: {
+          type: 'resource_link',
+          name: directive.file,
+          uri: resolved ? pathToFileURL(resolved).toString() : `farming-unavailable:${directive.file}`,
+          mimeType: 'text/html',
+          _meta: {
+            codex: { kind: 'inline-visualization', available: Boolean(resolved) },
+            farming: { presentation: 'inline-visualization', source: 'codex-host-directive', version: 1 },
+          },
+        },
+      },
+    };
+    trustedInlineVisualizationNotifications.add(normalizedNotification);
+    normalized.push(normalizedNotification);
+  }
+  return normalized;
+}
+
+function normalizeReservedPresentationMetadata(notification: UnknownRecord) {
+  const update = notification.update as UnknownRecord | undefined;
+  const content = update?.content as UnknownRecord | undefined;
+  const contentMeta = content?._meta as UnknownRecord | undefined;
+  const trusted = trustedInlineVisualizationNotifications.has(notification);
+  if (!content || (!trusted && !contentMeta?.farming)) return notification;
+  const nextMeta = { ...(contentMeta || {}) };
+  delete nextMeta.farming;
+  if (trusted) {
+    nextMeta.farming = {
+      presentation: 'inline-visualization',
+      source: 'codex-host-directive',
+      version: 1,
+    };
+  }
+  const nextContent = { ...content };
+  delete nextContent._meta;
+  if (Object.keys(nextMeta).length > 0) nextContent._meta = nextMeta;
+  return {
+    ...notification,
+    update: {
+      ...update,
+      content: nextContent,
+    },
+  };
+}
+
 function restoreMissingHistoryMedia(replayedState: AcpSessionState, checkpointState: AcpSessionState) {
   const userEntries = (state: AcpSessionState) => state.entries.filter(entry => (
     entry?.type === 'message' && entry.role === 'user'
@@ -1112,6 +1246,7 @@ class AcpRuntime extends EventEmitter {
       deferredConfigFlush: null,
       deferredModeGeneration: 0,
       deferredModeId: '',
+      codexInlineVisualizationStreams: new Map(),
       stderr: '',
       exited: false,
       updatedAt: new Date().toISOString(),
@@ -1232,6 +1367,7 @@ class AcpRuntime extends EventEmitter {
           binding.historyReplayActive = false;
         }
         binding.sessionState.finishHistoryReplay();
+        binding.codexInlineVisualizationStreams.clear();
         const forked: SessionResponse = await withTimeout(
           connection.unstable_forkSession({
             sessionId: forkSourceSessionId,
@@ -1361,6 +1497,7 @@ class AcpRuntime extends EventEmitter {
             binding.historyReplayActive = false;
           }
           binding.sessionState.finishHistoryReplay();
+          binding.codexInlineVisualizationStreams.clear();
           if (provider === 'qoder' && restoredCheckpointState) {
             restoreMissingHistoryMedia(binding.sessionState, restoredCheckpointState);
           }
@@ -1675,6 +1812,7 @@ class AcpRuntime extends EventEmitter {
   finishTurn(binding: AcpBinding, turn: AcpTurn, result: unknown) {
     if (binding.activeTurn !== turn) return false;
     binding.activeTurn = null;
+    binding.codexInlineVisualizationStreams.clear();
     turn.phase = 'completed';
     turn.resolveCompletion?.(result);
     void this.flushDeferredSessionChanges(binding);
@@ -2094,7 +2232,9 @@ class AcpRuntime extends EventEmitter {
     };
     return {
       sessionUpdate: (notification: UnknownRecord) => {
-        if (!this.isOpenBinding(binding) || binding.state === 'closed') return;
+        const applyNotification = (normalizedNotification: UnknownRecord) => {
+          if (!this.isOpenBinding(binding) || binding.state === 'closed') return;
+          notification = normalizeReservedPresentationMetadata(normalizedNotification);
         const notificationSessionId = String(notification?.sessionId || '');
         const isPrimarySession = !binding.sessionId || !notificationSessionId || notificationSessionId === binding.sessionId;
         let targetState = isPrimarySession ? binding.sessionState : binding.subagentStates.get(notificationSessionId);
@@ -2141,6 +2281,16 @@ class AcpRuntime extends EventEmitter {
           // prepareAgent emits one complete snapshot after the replay settles.
           if (!binding.historyReplayActive) this.emitSession(binding);
         }
+        };
+        const update = notification.update as UnknownRecord | undefined;
+        const content = update?.content as UnknownRecord | undefined;
+        const isCodexAgentText = binding.provider === 'codex'
+          && update?.sessionUpdate === 'agent_message_chunk'
+          && content?.type === 'text';
+        if (!isCodexAgentText) return applyNotification(notification);
+        return normalizeCodexHostMessageUpdate(binding, notification).then(normalized => {
+          for (const item of normalized) applyNotification(item);
+        });
       },
       requestPermission: (request: UnknownRecord) => this.requestPermission(binding, request),
       readTextFile: openClientRequest((request: UnknownRecord) => this.clientFileSystem.readTextFile(binding, request)),
@@ -3826,6 +3976,7 @@ export {
   stopPersistedAcpProcessGroup,
   supportsCodexSteer,
   isCodexSteerUnavailableError,
+  normalizeCodexHostMessageUpdate,
   CODEX_STEER_METHOD,
   deleteProviderSessionIdentity,
 };

@@ -6,6 +6,24 @@ interface HeartbeatEnvelope {
   message: string;
 }
 
+interface CodexInlineVisualizationDirective {
+  file: string;
+}
+
+interface CodexInlineVisualizationStreamState {
+  buffer: string;
+  fenceCharacter: string;
+  fenceLength: number;
+  passthroughLine: boolean;
+}
+
+interface CodexInlineVisualizationStreamResult {
+  directives: CodexInlineVisualizationDirective[];
+  text: string;
+}
+
+const CODEX_INLINE_VISUALIZATION_PREFIX = '::codex-inline-vis{';
+
 function normalizeCodexTranscriptText(value: unknown): string {
   return String(value || '')
     .replace(/\r\n/g, '\n')
@@ -61,10 +79,147 @@ function stripCodexAppDirectives(value: unknown): string {
   // These directives are private transport hints consumed by the Codex app.
   // Farming does not implement their native cards, so rendering them as
   // Markdown leaks protocol syntax and local paths into otherwise clean Chat.
-  return String(value || '').replace(
+  const withoutMutationDirectives = String(value || '').replace(
     /::(?:code-comment|created-thread|git-(?:stage|commit|create-branch|push|create-pr))\{[^\r\n]*\}/gi,
     '',
   );
+  return consumeCodexInlineVisualizationStream(
+    { buffer: '', fenceCharacter: '', fenceLength: 0, passthroughLine: false },
+    withoutMutationDirectives,
+    true,
+  ).text;
+}
+
+function codexInlineVisualizationDirectives(value: unknown): CodexInlineVisualizationDirective[] {
+  return consumeCodexInlineVisualizationStream(
+    { buffer: '', fenceCharacter: '', fenceLength: 0, passthroughLine: false },
+    String(value || ''),
+    true,
+  ).directives;
+}
+
+function createCodexInlineVisualizationStreamState(): CodexInlineVisualizationStreamState {
+  return { buffer: '', fenceCharacter: '', fenceLength: 0, passthroughLine: false };
+}
+
+function directiveFile(line: string): string {
+  const trimmed = line.trim();
+  if (!trimmed.startsWith(CODEX_INLINE_VISUALIZATION_PREFIX) || !trimmed.endsWith('}')) return '';
+  const attributes = trimmed.slice(CODEX_INLINE_VISUALIZATION_PREFIX.length, -1).trim();
+  const match = attributes.match(/^file="([^"]+)"$/);
+  return String(match?.[1] || '');
+}
+
+function fenceMarker(line: string) {
+  const match = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
+  if (!match) return null;
+  return { character: match[1][0], length: match[1].length, tail: match[2] };
+}
+
+function consumeCodexInlineVisualizationStream(
+  state: CodexInlineVisualizationStreamState,
+  value: unknown,
+  final = false,
+): CodexInlineVisualizationStreamResult {
+  state.buffer += String(value || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  const directives: CodexInlineVisualizationDirective[] = [];
+  let text = '';
+
+  const consumeLine = (line: string, newline: string) => {
+    const marker = fenceMarker(line);
+    if (state.fenceCharacter) {
+      text += `${line}${newline}`;
+      if (
+        marker
+        && marker.character === state.fenceCharacter
+        && marker.length >= state.fenceLength
+        && marker.tail.trim() === ''
+      ) {
+        state.fenceCharacter = '';
+        state.fenceLength = 0;
+      }
+      return;
+    }
+    if (marker) {
+      text += `${line}${newline}`;
+      state.fenceCharacter = marker.character;
+      state.fenceLength = marker.length;
+      return;
+    }
+    if (/^(?: {4}|\t)/.test(line)) {
+      text += `${line}${newline}`;
+      return;
+    }
+    const trimmed = line.trim();
+    if (!trimmed.startsWith(CODEX_INLINE_VISUALIZATION_PREFIX)) {
+      text += `${line}${newline}`;
+      return;
+    }
+    const file = directiveFile(line);
+    if (file) directives.push({ file });
+    // A complete malformed directive and an incomplete streaming directive are
+    // both host-only syntax. The caller renders an explicit unavailable
+    // resource for a valid directive whose file cannot be resolved.
+    text += newline;
+  };
+
+  while (state.buffer) {
+    if (state.passthroughLine) {
+      const newlineIndex = state.buffer.indexOf('\n');
+      if (newlineIndex < 0) {
+        text += state.buffer;
+        state.buffer = '';
+        break;
+      }
+      text += state.buffer.slice(0, newlineIndex + 1);
+      state.buffer = state.buffer.slice(newlineIndex + 1);
+      state.passthroughLine = false;
+      continue;
+    }
+
+    const newlineIndex = state.buffer.indexOf('\n');
+    if (newlineIndex >= 0) {
+      const line = state.buffer.slice(0, newlineIndex);
+      state.buffer = state.buffer.slice(newlineIndex + 1);
+      consumeLine(line, '\n');
+      continue;
+    }
+
+    if (final) {
+      const line = state.buffer;
+      state.buffer = '';
+      consumeLine(line, '');
+      break;
+    }
+
+    const trimmedStart = state.buffer.trimStart();
+    const couldBecomeDirective = CODEX_INLINE_VISUALIZATION_PREFIX.startsWith(trimmedStart)
+      || trimmedStart.startsWith(CODEX_INLINE_VISUALIZATION_PREFIX);
+    const couldBecomeFence = /^ {0,3}(?:`+|~+)/.test(state.buffer);
+    const couldCloseFence = Boolean(state.fenceCharacter)
+      && new RegExp(`^ {0,3}${state.fenceCharacter === '`' ? '`' : '~'}{${state.fenceLength},}`).test(state.buffer);
+    if (
+      (state.fenceCharacter && !couldCloseFence)
+      || /^(?: {4}|\t)/.test(state.buffer)
+      || (!state.fenceCharacter && !couldBecomeDirective && !couldBecomeFence)
+    ) {
+      text += state.buffer;
+      state.buffer = '';
+      state.passthroughLine = true;
+      break;
+    }
+    // The line is a partial or complete directive. A closing brace makes it
+    // stable enough to normalize immediately; otherwise keep it invisible
+    // until the next chunk completes it.
+    if (trimmedStart.endsWith('}')) {
+      const line = state.buffer;
+      state.buffer = '';
+      consumeLine(line, '');
+    }
+    break;
+  }
+
+  return { directives, text };
 }
 
 function stripCodexInternalContextBlocks(value: unknown): string {
@@ -127,6 +282,9 @@ export {
   isCodexContextCompactionMessage,
   isCodexInjectedContextMessage,
   parseHeartbeatEnvelope,
+  codexInlineVisualizationDirectives,
+  consumeCodexInlineVisualizationStream,
+  createCodexInlineVisualizationStreamState,
   stripCodexAppDirectives,
   stripCodexInternalContextBlocks,
 };

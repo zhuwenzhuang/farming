@@ -6701,6 +6701,36 @@ body.code-mode .code-instance-name {
   white-space: normal;
 }
 
+.code-agent-transcript-inline-visualization {
+  width: 100%;
+  min-height: 120px;
+  overflow: hidden;
+  border: 1px solid rgba(31, 35, 40, 0.12);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.code-agent-transcript-inline-visualization iframe {
+  display: block;
+  width: 100%;
+  height: 360px;
+  border: 0;
+  background: transparent;
+}
+
+.code-agent-transcript-inline-visualization-loading,
+.code-agent-transcript-inline-visualization.error {
+  padding: 14px;
+  color: #6e7781;
+  font-size: 13px;
+}
+
+@media (max-width: 640px) {
+  .code-agent-transcript-inline-visualization iframe {
+    height: 420px;
+  }
+}
+
 .code-agent-transcript-user-file {
   min-width: 0;
   overflow: hidden;

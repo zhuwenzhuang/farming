@@ -626,6 +626,29 @@ assert.match(richContentTranscript.turns[0].processItems[0].images[0].url, /^dat
 assert.match(richContentTranscript.turns[0].processItems[0].audios[0].url, /^data:audio\/mpeg;base64,/);
 assert.strictEqual(richContentTranscript.turns[0].processItems[0].files[0].content, 'result text');
 
+const finalResourceTranscript = acpSessionTranscript({
+  entries: [
+    { id: 'user-final-resource', type: 'message', role: 'user', content: [{ type: 'text', text: 'Show it' }] },
+    {
+      id: 'answer-final-resource',
+      type: 'message',
+      role: 'assistant',
+      _meta: { codex: { phase: 'final_answer' } },
+      content: [
+        { type: 'text', text: 'Here it is.' },
+        {
+          type: 'resource_link', name: 'chart.html', uri: 'file:///home/example/.codex/visualizations/chart.html', mimeType: 'text/html',
+          _meta: { farming: { presentation: 'inline-visualization', source: 'codex-host-directive', version: 1 } },
+        },
+      ],
+    },
+  ],
+});
+assert.strictEqual(finalResourceTranscript.turns[0].finalMessage, 'Here it is.');
+assert.strictEqual(finalResourceTranscript.turns[0].resultFiles[0].name, 'chart.html');
+assert.strictEqual(finalResourceTranscript.turns[0].resultFiles[0].mimeType, 'text/html');
+assert.strictEqual(finalResourceTranscript.turns[0].resultFiles[0].presentation, 'inline-visualization');
+
 const rawMcpMediaTranscript = acpSessionTranscript({
   entries: [
     { id: 'user-mcp-media', type: 'message', role: 'user', content: [{ type: 'text', text: 'Inspect the browser' }] },

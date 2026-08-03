@@ -414,6 +414,19 @@ function referenceServerNotificationMethods() {
 }
 
 {
+  const literal = '```text\n::codex-inline-vis{file="chart.html"}\n```\n\n    ::codex-inline-vis{file="chart.html"}';
+  const turns = buildTranscriptFromLines([
+    event('user_message', { turn_id: 'turn-literal-directive', message: '展示语法' }),
+    event('agent_message', {
+      turn_id: 'turn-literal-directive',
+      message: literal,
+      phase: 'final_answer',
+    }),
+  ]);
+  assert.strictEqual(turns[0].finalMessage, literal);
+}
+
+{
   const turns = buildTranscriptFromLines([
     event('task_started', { turn_id: 'turn-1', started_at: 1000 }),
     event('user_message', { message: '看下 cron worker 怎么加新模块' }),
@@ -489,6 +502,7 @@ function referenceServerNotificationMethods() {
         '',
         '::git-stage{cwd="/Users/example/farming"} ::git-commit{cwd="/Users/example/farming"}',
         '::code-comment{title="Nested detail" body="Keep {value} private" file="/Users/example/farming/src/App.tsx"}',
+        '::codex-inline-vis{file="chart.html"}',
       ].join('\n'),
       phase: 'final_answer',
     }),
@@ -497,6 +511,7 @@ function referenceServerNotificationMethods() {
   assert.strictEqual(turns.length, 1);
   assert.strictEqual(turns[0].finalMessage, '已提交：804e8876 Improve in-app update settings');
   assert(!turns[0].finalMessage.includes('::git-'));
+  assert(!turns[0].finalMessage.includes('::codex-inline-vis'));
 }
 
 {

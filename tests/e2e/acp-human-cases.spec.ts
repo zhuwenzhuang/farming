@@ -14,6 +14,16 @@ async function createAcpAgent(page: Page, workspace: string) {
   return payload.agentId as string
 }
 
+async function createCodexAcpAgent(page: Page, workspace: string) {
+  const response = await page.request.post('/farming/api/control/agents', {
+    data: { command: 'codex', workspace, agentRuntimeMode: 'chat' },
+  })
+  expect(response.ok()).toBeTruthy()
+  const payload = await response.json() as { agentId?: string }
+  expect(payload.agentId).toBeTruthy()
+  return payload.agentId as string
+}
+
 function agentRow(page: Page, agentId: string) {
   return page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
 }
@@ -26,6 +36,25 @@ async function sendAcpMessage(page: Page, text: string) {
 }
 
 test.describe('ACP human-like browser matrix', () => {
+  test('renders a Codex host visualization directly inside the Chat result', async ({ page, workspaceRoot }) => {
+    const workspace = path.join(workspaceRoot, 'acp-inline-visualization')
+    fs.mkdirSync(workspace, { recursive: true })
+
+    const agentId = await createCodexAcpAgent(page, workspace)
+    await openFarming(page)
+    await agentRow(page, agentId).click()
+    await expect(page.getByTestId('code-acp-composer-input')).toBeEditable({ timeout: 20_000 })
+    await sendAcpMessage(page, 'inline visualization')
+
+    await expect(page.getByText('Inline visualization result', { exact: true })).toBeVisible({ timeout: 20_000 })
+    const visualization = page.getByTestId('code-agent-transcript-inline-visualization')
+    await expect(visualization).toBeVisible()
+    const frame = visualization.locator('iframe').contentFrame()
+    await expect(frame.getByRole('heading', { name: 'Farming visualization ready' })).toBeVisible()
+    await expect(frame.locator('body')).toHaveAttribute('data-visualization-ready', 'true')
+    await expect(page.getByText('farming-inline.html', { exact: true })).toHaveCount(0)
+  })
+
   test('opens connecting Chat without waiting for ordered workspace-history saves', async ({ page }) => {
     const firstWorkspace = path.resolve('tests')
     const secondWorkspace = path.resolve('docs')

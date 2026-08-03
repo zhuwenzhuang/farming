@@ -6,6 +6,7 @@ const {
 } = require('../../src/lib/workspace-viewer-registry.ts');
 const {
   buildWorkspaceHtmlPreviewDocument,
+  buildWorkspaceInlineVisualizationDocument,
   workspaceHtmlPreviewRefreshDelay,
 } = require('../../src/lib/workspace-html-preview.ts');
 
@@ -31,6 +32,15 @@ assert(document.includes("script-src 'none'"));
 assert(document.includes(`img src="${rootUrl}assets/logo.png"`));
 assert(document.includes('href="styles.css"'));
 assert(document.indexOf('<base') < document.indexOf('<title>'));
+
+const inlineVisualizationDocument = buildWorkspaceInlineVisualizationDocument(
+  '<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@vscode/codicons/dist/codicon.css"><script>document.body.dataset.ready = "1"</script>',
+  baseUrl,
+  rootUrl,
+);
+assert(inlineVisualizationDocument.includes("script-src 'unsafe-inline'"));
+assert(inlineVisualizationDocument.includes('https://cdn.jsdelivr.net'));
+assert(inlineVisualizationDocument.includes('document.body.dataset.ready'));
 
 const fragmentDocument = buildWorkspaceHtmlPreviewDocument(
   [

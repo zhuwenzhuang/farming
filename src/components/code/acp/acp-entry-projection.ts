@@ -42,6 +42,8 @@ export interface AgentTranscriptUserFile {
   uri?: string
   mimeType?: string
   resourceKind?: string
+  presentation?: string
+  presentationSource?: string
 }
 
 export interface AgentTranscriptLocation {
@@ -355,13 +357,23 @@ function contentFiles(content: unknown, prefix: string): AgentTranscriptUserFile
   return list(content).flatMap((value, index) => {
     const block = record(value)
     if (block.type === 'resource_link') {
+      const uri = stringValue(block.uri)
+      const farming = record(record(block._meta).farming)
+      const trustedInlineVisualization = farming.presentation === 'inline-visualization'
+        && farming.source === 'codex-host-directive'
+        && Number(farming.version) === 1
       return [{
         id: `${prefix}-resource-link-${index + 1}`,
-        name: stringValue(block.name || block.uri) || 'Resource',
-        content: stringValue(block.uri),
-        uri: stringValue(block.uri),
+        name: stringValue(block.name || uri) || 'Resource',
+        content: uri,
+        uri,
         mimeType: stringValue(block.mimeType),
         resourceKind: 'link',
+        ...(trustedInlineVisualization ? {
+          presentation: 'inline-visualization',
+          presentationSource: 'codex-host-directive',
+        } : {}),
+        ...(uri.startsWith('farming-unavailable:') ? { error: 'Visualization file is unavailable or invalid' } : {}),
       }]
     }
     if (block.type !== 'resource' || !block.resource) return []
@@ -753,8 +765,11 @@ export function projectAcpTranscript(sessionValue: unknown, options: { maxTurns?
       const images = contentImages(entry.content, prefix)
       const audios = contentAudios(entry.content, prefix)
       const files = contentFiles(entry.content, prefix)
-      if (phase === 'final_answer' && text) {
-        current.finalMessage = text
+      if (phase === 'final_answer' && (text || images.length > 0 || audios.length > 0 || files.length > 0)) {
+        if (text) current.finalMessage = text
+        current.resultImages = uniqueByUrl([...current.resultImages, ...images])
+        current.resultAudios = uniqueByUrl([...current.resultAudios, ...audios])
+        current.resultFiles.push(...files)
         continue
       }
       const processItemId = text ? `acp-progress-${stringValue(entry.id) || String(++sequence)}` : ''

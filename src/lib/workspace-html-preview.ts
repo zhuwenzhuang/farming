@@ -16,19 +16,24 @@ export function workspaceHtmlPreviewRefreshDelay(expiresAt: number, now = Date.n
   return Math.max(1_000, expiresAt - now - 60_000)
 }
 
-export function buildWorkspaceHtmlPreviewDocument(source: string, baseUrl: string, rootUrl: string) {
+function buildWorkspacePreviewDocument(source: string, baseUrl: string, rootUrl: string, inlineVisualization: boolean) {
   const safeBaseUrl = escapeHtmlAttribute(baseUrl)
   const safeRootUrl = escapeHtmlAttribute(rootUrl)
+  const visualizationCdn = 'https://cdnjs.cloudflare.com https://esm.sh https://cdn.jsdelivr.net https://unpkg.com https://fonts.googleapis.com https://fonts.gstatic.com https://fonts.bunny.net'
   const policy = [
     "default-src 'none'",
-    "script-src 'none'",
-    `style-src ${safeBaseUrl} ${safeRootUrl} 'unsafe-inline'`,
-    `img-src ${safeBaseUrl} ${safeRootUrl} data:`,
-    `font-src ${safeBaseUrl} ${safeRootUrl} data:`,
-    `media-src ${safeBaseUrl} ${safeRootUrl} data:`,
-    "connect-src 'none'",
+    inlineVisualization
+      ? `script-src 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' blob: data: ${visualizationCdn}`
+      : "script-src 'none'",
+    `style-src ${safeBaseUrl} ${safeRootUrl} 'unsafe-inline' blob: data:${inlineVisualization ? ` ${visualizationCdn}` : ''}`,
+    `img-src ${safeBaseUrl} ${safeRootUrl} blob: data:${inlineVisualization ? ` ${visualizationCdn}` : ''}`,
+    `font-src ${safeBaseUrl} ${safeRootUrl} blob: data:${inlineVisualization ? ` ${visualizationCdn}` : ''}`,
+    `media-src ${safeBaseUrl} ${safeRootUrl} blob: data:`,
+    inlineVisualization ? 'worker-src blob:' : "worker-src 'none'",
+    inlineVisualization ? 'connect-src blob: data:' : "connect-src 'none'",
     "frame-src 'none'",
     "object-src 'none'",
+    `base-uri ${safeBaseUrl}`,
     "form-action 'none'",
   ].join('; ')
   const headContent = [
@@ -44,4 +49,12 @@ export function buildWorkspaceHtmlPreviewDocument(source: string, baseUrl: strin
     return rewritten.replace(/<html\b[^>]*>/i, match => `${match}<head>${headContent}</head>`)
   }
   return `<head>${headContent}</head>${rewritten}`
+}
+
+export function buildWorkspaceHtmlPreviewDocument(source: string, baseUrl: string, rootUrl: string) {
+  return buildWorkspacePreviewDocument(source, baseUrl, rootUrl, false)
+}
+
+export function buildWorkspaceInlineVisualizationDocument(source: string, baseUrl: string, rootUrl: string) {
+  return buildWorkspacePreviewDocument(source, baseUrl, rootUrl, true)
 }

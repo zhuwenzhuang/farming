@@ -38,11 +38,18 @@ import {
 } from '@/components/IconGlyphs'
 import { LocalErrorBoundary, LocalRenderFault } from '@/components/LocalErrorBoundary'
 import { MermaidBlock } from '@/components/files/FileEditorMarkdownPreview'
+import { buildWorkspaceInlineVisualizationDocument } from '@/lib/workspace-html-preview'
+import {
+  createWorkspaceHtmlPreview,
+  deleteWorkspaceHtmlPreview,
+  fetchWorkspaceFile,
+  workspaceHtmlPreviewUrl,
+} from '@/lib/workspace-files'
 import { appPath } from '@/lib/base-path'
 import { showUrlOpenMenu } from '@/lib/url-open-menu'
 import { writeClipboardText } from '@/lib/clipboard'
 import { iconForFilePath } from '@/lib/file-icons'
-import { normalizeGlobalWorkspaceFilePath } from '@/lib/global-workspace-files'
+import { GLOBAL_WORKSPACE_FILES_AGENT_ID, normalizeGlobalWorkspaceFilePath } from '@/lib/global-workspace-files'
 import { markdownTextContent, mermaidCodeBlockSource } from '@/lib/react-markdown-content'
 import {
   clearReadingAnchor,
@@ -100,6 +107,7 @@ interface AgentTranscriptProcessPresentation {
 }
 
 interface TranscriptFileOpenContextValue {
+  agentId?: string
   workspaceRoot?: string
   onOpenFile?: (filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void> | void
 }
@@ -710,7 +718,7 @@ function safeResourceHref(uri?: string) {
 }
 
 function AgentTranscriptUserFiles({ files }: { files: AgentTranscriptUserFile[] }) {
-  const { workspaceRoot, onOpenFile } = useContext(TranscriptFileOpenContext)
+  const { agentId, workspaceRoot, onOpenFile } = useContext(TranscriptFileOpenContext)
   if (files.length <= 0) return null
   return (
     <div className="code-agent-transcript-user-files" data-testid="code-agent-transcript-user-files">
@@ -721,6 +729,26 @@ function AgentTranscriptUserFiles({ files }: { files: AgentTranscriptUserFile[] 
         const workspaceResource = file.resourceKind === 'link' && file.uri
           ? transcriptLocationOpenTarget({ path: file.uri }, workspaceRoot)
           : null
+        if (
+          file.resourceKind === 'link'
+          && file.mimeType === 'text/html'
+          && file.presentation === 'inline-visualization'
+          && file.presentationSource === 'codex-host-directive'
+          && workspaceResource
+          && agentId
+          && !file.error
+        ) {
+          const exactExternal = workspaceResource.target.globalRoot === true
+          return (
+            <AgentTranscriptInlineVisualization
+              key={file.id}
+              rootId={exactExternal ? GLOBAL_WORKSPACE_FILES_AGENT_ID : agentId}
+              exactExternal={exactExternal}
+              file={file}
+              filePath={workspaceResource.filePath}
+            />
+          )
+        }
         if (file.resourceKind === 'link') {
           return (
             <div key={file.id} className="code-agent-transcript-user-file code-agent-transcript-resource-link">
@@ -756,6 +784,58 @@ function AgentTranscriptUserFiles({ files }: { files: AgentTranscriptUserFile[] 
           </details>
         )
       })}
+    </div>
+  )
+}
+
+function AgentTranscriptInlineVisualization({
+  rootId,
+  exactExternal,
+  file,
+  filePath,
+}: {
+  rootId: string
+  exactExternal: boolean
+  file: AgentTranscriptUserFile
+  filePath: string
+}) {
+  const [document, setDocument] = useState('')
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    const controller = new AbortController()
+    let previewId = ''
+    void fetchWorkspaceFile(rootId, filePath, { signal: controller.signal, exactExternal })
+      .then(async workspaceFile => {
+        const preview = await createWorkspaceHtmlPreview(rootId, filePath, { signal: controller.signal, exactExternal })
+        previewId = preview.id
+        const baseUrl = new URL(workspaceHtmlPreviewUrl(preview.id, 'base'), window.location.href).toString()
+        const rootUrl = new URL(workspaceHtmlPreviewUrl(preview.id, 'root'), window.location.href).toString()
+        setDocument(buildWorkspaceInlineVisualizationDocument(workspaceFile.content || '', baseUrl, rootUrl))
+      })
+      .catch(reason => {
+        if (controller.signal.aborted) return
+        setError(reason instanceof Error ? reason.message : String(reason || 'Visualization unavailable'))
+      })
+    return () => {
+      controller.abort()
+      if (previewId) void deleteWorkspaceHtmlPreview(previewId)
+    }
+  }, [exactExternal, filePath, rootId])
+
+  if (error) {
+    return <div className="code-agent-transcript-inline-visualization error" role="status">{error}</div>
+  }
+  return (
+    <div className="code-agent-transcript-inline-visualization" data-testid="code-agent-transcript-inline-visualization">
+      {document ? (
+        <iframe
+          sandbox="allow-scripts"
+          referrerPolicy="no-referrer"
+          srcDoc={document}
+          title={file.name}
+        />
+      ) : <div className="code-agent-transcript-inline-visualization-loading">Loading visualization…</div>}
     </div>
   )
 }
@@ -3546,9 +3626,10 @@ export function AgentTranscriptPane({
     })
   ), [agentId])
   const transcriptFileOpenContext = useMemo(() => ({
+    agentId,
     workspaceRoot,
     onOpenFile: onOpenWorkspaceFilePath ? handleOpenFile : undefined,
-  }), [handleOpenFile, onOpenWorkspaceFilePath, workspaceRoot])
+  }), [agentId, handleOpenFile, onOpenWorkspaceFilePath, workspaceRoot])
   useEffect(() => {
     if (!active || !workspaceRoot) return undefined
     let cancelled = false

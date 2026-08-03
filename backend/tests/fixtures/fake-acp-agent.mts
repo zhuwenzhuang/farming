@@ -54,6 +54,20 @@ function deterministicE2eSessionId(agentId: string | undefined): string {
   ].join('-');
 }
 
+function codexVisualizationDirectory(codexHome: string, threadId: string) {
+  const match = threadId.match(/^([0-9a-f]{8})-([0-9a-f]{4})-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+  if (!match) throw new Error('Fake inline visualization requires a UUIDv7 session id');
+  const createdAt = new Date(Number.parseInt(`${match[1]}${match[2]}`, 16));
+  return path.join(
+    codexHome,
+    'visualizations',
+    String(createdAt.getUTCFullYear()).padStart(4, '0'),
+    String(createdAt.getUTCMonth() + 1).padStart(2, '0'),
+    String(createdAt.getUTCDate()).padStart(2, '0'),
+    threadId,
+  );
+}
+
 const initialSessionId = process.env.FARMING_E2E_FAKE_EXECUTABLES === '1'
   ? deterministicE2eSessionId(process.env.FARMING_AGENT_ID)
   : 'acp-new-session';
@@ -386,6 +400,40 @@ class FakeAgent implements Agent {
   async prompt(params: PromptRequest): Promise<PromptResponse> {
     const promptText = params.prompt?.map(block => block.type === 'text' ? block.text : '').join('') || '';
     const imageCount = params.prompt?.filter(block => block.type === 'image').length || 0;
+    if (promptText.includes('inline visualization')) {
+      const codexHome = String(process.env.CODEX_HOME || '').trim();
+      if (!codexHome) throw new Error('Fake inline visualization requires CODEX_HOME');
+      const directory = codexVisualizationDirectory(codexHome, params.sessionId);
+      fs.mkdirSync(directory, { recursive: true });
+      fs.writeFileSync(path.join(directory, 'farming-inline.html'), [
+        '<!doctype html><html><head><style>',
+        'body{margin:0;padding:24px;font:15px system-ui;background:linear-gradient(135deg,#eef8ff,#f5f0ff);color:#182230}',
+        '.card{border:1px solid #93b4d8;border-radius:16px;background:rgba(255,255,255,.88);padding:22px;box-shadow:0 12px 32px rgba(34,72,110,.14)}',
+        '.badge{display:inline-block;border-radius:999px;background:#dff6e7;color:#176b36;padding:5px 10px;font-weight:700}',
+        'h2{margin:14px 0 8px;font-size:24px}p{margin:0;color:#486174}',
+        '</style></head><body><section class="card"><span class="badge">ACP · inline</span><h2>Farming visualization ready</h2><p>Rendered directly inside the Chat result.</p></section>',
+        '<script>document.body.dataset.visualizationReady="true"</script></body></html>',
+      ].join(''));
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          messageId: 'inline-visualization-answer',
+          content: { type: 'text', text: 'Inline visualization result\n\n::codex-inline-vis{file="farming-' },
+          _meta: { codex: { phase: 'final_answer' } },
+        },
+      });
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          messageId: 'inline-visualization-answer',
+          content: { type: 'text', text: 'inline.html"}' },
+          _meta: { codex: { phase: 'final_answer' } },
+        },
+      });
+      return { stopReason: 'end_turn' };
+    }
     if (promptText.includes('disconnect adapter once')) {
       if (!hasSessionScenario(params.sessionId, 'adapter-disconnect-once')) {
         markSessionScenario(params.sessionId, 'adapter-disconnect-once');
