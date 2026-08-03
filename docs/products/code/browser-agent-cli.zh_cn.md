@@ -66,15 +66,28 @@ list → 复用或创建 → start → navigate → snapshot
 
 ## 支持的任务
 
-- 创建、列出、启动和停止 Browser Resource。
+- 创建、列出、启动、停止和永久关闭 Browser Resource。
 - 导航、后退、前进、刷新，以及等待页面变化。
 - 点击、填表、输入、按键、选择、拖拽和滚动。
-- 读取结构化 Snapshot、文本、属性、元素状态和截图。
-- 检查 Console、页面错误和 Network Request。
+- 读取有界的结构化 Snapshot，并可选择 Interactive、Compact、Depth、Selector、
+  URL、元素数量与文本长度；发生截断时必须显式返回标记。
+- 以 MCP Image Content 获取视口、全页、单元素、带标注、PNG 或有界质量 JPEG 截图；
+  截图文件超过 32 MiB 时，Farming 会在读取或编码前显式失败。
+- 设置确定性的 Viewport、设备预设、明暗 Media、Reduced Motion 和 Offline 模式，
+  用于响应式与失败状态验证。
+- 检查 Console、页面错误和 Network Request；Abort 或 Mock 匹配请求，并把证据导出为
+  Project Workspace 内的 HAR 文件。
 - 使用 Cookie、Storage、Frame 和浏览器 Dialog。
 - 上传已有 Project 文件，或把下载保存为 Project 中的新文件。
 
 运行 `farming browser help` 可查看当前安装版本提供的主题。
+
+Navigate、History、Click、Fill、Type 和 Scroll 可以通过 `snapshotAfter` 原子地返回
+一份 Compact Interactive Snapshot，从而避免 Action 与验证之间被其它操作插入，
+同时不会强制每次 Action 都返回大量页面状态。
+
+HAR Capture 先写入私有临时文件，只能发布到 Browser Resource 所属 Project Workspace
+内的新路径，并拒绝超过 64 MiB 的 Capture。
 
 ## 共享使用与安全
 

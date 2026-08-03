@@ -36,6 +36,7 @@ const VIEWER_METRICS_REPORT_MS = 5_000;
 const BROWSER_RECOVERY_TIMEOUT_MS = 5_000;
 const BROWSER_RECOVERY_POLL_MS = 100;
 const MAX_UPLOAD_FILES = 20;
+const MAX_HAR_BYTES = 64 * 1024 * 1024;
 const INACTIVE_AGENT_STATUSES = new Set(['dead', 'error', 'exited', 'stopped']);
 
 type BrowserResourceStatus = 'stopped' | 'starting' | 'running' | 'stopping' | 'failed';
@@ -116,8 +117,9 @@ interface BrowserRuntime {
   goBack(): Promise<BrowserMetadata>;
   goForward(): Promise<BrowserMetadata>;
   reload(): Promise<BrowserMetadata>;
-  snapshot(): Promise<unknown>;
-  screenshot(): Promise<unknown>;
+  snapshot(input?: BrowserMessage): Promise<unknown>;
+  screenshot(input?: BrowserMessage): Promise<unknown>;
+  emulate(input: BrowserMessage): Promise<unknown>;
   click(input: BrowserMessage): Promise<unknown>;
   elementAction(kind: string, input: BrowserMessage): Promise<unknown>;
   type(input: BrowserMessage, fill: boolean): Promise<unknown>;
@@ -336,43 +338,46 @@ function pathInside(root: string, candidate: string): boolean {
   return candidate === root || candidate.startsWith(`${root}${path.sep}`);
 }
 
-function resolveWorkspaceInputFile(resource: BrowserResource, value: unknown): string {
-  const workspace = fs.realpathSync(resource.workspace);
+async function resolveWorkspaceInputFile(resource: BrowserResource, value: unknown): Promise<string> {
+  const workspace = await fs.promises.realpath(resource.workspace);
   const requested = path.resolve(resource.workspace, String(value || ''));
   let resolved;
   try {
-    resolved = fs.realpathSync(requested);
+    resolved = await fs.promises.realpath(requested);
   } catch {
     throw browserError(`Upload file does not exist: ${value}`);
   }
   if (!pathInside(workspace, resolved)) {
     throw browserError('Browser uploads must stay inside the Browser Project workspace');
   }
-  if (!fs.statSync(resolved).isFile()) {
+  if (!(await fs.promises.stat(resolved)).isFile()) {
     throw browserError(`Browser upload path is not a file: ${value}`);
   }
   return resolved;
 }
 
-function resolveWorkspaceOutputFile(resource: BrowserResource, value: unknown): string {
+async function resolveWorkspaceOutputFile(resource: BrowserResource, value: unknown): Promise<string> {
   const requestedValue = String(value || '').trim();
   if (!requestedValue) throw browserError('Download output path is required');
-  const workspace = fs.realpathSync(resource.workspace);
+  const workspace = await fs.promises.realpath(resource.workspace);
   const requested = path.resolve(resource.workspace, requestedValue);
   if (!pathInside(path.resolve(resource.workspace), requested)) {
     throw browserError('Browser downloads must stay inside the Browser Project workspace');
   }
   let parent;
   try {
-    parent = fs.realpathSync(path.dirname(requested));
+    parent = await fs.promises.realpath(path.dirname(requested));
   } catch {
     throw browserError('Browser download parent directory does not exist');
   }
   if (!pathInside(workspace, parent)) {
     throw browserError('Browser downloads must stay inside the Browser Project workspace');
   }
-  if (fs.existsSync(requested)) {
+  try {
+    await fs.promises.access(requested);
     throw browserError('Browser download target already exists');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
   }
   return requested;
 }
@@ -1187,7 +1192,7 @@ class BrowserResourceManager extends EventEmitter {
       && resourceDir.startsWith(`${browsersDir}${path.sep}`)
       && RESOURCE_ID_RE.test(sessionId)
     ) {
-      fs.rmSync(resourceDir, { recursive: true, force: true });
+      await fs.promises.rm(resourceDir, { recursive: true, force: true });
     }
     this.emit('deleted', { id, collectionRevision: this.store.revision });
     return { id, collectionRevision: this.store.revision };
@@ -1227,16 +1232,43 @@ class BrowserResourceManager extends EventEmitter {
     });
   }
 
+  async resultWithSnapshot(
+    runtime: BrowserRuntime,
+    input: BrowserMessage,
+    result: unknown,
+  ): Promise<unknown> {
+    if (input.snapshotAfter !== true) return result;
+    return {
+      result,
+      snapshot: await runtime.snapshot({ mode: 'interactive', compact: true }),
+    };
+  }
+
   action(id: string, input: BrowserMessage): Promise<unknown> {
     this.requireEnabled();
     const kind = String(input?.kind || '').trim();
-    if (kind === 'snapshot') return this.withRuntime(id, runtime => runtime.snapshot());
-    if (kind === 'screenshot') return this.withRuntime(id, runtime => runtime.screenshot());
-    if (kind === 'navigate') return this.navigate(id, input.url);
-    if (kind === 'back') return this.goBack(id);
-    if (kind === 'forward') return this.goForward(id);
-    if (kind === 'reload') return this.reload(id);
-    if (kind === 'click') return this.withRuntime(id, runtime => runtime.click(input));
+    if (kind === 'snapshot') return this.withRuntime(id, runtime => runtime.snapshot(input));
+    if (kind === 'screenshot') return this.withRuntime(id, runtime => runtime.screenshot(input));
+    if (kind === 'emulate') return this.withRuntime(id, runtime => runtime.emulate(input));
+    if (kind === 'navigate') return this.withRuntime(id, async (runtime, binding) => {
+      const metadata = await runtime.navigate(normalizeUrl(input.url));
+      this.updateMetadata(binding, metadata);
+      return this.resultWithSnapshot(runtime, input, this.get(id));
+    });
+    if (kind === 'back' || kind === 'forward' || kind === 'reload') {
+      return this.withRuntime(id, async (runtime, binding) => {
+        const metadata = kind === 'back'
+          ? await runtime.goBack()
+          : kind === 'forward'
+            ? await runtime.goForward()
+            : await runtime.reload();
+        this.updateMetadata(binding, metadata);
+        return this.resultWithSnapshot(runtime, input, this.get(id));
+      });
+    }
+    if (kind === 'click') return this.withRuntime(id, async runtime => (
+      this.resultWithSnapshot(runtime, input, await runtime.click(input))
+    ));
     if ([
       'dblclick',
       'hover',
@@ -1248,8 +1280,12 @@ class BrowserResourceManager extends EventEmitter {
     ].includes(kind)) {
       return this.withRuntime(id, runtime => runtime.elementAction(kind, input));
     }
-    if (kind === 'type') return this.withRuntime(id, runtime => runtime.type(input, false));
-    if (kind === 'fill') return this.withRuntime(id, runtime => runtime.type(input, true));
+    if (kind === 'type') return this.withRuntime(id, async runtime => (
+      this.resultWithSnapshot(runtime, input, await runtime.type(input, false))
+    ));
+    if (kind === 'fill') return this.withRuntime(id, async runtime => (
+      this.resultWithSnapshot(runtime, input, await runtime.type(input, true))
+    ));
     if (kind === 'keyboard') return this.withRuntime(id, runtime => runtime.keyboard(input));
     if (kind === 'press') return this.withRuntime(id, runtime => runtime.press(input));
     if (kind === 'select') return this.withRuntime(id, runtime => runtime.select(input));
@@ -1262,6 +1298,34 @@ class BrowserResourceManager extends EventEmitter {
     if (kind === 'console' || kind === 'errors') {
       return this.withRuntime(id, runtime => runtime.debugLog(kind, input));
     }
+    if (kind === 'network' && input.operation === 'har-stop') {
+      const resource = this.requireStored(id);
+      return resolveWorkspaceOutputFile(resource, input.path).then(target => this.withRuntime(id, async runtime => {
+        const resourceDir = path.dirname(storageLayout.browserProfileDir(
+          this.configDir,
+          resource.sessionId || id,
+        ));
+        const networkDir = path.join(resourceDir, 'network');
+        await fs.promises.mkdir(networkDir, { recursive: true, mode: 0o700 });
+        const temporaryPath = path.join(networkDir, `${crypto.randomUUID()}.har`);
+        try {
+          await runtime.network({ ...input, outputPath: temporaryPath });
+          const stat = await fs.promises.stat(temporaryPath);
+          if (!stat.isFile()) throw browserError('Browser HAR capture did not produce a regular file');
+          if (stat.size > MAX_HAR_BYTES) {
+            throw browserError(`Browser HAR capture exceeds ${MAX_HAR_BYTES} bytes`);
+          }
+          await fs.promises.copyFile(temporaryPath, target, fs.constants.COPYFILE_EXCL);
+          return {
+            ok: true,
+            path: path.relative(resource.workspace, target) || path.basename(target),
+            size: stat.size,
+          };
+        } finally {
+          await fs.promises.rm(temporaryPath, { force: true });
+        }
+      }));
+    }
     if (kind === 'network') return this.withRuntime(id, runtime => runtime.network(input));
     if (kind === 'cookies') return this.withRuntime(id, runtime => runtime.cookies(input));
     if (kind === 'storage') return this.withRuntime(id, runtime => runtime.storage(input));
@@ -1273,41 +1337,40 @@ class BrowserResourceManager extends EventEmitter {
       if (requestedFiles.length === 0 || requestedFiles.length > MAX_UPLOAD_FILES) {
         throw browserError(`Browser upload requires between 1 and ${MAX_UPLOAD_FILES} files`);
       }
-      const files = requestedFiles.map(file => resolveWorkspaceInputFile(resource, file));
-      return this.withRuntime(id, runtime => runtime.upload({ ...input, files }));
+      return Promise.all(requestedFiles.map(file => resolveWorkspaceInputFile(resource, file)))
+        .then(files => this.withRuntime(id, runtime => runtime.upload({ ...input, files })));
     }
     if (kind === 'download') {
       const resource = this.requireStored(id);
-      const target = resolveWorkspaceOutputFile(resource, input?.path);
-      return this.withRuntime(id, async runtime => {
+      return resolveWorkspaceOutputFile(resource, input?.path).then(target => this.withRuntime(id, async runtime => {
         const resourceDir = path.dirname(storageLayout.browserProfileDir(
           this.configDir,
           resource.sessionId || id,
         ));
         const downloadDir = path.join(resourceDir, 'downloads');
-        fs.mkdirSync(downloadDir, { recursive: true, mode: 0o700 });
+        await fs.promises.mkdir(downloadDir, { recursive: true, mode: 0o700 });
         const temporaryPath = path.join(
           downloadDir,
           `${crypto.randomUUID()}-${path.basename(target)}`,
         );
         try {
           await runtime.download({ ...input, outputPath: temporaryPath });
-          const stat = fs.statSync(temporaryPath);
+          const stat = await fs.promises.stat(temporaryPath);
           if (!stat.isFile()) throw browserError('Browser download did not produce a regular file');
-          fs.copyFileSync(temporaryPath, target, fs.constants.COPYFILE_EXCL);
+          await fs.promises.copyFile(temporaryPath, target, fs.constants.COPYFILE_EXCL);
           return {
             ok: true,
             path: path.relative(resource.workspace, target) || path.basename(target),
             size: stat.size,
           };
         } finally {
-          fs.rmSync(temporaryPath, { force: true });
+          await fs.promises.rm(temporaryPath, { force: true });
         }
-      });
+      }));
     }
     if (kind === 'scroll') return this.withRuntime(id, async runtime => {
       await runtime.wheel(input);
-      return { ok: true };
+      return this.resultWithSnapshot(runtime, input, { ok: true });
     });
     throw browserError(`Unsupported Browser action: ${kind || '(missing)'}`);
   }

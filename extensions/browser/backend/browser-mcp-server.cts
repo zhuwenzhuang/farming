@@ -33,6 +33,7 @@ interface BrowserClient {
   list(): Promise<BrowserResource[]>;
   open(input: { name?: string; url?: string }): Promise<BrowserResponse>;
   lifecycle(browserId: string, action: string): Promise<BrowserResponse>;
+  delete(browserId: string): Promise<BrowserResponse>;
   action(browserId: string, input: BrowserResponse): Promise<BrowserResponse>;
 }
 
@@ -66,6 +67,23 @@ function locatorSchema() {
     selector: z.string().min(1).optional().describe('CSS selector. Prefer snapshot refs when available.'),
   };
 }
+
+function snapshotOptionsSchema() {
+  return {
+    mode: z.enum(['interactive', 'full']).optional()
+      .describe('Interactive returns only actionable elements; full includes page structure.'),
+    compact: z.boolean().optional().describe('Remove empty structural nodes.'),
+    depth: z.number().int().min(1).max(100).optional().describe('Maximum accessibility-tree depth.'),
+    selector: z.string().min(1).optional().describe('Limit the snapshot to one CSS selector.'),
+    includeUrls: z.boolean().optional().describe('Include link destinations.'),
+    maxElements: z.number().int().min(1).max(500).optional(),
+    maxChars: z.number().int().min(1_000).max(200_000).optional(),
+  };
+}
+
+const SNAPSHOT_AFTER_SCHEMA = z.boolean().optional().describe(
+  'Return a compact interactive snapshot atomically after the action.',
+);
 
 class ScopedBrowserClient implements BrowserClient {
   readonly env: NodeJS.ProcessEnv;
@@ -131,6 +149,16 @@ class ScopedBrowserClient implements BrowserClient {
     ));
   }
 
+  async delete(browserId: string): Promise<BrowserResponse> {
+    await this.requireBrowser(browserId);
+    return recordValue(await this.request(
+      'DELETE',
+      `/api/browsers/${encodeURIComponent(browserId)}`,
+      undefined,
+      this.env,
+    ));
+  }
+
   async action(browserId: string, input: BrowserResponse): Promise<BrowserResponse> {
     await this.requireBrowser(browserId);
     return recordValue(await this.request(
@@ -186,37 +214,71 @@ function createBrowserMcpServer(options: BrowserMcpServerOptions = {}): McpServe
     ].join(' '),
     inputSchema: {
       browserId: z.string().min(1).describe(BROWSER_ID_DESCRIPTION),
+      ...snapshotOptionsSchema(),
     },
     annotations: {
       readOnlyHint: true,
       openWorldHint: true,
     },
-  }, async ({ browserId }) => textResult(await browser.action(browserId, { kind: 'snapshot' })));
+  }, async ({ browserId, ...input }) => textResult(
+    await browser.action(browserId, { kind: 'snapshot', ...input })
+  ));
 
   server.registerTool('browser_screenshot', {
     title: 'Capture Farming Browser',
     description: [
-      'Capture the visible page as PNG for visual verification.',
+      'Capture the visible page, full page, or one element for visual verification.',
       'Use browser_snapshot, not pixels, to choose interactive elements.',
     ].join(' '),
     inputSchema: {
-      browserId: z.string().min(1).describe(BROWSER_ID_DESCRIPTION),
+      ...locatorSchema(),
+      fullPage: z.boolean().optional(),
+      annotate: z.boolean().optional().describe('Overlay numbered labels for interactive elements.'),
+      format: z.enum(['png', 'jpeg']).optional(),
+      quality: z.number().int().min(1).max(100).optional().describe('JPEG quality.'),
     },
     annotations: {
       readOnlyHint: true,
       openWorldHint: true,
     },
-  }, async ({ browserId }) => {
-    const result = await browser.action(browserId, { kind: 'screenshot' });
+  }, async ({ browserId, ...input }) => {
+    const result = await browser.action(browserId, { kind: 'screenshot', ...input });
     const data = result.data as string;
     const mimeType = result.mimeType as string | undefined;
+    const metadata = { ...result };
+    delete metadata.data;
     return {
       content: [
-        { type: 'text', text: JSON.stringify({ mimeType }, null, 2) },
+        { type: 'text', text: JSON.stringify(metadata, null, 2) },
         { type: 'image', data, mimeType: mimeType || 'image/png' },
       ],
     };
   });
+
+  server.registerTool('browser_emulate', {
+    title: 'Configure Farming Browser Environment',
+    description: 'Set a deterministic viewport, device preset, color scheme, reduced motion, or offline mode.',
+    inputSchema: {
+      browserId: z.string().min(1).describe(BROWSER_ID_DESCRIPTION),
+      viewport: z.object({
+        width: z.number().int().min(320).max(4096),
+        height: z.number().int().min(240).max(4096),
+        deviceScaleFactor: z.number().min(1).max(2).optional(),
+      }).optional(),
+      device: z.string().min(1).max(120).optional(),
+      colorScheme: z.enum(['light', 'dark']).optional(),
+      reducedMotion: z.boolean().optional(),
+      offline: z.boolean().optional(),
+    },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
+  }, async ({ browserId, ...input }) => textResult(
+    await browser.action(browserId, { kind: 'emulate', ...input })
+  ));
 
   server.registerTool('browser_start', {
     title: 'Start Farming Browser',
@@ -246,12 +308,27 @@ function createBrowserMcpServer(options: BrowserMcpServerOptions = {}): McpServe
     },
   }, async ({ browserId }) => textResult(await browser.lifecycle(browserId, 'stop')));
 
+  server.registerTool('browser_close', {
+    title: 'Close Farming Browser',
+    description: 'Close the Browser tab and permanently remove its Farming Resource row and managed profile when unused.',
+    inputSchema: {
+      browserId: z.string().min(1).describe(BROWSER_ID_DESCRIPTION),
+    },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: false,
+      openWorldHint: false,
+    },
+  }, async ({ browserId }) => textResult(await browser.delete(browserId)));
+
   server.registerTool('browser_navigate', {
     title: 'Navigate Farming Browser',
-    description: 'Navigate the selected Browser Resource to an HTTP(S) URL, then take a new snapshot.',
+    description: 'Navigate the selected Browser Resource to an HTTP(S) URL, optionally returning a compact snapshot.',
     inputSchema: {
       browserId: z.string().min(1).describe(BROWSER_ID_DESCRIPTION),
       url: z.string().min(1).describe('HTTP(S) URL to open.'),
+      snapshotAfter: SNAPSHOT_AFTER_SCHEMA,
     },
     annotations: {
       readOnlyHint: false,
@@ -259,20 +336,22 @@ function createBrowserMcpServer(options: BrowserMcpServerOptions = {}): McpServe
       idempotentHint: false,
       openWorldHint: true,
     },
-  }, async ({ browserId, url }) => textResult(await browser.action(browserId, { kind: 'navigate', url })));
+  }, async ({ browserId, url, snapshotAfter }) => textResult(
+    await browser.action(browserId, { kind: 'navigate', url, snapshotAfter })
+  ));
 
   server.registerTool('browser_click', {
     title: 'Click Farming Browser Element',
     description: `Click a page element. Prefer a ref from the latest snapshot. ${PAGE_CONTENT_WARNING}`,
-    inputSchema: locatorSchema(),
+    inputSchema: { ...locatorSchema(), snapshotAfter: SNAPSHOT_AFTER_SCHEMA },
     annotations: {
       readOnlyHint: false,
       destructiveHint: false,
       idempotentHint: false,
       openWorldHint: true,
     },
-  }, async ({ browserId, ref, selector }) => textResult(
-    await browser.action(browserId, { kind: 'click', ref, selector })
+  }, async ({ browserId, ref, selector, snapshotAfter }) => textResult(
+    await browser.action(browserId, { kind: 'click', ref, selector, snapshotAfter })
   ));
 
   for (const kind of ['fill', 'type']) {
@@ -288,6 +367,7 @@ function createBrowserMcpServer(options: BrowserMcpServerOptions = {}): McpServe
       inputSchema: {
         ...locatorSchema(),
         text: z.string().describe('Text to enter.'),
+        snapshotAfter: SNAPSHOT_AFTER_SCHEMA,
       },
       annotations: {
         readOnlyHint: false,
@@ -295,8 +375,8 @@ function createBrowserMcpServer(options: BrowserMcpServerOptions = {}): McpServe
         idempotentHint: kind === 'fill',
         openWorldHint: true,
       },
-    }, async ({ browserId, ref, selector, text }) => textResult(
-      await browser.action(browserId, { kind, ref, selector, text })
+    }, async ({ browserId, ref, selector, text, snapshotAfter }) => textResult(
+      await browser.action(browserId, { kind, ref, selector, text, snapshotAfter })
     ));
   }
 
@@ -322,6 +402,7 @@ function createBrowserMcpServer(options: BrowserMcpServerOptions = {}): McpServe
       browserId: z.string().min(1).describe(BROWSER_ID_DESCRIPTION),
       deltaY: z.number().describe('Vertical delta; positive scrolls down.'),
       deltaX: z.number().optional().default(0).describe('Horizontal delta; positive scrolls right.'),
+      snapshotAfter: SNAPSHOT_AFTER_SCHEMA,
     },
     annotations: {
       readOnlyHint: false,
@@ -329,8 +410,8 @@ function createBrowserMcpServer(options: BrowserMcpServerOptions = {}): McpServe
       idempotentHint: false,
       openWorldHint: true,
     },
-  }, async ({ browserId, deltaY, deltaX }) => textResult(
-    await browser.action(browserId, { kind: 'scroll', deltaY, deltaX })
+  }, async ({ browserId, deltaY, deltaX, snapshotAfter }) => textResult(
+    await browser.action(browserId, { kind: 'scroll', deltaY, deltaX, snapshotAfter })
   ));
 
   server.registerTool('browser_history', {
@@ -339,6 +420,7 @@ function createBrowserMcpServer(options: BrowserMcpServerOptions = {}): McpServe
     inputSchema: {
       browserId: z.string().min(1).describe(BROWSER_ID_DESCRIPTION),
       operation: z.enum(['back', 'forward', 'reload']),
+      snapshotAfter: SNAPSHOT_AFTER_SCHEMA,
     },
     annotations: {
       readOnlyHint: false,
@@ -346,8 +428,8 @@ function createBrowserMcpServer(options: BrowserMcpServerOptions = {}): McpServe
       idempotentHint: false,
       openWorldHint: true,
     },
-  }, async ({ browserId, operation }) => textResult(
-    await browser.action(browserId, { kind: operation })
+  }, async ({ browserId, operation, snapshotAfter }) => textResult(
+    await browser.action(browserId, { kind: operation, snapshotAfter })
   ));
 
   server.registerTool('browser_wait', {
@@ -567,6 +649,37 @@ function createBrowserMcpServer(options: BrowserMcpServerOptions = {}): McpServe
       : { kind: source, clear: input.clear };
     return textResult(await browser.action(browserId, action));
   });
+
+  server.registerTool('browser_network', {
+    title: 'Control Farming Browser Network',
+    description: [
+      'Abort or mock matching requests, remove routes, or start and stop a Project-scoped HAR capture.',
+      'Use browser_debug to inspect captured requests.',
+      PAGE_CONTENT_WARNING,
+    ].join(' '),
+    inputSchema: {
+      browserId: z.string().min(1).describe(BROWSER_ID_DESCRIPTION),
+      operation: z.enum(['route', 'unroute', 'har-start', 'har-stop']),
+      pattern: z.string().min(1).max(10_000).optional(),
+      routeAction: z.enum(['abort', 'respond']).optional(),
+      body: z.unknown().optional().describe('JSON-compatible mock response body or a JSON string.'),
+      resourceType: z.string().min(1).max(1_000).optional(),
+      content: z.enum(['text', 'all', 'none']).optional(),
+      path: z.string().min(1).optional().describe('Project workspace path for HAR stop.'),
+    },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: false,
+      openWorldHint: true,
+    },
+  }, async ({ browserId, routeAction, ...input }) => textResult(
+    await browser.action(browserId, {
+      kind: 'network',
+      ...input,
+      ...(routeAction === 'abort' ? { abort: true } : {}),
+    })
+  ));
 
   server.registerTool('browser_cookies', {
     title: 'Manage Farming Browser Cookies',

@@ -118,6 +118,11 @@ const PROCESS_EXIT_TIMEOUT_MS = 5_000;
 const PROCESS_EXIT_POLL_MS = 100;
 const MAX_ACTION_TIMEOUT_MS = 120_000;
 const MAX_SCRIPT_LENGTH = 100_000;
+const MAX_SNAPSHOT_ELEMENTS = 500;
+const DEFAULT_SNAPSHOT_MAX_CHARS = 50_000;
+const MAX_SNAPSHOT_MAX_CHARS = 200_000;
+const MAX_PUBLIC_OUTPUT_CHARS = 100_000;
+const MAX_SCREENSHOT_BYTES = 32 * 1024 * 1024;
 
 function namespaceForResource(configDir: string, id: unknown, generation: unknown): string {
   const digest = crypto
@@ -235,7 +240,14 @@ function commandData(result: CommandResult): UnknownRecord {
 function publicCommandData(result: CommandResult): UnknownRecord {
   if (!result || !Object.prototype.hasOwnProperty.call(result, 'data')) return {};
   const data = result.data;
-  return isRecord(data) ? data : { value: data };
+  const value = isRecord(data) ? data : { value: data };
+  const serialized = JSON.stringify(value);
+  if (serialized.length <= MAX_PUBLIC_OUTPUT_CHARS) return value;
+  return {
+    truncated: true,
+    outputChars: serialized.length,
+    preview: serialized.slice(0, MAX_PUBLIC_OUTPUT_CHARS),
+  };
 }
 
 function normalizeRef(input: UnknownRecord = {}): string {
@@ -291,9 +303,14 @@ function normalizedTabs(data: unknown): BrowserTab[] {
     }));
 }
 
-function snapshotElements(refs: unknown): SnapshotElement[] {
-  if (!isRecord(refs)) return [];
-  return Object.entries(refs).slice(0, 500).map(([ref, rawValue]) => {
+function snapshotElements(refs: unknown, requestedLimit: unknown) {
+  if (!isRecord(refs)) return { elements: [] as SnapshotElement[], totalRefs: 0, truncated: false };
+  const entries = Object.entries(refs);
+  const requested = Number(requestedLimit);
+  const limit = Number.isFinite(requested)
+    ? Math.max(1, Math.min(MAX_SNAPSHOT_ELEMENTS, Math.round(requested)))
+    : MAX_SNAPSHOT_ELEMENTS;
+  const elements = entries.slice(0, limit).map(([ref, rawValue]) => {
     const value = recordValue(rawValue);
     return {
       ref: String(ref).replace(/^@/, ''),
@@ -303,6 +320,20 @@ function snapshotElements(refs: unknown): SnapshotElement[] {
       disabled: value.disabled === true,
     };
   });
+  return { elements, totalRefs: entries.length, truncated: entries.length > limit };
+}
+
+function truncateSnapshotText(value: unknown, requestedLimit: unknown) {
+  const text = String(value || '');
+  const requested = Number(requestedLimit);
+  const limit = Number.isFinite(requested)
+    ? Math.max(1_000, Math.min(MAX_SNAPSHOT_MAX_CHARS, Math.round(requested)))
+    : DEFAULT_SNAPSHOT_MAX_CHARS;
+  return {
+    text: text.slice(0, limit),
+    totalChars: text.length,
+    truncated: text.length > limit,
+  };
 }
 
 function processIdFromSessionInfo(data: unknown): number | null {
@@ -738,38 +769,116 @@ class AgentBrowserRuntime extends EventEmitter {
     return this.navigationCommand('reload');
   }
 
-  async snapshot() {
-    const data = commandData(await this.command(['snapshot']));
+  async snapshot(input: UnknownRecord = {}) {
+    const args = ['snapshot'];
+    if (input.mode === 'interactive') args.push('--interactive');
+    if (input.compact === true) args.push('--compact');
+    if (input.includeUrls === true) args.push('--urls');
+    if (input.depth !== undefined) {
+      const depth = Math.max(1, Math.min(100, Math.round(Number(input.depth) || 0)));
+      args.push('--depth', String(depth));
+    }
+    if (input.selector) args.push('--selector', requiredText(input.selector, 'snapshot selector'));
+    const data = commandData(await this.command(args));
     const metadata = await this.metadata();
+    const refs = snapshotElements(data.refs, input.maxElements);
+    const tree = truncateSnapshotText(data.snapshot, input.maxChars);
     return {
       ...metadata,
-      elements: snapshotElements(data.refs),
-      accessibilityTree: String(data.snapshot || ''),
+      elements: refs.elements,
+      totalRefs: refs.totalRefs,
+      accessibilityTree: tree.text,
+      accessibilityTreeChars: tree.totalChars,
+      truncated: refs.truncated || tree.truncated,
+      truncation: {
+        elements: refs.truncated,
+        accessibilityTree: tree.truncated,
+      },
       origin: String(data.origin || ''),
     };
   }
 
-  async screenshot() {
+  async screenshot(input: UnknownRecord = {}) {
     const operation = async () => {
+      const format = input.format === undefined
+        ? 'png'
+        : oneOf(input.format, ['png', 'jpeg'] as const, 'screenshot format');
+      if (input.fullPage === true && (input.ref || input.selector)) {
+        throw new Error('full-page and element screenshots cannot be combined');
+      }
+      if (input.quality !== undefined && format !== 'jpeg') {
+        throw new Error('screenshot quality is only supported for JPEG');
+      }
       const output = path.join(
         path.dirname(this.profileDir),
-        `screenshot-${this.generation}-${crypto.randomUUID()}.png`,
+        `screenshot-${this.generation}-${crypto.randomUUID()}.${format === 'jpeg' ? 'jpg' : 'png'}`,
       );
-      const data = commandData(await this.command(['screenshot', output]));
+      const args = ['screenshot'];
+      if (input.ref || input.selector) args.push(normalizeRef(input));
+      args.push(output);
+      if (input.fullPage === true) args.push('--full');
+      if (input.annotate === true) args.push('--annotate');
+      args.push('--screenshot-format', format);
+      if (input.quality !== undefined) {
+        const quality = Math.max(1, Math.min(100, Math.round(Number(input.quality) || 0)));
+        args.push('--screenshot-quality', String(quality));
+      }
+      const data = commandData(await this.command(args));
       const resolved = path.resolve(String(data.path || output));
       const resourceDir = path.resolve(path.dirname(this.profileDir));
       if (resolved !== path.resolve(output) && !resolved.startsWith(`${resourceDir}${path.sep}`)) {
         throw new Error('agent-browser returned an unsafe screenshot path');
       }
       try {
-        return { mimeType: 'image/png', data: fs.readFileSync(resolved).toString('base64') };
+        const stat = await fs.promises.stat(resolved);
+        if (!stat.isFile()) throw new Error('agent-browser screenshot did not produce a regular file');
+        if (stat.size > MAX_SCREENSHOT_BYTES) {
+          throw new Error(`agent-browser screenshot exceeds ${MAX_SCREENSHOT_BYTES} bytes`);
+        }
+        return {
+          mimeType: format === 'jpeg' ? 'image/jpeg' : 'image/png',
+          data: (await fs.promises.readFile(resolved)).toString('base64'),
+          ...(data.annotations !== undefined ? { annotations: data.annotations } : {}),
+        };
       } finally {
-        fs.rmSync(resolved, { force: true });
+        await fs.promises.rm(resolved, { force: true });
       }
     };
     const next = this.screenshotChain.catch(() => {}).then(operation);
     this.screenshotChain = next;
     return next;
+  }
+
+  async emulate(input: UnknownRecord): Promise<UnknownRecord> {
+    const result: UnknownRecord = { ok: true };
+    if (input.device) {
+      const device = requiredText(input.device, 'device', 120);
+      await this.command(['set', 'device', device]);
+      result.device = device;
+    }
+    if (isRecord(input.viewport)) {
+      result.viewport = await this.resize({
+        width: Number(input.viewport.width),
+        height: Number(input.viewport.height),
+        deviceScaleFactor: Number(input.viewport.deviceScaleFactor),
+      });
+    }
+    if (input.colorScheme !== undefined || input.reducedMotion !== undefined) {
+      const colorScheme = input.colorScheme === undefined
+        ? 'light'
+        : oneOf(input.colorScheme, ['light', 'dark'] as const, 'color scheme');
+      const args = ['set', 'media', colorScheme];
+      if (input.reducedMotion === true) args.push('reduced-motion');
+      await this.command(args);
+      result.colorScheme = colorScheme;
+      result.reducedMotion = input.reducedMotion === true;
+    }
+    if (input.offline !== undefined) {
+      await this.command(['set', 'offline', input.offline === true ? 'on' : 'off']);
+      result.offline = input.offline === true;
+    }
+    if (Object.keys(result).length === 1) throw new Error('at least one emulation setting is required');
+    return result;
   }
 
   async click(input: UnknownRecord): Promise<{ ok: true }> {
@@ -943,13 +1052,55 @@ class AgentBrowserRuntime extends EventEmitter {
   }
 
   async network(input: UnknownRecord): Promise<UnknownRecord> {
-    const operation = oneOf(input?.operation || 'requests', ['requests', 'request'], 'network operation');
+    const operation = oneOf(
+      input?.operation || 'requests',
+      ['requests', 'request', 'route', 'unroute', 'har-start', 'har-stop'],
+      'network operation',
+    );
     if (operation === 'request') {
       return publicCommandData(await this.command([
         'network',
         'request',
         requiredText(input?.requestId, 'request id', 256),
       ]));
+    }
+    if (operation === 'route') {
+      const args = [
+        'network',
+        'route',
+        requiredText(input?.pattern, 'network route pattern', 10_000),
+      ];
+      if (input?.abort === true) {
+        args.push('--abort');
+      } else if (input?.body !== undefined) {
+        args.push('--body', typeof input.body === 'string' ? input.body : JSON.stringify(input.body));
+      } else {
+        throw new Error('network route requires abort or a response body');
+      }
+      if (input?.resourceType) {
+        args.push('--resource-type', requiredText(input.resourceType, 'network resource type', 1_000));
+      }
+      return publicCommandData(await this.command(args));
+    }
+    if (operation === 'unroute') {
+      const args = ['network', 'unroute'];
+      if (input?.pattern) args.push(requiredText(input.pattern, 'network route pattern', 10_000));
+      return publicCommandData(await this.command(args));
+    }
+    if (operation === 'har-start') {
+      const args = ['network', 'har', 'start'];
+      if (input?.content) {
+        args.push('--content', oneOf(input.content, ['text', 'all', 'none'], 'HAR content mode'));
+      }
+      return publicCommandData(await this.command(args));
+    }
+    if (operation === 'har-stop') {
+      return publicCommandData(await this.command([
+        'network',
+        'har',
+        'stop',
+        requiredText(input?.outputPath, 'HAR output path'),
+      ], { timeoutMs: 60_000 }));
     }
     const args = ['network', 'requests'];
     if (input?.clear === true) args.push('--clear');

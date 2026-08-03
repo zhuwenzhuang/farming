@@ -137,12 +137,21 @@ class FakeBrowserRuntime extends EventEmitter {
     return { url: this.startedUrl, title: 'Reloaded' };
   }
 
-  async snapshot() {
+  async snapshot(input = {}) {
+    this.actionCalls.push({ kind: 'snapshot', input });
     return { url: this.startedUrl, title: 'Fake Browser', elements: [{ ref: 'e1', role: 'button' }] };
   }
 
-  async screenshot() {
+  async screenshot(input = {}) {
+    this.actionCalls.push({ kind: 'screenshot', input });
     return { mimeType: 'image/png', data: 'cG5n' };
+  }
+
+  async emulate(input) {
+    this.actionCalls.push({ kind: 'emulate', input });
+    const settings = { ...input };
+    delete settings.kind;
+    return { ok: true, ...settings };
   }
 
   async click(input) {
@@ -166,6 +175,12 @@ class FakeBrowserRuntime extends EventEmitter {
   async evaluate(input) {
     this.actionCalls.push({ kind: 'eval', input });
     return { value: 'evaluated' };
+  }
+
+  async network(input) {
+    this.actionCalls.push({ kind: 'network', input });
+    if (input.operation === 'har-stop') fs.writeFileSync(input.outputPath, 'har-data');
+    return { ok: true };
   }
 
   async upload(input) {
@@ -588,6 +603,29 @@ async function testBrowserResourceManager() {
     assert.deepStrictEqual((await manager.action(created.id, { kind: 'snapshot' })).elements, [
       { ref: 'e1', role: 'button' },
     ]);
+    const navigatedWithSnapshot = await manager.action(created.id, {
+      kind: 'navigate',
+      url: 'https://snapshot-after.example/',
+      snapshotAfter: true,
+    });
+    assert.strictEqual(navigatedWithSnapshot.result.url, 'https://snapshot-after.example/');
+    assert.deepStrictEqual(navigatedWithSnapshot.snapshot, {
+      url: 'https://snapshot-after.example/',
+      title: 'Fake Browser',
+      elements: [{ ref: 'e1', role: 'button' }],
+    });
+    assert.deepStrictEqual(
+      await manager.action(created.id, {
+        kind: 'emulate',
+        viewport: { width: 390, height: 844, deviceScaleFactor: 2 },
+        colorScheme: 'dark',
+      }),
+      {
+        ok: true,
+        viewport: { width: 390, height: 844, deviceScaleFactor: 2 },
+        colorScheme: 'dark',
+      },
+    );
     await manager.action(created.id, { kind: 'hover', selector: '#menu' });
     assert.deepStrictEqual(
       await manager.action(created.id, { kind: 'eval', expression: 'document.title' }),
@@ -610,16 +648,32 @@ async function testBrowserResourceManager() {
       { ok: true, path: 'download.txt', size: 10 },
     );
     assert.strictEqual(fs.readFileSync(downloadPath, 'utf8'), 'downloaded');
-    assert.throws(
-      () => manager.action(created.id, {
+    await manager.action(created.id, {
+      kind: 'network',
+      operation: 'route',
+      pattern: '**/api/*',
+      abort: true,
+    });
+    const harPath = path.join(projectWorkspace, 'network.har');
+    assert.deepStrictEqual(
+      await manager.action(created.id, {
+        kind: 'network',
+        operation: 'har-stop',
+        path: harPath,
+      }),
+      { ok: true, path: 'network.har', size: 8 },
+    );
+    assert.strictEqual(fs.readFileSync(harPath, 'utf8'), 'har-data');
+    await assert.rejects(
+      manager.action(created.id, {
         kind: 'upload',
         selector: '#file',
         files: [path.join(configDir, 'outside.txt')],
       }),
       /does not exist/,
     );
-    assert.throws(
-      () => manager.action(created.id, {
+    await assert.rejects(
+      manager.action(created.id, {
         kind: 'download',
         selector: '#download',
         path: downloadPath,

@@ -72,15 +72,31 @@ a structured snapshot and use JavaScript or debugging evidence only when needed.
 
 ## Supported Tasks
 
-- Create, list, start, and stop Browser Resources.
+- Create, list, start, stop, and permanently close Browser Resources.
 - Navigate, go back or forward, reload, and wait for page changes.
 - Click, fill, type, press keys, select, drag, and scroll.
-- Read structured snapshots, text, attributes, element state, and screenshots.
-- Inspect console messages, page errors, and network requests.
+- Read bounded structured snapshots with interactive, compact, depth, selector,
+  URL, element-count, and text-size controls. Truncated results say so explicitly.
+- Capture viewport, full-page, element, annotated, PNG, or bounded-quality JPEG
+  screenshots as MCP image content. Screenshot files larger than 32 MiB fail
+  explicitly before Farming reads or encodes them.
+- Set deterministic viewports, device presets, light or dark media, reduced
+  motion, and offline mode for responsive and failure-state verification.
+- Inspect console messages, page errors, and network requests; abort or mock
+  matching requests and export evidence as a Project-scoped HAR file.
 - Work with cookies, storage, frames, and browser dialogs.
 - Upload an existing Project file or download a new file into the Project.
 
 Run `farming browser help` to see the current installed version's topics.
+
+Navigation, history, click, fill, type, and scroll operations may request one
+atomic compact interactive snapshot with `snapshotAfter`. This avoids a race
+between the action and its verification without forcing every action to return
+large page state.
+
+HAR capture writes through a private temporary file, publishes only a new path
+inside the Browser Resource's Project workspace, and rejects captures larger
+than 64 MiB.
 
 ## Shared Use And Safety
 
