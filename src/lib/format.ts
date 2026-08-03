@@ -103,6 +103,7 @@ interface AgentTitleSource {
   cwd?: string
   projectWorkspace?: string
   customTitle?: string
+  adaptiveTitle?: string
   providerSessionTitle?: string
   sessionTitle?: string
   task?: string
@@ -115,6 +116,9 @@ function resolveAgentTitle(agent: AgentTitleSource) {
   if (customTitle) return customTitle
 
   if (agent.isMain) return 'Main Agent'
+
+  const adaptiveTitle = meaningfulSessionTitle(agent.adaptiveTitle, agent)
+  if (adaptiveTitle) return adaptiveTitle
 
   const providerSessionTitle = meaningfulSessionTitle(agent.providerSessionTitle, agent)
   if (providerSessionTitle) return providerSessionTitle
@@ -130,7 +134,7 @@ function resolveAgentTitle(agent: AgentTitleSource) {
   return agentDisplayName(agent.command)
 }
 
-/** Prefer a user rename, then the agent-updated session title, then a simple agent kind. */
+/** Prefer a user rename, then the Agent-managed title, runtime titles, and finally its kind. */
 export function agentTitle(agent: AgentTitleSource) {
   return truncateTitle(resolveAgentTitle(agent))
 }

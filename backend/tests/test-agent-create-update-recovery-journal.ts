@@ -453,6 +453,7 @@ async function run() {
     scopeRollbackOwner.persistentSessionId = store.rememberAgent(scopeRollbackOwner);
     store.ensureRecordForAgent(scopeRollbackOwner, {
       acpAdditionalDirectories: ['/old-scope'],
+      acpConfigOverrides: [{ configId: 'fast-mode', value: true }],
       acpMcpServers: [{ name: 'old', command: '/bin/old', args: [], env: [] }],
     });
     recoveredManager.agents.set(scopeRollbackOwner.id, scopeRollbackOwner);
@@ -497,6 +498,9 @@ async function run() {
     );
     assert.strictEqual(scopeRolledBackRecord.runtimeAgentId, scopeRollbackOwner.id);
     assert.deepStrictEqual(scopeRolledBackRecord.acpAdditionalDirectories, ['/old-scope']);
+    assert.deepStrictEqual(scopeRolledBackRecord.acpConfigOverrides, [
+      { configId: 'fast-mode', value: true },
+    ]);
     assert.deepStrictEqual(scopeRolledBackRecord.acpMcpServers, [
       { name: 'old', command: '/bin/old', args: [], env: [] },
     ]);
@@ -506,6 +510,7 @@ async function run() {
       ),
       {
         additionalDirectories: ['/old-scope'],
+        configOverrides: [{ configId: 'fast-mode', value: true }],
         mcpServers: [{ name: 'old', command: '/bin/old', args: [], env: [] }],
       },
       'Create rollback must restore the in-memory ACP scope as well as disk metadata',

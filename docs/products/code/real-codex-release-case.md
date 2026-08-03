@@ -1,66 +1,44 @@
-# Real Codex Cross-Skin Release Case
+# Real Codex Cross-Interface Release Case
 
 > Chinese version: [real-codex-release-case.zh_cn.md](./real-codex-release-case.zh_cn.md)
 
-This is the blocking, human-like browser case for the terminal and structured Chat path shared by Farming Code and Farming CRT. Run it once for every release candidate after the fast source checks and focused deterministic Playwright tests pass:
+This is the blocking real-provider browser case for the Codex Terminal and ACP
+Chat path shared by Farming Code and Farming CRT.
+
+Run it once for every release candidate after deterministic checks pass:
 
 ```bash
 npm run test:pre-release:codex-ui
 ```
 
-The command uses the locally authenticated real Codex CLI, one Chromium worker, an isolated Farming config directory, and a temporary workspace. Its test-only launcher disables the CLI startup update check for every Terminal start and resume without changing the user's global Codex configuration. Shared Playwright teardown archives every stable Codex provider session created by a real-Agent test, including when the test fails, so test conversations do not remain in the active Codex session list. Provider archive also falls back to the user home when a temporary test workspace has already been removed. It is intentionally absent from the default fake-Agent E2E suite because it consumes a real model allocation and validates external CLI integration. A missing login, unavailable required model, runtime error, or failed assertion blocks the release; the case does not select another renderer, model flow, Agent implementation, or test branch.
+## Contract
 
-If Codex reports changed hooks at Terminal startup, the gate follows the currently rendered menu selection and chooses **Continue without trusting** before proceeding. It never persists hook trust or uses `--dangerously-bypass-hook-trust`; an unrecognized prompt or menu shape fails the gate.
+The case uses an isolated Farming Config and workspace with the locally
+authenticated Codex runtime. Missing login, unavailable required capability,
+runtime error, or failed assertion blocks the release. The test does not switch
+to another model, renderer, Agent implementation, or runtime path to obtain a
+pass.
 
-## State Chain
-
-The test has one ordered state chain:
-
-```text
-Code Terminal
-  -> live low-cost model switch
-  -> xterm command-line prompt
-  -> Code Composer prompt
-  -> multi-page mixed-format output
-  -> shrink and expand window drags
-  -> Code Chat
-  -> shrink and expand window drags
-  -> dark appearance
-  -> shrink and expand window drags
-  -> Settings: Farming CRT
-  -> CRT MSG
-  -> shrink and expand window drags
-  -> CRT Terminal
-  -> shrink and expand window drags
-  -> terminal input
-  -> CRT MSG
-  -> live model change
-  -> MSG input
-  -> shrink and expand window drags
-  -> CRT Terminal
-  -> final resize at the normal viewport
-```
-
-Every Chat / Terminal transition must retain the exact Codex provider session id. Every transient wait is bounded. A failed transition ends the case instead of restoring or trying an alternate runtime.
+The user journey must cross Code Terminal, Code Chat, CRT Chat, and CRT Terminal
+while preserving one exact Codex Provider Session. It exercises real input,
+structured Markdown, a long enough output to require scrolling, model/profile
+changes, appearance changes, and repeated window resizing.
 
 ## Required Evidence
 
-The generated conversation includes headings, paragraphs, inline code, a URL, unordered and ordered lists, task items, a quote, a table, JSON, YAML, diff, shell, CJK text, and six numbered output pages. Short unique anchors prove that both terminal input routes and both CRT input routes reached the same provider session.
-
-The case checks:
-
-- Code and CRT render the required content before and after every transition;
-- native xterm paste in CRT inserts the Terminal prompt exactly once before submission;
-- Code Chat reconstructs the expected Markdown semantics, not only flat text;
-- Code Terminal reports the WebGL renderer and no terminal recovery error;
-- continuous Code window drags preserve the multi-page buffer and commit one final geometry per drag direction;
-- CRT terminal resize samples preserve the normal-size anchor until the resize settles, preserve a required page-tail anchor while expanding from the compact layout, restore the final output anchor at normal size, never enter checkpoint recovery, and never show a WebGL failure;
-- the final terminal geometry returns to the normal viewport;
-- the low-cost model switch and the later CRT model setting both reach the live session, and the final Terminal reports the recorded-versus-resumed model transition;
-- no terminal, WebGL, checkpoint, replay, or renderer error reaches the page error stream.
-
-Playwright retains a trace on failure. The case also attaches screenshots for the important Code Terminal, dark Chat, CRT MSG, and CRT Terminal states, plus a JSON evidence record containing the provider session id, selected models, anchors, final Agent id, and final viewport.
+- the same Provider Session identity survives every Chat/Terminal and Code/CRT
+  transition;
+- Terminal input and Chat input each arrive exactly once;
+- Chat preserves structured content rather than flattening it;
+- Terminal checkpoints preserve the authoritative buffer and geometry through
+  resize and interface changes;
+- live profile changes reach the real Session;
+- no terminal, renderer, replay, checkpoint, or protocol error reaches the page;
+- failure artifacts include a trace and screenshots of the last stable states.
 
 ## Release Rule
 
-Record the command result with the release candidate revision. A passing result proves only that revision, machine, browser, Codex CLI, and model catalog. If the real catalog removes `gpt-5.6-luna` or `gpt-5.4-mini`, update this single case intentionally and review the new cost and capability choice; do not add a second automatic model path.
+Record the command result with the exact release revision and environment. A
+pass proves only that revision, browser, Codex runtime, and model catalog. If a
+required real capability changes, update this one case intentionally and review
+the new cost and compatibility boundary; do not add an automatic fallback path.

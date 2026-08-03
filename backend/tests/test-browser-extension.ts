@@ -1119,64 +1119,6 @@ async function testAgentOwnedBrowserIsolationAndLifecycle() {
     });
     assert.strictEqual(first.ownerType, 'agent');
     assert.strictEqual(first.ownerAgentId, 'agent_a');
-    assert.deepStrictEqual(manager.permissionDecision('agent_a', 'browser_list', {}), {
-      requiresApproval: false,
-      scopeKey: '',
-      site: '',
-    });
-    assert.deepStrictEqual(manager.permissionDecision('agent_a', 'browser_snapshot', {
-      browserId: first.id,
-    }), {
-      requiresApproval: false,
-      scopeKey: '',
-      site: '',
-    });
-    manager.store.update(first.id, { url: 'https://example.com/account' });
-    assert.deepStrictEqual(manager.permissionDecision('agent_a', 'browser_get', {
-      browserId: first.id,
-    }), {
-      requiresApproval: true,
-      scopeKey: 'site:https://example.com',
-      site: 'example.com',
-    });
-    assert.deepStrictEqual(manager.permissionDecision('agent_a', 'browser_start', {
-      browserId: first.id,
-    }), {
-      requiresApproval: true,
-      scopeKey: 'site:https://example.com',
-      site: 'example.com',
-    });
-    assert.deepStrictEqual(manager.permissionDecision('agent_a', 'browser_snapshot', {
-      browserId: first.id,
-    }), {
-      requiresApproval: true,
-      scopeKey: 'site:https://example.com',
-      site: 'example.com',
-    });
-    assert.deepStrictEqual(manager.permissionDecision('agent_a', 'browser_navigate', {
-      browserId: first.id,
-      url: 'https://other.example/path',
-    }), {
-      requiresApproval: true,
-      scopeKey: 'site:https://other.example',
-      site: 'other.example',
-    });
-    assert.deepStrictEqual(manager.permissionDecision('agent_a', 'browser_navigate', {
-      browserId: first.id,
-      url: 'example.com/path',
-    }), {
-      requiresApproval: true,
-      scopeKey: 'site:https://example.com',
-      site: 'example.com',
-    });
-    assert.deepStrictEqual(manager.permissionDecision('agent_b', 'browser_snapshot', {
-      browserId: first.id,
-    }), {
-      requiresApproval: true,
-      scopeKey: '',
-      site: '',
-    });
-    manager.store.update(first.id, { url: 'about:blank' });
     await manager.start(first.id);
     await manager.start(second.id);
     assert.strictEqual(runtimes.length, 1, 'Browsers owned by one Agent may share one Session');
@@ -1461,6 +1403,14 @@ async function testBrowserRouterAgentOwnership() {
     }),
   };
   const agentStateReader = {
+    authorizeAgentCapability(agentId, capability, token, runtimeEpoch) {
+      if (
+        capability !== 'browser'
+        || token !== `token-${agentId}`
+        || runtimeEpoch !== `runtime-${agentId}`
+      ) return null;
+      return { agentId, runtimeEpoch, workspace: '/tmp/project' };
+    },
     getState: () => ({
       agents: [{
         id: 'agent_a',
@@ -1487,12 +1437,20 @@ async function testBrowserRouterAgentOwnership() {
       headers: {
         'Content-Type': 'application/json',
         'X-Farming-Agent-Id': 'agent_a',
+        'X-Farming-Capability-Token': 'token-agent_a',
+        'X-Farming-Capability-Runtime-Epoch': 'runtime-agent_a',
         ...options.headers,
       },
     });
     return { status: response.status, body: await response.json() };
   };
   try {
+    const expired = await request('/api/browsers', {
+      headers: { 'X-Farming-Capability-Token': 'expired' },
+    });
+    assert.strictEqual(expired.status, 401);
+    assert.strictEqual(expired.body.code, 'BROWSER_AGENT_CREDENTIAL_INVALID');
+
     const listed = await request('/api/browsers');
     assert.strictEqual(listed.status, 200);
     assert.deepStrictEqual(

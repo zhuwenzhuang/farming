@@ -75,7 +75,6 @@ async function run() {
 
   try {
     const expectedCodexCommand = resolveAgentExecutable('codex') || 'codex';
-    const expectedClaudeCommand = resolveAgentExecutable('claude') || 'claude';
     const expectedBashCommand = resolveAgentExecutable('bash') || '/bin/bash';
 
     const temporaryCodexId = await startAgent(manager, 'codex', repo, { wantsMain: false });
@@ -313,6 +312,20 @@ async function run() {
       acpPreparedOptions = options;
       return { sessionId: options.sessionId, historyMode: 'load' };
     };
+    sourceAcpAgent.runtimeBinding.supportsFork = false;
+    const unsupportedLiveAcpFork = await manager.forkAgent(resumedCodexId, 'same-worktree', {
+      expectedRevision: 17,
+    });
+    assert.match(unsupportedLiveAcpFork.error, /does not currently support session\/fork/);
+    assert.strictEqual(acpForkOptions, null, 'backend admission must reject before calling the provider');
+    sourceAcpAgent.runtimeBinding.supportsFork = true;
+    sourceAcpAgent.runtimeBinding.state = 'working';
+    const workingAcpFork = await manager.forkAgent(resumedCodexId, 'same-worktree', {
+      expectedRevision: 17,
+    });
+    assert.match(workingAcpFork.error, /not ready for Conversation Fork \(working\)/);
+    assert.strictEqual(acpForkOptions, null, 'a working source must not be interrupted to Fork');
+    sourceAcpAgent.runtimeBinding.state = 'idle';
     const acpChatFork = await manager.forkAgent(resumedCodexId, 'same-worktree', {
       expectedRevision: 17,
     });
@@ -370,9 +383,10 @@ async function run() {
       wantsMain: false,
       source: `claude-history:${claudeSessionId}`,
     });
+    const resumedClaudeLaunch = captured.at(-1);
     const resumedFork = await manager.forkAgent(resumedClaudeId, 'same-worktree');
     assert.strictEqual(resumedFork.error, undefined);
-    assert.strictEqual(captured.at(-1).command, expectedClaudeCommand);
+    assert.strictEqual(captured.at(-1).command, resumedClaudeLaunch.command);
     assert.strictEqual(captured.at(-1).args[0], '--session-id');
     assert.notStrictEqual(captured.at(-1).args[1], claudeSessionId);
     assert.deepStrictEqual(captured.at(-1).args.slice(2, 5), ['--resume', claudeSessionId, '--fork-session']);

@@ -61,33 +61,17 @@ size. Farming Code and Farming CRT store this preference separately.
 
 ### Farming Pet
 
-Farming Pet offers an optional break reminder without interrupting a new user
-on entry. Its invitation appears after 30 minutes of foreground Farming use.
-Once enabled, the reminder counts foreground time in the current tab and
-resets a work cycle after five minutes away. The default cycle is 50 minutes
-of use followed by a five-minute break; intervals of 90 minutes or longer use
-a ten-minute break. Reminder styles can be previewed without saving a choice.
-The black-hole scene captures the visible workspace once at break entry, then
-runs its lensing and accretion animation on the GPU without repeatedly
-recapturing the page.
+Farming Pet is an optional break reminder based on foreground use of the
+current Farming tab. It supports configurable work intervals, postponement,
+and several rest styles without interrupting first use.
 
 ### Agent Notifications
 
-**Settings → Agent → Allow message notifications** enables browser-local system
-notifications while no Farming tab receiving the event is active. Farming
-requests browser permission only from that explicit setting. Initial hydration
-and reconnect establish an attention baseline without replaying older events.
-The notification body uses a bounded plain-text excerpt of the Agent's latest
-visible message instead of a generic completion label. Clicking a notification
-returns to the matching Agent. The authenticated Farming URL must use a browser
-context that supports system notifications, normally HTTPS or localhost.
-
-ACP sessions request a notification when `session/prompt` settles with a
-standard non-cancelled stop reason. Terminal sessions instead follow the Agent
-TUI's own notification timing: Farming recognizes OSC 9, OSC 99, OSC 777
-notification, and BEL sequences written to the PTY. Farming's inferred Terminal
-busy-to-idle state still owns unread completion tracking, but does not create
-system notifications.
+**Settings → Agent → Allow message notifications** enables browser-local
+completion notifications while Farming is in the background. Permission is
+requested only after this explicit choice, older events are not replayed after
+reload or reconnect, and selecting a notification returns to the matching
+Agent. Browser notification support normally requires HTTPS or localhost.
 
 ## More
 

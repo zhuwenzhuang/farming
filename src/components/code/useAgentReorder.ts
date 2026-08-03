@@ -9,10 +9,11 @@ type AgentDrag = {
   position: 'before' | 'after'
 }
 
-export function useAgentReorder(
-  agents: ReadonlyArray<{ id: string }>,
+export function useAgentReorder<T extends { id: string }>(
+  agents: ReadonlyArray<T>,
   onReorder: (agentId: string, beforeAgentId: string, afterAgentId: string) => void,
   onBegin: () => void,
+  sharesOrder?: (source: T, target: T) => boolean,
 ) {
   const [agentDrag, setAgentDrag] = useState<AgentDrag | null>(null)
   const finishAgentDrag = () => setAgentDrag(null)
@@ -33,7 +34,11 @@ export function useAgentReorder(
   }
   const reorderAgent = (targetAgentId?: string) => {
     if (!agentDrag) return
-    const candidates = agents.filter(agent => agent.id !== agentDrag.agentId)
+    const source = agents.find(agent => agent.id === agentDrag.agentId)
+    const candidates = agents.filter(agent => (
+      agent.id !== agentDrag.agentId
+      && (!source || !sharesOrder || sharesOrder(source, agent))
+    ))
     const targetIndex = targetAgentId
       ? candidates.findIndex(agent => agent.id === targetAgentId)
       : candidates.length

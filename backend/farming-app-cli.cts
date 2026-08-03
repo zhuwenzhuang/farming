@@ -146,6 +146,7 @@ import * as storageLayout from './storage-layout.cjs';
 const SERVER_MODE_ARG = '--farming-server';
 const SERVER_MODE_ENV = 'FARMING_RUN_SERVER';
 const NATIVE_PTY_HOST_ARG = '--native-pty-host';
+const ACP_RUNTIME_HOST_ARG = '--acp-runtime-host';
 const USAGE_HISTORY_SMOKE_ARG = '--farming-usage-history-smoke';
 const DEFAULT_PORT = '6694';
 const DEFAULT_BASE_PATH = '/farming';
@@ -154,8 +155,8 @@ const DEFAULT_SERVER_START_STABILITY_MS = 1_500;
 const DEFAULT_SERVER_STOP_TIMEOUT_MS = 30_000;
 const SERVER_STOP_POLL_MS = 100;
 const SERVER_COMMANDS = new Set(['start', 'serve', 'daemon', 'stop', 'status', 'logs', 'url', 'help']);
-const CONTROL_COMMANDS = new Set(['skills', 'capabilities', 'list', 'spawn', 'output', 'send', 'kill']);
-const SERVER_BACKED_CONTROL_COMMANDS = new Set(['capabilities', 'list', 'spawn', 'output', 'send', 'kill']);
+const CONTROL_COMMANDS = new Set(['skills', 'capabilities', 'list', 'spawn', 'output', 'send', 'title', 'kill']);
+const SERVER_BACKED_CONTROL_COMMANDS = new Set(['capabilities', 'list', 'spawn', 'output', 'send', 'title', 'kill']);
 
 function defaultConfigDir(env: NodeJS.ProcessEnv = process.env): string {
   return storageLayout.farmingConfigDir(env);
@@ -1222,6 +1223,21 @@ function serverStopTimeoutMs(env: NodeJS.ProcessEnv): number {
   return DEFAULT_SERVER_STOP_TIMEOUT_MS;
 }
 
+function forceKillServer(pid: number): void {
+  try {
+    process.kill(pid, 'SIGKILL');
+  } catch (error: unknown) {
+    if (errorString(error, 'code') === 'EPERM' || errorString(error, 'code') === 'EACCES') {
+      throw new Error(
+        `Farming cannot stop server ${pid} because this command lacks permission. `
+        + 'Run it as the operating-system user that owns the process (or as an administrator), then start Farming again.',
+        { cause: error },
+      );
+    }
+    if (errorString(error, 'code') !== 'ESRCH') throw error;
+  }
+}
+
 async function waitForDaemonStop(
   pid: number,
   port: number,
@@ -1454,6 +1470,13 @@ function runNativePtyHostInCurrentProcess(): void {
   startNativePtyHostProcess();
 }
 
+async function runAcpRuntimeHostInCurrentProcess(): Promise<void> {
+  const { startAcpRuntimeHostProcess } = require('./acp-runtime-host-process.cjs') as {
+    startAcpRuntimeHostProcess(): Promise<unknown>;
+  };
+  await startAcpRuntimeHostProcess();
+}
+
 async function prepareStartupDependencies(
   env: ServerEnv,
   options: PrepareStartupOptions = {},
@@ -1622,34 +1645,27 @@ async function stopDaemon(parsed: ParsedServerOperation): Promise<number> {
   }
   const state = readServerState(configDir);
   const port = Number(state.port || env.PORT || DEFAULT_PORT);
+  let processIdentity: ServerProcessIdentity;
   if (state.processIdentity?.format === SERVER_PROCESS_IDENTITY_FORMAT) {
-    await assertServerProcessIdentity(configDir, pid, state);
+    processIdentity = await assertServerProcessIdentity(configDir, pid, state);
   } else {
-    await migrateLegacyServerIdentity(configDir, pid, state);
+    processIdentity = await migrateLegacyServerIdentity(configDir, pid, state);
   }
-  try {
-    process.kill(pid, 'SIGKILL');
-  } catch (error: unknown) {
-    if (errorString(error, 'code') === 'EPERM' || errorString(error, 'code') === 'EACCES') {
-      throw new Error(
-        `Farming cannot stop server ${pid} because this command lacks permission. `
-        + 'Run it as the operating-system user that owns the process (or as an administrator), then start Farming again.',
-        { cause: error },
-      );
-    }
-    if (errorString(error, 'code') !== 'ESRCH') throw error;
-  }
-  await waitForDaemonStop(pid, port, { timeoutMs: serverStopTimeoutMs(env) });
+  forceKillServer(pid);
+  await waitForDaemonStop(pid, port, {
+    timeoutMs: serverStopTimeoutMs(env),
+    isRunning: targetPid => matchingProcessIdentity(processIdentity, readServerProcessIdentity(targetPid)),
+  });
   if (readPid(configDir) === pid) fs.rmSync(pidFile(configDir), { force: true });
   if (Number(readServerState(configDir).pid) === pid) fs.rmSync(serverStateFile(configDir), { force: true });
   const activePackageRoot = String(env.FARMING_ACTIVE_PACKAGE_ROOT || '').trim();
   if (activePackageRoot) {
     const installation = resolvePackageInstallationContext(activePackageRoot, env);
     if (installation) {
-      releasePackageImageUsage(installation, configDir, state.processIdentity as ServerProcessIdentity);
+      releasePackageImageUsage(installation, configDir, processIdentity);
     }
   }
-  releaseServerConfigOwner(configDir, pid, state.processIdentity);
+  releaseServerConfigOwner(configDir, pid, processIdentity);
   console.log(`Stopped Farming (PID ${pid})`);
   return 0;
 }
@@ -1724,6 +1740,7 @@ Agent control commands are also available:
   farming spawn --workspace <repo> -- <command...>
   farming output <agentId> [--tail <chars>]
   farming send <agentId> <text...>
+  farming title <concise-title...>
   farming kill <agentId>`;
 }
 
@@ -1759,6 +1776,14 @@ async function run(argv: string[] = process.argv.slice(2)): Promise<number> {
     || (argv.length === 0 && process.env.FARMING_RUN_NATIVE_PTY_HOST === '1')
   ) {
     runNativePtyHostInCurrentProcess();
+    return 0;
+  }
+
+  if (
+    argv[0] === ACP_RUNTIME_HOST_ARG
+    || (argv.length === 0 && process.env.FARMING_RUN_ACP_RUNTIME_HOST === '1')
+  ) {
+    await runAcpRuntimeHostInCurrentProcess();
     return 0;
   }
 

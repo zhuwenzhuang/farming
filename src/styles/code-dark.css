@@ -237,6 +237,13 @@ body.code-mode[data-appearance='dark'] .code-project-title-action:focus-visible 
   color: var(--code-dark-text);
 }
 
+body.code-mode[data-appearance='dark'] .code-project-row.drop-before::before,
+body.code-mode[data-appearance='dark'] .code-project-row.drop-after::after,
+body.code-mode[data-appearance='dark'] .code-agent-row.drop-before::before,
+body.code-mode[data-appearance='dark'] .code-agent-row.drop-after::after {
+  background: #58a6ff;
+}
+
 body.code-mode[data-appearance='dark'] .code-file-search-box,
 body.code-mode[data-appearance='dark'] .workspace-input input,
 body.code-mode[data-appearance='dark'] .workspace-directory-picker,

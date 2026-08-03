@@ -76,28 +76,8 @@ export function observeAgentCompletionNotificationEvents(
 
   agents.forEach(agent => {
     liveAgentIds.add(agent.id)
-    const attentionSeq = finiteSequence(agent.attentionSeq)
-    const previousSeq = cursor.get(agent.id)
-    cursor.set(agent.id, attentionSeq)
-    if (previousSeq === undefined || attentionSeq <= previousSeq) return
-    if (agent.isMain || agent.archived) return
-    if (agent.attentionReason === 'terminal-notification') {
-      events.push({
-        agentId: agent.id,
-        attentionSeq,
-        kind: 'terminal-notification',
-        summary: String(agent.attentionSummary || '').trim(),
-      })
-      return
-    }
-    if (agent.attentionReason === 'turn-complete' && agent.runtimeBinding?.kind === 'acp') {
-      events.push({
-        agentId: agent.id,
-        attentionSeq,
-        kind: 'acp-completion',
-        summary: String(agent.attentionSummary || '').trim(),
-      })
-    }
+    const event = observeAgentCompletionNotificationEvent(cursor, agent)
+    if (event) events.push(event)
   })
 
   Array.from(cursor.keys()).forEach(agentId => {
@@ -105,6 +85,33 @@ export function observeAgentCompletionNotificationEvents(
   })
 
   return events
+}
+
+export function observeAgentCompletionNotificationEvent(
+  cursor: Map<string, number>,
+  agent: Agent,
+): AgentCompletionNotificationEvent | null {
+  const attentionSeq = finiteSequence(agent.attentionSeq)
+  const previousSeq = cursor.get(agent.id)
+  cursor.set(agent.id, attentionSeq)
+  if (previousSeq === undefined || attentionSeq <= previousSeq || agent.isMain || agent.archived) return null
+  if (agent.attentionReason === 'terminal-notification') {
+    return {
+      agentId: agent.id,
+      attentionSeq,
+      kind: 'terminal-notification',
+      summary: String(agent.attentionSummary || '').trim(),
+    }
+  }
+  if (agent.attentionReason === 'turn-complete' && agent.runtimeBinding?.kind === 'acp') {
+    return {
+      agentId: agent.id,
+      attentionSeq,
+      kind: 'acp-completion',
+      summary: String(agent.attentionSummary || '').trim(),
+    }
+  }
+  return null
 }
 
 export function agentCompletionNotificationStillEligible(

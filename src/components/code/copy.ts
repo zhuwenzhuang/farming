@@ -75,6 +75,8 @@ export interface CodeCopy {
   agentTranscriptFork: string
   agentTranscriptForkedFromAgent: string
   agentTranscriptReviewChanges: string
+  agentTranscriptReviewAndCommit: string
+  agentTranscriptReviewAndCommitPrompt: string
   agentTranscriptGitDiff: string
   agentTranscriptGitDiffLastCommit: string
   agentTranscriptShowChanges: string
@@ -133,6 +135,7 @@ export interface CodeCopy {
   createIsolatedDesktop: string
   archiveAgent: string
   reorderAgentFailed: string
+  reorderProjectFailed: string
   markAsRead: string
   markAsUnread: string
   copyWorkingDirectory: string
@@ -587,6 +590,8 @@ const EN_COPY: CodeCopy = {
   agentTranscriptFork: 'Fork conversation',
   agentTranscriptForkedFromAgent: 'Forked from agent',
   agentTranscriptReviewChanges: 'Review',
+  agentTranscriptReviewAndCommit: 'Ask Agent to review and commit',
+  agentTranscriptReviewAndCommitPrompt: 'Review the current uncommitted changes carefully. Run the necessary verification, fix any problems you find, and review the result again. Commit the changes with an appropriate commit message only after you confirm there are no remaining issues.',
   agentTranscriptGitDiff: 'Git diff',
   agentTranscriptGitDiffLastCommit: 'Git diff last commit',
   agentTranscriptShowChanges: 'Show file changes',
@@ -652,6 +657,7 @@ const EN_COPY: CodeCopy = {
   createIsolatedDesktop: 'Create Isolated Desktop',
   archiveAgent: 'Archive',
   reorderAgentFailed: 'Failed to reorder Agent',
+  reorderProjectFailed: 'Failed to reorder Project',
   markAsRead: 'Mark as read',
   markAsUnread: 'Mark as unread',
   copyWorkingDirectory: 'Copy working directory',
@@ -1132,6 +1138,8 @@ const ZH_COPY: CodeCopy = {
   agentTranscriptFork: '分叉对话',
   agentTranscriptForkedFromAgent: '从 Agent 分叉',
   agentTranscriptReviewChanges: 'Review',
+  agentTranscriptReviewAndCommit: '让 Agent 审查后提交',
+  agentTranscriptReviewAndCommitPrompt: '请仔细审查当前未提交的改动，执行必要的验证。若发现问题，先修复并重新审查；只有确认没有遗留问题后，才使用合适的提交信息提交这些改动。',
   agentTranscriptGitDiff: 'Git diff',
   agentTranscriptGitDiffLastCommit: 'Git diff last commit',
   agentTranscriptShowChanges: '展开文件改动',
@@ -1197,6 +1205,7 @@ const ZH_COPY: CodeCopy = {
   createIsolatedDesktop: '创建隔离桌面',
   archiveAgent: '归档',
   reorderAgentFailed: '调整 Agent 顺序失败',
+  reorderProjectFailed: '调整项目顺序失败',
   markAsRead: '标为已读',
   markAsUnread: '标为未读',
   copyWorkingDirectory: '复制工作目录',

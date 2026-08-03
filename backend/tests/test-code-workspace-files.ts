@@ -54,6 +54,7 @@ function run() {
   const responsiveModeSource = read('src/lib/responsive-mode.ts');
   const serverSource = read('backend/server.cts');
   const agentManagerSource = read('backend/agent-manager.cts');
+  const preparedTranscriptCacheSource = read('backend/acp-prepared-transcript-cache.cts');
   const mainPageSessionSource = read('backend/main-page-session.cts');
   const inputPartsSource = read('backend/input-parts.cts');
   const terminalPaneSource = read('src/components/AgentTerminalPane.tsx');
@@ -62,6 +63,7 @@ function run() {
   const iconGlyphsSource = read('src/components/IconGlyphs.tsx');
   const agentWorkPaneSource = read('src/components/code/AgentWorkPane.tsx');
   const codeMainAreaSource = read('src/components/code/CodeMainArea.tsx');
+  const codeSidebarSource = read('src/components/code/CodeSidebar.tsx');
   const terminalComposerSource = read('src/components/code/CodeComposer.tsx');
   const acpComposerSource = read('src/components/code/acp/AcpComposer.tsx');
   const acpComposerBehaviorSource = read('src/components/code/acp/acp-composer-behavior.ts');
@@ -70,6 +72,7 @@ function run() {
   const acpSessionHookSource = read('src/components/code/acp/useAcpSession.ts');
   const acpPermissionSource = read('src/components/code/acp/AcpPermissionCard.tsx');
   const acpTranscriptSource = read('src/components/code/acp/AcpTranscriptPane.tsx');
+  const acpTranscriptEnvelopeSource = read('src/components/code/acp/acp-transcript-envelope.ts');
   const acpProgressTimelineSource = read('src/components/code/acp/acp-progress-timeline.ts');
   const agentViewCacheSource = read('src/components/code/agent-view-cache.ts');
   const terminalSearchSource = read('src/lib/terminal-search.ts');
@@ -769,14 +772,17 @@ function run() {
       !workspaceSource.includes('resolvePendingMainPageLaunches') &&
       workspaceSource.includes('trackedMainPageAgentKeysRef') &&
       workspaceSource.includes('let discoveredSession = false') &&
-      workspaceSource.includes('if (discoveredSession) refreshAgentSessions()') &&
-      workspaceSource.includes('agentSessionsRefreshInFlightRef') &&
+      workspaceSource.includes('if (discoveredSession) scheduleAgentSessionsBackgroundLoad(true)') &&
+      workspaceSource.includes('agentSessionsBackgroundTimerRef') &&
+      workspaceSource.includes('AGENT_SESSION_LIFECYCLE_SETTLE_MS = 30_000') &&
       workspaceSource.includes('agentSessionsFirstPageRequestRef') &&
+      workspaceSource.lastIndexOf('agentSessionsFirstPageRequestRef.current = null')
+        > workspaceSource.indexOf('agentSessionsLoadAbortRef.current?.abort()') &&
       workspaceSource.includes('if (current?.limit === limit && current.fresh === fresh) return current.promise') &&
       workspaceSource.includes('agent.providerSessionTemporary === true') &&
       !workspaceSource.includes('window.setInterval(refreshAgentSessions, 5_000)') &&
       workspaceSource.includes('agent.providerSessionKey || resumedAgentSessionIdFromSource(agent.source)') &&
-      workspaceSource.includes('refreshAgentSessions') &&
+      workspaceSource.includes('scheduleAgentSessionsBackgroundLoad') &&
       workspaceSource.includes('agentSessionPinnedOverrides') &&
       workspaceSource.includes('toggleContextMenuAgentSessionPinned') &&
       workspaceSource.includes('archiveContextMenuAgentSession') &&
@@ -871,7 +877,7 @@ function run() {
       workspaceSource.includes('onDraftChange: handleDraftChange') &&
 	      workspaceSource.includes('onTerminalFollowOutputChange={handleTerminalFollowOutputChange}') &&
 	      workspaceSource.includes('onAgentReadLatest={markAgentReadLatest}') &&
-	      workspaceSource.includes('if (agent.unread) markAgentReadIfNeeded(agent.id, true)') &&
+	      workspaceSource.includes('if (agentWithCurrentLiveState(agent).unread) markAgentReadIfNeeded(agent.id, true)') &&
 	      (workspaceSource.match(/markAgentReadIfNeeded\(/g) || []).length === 2 &&
 		      terminalPaneSource.includes('!active') &&
 	      workspaceSource.includes("mainPaneMode === 'terminal'") &&
@@ -990,6 +996,9 @@ function run() {
       workspaceSource.includes("sendComposerMessageToAgent(\n        activeAgent,\n        message.text,\n        message.attachments,\n        message.id,\n        'prompt',\n      )") &&
       workspaceSource.includes('pendingFlushes.push({ agent, composerKey, message: nextMessage })') &&
       workspaceSource.includes("sendComposerMessageToAgent(\n          agent,\n          message.text,\n          message.attachments,\n          message.id,\n          'prompt',\n        )") &&
+      workspaceSource.includes('subscribeAgentRuntimeBindingEvents(agentId => {') &&
+      workspaceSource.includes('reconcileAcpPromptStartFence(structuralAgent)') &&
+      workspaceSource.includes('flushPendingFollowUps([structuralAgent])') &&
       !workspaceSource.includes("pending.messages.join('\\n\\n')") &&
       workspaceSource.includes('submitAction: composerSubmitAction') &&
       workspaceSource.includes('onInterrupt: interruptActiveAgent') &&
@@ -1112,10 +1121,23 @@ function run() {
       agentViewCacheSource.includes('MAX_RETAINED_AGENT_VIEWS = 20') &&
       agentWorkPaneSource.includes('hidden={!active}') &&
       agentWorkPaneSource.includes('{!chatMode && active ? (') &&
-      agentWorkPaneSource.includes('{chatMode ? (') &&
+      agentWorkPaneSource.includes('{chatMode && active ? (') &&
       stylesSource.includes('.code-terminal-grid[hidden]') &&
       stylesSource.includes('.code-agent-work-pane[hidden]'),
-    'Chat DOM and pooled xterm views should share one bounded retained-Agent working set'
+    'retained Agent shells may keep pooled Terminals, but only the active Chat may retain a full transcript tree'
+  );
+
+  assert(
+      serverSource.includes("'/api/agents/:agentId/acp-transcript/prepare'") &&
+      codeSidebarSource.includes('const prepareLiveChat = () => {') &&
+      codeSidebarSource.includes("event.currentTarget.matches(':focus-visible')") &&
+      !codeSidebarSource.includes('onPointerDown={prepareLiveChat}') &&
+      codeSidebarSource.includes('prepareLiveChat()') &&
+      agentManagerSource.includes('if (!this.acpPreparedTranscriptCache.hasAgent(agentId)) return;') &&
+      preparedTranscriptCacheSource.includes('maxRecords?: number;') &&
+      preparedTranscriptCacheSource.includes('getSerialized(identity: PreparedTranscriptIdentity)') &&
+      preparedTranscriptCacheSource.includes('json: string;'),
+    'Chat preparation should be a bounded backend hot-set signal with serialized payloads, not an all-idle-Agent frontend prefetch'
   );
 
   assert(
@@ -1271,7 +1293,7 @@ function run() {
       agentWorkPaneSource.includes('active={active}') &&
       agentWorkPaneSource.includes('hidden={!active}') &&
       agentWorkPaneSource.includes('{!chatMode && active ? (') &&
-      agentWorkPaneSource.includes('{chatMode ? (') &&
+      agentWorkPaneSource.includes('{chatMode && active ? (') &&
       terminalPaneSource.includes('setTerminalSearchOptions(previous => ({') &&
       terminalPaneSource.includes('const selectedQuery = terminalSearchQueryFromSelection(getSelectionNow())') &&
       terminalPaneSource.includes('onKeyDown={handleTerminalSearchKeyDown}') &&
@@ -1373,6 +1395,7 @@ function run() {
       messagesSource.includes('InterruptAgentMessage') &&
       stylesSource.includes('.code-composer-send.interrupt') &&
       stylesSource.includes('place-items: center') &&
+      stylesSource.includes('.code-composer-send:not(:disabled) {\n  background: #111;') &&
       stylesSource.includes('background: #111') &&
       stylesSource.includes('color: #fff') &&
       stylesSource.includes('background: #8e9294') &&
@@ -1465,15 +1488,15 @@ function run() {
   );
   assert(
     transcriptPaneSource.includes('function hasTextSelectionWithin(element: HTMLElement)') &&
-      transcriptPaneSource.includes('function preserveCompletedTranscriptTurns(') &&
+      acpTranscriptEnvelopeSource.includes('function preserveCompletedTranscriptTurns(') &&
       transcriptPaneSource.includes('const textSelectionGestureRef = useRef(false)') &&
       transcriptPaneSource.includes('const textSelectionHadRangeRef = useRef(false)') &&
       transcriptPaneSource.includes('const StableAgentTranscriptTurnView = memo(AgentTranscriptTurnView)') &&
       transcriptPaneSource.includes("document.addEventListener('selectionchange', updateSelectionState)") &&
       transcriptPaneSource.includes('onPointerDown={handleTranscriptPointerDown}') &&
       transcriptPaneSource.includes("source === 'acp'") &&
-      transcriptPaneSource.includes('mergeAcpTranscript(current, nextTranscript)') &&
-      transcriptPaneSource.includes('preserveCompletedTranscriptTurns(current, nextTranscript)') &&
+      transcriptPaneSource.includes('mergeAcpTranscript(transcriptRef.current, nextTranscript)') &&
+      transcriptPaneSource.includes('preserveCompletedTranscriptTurns(transcriptRef.current, nextTranscript)') &&
       !transcriptPaneSource.includes('deferredTranscriptRef') &&
       !terminalPaneSource.includes('textSelectionGestureRef') &&
       !terminalComposerSource.includes('textSelectionGestureRef'),

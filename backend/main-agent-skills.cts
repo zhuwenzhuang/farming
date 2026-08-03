@@ -79,6 +79,7 @@ const MAIN_AGENT_SKILLS: MainAgentSkill[] = [
       'farming browser list',
       'farming browser help workflow',
       'farming browser help <lifecycle|navigation|interaction|inspection|debugging|state|files>',
+      'farming browser describe <command> --json',
     ],
   },
   {
@@ -91,6 +92,9 @@ const MAIN_AGENT_SKILLS: MainAgentSkill[] = [
       'farming computer list',
       'farming computer open',
       'farming computer help workflow',
+      'farming computer help <observe|apps|input|browser|session|recording|diagnostics>',
+      'farming computer describe <tool> --json',
+      'farming computer call <tool> --json -',
     ],
   },
   {
@@ -161,8 +165,9 @@ function renderMainAgentSkills(): string {
   });
 
   lines.push('Rules:');
-  lines.push('- `farming browser` lists and operates only Browser Resources owned by this Agent; follow `farming browser help workflow`, and reveal only the help topic or command needed for the current step.');
-  lines.push('- `farming computer` operates only the isolated Computer owned by this Agent; observe before and after actions, and never replay an uncertain mutation without observing first.');
+  lines.push('- Farming Browser and Computer are CLI-only capabilities. Do not look for or start Farming MCP servers, and do not call the upstream runtimes directly.');
+  lines.push('- `farming browser` lists and operates only Browser Resources owned by this Agent; follow `farming browser help workflow`, and reveal only the help topic, command, or command description needed for the current step.');
+  lines.push('- `farming computer` operates only the isolated Computer owned by this Agent; discover one topic and exact tool schema at a time, observe before and after actions, and never replay an uncertain mutation without observing first.');
   lines.push('- Use “牧场除虫计划” when the user asks for systematic bug hunting across a directory or module tree.');
   lines.push('- Before spawning child agents for pest control, map modules and module protocols first; do not send overlapping or vague tasks.');
   lines.push('- Keep child agents scoped to their assigned module and require evidence, reproduction notes, or tests for each bug claim.');

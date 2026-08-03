@@ -1,155 +1,77 @@
-# Farming Desktop MVP
+# Farming Desktop
 
 > English version: [desktop-app.md](./desktop-app.md)
 
-Farming Desktop 使用 Electron 打包现有 Farming Code React 界面。首个窗口打开前会先启动
-本机 Farming Backend，因此第一次启动立即可用，不要求用户先决定是否连接 SSH。远程 SSH
-管理作为桌面专属的内置插件放在现有插件页中；需要时，同一份界面可连接多个已保存的远端。
-Connections 是 Farming 内置能力中的高优先级 Section，与 Browser、Computer 等能力共处同一
-插件页面，并非独立页面。
-普通 SSH Profile 只保存名称、`~/.ssh/config` Host 和可选
-Farming Home；Server 的平台、架构、版本、端口、base path、token 和能力都在连接时发现。
-桌面端的专注模式会直接进入全屏；浏览器应用安装提示只属于浏览器路径。
+Farming Desktop 使用 Electron 打包现有 Farming Code 界面。它默认启动本机 Farming Backend，
+也可以通过 OpenSSH 把同一套界面连接到已保存的远端 Farming Backend。
 
-## 运行
+## 产品边界
 
-```bash
-npm install
-npm run desktop
-```
+Desktop 只拥有 Backend 选择、Native Window 生命周期、操作系统集成与远端连接 Bootstrap。
+Agent、Project、Session、Terminal、Files、Chat、Plugin 与 Review 继续属于共享 Farming
+Frontend 和 Backend。
 
-`npm install` 会为当前平台准备精确版本的 Codex、Claude Code 和 agent-browser artifact，放入
-Package 本地且经过完整性校验的 seed。桌面启动阶段禁止网络下载：它只校验该 seed，并为桌面
-隔离的 Config 实例激活；seed 缺失或损坏时会明确要求重新执行 `npm install`。固定运行依赖不会
-再混入应用启动过程。
-
-开发运行和后续 macOS 安装包统一使用 `desktop/assets/` 中的品牌桌面图标；运行时构建会把
-PNG 复制到 Electron 主进程旁，供 Dock 和窗口图标使用。
-
-打开 **插件 → 连接**，填写 `~/.ssh/config` 的 Host 即可。用户名、端口、`IdentityFile`、
-`ProxyJump` 等高级 SSH 设置继续由 OpenSSH 管理。Farming Home 默认是
-`~/.farming-desktop`；其中 `server/<version>/` 保存版本化 Server，`data/` 是该桌面实例
-独立的 Config 目录。MVP 使用 `BatchMode=yes`，因此远端必须已经能通过密钥或
-`ssh-agent` 非交互登录。Linux 远端优先使用系统 glibc 2.28+；旧系统会自动发现兼容
-glibc runtime，并可直接复用已存在的 VS Code sysroot 配置。
-
-连接状态机为：探测远端平台/架构 → 查找精确版本 → 远端下载并校验 → 必要时本地下载、
-校验后经 SSH 上传 → 启动或复用 daemon → 读取版本化握手 → 建立 loopback 隧道 → 重新读取
-Browser/Computer 能力。默认从同版本 GitHub Release 下载单文件 CLI；开发分支可用
-`FARMING_DESKTOP_SERVER_VERSION` 指向一个已经发布的兼容版本进行 dogfood。也可通过
-`FARMING_DESKTOP_RELEASE_ROOT` 指定具有相同目录结构和 checksum 清单的 HTTP(S) 镜像；
-带凭证、query 或 fragment 的地址会被拒绝。
-测试尚未发布的源码版本时，应构建同版本 CLI release，并通过该开发镜像提供 artifact 和
-checksum。不要把较新的 Desktop 随意指向旧 Server；bootstrap 与 runtime 契约会随版本共同演进，
-跨版本组合不属于受支持路径。
-Artifact 传输复用同一个系统 OpenSSH 进程并通过标准输入流式写入；Desktop 不引入独立的
-`scp` 路径。
-
-旧 Linux 的发现顺序是 Farming 专用环境变量
-`FARMING_SERVER_CUSTOM_GLIBC_LINKER`、`FARMING_SERVER_CUSTOM_GLIBC_PATH`、
-`FARMING_SERVER_PATCHELF_PATH`，然后是等价的三个 `VSCODE_SERVER_*` 变量。Desktop 只
-patch 已验证 artifact 的版本化副本：临时副本只把较短的 linker alias 设为 interpreter，
-启动时再传入 library path。由于 patchelf 合法地重排 ELF 布局，验收依据是回读到精确的
-interpreter，并通过打包 CLI 的启动自检；通过后临时副本才会原子替换。它不会修改系统
-glibc 或 VS Code Server。daemon 同时收到既有的 `FARMING_NODE_LD` 和
-`FARMING_NODE_LIBRARY_PATH` 兼容契约，让托管子运行时自动选择或使用兼容旧系统的 artifact。
-仅启动所需的 library path 会在 Node 入口移除，避免污染系统工具；只有打包 Server 再次执行
-自身时才会恢复。
+既不选择 Backend、也不需要 Native OS Capability 的功能，不得新增 Desktop 专属实现。
 
 ## 架构
 
 ```text
-本地打包的 React renderer
-        |
-        | 单一 loopback HTTP/WebSocket origin
-        v
+打包的 Farming Code Renderer
+            |
+            | 一个带鉴权的 Loopback Origin
+            v
 Electron Desktop Gateway
-        |
-        +-- active backend 路由
-        +-- Desktop 拥有的本机 Farming Backend
-        +-- 版本化远端 Server bootstrap
-        +-- 原生系统通知
-        |
-        v
-        +-- 本机 Backend
-        |
-        +-- Connection Manager -- 系统 OpenSSH bootstrap + 隧道 --> 远端 Farming Backend
+            |
+            +-- Desktop 拥有的本机 Farming Backend
+            +-- 通过 OpenSSH Tunnel 连接的远端 Backend
+            +-- Native Window 与 Notification Integration
 ```
 
-Desktop 只拥有 Connection 与操作系统适配。Agent、Project、Session、Terminal、Files、插件和
-Voice 的业务逻辑继续归共享 React 前端与 Farming Backend。既不选择 Backend、也不需要原生
-OS 能力的功能，不得新增 Desktop 专属实现或状态机。
+Renderer 不接收上游 Backend Token，也不拥有 Node.js Access。Desktop Gateway 在 Main
+Process 内保存 Backend Credential，认证本机 Renderer，并转发到当前 Backend 的 HTTP 与
+WebSocket。Remote Content 不获得 Desktop Preload Bridge。
 
-## 生命周期状态机
+## 本机与远端 Backend
 
-Electron 主进程统一拥有应用生命周期和 renderer 窗口生命周期。后端回调不能直接调用
-`show`、`reload` 或 `loadURL`。
+首次启动直接打开本机 Backend，不要求用户先决定是否连接 SSH。Remote Connection 是基于
+用户 OpenSSH 配置的可选 Profile；Platform、Architecture、Version、Endpoint、Authentication
+与 Capability 在连接时发现，不复制成需要用户维护的字段。
 
-| Owner | 状态 | 转换契约 |
-| --- | --- | --- |
-| 应用 | `starting → running → stopping → stopped` | 一个可取消的 startup owner 依次拥有本机 Backend、Gateway 和 Connection Manager；每个 await 后都校验 owner。退出或不可恢复错误只进入一次 `stopping`，按逆序清理完成后才退出 Electron。 |
-| 主窗口 | `absent ↔ loading → ready`，或 `loading → failed` | 创建窗口会递增 window generation。每次导航都捕获该 generation 和当前 renderer-route revision。只有当前 generation 才能 ready、显示、聚焦、报告启动失败或触发下一次导航。 |
-| 本机 Backend | `idle → starting → ready → stopping → stopped`，或 `starting → failed` | 并发 start 复用一个 Promise，stop 保持幂等。轻量启动窗口会立即出现；只有 daemon 发布合法 port、base path 和 token 后才加载 Farming renderer。失败或部分启动也会执行精确的 best-effort stop。 |
+Desktop 可以安装或复用版本兼容的 Remote Server。Download 与 Transfer 必须有界、校验
+完整性、支持取消，并且只有验证完成后才能发布。旧 Linux 兼容只能使用私有且已验证的
+Runtime，不得修改系统或编辑器拥有的文件。
 
-依赖下载属于 `npm install`，不属于应用启动。启动只在命令总时限和无进展 watchdog 下校验
-已准备的 seed，并在首个窗口显示当前阶段与取消操作。取消会立即中止 daemon 和握手轮询，
-再由同一个 startup owner 清理已经取得的全部资源。命令期限结果不确定时，会先核对 daemon
-已发布的权威握手，不会盲目再启动第二个 daemon。
+从 Renderer 视角看，Backend 切换必须原子完成：目标 Ready 后才能成为 Active；旧 Attempt
+的迟到完成不能覆盖更新选择。
 
-激活后端、重启时恢复已保存后端、删除活动后端和通知跳转，都会通过递增 revision 使 renderer
-路由失效。窗口 ready 时会在当前 IPC action 返回后排队一个导航 effect；同一轮事件中的多次
-失效只保留最新 revision。窗口已经 loading 时，后续失效也会合并。旧 revision
-完成后按最新目标重试；已关闭窗口或进入 `stopping` 后到达的结果直接丢弃，避免过期启动数据
-和相互竞争的多次 reload。
+## 生命周期
 
-进入 `stopping` 后，状态机拒绝新窗口和新路由，并禁止状态广播及迟到的 UI 副作用。即使
-macOS 连续产生多个退出事件，关闭过程也保持幂等。
+Main Process 拥有 Application、Window、Local Backend 与 Connection Lifecycle。每个异步转换
+只有一个 Owner 和 Generation。Quit、Cancel、Profile Change、Connection Replacement 与
+Startup Failure 只撤销自己精确拥有的资源。
 
-Renderer 没有 Node.js integration，也不会收到上游 token。自动发现的 token 只存在于受
-认证的 SSH 握手和 Electron main process 内存中。随机 HttpOnly desktop-session cookie
-保护本地 Gateway；Gateway 注入后端 bearer 鉴权，并转发 REST 与 WebSocket。Electron
-只加载本地打包资源，不会在有桌面权限的界面中执行远端 Farming HTML。
+首个窗口必须显示有界 Startup Progress 或可操作错误，不能长时间白屏。Startup 或 Stop
+结果不确定时，必须先通过 Backend 权威 Handshake 与进程身份对账，再尝试下一次 Mutation。
 
-每个后端都有稳定本地 ID。连接状态按 ID 隔离，并在 `disconnected`、`connecting`、
-`ready`、`error` 间转换。每次连接尝试增加 generation，旧结果不能覆盖新的断开或连接。
-只有 `/api/auth/status` 探测通过、有界控制 WebSocket 收到兼容 hello 与合法 state，并且
-匹配的 ready 业务健康响应证明协议双向可用后，连接才进入 ready。切换后端时先连接目标，
-再更新 active ID、关闭 renderer WebSocket 并重载界面。瞬时 WebSocket 启动结果只在同一
-generation deadline 内重试；取消和协议不兼容会快速失败。
-
-每个 connecting generation 统一拥有一个共享 Promise、一个 `AbortController`，以及本次
-bootstrap 命令、下载、上传和 tunnel 进程。重复连接会加入同一个 Promise；取消、断开、
-修改或删除 Profile、应用退出都会取消精确 generation，并在有界宽限后终止其子进程。
-HTTP 下载同时有绝对期限、无进展期限和累计字节上限；过大的 `Content-Length` 会在写盘前
-拒绝，无长度的持续流会在硬上限中止，未完成文件始终清理。Checksum 与 Server binary 使用
-不同上限。后端激活由明确的 backend owner 与 generation 管理：修改无关 Profile B 不会取消
-正在进行的 A；新激活只会替代冲突 owner。保存并激活是一个主进程原子操作；编辑活动 Profile
-时立即关闭旧 client，但只有替换连接成功后才导航。
+进入 Shutdown 后，Desktop 拒绝新 Window、Connection 与 Navigation Effect。Cleanup 保持
+幂等，并在应用退出前完成。
 
 ## 安全边界
 
-- SSH 通过参数数组执行并遵循用户的 OpenSSH 配置；绝不关闭 host key 校验。
-- 自动下载先验证所选 Release 的 SHA-256 清单；远端无法访问时，本地验证同一 artifact 后
-  通过已认证 SSH 通道流式上传。远端先写本次临时文件，再复核字节数和 SHA-256 后原子发布；
-  中断只删除该临时文件，不能替换已安装 Server。
-- 旧 Linux 兼容 runtime 的 linker、library path 和 patchelf 必须存在；私有 linker alias、
-  patch 后的 interpreter 和可执行自检必须全部通过。
-- 自动发现的 token 不写入 Profile，也不会发送给 renderer。
-- Renderer 开启 context isolation 与 sandbox，并关闭 Node.js integration。
-- IPC 只接受精确 loopback Gateway origin；麦克风权限也仅允许该 origin 的 main frame。
-- Browser 与 Computer 的远端内容不会获得 desktop preload bridge。
+- OpenSSH 配置与 Host-key Verification 保持权威。
+- Remote Server Artifact 使用前必须校验；部分传输绝不能被发布。
+- 发现的 Backend Token 不写入 Connection Profile，也不暴露给 Renderer。
+- Renderer 使用 Context Isolation、Sandbox，并关闭 Node.js Integration。
+- Native IPC 与设备权限只允许带鉴权的本机应用 Origin。
 
-## MVP 边界
+## 失败与恢复
 
-MVP 不支持 SSH 密码交互、Windows 远端、自动构建 glibc sysroot、带认证的企业镜像源或非 active 后端通知。握手协议当前为
-版本 1；握手缺失、端口非法或精确 Server artifact 不存在时明确失败，不猜测旧监听端口。
-可信本地 renderer 已可采集麦克风，但语音识别暂时仍沿用现有浏览器实现。
+Connection Cancel、Tunnel Loss、Protocol Incompatibility、Artifact 缺失、Local Startup 失败
+与 Backend Switch 失败都必须可见且有界。Replacement Ready 前保留上一个已证明健康的 Backend。
+重新启动时对账保存的 Profile 与本机 Ownership，不要求用户重新经过 Modal Backend 选择。
 
-## 验证
+## 验收标准
 
-聚焦自动化覆盖 Profile 归一化、握手解析、SSH option 注入拒绝、host key 策略、renderer
-token 脱敏、bearer/base-path 路由、生命周期 generation/revision 守卫，以及拒绝误用后端 base path 构建的 renderer artifact。
-Desktop build 固定生成根路径资源；开窗前，main 会验证入口脚本、样式和 module preload，
-并一直隐藏窗口，直到应用外壳或可见错误页真正渲染。Smoke 会断言这些资源全部成功返回、
-首屏存在可见内容且 renderer 没有未捕获异常。产品形态冒烟还应覆盖真实远端首次安装、远端
-断网的本地传输回退、版本复用、活动 WebSocket 中切换后端、隧道掉线和通知点击路由。
+验证必须覆盖：首次本机启动、Cancel/Retry、远端登记、Artifact Transfer、旧 Linux 兼容、
+Backend 切换、Tunnel Loss、Startup 期间 Quit、Relaunch、Credential Isolation、Packaged Asset，
+以及通过真实 Desktop UI 执行普通 Farming 用户故事。

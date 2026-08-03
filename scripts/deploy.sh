@@ -240,6 +240,9 @@ cmd_deploy() {
     --exclude '.tmp/' \
     --exclude '.beads/' \
     --exclude '.gc/' \
+    --exclude '.codex/' \
+    --exclude '.qoder/' \
+    --exclude '.farming-runtime-seed/' \
     --exclude '.dolt-backup/' \
     --exclude 'fa-273-mol-dog-stale-db/' \
     --exclude 'fa-oxg-mol-dog-stale-db/' \

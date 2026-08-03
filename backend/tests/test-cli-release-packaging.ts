@@ -99,9 +99,13 @@ function run() {
     'native CLI targets must complete Codex and Claude ACP initialize handshakes before their manifest is written',
   );
   assert(
-    packageScript.includes('smoke-browser-mcp-process.ts')
-      && npmSmokeScript.includes('smoke-browser-mcp-process.ts'),
-    'native CLI and npm packages must expose the Browser MCP tools/list contract',
+    packageScript.includes('smoke-capability-cli-process.ts')
+      && npmSmokeScript.includes('smoke-capability-cli-process.ts')
+      && !packageScript.includes('smoke-browser-mcp-process.ts')
+      && !npmSmokeScript.includes('smoke-browser-mcp-process.ts')
+      && !npmSmokeScript.includes('smoke-computer-mcp-process.ts')
+      && fs.existsSync(path.join(root, 'scripts/smoke-capability-cli-process.ts')),
+    'native CLI and npm packages must smoke Browser and Computer through CLI-only contracts',
   );
   assert(
     packageScript.includes('--farming-usage-history-smoke')

@@ -1,187 +1,137 @@
-# Project Files Section Design
+# Project Files Design
 
 > Chinese version: [project-files-section-design.zh_cn.md](./project-files-section-design.zh_cn.md)
 
-This document describes how the Project Files section should fit into Farming Code. It focuses on product behavior and integration boundaries, not on replacing a full IDE.
+Project Files lets a user inspect and lightly edit a Project while supervising
+its Agents. It is not intended to replace a full IDE.
 
-## Positioning
+## Product Placement
 
-Files is a project-level section. It belongs beside concrete project agents, not beside Main Agent. The purpose is to let the human inspect and lightly edit files while supervising an agent.
+Files belongs to a concrete Project, not Main Agent. An expanded Project shows:
 
-Inside an expanded project, the sidebar order is the concrete agent row first, optional Open Editors second, and Files last. The Agent list has its own collapse control after its pagination controls; collapsing it keeps a compact restore row while leaving Files available, and an active search temporarily reveals the matching Agent rows. Open Editors is a separate section, not a child of Files. It appears only after the user has opened at least one file and is collapsed by default. Git History lives inside the expanded Files section beside working-copy Changes and defaults to collapsed.
+```text
+Project
+  Agents
+  Open Editors, when files are open
+  Files
+    Working-copy Changes
+    Git History
+    Directory tree
+```
 
-Files uses a compact, scannable explorer layout:
+The Project sidebar has one outer scroll surface. Files, Open Editors, Changes,
+History, and the directory tree must not create competing project-level
+scrollbars. Deep trees may show compact ancestor context without changing that
+ownership.
 
-- stable directory rows;
-- clear chevrons;
-- file-type icons;
-- subtle git decorations;
-- active file highlight;
-- smooth scrolling;
-- parent context when scrolling deeply.
+## Project And Workspace Identity
 
-## Projects And Git Worktrees
+A Project is a persisted workspace mounted in Farming. Agent creation, file
+opening, restored Project sessions, and Git worktree selection all refer to that
+same workspace identity. Losing the last Agent or editor does not silently
+remove the Project; explicit removal is the unmount action.
 
-There is only one Project kind: a persisted workspace mounted in Farming. Starting an Agent, opening a workspace file, restoring a Project session, or clicking a row in a repository's worktree list all add that workspace to the same `projectWorkspaces` list. Losing the last Agent or closing the last editor makes the Project empty but never removes it; Remove Project is the only unmount transition, and it is enabled after the Project has no Agent, Project session, or open editor.
+Git owns repository and worktree identity. Farming presents each worktree as an
+ordinary Project and owns only its membership and order in the workspace.
 
-A Git worktree is still presented as an ordinary Project, not as a separate top-level repository family. Farming derives repository identity from `git worktree list --porcelain -z` and the shared Git common directory. A quiet line below the Project name opens the complete repository worktree list. Each row exposes current/main identity, branch or detached state, short HEAD, path, and locked/prunable state; clicking a row mounts that worktree as another ordinary Project.
+Files identity is derived from the canonical workspace, never from whichever
+Agent currently happens to reference it. An optional source-Agent association
+may support returning from a file to an Agent, but it is not file ownership.
 
-Git owns repository and worktree identity, while `settings.projectWorkspaces` owns Project membership. Backend Files and Git APIs accept a validated Project workspace identity even when no Agent exists, so empty Projects retain Files, Changes, History, and editor access. The browser derives one deterministic Files id from that workspace; the compatibility `/api/files/*` field is still named `agentId`, but its Project value must never switch to a live `agent-*` id when Agents hydrate, reorder, or disappear. `sourceAgentId` is a separate, optional association used only to return from an editor to a still-live Agent. During the bounded create/persist race, an exact matching live non-main Agent may authorize the workspace id, but it does not become the file identity and cannot authorize a descendant or unrelated path. A stale or failed Git inspection never invents a repository relationship, and every asynchronous Agent inspection remains generation-guarded.
+## Directory And Navigation State
 
-The directory-load state machine is `absent -> loading -> loaded | error`. Changing either the Files id or workspace invalidates the previous generation and must return every pending directory to `absent`; an expanded Files section then starts a new load. A response from an old generation may not commit data, and it may not leave a visible `loading` placeholder that suppresses retry. Agent-only changes do not trigger a Files identity transition.
+Directory loading is absent, loading, loaded, or failed. A workspace identity
+change invalidates pending loads. A response from an older workspace generation
+cannot commit data or leave a loading state that blocks retry.
 
-The editing state machine is filesystem-authoritative and optimistic. Each browser working copy keeps a disk baseline, a draft, and a monotonic draft revision. Saving captures one revision. When that save finishes, it may become clean only if the captured revision is still current; edits made while the request was in flight remain dirty on top of the new disk baseline. Dirty drafts are stored after a 250 ms debounce in a bounded browser-local backup and flushed on page hide. Reopening restores a differing draft and marks an independently changed disk baseline as external; a draft already equal to disk is cleaned up. The backend serializes mutations per canonical workspace, validates expected versions inside that queue, uses exclusive unique temporary files, attempts `datasync`, and atomically replaces the target. An already-committed identical save is success. Create is create-if-absent, while rename, move, and delete accept the selected directory entry version and reject a stale object. An uncertain save rereads the file and checks the desired content rather than replaying blindly. An uncertain create is not replayed and may converge to success only after an authoritative parent reread finds the exact expected path with the requested type. An uncertain delete may converge to success only after that reread proves the source is absent. An uncertain rename may converge to success when it proves the source is absent and the expected same-type target exists. This is desired-state convergence, not proof of which process performed the mutation. Filesystem watch events remain invalidation hints.
+Directory expansion is browser-local navigation state scoped to the workspace.
+Each accepted pointer or keyboard action changes the desired expansion state
+once; a later directory response cannot reopen a directory the user closed.
 
-Create, Rename, and Delete also have a small browser ownership state machine. Opening an operation allocates a monotonic generation; the first valid submit synchronously reserves it and disables further submit input before any request await. Canceling, opening a replacement, changing the Files root, or unmounting revokes the prior generation's UI ownership without claiming that its server mutation was canceled. A late response may refresh the original authoritative directory and apply proven open-file path mappings, but only the current generation may clear the operation, report an error, open a newly created file, or move focus. The mutation request has a 15-second client deadline. A deadline is an uncertain transport result, so recovery uses a new independently bounded parent reread and never automatically resends the mutation.
+The Explorer keeps active file, keyboard focus, and selection as distinct
+concepts. Opening a file from Chat, Terminal, search, History, or a URL has one
+reveal owner so the tree and Project list do not compete for focus or scroll.
 
-This model intentionally does not claim transactions against arbitrary external writers. Other Farming servers, Shells, Agents, Git, and editors are ordinary independent filesystem clients. Farming detects an observed conflict, preserves the browser draft, and rereads authoritative disk state. It does not need a durable operation id because filesystem state, not causal attribution, is authoritative. Strong cross-process compare-and-swap or power-loss durability would require a different storage authority and is outside this lightweight editor boundary. The browser backup is bounded and best-effort, `datasync` disables itself if unsupported, and the parent directory is not synced.
+## Working Copies And Mutations
 
-## Scroll Model
+The filesystem is authoritative. A browser working copy keeps a disk baseline,
+a draft, and a revision. Saving one revision must not mark a newer draft clean.
+Unsaved drafts may have bounded browser-local recovery, but they do not become a
+second filesystem authority.
 
-The Files section, including Git History, should expand into the outer project scroll flow. It should not create a second nested scrollbar inside the project sidebar. When many rows are visible, the whole project list scrolls as one surface.
+Save, create, rename, move, and delete validate the exact workspace and expected
+object or content version. Conflicts preserve the user's draft and present
+reload or overwrite choices rather than silently replacing external changes.
 
-Long trees may use a lightweight sticky ancestor overlay and subtle shadow to show parent context, but that overlay must not change the scroll model. The overlay is one breadcrumb row, not a copy of the tree hierarchy: it folds the complete rendered ancestor chain into that row even when an intermediate directory has siblings. It always renders at root indentation, and clicking it reveals the deepest represented ancestor.
+An ambiguous timeout or transport failure is an uncertain outcome. Farming
+re-reads the authoritative file or parent directory and converges only when the
+requested end state can be proven. It does not automatically replay a mutation.
 
-## Git History Graph
+Late browser responses may refresh authoritative data, but cannot close a newer
+dialog, move focus, open a replacement file, or overwrite a newer error.
 
-Git History is a project-scoped SCM graph inside Files for understanding committed history, not another global history page. It sits after working-copy Changes so uncommitted and committed Git state share one predictable place. The default view follows `git log --first-parent HEAD`: it shows the current branch as a simple linear history, keeps merge commits, and does not expand every commit from merged branches. Users can switch to All branches when they need the full local-branch, remote-branch, and tag graph. Each view loads 50 commits at a time, and more rows load only after an explicit request.
+Farming does not claim transactions with arbitrary external writers. Shells,
+Agents, Git, editors, and other Farming instances remain independent clients of
+the same filesystem.
 
-The graph topology and SVG row geometry are adapted from the MIT-licensed VS Code SCM history implementation at pinned commit `0217c2f1a0defc7fdbfb4feba74e71e366de6822`; the exact source and license are recorded in `THIRD_PARTY_NOTICES.md`. Farming keeps that lane-transition algorithm and supplies only a small adapter from bounded `git log` data into the SCM-history view model. It must not grow a second hand-written graph algorithm in parallel.
+## Explorer And Editor Boundaries
 
-Clicking a commit expands its changed files in place. The row keeps the one-line subject compact; when a commit has a message body, the expanded area shows that body before the file summary. Merge commits expose a parent selector so the user can inspect the change against either parent. Root commits compare against Git's empty tree. The VS Code-derived output lanes continue through the expanded change area instead of being replaced by a decorative border. A compact Review action sits beside the changed-file count, while changed-file rows reuse the existing `/review?agentId=...&base=...&head=...` surface with an optional `path`; the history section does not implement another diff viewer.
+Four responsibilities remain separate:
 
-## Tree Behavior
+- **Project composition** owns Files, Open Editors, Changes, History, and the
+  single sidebar scroll surface.
+- **Explorer behavior** owns rows, focus, selection, keyboard navigation,
+  virtualization, and projection of expansion state.
+- **Workspace access** owns authorization, bounded filesystem and Git reads,
+  version checks, mutation reconciliation, and refresh.
+- **Editor and Viewers** own working copies, tabs, editor state, conflicts, and
+  bounded previews.
 
-The tree should not be a hand-rolled recursive list forever. The important behavior is not just icon mapping; it is the whole explorer interaction model:
+Text uses the lightweight editor. Markdown and static HTML may switch between
+source and bounded preview within the same file identity. Images, PDFs, binary
+files, and oversized text use read-only viewers. Every Viewer uses the same
+Project authorization; it must not create a separate file-access path.
 
-- stable node ids;
-- parent / child path model;
-- lazy directory loading;
-- expand / collapse state;
-- keyboard focus;
-- selection and active-file separation;
-- rename support;
-- git decoration slots;
-- hover actions;
-- accessible list/tree semantics.
+Semantic code navigation is delegated to the managed Language Server for saved
+files. Dirty drafts do not receive cross-file results that describe an older
+disk version as current.
 
-The current implementation uses `react-arborist`, which is reasonable for the first version because it provides virtualization, selection, keyboard navigation, and rename primitives. `@headless-tree/react` is a future candidate if Farming needs deeper control over async tree semantics and accessibility.
+## Git And Review
 
-Directly copying VS Code workbench sources is not recommended because the explorer is deeply coupled to the VS Code platform.
+Working-copy Changes and committed Git History live inside Files. History is
+Project-scoped and loads bounded pages; expanding a commit reveals its changed
+files and parent comparison without implementing a second diff viewer.
 
-Farming follows the same state boundary as VS Code's tree model: each pointer or keyboard toggle synchronously commits one transition to the workspace-scoped open-directory set before any asynchronous child loading starts. `react-arborist` projects that desired state and reports view changes, but its `onToggle` callback must not read a just-dispatched `node.isOpen` value and write it back as authoritative state. Rapid clicks are not debounced or coalesced; every accepted click must flip the model exactly once, and a late directory load must not reopen a directory the user closed afterward.
+Line changes explain a local hunk near the current line. Full Review uses the
+main comparison surface and stable Review identity. These are different
+interaction levels and should not be collapsed into one narrow sidebar panel.
 
-The component architecture has four durable boundaries:
+Git operations use deterministic, path-safe input and treat truncation or
+timeouts as visible partial results, never as proof of a clean workspace.
 
-- **Project composition** owns Files, Open Editors, Changes, and Git History placement while preserving one outer sidebar scroll surface.
-- **Explorer behavior** owns focus, selection, keyboard navigation, virtualization, and projection of the workspace-scoped open-directory state. It does not own filesystem truth.
-- **Workspace adapter** owns path authorization, bounded directory and Git reads, optimistic version checks, mutation reconciliation, and explicit refresh.
-- **Editor and viewer surface** owns working copies, tabs, Monaco state, conflict presentation, and bounded previews. Preview implementations share the same workspace authorization and lifecycle rules rather than becoming independent file-access paths.
+## Visual And Interaction Rules
 
-These boundaries are intentionally described by responsibility rather than private component names. Internal React composition may change without changing the Project, filesystem-authority, or recovery contracts above.
-
-## Visual Rules
-
-- Files header is at the same project-content level as agent rows.
-- Open Editors is at the same project-content level as Files and sits between the agent row and Files.
-- Open Editors is absent when no file has been opened, then defaults to collapsed when the first file opens.
-- Git History sits inside expanded Files after working-copy Changes, defaults to collapsed, and appears only when the Project has a backing workspace access context.
-- Git History uses the same horizontal header inset as working-copy Changes and the file tree.
-- Git History rows expose commit subjects, short object ids, author/time metadata, branch/tag decorations, and accessible expand state without turning the section into a dense SCM toolbar.
-- Git History defaults to the current branch's first-parent history; All branches is an explicit alternate graph view.
-- A commit's subject stays in the row, while any additional commit-message body appears in its expanded details.
-- Files owns the search box, working-copy Changes, committed Git History, and directory tree; it should not contain the Open Editors list.
-- Changes is a project-scoped lightweight review entry inside the Files/editor boundary. It summarizes the current workspace changes and opens review targets in the main editor pane.
-- The standalone `/review?agentId=...` surface is a working-copy reviewer for the selected agent's workspace. `/review?agentId=...&base=...&head=...` uses the same surface for a Git commit range. It is intentionally separate from the main workspace: it provides a Gerrit-like multi-file diff, per-file Reviewed state, and diff preferences without changing the Files / Monaco review boundary. Git-backed diffs retain character-level edit ranges and explicitly warn when either side has no newline at end of file, so visually identical replacement lines still have an explainable change. Patch generation remains a backend capability, but the provisional download and final-change selectors are not exposed while their product roles are still unclear. Its persisted review state is scoped by stable workspace identity plus the current structured-diff revision, never by the transient agent id. Controls that require server-side change metadata (for example rebase or included-in) are not shown for a local working copy. `/review` is the only product route; deterministic tests use the explicit `fixture=1` query instead of a separate prototype route.
-- The header is clickable and collapsible.
-- The search box must keep enough input width on narrow sidebars.
-- Header actions should not stay visible when row-level context menus already cover the operation.
-- File rows use single-line truncation.
-- Native `title` should expose the full relative path.
-- Active file uses a subtle background and a thin left marker.
-- Open file identity is `workspaceRoot + path`; two agents pointing at the same workspace path share one working copy and editor tab. The optional source Agent is stored separately, and the return control appears only while that association is valid.
-- Dirty and externally changed files should update both editor tabs and tree decoration.
-- Single-child directory chains should be compacted into one visible directory row, for example `tmp/ata2/assets`, to avoid over-indenting a path that carries no branching information.
-- Expanding a directory should hydrate compactable single-child chains below its immediate children in the same interaction, so a click on `src` can reveal stable rows such as `main/java` without first showing `main` and then morphing after a second click.
-- An explicit file reveal is owned by one reveal request. Opening from Chat, Terminal, search, or a file link must not start a second active-file reveal in parallel; the tree scrolls internally first, then applies one nearest-position correction to the Project list. Active-file observation remains only as a fallback for transitions without an explicit reveal request, such as selecting the next editor after a close.
-- Directory icons should prefer stable content signals from loaded descendant file extensions. When no content signal is available, the fallback must use a stable path for the visible row rather than the changing basename of a compacted path.
-
-## Search And Jump
-
-Search reuses `/api/files/search`. It supports:
-
-- content search;
-- file path search;
-- `path:line`;
-- `path:line:column`.
-- Clicking a terminal `path:line` uses the same open path: workspace-relative and in-workspace absolute paths use the current Project Files root. A user-clicked absolute file outside the workspace may be read once through the read-only global Files root when it is readable by the Farming process. That root is then shown as a normal, collapsible Project item, but it does not authorize its parent directory for browsing, search, editing, or Git operations.
-
-Search results must expose keyboard active state to the DOM. `aria-activedescendant` should point at the active result where possible.
-
-## Editor Integration
-
-The right pane is a lightweight editor surface:
-
-- Monaco for text files;
-- in-editor Markdown preview toggled from Markdown source files;
-- sandboxed static HTML preview toggled from HTML source files, using the current unsaved draft while relative CSS, image, font, and media resources load through a bounded project-scoped Preview Session; relative HTML navigation and destination-page root-relative resources remain inside that Session;
-- workspace links followed from a Markdown document inherit that document's source Agent, so the return-to-Agent control remains available across document navigation;
-- preview for image, PDF, and binary files;
-- readonly mode for oversized files;
-- tabs with mature `tablist` semantics, mouse drag reordering, and a lighter active-tab/content seam than the surrounding strip divider;
-- transient preview tabs for mouse clicks in the Explorer tree; the preview label is italic, the next clean preview replaces it, and double-clicking either the tree row or its tab pins it. Search results, `path:line`, keyboard Enter, and review/diff opens create pinned tabs, and editing also pins a transient tab;
-- per-file Monaco model and view state;
-- breadcrumb as lightweight context on source, split-preview, and diff surfaces; pure rendered Markdown, HTML, image, PDF, and binary preview surfaces omit it;
-- dirty close confirmation.
-- a project-scoped Changes list for working-tree review;
-- line-change inspection from the editor context menu;
-- a full-file diff surface for review when a file has working-tree changes.
-
-Monaco delegates viewing-oriented semantic providers to Farming's managed Language Server path: hover, definition, references, implementation, document symbols, and diagnostics. The backend selects a registered server from the saved file, starts it on the Project host, and owns cross-file navigation plus the lazy call/type hierarchy and workspace-symbol panels. These semantic operations intentionally use only the saved file; a dirty Farming draft disables them instead of presenting stale results. See [Language Server](./language-server.md).
-
-The editor should not always show a permanent `Saved` state. Save controls should be visible only when useful: dirty, saving, error, external changed, or explicitly available in context.
-
-## Git Blame And Line Changes
-
-Blame should be offered only when it is applicable. Unsupported files should not show a blame action that immediately errors.
-
-Blame can be opened from the non-text gutter area. The text editor's normal context menu should stay focused on editing commands.
-
-Line changes follow the VS Code dirty-diff mental model: Farming asks Git for the original or historical resource, locates the hunk that contains the current line, and shows that hunk in a temporary editor panel. This is for local, line-level explanation.
-
-Review uses a different boundary. When the user needs to inspect a patch, Farming opens a full-file Monaco diff surface and gives the main pane to the comparison instead of forcing the review into a narrow agent/chat column. The Changes list is intentionally scoped to the current project workspace; Farming should not become a global cross-project review workbench. The backend should remain thin: it exposes Git diff content and file snapshots, while the frontend delegates comparison rendering to Monaco rather than implementing its own diff engine.
-
-## Backend Boundary
-
-The backend remains intentionally thin:
-
-- workspace-root safety;
-- directory tree and file metadata;
-- read / save with version checks;
-- create / rename / delete / move;
-- search through `rg` where available;
-- bounded static HTML Preview Sessions served through the existing authenticated HTTP listener, with no second preview port and no script-capable fallback;
-- bounded git history, commit changes, status, diff, blame, and line changes through `git`. Every git invocation is made deterministic before it is parsed: diagnostics are read in the C message locale, and paths are read as raw UTF-8, so a localized workstation and non-ASCII file names cannot change how a failure is classified or whether a path is recognized;
-- explicit refresh of the root, expanded directories, working-copy Changes, and currently open files from the stable Project Files id. The frontend does not subscribe to workspace watcher events until recursive coverage and bounded delivery are both correct.
-
-Farming should reuse mature tools instead of building a full custom IDE backend.
+- Rows remain compact, stable, keyboard-accessible, and single-line.
+- Open Editors appears only when needed and stays separate from the tree.
+- Single-child directory chains may compact into one stable row.
+- Dirty, external-change, and Git state remain visible without turning the tree
+  into a high-noise warning surface.
+- Preview and pinned tabs preserve per-file editor position and distinguish
+  transient inspection from intentional multi-file work.
+- Narrow layouts prioritize viewing and short edits; long-form mobile coding is
+  not a goal.
 
 ## Performance Boundary
 
-Large workspaces should stay usable through bounded operations:
+File reads, previews, searches, Git output, directory loads, History pages,
+editor models, and caches are bounded. Trees and expensive details load on
+demand. Background preparation may improve first open, but failure must fall
+back to the same authoritative path and must not reload the page or block Agent
+work.
 
-- file reads and writes keep size caps;
-- HTML Preview Sessions have fixed expiry and capacity bounds, and each resource read keeps the preview-file size cap;
-- directory trees load lazily by directory;
-- after the Code workspace first renders, it starts one shared non-blocking preload of the dynamic file-editor module, Monaco core, and common syntax tokenizers; opening a file reuses that promise, while language workers remain demand-loaded and a background preload failure never reloads the page on its own;
-- TypeScript and JavaScript keep Monaco syntax diagnostics but disable Monaco's isolated semantic and suggestion diagnostics; virtual editor models do not load the workspace's compiler configuration, dependency declarations, or complete file graph. Project-level diagnostics appear through the managed Language Server path and only for the saved file;
-- history defaults to 50 commits per page with a hard page cap, lazy commit-change loading, and a bounded frontend detail cache;
-- working-copy status returns complete records already captured plus `truncated: true` when a large untracked set exceeds the Git output buffer; it must never turn that condition into a false clean workspace;
-- file refresh is user-triggered: Git status and browser file requests time out, expanded directories refresh parent-first with at most six concurrent requests, and open files revalidate with at most four concurrent reads;
-- a directory removed outside Farming is a successful refresh result: its refreshed parent removes it from the tree and stale descendant requests are skipped;
-- refreshed clean editors adopt the latest file contents, while dirty editors preserve their draft and become visibly `externalChanged` when the backend SHA changes;
-- while that refresh is in flight, the Files action shows a pending state and the Changes / Untracked counts vacate their previous values; successful counts visibly re-enter only after the real requests settle, success feedback is brief, and failure remains retryable and visible;
-- search and git operations use limits, timeouts, or truncation instead of unbounded output;
-- live terminal output is streamed in bounded chunks and coalesced before WebSocket fanout;
-- exited terminal sessions release screen workers and remove session state after the final output is flushed;
-- large Codex / Claude histories are scanned with recent-file and directory budgets, with index data used as fallback.
+## Acceptance Criteria
+
+Verification must cover empty Projects, multiple Agents sharing a workspace,
+Git worktrees, deep trees, keyboard navigation, reload restoration, symlinks,
+search and location links, dirty and external changes, uncertain mutations,
+read-only viewers, Git History, Review, mobile viewing, and large workspaces.

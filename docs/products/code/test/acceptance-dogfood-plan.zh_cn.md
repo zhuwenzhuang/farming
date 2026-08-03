@@ -1,371 +1,177 @@
-# Farming 2 验收 Dogfood 测试方案
+# Farming 验收与 Dogfood 方案
 
 > English version: [acceptance-dogfood-plan.md](./acceptance-dogfood-plan.md)
 
-本文档定义 Farming 2 的验收测试划分。目标不是只跑一组固定断言，而是让多个“资深用户型 Agent”并行使用隔离的 Farming 实例，从功能组件、真实用户场景、使用时长和使用强度几个维度持续发现问题。
+本 Runbook 定义如何验收 Farming 这套真实 Multi-Agent Workspace。自动化证明可重复契约；
+Dogfood 证明组合后的产品在生产形态使用中是否可理解、响应及时且可恢复。
 
-常规自动化仍然默认使用 fake Codex / fake Claude，以保证高频回归稳定、低成本。验收 dogfood 必须支持真实 Codex / Claude Code，并尽早、低强度地暴露真实 CLI、真实登录态、真实 session history 和真实终端行为中的问题。
+## 验收问题
 
-## 验收目标
+每轮必须回答：
 
-Farming 2 的验收结论必须回答四个问题：
+1. 用户能否从桌面与手机打开本机或远端 Workspace，并监督多个 Agent？
+2. Chat、Terminal、Files、Review、History、Browser、Computer、Settings 与 Update 是否对
+   Agent/Session 权威状态达成一致？
+3. Reconnect、Restart、Cancel、Archive、Process Exit、弱网与结果不确定是否可见且可恢复？
+4. Agent 与 Session 数量增长时，性能是否仍可接受？
+5. 界面是否降低注意力成本，而不是制造重复或误导状态？
 
-1. 用户能否从桌面或手机浏览器进入远端现场，并稳定监督多个 agent。
-2. Codex / Claude Code 的启动、输入、resume、历史、usage、文件和 terminal 能力是否按真实行为工作。
-3. 长时间运行、弱网、后端重启、agent 退出、归档和恢复路径是否概念清晰且可恢复。
-4. UI 是否减少上下文切换，而不是制造新的焦虑、迷路或误操作。
+## 测试层级
 
-## 执行层级
-
-| 层级 | 默认频率 | Agent 来源 | 目标 |
-| --- | --- | --- | --- |
-| Static / unit | 每次提交 | 无真实 agent | 验证后端 helper、状态归一化、配置读写、静态接线 |
-| Playwright fake e2e | 每次较大 UI 改动 | fake Codex / fake Claude / real bash | 验证可重复浏览器路径，不消耗真实额度 |
-| Agent dogfood fake | 每日或每次大改 | 多个测试 Agent + fake coding agent | 深度探索 UI、状态和边界问题 |
-| Real Codex / Claude smoke | 每日或合并前 | Linux 上的真实 Codex / Claude Code | 尽早验证真实 CLI、真实配置、真实 session resume |
-| Real long soak | 手动或夜间 | Linux 上的少量真实 agent | 验证长时间运行、断线恢复、usage、手机回访 |
-
-真实 Codex / Claude 测试必须显式开启，且默认限制 prompt 长度、任务数量和运行时长。不得触发 quota reset、危险配置重置或大规模真实任务。
-
-## Linux 优先测试环境
-
-Farming 2 的真实验收主战场是 Linux 开发机或 Linux 容器。macOS 本机可以用于写文档、跑 fake e2e、做 CLI 参数探测，但不作为真实发布体验的主要结论来源。
-
-推荐 dogfood 目标按能力分层：
-
-| 目标 | 连接方式 | 定位 | 必测内容 |
-| --- | --- | --- | --- |
-| Primary Linux | `ssh user@primary-linux` | primary real-agent Linux；已有 Node、Codex、Claude | 真实 Codex / Claude smoke、远端 `/farming`、手机访问、usage、archive/history |
-| Claude-ready Linux | `ssh user@claude-linux` | 已有 Node 和 Claude | Claude Code smoke、Claude settings / slash / usage、远端访问 |
-| Compatibility Linux | `ssh user@compat-linux` | bare / compatibility Linux；环境更老更薄 | CLI release、packaged runtime、native PTY 缺失时 fail fast、无 Codex/Claude 降级 |
-| Linux container | 本机或远端容器 | 干净可重复环境 | 安装、端口、base path、token、无历史状态冷启动 |
-
-Linux 目标每轮都要记录：
-
-- `hostname`、`uname -srm`
-- `node --version`、`npm --version`
-- `command -v codex` / `codex --version`
-- `command -v claude` / `claude --version`
-- Farming 启动方式、端口、base path、token 状态
-
-真实 agent smoke 优先在 primary Linux 跑；如果 Codex 不可用但 Claude 可用，则在 Claude-ready Linux 跑 Claude-only smoke；如果二者都不可用，仍需在 compatibility Linux 上验证页面能明确展示 agent unavailable，而不是静默失败。
-
-## macOS 桌面端人类用户故事门禁
-
-Electron 改动还必须在真实 macOS 桌面完成一轮验收。操作者必须像普通用户一样使用可见控件、
-键盘输入、对话框和正常窗口生命周期；不得通过调用 Backend API、编辑持久化状态或操作
-renderer 开发者工具让故事“通过”。只有在可见路径已经复现失败后，才使用诊断日志解释原因。
-
-每轮至少执行以下故事；默认 Backend 是本机 Mac，远端故事使用一个可复用的 SSH 目标：
-
-| # | 人类用户故事 | 通过证据 |
+| 层级 | 常见频率 | 目标 |
 | --- | --- | --- |
-| 1 | 从源码或安装包启动 | 无需先决定 SSH，即可进入可用本机工作区，且不白屏。 |
-| 2 | 打开内置「连接」界面 | 本机默认就绪，远端管理是可选操作。 |
-| 3 | 只填写名称和 OpenSSH Host 添加远端 | 不要求端口、listener、token、平台或架构。 |
-| 4 | 提交缺失或无效 SSH 输入，然后编辑或删除 | 校验和恢复动作明确可见。 |
-| 5 | 在发现或下载阶段取消连接 | 精确停止本次尝试，连接行回到稳定的未连接状态。 |
-| 6 | 安装缺失的同版本 Server | 下载进度可见、checksum 经过校验、失败有界。 |
-| 7 | 连接旧 glibc Linux | 自动发现兼容 runtime，不修改系统或 VS Code 文件。 |
-| 8 | 查看已连接远端 | 能看到版本、平台/架构、runtime 和 Farming Home。 |
-| 9 | 远端 → 本机 → 远端切换 | 窗口身份和数据只跟随最后一次选择，存活 Server 可复用。 |
-| 10 | 退出并重启 Mac 应用 | 本机仍直接可用，保存的远端无需启动弹窗即可继续使用。 |
-| 11 | 通过 workspace 选择器创建 Bash Agent | 选择的目录成为当前项目与终端工作区。 |
-| 12 | 在终端输入命令 | 按键、回车、输出、cwd 和退出状态都清楚。 |
-| 13 | 展开 Files 并打开文本文件 | 权威文件树出现，编辑器在应用内打开。 |
-| 14 | 打开 History，搜索、清空并返回 | 加载、无结果、结果与返回都有界且可逆。 |
-| 15 | 归档一次性测试 Agent | 它离开 live 列表；只有真正可恢复的 provider session 才显示为可恢复历史。 |
-| 16 | 在 Settings 切换外观并恢复 System | 设置立即生效，原导航仍可恢复。 |
-| 17 | 全局搜索 Project 与 Agent | 输入时出现结果，选择 Agent 后正常退出搜索。 |
-| 18 | 进入并退出专注模式 | Electron 直接切换全屏，不出现浏览器安装提示。 |
-| 19 | 收起并展开侧栏 | 关键导航仍可达，原页面保持。 |
-| 20 | 打开并关闭「分享当前页面」 | 二维码/链接弹层可读、可关闭，不替换当前页面。 |
+| Static、Unit 与 Protocol Test | 每次改动 | 状态转换、Validation、Ownership、Reducer |
+| 确定性 Browser Test | 受影响 UI 改动 | 使用 Fake Agent 重复验证用户路径 |
+| Production-shaped Integration | 非平凡 Runtime/UI 改动 | 组合 Backend、Browser、Files 与 Lifecycle |
+| Real-provider Smoke | 合并或发布前 | Login、真实 CLI/ACP、Resume、Runtime Switch |
+| Long Soak 与 Scale | 显式或夜间 | Duration、Reconnect、Memory、Navigation、Many Agents |
 
-任一失败都应先记录最后一个可见状态及其所属生命周期状态，再开始改代码。涉及 ownership、取消、
-乱序或恢复时，应修复状态转换契约，不能把增加延时当成产品修复。
+真实 Provider Test 必须显式、低频且隔离；不得 Reset Quota、改写 Provider Login/Default，
+也不得启动无关的大型任务。
 
-## 隔离要求
+## 目标环境
 
-每个 dogfood Agent 必须运行在隔离实例中：
+至少使用：
 
-- 独立 `HOME`，避免污染真实 `~/.farming`、Codex / Claude 历史和 shell 配置。
-- 独立 `FARMING_CONFIG_DIR`、workspace、端口、server log 和浏览器 context。
-- 独立 artifact 目录，保存截图、trace、console、server log、agent transcript 和最终报告。
-- fake 层默认设置 `FARMING_E2E_FAKE_EXECUTABLES=1`。
-- real 层不伪造 `FARMING_CODEX_BIN` / `claude`，但必须先记录可执行文件路径、版本和配置摘要。
-- 远程 Linux 上每个 story 使用单独端口，避免多个 dogfood agent 互相抢同一个 Farming server。
-- 真实 Codex / Claude smoke 可以复用目标机器现有登录态，但不能修改登录配置、默认模型配置或 quota/reset 相关状态。
+- 开发平台，用于快速迭代；
+- Linux Host 或 Container，用于安装、远端与 Runtime 验证；
+- Phone-size Browser Viewport，用于监督与短介入；
+- Electron 或 Native Integration 变化时的 macOS Desktop。
 
-Playwright 服务必须用自己的临时配置根目录覆盖任何继承的
-`FARMING_CONFIG_DIR`。从正在运行的 Farming Agent 内启动测试时也必须如此，
-避免测试后端协调或停止父服务的 ACP 进程。
+记录 Farming Revision 与 Installation Form、操作系统、Node/npm 版本、Provider Executable Path
+与版本、Config Directory、Base Path、Authentication Mode，以及 Local/Remote 类型。
 
-推荐目录：
+私有 Host、Token 与用户内容不得进入已提交报告。
 
-```text
-.tmp/dogfood/runs/<run-id>/
-├── <story-id>/
-│   ├── home/
-│   ├── workspace/
-│   ├── server.log
-│   ├── browser-trace.zip
-│   ├── screenshots/
-│   ├── agent-transcript.md
-│   └── report.json
-└── summary.md
-```
+## 隔离与清理
 
-## 功能组件划分
+每个自动化或 Agent-driven Story 使用独立的：
 
-### 1. 启动和连接
+- Config Directory 与 Browser Context；
+- Workspace 与 Port；
+- Server Log 与 Artifact Directory；
+- 在不能使用用户 Existing Session Store 的场景中，独立 Provider Home。
 
-覆盖：
-- 首屏、token、WebSocket、后端心跳提示。
-- Main Agent / New Agent 启动。
-- workspace 默认值、最近 workspace、非法 workspace。
-- 远端 `/farming` base path、端口占用和重启。
+从 Live Farming Agent 内启动测试时，不能继承父 Farming Config。每个 Story 必须清理自己创建
+的精确 Process、Socket、Temporary File、Container、Browser/Computer Resource 与 Provider
+Session，包括失败路径。不得使用宽范围 Recursive Cleaner 补偿。
 
-验收不变量：
-- 后端未连接时页面必须明确提示。
-- agent list 加载慢时不应出现不可点击的误导状态。
-- 非法 workspace 不得进入历史。
-- 手机和桌面能打开同一个远端实例。
+## 场景矩阵
 
-### 2. Agent 启动配置
+### Startup、Connection 与 Update
 
-覆盖：
-- Codex / Claude / bash / zsh 可执行发现。
-- Codex model / reasoning / speed。
-- Claude settings 摘要、模型、effort、启动 permission mode。
-- agent launch profile 合并和手写 CLI 参数优先级；运行中切换权限会用所选 flag 重启，已有稳定 provider Session ID 时 resume、没有时启动新会话，并在替换过程中保持当前 agent 与 Chat / Terminal 视图。
-- 空 Workspace 的无效启动不得进入防重复锁，输入与 Start 必须保持可立即修改和重试。
-- 新建 Codex Chat Agent 必须在首个 Turn 仍运行时发布首任务 fallback 标题；后续 Provider 显式标题可以覆盖它。
+验证首次启动、Authenticated URL、Base Path、Port Conflict、Duplicate Config Ownership、
+Local/Remote Connection、Reconnect、Update Prepare、Restart、Rollback 与 Missing Dependency
+显式失败。Partial 或 Uncertain Start 不能创建第二个 Daemon，也不能丢失 Last Known Good Installation。
 
-验收不变量：
-- UI 只展示真实可用或配置推导出的选项。
-- Claude 配置不得泄露 token、base URL 或完整 env。
-- Codex / Claude 切换不应展示做不到的统一能力。
+### Agent Lifecycle 与 Configuration
 
-### 3. Composer 和输入框
+验证 Executable Discovery、精确 Agent Home Selection、New Agent、Duplicate Request、Title、
+Permission Change、Model/Reasoning/Speed、Config Override Persistence、Unsupported Option
+Fallback、Archive、Delete、Restore 与 Process Cleanup。
 
-所有已打开的 Composer 菜单都必须能用 Escape 关闭并把焦点恢复到输入框，包括焦点仍停留在菜单触发按钮上的情况。
+Agent 与 Provider Identity 必须跨 Restart 与 Chat/Terminal Replacement 保持稳定。Unsupported
+Control 不能只因 Provider 名称出现。
 
-覆盖：
-- 普通文本、Enter、Shift+Enter、Ctrl/Cmd+Enter。
-- busy agent follow-up 队列和 steer。
-- slash command、Skill mention、Claude workspace skill。
-- 附件、粘贴图片、语音按钮、plan / goal 模式。
-- 快捷键默认关闭，不能抢普通输入。
-- 不能只测底部 composer。真实 agent smoke 必须同时聚焦嵌入式 terminal 本身，直接在 CLI prompt 里输入和回车；Qoder / Claude Code / OpenCode 的重度用户经常这样工作。
-- terminal 直输必须覆盖 ASCII、中文等非 ASCII committed text、IME composition、中文和 ASCII 混输、粘贴 / committed text，以及普通 ASCII 不会被 IME fallback 重复发送。
+### Structured Chat
 
-验收不变量：
-- 输入框聚焦时任何字母都不能被全局快捷键吞掉。
-- slash menu 只展示当前 agent/provider 支持的能力。
-- 附件路径不能以内联 base64 塞进 prompt。
+验证 Connection、Prompt、Queue/Steer、Cancel、Permission、Form、Authentication、Config、
+Attachment、Media、Tool、Patch、Plan、Child Session、Fork 与 Failure Recovery。
 
-### 4. Terminal 和 session 输出
+History 与 Live Update 使用同一有序 Transcript。Checkpoint/Delta Gap 必须触发 Replacement，
+不能丢内容。Reload 恢复语义阅读位置，同时不为所有 Inactive Chat 保留完整 DOM。结果不确定的
+Prompt 绝不能自动重放。
 
-覆盖：
-- native node-pty / packaged node-pty；PTY 不可用时必须明确失败，不做降低体验的 fallback。
-- terminal canvas 渲染、URL 点击、`path:line` 点击。
-- 滚动到旧输出时，新输出不强拉到底。
-- jump-to-latest、terminal focus、复制工作目录。
-- 多 terminal 打开、切换、关闭和 agent 退出。
-- 排查 terminal 中文 / IME 问题时，优先参考 xterm.js / VS Code 原则：让浏览器 composition 事件在 xterm helper textarea 中完整结束，只把最终 committed text 送入 PTY；不要另造一条并行输入法路径，也不要只用 synthetic paste 代替真实 CLI 截图验证。
+### Terminal
 
-验收不变量：
-- terminal 非空、可交互、可持续追加输出。
-- 用户在读旧输出时视口稳定。
-- shell prompt、颜色和软换行不会破坏 hit-test。
+验证 Native/Packaged PTY、Direct Typing、Enter、Paste、中文与 IME、Scroll Stability、URL 与
+File Location、Resize、Mouse Mode、Full-screen TUI、Multi-viewer、Hidden-page Resume、Server
+Restart、Host Rotation、Exit 与 Renderer Failure。
 
-### 5. Project / Sidebar / History
+Recovery 后 Terminal 只显示一份权威 Screen；Input 恰好到达一次，慢 Viewer 不能阻塞其它 Viewer。
 
-焦点位于 History 搜索框时，Escape 必须像全局 Search 一样返回工作区。
+### Project、Files、Review 与 History
 
-覆盖：
-- Project 分组、Files section、active agent、active session；Files 展开后，变更、未跟踪、历史和根级文件树行应保持一致的字号、行高、垂直节奏，以及箭头和文字起点，计数和 Review 操作可保留语义强调。
-- Pin / unread / rename / Move to History。
-- Move Project to History。
-- History 统一展示为 History Agents，按解析到的 agent/session 元数据更新时间排序；不在主页面 membership 中的 session 才出现在 History。
-- duplicate title 下的 resume id / run id 区分。
-- Agent 或 Session 的“显示更多”等独立控件收到方向键时，不得进入 Agent 导航或切换当前 Agent；两类分页控件同时出现时必须提供包含隐藏数量的不同可访问名称。
-- 关闭 Settings 或 Extension 详情后，焦点必须返回打开它的控件。
+验证 Project Membership、Empty Project、Git Worktree、Order、Pin、Search、Pagination、Files、
+Deep Tree、Reload Restore、Symlink、Edit、External Change、Uncertain Mutation、Git History、
+Line Changes、Review Revision、Reviewed State、Comment 与 History Resume。
 
-验收不变量：
-- `Move to History` 表示把对象移出主页面并进入 History；Farming 不再把 archive 当成额外特殊状态。
-- Codex / Claude provider session 只有两种位置：主页面 membership 中，或 History 中。
-- `Continue` 对真实 resume id 走 provider resume；无 resume id 时打开 New Agent 并预填 workspace / command。
+Agent 出现、重排、归档或消失时，Files 始终由 Workspace 拥有。Working Tree 后续变化不能改变
+历史 Review Evidence。
 
-### 6. Files / Editor
+### Browser、Computer、Extension 与 Desktop
 
-覆盖：
-- Files 展开、目录懒加载、搜索、`path:line` 跳转。
-- 文本、图片、二进制、大文件预览。
-- 编辑、保存、外部变更、dirty 状态。
-- git blame、Aone 链接、右键菜单。
+验证 Fresh Capability Read、Agent Home Scope、Resource Ownership、Browser/Computer Isolation、
+Human/Agent Shared Control、Handoff、Stop/Delete、Reconnect、Restart 与 Uncertain Action。ACP
+与 Terminal 必须访问同一 Capability Contract。
 
-验收不变量：
-- Main Agent 不展示 Files，具体 Project agent 展示 Files。
-- 文件操作被 workspace root 约束。
-- 大文件和二进制文件不进入危险保存链路。
+Desktop Story 只使用可见控件：Local Launch、Remote Enrollment、Cancel、Backend Switch、
+Tunnel Loss、Startup 期间 Quit、Relaunch、Files、History、Terminal Input 与 Focus/Fullscreen。
 
-### 7. Usage 和系统状态
+### Usage、Notification、Mobile 与 Accessibility
 
-Usage 面板展开且焦点位于面板内部时，Escape 必须收起面板。
+验证 Provider-backed Usage、No-data/Failure、Completion Notification、Unread、Keyboard Focus
+Restore、Menu Dismiss、Accessible Name、Phone Navigation、Software Keyboard、Refresh 与 Remote
+Reconnect。缺失 Telemetry 应省略或解释，不能虚构。
 
-覆盖：
-- Codex / Claude quota 摘要。
-- 最近 24 小时的整点桶和时间轴、最近 52 周逐日且最近 7 天有明确区分的紧凑 token 热力图、缩写后的 token 总量，以及每个格子悬停时显示的精确 token 数。
-- 点击两张紧凑图后分别打开对应的大热力图；52 周详情默认展示今天，并在右上角醒目显示今天缩写后的 token 数，悬停或用键盘聚焦其他日期时临时切换醒目值，同时下方保留精确数值；离开临时选择后必须回到今天。下方图表必须懒加载并切换为该日从零开始的 24 小时直方图，每个小时柱以精确的 provider session 归因为基础、按 Agent 类型聚合；快速经过不同日期时要取消过期请求。52 周 Token King 日的整个热力格裁成皇冠轮廓，其他超过 10 亿 token 的日期整格裁成火焰轮廓，沿用各格已有热力颜色，不能在方格内部嵌入小图标。详情分析继续使用同一份本地 token 数据，展示峰值时段、最近 7 天对比前 7 天，以及逐日明细可用时的缓存占比。
-- tok/min、CPU、MEM、折叠和展开。
-- 读取失败、无数据、真实 agent 高输出。
+### Scale 与 Soak
 
-验收不变量：
-- usage 默认折叠，折叠行仍显示关键速率和机器状态。
-- Codex / Claude 首次 TypeScript Worker 扫描会生成 `usage-history-v2.sqlite3`；未变化刷新不得读取 JSONL 正文，Session 追加后只能读取已保存偏移之后的字节，服务重启后继续复用同一缓存。用包含超长非 usage tool 输出行的真实日志验证 token-only 适配层保持内存有界；确认 Codex 长期行数随活跃 Session 小时增长而不是随 Token 事件增长，复制 Fork 与交错累计计数器不会抬高总量，冷重建未完成时不发布 Codex 总量而由后台 Worker 续扫，不兼容缓存会连同 WAL/SHM 一起重建。冷/热缓存下的总量、小时和 Session 归因必须完全一致。在 macOS 与 Linux 验证同一套纯 Node 路径，并确认不会探测或启动 Python。
-- 不执行 reset。
-- 没有可用 token 遥测的 Provider 整块不展示；没有真实 quota 数据时不展示 unavailable 占位行。
+运行大量 Live 与 Historical Agent；目标子系统面向该规模时，至少执行一次 100+ Session 场景。
+测量：
 
-### 8. 移动端和远程访问
+- Backend 与 Provider Process Count；
+- Backend、Browser 与 Provider Runtime 的 Memory/CPU；
+- Chat/Terminal Navigation Latency；
+- Transcript 与 State Wire Volume；
+- Visible/Inactive View 的 DOM 与 Render Work；
+- Reconnect、Restart 与 Cleanup Time。
 
-覆盖：
-- 手机首屏、左侧默认收起、top bar、more menu。
-- 手机 History / Search / New Agent / terminal / Files。
-- 键盘弹出时 composer 和 terminal 不被遮挡。
-- 手机刷新后继续观察远端 agent。
+不能通过设置固定并发上限让 Scale Test 通过。如果发现不在授权范围内的非 Chat/ACP 瓶颈，
+应记录 Design Proposal 与 Evidence，不要静默扩大实现。
 
-验收不变量：
-- 手机默认不挤压主内容。
-- 点击 terminal 输出不应误弹键盘。
-- 输入框聚焦时内容和发送按钮可见。
+## Real-provider Smoke 规则
 
-## 资深用户人设划分
+只使用极短 Prompt 或隔离 Workspace 中的极小文件修改。启动前确认 Login 与 Runtime。验证
+Resume 或 Chat/Terminal Switch 时保留精确 Provider Session Identity，并记录成本敏感 Model。
 
-| 人设 | 主要目标 | 深测路径 |
-| --- | --- | --- |
-| Remote Operator | 把 Farming 当远端工作台 | 远端启动、桌面/手机切换、后端重启、断线恢复 |
-| Codex Power User | 深度使用真实 Codex | model/reasoning、slash skill、resume、真实输出、usage |
-| Claude Power User | 深度使用真实 Claude Code | settings 摘要、permission/model/effort、workspace skill、resume |
-| History Archivist | 管理大量会话和主页面 membership | duplicate title、Move to History、Move Project to History、主页面/History 切换、Continue |
-| Terminal Heavy User | 长时间看输出和介入 | 大量输出、旧输出阅读、URL/path 点击、focus、复制 cwd |
-| Files Editor User | 不离开 Farming 做轻量编辑 | 搜索、打开、编辑、保存、blame、外部变更 |
-| Mobile Supervisor | 手机碎片化监督 | 收起侧栏、键盘、History、terminal、Files、刷新 |
-| Failure Hunter | 专门破坏恢复路径 | 后端断开、agent exit、CLI 不存在、workspace 不存在、quota 读取失败 |
+Login 或 Capability 缺失可以产生明确 Blocked Result；除非产品契约显式允许，不能自动切换到
+另一个 Agent、Model、Permission Mode 或 Runtime。
 
-每个人设都要输出“资深用户评价”，包括哪些地方让人迷惑、哪些地方容易误点、哪些地方像真实工具而不是 demo。
+## Evidence 与 Report
 
-## 使用时长和强度划分
+每个失败记录：
 
-| 强度 | 时长 | 用途 | 真实 agent 策略 |
-| --- | --- | --- | --- |
-| Micro smoke | 1-3 分钟 | 每次改动后的真实 CLI 快速检查 | 允许真实 Codex / Claude，各发 1 条极短 prompt |
-| Focused story | 5-15 分钟 | 单一模块或单一人设深测 | fake 默认，real 可选 |
-| Work session | 30-60 分钟 | 接近真实开发节奏 | 真实 agent 最多 1-2 个，限制任务 |
-| Soak | 2-8 小时 | 长时间输出、手机回访、断线恢复 | 默认 fake；真实只在夜间手动开启 |
+- Revision、Environment、Installation Form 与隔离 Config；
+- 用户可见 Step、Expected、Actual 与 Last Stable State；
+- Owner Lifecycle State 与 Outcome 是否 Known/Uncertain；
+- 可见问题的 Screenshot 或 Video；
+- 相关 Trace 与有界 Log Excerpt；
+- Cleanup Result。
 
-真实 prompt 示例应保持极小：
-
-```text
-请只回复一行：Farming real smoke OK
-```
-
-或在隔离临时 workspace 内执行一个极小文件修改：
-
-```text
-在 smoke.txt 末尾追加一行 farming-smoke-ok，然后停止。
-```
-
-## 首批并行验收任务
-
-第一批建议同时启动 6 个 Agent：
-
-1. `component-launch-history`：启动、New Agent、History、Move to History、Move Project to History。
-2. `component-composer-terminal`：composer、slash、附件、terminal scroll、URL/path 点击。
-3. `component-files-editor`：Files / Editor / blame / 外部变更。
-4. `persona-mobile-supervisor`：手机端完整路径和键盘体验。
-5. `real-codex-smoke-linux`：在 primary Linux 上验证真实 Codex 启动、极短 prompt、resume/history、usage 摘要。
-6. `real-claude-smoke-linux`：优先在 primary Linux，必要时在 Claude-ready Linux 上验证真实 Claude Code 启动、极短 prompt、settings/model/effort、slash command。
-7. `linux-compat-smoke`：在 compatibility Linux 或 Linux container 中验证 CLI release、无 agent 可用时的 UI 降级，以及 native PTY 不可用时的明确失败提示。
-
-前 4 个默认使用 fake coding agents，可以高覆盖。后 3 个是 Linux-first 验收，必须显式标记目标机器、真实 agent 状态、版本、命令路径和消耗风险。
-
-## 报告格式
-
-每个测试 Agent 输出一个 `report.json`：
-
-```json
-{
-  "storyId": "real-codex-smoke",
-  "persona": "Codex Power User",
-  "agentMode": "real-codex",
-  "status": "pass",
-  "coverage": ["start", "send prompt", "history", "usage"],
-  "findings": [
-    {
-      "severity": "P2",
-      "title": "没有 token 遥测的 Provider 仍被展示",
-      "steps": ["Start real Codex", "Send one-line prompt", "Open usage row"],
-      "expected": "省略该 Provider 和 unavailable quota 占位",
-      "actual": "仍展示了 unavailable 和零值行",
-      "evidence": ["screenshots/usage.png", "server.log"]
-    }
-  ],
-  "artifacts": ["browser-trace.zip", "agent-transcript.md"],
-  "notes": "Subjective UX notes from a senior user"
-}
-```
-
-汇总器生成 `summary.md`，按 P0/P1/P2/P3 排序，并标出：
-
-- 是否真实 Codex / Claude 才复现。
-- 是否 fake e2e 已覆盖。
-- 是否需要新增稳定自动化测试。
-- 是否只是体验改进建议。
+按 Severity 分类，并区分 Product Defect、Test Defect、Environment Limitation 与 Improvement
+Proposal。Green Test 只是其声明场景的 Evidence，不是整个产品的证明。
 
 ## 通过标准
 
-一次验收轮通过需要满足：
+- 没有未解决 P0/P1。
+- 受影响 Surface 的必要确定性检查通过。
+- Real Provider 完成要求的 Smoke，或给出可操作且归属正确的失败原因。
+- Mobile 与 Remote Supervision Path 可用。
+- Restart/Reconnect 不丢失或重复已接受工作。
+- 创建的所有 Resource 都被精确清理。
+- 每个已接受 P2+ 问题都有持久 Evidence 与 Owner/Follow-up。
 
-- P0 / P1 为 0。
-- 真实 Codex smoke 和真实 Claude smoke 至少能完成启动或给出明确、可行动的失败原因。
-- 手机端核心路径无阻塞：打开、选择 agent、查看输出、输入、History。
-- Archive / History 概念无双态错觉：归档后不再表现为 live agent，继续运行路径明确。
-- 所有 P2 以上问题都有截图、trace 或日志证据。
+## 常用入口
 
-## PR 自动视觉对比
-
-涉及 UI 的 Pull Request 会在 Linux Chromium 中，对精确且不可变的 base SHA 和 head SHA 自动截图。首次上线后，两个 revision 会在同一 runner、同一 Chromium 可执行文件上分别使用自己提交内的视觉捕获协议和 fixture；只有 base 尚无该协议时才回退到 head 协议。head 新增场景会标记为 added，删除 base 已有场景则违反捕获协议并失败。Workflow 随后上传包含 `base/`、`head/`、`diff/`、`index.html`、`manifest.json`、日志和 Markdown Job Summary 的 artifact。
-
-捕获协议只保留一组小而信息密集的场景：Agent 与 Project 行的 hover 控件、宽/窄布局下的排队 follow-up、展开 Changes 层级并打开 diff，以及深色 Plugins 页面。场景使用匿名 workspace 和 fake coding agent，固定 viewport、reduced motion，隐藏光标和会变化的 age 文本，并对每个场景连续截图两次。
-
-像素变化只作为评审证据，不会让 Pull Request 失败，因为有意的 UI 修改本来就会改变像素。只有连续两次捕获失败、删除 base 已有场景、缺少必需图片、图片尺寸不同，或连续截图差异超过 0.1% 时才会失败。权威基线就是精确的 SHA 对，不使用可漂移的截图缓存，也没有手工更新 baseline 的操作；因此同一 SHA 对重新运行应得到幂等结果。
-
-本地检查：
-
-```bash
-npm run test:e2e:visual:self-test
-FARMING_VISUAL_OUTPUT_DIR=.tmp/visual-capture npm run test:e2e:visual:capture
-```
-
-## 当前可执行入口
-
-现有稳定入口：
+迭代时运行最小相关检查，再按风险扩大：
 
 ```bash
 npm run typecheck
 npm test
-npm run test:e2e:playwright -- tests/e2e/human-story.spec.ts --project=chromium
-npm run test:e2e:playwright -- tests/e2e/mobile-human-story.spec.ts --project=chromium
-npm run test:e2e:playwright -- tests/e2e/display-flows.spec.ts --project=chromium
+npm run lint
+npm run build
+npm run test:e2e:playwright
 ```
 
-真实 Codex / Claude dogfood 目前应作为 Linux 远端手动或 Agent 驱动 smoke 执行，不纳入默认 `npm test`。后续可以增加 `scripts/dogfood/run-swarm.js`，由它统一创建隔离实例、分配端口、启动浏览器、收集 artifact，并通过环境变量显式开启真实 agent：
-
-```bash
-FARMING_DOGFOOD_REAL_AGENTS=1 node scripts/dogfood/run-swarm.js \
-  --target user@primary-linux \
-  --stories real-codex-smoke-linux,real-claude-smoke-linux
-```
-
-该 runner 尚未实现前，真实 smoke 的执行原则是：一次只发极短 prompt，记录证据，不执行 quota reset，不修改真实用户配置。
+Purpose-built Release 或 Remote Smoke Command 应记录在所属子系统旁。未实现 Runner 不应先写进
+本 Runbook；命令真正存在且可持续使用后再加入。

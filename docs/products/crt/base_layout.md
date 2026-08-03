@@ -1,87 +1,79 @@
-# Base Layout Design
+# Farming CRT Layout
 
 > Chinese version: [base_layout.zh_cn.md](./base_layout.zh_cn.md)
 
-This document defines shared layout concepts, data model expectations, and visual rules for the CRT skin. The supported desktop rules are documented in [pc_layout.md](pc_layout.md); [mobile_layout.md](mobile_layout.md) remains a concept and is not a current product surface.
+Farming CRT is a desktop, keyboard-first control room over the same backend
+Agents and Sessions as Farming Code. Farming Code remains the supported mobile
+surface.
 
-## Overall Layout
+## Regions
 
-The page has three persistent regions:
+CRT has three persistent regions:
 
-| Region | Responsibility |
-| --- | --- |
-| TopBar | system resources and attention hints |
-| Agents Layout | central area showing working agents |
-| Sidebar | menu entries and Main Agent panel |
+- **Top bar**: compact system and attention status;
+- **Agent area**: live Agent summaries and opened Sessions;
+- **Sidebar**: global actions and Main Agent access.
 
-The supported implementation lives in `frontend/skins/crt/index.html`, `frontend/skins/crt/app.js`, and the adjacent CRT styles. The old React map/sidebar/modal component path has been removed rather than retained as an untested fallback.
+Only live or starting work occupies the Agent area. Stopped, dead, and archived
+records belong in History. When no project Agent is live, CRT shows a clear New
+Agent entry without hiding or restarting Main Agent.
 
-## TopBar
+## Attention And Layout
 
-TopBar items:
+The dashboard helps the user find work that needs attention. The backend owns
+Agent lifecycle and activity facts; CRT may use those facts for ordering and
+emphasis, but must not invent completion, zombie, or health state.
 
-| Item | Format | Meaning |
-| --- | --- | --- |
-| Agents | `AGENTS: {active}/{total}` | active / total agent count |
-| Token rate | `TOK/MIN: ~{rate}` | five-minute aggregate terminal-output token estimate |
-| CPU | `CPU: {n}%` | system CPU usage |
-| MEM | `MEM: {n}%` | system memory usage |
-| Focus | `Focus: {name}` | focused agent when a session is open |
-| Attn | `Attn: {name} [{score}]` | highest-attention agent when there is no focus |
-| Uptime | `UPTIME: {time}` | system uptime, right-aligned |
-
-Focus and Attn are mutually exclusive. Attn becomes hot when score is high, but the UI should avoid nagging notification patterns.
-
-## Sidebar
-
-Desktop sidebar entries:
-
-| Key | Action | State |
-| --- | --- | --- |
-| N | NEW AGENT | enabled |
-| F | SEARCH | enabled |
-| H | HISTORY | enabled |
-| E | EXTENSIONS | planned |
-| $ | BILLING | enabled |
-| S | SETTINGS | enabled |
-
-Zombie cleanup does not get its own sidebar item. Zombie state appears on agent cards and in backend lifecycle rules.
-
-Search replaces the former Task List slot. It opens a full-height search view in the Agents Layout region, keeps the query prompt focused, and combines live project Agents with unclaimed provider-session matches from the shared backend search API.
-
-When the Main Agent is the only live Agent, the Agents Layout remains an explicit empty state with a keyboard-navigable `[N] New Agent` action. Starting the first project Agent replaces that prompt with the normal live grid; removing the last project Agent restores it without hiding or restarting the Main Agent.
-
-Billing replaces its former placeholder with a full-height token-telemetry view. Days is the default: a compact 52-week calendar heatmap keeps every day directly selectable without spending a full-height chart column on it. Empty days remain visibly hollow, while sub-billion days use five ranked spectral bands from indigo to hot red. Billion-scale days leave that relative scale and use absolute ultraviolet overrange symbols: dot, ring, diamond, and star mean `1B`, `2B`, `4B`, and `8B+`. Relative bands are derived only from non-zero sub-billion days in the visible range, while tooltips preserve exact counts.
-
-Processed totals include cache reads and combine every configured Codex and Claude Home with available OpenCode exports; unavailable providers remain explicitly identified. A compact line reports today, 7-day, 30-day, 52-week, active-day, billion-token-day, and peak values above the exact selected-day breakdown. Selecting the current day forces a fresh detail read through the bounded five-second server cache. Refresh retains the last complete hourly frame and stable `READY` state; an incomplete replacement or transient scan failure cannot erase previously available bins. Repeated failure with an existing frame becomes persistent `STALE`, while a first-load detail failure receives a bounded retry before becoming `DAY SIGNAL LOST`. The Today summary, selected-day Total, Input, Output, Cache Read/Write, and intraday peak counters animate only positive gaps, while historical values stay static. The selected day also exposes a 24-bin local-hour total/cache step trace, a selectable 24-cell hour strip aligned to a `00:00`–`24:00` instrument scale, a persistent compact selected-hour readout with exact tooltip values, and attributed provider shares without rescanning history on each selection. Left and Right move one day; Up and Down move one week. Live remains a secondary 60-minute Canvas oscilloscope with one-minute buckets, a bounded 15-second refresh, the latest sample time, current signal, integral, peak rate, and active buckets. The selected tab is the only filled control; keyboard navigation uses a separate outline cue. Provider channels and quota windows remain visible without inventing monetary costs or unavailable quota values. `$` opens Billing, `D` and `L` switch views, `R` refreshes it, and Escape returns to the Agent dashboard.
-
-## Main Agent Panel
-
-Render only when a Main Agent exists. It uses stronger visual emphasis than normal agents and opens the Main Agent session when clicked.
-
-## Visual Principles
-
-- compact information density;
-- low visual noise;
-- keyboard-first navigation;
-- static layout where possible;
-- no placeholder menu items for unimplemented actions.
-
-CRT screen texture uses a flat phosphor-tinted black with static monochrome scanlines and no dark edge vignette. A low-contrast 300-pixel scan trail runs on the approximately 6.8-second reference cycle across both the dashboard and opened sessions; it has no separate bright line head. Numeric shortcut badges retain their green phosphor fill and dark text without an extra outline.
+Cards keep stable readable geometry. More important work may receive more area,
+but rapid metadata updates must not cause distracting reorder or overlap.
+Excess preview content clips or scrolls instead of shrinking text below a
+readable size.
 
 ## Sessions
 
-Session windows use thin borders, compact headers, terminal-first focus, and small monospace terminal type consistent with the global CRT density.
+Opened Chat and Terminal Sessions use the same authoritative protocols as
+Farming Code. CRT does not implement another ACP reducer, Terminal replay state
+machine, or Agent lifecycle.
 
-All CRT same-origin API, WebSocket, Code-navigation, theme, and vendor URLs are resolved by `frontend/runtime-paths.ts`. The runtime-path module must load before bridges and loaders; a missing module is an explicit initialization failure, never a silent fallback to origin-root routes.
+Terminal is the primary focus surface. Structured Chat preserves ordered user,
+process, and result information without reconstructing ACP entries. Session
+headers use the same Agent-title priority as Farming Code.
 
-Agent cards keep a uniform readable font and use their remaining body height for either a bottom-aligned live terminal tail or a compact structured-Chat trail. The Chat trail shows the latest visible user prompt, Agent response, and current activity from the sanitized transcript without reconstructing or reordering ACP entries. Excess content clips instead of compressing text. Only live pending/running Agents occupy dashboard bays; stopped, dead, and archived records leave the live grid while resumable history stays in History. A terminal card blinks only while the backend terminal state is working; Chat uses a compact activity signal. Card and session headers use the Farming Code agent-title priority and remain on one ellipsized line.
+## Keyboard And Dialogs
 
-## Dialogs
+Primary actions are keyboard reachable and remain visible as concise hints.
+Focus, Escape, confirmation, cancellation, and return-to-opener behavior must be
+consistent across dashboard, Search, History, Settings, New Agent, and opened
+Sessions.
 
-New Agent and Settings dialogs use:
+Dialogs use compact headers, visible focus, keyboard-confirmable actions, and
+minimal nesting.
 
-- compact title area;
-- a visible focused-input state;
-- keyboard-confirmable actions;
-- no heavy card nesting.
+## Visual Contract
+
+CRT uses a restrained monochrome control-room style:
+
+- compact information density;
+- low visual noise and stable alignment;
+- readable monospace content;
+- subtle scan effects that never reduce legibility;
+- no permanent controls for unimplemented actions;
+- no animation that implies a backend state not actually reported.
+
+## Data And Failure Boundaries
+
+Current capability, inventory, usage, and health views perform fresh
+authoritative reads with visible loading and failure. Existing complete data may
+remain visible during a refresh, but stale data cannot be presented as a new
+successful read.
+
+All same-origin routing follows the Server-provided base path. Missing routing,
+protocol incompatibility, renderer failure, and Session recovery failure remain
+explicit; CRT does not silently switch to an untested fallback.
+
+## Acceptance Criteria
+
+Verification must cover keyboard-only operation, empty and dense dashboards,
+Agent ordering stability, Code/CRT switching, Chat and Terminal continuity,
+Search, History, Settings, capability failure, renderer failure, reconnect,
+restart, and large live-Agent inventories on desktop viewports.

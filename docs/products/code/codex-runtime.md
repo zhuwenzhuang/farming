@@ -1,85 +1,67 @@
-# Codex runtime modes
+# Codex Runtime Modes
 
-Chinese version: [codex-runtime.zh_cn.md](./codex-runtime.zh_cn.md)
+> Chinese version: [codex-runtime.zh_cn.md](./codex-runtime.zh_cn.md)
 
-Farming exposes two user-facing Codex surfaces:
+Farming exposes two Codex surfaces:
 
-- **Chat** uses `@agentclientprotocol/codex-acp`. This is the only supported structured Codex runtime.
+- **Chat** uses the supported ACP runtime.
 - **Terminal** runs the Codex CLI in Farming's native PTY host.
 
-The user chooses Chat or Terminal, never a transport implementation. Legacy JSONL remains a read-only compatibility source for older history. Farming no longer starts, connects to, or owns a Codex App Server.
+The user chooses Chat or Terminal, not a private transport implementation.
+Legacy history formats may remain readable, but they are not live runtime paths.
 
-## Executable ownership and version policy
+## Executable Ownership
 
-Terminal and ACP are separate executable-ownership boundaries:
+Terminal and ACP are independent executable-ownership boundaries:
 
-- A native Codex Terminal prefers the user's system Codex executable. Farming
-  may select its own verified executable only when that version is strictly
-  newer than the best system candidate. Equal versions use the system
-  executable; if no system executable is available, the Farming-owned one is
-  used. Terminal startup must not report that a user should upgrade a lower
-  Farming copy when the selected system copy is already usable.
-- Codex ACP always uses Farming's own pinned adapter and Farming-owned Codex
-  runtime, independent of the Terminal executable choice. The ACP runtime must
-  never inherit a system Terminal path merely because it is present in the
-  Server environment.
-- ACP pins should track the latest compatible provider release. Updating a pin
-  requires the reviewed adapter patch/integrity checks and Chat/Terminal
-  switching, resume, and real-provider smoke coverage; protocol compatibility is
-  more important than blindly following a registry `latest` tag.
+- Terminal prefers a usable system Codex executable and selects a verified
+  Farming-owned executable only according to the native Terminal version policy.
+- ACP uses Farming-owned, version-pinned adapter and runtime artifacts,
+  independently of the Terminal selection.
 
-## ACP boundary
+Keeping these policies separate allows native CLI use and deterministic ACP
+behavior to evolve without silently changing one another.
 
-The browser uses the same Chat contracts for every ACP provider. `AgentManager` delegates the session to `AcpRuntime`, while the Codex provider adapter supplies only Codex-specific executable discovery, environment, launch profile, and normalized capabilities.
+## Provider Adapter Boundary
 
-```mermaid
-flowchart LR
-  Browser["Farming Chat UI"] --> API["Shared Chat API"]
-  API --> ACP["Farming ACP runtime"]
-  ACP --> Adapter["Codex provider adapter"]
-  Adapter --> CodexACP["codex-acp"]
-  CodexACP --> Codex["Codex session"]
-```
+Generic Chat lifecycle, transcript, configuration, permissions, and recovery
+belong to the shared ACP runtime. The Codex adapter owns only Codex-specific
+launch, executable, capability, and optional-extension behavior.
 
-The supported ACP surface includes:
+Capabilities come from the live ACP handshake and Session state. A Codex-only
+extension such as live Steer must be versioned and negotiated; the UI cannot
+enable it merely because the Agent is named Codex.
 
-- initialize, session creation, session load, prompt, and cancellation;
-- ordered session updates and checkpoint-backed recovery;
-- permission requests, elicitation, and authentication;
-- tool-call details, diffs, patch decisions, and ACP terminals;
-- text, image, and audio prompt parts;
+Codex structured media, tools, diffs, terminals, permissions, configuration,
+and child activity remain typed protocol data. Provider-specific display hints
+are normalized at the adapter boundary and must not become generic ACP syntax.
 
-When Codex emits an image through a `custom_tool_call_output` (for example, a screenshot returned by `view_image`), Farming presents it in the Agent answer area instead of only inside the collapsed tool record. The tool's text detail remains available under Process.
-- live steer for the active Codex turn through a negotiated, versioned adapter extension;
-- session modes and configuration options when the agent advertises them.
+## Session Continuity
 
-Capabilities come from ACP initialization and session metadata. The UI must disable or omit controls that the connected agent does not advertise. Codex-specific behavior must stay at the provider-adapter boundary rather than branching the generic lifecycle or Chat UI.
+The provider Session id is the authoritative Codex conversation identity.
+Chat/Terminal switching is a real runtime replacement that preserves that
+identity only when resumability is proven.
 
-ACP has no standard live-steer operation. Farming's pinned Codex adapter therefore advertises a versioned `_codex/session/steer` extension and forwards it to Codex App Server `turn/steer` with the active turn id. The shared Chat backend uses this only when the live adapter advertises it. Other ACP providers keep the explicit queued-follow-up behavior, and cancel remains the standard bounded way to stop an active prompt.
+A fresh Terminal may switch before user input has materialized a Provider
+conversation. After input, switching, permission restart, recovery, and Fork
+require a verified resumable identity. Terminal presentation must not infer that
+identity from arbitrary output text.
 
-## Lifecycle and recovery
+Configuration follows the shared ACP rule: Provider and Agent Home defaults
+apply until the user confirms an explicit override. Confirmed model, reasoning,
+speed, and permission choices survive supported runtime replacement; unavailable
+saved choices degrade to the current Provider value with a visible warning.
 
-- An ACP Agent owns one adapter process and one ACP connection managed by `AcpRuntime`.
-- The provider session id returned by ACP is the authoritative conversation id.
-- Exact Farming reducer checkpoints may skip a full `session/load` only when their provider, Agent Home, session, workspace, and freshness fences still match.
-- Missing, stale, corrupt, or dirty checkpoints stay on the visible bounded load/repair path.
-- Killing or switching an Agent unregisters its ACP session and closes the owned adapter process.
+## Failure And Recovery
 
-Chat-to-Terminal and Terminal-to-Chat are real runtime restarts that preserve the same resumable provider session. A fresh Terminal may switch to Chat only before user input has materialized a provider conversation; otherwise Farming requires a verified resumable session.
+Adapter or PTY failure must be visible. Farming may recover the same Provider
+Session after proving old runtime ownership, but it never replays an uncertain
+Prompt or Terminal mutation. If a requested Chat/Terminal switch fails, Farming
+restores the original runtime when possible and reports the failure.
 
-For a fresh Codex Terminal, Farming materializes that resumable identity from the
-structured `/status` panel. Decorative borders and layout changes must not turn a
-valid provider session back into an unverified temporary identity.
+## Acceptance Criteria
 
-Codex Terminal model-profile controls follow the exact capability advertised by the backend provider adapter. A transient heuristic terminal-screen observation may update busy and lifecycle state, but it must not hide an advertised model control while Codex redraws its composer.
-
-## Verification
-
-Changes to Codex Chat should cover:
-
-1. deterministic ACP protocol tests for initialization, new/load, prompt, cancel, updates, permissions, elicitation, authentication, tools, terminals, configuration, and mixed prompt parts;
-2. recovery tests for exact checkpoints, stale or dirty checkpoints, and disconnects;
-3. browser tests for Chat/Terminal switching, transcript rendering, permission/input cards, attachments, negotiated Codex steer, non-Codex queued follow-ups, cancellation, refresh, and reconnect;
-4. a low-volume real Codex smoke through `codex-acp`, including text, image, mixed-input steer, turn-end races, cancellation, and session resume.
-
-The release gate remains `npm run test:pre-release:codex-ui`; it must exercise the supported ACP path rather than a private Codex transport.
+Verification must cover executable-policy separation, negotiated capabilities,
+provider identity, configuration continuity, Chat/Terminal switching, restart,
+disconnect, media and tool rendering, live Steer when advertised, and low-volume
+real Codex smoke through the supported ACP and native Terminal paths.

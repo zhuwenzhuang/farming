@@ -3,11 +3,14 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const { AcpRuntime } = require('../acp-runtime.cjs');
-const AgentManager = require('../agent-manager.cjs');
-const { ConfigManager } = require('../config-manager.cjs');
+const { AcpRuntime } = require('../acp-runtime.cts');
+const AgentManager = require('../agent-manager.cts');
+const { ConfigManager } = require('../config-manager.cts');
 
 interface ComposerTestAgent {
+  acpFinalizedTurnHandle?: string;
+  attentionSummary?: string;
+  attentionSeq?: number;
   id: string;
   command: string;
   forkCommand: string;
@@ -32,12 +35,15 @@ async function run() {
   const configManager = new ConfigManager({ configDir: root });
   configManager.init();
   const runtime = new AcpRuntime();
+  (runtime as { turnCompletionEvents: boolean }).turnCompletionEvents = true;
   runtime.hasBinding = () => true;
   let submitCount = 0;
   let releaseTurn = () => {};
   let releaseSubmission = () => {};
   let holdSubmission = false;
   let rejectBeforeSubmission = false;
+  let rejectUncertainBeforeSubmission = false;
+  const submittedPromptIds: string[] = [];
   let reconnectRequired = false;
   let reconnectCount = 0;
   runtime.reconnectAgent = async () => {
@@ -49,9 +55,15 @@ async function run() {
   runtime.submitMessage = async (
     _agentId,
     _prompt,
-    options: { onSubmitted?: () => void } = {},
+    options: { clientPromptId?: string; onSubmitted?: () => void } = {},
   ) => {
     submitCount += 1;
+    submittedPromptIds.push(String(options.clientPromptId || ''));
+    if (rejectUncertainBeforeSubmission) {
+      const error = new Error('simulated ACP Host transport loss') as Error & { uncertain?: boolean };
+      error.uncertain = true;
+      throw error;
+    }
     if (rejectBeforeSubmission) {
       reconnectRequired = true;
       throw new Error('simulated ACP connection closed before admission');
@@ -67,6 +79,10 @@ async function run() {
     });
     return { stopReason: 'end_turn' };
   };
+  runtime.getTranscriptSessionForRead = async () => ({
+    sessionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    entries: [{ type: 'message', role: 'assistant', content: [{ type: 'text', text: 'Recovered final answer' }] }],
+  });
   const manager = new AgentManager(configManager, {
     acpRuntime: runtime,
     skipExecutablePreflight: true,
@@ -153,6 +169,27 @@ async function run() {
     assert.strictEqual(persistedIntent.state, 'intent', 'the crash-safe disk state remains conservative when accepted persistence fails');
     releaseTurn();
 
+    rejectUncertainBeforeSubmission = true;
+    await assert.rejects(
+      () => manager.sendComposerMessage(agent.id, 'host crash admission window', {
+        requestId: 'composer-request-host-crash',
+      }),
+      error => error?.uncertain === true,
+    );
+    assert.strictEqual(submittedPromptIds.at(-1), 'composer-request-host-crash');
+    const hostCrashUnknown = configManager.sessionStore.readRecord(agent.persistentSessionId)
+      .composerCommands.find(command => command.requestId === 'composer-request-host-crash');
+    assert.strictEqual(hostCrashUnknown.state, 'unknown');
+    const submitCountAfterHostCrash = submitCount;
+    await assert.rejects(
+      () => manager.sendComposerMessage(agent.id, 'host crash admission window', {
+        requestId: 'composer-request-host-crash',
+      }),
+      error => error?.uncertain === true,
+    );
+    assert.strictEqual(submitCount, submitCountAfterHostCrash, 'Host transport UNKNOWN must never replay the ACP prompt');
+    rejectUncertainBeforeSubmission = false;
+
     rejectBeforeSubmission = true;
     await assert.rejects(
       () => manager.sendComposerMessage(agent.id, 'retry after reconnect', {
@@ -169,8 +206,116 @@ async function run() {
     });
     assert.strictEqual(retriedAfterReconnect.accepted, true);
     assert.strictEqual(reconnectCount, 1, 'a definitive failed retry must reconnect before provider admission');
-    assert.strictEqual(submitCount, 5, 'the failed attempt and explicit retry should each submit at most once');
+    assert.strictEqual(submitCount, 6, 'the failed attempt and explicit retry should each submit at most once');
     releaseTurn();
+
+    await Promise.all([...manager.acpTurnFinalizationTails.values()]);
+    const attentionBeforeRapidTurns = Number(agent.attentionSeq || 0);
+    runtime.emit('agent-runtime', {
+      agentId: agent.id,
+      sessionId: agent.providerSessionId,
+      state: 'working',
+      stopReason: 'end_turn',
+      lastSettledTurnHandle: 'binding-1:1',
+      lastSettledTurnSummary: 'First exact summary',
+    });
+    runtime.emit('agent-runtime', {
+      agentId: agent.id,
+      sessionId: agent.providerSessionId,
+      state: 'idle',
+      stopReason: 'end_turn',
+      lastSettledTurnHandle: 'binding-1:2',
+      lastSettledTurnSummary: 'Second exact summary',
+    });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.strictEqual(manager.acpFinalizedTurns.get(agent.id), 'binding-1:2');
+    const finalizeDeadline = Date.now() + 1000;
+    while (agent.acpFinalizedTurnHandle !== 'binding-1:2' && Date.now() < finalizeDeadline) {
+      await new Promise(resolve => setTimeout(resolve, 5));
+    }
+    assert.strictEqual(agent.acpFinalizedTurnHandle, 'binding-1:2');
+    assert.strictEqual(agent.attentionSummary, 'Second exact summary');
+    assert.strictEqual(agent.attentionSeq, attentionBeforeRapidTurns + 2);
+    const finalizedAttentionSeq = agent.attentionSeq;
+    const finalizedRecord = configManager.sessionStore.readRecord(agent.persistentSessionId);
+    assert.strictEqual(finalizedRecord.acpFinalizedTurnHandle, 'binding-1:2');
+    runtime.emit('agent-runtime', {
+      agentId: agent.id,
+      sessionId: agent.providerSessionId,
+      state: 'idle',
+      stopReason: 'max_tokens',
+      lastSettledTurnHandle: 'binding-1:1',
+      lastSettledTurnSummary: 'Stale first summary',
+    });
+    runtime.emit('agent-runtime', {
+      agentId: agent.id,
+      sessionId: agent.providerSessionId,
+      state: 'idle',
+      stopReason: 'end_turn',
+      lastSettledTurnHandle: 'binding-1:2',
+      lastSettledTurnSummary: 'Second exact summary',
+    });
+    await new Promise(resolve => setTimeout(resolve, 20));
+    assert.strictEqual(agent.acpFinalizedTurnHandle, 'binding-1:2');
+    assert.strictEqual(agent.attentionSummary, 'Second exact summary');
+    assert.strictEqual(agent.attentionSeq, finalizedAttentionSeq, 'stale or duplicate settled Turns must not increment attention');
+
+    const originalEnsureFinalization = configManager.ensureAgentSessionRecord.bind(configManager);
+    let failFinalizationPersistence = true;
+    configManager.ensureAgentSessionRecord = (candidate, patch) => {
+      if (failFinalizationPersistence && candidate.acpFinalizedTurnHandle === 'binding-1:3') {
+        throw new Error('simulated atomic Turn finalization failure');
+      }
+      return originalEnsureFinalization(candidate, patch);
+    };
+    runtime.emit('agent-runtime', {
+      agentId: agent.id,
+      sessionId: agent.providerSessionId,
+      state: 'idle',
+      stopReason: 'end_turn',
+      lastSettledTurnHandle: 'binding-1:3',
+      lastSettledTurnSummary: 'Third exact summary',
+    });
+    await new Promise(resolve => setTimeout(resolve, 20));
+    assert.strictEqual(agent.acpFinalizedTurnHandle, 'binding-1:2');
+    assert.strictEqual(agent.attentionSummary, 'Second exact summary');
+    assert.strictEqual(agent.attentionSeq, finalizedAttentionSeq);
+    assert.strictEqual(
+      configManager.sessionStore.readRecord(agent.persistentSessionId).acpFinalizedTurnHandle,
+      'binding-1:2',
+    );
+    failFinalizationPersistence = false;
+    runtime.emit('agent-runtime', {
+      agentId: agent.id,
+      sessionId: agent.providerSessionId,
+      state: 'idle',
+      stopReason: 'end_turn',
+      lastSettledTurnHandle: 'binding-1:3',
+      lastSettledTurnSummary: 'Third exact summary',
+    });
+    const thirdFinalizeDeadline = Date.now() + 1000;
+    while (agent.acpFinalizedTurnHandle !== 'binding-1:3' && Date.now() < thirdFinalizeDeadline) {
+      await new Promise(resolve => setTimeout(resolve, 5));
+    }
+    assert.strictEqual(agent.acpFinalizedTurnHandle, 'binding-1:3');
+    assert.strictEqual(agent.attentionSummary, 'Third exact summary');
+    assert.strictEqual(agent.attentionSeq, finalizedAttentionSeq + 1);
+    assert.strictEqual(
+      configManager.sessionStore.readRecord(agent.persistentSessionId).acpFinalizedTurnHandle,
+      'binding-1:3',
+    );
+    configManager.ensureAgentSessionRecord = originalEnsureFinalization;
+    manager.acpFinalizedTurns.clear();
+    runtime.emit('agent-runtime', {
+      agentId: agent.id,
+      sessionId: agent.providerSessionId,
+      state: 'idle',
+      stopReason: 'end_turn',
+      lastSettledTurnHandle: 'binding-1:3',
+      lastSettledTurnSummary: 'Third exact summary',
+    });
+    await new Promise(resolve => setTimeout(resolve, 20));
+    assert.strictEqual(agent.attentionSeq, finalizedAttentionSeq + 1, 'persisted finalized handle must fence restart replay');
 
     console.log('test-composer-admission-idempotency passed');
   } finally {

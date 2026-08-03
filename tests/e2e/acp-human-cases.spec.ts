@@ -125,7 +125,7 @@ test.describe('ACP human-like browser matrix', () => {
       new RegExp(`/farming/api/agents/${agentId}/acp-transcript(?:\\?.*)?$`),
       async route => {
         attempts += 1
-        if (attempts !== 4) {
+        if (attempts < 4) {
           await route.abort('connectionreset')
           return
         }
@@ -177,7 +177,7 @@ test.describe('ACP human-like browser matrix', () => {
     )).toBeVisible()
     await agentRow(page, agentId).click()
     await expect(page.getByText('Transcript transport recovered.', { exact: true })).toBeVisible()
-    await expect.poll(() => attempts, { timeout: 5_000 }).toBeGreaterThanOrEqual(6)
+    await expect.poll(() => attempts, { timeout: 5_000 }).toBeGreaterThanOrEqual(5)
     await expect(page.getByText('Transcript transport recovered.', { exact: true })).toBeVisible()
     await expect(page.getByText('This session’s Chat history could not be loaded.', { exact: true }))
       .toHaveCount(0)
@@ -870,9 +870,18 @@ test.describe('ACP human-like browser matrix', () => {
       await expect(richTurn.locator('.code-agent-transcript-process-dot')).toHaveCount(0)
     })
     await test.step('15 retain reasoning as an individually folded child item', async () => {
-      const reasoning = richTurn.getByTestId('code-agent-transcript-process-item').filter({ hasText: 'Reasoning' })
+      const reasoning = richTurn.locator('[data-testid="code-agent-transcript-process-item"][data-type="thought"]')
       await expect(reasoning).toBeVisible()
-      await expect(reasoning.getByTestId('code-agent-transcript-process-item-toggle')).toHaveAttribute('aria-expanded', 'false')
+      const toggle = reasoning.getByTestId('code-agent-transcript-process-item-toggle')
+      const chevron = toggle.locator('.code-agent-transcript-process-item-chevron')
+      await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+      await expect(toggle).toContainText('The ordered stream must stay reversible.')
+      await expect(chevron).toHaveCSS('opacity', '0')
+      await toggle.hover()
+      await expect(chevron).toHaveCSS('opacity', '0.9')
+      await page.mouse.move(0, 0)
+      await toggle.focus()
+      await expect(chevron).toHaveCSS('opacity', '0.9')
     })
     const readItem = richTurn.getByTestId('code-agent-transcript-process-item').filter({ hasText: 'Read ACP display fixtures' })
     await test.step('17 retain the typed read-tool title and location', async () => {
@@ -1078,8 +1087,10 @@ test.describe('ACP human-like browser matrix', () => {
       await expect(liveActivity).toBeVisible()
       await expect(liveActivity.getByTestId('code-agent-transcript-live-activity-icon')).toHaveAttribute('data-kind', 'running')
       const compactList = liveTurn.getByTestId('code-agent-transcript-process-compact-list')
-      await expect(compactList.getByTestId('code-agent-transcript-process-item')).toHaveCount(1)
-      await expect(compactList).toContainText('PORT=4187 FARMING_PLAYWRIGHT_PORT=4187')
+      const compactGroup = compactList.getByTestId('code-agent-transcript-process-group')
+      await expect(compactGroup).toHaveCount(1)
+      await expect(compactGroup.getByTestId('code-agent-transcript-process-group-toggle')).toContainText('Ran a command')
+      await expect(compactGroup.getByTestId('code-agent-transcript-process-group-toggle')).toHaveAttribute('aria-expanded', 'false')
       await sendPromise
       await expect(liveActivity).toHaveCount(0)
       await expect(liveSummary).toContainText(/Process|Worked for/)
@@ -1428,12 +1439,25 @@ test.describe('ACP human-like browser matrix', () => {
     await expect(turn.getByTestId('code-agent-transcript-process-compact-list')).toHaveCount(0)
     await expect(turn.getByText('Comparing the likely causes', { exact: false })).toHaveCount(0)
     await processSummary.click()
-    await turn.getByTestId('code-agent-transcript-process-group-toggle').click()
-    const thought = turn.getByTestId('code-agent-transcript-process-item').filter({ hasText: 'Reasoning' })
-    await expect(thought.getByTestId('code-agent-transcript-process-item-toggle')).toHaveAttribute('aria-expanded', 'false')
-    await thought.getByTestId('code-agent-transcript-process-item-toggle').click()
-    await expect(turn.getByText('Comparing the likely causes', { exact: false })).toBeVisible({ timeout: 10_000 })
+    await expect(turn.getByTestId('code-agent-transcript-process-group')).toHaveCount(0)
+    const thought = turn.locator('[data-testid="code-agent-transcript-process-item"][data-type="thought"]')
+    const thoughtToggle = thought.getByTestId('code-agent-transcript-process-item-toggle')
+    const thoughtChevron = thoughtToggle.locator('.code-agent-transcript-process-item-chevron')
+    await expect(thoughtToggle).toContainText('Comparing the likely causes')
+    await expect(thoughtToggle).toHaveAttribute('aria-expanded', 'false')
+    await expect(thoughtChevron).toHaveCSS('opacity', '0')
+    await thoughtToggle.hover()
+    await expect(thoughtChevron).toHaveCSS('opacity', '0.9')
+    await page.mouse.move(0, 0)
+    await thoughtToggle.focus()
+    await expect(thoughtChevron).toHaveCSS('opacity', '0.9')
+    await thoughtToggle.click()
+    await expect(thought.locator('.code-agent-transcript-process-detail')).toContainText(
+      'Comparing the likely causes',
+      { timeout: 10_000 },
+    )
     await expect(page.getByText('Streaming thought complete.', { exact: true })).toBeVisible({ timeout: 15_000 })
+    if (await processSummary.getAttribute('aria-expanded') === 'true') await processSummary.click()
     await expect(processSummary).toHaveAttribute('aria-expanded', 'false')
     await processSummary.click()
     await expect(thought.getByTestId('code-agent-transcript-process-item-toggle')).toHaveAttribute('aria-expanded', 'true')
@@ -1457,8 +1481,13 @@ test.describe('ACP human-like browser matrix', () => {
     )
     await expect(processSummary).toHaveAttribute('aria-expanded', 'false')
     const compactList = turn.getByTestId('code-agent-transcript-process-compact-list')
-    await expect(compactList.getByTestId('code-agent-transcript-process-item')).toHaveCount(1)
-    await expect(compactList).toContainText('PORT=4187 FARMING_PLAYWRIGHT_PORT=4187')
+    const compactGroup = compactList.getByTestId('code-agent-transcript-process-group')
+    await expect(compactGroup).toHaveCount(1)
+    await expect(compactGroup.getByTestId('code-agent-transcript-process-group-toggle')).toContainText('Ran a command')
+    await expect(compactGroup.getByTestId('code-agent-transcript-process-group-toggle')).toHaveAttribute('aria-expanded', 'false')
+    await compactGroup.getByTestId('code-agent-transcript-process-group-toggle').click()
+    await expect(compactGroup.getByTestId('code-agent-transcript-process-group-toggle')).toHaveAttribute('aria-expanded', 'true')
+    await expect(compactGroup).toContainText('PORT=4187 FARMING_PLAYWRIGHT_PORT=4187')
 
     await expect(page.getByText('Live progress complete.', { exact: true })).toBeVisible({ timeout: 15_000 })
     await expect(processSummary).toHaveAttribute('aria-expanded', 'false')
@@ -1631,7 +1660,20 @@ test.describe('ACP human-like browser matrix', () => {
     const collapsedProgress = turn.getByTestId('code-acp-progress-update')
     await expect(collapsedProgress).toHaveCount(2, { timeout: 10_000 })
     await expect(collapsedProgress.last()).toContainText('The second verification phase passed; final checks are running.')
-    await expect(turn.getByTestId('code-agent-transcript-process-group')).toHaveCount(0)
+    const compactGroups = turn.getByTestId('code-agent-transcript-process-group')
+    await expect(compactGroups).toHaveCount(3)
+    expect(await turn.getByTestId('code-agent-transcript-process-compact-list').locator(
+      ':scope > [data-testid="code-agent-transcript-process-group"], :scope > [data-testid="code-acp-progress-update"]',
+    ).evaluateAll(elements => elements.map(element => element.getAttribute('data-testid')))).toEqual([
+      'code-agent-transcript-process-group',
+      'code-acp-progress-update',
+      'code-agent-transcript-process-group',
+      'code-acp-progress-update',
+      'code-agent-transcript-process-group',
+    ])
+    expect(await compactGroups.getByTestId('code-agent-transcript-process-group-toggle').evaluateAll(
+      toggles => toggles.map(toggle => toggle.getAttribute('aria-expanded')),
+    )).toEqual(['false', 'false', 'false'])
     await processSummary.click()
     const groups = turn.getByTestId('code-agent-transcript-process-group')
     await expect(groups).toHaveCount(3)
@@ -1649,8 +1691,10 @@ test.describe('ACP human-like browser matrix', () => {
     await expect(activeGroup.getByTestId('code-agent-transcript-process-group-toggle')).toHaveAttribute('aria-expanded', 'true')
     const activeAction = activeGroup.getByTestId('code-agent-transcript-process-item')
       .filter({ hasText: 'Run verification step 24' })
-    const activeThought = activeGroup.getByTestId('code-agent-transcript-process-item')
-      .filter({ hasText: 'Reasoning' }).last()
+    const activeThought = activeGroup.locator(
+      '[data-testid="code-agent-transcript-process-item"][data-type="thought"]',
+    ).last()
+    await expect(activeGroup.getByText('Reasoning', { exact: true })).toHaveCount(0)
     await expect(activeAction.getByTestId('code-agent-transcript-process-item-toggle')).toHaveAttribute('aria-expanded', 'false')
     await expect(activeThought.getByTestId('code-agent-transcript-process-item-toggle')).toHaveAttribute('aria-expanded', 'false')
 
@@ -1776,6 +1820,39 @@ test.describe('ACP human-like browser matrix', () => {
     await expect(page.getByTestId('code-agent-chat-view')).toBeVisible()
     await expect(page.getByTestId('code-agent-terminal-view')).toHaveCount(0)
     await expect(page.getByText('Rich ACP timeline complete.', { exact: true })).toBeVisible({ timeout: 20_000 })
+  })
+
+  test('deduplicates a repeated provider error without hiding a distinct partial answer', async ({ page, workspaceRoot }) => {
+    test.setTimeout(60_000)
+    const workspace = path.join(workspaceRoot, 'acp-duplicate-provider-error')
+    fs.mkdirSync(workspace, { recursive: true })
+    const agentId = await createAcpAgent(page, workspace)
+    await openFarming(page)
+    await agentRow(page, agentId).click()
+
+    await sendAcpMessage(page, 'duplicate provider error')
+    const errorText = 'stream disconnected before completion: request to http://example.invalid/v1/responses failed'
+    const errorTurn = page.locator('.code-agent-transcript-turn').filter({ hasText: 'duplicate provider error' })
+    const errorSummary = errorTurn.getByTestId('code-agent-transcript-process-summary')
+    await expect(errorSummary).toContainText('Agent error', { timeout: 10_000 })
+    await errorSummary.click()
+    await errorTurn.getByTestId('code-agent-transcript-process-group-toggle').click()
+    await errorTurn.getByTestId('code-agent-transcript-process-item-toggle').click()
+    expect((await errorTurn.innerText()).split(errorText).length - 1).toBe(1)
+    await expect(errorTurn.getByTestId('code-agent-transcript-copy-answer')).toHaveCount(0)
+
+    const partialWorkspace = path.join(workspaceRoot, 'acp-partial-provider-error')
+    fs.mkdirSync(partialWorkspace, { recursive: true })
+    const partialAgentId = await createAcpAgent(page, partialWorkspace)
+    await agentRow(page, partialAgentId).click()
+    await sendAcpMessage(page, 'partial provider error')
+    const partialTurn = page.locator('.code-agent-transcript-turn').filter({ hasText: 'partial provider error' })
+    await expect(partialTurn.locator('.code-agent-transcript-answer')).toContainText(
+      'Partial result before the connection failed.',
+      { timeout: 10_000 },
+    )
+    await expect(partialTurn.getByTestId('code-agent-transcript-process-summary')).toContainText('Agent error')
+    await expect(partialTurn.getByTestId('code-agent-transcript-copy-answer')).toHaveCount(1)
   })
 
   test('reviews ACP file changes without patch decision controls', async ({ page, workspaceRoot }) => {

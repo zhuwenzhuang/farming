@@ -14,6 +14,7 @@ assert(
 );
 
 assert.strictEqual(protocolCompatible(PROTOCOL_VERSION), true);
+assert.strictEqual(protocolCompatible(PROTOCOL_VERSION - 1), false);
 assert.strictEqual(protocolCompatible(PROTOCOL_VERSION + 1), false);
 assert.strictEqual(validateClientMessage({ type: 'resize-agent', agentId: 'a', cols: 80, rows: 24 }).ok, true);
 assert.strictEqual(validateClientMessage({ type: 'resize-agent', agentId: 'a', cols: '80', rows: 24 }).ok, false);
@@ -103,6 +104,56 @@ assert.strictEqual(validateServerMessage({
 assert.strictEqual(validateServerMessage({ type: 'agent-update', update: { agentId: 'a' } }).ok, false);
 assert.strictEqual(validateServerMessage({
   type: 'agent-update',
+  update: { agentId: 'a', patch: { adaptiveTitle: 'Inspect persistence' } },
+}).ok, true);
+assert.strictEqual(validateServerMessage({
+  type: 'agent-update',
+  update: { agentId: 'a', patch: { sessionTitle: 'Working tree review' } },
+}).ok, true);
+assert.strictEqual(validateServerMessage({
+  type: 'agent-update',
+  update: {
+    agentId: 'a',
+    patch: {
+      runtimeBinding: {
+        kind: 'acp',
+        state: 'working',
+        error: '',
+        stopReason: '',
+        supportsSteer: true,
+        supportsFork: false,
+        pendingPermissions: [],
+        pendingElicitations: [],
+        activeElicitations: [],
+        sessionUpdatedAt: '2026-08-04T00:00:00.000Z',
+        sessionRevision: 7,
+      },
+    },
+  },
+}).ok, true);
+assert.strictEqual(validateServerMessage({
+  type: 'agent-update',
+  update: {
+    agentId: 'a',
+    patch: {
+      runtimeBinding: {
+        kind: 'acp',
+        state: 'working',
+        error: '',
+        stopReason: '',
+        supportsSteer: true,
+        supportsFork: false,
+        pendingPermissions: [],
+        pendingElicitations: [],
+        activeElicitations: [],
+        sessionUpdatedAt: '2026-08-04T00:00:00.000Z',
+        sessionRevision: -1,
+      },
+    },
+  },
+}).ok, false);
+assert.strictEqual(validateServerMessage({
+  type: 'agent-update',
   update: { agentId: 'a', patch: { terminalInputReceived: true, status: 'dead' } },
 }).ok, false);
 assert.strictEqual(validateServerMessage({
@@ -116,5 +167,37 @@ assert.strictEqual(validateServerMessage({
 assert.strictEqual(validateServerMessage({
   type: 'acp-session-revision',
   session: { agentId: 'a', revision: '12', updatedAt: '2026-07-29T03:00:00.000Z' },
+}).ok, false);
+assert.strictEqual(validateServerMessage({
+  type: 'agent-read',
+  read: {
+    agentId: 'a',
+    unread: true,
+    attentionSeq: 2,
+    readAttentionSeq: 1,
+    attentionUpdatedAt: 1_786_000_000_000,
+    readAttentionAt: null,
+    attentionReason: 'turn-complete',
+    attentionSummary: 'Finished the requested change',
+    attentionOutputEpoch: '',
+    attentionOutputSeq: null,
+    readOutputEpoch: '',
+    readOutputSeq: null,
+  },
+}).ok, true);
+assert.strictEqual(validateServerMessage({
+  type: 'agent-read',
+  read: {
+    agentId: 'a',
+    unread: false,
+    attentionSeq: 2,
+    readAttentionSeq: 2,
+    readOutputEpoch: '',
+    readOutputSeq: null,
+  },
+}).ok, true);
+assert.strictEqual(validateServerMessage({
+  type: 'agent-read',
+  read: { agentId: 'a', unread: true, attentionSeq: 2, readAttentionSeq: 1 },
 }).ok, false);
 console.log('browser protocol schema tests passed');

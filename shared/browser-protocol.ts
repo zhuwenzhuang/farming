@@ -1,5 +1,5 @@
-export const PROTOCOL_VERSION = 4
-export const MIN_PROTOCOL_VERSION = 4
+export const PROTOCOL_VERSION = 5
+export const MIN_PROTOCOL_VERSION = 5
 
 type ObjectMessage = Record<string, unknown>
 
@@ -161,6 +161,9 @@ export interface AgentActivityMessage extends ExtensibleMessage {
 }
 
 export interface AgentUpdatePatch {
+  adaptiveTitle?: string
+  sessionTitle?: string
+  runtimeBinding?: ObjectMessage
   terminalInputReceived?: boolean
   terminalBusy?: boolean | null
   shellCwd?: string
@@ -195,7 +198,20 @@ export interface AcpSessionRevisionMessage extends ExtensibleMessage {
 
 export interface AgentReadMessage extends ExtensibleMessage {
   type: 'agent-read'
-  read: ObjectMessage & { agentId: string }
+  read: ObjectMessage & {
+    agentId: string
+    unread: boolean
+    attentionSeq: number
+    readAttentionSeq: number
+    attentionUpdatedAt?: number | null
+    readAttentionAt?: number | null
+    attentionReason?: string
+    attentionSummary?: string
+    attentionOutputEpoch?: string
+    attentionOutputSeq?: number | null
+    readOutputEpoch: string
+    readOutputSeq: number | null
+  }
 }
 
 export interface WorkspaceFileWatchMessage extends ExtensibleMessage {
@@ -349,7 +365,52 @@ function resourceDeletion(value: unknown): boolean {
     && revisionField(value, 'collectionRevision')
 }
 
+function finiteNullableField(value: ObjectMessage, name: string): boolean {
+  return value[name] === null || finiteField(value, name)
+}
+
+function optionalField(value: ObjectMessage, name: string, validate: () => boolean): boolean {
+  return value[name] === undefined || validate()
+}
+
+function agentReadState(value: unknown): boolean {
+  return objectMessage(value)
+    && stringField(value, 'agentId')
+    && typeof value.unread === 'boolean'
+    && revisionField(value, 'attentionSeq')
+    && revisionField(value, 'readAttentionSeq')
+    && optionalField(value, 'attentionUpdatedAt', () => finiteNullableField(value, 'attentionUpdatedAt'))
+    && optionalField(value, 'readAttentionAt', () => finiteNullableField(value, 'readAttentionAt'))
+    && stringField(value, 'attentionReason', true)
+    && stringField(value, 'attentionSummary', true)
+    && stringField(value, 'attentionOutputEpoch', true)
+    && optionalField(value, 'attentionOutputSeq', () => finiteNullableField(value, 'attentionOutputSeq'))
+    && stringField(value, 'readOutputEpoch')
+    && finiteNullableField(value, 'readOutputSeq')
+}
+
 const AGENT_UPDATE_PATCH_VALIDATORS = {
+  adaptiveTitle: (value: unknown) => typeof value === 'string',
+  sessionTitle: (value: unknown) => typeof value === 'string',
+  runtimeBinding: (value: unknown) => (
+    objectMessage(value)
+    && (
+      value.kind === 'terminal'
+      || (
+        value.kind === 'acp'
+        && typeof value.state === 'string'
+        && typeof value.error === 'string'
+        && typeof value.stopReason === 'string'
+        && typeof value.supportsSteer === 'boolean'
+        && typeof value.supportsFork === 'boolean'
+        && Array.isArray(value.pendingPermissions)
+        && Array.isArray(value.pendingElicitations)
+        && Array.isArray(value.activeElicitations)
+        && typeof value.sessionUpdatedAt === 'string'
+        && revisionField(value, 'sessionRevision')
+      )
+    )
+  ),
   terminalInputReceived: (value: unknown) => typeof value === 'boolean',
   terminalBusy: (value: unknown) => value === null || typeof value === 'boolean',
   shellCwd: (value: unknown) => typeof value === 'string',
@@ -443,7 +504,7 @@ export function validateServerMessage(value: unknown): ValidationResult<ServerMe
     case 'agent-activity': valid = objectMessage(value.activity) && stringField(value.activity, 'agentId'); break
     case 'agent-update': valid = objectMessage(value.update) && stringField(value.update, 'agentId') && sanitizeAgentUpdatePatch(value.update.patch) !== null; break
     case 'acp-session-revision': valid = objectMessage(value.session) && stringField(value.session, 'agentId') && Number.isInteger(value.session.revision) && typeof value.session.revision === 'number' && value.session.revision >= 0 && stringField(value.session, 'updatedAt'); break
-    case 'agent-read': valid = objectMessage(value.read) && stringField(value.read, 'agentId'); break
+    case 'agent-read': valid = agentReadState(value.read); break
     case 'workspace-file-watch': valid = stringField(value, 'agentId') && typeof value.watching === 'boolean'; break
     case 'workspace-file-event': valid = objectMessage(value.event) && stringField(value.event, 'agentId'); break
     case 'browser-resource-snapshot': valid = resourceSnapshot(value.snapshot); break

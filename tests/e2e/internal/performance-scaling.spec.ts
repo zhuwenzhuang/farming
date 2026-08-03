@@ -3,7 +3,17 @@ import path from 'node:path'
 import type { CDPSession, Page, WebSocket } from '@playwright/test'
 import { expect, openFarming, test } from '../fixtures'
 
-const AGENT_COUNTS = [1, 10, 20, 50]
+function scaleAgentCounts() {
+  const configured = String(process.env.FARMING_SCALE_AGENT_COUNTS || '').trim()
+  if (!configured) return [1, 10, 20, 50]
+  const counts = [...new Set(configured.split(',')
+    .map(value => Number(value.trim()))
+    .filter(value => Number.isInteger(value) && value > 0))]
+    .sort((left, right) => left - right)
+  return counts.length > 0 ? counts : [1, 10, 20, 50]
+}
+
+const AGENT_COUNTS = scaleAgentCounts()
 const CREATE_BATCH_SIZE = 5
 
 type RenderSnapshot = {
@@ -152,8 +162,8 @@ async function renderSnapshot(page: Page) {
   )) as Promise<RenderSnapshot>
 }
 
-test('characterizes Code workspace scaling through 50 live Agents', async ({ page, workspaceRoot }, testInfo) => {
-  test.setTimeout(240_000)
+test(`characterizes Code workspace scaling through ${AGENT_COUNTS.at(-1)} live Agents`, async ({ page, workspaceRoot }, testInfo) => {
+  test.setTimeout(Math.max(240_000, (AGENT_COUNTS.at(-1) || 50) * 4_000))
   const workspace = path.join(workspaceRoot, 'performance-scaling')
   fs.mkdirSync(workspace, { recursive: true })
 

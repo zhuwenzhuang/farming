@@ -1,6 +1,6 @@
 {
   "name": "farming-code",
-  "version": "2.2.39",
+  "version": "2.2.40",
   "description": "Farming Code is a self-hosted browser workspace for running and supervising AI coding agents",
   "main": "backend/server.cjs",
   "bin": {
@@ -146,7 +146,6 @@
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "1.2.1",
-    "@modelcontextprotocol/sdk": "^1.29.0",
     "@xterm/addon-clipboard": "^0.2.0",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-search": "^0.16.0",
@@ -186,7 +185,6 @@
   },
   "bundledDependencies": [
     "@agentclientprotocol/sdk",
-    "@modelcontextprotocol/sdk",
     "@xterm/addon-clipboard",
     "@xterm/addon-fit",
     "@xterm/addon-search",
@@ -268,7 +266,6 @@
   },
   "bundleDependencies": [
     "@agentclientprotocol/sdk",
-    "@modelcontextprotocol/sdk",
     "@xterm/addon-clipboard",
     "@xterm/addon-fit",
     "@xterm/addon-search",

@@ -32,6 +32,22 @@ if (process.env.FARMING_TEST_ACP_DESCENDANT_PID_FILE) {
   descendant.unref();
 }
 
+if (process.env.FARMING_TEST_ACP_CAPABILITY_ENV_FILE) {
+  try {
+    fs.writeFileSync(process.env.FARMING_TEST_ACP_CAPABILITY_ENV_FILE, JSON.stringify({
+      agentId: process.env.FARMING_AGENT_ID || '',
+      browserToken: process.env.FARMING_BROWSER_TOKEN || '',
+      computerToken: process.env.FARMING_COMPUTER_TOKEN || '',
+      runtimeEpoch: process.env.FARMING_CAPABILITY_RUNTIME_EPOCH || '',
+      workspace: process.env.FARMING_PROJECT_WORKSPACE || '',
+    }), { flag: 'wx', mode: 0o600 });
+  } catch (error: unknown) {
+    if (!error || typeof error !== 'object' || !('code' in error) || error.code !== 'EEXIST') {
+      throw error;
+    }
+  }
+}
+
 if (process.argv.includes('--fake-terminal-login')) {
   process.stdin.setEncoding('utf8');
   process.stdout.write('fake-login> ');
@@ -73,8 +89,10 @@ const initialSessionId = process.env.FARMING_E2E_FAKE_EXECUTABLES === '1'
   : 'acp-new-session';
 let sessionId = initialSessionId;
 let refreshedModelId = '';
-let activeModel = 'gpt-5.5';
-let activeEffort = 'high';
+let activeModel = process.env.FARMING_TEST_ACP_MODEL_DEFAULT || 'gpt-5.5';
+let activeEffort = process.env.FARMING_TEST_ACP_REASONING_DEFAULT || 'high';
+let activeFast = process.env.FARMING_TEST_ACP_FAST_DEFAULT === '1';
+const omitFastOption = process.env.FARMING_TEST_ACP_OMIT_FAST === '1';
 const cancelledSessions = new Map<string, () => void>();
 
 interface ActiveSteerTurn {
@@ -111,11 +129,28 @@ function hasSessionScenario(sessionId, scenario) {
 }
 
 function sessionConfigOptions(): SessionConfigOption[] {
-  return [
-    { id: 'model', name: 'Model', type: 'select', currentValue: activeModel, options: [{ value: activeModel, name: activeModel }] },
-    { id: 'reasoning', name: 'Reasoning', type: 'select', currentValue: activeEffort, options: [{ value: activeEffort, name: activeEffort }] },
-    { id: 'fast-mode', name: 'Fast mode', type: 'boolean', currentValue: false },
+  const options: SessionConfigOption[] = [
+    {
+      id: 'model',
+      name: 'Model',
+      category: 'model',
+      type: 'select',
+      currentValue: activeModel,
+      options: ['gpt-5.5', 'gpt-5.6-luna'].map(value => ({ value, name: value })),
+    },
+    {
+      id: 'reasoning',
+      name: 'Reasoning',
+      category: 'thought_level',
+      type: 'select',
+      currentValue: activeEffort,
+      options: ['high', 'ultra'].map(value => ({ value, name: value })),
+    },
   ];
+  if (!omitFastOption) {
+    options.push({ id: 'fast-mode', name: 'Fast mode', type: 'boolean', currentValue: activeFast });
+  }
+  return options;
 }
 
 function acceptedConfirmation(response: CreateElicitationResponse): boolean {
@@ -184,6 +219,11 @@ class FakeAgent implements Agent {
   async loadSession(params) {
     validateRequestedSessionScope(params);
     sessionId = params.sessionId;
+    const failOnceFile = process.env.FARMING_TEST_ACP_FAIL_LOAD_ONCE_FILE;
+    if (failOnceFile && !fs.existsSync(failOnceFile)) {
+      fs.writeFileSync(failOnceFile, sessionId);
+      throw new Error('Fake transient session/load failure');
+    }
     if (sessionId === initialSessionId || hasSessionScenario(sessionId, 'rich-timeline')) {
       const replay = [
         ['user_message_chunk', 'history-rich-user', 'rich timeline'],
@@ -291,6 +331,9 @@ class FakeAgent implements Agent {
   async setSessionConfigOption(
     params: SetSessionConfigOptionRequest,
   ): Promise<SetSessionConfigOptionResponse> {
+    if (process.env.FARMING_TEST_ACP_REJECT_CONFIG_ID === params.configId) {
+      throw new Error(`Fake provider rejected config option ${params.configId}`);
+    }
     if (params.configId === 'model') {
       if (typeof params.value !== 'string') {
         throw new Error('Model config requires a string value');
@@ -301,10 +344,10 @@ class FakeAgent implements Agent {
       const refreshed = refreshedMatch?.[1] === params.value;
       if (refreshed && refreshedMatch) activeEffort = refreshedMatch[2];
       const configOptions: SessionConfigOption[] = [
-          { id: 'model', name: 'Model', type: 'select', currentValue: activeModel, options: [{ value: activeModel, name: activeModel }] },
-          { id: 'reasoning', name: 'Reasoning', type: 'select', currentValue: activeEffort, options: [{ value: activeEffort, name: activeEffort }] },
+          { id: 'model', name: 'Model', category: 'model', type: 'select', currentValue: activeModel, options: [{ value: activeModel, name: activeModel }] },
+          { id: 'reasoning', name: 'Reasoning', category: 'thought_level', type: 'select', currentValue: activeEffort, options: [{ value: activeEffort, name: activeEffort }] },
       ];
-      if (refreshed) {
+      if (refreshed && !omitFastOption) {
         configOptions.push({
           id: 'fast-mode',
           name: 'Fast',
@@ -324,6 +367,13 @@ class FakeAgent implements Agent {
           { id: 'reasoning', name: 'Reasoning', type: 'select', currentValue: activeEffort, options: [{ value: activeEffort, name: activeEffort }] },
       ];
       return { configOptions };
+    }
+    if (params.configId === 'fast-mode') {
+      if (typeof params.value !== 'boolean') {
+        throw new Error('Fast config requires a boolean value');
+      }
+      activeFast = params.value;
+      return { configOptions: sessionConfigOptions() };
     }
     return {
       configOptions: [{
@@ -400,6 +450,26 @@ class FakeAgent implements Agent {
   async prompt(params: PromptRequest): Promise<PromptResponse> {
     const promptText = params.prompt?.map(block => block.type === 'text' ? block.text : '').join('') || '';
     const imageCount = params.prompt?.filter(block => block.type === 'image').length || 0;
+    if (promptText.includes('host sigkill no replay')) {
+      const marker = sessionScenarioMarker(params.sessionId, 'host-sigkill-prompt-count');
+      if (marker) {
+        const previous = fs.existsSync(marker)
+          ? Number.parseInt(fs.readFileSync(marker, 'utf8').trim(), 10) || 0
+          : 0;
+        fs.mkdirSync(path.dirname(marker), { recursive: true });
+        fs.writeFileSync(marker, String(previous + 1), { mode: 0o600 });
+      }
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          messageId: 'host-sigkill-active-turn',
+          content: { type: 'text', text: 'Host SIGKILL active Turn started.' },
+        },
+      });
+      await new Promise(resolve => setTimeout(resolve, 30_000));
+      return { stopReason: 'end_turn' };
+    }
     if (promptText.includes('inline visualization')) {
       const codexHome = String(process.env.CODEX_HOME || '').trim();
       if (!codexHome) throw new Error('Fake inline visualization requires CODEX_HOME');
@@ -1751,6 +1821,31 @@ class FakeAgent implements Agent {
     if (promptText.includes('authentication error')) {
       const error = Object.assign(new Error('401 Unauthorized: sign in required'), { code: 401 });
       throw error;
+    }
+    if (promptText.includes('duplicate provider error')) {
+      const message = 'stream disconnected before completion: request to http://example.invalid/v1/responses failed';
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          messageId: 'duplicate-provider-error-answer',
+          content: { type: 'text', text: message },
+          _meta: { codex: { phase: 'final_answer' } },
+        },
+      });
+      throw new Error(message);
+    }
+    if (promptText.includes('partial provider error')) {
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          messageId: 'partial-provider-error-answer',
+          content: { type: 'text', text: 'Partial result before the connection failed.' },
+          _meta: { codex: { phase: 'final_answer' } },
+        },
+      });
+      throw new Error('stream disconnected before completion: request to http://example.invalid/v1/responses failed');
     }
     const permission = await client.requestPermission({
       sessionId: params.sessionId,

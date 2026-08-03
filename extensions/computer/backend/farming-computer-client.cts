@@ -11,7 +11,12 @@ function connection(env: NodeJS.ProcessEnv = process.env) {
   if (env.FARMING_TOKEN_FILE && fs.existsSync(env.FARMING_TOKEN_FILE)) {
     token = fs.readFileSync(env.FARMING_TOKEN_FILE, 'utf8').trim();
   }
-  return { controlUrl: controlUrl.replace(/\/+$/, ''), token };
+  return {
+    capabilityToken: String(env.FARMING_COMPUTER_TOKEN || '').trim(),
+    controlUrl: controlUrl.replace(/\/+$/, ''),
+    runtimeEpoch: String(env.FARMING_CAPABILITY_RUNTIME_EPOCH || '').trim(),
+    token,
+  };
 }
 
 function requestJson(
@@ -32,6 +37,12 @@ function requestJson(
         ...(payload ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } : {}),
         ...(target.token ? { Authorization: bearerAuthorizationHeader(target.token) } : {}),
         ...(env.FARMING_AGENT_ID ? { 'X-Farming-Agent-Id': env.FARMING_AGENT_ID } : {}),
+        ...(target.capabilityToken
+          ? { 'X-Farming-Capability-Token': target.capabilityToken }
+          : {}),
+        ...(target.runtimeEpoch
+          ? { 'X-Farming-Capability-Runtime-Epoch': target.runtimeEpoch }
+          : {}),
       },
     }, (response: any) => {
       const chunks: Buffer[] = [];

@@ -35,6 +35,7 @@ function config(overrides = {}) {
 }
 
 async function run() {
+  delete process.env.CODEX_CONFIG;
   const farmingSystemPrompt = renderFarmingAgentBootstrap();
   const fixture = path.join(__dirname, 'fixtures', 'fake-acp-agent.mts');
   const runtime = new AcpRuntime({
@@ -44,7 +45,6 @@ async function run() {
   const manager = new AgentManager(config(), {
     acpRuntime: runtime,
     skipExecutablePreflight: true,
-    browserMcpEnabled: true,
     cliBinDir: '/opt/farming/bin',
     controlUrl: 'http://127.0.0.1:6694/farming',
     tokenFile: '/tmp/farming-test-token',
@@ -62,7 +62,12 @@ async function run() {
         agentRuntimeMode: 'chat',
         wantsMain: false,
         additionalDirectories: [path.join(process.cwd(), 'docs')],
-        mcpServers: [{ name: 'docs', command: '/bin/docs-mcp', args: [], env: [] }],
+        mcpServers: [{ name: 'docs', command: '/bin/docs-mcp', args: [], env: [] }, {
+          name: 'farming-browser',
+          command: '/opt/farming/bin/farming',
+          args: ['browser', 'mcp'],
+          _meta: { 'farming.dev/extension': 'browser' },
+        }],
       });
     });
     assert(agentId);
@@ -79,6 +84,10 @@ async function run() {
     manager.on('acp-session-revision', session => {
       sessionRevisions.push(session);
     });
+    const scopedAgentUpdates = [];
+    manager.on('agent-update', update => {
+      scopedAgentUpdates.push(update);
+    });
     const nextSessionRevision = live.runtimeBinding.sessionRevision + 1;
     runtime.emit('session', { agentId, revision: nextSessionRevision });
     assert.strictEqual(
@@ -92,6 +101,10 @@ async function run() {
       'an ACP transcript revision should use its dedicated per-Agent channel',
     );
     const binding = runtime.bindings.get(agentId);
+    const initialCapabilityRuntimeEpoch = runtime.bindingEpoch(agentId);
+    assert.strictEqual(binding.capabilityRuntimeEpoch, initialCapabilityRuntimeEpoch);
+    assert.match(binding.env.FARMING_AGENT_TITLE_TOKEN, /^[A-Za-z0-9_-]{32}$/);
+    assert.strictEqual(binding.env.FARMING_CLI_BIN_DIR, '/opt/farming/bin');
     binding.sessionState.revision = nextSessionRevision;
     binding.sessionState.apply({
       sessionId: binding.sessionId,
@@ -113,8 +126,13 @@ async function run() {
     );
     assert.strictEqual(
       genericUpdateCount,
-      1,
-      'an ACP title change should publish the updated Agent name once',
+      0,
+      'an ACP title change must not request a full workspace-state broadcast',
+    );
+    assert.deepStrictEqual(
+      scopedAgentUpdates.at(-1),
+      { agentId, patch: { sessionTitle: 'Investigate phase-aware Mermaid' } },
+      'an ACP title change should publish one Agent-scoped title patch',
     );
     runtime.emit('session', {
       agentId,
@@ -129,21 +147,7 @@ async function run() {
     assert.deepStrictEqual(binding.sessionRequestOptions.additionalDirectories, [path.join(process.cwd(), 'docs')]);
     assert.deepStrictEqual(binding.sessionRequestOptions.mcpServers, [
       { name: 'docs', command: '/bin/docs-mcp', args: [], env: [] },
-      {
-        name: 'farming-browser',
-        command: '/opt/farming/bin/farming',
-        args: ['browser', 'mcp'],
-        env: [
-          { name: 'FARMING_AGENT_ID', value: agentId },
-          { name: 'FARMING_CONTROL_URL', value: 'http://127.0.0.1:6694/farming' },
-          { name: 'FARMING_PROJECT_WORKSPACE', value: process.cwd() },
-          { name: 'FARMING_TOKEN_FILE', value: '/tmp/farming-test-token' },
-        ],
-        _meta: {
-          'farming.dev/extension': 'browser',
-        },
-      },
-    ]);
+    ], 'Farming must preserve provider MCP configuration without adding capability MCP');
     const elicitationPromise = runtime.requestElicitation(binding, {
       sessionId: binding.sessionId,
       mode: 'form',
@@ -219,12 +223,27 @@ async function run() {
     assert.strictEqual(imagePrompt.content[1].type, 'image');
     const listed = await manager.listAcpSessions(agentId);
     assert(listed.sessions.some(item => item.sessionId === 'acp-new-session'));
-    const rawTranscript = manager.getAcpTranscript(agentId);
+    const rawTranscript = await manager.getAcpTranscript(agentId);
     assert.strictEqual('turns' in rawTranscript, false, 'ACP Turn/Item projection belongs to the frontend');
+    assert.strictEqual(rawTranscript.version, 1);
+    assert.strictEqual(rawTranscript.agentId, agentId);
+    assert.strictEqual(rawTranscript.sessionId, 'acp-new-session');
+    assert.strictEqual(rawTranscript.runtimeEpoch, binding.capabilityRuntimeEpoch);
+    assert.strictEqual(rawTranscript.replace, true);
+    assert.strictEqual(rawTranscript.fromRevision, null);
+    assert.strictEqual(rawTranscript.settled, true);
     assert.strictEqual(
-      rawTranscript.entries.find(item => item.role === 'assistant').content[0].text,
+      rawTranscript.transcript.entries.find(item => item.role === 'assistant').content[0].text,
       'Checking the final-answer phase.',
     );
+    const emptyDelta = await manager.getAcpTranscript(agentId, { sinceRevision: rawTranscript.toRevision });
+    assert.strictEqual(emptyDelta.replace, false);
+    assert.strictEqual(emptyDelta.fromRevision, rawTranscript.toRevision);
+    assert.strictEqual(emptyDelta.toRevision, rawTranscript.toRevision);
+    assert.deepStrictEqual(emptyDelta.transcript.entries, []);
+    const gapReplacement = await manager.getAcpTranscript(agentId, { sinceRevision: rawTranscript.toRevision + 1 });
+    assert.strictEqual(gapReplacement.replace, true);
+    assert.strictEqual(gapReplacement.fromRevision, null);
     assert.strictEqual((await manager.forkAcpSession(agentId)).sessionId, 'acp-fork-session');
     binding.modes = {
       currentModeId: 'default',
@@ -236,7 +255,7 @@ async function run() {
     assert.strictEqual((await manager.setAcpSessionMode(agentId, 'plan')).modeId, 'plan');
     const subagentResult = await manager.sendComposerMessage(agentId, 'subagent preview');
     assert.strictEqual(subagentResult.stopReason, 'end_turn');
-    const subagentDetail = manager.getAcpToolDetail(agentId, 'subagent-tool');
+    const subagentDetail = await manager.getAcpToolDetail(agentId, 'subagent-tool');
     assert.strictEqual(subagentDetail.subagentSession.sessionId, 'acp-child-session');
     assert.strictEqual('turns' in subagentDetail.subagentSession, false);
     assert.strictEqual(
@@ -245,6 +264,19 @@ async function run() {
     );
     assert.strictEqual(nativeMetadataUpdateCount, 0, 'ACP sessions must not update native PTY metadata');
     assert.deepStrictEqual(await manager.logoutAcpAgent(agentId), { loggedOut: true });
+    await runtime.restartAgentConnection(agentId);
+    const restartedCapabilityRuntimeEpoch = runtime.bindingEpoch(agentId);
+    assert.notStrictEqual(
+      restartedCapabilityRuntimeEpoch,
+      initialCapabilityRuntimeEpoch,
+      'an ACP connection replacement must install a fresh capability runtime epoch',
+    );
+    assert.deepStrictEqual(
+      runtime.getSessionRequestOptions(agentId).mcpServers,
+      [{ name: 'docs', command: '/bin/docs-mcp', args: [], env: [] }],
+      'a replacement runtime must keep provider MCPs without adding Farming MCPs',
+    );
+    manager.acpPreparedTranscriptCache.deleteAgent(agentId);
     runtime.unregisterAgent(agentId);
     manager.agents.delete(agentId);
     const resumedAgentId = await new Promise(resolve => {
@@ -266,10 +298,7 @@ async function run() {
       args: [],
       env: [],
     });
-    assert.strictEqual(resumedOptions.mcpServers[1].name, 'farming-browser');
-    assert(resumedOptions.mcpServers[1].env.some(entry => (
-      entry.name === 'FARMING_AGENT_ID' && entry.value === resumedAgentId
-    )));
+    assert.strictEqual(resumedOptions.mcpServers.length, 1);
   } finally {
     await manager.dispose();
   }
@@ -367,7 +396,15 @@ async function run() {
         modelPreset: 'gpt-5.6-sol:high',
       };
     },
-  }), { acpRuntime: codexRuntime, skipExecutablePreflight: true });
+  }), {
+    acpRuntime: codexRuntime,
+    agentShellEnvProvider: () => {
+      const env = { ...process.env };
+      delete env.CODEX_CONFIG;
+      return env;
+    },
+    skipExecutablePreflight: true,
+  });
   try {
     const codexAgentId = await new Promise(resolve => {
       codexManager.startAgent('codex', process.cwd(), (id, error) => {
@@ -583,6 +620,16 @@ async function run() {
       assert.strictEqual(providerAgent.providerSessionProvider, provider);
       assert.strictEqual(providerAgent.runtimeBinding.kind, 'acp');
       const providerBinding = providerRuntime.bindings.get(providerAgentId);
+      assert.match(
+        providerBinding.env.FARMING_AGENT_TITLE_TOKEN,
+        /^[A-Za-z0-9_-]{32}$/,
+        `${provider} ACP must receive a runtime-scoped title token`,
+      );
+      assert.strictEqual(
+        providerBinding.env.FARMING_CLI_BIN_DIR,
+        path.join(__dirname, '..', '..', 'bin'),
+        `${provider} ACP must receive the exact Farming CLI directory`,
+      );
       assert.strictEqual(
         providerBinding.restartOptions.farmingSystemPrompt,
         farmingSystemPrompt,

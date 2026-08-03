@@ -62,6 +62,7 @@ const AGENT_STATE_FIELDS: string[] = [
   'acpActiveElicitations',
   'acpSessionUpdatedAt',
   'acpSessionRevision',
+  'acpFinalizedTurnHandle',
   'jsonCliState',
   'jsonCliError',
   'jsonCliTranscriptUpdatedAt',
@@ -95,6 +96,7 @@ const PRODUCT_STATE_FIELDS: string[] = [
   'readOutputEpoch',
   'readOutputSeq',
   'customTitle',
+  'adaptiveTitle',
   'title',
   'titleUserSpecified',
 ];
@@ -113,12 +115,13 @@ function normalizeTitleMetadata(record: JsonRecord, options: { explicitCustomTit
   }
 
   record.titleUserSpecified = false;
+  const adaptiveTitle = titleValue(record.adaptiveTitle, 80);
   const providerTitle = titleValue(record.providerSessionTitle);
   const sessionTitle = titleValue(record.sessionTitle);
   const fallbackTitle = titleValue(record.task);
   const nextTitle = options.explicitCustomTitle === true
-    ? (providerTitle || sessionTitle || fallbackTitle)
-    : (providerTitle || sessionTitle || titleValue(record.title) || fallbackTitle);
+    ? (adaptiveTitle || providerTitle || sessionTitle || fallbackTitle)
+    : (adaptiveTitle || providerTitle || sessionTitle || titleValue(record.title) || fallbackTitle);
   record.title = nextTitle;
 }
 
@@ -498,6 +501,18 @@ class FarmingSessionStore {
       cwd: typeof agent.cwd === 'string' ? agent.cwd : '',
       projectWorkspace: typeof agent.projectWorkspace === 'string' ? agent.projectWorkspace : '',
       mainWorkspace: typeof agent.mainWorkspace === 'string' ? agent.mainWorkspace : '',
+      capabilityRuntimeEpoch: typeof agent.capabilityRuntimeEpoch === 'string'
+        ? agent.capabilityRuntimeEpoch
+        : '',
+      capabilityWorkspace: typeof agent.capabilityWorkspace === 'string'
+        ? agent.capabilityWorkspace
+        : '',
+      browserCapabilityTokenHash: typeof agent.browserCapabilityTokenHash === 'string'
+        ? agent.browserCapabilityTokenHash
+        : '',
+      computerCapabilityTokenHash: typeof agent.computerCapabilityTokenHash === 'string'
+        ? agent.computerCapabilityTokenHash
+        : '',
       source: typeof agent.source === 'string' ? agent.source : '',
       parentAgentId: typeof agent.parentAgentId === 'string' ? agent.parentAgentId : '',
       forkRequestId: typeof agent.forkRequestId === 'string' ? agent.forkRequestId : '',
@@ -545,13 +560,20 @@ class FarmingSessionStore {
       composerCommands: Array.isArray(agent.composerCommands)
         ? cloneJson(agent.composerCommands)
         : [],
+      acpFinalizedTurnHandle: typeof agent.acpFinalizedTurnHandle === 'string'
+        ? agent.acpFinalizedTurnHandle
+        : '',
       archived: agent.archived === true,
       archivedAt: typeof agent.archivedAt === 'number' ? agent.archivedAt : null,
       ...(typeof agent.customTitle === 'string' && agent.customTitle
         ? { customTitle: agent.customTitle }
         : {}),
+      ...(titleValue(agent.adaptiveTitle, 80)
+        ? { adaptiveTitle: titleValue(agent.adaptiveTitle, 80) }
+        : {}),
       title: titleValue(
         agent.customTitle
+          || agent.adaptiveTitle
           || agent.providerSessionTitle
           || agent.sessionTitle
           || agent.title

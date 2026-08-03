@@ -161,6 +161,12 @@ export interface AcpConfigChange {
   value: AcpConfigValue;
 }
 
+export interface AcpConfigOverridesEvent {
+  agentId: string;
+  sessionId: string;
+  configOverrides: AcpConfigChange[];
+}
+
 export interface AcpPromptBlock extends Record<string, unknown> {
   type: string;
   text?: string;
@@ -183,12 +189,14 @@ export interface AcpTranscriptEntry extends Record<string, unknown> {
 
 export interface AcpTranscriptSession extends Record<string, unknown> {
   version?: number;
-  protocol?: 'acp';
+  protocol?: string;
   provider?: ProviderId;
   sessionId: string;
   cwd?: string;
   title?: string;
   revision?: number;
+  delta?: boolean;
+  hasMoreBefore?: boolean;
   updatedAt?: string;
   truncated?: boolean;
   entries: AcpTranscriptEntry[];
@@ -225,6 +233,7 @@ export interface AcpSessionRequestOptions extends Record<string, unknown> {
 
 export interface AcpPrepareOptions extends Record<string, unknown> {
   agentId: string;
+  capabilityRuntimeEpoch?: string;
   provider: ProviderId;
   cwd?: string;
   sessionId?: string;
@@ -235,6 +244,10 @@ export interface AcpPrepareOptions extends Record<string, unknown> {
   forkSourceCheckpoint?: AcpBindingCheckpoint | null;
   onForkSessionCreated?: (sessionId: string) => Promise<void> | void;
   onProcessStarted?: (identity: AcpProcessIdentity) => Promise<void> | void;
+  refreshMcpServersForRuntime?: (
+    mcpServers: Record<string, unknown>[],
+  ) => Promise<{ capabilityRuntimeEpoch: string; mcpServers: Record<string, unknown>[] }>
+    | { capabilityRuntimeEpoch: string; mcpServers: Record<string, unknown>[] };
 }
 
 export interface AcpPrepareResult extends Record<string, unknown> {
@@ -242,6 +255,7 @@ export interface AcpPrepareResult extends Record<string, unknown> {
   historyMode: string;
   protocolVersion?: number;
   capabilities?: Record<string, unknown>;
+  configOverrides?: AcpConfigChange[];
 }
 
 export interface AcpProcessIdentity {
@@ -306,6 +320,8 @@ export type DeleteProviderSessionIdentityContract = (
 ) => Promise<void>;
 
 export interface AcpSubmitOptions extends Record<string, unknown> {
+  clientPromptId?: string;
+  retryDefinitiveFailure?: boolean;
   delivery?: 'auto' | 'prompt' | 'steer';
   onSubmitted?: () => Promise<void> | void;
 }
@@ -421,7 +437,7 @@ export interface TargetProcessAcpForkOptions {
 
 export interface AcpBindingCheckpoint extends Record<string, unknown> {
   version?: number;
-  sessionState?: Record<string, unknown>;
+  sessionState?: Record<string, unknown> | null;
   subagentStates?: Record<string, unknown>[];
   patchDecisions?: Array<[string, string]>;
   providerProof?: object | null;
@@ -452,8 +468,21 @@ export interface AcpSessionListResult extends Record<string, unknown> {
 
 export interface AcpRuntimeContract {
   bindings: ReadonlyMap<string, AcpBindingContract>;
+  turnCompletionEvents?: boolean;
+  initialize?(): Promise<void>;
+  publishRecoveredBindings?(): void;
+  registerBindingCallbacks?(
+    agentId: string,
+    handlers: {
+      onProcessStarted?: (identity: AcpProcessIdentity) => Promise<void> | void;
+      onProcessStopped?: () => Promise<void> | void;
+      refreshMcpServersForRuntime?: AcpPrepareOptions['refreshMcpServersForRuntime'];
+    },
+  ): void;
+  disconnect?(): void;
   on(event: 'agent-runtime', listener: (event: AcpRuntimeEvent) => void): this;
   on(event: 'session', listener: (event: AcpSessionEvent) => void): this;
+  on(event: 'config-overrides', listener: (event: AcpConfigOverridesEvent) => void): this;
   prepareAgent(options?: AcpPrepareOptions): Promise<AcpPrepareResult>;
   reconnectAgent(
     agentId: string,
@@ -462,17 +491,30 @@ export interface AcpRuntimeContract {
   createSessionIdentity(options: ProviderSessionIdentityRequest): Promise<ProviderSessionIdentityResult>;
   submitMessage(agentId: string, prompt: AcpPromptBlock[], options?: AcpSubmitOptions): Promise<AcpSubmitResult>;
   getSession(agentId: string, options?: Record<string, unknown>): Record<string, unknown>;
+  getSessionForRead(agentId: string, options?: Record<string, unknown>): Promise<Record<string, unknown>>;
   getTranscriptSession(
     agentId: string,
     options?: Record<string, unknown>,
-  ): Record<string, unknown>;
+  ): AcpTranscriptSession;
+  getTranscriptSessionForRead(
+    agentId: string,
+    options?: Record<string, unknown>,
+  ): Promise<AcpTranscriptSession>;
   getSubagentTranscriptSession(
     agentId: string,
     sessionId: string,
     options?: Record<string, unknown>,
   ): Record<string, unknown> | null;
+  getSubagentTranscriptSessionForRead(
+    agentId: string,
+    sessionId: string,
+    options?: Record<string, unknown>,
+  ): Promise<Record<string, unknown> | null>;
   getTranscriptEntry(agentId: string, entryId: string): AcpTranscriptEntry | null;
+  getTranscriptEntryForRead(agentId: string, entryId: string): Promise<AcpTranscriptEntry | null>;
   getToolEntry(agentId: string, toolCallId: string): AcpTranscriptEntry | null;
+  getToolEntryForRead(agentId: string, toolCallId: string): Promise<AcpTranscriptEntry | null>;
+  transcriptProjectionRevision(agentId: string): number;
   getSessionRequestOptions(agentId: string): AcpSessionRequestOptions;
   bindingCheckpoint(binding: AcpBindingContract): AcpBindingCheckpointView;
   runWithForkReservation<T>(
@@ -492,11 +534,13 @@ export interface AcpRuntimeContract {
   setSessionConfigOption(agentId: string, configId: string, value: AcpConfigValue): Promise<unknown>;
   setSessionConfigOptions(agentId: string, changes: AcpConfigChange[]): Promise<unknown>;
   killTerminal(agentId: string, terminalId: string): unknown;
-  inputTerminal(agentId: string, terminalId: string, input: string): unknown;
+  inputTerminal(agentId: string, terminalId: string, input: string, operationId?: string): unknown;
   resizeTerminal(agentId: string, terminalId: string, cols: number, rows: number): unknown;
   cancelSubagent(agentId: string, sessionId: string): Promise<unknown>;
   decidePatch(agentId: string, toolCallId: string, requestedPath: string, decision: 'keep' | 'revert'): Promise<unknown>;
   cancel(agentId: string): Promise<unknown>;
+  bindingEpoch(agentId: string): string;
+  transcriptSettled(agentId: string): boolean;
   hasBinding(agentId: string): boolean;
   unregisterAgent(agentId: string): void;
   unregisterAgentAndWait(agentId: string): Promise<boolean>;
@@ -552,6 +596,8 @@ export interface AgentDisposeOptions {
 }
 
 export interface ProviderStartOptions extends Record<string, unknown> {
+  adaptiveTitle?: string;
+  acpConfigOverrides?: AcpConfigChange[];
   acpForkSourceCheckpoint?: AcpBindingCheckpoint | null;
   acpForkSourceSessionId?: string;
   acpHistoryMode?: 'checkpoint' | 'load' | 'resume';

@@ -48,7 +48,7 @@ npm run docs:product:screenshots
 - 产品入口：`README.md` 和 `README.zh_cn.md`
 - 用户文档：`docs/README.md` 直接链接的任务页与产品页
 - 产品入口页：`docs/products/*/README.md`
-- 实现架构与验证：`docs/development/`
+- 长期架构与验证契约：`docs/development/`
 - Agent 工程规则：`AGENTS.md` 和 `AGENTS.zh_cn.md`
 
 除非理解产品、完成安装或选择下一份文档确实需要，否则不要把实现细节写进 README。

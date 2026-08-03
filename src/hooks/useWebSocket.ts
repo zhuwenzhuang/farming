@@ -12,8 +12,10 @@ import {
 import {
   reconcileAgentLiveStates,
   resetAgentLiveStates,
+  updateAgentAcpSessionRevision,
   updateAgentLiveActivity,
   updateAgentLivePreview,
+  updateAgentReadState,
   updateAgentLiveState,
 } from '@/lib/agent-live-state'
 import {
@@ -627,26 +629,7 @@ export function useWebSocket() {
               updateAgentLiveState(msg.update.agentId, msg.update.patch)
               break
             case 'acp-session-revision':
-              setState(prev => {
-                let changed = false
-                const agents = prev.agents.map(agent => {
-                  if (
-                    agent.id !== msg.session.agentId
-                    || agent.runtimeBinding?.kind !== 'acp'
-                    || msg.session.revision <= agent.runtimeBinding.sessionRevision
-                  ) return agent
-                  changed = true
-                  return {
-                    ...agent,
-                    runtimeBinding: {
-                      ...agent.runtimeBinding,
-                      sessionRevision: msg.session.revision,
-                      sessionUpdatedAt: msg.session.updatedAt,
-                    },
-                  }
-                })
-                return changed ? { ...prev, agents } : prev
-              })
+              updateAgentAcpSessionRevision(msg.session)
               break
             case 'session-preview':
               updateAgentLivePreview(msg.preview)
@@ -695,14 +678,7 @@ export function useWebSocket() {
               updateAgentLiveActivity(msg.activity)
               break
             case 'agent-read':
-              setState(prev => ({
-                ...prev,
-                agents: prev.agents.map(agent => (
-                  agent.id === msg.read.agentId
-                    ? { ...agent, ...msg.read, id: agent.id }
-                    : agent
-                )),
-              }))
+              updateAgentReadState(msg.read)
               break
             case 'workspace-file-watch':
               break
@@ -756,6 +732,11 @@ export function useWebSocket() {
 
       ws.onclose = (event) => {
         if (disposed || wsRef.current !== ws) return
+        const terminalError = event.code === 4001
+          ? 'Farming token expired or is invalid'
+          : event.code === 4002
+            ? 'Farming frontend and backend versions differ. Refresh this page.'
+            : null
         resetBusinessProbeObservation()
         wsRef.current = null
         composerRequestResolversRef.current.forEach(({ resolve, timeout }) => {
@@ -766,9 +747,9 @@ export function useWebSocket() {
         setState(prev => ({
           ...prev,
           connected: false,
-          error: event.code === 4001 ? 'Farming token expired or is invalid' : prev.error,
-          errorKind: event.code === 4001 ? 'error' : prev.errorKind,
-          errorId: event.code === 4001 ? prev.errorId + 1 : prev.errorId,
+          error: terminalError ?? prev.error,
+          errorKind: terminalError ? 'error' : prev.errorKind,
+          errorId: terminalError ? prev.errorId + 1 : prev.errorId,
           browserResources: null,
           computerResources: null,
         }))
@@ -776,7 +757,9 @@ export function useWebSocket() {
         window.dispatchEvent(new CustomEvent('farming:backend-disconnected', {
           detail: { code: event.code, reason: event.reason },
         }))
-        reconnectTimer = setTimeout(connect, 1000)
+        if (!terminalError) {
+          reconnectTimer = setTimeout(connect, 1000)
+        }
       }
 
       ws.onerror = () => {

@@ -420,6 +420,11 @@ export function AcpComposer({
           <p>{runtimeError}</p>
         </section>
       ) : null}
+      {active && session?.configOverrideWarnings?.length ? (
+        <section className="code-acp-feedback" data-testid="code-acp-config-recovery-warning" role="status">
+          <p>{session.configOverrideWarnings.map(warning => warning.message).join(' ')}</p>
+        </section>
+      ) : null}
       <footer
         className={composerClasses}
         data-testid="code-acp-composer"

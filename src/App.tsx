@@ -37,6 +37,10 @@ import {
   getBackendConnectionSnapshot,
   subscribeBackendConnectionStatus,
 } from '@/lib/backend-live-status'
+import {
+  agentWithCurrentLiveState,
+  subscribeAgentReadEvents,
+} from '@/lib/agent-live-state'
 import type { Agent, AgentContextWindowUsage, UsageSummary } from '@/types/agent'
 import { loadCodeWorkspaceViewState, saveCodeWorkspaceViewState } from '@/components/code/workspace-view-state'
 import {
@@ -219,35 +223,50 @@ export function App() {
   const uiPreferencesSaveTailRef = useRef<Promise<void>>(Promise.resolve())
   const usageRequestRef = useRef<AbortController | null>(null)
   const observedTerminalAttentionSeqRef = useRef(new Map<string, number>())
+  const agentsRef = useRef(ws.agents)
+
+  useLayoutEffect(() => {
+    agentsRef.current = ws.agents
+  }, [ws.agents])
 
   useEffect(() => subscribeForegroundHttpPriority(() => {
     usageRequestRef.current?.abort()
   }), [])
 
+  const observeTerminalAttention = useCallback((agent: Agent) => {
+    const observed = observedTerminalAttentionSeqRef.current
+    const attentionSeq = agent.attentionSeq ?? 0
+    const previousAttentionSeq = observed.get(agent.id)
+    observed.set(agent.id, attentionSeq)
+    // Existing unread items may have been created before this browser
+    // connected. Only warm the checkpoint for newly completed background
+    // work, where a later click can reuse a fresh checkpoint that covers
+    // the browser's published terminal cut.
+    if (
+      previousAttentionSeq === undefined
+      || attentionSeq <= previousAttentionSeq
+      || agent.unread !== true
+      || agent.runtimeBinding.kind !== 'terminal'
+    ) return
+    void prefetchTerminalSessionCheckpoint(agent.id)
+  }, [])
+
   useEffect(() => {
     const observed = observedTerminalAttentionSeqRef.current
     const currentAgentIds = new Set<string>()
-    for (const agent of ws.agents) {
-      currentAgentIds.add(agent.id)
-      const attentionSeq = agent.attentionSeq ?? 0
-      const previousAttentionSeq = observed.get(agent.id)
-      observed.set(agent.id, attentionSeq)
-      // Existing unread items may have been created before this browser
-      // connected. Only warm the checkpoint for newly completed background
-      // work, where a later click can reuse a fresh checkpoint that covers
-      // the browser's published terminal cut.
-      if (
-        previousAttentionSeq === undefined
-        || attentionSeq <= previousAttentionSeq
-        || agent.unread !== true
-        || agent.runtimeBinding.kind !== 'terminal'
-      ) continue
-      void prefetchTerminalSessionCheckpoint(agent.id)
+    for (const structuralAgent of ws.agents) {
+      currentAgentIds.add(structuralAgent.id)
+      observeTerminalAttention(agentWithCurrentLiveState(structuralAgent))
     }
     for (const agentId of observed.keys()) {
       if (!currentAgentIds.has(agentId)) observed.delete(agentId)
     }
-  }, [ws.agents])
+  }, [observeTerminalAttention, ws.agents])
+
+  useEffect(() => subscribeAgentReadEvents(read => {
+    const structuralAgent = agentsRef.current.find(agent => agent.id === read.agentId)
+    if (structuralAgent) observeTerminalAttention(agentWithCurrentLiveState(structuralAgent))
+  }), [observeTerminalAttention])
 
   useLayoutEffect(() => {
     openTerminalIdsRef.current = openTerminalIds

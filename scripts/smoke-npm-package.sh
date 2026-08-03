@@ -246,8 +246,7 @@ NODE
   CODEX_PATH="${PROJECT_ROOT}/node_modules/.bin/codex" \
     node --import tsx scripts/smoke-codex-acp-process.ts --package-root "${PACKAGE_ROOT}"
   node --import tsx scripts/smoke-claude-acp-process.ts --package-root "${PACKAGE_ROOT}"
-  node --import tsx scripts/smoke-browser-mcp-process.ts --package-root "${PACKAGE_ROOT}"
-  node --import tsx scripts/smoke-computer-mcp-process.ts --package-root "${PACKAGE_ROOT}"
+  node --import tsx scripts/smoke-capability-cli-process.ts --package-root "${PACKAGE_ROOT}"
 )
 "${PREFIX}/bin/farming" help >/dev/null
 FARMING_DISABLE_AUTH=1 FARMING_NATIVE_PTY_HOST_PERSIST=0 FARMING_SKIP_RUNTIME_PREPARE=1 \

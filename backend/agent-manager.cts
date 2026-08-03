@@ -1,6 +1,7 @@
 import { EventEmitter } from 'events';
 import type {
   AcpConfigChange,
+  AcpConfigOverridesEvent,
   AcpConfigValue,
   AcpTranscriptEntry,
   AcpBindingContract,
@@ -150,9 +151,11 @@ import {
   deriveRuntimeObservation,
   type TerminalObservationStatus,
 } from './runtime-observation.cjs';
-import { applyProviderHomeEnvironment, getProviderAdapter, isFreshAcpSessionSource, providerAcpForkMode, providerCapabilities, providerForProgram, providerSupportsRuntime } from './provider-adapters.cjs';
+import { applyProviderHomeEnvironment, getProviderAdapter, isFreshAcpSessionSource, providerCapabilities, providerConversationForkCapability, providerForProgram, providerSupportsRuntime } from './provider-adapters.cjs';
 import { deriveTerminalStatus } from './terminal-status.cjs';
 import { AcpRuntime, stopPersistedAcpProcessGroup } from './acp-runtime.cjs';
+import { AcpRuntimeHostRuntime } from './acp-runtime-host-runtime.cjs';
+import { AcpPreparedTranscriptCache } from './acp-prepared-transcript-cache.cjs';
 import { chatRuntimeForProvider, isChatMode } from './chat-runtime.cjs';
 import { acpTranscriptEntries, acpTranscriptMedia, acpToolChanges, acpToolDetail, acpToolReviewChanges } from './acp-transcript.cjs';
 import {
@@ -172,8 +175,12 @@ import type { TranscriptBuildOptions } from './codex-transcript.cjs';
 import { compareNativePtyRuntimeEpochs } from './native-pty-controller-generation.cjs';
 import { canonicalWorkspacePath } from './workspace-root-registry.cjs';
 import { configInstanceFingerprint as fingerprintConfigInstance } from './config-instance.cjs';
-import { mergeBrowserMcpServer } from '../extensions/browser/backend/agent-capability.cjs';
-import { mergeComputerMcpServer } from '../extensions/computer/backend/agent-capability.cjs';
+import { stripLegacyFarmingCapabilityMcpServers } from './provider-mcp-sanitizer.cjs';
+import {
+  createCapabilityCredential,
+  verifyCapabilityCredential,
+} from './agent-cli-capability-credentials.cjs';
+import { acpLastAssistantNotificationSummary, acpTurnHandleIsNewer, agentNotificationSummary } from './acp-turn-summary.cjs';
 import { TERMINAL_OPERATION_STATES, activeLifecycleOperation, beginLifecycleOperation, latestLifecycleOperation, lifecycleJournal, setLifecycleOperationResult, transitionLifecycleOperation } from './agent-lifecycle-journal.cjs';
 
 type UnknownRecord = Record<string, unknown>;
@@ -182,6 +189,7 @@ type AgentRecord = TypedAgentRecord;
 type AgentId = string;
 type TerminalInput = string | readonly unknown[];
 type RuntimeKind = 'terminal' | 'acp';
+type AgentCliCapability = 'browser' | 'computer';
 type ErrorRecord = Omit<ErrorLike, 'code'> & Record<string, unknown> & {
   code?: string | number;
 };
@@ -198,45 +206,6 @@ function isAcpTranscriptEntry(value: unknown): value is AcpTranscriptEntry {
   return isRecord(value);
 }
 
-function agentNotificationSummary(value: unknown, limit = 240): string {
-  const normalized = String(value || '')
-    .replace(/!\[([^\]]*)\]\([^)]+\)/g, '$1')
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-    .replace(/```[^\n]*/g, ' ')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/[*_~`]+/g, '')
-    .replace(/^\s{0,3}(?:#{1,6}|[-+>])\s+/gm, '')
-    .replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  const characters = Array.from(normalized);
-  if (characters.length <= limit) return normalized;
-  const prefix = characters.slice(0, limit).join('');
-  const sentence = prefix.match(/^(.{40,220}?[。！？.!?])(?:\s|$)/u)?.[1];
-  return sentence || `${characters.slice(0, limit - 1).join('')}…`;
-}
-
-function acpLastAssistantNotificationSummary(transcript: unknown): string {
-  if (!isRecord(transcript) || !Array.isArray(transcript.entries)) return '';
-  for (let index = transcript.entries.length - 1; index >= 0; index -= 1) {
-    const entry = transcript.entries[index];
-    if (
-      !isRecord(entry)
-      || entry.type !== 'message'
-      || entry.role !== 'assistant'
-      || entry.internal === true
-      || !Array.isArray(entry.content)
-    ) continue;
-    const text = entry.content
-      .filter(isRecord)
-      .filter(content => content.type === 'text')
-      .map(content => String(content.text || ''))
-      .join(' ');
-    const summary = agentNotificationSummary(text);
-    if (summary) return summary;
-  }
-  return '';
-}
 interface LifecycleJournalContract {
   entries: LifecycleOperation[];
 }
@@ -274,6 +243,7 @@ interface TerminalInputOptions extends UnknownRecord {
 interface ComposerMessageOptions extends UnknownRecord {
   delivery?: 'auto' | 'prompt' | 'steer';
   requestId?: string;
+  retryDefinitiveFailure?: boolean;
 }
 
 interface InterruptOptions extends UnknownRecord {
@@ -396,9 +366,45 @@ function isComposerCommandRecord(value: unknown): value is ComposerCommandRecord
     && ['intent', 'accepted', 'unknown', 'failed'].includes(value.state);
 }
 
+function normalizeAcpConfigOverrides(value: unknown): AcpConfigChange[] {
+  const overrides = new Map<string, AcpConfigChange>();
+  for (const item of Array.isArray(value) ? value.slice(0, 64) : []) {
+    if (!isRecord(item) || typeof item.configId !== 'string') continue;
+    const configId = item.configId;
+    if (!configId.trim() || configId.length > 256) continue;
+    const configValue = item.value;
+    if (
+      configValue !== null
+      && !['string', 'number', 'boolean'].includes(typeof configValue)
+      && !(Array.isArray(configValue) && configValue.every(entry => typeof entry === 'string'))
+    ) continue;
+    overrides.set(configId, {
+      configId,
+      value: Array.isArray(configValue) ? [...configValue] : configValue as AcpConfigValue,
+    });
+  }
+  return [...overrides.values()];
+}
+
+function cloneAcpConfigOverrides(value: unknown): AcpConfigChange[] {
+  return normalizeAcpConfigOverrides(value).map(change => ({
+    configId: change.configId,
+    value: Array.isArray(change.value) ? [...change.value] : change.value,
+  }));
+}
+
 interface AcpSessionOptionsRecord {
   additionalDirectories: string[];
+  configOverrides: AcpConfigChange[];
   mcpServers: UnknownRecord[];
+}
+
+interface AdaptiveTitlePersistenceEntry {
+  agent: TypedAgentRecord;
+  previousTitle: string;
+  promise: Promise<UnknownRecord>;
+  resolve: (result: UnknownRecord) => void;
+  title: string;
 }
 
 interface TerminalOutputActivity {
@@ -472,13 +478,6 @@ interface AgentManagerOptions extends UnknownRecord {
   allowUnprovenLegacyAcpRecovery?: boolean;
   archiveCodexSession?: ArchiveCodexSessionContract;
   authDisabled?: boolean;
-  browserMcpEnabled?: boolean | (() => boolean);
-  browserPermissionDecision?: (
-    agentId: string,
-    tool: string,
-    input: UnknownRecord,
-  ) => { requiresApproval?: boolean; scopeKey?: string; site?: string } | null;
-  computerMcpEnabled?: boolean | (() => boolean);
   cliBinDir?: string;
   controlUrl?: string;
   createProviderSessionIdentity?: CreateProviderSessionIdentityContract;
@@ -486,7 +485,19 @@ interface AgentManagerOptions extends UnknownRecord {
   skipExecutablePreflight?: boolean;
   stopPersistedAcpProcessGroup?: StopPersistedAcpProcessGroupContract;
   tokenFile?: string;
+  transcriptMediaPathPrefix?: (agentId: string) => string;
   unarchiveCodexSession?: UnarchiveCodexSessionContract;
+}
+
+interface BuildAgentEnvOptions {
+  issueCapabilityCredentials?: boolean;
+}
+
+interface AgentCapabilityAuthorization {
+  agentId: string;
+  capability: AgentCliCapability;
+  runtimeEpoch: string;
+  workspace: string;
 }
 
 interface AcceptedKillAgentResult {
@@ -604,6 +615,7 @@ const CREATE_ROLLBACK_FIELDS: string[] = [
   'structuredRuntimeProcess',
   'legacyAcpProcessExitAcknowledgedAt',
   'acpAdditionalDirectories',
+  'acpConfigOverrides',
   'acpMcpServers',
   'agentRuntimeMode',
   'acpState',
@@ -616,6 +628,7 @@ const CREATE_ROLLBACK_FIELDS: string[] = [
   'acpActiveElicitations',
   'acpSessionUpdatedAt',
   'acpSessionRevision',
+  'acpFinalizedTurnHandle',
   'jsonCliState',
   'jsonCliError',
   'jsonCliTranscriptUpdatedAt',
@@ -640,6 +653,7 @@ const CREATE_ROLLBACK_FIELDS: string[] = [
   'archivedAt',
   'visibleOnMainPage',
   'customTitle',
+  'adaptiveTitle',
   'title',
   'startedAt',
 ];
@@ -1340,9 +1354,6 @@ class AgentManager extends EventEmitter {
   declare controlUrl: string;
   declare tokenFile: string;
   declare authDisabled: boolean;
-  declare browserMcpEnabled: () => boolean;
-  declare browserPermissionDecision: NonNullable<AgentManagerOptions['browserPermissionDecision']>;
-  declare computerMcpEnabled: () => boolean;
   declare skipExecutablePreflight: boolean;
   declare cliBinDir: string;
   declare agentShellEnvProvider: (shell: string) => NodeJS.ProcessEnv | null;
@@ -1377,7 +1388,13 @@ class AgentManager extends EventEmitter {
   declare activeInputOperations: Set<Promise<unknown>>;
   declare verifiedStoppedAgentIds: Set<AgentId>;
   declare codexSessionMutationQueues: Map<string, CodexSessionMutationAdmission<unknown>>;
+  declare adaptiveTitlePersistenceEntries: Map<AgentId, AdaptiveTitlePersistenceEntry>;
+  declare adaptiveTitlePersistenceDrain: Promise<void> | null;
+  declare acpFinalizedTurns: Map<string, string>;
+  declare acpTurnFinalizationTails: Map<string, Promise<void>>;
   declare acpSessionOptionsByKey: Map<string, AcpSessionOptionsRecord>;
+  declare acpPreparedTranscriptCache: AcpPreparedTranscriptCache;
+  declare transcriptMediaPathPrefix: (agentId: string) => string;
   declare permissionRestartSuppressedAgentIds: Set<AgentId>;
   declare createProviderSessionIdentity: CreateProviderSessionIdentityContract;
   declare deleteProviderSessionIdentity: DeleteProviderSessionIdentityContract;
@@ -1409,15 +1426,6 @@ class AgentManager extends EventEmitter {
     this.controlUrl = options.controlUrl || '';
     this.tokenFile = options.tokenFile || '';
     this.authDisabled = options.authDisabled === true;
-    this.browserMcpEnabled = typeof options.browserMcpEnabled === 'function'
-      ? options.browserMcpEnabled
-      : () => options.browserMcpEnabled === true;
-    this.browserPermissionDecision = typeof options.browserPermissionDecision === 'function'
-      ? options.browserPermissionDecision
-      : () => null;
-    this.computerMcpEnabled = typeof options.computerMcpEnabled === 'function'
-      ? options.computerMcpEnabled
-      : () => options.computerMcpEnabled === true;
     this.skipExecutablePreflight = options.skipExecutablePreflight === true;
     this.cliBinDir = options.cliBinDir || path.join(__dirname, '..', 'bin');
     this.agentShellEnvProvider = typeof options.agentShellEnvProvider === 'function'
@@ -1456,27 +1464,40 @@ class AgentManager extends EventEmitter {
     this.activeInputOperations = new Set();
     this.verifiedStoppedAgentIds = new Set();
     this.codexSessionMutationQueues = new Map();
+    this.adaptiveTitlePersistenceEntries = new Map();
+    this.adaptiveTitlePersistenceDrain = null;
+    this.acpFinalizedTurns = new Map();
+    this.acpTurnFinalizationTails = new Map();
     // Standard ACP session inputs may contain MCP credentials. Keep the live
     // copy outside browser-facing Agent records; crash recovery persists it
     // only through the private Farming session store.
     this.acpSessionOptionsByKey = new Map();
+    this.transcriptMediaPathPrefix = typeof options.transcriptMediaPathPrefix === 'function'
+      ? options.transcriptMediaPathPrefix
+      : (agentId: string) => `/api/agents/${encodeURIComponent(agentId)}/acp-media`;
     this.permissionRestartSuppressedAgentIds = new Set();
-    this.acpRuntime = options.acpRuntime || new AcpRuntime({
-      ...(this.configManager?.farmingDir ? { configDir: this.configManager.farmingDir } : {}),
-      browserPermissionDecision: this.browserPermissionDecision,
-      ...(process.env.FARMING_E2E_FAKE_ACP_AGENT === '1'
-        ? {
-            resolveLaunch: () => ({
-              command: process.execPath,
-              args: [
-                '--import',
-                require.resolve('tsx'),
-                path.join(__dirname, 'tests', 'fixtures', 'fake-acp-agent.mts'),
-              ],
-              version: 'e2e',
-            }),
-          }
-        : {}),
+    this.acpRuntime = options.acpRuntime || (this.configManager?.farmingDir
+      ? new AcpRuntimeHostRuntime({
+          configDir: this.configManager.farmingDir,
+        })
+      : new AcpRuntime());
+    this.acpPreparedTranscriptCache = new AcpPreparedTranscriptCache({
+      prepare: identity => this.buildAcpTranscriptEnvelope(identity.agentId, {
+        maxTurns: 20,
+        mediaPathPrefix: this.transcriptMediaPathPrefix(identity.agentId),
+      }),
+      validate: identity => {
+        const agent = this.agents.get(identity.agentId);
+        const runtime = runtimeBindingOf(agent, 'acp');
+        return Boolean(
+          agent
+          && runtime
+          && String(agent.providerSessionId || '') === identity.sessionId
+          && this.acpRuntime.bindingEpoch(identity.agentId) === identity.runtimeEpoch
+          && Number(runtime.sessionRevision || 0) === identity.revision
+          && runtime.state === 'idle'
+        );
+      },
     });
     this.createProviderSessionIdentity = typeof options.createProviderSessionIdentity === 'function'
       ? options.createProviderSessionIdentity
@@ -1512,7 +1533,18 @@ class AgentManager extends EventEmitter {
         this.rememberMainPageProviderSession(agent);
         if (change.event) {
           this.emit('provider-session-updated', change.event);
-          this.emit('update');
+          const providerTitle = typeof change.event.title === 'string'
+            ? change.event.title
+            : '';
+          if (providerTitle && this.updateAgentSessionTitle(agent, providerTitle)) {
+            this.emit('agent-update', {
+              agentId: agent.id,
+              patch: { sessionTitle: agent.sessionTitle || '' },
+            });
+          }
+          if (Object.prototype.hasOwnProperty.call(change.event, 'previousSessionId')) {
+            this.emit('update');
+          }
         }
         if (change.refreshWorkspace) {
           void this.refreshAgentWorktree(agent.id, change.refreshWorkspace);
@@ -1543,11 +1575,22 @@ class AgentManager extends EventEmitter {
 
   bindAcpRuntimeEvents() {
     if (!this.acpRuntime || typeof this.acpRuntime.on !== 'function') return;
-    this.acpRuntime.on('agent-runtime', ({ agentId, state, error, sessionId, stopReason, supportsSteer, supportsFork, pendingPermission, pendingPermissions, pendingElicitation, pendingElicitations, activeElicitations, updatedAt }: AcpRuntimeEvent) => {
+    this.acpRuntime.on('agent-runtime', ({ agentId, state, error, sessionId, stopReason, supportsSteer, supportsFork, pendingPermission, pendingPermissions, pendingElicitation, pendingElicitations, activeElicitations, updatedAt, lastSettledTurnHandle, lastSettledTurnSummary }: AcpRuntimeEvent) => {
       const agent = this.agents.get(agentId);
       if (!agent) return;
       const runtime = runtimeBindingOf(agent, 'acp');
       if (!runtime) return;
+      const previousRuntime = publicRuntimeBinding(agent);
+      const previousState = runtime.state;
+      const previousError = runtime.error;
+      const sessionIdentityChanged = Boolean(
+        sessionId
+        && (
+          agent.providerSessionId !== sessionId
+          || agent.providerSessionTemporary === true
+          || !agent.providerSessionKey
+        )
+      );
       runtime.state = state || '';
       runtime.error = error || '';
       runtime.stopReason = stopReason || '';
@@ -1559,12 +1602,68 @@ class AgentManager extends EventEmitter {
       runtime.pendingElicitations = Array.isArray(pendingElicitations) ? pendingElicitations : [];
       runtime.activeElicitations = Array.isArray(activeElicitations) ? activeElicitations : [];
       runtime.sessionUpdatedAt = updatedAt || '';
-      if (sessionId) {
+      if (sessionIdentityChanged && sessionId) {
         this.providerSessionService.bindConfirmed(agentId, agent.providerSessionProvider, sessionId);
+      }
+      if (
+        sessionIdentityChanged
+        || (stopReason === 'interrupted' && previousState !== state)
+        || (state === 'error' && !sessionId && (previousState !== state || previousError !== runtime.error))
+      ) {
         this.ensurePersistentAgentSession(agent);
       }
       if (state === 'working' || state === 'waiting-for-permission' || state === 'waiting-for-input') this.lastActivity.set(agentId, Date.now());
-      this.emit('update');
+      this.refreshAcpPreparedTranscript(agentId);
+      const nextRuntime = publicRuntimeBinding(agent);
+      if (JSON.stringify(previousRuntime) !== JSON.stringify(nextRuntime)) {
+        this.emit('agent-update', {
+          agentId,
+          patch: {
+            runtimeBinding: nextRuntime,
+            runtimeObservation: deriveRuntimeObservation(agent),
+          },
+        });
+      }
+      if (sessionIdentityChanged) this.emit('update');
+      const settledTurnHandle = String(lastSettledTurnHandle || '');
+      const finalizedTurnHandle = String(
+        this.acpFinalizedTurns.get(agentId)
+        || agent.acpFinalizedTurnHandle
+        || '',
+      );
+      if (
+        settledTurnHandle
+        && acpTurnHandleIsNewer(settledTurnHandle, finalizedTurnHandle)
+      ) {
+        this.acpFinalizedTurns.set(agentId, settledTurnHandle);
+        const runtimeEpoch = this.acpRuntime.bindingEpoch(agentId);
+        const exactTurnSummary = typeof lastSettledTurnSummary === 'string'
+          ? lastSettledTurnSummary
+          : null;
+        const previous = this.acpTurnFinalizationTails.get(agentId) || Promise.resolve();
+        const finalization = previous.catch(() => {}).then(() => (
+          this.finalizeAcpTurn(
+            agentId,
+            runtimeEpoch,
+            settledTurnHandle,
+            String(stopReason || ''),
+            exactTurnSummary,
+          )
+        ));
+        this.acpTurnFinalizationTails.set(agentId, finalization);
+        void finalization.catch(finalizeError => {
+          if (this.acpFinalizedTurns.get(agentId) === settledTurnHandle) {
+            this.acpFinalizedTurns.delete(agentId);
+            const current = this.agents.get(agentId);
+            if (current?.acpFinalizedTurnHandle === settledTurnHandle) current.acpFinalizedTurnHandle = '';
+          }
+          console.warn('Failed to finalize ACP Turn:', finalizeError);
+        }).finally(() => {
+          if (this.acpTurnFinalizationTails.get(agentId) === finalization) {
+            this.acpTurnFinalizationTails.delete(agentId);
+          }
+        });
+      }
     });
     this.acpRuntime.on('session', ({ agentId, revision, title }: AcpSessionEvent) => {
       const agent = this.agents.get(agentId);
@@ -1586,8 +1685,110 @@ class AgentManager extends EventEmitter {
         revision: runtime.sessionRevision,
         updatedAt: runtime.sessionUpdatedAt,
       });
-      if (titleChanged) this.emit('update');
+      if (titleChanged) {
+        this.emit('agent-update', { agentId, patch: { sessionTitle: agent.sessionTitle || '' } });
+      }
+      this.refreshAcpPreparedTranscript(agentId);
     });
+    this.acpRuntime.on('config-overrides', ({ agentId, sessionId, configOverrides }: AcpConfigOverridesEvent) => {
+      const agent = this.agents.get(String(agentId || ''));
+      if (!agent || runtimeKind(agent) !== 'acp') return;
+      if (sessionId && String(agent.providerSessionId || '') !== String(sessionId)) return;
+      const sessionKey = String(agent.providerSessionKey || '');
+      if (!sessionKey) return;
+      let current = this.acpSessionOptionsByKey.get(sessionKey);
+      if (!current) {
+        try {
+          const requestOptions = this.acpRuntime.getSessionRequestOptions(agent.id);
+          current = {
+            additionalDirectories: [...requestOptions.additionalDirectories],
+            configOverrides: [],
+            mcpServers: JSON.parse(JSON.stringify(requestOptions.mcpServers)),
+          };
+        } catch {
+          current = { additionalDirectories: [], configOverrides: [], mcpServers: [] };
+        }
+      }
+      this.acpSessionOptionsByKey.set(sessionKey, {
+        additionalDirectories: [...current.additionalDirectories],
+        configOverrides: cloneAcpConfigOverrides(configOverrides),
+        mcpServers: JSON.parse(JSON.stringify(current.mcpServers)),
+      });
+      this.ensurePersistentAgentSession(agent);
+    });
+  }
+
+  async finalizeAcpTurn(
+    agentId: AgentId,
+    runtimeEpoch: string,
+    settledTurnHandle: string,
+    stopReason: string,
+    exactTurnSummary: string | null,
+  ) {
+    const agent = this.agents.get(agentId);
+    if (!agent || runtimeKind(agent) !== 'acp') return;
+    const runtime = runtimeBindingOf(agent, 'acp');
+    if (!runtime || this.acpRuntime.bindingEpoch(agentId) !== runtimeEpoch) return;
+    const effectiveStopReason = stopReason || runtime.stopReason || '';
+    let attentionSummary = exactTurnSummary || '';
+    if (ACP_ATTENTION_STOP_REASONS.has(effectiveStopReason) && exactTurnSummary === null) {
+      try {
+        attentionSummary = acpLastAssistantNotificationSummary(
+          await this.acpRuntime.getTranscriptSessionForRead(agentId, { maxTurns: 1 }),
+        );
+      } catch {
+        attentionSummary = '';
+      }
+    }
+    if (this.agents.get(agentId) !== agent || this.acpRuntime.bindingEpoch(agentId) !== runtimeEpoch) return;
+    const previous = {
+      acpFinalizedTurnHandle: agent.acpFinalizedTurnHandle,
+      attentionAutoReadNext: agent.attentionAutoReadNext,
+      attentionOutputEpoch: agent.attentionOutputEpoch,
+      attentionOutputSeq: agent.attentionOutputSeq,
+      attentionReason: agent.attentionReason,
+      attentionSeq: agent.attentionSeq,
+      attentionSummary: agent.attentionSummary,
+      attentionUpdatedAt: agent.attentionUpdatedAt,
+      readAttentionAt: agent.readAttentionAt,
+      readAttentionSeq: agent.readAttentionSeq,
+      runtimeStopReason: runtime.stopReason,
+      unread: agent.unread,
+    };
+    let attentionUpdate: UnknownRecord | null = null;
+    runtime.stopReason = effectiveStopReason;
+    agent.acpFinalizedTurnHandle = settledTurnHandle;
+    if (ACP_ATTENTION_STOP_REASONS.has(runtime.stopReason)) {
+      agent.attentionSummary = attentionSummary;
+      attentionUpdate = this.recordAgentAttentionEvent(agent, 'turn-complete', {
+        persist: false,
+        publish: false,
+      });
+    }
+    try {
+      this.ensurePersistentAgentSession(agent);
+    } catch (error) {
+      Object.assign(agent, {
+        acpFinalizedTurnHandle: previous.acpFinalizedTurnHandle,
+        attentionAutoReadNext: previous.attentionAutoReadNext,
+        attentionOutputEpoch: previous.attentionOutputEpoch,
+        attentionOutputSeq: previous.attentionOutputSeq,
+        attentionReason: previous.attentionReason,
+        attentionSeq: previous.attentionSeq,
+        attentionSummary: previous.attentionSummary,
+        attentionUpdatedAt: previous.attentionUpdatedAt,
+        readAttentionAt: previous.readAttentionAt,
+        readAttentionSeq: previous.readAttentionSeq,
+        unread: previous.unread,
+      });
+      runtime.stopReason = previous.runtimeStopReason;
+      throw error;
+    }
+    if (attentionUpdate) {
+      this.updateEngineProviderSessionMetadata(agent);
+      this.emitAgentReadState(agent);
+    }
+    this.providerSessionService.observe(agentId, { force: true });
   }
 
   bindEngineEvents() {
@@ -2095,6 +2296,9 @@ class AgentManager extends EventEmitter {
         customTitle: Object.prototype.hasOwnProperty.call(persisted, 'customTitle')
           ? persisted.customTitle
           : engineMetadata.customTitle,
+        adaptiveTitle: Object.prototype.hasOwnProperty.call(persisted, 'adaptiveTitle')
+          ? persisted.adaptiveTitle
+          : engineMetadata.adaptiveTitle,
         lifecycleJournal: lifecycleJournal(persisted),
         ...legacyRuntimeMetadata(persisted),
         pinned: persisted.pinned === true,
@@ -2495,6 +2699,7 @@ class AgentManager extends EventEmitter {
         projectOrder: finiteOrder(record.projectOrder),
         pinnedOrder: finiteOrder(record.pinnedOrder),
         customTitle: record.customTitle || '',
+        adaptiveTitle: record.adaptiveTitle || '',
         pinned: record.pinned === true,
         attentionSeq: finiteNonNegativeInteger(record.attentionSeq),
         readAttentionSeq: finiteNonNegativeInteger(record.readAttentionSeq),
@@ -2568,12 +2773,21 @@ class AgentManager extends EventEmitter {
 
   async recoverAcpSessions() {
     if (!this.acpRuntime || !this.configManager || typeof this.configManager.listAgentSessionRecords !== 'function') return;
+    let persistedRecords = this.configManager.listAgentSessionRecords();
+    if (!persistedRecords.some((record: PersistedAgentPrivateMetadata) => runtimeKind(record) === 'acp')) return;
+    await this.acpRuntime.initialize?.();
     await this.reconcilePersistedAcpLifecycleOperations(
-      this.configManager.listAgentSessionRecords(),
+      persistedRecords,
+      new Set([...this.acpRuntime.bindings.keys()]),
     );
+    // Reconciliation commits terminal lifecycle outcomes to the authoritative
+    // store. Never materialize Agents from the pre-reconciliation snapshot:
+    // a completed Delete would otherwise be resurrected and a failed Create
+    // could remain visible until another restart.
+    persistedRecords = this.configManager.listAgentSessionRecords();
     const mainPageOrder = new Map(this.getMainPageSessionKeys().map((key: string, index: number) => [key, index]));
     const mainPageSessionKeys = new Set(mainPageOrder.keys());
-    const records = this.configManager.listAgentSessionRecords()
+    const records = persistedRecords
       .filter((record: PersistedAgentPrivateMetadata) => (
         (
           shouldRestoreAgentFromMetadata(record, mainPageSessionKeys)
@@ -2620,11 +2834,12 @@ class AgentManager extends EventEmitter {
           runtime.state = 'error';
           runtime.error = `Agent ${blockedOperation.type} operation ${blockedOperation.id} must be resolved before restart`;
         } else {
-          replaceRuntimeBinding(
+          const runtime = replaceRuntimeBinding(
             recoveredAgent,
             'acp',
             runtimeBindingOf(recoveredAgent, 'acp'),
-          ).state = 'connecting';
+          );
+          runtime.state = 'connecting';
         }
         this.agents.set(agentId, recoveredAgent);
         void this.refreshAgentWorktree(agentId);
@@ -2632,6 +2847,7 @@ class AgentManager extends EventEmitter {
       }
     }
     this.emit('update');
+    this.acpRuntime.publishRecoveredBindings?.();
 
     for (const record of records) {
       const agentId = String(record.runtimeAgentId || '').trim();
@@ -2648,9 +2864,65 @@ class AgentManager extends EventEmitter {
       const provider = String(record.providerSessionProvider || record.provider || '').trim();
       const sessionId = String(record.providerSessionId || '').trim();
       const agent = this.agents.get(agentId);
-      if (!agent || !sessionId || !providerSupportsRuntime(provider, 'acp')) continue;
-      if (lifecycleOperationBlocksRuntimeStart(record)) continue;
+      const liveHostBinding = this.acpRuntime.hasBinding(agentId);
+      if (!agent || (!sessionId && !liveHostBinding) || !providerSupportsRuntime(provider, 'acp')) continue;
+      if (lifecycleOperationBlocksRuntimeStart(record) && !liveHostBinding) continue;
       try {
+        const recoveryEnv = this.buildAgentEnv(agentId, agent);
+        if (liveHostBinding) {
+          const snapshot = this.acpRuntime.getSession(agentId, { maxEntries: 0 });
+          const hostSessionId = String(snapshot.sessionId || '');
+          if (hostSessionId && hostSessionId !== sessionId) {
+            throw new Error('ACP runtime Host binding does not match the persisted provider Session');
+          }
+          const requestOptions = this.acpRuntime.getSessionRequestOptions(agentId);
+          this.acpSessionOptionsByKey.set(String(agent.providerSessionKey || ''), {
+            additionalDirectories: [...requestOptions.additionalDirectories],
+            configOverrides: cloneAcpConfigOverrides(requestOptions.configOverrides),
+            mcpServers: JSON.parse(JSON.stringify(requestOptions.mcpServers)),
+          });
+          this.acpRuntime.registerBindingCallbacks?.(agentId, {
+            refreshMcpServersForRuntime: mcpServers => (
+              this.projectAcpMcpServersForRuntime(mcpServers.filter(isRecord), recoveryEnv)
+            ),
+            onProcessStarted: async (processIdentity: AcpProcessIdentity) => {
+              agent.structuredRuntimeProcess = {
+                kind: 'acp-process-group',
+                ...processIdentity,
+                ...(this.configInstanceFingerprint
+                  ? { configInstanceFingerprint: this.configInstanceFingerprint }
+                  : {}),
+              };
+              this.ensurePersistentAgentSession(agent);
+            },
+            onProcessStopped: () => {
+              agent.structuredRuntimeProcess = null;
+              this.ensurePersistentAgentSession(agent);
+            },
+          });
+          const createOperation = activeLifecycleOperation(agent);
+          if (createOperation?.type === 'create') {
+            agent.status = 'running';
+            agent.engineStatus = 'running';
+            this.transitionPersistentAgentOperation(
+              agent,
+              createOperation.id,
+              'membership-pending',
+              '',
+              { visibleOnMainPage: true, archived: false },
+            );
+            this.rememberMainPageProviderSession(agent);
+            this.transitionPersistentAgentOperation(
+              agent,
+              createOperation.id,
+              'succeeded',
+              '',
+              { visibleOnMainPage: true, archived: false },
+            );
+          }
+          this.ensurePersistentAgentSession(agent);
+          continue;
+        }
         if (
           !record.structuredRuntimeProcess
           && !this.allowUnprovenLegacyAcpRecovery
@@ -2697,16 +2969,21 @@ class AgentManager extends EventEmitter {
             ? this.configManager.getCodexApprovalMode()
             : 'approve'
         );
-        const recoveryEnv = this.buildAgentEnv(agentId, agent);
-        const recoveryMcpServers = this.projectAcpMcpServers(
-          Array.isArray(record.acpMcpServers) ? record.acpMcpServers.filter(isRecord) : [],
-          recoveryEnv,
+        const launchEnv = this.buildAgentEnv(agentId, agent, { issueCapabilityCredentials: true });
+        const recoveryMcpSource = Array.isArray(record.acpMcpServers)
+          ? record.acpMcpServers.filter(isRecord)
+          : [];
+        const recoveryProjection = this.projectAcpMcpServersForRuntime(
+          recoveryMcpSource,
+          launchEnv,
         );
+        const recoveryMcpServers = recoveryProjection.mcpServers;
+        const recoveryConfigOverrides = cloneAcpConfigOverrides(record.acpConfigOverrides);
         const prepared = await this.acpRuntime.prepareAgent({
           agentId,
           provider,
           executable,
-          env: recoveryEnv,
+          env: launchEnv,
           cwd: agent.cwd,
           sessionId,
           historyMode: 'checkpoint',
@@ -2719,7 +2996,12 @@ class AgentManager extends EventEmitter {
           serviceTier: 'config',
           farmingSystemPrompt: renderFarmingAgentBootstrap(),
           additionalDirectories: Array.isArray(record.acpAdditionalDirectories) ? record.acpAdditionalDirectories : [],
+          configOverrides: recoveryConfigOverrides,
+          capabilityRuntimeEpoch: recoveryProjection.capabilityRuntimeEpoch,
           mcpServers: recoveryMcpServers,
+          refreshMcpServersForRuntime: mcpServers => (
+            this.projectAcpMcpServersForRuntime(mcpServers.filter(isRecord), launchEnv)
+          ),
           onProcessStarted: async (processIdentity: AcpProcessIdentity) => {
             agent.structuredRuntimeProcess = {
               kind: 'acp-process-group',
@@ -2737,26 +3019,37 @@ class AgentManager extends EventEmitter {
           prepared.sessionId,
           agent.providerHomeId || record.providerHomeId || 'default'
         );
+        const restoredConfigOverrides = Array.isArray(prepared.configOverrides)
+          ? cloneAcpConfigOverrides(prepared.configOverrides)
+          : recoveryConfigOverrides;
         let recoveredSessionOptions: AcpSessionOptionsRecord = {
           additionalDirectories: Array.isArray(record.acpAdditionalDirectories)
             ? record.acpAdditionalDirectories
             : [],
+          configOverrides: restoredConfigOverrides,
           mcpServers: recoveryMcpServers,
         };
         try {
-          recoveredSessionOptions = this.acpRuntime.getSessionRequestOptions(agentId);
+          const requestOptions = this.acpRuntime.getSessionRequestOptions(agentId);
+          recoveredSessionOptions = {
+            additionalDirectories: [...requestOptions.additionalDirectories],
+            configOverrides: restoredConfigOverrides,
+            mcpServers: JSON.parse(JSON.stringify(requestOptions.mcpServers)),
+          };
         } catch {
           // The live binding already validated these options. Retain the
           // projected copy for custom runtimes that do not expose it.
         }
         this.acpSessionOptionsByKey.set(String(agent.providerSessionKey || ''), {
           additionalDirectories: [...recoveredSessionOptions.additionalDirectories],
+          configOverrides: cloneAcpConfigOverrides(recoveredSessionOptions.configOverrides),
           mcpServers: JSON.parse(JSON.stringify(recoveredSessionOptions.mcpServers)),
         });
         agent.providerSessionTemporary = false;
         agent.providerSessionSource = `acp-${prepared.historyMode}`;
         const runtime = replaceRuntimeBinding(agent, 'acp', runtimeBindingOf(agent, 'acp'));
         runtime.state = 'idle';
+        runtime.stopReason = '';
         runtime.error = '';
         agent.status = 'running';
         agent.engineStatus = 'running';
@@ -2787,7 +3080,10 @@ class AgentManager extends EventEmitter {
     this.emit('update');
   }
 
-  async reconcilePersistedAcpLifecycleOperations(records: PersistedAgentPrivateMetadata[]) {
+  async reconcilePersistedAcpLifecycleOperations(
+    records: PersistedAgentPrivateMetadata[],
+    liveHostBindingIds: ReadonlySet<string> = new Set(),
+  ) {
     for (const record of Array.isArray(records) ? records : []) {
       const operation = activeLifecycleOperation(record);
       if (
@@ -2798,9 +3094,27 @@ class AgentManager extends EventEmitter {
         continue;
       }
 
+      const agentId = String(
+        operation.type === 'create'
+          ? operation.request?.agentId || record.runtimeAgentId || ''
+          : record.runtimeAgentId || '',
+      ).trim();
+      if (!agentId) continue;
+      if (liveHostBindingIds.has(agentId)) {
+        if (operation.type === 'create') {
+          if (operation.state !== 'membership-pending') continue;
+        } else {
+          try {
+            if (await this.acpRuntime.unregisterAgentAndWait(agentId) !== true) continue;
+          } catch {
+            continue;
+          }
+        }
+      }
+
       const processProofRequired = operation.request?.structuredProcessProofRequired === true
         || Boolean(record.structuredRuntimeProcess);
-      if (processProofRequired && !record.legacyAcpProcessExitAcknowledgedAt) {
+      if (!liveHostBindingIds.has(agentId) && processProofRequired && !record.legacyAcpProcessExitAcknowledgedAt) {
         if (!record.structuredRuntimeProcess) continue;
         try {
           const cleanup = await this.stopPersistedAcpProcessGroup(record.structuredRuntimeProcess);
@@ -2823,12 +3137,6 @@ class AgentManager extends EventEmitter {
         }
       }
 
-      const agentId = String(
-        operation.type === 'create'
-          ? operation.request?.agentId || record.runtimeAgentId || ''
-          : record.runtimeAgentId || '',
-      ).trim();
-      if (!agentId) continue;
       const staged = this.recoveredAgentRecord(
         agentId,
         record.engine || 'native',
@@ -3096,6 +3404,19 @@ class AgentManager extends EventEmitter {
       lifecycleJournal: lifecycleJournal(metadata),
       composerCommands: normalizedComposerCommands(metadata.composerCommands),
       customTitle: metadata.customTitle || '',
+      adaptiveTitle: metadata.adaptiveTitle || '',
+      capabilityRuntimeEpoch: typeof metadata.capabilityRuntimeEpoch === 'string'
+        ? metadata.capabilityRuntimeEpoch
+        : '',
+      capabilityWorkspace: typeof metadata.capabilityWorkspace === 'string'
+        ? canonicalWorkspacePath(metadata.capabilityWorkspace)
+        : canonicalWorkspacePath(metadata.projectWorkspace || metadata.cwd || ''),
+      browserCapabilityTokenHash: typeof metadata.browserCapabilityTokenHash === 'string'
+        ? metadata.browserCapabilityTokenHash
+        : '',
+      computerCapabilityTokenHash: typeof metadata.computerCapabilityTokenHash === 'string'
+        ? metadata.computerCapabilityTokenHash
+        : '',
       terminalBusy: typeof state.terminalBusy === 'boolean' ? state.terminalBusy : null,
       shellCwd: state.shellCwd || metadata.cwd || '',
       shellLastExitCode: typeof state.shellLastExitCode === 'number' ? state.shellLastExitCode : null,
@@ -3202,6 +3523,7 @@ class AgentManager extends EventEmitter {
     const agentRecordId = this.configManager.ensureAgentSessionRecord(agent, {
       ...(sessionOptions ? {
         acpAdditionalDirectories: [...sessionOptions.additionalDirectories],
+        acpConfigOverrides: cloneAcpConfigOverrides(sessionOptions.configOverrides),
         acpMcpServers: JSON.parse(JSON.stringify(sessionOptions.mcpServers)),
       } : {}),
       ...patch,
@@ -3224,6 +3546,7 @@ class AgentManager extends EventEmitter {
           ? record.workflowTemplate
           : (agent.workflowTemplate || '');
         agent.customTitle = typeof record.customTitle === 'string' ? record.customTitle : '';
+        agent.adaptiveTitle = typeof record.adaptiveTitle === 'string' ? record.adaptiveTitle : '';
         agent.pinned = record.pinned === true;
         agent.projectOrder = finiteOrder(record.projectOrder);
         agent.pinnedOrder = finiteOrder(record.pinnedOrder);
@@ -3553,6 +3876,7 @@ class AgentManager extends EventEmitter {
       projectOrder: finiteOrder(agent.projectOrder),
       pinnedOrder: finiteOrder(agent.pinnedOrder),
       customTitle: agent.customTitle || '',
+      adaptiveTitle: agent.adaptiveTitle || '',
     })).catch((caught: unknown) => {
       const error = caught as ErrorRecord;
       console.warn('Failed to update provider session metadata:', error && (error.message || error));
@@ -3618,7 +3942,11 @@ class AgentManager extends EventEmitter {
     return false;
   }
 
-  recordAgentAttentionEvent(agent: TypedAgentRecord, reason: string = 'turn-complete') {
+  recordAgentAttentionEvent(
+    agent: TypedAgentRecord,
+    reason: string = 'turn-complete',
+    options: { persist?: boolean; publish?: boolean } = {},
+  ) {
     if (!agent || this.isMainAgentRecord(agent.id, agent)) return null;
     const now = Date.now();
     const nextSeq = finiteNonNegativeInteger(agent.attentionSeq) + 1;
@@ -3643,9 +3971,11 @@ class AgentManager extends EventEmitter {
       agent.readAttentionAt = now;
     }
     agent.unread = agentAttentionUnread(agent);
-    this.ensurePersistentAgentSession(agent);
-    this.updateEngineProviderSessionMetadata(agent);
-    this.emit('update');
+    if (options.persist !== false) this.ensurePersistentAgentSession(agent);
+    if (options.publish !== false) {
+      this.updateEngineProviderSessionMetadata(agent);
+      this.emitAgentReadState(agent);
+    }
     return {
       agentId: agent.id,
       attentionSeq: agent.attentionSeq,
@@ -3673,7 +4003,7 @@ class AgentManager extends EventEmitter {
     if (changed) {
       this.ensurePersistentAgentSession(agent);
       this.updateEngineProviderSessionMetadata(agent);
-      if (options.emitUpdate !== false) this.emit('update');
+      if (options.emitUpdate !== false) this.emitAgentReadState(agent);
     }
     return {
       agentId,
@@ -3748,7 +4078,7 @@ class AgentManager extends EventEmitter {
       agent.unread = agentAttentionUnread(agent);
       this.ensurePersistentAgentSession(agent);
       this.updateEngineProviderSessionMetadata(agent);
-      this.emit('update');
+      this.emitAgentReadState(agent);
     }
     return {
       agentId,
@@ -3757,6 +4087,23 @@ class AgentManager extends EventEmitter {
       unread: agent.unread,
       changed,
     };
+  }
+
+  emitAgentReadState(agent: TypedAgentRecord) {
+    this.emit('agent-read', {
+      agentId: agent.id,
+      unread: agent.unread === true,
+      attentionSeq: finiteNonNegativeInteger(agent.attentionSeq),
+      readAttentionSeq: finiteNonNegativeInteger(agent.readAttentionSeq),
+      attentionUpdatedAt: finiteNumberOrNull(agent.attentionUpdatedAt),
+      readAttentionAt: finiteNumberOrNull(agent.readAttentionAt),
+      attentionReason: typeof agent.attentionReason === 'string' ? agent.attentionReason : '',
+      attentionSummary: typeof agent.attentionSummary === 'string' ? agent.attentionSummary : '',
+      attentionOutputEpoch: typeof agent.attentionOutputEpoch === 'string' ? agent.attentionOutputEpoch : '',
+      attentionOutputSeq: finiteNumberOrNull(agent.attentionOutputSeq),
+      readOutputEpoch: typeof agent.readOutputEpoch === 'string' ? agent.readOutputEpoch : '',
+      readOutputSeq: finiteNumberOrNull(agent.readOutputSeq),
+    });
   }
 
   async refreshAgentWorktree(agentId: AgentId, workspaceCandidate: unknown = ''): Promise<boolean> {
@@ -3885,7 +4232,64 @@ class AgentManager extends EventEmitter {
     });
   }
 
-  buildAgentEnv(agentId: AgentId, agent: TypedAgentRecord) {
+  issueAgentCapabilityCredentials(
+    agentId: AgentId,
+    agent: TypedAgentRecord,
+    env: NodeJS.ProcessEnv,
+  ): void {
+    const workspace = canonicalWorkspacePath(effectiveAgentWorkspaceRoot(agent));
+    if (!workspace) throw new Error('Agent capability CLI requires an exact Project workspace');
+    const browser = createCapabilityCredential();
+    const computer = createCapabilityCredential();
+    agent.capabilityRuntimeEpoch = crypto.randomUUID();
+    agent.capabilityWorkspace = workspace;
+    agent.browserCapabilityTokenHash = browser.digest;
+    agent.computerCapabilityTokenHash = computer.digest;
+    env.FARMING_AGENT_ID = agentId;
+    env.FARMING_PROJECT_WORKSPACE = workspace;
+    env.FARMING_CAPABILITY_RUNTIME_EPOCH = agent.capabilityRuntimeEpoch;
+    env.FARMING_BROWSER_TOKEN = browser.token;
+    env.FARMING_COMPUTER_TOKEN = computer.token;
+  }
+
+  authorizeAgentCapability(
+    agentId: AgentId,
+    capability: AgentCliCapability,
+    token: unknown,
+    runtimeEpoch: unknown,
+  ): AgentCapabilityAuthorization | null {
+    const agent = this.agents.get(String(agentId || '').trim());
+    if (!agent || agent.archived === true || agent.status !== 'running') return null;
+    if (runtimeKind(agent) === 'acp') {
+      const state = String(runtimeBindingOf(agent, 'acp')?.state || '');
+      if (
+        !this.acpRuntime.hasBinding(agent.id)
+        || ['closed', 'error', 'stopped'].includes(state)
+      ) return null;
+    }
+    const expectedRuntimeEpoch = String(agent.capabilityRuntimeEpoch || '').trim();
+    if (!expectedRuntimeEpoch || String(runtimeEpoch || '').trim() !== expectedRuntimeEpoch) return null;
+    const workspace = canonicalWorkspacePath(agent.capabilityWorkspace || '');
+    if (!workspace) return null;
+    const currentWorkspace = canonicalWorkspacePath(effectiveAgentWorkspaceRoot(agent));
+    if (!currentWorkspace || currentWorkspace !== workspace) return null;
+    const expectedDigest = capability === 'browser'
+      ? agent.browserCapabilityTokenHash
+      : agent.computerCapabilityTokenHash;
+    if (!verifyCapabilityCredential(token, expectedDigest)) return null;
+    return {
+      agentId: agent.id,
+      capability,
+      runtimeEpoch: expectedRuntimeEpoch,
+      workspace,
+    };
+  }
+
+  buildAgentEnv(
+    agentId: AgentId,
+    agent: TypedAgentRecord,
+    options: BuildAgentEnvOptions = {},
+  ) {
     const env = this.buildAgentBaseEnv(agent);
     delete env.FARMING_RUN_SERVER;
     delete env.FARMING_RUN_NATIVE_PTY_HOST;
@@ -3908,12 +4312,20 @@ class AgentManager extends EventEmitter {
       stripRuntimeShims: process.env.FARMING_STRIP_AGENT_LD_LIBRARY_PATH !== '0',
       stripNodeOptions: process.env.FARMING_STRIP_AGENT_NODE_OPTIONS !== '0',
     });
+    env.FARMING_CLI_BIN_DIR = this.cliBinDir;
     env.FARMING_AGENT_ID = agentId;
+    agent.titleUpdateToken = crypto.randomBytes(24).toString('base64url');
+    env.FARMING_AGENT_TITLE_TOKEN = agent.titleUpdateToken;
     env.FARMING_IS_MAIN_AGENT = agent.wantsMain ? '1' : '0';
     env.FARMING_SKILLS_COMMAND = 'farming skills';
     env.FARMING_CAPABILITIES_COMMAND = 'farming capabilities';
     env.FARMING_MAIN_WORKSPACE = agent.mainWorkspace || '';
-    env.FARMING_PROJECT_WORKSPACE = effectiveAgentWorkspaceRoot(agent);
+    const capabilityWorkspace = canonicalWorkspacePath(effectiveAgentWorkspaceRoot(agent));
+    agent.capabilityWorkspace = capabilityWorkspace;
+    env.FARMING_PROJECT_WORKSPACE = capabilityWorkspace;
+    if (options.issueCapabilityCredentials === true) {
+      this.issueAgentCapabilityCredentials(agentId, agent, env);
+    }
 
     if (agent.parentAgentId) {
       env.FARMING_PARENT_AGENT_ID = agent.parentAgentId;
@@ -3959,22 +4371,24 @@ class AgentManager extends EventEmitter {
 
   projectAcpMcpServers(
     mcpServers: Record<string, unknown>[],
-    agentEnv: NodeJS.ProcessEnv,
+    _agentEnv: NodeJS.ProcessEnv,
+    _runtimeEpoch = '',
   ): Record<string, unknown>[] {
-    let projected = Array.isArray(mcpServers) ? mcpServers : [];
-    if (this.browserMcpEnabled()) {
-      projected = mergeBrowserMcpServer(projected, {
-        cliBinDir: this.cliBinDir,
-        agentEnv,
-      }).filter(isRecord);
-    }
-    if (this.computerMcpEnabled()) {
-      projected = mergeComputerMcpServer(projected, {
-        cliBinDir: this.cliBinDir,
-        agentEnv,
-      }).filter(isRecord);
-    }
-    return projected;
+    // Browser and Computer are exposed only through the instance-exact Farming
+    // CLI. Preserve provider/user MCP configuration, while removing Farming
+    // capability entries persisted by older releases.
+    return stripLegacyFarmingCapabilityMcpServers(mcpServers);
+  }
+
+  projectAcpMcpServersForRuntime(
+    mcpServers: Record<string, unknown>[],
+    agentEnv: NodeJS.ProcessEnv,
+  ): { capabilityRuntimeEpoch: string; mcpServers: Record<string, unknown>[] } {
+    const capabilityRuntimeEpoch = crypto.randomUUID();
+    return {
+      capabilityRuntimeEpoch,
+      mcpServers: this.projectAcpMcpServers(mcpServers, agentEnv, capabilityRuntimeEpoch),
+    };
   }
 
   expandWorkspacePath(workspace: string) {
@@ -4167,6 +4581,7 @@ class AgentManager extends EventEmitter {
       this.heartbeatInterval = null;
     }
     this.providerSessionService.dispose();
+    this.acpPreparedTranscriptCache.dispose();
     this.agentWorktreeResolveGeneration.clear();
     this.agentLifecycleOperations.clear();
     this.agentStartAdmissions.clear();
@@ -4181,6 +4596,7 @@ class AgentManager extends EventEmitter {
     this.codexTerminalIdentityPromises.clear();
     this.codexTerminalStartQueues.clear();
     this.codexTerminalStartOutput.clear();
+    this.adaptiveTitlePersistenceEntries.clear();
     this.acpSessionOptionsByKey.clear();
     this.disposed = true;
   }
@@ -4198,6 +4614,7 @@ class AgentManager extends EventEmitter {
       }
       for (const operation of this.activeInputOperations) pending.add(operation);
       for (const operation of this.resizeDrains.values()) pending.add(operation);
+      if (this.adaptiveTitlePersistenceDrain) pending.add(this.adaptiveTitlePersistenceDrain);
       if (pending.size === 0) return;
       await Promise.allSettled([...pending]);
     }
@@ -4250,6 +4667,11 @@ class AgentManager extends EventEmitter {
       restartedFromAgentIds: agent.restartedFromAgentIds,
       persistentSessionId: agent.persistentSessionId,
       customTitle: agent.customTitle,
+      adaptiveTitle: agent.adaptiveTitle,
+      capabilityRuntimeEpoch: agent.capabilityRuntimeEpoch || '',
+      capabilityWorkspace: agent.capabilityWorkspace || '',
+      browserCapabilityTokenHash: agent.browserCapabilityTokenHash || '',
+      computerCapabilityTokenHash: agent.computerCapabilityTokenHash || '',
       pinned: agent.pinned,
       projectOrder: finiteOrder(agent.projectOrder),
       pinnedOrder: finiteOrder(agent.pinnedOrder),
@@ -4276,7 +4698,7 @@ class AgentManager extends EventEmitter {
       command: launch.command,
       args: launch.args,
       cwd: launch.cwd,
-      env: this.buildAgentEnv(agent.id, agent),
+      env: this.buildAgentEnv(agent.id, agent, { issueCapabilityCredentials: true }),
       category: launch.category,
       metadata: this.engineSessionMetadata(agent),
       reviveState: launch.reviveState || null,
@@ -4953,6 +5375,12 @@ class AgentManager extends EventEmitter {
         : (typeof options.persistentSessionId === 'string' ? options.persistentSessionId : ''),
       composerCommands: normalizedComposerCommands(options.composerCommands),
       customTitle: typeof options.customTitle === 'string' ? options.customTitle.trim().slice(0, 80) : '',
+      adaptiveTitle: typeof options.adaptiveTitle === 'string' ? options.adaptiveTitle.trim().slice(0, 80) : '',
+      titleUpdateToken: '',
+      capabilityRuntimeEpoch: '',
+      capabilityWorkspace: '',
+      browserCapabilityTokenHash: '',
+      computerCapabilityTokenHash: '',
       terminalBusy: null,
       shellCwd: '',
       shellLastExitCode: null,
@@ -5071,6 +5499,7 @@ class AgentManager extends EventEmitter {
       ) {
         this.acpSessionOptionsByKey.set(sessionKey, {
           additionalDirectories: [...previousState.acpAdditionalDirectories],
+          configOverrides: cloneAcpConfigOverrides(previousState.acpConfigOverrides),
           mcpServers: JSON.parse(JSON.stringify(previousState.acpMcpServers)),
         });
       } else {
@@ -5171,6 +5600,7 @@ class AgentManager extends EventEmitter {
           additionalDirectories: Array.isArray(normalizedSessionOptions.additionalDirectories)
             ? [...normalizedSessionOptions.additionalDirectories]
             : [],
+          configOverrides: [],
           mcpServers: Array.isArray(normalizedSessionOptions.mcpServers)
             ? JSON.parse(JSON.stringify(normalizedSessionOptions.mcpServers))
             : [],
@@ -5284,19 +5714,42 @@ class AgentManager extends EventEmitter {
               agentRecord.providerHomeId || 'default'
             )
           : '';
+        const persistedSessionOptions: AcpSessionOptionsRecord = (
+          sessionOptionsKey
+          && previousPersistentRecord?.providerSessionKey === sessionOptionsKey
+        ) ? {
+            additionalDirectories: Array.isArray(previousPersistentRecord.acpAdditionalDirectories)
+              ? [...previousPersistentRecord.acpAdditionalDirectories]
+              : [],
+            configOverrides: cloneAcpConfigOverrides(previousPersistentRecord.acpConfigOverrides),
+            mcpServers: Array.isArray(previousPersistentRecord.acpMcpServers)
+              ? JSON.parse(JSON.stringify(previousPersistentRecord.acpMcpServers))
+              : [],
+          }
+          : { additionalDirectories: [], configOverrides: [], mcpServers: [] };
         const rememberedSessionOptions: AcpSessionOptionsRecord = sessionOptionsKey
-          ? this.acpSessionOptionsByKey.get(sessionOptionsKey) || { additionalDirectories: [], mcpServers: [] }
-          : { additionalDirectories: [], mcpServers: [] };
+          ? this.acpSessionOptionsByKey.get(sessionOptionsKey) || persistedSessionOptions
+          : persistedSessionOptions;
         const additionalDirectories = Array.isArray(options.additionalDirectories)
           ? options.additionalDirectories
           : rememberedSessionOptions.additionalDirectories || [];
+        const configOverrides = Array.isArray(options.acpConfigOverrides)
+          ? cloneAcpConfigOverrides(options.acpConfigOverrides)
+          : cloneAcpConfigOverrides(rememberedSessionOptions.configOverrides);
         const requestedMcpServers = Array.isArray(options.mcpServers)
           ? options.mcpServers
           : rememberedSessionOptions.mcpServers || [];
-        const acpEnv = this.buildAgentEnv(agentId, agentRecord);
-        const mcpServers = this.projectAcpMcpServers(requestedMcpServers, acpEnv);
+        const acpEnv = this.buildAgentEnv(agentId, agentRecord, {
+          issueCapabilityCredentials: true,
+        });
+        const capabilityProjection = this.projectAcpMcpServersForRuntime(
+          requestedMcpServers.filter(isRecord),
+          acpEnv,
+        );
+        const mcpServers = capabilityProjection.mcpServers;
         const prepared = await this.acpRuntime.prepareAgent({
           agentId,
+          capabilityRuntimeEpoch: capabilityProjection.capabilityRuntimeEpoch,
           provider: structuredRuntimeProvider,
           executable: spawnProgram,
           env: acpEnv,
@@ -5318,7 +5771,11 @@ class AgentManager extends EventEmitter {
           serviceTier: codexServiceTier,
           farmingSystemPrompt: renderFarmingAgentBootstrap(),
           additionalDirectories,
+          configOverrides,
           mcpServers,
+          refreshMcpServersForRuntime: currentMcpServers => (
+            this.projectAcpMcpServersForRuntime(currentMcpServers.filter(isRecord), acpEnv)
+          ),
           forkSourceSessionId: options.acpForkSourceSessionId || '',
           forkSourceCheckpoint: options.acpForkSourceCheckpoint || null,
           onForkSessionCreated: async (sessionId: string) => {
@@ -5335,15 +5792,25 @@ class AgentManager extends EventEmitter {
             agentRecord.providerSessionTemporary = false;
             agentRecord.providerSessionSource = 'acp-fork';
             agentRecord.providerSessionResolvedAt = Date.now();
-            let normalizedSessionOptions: AcpSessionOptionsRecord = { additionalDirectories, mcpServers };
+            let normalizedSessionOptions: AcpSessionOptionsRecord = {
+              additionalDirectories,
+              configOverrides: [],
+              mcpServers,
+            };
             try {
-              normalizedSessionOptions = this.acpRuntime.getSessionRequestOptions(agentId);
+              const requestOptions = this.acpRuntime.getSessionRequestOptions(agentId);
+              normalizedSessionOptions = {
+                additionalDirectories: [...requestOptions.additionalDirectories],
+                configOverrides: [],
+                mcpServers: JSON.parse(JSON.stringify(requestOptions.mcpServers)),
+              };
             } catch {
               // The live binding already validated the scope. Retain the caller
               // copy only for custom runtimes that do not expose it.
             }
             this.acpSessionOptionsByKey.set(String(agentRecord.providerSessionKey || ''), {
               additionalDirectories: [...normalizedSessionOptions.additionalDirectories],
+              configOverrides: [],
               mcpServers: JSON.parse(JSON.stringify(normalizedSessionOptions.mcpServers)),
             });
             if (typeof options.onAcpForkSessionCreated === 'function') {
@@ -5375,15 +5842,28 @@ class AgentManager extends EventEmitter {
         agentRecord.providerSessionTemporary = false;
         agentRecord.providerSessionSource = `acp-${prepared.historyMode}`;
         agentRecord.providerSessionResolvedAt = Date.now();
-        let normalizedSessionOptions: AcpSessionOptionsRecord = { additionalDirectories, mcpServers };
+        const restoredConfigOverrides = Array.isArray(prepared.configOverrides)
+          ? cloneAcpConfigOverrides(prepared.configOverrides)
+          : configOverrides;
+        let normalizedSessionOptions: AcpSessionOptionsRecord = {
+          additionalDirectories,
+          configOverrides: restoredConfigOverrides,
+          mcpServers,
+        };
         try {
-          normalizedSessionOptions = this.acpRuntime.getSessionRequestOptions(agentId);
+          const requestOptions = this.acpRuntime.getSessionRequestOptions(agentId);
+          normalizedSessionOptions = {
+            additionalDirectories: [...requestOptions.additionalDirectories],
+            configOverrides: restoredConfigOverrides,
+            mcpServers: JSON.parse(JSON.stringify(requestOptions.mcpServers)),
+          };
         } catch {
           // prepareAgent already validated the request; retain the caller copy
           // only for custom runtimes that do not expose the normalized scope.
         }
         this.acpSessionOptionsByKey.set(String(agentRecord.providerSessionKey || ''), {
           additionalDirectories: [...normalizedSessionOptions.additionalDirectories],
+          configOverrides: cloneAcpConfigOverrides(normalizedSessionOptions.configOverrides),
           mcpServers: JSON.parse(JSON.stringify(normalizedSessionOptions.mcpServers)),
         });
         acpRuntime.state = 'idle';
@@ -5562,6 +6042,8 @@ class AgentManager extends EventEmitter {
         return null;
       }
       this.agents.delete(agentId);
+      this.acpFinalizedTurns.delete(agentId);
+      this.acpTurnFinalizationTails.delete(agentId);
       this.lastActivity.delete(agentId);
       this.lastActivityUpdate.delete(agentId);
       this.outputEvents.delete(agentId);
@@ -5788,12 +6270,16 @@ class AgentManager extends EventEmitter {
       ? (delivery === 'steer'
         ? this.sendComposerMessageNow(agentId, prompt, {
             delivery,
+            requestId,
+            retryDefinitiveFailure: existing?.state === 'failed',
             onSubmitted: () => onSubmitted({ kind: 'acp' }),
           })
         : this.enqueueInputOperationUntilReleased(
           agentId,
           (releaseInput: () => void) => this.sendComposerMessageNow(agentId, prompt, {
             delivery,
+            requestId,
+            retryDefinitiveFailure: existing?.state === 'failed',
             onSubmitted: () => {
               try {
                 onSubmitted({ kind: 'acp' });
@@ -5817,9 +6303,7 @@ class AgentManager extends EventEmitter {
     }).catch((caughtError: unknown) => {
       if (submitted) return;
       const error = caughtError as ErrorRecord;
-      const uncertain = persistentTerminalDelivery
-        && isRecord(error)
-        && error.uncertain === true;
+      const uncertain = isRecord(error) && error.uncertain === true;
       const failed: ComposerCommandRecord = {
         ...intent,
         state: uncertain ? 'unknown' : 'failed',
@@ -6158,6 +6642,8 @@ class AgentManager extends EventEmitter {
       this.requireLiveAcpAgent(agentId);
       const result = await this.acpRuntime.submitMessage(agentId, prompt, {
         delivery: options.delivery,
+        clientPromptId: options.requestId,
+        retryDefinitiveFailure: options.retryDefinitiveFailure,
         onSubmitted: options.onSubmitted
           ? () => options.onSubmitted?.({ kind: 'acp' })
           : options.releaseInput,
@@ -6168,12 +6654,14 @@ class AgentManager extends EventEmitter {
         runtime.state = 'idle';
         runtime.stopReason = result.stopReason || '';
         if (
+          this.acpRuntime.turnCompletionEvents !== true
+          &&
           this.agents.get(agentId) === agent
           && ACP_ATTENTION_STOP_REASONS.has(runtime.stopReason)
         ) {
           try {
             agent.attentionSummary = acpLastAssistantNotificationSummary(
-              this.acpRuntime.getTranscriptSession(agentId, { maxTurns: 1 }),
+              await this.acpRuntime.getTranscriptSessionForRead(agentId, { maxTurns: 1 }),
             );
           } catch {
             agent.attentionSummary = '';
@@ -6182,7 +6670,7 @@ class AgentManager extends EventEmitter {
         }
       }
       this.ensurePersistentAgentSession(agent);
-      if (result.steered !== true) {
+      if (result.steered !== true && this.acpRuntime.turnCompletionEvents !== true) {
         this.providerSessionService.observe(agentId, { force: true });
       }
       return { kind: 'acp', ...result };
@@ -6211,9 +6699,22 @@ class AgentManager extends EventEmitter {
     return this.acpRuntime.getSession(agentId, options);
   }
 
+  async getAcpSessionForRead(agentId: AgentId, options: Partial<AcpSessionRequestOptions> = {}) {
+    this.requireLiveAcpAgent(agentId);
+    return this.acpRuntime.getSessionForRead(agentId, options);
+  }
+
   async reconnectAcpAgent(agentId: AgentId) {
     this.assertAgentOperationAdmission();
     const agent = this.requireLiveAcpAgent(agentId);
+    await this.acpRuntime.initialize?.();
+    if (!this.acpRuntime.hasBinding(agentId)) {
+      await this.recoverAcpSessions();
+      this.requireLiveAcpAgent(agentId);
+      if (!this.acpRuntime.hasBinding(agentId)) {
+        throw new Error('ACP runtime Host binding could not be recovered');
+      }
+    }
     const result = await this.acpRuntime.reconnectAgent(agentId, {
       onProcessStopped: () => {
         if (this.agents.get(agentId) !== agent) return;
@@ -6225,9 +6726,47 @@ class AgentManager extends EventEmitter {
     return result;
   }
 
-  getAcpTranscript(agentId: AgentId, options: Partial<AcpSessionRequestOptions> = {}) {
+  async getAcpTranscript(agentId: AgentId, options: Partial<AcpSessionRequestOptions> = {}) {
+    const response = await this.resolveAcpTranscriptResponse(agentId, options);
+    if (response.payload) return response.payload;
+    return JSON.parse(String(response.serialized || '{}'));
+  }
+
+  async getAcpTranscriptSerialized(agentId: AgentId, options: Partial<AcpSessionRequestOptions> = {}) {
+    const response = await this.resolveAcpTranscriptResponse(agentId, options);
+    return response.serialized || JSON.stringify(response.payload);
+  }
+
+  async resolveAcpTranscriptResponse(agentId: AgentId, options: Partial<AcpSessionRequestOptions> = {}) {
     this.requireLiveAcpAgent(agentId);
-    const transcript = this.acpRuntime.getTranscriptSession(agentId, options);
+    const agent = this.agents.get(agentId);
+    const runtime = runtimeBindingOf(agent, 'acp');
+    const identity = {
+      agentId,
+      sessionId: String(agent?.providerSessionId || ''),
+      runtimeEpoch: this.acpRuntime.bindingEpoch(agentId),
+      revision: Number(runtime?.sessionRevision || 0),
+      projectionRevision: this.acpRuntime.transcriptProjectionRevision(agentId),
+    };
+    const preparedProfile = !Number.isFinite(Number(options.sinceRevision))
+      && Number(options.maxTurns) === 20
+      && options.mediaPathPrefix === this.transcriptMediaPathPrefix(agentId);
+    if (preparedProfile && identity.sessionId) {
+      this.observeAcpPreparedTranscript(agentId, 100);
+      const serialized = this.acpPreparedTranscriptCache.getSerialized(identity);
+      if (serialized) return { serialized };
+    }
+    const payload = await this.buildAcpTranscriptEnvelope(agentId, options);
+    if (preparedProfile && identity.sessionId) {
+      const serialized = this.acpPreparedTranscriptCache.publishOnDemand(identity, payload);
+      if (serialized) return { payload, serialized };
+    }
+    return { payload };
+  }
+
+  async buildAcpTranscript(agentId: AgentId, options: Partial<AcpSessionRequestOptions> = {}) {
+    this.requireLiveAcpAgent(agentId);
+    const transcript = await this.acpRuntime.getTranscriptSessionForRead(agentId, options);
     const entries = Array.isArray(transcript.entries)
       ? transcript.entries.filter(isAcpTranscriptEntry)
       : [];
@@ -6241,22 +6780,73 @@ class AgentManager extends EventEmitter {
     };
   }
 
-  getAcpTranscriptMedia(agentId: AgentId, entryId: string, mediaId: string) {
+  async buildAcpTranscriptEnvelope(agentId: AgentId, options: Partial<AcpSessionRequestOptions> = {}) {
+    const transcript = await this.buildAcpTranscript(agentId, options);
+    const requestedRevision = Number(options.sinceRevision);
+    const replace = transcript.delta !== true;
+    return {
+      version: 1,
+      agentId,
+      sessionId: String(transcript.sessionId || ''),
+      runtimeEpoch: this.acpRuntime.bindingEpoch(agentId),
+      fromRevision: !replace && Number.isFinite(requestedRevision)
+        ? Math.max(0, Math.floor(requestedRevision))
+        : null,
+      toRevision: Number(transcript.revision || 0),
+      replace,
+      settled: this.acpRuntime.transcriptSettled(agentId),
+      hasMoreBefore: transcript.hasMoreBefore === true,
+      transcript,
+    };
+  }
+
+  observeAcpPreparedTranscript(agentId: AgentId, priority = 0) {
+    const agent = this.agents.get(agentId);
+    const runtime = runtimeBindingOf(agent, 'acp');
+    const sessionId = String(agent?.providerSessionId || '');
+    if (!agent || !runtime || !sessionId) return;
+    this.acpPreparedTranscriptCache.observe({
+      agentId,
+      sessionId,
+      runtimeEpoch: this.acpRuntime.bindingEpoch(agentId),
+      revision: Number(runtime.sessionRevision || 0),
+      projectionRevision: this.acpRuntime.transcriptProjectionRevision(agentId),
+      eligible: runtime.state === 'idle',
+      priority,
+    });
+  }
+
+  refreshAcpPreparedTranscript(agentId: AgentId) {
+    if (!this.acpPreparedTranscriptCache.hasAgent(agentId)) return;
+    this.observeAcpPreparedTranscript(agentId);
+  }
+
+  prioritizeAcpPreparedTranscript(agentId: AgentId) {
+    this.observeAcpPreparedTranscript(agentId, 100);
+  }
+
+  prepareAcpTranscript(agentId: AgentId) {
     this.requireLiveAcpAgent(agentId);
-    const entry = this.acpRuntime.getTranscriptEntry(agentId, entryId);
+    this.observeAcpPreparedTranscript(agentId, 100);
+    return { accepted: true };
+  }
+
+  async getAcpTranscriptMedia(agentId: AgentId, entryId: string, mediaId: string) {
+    this.requireLiveAcpAgent(agentId);
+    const entry = await this.acpRuntime.getTranscriptEntryForRead(agentId, entryId);
     if (!entry) throw new Error('ACP transcript entry not found');
     const media = acpTranscriptMedia(entry, mediaId);
     if (!media) throw new Error('ACP transcript media not found');
     return media;
   }
 
-  getAcpToolDetail(agentId: AgentId, toolCallId: string) {
+  async getAcpToolDetail(agentId: AgentId, toolCallId: string) {
     this.requireLiveAcpAgent(agentId);
-    const entry = this.acpRuntime.getToolEntry(agentId, toolCallId);
+    const entry = await this.acpRuntime.getToolEntryForRead(agentId, toolCallId);
     if (!entry) throw new Error('ACP tool call not found');
     const subagentSessionId = String(entry?._meta?.subagent_session_info?.session_id || '');
     const subagentSession = subagentSessionId
-      ? this.acpRuntime.getSubagentTranscriptSession(agentId, subagentSessionId, { maxTurns: 12 })
+      ? await this.acpRuntime.getSubagentTranscriptSessionForRead(agentId, subagentSessionId, { maxTurns: 12 })
       : null;
     return {
       toolCallId: String(toolCallId || ''),
@@ -6278,10 +6868,10 @@ class AgentManager extends EventEmitter {
     return this.acpRuntime.killTerminal(agentId, terminalId);
   }
 
-  inputAcpTerminal(agentId: AgentId, terminalId: string, input: string) {
+  inputAcpTerminal(agentId: AgentId, terminalId: string, input: string, operationId?: string) {
     this.assertAgentOperationAdmission();
     this.getAcpSession(agentId);
-    return this.acpRuntime.inputTerminal(agentId, terminalId, input);
+    return this.acpRuntime.inputTerminal(agentId, terminalId, input, operationId);
   }
 
   resizeAcpTerminal(agentId: AgentId, terminalId: string, cols: number, rows: number) {
@@ -6296,29 +6886,34 @@ class AgentManager extends EventEmitter {
     return this.acpRuntime.cancelSubagent(agentId, sessionId);
   }
 
-  decideAcpPatch(agentId: AgentId, toolCallId: string, requestedPath: string, decision: 'keep' | 'revert') {
+  async decideAcpPatch(agentId: AgentId, toolCallId: string, requestedPath: string, decision: 'keep' | 'revert') {
     this.assertAgentOperationAdmission();
     this.getAcpSession(agentId);
+    await this.reconnectAcpAgent(agentId);
     return this.acpRuntime.decidePatch(agentId, toolCallId, requestedPath, decision);
   }
 
-  getAcpReviewChanges(agentId: AgentId, toolCallIds: readonly string[]) {
+  async getAcpReviewChanges(agentId: AgentId, toolCallIds: readonly string[]) {
     this.requireLiveAcpAgent(agentId);
     if (!Array.isArray(toolCallIds) || toolCallIds.length === 0 || toolCallIds.length > 256) {
       throw new Error('ACP review tool calls are invalid');
     }
-    return toolCallIds.flatMap((toolCallId: string) => {
+    const changes = [];
+    for (const toolCallId of toolCallIds) {
       if (typeof toolCallId !== 'string' || !toolCallId.trim()) {
         throw new Error('ACP review tool calls are invalid');
       }
-      const entry = this.acpRuntime.getToolEntry(agentId, toolCallId.trim());
+      const entry = await this.acpRuntime.getToolEntryForRead(agentId, toolCallId.trim());
       if (!entry) throw new Error('ACP tool call not found');
-      return acpToolReviewChanges(entry);
-    });
+      const entryChanges = acpToolReviewChanges(entry);
+      if (Array.isArray(entryChanges)) changes.push(...entryChanges);
+    }
+    return changes;
   }
 
-  listAcpSessions(agentId: AgentId, options: AcpSessionListOptions = {}) {
+  async listAcpSessions(agentId: AgentId, options: AcpSessionListOptions = {}) {
     this.requireLiveAcpAgent(agentId);
+    await this.reconnectAcpAgent(agentId);
     return this.acpRuntime.listSessions(agentId, options);
   }
 
@@ -6352,51 +6947,59 @@ class AgentManager extends EventEmitter {
     return agent;
   }
 
-  authenticateAcpAgent(agentId: AgentId, methodId: string) {
+  async authenticateAcpAgent(agentId: AgentId, methodId: string) {
     this.assertAgentOperationAdmission();
     this.getAcpSession(agentId);
+    await this.reconnectAcpAgent(agentId);
     return this.acpRuntime.authenticate(agentId, methodId);
   }
 
-  logoutAcpAgent(agentId: AgentId) {
+  async logoutAcpAgent(agentId: AgentId) {
     this.assertAgentOperationAdmission();
     this.getAcpSession(agentId);
+    await this.reconnectAcpAgent(agentId);
     return this.acpRuntime.logout(agentId);
   }
 
-  forkAcpSession(agentId: AgentId, options: AcpForkOptions = {}) {
+  async forkAcpSession(agentId: AgentId, options: AcpForkOptions = {}) {
     this.assertAgentOperationAdmission();
     this.getAcpSession(agentId);
+    await this.reconnectAcpAgent(agentId);
     return this.acpRuntime.forkSession(agentId, options);
   }
 
-  deleteAcpSession(agentId: AgentId, sessionId: string) {
+  async deleteAcpSession(agentId: AgentId, sessionId: string) {
     this.assertAgentOperationAdmission();
     this.getAcpSession(agentId);
+    await this.reconnectAcpAgent(agentId);
     return this.acpRuntime.deleteSession(agentId, sessionId);
   }
 
-  closeAcpSession(agentId: AgentId) {
+  async closeAcpSession(agentId: AgentId) {
     this.assertAgentOperationAdmission();
     this.getAcpSession(agentId);
+    await this.reconnectAcpAgent(agentId);
     return this.acpRuntime.closeSession(agentId);
   }
 
-  setAcpSessionMode(agentId: AgentId, modeId: string) {
+  async setAcpSessionMode(agentId: AgentId, modeId: string) {
     this.assertAgentOperationAdmission();
     this.getAcpSession(agentId);
+    await this.reconnectAcpAgent(agentId);
     return this.acpRuntime.setSessionMode(agentId, modeId);
   }
 
-  setAcpSessionConfigOption(agentId: AgentId, configId: string, value: AcpConfigValue) {
+  async setAcpSessionConfigOption(agentId: AgentId, configId: string, value: AcpConfigValue) {
     this.assertAgentOperationAdmission();
     this.getAcpSession(agentId);
+    await this.reconnectAcpAgent(agentId);
     return this.acpRuntime.setSessionConfigOption(agentId, configId, value);
   }
 
-  setAcpSessionConfigOptions(agentId: AgentId, changes: AcpConfigChange[]) {
+  async setAcpSessionConfigOptions(agentId: AgentId, changes: AcpConfigChange[]) {
     this.assertAgentOperationAdmission();
     this.getAcpSession(agentId);
+    await this.reconnectAcpAgent(agentId);
     return this.acpRuntime.setSessionConfigOptions(agentId, changes);
   }
 
@@ -6506,6 +7109,11 @@ class AgentManager extends EventEmitter {
     const agent = this.agents.get(agentId);
     if (!agent) return false;
     return runtimeKind(agent) === 'terminal';
+  }
+
+  agentRuntimeKind(agentId: AgentId) {
+    const agent = this.agents.get(agentId);
+    return agent ? runtimeKind(agent) : null;
   }
 
   async getAgentSessionAttachCheckpoint(agentId: AgentId): Promise<TerminalAttachCheckpoint | null> {
@@ -6666,6 +7274,124 @@ class AgentManager extends EventEmitter {
     this.updateEngineProviderSessionMetadata(agent);
     this.emit('update');
     return { agentId, customTitle, operationId: operation.id };
+  }
+
+  scheduleAdaptiveTitlePersistence(
+    agentId: AgentId,
+    agent: TypedAgentRecord,
+    adaptiveTitle: string,
+    previousTitle: string,
+  ): Promise<UnknownRecord> {
+    const pending = this.adaptiveTitlePersistenceEntries.get(agentId);
+    if (pending) {
+      pending.title = adaptiveTitle;
+      return pending.promise;
+    }
+
+    let resolve: (result: UnknownRecord) => void = () => {};
+    const promise = new Promise<UnknownRecord>((settle) => {
+      resolve = settle;
+    });
+    this.adaptiveTitlePersistenceEntries.set(agentId, {
+      agent,
+      previousTitle,
+      promise,
+      resolve,
+      title: adaptiveTitle,
+    });
+    this.startAdaptiveTitlePersistenceDrain();
+    return promise;
+  }
+
+  startAdaptiveTitlePersistenceDrain() {
+    if (this.adaptiveTitlePersistenceDrain) return;
+    const drain = (async () => {
+      await new Promise<void>(resolve => setImmediate(resolve));
+      while (this.adaptiveTitlePersistenceEntries.size > 0) {
+        const next = this.adaptiveTitlePersistenceEntries.entries().next().value as
+          | [AgentId, AdaptiveTitlePersistenceEntry]
+          | undefined;
+        if (!next) break;
+        const [agentId, entry] = next;
+        this.adaptiveTitlePersistenceEntries.delete(agentId);
+        const adaptiveTitle = entry.title;
+        const current = this.agents.get(agentId);
+        if (current !== entry.agent) {
+          entry.resolve({
+            error: 'Failed to update Agent title: Agent runtime changed before persistence',
+            retryable: true,
+          });
+        } else {
+          const staged: TypedAgentRecord = { ...current, adaptiveTitle };
+          try {
+            this.ensurePersistentAgentSession(staged, { adaptiveTitle });
+            setAgentRecordId(current, staged.agentRecordId || staged.persistentSessionId || '');
+            this.updateEngineProviderSessionMetadata(current);
+            entry.resolve({ agentId, adaptiveTitle });
+          } catch (caughtError: unknown) {
+            const error = caughtError as ErrorRecord;
+            console.error('Failed to persist adaptive Agent title:', error);
+            if (this.agents.get(agentId) === current && current.adaptiveTitle === adaptiveTitle) {
+              current.adaptiveTitle = entry.previousTitle;
+              this.emit('agent-update', {
+                agentId,
+                patch: { adaptiveTitle: entry.previousTitle },
+              });
+            }
+            entry.resolve({
+              error: `Failed to update Agent title: ${error.message || error}`,
+              retryable: true,
+            });
+          }
+        }
+        if (this.adaptiveTitlePersistenceEntries.size > 0) {
+          await new Promise<void>(resolve => setImmediate(resolve));
+        }
+      }
+    })();
+    this.adaptiveTitlePersistenceDrain = drain;
+    void drain.finally(() => {
+      if (this.adaptiveTitlePersistenceDrain === drain) {
+        this.adaptiveTitlePersistenceDrain = null;
+      }
+      if (this.adaptiveTitlePersistenceEntries.size > 0) {
+        this.startAdaptiveTitlePersistenceDrain();
+      }
+    }).catch(() => {});
+  }
+
+  setAgentAdaptiveTitle(
+    agentId: AgentId,
+    title: string,
+    token: string,
+  ): UnknownRecord | Promise<UnknownRecord> {
+    if (this.disposing) {
+      return { error: 'Farming is shutting down; Agent title updates are not accepted' };
+    }
+    const lifecycleOperation = this.agentLifecycleOperations.get(agentId);
+    if (lifecycleOperation) {
+      return { error: `Agent lifecycle change already in progress: ${lifecycleOperation.label}` };
+    }
+    const agent = this.agents.get(agentId);
+    if (!agent) return { error: 'Agent not found' };
+    if (this.isMainAgentRecord(agentId, agent)) {
+      return { error: 'Main Agent keeps its fixed title' };
+    }
+    if (!token || token !== agent.titleUpdateToken) {
+      return { error: 'Agent title update belongs to an expired runtime' };
+    }
+
+    const adaptiveTitle = String(title || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+    if (!adaptiveTitle) return { error: 'Agent title is required' };
+    if (adaptiveTitle === agent.adaptiveTitle) {
+      return this.adaptiveTitlePersistenceEntries.get(agentId)?.promise
+        || { agentId, adaptiveTitle, deduplicated: true };
+    }
+
+    const previousTitle = agent.adaptiveTitle || '';
+    agent.adaptiveTitle = adaptiveTitle;
+    this.emit('agent-update', { agentId, patch: { adaptiveTitle } });
+    return this.scheduleAdaptiveTitlePersistence(agentId, agent, adaptiveTitle, previousTitle);
   }
 
   setAgentTask(agentId: AgentId, task: string): UnknownRecord {
@@ -6894,14 +7620,7 @@ class AgentManager extends EventEmitter {
     if (structuralUpdateChanged) {
       this.emit('update');
     } else if (readUpdateChanged) {
-      this.emit('agent-read', {
-        agentId,
-        unread: agent.unread === true,
-        attentionSeq: finiteNonNegativeInteger(agent.attentionSeq),
-        readAttentionSeq: finiteNonNegativeInteger(agent.readAttentionSeq),
-        readOutputEpoch: typeof agent.readOutputEpoch === 'string' ? agent.readOutputEpoch : '',
-        readOutputSeq: finiteNumberOrNull(agent.readOutputSeq),
-      });
+      this.emitAgentReadState(agent);
     }
     return {
       agentId,
@@ -7179,6 +7898,7 @@ class AgentManager extends EventEmitter {
       projectOrder: finiteOrder(agent.projectOrder),
       pinnedOrder: finiteOrder(agent.pinnedOrder),
       customTitle: agent.customTitle || '',
+      adaptiveTitle: agent.adaptiveTitle || '',
       unread: agent.unread === true,
     };
     let acpSessionOptions: AcpSessionRequestOptions = {
@@ -7197,6 +7917,11 @@ class AgentManager extends EventEmitter {
         };
       }
     }
+    const acpConfigOverrides = cloneAcpConfigOverrides(
+      agent.providerSessionKey
+        ? this.acpSessionOptionsByKey.get(agent.providerSessionKey)?.configOverrides
+        : [],
+    );
     const restartOptions: ProviderStartOptions = {
       wantsMain: agent.wantsMain === true,
       task: agent.task || agent.providerSessionTitle || '',
@@ -7208,6 +7933,7 @@ class AgentManager extends EventEmitter {
       providerHomeId: agent.providerHomeId || '',
       providerHomePath: agent.providerHomePath || '',
       providerSessionTitle: agent.providerSessionTitle || '',
+      adaptiveTitle: agent.adaptiveTitle || '',
       agentRecordId: agent.agentRecordId || agent.persistentSessionId || '',
       restoreRuntimeAgentIdOnFailure: agentId,
       restartedFromAgentId: agentId,
@@ -7225,6 +7951,7 @@ class AgentManager extends EventEmitter {
       runtimeSwitchVerifiedSessionId: startsFreshChatSession ? '' : sessionId,
       lifecycleToken,
       ...acpSessionOptions,
+      acpConfigOverrides,
       ...(provider === 'codex' && !startsFreshChatSession
         ? preserveCodexSessionProfileOptions()
         : {}),
@@ -7417,6 +8144,11 @@ class AgentManager extends EventEmitter {
         };
       }
     }
+    const acpConfigOverrides = cloneAcpConfigOverrides(
+      agent.providerSessionKey
+        ? this.acpSessionOptionsByKey.get(agent.providerSessionKey)?.configOverrides
+        : [],
+    );
     const restartOptions: ProviderStartOptions = {
       wantsMain: agent.wantsMain === true,
       task: agent.task || agent.providerSessionTitle || '',
@@ -7433,6 +8165,7 @@ class AgentManager extends EventEmitter {
       providerHomeId,
       providerHomePath: agent.providerHomePath || '',
       providerSessionTitle: agent.providerSessionTitle || '',
+      adaptiveTitle: agent.adaptiveTitle || '',
       agentRecordId: agent.agentRecordId || agent.persistentSessionId || '',
       restoreRuntimeAgentIdOnFailure: agentId,
       restartedFromAgentId: agentId,
@@ -7446,6 +8179,7 @@ class AgentManager extends EventEmitter {
       composerCommands: normalizedComposerCommands(agent.composerCommands),
       lifecycleToken,
       ...acpSessionOptions,
+      acpConfigOverrides,
       ...(provider === 'codex' ? { codexApprovalMode: nextMode } : { claudePermissionMode: nextMode }),
       ...(provider === 'codex' && hasResumableSession
         ? preserveCodexSessionProfileOptions()
@@ -7456,6 +8190,7 @@ class AgentManager extends EventEmitter {
       projectOrder: finiteOrder(agent.projectOrder),
       pinnedOrder: finiteOrder(agent.pinnedOrder),
       customTitle: agent.customTitle || '',
+      adaptiveTitle: agent.adaptiveTitle || '',
       unread: agent.unread === true,
       attentionSeq: finiteNonNegativeInteger(agent.attentionSeq),
       readAttentionSeq: finiteNonNegativeInteger(agent.readAttentionSeq),
@@ -7489,6 +8224,7 @@ class AgentManager extends EventEmitter {
           restartedAgent.projectOrder = preserved.projectOrder;
           restartedAgent.pinnedOrder = preserved.pinnedOrder;
           restartedAgent.customTitle = preserved.customTitle;
+          restartedAgent.adaptiveTitle = preserved.adaptiveTitle;
           restartedAgent.unread = preserved.unread;
           restartedAgent.attentionSeq = preserved.attentionSeq;
           restartedAgent.readAttentionSeq = preserved.readAttentionSeq;
@@ -7499,6 +8235,7 @@ class AgentManager extends EventEmitter {
             projectOrder: restartedAgent.projectOrder,
             pinnedOrder: restartedAgent.pinnedOrder,
             customTitle: restartedAgent.customTitle,
+            adaptiveTitle: restartedAgent.adaptiveTitle,
             unread: restartedAgent.unread,
             attentionSeq: restartedAgent.attentionSeq,
             readAttentionSeq: restartedAgent.readAttentionSeq,
@@ -8432,7 +9169,7 @@ class AgentManager extends EventEmitter {
     if (this.disposing) {
       return { error: 'Farming is shutting down; Agent lifecycle changes are not accepted' };
     }
-    const agent = this.agents.get(agentId);
+    let agent = this.agents.get(agentId);
     if (!agent) {
       return { error: 'Agent not found' };
     }
@@ -8442,15 +9179,38 @@ class AgentManager extends EventEmitter {
     const targetRuntime = forkTargetRuntime(agent, options.targetRuntime);
     const forkProvider = agent.providerSessionProvider
       || agentHomeProviderForProgram(agent.forkCommand || agent.command || '');
-    const forkCapability = targetRuntime === 'chat'
-      ? 'sessionFork'
-      : 'terminalSessionFork';
-    if (forkProvider && providerCapabilities(forkProvider)[forkCapability] !== true) {
+    const forkRuntime = targetRuntime === 'chat' ? 'acp' : 'terminal';
+    const forkCapability = providerConversationForkCapability(forkProvider, forkRuntime);
+    if (forkProvider && forkCapability.supported !== true) {
       return { error: `${forkProvider} does not support session Fork` };
     }
+    if (
+      forkProvider
+      && !forkCapability.worktreeModes.includes(mode as 'same-worktree' | 'new-worktree')
+    ) {
+      return { error: `${forkProvider} does not support ${mode} ${forkRuntime.toUpperCase()} Fork` };
+    }
     if (targetRuntime === 'chat') {
-      if (mode !== 'same-worktree') {
-        return { error: 'Conversation Fork supports only the same worktree' };
+      let acpBinding = runtimeBindingOf(agent, 'acp');
+      if (String(acpBinding?.state || '') === 'error') {
+        try {
+          await this.reconnectAcpAgent(agentId);
+        } catch (caughtError: unknown) {
+          const error = caughtError as ErrorRecord;
+          return { error: `ACP Conversation Fork could not prepare the source Agent: ${error.message || error}` };
+        }
+        agent = this.agents.get(agentId);
+        if (!agent) return { error: 'Agent not found' };
+        acpBinding = runtimeBindingOf(agent, 'acp');
+      }
+      if (acpBinding?.state !== 'idle') {
+        return { error: `ACP Agent is not ready for Conversation Fork (${acpBinding?.state || 'unavailable'})` };
+      }
+      if (
+        forkCapability.requiresRuntimeCapability === true
+        && acpBinding.supportsFork !== true
+      ) {
+        return { error: `${forkProvider || 'Provider'} ACP Agent does not currently support session/fork` };
       }
       const expectedRevision = Number(options.expectedRevision);
       if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0) {
@@ -8569,7 +9329,7 @@ class AgentManager extends EventEmitter {
       return { error: error.message || 'Failed to read ACP session options' };
     }
 
-    if (providerAcpForkMode(provider) === 'target-process') {
+    if (providerConversationForkCapability(provider, 'acp').strategy === 'target-process') {
       return this.performTargetProcessAcpConversationFork({
         agent,
         provider,
@@ -8898,8 +9658,9 @@ class AgentManager extends EventEmitter {
       command: agent.command || '',
       cwd: agent.cwd || '',
       projectWorkspace: effectiveAgentWorkspaceRoot(agent),
-      title: agent.customTitle || agent.sessionTitle || agent.task || '',
+      title: agent.customTitle || agent.adaptiveTitle || agent.sessionTitle || agent.task || '',
       customTitle: agent.customTitle || '',
+      adaptiveTitle: agent.adaptiveTitle || '',
       task: agent.task || '',
       workflowTemplate: agent.workflowTemplate || '',
       source: providerHistorySource || agent.source || 'ui',
@@ -9549,7 +10310,10 @@ class AgentManager extends EventEmitter {
   }
 
   forgetStoppedAgentRecord(agentId: AgentId, options: KillAgentOptions = {}) {
+    this.acpPreparedTranscriptCache.deleteAgent(agentId);
     this.agents.delete(agentId);
+    this.acpFinalizedTurns.delete(agentId);
+    this.acpTurnFinalizationTails.delete(agentId);
     this.verifiedStoppedAgentIds.delete(agentId);
     this.lastActivity.delete(agentId);
     this.lastActivityUpdate.delete(agentId);
@@ -9732,6 +10496,7 @@ class AgentManager extends EventEmitter {
       runtimeBinding: publicRuntimeBinding(agent),
       forkedFromProviderSessionId: agent.forkedFromProviderSessionId || '',
       customTitle: agent.customTitle || '',
+      adaptiveTitle: agent.adaptiveTitle || '',
       pinned: agent.pinned === true,
       projectOrder: finiteOrder(agent.projectOrder),
       pinnedOrder: finiteOrder(agent.pinnedOrder),
@@ -9927,6 +10692,7 @@ class AgentManager extends EventEmitter {
         restartedFromAgentIds: Array.isArray(agent.restartedFromAgentIds) ? agent.restartedFromAgentIds : [],
         launchPermissionMode: agent.launchPermissionMode || '',
         customTitle: agent.customTitle || '',
+        adaptiveTitle: agent.adaptiveTitle || '',
         pinned: agent.pinned === true,
         projectOrder: finiteOrder(agent.projectOrder),
         pinnedOrder: finiteOrder(agent.pinnedOrder),
@@ -9971,6 +10737,15 @@ class AgentManager extends EventEmitter {
     const agent = this.agents.get(agentId);
     if (!agent || agent.status !== 'running') return false;
     if (this.isMainAgentRecord(agentId, agent)) return false;
+    const acpState = String(runtimeBindingOf(agent, 'acp')?.state || '');
+    if ([
+      'connecting',
+      'working',
+      'waiting-for-permission',
+      'waiting-for-input',
+      'interrupting',
+      'reconnecting',
+    ].includes(acpState)) return false;
     const lastAct = this.lastActivity.get(agentId) || now;
     return now - lastAct > ZOMBIE_IDLE_MS;
   }

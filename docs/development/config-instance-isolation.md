@@ -2,149 +2,93 @@
 
 > Chinese version: [config-instance-isolation.zh_cn.md](./config-instance-isolation.zh_cn.md)
 
-This document defines how Farming instances share one machine without confusing
-their own mutable state or claiming ownership of external developer resources.
+This document defines how several Farming instances may share one machine
+without confusing Farming-owned state or claiming exclusive ownership of
+external developer resources.
 
-## User Stories
+## Instance Identity
 
-- A user can start two Farming Servers with different Config directories and
-  use both at the same time.
-- Starting a second Server with the same Config directory fails before it can
-  initialize Agents or other Config-owned runtimes.
-- A Config directory reached through a symlink is the same instance as its real
-  path.
-- Copying Config state cannot authorize the copy to stop processes owned by the
-  original instance.
-- Two instances may open the same project or Provider Home as ordinary external
-  clients. Farming must not invent machine-wide ownership that excludes editors,
-  Git commands, Provider tools, or other software.
+The canonical Config directory is the identity of one Farming instance.
+Equivalent paths, including symlinked paths, must resolve to the same identity.
+Two live Servers may use different Config identities; two Servers must not own
+the same Config identity at the same time.
 
-## Instance Boundary
+Resources follow these ownership boundaries:
 
-The canonical Config directory is the Farming instance identity. Farming
-resolves existing symlinks and normalizes not-yet-created descendants against
-their nearest existing ancestor. A stable fingerprint of that canonical path is
-used only as a compact namespace; the canonical path remains the source of
-truth.
-
-Resources fall into four classes:
-
-| Resource class | Isolation mechanism |
+| Resource | Owner |
 | --- | --- |
-| Farming-owned persistent state | Stored below the canonical Config directory |
-| Farming-owned runtime namespaces | Derived from the canonical Config fingerprint |
-| Farming-owned child processes | Exact process identity plus Config fingerprint |
-| External projects, Git state, Provider Homes and Sessions | Shared as ordinary external resources; conflicts are handled by their owning system and authoritative rereads |
+| Settings, authentication, session metadata, runtime records, and managed caches | One Config instance |
+| Farming-owned sockets, process namespaces, Browser profiles, and Computer resources | One Config instance |
+| Farming child processes | The exact Config instance and exact operating-system process identity |
+| Projects, Git repositories, Provider Homes, and provider Sessions | Their external owning systems; Farming is one client |
 
-The Farming package root is not part of this contract. Coordinating updates of a
-shared installation is a separate lifecycle problem.
+The Farming package installation is not part of the Config identity. Package
+selection and update coordination are defined separately.
 
-## Server Ownership State Machine
+## Server Ownership
 
-The Config owner has three meaningful states:
+A Config owner is either:
 
-- **Unowned**: no published owner claim exists.
-- **Owned**: a complete claim identifies one exact live Server process.
-- **Uncertain**: a claim exists, but its process identity cannot be safely
-  verified.
+- **unowned**: no valid owner is published;
+- **owned**: one exact live Server owns the Config;
+- **uncertain**: ownership metadata exists but cannot be safely verified.
 
-Startup first prepares a complete claim containing the canonical Config identity
-and an exact operating-system process identity, then publishes it atomically.
-Publication never intentionally replaces an existing claim.
+Startup publishes ownership atomically before initializing Config-owned
+runtimes. A proven live owner rejects a second startup. A proven dead owner may
+be reclaimed. Malformed, unreadable, permission-ambiguous, or otherwise
+unprovable ownership fails closed and requires operator action.
 
-When a claim already exists:
-
-- an exact live owner rejects the new startup;
-- an exact dead owner or proven PID reuse may be fenced and reclaimed;
-- an unreadable, malformed, incomplete, or permission-ambiguous owner fails
-  closed and requires operator investigation.
-
-There is no heartbeat or time-to-live. Age is not proof that an owner is dead.
-Normal stop releases only the claim that still matches the exact Server being
-stopped, fencing that claim before the shared owner path becomes available.
-After a crash, the next startup performs the same proof before recovery.
+Age is not proof of death. The Server lifecycle is crash-only: persistence,
+ownership, and recovery must remain correct after abrupt termination and must
+not depend on graceful shutdown hooks. Stop, crash recovery, and cleanup may
+signal or release only the exact process and ownership claim they can still
+prove.
 
 ## Runtime And Authentication Isolation
 
-Config-owned registries, Browser profiles, Computer ownership labels and names,
-native PTY socket identity, runtime dependency state, tokens, and browser cookies
-all derive from the same Config boundary. A different Config therefore receives
-different mutable storage and runtime namespaces even when both Servers run as
-the same operating-system user.
+Config-owned storage and runtime namespaces must derive from the same canonical
+identity. Different Config instances therefore receive independent tokens,
+browser cookies, native PTY endpoints, managed runtime bindings, Browser
+profiles, Computer ownership, and persisted process records.
 
-Browser cookies include the Config fingerprint because cookies are not isolated
-by TCP port. Machine clients use bearer authentication and do not depend on a
-shared browser cookie name. The former cookie remains a read-only compatibility
-path during migration.
+A copied Config must not gain authority over processes created by the original
+instance. Persisted process cleanup requires both Config ownership and exact
+process identity; ambiguous evidence fails visibly.
 
-Persisted ACP process records carry both exact process identity and Config
-identity. Cleanup verifies Config scope before signalling a live process. Legacy
-records without Config identity may use exact live process-environment evidence;
-if that evidence is unavailable or ambiguous, cleanup fails visibly.
+External Projects and Provider Homes remain shareable. Farming must not prevent
+another editor, Git command, Provider tool, or Farming instance from using them.
+Conflicts in those resources converge through their own authoritative state.
 
-## Runtime Base Path Contract
+## Browser Routing Boundary
 
-The live Server is authoritative for the browser base path. It injects
-`window.__FARMING_BASE_PATH__` into the entry document before application
-modules load. The React application resolves same-origin HTTP, WebSocket,
-navigation, and asset paths only through `appPath` and `appWsUrl` in
-`src/lib/base-path.ts`. Feature code must not read Vite `BASE_URL`, consume the
-injected global, or implement another base-path helper.
+The live Server owns the browser base path for its instance. The entry document
+establishes one immutable routing snapshot before application transports start,
+and all same-origin HTTP, WebSocket, navigation, and asset URLs use that
+snapshot. Build-time defaults may support isolated development or preview, but
+must not override the live Server's routing authority.
 
-The minimal state model is:
+A base-path change requires a fresh entry document. Missing or inconsistent
+routing must fail visibly instead of silently sending requests to the origin
+root.
 
-- **Owner:** the Server process and its configured `FARMING_BASE_PATH`;
-- **initialization trigger:** parsing the Server-generated entry document;
-- **guard:** normalize the injected path before any browser transport starts;
-- **effect:** every same-origin route is joined to that one normalized path;
-- **fallback:** Vite's build-time base is used only when no runtime path exists,
-  such as an isolated development or static-preview build;
-- **failure:** a missing or bypassed resolver must fail a continuous test rather
-  than silently target the origin root;
-- **recovery:** a base-path change requires a fresh entry-document load, which
-  establishes a new immutable browser routing snapshot.
+## Safety And Liveness
 
-Build and startup scripts also pass the same default base path as a
-defense-in-depth check, but runtime correctness must not depend on build-time and
-Server paths matching. Tests must cover an artifact built for `/` while the live
-Server path is `/farming`, because installed, Desktop, preview, and remote
-surfaces intentionally use different build profiles.
+Safety requires:
 
-## Correctness Argument
+1. one valid live owner per canonical Config identity;
+2. no Config-owned runtime initialization before ownership is established;
+3. no destructive process action without exact Config and process proof;
+4. no collision between different Config-owned mutable namespaces;
+5. no invented exclusive ownership of external resources.
 
-Safety depends on these invariants:
+Liveness requires a free Config to start, a proven stale owner to be reclaimed,
+and every ownership attempt to reach success or a visible bounded failure. When
+the operating system cannot prove ownership, Farming intentionally waits for
+operator resolution instead of guessing.
 
-1. At most one valid owner claim is published for one canonical Config path.
-2. A Server initializes Config-owned runtime state only after it owns that claim.
-3. Config-owned mutable resources are addressed by canonical Config path or its
-   fingerprint, so different Config identities do not collide.
-4. A persisted process may be signalled only after both exact process identity
-   and Config ownership are proven.
-5. External resources are never treated as exclusively owned merely because one
-   Farming instance opened them.
+## Acceptance Criteria
 
-Under normal filesystem and process-inspection availability, liveness follows:
-a free Config can start, a proven stale owner can be reclaimed, and every failed
-claim reaches a bounded success or visible failure. If the operating system
-cannot prove ownership, the system deliberately favors safety and waits for
-operator resolution rather than guessing.
-
-## Recovery And Failure Semantics
-
-- A duplicate startup reports which live Server owns the Config.
-- A stale exact owner is reclaimed without requiring a timeout.
-- Unknown ownership is never automatically deleted.
-- A copied Config cannot use persisted ACP metadata to stop the original
-  instance's live process.
-- External project or Provider conflicts remain visible through the underlying
-  filesystem, Git, or Provider behavior and converge through authoritative
-  rereads; Farming does not promise cross-process transactions for them.
-
-## Verification Strategy
-
-Continuous tests should cover concurrent same-Config startup, stale and uncertain
-owners, symlink equivalence, two live Servers with different Config directories,
-disjoint Config-owned paths and runtime namespaces, scoped cookies and bearer
-clients, native PTY identity, Browser and Computer ownership, and ACP cleanup
-fencing. At least one integration test should run two real Servers concurrently
-and verify their independent settings, tokens, cookies, and runtime identities.
+Verification must cover concurrent same-Config startup, different Configs
+running together, symlink equivalence, stale and uncertain ownership, exact
+process cleanup, independent authentication and runtime namespaces, browser
+base paths, and safe sharing of Projects and Provider Homes.

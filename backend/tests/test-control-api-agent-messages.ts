@@ -340,16 +340,17 @@ async function run() {
       requestId: 'acp-message-retry',
     });
     assert.strictEqual(rejectedAcp.response.status, 409);
-    assert.strictEqual(rejectedAcp.body.uncertain, false);
+    assert.strictEqual(rejectedAcp.body.uncertain, true);
     const retriedAcp = await postJson(baseUrl, acpMessagePath, {
       message: 'retain ACP retry semantics',
       requestId: 'acp-message-retry',
     });
-    assert.strictEqual(retriedAcp.response.status, 202);
+    assert.strictEqual(retriedAcp.response.status, 409);
+    assert.strictEqual(retriedAcp.body.uncertain, true);
     assert.strictEqual(
       acpSubmissions.filter(call => call.prompt[0]?.text === 'retain ACP retry semantics').length,
-      2,
-      'ACP failures keep the existing failed-and-explicit-retry admission behavior',
+      1,
+      'an uncertain ACP submission must not be replayed under the same request id',
     );
 
     console.log('Control Agent messages preserve Terminal idempotency and existing raw/ACP delivery');

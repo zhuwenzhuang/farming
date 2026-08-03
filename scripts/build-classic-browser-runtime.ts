@@ -3,11 +3,14 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import ts from 'typescript';
+import { PROTOCOL_VERSION } from '../shared/browser-protocol';
 
 const projectRoot = path.resolve(__dirname, '..');
 const frontendRoot = path.join(projectRoot, 'frontend');
 const sharedRoot = path.join(projectRoot, 'shared');
 const generatedHeader = '// Generated from TypeScript. Do not edit.';
+const crtAppPath = path.join(frontendRoot, 'skins', 'crt', 'app.ts');
+const browserProtocolVersionMarker = "Number('__FARMING_BROWSER_PROTOCOL_VERSION__')";
 
 function collectTypeScriptFiles(directory: string): string[] {
   return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -44,7 +47,14 @@ function transpileRuntime(filePath: string, module: ts.ModuleKind): void {
     diagnostic.category === ts.DiagnosticCategory.Error
   )) || [];
   if (errors.length > 0) throw new Error(formatDiagnostics(errors));
-  fs.writeFileSync(filePath.replace(/\.ts$/, '.js'), `${generatedHeader}\n${result.outputText}`);
+  let outputText = result.outputText;
+  if (filePath === crtAppPath) {
+    if (!outputText.includes(browserProtocolVersionMarker)) {
+      throw new Error('CRT browser protocol version marker is missing');
+    }
+    outputText = outputText.replace(browserProtocolVersionMarker, String(PROTOCOL_VERSION));
+  }
+  fs.writeFileSync(filePath.replace(/\.ts$/, '.js'), `${generatedHeader}\n${outputText}`);
 }
 
 function main(): void {

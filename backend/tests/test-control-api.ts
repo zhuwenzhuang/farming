@@ -45,11 +45,13 @@ async function run() {
   let killFailureAgentId = '';
   let recoveryFailure = '';
   let createResultPersistenceFailure = '';
+  let stateReads = 0;
   const durableCreateResults = new Map();
   const agentManager = {
     on: events.on.bind(events),
     off: events.off.bind(events),
     getState() {
+      stateReads += 1;
       return {
         mainAgentId: 'agent-main',
         agents: Array.from(agents.values()),
@@ -103,6 +105,15 @@ async function run() {
     async clearAgentSessionBuffer(agentId, options) {
       calls.push({ type: 'clearAgentSessionBuffer', agentId, options });
       return { cleared: true, outputSeq: 7 };
+    },
+    setAgentAdaptiveTitle(agentId, title, token) {
+      calls.push({ type: 'setAgentAdaptiveTitle', agentId, title, token });
+      if (token !== `title-token-${agentId}`) {
+        return { error: 'Agent title update belongs to an expired runtime' };
+      }
+      const adaptiveTitle = String(title || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+      agents.get(agentId).adaptiveTitle = adaptiveTitle;
+      return { agentId, adaptiveTitle };
     },
     async getAgentSessionText(agentId) {
       return `output for ${agentId}`;
@@ -242,6 +253,30 @@ async function run() {
     assert.strictEqual(cleared.body.outputSeq, 7);
     assert.strictEqual(calls.at(-1).type, 'clearAgentSessionBuffer');
     assert.strictEqual(calls.at(-1).options.expectedRuntimeEpoch, 'epoch-1');
+
+    const stateReadsBeforeTitle = stateReads;
+    const titled = await fetchJson(baseUrl, `/api/control/agents/${created.body.agentId}/title`, {
+      method: 'POST',
+      body: JSON.stringify({
+        title: '  Diagnose ACP titles  ',
+        token: `title-token-${created.body.agentId}`,
+      }),
+    });
+    assert.strictEqual(titled.response.status, 200);
+    assert.strictEqual(titled.body.adaptiveTitle, 'Diagnose ACP titles');
+    assert.strictEqual(agents.get(created.body.agentId).adaptiveTitle, 'Diagnose ACP titles');
+    assert.strictEqual(
+      stateReads,
+      stateReadsBeforeTitle,
+      'the title endpoint should delegate exact Agent lookup instead of materializing full state',
+    );
+
+    const staleTitle = await fetchJson(baseUrl, `/api/control/agents/${created.body.agentId}/title`, {
+      method: 'POST',
+      body: JSON.stringify({ title: 'Stale title', token: 'expired-token' }),
+    });
+    assert.strictEqual(staleTitle.response.status, 409);
+    assert.match(staleTitle.body.error, /expired runtime/);
 
     const concurrentInput = await fetchJson(baseUrl, `/api/control/agents/${created.body.agentId}/input`, {
       method: 'POST',

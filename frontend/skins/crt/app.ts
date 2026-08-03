@@ -353,7 +353,8 @@ let globalSettingsSaveTail: Promise<unknown> = Promise.resolve();
 const terminalPreviewSnapshots = new Map<string, Record<string, unknown>>();
 const crtBrandPulseTimers = new Map<string, number>();
 const SESSION_LINK_LIMIT = 6;
-const CRT_PROTOCOL_VERSION = 4;
+// Replaced from shared/browser-protocol.ts by build-classic-browser-runtime.ts.
+const CRT_PROTOCOL_VERSION = Number('__FARMING_BROWSER_PROTOCOL_VERSION__');
 const CRT_PREVIEW_RENDER_INTERVAL_MS = 1000;
 const CRT_STRUCTURED_PREVIEW_REFRESH_MS = 240;
 const CRT_AGENT_CARD_MIN_WIDTH = 200;
@@ -5972,6 +5973,14 @@ function connect(): void {
         renderCrtDashboardIfNeeded();
         if (agent.id === focusedAgentId) updateCrtRuntimeSwitchControl(agent);
       }
+    } else if (data.type === 'agent-read') {
+      const read = data.read;
+      const agent = read && state && state.agents.find(candidate => candidate.id === read.agentId);
+      if (agent) {
+        const { agentId: _agentId, ...readState } = read;
+        Object.assign(agent, readState);
+        renderCrtDashboardIfNeeded();
+      }
     } else if (data.type === 'acp-session-revision') {
       const update = data.session;
       const agent = update && state && state.agents.find(candidate => candidate.id === update.agentId);
@@ -6051,7 +6060,7 @@ function connect(): void {
     }
   };
 
-  socket.onclose = () => {
+  socket.onclose = (event) => {
     if (ws !== socket) return;
     ws = null;
     getSessionClient()?.rejectPendingComposerMessages();
@@ -6071,7 +6080,8 @@ function connect(): void {
       TERMINAL_REPLAY.resetRecovery(crtTerminalReplication.replayState);
       TERMINAL_REPLAY.beginRecovery(crtTerminalReplication.replayState);
     }
-    if (typeof document === 'undefined' || document.visibilityState !== 'hidden') {
+    const terminalClose = event.code === 4001 || event.code === 4002;
+    if (!terminalClose && (typeof document === 'undefined' || document.visibilityState !== 'hidden')) {
       wsReconnectTimer = setTimeout(() => {
         wsReconnectTimer = null;
         connect();

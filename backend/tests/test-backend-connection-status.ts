@@ -41,7 +41,11 @@ function run() {
       webSocketSource.includes('updateBackendConnectionStatus') &&
       webSocketSource.includes('markBackendDisconnected()') &&
       webSocketSource.includes('event.code === 4001') &&
-      webSocketSource.includes('Farming token expired or is invalid'),
+      webSocketSource.includes('Farming token expired or is invalid') &&
+      webSocketSource.includes('event.code === 4002') &&
+      webSocketSource.includes('Farming frontend and backend versions differ. Refresh this page.') &&
+      webSocketSource.includes('if (!terminalError)') &&
+      webSocketSource.includes('reconnectTimer = setTimeout(connect, 1000)'),
     'The isolated backend status store should track transport and business-protocol health independently'
   );
 

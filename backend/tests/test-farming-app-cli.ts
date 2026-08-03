@@ -519,6 +519,7 @@ async function runTests() {
     const child = fork(fixture, [], {
       detached: true,
       execArgv: ['--import', require.resolve('tsx')],
+      env: process.env,
       stdio: ['ignore', 'ignore', 'inherit', 'ipc'],
     });
     const childMessage = (type: string) => new Promise<{ type: string; port: number }>((resolve, reject) => {
@@ -559,7 +560,11 @@ async function runTests() {
       }));
 
       const originalKill = process.kill;
+      const stopSignals: NodeJS.Signals[] = [];
       process.kill = (pid, signal) => {
+        if (pid === child.pid && typeof signal === 'string') {
+          stopSignals.push(signal as NodeJS.Signals);
+        }
         if (pid === child.pid && signal === 'SIGKILL') {
           const error: ErrorWithCode = new Error('Operation not permitted');
           error.code = 'EPERM';
@@ -575,6 +580,7 @@ async function runTests() {
       } finally {
         process.kill = originalKill;
       }
+      assert.deepStrictEqual(stopSignals, ['SIGKILL']);
       assert.doesNotThrow(() => process.kill(child.pid, 0));
       assert.strictEqual(fs.existsSync(storageLayout.serverPidFile(configDir)), true);
       assert.strictEqual(fs.existsSync(serverStateFile(configDir)), true);
@@ -1108,7 +1114,18 @@ async function runTests() {
     });
     assert(output.includes('farming daemon'));
     assert(output.includes('farming list'));
+    assert(output.includes('farming title'));
     assert(output.includes('farming review'));
+  }
+
+  {
+    const result = spawnSync(process.execPath, ['backend/farming-app-cli.cjs', 'title'], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+    });
+    assert.strictEqual(result.status, 1);
+    assert.match(result.stderr, /title requires a concise title/);
+    assert.doesNotMatch(result.stderr, /Unknown option: title/);
   }
 
   {
@@ -1123,7 +1140,8 @@ async function runTests() {
       },
     });
     assert(output.includes('farming computer'));
-    assert(output.includes('mcp'));
+    assert(output.includes('describe <tool> --json'));
+    assert(!output.includes(' mcp'));
   }
 
   {

@@ -233,11 +233,23 @@ export interface ProviderCapabilities {
     terminal: { kind: 'prompt' } | { kind: 'command'; prefix: string }
     acp: { kind: 'prompt' }
   } | null
+  conversationFork?: {
+    terminal: ProviderConversationForkCapability
+    acp: ProviderConversationForkCapability
+  }
+  /** Compatibility fields derived from conversationFork. */
   terminalSessionFork: boolean
   sessionFork: boolean
   chatRuntime: 'acp' | ''
   supportsChat: boolean
   supportsSteer: boolean
+}
+
+export interface ProviderConversationForkCapability {
+  supported: boolean
+  strategy: 'source-session' | 'target-process' | null
+  worktreeModes: Array<'same-worktree' | 'new-worktree'>
+  requiresRuntimeCapability: boolean
 }
 
 /** A single CLI agent instance */
@@ -260,6 +272,7 @@ export interface Agent {
   previewRows?: number
   codexTerminalProfile?: CodexTerminalProfile | null
   sessionTitle?: string
+  adaptiveTitle?: string
   customTitle?: string
   parentAgentId?: string
   task?: string

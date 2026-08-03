@@ -501,6 +501,14 @@ async function run() {
         },
       },
       {
+        authorizeAgentCapability(agentId, capability, token, runtimeEpoch) {
+          if (
+            capability !== 'computer'
+            || token !== `token-${agentId}`
+            || runtimeEpoch !== `runtime-${agentId}`
+          ) return null;
+          return { agentId, runtimeEpoch, workspace };
+        },
         getState() {
           return {
             agents: [{
@@ -519,12 +527,29 @@ async function run() {
     const api = http.createServer(app);
     const apiPort = await listen(api);
     try {
+      const expired = await requestJson(
+        apiPort,
+        'GET',
+        '/api/computers',
+        undefined,
+        {
+          'X-Farming-Agent-Id': 'agent_owner',
+          'X-Farming-Capability-Token': 'expired',
+          'X-Farming-Capability-Runtime-Epoch': 'runtime-agent_owner',
+        },
+      );
+      assert.strictEqual(expired.status, 401);
+      assert.strictEqual(expired.body.code, 'COMPUTER_AGENT_CREDENTIAL_INVALID');
       const forbidden = await requestJson(
         apiPort,
         'POST',
         `/api/computers/${encodeURIComponent(created.id)}/start`,
         undefined,
-        { 'X-Farming-Agent-Id': 'agent_other' },
+        {
+          'X-Farming-Agent-Id': 'agent_other',
+          'X-Farming-Capability-Token': 'token-agent_other',
+          'X-Farming-Capability-Runtime-Epoch': 'runtime-agent_other',
+        },
       );
       assert.strictEqual(forbidden.status, 403);
       assert.strictEqual(forbidden.body.code, 'COMPUTER_OWNER_MISMATCH');
@@ -534,7 +559,11 @@ async function run() {
         'POST',
         `/api/computers/${encodeURIComponent(created.id)}/start`,
         undefined,
-        { 'X-Farming-Agent-Id': 'agent_owner' },
+        {
+          'X-Farming-Agent-Id': 'agent_owner',
+          'X-Farming-Capability-Token': 'token-agent_owner',
+          'X-Farming-Capability-Runtime-Epoch': 'runtime-agent_owner',
+        },
       );
       assert.strictEqual(inactive.status, 409);
       assert.strictEqual(inactive.body.code, 'COMPUTER_OWNER_INACTIVE');
@@ -544,7 +573,11 @@ async function run() {
         'POST',
         `/api/computers/${encodeURIComponent(created.id)}/start`,
         undefined,
-        { 'X-Farming-Agent-Id': 'agent_owner' },
+        {
+          'X-Farming-Agent-Id': 'agent_owner',
+          'X-Farming-Capability-Token': 'token-agent_owner',
+          'X-Farming-Capability-Runtime-Epoch': 'runtime-agent_owner',
+        },
       );
       assert.strictEqual(retainedDuringSwitch.status, 200);
       assert.strictEqual(retainedDuringSwitch.body.status, 'running');
@@ -553,7 +586,11 @@ async function run() {
         'GET',
         '/api/computers',
         undefined,
-        { 'X-Farming-Agent-Id': 'agent_other' },
+        {
+          'X-Farming-Agent-Id': 'agent_other',
+          'X-Farming-Capability-Token': 'token-agent_other',
+          'X-Farming-Capability-Runtime-Epoch': 'runtime-agent_other',
+        },
       );
       assert.deepStrictEqual(filtered.body.resources, []);
     } finally {

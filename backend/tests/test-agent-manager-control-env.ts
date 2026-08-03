@@ -14,6 +14,7 @@ async function run() {
   const mainWorkspace = path.join(workspace, '.farming');
   fs.mkdirSync(farmingDir, { recursive: true });
   fs.mkdirSync(workspace, { recursive: true });
+  const canonicalWorkspace = fs.realpathSync(workspace);
   const startupPromptFile = ensureFarmingAgentBootstrapFile(farmingDir);
   const farmingSystemPrompt = renderFarmingAgentBootstrap();
 
@@ -74,6 +75,11 @@ async function run() {
     });
 
     assert.strictEqual(captured[0].env.FARMING_AGENT_ID, parentId);
+    assert.match(captured[0].env.FARMING_AGENT_TITLE_TOKEN, /^[A-Za-z0-9_-]{32}$/);
+    assert.match(captured[0].env.FARMING_BROWSER_TOKEN, /^[A-Za-z0-9_-]{40,}$/);
+    assert.match(captured[0].env.FARMING_COMPUTER_TOKEN, /^[A-Za-z0-9_-]{40,}$/);
+    assert.match(captured[0].env.FARMING_CAPABILITY_RUNTIME_EPOCH, /^[A-Za-z0-9._:-]{1,160}$/);
+    assert.strictEqual(captured[0].env.FARMING_CLI_BIN_DIR, '/repo/bin');
     assert.strictEqual(captured[0].env.FARMING_IS_MAIN_AGENT, '1');
     assert.strictEqual(captured[0].env.FARMING_CONTROL_URL, 'http://127.0.0.1:3000/farming');
     assert.strictEqual(captured[0].env.FARMING_TOKEN_FILE, path.join(farmingDir, '.session-token'));
@@ -85,7 +91,7 @@ async function run() {
     );
     assert.strictEqual(captured[0].cwd, mainWorkspace);
     assert.strictEqual(captured[0].env.FARMING_MAIN_WORKSPACE, mainWorkspace);
-    assert.strictEqual(captured[0].env.FARMING_PROJECT_WORKSPACE, workspace);
+    assert.strictEqual(captured[0].env.FARMING_PROJECT_WORKSPACE, canonicalWorkspace);
     assert.strictEqual(captured[0].env.FARMING_SKILLS_FILE, path.join(mainWorkspace, 'FARMING_MAIN_AGENT_SKILLS.md'));
     assert.strictEqual(captured[0].env.LD_LIBRARY_PATH, undefined);
     assert.strictEqual(captured[0].env.NODE_OPTIONS, undefined);
@@ -99,9 +105,79 @@ async function run() {
 
     assert.strictEqual(captured[1].cwd, workspace, 'child should inherit parent project workspace by default');
     assert.strictEqual(captured[1].env.FARMING_AGENT_ID, childId);
+    assert.match(captured[1].env.FARMING_AGENT_TITLE_TOKEN, /^[A-Za-z0-9_-]{32}$/);
+    assert.match(captured[1].env.FARMING_BROWSER_TOKEN, /^[A-Za-z0-9_-]{40,}$/);
+    assert.match(captured[1].env.FARMING_COMPUTER_TOKEN, /^[A-Za-z0-9_-]{40,}$/);
+    assert.strictEqual(captured[1].env.FARMING_CLI_BIN_DIR, '/repo/bin');
+    assert.notStrictEqual(
+      captured[1].env.FARMING_AGENT_TITLE_TOKEN,
+      captured[0].env.FARMING_AGENT_TITLE_TOKEN,
+      'each Agent runtime must receive an isolated title-update token',
+    );
+    assert.notStrictEqual(captured[1].env.FARMING_BROWSER_TOKEN, captured[0].env.FARMING_BROWSER_TOKEN);
+    assert.notStrictEqual(captured[1].env.FARMING_COMPUTER_TOKEN, captured[0].env.FARMING_COMPUTER_TOKEN);
+    assert.deepStrictEqual(
+      manager.authorizeAgentCapability(
+        childId,
+        'browser',
+        captured[1].env.FARMING_BROWSER_TOKEN,
+        captured[1].env.FARMING_CAPABILITY_RUNTIME_EPOCH,
+      ),
+      {
+        agentId: childId,
+        capability: 'browser',
+        runtimeEpoch: captured[1].env.FARMING_CAPABILITY_RUNTIME_EPOCH,
+        workspace: canonicalWorkspace,
+      },
+    );
+    assert.strictEqual(
+      manager.authorizeAgentCapability(
+        childId,
+        'computer',
+        captured[1].env.FARMING_BROWSER_TOKEN,
+        captured[1].env.FARMING_CAPABILITY_RUNTIME_EPOCH,
+      ),
+      null,
+      'a Browser CLI credential must not authorize Computer',
+    );
+    assert.strictEqual(
+      manager.authorizeAgentCapability(
+        childId,
+        'browser',
+        captured[1].env.FARMING_BROWSER_TOKEN,
+        captured[0].env.FARMING_CAPABILITY_RUNTIME_EPOCH,
+      ),
+      null,
+      'a previous or different runtime epoch must be rejected',
+    );
+    assert.strictEqual(
+      manager.authorizeAgentCapability(
+        childId,
+        'browser',
+        '',
+        captured[1].env.FARMING_CAPABILITY_RUNTIME_EPOCH,
+      ),
+      null,
+      'a missing capability credential must be rejected',
+    );
+    const childRecord = manager.agents.get(childId);
+    assert(childRecord, 'child Agent record must remain available');
+    const originalProjectWorkspace = childRecord.projectWorkspace;
+    childRecord.projectWorkspace = farmingDir;
+    assert.strictEqual(
+      manager.authorizeAgentCapability(
+        childId,
+        'browser',
+        captured[1].env.FARMING_BROWSER_TOKEN,
+        captured[1].env.FARMING_CAPABILITY_RUNTIME_EPOCH,
+      ),
+      null,
+      'changing the authoritative Project workspace must invalidate the old credential',
+    );
+    childRecord.projectWorkspace = originalProjectWorkspace;
     assert.strictEqual(captured[1].env.FARMING_PARENT_AGENT_ID, parentId);
     assert.strictEqual(captured[1].env.FARMING_IS_MAIN_AGENT, '0');
-    assert.strictEqual(captured[1].env.FARMING_PROJECT_WORKSPACE, workspace);
+    assert.strictEqual(captured[1].env.FARMING_PROJECT_WORKSPACE, canonicalWorkspace);
     assert(captured[1].args.includes(farmingSystemPrompt), 'child Agents must receive the Farming bootstrap too');
 
     const openCodeEnv = manager.buildAgentEnv('agent-opencode', {
@@ -125,6 +201,10 @@ async function run() {
       fs.readFileSync(startupPromptFile, 'utf8').trim(),
       farmingSystemPrompt,
       'the OpenCode instructions file must contain the same bootstrap as other providers',
+    );
+    assert(
+      farmingSystemPrompt.includes('farming" title "简短任务标题"'),
+      'the shared Terminal and ACP bootstrap must require concise Agent-managed titles',
     );
 
     const state = manager.getState();

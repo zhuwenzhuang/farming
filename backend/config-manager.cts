@@ -1390,6 +1390,76 @@ class ConfigManager {
     };
   }
 
+  reorderProjectWorkspace(
+    workspace: unknown,
+    {
+      beforeWorkspace = '',
+      afterWorkspace = '',
+    }: { beforeWorkspace?: unknown; afterWorkspace?: unknown } = {},
+  ): JsonRecord {
+    const [canonicalWorkspace] = this.normalizeProjectWorkspaces([workspace]);
+    const currentProjects = this.settings.projectWorkspaces || [];
+    if (!canonicalWorkspace || !currentProjects.includes(canonicalWorkspace)) {
+      throw new Error('Project does not exist');
+    }
+
+    const normalizeNeighbor = (value: unknown): string => {
+      if (typeof value !== 'string' || !value.trim()) return '';
+      return this.normalizeProjectWorkspaces([value])[0] || '';
+    };
+    const canonicalBefore = normalizeNeighbor(beforeWorkspace);
+    const canonicalAfter = normalizeNeighbor(afterWorkspace);
+    if (
+      (typeof beforeWorkspace === 'string' && beforeWorkspace.trim() && !canonicalBefore)
+      || (typeof afterWorkspace === 'string' && afterWorkspace.trim() && !canonicalAfter)
+    ) {
+      throw new Error('Reorder neighbors are invalid');
+    }
+    const pinnedProjects = this.settings.pinnedProjectWorkspaces || [];
+    const projectIsPinned = pinnedProjects.includes(canonicalWorkspace);
+    const cohort = (projectIsPinned
+      ? pinnedProjects
+      : currentProjects.filter(project => !pinnedProjects.includes(project)))
+      .filter(project => project !== canonicalWorkspace);
+    const beforeIndex = canonicalBefore ? cohort.indexOf(canonicalBefore) : -1;
+    const afterIndex = canonicalAfter ? cohort.indexOf(canonicalAfter) : -1;
+    if (
+      (canonicalBefore && beforeIndex < 0)
+      || (canonicalAfter && afterIndex < 0)
+    ) {
+      throw new Error('Reorder neighbors must belong to the same Project group');
+    }
+
+    const insertIndex = canonicalAfter ? afterIndex : canonicalBefore ? beforeIndex + 1 : 0;
+    const expectedBefore = insertIndex > 0 ? cohort[insertIndex - 1] || '' : '';
+    const expectedAfter = insertIndex < cohort.length ? cohort[insertIndex] || '' : '';
+    if (expectedBefore !== canonicalBefore || expectedAfter !== canonicalAfter) {
+      throw new Error('Reorder neighbors are stale');
+    }
+
+    const reorderedCohort = [...cohort];
+    reorderedCohort.splice(insertIndex, 0, canonicalWorkspace);
+    const nextPinned = projectIsPinned ? reorderedCohort : [...pinnedProjects];
+    const nextUnpinned = projectIsPinned
+      ? currentProjects.filter(project => !pinnedProjects.includes(project))
+      : reorderedCohort;
+    const nextProjects = [...nextPinned, ...nextUnpinned];
+    if (
+      nextProjects.some((project, index) => project !== currentProjects[index])
+      || nextPinned.some((project, index) => project !== pinnedProjects[index])
+    ) {
+      this.commitProjectMembership({
+        projectWorkspaces: nextProjects,
+        pinnedProjectWorkspaces: nextPinned,
+      });
+    }
+    return {
+      workspace: canonicalWorkspace,
+      projectWorkspaces: [...(this.settings.projectWorkspaces || [])],
+      pinnedProjectWorkspaces: [...(this.settings.pinnedProjectWorkspaces || [])],
+    };
+  }
+
   commitProjectMembership(settingsPatch: JsonRecord): void {
     const previousSettings = this.settings;
     try {

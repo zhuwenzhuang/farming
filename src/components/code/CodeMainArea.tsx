@@ -300,6 +300,7 @@ interface CodeMainAreaProps {
     mode: 'same-worktree' | 'new-worktree',
     options?: { targetRuntime?: 'chat'; expectedRevision?: number }
   ) => Promise<void> | void
+  onReviewAndCommit: (agentId: string) => void
   onSessionOutput: (agentId: string, handler: (data: string, replace?: boolean, outputSeq?: number | null, runtimeEpoch?: string, stateRevision?: number | null, cols?: number, rows?: number, kind?: 'output' | 'resize' | 'clear') => void) => () => void
   onOpenSearchAgent: (agentId: string) => void
   onOpenSearchSession: (session: AgentSessionHistoryItem) => void
@@ -578,6 +579,7 @@ export function CodeMainArea({
   onAgentReadLatest,
   onRuntimeModeChange,
   onForkAgent,
+  onReviewAndCommit,
   onSessionOutput,
   onOpenSearchAgent,
   onOpenSearchSession,
@@ -946,6 +948,7 @@ export function CodeMainArea({
               onReadLatest={onAgentReadLatest}
               onRuntimeModeChange={onRuntimeModeChange}
               onForkAgent={onForkAgent}
+              onReviewAndCommit={onReviewAndCommit}
               onSessionOutput={onSessionOutput}
               focusSignal={terminalFocusRequest?.agentId === agent.id ? terminalFocusRequest.nonce : 0}
               copy={copy}

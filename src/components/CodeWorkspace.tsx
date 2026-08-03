@@ -20,7 +20,11 @@ import { appPath } from '@/lib/base-path'
 import { writeClipboardText } from '@/lib/clipboard'
 import { getBackendConnectionSnapshot } from '@/lib/backend-live-status'
 import { isAcpRuntime, isStructuredRuntime } from '@/lib/agent-runtime'
-import { useAgentWithLiveRuntimeState } from '@/lib/agent-live-state'
+import {
+  agentWithCurrentLiveState,
+  subscribeAgentRuntimeBindingEvents,
+  useAgentWithLiveRuntimeState,
+} from '@/lib/agent-live-state'
 import { recordPerformanceTestRender } from '@/lib/performance-test-observer'
 import {
   foregroundHttpPriorityActive,
@@ -428,6 +432,8 @@ const OPEN_FILE_REFRESH_TIMEOUT_MS = 15_000
 const AGENT_SESSION_PAGE_SIZE = 60
 const AGENT_SESSION_SEARCH_LIMIT = 1000
 const AGENT_SESSION_SEARCH_DEBOUNCE_MS = 150
+const AGENT_SESSION_BACKGROUND_QUIET_MS = 5_000
+const AGENT_SESSION_LIFECYCLE_SETTLE_MS = 30_000
 const CODEX_TERMINAL_PROFILE_REQUEST_TIMEOUT_MS = 35_000
 const MAIN_PAGE_SESSION_MUTATION_TIMEOUT_MS = 15_000
 
@@ -640,6 +646,8 @@ export function CodeWorkspace({
     permissionSwitchReplacement,
     onDiscardAttachment: revokeComposerAttachmentPreview,
   })
+  const composerByAgentKeyRef = useRef(composerByAgentKey)
+  composerByAgentKeyRef.current = composerByAgentKey
   const pendingFollowUpAutoFlushRef = useRef<Record<string, string>>({})
   const acpSubmissionAdmissionsRef = useRef<Set<string>>(new Set())
   // This is only a local admission fence. ACP's runtime state remains
@@ -739,10 +747,12 @@ export function CodeWorkspace({
   const [searchedAgentSessions, setSearchedAgentSessions] = useState<AgentSessionHistoryItem[]>([])
   const [agentSessionSearchLoading, setAgentSessionSearchLoading] = useState(false)
   const agentSessionsLoadingRef = useRef(false)
-  const agentSessionsRefreshInFlightRef = useRef<Promise<void> | null>(null)
   const agentSessionsFirstPageRequestRef = useRef<{ limit: number; fresh: boolean; promise: Promise<AgentSessionPage> } | null>(null)
   const agentSessionsLoadGenerationRef = useRef(0)
   const agentSessionsLoadAbortRef = useRef<AbortController | null>(null)
+  const agentSessionsBackgroundTimerRef = useRef<number | null>(null)
+  const agentSessionsBackgroundFreshRef = useRef(false)
+  const agentSessionsBackgroundCancelRef = useRef<(() => void) | null>(null)
   const agentSessionLoadedCountRef = useRef(AGENT_SESSION_PAGE_SIZE)
   const [agentSessionPinnedOverrides, setAgentSessionPinnedOverrides] = useState<Record<string, boolean>>(
     () => loadSessionDisplayState().pinnedOverrides
@@ -1337,12 +1347,18 @@ export function CodeWorkspace({
     notificationRevealRequest,
     onWorkspaceViewChange,
   ])
-  const contextMenuAgent = useMemo(
+  const structuralContextMenuAgent = useMemo(
     () => activeAgents.find(agent => agent.id === agentMenu?.agentId) ?? null,
     [activeAgents, agentMenu?.agentId]
   )
+  const contextMenuAgent = useAgentWithLiveRuntimeState(structuralContextMenuAgent)
   const contextMenuProject = useMemo(
-    () => projectListProjects.find(project => project.id === projectMenu?.projectId) ?? null,
+    () => {
+      const project = projectListProjects.find(candidate => candidate.id === projectMenu?.projectId)
+      return project
+        ? { ...project, agents: project.agents.map(agentWithCurrentLiveState) }
+        : null
+    },
     [projectListProjects, projectMenu?.projectId]
   )
   const contextMenuAgentSession = useMemo(
@@ -1704,7 +1720,16 @@ export function CodeWorkspace({
   const loadAgentSessions = useCallback((fresh = false) => {
     let cancelled = false
     if (!fresh && foregroundHttpPriorityActive()) return () => {}
+    if (fresh && agentSessionsBackgroundTimerRef.current !== null) {
+      window.clearTimeout(agentSessionsBackgroundTimerRef.current)
+      agentSessionsBackgroundTimerRef.current = null
+      agentSessionsBackgroundFreshRef.current = false
+    }
     agentSessionsLoadAbortRef.current?.abort()
+    // A superseded first-page request remains in the single-flight ref until
+    // its promise settles. Clear that ownership synchronously so an explicit
+    // History refresh cannot reuse the just-aborted background request.
+    agentSessionsFirstPageRequestRef.current = null
     const controller = new AbortController()
     agentSessionsLoadAbortRef.current = controller
     const generation = agentSessionsLoadGenerationRef.current + 1
@@ -1744,32 +1769,50 @@ export function CodeWorkspace({
       }
     }
   }, [fetchAgentSessionPage])
+  const scheduleAgentSessionsBackgroundLoad = useCallback((fresh = false) => {
+    agentSessionsBackgroundFreshRef.current = agentSessionsBackgroundFreshRef.current || fresh
+    const quietMs = agentSessionsBackgroundFreshRef.current
+      ? AGENT_SESSION_LIFECYCLE_SETTLE_MS
+      : AGENT_SESSION_BACKGROUND_QUIET_MS
+    if (agentSessionsBackgroundTimerRef.current !== null) {
+      window.clearTimeout(agentSessionsBackgroundTimerRef.current)
+    }
+    const run = () => {
+      if (foregroundHttpPriorityActive()) {
+        agentSessionsBackgroundTimerRef.current = window.setTimeout(
+          run,
+          quietMs,
+        )
+        return
+      }
+      agentSessionsBackgroundTimerRef.current = null
+      const requestedFresh = agentSessionsBackgroundFreshRef.current
+      agentSessionsBackgroundFreshRef.current = false
+      agentSessionsBackgroundCancelRef.current?.()
+      agentSessionsBackgroundCancelRef.current = loadAgentSessions(requestedFresh)
+    }
+    agentSessionsBackgroundTimerRef.current = window.setTimeout(
+      run,
+      quietMs,
+    )
+  }, [loadAgentSessions])
   useEffect(() => subscribeForegroundHttpPriority(() => {
     agentSessionsLoadAbortRef.current?.abort()
-  }), [])
+    scheduleAgentSessionsBackgroundLoad()
+  }), [scheduleAgentSessionsBackgroundLoad])
+  useEffect(() => () => {
+    if (agentSessionsBackgroundTimerRef.current !== null) {
+      window.clearTimeout(agentSessionsBackgroundTimerRef.current)
+      agentSessionsBackgroundTimerRef.current = null
+    }
+    agentSessionsBackgroundCancelRef.current?.()
+    agentSessionsBackgroundCancelRef.current = null
+  }, [])
   const invalidateAgentSessionsForHistory = useCallback(() => {
     agentSessionsLoadGenerationRef.current += 1
     setAgentSessionsFreshLoading(true)
     setAgentSessionsFreshError('')
   }, [])
-  const refreshAgentSessions = useCallback(() => {
-    if (agentSessionsRefreshInFlightRef.current) return agentSessionsRefreshInFlightRef.current
-    const refresh = fetchAgentSessionPage({ limit: agentSessionLoadedCountRef.current, fresh: true })
-      .then(page => {
-        setAgentSessions(page.sessions)
-        setAgentSessionNextCursor(page.nextCursor)
-        setAgentSessionsHasMore(page.hasMore)
-        setAgentSessionTotal(page.total)
-      })
-      .catch(() => {})
-      .finally(() => {
-        if (agentSessionsRefreshInFlightRef.current === refresh) {
-          agentSessionsRefreshInFlightRef.current = null
-        }
-      })
-    agentSessionsRefreshInFlightRef.current = refresh
-    return refresh
-  }, [fetchAgentSessionPage])
   const loadMoreAgentSessions = useCallback(async () => {
     if (!agentSessionsHasMore || !agentSessionNextCursor || agentSessionsLoadingRef.current) return false
     agentSessionsLoadingRef.current = true
@@ -2007,8 +2050,9 @@ export function CodeWorkspace({
     force = false,
     readCut: TerminalReadCut | null = null,
   ) => {
-    const agent = activeAgentsRef.current.find(candidate => candidate.id === agentId)
-    if (!agent) return
+    const structuralAgent = activeAgentsRef.current.find(candidate => candidate.id === agentId)
+    if (!structuralAgent) return
+    const agent = agentWithCurrentLiveState(structuralAgent)
     const attentionSeq = Number.isFinite(agent.attentionSeq) ? Math.max(0, Number(agent.attentionSeq)) : 0
     const readAttentionSeq = Number.isFinite(agent.readAttentionSeq) ? Math.max(0, Number(agent.readAttentionSeq)) : 0
     const readOutputSeq = Number.isFinite(agent.readOutputSeq) ? Math.max(0, Number(agent.readOutputSeq)) : null
@@ -2184,6 +2228,16 @@ export function CodeWorkspace({
     return sendTerminalSessionInput(agent.id, terminalInputPartsForComposerMessage(message))
   }, [sendComposerInput])
 
+  const requestAgentReviewAndCommit = useCallback((agentId: string) => {
+    const agent = mountedOpenAgents.find(candidate => candidate.id === agentId)
+    if (!agent || !isStructuredRuntime(agent)) return
+    const submitted = sendComposerMessageToAgent(
+      agent,
+      copy.agentTranscriptReviewAndCommitPrompt,
+    )
+    if (typeof submitted !== 'boolean') void submitted.catch(() => undefined)
+  }, [copy.agentTranscriptReviewAndCommitPrompt, mountedOpenAgents, sendComposerMessageToAgent])
+
   const submitDraft = useCallback((submittedDraft?: string) => {
     const latestDraft = submittedDraft ?? composerTextareaRef.current?.value ?? draft
     if (!activeAgent || !activeComposerKey || !composerAttachmentsCanSubmit(composerAttachments)) return
@@ -2257,7 +2311,7 @@ export function CodeWorkspace({
       followUpBehavior: resolveAcpFollowUpBehavior(
         uiPreferences.composerFollowUpBehavior,
         options?.oppositeFollowUpBehavior === true,
-        activeAgent?.providerCapabilities.supportsSteer === true,
+        activeAcpRuntime?.supportsSteer === true,
       ),
       sendMessage: (agent, message, attachments, requestId, delivery) => sendComposerMessageToAgent(
         agent,
@@ -2330,7 +2384,7 @@ export function CodeWorkspace({
       !activeAgent
       || !activeComposerKey
       || !activeAgentTurnActive
-      || activeAgent.providerCapabilities.supportsSteer !== true
+      || activeAcpRuntime?.supportsSteer !== true
     ) return
     const message = composerByAgentKey[activeComposerKey]?.pendingFollowUp?.messages.find(candidate => (
       candidate.id === messageId
@@ -2382,6 +2436,7 @@ export function CodeWorkspace({
     if (typeof sent === 'boolean') settle(sent)
     else void sent.then(settle, () => settle(false))
   }, [
+    activeAcpRuntime,
     activeAgent,
     activeAgentTurnActive,
     activeComposerKey,
@@ -2495,44 +2550,48 @@ export function CodeWorkspace({
     updateComposerStateForKey,
   ])
 
+  const reconcileAcpPromptStartFence = useCallback((structuralAgent: Agent) => {
+    const agent = agentWithCurrentLiveState(structuralAgent)
+    const revisionBeforePrompt = acpPromptStartFencesRef.current[agent.id]
+    if (revisionBeforePrompt === undefined) return
+    const acpRuntime = isAcpRuntime(agent) ? agent.runtimeBinding : null
+    const promptStateConfirmed = isAgentTurnActive(agent)
+      || (Number(acpRuntime?.sessionRevision) || 0) > revisionBeforePrompt
+    if (
+      !acpRuntime
+      || promptStateConfirmed
+      || acpRuntime.state === 'error'
+      || agent.archived
+      || agent.status === 'dead'
+      || agent.status === 'stopped'
+    ) {
+      delete acpPromptStartFencesRef.current[agent.id]
+    }
+  }, [])
+
   useEffect(() => {
     const activeAgentIds = new Set(activeAgents.map(agent => agent.id))
     Object.keys(acpPromptStartFencesRef.current).forEach((agentId) => {
       if (!activeAgentIds.has(agentId)) delete acpPromptStartFencesRef.current[agentId]
     })
-    activeAgents.forEach((agent) => {
-      const revisionBeforePrompt = acpPromptStartFencesRef.current[agent.id]
-      if (revisionBeforePrompt === undefined) return
-      const acpRuntime = isAcpRuntime(agent) ? agent.runtimeBinding : null
-      const promptStateConfirmed = isAgentTurnActive(agent)
-        || (Number(acpRuntime?.sessionRevision) || 0) > revisionBeforePrompt
-      if (
-        !acpRuntime
-        || promptStateConfirmed
-        || acpRuntime.state === 'error'
-        || agent.archived
-        || agent.status === 'dead'
-        || agent.status === 'stopped'
-      ) {
-        delete acpPromptStartFencesRef.current[agent.id]
-      }
-    })
-  }, [activeAgents])
+    activeAgents.forEach(reconcileAcpPromptStartFence)
+  }, [activeAgents, reconcileAcpPromptStartFence])
 
-  useEffect(() => {
+  const flushPendingFollowUps = useCallback((candidateAgents: Agent[]) => {
     const pendingFlushes: Array<{
       agent: Agent
       composerKey: string
       message: AgentComposerPendingFollowUpMessage
     }> = []
 
-    activeAgents.forEach(agent => {
+    candidateAgents.forEach(structuralAgent => {
+      const agent = agentWithCurrentLiveState(structuralAgent)
       const acpRuntime = isAcpRuntime(agent) ? agent.runtimeBinding : null
       const composerKey = acpRuntime
         ? acpComposerStateKeyForAgent(agent)
         : composerStateKeyForAgent(agent)
       if (!composerKey) return
-      const pending = composerByAgentKey[composerKey]?.pendingFollowUp
+      const pending = composerByAgentKeyRef.current[composerKey]?.pendingFollowUp
       if (!pending || pending.messages.length === 0) {
         delete pendingFollowUpAutoFlushRef.current[composerKey]
         return
@@ -2611,7 +2670,18 @@ export function CodeWorkspace({
       }
       void submitted.then(settle, () => settle(false))
     })
-  }, [activeAgents, composerByAgentKey, sendComposerMessageToAgent, updateExistingComposerStateForKey])
+  }, [sendComposerMessageToAgent, updateExistingComposerStateForKey])
+
+  useEffect(() => {
+    flushPendingFollowUps(activeAgents)
+  }, [activeAgents, composerByAgentKey, flushPendingFollowUps])
+
+  useEffect(() => subscribeAgentRuntimeBindingEvents(agentId => {
+    const structuralAgent = activeAgentsRef.current.find(agent => agent.id === agentId)
+    if (!structuralAgent) return
+    reconcileAcpPromptStartFence(structuralAgent)
+    flushPendingFollowUps([structuralAgent])
+  }), [flushPendingFollowUps, reconcileAcpPromptStartFence])
 
   const openSearch = useCallback(() => {
     closeContextMenu()
@@ -2828,8 +2898,8 @@ export function CodeWorkspace({
       updateLocalMainPageSessionKeys(previous => [...previous, sessionHandle])
       discoveredSession = true
     })
-    if (discoveredSession) refreshAgentSessions()
-  }, [activeAgents, refreshAgentSessions, updateLocalMainPageSessionKeys])
+    if (discoveredSession) scheduleAgentSessionsBackgroundLoad(true)
+  }, [activeAgents, scheduleAgentSessionsBackgroundLoad, updateLocalMainPageSessionKeys])
 
   const focusActiveProjectListTargetNow = useCallback(() => {
     const activeAgentId = activeTerminalIdRef.current
@@ -4211,6 +4281,35 @@ export function CodeWorkspace({
     }
   }, [copy.reorderAgentFailed])
 
+  const reorderSidebarProject = useCallback(async (
+    workspace: string,
+    beforeWorkspace: string,
+    afterWorkspace: string,
+  ) => {
+    try {
+      const response = await fetch(appPath('/api/projects/reorder'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspace, beforeWorkspace, afterWorkspace }),
+      })
+      const membership = await response.json().catch(() => null) as {
+        error?: string
+        projectWorkspaces?: string[]
+        pinnedProjectWorkspaces?: string[]
+      } | null
+      if (!response.ok) {
+        throw new Error(membership?.error || copy.reorderProjectFailed)
+      }
+      applyProjectMembership(membership || {})
+    } catch (error) {
+      setCopyNotice({
+        id: Date.now(),
+        kind: 'error',
+        message: error instanceof Error ? error.message : copy.reorderProjectFailed,
+      })
+    }
+  }, [applyProjectMembership, copy.reorderProjectFailed])
+
   const restoreArchivedAgent = useCallback((agentId: string) => {
     pendingArchivedFocusAgentRef.current = null
     pendingRestoredFocusAgentRef.current = agentId
@@ -4781,7 +4880,7 @@ export function CodeWorkspace({
     if (!contextMenuProject) return
     const projectId = contextMenuProject.id
     contextMenuProject.agents.forEach(agent => {
-      if (agent.unread) markAgentReadIfNeeded(agent.id, true)
+      if (agentWithCurrentLiveState(agent).unread) markAgentReadIfNeeded(agent.id, true)
     })
     closeContextMenu()
     focusProjectTitle(projectId)
@@ -5225,7 +5324,9 @@ export function CodeWorkspace({
     window.addEventListener('farming:backend-connected', retryRecoverableLoad)
     return () => window.removeEventListener('farming:backend-connected', retryRecoverableLoad)
   }, [composerAgentKind, loadCodexModels, modelMenuOpen])
-  useEffect(() => loadAgentSessions(), [loadAgentSessions])
+  useEffect(() => {
+    scheduleAgentSessionsBackgroundLoad()
+  }, [scheduleAgentSessionsBackgroundLoad])
 
   useEffect(() => {
     autoSizeComposerTextarea()
@@ -5471,6 +5572,7 @@ export function CodeWorkspace({
         onToggleProjectSessions={toggleProjectSessions}
         onMountProject={mountProject}
         onOpenProjectMenu={openProjectContextMenu}
+        onReorderProject={reorderSidebarProject}
         onOpenAgent={openTerminalFromSidebar}
         onUpdateAgentFlags={updateSidebarAgentFlags}
         onReorderAgent={reorderSidebarAgent}
@@ -5680,7 +5782,7 @@ export function CodeWorkspace({
           pendingFollowUp: activePendingFollowUp ?? null,
           submissions: activeComposerSubmissions ?? [],
           canSteerPendingFollowUp: activeAgentTurnActive
-            && activeAgent?.providerCapabilities.supportsSteer === true,
+            && activeAcpRuntime?.supportsSteer === true,
           submitAction: acpComposerSubmitAction,
           textareaRef: composerTextareaRef,
           attachmentInputRef,
@@ -5848,6 +5950,7 @@ export function CodeWorkspace({
         onAgentReadLatest={markAgentReadLatest}
         onRuntimeModeChange={updateAgentRuntimeMode}
         onForkAgent={onForkAgent}
+        onReviewAndCommit={requestAgentReviewAndCommit}
         onSessionOutput={onSessionOutput}
         onOpenSearchAgent={openTerminalFromWorkspace}
         onOpenSearchSession={session => {

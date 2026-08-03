@@ -90,7 +90,7 @@ test('stop-all matcher keeps supported Farming roots and their descendants', () 
     psLine(104, 1, 'node /repo/dist/acp/codex-acp-1.1.4.mjs --stdio'),
     psLine(105, 1, 'node /repo/bin/farming start'),
     psLine(106, 1, 'node /repo/bin/farming daemon'),
-    psLine(107, 1, '/repo/bin/farming browser mcp'),
+    psLine(107, 1, '/repo/bin/farming browser describe snapshot --json'),
     psLine(108, 1, '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome --user-data-dir=/tmp/farming-browser'),
     psLine(109, 101, '/bin/sleep 60'),
     psLine(110, 1, '/opt/glibc/ld-linux-x86-64.so.2 --library-path /opt/glibc/lib /opt/node/bin/node /repo/backend/native-pty-host.cjs'),
@@ -100,10 +100,15 @@ test('stop-all matcher keeps supported Farming roots and their descendants', () 
   ])
 
   assert.equal(result.status, 0, result.stderr)
-  assert.match(result.stdout, /Matched 13 Farming process\(es\):/)
-  for (const pid of [101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113]) {
+  assert.match(result.stdout, /Matched 12 Farming process\(es\):/)
+  for (const pid of [101, 102, 103, 104, 105, 106, 108, 109, 110, 111, 112, 113]) {
     assert.match(result.stdout, new RegExp(`pid=${pid}\\b`))
   }
+  assert.doesNotMatch(
+    result.stdout,
+    /pid=107\b/,
+    'one-shot capability CLI commands must not be treated as persistent Farming processes',
+  )
 })
 
 test('stop-all matcher classifies relative and absolute server roots for graceful shutdown', () => {

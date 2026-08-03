@@ -29,6 +29,8 @@ function run() {
   const pkgConfig = fs.readFileSync(pkgConfigPath, 'utf8');
   const server = fs.readFileSync(serverPath, 'utf8');
   const crtApp = fs.readFileSync(path.join(__dirname, '../../frontend/skins/crt/app.ts'), 'utf8');
+  const generatedCrtApp = fs.readFileSync(path.join(__dirname, '../../frontend/skins/crt/app.js'), 'utf8');
+  const browserProtocolSource = fs.readFileSync(path.join(__dirname, '../../shared/browser-protocol.ts'), 'utf8');
   const themeLoader = fs.readFileSync(path.join(__dirname, '../../frontend/theme-loader.ts'), 'utf8');
   const ghosttyLoader = fs.readFileSync(path.join(__dirname, '../../frontend/ghostty-loader.ts'), 'utf8');
 
@@ -212,6 +214,12 @@ function run() {
   assert(effectsCss.includes('#farming-crt.page-hidden .crt-scan-beam'), 'CRT should pause the scan beam while its page is hidden');
   assert(crtApp.includes("document.addEventListener('visibilitychange'") && crtApp.includes("window.addEventListener('pagehide'"), 'CRT should observe page visibility lifecycle events');
   assert(crtApp.includes('suspendCrtPageConnection') && crtApp.includes('wsReconnectTimer'), 'CRT should close hidden-page sockets and cancel reconnect work');
+  const browserProtocolVersion = Number(browserProtocolSource.match(/PROTOCOL_VERSION = (\d+)/)?.[1]);
+  assert(Number.isInteger(browserProtocolVersion), 'The shared browser protocol should expose an integer version');
+  assert(crtApp.includes("Number('__FARMING_BROWSER_PROTOCOL_VERSION__')"), 'CRT source should receive its protocol version from the classic runtime build');
+  assert(generatedCrtApp.includes(`CRT_PROTOCOL_VERSION = ${browserProtocolVersion}`), 'Built CRT should negotiate the shared Farming browser protocol version');
+  assert(crtApp.includes("data.type === 'agent-read'") && crtApp.includes('Object.assign(agent, readState)'), 'CRT should apply shared Agent read-state deltas');
+  assert(crtApp.includes('event.code === 4001 || event.code === 4002') && crtApp.includes('if (!terminalClose &&'), 'CRT should not loop forever after authentication or protocol rejection');
   assert(crtApp.includes('resumeCrtPageConnection') && crtApp.includes('refreshSessionView(true'), 'CRT should reconnect and fetch an authoritative terminal checkpoint when visible again');
   assert(!effectsCss.includes('repeating-linear-gradient(\n            to right'), 'Monochrome Green should not use an RGB aperture mask');
   assert(indexHtml.includes('id="farming-crt"'), 'CRT effects should be scoped to the CRT skin root');

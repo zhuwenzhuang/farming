@@ -6,8 +6,8 @@ exports.sanitizeAgentUpdatePatch = sanitizeAgentUpdatePatch;
 exports.validateClientMessage = validateClientMessage;
 exports.validateServerMessage = validateServerMessage;
 exports.protocolCompatible = protocolCompatible;
-exports.PROTOCOL_VERSION = 4;
-exports.MIN_PROTOCOL_VERSION = 4;
+exports.PROTOCOL_VERSION = 5;
+exports.MIN_PROTOCOL_VERSION = 5;
 const CLIENT_MESSAGE_TYPES = new Set([
     'protocol-hello',
     'business-health-probe',
@@ -80,7 +80,43 @@ function resourceDeletion(value) {
         && value.id.length > 0
         && revisionField(value, 'collectionRevision');
 }
+function finiteNullableField(value, name) {
+    return value[name] === null || finiteField(value, name);
+}
+function optionalField(value, name, validate) {
+    return value[name] === undefined || validate();
+}
+function agentReadState(value) {
+    return objectMessage(value)
+        && stringField(value, 'agentId')
+        && typeof value.unread === 'boolean'
+        && revisionField(value, 'attentionSeq')
+        && revisionField(value, 'readAttentionSeq')
+        && optionalField(value, 'attentionUpdatedAt', () => finiteNullableField(value, 'attentionUpdatedAt'))
+        && optionalField(value, 'readAttentionAt', () => finiteNullableField(value, 'readAttentionAt'))
+        && stringField(value, 'attentionReason', true)
+        && stringField(value, 'attentionSummary', true)
+        && stringField(value, 'attentionOutputEpoch', true)
+        && optionalField(value, 'attentionOutputSeq', () => finiteNullableField(value, 'attentionOutputSeq'))
+        && stringField(value, 'readOutputEpoch')
+        && finiteNullableField(value, 'readOutputSeq');
+}
 const AGENT_UPDATE_PATCH_VALIDATORS = {
+    adaptiveTitle: (value) => typeof value === 'string',
+    sessionTitle: (value) => typeof value === 'string',
+    runtimeBinding: (value) => (objectMessage(value)
+        && (value.kind === 'terminal'
+            || (value.kind === 'acp'
+                && typeof value.state === 'string'
+                && typeof value.error === 'string'
+                && typeof value.stopReason === 'string'
+                && typeof value.supportsSteer === 'boolean'
+                && typeof value.supportsFork === 'boolean'
+                && Array.isArray(value.pendingPermissions)
+                && Array.isArray(value.pendingElicitations)
+                && Array.isArray(value.activeElicitations)
+                && typeof value.sessionUpdatedAt === 'string'
+                && revisionField(value, 'sessionRevision')))),
     terminalInputReceived: (value) => typeof value === 'boolean',
     terminalBusy: (value) => value === null || typeof value === 'boolean',
     shellCwd: (value) => typeof value === 'string',
@@ -216,7 +252,7 @@ function validateServerMessage(value) {
             valid = objectMessage(value.session) && stringField(value.session, 'agentId') && Number.isInteger(value.session.revision) && typeof value.session.revision === 'number' && value.session.revision >= 0 && stringField(value.session, 'updatedAt');
             break;
         case 'agent-read':
-            valid = objectMessage(value.read) && stringField(value.read, 'agentId');
+            valid = agentReadState(value.read);
             break;
         case 'workspace-file-watch':
             valid = stringField(value, 'agentId') && typeof value.watching === 'boolean';

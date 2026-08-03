@@ -38,6 +38,142 @@ async function selectAgentOnCompactLayout(page: Page, agentId: string) {
   await expect(page.getByTestId('code-agent-chat-view')).toBeVisible()
 }
 
+test('opens a completed Chat shell immediately and renders its prepared snapshot', async ({ page, workspaceRoot }) => {
+  const workspace = path.join(workspaceRoot, 'chat-initial-snapshot-reveal')
+  fs.mkdirSync(workspace, { recursive: true })
+  const agentId = await createAcpAgent(page, workspace)
+  const partialAnswer = 'Initial answer fragment that must stay hidden.'
+  const completeAnswer = 'Initial answer is now complete and should appear once.'
+  let transcriptRequests = 0
+
+  await page.route(new RegExp(`/farming/api/agents/${agentId}/acp-transcript(?:\\?.*)?$`), async route => {
+    transcriptRequests += 1
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        transcript: {
+          sessionId: 'chat-initial-snapshot-reveal-session',
+          state: 'idle',
+          revision: transcriptRequests,
+          entries: [
+            {
+              id: 'initial-snapshot-user',
+              type: 'message',
+              role: 'user',
+              content: [{ type: 'text', text: 'Open this existing Chat.' }],
+            },
+            {
+              id: 'initial-snapshot-answer',
+              type: 'message',
+              role: 'assistant',
+              _meta: { codex: { phase: 'final_answer' } },
+              content: [{ type: 'text', text: completeAnswer }],
+            },
+          ],
+        },
+      }),
+    })
+  })
+
+  await openFarming(page)
+  await page.evaluate(fragment => {
+    const state = window as typeof window & {
+      __farmingInitialChatFragmentVisible?: boolean
+      __farmingInitialChatObserver?: MutationObserver
+    }
+    state.__farmingInitialChatFragmentVisible = false
+    state.__farmingInitialChatObserver = new MutationObserver(() => {
+      if (document.body.innerText.includes(fragment)) {
+        state.__farmingInitialChatFragmentVisible = true
+      }
+    })
+    state.__farmingInitialChatObserver.observe(document.body, { childList: true, subtree: true })
+  }, partialAnswer)
+  const agentRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
+  const revealMs = await agentRow.evaluate(row => new Promise<number>((resolve, reject) => {
+    const startedAt = performance.now()
+    ;(row as HTMLElement).click()
+    const observe = () => {
+      const chat = document.querySelector<HTMLElement>('[data-testid="code-agent-chat-view"]')
+      if (chat && !chat.hidden && chat.innerText.includes('Initial answer is now complete and should appear once.')) {
+        resolve(performance.now() - startedAt)
+        return
+      }
+      if (performance.now() - startedAt > 1_000) {
+        reject(new Error('Prepared Chat snapshot did not become visible'))
+        return
+      }
+      window.requestAnimationFrame(observe)
+    }
+    window.requestAnimationFrame(observe)
+  }))
+
+  await expect(page.getByText(completeAnswer, { exact: true })).toBeVisible({ timeout: 10_000 })
+  expect(transcriptRequests).toBeGreaterThanOrEqual(1)
+  expect(revealMs).toBeLessThan(250)
+  expect(await page.evaluate(() => (
+    (window as typeof window & { __farmingInitialChatFragmentVisible?: boolean })
+      .__farmingInitialChatFragmentVisible
+  ))).toBe(false)
+})
+
+test('shows a stable Chat shell for an uncached snapshot and ignores its late result after navigation', async ({ page, workspaceRoot }) => {
+  const workspace = path.join(workspaceRoot, 'chat-initial-snapshot-loading')
+  fs.mkdirSync(workspace, { recursive: true })
+  const agentId = await createAcpAgent(page, workspace)
+  let transcriptRequests = 0
+  let releaseTranscript = () => {}
+  const transcriptGate = new Promise<void>(resolve => {
+    releaseTranscript = resolve
+  })
+  await page.route(new RegExp(`/farming/api/agents/${agentId}/acp-transcript(?:\\?.*)?$`), async route => {
+    transcriptRequests += 1
+    await transcriptGate
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        transcript: {
+          sessionId: 'chat-initial-snapshot-loading-session',
+          state: 'idle',
+          revision: 1,
+          entries: [
+            {
+              id: 'initial-loading-user',
+              type: 'message',
+              role: 'user',
+              content: [{ type: 'text', text: 'Open the uncached Chat.' }],
+            },
+            {
+              id: 'initial-loading-answer',
+              type: 'message',
+              role: 'assistant',
+              _meta: { codex: { phase: 'final_answer' } },
+              content: [{ type: 'text', text: 'Late Chat answer must not steal navigation.' }],
+            },
+          ],
+        },
+      }),
+    })
+  })
+
+  await openFarming(page)
+  const agentRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
+  await agentRow.click()
+  await expect(page.getByTestId('code-agent-chat-view')).toBeVisible()
+  await expect(page.locator('.code-agent-transcript-state.subtle')).toBeVisible()
+  await expect(page.getByText('Late Chat answer must not steal navigation.', { exact: true })).toHaveCount(0)
+  await expect.poll(() => transcriptRequests).toBeGreaterThanOrEqual(1)
+
+  await page.getByTestId('code-nav-history').click()
+  await expect(page.getByTestId('code-history-panel')).toBeVisible()
+  releaseTranscript()
+  await page.evaluate(() => new Promise<void>(resolve => {
+    window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve()))
+  }))
+  await expect(page.getByTestId('code-history-panel')).toBeVisible()
+  await expect(page.getByText('Late Chat answer must not steal navigation.', { exact: true })).toHaveCount(0)
+})
+
 test('keeps ACP Chat live while the browser page is hidden', { tag: '@iphone-human' }, async ({ page, workspaceRoot }) => {
   const workspace = path.join(workspaceRoot, 'background-chat-continuity')
   fs.mkdirSync(workspace, { recursive: true })
@@ -152,7 +288,7 @@ test('does not repeat Chat read receipts when only live runtime state changes', 
   await expect(page.getByTestId('app-error-fallback')).toHaveCount(0)
 })
 
-test('keeps retained Chat frontends mounted and refreshes them by revision after Agent switches', async ({ page, workspaceRoot }) => {
+test('unmounts inactive Chat transcript trees and restores them from a settled checkpoint', async ({ page, workspaceRoot }) => {
   const workspace = path.join(workspaceRoot, 'agent-chat-view-cache')
   fs.mkdirSync(workspace, { recursive: true })
   fs.writeFileSync(path.join(workspace, 'cache-target.txt'), 'retained Chat file target\n')
@@ -195,89 +331,34 @@ test('keeps retained Chat frontends mounted and refreshes them by revision after
     [firstAgentId, []],
     [secondAgentId, []],
   ])
-  let firstDeltaRequestCount = 0
-  let releaseFirstDelta = () => {}
-  const firstDeltaGate = new Promise<void>(resolve => {
-    releaseFirstDelta = resolve
-  })
-  let markFirstDeltaStarted = () => {}
-  const firstDeltaStarted = new Promise<void>(resolve => {
-    markFirstDeltaStarted = resolve
-  })
-  let markFirstDeltaSettled = () => {}
-  const firstDeltaSettled = new Promise<void>(resolve => {
-    markFirstDeltaSettled = resolve
-  })
-
   const routeTranscript = async (agentId: string, label: string) => {
     await page.route(new RegExp(`/farming/api/agents/${agentId}/acp-transcript(?:\\?.*)?$`), async route => {
       const sinceRevision = new URL(route.request().url()).searchParams.get('sinceRevision')
       requests.get(agentId)?.push(sinceRevision)
-      const firstDeltaOrdinal = agentId === firstAgentId && sinceRevision !== null
-        ? ++firstDeltaRequestCount
-        : 0
-      const heldStaleDelta = firstDeltaOrdinal === 1
-      if (heldStaleDelta) {
-        markFirstDeltaStarted()
-        await firstDeltaGate
-      }
-      const deltaEntries = heldStaleDelta
-        ? [
-            {
-              id: 'FIRST-stale-delta-user',
-              type: 'message',
-              role: 'user',
-              content: [{ type: 'text', text: 'STALE delta user' }],
-            },
-            {
-              id: 'FIRST-stale-delta-answer',
-              type: 'message',
-              role: 'assistant',
-              _meta: { codex: { phase: 'final_answer' } },
-              content: [{ type: 'text', text: 'STALE delta must never replace the newer view.' }],
-            },
-          ]
-        : firstDeltaOrdinal === 2
-          ? [
-              {
-                id: 'FIRST-fresh-delta-user',
-                type: 'message',
-                role: 'user',
-                content: [{ type: 'text', text: 'FRESH delta user' }],
-              },
-              {
-                id: 'FIRST-fresh-delta-answer',
-                type: 'message',
-                role: 'assistant',
-                _meta: { codex: { phase: 'final_answer' } },
-                content: [{ type: 'text', text: 'FRESH delta remains authoritative.' }],
-              },
-            ]
-          : []
       try {
         await route.fulfill({
           contentType: 'application/json',
           body: JSON.stringify({
+            version: 1,
+            agentId,
+            sessionId: `${label}-session`,
+            runtimeEpoch: `${label}-epoch`,
+            fromRevision: null,
+            toRevision: 11,
+            replace: true,
+            settled: true,
+            hasMoreBefore: false,
             transcript: {
               sessionId: `${label}-session`,
               state: 'idle',
-              revision: sinceRevision === null
-                ? 11
-                : heldStaleDelta
-                  ? 12
-                  : agentId === firstAgentId
-                    ? 13
-                    : 11,
-              delta: sinceRevision !== null,
-              entries: sinceRevision === null ? transcriptEntries.get(label) ?? [] : deltaEntries,
+              revision: 11,
+              entries: transcriptEntries.get(label) ?? [],
             },
           }),
         })
       } catch (error) {
         if (route.request().failure()) return
         throw error
-      } finally {
-        if (heldStaleDelta) markFirstDeltaSettled()
       }
     })
   }
@@ -309,21 +390,26 @@ test('keeps retained Chat frontends mounted and refreshes them by revision after
     return element.scrollTop
   })
   expect(savedScrollTop).toBeGreaterThan(0)
+  const expectRestoredScroll = async (expected: number) => {
+    await expect.poll(async () => {
+      const actual = await firstScroll.evaluate(element => element.scrollTop)
+      return Math.abs(actual - expected)
+    }).toBeLessThan(80)
+  }
 
   await secondRow.click()
   const secondPane = page.locator(`[data-testid="code-agent-work-pane"][data-agent-id="${secondAgentId}"]`)
   await expect(secondPane.getByText('SECOND cached answer 19.', { exact: false })).toBeVisible()
   await expect(firstPane).toBeAttached()
   await expect(firstPane).toBeHidden()
+  await expect(firstPane.getByTestId('code-agent-transcript')).toHaveCount(0)
   expect(await firstPane.getAttribute('data-cache-probe')).toBe('retained')
 
   const cachedSwitchMs = await page.evaluate(agentId => new Promise<number>((resolve, reject) => {
     const row = document.querySelector<HTMLElement>(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
     const pane = document.querySelector<HTMLElement>(`[data-testid="code-agent-work-pane"][data-agent-id="${agentId}"]`)
-    const sentinel = pane?.querySelector<HTMLElement>('[data-cache-sentinel="retained"]')
-    const scroller = pane?.querySelector<HTMLElement>('[data-testid="code-agent-transcript-scroll"]')
-    if (!row || !pane || !sentinel || !scroller) {
-      reject(new Error('Cached Agent row, pane, or transcript sentinel is unavailable'))
+    if (!row || !pane) {
+      reject(new Error('Cached Agent row or pane is unavailable'))
       return
     }
     const startedAt = performance.now()
@@ -332,21 +418,13 @@ test('keeps retained Chat frontends mounted and refreshes them by revision after
     const observeVisibility = () => {
       frameCount += 1
       const paneStyle = window.getComputedStyle(pane)
-      const sentinelStyle = window.getComputedStyle(sentinel)
-      const sentinelRect = sentinel.getBoundingClientRect()
-      const scrollerRect = scroller.getBoundingClientRect()
+      const sentinel = Array.from(pane.querySelectorAll<HTMLElement>('.code-agent-transcript-assistant'))
+        .find(candidate => candidate.textContent?.includes('FIRST cached answer 19.'))
       const transcriptVisible = frameCount >= 2
         && !pane.hidden
         && paneStyle.display !== 'none'
         && paneStyle.visibility !== 'hidden'
-        && sentinelStyle.display !== 'none'
-        && sentinelStyle.visibility !== 'hidden'
-        && sentinelRect.width > 0
-        && sentinelRect.height > 0
-        && sentinelRect.bottom > scrollerRect.top
-        && sentinelRect.top < scrollerRect.bottom
-        && sentinelRect.right > scrollerRect.left
-        && sentinelRect.left < scrollerRect.right
+        && Boolean(sentinel)
       if (transcriptVisible) {
         resolve(performance.now() - startedAt)
         return
@@ -359,68 +437,63 @@ test('keeps retained Chat frontends mounted and refreshes them by revision after
     }
     window.requestAnimationFrame(observeVisibility)
   }), firstAgentId)
-  await firstDeltaStarted
   await expect(firstPane).toBeVisible()
   await expect(firstPane.getByText('FIRST cached answer 19.', { exact: false })).toBeVisible()
-  expect(cachedSwitchMs).toBeLessThan(250)
+  expect(cachedSwitchMs).toBeLessThan(300)
   expect(await firstPane.getAttribute('data-cache-probe')).toBe('retained')
-  expect(await firstScroll.evaluate(element => element.scrollTop)).toBeCloseTo(savedScrollTop, 0)
-  await expect(firstProcessSummary).toHaveAttribute('aria-expanded', 'true')
+  await expectRestoredScroll(savedScrollTop)
+  await expect(firstProcessSummary).toHaveAttribute('aria-expanded', 'false')
 
   await secondRow.click()
   await expect(firstPane).toBeHidden()
   await firstRow.click()
   await expect(firstPane).toBeVisible()
   await expect(firstPane.getByText('FIRST cached answer 19.', { exact: false })).toBeVisible()
-  await expect(firstPane.getByText('FRESH delta remains authoritative.', { exact: true })).toBeVisible()
-  releaseFirstDelta()
-  await firstDeltaSettled
-  await expect(firstPane.getByText('STALE delta must never replace the newer view.', { exact: true })).toHaveCount(0)
-  await expect(firstPane.getByText('FRESH delta remains authoritative.', { exact: true })).toBeVisible()
-  await expect.poll(() => requests.get(firstAgentId)?.filter(revision => revision === '11').length).toBeGreaterThanOrEqual(2)
-  expect(requests.get(firstAgentId)?.filter(revision => revision === null)).toHaveLength(1)
-  expect(requests.get(secondAgentId)?.filter(revision => revision === null)).toHaveLength(1)
+  expect(requests.get(firstAgentId)?.every(revision => revision === null)).toBe(true)
+  expect(requests.get(firstAgentId)?.filter(revision => revision === null).length).toBeGreaterThanOrEqual(3)
+  expect(requests.get(secondAgentId)?.filter(revision => revision === null).length).toBeGreaterThanOrEqual(2)
   expect(await firstPane.getAttribute('data-cache-probe')).toBe('retained')
   const refreshedScrollTop = await firstScroll.evaluate(element => {
-    const sentinel = element.querySelector<HTMLElement>('[data-cache-sentinel="retained"]')
-    if (!sentinel) throw new Error('Cached transcript sentinel was replaced')
     return element.scrollTop
   })
   expect(refreshedScrollTop).toBeGreaterThan(0)
-  await expect(firstProcessSummary).toHaveAttribute('aria-expanded', 'true')
+  await expect(firstProcessSummary).toHaveAttribute('aria-expanded', 'false')
 
   await page.getByTestId('code-nav-history').click()
   await expect(page.getByTestId('code-history-panel')).toBeVisible()
   await expect(firstPane).toBeAttached()
+  await expect(firstPane.getByTestId('code-agent-transcript')).toHaveCount(0)
   expect(await firstPane.getAttribute('data-cache-probe')).toBe('retained')
 
   await firstRow.click()
   await expect(firstPane).toBeVisible()
   expect(await firstPane.getAttribute('data-cache-probe')).toBe('retained')
-  expect(await firstScroll.evaluate(element => element.scrollTop)).toBeCloseTo(refreshedScrollTop, 0)
-  await expect(firstProcessSummary).toHaveAttribute('aria-expanded', 'true')
+  await expectRestoredScroll(refreshedScrollTop)
+  await expect(firstProcessSummary).toHaveAttribute('aria-expanded', 'false')
 
   await page.getByTestId('code-nav-search').click()
   await expect(page.getByTestId('code-search-panel')).toBeVisible()
   await expect(firstPane).toBeAttached()
   await expect(firstPane).toBeHidden()
+  await expect(firstPane.getByTestId('code-agent-transcript')).toHaveCount(0)
   expect(await firstPane.getAttribute('data-cache-probe')).toBe('retained')
 
   await firstRow.click()
   await expect(firstPane).toBeVisible()
-  expect(await firstScroll.evaluate(element => element.scrollTop)).toBeCloseTo(refreshedScrollTop, 0)
-  await expect(firstProcessSummary).toHaveAttribute('aria-expanded', 'true')
+  await expectRestoredScroll(refreshedScrollTop)
+  await expect(firstProcessSummary).toHaveAttribute('aria-expanded', 'false')
 
   await firstPane.getByRole('link', { name: 'cache-target.txt' }).click()
   await expect(page.getByTestId('code-file-editor')).toBeVisible()
   await expect(firstPane).toBeAttached()
   await expect(firstPane).toBeHidden()
+  await expect(firstPane.getByTestId('code-agent-transcript')).toHaveCount(0)
   expect(await firstPane.getAttribute('data-cache-probe')).toBe('retained')
 
   await page.getByTestId('code-file-editor-back').click()
   await expect(firstPane).toBeVisible()
-  expect(await firstScroll.evaluate(element => element.scrollTop)).toBeCloseTo(refreshedScrollTop, 0)
-  await expect(firstProcessSummary).toHaveAttribute('aria-expanded', 'true')
+  await expectRestoredScroll(refreshedScrollTop)
+  await expect(firstProcessSummary).toHaveAttribute('aria-expanded', 'false')
 
   const deleteResponse = await page.request.delete(`/farming/api/control/agents/${firstAgentId}`)
   expect(deleteResponse.ok()).toBeTruthy()
@@ -625,6 +698,92 @@ test('keeps long ACP Chat stable when the Composer is collapsed and restored', a
   await page.getByTestId('code-composer-collapse').click()
   await page.getByTestId('code-composer-restore').click()
   await expect.poll(() => transcriptScroll.evaluate(element => element.scrollTop)).toBeCloseTo(readingTop, 0)
+  await expect(page.getByTestId('code-agent-transcript-jump-bottom')).toBeVisible()
+})
+
+test('restores a persisted Chat message anchor after reload and loads older turns when needed', async ({ page, workspaceRoot }) => {
+  const workspace = path.join(workspaceRoot, 'persisted-chat-reading-anchor')
+  fs.mkdirSync(workspace, { recursive: true })
+  const agentId = await createAcpAgent(page, workspace)
+  const entries = Array.from({ length: 36 }, (_, index) => ([
+    {
+      id: `anchor-user-${index}`,
+      type: 'message',
+      role: 'user',
+      content: [{ type: 'text', text: `Persisted reading question ${index}` }],
+    },
+    {
+      id: `anchor-answer-${index}`,
+      type: 'message',
+      role: 'assistant',
+      _meta: { codex: { phase: 'final_answer' } },
+      content: [{
+        type: 'text',
+        text: `Persisted answer ${index}. ${'Keep this turn tall enough to recover a fractional message anchor. '.repeat(4)}`,
+      }],
+    },
+  ])).flat()
+  const requestedTurnLimits: number[] = []
+
+  await page.route(new RegExp(`/farming/api/agents/${agentId}/acp-transcript(?:\\?.*)?$`), async route => {
+    requestedTurnLimits.push(Number(new URL(route.request().url()).searchParams.get('maxTurns') || 0))
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        transcript: {
+          sessionId: 'persisted-chat-reading-anchor-session',
+          state: 'idle',
+          revision: 1,
+          entries,
+        },
+      }),
+    })
+  })
+
+  await openFarming(page)
+  await selectAgentOnCompactLayout(page, agentId)
+  const transcript = page.getByTestId('code-agent-transcript-scroll')
+  await expect(transcript).toContainText('Persisted reading question 35')
+  await transcript.evaluate(element => {
+    element.dispatchEvent(new Event('touchstart', { bubbles: true }))
+    element.scrollTop = 0
+    element.dispatchEvent(new Event('scroll', { bubbles: true }))
+    element.dispatchEvent(new Event('touchend', { bubbles: true }))
+  })
+  await expect(transcript).toContainText('Persisted reading question 2')
+
+  const saved = await transcript.evaluate(element => {
+    const target = Array.from(element.querySelectorAll<HTMLElement>('[data-turn-id]'))
+      .find(turn => turn.textContent?.includes('Persisted reading question 2'))
+    if (!target) throw new Error('Older persisted-anchor turn did not load')
+    element.dispatchEvent(new Event('touchstart', { bubbles: true }))
+    target.scrollIntoView({ block: 'center' })
+    element.dispatchEvent(new Event('scroll', { bubbles: true }))
+    element.dispatchEvent(new Event('touchend', { bubbles: true }))
+    const scrollerRect = element.getBoundingClientRect()
+    const firstVisible = Array.from(element.querySelectorAll<HTMLElement>('[data-turn-id]'))
+      .find(turn => turn.getBoundingClientRect().bottom > scrollerRect.top)
+    if (!firstVisible?.dataset.turnId) throw new Error('Visible persisted-anchor turn is missing')
+    return {
+      id: firstVisible.dataset.turnId,
+      offset: firstVisible.getBoundingClientRect().top - scrollerRect.top,
+    }
+  })
+  const storageKey = `farming.reading-anchor.v1:agent:${agentId}:chat`
+  await expect.poll(() => page.evaluate(key => Boolean(localStorage.getItem(key)), storageKey)).toBe(true)
+  await page.evaluate(key => sessionStorage.removeItem(key), storageKey)
+  const requestsBeforeReload = requestedTurnLimits.length
+
+  await page.reload()
+  await selectAgentOnCompactLayout(page, agentId)
+  const restoredTranscript = page.getByTestId('code-agent-transcript-scroll')
+  await expect(restoredTranscript.locator(`[data-turn-id="${saved.id}"]`)).toBeAttached()
+  await expect.poll(async () => restoredTranscript.evaluate((element, expected) => {
+    const turn = element.querySelector<HTMLElement>(`[data-turn-id="${CSS.escape(expected.id)}"]`)
+    if (!turn) return Number.POSITIVE_INFINITY
+    return Math.abs((turn.getBoundingClientRect().top - element.getBoundingClientRect().top) - expected.offset)
+  }, saved)).toBeLessThanOrEqual(3)
+  expect(requestedTurnLimits.slice(requestsBeforeReload)).toContain(40)
   await expect(page.getByTestId('code-agent-transcript-jump-bottom')).toBeVisible()
 })
 

@@ -230,7 +230,12 @@ export interface AgentActivityMessage {
 
 export interface AgentReadMessage {
   type: 'agent-read'
-  read: Pick<Agent, 'unread' | 'attentionSeq' | 'readAttentionSeq' | 'readOutputEpoch' | 'readOutputSeq'> & {
+  read: Pick<
+    Agent,
+    'unread' | 'attentionSeq' | 'readAttentionSeq' |
+    'attentionUpdatedAt' | 'readAttentionAt' | 'attentionReason' | 'attentionSummary' |
+    'attentionOutputEpoch' | 'attentionOutputSeq' | 'readOutputEpoch' | 'readOutputSeq'
+  > & {
     agentId: string
   }
 }
@@ -240,6 +245,9 @@ export interface AgentUpdateMessage {
   update: {
     agentId: string
     patch: {
+      adaptiveTitle?: string
+      sessionTitle?: string
+      runtimeBinding?: Agent['runtimeBinding']
       terminalInputReceived?: boolean
       terminalBusy?: boolean | null
       shellCwd?: string

@@ -201,7 +201,9 @@ for target in "${TARGET_ARRAY[@]}"; do
       node --import tsx scripts/smoke-claude-acp-process.ts \
         --command "${out_bin}" \
         --arg --farming-claude-acp
-      node --import tsx scripts/smoke-browser-mcp-process.ts --command "${out_bin}"
+      node --import tsx scripts/smoke-acp-runtime-host-process.ts \
+        --command "${out_bin}"
+      node --import tsx scripts/smoke-capability-cli-process.ts --command "${out_bin}"
     )
     if ! "${out_bin}" --farming-usage-history-smoke >/dev/null; then
       echo "Packaged CLI failed its Usage History worker + SQLite smoke: ${out_bin}" >&2

@@ -123,11 +123,16 @@ function run() {
     providerSessionKey: 'agent-session:codex:resolved-codex-session',
     providerSessionTemporary: false,
     providerSessionTitle: '看下cron worker怎么加新模块',
+    capabilityRuntimeEpoch: 'capability-runtime-1',
+    capabilityWorkspace: '/repo',
+    browserCapabilityTokenHash: `sha256:${'a'.repeat(64)}`,
+    computerCapabilityTokenHash: `sha256:${'b'.repeat(64)}`,
     agentRuntimeMode: 'acp',
     acpState: 'idle',
     engineName: 'native',
   }, {
     acpAdditionalDirectories: ['/shared/docs'],
+    acpConfigOverrides: [{ configId: 'fast-mode', value: true }],
     acpMcpServers: [{ name: 'docs', command: '/bin/docs-mcp', args: [], env: [] }],
   });
   assert.strictEqual(resolvedRecordId, tempRecordId, 'resolved provider id should keep the original Farming session file');
@@ -143,7 +148,15 @@ function run() {
   assert.strictEqual(resolvedRecord.acpState, 'idle');
   assert.strictEqual(resolvedRecord.title, '看下cron worker怎么加新模块');
   assert.strictEqual(resolvedRecord.titleUserSpecified, false);
+  assert.strictEqual(resolvedRecord.capabilityRuntimeEpoch, 'capability-runtime-1');
+  assert.strictEqual(resolvedRecord.capabilityWorkspace, '/repo');
+  assert.strictEqual(resolvedRecord.browserCapabilityTokenHash, `sha256:${'a'.repeat(64)}`);
+  assert.strictEqual(resolvedRecord.computerCapabilityTokenHash, `sha256:${'b'.repeat(64)}`);
+  assert.strictEqual(JSON.stringify(resolvedRecord).includes('FARMING_BROWSER_TOKEN'), false);
   assert.deepStrictEqual(resolvedRecord.acpAdditionalDirectories, ['/shared/docs']);
+  assert.deepStrictEqual(resolvedRecord.acpConfigOverrides, [
+    { configId: 'fast-mode', value: true },
+  ]);
   assert.deepStrictEqual(resolvedRecord.acpMcpServers, [
     { name: 'docs', command: '/bin/docs-mcp', args: [], env: [] },
   ]);
@@ -159,6 +172,20 @@ function run() {
   assert.strictEqual(fs.statSync(path.join(root, 'sessions', `${tempRecordId}.json`)).mode & 0o777, 0o600);
   assert.strictEqual(fs.statSync(path.join(root, 'sessions', `${tempRecordId}.state.json`)).mode & 0o777, 0o600);
   assert.strictEqual(fs.statSync(indexFile).mode & 0o777, 0o600);
+
+  store.ensureRecordForAgent({
+    id: 'agent-adaptive-title',
+    providerSessionProvider: 'codex',
+    providerSessionId: 'resolved-codex-session',
+    providerSessionKey: 'agent-session:codex:resolved-codex-session',
+    providerSessionTemporary: false,
+    adaptiveTitle: '修复跨运行时标题更新',
+  }, {
+    adaptiveTitle: '修复跨运行时标题更新',
+  });
+  assert.strictEqual(store.readRecord(tempRecordId).adaptiveTitle, '修复跨运行时标题更新');
+  assert.strictEqual(store.readRecord(tempRecordId).title, '修复跨运行时标题更新');
+  assert.strictEqual(store.readRecord(tempRecordId).titleUserSpecified, false);
 
   store.ensureRecordForAgent({
     id: 'agent-renamed-codex',
@@ -217,7 +244,7 @@ function run() {
     '',
     'an explicit empty custom-title patch must still clear the name',
   );
-  assert.strictEqual(store.readRecord(tempRecordId).title, '');
+  assert.strictEqual(store.readRecord(tempRecordId).title, '修复跨运行时标题更新');
   assert.strictEqual(store.readRecord(tempRecordId).titleUserSpecified, false);
 
   const collisionKey = 'agent-session:codex:collision-session';

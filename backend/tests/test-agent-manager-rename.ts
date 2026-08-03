@@ -42,6 +42,76 @@ async function run() {
 
   try {
     const agentId = await startAgent(manager, 'bash', tmpRoot, { wantsMain: false });
+    const titleToken = manager.agents.get(agentId).titleUpdateToken;
+    assert(titleToken, 'each launched runtime should receive a title-update generation token');
+    assert.match(
+      manager.setAgentAdaptiveTitle(agentId, 'Ignored stale title', 'stale-token').error,
+      /expired runtime/,
+    );
+    const persistedBeforeAdaptiveTitle = persistedAgentSnapshots.length;
+    const fullUpdates = [];
+    const scopedTitleUpdates = [];
+    const onFullUpdate = () => fullUpdates.push(true);
+    const onScopedTitleUpdate = update => scopedTitleUpdates.push(update);
+    manager.on('update', onFullUpdate);
+    manager.on('agent-update', onScopedTitleUpdate);
+    const firstAdaptiveTitle = manager.setAgentAdaptiveTitle(
+      agentId,
+      'Draft cross-runtime title',
+      titleToken,
+    );
+    const latestAdaptiveTitle = manager.setAgentAdaptiveTitle(
+      agentId,
+      '  Fix cross-runtime titles  ',
+      titleToken,
+    );
+    assert.strictEqual(
+      firstAdaptiveTitle,
+      latestAdaptiveTitle,
+      'updates admitted before the async flush should join one per-Agent persistence result',
+    );
+    assert.strictEqual(
+      persistedAgentSnapshots.length,
+      persistedBeforeAdaptiveTitle,
+      'adaptive title persistence must leave the request stack before doing synchronous disk work',
+    );
+    assert.strictEqual(
+      agentTitle(manager.getState().agents.find(agent => agent.id === agentId)),
+      'Fix cross-runtime titles',
+      'the latest title should be visible before persistence finishes',
+    );
+    const adaptiveTitle = await latestAdaptiveTitle;
+    manager.off('update', onFullUpdate);
+    manager.off('agent-update', onScopedTitleUpdate);
+    assert.strictEqual(adaptiveTitle.error, undefined);
+    assert.strictEqual(adaptiveTitle.adaptiveTitle, 'Fix cross-runtime titles');
+    assert.strictEqual(fullUpdates.length, 0, 'an adaptive title must not invalidate the full Agent inventory');
+    assert.deepStrictEqual(scopedTitleUpdates, [
+      { agentId, patch: { adaptiveTitle: 'Draft cross-runtime title' } },
+      { agentId, patch: { adaptiveTitle: 'Fix cross-runtime titles' } },
+    ]);
+    assert.strictEqual(
+      persistedAgentSnapshots.length,
+      persistedBeforeAdaptiveTitle + 1,
+      'several titles for one Agent should persist only the latest value',
+    );
+    assert.strictEqual(
+      agentTitle(manager.getState().agents.find(agent => agent.id === agentId)),
+      'Fix cross-runtime titles',
+    );
+    assert.strictEqual(
+      persistedAgentSnapshots.at(-1).adaptiveTitle,
+      'Fix cross-runtime titles',
+      'an acknowledged Agent-managed title must already be durable',
+    );
+    const oldTitleToken = manager.agents.get(agentId).titleUpdateToken;
+    const replacementEnv = manager.buildAgentEnv(agentId, manager.agents.get(agentId));
+    assert.notStrictEqual(replacementEnv.FARMING_AGENT_TITLE_TOKEN, oldTitleToken);
+    assert.match(
+      manager.setAgentAdaptiveTitle(agentId, 'Late old-runtime title', oldTitleToken).error,
+      /expired runtime/,
+      'a replaced runtime must not publish a late title',
+    );
     const restoredTitleAgentId = await startAgent(manager, 'bash', tmpRoot, {
       wantsMain: false,
       customTitle: `  ${'Restored title '.repeat(8)}  `,
@@ -118,6 +188,19 @@ async function run() {
       }
       return agent.persistentSessionId || `fsess_${agent.id}`;
     };
+    const adaptiveTitleBeforeFailedWrite = manager.agents.get(agentId).adaptiveTitle;
+    const failedAdaptiveTitle = await manager.setAgentAdaptiveTitle(
+      agentId,
+      'Must not remain visible',
+      manager.agents.get(agentId).titleUpdateToken,
+    );
+    assert.match(failedAdaptiveTitle.error, /Failed to update Agent title/);
+    assert.strictEqual(
+      manager.agents.get(agentId).adaptiveTitle,
+      adaptiveTitleBeforeFailedWrite,
+      'a failed durable title write must roll the optimistic Agent-scoped projection back',
+    );
+    failNextWrite = true;
     const titleBeforeFailedRename = manager.agents.get(agentId).customTitle;
     const failedRename = manager.renameAgent(agentId, 'Must not commit');
     assert.match(failedRename.error, /Failed to rename Agent/);
@@ -191,6 +274,12 @@ async function run() {
       manager.getState().agents.find(agent => agent.id === agentId).customTitle,
       ''
     );
+    assert.strictEqual(
+      agentTitle(manager.getState().agents.find(agent => agent.id === agentId)),
+      'Fix cross-runtime titles',
+      'clearing a user rename should reveal the Agent-managed title',
+    );
+    manager.agents.get(agentId).adaptiveTitle = '';
 
     manager.engineBridge.emit('session-title', {
       sessionId: agentId,

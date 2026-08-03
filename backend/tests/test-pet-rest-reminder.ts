@@ -349,14 +349,15 @@ const path = require('path');
     'the refraction map must not switch formulas at one hard radial boundary',
   )
   assert(
-    !blackHoleRendererSource.includes('SCENE_REFRESH')
-      && !blackHoleRendererSource.includes('refreshScene')
-      && !blackHoleRendererSource.includes('transitionScene'),
-    'the black hole should keep its initial scene instead of blocking animation with periodic DOM snapshots',
+    blackHoleRendererSource.includes('const RESIZE_CAPTURE_DELAY_MS = 200')
+      && blackHoleRendererSource.includes('window.addEventListener(\'resize\', onResize)')
+      && blackHoleRendererSource.includes("compositorCanvas.dataset.refreshState = 'resize-wait'")
+      && blackHoleRendererSource.includes('pendingRelativePosition'),
+    'the black hole should hide during a resize, then recapture only after the viewport settles and retain its relative position',
   )
   assert(
     blackHoleRendererSource.includes('const INITIAL_SCENE_RETRY_MIN_MS = 1_000')
-      && blackHoleRendererSource.includes("compositorCanvas.dataset.refreshState = 'initial-retry-wait'")
+      && blackHoleRendererSource.includes(": 'initial-retry-wait'")
       && blackHoleRendererSource.includes('loadInitialScene()')
       && blackHoleSceneSource.includes('onReady: () => setRenderError(null)'),
     'an unavailable first snapshot should retry and clear its visible failure after recovery',
@@ -369,10 +370,11 @@ const path = require('path');
     'the production snapshot should retain the current appearance background and embedded fonts',
   )
   assert(
-    !blackHoleRendererSource.includes('|| (!sceneReady && exitingAt === null)')
+    blackHoleRendererSource.includes('|| (!sceneReady && exitingAt === null)')
       && blackHoleRendererSource.includes('if (sceneReady) compositor.draw(pose)')
+      && blackHoleRendererSource.includes('canvas.style.opacity = String(sceneReady ? pose.bodyOpacity : 0)')
       && blackHoleRendererSource.includes('completeExit()'),
-    'the black hole and its bounded exit must render independently from the scene snapshot',
+    'the black hole must wait for its scene snapshot before rendering, while its bounded exit stays independent from an unavailable snapshot',
   )
   assert(
     blackHoleRendererSource.includes('export const BLACK_HOLE_MANUAL_EXIT_SECONDS = 4.8'),

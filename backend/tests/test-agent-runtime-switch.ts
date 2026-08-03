@@ -127,6 +127,7 @@ const AgentManager = require('../agent-manager.cjs');
     projectWorkspace: '/tmp/project',
     providerSessionProvider: 'codex',
     providerSessionId: sessionId,
+    providerSessionKey: `agent-session:codex:home:zwz:${sessionId}`,
     providerSessionTemporary: false,
     providerHomeId: 'zwz',
     providerHomePath: codexHome,
@@ -137,6 +138,11 @@ const AgentManager = require('../agent-manager.cjs');
     acpState: 'idle',
     status: 'running',
     output: '',
+  });
+  manager.acpSessionOptionsByKey.set(`agent-session:codex:home:zwz:${sessionId}`, {
+    additionalDirectories: [],
+    configOverrides: [{ configId: 'fast-mode', value: true }],
+    mcpServers: [],
   });
   const originalGetAcpSession = manager.acpRuntime.getSession.bind(manager.acpRuntime);
   const originalHasAcpBinding = manager.acpRuntime.hasBinding.bind(manager.acpRuntime);
@@ -177,6 +183,9 @@ const AgentManager = require('../agent-manager.cjs');
   assert.strictEqual(started.options.agentRuntimeMode, 'terminal');
   assert.strictEqual(started.options.agentRecordId, 'agent_record_live_acp_switch');
   assert.strictEqual(started.options.restoreRuntimeAgentIdOnFailure, 'agent-live-acp-switch');
+  assert.deepStrictEqual(started.options.acpConfigOverrides, [
+    { configId: 'fast-mode', value: true },
+  ]);
   assert.deepStrictEqual(started.options.composerCommands, liveAcpComposerCommands);
   assert.deepStrictEqual(manager.agents.get('agent-new').composerCommands, liveAcpComposerCommands);
   assert.strictEqual(liveAcpResult.agentRuntimeMode, 'terminal');
@@ -198,6 +207,50 @@ const AgentManager = require('../agent-manager.cjs');
   manager.acpRuntime.reconnectAgent = originalReconnectAcpAgent;
   manager.acpRuntime.submitMessage = originalSubmitAcpMessage;
   manager.findRuntimeSwitchSession = originalFindRuntimeSwitchSession;
+
+  const permissionSessionKey = `agent-session:codex:home:zwz:${sessionId}`;
+  manager.agents.set('agent-permission-config', {
+    id: 'agent-permission-config',
+    command: 'codex',
+    forkCommand: 'codex',
+    cwd: '/tmp/project',
+    projectWorkspace: '/tmp/project',
+    providerSessionProvider: 'codex',
+    providerSessionId: sessionId,
+    providerSessionKey: permissionSessionKey,
+    providerSessionTemporary: false,
+    providerHomeId: 'zwz',
+    providerHomePath: codexHome,
+    agentRuntimeMode: 'acp',
+    acpState: 'idle',
+    launchPermissionMode: 'approve',
+    status: 'running',
+    output: '',
+  });
+  manager.acpSessionOptionsByKey.set(permissionSessionKey, {
+    additionalDirectories: [],
+    configOverrides: [
+      { configId: 'model', value: 'gpt-5.6-luna' },
+      { configId: 'reasoning', value: 'low' },
+      { configId: 'fast-mode', value: true },
+    ],
+    mcpServers: [],
+  });
+  killed = '';
+  started = null;
+  const permissionRestart = await manager.performAgentPermissionRestart(
+    'agent-permission-config',
+    'full',
+    Symbol('permission-config-test'),
+  );
+  assert.strictEqual(killed, 'agent-permission-config');
+  assert.strictEqual(started.options.codexApprovalMode, 'full');
+  assert.deepStrictEqual(started.options.acpConfigOverrides, [
+    { configId: 'model', value: 'gpt-5.6-luna' },
+    { configId: 'reasoning', value: 'low' },
+    { configId: 'fast-mode', value: true },
+  ], 'permission restart must preserve the exact explicit config override set');
+  assert.strictEqual(permissionRestart.launchPermissionMode, 'full');
 
   manager.agents.set('agent-qoder-switch', {
     id: 'agent-qoder-switch',

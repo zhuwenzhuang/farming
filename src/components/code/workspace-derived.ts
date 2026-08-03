@@ -94,6 +94,7 @@ export function projectListProjectsForAgents(
   })
 
   const pinnedOrder = new Map(pinnedProjectWorkspaces.map((workspace, index) => [workspace, index]))
+  const projectOrder = new Map(projectWorkspaces.map((workspace, index) => [workspace, index]))
   return projects.map((project, sourceIndex) => {
     const customName = project.workspace ? projectNames[project.workspace]?.trim() : ''
     const namedProject = customName && !project.hasMain
@@ -103,12 +104,17 @@ export function projectListProjectsForAgents(
     return {
       project: { ...namedProject, pinned: pinIndex !== undefined },
       pinIndex,
+      projectIndex: projectOrder.get(project.workspace),
       sourceIndex,
     }
   }).sort((left, right) => {
     if (left.pinIndex !== undefined && right.pinIndex !== undefined) return left.pinIndex - right.pinIndex
     if (left.pinIndex !== undefined) return -1
     if (right.pinIndex !== undefined) return 1
+    if (left.project.hasMain !== right.project.hasMain) return left.project.hasMain ? -1 : 1
+    if (left.projectIndex !== undefined && right.projectIndex !== undefined) return left.projectIndex - right.projectIndex
+    if (left.projectIndex !== undefined) return -1
+    if (right.projectIndex !== undefined) return 1
     return left.sourceIndex - right.sourceIndex
   }).map(entry => entry.project)
 }

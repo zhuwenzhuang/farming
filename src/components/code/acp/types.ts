@@ -106,6 +106,7 @@ export interface AcpSessionSnapshot {
     availableModes: AcpSessionMode[]
   } | null
   configOptions: AcpSessionConfigOption[]
+  configOverrideWarnings?: Array<{ configId: string; message: string }>
   deferredConfigOptions?: Array<{ configId: string; value: string | boolean }>
   deferredModeId?: string
   usage?: {

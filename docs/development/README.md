@@ -32,7 +32,6 @@ the [documentation home](../README.md).
 
 - [Acceptance and dogfood plan](../products/code/test/acceptance-dogfood-plan.md)
 - [Real Codex cross-interface case](../products/code/real-codex-release-case.md)
-- [Human-like acceptance story](../products/code/farming-agent-human-story.md)
 
 Development documents may contain protocols, state machines, invariants, and
 test evidence. Those details should not be copied into repository or product

@@ -1,234 +1,66 @@
-# 布局设计基础
+# Farming CRT Layout
 
 > English version: [base_layout.md](./base_layout.md)
 
-本文档定义 CRT 皮肤跨平台通用的布局概念、数据模型和视觉规则。当前支持的桌面规则见 `pc_layout.zh_cn.md`；`mobile_layout.zh_cn.md` 仍是概念设计，不属于当前产品界面。
+Farming CRT 是连接同一套 Backend Agent 与 Session 的桌面端、键盘优先控制室。Farming Code
+继续作为受支持的移动端界面。
 
----
+## 区域
 
-## 1. 整体 Layout 结构
+CRT 有三个常驻区域：
 
-页面由三个常驻区域组成：
+- **Top Bar**：紧凑的系统与 Attention 状态；
+- **Agent Area**：Live Agent 摘要与已打开 Session；
+- **Sidebar**：全局 Action 与 Main Agent 入口。
 
-| 区域 | 职责 |
-|------|------|
-| TopBar | 顶部状态栏，显示系统资源和关注提示 |
-| Agents Layout | 中央区域，展示所有工作 agent 的状态 |
-| Sidebar | 菜单入口和 Main Agent 面板 |
+只有 Live 或 Starting Work 占据 Agent Area。Stopped、Dead 与 Archived Record 进入 History。
+没有 Project Agent 存活时，CRT 显示明确的 New Agent 入口，同时不隐藏或重启 Main Agent。
 
-> 支持的实现位于 `frontend/skins/crt/index.html`、`frontend/skins/crt/app.js` 及相邻 CRT 样式中。旧 React map/sidebar/modal 路径已删除，不作为未持续测试的备用实现保留。
+## Attention 与 Layout
 
----
+Dashboard 帮助用户找到需要关注的工作。Backend 拥有 Agent Lifecycle 与 Activity Fact；CRT
+可以据此排序和强调，但不能自行发明 Completion、Zombie 或 Health State。
 
-## 2. TopBar（顶部状态栏）
+Card 保持稳定、可读的 Geometry。重要工作可以获得更多面积，但高频 Metadata Update 不能造成
+干扰性的 Reorder 或 Overlap。过多 Preview Content 应裁剪或滚动，不能把文字压缩到不可读。
 
-### 2.1 内容项
+## Session
 
-从左到右排列为一行：
+打开的 Chat 与 Terminal 使用和 Farming Code 相同的权威协议。CRT 不实现第二套 ACP Reducer、
+Terminal Replay State Machine 或 Agent Lifecycle。
 
-| 项目 | 格式 | 说明 |
-|------|------|------|
-| Agents | `AGENTS: {active}/{total}` | 活跃/总数 agent 计数 |
-| Token 速率 | `TOK/MIN: ~{rate}` | 最近五分钟所有终端输出的 token 估算速率 |
-| CPU | `CPU: {n}%` | 系统 CPU 占用 |
-| MEM | `MEM: {n}%` | 系统内存占用 |
-| Focus | `Focus: {name}` | 当前正在查看的 agent 名称（仅当 session 打开时显示） |
-| Attn | `Attn: {name} [{score}]` | 最高注意力分数的 agent（仅当无 focus 且有活跃 agent 时显示） |
-| Uptime | `UPTIME: {time}` | 系统运行时长，始终靠右对齐（`margin-left: auto`） |
+Terminal 是主要 Focus Surface。Structured Chat 保留有序 User、Process 与 Result，不重建 ACP
+Entry。Session Header 使用与 Farming Code 相同的 Agent Title Priority。
 
-### 2.2 条件显示逻辑
+## Keyboard 与 Dialog
 
-- **Focus** 和 **Attn** 互斥：当 session 弹窗打开时显示 Focus，否则显示 Attn
-- **Attn** 分高温/常温：`score >= 70` 时加 `.hot` class，文字变为红色并闪烁
-- Uptime 始终是最后一项，通过 CSS `last-child { margin-left: auto }` 推到最右
+Primary Action 必须支持键盘，并以简洁 Hint 保持可见。Focus、Escape、Confirm、Cancel 与
+Return-to-opener 行为在 Dashboard、Search、History、Settings、New Agent 与 Opened Session
+之间保持一致。
 
-### 2.3 设计原则
+Dialog 使用紧凑 Header、明确 Focus、Keyboard-confirmable Action 与最少 Nesting。
 
-- **信息密度高、视觉干扰低**：小字，不使用图标
-- **不催促**：没有告警角标或红点，Attn 指示器只是提示哪个 agent 最活跃
-- **全静态布局**：不随内容变化而跳动，条件项出现/消失不影响其他项位置
+## 视觉契约
 
----
+CRT 使用克制的 Monochrome Control-room Style：
 
-## 3. Sidebar（菜单栏）
+- 紧凑信息密度；
+- 低视觉噪音与稳定对齐；
+- 可读 Monospace Content；
+- 不降低可读性的轻量 Scan Effect；
+- 不为未实现 Action 保留常驻控件；
+- Animation 不能暗示 Backend 未报告的状态。
 
-桌面端侧栏菜单项统一使用大写标签：**SEARCH**、**HISTORY**、**EXTENSIONS**、**BILLING**（以及基础的 **NEW AGENT**、**SETTINGS**）。僵尸标记与治理在 Agents Layout / 后端规则层呈现，**不设独立「Zombies」侧栏菜单**。
+## 数据与失败边界
 
-### 3.1 菜单项
+Current Capability、Inventory、Usage 与 Health View 都执行 Fresh Authoritative Read，并显示
+Loading 与 Failure。Refresh 期间可以保留上一次完整数据，但不能把 Stale Data 当成新的成功结果。
 
-每个菜单项对应一个全局快捷键（自上而下顺序：搜索 → 历史 → Extensions → Billing，上下为会话入口与设置）：
+所有 Same-origin Routing 遵循 Server 提供的 Base Path。Routing 缺失、Protocol Incompatibility、
+Renderer Failure 与 Session Recovery Failure 都必须显式展示；CRT 不静默切换到未测试 Fallback。
 
-| 快捷键 | 功能 | 状态 |
-|--------|------|------|
-| N | New Agent | enabled |
-| F | Search | enabled |
-| H | History | enabled |
-| E | Extensions | planned |
-| $ | Billing | enabled |
-| S | Settings | enabled |
+## 验收标准
 
-- **enabled** 项可点击，hover 时背景变亮
-- **disabled** 项 `opacity: 0.5`，`cursor: not-allowed`，不可交互（当前无占位项）
-
-Search 取代原先的 Task List 位置，在 Agents Layout 区域打开占满高度的搜索视图；查询提示符持续保持焦点，并把当前项目 Agent 与共享后端搜索接口返回、且未被实时 Agent 占用的 provider session 结果合并展示。
-
-当 Main Agent 是唯一的实时 Agent 时，Agents Layout 保持明确的空状态，并提供可通过键盘导航的 `[N] New Agent` 操作。启动第一个项目 Agent 后，提示由正常实时网格替代；移除最后一个项目 Agent 后提示恢复，Main Agent 不会因此被隐藏或重启。
-
-Billing 用占满高度的 token 遥测视图取代原占位入口。Days 是默认视图：紧凑的 52 周日历热力图让每一天都可直接选择，同时不再为每天占用一整根全高竖柱。无 Token 日期保持明确的空状态，低于 1B 的日期使用从靛蓝到高热红的五档相对热度光谱；达到 B 级后脱离相对色阶，用紫外超量程符号表达绝对层级：点、环、菱形、星标分别表示 `1B`、`2B`、`4B`、`8B+`。相对分档仅依据可见范围内低于 1B 的非零日期计算，Tooltip 则保留精确数值。
-
-Processed 总量包含 cache read，并合并所有已配置 Codex、Claude Home 与可读取的 OpenCode export；无法提供 Token 字段的 provider 会明确标出。顶部紧凑汇总今天、近 7 天、近 30 天、52 周、活跃日、B 级日期和峰值日。选择当天会通过服务端有界的 5 秒缓存强制读取一次最新明细。刷新期间保留上一帧完整小时曲线和稳定的 `READY` 状态；不完整的新快照或瞬时扫描失败不能清空已有小时格。有旧帧的连续失败会稳定显示 `STALE`，首次加载明细失败只有在一次有界重试后才进入 `DAY SIGNAL LOST`。Today 汇总、所选日期的 Total、Input、Output、Cache Read/Write 和日内峰值计数器只对正向差值做补齐动画，历史数值保持静态。下方还保留 24 个本地小时的 total/cache 阶梯波形、与 `00:00`–`24:00` 仪表标尺对齐的 24 格可选择小时带、带精确 Tooltip 的常驻紧凑读数，以及 provider 归属占比；切换选中日时复用日事件缓存，不重新扫描历史。左右键按天移动，上下键按周移动。Live 作为二级视图显示最近 60 分钟、每分钟一格的 Canvas 示波器，以有界的 15 秒周期刷新，并展示最新采样时间、当前信号、积分、峰值速率和活跃时间桶。只有当前 Tab 使用实心选中态，键盘导航位置使用独立的描边提示。provider 通道和额度窗口保持可见，不虚构金额或后端拿不到的额度。按 `$` 打开 Billing，`D` 与 `L` 切换视图，`R` 刷新，Escape 返回 Agent 主页。
-
-### 3.2 Main Agent 面板
-
-- 仅当存在 main agent 时渲染
-- 红色边框（`--theme-border-error`），与普通 agent 的绿色边框区分
-- 标题栏 `MAIN AGENT [0]`：红色文字 + 红底白字的 `[0]` 徽章
-- 点击打开 main agent 的 session 弹窗
-
-### 3.3 设计原则
-
-- **键盘优先**：每个菜单项都有对应的全局快捷键，sidebar 本身更多是视觉提示
-- **Main Agent 特殊待遇**：红色视觉强调，不参与 agents layout 的注意力排序
-
----
-
-## 4. 注意力评分系统
-
-每个非 main agent 有一个 0-100 的 `attentionScore`。活跃度档位由后端 `backend/agent-manager.js` 与上述分值映射一致并下发；前端只做展示与排序，不由 Main Agent 实时决策。
-
-### 4.1 评分维度
-
-| 维度 | 分值范围 | 规则 |
-|------|---------|------|
-| 状态权重 | 0-20 | running=20, pending=15, stopped=5, dead=0 |
-| 活跃度 | 0-40 | hot(&lt;30 分钟)=40, warm(&lt;3 小时)=30, cool(&lt;12 小时)=15, cold(≥12 小时)=0 |
-| 输出速率 | 0-30 | 基于近 30 秒内输出事件频率和字节量 |
-| 僵尸惩罚 | -10 | 如果是僵尸则扣分 |
-
-输出速率公式：`min(30, round(eventsPerSec * 6 + bytesPerSec / 50))`
-
-### 4.2 活跃度等级（activityLevel）
-
-基于距上次活动时间（`lastActivity`：输出、会话流等会刷新；档位刻意拉长以免 UI 上过快从 hot 跌入 cold）。
-
-| 等级 | 条件 | 含义 |
-|------|------|------|
-| hot | 距上次活动 **&lt; 30 分钟** | 近期仍有明确动静 |
-| warm | **&lt; 3 小时** | 仍可算在关注窗口内 |
-| cool | **&lt; 12 小时** | 明显变温 |
-| cold | **≥ 12 小时** | 长期无活动（仍早于僵尸线） |
-
-### 4.3 僵尸判定
-
-满足以下全部条件的 agent 被标记为僵尸（`isZombie: true`）：
-- 状态为 `running`（进程还活着）
-- 不是 main agent
-- 距上次活动 **严格大于** `AgentManager.ZOMBIE_IDLE_MS`（当前为 **72 小时**，见 `backend/agent-manager.js`）
-
-当前该判定会触发周期性 zombie sweep（默认每 60 秒），命中后自动执行 kill，并将记录归档进 History。
-
-### 4.4 Main Agent 豁免
-
-Main agent 不参与注意力评分、冷热判定和僵尸检测。它在 sidebar 中独立展示，不出现在 agents layout 中。
-
----
-
-## 5. Agent 卡片结构
-
-每个 agent 卡片由两部分组成：
-
-### 5.1 Title Bar
-
-固定单行密度的标题栏（`padding: 6px 10px`，主标题 `12px`、粗体；底部分割线跟 `--agent-color`）。Session 弹窗顶栏 **另行更扁、更淡**，见 **5.3**，不与卡片完全同一套数字。包含：
-- agent 命令名（左侧，占满剩余空间）
-- 状态元信息：活跃度等级、注意力分数（右侧，小字半透明）
-- 僵尸标记 `ZOMBIE`（如果是僵尸）
-- 键盘快捷键徽章 `[1]`-`[9]`（最右侧，反色底）
-
-Title bar 的文字和边框颜色跟随 `--agent-color`（由活跃度等级决定）。
-
-### 5.2 Body
-
-填满剩余空间，包含：
-- 工作目录路径（小字，非 compact 模式）
-- 输出预览（flex: 1，填满剩余空间，pre-wrap）
-
-### 5.3 会话
-
-CRT 会话窗口使用细边框、紧凑顶栏、终端优先焦点，以及符合整体 CRT 信息密度的小号等宽字体。受支持的会话实现位于 `frontend/skins/crt/`，不依赖已删除的 React modal 路径。
-
-CRT 的所有同源 API、WebSocket、Code 导航、主题和 vendor URL 都由 `frontend/runtime-paths.ts` 解析。运行时路径模块必须先于 bridge 和 loader 加载；模块缺失时必须明确初始化失败，不能静默退回站点根路径。
-
-Agent 卡片使用剩余正文高度展示底部对齐的实时终端尾部，或紧凑的结构化 Chat 轨迹。Chat 轨迹从清洗后的 Transcript 中展示最近可见的用户输入、Agent 回复和当前 Activity，不重建或重排 ACP Entry。内容过多时裁剪，禁止压缩文字。只有 Live Pending / Running Agent 占据 Dashboard 机位；Stopped、Dead 与 Archived Record 离开实时 Grid，可恢复历史仍保留在 History。Terminal Card 仅在后端终端状态为 Working 时闪烁，Chat 使用紧凑的 Activity Signal。卡片和会话标题使用与 Farming Code 相同的 Agent 标题优先级，并保持单行省略。
-
-### 5.4 对话框
-
-New Agent 与 Settings 对话框遵循以下规则：
-
-- 标题区域紧凑；
-- 输入焦点状态清晰可见；
-- 操作可通过键盘确认；
-- 避免嵌套厚重卡片。
-
----
-
-## 6. CRT 视觉效果
-
-在 CRT terminal 皮肤下，不同状态的 agent 有不同的视觉反馈。屏幕纹理由 `frontend/skins/crt/styles/effects.css` 提供：使用平面泛绿暗底与静态单色扫描线，不再压暗屏幕四周；低对比度的 300 像素扫描拖尾按参考效果约 6.8 秒循环，覆盖主页和打开的 session，且不绘制独立高亮线头。数字快捷键保留绿色荧光底和深色文字，不增加额外描边。
-
-Agent 卡片使用全部剩余正文高度，以统一可读字号显示 Bottom Aligned 的实时 Terminal Tail，或紧凑的结构化 Chat Trail。Chat Trail 从清洗后的 Transcript 中展示最近可见 User Prompt、Agent Response 与当前 Activity，不重建或重排 ACP Entry。内容过多时裁剪，禁止压缩文字。只有 Live Pending / Running Agent 占据 Dashboard 机位；Stopped、Dead 与 Archived Record 离开实时 Grid，可恢复历史仍保留在 History。Terminal Card 仅在后端终端状态为 Working 时闪烁，Chat 使用紧凑的 Activity Signal。卡片和打开后的 Session 使用与 Farming Code 相同的 Agent 标题优先级，并始终保持单行省略。
-
-### 6.1 按活跃度分级
-
-| 等级 | 颜色 | 效果 |
-|------|------|------|
-| hot | #ff0000（红） | 强发光（多层 box-shadow），title bar 呼吸脉冲动画 |
-| warm | #ff8800（橙） | 中等发光 |
-| cool | #0088ff（蓝） | 弱发光 |
-| cold | #004488（暗蓝） | 无发光，opacity 0.6，输出文字变暗 |
-
-### 6.2 特殊状态
-
-| 状态 | 效果 |
-|------|------|
-| zombie | opacity 闪烁动画（0.45-0.95），title bar 橙红色，ZOMBIE 文字 glitch 抖动 |
-| stopped | 不进入实时 Grid；可恢复记录留在 History |
-| dead | 不进入实时 Grid；可恢复记录留在 History |
-
-### 6.3 设计约束
-
-- 不使用整块亮色闪烁，避免刺眼
-- opacity 动画的最低值不低于 0.4，保持可读性
-- 闪烁周期 >= 2 秒，避免视觉疲劳
-
----
-
-## 7. Agents Layout 核心原则
-
-### 7.1 注意力驱动
-
-用户的注意力是有限的。Agents layout 的首要目标是帮用户快速识别**哪些 agent 需要关注**，而不是平铺罗列所有信息。
-
-### 7.2 面积即优先级
-
-更需要关注的 agent 占据更大的面积，位于更显眼的位置。不需要关注的 agent 缩小退让。
-
-### 7.3 排序
-
-Agents layout 中的 agent 按 `attentionScore` 降序排列。最高分的 agent 排在第一位，占据最大面积。
-
----
-
-## 8. 关键文件
-
-| 文件 | 职责 |
-|------|------|
-| `frontend/skins/crt/index.html` | CRT 页面 DOM 骨架与静态资源入口 |
-| `frontend/skins/crt/app.js` | TopBar、Sidebar、Agents layout、Session、键盘和状态渲染 |
-| `frontend/skins/crt/styles/monochrome-green.css` | CRT 主布局与绿色单色视觉样式 |
-| `frontend/skins/crt/styles/history.css` | History 视图样式 |
-| `frontend/skins/crt/styles/search.css` | Search 视图样式 |
-| `frontend/skins/crt/styles/billing.css` | Billing 视图样式 |
-| `frontend/skins/crt/styles/effects.css` | CRT 专属视觉效果（静态扫描线与轻量扫描刷新） |
-| `frontend/session-modal-bridge.js` | CRT Session 弹窗使用的共享 terminal bridge |
-| `shared/browser-protocol.js` | Code / CRT 共用浏览器协议与消息校验 |
+验证必须覆盖：Keyboard-only Operation、Empty/Dense Dashboard、Agent Ordering Stability、Code/CRT
+Switch、Chat/Terminal Continuity、Search、History、Settings、Capability Failure、Renderer Failure、
+Reconnect、Restart，以及 Desktop Viewport 下的大规模 Live Agent Inventory。

@@ -11,6 +11,11 @@ import {
   canonicalConfigDir,
   configInstanceFingerprint,
 } from '../../../backend/config-instance.cjs';
+import {
+  MAX_IMAGE_ARTIFACT_BYTES,
+  writeWorkspaceImageArtifact,
+  type WorkspaceArtifact,
+} from '../../../backend/workspace-artifacts.cjs';
 import { COMPUTER_CONTAINER_CPUS, COMPUTER_CONTAINER_MEMORY, COMPUTER_CONTAINER_PIDS, COMPUTER_CONTAINER_SHM_SIZE, COMPUTER_DRIVER_BIN, COMPUTER_DRIVER_VERSION, COMPUTER_IMAGE, COMPUTER_IMAGE_INDEX_DIGEST, COMPUTER_USER } from './computer-constants.cjs';
 import { ComputerResourceStore, publicResource } from './computer-resource-store.cjs';
 
@@ -108,6 +113,14 @@ function recordValue(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
     : {};
+}
+
+function sanitizeDriverResult(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sanitizeDriverResult);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(Object.entries(value as Record<string, unknown>)
+    .filter(([key]) => !['screenshot_file_path', 'screenshot_out_file'].includes(key))
+    .map(([key, item]) => [key, sanitizeDriverResult(item)]));
 }
 
 function pathInside(root: string, candidate: string): boolean {
@@ -819,6 +832,7 @@ class ComputerResourceManager extends EventEmitter {
         throw computerError('Computer ownership changed before this action ran', 409, 'COMPUTER_STALE_ADMISSION');
       }
       const args = { ...input };
+      delete args.screenshot_out_file;
       if ('session' in args || this.toolAcceptsSession(tool)) args.session = current.sessionId;
       if (tool === 'start_session') {
         return { content: [{ type: 'text', text: `Farming manages session ${current.sessionId}` }] };
@@ -1103,7 +1117,7 @@ class ComputerResourceManager extends EventEmitter {
     return `${resource.id}-g${resource.generation}`;
   }
 
-  private async ensureDriver(resource: { containerId: string }, sessionId: string): Promise<void> {
+  private async ensureDriver(resource: { containerId: string; workspace: string }, sessionId: string): Promise<void> {
     await this.docker([
       'exec', '-u', COMPUTER_USER,
       '-e', 'HOME=/home/cua',
@@ -1145,7 +1159,7 @@ class ComputerResourceManager extends EventEmitter {
   }
 
   private async driverCall(
-    resource: { containerId: string },
+    resource: { containerId: string; workspace: string },
     tool: string,
     input: Record<string, unknown>,
     screenshotPath = '',
@@ -1165,34 +1179,52 @@ class ComputerResourceManager extends EventEmitter {
     let structuredContent: unknown;
     const text = result.stdout.trim();
     try {
-      structuredContent = JSON.parse(text);
+      structuredContent = sanitizeDriverResult(JSON.parse(text));
     } catch {
       structuredContent = undefined;
     }
+    const publicText = structuredContent === undefined
+      ? (text || result.stderr.trim() || `${tool} completed`)
+      : JSON.stringify(structuredContent);
     const content: Array<Record<string, unknown>> = [{
       type: 'text',
-      text: text || result.stderr.trim() || `${tool} completed`,
+      text: publicText,
     }];
+    const artifacts: WorkspaceArtifact[] = [];
     if (screenshotPath) {
       try {
-        await this.docker([
+        const screenshotStat = await this.docker([
           'exec', '-u', COMPUTER_USER,
           resource.containerId,
-          'test', '-s', screenshotPath,
+          'stat', '-c', '%s', screenshotPath,
         ], { timeoutMs: 5_000 });
+        const screenshotBytes = Number(screenshotStat.stdout.trim());
+        if (!Number.isSafeInteger(screenshotBytes) || screenshotBytes <= 0) {
+          throw new Error('Computer observation did not produce a non-empty screenshot');
+        }
+        if (screenshotBytes > MAX_IMAGE_ARTIFACT_BYTES) {
+          throw new Error(`Computer screenshot exceeds ${MAX_IMAGE_ARTIFACT_BYTES} bytes`);
+        }
         const image = await this.docker([
           'exec', '-u', COMPUTER_USER,
           resource.containerId,
           'base64', '-w', '0', screenshotPath,
-        ], { timeoutMs: 10_000, maxBuffer: 24 * 1024 * 1024 });
-        if (image.stdout.trim()) content.push({
-          type: 'image',
-          data: image.stdout.trim(),
-          mimeType: 'image/png',
-        });
-      } catch {
-        // Some observation tools legitimately return no image for the current
-        // target. Preserve their text/structured result instead of failing it.
+        ], { timeoutMs: 10_000, maxBuffer: 48 * 1024 * 1024 });
+        if (image.stdout.trim()) {
+          const artifact = await writeWorkspaceImageArtifact({
+            bytes: Buffer.from(image.stdout.trim(), 'base64'),
+            capability: 'computer',
+            mimeType: 'image/png',
+            operation: tool,
+            workspace: resource.workspace,
+          });
+          artifacts.push(artifact);
+          content.push({ type: 'image', ...artifact });
+        }
+      } catch (caught) {
+        const message = caught instanceof Error ? caught.message : String(caught);
+        if (!/no such file|did not produce a non-empty screenshot/i.test(message)) throw caught;
+        // Some observation tools legitimately return no image for the current target.
       } finally {
         await this.docker([
           'exec', '-u', COMPUTER_USER,
@@ -1204,6 +1236,7 @@ class ComputerResourceManager extends EventEmitter {
     return {
       content,
       ...(structuredContent === undefined ? {} : { structuredContent }),
+      ...(artifacts.length === 0 ? {} : { artifacts }),
     };
   }
 

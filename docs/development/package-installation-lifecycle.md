@@ -2,164 +2,92 @@
 
 > Chinese version: [package-installation-lifecycle.zh_cn.md](./package-installation-lifecycle.zh_cn.md)
 
-This document defines how Farming installs and updates application versions when
-several Config instances may be running from one npm installation. The model is
-inspired by VS Code's stable launch surface, version-addressed remote installs,
-and explicit updater state machine.
+This document defines how Farming installs and updates application versions
+when several Config instances may share one npm installation.
 
-## User Stories
+## Product Outcomes
 
-- A first-time npm user starts Farming with the version installed by npm.
-- After `npm install` completes, local application startup performs no runtime
-  artifact download.
-- An in-app update is prepared without stopping the current Server.
-- Updating Config A does not stop or replace the code used by live Config B.
-- New Configs use the selected version, while existing Configs remain on the
-  exact version that started them.
+- A fresh installation starts without downloading fixed runtime dependencies.
+- Preparing an update does not stop the current Server.
+- Updating one Config does not replace code used by another live Config.
 - A failed restart restores the initiating Config from its exact prior version.
-- An explicit later `npm install` or `npm update` becomes the version selected
-  for new launches.
-- Source, app-bundle, and standalone installations keep their own deployment
-  paths and never silently enter the npm update lifecycle.
+- Source, npm, app-bundle, standalone, and remote deployments keep explicit,
+  separate lifecycle boundaries.
 
 ## Architecture
 
 An npm installation has three roles:
 
-1. The **Bootstrap Launcher** is the stable command installed by npm. It locates
-   the installation and chooses the version for a new launch.
-2. A **Package Image** is a complete, immutable Farming version. Running
-   processes load code only from their selected Image.
-3. The installation-wide **Current Selection** is a small atomically replaced
-   pointer used only by new launches.
+1. the **Bootstrap Launcher**, a stable entry that selects a version for a new
+   launch;
+2. an immutable **Package Image**, containing one complete Farming version and
+   its verified runtime dependencies;
+3. an atomically published **Current Selection**, used only by future launches.
 
-Config state and Package Images have different ownership. Config state remains
-isolated by canonical Config directory. Package Images are shared read-only by
-all Configs belonging to one npm installation. A Config records the exact live
-Image it uses so cleanup can preserve it.
+Config state and Package Images have different owners. Config state remains
+isolated by Config identity. Package Images are shared read-only within one
+installation, while every live Config remains bound to the exact Image that
+started it.
 
-An explicit npm replacement changes the Bootstrap contents. The Launcher treats
-that new Bootstrap generation as an intentional deployment and publishes it as
-the selection for future launches. It never mutates Images already used by live
-processes.
-
-## Install-time Runtime Seed
-
-Codex, Claude Code, and agent-browser are platform-specific runtime artifacts,
-not application-startup downloads. The package manifest pins their versions and
-integrities. `npm install` prepares the current platform into
-`.farming-runtime-seed/`; each cache record binds the manifest id, dependency,
-version, platform, artifact integrity, entry path, and executable SHA-256.
-
-The Package Image or source installation owns its seed. Config instances only
-write their own active binding and may execute a verified artifact from that
-read-only seed. Startup verifies the cache record, executable hash, platform,
-and reported version before publishing the binding. It sets the runtime download
-policy to `forbid`: a missing, partial, wrong-platform, or corrupted seed fails
-explicitly with an instruction to rerun `npm install`; startup never repairs it
-from the network. Network acquisition, progress, retry, and integrity validation
-belong to the install/update preparing transition.
-
-Installation forms keep distinct preparation boundaries:
-
-- A **source checkout** runs the postinstall preparer after development
-  dependencies are installed. Its ignored seed belongs to that checkout and is
-  replaced by the next explicit install when pins change.
-- An **npm installation** runs the same included postinstall preparer inside the
-  installed Bootstrap/Package Image. An update must prepare the target Image and
-  its seed before that Image becomes selectable; live Images retain their own
-  seed unchanged. Postinstall invokes that package root's backend runtime CLI
-  directly and may write only its package-owned seed; it never enters the
-  Bootstrap Launcher, publishes an Image, or changes Current Selection. The
-  update owner performs verification and publication afterward.
-- A **macOS app bundle** does not run npm postinstall on the user's machine. Its
-  release pipeline must place the prepared seed under
-  `Contents/Resources/farming/.farming-runtime-seed` before signing. Absence or
-  damage is a packaging failure, not permission for first-launch download.
-- A **standalone or remote Server** follows its deployment artifact contract.
-  SSH remote discovery and versioned Server deployment may transfer artifacts
-  for the remote platform, but this is a user-requested connection transition,
-  not local application startup.
+Fixed provider and Browser runtimes are prepared at installation or update
+time. Application startup verifies an already prepared artifact and fails with
+an actionable repair instruction when it is missing or corrupt; startup does
+not silently download a replacement.
 
 ## Update State Machine
 
-The durable business states are:
-
 - **Idle**: no update is active.
-- **Preparing**: the target package and its runtime dependencies are being
-  verified while the old Server remains live.
-- **Ready to restart**: immutable old and target Images exist and the initiating
-  Config may restart.
-- **Restarting**: the exact initiating Server is stopped, the selection changes,
-  and that Config starts from the target Image.
-- **Succeeded**: the initiating Config is running the target version.
-- **Rolling back**: target startup failed and the initiating Config is starting
-  from its exact prior Image.
-- **Rolled back / Failed**: recovery completed on the prior version, or a visible
-  operator action is required.
+- **Preparing**: the target package and runtime dependencies are verified while
+  the current Server remains live.
+- **Ready to restart**: old and target Images are both available.
+- **Restarting**: only the initiating Config stops and starts from the target.
+- **Succeeded**: the initiating Config runs the target version.
+- **Rolling back**: target startup failed and the prior Image is starting.
+- **Rolled back / Failed**: recovery succeeded on the prior version, or a
+  visible operator action is required.
 
-Preparing and selection publication are separate transitions. The selection is
-changed with compare-and-swap, so an update prepared against an older selection
-cannot overwrite a newer deployment. Only the initiating Config is stopped.
-
-The Config-local update operation record describes at most one still-relevant
-operation. It is not authoritative for the installed version or for UI state.
-Each record carries a format version and operation id, and every read reconciles
-it against the running version, Installation identity, and Package Selection.
-Detached helpers may publish a transition only while that same operation id
-still owns the record, so a timed-out helper cannot overwrite a later attempt.
-An external npm deployment that supersedes the target, an Installation change,
-an expired terminal result, or an unrecoverable legacy record converges to Idle.
-Terminal errors remain briefly visible while durable diagnostics stay in the
-update log. Registry versions older than the running version are not presented
-as update targets; rollback uses only verified local immutable Images.
-
-## Safety And Liveness
-
-Safety depends on these invariants:
-
-1. Published Images are complete and are never updated in place.
-2. A running Config remains bound to its exact Image for its process lifetime.
-3. The Current Selection changes atomically and only from the expected prior
-   selection.
-4. Stop and rollback target an exact Server process identity and exact Image.
-5. Cleanup never removes Current, Previous, recent, or exactly live Images.
-6. Unreadable live-usage evidence stops cleanup instead of being interpreted as
-   proof that an Image is unused.
-7. A launch never downloads a fixed runtime dependency; it accepts only a
-   verified Config cache, a verified Image-owned seed, or an explicit failure.
-
-Under normal filesystem, process-inspection, and npm availability, every update
-transition reaches success, rollback, or a visible bounded failure. An unrelated
-Config never has to stop for another Config's update. A stale selection race
-causes the initiating Config to restart its old Image and asks the user to retry
-against the new selection.
-
-## Recovery Semantics
-
-- A Server starting after a helper or launcher crash reconciles the durable
-  restart state with its authoritative running version.
-- If the target version is running, restart recovery converges to success.
-- If target startup fails, the initiating Config is restarted from its exact old
-  Image even when another process has since selected a different version.
-- A selection that moved independently is never overwritten during rollback.
-- A signal permission error leaves the old Server running and returns the update
-  to a retryable ready state.
-- Package cleanup is best-effort after healthy startup and fails closed when
-  ownership evidence is uncertain.
+Preparation and publication are separate transitions. A target prepared from a
+stale selection must not overwrite a newer deployment. Detached work may commit
+state only while it still owns the same update operation.
 
 ## Installation Boundaries
 
-Only npm installations use in-app self-update. Source checkouts are launched
-directly and follow their Git workflow. App bundles and standalone executables
-are replaced through their external installer or deployment process. The Server
-does not fetch GitHub Releases as an alternate update source.
+- **Source checkout** follows the repository and package-manager workflow of
+  that checkout.
+- **npm installation** may use in-app update and immutable Package Images.
+- **App bundle** receives its prepared dependencies from the release pipeline.
+- **Standalone and remote Server** follow their deployment artifact contract.
 
-## Verification Strategy
+One installation form must not silently enter another form's update path. The
+Server does not use GitHub Releases as an automatic fallback update source.
 
-Continuous verification should cover bootstrap and Image-local launch behavior,
-external npm replacement, atomic selection races, exact live usage retention,
-fail-closed cleanup, target startup failure, rollback failure, and two live
-Configs where only the initiating Config restarts into the new version.
-It must also use a fetch/network spy to prove that a valid install seed resolves
-with zero downloads and that a corrupted seed fails with zero fallback requests.
+## Safety And Liveness
+
+Safety requires:
+
+1. published Images are complete and never modified in place;
+2. a live Config stays bound to its exact Image;
+3. Current Selection changes atomically from the expected prior value;
+4. stop and rollback target an exact Server and exact Image;
+5. cleanup retains every current, rollback, recent, or proven-live Image;
+6. uncertain live-usage evidence stops cleanup;
+7. application startup never downloads a fixed runtime dependency.
+
+Under normal filesystem, process-inspection, and package-registry availability,
+every update reaches success, rollback, or a visible bounded failure. An
+unrelated Config never needs to stop for another Config's update.
+
+## Recovery Semantics
+
+After a launcher or helper crash, the next Server reconciles update state with
+the version actually running. A failed target startup restores the initiating
+Config from its exact old Image without overwriting a newer independent
+selection. Permission or ownership uncertainty leaves the old Server or Image
+untouched and reports a retryable failure.
+
+## Acceptance Criteria
+
+Verification must cover first installation without startup downloads,
+concurrent Configs, update preparation while serving traffic, stale selection
+races, exact rollback, failed cleanup, external npm replacement, and each
+supported installation form's boundary.

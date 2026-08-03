@@ -107,6 +107,21 @@ const { importTsModule } = require('./helpers/import-ts-module');
     'user renames should override later agent title updates'
   );
   assert.strictEqual(
+    agentTitle({
+      command: 'codex',
+      adaptiveTitle: 'Agent-managed title',
+      providerSessionTitle: 'First prompt fallback',
+      sessionTitle: 'Runtime title',
+    }),
+    'Agent-managed title',
+    'an Agent-managed title should replace first-prompt and runtime fallbacks'
+  );
+  assert.strictEqual(
+    agentTitle({ command: 'codex', customTitle: 'User title', adaptiveTitle: 'Agent-managed title' }),
+    'User title',
+    'a user rename must remain authoritative over Agent-managed titles'
+  );
+  assert.strictEqual(
     agentTitle({ command: 'claude', isMain: true, sessionTitle: '.farming' }),
     'Main Agent',
     'main agent should not expose the internal .farming workspace as its title'

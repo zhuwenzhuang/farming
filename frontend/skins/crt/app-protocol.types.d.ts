@@ -115,6 +115,7 @@ interface CrtProtocolAgent extends CrtProtocolRecord {
   archivedAt?: number | null;
   source?: string;
   customTitle?: string;
+  adaptiveTitle?: string;
   providerSessionTitle?: string;
   sessionTitle?: string;
   task?: string;
@@ -139,6 +140,14 @@ interface CrtProtocolAgent extends CrtProtocolRecord {
   stateRevision?: number | null;
   attentionSeq?: number;
   readAttentionSeq?: number;
+  attentionUpdatedAt?: number | null;
+  readAttentionAt?: number | null;
+  attentionReason?: string;
+  attentionSummary?: string;
+  attentionOutputEpoch?: string;
+  attentionOutputSeq?: number | null;
+  readOutputEpoch?: string;
+  readOutputSeq?: number | null;
   sessionSource?: string;
   terminalBusy?: boolean | null;
   terminalInputReceived?: boolean;
@@ -259,6 +268,9 @@ interface CrtProtocolAgentStartedServerMessage extends CrtProtocolRecord {
 }
 
 type CrtProtocolAgentPatch = Partial<Pick<CrtProtocolAgent,
+  | 'adaptiveTitle'
+  | 'sessionTitle'
+  | 'runtimeBinding'
   | 'terminalInputReceived'
   | 'terminalBusy'
   | 'terminalStatus'
@@ -270,6 +282,24 @@ interface CrtProtocolAgentUpdateServerMessage extends CrtProtocolRecord {
   update: {
     agentId: string;
     patch: CrtProtocolAgentPatch;
+  };
+}
+
+interface CrtProtocolAgentReadServerMessage extends CrtProtocolRecord {
+  type: 'agent-read';
+  read: {
+    agentId: string;
+    unread: boolean;
+    attentionSeq: number;
+    readAttentionSeq: number;
+    attentionUpdatedAt?: number | null;
+    readAttentionAt?: number | null;
+    attentionReason?: string;
+    attentionSummary?: string;
+    attentionOutputEpoch?: string;
+    attentionOutputSeq?: number | null;
+    readOutputEpoch: string;
+    readOutputSeq: number | null;
   };
 }
 
@@ -365,6 +395,7 @@ type CrtWebSocketServerMessage =
   | CrtProtocolStateServerMessage
   | CrtProtocolAgentStartedServerMessage
   | CrtProtocolAgentUpdateServerMessage
+  | CrtProtocolAgentReadServerMessage
   | CrtProtocolAcpRevisionServerMessage
   | CrtProtocolSessionPreviewServerMessage
   | CrtProtocolSessionOutputServerMessage

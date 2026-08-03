@@ -30,13 +30,17 @@ function run() {
     !serverSource.includes('shutdownServer') &&
       !serverSource.includes("process.on('SIGINT'") &&
       !serverSource.includes("process.on('SIGTERM'") &&
+      !appCliSource.includes('signalServer') &&
+      !appCliSource.includes('serverStopGraceMs') &&
+      appCliSource.includes('matchingProcessIdentity(processIdentity, readServerProcessIdentity(targetPid))') &&
+      appCliSource.includes('forceKillServer(pid)') &&
       appCliSource.includes("process.kill(pid, 'SIGKILL')") &&
       npmUpdateHelperSource.includes("process.kill(pid, 'SIGKILL')") &&
       releaseInstallerSource.includes('run_release_cli "${SOURCE_DIR}" stop') &&
       appCliSource.includes('this command lacks permission') &&
       npmUpdateHelperSource.includes('update helper lacks permission') &&
       !releaseInstallerSource.includes('kill -9 "${pid}"'),
-    'all supported Farming Server exit entry points should bypass in-process draining'
+    'the server should remain crash-only and stop only through a verified force-kill'
   );
 
   assert(
@@ -137,7 +141,7 @@ function run() {
     'deploy stop should preserve exact CLI ownership failures and remove compatibility metadata only after success'
   );
 
-  console.log('✓ deploy restart and stop use one crash-only server termination path');
+  console.log('✓ deploy restart and stop use one bounded server termination path');
 }
 
 run();

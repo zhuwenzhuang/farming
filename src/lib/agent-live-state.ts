@@ -1,6 +1,11 @@
 import { useCallback, useMemo, useSyncExternalStore } from 'react'
 import type { Agent } from '@/types/agent'
-import type { AgentUpdateMessage, SessionPreviewMessage } from '@/types/messages'
+import type {
+  AcpSessionRevisionMessage,
+  AgentReadMessage,
+  AgentUpdateMessage,
+  SessionPreviewMessage,
+} from '@/types/messages'
 
 export type AgentLiveActivity = Pick<
   Agent,
@@ -12,19 +17,29 @@ type AgentPreviewPatch = Pick<
   'previewText' | 'previewCols' | 'previewRows' | 'previewSnapshot' |
   'terminalStatus' | 'runtimeObservation' | 'codexTerminalProfile'
 >
-
 type AgentLivePatch = AgentUpdateMessage['update']['patch']
   & Partial<AgentLiveActivity>
   & Partial<AgentPreviewPatch>
+  & Partial<Omit<AgentReadMessage['read'], 'agentId'>>
 
-type AgentLiveState = AgentLiveActivity & AgentPreviewPatch & AgentUpdateMessage['update']['patch']
+type AgentLiveState = AgentLiveActivity
+  & AgentPreviewPatch
+  & AgentUpdateMessage['update']['patch']
+  & Omit<AgentReadMessage['read'], 'agentId'>
 type Listener = () => void
+type AgentReadListener = (read: AgentReadMessage['read']) => void
+type AgentRuntimeBindingListener = (agentId: string) => void
 type LiveEntry = { value: AgentLiveState; signature: string | null }
 type SubscriptionKind = 'all' | 'runtime'
 
 const entries = new Map<string, LiveEntry>()
 const listenersByAgentId = new Map<string, Record<SubscriptionKind, Set<Listener>>>()
+const agentReadListeners = new Set<AgentReadListener>()
+const agentRuntimeBindingListeners = new Set<AgentRuntimeBindingListener>()
 const RUNTIME_FIELDS = new Set<keyof AgentLiveState>([
+  'adaptiveTitle',
+  'sessionTitle',
+  'runtimeBinding',
   'terminalInputReceived',
   'terminalBusy',
   'shellCwd',
@@ -39,11 +54,23 @@ const RUNTIME_FIELDS = new Set<keyof AgentLiveState>([
   'terminalStatus',
   'runtimeObservation',
   'codexTerminalProfile',
+  'unread',
+  'attentionSeq',
+  'readAttentionSeq',
+  'attentionUpdatedAt',
+  'readAttentionAt',
+  'attentionReason',
+  'attentionSummary',
+  'attentionOutputEpoch',
+  'attentionOutputSeq',
+  'readOutputEpoch',
+  'readOutputSeq',
 ])
 const STRUCTURED_RUNTIME_FIELDS = new Set<keyof AgentLiveState>([
   'terminalStatus',
   'runtimeObservation',
   'codexTerminalProfile',
+  'runtimeBinding',
 ])
 
 declare global {
@@ -56,6 +83,9 @@ declare global {
 
 function liveStateFromAgent(agent: Agent): AgentLiveState {
   return {
+    adaptiveTitle: agent.adaptiveTitle,
+    sessionTitle: agent.sessionTitle,
+    runtimeBinding: agent.runtimeBinding,
     lastActivity: agent.lastActivity,
     activityLevel: agent.activityLevel,
     attentionScore: agent.attentionScore,
@@ -68,6 +98,17 @@ function liveStateFromAgent(agent: Agent): AgentLiveState {
     terminalStatus: agent.terminalStatus,
     runtimeObservation: agent.runtimeObservation,
     codexTerminalProfile: agent.codexTerminalProfile,
+    unread: agent.unread,
+    attentionSeq: agent.attentionSeq,
+    readAttentionSeq: agent.readAttentionSeq,
+    attentionUpdatedAt: agent.attentionUpdatedAt,
+    readAttentionAt: agent.readAttentionAt,
+    attentionReason: agent.attentionReason,
+    attentionSummary: agent.attentionSummary,
+    attentionOutputEpoch: agent.attentionOutputEpoch,
+    attentionOutputSeq: agent.attentionOutputSeq,
+    readOutputEpoch: agent.readOutputEpoch,
+    readOutputSeq: agent.readOutputSeq,
     terminalInputReceived: agent.terminalInputReceived,
     terminalBusy: agent.terminalBusy,
     shellCommand: agent.shellCommand,
@@ -112,6 +153,9 @@ export function updateAgentLiveState(agentId: string, patch: AgentLivePatch) {
     signature: null,
   })
   notify(agentId, changedFields.some(field => RUNTIME_FIELDS.has(field)))
+  if (changedFields.includes('runtimeBinding')) {
+    agentRuntimeBindingListeners.forEach(listener => listener(agentId))
+  }
 }
 
 export function updateAgentLiveActivity(
@@ -119,6 +163,45 @@ export function updateAgentLiveActivity(
 ) {
   const { agentId, ...patch } = activity
   updateAgentLiveState(agentId, patch)
+}
+
+export function updateAgentReadState(read: AgentReadMessage['read']) {
+  const { agentId, ...patch } = read
+  updateAgentLiveState(agentId, patch)
+  agentReadListeners.forEach(listener => listener(read))
+}
+
+export function subscribeAgentReadEvents(listener: AgentReadListener) {
+  agentReadListeners.add(listener)
+  return () => {
+    agentReadListeners.delete(listener)
+  }
+}
+
+export function subscribeAgentRuntimeBindingEvents(listener: AgentRuntimeBindingListener) {
+  agentRuntimeBindingListeners.add(listener)
+  return () => {
+    agentRuntimeBindingListeners.delete(listener)
+  }
+}
+
+export function updateAgentAcpSessionRevision(
+  session: AcpSessionRevisionMessage['session'],
+) {
+  const previous = entries.get(session.agentId)
+  const runtimeBinding = previous?.value.runtimeBinding
+  if (
+    !previous
+    || runtimeBinding?.kind !== 'acp'
+    || session.revision <= runtimeBinding.sessionRevision
+  ) return
+  updateAgentLiveState(session.agentId, {
+    runtimeBinding: {
+      ...runtimeBinding,
+      sessionRevision: session.revision,
+      sessionUpdatedAt: session.updatedAt,
+    },
+  })
 }
 
 export function updateAgentLivePreview(preview: SessionPreviewMessage['preview']) {

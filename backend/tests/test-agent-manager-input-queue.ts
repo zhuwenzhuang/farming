@@ -453,11 +453,22 @@ async function run() {
     assert.strictEqual(readResult.changed, true, 'advancing a read cursor should report a real state change');
     assert.strictEqual(readResult.requiresState, false, 'a read cursor does not require a full Agent-list replacement');
     assert.strictEqual(fullStateUpdates, 0, 'a read cursor should publish a narrow delta instead of a full state update');
-    assert.deepStrictEqual(readDeltas, [{
+    assert.strictEqual(
+      typeof readDeltas[0]?.readAttentionAt,
+      'number',
+      'the read delta should carry the exact read timestamp',
+    );
+    assert.deepStrictEqual(readDeltas.map(delta => ({ ...delta, readAttentionAt: null })), [{
       agentId: 'agent-read-delta',
       unread: false,
       attentionSeq: 3,
       readAttentionSeq: 3,
+      attentionUpdatedAt: null,
+      readAttentionAt: null,
+      attentionReason: '',
+      attentionSummary: '',
+      attentionOutputEpoch: '',
+      attentionOutputSeq: null,
       readOutputEpoch: 'epoch-read',
       readOutputSeq: 9,
     }], 'a read cursor should publish the exact lightweight Agent delta');

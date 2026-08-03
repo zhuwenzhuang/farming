@@ -19,6 +19,22 @@ function agent(provider, goalSubmission, overrides = {}) {
       goalSubmission,
       runtimeSwitch: providerManaged,
       terminalProfile: provider === 'codex',
+      conversationFork: {
+        terminal: {
+          supported: providerManaged && provider !== 'qwen',
+          strategy: providerManaged && provider !== 'qwen' ? 'target-process' : null,
+          worktreeModes: providerManaged && provider !== 'qwen'
+            ? ['same-worktree', 'new-worktree']
+            : [],
+          requiresRuntimeCapability: false,
+        },
+        acp: {
+          supported: providerManaged,
+          strategy: providerManaged ? 'source-session' : null,
+          worktreeModes: providerManaged ? ['same-worktree'] : [],
+          requiresRuntimeCapability: providerManaged,
+        },
+      },
       terminalSessionFork: providerManaged && provider !== 'qwen',
       sessionFork: providerManaged,
       supportsChat: providerManaged,
@@ -65,22 +81,48 @@ function run() {
   assert.strictEqual(qoderActions.forkSameWorktree, true);
   assert.strictEqual(qoderActions.forkNewWorktree, true);
 
+  const sameWorktreeOnlyActions = capabilitiesForAgent(agent('qoder', null, {
+    providerCapabilities: {
+      ...agent('qoder', null).providerCapabilities,
+      conversationFork: {
+        ...agent('qoder', null).providerCapabilities.conversationFork,
+        terminal: {
+          supported: true,
+          strategy: 'target-process',
+          worktreeModes: ['same-worktree'],
+          requiresRuntimeCapability: false,
+        },
+      },
+    },
+  })).actions;
+  assert.strictEqual(sameWorktreeOnlyActions.forkSameWorktree, true);
+  assert.strictEqual(sameWorktreeOnlyActions.forkNewWorktree, false);
+
   const shellActions = capabilitiesForAgent(agent('shell', null)).actions;
   assert.strictEqual(shellActions.forkSameWorktree, true);
   assert.strictEqual(shellActions.forkNewWorktree, true);
 
   assert.strictEqual(canForkAgentConversation(agent('qwen', null, {
-    runtimeBinding: { kind: 'acp', supportsFork: false },
+    runtimeBinding: { kind: 'acp', state: 'idle', supportsFork: false },
   })), false);
   assert.strictEqual(canForkAgentConversation(agent('qwen', null, {
-    runtimeBinding: { kind: 'acp', supportsFork: true },
+    runtimeBinding: { kind: 'acp', state: 'idle', supportsFork: true },
   })), true);
   assert.strictEqual(canForkAgentConversation(agent('qoder', null, {
-    runtimeBinding: { kind: 'acp', supportsFork: true },
+    runtimeBinding: { kind: 'acp', state: 'idle', supportsFork: true },
   })), true);
+  assert.strictEqual(canForkAgentConversation(agent('qoder', null, {
+    runtimeBinding: { kind: 'acp', state: 'working', supportsFork: true },
+  })), false);
+  assert.strictEqual(canForkAgentConversation(agent('qoder', null, {
+    runtimeBinding: { kind: 'acp', state: 'error', supportsFork: true },
+  })), true);
+  assert.strictEqual(canForkAgentConversation(agent('qoder', null, {
+    runtimeBinding: { kind: 'acp', state: 'connecting', supportsFork: true },
+  })), false);
 
   const chatActions = capabilitiesForAgent(agent('codex', null, {
-    runtimeBinding: { kind: 'acp', supportsFork: true },
+    runtimeBinding: { kind: 'acp', state: 'idle', supportsFork: true },
   })).actions;
   assert.strictEqual(chatActions.forkSameWorktree, true);
   assert.strictEqual(chatActions.forkNewWorktree, false);

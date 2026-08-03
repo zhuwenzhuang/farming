@@ -34,8 +34,12 @@ async function run() {
     });
 
     let updateCount = 0;
+    let readUpdateCount = 0;
     manager.onUpdate(() => {
       updateCount += 1;
+    });
+    manager.on('agent-read', () => {
+      readUpdateCount += 1;
     });
 
     manager.engineBridge.router.engines.local.emit('session-busy-state', {
@@ -401,7 +405,7 @@ async function run() {
     });
     assert.strictEqual(manager.agents.get('main-agent').attentionSeq, 0, 'Main Agent rows should not get sidebar unread attention events');
 
-    assert(updateCount > 0, 'attention cursor changes should notify clients');
+    assert(readUpdateCount > 0, 'attention cursor changes should notify clients through scoped read deltas');
     console.log('✓ AgentManager tracks unread state with attention read cursors');
   } finally {
     clearInterval(manager.heartbeatInterval);

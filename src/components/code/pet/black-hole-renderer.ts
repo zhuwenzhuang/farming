@@ -9,6 +9,7 @@ const FIELD_INNER = 0.22
 const FIELD_OUTER = 0.46
 const INITIAL_SCENE_RETRY_MIN_MS = 1_000
 const INITIAL_SCENE_RETRY_MAX_MS = 10_000
+const RESIZE_CAPTURE_DELAY_MS = 200
 const PET_SNAPSHOT_EXCLUDE_SELECTORS = [
   '[data-pet-ui]',
   '[data-pet-snapshot-exclude]',
@@ -929,6 +930,7 @@ async function createSceneImage() {
   const testWindow = window as Window & {
     __FARMING_E2E__?: boolean
     __farmingBlackHoleCaptureFailures?: number
+    __farmingBlackHoleCaptureDelayMs?: number
   }
   if (
     testWindow.__FARMING_E2E__
@@ -939,6 +941,12 @@ async function createSceneImage() {
       (testWindow.__farmingBlackHoleCaptureFailures ?? 0) - 1,
     )
     throw new Error('Synthetic initial black-hole snapshot failure.')
+  }
+  if (testWindow.__FARMING_E2E__ && testWindow.__farmingBlackHoleCaptureDelayMs) {
+    await new Promise<void>(resolve => window.setTimeout(
+      resolve,
+      testWindow.__farmingBlackHoleCaptureDelayMs,
+    ))
   }
   const width = window.innerWidth
   const height = window.innerHeight
@@ -1544,6 +1552,7 @@ export function createBlackHolePetRenderer({
   let active = true
   let destroyed = false
   let sceneReady = false
+  let sceneCaptured = false
   let exitingAt: number | null = null
   let exitDuration = BLACK_HOLE_EXIT_SECONDS
   let exitReturnsHome = true
@@ -1555,6 +1564,14 @@ export function createBlackHolePetRenderer({
   let initialSceneInFlight = false
   let initialSceneRetryId: number | null = null
   let initialSceneFailures = 0
+  let sceneRefreshId: number | null = null
+  let sceneRefreshPending = false
+  let sceneCaptureRevision = 0
+  let sceneViewport = { width: 0, height: 0 }
+  let pendingRelativePosition: { x: number, y: number } | null = null
+  let positionOffset = { x: 0, y: 0 }
+  let lastPose: Pose | null = null
+  let lastPoseViewport = { width: 0, height: 0 }
   const testWindow = window as Window & {
     __FARMING_E2E__?: boolean
     __farmingBlackHoleElapsedSeconds?: number
@@ -1562,7 +1579,7 @@ export function createBlackHolePetRenderer({
     __farmingBlackHoleEvolutionSeed?: number
     __farmingBlackHoleRenderFrames?: (count?: number) => Promise<void>
   }
-  const startedAt = performance.now()
+  let animationStartedAt: number | null = null
   const roamSeed = crypto.getRandomValues(new Uint32Array(1))[0] ?? 0
   const requestedEvolutionSeed = testWindow.__farmingBlackHoleEvolutionSeed
   const evolutionSeed = testWindow.__FARMING_E2E__
@@ -1607,6 +1624,7 @@ export function createBlackHolePetRenderer({
       || !active
       || document.hidden
       || requestId
+      || (!sceneReady && exitingAt === null)
     ) return
     requestId = requestAnimationFrame(frame)
   }
@@ -1617,33 +1635,49 @@ export function createBlackHolePetRenderer({
     initialSceneRetryId = null
   }
 
+  const clearSceneRefresh = () => {
+    if (sceneRefreshId === null) return
+    window.clearTimeout(sceneRefreshId)
+    sceneRefreshId = null
+  }
+
   const loadInitialScene = () => {
     if (
       destroyed
-      || sceneReady
       || initialSceneInFlight
       || !active
       || document.hidden
+      || (sceneReady && !sceneRefreshPending)
     ) return
     clearInitialSceneRetry()
     initialSceneInFlight = true
-    compositorCanvas.dataset.refreshState = 'initial-capturing'
+    const captureRevision = sceneCaptureRevision
+    const refreshing = sceneRefreshPending || sceneCaptured
+    compositorCanvas.dataset.refreshState = refreshing
+      ? 'resize-capturing'
+      : 'initial-capturing'
     void createSceneImage()
       .then(image => {
-        if (destroyed) return
+        if (destroyed || captureRevision !== sceneCaptureRevision) return
         compositor.setScene(image)
         sceneReady = true
+        sceneCaptured = true
+        sceneRefreshPending = false
+        sceneViewport = { width: window.innerWidth, height: window.innerHeight }
         initialSceneFailures = 0
         compositorCanvas.dataset.refreshState = 'idle'
         delete compositorCanvas.dataset.refreshError
+        if (animationStartedAt === null) animationStartedAt = performance.now()
         onReady()
         schedule()
       })
       .catch(error => {
-        if (destroyed) return
+        if (destroyed || captureRevision !== sceneCaptureRevision) return
         initialSceneFailures += 1
         const message = error instanceof Error ? error.message : String(error)
-        compositorCanvas.dataset.refreshState = 'initial-retry-wait'
+        compositorCanvas.dataset.refreshState = refreshing
+          ? 'resize-retry-wait'
+          : 'initial-retry-wait'
         compositorCanvas.dataset.refreshError = message
         onError(message)
         const retryDelay = Math.min(
@@ -1657,7 +1691,31 @@ export function createBlackHolePetRenderer({
       })
       .finally(() => {
         initialSceneInFlight = false
+        if (sceneRefreshPending && sceneRefreshId === null) loadInitialScene()
       })
+  }
+
+  const requestSceneRefresh = () => {
+    if (destroyed || !active) return
+    if (lastPose) {
+      pendingRelativePosition = {
+        x: clamp(lastPose.centerX / Math.max(1, lastPoseViewport.width), 0, 1),
+        y: clamp(lastPose.centerY / Math.max(1, lastPoseViewport.height), 0, 1),
+      }
+    }
+    sceneReady = false
+    sceneRefreshPending = true
+    sceneCaptureRevision += 1
+    clearSchedule()
+    clearInitialSceneRetry()
+    clearSceneRefresh()
+    canvas.style.opacity = '0'
+    compositorCanvas.style.opacity = '0'
+    compositorCanvas.dataset.refreshState = 'resize-wait'
+    sceneRefreshId = window.setTimeout(() => {
+      sceneRefreshId = null
+      loadInitialScene()
+    }, RESIZE_CAPTURE_DELAY_MS)
   }
 
   const applyPose = (pose: Pose) => {
@@ -1666,7 +1724,7 @@ export function createBlackHolePetRenderer({
     const size = snap(DISPLAY_SIZE * pose.scale)
     canvas.style.left = `${snap(pose.centerX - size / 2)}px`
     canvas.style.top = `${snap(pose.centerY - size / 2)}px`
-    canvas.style.opacity = String(pose.bodyOpacity)
+    canvas.style.opacity = String(sceneReady ? pose.bodyOpacity : 0)
     display.resize(size)
   }
 
@@ -1678,7 +1736,7 @@ export function createBlackHolePetRenderer({
       : undefined
     const elapsed = Number.isFinite(testElapsed)
       ? Number(testElapsed)
-      : (now - startedAt) / 1000
+      : (now - (animationStartedAt ?? now)) / 1000
     const look = macroAt(elapsed, birth, evolutionSeed)
     canvas.dataset.macroPhase = look.phase
     canvas.dataset.macroSize = look.size.toFixed(4)
@@ -1722,7 +1780,7 @@ export function createBlackHolePetRenderer({
       compositorCanvas.dataset.diskFeed = evaporation.diskFeed.toFixed(4)
       compositorCanvas.dataset.bodyOpacity = evaporation.body.toFixed(4)
       compositorCanvas.dataset.lensOpacity = evaporation.lens.toFixed(4)
-      const exitElapsed = (exitingAt - startedAt) / 1000
+      const exitElapsed = (exitingAt - (animationStartedAt ?? exitingAt)) / 1000
       const frozenTime =
         exitElapsed + 0.45 * (1 - Math.exp(-(now - exitingAt) / 450))
       const frozenLook = macroAt(frozenTime, birth, evolutionSeed)
@@ -1752,6 +1810,21 @@ export function createBlackHolePetRenderer({
       }
     }
 
+    if (pendingRelativePosition) {
+      const offsetScale = Math.max(0.001, 1 - homeAttraction)
+      positionOffset = {
+        x: (pendingRelativePosition.x * window.innerWidth - pose.centerX) / offsetScale,
+        y: (pendingRelativePosition.y * window.innerHeight - pose.centerY) / offsetScale,
+      }
+      pendingRelativePosition = null
+    }
+    const offsetScale = 1 - homeAttraction
+    pose = {
+      ...pose,
+      centerX: pose.centerX + positionOffset.x * offsetScale,
+      centerY: pose.centerY + positionOffset.y * offsetScale,
+    }
+
     if (lastClockAt) {
       const dilation = mix(
         look.diskRate,
@@ -1762,6 +1835,8 @@ export function createBlackHolePetRenderer({
     }
     lastClockAt = now
     applyPose(pose)
+    lastPose = pose
+    lastPoseViewport = { width: window.innerWidth, height: window.innerHeight }
     if (sceneReady) compositor.draw(pose)
     display.draw(diskClock, pose.bodyOpacity, look, evaporation)
     if (!testWindow.__FARMING_E2E__) schedule()
@@ -1789,14 +1864,22 @@ export function createBlackHolePetRenderer({
     testWindow.__farmingBlackHoleRenderFrames = renderTestFrames
   }
 
+  canvas.style.opacity = '0'
   loadInitialScene()
+
+  const onResize = () => requestSceneRefresh()
+  window.addEventListener('resize', onResize)
 
   const onVisibilityChange = () => {
     if (document.hidden) {
       clearSchedule()
       lastClockAt = 0
     } else if (active) {
-      loadInitialScene()
+      if (
+        sceneCaptured
+        && (sceneViewport.width !== window.innerWidth || sceneViewport.height !== window.innerHeight)
+      ) requestSceneRefresh()
+      else loadInitialScene()
       schedule()
     }
   }
@@ -1809,7 +1892,11 @@ export function createBlackHolePetRenderer({
         clearSchedule()
         lastClockAt = 0
       } else {
-        loadInitialScene()
+        if (
+          sceneCaptured
+          && (sceneViewport.width !== window.innerWidth || sceneViewport.height !== window.innerHeight)
+        ) requestSceneRefresh()
+        else loadInitialScene()
         schedule()
       }
     },
@@ -1834,10 +1921,12 @@ export function createBlackHolePetRenderer({
       destroyed = true
       clearSchedule()
       clearInitialSceneRetry()
+      clearSceneRefresh()
       if (testWindow.__farmingBlackHoleRenderFrames === renderTestFrames) {
         delete testWindow.__farmingBlackHoleRenderFrames
       }
       document.removeEventListener('visibilitychange', onVisibilityChange)
+      window.removeEventListener('resize', onResize)
       compositorCanvas.style.opacity = '0'
       compositor.destroy()
       display.destroy()

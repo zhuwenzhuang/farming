@@ -172,6 +172,15 @@ reciprocal links. Do not publish conversation logs, transient investigations,
 private deployment details, or implementation trivia that is better expressed
 by code and tests.
 
+Durable documentation describes architecture elements, ownership boundaries,
+state transitions, failure and recovery semantics, interaction design, and
+acceptance criteria. Do not maintain file-by-file change maps, class/function
+inventories, test-file catalogs, or prose copies of current control flow. Put
+those details in code, tests, commits, issues, or purpose-built execution
+runbooks. Delete a document whose only purpose is to narrate the current
+implementation; when a mixed document is still useful, keep the durable design
+contract and remove the implementation inventory.
+
 ## Verification
 
 Use the smallest useful checks while iterating, then run all checks justified

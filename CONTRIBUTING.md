@@ -48,7 +48,7 @@ Update the canonical document for the affected reader:
 - product entry point: `README.md` and `README.zh_cn.md`
 - user documentation: the task and product pages linked from `docs/README.md`
 - product landing pages: `docs/products/*/README.md`
-- implementation architecture and verification: `docs/development/`
+- durable architecture and verification: `docs/development/`
 - Agent engineering rules: `AGENTS.md` and `AGENTS.zh_cn.md`
 
 Do not add implementation details to a README unless they are required to

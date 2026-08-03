@@ -33,6 +33,7 @@ import {
   type WorkspaceGitWorktrees,
 } from '@/lib/workspace-files'
 import { appPath } from '@/lib/base-path'
+import { isAcpRuntime } from '@/lib/agent-runtime'
 import { agentDisplayName, formatRelativeAge } from '@/lib/format'
 import { GLOBAL_WORKSPACE_FILES_AGENT_ID } from '@/lib/global-workspace-files'
 import { workspaceOpenFileKey } from '@/lib/workspace-open-files'
@@ -212,6 +213,7 @@ interface CodeSidebarProps {
   onToggleProjectSessions: (projectId: string) => void
   onMountProject: (workspace: string) => void
   onOpenProjectMenu: (event: ContextMenuTriggerEvent, projectId: string) => void
+  onReorderProject: (workspace: string, beforeWorkspace: string, afterWorkspace: string) => void
   onOpenAgent: (agentId: string) => void
   onUpdateAgentFlags: (agent: Agent, flags: Partial<Pick<Agent, 'pinned' | 'archived'>>) => void
   onReorderAgent: (agentId: string, beforeAgentId: string, afterAgentId: string) => void
@@ -275,6 +277,7 @@ export function CodeSidebar({
   onToggleProjectSessions,
   onMountProject,
   onOpenProjectMenu,
+  onReorderProject,
   onOpenAgent,
   onUpdateAgentFlags,
   onReorderAgent,
@@ -490,6 +493,27 @@ export function CodeSidebar({
     || project.hasOpenFile
     || Boolean(project.workspace)
   ))
+  const reorderableProjects = visibleProjectSections.filter(project => (
+    Boolean(project.workspace) && !project.hasMain
+  ))
+  const {
+    agentDrag: projectDrag,
+    beginAgentDrag: beginProjectDrag,
+    dropAgent: dropProject,
+    finishAgentDrag: finishProjectDrag,
+    updateAgentDropTarget: updateProjectDropTarget,
+  } = useAgentReorder(
+    reorderableProjects,
+    onReorderProject,
+    hideAgentPreview,
+    (source, target) => source.pinned === target.pinned,
+  )
+  const canDropProject = (targetProjectId: string) => {
+    if (!projectDrag) return false
+    const source = reorderableProjects.find(project => project.id === projectDrag.agentId)
+    const target = reorderableProjects.find(project => project.id === targetProjectId)
+    return Boolean(source && target && source.pinned === target.pinned)
+  }
   const sidebarRailItems = displayedProjects.flatMap<SidebarRailItem>(project => [
     ...project.agents
       .filter(agent => !agent.isMain)
@@ -687,6 +711,17 @@ export function CodeSidebar({
             onNewAgent={onNewAgent}
             onStartAgent={onStartAgent}
             onOpenProjectMenu={onOpenProjectMenu}
+            reorderable={reorderableProjects.filter(candidate => candidate.pinned === project.pinned).length > 1}
+            dragging={projectDrag?.agentId === project.id}
+            dropPosition={projectDrag?.targetAgentId === project.id ? projectDrag.position : undefined}
+            onProjectDragStart={beginProjectDrag}
+            onProjectDragEnd={finishProjectDrag}
+            onProjectDragOver={(event, projectId) => {
+              if (canDropProject(projectId)) updateProjectDropTarget(event, projectId)
+            }}
+            onProjectDrop={(event, projectId) => {
+              if (canDropProject(projectId)) dropProject(event, projectId)
+            }}
             onShowProjectPreview={showProjectPreview}
             onOpenAgent={onOpenAgent}
             onUpdateAgentFlags={onUpdateAgentFlags}
@@ -1359,6 +1394,13 @@ interface ProjectSectionProps {
   onNewAgent: (workspace?: string, command?: string, returnFocusTarget?: HTMLElement | null) => void
   onStartAgent: (command: string, workspace: string, options?: { projectWorkspace?: string; agentRuntimeMode?: 'terminal' | 'chat' | 'acp' }) => void
   onOpenProjectMenu: (event: ContextMenuTriggerEvent, projectId: string) => void
+  reorderable: boolean
+  dragging: boolean
+  dropPosition?: 'before' | 'after'
+  onProjectDragStart: (event: ReactDragEvent<HTMLElement>, projectId: string) => void
+  onProjectDragEnd: () => void
+  onProjectDragOver: (event: ReactDragEvent<HTMLElement>, projectId: string) => void
+  onProjectDrop: (event: ReactDragEvent<HTMLElement>, projectId: string) => void
   onShowProjectPreview: (event: AgentPreviewAnchorEvent, target: ProjectPreviewTarget) => void
   onOpenAgent: (agentId: string) => void
   onUpdateAgentFlags: (agent: Agent, flags: Partial<Pick<Agent, 'pinned' | 'archived'>>) => void
@@ -1400,6 +1442,13 @@ function ProjectSection({
   onNewAgent,
   onStartAgent,
   onOpenProjectMenu,
+  reorderable,
+  dragging,
+  dropPosition,
+  onProjectDragStart,
+  onProjectDragEnd,
+  onProjectDragOver,
+  onProjectDrop,
   onShowProjectPreview,
   onOpenAgent,
   onUpdateAgentFlags,
@@ -1417,6 +1466,7 @@ function ProjectSection({
   onRefreshProjectOpenFiles,
   copy,
 }: ProjectSectionProps) {
+  const projectDraggedRef = useRef(false)
   const projectGroupRef = useRef<HTMLElement | null>(null)
   const projectRowRef = useRef<HTMLDivElement | null>(null)
   const agentsSectionRef = useRef<HTMLDivElement | null>(null)
@@ -1628,7 +1678,9 @@ function ProjectSection({
     <section ref={projectGroupRef} className="code-project-group" data-testid="code-project-group">
       <div
         ref={projectRowRef}
-        className="code-project-row"
+        className={`code-project-row ${dragging ? 'dragging' : ''} ${dropPosition ? `drop-${dropPosition}` : ''}`}
+        onDragOver={event => onProjectDragOver(event, project.id)}
+        onDrop={event => onProjectDrop(event, project.id)}
         onMouseEnter={event => onShowProjectPreview(event, {
           key: `project:${project.id}`,
           name: project.name,
@@ -1652,8 +1704,27 @@ function ProjectSection({
             className="code-project-title"
             data-testid="code-project-title"
             data-project-id={project.id}
+            draggable={(reorderable && !isTouchInputViewport()) || undefined}
             aria-expanded={!collapsed}
-            onClick={() => onToggleProject(project.id)}
+            onDragStart={event => {
+              if (!reorderable) return
+              projectDraggedRef.current = true
+              onProjectDragStart(event, project.id)
+            }}
+            onDragEnd={() => {
+              onProjectDragEnd()
+              window.setTimeout(() => {
+                projectDraggedRef.current = false
+              }, 0)
+            }}
+            onClick={event => {
+              if (projectDraggedRef.current) {
+                event.preventDefault()
+                event.stopPropagation()
+                return
+              }
+              onToggleProject(project.id)
+            }}
             onContextMenu={event => onOpenProjectMenu(event, project.id)}
             onKeyDown={event => onOpenProjectMenu(event, project.id)}
           >
@@ -2244,6 +2315,12 @@ function AgentRow({
   const providerIcon = liveAgent
     ? previewAgentIconNameForAgent(liveAgent)
     : previewAgentIconName(session?.provider)
+  const prepareLiveChat = () => {
+    if (!liveAgent || !isAcpRuntime(liveAgent)) return
+    void fetch(appPath(`/api/agents/${encodeURIComponent(liveAgent.id)}/acp-transcript/prepare`), {
+      method: 'POST',
+    }).catch(() => {})
+  }
   const openRow = () => {
     if (requiresResume) {
       onHidePreview?.()
@@ -2307,7 +2384,11 @@ function AgentRow({
         }
         openRow()
       }}
+      onFocus={event => {
+        if (event.currentTarget.matches(':focus-visible')) prepareLiveChat()
+      }}
       onMouseEnter={event => {
+        prepareLiveChat()
         if (liveAgent) {
           onShowPreview?.(event, previewTargetForAgent(liveAgent, rowState))
         } else if (session) {

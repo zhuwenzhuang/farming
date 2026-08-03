@@ -1,6 +1,55 @@
 #!/usr/bin/env node
 const { requestJson } = require('../backend/farming-computer-client.cjs');
+const { loadComputerToolManifest } = require('../backend/computer-tool-manifest.cjs');
 const { rootIdForPath } = require('../../../backend/workspace-root-registry.cjs');
+const path = require('path');
+const {
+  capabilityEnvelope,
+  capabilityError,
+  writeCapabilityJson,
+} = require('../../../backend/capability-cli-output.cjs');
+
+const MAX_COMPUTER_INPUT_BYTES = 1024 * 1024;
+
+const TOOL_TOPICS = Object.freeze({
+  observe: [
+    'list_apps', 'list_windows', 'get_window_state', 'get_screen_size',
+    'get_desktop_state', 'get_cursor_position', 'get_accessibility_tree',
+    'zoom', 'page', 'get_browser_state',
+  ],
+  apps: ['launch_app', 'kill_app', 'bring_to_front'],
+  input: [
+    'click', 'double_click', 'right_click', 'drag', 'mouse_button_down',
+    'mouse_drag', 'mouse_button_up', 'parallel_mouse_drag', 'type_text',
+    'press_key', 'hotkey', 'set_value', 'scroll', 'move_cursor',
+  ],
+  browser: [
+    'browser_prepare', 'browser_navigate', 'browser_click', 'browser_type',
+    'browser_dialog', 'browser_set_input_files', 'browser_download', 'browser_pointer',
+  ],
+  session: [
+    'set_agent_cursor_enabled', 'set_agent_cursor_motion', 'get_agent_cursor_state',
+    'set_agent_cursor_style', 'start_session', 'escalate_session',
+    'get_session_state', 'end_session',
+  ],
+  recording: [
+    'start_recording', 'stop_recording', 'get_recording_state', 'replay_trajectory',
+  ],
+  diagnostics: [
+    'check_permissions', 'health_report', 'get_config', 'set_config',
+    'install_ffmpeg', 'check_for_update',
+  ],
+});
+
+const TOPIC_SUMMARIES = Object.freeze({
+  observe: 'Inspect apps, windows, accessibility trees, desktop state, screenshots, and Browser state.',
+  apps: 'Launch, focus, and terminate desktop applications.',
+  input: 'Send pointer, keyboard, text, scrolling, and value operations.',
+  browser: 'Operate the Browser surface inside the isolated desktop when native UI context is required.',
+  session: 'Manage Farming-owned CUA session scope and visible Agent cursor behavior.',
+  recording: 'Record, inspect, stop, or replay desktop trajectories.',
+  diagnostics: 'Inspect permissions, health and configuration, or explicitly install/check dependencies.',
+});
 
 function usage() {
   return `Usage: farming computer <command> [options]
@@ -11,10 +60,12 @@ Start here:
   open [--name <name>]       Create or start this Agent's isolated Computer
   stop                       Stop it without deleting the owned container
   help workflow              Read the recommended Agent workflow
+  help <topic>               Reveal one group of Cua Driver tools
+  describe <tool> --json     Read one exact machine-readable tool contract
 
 Advanced:
   call <tool> [json]         Call one pinned Cua Driver tool
-  mcp                        Serve the complete computer_* MCP catalog
+  call <tool> --json -       Read structured input from stdin
 
 The Computer is owned by the current Farming Agent. The user can observe the
 same desktop in Farming and explicitly take control. Run \`farming computer
@@ -36,6 +87,97 @@ When a human returns control to the Agent, the next call must be an observation.
 `;
 }
 
+function normalizeToolName(value) {
+  return String(value || '').trim().replace(/^computer_/, '');
+}
+
+function toolTopic(upstreamName) {
+  return Object.entries(TOOL_TOPICS).find(([, names]) => names.includes(upstreamName))?.[0] || '';
+}
+
+function manifestTool(value) {
+  const name = normalizeToolName(value);
+  const tool = loadComputerToolManifest().tools.find(candidate => (
+    candidate.upstreamName === name || candidate.name === `computer_${name}`
+  ));
+  if (!tool) throw new Error(`Unknown Farming Computer tool: ${value}`);
+  return tool;
+}
+
+function cliDescriptorValue(value) {
+  if (typeof value === 'string') {
+    return value
+      .replace(/MCP-host/gi, 'Farming backend')
+      .replace(/MCP client/gi, 'Farming Resource session')
+      .replace(/MCP\s*\/\s*CLI\s*\/\s*raw socket/gi, 'Farming CLI and pinned driver session')
+      .replace(/MCP\s*\/\s*CLI/gi, 'Farming CLI')
+      .replace(/over MCP, the CLI, or the raw socket/gi, 'through the Farming CLI and pinned driver session')
+      .replace(/\bMCP\b/g, 'upstream adapter');
+  }
+  if (Array.isArray(value)) return value.map(cliDescriptorValue);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, cliDescriptorValue(item)]));
+  }
+  return value;
+}
+
+function topicHelp(topic) {
+  const tools = TOOL_TOPICS[topic];
+  if (!tools) throw new Error(`Unknown Computer help topic: ${topic}`);
+  return `${TOPIC_SUMMARIES[topic]}\n\nTools:\n${tools.map(name => `  ${name}`).join('\n')}\n\nRun \`farming computer describe <tool> --json\` for the exact schema and safety metadata.\nRun \`farming computer call <tool> --json -\` to pass structured input through stdin.\n`;
+}
+
+function describeTool(value) {
+  const tool = manifestTool(value);
+  const upstreamName = tool.upstreamName;
+  const inputSchema = cliDescriptorValue(tool.inputSchema || {});
+  if (inputSchema.properties) delete inputSchema.properties.screenshot_out_file;
+  if (Array.isArray(inputSchema.required)) {
+    inputSchema.required = inputSchema.required.filter(name => name !== 'screenshot_out_file');
+  }
+  return {
+    version: 1,
+    capability: 'computer',
+    command: 'call',
+    tool: upstreamName,
+    providerToolName: tool.name,
+    topic: toolTopic(upstreamName),
+    description: `${cliDescriptorValue(tool.description)}${
+      ['get_browser_state', 'get_desktop_state', 'get_window_state', 'zoom'].includes(upstreamName)
+        ? '\n\nFarming owns screenshot file placement; image results are returned as Project Workspace artifacts.'
+        : ''
+    }`,
+    inputSchema,
+    annotations: {
+      ...tool.annotations,
+      uncertainOnTransportFailure: tool.annotations?.readOnlyHint !== true,
+    },
+    invocation: `farming computer call ${upstreamName} --json -`,
+    result: {
+      envelope: true,
+      media: ['get_browser_state', 'get_desktop_state', 'get_window_state', 'zoom'].includes(upstreamName)
+        ? 'workspace-artifact'
+        : 'none',
+      maxCharacters: 100000,
+    },
+    lifecycle: 'The Farming Computer Resource owns the persistent container, driver daemon, and driver session. CLI exit does not stop them.',
+    failures: [
+      'COMPUTER_DISABLED', 'COMPUTER_NOT_FOUND', 'COMPUTER_NOT_RUNNING',
+      'COMPUTER_CONTROL_OWNER_MISMATCH', 'COMPUTER_OBSERVE_REQUIRED',
+      'COMPUTER_STALE_ADMISSION', 'COMPUTER_ACTION_UNCERTAIN',
+      'COMPUTER_TOOL_NOT_SUPPORTED', 'CAPABILITY_COMMAND_FAILED',
+    ],
+    retryGuidance: tool.annotations?.readOnlyHint === true
+      ? 'A bounded read may be retried after checking current Resource state.'
+      : 'If a response is lost or times out, observe current Computer state before retrying.',
+  };
+}
+
+function toolHelp(value) {
+  const descriptor = describeTool(value);
+  return `${descriptor.description}\n\nInput JSON Schema:\n${JSON.stringify(descriptor.inputSchema, null, 2)}\n\nSafety:\n${JSON.stringify(descriptor.annotations, null, 2)}\n\nInvocation:\n  ${descriptor.invocation}\n\n${descriptor.retryGuidance}\n`;
+}
+
 function option(args, name) {
   const index = args.indexOf(name);
   return index >= 0 ? args[index + 1] : undefined;
@@ -50,9 +192,45 @@ function envBinding() {
   return { workspace, agentId };
 }
 
+function writeResult(operation, value, warnings = []) {
+  writeCapabilityJson(process.stdout, capabilityEnvelope('computer', operation, value, warnings));
+}
+
+async function readStandardInput() {
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of process.stdin) {
+    const bytes = Buffer.from(chunk);
+    size += bytes.length;
+    if (size > MAX_COMPUTER_INPUT_BYTES) {
+      throw new Error(`Computer tool input exceeds ${MAX_COMPUTER_INPUT_BYTES} bytes`);
+    }
+    chunks.push(bytes);
+  }
+  return Buffer.concat(chunks).toString('utf8').trim();
+}
+
+async function callInput(argv) {
+  const values = argv.slice(2);
+  if (values[0] === '--json') values.shift();
+  if (values.length === 0) return {};
+  const source = values[0] === '-' ? await readStandardInput() : values.join(' ');
+  if (!source) return {};
+  const parsed = JSON.parse(source);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('Computer tool input must be one JSON object');
+  }
+  return parsed;
+}
+
 async function list() {
+  const { workspace, agentId } = envBinding();
   const snapshot = await requestJson('GET', '/api/computers', undefined, process.env);
-  return Array.isArray(snapshot.resources) ? snapshot.resources : [];
+  return (Array.isArray(snapshot.resources) ? snapshot.resources : []).filter(resource => (
+    resource?.ownerAgentId === agentId
+    && resource.workspace
+    && path.resolve(resource.workspace) === path.resolve(workspace)
+  ));
 }
 
 async function open(args) {
@@ -75,24 +253,31 @@ async function open(args) {
 async function run(argv = process.argv.slice(2)) {
   const command = argv[0] || 'help';
   if (command === 'help' || command === '--help' || command === '-h') {
-    console.log(argv[1] === 'workflow' ? workflowHelp() : usage());
+    console.log(argv[1] === 'workflow'
+      ? workflowHelp()
+      : (argv[1] ? topicHelp(argv[1]) : usage()));
     return 0;
   }
-  if (command === 'mcp') {
-    const { runComputerMcpServer } = require('../backend/computer-mcp-server.cjs');
-    await runComputerMcpServer();
+  if (command === 'describe') {
+    if (!argv[1]) throw new Error('Usage: farming computer describe <tool> --json');
+    writeResult('describe', describeTool(argv[1]));
+    return 0;
+  }
+  if (command === 'call' && argv.includes('--help')) {
+    if (!argv[1] || argv[1] === '--help') throw new Error('Usage: farming computer call <tool> --help');
+    console.log(toolHelp(argv[1]));
     return 0;
   }
   if (command === 'capability') {
-    console.log(JSON.stringify(await requestJson('GET', '/api/computers/capability', undefined, process.env), null, 2));
+    writeResult(command, await requestJson('GET', '/api/computers/capability', undefined, process.env));
     return 0;
   }
   if (command === 'list') {
-    console.log(JSON.stringify({ resources: await list() }, null, 2));
+    writeResult(command, { resources: await list() });
     return 0;
   }
   if (command === 'open') {
-    console.log(JSON.stringify(await open(argv.slice(1)), null, 2));
+    writeResult(command, await open(argv.slice(1)));
     return 0;
   }
   if (command === 'stop') {
@@ -100,32 +285,58 @@ async function run(argv = process.argv.slice(2)) {
     const result = resource
       ? await requestJson('POST', `/api/computers/${encodeURIComponent(resource.id)}/stop`, undefined, process.env)
       : { stopped: true, resource: null };
-    console.log(JSON.stringify(result, null, 2));
+    writeResult(command, result);
     return 0;
   }
   if (command === 'call') {
-    const tool = String(argv[1] || '').trim().replace(/^computer_/, '');
+    const descriptor = manifestTool(argv[1]);
+    const tool = descriptor.upstreamName;
     if (!tool) throw new Error('Usage: farming computer call <tool> [json]');
-    const input = argv[2] ? JSON.parse(argv[2]) : {};
+    const input = await callInput(argv);
     const resource = await open([]);
-    console.log(JSON.stringify(await requestJson(
+    writeResult(tool, await requestJson(
       'POST',
       `/api/computers/${encodeURIComponent(resource.id)}/tool/${encodeURIComponent(tool)}`,
       input,
       process.env,
-    ), null, 2));
+    ));
     return 0;
   }
   throw new Error(`Unknown farming computer command: ${command}`);
 }
 
-if (require.main === module) {
-  run().then(code => {
-    if (code) process.exit(code);
-  }).catch(error => {
-    console.error(error?.message || error);
-    process.exit(1);
-  });
+async function main(argv = process.argv.slice(2)) {
+  try {
+    const code = await run(argv);
+    if (code) process.exitCode = code;
+    return code;
+  } catch (error) {
+    const operation = argv[0] === 'call'
+      ? normalizeToolName(argv[1])
+      : String(argv[0] || 'help');
+    if (/timed out/i.test(String(error?.message || error))) {
+      try {
+        if (manifestTool(operation).annotations?.readOnlyHint !== true) error.uncertain = true;
+      } catch {
+        // The ordinary command error below remains actionable without tool metadata.
+      }
+    }
+    writeCapabilityJson(
+      process.stderr,
+      capabilityError(error, 'computer', operation),
+    );
+    process.exitCode = 1;
+    return 1;
+  }
 }
 
-module.exports = { run };
+if (require.main === module) {
+  void main();
+}
+
+module.exports = {
+  TOOL_TOPICS,
+  describeTool,
+  main,
+  run,
+};

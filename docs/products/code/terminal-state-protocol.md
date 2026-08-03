@@ -1,68 +1,122 @@
 # Terminal State Protocol
 
-[简体中文](terminal-state-protocol.zh_cn.md)
+> Chinese version: [terminal-state-protocol.zh_cn.md](./terminal-state-protocol.zh_cn.md)
 
-Farming owns a checkpointed persistent-terminal protocol:
+Farming uses one checkpointed persistent-terminal protocol for Farming Code and
+Farming CRT.
 
-1. A PTY produces an ordered byte stream.
-2. A headless xterm instance in the PTY host reduces that stream and can serialize the current screen.
-3. A browser attach or reconnect receives one replay containing the serialized screen and its exact dimensions.
-4. Live output continues only after xterm's replay write callback completes.
+## Ownership Model
 
-## Clickable Output
+The native PTY host owns the live PTY, ordered byte stream, terminal reducer,
+screen state, process identity, and restart continuity. The Farming Server
+controls lifecycle and publishes state. Browser renderers attach to that state;
+they do not own terminal truth.
 
-Terminal links follow VS Code's layered detector model. OSC 8 hyperlinks remain owned by xterm. Plain HTTP(S) output uses Monaco's link grammar with the same 2,048-character bound as xterm's web-link provider. The local-file layer is adapted from VS Code's terminal link parser and accepts POSIX, Windows drive, UNC, and `file://` paths plus its compiler and diagnostic suffix families, including `path:line[:column[-endColumn]]`, `path:line.column`, quoted paths, parentheses/brackets, non-breaking spaces, and multi-line ranges. Python, C/C++, Clang, and shell-prompt fallbacks cover paths containing spaces. Git diff prefixes are removed only in recognized diff headers.
+One PTY lifetime has one runtime epoch. Within that epoch, ordered output and
+state revisions identify an authoritative cut. These values are transport
+cursors, not another Agent lifecycle.
 
-Detection runs only across xterm logical lines joined by `isWrapped`; explicit line breaks are never guessed to be URL continuation. A separate VS Code-style multiline layer handles ripgrep/ESLint numeric result lines by binding the first preceding non-numeric logical line, and Git hunk headers by binding the preceding `+++ b/path`. Lexical recognition does not authorize an open: every file candidate is resolved against the captured Agent workspace before it becomes active, and unresolved candidates remain plain text. The fallback word layer splits with VS Code-compatible separators, caps words at 100 characters, and opens Project Files search only on modifier-click. URL activation remains modifier-protected; validated file targets open directly. Lines longer than 2,000 characters, paths longer than 1,024 characters, more than ten filesystem candidates per line, and multiline scans beyond 100 logical lines are rejected or bounded.
+## Checkpoint And Delta
 
-## Replay State
+A terminal checkpoint contains the runtime epoch, state revision, output
+sequence, serialized screen, dimensions, and terminal modes needed to continue
+interaction. A browser attach, reconnect, page resume, or detected gap requests
+one current checkpoint; it does not poll continuously.
 
-A replay carries:
+Live output is applied only after the checkpoint installation completes. The
+browser discards output already covered by the checkpoint and requests a new
+checkpoint after any sequence gap or epoch change.
 
-```text
-(runtimeEpoch, stateRevision, outputSeq, screen, cols, rows)
-```
+A stale checkpoint already queued for rendering may drain, but its completion
+cannot commit after a newer attachment or recovery generation exists. The
+replacement checkpoint remains able to reach a visible authoritative state.
 
-The epoch identifies one PTY lifetime. The revision and output sequence let Farming discard live messages already covered by the replay and detect a missing message. They are transport cursors, not a second business state machine.
+During a full checkpoint install, the previous screen stays hidden. The user
+sees either the last proven screen, a bounded recovery status, or the newly
+committed screen—never a visible replay of historical redraws.
 
-`GET /api/agents/:agentId/session-view` returns the current replay. It is read when a browser first attaches, reconnects, resumes from a hidden page, or detects a stream gap. It is not polled.
+## Browser Attachment
 
-Code and CRT use the same browser protocol implementation in `frontend/terminal-replay.js` for epoch ordering, contiguous-transition checks, replay targets, queue bounds, checkpoint validation, and retry policy. Each skin only adapts fetch and xterm operations; it does not implement a second replay state machine. Transport failures retry with bounded backoff. If the same checkpoint invariant fails repeatedly, recovery stops and reports a visible error instead of looping.
+The terminal session pool owns one browser-side record per Agent. Attachment
+identity is the Agent plus its mount. Ordinary component rerenders and callback
+changes do not detach a terminal or start recovery.
 
-During a full replay, xterm is hidden until its write callback completes. A user returning after a long absence therefore sees the latest screen once instead of watching historical output paint from top to bottom.
+An attachment lease may enter detached, attached, or release-pending. Reacquiring
+the same Agent and mount cancels a pending release. A stale lease cannot release
+a newer attachment, and a different Agent or mount releases the old owner before
+attaching the new one.
 
-If reconnect, reattach, page resume, or a newer bootstrap cut supersedes a checkpoint that is already inside xterm's ordered write queue, invalidation releases the old install latch immediately. The stale write may drain in queue order, but its completion remains sequence-fenced and cannot commit; the replacement checkpoint queues behind it and remains able to reach a visible authoritative cut.
-
-Farming Code keeps that atomic paint boundary visible to the user with one centered recovery status owned by the terminal session pool. It distinguishes checkpoint request, screen installation, and retry backoff, and shows elapsed wait time plus the current attempt. The status has a 500 ms presentation grace: a normal attach that commits its authoritative cut inside that window shows only the final terminal frame, while a slower recovery still exposes its live phase. A parked xterm host is hidden before it returns to the live mount, so its previous buffer cannot flash during that grace period. Once shown, the status disappears only after the authoritative cut has committed to xterm; renderer or invariant failures continue to use the terminal's explicit failure card.
-
-## Browser Attachment Ownership
-
-The terminal session pool owns one `SessionRecord` per Agent. A browser attachment is identified only by the Agent id and its mount element. Changing either identity, unmounting the pane, reconnecting the transport, resuming a hidden page, or detecting a replay gap may enter recovery. Ordinary React renders may not.
-
-The React boundary acquires an attachment lease instead of calling detach directly from effect cleanup. Its state model is `detached -> attached -> release-pending -> detached`. Cleanup only enters `release-pending`; a same-Agent, same-mount reacquire in the same commit cancels that release and stays `attached` without advancing the generation. A different Agent or mount releases the old owner before attaching the new one. A stale lease cannot release a newer owner, and a pending release with no reacquire commits on the next microtask. The pool also treats a duplicate attach for the current Agent and mount as idempotent, so bypassing the React coordinator still cannot accidentally start checkpoint recovery.
-
-Event callbacks, input enablement, cursor suppression, and newer bootstrap data are live options. They update the existing `SessionRecord` in place and cannot detach its host, advance its attachment generation, or publish a `requesting` recovery state. Browser controllers likewise expose stable command functions so their collection updates do not churn downstream callback identities. The responsive browser test repeatedly changes between desktop and phone geometry and requires the same attachment generation with no recovery overlay throughout.
-
-Live WebSocket output uses a leading-edge, frame-bounded batch: the first transition after an idle period is sent immediately for responsive typing, while sustained output is coalesced without dropping its individual transition indexes. The browser still validates and commits every index separately, but gives each contiguous output / clear run to xterm in one write. Resize is an ordered batch boundary: after committing it, the browser holds its following redraw until 50 ms of output quiet, with a 300 ms maximum, and then paints that burst once. Normal non-resize output keeps the low-latency path.
-
-## Supported Browser Renderer
-
-Code and CRT use xterm.js WebGL as the single supported product renderer. The renderer lifecycle is deliberately small: `pending -> webgl -> failed`. WebGL initialization failure or an unrecoverable context loss produces a visible terminal failure; retry reconstructs the same WebGL path, and a live terminal never silently changes to the DOM renderer.
-
-Continuous browser-test capacity is finite, so the architecture must not accumulate alternate renderer paths that cannot be held to the same acceptance bar. A path that is not exercised continuously is not a reliable fallback. Tests and product code therefore target this one renderer state machine instead of maintaining fallback-specific behavior. Ghostty remains an explicit developer diagnostic mode and is outside the supported product renderer state machine.
+Code and CRT share the same protocol implementation and recovery semantics.
+Each interface may adapt layout and renderer integration, but must not maintain
+a second ordering or checkpoint state machine.
 
 ## Input And Resize
 
-Input is xterm's raw `onData` stream and is written directly to the PTY. Farming does not add input acknowledgements, deduplication, automatic replay, controller leases, or takeover UI. Several Code or CRT views may write to the same PTY; the server serializes writes in arrival order. Selecting an existing Agent is a local view change, not an excuse to refresh the full state document. The focused terminal receives live output before its delayed lightweight activity projection, and its preview omits the already-authoritative screen snapshot.
+Terminal input is the renderer's raw input stream written once to the PTY.
+Farming does not add speculative replay or input acknowledgement. Multiple
+authorized views may write to the same PTY; the backend serializes writes in
+arrival order.
 
-The release gate `npm run test:pre-release:terminal-input` uses two deterministic local Bash sessions. It switches between existing Agents, types and deletes through xterm, rejects a full `state` frame after focus, requires focused previews to stay below 8 KiB, and enforces a loopback key-to-`session-output` p95 of at most 250 ms. This is a regression bound for the local product path, not a claim about arbitrary remote network latency; the release checklist separately requires a human-like remote dogfood smoke.
+IME composition completes in the terminal input surface before committed text
+is sent. Fallback handling must not duplicate ordinary ASCII input.
 
-Resize is also shared. Every browser-layout-driven geometry change trailing-coalesces as one complete `cols + rows` update, preventing a sustained window drag from repeatedly reflowing xterm and retriggering a full-screen TUI redraw. This rule does not branch on output length or normal/alternate buffer state. Explicit attach and a layout change observed during recovery bypass that delay. The server then keeps at most one resize in flight and the latest pending size. A browser applies a committed remote resize without sending it back again. In particular, completing an ordinary checkpoint recovery does not unconditionally reclaim that browser's previously requested geometry: doing so lets different-sized viewers alternate resize, full-screen redraw, backpressure disconnect, and recovery forever.
+Resize is an ordered terminal transition. Layout churn is coalesced into the
+latest complete geometry without violating output order. A browser applying a
+committed remote resize does not echo it back. Recovery does not automatically
+reclaim an older viewer's geometry when another viewer may be active.
 
-## Backpressure And Recovery
+## Output, Backpressure, And Rendering
 
-The PTY host publishes output only after the headless reducer has committed it. Reducer backlog may pause PTY reads. Slow browser WebSockets are isolated from one another; there is no browser renderer-debt protocol.
+The PTY host publishes output only after the reducer has committed it. Reducer
+backlog may pause PTY reads. Slow browser connections are isolated so one viewer
+cannot create unbounded debt for other viewers.
 
-The explicit remote chaos smoke is run with `FARMING_REMOTE_URL=... FARMING_REMOTE_TOKEN=... npm run test:remote-terminal:chaos`. It creates and later removes two isolated shell Agents, drives the same redraw-heavy terminal from independent desktop and mobile browser contexts without waiting for readiness between actions, and injects latency, offline recovery, viewport churn, reload, switching, and input. Its acceptance boundary is user-visible and bounded: no unexplained blank may persist, recovery must settle, redraw state must stop advancing, and post-recovery input from each viewer must arrive exactly once. The run keeps a deterministic action trace and failure screenshots under `.tmp/remote-terminal-chaos/`.
+Sustained output may be batched for rendering, but every transition remains
+ordered and gap-detectable. Resize redraws form a presentation boundary so a
+full-screen TUI settles before the browser paints the new cut.
 
-A compatible Farming server restart reattaches to the existing native PTY host. An incompatible host rotation serializes the screen before replacement. An unexpected PTY-host crash is reported as process loss and is never presented as a successful replay.
+xterm.js WebGL is the supported product renderer for Code and CRT. Renderer
+failure is explicit; retry reconstructs the same supported path. Diagnostic
+renderers do not become silent production fallbacks.
+
+## Clickable Output
+
+Terminal links use layered detection for explicit hyperlinks, HTTP(S) URLs,
+workspace file locations, compiler-style locations, and bounded multiline
+patterns. Lexical recognition never authorizes a file open: every candidate is
+resolved against the captured workspace or an explicit read-only file boundary.
+Unresolved candidates remain text.
+
+Detection is bounded by input length, candidate count, and logical-line scope.
+File identity and location are preserved without guessing across explicit line
+breaks.
+
+## Title And Activity Projection
+
+Terminal Agent titles are published through the authenticated Agent control
+path, not inferred from terminal prose. Runtime replacement rotates title
+authority, user renames remain highest priority, and title failure never blocks
+terminal input.
+
+Focused Terminal output and authoritative screen state take priority over
+low-frequency activity or preview metadata. Selecting an existing Agent is a
+local view change and must not trigger a full Agent-state refresh.
+
+## Recovery And Failure
+
+A compatible Server restart reconnects to the live PTY host. An incompatible
+host replacement preserves a final checkpoint before rotation when possible.
+Unexpected PTY-host loss is reported as process loss and is never presented as
+successful replay.
+
+Transport failures retry with bounded backoff. Repeated checkpoint invariant
+failure reaches a visible terminal error instead of looping forever. Uncertain
+input or lifecycle mutations are reconciled from authoritative terminal and
+process state and are not replayed blindly.
+
+## Acceptance Criteria
+
+Verification must cover attach, detach, hidden-page resume, reconnect, restart,
+epoch changes, sequence gaps, stale checkpoint completion, multiple viewers,
+IME, direct input, resize churn, full-screen TUI redraw, mouse modes, clickable
+locations, slow connections, renderer failure, and exact process cleanup.

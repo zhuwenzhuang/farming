@@ -6,6 +6,7 @@ import {
   AGENT_COMPLETION_NOTIFICATIONS_EVENT,
   AGENT_COMPLETION_NOTIFICATIONS_STORAGE_KEY,
   agentCompletionNotificationContent,
+  observeAgentCompletionNotificationEvent,
   agentCompletionNotificationOwner,
   agentCompletionNotificationStillEligible,
   agentNotificationPermission,
@@ -14,6 +15,10 @@ import {
   type AgentCompletionNotificationCandidate,
   type AgentCompletionNotificationEvent,
 } from '@/lib/agent-completion-notifications'
+import {
+  agentWithCurrentLiveState,
+  subscribeAgentReadEvents,
+} from '@/lib/agent-live-state'
 import type { Agent } from '@/types/agent'
 
 const COORDINATOR_CHANNEL = 'farming-agent-completion-notifications-v1'
@@ -189,13 +194,17 @@ export function useAgentCompletionNotifications({
     eventKey: string,
     pageActiveAtObservation: boolean,
   ) => {
-    const agent = agentsRef.current.find(candidate => candidate.id === event.agentId)
+    const structuralAgent = agentsRef.current.find(candidate => candidate.id === event.agentId)
+    const agent = structuralAgent ? agentWithCurrentLiveState(structuralAgent) : undefined
     if (!agentCompletionNotificationStillEligible(agent, event)) return
     if (!readAgentCompletionNotificationsEnabled()) return
     if (agentNotificationPermission() !== 'granted') return
     const pageActive = pageActiveAtObservation || isPageActive()
     coordinatorRef.current?.coordinate(eventKey, pageActive, () => {
-      const latestAgent = agentsRef.current.find(candidate => candidate.id === event.agentId)
+      const latestStructuralAgent = agentsRef.current.find(candidate => candidate.id === event.agentId)
+      const latestAgent = latestStructuralAgent
+        ? agentWithCurrentLiveState(latestStructuralAgent)
+        : undefined
       if (!agentCompletionNotificationStillEligible(latestAgent, event) || !latestAgent) return
       if (!readAgentCompletionNotificationsEnabled()) return
       if (agentNotificationPermission() !== 'granted' || isPageActive()) return
@@ -229,25 +238,40 @@ export function useAgentCompletionNotifications({
     })
   }, [])
 
+  const scheduleCompletionEvent = useCallback((event: AgentCompletionNotificationEvent) => {
+    const eventKey = `${event.agentId}:${event.kind}:${event.attentionSeq}`
+    const existingTimer = pendingTimersRef.current.get(eventKey)
+    if (existingTimer !== undefined) window.clearTimeout(existingTimer)
+    const pageActiveAtObservation = isPageActive()
+    const timer = window.setTimeout(() => {
+      pendingTimersRef.current.delete(eventKey)
+      deliverCompletionNotification(event, eventKey, pageActiveAtObservation)
+    }, AGENT_COMPLETION_NOTIFICATION_SETTLE_MS)
+    pendingTimersRef.current.set(eventKey, timer)
+  }, [deliverCompletionNotification])
+
   useEffect(() => {
-    const events = observeAgentCompletionNotificationEvents(cursorRef.current, agents)
+    const events = observeAgentCompletionNotificationEvents(
+      cursorRef.current,
+      agents.map(agentWithCurrentLiveState),
+    )
     if (!initializedRef.current) {
       initializedRef.current = true
       return
     }
 
-    events.forEach(event => {
-      const eventKey = `${event.agentId}:${event.kind}:${event.attentionSeq}`
-      const existingTimer = pendingTimersRef.current.get(eventKey)
-      if (existingTimer !== undefined) window.clearTimeout(existingTimer)
-      const pageActiveAtObservation = isPageActive()
-      const timer = window.setTimeout(() => {
-        pendingTimersRef.current.delete(eventKey)
-        deliverCompletionNotification(event, eventKey, pageActiveAtObservation)
-      }, AGENT_COMPLETION_NOTIFICATION_SETTLE_MS)
-      pendingTimersRef.current.set(eventKey, timer)
-    })
-  }, [agents, deliverCompletionNotification])
+    events.forEach(scheduleCompletionEvent)
+  }, [agents, scheduleCompletionEvent])
+
+  useEffect(() => subscribeAgentReadEvents(read => {
+    const structuralAgent = agentsRef.current.find(agent => agent.id === read.agentId)
+    if (!structuralAgent) return
+    const event = observeAgentCompletionNotificationEvent(
+      cursorRef.current,
+      agentWithCurrentLiveState(structuralAgent),
+    )
+    if (event) scheduleCompletionEvent(event)
+  }), [scheduleCompletionEvent])
 
   useEffect(() => {
     const syncSetting = () => {

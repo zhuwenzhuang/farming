@@ -124,6 +124,11 @@ async function test() {
       input: 'run tests\r',
     },
   });
+  assert.deepStrictEqual(parseArgs(['title', 'Fix', 'ACP', 'titles']), {
+    command: 'title',
+    options: { title: 'Fix ACP titles' },
+  });
+  assert.throws(() => parseArgs(['title']), /requires a concise title/);
 
   assert.strictEqual(
     normalizeBaseUrl(),
@@ -141,6 +146,48 @@ async function test() {
     }),
     '- agent-child | claude | running | /repo | parent: agent-main | task: Inspect'
   );
+
+  let titleRequest = null;
+  const titleServer = http.createServer((req, res) => {
+    const chunks = [];
+    req.on('data', chunk => chunks.push(Buffer.from(chunk)));
+    req.on('end', () => {
+      titleRequest = {
+        method: req.method,
+        path: req.url,
+        body: JSON.parse(Buffer.concat(chunks).toString('utf8')),
+      };
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ adaptiveTitle: 'Fix ACP titles' }));
+    });
+  });
+  const titlePort = await listen(titleServer);
+  const previousControlUrl = process.env.FARMING_CONTROL_URL;
+  const previousTitleToken = process.env.FARMING_AGENT_TITLE_TOKEN;
+  const previousTitleDisableAuth = process.env.FARMING_DISABLE_AUTH;
+  process.env.FARMING_CONTROL_URL = `http://127.0.0.1:${titlePort}`;
+  process.env.FARMING_AGENT_TITLE_TOKEN = 'runtime-title-token';
+  process.env.FARMING_DISABLE_AUTH = '1';
+  let titleOutput = '';
+  try {
+    await run(['title', 'Fix', 'ACP', 'titles'], {
+      stdout: { write(chunk) { titleOutput += chunk; } },
+    });
+    assert.deepStrictEqual(titleRequest, {
+      method: 'POST',
+      path: '/api/control/agents/agent-main/title',
+      body: { title: 'Fix ACP titles', token: 'runtime-title-token' },
+    });
+    assert.strictEqual(titleOutput, 'Title updated: Fix ACP titles\n');
+  } finally {
+    titleServer.close();
+    if (previousControlUrl === undefined) delete process.env.FARMING_CONTROL_URL;
+    else process.env.FARMING_CONTROL_URL = previousControlUrl;
+    if (previousTitleToken === undefined) delete process.env.FARMING_AGENT_TITLE_TOKEN;
+    else process.env.FARMING_AGENT_TITLE_TOKEN = previousTitleToken;
+    if (previousTitleDisableAuth === undefined) delete process.env.FARMING_DISABLE_AUTH;
+    else process.env.FARMING_DISABLE_AUTH = previousTitleDisableAuth;
+  }
 
   let skillsOutput = '';
   await run(['skills'], {

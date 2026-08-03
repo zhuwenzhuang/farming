@@ -10,6 +10,7 @@ interface RuntimeEpochOptions {
 }
 
 interface RuntimeEngineMetadata extends Record<string, unknown> {
+  adaptiveTitle?: string;
   agentId?: string;
   attentionOutputEpoch?: string;
   attentionOutputSeq?: number | null;

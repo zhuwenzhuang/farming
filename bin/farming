@@ -16,7 +16,23 @@ if (!process.pkg) {
   }
 }
 
+const [command, ...args] = process.argv.slice(2);
+if (command === 'browser' || command === 'computer') {
+  const capabilityCli = path.join(
+    activePackageRoot,
+    'extensions',
+    command,
+    'bin',
+    `farming-${command}`,
+  );
+  require(capabilityCli).main(args).catch((error) => {
+    console.error(error.message);
+    process.exitCode = 1;
+  });
+  return;
+}
+
 require(path.join(activePackageRoot, 'backend', 'farming-app-cli.cjs')).run().catch((error) => {
   console.error(error.message);
-  process.exit(1);
+  process.exitCode = 1;
 });

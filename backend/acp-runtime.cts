@@ -121,20 +121,21 @@ interface SubagentControl {
 }
 interface AcpBinding {
   agentId: string; provider: string; providerHomeId: string; cwd: string;
+  capabilityRuntimeEpoch: string;
   sessionRequestOptions: AcpSessionRequestOptions; env: NodeJS.ProcessEnv; launch: AcpLaunch;
   restartOptions: PrepareAgentOptions; approvalMode: string; ownsProcessGroup: boolean;
-  farmingBrowserApprovedSites: Set<string>;
-  farmingBrowserApprovalScopes: Map<string, string>;
   child: import('child_process').ChildProcessWithoutNullStreams | null;
   connection: AcpConnection; initializeResponse: InitializeResponse;
   sessionId: string; untrustedSessionId: string; state: string; error: string; stopReason: string;
   modes: SessionResponse['modes'] | null; configOptions: SessionConfigOption[];
+  configOverrideWarnings: AcpConfigOverrideWarning[];
   pendingPermissions: Map<string, PermissionRequest>; permissionResolvers: Map<string, (value: unknown) => void>;
   pendingElicitations: Map<string, ElicitationRequest>; elicitationResolvers: Map<string, (value: unknown) => void>;
   activeElicitations: Map<string, ElicitationRequest>; subagentStates: Map<string, AcpSessionState>;
   subagentControls: Map<string, SubagentControl>; nextSubagentGeneration: number;
   interactionOrigins: Map<string, string>; activeTurn: AcpTurn | null; nextTurnId: number;
   supportsSteer: boolean; historyReplayActive: boolean; sessionState: AcpSessionState;
+  transcriptProjectionRevision: number;
   authTerminal: UnknownRecord; patchDecisions: Map<string, string>;
   patchDecisionInFlight: Map<string, { decision: string; promise: Promise<unknown> }>;
   checkpointProof: unknown; sessionMutation: SessionMutation | null; configMutationTail: Promise<unknown> | null;
@@ -143,7 +144,11 @@ interface AcpBinding {
   deferredModeGeneration: number;
   deferredModeId: string;
   codexInlineVisualizationStreams: Map<string, ReturnType<typeof createCodexInlineVisualizationStreamState>>;
-  stderr: string; exited: boolean; updatedAt: string;
+  stderr: string; exited: boolean; retryableReconnect: boolean; updatedAt: string;
+}
+interface AcpConfigOverrideWarning {
+  configId: string;
+  message: string;
 }
 interface AcpLaunch { command: string; args: string[]; version?: string }
 interface AcpSessionRequestOptions extends UnknownRecord {
@@ -175,23 +180,26 @@ interface AcpRuntimeOptions extends PrepareAgentOptions {
     | 'waitForExit'
   >;
   terminalSpawn?: typeof spawn;
-  browserPermissionDecision?: (
-    agentId: string,
-    tool: string,
-    input: UnknownRecord,
-  ) => { requiresApproval?: boolean; scopeKey?: string; site?: string } | null;
 }
 interface PrepareAgentOptions extends UnknownRecord {
   agentId?: string; provider?: string; providerHomeId?: string; cwd?: string; sessionId?: string;
+  capabilityRuntimeEpoch?: string;
   forkSourceSessionId?: string; forkSourceCheckpoint?: UnknownRecord | null; revisionBase?: number;
   approvalMode?: string; historyMode?: string; model?: string; reasoningEffort?: string;
   serviceTier?: string; identityOnly?: boolean;
+  configOverrides?: SessionConfigChange[];
   executable?: string; env?: NodeJS.ProcessEnv; runtimeEnv?: NodeJS.ProcessEnv;
   additionalDirectories?: string[]; mcpServers?: UnknownRecord[]; farmingSystemPrompt?: string;
   requireLoad?: boolean; expectedRevision?: number; retainForCleanup?: boolean;
   onProcessStarted?: (identity: ProcessIdentity) => Promise<void> | void;
   onForkSessionCreated?: (sessionId: string) => Promise<void> | void;
-  onSubmitted?: () => Promise<void> | void; delivery?: string;
+  refreshMcpServersForRuntime?: (
+    mcpServers: UnknownRecord[],
+  ) => Promise<{ capabilityRuntimeEpoch: string; mcpServers: UnknownRecord[] }>
+    | { capabilityRuntimeEpoch: string; mcpServers: UnknownRecord[] };
+  onTurnAdmitted?: (admission?: { previousState: string }) => Promise<void> | void;
+  onTurnSettled?: (settlement: { stopReason: string }) => Promise<void> | void;
+  onSubmitted?: (submission?: { steered: boolean }) => Promise<void> | void; delivery?: string;
 }
 interface ProcessIdentity {
   pid: number;
@@ -266,6 +274,45 @@ const CLAUDE_ACP_VENDOR_ENTRY = path.join(
   `claude-agent-acp-${CLAUDE_ACP_VERSION}.mjs`,
 );
 const execFileAsync = promisify(execFile);
+
+function normalizeSessionConfigChanges(value: unknown): SessionConfigChange[] {
+  const changes = new Map<string, SessionConfigChange>();
+  for (const item of Array.isArray(value) ? value.slice(0, 64) : []) {
+    if (!item || typeof item !== 'object' || typeof item.configId !== 'string') continue;
+    const configId = item.configId;
+    if (!configId.trim() || configId.length > 256) continue;
+    const configValue = item.value;
+    if (
+      configValue !== null
+      && !['string', 'number', 'boolean'].includes(typeof configValue)
+      && !(Array.isArray(configValue) && configValue.every(entry => typeof entry === 'string'))
+    ) continue;
+    changes.set(configId, {
+      configId,
+      value: Array.isArray(configValue) ? [...configValue] : configValue as ConfigValue,
+    });
+  }
+  return [...changes.values()];
+}
+
+function sessionConfigSelectValues(option: SessionConfigOption): string[] {
+  if (option.type !== 'select') return [];
+  return (Array.isArray(option.options) ? option.options : []).flatMap(entry => {
+    const groupOptions = entry && typeof entry === 'object' && Array.isArray((entry as UnknownRecord).options)
+      ? (entry as UnknownRecord).options as unknown[]
+      : null;
+    const candidates = groupOptions || [entry];
+    return candidates.flatMap(candidate => (
+      candidate && typeof candidate === 'object' && typeof (candidate as UnknownRecord).value === 'string'
+        ? [String((candidate as UnknownRecord).value)]
+        : []
+    ));
+  });
+}
+
+function sameSessionConfigChanges(left: SessionConfigChange[], right: SessionConfigChange[]) {
+  return JSON.stringify(normalizeSessionConfigChanges(left)) === JSON.stringify(normalizeSessionConfigChanges(right));
+}
 
 let sdkPromise: Promise<AcpSdk> | undefined;
 const runtimeRequire = createRequire(__filename);
@@ -396,9 +443,17 @@ function acpErrorKind(error: unknown) {
   return 'unknown';
 }
 
-function isReconnectableAcpTransportFailure(error: unknown) {
-  return /(?:connection|transport|socket).*(?:closed|lost|ended|reset|broken)|(?:adapter|process).*(?:exit|closed|stopped)/i
-    .test(acpErrorMessage(error));
+function isStructuredReconnectableFailure(binding: AcpBinding, error: unknown) {
+  if (binding.connection?.signal?.aborted === true) return true;
+  const failure = asErrorLike(error);
+  const code = String(failure.code || failure.data?.code || '').toUpperCase();
+  return new Set([
+    'ACP_TRANSPORT_CLOSED',
+    'ECONNABORTED',
+    'ECONNRESET',
+    'EPIPE',
+    'ERR_STREAM_PREMATURE_CLOSE',
+  ]).has(code);
 }
 
 function autoPermissionResponse(request: UnknownRecord, approvalMode: string) {
@@ -416,114 +471,10 @@ function autoPermissionResponse(request: UnknownRecord, approvalMode: string) {
   return null;
 }
 
-const FARMING_BROWSER_SERVER_NAME = 'farming-browser';
-const FARMING_BROWSER_RESOURCE_TOOLS = new Set([
-  'browser_list',
-  'browser_stop',
-]);
-
 function recordValue(value: unknown): UnknownRecord {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? value as UnknownRecord
     : {};
-}
-
-function browserApprovalSessionState(
-  binding: AcpBinding,
-  request: UnknownRecord,
-): AcpSessionState | null {
-  const requestSessionId = String(request.sessionId || '');
-  if (!requestSessionId || requestSessionId === binding.sessionId) return binding.sessionState || null;
-  return binding.subagentStates.get(requestSessionId) || null;
-}
-
-function farmingBrowserApprovalTarget(
-  binding: AcpBinding,
-  request: UnknownRecord,
-): { arguments: UnknownRecord; tool: string } | null {
-  const toolCall = recordValue(request.toolCall);
-  const toolCallId = String(request.toolCallId || toolCall.toolCallId || '');
-  const sessionState = browserApprovalSessionState(binding, request);
-  const entry = toolCallId
-    ? sessionState?.toolEntries?.get(toolCallId)
-      || sessionState?.entries?.find(candidate => candidate.id === toolCallId)
-    : null;
-  const rawInput = recordValue(entry?.rawInput || toolCall.rawInput);
-  if (rawInput.server !== FARMING_BROWSER_SERVER_NAME) return null;
-  const tool = String(rawInput.tool || '');
-  if (!tool.startsWith('browser_')) return null;
-  return {
-    tool,
-    arguments: recordValue(rawInput.arguments),
-  };
-}
-
-function browserSiteScope(value: unknown): { requiresApproval: boolean; scopeKey: string; site: string } {
-  const text = String(value || '').trim();
-  if (!text || text === 'about:blank') {
-    return { requiresApproval: false, scopeKey: '', site: '' };
-  }
-  try {
-    const url = new URL(/^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(text) ? text : `https://${text}`);
-    if (!['http:', 'https:'].includes(url.protocol) || !url.host) {
-      return { requiresApproval: true, scopeKey: '', site: '' };
-    }
-    return {
-      requiresApproval: true,
-      scopeKey: `site:${url.origin.toLowerCase()}`,
-      site: url.host.toLowerCase(),
-    };
-  } catch {
-    return { requiresApproval: true, scopeKey: '', site: '' };
-  }
-}
-
-function defaultBrowserPermissionDecision(
-  target: { arguments: UnknownRecord; tool: string },
-): { requiresApproval: boolean; scopeKey: string; site: string } {
-  if (FARMING_BROWSER_RESOURCE_TOOLS.has(target.tool)) {
-    return { requiresApproval: false, scopeKey: '', site: '' };
-  }
-  if (target.tool === 'browser_open' || target.tool === 'browser_navigate') {
-    return browserSiteScope(target.arguments.url);
-  }
-  const browserId = String(target.arguments.browserId || '');
-  return {
-    requiresApproval: true,
-    scopeKey: browserId ? `browser:${browserId}` : '',
-    site: '',
-  };
-}
-
-function shouldAutoApproveFarmingBrowser(
-  binding: AcpBinding,
-  decision: { requiresApproval?: boolean; scopeKey?: string },
-): { approve: boolean; scopeKey: string } {
-  const scopeKey = String(decision.scopeKey || '');
-  if (decision.requiresApproval !== true) {
-    return { approve: true, scopeKey };
-  }
-  return {
-    approve: Boolean(scopeKey && binding.farmingBrowserApprovedSites.has(scopeKey)),
-    scopeKey,
-  };
-}
-
-function automaticBrowserPermissionResponse(request: UnknownRecord) {
-  const options = Array.isArray(request.options) ? request.options : [];
-  const option = options.find(item => item.kind === 'allow_once')
-    || options.find(item => item.kind === 'allow_always');
-  return option ? selectedPermission(option) : { outcome: { outcome: 'cancelled' } };
-}
-
-function automaticBrowserElicitationResponse(request: UnknownRecord) {
-  const properties = recordValue(recordValue(request.requestedSchema).properties);
-  return {
-    action: 'accept',
-    content: Object.prototype.hasOwnProperty.call(properties, 'persist')
-      ? { persist: 'once' }
-      : {},
-  };
 }
 
 function validateElicitationContent(request: UnknownRecord, content: unknown) {
@@ -1097,7 +1048,6 @@ class AcpRuntime extends EventEmitter {
     | 'resize'
     | 'waitForExit'
   >;
-  declare browserPermissionDecision: NonNullable<AcpRuntimeOptions['browserPermissionDecision']>;
   constructor(options: AcpRuntimeOptions = {}) {
     super();
     this.spawn = options.spawn || spawn;
@@ -1125,11 +1075,6 @@ class AcpRuntime extends EventEmitter {
     this.disposed = false;
     this.clientFileSystem = options.clientFileSystem || new AcpClientFileSystem();
     this.clientTerminals = options.clientTerminals || new AcpClientTerminalManager({ spawn: options.terminalSpawn });
-    this.browserPermissionDecision = typeof options.browserPermissionDecision === 'function'
-      ? options.browserPermissionDecision
-      : (_agentId: string, tool: string, input: UnknownRecord) => (
-          defaultBrowserPermissionDecision({ tool, arguments: input })
-        );
   }
 
   /**
@@ -1150,6 +1095,10 @@ class AcpRuntime extends EventEmitter {
     if (!agentId) throw new Error('ACP Agent id is required');
     if (this.bindings.has(agentId)) throw new Error('ACP Agent is already registered');
     const provider = String(options.provider || '').trim().toLowerCase();
+    const capabilityRuntimeEpoch = String(options.capabilityRuntimeEpoch || '').trim();
+    if (capabilityRuntimeEpoch && !/^[A-Za-z0-9._:-]{1,160}$/.test(capabilityRuntimeEpoch)) {
+      throw new Error('ACP capability runtime epoch is invalid');
+    }
     const launch = this.resolveLaunch(provider, options);
     const cwd = path.resolve(options.cwd || process.cwd());
     const requestedSessionId = String(options.sessionId || '').trim();
@@ -1192,18 +1141,22 @@ class AcpRuntime extends EventEmitter {
       }
     }
     const sessionRequestOptions = acpSessionRequestOptions(options, cwd);
+    const configOverrides = normalizeSessionConfigChanges(options.configOverrides);
+    const restartOptions = { ...options, agentId, provider, configOverrides };
+    delete restartOptions.forkSourceSessionId;
+    delete restartOptions.forkSourceCheckpoint;
+    delete restartOptions.onForkSessionCreated;
     const binding: AcpBinding = {
       agentId,
+      capabilityRuntimeEpoch,
       provider,
       providerHomeId: String(options.providerHomeId || 'default'),
       cwd,
       sessionRequestOptions,
       env: (getProviderAdapter(provider)?.prepareAcpEnvironment || ((value: PrepareAgentOptions) => value.env || process.env))(options),
       launch,
-      restartOptions: { ...options, agentId, provider },
+      restartOptions,
       approvalMode: options.approvalMode || 'approve',
-      farmingBrowserApprovedSites: new Set(),
-      farmingBrowserApprovalScopes: new Map(),
       ownsProcessGroup: process.platform !== 'win32',
       child: null,
       connection: null as unknown as AcpConnection,
@@ -1215,6 +1168,7 @@ class AcpRuntime extends EventEmitter {
       stopReason: '',
       modes: null,
       configOptions: [],
+      configOverrideWarnings: [],
       pendingPermissions: new Map(),
       permissionResolvers: new Map(),
       pendingElicitations: new Map(),
@@ -1236,6 +1190,7 @@ class AcpRuntime extends EventEmitter {
         cwd,
         maxUpdates: this.maxUpdates,
       }),
+      transcriptProjectionRevision: 0,
       authTerminal: null as unknown as UnknownRecord,
       patchDecisions: new Map(),
       patchDecisionInFlight: new Map(),
@@ -1249,9 +1204,11 @@ class AcpRuntime extends EventEmitter {
       codexInlineVisualizationStreams: new Map(),
       stderr: '',
       exited: false,
+      retryableReconnect: false,
       updatedAt: new Date().toISOString(),
     };
     this.bindings.set(agentId, binding);
+
     this.emitRuntime(binding);
 
     try {
@@ -1542,8 +1499,9 @@ class AcpRuntime extends EventEmitter {
       this.requireOpenBinding(binding);
       binding.modes = sessionResponse?.modes || null;
       binding.configOptions = sessionResponse?.configOptions || [];
-      binding.sessionState.currentModeId = String(binding.modes?.currentModeId || '');
-      binding.sessionState.configOptions = JSON.parse(JSON.stringify(binding.configOptions));
+      const initializedSessionState = this.requireSessionState(binding);
+      initializedSessionState.currentModeId = String(binding.modes?.currentModeId || '');
+      initializedSessionState.configOptions = JSON.parse(JSON.stringify(binding.configOptions));
       if (provider === 'claude' && historyMode === 'new') {
         const changes: SessionConfigChange[] = [];
         if (options.model && options.model !== 'config') {
@@ -1584,6 +1542,7 @@ class AcpRuntime extends EventEmitter {
           await this.applySessionConfigOption(binding, fastOption.id, fastEnabled, { emit: false });
         }
       }
+      if (configOverrides.length > 0) await this.restoreSessionConfigOverrides(binding, configOverrides);
       this.requireOpenBinding(binding);
       binding.state = 'idle';
       binding.updatedAt = new Date().toISOString();
@@ -1598,6 +1557,7 @@ class AcpRuntime extends EventEmitter {
         agentInfo: binding.initializeResponse.agentInfo || null,
         capabilities: binding.initializeResponse.agentCapabilities || {},
         adapter: launch,
+        configOverrides: normalizeSessionConfigChanges(binding.restartOptions.configOverrides),
       };
     } catch (error) {
       const runtimeError = new Error(acpErrorMessage(error), { cause: error });
@@ -1862,6 +1822,7 @@ class AcpRuntime extends EventEmitter {
             binding.deferredConfigChanges.delete(change.configId);
           }
         }
+        if (changes.length > 0) this.rememberSessionConfigOverrides(binding, changes);
         this.clearDeferredSessionError(binding);
       }, error => {
         if (binding.deferredModeGeneration === modeGeneration) binding.deferredModeId = '';
@@ -2305,7 +2266,7 @@ class AcpRuntime extends EventEmitter {
     };
   }
 
-  requestPermission(binding: AcpBinding, request: UnknownRecord) {
+  async requestPermission(binding: AcpBinding, request: UnknownRecord) {
     if (!this.isOpenBinding(binding) || binding.state === 'closed') {
       return { outcome: { outcome: 'cancelled' } };
     }
@@ -2319,16 +2280,6 @@ class AcpRuntime extends EventEmitter {
     ) {
       return { outcome: { outcome: 'cancelled' } };
     }
-    const browserTarget = farmingBrowserApprovalTarget(binding, request);
-    const browserDecision = browserTarget
-      ? this.browserPermissionDecisionFor(binding, browserTarget)
-      : null;
-    const browserAutomatic = browserDecision
-      ? shouldAutoApproveFarmingBrowser(binding, browserDecision)
-      : null;
-    if (browserAutomatic?.approve) {
-      return automaticBrowserPermissionResponse(request);
-    }
     const automatic = autoPermissionResponse(request, binding.approvalMode);
     if (automatic) return automatic;
     const requestId = `acp-permission-${crypto.randomUUID()}`;
@@ -2340,9 +2291,6 @@ class AcpRuntime extends EventEmitter {
       : 'agent';
     pending.securityWarnings = permissionSecurityWarnings(pending);
     binding.pendingPermissions.set(requestId, pending);
-    if (browserAutomatic?.scopeKey) {
-      binding.farmingBrowserApprovalScopes.set(requestId, browserAutomatic.scopeKey);
-    }
     this.emitRuntime(binding);
     return new Promise(resolve => binding.permissionResolvers.set(requestId, resolve));
   }
@@ -2357,12 +2305,7 @@ class AcpRuntime extends EventEmitter {
       const option = pending.options.find((item: PermissionOption) => item.optionId === optionId);
       if (!option) throw new Error('Unknown ACP permission option');
       response = selectedPermission(option);
-      const scopeKey = binding.farmingBrowserApprovalScopes.get(requestId);
-      if (option.kind === 'allow_always' && scopeKey) {
-        binding.farmingBrowserApprovedSites.add(scopeKey);
-      }
     }
-    binding.farmingBrowserApprovalScopes.delete(requestId);
     binding.permissionResolvers.delete(requestId);
     binding.pendingPermissions.delete(requestId);
     const origin = binding.interactionOrigins.get(requestId);
@@ -2373,7 +2316,7 @@ class AcpRuntime extends EventEmitter {
     return response;
   }
 
-  requestElicitation(binding: AcpBinding, request: UnknownRecord) {
+  async requestElicitation(binding: AcpBinding, request: UnknownRecord) {
     if (!this.isOpenBinding(binding) || binding.state === 'closed') return { action: 'cancel' };
     const hasSessionScope = typeof request?.sessionId === 'string' && request.sessionId.length > 0;
     const requestSessionId = hasSessionScope ? String(request.sessionId) : '';
@@ -2385,17 +2328,6 @@ class AcpRuntime extends EventEmitter {
     if (!['form', 'url'].includes(String(request?.mode || ''))) {
       return { action: 'cancel' };
     }
-    const browserTarget = farmingBrowserApprovalTarget(binding, request);
-    const browserDecision = browserTarget
-      ? this.browserPermissionDecisionFor(binding, browserTarget)
-      : null;
-    const browserAutomatic = browserDecision
-      ? shouldAutoApproveFarmingBrowser(binding, browserDecision)
-      : null;
-    if (browserAutomatic?.approve || (browserTarget && binding.approvalMode === 'full')) {
-      return automaticBrowserElicitationResponse(request);
-    }
-    if (browserTarget && binding.approvalMode === 'ask') return { action: 'cancel' };
     const requestId = `acp-elicitation-${crypto.randomUUID()}`;
     const cloned = JSON.parse(JSON.stringify(request));
     const protocolRequestId = Object.prototype.hasOwnProperty.call(cloned, 'requestId')
@@ -2410,9 +2342,6 @@ class AcpRuntime extends EventEmitter {
     };
     binding.interactionOrigins.set(requestId, binding.state);
     binding.pendingElicitations.set(requestId, pending);
-    if (browserAutomatic?.scopeKey) {
-      binding.farmingBrowserApprovalScopes.set(requestId, browserAutomatic.scopeKey);
-    }
     binding.state = 'waiting-for-input';
     this.emitRuntime(binding);
     return new Promise(resolve => binding.elicitationResolvers.set(requestId, resolve));
@@ -2429,12 +2358,6 @@ class AcpRuntime extends EventEmitter {
     const response = normalizedAction === 'accept'
       ? { action: 'accept', ...(pending.mode === 'form' ? { content: validateElicitationContent(pending, content) } : {}) }
       : { action: normalizedAction };
-    const scopeKey = binding.farmingBrowserApprovalScopes.get(id);
-    const persist = String(recordValue(response.content).persist || '');
-    if (normalizedAction === 'accept' && scopeKey && ['session', 'always'].includes(persist)) {
-      binding.farmingBrowserApprovedSites.add(scopeKey);
-    }
-    binding.farmingBrowserApprovalScopes.delete(id);
     binding.elicitationResolvers.delete(id);
     binding.pendingElicitations.delete(id);
     if (pending.mode === 'url' && normalizedAction === 'accept') {
@@ -2446,18 +2369,6 @@ class AcpRuntime extends EventEmitter {
     resolve(response);
     this.emitRuntime(binding);
     return response;
-  }
-
-  browserPermissionDecisionFor(
-    binding: AcpBinding,
-    target: { arguments: UnknownRecord; tool: string },
-  ) {
-    try {
-      return this.browserPermissionDecision(binding.agentId, target.tool, target.arguments)
-        || defaultBrowserPermissionDecision(target);
-    } catch {
-      return { requiresApproval: true, scopeKey: '', site: '' };
-    }
   }
 
   completeElicitation(binding: AcpBinding, notification: UnknownRecord) {
@@ -2484,7 +2395,7 @@ class AcpRuntime extends EventEmitter {
         throw new Error('No active Codex turn to steer');
       }
       const result = await this.steer(agentId, prompt);
-      options.onSubmitted?.();
+      options.onSubmitted?.({ steered: true });
       return { steered: true, ...result };
     }
     while (true) {
@@ -2502,7 +2413,7 @@ class AcpRuntime extends EventEmitter {
       ) {
         try {
           const result = await this.steer(agentId, prompt);
-          options.onSubmitted?.();
+          options.onSubmitted?.({ steered: true });
           return { steered: true, ...result };
         } catch (error) {
           if (!isCodexSteerUnavailableError(error)) throw error;
@@ -2535,6 +2446,15 @@ class AcpRuntime extends EventEmitter {
     );
     const turn = this.beginTurn(binding);
     try {
+      options.onTurnAdmitted?.({ previousState: String(turn.previousState || 'idle') });
+    } catch (error) {
+      if (this.isCurrentTurn(binding, turn)) {
+        binding.state = turn.previousState;
+        this.finishTurn(binding, turn, { status: 'admission-failed' });
+      }
+      throw error;
+    }
+    try {
       const configMutation = binding.configMutationTail;
       const patchDecisions = [...binding.patchDecisionInFlight.values()].map(item => item.promise);
       await Promise.allSettled([
@@ -2555,7 +2475,7 @@ class AcpRuntime extends EventEmitter {
       }
       throw error;
     }
-    binding.sessionState.beginPrompt(content);
+    this.requireSessionState(binding).beginPrompt(content);
     turn.phase = 'running';
     binding.state = 'working';
     binding.error = '';
@@ -2566,7 +2486,7 @@ class AcpRuntime extends EventEmitter {
     try {
       const responsePromise = binding.connection.prompt({ sessionId: binding.sessionId, prompt: content });
       try {
-        options.onSubmitted?.();
+        options.onSubmitted?.({ steered: false });
       } catch {
         // Submission is already owned by the provider; admission callbacks cannot roll it back.
       }
@@ -2582,11 +2502,19 @@ class AcpRuntime extends EventEmitter {
         // JSON-RPC implementations commonly move the actionable provider text
         // into error.data.details. Classify the normalized message so the
         // ordered transcript and runtime snapshot cannot disagree.
-        binding.sessionState.recordError(runtimeError.message, acpErrorKind(runtimeError));
-        binding.sessionState.completePrompt();
+        const sessionState = this.requireSessionState(binding);
+        sessionState.recordError(runtimeError.message, acpErrorKind(runtimeError));
+        sessionState.completePrompt();
         binding.state = 'error';
         binding.error = runtimeError.message;
+        binding.retryableReconnect = isStructuredReconnectableFailure(binding, error)
+          && isSafeProviderSessionId(binding.sessionId);
         binding.updatedAt = new Date().toISOString();
+        try {
+          options.onTurnSettled?.({ stopReason: 'error' });
+        } catch {
+          // Turn evidence is already authoritative; observers cannot roll it back.
+        }
         this.finishTurn(binding, turn, { status: 'error', error: runtimeError });
         this.scheduleCheckpoint(binding, { exact: true });
         this.emitSession(binding);
@@ -2597,10 +2525,15 @@ class AcpRuntime extends EventEmitter {
     return this.enqueueTurnControl(turn, async () => {
       this.requireCurrentTurn(binding, turn);
       binding.stopReason = String(response?.stopReason || '');
-      binding.sessionState.completePrompt();
+      this.requireSessionState(binding).completePrompt();
       binding.state = 'idle';
       binding.error = '';
       binding.updatedAt = new Date().toISOString();
+      try {
+        options.onTurnSettled?.({ stopReason: binding.stopReason });
+      } catch {
+        // Turn evidence is already authoritative; observers cannot roll it back.
+      }
       this.finishTurn(binding, turn, { status: 'completed', stopReason: binding.stopReason });
       this.scheduleCheckpoint(binding, { exact: true });
       this.emitSession(binding);
@@ -2638,7 +2571,8 @@ class AcpRuntime extends EventEmitter {
       await this.markCheckpointDirty(binding);
       this.requireCurrentTurn(binding, turn, ['running']);
       if (turn.providerSettled) throw new Error('No active Codex turn to steer');
-      const insertionIndex = binding.sessionState.entries.length;
+      const sessionState = this.requireSessionState(binding);
+      const insertionIndex = sessionState.entries.length;
       const response = await withTimeout(
         binding.connection.request(CODEX_STEER_METHOD, {
           sessionId: binding.sessionId,
@@ -2650,7 +2584,7 @@ class AcpRuntime extends EventEmitter {
       );
       this.requireCurrentTurn(binding, turn, ['running']);
       const turnId = String((response as UnknownRecord | null)?.turnId || '');
-      if (binding.sessionState.recordAcceptedSteer(content, {
+      if (sessionState.recordAcceptedSteer(content, {
         messageId: clientMessageId,
         turnId,
         insertionIndex,
@@ -2703,7 +2637,6 @@ class AcpRuntime extends EventEmitter {
       binding.pendingPermissions.clear();
       binding.elicitationResolvers.clear();
       binding.pendingElicitations.clear();
-      binding.farmingBrowserApprovalScopes.clear();
       binding.activeElicitations.clear();
       binding.interactionOrigins.clear();
       this.emitRuntime(binding);
@@ -2774,7 +2707,6 @@ class AcpRuntime extends EventEmitter {
       binding.permissionResolvers.get(requestId)?.({ outcome: { outcome: 'cancelled' } });
       binding.permissionResolvers.delete(requestId);
       binding.pendingPermissions.delete(requestId);
-      binding.farmingBrowserApprovalScopes.delete(requestId);
       binding.interactionOrigins.delete(requestId);
     }
     for (const [requestId, pending] of binding.pendingElicitations.entries()) {
@@ -2782,7 +2714,6 @@ class AcpRuntime extends EventEmitter {
       binding.elicitationResolvers.get(requestId)?.({ action: 'cancel' });
       binding.elicitationResolvers.delete(requestId);
       binding.pendingElicitations.delete(requestId);
-      binding.farmingBrowserApprovalScopes.delete(requestId);
       binding.interactionOrigins.delete(requestId);
     }
     for (const [elicitationId, active] of binding.activeElicitations.entries()) {
@@ -3017,6 +2948,33 @@ class AcpRuntime extends EventEmitter {
     return { authenticated: false, methodId: method.id, terminalId: created.terminalId };
   }
 
+  async refreshRuntimeMcpServers(
+    binding: AcpBinding,
+    options: PrepareAgentOptions,
+  ): Promise<PrepareAgentOptions> {
+    const refresh = options.refreshMcpServersForRuntime;
+    if (typeof refresh !== 'function') return options;
+    const refreshed = await refresh(
+      binding.sessionRequestOptions.mcpServers.filter(
+        (server: UnknownRecord) => server && typeof server === 'object' && !Array.isArray(server),
+      ),
+    );
+    const capabilityRuntimeEpoch = String(refreshed?.capabilityRuntimeEpoch || '').trim();
+    if (!/^[A-Za-z0-9._:-]{1,160}$/.test(capabilityRuntimeEpoch)) {
+      throw new Error('ACP capability runtime refresh returned an invalid epoch');
+    }
+    if (!Array.isArray(refreshed?.mcpServers)) {
+      throw new Error('ACP capability runtime refresh returned invalid MCP servers');
+    }
+    return {
+      ...options,
+      capabilityRuntimeEpoch,
+      mcpServers: refreshed.mcpServers.filter(
+        (server: UnknownRecord) => server && typeof server === 'object' && !Array.isArray(server),
+      ),
+    };
+  }
+
   async restartAgentConnection(agentId: string, mutation: SessionMutation | null = null) {
     const binding = this.requireBinding(agentId);
     this.requireOpenBinding(binding);
@@ -3027,7 +2985,7 @@ class AcpRuntime extends EventEmitter {
       throw new Error('ACP restart reservation is no longer active');
     }
     const revisionBase = Number(binding.sessionState?.revision || 0);
-    const options = {
+    let options: PrepareAgentOptions = {
       ...binding.restartOptions,
       agentId: binding.agentId,
       provider: binding.provider,
@@ -3043,6 +3001,7 @@ class AcpRuntime extends EventEmitter {
     }
     this.requireOpenBinding(binding);
     await this.unregisterAgentAndWait(agentId, binding);
+    options = await this.refreshRuntimeMcpServers(binding, options);
     return this.prepareAgent(options);
   }
 
@@ -3061,14 +3020,11 @@ class AcpRuntime extends EventEmitter {
 
   async performReconnectAgent(agentId: string, options: PrepareAgentOptions = {}) {
     const binding = this.requireBinding(agentId);
-    const recoverableTransportFailure = binding.state === 'error'
+    const recoverableFailure = binding.state === 'error'
       && binding.stopReason === 'error'
-      && isReconnectableAcpTransportFailure(binding.error);
-    if (!binding.exited && !recoverableTransportFailure) {
+      && binding.retryableReconnect === true;
+    if (!recoverableFailure) {
       return { reconnected: false, sessionId: binding.sessionId, state: binding.state };
-    }
-    if (binding.stopReason !== 'error') {
-      throw new Error(`ACP Agent cannot reconnect after ${binding.stopReason || binding.state}`);
     }
     if (!isSafeProviderSessionId(binding.sessionId)) {
       throw new Error('ACP Agent reconnect requires a safe exact provider session id');
@@ -3076,7 +3032,7 @@ class AcpRuntime extends EventEmitter {
     if (binding.activeTurn) throw new Error('ACP Agent cannot reconnect while a turn is active');
 
     const revisionBase = Number(binding.sessionState?.revision || 0);
-    const restartOptions = {
+    let restartOptions: PrepareAgentOptions = {
       ...binding.restartOptions,
       agentId: binding.agentId,
       provider: binding.provider,
@@ -3091,6 +3047,7 @@ class AcpRuntime extends EventEmitter {
 
     binding.state = 'reconnecting';
     binding.error = '';
+    binding.retryableReconnect = false;
     binding.updatedAt = new Date().toISOString();
     this.emitRuntime(binding);
     let oldProcessStopped = false;
@@ -3105,6 +3062,7 @@ class AcpRuntime extends EventEmitter {
       oldProcessStopped = await this.unregisterAgentAndWait(agentId, binding);
       if (!oldProcessStopped) throw new Error('ACP Agent reconnect could not stop the previous process');
       if (typeof options.onProcessStopped === 'function') await options.onProcessStopped();
+      restartOptions = await this.refreshRuntimeMcpServers(binding, restartOptions);
       const prepared = await this.prepareAgent(restartOptions);
       return { reconnected: true, ...prepared };
     } catch (error) {
@@ -3121,6 +3079,8 @@ class AcpRuntime extends EventEmitter {
       failedBinding.state = 'error';
       failedBinding.error = `ACP reconnect failed: ${acpErrorMessage(error)}`;
       failedBinding.stopReason = 'error';
+      failedBinding.retryableReconnect = oldProcessStopped
+        && isSafeProviderSessionId(failedBinding.sessionId);
       failedBinding.updatedAt = new Date().toISOString();
       this.emitRuntime(failedBinding);
       throw error;
@@ -3263,22 +3223,25 @@ class AcpRuntime extends EventEmitter {
       'ACP session/set_mode'
     );
     this.requireOpenBinding(binding);
-    binding.sessionState.currentModeId = String(modeId || '');
-    if (binding.modes) binding.modes = { ...binding.modes, currentModeId: binding.sessionState.currentModeId };
+    const sessionState = this.requireSessionState(binding);
+    sessionState.currentModeId = String(modeId || '');
+    if (binding.modes) binding.modes = { ...binding.modes, currentModeId: sessionState.currentModeId };
     this.scheduleCheckpoint(binding, { exact: true });
     this.emitSession(binding);
-    return { sessionId: binding.sessionId, modeId: binding.sessionState.currentModeId };
+    return { sessionId: binding.sessionId, modeId: sessionState.currentModeId };
   }
 
   async setSessionConfigOption(agentId: string, configId: string, value: ConfigValue) {
     const binding = this.requireBinding(agentId);
     if (binding.activeTurn || binding.deferredConfigFlush) {
-      return this.deferSessionConfigChanges(binding, [{ configId: String(configId || ''), value }]);
+      const changes = [{ configId: String(configId || ''), value }];
+      return this.deferSessionConfigChanges(binding, changes);
     }
     this.requireConfigMutationReady(binding);
     const result = await this.enqueueSessionConfigMutation(binding, () => (
       this.setSessionConfigOptionNow(binding, configId, value)
     ));
+    this.rememberSessionConfigOverrides(binding, [{ configId: String(configId || ''), value }]);
     if (this.clearDeferredSessionError(binding)) {
       binding.updatedAt = new Date().toISOString();
       this.emitRuntime(binding);
@@ -3286,7 +3249,12 @@ class AcpRuntime extends EventEmitter {
     return result;
   }
 
-  async setSessionConfigOptionNow(binding: AcpBinding, configId: string, value: ConfigValue) {
+  async setSessionConfigOptionNow(
+    binding: AcpBinding,
+    configId: string,
+    value: ConfigValue,
+    options: PrepareAgentOptions = {},
+  ) {
     this.requireOpenBinding(binding);
     const option = binding.configOptions?.find(candidate => candidate.id === String(configId || ''));
     if (
@@ -3298,19 +3266,19 @@ class AcpRuntime extends EventEmitter {
       // snapshot first. The refresh extension requires an explicit effort and
       // would otherwise reject a valid model change (for example ultra -> a
       // model that tops out at max).
-      await this.applySessionConfigOption(binding, configId, value, { emit: false });
+      await this.applySessionConfigOption(binding, configId, value, { ...options, emit: false });
       const reasoning = binding.configOptions?.find(candidate => (
         candidate.type === 'select'
         && /(reasoning|thought)/i.test(`${candidate.id} ${candidate.name || ''} ${candidate.category || ''}`)
       ));
       if (typeof reasoning?.currentValue === 'string' && reasoning.currentValue) {
         await this.refreshCodexSessionModel(binding, String(value ?? ''), reasoning.currentValue);
-        return this.applySessionConfigOption(binding, configId, value, { force: true });
+        return this.applySessionConfigOption(binding, configId, value, { ...options, force: true });
       }
       this.emitSession(binding);
       return { sessionId: binding.sessionId, configOptions: binding.configOptions };
     }
-    return this.applySessionConfigOption(binding, configId, value);
+    return this.applySessionConfigOption(binding, configId, value, options);
   }
 
   async setSessionConfigOptions(agentId: string, changes: SessionConfigChange[]) {
@@ -3322,11 +3290,111 @@ class AcpRuntime extends EventEmitter {
     const result = await this.enqueueSessionConfigMutation(binding, () => (
       this.setSessionConfigOptionsNow(binding, changes)
     ));
+    this.rememberSessionConfigOverrides(binding, changes);
     if (this.clearDeferredSessionError(binding)) {
       binding.updatedAt = new Date().toISOString();
       this.emitRuntime(binding);
     }
     return result;
+  }
+
+  rememberSessionConfigOverrides(binding: AcpBinding, changes: SessionConfigChange[]) {
+    const merged = new Map<string, SessionConfigChange>();
+    for (const change of normalizeSessionConfigChanges(binding.restartOptions.configOverrides)) {
+      merged.set(change.configId, change);
+    }
+    for (const change of normalizeSessionConfigChanges(changes)) {
+      merged.set(change.configId, change);
+    }
+    const configOverrides = [...merged.values()];
+    binding.restartOptions = { ...binding.restartOptions, configOverrides };
+    const changedIds = new Set(normalizeSessionConfigChanges(changes).map(change => change.configId));
+    binding.configOverrideWarnings = binding.configOverrideWarnings.filter(warning => !changedIds.has(warning.configId));
+    this.emit('config-overrides', {
+      agentId: binding.agentId,
+      sessionId: binding.sessionId,
+      configOverrides: configOverrides.map(change => ({
+        configId: change.configId,
+        value: Array.isArray(change.value) ? [...change.value] : change.value,
+      })),
+    });
+  }
+
+  sessionConfigOverrideCompatibility(binding: AcpBinding, change: SessionConfigChange) {
+    const option = binding.configOptions?.find(candidate => candidate.id === change.configId);
+    const displayName = String(option?.name || change.configId);
+    const displayValue = JSON.stringify(change.value);
+    if (!option) return `Saved ACP setting “${displayName}” (${displayValue}) is no longer available`;
+    if (option.type === 'boolean' && typeof change.value !== 'boolean') {
+      return `Saved ACP setting “${displayName}” no longer accepts ${displayValue}`;
+    }
+    if (option.type === 'select') {
+      if (typeof change.value !== 'string') {
+        return `Saved ACP setting “${displayName}” no longer accepts ${displayValue}`;
+      }
+      if (!sessionConfigSelectValues(option).includes(change.value)) {
+        return `Saved ACP setting “${displayName}” value ${displayValue} is no longer available`;
+      }
+    }
+    return '';
+  }
+
+  async restoreSessionConfigOverrides(binding: AcpBinding, overrides: SessionConfigChange[]) {
+    const normalized = normalizeSessionConfigChanges(overrides);
+    const modelOverrides: SessionConfigChange[] = [];
+    const remainingOverrides: SessionConfigChange[] = [];
+    for (const change of normalized) {
+      const option = binding.configOptions?.find(candidate => candidate.id === change.configId);
+      const isModel = option?.type === 'select' && (
+        option.category === 'model'
+        || (
+          binding.provider === 'codex'
+          && /(^|[\s_-])model([\s_-]|$)/i.test(`${option.id} ${option.name || ''}`)
+        )
+      );
+      (isModel ? modelOverrides : remainingOverrides).push(change);
+    }
+
+    const retained: SessionConfigChange[] = [];
+    const warnings: AcpConfigOverrideWarning[] = [];
+    for (const change of [...modelOverrides, ...remainingOverrides]) {
+      const incompatibility = this.sessionConfigOverrideCompatibility(binding, change);
+      if (incompatibility) {
+        warnings.push({ configId: change.configId, message: incompatibility });
+        continue;
+      }
+      try {
+        await this.setSessionConfigOptionNow(binding, change.configId, change.value, { maxAttempts: 1 });
+        retained.push(change);
+      } catch (error) {
+        const option = binding.configOptions?.find(candidate => candidate.id === change.configId);
+        const displayName = String(option?.name || change.configId);
+        retained.push(change);
+        warnings.push({
+          configId: change.configId,
+          message: `Saved ACP setting “${displayName}” (${JSON.stringify(change.value)}) could not be restored: ${acpErrorMessage(error)}`,
+        });
+      }
+    }
+
+    binding.configOverrideWarnings = warnings;
+    binding.restartOptions = { ...binding.restartOptions, configOverrides: retained };
+    if (!sameSessionConfigChanges(normalized, retained)) {
+      this.emit('config-overrides', {
+        agentId: binding.agentId,
+        sessionId: binding.sessionId,
+        configOverrides: retained.map(change => ({
+          configId: change.configId,
+          value: Array.isArray(change.value) ? [...change.value] : change.value,
+        })),
+      });
+    }
+    if (warnings.length > 0) {
+      console.warn(
+        `ACP config override recovery for Agent ${binding.agentId}:`,
+        warnings.map(warning => warning.message).join('; '),
+      );
+    }
   }
 
   async deferSessionConfigChanges(binding: AcpBinding, changes: SessionConfigChange[]) {
@@ -3483,7 +3551,8 @@ class AcpRuntime extends EventEmitter {
       ? { sessionId: binding.sessionId, configId: normalizedConfigId, type: 'boolean', value }
       : { sessionId: binding.sessionId, configId: normalizedConfigId, value: String(value ?? '') };
     let response;
-    for (let attempt = 0; attempt < 2; attempt += 1) {
+    const maxAttempts = options.maxAttempts === 1 ? 1 : 2;
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
       response = await withTimeout(
         binding.connection.setSessionConfigOption(request),
         this.requestTimeoutMs,
@@ -3493,11 +3562,11 @@ class AcpRuntime extends EventEmitter {
       binding.configOptions = response?.configOptions || binding.configOptions;
       const confirmed = binding.configOptions?.find(candidate => candidate.id === normalizedConfigId);
       if (confirmed?.currentValue === request.value) break;
-      if (attempt === 1) {
+      if (attempt === maxAttempts - 1) {
         throw new Error(`ACP Agent did not confirm config option ${normalizedConfigId}`);
       }
     }
-    binding.sessionState.configOptions = JSON.parse(JSON.stringify(binding.configOptions));
+    this.requireSessionState(binding).configOptions = JSON.parse(JSON.stringify(binding.configOptions));
     this.scheduleCheckpoint(binding, { exact: true });
     if (options.emit !== false) this.emitSession(binding);
     return { sessionId: binding.sessionId, configOptions: binding.configOptions };
@@ -3536,6 +3605,7 @@ class AcpRuntime extends EventEmitter {
       authMethods: binding.initializeResponse?.authMethods || [],
       modes: binding.modes,
       configOptions: binding.configOptions,
+      configOverrideWarnings: binding.configOverrideWarnings,
       deferredConfigOptions: [...binding.deferredConfigChanges.values()],
       deferredModeId: binding.deferredModeId,
       pendingPermission: binding.pendingPermissions.values().next().value || null,
@@ -3549,54 +3619,72 @@ class AcpRuntime extends EventEmitter {
         : null,
       updatedAt: binding.updatedAt,
     };
-    if (!binding.sessionState) {
-      return {
-        version: 1,
-        protocol: 'acp',
-        provider: binding.provider,
-        sessionId: binding.sessionId,
-        cwd: binding.cwd,
-        title: '',
-        truncated: false,
-        entries: [],
-        usage: null,
-        availableCommands: [],
-        currentModeId: '',
-        ...runtimeState,
-      };
-    }
     return binding.sessionState.snapshot(runtimeState, options);
+  }
+
+  async getSessionForRead(
+    agentId: string,
+    options: SnapshotOptions = {},
+  ): Promise<AcpSessionSnapshot> {
+    return this.getSession(agentId, options);
   }
 
   getTranscriptSession(agentId: string, options: TranscriptSliceOptions = {}) {
     const binding = this.requireBinding(agentId);
-    const slice = binding.sessionState
-      ? binding.sessionState.transcriptSlice(options)
-      : { entries: [], revision: 0, delta: false, hasMoreBefore: false };
+    const slice = binding.sessionState.transcriptSlice(options);
     return {
       version: 2,
       protocol: 'acp',
       provider: binding.provider,
       sessionId: binding.sessionId,
       cwd: binding.cwd,
-      title: binding.sessionState?.title || '',
+      title: binding.sessionState.title,
       updatedAt: binding.updatedAt,
-      truncated: binding.sessionState?.truncated === true,
+      truncated: binding.sessionState.truncated === true,
       state: binding.state,
       error: binding.error,
       errorKind: binding.error ? acpErrorKind(binding.error) : '',
       stopReason: binding.stopReason,
-      plan: binding.sessionState?.plan == null
+      plan: binding.sessionState.plan == null
         ? null
         : JSON.parse(JSON.stringify(binding.sessionState.plan)),
       ...slice,
     };
   }
 
+  transcriptSessionFromState(
+    binding: AcpBinding,
+    state: AcpSessionState,
+    options: TranscriptSliceOptions = {},
+  ) {
+    const slice = state.transcriptSlice(options);
+    return {
+      version: 2,
+      protocol: 'acp',
+      provider: binding.provider,
+      sessionId: binding.sessionId,
+      cwd: binding.cwd,
+      title: state.title,
+      updatedAt: binding.updatedAt,
+      truncated: state.truncated === true,
+      state: binding.state,
+      error: binding.error,
+      errorKind: binding.error ? acpErrorKind(binding.error) : '',
+      stopReason: binding.stopReason,
+      plan: state.plan == null ? null : JSON.parse(JSON.stringify(state.plan)),
+      ...slice,
+    };
+  }
+
+  async getTranscriptSessionForRead(agentId: string, options: TranscriptSliceOptions = {}) {
+    return this.getTranscriptSession(agentId, options);
+  }
+
   getToolEntry(agentId: string, toolCallId: string) {
     const binding = this.requireBinding(agentId);
-    const entry = binding.sessionState?.toolEntries.get(String(toolCallId || ''));
-    if (!entry || binding.sessionState.isInternalEntry(entry)) return null;
+    const state = binding.sessionState;
+    const entry = state?.toolEntries.get(String(toolCallId || ''));
+    if (!entry || !state || state.isInternalEntry(entry)) return null;
     const visible = JSON.parse(JSON.stringify(entry));
     visible.content = (Array.isArray(visible.content) ? visible.content : []).map((block: PromptBlock) => {
       if (block?.type !== 'terminal') return block;
@@ -3606,15 +3694,24 @@ class AcpRuntime extends EventEmitter {
     return visible;
   }
 
+  async getToolEntryForRead(agentId: string, toolCallId: string) {
+    return this.getToolEntry(agentId, toolCallId);
+  }
+
   getTranscriptEntry(agentId: string, entryId: string) {
     const binding = this.requireBinding(agentId);
-    const entries = (binding.sessionState?.entries || []).filter((candidate: TranscriptEntry) => (
+    const state = binding.sessionState;
+    const entries = (state?.entries || []).filter((candidate: TranscriptEntry) => (
       String(candidate?.id || '') === String(entryId || '')
     ));
     if (entries.length !== 1) return null;
     const [entry] = entries;
-    if (!entry || binding.sessionState.isInternalEntry(entry)) return null;
+    if (!entry || !state || state.isInternalEntry(entry)) return null;
     return entry;
+  }
+
+  async getTranscriptEntryForRead(agentId: string, entryId: string) {
+    return this.getTranscriptEntry(agentId, entryId);
   }
 
   getPatchDecision(agentId: string, toolCallId: string, requestedPath: string) {
@@ -3633,8 +3730,9 @@ class AcpRuntime extends EventEmitter {
     ) {
       throw new Error('Wait for the Agent to finish before deciding a patch');
     }
-    const entry = binding.sessionState?.toolEntries.get(String(toolCallId || ''));
-    if (entry && binding.sessionState.isInternalEntry(entry)) throw new Error('ACP tool call not found');
+    const state = this.requireSessionState(binding);
+    const entry = state.toolEntries.get(String(toolCallId || ''));
+    if (entry && state.isInternalEntry(entry)) throw new Error('ACP tool call not found');
     if (!entry) throw new Error('ACP tool call not found');
     const normalizedDecision = String(decision || '').trim().toLowerCase();
     if (!['keep', 'revert'].includes(normalizedDecision)) throw new Error('ACP patch decision is invalid');
@@ -3783,8 +3881,34 @@ class AcpRuntime extends EventEmitter {
     };
   }
 
+  async getSubagentTranscriptSessionForRead(
+    agentId: string,
+    sessionId: string,
+    options: TranscriptSliceOptions = {},
+  ) {
+    return this.getSubagentTranscriptSession(agentId, sessionId, options);
+  }
+
   hasBinding(agentId: string) {
     return this.bindings.has(agentId);
+  }
+
+  bindingEpoch(agentId: string): string {
+    return String(this.bindings.get(agentId)?.capabilityRuntimeEpoch || '');
+  }
+
+  transcriptProjectionRevision(agentId: string): number {
+    return Number(this.bindings.get(agentId)?.transcriptProjectionRevision || 0);
+  }
+
+  transcriptSettled(agentId: string): boolean {
+    const binding = this.bindings.get(agentId);
+    return Boolean(
+      binding
+      && !binding.historyReplayActive
+      && binding.state !== 'connecting'
+      && binding.state !== 'reconnecting'
+    );
   }
 
   requireBinding(agentId: string) {
@@ -3793,8 +3917,14 @@ class AcpRuntime extends EventEmitter {
     return binding;
   }
 
+  requireSessionState(binding: AcpBinding) {
+    if (!binding.sessionState) throw new Error('ACP session reducer is not loaded');
+    return binding.sessionState;
+  }
+
   emitRuntime(binding: AcpBinding) {
     if (!this.isCurrentBinding(binding)) return false;
+    binding.transcriptProjectionRevision += 1;
     this.emit('agent-runtime', {
       agentId: binding.agentId,
       provider: binding.provider,
@@ -3820,11 +3950,12 @@ class AcpRuntime extends EventEmitter {
 
   emitSession(binding: AcpBinding) {
     if (!this.isCurrentBinding(binding)) return false;
+    binding.transcriptProjectionRevision += 1;
     this.emit('session', {
       agentId: binding.agentId,
       updatedAt: binding.updatedAt,
-      revision: binding.sessionState?.revision || 0,
-      title: binding.sessionState?.title || '',
+      revision: binding.sessionState.revision,
+      title: binding.sessionState.title,
     });
     return true;
   }
@@ -3839,6 +3970,7 @@ class AcpRuntime extends EventEmitter {
       binding.state = 'error';
       binding.error = acpErrorMessage(error);
       binding.stopReason = 'error';
+      binding.retryableReconnect = isSafeProviderSessionId(binding.sessionId);
     } else if (binding.state !== 'error') {
       binding.state = 'stopped';
       binding.stopReason = promptWasActive ? 'stopped' : binding.stopReason;
@@ -3859,7 +3991,6 @@ class AcpRuntime extends EventEmitter {
     binding.pendingPermissions.clear();
     binding.elicitationResolvers.clear();
     binding.pendingElicitations.clear();
-    binding.farmingBrowserApprovalScopes.clear();
     binding.activeElicitations.clear();
     binding.interactionOrigins.clear();
     binding.subagentStates.clear();
@@ -3886,7 +4017,6 @@ class AcpRuntime extends EventEmitter {
     binding.pendingPermissions.clear();
     binding.elicitationResolvers.clear();
     binding.pendingElicitations.clear();
-    binding.farmingBrowserApprovalScopes.clear();
     binding.activeElicitations.clear();
     binding.interactionOrigins.clear();
     binding.subagentStates.clear();

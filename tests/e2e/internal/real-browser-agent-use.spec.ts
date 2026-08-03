@@ -55,7 +55,7 @@ test.describe('real low-cost Agent uses Farming Browser', () => {
     fs.rmSync(workspace, { recursive: true, force: true })
   })
 
-  test('discovers Browser, asks once per site, leaves a visible preview, and completes', async ({
+  test('discovers Browser through CLI, leaves a visible preview, and completes', async ({
     page,
   }, testInfo) => {
     const catalogResponse = await page.request.get('/farming/api/codex/models')
@@ -103,9 +103,10 @@ test.describe('real low-cost Agent uses Farming Browser', () => {
     )
     await expect(composer).toBeEnabled({ timeout: 90_000 })
     await composer.fill([
-      'Use only the Farming Browser tools for this task; do not use shell, curl, or another browser.',
+      'Use only the instance-exact Farming Browser CLI for this task; do not use curl, Playwright, another browser, or any MCP server.',
+      'Start with "$FARMING_CLI_BIN_DIR/farming" capabilities and progressively inspect Browser help.',
       `Open ${targetUrl}.`,
-      'Inspect the rendered page with Browser tools and report its document title and main heading.',
+      'Inspect the rendered page with Farming Browser CLI commands and report its document title and main heading.',
       'Leave the Browser open so the human can watch the same page.',
       `Finish with the exact marker ${completionAnchor}. Do not modify files.`,
     ].join(' '))
@@ -117,6 +118,7 @@ test.describe('real low-cost Agent uses Farming Browser', () => {
       .filter({ hasText: completionAnchor })
       .last()
     const approvalScreenshots: string[] = []
+    let sawFarmingMcpElicitation = false
     const startedAt = Date.now()
     while (Date.now() - startedAt < 6 * 60_000) {
       if (await answer.isVisible().catch(() => false)) break
@@ -125,17 +127,8 @@ test.describe('real low-cost Agent uses Farming Browser', () => {
         await elicitation.isVisible().catch(() => false)
         && /farming-browser/i.test(await elicitation.innerText())
       ) {
-        const scope = elicitation.getByRole('combobox', { name: 'Approval scope' })
-        const options = await codeSelectOptions(scope)
-        const selected = options.find(option => /session/i.test(option.label)) || options[0]
-        expect(selected, 'Browser approval must expose a Session-capable choice').toBeTruthy()
-        await selectCodeOption(scope, selected!.value)
-        const screenshotPath = testInfo.outputPath(`browser-approval-${approvalScreenshots.length + 1}.png`)
-        await page.screenshot({ path: screenshotPath, fullPage: true, animations: 'disabled' })
-        approvalScreenshots.push(screenshotPath)
-        await elicitation.getByRole('button', { name: 'Submit' }).click()
-        await page.waitForTimeout(500)
-        continue
+        sawFarmingMcpElicitation = true
+        break
       }
       const permission = page.getByTestId('code-acp-permission-request')
       if (await permission.isVisible().catch(() => false)) {
@@ -157,10 +150,7 @@ test.describe('real low-cost Agent uses Farming Browser', () => {
 
     await expect(answer).toBeVisible()
     await expect(answer).toContainText(/Browser Interaction Lab/)
-    expect(
-      approvalScreenshots,
-      'A normal Provider should ask once, then reuse the Session grant for the same website',
-    ).toHaveLength(1)
+    expect(sawFarmingMcpElicitation, 'Farming must not project a Browser MCP approval flow').toBe(false)
 
     const owned = (await browserResources(page)).filter(resource => resource.ownerAgentId === agentId)
     expect(owned).toHaveLength(1)

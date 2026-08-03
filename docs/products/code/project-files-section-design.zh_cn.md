@@ -1,448 +1,114 @@
-# Project Files Section 设计说明
+# Project Files 设计
 
 > English version: [project-files-section-design.md](./project-files-section-design.md)
 
-本文档描述 Farming 轻量文件浏览/编辑能力在当前 Code-style 工作台中的接入方式。
+Project Files 让用户在监督 Agent 时查看并轻量编辑 Project。它不以替代完整 IDE 为目标。
 
-目标不是把 Farming 做成完整 IDE，而是在当前 Project / Agent 工作流里补一个够用、稳定、低干扰的文件查看与编辑 section。
+## 产品位置
 
----
-
-## 1. 设计结论
-
-第一版采用：
+Files 属于具体 Project，不属于 Main Agent。Project 展开后包含：
 
 ```text
 Project
-  具体 Agent 行
-  Open Editors（有打开文件时才出现，默认折叠）
+  Agents
+  Open Editors（存在打开文件时）
   Files
-    Changes
-    Git History（默认折叠）
-    文件树
-
-右侧主区域
-  Terminal 或 Monaco Editor
+    Working-copy Changes
+    Git History
+    Directory Tree
 ```
 
-也就是说，文件能力不做独立全局页面，也不做三栏复杂 IDE 布局。Project 展开后先展示具体 agent 行；Agent 列表在分页操作之后提供独立的收起入口，收起后只保留一行紧凑恢复入口且不隐藏 Files，搜索期间则临时展示匹配的 Agent 行；如果用户打开过文件，再展示独立的 `Open Editors` section；最后是 `Files`。`Git History` 收在展开的 `Files` 内，位于 Working Copy `Changes` 之后，与文件树共享同一个 Git / 文件上下文。Main Agent 是调度入口，不单独挂载这些 Project 能力。
+Project Sidebar 只有一个外层 Scroll Surface。Files、Open Editors、Changes、History 与
+Directory Tree 不能创建互相竞争的 Project 级滚动条。深层目录可以显示紧凑 Ancestor Context，
+但不能改变滚动所有权。
 
-这里的“轻量”指功能边界轻，不代表页面展示要像临时列表。Files 使用便于快速扫描的紧凑布局：紧凑树、稳定图标槽、active 左侧条、dirty 状态点、编辑区 tab strip；颜色、圆角和留白继续贴合现有 Code 工作台。
+## Project 与 Workspace 身份
 
-### Project 与 Git Worktree
+Project 是持久挂载到 Farming 的 Workspace。Agent 创建、文件打开、恢复的 Project Session
+与 Git Worktree 选择都引用同一个 Workspace Identity。最后一个 Agent 或 Editor 消失时不能
+静默移除 Project；显式 Remove 才是 Unmount Action。
 
-Farming 只有一种 Project：持久挂载在 Farming 中的 workspace。启动 Agent、打开 workspace 文件、恢复 Project 会话，或点击仓库 worktree 清单中的一行，都会把对应 workspace 写入同一个 `projectWorkspaces` 清单。最后一个 Agent 消失或最后一个编辑器关闭后，Project 只会变空，不会自动卸载；Remove Project 是唯一卸载动作，并且只在 Project 已没有 Agent、Project 会话和打开编辑器时启用。
+Git 拥有 Repository 与 Worktree Identity。Farming 把每个 Worktree 展示为普通 Project，
+只拥有它在 Workspace 中的 Membership 与 Order。
 
-Git worktree 仍作为普通 Project 展示，不增加新的顶层仓库分组。Farming 通过 `git worktree list --porcelain -z` 和共享 Git common directory 识别仓库。在 Project 名称下方放一行低干扰入口，点击后展示同仓库完整 worktree 清单：当前/主 worktree、分支或 detached 状态、短 HEAD、路径，以及 locked/prunable 状态。点击任意行，就把该 worktree 挂载成另一个普通 Project。
+Files Identity 来自 Canonical Workspace，不能依赖当前碰巧引用它的 Agent。可选 Source Agent
+Association 可以支持从文件返回 Agent，但不属于文件 Ownership。
 
-状态权威边界保持简单：Git 决定仓库和 worktree 身份，`settings.projectWorkspaces` 决定 Project 成员关系。即使没有 Agent，后端 Files 与 Git API 也接受经过校验的 Project workspace 身份，因此空 Project 仍保留 Files、Changes、History 和编辑能力。浏览器只从 workspace 派生一个确定性的 Files ID；兼容接口 `/api/files/*` 的字段虽然仍叫 `agentId`，但 Agent 补水、排序或消失时，这个 Project 文件身份绝不能切成 live `agent-*`。`sourceAgentId` 是独立且可选的关联，只用于从编辑器返回仍存活的 Agent。新建 Agent 与 `projectWorkspaces` 持久化之间的有界竞态中，后端可以用 workspace 完全一致的 live 非 Main Agent 临时授权，但 Agent 不会成为文件身份，也不能授权子目录或无关路径。Git 探测失败时不自行猜测关系；Agent 的异步探测继续使用 generation guard，旧结果不能覆盖新的 workspace 观测。
+## Directory 与 Navigation State
 
-目录加载状态机固定为 `absent -> loading -> loaded | error`。Files ID 或 workspace 改变时，旧 generation 失效，并且所有 pending 目录必须回到 `absent`，展开状态随后发起新请求。旧 generation 的响应不能提交数据，也不能遗留一个会抑制重试的可见 `loading` 占位；只有 Agent 关联变化时，不发生 Files 身份迁移。
+Directory Loading 只有 Absent、Loading、Loaded、Failed。Workspace Identity 变化会使 Pending
+Load 失效；旧 Workspace Generation 的响应不能提交数据，也不能留下阻止 Retry 的 Loading。
 
-编辑状态机采用“文件系统权威 + 乐观工作副本”模型。每个浏览器工作副本保存磁盘基线、草稿和单调递增的草稿 revision。保存时捕获一个 revision；请求返回后，只有该 revision 仍是当前值时才能转为 clean，保存期间继续产生的编辑必须叠加在新的磁盘基线上并继续保持 dirty。Dirty 草稿经过 250 ms debounce 后写入有界的浏览器本地备份，并在 page hide 时强制落盘；再次打开时恢复不同于磁盘的草稿，如果磁盘基线也独立变化则标记 external，已经与磁盘相同的备份直接清理。后端按规范化 workspace 串行执行修改，在队列内校验 expected version，使用唯一且独占创建的临时文件，尝试 `datasync` 后原子替换目标，并把“相同期望内容已经提交”视为成功。Create 使用 create-if-absent；rename、move、delete 携带用户所选目录项的 version，陈旧对象必须返回冲突。不确定的保存结果会重新读取文件并检查期望内容，不能盲目重放；不确定的 create 不会自动重放，只有在重读权威父目录后发现精确预期路径已经存在且类型与请求一致时才能收敛为成功；不确定的 delete 只有在重读证明源对象已不存在后才能收敛为成功；不确定的 rename 可以在重读证明源对象已不存在且预期的同类型目标已经存在时收敛为成功。这是期望状态收敛，不是对具体哪个进程完成修改的因果证明。文件 watcher 永远只是失效提示。
+Directory Expansion 是按 Workspace 隔离的 Browser-local Navigation State。每次鼠标或键盘
+操作只改变一次期望展开状态；迟到 Directory Response 不能重新打开用户已经关闭的目录。
 
-Create、Rename 和 Delete 还有一个小型浏览器所有权状态机。打开操作时分配单调 generation；第一次有效提交会在任何请求 `await` 之前同步占住它并禁用后续提交输入。取消、打开替代操作、Files 根身份变化或组件卸载会撤销旧 generation 的 UI 所有权，但不声称服务端 mutation 已被取消。迟到响应可以刷新原权威目录并应用已经证明的打开文件路径映射，但只有当前 generation 才能清理操作、报告错误、打开新建文件或移动焦点。Mutation 请求的客户端等待上限是 15 秒；超时属于传输结果不确定，因此恢复使用一次新的、独立有界的父目录权威重读，并且绝不自动重发 mutation。
+Explorer 区分 Active File、Keyboard Focus 与 Selection。从 Chat、Terminal、Search、History
+或 URL 打开文件时只有一个 Reveal Owner，避免 Tree 与 Project List 争夺 Focus 或 Scroll。
 
-该模型有意不宣称能与任意外部写入者组成事务。其他 Farming 服务、Shell、Agent、Git 和编辑器都是普通的独立文件系统客户端；Farming 对已经观察到的冲突负责检测、保留浏览器草稿并重新读取磁盘权威状态。由于权威是文件系统当前状态而不是因果归因，因此不需要持久化 operation id。严格的跨进程 compare-and-swap 或断电持久性需要改变存储权威，不属于轻量编辑器边界。浏览器备份有界且为 best-effort，`datasync` 不受支持时会禁用，父目录不会执行 sync。
+## Working Copy 与 Mutation
 
-用户在 Project 里可以：
+文件系统是权威来源。Browser Working Copy 保留 Disk Baseline、Draft 与 Revision。保存某个
+Revision 完成时，不能把更新 Draft 错误标成 Clean。Unsaved Draft 可以有界地在 Browser Local
+恢复，但不能成为第二套文件系统权威。
 
-- 点 Agent：右侧显示该 Agent 的 terminal
-- 点 Git History：按需加载当前 Project 的提交树、分支和 Tag；点 Commit 后查看相对所选 Parent 的变更文件并进入 Review
-- 点 Files：展开当前 Project 的目录树
-- 点 Open Editors：展开当前 Project 已打开文件列表，并快速切回文件
-- 点文件：右侧从 terminal 切到 Monaco editor；图片和普通二进制切到只读 preview，过大文本文件在只读 Monaco 中展示文件开头内容
-- 在 Files 搜索内容：点击搜索结果后右侧打开对应文件并跳到匹配行
-- 在 Files 输入 `path:line` / `path:line:column`：直接打开文件并定位
-- 在 Project 的 `Changes` 中点改动文件：右侧主区域打开整文件 Monaco diff，用更宽的代码区域完成 review
-- 在 editor 左侧 gutter 右键：开启/关闭类似 JetBrains 的行级 blame 注释
-- 在 editor 左侧 gutter 右键：查看当前行与上一版或工作区文件的局部变化
-- 再点 Agent：右侧切回 terminal
+Save、Create、Rename、Move 与 Delete 都校验精确 Workspace 和预期 Object/Content Version。
+发生冲突时保留用户 Draft，并展示 Reload 或 Overwrite 选择，不能静默覆盖外部变化。
 
-`Changes` 是当前 Project 内的轻量 review 入口，属于 Files / editor 能力的一部分；它只汇总当前 workspace 的工作区改动，点击后把右侧主区域让给 Monaco diff。Farming 暂不做全局跨 Project review 工作台，也不把 patch 审阅塞进窄的 Agent / chat 栏。目录树自身继续轻量展示 git 工作区状态：文件行显示 `M`/`U` 等短状态，包含改动的父目录显示低饱和度状态点。
+Timeout 或 Transport Failure 结果不明确时，Farming 重读权威文件或父目录；只有能证明请求的
+最终状态时才收敛，绝不自动重放 Mutation。
 
-独立的 `/review?agentId=...` 是读取所选 Agent 工作区的 working-copy review 页面；`/review?agentId=...&base=...&head=...` 使用同一个页面查看 Git commit range。它不接入主页面，提供接近 Gerrit 的多文件 diff、逐文件 `Reviewed` 状态和 diff 偏好，但不改变 `Files` / Monaco 的轻量 review 边界。Git diff 要保留字符级修改范围，并在任一侧文件末尾缺少换行时明确提示，避免内容看似相同的替换行无法解释。Patch 生成仍是后端能力；在下载和 final-change 选择器的产品场景明确之前，页面不展示这两个临时入口。持久化 review 状态以稳定的工作区身份和当前结构化 diff 版本为范围，不依赖短暂的 agent id。对于本地 working copy 没有服务端变更元数据支撑的 Rebase、Included In 等操作不展示。`/review` 是唯一产品路由；确定性测试通过显式的 `fixture=1` 查询启用 fixture，不再使用独立的原型路由。
+迟到 Browser Response 可以刷新权威数据，但不能关闭更新 Dialog、移动 Focus、打开替代文件，
+或覆盖更新 Error。
 
-`Git History` 是 `Files` 内理解 Project 已提交历史的 SCM Graph，不是另一套全局 History。它放在 Working Copy `Changes` 之后，让未提交与已提交状态都从 Files 进入。默认视图遵循 `git log --first-parent HEAD`：展示当前分支的简单线性历史，保留 Merge Commit，但不展开被合入分支的每一个内部提交；需要完整关系时，用户可显式切到“所有分支”，再查看本地分支、远端分支和 Tag 的完整 Graph。每个视图每页加载 50 个 Commit，只有用户点击 `Load more` 才继续分页。列表保持一行 Commit Subject；如果 Commit Message 还有正文，点击 Commit 后会在文件统计前展示正文。Merge Commit 可切换 Parent；Root Commit 与 Git empty tree 比较。展开区继续绘制 VS Code 输出 lanes，不再用一条灰色装饰边替代图线。轻量 Review 操作与变更文件数量放在同一行，变更文件直接复用现有 `/review?agentId=...&base=...&head=...` 页面，文件入口额外携带 `path`，不再实现一套 Diff Viewer。
+Farming 不宣称与任意 External Writer 组成 Transaction。Shell、Agent、Git、Editor 与其它
+Farming Instance 都是同一文件系统的独立客户端。
 
-图拓扑和 SVG 行几何直接改编自 MIT License 的 VS Code SCM History，固定来源 Commit 为 `0217c2f1a0defc7fdbfb4feba74e71e366de6822`，完整来源和 License 记录在 `THIRD_PARTY_NOTICES.md`。Farming 只负责把有边界的 `git log` 结果适配成 VS Code View Model，以及接入现有视觉和 Review；后续不能并行维护第二套手写图算法。
+## Explorer 与 Editor 边界
 
-目录树实现不应长期依赖手写递归列表。完整的 tree control 不只是文件 icon，还需要统一处理可见行模型、展开/折叠状态、键盘焦点、选择态、虚拟滚动、懒加载、拖拽目标、重命名、git decoration、父目录上下文和 hover action。
+四类职责保持分离：
 
-这里说的“文件目录树展示逻辑”，不是 icon mapping，而是 Explorer 自身的交互和渲染系统：
+- **Project Composition**：拥有 Files、Open Editors、Changes、History 与单一 Sidebar Scroll。
+- **Explorer Behavior**：拥有 Row、Focus、Selection、Keyboard Navigation、Virtualization 与
+  Expansion State 投影。
+- **Workspace Access**：拥有 Authorization、有界 Filesystem/Git Read、Version Check、Mutation
+  Reconciliation 与 Refresh。
+- **Editor And Viewer**：拥有 Working Copy、Tab、Editor State、Conflict 与有界 Preview。
 
-- 数据模型：稳定 node id、父子路径、目录懒加载、展开状态、文件变化后局部刷新
-- 可见行模型：Farming 按 Project workspace 维护唯一的打开目录集合；每次鼠标或键盘切换先同步提交一次期望状态，tree engine 再把它投影为可见行，并继续负责焦点、选择和键盘导航。Project 左栏里的 `Files` 展开后按当前可见行数自然撑高，滚动交给外层 project list，避免出现内外两个滚动条；当前可见行数由打开目录集合和 tree data 推导，不能依赖内部 viewport scrollHeight，否则容易留下空白或隐藏行
-- 层级表达：统一 chevron、缩进、低饱和 guide line、目录/文件行高和文本截断规则
-- 上下文保留：Project 左栏不在 `Files` 内部隐藏内容；长列表可以使用轻量 sticky ancestor 覆盖层和浅阴影提示，但不能引入内部滚动窗口或固定高度裁切。该覆盖层是单行路径面包屑，不是树层级的副本：无论中间目录是否存在同级目录，都把当前完整的已渲染祖先链折叠到同一行；该行固定使用根级缩进，点击后定位到路径中最深的祖先目录
-- 选择模型：active file 和 tree selection 分离，支持键盘焦点和轻量选择态；拖拽移动不是当前 P0 验收重点
-- 键盘模型：方向键、Enter/Space 与鼠标点击共用同一套同步展开状态转换；tree engine 继续统一管理焦点态、选择和打开文件行为
-- 移动模型：后端保留同 workspace 内 move 能力；前端当前优先保证搜索、跳转、重命名和删除，不把拖拽移动作为必要能力
-- decoration 模型：git `M`/`U` 等文件状态、父目录状态点、外部变化提示统一挂在 row renderer 的 decoration slot；父目录名称保持低饱和提示色，具体 added/deleted/conflict 语义主要由状态点和叶子文件承担，避免整棵树被高警告色染重
+文本使用轻量 Editor。Markdown 与静态 HTML 可以在同一 File Identity 中切换 Source 与有界
+Preview。Image、PDF、Binary 与 Oversized Text 使用 Read-only Viewer。所有 Viewer 共用同一
+Project Authorization，不能形成独立 File Access Path。
 
-因此第一版复用成熟 tree behavior engine，再接入 Farming 的文件后端、显式刷新、git 状态和现有视觉。
+代码语义导航由 Managed Language Server 处理且只针对已保存文件。Dirty Draft 不能收到把旧
+磁盘版本冒充当前内容的 Cross-file Result。
 
-推荐把 `Files` section 拆成三层：
+## Git 与 Review
 
-```text
-Tree behavior engine
-  投影展开/折叠状态，负责可见行、焦点、键盘导航、选择、虚拟滚动、rename
+Working-copy Changes 与 Committed Git History 位于 Files 内。History 属于 Project，并按有界
+Page 加载；展开 Commit 后显示 Changed File 与 Parent Comparison，不实现第二套 Diff Viewer。
 
-Farming file adapter
-  负责调用 /api/files/tree、显式刷新、git status、路径安全、读写保存
+Line Changes 用于解释当前行附近的局部 Hunk；Full Review 使用主 Comparison Surface 与稳定
+Review Identity。这是两种不同交互层级，不能挤进同一个狭窄 Sidebar Panel。
 
-Farming row renderer
-  负责 Code-style 外观、VS Code-like spacing、icon slot、git badge、active/hover
-```
+Git Operation 使用确定、Path-safe Input；Truncation 或 Timeout 作为可见 Partial Result，
+不能被解释成 Clean Workspace。
 
-其中 tree behavior engine 应优先复用成熟开源组件，而不是继续自己补齐：
+## 视觉与交互规则
 
-| 方案 | 适合度 | 说明 |
-|------|--------|------|
-| `react-arborist` | 当前采用 | 更像现成 file explorer，内置 virtualization、键盘导航、选择、rename 基础能力，第一版落地快；drag/drop 能力不作为当前验收重点 |
-| `@headless-tree/react` | 后续备选 | Headless，适合在需要更强自定义时保留 Farming 自己的视觉；支持 keybindings、search、rename、drag/drop、async/lazy 等复杂树行为 |
-| `react-complex-tree` | 备选 | 成熟、accessible、键盘和 drag/drop 能力完整；其作者已把新方向迁到 Headless Tree |
-| VS Code workbench 源码 | 不推荐直接搬 | 最接近原版，但和 VS Code 平台耦合重，裁剪成本高，后续维护风险大 |
+- Row 保持紧凑、稳定、支持键盘且单行展示。
+- Open Editors 只在需要时出现，并与 Tree 分离。
+- 单子目录链可以合并成一个稳定 Row。
+- Dirty、External Change 与 Git State 保持可见，但不把整棵 Tree 变成高噪音警告面。
+- Preview 与 Pinned Tab 保留各自 Editor Position，并区分临时查看与有意多文件工作。
+- 窄屏优先查看与短编辑；长时间手机编码不是目标。
 
-文件类型 icon 单独复用 VS Code icon theme 生态。当前采用 `material-icon-theme` 的 manifest 做文件名、扩展名、目录名到 icon id 的映射，再只打包 Farming 第一版需要的精选 SVG 资产，避免把 icon 主题当成一套手写 switch。它不决定 tree 行为，只作为 row renderer 的 decoration slot。
+## 性能边界
 
-结论：当前继续使用 `react-arborist` 是合理的，因为它已经覆盖 Explorer 第一版最关键的行为骨架；后续如果需要 VS Code 更完整的 async tree/search/rename/accessibility 语义，再评估 `@headless-tree/react`。Theia / code-server 更适合作为行为参考或“Open in full IDE”旁路，不适合把它们的 navigator 直接裁进 Farming。
+File Read、Preview、Search、Git Output、Directory Load、History Page、Editor Model 与 Cache 都
+必须有界。Tree 和昂贵 Detail 按需加载。Background Preparation 可以改善首次打开，但失败时
+必须回退到同一权威路径，不能 Reload Page 或阻塞 Agent Work。
 
-组件架构保持四个稳定边界：
+## 验收标准
 
-- **Project 组装层**：决定 Files、Open Editors、Changes 和 Git History 的位置，并维持侧栏唯一的外层滚动面。
-- **Explorer 行为层**：负责焦点、选择、键盘导航、虚拟化，以及对 workspace 级目录展开状态的投影；它不是文件系统事实的权威来源。
-- **Workspace 适配层**：负责路径授权、有界目录与 Git 读取、乐观版本校验、修改结果对账和显式刷新。
-- **Editor 与 Viewer 层**：负责工作副本、Tab、Monaco 状态、冲突呈现和有界 Preview。所有 Preview 共用同一套 workspace 授权与生命周期规则，不能形成独立的文件访问旁路。
-
-这里按职责描述边界，而不记录易变的私有组件名。内部 React 组合可以演进，但不能改变上述 Project、文件系统权威和恢复契约。
-
----
-
-## 2. 为什么不做独立文件页
-
-Farming 的主线是监督 Agent，不是管理文件本身。文件浏览/编辑应当服务于：
-
-- 看 Agent 当前工作区里的文件
-- 快速打开 Agent 提到的文件
-- 对小范围修改进行人工介入
-- 感知文件被外部或 Agent 改动
-
-如果做成独立 `Files` 页面，用户会在 “Agent 页面” 和 “文件页面” 之间来回切换，容易丢失当前 Project 和 Agent 上下文。
-
-因此第一版保持一个 Project 工作台：
-
-```text
-左侧仍然告诉用户：现在在哪个 Project、有哪些 Agent
-右侧负责展示：terminal 或文件 editor
-```
-
----
-
-## 3. 桌面端布局
-
-### 3.1 初始状态
-
-```text
-┌──────────────┬──────────────────────────────┬───────────────────────────────┐
-│ 主导航        │ Project: farming              │ 右侧主区域                      │
-│              │                              │                               │
-│ Projects     │ Agents                        │ Terminal                       │
-│ Search       │   ● Main Agent                │                               │
-│ History      │   ● Agent A                   │ agent output...                │
-│ Settings     │   ● Agent B                   │                               │
-│              │                              │                               │
-│              │ Files                         │                               │
-│              │   ▸ src                       │                               │
-│              │   ▸ backend                   │                               │
-│              │   package.json                │                               │
-└──────────────┴──────────────────────────────┴───────────────────────────────┘
-```
-
-### 3.2 点击文件后
-
-```text
-┌──────────────┬──────────────────────────────┬───────────────────────────────┐
-│ 主导航        │ Project: farming              │ 右侧主区域                      │
-│              │                              │                               │
-│ Projects     │ Agents                        │ Monaco Editor: src/App.tsx      │
-│ Search       │   ● Main Agent                │                               │
-│ History      │   ● Agent A                   │  1 import ...                   │
-│ Settings     │   ● Agent B                   │  2 export function App() {      │
-│              │                              │  3   ...                        │
-│              │ Files                         │                               │
-│              │   ▾ src                       │ 状态只在 Unsaved / Changed 时显示 │
-│              │     App.tsx                   │                               │
-│              │   ▸ backend                   │                               │
-└──────────────┴──────────────────────────────┴───────────────────────────────┘
-```
-
-右侧只切换内容，不改变左侧 Project 上下文。
-
----
-
-## 4. Files Section 内容
-
-第一版 `Files` section 包含一个轻量搜索/跳转入口和目录树。
-
-```text
-Files
-  Search or path:line
-  ▾ src
-    App.tsx
-    main.tsx
-  ▾ backend
-    server.js
-    agent-manager.js
-  package.json
-  README.md
-```
-
-行为：
-
-- 默认只加载 Project 根目录
-- 展开目录时懒加载子目录
-- 隐藏 `.git`、`.farming`、`node_modules`、`dist`、`build`、`coverage` 等目录
-- 当前打开文件高亮
-- 当前打开文件应在 Explorer 中自动 reveal，避免从 terminal/path 跳转打开后左侧只高亮但不可见
-- 显式文件定位只由一个 reveal request 持有。从 Chat、Terminal、搜索或文件链接打开时，不得并行启动第二条 active-file reveal；文件树先完成内部滚动，再对 Project 列表做一次 nearest 位置校正。active-file 监听只作为没有显式 reveal request 的状态转换兜底，例如关闭当前 tab 后选中下一个编辑器。
-- 打开文件的 working copy 身份按 `workspaceRoot + path` 去重；多个 Agent 指向同一 workspace 的同一路径时只保留一个 editor tab。来源 Agent 单独作为可选关联保存，且只有关联仍有效时才显示返回入口
-- 当前打开文件的 active 高亮和 tree selection 要分离：active file 用左侧细条 + 很浅背景表示右侧 editor 对应关系，tree selection 用浅底色交给 tree engine 维护键盘焦点和轻量选择态
-- 搜索入口复用 `/api/files/search`，结果点击直接打开对应文件并定位 Monaco 到匹配行；搜索结果列表只在有输入时出现，不变成独立页面
-- 搜索入口同时支持 `path:line` / `path:line:column` / `path#Lline`，用于从 agent 输出或用户手动复制路径后快速跳转
-- 点击 terminal output 中的 `path:line` 也应走同一套打开逻辑；workspace 内绝对路径先转成相对路径再请求 `/api/files/file`。用户点击的 workspace 外绝对文件在 Farming 进程可读取时，可通过只读全局 Files 根精确读取一次；该根会以普通、可收起的 Project item 显示，但不因此授权浏览其父目录、搜索、编辑或 Git 操作
-- 搜索结果的键盘选中态需要暴露给 DOM：输入框用 `aria-activedescendant` 指向当前结果，结果列表用 `listbox/option` 语义，保证视觉 active、上下键选择和辅助语义一致
-- 右侧 editor breadcrumb 是轻量上下文入口：点击目录段会在左侧 Explorer 展开并 reveal 对应目录，点击文件段 reveal 当前文件，避免用户滚动远离 active file 后丢上下文
-- 文件被外部修改或 git 工作区未提交时，在对应文件行显示轻量状态
-- 右侧 editor 的 dirty / external changed 状态应同步回左侧 Explorer：叶子文件显示轻量状态点，父目录显示低饱和 descendant 点，帮助用户在深层目录中感知未保存修改
-- 关闭 dirty tab 后，轻量 hot-exit 缓存里的草稿仍应同步给左侧 Explorer decoration；重新打开文件会恢复草稿，保存干净后清除该 decoration
-- 包含未提交改动的父目录显示低饱和度状态点，避免把整棵树染成强提醒
-- 父目录只有 descendant 状态时不改变目录名颜色或字重；右侧状态点承担提示，避免深层目录被一串橙色父节点淹没
-- Project 展开内容的顺序是具体 Agent 行、可选 `Open Editors`、`Files`；`Git History` 位于 Files 内的 Working Copy `Changes` 之后
-- `Open Editors` 只有在当前 Project 至少打开一个文件后才出现，出现时默认折叠；展开后显示打开文件列表，点击条目切回对应文件
-- `Git History` 默认折叠，只要 Project workspace 可访问就展示；行内展示 Commit Subject、短 OID、作者/时间和 Branch/Tag Decoration
-- `Git History` 标题与 Working Copy `Changes`、文件树使用一致的水平缩进
-- `Git History` 默认展示当前分支的 First-parent 线性历史；“所有分支”是用户显式切换的完整 Graph 视图
-- Commit Subject 保留在列表行；Commit Message 的额外正文在展开详情中展示
-- `Files` 承载搜索/跳转入口、Working Copy `Changes`、`Git History` 和目录树，不承载打开文件列表
-- Files 是 Project 展开内容下的独立 section，和 Agent 行处于同一层级缩进；Files 标题和树用 section 自身缩进表达 project 内部层级，桌面和窄屏都避免靠负 margin 补偿导致“FILES 像跳出 Project / 比 Project 更靠左”
-- Files section 标题可点击折叠/展开；折叠后只保留一行 section header，隐藏搜索、目录树、菜单和操作浮层，避免文件列表长期占据注意力
-- Main Agent 不展示对应 Files；普通 Project 即使暂时没有 Agent 或打开文件，也通过持久 Project workspace 身份展示 Files
-- 窄侧栏下 Files header 使用两行布局：标题一行、搜索/跳转入口一行；搜索图标可隐藏，但 `path:line` 搜索入口必须保持可输入宽度
-- Project 文件列表使用外层侧栏的单一滚动流和稳定 lazy-load；深层展开时 `Files` section 必须完整平铺，不在内部再出现第二个滚动条
-- Project 左栏不启用内部滚动窗口；被展开的文件行就是完整内容，不能用固定高度窗口把一部分文件藏在 section 内部。深层滚动时允许用 zero-height overlay 的 sticky ancestor stack 展示当前父目录上下文，浅阴影只表达“上方还有被滚走的父目录”，不改变滚动模型
-- 深层目录用低饱和缩进引导线辅助扫描，但不把 tree 做成重边框或高对比网格
-- 缩进引导线必须弱于文件名、selection、dirty/git decoration，深层目录不能因为多条竖线显得拥挤或脏
-- 单一路径目录链应合并成一个可见目录行，例如 `tmp/ata2/assets`；只有出现真实分支时才继续展开层级，避免无信息增量的过度缩进
-- 展开某个目录时，应在同一次交互里预加载其直接子目录下面可合并的单子目录链；例如点击 `src` 后应直接得到稳定的 `main/java` 可见行，而不是先出现 `main`，再由下一次点击或懒加载把它变成 `main/java`
-- 目录 icon 应优先使用已加载子树里的文件扩展名内容信号；没有内容信号时，兜底 icon 也必须绑定到该可见行的稳定路径起点，不能随着 compact 后 basename 从 `main` 变成 `java` 而来回跳
-- Explorer row 文字截断时仍要能 hover 看到完整相对路径；第一版用原生 `title` 暴露完整路径，避免为 tooltip 额外引入重浮层
-- 目录树行为使用 `react-arborist`，Farming 只负责后端文件 adapter 和 Code-style row renderer
-- 拖拽移动不是当前需要投入的 P0 能力；如果未来重新打开，需要保持 drop cursor 低饱和，并继续同步已打开 tab 与 watcher 噪声过滤
-- 支持轻量文件管理 P0：右键或键盘打开上下文菜单，创建文件/目录、重命名、删除、复制相对路径和刷新当前目录；这些操作不常驻在 Files header，避免把可选文件浏览区做成重工具栏
-- 文件上下文菜单打开后焦点进入菜单项，支持 `↑` / `↓` / `Home` / `End` 在菜单内移动；`Escape` 关闭后焦点回到 Explorer tree，并保留触发 row 的选中态，保持全键盘连续操作
-- 删除目录必须走确认弹层；删除或重命名后刷新受影响父目录，并同步关闭或更新已打开 editor tab
-- 行级变化入口用于局部解释：在 editor 右键菜单里查看当前行与上一版的变化，或查看当前行与工作区文件的变化。
-- Review 场景允许打开整文件 Monaco diff surface：当用户需要检查 patch 时，主区域应优先让给左右对比，而不是把 review 挤在窄的 Agent / chat 栏里。
-- 支持轻量 git blame：在 editor 左侧非正文 gutter 区域右键打开 Blame；开启后每行左侧展示作者和日期，点击某一行左侧 blame 注释弹出提交摘要、commit、作者和可点击的 Aone 用户入口。Blame 基于磁盘中的 git 状态，不包含未保存草稿。
-- 行级变化遵循 VS Code dirty diff 的概念边界：Farming 只向 Git 查询原始 / 历史资源，定位覆盖当前行的 hunk，并用临时面板展示；不维护自己的复杂版本历史模型。整文件 review diff 也保持 thin adapter 边界：后端提供 Git diff 与文件快照，前端交给 Monaco DiffEditor 渲染，不自研 diff 引擎。
-
-不做：
-
-- 不做完整文件管理器
-- 不做跨 workspace 复制/移动
-- 不做拖拽移动作为当前验收重点
-- 不做批量复制/删除
-- 不做跨 Project 的复杂 git review 聚合页
-- 不做 VS Code 式 Explorer 全套右键菜单
-
----
-
-## 5. 右侧主区域模式
-
-右侧主区域只有两个第一版核心模式。
-
-### 5.1 Terminal Mode
-
-触发：
-
-- 点击 Agent 行
-- 启动新 Agent 后自动打开
-
-展示：
-
-- 当前 Agent terminal
-- composer / input 保持现有行为
-
-### 5.2 Editor Mode
-
-触发：
-
-- 点击 Files section 中的文本文件
-- 点击 Files 搜索结果
-- 在 Files 搜索框输入 `path:line` / `path:line:column`
-- 后续点击 terminal output 中的 `path:line`
-
-展示：
-
-- Monaco editor
-- Markdown 源文件可在同一 editor tab 内切换源码 / 渲染预览
-- HTML 源文件可在同一 editor tab 内切换源码 / 沙箱化静态预览；预览使用当前未保存草稿，相对 CSS、图片、字体和媒体资源通过有界且 Project-scoped 的 Preview Session 加载；相对 HTML 页面跳转及目标页面的 Root-relative 资源仍留在该 Session 内
-- 从 Markdown 文档点击 workspace 内部链接时，目标文档继承当前文档的来源 Agent，文档间跳转后仍保留返回 Agent 的入口
-- 图片 / PDF / 二进制只读 preview；大文本用只读 Monaco 展示文件开头内容
-- 紧凑 tab strip
-- 轻量多文件 tabs：打开过的文件保留 tab，可切换、关闭、鼠标拖动排序，并保留各自 dirty / external changed 状态；从目录树鼠标单击打开的是斜体 transient preview tab，再单击另一个干净文件会复用该 tab；双击对应文件行或 tab 会把它固定为正式 tab；搜索结果、`path:line`、键盘 Enter、diff/review 打开也是正式 tab，开始编辑同样会固定 transient tab；tab strip 支持键盘切换和关闭，active tab 应自动滚入可见区域；active tab 与内容之间的底边应比其余 tab strip 分隔线更浅；editor 区域支持 `Ctrl/Cmd+PageUp` / `Ctrl/Cmd+PageDown` 切换 tab、`Ctrl/Cmd+W` 关闭当前 tab
-- editor tab 使用成熟 tablist 语义：只有 active tab 进入正常 Tab 顺序，左右方向键切换；tab 通过 `aria-controls` 关联 Monaco `tabpanel`，避免视觉 tab strip 和 DOM 语义脱节
-- editor tab 的可访问名称需要包含 basename、完整相对路径和 dirty / external changed 状态；close 按钮也使用完整相对路径，避免同名文件 tab 难以区分
-- tab strip 可水平滚动但不显示浏览器原生 scrollbar；大量文件时靠 active tab reveal、滚轮/触控板滚动和键盘切换保持可达性
-- editor 在文件 tab 之间切换时保留每个 Monaco model 的 view state，用户回到文件时应恢复原来的光标、selection 和滚动位置
-- dirty tab 使用状态点表达未保存，不额外加粗文件名；避免 tab strip 同时靠颜色、点、字重重复提醒而变重
-- editor dirty / external changed 状态同步给左侧 Files tree，避免用户只从 tab strip 才能发现未保存文件
-- 关闭 dirty tab 不应在同一会话内直接丢失草稿；第一版采用轻量 hot-exit 缓存，重新打开同一文件时恢复未保存草稿，并在保存干净后清除缓存
-- 源码、分栏预览和 diff 使用轻量 breadcrumb 展示文件上下文，长路径保留最后文件名的可读性，不引入完整 command palette / breadcrumb menu；Markdown、HTML、图片、PDF 和普通二进制的纯预览界面隐藏 breadcrumb
-- 保存状态默认不常驻显示 `Saved`；只在 `Unsaved` / `Saving` / `Changed on disk` 这类需要注意的状态出现时显示，避免 editor 顶部变重
-- 外部修改提示
-- 保存、刷新、覆盖等 editor action 使用紧凑图标按钮并保留 aria/title；状态文本独立显示，避免顶部 bar 堆满操作文案；Save action 只在 dirty/saving 时显示，clean 状态不常驻 disabled 保存按钮；Reload action 只在 external changed / error 时显示，避免 dirty 编辑时提供容易丢草稿的常驻刷新入口
-- 新建 / 重命名输入框打开后必须自动聚焦并选中文件名；重命名文件时默认只选中扩展名前的 stem，避免覆盖 `.ts` / `.tsx` 等扩展名
-
-编辑能力：
-
-- 打开文本文件
-- 修改内容
-- `Cmd/Ctrl+S` 保存
-- 保存前带 `sha1` 版本校验
-- 如果文件已被 Agent 或外部进程修改，提示冲突，不直接覆盖
-
----
-
-## 6. 后端接口使用
-
-当前轻量编辑后端已经提供基础能力：
-
-| 能力 | 接口 |
-|------|------|
-| 目录树 | `GET /api/files/tree?agentId=...&path=...` |
-| 读取文件 | `GET /api/files/file?agentId=...&path=...` |
-| 创建 / 关闭 HTML 预览 | `POST /api/files/previews` / `DELETE /api/files/previews/:sessionId` |
-| 读取 HTML 静态资源 | `GET /api/files/previews/:sessionId/:scope/*` |
-| 保存文件 | `PUT /api/files/file` |
-| 新建文件/目录 | `POST /api/files/entry` |
-| 重命名文件/目录 | `PATCH /api/files/entry` |
-| 删除文件/目录 | `DELETE /api/files/entry` |
-| 移动文件/目录 | `POST /api/files/move` |
-| 搜索 | `GET /api/files/search?agentId=...&q=...` |
-| Git 历史 | `GET /api/files/history?agentId=...&limit=...&skip=...` |
-| Commit 变更 | `GET /api/files/history/changes?agentId=...&commit=...&parent=...` |
-| blame | `GET /api/files/blame?agentId=...&path=...` |
-| 行级变化 | `GET /api/files/line-changes?agentId=...&path=...&lineNumber=...&mode=working\|previous` |
-| 文件变化 | 点击 Files 标题旁刷新按钮，重新请求已加载目录和 Working Copy Changes |
-
-第一版前端只必须使用：
-
-- `tree`
-- `file read`
-- `file raw preview`
-- `static HTML preview session`
-- `file save`
-- `move`
-- `changes`
-
-`search` 已作为 Files section 的内容搜索和行跳转入口接入。图片 preview 走受 workspace 边界保护的只读 raw 路由；HTML preview 走同一鉴权端口上的内存 Session，不新增监听端口，也不提供可执行 Script 的备用路径；普通二进制只打开元数据 viewer；过大文本在只读 Monaco 中展示文件开头内容，保留行号和编辑器滚动手感，但不进入文本保存链路。
-
-Monaco 会把面向查看的语义 Provider 委托给 Farming 托管的 Language Server 路径：Hover、定义、引用、实现、文档符号和诊断。后端根据已保存文件选择注册的 Server，在 Project 所在主机启动它，并负责跨文件跳转、惰性调用/类型层次结构和工作区符号面板。这些语义操作有意只使用已保存文件；Farming 草稿有未保存修改时会禁用语义操作，而不是展示过期结果。参见 [Language Server](./language-server.zh_cn.md)。
-
-实现约束：
-
-- 文件根目录使用持久化 Project workspace；Main Agent 即使实际运行在 `.farming` 身份目录，也不作为 Files 的载体。
-- 当前前端不订阅 workspace watcher。用户点击 Files 标题旁的刷新按钮时，按稳定 Project Files ID 刷新根目录、当前展开目录、Working Copy Changes 和已打开文件；Agent 只作为可选关联，不能成为文件主键。
-- 刷新期间按钮必须显示进行中状态，Changes / Untracked 的旧计数先退出；真实请求完成后计数再明显出现，即使数值未变也能感知本轮刷新。成功反馈短暂展示，失败状态保持可见并允许重试。
-- Git status 和浏览器文件请求必须有超时；目录按父级优先刷新且最多 6 并发，已打开文件最多 4 并发重读。外部删除展开目录属于成功发现变化，刷新后的父目录负责移除它并跳过失效子目录请求。
-- 清洁 editor 在刷新后采用最新文件内容；dirty editor 必须保留草稿，只在后端 SHA 变化时标记 `externalChanged`。
-
----
-
-## 6.1 性能边界
-
-大型 workspace 和长历史场景下，文件与终端链路必须保持有界：
-
-- 文件读写保留大小上限。
-- 目录树按目录懒加载，不一次性展开整棵仓库。
-- Code workspace 首次渲染后启动一次共享且不阻塞主界面的预热，提前加载动态文件编辑器、Monaco 核心和常用语言 tokenizer；真正打开文件时复用同一个 Promise，语言 worker 仍按需加载，后台预热失败本身不能触发页面刷新。
-- TypeScript 和 JavaScript 保留 Monaco 的语法诊断，但关闭 Monaco 隔离环境中的 Semantic 和 Suggestion Diagnostics；当前虚拟 Editor Model 不会加载 Workspace 的编译配置、依赖声明和完整文件图。项目级诊断通过托管 Language Server 路径提供，并且只针对已保存文件。
-- 显式刷新只覆盖根目录和当前展开目录，按父级分层并限制为最多 6 个并发请求；任一 Git status 或文件请求都必须有有界超时。
-- Git History 每页默认 50 个 Commit，并设置硬上限；Commit 变更按点击懒加载，前端详情缓存保持有界。
-- Working Copy status 遇到超大 untracked 集合超过 Git 输出缓冲区时，返回已经完整读取的记录并标记 `truncated: true`；不能把这种情况伪装成干净 workspace。
-- 搜索、diff、blame 等 git / rg 操作使用 limit、timeout 或截断结果，避免无界输出。
-- 所有 git 调用在解析前先固定为确定形态：诊断信息按 C 消息 locale 读取，路径按原始 UTF-8 读取；本地化的开发机和非 ASCII 文件名都不能改变失败分类结果，也不能让某个路径无法被识别。
-- terminal 实时输出按有界块读取，并在 WebSocket fanout 前做短窗口合并。
-- terminal session 退出前先 flush 最后一段输出，随后释放 screen worker 并清理 session 状态。
-- Codex / Claude 大历史按最近文件和目录预算扫描，必要时用 index 数据兜底。
-
----
-
-## 7. 状态模型
-
-前端可以按 Project workspace 维护一个轻量状态：
-
-```text
-activeProjectWorkspace
-openDirectoryPaths
-treeEngineInteractionState
-openFiles
-activeOpenFile
-openFileContent
-openFileSha1
-dirty
-externalChanged
-```
-
-状态含义：
-
-| 字段 | 含义 |
-|------|------|
-| `openDirectoryPaths` | 按 Project workspace 持久化的权威展开状态；每次点击或键盘切换同步翻转一次，异步目录加载不能反向覆盖它 |
-| `treeEngineInteractionState` | tree engine 维护的焦点、选择和虚拟化视图状态；展开/折叠只投影 `openDirectoryPaths` |
-| `openFiles` | 当前 Project / Agent 已打开的轻量文件 tab 列表 |
-| `activeOpenFile` | 当前右侧 editor 激活的文件 |
-| `openFileSha1` | 打开时后端返回的版本 |
-| `dirty` | 用户本地是否改动未保存 |
-| `externalChanged` | 读写版本校验发现文件已被外部修改 |
-
----
-
-## 8. 移动端原则
-
-移动端第一版不追求完整编辑体验。
-
-建议：
-
-- Files section 可折叠
-- 默认以只读查看为主
-- 编辑入口可以隐藏到二级操作
-- Monaco 移动端体验不作为第一版可靠目标
-
-移动端核心价值是“查看 Agent 提到的文件”，不是在手机上长时间写代码。
-
----
-
-## 9. 后续阶段
-
-第一版稳定后，再考虑：
-
-1. 更完整的 terminal output 链接识别：支持更多编译器输出格式
-2. 更完整的 review 列表筛选：按状态、路径或最近 agent turn 聚合 changed files
-3. `Open in full IDE`：旁路打开 code-server / OpenVSCode
-
-这些都是增量能力，不应阻塞第一版 `Files` section。
-
----
-
-## 10. 第一版验收标准
-
-- Project 下能看到 `Files` section
-- 能展开目录并懒加载子目录
-- 能打开 workspace 内文本文件
-- 能编辑并保存文件
-- 文件被外部修改时，不静默覆盖
-- 点击 Agent 能回到 terminal
-- 不影响现有 Agent 启动、terminal 输入和快捷键
+验证必须覆盖：Empty Project、多个 Agent 共享 Workspace、Git Worktree、Deep Tree、Keyboard
+Navigation、Reload Restore、Symlink、Search 与 Location Link、Dirty/External Change、结果
+不确定的 Mutation、Read-only Viewer、Git History、Review、Mobile Viewing 与 Large Workspace。

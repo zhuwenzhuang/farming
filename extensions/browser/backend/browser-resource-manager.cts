@@ -10,6 +10,10 @@ import {
   type ServerProcessIdentity,
 } from '../../../backend/server-process-identity.cjs';
 import {
+  MAX_IMAGE_ARTIFACT_BYTES,
+  writeWorkspaceImageArtifact,
+} from '../../../backend/workspace-artifacts.cjs';
+import {
   BrowserResourceStore,
   RESOURCE_ID_RE,
   type BrowserResource,
@@ -235,6 +239,12 @@ function errorCode(error: unknown): string {
   return typeof error.code === 'string' ? error.code : '';
 }
 
+function recordValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
 function publicResource(resource: BrowserResource, collectionRevision: number) {
   return {
     id: resource.id,
@@ -304,21 +314,6 @@ function normalizeUrl(value: unknown): string {
   } catch (error) {
     if (error && typeof error === 'object' && 'status' in error) throw error;
     throw browserError('Invalid Browser URL');
-  }
-}
-
-function browserSiteScope(value: unknown): { scopeKey: string; site: string } | null {
-  const input = String(value || '').trim();
-  if (!input || input === 'about:blank') return null;
-  try {
-    const parsed = new URL(normalizeUrl(input));
-    if (!['http:', 'https:'].includes(parsed.protocol) || !parsed.host) return null;
-    return {
-      scopeKey: `site:${parsed.origin.toLowerCase()}`,
-      site: parsed.host.toLowerCase(),
-    };
-  } catch {
-    return null;
   }
 }
 
@@ -761,27 +756,6 @@ class BrowserResourceManager extends EventEmitter {
   get(id: string) {
     this.requireEnabled();
     return publicResource(this.requireStored(id), this.store.revision);
-  }
-
-  permissionDecision(agentId: string, tool: string, input: Record<string, unknown> = {}) {
-    if (['browser_list', 'browser_stop'].includes(tool)) {
-      return { requiresApproval: false, scopeKey: '', site: '' };
-    }
-    if (tool === 'browser_open' || tool === 'browser_navigate') {
-      const site = browserSiteScope(input.url);
-      return site
-        ? { requiresApproval: true, ...site }
-        : { requiresApproval: false, scopeKey: '', site: '' };
-    }
-    const browserId = String(input.browserId || '');
-    const resource = browserId ? this.store.get(browserId) : null;
-    if (!resource || resource.ownerType !== 'agent' || resource.ownerAgentId !== agentId) {
-      return { requiresApproval: true, scopeKey: '', site: '' };
-    }
-    const site = browserSiteScope(resource.url);
-    return site
-      ? { requiresApproval: true, ...site }
-      : { requiresApproval: false, scopeKey: '', site: '' };
   }
 
   create(input: Record<string, unknown>) {
@@ -1231,7 +1205,25 @@ class BrowserResourceManager extends EventEmitter {
     this.requireEnabled();
     const kind = String(input?.kind || '').trim();
     if (kind === 'snapshot') return this.withRuntime(id, runtime => runtime.snapshot());
-    if (kind === 'screenshot') return this.withRuntime(id, runtime => runtime.screenshot());
+    if (kind === 'screenshot') {
+      const resource = this.requireStored(id);
+      return this.withRuntime(id, async runtime => {
+        const screenshot = recordValue(await runtime.screenshot());
+        const data = String(screenshot.data || '');
+        if (!data) throw browserError('Browser screenshot did not return image data');
+        if (Buffer.byteLength(data, 'base64') > MAX_IMAGE_ARTIFACT_BYTES) {
+          throw browserError(`Browser screenshot exceeds ${MAX_IMAGE_ARTIFACT_BYTES} bytes`);
+        }
+        const artifact = await writeWorkspaceImageArtifact({
+          bytes: Buffer.from(data, 'base64'),
+          capability: 'browser',
+          mimeType: String(screenshot.mimeType || 'image/png'),
+          operation: 'screenshot',
+          workspace: resource.workspace,
+        });
+        return { artifact };
+      });
+    }
     if (kind === 'navigate') return this.navigate(id, input.url);
     if (kind === 'back') return this.goBack(id);
     if (kind === 'forward') return this.goForward(id);

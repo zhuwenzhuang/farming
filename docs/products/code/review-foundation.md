@@ -2,203 +2,119 @@
 
 > Chinese version: [review-foundation.zh_cn.md](./review-foundation.zh_cn.md)
 
-Farming review data is split into two independent layers:
+Farming Review separates the immutable change being reviewed from the reader's
+mutable review state. The model is Gerrit-inspired but supports local working
+copies, arbitrary Git ranges, and Agent-created historical changes.
 
-- A read-only diff snapshot describes what changed: review id, base patchset, patchset, files, hunks, and rows.
-- A patchset review state describes what the reader has done: reviewed paths, comments, and a local revision used to ignore stale responses.
+## Identity And Ownership
 
-This keeps the same foundation usable for working-copy review, changed-file review, and commit-to-commit comparison.
+A Review has one stable identity and one or more immutable revisions. A revision
+defines a base, a candidate patchset, and an ordered set of file identities.
+Review identity includes the canonical workspace and comparison range; display
+labels such as `HEAD` are not sufficient identity.
 
-The frontend state should carry the `reviewId` from the diff snapshot. Patchset names such as `HEAD` or `Patchset 20` are not globally unique; authoritative review state is scoped by `reviewId + patchset`, matching the backend reviewed-file API.
+Two independent layers exist:
 
-A `ReviewState` represents one review identity and its current patch range. `ReviewCatalog` keys are local patchset keys inside that state, not app-wide cache keys. A surface that caches or switches between several working-copy or commit-range reviews must key the outer state by `reviewSnapshotStateKey(snapshot)` or equivalent snapshot identity, so two comparisons with the same right-side `patchset` but different `basePatchset` do not collide. The snapshot's display `root` is not part of that state key: the backend-generated `reviewId` is the canonical workspace identity, so equivalent real-path/symlink workspace entries should not split one review into two UI state buckets.
-The active right-side `patchRange.patchset` must exist in the `ReviewCatalog` when a `ReviewState` is created. The base side is a comparison boundary, but the right side owns reviewed paths, comments, lazy diff hydration, and file navigation. Accepting a missing active patchset would turn those operations into silent no-ops instead of a Gerrit-like review surface.
+- the **Diff Snapshot** is read-only evidence of what changed;
+- the **Review State** records reviewed files, comments, drafts, and local
+  navigation for one exact Review revision.
 
-## Gerrit Alignment
+Changing comparison source or base creates a different identity. Loading
+strategy, diff mode, whitespace preference, and context size do not.
 
-Gerrit is the reference model for this foundation. Farming does not copy Gerrit's exact `/changes/...` route prefix, because Farming must also review local working copies and arbitrary git ranges, but the underlying split should stay Gerrit-shaped:
+## Comparison Sources
 
-- the file list is metadata first, matching Gerrit's `FileInfo` map from `GET .../files/`;
-- inline rows are loaded per file, matching Gerrit's `DiffInfo` from `GET .../files/:file/diff`;
-- reviewed state is a separate per-patchset list, matching `GET .../files?reviewed`;
-- marking reviewed is a single-file primitive, matching `PUT` / `DELETE .../files/:file/reviewed`;
-- UI mark-all actions are only client-side orchestration over the same single-file primitive, not an atomic batch API.
+Review may compare a working tree, staged changes, a commit, a branch merge
+base, an explicit Git range, or an immutable Agent File Changes capture. Source
+selection is semantic and must resolve to an exact comparison before the Review
+is shown.
 
-This separation is intentional. Do not merge reviewed state into diff snapshots or require a full inline diff before the file list can render.
+Historical Agent changes are captured from the structured change evidence that
+the Agent produced. Later filesystem edits must not change that historical
+Review.
 
-The API is not a byte-for-byte clone of Gerrit's `/changes/...` routes. Farming keeps Gerrit's resource semantics, but wraps them in local review sources:
+The CLI may open an explicit local Review:
 
-| Gerrit concept | Gerrit API shape | Farming foundation |
-| --- | --- | --- |
-| File list metadata | `GET revision/files` returns a path-keyed `FileInfo` map | `GET /api/reviews/working-copy` and `GET /api/reviews/git-range` return `ReviewFile[]` with mandatory unique path semantics and `metadataOnly=1` for file-list-first loading |
-| Single-file inline diff | `GET revision/files/:path/diff` returns `DiffInfo` | `GET /api/reviews/{source}/files/:path/diff` returns one loaded `ReviewFile`; provider-specific structured diff adapters are outside the current product boundary |
-| Reviewed file list | `GET revision/files?reviewed` returns `string[]` | `GET /api/reviews/:reviewId/revisions/:patchset/files?reviewed` returns `string[]` |
-| Mark reviewed | `PUT revision/files/:path/reviewed` | `PUT /api/reviews/:reviewId/revisions/:patchset/files/:path/reviewed` |
-| Mark unreviewed | `DELETE revision/files/:path/reviewed` | `DELETE /api/reviews/:reviewId/revisions/:patchset/files/:path/reviewed` |
-
-So the answer to "is Farming's API exactly Gerrit-compatible?" is no. The intended contract is stricter and narrower: the state machine, file identity model, reviewed primitive, and lazy diff loading are Gerrit-aligned; the route prefix and snapshot envelope are Farming-specific because local working copies and arbitrary commit ranges do not have Gerrit change numbers.
-
-## Comparison Sources And Review Workspace
-
-The comparison selector is semantic, not a display-only label. `GET /api/reviews/comparison-sources` resolves the selected workspace into real Git ranges:
-
-- **Unstaged** compares the current index tree with the working tree and includes untracked files;
-- **Staged** compares `HEAD` with the current index tree;
-- **Commit** compares a recent commit with its first parent;
-- **Branch** compares the current `HEAD` with the merge base of the selected local or remote branch;
-- **Last Turn** returns to the immutable ACP-triggered review revision and preserves its `reviewId` boundary.
-
-The generated index tree is a Git object created with `git write-tree`; it does not modify the user's index or working tree. Empty Unstaged or Staged sources remain visible but disabled so the UI states why there is nothing to select. Switching source creates a new snapshot identity and must not reuse reviewed paths or comments from another range.
-Branch choices that resolve to the current `HEAD` or do not share a merge base are omitted because they do not define a meaningful comparison range. Working-tree and index sources use change-summary labels instead of presenting uncommitted state as a commit message.
-
-An ACP **File Changes** review must be created from the referenced tool items, not by recapturing those paths from the current working tree. `POST /api/review-sessions/acp` resolves the ACP diff blocks on the backend and writes their exact `oldText` and `newText` into retained base/head Git trees. Later commits, edits, or deletions therefore cannot change a historical Last Turn review. Absolute paths inside the Agent workspace are normalized to workspace-relative paths; paths outside that workspace are omitted rather than exposing unrelated files.
-
-The review workspace uses a single Gerrit-style file-list-first layout. The ordered file rows are the navigation: each row carries its Git change status and change summary, expands the inline diff in place, and exposes comments and reviewed actions without duplicating the same catalog in a side panel. New comparison controls should reuse this existing review visual language instead of restyling file rows or replacing Git status with decorative file-type labels. Gerrit's reviewed/comment lifecycle remains authoritative.
-
-## CLI entrypoint
-
-Use `farming review <git-dir> <old-revision> <new-revision|now>` to open a standalone local review target without first creating an agent. `--branch <branch>` is optional; without it, the command uses the checked-out branch of the supplied Git directory. `HEAD` and its relatives are resolved against that branch before the URL is created, so the comparison does not drift if the branch advances later.
-
-`now` is valid only as the new revision. It means the current worktree relative to the old revision (`git diff <old>`), therefore includes commits made after the old revision, current tracked staged and unstaged changes, and untracked files. The CLI starts or reuses Farming, opens the review page, and supports `--no-open` for scripts.
-
-The resulting URL uses `root=<canonical git root>` rather than an `agentId`. Backend review endpoints accept exactly one of these workspace selectors; a direct root is canonicalized and must be an existing directory. This keeps a CLI review identity distinct from an agent review while allowing the same diff, reviewed-state, comment, and lazy-load primitives.
-
-## Immutable Review Sessions
-
-The standalone `/review` route does not fall back to seeded fixture data. A working-copy target, including `head=now`, is captured as an immutable review revision before its file list is shown. Automated visual tests opt into deterministic fixture data with `/review?fixture=1`; that fixture does not share the real route's data lifecycle. The review route and the normal Farming application are separate lazy-loaded frontend bundles, including their CSS, so either surface can evolve without loading or applying the other's UI layer.
-
-Capture uses a temporary Git index: it reads `HEAD`, stages tracked and untracked workspace content into that temporary index, writes a tree, and repeats the capture. Farming accepts the revision only when both tree ids match, so an agent writing during capture produces an explicit retry instead of a mixed snapshot. The user's index and worktree are not modified. Captured trees are retained under `refs/farming/reviews/` and session metadata is stored in the Farming config directory.
-
-`POST /api/review-sessions` creates revision 1. `POST /api/review-sessions/:reviewId/revisions` refreshes the same review after an agent applies fixes, and `GET /api/review-sessions/:reviewId` returns its revision history. A revision can be viewed as the final change from the original base or as fixes since the previous captured tree. Unchanged reviewed paths carry forward; changed paths become unreviewed; comments on changed paths become `outdated` instead of being attached to new lines. The `agentId` form only resolves a workspace at capture time and must not be treated as author attribution.
-
-## Diff Snapshot
-
-Frontend review foundation code lives under `src/lib/review/`. A `ReviewDiffSnapshot` identifies its `source` as `working-copy` or `git-range`, then carries the shared file model. `ReviewFile` is the reusable file-level diff model. Each file carries:
-
-- `kind`: normalized Farming file kind such as `modified`, `added`, `deleted`, `renamed`, `copied`, or `rewritten`;
-- `status`: Gerrit-compatible status code such as `M`, `A`, `D`, `R`, `C`, or `W`;
-- `path` and optional `previousPath`;
-- optional file identity metadata from Gerrit `FileInfo`, such as `oldMode`, `newMode`, `oldSha`, and `newSha`;
-- counted insertions and deletions;
-- binary metadata (`binary`, `sizeDelta`, `size`) when the diff is not line-oriented;
-- `diffTooExpensive`, file-level `truncated`, and `diff.truncated` when the backend cannot provide a complete inline diff; `binary` is a true-only sparse flag on `ReviewFile`, while other boolean flags such as `diffTooExpensive` and both truncated fields must be booleans when present;
-- `diffLoaded`, which is `false` for Gerrit `FileInfo` / file-list-only entries and `true` once inline diff rows are present;
-- `diff.diffHeader`, when available, preserving file-level patch metadata such as rename, copy, mode, binary, new-file, and deleted-file headers;
-- optional `diff.leftMeta` / `diff.rightMeta` from structured sources, preserving side-specific file name, content type, line count, language, web links, and syntax tree metadata for future binary rendering, syntax highlighting, and side labels;
-- `diff.hunks`, whose rows are `context`, `added`, `deleted`, paired `changed`, or Gerrit-style skipped-context rows. Each hunk must carry `oldStart`, `oldLines`, `newStart`, and `newLines` in addition to its display header, so renderers and navigation logic do not need to parse `@@ ... @@` text.
-
-Working-copy snapshots come from `/api/reviews/working-copy`. Commit-range snapshots come from `/api/reviews/git-range?agentId=&base=&head=`.
-Both endpoints return the same file model so UI code can render either source through one diff surface. Matching raw patch-text endpoints are available at `/api/reviews/working-copy/patch` and `/api/reviews/git-range/patch`, and they expose `X-Farming-Review-Truncated` so callers know whether a file limit or per-file diff cap produced a partial patch. Frontend callers should prefer `loadReviewDiffSnapshot(request)`, `reviewSnapshotUrl(request)`, structured `loadReviewPatch(request)`, or `reviewPatchUrl(request)` for browser download links over manually choosing endpoint URLs. `loadReviewPatchText(request)` remains a convenience for places that only need the raw text and do not make completeness decisions.
-Git-range request helpers normalize `base` and `head` at the transport boundary using the same safe-revision rule as the backend: trim leading/trailing whitespace, require a non-empty value of at most 200 characters, reject revisions that start with `-`, and reject whitespace, control characters, or backslashes inside the revision. Request labels, cache keys, and URL serialization must all use that normalized revision so commit-compare surfaces do not split state across equivalent user input.
-The snapshot `source` is part of review identity. For compatibility an older backend may omit it and let the client fill in the endpoint source, but an explicit `source` value must match the endpoint that was requested. A working-copy endpoint response must not be accepted as `git-range`, and a git-range endpoint response must not be accepted as `working-copy`.
-Snapshot identity fields are not display-only strings. `reviewId`, `root`, `patchset`, and a present `basePatchset` must be non-empty before a client accepts the snapshot; otherwise reviewed state, comments, and lazy diff effects would have no stable Gerrit-style boundary.
-
-Large review surfaces should request file-list-first snapshots with `metadataOnly: true`, which maps to `metadataOnly=1` on the backend. Metadata-only files preserve path, status, rename metadata, line counts, file identity metadata such as mode and blob sha when available, and loaded-negative flags such as binary, too-expensive, and truncated, but set `diffLoaded: false` and leave `diff.hunks` empty. This is the preferred entrypoint for future CHANGES integration, working-copy changed-file review, and commit-range comparison; inline rows should then be loaded only for files the reader expands.
-Although Farming transports snapshot files as an array, the model has Gerrit `FileInfo` map semantics: each review path must appear at most once in a patchset. Backend snapshot generation, frontend snapshot loaders, snapshot-to-catalog model helpers, and `createReviewState()` must reject duplicate file paths instead of deduplicating them, because reviewed state, comments, and lazy diff hydration all address files by path. Use `reviewFileMapFromFiles()` when a caller needs Gerrit-style path lookup instead of rebuilding ad hoc maps in UI code.
-Gerrit `FileInfo` map adapters should fail fast unless the map itself is an object and each map value is an object. Individual FileInfo fields may still be missing or malformed and then normalized field-by-field, but the path-keyed map structure is not optional because it is the identity boundary for reviewed state, comments, and lazy diff hydration.
-Gerrit `FileInfo` map keys and rename `old_path` values are review path identities too. The adapter must reject malformed paths, while still accepting Gerrit special review files such as `/COMMIT_MSG` and `/MERGE_LIST`, before those paths can enter comments, reviewed state, navigation, or lazy diff hydration.
-Gerrit `FileInfo` numeric metadata is normalized at the same boundary: line counts and sizes accept only integer values, negative line counts / sizes become zero, and invalid `size_delta` becomes zero. Blob sha metadata such as `old_sha` and `new_sha` enters `ReviewFile` only when it is a non-empty string.
-`diffLoaded: false` is a file-list metadata state, not a partially loaded inline diff. A file with `diffLoaded: false` must not carry inline hunks. Single-file diff endpoints must return a loaded inline diff, or an explicit loaded-negative result such as `binary`, `diffTooExpensive`, or `diff.truncated`, instead of returning a normal metadata-only row.
-Loaded JSON diff responses must provide structured hunk ranges. API validators should reject a hunk that only contains a display header without `oldStart`, `oldLines`, `newStart`, and `newLines`, and should also reject ranges that disagree with the row model, including Gerrit-style skipped rows. The raw header remains useful for display and patch serialization, but it is not the authoritative data source for navigation, review state, or future diff layout.
-
-When local git output is the source, the backend parses raw patch headers and raw diff metadata into the shared file model. Header lines such as `index old..new mode`, `new file mode`, `deleted file mode`, `old mode`, and `new mode`, plus `git diff --raw` entries for file-list-first views, should populate `oldSha`, `newSha`, `oldMode`, and `newMode` before the data reaches UI components.
-Local synthetic diffs, such as untracked working-copy files that do not yet have a Git patch, must still populate structured hunk ranges (`oldStart`, `oldLines`, `newStart`, `newLines`) instead of relying on display headers only. When a synthetic untracked diff is truncated to the review row limit, both full and metadata-only snapshots must mark it with `diff.truncated` and `diffTooExpensive` so file-list-first UIs do not treat it as an ordinary lazy-loadable row.
-When Gerrit `FileInfo` is the source, `old_mode` and `new_mode` may arrive as JSON numbers even though the value is an octal mode such as `100644`. The adapter should accept number or string mode values, then normalize them to the shared six-character string form used by `ReviewFile.oldMode` and `ReviewFile.newMode`.
-Gerrit `FileInfo.status` and `DiffInfo.change_type` are also normalized at the adapter boundary. Unknown status or change-type values must not enter `ReviewFile.status`; they fall back to modified (`M`) so selectors, state machines, and API validators only see the shared status-code set. When both `FileInfo` and `DiffInfo` are available, only a valid `FileInfo.status` may override `DiffInfo.change_type`; an unknown external status should fall back to the DiffInfo-derived kind/status instead of being treated as authoritative.
-For `GIT binary patch` output, JSON diff snapshots should mark the file as binary and keep only the file-level header lines. Binary patch payload belongs to raw patch download, not to inline review rows or `diff.diffHeader`.
-Local Git adapters use the same sparse boolean convention as Gerrit adapters: `binary` is emitted on a `ReviewFile` only when it is true. Internal helpers such as `git diff --numstat` may keep `binary: false` while computing stats, but merging those stats into a `ReviewFile` must not expose false-valued binary flags for ordinary text files.
-Line-count metadata from `git diff --numstat` must be joined with the authoritative `--name-status` file list before interpreting rename syntax. A literal filename can contain ` => `, so numstat path parsing must prefer exact changed paths and only map `old => new` through known rename/copy entries. File-list metadata commands should use Git's NUL-delimited output (`-z`) for `--name-status`, `--numstat`, and `--raw`, so paths containing tabs, newlines, leading/trailing spaces, or other printable separators do not corrupt file identity. Even in `--numstat -z`, non-rename entries keep `insertions<TAB>deletions<TAB>path` in one token, so parsers must split only the first two tab separators and treat the rest as the path. Review paths are identifiers, not display labels; do not trim or otherwise normalize them after Git has emitted them.
-After `--name-status` has produced the authoritative changed-file order and the review limit has selected the visible file set, auxiliary git commands must also use that selected pathspec. Metadata-only `--numstat` and `--raw` calls should not scan the whole commit range; rename/copy entries should include both previous and current paths so Git can still report file identity metadata.
-
-Lazy single-file diff hydration must merge inline diff rows into the existing file-list entry instead of replacing it wholesale. This preserves Gerrit `FileInfo`-style metadata even when the lazy diff response is shaped like Gerrit `DiffInfo` and only carries content rows. During hydration, file-list metadata stays authoritative for path identity, status, change kind, previous path, additions/deletions, file mode, blob sha, and size; the lazy response is only allowed to provide inline diff content and diff-load flags such as binary, too-expensive, top-level `truncated`, or nested `diff.truncated`. If either side reports `diff.truncated`, hydration must preserve it on the loaded diff.
-
-Comments and check results may point at files that are not modified in the current diff. Like Gerrit's `addUnmodified()`, Farming keeps the original changed-file snapshot intact and provides `reviewCatalogWithUnmodifiedPaths()` / `reviewFilesWithUnmodifiedPaths()` for building a visible catalog that adds `status: 'U'` unmodified file rows. These helpers skip paths that are already present, paths that are the old side of a rename, and invalid review paths.
-For renamed or copied files, comment and draft lookup must consider both the current file path and the previous path, matching Gerrit's `getCommentsForFile()` / `computeDraftCountForFile()` / `computeCommentsThreads()` behavior. State hydration and catalog reconciliation must keep comments and drafts whose path is the file's valid `previousPath`, even though that old path is not a separate changed-file row. `reviewCommentPathsForFile(file)`, `reviewFileCommentPaths(file)`, `commentsForFilePaths(state, paths)`, and the row model's `commentPaths` field provide the shared selector layer so UI surfaces do not each reimplement rename-aware comment lookup. When creating or rendering side-specific line comments, use `reviewCommentPathForSide(file, side)`: rename/copy left-side comments attach to the previous path, while right-side comments attach to the current path, mirroring Gerrit's `FileRange.basePath` behavior.
-
-Unified diff mode is a presentation choice, not a separate comment side. New comments created from unified rows must still resolve to Gerrit-style left/right storage sides: deleted lines attach to left, added lines attach to right, and context lines prefer the right side when a right-side line exists. Use `reviewCommentSideForUnifiedCell(kind, hasRightSide)` before calling `reviewCommentPathForSide(file, side)`.
-
-Patchset summaries should follow Gerrit's magic-path behavior. Special file rows such as `/COMMIT_MSG` and `/MERGE_LIST` are valid reviewable rows and can be marked reviewed, but their additions and deletions must not contribute to the ordinary changed-file line totals.
-File-list stats for row bars and binary totals should come from `reviewFileListStats()`. It mirrors Gerrit's file-list behavior by excluding magic paths, keeping ordinary line additions/deletions separate from binary byte deltas, and exposing max added/deleted counts for size-bar layout.
-
-Snapshot identity must not depend on whether inline rows were included or which diff presentation preferences were used. A full working-copy snapshot, a metadata-only working-copy snapshot, and a working-copy snapshot rendered with different context or whitespace preferences for the same changed files should share the same `reviewId + patchset` so reviewed state and comments stay scoped to the actual file set, not to the loading strategy. Git-range reviews follow the same rule: `base + head + canonical root` define the review identity; metadata-only loading and diff presentation preferences must not create a different reviewed-state bucket.
-When a surface refreshes the file list for the same review identity, it must reconcile the existing `ReviewState` against the new `ReviewCatalog` before rendering rows or accepting delayed effects. `reconcileReviewStateWithCatalog()` prunes reviewed paths, expanded rows, pending lazy diffs, diff-load errors, auto-review candidates, context expansions, comments, drafts, and pending reviewed-status writes that point at paths no longer present in the refreshed catalog. Pending lazy diffs and diff-load errors are also cleared when the refreshed file is no longer lazy-loadable, for example because the refreshed catalog already includes the loaded inline diff or reports a binary / too-expensive row. Pending comment saves are kept only while their optimistic comment still survives reconciliation; pending comment deletes are kept until their matching completion or restore arrives, because the optimistic delete has already removed the comment from the list. This keeps a disappearing file, rename, loaded refresh, or working-copy cleanup from leaving stale row state behind without losing in-flight delete boundaries.
-
-Review identity should also use the canonical workspace identity rather than the raw incoming path. If the same repository is opened through both a real path and a symlink, the generated working-copy and git-range review ids must remain the same so reviewed state does not split across equivalent workspace entries.
-For git-range reviews, the base revision is part of the review identity. Two comparisons such as `HEAD~2 -> HEAD` and `HEAD~1 -> HEAD` may share the same right-side patchset label, but they must not share the same review id or app-level review state key.
-
-Diff preferences that affect content, such as `context`, `ignoreWhitespace`, and Gerrit's `intraline_difference`, are part of the diff model. They should not change the review id, patchset id, reviewed file list, or file-list metadata. Farming maps Gerrit's numeric context setting to `git diff --unified=<lines>` for inline diffs and patch downloads. Farming maps Gerrit's whitespace modes to git as follows: `ALL` uses `--ignore-all-space`, `TRAILING` uses `--ignore-space-at-eol`, and `LEADING_AND_TRAILING` uses git's closest native mode, `--ignore-space-change`. When a full diff request overrides line counts with `--numstat`, that numstat command must use the same whitespace mode as the inline diff. Farming can preserve Gerrit `edit_a` / `edit_b` intraline ranges, `intraline_status`, rebase markers, and move details when a structured diff source provides them; the adapter accepts Gerrit's `OK`, `Error`, and `Timeout` values, then normalizes them to Farming's internal `OK`, `ERROR`, and `TIMEOUT` values. Local git diff generation does not invent intraline ranges, rebase markers, or moved-code metadata.
-Diff view mode is separate render state. Like Gerrit's `RenderPreferences.view_mode`, Farming's `diffMode` chooses split vs unified rendering, but it must not affect review identity, file-list metadata, reviewed state, or lazy diff request keys. Hydrated or URL-derived modes should be normalized through `normalizeReviewDiffMode()` before entering `ReviewState`.
-
-Single-file diff endpoints are also available for future lazy expansion:
-
-- `GET /api/reviews/working-copy/files/:path/diff?agentId=...`;
-- `GET /api/reviews/git-range/files/:path/diff?agentId=...&base=...&head=...`.
-
-These endpoints return one loaded `ReviewFile` and complete the Gerrit-like file-list-first loading path, where the file table can be shown before every inline diff has been computed.
-Frontend callers should use `loadReviewFileDiff(request, path)` or `reviewFileDiffUrl(request, path)` instead of branching on the diff source. `reviewSnapshotFileRequestKey(request, path)` provides the matching stable cache key for lazy expansion.
-When `context` or `ignoreWhitespace` is present on the source request, `loadReviewFileDiff(request, path)` and `loadReviewPatch(request)` forward it to the backend so expanded rows, downloaded patches, and cache keys stay in the same diff mode.
-Request keys must normalize diff-only query fields exactly like the transport layer does: invalid `context` values collapse to the omitted/default context, and invalid or `NONE` whitespace modes collapse to no `ignoreWhitespace` query parameter. This keeps lazy diff caches aligned with the actual backend request instead of creating UI-only cache buckets.
-Snapshot and patch request keys apply the same rule to `limit`: only positive integer limits are serialized into the URL or the cache key. Invalid limits are treated as omitted. The backend uses the same normalization before applying its maximum-file cap, so direct API callers and frontend caches share one limit boundary.
-The review diff service must enforce the normalized limit at the review boundary for both git-range and working-copy sources. Lower-level workspace file APIs may accept a limit hint, but review snapshots and patch downloads still slice the final changed-file list themselves and set `truncated` when the source list contains more files than the selected limit. Single-file lazy diff hydration and whitespace-aware line-stat refreshes should likewise be scoped to the requested file instead of recalculating metadata for the entire range.
-Completing a lazy file-diff load must still be tied to the current review identity and catalog. A response is valid only when the `reviewId` carried by the original `load-file-diff` effect still matches the current `ReviewState`, its path matches the effect, and that path still exists in the same patchset catalog. The resulting `commit-file-diff-load` / `fail-file-diff-load` action carries the same `reviewId`, and the state machine rejects mismatched actions as stale. If the user has switched range, refreshed the file list, or otherwise removed the row, the completion is stale and must not clear pending diff-load state as if the current file list had been hydrated.
-Completion helpers must reject metadata-only rows as loaded diff results. A `ReviewFile` with `diffLoaded: false` is a file-list entry unless it is an explicit loaded-negative result such as `binary`, `diffTooExpensive`, or `diff.truncated`; it must not be silently upgraded into a loaded inline diff by the state layer.
-Single-file diff API helpers must also validate the path at the transport boundary. A request for `src/a.ts` must return a loaded `ReviewFile` whose `path` is exactly `src/a.ts`; otherwise the response is invalid even if the payload is otherwise shaped like a valid diff. This mirrors Gerrit's path-addressed file resource and prevents future multi-row lazy expansion from hydrating the wrong row.
-
-## Review State
-
-Reviewed status is patchset-scoped, matching Gerrit semantics. A file is reviewed if its path is in that patchset's reviewed file list. Farming patchset ids are not always simple numbers: working-copy snapshots use a stable generated label, and git-range snapshots may use Git refs such as `origin/master` or `refs/heads/topic`. Review-state storage, API routing, and frontend API helpers must treat review ids and patchset ids as opaque safe keys, not as filesystem paths or numeric-only values. Safe keys are non-empty, start with an ASCII letter or number, exclude backslashes and control characters, and allow `/` for Git refs. The safe key length should stay aligned with the git revision length accepted by the diff API, so a git-range diff that can be viewed can also persist reviewed state.
-
-The client state must distinguish "reviewed files not loaded yet" from "loaded and empty". This matches Gerrit's `reviewedFiles?: string[]` model: `undefined` means the reviewed-file list has not been fetched, while `[]` means it has been fetched and no files are reviewed. File-row controls and mark-all UI actions should stay disabled or hidden until the reviewed-file list is loaded, so the UI never renders `MARK REVIEWED` from missing state.
-
-Automatic review follows Gerrit's single-file rule. If the user's preferences allow auto review, opening one file may mark that file reviewed, but only after the reviewed-file list has loaded. If the user opens a file before that list has loaded, the state machine records a pending auto-review candidate and resolves it when `hydrate-reviewed-status` arrives. `EXPAND ALL` must not create auto-review candidates, and collapsing a file before hydration cancels its candidate.
-
-The primary reviewed-file API follows Gerrit's shape:
-
-- `GET /api/reviews/:reviewId/revisions/:patchset/files?reviewed` returns `string[]`;
-- `PUT /api/reviews/:reviewId/revisions/:patchset/files/:path/reviewed` marks one file reviewed;
-- `DELETE /api/reviews/:reviewId/revisions/:patchset/files/:path/reviewed` marks one file unreviewed.
-
-The review-state router intentionally does not implement bare `GET .../files`. In Gerrit that route returns a `FileInfo` map, while this router only owns reviewed state. Keep file-list metadata on the diff snapshot / future FileInfo API instead of returning a fake file list from review-state storage.
-The `reviewed` query is a Gerrit-style selector for the reviewed-file list. Farming accepts the bare query form (`?reviewed`) and explicit true values for compatibility, but rejects explicit false values instead of treating `?reviewed=false` as another spelling for the reviewed list.
-The returned reviewed-file list has set semantics. The API transports it as `string[]` for Gerrit compatibility, but clients must reject invalid paths and duplicate entries instead of treating the response as an ordered bag.
-Client write helpers must also validate `reviewId`, `patchset`, and every addressed file path before sending the single-file primitive. Multi-file UI convenience actions are still a sequence of Gerrit-style single-file writes, not a backend batch operation, but the desired change list has set semantics and must reject duplicate paths before any network request is made. Comment helpers use the same review identity safe-key validation and must reject malformed comment ids or comment paths before issuing network requests.
-
-Farming adds an `X-Farming-Review-Revision` response header for local stale-response protection, but the response body remains Gerrit-like. `PUT` returns `201 Created` when a reviewed flag is newly created and `200 OK` when the file was already reviewed. `DELETE` returns `204 No Content`. Clients optimistically update reviewed paths, then reload the authoritative reviewed file list after the write succeeds.
-
-Mark-all changes are a frontend convenience, not a second backend truth:
-
-```ts
-{ changes: [{ path: 'src/file.ts', reviewed: true }], revision: 4 }
+```bash
+farming review <git-dir> <old-revision> <new-revision|now>
 ```
 
-Future controls such as "mark all visible reviewed" should derive the desired changes in the UI, execute the same single-file primitive per path, and then reload the authoritative reviewed file list.
-If a multi-file convenience action fails after one or more single-file writes have already reached the backend, the shared API layer should try to reload the authoritative reviewed-file list and attach it to the thrown `ReviewApiError.state`. Review UIs should restore from that authoritative state instead of assuming the whole action succeeded or failed atomically.
-Review-state hydration and save completions are asynchronous and must be tied to review identity. A `save-reviewed-status`, `save-comment`, or `delete-comment` effect emitted from a `ReviewState` that has a `reviewId` carries that id. `hydrate-reviewed-status`, `commit-reviewed-status`, `restore-reviewed-status`, `hydrate-comments`, `commit-comment`, and `restore-comments` actions carrying a different id must be ignored. This mirrors Gerrit's `changeNum + patchNum + file` boundary and prevents a stale working-copy or commit-range response from updating the active review after the user switches ranges.
-Because Farming applies reviewed changes optimistically, `restore-reviewed-status` is only a failure rollback for the current pending save. A stale restore action must not be able to roll back a completed mutation or replace a newer reviewed revision.
-Comment saves and deletes follow the same rule: `commit-comment` and `restore-comments` are only completion or failure events while the same comment mutation is still pending. The pending mutation is identified by both comment id and operation type (`save` or `delete`). Once `commit-comment` clears the pending mutation, or if a newer pending mutation has a different id or operation type, a late commit or restore response must be ignored instead of clearing pending state or replacing the authoritative patchset comment list.
-Comment ids are scoped to their patchset boundary. The client model should deduplicate, save, and delete comments by `patchset + id`, matching the backend's patchset-specific comment store, so two patchsets cannot accidentally hide or delete each other's comments if an upstream source reuses an id.
+The resulting Review uses the same identity, comment, reviewed-state, and
+loading contracts as Reviews opened from Farming.
+
+## Immutable Revisions
+
+A working-copy Review is captured into an immutable revision before the file
+list is presented. Capture must not modify the user's index or worktree. If the
+workspace changes during capture and a coherent result cannot be proven,
+capture fails visibly and may be retried.
+
+Refreshing after fixes creates a new revision in the same Review lineage.
+Unchanged files may retain reviewed state. Changed files become unreviewed, and
+comments whose anchors no longer match become outdated rather than moving to
+unrelated lines.
+
+## File-list-first Loading
+
+The ordered file list is the primary Review navigation. Metadata loads before
+expensive inline diffs. Expanding a file loads only that file's content and
+merges it into the existing file identity; it must not replace or reorder the
+catalog.
+
+Every path is unique within a revision. Rename and copy metadata preserve both
+current and previous path identity. Binary, truncated, or too-expensive files
+remain reviewable and show an explicit non-inline state rather than an empty
+diff.
+
+Hunks carry structured old and new ranges. Display headers are not the
+authoritative source for navigation or comments. Special review files may be
+shown without contaminating ordinary source-line totals.
+
+## Reviewed State And Comments
+
+Reviewed state is scoped to one Review revision and has set semantics. “Not
+loaded” is distinct from “loaded and empty.” Mark-all interactions orchestrate
+the same single-file reviewed primitive; they are not an atomic backend batch.
+
+Comments are scoped to Review revision and stable comment identity. Rename-aware
+comments retain the appropriate previous or current path. A changed anchor is
+preserved as outdated evidence rather than silently attached to new code.
+
+Optimistic updates are allowed, but every asynchronous completion is fenced by
+Review identity, revision, path, comment id, and operation type. A stale
+response cannot update a newer Review or roll back a newer mutation. After a
+partial multi-file failure, the UI reconciles from authoritative reviewed state.
 
 ## UI Contract
 
-File rows should derive display state through selectors, not by reading raw arrays:
+Review uses one file-list-first workspace. File rows show change type, summary,
+reviewed state, comments, and expandable inline diff without duplicating the
+same catalog in another panel.
 
-- `src/lib/review/state.ts` exports `reviewFileState(state, path)`, which returns `{ status, pending }`;
-- expanding a `diffLoaded: false` file emits a `load-file-diff` effect and records `pendingDiffPaths`; `commit-file-diff-load` clears the pending flag after the caller hydrates the catalog, and `fail-file-diff-load` records a path-scoped error;
-- `src/lib/review/state.ts` exports `reviewPatchsetSummary(state, catalog)`, which returns file count, additions, deletions, reviewed count, and unreviewed count;
-- `src/lib/review/api.ts` exports `loadReviewDiffSnapshot(request)`, `reviewSnapshotUrl(request)`, `loadReviewFileDiff(request, path)`, `reviewFileDiffUrl(request, path)`, `loadReviewPatch(request)`, `reviewPatchUrl(request)`, `loadReviewPatchText(request)`, Gerrit-style `loadReviewedFiles()`, review comment helpers, and single-file reviewed write helpers; snapshot loaders reject explicit source/endpoint mismatches, and review-state helpers reject invalid safe keys before fetch, so review identity cannot drift between working-copy and git-range surfaces;
-- `src/lib/review/route-target.ts` maps route query strings such as `?agentId=...` and `?agentId=...&base=...&head=...` into the same `ReviewDiffSnapshotRequest` model used by the REST API helpers. It also normalizes request options such as `limit`, `context`, `ignoreWhitespace`, and `metadataOnly`; invalid options are omitted, while invalid or partial ranges return an explicit error instead of falling back to working-copy review;
-- `src/lib/review/effects.ts` owns effect completion helpers such as `completeReviewFileDiffLoad()` and `failReviewFileDiffLoad()`, so callers finish lazy file-diff effects consistently and reject stale completions whose review id or patchset/path no longer belongs to the current catalog;
-- `src/lib/review/file-info.ts` normalizes Gerrit-style `FileInfo` maps into `ReviewFile[]`, including special paths such as `/COMMIT_MSG`;
-- `src/lib/review/file-list.ts` derives Gerrit-style file row labels, buttons, toolbar actions, diff loading state, binary/file-size metadata, file-list stats, and mark-all UI changes;
-- `reconcileReviewStateWithCatalog()` is the shared refresh hook for file-list updates within the same review identity. UIs should call it when replacing a catalog instead of manually pruning path-scoped state;
-- file-list display order is a selector, not catalog mutation: `reviewFileListSections()` splits modified files and Gerrit-style unmodified/comment-only files, exposes `showUnmodifiedSeparator`, and preserves each group order. `reviewFileListDisplayFiles()` and `reviewFileListReviewableFiles()` use that same section model. Binary files, diffs too expensive to render inline, and unmodified/comment-only files are still reviewable paths, matching Gerrit's path-set reviewed model. `reviewAdjacentFilePath()` derives ordinary previous/next file navigation from this display order, matching Gerrit's `sortedPaths` navigation without making UI code inspect the raw file array. `reviewUnreviewedFilePaths()` derives the navigation list used by future "next unreviewed file" controls and keeps the current file in the list when requested, matching Gerrit's navigation behavior. `reviewAdjacentUnreviewedFilePath()` and `reviewMarkReviewedAndNavigateIntent()` provide the shared selector layer for Gerrit-style "mark current reviewed and go to next unreviewed" interactions. The mark-and-navigate intent only returns a `nextPath` when the current file can actually be marked reviewed in the same action; ordinary next/previous navigation should use `reviewAdjacentFilePath()` or `reviewAdjacentUnreviewedFilePath()` directly. The intent exposes `reviewedStatusLoaded` and `mutationPending` explicitly, so UIs do not treat empty `changes` as an ambiguous mix of "already reviewed", "not loaded", "missing row", or "save in flight";
-- `reviewFileRowModel()` follows Gerrit's file-list reviewed cell: the row derives the `Reviewed` label and `MARK REVIEWED` / `MARK UNREVIEWED` switch from the same reviewed-file source, while the switch action declares `visibility: "on-row-interaction"` and should only become visually prominent on row hover, focus, or expanded state. A reviewed row should not look like it has two always-on states;
-- expanded rows must render the diff status explicitly: loaded rows show code, `not-loaded` rows show loading or error state while the lazy request resolves, `binary` rows show a binary-file message, and `too-expensive` rows show that the inline diff is unavailable instead of silently rendering an empty diff;
-- collapsed common-line gaps follow Gerrit's three-way context control: each gap owns independent expansion state, the upper action reveals a bounded slice next to the preceding visible block, the center action reveals the entire gap, and the lower action reveals a bounded slice next to the following visible block. Expanding one side must not move the opposite boundary, and the remaining hidden-line count must update in place;
-- common-line expansion uses the hunk's independent old/new ranges as its anchors and requests only the selected range through the per-file context endpoint. It must not infer one side from the other, or reload the full diff with a larger global context. UI expansion state commits only after the range request succeeds, so an insertion before a gap cannot misalign later left/right lines and a failed request cannot erase the control;
-- `src/lib/review/snapshot.ts` owns source/range helpers, stable request keys, labels, and conversion from snapshot to review catalog/state;
-- metadata-only snapshot request keys intentionally ignore `context` and `ignoreWhitespace`, because file-list metadata is independent of diff content preferences; single-file diff request keys and patch-text request keys still include those preferences. Use `reviewSnapshotPatchRequestKey()` for patch downloads instead of reusing the snapshot key, because patch text ignores `metadataOnly` but does depend on diff presentation preferences;
-- request keys and API query serialization share the same normalization boundary for diff-only options: only non-negative integer `context` values and Gerrit-compatible whitespace modes are materialized in keys or URLs;
-- `reviewCatalogWithFile()` hydrates inline diff rows into one file in a patchset catalog while preserving row order and file-list metadata, so lazy-expand UI can load structured content without rebuilding the whole review state or corrupting file-list statistics.
+Reviewed actions remain visually quiet until row hover, keyboard focus, or
+expansion. Loaded, loading, failed, binary, truncated, and unavailable diff
+states are explicit. Common-line gaps expand in bounded ranges without moving
+the opposite boundary or discarding the control after failure.
 
-This prevents the row from showing conflicting Gerrit actions such as `Reviewed` and `MARK REVIEWED` at the same time.
+Final change and fixes since the previous revision serve different attention
+needs. The complete base-to-current result remains authoritative, while the
+incremental view is the default way to understand what changed since the last
+Review pass.
+
+## Failure And Recovery
+
+Malformed identities, duplicate paths, inconsistent ranges, and source mismatch
+fail at the boundary. A late file load, comment save, reviewed write, or refresh
+is ignored when it no longer belongs to the active Review.
+
+Refresh reconciles all path-scoped UI state with the new catalog. Removed or
+renamed files cannot leave stale pending loads, selection, comments, or reviewed
+writes attached to unrelated rows.
+
+## Acceptance Criteria
+
+Verification must cover working-copy and Git-range identity, symlink-equivalent
+workspaces, immutable capture under concurrent writes, revision refresh,
+file-list-first loading, rename/copy comments, reviewed-state reconciliation,
+partial failures, stale asynchronous completion, binary and truncated files,
+split/unified presentation, keyboard navigation, and large Reviews.

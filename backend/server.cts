@@ -85,6 +85,7 @@ interface HttpRequest {
   path: string;
   protocol: string;
   query: ServerRecord;
+  socket?: { remoteAddress?: string };
   url: string;
   get(name: string): string | undefined;
   off(event: string, listener: () => void): void;
@@ -227,7 +228,7 @@ import { listAvailableAgents, resolveTerminalCodexExecutable } from './executabl
 import { readClaudeSettingsSummary } from './claude-settings.cjs';
 import { listCodexModelOptions } from './codex-models.cjs';
 import { readProviderHomeConfiguration } from './provider-home-configuration.cjs';
-import { applyProviderHomeEnvironment, providerCapabilities } from './provider-adapters.cjs';
+import { applyProviderHomeEnvironment, providerCapabilities, providerConversationForkCapability } from './provider-adapters.cjs';
 import { listCodexSessions } from './codex-session-history.cjs';
 import { buildAgentSessionResumeCommand, findAgentSession, isSafeSessionId, normalizeProvider, paginateAgentSessions, resolveCodexResumeModelProvider, searchAgentSessions } from './agent-session-history.cjs';
 import { findActiveAgentClaimingSession, mainPageAgentSessionKey, mainPageAgentSessionFromKey, mainPageAgentSessionsToAutoResume, resumedAgentSource } from './main-page-session.cjs';
@@ -367,13 +368,10 @@ const agentManager = new AgentManager(
   tokenFile: tokenAuth.getTokenFile(),
   authDisabled: !authEnabled,
   cliBinDir: resolveCliBinDir(),
-  browserMcpEnabled: () => configManager.getSettings().browserExtensionEnabled === true,
-  browserPermissionDecision: (
-    agentId: string,
-    tool: string,
-    input: Record<string, unknown>,
-  ) => browserResourceManager.permissionDecision(agentId, tool, input),
-  computerMcpEnabled: () => configManager.getSettings().computerExtensionEnabled === true,
+  transcriptMediaPathPrefix: agentId => routePath(
+    BASE_PATH,
+    `/api/agents/${encodeURIComponent(agentId)}/acp-media`,
+  ),
   },
 );
 
@@ -1557,7 +1555,7 @@ app.get(routePath(BASE_PATH, '/api/agents/:agentId/session-view'), async (req, r
 app.get(routePath(BASE_PATH, '/api/agents/:agentId/acp-session'), async (req, res) => {
   try {
     res.json({
-      session: agentManager.getAcpSession(req.params.agentId, {
+      session: await agentManager.getAcpSessionForRead(req.params.agentId, {
         includeUpdates: req.query.includeUpdates === '1',
         includeEntries: req.query.includeEntries !== '0',
       }),
@@ -1577,7 +1575,7 @@ app.get(routePath(BASE_PATH, '/api/agents/:agentId/acp-transcript'), async (req,
       : DEFAULT_TRANSCRIPT_MAX_TURNS;
     const requestedRevision = Number.parseInt(String(req.query.sinceRevision || ''), 10);
     const externalMedia = req.query.media === 'external-v1';
-    res.json({ transcript: agentManager.getAcpTranscript(req.params.agentId, {
+    const serialized = await agentManager.getAcpTranscriptSerialized(req.params.agentId, {
       maxTurns,
       ...(externalMedia
         ? {
@@ -1590,7 +1588,8 @@ app.get(routePath(BASE_PATH, '/api/agents/:agentId/acp-transcript'), async (req,
       ...(Number.isFinite(requestedRevision) && requestedRevision >= 0
         ? { sinceRevision: requestedRevision }
         : {}),
-    }) });
+    });
+    res.type('application/json').send(serialized);
   } catch (caught) {
     const error = caughtError(caught);
     const message = error && error.message ? error.message : 'Failed to read ACP transcript';
@@ -1598,9 +1597,19 @@ app.get(routePath(BASE_PATH, '/api/agents/:agentId/acp-transcript'), async (req,
   }
 });
 
-app.get(routePath(BASE_PATH, '/api/agents/:agentId/acp-media/:entryId/:mediaId'), (req, res) => {
+app.post(routePath(BASE_PATH, '/api/agents/:agentId/acp-transcript/prepare'), async (req, res) => {
   try {
-    const media = agentManager.getAcpTranscriptMedia(
+    res.status(202).json(agentManager.prepareAcpTranscript(req.params.agentId));
+  } catch (caught) {
+    const error = caughtError(caught);
+    const message = error && error.message ? error.message : 'Failed to prepare ACP transcript';
+    res.status(message === 'Agent not found' ? 404 : 409).json({ error: message });
+  }
+});
+
+app.get(routePath(BASE_PATH, '/api/agents/:agentId/acp-media/:entryId/:mediaId'), async (req, res) => {
+  try {
+    const media = await agentManager.getAcpTranscriptMedia(
       req.params.agentId,
       req.params.entryId,
       req.params.mediaId
@@ -1627,7 +1636,7 @@ app.get(routePath(BASE_PATH, '/api/agents/:agentId/acp-media/:entryId/:mediaId')
 
 app.get(routePath(BASE_PATH, '/api/agents/:agentId/acp-tool-details/:toolCallId'), async (req, res) => {
   try {
-    res.json(agentManager.getAcpToolDetail(req.params.agentId, req.params.toolCallId));
+    res.json(await agentManager.getAcpToolDetail(req.params.agentId, req.params.toolCallId));
   } catch (caught) {
     const error = caughtError(caught);
     const message = error && error.message ? error.message : 'Failed to read ACP tool details';
@@ -1647,12 +1656,13 @@ app.post(routePath(BASE_PATH, '/api/agents/:agentId/acp-terminals/:terminalId/ki
   }
 });
 
-app.post(routePath(BASE_PATH, '/api/agents/:agentId/acp-terminals/:terminalId/input'), express.json({ limit: '96kb' }), (req, res) => {
+app.post(routePath(BASE_PATH, '/api/agents/:agentId/acp-terminals/:terminalId/input'), express.json({ limit: '96kb' }), async (req, res) => {
   try {
-    res.json(agentManager.inputAcpTerminal(
+    res.json(await agentManager.inputAcpTerminal(
       req.params.agentId,
       req.params.terminalId,
       requiredString(req.body?.input),
+      typeof req.body?.requestId === 'string' ? req.body.requestId : undefined,
     ));
   } catch (caught) {
     const error = caughtError(caught);
@@ -2163,6 +2173,21 @@ app.post(routePath(BASE_PATH, '/api/projects/pin'), express.json(), (req, res) =
   }
 });
 
+app.post(routePath(BASE_PATH, '/api/projects/reorder'), express.json(), (req, res) => {
+  try {
+    const membership = configManager.reorderProjectWorkspace(req.body?.workspace, {
+      beforeWorkspace: optionalString(req.body?.beforeWorkspace),
+      afterWorkspace: optionalString(req.body?.afterWorkspace),
+    });
+    broadcastState();
+    res.json(membership);
+  } catch (caught) {
+    const error = caughtError(caught);
+    const status = error.message === 'Project does not exist' ? 404 : 409;
+    res.status(status).json({ error: error.message || 'Failed to reorder Project' });
+  }
+});
+
 app.patch(routePath(BASE_PATH, '/api/projects/name'), express.json(), (req, res) => {
   try {
     const result = configManager.setProjectName(req.body?.workspace, req.body?.name);
@@ -2319,7 +2344,7 @@ async function resumeAgentSessionById(
   }
 
   const shouldFork = options.fork === true;
-  if (shouldFork && providerCapabilities(normalizedProvider).terminalSessionFork !== true) {
+  if (shouldFork && providerConversationForkCapability(normalizedProvider, 'terminal').supported !== true) {
     return { error: `${normalizedProvider} does not support session Fork`, status: 400 };
   }
   const requestedAsMain = options.asMain === true && !shouldFork;
@@ -2984,8 +3009,18 @@ wss.on('connection', (ws, req) => {
     return;
   }
 
-  console.log('Client connected');
   ws.connectionId = crypto.randomUUID();
+  const connectedAt = Date.now();
+  const remoteAddress = String(req.socket?.remoteAddress || 'unknown');
+  const origin = String(req.headers.origin || '').slice(0, 200);
+  const userAgent = String(req.headers['user-agent'] || '').slice(0, 200);
+  console.log('Client connected', JSON.stringify({
+    connectionId: ws.connectionId,
+    remoteAddress,
+    path: url.pathname,
+    origin,
+    userAgent,
+  }));
 
   ws.on('message', (message) => {
     try {
@@ -3012,9 +3047,16 @@ wss.on('connection', (ws, req) => {
     }
   });
   
-  ws.on('close', () => {
+  ws.on('close', (code: number, reason: Buffer) => {
     clearWorkspaceFileWatch(ws);
-    console.log('Client disconnected');
+    console.log('Client disconnected', JSON.stringify({
+      connectionId: ws.connectionId,
+      remoteAddress,
+      durationMs: Date.now() - connectedAt,
+      code,
+      reason: reason?.toString('utf8').slice(0, 200) || '',
+      protocolVersion: ws.protocolVersion ?? null,
+    }));
   });
   
   ws.send(JSON.stringify({
@@ -3185,8 +3227,7 @@ async function sendComposerInputMessage(
     respond(false, 'Composer message is empty');
     return;
   }
-  const targetAgent = agentManager.getState().agents.find((agent: ServerRecord) => agent.id === targetAgentId);
-  const structuredRuntime = targetAgent && runtimeKind(targetAgent) !== 'terminal';
+  const structuredRuntime = agentManager.agentRuntimeKind(targetAgentId) === 'acp';
   if (!structuredRuntime) {
     const error = 'Terminal Composer input requires the active terminal owner';
     if (requestId) respond(false, error);
@@ -3354,6 +3395,7 @@ function handleMessage(ws: WebSocketClient, data: ServerClientMessage) {
       
     case 'focus-agent':
       ws.focusedAgentId = data.agentId;
+      if (data.agentId) agentManager.prioritizeAcpPreparedTranscript(data.agentId);
       if (data.streamScope === 'focused' || data.streamScope === 'all') {
         ws.streamScope = data.streamScope;
       }
@@ -3769,7 +3811,6 @@ agentManager.onUpdate(() => {
 
 agentManager.on('provider-session-updated', () => {
   agentSessionInventory.invalidate();
-  scheduleBroadcastState();
 });
 
 function broadcastAgentActivity(activity: AgentScopedServerEvent) {

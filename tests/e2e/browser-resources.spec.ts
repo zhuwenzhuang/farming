@@ -173,6 +173,18 @@ async function runBrowserCli(args: string[]) {
   })
 }
 
+async function runBrowserCliEnvelope<T>(args: string[]) {
+  return JSON.parse((await runBrowserCli(args)).stdout) as {
+    ok: true
+    result: T
+    artifacts: Array<{ path: string, mimeType: string, size: number }>
+  }
+}
+
+async function runBrowserCliResult<T>(args: string[]) {
+  return (await runBrowserCliEnvelope<T>(args)).result
+}
+
 test('does not show a Browser section before the first Browser is created', async ({
   page,
   workspaceRoot,
@@ -1108,112 +1120,112 @@ test('matches the focused Viewer viewport and restores the previous Viewer on cl
   await page.screenshot({ path: desktopScreenshot, fullPage: true })
   await testInfo.attach('browser-desktop', { path: desktopScreenshot, contentType: 'image/png' })
 
-  const cliSnapshot = JSON.parse((await runBrowserCli(['snapshot', browserId!])).stdout) as {
+  const cliSnapshot = await runBrowserCliResult<{
     title: string
     accessibilityTree: string
-  }
+  }>(['snapshot', browserId!])
   expect(cliSnapshot.title).toBe('Done ssh-human-e2e')
   expect(cliSnapshot.accessibilityTree).toContain('COMPLETED: ssh-human-e2e')
   await runBrowserCli(['fill', browserId!, 'css=#name', 'ssh-agent-cli'])
   await runBrowserCli(['click', browserId!, 'css=#complete'])
   await expect.poll(async () => (await browserSnapshot(page, browserId!)).title).toBe('Done ssh-agent-cli')
 
-  const waited = JSON.parse((await runBrowserCli([
+  const waited = await runBrowserCliResult<{ waited: string }>([
     'wait',
     browserId!,
     '--text',
     'ASYNC READY',
     '--timeout',
     '5000',
-  ])).stdout) as { waited: string }
+  ])
   expect(waited.waited).toBe('text')
-  const exactText = JSON.parse((await runBrowserCli([
+  const exactText = await runBrowserCliResult<{ text: string }>([
     'get',
     browserId!,
     'text',
     'css=#async-status',
-  ])).stdout) as { text: string }
+  ])
   expect(exactText.text).toBe('ASYNC READY')
 
   await runBrowserCli(['check', browserId!, 'css=#agree'])
-  const checked = JSON.parse((await runBrowserCli([
+  const checked = await runBrowserCliResult<{ checked: boolean }>([
     'is',
     browserId!,
     'checked',
     'css=#agree',
-  ])).stdout) as { checked: boolean }
+  ])
   expect(checked.checked).toBe(true)
   await runBrowserCli(['select', browserId!, 'css=#choice', 'b'])
-  const evaluated = JSON.parse((await runBrowserCli([
+  const evaluated = await runBrowserCliResult<{ result: { choice: string, title: string } }>([
     'eval',
     browserId!,
     '({choice:document.querySelector("#choice").value,title:document.title})',
-  ])).stdout) as { result: { choice: string, title: string } }
+  ])
   expect(evaluated.result).toEqual({ choice: 'b', title: 'Done ssh-agent-cli' })
 
   await runBrowserCli(['storage', browserId!, 'local', 'set', 'theme', 'dark'])
-  const storageValue = JSON.parse((await runBrowserCli([
+  const storageValue = await runBrowserCliResult<{ value: string }>([
     'storage',
     browserId!,
     'local',
     'get',
     'theme',
-  ])).stdout) as { value: string }
+  ])
   expect(storageValue.value).toBe('dark')
   await runBrowserCli(['cookies', browserId!, 'set', 'browser_mode', 'test'])
-  const cookies = JSON.parse((await runBrowserCli([
+  const cookies = await runBrowserCliResult<{ cookies: Array<{ name: string, value: string }> }>([
     'cookies',
     browserId!,
     'get',
-  ])).stdout) as { cookies: Array<{ name: string, value: string }> }
+  ])
   expect(cookies.cookies).toContainEqual(expect.objectContaining({
     name: 'browser_mode',
     value: 'test',
   }))
 
-  const consoleMessages = JSON.parse((await runBrowserCli([
+  const consoleMessages = await runBrowserCliResult<{ messages: Array<{ text: string }> }>([
     'console',
     browserId!,
-  ])).stdout) as { messages: Array<{ text: string }> }
+  ])
   expect(consoleMessages.messages.some(message => message.text.includes('browser-lab-ready'))).toBe(true)
-  const networkRequests = JSON.parse((await runBrowserCli([
+  const networkRequests = await runBrowserCliResult<{ requests: Array<{ url: string }> }>([
     'network',
     browserId!,
     'requests',
     '--filter',
     'api/status',
-  ])).stdout) as { requests: Array<{ url: string }> }
+  ])
   expect(networkRequests.requests.some(request => request.url.includes('/api/status'))).toBe(true)
 
   const uploadPath = path.join(workspace, 'browser-upload.txt')
   fs.writeFileSync(uploadPath, 'browser-upload-body')
   await runBrowserCli(['upload', browserId!, 'css=#upload', uploadPath])
-  const uploadName = JSON.parse((await runBrowserCli([
+  const uploadName = await runBrowserCliResult<{ result: string }>([
     'eval',
     browserId!,
     'document.querySelector("#upload").files[0].name',
-  ])).stdout) as { result: string }
+  ])
   expect(uploadName.result).toBe('browser-upload.txt')
 
   await runBrowserCli(['frame', browserId!, 'css=#embedded'])
-  const frameText = JSON.parse((await runBrowserCli([
+  const frameText = await runBrowserCliResult<{ text: string }>([
     'get',
     browserId!,
     'text',
     'css=#inside-frame',
-  ])).stdout) as { text: string }
+  ])
   expect(frameText.text).toBe('Inside frame')
   await runBrowserCli(['frame', browserId!, 'main'])
 
   const downloadPath = path.join(workspace, 'browser-report.txt')
-  const downloaded = JSON.parse((await runBrowserCli([
+  const downloaded = await runBrowserCliResult<{ path: string, size: number }>([
     'download',
     browserId!,
     'css=#download',
     downloadPath,
     '--timeout',
     '10000',
-  ])).stdout) as { path: string, size: number }
+  ])
   expect(downloaded.path).toBe('browser-report.txt')
   expect(downloaded.size).toBe(Buffer.byteLength('browser-download-body'))
   expect(fs.readFileSync(downloadPath, 'utf8')).toBe('browser-download-body')
@@ -1224,23 +1236,27 @@ test('matches the focused Viewer viewport and restores the previous Viewer on cl
     'setTimeout(()=>{window.promptResult=prompt("Code?")},50);true',
   ])
   await expect.poll(async () => {
-    const status = JSON.parse((await runBrowserCli([
+    const status = await runBrowserCliResult<{ hasDialog: boolean }>([
       'dialog',
       browserId!,
       'status',
-    ])).stdout) as { hasDialog: boolean }
+    ])
     return status.hasDialog
   }).toBe(true)
   await runBrowserCli(['dialog', browserId!, 'accept', 'Farming'])
-  const promptResult = JSON.parse((await runBrowserCli([
+  const promptResult = await runBrowserCliResult<{ result: string }>([
     'eval',
     browserId!,
     'window.promptResult',
-  ])).stdout) as { result: string }
+  ])
   expect(promptResult.result).toBe('Farming')
 
   const cliScreenshot = testInfo.outputPath('browser-agent-cli.png')
-  await runBrowserCli(['screenshot', browserId!, cliScreenshot])
+  const screenshotEnvelope = await runBrowserCliEnvelope<{ artifact: { path: string } }>([
+    'screenshot', browserId!,
+  ])
+  expect(screenshotEnvelope.artifacts).toHaveLength(1)
+  fs.copyFileSync(path.join(workspace, screenshotEnvelope.artifacts[0].path), cliScreenshot)
   expect(fs.readFileSync(cliScreenshot).subarray(0, 8)).toEqual(
     Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
   )

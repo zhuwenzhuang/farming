@@ -1,7 +1,8 @@
-// A skin-neutral, per-tab reading-location protocol. Renderers own how they
-// resolve an anchor; this module owns only its stable shape and transport-safe
-// storage. Never put terminal text in an anchor: terminal locations use a
-// short fingerprint of adjacent logical lines instead.
+// A skin-neutral reading-location protocol. Renderers own how they resolve an
+// anchor; this module owns only its stable shape and transport-safe storage.
+// Chat anchors survive a browser/server restart, while terminal and file
+// anchors remain tab-local. Never put terminal text in an anchor: terminal
+// locations use a short fingerprint of adjacent logical lines instead.
 (function installFarmingReadingAnchors(global: Window) {
   'use strict'
 
@@ -150,12 +151,24 @@
     return `${STORAGE_PREFIX}${key}`
   }
 
+  function persistentKey(key: string) {
+    return key.endsWith(':chat')
+  }
+
+  function storedValue(key: string) {
+    const name = storageKey(key)
+    if (!persistentKey(key)) return global.sessionStorage.getItem(name)
+    return global.localStorage.getItem(name) || global.sessionStorage.getItem(name)
+  }
+
   function save(anchor: unknown) {
     const normalized = normalizeAnchor(anchor)
     const key = normalized && keyFor(normalized)
     if (!normalized || !key) return null
     try {
-      global.sessionStorage.setItem(storageKey(key), JSON.stringify(normalized))
+      const storage = persistentKey(key) ? global.localStorage : global.sessionStorage
+      storage.setItem(storageKey(key), JSON.stringify(normalized))
+      if (storage === global.localStorage) global.sessionStorage.removeItem(storageKey(key))
     } catch {
       // Private browsing or an exhausted browser store must not break viewing.
     }
@@ -165,11 +178,18 @@
   function read(key: string) {
     if (!key) return null
     try {
-      const parsed: unknown = JSON.parse(global.sessionStorage.getItem(storageKey(key)) || 'null')
+      const parsed: unknown = JSON.parse(storedValue(key) || 'null')
       const normalized = normalizeAnchor(parsed)
       if (!normalized || keyFor(normalized) !== key) {
-        if (parsed) global.sessionStorage.removeItem(storageKey(key))
+        if (parsed) {
+          global.sessionStorage.removeItem(storageKey(key))
+          if (persistentKey(key)) global.localStorage.removeItem(storageKey(key))
+        }
         return null
+      }
+      if (persistentKey(key)) {
+        global.localStorage.setItem(storageKey(key), JSON.stringify(normalized))
+        global.sessionStorage.removeItem(storageKey(key))
       }
       return normalized
     } catch {
@@ -181,6 +201,7 @@
     if (!key) return
     try {
       global.sessionStorage.removeItem(storageKey(key))
+      if (persistentKey(key)) global.localStorage.removeItem(storageKey(key))
     } catch {
       // Best-effort only.
     }

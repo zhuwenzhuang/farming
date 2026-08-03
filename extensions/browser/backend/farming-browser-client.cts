@@ -11,8 +11,10 @@ import {
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 
 interface BrowserConnection {
+  capabilityToken: string;
   origin: string;
-  token: string;
+  runtimeEpoch: string;
+  serverToken: string;
 }
 
 function readJson(file: string): Record<string, unknown> {
@@ -29,16 +31,21 @@ function resolveConnection(env: NodeJS.ProcessEnv = process.env): BrowserConnect
   const explicit = String(env.FARMING_CONTROL_URL || env.FARMING_BROWSER_URL || '').trim();
   const basePath = String(state.basePath || '/').replace(/\/$/, '');
   const origin = explicit || `http://127.0.0.1:${Number(state.port) || 3000}${basePath}`;
-  let token = String(env.FARMING_BROWSER_TOKEN || '').trim();
-  if (!token && env.FARMING_DISABLE_AUTH !== '1') {
+  let serverToken = '';
+  if (env.FARMING_DISABLE_AUTH !== '1') {
     const tokenFile = String(env.FARMING_TOKEN_FILE || sessionTokenFile(configDir));
     try {
-      token = fs.readFileSync(tokenFile, 'utf8').trim();
+      serverToken = fs.readFileSync(tokenFile, 'utf8').trim();
     } catch {
-      token = '';
+      serverToken = '';
     }
   }
-  return { origin: origin.replace(/\/$/, ''), token };
+  return {
+    capabilityToken: String(env.FARMING_BROWSER_TOKEN || '').trim(),
+    origin: origin.replace(/\/$/, ''),
+    runtimeEpoch: String(env.FARMING_CAPABILITY_RUNTIME_EPOCH || '').trim(),
+    serverToken,
+  };
 }
 
 function requestTimeoutMs(env: NodeJS.ProcessEnv = process.env): number {
@@ -63,8 +70,14 @@ function requestJson(
       headers: {
         Accept: 'application/json',
         ...(payload ? { 'Content-Type': 'application/json', 'Content-Length': String(payload.length) } : {}),
-        ...(connection.token ? { Authorization: bearerAuthorizationHeader(connection.token) } : {}),
+        ...(connection.serverToken ? { Authorization: bearerAuthorizationHeader(connection.serverToken) } : {}),
         ...(env.FARMING_AGENT_ID ? { 'X-Farming-Agent-Id': env.FARMING_AGENT_ID } : {}),
+        ...(connection.capabilityToken
+          ? { 'X-Farming-Capability-Token': connection.capabilityToken }
+          : {}),
+        ...(connection.runtimeEpoch
+          ? { 'X-Farming-Capability-Runtime-Epoch': connection.runtimeEpoch }
+          : {}),
       },
     }, response => {
       const chunks: Buffer[] = [];
@@ -78,9 +91,15 @@ function requestJson(
           return;
         }
         if ((response.statusCode || 500) >= 400) {
-          reject(new Error(String(
+          reject(Object.assign(new Error(String(
             value.error || `Farming Browser returned HTTP ${response.statusCode}`,
-          )));
+          )), {
+            status: response.statusCode,
+            code: value.code,
+            uncertain: value.uncertain === true,
+            retryable: value.retryable === true,
+            hint: value.hint,
+          }));
           return;
         }
         resolve(value);
