@@ -29,6 +29,15 @@ function run() {
   assert.strictEqual(shell.source, 'shell-marker');
   assert.strictEqual(shell.confidence, 'high');
 
+  const hibernated = deriveRuntimeObservation({
+    status: 'running',
+    providerSessionProvider: 'codex',
+    runtimeBinding: { kind: 'acp', state: 'hibernated' },
+    lastActivity: 84,
+  });
+  assert.strictEqual(hibernated.phase, 'idle');
+  assert.strictEqual(hibernated.source, 'structured-runtime');
+
   const stopped = deriveRuntimeObservation({
     command: 'codex',
     status: 'stopped',

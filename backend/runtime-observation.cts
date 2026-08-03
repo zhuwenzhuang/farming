@@ -4,7 +4,7 @@ import { runtimeKind, runtimeState } from './agent-runtime-binding.cjs';
 
 const WORKING_STATES = new Set(['working', 'interrupting']);
 const WAITING_STATES = new Set(['waiting-for-input', 'waiting-for-permission']);
-const IDLE_STATES = new Set(['idle', 'connected', 'ready']);
+const IDLE_STATES = new Set(['idle', 'connected', 'ready', 'hibernated']);
 
 type RuntimeObservationPhase = 'working' | 'waiting' | 'idle' | 'starting' | 'exited' | 'unknown';
 
