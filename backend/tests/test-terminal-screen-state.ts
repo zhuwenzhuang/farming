@@ -1,5 +1,10 @@
 const assert = require('assert');
+const { Terminal } = require('@xterm/headless');
 const { TerminalScreenState } = require('../terminal-screen-state.cjs');
+
+function mouseEncoding(terminal) {
+  return terminal._core?.coreMouseService?.activeEncoding || '';
+}
 
 async function run() {
   const screen = new TerminalScreenState({ cols: 12, rows: 4 });
@@ -97,7 +102,30 @@ async function run() {
       replayScrollbackScreen.dispose();
     }
 
-    console.log('✓ Terminal screen state captures title, viewport preview, styled snapshot, and render output');
+    const mouseScreen = new TerminalScreenState({ cols: 40, rows: 8 });
+    try {
+      await mouseScreen.write('\x1b[?1049h\x1b[?1002h\x1b[?1006hQwen Code');
+      const mouseState = mouseScreen.getState();
+      assert.ok(mouseState.renderOutput.includes('\x1b[?1002h'));
+      assert.ok(mouseState.renderOutput.includes('\x1b[?1006h'));
+
+      const restored = new Terminal({ cols: 40, rows: 8, allowProposedApi: true });
+      try {
+        await new Promise((resolve) => restored.write(mouseState.renderOutput, resolve));
+        assert.strictEqual(restored.modes.mouseTrackingMode, 'drag');
+        assert.strictEqual(mouseEncoding(restored), 'SGR');
+      } finally {
+        restored.dispose();
+      }
+
+      await mouseScreen.write('\x1b[?1006l');
+      const defaultMouseState = mouseScreen.getState();
+      assert.ok(!defaultMouseState.renderOutput.includes('\x1b[?1006h'));
+    } finally {
+      mouseScreen.dispose();
+    }
+
+    console.log('✓ Terminal screen state captures title, viewport preview, styled snapshot, render output, and mouse encoding');
   } finally {
     screen.dispose();
   }
