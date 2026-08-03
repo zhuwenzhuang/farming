@@ -8871,6 +8871,18 @@ button.code-agent-transcript-result-summary:is(:hover, :focus-visible, :focus-wi
   background: #f6f8fa;
 }
 
+.code-agent-transcript-result-review.agent-review-commit {
+  width: 30px;
+  display: inline-grid;
+  place-items: center;
+  padding: 6px;
+}
+
+.code-agent-transcript-result-review.agent-review-commit svg {
+  width: 14px;
+  height: 14px;
+}
+
 .code-agent-transcript-progress {
   min-height: 22px;
   display: inline-flex;

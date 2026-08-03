@@ -31,6 +31,7 @@ import {
   AgentSpeechBotGlyph,
   ArrowDownGlyph,
   BookGlyph,
+  ChatBubblesGlyph,
   CheckGlyph,
   ChecklistGlyph,
   ChevronRightGlyph,
@@ -235,6 +236,7 @@ export interface AgentTranscriptPaneProps {
   onAvailabilityChange?: (state: { loading: boolean; hasContent: boolean; available: boolean }) => void
   onReadLatest?: () => void
   onForkLatest?: () => Promise<void> | void
+  onReviewAndCommit?: () => void
   groupProcessActions?: boolean
   copy: CodeCopy
 }
@@ -2418,6 +2420,7 @@ function AgentTranscriptPatchResultCard({
   items,
   copy,
   onLoadPatchChanges,
+  onReviewAndCommit,
   source,
   workspaceRoot,
   gitDiffTarget,
@@ -2425,6 +2428,7 @@ function AgentTranscriptPatchResultCard({
   items: AgentTranscriptProcessItem[]
   copy: CodeCopy
   onLoadPatchChanges?: (itemIds: string[]) => Promise<AgentTranscriptPatchChange[]>
+  onReviewAndCommit?: () => void
   source: AgentTranscriptPaneProps['source']
   workspaceRoot?: string
   gitDiffTarget: TranscriptGitDiffTarget
@@ -2527,6 +2531,18 @@ function AgentTranscriptPatchResultCard({
                   : copy.agentTranscriptGitDiff}
               </button>
             ) : null}
+            {source === 'acp' && onReviewAndCommit ? (
+              <button
+                type="button"
+                className="code-agent-transcript-result-review agent-review-commit"
+                data-testid="code-agent-transcript-review-and-commit"
+                aria-label={copy.agentTranscriptReviewAndCommit}
+                title={copy.agentTranscriptReviewAndCommit}
+                onClick={onReviewAndCommit}
+              >
+                <ChatBubblesGlyph />
+              </button>
+            ) : null}
           </div>
         ) : null}
       </div>
@@ -2604,6 +2620,7 @@ function AgentTranscriptTurnView({
   onToggleProcess,
   onLoadProcessItemDetail,
   onLoadPatchChanges,
+  onReviewAndCommit,
   gitDiffTarget,
   onStopTerminal,
   onInputTerminal,
@@ -2629,6 +2646,7 @@ function AgentTranscriptTurnView({
   onToggleProcess: (turnId: string) => void
   onLoadProcessItemDetail?: (itemId: string) => Promise<AgentTranscriptProcessPresentation>
   onLoadPatchChanges?: (itemIds: string[]) => Promise<AgentTranscriptPatchChange[]>
+  onReviewAndCommit?: () => void
   gitDiffTarget: TranscriptGitDiffTarget
   onStopTerminal?: (terminalId: string) => Promise<void>
   onInputTerminal?: (terminalId: string, input: string) => Promise<void>
@@ -3265,6 +3283,7 @@ function AgentTranscriptTurnView({
             items={patchResults}
             copy={copy}
             onLoadPatchChanges={onLoadPatchChanges}
+            onReviewAndCommit={onReviewAndCommit}
             source={source}
             workspaceRoot={workspaceRoot}
             gitDiffTarget={gitDiffTarget}
@@ -3316,6 +3335,7 @@ export function AgentTranscriptPane({
   onAvailabilityChange,
   onReadLatest,
   onForkLatest,
+  onReviewAndCommit,
   groupProcessActions = true,
   copy,
 }: AgentTranscriptPaneProps) {
@@ -4091,6 +4111,7 @@ export function AgentTranscriptPane({
                     onToggleProcess={handleToggleProcess}
                     onLoadProcessItemDetail={source === 'acp' ? handleLoadProcessItemDetail : undefined}
                     onLoadPatchChanges={source === 'acp' ? handleLoadPatchChanges : undefined}
+                    onReviewAndCommit={source === 'acp' ? onReviewAndCommit : undefined}
                     gitDiffTarget={gitDiffTarget}
                     onStopTerminal={source === 'acp' ? handleStopTerminal : undefined}
                     onInputTerminal={source === 'acp' ? handleInputTerminal : undefined}

@@ -2184,6 +2184,16 @@ export function CodeWorkspace({
     return sendTerminalSessionInput(agent.id, terminalInputPartsForComposerMessage(message))
   }, [sendComposerInput])
 
+  const requestAgentReviewAndCommit = useCallback((agentId: string) => {
+    const agent = mountedOpenAgents.find(candidate => candidate.id === agentId)
+    if (!agent || !isStructuredRuntime(agent)) return
+    const submitted = sendComposerMessageToAgent(
+      agent,
+      copy.agentTranscriptReviewAndCommitPrompt,
+    )
+    if (typeof submitted !== 'boolean') void submitted.catch(() => undefined)
+  }, [copy.agentTranscriptReviewAndCommitPrompt, mountedOpenAgents, sendComposerMessageToAgent])
+
   const submitDraft = useCallback((submittedDraft?: string) => {
     const latestDraft = submittedDraft ?? composerTextareaRef.current?.value ?? draft
     if (!activeAgent || !activeComposerKey || !composerAttachmentsCanSubmit(composerAttachments)) return
@@ -5878,6 +5888,7 @@ export function CodeWorkspace({
         onAgentReadLatest={markAgentReadLatest}
         onRuntimeModeChange={updateAgentRuntimeMode}
         onForkAgent={onForkAgent}
+        onReviewAndCommit={requestAgentReviewAndCommit}
         onSessionOutput={onSessionOutput}
         onOpenSearchAgent={openTerminalFromWorkspace}
         onOpenSearchSession={session => {
