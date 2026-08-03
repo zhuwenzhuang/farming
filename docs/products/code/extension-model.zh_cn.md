@@ -126,9 +126,22 @@ Farming 的 Browser Extension 拥有每个 Browser Resource 身份，以及 View
 
 MVP 有意只支持一套操作实现：锁定版本的 `agent-browser` Command 与 Stream Protocol，通过系统浏览器 Executable 或 Agent Computer 的私有回环 CDP Endpoint 进入。用户提供的 External CDP 设置只保留读取兼容。结构化 Agent Surface 已覆盖包含显式 Close 的 Lifecycle、导航与等待、有界 Snapshot、参数化 Screenshot、确定性的 Viewport 与设备模拟、DOM 交互、检查与 JavaScript、Console/Error/Network 诊断与拦截、Project 级 HAR 导出、Cookie/Storage、Frame/Dialog 和 Project 级 Upload/Download。Computer Use 仍是浏览器原生窗口框架、Dialog 与任意 Linux 应用的独立完整桌面能力；选择隔离来源时，它的桌面 Viewer 与 Browser Viewer 观察同一个 Chromium。
 
-每个 Browser 都有持久唯一 ID、一个 Agent Owner，以及用于文件隔离的 Project Root。Agent 菜单提供“创建浏览器”，在尚无桌面时还提供“创建隔离桌面”；Agent Row 只有在至少存在一个浏览器或桌面时才显示 Resources 入口。这些 Resource 在侧栏中默认隐藏在 **Agent → Resources → 浏览器 / 桌面** 下；空的浏览器或桌面区块不渲染，展开或收起这两层都不会改变 Runtime 或 Viewer 状态。Browser 处于 stopped、failed、starting 或 stopping 时不显示状态点，只有真正 running 后才在行的最右侧显示一个绿点。隔离桌面在 Browser Stop/Delete 后仍保留。Browser 仍可通过 `browser` URL Query Parameter 直接打开。删除系统浏览器 Row 时必须先停止精确 Runtime，再删除独立 Profile；删除隔离 Browser Row 只关闭其 Tab/Session，删除 Agent 才拥有精确桌面删除；删除旧 External CDP Row 时只关闭 Farming 创建的 Target。
+每个 Browser 都有持久唯一 ID、一个 Agent Owner，以及用于文件隔离的 Project Root。Agent 菜单提供“创建浏览器”，在尚无桌面时还提供“创建隔离桌面”；Agent Row 只有在至少存在一个浏览器或桌面时才显示 Resources 入口。这些 Resource 在侧栏中默认隐藏在 **Agent → Resources → 浏览器 / 桌面** 下；空的浏览器或桌面区块不渲染，展开或收起这两层都不会改变 Runtime 或 Viewer 状态。Browser 处于 stopped、failed、starting、recovering 或 stopping 时不显示状态点，只有真正 running 后才在行的最右侧显示一个绿点。隔离桌面在 Browser Stop/Delete 后仍保留。Browser 仍可通过 `browser` URL Query Parameter 直接打开。删除系统浏览器 Row 时必须先停止精确 Runtime，再删除独立 Profile；删除隔离 Browser Row 只关闭其 Tab/Session，删除 Agent 才拥有精确桌面删除；删除旧 External CDP Row 时只关闭 Farming 创建的 Target。
 
 Viewer 地址栏接受完整 HTTP(S) URL 或裸 Host。裸公网域名默认补全为 HTTPS；回环地址、IP 字面量、单段内网 Host 和显式非默认端口默认使用 HTTP。Farming 不会猜测 `www` Host。导航失败会明确显示；下一次导航开始时会清除旧错误，成功后也不会残留上一次失败提示。Viewer 键盘输入通过隐藏文本代理接收，因此已提交的输入法文字和粘贴内容可以进入页面；普通 ASCII 按键仍走低延迟的流式通道。
+
+### Browser Runtime 的有界恢复
+
+Stream 断开并不等于 Session 已经死亡，Farming 靠精确身份而不是事件先后来区分二者。后端 Browser Manager 拥有恢复结果，Runtime 只上报传输事实。每个 Stream Socket 带一个单调递增的 Stream Generation，每个 Session 带 `sessionId` 与 `sessionGeneration`，每个 Daemon 用已验证的进程身份标识，因此旧 Generation 的迟到 Close、Frame 或退出回调永远不会修改当前状态。
+
+当已就绪的 Stream 在 Farming 仍拥有 Session 时断开，每个 running 的 Resource 进入显式的 `recovering` 状态，侧边栏、Viewer 和 Agent 读取都能看到；因此生命周期扩展为 `running -> recovering -> running | failed`，而当显式 Stop 胜出时为 `recovering -> stopping -> stopped`。恢复过程有界且有序：
+
+1. 所有进行中和排队中的 Mutation，包括排队的 Viewer 指针、滚轮、按键和文本输入，立即以不确定结果（uncertain outcome）失败。Farming 永不重放 Browser Action，因为页面可能已经应用了它；新的 Agent Action 也不会排队，而是直接返回可行动的 recovering 错误；
+2. 如果精确的 Daemon 进程仍存活，Farming 在一个有界步骤内重新接入一条新 Stream Socket，重新选定推流 Tab，并以 Daemon 权威状态对齐 Tab：断流期间已关闭的 Tab 变为 stopped Resource，发生跳转的 Tab 刷新 URL 与标题，无法证明录入资格的 Tab 不会被接纳；
+3. 如果确认 Daemon 已死，或重新接入失败、超时，则对 Chromium 进程由 Farming 拥有的 Session 执行至多一次 Restart。Restart 会先关闭被取代的 Runtime，拒绝与仍占用 Profile 的 Daemon 竞争，并仅恢复仍属于该 Session 的 Resource，每个都从自己存储的 URL 恢复，使用新的 Session Generation 和新的 Resource Generation，以便拒绝旧 Viewer 输入和旧 Frame。超过恢复 Deadline 才完成的替代 Runtime 不得提交任何状态。CDP 接入或 External Session 保持仅重连的恢复语义，因为 Farming 并不拥有那个浏览器进程；
+4. 否则该 Session 剩下的每个 Resource 都带可行动信息显式失败，Session 恰好一次地释放 Runtime、隔离 Lease、Binding 和 Viewer 状态。
+
+停止或删除最后一个 Resource、Dispose 和 Agent 生命周期回收会在录入时取消整个 Session 的恢复并总是胜出：已取消的恢复不得再提交任何状态转换。共享 Session 中只停止一个 Tab 时，仅该 Resource 被认领为 stopped，其余 Tab 继续恢复。Farming 重启时会把持久化的 `recovering` 行当作被中断的 Runtime，按精确 Session 身份清理。
 
 ## 待确定问题
 

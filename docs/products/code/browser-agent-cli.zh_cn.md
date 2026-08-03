@@ -116,6 +116,11 @@ Agent 在 Chat/Terminal 间切换时保留 Browser Ownership。停止或归档 A
 Browser Runtime，但保留 Row 与 Profile；恢复 Agent 后按需启动。删除 Agent 会删除
 它的 Browser Resource 与独立 Profile。
 
+Browser Stream 断开时，Farming 会把 Session 报为 recovering，把被中断的 Action 以
+不确定结果失败，并对新 Action 返回显式的 recovering 错误。页面可能已经应用了
+那个 Action，所以 Farming 永不重放它，Agent 也不应重放：等 Session 重新报为
+running 或 failed，再用 `browser_snapshot` 重建事实基线，然后决定下一步。
+
 只有当该 Project 确实应该使用某个账号时，才把已登录浏览器交给 Agent。Cookie、
 Storage、页面脚本、Console 和 Network 详情可能包含敏感信息。上传与下载只允许在
 Browser Resource 所属的 Project Workspace 内进行，下载不会覆盖已有文件。

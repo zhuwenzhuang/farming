@@ -114,6 +114,7 @@ const MAX_VIEWPORT_PIXELS = 8_000_000;
 const VIEWER_STREAM_QUALITY = 90;
 const COMMAND_TIMEOUT_MS = 30_000;
 const CLOSE_TIMEOUT_MS = 10_000;
+const STREAM_COMMAND_TIMEOUT_MS = 5_000;
 const PROCESS_EXIT_TIMEOUT_MS = 5_000;
 const PROCESS_EXIT_POLL_MS = 100;
 const MAX_ACTION_TIMEOUT_MS = 120_000;
@@ -439,7 +440,9 @@ class AgentBrowserRuntime extends EventEmitter {
   processIdentity: ProcessIdentity | null;
   connectedCdp: boolean;
   stream: WebSocketLike | null;
+  streamConnectCancel: ((error: Error) => void) | null;
   streamReady: boolean;
+  streamGeneration: number;
   activeTabId: string;
   streamTabId: string;
   knownTabIds: Set<string>;
@@ -482,7 +485,9 @@ class AgentBrowserRuntime extends EventEmitter {
     this.processIdentity = null;
     this.connectedCdp = false;
     this.stream = null;
+    this.streamConnectCancel = null;
     this.streamReady = false;
+    this.streamGeneration = 0;
     this.activeTabId = '';
     this.streamTabId = '';
     this.knownTabIds = new Set();
@@ -569,18 +574,7 @@ class AgentBrowserRuntime extends EventEmitter {
       this.processIdentity = processIdentity;
       this.emit('process-identity', processIdentity);
 
-      let status = commandData(await this.command(['stream', 'status']));
-      if (!webSocketPort(status)) {
-        try {
-          status = commandData(await this.command(['stream', 'enable']));
-        } catch (error) {
-          if (!/already enabled/i.test(errorMessage(error))) throw error;
-          status = commandData(await this.command(['stream', 'status']));
-        }
-      }
-      const port = webSocketPort(status);
-      if (!port) throw new Error('agent-browser stream did not report a loopback port');
-      await this.connectStream(`ws://127.0.0.1:${port}`);
+      await this.connectStream(`ws://127.0.0.1:${await this.streamPort()}`);
       this.started = true;
       const metadata = await this.metadata();
       this.emit('metadata', metadata);
@@ -598,39 +592,119 @@ class AgentBrowserRuntime extends EventEmitter {
     }
   }
 
+  /** Reads the daemon's loopback stream port, enabling the stream when needed. */
+  async streamPort(): Promise<number> {
+    const options = { timeoutMs: STREAM_COMMAND_TIMEOUT_MS };
+    let status = commandData(await this.command(['stream', 'status'], options));
+    if (!webSocketPort(status)) {
+      try {
+        status = commandData(await this.command(['stream', 'enable'], options));
+      } catch (error) {
+        if (!/already enabled/i.test(errorMessage(error))) throw error;
+        status = commandData(await this.command(['stream', 'status'], options));
+      }
+    }
+    const port = webSocketPort(status);
+    if (!port) throw new Error('agent-browser stream did not report a loopback port');
+    return port;
+  }
+
   connectStream(url: string): Promise<void> {
+    // Every socket carries its own generation so a late close, error, or frame
+    // from a superseded stream can never be mistaken for the current one.
+    const streamGeneration = this.streamGeneration + 1;
+    this.streamGeneration = streamGeneration;
+    const current = () => this.streamGeneration === streamGeneration;
     return new Promise<void>((resolve, reject) => {
       const socket = this.createWebSocket(url);
       this.stream = socket;
       let settled = false;
+      const clearConnectCancel = () => {
+        if (this.streamConnectCancel === cancelConnect) this.streamConnectCancel = null;
+      };
       const failStart = (error: unknown) => {
         if (settled) return;
         settled = true;
+        clearConnectCancel();
         reject(error instanceof Error ? error : new Error(String(error || 'agent-browser stream failed')));
       };
+      const cancelConnect = (error: Error) => failStart(error);
+      this.streamConnectCancel = cancelConnect;
       socket.once('open', () => {
         if (settled) return;
+        if (!current()) {
+          settled = true;
+          clearConnectCancel();
+          reject(new Error('agent-browser stream was superseded before it was ready'));
+          return;
+        }
         settled = true;
+        clearConnectCancel();
         this.streamReady = true;
         resolve();
       });
-      socket.on('message', (raw: Buffer) => this.handleStreamMessage(raw));
+      socket.on('message', (raw: Buffer) => {
+        if (current()) this.handleStreamMessage(raw);
+      });
       socket.once('error', (error: Error) => {
         if (!settled) {
           failStart(error);
           return;
         }
-        if (!this.closedByOwner) this.emit('error', error);
+        if (!this.closedByOwner && current()) this.emit('error', error);
       });
       socket.once('close', () => {
-        this.streamReady = false;
+        if (current()) this.streamReady = false;
         if (!settled) {
           failStart(new Error('agent-browser stream closed before it was ready'));
           return;
         }
-        if (!this.closedByOwner) this.emit('exit', 'agent-browser stream closed');
+        if (this.closedByOwner || !current()) return;
+        this.emit('stream-closed', {
+          reason: 'agent-browser stream closed',
+          streamGeneration,
+        });
       });
     });
+  }
+
+  detachStream(): void {
+    const socket = this.stream;
+    this.stream = null;
+    this.streamReady = false;
+    const cancelConnect = this.streamConnectCancel;
+    this.streamConnectCancel = null;
+    cancelConnect?.(new Error('agent-browser stream connection was superseded'));
+    if (!socket) return;
+    this.streamGeneration += 1;
+    socket.removeAllListeners();
+    socket.close();
+  }
+
+  /** Reports whether this Session's exact daemon process is still running. */
+  async daemonAlive(): Promise<boolean> {
+    const expected = this.processIdentity;
+    if (!expected) return false;
+    return matchingProcessIdentity(
+      expected,
+      await this.readProcessIdentity(expected.pid) as ReturnType<typeof readServerProcessIdentity>,
+    );
+  }
+
+  /**
+   * Re-attaches one new stream socket to the same live daemon Session. Tabs,
+   * profile, and daemon identity are unchanged, so no action is replayed.
+   */
+  async reattachStream(): Promise<void> {
+    if (this.closedByOwner) throw new Error('agent-browser runtime is closed');
+    this.detachStream();
+    const port = await this.streamPort();
+    if (this.closedByOwner) throw new Error('agent-browser runtime is closed');
+    await this.connectStream(`ws://127.0.0.1:${port}`);
+    if (this.closedByOwner) {
+      this.detachStream();
+      throw new Error('agent-browser runtime is closed');
+    }
   }
 
   handleStreamMessage(raw: Buffer | string): void {
@@ -1320,12 +1394,7 @@ class AgentBrowserRuntime extends EventEmitter {
     if (this.closePromise) return this.closePromise;
     this.closedByOwner = true;
     this.closePromise = (async () => {
-      if (this.stream) {
-        this.stream.removeAllListeners();
-        this.stream.close();
-        this.stream = null;
-        this.streamReady = false;
-      }
+      this.detachStream();
       const cleanupErrors = [];
       try {
         await this.closeSession();

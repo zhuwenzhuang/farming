@@ -131,6 +131,13 @@ Chat/Terminal switches retain Browser ownership. Stopping or archiving the Agent
 stops its Browser runtime but retains the row and profile; resuming starts it on
 demand. Deleting the Agent deletes its Browser Resources and owned profiles.
 
+If a Browser stream drops, Farming reports the Session as recovering, fails the
+interrupted action as an uncertain outcome, and rejects new actions with an
+explicit recovering error. The page may already have applied that action, so
+Farming never replays it and neither should the Agent: wait for the Session to
+report running or failed, then re-establish ground truth with `browser_snapshot`
+before deciding what to do next.
+
 Only give an Agent access to a signed-in browser when that Project should be
 allowed to use the account. Cookies, storage, page scripts, console output, and
 network details may contain sensitive data. Uploads and downloads stay inside
