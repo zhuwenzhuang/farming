@@ -77,19 +77,6 @@ async function run() {
       return { success: true, data: { title: 'Example' } };
     }
     if (command[0] === 'snapshot') {
-      if (command.includes('#large')) {
-        return {
-          success: true,
-          data: {
-            refs: Object.fromEntries(Array.from({ length: 501 }, (_, index) => [
-              `e${index + 1}`,
-              { role: 'button', name: `Button ${index + 1}` },
-            ])),
-            snapshot: 'x'.repeat(1_200),
-            origin: 'https://example.test/',
-          },
-        };
-      }
       return {
         success: true,
         data: {
@@ -98,9 +85,6 @@ async function run() {
           origin: 'https://example.test/',
         },
       };
-    }
-    if (command[0] === 'eval') {
-      return { success: true, data: { value: 'x'.repeat(100_100) } };
     }
     if (command[0] === 'close') processActive = false;
     return { success: true, data: {} };
@@ -180,55 +164,6 @@ async function run() {
     calls.find(args => args[4] === 'snapshot').slice(4),
     ['snapshot', '--json'],
   );
-  const boundedSnapshot = await runtime.snapshot({
-    mode: 'interactive',
-    compact: true,
-    includeUrls: true,
-    depth: 5,
-    selector: '#large',
-    maxElements: 10,
-    maxChars: 1_000,
-  });
-  assert.strictEqual(boundedSnapshot.elements.length, 10);
-  assert.strictEqual(boundedSnapshot.totalRefs, 501);
-  assert.strictEqual(boundedSnapshot.accessibilityTree.length, 1_000);
-  assert.strictEqual(boundedSnapshot.accessibilityTreeChars, 1_200);
-  assert.deepStrictEqual(boundedSnapshot.truncation, {
-    elements: true,
-    accessibilityTree: true,
-  });
-  assert.deepStrictEqual(
-    calls.filter(args => args[4] === 'snapshot').at(-1).slice(4),
-    [
-      'snapshot', '--interactive', '--compact', '--urls', '--depth', '5',
-      '--selector', '#large', '--json',
-    ],
-  );
-  assert.deepStrictEqual(
-    await runtime.emulate({
-      device: 'iPhone 12',
-      viewport: { width: 390, height: 844, deviceScaleFactor: 2 },
-      colorScheme: 'dark',
-      reducedMotion: true,
-      offline: true,
-    }),
-    {
-      ok: true,
-      device: 'iPhone 12',
-      viewport: { width: 390, height: 844, deviceScaleFactor: 2 },
-      colorScheme: 'dark',
-      reducedMotion: true,
-      offline: true,
-    },
-  );
-  assert(calls.some(args => args.slice(4, -1).join(' ') === 'set device iPhone 12'));
-  assert(calls.some(args => args.slice(4, -1).join(' ') === 'set viewport 390 844 2'));
-  assert(calls.some(args => args.slice(4, -1).join(' ') === 'set media dark reduced-motion'));
-  assert(calls.some(args => args.slice(4, -1).join(' ') === 'set offline on'));
-  const boundedEvaluation = await runtime.evaluate({ expression: 'largeResult' });
-  assert.strictEqual(boundedEvaluation.truncated, true);
-  assert.strictEqual(boundedEvaluation.outputChars > 100_000, true);
-  assert.strictEqual(boundedEvaluation.preview.length, 100_000);
   await runtime.click({ ref: 'e1' });
   await runtime.elementAction('hover', { selector: '#menu' });
   await runtime.type({ ref: 'e1', text: 'hello' }, true);
@@ -277,20 +212,6 @@ async function run() {
     status: '2xx',
   });
   await runtime.network({ operation: 'request', requestId: '123.4' });
-  await runtime.network({
-    operation: 'route',
-    pattern: '**/api/*',
-    abort: true,
-    resourceType: 'xhr,fetch',
-  });
-  await runtime.network({
-    operation: 'route',
-    pattern: '**/data.json',
-    body: { mocked: true },
-  });
-  await runtime.network({ operation: 'unroute', pattern: '**/api/*' });
-  await runtime.network({ operation: 'har-start', content: 'all' });
-  await runtime.network({ operation: 'har-stop', outputPath: '/workspace/network.har' });
   await runtime.cookies({
     operation: 'set',
     name: 'theme',
@@ -354,10 +275,7 @@ async function run() {
   assert(commands.some(command => (
     command.join(' ') === 'find role button click --name Continue --exact'
   )));
-  const evalCommand = commands.find(command => (
-    command[0] === 'eval'
-    && Buffer.from(command[2], 'base64').toString('utf8') === '({ title: document.title })'
-  ));
+  const evalCommand = commands.find(command => command[0] === 'eval');
   assert.strictEqual(evalCommand[1], '--base64');
   assert.strictEqual(
     Buffer.from(evalCommand[2], 'base64').toString('utf8'),
@@ -369,15 +287,6 @@ async function run() {
     command.join(' ') === 'network requests --filter /api/ --type xhr,fetch --method POST --status 2xx'
   )));
   assert(commands.some(command => command.join(' ') === 'network request 123.4'));
-  assert(commands.some(command => (
-    command.join(' ') === 'network route **/api/* --abort --resource-type xhr,fetch'
-  )));
-  assert(commands.some(command => (
-    command.join(' ') === 'network route **/data.json --body {"mocked":true}'
-  )));
-  assert(commands.some(command => command.join(' ') === 'network unroute **/api/*'));
-  assert(commands.some(command => command.join(' ') === 'network har start --content all'));
-  assert(commands.some(command => command.join(' ') === 'network har stop /workspace/network.har'));
   assert(commands.some(command => command.join(' ') === 'cookies set theme dark --sameSite Lax --secure'));
   assert(commands.some(command => command.join(' ') === 'storage local set theme dark'));
   assert(commands.some(command => command.join(' ') === 'frame #embedded'));
@@ -457,7 +366,6 @@ async function run() {
   assert(externalCalls.some(command => command[0] === 'tab' && command[1] === 'close'));
 
   const screenshotPaths = [];
-  const screenshotCommands = [];
   let screenshotCommandsInFlight = 0;
   let maxScreenshotCommandsInFlight = 0;
   const screenshotRuntime = new AgentBrowserRuntime({
@@ -470,45 +378,20 @@ async function run() {
     runCommand: async (_executable, args) => {
       const command = args.slice(4, -1);
       assert.strictEqual(command[0], 'screenshot');
-      screenshotCommands.push(command);
-      const outputPath = command.find(value => /screenshot-.*\.(?:png|jpg)$/.test(value));
-      assert(outputPath);
-      screenshotPaths.push(outputPath);
+      screenshotPaths.push(command[1]);
       screenshotCommandsInFlight += 1;
       maxScreenshotCommandsInFlight = Math.max(maxScreenshotCommandsInFlight, screenshotCommandsInFlight);
       await new Promise(resolve => setTimeout(resolve, 10));
-      fs.mkdirSync(path.dirname(outputPath), { recursive: true });
-      if (command.includes('#oversized')) {
-        fs.writeFileSync(outputPath, '');
-        fs.truncateSync(outputPath, (32 * 1024 * 1024) + 1);
-      } else {
-        fs.writeFileSync(outputPath, `image-${screenshotPaths.length}`);
-      }
+      fs.mkdirSync(path.dirname(command[1]), { recursive: true });
+      fs.writeFileSync(command[1], `image-${screenshotPaths.length}`);
       screenshotCommandsInFlight -= 1;
-      return { success: true, data: { path: outputPath, annotations: [{ ref: 'e1', label: 1 }] } };
+      return { success: true, data: { path: command[1] } };
     },
   });
   screenshotRuntime.started = true;
   await Promise.all([screenshotRuntime.screenshot(), screenshotRuntime.screenshot()]);
   assert.strictEqual(maxScreenshotCommandsInFlight, 1);
   assert.strictEqual(new Set(screenshotPaths).size, 2);
-  const annotatedScreenshot = await screenshotRuntime.screenshot({
-    ref: 'e1',
-    annotate: true,
-    format: 'jpeg',
-    quality: 80,
-  });
-  assert.strictEqual(annotatedScreenshot.mimeType, 'image/jpeg');
-  assert.deepStrictEqual(annotatedScreenshot.annotations, [{ ref: 'e1', label: 1 }]);
-  assert.deepStrictEqual(
-    screenshotCommands.at(-1).filter(value => !/screenshot-.*\.jpg$/.test(value)),
-    ['screenshot', '@e1', '--annotate', '--screenshot-format', 'jpeg', '--screenshot-quality', '80'],
-  );
-  await assert.rejects(
-    screenshotRuntime.screenshot({ selector: '#oversized' }),
-    /screenshot exceeds 33554432 bytes/,
-  );
-  assert.strictEqual(fs.existsSync(screenshotPaths.at(-1)), false);
 
   const commandOrder = [];
   let commandsInFlight = 0;

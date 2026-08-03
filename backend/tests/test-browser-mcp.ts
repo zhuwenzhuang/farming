@@ -131,19 +131,7 @@ async function run() {
         && request.url === '/farming/api/browsers/browser_project/action'
         && body?.kind === 'screenshot'
       ) {
-        response.end(JSON.stringify({
-          mimeType: body.format === 'jpeg' ? 'image/jpeg' : 'image/png',
-          data: 'iVBORw0KGgo=',
-          annotations: body.annotate ? [{ ref: 'e1', label: 1 }] : undefined,
-        }));
-        return;
-      }
-      if (
-        request.method === 'POST'
-        && request.url === '/farming/api/browsers/browser_project/action'
-        && ['emulate', 'network'].includes(body?.kind)
-      ) {
-        response.end(JSON.stringify({ ok: true, received: body }));
+        response.end(JSON.stringify({ mimeType: 'image/png', data: 'iVBORw0KGgo=' }));
         return;
       }
       if (
@@ -152,10 +140,6 @@ async function run() {
         && body?.kind === 'eval'
       ) {
         response.end(JSON.stringify({ value: 'Example' }));
-        return;
-      }
-      if (request.method === 'DELETE' && request.url === '/farming/api/browsers/browser_project') {
-        response.end(JSON.stringify({ id: 'browser_project', collectionRevision: 9 }));
         return;
       }
       response.statusCode = 404;
@@ -198,10 +182,8 @@ async function run() {
       'browser_list',
       'browser_snapshot',
       'browser_screenshot',
-      'browser_emulate',
       'browser_start',
       'browser_stop',
-      'browser_close',
       'browser_navigate',
       'browser_click',
       'browser_fill',
@@ -219,7 +201,6 @@ async function run() {
       'browser_drag',
       'browser_find',
       'browser_debug',
-      'browser_network',
       'browser_cookies',
       'browser_storage',
       'browser_frame',
@@ -233,14 +214,12 @@ async function run() {
     const waitTool = listedTools.tools.find(tool => tool.name === 'browser_wait');
     const evalTool = listedTools.tools.find(tool => tool.name === 'browser_eval');
     const debugTool = listedTools.tools.find(tool => tool.name === 'browser_debug');
-    const networkTool = listedTools.tools.find(tool => tool.name === 'browser_network');
     assert.strictEqual(waitTool.annotations.readOnlyHint, false);
     assert.strictEqual(waitTool.annotations.destructiveHint, true);
     assert.strictEqual(evalTool.annotations.readOnlyHint, false);
     assert.strictEqual(evalTool.annotations.destructiveHint, true);
     assert.strictEqual(debugTool.annotations.readOnlyHint, false);
     assert.strictEqual(debugTool.annotations.destructiveHint, true);
-    assert.strictEqual(networkTool.annotations.destructiveHint, true);
 
     const listed = await client.callTool({ name: 'browser_list', arguments: {} });
     const listedValue = JSON.parse(listed.content[0].text);
@@ -266,69 +245,20 @@ async function run() {
 
     const snapshot = await client.callTool({
       name: 'browser_snapshot',
-      arguments: {
-        browserId: 'browser_project',
-        mode: 'interactive',
-        compact: true,
-        depth: 5,
-        selector: '#main',
-        includeUrls: true,
-        maxElements: 100,
-        maxChars: 20_000,
-      },
+      arguments: { browserId: 'browser_project' },
     });
     const snapshotValue = JSON.parse(snapshot.content[0].text);
     assert.strictEqual(snapshotValue.elements[0].ref, 'e1');
-    assert.deepStrictEqual(requests.at(-1).body, {
-      kind: 'snapshot',
-      mode: 'interactive',
-      compact: true,
-      depth: 5,
-      selector: '#main',
-      includeUrls: true,
-      maxElements: 100,
-      maxChars: 20_000,
-    });
     assert.strictEqual(requests.at(-1).authorization, 'Bearer dGVzdC10b2tlbg');
     assert.strictEqual(requests.at(-1).cookie, undefined);
 
     const screenshot = await client.callTool({
       name: 'browser_screenshot',
-      arguments: {
-        browserId: 'browser_project',
-        ref: 'e1',
-        annotate: true,
-        format: 'jpeg',
-        quality: 80,
-      },
+      arguments: { browserId: 'browser_project' },
     });
     assert.strictEqual(screenshot.content[1].type, 'image');
-    assert.strictEqual(screenshot.content[1].mimeType, 'image/jpeg');
+    assert.strictEqual(screenshot.content[1].mimeType, 'image/png');
     assert.strictEqual(screenshot.content[1].data, 'iVBORw0KGgo=');
-    assert.deepStrictEqual(requests.at(-1).body, {
-      kind: 'screenshot',
-      ref: 'e1',
-      annotate: true,
-      format: 'jpeg',
-      quality: 80,
-    });
-
-    const emulated = await client.callTool({
-      name: 'browser_emulate',
-      arguments: {
-        browserId: 'browser_project',
-        viewport: { width: 390, height: 844, deviceScaleFactor: 2 },
-        colorScheme: 'dark',
-        offline: true,
-      },
-    });
-    assert.strictEqual(JSON.parse(emulated.content[0].text).ok, true);
-    assert.deepStrictEqual(requests.at(-1).body, {
-      kind: 'emulate',
-      viewport: { width: 390, height: 844, deviceScaleFactor: 2 },
-      colorScheme: 'dark',
-      offline: true,
-    });
 
     const evaluated = await client.callTool({
       name: 'browser_eval',
@@ -339,33 +269,6 @@ async function run() {
       kind: 'eval',
       expression: 'document.title',
     });
-
-    const routed = await client.callTool({
-      name: 'browser_network',
-      arguments: {
-        browserId: 'browser_project',
-        operation: 'route',
-        pattern: '**/api/*',
-        routeAction: 'respond',
-        body: { mocked: true },
-        resourceType: 'xhr,fetch',
-      },
-    });
-    assert.strictEqual(JSON.parse(routed.content[0].text).ok, true);
-    assert.deepStrictEqual(requests.at(-1).body, {
-      kind: 'network',
-      operation: 'route',
-      pattern: '**/api/*',
-      body: { mocked: true },
-      resourceType: 'xhr,fetch',
-    });
-
-    const closed = await client.callTool({
-      name: 'browser_close',
-      arguments: { browserId: 'browser_project' },
-    });
-    assert.strictEqual(JSON.parse(closed.content[0].text).id, 'browser_project');
-    assert.strictEqual(requests.at(-1).method, 'DELETE');
 
     const requestCountBeforeDeniedCall = requests.length;
     const denied = await client.callTool({

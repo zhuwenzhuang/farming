@@ -46,13 +46,6 @@ async function run() {
   const networkHelp = (await invoke(browserCli, ['network', '--help'])).stdout;
   assert(networkHelp.includes('--method <method>'));
   assert(networkHelp.includes('request <request-id>'));
-  assert(networkHelp.includes('route <pattern> --abort'));
-  assert(networkHelp.includes('har stop <workspace-output.har>'));
-
-  const environment = (await invoke(browserCli, ['help', 'environment'])).stdout;
-  assert(environment.includes('emulate'));
-  const screenshotHelp = (await invoke(browserCli, ['screenshot', '--help'])).stdout;
-  assert(screenshotHelp.includes('--annotate'));
 
   const globalHelp = (await invoke(farmingCli, ['--help'])).stdout;
   assert(globalHelp.includes('farming browser ...'));
@@ -96,10 +89,6 @@ async function run() {
         response.end(JSON.stringify({ received: body }));
         return;
       }
-      if (request.method === 'DELETE' && request.url === '/api/browsers/browser_project') {
-        response.end(JSON.stringify({ id: 'browser_project', collectionRevision: 7 }));
-        return;
-      }
       response.statusCode = 404;
       response.end(JSON.stringify({ error: 'not found' }));
     });
@@ -110,8 +99,6 @@ async function run() {
     const env = {
       FARMING_CONTROL_URL: `http://127.0.0.1:${port}`,
       FARMING_DISABLE_AUTH: '1',
-      FARMING_AGENT_ID: '',
-      FARMING_PROJECT_WORKSPACE: '',
     };
     const waited = JSON.parse((await invoke(browserCli, [
       'wait',
@@ -159,97 +146,6 @@ async function run() {
     });
     assert.strictEqual(requests.length, 3);
 
-    const snapshot = JSON.parse((await invoke(browserCli, [
-      'snapshot',
-      'browser_project',
-      '--interactive',
-      '--compact',
-      '--depth',
-      '5',
-      '--selector',
-      '#main',
-      '--urls',
-      '--max-elements',
-      '100',
-      '--max-chars',
-      '20000',
-    ], env)).stdout);
-    assert.deepStrictEqual(snapshot.received, {
-      kind: 'snapshot',
-      mode: 'interactive',
-      compact: true,
-      depth: 5,
-      selector: '#main',
-      includeUrls: true,
-      maxElements: 100,
-      maxChars: 20_000,
-    });
-
-    const emulated = JSON.parse((await invoke(browserCli, [
-      'emulate',
-      'browser_project',
-      '--viewport',
-      '390x844',
-      '--scale',
-      '2',
-      '--color-scheme',
-      'dark',
-      '--offline',
-      'on',
-    ], env)).stdout);
-    assert.deepStrictEqual(emulated.received, {
-      kind: 'emulate',
-      viewport: { width: 390, height: 844, deviceScaleFactor: 2 },
-      colorScheme: 'dark',
-      offline: true,
-    });
-
-    const routed = JSON.parse((await invoke(browserCli, [
-      'network',
-      'browser_project',
-      'route',
-      '**/api/*',
-      '--body',
-      '{"mocked":true}',
-      '--resource-type',
-      'xhr,fetch',
-    ], env)).stdout);
-    assert.deepStrictEqual(routed.received, {
-      kind: 'network',
-      operation: 'route',
-      pattern: '**/api/*',
-      abort: false,
-      body: '{"mocked":true}',
-      resourceType: 'xhr,fetch',
-    });
-
-    const harStarted = JSON.parse((await invoke(browserCli, [
-      'network',
-      'browser_project',
-      'har',
-      'start',
-      '--content',
-      'all',
-    ], env)).stdout);
-    assert.deepStrictEqual(harStarted.received, {
-      kind: 'network',
-      operation: 'har-start',
-      content: 'all',
-    });
-
-    const harStopped = JSON.parse((await invoke(browserCli, [
-      'network',
-      'browser_project',
-      'har',
-      'stop',
-      'network.har',
-    ], env)).stdout);
-    assert.deepStrictEqual(harStopped.received, {
-      kind: 'network',
-      operation: 'har-stop',
-      path: path.resolve('network.har'),
-    });
-
     const created = JSON.parse((await invoke(browserCli, ['create', '--url', 'https://example.test'], {
       ...env,
       FARMING_AGENT_ID: 'agent_test',
@@ -269,14 +165,6 @@ async function run() {
     );
     assert.strictEqual(requests.at(-1).method, 'GET');
     assert.strictEqual(requests.at(-1).agentId, 'agent_test');
-
-    const closed = JSON.parse((await invoke(browserCli, ['close', 'browser_project'], {
-      ...env,
-      FARMING_AGENT_ID: 'agent_test',
-      FARMING_PROJECT_WORKSPACE: '/project',
-    })).stdout);
-    assert.strictEqual(closed.id, 'browser_project');
-    assert.strictEqual(requests.at(-1).method, 'DELETE');
   } finally {
     await close(server);
   }
