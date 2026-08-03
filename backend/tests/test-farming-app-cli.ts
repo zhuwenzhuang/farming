@@ -1108,7 +1108,18 @@ async function runTests() {
     });
     assert(output.includes('farming daemon'));
     assert(output.includes('farming list'));
+    assert(output.includes('farming title'));
     assert(output.includes('farming review'));
+  }
+
+  {
+    const result = spawnSync(process.execPath, ['backend/farming-app-cli.cjs', 'title'], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+    });
+    assert.strictEqual(result.status, 1);
+    assert.match(result.stderr, /title requires a concise title/);
+    assert.doesNotMatch(result.stderr, /Unknown option: title/);
   }
 
   {
