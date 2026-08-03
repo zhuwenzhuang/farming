@@ -1,6 +1,7 @@
 import { EventEmitter } from 'events';
 import type {
   AcpConfigChange,
+  AcpConfigOverridesEvent,
   AcpConfigValue,
   AcpTranscriptEntry,
   AcpBindingContract,
@@ -396,8 +397,36 @@ function isComposerCommandRecord(value: unknown): value is ComposerCommandRecord
     && ['intent', 'accepted', 'unknown', 'failed'].includes(value.state);
 }
 
+function normalizeAcpConfigOverrides(value: unknown): AcpConfigChange[] {
+  const overrides = new Map<string, AcpConfigChange>();
+  for (const item of Array.isArray(value) ? value.slice(0, 64) : []) {
+    if (!isRecord(item) || typeof item.configId !== 'string') continue;
+    const configId = item.configId;
+    if (!configId.trim() || configId.length > 256) continue;
+    const configValue = item.value;
+    if (
+      configValue !== null
+      && !['string', 'number', 'boolean'].includes(typeof configValue)
+      && !(Array.isArray(configValue) && configValue.every(entry => typeof entry === 'string'))
+    ) continue;
+    overrides.set(configId, {
+      configId,
+      value: Array.isArray(configValue) ? [...configValue] : configValue as AcpConfigValue,
+    });
+  }
+  return [...overrides.values()];
+}
+
+function cloneAcpConfigOverrides(value: unknown): AcpConfigChange[] {
+  return normalizeAcpConfigOverrides(value).map(change => ({
+    configId: change.configId,
+    value: Array.isArray(change.value) ? [...change.value] : change.value,
+  }));
+}
+
 interface AcpSessionOptionsRecord {
   additionalDirectories: string[];
+  configOverrides: AcpConfigChange[];
   mcpServers: UnknownRecord[];
 }
 
@@ -604,6 +633,7 @@ const CREATE_ROLLBACK_FIELDS: string[] = [
   'structuredRuntimeProcess',
   'legacyAcpProcessExitAcknowledgedAt',
   'acpAdditionalDirectories',
+  'acpConfigOverrides',
   'acpMcpServers',
   'agentRuntimeMode',
   'acpState',
@@ -1588,6 +1618,32 @@ class AgentManager extends EventEmitter {
         updatedAt: runtime.sessionUpdatedAt,
       });
       if (titleChanged) this.emit('update');
+    });
+    this.acpRuntime.on('config-overrides', ({ agentId, sessionId, configOverrides }: AcpConfigOverridesEvent) => {
+      const agent = this.agents.get(String(agentId || ''));
+      if (!agent || runtimeKind(agent) !== 'acp') return;
+      if (sessionId && String(agent.providerSessionId || '') !== String(sessionId)) return;
+      const sessionKey = String(agent.providerSessionKey || '');
+      if (!sessionKey) return;
+      let current = this.acpSessionOptionsByKey.get(sessionKey);
+      if (!current) {
+        try {
+          const requestOptions = this.acpRuntime.getSessionRequestOptions(agent.id);
+          current = {
+            additionalDirectories: [...requestOptions.additionalDirectories],
+            configOverrides: [],
+            mcpServers: JSON.parse(JSON.stringify(requestOptions.mcpServers)),
+          };
+        } catch {
+          current = { additionalDirectories: [], configOverrides: [], mcpServers: [] };
+        }
+      }
+      this.acpSessionOptionsByKey.set(sessionKey, {
+        additionalDirectories: [...current.additionalDirectories],
+        configOverrides: cloneAcpConfigOverrides(configOverrides),
+        mcpServers: JSON.parse(JSON.stringify(current.mcpServers)),
+      });
+      this.ensurePersistentAgentSession(agent);
     });
   }
 
@@ -2707,6 +2763,7 @@ class AgentManager extends EventEmitter {
           Array.isArray(record.acpMcpServers) ? record.acpMcpServers.filter(isRecord) : [],
           recoveryEnv,
         );
+        const recoveryConfigOverrides = cloneAcpConfigOverrides(record.acpConfigOverrides);
         const prepared = await this.acpRuntime.prepareAgent({
           agentId,
           provider,
@@ -2724,6 +2781,7 @@ class AgentManager extends EventEmitter {
           serviceTier: 'config',
           farmingSystemPrompt: renderFarmingAgentBootstrap(),
           additionalDirectories: Array.isArray(record.acpAdditionalDirectories) ? record.acpAdditionalDirectories : [],
+          configOverrides: recoveryConfigOverrides,
           mcpServers: recoveryMcpServers,
           onProcessStarted: async (processIdentity: AcpProcessIdentity) => {
             agent.structuredRuntimeProcess = {
@@ -2742,20 +2800,30 @@ class AgentManager extends EventEmitter {
           prepared.sessionId,
           agent.providerHomeId || record.providerHomeId || 'default'
         );
+        const restoredConfigOverrides = Array.isArray(prepared.configOverrides)
+          ? cloneAcpConfigOverrides(prepared.configOverrides)
+          : recoveryConfigOverrides;
         let recoveredSessionOptions: AcpSessionOptionsRecord = {
           additionalDirectories: Array.isArray(record.acpAdditionalDirectories)
             ? record.acpAdditionalDirectories
             : [],
+          configOverrides: restoredConfigOverrides,
           mcpServers: recoveryMcpServers,
         };
         try {
-          recoveredSessionOptions = this.acpRuntime.getSessionRequestOptions(agentId);
+          const requestOptions = this.acpRuntime.getSessionRequestOptions(agentId);
+          recoveredSessionOptions = {
+            additionalDirectories: [...requestOptions.additionalDirectories],
+            configOverrides: restoredConfigOverrides,
+            mcpServers: JSON.parse(JSON.stringify(requestOptions.mcpServers)),
+          };
         } catch {
           // The live binding already validated these options. Retain the
           // projected copy for custom runtimes that do not expose it.
         }
         this.acpSessionOptionsByKey.set(String(agent.providerSessionKey || ''), {
           additionalDirectories: [...recoveredSessionOptions.additionalDirectories],
+          configOverrides: cloneAcpConfigOverrides(recoveredSessionOptions.configOverrides),
           mcpServers: JSON.parse(JSON.stringify(recoveredSessionOptions.mcpServers)),
         });
         agent.providerSessionTemporary = false;
@@ -3208,6 +3276,7 @@ class AgentManager extends EventEmitter {
     const agentRecordId = this.configManager.ensureAgentSessionRecord(agent, {
       ...(sessionOptions ? {
         acpAdditionalDirectories: [...sessionOptions.additionalDirectories],
+        acpConfigOverrides: cloneAcpConfigOverrides(sessionOptions.configOverrides),
         acpMcpServers: JSON.parse(JSON.stringify(sessionOptions.mcpServers)),
       } : {}),
       ...patch,
@@ -5085,6 +5154,7 @@ class AgentManager extends EventEmitter {
       ) {
         this.acpSessionOptionsByKey.set(sessionKey, {
           additionalDirectories: [...previousState.acpAdditionalDirectories],
+          configOverrides: cloneAcpConfigOverrides(previousState.acpConfigOverrides),
           mcpServers: JSON.parse(JSON.stringify(previousState.acpMcpServers)),
         });
       } else {
@@ -5185,6 +5255,7 @@ class AgentManager extends EventEmitter {
           additionalDirectories: Array.isArray(normalizedSessionOptions.additionalDirectories)
             ? [...normalizedSessionOptions.additionalDirectories]
             : [],
+          configOverrides: [],
           mcpServers: Array.isArray(normalizedSessionOptions.mcpServers)
             ? JSON.parse(JSON.stringify(normalizedSessionOptions.mcpServers))
             : [],
@@ -5298,12 +5369,28 @@ class AgentManager extends EventEmitter {
               agentRecord.providerHomeId || 'default'
             )
           : '';
+        const persistedSessionOptions: AcpSessionOptionsRecord = (
+          sessionOptionsKey
+          && previousPersistentRecord?.providerSessionKey === sessionOptionsKey
+        ) ? {
+            additionalDirectories: Array.isArray(previousPersistentRecord.acpAdditionalDirectories)
+              ? [...previousPersistentRecord.acpAdditionalDirectories]
+              : [],
+            configOverrides: cloneAcpConfigOverrides(previousPersistentRecord.acpConfigOverrides),
+            mcpServers: Array.isArray(previousPersistentRecord.acpMcpServers)
+              ? JSON.parse(JSON.stringify(previousPersistentRecord.acpMcpServers))
+              : [],
+          }
+          : { additionalDirectories: [], configOverrides: [], mcpServers: [] };
         const rememberedSessionOptions: AcpSessionOptionsRecord = sessionOptionsKey
-          ? this.acpSessionOptionsByKey.get(sessionOptionsKey) || { additionalDirectories: [], mcpServers: [] }
-          : { additionalDirectories: [], mcpServers: [] };
+          ? this.acpSessionOptionsByKey.get(sessionOptionsKey) || persistedSessionOptions
+          : persistedSessionOptions;
         const additionalDirectories = Array.isArray(options.additionalDirectories)
           ? options.additionalDirectories
           : rememberedSessionOptions.additionalDirectories || [];
+        const configOverrides = Array.isArray(options.acpConfigOverrides)
+          ? cloneAcpConfigOverrides(options.acpConfigOverrides)
+          : cloneAcpConfigOverrides(rememberedSessionOptions.configOverrides);
         const requestedMcpServers = Array.isArray(options.mcpServers)
           ? options.mcpServers
           : rememberedSessionOptions.mcpServers || [];
@@ -5332,6 +5419,7 @@ class AgentManager extends EventEmitter {
           serviceTier: codexServiceTier,
           farmingSystemPrompt: renderFarmingAgentBootstrap(),
           additionalDirectories,
+          configOverrides,
           mcpServers,
           forkSourceSessionId: options.acpForkSourceSessionId || '',
           forkSourceCheckpoint: options.acpForkSourceCheckpoint || null,
@@ -5349,15 +5437,25 @@ class AgentManager extends EventEmitter {
             agentRecord.providerSessionTemporary = false;
             agentRecord.providerSessionSource = 'acp-fork';
             agentRecord.providerSessionResolvedAt = Date.now();
-            let normalizedSessionOptions: AcpSessionOptionsRecord = { additionalDirectories, mcpServers };
+            let normalizedSessionOptions: AcpSessionOptionsRecord = {
+              additionalDirectories,
+              configOverrides: [],
+              mcpServers,
+            };
             try {
-              normalizedSessionOptions = this.acpRuntime.getSessionRequestOptions(agentId);
+              const requestOptions = this.acpRuntime.getSessionRequestOptions(agentId);
+              normalizedSessionOptions = {
+                additionalDirectories: [...requestOptions.additionalDirectories],
+                configOverrides: [],
+                mcpServers: JSON.parse(JSON.stringify(requestOptions.mcpServers)),
+              };
             } catch {
               // The live binding already validated the scope. Retain the caller
               // copy only for custom runtimes that do not expose it.
             }
             this.acpSessionOptionsByKey.set(String(agentRecord.providerSessionKey || ''), {
               additionalDirectories: [...normalizedSessionOptions.additionalDirectories],
+              configOverrides: [],
               mcpServers: JSON.parse(JSON.stringify(normalizedSessionOptions.mcpServers)),
             });
             if (typeof options.onAcpForkSessionCreated === 'function') {
@@ -5389,15 +5487,28 @@ class AgentManager extends EventEmitter {
         agentRecord.providerSessionTemporary = false;
         agentRecord.providerSessionSource = `acp-${prepared.historyMode}`;
         agentRecord.providerSessionResolvedAt = Date.now();
-        let normalizedSessionOptions: AcpSessionOptionsRecord = { additionalDirectories, mcpServers };
+        const restoredConfigOverrides = Array.isArray(prepared.configOverrides)
+          ? cloneAcpConfigOverrides(prepared.configOverrides)
+          : configOverrides;
+        let normalizedSessionOptions: AcpSessionOptionsRecord = {
+          additionalDirectories,
+          configOverrides: restoredConfigOverrides,
+          mcpServers,
+        };
         try {
-          normalizedSessionOptions = this.acpRuntime.getSessionRequestOptions(agentId);
+          const requestOptions = this.acpRuntime.getSessionRequestOptions(agentId);
+          normalizedSessionOptions = {
+            additionalDirectories: [...requestOptions.additionalDirectories],
+            configOverrides: restoredConfigOverrides,
+            mcpServers: JSON.parse(JSON.stringify(requestOptions.mcpServers)),
+          };
         } catch {
           // prepareAgent already validated the request; retain the caller copy
           // only for custom runtimes that do not expose the normalized scope.
         }
         this.acpSessionOptionsByKey.set(String(agentRecord.providerSessionKey || ''), {
           additionalDirectories: [...normalizedSessionOptions.additionalDirectories],
+          configOverrides: cloneAcpConfigOverrides(normalizedSessionOptions.configOverrides),
           mcpServers: JSON.parse(JSON.stringify(normalizedSessionOptions.mcpServers)),
         });
         acpRuntime.state = 'idle';
@@ -7249,6 +7360,11 @@ class AgentManager extends EventEmitter {
         };
       }
     }
+    const acpConfigOverrides = cloneAcpConfigOverrides(
+      agent.providerSessionKey
+        ? this.acpSessionOptionsByKey.get(agent.providerSessionKey)?.configOverrides
+        : [],
+    );
     const restartOptions: ProviderStartOptions = {
       wantsMain: agent.wantsMain === true,
       task: agent.task || agent.providerSessionTitle || '',
@@ -7278,6 +7394,7 @@ class AgentManager extends EventEmitter {
       runtimeSwitchVerifiedSessionId: startsFreshChatSession ? '' : sessionId,
       lifecycleToken,
       ...acpSessionOptions,
+      acpConfigOverrides,
       ...(provider === 'codex' && !startsFreshChatSession
         ? preserveCodexSessionProfileOptions()
         : {}),
@@ -7470,6 +7587,11 @@ class AgentManager extends EventEmitter {
         };
       }
     }
+    const acpConfigOverrides = cloneAcpConfigOverrides(
+      agent.providerSessionKey
+        ? this.acpSessionOptionsByKey.get(agent.providerSessionKey)?.configOverrides
+        : [],
+    );
     const restartOptions: ProviderStartOptions = {
       wantsMain: agent.wantsMain === true,
       task: agent.task || agent.providerSessionTitle || '',
@@ -7500,6 +7622,7 @@ class AgentManager extends EventEmitter {
       composerCommands: normalizedComposerCommands(agent.composerCommands),
       lifecycleToken,
       ...acpSessionOptions,
+      acpConfigOverrides,
       ...(provider === 'codex' ? { codexApprovalMode: nextMode } : { claudePermissionMode: nextMode }),
       ...(provider === 'codex' && hasResumableSession
         ? preserveCodexSessionProfileOptions()

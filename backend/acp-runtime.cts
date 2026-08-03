@@ -129,6 +129,7 @@ interface AcpBinding {
   connection: AcpConnection; initializeResponse: InitializeResponse;
   sessionId: string; untrustedSessionId: string; state: string; error: string; stopReason: string;
   modes: SessionResponse['modes'] | null; configOptions: SessionConfigOption[];
+  configOverrideWarnings: AcpConfigOverrideWarning[];
   pendingPermissions: Map<string, PermissionRequest>; permissionResolvers: Map<string, (value: unknown) => void>;
   pendingElicitations: Map<string, ElicitationRequest>; elicitationResolvers: Map<string, (value: unknown) => void>;
   activeElicitations: Map<string, ElicitationRequest>; subagentStates: Map<string, AcpSessionState>;
@@ -144,6 +145,10 @@ interface AcpBinding {
   deferredModeId: string;
   codexInlineVisualizationStreams: Map<string, ReturnType<typeof createCodexInlineVisualizationStreamState>>;
   stderr: string; exited: boolean; updatedAt: string;
+}
+interface AcpConfigOverrideWarning {
+  configId: string;
+  message: string;
 }
 interface AcpLaunch { command: string; args: string[]; version?: string }
 interface AcpSessionRequestOptions extends UnknownRecord {
@@ -186,6 +191,7 @@ interface PrepareAgentOptions extends UnknownRecord {
   forkSourceSessionId?: string; forkSourceCheckpoint?: UnknownRecord | null; revisionBase?: number;
   approvalMode?: string; historyMode?: string; model?: string; reasoningEffort?: string;
   serviceTier?: string; identityOnly?: boolean;
+  configOverrides?: SessionConfigChange[];
   executable?: string; env?: NodeJS.ProcessEnv; runtimeEnv?: NodeJS.ProcessEnv;
   additionalDirectories?: string[]; mcpServers?: UnknownRecord[]; farmingSystemPrompt?: string;
   requireLoad?: boolean; expectedRevision?: number; retainForCleanup?: boolean;
@@ -266,6 +272,45 @@ const CLAUDE_ACP_VENDOR_ENTRY = path.join(
   `claude-agent-acp-${CLAUDE_ACP_VERSION}.mjs`,
 );
 const execFileAsync = promisify(execFile);
+
+function normalizeSessionConfigChanges(value: unknown): SessionConfigChange[] {
+  const changes = new Map<string, SessionConfigChange>();
+  for (const item of Array.isArray(value) ? value.slice(0, 64) : []) {
+    if (!item || typeof item !== 'object' || typeof item.configId !== 'string') continue;
+    const configId = item.configId;
+    if (!configId.trim() || configId.length > 256) continue;
+    const configValue = item.value;
+    if (
+      configValue !== null
+      && !['string', 'number', 'boolean'].includes(typeof configValue)
+      && !(Array.isArray(configValue) && configValue.every(entry => typeof entry === 'string'))
+    ) continue;
+    changes.set(configId, {
+      configId,
+      value: Array.isArray(configValue) ? [...configValue] : configValue as ConfigValue,
+    });
+  }
+  return [...changes.values()];
+}
+
+function sessionConfigSelectValues(option: SessionConfigOption): string[] {
+  if (option.type !== 'select') return [];
+  return (Array.isArray(option.options) ? option.options : []).flatMap(entry => {
+    const groupOptions = entry && typeof entry === 'object' && Array.isArray((entry as UnknownRecord).options)
+      ? (entry as UnknownRecord).options as unknown[]
+      : null;
+    const candidates = groupOptions || [entry];
+    return candidates.flatMap(candidate => (
+      candidate && typeof candidate === 'object' && typeof (candidate as UnknownRecord).value === 'string'
+        ? [String((candidate as UnknownRecord).value)]
+        : []
+    ));
+  });
+}
+
+function sameSessionConfigChanges(left: SessionConfigChange[], right: SessionConfigChange[]) {
+  return JSON.stringify(normalizeSessionConfigChanges(left)) === JSON.stringify(normalizeSessionConfigChanges(right));
+}
 
 let sdkPromise: Promise<AcpSdk> | undefined;
 const runtimeRequire = createRequire(__filename);
@@ -1192,6 +1237,7 @@ class AcpRuntime extends EventEmitter {
       }
     }
     const sessionRequestOptions = acpSessionRequestOptions(options, cwd);
+    const configOverrides = normalizeSessionConfigChanges(options.configOverrides);
     const binding: AcpBinding = {
       agentId,
       provider,
@@ -1200,7 +1246,7 @@ class AcpRuntime extends EventEmitter {
       sessionRequestOptions,
       env: (getProviderAdapter(provider)?.prepareAcpEnvironment || ((value: PrepareAgentOptions) => value.env || process.env))(options),
       launch,
-      restartOptions: { ...options, agentId, provider },
+      restartOptions: { ...options, agentId, provider, configOverrides },
       approvalMode: options.approvalMode || 'approve',
       farmingBrowserApprovedSites: new Set(),
       farmingBrowserApprovalScopes: new Map(),
@@ -1215,6 +1261,7 @@ class AcpRuntime extends EventEmitter {
       stopReason: '',
       modes: null,
       configOptions: [],
+      configOverrideWarnings: [],
       pendingPermissions: new Map(),
       permissionResolvers: new Map(),
       pendingElicitations: new Map(),
@@ -1584,6 +1631,7 @@ class AcpRuntime extends EventEmitter {
           await this.applySessionConfigOption(binding, fastOption.id, fastEnabled, { emit: false });
         }
       }
+      if (configOverrides.length > 0) await this.restoreSessionConfigOverrides(binding, configOverrides);
       this.requireOpenBinding(binding);
       binding.state = 'idle';
       binding.updatedAt = new Date().toISOString();
@@ -1598,6 +1646,7 @@ class AcpRuntime extends EventEmitter {
         agentInfo: binding.initializeResponse.agentInfo || null,
         capabilities: binding.initializeResponse.agentCapabilities || {},
         adapter: launch,
+        configOverrides: normalizeSessionConfigChanges(binding.restartOptions.configOverrides),
       };
     } catch (error) {
       const runtimeError = new Error(acpErrorMessage(error), { cause: error });
@@ -1862,6 +1911,7 @@ class AcpRuntime extends EventEmitter {
             binding.deferredConfigChanges.delete(change.configId);
           }
         }
+        if (changes.length > 0) this.rememberSessionConfigOverrides(binding, changes);
         this.clearDeferredSessionError(binding);
       }, error => {
         if (binding.deferredModeGeneration === modeGeneration) binding.deferredModeId = '';
@@ -3273,12 +3323,14 @@ class AcpRuntime extends EventEmitter {
   async setSessionConfigOption(agentId: string, configId: string, value: ConfigValue) {
     const binding = this.requireBinding(agentId);
     if (binding.activeTurn || binding.deferredConfigFlush) {
-      return this.deferSessionConfigChanges(binding, [{ configId: String(configId || ''), value }]);
+      const changes = [{ configId: String(configId || ''), value }];
+      return this.deferSessionConfigChanges(binding, changes);
     }
     this.requireConfigMutationReady(binding);
     const result = await this.enqueueSessionConfigMutation(binding, () => (
       this.setSessionConfigOptionNow(binding, configId, value)
     ));
+    this.rememberSessionConfigOverrides(binding, [{ configId: String(configId || ''), value }]);
     if (this.clearDeferredSessionError(binding)) {
       binding.updatedAt = new Date().toISOString();
       this.emitRuntime(binding);
@@ -3286,7 +3338,12 @@ class AcpRuntime extends EventEmitter {
     return result;
   }
 
-  async setSessionConfigOptionNow(binding: AcpBinding, configId: string, value: ConfigValue) {
+  async setSessionConfigOptionNow(
+    binding: AcpBinding,
+    configId: string,
+    value: ConfigValue,
+    options: PrepareAgentOptions = {},
+  ) {
     this.requireOpenBinding(binding);
     const option = binding.configOptions?.find(candidate => candidate.id === String(configId || ''));
     if (
@@ -3298,19 +3355,19 @@ class AcpRuntime extends EventEmitter {
       // snapshot first. The refresh extension requires an explicit effort and
       // would otherwise reject a valid model change (for example ultra -> a
       // model that tops out at max).
-      await this.applySessionConfigOption(binding, configId, value, { emit: false });
+      await this.applySessionConfigOption(binding, configId, value, { ...options, emit: false });
       const reasoning = binding.configOptions?.find(candidate => (
         candidate.type === 'select'
         && /(reasoning|thought)/i.test(`${candidate.id} ${candidate.name || ''} ${candidate.category || ''}`)
       ));
       if (typeof reasoning?.currentValue === 'string' && reasoning.currentValue) {
         await this.refreshCodexSessionModel(binding, String(value ?? ''), reasoning.currentValue);
-        return this.applySessionConfigOption(binding, configId, value, { force: true });
+        return this.applySessionConfigOption(binding, configId, value, { ...options, force: true });
       }
       this.emitSession(binding);
       return { sessionId: binding.sessionId, configOptions: binding.configOptions };
     }
-    return this.applySessionConfigOption(binding, configId, value);
+    return this.applySessionConfigOption(binding, configId, value, options);
   }
 
   async setSessionConfigOptions(agentId: string, changes: SessionConfigChange[]) {
@@ -3322,11 +3379,111 @@ class AcpRuntime extends EventEmitter {
     const result = await this.enqueueSessionConfigMutation(binding, () => (
       this.setSessionConfigOptionsNow(binding, changes)
     ));
+    this.rememberSessionConfigOverrides(binding, changes);
     if (this.clearDeferredSessionError(binding)) {
       binding.updatedAt = new Date().toISOString();
       this.emitRuntime(binding);
     }
     return result;
+  }
+
+  rememberSessionConfigOverrides(binding: AcpBinding, changes: SessionConfigChange[]) {
+    const merged = new Map<string, SessionConfigChange>();
+    for (const change of normalizeSessionConfigChanges(binding.restartOptions.configOverrides)) {
+      merged.set(change.configId, change);
+    }
+    for (const change of normalizeSessionConfigChanges(changes)) {
+      merged.set(change.configId, change);
+    }
+    const configOverrides = [...merged.values()];
+    binding.restartOptions = { ...binding.restartOptions, configOverrides };
+    const changedIds = new Set(normalizeSessionConfigChanges(changes).map(change => change.configId));
+    binding.configOverrideWarnings = binding.configOverrideWarnings.filter(warning => !changedIds.has(warning.configId));
+    this.emit('config-overrides', {
+      agentId: binding.agentId,
+      sessionId: binding.sessionId,
+      configOverrides: configOverrides.map(change => ({
+        configId: change.configId,
+        value: Array.isArray(change.value) ? [...change.value] : change.value,
+      })),
+    });
+  }
+
+  sessionConfigOverrideCompatibility(binding: AcpBinding, change: SessionConfigChange) {
+    const option = binding.configOptions?.find(candidate => candidate.id === change.configId);
+    const displayName = String(option?.name || change.configId);
+    const displayValue = JSON.stringify(change.value);
+    if (!option) return `Saved ACP setting “${displayName}” (${displayValue}) is no longer available`;
+    if (option.type === 'boolean' && typeof change.value !== 'boolean') {
+      return `Saved ACP setting “${displayName}” no longer accepts ${displayValue}`;
+    }
+    if (option.type === 'select') {
+      if (typeof change.value !== 'string') {
+        return `Saved ACP setting “${displayName}” no longer accepts ${displayValue}`;
+      }
+      if (!sessionConfigSelectValues(option).includes(change.value)) {
+        return `Saved ACP setting “${displayName}” value ${displayValue} is no longer available`;
+      }
+    }
+    return '';
+  }
+
+  async restoreSessionConfigOverrides(binding: AcpBinding, overrides: SessionConfigChange[]) {
+    const normalized = normalizeSessionConfigChanges(overrides);
+    const modelOverrides: SessionConfigChange[] = [];
+    const remainingOverrides: SessionConfigChange[] = [];
+    for (const change of normalized) {
+      const option = binding.configOptions?.find(candidate => candidate.id === change.configId);
+      const isModel = option?.type === 'select' && (
+        option.category === 'model'
+        || (
+          binding.provider === 'codex'
+          && /(^|[\s_-])model([\s_-]|$)/i.test(`${option.id} ${option.name || ''}`)
+        )
+      );
+      (isModel ? modelOverrides : remainingOverrides).push(change);
+    }
+
+    const retained: SessionConfigChange[] = [];
+    const warnings: AcpConfigOverrideWarning[] = [];
+    for (const change of [...modelOverrides, ...remainingOverrides]) {
+      const incompatibility = this.sessionConfigOverrideCompatibility(binding, change);
+      if (incompatibility) {
+        warnings.push({ configId: change.configId, message: incompatibility });
+        continue;
+      }
+      try {
+        await this.setSessionConfigOptionNow(binding, change.configId, change.value, { maxAttempts: 1 });
+        retained.push(change);
+      } catch (error) {
+        const option = binding.configOptions?.find(candidate => candidate.id === change.configId);
+        const displayName = String(option?.name || change.configId);
+        retained.push(change);
+        warnings.push({
+          configId: change.configId,
+          message: `Saved ACP setting “${displayName}” (${JSON.stringify(change.value)}) could not be restored: ${acpErrorMessage(error)}`,
+        });
+      }
+    }
+
+    binding.configOverrideWarnings = warnings;
+    binding.restartOptions = { ...binding.restartOptions, configOverrides: retained };
+    if (!sameSessionConfigChanges(normalized, retained)) {
+      this.emit('config-overrides', {
+        agentId: binding.agentId,
+        sessionId: binding.sessionId,
+        configOverrides: retained.map(change => ({
+          configId: change.configId,
+          value: Array.isArray(change.value) ? [...change.value] : change.value,
+        })),
+      });
+    }
+    if (warnings.length > 0) {
+      console.warn(
+        `ACP config override recovery for Agent ${binding.agentId}:`,
+        warnings.map(warning => warning.message).join('; '),
+      );
+    }
   }
 
   async deferSessionConfigChanges(binding: AcpBinding, changes: SessionConfigChange[]) {
@@ -3483,7 +3640,8 @@ class AcpRuntime extends EventEmitter {
       ? { sessionId: binding.sessionId, configId: normalizedConfigId, type: 'boolean', value }
       : { sessionId: binding.sessionId, configId: normalizedConfigId, value: String(value ?? '') };
     let response;
-    for (let attempt = 0; attempt < 2; attempt += 1) {
+    const maxAttempts = options.maxAttempts === 1 ? 1 : 2;
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
       response = await withTimeout(
         binding.connection.setSessionConfigOption(request),
         this.requestTimeoutMs,
@@ -3493,7 +3651,7 @@ class AcpRuntime extends EventEmitter {
       binding.configOptions = response?.configOptions || binding.configOptions;
       const confirmed = binding.configOptions?.find(candidate => candidate.id === normalizedConfigId);
       if (confirmed?.currentValue === request.value) break;
-      if (attempt === 1) {
+      if (attempt === maxAttempts - 1) {
         throw new Error(`ACP Agent did not confirm config option ${normalizedConfigId}`);
       }
     }
@@ -3536,6 +3694,7 @@ class AcpRuntime extends EventEmitter {
       authMethods: binding.initializeResponse?.authMethods || [],
       modes: binding.modes,
       configOptions: binding.configOptions,
+      configOverrideWarnings: binding.configOverrideWarnings,
       deferredConfigOptions: [...binding.deferredConfigChanges.values()],
       deferredModeId: binding.deferredModeId,
       pendingPermission: binding.pendingPermissions.values().next().value || null,

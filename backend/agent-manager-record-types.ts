@@ -49,11 +49,18 @@ export interface StructuredRuntimeProcessIdentity {
 
 export interface AcpSessionStartBinding {
   additionalDirectories: string[];
+  configOverrides: AcpSessionConfigOverride[];
   mcpServers: unknown[];
+}
+
+export interface AcpSessionConfigOverride {
+  configId: string;
+  value: string | number | boolean | null | string[];
 }
 
 export interface PersistedAcpSessionOptions {
   acpAdditionalDirectories?: string[];
+  acpConfigOverrides?: AcpSessionConfigOverride[];
   acpMcpServers?: unknown[];
 }
 

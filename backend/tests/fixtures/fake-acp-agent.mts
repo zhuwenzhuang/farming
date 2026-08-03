@@ -73,8 +73,10 @@ const initialSessionId = process.env.FARMING_E2E_FAKE_EXECUTABLES === '1'
   : 'acp-new-session';
 let sessionId = initialSessionId;
 let refreshedModelId = '';
-let activeModel = 'gpt-5.5';
-let activeEffort = 'high';
+let activeModel = process.env.FARMING_TEST_ACP_MODEL_DEFAULT || 'gpt-5.5';
+let activeEffort = process.env.FARMING_TEST_ACP_REASONING_DEFAULT || 'high';
+let activeFast = process.env.FARMING_TEST_ACP_FAST_DEFAULT === '1';
+const omitFastOption = process.env.FARMING_TEST_ACP_OMIT_FAST === '1';
 const cancelledSessions = new Map<string, () => void>();
 
 interface ActiveSteerTurn {
@@ -111,11 +113,28 @@ function hasSessionScenario(sessionId, scenario) {
 }
 
 function sessionConfigOptions(): SessionConfigOption[] {
-  return [
-    { id: 'model', name: 'Model', type: 'select', currentValue: activeModel, options: [{ value: activeModel, name: activeModel }] },
-    { id: 'reasoning', name: 'Reasoning', type: 'select', currentValue: activeEffort, options: [{ value: activeEffort, name: activeEffort }] },
-    { id: 'fast-mode', name: 'Fast mode', type: 'boolean', currentValue: false },
+  const options: SessionConfigOption[] = [
+    {
+      id: 'model',
+      name: 'Model',
+      category: 'model',
+      type: 'select',
+      currentValue: activeModel,
+      options: ['gpt-5.5', 'gpt-5.6-luna'].map(value => ({ value, name: value })),
+    },
+    {
+      id: 'reasoning',
+      name: 'Reasoning',
+      category: 'thought_level',
+      type: 'select',
+      currentValue: activeEffort,
+      options: ['high', 'ultra'].map(value => ({ value, name: value })),
+    },
   ];
+  if (!omitFastOption) {
+    options.push({ id: 'fast-mode', name: 'Fast mode', type: 'boolean', currentValue: activeFast });
+  }
+  return options;
 }
 
 function acceptedConfirmation(response: CreateElicitationResponse): boolean {
@@ -291,6 +310,9 @@ class FakeAgent implements Agent {
   async setSessionConfigOption(
     params: SetSessionConfigOptionRequest,
   ): Promise<SetSessionConfigOptionResponse> {
+    if (process.env.FARMING_TEST_ACP_REJECT_CONFIG_ID === params.configId) {
+      throw new Error(`Fake provider rejected config option ${params.configId}`);
+    }
     if (params.configId === 'model') {
       if (typeof params.value !== 'string') {
         throw new Error('Model config requires a string value');
@@ -301,10 +323,10 @@ class FakeAgent implements Agent {
       const refreshed = refreshedMatch?.[1] === params.value;
       if (refreshed && refreshedMatch) activeEffort = refreshedMatch[2];
       const configOptions: SessionConfigOption[] = [
-          { id: 'model', name: 'Model', type: 'select', currentValue: activeModel, options: [{ value: activeModel, name: activeModel }] },
-          { id: 'reasoning', name: 'Reasoning', type: 'select', currentValue: activeEffort, options: [{ value: activeEffort, name: activeEffort }] },
+          { id: 'model', name: 'Model', category: 'model', type: 'select', currentValue: activeModel, options: [{ value: activeModel, name: activeModel }] },
+          { id: 'reasoning', name: 'Reasoning', category: 'thought_level', type: 'select', currentValue: activeEffort, options: [{ value: activeEffort, name: activeEffort }] },
       ];
-      if (refreshed) {
+      if (refreshed && !omitFastOption) {
         configOptions.push({
           id: 'fast-mode',
           name: 'Fast',
@@ -324,6 +346,13 @@ class FakeAgent implements Agent {
           { id: 'reasoning', name: 'Reasoning', type: 'select', currentValue: activeEffort, options: [{ value: activeEffort, name: activeEffort }] },
       ];
       return { configOptions };
+    }
+    if (params.configId === 'fast-mode') {
+      if (typeof params.value !== 'boolean') {
+        throw new Error('Fast config requires a boolean value');
+      }
+      activeFast = params.value;
+      return { configOptions: sessionConfigOptions() };
     }
     return {
       configOptions: [{

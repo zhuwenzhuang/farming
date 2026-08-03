@@ -161,6 +161,12 @@ export interface AcpConfigChange {
   value: AcpConfigValue;
 }
 
+export interface AcpConfigOverridesEvent {
+  agentId: string;
+  sessionId: string;
+  configOverrides: AcpConfigChange[];
+}
+
 export interface AcpPromptBlock extends Record<string, unknown> {
   type: string;
   text?: string;
@@ -242,6 +248,7 @@ export interface AcpPrepareResult extends Record<string, unknown> {
   historyMode: string;
   protocolVersion?: number;
   capabilities?: Record<string, unknown>;
+  configOverrides?: AcpConfigChange[];
 }
 
 export interface AcpProcessIdentity {
@@ -454,6 +461,7 @@ export interface AcpRuntimeContract {
   bindings: ReadonlyMap<string, AcpBindingContract>;
   on(event: 'agent-runtime', listener: (event: AcpRuntimeEvent) => void): this;
   on(event: 'session', listener: (event: AcpSessionEvent) => void): this;
+  on(event: 'config-overrides', listener: (event: AcpConfigOverridesEvent) => void): this;
   prepareAgent(options?: AcpPrepareOptions): Promise<AcpPrepareResult>;
   reconnectAgent(
     agentId: string,
@@ -553,6 +561,7 @@ export interface AgentDisposeOptions {
 
 export interface ProviderStartOptions extends Record<string, unknown> {
   adaptiveTitle?: string;
+  acpConfigOverrides?: AcpConfigChange[];
   acpForkSourceCheckpoint?: AcpBindingCheckpoint | null;
   acpForkSourceSessionId?: string;
   acpHistoryMode?: 'checkpoint' | 'load' | 'resume';
