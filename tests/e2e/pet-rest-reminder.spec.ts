@@ -1052,7 +1052,7 @@ test('natural black-hole evaporation resumes at the absolute-time progress', asy
   await expect(scene).toHaveCount(0, { timeout: 16_000 })
 })
 
-test('black-hole keeps its initial snapshot and one renderer for the full break', async ({ page }) => {
+test('black-hole waits for its initial snapshot and refreshes after a resize', async ({ page }) => {
   test.slow()
   await page.addInitScript(({ settingsKey, runtimeKey }) => {
     localStorage.setItem(settingsKey, JSON.stringify({
@@ -1073,11 +1073,18 @@ test('black-hole keeps its initial snapshot and one renderer for the full break'
         snoozeUsed: false,
       },
     }))
+    ;(window as Window & {
+      __farmingBlackHoleCaptureDelayMs?: number
+    }).__farmingBlackHoleCaptureDelayMs = 750
   }, { settingsKey: SETTINGS_KEY, runtimeKey: RUNTIME_KEY })
 
   await openFarming(page)
   const scene = page.getByTestId('pet-rest-scene')
   const compositor = scene.locator('.code-pet-black-hole-compositor')
+  const canvas = scene.locator('.code-pet-black-hole-canvas')
+  await expect(compositor).toHaveAttribute('data-refresh-state', 'initial-capturing')
+  await expect(canvas).toHaveCSS('opacity', '0')
+  await expect(canvas).not.toHaveAttribute('data-macro-phase')
   await expect(scene).toHaveCount(1)
   await expect(scene.locator('.code-pet-black-hole-compositor')).toHaveCount(1)
   await expect(scene.locator('.code-pet-black-hole-canvas')).toHaveCount(1)
@@ -1094,10 +1101,35 @@ test('black-hole keeps its initial snapshot and one renderer for the full break'
     await compositor.getAttribute('data-scene-generation') ?? '0',
   )
   expect(initialGeneration).toBe(1)
+  await renderBlackHoleFrames(page)
+  const positionBeforeResize = await canvas.evaluate(element => {
+    const rect = element.getBoundingClientRect()
+    return {
+      x: (rect.left + rect.width / 2) / window.innerWidth,
+      y: (rect.top + rect.height / 2) / window.innerHeight,
+    }
+  })
+  await page.setViewportSize({ width: 1280, height: 840 })
+  await expect(compositor).toHaveAttribute('data-refresh-state', 'resize-wait')
+  await expect(canvas).toHaveCSS('opacity', '0')
+  await expect(compositor).toHaveAttribute('data-scene-generation', '2', {
+    timeout: 15_000,
+  })
+  await expect(compositor).toHaveAttribute('data-refresh-state', 'idle')
+  await renderBlackHoleFrames(page)
+  const positionAfterResize = await canvas.evaluate(element => {
+    const rect = element.getBoundingClientRect()
+    return {
+      x: (rect.left + rect.width / 2) / window.innerWidth,
+      y: (rect.top + rect.height / 2) / window.innerHeight,
+    }
+  })
+  expect(positionAfterResize.x).toBeCloseTo(positionBeforeResize.x, 1)
+  expect(positionAfterResize.y).toBeCloseTo(positionBeforeResize.y, 1)
   await page.waitForTimeout(1_200)
   expect(Number(
     await compositor.getAttribute('data-scene-generation') ?? '0',
-  )).toBe(initialGeneration)
+  )).toBe(2)
   await expect(compositor).toHaveAttribute('data-remaining-pet-elements', '0')
   await expect(scene).toHaveCount(1)
   await expect(scene.locator('.code-pet-black-hole-canvas')).toHaveCount(1)

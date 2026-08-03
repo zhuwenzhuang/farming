@@ -67,9 +67,11 @@ Once enabled, the reminder counts foreground time in the current tab and
 resets a work cycle after five minutes away. The default cycle is 50 minutes
 of use followed by a five-minute break; intervals of 90 minutes or longer use
 a ten-minute break. Reminder styles can be previewed without saving a choice.
-The black-hole scene captures the visible workspace once at break entry, then
-runs its lensing and accretion animation on the GPU without repeatedly
-recapturing the page.
+The black-hole scene waits for its initial visible-workspace capture before
+starting its lensing and accretion animation on the GPU. It keeps that capture
+while the viewport is stable; during a resize it hides the effect, then takes a
+fresh capture after the viewport settles and resumes from the corresponding
+relative position.
 
 ### Agent Notifications
 
