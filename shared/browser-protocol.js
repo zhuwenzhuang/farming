@@ -81,6 +81,7 @@ function resourceDeletion(value) {
         && revisionField(value, 'collectionRevision');
 }
 const AGENT_UPDATE_PATCH_VALIDATORS = {
+    adaptiveTitle: (value) => typeof value === 'string',
     terminalInputReceived: (value) => typeof value === 'boolean',
     terminalBusy: (value) => value === null || typeof value === 'boolean',
     shellCwd: (value) => typeof value === 'string',

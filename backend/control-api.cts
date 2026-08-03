@@ -173,7 +173,7 @@ interface AgentManager {
     agentId: string,
     title: string,
     token: string,
-  ): Record<string, unknown>;
+  ): Promise<Record<string, unknown>> | Record<string, unknown>;
   startAgent(
     command: string,
     workspace: string | null,
@@ -645,20 +645,22 @@ function createControlRouter(
     res.json({ success: true });
   });
 
-  router.post('/agents/:agentId/title', (req, res) => {
+  router.post('/agents/:agentId/title', async (req, res) => {
     const agentId = req.params.agentId;
-    if (!findAgent(agentManager.getState(), agentId)) {
-      res.status(404).json({ error: 'agent not found' });
-      return;
-    }
     const title = typeof req.body.title === 'string' ? req.body.title : '';
     const token = typeof req.body.token === 'string' ? req.body.token : '';
-    const result = agentManager.setAgentAdaptiveTitle(agentId, title, token);
+    const result = await agentManager.setAgentAdaptiveTitle(agentId, title, token);
     if (typeof result.error === 'string' && result.error) {
-      res.status(result.error.includes('expired runtime') ? 409 : 400).json(result);
+      const status = result.error.includes('not found')
+        ? 404
+        : result.retryable === true
+          ? 500
+          : /expired runtime|lifecycle change|shutting down/.test(result.error)
+            ? 409
+            : 400;
+      res.status(status).json(result);
       return;
     }
-    notifyUpdate();
     res.json(result);
   });
 

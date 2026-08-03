@@ -25,6 +25,7 @@ type SubscriptionKind = 'all' | 'runtime'
 const entries = new Map<string, LiveEntry>()
 const listenersByAgentId = new Map<string, Record<SubscriptionKind, Set<Listener>>>()
 const RUNTIME_FIELDS = new Set<keyof AgentLiveState>([
+  'adaptiveTitle',
   'terminalInputReceived',
   'terminalBusy',
   'shellCwd',
@@ -56,6 +57,7 @@ declare global {
 
 function liveStateFromAgent(agent: Agent): AgentLiveState {
   return {
+    adaptiveTitle: agent.adaptiveTitle,
     lastActivity: agent.lastActivity,
     activityLevel: agent.activityLevel,
     attentionScore: agent.attentionScore,

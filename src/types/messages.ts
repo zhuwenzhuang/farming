@@ -240,6 +240,7 @@ export interface AgentUpdateMessage {
   update: {
     agentId: string
     patch: {
+      adaptiveTitle?: string
       terminalInputReceived?: boolean
       terminalBusy?: boolean | null
       shellCwd?: string

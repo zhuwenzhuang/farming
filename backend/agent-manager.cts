@@ -430,6 +430,14 @@ interface AcpSessionOptionsRecord {
   mcpServers: UnknownRecord[];
 }
 
+interface AdaptiveTitlePersistenceEntry {
+  agent: TypedAgentRecord;
+  previousTitle: string;
+  promise: Promise<UnknownRecord>;
+  resolve: (result: UnknownRecord) => void;
+  title: string;
+}
+
 interface TerminalOutputActivity {
   bytes: number;
   timestamp: number;
@@ -1425,6 +1433,8 @@ class AgentManager extends EventEmitter {
   declare activeInputOperations: Set<Promise<unknown>>;
   declare verifiedStoppedAgentIds: Set<AgentId>;
   declare codexSessionMutationQueues: Map<string, CodexSessionMutationAdmission<unknown>>;
+  declare adaptiveTitlePersistenceEntries: Map<AgentId, AdaptiveTitlePersistenceEntry>;
+  declare adaptiveTitlePersistenceDrain: Promise<void> | null;
   declare acpSessionOptionsByKey: Map<string, AcpSessionOptionsRecord>;
   declare permissionRestartSuppressedAgentIds: Set<AgentId>;
   declare createProviderSessionIdentity: CreateProviderSessionIdentityContract;
@@ -1511,6 +1521,8 @@ class AgentManager extends EventEmitter {
     this.activeInputOperations = new Set();
     this.verifiedStoppedAgentIds = new Set();
     this.codexSessionMutationQueues = new Map();
+    this.adaptiveTitlePersistenceEntries = new Map();
+    this.adaptiveTitlePersistenceDrain = null;
     // Standard ACP session inputs may contain MCP credentials. Keep the live
     // copy outside browser-facing Agent records; crash recovery persists it
     // only through the private Farming session store.
@@ -4354,6 +4366,7 @@ class AgentManager extends EventEmitter {
     this.codexTerminalIdentityPromises.clear();
     this.codexTerminalStartQueues.clear();
     this.codexTerminalStartOutput.clear();
+    this.adaptiveTitlePersistenceEntries.clear();
     this.acpSessionOptionsByKey.clear();
     this.disposed = true;
   }
@@ -4371,6 +4384,7 @@ class AgentManager extends EventEmitter {
       }
       for (const operation of this.activeInputOperations) pending.add(operation);
       for (const operation of this.resizeDrains.values()) pending.add(operation);
+      if (this.adaptiveTitlePersistenceDrain) pending.add(this.adaptiveTitlePersistenceDrain);
       if (pending.size === 0) return;
       await Promise.allSettled([...pending]);
     }
@@ -6944,7 +6958,95 @@ class AgentManager extends EventEmitter {
     return { agentId, customTitle, operationId: operation.id };
   }
 
-  setAgentAdaptiveTitle(agentId: AgentId, title: string, token: string): UnknownRecord {
+  scheduleAdaptiveTitlePersistence(
+    agentId: AgentId,
+    agent: TypedAgentRecord,
+    adaptiveTitle: string,
+    previousTitle: string,
+  ): Promise<UnknownRecord> {
+    const pending = this.adaptiveTitlePersistenceEntries.get(agentId);
+    if (pending) {
+      pending.title = adaptiveTitle;
+      return pending.promise;
+    }
+
+    let resolve: (result: UnknownRecord) => void = () => {};
+    const promise = new Promise<UnknownRecord>((settle) => {
+      resolve = settle;
+    });
+    this.adaptiveTitlePersistenceEntries.set(agentId, {
+      agent,
+      previousTitle,
+      promise,
+      resolve,
+      title: adaptiveTitle,
+    });
+    this.startAdaptiveTitlePersistenceDrain();
+    return promise;
+  }
+
+  startAdaptiveTitlePersistenceDrain() {
+    if (this.adaptiveTitlePersistenceDrain) return;
+    const drain = (async () => {
+      await new Promise<void>(resolve => setImmediate(resolve));
+      while (this.adaptiveTitlePersistenceEntries.size > 0) {
+        const next = this.adaptiveTitlePersistenceEntries.entries().next().value as
+          | [AgentId, AdaptiveTitlePersistenceEntry]
+          | undefined;
+        if (!next) break;
+        const [agentId, entry] = next;
+        this.adaptiveTitlePersistenceEntries.delete(agentId);
+        const adaptiveTitle = entry.title;
+        const current = this.agents.get(agentId);
+        if (current !== entry.agent) {
+          entry.resolve({
+            error: 'Failed to update Agent title: Agent runtime changed before persistence',
+            retryable: true,
+          });
+        } else {
+          const staged: TypedAgentRecord = { ...current, adaptiveTitle };
+          try {
+            this.ensurePersistentAgentSession(staged, { adaptiveTitle });
+            setAgentRecordId(current, staged.agentRecordId || staged.persistentSessionId || '');
+            this.updateEngineProviderSessionMetadata(current);
+            entry.resolve({ agentId, adaptiveTitle });
+          } catch (caughtError: unknown) {
+            const error = caughtError as ErrorRecord;
+            console.error('Failed to persist adaptive Agent title:', error);
+            if (this.agents.get(agentId) === current && current.adaptiveTitle === adaptiveTitle) {
+              current.adaptiveTitle = entry.previousTitle;
+              this.emit('agent-update', {
+                agentId,
+                patch: { adaptiveTitle: entry.previousTitle },
+              });
+            }
+            entry.resolve({
+              error: `Failed to update Agent title: ${error.message || error}`,
+              retryable: true,
+            });
+          }
+        }
+        if (this.adaptiveTitlePersistenceEntries.size > 0) {
+          await new Promise<void>(resolve => setImmediate(resolve));
+        }
+      }
+    })();
+    this.adaptiveTitlePersistenceDrain = drain;
+    void drain.finally(() => {
+      if (this.adaptiveTitlePersistenceDrain === drain) {
+        this.adaptiveTitlePersistenceDrain = null;
+      }
+      if (this.adaptiveTitlePersistenceEntries.size > 0) {
+        this.startAdaptiveTitlePersistenceDrain();
+      }
+    }).catch(() => {});
+  }
+
+  setAgentAdaptiveTitle(
+    agentId: AgentId,
+    title: string,
+    token: string,
+  ): UnknownRecord | Promise<UnknownRecord> {
     if (this.disposing) {
       return { error: 'Farming is shutting down; Agent title updates are not accepted' };
     }
@@ -6964,21 +7066,14 @@ class AgentManager extends EventEmitter {
     const adaptiveTitle = String(title || '').replace(/\s+/g, ' ').trim().slice(0, 80);
     if (!adaptiveTitle) return { error: 'Agent title is required' };
     if (adaptiveTitle === agent.adaptiveTitle) {
-      return { agentId, adaptiveTitle, deduplicated: true };
+      return this.adaptiveTitlePersistenceEntries.get(agentId)?.promise
+        || { agentId, adaptiveTitle, deduplicated: true };
     }
 
-    const staged: TypedAgentRecord = { ...agent, adaptiveTitle };
-    try {
-      this.ensurePersistentAgentSession(staged, { adaptiveTitle });
-    } catch (caughtError: unknown) {
-      const error = caughtError as ErrorRecord;
-      return { error: `Failed to update Agent title: ${error.message || error}`, retryable: true };
-    }
+    const previousTitle = agent.adaptiveTitle || '';
     agent.adaptiveTitle = adaptiveTitle;
-    setAgentRecordId(agent, staged.agentRecordId || staged.persistentSessionId || '');
-    this.updateEngineProviderSessionMetadata(agent);
-    this.emit('update');
-    return { agentId, adaptiveTitle };
+    this.emit('agent-update', { agentId, patch: { adaptiveTitle } });
+    return this.scheduleAdaptiveTitlePersistence(agentId, agent, adaptiveTitle, previousTitle);
   }
 
   setAgentTask(agentId: AgentId, task: string): UnknownRecord {

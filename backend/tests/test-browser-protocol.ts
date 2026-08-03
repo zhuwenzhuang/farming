@@ -103,6 +103,10 @@ assert.strictEqual(validateServerMessage({
 assert.strictEqual(validateServerMessage({ type: 'agent-update', update: { agentId: 'a' } }).ok, false);
 assert.strictEqual(validateServerMessage({
   type: 'agent-update',
+  update: { agentId: 'a', patch: { adaptiveTitle: 'Inspect persistence' } },
+}).ok, true);
+assert.strictEqual(validateServerMessage({
+  type: 'agent-update',
   update: { agentId: 'a', patch: { terminalInputReceived: true, status: 'dead' } },
 }).ok, false);
 assert.strictEqual(validateServerMessage({

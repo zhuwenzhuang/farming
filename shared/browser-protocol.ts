@@ -161,6 +161,7 @@ export interface AgentActivityMessage extends ExtensibleMessage {
 }
 
 export interface AgentUpdatePatch {
+  adaptiveTitle?: string
   terminalInputReceived?: boolean
   terminalBusy?: boolean | null
   shellCwd?: string
@@ -350,6 +351,7 @@ function resourceDeletion(value: unknown): boolean {
 }
 
 const AGENT_UPDATE_PATCH_VALIDATORS = {
+  adaptiveTitle: (value: unknown) => typeof value === 'string',
   terminalInputReceived: (value: unknown) => typeof value === 'boolean',
   terminalBusy: (value: unknown) => value === null || typeof value === 'boolean',
   shellCwd: (value: unknown) => typeof value === 'string',

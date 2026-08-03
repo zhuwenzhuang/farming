@@ -45,11 +45,13 @@ async function run() {
   let killFailureAgentId = '';
   let recoveryFailure = '';
   let createResultPersistenceFailure = '';
+  let stateReads = 0;
   const durableCreateResults = new Map();
   const agentManager = {
     on: events.on.bind(events),
     off: events.off.bind(events),
     getState() {
+      stateReads += 1;
       return {
         mainAgentId: 'agent-main',
         agents: Array.from(agents.values()),
@@ -252,6 +254,7 @@ async function run() {
     assert.strictEqual(calls.at(-1).type, 'clearAgentSessionBuffer');
     assert.strictEqual(calls.at(-1).options.expectedRuntimeEpoch, 'epoch-1');
 
+    const stateReadsBeforeTitle = stateReads;
     const titled = await fetchJson(baseUrl, `/api/control/agents/${created.body.agentId}/title`, {
       method: 'POST',
       body: JSON.stringify({
@@ -262,6 +265,11 @@ async function run() {
     assert.strictEqual(titled.response.status, 200);
     assert.strictEqual(titled.body.adaptiveTitle, 'Diagnose ACP titles');
     assert.strictEqual(agents.get(created.body.agentId).adaptiveTitle, 'Diagnose ACP titles');
+    assert.strictEqual(
+      stateReads,
+      stateReadsBeforeTitle,
+      'the title endpoint should delegate exact Agent lookup instead of materializing full state',
+    );
 
     const staleTitle = await fetchJson(baseUrl, `/api/control/agents/${created.body.agentId}/title`, {
       method: 'POST',

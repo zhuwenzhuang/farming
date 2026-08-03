@@ -80,7 +80,7 @@ async function run() {
       manager.lastActivity.set(id, Date.now());
 
       const title = `${testCase.provider || 'Shell'} ${testCase.runtime} title`;
-      const result = manager.setAgentAdaptiveTitle(id, title, token);
+      const result = await manager.setAgentAdaptiveTitle(id, title, token);
       assert.strictEqual(result.error, undefined, `${id} should accept its own runtime title`);
       const publicAgent = manager.getState().agents.find(agent => agent.id === id);
       assert.strictEqual(publicAgent.adaptiveTitle, title);
