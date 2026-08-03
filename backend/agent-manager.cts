@@ -576,6 +576,12 @@ interface TerminalSize {
   rows: number;
 }
 
+interface AcpResourcePressureSignal {
+  source: string;
+  reason: string;
+  observedAt?: number;
+}
+
 const SESSION_OUTPUT_LIMIT = 10000;
 const AGENT_USAGE_RATE_WINDOW_MS = 5 * 60 * 1000;
 const AGENT_USAGE_RATE_REFRESH_MS = 5 * 1000;
@@ -1590,6 +1596,13 @@ class AgentManager extends EventEmitter {
       runtime.pendingElicitations = Array.isArray(pendingElicitations) ? pendingElicitations : [];
       runtime.activeElicitations = Array.isArray(activeElicitations) ? activeElicitations : [];
       runtime.sessionUpdatedAt = updatedAt || '';
+      if (state === 'hibernated') {
+        agent.structuredRuntimeProcess = null;
+        this.ensurePersistentAgentSession(agent);
+      }
+      if (state === 'error' && !sessionId) {
+        this.ensurePersistentAgentSession(agent);
+      }
       if (sessionId) {
         this.providerSessionService.bindConfirmed(agentId, agent.providerSessionProvider, sessionId);
         this.ensurePersistentAgentSession(agent);
@@ -2681,11 +2694,18 @@ class AgentManager extends EventEmitter {
           runtime.state = 'error';
           runtime.error = `Agent ${blockedOperation.type} operation ${blockedOperation.id} must be resolved before restart`;
         } else {
-          replaceRuntimeBinding(
+          const runtime = replaceRuntimeBinding(
             recoveredAgent,
             'acp',
             runtimeBindingOf(recoveredAgent, 'acp'),
-          ).state = 'connecting';
+          );
+          const persistedRuntime = runtimeBindingOf(record, 'acp');
+          if (persistedRuntime?.state === 'hibernated' && persistedRuntime.stopReason === 'hibernated') {
+            runtime.state = 'hibernated';
+            runtime.stopReason = 'hibernated';
+          } else {
+            runtime.state = 'connecting';
+          }
         }
         this.agents.set(agentId, recoveredAgent);
         void this.refreshAgentWorktree(agentId);
@@ -2712,10 +2732,15 @@ class AgentManager extends EventEmitter {
       if (!agent || !sessionId || !providerSupportsRuntime(provider, 'acp')) continue;
       if (lifecycleOperationBlocksRuntimeStart(record)) continue;
       try {
+        const persistedHibernationProvesExit = (
+          runtimeBindingOf(record, 'acp')?.state === 'hibernated'
+          && runtimeBindingOf(record, 'acp')?.stopReason === 'hibernated'
+        );
         if (
           !record.structuredRuntimeProcess
           && !this.allowUnprovenLegacyAcpRecovery
           && !record.legacyAcpProcessExitAcknowledgedAt
+          && !persistedHibernationProvesExit
         ) {
           const cleanupError: MutableError = new Error(
             'Legacy ACP process exit cannot be proven after restart; automatic recovery is blocked',
@@ -2750,7 +2775,7 @@ class AgentManager extends EventEmitter {
         const executable = ['codex', 'claude'].includes(provider)
           ? resolveFarmingOwnedExecutable(provider)
           : (resolveAgentExecutable(executableName) || executableName);
-        if (['codex', 'claude'].includes(provider) && !executable) {
+        if (!persistedHibernationProvesExit && ['codex', 'claude'].includes(provider) && !executable) {
           throw new Error(`${provider} ACP requires a Farming-owned executable, but none is available`);
         }
         const approvalMode = agent.launchPermissionMode || (
@@ -2779,6 +2804,7 @@ class AgentManager extends EventEmitter {
           model: 'config',
           reasoningEffort: 'config',
           serviceTier: 'config',
+          restoreHibernated: persistedHibernationProvesExit,
           farmingSystemPrompt: renderFarmingAgentBootstrap(),
           additionalDirectories: Array.isArray(record.acpAdditionalDirectories) ? record.acpAdditionalDirectories : [],
           configOverrides: recoveryConfigOverrides,
@@ -2829,7 +2855,8 @@ class AgentManager extends EventEmitter {
         agent.providerSessionTemporary = false;
         agent.providerSessionSource = `acp-${prepared.historyMode}`;
         const runtime = replaceRuntimeBinding(agent, 'acp', runtimeBindingOf(agent, 'acp'));
-        runtime.state = 'idle';
+        runtime.state = persistedHibernationProvesExit ? 'hibernated' : 'idle';
+        runtime.stopReason = persistedHibernationProvesExit ? 'hibernated' : '';
         runtime.error = '';
         agent.status = 'running';
         agent.engineStatus = 'running';
@@ -4294,6 +4321,44 @@ class AgentManager extends EventEmitter {
     for (const zombieId of zombieIds) {
       await this.killAgent(zombieId, { reason: 'zombie-cleanup' });
     }
+  }
+
+  async reclaimIdleAcpAgentForResourcePressure(
+    agentId: AgentId,
+    pressure: AcpResourcePressureSignal,
+  ) {
+    const source = String(pressure?.source || '').trim();
+    const reason = String(pressure?.reason || '').trim();
+    if (!source || !reason) {
+      return { reclaimed: false, error: 'ACP resource-pressure reclaim requires an explicit source and reason' };
+    }
+    const agent = this.agents.get(agentId);
+    if (!agent) return { reclaimed: false, error: 'Agent not found' };
+    if (runtimeKind(agent) !== 'acp') {
+      return { reclaimed: false, state: 'not-acp' };
+    }
+    if (this.isMainAgentRecord(agentId, agent) || agent.pinned === true) {
+      return { reclaimed: false, protected: true, state: runtimeBindingOf(agent, 'acp')?.state || '' };
+    }
+    const state = String(runtimeBindingOf(agent, 'acp')?.state || '');
+    if (state !== 'idle') {
+      return { reclaimed: false, state };
+    }
+    if (typeof this.acpRuntime.hibernateAgent !== 'function') {
+      return { reclaimed: false, state, unsupported: true };
+    }
+    const result = await this.acpRuntime.hibernateAgent(agentId);
+    return {
+      ...result,
+      reclaimed: result?.hibernated === true,
+      pressure: {
+        source,
+        reason,
+        ...(Number.isFinite(Number(pressure.observedAt))
+          ? { observedAt: Number(pressure.observedAt) }
+          : {}),
+      },
+    };
   }
 
   engineSessionMetadata(agent: TypedAgentRecord) {
@@ -6421,9 +6486,10 @@ class AgentManager extends EventEmitter {
     return this.acpRuntime.cancelSubagent(agentId, sessionId);
   }
 
-  decideAcpPatch(agentId: AgentId, toolCallId: string, requestedPath: string, decision: 'keep' | 'revert') {
+  async decideAcpPatch(agentId: AgentId, toolCallId: string, requestedPath: string, decision: 'keep' | 'revert') {
     this.assertAgentOperationAdmission();
     this.getAcpSession(agentId);
+    await this.reconnectAcpAgent(agentId);
     return this.acpRuntime.decidePatch(agentId, toolCallId, requestedPath, decision);
   }
 
@@ -6442,8 +6508,9 @@ class AgentManager extends EventEmitter {
     });
   }
 
-  listAcpSessions(agentId: AgentId, options: AcpSessionListOptions = {}) {
+  async listAcpSessions(agentId: AgentId, options: AcpSessionListOptions = {}) {
     this.requireLiveAcpAgent(agentId);
+    await this.reconnectAcpAgent(agentId);
     return this.acpRuntime.listSessions(agentId, options);
   }
 
@@ -6477,51 +6544,59 @@ class AgentManager extends EventEmitter {
     return agent;
   }
 
-  authenticateAcpAgent(agentId: AgentId, methodId: string) {
+  async authenticateAcpAgent(agentId: AgentId, methodId: string) {
     this.assertAgentOperationAdmission();
     this.getAcpSession(agentId);
+    await this.reconnectAcpAgent(agentId);
     return this.acpRuntime.authenticate(agentId, methodId);
   }
 
-  logoutAcpAgent(agentId: AgentId) {
+  async logoutAcpAgent(agentId: AgentId) {
     this.assertAgentOperationAdmission();
     this.getAcpSession(agentId);
+    await this.reconnectAcpAgent(agentId);
     return this.acpRuntime.logout(agentId);
   }
 
-  forkAcpSession(agentId: AgentId, options: AcpForkOptions = {}) {
+  async forkAcpSession(agentId: AgentId, options: AcpForkOptions = {}) {
     this.assertAgentOperationAdmission();
     this.getAcpSession(agentId);
+    await this.reconnectAcpAgent(agentId);
     return this.acpRuntime.forkSession(agentId, options);
   }
 
-  deleteAcpSession(agentId: AgentId, sessionId: string) {
+  async deleteAcpSession(agentId: AgentId, sessionId: string) {
     this.assertAgentOperationAdmission();
     this.getAcpSession(agentId);
+    await this.reconnectAcpAgent(agentId);
     return this.acpRuntime.deleteSession(agentId, sessionId);
   }
 
-  closeAcpSession(agentId: AgentId) {
+  async closeAcpSession(agentId: AgentId) {
     this.assertAgentOperationAdmission();
     this.getAcpSession(agentId);
+    await this.reconnectAcpAgent(agentId);
     return this.acpRuntime.closeSession(agentId);
   }
 
-  setAcpSessionMode(agentId: AgentId, modeId: string) {
+  async setAcpSessionMode(agentId: AgentId, modeId: string) {
     this.assertAgentOperationAdmission();
     this.getAcpSession(agentId);
+    await this.reconnectAcpAgent(agentId);
     return this.acpRuntime.setSessionMode(agentId, modeId);
   }
 
-  setAcpSessionConfigOption(agentId: AgentId, configId: string, value: AcpConfigValue) {
+  async setAcpSessionConfigOption(agentId: AgentId, configId: string, value: AcpConfigValue) {
     this.assertAgentOperationAdmission();
     this.getAcpSession(agentId);
+    await this.reconnectAcpAgent(agentId);
     return this.acpRuntime.setSessionConfigOption(agentId, configId, value);
   }
 
-  setAcpSessionConfigOptions(agentId: AgentId, changes: AcpConfigChange[]) {
+  async setAcpSessionConfigOptions(agentId: AgentId, changes: AcpConfigChange[]) {
     this.assertAgentOperationAdmission();
     this.getAcpSession(agentId);
+    await this.reconnectAcpAgent(agentId);
     return this.acpRuntime.setSessionConfigOptions(agentId, changes);
   }
 
@@ -10154,6 +10229,17 @@ class AgentManager extends EventEmitter {
     const agent = this.agents.get(agentId);
     if (!agent || agent.status !== 'running') return false;
     if (this.isMainAgentRecord(agentId, agent)) return false;
+    const acpState = String(runtimeBindingOf(agent, 'acp')?.state || '');
+    if ([
+      'connecting',
+      'working',
+      'waiting-for-permission',
+      'waiting-for-input',
+      'interrupting',
+      'reconnecting',
+      'hibernating',
+      'hibernated',
+    ].includes(acpState)) return false;
     const lastAct = this.lastActivity.get(agentId) || now;
     return now - lastAct > ZOMBIE_IDLE_MS;
   }

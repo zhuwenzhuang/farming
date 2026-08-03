@@ -144,7 +144,7 @@ interface AcpBinding {
   deferredModeGeneration: number;
   deferredModeId: string;
   codexInlineVisualizationStreams: Map<string, ReturnType<typeof createCodexInlineVisualizationStreamState>>;
-  stderr: string; exited: boolean; updatedAt: string;
+  stderr: string; exited: boolean; retryableReconnect: boolean; updatedAt: string;
 }
 interface AcpConfigOverrideWarning {
   configId: string;
@@ -169,6 +169,7 @@ interface AcpRuntimeOptions extends PrepareAgentOptions {
   clientFileSystem?: Pick<AcpClientFileSystem, 'readTextFile' | 'writeTextFile'>;
   clientTerminals?: Pick<
     AcpClientTerminalManager,
+    | 'activeCount'
     | 'cleanupAgent'
     | 'create'
     | 'display'
@@ -191,6 +192,7 @@ interface PrepareAgentOptions extends UnknownRecord {
   forkSourceSessionId?: string; forkSourceCheckpoint?: UnknownRecord | null; revisionBase?: number;
   approvalMode?: string; historyMode?: string; model?: string; reasoningEffort?: string;
   serviceTier?: string; identityOnly?: boolean;
+  restoreHibernated?: boolean;
   configOverrides?: SessionConfigChange[];
   executable?: string; env?: NodeJS.ProcessEnv; runtimeEnv?: NodeJS.ProcessEnv;
   additionalDirectories?: string[]; mcpServers?: UnknownRecord[]; farmingSystemPrompt?: string;
@@ -441,9 +443,17 @@ function acpErrorKind(error: unknown) {
   return 'unknown';
 }
 
-function isReconnectableAcpTransportFailure(error: unknown) {
-  return /(?:connection|transport|socket).*(?:closed|lost|ended|reset|broken)|(?:adapter|process).*(?:exit|closed|stopped)/i
-    .test(acpErrorMessage(error));
+function isStructuredReconnectableFailure(binding: AcpBinding, error: unknown) {
+  if (binding.connection?.signal?.aborted === true) return true;
+  const failure = asErrorLike(error);
+  const code = String(failure.code || failure.data?.code || '').toUpperCase();
+  return new Set([
+    'ACP_TRANSPORT_CLOSED',
+    'ECONNABORTED',
+    'ECONNRESET',
+    'EPIPE',
+    'ERR_STREAM_PREMATURE_CLOSE',
+  ]).has(code);
 }
 
 function autoPermissionResponse(request: UnknownRecord, approvalMode: string) {
@@ -1126,12 +1136,14 @@ class AcpRuntime extends EventEmitter {
     'dispose' | 'flush' | 'load' | 'markDirty' | 'schedule' | 'write'
   > | null;
   declare reconnectOperations: Map<string, Promise<Record<string, unknown>>>;
+  declare hibernateOperations: Map<string, Promise<Record<string, unknown>>>;
   declare disposing: boolean;
   declare disposePromise: Promise<void> | null;
   declare disposed: boolean;
   declare clientFileSystem: Pick<AcpClientFileSystem, 'readTextFile' | 'writeTextFile'>;
   declare clientTerminals: Pick<
     AcpClientTerminalManager,
+    | 'activeCount'
     | 'cleanupAgent'
     | 'create'
     | 'display'
@@ -1165,6 +1177,7 @@ class AcpRuntime extends EventEmitter {
       || (options.configDir ? new AcpCheckpointStore(options.configDir, options.checkpointOptions) : null);
     this.bindings = new Map<string, AcpBinding>();
     this.reconnectOperations = new Map();
+    this.hibernateOperations = new Map();
     this.disposing = false;
     this.disposePromise = null;
     this.disposed = false;
@@ -1195,7 +1208,13 @@ class AcpRuntime extends EventEmitter {
     if (!agentId) throw new Error('ACP Agent id is required');
     if (this.bindings.has(agentId)) throw new Error('ACP Agent is already registered');
     const provider = String(options.provider || '').trim().toLowerCase();
-    const launch = this.resolveLaunch(provider, options);
+    const launch = options.restoreHibernated === true
+      ? {
+          command: String(options.executable || getProviderAdapter(provider)?.executable || provider),
+          args: [],
+          version: 'hibernated',
+        }
+      : this.resolveLaunch(provider, options);
     const cwd = path.resolve(options.cwd || process.cwd());
     const requestedSessionId = String(options.sessionId || '').trim();
     const forkSourceSessionId = String(options.forkSourceSessionId || '').trim();
@@ -1238,6 +1257,8 @@ class AcpRuntime extends EventEmitter {
     }
     const sessionRequestOptions = acpSessionRequestOptions(options, cwd);
     const configOverrides = normalizeSessionConfigChanges(options.configOverrides);
+    const restartOptions = { ...options, agentId, provider, configOverrides };
+    delete restartOptions.restoreHibernated;
     const binding: AcpBinding = {
       agentId,
       provider,
@@ -1246,7 +1267,7 @@ class AcpRuntime extends EventEmitter {
       sessionRequestOptions,
       env: (getProviderAdapter(provider)?.prepareAcpEnvironment || ((value: PrepareAgentOptions) => value.env || process.env))(options),
       launch,
-      restartOptions: { ...options, agentId, provider, configOverrides },
+      restartOptions,
       approvalMode: options.approvalMode || 'approve',
       farmingBrowserApprovedSites: new Set(),
       farmingBrowserApprovalScopes: new Map(),
@@ -1296,9 +1317,69 @@ class AcpRuntime extends EventEmitter {
       codexInlineVisualizationStreams: new Map(),
       stderr: '',
       exited: false,
+      retryableReconnect: false,
       updatedAt: new Date().toISOString(),
     };
     this.bindings.set(agentId, binding);
+
+    if (options.restoreHibernated === true) {
+      if (!isSafeProviderSessionId(requestedSessionId)) {
+        this.bindings.delete(agentId);
+        throw new Error('ACP hibernated recovery requires a safe exact provider session id');
+      }
+      binding.sessionId = requestedSessionId;
+      if (this.checkpointStore) {
+        const saved = await this.checkpointStore.load(
+          this.checkpointIdentity(binding, requestedSessionId),
+          { allowDirty: true },
+        );
+        const restored = this.restoreBindingCheckpoint(binding, (saved?.state || null) as AcpCheckpoint | null, {
+          sessionId: requestedSessionId,
+        });
+        if (restored) {
+          binding.sessionState = restored.sessionState;
+          binding.subagentStates = restored.subagentStates;
+          this.resetSubagentControls(binding);
+          binding.patchDecisions = restored.patchDecisions;
+          binding.deferredConfigChanges = restored.deferredConfigChanges;
+          binding.deferredModeId = restored.deferredModeId;
+          binding.checkpointProof = restored.providerProof;
+          binding.configOptions = JSON.parse(JSON.stringify(
+            binding.sessionState.configOptions || [],
+          )) as SessionConfigOption[];
+        } else {
+          binding.sessionState = new AcpSessionState({
+            provider,
+            sessionId: requestedSessionId,
+            cwd,
+            maxUpdates: this.maxUpdates,
+            revisionBase,
+          });
+        }
+      } else {
+        binding.sessionState = new AcpSessionState({
+          provider,
+          sessionId: requestedSessionId,
+          cwd,
+          maxUpdates: this.maxUpdates,
+          revisionBase,
+        });
+      }
+      binding.state = 'hibernated';
+      binding.stopReason = 'hibernated';
+      binding.exited = true;
+      binding.updatedAt = new Date().toISOString();
+      this.emitRuntime(binding);
+      this.emitSession(binding);
+      return {
+        sessionId: requestedSessionId,
+        historyMode: 'hibernated',
+        capabilities: {},
+        adapter: launch,
+        configOverrides,
+      };
+    }
+
     this.emitRuntime(binding);
 
     try {
@@ -2636,6 +2717,8 @@ class AcpRuntime extends EventEmitter {
         binding.sessionState.completePrompt();
         binding.state = 'error';
         binding.error = runtimeError.message;
+        binding.retryableReconnect = isStructuredReconnectableFailure(binding, error)
+          && isSafeProviderSessionId(binding.sessionId);
         binding.updatedAt = new Date().toISOString();
         this.finishTurn(binding, turn, { status: 'error', error: runtimeError });
         this.scheduleCheckpoint(binding, { exact: true });
@@ -3110,15 +3193,17 @@ class AcpRuntime extends EventEmitter {
   }
 
   async performReconnectAgent(agentId: string, options: PrepareAgentOptions = {}) {
+    const hibernation = this.hibernateOperations.get(agentId);
+    if (hibernation) await hibernation;
     const binding = this.requireBinding(agentId);
-    const recoverableTransportFailure = binding.state === 'error'
-      && binding.stopReason === 'error'
-      && isReconnectableAcpTransportFailure(binding.error);
-    if (!binding.exited && !recoverableTransportFailure) {
-      return { reconnected: false, sessionId: binding.sessionId, state: binding.state };
+    if (binding.state === 'hibernated' && binding.stopReason === 'hibernated') {
+      return this.wakeHibernatedAgent(binding);
     }
-    if (binding.stopReason !== 'error') {
-      throw new Error(`ACP Agent cannot reconnect after ${binding.stopReason || binding.state}`);
+    const recoverableFailure = binding.state === 'error'
+      && binding.stopReason === 'error'
+      && binding.retryableReconnect === true;
+    if (!recoverableFailure) {
+      return { reconnected: false, sessionId: binding.sessionId, state: binding.state };
     }
     if (!isSafeProviderSessionId(binding.sessionId)) {
       throw new Error('ACP Agent reconnect requires a safe exact provider session id');
@@ -3141,6 +3226,7 @@ class AcpRuntime extends EventEmitter {
 
     binding.state = 'reconnecting';
     binding.error = '';
+    binding.retryableReconnect = false;
     binding.updatedAt = new Date().toISOString();
     this.emitRuntime(binding);
     let oldProcessStopped = false;
@@ -3171,6 +3257,135 @@ class AcpRuntime extends EventEmitter {
       failedBinding.state = 'error';
       failedBinding.error = `ACP reconnect failed: ${acpErrorMessage(error)}`;
       failedBinding.stopReason = 'error';
+      failedBinding.retryableReconnect = oldProcessStopped
+        && isSafeProviderSessionId(failedBinding.sessionId);
+      failedBinding.updatedAt = new Date().toISOString();
+      this.emitRuntime(failedBinding);
+      throw error;
+    }
+  }
+
+  canHibernate(binding: AcpBinding) {
+    return this.isOpenBinding(binding)
+      && binding.state === 'idle'
+      && binding.activeTurn === null
+      && binding.sessionMutation === null
+      && binding.configMutationTail === null
+      && binding.deferredConfigFlush === null
+      && binding.deferredConfigChanges.size === 0
+      && binding.pendingPermissions.size === 0
+      && binding.pendingElicitations.size === 0
+      && binding.activeElicitations.size === 0
+      && binding.patchDecisionInFlight.size === 0
+      && this.activeSubagentSessionIds(binding).length === 0
+      && (
+        typeof this.clientTerminals.activeCount !== 'function'
+        || this.clientTerminals.activeCount(binding.agentId) === 0
+      )
+      && isSafeProviderSessionId(binding.sessionId)
+      && binding.initializeResponse?.agentCapabilities?.loadSession === true;
+  }
+
+  hibernateAgent(agentId: string): Promise<Record<string, unknown>> {
+    const existing = this.hibernateOperations.get(agentId);
+    if (existing) return existing;
+    const operation = this.performHibernateAgent(agentId);
+    this.hibernateOperations.set(agentId, operation);
+    void operation.finally(() => {
+      if (this.hibernateOperations.get(agentId) === operation) {
+        this.hibernateOperations.delete(agentId);
+      }
+    }).catch(() => {});
+    return operation;
+  }
+
+  async performHibernateAgent(agentId: string) {
+    const binding = this.requireBinding(agentId);
+    if (binding.state === 'hibernated' && binding.stopReason === 'hibernated') {
+      return { hibernated: false, alreadyHibernated: true, sessionId: binding.sessionId };
+    }
+    if (!this.canHibernate(binding)) {
+      return { hibernated: false, state: binding.state, sessionId: binding.sessionId };
+    }
+
+    await this.writeCheckpoint(binding, { exact: true });
+    this.requireOpenBinding(binding);
+    if (!this.canHibernate(binding)) {
+      return { hibernated: false, state: binding.state, sessionId: binding.sessionId };
+    }
+
+    binding.state = 'hibernating';
+    binding.stopReason = '';
+    binding.updatedAt = new Date().toISOString();
+    this.emitRuntime(binding);
+    binding.exited = true;
+    try {
+      binding.connection?.close();
+    } catch {
+      // Exact process-tree cleanup below remains authoritative.
+    }
+    if (binding.child?.stdin?.writable && !binding.child.stdin.destroyed) {
+      try {
+        binding.child.stdin.end();
+      } catch {
+        // Process-tree cleanup below remains authoritative.
+      }
+    }
+    try {
+      await stopBindingProcessAndWait(binding);
+    } catch (error) {
+      binding.state = 'error';
+      binding.error = `ACP hibernation failed: ${acpErrorMessage(error)}`;
+      binding.stopReason = 'error';
+      binding.updatedAt = new Date().toISOString();
+      this.emitRuntime(binding);
+      throw error;
+    }
+    binding.child = null;
+    binding.state = 'hibernated';
+    binding.error = '';
+    binding.stopReason = 'hibernated';
+    binding.updatedAt = new Date().toISOString();
+    this.emitRuntime(binding);
+    return { hibernated: true, sessionId: binding.sessionId };
+  }
+
+  async wakeHibernatedAgent(binding: AcpBinding) {
+    if (!this.isCurrentBinding(binding)) throw new Error('ACP Agent binding is no longer active');
+    if (binding.state !== 'hibernated' || binding.stopReason !== 'hibernated') {
+      return { reconnected: false, sessionId: binding.sessionId, state: binding.state };
+    }
+    const revisionBase = Number(binding.sessionState?.revision || 0);
+    const restartOptions = {
+      ...binding.restartOptions,
+      agentId: binding.agentId,
+      provider: binding.provider,
+      cwd: binding.cwd,
+      sessionId: binding.sessionId,
+      historyMode: 'checkpoint',
+      revisionBase,
+    };
+    delete restartOptions.forkSourceSessionId;
+    delete restartOptions.forkSourceCheckpoint;
+    delete restartOptions.onForkSessionCreated;
+
+    binding.state = 'reconnecting';
+    binding.error = '';
+    binding.updatedAt = new Date().toISOString();
+    this.emitRuntime(binding);
+    this.bindings.delete(binding.agentId);
+    try {
+      const prepared = await this.prepareAgent(restartOptions);
+      return { reconnected: true, ...prepared };
+    } catch (error) {
+      const failedBinding = this.bindings.get(binding.agentId) || binding;
+      if (!this.bindings.has(binding.agentId)) this.bindings.set(binding.agentId, failedBinding);
+      failedBinding.exited = true;
+      failedBinding.state = 'error';
+      failedBinding.error = `ACP wake failed: ${acpErrorMessage(error)}`;
+      failedBinding.stopReason = 'error';
+      failedBinding.retryableReconnect = asErrorLike(error).runtimeCleanupVerified === true
+        && isSafeProviderSessionId(failedBinding.sessionId);
       failedBinding.updatedAt = new Date().toISOString();
       this.emitRuntime(failedBinding);
       throw error;
@@ -3998,6 +4213,7 @@ class AcpRuntime extends EventEmitter {
       binding.state = 'error';
       binding.error = acpErrorMessage(error);
       binding.stopReason = 'error';
+      binding.retryableReconnect = isSafeProviderSessionId(binding.sessionId);
     } else if (binding.state !== 'error') {
       binding.state = 'stopped';
       binding.stopReason = promptWasActive ? 'stopped' : binding.stopReason;
@@ -4074,6 +4290,8 @@ class AcpRuntime extends EventEmitter {
   }
 
   async unregisterAgentAndWait(agentId: string, expectedBinding: AcpBinding | null = null) {
+    const hibernation = this.hibernateOperations.get(agentId);
+    if (hibernation) await hibernation;
     const binding = this.bindings.get(agentId);
     if (expectedBinding && binding !== expectedBinding) return false;
     if (!binding || !this.detachAgentBinding(binding, { retainForCleanup: true })) return false;

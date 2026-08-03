@@ -467,6 +467,7 @@ export interface AcpRuntimeContract {
     agentId: string,
     options?: { onProcessStopped?: () => Promise<void> | void },
   ): Promise<Record<string, unknown>>;
+  hibernateAgent?(agentId: string): Promise<Record<string, unknown>>;
   createSessionIdentity(options: ProviderSessionIdentityRequest): Promise<ProviderSessionIdentityResult>;
   submitMessage(agentId: string, prompt: AcpPromptBlock[], options?: AcpSubmitOptions): Promise<AcpSubmitResult>;
   getSession(agentId: string, options?: Record<string, unknown>): Record<string, unknown>;

@@ -698,6 +698,56 @@ async function run() {
     await blockedRecoveryManager.dispose();
   }
 
+  const hibernatedRecoverySessionKey = 'agent-session:codex:22222222-3333-4444-8555-666666666666';
+  const hibernatedRecoveryRuntime = new AcpRuntime({
+    ...TEST_PROCESS_IDENTITY,
+    resolveLaunch: () => ({ command: process.execPath, args: ['--import', require.resolve('tsx'), fixture], version: 'test' }),
+  });
+  const hibernatedRecoveryManager = new AgentManager(config({
+    getMainPageSessionKeys: () => [hibernatedRecoverySessionKey],
+    listAgentSessionRecords: () => [{
+      id: 'fsess-hibernated-acp',
+      runtimeAgentId: 'agent-hibernated-acp',
+      agentRuntimeMode: 'acp',
+      providerSessionProvider: 'codex',
+      providerSessionId: '22222222-3333-4444-8555-666666666666',
+      providerSessionKey: hibernatedRecoverySessionKey,
+      cwd: process.cwd(),
+      status: 'running',
+      runtimeBinding: {
+        kind: 'acp',
+        state: 'hibernated',
+        stopReason: 'hibernated',
+      },
+      structuredRuntimeProcess: null,
+    }],
+  }), {
+    acpRuntime: hibernatedRecoveryRuntime,
+    allowUnprovenLegacyAcpRecovery: false,
+    skipExecutablePreflight: true,
+  });
+  try {
+    await hibernatedRecoveryManager.recoverAcpSessions();
+    const recovered = hibernatedRecoveryManager.agents.get('agent-hibernated-acp');
+    assert(recovered, 'a durably hibernated ACP Agent must remain recoverable');
+    assert.strictEqual(recovered.runtimeBinding.state, 'hibernated');
+    assert.strictEqual(hibernatedRecoveryRuntime.hasBinding(recovered.id), true);
+    assert.strictEqual(
+      hibernatedRecoveryRuntime.bindings.get(recovered.id).child,
+      null,
+      'cold recovery must retain a logical binding without a provider process',
+    );
+    assert.strictEqual(recovered.requiresProcessExitAcknowledgement, false);
+    await hibernatedRecoveryManager.listAcpSessions(recovered.id);
+    assert.strictEqual(
+      hibernatedRecoveryManager.agents.get(recovered.id).runtimeBinding.state,
+      'idle',
+      'the first provider mutation must wake the exact hibernated Session',
+    );
+  } finally {
+    await hibernatedRecoveryManager.dispose();
+  }
+
   const recoveryRuntime = new AcpRuntime({
     ...TEST_PROCESS_IDENTITY,
     resolveLaunch: () => ({ command: process.execPath, args: ['--import', require.resolve('tsx'), fixture], version: 'test' }),

@@ -2531,11 +2531,11 @@ async function run() {
     });
     const transportFailedBinding = runtime.bindings.get('agent-acp-reconnect-before-exit-event');
     transportFailedBinding.connection.prompt = async () => {
-      throw new Error('ACP connection closed');
+      throw Object.assign(new Error('Opaque transport failure'), { code: 'ACP_TRANSPORT_CLOSED' });
     };
     await assert.rejects(
       runtime.prompt('agent-acp-reconnect-before-exit-event', 'transport fails before exit event'),
-      /connection closed/,
+      /Opaque transport failure/,
     );
     assert.strictEqual(transportFailedBinding.exited, false);
     const recoveredBeforeExitEvent = await runtime.reconnectAgent('agent-acp-reconnect-before-exit-event');

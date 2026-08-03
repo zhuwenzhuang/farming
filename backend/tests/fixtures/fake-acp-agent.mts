@@ -203,6 +203,11 @@ class FakeAgent implements Agent {
   async loadSession(params) {
     validateRequestedSessionScope(params);
     sessionId = params.sessionId;
+    const failOnceFile = process.env.FARMING_TEST_ACP_FAIL_LOAD_ONCE_FILE;
+    if (failOnceFile && !fs.existsSync(failOnceFile)) {
+      fs.writeFileSync(failOnceFile, sessionId);
+      throw new Error('Fake transient session/load failure');
+    }
     if (sessionId === initialSessionId || hasSessionScenario(sessionId, 'rich-timeline')) {
       const replay = [
         ['user_message_chunk', 'history-rich-user', 'rich timeline'],
