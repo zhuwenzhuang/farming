@@ -6859,7 +6859,7 @@ body.code-mode .code-instance-name {
   color: #6e7781;
 }
 
-.code-agent-transcript-latest-steer-activity {
+.code-agent-transcript-live-activity {
   position: relative;
   width: min(620px, 100%);
   min-width: 0;
@@ -6875,7 +6875,7 @@ body.code-mode .code-instance-name {
   gap: 6px;
 }
 
-.code-agent-transcript-latest-steer-activity > span {
+.code-agent-transcript-live-activity > span {
   position: relative;
   z-index: 1;
   display: block;
@@ -6910,7 +6910,7 @@ body.code-mode .code-instance-name {
   }
 }
 
-.code-agent-transcript-latest-steer-activity::after {
+.code-agent-transcript-live-activity::after {
   content: '';
   position: absolute;
   inset: 0;
@@ -6927,7 +6927,7 @@ body.code-mode .code-instance-name {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .code-agent-transcript-latest-steer-activity::after,
+  .code-agent-transcript-live-activity::after,
   .code-agent-transcript-live-activity-icon.kind-processing > svg {
     animation: none;
   }

@@ -1969,11 +1969,11 @@ body.code-mode[data-appearance='dark'] .code-agent-transcript-steer-label {
   color: var(--code-dark-text-muted);
 }
 
-body.code-mode[data-appearance='dark'] .code-agent-transcript-latest-steer-activity {
+body.code-mode[data-appearance='dark'] .code-agent-transcript-live-activity {
   color: var(--code-dark-text-muted);
 }
 
-body.code-mode[data-appearance='dark'] .code-agent-transcript-latest-steer-activity::after {
+body.code-mode[data-appearance='dark'] .code-agent-transcript-live-activity::after {
   background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.12) 46%, transparent 54%);
 }
 

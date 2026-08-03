@@ -141,17 +141,17 @@ test('queues a follow-up and explicitly sends negotiated Codex ACP steer', async
     return labelRect.left < timeRect.left && Math.abs(labelCenter - timeCenter) < 1
   })).toBe(true)
   await expect(page.getByText('Steer accepted: focus on the attached image after editing', { exact: true })).toBeVisible()
-  const latestSteerActivity = page.getByTestId('code-agent-transcript-latest-steer-activity')
-  await expect(latestSteerActivity).toBeVisible()
-  await expect(latestSteerActivity.getByTestId('code-agent-transcript-live-activity-icon')).toHaveAttribute('data-kind', 'processing')
+  const liveActivity = page.getByTestId('code-agent-transcript-live-activity')
+  await expect(liveActivity).toBeVisible()
+  await expect(liveActivity.getByTestId('code-agent-transcript-live-activity-icon')).toHaveAttribute('data-kind', 'processing')
   await expect(liveProcessSummary.getByTestId('code-agent-transcript-live-activity-icon')).toHaveCount(0)
-  await expect(latestSteerActivity).toHaveCSS('font-size', '14px')
-  await expect(latestSteerActivity).toHaveCSS('line-height', '20px')
-  expect(await latestSteerActivity.evaluate(element => {
+  await expect(liveActivity).toHaveCSS('font-size', '14px')
+  await expect(liveActivity).toHaveCSS('line-height', '20px')
+  expect(await liveActivity.evaluate(element => {
     const previous = element.previousElementSibling
     return !previous || element.getBoundingClientRect().top >= previous.getBoundingClientRect().bottom
   })).toBe(true)
-  await expect.poll(() => latestSteerActivity.evaluate(element => (
+  await expect.poll(() => liveActivity.evaluate(element => (
     getComputedStyle(element, '::after').animationName
   ))).toBe('code-agent-transcript-latest-activity-sweep')
   const processSummary = liveProcessSummary
@@ -178,7 +178,7 @@ test('queues a follow-up and explicitly sends negotiated Codex ACP steer', async
       processIndex,
       answerIndex,
       steerInsideProcess: Boolean(element.querySelector('.code-agent-transcript-process [data-testid="code-agent-transcript-steer"]')),
-      latestActivityAfterProcess: element.querySelector('.code-agent-transcript-process + [data-testid="code-agent-transcript-latest-steer-activity"]') !== null,
+      latestActivityAfterProcess: element.querySelector('.code-agent-transcript-process + [data-testid="code-agent-transcript-live-activity"]') !== null,
       flow,
     }
   })).toEqual({
@@ -207,7 +207,7 @@ test('queues a follow-up and explicitly sends negotiated Codex ACP steer', async
   await expect(page.getByTestId('code-agent-transcript-steer')).toHaveCount(1)
   await expect(page.getByTestId('code-agent-transcript-steer')).toContainText('focus on the attached image after editing')
   await expect(page.getByTestId('code-agent-transcript-steer-time')).toHaveCount(1)
-  await expect(page.getByTestId('code-agent-transcript-latest-steer-activity')).toHaveCount(0)
+  await expect(page.getByTestId('code-agent-transcript-live-activity')).toHaveCount(0)
   await expect(page.locator('.code-agent-transcript-turn')).toHaveCount(1)
   await processSummary.click()
   await expect(processSummary).toHaveAttribute('aria-expanded', 'true')

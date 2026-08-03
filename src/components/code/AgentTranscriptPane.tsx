@@ -2599,7 +2599,7 @@ function AgentTranscriptTurnView({
   openCollaborationActivityIds,
   setOpenCollaborationActivityIds,
   onFork,
-  showLatestSteerActivity,
+  showLiveActivity,
 }: {
   turn: AgentTranscriptTurn
   copy: CodeCopy
@@ -2624,7 +2624,7 @@ function AgentTranscriptTurnView({
   openCollaborationActivityIds: Set<string>
   setOpenCollaborationActivityIds: Dispatch<SetStateAction<Set<string>>>
   onFork?: () => Promise<void> | void
-  showLatestSteerActivity: boolean
+  showLiveActivity: boolean
 }) {
   const turnRef = useRef<HTMLElement | null>(null)
   const [loadedProcessDetails, setLoadedProcessDetails] = useState<Record<string, AgentTranscriptProcessPresentation>>({})
@@ -3211,7 +3211,7 @@ function AgentTranscriptTurnView({
             <AgentTranscriptMessageTime timestamp={turn.completedAt} kind="answer" />
           </div> : null}
         </div>
-      ) : shouldShowWaiting ? (
+      ) : shouldShowWaiting && !showLiveActivity ? (
         <div className="code-agent-transcript-placeholder">{copy.agentTranscriptWaiting}</div>
       ) : null}
 
@@ -3228,10 +3228,10 @@ function AgentTranscriptTurnView({
         </div>
       ) : null}
 
-      {showLatestSteerActivity ? (
+      {showLiveActivity ? (
         <div
-          className="code-agent-transcript-latest-steer-activity"
-          data-testid="code-agent-transcript-latest-steer-activity"
+          className="code-agent-transcript-live-activity"
+          data-testid="code-agent-transcript-live-activity"
           role="status"
           aria-live="polite"
         >
@@ -3949,11 +3949,11 @@ export function AgentTranscriptPane({
                     setOpenCollaborationAgentIds={setOpenCollaborationAgentIds}
                     openCollaborationActivityIds={openCollaborationActivityIds}
                     setOpenCollaborationActivityIds={setOpenCollaborationActivityIds}
-                    showLatestSteerActivity={
+                    showLiveActivity={
                       source === 'acp'
                       && index === turns.length - 1
                       && turn.status === 'inProgress'
-                      && turn.processItems.some(isUserSteerProcessItem)
+                      && transcript?.state === 'working'
                     }
                     onFork={index === turns.length - 1 && turn.status !== 'inProgress' ? onForkLatest : undefined}
                   />
