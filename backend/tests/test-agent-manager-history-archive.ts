@@ -1,5 +1,5 @@
 const assert = require('assert');
-const AgentManager = require('../agent-manager.cjs');
+const { AgentManager } = require('../agent-manager.cjs');
 const { activeLifecycleOperation } = require('../agent-lifecycle-journal.cjs');
 
 async function run() {

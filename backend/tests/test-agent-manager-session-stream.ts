@@ -1,5 +1,5 @@
 const assert = require('assert');
-const AgentManager = require('../agent-manager.cjs');
+const { AgentManager } = require('../agent-manager.cjs');
 const { SESSION_OUTPUT_LIMIT, trimSessionOutput } = require('../agent-manager.cjs');
 
 async function run() {

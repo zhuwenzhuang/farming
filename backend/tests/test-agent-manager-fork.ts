@@ -3,7 +3,7 @@ const { execFileSync } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const AgentManager = require('../agent-manager.cjs');
+const { AgentManager } = require('../agent-manager.cjs');
 const { resolveAgentExecutable } = require('../executable-discovery.cjs');
 
 async function run() {

@@ -5,7 +5,7 @@ const os = require('os');
 const path = require('path');
 
 const { AcpRuntime } = require('../acp-runtime.cjs');
-const AgentManager = require('../agent-manager.cjs');
+const { AgentManager } = require('../agent-manager.cjs');
 const { ConfigManager } = require('../config-manager.cjs');
 const { createControlRouter } = require('../control-api.cjs');
 

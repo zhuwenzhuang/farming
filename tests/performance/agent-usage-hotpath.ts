@@ -1,6 +1,6 @@
 const assert = require('assert');
 const { performance } = require('perf_hooks');
-const AgentManager = require('../../backend/agent-manager.cjs');
+const { AgentManager } = require('../../backend/agent-manager.cjs');
 
 const calculateAgentUsageRate = AgentManager.prototype.calculateAgentUsageRate;
 const getAgentUsageRate = AgentManager.prototype.getAgentUsageRate;

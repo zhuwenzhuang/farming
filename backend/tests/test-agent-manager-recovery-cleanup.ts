@@ -31,7 +31,7 @@ require.cache[sessionEngineBridgePath] = {
   exports: { SessionEngineBridge: FakeSessionEngineBridge },
 } as NodeModule;
 
-const AgentManager = require('../agent-manager.cjs');
+const { AgentManager } = require('../agent-manager.cjs');
 const { serializeTerminalState } = require('../terminal-state-serialization.cjs');
 
 function composerCommand(requestId, message, state = 'accepted') {

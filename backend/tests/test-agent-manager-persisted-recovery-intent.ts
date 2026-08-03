@@ -3,7 +3,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const AgentManager = require('../agent-manager.cjs');
+const { AgentManager } = require('../agent-manager.cjs');
 const { AcpRuntime } = require('../acp-runtime.cjs');
 const { FarmingSessionStore } = require('../farming-session-store.cjs');
 

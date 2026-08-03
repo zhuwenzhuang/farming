@@ -1,7 +1,7 @@
 const assert = require('assert');
 const path = require('path');
 
-const AgentManager = require('../agent-manager.cjs');
+const { AgentManager } = require('../agent-manager.cjs');
 const { AcpRuntime } = require('../acp-runtime.cjs');
 
 const fixture = path.join(__dirname, 'fixtures', 'fake-acp-agent.mts');

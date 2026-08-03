@@ -4,7 +4,7 @@ const os = require('os');
 const path = require('path');
 
 const { AcpRuntime } = require('../acp-runtime.cts');
-const AgentManager = require('../agent-manager.cts');
+const { AgentManager } = require('../agent-manager.cts');
 const { ConfigManager } = require('../config-manager.cts');
 
 interface ComposerTestAgent {

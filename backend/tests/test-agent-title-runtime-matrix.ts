@@ -1,5 +1,5 @@
 const assert = require('assert');
-const AgentManager = require('../agent-manager.cjs');
+const { AgentManager } = require('../agent-manager.cjs');
 
 function runtimeBinding(kind) {
   if (kind === 'terminal') return { kind: 'terminal' };

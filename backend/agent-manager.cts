@@ -10854,4 +10854,3 @@ Object.assign(AgentManager, {
   ZOMBIE_IDLE_MS,
   trimSessionOutput,
 });
-module.exports = AgentManager;

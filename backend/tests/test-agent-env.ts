@@ -1,6 +1,6 @@
 const assert = require('assert');
 const path = require('path');
-const AgentManager = require('../agent-manager.cjs');
+const { AgentManager } = require('../agent-manager.cjs');
 const {
   SHELL_ENV_BEGIN,
   SHELL_ENV_END,
