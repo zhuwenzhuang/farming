@@ -235,10 +235,25 @@ async function run() {
     assert(listed.sessions.some(item => item.sessionId === 'acp-new-session'));
     const rawTranscript = manager.getAcpTranscript(agentId);
     assert.strictEqual('turns' in rawTranscript, false, 'ACP Turn/Item projection belongs to the frontend');
+    assert.strictEqual(rawTranscript.version, 1);
+    assert.strictEqual(rawTranscript.agentId, agentId);
+    assert.strictEqual(rawTranscript.sessionId, 'acp-new-session');
+    assert.strictEqual(rawTranscript.runtimeEpoch, binding.capabilityRuntimeEpoch);
+    assert.strictEqual(rawTranscript.replace, true);
+    assert.strictEqual(rawTranscript.fromRevision, null);
+    assert.strictEqual(rawTranscript.settled, true);
     assert.strictEqual(
-      rawTranscript.entries.find(item => item.role === 'assistant').content[0].text,
+      rawTranscript.transcript.entries.find(item => item.role === 'assistant').content[0].text,
       'Checking the final-answer phase.',
     );
+    const emptyDelta = manager.getAcpTranscript(agentId, { sinceRevision: rawTranscript.toRevision });
+    assert.strictEqual(emptyDelta.replace, false);
+    assert.strictEqual(emptyDelta.fromRevision, rawTranscript.toRevision);
+    assert.strictEqual(emptyDelta.toRevision, rawTranscript.toRevision);
+    assert.deepStrictEqual(emptyDelta.transcript.entries, []);
+    const gapReplacement = manager.getAcpTranscript(agentId, { sinceRevision: rawTranscript.toRevision + 1 });
+    assert.strictEqual(gapReplacement.replace, true);
+    assert.strictEqual(gapReplacement.fromRevision, null);
     assert.strictEqual((await manager.forkAcpSession(agentId)).sessionId, 'acp-fork-session');
     binding.modes = {
       currentModeId: 'default',

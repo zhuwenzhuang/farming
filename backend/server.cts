@@ -1609,7 +1609,7 @@ app.get(routePath(BASE_PATH, '/api/agents/:agentId/acp-transcript'), async (req,
       : DEFAULT_TRANSCRIPT_MAX_TURNS;
     const requestedRevision = Number.parseInt(String(req.query.sinceRevision || ''), 10);
     const externalMedia = req.query.media === 'external-v1';
-    res.json({ transcript: agentManager.getAcpTranscript(req.params.agentId, {
+    res.json(agentManager.getAcpTranscript(req.params.agentId, {
       maxTurns,
       ...(externalMedia
         ? {
@@ -1622,7 +1622,7 @@ app.get(routePath(BASE_PATH, '/api/agents/:agentId/acp-transcript'), async (req,
       ...(Number.isFinite(requestedRevision) && requestedRevision >= 0
         ? { sinceRevision: requestedRevision }
         : {}),
-    }) });
+    }));
   } catch (caught) {
     const error = caughtError(caught);
     const message = error && error.message ? error.message : 'Failed to read ACP transcript';

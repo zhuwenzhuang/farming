@@ -56,7 +56,7 @@ Codex 也可能把只供宿主消费的展示指令写进 Assistant 文本；它
 
 这个区别很重要：ACP load 会在请求返回之前通过 `session/update` notification 重放完整对话，而 resume 只恢复上下文、不返回旧消息。Farming 会先注册 Session reducer 再发出 load，确保不会漏掉提前到达的历史 notification。重放更新归约进同一条有序流，不会逐条广播浏览器失效信号；恢复完成后客户端只收到一份稳定 snapshot。若 reader 的 `sinceRevision` 高于重建后的 reducer，或落在 reset fence 之前，后端会返回完整替换，而不是会错误保留旧内容的空 delta。
 
-从历史恢复的 Chat 会一直保留稳定的同步界面，直到第一份非空且稳定的分页内容到达。后端以带 revision 的 reducer 和 checkpoint 为权威，只在空闲 Session 持续安静一段时间后准备派生的 20-turn 展示结果；新 revision 会取消并重置安静窗口，准备结果只有在发布前再次通过 Session identity 与 revision 的 compare-and-swap 校验才可见。每个 Session 只允许一项 prepare 在途，全局并发和队列都有上界，结果存入按总字节限制的 LRU；淘汰、重启或准备失败都会安全退回同一条权威的按需投影路径。选择 Agent 时会立即切到 Chat shell；当前视图优先读取已准备结果，未命中时就在新页面保留稳定同步界面，等待按需读取稳定后一次性呈现。临近到达的初始 transcript 刷新会继续在同步界面后合并：连续安静 120 ms 后提交，最长等待 400 ms。第一次可见提交完成后，普通实时回复继续保持流式更新。连接阶段或过早进入 idle 的空 snapshot 不得替换已经可见的 transcript。
+从历史恢复的 Chat 会一直保留稳定的同步界面，直到第一份 settled 分页内容到达。现有 Transcript endpoint 返回带版本的 checkpoint/delta envelope，包含准确的 Agent、Provider Session、runtime epoch、起始 revision、目标 revision、是否完整替换以及 replay 是否已稳定。浏览器可以安装 checkpoint；只有 epoch 相同且 `fromRevision` 等于本地已安装 revision 时才能应用 delta；任何缺口或 identity 变化都必须重新请求 replacement checkpoint。属于其它 Agent 的迟到请求或旧 revision 不能抢回当前页面。后端以带 revision 的 reducer 和 checkpoint 为权威，只在空闲 Session 持续安静一段时间后准备派生的 20-turn 展示结果；新 revision 会取消并重置安静窗口，准备结果只有在发布前再次通过 runtime epoch、Session identity 与 revision 的 compare-and-swap 校验才可见。每个 Session 只允许一项 prepare 在途，全局并发和队列都有上界，结果存入按总字节限制的 LRU；淘汰、重启或准备失败都会安全退回同一条权威的按需投影路径。选择 Agent 时会立即切到 Chat shell；准确且 settled 的 prepared 或 on-demand checkpoint 会在同一个 React commit 中直接显示，不再支付固定 quiet timer。尚未稳定的历史 replay 始终留在一个稳定同步界面后，直到后端证明 settled checkpoint；第一次可见提交完成后，连续的实时 delta 继续流式更新。
 
 页面状态会分别显示浏览器当前已经载入的 History 行数，以及后端发现的 Provider 会话总数。滚动接近项目列表底部时加载下一页；项目里的“显示更多”仍只控制已加载页面内的本地展示。Agent Search 会查询后端完整历史窗口，而不是只过滤浏览器已经加载的页面。匹配不区分大小写，覆盖可见的 Agent 或 Session 标题、Project 名称和路径，以及完整或部分 Resume ID；provider 元数据和 transcript 正文不参与搜索。后端返回的 Session identity 会被前端视为权威搜索命中，不会再被前端的标题过滤器丢弃。恢复历史时会在后端完整窗口内解析 provider 元数据，因此较老的 Session 在 Terminal 与 Chat 之间切换时仍能保留原工作区。Claude 与 Qoder 历史发现只把项目级 transcript 文件视为 Session；嵌套的子 Agent transcript 继承父会话身份，属于重放细节，不会生成重复 History 行。每条 provider Session 行都会显示紧凑 Resume ID，悬停可查看完整标识；相同标题因此可以直接区分，同时传给后端的恢复身份保持不变。
 
@@ -74,7 +74,7 @@ ACP update 一方面以有界且限制单条大小的诊断数据保留，另一
 
 较短的 Chat transcript 从阅读区域顶部开始，不再被压到贴近底部 Composer 的位置。长历史在读者停留于尾部时仍然跟随最新内容；读者查看较早内容时会保留明确的阅读位置，并在脱离尾部后显示跳转到最新位置的控件。只有明确的读者滚动或文本选择手势会脱离“跟随最新”；transcript 渲染和其它延迟内容高度变化仍会让视口紧贴尾部。脱离尾部的 Chat 会异步 checkpoint 第一条可见的稳定 Turn 或 Process Item 身份及其在视口中的比例偏移，并以 Agent 的重启 lineage 作为键。这个浏览器本地锚点在 Farming 或页面重启后仍然保留。恢复会等待 transcript 稳定显示；若锚点不在首批窗口中，则继续按每页 20 个 Turn 有界加载旧历史；只有权威历史证明该锚点已不存在时才回到当前尾部。迟到的 transcript 更新不会重复应用已经恢复过的锚点，存储读写失败也不能阻塞 Agent 切换。
 
-Farming Code 把“已打开 Agent”逻辑列表与有界前端工作集分开。Chat DOM 和池化 xterm 共用一份最多二十个 Agent 的 LRU：激活 Agent 会把它移到最近使用端，当前活跃 Agent 受到保护；第二十一个需要保留的视图只会逐出最久未使用的非活跃浏览器视图，绝不会停止后端 ACP 或 PTY 进程。在缓存命中的 Agent 行之间切换时，旧 Chat 只隐藏，不卸载 transcript、展开状态或精确滚动位置；Search、History 和文件编辑器也只隐藏 Agent 工作区，不改变 LRU 顺序。非活跃且命中缓存的 Chat 不请求 transcript；再次选中时先展示保留视图，再使用保留的 revision 只请求发生变化的 ACP 后缀。被逐出的 Chat 会完整加载权威 transcript；被逐出的 Terminal 会从权威 session-view checkpoint 重新创建 xterm。
+Farming Code 把“已打开 Agent”逻辑列表与重量级浏览器视图分开。保留的 Agent shell 与池化 xterm 仍使用有界 Agent-view 工作集，但完整 Chat transcript 树只为当前可见 Chat 存在。切换 Agent、打开 Search/History 或进入文件编辑器时，会先 checkpoint 语义阅读 anchor，再卸载 inactive transcript、Markdown、折叠状态、媒体和 Process 状态。返回该 Chat 时走同一条权威 Backend checkpoint 路径，并恢复已保存的 Turn/Process Item 比例偏移；折叠状态按设计重新收起。这样前端 Chat 内存只与当前可见 Chat 数量相关，不随访问过的 Chat 数增长，也不会因此停止或休眠任何后端 ACP runtime。
 
 协作详情收起时，顶层子 Agent 使用紧凑按钮在同一行连续排列，仅在当前 Turn 的横向空间不足时换行。点中某个 Agent 后，它才在原位置展开为有界的完整详情宽度；嵌套子 Agent 仍保留在这个已展开的父 Agent 内。
 
@@ -128,7 +128,7 @@ ACP 启动、初始化、历史恢复、prompt、协议和 adapter 退出错误�
 ## 后端 API
 
 - `GET /api/agents/:agentId/acp-session` 返回归一化 Session 和协商出的 capability。控件与 usage 使用 `?includeEntries=0` 获取轻量 snapshot；只有协议调试需要 raw ACP update 时才添加 `?includeUpdates=1`。
-- `GET /api/agents/:agentId/acp-transcript?maxTurns=N` 为现有 Chat UI 返回 canonical entry stream 的脱敏视图投影。实时读取添加 `sinceRevision=R`，只接收受影响的后缀。
+- `GET /api/agents/:agentId/acp-transcript?maxTurns=N` 在带版本的 Agent/Session/runtime-epoch checkpoint envelope 中返回 canonical entry stream 的脱敏视图投影。实时读取添加 `sinceRevision=R`；后端只有在能证明连续后缀时才返回 delta，否则返回 `replace: true` 的完整 checkpoint。
 - `GET /api/agents/:agentId/acp-media/:entryId/:mediaId` 返回一份经显式协商、已认证、不可变的 Transcript 图片或音频；只有内容 hash 仍匹配权威 entry 时才会成功。
 - `GET /api/agents/:agentId/acp-tool-details/:toolCallId` 按需读取 Tool 的展开详情和准确的结构化 ACP patch。
 - `GET /api/agents/:agentId/acp-sessions` 通过当前 provider 连接调用 ACP Session 列表。

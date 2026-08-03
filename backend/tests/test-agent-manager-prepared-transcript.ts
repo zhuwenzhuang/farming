@@ -93,7 +93,10 @@ async function run() {
       mediaPathPrefix: `/farming/api/agents/${agentId}/acp-media`,
     });
     assert.strictEqual(onDemandBuilds, 0, 'prepared GET should not repeat transcript projection');
-    assert(transcript.entries.some((entry: { id?: string }) => entry.id === 'prepared-answer'));
+    assert(transcript.transcript.entries.some((entry: { id?: string }) => entry.id === 'prepared-answer'));
+    assert.strictEqual(transcript.runtimeEpoch, binding.capabilityRuntimeEpoch);
+    assert.strictEqual(transcript.replace, true);
+    assert.strictEqual(transcript.settled, true);
 
     manager.forgetStoppedAgentRecord(agentId, { emitUpdate: false });
     assert.strictEqual(manager.acpPreparedTranscriptCache.stats().entries, 0);

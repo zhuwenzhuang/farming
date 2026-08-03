@@ -39,7 +39,7 @@ async function run() {
   {
     const scheduler = manualScheduler();
     const prepared: number[] = [];
-    const current = { sessionId: 'session-burst', revision: 3 };
+    const current = { sessionId: 'session-burst', runtimeEpoch: 'epoch-burst', revision: 3 };
     const cache = new AcpPreparedTranscriptCache({
       quietMs: 10,
       schedule: scheduler.schedule,
@@ -54,7 +54,13 @@ async function run() {
       ),
     });
     for (const revision of [1, 2, 3]) {
-      cache.observe({ agentId: 'burst', sessionId: current.sessionId, revision, eligible: true });
+      cache.observe({
+        agentId: 'burst',
+        sessionId: current.sessionId,
+        runtimeEpoch: current.runtimeEpoch,
+        revision,
+        eligible: true,
+      });
     }
     scheduler.flushTimers();
     scheduler.flushDeferred();
@@ -67,7 +73,7 @@ async function run() {
   {
     const scheduler = manualScheduler();
     const resolvers = new Map<number, (value: Record<string, unknown>) => void>();
-    const current = { sessionId: 'session-cas', revision: 1 };
+    const current = { sessionId: 'session-cas', runtimeEpoch: 'epoch-cas', revision: 1 };
     const cache = new AcpPreparedTranscriptCache({
       quietMs: 0,
       maxConcurrent: 2,
@@ -88,7 +94,7 @@ async function run() {
     assert.strictEqual(cache.stats().active, 1, 'one Agent must keep a single prepare in flight');
     resolvers.get(1)?.({ revision: 1, entries: [] });
     await flushMicrotasks();
-    assert.strictEqual(cache.get({ agentId: 'cas', sessionId: current.sessionId, revision: 1 }), null);
+    assert.strictEqual(cache.get({ agentId: 'cas', sessionId: current.sessionId, runtimeEpoch: current.runtimeEpoch, revision: 1 }), null);
     scheduler.flushDeferred();
     resolvers.get(2)?.({ revision: 2, entries: [] });
     await flushMicrotasks();
@@ -119,7 +125,7 @@ async function run() {
     for (let index = 0; index < 128; index += 1) {
       const agentId = `agent-${index}`;
       revisions.set(agentId, 1);
-      cache.observe({ agentId, sessionId: `session-${index}`, revision: 1, eligible: true });
+      cache.observe({ agentId, sessionId: `session-${index}`, runtimeEpoch: `epoch-${index}`, revision: 1, eligible: true });
     }
     scheduler.flushTimers();
     assert.strictEqual(cache.stats().active, 2);
@@ -137,7 +143,7 @@ async function run() {
 
   {
     const scheduler = manualScheduler();
-    const identity = { agentId: 'on-demand', sessionId: 'session-on-demand', revision: 7 };
+    const identity = { agentId: 'on-demand', sessionId: 'session-on-demand', runtimeEpoch: 'epoch-on-demand', revision: 7 };
     const cache = new AcpPreparedTranscriptCache({
       schedule: scheduler.schedule,
       cancel: scheduler.cancel,

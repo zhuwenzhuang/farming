@@ -70,6 +70,7 @@ function run() {
   const acpSessionHookSource = read('src/components/code/acp/useAcpSession.ts');
   const acpPermissionSource = read('src/components/code/acp/AcpPermissionCard.tsx');
   const acpTranscriptSource = read('src/components/code/acp/AcpTranscriptPane.tsx');
+  const acpTranscriptEnvelopeSource = read('src/components/code/acp/acp-transcript-envelope.ts');
   const acpProgressTimelineSource = read('src/components/code/acp/acp-progress-timeline.ts');
   const agentViewCacheSource = read('src/components/code/agent-view-cache.ts');
   const terminalSearchSource = read('src/lib/terminal-search.ts');
@@ -1112,10 +1113,10 @@ function run() {
       agentViewCacheSource.includes('MAX_RETAINED_AGENT_VIEWS = 20') &&
       agentWorkPaneSource.includes('hidden={!active}') &&
       agentWorkPaneSource.includes('{!chatMode && active ? (') &&
-      agentWorkPaneSource.includes('{chatMode ? (') &&
+      agentWorkPaneSource.includes('{chatMode && active ? (') &&
       stylesSource.includes('.code-terminal-grid[hidden]') &&
       stylesSource.includes('.code-agent-work-pane[hidden]'),
-    'Chat DOM and pooled xterm views should share one bounded retained-Agent working set'
+    'retained Agent shells may keep pooled Terminals, but only the active Chat may retain a full transcript tree'
   );
 
   assert(
@@ -1271,7 +1272,7 @@ function run() {
       agentWorkPaneSource.includes('active={active}') &&
       agentWorkPaneSource.includes('hidden={!active}') &&
       agentWorkPaneSource.includes('{!chatMode && active ? (') &&
-      agentWorkPaneSource.includes('{chatMode ? (') &&
+      agentWorkPaneSource.includes('{chatMode && active ? (') &&
       terminalPaneSource.includes('setTerminalSearchOptions(previous => ({') &&
       terminalPaneSource.includes('const selectedQuery = terminalSearchQueryFromSelection(getSelectionNow())') &&
       terminalPaneSource.includes('onKeyDown={handleTerminalSearchKeyDown}') &&
@@ -1466,7 +1467,7 @@ function run() {
   );
   assert(
     transcriptPaneSource.includes('function hasTextSelectionWithin(element: HTMLElement)') &&
-      transcriptPaneSource.includes('function preserveCompletedTranscriptTurns(') &&
+      acpTranscriptEnvelopeSource.includes('function preserveCompletedTranscriptTurns(') &&
       transcriptPaneSource.includes('const textSelectionGestureRef = useRef(false)') &&
       transcriptPaneSource.includes('const textSelectionHadRangeRef = useRef(false)') &&
       transcriptPaneSource.includes('const StableAgentTranscriptTurnView = memo(AgentTranscriptTurnView)') &&

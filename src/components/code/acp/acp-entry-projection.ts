@@ -120,6 +120,12 @@ export interface AgentTranscriptTurn {
 
 export interface AgentTranscript {
   version?: number
+  envelopeVersion?: number
+  agentId?: string
+  runtimeEpoch?: string
+  fromRevision?: number | null
+  replace?: boolean
+  settled?: boolean
   available: boolean
   reason?: string
   sessionId: string

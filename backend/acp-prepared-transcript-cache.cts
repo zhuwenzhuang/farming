@@ -3,6 +3,7 @@ type PreparedTranscript = Record<string, unknown>;
 type PreparedTranscriptIdentity = {
   agentId: string;
   sessionId: string;
+  runtimeEpoch: string;
   revision: number;
 };
 
@@ -41,7 +42,7 @@ type PreparedTranscriptEntry = PreparedTranscriptIdentity & {
 };
 
 function cacheKey(identity: PreparedTranscriptIdentity) {
-  return `${identity.agentId}\u0000${identity.sessionId}\u0000${identity.revision}`;
+  return `${identity.agentId}\u0000${identity.sessionId}\u0000${identity.runtimeEpoch}\u0000${identity.revision}`;
 }
 
 function serializedBytes(value: unknown) {
@@ -89,10 +90,11 @@ export class AcpPreparedTranscriptCache {
   }
 
   observe(input: ObservePreparedTranscript) {
-    if (this.disposed || !input.agentId || !input.sessionId || !Number.isFinite(input.revision)) return;
+    if (this.disposed || !input.agentId || !input.sessionId || !input.runtimeEpoch || !Number.isFinite(input.revision)) return;
     const previous = this.records.get(input.agentId);
     const identityChanged = !previous
       || previous.sessionId !== input.sessionId
+      || previous.runtimeEpoch !== input.runtimeEpoch
       || previous.revision !== input.revision;
     if (previous?.timer) this.cancel(previous.timer);
     if (identityChanged) this.dropAgentEntries(input.agentId);
@@ -134,7 +136,11 @@ export class AcpPreparedTranscriptCache {
     const current = this.records.get(identity.agentId);
     if (
       current
-      && (current.sessionId !== identity.sessionId || current.revision !== identity.revision)
+      && (
+        current.sessionId !== identity.sessionId
+        || current.runtimeEpoch !== identity.runtimeEpoch
+        || current.revision !== identity.revision
+      )
     ) return false;
     return this.publish(identity, transcript);
   }
@@ -175,6 +181,7 @@ export class AcpPreparedTranscriptCache {
     this.queue.push({
       agentId: record.agentId,
       sessionId: record.sessionId,
+      runtimeEpoch: record.runtimeEpoch,
       revision: record.revision,
       generation: record.generation,
       priority: record.priority ?? 0,
@@ -198,8 +205,9 @@ export class AcpPreparedTranscriptCache {
         !record
         || !record.eligible
         || record.generation !== job.generation
-        || record.sessionId !== job.sessionId
-        || record.revision !== job.revision
+          || record.sessionId !== job.sessionId
+          || record.runtimeEpoch !== job.runtimeEpoch
+          || record.revision !== job.revision
       ) continue;
       this.active += 1;
       this.inFlightAgents.add(job.agentId);
@@ -212,6 +220,7 @@ export class AcpPreparedTranscriptCache {
               || !current.eligible
               || current.generation !== job.generation
               || current.sessionId !== job.sessionId
+              || current.runtimeEpoch !== job.runtimeEpoch
               || current.revision !== job.revision
               || !this.validate(job)
             ) return;

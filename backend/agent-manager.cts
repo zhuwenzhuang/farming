@@ -1553,7 +1553,7 @@ class AgentManager extends EventEmitter {
         : {}),
     });
     this.acpPreparedTranscriptCache = new AcpPreparedTranscriptCache({
-      prepare: identity => this.buildAcpTranscript(identity.agentId, {
+      prepare: identity => this.buildAcpTranscriptEnvelope(identity.agentId, {
         maxTurns: 20,
         mediaPathPrefix: this.transcriptMediaPathPrefix(identity.agentId),
       }),
@@ -1564,6 +1564,7 @@ class AgentManager extends EventEmitter {
           agent
           && runtime
           && String(agent.providerSessionId || '') === identity.sessionId
+          && this.acpRuntime.bindingEpoch(identity.agentId) === identity.runtimeEpoch
           && Number(runtime.sessionRevision || 0) === identity.revision
           && ['idle', 'hibernated'].includes(String(runtime.state || ''))
         );
@@ -6539,6 +6540,7 @@ class AgentManager extends EventEmitter {
     const identity = {
       agentId,
       sessionId: String(agent?.providerSessionId || ''),
+      runtimeEpoch: this.acpRuntime.bindingEpoch(agentId),
       revision: Number(runtime?.sessionRevision || 0),
     };
     const preparedProfile = !Number.isFinite(Number(options.sinceRevision))
@@ -6548,7 +6550,7 @@ class AgentManager extends EventEmitter {
       const prepared = this.acpPreparedTranscriptCache.get(identity);
       if (prepared) return prepared;
     }
-    const transcript = this.buildAcpTranscript(agentId, options);
+    const transcript = this.buildAcpTranscriptEnvelope(agentId, options);
     if (preparedProfile && identity.sessionId) {
       this.acpPreparedTranscriptCache.publishOnDemand(identity, transcript);
     }
@@ -6571,6 +6573,26 @@ class AgentManager extends EventEmitter {
     };
   }
 
+  buildAcpTranscriptEnvelope(agentId: AgentId, options: Partial<AcpSessionRequestOptions> = {}) {
+    const transcript = this.buildAcpTranscript(agentId, options);
+    const requestedRevision = Number(options.sinceRevision);
+    const replace = transcript.delta !== true;
+    return {
+      version: 1,
+      agentId,
+      sessionId: String(transcript.sessionId || ''),
+      runtimeEpoch: this.acpRuntime.bindingEpoch(agentId),
+      fromRevision: !replace && Number.isFinite(requestedRevision)
+        ? Math.max(0, Math.floor(requestedRevision))
+        : null,
+      toRevision: Number(transcript.revision || 0),
+      replace,
+      settled: this.acpRuntime.transcriptSettled(agentId),
+      hasMoreBefore: transcript.hasMoreBefore === true,
+      transcript,
+    };
+  }
+
   observeAcpPreparedTranscript(agentId: AgentId, priority = 0) {
     const agent = this.agents.get(agentId);
     const runtime = runtimeBindingOf(agent, 'acp');
@@ -6579,6 +6601,7 @@ class AgentManager extends EventEmitter {
     this.acpPreparedTranscriptCache.observe({
       agentId,
       sessionId,
+      runtimeEpoch: this.acpRuntime.bindingEpoch(agentId),
       revision: Number(runtime.sessionRevision || 0),
       eligible: ['idle', 'hibernated'].includes(String(runtime.state || '')),
       priority,

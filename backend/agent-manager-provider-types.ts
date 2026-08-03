@@ -189,12 +189,14 @@ export interface AcpTranscriptEntry extends Record<string, unknown> {
 
 export interface AcpTranscriptSession extends Record<string, unknown> {
   version?: number;
-  protocol?: 'acp';
+  protocol?: string;
   provider?: ProviderId;
   sessionId: string;
   cwd?: string;
   title?: string;
   revision?: number;
+  delta?: boolean;
+  hasMoreBefore?: boolean;
   updatedAt?: string;
   truncated?: boolean;
   entries: AcpTranscriptEntry[];
@@ -479,7 +481,7 @@ export interface AcpRuntimeContract {
   getTranscriptSession(
     agentId: string,
     options?: Record<string, unknown>,
-  ): Record<string, unknown>;
+  ): AcpTranscriptSession;
   getSubagentTranscriptSession(
     agentId: string,
     sessionId: string,
@@ -512,6 +514,7 @@ export interface AcpRuntimeContract {
   decidePatch(agentId: string, toolCallId: string, requestedPath: string, decision: 'keep' | 'revert'): Promise<unknown>;
   cancel(agentId: string): Promise<unknown>;
   bindingEpoch(agentId: string): string;
+  transcriptSettled(agentId: string): boolean;
   hasBinding(agentId: string): boolean;
   unregisterAgent(agentId: string): void;
   unregisterAgentAndWait(agentId: string): Promise<boolean>;

@@ -4206,6 +4206,16 @@ class AcpRuntime extends EventEmitter {
     return String(this.bindings.get(agentId)?.capabilityRuntimeEpoch || '');
   }
 
+  transcriptSettled(agentId: string): boolean {
+    const binding = this.bindings.get(agentId);
+    return Boolean(
+      binding
+      && !binding.historyReplayActive
+      && binding.state !== 'connecting'
+      && binding.state !== 'reconnecting'
+    );
+  }
+
   requireBinding(agentId: string) {
     const binding = this.bindings.get(agentId);
     if (!binding) throw new Error('ACP Agent is not registered');

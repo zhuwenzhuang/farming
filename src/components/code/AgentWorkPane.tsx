@@ -126,7 +126,7 @@ export function AgentWorkPane({
           />
         </div>
       ) : null}
-      {chatMode ? (
+      {chatMode && active ? (
         <div
           key="chat"
           className="code-agent-work-view transcript active"

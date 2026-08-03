@@ -98,6 +98,11 @@ import {
   type AgentTranscriptUserImage,
 } from './acp/acp-entry-projection'
 import {
+  mergeAcpTranscript,
+  preserveCompletedTranscriptTurns,
+  projectAcpTranscriptResponse,
+} from './acp/acp-transcript-envelope'
+import {
   acpActionGroupLabel,
   acpProgressFlowEntries,
   isAcpProgressUpdate,
@@ -125,100 +130,6 @@ interface TranscriptFileOpenContextValue {
 }
 
 const TranscriptFileOpenContext = createContext<TranscriptFileOpenContextValue>({})
-
-function completedTranscriptTurnUnchanged(
-  current: AgentTranscriptTurn,
-  next: AgentTranscriptTurn,
-) {
-  const currentLastItem = current.processItems[current.processItems.length - 1]
-  const nextLastItem = next.processItems[next.processItems.length - 1]
-  return current.status !== 'inProgress'
-    && next.status !== 'inProgress'
-    && current.userMessage === next.userMessage
-    && current.finalMessage === next.finalMessage
-    && current.startedAt === next.startedAt
-    && current.completedAt === next.completedAt
-    && current.durationMs === next.durationMs
-    && current.userImages?.length === next.userImages?.length
-    && current.userAudios?.length === next.userAudios?.length
-    && current.userFiles?.length === next.userFiles?.length
-    && current.resultImages?.length === next.resultImages?.length
-    && current.resultAudios?.length === next.resultAudios?.length
-    && current.resultFiles?.length === next.resultFiles?.length
-    && current.processItems.length === next.processItems.length
-    && currentLastItem?.id === nextLastItem?.id
-    && currentLastItem?.status === nextLastItem?.status
-    && currentLastItem?.title === nextLastItem?.title
-    && currentLastItem?.detail === nextLastItem?.detail
-  }
-
-function preserveCompletedTranscriptTurns(
-  current: AgentTranscript | null,
-  next: AgentTranscript | null,
-) {
-  if (!current || !next || current.sessionId !== next.sessionId) return next
-  const completedTurns = new Map(
-    current.turns
-      .filter(turn => turn.status !== 'inProgress')
-      .map(turn => [turn.id, turn]),
-  )
-  return {
-    ...next,
-    turns: next.turns.map(turn => {
-      const completedTurn = completedTurns.get(turn.id)
-      return completedTurn && completedTranscriptTurnUnchanged(completedTurn, turn)
-        ? completedTurn
-        : turn
-    }),
-  }
-}
-
-function mergeAcpTranscript(
-  current: AgentTranscript | null,
-  next: AgentTranscript | null,
-) {
-  if (
-    current
-    && next
-    && current.sessionId === next.sessionId
-    && typeof current.revision === 'number'
-    && typeof next.revision === 'number'
-    && next.revision < current.revision
-  ) return current
-  if (!next?.delta) return preserveCompletedTranscriptTurns(current, next)
-  if (!current || current.sessionId !== next.sessionId) return next
-  if (!next.replaceFromTurnId || next.turns.length === 0) {
-    return {
-      ...current,
-      ...next,
-      available: current.available,
-      hasMoreBefore: current.hasMoreBefore,
-      turns: current.turns,
-    }
-  }
-  const replaceIndex = current.turns.findIndex(turn => turn.id === next.replaceFromTurnId)
-  if (replaceIndex < 0) {
-    const currentIds = new Set(current.turns.map(turn => turn.id))
-    const appended = next.turns.filter(turn => !currentIds.has(turn.id))
-    const mergedTurns = [...current.turns, ...appended]
-    const boundedTurns = current.turnLimit && mergedTurns.length > current.turnLimit
-      ? mergedTurns.slice(-current.turnLimit)
-      : mergedTurns
-    return preserveCompletedTranscriptTurns(current, {
-      ...current,
-      ...next,
-      available: current.available || next.available,
-      hasMoreBefore: current.hasMoreBefore || next.hasMoreBefore || boundedTurns.length < mergedTurns.length,
-      turns: boundedTurns,
-    })
-  }
-  return preserveCompletedTranscriptTurns(current, {
-    ...next,
-    available: current.available || next.available,
-    hasMoreBefore: current.hasMoreBefore || next.hasMoreBefore,
-    turns: [...current.turns.slice(0, replaceIndex), ...next.turns],
-  })
-}
 
 export interface AgentTranscriptPaneProps {
   agentId: string
@@ -3580,6 +3491,7 @@ export function AgentTranscriptPane({
     let controller: AbortController | null = null
     let needsReconnectReload = false
     let requestGeneration = 0
+    let forceCheckpoint = false
 
     const load = () => {
       const generation = ++requestGeneration
@@ -3591,8 +3503,11 @@ export function AgentTranscriptPane({
       controller = new AbortController()
       const params = new URLSearchParams({ maxTurns: String(turnLimit) })
       const currentTranscript = transcriptRef.current
+      const checkpointRequested = forceCheckpoint
+      forceCheckpoint = false
       if (
-        source === 'acp'
+        !checkpointRequested
+        && source === 'acp'
         && currentTranscript?.sessionId
         && currentTranscript.turnLimit === turnLimit
         && Number.isFinite(currentTranscript.revision)
@@ -3616,16 +3531,33 @@ export function AgentTranscriptPane({
           if (stopped || generation !== requestGeneration) return
           retryAttempt = 0
           needsReconnectReload = false
-          const nextTranscript = source === 'acp' && payload.transcript
-            ? projectAcpTranscript(payload.transcript, { maxTurns: turnLimit })
+          const nextTranscript = source === 'acp'
+            ? projectAcpTranscriptResponse(payload, agentId, { maxTurns: turnLimit })
             : payload.transcript || null
-          const merged = source === 'acp'
+          const mergeResult = source === 'acp'
             ? mergeAcpTranscript(transcriptRef.current, nextTranscript)
-            : preserveCompletedTranscriptTurns(transcriptRef.current, nextTranscript)
+            : {
+                transcript: preserveCompletedTranscriptTurns(transcriptRef.current, nextTranscript),
+                accepted: true,
+                needsCheckpoint: false,
+              }
+          if (mergeResult.needsCheckpoint) {
+            forceCheckpoint = true
+            load()
+            return
+          }
+          if (nextTranscript?.envelopeVersion === 1 && !nextTranscript.settled) {
+            setError('')
+            setLoading(true)
+            setLoadingOlder(false)
+            return
+          }
+          const merged = mergeResult.transcript
           transcriptRef.current = merged
           setTranscript(merged)
           if (merged?.available && merged.turns.length > 0) {
-            scheduleInitialTranscriptReveal()
+            if (merged.envelopeVersion === 1 && merged.settled) revealInitialTranscript()
+            else if (merged.envelopeVersion !== 1) scheduleInitialTranscriptReveal()
           } else if (!expectHistory) {
             revealInitialTranscript()
           }
@@ -3682,7 +3614,7 @@ export function AgentTranscriptPane({
       if (retryTimer !== null) window.clearTimeout(retryTimer)
       if (pollTimer !== null) window.clearInterval(pollTimer)
     }
-  }, [active, agentId, copy.agentTranscriptUnavailable, expectHistory, refreshSignal, revealInitialTranscript, scheduleInitialTranscriptReveal, source, turnLimit])
+  }, [active, agentId, copy.agentTranscriptUnavailable, expectHistory, refreshSignal, revealInitialTranscript, runtimeState, scheduleInitialTranscriptReveal, source, turnLimit])
 
   const turns = useMemo(() => transcript?.turns || [], [transcript])
   const latestTurn = turns[turns.length - 1]
