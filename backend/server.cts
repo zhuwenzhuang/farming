@@ -229,7 +229,7 @@ import { listAvailableAgents, resolveTerminalCodexExecutable } from './executabl
 import { readClaudeSettingsSummary } from './claude-settings.cjs';
 import { listCodexModelOptions } from './codex-models.cjs';
 import { readProviderHomeConfiguration } from './provider-home-configuration.cjs';
-import { applyProviderHomeEnvironment, providerCapabilities } from './provider-adapters.cjs';
+import { applyProviderHomeEnvironment, providerCapabilities, providerConversationForkCapability } from './provider-adapters.cjs';
 import { listCodexSessions } from './codex-session-history.cjs';
 import { buildAgentSessionResumeCommand, findAgentSession, isSafeSessionId, normalizeProvider, paginateAgentSessions, resolveCodexResumeModelProvider, searchAgentSessions } from './agent-session-history.cjs';
 import { findActiveAgentClaimingSession, mainPageAgentSessionKey, mainPageAgentSessionFromKey, mainPageAgentSessionsToAutoResume, resumedAgentSource } from './main-page-session.cjs';
@@ -2362,7 +2362,7 @@ async function resumeAgentSessionById(
   }
 
   const shouldFork = options.fork === true;
-  if (shouldFork && providerCapabilities(normalizedProvider).terminalSessionFork !== true) {
+  if (shouldFork && providerConversationForkCapability(normalizedProvider, 'terminal').supported !== true) {
     return { error: `${normalizedProvider} does not support session Fork`, status: 400 };
   }
   const requestedAsMain = options.asMain === true && !shouldFork;

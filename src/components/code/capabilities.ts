@@ -242,14 +242,24 @@ export function capabilitiesForAgent(agent: Agent | null | undefined): AgentCapa
     agent?.providerSessionProvider
     || providerCapabilities?.supportsChat === true
   )
+  const runtimeForkCapability = runtimeKind === 'acp'
+    ? providerCapabilities?.conversationFork?.acp
+    : providerCapabilities?.conversationFork?.terminal
+  const providerSupportsRuntimeFork = runtimeForkCapability
+    ? runtimeForkCapability.supported === true
+    : runtimeKind === 'acp'
+      ? providerCapabilities?.sessionFork === true
+      : providerCapabilities?.terminalSessionFork === true
   const canForkRuntime = Boolean(
     agent
     && (
       runtimeKind === 'acp'
         ? canForkAgentConversation(agent)
-        : (!providerManaged || providerCapabilities?.terminalSessionFork === true)
+        : (!providerManaged || providerSupportsRuntimeFork)
     )
   )
+  const canForkNewWorktree = !providerManaged
+    || runtimeForkCapability?.worktreeModes.includes('new-worktree') === true
   const composer = kind === 'codex'
     ? {
         ...CODING_AGENT_COMPOSER_CAPABILITIES,
@@ -284,6 +294,7 @@ export function capabilitiesForAgent(agent: Agent | null | undefined): AgentCapa
       forkSameWorktree: canForkRuntime,
       forkNewWorktree: canForkRuntime
         && runtimeKind !== 'acp'
+        && canForkNewWorktree
         && agent?.canForkNewWorktree === true,
       kill: Boolean(
         agent
@@ -313,11 +324,18 @@ export function canSwitchAgentRuntime(agent: Agent | null | undefined) {
 }
 
 export function canForkAgentConversation(agent: Agent | null | undefined) {
+  const declared = agent?.providerCapabilities.conversationFork?.acp
+  const acpBinding = agent?.runtimeBinding.kind === 'acp' ? agent.runtimeBinding : null
+  const runtimeStateReady = ['idle', 'error', 'hibernated'].includes(acpBinding?.state || '')
+  const runtimeCapabilityReady = declared
+    ? declared.requiresRuntimeCapability !== true || acpBinding?.supportsFork === true
+    : acpBinding?.supportsFork === true
   return Boolean(
     agent
     && agent.runtimeBinding.kind === 'acp'
-    && agent.runtimeBinding.supportsFork === true
-    && agent.providerCapabilities.sessionFork
+    && runtimeStateReady
+    && runtimeCapabilityReady
+    && (declared ? declared.supported === true : agent.providerCapabilities.sessionFork)
     && agent.providerSessionId
     && agent.providerSessionTemporary !== true
   )

@@ -3,8 +3,8 @@ const {
   getProviderAdapter,
   isFreshAcpSessionSource,
   listProviderAdapters,
-  providerAcpForkMode,
   providerCapabilities,
+  providerConversationForkCapability,
   providerForProgram,
   providerSupportsRuntime,
 } = require('../provider-adapters.cjs');
@@ -288,6 +288,20 @@ function run() {
     terminalProfile: true,
     goals: false,
     goalSubmission: { terminal: { kind: 'prompt' }, acp: { kind: 'prompt' } },
+    conversationFork: {
+      terminal: {
+        supported: true,
+        strategy: 'target-process',
+        worktreeModes: ['same-worktree', 'new-worktree'],
+        requiresRuntimeCapability: false,
+      },
+      acp: {
+        supported: true,
+        strategy: 'source-session',
+        worktreeModes: ['same-worktree'],
+        requiresRuntimeCapability: true,
+      },
+    },
     terminalSessionFork: true,
     sessionFork: true,
     chatRuntime: 'acp',
@@ -302,6 +316,20 @@ function run() {
       terminalProfile: false,
       goals: false,
       goalSubmission: { terminal: { kind: 'command', prefix: '/goal' }, acp: { kind: 'prompt' } },
+      conversationFork: {
+        terminal: {
+          supported: true,
+          strategy: 'target-process',
+          worktreeModes: ['same-worktree', 'new-worktree'],
+          requiresRuntimeCapability: false,
+        },
+        acp: {
+          supported: true,
+          strategy: 'target-process',
+          worktreeModes: ['same-worktree'],
+          requiresRuntimeCapability: true,
+        },
+      },
       terminalSessionFork: true,
       sessionFork: true,
       chatRuntime: 'acp',
@@ -317,6 +345,20 @@ function run() {
       terminalProfile: false,
       goals: false,
       goalSubmission: null,
+      conversationFork: {
+        terminal: {
+          supported: false,
+          strategy: null,
+          worktreeModes: [],
+          requiresRuntimeCapability: false,
+        },
+        acp: {
+          supported: false,
+          strategy: null,
+          worktreeModes: [],
+          requiresRuntimeCapability: false,
+        },
+      },
       terminalSessionFork: false,
       sessionFork: false,
       chatRuntime: '',
@@ -334,8 +376,18 @@ function run() {
   });
   assert.strictEqual(providerSupportsRuntime('opencode', 'json'), false);
   assert.strictEqual(providerSupportsRuntime('claude', 'json'), false);
-  assert.strictEqual(providerAcpForkMode('claude'), 'target-process');
-  assert.strictEqual(providerAcpForkMode('codex'), 'source-then-load');
+  assert.deepStrictEqual(providerConversationForkCapability('claude', 'acp'), {
+    supported: true,
+    strategy: 'target-process',
+    worktreeModes: ['same-worktree'],
+    requiresRuntimeCapability: true,
+  });
+  assert.deepStrictEqual(providerConversationForkCapability('codex', 'acp'), {
+    supported: true,
+    strategy: 'source-session',
+    worktreeModes: ['same-worktree'],
+    requiresRuntimeCapability: true,
+  });
   assert.strictEqual(isFreshAcpSessionSource('qoder', 'qoder-session-id'), true);
   assert.deepStrictEqual(
     getProviderAdapter('qoder').acp.launch({ executable: '/bin/qodercli' }),
@@ -369,6 +421,20 @@ function run() {
   );
   assert.strictEqual(providerCapabilities('qwen').terminalSessionFork, false);
   assert.strictEqual(providerCapabilities('qwen').sessionFork, true);
+  assert.deepStrictEqual(providerCapabilities('qwen').conversationFork, {
+    terminal: {
+      supported: false,
+      strategy: null,
+      worktreeModes: [],
+      requiresRuntimeCapability: false,
+    },
+    acp: {
+      supported: true,
+      strategy: 'source-session',
+      worktreeModes: ['same-worktree'],
+      requiresRuntimeCapability: true,
+    },
+  });
   assert.deepStrictEqual(providerCapabilities('qwen').goalSubmission, {
     terminal: { kind: 'prompt' },
     acp: { kind: 'prompt' },

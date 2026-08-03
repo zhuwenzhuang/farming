@@ -151,7 +151,7 @@ import {
   deriveRuntimeObservation,
   type TerminalObservationStatus,
 } from './runtime-observation.cjs';
-import { applyProviderHomeEnvironment, getProviderAdapter, isFreshAcpSessionSource, providerAcpForkMode, providerCapabilities, providerForProgram, providerSupportsRuntime } from './provider-adapters.cjs';
+import { applyProviderHomeEnvironment, getProviderAdapter, isFreshAcpSessionSource, providerCapabilities, providerConversationForkCapability, providerForProgram, providerSupportsRuntime } from './provider-adapters.cjs';
 import { deriveTerminalStatus } from './terminal-status.cjs';
 import { AcpRuntime, stopPersistedAcpProcessGroup } from './acp-runtime.cjs';
 import { chatRuntimeForProvider, isChatMode } from './chat-runtime.cjs';
@@ -8773,15 +8773,32 @@ class AgentManager extends EventEmitter {
     const targetRuntime = forkTargetRuntime(agent, options.targetRuntime);
     const forkProvider = agent.providerSessionProvider
       || agentHomeProviderForProgram(agent.forkCommand || agent.command || '');
-    const forkCapability = targetRuntime === 'chat'
-      ? 'sessionFork'
-      : 'terminalSessionFork';
-    if (forkProvider && providerCapabilities(forkProvider)[forkCapability] !== true) {
+    const forkRuntime = targetRuntime === 'chat' ? 'acp' : 'terminal';
+    const forkCapability = providerConversationForkCapability(forkProvider, forkRuntime);
+    if (forkProvider && forkCapability.supported !== true) {
       return { error: `${forkProvider} does not support session Fork` };
     }
     if (targetRuntime === 'chat') {
-      if (mode !== 'same-worktree') {
-        return { error: 'Conversation Fork supports only the same worktree' };
+      let acpBinding = runtimeBindingOf(agent, 'acp');
+      if (['error', 'hibernated'].includes(String(acpBinding?.state || ''))) {
+        try {
+          await this.reconnectAcpAgent(agentId);
+        } catch (caughtError: unknown) {
+          const error = caughtError as ErrorRecord;
+          return { error: `ACP Conversation Fork could not prepare the source Agent: ${error.message || error}` };
+        }
+        agent = this.agents.get(agentId);
+        if (!agent) return { error: 'Agent not found' };
+        acpBinding = runtimeBindingOf(agent, 'acp');
+      }
+      if (acpBinding?.state !== 'idle') {
+        return { error: `ACP Agent is not ready for Conversation Fork (${acpBinding?.state || 'unavailable'})` };
+      }
+      if (
+        forkCapability.requiresRuntimeCapability === true
+        && acpBinding.supportsFork !== true
+      ) {
+        return { error: `${forkProvider || 'Provider'} ACP Agent does not currently support session/fork` };
       }
       const expectedRevision = Number(options.expectedRevision);
       if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0) {
@@ -8876,7 +8893,7 @@ class AgentManager extends EventEmitter {
     lifecycleToken: symbol,
     forkRequestId = '',
   ): Promise<AgentForkResult> {
-    const agent = this.agents.get(agentId);
+    let agent = this.agents.get(agentId);
     if (!agent) return { error: 'Agent not found' };
     if (runtimeKind(agent) !== 'acp') {
       return { error: 'Conversation Fork requires an ACP Chat Agent' };
@@ -8900,7 +8917,7 @@ class AgentManager extends EventEmitter {
       return { error: error.message || 'Failed to read ACP session options' };
     }
 
-    if (providerAcpForkMode(provider) === 'target-process') {
+    if (providerConversationForkCapability(provider, 'acp').strategy === 'target-process') {
       return this.performTargetProcessAcpConversationFork({
         agent,
         provider,
@@ -8942,6 +8959,12 @@ class AgentManager extends EventEmitter {
       let settled = false;
       const finish = async (forkedAgentId: AgentId | null, error?: string | null) => {
         if (settled) return;
+    if (
+      forkProvider
+      && !forkCapability.worktreeModes.includes(mode as 'same-worktree' | 'new-worktree')
+    ) {
+      return { error: `${forkProvider} does not support ${mode} ${forkRuntime.toUpperCase()} Fork` };
+    }
         settled = true;
         if (error || !forkedAgentId) {
           let rollbackError = '';

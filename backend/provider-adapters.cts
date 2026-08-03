@@ -4,10 +4,30 @@ import { createProviderSessionId, createTemporaryProviderSessionId, isSafeProvid
 
 type ProviderId = 'codex' | 'claude' | 'opencode' | 'qoder' | 'qwen';
 type ProviderRuntime = 'terminal' | 'acp';
-type ProviderAcpForkMode = 'source-then-load' | 'target-process';
+type ProviderForkWorktreeMode = 'same-worktree' | 'new-worktree';
+type ProviderConversationForkStrategy = 'source-session' | 'target-process';
 type GoalSubmission =
   | { kind: 'prompt' }
   | { kind: 'command'; prefix: string };
+
+interface ProviderConversationForkCapability {
+  supported: boolean;
+  strategy: ProviderConversationForkStrategy | null;
+  worktreeModes: ProviderForkWorktreeMode[];
+  requiresRuntimeCapability: boolean;
+}
+
+interface ProviderConversationForkContract {
+  terminal?: {
+    strategy: ProviderConversationForkStrategy;
+    worktreeModes: readonly ProviderForkWorktreeMode[];
+  };
+  acp?: {
+    strategy: ProviderConversationForkStrategy;
+    worktreeModes: readonly ProviderForkWorktreeMode[];
+    requiresRuntimeCapability: true;
+  };
+}
 
 interface PositionalArgument {
   value: string;
@@ -56,7 +76,6 @@ interface ProviderAcpLaunch {
 interface ProviderAcpContract {
   packageName?: string;
   version: string;
-  forkMode?: ProviderAcpForkMode;
   launch?: (options: ProviderAcpLaunchOptions) => ProviderAcpLaunch;
 }
 
@@ -68,8 +87,7 @@ interface ProviderCapabilitiesContract {
     terminal: GoalSubmission;
     acp: GoalSubmission;
   };
-  terminalSessionFork: boolean;
-  sessionFork: boolean;
+  conversationFork: ProviderConversationForkContract;
 }
 
 interface ProviderAdapter {
@@ -98,6 +116,11 @@ interface PublicProviderCapabilities {
   terminalProfile: boolean;
   goals: boolean;
   goalSubmission: ProviderCapabilitiesContract['goalSubmission'] | null;
+  conversationFork: {
+    terminal: ProviderConversationForkCapability;
+    acp: ProviderConversationForkCapability;
+  };
+  /** Compatibility fields derived from conversationFork. */
   terminalSessionFork: boolean;
   sessionFork: boolean;
   chatRuntime: string;
@@ -127,6 +150,28 @@ const OPENCODE_SUBCOMMANDS = new Set([
   'import', 'github', 'pr', 'session', 'plugin', 'plug', 'db',
 ]);
 const CODEX_SESSION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const NO_CONVERSATION_FORK: ProviderConversationForkCapability = Object.freeze({
+  supported: false,
+  strategy: null,
+  worktreeModes: [],
+  requiresRuntimeCapability: false,
+});
+
+function conversationForkCapability(
+  adapter: Readonly<ProviderAdapter> | null,
+  runtime: ProviderRuntime,
+): ProviderConversationForkCapability {
+  const declared = adapter?.capabilities?.conversationFork?.[runtime];
+  if (!declared) return { ...NO_CONVERSATION_FORK, worktreeModes: [] };
+  return {
+    supported: true,
+    strategy: declared.strategy,
+    worktreeModes: [...declared.worktreeModes],
+    requiresRuntimeCapability: runtime === 'acp'
+      && 'requiresRuntimeCapability' in declared
+      && declared.requiresRuntimeCapability === true,
+  };
+}
 
 function optionTakesValue(option: string, valueOptions: ReadonlySet<string>): boolean {
   return Boolean(option && !option.includes('=') && valueOptions.has(option));
@@ -355,8 +400,14 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
       terminalProfile: true,
       goals: false,
       goalSubmission: { terminal: { kind: 'prompt' }, acp: { kind: 'prompt' } },
-      terminalSessionFork: true,
-      sessionFork: true,
+      conversationFork: {
+        terminal: { strategy: 'target-process', worktreeModes: ['same-worktree', 'new-worktree'] },
+        acp: {
+          strategy: 'source-session',
+          worktreeModes: ['same-worktree'],
+          requiresRuntimeCapability: true,
+        },
+      },
     },
   },
   {
@@ -372,7 +423,6 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
     acp: {
       packageName: '@agentclientprotocol/claude-agent-acp',
       version: '0.59.0',
-      forkMode: 'target-process',
     },
     prepareAcpEnvironment: claudeAcpEnvironment,
     capabilities: {
@@ -380,8 +430,14 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
       terminalProfile: false,
       goals: false,
       goalSubmission: { terminal: { kind: 'command', prefix: '/goal' }, acp: { kind: 'prompt' } },
-      terminalSessionFork: true,
-      sessionFork: true,
+      conversationFork: {
+        terminal: { strategy: 'target-process', worktreeModes: ['same-worktree', 'new-worktree'] },
+        acp: {
+          strategy: 'target-process',
+          worktreeModes: ['same-worktree'],
+          requiresRuntimeCapability: true,
+        },
+      },
     },
   },
   {
@@ -416,8 +472,14 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
       terminalProfile: false,
       goals: false,
       goalSubmission: { terminal: { kind: 'prompt' }, acp: { kind: 'prompt' } },
-      terminalSessionFork: true,
-      sessionFork: true,
+      conversationFork: {
+        terminal: { strategy: 'target-process', worktreeModes: ['same-worktree', 'new-worktree'] },
+        acp: {
+          strategy: 'source-session',
+          worktreeModes: ['same-worktree'],
+          requiresRuntimeCapability: true,
+        },
+      },
     },
   },
   {
@@ -447,8 +509,14 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
       terminalProfile: false,
       goals: false,
       goalSubmission: { terminal: { kind: 'command', prefix: '/goal set' }, acp: { kind: 'prompt' } },
-      terminalSessionFork: true,
-      sessionFork: true,
+      conversationFork: {
+        terminal: { strategy: 'target-process', worktreeModes: ['same-worktree', 'new-worktree'] },
+        acp: {
+          strategy: 'source-session',
+          worktreeModes: ['same-worktree'],
+          requiresRuntimeCapability: true,
+        },
+      },
     },
   },
   {
@@ -488,8 +556,13 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
       terminalProfile: false,
       goals: false,
       goalSubmission: { terminal: { kind: 'prompt' }, acp: { kind: 'prompt' } },
-      terminalSessionFork: false,
-      sessionFork: true,
+      conversationFork: {
+        acp: {
+          strategy: 'source-session',
+          worktreeModes: ['same-worktree'],
+          requiresRuntimeCapability: true,
+        },
+      },
     },
   },
 ]);
@@ -516,14 +589,20 @@ function listProviderAdapters(): readonly ProviderAdapter[] {
 
 function providerCapabilities(provider: unknown): PublicProviderCapabilities {
   const adapter = getProviderAdapter(provider);
+  const terminalFork = conversationForkCapability(adapter, 'terminal');
+  const acpFork = conversationForkCapability(adapter, 'acp');
   return {
     supportedRuntimes: adapter ? [...adapter.supportedRuntimes] : ['terminal'],
     runtimeSwitch: adapter?.capabilities?.runtimeSwitch === true,
     terminalProfile: adapter?.capabilities?.terminalProfile === true,
     goals: adapter?.capabilities?.goals === true,
     goalSubmission: adapter?.capabilities?.goalSubmission || null,
-    terminalSessionFork: adapter?.capabilities?.terminalSessionFork === true,
-    sessionFork: adapter?.capabilities?.sessionFork === true,
+    conversationFork: {
+      terminal: terminalFork,
+      acp: acpFork,
+    },
+    terminalSessionFork: terminalFork.supported,
+    sessionFork: acpFork.supported,
     ...(adapter
       ? chatCapabilitiesForProvider(provider)
       : { chatRuntime: '', supportsChat: false, supportsSteer: false }),
@@ -534,8 +613,11 @@ function providerSupportsRuntime(provider: unknown, runtime: ProviderRuntime): b
   return getProviderAdapter(provider)?.supportedRuntimes.includes(runtime) === true;
 }
 
-function providerAcpForkMode(provider: unknown): ProviderAcpForkMode {
-  return getProviderAdapter(provider)?.acp?.forkMode || 'source-then-load';
+function providerConversationForkCapability(
+  provider: unknown,
+  runtime: ProviderRuntime,
+): ProviderConversationForkCapability {
+  return conversationForkCapability(getProviderAdapter(provider), runtime);
 }
 
 function applyProviderHomeEnvironment(
@@ -558,7 +640,7 @@ export {
   applyProviderHomeEnvironment,
   isFreshAcpSessionSource,
   listProviderAdapters,
-  providerAcpForkMode,
+  providerConversationForkCapability,
   providerCapabilities,
   providerForProgram,
   providerSupportsRuntime,
