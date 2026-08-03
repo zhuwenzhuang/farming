@@ -118,6 +118,9 @@ const PROCESS_EXIT_TIMEOUT_MS = 5_000;
 const PROCESS_EXIT_POLL_MS = 100;
 const MAX_ACTION_TIMEOUT_MS = 120_000;
 const MAX_SCRIPT_LENGTH = 100_000;
+const MAX_PUBLIC_OUTPUT_CHARS = 100_000;
+const MAX_SNAPSHOT_CHARS = 50_000;
+const MAX_SCREENSHOT_BYTES = 32 * 1024 * 1024;
 
 function namespaceForResource(configDir: string, id: unknown, generation: unknown): string {
   const digest = crypto
@@ -235,7 +238,14 @@ function commandData(result: CommandResult): UnknownRecord {
 function publicCommandData(result: CommandResult): UnknownRecord {
   if (!result || !Object.prototype.hasOwnProperty.call(result, 'data')) return {};
   const data = result.data;
-  return isRecord(data) ? data : { value: data };
+  const value = isRecord(data) ? data : { value: data };
+  const serialized = JSON.stringify(value);
+  if (serialized.length <= MAX_PUBLIC_OUTPUT_CHARS) return value;
+  return {
+    truncated: true,
+    outputChars: serialized.length,
+    preview: serialized.slice(0, MAX_PUBLIC_OUTPUT_CHARS),
+  };
 }
 
 function normalizeRef(input: UnknownRecord = {}): string {
@@ -741,10 +751,13 @@ class AgentBrowserRuntime extends EventEmitter {
   async snapshot() {
     const data = commandData(await this.command(['snapshot']));
     const metadata = await this.metadata();
+    const accessibilityTree = String(data.snapshot || '');
     return {
       ...metadata,
       elements: snapshotElements(data.refs),
-      accessibilityTree: String(data.snapshot || ''),
+      accessibilityTree: accessibilityTree.slice(0, MAX_SNAPSHOT_CHARS),
+      accessibilityTreeChars: accessibilityTree.length,
+      truncated: accessibilityTree.length > MAX_SNAPSHOT_CHARS,
       origin: String(data.origin || ''),
     };
   }
@@ -762,9 +775,17 @@ class AgentBrowserRuntime extends EventEmitter {
         throw new Error('agent-browser returned an unsafe screenshot path');
       }
       try {
-        return { mimeType: 'image/png', data: fs.readFileSync(resolved).toString('base64') };
+        const stat = await fs.promises.stat(resolved);
+        if (!stat.isFile()) throw new Error('agent-browser screenshot did not produce a regular file');
+        if (stat.size > MAX_SCREENSHOT_BYTES) {
+          throw new Error(`agent-browser screenshot exceeds ${MAX_SCREENSHOT_BYTES} bytes`);
+        }
+        return {
+          mimeType: 'image/png',
+          data: (await fs.promises.readFile(resolved)).toString('base64'),
+        };
       } finally {
-        fs.rmSync(resolved, { force: true });
+        await fs.promises.rm(resolved, { force: true });
       }
     };
     const next = this.screenshotChain.catch(() => {}).then(operation);

@@ -76,6 +76,8 @@ a structured snapshot and use JavaScript or debugging evidence only when needed.
 - Navigate, go back or forward, reload, and wait for page changes.
 - Click, fill, type, press keys, select, drag, and scroll.
 - Read structured snapshots, text, attributes, element state, and screenshots.
+  Farming bounds large page output and screenshots instead of expanding the
+  Browser API with per-call tuning controls.
 - Inspect console messages, page errors, and network requests.
 - Work with cookies, storage, frames, and browser dialogs.
 - Upload an existing Project file or download a new file into the Project.

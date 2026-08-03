@@ -43,6 +43,7 @@ async function run() {
     startedAt: 'agent-browser-test',
     format: 'test-v1',
   };
+  let largeSnapshotOutput = false;
   const runCommand = async (_executable, args, options) => {
     calls.push(args);
     commandEnvironments.push(options.env);
@@ -81,10 +82,15 @@ async function run() {
         success: true,
         data: {
           refs: { e1: { role: 'button', name: 'Run' } },
-          snapshot: '- button "Run" [ref=e1]',
+          snapshot: largeSnapshotOutput
+            ? 'x'.repeat(50_001)
+            : '- button "Run" [ref=e1]',
           origin: 'https://example.test/',
         },
       };
+    }
+    if (command[0] === 'eval') {
+      return { success: true, data: { value: 'x'.repeat(100_100) } };
     }
     if (command[0] === 'close') processActive = false;
     return { success: true, data: {} };
@@ -164,6 +170,12 @@ async function run() {
     calls.find(args => args[4] === 'snapshot').slice(4),
     ['snapshot', '--json'],
   );
+  largeSnapshotOutput = true;
+  const largeSnapshot = await runtime.snapshot();
+  largeSnapshotOutput = false;
+  assert.strictEqual(largeSnapshot.accessibilityTree.length, 50_000);
+  assert.strictEqual(largeSnapshot.accessibilityTreeChars, 50_001);
+  assert.strictEqual(largeSnapshot.truncated, true);
   await runtime.click({ ref: 'e1' });
   await runtime.elementAction('hover', { selector: '#menu' });
   await runtime.type({ ref: 'e1', text: 'hello' }, true);
@@ -201,7 +213,10 @@ async function run() {
     name: 'Continue',
     exact: true,
   });
-  await runtime.evaluate({ expression: '({ title: document.title })' });
+  const largeEvaluation = await runtime.evaluate({ expression: '({ title: document.title })' });
+  assert.strictEqual(largeEvaluation.truncated, true);
+  assert.strictEqual(largeEvaluation.outputChars > 100_000, true);
+  assert.strictEqual(largeEvaluation.preview.length, 100_000);
   await runtime.debugLog('console', { clear: true });
   await runtime.debugLog('errors', {});
   await runtime.network({
@@ -366,6 +381,7 @@ async function run() {
   assert(externalCalls.some(command => command[0] === 'tab' && command[1] === 'close'));
 
   const screenshotPaths = [];
+  let oversizedScreenshot = false;
   let screenshotCommandsInFlight = 0;
   let maxScreenshotCommandsInFlight = 0;
   const screenshotRuntime = new AgentBrowserRuntime({
@@ -384,6 +400,7 @@ async function run() {
       await new Promise(resolve => setTimeout(resolve, 10));
       fs.mkdirSync(path.dirname(command[1]), { recursive: true });
       fs.writeFileSync(command[1], `image-${screenshotPaths.length}`);
+      if (oversizedScreenshot) fs.truncateSync(command[1], (32 * 1024 * 1024) + 1);
       screenshotCommandsInFlight -= 1;
       return { success: true, data: { path: command[1] } };
     },
@@ -392,6 +409,12 @@ async function run() {
   await Promise.all([screenshotRuntime.screenshot(), screenshotRuntime.screenshot()]);
   assert.strictEqual(maxScreenshotCommandsInFlight, 1);
   assert.strictEqual(new Set(screenshotPaths).size, 2);
+  oversizedScreenshot = true;
+  await assert.rejects(
+    screenshotRuntime.screenshot(),
+    /screenshot exceeds 33554432 bytes/,
+  );
+  assert.strictEqual(fs.existsSync(screenshotPaths.at(-1)), false);
 
   const commandOrder = [];
   let commandsInFlight = 0;

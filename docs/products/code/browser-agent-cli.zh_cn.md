@@ -69,7 +69,8 @@ list → 复用或创建 → start → navigate → snapshot
 - 创建、列出、启动和停止 Browser Resource。
 - 导航、后退、前进、刷新，以及等待页面变化。
 - 点击、填表、输入、按键、选择、拖拽和滚动。
-- 读取结构化 Snapshot、文本、属性、元素状态和截图。
+- 读取结构化 Snapshot、文本、属性、元素状态和截图。Farming 对过大的页面输出和
+  截图使用固定边界，不为此扩展逐次调用的调参接口。
 - 检查 Console、页面错误和 Network Request。
 - 使用 Cookie、Storage、Frame 和浏览器 Dialog。
 - 上传已有 Project 文件，或把下载保存为 Project 中的新文件。
