@@ -66,6 +66,7 @@ import {
   readingAnchorAgentKey,
   readReadingAnchor,
   saveReadingAnchor,
+  type ReadingAnchor,
 } from '@/lib/reading-anchor'
 import { collectTerminalPathLinkMatches } from '@/lib/terminal-links'
 import { isCompactViewport } from '@/lib/responsive-mode'
@@ -220,6 +221,7 @@ function mergeAcpTranscript(
 
 export interface AgentTranscriptPaneProps {
   agentId: string
+  readingIdentity?: string
   workspaceRoot?: string
   active: boolean
   viewportLayoutKey?: string
@@ -237,17 +239,16 @@ export interface AgentTranscriptPaneProps {
   copy: CodeCopy
 }
 
-type TranscriptAnchorRestoreResult = 'none' | 'restored' | 'expired'
+type TranscriptAnchorRestoreResult = 'none' | 'restored' | 'missing' | 'expired'
 
-function saveTranscriptReadingAnchor(agentId: string, element: HTMLDivElement) {
+function captureTranscriptReadingAnchor(agentId: string, element: HTMLDivElement): ReadingAnchor | null | undefined {
   if (isTranscriptNearBottom(element)) {
-    clearReadingAnchor(readingAnchorAgentKey(agentId, 'chat'))
-    return
+    return null
   }
   const scrollerRect = element.getBoundingClientRect()
   const turns = Array.from(element.querySelectorAll<HTMLElement>('[data-turn-id]'))
   const turn = turns.find(candidate => candidate.getBoundingClientRect().bottom > scrollerRect.top)
-  if (!turn) return
+  if (!turn) return undefined
   const processItem = Array.from(turn.querySelectorAll<HTMLElement>('[data-process-item-id]'))
     .find(candidate => candidate.getBoundingClientRect().bottom > scrollerRect.top)
   const target = processItem || turn
@@ -256,8 +257,8 @@ function saveTranscriptReadingAnchor(agentId: string, element: HTMLDivElement) {
     ? Math.max(0, Math.min(1, (scrollerRect.top - targetRect.top) / targetRect.height))
     : 0
   const turnId = turn.dataset.turnId
-  if (!turnId) return
-  saveReadingAnchor({
+  if (!turnId) return undefined
+  return {
     version: 1,
     surface: 'chat',
     resource: { kind: 'agent', id: agentId },
@@ -267,7 +268,12 @@ function saveTranscriptReadingAnchor(agentId: string, element: HTMLDivElement) {
       ...(processItem?.dataset.processItemId ? { childId: processItem.dataset.processItemId } : {}),
     },
     position: { unit: 'fraction', value: fraction },
-  })
+  }
+}
+
+function persistTranscriptReadingAnchor(agentId: string, anchor: ReadingAnchor | null) {
+  if (anchor) saveReadingAnchor(anchor)
+  else clearReadingAnchor(readingAnchorAgentKey(agentId, 'chat'))
 }
 
 function restoreTranscriptReadingAnchor(agentId: string, element: HTMLDivElement): TranscriptAnchorRestoreResult {
@@ -279,10 +285,7 @@ function restoreTranscriptReadingAnchor(agentId: string, element: HTMLDivElement
     return 'expired'
   }
   const turn = element.querySelector<HTMLElement>(`[data-turn-id="${CSS.escape(anchor.locator.id)}"]`)
-  if (!turn) {
-    clearReadingAnchor(key)
-    return 'expired'
-  }
+  if (!turn) return 'missing'
   const processItem = anchor.locator.childId
     ? turn.querySelector<HTMLElement>(`[data-process-item-id="${CSS.escape(anchor.locator.childId)}"]`)
     : null
@@ -3296,6 +3299,7 @@ function transcriptTurnResetKey(turn: AgentTranscriptTurn) {
 }
 
 export function AgentTranscriptPane({
+  readingIdentity,
   agentId,
   workspaceRoot,
   active,
@@ -3312,6 +3316,7 @@ export function AgentTranscriptPane({
   onForkLatest,
   groupProcessActions = true,
   copy,
+  const readingAnchorAgentId = readingIdentity || agentId
 }: AgentTranscriptPaneProps) {
   const [transcript, setTranscript] = useState<AgentTranscript | null>(null)
   const transcriptRef = useRef<AgentTranscript | null>(null)
@@ -3335,6 +3340,8 @@ export function AgentTranscriptPane({
   // A saved semantic anchor is for returning to an Agent, not for tracking
   // every live transcript mutation. Reapplying its fractional position while
   // a message grows would move a user who is reading away from the bottom.
+  const pendingReadingAnchorWriteRef = useRef<{ agentId: string; anchor: ReadingAnchor | null } | null>(null)
+  const readingAnchorWriteTimerRef = useRef<number | null>(null)
   const pendingReadingAnchorRestoreRef = useRef(false)
   // A transcript refresh can arrive while a user is dragging the mobile
   // scroll surface. Never let the refresh/layout pass take the viewport away
@@ -3346,6 +3353,22 @@ export function AgentTranscriptPane({
   // text from an earlier message. Keep this separate from terminal selection:
   // it is scoped to this structured Chat scroll surface only.
   const textSelectionGestureRef = useRef(false)
+  const flushPendingReadingAnchor = useCallback(() => {
+    if (readingAnchorWriteTimerRef.current !== null) {
+      window.clearTimeout(readingAnchorWriteTimerRef.current)
+      readingAnchorWriteTimerRef.current = null
+    }
+    const pending = pendingReadingAnchorWriteRef.current
+    pendingReadingAnchorWriteRef.current = null
+    if (pending) persistTranscriptReadingAnchor(pending.agentId, pending.anchor)
+  }, [])
+  const scheduleReadingAnchorSave = useCallback((anchorAgentId: string, element: HTMLDivElement) => {
+    const anchor = captureTranscriptReadingAnchor(anchorAgentId, element)
+    if (anchor === undefined) return
+    pendingReadingAnchorWriteRef.current = { agentId: anchorAgentId, anchor }
+    if (readingAnchorWriteTimerRef.current !== null) return
+    readingAnchorWriteTimerRef.current = window.setTimeout(flushPendingReadingAnchor, 0)
+  }, [flushPendingReadingAnchor])
   const textSelectionHadRangeRef = useRef(false)
   const openWorkspaceFilePathRef = useRef(onOpenWorkspaceFilePath)
   const markUserScrollGesture = useCallback(() => {
@@ -3373,10 +3396,10 @@ export function AgentTranscriptPane({
         || hasTextSelectionWithin(element)
       ) return
       element.scrollTop = element.scrollHeight
-      clearReadingAnchor(readingAnchorAgentKey(agentId, 'chat'))
+      clearReadingAnchor(readingAnchorAgentKey(readingAnchorAgentId, 'chat'))
       setShowJumpToBottom(false)
     }, 420)
-  }, [agentId])
+  }, [readingAnchorAgentId])
 
   useLayoutEffect(() => {
     openWorkspaceFilePathRef.current = onOpenWorkspaceFilePath
@@ -3395,7 +3418,7 @@ export function AgentTranscriptPane({
     // resize first makes its synthetic scroll event look like a user scroll,
     // which drops follow-latest and causes long chats to jump on later updates.
     element.scrollTop = element.scrollHeight
-    clearReadingAnchor(readingAnchorAgentKey(agentId, 'chat'))
+    clearReadingAnchor(readingAnchorAgentKey(readingAnchorAgentId, 'chat'))
     setShowJumpToBottom(false)
     onReadLatest?.()
   }, [active, agentId, onReadLatest, viewportLayoutKey])
@@ -3412,20 +3435,42 @@ export function AgentTranscriptPane({
     setOpenCollaborationAgentIds(new Set())
     setOpenCollaborationActivityIds(new Set())
     setShowJumpToBottom(false)
-    const hasReadingAnchor = Boolean(readReadingAnchor(readingAnchorAgentKey(agentId, 'chat')))
+    const hasReadingAnchor = Boolean(readReadingAnchor(readingAnchorAgentKey(readingAnchorAgentId, 'chat')))
     followBottomRef.current = !hasReadingAnchor
     pendingReadingAnchorRestoreRef.current = hasReadingAnchor
     textSelectionGestureRef.current = false
     textSelectionHadRangeRef.current = false
     pendingPrependAnchorRef.current = null
-  }, [agentId, source])
+  }, [agentId, readingAnchorAgentId, source])
 
   useEffect(() => () => {
     if (userScrollGestureTimerRef.current !== null) {
       window.clearTimeout(userScrollGestureTimerRef.current)
       userScrollGestureTimerRef.current = null
     }
-  }, [])
+    flushPendingReadingAnchor()
+  }, [flushPendingReadingAnchor])
+
+  useLayoutEffect(() => {
+    const element = scrollRef.current
+    if (!active || !element) return undefined
+    return () => {
+      scheduleReadingAnchorSave(readingAnchorAgentId, element)
+    }
+  }, [active, readingAnchorAgentId, scheduleReadingAnchorSave])
+
+  useEffect(() => {
+    const handlePageHide = () => {
+      const element = scrollRef.current
+      if (element) {
+        const anchor = captureTranscriptReadingAnchor(readingAnchorAgentId, element)
+        if (anchor !== undefined) persistTranscriptReadingAnchor(readingAnchorAgentId, anchor)
+      }
+      flushPendingReadingAnchor()
+    }
+    window.addEventListener('pagehide', handlePageHide)
+    return () => window.removeEventListener('pagehide', handlePageHide)
+  }, [flushPendingReadingAnchor, readingAnchorAgentId])
 
   useEffect(() => {
     if (!active) return undefined
@@ -3622,14 +3667,14 @@ export function AgentTranscriptPane({
         if (textSelectionGestureRef.current || hasTextSelectionWithin(element)) return
         const nextTop = element.scrollHeight - pendingAnchor.scrollHeight + pendingAnchor.scrollTop
         element.scrollTop = Math.max(0, nextTop)
-        saveTranscriptReadingAnchor(agentId, element)
+        scheduleReadingAnchorSave(readingAnchorAgentId, element)
       })
       return
     }
     if (followBottomRef.current) {
       pendingReadingAnchorRestoreRef.current = false
       element.scrollTop = element.scrollHeight
-      clearReadingAnchor(readingAnchorAgentKey(agentId, 'chat'))
+      clearReadingAnchor(readingAnchorAgentKey(readingAnchorAgentId, 'chat'))
       setShowJumpToBottom(false)
       window.requestAnimationFrame(() => {
         if (
@@ -3639,27 +3684,43 @@ export function AgentTranscriptPane({
           || hasTextSelectionWithin(element)
         ) return
         element.scrollTop = element.scrollHeight
-        clearReadingAnchor(readingAnchorAgentKey(agentId, 'chat'))
+        clearReadingAnchor(readingAnchorAgentKey(readingAnchorAgentId, 'chat'))
         setShowJumpToBottom(false)
         if (active && isPageActive()) onReadLatest?.()
       })
       return
     }
     if (!pendingReadingAnchorRestoreRef.current) return
-    pendingReadingAnchorRestoreRef.current = false
     window.requestAnimationFrame(() => {
       if (textSelectionGestureRef.current || hasTextSelectionWithin(element)) return
-      const restored = restoreTranscriptReadingAnchor(agentId, element)
-      if (restored !== 'expired') return
-      // The desired message is outside the bounded transcript window. Do not
-      // fetch or guess at older history on a passive Agent switch: viewing a
-      // stale anchor always converges to the current tail.
+      const restored = restoreTranscriptReadingAnchor(readingAnchorAgentId, element)
+      if (restored === 'restored') {
+        pendingReadingAnchorRestoreRef.current = false
+        setShowJumpToBottom(true)
+        return
+      }
+      if (
+        restored === 'missing'
+        && transcript.hasMoreBefore
+        && turnLimit < MAX_TRANSCRIPT_TURN_LIMIT
+      ) {
+        if (!loadingOlder) {
+          setLoadingOlder(true)
+          setTurnLimit(current => Math.min(
+            MAX_TRANSCRIPT_TURN_LIMIT,
+            current + (source === 'acp' ? ACP_TRANSCRIPT_TURN_PAGE_SIZE : TRANSCRIPT_TURN_PAGE_SIZE),
+          ))
+        }
+        return
+      }
+      pendingReadingAnchorRestoreRef.current = false
+      clearReadingAnchor(readingAnchorAgentKey(readingAnchorAgentId, 'chat'))
       followBottomRef.current = true
       element.scrollTop = element.scrollHeight
       setShowJumpToBottom(false)
       if (active && isPageActive()) onReadLatest?.()
     })
-  }, [active, agentId, loading, onReadLatest, transcript?.available, transcript?.updatedAt, turns.length])
+  }, [active, loading, loadingOlder, onReadLatest, readingAnchorAgentId, scheduleReadingAnchorSave, source, transcript?.available, transcript?.hasMoreBefore, transcript?.updatedAt, turnLimit, turns.length])
 
   useLayoutEffect(() => {
     if (!active || !transcript?.available || turns.length === 0 || typeof ResizeObserver === 'undefined') {
@@ -3675,18 +3736,19 @@ export function AgentTranscriptPane({
         || hasTextSelectionWithin(element)
       ) return
       element.scrollTop = element.scrollHeight
-      clearReadingAnchor(readingAnchorAgentKey(agentId, 'chat'))
+      clearReadingAnchor(readingAnchorAgentKey(readingAnchorAgentId, 'chat'))
       setShowJumpToBottom(false)
     })
     element.querySelectorAll<HTMLElement>('.code-agent-transcript-turn').forEach(turn => observer.observe(turn))
     return () => observer.disconnect()
-  }, [active, agentId, transcript?.available, turns])
+  }, [active, readingAnchorAgentId, transcript?.available, turns])
 
   useEffect(() => () => {
     const element = scrollRef.current
     if (!element) return
-    saveTranscriptReadingAnchor(agentId, element)
-  }, [agentId])
+    const anchor = captureTranscriptReadingAnchor(readingAnchorAgentId, element)
+    if (anchor !== undefined) persistTranscriptReadingAnchor(readingAnchorAgentId, anchor)
+  }, [readingAnchorAgentId])
 
   useEffect(() => {
     onAvailabilityChange?.({
@@ -3821,25 +3883,29 @@ export function AgentTranscriptPane({
   const handleScroll = useCallback(() => {
     const element = scrollRef.current
     if (!element) return
+    const hasTextSelection = textSelectionGestureRef.current || hasTextSelectionWithin(element)
+    if (pendingReadingAnchorRestoreRef.current && !userScrollGestureRef.current && !hasTextSelection) {
+      return
+    }
     pendingReadingAnchorRestoreRef.current = false
-    if (textSelectionGestureRef.current || hasTextSelectionWithin(element)) {
+    if (hasTextSelection) {
       followBottomRef.current = false
       textSelectionHadRangeRef.current = true
-      saveTranscriptReadingAnchor(agentId, element)
+      scheduleReadingAnchorSave(readingAnchorAgentId, element)
       return
     }
     const nearBottom = isTranscriptNearBottom(element)
     if (nearBottom) followBottomRef.current = true
     else if (userScrollGestureRef.current) followBottomRef.current = false
-    if (followBottomRef.current) clearReadingAnchor(readingAnchorAgentKey(agentId, 'chat'))
-    else saveTranscriptReadingAnchor(agentId, element)
+    if (followBottomRef.current) clearReadingAnchor(readingAnchorAgentKey(readingAnchorAgentId, 'chat'))
+    else scheduleReadingAnchorSave(readingAnchorAgentId, element)
     setShowJumpToBottom(
       !followBottomRef.current
       && element.scrollHeight > element.clientHeight + TRANSCRIPT_BOTTOM_FOLLOW_THRESHOLD,
     )
     if (active && nearBottom && isPageActive()) onReadLatest?.()
     if (element.scrollTop <= TRANSCRIPT_LOAD_MORE_THRESHOLD) requestOlderTurns(element)
-  }, [active, agentId, onReadLatest, requestOlderTurns])
+  }, [active, onReadLatest, readingAnchorAgentId, requestOlderTurns, scheduleReadingAnchorSave])
   const handleWheel = useCallback((event: ReactWheelEvent<HTMLDivElement>) => {
     markUserScrollGesture()
     finishUserScrollGesture()
@@ -3894,10 +3960,10 @@ export function AgentTranscriptPane({
     // interrupted by a transcript refresh and leave the reader above the
     // newest turn, so move the viewport synchronously instead.
     element.scrollTop = element.scrollHeight
-    clearReadingAnchor(readingAnchorAgentKey(agentId, 'chat'))
+    clearReadingAnchor(readingAnchorAgentKey(readingAnchorAgentId, 'chat'))
     setShowJumpToBottom(false)
     onReadLatest?.()
-  }, [agentId, onReadLatest])
+  }, [onReadLatest, readingAnchorAgentId])
 
   return (
     <TranscriptFileOpenContext.Provider value={transcriptFileOpenContext}>

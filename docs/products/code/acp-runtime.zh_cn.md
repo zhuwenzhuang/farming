@@ -64,7 +64,7 @@ ACP update 一方面以有界且限制单条大小的诊断数据保留，另一
 
 最新一个正在工作的 ACP Turn 会在内容底部显示一条克制的实时活动状态，Codex、Claude Code、OpenCode 与 Qoder 共用同一行为。文案与图标只来自 thought、plan、tool-call kind 等与 provider 无关的 ACP 类型状态；活跃 Tool 与当前 Plan 步骤优先，否则 Farming 可以使用最新 ACP thought 中用户可见且长度受限的 Markdown 粗体标题，再回退到通用类型文案。无法分类的工作使用中性加载图标，不使用 provider 或插件图标。会话等待权限、等待用户输入或正在中断时隐藏该状态，由对应的显式交互界面表达。已完成的过程摘要与历史动作保持纯文字。
 
-较短的 Chat transcript 从阅读区域顶部开始，不再被压到贴近底部 Composer 的位置。长历史在读者停留于尾部时仍然跟随最新内容；读者查看较早内容时会保留明确的阅读位置，并在脱离尾部后显示跳转到最新位置的控件。只有明确的读者滚动或文本选择手势会脱离“跟随最新”；transcript 渲染和其它延迟内容高度变化仍会让视口紧贴尾部。
+较短的 Chat transcript 从阅读区域顶部开始，不再被压到贴近底部 Composer 的位置。长历史在读者停留于尾部时仍然跟随最新内容；读者查看较早内容时会保留明确的阅读位置，并在脱离尾部后显示跳转到最新位置的控件。只有明确的读者滚动或文本选择手势会脱离“跟随最新”；transcript 渲染和其它延迟内容高度变化仍会让视口紧贴尾部。脱离尾部的 Chat 会异步 checkpoint 第一条可见的稳定 Turn 或 Process Item 身份及其在视口中的比例偏移，并以 Agent 的重启 lineage 作为键。这个浏览器本地锚点在 Farming 或页面重启后仍然保留。恢复会等待 transcript 稳定显示；若锚点不在首批窗口中，则继续按每页 20 个 Turn 有界加载旧历史；只有权威历史证明该锚点已不存在时才回到当前尾部。迟到的 transcript 更新不会重复应用已经恢复过的锚点，存储读写失败也不能阻塞 Agent 切换。
 
 Farming Code 把“已打开 Agent”逻辑列表与有界前端工作集分开。Chat DOM 和池化 xterm 共用一份最多二十个 Agent 的 LRU：激活 Agent 会把它移到最近使用端，当前活跃 Agent 受到保护；第二十一个需要保留的视图只会逐出最久未使用的非活跃浏览器视图，绝不会停止后端 ACP 或 PTY 进程。在缓存命中的 Agent 行之间切换时，旧 Chat 只隐藏，不卸载 transcript、展开状态或精确滚动位置；Search、History 和文件编辑器也只隐藏 Agent 工作区，不改变 LRU 顺序。非活跃且命中缓存的 Chat 不请求 transcript；再次选中时先展示保留视图，再使用保留的 revision 只请求发生变化的 ACP 后缀。被逐出的 Chat 会完整加载权威 transcript；被逐出的 Terminal 会从权威 session-view checkpoint 重新创建 xterm。
 

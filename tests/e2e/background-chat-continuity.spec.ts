@@ -628,6 +628,92 @@ test('keeps long ACP Chat stable when the Composer is collapsed and restored', a
   await expect(page.getByTestId('code-agent-transcript-jump-bottom')).toBeVisible()
 })
 
+test('restores a persisted Chat message anchor after reload and loads older turns when needed', async ({ page, workspaceRoot }) => {
+  const workspace = path.join(workspaceRoot, 'persisted-chat-reading-anchor')
+  fs.mkdirSync(workspace, { recursive: true })
+  const agentId = await createAcpAgent(page, workspace)
+  const entries = Array.from({ length: 36 }, (_, index) => ([
+    {
+      id: `anchor-user-${index}`,
+      type: 'message',
+      role: 'user',
+      content: [{ type: 'text', text: `Persisted reading question ${index}` }],
+    },
+    {
+      id: `anchor-answer-${index}`,
+      type: 'message',
+      role: 'assistant',
+      _meta: { codex: { phase: 'final_answer' } },
+      content: [{
+        type: 'text',
+        text: `Persisted answer ${index}. ${'Keep this turn tall enough to recover a fractional message anchor. '.repeat(4)}`,
+      }],
+    },
+  ])).flat()
+  const requestedTurnLimits: number[] = []
+
+  await page.route(new RegExp(`/farming/api/agents/${agentId}/acp-transcript(?:\\?.*)?$`), async route => {
+    requestedTurnLimits.push(Number(new URL(route.request().url()).searchParams.get('maxTurns') || 0))
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        transcript: {
+          sessionId: 'persisted-chat-reading-anchor-session',
+          state: 'idle',
+          revision: 1,
+          entries,
+        },
+      }),
+    })
+  })
+
+  await openFarming(page)
+  await selectAgentOnCompactLayout(page, agentId)
+  const transcript = page.getByTestId('code-agent-transcript-scroll')
+  await expect(transcript).toContainText('Persisted reading question 35')
+  await transcript.evaluate(element => {
+    element.dispatchEvent(new Event('touchstart', { bubbles: true }))
+    element.scrollTop = 0
+    element.dispatchEvent(new Event('scroll', { bubbles: true }))
+    element.dispatchEvent(new Event('touchend', { bubbles: true }))
+  })
+  await expect(transcript).toContainText('Persisted reading question 2')
+
+  const saved = await transcript.evaluate(element => {
+    const target = Array.from(element.querySelectorAll<HTMLElement>('[data-turn-id]'))
+      .find(turn => turn.textContent?.includes('Persisted reading question 2'))
+    if (!target) throw new Error('Older persisted-anchor turn did not load')
+    element.dispatchEvent(new Event('touchstart', { bubbles: true }))
+    target.scrollIntoView({ block: 'center' })
+    element.dispatchEvent(new Event('scroll', { bubbles: true }))
+    element.dispatchEvent(new Event('touchend', { bubbles: true }))
+    const scrollerRect = element.getBoundingClientRect()
+    const firstVisible = Array.from(element.querySelectorAll<HTMLElement>('[data-turn-id]'))
+      .find(turn => turn.getBoundingClientRect().bottom > scrollerRect.top)
+    if (!firstVisible?.dataset.turnId) throw new Error('Visible persisted-anchor turn is missing')
+    return {
+      id: firstVisible.dataset.turnId,
+      offset: firstVisible.getBoundingClientRect().top - scrollerRect.top,
+    }
+  })
+  const storageKey = `farming.reading-anchor.v1:agent:${agentId}:chat`
+  await expect.poll(() => page.evaluate(key => Boolean(localStorage.getItem(key)), storageKey)).toBe(true)
+  await page.evaluate(key => sessionStorage.removeItem(key), storageKey)
+  const requestsBeforeReload = requestedTurnLimits.length
+
+  await page.reload()
+  await selectAgentOnCompactLayout(page, agentId)
+  const restoredTranscript = page.getByTestId('code-agent-transcript-scroll')
+  await expect(restoredTranscript.locator(`[data-turn-id="${saved.id}"]`)).toBeAttached()
+  await expect.poll(async () => restoredTranscript.evaluate((element, expected) => {
+    const turn = element.querySelector<HTMLElement>(`[data-turn-id="${CSS.escape(expected.id)}"]`)
+    if (!turn) return Number.POSITIVE_INFINITY
+    return Math.abs((turn.getBoundingClientRect().top - element.getBoundingClientRect().top) - expected.offset)
+  }, saved)).toBeLessThanOrEqual(3)
+  expect(requestedTurnLimits.slice(requestsBeforeReload)).toContain(40)
+  await expect(page.getByTestId('code-agent-transcript-jump-bottom')).toBeVisible()
+})
+
 test('starts a short ACP turn at the top with a compact copy affordance', { tag: '@iphone-human' }, async ({ page, workspaceRoot }) => {
   const workspace = path.join(workspaceRoot, 'compact-chat-tail')
   fs.mkdirSync(workspace, { recursive: true })
