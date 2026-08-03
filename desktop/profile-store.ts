@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { safeStorage } from 'electron'
+import type { SafeStorage } from 'electron'
 import type { DesktopBackendInput } from '../shared/desktop-contract.js'
 import {
   normalizeDesktopBackendInput,
@@ -19,6 +19,11 @@ export interface DesktopRuntimeBackendProfile {
   token: string
 }
 
+type DesktopCredentialStorage = Pick<
+  SafeStorage,
+  'decryptString' | 'encryptString' | 'isEncryptionAvailable'
+>
+
 const EMPTY_STATE: PersistedDesktopState = { version: 1, activeBackendId: null, profiles: [] }
 
 export class DesktopProfileStore {
@@ -28,6 +33,7 @@ export class DesktopProfileStore {
   constructor(
     private readonly stateFile: string,
     runtimeProfiles: DesktopRuntimeBackendProfile[] = [],
+    private readonly credentialStorage: DesktopCredentialStorage | null = null,
   ) {
     this.runtimeProfiles = new Map(runtimeProfiles.map(profile => [profile.profile.id, profile]))
     this.state = this.readState()
@@ -63,10 +69,9 @@ export class DesktopProfileStore {
     if (input.clearToken) {
       profile.encryptedToken = ''
     } else if (input.token?.trim()) {
-      if (!safeStorage.isEncryptionAvailable()) {
-        throw new Error('System credential encryption is not available.')
-      }
-      profile.encryptedToken = safeStorage.encryptString(input.token.trim()).toString('base64')
+      profile.encryptedToken = this.requireCredentialStorage()
+        .encryptString(input.token.trim())
+        .toString('base64')
     }
     const index = this.state.profiles.findIndex(candidate => candidate.id === profile.id)
     if (index === -1) this.state.profiles.push(profile)
@@ -92,8 +97,14 @@ export class DesktopProfileStore {
     if (runtimeToken !== undefined) return runtimeToken
     const encrypted = this.getStored(backendId)?.encryptedToken
     if (!encrypted) return ''
-    if (!safeStorage.isEncryptionAvailable()) throw new Error('System credential encryption is not available.')
-    return safeStorage.decryptString(Buffer.from(encrypted, 'base64'))
+    return this.requireCredentialStorage().decryptString(Buffer.from(encrypted, 'base64'))
+  }
+
+  private requireCredentialStorage() {
+    if (!this.credentialStorage?.isEncryptionAvailable()) {
+      throw new Error('System credential encryption is not available.')
+    }
+    return this.credentialStorage
   }
 
   private readState(): PersistedDesktopState {

@@ -5,6 +5,7 @@ import {
   dialog,
   ipcMain,
   Notification,
+  safeStorage,
   session,
   type IpcMainInvokeEvent,
 } from 'electron'
@@ -386,7 +387,11 @@ void app.whenReady().then(async () => {
   desktopResources.guard()
   const localTarget = await desktopLocalBackend.start()
   desktopResources.guard()
-  const profileStore = new DesktopProfileStore(path.join(app.getPath('userData'), 'backends.json'), [localTarget])
+  const profileStore = new DesktopProfileStore(
+    path.join(app.getPath('userData'), 'backends.json'),
+    [localTarget],
+    safeStorage,
+  )
   const connectionManager = new DesktopConnectionManager(profileStore, {
     appVersion: resolveDesktopServerVersion({
       electronVersion: app.getVersion(),

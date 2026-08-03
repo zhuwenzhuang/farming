@@ -409,6 +409,30 @@ test('removing the active remote backend falls back to the built-in local backen
   }
 })
 
+test('desktop profile tokens use the injected system credential storage', () => {
+  const temporaryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-desktop-credentials-'))
+  const stateFile = path.join(temporaryDir, 'backends.json')
+  const credentialStorage = {
+    isEncryptionAvailable: () => true,
+    encryptString: (value: string) => Buffer.from(`encrypted:${value}`),
+    decryptString: (value: Buffer) => value.toString().replace(/^encrypted:/, ''),
+  }
+  try {
+    const store = new DesktopProfileStore(stateFile, [], credentialStorage)
+    const remote = store.save({
+      name: 'Build host',
+      transport: 'direct',
+      directUrl: 'http://127.0.0.1:43122',
+      token: 'desktop-secret',
+    })
+
+    assert.equal(store.readToken(remote.id), 'desktop-secret')
+    assert.equal(fs.readFileSync(stateFile, 'utf8').includes('desktop-secret'), false)
+  } finally {
+    fs.rmSync(temporaryDir, { recursive: true, force: true })
+  }
+})
+
 test('local backend lifecycle coalesces start and makes stop idempotent', async () => {
   const runtime = new DesktopLocalBackend({
     configDir: '/tmp/farming-desktop-local-test',
