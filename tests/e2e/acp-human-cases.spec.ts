@@ -840,7 +840,6 @@ test.describe('ACP human-like browser matrix', () => {
     await test.step('11 hide completed intermediate work behind one folded entry', async () => {
       const processSummary = richTurn.getByTestId('code-agent-transcript-process-summary')
       await expect(processSummary).toHaveAttribute('aria-expanded', 'false')
-      await expect(processSummary.getByTestId('code-agent-transcript-process-icon')).toHaveAttribute('data-kind', 'thinking')
       await expect(richTurn.getByTestId('code-agent-transcript-process-compact-list')).toHaveCount(0)
       await expect(richTurn.getByTestId('code-agent-transcript-process-group')).toHaveCount(0)
       await processSummary.click()
@@ -874,7 +873,6 @@ test.describe('ACP human-like browser matrix', () => {
       const reasoning = richTurn.getByTestId('code-agent-transcript-process-item').filter({ hasText: 'Reasoning' })
       await expect(reasoning).toBeVisible()
       await expect(reasoning.getByTestId('code-agent-transcript-process-item-toggle')).toHaveAttribute('aria-expanded', 'false')
-      await expect(reasoning.getByTestId('code-agent-transcript-process-icon')).toHaveAttribute('data-kind', 'thinking')
     })
     const readItem = richTurn.getByTestId('code-agent-transcript-process-item').filter({ hasText: 'Read ACP display fixtures' })
     await test.step('17 retain the typed read-tool title and location', async () => {
@@ -884,7 +882,6 @@ test.describe('ACP human-like browser matrix', () => {
       await expect(locations).toBeVisible()
       await expect(locations.getByRole('button', { name: /README\.md:1/ })).toBeVisible()
       await expect(readItem).not.toContainText('Locations\n')
-      await expect(readItem.getByTestId('code-agent-transcript-process-icon')).toHaveAttribute('data-kind', 'reading')
     })
     await test.step('18 render a safe HTTP resource as a real link', async () => {
       await expect(readItem.getByRole('link', { name: 'ACP reference' })).toHaveAttribute('href', 'https://agentclientprotocol.com/')
@@ -931,7 +928,6 @@ test.describe('ACP human-like browser matrix', () => {
     })
     const terminalItem = richTurn.getByTestId('code-agent-transcript-process-item').filter({ hasText: 'Run verification command' })
     await test.step('24 fetch terminal presentation only when expanded', async () => {
-      await expect(terminalItem.getByTestId('code-agent-transcript-process-icon')).toHaveAttribute('data-kind', 'running')
       await terminalItem.getByTestId('code-agent-transcript-process-item-toggle').click()
       await expect(terminalItem.getByTestId('code-agent-transcript-terminals')).toBeVisible()
     })
@@ -1006,7 +1002,6 @@ test.describe('ACP human-like browser matrix', () => {
     })
     await test.step('32 lazily fetch and render the child transcript', async () => {
       const subagentItem = subagentTurn.getByTestId('code-agent-transcript-process-item').filter({ hasText: 'Inspect with subagent' })
-      await expect(subagentItem.getByTestId('code-agent-transcript-process-icon')).toHaveAttribute('data-kind', 'subagent')
       await subagentItem.getByTestId('code-agent-transcript-process-item-toggle').click()
       await expect(subagentItem.getByTestId('code-agent-transcript-subagent')).toContainText('Inspect the parser')
       await expect(subagentItem.getByTestId('code-agent-transcript-subagent')).toContainText('The parser is consistent.')

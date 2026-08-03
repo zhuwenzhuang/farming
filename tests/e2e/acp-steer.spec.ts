@@ -143,6 +143,8 @@ test('queues a follow-up and explicitly sends negotiated Codex ACP steer', async
   await expect(page.getByText('Steer accepted: focus on the attached image after editing', { exact: true })).toBeVisible()
   const latestSteerActivity = page.getByTestId('code-agent-transcript-latest-steer-activity')
   await expect(latestSteerActivity).toBeVisible()
+  await expect(latestSteerActivity.getByTestId('code-agent-transcript-live-activity-icon')).toHaveAttribute('data-kind', 'processing')
+  await expect(liveProcessSummary.getByTestId('code-agent-transcript-live-activity-icon')).toHaveCount(0)
   await expect(latestSteerActivity).toHaveCSS('font-size', '14px')
   await expect(latestSteerActivity).toHaveCSS('line-height', '20px')
   expect(await latestSteerActivity.evaluate(element => {

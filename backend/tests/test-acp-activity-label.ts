@@ -1,5 +1,5 @@
 const assert = require('assert');
-const { acpActivityKind, acpCompactPlanLabel, acpItemActivityKind, acpLiveToolActivityLabel, acpPlanProgress } = require('../../src/components/code/acp/acp-activity-label.ts');
+const { acpActivityKind, acpCompactPlanLabel, acpLiveToolActivityLabel, acpPlanProgress } = require('../../src/components/code/acp/acp-activity-label.ts');
 const { codeCopyForLanguage } = require('../../src/components/code/copy.ts');
 
 assert.strictEqual(acpActivityKind([]), 'processing');
@@ -9,12 +9,7 @@ assert.strictEqual(acpActivityKind([{ type: 'tool', kind: 'read', status: 'pendi
 assert.strictEqual(acpActivityKind([{ type: 'tool', kind: 'search', status: 'running' }]), 'searching');
 assert.strictEqual(acpActivityKind([{ type: 'patch', kind: 'edit', status: 'active' }]), 'editing');
 assert.strictEqual(acpActivityKind([{ type: 'plan', status: 'running' }]), 'plan');
-assert.strictEqual(acpItemActivityKind({ type: 'thought', status: 'completed' }), 'thinking');
-assert.strictEqual(acpItemActivityKind({ type: 'tool', kind: 'read', status: 'completed' }), 'reading');
-assert.strictEqual(acpItemActivityKind({ type: 'tool', kind: 'execute', status: 'completed' }), 'running');
-assert.strictEqual(acpItemActivityKind({ type: 'patch', kind: 'edit', status: 'completed' }), 'editing');
-assert.strictEqual(acpItemActivityKind({ type: 'plan', status: 'completed' }), 'plan');
-assert.strictEqual(acpItemActivityKind({ type: 'unknown', status: 'completed' }), 'processing');
+assert.strictEqual(acpActivityKind([{ type: 'thought', status: 'running' }]), 'thinking');
 assert.strictEqual(
   acpActivityKind([
     { type: 'plan', status: 'running' },
