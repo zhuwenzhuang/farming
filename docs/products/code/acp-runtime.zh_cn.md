@@ -56,7 +56,7 @@ Codex 也可能把只供宿主消费的展示指令写进 Assistant 文本；它
 
 这个区别很重要：ACP load 会在请求返回之前通过 `session/update` notification 重放完整对话，而 resume 只恢复上下文、不返回旧消息。Farming 会先注册 Session reducer 再发出 load，确保不会漏掉提前到达的历史 notification。重放更新归约进同一条有序流，不会逐条广播浏览器失效信号；恢复完成后客户端只收到一份稳定 snapshot。若 reader 的 `sinceRevision` 高于重建后的 reducer，或落在 reset fence 之前，后端会返回完整替换，而不是会错误保留旧内容的空 delta。
 
-从历史恢复的 Chat 会一直保留稳定的同步界面，直到第一份非空且稳定的分页内容到达。连接阶段或过早进入 idle 的空 snapshot 不得替换已经可见的 transcript；可恢复的主页面 Agent 行也会先统一物化，再逐个准备大 transcript binding。
+从历史恢复的 Chat 会一直保留稳定的同步界面，直到第一份非空且稳定的分页内容到达。后端以带 revision 的 reducer 和 checkpoint 为权威，只在空闲 Session 持续安静一段时间后准备派生的 20-turn 展示结果；新 revision 会取消并重置安静窗口，准备结果只有在发布前再次通过 Session identity 与 revision 的 compare-and-swap 校验才可见。每个 Session 只允许一项 prepare 在途，全局并发和队列都有上界，结果存入按总字节限制的 LRU；淘汰、重启或准备失败都会安全退回同一条权威的按需投影路径。选择 Agent 时会立即切到 Chat shell；当前视图优先读取已准备结果，未命中时就在新页面保留稳定同步界面，等待按需读取稳定后一次性呈现。临近到达的初始 transcript 刷新会继续在同步界面后合并：连续安静 120 ms 后提交，最长等待 400 ms。第一次可见提交完成后，普通实时回复继续保持流式更新。连接阶段或过早进入 idle 的空 snapshot 不得替换已经可见的 transcript。
 
 页面状态会分别显示浏览器当前已经载入的 History 行数，以及后端发现的 Provider 会话总数。滚动接近项目列表底部时加载下一页；项目里的“显示更多”仍只控制已加载页面内的本地展示。Agent Search 会查询后端完整历史窗口，而不是只过滤浏览器已经加载的页面。匹配不区分大小写，覆盖可见的 Agent 或 Session 标题、Project 名称和路径，以及完整或部分 Resume ID；provider 元数据和 transcript 正文不参与搜索。后端返回的 Session identity 会被前端视为权威搜索命中，不会再被前端的标题过滤器丢弃。恢复历史时会在后端完整窗口内解析 provider 元数据，因此较老的 Session 在 Terminal 与 Chat 之间切换时仍能保留原工作区。Claude 与 Qoder 历史发现只把项目级 transcript 文件视为 Session；嵌套的子 Agent transcript 继承父会话身份，属于重放细节，不会生成重复 History 行。每条 provider Session 行都会显示紧凑 Resume ID，悬停可查看完整标识；相同标题因此可以直接区分，同时传给后端的恢复身份保持不变。
 

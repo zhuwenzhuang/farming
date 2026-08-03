@@ -38,6 +38,142 @@ async function selectAgentOnCompactLayout(page: Page, agentId: string) {
   await expect(page.getByTestId('code-agent-chat-view')).toBeVisible()
 }
 
+test('opens a completed Chat shell immediately and renders its prepared snapshot', async ({ page, workspaceRoot }) => {
+  const workspace = path.join(workspaceRoot, 'chat-initial-snapshot-reveal')
+  fs.mkdirSync(workspace, { recursive: true })
+  const agentId = await createAcpAgent(page, workspace)
+  const partialAnswer = 'Initial answer fragment that must stay hidden.'
+  const completeAnswer = 'Initial answer is now complete and should appear once.'
+  let transcriptRequests = 0
+
+  await page.route(new RegExp(`/farming/api/agents/${agentId}/acp-transcript(?:\\?.*)?$`), async route => {
+    transcriptRequests += 1
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        transcript: {
+          sessionId: 'chat-initial-snapshot-reveal-session',
+          state: 'idle',
+          revision: transcriptRequests,
+          entries: [
+            {
+              id: 'initial-snapshot-user',
+              type: 'message',
+              role: 'user',
+              content: [{ type: 'text', text: 'Open this existing Chat.' }],
+            },
+            {
+              id: 'initial-snapshot-answer',
+              type: 'message',
+              role: 'assistant',
+              _meta: { codex: { phase: 'final_answer' } },
+              content: [{ type: 'text', text: completeAnswer }],
+            },
+          ],
+        },
+      }),
+    })
+  })
+
+  await openFarming(page)
+  await page.evaluate(fragment => {
+    const state = window as typeof window & {
+      __farmingInitialChatFragmentVisible?: boolean
+      __farmingInitialChatObserver?: MutationObserver
+    }
+    state.__farmingInitialChatFragmentVisible = false
+    state.__farmingInitialChatObserver = new MutationObserver(() => {
+      if (document.body.innerText.includes(fragment)) {
+        state.__farmingInitialChatFragmentVisible = true
+      }
+    })
+    state.__farmingInitialChatObserver.observe(document.body, { childList: true, subtree: true })
+  }, partialAnswer)
+  const agentRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
+  const revealMs = await agentRow.evaluate(row => new Promise<number>((resolve, reject) => {
+    const startedAt = performance.now()
+    ;(row as HTMLElement).click()
+    const observe = () => {
+      const chat = document.querySelector<HTMLElement>('[data-testid="code-agent-chat-view"]')
+      if (chat && !chat.hidden && chat.innerText.includes('Initial answer is now complete and should appear once.')) {
+        resolve(performance.now() - startedAt)
+        return
+      }
+      if (performance.now() - startedAt > 1_000) {
+        reject(new Error('Prepared Chat snapshot did not become visible'))
+        return
+      }
+      window.requestAnimationFrame(observe)
+    }
+    window.requestAnimationFrame(observe)
+  }))
+
+  await expect(page.getByText(completeAnswer, { exact: true })).toBeVisible({ timeout: 10_000 })
+  expect(transcriptRequests).toBeGreaterThanOrEqual(1)
+  expect(revealMs).toBeLessThan(250)
+  expect(await page.evaluate(() => (
+    (window as typeof window & { __farmingInitialChatFragmentVisible?: boolean })
+      .__farmingInitialChatFragmentVisible
+  ))).toBe(false)
+})
+
+test('shows a stable Chat shell for an uncached snapshot and ignores its late result after navigation', async ({ page, workspaceRoot }) => {
+  const workspace = path.join(workspaceRoot, 'chat-initial-snapshot-loading')
+  fs.mkdirSync(workspace, { recursive: true })
+  const agentId = await createAcpAgent(page, workspace)
+  let transcriptRequests = 0
+  let releaseTranscript = () => {}
+  const transcriptGate = new Promise<void>(resolve => {
+    releaseTranscript = resolve
+  })
+  await page.route(new RegExp(`/farming/api/agents/${agentId}/acp-transcript(?:\\?.*)?$`), async route => {
+    transcriptRequests += 1
+    await transcriptGate
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        transcript: {
+          sessionId: 'chat-initial-snapshot-loading-session',
+          state: 'idle',
+          revision: 1,
+          entries: [
+            {
+              id: 'initial-loading-user',
+              type: 'message',
+              role: 'user',
+              content: [{ type: 'text', text: 'Open the uncached Chat.' }],
+            },
+            {
+              id: 'initial-loading-answer',
+              type: 'message',
+              role: 'assistant',
+              _meta: { codex: { phase: 'final_answer' } },
+              content: [{ type: 'text', text: 'Late Chat answer must not steal navigation.' }],
+            },
+          ],
+        },
+      }),
+    })
+  })
+
+  await openFarming(page)
+  const agentRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
+  await agentRow.click()
+  await expect(page.getByTestId('code-agent-chat-view')).toBeVisible()
+  await expect(page.locator('.code-agent-transcript-state.subtle')).toBeVisible()
+  await expect(page.getByText('Late Chat answer must not steal navigation.', { exact: true })).toHaveCount(0)
+  await expect.poll(() => transcriptRequests).toBeGreaterThanOrEqual(1)
+
+  await page.getByTestId('code-nav-history').click()
+  await expect(page.getByTestId('code-history-panel')).toBeVisible()
+  releaseTranscript()
+  await page.evaluate(() => new Promise<void>(resolve => {
+    window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve()))
+  }))
+  await expect(page.getByTestId('code-history-panel')).toBeVisible()
+  await expect(page.getByText('Late Chat answer must not steal navigation.', { exact: true })).toHaveCount(0)
+})
+
 test('keeps ACP Chat live while the browser page is hidden', { tag: '@iphone-human' }, async ({ page, workspaceRoot }) => {
   const workspace = path.join(workspaceRoot, 'background-chat-continuity')
   fs.mkdirSync(workspace, { recursive: true })

@@ -382,6 +382,10 @@ const agentManager = new AgentManager(
     agentCapabilityTokens.issue({ agentId, capability, runtimeEpoch, workspace })
   ),
   revokeAgentCapabilityTokens: agentId => agentCapabilityTokens.revokeAgent(agentId),
+  transcriptMediaPathPrefix: agentId => routePath(
+    BASE_PATH,
+    `/api/agents/${encodeURIComponent(agentId)}/acp-media`,
+  ),
   },
 );
 server.on('close', () => agentCapabilityTokens.clear());
@@ -3397,6 +3401,7 @@ function handleMessage(ws: WebSocketClient, data: ServerClientMessage) {
       
     case 'focus-agent':
       ws.focusedAgentId = data.agentId;
+      if (data.agentId) agentManager.prioritizeAcpPreparedTranscript(data.agentId);
       if (data.streamScope === 'focused' || data.streamScope === 'all') {
         ws.streamScope = data.streamScope;
       }

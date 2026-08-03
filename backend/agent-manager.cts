@@ -154,6 +154,7 @@ import {
 import { applyProviderHomeEnvironment, getProviderAdapter, isFreshAcpSessionSource, providerCapabilities, providerConversationForkCapability, providerForProgram, providerSupportsRuntime } from './provider-adapters.cjs';
 import { deriveTerminalStatus } from './terminal-status.cjs';
 import { AcpRuntime, stopPersistedAcpProcessGroup } from './acp-runtime.cjs';
+import { AcpPreparedTranscriptCache } from './acp-prepared-transcript-cache.cjs';
 import { chatRuntimeForProvider, isChatMode } from './chat-runtime.cjs';
 import { acpTranscriptEntries, acpTranscriptMedia, acpToolChanges, acpToolDetail, acpToolReviewChanges } from './acp-transcript.cjs';
 import {
@@ -531,6 +532,7 @@ interface AgentManagerOptions extends UnknownRecord {
     workspace: string,
   ) => string;
   revokeAgentCapabilityTokens?: (agentId: string) => void;
+  transcriptMediaPathPrefix?: (agentId: string) => string;
   unarchiveCodexSession?: UnarchiveCodexSessionContract;
 }
 
@@ -1436,6 +1438,8 @@ class AgentManager extends EventEmitter {
   declare adaptiveTitlePersistenceEntries: Map<AgentId, AdaptiveTitlePersistenceEntry>;
   declare adaptiveTitlePersistenceDrain: Promise<void> | null;
   declare acpSessionOptionsByKey: Map<string, AcpSessionOptionsRecord>;
+  declare acpPreparedTranscriptCache: AcpPreparedTranscriptCache;
+  declare transcriptMediaPathPrefix: (agentId: string) => string;
   declare permissionRestartSuppressedAgentIds: Set<AgentId>;
   declare createProviderSessionIdentity: CreateProviderSessionIdentityContract;
   declare deleteProviderSessionIdentity: DeleteProviderSessionIdentityContract;
@@ -1527,6 +1531,9 @@ class AgentManager extends EventEmitter {
     // copy outside browser-facing Agent records; crash recovery persists it
     // only through the private Farming session store.
     this.acpSessionOptionsByKey = new Map();
+    this.transcriptMediaPathPrefix = typeof options.transcriptMediaPathPrefix === 'function'
+      ? options.transcriptMediaPathPrefix
+      : (agentId: string) => `/api/agents/${encodeURIComponent(agentId)}/acp-media`;
     this.permissionRestartSuppressedAgentIds = new Set();
     this.acpRuntime = options.acpRuntime || new AcpRuntime({
       ...(this.configManager?.farmingDir ? { configDir: this.configManager.farmingDir } : {}),
@@ -1544,6 +1551,23 @@ class AgentManager extends EventEmitter {
             }),
           }
         : {}),
+    });
+    this.acpPreparedTranscriptCache = new AcpPreparedTranscriptCache({
+      prepare: identity => this.buildAcpTranscript(identity.agentId, {
+        maxTurns: 20,
+        mediaPathPrefix: this.transcriptMediaPathPrefix(identity.agentId),
+      }),
+      validate: identity => {
+        const agent = this.agents.get(identity.agentId);
+        const runtime = runtimeBindingOf(agent, 'acp');
+        return Boolean(
+          agent
+          && runtime
+          && String(agent.providerSessionId || '') === identity.sessionId
+          && Number(runtime.sessionRevision || 0) === identity.revision
+          && ['idle', 'hibernated'].includes(String(runtime.state || ''))
+        );
+      },
     });
     this.createProviderSessionIdentity = typeof options.createProviderSessionIdentity === 'function'
       ? options.createProviderSessionIdentity
@@ -1638,6 +1662,7 @@ class AgentManager extends EventEmitter {
         this.ensurePersistentAgentSession(agent);
       }
       if (state === 'working' || state === 'waiting-for-permission' || state === 'waiting-for-input') this.lastActivity.set(agentId, Date.now());
+      this.observeAcpPreparedTranscript(agentId);
       this.emit('update');
     });
     this.acpRuntime.on('session', ({ agentId, revision, title }: AcpSessionEvent) => {
@@ -1661,6 +1686,7 @@ class AgentManager extends EventEmitter {
         updatedAt: runtime.sessionUpdatedAt,
       });
       if (titleChanged) this.emit('update');
+      this.observeAcpPreparedTranscript(agentId);
     });
     this.acpRuntime.on('config-overrides', ({ agentId, sessionId, configOverrides }: AcpConfigOverridesEvent) => {
       const agent = this.agents.get(String(agentId || ''));
@@ -4352,6 +4378,7 @@ class AgentManager extends EventEmitter {
       this.heartbeatInterval = null;
     }
     this.providerSessionService.dispose();
+    this.acpPreparedTranscriptCache.dispose();
     this.agentWorktreeResolveGeneration.clear();
     this.agentLifecycleOperations.clear();
     this.agentStartAdmissions.clear();
@@ -6507,6 +6534,29 @@ class AgentManager extends EventEmitter {
 
   getAcpTranscript(agentId: AgentId, options: Partial<AcpSessionRequestOptions> = {}) {
     this.requireLiveAcpAgent(agentId);
+    const agent = this.agents.get(agentId);
+    const runtime = runtimeBindingOf(agent, 'acp');
+    const identity = {
+      agentId,
+      sessionId: String(agent?.providerSessionId || ''),
+      revision: Number(runtime?.sessionRevision || 0),
+    };
+    const preparedProfile = !Number.isFinite(Number(options.sinceRevision))
+      && Number(options.maxTurns) === 20
+      && options.mediaPathPrefix === this.transcriptMediaPathPrefix(agentId);
+    if (preparedProfile && identity.sessionId) {
+      const prepared = this.acpPreparedTranscriptCache.get(identity);
+      if (prepared) return prepared;
+    }
+    const transcript = this.buildAcpTranscript(agentId, options);
+    if (preparedProfile && identity.sessionId) {
+      this.acpPreparedTranscriptCache.publishOnDemand(identity, transcript);
+    }
+    return transcript;
+  }
+
+  buildAcpTranscript(agentId: AgentId, options: Partial<AcpSessionRequestOptions> = {}) {
+    this.requireLiveAcpAgent(agentId);
     const transcript = this.acpRuntime.getTranscriptSession(agentId, options);
     const entries = Array.isArray(transcript.entries)
       ? transcript.entries.filter(isAcpTranscriptEntry)
@@ -6519,6 +6569,24 @@ class AgentManager extends EventEmitter {
           : undefined,
       }),
     };
+  }
+
+  observeAcpPreparedTranscript(agentId: AgentId, priority = 0) {
+    const agent = this.agents.get(agentId);
+    const runtime = runtimeBindingOf(agent, 'acp');
+    const sessionId = String(agent?.providerSessionId || '');
+    if (!agent || !runtime || !sessionId) return;
+    this.acpPreparedTranscriptCache.observe({
+      agentId,
+      sessionId,
+      revision: Number(runtime.sessionRevision || 0),
+      eligible: ['idle', 'hibernated'].includes(String(runtime.state || '')),
+      priority,
+    });
+  }
+
+  prioritizeAcpPreparedTranscript(agentId: AgentId) {
+    this.observeAcpPreparedTranscript(agentId, 100);
   }
 
   getAcpTranscriptMedia(agentId: AgentId, entryId: string, mediaId: string) {
@@ -10000,6 +10068,7 @@ class AgentManager extends EventEmitter {
   }
 
   forgetStoppedAgentRecord(agentId: AgentId, options: KillAgentOptions = {}) {
+    this.acpPreparedTranscriptCache.deleteAgent(agentId);
     this.agents.delete(agentId);
     this.revokeAgentCapabilityTokens(agentId);
     this.verifiedStoppedAgentIds.delete(agentId);
