@@ -29,8 +29,10 @@ function run() {
 
   assert(
     inputDialogSource.includes("}) => {\n        if (cancelled) return\n        const settings = data.settings ?? {}")
-      && inputDialogSource.includes(".catch(() => {\n        if (cancelled) return\n        setWorkspaceHistory([])"),
-    'A closed or reopened InputDialog should ignore its previous settings request'
+      && inputDialogSource.includes(".catch(() => {\n        if (cancelled) return\n        if (workspaceHistorySaveSettledGenerationRef.current === workspaceHistorySaveGenerationRef.current)")
+      && inputDialogSource.includes('workspaceHistorySaveTailRef.current = save')
+      && inputDialogSource.includes('generation !== workspaceHistorySaveGenerationRef.current'),
+    'InputDialog settings and ordered background history saves should reject stale request results'
   );
 
   assert(

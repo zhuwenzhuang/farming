@@ -858,12 +858,23 @@ async function run() {
     await prepareAgentGate;
     return prepareAgent(...args);
   };
+  let registeredBeforeShellEnvironment = false;
+  let shellEnvironmentReads = 0;
   const registrationManager = new AgentManager(config(), {
     acpRuntime: registrationRuntime,
     skipExecutablePreflight: true,
+    agentShellEnvProvider: () => {
+      shellEnvironmentReads += 1;
+      assert(
+        registeredBeforeShellEnvironment,
+        'Farming-owned ACP launch must publish the connecting Agent before reading the user shell environment',
+      );
+      return process.env;
+    },
   });
   try {
     let registeredAgentId = null;
+    let registrationCount = 0;
     let completedAgentId = null;
     let resolveRegisteredAgent;
     const registered = new Promise(resolve => {
@@ -879,8 +890,11 @@ async function run() {
       {
         agentRuntimeMode: 'chat',
         wantsMain: false,
+        createRequestId: 'registration-before-initialize',
         onAgentRegistered: agentId => {
+          registrationCount += 1;
           registeredAgentId = agentId;
+          registeredBeforeShellEnvironment = true;
           resolveRegisteredAgent();
         },
       },
@@ -897,10 +911,40 @@ async function run() {
     assert.strictEqual(registeredAgent.runtimeBinding.kind, 'acp');
     assert.strictEqual(registeredAgent.runtimeBinding.state, 'connecting');
     assert.strictEqual(completedAgentId, null, 'the final start callback must wait for ACP initialization');
+    assert.strictEqual(registrationCount, 1, 'a Create request must publish one connecting Agent');
+    assert.strictEqual(shellEnvironmentReads, 1, 'ACP environment construction should reuse one post-registration shell read');
+
+    let duplicateCompletedAgentId = null;
+    let duplicateRegistrationCount = 0;
+    const duplicateStart = registrationManager.startAgent(
+      'claude',
+      process.cwd(),
+      (agentId, error) => {
+        assert.ifError(error);
+        duplicateCompletedAgentId = agentId;
+      },
+      {
+        agentRuntimeMode: 'chat',
+        wantsMain: false,
+        createRequestId: 'registration-before-initialize',
+        onAgentRegistered: () => {
+          duplicateRegistrationCount += 1;
+        },
+      },
+    );
+    assert.strictEqual(
+      duplicateRegistrationCount,
+      0,
+      'a concurrent duplicate Create request must join without publishing another Agent',
+    );
 
     releasePrepareAgent();
     assert.strictEqual(await start, registeredAgentId);
+    assert.strictEqual(await duplicateStart, registeredAgentId);
     assert.strictEqual(completedAgentId, registeredAgentId);
+    assert.strictEqual(duplicateCompletedAgentId, registeredAgentId);
+    assert.strictEqual(registrationCount, 1);
+    assert.strictEqual(duplicateRegistrationCount, 0);
 
     const originalConsoleWarn = console.warn;
     const registrationWarnings: unknown[][] = [];

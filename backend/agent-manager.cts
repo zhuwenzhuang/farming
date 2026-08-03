@@ -4672,10 +4672,7 @@ class AgentManager extends EventEmitter {
     }
 
     let args = providerSessionPlan.args;
-    const userShellEnv = this.resolveAgentShellEnv('', { maxAgeMs: AGENT_DISCOVERY_CACHE_MAX_AGE_MS });
-    const launchPathEnv = typeof userShellEnv?.PATH === 'string' && userShellEnv.PATH.trim()
-      ? userShellEnv.PATH
-      : (process.env.PATH || '');
+    let launchPathEnv = process.env.PATH || '';
 
     const parentAgentId = typeof options.parentAgentId === 'string' ? options.parentAgentId : '';
     const parentAgent = parentAgentId ? this.agents.get(parentAgentId) : null;
@@ -4831,8 +4828,16 @@ class AgentManager extends EventEmitter {
         process.env.FARMING_E2E_FAKE_EXECUTABLES !== '1'
         || process.env.FARMING_E2E_FAKE_ACP_AGENT === '1'
       );
+    const usesFarmingOwnedAcpExecutable = useAcp
+      && ['codex', 'claude'].includes(structuredRuntimeProvider);
+    if (!usesFarmingOwnedAcpExecutable) {
+      const userShellEnv = this.resolveAgentShellEnv('', { maxAgeMs: AGENT_DISCOVERY_CACHE_MAX_AGE_MS });
+      launchPathEnv = typeof userShellEnv?.PATH === 'string' && userShellEnv.PATH.trim()
+        ? userShellEnv.PATH
+        : launchPathEnv;
+    }
     let resolvedExecutable = '';
-    if (useAcp && ['codex', 'claude'].includes(structuredRuntimeProvider)) {
+    if (usesFarmingOwnedAcpExecutable) {
       resolvedExecutable = resolveFarmingOwnedExecutable(structuredRuntimeProvider);
     } else if (!useAcp && path.basename(program) === 'codex') {
       if (

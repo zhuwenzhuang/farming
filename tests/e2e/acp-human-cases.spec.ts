@@ -26,6 +26,61 @@ async function sendAcpMessage(page: Page, text: string) {
 }
 
 test.describe('ACP human-like browser matrix', () => {
+  test('opens connecting Chat without waiting for ordered workspace-history saves', async ({ page }) => {
+    const firstWorkspace = path.resolve('tests')
+    const secondWorkspace = path.resolve('docs')
+
+    await openFarming(page)
+
+    let releaseFirstSave = () => {}
+    let firstSaveReleased = false
+    const firstSaveGate = new Promise<void>(resolve => {
+      releaseFirstSave = () => {
+        if (firstSaveReleased) return
+        firstSaveReleased = true
+        resolve()
+      }
+    })
+    const savedWorkspaces: string[] = []
+    await page.route('**/farming/api/workspaces/recent', async route => {
+      const request = route.request()
+      const body = request.postDataJSON() as { workspace?: string }
+      savedWorkspaces.push(body.workspace || '')
+      if (savedWorkspaces.length === 1) await firstSaveGate
+      await route.continue()
+    })
+
+    const startChat = async (workspace: string) => {
+      await page.getByTestId('code-new-agent').click()
+      await expect(page.getByTestId('agent-list-status')).toBeHidden({ timeout: 30_000 })
+      await page.getByTestId('agent-option-claude').click()
+      const runtime = page.getByTestId('agent-runtime-mode')
+      await runtime.getByRole('button', { name: /^Chat$/ }).click()
+      await page.getByTestId('workspace-input').fill(workspace)
+      await page.getByTestId('workspace-start').click()
+      await expect(page.getByTestId('input-dialog')).toBeHidden({ timeout: 5_000 })
+      await expect(page.getByTestId('code-acp-composer-input')).toBeEditable({ timeout: 5_000 })
+    }
+
+    try {
+      await startChat(firstWorkspace)
+      await expect.poll(() => savedWorkspaces).toEqual([firstWorkspace])
+
+      await startChat(secondWorkspace)
+      await expect.poll(() => savedWorkspaces).toEqual([firstWorkspace])
+
+      releaseFirstSave()
+      await expect.poll(() => savedWorkspaces).toEqual([firstWorkspace, secondWorkspace])
+      await expect.poll(async () => {
+        const response = await page.request.get('/farming/api/settings')
+        const payload = await response.json() as { settings?: { workspaceHistory?: string[] } }
+        return payload.settings?.workspaceHistory?.slice(0, 2) || []
+      }).toEqual([secondWorkspace, firstWorkspace])
+    } finally {
+      releaseFirstSave()
+    }
+  })
+
   test('recovers a read-only transcript from bounded transport failures', async ({ page, workspaceRoot }) => {
     const workspace = path.join(workspaceRoot, 'acp-transcript-transport-retry')
     fs.mkdirSync(workspace, { recursive: true })

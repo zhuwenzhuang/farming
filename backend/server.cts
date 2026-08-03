@@ -1002,6 +1002,18 @@ app.get(routePath(BASE_PATH, '/api/workspaces/complete'), async (req, res) => {
   }
 });
 
+app.post(routePath(BASE_PATH, '/api/workspaces/recent'), express.json({ limit: '8kb' }), (req, res) => {
+  try {
+    const workspaceHistory = configManager.rememberWorkspace(req.body?.workspace);
+    res.json({ workspaceHistory });
+  } catch (caught) {
+    const error = caughtError(caught);
+    res.status(400).json({
+      error: error.message || 'Recent workspace is invalid',
+    });
+  }
+});
+
 app.use(routePath(BASE_PATH, '/api/workspaces'), createWorkspaceDirectoryRouter());
 
 app.get(routePath(BASE_PATH, '/api/skills'), (_req, res) => {

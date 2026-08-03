@@ -3761,7 +3761,11 @@ export function AgentTranscriptPane({
         <AgentTranscriptPlanDriver plan={activePlan} />
       ) : null}
       {loading || awaitingAcpHistory ? (
-        <div className="code-agent-transcript-state subtle">{copy.agentTranscriptSyncing}</div>
+        <div className="code-agent-transcript-state subtle">
+          {runtimeState === 'connecting' && !expectHistory
+            ? copy.agentChatStarting
+            : copy.agentTranscriptSyncing}
+        </div>
       ) : error ? (
         <div className="code-agent-transcript-state" role="status">{error}</div>
       ) : !transcript?.available ? (

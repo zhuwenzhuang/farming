@@ -29,6 +29,7 @@ export interface CodeCopy {
   switchToChat: string
   collapseComposer: string
   restoreComposer: string
+  agentChatStarting: string
   agentTranscriptSyncing: string
   agentTranscriptUnavailable: string
   agentTranscriptEmpty: string
@@ -540,6 +541,7 @@ const EN_COPY: CodeCopy = {
   switchToChat: 'Switch to Chat',
   collapseComposer: 'Hide input',
   restoreComposer: 'Show input',
+  agentChatStarting: 'Starting Chat — you can type while it connects.',
   agentTranscriptSyncing: 'Syncing chat history...',
   agentTranscriptUnavailable: 'This session’s Chat history could not be loaded.',
   agentTranscriptEmpty: 'No conversation yet.',
@@ -1084,6 +1086,7 @@ const ZH_COPY: CodeCopy = {
   switchToChat: '切换到对话',
   collapseComposer: '收起输入框',
   restoreComposer: '唤出输入框',
+  agentChatStarting: '正在启动 Chat，可以先输入。',
   agentTranscriptSyncing: '正在同步聊天历史...',
   agentTranscriptUnavailable: '无法加载此会话的 Chat 历史。',
   agentTranscriptEmpty: '还没有对话。',

@@ -477,6 +477,23 @@ class ConfigManager {
     return result.slice(0, 5);
   }
 
+  rememberWorkspace(workspace: unknown): string[] {
+    const expanded = this.expandWorkspacePath(workspace);
+    if (!this.isUsableWorkspace(expanded) || this.isInternalWorkspace(expanded)) {
+      throw new TypeError('Recent workspace must be an existing non-Farming directory');
+    }
+    const current = this.normalizeWorkspaceHistory(this.settings.workspaceHistory);
+    const next = this.normalizeWorkspaceHistory([
+      expanded,
+      ...current.filter(entry => entry !== expanded),
+    ]);
+    if (next.length === current.length && next.every((entry, index) => entry === current[index])) {
+      return current;
+    }
+    this.updateSettings({ workspaceHistory: next });
+    return [...this.settings.workspaceHistory];
+  }
+
   normalizeProjectWorkspaces(projects: unknown): string[] {
     const entries = Array.isArray(projects) ? projects : [];
     const result: string[] = [];

@@ -34,6 +34,8 @@ Patch 与 Integrity 契约、ACP initialize、Session load/resume 以及 Chat/Te
 
 Chat 会保留这些 ACP 类型化 Part，不从 Assistant 普通文字中反推结构。Markdown 仍是类型化文本 Part；其中显式文件链接与有路径限定的 Inline Code 文件引用复用 Terminal 的有界文件位置 Grammar，随后再经过 Workspace / 全局文件归一化才能打开。Tool Call 的 `locations` 会保留为有界的结构化路径/范围记录并直接渲染为 Workspace 文件锚点，不再先压平成 `Locations` 文本再反向解析。HTTP(S) Resource Link 仍作为外部链接，本地 `file://` 和 Workspace Resource Link 则通过同一个 Workspace 边界打开。图片、音频、资源、Tool Call、Patch、Plan、Terminal 与协作元数据继续由各自的结构化 Renderer 处理，不再引入一套与之竞争的文本识别器。
 
+Codex 也可能把只供宿主消费的展示指令写进 Assistant 文本；它们不是公开的 App Server Item 类型，也不是可移植的 ACP Content。Farming 会在 Provider 边界归一化已支持的 `codex-inline-vis`：安全的 HTML basename 必须在当前 Agent Workspace 的 `.codex/visualizations` 目录下唯一解析，随后该指令会转换成标准 ACP `resource_link`，私有语法则从 Markdown 中移除。目标缺失、重名、格式错误或越出 Workspace 时只显示明确的不可用资源，不猜测路径。已知的 Codex App Git 与 Code Comment 指令仍作为隐藏 transport hint；Farming 不会执行其中的 mutation。Final Answer 中的 Resource、图片和音频会像最终文本一样提升到 Result Surface，不再滞留在 Process 中。
+
 已有历史 Session 会在配置目录下保存 Farming 自有的 reducer checkpoint。其 identity 包含 provider、Agent Home、provider session id 和工作区；写入会压缩、同步文件与目录并原子替换。checkpoint 同时携带主 reducer、子 Session reducer、patch decision fence 和上一代浏览器 revision。发送 prompt 前 Farming 会持久化 dirty 标记。ACP 当前既没有 provider 自有的 opaque revision，也没有 conditional `session/resume`，因此比较时间戳不能证明本地状态精确；Farming 会 fail closed 到 `session/load`，不会把 checkpoint 整体当成恢复后的权威状态，但会保留 revision/reset fence，避免浏览器继续保留已废弃 reducer 的旧 entry。当 Qoder 重放了权威消息顺序与文字、但漏掉实时阶段已有的媒体 block 时，Farming 只会从同一 checkpoint 中补回用户消息序号一致且重放文字完全匹配的图片或音频；不会补造缺失消息，也不会替换 provider 文字。bare resume 和提交结果不确定的 prompt 失败会一直保持 dirty，绝不能产生精确恢复 checkpoint。只有未来 provider 提供与工作区绑定的新鲜度 token 和条件恢复证明时，才可启用不重放的本地 resume。
 
 这个区别很重要：ACP load 会在请求返回之前通过 `session/update` notification 重放完整对话，而 resume 只恢复上下文、不返回旧消息。Farming 会先注册 Session reducer 再发出 load，确保不会漏掉提前到达的历史 notification。重放更新归约进同一条有序流，不会逐条广播浏览器失效信号；恢复完成后客户端只收到一份稳定 snapshot。若 reader 的 `sinceRevision` 高于重建后的 reducer，或落在 reset fence 之前，后端会返回完整替换，而不是会错误保留旧内容的空 delta。
@@ -101,7 +103,7 @@ Agent 发送到对话中的显式 `input_image` / `inputImage` Tool 结果块，
 
 ACP 启动、初始化、历史恢复、prompt、协议和 adapter 退出错误都会成为明确的 runtime error。Adapter 传输异常退出后，用户可以显式点击“重新连接”，下一条显式提交的消息也会先尝试恢复；同一 Agent 的并发恢复会合并成一次。恢复过程会写入 dirty revision fence，证明精确的旧进程组已经停止，再使用原 Workspace、Provider Home、附加目录和 MCP 作用域启动同一 Provider Session，并在接受新 prompt 前重新加载权威历史。断连时正在执行的 prompt 会以错误结束，且绝不自动重放；只有新的用户操作，或已经明确失败的 Composer 请求，才能在恢复后重新提交。如果旧进程清理结果不确定，恢复会保持失败，避免产生第二个存活 adapter。有界控制请求会在超时后给出可操作错误；正常的长时间 prompt 不设置人为总时限。Farming 不会把用户指定的 ACP Agent 静默降级成 Terminal。Agent 正在执行时拒绝 Chat / Terminal 切换。尚未收到用户输入的新 Terminal，在 provider 历史尚未落盘时可以直接建立新的 ACP session；Terminal 一旦收到输入，切换就必须确认保存的 session 仍可发现。空闲后切换会停止旧进程并启动目标 runtime，如果目标启动失败，会立即用原 runtime 恢复同一个 provider Session，并明确报告切换失败。
 
-本地启动校验完成后，新建 Chat Agent 会先注册，connecting 页面可以在 ACP 初始化、历史加载和 provider 能力协商完成前打开。已注册的 Agent 仍是权威生命周期所有者：启动失败会在该 Agent 的可见运行时错误中收敛，而不会投机地再次启动。
+完成有界的请求、Workspace、Agent Home、自有可执行文件和 durable Create intent 校验后，新建 Chat Agent 会先注册；connecting 页面可以在读取用户 Shell 环境、ACP 初始化、历史加载和 Provider 能力协商完成前打开。已注册的 Agent 仍是权威生命周期所有者：相同 request id 的重复 Create 会加入同一生命周期，重连从后端状态恢复它，启动失败也由该生命周期收敛，而不会投机地再次启动。connecting 阶段的 Composer 可以输入并保留草稿，但在 Runtime 就绪前仍禁止提交。最近 Workspace 偏好的更新不会阻塞 Agent 创建：每个浏览器串行执行自己的后台更新，后端则把每个 Workspace 原子地前置到当前设置，避免并发浏览器用旧列表互相覆盖。
 
 ## 后端 API
 
@@ -122,6 +124,7 @@ ACP 启动、初始化、历史恢复、prompt、协议和 adapter 退出错误�
 - `POST /api/agents/:agentId/acp-terminals/:terminalId/input|resize|kill` 控制 ACP client terminal。
 - `POST /api/agents/:agentId/acp-subagents/:sessionId/cancel` 单独停止已知 ACP 子 Session，不取消父 Session。
 - WebSocket `start-agent` 接受 `agentRuntimeMode: "acp"`、可选的 `acpHistoryMode: "load" | "resume"`，以及标准 `additionalDirectories` / `mcpServers` Session 输入；`POST /api/control/agents` 接受相同的 ACP Session 输入。
+- `POST /api/workspaces/recent` 会把一个已校验的 Workspace 原子地移动到最近 Workspace 设置首位。它是独立的偏好更新，不参与判断 Agent Create 是否成功。
 - WebSocket `acp-permission-response` 不经过 HTTP，也能回答同一条权限流程。
 
 Farming Code 中 Codex、Claude Code 和 OpenCode 的 Chat 控件选择 ACP。Chat 与 Terminal 之间切换会重启 Agent runtime，并恢复同一个 provider Session；replacement 会保留当前已展开的 Composer，不会突然套用“新开 Terminal 默认收起”的偏好。已移除的 JSON CLI Runtime 不再是启动、恢复或 Transcript 读取路径。

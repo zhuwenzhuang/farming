@@ -144,6 +144,12 @@ function run() {
     assert.strictEqual(JSON.parse(fs.readFileSync(path.join(farmingDir, 'settings.json'), 'utf8')).crtDynamicHeatEnabled, true);
     assert.strictEqual(JSON.parse(fs.readFileSync(path.join(farmingDir, 'settings.json'), 'utf8')).crtTerminalFontSize, 16);
     assert.deepStrictEqual(settings.workspaceHistory, [projectA, projectB]);
+    assert.deepStrictEqual(manager.rememberWorkspace(projectB), [projectB, projectA]);
+    assert.deepStrictEqual(manager.rememberWorkspace(projectA), [projectA, projectB]);
+    assert.throws(
+      () => manager.rememberWorkspace(farmingDir),
+      /Recent workspace must be an existing non-Farming directory/,
+    );
     assert.deepStrictEqual(settings.projectWorkspaces, [projectA, projectB, '/', missingProject]);
     assert.deepStrictEqual(settings.pinnedProjectWorkspaces, [projectB, projectA, missingProject]);
     assert.deepStrictEqual(settings.projectNames, { [projectA]: 'Project A' });

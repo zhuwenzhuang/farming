@@ -104,6 +104,8 @@ type WorkspacePreparation = {
   code?: string
 }
 
+const WORKSPACE_HISTORY_SAVE_TIMEOUT_MS = 10_000
+
 function agentSessionUpdatedAt(session: MainAgentResumeSession) {
   const parsed = Date.parse(session.updatedAt || '')
   return Number.isFinite(parsed) ? parsed : 0
@@ -174,6 +176,10 @@ export function InputDialog({
   const workspacePathSuggestionsRef = useRef<HTMLDivElement>(null)
   const workspacePromptPrimaryRef = useRef<HTMLButtonElement>(null)
   const workspaceTouchedRef = useRef(false)
+  const workspaceHistoryRef = useRef<string[]>([])
+  const workspaceHistorySaveTailRef = useRef<Promise<void>>(Promise.resolve())
+  const workspaceHistorySaveGenerationRef = useRef(0)
+  const workspaceHistorySaveSettledGenerationRef = useRef(0)
   const startClickLockedRef = useRef(false)
   const startClickUnlockTimerRef = useRef<number | null>(null)
   const workspaceOptions = useMemo(
@@ -267,7 +273,10 @@ export function InputDialog({
         const history = buildWorkspaceHistory(null, settings.workspaceHistory ?? [])
         setMainWorkspaceDefault(nextMainWorkspaceDefault)
         setDefaultLaunchAgent(normalizeDefaultLaunchAgent(settings.defaultLaunchAgent))
-        setWorkspaceHistory(history)
+        if (workspaceHistorySaveSettledGenerationRef.current === workspaceHistorySaveGenerationRef.current) {
+          workspaceHistoryRef.current = history
+          setWorkspaceHistory(history)
+        }
         setAgentHomes(settings.agentHomes ?? {})
         if (mustStartMain && !workspaceTouchedRef.current) {
           setWorkspace(nextMainWorkspaceDefault)
@@ -276,7 +285,10 @@ export function InputDialog({
       })
       .catch(() => {
         if (cancelled) return
-        setWorkspaceHistory([])
+        if (workspaceHistorySaveSettledGenerationRef.current === workspaceHistorySaveGenerationRef.current) {
+          workspaceHistoryRef.current = []
+          setWorkspaceHistory([])
+        }
         setMainWorkspaceDefault('~/.farming')
         if (mustStartMain && !workspaceTouchedRef.current) {
           setWorkspace('~/.farming')
@@ -486,34 +498,71 @@ export function InputDialog({
     }
   }, [agentHomes, initialWorkspace, lockStartClick, mainWorkspaceDefault, mustStartMain, onStart, resumeStartOptions, selectedHomeId, settingsLoaded, workspace])
 
-  const persistWorkspaceHistory = useCallback(async (nextWorkspace: string) => {
-    const nextHistory = buildWorkspaceHistory(nextWorkspace, workspaceHistory)
+  const persistWorkspaceHistory = useCallback((nextWorkspace: string) => {
+    const currentHistory = workspaceHistoryRef.current
+    const nextHistory = buildWorkspaceHistory(nextWorkspace, currentHistory)
+    if (
+      nextHistory.length === currentHistory.length
+      && nextHistory.every((entry, index) => entry === currentHistory[index])
+    ) return
 
-    const response = await fetch(appPath('/api/settings'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        workspaceHistory: nextHistory,
-      }),
-    }).catch(() => {})
+    workspaceHistoryRef.current = nextHistory
+    setWorkspaceHistory(nextHistory)
+    const generation = workspaceHistorySaveGenerationRef.current + 1
+    workspaceHistorySaveGenerationRef.current = generation
+    const save = workspaceHistorySaveTailRef.current
+      .catch(() => {})
+      .then(async () => {
+        const controller = new AbortController()
+        const timeout = window.setTimeout(() => controller.abort(), WORKSPACE_HISTORY_SAVE_TIMEOUT_MS)
+        const response = await fetch(appPath('/api/workspaces/recent'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ workspace: nextWorkspace }),
+          signal: controller.signal,
+        }).catch(() => null).finally(() => window.clearTimeout(timeout))
+        const data = response?.ok
+          ? await response.json().catch(() => null) as { workspaceHistory?: string[] } | null
+          : null
+        workspaceHistorySaveSettledGenerationRef.current = generation
+        if (generation !== workspaceHistorySaveGenerationRef.current) return
+        let savedHistory = data?.workspaceHistory
+        if (!savedHistory) {
+          const reconcileController = new AbortController()
+          const reconcileTimeout = window.setTimeout(
+            () => reconcileController.abort(),
+            WORKSPACE_HISTORY_SAVE_TIMEOUT_MS,
+          )
+          const settingsResponse = await fetch(appPath('/api/settings'), {
+            cache: 'no-store',
+            signal: reconcileController.signal,
+          }).catch(() => null).finally(() => window.clearTimeout(reconcileTimeout))
+          const settingsData = settingsResponse?.ok
+            ? await settingsResponse.json().catch(() => null) as { settings?: { workspaceHistory?: string[] } } | null
+            : null
+          if (generation !== workspaceHistorySaveGenerationRef.current) return
+          savedHistory = settingsData?.settings?.workspaceHistory
+        }
+        if (!savedHistory) return
+        const normalizedHistory = buildWorkspaceHistory(null, savedHistory)
+        workspaceHistoryRef.current = normalizedHistory
+        setWorkspaceHistory(normalizedHistory)
+      })
+    workspaceHistorySaveTailRef.current = save
+  }, [])
 
-    if (!response?.ok) return
-
-    const data = await response.json().catch(() => null) as { settings?: { workspaceHistory?: string[] } } | null
-    const settings = data?.settings ?? {}
-    const savedHistory = buildWorkspaceHistory(null, settings.workspaceHistory ?? [])
-    setWorkspaceHistory(savedHistory)
-  }, [workspaceHistory])
-
-  const startPreparedAgent = useCallback(async (resolvedWorkspace: string) => {
+  const startPreparedAgent = useCallback((resolvedWorkspace: string) => {
     if (!selectedAgent) return
-    if (!mustStartMain && shouldRememberWorkspace(resolvedWorkspace)) {
-      await persistWorkspaceHistory(resolvedWorkspace)
+    const rememberWorkspace = () => {
+      if (!mustStartMain && shouldRememberWorkspace(resolvedWorkspace)) {
+        persistWorkspaceHistory(resolvedWorkspace)
+      }
     }
 
     const options = resumeStartOptions(selectedAgent)
     if (options) {
       onStart(selectedAgent.command || selectedAgent.name, resolvedWorkspace, { ...options, providerHomeId: selectedHomeId })
+      rememberWorkspace()
       return
     }
 
@@ -534,6 +583,7 @@ export function InputDialog({
         agentRuntimeMode,
       } : {}),
     })
+    rememberWorkspace()
   }, [
     selectedAgent,
     mustStartMain,
