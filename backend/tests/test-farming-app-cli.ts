@@ -569,7 +569,9 @@ async function runTests() {
       const originalKill = process.kill;
       const stopSignals: NodeJS.Signals[] = [];
       process.kill = (pid, signal) => {
-        if (pid === child.pid && signal) stopSignals.push(signal);
+        if (pid === child.pid && typeof signal === 'string') {
+          stopSignals.push(signal as NodeJS.Signals);
+        }
         if (pid === child.pid && signal === 'SIGKILL') {
           const error: ErrorWithCode = new Error('Operation not permitted');
           error.code = 'EPERM';
