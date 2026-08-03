@@ -1473,8 +1473,8 @@ function run() {
       transcriptPaneSource.includes("document.addEventListener('selectionchange', updateSelectionState)") &&
       transcriptPaneSource.includes('onPointerDown={handleTranscriptPointerDown}') &&
       transcriptPaneSource.includes("source === 'acp'") &&
-      transcriptPaneSource.includes('mergeAcpTranscript(current, nextTranscript)') &&
-      transcriptPaneSource.includes('preserveCompletedTranscriptTurns(current, nextTranscript)') &&
+      transcriptPaneSource.includes('mergeAcpTranscript(transcriptRef.current, nextTranscript)') &&
+      transcriptPaneSource.includes('preserveCompletedTranscriptTurns(transcriptRef.current, nextTranscript)') &&
       !transcriptPaneSource.includes('deferredTranscriptRef') &&
       !terminalPaneSource.includes('textSelectionGestureRef') &&
       !terminalComposerSource.includes('textSelectionGestureRef'),
