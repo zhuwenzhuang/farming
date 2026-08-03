@@ -14,6 +14,7 @@ async function run() {
   const mainWorkspace = path.join(workspace, '.farming');
   fs.mkdirSync(farmingDir, { recursive: true });
   fs.mkdirSync(workspace, { recursive: true });
+  const canonicalWorkspace = fs.realpathSync(workspace);
   const startupPromptFile = ensureFarmingAgentBootstrapFile(farmingDir);
   const farmingSystemPrompt = renderFarmingAgentBootstrap();
 
@@ -87,7 +88,7 @@ async function run() {
     );
     assert.strictEqual(captured[0].cwd, mainWorkspace);
     assert.strictEqual(captured[0].env.FARMING_MAIN_WORKSPACE, mainWorkspace);
-    assert.strictEqual(captured[0].env.FARMING_PROJECT_WORKSPACE, workspace);
+    assert.strictEqual(captured[0].env.FARMING_PROJECT_WORKSPACE, canonicalWorkspace);
     assert.strictEqual(captured[0].env.FARMING_SKILLS_FILE, path.join(mainWorkspace, 'FARMING_MAIN_AGENT_SKILLS.md'));
     assert.strictEqual(captured[0].env.LD_LIBRARY_PATH, undefined);
     assert.strictEqual(captured[0].env.NODE_OPTIONS, undefined);
@@ -110,7 +111,7 @@ async function run() {
     );
     assert.strictEqual(captured[1].env.FARMING_PARENT_AGENT_ID, parentId);
     assert.strictEqual(captured[1].env.FARMING_IS_MAIN_AGENT, '0');
-    assert.strictEqual(captured[1].env.FARMING_PROJECT_WORKSPACE, workspace);
+    assert.strictEqual(captured[1].env.FARMING_PROJECT_WORKSPACE, canonicalWorkspace);
     assert(captured[1].args.includes(farmingSystemPrompt), 'child Agents must receive the Farming bootstrap too');
 
     const openCodeEnv = manager.buildAgentEnv('agent-opencode', {

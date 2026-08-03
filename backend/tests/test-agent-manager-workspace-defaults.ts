@@ -246,12 +246,19 @@ async function run() {
       source: 'claude-history:session-123',
     });
     const restoredAgent = manager.agents.get(restoredAgentId);
+    const canonicalRestoredProjectWorkspace = fs.realpathSync(restoredProjectWorkspace);
     assert.strictEqual(restoredAgent.cwd, restoredWorkingDirectory);
-    assert.strictEqual(restoredAgent.projectWorkspace, restoredProjectWorkspace);
+    assert.strictEqual(fs.realpathSync(restoredAgent.projectWorkspace), canonicalRestoredProjectWorkspace);
     assert.strictEqual(captured[2].cwd, restoredWorkingDirectory);
     assert.strictEqual(captured[2].metadata.cwd, restoredWorkingDirectory);
-    assert.strictEqual(captured[2].metadata.projectWorkspace, restoredProjectWorkspace);
-    assert.strictEqual(captured[2].env.FARMING_PROJECT_WORKSPACE, restoredProjectWorkspace);
+    assert.strictEqual(
+      fs.realpathSync(captured[2].metadata.projectWorkspace),
+      canonicalRestoredProjectWorkspace
+    );
+    assert.strictEqual(
+      fs.realpathSync(captured[2].env.FARMING_PROJECT_WORKSPACE),
+      canonicalRestoredProjectWorkspace
+    );
 
     const aliasedWorkspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-aliased-project-'));
     const canonicalAliasedWorkspace = path.join(aliasedWorkspaceRoot, 'project');
