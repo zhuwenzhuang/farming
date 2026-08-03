@@ -1786,6 +1786,31 @@ class FakeAgent implements Agent {
       const error = Object.assign(new Error('401 Unauthorized: sign in required'), { code: 401 });
       throw error;
     }
+    if (promptText.includes('duplicate provider error')) {
+      const message = 'stream disconnected before completion: request to http://example.invalid/v1/responses failed';
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          messageId: 'duplicate-provider-error-answer',
+          content: { type: 'text', text: message },
+          _meta: { codex: { phase: 'final_answer' } },
+        },
+      });
+      throw new Error(message);
+    }
+    if (promptText.includes('partial provider error')) {
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          messageId: 'partial-provider-error-answer',
+          content: { type: 'text', text: 'Partial result before the connection failed.' },
+          _meta: { codex: { phase: 'final_answer' } },
+        },
+      });
+      throw new Error('stream disconnected before completion: request to http://example.invalid/v1/responses failed');
+    }
     const permission = await client.requestPermission({
       sessionId: params.sessionId,
       toolCall: { toolCallId: 'tool-1', title: 'Run fake command', kind: 'execute' },

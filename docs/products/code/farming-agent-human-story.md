@@ -36,6 +36,8 @@ Goal: ask a coding Agent to inspect and change a small feature while retaining e
 Expected:
 
 - user messages, process entries, tools, and results keep their ACP order;
+- while a turn is active, commentary stays in place and each intervening span of
+  reasoning and tool evidence is represented by one compact, expandable summary;
 - the final result regains focus when the turn completes;
 - tool details and exact historical patches remain expandable;
 - internal heartbeat/context envelopes do not appear as user conversation;

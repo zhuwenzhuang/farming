@@ -36,6 +36,7 @@
 期望：
 
 - 用户消息、过程 entry、Tool 与结果保持 ACP 原始顺序；
+- Turn 进行中，commentary 保持在原位，中间每段推理与 Tool 证据收成一条紧凑、可展开的摘要；
 - Turn 完成后最终结果重新成为视觉焦点；
 - Tool 详情和准确历史 patch 仍可展开；
 - 内部 heartbeat/context envelope 不进入用户对话；
