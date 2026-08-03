@@ -128,6 +128,7 @@ function run() {
     engineName: 'native',
   }, {
     acpAdditionalDirectories: ['/shared/docs'],
+    acpConfigOverrides: [{ configId: 'fast-mode', value: true }],
     acpMcpServers: [{ name: 'docs', command: '/bin/docs-mcp', args: [], env: [] }],
   });
   assert.strictEqual(resolvedRecordId, tempRecordId, 'resolved provider id should keep the original Farming session file');
@@ -144,6 +145,9 @@ function run() {
   assert.strictEqual(resolvedRecord.title, '看下cron worker怎么加新模块');
   assert.strictEqual(resolvedRecord.titleUserSpecified, false);
   assert.deepStrictEqual(resolvedRecord.acpAdditionalDirectories, ['/shared/docs']);
+  assert.deepStrictEqual(resolvedRecord.acpConfigOverrides, [
+    { configId: 'fast-mode', value: true },
+  ]);
   assert.deepStrictEqual(resolvedRecord.acpMcpServers, [
     { name: 'docs', command: '/bin/docs-mcp', args: [], env: [] },
   ]);

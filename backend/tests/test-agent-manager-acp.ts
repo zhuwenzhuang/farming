@@ -35,6 +35,7 @@ function config(overrides = {}) {
 }
 
 async function run() {
+  delete process.env.CODEX_CONFIG;
   const farmingSystemPrompt = renderFarmingAgentBootstrap();
   const fixture = path.join(__dirname, 'fixtures', 'fake-acp-agent.mts');
   const runtime = new AcpRuntime({
@@ -396,7 +397,15 @@ async function run() {
         modelPreset: 'gpt-5.6-sol:high',
       };
     },
-  }), { acpRuntime: codexRuntime, skipExecutablePreflight: true });
+  }), {
+    acpRuntime: codexRuntime,
+    agentShellEnvProvider: () => {
+      const env = { ...process.env };
+      delete env.CODEX_CONFIG;
+      return env;
+    },
+    skipExecutablePreflight: true,
+  });
   try {
     const codexAgentId = await new Promise(resolve => {
       codexManager.startAgent('codex', process.cwd(), (id, error) => {

@@ -127,6 +127,7 @@ const AgentManager = require('../agent-manager.cjs');
     projectWorkspace: '/tmp/project',
     providerSessionProvider: 'codex',
     providerSessionId: sessionId,
+    providerSessionKey: `agent-session:codex:home:zwz:${sessionId}`,
     providerSessionTemporary: false,
     providerHomeId: 'zwz',
     providerHomePath: codexHome,
@@ -137,6 +138,11 @@ const AgentManager = require('../agent-manager.cjs');
     acpState: 'idle',
     status: 'running',
     output: '',
+  });
+  manager.acpSessionOptionsByKey.set(`agent-session:codex:home:zwz:${sessionId}`, {
+    additionalDirectories: [],
+    configOverrides: [{ configId: 'fast-mode', value: true }],
+    mcpServers: [],
   });
   const originalGetAcpSession = manager.acpRuntime.getSession.bind(manager.acpRuntime);
   const originalHasAcpBinding = manager.acpRuntime.hasBinding.bind(manager.acpRuntime);
@@ -177,6 +183,9 @@ const AgentManager = require('../agent-manager.cjs');
   assert.strictEqual(started.options.agentRuntimeMode, 'terminal');
   assert.strictEqual(started.options.agentRecordId, 'agent_record_live_acp_switch');
   assert.strictEqual(started.options.restoreRuntimeAgentIdOnFailure, 'agent-live-acp-switch');
+  assert.deepStrictEqual(started.options.acpConfigOverrides, [
+    { configId: 'fast-mode', value: true },
+  ]);
   assert.deepStrictEqual(started.options.composerCommands, liveAcpComposerCommands);
   assert.deepStrictEqual(manager.agents.get('agent-new').composerCommands, liveAcpComposerCommands);
   assert.strictEqual(liveAcpResult.agentRuntimeMode, 'terminal');
