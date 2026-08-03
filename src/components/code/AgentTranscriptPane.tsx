@@ -30,11 +30,22 @@ import {
   AgentSmartToyGlyph,
   AgentSpeechBotGlyph,
   ArrowDownGlyph,
+  BookGlyph,
   CheckGlyph,
+  ChecklistGlyph,
   ChevronRightGlyph,
   CloseGlyph,
+  CloudDownloadGlyph,
   CopyGlyph,
+  DifferenceGlyph,
+  ErrorGlyph,
   ForkGlyph,
+  HistoryGlyph,
+  PencilGlyph,
+  PuzzleGlyph,
+  SearchGlyph,
+  TerminalSquareGlyph,
+  ThinkingGlyph,
 } from '@/components/IconGlyphs'
 import { LocalErrorBoundary, LocalRenderFault } from '@/components/LocalErrorBoundary'
 import { MermaidBlock } from '@/components/files/FileEditorMarkdownPreview'
@@ -64,7 +75,7 @@ import { isPageActive } from '@/hooks/usePageVisibility'
 import { loadAcpReviewPreview, loadReviewComparisonSources } from '@/lib/review/api'
 import type { WorkspaceFileOpenTarget } from '@/lib/workspace-open-files'
 import type { CodeCopy } from './copy'
-import { acpActivityKind, acpCompactPlanLabel, acpLiveToolActivityLabel, acpPlanProgress, type AcpActivityKind } from './acp/acp-activity-label'
+import { acpActivityKind, acpCompactPlanLabel, acpItemActivityKind, acpLiveToolActivityLabel, acpPlanProgress, type AcpActivityKind } from './acp/acp-activity-label'
 import {
   acpCollaborationAgentsForTurn,
   type AcpCollaborationAction,
@@ -1868,6 +1879,46 @@ function AgentTranscriptCollaborationTimeline({
   )
 }
 
+type AgentTranscriptProcessIconKind = AcpActivityKind | 'subagent' | 'collaboration' | 'compaction'
+
+function agentTranscriptProcessIconKind(item?: AgentTranscriptProcessItem): AgentTranscriptProcessIconKind {
+  if (item?.type === 'subagent') return 'subagent'
+  if (item?.type === 'collaboration') return 'collaboration'
+  if (item?.type === 'compaction') return 'compaction'
+  return acpItemActivityKind(item)
+}
+
+function AgentTranscriptProcessIcon({
+  kind,
+  failed = false,
+}: {
+  kind: AgentTranscriptProcessIconKind
+  failed?: boolean
+}) {
+  let glyph = <PuzzleGlyph />
+  if (failed) glyph = <ErrorGlyph />
+  else if (kind === 'thinking') glyph = <ThinkingGlyph />
+  else if (kind === 'running') glyph = <TerminalSquareGlyph />
+  else if (kind === 'reading') glyph = <BookGlyph />
+  else if (kind === 'searching') glyph = <SearchGlyph />
+  else if (kind === 'editing') glyph = <PencilGlyph />
+  else if (kind === 'plan') glyph = <ChecklistGlyph />
+  else if (kind === 'fetching') glyph = <CloudDownloadGlyph />
+  else if (kind === 'subagent') glyph = <AgentBotGlyph />
+  else if (kind === 'collaboration') glyph = <AgentGroupGlyph />
+  else if (kind === 'compaction') glyph = <HistoryGlyph />
+  return (
+    <span
+      className={`code-agent-transcript-process-icon kind-${failed ? 'failed' : kind}`}
+      data-testid="code-agent-transcript-process-icon"
+      data-kind={failed ? 'failed' : kind}
+      aria-hidden="true"
+    >
+      {glyph}
+    </span>
+  )
+}
+
 function AgentTranscriptProcessItemView({
   item,
   title,
@@ -2000,6 +2051,10 @@ function AgentTranscriptProcessItemView({
               toggleTranscriptDisclosureWithStableAnchor(event.currentTarget, () => onToggle(item.id))
             }}
           >
+            <AgentTranscriptProcessIcon
+              kind={agentTranscriptProcessIconKind(item)}
+              failed={isProcessItemFailed(item)}
+            />
             <span className="code-agent-transcript-process-title-text">{displayTitle}</span>
             {showStatus && shouldShowStatus(item.status) ? (
               <span className="code-agent-transcript-process-status">{item.status}</span>
@@ -2008,6 +2063,10 @@ function AgentTranscriptProcessItemView({
           </button>
         ) : (
           <span className="code-agent-transcript-process-title-static">
+            <AgentTranscriptProcessIcon
+              kind={agentTranscriptProcessIconKind(item)}
+              failed={isProcessItemFailed(item)}
+            />
             <span className="code-agent-transcript-process-title-text">{displayTitle}</span>
             {showStatus && shouldShowStatus(item.status) ? (
               <span className="code-agent-transcript-process-status">{item.status}</span>
@@ -2314,6 +2373,9 @@ function AgentTranscriptProcessGroupView({
   onStopSubagent?: (sessionId: string) => Promise<void>
 }) {
   const running = items.some(isProcessItemRunning)
+  const iconKind = running
+    ? acpActivityKind(items)
+    : agentTranscriptProcessIconKind(items[items.length - 1])
   return (
     <section
       className={`code-agent-transcript-process-group ${running ? 'running' : ''}`}
@@ -2338,6 +2400,10 @@ function AgentTranscriptProcessGroupView({
           toggleTranscriptDisclosureWithStableAnchor(event.currentTarget, () => onToggleGroup(groupId))
         }}
       >
+        <AgentTranscriptProcessIcon
+          kind={iconKind}
+          failed={items.some(isProcessItemFailed)}
+        />
         <span className="code-agent-transcript-process-title-text">{summaryLabel || processGroupLabel(items)}</span>
         <ChevronRightGlyph className="code-agent-transcript-process-item-chevron" />
       </button>
@@ -2444,6 +2510,10 @@ function AgentTranscriptPatchResultCard({
   }, [gitDiffTarget, workspaceRoot])
   const summaryContent = (
     <>
+      <DifferenceGlyph
+        className="code-agent-transcript-result-icon"
+        data-testid="code-agent-transcript-result-icon"
+      />
       <span>{summary}</span>
       {totalAdded ? <span className="added">+{totalAdded}</span> : null}
       {totalRemoved ? <span className="removed">-{totalRemoved}</span> : null}
@@ -2685,6 +2755,11 @@ function AgentTranscriptTurnView({
     : turn.status === 'inProgress' && progressDuration
       ? copy.agentTranscriptWorkingFor(progressDuration)
       : turnProcessLabel(mainProcessTurn, copy, processSummaryWorkingLabel, planLabel)
+  const processSummaryIconKind: AgentTranscriptProcessIconKind = runningCompaction
+    ? 'compaction'
+    : turn.status === 'inProgress' && source === 'acp'
+      ? acpActivityKind(activityTurn.processItems)
+      : 'thinking'
   const latestSteerActivityLabel = liveToolLabel || planLabel || workingLabel
   const loadFullProcessDetail = useCallback(async (item: AgentTranscriptProcessItem, force = false) => {
     if ((!item.detailTruncated && !item.terminalIds?.length && !item.subagentSessionId) || !onLoadProcessItemDetail) {
@@ -2985,6 +3060,10 @@ function AgentTranscriptTurnView({
               toggleTranscriptDisclosureWithStableAnchor(event.currentTarget, toggleProcessOpen)
             }}
               >
+                <AgentTranscriptProcessIcon
+                  kind={processSummaryIconKind}
+                  failed={turn.status === 'interrupted'}
+                />
                 <span className="code-agent-transcript-process-summary-label">
                   {processSummaryLabel}
                 </span>

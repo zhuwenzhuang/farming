@@ -7413,6 +7413,25 @@ body.code-mode .code-instance-name {
   overflow-wrap: anywhere;
 }
 
+.code-agent-transcript-process-icon {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: currentColor;
+}
+
+.code-agent-transcript-process-icon > svg {
+  width: 16px;
+  height: 16px;
+}
+
+.code-agent-transcript-process-icon.kind-failed {
+  color: #cf222e;
+}
+
 .code-agent-transcript-process-title-toggle,
 .code-agent-transcript-process-title-static {
   min-width: 0;

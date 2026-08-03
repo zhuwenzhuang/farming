@@ -2117,6 +2117,10 @@ body.code-mode[data-appearance='dark'] .code-agent-transcript-process-item {
   color: var(--code-dark-text-muted);
 }
 
+body.code-mode[data-appearance='dark'] .code-agent-transcript-process-icon.kind-failed {
+  color: #ff7b72;
+}
+
 body.code-mode[data-appearance='dark'] .code-agent-transcript-process-status {
   background: transparent;
   color: var(--code-dark-text-muted);

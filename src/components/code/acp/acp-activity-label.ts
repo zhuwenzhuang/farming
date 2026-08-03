@@ -24,6 +24,20 @@ function isActive(item: AcpActivityItem) {
   return ['running', 'inprogress', 'pending', 'started', 'active'].includes(status)
 }
 
+export function acpItemActivityKind(item?: AcpActivityItem): AcpActivityKind {
+  const type = String(item?.type || '').toLowerCase()
+  const kind = String(item?.kind || '').toLowerCase()
+  if (type === 'thought' || kind === 'think') return 'thinking'
+  if (type === 'plan') return 'plan'
+  if (type === 'patch' || ['edit', 'delete', 'move'].includes(kind)) return 'editing'
+  if (kind === 'execute') return 'running'
+  if (kind === 'read') return 'reading'
+  if (kind === 'search') return 'searching'
+  if (kind === 'fetch') return 'fetching'
+  if (type === 'tool') return 'tool'
+  return 'processing'
+}
+
 export function acpActivityKind(items: AcpActivityItem[]): AcpActivityKind {
   const latest = items[items.length - 1]
   const latestType = String(latest?.type || '').toLowerCase()
@@ -40,18 +54,7 @@ export function acpActivityKind(items: AcpActivityItem[]): AcpActivityKind {
     }
   }
   if (!item) return 'processing'
-
-  const type = String(item.type || '').toLowerCase()
-  const kind = String(item.kind || '').toLowerCase()
-  if (kind === 'think') return 'thinking'
-  if (type === 'plan') return 'plan'
-  if (type === 'patch' || ['edit', 'delete', 'move'].includes(kind)) return 'editing'
-  if (kind === 'execute') return 'running'
-  if (kind === 'read') return 'reading'
-  if (kind === 'search') return 'searching'
-  if (kind === 'fetch') return 'fetching'
-  if (type === 'tool') return 'tool'
-  return 'processing'
+  return acpItemActivityKind(item)
 }
 
 export function acpLiveToolActivityLabel(
