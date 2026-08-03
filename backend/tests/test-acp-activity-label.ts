@@ -1,5 +1,5 @@
 const assert = require('assert');
-const { acpActivityKind, acpCompactPlanLabel, acpLiveToolActivityLabel, acpPlanProgress } = require('../../src/components/code/acp/acp-activity-label.ts');
+const { acpActivityKind, acpCompactPlanLabel, acpLiveToolActivity, acpPlanProgress, acpThoughtActivityLabel } = require('../../src/components/code/acp/acp-activity-label.ts');
 const { codeCopyForLanguage } = require('../../src/components/code/copy.ts');
 
 assert.strictEqual(acpActivityKind([]), 'processing');
@@ -16,6 +16,37 @@ assert.strictEqual(
     { type: 'tool', kind: 'read', status: 'completed' },
   ]),
   'processing',
+);
+assert.strictEqual(
+  acpThoughtActivityLabel([{ type: 'thought', detail: '**Planning secure log and session inspection**\n\nChecking the transcript.' }]),
+  'Planning secure log and session inspection',
+);
+assert.strictEqual(
+  acpThoughtActivityLabel([
+    { type: 'thought', detail: '**Older heading**' },
+    { type: 'tool', kind: 'read', status: 'completed' },
+    { type: 'thought', detail: '**Latest heading**' },
+  ]),
+  'Latest heading',
+);
+assert.strictEqual(
+  acpThoughtActivityLabel([
+    { type: 'thought', detail: '**Older heading**' },
+    { type: 'thought', detail: '**Incomplete heading' },
+  ]),
+  '',
+);
+assert.strictEqual(
+  acpThoughtActivityLabel([{ type: 'thought', detail: '**  Planning\n  secure\tinspection  **' }]),
+  'Planning secure inspection',
+);
+assert.strictEqual(
+  acpThoughtActivityLabel([{ type: 'thought', detail: 'Planning secure inspection' }]),
+  '',
+);
+assert.strictEqual(
+  acpThoughtActivityLabel([{ type: 'thought', detail: '**123456789**' }], 6),
+  '12345…',
 );
 assert.strictEqual(
   acpActivityKind([
@@ -94,16 +125,19 @@ for (const language of ['en', 'zh']) {
     tool: copy.agentTranscriptUsingTool,
     processing: copy.agentTranscriptWorking,
   };
-  assert.strictEqual(
-    acpLiveToolActivityLabel([
+  assert.deepStrictEqual(
+    acpLiveToolActivity([
       { type: 'tool', kind: 'execute', status: 'completed', title: 'old command' },
       { type: 'tool', kind: 'execute', status: 'in_progress', title: 'PORT=4187   npm test\n-- --runInBand' },
     ], activityLabels),
-    `${copy.agentTranscriptRunning}: PORT=4187 npm test -- --runInBand`,
+    {
+      kind: 'running',
+      label: `${copy.agentTranscriptRunning}: PORT=4187 npm test -- --runInBand`,
+    },
   );
-  assert.strictEqual(
-    acpLiveToolActivityLabel([{ type: 'tool', kind: 'execute', status: 'completed', title: 'npm test' }], activityLabels),
-    '',
+  assert.deepStrictEqual(
+    acpLiveToolActivity([{ type: 'tool', kind: 'execute', status: 'completed', title: 'npm test' }], activityLabels),
+    { kind: null, label: '' },
   );
 }
 

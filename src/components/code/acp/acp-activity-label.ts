@@ -14,6 +14,7 @@ interface AcpActivityItem {
   kind?: string
   status?: string
   title?: string
+  detail?: string
   completedSteps?: number
   totalSteps?: number
   currentStep?: string
@@ -54,18 +55,47 @@ export function acpActivityKind(items: AcpActivityItem[]): AcpActivityKind {
   return 'processing'
 }
 
-export function acpLiveToolActivityLabel(
+export function acpLiveToolActivity(
   items: AcpActivityItem[],
   labels: Record<AcpActivityKind, string>,
 ) {
-  return items
-    .filter(item => ['tool', 'patch', 'subagent'].includes(String(item.type || '').toLowerCase()) && isActive(item))
-    .map(item => {
+  const activeItems = items.filter(item => (
+    ['tool', 'patch', 'subagent'].includes(String(item.type || '').toLowerCase()) && isActive(item)
+  ))
+  const latest = activeItems[activeItems.length - 1]
+  return {
+    kind: latest ? acpActivityKind([latest]) : null,
+    label: activeItems.map(item => {
       const activity = labels[acpActivityKind([item])]
       const title = String(item.title || '').trim().replace(/\s+/g, ' ')
       return title ? `${activity}: ${title}` : activity
     })
-    .join(' · ')
+      .join(' · '),
+  }
+}
+
+export function acpThoughtActivityLabel(items: AcpActivityItem[], maxCharacters = 120) {
+  let detail = ''
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const item = items[index]
+    if (String(item?.type || '').toLowerCase() !== 'thought') continue
+    detail = String(item?.detail || '')
+    break
+  }
+
+  const opening = detail.indexOf('**')
+  if (opening < 0) return ''
+  const closing = detail.indexOf('**', opening + 2)
+  if (closing < 0) return ''
+  const label = detail.slice(opening + 2, closing).trim().replace(/\s+/g, ' ')
+  if (!label) return ''
+
+  const limit = Math.max(0, Math.floor(maxCharacters))
+  if (limit <= 0) return ''
+  const characters = [...label]
+  if (characters.length <= limit) return label
+  if (limit === 1) return '…'
+  return `${characters.slice(0, limit - 1).join('')}…`
 }
 
 export function acpPlanProgress(items: AcpActivityItem[]) {

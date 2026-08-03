@@ -74,7 +74,7 @@ import { isPageActive } from '@/hooks/usePageVisibility'
 import { loadAcpReviewPreview, loadReviewComparisonSources } from '@/lib/review/api'
 import type { WorkspaceFileOpenTarget } from '@/lib/workspace-open-files'
 import type { CodeCopy } from './copy'
-import { acpActivityKind, acpCompactPlanLabel, acpLiveToolActivityLabel, acpPlanProgress, type AcpActivityKind } from './acp/acp-activity-label'
+import { acpActivityKind, acpCompactPlanLabel, acpLiveToolActivity, acpPlanProgress, acpThoughtActivityLabel, type AcpActivityKind } from './acp/acp-activity-label'
 import {
   acpCollaborationAgentsForTurn,
   type AcpCollaborationAction,
@@ -380,8 +380,8 @@ function acpActivityLabel(turn: AgentTranscriptTurn, copy: CodeCopy) {
   return acpActivityLabels(copy)[acpActivityKind(turn.processItems)]
 }
 
-function acpLiveToolLabel(turn: AgentTranscriptTurn, copy: CodeCopy) {
-  return acpLiveToolActivityLabel(turn.processItems, acpActivityLabels(copy))
+function acpLiveTool(turn: AgentTranscriptTurn, copy: CodeCopy) {
+  return acpLiveToolActivity(turn.processItems, acpActivityLabels(copy))
 }
 
 function acpPlanLabel(turn: AgentTranscriptTurn, copy: CodeCopy) {
@@ -2714,15 +2714,17 @@ function AgentTranscriptTurnView({
   const processSummaryWorkingLabel = compactProcess.items.length > 0
     ? copy.agentTranscriptProcess
     : workingLabel
-  const liveToolLabel = source === 'acp' ? acpLiveToolLabel(activityTurn, copy) : ''
+  const liveToolActivity = source === 'acp' ? acpLiveTool(activityTurn, copy) : null
   const planLabel = source === 'acp' ? acpPlanLabel(activityTurn, copy) : ''
+  const thoughtLabel = source === 'acp' ? acpThoughtActivityLabel(activityTurn.processItems) : ''
   const processSummaryLabel = runningCompaction
     ? copy.agentTranscriptCompactingContext
     : turn.status === 'inProgress' && progressDuration
       ? copy.agentTranscriptWorkingFor(progressDuration)
       : turnProcessLabel(mainProcessTurn, copy, processSummaryWorkingLabel, planLabel)
-  const liveActivityKind = acpActivityKind(activityTurn.processItems)
-  const latestSteerActivityLabel = liveToolLabel || planLabel || workingLabel
+  const liveActivityLabel = liveToolActivity?.label || planLabel || thoughtLabel || workingLabel
+  const liveActivityKind = liveToolActivity?.kind
+    || (planLabel ? 'plan' : thoughtLabel ? 'thinking' : acpActivityKind(activityTurn.processItems))
   const loadFullProcessDetail = useCallback(async (item: AgentTranscriptProcessItem, force = false) => {
     if ((!item.detailTruncated && !item.terminalIds?.length && !item.subagentSessionId) || !onLoadProcessItemDetail) {
       return { detail: item.detail || '', terminals: item.terminals, subagentTranscript: item.subagentTranscript }
@@ -3008,7 +3010,7 @@ function AgentTranscriptTurnView({
             className="code-agent-transcript-process-summary"
             data-testid="code-agent-transcript-process-summary"
             aria-expanded={effectiveProcessOpen}
-            title={liveToolLabel || turnProcessTitle(mainProcessTurn, copy)}
+            title={liveToolActivity?.label || turnProcessTitle(mainProcessTurn, copy)}
             onPointerDown={event => event.stopPropagation()}
             onMouseDown={event => event.stopPropagation()}
             onClick={event => {
@@ -3236,7 +3238,7 @@ function AgentTranscriptTurnView({
           aria-live="polite"
         >
           <AgentTranscriptLiveActivityIcon kind={liveActivityKind} />
-          <span>{latestSteerActivityLabel}</span>
+          <span>{liveActivityLabel}</span>
         </div>
       ) : null}
     </article>

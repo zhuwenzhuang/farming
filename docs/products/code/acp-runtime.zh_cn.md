@@ -54,7 +54,7 @@ ACP update 一方面以有界且限制单条大小的诊断数据保留，另一
 
 能力协商成功后，Codex 活跃 turn 期间提交的输入会作为 steer 发送，并保留在同一 turn 的原始有序位置，包括原生媒体 block。气泡下方左侧带有小号、克制的 `Steer` 浅色文字标记，以便和根 prompt 区分且不干扰对话阅读。没有该扩展的 provider 继续显示排队 follow-up。
 
-最新一个正在工作的 ACP Turn 会在内容底部显示一条克制的实时活动状态，Codex、Claude Code、OpenCode 与 Qoder 共用同一行为。文案与图标只来自 thought、plan、tool-call kind 等与 provider 无关的 ACP 类型状态；无法分类的工作使用中性加载图标，不使用 provider 或插件图标。会话等待权限、等待用户输入或正在中断时隐藏该状态，由对应的显式交互界面表达。已完成的过程摘要与历史动作保持纯文字。
+最新一个正在工作的 ACP Turn 会在内容底部显示一条克制的实时活动状态，Codex、Claude Code、OpenCode 与 Qoder 共用同一行为。文案与图标只来自 thought、plan、tool-call kind 等与 provider 无关的 ACP 类型状态；活跃 Tool 与当前 Plan 步骤优先，否则 Farming 可以使用最新 ACP thought 中用户可见且长度受限的 Markdown 粗体标题，再回退到通用类型文案。无法分类的工作使用中性加载图标，不使用 provider 或插件图标。会话等待权限、等待用户输入或正在中断时隐藏该状态，由对应的显式交互界面表达。已完成的过程摘要与历史动作保持纯文字。
 
 较短的 Chat transcript 从阅读区域顶部开始，不再被压到贴近底部 Composer 的位置。长历史在读者停留于尾部时仍然跟随最新内容；读者查看较早内容时会保留明确的阅读位置，并在脱离尾部后显示跳转到最新位置的控件。只有明确的读者滚动或文本选择手势会脱离“跟随最新”；transcript 渲染和其它延迟内容高度变化仍会让视口紧贴尾部。
 

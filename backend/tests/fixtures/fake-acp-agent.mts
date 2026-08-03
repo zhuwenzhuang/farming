@@ -489,6 +489,14 @@ class FakeAgent implements Agent {
       await client.sessionUpdate({
         sessionId: params.sessionId,
         update: {
+          sessionUpdate: 'agent_thought_chunk',
+          messageId: 'steer-planning-thought',
+          content: { type: 'text', text: '**Planning secure session inspection**\n\nChecking the active turn before steering.' },
+        },
+      });
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
           sessionUpdate: 'agent_message_chunk',
           messageId: 'steer-ready',
           content: { type: 'text', text: 'Waiting for steering.' },
