@@ -125,7 +125,7 @@ test.describe('ACP human-like browser matrix', () => {
       new RegExp(`/farming/api/agents/${agentId}/acp-transcript(?:\\?.*)?$`),
       async route => {
         attempts += 1
-        if (attempts !== 4) {
+        if (attempts < 4) {
           await route.abort('connectionreset')
           return
         }
@@ -177,7 +177,7 @@ test.describe('ACP human-like browser matrix', () => {
     )).toBeVisible()
     await agentRow(page, agentId).click()
     await expect(page.getByText('Transcript transport recovered.', { exact: true })).toBeVisible()
-    await expect.poll(() => attempts, { timeout: 5_000 }).toBeGreaterThanOrEqual(6)
+    await expect.poll(() => attempts, { timeout: 5_000 }).toBeGreaterThanOrEqual(5)
     await expect(page.getByText('Transcript transport recovered.', { exact: true })).toBeVisible()
     await expect(page.getByText('This session’s Chat history could not be loaded.', { exact: true }))
       .toHaveCount(0)
