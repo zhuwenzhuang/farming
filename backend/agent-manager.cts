@@ -8926,7 +8926,7 @@ class AgentManager extends EventEmitter {
     if (this.disposing) {
       return { error: 'Farming is shutting down; Agent lifecycle changes are not accepted' };
     }
-    const agent = this.agents.get(agentId);
+    let agent = this.agents.get(agentId);
     if (!agent) {
       return { error: 'Agent not found' };
     }
@@ -8940,6 +8940,12 @@ class AgentManager extends EventEmitter {
     const forkCapability = providerConversationForkCapability(forkProvider, forkRuntime);
     if (forkProvider && forkCapability.supported !== true) {
       return { error: `${forkProvider} does not support session Fork` };
+    }
+    if (
+      forkProvider
+      && !forkCapability.worktreeModes.includes(mode as 'same-worktree' | 'new-worktree')
+    ) {
+      return { error: `${forkProvider} does not support ${mode} ${forkRuntime.toUpperCase()} Fork` };
     }
     if (targetRuntime === 'chat') {
       let acpBinding = runtimeBindingOf(agent, 'acp');
@@ -9056,7 +9062,7 @@ class AgentManager extends EventEmitter {
     lifecycleToken: symbol,
     forkRequestId = '',
   ): Promise<AgentForkResult> {
-    let agent = this.agents.get(agentId);
+    const agent = this.agents.get(agentId);
     if (!agent) return { error: 'Agent not found' };
     if (runtimeKind(agent) !== 'acp') {
       return { error: 'Conversation Fork requires an ACP Chat Agent' };
@@ -9122,12 +9128,6 @@ class AgentManager extends EventEmitter {
       let settled = false;
       const finish = async (forkedAgentId: AgentId | null, error?: string | null) => {
         if (settled) return;
-    if (
-      forkProvider
-      && !forkCapability.worktreeModes.includes(mode as 'same-worktree' | 'new-worktree')
-    ) {
-      return { error: `${forkProvider} does not support ${mode} ${forkRuntime.toUpperCase()} Fork` };
-    }
         settled = true;
         if (error || !forkedAgentId) {
           let rollbackError = '';
