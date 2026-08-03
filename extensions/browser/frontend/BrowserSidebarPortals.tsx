@@ -67,7 +67,6 @@ function browserCopy(language: UiPreferences['language']) {
     deleteBrowser: zh ? '关闭标签页' : 'Close Tab',
     failed: zh ? '标签页失败' : 'Tab failed',
     starting: zh ? '启动中…' : 'Starting…',
-    recovering: zh ? '恢复中…' : 'Recovering…',
     stopping: zh ? '停止中…' : 'Stopping…',
     stopped: zh ? '已停止' : 'Stopped',
     renameFailed: zh ? '标签页重命名失败' : 'Failed to rename tab',
@@ -95,7 +94,6 @@ function resourceStatusLabel(resource: BrowserResource, copy: BrowserCopy) {
   // are only a noisy transport detail, so present them as a neutral stopped tab.
   if (resource.status === 'failed') return copy.stopped
   if (resource.status === 'starting') return copy.starting
-  if (resource.status === 'recovering') return copy.recovering
   if (resource.status === 'stopping') return copy.stopping
   return copy.stopped
 }
@@ -116,9 +114,6 @@ function BrowserRow({
   const [renaming, setRenaming] = useState(false)
   const [name, setName] = useState(resource.name)
   const busy = resource.status === 'starting' || resource.status === 'stopping'
-  // A recovering tab still owns a runtime, so its explicit Stop stays available
-  // and always wins over the bounded recovery attempt.
-  const stoppable = resource.status === 'running' || resource.status === 'recovering'
   const submitRename = async () => {
     const next = name.trim()
     setRenaming(false)
@@ -187,15 +182,15 @@ function BrowserRow({
         <button
           type="button"
           disabled={busy}
-          title={stoppable ? copy.stopBrowser : copy.startBrowser}
-          aria-label={stoppable ? copy.stopBrowser : copy.startBrowser}
+          title={resource.status === 'running' ? copy.stopBrowser : copy.startBrowser}
+          aria-label={resource.status === 'running' ? copy.stopBrowser : copy.startBrowser}
           onClick={event => {
             event.stopPropagation()
-            const operation = stoppable ? controller.stop(resource.id) : controller.start(resource.id)
+            const operation = resource.status === 'running' ? controller.stop(resource.id) : controller.start(resource.id)
             void operation.catch(error => window.alert(error instanceof Error ? error.message : copy.transitionFailed))
           }}
         >
-          {stoppable ? <SquareGlyph /> : <BrowserPlayGlyph />}
+          {resource.status === 'running' ? <SquareGlyph /> : <BrowserPlayGlyph />}
         </button>
         <button
           type="button"

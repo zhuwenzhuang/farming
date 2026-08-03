@@ -13,12 +13,11 @@ const STATUSES = new Set<BrowserResourceStatus>([
   'stopped',
   'starting',
   'running',
-  'recovering',
   'stopping',
   'failed',
 ]);
 
-type BrowserResourceStatus = 'stopped' | 'starting' | 'running' | 'recovering' | 'stopping' | 'failed';
+type BrowserResourceStatus = 'stopped' | 'starting' | 'running' | 'stopping' | 'failed';
 type BrowserResourceOwnerType = 'agent' | 'project';
 
 interface BrowserProcessIdentity {

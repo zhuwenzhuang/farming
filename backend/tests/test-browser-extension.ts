@@ -34,7 +34,6 @@ class FakeBrowserRuntime extends EventEmitter {
     this.profileDir = options.profileDir;
     this.externalCdpUrl = options.externalCdpUrl || '';
     this.startedUrl = '';
-    this.startFailure = '';
     this.closed = false;
     this.closeFailures = 0;
     this.latestFrame = null;
@@ -47,15 +46,9 @@ class FakeBrowserRuntime extends EventEmitter {
     this.activeTabId = '';
     this.streamTabId = '';
     this.ownedTabIds = new Set();
-    this.streamGeneration = 1;
-    this.daemonRunning = true;
-    this.reattachFailure = '';
-    this.reattachCalls = 0;
-    this.processIdentity = null;
   }
 
   async start(url) {
-    if (this.startFailure) throw new Error(this.startFailure);
     this.startedUrl = url;
     const tab = {
       active: true,
@@ -68,24 +61,13 @@ class FakeBrowserRuntime extends EventEmitter {
     this.tabs = [tab];
     this.activeTabId = tab.tabId;
     this.streamTabId = tab.tabId;
-    this.processIdentity = {
+    this.emit('process-identity', {
       pid: 41_001 + this.generation,
       processGroupId: 41_001 + this.generation,
       startedAt: `generation-${this.generation}`,
       format: 'test-v1',
-    };
-    this.emit('process-identity', this.processIdentity);
+    });
     return { url, title: 'Fake Browser' };
-  }
-
-  async daemonAlive() {
-    return this.daemonRunning;
-  }
-
-  async reattachStream() {
-    this.reattachCalls += 1;
-    if (this.reattachFailure) throw new Error(this.reattachFailure);
-    this.streamGeneration += 1;
   }
 
   async listTabs() {
@@ -371,7 +353,6 @@ async function testBrowserResourceManager() {
   fs.mkdirSync(projectWorkspace);
   const canonicalConfigDir = fs.realpathSync.native(configDir);
   const runtimes = [];
-  let nextRuntimeStartFailure = '';
   let enabled = false;
   const unavailableManager = new BrowserResourceManager({
     configDir,
@@ -454,8 +435,6 @@ async function testBrowserResourceManager() {
     }),
     createRuntime: options => {
       const runtime = new FakeBrowserRuntime(options);
-      runtime.startFailure = nextRuntimeStartFailure;
-      nextRuntimeStartFailure = '';
       runtimes.push(runtime);
       return runtime;
     },
@@ -965,19 +944,10 @@ async function testBrowserResourceManager() {
       url: 'about:blank',
     });
     await manager.start(second.id);
-    // A confirmed daemon death gets one bounded Session restart. When that
-    // restart also fails, the Resource must fail visibly and actionably.
-    const crashedSession = manager.sessions.get(manager.store.get(second.id).sessionId);
-    runtimes[2].daemonRunning = false;
-    nextRuntimeStartFailure = 'Browser crashed';
-    runtimes[2].emit('stream-closed', {
-      reason: 'agent-browser stream closed',
-      streamGeneration: runtimes[2].streamGeneration,
-    });
-    await crashedSession.recovery.settled;
+    runtimes[2].emit('exit', 'Browser crashed');
+    await new Promise(resolve => setImmediate(resolve));
     assert.strictEqual(manager.get(second.id).status, 'failed');
-    assert.match(manager.get(second.id).error, /agent-browser stream closed/);
-    assert.match(manager.get(second.id).error, /Session restart failed: Browser crashed/);
+    assert.strictEqual(manager.get(second.id).error, 'Browser crashed');
 
     const retryable = manager.create({
       projectRootId: 'wroot_project',
@@ -986,7 +956,7 @@ async function testBrowserResourceManager() {
       url: 'about:blank',
     });
     await manager.start(retryable.id);
-    runtimes.at(-1).closeFailures = 1;
+    runtimes[3].closeFailures = 1;
     await assert.rejects(manager.stop(retryable.id), /close not proven/);
     assert.strictEqual(manager.get(retryable.id).status, 'stopping');
     assert.strictEqual((await manager.stop(retryable.id)).status, 'stopped');

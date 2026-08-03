@@ -5543,7 +5543,6 @@ export function CodeWorkspace({
             && (
               browser.status === 'starting'
               || browser.status === 'running'
-              || browser.status === 'recovering'
               || browser.status === 'stopping'
             )
           )).length

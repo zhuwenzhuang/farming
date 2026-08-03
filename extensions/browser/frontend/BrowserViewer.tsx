@@ -37,10 +37,6 @@ function viewerCopy(language: UiPreferences['language']) {
     startBrowser: zh ? '启动标签页' : 'Start Tab',
     stoppedTitle: zh ? '标签页已停止' : 'Tab stopped',
     failedTitle: zh ? '标签页失败' : 'Tab failed',
-    recoveringTitle: zh ? '正在恢复标签页' : 'Recovering tab',
-    recoveringHint: zh
-      ? 'Browser 连接中断，Farming 正在有界地重新接入；已发出的操作结果未知，不会被重放。'
-      : 'The Browser connection dropped. Farming is re-attaching within a bounded attempt; in-flight actions have an unknown outcome and are never replayed.',
     stoppedHint: zh ? '启动后，用户和 Agent 将操作同一个标签页。' : 'Start it to share one tab between the user and Agent.',
     pageLabel: (name: string) => zh ? `${name} 浏览器页面` : `${name} browser page`,
     textInput: zh ? '浏览器文本输入' : 'Browser text input',
@@ -112,10 +108,6 @@ export function BrowserViewer({
   onBackToAgent: () => void
 }) {
   const copy = viewerCopy(language)
-  const recovering = resource.status === 'recovering'
-  // A recovering tab still owns its runtime, so Stop stays offered and wins.
-  const stoppable = resource.status === 'running' || recovering
-  const transitioning = resource.status === 'starting' || resource.status === 'stopping'
   const viewportRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const addressInputRef = useRef<HTMLInputElement>(null)
@@ -454,7 +446,7 @@ export function BrowserViewer({
             ref={addressInputRef}
             value={address}
             aria-label={copy.address}
-            disabled={transitioning || recovering}
+            disabled={resource.status === 'starting' || resource.status === 'stopping'}
             onChange={event => {
               addressEditingRef.current = true
               setAddress(event.currentTarget.value)
@@ -512,17 +504,17 @@ export function BrowserViewer({
               <button
                 type="button"
                 role="menuitem"
-                disabled={transitioning}
+                disabled={resource.status === 'starting' || resource.status === 'stopping'}
                 onClick={() => {
                   setMoreOpen(false)
-                  const transition = stoppable
+                  const transition = resource.status === 'running'
                     ? controller.stop(resource.id)
                     : controller.start(resource.id)
                   void transition.catch(error => setViewerError(error instanceof Error ? error.message : copy.transitionFailed))
                 }}
               >
-                {stoppable ? <SquareGlyph /> : <PlayGlyph />}
-                <span>{stoppable ? copy.stop : copy.start}</span>
+                {resource.status === 'running' ? <SquareGlyph /> : <PlayGlyph />}
+                <span>{resource.status === 'running' ? copy.stop : copy.start}</span>
               </button>
             </div>
           ) : null}
@@ -576,13 +568,9 @@ export function BrowserViewer({
           />
         ) : (
           <div className="farming-browser-placeholder">
-            <strong>
-              {recovering
-                ? copy.recoveringTitle
-                : resource.status === 'failed' ? copy.failedTitle : copy.stoppedTitle}
-            </strong>
-            <p>{recovering ? copy.recoveringHint : (resource.error || copy.stoppedHint)}</p>
-            <button type="button" disabled={recovering} onClick={() => void controller.start(resource.id).catch(error => setViewerError(error.message))}>
+            <strong>{resource.status === 'failed' ? copy.failedTitle : copy.stoppedTitle}</strong>
+            <p>{resource.error || copy.stoppedHint}</p>
+            <button type="button" onClick={() => void controller.start(resource.id).catch(error => setViewerError(error.message))}>
               <PlayGlyph />
               <span>{copy.startBrowser}</span>
             </button>
