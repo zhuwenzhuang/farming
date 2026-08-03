@@ -133,6 +133,7 @@ export interface CodeCopy {
   createIsolatedDesktop: string
   archiveAgent: string
   reorderAgentFailed: string
+  reorderProjectFailed: string
   markAsRead: string
   markAsUnread: string
   copyWorkingDirectory: string
@@ -652,6 +653,7 @@ const EN_COPY: CodeCopy = {
   createIsolatedDesktop: 'Create Isolated Desktop',
   archiveAgent: 'Archive',
   reorderAgentFailed: 'Failed to reorder Agent',
+  reorderProjectFailed: 'Failed to reorder Project',
   markAsRead: 'Mark as read',
   markAsUnread: 'Mark as unread',
   copyWorkingDirectory: 'Copy working directory',
@@ -1197,6 +1199,7 @@ const ZH_COPY: CodeCopy = {
   createIsolatedDesktop: '创建隔离桌面',
   archiveAgent: '归档',
   reorderAgentFailed: '调整 Agent 顺序失败',
+  reorderProjectFailed: '调整项目顺序失败',
   markAsRead: '标为已读',
   markAsUnread: '标为未读',
   copyWorkingDirectory: '复制工作目录',

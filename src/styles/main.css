@@ -1538,6 +1538,36 @@ body.code-resizing-sidebar {
   background: #f7f7f6;
 }
 
+.code-project-row.dragging,
+.code-agent-row.dragging {
+  opacity: 0.45;
+}
+
+.code-project-row.drop-before::before,
+.code-project-row.drop-after::after,
+.code-agent-row.drop-before::before,
+.code-agent-row.drop-after::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  height: 2px;
+  border-radius: 999px;
+  background: #0969da;
+  pointer-events: none;
+  z-index: 30;
+}
+
+.code-project-row.drop-before::before,
+.code-agent-row.drop-before::before {
+  top: -2px;
+}
+
+.code-project-row.drop-after::after,
+.code-agent-row.drop-after::after {
+  bottom: -2px;
+}
+
 .code-project-title {
   min-width: 0;
   width: 100%;
@@ -1822,31 +1852,6 @@ body.code-resizing-sidebar {
   font-size: 14px;
   font-weight: 400;
   line-height: 1.25;
-}
-
-.code-agent-row.dragging {
-  opacity: 0.45;
-}
-
-.code-agent-row.drop-before::before,
-.code-agent-row.drop-after::after {
-  content: '';
-  position: absolute;
-  left: 4px;
-  right: 4px;
-  height: 2px;
-  border-radius: 999px;
-  background: #d97757;
-  pointer-events: none;
-  z-index: 3;
-}
-
-.code-agent-row.drop-before::before {
-  top: -2px;
-}
-
-.code-agent-row.drop-after::after {
-  bottom: -2px;
 }
 
 .code-agent-row:focus-visible {

@@ -219,6 +219,7 @@ Files
 - 包含未提交改动的父目录显示低饱和度状态点，避免把整棵树染成强提醒
 - 父目录只有 descendant 状态时不改变目录名颜色或字重；右侧状态点承担提示，避免深层目录被一串橙色父节点淹没
 - Project 展开内容的顺序是具体 Agent 行、可选 `Open Editors`、`Files`；`Git History` 位于 Files 内的 Working Copy `Changes` 之后
+- 已挂载 Project 的标题支持拖动排序；顺序由后端 `projectWorkspaces` 列表持久化，置顶 Project 仍作为独立的前置顺序分组。Agent 和 Project 的拖放位置提示使用普通蓝色交互强调色，不使用破坏性颜色
 - `Open Editors` 只有在当前 Project 至少打开一个文件后才出现，出现时默认折叠；展开后显示打开文件列表，点击条目切回对应文件
 - `Git History` 默认折叠，只要 Project workspace 可访问就展示；行内展示 Commit Subject、短 OID、作者/时间和 Branch/Tag Decoration
 - `Git History` 标题与 Working Copy `Changes`、文件树使用一致的水平缩进

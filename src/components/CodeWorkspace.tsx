@@ -4211,6 +4211,35 @@ export function CodeWorkspace({
     }
   }, [copy.reorderAgentFailed])
 
+  const reorderSidebarProject = useCallback(async (
+    workspace: string,
+    beforeWorkspace: string,
+    afterWorkspace: string,
+  ) => {
+    try {
+      const response = await fetch(appPath('/api/projects/reorder'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspace, beforeWorkspace, afterWorkspace }),
+      })
+      const membership = await response.json().catch(() => null) as {
+        error?: string
+        projectWorkspaces?: string[]
+        pinnedProjectWorkspaces?: string[]
+      } | null
+      if (!response.ok) {
+        throw new Error(membership?.error || copy.reorderProjectFailed)
+      }
+      applyProjectMembership(membership || {})
+    } catch (error) {
+      setCopyNotice({
+        id: Date.now(),
+        kind: 'error',
+        message: error instanceof Error ? error.message : copy.reorderProjectFailed,
+      })
+    }
+  }, [applyProjectMembership, copy.reorderProjectFailed])
+
   const restoreArchivedAgent = useCallback((agentId: string) => {
     pendingArchivedFocusAgentRef.current = null
     pendingRestoredFocusAgentRef.current = agentId
@@ -5471,6 +5500,7 @@ export function CodeWorkspace({
         onToggleProjectSessions={toggleProjectSessions}
         onMountProject={mountProject}
         onOpenProjectMenu={openProjectContextMenu}
+        onReorderProject={reorderSidebarProject}
         onOpenAgent={openTerminalFromSidebar}
         onUpdateAgentFlags={updateSidebarAgentFlags}
         onReorderAgent={reorderSidebarAgent}

@@ -19,6 +19,15 @@ async function projectAgentIds(project: import('@playwright/test').Locator) {
     .filter((id): id is string => Boolean(id)))
 }
 
+async function orderedProjectIds(page: import('@playwright/test').Page, projectIds: string[]) {
+  return page.getByTestId('code-project-title').evaluateAll((titles, expectedIds) => {
+    const expected = new Set(expectedIds)
+    return titles
+      .map(title => title.getAttribute('data-project-id'))
+      .filter((id): id is string => Boolean(id && expected.has(id)))
+  }, projectIds)
+}
+
 async function mockPaginatedProjectSessions(page: import('@playwright/test').Page, projectDir: string) {
   const sessionIds = Array.from({ length: 6 }, (_, index) => `019f0000-0000-7000-8000-00000000020${index}`)
   await page.route(/\/farming\/api\/agent-sessions(?:\?.*)?$/, async route => {
@@ -123,6 +132,20 @@ test('keeps persistent project and pinned Agent order', async ({ page, workspace
 
   const sourceRow = project.locator(`[data-testid="code-agent-row"][data-agent-id="${firstAgentId}"]`)
   const targetRow = project.locator(`[data-testid="code-agent-row"][data-agent-id="${thirdAgentId}"]`)
+  const dataTransfer = await page.evaluateHandle(() => new DataTransfer())
+  const targetBox = await targetRow.boundingBox()
+  expect(targetBox).toBeTruthy()
+  await sourceRow.dispatchEvent('dragstart', { dataTransfer })
+  await targetRow.dispatchEvent('dragover', {
+    dataTransfer,
+    clientY: targetBox!.y + 1,
+  })
+  await expect.poll(() => targetRow.evaluate(element => (
+    ['rgb(9, 105, 218)', 'rgb(88, 166, 255)'].includes(
+      getComputedStyle(element, '::before').backgroundColor,
+    )
+  ))).toBe(true)
+  await sourceRow.dispatchEvent('dragend', { dataTransfer })
   await targetRow.click()
   await expect(targetRow).toHaveClass(/active/)
   await sourceRow.dragTo(targetRow, { targetPosition: { x: 80, y: 2 } })
@@ -222,6 +245,47 @@ test('keeps persistent project and pinned Agent order', async ({ page, workspace
   await expect(project.getByTestId('code-agent-row')).toHaveCount(6)
   const expandedIds = await projectAgentIds(project)
   expect(expandedIds[expandedIds.length - 1]).toBe(firstAgentId)
+})
+
+test('reorders Projects persistently within the sidebar', async ({ page, workspaceRoot }) => {
+  const projectA = path.join(workspaceRoot, 'project-order-a')
+  const projectB = path.join(workspaceRoot, 'project-order-b')
+  const projectC = path.join(workspaceRoot, 'project-order-c')
+  const projectIds = [projectA, projectB, projectC]
+  projectIds.forEach(project => fs.mkdirSync(project, { recursive: true }))
+
+  await openFarming(page)
+  for (const project of projectIds) {
+    const response = await page.request.post('/farming/api/projects/mount', {
+      data: { workspace: project },
+    })
+    expect(response.ok()).toBeTruthy()
+  }
+  await createControlAgent(page, projectA)
+  await createControlAgent(page, projectB)
+  await createControlAgent(page, projectC)
+
+  await expect.poll(() => orderedProjectIds(page, projectIds)).toEqual([
+    projectC,
+    projectB,
+    projectA,
+  ])
+
+  const sourceTitle = page.locator(`[data-testid="code-project-title"][data-project-id="${projectA}"]`)
+  const targetTitle = page.locator(`[data-testid="code-project-title"][data-project-id="${projectC}"]`)
+  await sourceTitle.dragTo(targetTitle, { targetPosition: { x: 80, y: 2 } })
+  await expect.poll(() => orderedProjectIds(page, projectIds)).toEqual([
+    projectA,
+    projectC,
+    projectB,
+  ])
+
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await expect.poll(() => orderedProjectIds(page, projectIds)).toEqual([
+    projectA,
+    projectC,
+    projectB,
+  ])
 })
 
 test('keeps Project Files on workspace identity while its source Agent changes', async ({ page, workspaceRoot }) => {

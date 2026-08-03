@@ -24,6 +24,7 @@ function run() {
   assert(manager.includes('projectOrder: finiteOrder(agent.projectOrder)'));
   assert(manager.includes('pinnedOrder: finiteOrder(agent.pinnedOrder)'));
   assert(server.includes("app.post(routePath(BASE_PATH, '/api/agents/:agentId/reorder')"));
+  assert(server.includes("app.post(routePath(BASE_PATH, '/api/projects/reorder')"));
   assert(server.includes("app.patch(routePath(BASE_PATH, '/api/agent-sessions/:provider/:sessionId')"));
   assert(server.includes('displayPinned'));
   assert(sessionStore.includes('projectOrder: typeof agent.projectOrder'));
@@ -31,6 +32,7 @@ function run() {
 
   assert(!workspace.includes('agentListOrderRef'));
   assert(workspace.includes('const reorderSidebarAgent = useCallback'));
+  assert(workspace.includes('const reorderSidebarProject = useCallback'));
   assert(workspace.includes("appPath(`/api/agent-sessions/${encodeURIComponent(contextMenuAgentSession.provider)}"));
   assert(sidebar.includes('isCompactViewport, isTouchInputViewport'));
   assert(sidebar.includes("from '@/lib/responsive-mode'"));
@@ -38,12 +40,16 @@ function run() {
   assert(sidebar.includes('if (draggedRef.current)'));
   assert(!sidebar.includes('code-agent-drag-handle'));
   assert(sidebar.includes('useAgentReorder('));
+  assert(sidebar.includes('onProjectDragStart'));
   assert(reorderHook.includes('onReorder('));
   assert(sidebar.includes('const sortedAgents = project.agents.filter(agent => !agent.pinned)'));
   assert(sidebar.includes('(a.agent.pinnedOrder ?? 0) - (b.agent.pinnedOrder ?? 0)'));
   assert(model.includes('(b.projectOrder ?? 0) - (a.projectOrder ?? 0)'));
   assert(styles.includes('.code-agent-row.drop-before::before'));
   assert(styles.includes('.code-agent-row.drop-after::after'));
+  assert(styles.includes('.code-project-row.drop-before::before'));
+  assert(styles.includes('background: #0969da'));
+  assert(!styles.includes('background: #d97757'));
 
   console.log('agent order wiring assertions passed');
 }

@@ -2163,6 +2163,21 @@ app.post(routePath(BASE_PATH, '/api/projects/pin'), express.json(), (req, res) =
   }
 });
 
+app.post(routePath(BASE_PATH, '/api/projects/reorder'), express.json(), (req, res) => {
+  try {
+    const membership = configManager.reorderProjectWorkspace(req.body?.workspace, {
+      beforeWorkspace: optionalString(req.body?.beforeWorkspace),
+      afterWorkspace: optionalString(req.body?.afterWorkspace),
+    });
+    broadcastState();
+    res.json(membership);
+  } catch (caught) {
+    const error = caughtError(caught);
+    const status = error.message === 'Project does not exist' ? 404 : 409;
+    res.status(status).json({ error: error.message || 'Failed to reorder Project' });
+  }
+});
+
 app.patch(routePath(BASE_PATH, '/api/projects/name'), express.json(), (req, res) => {
   try {
     const result = configManager.setProjectName(req.body?.workspace, req.body?.name);

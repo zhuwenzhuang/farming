@@ -197,6 +197,41 @@ function run() {
     assert.deepStrictEqual(projectMembership.pinnedProjectWorkspaces, [projectB, projectA]);
     projectMembership = manager.setProjectWorkspacePinned(projectA, false);
     assert.deepStrictEqual(projectMembership.pinnedProjectWorkspaces, [projectB]);
+    projectMembership = manager.setProjectWorkspacePinned(projectB, false);
+    assert.deepStrictEqual(projectMembership.pinnedProjectWorkspaces, []);
+    projectMembership = manager.reorderProjectWorkspace(projectB, {
+      beforeWorkspace: '',
+      afterWorkspace: projectA,
+    });
+    assert.deepStrictEqual(projectMembership.projectWorkspaces, [projectB, projectA]);
+    assert.throws(
+      () => manager.reorderProjectWorkspace(projectB, {
+        beforeWorkspace: projectA,
+        afterWorkspace: projectA,
+      }),
+      /Reorder neighbors are stale/,
+    );
+    projectMembership = manager.reorderProjectWorkspace(projectA, {
+      beforeWorkspace: '',
+      afterWorkspace: projectB,
+    });
+    assert.deepStrictEqual(projectMembership.projectWorkspaces, [projectA, projectB]);
+    manager.setProjectWorkspacePinned(projectA, true);
+    manager.setProjectWorkspacePinned(projectB, true);
+    projectMembership = manager.reorderProjectWorkspace(projectB, {
+      beforeWorkspace: '',
+      afterWorkspace: projectA,
+    });
+    assert.deepStrictEqual(projectMembership.projectWorkspaces, [projectB, projectA]);
+    assert.deepStrictEqual(projectMembership.pinnedProjectWorkspaces, [projectB, projectA]);
+    manager.setProjectWorkspacePinned(projectB, false);
+    manager.setProjectWorkspacePinned(projectA, false);
+    projectMembership = manager.reorderProjectWorkspace(projectA, {
+      beforeWorkspace: '',
+      afterWorkspace: projectB,
+    });
+    assert.deepStrictEqual(projectMembership.projectWorkspaces, [projectA, projectB]);
+    assert.deepStrictEqual(projectMembership.pinnedProjectWorkspaces, []);
     assert.throws(
       () => manager.mountProjectWorkspace(missingProject),
       /invalid or unavailable/,
