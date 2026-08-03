@@ -67,6 +67,10 @@ ACP has no standard live-steer operation. Farming's pinned Codex adapter therefo
 
 Chat-to-Terminal and Terminal-to-Chat are real runtime restarts that preserve the same resumable provider session. A fresh Terminal may switch to Chat only before user input has materialized a provider conversation; otherwise Farming requires a verified resumable session.
 
+For a fresh Codex Terminal, Farming materializes that resumable identity from the
+structured `/status` panel. Decorative borders and layout changes must not turn a
+valid provider session back into an unverified temporary identity.
+
 Codex Terminal model-profile controls follow the exact capability advertised by the backend provider adapter. A transient heuristic terminal-screen observation may update busy and lifecycle state, but it must not hide an advertised model control while Codex redraws its composer.
 
 ## Verification

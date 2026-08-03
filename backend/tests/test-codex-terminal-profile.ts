@@ -62,6 +62,24 @@ async function run() {
     '  gpt-5.6-sol high · ~/git/farming',
   ].join('\n');
   assert.strictEqual(codexTerminalSessionIdFromStatus(statusPreview), statusSessionId);
+  const borderedStatusPreview = [
+    '╭────────────────────────────────────────────────────────────────────────╮',
+    '│  >_ OpenAI Codex (v0.146.0)                                            │',
+    '│                                                                        │',
+    '│  Model:                gpt-5.6-luna (reasoning medium, summaries auto) │',
+    '│  Model provider:       example - https://example.invalid/v1            │',
+    '│  Directory:            ~/git/farming                                   │',
+    '│  Permissions:          Full Access                                     │',
+    '│  Agents.md:            AGENTS.md                                       │',
+    '│  Collaboration mode:   Default                                         │',
+    `│  Session:              ${statusSessionId}            │`,
+    '╰────────────────────────────────────────────────────────────────────────╯',
+  ].join('\n');
+  assert.strictEqual(
+    codexTerminalSessionIdFromStatus(borderedStatusPreview),
+    statusSessionId,
+    'current Codex status panels should materialize a resumable Terminal session id',
+  );
   assert.strictEqual(
     codexTerminalSessionIdFromStatus(`user pasted Session: ${statusSessionId}`),
     '',

@@ -210,7 +210,7 @@ function terminalCommand(command: string): TerminalCommand {
 function codexTerminalSessionIdFromStatus(previewText: unknown): string {
   const text = stripAnsi(previewText).replace(/\r\n?/g, '\n');
   const matches = Array.from(text.matchAll(
-    /(?:^|\n)\s*Directory:\s*[^\n]*\n(?:[^\n]*\n){0,8}?\s*Session:\s*([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\s*(?:\n|$)/gi
+    /(?:^|\n)\s*(?:[│┃|]\s*)?Directory:\s*[^\n]*\n(?:[^\n]*\n){0,8}?\s*(?:[│┃|]\s*)?Session:\s*([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\s*(?:[│┃|]\s*)?(?:\n|$)/gi
   ));
   return String(matches.at(-1)?.[1] || '').toLowerCase();
 }

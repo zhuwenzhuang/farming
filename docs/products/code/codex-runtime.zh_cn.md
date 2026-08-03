@@ -64,6 +64,10 @@ ACP 标准没有 live steer 操作。因此 Farming 锁定的 Codex adapter 会�
 
 Chat 与 Terminal 的切换是真实运行时重启，并保留同一个可恢复 provider session。全新 Terminal 只有在用户尚未输入、provider conversation 尚未物化时才能直接切到 Chat；其他情况必须先验证 session 可恢复。
 
+对于全新的 Codex Terminal，Farming 从结构化 `/status` 面板中物化可恢复
+Session 身份。装饰性边框和布局变化不得让有效的 Provider Session 退回未经验证的
+临时身份。
+
 Codex Terminal 的模型 Profile 控件以 Backend Provider Adapter 精确声明的能力为准。瞬时的启发式 Terminal Screen Observation 可以更新忙闲和生命周期状态，但 Codex 重绘 Composer 时不得因此隐藏已经声明的模型控件。
 
 ## 验证
