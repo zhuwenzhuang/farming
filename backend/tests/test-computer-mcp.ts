@@ -154,6 +154,17 @@ async function run() {
     });
     assert.strictEqual(merged.length, 1);
     assert.strictEqual(merged[0].name, 'farming-computer');
+    const shared = mergeComputerMcpServer(merged, {
+      url: 'http://127.0.0.1:6694/farming/api/agent-capabilities/computer/mcp',
+      token: 'scoped-computer-token',
+    });
+    assert.deepStrictEqual(shared[0], {
+      name: 'farming-computer',
+      type: 'http',
+      url: 'http://127.0.0.1:6694/farming/api/agent-capabilities/computer/mcp',
+      headers: [{ name: 'Authorization', value: 'Bearer scoped-computer-token' }],
+      _meta: { 'farming.dev/extension': 'computer' },
+    });
     assert.throws(
       () => mergeComputerMcpServer([{
         name: 'farming-computer',

@@ -231,6 +231,7 @@ export interface AcpSessionRequestOptions extends Record<string, unknown> {
 
 export interface AcpPrepareOptions extends Record<string, unknown> {
   agentId: string;
+  capabilityRuntimeEpoch?: string;
   provider: ProviderId;
   cwd?: string;
   sessionId?: string;
@@ -241,6 +242,10 @@ export interface AcpPrepareOptions extends Record<string, unknown> {
   forkSourceCheckpoint?: AcpBindingCheckpoint | null;
   onForkSessionCreated?: (sessionId: string) => Promise<void> | void;
   onProcessStarted?: (identity: AcpProcessIdentity) => Promise<void> | void;
+  refreshMcpServersForRuntime?: (
+    mcpServers: Record<string, unknown>[],
+  ) => Promise<{ capabilityRuntimeEpoch: string; mcpServers: Record<string, unknown>[] }>
+    | { capabilityRuntimeEpoch: string; mcpServers: Record<string, unknown>[] };
 }
 
 export interface AcpPrepareResult extends Record<string, unknown> {
@@ -506,6 +511,7 @@ export interface AcpRuntimeContract {
   cancelSubagent(agentId: string, sessionId: string): Promise<unknown>;
   decidePatch(agentId: string, toolCallId: string, requestedPath: string, decision: 'keep' | 'revert'): Promise<unknown>;
   cancel(agentId: string): Promise<unknown>;
+  bindingEpoch(agentId: string): string;
   hasBinding(agentId: string): boolean;
   unregisterAgent(agentId: string): void;
   unregisterAgentAndWait(agentId: string): Promise<boolean>;

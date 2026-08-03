@@ -153,6 +153,7 @@ export interface ComposerCommandRecord {
 
 export interface AgentRecord extends Record<string, unknown>, AgentDisplayState, AgentAttentionState, AgentShellState {
   agentRecordId?: string;
+  capabilityWorkspace?: string;
   category?: string;
   canForkNewWorktree?: boolean;
   command?: string;

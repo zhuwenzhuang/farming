@@ -36,14 +36,30 @@ async function run() {
     },
   });
   let hibernatedSessionId = '';
+  let capabilityEpoch = 1;
+  const capabilityProjection = epoch => ({
+    capabilityRuntimeEpoch: epoch,
+    mcpServers: [{
+      name: 'farming-browser',
+      type: 'http',
+      url: 'http://127.0.0.1:6694/farming/api/agent-capabilities/browser/mcp',
+      headers: [{ name: 'Authorization', value: `Bearer token-${epoch}` }],
+    }],
+  });
+  const refreshCapabilityProjection = () => {
+    capabilityEpoch += 1;
+    return capabilityProjection(`runtime-${capabilityEpoch}`);
+  };
 
   try {
     await runtime.prepareAgent({
       agentId: 'agent-hibernate',
+      ...capabilityProjection('runtime-1'),
       provider: 'codex',
       cwd: process.cwd(),
       env: process.env,
       approvalMode: 'full',
+      refreshMcpServersForRuntime: refreshCapabilityProjection,
     });
     await runtime.prompt('agent-hibernate', 'before hibernation');
 
@@ -109,6 +125,10 @@ async function run() {
     const awakenedBinding = runtime.bindings.get('agent-hibernate');
     assert.notStrictEqual(awakenedBinding, binding, 'wake must install a fresh process binding');
     assert.notStrictEqual(awakenedBinding.child.pid, originalPid);
+    assert.strictEqual(awakenedBinding.capabilityRuntimeEpoch, 'runtime-2');
+    assert.deepStrictEqual(awakenedBinding.sessionRequestOptions.mcpServers[0].headers, [
+      { name: 'Authorization', value: 'Bearer token-runtime-2' },
+    ]);
     assert.strictEqual(runtime.getSession('agent-hibernate').state, 'idle');
     assert(
       runtime.getSession('agent-hibernate').revision > originalRevision,
@@ -141,6 +161,11 @@ async function run() {
       'a user action racing hibernation must wait and wake the same session',
     );
     runtime.off('agent-runtime', onRuntime);
+    const racingAwakenedBinding = runtime.bindings.get('agent-hibernate');
+    assert.strictEqual(racingAwakenedBinding.capabilityRuntimeEpoch, 'runtime-3');
+    assert.deepStrictEqual(racingAwakenedBinding.sessionRequestOptions.mcpServers[0].headers, [
+      { name: 'Authorization', value: 'Bearer token-runtime-3' },
+    ]);
     assert.strictEqual(runtime.getSession('agent-hibernate').state, 'idle');
     assert.strictEqual(
       (await runtime.prompt('agent-hibernate', 'after racing wake')).stopReason,
@@ -168,9 +193,15 @@ async function run() {
       };
     },
   });
+  let coldCapabilityEpoch = 0;
+  const refreshColdCapabilityProjection = () => {
+    coldCapabilityEpoch += 1;
+    return capabilityProjection(`cold-runtime-${coldCapabilityEpoch}`);
+  };
   try {
     const restored = await coldRuntime.prepareAgent({
       agentId: 'agent-hibernate',
+      capabilityRuntimeEpoch: '',
       provider: 'codex',
       cwd: process.cwd(),
       env: {
@@ -179,10 +210,13 @@ async function run() {
       },
       sessionId: hibernatedSessionId,
       historyMode: 'checkpoint',
+      mcpServers: [{ name: 'farming-browser', command: '/opt/farming/bin/farming-browser', args: ['mcp'] }],
+      refreshMcpServersForRuntime: refreshColdCapabilityProjection,
       restoreHibernated: true,
     });
     assert.strictEqual(restored.historyMode, 'hibernated');
     assert.strictEqual(coldSpawnCount, 0, 'cold logical recovery must not start a provider process');
+    assert.strictEqual(coldRuntime.bindingEpoch('agent-hibernate'), '');
     assert.strictEqual(coldRuntime.getSession('agent-hibernate').state, 'hibernated');
     assert(
       coldRuntime.getTranscriptSession('agent-hibernate').entries.length > 0,
@@ -196,12 +230,23 @@ async function run() {
     const failedBinding = coldRuntime.bindings.get('agent-hibernate');
     assert.strictEqual(failedBinding.state, 'error');
     assert.strictEqual(
+      failedBinding.capabilityRuntimeEpoch,
+      '',
+      'a failed wake must not install the newly issued runtime epoch on the retained logical binding',
+    );
+    assert.strictEqual(coldCapabilityEpoch, 1, 'the failed wake must request one fresh capability projection');
+    assert.strictEqual(
       failedBinding.retryableReconnect,
       true,
       'a verified wake cleanup must retain a structured retry path',
     );
     const retried = await coldRuntime.reconnectAgent('agent-hibernate');
     assert.strictEqual(retried.reconnected, true, 'the next explicit action must retry the exact provider Session');
+    assert.strictEqual(coldRuntime.bindingEpoch('agent-hibernate'), 'cold-runtime-2');
+    assert.deepStrictEqual(
+      coldRuntime.bindings.get('agent-hibernate').sessionRequestOptions.mcpServers[0].headers,
+      [{ name: 'Authorization', value: 'Bearer token-cold-runtime-2' }],
+    );
     assert.strictEqual(coldRuntime.getSession('agent-hibernate').state, 'idle');
     assert.strictEqual(coldSpawnCount, 2, 'one failed wake and one successful retry must start exactly two processes');
   } finally {

@@ -121,6 +121,7 @@ interface SubagentControl {
 }
 interface AcpBinding {
   agentId: string; provider: string; providerHomeId: string; cwd: string;
+  capabilityRuntimeEpoch: string;
   sessionRequestOptions: AcpSessionRequestOptions; env: NodeJS.ProcessEnv; launch: AcpLaunch;
   restartOptions: PrepareAgentOptions; approvalMode: string; ownsProcessGroup: boolean;
   farmingBrowserApprovedSites: Set<string>;
@@ -189,6 +190,7 @@ interface AcpRuntimeOptions extends PrepareAgentOptions {
 }
 interface PrepareAgentOptions extends UnknownRecord {
   agentId?: string; provider?: string; providerHomeId?: string; cwd?: string; sessionId?: string;
+  capabilityRuntimeEpoch?: string;
   forkSourceSessionId?: string; forkSourceCheckpoint?: UnknownRecord | null; revisionBase?: number;
   approvalMode?: string; historyMode?: string; model?: string; reasoningEffort?: string;
   serviceTier?: string; identityOnly?: boolean;
@@ -199,6 +201,10 @@ interface PrepareAgentOptions extends UnknownRecord {
   requireLoad?: boolean; expectedRevision?: number; retainForCleanup?: boolean;
   onProcessStarted?: (identity: ProcessIdentity) => Promise<void> | void;
   onForkSessionCreated?: (sessionId: string) => Promise<void> | void;
+  refreshMcpServersForRuntime?: (
+    mcpServers: UnknownRecord[],
+  ) => Promise<{ capabilityRuntimeEpoch: string; mcpServers: UnknownRecord[] }>
+    | { capabilityRuntimeEpoch: string; mcpServers: UnknownRecord[] };
   onSubmitted?: () => Promise<void> | void; delivery?: string;
 }
 interface ProcessIdentity {
@@ -1208,6 +1214,10 @@ class AcpRuntime extends EventEmitter {
     if (!agentId) throw new Error('ACP Agent id is required');
     if (this.bindings.has(agentId)) throw new Error('ACP Agent is already registered');
     const provider = String(options.provider || '').trim().toLowerCase();
+    const capabilityRuntimeEpoch = String(options.capabilityRuntimeEpoch || '').trim();
+    if (capabilityRuntimeEpoch && !/^[A-Za-z0-9._:-]{1,160}$/.test(capabilityRuntimeEpoch)) {
+      throw new Error('ACP capability runtime epoch is invalid');
+    }
     const launch = options.restoreHibernated === true
       ? {
           command: String(options.executable || getProviderAdapter(provider)?.executable || provider),
@@ -1261,6 +1271,7 @@ class AcpRuntime extends EventEmitter {
     delete restartOptions.restoreHibernated;
     const binding: AcpBinding = {
       agentId,
+      capabilityRuntimeEpoch,
       provider,
       providerHomeId: String(options.providerHomeId || 'default'),
       cwd,
@@ -3150,6 +3161,33 @@ class AcpRuntime extends EventEmitter {
     return { authenticated: false, methodId: method.id, terminalId: created.terminalId };
   }
 
+  async refreshRuntimeMcpServers(
+    binding: AcpBinding,
+    options: PrepareAgentOptions,
+  ): Promise<PrepareAgentOptions> {
+    const refresh = options.refreshMcpServersForRuntime;
+    if (typeof refresh !== 'function') return options;
+    const refreshed = await refresh(
+      binding.sessionRequestOptions.mcpServers.filter(
+        (server: UnknownRecord) => server && typeof server === 'object' && !Array.isArray(server),
+      ),
+    );
+    const capabilityRuntimeEpoch = String(refreshed?.capabilityRuntimeEpoch || '').trim();
+    if (!/^[A-Za-z0-9._:-]{1,160}$/.test(capabilityRuntimeEpoch)) {
+      throw new Error('ACP capability runtime refresh returned an invalid epoch');
+    }
+    if (!Array.isArray(refreshed?.mcpServers)) {
+      throw new Error('ACP capability runtime refresh returned invalid MCP servers');
+    }
+    return {
+      ...options,
+      capabilityRuntimeEpoch,
+      mcpServers: refreshed.mcpServers.filter(
+        (server: UnknownRecord) => server && typeof server === 'object' && !Array.isArray(server),
+      ),
+    };
+  }
+
   async restartAgentConnection(agentId: string, mutation: SessionMutation | null = null) {
     const binding = this.requireBinding(agentId);
     this.requireOpenBinding(binding);
@@ -3160,7 +3198,7 @@ class AcpRuntime extends EventEmitter {
       throw new Error('ACP restart reservation is no longer active');
     }
     const revisionBase = Number(binding.sessionState?.revision || 0);
-    const options = {
+    let options: PrepareAgentOptions = {
       ...binding.restartOptions,
       agentId: binding.agentId,
       provider: binding.provider,
@@ -3176,6 +3214,7 @@ class AcpRuntime extends EventEmitter {
     }
     this.requireOpenBinding(binding);
     await this.unregisterAgentAndWait(agentId, binding);
+    options = await this.refreshRuntimeMcpServers(binding, options);
     return this.prepareAgent(options);
   }
 
@@ -3211,7 +3250,7 @@ class AcpRuntime extends EventEmitter {
     if (binding.activeTurn) throw new Error('ACP Agent cannot reconnect while a turn is active');
 
     const revisionBase = Number(binding.sessionState?.revision || 0);
-    const restartOptions = {
+    let restartOptions: PrepareAgentOptions = {
       ...binding.restartOptions,
       agentId: binding.agentId,
       provider: binding.provider,
@@ -3241,6 +3280,7 @@ class AcpRuntime extends EventEmitter {
       oldProcessStopped = await this.unregisterAgentAndWait(agentId, binding);
       if (!oldProcessStopped) throw new Error('ACP Agent reconnect could not stop the previous process');
       if (typeof options.onProcessStopped === 'function') await options.onProcessStopped();
+      restartOptions = await this.refreshRuntimeMcpServers(binding, restartOptions);
       const prepared = await this.prepareAgent(restartOptions);
       return { reconnected: true, ...prepared };
     } catch (error) {
@@ -3356,7 +3396,7 @@ class AcpRuntime extends EventEmitter {
       return { reconnected: false, sessionId: binding.sessionId, state: binding.state };
     }
     const revisionBase = Number(binding.sessionState?.revision || 0);
-    const restartOptions = {
+    let restartOptions: PrepareAgentOptions = {
       ...binding.restartOptions,
       agentId: binding.agentId,
       provider: binding.provider,
@@ -3375,6 +3415,7 @@ class AcpRuntime extends EventEmitter {
     this.emitRuntime(binding);
     this.bindings.delete(binding.agentId);
     try {
+      restartOptions = await this.refreshRuntimeMcpServers(binding, restartOptions);
       const prepared = await this.prepareAgent(restartOptions);
       return { reconnected: true, ...prepared };
     } catch (error) {
@@ -4159,6 +4200,10 @@ class AcpRuntime extends EventEmitter {
 
   hasBinding(agentId: string) {
     return this.bindings.has(agentId);
+  }
+
+  bindingEpoch(agentId: string): string {
+    return String(this.bindings.get(agentId)?.capabilityRuntimeEpoch || '');
   }
 
   requireBinding(agentId: string) {

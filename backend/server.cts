@@ -222,6 +222,8 @@ import { isAgentRuntimeModeRequest, runtimeKind } from './agent-runtime-binding.
 import { ConfigManager } from './config-manager.cjs';
 import { ThemeManager } from './theme-manager.cjs';
 import { TokenAuth } from './auth.cjs';
+import { AgentCapabilityTokens } from './agent-capability-tokens.cjs';
+import { createAgentCapabilityMcpHandler } from './agent-capability-mcp.cjs';
 import { getLocalIPs, getPrimaryLocalIP } from './network.cjs';
 import { listAvailableAgents, resolveTerminalCodexExecutable } from './executable-discovery.cjs';
 import { readClaudeSettingsSummary } from './claude-settings.cjs';
@@ -299,6 +301,7 @@ if (require.main === module && process.env.NODE_ENV !== 'test') {
 const BASE_PATH = normalizeBasePath(process.env.FARMING_BASE_PATH || '/');
 const PORT = process.env.PORT || 3000;
 const tokenAuth = new TokenAuth({ basePath: BASE_PATH || '/' });
+const agentCapabilityTokens = new AgentCapabilityTokens();
 const authEnabled = tokenAuth.isEnabled();
 const WS_PATH = routePath(BASE_PATH, '/ws');
 const SERVER_EPOCH = crypto.randomUUID();
@@ -374,8 +377,14 @@ const agentManager = new AgentManager(
     input: Record<string, unknown>,
   ) => browserResourceManager.permissionDecision(agentId, tool, input),
   computerMcpEnabled: () => configManager.getSettings().computerExtensionEnabled === true,
+  capabilityMcpBaseUrl: `http://127.0.0.1:${PORT}${routePath(BASE_PATH, '/api/agent-capabilities')}`,
+  issueAgentCapabilityToken: (agentId, capability, runtimeEpoch, workspace) => (
+    agentCapabilityTokens.issue({ agentId, capability, runtimeEpoch, workspace })
+  ),
+  revokeAgentCapabilityTokens: agentId => agentCapabilityTokens.revokeAgent(agentId),
   },
 );
+server.on('close', () => agentCapabilityTokens.clear());
 
 async function requireAgentRecoveryForHttp(res: HttpResponse) {
   try {
@@ -736,6 +745,25 @@ app.get(routePath(BASE_PATH, '/j/:code'), (req, res) => {
   }
   res.redirect(302, entryPathWithQuery(ticket.targetQuery));
 });
+
+for (const capability of ['browser', 'computer'] as const) {
+  app.post(
+    routePath(BASE_PATH, `/api/agent-capabilities/${capability}/mcp`),
+    express.json({ limit: '1mb' }),
+    createAgentCapabilityMcpHandler({
+      authDisabled: !authEnabled,
+      capability,
+      controlUrl: `http://127.0.0.1:${PORT}${BASE_PATH}`,
+      resolveAgentBinding: agentId => (
+        agentManager.resolveAgentCapabilityBinding(agentId, capability)
+      ),
+      resolveToken: (token, expectedCapability) => (
+        agentCapabilityTokens.resolve(token, expectedCapability)
+      ),
+      tokenFile: tokenAuth.getTokenFile(),
+    }) as HttpHandler,
+  );
+}
 
 // Token authentication middleware (before static files)
 app.use(tokenAuth.middleware());

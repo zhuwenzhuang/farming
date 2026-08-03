@@ -35,6 +35,7 @@ async function run() {
   const runtime = Object.assign(new EventEmitter(), {
     bindings: new Map(),
     hasBinding: agentId => runtime.bindings.has(agentId),
+    bindingEpoch: agentId => String(runtime.bindings.get(agentId)?.runtimeEpoch || ''),
     async hibernateAgent(agentId) {
       calls.push(`hibernate:${agentId}`);
       return { hibernated: true };
@@ -42,6 +43,10 @@ async function run() {
     async reconnectAgent(agentId) {
       calls.push(`reconnect:${agentId}`);
       return { reconnected: true };
+    },
+    async unregisterAgentAndWait(agentId) {
+      runtime.bindings.delete(agentId);
+      return true;
     },
     getSession(agentId) {
       calls.push(`get:${agentId}`);
@@ -54,6 +59,7 @@ async function run() {
     unregisterAgent() {},
     async dispose() {},
   });
+  const revoked = [];
   const manager = new AgentManager(config({
     ensureAgentSessionRecord(agent) {
       persistedRuntimeStates.push(agent.runtimeBinding?.state || '');
@@ -61,6 +67,8 @@ async function run() {
     },
   }), {
     acpRuntime: runtime,
+    browserMcpEnabled: true,
+    revokeAgentCapabilityTokens: agentId => revoked.push(agentId),
     skipExecutablePreflight: true,
   });
 
@@ -74,7 +82,7 @@ async function run() {
         pinned: index === 2,
       }));
       manager.lastActivity.set(id, now);
-      runtime.bindings.set(id, { agentId: id, state });
+      runtime.bindings.set(id, { agentId: id, runtimeEpoch: `runtime-${id}`, state });
     }
     manager.mainAgentId = 'agent-0';
 
@@ -92,7 +100,11 @@ async function run() {
 
     manager.agents.set('agent-stale-working', acpAgent('agent-stale-working', 'working'));
     manager.lastActivity.set('agent-stale-working', now - AgentManager.ZOMBIE_IDLE_MS - 1);
-    runtime.bindings.set('agent-stale-working', { agentId: 'agent-stale-working', state: 'working' });
+    runtime.bindings.set('agent-stale-working', {
+      agentId: 'agent-stale-working',
+      runtimeEpoch: 'runtime-agent-stale-working',
+      state: 'working',
+    });
     assert.strictEqual(
       manager.isZombie('agent-stale-working', now),
       false,
@@ -161,6 +173,11 @@ async function run() {
       'an explicit pressure signal may reclaim one exact idle recoverable runtime',
     );
     assert.deepStrictEqual(calls, ['hibernate:agent-4']);
+    assert.deepStrictEqual(
+      revoked,
+      ['agent-4'],
+      'successful hibernation must revoke every token from the stopped ACP runtime',
+    );
 
     manager.agents.set('agent-sleeping', acpAgent('agent-sleeping', 'hibernated'));
     manager.lastActivity.set('agent-sleeping', now - AgentManager.ZOMBIE_IDLE_MS - 1);
@@ -170,7 +187,15 @@ async function run() {
       'a hibernated logical Agent must not be deleted by zombie cleanup',
     );
 
-    runtime.bindings.set('agent-sleeping', { agentId: 'agent-sleeping' });
+    runtime.bindings.set('agent-sleeping', {
+      agentId: 'agent-sleeping',
+      runtimeEpoch: 'runtime-agent-sleeping',
+    });
+    assert.deepStrictEqual(
+      manager.resolveAgentCapabilityBinding('agent-6', 'browser'),
+      { runtimeEpoch: 'runtime-agent-6', workspace: process.cwd() },
+      'capability admission must return the exact live ACP runtime epoch',
+    );
     manager.agents.set('agent-wake-failed', acpAgent('agent-wake-failed', 'connecting', {
       structuredRuntimeProcess: { kind: 'acp-process-group', pid: 20, processGroupId: 20, startedAt: 'test' },
     }));
@@ -193,6 +218,31 @@ async function run() {
       calls,
       ['reconnect:agent-sleeping', 'list:agent-sleeping'],
       'provider mutations must wake a hibernated Agent before use',
+    );
+
+    manager.agents.set('agent-runtime-switch', acpAgent('agent-runtime-switch', 'idle'));
+    runtime.bindings.set('agent-runtime-switch', {
+      agentId: 'agent-runtime-switch',
+      runtimeEpoch: 'runtime-before-switch',
+      state: 'idle',
+    });
+    const stoppedForSwitch = await manager.performKillAgent('agent-runtime-switch', {
+      emitUpdate: false,
+      persistDeleteOperation: false,
+      recordHistory: false,
+      retainAgentRecord: true,
+    });
+    assert.strictEqual(stoppedForSwitch.retained, true);
+    assert.deepStrictEqual(
+      revoked,
+      ['agent-4', 'agent-runtime-switch'],
+      'Chat to Terminal replacement must revoke the stopped ACP runtime token',
+    );
+    manager.forgetStoppedAgentRecord('agent-sleeping', { emitUpdate: false });
+    assert.deepStrictEqual(
+      revoked,
+      ['agent-4', 'agent-runtime-switch', 'agent-sleeping'],
+      'deleting the logical Agent must revoke any retained capability token',
     );
   } finally {
     await manager.dispose();
@@ -217,6 +267,9 @@ async function run() {
     bindings: new Map(),
     hasBinding(agentId) {
       return this.bindings.has(agentId);
+    },
+    bindingEpoch(agentId) {
+      return String(this.bindings.get(agentId)?.runtimeEpoch || '');
     },
     async prepareAgent(options) {
       assert.strictEqual(options.restoreHibernated, true);

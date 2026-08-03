@@ -41,10 +41,21 @@ async function run() {
     ...TEST_PROCESS_IDENTITY,
     resolveLaunch: () => ({ command: process.execPath, args: ['--import', require.resolve('tsx'), fixture], version: 'test' }),
   });
+  const issuedCapabilityTokens = [];
   const manager = new AgentManager(config(), {
     acpRuntime: runtime,
     skipExecutablePreflight: true,
     browserMcpEnabled: true,
+    capabilityMcpBaseUrl: 'http://127.0.0.1:6694/farming/api/agent-capabilities',
+    issueAgentCapabilityToken: (agentId, capability, runtimeEpoch, workspace) => {
+      assert(agentId);
+      assert.strictEqual(capability, 'browser');
+      assert.match(runtimeEpoch, /^[A-Za-z0-9._:-]{1,160}$/);
+      assert.strictEqual(workspace, process.cwd());
+      const token = `scoped-browser-token-${agentId}-${runtimeEpoch}`;
+      issuedCapabilityTokens.push({ agentId, runtimeEpoch, token });
+      return token;
+    },
     cliBinDir: '/opt/farming/bin',
     controlUrl: 'http://127.0.0.1:6694/farming',
     tokenFile: '/tmp/farming-test-token',
@@ -92,6 +103,8 @@ async function run() {
       'an ACP transcript revision should use its dedicated per-Agent channel',
     );
     const binding = runtime.bindings.get(agentId);
+    const initialCapabilityRuntimeEpoch = runtime.bindingEpoch(agentId);
+    assert.strictEqual(binding.capabilityRuntimeEpoch, initialCapabilityRuntimeEpoch);
     assert.match(binding.env.FARMING_AGENT_TITLE_TOKEN, /^[A-Za-z0-9_-]{32}$/);
     assert.strictEqual(binding.env.FARMING_CLI_BIN_DIR, '/opt/farming/bin');
     binding.sessionState.revision = nextSessionRevision;
@@ -133,14 +146,12 @@ async function run() {
       { name: 'docs', command: '/bin/docs-mcp', args: [], env: [] },
       {
         name: 'farming-browser',
-        command: '/opt/farming/bin/farming',
-        args: ['browser', 'mcp'],
-        env: [
-          { name: 'FARMING_AGENT_ID', value: agentId },
-          { name: 'FARMING_CONTROL_URL', value: 'http://127.0.0.1:6694/farming' },
-          { name: 'FARMING_PROJECT_WORKSPACE', value: process.cwd() },
-          { name: 'FARMING_TOKEN_FILE', value: '/tmp/farming-test-token' },
-        ],
+        type: 'http',
+        url: 'http://127.0.0.1:6694/farming/api/agent-capabilities/browser/mcp',
+        headers: [{
+          name: 'Authorization',
+          value: `Bearer scoped-browser-token-${agentId}-${initialCapabilityRuntimeEpoch}`,
+        }],
         _meta: {
           'farming.dev/extension': 'browser',
         },
@@ -247,6 +258,19 @@ async function run() {
     );
     assert.strictEqual(nativeMetadataUpdateCount, 0, 'ACP sessions must not update native PTY metadata');
     assert.deepStrictEqual(await manager.logoutAcpAgent(agentId), { loggedOut: true });
+    await runtime.restartAgentConnection(agentId);
+    const restartedCapabilityRuntimeEpoch = runtime.bindingEpoch(agentId);
+    assert.notStrictEqual(
+      restartedCapabilityRuntimeEpoch,
+      initialCapabilityRuntimeEpoch,
+      'an ACP connection replacement must install a fresh capability runtime epoch',
+    );
+    assert.strictEqual(
+      issuedCapabilityTokens.filter(entry => entry.agentId === agentId).length,
+      2,
+      'the replacement runtime must receive one newly projected Browser token',
+    );
+    manager.acpPreparedTranscriptCache.deleteAgent(agentId);
     runtime.unregisterAgent(agentId);
     manager.agents.delete(agentId);
     const resumedAgentId = await new Promise(resolve => {
@@ -269,9 +293,12 @@ async function run() {
       env: [],
     });
     assert.strictEqual(resumedOptions.mcpServers[1].name, 'farming-browser');
-    assert(resumedOptions.mcpServers[1].env.some(entry => (
-      entry.name === 'FARMING_AGENT_ID' && entry.value === resumedAgentId
-    )));
+    assert.strictEqual(resumedOptions.mcpServers[1].type, 'http');
+    const resumedCapabilityRuntimeEpoch = runtime.bindingEpoch(resumedAgentId);
+    assert.deepStrictEqual(resumedOptions.mcpServers[1].headers, [{
+      name: 'Authorization',
+      value: `Bearer scoped-browser-token-${resumedAgentId}-${resumedCapabilityRuntimeEpoch}`,
+    }]);
   } finally {
     await manager.dispose();
   }

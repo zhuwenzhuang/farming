@@ -295,6 +295,17 @@ async function run() {
     assert.strictEqual(projected[1].command, '/opt/farming/bin/farming');
     assert.deepStrictEqual(projected[1].args, ['browser', 'mcp']);
     assert(!JSON.stringify(projected[1]).includes('test-token'));
+    const shared = mergeBrowserMcpServer(projected, {
+      url: 'http://127.0.0.1:6694/farming/api/agent-capabilities/browser/mcp',
+      token: 'scoped-browser-token',
+    });
+    assert.deepStrictEqual(shared[1], {
+      name: 'farming-browser',
+      type: 'http',
+      url: 'http://127.0.0.1:6694/farming/api/agent-capabilities/browser/mcp',
+      headers: [{ name: 'Authorization', value: 'Bearer scoped-browser-token' }],
+      _meta: { 'farming.dev/extension': 'browser' },
+    });
     assert.throws(() => mergeBrowserMcpServer([
       { name: 'farming-browser', command: '/tmp/not-farming', args: [], env: [] },
     ], {

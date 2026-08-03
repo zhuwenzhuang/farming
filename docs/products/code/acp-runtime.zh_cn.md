@@ -24,9 +24,13 @@ Patch 与 Integrity 契约、ACP initialize、Session load/resume 以及 Chat/Te
 
 ## 进程共享与休眠
 
+Farming 先共享无状态能力，再考虑共享有状态 Agent runtime。Browser 和 Computer 现在以共享的 Streamable HTTP MCP endpoint 投影到 ACP Session，不再为每个 Agent 启动一份 stdio MCP 子进程。每次投影只拿到一个不可猜测的 bearer token，并严格绑定准确的 Agent、能力类型和 canonical 启动 Workspace。Agent 记录会在该 runtime 生命周期内保留这份稳定的 Capability Workspace，因此后续异步 Git worktree 展示更新不会让 token 失效。Endpoint 每次请求都会通过 O(1) 的 Agent 权威查询重新验证当前 ACP binding，只有后端会把这个受限身份兑换成 Farming control 认证。Browser token 不能调用 Computer，已删除或已脱离 runtime 的 Agent 不能继续使用旧 token，符号链接与真实 Workspace 路径会归一成同一个身份，用户自定义 MCP 仍是互相独立的 Session 输入。
+
 Farming 不设置默认 live Agent 数量上限，也不会因为同时存在任何固定数量的 Agent 就休眠 ACP runtime。心跳清理与冷恢复都不执行按数量淘汰。通用 zombie 清理也会排除 ACP 的活跃生命周期状态，因此异常陈旧的活动时间戳不能中断 working、waiting、connecting、reconnecting、interrupting 或 hibernating Agent。逻辑 Agent inventory 与实时进程容量是两类不同问题，不能把本地小常数变成产品语义。只有 Worker 收到权威资源压力信号后，才可以点名一个准确候选请求回收。AgentManager 不会记住或排队一个 working Agent 的回收请求：只有调用时仍为完全 idle、非主 Agent、未固定的 ACP runtime 才能准入，runtime 还会再次确认没有活跃 Turn、Session 或配置 mutation、待应用配置、permission、elicitation、patch decision、子 Session 或 client terminal。Farming 随后写入精确 checkpoint，关闭连接，并证明准确的 adapter 进程组已退出后才清除持久化进程身份。退出不确定会成为显式 error，并保留身份供精确清理，绝不会被当作休眠成功。持久化 `hibernated` 状态仍是 durable exit proof。Server 冷恢复只重建对应的逻辑 Agent 行、请求作用域和保留 checkpoint，不启动 Provider 进程；只有后续用户操作确实需要 Provider 工作时，才通过权威 `session/load` 唤醒同一个 Session。
 
 Transcript 与 Tool 详情读取直接使用保留的 reducer，不会唤醒休眠 Agent。新的 Prompt，或 list、fork、认证、close、mode、配置修改等 Provider mutation，会先等待并加入同一 Agent 正在执行的休眠操作，再让 Agent 进入 `reconnecting`，启动一份新的隔离进程，并对同一个 Provider Session、Workspace、Agent Home、附加目录和 MCP 作用域执行权威 `session/load`。Transcript revision fence 不得回退；唤醒失败会明确展示，用户 mutation 也不会被重放。如果准确的进程清理已经成功，失败 binding 会保留结构化重试准入，下一次显式操作可以重试同一次 load；是否可重试不再从 Provider 错误文本猜测。
+
+Farming 当前不会把互不相关的 Agent Session 复用进同一个 Provider 进程。ACP 还没有通用的 Session 级环境与身份通道，无法统一隔离 Farming ownership 变量、Provider Home、自定义 MCP、权限和子 Session 路由。OpenCode 按目录缓存 Instance 的做法是有价值的主要参考，但它本身不是充分的隔离证明。未来共享 Runtime Host 必须由 Provider adapter 的能力声明启用，并证明 Workspace、环境、MCP、权限、精确恢复和容量都能按 Session 隔离；没有完成证明的 Provider 继续保持每个存活 Agent 一份进程，同时仍能受益于共享能力和休眠。
 
 ## Session 语义
 

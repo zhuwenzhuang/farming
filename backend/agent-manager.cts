@@ -508,6 +508,7 @@ interface AgentManagerOptions extends UnknownRecord {
     input: UnknownRecord,
   ) => { requiresApproval?: boolean; scopeKey?: string; site?: string } | null;
   computerMcpEnabled?: boolean | (() => boolean);
+  capabilityMcpBaseUrl?: string;
   cliBinDir?: string;
   controlUrl?: string;
   createProviderSessionIdentity?: CreateProviderSessionIdentityContract;
@@ -515,6 +516,13 @@ interface AgentManagerOptions extends UnknownRecord {
   skipExecutablePreflight?: boolean;
   stopPersistedAcpProcessGroup?: StopPersistedAcpProcessGroupContract;
   tokenFile?: string;
+  issueAgentCapabilityToken?: (
+    agentId: string,
+    capability: 'browser' | 'computer',
+    runtimeEpoch: string,
+    workspace: string,
+  ) => string;
+  revokeAgentCapabilityTokens?: (agentId: string) => void;
   unarchiveCodexSession?: UnarchiveCodexSessionContract;
 }
 
@@ -1380,6 +1388,9 @@ class AgentManager extends EventEmitter {
   declare browserMcpEnabled: () => boolean;
   declare browserPermissionDecision: NonNullable<AgentManagerOptions['browserPermissionDecision']>;
   declare computerMcpEnabled: () => boolean;
+  declare capabilityMcpBaseUrl: string;
+  declare issueAgentCapabilityToken: AgentManagerOptions['issueAgentCapabilityToken'] | null;
+  declare revokeAgentCapabilityTokens: NonNullable<AgentManagerOptions['revokeAgentCapabilityTokens']>;
   declare skipExecutablePreflight: boolean;
   declare cliBinDir: string;
   declare agentShellEnvProvider: (shell: string) => NodeJS.ProcessEnv | null;
@@ -1455,6 +1466,13 @@ class AgentManager extends EventEmitter {
     this.computerMcpEnabled = typeof options.computerMcpEnabled === 'function'
       ? options.computerMcpEnabled
       : () => options.computerMcpEnabled === true;
+    this.capabilityMcpBaseUrl = String(options.capabilityMcpBaseUrl || '').replace(/\/$/, '');
+    this.issueAgentCapabilityToken = typeof options.issueAgentCapabilityToken === 'function'
+      ? options.issueAgentCapabilityToken
+      : null;
+    this.revokeAgentCapabilityTokens = typeof options.revokeAgentCapabilityTokens === 'function'
+      ? options.revokeAgentCapabilityTokens
+      : () => {};
     this.skipExecutablePreflight = options.skipExecutablePreflight === true;
     this.cliBinDir = options.cliBinDir || path.join(__dirname, '..', 'bin');
     this.agentShellEnvProvider = typeof options.agentShellEnvProvider === 'function'
@@ -2039,6 +2057,7 @@ class AgentManager extends EventEmitter {
         if (!agent.validated) {
           this.providerSessionService.stop(sessionId);
           this.agents.delete(sessionId);
+          this.revokeAgentCapabilityTokens(sessionId);
           this.lastActivity.delete(sessionId);
           this.lastActivityUpdate.delete(sessionId);
           this.outputEvents.delete(sessionId);
@@ -2784,10 +2803,16 @@ class AgentManager extends EventEmitter {
             : 'approve'
         );
         const recoveryEnv = this.buildAgentEnv(agentId, agent);
-        const recoveryMcpServers = this.projectAcpMcpServers(
-          Array.isArray(record.acpMcpServers) ? record.acpMcpServers.filter(isRecord) : [],
-          recoveryEnv,
-        );
+        const recoveryMcpSource = Array.isArray(record.acpMcpServers)
+          ? record.acpMcpServers.filter(isRecord)
+          : [];
+        const recoveryProjection = persistedHibernationProvesExit
+          ? {
+              capabilityRuntimeEpoch: '',
+              mcpServers: this.projectAcpMcpServers(recoveryMcpSource, recoveryEnv),
+            }
+          : this.projectAcpMcpServersForRuntime(recoveryMcpSource, recoveryEnv);
+        const recoveryMcpServers = recoveryProjection.mcpServers;
         const recoveryConfigOverrides = cloneAcpConfigOverrides(record.acpConfigOverrides);
         const prepared = await this.acpRuntime.prepareAgent({
           agentId,
@@ -2808,7 +2833,11 @@ class AgentManager extends EventEmitter {
           farmingSystemPrompt: renderFarmingAgentBootstrap(),
           additionalDirectories: Array.isArray(record.acpAdditionalDirectories) ? record.acpAdditionalDirectories : [],
           configOverrides: recoveryConfigOverrides,
+          capabilityRuntimeEpoch: recoveryProjection.capabilityRuntimeEpoch,
           mcpServers: recoveryMcpServers,
+          refreshMcpServersForRuntime: mcpServers => (
+            this.projectAcpMcpServersForRuntime(mcpServers.filter(isRecord), recoveryEnv)
+          ),
           onProcessStarted: async (processIdentity: AcpProcessIdentity) => {
             agent.structuredRuntimeProcess = {
               kind: 'acp-process-group',
@@ -4020,7 +4049,9 @@ class AgentManager extends EventEmitter {
     env.FARMING_SKILLS_COMMAND = 'farming skills';
     env.FARMING_CAPABILITIES_COMMAND = 'farming capabilities';
     env.FARMING_MAIN_WORKSPACE = agent.mainWorkspace || '';
-    env.FARMING_PROJECT_WORKSPACE = effectiveAgentWorkspaceRoot(agent);
+    const capabilityWorkspace = canonicalWorkspacePath(effectiveAgentWorkspaceRoot(agent));
+    agent.capabilityWorkspace = capabilityWorkspace;
+    env.FARMING_PROJECT_WORKSPACE = capabilityWorkspace;
 
     if (agent.parentAgentId) {
       env.FARMING_PARENT_AGENT_ID = agent.parentAgentId;
@@ -4067,21 +4098,56 @@ class AgentManager extends EventEmitter {
   projectAcpMcpServers(
     mcpServers: Record<string, unknown>[],
     agentEnv: NodeJS.ProcessEnv,
+    runtimeEpoch = '',
   ): Record<string, unknown>[] {
     let projected = Array.isArray(mcpServers) ? mcpServers : [];
+    const agentId = String(agentEnv.FARMING_AGENT_ID || '').trim();
+    const workspace = String(agentEnv.FARMING_PROJECT_WORKSPACE || '').trim();
+    const sharedCapability = (
+      capability: 'browser' | 'computer',
+    ): { token: string; url: string } | null => {
+      if (
+        !this.capabilityMcpBaseUrl
+        || !this.issueAgentCapabilityToken
+        || !agentId
+        || !runtimeEpoch
+        || !workspace
+      ) {
+        return null;
+      }
+      return {
+        token: this.issueAgentCapabilityToken(agentId, capability, runtimeEpoch, workspace),
+        url: `${this.capabilityMcpBaseUrl}/${capability}/mcp`,
+      };
+    };
     if (this.browserMcpEnabled()) {
+      const shared = sharedCapability('browser');
       projected = mergeBrowserMcpServer(projected, {
         cliBinDir: this.cliBinDir,
         agentEnv,
+        ...(shared || {}),
       }).filter(isRecord);
     }
     if (this.computerMcpEnabled()) {
+      const shared = sharedCapability('computer');
       projected = mergeComputerMcpServer(projected, {
         cliBinDir: this.cliBinDir,
         agentEnv,
+        ...(shared || {}),
       }).filter(isRecord);
     }
     return projected;
+  }
+
+  projectAcpMcpServersForRuntime(
+    mcpServers: Record<string, unknown>[],
+    agentEnv: NodeJS.ProcessEnv,
+  ): { capabilityRuntimeEpoch: string; mcpServers: Record<string, unknown>[] } {
+    const capabilityRuntimeEpoch = crypto.randomUUID();
+    return {
+      capabilityRuntimeEpoch,
+      mcpServers: this.projectAcpMcpServers(mcpServers, agentEnv, capabilityRuntimeEpoch),
+    };
   }
 
   expandWorkspacePath(workspace: string) {
@@ -4348,6 +4414,7 @@ class AgentManager extends EventEmitter {
       return { reclaimed: false, state, unsupported: true };
     }
     const result = await this.acpRuntime.hibernateAgent(agentId);
+    if (result?.hibernated === true) this.revokeAgentCapabilityTokens(agentId);
     return {
       ...result,
       reclaimed: result?.hibernated === true,
@@ -5460,9 +5527,14 @@ class AgentManager extends EventEmitter {
           ? options.mcpServers
           : rememberedSessionOptions.mcpServers || [];
         const acpEnv = this.buildAgentEnv(agentId, agentRecord);
-        const mcpServers = this.projectAcpMcpServers(requestedMcpServers, acpEnv);
+        const capabilityProjection = this.projectAcpMcpServersForRuntime(
+          requestedMcpServers.filter(isRecord),
+          acpEnv,
+        );
+        const mcpServers = capabilityProjection.mcpServers;
         const prepared = await this.acpRuntime.prepareAgent({
           agentId,
+          capabilityRuntimeEpoch: capabilityProjection.capabilityRuntimeEpoch,
           provider: structuredRuntimeProvider,
           executable: spawnProgram,
           env: acpEnv,
@@ -5486,6 +5558,9 @@ class AgentManager extends EventEmitter {
           additionalDirectories,
           configOverrides,
           mcpServers,
+          refreshMcpServersForRuntime: currentMcpServers => (
+            this.projectAcpMcpServersForRuntime(currentMcpServers.filter(isRecord), acpEnv)
+          ),
           forkSourceSessionId: options.acpForkSourceSessionId || '',
           forkSourceCheckpoint: options.acpForkSourceCheckpoint || null,
           onForkSessionCreated: async (sessionId: string) => {
@@ -5752,6 +5827,7 @@ class AgentManager extends EventEmitter {
         return null;
       }
       this.agents.delete(agentId);
+      this.revokeAgentCapabilityTokens(agentId);
       this.lastActivity.delete(agentId);
       this.lastActivityUpdate.delete(agentId);
       this.outputEvents.delete(agentId);
@@ -9664,6 +9740,7 @@ class AgentManager extends EventEmitter {
       }
     }
     if (currentRuntimeKind === 'acp') {
+      this.revokeAgentCapabilityTokens(agentId);
       agent.structuredRuntimeProcess = null;
     }
 
@@ -9806,6 +9883,7 @@ class AgentManager extends EventEmitter {
 
   forgetStoppedAgentRecord(agentId: AgentId, options: KillAgentOptions = {}) {
     this.agents.delete(agentId);
+    this.revokeAgentCapabilityTokens(agentId);
     this.verifiedStoppedAgentIds.delete(agentId);
     this.lastActivity.delete(agentId);
     this.lastActivityUpdate.delete(agentId);
@@ -9864,6 +9942,28 @@ class AgentManager extends EventEmitter {
     }
 
     return effectiveAgentWorkspaceRoot(agent);
+  }
+
+  resolveAgentCapabilityBinding(
+    agentId: AgentId,
+    capability: 'browser' | 'computer',
+  ): { runtimeEpoch: string; workspace: string } | null {
+    const agent = this.agents.get(agentId);
+    if (!agent) return null;
+    const state = String(runtimeBindingOf(agent, 'acp')?.state || '');
+    if (
+      agent.archived === true
+      || agent.status !== 'running'
+      || runtimeKind(agent) !== 'acp'
+      || !this.acpRuntime.hasBinding(agentId)
+      || ['closed', 'error', 'hibernated', 'stopped'].includes(state)
+      || (capability === 'browser' ? !this.browserMcpEnabled() : !this.computerMcpEnabled())
+    ) return null;
+    const workspace = canonicalWorkspacePath(
+      agent.capabilityWorkspace || agent.projectWorkspace || agent.cwd,
+    );
+    const runtimeEpoch = this.acpRuntime.bindingEpoch(agentId);
+    return workspace && runtimeEpoch ? { runtimeEpoch, workspace } : null;
   }
 
   getAgentProviderSession(agentId: AgentId): ProviderSessionContract | null {

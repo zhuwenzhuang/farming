@@ -29,7 +29,12 @@ function computerMcpEnv(agentEnv: NodeJS.ProcessEnv) {
 
 function mergeComputerMcpServer(
   mcpServers: unknown,
-  options: { cliBinDir: string; agentEnv?: NodeJS.ProcessEnv },
+  options: {
+    cliBinDir?: string;
+    agentEnv?: NodeJS.ProcessEnv;
+    token?: string;
+    url?: string;
+  },
 ) {
   const existing = Array.isArray(mcpServers) ? mcpServers : [];
   const collision = existing.find(server => (
@@ -41,16 +46,28 @@ function mergeComputerMcpServer(
       `MCP server name "${FARMING_COMPUTER_MCP_SERVER_NAME}" is reserved by the Farming Computer Extension`,
     );
   }
-  const command = path.join(options.cliBinDir, process.platform === 'win32' ? 'farming.cmd' : 'farming');
+  const metadata = { [FARMING_COMPUTER_MCP_META_KEY]: 'computer' };
+  const computerServer = options.url && options.token
+    ? {
+        name: FARMING_COMPUTER_MCP_SERVER_NAME,
+        type: 'http',
+        url: options.url,
+        headers: [{ name: 'Authorization', value: `Bearer ${options.token}` }],
+        _meta: metadata,
+      }
+    : {
+        name: FARMING_COMPUTER_MCP_SERVER_NAME,
+        command: path.join(
+          String(options.cliBinDir || ''),
+          process.platform === 'win32' ? 'farming.cmd' : 'farming',
+        ),
+        args: ['computer', 'mcp'],
+        env: computerMcpEnv(options.agentEnv || {}),
+        _meta: metadata,
+      };
   return [
     ...existing.filter(server => !isFarmingComputerServer(server)),
-    {
-      name: FARMING_COMPUTER_MCP_SERVER_NAME,
-      command,
-      args: ['computer', 'mcp'],
-      env: computerMcpEnv(options.agentEnv || {}),
-      _meta: { [FARMING_COMPUTER_MCP_META_KEY]: 'computer' },
-    },
+    computerServer,
   ];
 }
 
