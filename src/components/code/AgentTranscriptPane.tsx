@@ -129,6 +129,9 @@ interface TranscriptFileOpenContextValue {
 }
 
 const TranscriptFileOpenContext = createContext<TranscriptFileOpenContextValue>({})
+const TRANSCRIPT_REMARK_PLUGINS = [remarkGfm, remarkMath]
+const TRANSCRIPT_REHYPE_PLUGINS = [rehypeKatex, rehypeHighlight]
+const EMPTY_SUBAGENT_STATES: AgentTranscriptSubagentState[] = []
 
 export interface AgentTranscriptPaneProps {
   agentId: string
@@ -210,8 +213,8 @@ function restoreTranscriptReadingAnchor(agentId: string, element: HTMLDivElement
 }
 const INITIAL_TRANSCRIPT_TURN_LIMIT = 80
 const TRANSCRIPT_TURN_PAGE_SIZE = 80
-const INITIAL_ACP_TRANSCRIPT_TURN_LIMIT = 20
-const ACP_TRANSCRIPT_TURN_PAGE_SIZE = 20
+const INITIAL_ACP_TRANSCRIPT_TURN_LIMIT = 5
+const ACP_TRANSCRIPT_TURN_PAGE_SIZE = 10
 const MAX_TRANSCRIPT_TURN_LIMIT = 1000
 const ACP_TRANSCRIPT_FETCH_RETRY_DELAYS_MS = [250, 1000] as const
 const INITIAL_TRANSCRIPT_REVEAL_QUIET_MS = 120
@@ -2207,8 +2210,8 @@ function AgentTranscriptProgressUpdate({
       >
         <LocalRenderFault surface="transcript-markdown" identity={item.id}>
           <ReactMarkdown
-            remarkPlugins={[remarkGfm, remarkMath]}
-            rehypePlugins={[rehypeKatex, rehypeHighlight]}
+            remarkPlugins={TRANSCRIPT_REMARK_PLUGINS}
+            rehypePlugins={TRANSCRIPT_REHYPE_PLUGINS}
             components={markdownComponents}
             skipHtml
             urlTransform={agentTranscriptUrlTransform}
@@ -3167,8 +3170,8 @@ function AgentTranscriptTurnView({
               >
                 <LocalRenderFault surface="transcript-markdown" identity={turn.id}>
                   <ReactMarkdown
-                    remarkPlugins={[remarkGfm, remarkMath]}
-                    rehypePlugins={[rehypeKatex, rehypeHighlight]}
+                    remarkPlugins={TRANSCRIPT_REMARK_PLUGINS}
+                    rehypePlugins={TRANSCRIPT_REHYPE_PLUGINS}
                     components={markdownComponents}
                     skipHtml
                     urlTransform={agentTranscriptUrlTransform}
@@ -4113,7 +4116,7 @@ export function AgentTranscriptPane({
                     onInputTerminal={source === 'acp' ? handleInputTerminal : undefined}
                     onResizeTerminal={source === 'acp' ? handleResizeTerminal : undefined}
                     onStopSubagent={source === 'acp' ? handleStopSubagent : undefined}
-                    subagentStates={transcript?.codexSubagents?.agents || []}
+                    subagentStates={transcript?.codexSubagents?.agents ?? EMPTY_SUBAGENT_STATES}
                     openCollaborationAgentIds={openCollaborationAgentIds}
                     setOpenCollaborationAgentIds={setOpenCollaborationAgentIds}
                     openCollaborationActivityIds={openCollaborationActivityIds}

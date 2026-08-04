@@ -96,6 +96,9 @@ Provider Replay 是权威来源。Local Checkpoint 可以加速投影并保留 R
 它可以取消，受 Revision Fence 保护，并对 Entry 数、单响应大小、总 Cache 与 Active Work
 分别设界。失败或淘汰时回退到同一条权威 On-demand Read。
 
+首份稳定 ACP Transcript 只包含最新 5 个 Turn。用户向上阅读时，再按有界批次加载更早的
+Turn，避免打开长 Chat 时把全部 Markdown 与工具历史放入首屏渲染路径。
+
 Browser 只为当前可见 Chat 保留重量级 Transcript Tree。Inactive Chat 只保存轻量导航 Anchor，
 再次进入时从 Backend Checkpoint 读取。阅读位置绑定稳定 Turn 或 Process Item，而不只记录
 Pixel，因此重启与分页后可以恢复上下文，同时避免大量 Frontend Memory 占用。

@@ -79,6 +79,18 @@ export function AgentWorkPane({
     if (attentionSeq <= readAttentionSeq && !agent.unread) return
     onReadLatest?.(agent.id)
   }, [agent.attentionSeq, agent.id, agent.readAttentionSeq, agent.unread, onReadLatest])
+  const openChatUrlInFarming = useCallback((url: string) => {
+    onOpenUrlInFarming?.(agent.id, url)
+  }, [agent.id, onOpenUrlInFarming])
+  const forkLatestChat = useCallback(() => {
+    return onForkAgent?.(agent.id, 'same-worktree', {
+      targetRuntime: 'chat',
+      expectedRevision: acpRuntime?.sessionRevision || 0,
+    })
+  }, [acpRuntime?.sessionRevision, agent.id, onForkAgent])
+  const reviewAndCommitChat = useCallback(() => {
+    onReviewAndCommit?.(agent.id)
+  }, [agent.id, onReviewAndCommit])
 
   const activateChatView = useCallback((event: ReactPointerEvent) => {
     if (event.button !== 0) return
@@ -134,7 +146,7 @@ export function AgentWorkPane({
           aria-hidden={false}
           onPointerDown={activateChatView}
         >
-          <AcpTranscriptPane agentId={agent.id} readingIdentity={agentWorkPaneModeStorageIdentity(agent)} workspaceRoot={agent.projectWorkspace || agent.cwd} active={active} viewportLayoutKey={viewportLayoutKey} runtimeState={acpRuntime?.state || ''} expectHistory={(agent.source || '').startsWith('codex-history:')} forkedFromAgent={Boolean(agent.parentAgentId && agent.forkedFromProviderSessionId)} refreshSignal={acpRuntime?.sessionRevision || (acpRuntime?.sessionUpdatedAt ? Date.parse(acpRuntime.sessionUpdatedAt) : 0)} onOpenWorkspaceFilePath={onOpenWorkspaceFilePath} onOpenUrlInFarming={url => onOpenUrlInFarming?.(agent.id, url)} onReadLatest={readLatestChat} onForkLatest={canForkConversation ? () => onForkAgent?.(agent.id, 'same-worktree', { targetRuntime: 'chat', expectedRevision: acpRuntime?.sessionRevision || 0 }) : undefined} onReviewAndCommit={onReviewAndCommit ? () => onReviewAndCommit(agent.id) : undefined} copy={copy} />
+          <AcpTranscriptPane agentId={agent.id} readingIdentity={agentWorkPaneModeStorageIdentity(agent)} workspaceRoot={agent.projectWorkspace || agent.cwd} active={active} viewportLayoutKey={viewportLayoutKey} runtimeState={acpRuntime?.state || ''} expectHistory={(agent.source || '').startsWith('codex-history:')} forkedFromAgent={Boolean(agent.parentAgentId && agent.forkedFromProviderSessionId)} refreshSignal={acpRuntime?.sessionRevision || (acpRuntime?.sessionUpdatedAt ? Date.parse(acpRuntime.sessionUpdatedAt) : 0)} onOpenWorkspaceFilePath={onOpenWorkspaceFilePath} onOpenUrlInFarming={onOpenUrlInFarming ? openChatUrlInFarming : undefined} onReadLatest={readLatestChat} onForkLatest={canForkConversation ? forkLatestChat : undefined} onReviewAndCommit={onReviewAndCommit ? reviewAndCommitChat : undefined} copy={copy} />
         </div>
       ) : null}
       {switching ? (

@@ -90,17 +90,18 @@ test('opens a completed Chat shell immediately and renders its prepared snapshot
     state.__farmingInitialChatObserver.observe(document.body, { childList: true, subtree: true })
   }, partialAnswer)
   const agentRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
-  const revealMs = await agentRow.evaluate(row => new Promise<number>((resolve, reject) => {
+  const firstTurnVisibleMs = await agentRow.evaluate(row => new Promise<number>((resolve, reject) => {
     const startedAt = performance.now()
     ;(row as HTMLElement).click()
     const observe = () => {
       const chat = document.querySelector<HTMLElement>('[data-testid="code-agent-chat-view"]')
-      if (chat && !chat.hidden && chat.innerText.includes('Initial answer is now complete and should appear once.')) {
+      const firstTurn = chat?.querySelector<HTMLElement>('[data-turn-id]')
+      if (chat && !chat.hidden && firstTurn && firstTurn.getBoundingClientRect().height > 0) {
         resolve(performance.now() - startedAt)
         return
       }
       if (performance.now() - startedAt > 1_000) {
-        reject(new Error('Prepared Chat snapshot did not become visible'))
+        reject(new Error('Prepared Chat first Turn did not become visible'))
         return
       }
       window.requestAnimationFrame(observe)
@@ -110,7 +111,12 @@ test('opens a completed Chat shell immediately and renders its prepared snapshot
 
   await expect(page.getByText(completeAnswer, { exact: true })).toBeVisible({ timeout: 10_000 })
   expect(transcriptRequests).toBeGreaterThanOrEqual(1)
-  expect(revealMs).toBeLessThan(250)
+  console.log(`performance-chat-open first-turn-visible-ms=${firstTurnVisibleMs.toFixed(1)}`)
+  test.info().annotations.push({
+    type: 'performance-budget',
+    description: `prepared Chat first Turn visible in ${firstTurnVisibleMs.toFixed(1)}ms`,
+  })
+  expect(firstTurnVisibleMs).toBeLessThan(250)
   expect(await page.evaluate(() => (
     (window as typeof window & { __farmingInitialChatFragmentVisible?: boolean })
       .__farmingInitialChatFragmentVisible
@@ -784,7 +790,10 @@ test('restores a persisted Chat message anchor after reload and loads older turn
     if (!turn) return Number.POSITIVE_INFINITY
     return Math.abs((turn.getBoundingClientRect().top - element.getBoundingClientRect().top) - expected.offset)
   }, saved)).toBeLessThanOrEqual(3)
-  expect(requestedTurnLimits.slice(requestsBeforeReload)).toContain(40)
+  const reloadTurnLimits = requestedTurnLimits.slice(requestsBeforeReload)
+  expect(reloadTurnLimits[0]).toBe(5)
+  expect(reloadTurnLimits).toContain(15)
+  expect(reloadTurnLimits).toContain(25)
   await expect(page.getByTestId('code-agent-transcript-jump-bottom')).toBeVisible()
 })
 

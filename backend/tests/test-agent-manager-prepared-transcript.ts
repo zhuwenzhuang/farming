@@ -95,7 +95,7 @@ async function run() {
       return originalBuild(...args);
     };
     const transcript = await manager.getAcpTranscript(agentId, {
-      maxTurns: 20,
+      maxTurns: 5,
       mediaPathPrefix: `/farming/api/agents/${agentId}/acp-media`,
     });
     assert.strictEqual(onDemandBuilds, 0, 'prepared GET should not repeat transcript projection');
@@ -104,7 +104,7 @@ async function run() {
     assert.strictEqual(transcript.replace, true);
     assert.strictEqual(transcript.settled, true);
     const serialized = await manager.getAcpTranscriptSerialized(agentId, {
-      maxTurns: 20,
+      maxTurns: 5,
       mediaPathPrefix: `/farming/api/agents/${agentId}/acp-media`,
     });
     assert.strictEqual(JSON.parse(serialized).toRevision, transcript.toRevision);
@@ -115,7 +115,7 @@ async function run() {
     binding.updatedAt = new Date(Date.now() + 1_000).toISOString();
     runtime.emitRuntime(binding);
     const runtimeChanged = await manager.getAcpTranscript(agentId, {
-      maxTurns: 20,
+      maxTurns: 5,
       mediaPathPrefix: `/farming/api/agents/${agentId}/acp-media`,
     });
     assert.strictEqual(onDemandBuilds, 1, 'runtime-only changes must invalidate the serialized envelope');

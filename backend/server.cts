@@ -313,6 +313,7 @@ const authEnabled = tokenAuth.isEnabled();
 const WS_PATH = routePath(BASE_PATH, '/ws');
 const SERVER_EPOCH = crypto.randomUUID();
 const DEFAULT_TRANSCRIPT_MAX_TURNS = 240;
+const MIN_TRANSCRIPT_TURNS = 5;
 const MAX_TRANSCRIPT_TURNS = 1000;
 const INTERACTIVE_REFRESH_CACHE_MAX_AGE_MS = 3_000;
 const execFileAsync = promisify(execFile);
@@ -1584,7 +1585,7 @@ app.get(routePath(BASE_PATH, '/api/agents/:agentId/acp-transcript'), async (req,
   try {
     const requestedMaxTurns = Number.parseInt(String(req.query.maxTurns || ''), 10);
     const maxTurns = Number.isFinite(requestedMaxTurns)
-      ? Math.min(MAX_TRANSCRIPT_TURNS, Math.max(20, requestedMaxTurns))
+      ? Math.min(MAX_TRANSCRIPT_TURNS, Math.max(MIN_TRANSCRIPT_TURNS, requestedMaxTurns))
       : DEFAULT_TRANSCRIPT_MAX_TURNS;
     const requestedRevision = Number.parseInt(String(req.query.sinceRevision || ''), 10);
     const externalMedia = req.query.media === 'external-v1';

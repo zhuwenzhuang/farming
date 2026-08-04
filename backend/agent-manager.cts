@@ -110,6 +110,9 @@ import type {
   LifecyclePreviousState,
 } from './agent-manager-lifecycle-types.js';
 
+const PREPARED_ACP_TRANSCRIPT_TURN_LIMIT = 5;
+const PREPARED_ACP_TRANSCRIPT_QUIET_MS = 60;
+
 const { execFile } = require('child_process');
 const crypto = require('crypto');
 const fs = require('fs');
@@ -1504,7 +1507,7 @@ class AgentManager extends EventEmitter {
       : new AcpRuntime());
     this.acpPreparedTranscriptCache = new AcpPreparedTranscriptCache({
       prepare: identity => this.buildAcpTranscriptEnvelope(identity.agentId, {
-        maxTurns: 20,
+        maxTurns: PREPARED_ACP_TRANSCRIPT_TURN_LIMIT,
         mediaPathPrefix: this.transcriptMediaPathPrefix(identity.agentId),
       }),
       validate: identity => {
@@ -1519,6 +1522,7 @@ class AgentManager extends EventEmitter {
           && runtime.state === 'idle'
         );
       },
+      quietMs: PREPARED_ACP_TRANSCRIPT_QUIET_MS,
     });
     this.createProviderSessionIdentity = typeof options.createProviderSessionIdentity === 'function'
       ? options.createProviderSessionIdentity
@@ -6839,7 +6843,7 @@ class AgentManager extends EventEmitter {
       projectionRevision: this.acpRuntime.transcriptProjectionRevision(agentId),
     };
     const preparedProfile = !Number.isFinite(Number(options.sinceRevision))
-      && Number(options.maxTurns) === 20
+      && Number(options.maxTurns) === PREPARED_ACP_TRANSCRIPT_TURN_LIMIT
       && options.mediaPathPrefix === this.transcriptMediaPathPrefix(agentId);
     if (preparedProfile && identity.sessionId) {
       this.observeAcpPreparedTranscript(agentId, 100);

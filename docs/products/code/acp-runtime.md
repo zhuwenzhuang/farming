@@ -124,6 +124,10 @@ a quiet period. It is cancellable, revision-fenced, and bounded by entry count,
 response size, total cache size, and active work. Failure or eviction falls back
 to the same authoritative on-demand read.
 
+The first settled ACP transcript response contains only the five newest Turns.
+Older Turns load in bounded pages as the reader moves upward, so opening a long
+Chat does not make its full Markdown and tool history part of first paint.
+
 The browser keeps heavyweight transcript trees only for visible Chats. Inactive
 Chats retain small navigation anchors and reload from the backend checkpoint
 when revisited. Reading position is anchored to a stable Turn or process item,

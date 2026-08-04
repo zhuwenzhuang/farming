@@ -1135,8 +1135,11 @@ function run() {
       serverSource.includes("'/api/agents/:agentId/acp-transcript/prepare'") &&
       codeSidebarSource.includes('const prepareLiveChat = () => {') &&
       codeSidebarSource.includes("event.currentTarget.matches(':focus-visible')") &&
-      !codeSidebarSource.includes('onPointerDown={prepareLiveChat}') &&
+      codeSidebarSource.includes('if (event.button === 0) prepareLiveChat()') &&
       codeSidebarSource.includes('prepareLiveChat()') &&
+      serverSource.includes('const MIN_TRANSCRIPT_TURNS = 5;') &&
+      agentManagerSource.includes('const PREPARED_ACP_TRANSCRIPT_TURN_LIMIT = 5;') &&
+      agentManagerSource.includes('const PREPARED_ACP_TRANSCRIPT_QUIET_MS = 60;') &&
       agentManagerSource.includes('if (!this.acpPreparedTranscriptCache.hasAgent(agentId)) return;') &&
       preparedTranscriptCacheSource.includes('maxRecords?: number;') &&
       preparedTranscriptCacheSource.includes('getSerialized(identity: PreparedTranscriptIdentity)') &&
@@ -1498,6 +1501,15 @@ function run() {
       transcriptPaneSource.includes('const textSelectionGestureRef = useRef(false)') &&
       transcriptPaneSource.includes('const textSelectionHadRangeRef = useRef(false)') &&
       transcriptPaneSource.includes('const StableAgentTranscriptTurnView = memo(AgentTranscriptTurnView)') &&
+      transcriptPaneSource.includes('const EMPTY_SUBAGENT_STATES: AgentTranscriptSubagentState[] = []') &&
+      transcriptPaneSource.includes('subagentStates={transcript?.codexSubagents?.agents ?? EMPTY_SUBAGENT_STATES}') &&
+      transcriptPaneSource.includes('remarkPlugins={TRANSCRIPT_REMARK_PLUGINS}') &&
+      transcriptPaneSource.includes('rehypePlugins={TRANSCRIPT_REHYPE_PLUGINS}') &&
+      transcriptPaneSource.includes('const INITIAL_ACP_TRANSCRIPT_TURN_LIMIT = 5') &&
+      transcriptPaneSource.includes('const ACP_TRANSCRIPT_TURN_PAGE_SIZE = 10') &&
+      agentWorkPaneSource.includes('onOpenUrlInFarming={onOpenUrlInFarming ? openChatUrlInFarming : undefined}') &&
+      agentWorkPaneSource.includes('onForkLatest={canForkConversation ? forkLatestChat : undefined}') &&
+      agentWorkPaneSource.includes('onReviewAndCommit={onReviewAndCommit ? reviewAndCommitChat : undefined}') &&
       transcriptPaneSource.includes("document.addEventListener('selectionchange', updateSelectionState)") &&
       transcriptPaneSource.includes('onPointerDown={handleTranscriptPointerDown}') &&
       transcriptPaneSource.includes("source === 'acp'") &&

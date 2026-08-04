@@ -2401,6 +2401,9 @@ function AgentRow({
         }
         openRow()
       }}
+      onPointerDown={event => {
+        if (event.button === 0) prepareLiveChat()
+      }}
       onFocus={event => {
         if (event.currentTarget.matches(':focus-visible')) prepareLiveChat()
       }}
