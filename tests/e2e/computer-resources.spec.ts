@@ -205,6 +205,9 @@ test('shows an Agent-owned Desktop only when present and switches Viewer control
   await page.getByRole('menuitem', { name: 'Create Isolated Desktop' }).click()
   const resourcesToggle = refreshedAgentRow.getByTestId('code-agent-resources-toggle')
   await refreshedAgentRow.hover()
+  const agentDetailResources = page.getByTestId('code-agent-hover-preview-resources')
+  await expect(agentDetailResources).toBeVisible()
+  await expect(agentDetailResources.getByTestId('code-agent-hover-preview-desktop-count')).toHaveText('1')
   await expect(resourcesToggle).toBeVisible()
   await resourcesToggle.click()
   const resourceSlot = page.locator(

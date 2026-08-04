@@ -360,6 +360,20 @@ test('mounts Agent-owned Browsers behind nested resource controls without layout
     }
     return snapshot.resources.find(resource => resource.id === createdBrowser.id)?.status
   }).toBe('stopped')
+  const secondCreateResponse = await page.request.post('/farming/api/browsers', {
+    data: {
+      rootId: projectFilesWorkspaceId(workspace),
+      agentId,
+      name: 'Second Agent Browser',
+    },
+  })
+  expect(secondCreateResponse.ok()).toBeTruthy()
+  await page.mouse.move(1000, 100)
+  await agentRow.hover()
+  const agentDetailResources = page.getByTestId('code-agent-hover-preview-resources')
+  await expect(agentDetailResources).toBeVisible()
+  await expect(agentDetailResources.getByTestId('code-agent-hover-preview-browser-count')).toHaveText('2')
+  await expect(agentDetailResources.getByTestId('code-agent-hover-preview-desktop-count')).toHaveCount(0)
 })
 
 test('stacks active-Agent Browser previews and opens the selected Viewer on demand', async ({

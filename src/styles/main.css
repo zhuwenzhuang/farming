@@ -2079,6 +2079,31 @@ body.code-resizing-sidebar {
   flex: 0 0 17px;
 }
 
+.code-agent-hover-preview-resources {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding-top: 4px;
+  margin-top: 1px;
+  border-top: 1px solid rgba(31, 35, 40, 0.09);
+  color: #58605a;
+}
+
+.code-agent-hover-preview-resource {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.code-agent-hover-preview-resource svg {
+  width: 16px;
+  height: 16px;
+  color: #7b8078;
+}
+
 .code-session-show-more {
   grid-template-columns: minmax(0, 1fr) auto;
   color: #707070;

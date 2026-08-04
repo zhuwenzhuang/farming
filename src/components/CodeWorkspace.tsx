@@ -707,6 +707,19 @@ export function CodeWorkspace({
     () => new Set(computerResources.resources.map(resource => resource.ownerAgentId)),
     [computerResources.resources],
   )
+  const resourceCountsByAgentId = useMemo(() => {
+    const counts = new Map<string, { browserCount: number; desktopCount: number }>()
+    const update = (agentId: string, kind: 'browserCount' | 'desktopCount') => {
+      if (!agentId) return
+      const current = counts.get(agentId) ?? { browserCount: 0, desktopCount: 0 }
+      counts.set(agentId, { ...current, [kind]: current[kind] + 1 })
+    }
+    for (const resource of browserResources.resources) {
+      if (resource.ownerType === 'agent') update(resource.ownerAgentId, 'browserCount')
+    }
+    for (const resource of computerResources.resources) update(resource.ownerAgentId, 'desktopCount')
+    return counts
+  }, [browserResources.resources, computerResources.resources])
   const refreshProjectOpenFiles = useCallback(async (filesId: string, workspaceRoot: string) => {
     const filePaths = Array.from(new Set(workspaceOpenFiles.files
       .filter(file => file.workspaceRoot === workspaceRoot)
@@ -5534,6 +5547,7 @@ export function CodeWorkspace({
         now={now}
         mainAgent={hiddenMainAgent}
         usageSummary={usageSummary}
+        resourceCountsByAgentId={resourceCountsByAgentId}
         instanceName={instanceName}
         language={uiPreferences.language}
         appearancePreference={uiPreferences.appearance}

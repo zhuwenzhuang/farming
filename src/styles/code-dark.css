@@ -380,6 +380,15 @@ body.code-mode[data-appearance='dark'] .code-agent-hover-preview-line {
   color: var(--code-dark-text);
 }
 
+body.code-mode[data-appearance='dark'] .code-agent-hover-preview-resources {
+  border-color: var(--code-dark-border);
+  color: var(--code-dark-text);
+}
+
+body.code-mode[data-appearance='dark'] .code-agent-hover-preview-resource svg {
+  color: var(--code-dark-text-muted);
+}
+
 body.code-mode[data-appearance='dark'] .code-project-hover-preview-line {
   border-color: var(--code-dark-border);
   color: var(--code-dark-text);

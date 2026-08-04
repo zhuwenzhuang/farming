@@ -7,10 +7,12 @@ import type {
 import { createPortal } from 'react-dom'
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
+  BrowserGlyph,
   ChatBubblesGlyph,
   ChevronDownGlyph,
   ChevronLeftGlyph,
   ChevronRightGlyph,
+  DesktopGlyph,
   FocusModeGlyph,
   HistoryGlyph,
   NewAgentGlyph,
@@ -97,6 +99,13 @@ type AgentPreviewTarget = {
   lastActive: number
   provider?: PreviewAgentIconName
   workspaceRootId?: string
+  browserCount?: number
+  desktopCount?: number
+}
+
+type AgentResourceCounts = {
+  browserCount: number
+  desktopCount: number
 }
 
 type ProjectPreviewTarget = {
@@ -189,6 +198,7 @@ interface CodeSidebarProps {
   now: number
   mainAgent: Agent | null
   usageSummary: UsageSummary | null
+  resourceCountsByAgentId: ReadonlyMap<string, AgentResourceCounts>
   instanceName: string
   language: UiLanguage
   appearancePreference: UiAppearance
@@ -253,6 +263,7 @@ export function CodeSidebar({
   now,
   mainAgent,
   usageSummary,
+  resourceCountsByAgentId,
   instanceName,
   language,
   appearancePreference,
@@ -360,7 +371,9 @@ export function CodeSidebar({
       const branch = cachedBranch && cachedBranch.expiresAt > Date.now() ? cachedBranch.branch : ''
       previewBrowsingRef.current = true
       setProjectPreview(null)
-      setAgentPreview({ ...target, x, y, width, branch })
+      const agentId = target.key.startsWith('agent:') ? target.key.slice('agent:'.length) : ''
+      const resourceCounts = agentId ? resourceCountsByAgentId.get(agentId) : undefined
+      setAgentPreview({ ...target, ...resourceCounts, x, y, width, branch })
       if (!target.workspaceRootId || branch) return
       fetch(appPath(`/api/files/branch?rootId=${encodeURIComponent(target.workspaceRootId)}`))
         .then(response => response.ok ? response.json() : null)
@@ -373,7 +386,7 @@ export function CodeSidebar({
           branchCacheRef.current.set(target.workspaceRootId!, { branch: '', expiresAt: Date.now() + 30_000 })
         })
     }, delay)
-  }, [clearPreviewTimer, hoverPreviewsPaused])
+  }, [clearPreviewTimer, hoverPreviewsPaused, resourceCountsByAgentId])
 
   const showProjectPreview = useCallback((event: AgentPreviewAnchorEvent, target: ProjectPreviewTarget) => {
     if (hoverPreviewsPaused) return
@@ -2189,6 +2202,22 @@ function AgentHoverPreview({
           <span className="code-agent-hover-preview-icon"><AgentPreviewBranchIcon /></span>
           <span>{preview.branch || '—'}</span>
         </div>
+        {(Boolean(preview.browserCount) || Boolean(preview.desktopCount)) && (
+          <div className="code-agent-hover-preview-resources" data-testid="code-agent-hover-preview-resources">
+            {Boolean(preview.browserCount) && (
+              <span className="code-agent-hover-preview-resource" data-testid="code-agent-hover-preview-browser-count">
+                <BrowserGlyph />
+                <span>{preview.browserCount}</span>
+              </span>
+            )}
+            {Boolean(preview.desktopCount) && (
+              <span className="code-agent-hover-preview-resource" data-testid="code-agent-hover-preview-desktop-count">
+                <DesktopGlyph />
+                <span>{preview.desktopCount}</span>
+              </span>
+            )}
+          </div>
+        )}
       </div>
       {titleOverflow && titleCardWidth >= 180 && (
         <div

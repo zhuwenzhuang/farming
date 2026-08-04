@@ -39,6 +39,8 @@ authority.
 
 When one Agent owns several active Resources of the same kind, compact previews
 may overlap, but every visible preview must identify and open its exact Resource.
+Agent detail previews summarize owned Resource counts by kind with compact icons
+so users can estimate Resource usage without expanding each Resource section.
 
 ## Ownership And Lifecycle
 
