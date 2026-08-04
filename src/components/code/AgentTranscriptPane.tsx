@@ -3970,16 +3970,6 @@ export function AgentTranscriptPane({
         className={`code-agent-transcript ${activePlan ? 'has-plan-driver' : ''}`}
         data-testid="code-agent-transcript"
       >
-      {forkedFromAgent ? (
-        <div className="code-agent-transcript-fork-origin" data-testid="code-agent-transcript-fork-origin" role="note">
-          <span aria-hidden="true" />
-          <span className="code-agent-transcript-fork-origin-label">
-            <ForkGlyph />
-            {copy.agentTranscriptForkedFromAgent}
-          </span>
-          <span aria-hidden="true" />
-        </div>
-      ) : null}
       {activePlan ? (
         <AgentTranscriptPlanDriver plan={activePlan} />
       ) : null}
@@ -4008,6 +3998,16 @@ export function AgentTranscriptPane({
           onTouchEnd={handleTouchEnd}
           onTouchCancel={handleTouchEnd}
         >
+          {forkedFromAgent ? (
+            <div
+              className="code-agent-transcript-fork-origin"
+              data-testid="code-agent-transcript-fork-origin"
+              role="note"
+            >
+              <ForkGlyph />
+              <span>{copy.agentTranscriptForkedFromAgent}</span>
+            </div>
+          ) : null}
           {turns.map((turn, index) => {
             const processOpen = source === 'acp'
               ? turn.status === 'inProgress'
