@@ -1897,7 +1897,11 @@ body.code-mode[data-appearance='dark'] .code-agent-transcript-scroll::-webkit-sc
 }
 
 body.code-mode[data-appearance='dark'] .code-agent-transcript-fork-origin {
-  color: var(--code-dark-text-muted);
+  color: #58a6ff;
+}
+
+body.code-mode[data-appearance='dark'] .code-agent-transcript-fork-origin > span[aria-hidden='true'] {
+  background: rgba(48, 54, 61, 0.92);
 }
 
 body.code-mode[data-appearance='dark'] .code-agent-transcript-user {

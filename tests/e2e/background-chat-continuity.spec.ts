@@ -959,7 +959,7 @@ test('forks the latest ACP answer into a new Chat Agent in the same workspace', 
   await expect(forkedPane.getByTestId('code-agent-transcript-scroll').locator(
     ':scope > [data-testid="code-agent-transcript-fork-origin"]'
   )).toHaveCount(1)
-  await expect(forkOrigin.locator(':scope > span[aria-hidden="true"]')).toHaveCount(0)
+  await expect(forkOrigin.locator(':scope > span[aria-hidden="true"]')).toHaveCount(2)
   await expect(forkedPane.getByText('phase-aware mermaid fork this conversation', { exact: true })).toBeVisible()
   await expect(forkedPane.getByText('Phase-aware rich answer.', { exact: false })).toBeVisible()
 })

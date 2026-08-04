@@ -1682,7 +1682,8 @@ body.code-resizing-sidebar {
 }
 
 .code-project-row:hover:not(:has(.code-project-worktree:hover)) .code-project-title-actions,
-.code-project-row:focus-within:not(:has(.code-project-worktree:hover, .code-project-worktree:focus)) .code-project-title-actions {
+.code-project-row:has(.code-project-title:focus-visible):not(:has(.code-project-worktree:hover, .code-project-worktree:focus-visible)) .code-project-title-actions,
+.code-project-row:has(.code-project-title-actions :focus-visible):not(:has(.code-project-worktree:hover, .code-project-worktree:focus-visible)) .code-project-title-actions {
   opacity: 1;
   pointer-events: auto;
   transition: opacity 120ms ease;
@@ -2261,7 +2262,7 @@ body.code-mode:not(.code-compact-layout) .code-agent-row.requires-resume .code-a
 }
 
 body.code-mode:not(.code-compact-layout) .code-agent-row.requires-resume:hover .code-agent-row-more,
-body.code-mode:not(.code-compact-layout) .code-agent-row.requires-resume:focus-within .code-agent-row-more {
+body.code-mode:not(.code-compact-layout) .code-agent-row.requires-resume:has(.code-agent-row-more:focus-visible) .code-agent-row-more {
   opacity: 1;
   pointer-events: auto;
 }
@@ -2489,7 +2490,7 @@ body.code-mode:not(.code-compact-layout) .code-agent-row.requires-resume .code-a
 }
 
 .code-files-header:hover .code-files-header-actions,
-.code-files-header:focus-within .code-files-header-actions,
+.code-files-header:has(.code-files-header-actions :focus-visible) .code-files-header-actions,
 .code-files-header-actions:not([data-refresh-status='idle']) {
   opacity: 1;
   pointer-events: auto;
@@ -3644,7 +3645,7 @@ body.code-mode .code-file-change-group-toggle {
 }
 
 .code-open-editor-row:hover .code-open-editor-actions,
-.code-open-editor-row:focus-within .code-open-editor-actions {
+.code-open-editor-row:has(.code-open-editor-actions :focus-visible) .code-open-editor-actions {
   opacity: 1;
   pointer-events: auto;
 }
@@ -6528,25 +6529,34 @@ body.code-mode .code-instance-name {
 }
 
 .code-agent-transcript-fork-origin {
-  width: 100%;
-  max-width: 980px;
-  box-sizing: border-box;
-  display: flex;
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: minmax(24px, 1fr) auto minmax(24px, 1fr);
   align-items: center;
-  gap: 7px;
-  margin: 0 auto 22px;
-  color: #8c959f;
+  gap: 12px;
+  margin: 0 0 22px;
+  color: #0969da;
   font-size: 13px;
-  line-height: 22px;
-  user-select: text;
-  -webkit-user-select: text;
+  line-height: 1;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
-.code-agent-transcript-fork-origin svg {
+.code-agent-transcript-fork-origin > span[aria-hidden='true'] {
+  height: 1px;
+  background: rgba(208, 215, 222, 0.88);
+}
+
+.code-agent-transcript-fork-origin-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+}
+
+.code-agent-transcript-fork-origin-label svg {
   width: 15px;
   height: 15px;
-  flex: 0 0 auto;
-  fill: currentColor;
 }
 
 .code-agent-work-pane.runtime-switchable .code-agent-transcript-user {
@@ -6632,9 +6642,9 @@ body.code-mode .code-instance-name {
 }
 
 .code-agent-transcript-user:hover > .code-agent-transcript-message-time,
-.code-agent-transcript-user:focus-within > .code-agent-transcript-message-time,
+.code-agent-transcript-user:has(:focus-visible) > .code-agent-transcript-message-time,
 .code-agent-transcript-answer:hover .code-agent-transcript-message-time,
-.code-agent-transcript-answer:focus-within .code-agent-transcript-message-time {
+.code-agent-transcript-answer:has(:focus-visible) .code-agent-transcript-message-time {
   opacity: 1;
   transform: translateY(0);
 }
@@ -6876,7 +6886,7 @@ body.code-mode .code-instance-name {
 }
 
 .code-agent-transcript-steer-bubble:hover .code-agent-transcript-message-time-steer,
-.code-agent-transcript-steer-bubble:focus-within .code-agent-transcript-message-time-steer {
+.code-agent-transcript-steer-bubble:has(:focus-visible) .code-agent-transcript-message-time-steer {
   opacity: 1;
   transform: translateY(0);
 }
@@ -8812,15 +8822,15 @@ button.code-agent-transcript-result-summary:focus-visible {
   transition-property: transform, opacity;
 }
 
-.code-agent-transcript-process-summary:is(:hover, :focus-visible, :focus-within) .code-agent-transcript-chevron,
-.code-agent-transcript-collaboration-summary:is(:hover, :focus-visible, :focus-within) .code-agent-transcript-chevron,
-.code-agent-transcript-collaboration-event:is(:hover, :focus-visible, :focus-within) .code-agent-transcript-chevron,
-.code-agent-transcript-process-title-toggle:is(:hover, :focus-visible, :focus-within) .code-agent-transcript-process-item-chevron,
-.code-agent-transcript-process-group-summary:is(:hover, :focus-visible, :focus-within) .code-agent-transcript-process-item-chevron,
-.code-agent-transcript-plan-driver-summary:is(:hover, :focus-visible, :focus-within) .code-agent-transcript-plan-driver-chevron,
-button.code-agent-transcript-result-summary:is(:hover, :focus-visible, :focus-within) .code-agent-transcript-result-chevron,
-.code-agent-transcript-result-file > summary:is(:hover, :focus-visible, :focus-within) .code-agent-transcript-result-file-chevron,
-.code-agent-transcript-subagent-action > summary:is(:hover, :focus-visible, :focus-within) svg {
+.code-agent-transcript-process-summary:is(:hover, :focus-visible) .code-agent-transcript-chevron,
+.code-agent-transcript-collaboration-summary:is(:hover, :focus-visible) .code-agent-transcript-chevron,
+.code-agent-transcript-collaboration-event:is(:hover, :focus-visible) .code-agent-transcript-chevron,
+.code-agent-transcript-process-title-toggle:is(:hover, :focus-visible) .code-agent-transcript-process-item-chevron,
+.code-agent-transcript-process-group-summary:is(:hover, :focus-visible) .code-agent-transcript-process-item-chevron,
+.code-agent-transcript-plan-driver-summary:is(:hover, :focus-visible) .code-agent-transcript-plan-driver-chevron,
+button.code-agent-transcript-result-summary:is(:hover, :focus-visible) .code-agent-transcript-result-chevron,
+.code-agent-transcript-result-file > summary:is(:hover, :focus-visible) .code-agent-transcript-result-file-chevron,
+.code-agent-transcript-subagent-action > summary:is(:hover, :focus-visible) svg {
   opacity: 0.9;
 }
 
@@ -9416,7 +9426,7 @@ button.code-agent-transcript-result-summary:is(:hover, :focus-visible, :focus-wi
 
 .code-file-editor-tab.active:not(.dirty, .warning) .code-file-editor-close,
 .code-file-editor-tab:hover .code-file-editor-close,
-.code-file-editor-tab:focus-within .code-file-editor-close {
+.code-file-editor-tab:has(.code-file-editor-close:focus-visible) .code-file-editor-close {
   opacity: 1;
   pointer-events: auto;
 }
@@ -9434,7 +9444,7 @@ button.code-agent-transcript-result-summary:is(:hover, :focus-visible, :focus-wi
 }
 
 .code-file-editor-tab:hover .code-file-editor-dirty,
-.code-file-editor-tab:focus-within .code-file-editor-dirty {
+.code-file-editor-tab:has(.code-file-editor-close:focus-visible) .code-file-editor-dirty {
   opacity: 0;
 }
 

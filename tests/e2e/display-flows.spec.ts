@@ -1296,6 +1296,12 @@ test.describe('display-backed agent flows', () => {
 
     await openProjectActions()
     let projectContextMenu = page.getByTestId('code-project-context-menu')
+    await expect(projectContextMenu).toBeVisible()
+    await page.keyboard.press('Escape')
+    await projectWorktree.hover()
+    await expect(project.locator('.code-project-title-actions')).toHaveCSS('opacity', '0')
+    await openProjectActions()
+    projectContextMenu = page.getByTestId('code-project-context-menu')
     for (const label of [
       'Pin project',
       'Reveal in Finder',

@@ -1711,7 +1711,7 @@ function run() {
       stylesSource.includes('.code-files-refresh') &&
       stylesSource.includes('.code-files-header-actions') &&
       stylesSource.includes('.code-files-header:hover .code-files-header-actions') &&
-      stylesSource.includes('.code-files-header:focus-within .code-files-header-actions') &&
+      stylesSource.includes('.code-files-header:has(.code-files-header-actions :focus-visible) .code-files-header-actions') &&
       stylesSource.includes(".code-files-header-actions:not([data-refresh-status='idle'])") &&
       stylesSource.includes('top: calc(var(--code-project-sticky-height) + var(--code-agents-sticky-height, 0px) + var(--code-open-editors-sticky-height, 0px))') &&
       stylesSource.includes('.code-open-editors-list') &&

@@ -4171,8 +4171,12 @@ export function AgentTranscriptPane({
               data-testid="code-agent-transcript-fork-origin"
               role="note"
             >
-              <ForkGlyph />
-              <span>{copy.agentTranscriptForkedFromAgent}</span>
+              <span aria-hidden="true" />
+              <span className="code-agent-transcript-fork-origin-label">
+                <ForkGlyph />
+                {copy.agentTranscriptForkedFromAgent}
+              </span>
+              <span aria-hidden="true" />
             </div>
           ) : null}
           {turns.map((turn, index) => {

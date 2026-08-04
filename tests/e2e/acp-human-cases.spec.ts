@@ -375,6 +375,13 @@ test.describe('ACP human-like browser matrix', () => {
     })).toBe(true)
     await expect(page.getByText('Rich ACP timeline complete.', { exact: true })).toBeVisible({ timeout: 20_000 })
     await expect(plan).toHaveCount(0)
+    const processSummary = page.getByTestId('code-agent-transcript-process-summary')
+    const processChevron = processSummary.locator('.code-agent-transcript-chevron')
+    await processSummary.hover()
+    await expect(processChevron).toHaveCSS('opacity', '0.9')
+    await processSummary.click()
+    await page.getByTestId('code-acp-composer').hover()
+    await expect(processChevron).toHaveCSS('opacity', '0')
   })
 
   test('isolates transcript Markdown, tool, and turn render failures', async ({ page, workspaceRoot }) => {
