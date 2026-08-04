@@ -5392,6 +5392,8 @@ function applyCrtWorkspaceState(nextState, previousAgentCount, inventoryComplete
 function applyCrtAgentStateDelta(data) {
     if (!state)
         return null;
+    if (data.upserts.length === 0 && data.removedAgentIds.length === 0 && !data.state)
+        return state;
     const removals = new Set(data.removedAgentIds);
     const replacements = new Map(data.upserts.map((agent) => [agent.id, agent]));
     const retainedAgentIds = new Set();
@@ -5556,6 +5558,7 @@ function connect() {
         const activeAgentId = isCrtSessionOpen() ? focusedAgentId : null;
         getSessionClient()?.focusAgent(activeAgentId, {
             activityScope: activeAgentId ? 'focused' : 'all',
+            stateScope: activeAgentId ? 'focused' : 'all',
             streamScope: 'focused',
             previewScope: activeAgentId ? 'none' : 'all',
         });
@@ -5625,6 +5628,7 @@ function connect() {
                 requestCrtAgentStateResync(socket);
                 return;
             }
+            const previousState = state;
             const prevAgentCount = state ? state.agents.length : 0;
             const nextState = applyCrtAgentStateDelta(data);
             if (!nextState) {
@@ -5632,7 +5636,8 @@ function connect() {
                 return;
             }
             agentStateSequence = data.sequence;
-            applyCrtWorkspaceState(nextState, prevAgentCount);
+            if (nextState !== previousState)
+                applyCrtWorkspaceState(nextState, prevAgentCount);
         }
         else if (data.type === 'agent-started') {
             selectCrtStartedAgent(data.agentId);
@@ -7907,6 +7912,7 @@ async function openSession(agentId) {
     if (sessionClient) {
         sessionClient.focusAgent(agentId, {
             activityScope: 'focused',
+            stateScope: 'focused',
             streamScope: 'focused',
             previewScope: 'none',
         });
@@ -8130,6 +8136,7 @@ function closeSession() {
     focusedAgentId = null;
     getSessionClient()?.focusAgent(null, {
         activityScope: 'all',
+        stateScope: 'all',
         streamScope: 'focused',
         previewScope: 'all',
         refreshState: true,

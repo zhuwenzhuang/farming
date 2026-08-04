@@ -76,6 +76,7 @@ export interface FocusAgentMessage {
   type: 'focus-agent'
   agentId: string | null
   activityScope?: 'all' | 'focused' | 'none'
+  stateScope?: 'all' | 'focused'
   refreshState?: boolean
 }
 

@@ -52,6 +52,7 @@ export interface FocusAgentMessage extends ExtensibleMessage {
   type: 'focus-agent'
   agentId: string | null
   activityScope?: 'all' | 'focused' | 'none'
+  stateScope?: 'all' | 'focused'
 }
 
 export interface ResizeAgentMessage extends ExtensibleMessage {
@@ -559,6 +560,11 @@ export function validateClientMessage(value: unknown): ValidationResult<ClientMe
           || value.activityScope === 'all'
           || value.activityScope === 'focused'
           || value.activityScope === 'none')
+        && (!Object.prototype.hasOwnProperty.call(value, 'stateScope')
+          || value.stateScope === 'all'
+          || (value.stateScope === 'focused'
+            && typeof value.agentId === 'string'
+            && value.agentId.length > 0))
       break
     case 'resize-agent': valid = stringField(value, 'agentId') && finiteField(value, 'cols') && finiteField(value, 'rows'); break
     case 'unwatch-workspace-files': valid = stringField(value, 'agentId', true); break

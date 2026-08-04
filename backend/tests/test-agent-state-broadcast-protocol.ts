@@ -6,10 +6,14 @@ const {
   advanceAgentStateBroadcast,
   advanceAgentStateMutation,
   agentStateClientDelivery,
+  agentStateDeltaForScope,
   agentStateBroadcastProjectSummaries,
   agentStateBroadcastSnapshot,
+  agentStateScopeIncludesAgent,
+  agentStateScopeTransition,
   agentStateSnapshotFrames,
   createAgentStateBroadcastTracker,
+  normalizeAgentStateScope,
   projectAgentSummaries,
 } = require('../agent-state-broadcast-protocol.cjs');
 
@@ -137,6 +141,56 @@ assert.strictEqual(agentStateClientDelivery(0, false, 100), 'delta');
 assert.strictEqual(agentStateClientDelivery(0, true, 100), 'snapshot');
 assert.strictEqual(agentStateClientDelivery(101, false, 100), 'defer');
 assert.strictEqual(agentStateClientDelivery(101, true, 100), 'defer');
+assert.strictEqual(normalizeAgentStateScope(undefined), 'all');
+assert.strictEqual(normalizeAgentStateScope('invalid'), 'all');
+assert.strictEqual(normalizeAgentStateScope('focused'), 'focused');
+assert.strictEqual(agentStateScopeIncludesAgent('all', null, 'a'), true);
+assert.strictEqual(agentStateScopeIncludesAgent('focused', 'a', 'a'), true);
+assert.strictEqual(agentStateScopeIncludesAgent('focused', 'a', 'b'), false);
+assert.strictEqual(agentStateScopeIncludesAgent('focused', null, 'a'), false);
+assert.deepStrictEqual(agentStateScopeTransition('all', null, 'focused', 'a'), {
+  scope: 'focused',
+  snapshotRequired: false,
+});
+assert.deepStrictEqual(agentStateScopeTransition('focused', 'a', 'focused', 'a'), {
+  scope: 'focused',
+  snapshotRequired: false,
+});
+assert.deepStrictEqual(agentStateScopeTransition('focused', 'a', 'focused', 'b'), {
+  scope: 'focused',
+  snapshotRequired: true,
+});
+assert.deepStrictEqual(agentStateScopeTransition('focused', 'a', 'all', null), {
+  scope: 'all',
+  snapshotRequired: true,
+});
+assert.deepStrictEqual(agentStateScopeTransition('focused', 'a', 'focused', null), {
+  scope: 'all',
+  snapshotRequired: true,
+});
+const scopedDelta = {
+  sequence: 9,
+  upserts: [{ id: 'a', status: 'working' }, { id: 'b', status: 'waiting' }],
+  removedAgentIds: ['a', 'c'],
+  state: { mainAgentId: 'main' },
+};
+assert.strictEqual(
+  agentStateDeltaForScope(scopedDelta, 'all', 'a'),
+  scopedDelta,
+  'All-scope delivery reuses the shared serialized delta',
+);
+assert.deepStrictEqual(agentStateDeltaForScope(scopedDelta, 'focused', 'a'), {
+  sequence: 9,
+  upserts: [{ id: 'a', status: 'working' }],
+  removedAgentIds: ['a'],
+  state: { mainAgentId: 'main' },
+});
+assert.deepStrictEqual(agentStateDeltaForScope(scopedDelta, 'focused', 'missing'), {
+  sequence: 9,
+  upserts: [],
+  removedAgentIds: [],
+  state: { mainAgentId: 'main' },
+});
 
 const progressiveFrames = [...agentStateSnapshotFrames(
   state(Array.from({ length: 1_000 }, (_, index) => ({ id: `paged-${index}` })), {

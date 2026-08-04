@@ -150,6 +150,7 @@ interface WebSocketClient {
   stateSnapshotInProgress?: boolean;
   stateSnapshotPending?: boolean;
   stateSnapshotRetryTimer?: ReturnType<typeof setTimeout> | null;
+  stateScope?: 'all' | 'focused';
   streamScope?: 'focused' | 'all';
   workspaceFileUnsubscribes?: Map<string, WorkspaceFileWatchRecord> | null;
   protocolCompatible?: boolean;
@@ -275,10 +276,14 @@ import {
   advanceAgentStateBroadcast,
   advanceAgentStateMutation,
   agentStateClientDelivery,
+  agentStateDeltaForScope,
   agentStateBroadcastSnapshot,
   agentStateBroadcastProjectSummaries,
+  agentStateScopeIncludesAgent,
+  agentStateScopeTransition,
   agentStateSnapshotFrames,
   createAgentStateBroadcastTracker,
+  normalizeAgentStateScope,
   type AgentStatePayload,
 } from './agent-state-broadcast-protocol.cjs';
 import {
@@ -3452,8 +3457,15 @@ function handleMessage(ws: WebSocketClient, data: ServerClientMessage) {
     case 'focus-agent': {
       const previousActivityScope = normalizeAgentActivityScope(ws.activityScope);
       const nextActivityScope = normalizeAgentActivityScope(data.activityScope ?? previousActivityScope);
+      const previousStateScope = normalizeAgentStateScope(ws.stateScope);
       const focusChanged = ws.focusedAgentId !== data.agentId;
       const scopeChanged = previousActivityScope !== nextActivityScope;
+      const stateScopeTransition = agentStateScopeTransition(
+        previousStateScope,
+        ws.focusedAgentId,
+        normalizeAgentStateScope(data.stateScope ?? previousStateScope),
+        data.agentId,
+      );
       if (Object.prototype.hasOwnProperty.call(data, 'activityScope')) {
         ws.activityScopeDeclared = true;
       }
@@ -3477,6 +3489,7 @@ function handleMessage(ws: WebSocketClient, data: ServerClientMessage) {
       }
       ws.focusedAgentId = data.agentId;
       ws.activityScope = nextActivityScope;
+      ws.stateScope = stateScopeTransition.scope;
       if (data.agentId) {
         agentManager.prioritizeAcpPreparedTranscript(data.agentId);
         const revision = currentAcpSessionRevision(data.agentId);
@@ -3492,7 +3505,9 @@ function handleMessage(ws: WebSocketClient, data: ServerClientMessage) {
       if (data.previewScope === 'none' || data.previewScope === 'focused' || data.previewScope === 'all') {
         ws.previewScope = data.previewScope;
       }
-      if (data.refreshState === true) {
+      if (data.refreshState === true || stateScopeTransition.snapshotRequired) {
+        // A full Agent snapshot is also the authoritative checkpoint for
+        // Activity and Agent-scoped patches skipped while focused.
         sendState(ws);
       } else if (activitySnapshotRequired) {
         sendAgentActivitySnapshot(ws);
@@ -4157,13 +4172,25 @@ function broadcastState(
       )
     : advanceAgentStateMutation(stateBroadcastTracker, mutation);
   if (!delta) return;
-  const message = JSON.stringify({
+  const allClientMessage = JSON.stringify({
     type: 'state-delta',
     generation: SERVER_EPOCH,
     ...delta,
   });
   wss.clients.forEach(client => {
     if (client === excludedClient || client.readyState !== WebSocket.OPEN) return;
+    const scopedDelta = agentStateDeltaForScope(
+      delta,
+      normalizeAgentStateScope(client.stateScope),
+      client.focusedAgentId,
+    );
+    const message = scopedDelta === delta
+      ? allClientMessage
+      : JSON.stringify({
+          type: 'state-delta',
+          generation: SERVER_EPOCH,
+          ...scopedDelta,
+        });
     deliverStateDelta(client, message);
   });
 }
@@ -4309,7 +4336,14 @@ function scheduleAgentUpdate(update: unknown) {
         update: { agentId: update.agentId, patch: entry.patch },
       });
       wss.clients.forEach((client) => {
-        if (client.readyState === WebSocket.OPEN) client.send(message);
+        if (
+          client.readyState === WebSocket.OPEN
+          && agentStateScopeIncludesAgent(
+            normalizeAgentStateScope(client.stateScope),
+            client.focusedAgentId,
+            update.agentId,
+          )
+        ) client.send(message);
       });
     }, AGENT_ACTIVITY_BROADCAST_DELAY_MS),
   };
@@ -4351,7 +4385,14 @@ function broadcastAgentRead(read: unknown) {
   if (!isAgentScopedServerEvent(read)) return;
   const message = JSON.stringify({ type: 'agent-read', read });
   wss.clients.forEach((client) => {
-    if (client.readyState === WebSocket.OPEN) {
+    if (
+      client.readyState === WebSocket.OPEN
+      && agentStateScopeIncludesAgent(
+        normalizeAgentStateScope(client.stateScope),
+        client.focusedAgentId,
+        read.agentId,
+      )
+    ) {
       client.send(message);
     }
   });

@@ -51,6 +51,57 @@ interface AgentStateBroadcastTracker {
 }
 
 type AgentStateClientDelivery = 'defer' | 'delta' | 'snapshot';
+type AgentStateClientScope = 'all' | 'focused';
+
+interface AgentStateScopeTransition {
+  scope: AgentStateClientScope;
+  snapshotRequired: boolean;
+}
+
+function normalizeAgentStateScope(scope: unknown): AgentStateClientScope {
+  return scope === 'focused' ? 'focused' : 'all';
+}
+
+function agentStateScopeTransition(
+  previousScope: AgentStateClientScope | null | undefined,
+  previousFocusedAgentId: string | null | undefined,
+  requestedScope: AgentStateClientScope | null | undefined,
+  nextFocusedAgentId: string | null | undefined,
+): AgentStateScopeTransition {
+  const normalizedPreviousScope = normalizeAgentStateScope(previousScope);
+  const normalizedRequestedScope = normalizeAgentStateScope(requestedScope);
+  const scope = normalizedRequestedScope === 'focused' && nextFocusedAgentId
+    ? 'focused'
+    : 'all';
+  return {
+    scope,
+    snapshotRequired: normalizedPreviousScope === 'focused'
+      && (scope === 'all' || previousFocusedAgentId !== nextFocusedAgentId),
+  };
+}
+
+function agentStateScopeIncludesAgent(
+  scope: AgentStateClientScope | null | undefined,
+  focusedAgentId: string | null | undefined,
+  agentId: string,
+): boolean {
+  return scope !== 'focused' || Boolean(focusedAgentId && focusedAgentId === agentId);
+}
+
+function agentStateDeltaForScope(
+  delta: AgentStateBroadcastDelta,
+  scope: AgentStateClientScope | null | undefined,
+  focusedAgentId: string | null | undefined,
+): AgentStateBroadcastDelta {
+  if (scope !== 'focused' || !focusedAgentId) return delta;
+  return {
+    ...delta,
+    upserts: delta.upserts.filter(agent => agentStateScopeIncludesAgent(scope, focusedAgentId, agent.id)),
+    removedAgentIds: delta.removedAgentIds.filter(agentId => (
+      agentStateScopeIncludesAgent(scope, focusedAgentId, agentId)
+    )),
+  };
+}
 
 function accumulateProjectAgentSummary(
   summaries: Map<string, ProjectAgentSummary>,
@@ -300,10 +351,14 @@ export {
   advanceAgentStateBroadcast,
   advanceAgentStateMutation,
   agentStateClientDelivery,
+  agentStateDeltaForScope,
   agentStateBroadcastProjectSummaries,
+  agentStateScopeIncludesAgent,
+  agentStateScopeTransition,
   agentStateBroadcastSnapshot,
   agentStateSnapshotFrames,
   createAgentStateBroadcastTracker,
+  normalizeAgentStateScope,
   projectAgentSummaries,
 };
 
@@ -311,6 +366,8 @@ export type {
   AgentStateBroadcastDelta,
   AgentStateBroadcastMutation,
   AgentStateBroadcastTracker,
+  AgentStateClientScope,
+  AgentStateScopeTransition,
   AgentStatePayload,
   AgentStateSnapshotFrame,
   ProjectAgentSummary,

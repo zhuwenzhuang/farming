@@ -46,6 +46,11 @@ assert.strictEqual(validateClientMessage({ type: 'business-health-probe', reques
 assert.strictEqual(validateClientMessage({ type: 'focus-agent', agentId: 'a', activityScope: 'focused' }).ok, true);
 assert.strictEqual(validateClientMessage({ type: 'focus-agent', agentId: null, activityScope: 'none' }).ok, true);
 assert.strictEqual(validateClientMessage({ type: 'focus-agent', agentId: 'a', activityScope: 'project' }).ok, false);
+assert.strictEqual(validateClientMessage({ type: 'focus-agent', agentId: 'a', stateScope: 'focused' }).ok, true);
+assert.strictEqual(validateClientMessage({ type: 'focus-agent', agentId: null, stateScope: 'all' }).ok, true);
+assert.strictEqual(validateClientMessage({ type: 'focus-agent', agentId: null, stateScope: 'focused' }).ok, false);
+assert.strictEqual(validateClientMessage({ type: 'focus-agent', agentId: '', stateScope: 'focused' }).ok, false);
+assert.strictEqual(validateClientMessage({ type: 'focus-agent', agentId: 'a', stateScope: 'project' }).ok, false);
 assert.strictEqual(validateClientMessage({ type: 'state-resync', generation: 'server-1', afterSequence: 4 }).ok, true);
 assert.strictEqual(validateClientMessage({ type: 'state-resync', afterSequence: -1 }).ok, false);
 assert.strictEqual(validateClientMessage({ type: 'unknown' }).ok, false);

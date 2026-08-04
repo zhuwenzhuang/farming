@@ -236,7 +236,12 @@ function validateClientMessage(value) {
                 && (!Object.prototype.hasOwnProperty.call(value, 'activityScope')
                     || value.activityScope === 'all'
                     || value.activityScope === 'focused'
-                    || value.activityScope === 'none');
+                    || value.activityScope === 'none')
+                && (!Object.prototype.hasOwnProperty.call(value, 'stateScope')
+                    || value.stateScope === 'all'
+                    || (value.stateScope === 'focused'
+                        && typeof value.agentId === 'string'
+                        && value.agentId.length > 0));
             break;
         case 'resize-agent':
             valid = stringField(value, 'agentId') && finiteField(value, 'cols') && finiteField(value, 'rows');

@@ -8,6 +8,8 @@ Farming 后端拥有 Agent 列表及列表级元数据的权威状态。浏览�
 
 Browser View 会声明 Agent Activity 对全部 Agent、仅当前 Focused Agent，还是完全不相关。Farming Code 在 Projects 侧边栏可见时保留全部 Activity，在非 Agent View 中暂停；Farming CRT 在 Dashboard 上保留全部 Activity，打开单个 Session 后只订阅 Focused Agent。未声明 Scope 的 Client 继续采用兼容的 `all` 行为。
 
+Agent 列表 Delta 具有独立的 Browser 级 `all` 或 `focused` Scope。Farming CRT 打开单个 Session 时使用 `focused`。Browser 仍会接收每个全局列表 Sequence：Focused Agent 的 Mutation 携带该 Agent，无关 Mutation 则携带空 Checkpoint 以及发生变化的列表级 Metadata。这样无需发送或应用无关 Agent Record，也能保留精确前序检查。切换 Focused Target 或返回 `all` 时，必须先接收新的权威 Snapshot，才能恢复广域监督。首次和恢复 Snapshot 仍然完整；未声明该 Scope 的 Client 继续使用 `all` Delivery。Agent-scoped `agent-update` 与 `agent-read` Message 遵循同一 Scope；权威 Snapshot 会协调 Focused 期间有意跳过的 Update。Focused Scope 中保留自上一份完整 Snapshot 的非目标 Agent Record 会被隐藏，并且有意保持过时；在下一份 `all` Snapshot 完成前，它们不能作为当前状态证据。
+
 Activity Message 是可替换的绝对 Projection。慢速 `focused` Client 只保留一个待恢复的 Agent Checkpoint Marker；慢速 `all` Client 也只保留一个 Marker，并通过一份紧凑的权威 Activity Snapshot 恢复，不逐条重放 Update，也不发送完整 Agent State 或所有 Preview。从 `focused` 或 `none` 返回 `all` 时，只有该 Connection 确实遗漏过 Activity 才发送这份 Snapshot。
 
 Adaptive Agent Title 会先发布 Agent-scoped Optimistic Patch，同一 Agent 的重复 Title 共用一个待完成的 Durability Result，并用最新排队值替换旧值。Admission 要求 Agent 的 Create Intent 已经建立持久化 Session Record，Title Update 不会隐式创建或认领 Record。持久化 Metadata Read、临时文件写入与 `fdatasync` 使用异步文件 I/O。Generation Check 会阻止已经准备好的旧 Title 覆盖并发 Lifecycle Metadata Commit；发生冲突时会在有界预算内重新读取最新 Record、重新解析 Provider Session 的 Canonical Record，并验证 Runtime Owner 仍是发起请求的 Agent。只有原子发布完成后才确认成功；失败时，如果该失败值仍是当前 Title，则回滚可见状态；Shutdown 会排空所有已接受的 Title Operation。

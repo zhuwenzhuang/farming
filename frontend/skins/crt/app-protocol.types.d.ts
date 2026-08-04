@@ -217,6 +217,7 @@ interface CrtProtocolFocusAgentClientMessage extends CrtProtocolRecord {
   type: 'focus-agent';
   agentId: string | null;
   activityScope?: 'focused' | 'all' | 'none';
+  stateScope?: 'focused' | 'all';
   streamScope?: 'focused' | 'all' | 'none';
   previewScope?: 'focused' | 'all' | 'none';
   refreshState?: boolean;

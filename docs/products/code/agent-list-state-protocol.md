@@ -41,6 +41,20 @@ sidebar is visible and suspends it in non-Agent views. Farming CRT keeps all
 activity on its dashboard and only the focused Agent while a Session is open.
 Clients that do not declare a scope retain the compatible `all` behavior.
 
+Agent list deltas have an independent per-browser `all` or `focused` scope.
+Farming CRT uses `focused` while one Session is open. The browser still receives
+every global list sequence: a mutation for the focused Agent carries that Agent,
+while an unrelated mutation carries an empty checkpoint plus any changed
+list-level metadata. This preserves exact-predecessor checks without sending or
+applying unrelated Agent records. Changing the focused target or returning to
+`all` requires a fresh authoritative snapshot before broad supervision resumes.
+Initial and recovery snapshots remain complete, and clients that do not declare
+this scope retain `all` delivery. Agent-scoped `agent-update` and `agent-read`
+messages follow the same scope; the authoritative snapshot reconciles updates
+intentionally skipped while focused. Off-target Agent records retained from the
+last complete snapshot are hidden and intentionally stale during focused scope;
+they are not current-state evidence until the next `all` snapshot completes.
+
 Activity messages are replaceable absolute projections. A slow `focused`
 client retains one pending Agent checkpoint marker. A slow `all` client retains
 one pending marker and recovers with one compact authoritative activity

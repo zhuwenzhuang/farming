@@ -18,6 +18,7 @@ interface ComposerOptions {
 
 interface FocusAgentOptions {
   activityScope?: 'all' | 'focused' | 'none';
+  stateScope?: 'all' | 'focused';
   streamScope?: string;
   previewScope?: string;
   refreshState?: boolean;
@@ -80,6 +81,7 @@ interface Window {
           type: 'focus-agent',
           agentId,
           ...(options.activityScope ? { activityScope: options.activityScope } : {}),
+          ...(options.stateScope ? { stateScope: options.stateScope } : {}),
           ...(options.streamScope ? { streamScope: options.streamScope } : {}),
           ...(options.previewScope ? { previewScope: options.previewScope } : {}),
           ...(options.refreshState === true ? { refreshState: true } : {}),

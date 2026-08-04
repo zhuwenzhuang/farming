@@ -25,6 +25,7 @@ type WireFrame = {
   at: number
   type: string
   bytes: number
+  sequence: number
   agentId: string
   agentCount: number
   snapshotComplete: boolean
@@ -32,6 +33,12 @@ type WireFrame = {
   snapshotOffset: number
   statePageAgentCount: number
   stateAgentIds: string[]
+  stateAgents: Array<{
+    activityLevel?: string
+    id: string
+    terminalInputReceived?: boolean
+    unread?: boolean
+  }>
   projectAgentSummaries: Array<{
     activeCount: number
     agentCount: number
@@ -76,6 +83,11 @@ function byteLength(payload: string | Buffer) {
   return Buffer.isBuffer(payload) ? payload.byteLength : Buffer.byteLength(payload)
 }
 
+function requiredAgentId(value: string | undefined, label: string) {
+  if (!value) throw new Error(`${label} Agent is unavailable`)
+  return value
+}
+
 function trackWireFrames(page: Page) {
   const frames: WireFrame[] = []
   const visibleAgentIds = new Set<string>()
@@ -84,13 +96,22 @@ function trackWireFrames(page: Page) {
     try {
       const message = JSON.parse(text) as {
         type?: string
+        sequence?: number
         state?: {
-          agents?: Array<{ id?: string; isMain?: boolean }>
+          agents?: Array<{
+            activityLevel?: string
+            id?: string
+            isMain?: boolean
+            terminalInputReceived?: boolean
+            unread?: boolean
+          }>
           projectAgentSummaries?: WireFrame['projectAgentSummaries']
         }
         snapshot?: { complete?: boolean; id?: string; offset?: number }
         upserts?: Array<{ id?: string; isMain?: boolean }>
         removedAgentIds?: string[]
+        update?: { agentId?: string }
+        read?: { agentId?: string }
         preview?: { agentId?: string }
         activity?: { agentId?: string }
         stream?: { agentId?: string }
@@ -112,7 +133,13 @@ function trackWireFrames(page: Page) {
         at: performance.now(),
         type: message.type || 'unknown',
         bytes: byteLength(payload),
-        agentId: message.preview?.agentId || message.activity?.agentId || message.stream?.agentId || '',
+        sequence: Number.isInteger(message.sequence) ? Number(message.sequence) : -1,
+        agentId: message.update?.agentId
+          || message.read?.agentId
+          || message.preview?.agentId
+          || message.activity?.agentId
+          || message.stream?.agentId
+          || '',
         agentCount: message.type === 'state' || message.type === 'state-delta'
           ? visibleAgentIds.size
           : 0,
@@ -122,6 +149,9 @@ function trackWireFrames(page: Page) {
         statePageAgentCount: message.type === 'state' ? message.state?.agents?.length ?? 0 : 0,
         stateAgentIds: message.type === 'state'
           ? message.state?.agents?.flatMap(agent => agent.id ? [agent.id] : []) ?? []
+          : [],
+        stateAgents: message.type === 'state'
+          ? message.state?.agents?.flatMap(agent => agent.id ? [{ ...agent, id: agent.id }] : []) ?? []
           : [],
         projectAgentSummaries: message.type === 'state'
           ? message.state?.projectAgentSummaries ?? []
@@ -136,6 +166,7 @@ function trackWireFrames(page: Page) {
         at: performance.now(),
         type: 'invalid',
         bytes: byteLength(payload),
+        sequence: -1,
         agentId: '',
         agentCount: 0,
         snapshotComplete: false,
@@ -143,6 +174,7 @@ function trackWireFrames(page: Page) {
         snapshotOffset: -1,
         statePageAgentCount: 0,
         stateAgentIds: [],
+        stateAgents: [],
         projectAgentSummaries: [],
         upsertAgentIds: [],
         upsertCount: 0,
@@ -543,11 +575,140 @@ test('restores a large Agent inventory through progressive authoritative pages',
   await page.waitForTimeout(500)
   expect(frames.filter(frame => frame.type === 'state-delta')).toHaveLength(codeDeltaCountBeforeCrt)
 
+  const unrelatedAgentId = requiredAgentId(
+    initialAgentIds.find(agentId => agentId !== mutatedAgentId),
+    'Unrelated scope test',
+  )
+  const unrelatedCodeDeltaStart = frames.length
+  const unrelatedCrtDeltaStart = crtFrames.length
+  const unrelatedMutation = await page.request.patch(
+    `/farming/api/agents/${encodeURIComponent(unrelatedAgentId)}`,
+    { data: { customTitle: 'Focused scope unrelated mutation' } },
+  )
+  expect(unrelatedMutation.ok()).toBeTruthy()
+  await expect.poll(() => frames.slice(unrelatedCodeDeltaStart).find(frame => (
+    frame.type === 'state-delta' && frame.upsertAgentIds.includes(unrelatedAgentId)
+  ))?.sequence ?? -1, { timeout: 30_000 }).toBeGreaterThanOrEqual(0)
+  const unrelatedCodeDelta = frames.slice(unrelatedCodeDeltaStart).find(frame => (
+    frame.type === 'state-delta' && frame.upsertAgentIds.includes(unrelatedAgentId)
+  ))
+  await expect.poll(() => crtFrames.slice(unrelatedCrtDeltaStart).find(frame => (
+    frame.type === 'state-delta' && frame.sequence === unrelatedCodeDelta?.sequence
+  ))?.upsertCount ?? -1, { timeout: 30_000 }).toBe(0)
+  const unrelatedCrtDelta = crtFrames.slice(unrelatedCrtDeltaStart).find(frame => (
+    frame.type === 'state-delta' && frame.sequence === unrelatedCodeDelta?.sequence
+  ))
+  expect(unrelatedCrtDelta?.upsertAgentIds).toEqual([])
+  expect(unrelatedCrtDelta?.bytes ?? Number.MAX_SAFE_INTEGER).toBeLessThan(unrelatedCodeDelta?.bytes ?? 0)
+  console.log(`focused-state-delta ${JSON.stringify({
+    fullBytes: unrelatedCodeDelta?.bytes,
+    checkpointBytes: unrelatedCrtDelta?.bytes,
+    sequence: unrelatedCodeDelta?.sequence,
+  })}`)
+
+  const unrelatedUpdateCodeStart = frames.length
+  const unrelatedUpdateCrtStart = crtFrames.length
+  const unrelatedInput = await page.request.post(
+    `/farming/api/control/agents/${encodeURIComponent(unrelatedAgentId)}/input`,
+    { data: { input: 'true\r' } },
+  )
+  expect(unrelatedInput.ok()).toBeTruthy()
+  await expect.poll(() => frames.slice(unrelatedUpdateCodeStart).some(frame => (
+    frame.type === 'agent-update' && frame.agentId === unrelatedAgentId
+  )), { timeout: 30_000 }).toBe(true)
+  await waitForWireQuiet(crtFrames, 300, 5_000)
+  expect(crtFrames.slice(unrelatedUpdateCrtStart).some(frame => (
+    frame.type === 'agent-update' && frame.agentId === unrelatedAgentId
+  ))).toBe(false)
+
+  const focusedCodeDeltaStart = frames.length
+  const focusedCrtDeltaStart = crtFrames.length
+  const focusedMutation = await page.request.patch(
+    `/farming/api/agents/${encodeURIComponent(mutatedAgentId)}`,
+    { data: { customTitle: 'Focused scope target mutation' } },
+  )
+  expect(focusedMutation.ok()).toBeTruthy()
+  await expect.poll(() => frames.slice(focusedCodeDeltaStart).find(frame => (
+    frame.type === 'state-delta' && frame.upsertAgentIds.includes(mutatedAgentId)
+  ))?.sequence ?? -1, { timeout: 30_000 }).toBeGreaterThanOrEqual(0)
+  const focusedCodeDelta = frames.slice(focusedCodeDeltaStart).find(frame => (
+    frame.type === 'state-delta' && frame.upsertAgentIds.includes(mutatedAgentId)
+  ))
+  await expect.poll(() => crtFrames.slice(focusedCrtDeltaStart).find(frame => (
+    frame.type === 'state-delta'
+    && frame.sequence === focusedCodeDelta?.sequence
+    && frame.upsertAgentIds.includes(mutatedAgentId)
+  ))?.upsertAgentIds.includes(mutatedAgentId) ?? false, { timeout: 30_000 }).toBe(true)
+
+  const focusedUpdateCrtStart = crtFrames.length
+  const focusedInput = await page.request.post(
+    `/farming/api/control/agents/${encodeURIComponent(mutatedAgentId)}/input`,
+    { data: { input: 'true\r' } },
+  )
+  expect(focusedInput.ok()).toBeTruthy()
+  await expect.poll(() => crtFrames.slice(focusedUpdateCrtStart).some(frame => (
+    frame.type === 'agent-update' && frame.agentId === mutatedAgentId
+  )), { timeout: 30_000 }).toBe(true)
+
+  const dashboardSnapshotStart = crtFrames.length
+  await crtPage.getByRole('button', { name: 'Close session, Ctrl+Escape' }).click()
+  await expect.poll(() => crtFrames.slice(dashboardSnapshotStart).findLast(frame => (
+    frame.type === 'state' && frame.snapshotComplete
+  ))?.agentCount ?? -1, { timeout: 30_000 }).toBe(targetCount)
+  const dashboardSnapshotId = crtFrames.slice(dashboardSnapshotStart).find(frame => (
+    frame.type === 'state' && frame.snapshotOffset === 0
+  ))?.snapshotId
+  const recoveredUnrelatedAgent = crtFrames.filter(frame => (
+    frame.type === 'state' && frame.snapshotId === dashboardSnapshotId
+  )).flatMap(frame => frame.stateAgents).find(agent => agent.id === unrelatedAgentId)
+  expect(recoveredUnrelatedAgent?.terminalInputReceived).toBe(true)
+  expect(recoveredUnrelatedAgent?.activityLevel).toBeTruthy()
+  expect(typeof recoveredUnrelatedAgent?.unread).toBe('boolean')
+  const dashboardDeltaStart = crtFrames.length
+  const dashboardMutation = await page.request.patch(
+    `/farming/api/agents/${encodeURIComponent(unrelatedAgentId)}`,
+    { data: { customTitle: 'All scope dashboard mutation' } },
+  )
+  expect(dashboardMutation.ok()).toBeTruthy()
+  await expect.poll(() => crtFrames.slice(dashboardDeltaStart).some(frame => (
+    frame.type === 'state-delta' && frame.upsertAgentIds.includes(unrelatedAgentId)
+  )), { timeout: 30_000 }).toBe(true)
+
+  const autoCloseAgentId = requiredAgentId(initialAgentIds.find(agentId => (
+    agentId !== mutatedAgentId && agentId !== unrelatedAgentId
+  )), 'Automatic close test')
+  await crtPage.evaluate(async agentId => {
+    const openCrtSession = (window as typeof window & {
+      openSession?: (targetAgentId: string) => Promise<void>
+    }).openSession
+    if (!openCrtSession) throw new Error('CRT openSession is unavailable')
+    await openCrtSession(agentId)
+  }, autoCloseAgentId)
+  await expect(crtPage.locator('#session-modal')).toHaveClass(/active/)
+  const automaticCloseSnapshotStart = crtFrames.length
+  const removeFocusedAgent = await page.request.delete(
+    `/farming/api/control/agents/${encodeURIComponent(autoCloseAgentId)}?recordHistory=0`,
+  )
+  expect(removeFocusedAgent.ok()).toBeTruthy()
+  await expect(crtPage.locator('#session-modal')).not.toHaveClass(/active/, { timeout: 30_000 })
+  await expect.poll(() => crtFrames.slice(automaticCloseSnapshotStart).findLast(frame => (
+    frame.type === 'state' && frame.snapshotComplete
+  ))?.agentCount ?? -1, { timeout: 30_000 }).toBe(targetCount - 1)
+  const automaticCloseDeltaStart = crtFrames.length
+  const automaticCloseMutation = await page.request.patch(
+    `/farming/api/agents/${encodeURIComponent(unrelatedAgentId)}`,
+    { data: { customTitle: 'Automatic close all-scope mutation' } },
+  )
+  expect(automaticCloseMutation.ok()).toBeTruthy()
+  await expect.poll(() => crtFrames.slice(automaticCloseDeltaStart).some(frame => (
+    frame.type === 'state-delta' && frame.upsertAgentIds.includes(unrelatedAgentId)
+  )), { timeout: 30_000 }).toBe(true)
+
   const showMore = page.getByTestId('code-agent-show-more')
   for (let attempt = 0; attempt < 20 && await showMore.count(); attempt += 1) {
     await showMore.first().click()
   }
   await expect(showMore).toHaveCount(0)
   await expect(page.locator(`[data-testid="code-agent-row"][data-agent-id="${mutatedAgentId}"]`)).toBeAttached()
-  await expect(crtPage.locator('body')).toContainText(`AGENTS: ${targetCount + 1}/${targetCount + 1}`)
+  await expect(crtPage.locator('body')).toContainText(`AGENTS: ${targetCount}/${targetCount}`)
 })
