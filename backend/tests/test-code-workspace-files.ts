@@ -133,9 +133,9 @@ function run() {
   );
 
   assert(
-    settingsUpdateRouteSource.includes('scheduleBroadcastState();') &&
+    settingsUpdateRouteSource.includes('queueStateMetadata(currentAgentListMetadata({ includeWorkspaceRoots: true }));') &&
       !settingsUpdateRouteSource.includes('broadcastState();'),
-    'rapid settings writes should be bounded by the shared state broadcast scheduler',
+    'rapid settings writes should coalesce exact list metadata through the shared state scheduler',
   );
 
   assert(

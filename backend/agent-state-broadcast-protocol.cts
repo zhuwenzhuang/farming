@@ -8,10 +8,18 @@ interface AgentStateBroadcastDelta {
   upserts: AgentStateRecord[];
 }
 
+interface AgentStateBroadcastMutation {
+  removedAgentIds?: string[];
+  state?: Record<string, unknown>;
+  upserts?: AgentStateRecord[];
+}
+
 interface AgentStateBroadcastTracker {
+  agents: Map<string, AgentStateRecord>;
   agentSignatures: Map<string, string>;
   currentState: AgentStatePayload | null;
   initialized: boolean;
+  metadata: Record<string, unknown>;
   metadataSignature: string;
   sequence: number;
 }
@@ -57,12 +65,27 @@ function agentStateSignature(agent: AgentStateRecord): string {
 
 function createAgentStateBroadcastTracker(): AgentStateBroadcastTracker {
   return {
+    agents: new Map(),
     agentSignatures: new Map(),
     currentState: null,
     initialized: false,
+    metadata: {},
     metadataSignature: '',
     sequence: 0,
   };
+}
+
+function agentStateBroadcastSnapshot(
+  tracker: AgentStateBroadcastTracker,
+): AgentStatePayload | null {
+  if (!tracker.initialized) return null;
+  if (!tracker.currentState) {
+    tracker.currentState = {
+      ...tracker.metadata,
+      agents: [...tracker.agents.values()],
+    };
+  }
+  return tracker.currentState;
 }
 
 function advanceAgentStateBroadcast(
@@ -84,6 +107,8 @@ function advanceAgentStateBroadcast(
   const metadataChanged = tracker.metadataSignature !== metadataSignature;
 
   tracker.agentSignatures = nextAgentSignatures;
+  tracker.agents = new Map(state.agents.map(agent => [agent.id, agent]));
+  tracker.metadata = metadata;
   tracker.metadataSignature = metadataSignature;
   tracker.currentState = state;
 
@@ -102,6 +127,48 @@ function advanceAgentStateBroadcast(
   };
 }
 
+function advanceAgentStateMutation(
+  tracker: AgentStateBroadcastTracker,
+  mutation: AgentStateBroadcastMutation,
+): AgentStateBroadcastDelta | null {
+  if (!tracker.initialized) return null;
+
+  const upserts: AgentStateRecord[] = [];
+  for (const agent of mutation.upserts || []) {
+    const signature = agentStateSignature(agent);
+    if (tracker.agentSignatures.get(agent.id) !== signature) upserts.push(agent);
+    tracker.agents.set(agent.id, agent);
+    tracker.agentSignatures.set(agent.id, signature);
+  }
+
+  const removedAgentIds: string[] = [];
+  for (const agentId of mutation.removedAgentIds || []) {
+    if (!tracker.agents.delete(agentId)) continue;
+    tracker.agentSignatures.delete(agentId);
+    removedAgentIds.push(agentId);
+  }
+
+  let metadataChanged = false;
+  if (mutation.state) {
+    const nextMetadata = { ...tracker.metadata, ...mutation.state };
+    const nextMetadataSignature = JSON.stringify(nextMetadata);
+    metadataChanged = tracker.metadataSignature !== nextMetadataSignature;
+    tracker.metadata = nextMetadata;
+    tracker.metadataSignature = nextMetadataSignature;
+  }
+
+  tracker.currentState = null;
+  if (upserts.length === 0 && removedAgentIds.length === 0 && !metadataChanged) return null;
+
+  tracker.sequence += 1;
+  return {
+    sequence: tracker.sequence,
+    upserts,
+    removedAgentIds,
+    ...(metadataChanged ? { state: mutation.state } : {}),
+  };
+}
+
 function agentStateClientDelivery(
   bufferedAmount: number,
   snapshotPending: boolean,
@@ -113,12 +180,15 @@ function agentStateClientDelivery(
 
 export {
   advanceAgentStateBroadcast,
+  advanceAgentStateMutation,
   agentStateClientDelivery,
+  agentStateBroadcastSnapshot,
   createAgentStateBroadcastTracker,
 };
 
 export type {
   AgentStateBroadcastDelta,
+  AgentStateBroadcastMutation,
   AgentStateBroadcastTracker,
   AgentStatePayload,
 };

@@ -1,7 +1,11 @@
 const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
 const {
   advanceAgentStateBroadcast,
+  advanceAgentStateMutation,
   agentStateClientDelivery,
+  agentStateBroadcastSnapshot,
   createAgentStateBroadcastTracker,
 } = require('../agent-state-broadcast-protocol.cjs');
 
@@ -65,23 +69,103 @@ assert.deepStrictEqual(removedAndMetadataChanged, {
 });
 assert.strictEqual(tracker.currentState.agents[0].id, 'b');
 
+const directTracker = createAgentStateBroadcastTracker();
+advanceAgentStateBroadcast(directTracker, state([
+  { id: 'a', status: 'running' },
+  { id: 'b', status: 'running' },
+], { mainAgentId: 'a' }));
+const directDelta = advanceAgentStateMutation(directTracker, {
+  upserts: [{ id: 'b', status: 'waiting' }],
+  state: { mainAgentId: 'b' },
+});
+assert.deepStrictEqual(directDelta, {
+  sequence: 1,
+  upserts: [{ id: 'b', status: 'waiting' }],
+  removedAgentIds: [],
+  state: { mainAgentId: 'b' },
+});
+assert.deepStrictEqual(agentStateBroadcastSnapshot(directTracker), state([
+  { id: 'a', status: 'running' },
+  { id: 'b', status: 'waiting' },
+], { mainAgentId: 'b' }));
+
+assert.strictEqual(
+  advanceAgentStateMutation(directTracker, {
+    upserts: [{ id: 'b', status: 'waiting', output: 'live-only change' }],
+  }),
+  null,
+  'A direct live-only mutation must refresh the recovery snapshot without emitting a list delta',
+);
+assert.strictEqual(
+  agentStateBroadcastSnapshot(directTracker).agents[1].output,
+  'live-only change',
+);
+assert.deepStrictEqual(advanceAgentStateMutation(directTracker, {
+  removedAgentIds: ['a'],
+}), {
+  sequence: 2,
+  upserts: [],
+  removedAgentIds: ['a'],
+});
+assert.deepStrictEqual(
+  agentStateBroadcastSnapshot(directTracker).agents.map(agent => agent.id),
+  ['b'],
+);
+
+const uninitializedTracker = createAgentStateBroadcastTracker();
+assert.strictEqual(
+  advanceAgentStateMutation(uninitializedTracker, {
+    upserts: [{ id: 'a', status: 'running' }],
+  }),
+  null,
+  'Exact mutations before the first checkpoint must wait for an authoritative baseline',
+);
+assert.strictEqual(agentStateBroadcastSnapshot(uninitializedTracker), null);
+
 assert.strictEqual(agentStateClientDelivery(0, false, 100), 'delta');
 assert.strictEqual(agentStateClientDelivery(0, true, 100), 'snapshot');
 assert.strictEqual(agentStateClientDelivery(101, false, 100), 'defer');
 assert.strictEqual(agentStateClientDelivery(101, true, 100), 'defer');
 
 const scaleTracker = createAgentStateBroadcastTracker();
-const scaleAgents = Array.from({ length: 100 }, (_, index) => ({
-  id: `agent-${index}`,
-  status: 'running',
-  usageRate: { sampledAt: 1 },
-}));
+let unchangedAgentReads = 0;
+const scaleAgents = Array.from({ length: 10_000 }, (_, index) => {
+  const agent = {
+    id: `agent-${index}`,
+    usageRate: { sampledAt: 1 },
+  };
+  Object.defineProperty(agent, 'status', {
+    enumerable: true,
+    get() {
+      unchangedAgentReads += 1;
+      return 'running';
+    },
+  });
+  return agent;
+});
 advanceAgentStateBroadcast(scaleTracker, state(scaleAgents));
-const scaleDelta = advanceAgentStateBroadcast(scaleTracker, state(scaleAgents.map((agent, index) => ({
-  ...agent,
-  status: index === 42 ? 'stopped' : agent.status,
-  usageRate: { sampledAt: 2 },
-}))));
+unchangedAgentReads = 0;
+const scaleDelta = advanceAgentStateMutation(scaleTracker, {
+  upserts: [{ id: 'agent-42', status: 'stopped', usageRate: { sampledAt: 2 } }],
+});
 assert.deepStrictEqual(scaleDelta?.upserts.map(agent => agent.id), ['agent-42']);
+assert.strictEqual(
+  unchangedAgentReads,
+  0,
+  'A one-Agent mutation must not inspect unchanged Agents in a large inventory',
+);
+
+const serverSource = fs.readFileSync(path.join(__dirname, '..', 'server.cts'), 'utf8');
+assert.strictEqual(
+  (serverSource.match(/buildStatePayload\(\)/g) || []).length,
+  2,
+  'The complete Agent payload must only be defined and used by authoritative checkpoint construction',
+);
+const managerSource = fs.readFileSync(path.join(__dirname, '..', 'agent-manager.cts'), 'utf8');
+assert.strictEqual(
+  (managerSource.match(/this\.emit\('update'/g) || []).length,
+  1,
+  'AgentManager state changes must go through exact mutation events',
+);
 
 console.log('agent state broadcast protocol tests passed');

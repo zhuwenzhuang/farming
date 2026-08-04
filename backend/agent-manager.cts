@@ -438,6 +438,13 @@ export interface AgentManagerState {
   taskHistory: UnknownRecord[];
 }
 
+export interface AgentManagerStateChange {
+  agentIds?: AgentId[];
+  mainAgentIdChanged?: boolean;
+  removedAgentIds?: AgentId[];
+  taskHistoryChanged?: boolean;
+}
+
 interface TerminalStatusOverrides extends Record<string, unknown> {
   cwd?: string;
   previewText?: string;
@@ -1557,7 +1564,7 @@ class AgentManager extends EventEmitter {
             });
           }
           if (Object.prototype.hasOwnProperty.call(change.event, 'previousSessionId')) {
-            this.emit('update');
+            this.emitStateChange({ agentIds: [agent.id] });
           }
         }
         if (change.refreshWorkspace) {
@@ -1638,7 +1645,7 @@ class AgentManager extends EventEmitter {
           },
         });
       }
-      if (sessionIdentityChanged) this.emit('update');
+      if (sessionIdentityChanged) this.emitStateChange({ agentIds: [agentId] });
       const settledTurnHandle = String(lastSettledTurnHandle || '');
       const finalizedTurnHandle = String(
         this.acpFinalizedTurns.get(agentId)
@@ -1826,7 +1833,7 @@ class AgentManager extends EventEmitter {
         agent.startedAt = startedAt || Date.now();
         this.observeAgentAttentionState(sessionId);
         this.providerSessionService.observe(sessionId, { force: true });
-        this.emit('update');
+        this.emitStateChange({ agentIds: [sessionId] });
       });
 
     this.engineBridge.on('session-output', ({
@@ -1921,7 +1928,7 @@ class AgentManager extends EventEmitter {
         rows,
       });
       this.observeAgentAttentionState(sessionId);
-      this.emit('update');
+      this.emitStateChange({ agentIds: [sessionId] });
     });
 
     this.engineBridge.on('session-sync', ({
@@ -1984,7 +1991,7 @@ class AgentManager extends EventEmitter {
         }
         void this.resolveCodexTerminalIdentityFromPreview(sessionId, agent.previewText);
         this.observeAgentAttentionState(sessionId);
-        this.emit('update');
+        this.emitStateChange({ agentIds: [sessionId] });
       });
 
     this.engineBridge.on('session-preview', ({ sessionId, previewText, cols, rows, previewSnapshot, title, runtimeEpoch }: TerminalSessionPreviewEvent) => {
@@ -2020,7 +2027,7 @@ class AgentManager extends EventEmitter {
         void this.resolveCodexTerminalIdentityFromPreview(sessionId, agent.previewText);
         this.observeAgentAttentionState(sessionId);
         if (titleChanged) {
-          this.emit('update');
+          this.emitStateChange({ agentIds: [sessionId] });
         }
       });
 
@@ -2030,7 +2037,7 @@ class AgentManager extends EventEmitter {
 
         if (this.updateAgentSessionTitle(agent, title)) {
           this.observeAgentAttentionState(sessionId);
-          this.emit('update');
+          this.emitStateChange({ agentIds: [sessionId] });
         }
       });
 
@@ -2177,11 +2184,12 @@ class AgentManager extends EventEmitter {
           }
           this.observeAgentAttentionState(sessionId);
           this.providerSessionService.observe(sessionId, { force: true });
-          this.emit('update');
+          this.emitStateChange({ agentIds: [sessionId] });
           return;
         }
 
         if (!agent.validated) {
+          const removedMainAgent = this.mainAgentId === sessionId;
           this.providerSessionService.stop(sessionId);
           this.agents.delete(sessionId);
           this.lastActivity.delete(sessionId);
@@ -2194,7 +2202,10 @@ class AgentManager extends EventEmitter {
             this.mainAgentId = null;
           }
 
-          this.emit('update');
+          this.emitStateChange({
+            removedAgentIds: [sessionId],
+            ...(removedMainAgent ? { mainAgentIdChanged: true } : {}),
+          });
           return;
         }
 
@@ -2210,7 +2221,10 @@ class AgentManager extends EventEmitter {
             archivedAt: Date.now(),
           });
         }
-        this.emit('update');
+        this.emitStateChange({
+          agentIds: [sessionId],
+          ...(sessionId !== this.mainAgentId ? { taskHistoryChanged: true } : {}),
+        });
       });
 
     this.engineBridge.on('session-error', ({ sessionId, error, fatal = true, runtimeEpoch }: TerminalSessionErrorEvent) => {
@@ -2396,7 +2410,11 @@ class AgentManager extends EventEmitter {
     }
 
     if (changed) {
-      this.emit('update');
+      this.emitStateChange({
+        agentIds: [...this.agents.keys()],
+        mainAgentIdChanged: true,
+        taskHistoryChanged: true,
+      });
     }
 
     const runtimeRotations = this.engineBridge && typeof this.engineBridge.consumeRuntimeRotations === 'function'
@@ -2408,7 +2426,7 @@ class AgentManager extends EventEmitter {
 
     await this.recoverAcpSessions();
     if (this.reconcileDetachedPersistedAgentUpdates()) {
-      this.emit('update');
+      this.emitStateChange({ agentIds: [...this.agents.keys()] });
     }
   }
 
@@ -2782,7 +2800,7 @@ class AgentManager extends EventEmitter {
       if (sessionKey) liveProviderSessions.add(sessionKey);
       changed = true;
     }
-    if (changed) this.emit('update');
+    if (changed) this.emitStateChange({ agentIds: [...this.agents.keys()] });
   }
 
   async recoverAcpSessions() {
@@ -2861,7 +2879,7 @@ class AgentManager extends EventEmitter {
         this.lastActivity.set(agentId, Date.now());
       }
     }
-    this.emit('update');
+    this.emitStateChange({ agentIds: records.map(record => String(record.runtimeAgentId || '')).filter(Boolean) });
     this.acpRuntime.publishRecoveredBindings?.();
 
     for (const record of records) {
@@ -3101,7 +3119,7 @@ class AgentManager extends EventEmitter {
         this.ensurePersistentAgentSession(agent);
       }
     }
-    this.emit('update');
+    this.emitStateChange({ agentIds: records.map(record => String(record.runtimeAgentId || '')).filter(Boolean) });
   }
 
   hasLiveAcpProcessPeer(
@@ -4183,7 +4201,7 @@ class AgentManager extends EventEmitter {
     current.gitWorktree = nextWorktree;
     const nextProjection = JSON.stringify(publicAgentGitWorktree(current));
     if (previousProjection === nextProjection) return false;
-    this.emit('update');
+    this.emitStateChange({ agentIds: [agentId] });
     return true;
   }
 
@@ -4524,7 +4542,7 @@ class AgentManager extends EventEmitter {
       if (this.mainAgentId) {
         const mainAgent = this.agents.get(this.mainAgentId);
         if (mainAgent && mainAgent.status === 'dead') {
-          this.emit('update');
+          this.emitStateChange({ agentIds: [mainAgent.id] });
         }
       }
       
@@ -4607,7 +4625,7 @@ class AgentManager extends EventEmitter {
       }
     };
     markUncertainStructuredAgents(acpBindingIds, this.acpRuntime, 'acp', acpCleanupFailed);
-    if (agentStateChanged) this.emit('update');
+    if (agentStateChanged) this.emitStateChange({ agentIds: [...this.agents.keys()] });
 
     if (runtimeCleanupFailures.length > 0) {
       this.acpRuntime?.resumeAfterDisposeAbort?.();
@@ -4968,8 +4986,14 @@ class AgentManager extends EventEmitter {
     const existingMainStart = this.findActiveMainAgentStart();
     if (existingMainStart) {
       if (this.mainAgentId !== existingMainStart.id) {
+        const previousMainAgentId = this.mainAgentId;
         this.mainAgentId = existingMainStart.id;
-        this.emit('update');
+        this.emitStateChange({
+          agentIds: [previousMainAgentId, existingMainStart.id].filter(
+            (value): value is string => typeof value === 'string' && value.length > 0,
+          ),
+          mainAgentIdChanged: true,
+        });
       }
       console.log('Main Agent already starting or running:', existingMainStart.id);
       if (callback) callback(existingMainStart.id);
@@ -5031,8 +5055,14 @@ class AgentManager extends EventEmitter {
       const existingMainStart = this.findActiveMainAgentStart();
       if (existingMainStart) {
         if (this.mainAgentId !== existingMainStart.id) {
+          const previousMainAgentId = this.mainAgentId;
           this.mainAgentId = existingMainStart.id;
-          this.emit('update');
+          this.emitStateChange({
+            agentIds: [previousMainAgentId, existingMainStart.id].filter(
+              (value): value is string => typeof value === 'string' && value.length > 0,
+            ),
+            mainAgentIdChanged: true,
+          });
         }
         console.log('Main Agent already starting or running:', existingMainStart.id);
         if (callback) callback(existingMainStart.id);
@@ -5733,7 +5763,7 @@ class AgentManager extends EventEmitter {
       this.agents.set(agentId, agentRecord);
       void this.refreshAgentWorktree(agentId);
       this.lastActivity.set(agentId, Date.now());
-      this.emit('update');
+      this.emitStateChange({ agentIds: [agentId] });
       // A Chat view can safely attach as soon as this authoritative record
       // exists. ACP initialization continues below and reports any failure on
       // this same record, rather than requiring a speculative second launch.
@@ -5967,6 +5997,7 @@ class AgentManager extends EventEmitter {
       }
 
       const agent = this.agents.get(agentId);
+      const previousMainAgentId = this.mainAgentId;
       if (agent && agent.status === 'pending') {
         agent.status = 'running';
 
@@ -5981,7 +6012,15 @@ class AgentManager extends EventEmitter {
       void this.resolveCodexTerminalIdentityFromCurrentView(agentId);
       finishStartLifecycle();
       if (callback) callback(agentId);
-      this.emit('update');
+      this.emitStateChange({
+        agentIds: [agentId, previousMainAgentId].filter(
+          (value): value is string => typeof value === 'string' && value.length > 0,
+        ),
+        ...(this.mainAgentId !== previousMainAgentId ? { mainAgentIdChanged: true } : {}),
+        ...(previousPersistentRuntimeAgentId && previousPersistentRuntimeAgentId !== agentId
+          ? { removedAgentIds: [previousPersistentRuntimeAgentId] }
+          : {}),
+      });
       return agentId;
     } catch (caughtError: unknown) {
       const error = caughtError as ErrorRecord;
@@ -6065,7 +6104,7 @@ class AgentManager extends EventEmitter {
           );
         }
         finishStartLifecycle();
-        this.emit('update');
+        this.emitStateChange({ agentIds: [agentId] });
         if (callback) callback(agentId, `${startupError}${runtimeCleanupSuffix}${cleanupSuffix}`);
         return null;
       }
@@ -6084,7 +6123,7 @@ class AgentManager extends EventEmitter {
         agentRecord.engineStatus = 'metadata-commit-uncertain';
         const message = `${startupError}; failed to persist Create failure: ${persistError.message || persistError}`;
         finishStartLifecycle();
-        this.emit('update');
+        this.emitStateChange({ agentIds: [agentId] });
         if (callback) callback(agentId, message);
         return null;
       }
@@ -6101,12 +6140,16 @@ class AgentManager extends EventEmitter {
       this.providerSessionService.stop(agentId);
       if (this.acpRuntime) this.acpRuntime.unregisterAgent(agentId);
 
-      if (this.mainAgentId === agentId) {
+      const removedMainAgent = this.mainAgentId === agentId;
+      if (removedMainAgent) {
         this.mainAgentId = null;
       }
 
       finishStartLifecycle();
-      this.emit('update');
+      this.emitStateChange({
+        removedAgentIds: [agentId],
+        ...(removedMainAgent ? { mainAgentIdChanged: true } : {}),
+      });
       if (callback) callback(null, `${startupError}${runtimeCleanupSuffix}${cleanupSuffix}`);
       return null;
     }
@@ -6656,7 +6699,7 @@ class AgentManager extends EventEmitter {
         runtimeObservation: deriveRuntimeObservation({ ...agent, terminalStatus: view.terminalStatus }),
       });
     }
-    this.emit('update');
+    this.emitStateChange({ agentIds: [agentId] });
     return applied;
   }
 
@@ -7119,7 +7162,7 @@ class AgentManager extends EventEmitter {
     agent.exitedAt = Date.now();
     agent.output = trimSessionOutput(`${agent.output || ''}\n${message}`);
     this.providerSessionService.observe(agentId, { force: true });
-    this.emit('update');
+    this.emitStateChange({ agentIds: [agentId] });
   }
 
   async interruptAgent(
@@ -7319,7 +7362,7 @@ class AgentManager extends EventEmitter {
     agent.lifecycleJournal = staged.lifecycleJournal;
     setAgentRecordId(agent, staged.agentRecordId || staged.persistentSessionId || '');
     this.updateEngineProviderSessionMetadata(agent);
-    this.emit('update');
+    this.emitStateChange({ agentIds: [agentId] });
     return { agentId, customTitle, operationId: operation.id };
   }
 
@@ -7485,7 +7528,7 @@ class AgentManager extends EventEmitter {
     agent.task = nextTask;
     agent.lifecycleJournal = staged.lifecycleJournal;
     setAgentRecordId(agent, staged.agentRecordId || staged.persistentSessionId || '');
-    this.emit('update');
+    this.emitStateChange({ agentIds: [agentId] });
     return { agentId, task: nextTask, operationId: operation.id };
   }
 
@@ -7665,7 +7708,7 @@ class AgentManager extends EventEmitter {
       this.updateEngineProviderSessionMetadata(agent);
     }
     if (structuralUpdateChanged) {
-      this.emit('update');
+      this.emitStateChange({ agentIds: [agentId] });
     } else if (readUpdateChanged) {
       this.emitAgentReadState(agent);
     }
@@ -7711,12 +7754,13 @@ class AgentManager extends EventEmitter {
     orderUpdates: AgentOrderUpdates,
     field: AgentOrderField,
   ) {
+    const updatedAgentIds = [...orderUpdates.keys()];
     return commitAgentOrderTransaction({
       agents: this.agents,
       lifecycleOperations: this.agentLifecycleOperations,
       persistAgent: (agent: TypedAgentRecord) => this.ensurePersistentAgentSession(agent),
       updateRuntimeMetadata: (agent: TypedAgentRecord) => this.updateEngineProviderSessionMetadata(agent),
-      emitUpdate: () => this.emit('update'),
+      emitUpdate: () => this.emitStateChange({ agentIds: updatedAgentIds }),
       setAgentRecordId,
       finiteOrder,
     }, agentId, orderUpdates, field);
@@ -8052,7 +8096,7 @@ class AgentManager extends EventEmitter {
     const switched = await startReplacement(restartOptions);
     if (switched.restartedAgentId && !switched.error) {
       restorePreservedState(switched.restartedAgentId);
-      this.emit('update');
+      this.emitStateChange({ agentIds: [agentId, switched.restartedAgentId] });
       return {
         agentId,
         restarted: true,
@@ -8068,7 +8112,7 @@ class AgentManager extends EventEmitter {
           lifecycleToken,
       });
       if (cleanup?.error) {
-        this.emit('update');
+        this.emitStateChange({ agentIds: [agentId, switched.restartedAgentId] });
         return {
           agentId,
           restartedAgentId: switched.restartedAgentId,
@@ -8081,7 +8125,7 @@ class AgentManager extends EventEmitter {
     const restored = await startReplacement(originalOptions);
     if (restored.restartedAgentId && !restored.error) {
       restorePreservedState(restored.restartedAgentId);
-      this.emit('update');
+      this.emitStateChange({ agentIds: [agentId, restored.restartedAgentId] });
       return {
         agentId,
         restarted: true,
@@ -8101,7 +8145,11 @@ class AgentManager extends EventEmitter {
       });
       restoreCleanupError = cleanup?.error || '';
     }
-    this.emit('update');
+    this.emitStateChange({
+      agentIds: [agentId, switched.restartedAgentId, restored.restartedAgentId].filter(
+        (value): value is string => typeof value === 'string' && value.length > 0,
+      ),
+    });
     return {
       ...(restoreCleanupError
         ? { restartedAgentId: restored.restartedAgentId, cleanupUncertain: true }
@@ -8255,12 +8303,12 @@ class AgentManager extends EventEmitter {
     return new Promise<AgentRestartResult>((resolve) => {
       const startResult = this.startAgent(command, effectiveAgentWorkspaceRoot(agent) || null, (restartedAgentId: string | null, error?: string | null) => {
         if (error) {
-          this.emit('update');
+          this.emitStateChange({ agentIds: [agentId] });
           resolve({ error });
           return;
         }
         if (!restartedAgentId) {
-          this.emit('update');
+          this.emitStateChange({ agentIds: [agentId] });
           resolve({ error: 'Failed to restart agent with updated permissions' });
           return;
         }
@@ -8289,7 +8337,7 @@ class AgentManager extends EventEmitter {
             launchPermissionMode: nextMode,
           });
         }
-        this.emit('update');
+        this.emitStateChange({ agentIds: [agentId, restartedAgentId] });
         resolve({
           agentId,
           restarted: true,
@@ -8298,7 +8346,7 @@ class AgentManager extends EventEmitter {
         });
       }, restartOptions);
       Promise.resolve(startResult).catch((error: unknown) => {
-        this.emit('update');
+        this.emitStateChange({ agentIds: [agentId] });
         resolve({
           error: error instanceof Error
             ? error.message
@@ -9802,7 +9850,7 @@ class AgentManager extends EventEmitter {
       });
     } catch (caughtError: unknown) {
       const error = caughtError as ErrorRecord;
-      this.emit('update');
+      this.emitStateChange({ agentIds: [agentId] });
       return {
         agentId,
         error: `Agent stopped, but archive metadata could not be saved: ${error.message || error}`,
@@ -9844,7 +9892,7 @@ class AgentManager extends EventEmitter {
     // archive so every connected client can remove the Agent immediately.
     // The lifecycle journal remains provider-archive-pending until that
     // external mutation reaches its terminal state.
-    this.emit('update');
+    this.emitStateChange({ agentIds: [agentId], taskHistoryChanged: true });
     if (options.scheduleProviderArchive !== false) {
       const providerArchive = await this.archiveCodexProviderSession(agent);
       if (providerArchive?.error) {
@@ -9866,7 +9914,7 @@ class AgentManager extends EventEmitter {
             error: `Provider archive failed: ${providerArchive.error}; failed to persist blocked Archive: ${error.message || error}`,
           };
         }
-        this.emit('update');
+        this.emitStateChange({ agentIds: [agentId] });
         return {
           agentId,
           archived: true,
@@ -9887,7 +9935,7 @@ class AgentManager extends EventEmitter {
       });
     } catch (caughtError: unknown) {
       const error = caughtError as ErrorRecord;
-      this.emit('update');
+      this.emitStateChange({ agentIds: [agentId] });
       return {
         agentId,
         archived: true,
@@ -10122,7 +10170,7 @@ class AgentManager extends EventEmitter {
           };
         }
       }
-      this.emit('update');
+      this.emitStateChange({ agentIds: [agentId] });
       return { agentId, error, cleanupUncertain: true, retryable: true };
     };
 
@@ -10241,7 +10289,7 @@ class AgentManager extends EventEmitter {
         this.verifiedStoppedAgentIds.add(agentId);
         agent.status = 'stopped';
         agent.engineStatus = 'exited';
-        this.emit('update');
+        this.emitStateChange({ agentIds: [agentId] });
         return {
           agentId,
           error: message,
@@ -10276,7 +10324,7 @@ class AgentManager extends EventEmitter {
         this.verifiedStoppedAgentIds.add(agentId);
         agent.status = 'stopped';
         agent.engineStatus = 'exited';
-        this.emit('update');
+        this.emitStateChange({ agentIds: [agentId] });
         return {
           agentId,
           error: message,
@@ -10307,7 +10355,14 @@ class AgentManager extends EventEmitter {
       this.verifiedStoppedAgentIds.add(agentId);
       agent.status = 'stopped';
       agent.engineStatus = 'exited';
-      if (options.emitUpdate !== false) this.emit('update');
+      if (options.emitUpdate !== false) {
+        this.emitStateChange({
+          agentIds: [agentId],
+          ...(options.recordHistory !== false && !isEphemeralShellAgent(agent)
+            ? { taskHistoryChanged: true }
+            : {}),
+        });
+      }
       return {
         agentId,
         killed: true,
@@ -10316,7 +10371,17 @@ class AgentManager extends EventEmitter {
       };
     }
 
-    this.forgetStoppedAgentRecord(agentId, { emitUpdate: options.emitUpdate !== false });
+    const removedMainAgent = this.mainAgentId === agentId;
+    this.forgetStoppedAgentRecord(agentId, { emitUpdate: false });
+    if (options.emitUpdate !== false) {
+      this.emitStateChange({
+        removedAgentIds: [agentId],
+        ...(removedMainAgent ? { mainAgentIdChanged: true } : {}),
+        ...(options.recordHistory !== false && !isEphemeralShellAgent(agent)
+          ? { taskHistoryChanged: true }
+          : {}),
+      });
+    }
     return {
       agentId,
       killed: true,
@@ -10354,7 +10419,7 @@ class AgentManager extends EventEmitter {
           };
         }
       }
-      if (options.emitUpdate !== false) this.emit('update');
+      if (options.emitUpdate !== false) this.emitStateChange({ agentIds: [agentId] });
     }
     return {
       agentId,
@@ -10380,11 +10445,17 @@ class AgentManager extends EventEmitter {
     this.providerSessionService.stop(agentId);
     if (this.acpRuntime) this.acpRuntime.unregisterAgent(agentId);
 
-    if (this.mainAgentId === agentId) {
+    const removedMainAgent = this.mainAgentId === agentId;
+    if (removedMainAgent) {
       this.mainAgentId = null;
     }
     
-    if (options.emitUpdate !== false) this.emit('update');
+    if (options.emitUpdate !== false) {
+      this.emitStateChange({
+        removedAgentIds: [agentId],
+        ...(removedMainAgent ? { mainAgentIdChanged: true } : {}),
+      });
+    }
   }
 
   async getAgentSessionText(agentId: AgentId) {
@@ -10401,7 +10472,7 @@ class AgentManager extends EventEmitter {
     try {
       const sessionState = await engine.getSessionState(agentId);
       if (isLiveEngineSessionState(sessionState) && this.reviveAgentRuntime(agent, sessionState)) {
-        this.emit('update');
+        this.emitStateChange({ agentIds: [agentId] });
       }
       if (sessionState && typeof sessionState.output === 'string') {
         return sessionState.output;
@@ -10456,7 +10527,7 @@ class AgentManager extends EventEmitter {
       try {
         sessionState = await engine.getSessionState(agentId);
         if (isLiveEngineSessionState(sessionState) && this.reviveAgentRuntime(agent, sessionState)) {
-          this.emit('update');
+          this.emitStateChange({ agentIds: [agentId] });
         }
         if (!sessionState && isRunningAgentRuntimeStatus(agent.status) && !this.shouldDeferMissingEngineSession(agent)) {
           this.markAgentSessionDead(agentId, 'Session not available');
@@ -10671,109 +10742,130 @@ class AgentManager extends EventEmitter {
       agents,
     };
   }
+
+  emitStateChange(change: AgentManagerStateChange) {
+    this.emit('update', {
+      ...(change.agentIds?.length ? { agentIds: [...new Set(change.agentIds)] } : {}),
+      ...(change.removedAgentIds?.length ? { removedAgentIds: [...new Set(change.removedAgentIds)] } : {}),
+      ...(change.mainAgentIdChanged === true ? { mainAgentIdChanged: true } : {}),
+      ...(change.taskHistoryChanged === true ? { taskHistoryChanged: true } : {}),
+    } satisfies AgentManagerStateChange);
+  }
+
+  getAgentState(agentId: AgentId, now = Date.now()): AgentPublicState | null {
+    const agent = this.agents.get(agentId);
+    if (!agent) return null;
+    const lastActivity = this.lastActivity.get(agentId) || now;
+    const isMain = this.isMainAgentRecord(agentId, agent);
+    const terminalBusy = typeof agent.terminalBusy === 'boolean' ? agent.terminalBusy : null;
+    const terminalStatus = deriveAgentTerminalStatus(agent, {
+      terminalBusy,
+      status: String(terminalRuntimeStatus(agent.status) || ''),
+      title: agent.sessionTitle || '',
+      previewText: agent.previewText || '',
+    });
+
+    return {
+      id: agent.id,
+      command: agent.command,
+      engineName: agent.engineName || '',
+      cwd: agent.cwd,
+      projectWorkspace: canonicalWorkspacePath(agent.projectWorkspace || ''),
+      gitWorktree: publicAgentGitWorktree(agent),
+      output: (agent.output || '').slice(-2000),
+      previewText: agent.previewText || '',
+      codexTerminalProfile: activeCodexTerminalProfile(agent, agent.previewText || ''),
+      previewCols: agent.previewCols || 80,
+      previewRows: agent.previewRows || 30,
+      sessionTitle: agent.sessionTitle || '',
+      sessionSource: this.getEngineSessionSource(agent.engineName),
+      runtimeEpoch: agent.runtimeEpoch || '',
+      outputSeq: finiteNumberOrNull(agent.lastOutputSeq),
+      stateRevision: finiteNumberOrNull(agent.stateRevision),
+      status: agent.status,
+      terminalBusy,
+      terminalStatus,
+      shellCommand: agent.shellCommand || '',
+      shellLastCommand: agent.shellLastCommand || '',
+      shellCommandStartedAt: finiteNumberOrNull(agent.shellCommandStartedAt),
+      shellLastCommandStartedAt: finiteNumberOrNull(agent.shellLastCommandStartedAt),
+      shellLastCommandFinishedAt: finiteNumberOrNull(agent.shellLastCommandFinishedAt),
+      shellLastCommandDurationMs: finiteNumberOrNull(agent.shellLastCommandDurationMs),
+      isMain,
+      parentAgentId: agent.parentAgentId || '',
+      task: agent.task || '',
+      workflowTemplate: agent.workflowTemplate || '',
+      source: agent.source || '',
+      providerSessionProvider: agent.providerSessionProvider || '',
+      providerHomeId: agent.providerHomeId || '',
+      providerHomePath: agent.providerHomePath || '',
+      providerSessionId: agent.providerSessionId || '',
+      providerSessionKey: agent.providerSessionKey || '',
+      providerSessionTemporary: agent.providerSessionTemporary === true,
+      providerSessionSource: agent.providerSessionSource || '',
+      providerSessionResolvedAt: agent.providerSessionResolvedAt || null,
+      providerSessionTitle: agent.providerSessionTitle || '',
+      providerSessionWorkspace: agent.providerSessionWorkspace || '',
+      providerCapabilities: {
+        ...providerCapabilities(agent.providerSessionProvider),
+        supportsSteer: runtimeBindingOf(agent, 'acp')?.supportsSteer === true,
+      },
+      terminalInputReceived: agent.terminalInputReceived === true,
+      runtimeBinding: publicRuntimeBinding(agent),
+      runtimeObservation: deriveRuntimeObservation(agent),
+      lifecycleOperation: publicActiveLifecycleOperation(agent),
+      requiresProcessExitAcknowledgement:
+        agent.requiresProcessExitAcknowledgement === true,
+      forkedFromProviderSessionId: agent.forkedFromProviderSessionId || '',
+      restartedFromAgentId: agent.restartedFromAgentId || '',
+      restartedFromAgentIds: Array.isArray(agent.restartedFromAgentIds) ? agent.restartedFromAgentIds : [],
+      launchPermissionMode: agent.launchPermissionMode || '',
+      customTitle: agent.customTitle || '',
+      adaptiveTitle: agent.adaptiveTitle || '',
+      pinned: agent.pinned === true,
+      projectOrder: finiteOrder(agent.projectOrder),
+      pinnedOrder: finiteOrder(agent.pinnedOrder),
+      attentionSeq: finiteNonNegativeInteger(agent.attentionSeq),
+      readAttentionSeq: finiteNonNegativeInteger(agent.readAttentionSeq),
+      attentionUpdatedAt: finiteNumberOrNull(agent.attentionUpdatedAt),
+      readAttentionAt: finiteNumberOrNull(agent.readAttentionAt),
+      attentionReason: agent.attentionReason || '',
+      attentionSummary: agent.attentionSummary || '',
+      attentionOutputEpoch: agent.attentionOutputEpoch || '',
+      attentionOutputSeq: finiteNumberOrNull(agent.attentionOutputSeq),
+      readOutputEpoch: agent.readOutputEpoch || '',
+      readOutputSeq: finiteNumberOrNull(agent.readOutputSeq),
+      unread: agentAttentionUnread(agent),
+      archived: agent.archived === true,
+      archivedAt: agent.archivedAt || null,
+      canForkNewWorktree: this.canCreateForkWorktree(effectiveAgentWorkspaceRoot(agent)),
+      startedAt: agent.startedAt || null,
+      exitedAt: agent.exitedAt || null,
+      activityLevel: isMain ? 'warm' : this.calculateActivityLevel(lastActivity, now),
+      lastActivity,
+      attentionScore: isMain ? 0 : this.calculateAttentionScore(agentId, now),
+      isZombie: isMain ? false : this.isZombie(agentId, now),
+      usageRate: this.getAgentUsageRate(agentId, { now }),
+    };
+  }
+
+  getStateMetadata(): Omit<AgentManagerState, 'agents'> {
+    return {
+      mainAgentId: this.mainAgentId,
+      taskHistory: this.taskHistory,
+    };
+  }
   
   getState(): AgentManagerState {
     const state: AgentManagerState = {
-      mainAgentId: this.mainAgentId,
+      ...this.getStateMetadata(),
       agents: [],
-      taskHistory: this.taskHistory
     };
-    
-    for (const [id, agent] of this.agents) {
-      const now = Date.now();
-      const lastActivity = this.lastActivity.get(id) || now;
-      const isMain = this.isMainAgentRecord(id, agent);
-      const terminalBusy = typeof agent.terminalBusy === 'boolean' ? agent.terminalBusy : null;
-      const terminalStatus = deriveAgentTerminalStatus(agent, {
-        terminalBusy,
-        status: String(terminalRuntimeStatus(agent.status) || ''),
-        title: agent.sessionTitle || '',
-        previewText: agent.previewText || '',
-      });
 
-      state.agents.push({
-        id: agent.id,
-        command: agent.command,
-        engineName: agent.engineName || '',
-        cwd: agent.cwd,
-        projectWorkspace: canonicalWorkspacePath(agent.projectWorkspace || ''),
-        gitWorktree: publicAgentGitWorktree(agent),
-        output: (agent.output || '').slice(-2000),
-        previewText: agent.previewText || '',
-        codexTerminalProfile: activeCodexTerminalProfile(agent, agent.previewText || ''),
-        previewCols: agent.previewCols || 80,
-        previewRows: agent.previewRows || 30,
-        sessionTitle: agent.sessionTitle || '',
-        sessionSource: this.getEngineSessionSource(agent.engineName),
-        runtimeEpoch: agent.runtimeEpoch || '',
-        outputSeq: finiteNumberOrNull(agent.lastOutputSeq),
-        stateRevision: finiteNumberOrNull(agent.stateRevision),
-        status: agent.status,
-        terminalBusy,
-        terminalStatus,
-        shellCommand: agent.shellCommand || '',
-        shellLastCommand: agent.shellLastCommand || '',
-        shellCommandStartedAt: finiteNumberOrNull(agent.shellCommandStartedAt),
-        shellLastCommandStartedAt: finiteNumberOrNull(agent.shellLastCommandStartedAt),
-        shellLastCommandFinishedAt: finiteNumberOrNull(agent.shellLastCommandFinishedAt),
-        shellLastCommandDurationMs: finiteNumberOrNull(agent.shellLastCommandDurationMs),
-        isMain,
-        parentAgentId: agent.parentAgentId || '',
-        task: agent.task || '',
-        workflowTemplate: agent.workflowTemplate || '',
-        source: agent.source || '',
-        providerSessionProvider: agent.providerSessionProvider || '',
-        providerHomeId: agent.providerHomeId || '',
-        providerHomePath: agent.providerHomePath || '',
-        providerSessionId: agent.providerSessionId || '',
-        providerSessionKey: agent.providerSessionKey || '',
-        providerSessionTemporary: agent.providerSessionTemporary === true,
-        providerSessionSource: agent.providerSessionSource || '',
-        providerSessionResolvedAt: agent.providerSessionResolvedAt || null,
-        providerSessionTitle: agent.providerSessionTitle || '',
-        providerSessionWorkspace: agent.providerSessionWorkspace || '',
-        providerCapabilities: {
-          ...providerCapabilities(agent.providerSessionProvider),
-          supportsSteer: runtimeBindingOf(agent, 'acp')?.supportsSteer === true,
-        },
-        terminalInputReceived: agent.terminalInputReceived === true,
-        runtimeBinding: publicRuntimeBinding(agent),
-        runtimeObservation: deriveRuntimeObservation(agent),
-        lifecycleOperation: publicActiveLifecycleOperation(agent),
-        requiresProcessExitAcknowledgement:
-          agent.requiresProcessExitAcknowledgement === true,
-        forkedFromProviderSessionId: agent.forkedFromProviderSessionId || '',
-        restartedFromAgentId: agent.restartedFromAgentId || '',
-        restartedFromAgentIds: Array.isArray(agent.restartedFromAgentIds) ? agent.restartedFromAgentIds : [],
-        launchPermissionMode: agent.launchPermissionMode || '',
-        customTitle: agent.customTitle || '',
-        adaptiveTitle: agent.adaptiveTitle || '',
-        pinned: agent.pinned === true,
-        projectOrder: finiteOrder(agent.projectOrder),
-        pinnedOrder: finiteOrder(agent.pinnedOrder),
-        attentionSeq: finiteNonNegativeInteger(agent.attentionSeq),
-        readAttentionSeq: finiteNonNegativeInteger(agent.readAttentionSeq),
-        attentionUpdatedAt: finiteNumberOrNull(agent.attentionUpdatedAt),
-        readAttentionAt: finiteNumberOrNull(agent.readAttentionAt),
-        attentionReason: agent.attentionReason || '',
-        attentionSummary: agent.attentionSummary || '',
-        attentionOutputEpoch: agent.attentionOutputEpoch || '',
-        attentionOutputSeq: finiteNumberOrNull(agent.attentionOutputSeq),
-        readOutputEpoch: agent.readOutputEpoch || '',
-        readOutputSeq: finiteNumberOrNull(agent.readOutputSeq),
-        unread: agentAttentionUnread(agent),
-        archived: agent.archived === true,
-        archivedAt: agent.archivedAt || null,
-        canForkNewWorktree: this.canCreateForkWorktree(effectiveAgentWorkspaceRoot(agent)),
-        startedAt: agent.startedAt || null,
-        exitedAt: agent.exitedAt || null,
-        // Main agent is exempt from activity/attention/zombie scoring
-        activityLevel: isMain ? 'warm' : this.calculateActivityLevel(lastActivity, now),
-        lastActivity,
-        attentionScore: isMain ? 0 : this.calculateAttentionScore(id, now),
-        isZombie: isMain ? false : this.isZombie(id, now),
-        usageRate: this.getAgentUsageRate(id, { now })
-      });
+    const now = Date.now();
+    for (const id of this.agents.keys()) {
+      const agentState = this.getAgentState(id, now);
+      if (agentState) state.agents.push(agentState);
     }
     
     return state;
@@ -10850,7 +10942,7 @@ class AgentManager extends EventEmitter {
     this.on('system-stats', callback);
   }
   
-  onUpdate(callback: (...args: unknown[]) => void) {
+  onUpdate(callback: (change: AgentManagerStateChange) => void) {
     this.on('update', callback);
   }
 

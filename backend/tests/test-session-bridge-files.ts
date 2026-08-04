@@ -105,9 +105,9 @@ function run() {
     server.indexOf("app.post(routePath(BASE_PATH, '/api/agents/:agentId/fork')")
   );
   assert(
-    agentPatchRoute.includes('scheduleBroadcastState();') &&
+    agentPatchRoute.includes('queueAgentStateChange({ agentIds: [req.params.agentId] });') &&
       !agentPatchRoute.includes('broadcastState();'),
-    'agent flag PATCH responses should coalesce state broadcasts through the normal manager update path'
+    'agent flag PATCH responses should coalesce one exact Agent mutation through the shared scheduler'
   );
 
   console.log('✓ Session bridge file is present');

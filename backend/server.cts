@@ -219,7 +219,7 @@ const crypto = require('crypto');
 const { execFile } = require('child_process');
 const { promisify } = require('util');
 const { URLSearchParams, pathToFileURL } = require('url');
-import { AgentManager } from './agent-manager.cjs';
+import { AgentManager, type AgentManagerStateChange } from './agent-manager.cjs';
 import { isAgentRuntimeModeRequest, runtimeKind } from './agent-runtime-binding.cjs';
 import { ConfigManager } from './config-manager.cjs';
 import { ThemeManager } from './theme-manager.cjs';
@@ -265,7 +265,9 @@ import { inputPartsFromMessage } from './input-parts.cjs';
 import { cleanupTerminalRuntime } from './terminal-runtime-cleanup.cjs';
 import {
   advanceAgentStateBroadcast,
+  advanceAgentStateMutation,
   agentStateClientDelivery,
+  agentStateBroadcastSnapshot,
   createAgentStateBroadcastTracker,
   type AgentStatePayload,
 } from './agent-state-broadcast-protocol.cjs';
@@ -1509,7 +1511,7 @@ app.post(routePath(BASE_PATH, '/api/main-page-agent-sessions'), express.json(), 
   const mainPageSessionKeys = configManager.getMainPageSessionKeys();
   agentSessionInventory.invalidate();
   res.json({ success: true, mainPageSessionKeys });
-  scheduleBroadcastState();
+  queueStateMetadata({ mainPageSessionKeys });
 });
 
 app.get(routePath(BASE_PATH, '/api/themes'), (req, res) => {
@@ -2045,7 +2047,7 @@ app.patch(routePath(BASE_PATH, '/api/agents/:agentId'), express.json(), async (r
   }
 
   if (flagUpdateRequiresState || typeof body.task === 'string' || typeof body.customTitle === 'string' || typeof body.launchPermissionMode === 'string' || typeof body.agentRuntimeMode === 'string') {
-    scheduleBroadcastState();
+    queueAgentStateChange({ agentIds: [req.params.agentId] });
   }
   res.json({ agentId: req.params.agentId, ...updates });
 });
@@ -2064,7 +2066,6 @@ app.post(routePath(BASE_PATH, '/api/agents/:agentId/reorder'), express.json(), a
     res.status(status).json({ error: result.error });
     return;
   }
-  scheduleBroadcastState();
   res.json(result);
 });
 
@@ -2106,6 +2107,7 @@ app.post(routePath(BASE_PATH, '/api/agents/:agentId/fork'), express.json(), asyn
     result.pinnedProjectWorkspaces = membership.pinnedProjectWorkspaces;
   } catch (caught) {
     const error = caughtError(caught);
+    queueStateMetadata(currentAgentListMetadata());
     broadcastState();
     const mountError = error.message || 'Failed to create Project';
     res.status(500).json({
@@ -2115,6 +2117,7 @@ app.post(routePath(BASE_PATH, '/api/agents/:agentId/fork'), express.json(), asyn
     });
     return;
   }
+  queueStateMetadata(currentAgentListMetadata());
   broadcastState();
   res.status(201).json(result);
 });
@@ -2151,6 +2154,7 @@ app.post(routePath(BASE_PATH, '/api/projects/mount'), express.json(), async (req
   try {
     const workspace = await canonicalProjectWorkspace(typeof req.body?.workspace === 'string' ? req.body.workspace : '');
     const membership = configManager.mountProjectWorkspace(workspace);
+    queueStateMetadata(currentAgentListMetadata());
     broadcastState();
     res.json(membership);
   } catch (caught) {
@@ -2162,6 +2166,7 @@ app.post(routePath(BASE_PATH, '/api/projects/mount'), express.json(), async (req
 app.post(routePath(BASE_PATH, '/api/projects/remove'), express.json(), (req, res) => {
   try {
     const membership = configManager.removeProjectWorkspace(req.body?.workspace);
+    queueStateMetadata(currentAgentListMetadata());
     broadcastState();
     res.json(membership);
   } catch (caught) {
@@ -2176,6 +2181,7 @@ app.post(routePath(BASE_PATH, '/api/projects/pin'), express.json(), (req, res) =
       req.body?.workspace,
       req.body?.pinned === true
     );
+    queueStateMetadata(currentAgentListMetadata());
     broadcastState();
     res.json(membership);
   } catch (caught) {
@@ -2190,6 +2196,7 @@ app.post(routePath(BASE_PATH, '/api/projects/reorder'), express.json(), (req, re
       beforeWorkspace: optionalString(req.body?.beforeWorkspace),
       afterWorkspace: optionalString(req.body?.afterWorkspace),
     });
+    queueStateMetadata(currentAgentListMetadata());
     broadcastState();
     res.json(membership);
   } catch (caught) {
@@ -2202,7 +2209,7 @@ app.post(routePath(BASE_PATH, '/api/projects/reorder'), express.json(), (req, re
 app.patch(routePath(BASE_PATH, '/api/projects/name'), express.json(), (req, res) => {
   try {
     const result = configManager.setProjectName(req.body?.workspace, req.body?.name);
-    scheduleBroadcastState();
+    queueStateMetadata(currentAgentListMetadata());
     res.json(result);
   } catch (caught) {
     const error = caughtError(caught);
@@ -2220,6 +2227,7 @@ app.post(routePath(BASE_PATH, '/api/projects/create-worktree'), express.json(), 
     const root = resolveProjectActionRoot(typeof req.body?.rootId === 'string' ? req.body.rootId : '');
     const created = await agentManager.createPermanentWorktree(root.canonicalPath, { requestId });
     if (!isRecord(created)) throw new Error('Project worktree creation returned an invalid result');
+    queueStateMetadata(currentAgentListMetadata());
     broadcastState();
     res.status(201).json({
       ...created,
@@ -2252,6 +2260,7 @@ app.post(routePath(BASE_PATH, '/api/projects/delete-worktree'), express.json(), 
     requestId,
   });
   if (result.error) {
+    queueStateMetadata(currentAgentListMetadata());
     broadcastState();
     const status = result.requiresForce
       ? 409
@@ -2259,6 +2268,7 @@ app.post(routePath(BASE_PATH, '/api/projects/delete-worktree'), express.json(), 
     res.status(status).json(result);
     return;
   }
+  queueStateMetadata(currentAgentListMetadata());
   broadcastState();
   res.json(result);
 });
@@ -2654,6 +2664,7 @@ async function startResumedAgentSession(req: HttpRequest, res: HttpResponse, pro
     if (!mainPageSessionWasRemembered && !rollbackError) {
       forgetMainPageAgentSession(provider, rawSessionId, providerHomeId || 'default');
     }
+    queueStateMetadata(currentAgentListMetadata());
     broadcastState();
     const mountError = error.message || 'Failed to create Project';
     res.status(500).json({
@@ -2664,6 +2675,7 @@ async function startResumedAgentSession(req: HttpRequest, res: HttpResponse, pro
     });
     return;
   }
+  queueStateMetadata(currentAgentListMetadata());
   broadcastState();
   if (result.reused) {
     res.status(200).json({
@@ -2753,6 +2765,7 @@ async function autoResumeMainPageAgentSessions() {
   }
 
   if (resumedCount > 0) {
+    queueStateMetadata(currentAgentListMetadata());
     broadcastState();
   }
 }
@@ -2919,7 +2932,7 @@ app.post(routePath(BASE_PATH, '/api/settings'), express.json(), async (req, res)
     success: true,
     settings: configManager.getSettings()
   });
-  scheduleBroadcastState();
+  queueStateMetadata(currentAgentListMetadata({ includeWorkspaceRoots: true }));
 });
 
 app.post(routePath(BASE_PATH, '/api/themes/:themeId/set'), express.json(), (req, res) => {
@@ -3111,6 +3124,7 @@ function restartMainAgent(ws: WebSocketClient, command: string) {
           ws.send(JSON.stringify({ type: 'error', message: error }));
         } else if (agentId) {
           ws.agentId = agentId;
+          queueStateMetadata(currentAgentListMetadata());
           broadcastState();
           ws.send(JSON.stringify({ type: 'agent-started', agentId }));
         }
@@ -3121,6 +3135,7 @@ function restartMainAgent(ws: WebSocketClient, command: string) {
     const error = caughtError(caught);
       const message = error instanceof Error ? error.message : 'Failed to restart Main Agent';
       ws.send(JSON.stringify({ type: 'error', message }));
+      queueStateMetadata(currentAgentListMetadata());
       broadcastState();
     }
   })();
@@ -3147,7 +3162,10 @@ async function killAgentFromMessage(ws: WebSocketClient, agentId: string, option
             message: error instanceof Error ? error.message : 'Failed to stop Agent',
           }));
         }
-      }).finally(() => broadcastState());
+      }).finally(() => {
+        queueStateMetadata(currentAgentListMetadata());
+        broadcastState();
+      });
     }
   } catch (caught) {
     const error = caughtError(caught);
@@ -3156,6 +3174,7 @@ async function killAgentFromMessage(ws: WebSocketClient, agentId: string, option
       message: error instanceof Error ? error.message : 'Failed to stop Agent',
     }));
   } finally {
+    queueStateMetadata(currentAgentListMetadata());
     broadcastState();
   }
 }
@@ -3326,6 +3345,7 @@ function handleMessage(ws: WebSocketClient, data: ServerClientMessage) {
                 } catch (cleanupError) {
                   rollbackError = caughtError(cleanupError).message || String(cleanupError);
                 }
+                queueStateMetadata(currentAgentListMetadata());
                 broadcastState();
                 const errorMessage = caughtError(mountError).message || 'Failed to create Project';
                 ws.send(JSON.stringify({
@@ -3337,6 +3357,7 @@ function handleMessage(ws: WebSocketClient, data: ServerClientMessage) {
                 return;
               }
               ws.agentId = agentId;
+              queueStateMetadata(currentAgentListMetadata());
               broadcastState();
               ws.send(JSON.stringify({ type: 'agent-started', agentId }));
             })().catch((callbackError: unknown) => {
@@ -3568,34 +3589,43 @@ async function watchWorkspaceFiles(ws: WebSocketClient, data: ServerClientMessag
   }
 }
 
+function projectAgentState(agent: ServerRecord & { id: string }) {
+  return {
+    ...agent,
+    workspaceRootId: rootIdForPath(String(agent.projectWorkspace || (agent.gitWorktree as ServerRecord | undefined)?.workspace || agent.cwd || '')),
+  };
+}
+
 function buildStatePayload() {
   const state = agentManager.getState();
-  const settings = configManager.getSettings();
   return {
     ...state,
-    agents: state.agents.map((agent: ServerRecord) => ({
-      ...agent,
-      workspaceRootId: rootIdForPath(String(agent.projectWorkspace || (agent.gitWorktree as ServerRecord | undefined)?.workspace || agent.cwd || '')),
-    })),
-    workspaceRoots: workspaceRootRegistry.list(),
+    agents: state.agents.map(agent => projectAgentState(agent as ServerRecord & { id: string })),
+    ...currentAgentListMetadata({ includeWorkspaceRoots: true }),
+  };
+}
+
+function currentAgentListMetadata(options: { includeWorkspaceRoots?: boolean } = {}) {
+  const settings = configManager.getSettings();
+  return {
     mainPageSessionKeys: typeof configManager.getMainPageSessionKeys === 'function'
       ? configManager.getMainPageSessionKeys()
       : (Array.isArray(settings.mainPageSessionKeys) ? settings.mainPageSessionKeys : []),
     projectWorkspaces: settings.projectWorkspaces || [],
     pinnedProjectWorkspaces: settings.pinnedProjectWorkspaces || [],
+    ...(options.includeWorkspaceRoots === true
+      ? { workspaceRoots: workspaceRootRegistry.list() }
+      : {}),
   };
 }
 
 function sendState(ws: WebSocketClient) {
-  broadcastState(ws);
-  if (!stateBroadcastTracker.currentState) {
-    advanceAgentStateBroadcast(stateBroadcastTracker, buildStatePayload() as AgentStatePayload);
-  }
+  broadcastState(ws, true);
   ws.send(JSON.stringify({
     type: 'state',
     generation: SERVER_EPOCH,
     sequence: stateBroadcastTracker.sequence,
-    state: stateBroadcastTracker.currentState,
+    state: agentStateBroadcastSnapshot(stateBroadcastTracker),
   }));
   ws.stateSnapshotPending = false;
   agentManager.getPreviewPayloads().forEach((preview: ServerRecord) => {
@@ -3654,6 +3684,10 @@ function isAgentScopedServerEvent(value: unknown): value is AgentScopedServerEve
 let stateBroadcastTimer: ReturnType<typeof setTimeout> | null = null;
 let lastStateBroadcastAt = 0;
 const stateBroadcastTracker = createAgentStateBroadcastTracker();
+const pendingStateAgentIds = new Set<string>();
+let pendingMainAgentIdState = false;
+let pendingTaskHistoryState = false;
+let pendingStateMetadata: Record<string, unknown> = {};
 const pendingPreviewBroadcasts = new Map();
 const pendingAgentActivityBroadcasts = new Map();
 const pendingAgentUpdates = new Map();
@@ -3768,13 +3802,46 @@ function recoverStateSnapshotIfReady(client: WebSocketClient) {
   if (client.bufferedAmount <= MAX_STATE_CLIENT_BUFFERED_AMOUNT) sendState(client);
 }
 
-function broadcastState(excludedClient: WebSocketClient | null = null) {
+function pendingAgentStateMutation() {
+  const upserts = [];
+  const removedAgentIds = [];
+  const now = Date.now();
+  for (const agentId of pendingStateAgentIds) {
+    const agent = agentManager.getAgentState(agentId, now) as (ServerRecord & { id: string }) | null;
+    if (agent) upserts.push(projectAgentState(agent));
+    else removedAgentIds.push(agentId);
+  }
+  const managerMetadata = agentManager.getStateMetadata();
+  const state = {
+    ...pendingStateMetadata,
+    ...(pendingMainAgentIdState ? { mainAgentId: managerMetadata.mainAgentId } : {}),
+    ...(pendingTaskHistoryState ? { taskHistory: managerMetadata.taskHistory } : {}),
+  };
+  pendingStateAgentIds.clear();
+  pendingMainAgentIdState = false;
+  pendingTaskHistoryState = false;
+  pendingStateMetadata = {};
+  return {
+    upserts,
+    removedAgentIds,
+    ...(Object.keys(state).length > 0 ? { state } : {}),
+  };
+}
+
+function broadcastState(
+  excludedClient: WebSocketClient | null = null,
+  authoritativeCheckpoint = false,
+) {
   lastStateBroadcastAt = Date.now();
+  if (stateBroadcastTimer) clearTimeout(stateBroadcastTimer);
   stateBroadcastTimer = null;
-  const delta = advanceAgentStateBroadcast(
-    stateBroadcastTracker,
-    buildStatePayload() as AgentStatePayload,
-  );
+  const mutation = pendingAgentStateMutation();
+  const delta = authoritativeCheckpoint
+    ? advanceAgentStateBroadcast(
+        stateBroadcastTracker,
+        buildStatePayload() as AgentStatePayload,
+      )
+    : advanceAgentStateMutation(stateBroadcastTracker, mutation);
   if (!delta) return;
   const message = JSON.stringify({
     type: 'state-delta',
@@ -3785,6 +3852,19 @@ function broadcastState(excludedClient: WebSocketClient | null = null) {
     if (client === excludedClient || client.readyState !== WebSocket.OPEN) return;
     deliverStateDelta(client, message);
   });
+}
+
+function queueAgentStateChange(change: AgentManagerStateChange) {
+  change.agentIds?.forEach(agentId => pendingStateAgentIds.add(agentId));
+  change.removedAgentIds?.forEach(agentId => pendingStateAgentIds.add(agentId));
+  if (change.mainAgentIdChanged === true) pendingMainAgentIdState = true;
+  if (change.taskHistoryChanged === true) pendingTaskHistoryState = true;
+  scheduleBroadcastState();
+}
+
+function queueStateMetadata(state: Record<string, unknown>) {
+  Object.assign(pendingStateMetadata, state);
+  scheduleBroadcastState();
 }
 
 function scheduleBroadcastState() {
@@ -3860,9 +3940,7 @@ function schedulePreviewBroadcast(preview: ServerRecord) {
   pendingPreviewBroadcasts.set(agentId, entry);
 }
 
-agentManager.onUpdate(() => {
-  scheduleBroadcastState();
-});
+agentManager.onUpdate(queueAgentStateChange);
 
 agentManager.on('provider-session-updated', () => {
   agentSessionInventory.invalidate();
