@@ -81,19 +81,20 @@ function commandLabel(name: string): string {
     .join(' ') || name;
 }
 
-function readFilePrefix(filePath: string, limit = MAX_SKILL_BYTES): string {
-  let fd: number | null = null;
+async function readFilePrefix(filePath: string, limit = MAX_SKILL_BYTES): Promise<string> {
+  let handle: import('fs/promises').FileHandle | null = null;
   try {
-    fd = fs.openSync(filePath, 'r');
+    const opened = await fs.promises.open(filePath, 'r');
+    handle = opened;
     const buffer = Buffer.alloc(limit);
-    const bytesRead = fs.readSync(fd, buffer, 0, limit, 0);
+    const { bytesRead } = await opened.read(buffer, 0, limit, 0);
     return buffer.subarray(0, bytesRead).toString('utf8');
   } catch {
     return '';
   } finally {
-    if (fd !== null) {
+    if (handle) {
       try {
-        fs.closeSync(fd);
+        await handle.close();
       } catch {
         // Ignore close failures for best-effort discovery.
       }
@@ -101,8 +102,8 @@ function readFilePrefix(filePath: string, limit = MAX_SKILL_BYTES): string {
   }
 }
 
-function parseSkillFrontMatter(skillFile: string): SkillFrontMatter {
-  const prefix = readFilePrefix(skillFile);
+async function parseSkillFrontMatter(skillFile: string): Promise<SkillFrontMatter> {
+  const prefix = await readFilePrefix(skillFile);
   const match = prefix.match(/^---\s*\n([\s\S]*?)\n---\s*\n?/);
   if (!match) return {};
 
@@ -122,20 +123,29 @@ function parseSkillFrontMatter(skillFile: string): SkillFrontMatter {
   return metadata;
 }
 
-function findGitRoot(startDir: string): string {
+async function pathExists(filePath: string): Promise<boolean> {
+  try {
+    await fs.promises.access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function findGitRoot(startDir: string): Promise<string> {
   let current = startDir;
   while (current && current !== path.dirname(current)) {
-    if (fs.existsSync(path.join(current, '.git'))) return current;
+    if (await pathExists(path.join(current, '.git'))) return current;
     current = path.dirname(current);
   }
   return '';
 }
 
-function workspaceSkillRoots(workspace: unknown, homeDir: string): string[] {
+async function workspaceSkillRoots(workspace: unknown, homeDir: string): Promise<string[]> {
   const normalizedWorkspace = normalizeWorkspace(workspace, homeDir);
   if (!normalizedWorkspace) return [];
 
-  const gitRoot = findGitRoot(normalizedWorkspace) || normalizedWorkspace;
+  const gitRoot = await findGitRoot(normalizedWorkspace) || normalizedWorkspace;
   const roots = [];
   let current = normalizedWorkspace;
   while (current && current.startsWith(gitRoot)) {
@@ -152,13 +162,13 @@ function addCommand(commands: DiscoveredCommand[], command: DiscoveredCommand): 
   commands.push(command);
 }
 
-function addSkillMention(commands: DiscoveredCommand[], skillFile: string, {
+async function addSkillMention(commands: DiscoveredCommand[], skillFile: string, {
   mentionPrefix = '',
   fallbackName = '',
   scope = 'Personal',
   source = 'skill',
-}: SkillMentionOptions = {}): void {
-  const metadata = parseSkillFrontMatter(skillFile);
+}: SkillMentionOptions = {}): Promise<void> {
+  const metadata = await parseSkillFrontMatter(skillFile);
   const rawName = String(metadata.name || fallbackName || path.basename(path.dirname(skillFile))).trim();
   if (!SAFE_COMMAND_NAME.test(rawName)) return;
   if (mentionPrefix && !SAFE_COMMAND_NAME.test(mentionPrefix)) return;
@@ -173,21 +183,21 @@ function addSkillMention(commands: DiscoveredCommand[], skillFile: string, {
   });
 }
 
-function discoverClaudeSkillCommands(
+async function discoverClaudeSkillCommands(
   commands: DiscoveredCommand[],
   skillsDir: string,
   sourceLabel: string,
-): void {
+): Promise<void> {
   let entries: import('fs').Dirent[];
   try {
-    entries = fs.readdirSync(skillsDir, { withFileTypes: true });
+    entries = await fs.promises.readdir(skillsDir, { withFileTypes: true });
   } catch {
     return;
   }
 
-  entries.forEach(entry => {
-    if (!entry.isDirectory() || !SAFE_COMMAND_NAME.test(entry.name)) return;
-    if (!fs.existsSync(path.join(skillsDir, entry.name, 'SKILL.md'))) return;
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !SAFE_COMMAND_NAME.test(entry.name)) continue;
+    if (!await pathExists(path.join(skillsDir, entry.name, 'SKILL.md'))) continue;
     addCommand(commands, {
       command: `/${entry.name}`,
       label: commandLabel(entry.name),
@@ -195,25 +205,25 @@ function discoverClaudeSkillCommands(
       source: 'skill',
       scope: sourceLabel === 'home' ? 'Personal' : commandLabel(sourceLabel),
     });
-  });
+  }
 }
 
-function discoverClaudeCustomCommands(
+async function discoverClaudeCustomCommands(
   commands: DiscoveredCommand[],
   commandsDir: string,
   sourceLabel: string,
-): void {
+): Promise<void> {
   let entries: import('fs').Dirent[];
   try {
-    entries = fs.readdirSync(commandsDir, { withFileTypes: true });
+    entries = await fs.promises.readdir(commandsDir, { withFileTypes: true });
   } catch {
     return;
   }
 
-  entries.forEach(entry => {
-    if (!entry.isFile() || !entry.name.endsWith('.md')) return;
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith('.md')) continue;
     const name = entry.name.slice(0, -3);
-    if (!SAFE_COMMAND_NAME.test(name)) return;
+    if (!SAFE_COMMAND_NAME.test(name)) continue;
     addCommand(commands, {
       command: `/${name}`,
       label: commandLabel(name),
@@ -221,17 +231,18 @@ function discoverClaudeCustomCommands(
       source: 'custom',
       scope: sourceLabel === 'home' ? 'Personal' : commandLabel(sourceLabel),
     });
-  });
+  }
 }
 
-function discoverClaudePluginComponents(
+async function discoverClaudePluginComponents(
   commands: DiscoveredCommand[],
   pluginPath: string,
   pluginName: string,
-): void {
-  discoverSkillFiles(path.join(pluginPath, 'skills')).forEach(skillFile => {
+): Promise<void> {
+  const skillFiles = await discoverSkillFiles(path.join(pluginPath, 'skills'));
+  for (const skillFile of skillFiles) {
     const skillName = path.basename(path.dirname(skillFile));
-    const metadata = parseSkillFrontMatter(skillFile);
+    const metadata = await parseSkillFrontMatter(skillFile);
     addCommand(commands, {
       command: `/${pluginName}:${skillName}`,
       label: commandLabel(metadata.name || skillName),
@@ -239,18 +250,18 @@ function discoverClaudePluginComponents(
       source: 'skill',
       scope: 'Plugin',
     });
-  });
+  }
 
   let commandEntries: import('fs').Dirent[] = [];
   try {
-    commandEntries = fs.readdirSync(path.join(pluginPath, 'commands'), { withFileTypes: true });
+    commandEntries = await fs.promises.readdir(path.join(pluginPath, 'commands'), { withFileTypes: true });
   } catch {
     // Plugins do not have to provide commands.
   }
-  commandEntries.forEach(entry => {
-    if (!entry.isFile() || !entry.name.endsWith('.md')) return;
+  for (const entry of commandEntries) {
+    if (!entry.isFile() || !entry.name.endsWith('.md')) continue;
     const commandName = entry.name.slice(0, -3);
-    if (!SAFE_COMMAND_NAME.test(commandName)) return;
+    if (!SAFE_COMMAND_NAME.test(commandName)) continue;
     addCommand(commands, {
       command: `/${pluginName}:${commandName}`,
       label: commandLabel(commandName),
@@ -258,31 +269,31 @@ function discoverClaudePluginComponents(
       source: 'custom',
       scope: 'Plugin',
     });
-  });
+  }
 }
 
-function readBoundedJson(
+async function readBoundedJson(
   filePath: string,
   maxBytes = 1024 * 1024,
-): Record<string, unknown> | null {
+): Promise<Record<string, unknown> | null> {
   try {
-    const stats = fs.statSync(filePath);
+    const stats = await fs.promises.stat(filePath);
     if (!stats.isFile() || stats.size > maxBytes) return null;
-    const value = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    const value = JSON.parse(await fs.promises.readFile(filePath, 'utf8'));
     return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
   } catch {
     return null;
   }
 }
 
-function addClaudePlugin(
+async function addClaudePlugin(
   commands: DiscoveredCommand[],
   pluginName: string,
   pluginPath: string,
   scope = 'Plugin',
-): void {
+): Promise<void> {
   if (!SAFE_COMMAND_NAME.test(pluginName)) return;
-  const manifest = readBoundedJson(path.join(pluginPath, '.claude-plugin', 'plugin.json'));
+  const manifest = await readBoundedJson(path.join(pluginPath, '.claude-plugin', 'plugin.json'));
   addCommand(commands, {
     command: `plugin:${pluginName}`,
     label: String(manifest?.name || commandLabel(pluginName)).slice(0, 100),
@@ -290,20 +301,20 @@ function addClaudePlugin(
     source: 'plugin',
     scope,
   });
-  discoverClaudePluginComponents(commands, pluginPath, pluginName);
+  await discoverClaudePluginComponents(commands, pluginPath, pluginName);
 }
 
-function discoverClaudeInstalledPlugins(
+async function discoverClaudeInstalledPlugins(
   commands: DiscoveredCommand[],
   homePath: string,
-): void {
+): Promise<void> {
   const pluginsRoot = path.join(homePath, 'plugins');
-  const installed = readBoundedJson(path.join(pluginsRoot, 'installed_plugins.json'));
+  const installed = await readBoundedJson(path.join(pluginsRoot, 'installed_plugins.json'));
   const installedPlugins = installed?.plugins && typeof installed.plugins === 'object'
     && !Array.isArray(installed.plugins)
     ? installed.plugins as Record<string, unknown>
     : {};
-  Object.entries(installedPlugins).slice(0, MAX_DISCOVERED_SKILLS).forEach(([key, rawEntries]) => {
+  for (const [key, rawEntries] of Object.entries(installedPlugins).slice(0, MAX_DISCOVERED_SKILLS)) {
     const pluginName = key.split('@')[0];
     const entries = Array.isArray(rawEntries) ? rawEntries : [];
     const installedEntry = entries.find((entry): entry is Record<string, unknown> => (
@@ -311,33 +322,33 @@ function discoverClaudeInstalledPlugins(
       && typeof entry === 'object'
       && typeof (entry as Record<string, unknown>).installPath === 'string'
     ));
-    if (!installedEntry) return;
-    addClaudePlugin(
+    if (!installedEntry) continue;
+    await addClaudePlugin(
       commands,
       pluginName,
       installedEntry.installPath as string,
       String(installedEntry.scope || 'Plugin'),
     );
-  });
+  }
 
   let entries: import('fs').Dirent[] = [];
   try {
-    entries = fs.readdirSync(pluginsRoot, { withFileTypes: true });
+    entries = await fs.promises.readdir(pluginsRoot, { withFileTypes: true });
   } catch {
     return;
   }
-  entries.forEach(entry => {
-    if (!entry.isDirectory() || !SAFE_COMMAND_NAME.test(entry.name)) return;
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !SAFE_COMMAND_NAME.test(entry.name)) continue;
     const pluginPath = path.join(pluginsRoot, entry.name);
-    if (!fs.existsSync(path.join(pluginPath, '.claude-plugin', 'plugin.json'))) return;
-    addClaudePlugin(commands, entry.name, pluginPath);
-  });
+    if (!await pathExists(path.join(pluginPath, '.claude-plugin', 'plugin.json'))) continue;
+    await addClaudePlugin(commands, entry.name, pluginPath);
+  }
 }
 
-function discoverClaudeSlashCommands({
+async function discoverClaudeSlashCommands({
   homeDir = os.homedir(),
   workspace,
-}: DiscoveryOptions = {}): DiscoveredCommand[] {
+}: DiscoveryOptions = {}): Promise<DiscoveredCommand[]> {
   const commands: DiscoveredCommand[] = [];
   const normalizedWorkspace = normalizeWorkspace(workspace, homeDir);
   const roots = [];
@@ -347,63 +358,67 @@ function discoverClaudeSlashCommands({
   }
   roots.push({ root: path.join(homeDir, '.claude'), label: 'home' });
 
-  roots.forEach(({ root, label }) => {
-    discoverClaudeSkillCommands(commands, path.join(root, 'skills'), label);
-    discoverClaudeCustomCommands(commands, path.join(root, 'commands'), label);
-  });
+  for (const { root, label } of roots) {
+    await discoverClaudeSkillCommands(commands, path.join(root, 'skills'), label);
+    await discoverClaudeCustomCommands(commands, path.join(root, 'commands'), label);
+  }
 
   return commands;
 }
 
-function discoverSkillFiles(skillsDir: string): string[] {
+async function discoverSkillFiles(skillsDir: string): Promise<string[]> {
   let entries: import('fs').Dirent[];
   try {
-    entries = fs.readdirSync(skillsDir, { withFileTypes: true });
+    entries = await fs.promises.readdir(skillsDir, { withFileTypes: true });
   } catch {
     return [];
   }
 
-  return entries
+  const candidates = entries
     .filter(entry => entry.isDirectory() && SAFE_COMMAND_NAME.test(entry.name))
-    .map(entry => path.join(skillsDir, entry.name, 'SKILL.md'))
-    .filter(skillFile => fs.existsSync(skillFile));
+    .map(entry => path.join(skillsDir, entry.name, 'SKILL.md'));
+  const skillFiles: string[] = [];
+  for (const skillFile of candidates) {
+    if (await pathExists(skillFile)) skillFiles.push(skillFile);
+  }
+  return skillFiles;
 }
 
-function discoverDirectCodexSkills(
+async function discoverDirectCodexSkills(
   commands: DiscoveredCommand[],
   skillsDir: string,
   scope: string,
-): void {
-  discoverSkillFiles(skillsDir).forEach(skillFile => {
-    addSkillMention(commands, skillFile, { scope, source: 'skill' });
-  });
+): Promise<void> {
+  for (const skillFile of await discoverSkillFiles(skillsDir)) {
+    await addSkillMention(commands, skillFile, { scope, source: 'skill' });
+  }
 }
 
-function discoverPluginSkillFiles(
+async function discoverPluginSkillFiles(
   root: string,
   depth = 0,
   skillFiles: string[] = [],
-): string[] {
+): Promise<string[]> {
   if (depth > 8 || skillFiles.length >= MAX_DISCOVERED_SKILLS) return skillFiles;
 
   let entries: import('fs').Dirent[];
   try {
-    entries = fs.readdirSync(root, { withFileTypes: true });
+    entries = await fs.promises.readdir(root, { withFileTypes: true });
   } catch {
     return skillFiles;
   }
 
-  entries.forEach(entry => {
-    if (skillFiles.length >= MAX_DISCOVERED_SKILLS) return;
+  for (const entry of entries) {
+    if (skillFiles.length >= MAX_DISCOVERED_SKILLS) break;
     const entryPath = path.join(root, entry.name);
     if (entry.isFile() && entry.name === 'SKILL.md' && path.basename(path.dirname(entryPath)) !== 'skills') {
       skillFiles.push(entryPath);
-      return;
+      continue;
     }
     if (entry.isDirectory() && entry.name !== 'node_modules' && !entry.name.startsWith('.')) {
-      discoverPluginSkillFiles(entryPath, depth + 1, skillFiles);
+      await discoverPluginSkillFiles(entryPath, depth + 1, skillFiles);
     }
-  });
+  }
 
   return skillFiles;
 }
@@ -415,16 +430,16 @@ function pluginNameForSkillFile(skillFile: string, pluginsCacheDir: string): str
   return parts[0] || '';
 }
 
-function discoverCodexPluginSkills(commands: DiscoveredCommand[], homeDir: string): void {
+async function discoverCodexPluginSkills(commands: DiscoveredCommand[], homeDir: string): Promise<void> {
   const pluginsCacheDir = path.join(homeDir, '.codex', 'plugins', 'cache');
-  discoverCodexPluginSkillsAt(commands, pluginsCacheDir);
+  await discoverCodexPluginSkillsAt(commands, pluginsCacheDir);
 }
 
-function discoverCodexPluginSkillsAt(
+async function discoverCodexPluginSkillsAt(
   commands: DiscoveredCommand[],
   pluginsCacheDir: string,
-): void {
-  discoverPluginSkillFiles(pluginsCacheDir).forEach(skillFile => {
+): Promise<void> {
+  for (const skillFile of await discoverPluginSkillFiles(pluginsCacheDir)) {
     const pluginName = pluginNameForSkillFile(skillFile, pluginsCacheDir);
     addCommand(commands, {
       command: `plugin:${pluginName}`,
@@ -433,35 +448,37 @@ function discoverCodexPluginSkillsAt(
       source: 'plugin',
       scope: 'Plugin',
     });
-    addSkillMention(commands, skillFile, {
+    await addSkillMention(commands, skillFile, {
       mentionPrefix: pluginName,
       fallbackName: path.basename(path.dirname(skillFile)),
       scope: 'Plugin',
       source: 'skill',
     });
-  });
+  }
 }
 
-function discoverCodexSkillMentions({
+async function discoverCodexSkillMentions({
   homeDir = os.homedir(),
   workspace,
-}: DiscoveryOptions = {}): DiscoveredCommand[] {
+}: DiscoveryOptions = {}): Promise<DiscoveredCommand[]> {
   const commands: DiscoveredCommand[] = [];
-  workspaceSkillRoots(workspace, homeDir).forEach(root => discoverDirectCodexSkills(commands, root, 'Repo'));
-  discoverDirectCodexSkills(commands, path.join(homeDir, '.agents', 'skills'), 'Personal');
-  discoverDirectCodexSkills(commands, path.join(homeDir, '.codex', 'skills'), 'Personal');
-  discoverDirectCodexSkills(commands, path.join(homeDir, '.codex', 'skills', '.system'), 'System');
-  discoverDirectCodexSkills(commands, path.join('/etc', 'codex', 'skills'), 'Admin');
-  discoverCodexPluginSkills(commands, homeDir);
+  for (const root of await workspaceSkillRoots(workspace, homeDir)) {
+    await discoverDirectCodexSkills(commands, root, 'Repo');
+  }
+  await discoverDirectCodexSkills(commands, path.join(homeDir, '.agents', 'skills'), 'Personal');
+  await discoverDirectCodexSkills(commands, path.join(homeDir, '.codex', 'skills'), 'Personal');
+  await discoverDirectCodexSkills(commands, path.join(homeDir, '.codex', 'skills', '.system'), 'System');
+  await discoverDirectCodexSkills(commands, path.join('/etc', 'codex', 'skills'), 'Admin');
+  await discoverCodexPluginSkills(commands, homeDir);
   return commands.slice(0, MAX_DISCOVERED_SKILLS);
 }
 
-function discoverAgentExtensions({
+async function discoverAgentExtensions({
   provider,
   providerHomePath,
   workspace,
   homeDir = os.homedir(),
-}: DiscoveryOptions = {}): DiscoveredCommand[] {
+}: DiscoveryOptions = {}): Promise<DiscoveredCommand[]> {
   const normalizedProvider = normalizeProvider(provider);
   const homePath = normalizeWorkspace(providerHomePath);
   const normalizedHomeDir = normalizeWorkspace(homeDir) || os.homedir();
@@ -471,34 +488,35 @@ function discoverAgentExtensions({
   if (normalizedProvider === 'claude') {
     const normalizedWorkspace = normalizeWorkspace(workspace);
     if (normalizedWorkspace) {
-      discoverClaudeSkillCommands(commands, path.join(normalizedWorkspace, '.claude', 'skills'), 'workspace');
-      discoverClaudeCustomCommands(commands, path.join(normalizedWorkspace, '.claude', 'commands'), 'workspace');
+      await discoverClaudeSkillCommands(commands, path.join(normalizedWorkspace, '.claude', 'skills'), 'workspace');
+      await discoverClaudeCustomCommands(commands, path.join(normalizedWorkspace, '.claude', 'commands'), 'workspace');
     }
-    discoverClaudeSkillCommands(commands, path.join(homePath, 'skills'), 'home');
-    discoverClaudeCustomCommands(commands, path.join(homePath, 'commands'), 'home');
-    discoverClaudeInstalledPlugins(commands, homePath);
+    await discoverClaudeSkillCommands(commands, path.join(homePath, 'skills'), 'home');
+    await discoverClaudeCustomCommands(commands, path.join(homePath, 'commands'), 'home');
+    await discoverClaudeInstalledPlugins(commands, homePath);
     return commands.slice(0, MAX_DISCOVERED_SKILLS);
   }
 
-  workspaceSkillRoots(workspace, normalizedHomeDir)
-    .forEach(root => discoverDirectCodexSkills(commands, root, 'Repo'));
-  discoverDirectCodexSkills(commands, path.join(normalizedHomeDir, '.agents', 'skills'), 'Personal');
-  discoverDirectCodexSkills(commands, path.join(homePath, 'skills'), 'Personal');
-  discoverDirectCodexSkills(commands, path.join(homePath, 'skills', '.system'), 'System');
-  discoverDirectCodexSkills(commands, path.join('/etc', 'codex', 'skills'), 'Admin');
-  discoverCodexPluginSkillsAt(commands, path.join(homePath, 'plugins', 'cache'));
+  for (const root of await workspaceSkillRoots(workspace, normalizedHomeDir)) {
+    await discoverDirectCodexSkills(commands, root, 'Repo');
+  }
+  await discoverDirectCodexSkills(commands, path.join(normalizedHomeDir, '.agents', 'skills'), 'Personal');
+  await discoverDirectCodexSkills(commands, path.join(homePath, 'skills'), 'Personal');
+  await discoverDirectCodexSkills(commands, path.join(homePath, 'skills', '.system'), 'System');
+  await discoverDirectCodexSkills(commands, path.join('/etc', 'codex', 'skills'), 'Admin');
+  await discoverCodexPluginSkillsAt(commands, path.join(homePath, 'plugins', 'cache'));
   return commands.slice(0, MAX_DISCOVERED_SKILLS);
 }
 
-function discoverSlashCommands({
+async function discoverSlashCommands({
   provider,
   homeDir = os.homedir(),
   providerHomePath,
   workspace,
-}: DiscoveryOptions = {}): DiscoveredCommand[] {
+}: DiscoveryOptions = {}): Promise<DiscoveredCommand[]> {
   const normalizedProvider = normalizeProvider(provider);
   if (normalizedProvider && normalizeWorkspace(providerHomePath)) {
-    return discoverAgentExtensions({
+    return await discoverAgentExtensions({
       provider: normalizedProvider,
       providerHomePath,
       workspace,
@@ -506,10 +524,10 @@ function discoverSlashCommands({
     });
   }
   if (normalizedProvider === 'codex') {
-    return discoverCodexSkillMentions({ homeDir, workspace });
+    return await discoverCodexSkillMentions({ homeDir, workspace });
   }
   if (normalizedProvider === 'claude') {
-    return discoverClaudeSlashCommands({ homeDir, workspace });
+    return await discoverClaudeSlashCommands({ homeDir, workspace });
   }
   return [];
 }

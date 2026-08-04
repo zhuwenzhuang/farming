@@ -4,11 +4,47 @@ const path = require('path');
 
 const { discoverAgentExtensions, discoverSlashCommands } = require('../slash-command-discovery.cjs');
 
+interface DiscoveredCommand {
+  command: string;
+  description: string;
+  label: string;
+  scope: string;
+  source: 'custom' | 'plugin' | 'skill';
+}
+
 function mkdirp(filePath) {
   fs.mkdirSync(filePath, { recursive: true });
 }
 
-function run() {
+async function withoutSyncFilesystem(
+  action: () => Promise<DiscoveredCommand[]>,
+): Promise<DiscoveredCommand[]> {
+  const methods = [
+    'accessSync',
+    'closeSync',
+    'existsSync',
+    'openSync',
+    'readFileSync',
+    'readSync',
+    'readdirSync',
+    'statSync',
+  ];
+  const originals = new Map(methods.map(method => [method, fs[method]]));
+  methods.forEach(method => {
+    fs[method] = () => {
+      throw new Error(`slash command discovery used synchronous filesystem method ${method}`);
+    };
+  });
+  try {
+    return await action();
+  } finally {
+    originals.forEach((original, method) => {
+      fs[method] = original;
+    });
+  }
+}
+
+async function run() {
   const tmpBase = path.resolve(__dirname, '..', '..', '.tmp');
   mkdirp(tmpBase);
   const tmpRoot = fs.mkdtempSync(path.join(tmpBase, 'slash-commands-'));
@@ -89,7 +125,9 @@ function run() {
       '',
     ].join('\n'));
 
-    const claudeCommands = discoverSlashCommands({ provider: 'claude', homeDir, workspace });
+    const claudeCommands = await withoutSyncFilesystem(() => (
+      discoverSlashCommands({ provider: 'claude', homeDir, workspace })
+    ));
     const names = claudeCommands.map(command => command.command);
     assert(names.includes('/workspace-skill'), 'workspace Claude skills should become slash commands');
     assert(names.includes('/home-skill'), 'home Claude skills should become slash commands');
@@ -99,7 +137,9 @@ function run() {
     assert(!names.includes('/bad name'), 'unsafe command names should be ignored');
     assert(!JSON.stringify(claudeCommands).includes('secret'), 'slash command discovery should not expose file contents');
 
-    const codexCommands = discoverSlashCommands({ provider: 'codex', homeDir, workspace });
+    const codexCommands = await withoutSyncFilesystem(() => (
+      discoverSlashCommands({ provider: 'codex', homeDir, workspace })
+    ));
     const codexNames = codexCommands.map(command => command.command);
     assert(codexNames.includes('$repo-skill'), 'repo Codex skills should become $skill mentions');
     assert(codexNames.includes('$home-codex'), 'home Codex skills should become $skill mentions');
@@ -110,11 +150,11 @@ function run() {
     )));
     assert(!JSON.stringify(codexCommands).includes('secret'), 'Codex skill discovery should not expose skill body text');
 
-    const codexExtensions = discoverAgentExtensions({
+    const codexExtensions = await withoutSyncFilesystem(() => discoverAgentExtensions({
       provider: 'codex',
       providerHomePath: path.join(homeDir, '.codex'),
       homeDir,
-    });
+    }));
     assert(codexExtensions.some(command => command.command === '$home-codex'));
     assert(codexExtensions.some(command => command.command === '$skill-creator'));
     assert(codexExtensions.some(command => (
@@ -132,19 +172,19 @@ function run() {
       '---',
       '',
     ].join('\n'));
-    const alternateCodexCommands = discoverSlashCommands({
+    const alternateCodexCommands = await withoutSyncFilesystem(() => discoverSlashCommands({
       provider: 'codex',
       providerHomePath: alternateCodexHome,
       homeDir,
       workspace,
-    });
+    }));
     assert(alternateCodexCommands.some(command => command.command === '$work-only'));
     assert(!alternateCodexCommands.some(command => command.command === '$pdf:pdf'));
 
-    const claudeExtensions = discoverAgentExtensions({
+    const claudeExtensions = await withoutSyncFilesystem(() => discoverAgentExtensions({
       provider: 'claude',
       providerHomePath: path.join(homeDir, '.claude'),
-    });
+    }));
     assert(claudeExtensions.some(command => command.command === '/home-skill'));
     assert(claudeExtensions.some(command => (
       command.command === 'plugin:review-tools' && command.source === 'plugin'
@@ -155,7 +195,10 @@ function run() {
     assert(!claudeExtensions.some(command => command.command === '/workspace-skill'));
     assert(!JSON.stringify(claudeExtensions).includes('secret'), 'Claude extension catalog should not expose skill body text');
 
-    assert.deepStrictEqual(discoverSlashCommands({ provider: 'unknown', homeDir, workspace }), []);
+    assert.deepStrictEqual(
+      await withoutSyncFilesystem(() => discoverSlashCommands({ provider: 'unknown', homeDir, workspace })),
+      [],
+    );
 
     console.log('test-slash-command-discovery passed');
   } finally {
@@ -163,4 +206,7 @@ function run() {
   }
 }
 
-run();
+run().catch(error => {
+  console.error(error);
+  process.exitCode = 1;
+});

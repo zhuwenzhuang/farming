@@ -258,7 +258,7 @@ import { AsyncCache } from './async-cache.cjs';
 import { getMainAgentSkillsCatalog } from './main-agent-skills.cjs';
 import { AgentExtensionInventory } from './agent-extension-inventory.cjs';
 import { AgentSessionInventory } from './agent-session-inventory.cjs';
-import { discoverSlashCommands } from './slash-command-discovery.cjs';
+import { createSlashCommandDiscoveryCache } from './slash-command-cache.cjs';
 import { agentExtensionInventoryCacheFile, agentSessionInventoryCacheFile } from './storage-layout.cjs';
 import { FarmingUpdateService } from './update-service.cjs';
 import { inputPartsFromMessage } from './input-parts.cjs';
@@ -564,6 +564,7 @@ const workspaceDiscoveryCache = new AsyncCache((key: string) => {
   ttlMs: 30_000,
   staleMs: 2 * 60_000,
 });
+const slashCommandDiscoveryCache = createSlashCommandDiscoveryCache({ ttlMs: 30_000 });
 
 const frontendDir = path.join(__dirname, '../frontend');
 const crtFrontendDir = path.join(frontendDir, 'skins', 'crt');
@@ -1090,7 +1091,7 @@ app.get(routePath(BASE_PATH, '/api/agent-extensions'), async (_req, res) => {
   }
 });
 
-app.get(routePath(BASE_PATH, '/api/slash-commands'), (req, res) => {
+app.get(routePath(BASE_PATH, '/api/slash-commands'), async (req, res) => {
   const provider = typeof req.query.provider === 'string' ? req.query.provider : '';
   const workspace = typeof req.query.workspace === 'string' ? req.query.workspace : '';
   const requested = requestedProviderHome(provider, req.query.homeId);
@@ -1098,13 +1099,18 @@ app.get(routePath(BASE_PATH, '/api/slash-commands'), (req, res) => {
     res.status(requested.status).json({ error: requested.error });
     return;
   }
-  res.json({
-    commands: discoverSlashCommands({
+  try {
+    const commands = await slashCommandDiscoveryCache.get({
       provider,
       providerHomePath: requested.home.path,
       workspace,
-    }),
-  });
+    });
+    res.json({ commands });
+  } catch (caught) {
+    const error = caughtError(caught);
+    console.error('Failed to discover slash commands:', error);
+    res.status(500).json({ error: error.message || 'Failed to discover slash commands' });
+  }
 });
 
 const IMAGE_ATTACHMENT_EXTENSIONS: Record<string, string> = {
