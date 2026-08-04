@@ -63,6 +63,8 @@ the visible content; the CRT Dashboard uses `all`. Clients that do not declare
 the scope retain `all` delivery. Widening preview interest or changing a focused
 target sends the current absolute preview checkpoint; when an Agent snapshot is
 already required or in progress, its completion performs that hydration instead.
+A `none` hydration performs no Agent inventory traversal, while `focused` reads
+one exact Agent; only `all` enumerates the complete preview inventory.
 A preview without an exact Agent identity is rejected with one bounded Server
 diagnostic rather than broadcast without an owner.
 

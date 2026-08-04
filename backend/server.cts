@@ -3856,6 +3856,14 @@ function sendPreviewIfInScope(ws: WebSocketClient, preview: ServerRecord) {
 }
 
 function sendPreviewHydration(ws: WebSocketClient) {
+  const scope = normalizeSessionPreviewScope(ws.previewScope);
+  if (scope === 'none') return;
+  if (scope === 'focused') {
+    if (!ws.focusedAgentId) return;
+    const preview = agentManager.getPreviewPayload(ws.focusedAgentId) as ServerRecord | null;
+    if (preview) sendPreviewIfInScope(ws, preview);
+    return;
+  }
   agentManager.getPreviewPayloads().forEach((preview: ServerRecord) => {
     sendPreviewIfInScope(ws, preview);
   });

@@ -10996,30 +10996,32 @@ class AgentManager extends EventEmitter {
     this.on('session-preview-update', callback);
   }
 
-  getPreviewPayloads() {
+  getPreviewPayload(agentId: AgentId): UnknownRecord | null {
+    const agent = this.agents.get(agentId);
+    if (!agent || (!agent.previewText && !agent.previewSnapshot)) return null;
+    const terminalStatus = deriveAgentTerminalStatus(agent, {
+      previewText: agent.previewText || '',
+      title: agent.sessionTitle || '',
+      terminalBusy: typeof agent.terminalBusy === 'boolean' ? agent.terminalBusy : null,
+    });
+    return {
+      agentId: agent.id,
+      previewText: agent.previewText || '',
+      cols: agent.previewCols || 80,
+      rows: agent.previewRows || 30,
+      previewSnapshot: agent.previewSnapshot || null,
+      codexTerminalProfile: activeCodexTerminalProfile(agent, agent.previewText || ''),
+      terminalStatus,
+      runtimeObservation: deriveRuntimeObservation({ ...agent, terminalStatus }),
+    };
+  }
+
+  getPreviewPayloads(): UnknownRecord[] {
     const previews: UnknownRecord[] = [];
-    for (const agent of this.agents.values()) {
-      if (!agent.previewText && !agent.previewSnapshot) {
-        continue;
-      }
-
-      const terminalStatus = deriveAgentTerminalStatus(agent, {
-        previewText: agent.previewText || '',
-        title: agent.sessionTitle || '',
-        terminalBusy: typeof agent.terminalBusy === 'boolean' ? agent.terminalBusy : null,
-      });
-      previews.push({
-        agentId: agent.id,
-        previewText: agent.previewText || '',
-        cols: agent.previewCols || 80,
-        rows: agent.previewRows || 30,
-        previewSnapshot: agent.previewSnapshot || null,
-        codexTerminalProfile: activeCodexTerminalProfile(agent, agent.previewText || ''),
-        terminalStatus,
-        runtimeObservation: deriveRuntimeObservation({ ...agent, terminalStatus }),
-      });
+    for (const agentId of this.agents.keys()) {
+      const preview = this.getPreviewPayload(agentId);
+      if (preview) previews.push(preview);
     }
-
     return previews;
   }
 }

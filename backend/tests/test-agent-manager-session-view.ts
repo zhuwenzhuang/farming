@@ -81,11 +81,13 @@ async function run() {
       terminalCodexView.codexTerminalProfile,
       'initial state should expose the same live Terminal profile as the session view'
     );
-    assert.deepStrictEqual(
-      manager.getPreviewPayloads().find(preview => preview.agentId === 'terminal-codex').codexTerminalProfile,
-      terminalCodexView.codexTerminalProfile,
-      'preview hydration should carry the live Terminal profile'
-    );
+    const focusedPreview = manager.getPreviewPayload('terminal-codex');
+    const enumeratedPreview = manager.getPreviewPayloads().find(preview => preview.agentId === 'terminal-codex');
+    assert.deepStrictEqual(enumeratedPreview, focusedPreview);
+    assert.deepStrictEqual(focusedPreview?.codexTerminalProfile, terminalCodexView.codexTerminalProfile);
+    assert.strictEqual(manager.getPreviewPayload('missing-agent'), null);
+    manager.agents.set('no-preview', { id: 'no-preview' });
+    assert.strictEqual(manager.getPreviewPayload('no-preview'), null);
     manager.agents.get('terminal-codex').previewText = 'Select Model and Effort\n  1. gpt-5.5\n  2. gpt-5.6-sol';
     assert.deepStrictEqual(
       manager.getState().agents.find(agent => agent.id === 'terminal-codex').codexTerminalProfile,

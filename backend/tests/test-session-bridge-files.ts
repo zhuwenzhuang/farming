@@ -136,6 +136,8 @@ function run() {
       server.includes('sessionPreviewScopeIncludesAgent(ws.previewScope, ws.focusedAgentId, previewAgentId)') &&
       server.includes('sessionPreviewScopeCheckpointRequired(') &&
       server.includes('sendPreviewHydration(ws)') &&
+      server.includes("if (scope === 'none') return;") &&
+      server.includes('agentManager.getPreviewPayload(ws.focusedAgentId)') &&
       server.includes('Ignoring Session preview without an exact Agent identity') &&
       sessionPreviewDelivery.includes("normalizedScope === 'none'") &&
       sessionPreviewDelivery.includes("normalizedScope !== 'focused'"),
