@@ -33,6 +33,9 @@ Keyboard 与 Empty State Contract。Extension-specific Style 只用于 Browser �
 Viewer Access 必须经过同一个已授权 Resource Identity。Preview 或 Streaming Path 不能形成
 独立的 File、Browser 或 Desktop Authority。
 
+当同一 Agent 拥有多个同类 Active Resource 时，紧凑 Preview 可以重叠展示，但每个可见
+Preview 都必须标识并打开其精确 Resource。
+
 ## Ownership 与生命周期
 
 每个 Live Resource 都有一个稳定 ID、一个精确 Owner 与一个 Authorization Scope。具体状态与

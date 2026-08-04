@@ -6436,6 +6436,12 @@ body.code-mode .code-instance-name {
   -webkit-backdrop-filter: blur(14px) saturate(1.08);
 }
 
+@media (min-width: 701px) {
+  .code-main:has(.farming-browser-activity-preview-stack) .code-agent-transcript-plan-driver {
+    right: 274px;
+  }
+}
+
 .code-agent-transcript-plan-driver-summary {
   width: 100%;
   min-height: 24px;

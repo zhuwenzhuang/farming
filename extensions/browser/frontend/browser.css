@@ -278,11 +278,20 @@
   line-height: 16px;
 }
 
-.farming-browser-activity-preview {
+.farming-browser-activity-preview-stack {
   position: absolute;
   top: 54px;
   right: 22px;
   z-index: 18;
+  width: 240px;
+  height: calc(166px + var(--browser-preview-offset));
+}
+
+.farming-browser-activity-preview {
+  position: absolute;
+  top: calc(var(--browser-preview-index) * 30px);
+  left: 0;
+  z-index: calc(var(--browser-preview-index) + 1);
   width: 240px;
   overflow: hidden;
   border: 1px solid #d8dcd4;
@@ -301,18 +310,30 @@
   color: #424941;
 }
 
-.farming-browser-activity-preview > header strong {
+.farming-browser-activity-title {
   min-width: 0;
   flex: 1;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
   overflow: hidden;
+  cursor: pointer;
   font-size: 12px;
   font-weight: 500;
   line-height: 1;
+  text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.farming-browser-activity-preview > header button {
+.farming-browser-activity-title:focus-visible {
+  border-radius: 3px;
+  outline: 2px solid rgba(47, 111, 214, 0.45);
+  outline-offset: 2px;
+}
+
+.farming-browser-activity-close {
   width: 22px;
   height: 22px;
   padding: 0;
@@ -324,8 +345,8 @@
   cursor: pointer;
 }
 
-.farming-browser-activity-preview > header button:hover,
-.farming-browser-activity-preview > header button:focus-visible {
+.farming-browser-activity-close:hover,
+.farming-browser-activity-close:focus-visible {
   background: #eef0eb;
   color: #252a25;
   outline: none;
@@ -438,12 +459,12 @@ body.code-mode[data-appearance='dark'] .farming-browser-placeholder button {
   color: #d7dcd5;
 }
 
-.code-mode[data-appearance='dark'] .farming-browser-activity-preview > header button {
+.code-mode[data-appearance='dark'] .farming-browser-activity-close {
   color: #9da59c;
 }
 
-.code-mode[data-appearance='dark'] .farming-browser-activity-preview > header button:hover,
-.code-mode[data-appearance='dark'] .farming-browser-activity-preview > header button:focus-visible {
+.code-mode[data-appearance='dark'] .farming-browser-activity-close:hover,
+.code-mode[data-appearance='dark'] .farming-browser-activity-close:focus-visible {
   background: #343834;
   color: #f0f2ef;
 }
@@ -455,7 +476,7 @@ body.code-mode[data-appearance='dark'] .farming-browser-placeholder button {
 }
 
 @media (max-width: 700px) {
-  .farming-browser-activity-preview {
+  .farming-browser-activity-preview-stack {
     display: none;
   }
 

@@ -613,7 +613,7 @@ export function CodeMainArea({
   const [terminalComposerCollapsed, setTerminalComposerCollapsed] = useState(readTerminalComposerCollapsed)
   const [chatComposerCollapseRequested, setChatComposerCollapseRequested] = useState(false)
   const [runtimeSwitchExpandedAgentId, setRuntimeSwitchExpandedAgentId] = useState<string | null>(null)
-  const [dismissedBrowserPreviewKey, setDismissedBrowserPreviewKey] = useState('')
+  const [dismissedBrowserPreviewKeys, setDismissedBrowserPreviewKeys] = useState<Set<string>>(() => new Set())
   const previousActiveRuntimeRef = useRef<{ agentId: string | null; kind: 'acp' | 'terminal' | null }>({
     agentId: null,
     kind: null,
@@ -661,14 +661,12 @@ export function CodeMainArea({
     && !computerWorkspaceVisible
     && !(showFileEditor && openWorkspaceFile)
   const acpComposerActive = isAcpRuntime(activeAgent)
-  const activeBrowserPreview = activeAgent
+  const activeBrowserPreviews = activeAgent
     ? (browserController.byAgentId.get(activeAgent.id) ?? [])
       .filter(resource => resource.status === 'running')
-      .sort((left, right) => right.updatedAt - left.updatedAt)[0] ?? null
-    : null
-  const activeBrowserPreviewKey = activeBrowserPreview
-    ? `${activeBrowserPreview.id}:${activeBrowserPreview.generation}`
-    : ''
+      .filter(resource => !dismissedBrowserPreviewKeys.has(`${resource.id}:${resource.generation}`))
+      .sort((left, right) => left.updatedAt - right.updatedAt)
+    : []
   const browserOwnerAgent = activeBrowserResource?.ownerType === 'agent'
     ? openAgents.find(agent => agent.id === activeBrowserResource.ownerAgentId) || null
     : null
@@ -958,13 +956,16 @@ export function CodeMainArea({
       </div>
 
       {agentWorkspaceVisible
-        && activeBrowserPreview
-        && activeBrowserPreviewKey !== dismissedBrowserPreviewKey ? (
+        && activeBrowserPreviews.length > 0 ? (
           <BrowserActivityPreview
-            resource={activeBrowserPreview}
+            resources={activeBrowserPreviews}
             language={language}
-            onOpen={() => onOpenBrowserResource(activeBrowserPreview)}
-            onDismiss={() => setDismissedBrowserPreviewKey(activeBrowserPreviewKey)}
+            onOpen={onOpenBrowserResource}
+            onDismiss={resource => setDismissedBrowserPreviewKeys(current => {
+              const next = new Set(current)
+              next.add(`${resource.id}:${resource.generation}`)
+              return next
+            })}
           />
         ) : null}
 

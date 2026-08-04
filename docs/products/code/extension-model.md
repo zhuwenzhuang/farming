@@ -37,6 +37,9 @@ Viewer access must pass through the same authorized Resource identity. Preview
 or streaming paths must not create an independent file, browser, or desktop
 authority.
 
+When one Agent owns several active Resources of the same kind, compact previews
+may overlap, but every visible preview must identify and open its exact Resource.
+
 ## Ownership And Lifecycle
 
 Each live Resource has one stable id, one exact owner, and one authorization

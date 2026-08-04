@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type CSSProperties } from 'react'
 import { appPath } from '@/lib/base-path'
 import type { UiPreferences } from '@/lib/ui-preferences'
 import type { BrowserResource } from './types'
@@ -19,18 +19,53 @@ function previewCopy(language: UiPreferences['language']) {
 }
 
 export function BrowserActivityPreview({
-  resource,
+  resources,
   language,
   onOpen,
   onDismiss,
 }: {
-  resource: BrowserResource
+  resources: BrowserResource[]
   language: UiPreferences['language']
+  onOpen: (resource: BrowserResource) => void
+  onDismiss: (resource: BrowserResource) => void
+}) {
+  const copy = previewCopy(language)
+
+  return (
+    <section
+      className="farming-browser-activity-preview-stack"
+      data-testid="farming-browser-activity-preview"
+      style={{ '--browser-preview-offset': `${Math.max(0, resources.length - 1) * 30}px` } as CSSProperties}
+    >
+      {resources.map((resource, index) => (
+        <BrowserActivityPreviewCard
+          key={`${resource.id}:${resource.generation}`}
+          resource={resource}
+          copy={copy}
+          index={index}
+          onOpen={() => onOpen(resource)}
+          onDismiss={() => onDismiss(resource)}
+        />
+      ))}
+    </section>
+  )
+}
+
+function BrowserActivityPreviewCard({
+  resource,
+  copy,
+  index,
+  onOpen,
+  onDismiss,
+}: {
+  resource: BrowserResource
+  copy: ReturnType<typeof previewCopy>
+  index: number
   onOpen: () => void
   onDismiss: () => void
 }) {
-  const copy = previewCopy(language)
   const [frame, setFrame] = useState('')
+  const title = resource.title || resource.name
 
   useEffect(() => {
     if (resource.status !== 'running') {
@@ -67,13 +102,31 @@ export function BrowserActivityPreview({
   return (
     <aside
       className="farming-browser-activity-preview"
-      data-testid="farming-browser-activity-preview"
-      aria-label={copy.open}
+      data-testid="farming-browser-activity-preview-card"
+      data-browser-resource-id={resource.id}
+      aria-label={title}
+      style={{ '--browser-preview-index': index } as CSSProperties}
     >
       <header>
         <span className="farming-browser-activity-dot" aria-hidden="true" />
-        <strong title={resource.title || resource.name}>{resource.title || resource.name}</strong>
-        <button type="button" aria-label={copy.close} title={copy.close} onClick={onDismiss}>×</button>
+        <button
+          type="button"
+          className="farming-browser-activity-title"
+          aria-label={`${copy.open}: ${title}`}
+          title={`${copy.open}: ${title}`}
+          onClick={onOpen}
+        >
+          {title}
+        </button>
+        <button
+          type="button"
+          className="farming-browser-activity-close"
+          aria-label={copy.close}
+          title={copy.close}
+          onClick={onDismiss}
+        >
+          ×
+        </button>
       </header>
       <button
         type="button"

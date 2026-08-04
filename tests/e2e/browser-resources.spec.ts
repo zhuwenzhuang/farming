@@ -362,7 +362,7 @@ test('mounts Agent-owned Browsers behind nested resource controls without layout
   }).toBe('stopped')
 })
 
-test('shows a passive active-Agent Browser preview and opens the full Viewer on demand', async ({
+test('stacks active-Agent Browser previews and opens the selected Viewer on demand', async ({
   page,
   workspaceRoot,
 }, testInfo) => {
@@ -374,7 +374,7 @@ test('shows a passive active-Agent Browser preview and opens the full Viewer on 
   expect(enableResponse.ok()).toBeTruthy()
   await openFarming(page)
   const agentResponse = await page.request.post('/farming/api/control/agents', {
-    data: { command: 'codex', workspace },
+    data: { command: 'bash', workspace },
   })
   const agent = await agentResponse.json() as { agentId?: string, error?: string }
   expect(agentResponse.ok(), agent.error || 'Failed to create preview Agent').toBeTruthy()
@@ -387,7 +387,7 @@ test('shows a passive active-Agent Browser preview and opens the full Viewer on 
     data: {
       rootId: projectFilesWorkspaceId(workspace),
       agentId,
-      name: 'Live Browser work',
+      name: 'First Browser work',
       url: targetUrl,
     },
   })
@@ -396,26 +396,68 @@ test('shows a passive active-Agent Browser preview and opens the full Viewer on 
   const startResponse = await page.request.post(`/farming/api/browsers/${createdBrowser.id}/start`)
   expect(startResponse.ok()).toBeTruthy()
 
+  const popupResponse = await page.request.post(`/farming/api/browsers/${createdBrowser.id}/action`, {
+    data: { kind: 'click', selector: '#new-tab' },
+  })
+  expect(popupResponse.ok()).toBeTruthy()
+  let secondBrowserId = ''
+  await expect.poll(async () => {
+    const response = await page.request.get('/farming/api/browsers')
+    const snapshot = await response.json() as {
+      resources: Array<{ id: string, ownerAgentId: string, status: string }>
+    }
+    secondBrowserId = snapshot.resources.find(resource => (
+      resource.id !== createdBrowser.id
+      && resource.ownerAgentId === agentId
+      && resource.status === 'running'
+    ))?.id || ''
+    return secondBrowserId
+  }).not.toBe('')
+
   const preview = page.getByTestId('farming-browser-activity-preview')
   await expect(preview).toBeVisible({ timeout: 30_000 })
-  await expect(preview.locator('img')).toBeVisible({ timeout: 30_000 })
+  const previewCards = preview.getByTestId('farming-browser-activity-preview-card')
+  await expect(previewCards).toHaveCount(2)
+  await expect(previewCards.last().locator('img')).toBeVisible({ timeout: 30_000 })
+  const firstBrowserCard = preview.locator(`[data-browser-resource-id="${createdBrowser.id}"]`)
+  const secondBrowserCard = preview.locator(`[data-browser-resource-id="${secondBrowserId}"]`)
+  await expect(firstBrowserCard).toHaveCount(1)
+  await expect(secondBrowserCard).toHaveCount(1)
+  await expect(firstBrowserCard.locator('.farming-browser-activity-title')).toHaveText('Browser Interaction Lab')
+  await expect(secondBrowserCard.locator('.farming-browser-activity-title')).toHaveText('Popup destination')
   const previewBox = await preview.boundingBox()
   expect(previewBox?.width).toBeGreaterThanOrEqual(230)
   expect(previewBox?.width).toBeLessThanOrEqual(250)
-  expect(previewBox?.height).toBeLessThan(190)
+  expect(previewBox?.height).toBeGreaterThan(190)
+  expect(previewBox?.height).toBeLessThan(230)
+  await page.getByTestId('code-main').evaluate(element => {
+    const plan = document.createElement('aside')
+    plan.className = 'code-agent-transcript-plan-driver'
+    plan.dataset.testid = 'synthetic-plan-driver'
+    plan.textContent = 'Plan'
+    element.append(plan)
+  })
+  const plan = page.getByTestId('synthetic-plan-driver')
+  const planBox = await plan.boundingBox()
+  if (!previewBox || !planBox) throw new Error('Browser preview and Plan must have measurable bounds')
+  expect(planBox.x + planBox.width).toBeLessThanOrEqual(previewBox.x - 10)
   const previewScreenshot = testInfo.outputPath('agent-browser-activity-preview.png')
   await page.getByTestId('code-main').screenshot({ path: previewScreenshot })
   await testInfo.attach('agent-browser-activity-preview', {
     path: previewScreenshot,
     contentType: 'image/png',
   })
+  await plan.evaluate(element => element.remove())
 
-  await preview.locator('.farming-browser-activity-frame').click()
+  await firstBrowserCard.locator('.farming-browser-activity-title').click()
   const viewer = page.getByTestId('farming-browser-viewer')
   await expect(viewer).toBeVisible()
+  await expect(viewer.getByRole('textbox', { name: 'Browser address' })).toHaveValue(targetUrl)
   await viewer.getByRole('button', { name: 'Back to Agent' }).click()
   await expect(preview).toBeVisible()
-  await preview.getByRole('button', { name: 'Hide browser preview' }).click()
+  await firstBrowserCard.getByRole('button', { name: 'Hide browser preview' }).click()
+  await expect(previewCards).toHaveCount(1)
+  await previewCards.getByRole('button', { name: 'Hide browser preview' }).click()
   await expect(preview).toHaveCount(0)
 
   const resourcesResponse = await page.request.get('/farming/api/browsers')
@@ -423,6 +465,8 @@ test('shows a passive active-Agent Browser preview and opens the full Viewer on 
     resources: Array<{ id: string, status: string }>
   }
   expect(resourcesSnapshot.resources.find(resource => resource.id === createdBrowser.id)?.status)
+    .toBe('running')
+  expect(resourcesSnapshot.resources.find(resource => resource.id === secondBrowserId)?.status)
     .toBe('running')
 })
 
