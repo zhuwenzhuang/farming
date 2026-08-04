@@ -1463,6 +1463,23 @@ class FakeAgent implements Agent {
       });
       return { stopReason: 'end_turn' };
     }
+    if (promptText.includes('progressive answer stream')) {
+      const answer = Array.from(
+        { length: 10 },
+        (_, index) => `Visible segment ${String(index + 1).padStart(2, '0')} stays continuous and preserves the exact final transcript.`,
+      ).join(' ');
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          messageId: 'progressive-answer-stream',
+          content: { type: 'text', text: answer },
+          _meta: { codex: { phase: 'final_answer' } },
+        },
+      });
+      await new Promise(resolve => setTimeout(resolve, 2_500));
+      return { stopReason: 'end_turn' };
+    }
     if (promptText.includes('scroll stability')) {
       const opening = Array.from(
         { length: 48 },

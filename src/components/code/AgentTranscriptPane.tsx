@@ -227,6 +227,103 @@ function initialTranscriptTurnLimit(source: AgentTranscriptPaneProps['source']) 
 }
 const TRANSCRIPT_LOAD_MORE_THRESHOLD = 72
 const TRANSCRIPT_BOTTOM_FOLLOW_THRESHOLD = 96
+const TRANSCRIPT_ANSWER_REVEAL_INTERVAL_MS = 50
+
+function transcriptAnswerRevealBatchSize(backlog: number) {
+  if (backlog > 480) return 6
+  if (backlog > 160) return 4
+  if (backlog > 48) return 3
+  return 2
+}
+
+function useProgressiveTranscriptText(targetText: string, revealProgressively: boolean) {
+  const initialText = revealProgressively ? '' : targetText
+  const [visibleText, setVisibleText] = useState(initialText)
+  const visibleTextRef = useRef(initialText)
+  const targetTextRef = useRef(targetText)
+  const reducedMotionRef = useRef(false)
+  const timerRef = useRef<number | null>(null)
+
+  const stopPump = useCallback(() => {
+    if (timerRef.current === null) return
+    window.clearInterval(timerRef.current)
+    timerRef.current = null
+  }, [])
+
+  const setVisible = useCallback((text: string) => {
+    visibleTextRef.current = text
+    setVisibleText(text)
+  }, [])
+
+  const snapToTarget = useCallback(() => {
+    stopPump()
+    setVisible(targetTextRef.current)
+  }, [setVisible, stopPump])
+
+  const startPump = useCallback(() => {
+    if (timerRef.current !== null) return
+    timerRef.current = window.setInterval(() => {
+      const target = targetTextRef.current
+      const visible = visibleTextRef.current
+      if (target === visible) {
+        stopPump()
+        return
+      }
+      if (
+        reducedMotionRef.current
+        || document.visibilityState === 'hidden'
+        || !target.startsWith(visible)
+      ) {
+        snapToTarget()
+        return
+      }
+      const pending = Array.from(target.slice(visible.length))
+      const batchSize = transcriptAnswerRevealBatchSize(pending.length)
+      const next = visible + pending.slice(0, batchSize).join('')
+      setVisible(next)
+      if (next === target) {
+        stopPump()
+      }
+    }, TRANSCRIPT_ANSWER_REVEAL_INTERVAL_MS)
+  }, [setVisible, snapToTarget, stopPump])
+
+  useEffect(() => {
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)')
+    const reconcileMotion = () => {
+      reducedMotionRef.current = reducedMotion.matches
+      if (reducedMotion.matches || document.visibilityState === 'hidden') snapToTarget()
+    }
+    reconcileMotion()
+    reducedMotion.addEventListener('change', reconcileMotion)
+    document.addEventListener('visibilitychange', reconcileMotion)
+    return () => {
+      reducedMotion.removeEventListener('change', reconcileMotion)
+      document.removeEventListener('visibilitychange', reconcileMotion)
+    }
+  }, [snapToTarget])
+
+  useEffect(() => {
+    targetTextRef.current = targetText
+    const visible = visibleTextRef.current
+    if (targetText === visible) {
+      return
+    }
+    if (
+      reducedMotionRef.current
+      || document.visibilityState === 'hidden'
+      || !targetText.startsWith(visible)
+      || !revealProgressively
+    ) {
+      snapToTarget()
+      return
+    }
+    startPump()
+  }, [revealProgressively, snapToTarget, startPump, targetText])
+
+  useEffect(() => () => stopPump(), [stopPump])
+
+  return visibleText
+}
 
 function durationLabel(durationMs: number | null | undefined) {
   // ACP does not carry historical turn timestamps. Farming only measures a
@@ -2572,6 +2669,7 @@ function AgentTranscriptTurnView({
   setOpenCollaborationActivityIds,
   onFork,
   showLiveActivity,
+  progressivelyRevealAnswer,
 }: {
   turn: AgentTranscriptTurn
   copy: CodeCopy
@@ -2598,6 +2696,7 @@ function AgentTranscriptTurnView({
   setOpenCollaborationActivityIds: Dispatch<SetStateAction<Set<string>>>
   onFork?: () => Promise<void> | void
   showLiveActivity: boolean
+  progressivelyRevealAnswer: boolean
 }) {
   const turnRef = useRef<HTMLElement | null>(null)
   const [loadedProcessDetails, setLoadedProcessDetails] = useState<Record<string, AgentTranscriptProcessPresentation>>({})
@@ -2669,6 +2768,7 @@ function AgentTranscriptTurnView({
     : undefined
   const compactViewport = isCompactViewport()
   const answerMessage = useMemo(() => stripRawMemoryCitation(turn.finalMessage), [turn.finalMessage])
+  const visibleAnswerMessage = useProgressiveTranscriptText(answerMessage, progressivelyRevealAnswer)
   const shouldShowWaiting = turn.status === 'inProgress'
     && !answerMessage
     && compactProcess.items.length === 0
@@ -3150,13 +3250,13 @@ function AgentTranscriptTurnView({
         </div>
       ) : null}
 
-      {answerMessage || resultImages.length > 0 || resultAudios.length > 0 || resultFiles.length > 0 ? (
+      {visibleAnswerMessage || resultImages.length > 0 || resultAudios.length > 0 || resultFiles.length > 0 ? (
         <div className="code-agent-transcript-answer">
-          {answerMessage ? (
+          {visibleAnswerMessage ? (
             <div className="code-agent-transcript-assistant code-markdown-preview">
               <LocalErrorBoundary
                 label="transcript answer Markdown"
-                resetKey={answerMessage}
+                resetKey={visibleAnswerMessage}
                 fallback={(_error, retry) => (
                   <>
                     <TranscriptLocalErrorFallback
@@ -3164,7 +3264,7 @@ function AgentTranscriptTurnView({
                       onRetry={retry}
                       testId="code-agent-transcript-markdown-render-error"
                     />
-                    <pre>{answerMessage}</pre>
+                    <pre>{visibleAnswerMessage}</pre>
                   </>
                 )}
               >
@@ -3176,7 +3276,7 @@ function AgentTranscriptTurnView({
                     skipHtml
                     urlTransform={agentTranscriptUrlTransform}
                   >
-                    {answerMessage}
+                    {visibleAnswerMessage}
                   </ReactMarkdown>
                 </LocalRenderFault>
               </LocalErrorBoundary>
@@ -4126,6 +4226,11 @@ export function AgentTranscriptPane({
                       && index === turns.length - 1
                       && turn.status === 'inProgress'
                       && transcript?.state === 'working'
+                    }
+                    progressivelyRevealAnswer={
+                      source === 'acp'
+                      && index === turns.length - 1
+                      && turn.status === 'inProgress'
                     }
                     onFork={index === turns.length - 1 && turn.status !== 'inProgress' ? onForkLatest : undefined}
                   />

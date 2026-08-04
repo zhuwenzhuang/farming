@@ -135,6 +135,10 @@ Live Transcript Revision 在已有读取进行中时进入合并队列，而不�
 更新也能不断落屏，不必等待静默窗口。新出现的中间消息使用短促且有上限的揭示动画；多条消息
 并行揭示，Reduced Motion 会关闭动画。Reasoning 展开内容不再重复已经作为折叠标题的首行。
 
+最新 Live Answer 将权威 Transcript 正文与当前可见前缀分开，并按有界的阅读节奏释放新正文。
+Turn 完成时取消尚未完成的揭示并立即显示权威全文。Navigation 或 Recovery 后，已稳定的
+Answer 首次挂载即完整显示；Reduced Motion 或页面隐藏时跳过渐进揭示。
+
 Composer 保留 Draft、IME、Attachment、Queue/Steer、Permission 与协商配置。Reload 可以把
 未完成 Submission 恢复成需要对账的可见条目，但绝不能自动再次提交。
 

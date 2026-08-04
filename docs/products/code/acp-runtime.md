@@ -178,6 +178,12 @@ short, bounded reveal; multiple arrivals reveal in parallel and reduced-motion
 preferences disable the effect. Expanded reasoning omits a leading line that
 already serves as its folded title.
 
+The latest live answer keeps authoritative transcript text separate from its
+visible prefix and drains new text at a bounded reading cadence. Completion
+cancels any remaining reveal and immediately publishes the authoritative
+result. A settled answer mounts in full after navigation or recovery, while
+reduced motion or a hidden page skips the progressive reveal.
+
 The Composer preserves drafts, IME behavior, attachments, queue/steer controls,
 permissions, and negotiated configuration. Reload may restore an unresolved
 submission as a visible item requiring reconciliation, but never resubmits it
