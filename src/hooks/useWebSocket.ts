@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback, useState } from 'react'
-import type { Agent, TaskHistoryEntry } from '@/types/agent'
+import type { Agent, ProjectAgentSummary, TaskHistoryEntry } from '@/types/agent'
 import type { ClientMessage, ComposerInputAttachment, ComposerInputMessage, ServerMessage, StartAgentMessage, WorkspaceFileEventMessage } from '@/types/messages'
 import { appWsUrl } from '@/lib/base-path'
 import { setTerminalSessionTransport } from '@/lib/terminal-session-client'
@@ -67,6 +67,7 @@ export interface WebSocketState {
   errorId: number
   lastStartedAgentId: string | null
   projectWorkspaces: string[] | null
+  projectAgentSummaries: ProjectAgentSummary[]
   pinnedProjectWorkspaces: string[] | null
   browserResources: BrowserResourceState | null
   computerResources: ComputerResourceState | null
@@ -127,6 +128,7 @@ export function useWebSocket() {
     errorId: 0,
     lastStartedAgentId: null,
     projectWorkspaces: null,
+    projectAgentSummaries: [],
     pinnedProjectWorkspaces: null,
     browserResources: null,
     computerResources: null,
@@ -720,6 +722,9 @@ export function useWebSocket() {
                 const nextProjectWorkspaces = Array.isArray(msg.state.projectWorkspaces)
                   ? msg.state.projectWorkspaces
                   : prev.projectWorkspaces
+                const nextProjectAgentSummaries = Array.isArray(msg.state.projectAgentSummaries)
+                  ? msg.state.projectAgentSummaries
+                  : prev.projectAgentSummaries
                 const nextPinnedProjectWorkspaces = Array.isArray(msg.state.pinnedProjectWorkspaces)
                   ? msg.state.pinnedProjectWorkspaces
                   : prev.pinnedProjectWorkspaces
@@ -729,6 +734,8 @@ export function useWebSocket() {
                   && !sameStringArray(nextMainPageSessionKeys, prev.mainPageSessionKeys)
                 const projectWorkspacesChanged = nextProjectWorkspaces !== prev.projectWorkspaces
                   && (prev.projectWorkspaces === null || !sameStringArray(nextProjectWorkspaces ?? [], prev.projectWorkspaces))
+                const projectAgentSummariesChanged = nextProjectAgentSummaries !== prev.projectAgentSummaries
+                  && !sameJsonValue(nextProjectAgentSummaries, prev.projectAgentSummaries)
                 const pinnedProjectWorkspacesChanged = nextPinnedProjectWorkspaces !== prev.pinnedProjectWorkspaces
                   && (prev.pinnedProjectWorkspaces === null || !sameStringArray(nextPinnedProjectWorkspaces ?? [], prev.pinnedProjectWorkspaces))
 
@@ -737,6 +744,7 @@ export function useWebSocket() {
                   && !taskHistoryChanged
                   && !mainPageSessionKeysChanged
                   && !projectWorkspacesChanged
+                  && !projectAgentSummariesChanged
                   && !pinnedProjectWorkspacesChanged
                   && nextMainAgentId === prev.mainAgentId
                   && prev.agentInventoryComplete === !snapshotTransition.cursor
@@ -751,6 +759,9 @@ export function useWebSocket() {
                   taskHistory: taskHistoryChanged ? nextTaskHistory : prev.taskHistory,
                   mainPageSessionKeys: mainPageSessionKeysChanged ? nextMainPageSessionKeys : prev.mainPageSessionKeys,
                   projectWorkspaces: projectWorkspacesChanged ? nextProjectWorkspaces : prev.projectWorkspaces,
+                  projectAgentSummaries: projectAgentSummariesChanged
+                    ? nextProjectAgentSummaries
+                    : prev.projectAgentSummaries,
                   pinnedProjectWorkspaces: pinnedProjectWorkspacesChanged
                     ? nextPinnedProjectWorkspaces
                     : prev.pinnedProjectWorkspaces,

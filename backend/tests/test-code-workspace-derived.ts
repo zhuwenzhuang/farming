@@ -137,6 +137,34 @@ function run() {
   assert.strictEqual(persistedEmptyProjects[0].agents.length, 0);
   assert.strictEqual(persistedEmptyProjects[0].hasOpenFile, undefined);
   assert.strictEqual(Object.hasOwn(persistedEmptyProjects[0], 'fileAgentId'), false);
+  const summarizedProjects = projectListProjectsForAgents(
+    [],
+    [],
+    {},
+    [],
+    [],
+    [],
+    [],
+    [{
+      workspace: '/summary-only',
+      agentCount: 42,
+      activeCount: 7,
+      unreadCount: 3,
+      zombieCount: 2,
+      maxAttentionScore: 88,
+    }],
+  );
+  assert.strictEqual(summarizedProjects.length, 1);
+  assert.strictEqual(summarizedProjects[0].workspace, '/summary-only');
+  assert.strictEqual(summarizedProjects[0].agents.length, 0);
+  assert.deepStrictEqual(summarizedProjects[0].agentSummary, {
+    workspace: '/summary-only',
+    agentCount: 42,
+    activeCount: 7,
+    unreadCount: 3,
+    zombieCount: 2,
+    maxAttentionScore: 88,
+  });
   const rootProject = projectListProjectsForAgents([], [], {}, [], [], ['/']);
   assert.strictEqual(rootProject.length, 1);
   assert.strictEqual(rootProject[0].workspace, '/');

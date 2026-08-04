@@ -278,6 +278,7 @@ import {
   agentStateBroadcastSnapshot,
   agentStateSnapshotFrames,
   createAgentStateBroadcastTracker,
+  projectAgentSummaries,
   type AgentStatePayload,
 } from './agent-state-broadcast-protocol.cjs';
 import {
@@ -304,6 +305,7 @@ import { decodeAcpTranscriptMedia } from './acp-transcript.cjs';
 import { coalesceSessionStream, deliverSessionStreamToClients, shouldBroadcastSessionStreamImmediately } from './session-stream-protocol.cjs';
 const {
   MIN_PROTOCOL_VERSION,
+  PROJECT_ATTENTION_SCORE_MAX,
   PROTOCOL_VERSION,
   protocolCompatible,
   sanitizeAgentUpdatePatch,
@@ -3690,7 +3692,10 @@ function sendState(ws: WebSocketClient) {
   }
   const snapshotId = `${SERVER_EPOCH}:${stateBroadcastTracker.sequence}:${++stateSnapshotSerial}`;
   const frames = agentStateSnapshotFrames(
-    state,
+    {
+      ...state,
+      projectAgentSummaries: projectAgentSummaries(state.agents, PROJECT_ATTENTION_SCORE_MAX),
+    },
     snapshotId,
     INITIAL_AGENT_STATE_SNAPSHOT_PAGE_SIZE,
     AGENT_STATE_SNAPSHOT_PAGE_SIZE,

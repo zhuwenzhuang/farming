@@ -31,6 +31,16 @@ type WireFrame = {
   snapshotId: string
   snapshotOffset: number
   statePageAgentCount: number
+  stateAgentIds: string[]
+  projectAgentSummaries: Array<{
+    activeCount: number
+    agentCount: number
+    maxAttentionScore: number
+    unreadCount: number
+    workspace: string
+    zombieCount: number
+  }>
+  upsertAgentIds: string[]
   upsertCount: number
 }
 
@@ -74,7 +84,10 @@ function trackWireFrames(page: Page) {
     try {
       const message = JSON.parse(text) as {
         type?: string
-        state?: { agents?: Array<{ id?: string; isMain?: boolean }> }
+        state?: {
+          agents?: Array<{ id?: string; isMain?: boolean }>
+          projectAgentSummaries?: WireFrame['projectAgentSummaries']
+        }
         snapshot?: { complete?: boolean; id?: string; offset?: number }
         upserts?: Array<{ id?: string; isMain?: boolean }>
         removedAgentIds?: string[]
@@ -107,6 +120,15 @@ function trackWireFrames(page: Page) {
         snapshotId: message.snapshot?.id || '',
         snapshotOffset: message.snapshot?.offset ?? -1,
         statePageAgentCount: message.type === 'state' ? message.state?.agents?.length ?? 0 : 0,
+        stateAgentIds: message.type === 'state'
+          ? message.state?.agents?.flatMap(agent => agent.id ? [agent.id] : []) ?? []
+          : [],
+        projectAgentSummaries: message.type === 'state'
+          ? message.state?.projectAgentSummaries ?? []
+          : [],
+        upsertAgentIds: message.type === 'state-delta'
+          ? message.upserts?.flatMap(agent => agent.id ? [agent.id] : []) ?? []
+          : [],
         upsertCount: message.type === 'state-delta' ? message.upserts?.length ?? 0 : 0,
       })
     } catch {
@@ -120,6 +142,9 @@ function trackWireFrames(page: Page) {
         snapshotId: '',
         snapshotOffset: -1,
         statePageAgentCount: 0,
+        stateAgentIds: [],
+        projectAgentSummaries: [],
+        upsertAgentIds: [],
         upsertCount: 0,
       })
     }
@@ -316,17 +341,23 @@ test(`characterizes Code workspace scaling through ${AGENT_COUNTS.at(-1)} live A
 test('restores a large Agent inventory through progressive authoritative pages', async ({ page, workspaceRoot }) => {
   test.setTimeout(240_000)
   const workspace = path.join(workspaceRoot, 'progressive-agent-snapshot')
+  const secondaryWorkspace = path.join(workspaceRoot, 'progressive-agent-snapshot-secondary')
   fs.mkdirSync(workspace, { recursive: true })
+  fs.mkdirSync(secondaryWorkspace, { recursive: true })
   const targetCount = 70
-  const initialAgentIds = await createBashAgents(page, workspace, targetCount)
+  const primaryAgentIds = await createBashAgents(page, workspace, 40)
+  const secondaryAgentIds = await createBashAgents(page, secondaryWorkspace, 30)
+  const initialAgentIds = [...primaryAgentIds, ...secondaryAgentIds]
   const mutatedAgentId = initialAgentIds.at(-1) || ''
-  await page.addInitScript(({ mutationAgentId }) => {
+  await page.addInitScript(({ mutationAgentId, summaryProjectId }) => {
     type SnapshotProbe = {
       completeMessageAt: number
       firstMessageAt: number
       firstRowAt: number
       mutationCompletedAt: number
       mutationRequested: boolean
+      summaryProjectAgentCount: number
+      summaryProjectAt: number
       socket: WebSocket | null
     }
     const browserWindow = window as typeof window & { __farmingSnapshotProbe?: SnapshotProbe }
@@ -336,6 +367,8 @@ test('restores a large Agent inventory through progressive authoritative pages',
       firstRowAt: 0,
       mutationCompletedAt: 0,
       mutationRequested: false,
+      summaryProjectAgentCount: -1,
+      summaryProjectAt: 0,
       socket: null,
     }
     browserWindow.__farmingSnapshotProbe = probe
@@ -375,13 +408,25 @@ test('restores a large Agent inventory through progressive authoritative pages',
     Object.defineProperty(window, 'WebSocket', { configurable: true, value: SnapshotWebSocket })
     document.addEventListener('DOMContentLoaded', () => {
       const observer = new MutationObserver(() => {
-        if (probe.firstRowAt !== 0 || !document.querySelector('[data-testid="code-agent-row"]')) return
-        probe.firstRowAt = performance.now()
-        observer.disconnect()
+        if (probe.firstRowAt === 0 && document.querySelector('[data-testid="code-agent-row"]')) {
+          probe.firstRowAt = performance.now()
+        }
+        if (probe.summaryProjectAt === 0) {
+          const title = document.querySelector<HTMLElement>(
+            `[data-testid="code-project-title"][data-project-id="${CSS.escape(summaryProjectId)}"]`,
+          )
+          const group = title?.closest<HTMLElement>('[data-testid="code-project-group"]')
+          const agentCount = Number(group?.dataset.projectAgentCount)
+          if (Number.isInteger(agentCount) && agentCount >= 0) {
+            probe.summaryProjectAgentCount = agentCount
+            probe.summaryProjectAt = performance.now()
+          }
+        }
+        if (probe.firstRowAt !== 0 && probe.summaryProjectAt !== 0) observer.disconnect()
       })
       observer.observe(document.documentElement, { childList: true, subtree: true })
     }, { once: true })
-  }, { mutationAgentId: mutatedAgentId })
+  }, { mutationAgentId: mutatedAgentId, summaryProjectId: secondaryWorkspace })
 
   const frames = trackWireFrames(page)
   await page.goto(`/farming/?agent=${encodeURIComponent(mutatedAgentId)}`, { waitUntil: 'domcontentloaded' })
@@ -396,6 +441,20 @@ test('restores a large Agent inventory through progressive authoritative pages',
   expect(first).toBeTruthy()
   expect(first?.snapshotComplete).toBe(false)
   expect(first?.statePageAgentCount).toBe(32)
+  expect(first?.stateAgentIds.some(agentId => secondaryAgentIds.includes(agentId))).toBe(false)
+  const secondaryProjectSummary = first?.projectAgentSummaries.find(
+    summary => summary.workspace === secondaryWorkspace,
+  )
+  expect(secondaryProjectSummary).toMatchObject({
+    workspace: secondaryWorkspace,
+    agentCount: 30,
+    unreadCount: 0,
+    zombieCount: 0,
+  })
+  expect(secondaryProjectSummary?.activeCount).toBeGreaterThanOrEqual(0)
+  expect(secondaryProjectSummary?.activeCount).toBeLessThanOrEqual(30)
+  expect(secondaryProjectSummary?.maxAttentionScore).toBeGreaterThanOrEqual(0)
+  expect(secondaryProjectSummary?.maxAttentionScore).toBeLessThanOrEqual(100)
   const snapshotFrames = frames.filter(frame => (
     frame.type === 'state' && frame.snapshotId === first?.snapshotId
   ))
@@ -418,19 +477,28 @@ test('restores a large Agent inventory through progressive authoritative pages',
       firstRowAt: number
       mutationCompletedAt: number
       mutationRequested: boolean
+      summaryProjectAgentCount: number
+      summaryProjectAt: number
     } }).__farmingSnapshotProbe
   ))
   expect(paintProbe?.firstMessageAt).toBeGreaterThan(0)
   expect(paintProbe?.firstRowAt).toBeGreaterThan(paintProbe?.firstMessageAt ?? 0)
   expect(paintProbe?.firstRowAt).toBeLessThan(paintProbe?.completeMessageAt ?? 0)
+  expect(paintProbe?.summaryProjectAgentCount).toBe(30)
+  expect(paintProbe?.summaryProjectAt).toBeGreaterThan(paintProbe?.firstMessageAt ?? 0)
+  expect(paintProbe?.summaryProjectAt).toBeLessThan(paintProbe?.completeMessageAt ?? 0)
   expect(paintProbe?.mutationRequested).toBe(true)
   expect(paintProbe?.mutationCompletedAt).toBeGreaterThan(paintProbe?.firstMessageAt ?? 0)
   expect(paintProbe?.mutationCompletedAt).toBeLessThan(paintProbe?.completeMessageAt ?? 0)
   await expect.poll(() => frames.findLast(frame => (
     frame.type === 'state-delta'
     && frame.agentCount === targetCount
-    && frame.upsertCount === 1
-  ))?.agentCount ?? -1, { timeout: 30_000 }).toBe(targetCount)
+    && frame.upsertAgentIds.includes(mutatedAgentId)
+  ))?.upsertAgentIds.includes(mutatedAgentId) ?? false, { timeout: 30_000 }).toBe(true)
+  const mutationDelta = frames.findLast(frame => (
+    frame.type === 'state-delta' && frame.upsertAgentIds.includes(mutatedAgentId)
+  ))
+  expect(mutationDelta?.upsertCount).toBeLessThan(first?.statePageAgentCount ?? 32)
   await expect(page.locator(
     `[data-testid="code-terminal-pane"][data-agent-id="${mutatedAgentId}"]`,
   )).toBeVisible()
@@ -458,6 +526,8 @@ test('restores a large Agent inventory through progressive authoritative pages',
     && frame.snapshotComplete
   ))?.agentCount ?? -1, { timeout: 30_000 }).toBe(targetCount)
 
+  await page.waitForTimeout(500)
+  const codeDeltaCountBeforeCrt = frames.filter(frame => frame.type === 'state-delta').length
   const crtPage = await page.context().newPage()
   const crtFrames = trackWireFrames(crtPage)
   await crtPage.goto(`/farming/crt/?agent=${encodeURIComponent(mutatedAgentId)}`, { waitUntil: 'domcontentloaded' })
@@ -470,6 +540,8 @@ test('restores a large Agent inventory through progressive authoritative pages',
   expect(firstCrtFrame?.statePageAgentCount).toBe(32)
   await expect(crtPage.locator('#session-modal')).toHaveClass(/active/)
   await expect(crtPage.locator('body')).toContainText(`AGENTS: ${targetCount + 1}/${targetCount + 1}`)
+  await page.waitForTimeout(500)
+  expect(frames.filter(frame => frame.type === 'state-delta')).toHaveLength(codeDeltaCountBeforeCrt)
 
   const showMore = page.getByTestId('code-agent-show-more')
   for (let attempt = 0; attempt < 20 && await showMore.count(); attempt += 1) {

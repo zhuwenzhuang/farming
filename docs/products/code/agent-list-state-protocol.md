@@ -16,6 +16,15 @@ at an exact offset. A client accepts list deltas only after the page marked
 complete reaches the declared total. A missing, reordered, mismatched, or
 interrupted page requests a new authoritative snapshot whose first page
 replaces the partial result. Each partial page has a bounded next-page deadline.
+The first page also carries authoritative per-Project Agent totals, active and
+unread counts, Zombie counts, and maximum attention score for the same snapshot
+sequence. Code uses those aggregates only while the individual inventory is
+incomplete; after completion, ordinary Agent and live-state updates remain the
+authoritative source for continuously changing row state. During recovery, the
+new aggregate header may therefore be shown alongside rows from the previously
+completed inventory until the replacement inventory completes; this bounded
+mixed view preserves supervision coverage without treating stale rows as the
+new snapshot.
 The Server yields after the first page and pauses later pages while that
 client's transport buffer is above the state threshold. List mutations during
 delivery are held in a bounded per-client sequence and drain after the final

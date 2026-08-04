@@ -1,4 +1,4 @@
-import type { Agent } from '@/types/agent'
+import type { Agent, ProjectAgentSummary } from '@/types/agent'
 import type { UiAppearance, UiLanguage } from '@/lib/ui-preferences'
 
 export type { UiAppearance, UiLanguage } from '@/lib/ui-preferences'
@@ -17,6 +17,7 @@ export interface ProjectGroup {
   gitWorktree?: Agent['gitWorktree']
   hiddenAgentSessionCount?: number
   agentSessionsExpanded?: boolean
+  agentSummary?: ProjectAgentSummary
   pinned?: boolean
 }
 

@@ -542,6 +542,15 @@ export interface UsageSummary {
   systemStats: SystemStats | null
 }
 
+export interface ProjectAgentSummary {
+  activeCount: number
+  agentCount: number
+  maxAttentionScore: number
+  unreadCount: number
+  workspace: string
+  zombieCount: number
+}
+
 /** Full application state received from backend */
 export interface AppState {
   mainAgentId: string | null
@@ -549,6 +558,7 @@ export interface AppState {
   taskHistory: TaskHistoryEntry[]
   mainPageSessionKeys?: string[]
   projectWorkspaces?: string[]
+  projectAgentSummaries?: ProjectAgentSummary[]
   pinnedProjectWorkspaces?: string[]
   workspaceRoots?: WorkspaceRoot[]
   systemStats: SystemStats

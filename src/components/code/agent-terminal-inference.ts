@@ -1,4 +1,5 @@
 import type { Agent } from '@/types/agent'
+import { agentTurnActiveFromState } from '../../../shared/agent-state-semantics.js'
 import type { ComposerAgentKind } from './agent-kind'
 
 type AgentKindSource = 'terminal-status' | 'none'
@@ -24,10 +25,7 @@ function composerKind(agent: Agent): ComposerAgentKind {
 
 export function inferAgentTerminalState(agent: Agent | null | undefined): AgentTerminalInference {
   if (!agent) return { kind: null, kindSource: 'none', turnActive: false, terminalBusy: false }
-  const phase = agent.runtimeObservation.phase
-  const turnActive = phase === 'working'
-    || phase === 'waiting'
-    || (phase === 'starting' && agent.runtimeBinding.kind === 'terminal')
+  const turnActive = agentTurnActiveFromState(agent)
   return {
     kind: composerKind(agent),
     kindSource: 'terminal-status',

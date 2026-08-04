@@ -1,4 +1,4 @@
-import type { Agent, TaskHistoryEntry } from '@/types/agent'
+import type { Agent, ProjectAgentSummary, TaskHistoryEntry } from '@/types/agent'
 import { agentRowTitle } from '@/lib/format'
 import type { OpenWorkspaceFile } from '@/lib/workspace-open-files'
 import {
@@ -38,9 +38,13 @@ export function projectListProjectsForAgents(
   allAgents: readonly Agent[] = agents,
   projectWorkspaces: readonly string[] = [],
   pinnedProjectWorkspaces: readonly string[] = [],
+  projectAgentSummaries: readonly ProjectAgentSummary[] = [],
 ) {
   const projects = groupAgentsByProject(agents, sessions)
   const projectsByWorkspace = new Map(projects.map(project => [project.workspace, project]))
+  const projectAgentSummariesByWorkspace = new Map(
+    projectAgentSummaries.map(summary => [summary.workspace, summary])
+  )
 
   openFiles.forEach(file => {
     const fileSourceAgent = file.sourceAgentId
@@ -73,7 +77,10 @@ export function projectListProjectsForAgents(
     projectsByWorkspace.set(workspace, project)
   })
 
-  projectWorkspaces.forEach(workspace => {
+  Array.from(new Set([
+    ...projectWorkspaces,
+    ...projectAgentSummaries.map(summary => summary.workspace),
+  ])).forEach(workspace => {
     if (!workspace) return
     const existing = projectsByWorkspace.get(workspace)
     if (existing) return
@@ -100,9 +107,12 @@ export function projectListProjectsForAgents(
     const namedProject = customName && !project.hasMain
       ? { ...project, name: customName }
       : project
+    const summarizedProject = !namedProject.hasMain
+      ? { ...namedProject, agentSummary: projectAgentSummariesByWorkspace.get(namedProject.workspace) }
+      : namedProject
     const pinIndex = pinnedOrder.get(project.workspace)
     return {
-      project: { ...namedProject, pinned: pinIndex !== undefined },
+      project: { ...summarizedProject, pinned: pinIndex !== undefined },
       pinIndex,
       projectIndex: projectOrder.get(project.workspace),
       sourceIndex,

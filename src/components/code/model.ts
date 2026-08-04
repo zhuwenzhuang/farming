@@ -1,4 +1,5 @@
 import type { Agent } from '@/types/agent'
+import { projectWorkspaceFromAgentState } from '../../../shared/agent-state-semantics.js'
 import { formatWorkspaceForDisplay } from '@/lib/workspace-options'
 import type {
   AgentSessionHistoryItem,
@@ -22,11 +23,7 @@ export function basename(path: string) {
 }
 
 export function projectWorkspaceForAgent(agent: Agent) {
-  if (agent.gitWorktree?.workspace) return agent.gitWorktree.workspace
-  if (agent.projectWorkspace) return agent.projectWorkspace
-
-  const workspace = agent.cwd || 'Farming'
-  return workspace
+  return projectWorkspaceFromAgentState(agent) || 'Farming'
 }
 
 export function projectNameForWorkspace(workspace: string) {

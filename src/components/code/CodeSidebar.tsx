@@ -1694,9 +1694,24 @@ function ProjectSection({
     : ''
   const repositoryWorktreeCount = repositoryWorktrees?.items.length || 0
   const projectAgents = project.agents.filter(agent => !agent.isMain && agent.archived !== true)
-  const projectAgentCount = projectAgents.length
+  const projectAgentsWithLiveState = projectAgents.map(agentWithCurrentLiveState)
+  const projectAgentCount = (project.agentSummary?.agentCount ?? projectAgents.length)
     + project.agentSessions.filter(session => session.archived !== true).length
     + (project.hiddenAgentSessionCount ?? 0)
+  const projectUnreadCount = (project.agentSummary?.unreadCount
+    ?? projectAgentsWithLiveState.filter(agent => agent.unread === true).length)
+    + project.agentSessions.filter(session => session.archived !== true && session.unread === true).length
+  const projectActiveCount = project.agentSummary?.activeCount
+    ?? projectAgentsWithLiveState.filter(agent => buildAgentRowDisplayState({
+      kind: 'agent',
+      agent,
+    }, now).turnActive).length
+  const projectZombieCount = project.agentSummary?.zombieCount
+    ?? projectAgentsWithLiveState.filter(agent => agent.isZombie === true).length
+  const projectMaxAttention = project.agentSummary?.maxAttentionScore
+    ?? projectAgentsWithLiveState.reduce((maximum, agent) => (
+      Math.max(maximum, Number.isFinite(agent.attentionScore) ? agent.attentionScore : 0)
+    ), 0)
   const openWorktreeMenu = (event: ReactMouseEvent<HTMLButtonElement>) => {
     event.preventDefault()
     event.stopPropagation()
@@ -1710,7 +1725,16 @@ function ProjectSection({
   }
 
   return (
-    <section ref={projectGroupRef} className="code-project-group" data-testid="code-project-group">
+    <section
+      ref={projectGroupRef}
+      className="code-project-group"
+      data-testid="code-project-group"
+      data-project-agent-count={projectAgentCount}
+      data-project-active-count={projectActiveCount}
+      data-project-unread-count={projectUnreadCount}
+      data-project-zombie-count={projectZombieCount}
+      data-project-max-attention={projectMaxAttention}
+    >
       <div
         ref={projectRowRef}
         className={`code-project-row ${dragging ? 'dragging' : ''} ${dropPosition ? `drop-${dropPosition}` : ''}`}
@@ -1721,12 +1745,8 @@ function ProjectSection({
           name: project.name,
           workspace: project.workspace,
           agentCount: projectAgentCount,
-          unreadCount: projectAgents.filter(agent => agentWithCurrentLiveState(agent).unread === true).length
-            + project.agentSessions.filter(session => session.archived !== true && session.unread === true).length,
-          runningCount: projectAgents.filter(agent => buildAgentRowDisplayState({
-            kind: 'agent',
-            agent: agentWithCurrentLiveState(agent),
-          }, now).turnActive).length,
+          unreadCount: projectUnreadCount,
+          runningCount: projectActiveCount,
           branch: currentWorktreeName,
           worktreeCount: repositoryWorktreeCount,
           pinned: project.pinned === true,

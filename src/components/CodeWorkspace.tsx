@@ -12,6 +12,7 @@ import type {
   Agent,
   AgentContextWindowUsage,
   CodexTerminalProfile,
+  ProjectAgentSummary,
   TaskHistoryEntry,
   UsageSummary,
 } from '@/types/agent'
@@ -343,6 +344,8 @@ type AgentFlagUpdateResponse = AgentFlagUpdateResult | boolean | void
 
 interface CodeWorkspaceProps {
   agents: Agent[]
+  agentInventoryComplete: boolean
+  projectAgentSummaries: ProjectAgentSummary[]
   taskHistory: TaskHistoryEntry[]
   mainPageSessionKeys: string[]
   activeView: WorkspaceView
@@ -430,6 +433,7 @@ const AGENT_SESSION_SEARCH_LIMIT = 1000
 const AGENT_SESSION_SEARCH_DEBOUNCE_MS = 150
 const AGENT_SESSION_BACKGROUND_QUIET_MS = 5_000
 const AGENT_SESSION_LIFECYCLE_SETTLE_MS = 30_000
+const EMPTY_PROJECT_AGENT_SUMMARIES: ProjectAgentSummary[] = []
 const CODEX_TERMINAL_PROFILE_REQUEST_TIMEOUT_MS = 35_000
 const MAIN_PAGE_SESSION_MUTATION_TIMEOUT_MS = 15_000
 
@@ -588,6 +592,8 @@ export function applyPendingMainPageSessionKeyMutations(
 
 export function CodeWorkspace({
   agents,
+  agentInventoryComplete,
+  projectAgentSummaries,
   taskHistory,
   mainPageSessionKeys: remoteMainPageSessionKeys,
   activeView,
@@ -1010,6 +1016,9 @@ export function CodeWorkspace({
   const visibleArchivedAgents = agentListState.archivedAgents
   const visibleArchivedRuns = taskHistory
   const visibleHistoryAgentSessions = historyAgentSessions
+  const incompleteProjectAgentSummaries = agentInventoryComplete
+    ? EMPTY_PROJECT_AGENT_SUMMARIES
+    : projectAgentSummaries
   const searchedAgentSessionIds = useMemo(
     () => new Set(searchedAgentSessions.map(agentSessionId)),
     [searchedAgentSessions]
@@ -1033,8 +1042,9 @@ export function CodeWorkspace({
       visibleAgents,
       projectWorkspaces,
       pinnedProjectWorkspaces,
+      incompleteProjectAgentSummaries,
     ),
-    [openWorkspaceFiles, pinnedProjectWorkspaces, projectNames, projectWorkspaces, sidebarAgentSessions, visibleAgents, visibleLiveAgents]
+    [incompleteProjectAgentSummaries, openWorkspaceFiles, pinnedProjectWorkspaces, projectNames, projectWorkspaces, sidebarAgentSessions, visibleAgents, visibleLiveAgents]
   )
   const projects = useMemo(() => limitProjectAgentSessions(
     projectListProjects,

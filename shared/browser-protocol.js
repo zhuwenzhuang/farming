@@ -1,13 +1,15 @@
 // Generated from TypeScript. Do not edit.
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.MIN_PROTOCOL_VERSION = exports.PROTOCOL_VERSION = void 0;
+exports.PROJECT_ATTENTION_SCORE_MAX = exports.MIN_PROTOCOL_VERSION = exports.PROTOCOL_VERSION = void 0;
 exports.sanitizeAgentUpdatePatch = sanitizeAgentUpdatePatch;
 exports.validateClientMessage = validateClientMessage;
 exports.validateServerMessage = validateServerMessage;
 exports.protocolCompatible = protocolCompatible;
+const agent_state_semantics_js_1 = require("./agent-state-semantics.js");
 exports.PROTOCOL_VERSION = 8;
 exports.MIN_PROTOCOL_VERSION = 8;
+exports.PROJECT_ATTENTION_SCORE_MAX = agent_state_semantics_js_1.PROJECT_ATTENTION_SCORE_MAX;
 const CLIENT_MESSAGE_TYPES = new Set([
     'protocol-hello',
     'business-health-probe',
@@ -101,15 +103,42 @@ function stateSnapshotPage(value, agentCount) {
         && nextOffset <= Number(snapshot.total)
         && snapshot.complete === (nextOffset === Number(snapshot.total));
 }
+function projectAgentSummaries(value) {
+    const summaries = value.projectAgentSummaries;
+    if (!Array.isArray(summaries))
+        return false;
+    const workspaces = new Set();
+    for (const summary of summaries) {
+        if (!objectMessage(summary)
+            || !stringField(summary, 'workspace')
+            || String(summary.workspace).length === 0
+            || !revisionField(summary, 'agentCount')
+            || !revisionField(summary, 'activeCount')
+            || !revisionField(summary, 'unreadCount')
+            || !revisionField(summary, 'zombieCount')
+            || !revisionField(summary, 'maxAttentionScore')
+            || Number(summary.activeCount) > Number(summary.agentCount)
+            || Number(summary.unreadCount) > Number(summary.agentCount)
+            || Number(summary.zombieCount) > Number(summary.agentCount)
+            || Number(summary.maxAttentionScore) > exports.PROJECT_ATTENTION_SCORE_MAX
+            || workspaces.has(String(summary.workspace)))
+            return false;
+        workspaces.add(String(summary.workspace));
+    }
+    return true;
+}
 function stateMessage(value) {
     const state = value.state;
     const agents = objectMessage(state) ? state.agents : null;
+    const snapshot = objectMessage(value.snapshot) ? value.snapshot : null;
     if (!stringField(value, 'generation')
         || !revisionField(value, 'sequence')
         || !objectMessage(state)
         || !Array.isArray(agents)
         || !agents.every(agent => objectMessage(agent) && stringField(agent, 'id'))
-        || new Set(agents.map(agent => agent.id)).size !== agents.length)
+        || new Set(agents.map(agent => agent.id)).size !== agents.length
+        || !optionalField(state, 'projectAgentSummaries', () => projectAgentSummaries(state))
+        || (state.projectAgentSummaries !== undefined && Number(snapshot?.offset) !== 0))
         return false;
     return optionalField(value, 'snapshot', () => stateSnapshotPage(value, agents.length));
 }

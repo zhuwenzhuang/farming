@@ -1,5 +1,8 @@
+import { PROJECT_ATTENTION_SCORE_MAX as projectAttentionScoreMax } from './agent-state-semantics.js'
+
 export const PROTOCOL_VERSION = 8
 export const MIN_PROTOCOL_VERSION = 8
+export const PROJECT_ATTENTION_SCORE_MAX = projectAttentionScoreMax
 
 type ObjectMessage = Record<string, unknown>
 
@@ -420,9 +423,35 @@ function stateSnapshotPage(value: ObjectMessage, agentCount: number): boolean {
     && snapshot.complete === (nextOffset === Number(snapshot.total))
 }
 
+function projectAgentSummaries(value: ObjectMessage): boolean {
+  const summaries = value.projectAgentSummaries
+  if (!Array.isArray(summaries)) return false
+  const workspaces = new Set<string>()
+  for (const summary of summaries) {
+    if (
+      !objectMessage(summary)
+      || !stringField(summary, 'workspace')
+      || String(summary.workspace).length === 0
+      || !revisionField(summary, 'agentCount')
+      || !revisionField(summary, 'activeCount')
+      || !revisionField(summary, 'unreadCount')
+      || !revisionField(summary, 'zombieCount')
+      || !revisionField(summary, 'maxAttentionScore')
+      || Number(summary.activeCount) > Number(summary.agentCount)
+      || Number(summary.unreadCount) > Number(summary.agentCount)
+      || Number(summary.zombieCount) > Number(summary.agentCount)
+      || Number(summary.maxAttentionScore) > PROJECT_ATTENTION_SCORE_MAX
+      || workspaces.has(String(summary.workspace))
+    ) return false
+    workspaces.add(String(summary.workspace))
+  }
+  return true
+}
+
 function stateMessage(value: ObjectMessage): boolean {
   const state = value.state
   const agents = objectMessage(state) ? state.agents : null
+  const snapshot = objectMessage(value.snapshot) ? value.snapshot : null
   if (
     !stringField(value, 'generation')
     || !revisionField(value, 'sequence')
@@ -430,6 +459,8 @@ function stateMessage(value: ObjectMessage): boolean {
     || !Array.isArray(agents)
     || !agents.every(agent => objectMessage(agent) && stringField(agent, 'id'))
     || new Set(agents.map(agent => agent.id)).size !== agents.length
+    || !optionalField(state, 'projectAgentSummaries', () => projectAgentSummaries(state))
+    || (state.projectAgentSummaries !== undefined && Number(snapshot?.offset) !== 0)
   ) return false
   return optionalField(value, 'snapshot', () => stateSnapshotPage(value, agents.length))
 }

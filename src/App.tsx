@@ -1325,6 +1325,8 @@ export function App() {
     <div className="app-container code-app-shell" data-testid="app-shell">
       <CodeWorkspace
         agents={displayedAgents}
+        agentInventoryComplete={ws.agentInventoryComplete}
+        projectAgentSummaries={ws.projectAgentSummaries}
         taskHistory={ws.taskHistory}
         mainPageSessionKeys={ws.mainPageSessionKeys}
         activeView={activeWorkspaceView}

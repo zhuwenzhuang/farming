@@ -1,3 +1,8 @@
+import {
+  agentTurnActiveFromState,
+  projectWorkspaceFromAgentState,
+} from '../shared/agent-state-semantics.js';
+
 type AgentStateRecord = Record<string, unknown> & { id: string };
 type AgentStatePayload = Record<string, unknown> & { agents: AgentStateRecord[] };
 
@@ -24,6 +29,15 @@ interface AgentStateSnapshotFrame {
   state: AgentStatePayload;
 }
 
+interface ProjectAgentSummary {
+  activeCount: number;
+  agentCount: number;
+  maxAttentionScore: number;
+  unreadCount: number;
+  workspace: string;
+  zombieCount: number;
+}
+
 interface AgentStateBroadcastTracker {
   agents: Map<string, AgentStateRecord>;
   agentSignatures: Map<string, string>;
@@ -35,6 +49,39 @@ interface AgentStateBroadcastTracker {
 }
 
 type AgentStateClientDelivery = 'defer' | 'delta' | 'snapshot';
+
+function projectAgentSummaries(
+  agents: AgentStateRecord[],
+  maxAttentionScore = 100,
+): ProjectAgentSummary[] {
+  const summaries = new Map<string, ProjectAgentSummary>();
+  agents.forEach(agent => {
+    if (agent.isMain === true || agent.archived === true) return;
+    const workspace = projectWorkspaceFromAgentState(agent);
+    if (!workspace) return;
+    const summary = summaries.get(workspace) || {
+      activeCount: 0,
+      agentCount: 0,
+      maxAttentionScore: 0,
+      unreadCount: 0,
+      workspace,
+      zombieCount: 0,
+    };
+    summary.agentCount += 1;
+    if (agentTurnActiveFromState(agent)) summary.activeCount += 1;
+    if (agent.unread === true) summary.unreadCount += 1;
+    if (agent.isZombie === true) summary.zombieCount += 1;
+    const attentionScore = Number(agent.attentionScore);
+    if (Number.isFinite(attentionScore)) {
+      summary.maxAttentionScore = Math.max(
+        summary.maxAttentionScore,
+        Math.min(maxAttentionScore, Math.max(0, Math.round(attentionScore))),
+      );
+    }
+    summaries.set(workspace, summary);
+  });
+  return [...summaries.values()];
+}
 
 function* agentStateSnapshotFrames(
   state: AgentStatePayload,
@@ -233,6 +280,7 @@ export {
   agentStateBroadcastSnapshot,
   agentStateSnapshotFrames,
   createAgentStateBroadcastTracker,
+  projectAgentSummaries,
 };
 
 export type {
@@ -241,4 +289,5 @@ export type {
   AgentStateBroadcastTracker,
   AgentStatePayload,
   AgentStateSnapshotFrame,
+  ProjectAgentSummary,
 };
