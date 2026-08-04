@@ -2,16 +2,20 @@
 ':' //; script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"; repo_dir="$script_dir"; while [ ! -x "$repo_dir/node_modules/.bin/tsx" ] && [ "$repo_dir" != "/" ]; do repo_dir="$(dirname -- "$repo_dir")"; done; if [ ! -x "$repo_dir/node_modules/.bin/tsx" ]; then echo "Pinned tsx runtime not found above $script_dir" >&2; exit 127; fi; exec "$repo_dir/node_modules/.bin/tsx" "$0" "$@"
 
 const readline = require('readline');
+const fs = require('fs');
 
 const sessionId = '019f0000-0000-7000-8000-000000000999';
 const imagePath = process.env.FARMING_TEST_HISTORY_IMAGE_PATH || '';
 const dataUrl = process.env.FARMING_TEST_HISTORY_IMAGE_DATA_URL || '';
 const stallPrompt = process.env.FARMING_TEST_STALL_PROMPT === '1';
+const multiSession = process.env.FARMING_TEST_MULTI_SESSION === '1';
+const requestLogFile = process.env.FARMING_TEST_REQUEST_LOG_FILE || '';
+let nextThread = 1;
 
-function thread() {
+function thread(id = sessionId) {
   return {
-    id: sessionId,
-    sessionId,
+    id,
+    sessionId: id,
     forkedFromId: null,
     parentThreadId: null,
     preview: 'ACP history image test',
@@ -76,16 +80,19 @@ function resultFor(method, params) {
   }
   if (method === 'thread/resume') {
     return {
-      thread: thread(),
+      thread: thread(params.threadId),
       model: 'gpt-5.6',
       modelProvider: 'openai',
       reasoningEffort: 'medium',
       serviceTier: null,
     };
   }
-  if (method === 'thread/start' && stallPrompt) {
+  if (method === 'thread/start' && (stallPrompt || multiSession)) {
+    const id = multiSession
+      ? `019f0000-0000-7000-8000-${String(nextThread++).padStart(12, '0')}`
+      : sessionId;
     return {
-      thread: { ...thread(), turns: [] },
+      thread: { ...thread(id), turns: [] },
       model: 'gpt-5.6',
       modelProvider: 'openai',
       reasoningEffort: 'medium',
@@ -103,8 +110,9 @@ function resultFor(method, params) {
     };
   }
   if (method === 'thread/read') {
-    return { thread: thread() };
+    return { thread: thread(params.threadId) };
   }
+  if (method === 'thread/unsubscribe' || method === 'thread/delete') return {};
   if (method === 'thread/list') {
     return { data: [], nextCursor: null };
   }
@@ -144,6 +152,12 @@ async function run() {
     const request = JSON.parse(line);
     if (request.id === undefined) continue;
     try {
+      if (requestLogFile) {
+        fs.appendFileSync(requestLogFile, `${JSON.stringify({
+          method: request.method,
+          params: request.params,
+        })}\n`);
+      }
       process.stdout.write(`${JSON.stringify({
         id: request.id,
         result: resultFor(request.method, request.params),

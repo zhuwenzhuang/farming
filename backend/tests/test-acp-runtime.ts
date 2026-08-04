@@ -1,4 +1,5 @@
 const assert = require('assert');
+const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -21,6 +22,20 @@ async function run() {
   assert.strictEqual(resolveAcpLaunch('codex').version, '1.1.4');
   assert.strictEqual(resolveAcpLaunch('claude').version, '0.59.0');
   assert.strictEqual(resolveAcpLaunch('qwen').version, 'native');
+  const codexAcpSource = fs.readFileSync(
+    path.join(path.dirname(require.resolve('@agentclientprotocol/codex-acp/package.json')), 'dist', 'index.js'),
+    'utf8',
+  );
+  assert.match(
+    codexAcpSource,
+    /async deleteSession\(sessionId\)[\s\S]*?this\.codexClient\.threadDelete\({ threadId: sessionId }\);[\s\S]*?no rollout found for thread id/,
+    'ACP session/delete must use app-server thread/delete so empty Sessions can be cleaned up',
+  );
+  assert.match(
+    codexAcpSource,
+    /async threadDelete\(params\)\s*{\s*return await this\.sendRequest\({ method: "thread\/delete", params }\);/,
+    'the pinned Codex adapter must expose app-server thread/delete',
+  );
   const qwenAuthenticationRuntime = new AcpRuntime();
   assert.deepStrictEqual(
     qwenAuthenticationRuntime.terminalAuthenticationLaunch(
@@ -175,6 +190,393 @@ async function run() {
   );
   await stalePrepareRuntime.dispose();
 
+  const sharedHome = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-acp-shared-home-'));
+  const sharedChildren = [];
+  const sharedProcessIdentities = [];
+  const sharedSessionRequests = [];
+  const sharedClosedSessions = [];
+  const sharedForkRequests = [];
+  const sharedDeleteRequests = [];
+  const sharedHandlerSets = [];
+  const sharedFileReads = [];
+  const sharedFastValues = new Map();
+  let sharedConnectionCount = 0;
+  const sharedRuntime = new AcpRuntime({
+    clientFileSystem: {
+      async readTextFile(binding, request) {
+        sharedFileReads.push({ agentId: binding.agentId, sessionId: request.sessionId });
+        return { content: `file:${binding.agentId}` };
+      },
+      async writeTextFile() {},
+    },
+    spawn(command, args, options) {
+      const child = spawn(command, args, options);
+      sharedChildren.push({ child, options });
+      return child;
+    },
+    resolveLaunch() {
+      return {
+        command: process.execPath,
+        args: ['-e', "process.stdin.resume(); process.stdin.on('end', () => process.exit(0))"],
+        version: 'shared-test',
+      };
+    },
+    async createConnection(handlers) {
+      sharedConnectionCount += 1;
+      sharedHandlerSets.push(handlers);
+      let resolveClosed;
+      const signal = { aborted: false };
+      const connection = {
+        signal,
+        closed: new Promise(resolve => {
+          resolveClosed = resolve;
+        }),
+        async initialize() {
+          return {
+            protocolVersion: 1,
+            agentCapabilities: {
+              loadSession: true,
+              sessionCapabilities: { close: {}, delete: {}, fork: {}, resume: {} },
+            },
+            agentInfo: { name: 'shared-runtime-test', version: '1' },
+          };
+        },
+        async newSession(params) {
+          const sessionId = `shared-session-${sharedSessionRequests.length + 1}`;
+          sharedSessionRequests.push(params);
+          sharedFastValues.set(sessionId, false);
+          await handlers.sessionUpdate({
+            sessionId,
+            update: {
+              sessionUpdate: 'agent_message_chunk',
+              messageId: `startup-${sessionId}`,
+              content: { type: 'text', text: `ready:${params._meta.farming.env.FARMING_AGENT_ID}` },
+            },
+          });
+          return {
+            sessionId,
+            configOptions: [{
+              id: 'fast-mode',
+              name: 'Fast',
+              type: 'boolean',
+              currentValue: false,
+            }],
+          };
+        },
+        async closeSession({ sessionId }) {
+          sharedClosedSessions.push(sessionId);
+          return {};
+        },
+        async unstable_forkSession(request) {
+          sharedForkRequests.push(request);
+          return { sessionId: `fork-${request.sessionId}` };
+        },
+        async deleteSession({ sessionId }) {
+          sharedDeleteRequests.push(sessionId);
+          return {};
+        },
+        async setSessionConfigOption({ sessionId, configId, value }) {
+          assert.strictEqual(configId, 'fast-mode');
+          sharedFastValues.set(sessionId, value);
+          return {
+            configOptions: [{
+              id: 'fast-mode',
+              name: 'Fast',
+              type: 'boolean',
+              currentValue: sharedFastValues.get(sessionId),
+            }],
+          };
+        },
+        async prompt({ sessionId, prompt }) {
+          await handlers.sessionUpdate({
+            sessionId,
+            update: {
+              sessionUpdate: 'agent_message_chunk',
+              messageId: `answer-${sessionId}`,
+              content: { type: 'text', text: String(prompt?.[0]?.text || '') },
+            },
+          });
+          return { stopReason: 'end_turn' };
+        },
+        async cancel() { return {}; },
+        close() {
+          signal.aborted = true;
+          resolveClosed();
+        },
+      };
+      return connection;
+    },
+  });
+  const sharedHomeAlias = `${sharedHome}-alias`;
+  const differentSharedHome = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-acp-different-home-'));
+  fs.symlinkSync(sharedHome, sharedHomeAlias, process.platform === 'win32' ? 'junction' : 'dir');
+  try {
+    const sharedAgents = Array.from({ length: 100 }, (_, index) => `shared-agent-${index + 1}`);
+    const preparedShared = await Promise.all(sharedAgents.map((agentId, index) => sharedRuntime.prepareAgent({
+      agentId,
+      provider: 'codex',
+      providerHomeId: 'shared',
+      providerHomePath: index === sharedAgents.length - 1 ? sharedHomeAlias : sharedHome,
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        CODEX_HOME: sharedHome,
+        FARMING_AGENT_ID: agentId,
+        FARMING_PROJECT_WORKSPACE: process.cwd(),
+        FARMING_CAPABILITY_RUNTIME_EPOCH: `epoch-${agentId}`,
+        FARMING_BROWSER_TOKEN: `browser-${agentId}`,
+        FARMING_COMPUTER_TOKEN: `computer-${agentId}`,
+      },
+      onProcessStarted(identity) {
+        sharedProcessIdentities.push(identity);
+      },
+    })));
+    assert.strictEqual(sharedChildren.length, 1, '100 Sessions in one Agent Home should spawn one ACP adapter');
+    assert.strictEqual(sharedConnectionCount, 1, '100 Sessions in one Agent Home should share one ACP connection');
+    assert.strictEqual(new Set(preparedShared.map(item => item.sessionId)).size, 100);
+    assert.strictEqual(sharedProcessIdentities.length, 100, 'each Agent must persist the shared process identity');
+    assert.strictEqual(new Set(sharedProcessIdentities.map(identity => identity.pid)).size, 1);
+    assert.strictEqual(sharedChildren[0].options.env.FARMING_AGENT_ID, undefined);
+    assert.strictEqual(sharedChildren[0].options.env.FARMING_BROWSER_TOKEN, undefined);
+    assert.strictEqual(sharedSessionRequests.length, 100);
+    for (let index = 0; index < sharedAgents.length; index += 1) {
+      assert.strictEqual(
+        sharedSessionRequests[index]._meta.farming.env.FARMING_AGENT_ID,
+        sharedAgents[index],
+        'Agent identity must be carried by the exact Session rather than the shared process',
+      );
+    }
+    await sharedRuntime.prompt(sharedAgents[0], 'first-agent-answer');
+    await sharedRuntime.prompt(sharedAgents.at(-1), 'last-agent-answer');
+    assert.strictEqual(
+      sharedRuntime.getSession(sharedAgents[0]).entries.at(-1).content[0].text,
+      'first-agent-answer',
+    );
+    assert.strictEqual(
+      sharedRuntime.getSession(sharedAgents.at(-1)).entries.at(-1).content[0].text,
+      'last-agent-answer',
+    );
+    await sharedRuntime.setSessionConfigOption(sharedAgents[0], 'fast-mode', true);
+    assert.strictEqual(
+      sharedRuntime.getSession(sharedAgents[0]).configOptions[0].currentValue,
+      true,
+    );
+    assert.strictEqual(
+      sharedRuntime.getSession(sharedAgents.at(-1)).configOptions[0].currentValue,
+      false,
+      'Session config changes must not leak through the shared process',
+    );
+    assert.deepStrictEqual(
+      await sharedHandlerSets[0].readTextFile({
+        sessionId: preparedShared.at(-1).sessionId,
+        path: path.join(process.cwd(), 'package.json'),
+      }),
+      { content: `file:${sharedAgents.at(-1)}` },
+    );
+    assert.deepStrictEqual(sharedFileReads, [{
+      agentId: sharedAgents.at(-1),
+      sessionId: preparedShared.at(-1).sessionId,
+    }]);
+    await assert.rejects(
+      sharedRuntime.forkSession(sharedAgents[0], { sessionId: preparedShared[1].sessionId }),
+      /does not own session/,
+    );
+    await assert.rejects(
+      sharedRuntime.deleteSession(sharedAgents[0], preparedShared[1].sessionId),
+      /does not own session/,
+    );
+    assert.deepStrictEqual(sharedForkRequests, []);
+    assert.deepStrictEqual(sharedDeleteRequests, []);
+    const sharedFork = await sharedRuntime.forkSession(sharedAgents[1]);
+    assert.strictEqual(sharedFork.sessionId, `fork-${preparedShared[1].sessionId}`);
+    assert.strictEqual(
+      sharedForkRequests[0]._meta.farming.env.FARMING_AGENT_ID,
+      sharedAgents[1],
+      'a shared-runtime fork must retain the exact owning Agent environment',
+    );
+    await assert.rejects(
+      sharedRuntime.prepareAgent({
+        agentId: 'shared-persistence-failure',
+        provider: 'codex',
+        providerHomeId: 'shared',
+        providerHomePath: sharedHome,
+        cwd: process.cwd(),
+        env: { ...process.env, CODEX_HOME: sharedHome },
+        onProcessStarted() {
+          throw new Error('shared identity persistence failed');
+        },
+      }),
+      error => {
+        assert.match(error.message, /shared identity persistence failed/);
+        assert.strictEqual(error.runtimeCleanupVerified, true);
+        return true;
+      },
+    );
+    assert.strictEqual(sharedRuntime.bindings.has('shared-persistence-failure'), false);
+    assert.strictEqual(
+      sharedChildren[0].child.exitCode,
+      null,
+      'a failed Session attach must not stop a shared runtime with live peers',
+    );
+    await sharedRuntime.prepareAgent({
+      agentId: 'different-home-agent',
+      provider: 'codex',
+      providerHomeId: 'different',
+      providerHomePath: differentSharedHome,
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        CODEX_HOME: differentSharedHome,
+        FARMING_AGENT_ID: 'different-home-agent',
+      },
+    });
+    assert.strictEqual(sharedChildren.length, 2, 'different canonical Agent Homes must not share an ACP adapter');
+    assert.strictEqual(sharedConnectionCount, 2, 'different canonical Agent Homes must use distinct ACP connections');
+    await sharedRuntime.unregisterAgentAndWait('different-home-agent');
+    await sharedRuntime.unregisterAgentAndWait(sharedAgents[0]);
+    assert.deepStrictEqual(sharedClosedSessions, [preparedShared[0].sessionId]);
+    assert.strictEqual(sharedChildren[0].child.exitCode, null, 'releasing one Session must keep the shared runtime alive');
+    const peerEntriesBeforeLateUpdate = sharedRuntime.getSession(sharedAgents[1]).entries.length;
+    await sharedHandlerSets[0].sessionUpdate({
+      sessionId: preparedShared[0].sessionId,
+      update: {
+        sessionUpdate: 'agent_message_chunk',
+        messageId: 'late-detached-session-update',
+        content: { type: 'text', text: 'must not cross into a live peer' },
+      },
+    });
+    assert.strictEqual(
+      sharedRuntime.getSession(sharedAgents[1]).entries.length,
+      peerEntriesBeforeLateUpdate,
+      'a late update from a detached shared Session must not be routed to another Agent',
+    );
+    await sharedRuntime.prompt(sharedAgents[1], 'still-alive');
+    assert.strictEqual(
+      sharedRuntime.getSession(sharedAgents[1]).entries.at(-1).content[0].text,
+      'still-alive',
+    );
+  } finally {
+    await sharedRuntime.dispose();
+    fs.rmSync(sharedHomeAlias, { force: true });
+    fs.rmSync(sharedHome, { recursive: true, force: true });
+    fs.rmSync(differentSharedHome, { recursive: true, force: true });
+  }
+  assert(
+    sharedChildren[0].child.exitCode !== null || sharedChildren[0].child.signalCode !== null,
+    'the shared process must exit after its final Session is released',
+  );
+
+  const crashHome = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-acp-shared-crash-home-'));
+  const crashChildren = [];
+  let crashConnectionGeneration = 0;
+  let crashPromptCalls = 0;
+  let rejectUncertainPrompt;
+  const crashRuntime = new AcpRuntime({
+    spawn(command, args, options) {
+      const child = spawn(command, args, options);
+      crashChildren.push(child);
+      return child;
+    },
+    resolveLaunch() {
+      return {
+        command: process.execPath,
+        args: ['-e', "process.stdin.resume(); process.stdin.on('end', () => process.exit(0))"],
+        version: 'shared-crash-test',
+      };
+    },
+    async createConnection(handlers) {
+      crashConnectionGeneration += 1;
+      const generation = crashConnectionGeneration;
+      const signal = { aborted: false };
+      let resolveClosed;
+      return {
+        signal,
+        closed: new Promise(resolve => {
+          resolveClosed = resolve;
+        }),
+        async initialize() {
+          return {
+            protocolVersion: 1,
+            agentCapabilities: {
+              loadSession: true,
+              sessionCapabilities: { close: {}, resume: {} },
+            },
+            agentInfo: { name: 'shared-crash-test', version: '1' },
+          };
+        },
+        async newSession() {
+          return { sessionId: `crash-session-${generation}-${crypto.randomUUID()}` };
+        },
+        async resumeSession({ sessionId }) {
+          return { sessionId };
+        },
+        async loadSession({ sessionId }) {
+          return { sessionId };
+        },
+        async closeSession() { return {}; },
+        async prompt({ sessionId, prompt }) {
+          crashPromptCalls += 1;
+          if (String(prompt?.[0]?.text || '') === 'uncertain-crash') {
+            return new Promise((_, reject) => {
+              rejectUncertainPrompt = reject;
+            });
+          }
+          await handlers.sessionUpdate({
+            sessionId,
+            update: {
+              sessionUpdate: 'agent_message_chunk',
+              messageId: `crash-answer-${crashPromptCalls}`,
+              content: { type: 'text', text: String(prompt?.[0]?.text || '') },
+            },
+          });
+          return { stopReason: 'end_turn' };
+        },
+        async cancel() { return {}; },
+        close() {
+          signal.aborted = true;
+          resolveClosed();
+        },
+      };
+    },
+  });
+  try {
+    const crashAgents = ['crash-agent-a', 'crash-agent-b', 'crash-agent-c'];
+    await Promise.all(crashAgents.map(agentId => crashRuntime.prepareAgent({
+      agentId,
+      provider: 'codex',
+      providerHomeId: 'crash-shared',
+      providerHomePath: crashHome,
+      cwd: process.cwd(),
+      env: { ...process.env, CODEX_HOME: crashHome, FARMING_AGENT_ID: agentId },
+    })));
+    assert.strictEqual(crashChildren.length, 1);
+    const uncertainPrompt = crashRuntime.prompt('crash-agent-a', 'uncertain-crash');
+    while (!rejectUncertainPrompt) await new Promise(resolve => setImmediate(resolve));
+    const failedRuntimeProcess = crashRuntime.bindings.get('crash-agent-a').runtime;
+    crashRuntime.handleRuntimeExit(failedRuntimeProcess, new Error('shared adapter crashed'));
+    rejectUncertainPrompt(new Error('shared adapter transport closed'));
+    await assert.rejects(uncertainPrompt, /transport closed/);
+    for (const agentId of crashAgents) {
+      assert.strictEqual(crashRuntime.getSession(agentId).state, 'error');
+      assert.strictEqual(crashRuntime.getSession(agentId).stopReason, 'error');
+    }
+    assert.strictEqual(crashPromptCalls, 1, 'an uncertain Prompt must not be replayed after a shared runtime crash');
+
+    const recoveredA = await crashRuntime.reconnectAgent('crash-agent-a');
+    assert.strictEqual(recoveredA.reconnected, true);
+    assert.strictEqual(crashChildren.length, 2, 'the first explicit reconnect should create one replacement runtime');
+    assert.strictEqual(crashRuntime.getSession('crash-agent-b').state, 'error');
+    await crashRuntime.prompt('crash-agent-a', 'explicit-after-crash');
+    assert.strictEqual(crashPromptCalls, 2);
+    const recoveredB = await crashRuntime.reconnectAgent('crash-agent-b');
+    assert.strictEqual(recoveredB.reconnected, true);
+    assert.strictEqual(crashChildren.length, 2, 'later reconnects in the same Home should join the replacement runtime');
+    assert.strictEqual(crashRuntime.getSession('crash-agent-c').state, 'error');
+  } finally {
+    await crashRuntime.dispose();
+    fs.rmSync(crashHome, { recursive: true, force: true });
+  }
+
   const compatibleCodexLaunch = resolveAcpLaunch('codex', {
     runtimeEnv: {
       FARMING_NODE_BIN: '/opt/farming/node',
@@ -267,11 +669,30 @@ async function run() {
   assert.deepStrictEqual(acpSessionRequestOptions({
     provider: 'claude',
     farmingSystemPrompt,
+    env: {
+      FARMING_AGENT_ID: 'agent-session-env',
+      FARMING_BROWSER_TOKEN: 'browser-session-token',
+      UNRELATED_SECRET: 'must-not-cross-session-boundary',
+    },
   }, '/tmp/project')._meta, {
+    farming: {
+      env: {
+        FARMING_AGENT_ID: 'agent-session-env',
+        FARMING_BROWSER_TOKEN: 'browser-session-token',
+      },
+    },
     systemPrompt: {
       type: 'preset',
       preset: 'claude_code',
       append: farmingSystemPrompt,
+    },
+    claudeCode: {
+      options: {
+        env: {
+          FARMING_AGENT_ID: 'agent-session-env',
+          FARMING_BROWSER_TOKEN: 'browser-session-token',
+        },
+      },
     },
   });
   assert.deepStrictEqual(resolveAcpLaunch('qoder', {

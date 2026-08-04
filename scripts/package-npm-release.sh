@@ -70,7 +70,6 @@ const resolveDependencyManifest = (parentManifestPath, dependencyName) => {
 };
 
 const globalOverrides = new Map([
-  ['@hono/node-server', rootManifest.overrides?.['@hono/node-server']],
   ['dompurify', rootManifest.overrides?.dompurify],
   ['qs', rootManifest.overrides?.qs],
 ]);

@@ -50,6 +50,16 @@ const serverBackedTests = new Set([
   'test-session-terminal-input-e2e.ts',
 ]);
 const exclusiveTestFiles = new Set([
+  // This suite exercises cancellation and cleanup against real child-process
+  // timing. Parallel process suites can exhaust its outer 45-second budget
+  // even though every bounded subtest completes normally in isolation.
+  'tests/desktop-backend.test.ts',
+  // These tests intentionally restart or kill an ACP Runtime Host while a
+  // complete Server and adapter tree are active. Run them independently so
+  // unrelated process-heavy tests cannot turn bounded recovery into a timing
+  // assertion about transient states.
+  'test-server-acp-runtime-host-restart.ts',
+  'test-server-acp-runtime-host-sigkill.ts',
   // This test starts two complete Server processes in sequence. Running it in
   // the shared worker pool can starve the first bounded startup on CI and does
   // not add useful concurrency coverage to the isolation assertions.

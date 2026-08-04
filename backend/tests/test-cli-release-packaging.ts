@@ -133,11 +133,12 @@ function run() {
     npmPackageScript.includes('npm ci --omit=dev --ignore-scripts')
       && npmPackageScript.includes('delete rootManifest.overrides')
       && npmPackageScript.includes('rootManifest.gitHead = gitSha')
-      && npmPackageScript.includes("['@hono/node-server', rootManifest.overrides?.['@hono/node-server']]")
+      && packageJson.overrides?.['@hono/node-server'] === '2.0.11'
+      && !npmPackageScript.includes("['@hono/node-server', rootManifest.overrides?.['@hono/node-server']]")
       && npmPackageScript.includes("['dompurify', rootManifest.overrides?.dompurify]")
       && npmPackageScript.includes("['qs', rootManifest.overrides?.qs]")
       && npmPackageScript.includes("rootManifest.overrides?.['express@^4.22.2']?.['body-parser']"),
-    'npm packaging must stage the locked production tree and rewrite reviewed override edges before bundling',
+    'npm packaging must stage the locked production tree, retain reviewed development overrides, and rewrite production override edges before bundling',
   );
   assert(
     npmSmokeScript.includes('scripts/package-npm-release.sh')

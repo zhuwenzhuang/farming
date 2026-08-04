@@ -78,6 +78,9 @@ Farming Instance 都是同一文件系统的独立客户端。
 Preview。Image、PDF、Binary 与 Oversized Text 使用 Read-only Viewer。所有 Viewer 共用同一
 Project Authorization，不能形成独立 File Access Path。
 
+保留 Monaco 的语法诊断，但关闭 Monaco 隔离环境中的 Semantic 和 Suggestion Diagnostics。
+项目级诊断通过托管 Language Server 路径提供，并以已保存文件为准。
+
 代码语义导航由 Managed Language Server 处理且只针对已保存文件。Dirty Draft 不能收到把旧
 磁盘版本冒充当前内容的 Cross-file Result。
 

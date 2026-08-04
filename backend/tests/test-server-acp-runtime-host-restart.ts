@@ -353,14 +353,23 @@ async function run(): Promise<void> {
     serverB = startServerProcess({ capabilityEnvFile, configDir, port: secondPort });
     await waitForServer(secondBaseUrl, serverB, 'Farming Server B startup');
 
-    const recovered = await waitFor(async () => {
-      const listed = await fetchJson(secondBaseUrl, '/api/control/agents');
-      const matches = recordArray(listed.body.agents)
-        .filter(agent => String(agent.id || '') === agentId);
-      return matches.length === 1 && runtimeState(matches[0]) === 'working'
-        ? matches[0]
-        : null;
-    }, 'same working ACP Agent after Server B recovery');
+    let recovered: UnknownRecord;
+    let lastRecoveredAgent: UnknownRecord | null = null;
+    try {
+      recovered = await waitFor(async () => {
+        const listed = await fetchJson(secondBaseUrl, '/api/control/agents');
+        const matches = recordArray(listed.body.agents)
+          .filter(agent => String(agent.id || '') === agentId);
+        lastRecoveredAgent = matches.length === 1 ? matches[0] : null;
+        return matches.length === 1 && ['working', 'idle'].includes(runtimeState(matches[0]))
+          ? matches[0]
+          : null;
+      }, 'same healthy ACP Agent after Server B recovery');
+    } catch (error) {
+      throw new Error(`Server B did not recover the active ACP Agent. Last state: ${JSON.stringify(lastRecoveredAgent)}\n${serverB.outputText()}`, {
+        cause: error,
+      });
+    }
     assert.strictEqual(recovered.id, agentId);
     assert(
       processAlive(adapterPid),

@@ -303,6 +303,68 @@ async function run() {
     await manager.dispose();
   }
 
+  const sharedProofRuntime = new AcpRuntime();
+  sharedProofRuntime.unregisterAgentAndWait = async () => false;
+  const persistedStopAttempts = [];
+  const sharedProofManager = new AgentManager(config(), {
+    acpRuntime: sharedProofRuntime,
+    stopPersistedAcpProcessGroup: async identity => {
+      persistedStopAttempts.push(identity);
+      return { stopped: true };
+    },
+  });
+  const sharedProcessIdentity = {
+    kind: 'acp-process-group',
+    pid: 42_001,
+    processGroupId: 42_001,
+    startedAt: 'shared-process-start',
+  };
+  const sharedAgentRecord = id => ({
+    id,
+    command: 'codex',
+    cwd: process.cwd(),
+    projectWorkspace: process.cwd(),
+    status: 'running',
+    engineStatus: 'running',
+    archived: false,
+    runtimeBinding: {
+      kind: 'acp',
+      state: 'idle',
+      error: '',
+      stopReason: '',
+      pendingPermission: null,
+      pendingPermissions: [],
+      pendingElicitation: null,
+      pendingElicitations: [],
+      activeElicitations: [],
+      sessionRevision: 0,
+      sessionUpdatedAt: '',
+      supportsFork: false,
+      supportsSteer: false,
+    },
+    structuredRuntimeProcess: { ...sharedProcessIdentity },
+  });
+  try {
+    sharedProofManager.agents.set('shared-target', sharedAgentRecord('shared-target'));
+    sharedProofManager.agents.set('shared-peer', sharedAgentRecord('shared-peer'));
+    sharedProofRuntime.bindings.set('shared-peer', {});
+    const deleted = await sharedProofManager.killAgent('shared-target', {
+      persistDeleteOperation: false,
+      recordHistory: false,
+    });
+    assert.strictEqual(deleted.killed, true);
+    assert.strictEqual(sharedProofManager.agents.has('shared-target'), false);
+    assert.strictEqual(sharedProofManager.agents.has('shared-peer'), true);
+    assert.deepStrictEqual(
+      persistedStopAttempts,
+      [],
+      'deleting one Agent must not signal a persisted process still owned by a live shared-runtime peer',
+    );
+  } finally {
+    sharedProofRuntime.bindings.clear();
+    await sharedProofManager.dispose();
+  }
+
   const claudeProfileRuntime = new AcpRuntime({
     ...TEST_PROCESS_IDENTITY,
     resolveLaunch: () => ({ command: process.execPath, args: ['--import', require.resolve('tsx'), fixture], version: 'test' }),

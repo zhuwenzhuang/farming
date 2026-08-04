@@ -32,14 +32,15 @@ if (process.env.FARMING_TEST_ACP_DESCENDANT_PID_FILE) {
   descendant.unref();
 }
 
-if (process.env.FARMING_TEST_ACP_CAPABILITY_ENV_FILE) {
+function writeCapabilityEnvironment(environment: NodeJS.ProcessEnv) {
+  if (!process.env.FARMING_TEST_ACP_CAPABILITY_ENV_FILE) return;
   try {
     fs.writeFileSync(process.env.FARMING_TEST_ACP_CAPABILITY_ENV_FILE, JSON.stringify({
-      agentId: process.env.FARMING_AGENT_ID || '',
-      browserToken: process.env.FARMING_BROWSER_TOKEN || '',
-      computerToken: process.env.FARMING_COMPUTER_TOKEN || '',
-      runtimeEpoch: process.env.FARMING_CAPABILITY_RUNTIME_EPOCH || '',
-      workspace: process.env.FARMING_PROJECT_WORKSPACE || '',
+      agentId: environment.FARMING_AGENT_ID || '',
+      browserToken: environment.FARMING_BROWSER_TOKEN || '',
+      computerToken: environment.FARMING_COMPUTER_TOKEN || '',
+      runtimeEpoch: environment.FARMING_CAPABILITY_RUNTIME_EPOCH || '',
+      workspace: environment.FARMING_PROJECT_WORKSPACE || '',
     }), { flag: 'wx', mode: 0o600 });
   } catch (error: unknown) {
     if (!error || typeof error !== 'object' || !('code' in error) || error.code !== 'EEXIST') {
@@ -47,6 +48,8 @@ if (process.env.FARMING_TEST_ACP_CAPABILITY_ENV_FILE) {
     }
   }
 }
+
+if (process.env.FARMING_AGENT_ID) writeCapabilityEnvironment(process.env);
 
 if (process.argv.includes('--fake-terminal-login')) {
   process.stdin.setEncoding('utf8');
@@ -88,12 +91,31 @@ const initialSessionId = process.env.FARMING_E2E_FAKE_EXECUTABLES === '1'
   ? deterministicE2eSessionId(process.env.FARMING_AGENT_ID)
   : 'acp-new-session';
 let sessionId = initialSessionId;
-let refreshedModelId = '';
-let activeModel = process.env.FARMING_TEST_ACP_MODEL_DEFAULT || 'gpt-5.5';
-let activeEffort = process.env.FARMING_TEST_ACP_REASONING_DEFAULT || 'high';
-let activeFast = process.env.FARMING_TEST_ACP_FAST_DEFAULT === '1';
+interface SessionConfigState {
+  refreshedModelId: string;
+  model: string;
+  effort: string;
+  fast: boolean;
+}
+const sessionConfigStates = new Map<string, SessionConfigState>();
 const omitFastOption = process.env.FARMING_TEST_ACP_OMIT_FAST === '1';
 const cancelledSessions = new Map<string, () => void>();
+const sessionEnvironments = new Map<string, NodeJS.ProcessEnv>();
+
+function farmingSessionEnvironment(params): NodeJS.ProcessEnv {
+  const environment = params?._meta?.farming?.env;
+  if (!environment || typeof environment !== 'object' || Array.isArray(environment)) return {};
+  return Object.fromEntries(
+    Object.entries(environment).filter((entry): entry is [string, string] => typeof entry[1] === 'string'),
+  );
+}
+
+function bindSessionEnvironment(id: string, params) {
+  const environment = farmingSessionEnvironment(params);
+  if (Object.keys(environment).length === 0) return;
+  sessionEnvironments.set(id, environment);
+  writeCapabilityEnvironment(environment);
+}
 
 interface ActiveSteerTurn {
   sessionId: string;
@@ -110,7 +132,11 @@ let activeSteerTurn: ActiveSteerTurn | null = null;
 let liveProgressSequence = 0;
 
 function sessionScenarioMarker(sessionId, scenario) {
-  const configDir = String(process.env.FARMING_CONFIG_DIR || '').trim();
+  const configDir = String(
+    sessionEnvironments.get(String(sessionId || ''))?.FARMING_CONFIG_DIR
+    || process.env.FARMING_CONFIG_DIR
+    || '',
+  ).trim();
   if (!configDir || !sessionId || !scenario) return '';
   const key = crypto.createHash('sha256').update(String(sessionId)).digest('hex');
   return path.join(configDir, 'fake-acp-session-state', `${key}.${scenario}`);
@@ -128,14 +154,30 @@ function hasSessionScenario(sessionId, scenario) {
   return Boolean(marker && fs.existsSync(marker));
 }
 
-function sessionConfigOptions(): SessionConfigOption[] {
+function sessionConfigState(id: string): SessionConfigState {
+  const key = String(id || sessionId);
+  let state = sessionConfigStates.get(key);
+  if (!state) {
+    state = {
+      refreshedModelId: '',
+      model: process.env.FARMING_TEST_ACP_MODEL_DEFAULT || 'gpt-5.5',
+      effort: process.env.FARMING_TEST_ACP_REASONING_DEFAULT || 'high',
+      fast: process.env.FARMING_TEST_ACP_FAST_DEFAULT === '1',
+    };
+    sessionConfigStates.set(key, state);
+  }
+  return state;
+}
+
+function sessionConfigOptions(id: string): SessionConfigOption[] {
+  const state = sessionConfigState(id);
   const options: SessionConfigOption[] = [
     {
       id: 'model',
       name: 'Model',
       category: 'model',
       type: 'select',
-      currentValue: activeModel,
+      currentValue: state.model,
       options: ['gpt-5.5', 'gpt-5.6-luna'].map(value => ({ value, name: value })),
     },
     {
@@ -143,12 +185,12 @@ function sessionConfigOptions(): SessionConfigOption[] {
       name: 'Reasoning',
       category: 'thought_level',
       type: 'select',
-      currentValue: activeEffort,
+      currentValue: state.effort,
       options: ['high', 'ultra'].map(value => ({ value, name: value })),
     },
   ];
   if (!omitFastOption) {
-    options.push({ id: 'fast-mode', name: 'Fast mode', type: 'boolean', currentValue: activeFast });
+    options.push({ id: 'fast-mode', name: 'Fast mode', type: 'boolean', currentValue: state.fast });
   }
   return options;
 }
@@ -210,15 +252,21 @@ class FakeAgent implements Agent {
 
   async newSession(params) {
     validateRequestedSessionScope(params);
+    const environment = farmingSessionEnvironment(params);
+    if (process.env.FARMING_E2E_FAKE_EXECUTABLES === '1' && environment.FARMING_AGENT_ID) {
+      sessionId = deterministicE2eSessionId(environment.FARMING_AGENT_ID);
+    }
+    bindSessionEnvironment(sessionId, params);
     return {
       sessionId,
-      configOptions: sessionConfigOptions(),
+      configOptions: sessionConfigOptions(sessionId),
     };
   }
 
   async loadSession(params) {
     validateRequestedSessionScope(params);
     sessionId = params.sessionId;
+    bindSessionEnvironment(sessionId, params);
     const failOnceFile = process.env.FARMING_TEST_ACP_FAIL_LOAD_ONCE_FILE;
     if (failOnceFile && !fs.existsSync(failOnceFile)) {
       fs.writeFileSync(failOnceFile, sessionId);
@@ -242,7 +290,7 @@ class FakeAgent implements Agent {
           },
         });
       }
-      return { configOptions: sessionConfigOptions() };
+      return { configOptions: sessionConfigOptions(sessionId) };
     }
     if (sessionId === 'delayed-history-session') {
       await client.sessionUpdate({
@@ -263,7 +311,7 @@ class FakeAgent implements Agent {
           },
         });
       }, 120);
-      return { configOptions: sessionConfigOptions() };
+      return { configOptions: sessionConfigOptions(sessionId) };
     }
     await client.sessionUpdate({
       sessionId,
@@ -281,13 +329,14 @@ class FakeAgent implements Agent {
         content: { type: 'text', text: 'historical answer' },
       },
     });
-    return { configOptions: sessionConfigOptions() };
+    return { configOptions: sessionConfigOptions(sessionId) };
   }
 
   async resumeSession(params) {
     validateRequestedSessionScope(params);
     sessionId = params.sessionId;
-    return { configOptions: sessionConfigOptions() };
+    bindSessionEnvironment(sessionId, params);
+    return { configOptions: sessionConfigOptions(sessionId) };
   }
 
   async listSessions() {
@@ -331,6 +380,7 @@ class FakeAgent implements Agent {
   async setSessionConfigOption(
     params: SetSessionConfigOptionRequest,
   ): Promise<SetSessionConfigOptionResponse> {
+    const state = sessionConfigState(params.sessionId);
     if (process.env.FARMING_TEST_ACP_REJECT_CONFIG_ID === params.configId) {
       throw new Error(`Fake provider rejected config option ${params.configId}`);
     }
@@ -338,14 +388,14 @@ class FakeAgent implements Agent {
       if (typeof params.value !== 'string') {
         throw new Error('Model config requires a string value');
       }
-      activeModel = params.value;
-      if (activeModel === 'gpt-5.6-luna' && activeEffort === 'ultra') activeEffort = 'max';
-      const refreshedMatch = refreshedModelId.match(/^(.+)\[([^\]]+)]$/);
+      state.model = params.value;
+      if (state.model === 'gpt-5.6-luna' && state.effort === 'ultra') state.effort = 'max';
+      const refreshedMatch = state.refreshedModelId.match(/^(.+)\[([^\]]+)]$/);
       const refreshed = refreshedMatch?.[1] === params.value;
-      if (refreshed && refreshedMatch) activeEffort = refreshedMatch[2];
+      if (refreshed && refreshedMatch) state.effort = refreshedMatch[2];
       const configOptions: SessionConfigOption[] = [
-          { id: 'model', name: 'Model', category: 'model', type: 'select', currentValue: activeModel, options: [{ value: activeModel, name: activeModel }] },
-          { id: 'reasoning', name: 'Reasoning', category: 'thought_level', type: 'select', currentValue: activeEffort, options: [{ value: activeEffort, name: activeEffort }] },
+          { id: 'model', name: 'Model', category: 'model', type: 'select', currentValue: state.model, options: [{ value: state.model, name: state.model }] },
+          { id: 'reasoning', name: 'Reasoning', category: 'thought_level', type: 'select', currentValue: state.effort, options: [{ value: state.effort, name: state.effort }] },
       ];
       if (refreshed && !omitFastOption) {
         configOptions.push({
@@ -361,10 +411,10 @@ class FakeAgent implements Agent {
       if (typeof params.value !== 'string') {
         throw new Error('Reasoning config requires a string value');
       }
-      activeEffort = params.value;
+      state.effort = params.value;
       const configOptions: SessionConfigOption[] = [
-          { id: 'model', name: 'Model', type: 'select', currentValue: activeModel, options: [{ value: activeModel, name: activeModel }] },
-          { id: 'reasoning', name: 'Reasoning', type: 'select', currentValue: activeEffort, options: [{ value: activeEffort, name: activeEffort }] },
+          { id: 'model', name: 'Model', type: 'select', currentValue: state.model, options: [{ value: state.model, name: state.model }] },
+          { id: 'reasoning', name: 'Reasoning', type: 'select', currentValue: state.effort, options: [{ value: state.effort, name: state.effort }] },
       ];
       return { configOptions };
     }
@@ -372,8 +422,8 @@ class FakeAgent implements Agent {
       if (typeof params.value !== 'boolean') {
         throw new Error('Fast config requires a boolean value');
       }
-      activeFast = params.value;
-      return { configOptions: sessionConfigOptions() };
+      state.fast = params.value;
+      return { configOptions: sessionConfigOptions(params.sessionId) };
     }
     return {
       configOptions: [{
@@ -430,11 +480,12 @@ class FakeAgent implements Agent {
       return { turnId };
     }
     if (method !== 'session/set_model') throw new Error(`Unsupported extension method: ${method}`);
-    refreshedModelId = params.modelId;
-    const match = refreshedModelId.match(/^(.+)\[([^\]]+)]$/);
+    const state = sessionConfigState(params.sessionId);
+    state.refreshedModelId = params.modelId;
+    const match = state.refreshedModelId.match(/^(.+)\[([^\]]+)]$/);
     if (match) {
-      activeModel = match[1];
-      activeEffort = match[2];
+      state.model = match[1];
+      state.effort = match[2];
     }
     return {};
   }

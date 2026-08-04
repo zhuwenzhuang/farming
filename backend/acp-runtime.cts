@@ -22,7 +22,11 @@ import { PACKAGED_CODEX_ACP_ARG } from './acp/packaged-codex-acp.cjs';
 import { PACKAGED_CLAUDE_ACP_ARG } from './acp/packaged-claude-acp.cjs';
 import { permissionSecurityWarnings } from './acp/permission-security.cjs';
 import { patchBlock, rejectPatch } from './acp/patch-decisions.cjs';
-import { getProviderAdapter, listProviderAdapters } from './provider-adapters.cjs';
+import {
+  getProviderAdapter,
+  listProviderAdapters,
+  providerSupportsSharedAcpRuntime,
+} from './provider-adapters.cjs';
 import { isSafeProviderSessionId } from './provider-session-id.cjs';
 import { configInstanceFingerprint as fingerprintConfigInstance } from './config-instance.cjs';
 import {
@@ -120,10 +124,11 @@ interface SubagentControl {
   cancelPromise?: Promise<unknown> | null; [key: string]: unknown;
 }
 interface AcpBinding {
-  agentId: string; provider: string; providerHomeId: string; cwd: string;
+  agentId: string; provider: string; providerHomeId: string; providerHomePath: string; cwd: string;
   capabilityRuntimeEpoch: string;
   sessionRequestOptions: AcpSessionRequestOptions; env: NodeJS.ProcessEnv; launch: AcpLaunch;
   restartOptions: PrepareAgentOptions; approvalMode: string; ownsProcessGroup: boolean;
+  runtime: AcpRuntimeProcess | null;
   child: import('child_process').ChildProcessWithoutNullStreams | null;
   connection: AcpConnection; initializeResponse: InitializeResponse;
   sessionId: string; untrustedSessionId: string; state: string; error: string; stopReason: string;
@@ -145,6 +150,29 @@ interface AcpBinding {
   deferredModeId: string;
   codexInlineVisualizationStreams: Map<string, ReturnType<typeof createCodexInlineVisualizationStreamState>>;
   stderr: string; exited: boolean; retryableReconnect: boolean; updatedAt: string;
+}
+interface AcpProcessOwner {
+  ownsProcessGroup: boolean;
+  child: import('child_process').ChildProcessWithoutNullStreams | null;
+}
+interface AcpRuntimeProcess extends AcpProcessOwner {
+  key: string;
+  shared: boolean;
+  provider: string;
+  providerHomePath: string;
+  launch: AcpLaunch;
+  env: NodeJS.ProcessEnv;
+  connection: AcpConnection;
+  initializeResponse: InitializeResponse;
+  processIdentity: ProcessIdentity | null;
+  bindings: Map<string, AcpBinding>;
+  handlers: Map<string, AcpClientHandlers>;
+  sessionOwners: Map<string, AcpBinding>;
+  openingBinding: AcpBinding | null;
+  openTail: Promise<unknown>;
+  stderr: string;
+  exited: boolean;
+  stopping: boolean;
 }
 interface AcpConfigOverrideWarning {
   configId: string;
@@ -182,7 +210,7 @@ interface AcpRuntimeOptions extends PrepareAgentOptions {
   terminalSpawn?: typeof spawn;
 }
 interface PrepareAgentOptions extends UnknownRecord {
-  agentId?: string; provider?: string; providerHomeId?: string; cwd?: string; sessionId?: string;
+  agentId?: string; provider?: string; providerHomeId?: string; providerHomePath?: string; cwd?: string; sessionId?: string;
   capabilityRuntimeEpoch?: string;
   forkSourceSessionId?: string; forkSourceCheckpoint?: UnknownRecord | null; revisionBase?: number;
   approvalMode?: string; historyMode?: string; model?: string; reasoningEffort?: string;
@@ -255,7 +283,7 @@ const CODEX_SET_SESSION_MODEL_METHOD = 'session/set_model';
 const CODEX_STEER_METHOD = '_codex/session/steer';
 const CODEX_ACP_PACKAGE = '@agentclientprotocol/codex-acp';
 const CODEX_ACP_VERSION = '1.1.4';
-const CODEX_ACP_SHA256 = '2b0bf774e336d71816727a66cef47f6c088f4e85e76e412ebd0ed156eb7e2c44';
+const CODEX_ACP_SHA256 = '1b4ac2aa5e99d0ae9b43f10ccd5796fcd15bfae1e70fbaaa9765519de1c79114';
 const CLAUDE_ACP_PACKAGE = '@agentclientprotocol/claude-agent-acp';
 const CLAUDE_ACP_VERSION = '0.59.0';
 const CLAUDE_ACP_SHA256 = 'a6aa515dd02382617bf46d9eac47b8a1022c6835bcf7a8d61e2c63939be2e49c';
@@ -553,6 +581,68 @@ function clone<T>(value: T): T {
   return value == null ? value : JSON.parse(JSON.stringify(value));
 }
 
+const ACP_SESSION_ENV_KEYS = [
+  'FARMING_AGENT_ID',
+  'FARMING_AGENT_TITLE_TOKEN',
+  'FARMING_BROWSER_TOKEN',
+  'FARMING_CAPABILITIES_COMMAND',
+  'FARMING_CAPABILITY_RUNTIME_EPOCH',
+  'FARMING_CLI_BIN_DIR',
+  'FARMING_COMPUTER_TOKEN',
+  'FARMING_CONFIG_DIR',
+  'FARMING_CONTROL_URL',
+  'FARMING_DISABLE_AUTH',
+  'FARMING_IS_MAIN_AGENT',
+  'FARMING_MAIN_WORKSPACE',
+  'FARMING_PARENT_AGENT_ID',
+  'FARMING_PROJECT_WORKSPACE',
+  'FARMING_SKILLS_COMMAND',
+  'FARMING_SKILLS_FILE',
+  'FARMING_STARTUP_PROMPT_FILE',
+  'FARMING_TOKEN_FILE',
+] as const;
+
+function acpSessionEnvironment(env: NodeJS.ProcessEnv = {}) {
+  return Object.fromEntries(ACP_SESSION_ENV_KEYS.flatMap(key => (
+    typeof env[key] === 'string' ? [[key, String(env[key])]] : []
+  )));
+}
+
+function canonicalAcpHomePath(provider: string, options: PrepareAgentOptions, env: NodeJS.ProcessEnv) {
+  const adapter = getProviderAdapter(provider);
+  const configured = String(
+    options.providerHomePath
+    || (adapter?.homeEnvKey ? env[adapter.homeEnvKey] : '')
+    || '',
+  ).trim();
+  if (!configured) return '';
+  const resolved = path.resolve(configured);
+  let canonical = resolved;
+  try {
+    canonical = fs.realpathSync.native(resolved);
+  } catch {
+    // A configured Agent Home may be created lazily by its provider.
+  }
+  return process.platform === 'win32' ? canonical.toLowerCase() : canonical;
+}
+
+function sharedAcpProcessEnvironment(
+  provider: string,
+  options: PrepareAgentOptions,
+) {
+  const env = { ...(options.env || process.env) };
+  for (const key of ACP_SESSION_ENV_KEYS) delete env[key];
+  delete env.INITIAL_AGENT_MODE;
+  const prepare = getProviderAdapter(provider)?.prepareAcpEnvironment;
+  return prepare
+    ? prepare({
+        env,
+        executable: options.executable,
+        farmingSystemPrompt: options.farmingSystemPrompt,
+      })
+    : env;
+}
+
 function acpSessionRequestOptions(options: PrepareAgentOptions = {}, cwd: string = process.cwd()): AcpSessionRequestOptions {
   const root = path.resolve(cwd || process.cwd());
   const additionalDirectories = Array.isArray(options.additionalDirectories)
@@ -564,17 +654,28 @@ function acpSessionRequestOptions(options: PrepareAgentOptions = {}, cwd: string
     ? clone(options.mcpServers.filter((server: UnknownRecord) => server && typeof server === 'object' && !Array.isArray(server)))
     : [];
   const result: AcpSessionRequestOptions & { _meta?: UnknownRecord } = { cwd: root, additionalDirectories, mcpServers };
-  if (
-    options.provider === 'claude'
-    && typeof options.farmingSystemPrompt === 'string'
-    && options.farmingSystemPrompt.trim()
-  ) {
+  const sessionEnv = acpSessionEnvironment(options.env);
+  if (Object.keys(sessionEnv).length > 0) {
+    result._meta = { farming: { env: sessionEnv } };
+  }
+  if (options.provider === 'claude') {
+    const farmingSystemPrompt = typeof options.farmingSystemPrompt === 'string'
+      ? options.farmingSystemPrompt.trim()
+      : '';
     result._meta = {
-      systemPrompt: {
-        type: 'preset',
-        preset: 'claude_code',
-        append: options.farmingSystemPrompt.trim(),
-      },
+      ...(result._meta || {}),
+      ...(farmingSystemPrompt
+        ? {
+            systemPrompt: {
+              type: 'preset',
+              preset: 'claude_code',
+              append: farmingSystemPrompt,
+            },
+          }
+        : {}),
+      ...(Object.keys(sessionEnv).length > 0
+        ? { claudeCode: { options: { env: sessionEnv } } }
+        : {}),
     };
   }
   return result;
@@ -787,47 +888,47 @@ function childHasExited(child: import('child_process').ChildProcessWithoutNullSt
     || (child.signalCode !== null && child.signalCode !== undefined);
 }
 
-function processGroupHasExited(binding: AcpBinding) {
-  if (!binding?.ownsProcessGroup || !binding.child?.pid || process.platform === 'win32') {
-    return childHasExited(binding?.child);
+function processGroupHasExited(owner: AcpProcessOwner) {
+  if (!owner?.ownsProcessGroup || !owner.child?.pid || process.platform === 'win32') {
+    return childHasExited(owner?.child);
   }
   try {
-    process.kill(-binding.child.pid, 0);
+    process.kill(-owner.child.pid, 0);
     return false;
   } catch (error) {
     return asErrorLike(error).code === 'ESRCH';
   }
 }
 
-async function waitForProcessTreeExit(binding: AcpBinding, timeoutMs: number) {
+async function waitForProcessTreeExit(owner: AcpProcessOwner, timeoutMs: number) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() <= deadline) {
-    if (processGroupHasExited(binding)) return true;
+    if (processGroupHasExited(owner)) return true;
     await new Promise(resolve => setTimeout(resolve, 25));
   }
-  return processGroupHasExited(binding);
+  return processGroupHasExited(owner);
 }
 
-function signalProcessTree(binding: AcpBinding, signal: NodeJS.Signals) {
-  if (!binding?.child || processGroupHasExited(binding)) return;
-  if (binding.ownsProcessGroup && binding.child.pid && process.platform !== 'win32') {
+function signalProcessTree(owner: AcpProcessOwner, signal: NodeJS.Signals) {
+  if (!owner?.child || processGroupHasExited(owner)) return;
+  if (owner.ownsProcessGroup && owner.child.pid && process.platform !== 'win32') {
     try {
-      process.kill(-binding.child.pid, signal);
+      process.kill(-owner.child.pid, signal);
       return;
     } catch (error) {
       if (asErrorLike(error).code === 'ESRCH') return;
     }
   }
-  binding.child.kill(signal);
+  owner.child.kill(signal);
 }
 
-async function stopBindingProcessAndWait(binding: AcpBinding) {
-  if (await waitForProcessTreeExit(binding, IDENTITY_ADAPTER_GRACEFUL_EXIT_MS)) return;
-  signalProcessTree(binding, 'SIGTERM');
-  if (await waitForProcessTreeExit(binding, IDENTITY_ADAPTER_TERMINATE_MS)) return;
-  signalProcessTree(binding, 'SIGKILL');
-  if (await waitForProcessTreeExit(binding, IDENTITY_ADAPTER_KILL_MS)) return;
-  throw new Error(`ACP identity adapter process tree ${binding.child?.pid || ''} did not exit`);
+async function stopProcessAndWait(owner: AcpProcessOwner) {
+  if (await waitForProcessTreeExit(owner, IDENTITY_ADAPTER_GRACEFUL_EXIT_MS)) return;
+  signalProcessTree(owner, 'SIGTERM');
+  if (await waitForProcessTreeExit(owner, IDENTITY_ADAPTER_TERMINATE_MS)) return;
+  signalProcessTree(owner, 'SIGKILL');
+  if (await waitForProcessTreeExit(owner, IDENTITY_ADAPTER_KILL_MS)) return;
+  throw new Error(`ACP adapter process tree ${owner.child?.pid || ''} did not exit`);
 }
 
 async function describeAcpProcessGroup(pid: number) {
@@ -1013,6 +1114,8 @@ function attachProviderSessionIdentity(
 
 class AcpRuntime extends EventEmitter {
   declare bindings: Map<string, AcpBinding>;
+  declare runtimeProcesses: Map<string, AcpRuntimeProcess>;
+  declare runtimeStarts: Map<string, Promise<AcpRuntimeProcess>>;
   declare spawn: typeof spawn;
   declare createConnection: NonNullable<AcpRuntimeOptions['createConnection']> | null;
   declare resolveLaunch: NonNullable<AcpRuntimeOptions['resolveLaunch']>;
@@ -1069,12 +1172,286 @@ class AcpRuntime extends EventEmitter {
     this.checkpointStore = options.checkpointStore
       || (options.configDir ? new AcpCheckpointStore(options.configDir, options.checkpointOptions) : null);
     this.bindings = new Map<string, AcpBinding>();
+    this.runtimeProcesses = new Map();
+    this.runtimeStarts = new Map();
     this.reconnectOperations = new Map();
     this.disposing = false;
     this.disposePromise = null;
     this.disposed = false;
     this.clientFileSystem = options.clientFileSystem || new AcpClientFileSystem();
     this.clientTerminals = options.clientTerminals || new AcpClientTerminalManager({ spawn: options.terminalSpawn });
+  }
+
+  runtimeKey(binding: AcpBinding) {
+    const shared = providerSupportsSharedAcpRuntime(binding.provider)
+      && Boolean(binding.providerHomePath);
+    return {
+      key: JSON.stringify([
+        binding.provider,
+        shared ? binding.providerHomePath : `agent:${binding.agentId}`,
+      ]),
+      shared,
+    };
+  }
+
+  attachBindingToRuntime(binding: AcpBinding, runtime: AcpRuntimeProcess) {
+    if (runtime.exited || runtime.stopping) throw new Error('ACP runtime process is not available');
+    runtime.bindings.set(binding.agentId, binding);
+    runtime.handlers.set(binding.agentId, this.clientHandlers(binding));
+    binding.runtime = runtime;
+    binding.child = runtime.child;
+    binding.connection = runtime.connection;
+    binding.initializeResponse = runtime.initializeResponse;
+    binding.ownsProcessGroup = runtime.ownsProcessGroup;
+    binding.supportsSteer = binding.provider === 'codex'
+      && supportsCodexSteer(runtime.initializeResponse.agentCapabilities);
+  }
+
+  async persistRuntimeIdentity(runtime: AcpRuntimeProcess, options: PrepareAgentOptions) {
+    if (!runtime.ownsProcessGroup || typeof options.onProcessStarted !== 'function') return;
+    if (!runtime.processIdentity) {
+      throw new Error(`ACP process ${runtime.child?.pid || ''} has no persisted identity`);
+    }
+    await options.onProcessStarted(runtime.processIdentity);
+  }
+
+  async startRuntimeProcess(
+    binding: AcpBinding,
+    options: PrepareAgentOptions,
+    key: string,
+    shared: boolean,
+  ) {
+    const runtime: AcpRuntimeProcess = {
+      key,
+      shared,
+      provider: binding.provider,
+      providerHomePath: binding.providerHomePath,
+      launch: binding.launch,
+      env: shared
+        ? sharedAcpProcessEnvironment(binding.provider, options)
+        : binding.env,
+      ownsProcessGroup: process.platform !== 'win32',
+      child: null,
+      connection: null as unknown as AcpConnection,
+      initializeResponse: null as unknown as InitializeResponse,
+      processIdentity: null,
+      bindings: new Map(),
+      handlers: new Map(),
+      sessionOwners: new Map(),
+      openingBinding: null,
+      openTail: Promise.resolve(),
+      stderr: '',
+      exited: false,
+      stopping: false,
+    };
+    binding.runtime = runtime;
+    runtime.bindings.set(binding.agentId, binding);
+    runtime.handlers.set(binding.agentId, this.clientHandlers(binding));
+    try {
+      const gatedLaunch = runtime.ownsProcessGroup
+        ? {
+            command: '/bin/sh',
+            args: [
+              '-c',
+              'IFS= read -r farming_acp_start || exit 0; exec "$@"',
+              'farming-acp-start-gate',
+              runtime.launch.command,
+              ...runtime.launch.args,
+            ],
+          }
+        : runtime.launch;
+      const child = this.spawn(gatedLaunch.command, gatedLaunch.args, {
+        cwd: binding.cwd,
+        env: runtime.env,
+        stdio: ['pipe', 'pipe', 'pipe'],
+        detached: runtime.ownsProcessGroup,
+      });
+      runtime.child = child;
+      binding.child = child;
+      child.stderr.on('data', (chunk: Buffer) => {
+        runtime.stderr = `${runtime.stderr}${chunk.toString('utf8')}`.slice(-16_000);
+      });
+      child.on('error', (error: unknown) => this.handleRuntimeExit(runtime, error));
+      child.on('close', (code: number | null, signal: NodeJS.Signals | null) => {
+        if (!runtime.connection?.signal?.aborted) {
+          const detail = runtime.stderr.trim()
+            || `ACP adapter exited with code ${code}${signal ? ` (${signal})` : ''}`;
+          this.handleRuntimeExit(runtime, code === 0 ? null : new Error(detail));
+        }
+      });
+      if (runtime.ownsProcessGroup) {
+        const processIdentity = await this.describeProcessGroup(child.pid);
+        if (!processIdentity) {
+          throw new Error(`ACP process ${child.pid || ''} exited before its identity was persisted`);
+        }
+        runtime.processIdentity = {
+          ...processIdentity,
+          ...(this.configInstanceFingerprint
+            ? { configInstanceFingerprint: this.configInstanceFingerprint }
+            : {}),
+        };
+        await this.persistRuntimeIdentity(runtime, options);
+        await new Promise<void>((resolve, reject) => {
+          child.stdin.write('start\n', (error: unknown) => {
+            if (error) reject(error);
+            else resolve();
+          });
+        });
+      }
+
+      const handlers = this.sharedClientHandlers(runtime);
+      const connection = this.createConnection
+        ? await this.createConnection(handlers, child, binding)
+        : await this.officialConnection(handlers, child);
+      runtime.connection = connection;
+      binding.connection = connection;
+      connection.closed.catch((error: unknown) => this.handleRuntimeExit(runtime, error));
+      const sdk = await loadAcpSdk();
+      if (runtime.exited || runtime.stopping) throw new Error('ACP runtime process closed during initialization');
+      runtime.initializeResponse = await withTimeout(connection.initialize({
+        protocolVersion: sdk.PROTOCOL_VERSION,
+        clientCapabilities: {
+          fs: { readTextFile: true, writeTextFile: true },
+          terminal: true,
+          auth: { terminal: true },
+          session: { configOptions: { boolean: {} } },
+          plan: {},
+          elicitation: { form: {}, url: {} },
+          _meta: { terminal_output: true },
+        },
+        clientInfo: { name: 'farming', title: 'Farming', version: packageJson.version || '0.0.0' },
+      }), this.initializeTimeoutMs, 'ACP initialize');
+      if (runtime.initializeResponse.protocolVersion !== sdk.PROTOCOL_VERSION) {
+        throw new Error(`ACP protocol version mismatch: Agent selected ${runtime.initializeResponse.protocolVersion}, Farming supports ${sdk.PROTOCOL_VERSION}`);
+      }
+      binding.initializeResponse = runtime.initializeResponse;
+      binding.supportsSteer = binding.provider === 'codex'
+        && supportsCodexSteer(runtime.initializeResponse.agentCapabilities);
+      return runtime;
+    } catch (error) {
+      runtime.stopping = true;
+      try {
+        runtime.connection?.close();
+      } catch {
+        // Process cleanup below remains authoritative.
+      }
+      if (runtime.child?.stdin?.writable && !runtime.child.stdin.destroyed) {
+        try {
+          runtime.child.stdin.end();
+        } catch {
+          // Process cleanup below remains authoritative.
+        }
+      }
+      await stopProcessAndWait(runtime).catch(() => {});
+      runtime.exited = true;
+      throw error;
+    }
+  }
+
+  async acquireRuntimeProcess(binding: AcpBinding, options: PrepareAgentOptions) {
+    const { key, shared } = this.runtimeKey(binding);
+    const existing = this.runtimeProcesses.get(key);
+    if (existing && !existing.exited && !existing.stopping) {
+      this.attachBindingToRuntime(binding, existing);
+      await this.persistRuntimeIdentity(existing, options);
+      return existing;
+    }
+    const starting = this.runtimeStarts.get(key);
+    if (starting) {
+      const runtime = await starting;
+      this.attachBindingToRuntime(binding, runtime);
+      await this.persistRuntimeIdentity(runtime, options);
+      return runtime;
+    }
+    const operation = this.startRuntimeProcess(binding, options, key, shared);
+    this.runtimeStarts.set(key, operation);
+    try {
+      const runtime = await operation;
+      this.runtimeProcesses.set(key, runtime);
+      return runtime;
+    } finally {
+      if (this.runtimeStarts.get(key) === operation) this.runtimeStarts.delete(key);
+    }
+  }
+
+  claimRuntimeSession(binding: AcpBinding, sessionId: string) {
+    const runtime = binding.runtime;
+    const id = String(sessionId || '').trim();
+    if (!runtime || !id) return;
+    const owner = runtime.sessionOwners.get(id);
+    if (owner && owner !== binding && this.isOpenBinding(owner)) {
+      throw new Error(`ACP session ${id} is already active in another Agent`);
+    }
+    runtime.sessionOwners.set(id, binding);
+  }
+
+  releaseRuntimeSessions(binding: AcpBinding) {
+    const runtime = binding.runtime;
+    if (!runtime) return;
+    for (const [sessionId, owner] of runtime.sessionOwners) {
+      if (owner === binding) runtime.sessionOwners.delete(sessionId);
+    }
+    if (runtime.openingBinding === binding) runtime.openingBinding = null;
+  }
+
+  bindingForRuntimeSession(runtime: AcpRuntimeProcess, sessionId: string) {
+    const id = String(sessionId || '').trim();
+    if (id) {
+      const owner = runtime.sessionOwners.get(id);
+      if (owner && this.isOpenBinding(owner)) return owner;
+      const subagentOwners = [...runtime.bindings.values()].filter(binding => (
+        this.isOpenBinding(binding)
+        && (
+          binding.subagentStates.has(id)
+          || binding.sessionState?.entries.some((entry: TranscriptEntry) => (
+            String(entry?._meta?.subagent_session_info?.session_id || '') === id
+          ))
+        )
+      ));
+      if (subagentOwners.length === 1) return subagentOwners[0];
+    }
+    if (runtime.openingBinding && this.isOpenBinding(runtime.openingBinding)) {
+      return runtime.openingBinding;
+    }
+    if (id && runtime.shared) return null;
+    const openBindings = [...runtime.bindings.values()].filter(binding => this.isOpenBinding(binding));
+    return openBindings.length === 1 ? openBindings[0] : null;
+  }
+
+  assertRuntimeSessionMutationOwner(binding: AcpBinding, sessionId: string, action: string) {
+    const id = String(sessionId || '').trim();
+    if (!isSafeProviderSessionId(id)) {
+      throw new Error(`ACP ${action} requires a safe exact session id`);
+    }
+    const owner = binding.runtime?.sessionOwners.get(id);
+    if (owner && owner !== binding && this.isOpenBinding(owner)) {
+      throw new Error(`ACP Agent does not own session ${id}`);
+    }
+    return id;
+  }
+
+  async openUnknownRuntimeSession<T>(
+    runtime: AcpRuntimeProcess,
+    binding: AcpBinding,
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    const previous = runtime.openTail;
+    const pending = previous.catch(() => {}).then(async () => {
+      this.requireOpenBinding(binding);
+      if (runtime.exited || runtime.stopping) throw new Error('ACP runtime process is closed');
+      runtime.openingBinding = binding;
+      try {
+        return await operation();
+      } finally {
+        if (runtime.openingBinding === binding) runtime.openingBinding = null;
+      }
+    });
+    runtime.openTail = pending;
+    try {
+      return await pending;
+    } finally {
+      if (runtime.openTail === pending) runtime.openTail = Promise.resolve();
+    }
   }
 
   /**
@@ -1140,9 +1517,29 @@ class AcpRuntime extends EventEmitter {
         throw new Error('ACP fork source checkpoint is invalid');
       }
     }
-    const sessionRequestOptions = acpSessionRequestOptions(options, cwd);
+    const prepareEnvironment = getProviderAdapter(provider)?.prepareAcpEnvironment
+      || ((value: PrepareAgentOptions) => value.env || process.env);
+    const bindingEnv = prepareEnvironment(options);
+    // An owned fork temporarily opens the source Session. Keep that startup on
+    // an isolated connection so it cannot collide with an already-live source
+    // in the shared Home runtime. The resulting child Session joins the shared
+    // pool on its next reconnect.
+    const providerHomePath = forkSourceSessionId
+      ? ''
+      : canonicalAcpHomePath(provider, options, bindingEnv);
+    const sessionRequestOptions = acpSessionRequestOptions({
+      ...options,
+      provider,
+      env: bindingEnv,
+    }, cwd);
     const configOverrides = normalizeSessionConfigChanges(options.configOverrides);
-    const restartOptions = { ...options, agentId, provider, configOverrides };
+    const restartOptions = {
+      ...options,
+      agentId,
+      provider,
+      providerHomePath,
+      configOverrides,
+    };
     delete restartOptions.forkSourceSessionId;
     delete restartOptions.forkSourceCheckpoint;
     delete restartOptions.onForkSessionCreated;
@@ -1151,13 +1548,15 @@ class AcpRuntime extends EventEmitter {
       capabilityRuntimeEpoch,
       provider,
       providerHomeId: String(options.providerHomeId || 'default'),
+      providerHomePath,
       cwd,
       sessionRequestOptions,
-      env: (getProviderAdapter(provider)?.prepareAcpEnvironment || ((value: PrepareAgentOptions) => value.env || process.env))(options),
+      env: bindingEnv,
       launch,
       restartOptions,
       approvalMode: options.approvalMode || 'approve',
       ownsProcessGroup: process.platform !== 'win32',
+      runtime: null,
       child: null,
       connection: null as unknown as AcpConnection,
       initializeResponse: null as unknown as InitializeResponse,
@@ -1212,83 +1611,10 @@ class AcpRuntime extends EventEmitter {
     this.emitRuntime(binding);
 
     try {
-      const gatedLaunch = binding.ownsProcessGroup
-        ? {
-            command: '/bin/sh',
-            args: [
-              '-c',
-              'IFS= read -r farming_acp_start || exit 0; exec "$@"',
-              'farming-acp-start-gate',
-              launch.command,
-              ...launch.args,
-            ],
-          }
-        : launch;
-      const child = this.spawn(gatedLaunch.command, gatedLaunch.args, {
-        cwd: binding.cwd,
-        env: binding.env,
-        stdio: ['pipe', 'pipe', 'pipe'],
-        detached: binding.ownsProcessGroup,
-      });
-      binding.child = child;
-      child.stderr.on('data', (chunk: Buffer) => {
-        binding.stderr = `${binding.stderr}${chunk.toString('utf8')}`.slice(-16_000);
-      });
-      child.on('error', (error: unknown) => this.handleExit(binding, error));
-      child.on('close', (code: number | null, signal: NodeJS.Signals | null) => {
-        if (!binding.connection?.signal?.aborted) {
-          const detail = binding.stderr.trim() || `ACP adapter exited with code ${code}${signal ? ` (${signal})` : ''}`;
-          this.handleExit(binding, code === 0 ? null : new Error(detail));
-        }
-      });
-      if (binding.ownsProcessGroup && typeof options.onProcessStarted === 'function') {
-        const processIdentity = await this.describeProcessGroup(child.pid);
-        if (!processIdentity) {
-          throw new Error(`ACP process ${child.pid || ''} exited before its identity was persisted`);
-        }
-        await options.onProcessStarted({
-          ...processIdentity,
-          ...(this.configInstanceFingerprint
-            ? { configInstanceFingerprint: this.configInstanceFingerprint }
-            : {}),
-        });
-      }
-      if (binding.ownsProcessGroup) {
-        await new Promise<void>((resolve, reject) => {
-          child.stdin.write('start\n', (error: unknown) => {
-            if (error) reject(error);
-            else resolve();
-          });
-        });
-      }
-
-      const connection = this.createConnection
-        ? await this.createConnection(this.clientHandlers(binding), child, binding)
-        : await this.officialConnection(this.clientHandlers(binding), child);
-      binding.connection = connection;
+      const runtime = await this.acquireRuntimeProcess(binding, options);
       this.requireOpenBinding(binding);
-      connection.closed.catch((error: unknown) => this.handleExit(binding, error));
-      const sdk = await loadAcpSdk();
-      this.requireOpenBinding(binding);
-      binding.initializeResponse = await withTimeout(connection.initialize({
-        protocolVersion: sdk.PROTOCOL_VERSION,
-        clientCapabilities: {
-          fs: { readTextFile: true, writeTextFile: true },
-          terminal: true,
-          auth: { terminal: true },
-          session: { configOptions: { boolean: {} } },
-          plan: {},
-          elicitation: { form: {}, url: {} },
-          _meta: { terminal_output: true },
-        },
-        clientInfo: { name: 'farming', title: 'Farming', version: packageJson.version || '0.0.0' },
-      }), this.initializeTimeoutMs, 'ACP initialize');
-      this.requireOpenBinding(binding);
-      if (binding.initializeResponse.protocolVersion !== sdk.PROTOCOL_VERSION) {
-        throw new Error(`ACP protocol version mismatch: Agent selected ${binding.initializeResponse.protocolVersion}, Farming supports ${sdk.PROTOCOL_VERSION}`);
-      }
-      binding.supportsSteer = binding.provider === 'codex'
-        && supportsCodexSteer(binding.initializeResponse.agentCapabilities);
+      binding.initializeResponse = runtime.initializeResponse;
+      const connection = binding.connection;
 
       const sessionRequest = { sessionId: requestedSessionId, ...binding.sessionRequestOptions };
       let sessionResponse!: SessionResponse;
@@ -1302,6 +1628,7 @@ class AcpRuntime extends EventEmitter {
           throw new Error(`${provider} ACP Agent cannot release the loaded fork source`);
         }
         binding.sessionId = forkSourceSessionId;
+        this.claimRuntimeSession(binding, forkSourceSessionId);
         binding.sessionState = new AcpSessionState({
           provider,
           sessionId: forkSourceSessionId,
@@ -1358,6 +1685,8 @@ class AcpRuntime extends EventEmitter {
           throw new Error('ACP fork source checkpoint could not be restored');
         }
         binding.sessionId = forkedSessionId;
+        this.releaseRuntimeSessions(binding);
+        this.claimRuntimeSession(binding, forkedSessionId);
         binding.sessionState = restoredForkSource.sessionState;
         binding.subagentStates = restoredForkSource.subagentStates;
         this.resetSubagentControls(binding);
@@ -1380,6 +1709,7 @@ class AcpRuntime extends EventEmitter {
         historyMode = 'fork';
       } else if (requestedSessionId) {
         const capabilities = binding.initializeResponse.agentCapabilities || {};
+        this.claimRuntimeSession(binding, requestedSessionId);
         let opened = false;
         let restoredCheckpointState = null;
         let restoredCheckpoint = null;
@@ -1482,11 +1812,11 @@ class AcpRuntime extends EventEmitter {
           if (!opened) throw new Error(`${provider} ACP Agent cannot load or resume session ${requestedSessionId}`);
         }
       } else {
-        sessionResponse = await withTimeout(
+        sessionResponse = await this.openUnknownRuntimeSession(runtime, binding, () => withTimeout(
           connection.newSession(binding.sessionRequestOptions),
           this.sessionSetupTimeoutMs,
           'ACP session/new'
-        );
+        ));
         this.requireOpenBinding(binding);
         const returnedSessionId = String(sessionResponse.sessionId || '').trim();
         if (!isSafeProviderSessionId(returnedSessionId)) {
@@ -1494,6 +1824,7 @@ class AcpRuntime extends EventEmitter {
           throw new Error('ACP session/new returned an invalid resumable session id');
         }
         binding.sessionId = returnedSessionId;
+        this.claimRuntimeSession(binding, returnedSessionId);
         binding.sessionState = new AcpSessionState({ provider, sessionId: binding.sessionId, cwd: binding.cwd, maxUpdates: this.maxUpdates });
       }
       this.requireOpenBinding(binding);
@@ -1502,7 +1833,7 @@ class AcpRuntime extends EventEmitter {
       const initializedSessionState = this.requireSessionState(binding);
       initializedSessionState.currentModeId = String(binding.modes?.currentModeId || '');
       initializedSessionState.configOptions = JSON.parse(JSON.stringify(binding.configOptions));
-      if (provider === 'claude' && historyMode === 'new') {
+      if (['codex', 'claude'].includes(provider)) {
         const changes: SessionConfigChange[] = [];
         if (options.model && options.model !== 'config') {
           const modelOption = binding.configOptions.find(option => (
@@ -1513,7 +1844,7 @@ class AcpRuntime extends EventEmitter {
             )
           ));
           if (!modelOption) {
-            throw new Error('Claude ACP Agent did not advertise a Model configuration option');
+            throw new Error(`${provider} ACP Agent did not advertise a Model configuration option`);
           }
           changes.push({ configId: modelOption.id, value: options.model });
         }
@@ -1526,11 +1857,28 @@ class AcpRuntime extends EventEmitter {
             )
           ));
           if (!reasoningOption) {
-            throw new Error('Claude ACP Agent did not advertise a Reasoning configuration option');
+            throw new Error(`${provider} ACP Agent did not advertise a Reasoning configuration option`);
           }
           changes.push({ configId: reasoningOption.id, value: options.reasoningEffort });
         }
         if (changes.length > 0) await this.applySessionConfigOptionsNow(binding, changes);
+      }
+      if (provider === 'codex') {
+        const modeId = {
+          ask: 'read-only',
+          approve: 'agent',
+          full: 'agent-full-access',
+        }[binding.approvalMode];
+        const availableModes = Array.isArray(binding.modes?.availableModes)
+          ? binding.modes.availableModes
+          : [];
+        if (
+          modeId
+          && String(binding.modes?.currentModeId || '') !== modeId
+          && availableModes.some(mode => String(recordValue(mode).id || '') === modeId)
+        ) {
+          await this.setSessionModeNow(binding, modeId);
+        }
       }
       if (provider === 'codex' && options.serviceTier && options.serviceTier !== 'config') {
         const fastOption = binding.configOptions.find(option => (
@@ -1561,7 +1909,15 @@ class AcpRuntime extends EventEmitter {
       };
     } catch (error) {
       const runtimeError = new Error(acpErrorMessage(error), { cause: error });
-      this.handleExit(binding, runtimeError);
+      if (binding.runtime?.shared && !binding.runtime.exited) {
+        binding.state = 'error';
+        binding.error = runtimeError.message;
+        binding.stopReason = 'error';
+        binding.updatedAt = new Date().toISOString();
+        this.emitRuntime(binding);
+      } else {
+        this.handleExit(binding, runtimeError);
+      }
       if (options.identityOnly === true) {
         const returnedIdentity = binding.sessionId || binding.untrustedSessionId;
         const identity = returnedIdentity
@@ -1602,12 +1958,18 @@ class AcpRuntime extends EventEmitter {
           if (this.isCurrentBinding(binding)) {
             runtimeCleanupVerified = await this.unregisterAgentAndWait(agentId, binding);
           } else {
-            try {
-              binding.connection?.close();
-            } catch {
-              // Process-tree cleanup below remains authoritative.
+            const detachedRuntime = binding.runtime;
+            this.releaseRuntimeSessions(binding);
+            detachedRuntime?.bindings.delete(binding.agentId);
+            detachedRuntime?.handlers.delete(binding.agentId);
+            if (!detachedRuntime || detachedRuntime.bindings.size === 0) {
+              try {
+                binding.connection?.close();
+              } catch {
+                // Process-tree cleanup below remains authoritative.
+              }
+              await stopProcessAndWait(detachedRuntime || binding);
             }
-            await stopBindingProcessAndWait(binding);
             runtimeCleanupVerified = true;
           }
         } catch (cleanupError) {
@@ -2180,6 +2542,39 @@ class AcpRuntime extends EventEmitter {
         && now - lastChangedAt >= this.historyReplayQuietMs
       ) return;
     }
+  }
+
+  sharedClientHandlers(runtime: AcpRuntimeProcess) {
+    const handler = (name: string, request: UnknownRecord) => {
+      const binding = this.bindingForRuntimeSession(runtime, String(request?.sessionId || ''));
+      return binding ? runtime.handlers.get(binding.agentId)?.[name] : null;
+    };
+    const request = (name: string) => async (params: UnknownRecord) => {
+      const target = handler(name, params);
+      if (!target) throw new Error('ACP request does not match an active Session');
+      return target(params);
+    };
+    return {
+      sessionUpdate: (notification: UnknownRecord) => handler('sessionUpdate', notification)?.(notification),
+      requestPermission: async (params: UnknownRecord) => {
+        const target = handler('requestPermission', params);
+        return target ? target(params) : { outcome: { outcome: 'cancelled' } };
+      },
+      readTextFile: request('readTextFile'),
+      writeTextFile: request('writeTextFile'),
+      createTerminal: request('createTerminal'),
+      terminalOutput: request('terminalOutput'),
+      waitForTerminalExit: request('waitForTerminalExit'),
+      killTerminal: request('killTerminal'),
+      releaseTerminal: request('releaseTerminal'),
+      unstable_createElicitation: async (params: UnknownRecord) => {
+        const target = handler('unstable_createElicitation', params);
+        return target ? target(params) : { action: 'cancel' };
+      },
+      unstable_completeElicitation: (notification: UnknownRecord) => (
+        handler('unstable_completeElicitation', notification)?.(notification)
+      ),
+    };
   }
 
   clientHandlers(binding: AcpBinding) {
@@ -3089,12 +3484,23 @@ class AcpRuntime extends EventEmitter {
 
   async forkSession(agentId: string, options: PrepareAgentOptions = {}) {
     return this.runWithForkReservation(agentId, options, async (binding: AcpBinding) => {
+      const sourceSessionId = this.assertRuntimeSessionMutationOwner(
+        binding,
+        options.sessionId || binding.sessionId,
+        'session/fork',
+      );
+      if (sourceSessionId !== binding.sessionId) {
+        throw new Error(`ACP Agent does not own session ${sourceSessionId}`);
+      }
       const sessionOptions = acpSessionRequestOptions({
+        provider: binding.provider,
+        env: binding.env,
+        farmingSystemPrompt: binding.restartOptions.farmingSystemPrompt,
         additionalDirectories: options.additionalDirectories ?? binding.sessionRequestOptions.additionalDirectories,
         mcpServers: options.mcpServers ?? binding.sessionRequestOptions.mcpServers,
       }, options.cwd || binding.cwd);
       const response = await withTimeout(binding.connection.unstable_forkSession({
-        sessionId: options.sessionId || binding.sessionId,
+        sessionId: sourceSessionId,
         ...sessionOptions,
       }), this.sessionSetupTimeoutMs, 'ACP session/fork');
       this.requireOpenBinding(binding);
@@ -3139,13 +3545,14 @@ class AcpRuntime extends EventEmitter {
     try {
       const capabilities = binding.initializeResponse?.agentCapabilities?.sessionCapabilities;
       if (!capabilities?.delete) throw new Error(`${binding.provider} ACP Agent does not support session/delete`);
+      const targetSessionId = this.assertRuntimeSessionMutationOwner(binding, sessionId, 'session/delete');
       await withTimeout(
-        binding.connection.deleteSession({ sessionId: String(sessionId || '') }),
+        binding.connection.deleteSession({ sessionId: targetSessionId }),
         this.requestTimeoutMs,
         'ACP session/delete'
       );
       this.requireOpenBinding(binding);
-      return { deleted: true, sessionId: String(sessionId || '') };
+      return { deleted: true, sessionId: targetSessionId };
     } finally {
       this.endSessionMutation(binding, mutation);
     }
@@ -3960,6 +4367,15 @@ class AcpRuntime extends EventEmitter {
     return true;
   }
 
+  handleRuntimeExit(runtime: AcpRuntimeProcess, error: unknown) {
+    if (!runtime || runtime.exited) return;
+    runtime.exited = true;
+    if (this.runtimeProcesses.get(runtime.key) === runtime) {
+      this.runtimeProcesses.delete(runtime.key);
+    }
+    for (const binding of runtime.bindings.values()) this.handleExit(binding, error);
+  }
+
   handleExit(binding: AcpBinding, error: unknown) {
     if (!this.isCurrentBinding(binding) || binding.exited) return;
     binding.exited = true;
@@ -4002,6 +4418,7 @@ class AcpRuntime extends EventEmitter {
 
   detachAgentBinding(binding: AcpBinding, options: PrepareAgentOptions = {}) {
     if (!binding || this.bindings.get(binding.agentId) !== binding) return false;
+    const runtime = binding.runtime;
     if (binding.sessionState && !binding.activeTurn) this.scheduleCheckpoint(binding, { exact: true });
     if (options.retainForCleanup !== true) this.bindings.delete(binding.agentId);
     binding.exited = true;
@@ -4022,17 +4439,10 @@ class AcpRuntime extends EventEmitter {
     binding.subagentStates.clear();
     binding.subagentControls.clear();
     this.clientTerminals.cleanupAgent(binding.agentId);
-    try {
-      binding.connection?.close();
-    } catch {
-      // Process cleanup below remains authoritative if transport cleanup races.
-    }
-    if (binding.child?.stdin?.writable && !binding.child.stdin.destroyed) {
-      try {
-        binding.child.stdin.end();
-      } catch {
-        // Process cleanup below remains authoritative if stdin already closed.
-      }
+    this.releaseRuntimeSessions(binding);
+    if (runtime) {
+      runtime.bindings.delete(binding.agentId);
+      runtime.handlers.delete(binding.agentId);
     }
     return true;
   }
@@ -4040,15 +4450,92 @@ class AcpRuntime extends EventEmitter {
   unregisterAgent(agentId: string, expectedBinding: AcpBinding | null = null) {
     const binding = this.bindings.get(agentId);
     if (expectedBinding && binding !== expectedBinding) return;
-    if (!binding || !this.detachAgentBinding(binding)) return;
-    signalProcessTree(binding, 'SIGTERM');
+    if (!binding) return;
+    const runtime = binding.runtime;
+    if (runtime && !runtime.exited && !runtime.stopping && runtime.bindings.size > 1) {
+      const connection = binding.connection;
+      const sessionId = binding.sessionId;
+      const closeSession = sessionId
+        && binding.state !== 'closed'
+        && Boolean(binding.initializeResponse?.agentCapabilities?.sessionCapabilities?.close);
+      if (!this.detachAgentBinding(binding)) return;
+      void (async () => {
+        if (closeSession) {
+          await withTimeout(
+            connection.closeSession({ sessionId }),
+            this.requestTimeoutMs,
+            'ACP shared session/close',
+          );
+        }
+      })().catch(() => {});
+      return;
+    }
+    if (!this.detachAgentBinding(binding)) return;
+    if (!runtime || runtime.bindings.size > 0) return;
+    runtime.stopping = true;
+    this.runtimeStarts.delete(runtime.key);
+    if (this.runtimeProcesses.get(runtime.key) === runtime) this.runtimeProcesses.delete(runtime.key);
+    try {
+      runtime.connection?.close();
+    } catch {
+      // Process signaling below remains authoritative.
+    }
+    if (runtime.child?.stdin?.writable && !runtime.child.stdin.destroyed) {
+      try {
+        runtime.child.stdin.end();
+      } catch {
+        // Process signaling below remains authoritative.
+      }
+    }
+    signalProcessTree(runtime, 'SIGTERM');
   }
 
   async unregisterAgentAndWait(agentId: string, expectedBinding: AcpBinding | null = null) {
     const binding = this.bindings.get(agentId);
     if (expectedBinding && binding !== expectedBinding) return false;
-    if (!binding || !this.detachAgentBinding(binding, { retainForCleanup: true })) return false;
-    await stopBindingProcessAndWait(binding);
+    if (!binding) return false;
+    const runtime = binding.runtime;
+    if (!runtime) return false;
+    if (!runtime.exited && !runtime.stopping && runtime.bindings.size > 1) {
+      if (binding.activeTurn) await this.cancel(agentId);
+      if (binding.sessionId && binding.state !== 'closed') {
+        const capabilities = binding.initializeResponse?.agentCapabilities?.sessionCapabilities;
+        if (!capabilities?.close) {
+          throw new Error(`${binding.provider} ACP Agent cannot release a shared Session`);
+        }
+        await withTimeout(
+          binding.connection.closeSession({ sessionId: binding.sessionId }),
+          this.requestTimeoutMs,
+          'ACP shared session/close',
+        );
+        if (!this.isOpenBinding(binding)) {
+          throw new Error('ACP Agent binding closed before shared Session release completed');
+        }
+      }
+      if (!this.detachAgentBinding(binding, { retainForCleanup: true })) return false;
+      if (this.bindings.get(agentId) === binding) this.bindings.delete(agentId);
+      return true;
+    }
+    runtime.stopping = true;
+    this.runtimeStarts.delete(runtime.key);
+    if (this.runtimeProcesses.get(runtime.key) === runtime) {
+      this.runtimeProcesses.delete(runtime.key);
+    }
+    if (!this.detachAgentBinding(binding, { retainForCleanup: true })) return false;
+    try {
+      runtime.connection?.close();
+    } catch {
+      // Process cleanup below remains authoritative.
+    }
+    if (runtime.child?.stdin?.writable && !runtime.child.stdin.destroyed) {
+      try {
+        runtime.child.stdin.end();
+      } catch {
+        // Process cleanup below remains authoritative.
+      }
+    }
+    await stopProcessAndWait(runtime);
+    runtime.exited = true;
     if (this.bindings.get(agentId) === binding) this.bindings.delete(agentId);
     return true;
   }

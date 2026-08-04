@@ -88,6 +88,7 @@ import type {
   GitWorktreeRecord,
   PersistedAgentPrivateMetadata,
   RecoveredEngineSessionMetadata,
+  StructuredRuntimeProcessIdentity,
   TerminalRecoveryCandidate,
   WorktreeListEntry,
 } from './agent-manager-record-types.js';
@@ -714,6 +715,19 @@ function canonicalProviderHomePath(value: unknown): string {
   } catch {
     return resolved;
   }
+}
+
+function sameStructuredRuntimeProcess(
+  left: StructuredRuntimeProcessIdentity | null | undefined,
+  right: StructuredRuntimeProcessIdentity | null | undefined,
+): boolean {
+  return Boolean(
+    left
+    && right
+    && left.pid === right.pid
+    && left.processGroupId === right.processGroupId
+    && left.startedAt === right.startedAt,
+  );
 }
 
 async function deletePrecreatedProviderSession(options: ProviderSessionDeleteOptions = {}): Promise<void> {
@@ -2776,9 +2790,10 @@ class AgentManager extends EventEmitter {
     let persistedRecords = this.configManager.listAgentSessionRecords();
     if (!persistedRecords.some((record: PersistedAgentPrivateMetadata) => runtimeKind(record) === 'acp')) return;
     await this.acpRuntime.initialize?.();
+    const liveHostBindingIds = new Set([...this.acpRuntime.bindings.keys()]);
     await this.reconcilePersistedAcpLifecycleOperations(
       persistedRecords,
-      new Set([...this.acpRuntime.bindings.keys()]),
+      liveHostBindingIds,
     );
     // Reconciliation commits terminal lifecycle outcomes to the authoritative
     // store. Never materialize Agents from the pre-reconciliation snapshot:
@@ -2934,7 +2949,15 @@ class AgentManager extends EventEmitter {
           cleanupError.code = 'ACP_PROCESS_CLEANUP_UNCERTAIN';
           throw cleanupError;
         }
-        if (record.structuredRuntimeProcess) {
+        if (
+          record.structuredRuntimeProcess
+          && !this.hasLiveAcpProcessPeer(
+            agentId,
+            record.structuredRuntimeProcess,
+            records,
+            liveHostBindingIds,
+          )
+        ) {
           let cleanup: StopPersistedAcpProcessResult;
           try {
             cleanup = await this.stopPersistedAcpProcessGroup(record.structuredRuntimeProcess);
@@ -2988,6 +3011,7 @@ class AgentManager extends EventEmitter {
           sessionId,
           historyMode: 'checkpoint',
           providerHomeId: agent.providerHomeId || record.providerHomeId || 'default',
+          providerHomePath: agent.providerHomePath || record.providerHomePath || '',
           approvalMode,
           // Let Codex resolve its selected Home config and existing session
           // state instead of applying today's Farming launch defaults.
@@ -3080,6 +3104,25 @@ class AgentManager extends EventEmitter {
     this.emit('update');
   }
 
+  hasLiveAcpProcessPeer(
+    agentId: AgentId,
+    identity: StructuredRuntimeProcessIdentity | null | undefined,
+    records: Iterable<PersistedAgentPrivateMetadata | TypedAgentRecord>,
+    liveBindingIds: ReadonlySet<string>,
+  ): boolean {
+    if (!identity) return false;
+    for (const record of records) {
+      const otherAgentId = String(record.runtimeAgentId || record.id || '').trim();
+      if (
+        otherAgentId
+        && otherAgentId !== agentId
+        && liveBindingIds.has(otherAgentId)
+        && sameStructuredRuntimeProcess(record.structuredRuntimeProcess, identity)
+      ) return true;
+    }
+    return false;
+  }
+
   async reconcilePersistedAcpLifecycleOperations(
     records: PersistedAgentPrivateMetadata[],
     liveHostBindingIds: ReadonlySet<string> = new Set(),
@@ -3116,24 +3159,26 @@ class AgentManager extends EventEmitter {
         || Boolean(record.structuredRuntimeProcess);
       if (!liveHostBindingIds.has(agentId) && processProofRequired && !record.legacyAcpProcessExitAcknowledgedAt) {
         if (!record.structuredRuntimeProcess) continue;
-        try {
-          const cleanup = await this.stopPersistedAcpProcessGroup(record.structuredRuntimeProcess);
-          if (
-            cleanup.stopped !== true
-            && !(
-              cleanup.missingProof === true
-              && operation.request?.structuredProcessStartGated === true
-            )
-          ) {
+        if (!this.hasLiveAcpProcessPeer(agentId, record.structuredRuntimeProcess, records, liveHostBindingIds)) {
+          try {
+            const cleanup = await this.stopPersistedAcpProcessGroup(record.structuredRuntimeProcess);
+            if (
+              cleanup.stopped !== true
+              && !(
+                cleanup.missingProof === true
+                && operation.request?.structuredProcessStartGated === true
+              )
+            ) {
+              continue;
+            }
+          } catch (caughtError: unknown) {
+      const error = caughtError as ErrorRecord;
+            console.warn(
+              `Could not prove persisted ACP process exit for ${record.runtimeAgentId || operation.id}:`,
+              error && (error.message || error),
+            );
             continue;
           }
-        } catch (caughtError: unknown) {
-      const error = caughtError as ErrorRecord;
-          console.warn(
-            `Could not prove persisted ACP process exit for ${record.runtimeAgentId || operation.id}:`,
-            error && (error.message || error),
-          );
-          continue;
         }
       }
 
@@ -5562,6 +5607,7 @@ class AgentManager extends EventEmitter {
           env: identityEnv,
           cwd: identityWorkspace,
           providerHomeId: agentRecord.providerHomeId || 'default',
+          providerHomePath: agentRecord.providerHomePath || '',
           approvalMode: agentRecord.launchPermissionMode || 'approve',
           model: codexModel,
           reasoningEffort: codexReasoningEffort,
@@ -5761,6 +5807,7 @@ class AgentManager extends EventEmitter {
             ? 'resume'
             : (options.acpHistoryMode === 'load' ? 'load' : 'checkpoint'),
           providerHomeId: agentRecord.providerHomeId || 'default',
+          providerHomePath: agentRecord.providerHomePath || '',
           approvalMode: agentRecord.launchPermissionMode || 'approve',
           model: codexModel,
           reasoningEffort: !preserveProviderSessionProfile
@@ -10109,12 +10156,20 @@ class AgentManager extends EventEmitter {
               throw error;
             }
           } else {
-            const cleanup = await this.stopPersistedAcpProcessGroup(agent.structuredRuntimeProcess);
-            if (cleanup.stopped !== true) {
-              return cleanupFailure(
-                'ACP runtime binding is missing and the persisted process identity could not be safely stopped',
-                'acp',
-              );
+            const liveBindingIds = new Set([...this.acpRuntime.bindings.keys()]);
+            if (!this.hasLiveAcpProcessPeer(
+              agentId,
+              agent.structuredRuntimeProcess,
+              this.agents.values(),
+              liveBindingIds,
+            )) {
+              const cleanup = await this.stopPersistedAcpProcessGroup(agent.structuredRuntimeProcess);
+              if (cleanup.stopped !== true) {
+                return cleanupFailure(
+                  'ACP runtime binding is missing and the persisted process identity could not be safely stopped',
+                  'acp',
+                );
+              }
             }
           }
         }

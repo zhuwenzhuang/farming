@@ -6,6 +6,7 @@ const {
   providerCapabilities,
   providerConversationForkCapability,
   providerForProgram,
+  providerSupportsSharedAcpRuntime,
   providerSupportsRuntime,
 } = require('../provider-adapters.cjs');
 
@@ -25,6 +26,14 @@ function run() {
     assert.strictEqual(typeof adapter.planSession, 'function');
     assert(adapter.acp, `${adapter.id} must declare its ACP launch contract`);
     assert(adapter.acp.version);
+  }
+  assert.strictEqual(providerSupportsSharedAcpRuntime('codex'), true);
+  for (const provider of ['claude', 'opencode', 'qoder', 'qwen']) {
+    assert.strictEqual(
+      providerSupportsSharedAcpRuntime(provider),
+      false,
+      `${provider} must remain process-isolated until its multi-Session contract is verified`,
+    );
   }
 
   assert.deepStrictEqual(

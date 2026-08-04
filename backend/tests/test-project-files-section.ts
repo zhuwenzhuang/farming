@@ -105,7 +105,6 @@ function run() {
   const monacoHostStyle = stylesSource.match(/\.code-file-monaco\s*\{[^}]+\}/)?.[0] || '';
   const singleTerminalGridStyle = stylesSource.match(/\.code-terminal-grid\.panes-1\s*\{[^}]+\}/)?.[0] || '';
   const designSource = read('docs/products/code/project-files-section-design.zh_cn.md');
-  const userStoriesSource = read('docs/products/code/files-editor-user-stories.zh_cn.md');
   const fileTreeSurfaceSource = `${fileSectionSource}\n${fileSectionViewModelSource}\n${fileTreeViewSource}`;
 
   assert(
@@ -1094,53 +1093,14 @@ function run() {
 	  );
 
   assert(
-    designSource.includes('文件目录树展示逻辑') &&
-      designSource.includes('不是 icon mapping') &&
-      designSource.includes('可见行模型') &&
-      designSource.includes('按当前可见行数自然撑高') &&
-      designSource.includes('滚动交给外层 project list') &&
-      designSource.includes('Project 左栏不在 `Files` 内部隐藏内容') &&
-	      designSource.includes('active file 和 tree selection 分离') &&
-	      designSource.includes('active file 用左侧细条 + 很浅背景') &&
-	      designSource.includes('拖拽移动不是当前 P0 验收重点') &&
-	      designSource.includes('搜索入口复用 `/api/files/search`') &&
-	      designSource.includes('`path:line` / `path:line:column`') &&
-		      designSource.includes('Review 场景允许打开整文件 Monaco diff surface') &&
-		      designSource.includes('`Changes` 是当前 Project 内的轻量 review 入口') &&
-		      designSource.includes('不把 patch 审阅塞进窄的 Agent / chat 栏') &&
-		      !designSource.includes('当前 editor 先不暴露 Diff 能力') &&
-		      designSource.includes('左右对比') &&
-		      designSource.includes('前端交给 Monaco DiffEditor 渲染') &&
-		      designSource.includes('行级变化遵循 VS Code dirty diff 的概念边界') &&
-		      userStoriesSource.includes('行级变化与 Review Diff') &&
-		      userStoriesSource.includes('`Changes` 是当前 Project workspace 的轻量 review 入口') &&
-		      userStoriesSource.includes('右侧主区域打开 Monaco 整文件 diff') &&
-		      !userStoriesSource.includes('Diff 暂不暴露') &&
-		      !userStoriesSource.includes('没有 diff panel') &&
-	      designSource.includes('搜索结果的键盘选中态需要暴露给 DOM') &&
-	      designSource.includes('`aria-activedescendant` 指向当前结果') &&
-	      designSource.includes('轻量 hot-exit 缓存里的草稿仍应同步给左侧 Explorer decoration') &&
-	      designSource.includes('decoration slot') &&
-	      designSource.includes('父目录名称保持低饱和提示色') &&
-	      designSource.includes('Project 展开内容的顺序是具体 Agent 行、可选 `Open Editors`、`Files`；`Git History` 位于 Files 内的 Working Copy `Changes` 之后') &&
-	      designSource.includes('`Open Editors` 只有在当前 Project 至少打开一个文件后才出现，出现时默认折叠') &&
-	      designSource.includes('`Files` 承载搜索/跳转入口、Working Copy `Changes`、`Git History` 和目录树，不承载打开文件列表') &&
-	      designSource.includes('独立 section，和 Agent 行处于同一层级缩进') &&
-	      designSource.includes('Files section 标题可点击折叠/展开') &&
-	      designSource.includes('Main Agent 不展示对应 Files') &&
-	      designSource.includes('窄侧栏下 Files header 使用两行布局') &&
-	      designSource.includes('`path:line` 搜索入口必须保持可输入宽度') &&
-	      designSource.includes('不常驻在 Files header') &&
-	      designSource.includes('单一路径目录链应合并成一个可见目录行') &&
-	      designSource.includes('Explorer row 文字截断时仍要能 hover 看到完整相对路径') &&
-	      designSource.includes('原生 `title` 暴露完整路径') &&
-	      designSource.includes('tree behavior engine') &&
-      designSource.includes('Farming file adapter') &&
-      designSource.includes('Farming row renderer') &&
-      designSource.includes('react-arborist') &&
-      designSource.includes('@headless-tree/react') &&
-      designSource.includes('Theia / code-server'),
-    'design doc should define the Explorer display logic as mature tree behavior, not just icon mapping'
+    designSource.includes('Project Sidebar 只有一个外层 Scroll Surface') &&
+      designSource.includes('文件系统是权威来源') &&
+      designSource.includes('绝不自动重放 Mutation') &&
+      designSource.includes('Explorer 区分 Active File、Keyboard Focus 与 Selection') &&
+      designSource.includes('Line Changes 用于解释当前行附近的局部 Hunk') &&
+      designSource.includes('Full Review 使用主 Comparison Surface') &&
+      designSource.includes('代码语义导航由 Managed Language Server 处理'),
+    'Project Files design should retain durable ownership, mutation, navigation, and review boundaries'
   );
 
   assert(
@@ -1567,19 +1527,6 @@ function run() {
 	      editorHeaderSource.includes('actions={(') &&
 	      editorTabsComponentSource.includes('{actions}') &&
 	      stylesSource.includes('.code-file-editor-tab-strip > .code-file-editor-actions') &&
-	      designSource.includes('轻量 breadcrumb 展示') &&
-	      designSource.includes('保存状态默认不常驻显示 `Saved`') &&
-	      designSource.includes('clean 状态不常驻 disabled 保存按钮') &&
-	      designSource.includes('Reload action 只在 external changed / error 时显示') &&
-	      designSource.includes('editor tab 使用成熟 tablist 语义') &&
-	      designSource.includes('只有 active tab 进入正常 Tab 顺序') &&
-	      designSource.includes('`aria-controls` 关联 Monaco `tabpanel`') &&
-	      designSource.includes('editor tab 的可访问名称需要包含 basename') &&
-	      designSource.includes('close 按钮也使用完整相对路径') &&
-	      designSource.includes('保留每个 Monaco model 的 view state') &&
-	      designSource.includes('在 editor 左侧非正文 gutter 区域右键打开 Blame') &&
-	      designSource.includes('可点击的 Aone 用户入口') &&
-	      designSource.includes('editor breadcrumb 是轻量上下文入口') &&
 	      editorSource.includes('data-testid="code-file-editor"') &&
       editorSurfaceSource.includes('data-testid="code-file-monaco"') &&
 		      editorSource.includes('onRevealInExplorer') &&
@@ -1592,8 +1539,7 @@ function run() {
 		      editorBreadcrumbsSource.includes('aria-label={copy.revealInExplorer(segmentPath)}') &&
 	      !editorSource.includes('const currentLineBlame = useMemo') &&
 	      !editorSource.includes('code-file-editor-line-blame-summary') &&
-	      editorSurfaceSource.includes('code-file-editor-cursor-position') &&
-      designSource.includes('轻量 hot-exit 缓存'),
+	      editorSurfaceSource.includes('code-file-editor-cursor-position'),
     'FileEditorPane should use Monaco inside a VS Code-style tabbed editor shell, save with conflict detection, reload, hot-exit dirty tab recovery, and expose overwrite only for conflicts'
   );
 

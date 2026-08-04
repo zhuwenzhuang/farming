@@ -92,6 +92,10 @@ source and bounded preview within the same file identity. Images, PDFs, binary
 files, and oversized text use read-only viewers. Every Viewer uses the same
 Project authorization; it must not create a separate file-access path.
 
+Keep Monaco syntax diagnostics but disable Monaco's isolated semantic and
+suggestion diagnostics. Project-level diagnostics appear through the managed
+Language Server path for saved files.
+
 Semantic code navigation is delegated to the managed Language Server for saved
 files. Dirty drafts do not receive cross-file results that describe an older
 disk version as current.

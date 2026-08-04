@@ -76,6 +76,7 @@ interface ProviderAcpLaunch {
 interface ProviderAcpContract {
   packageName?: string;
   version: string;
+  sharedRuntime?: boolean;
   launch?: (options: ProviderAcpLaunchOptions) => ProviderAcpLaunch;
 }
 
@@ -393,7 +394,11 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
     supportedRuntimes: ['terminal', 'acp'],
     planSession: codexSessionPlan,
     terminalResumeArgs: (args, sessionId) => ['resume', sessionId, ...args],
-    acp: { packageName: '@agentclientprotocol/codex-acp', version: '1.1.4' },
+    acp: {
+      packageName: '@agentclientprotocol/codex-acp',
+      version: '1.1.4',
+      sharedRuntime: true,
+    },
     prepareAcpEnvironment: codexAcpEnvironment,
     capabilities: {
       runtimeSwitch: true,
@@ -613,6 +618,10 @@ function providerSupportsRuntime(provider: unknown, runtime: ProviderRuntime): b
   return getProviderAdapter(provider)?.supportedRuntimes.includes(runtime) === true;
 }
 
+function providerSupportsSharedAcpRuntime(provider: unknown): boolean {
+  return getProviderAdapter(provider)?.acp.sharedRuntime === true;
+}
+
 function providerConversationForkCapability(
   provider: unknown,
   runtime: ProviderRuntime,
@@ -643,5 +652,6 @@ export {
   providerConversationForkCapability,
   providerCapabilities,
   providerForProgram,
+  providerSupportsSharedAcpRuntime,
   providerSupportsRuntime,
 };

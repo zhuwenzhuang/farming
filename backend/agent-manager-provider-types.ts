@@ -235,6 +235,8 @@ export interface AcpPrepareOptions extends Record<string, unknown> {
   agentId: string;
   capabilityRuntimeEpoch?: string;
   provider: ProviderId;
+  providerHomeId?: string;
+  providerHomePath?: string;
   cwd?: string;
   sessionId?: string;
   historyMode?: 'checkpoint' | 'load' | 'resume' | string;
