@@ -1644,7 +1644,19 @@ function ProjectSection({
       observer?.disconnect()
       window.removeEventListener('resize', setStickyMetrics)
     }
-  }, [collapsed, project.id, showAgentsSection])
+  }, [
+    agentListCollapsed,
+    collapsed,
+    compactProjectAgents,
+    hiddenProjectAgentCount,
+    project.agentSessionsExpanded,
+    project.hiddenAgentSessionCount,
+    project.id,
+    projectAgentsExpanded,
+    showAgentsSection,
+    visibleAgentSessions.length,
+    visibleProjectAgents.length,
+  ])
 
   useDismissiblePopover(
     launchMenu !== null,
