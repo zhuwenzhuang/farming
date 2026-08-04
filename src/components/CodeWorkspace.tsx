@@ -5576,6 +5576,7 @@ export function CodeWorkspace({
         emptyHomeActionRequest={emptyHomeSidebarActionRequest}
         activeView={activeView}
         searchOpen={searchOpen}
+        agentInventoryComplete={agentInventoryComplete}
         displayedProjects={projects}
         collapsedProjectIds={collapsedProjectIds}
         normalizedSearch=""

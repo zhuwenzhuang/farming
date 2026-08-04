@@ -1,5 +1,10 @@
 import { useCallback, useMemo, useSyncExternalStore } from 'react'
-import type { Agent } from '@/types/agent'
+import type { Agent, ProjectAgentSummary } from '@/types/agent'
+import {
+  agentTurnActiveFromState,
+  PROJECT_ATTENTION_SCORE_MAX,
+  projectWorkspaceFromAgentState,
+} from '../../shared/agent-state-semantics.js'
 import type {
   AcpSessionRevisionMessage,
   AgentActivitySnapshotMessage,
@@ -32,11 +37,36 @@ type AgentReadListener = (read: AgentReadMessage['read']) => void
 type AgentRuntimeBindingListener = (agentId: string) => void
 type LiveEntry = { value: AgentLiveState; signature: string | null }
 type SubscriptionKind = 'all' | 'runtime'
+type AgentProjectMembership = {
+  included: boolean
+  workspace: string
+}
+type AgentProjectContribution = {
+  active: boolean
+  attentionScore: number
+  unread: boolean
+  workspace: string
+  zombie: boolean
+}
+type ProjectAggregate = {
+  activeCount: number
+  agentCount: number
+  attentionCounts: Uint32Array
+  snapshot: ProjectAgentSummary
+  unreadCount: number
+  zombieCount: number
+}
 
 const entries = new Map<string, LiveEntry>()
 const listenersByAgentId = new Map<string, Record<SubscriptionKind, Set<Listener>>>()
+const projectMembershipByAgentId = new Map<string, AgentProjectMembership>()
+const projectContributionByAgentId = new Map<string, AgentProjectContribution>()
+const projectAggregates = new Map<string, ProjectAggregate>()
+const projectListenersByWorkspace = new Map<string, Set<Listener>>()
+const dirtyProjectWorkspaces = new Set<string>()
 const agentReadListeners = new Set<AgentReadListener>()
 const agentRuntimeBindingListeners = new Set<AgentRuntimeBindingListener>()
+let projectSummaryBatchDepth = 0
 const RUNTIME_FIELDS = new Set<keyof AgentLiveState>([
   'adaptiveTitle',
   'sessionTitle',
@@ -76,6 +106,7 @@ const STRUCTURED_RUNTIME_FIELDS = new Set<keyof AgentLiveState>([
 
 declare global {
   interface Window {
+    __FARMING_E2E__?: boolean
     __farmingAgentActivityTest?: {
       update: (agentId: string, activity: AgentLiveActivity) => void
     }
@@ -121,6 +152,179 @@ function liveStateFromAgent(agent: Agent): AgentLiveState {
   }
 }
 
+function normalizedProjectAttentionScore(value: unknown) {
+  const score = Number(value)
+  if (!Number.isFinite(score)) return 0
+  return Math.min(PROJECT_ATTENTION_SCORE_MAX, Math.max(0, Math.round(score)))
+}
+
+function agentProjectMembership(agent: Agent): AgentProjectMembership {
+  return {
+    included: agent.isMain !== true && agent.archived !== true,
+    workspace: projectWorkspaceFromAgentState(agent),
+  }
+}
+
+function agentProjectContribution(
+  agentId: string,
+  liveState: AgentLiveState | null | undefined,
+): AgentProjectContribution | null {
+  const membership = projectMembershipByAgentId.get(agentId)
+  if (!membership?.included || !membership.workspace || !liveState) return null
+  return {
+    active: agentTurnActiveFromState(liveState),
+    attentionScore: normalizedProjectAttentionScore(liveState.attentionScore),
+    unread: liveState.unread === true,
+    workspace: membership.workspace,
+    zombie: liveState.isZombie === true,
+  }
+}
+
+function emptyProjectAggregate(workspace: string): ProjectAggregate {
+  return {
+    activeCount: 0,
+    agentCount: 0,
+    attentionCounts: new Uint32Array(PROJECT_ATTENTION_SCORE_MAX + 1),
+    snapshot: {
+      activeCount: 0,
+      agentCount: 0,
+      maxAttentionScore: 0,
+      unreadCount: 0,
+      workspace,
+      zombieCount: 0,
+    },
+    unreadCount: 0,
+    zombieCount: 0,
+  }
+}
+
+function projectMaximumAttention(aggregate: ProjectAggregate) {
+  for (let score = PROJECT_ATTENTION_SCORE_MAX; score > 0; score -= 1) {
+    if ((aggregate.attentionCounts[score] ?? 0) > 0) return score
+  }
+  return 0
+}
+
+function notifyProjectSummary(workspace: string) {
+  projectListenersByWorkspace.get(workspace)?.forEach(listener => listener())
+}
+
+function flushProjectSummaries() {
+  if (projectSummaryBatchDepth > 0 || dirtyProjectWorkspaces.size === 0) return
+  const workspaces = [...dirtyProjectWorkspaces]
+  dirtyProjectWorkspaces.clear()
+  workspaces.forEach(workspace => {
+    const aggregate = projectAggregates.get(workspace)
+    if (!aggregate || aggregate.agentCount <= 0) {
+      if (aggregate) projectAggregates.delete(workspace)
+      notifyProjectSummary(workspace)
+      return
+    }
+    const nextSnapshot: ProjectAgentSummary = {
+      activeCount: aggregate.activeCount,
+      agentCount: aggregate.agentCount,
+      maxAttentionScore: projectMaximumAttention(aggregate),
+      unreadCount: aggregate.unreadCount,
+      workspace,
+      zombieCount: aggregate.zombieCount,
+    }
+    const previous = aggregate.snapshot
+    if (
+      previous.activeCount === nextSnapshot.activeCount
+      && previous.agentCount === nextSnapshot.agentCount
+      && previous.maxAttentionScore === nextSnapshot.maxAttentionScore
+      && previous.unreadCount === nextSnapshot.unreadCount
+      && previous.zombieCount === nextSnapshot.zombieCount
+    ) return
+    aggregate.snapshot = nextSnapshot
+    notifyProjectSummary(workspace)
+  })
+}
+
+function markProjectSummaryDirty(workspace: string) {
+  if (!workspace) return
+  dirtyProjectWorkspaces.add(workspace)
+  flushProjectSummaries()
+}
+
+function withProjectSummaryBatch(operation: () => void) {
+  projectSummaryBatchDepth += 1
+  try {
+    operation()
+  } finally {
+    projectSummaryBatchDepth -= 1
+    flushProjectSummaries()
+  }
+}
+
+function removeProjectContribution(contribution: AgentProjectContribution) {
+  const aggregate = projectAggregates.get(contribution.workspace)
+  if (!aggregate) return
+  aggregate.agentCount = Math.max(0, aggregate.agentCount - 1)
+  if (contribution.active) aggregate.activeCount = Math.max(0, aggregate.activeCount - 1)
+  if (contribution.unread) aggregate.unreadCount = Math.max(0, aggregate.unreadCount - 1)
+  if (contribution.zombie) aggregate.zombieCount = Math.max(0, aggregate.zombieCount - 1)
+  aggregate.attentionCounts[contribution.attentionScore] = Math.max(
+    0,
+    (aggregate.attentionCounts[contribution.attentionScore] ?? 0) - 1,
+  )
+  markProjectSummaryDirty(contribution.workspace)
+}
+
+function addProjectContribution(contribution: AgentProjectContribution) {
+  const aggregate = projectAggregates.get(contribution.workspace)
+    ?? emptyProjectAggregate(contribution.workspace)
+  projectAggregates.set(contribution.workspace, aggregate)
+  aggregate.agentCount += 1
+  if (contribution.active) aggregate.activeCount += 1
+  if (contribution.unread) aggregate.unreadCount += 1
+  if (contribution.zombie) aggregate.zombieCount += 1
+  aggregate.attentionCounts[contribution.attentionScore] = (
+    aggregate.attentionCounts[contribution.attentionScore] ?? 0
+  ) + 1
+  markProjectSummaryDirty(contribution.workspace)
+}
+
+function sameProjectContribution(
+  left: AgentProjectContribution | null | undefined,
+  right: AgentProjectContribution | null | undefined,
+) {
+  return left === right || Boolean(
+    left
+    && right
+    && left.active === right.active
+    && left.attentionScore === right.attentionScore
+    && left.unread === right.unread
+    && left.workspace === right.workspace
+    && left.zombie === right.zombie
+  )
+}
+
+function updateProjectContribution(agentId: string, liveState: AgentLiveState | null | undefined) {
+  const previous = projectContributionByAgentId.get(agentId)
+  const next = agentProjectContribution(agentId, liveState)
+  if (sameProjectContribution(previous, next)) return
+  withProjectSummaryBatch(() => {
+    if (previous) removeProjectContribution(previous)
+    if (next) {
+      projectContributionByAgentId.set(agentId, next)
+      addProjectContribution(next)
+    } else {
+      projectContributionByAgentId.delete(agentId)
+    }
+  })
+}
+
+function updateAgentProjectMembership(agent: Agent) {
+  projectMembershipByAgentId.set(agent.id, agentProjectMembership(agent))
+  updateProjectContribution(agent.id, entries.get(agent.id)?.value)
+}
+
+function removeAgentProjectState(agentId: string) {
+  updateProjectContribution(agentId, null)
+  projectMembershipByAgentId.delete(agentId)
+}
+
 function notify(agentId: string, includeRuntime: boolean) {
   const listeners = listenersByAgentId.get(agentId)
   listeners?.all.forEach(listener => listener())
@@ -133,6 +337,7 @@ function replaceAgentLiveState(agentId: string, value: AgentLiveState) {
   const previousSignature = previous?.signature ?? (previous ? JSON.stringify(previous.value) : '')
   if (previousSignature === signature) return
   entries.set(agentId, { value, signature })
+  updateProjectContribution(agentId, value)
   notify(agentId, true)
 }
 
@@ -149,10 +354,12 @@ export function updateAgentLiveState(agentId: string, patch: AgentLivePatch) {
     return true
   }).map(([key]) => key as keyof AgentLiveState)
   if (changedFields.length === 0) return
+  const value = { ...previous.value, ...patch }
   entries.set(agentId, {
-    value: { ...previous.value, ...patch },
+    value,
     signature: null,
   })
+  updateProjectContribution(agentId, value)
   notify(agentId, changedFields.some(field => RUNTIME_FIELDS.has(field)))
   if (changedFields.includes('runtimeBinding')) {
     agentRuntimeBindingListeners.forEach(listener => listener(agentId))
@@ -169,7 +376,7 @@ export function updateAgentLiveActivity(
 export function updateAgentLiveActivities(
   activities: AgentActivitySnapshotMessage['activities'],
 ) {
-  activities.forEach(updateAgentLiveActivity)
+  withProjectSummaryBatch(() => activities.forEach(updateAgentLiveActivity))
 }
 
 export function updateAgentReadState(read: AgentReadMessage['read']) {
@@ -225,29 +432,45 @@ export function updateAgentLivePreview(preview: SessionPreviewMessage['preview']
 
 export function reconcileAgentLiveStates(agents: Agent[]) {
   const activeAgentIds = new Set<string>()
-  agents.forEach(agent => {
-    activeAgentIds.add(agent.id)
-    replaceAgentLiveState(agent.id, liveStateFromAgent(agent))
+  withProjectSummaryBatch(() => {
+    agents.forEach(agent => {
+      activeAgentIds.add(agent.id)
+      updateAgentProjectMembership(agent)
+      replaceAgentLiveState(agent.id, liveStateFromAgent(agent))
+    })
+    for (const agentId of entries.keys()) {
+      if (activeAgentIds.has(agentId)) continue
+      removeAgentProjectState(agentId)
+      entries.delete(agentId)
+      notify(agentId, true)
+    }
   })
-  for (const agentId of entries.keys()) {
-    if (activeAgentIds.has(agentId)) continue
-    entries.delete(agentId)
-    notify(agentId, true)
-  }
 }
 
 export function reconcileAgentLiveStateDelta(agents: Agent[], removedAgentIds: string[]) {
-  agents.forEach(agent => replaceAgentLiveState(agent.id, liveStateFromAgent(agent)))
-  removedAgentIds.forEach(agentId => {
-    if (!entries.delete(agentId)) return
-    notify(agentId, true)
+  withProjectSummaryBatch(() => {
+    agents.forEach(agent => {
+      updateAgentProjectMembership(agent)
+      replaceAgentLiveState(agent.id, liveStateFromAgent(agent))
+    })
+    removedAgentIds.forEach(agentId => {
+      removeAgentProjectState(agentId)
+      if (!entries.delete(agentId)) return
+      notify(agentId, true)
+    })
   })
 }
 
 export function resetAgentLiveStates() {
   const agentIds = [...entries.keys()]
+  const projectWorkspaces = [...projectAggregates.keys()]
   entries.clear()
+  projectMembershipByAgentId.clear()
+  projectContributionByAgentId.clear()
+  projectAggregates.clear()
+  dirtyProjectWorkspaces.clear()
   agentIds.forEach(agentId => notify(agentId, true))
+  projectWorkspaces.forEach(notifyProjectSummary)
 }
 
 function subscribe(agentId: string, kind: SubscriptionKind, listener: Listener) {
@@ -265,6 +488,33 @@ function subscribe(agentId: string, kind: SubscriptionKind, listener: Listener) 
 
 function snapshot(agentId: string) {
   return entries.get(agentId)?.value ?? null
+}
+
+function subscribeProjectSummary(workspace: string, listener: Listener) {
+  if (!workspace) return () => {}
+  const listeners = projectListenersByWorkspace.get(workspace) ?? new Set<Listener>()
+  listeners.add(listener)
+  projectListenersByWorkspace.set(workspace, listeners)
+  return () => {
+    listeners.delete(listener)
+    if (listeners.size === 0) projectListenersByWorkspace.delete(workspace)
+  }
+}
+
+export function projectAgentLiveSummary(workspace: string): ProjectAgentSummary | null {
+  return projectAggregates.get(workspace)?.snapshot ?? null
+}
+
+export function useProjectAgentLiveSummary(workspace: string): ProjectAgentSummary | null {
+  const subscribeToProject = useCallback(
+    (listener: Listener) => subscribeProjectSummary(workspace, listener),
+    [workspace],
+  )
+  const getSnapshot = useCallback(
+    () => projectAgentLiveSummary(workspace),
+    [workspace],
+  )
+  return useSyncExternalStore(subscribeToProject, getSnapshot, getSnapshot)
 }
 
 export function agentWithCurrentLiveState(agent: Agent): Agent {

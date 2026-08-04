@@ -5,7 +5,7 @@ import type {
   RefObject,
 } from 'react'
 import { createPortal } from 'react-dom'
-import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
   BrowserGlyph,
   ChatBubblesGlyph,
@@ -64,8 +64,14 @@ import { ShareQrButton } from './ShareQrButton'
 import { isCompactViewport, isTouchInputViewport } from '@/lib/responsive-mode'
 import { projectFilesWorkspaceId } from '@/lib/project-workspaces'
 import { formatWorkspaceForDisplay } from '@/lib/workspace-options'
+import { recordPerformanceTestRender } from '@/lib/performance-test-observer'
 import { stableProjectSourceAgentId } from './workspace-derived'
-import { agentWithCurrentLiveState, useAgentWithLiveState } from '@/lib/agent-live-state'
+import {
+  agentWithCurrentLiveState,
+  projectAgentLiveSummary,
+  useAgentWithLiveState,
+  useProjectAgentLiveSummary,
+} from '@/lib/agent-live-state'
 import { useAgentReorder } from './useAgentReorder'
 import { useDismissiblePopover } from './useDismissiblePopover'
 import { UsagePanel } from './UsagePanel'
@@ -184,6 +190,7 @@ interface CodeSidebarProps {
   emptyHomeActionRequest: { kind: 'share' | 'focus'; nonce: number } | null
   activeView: WorkspaceView
   searchOpen: boolean
+  agentInventoryComplete: boolean
   displayedProjects: ProjectGroup[]
   collapsedProjectIds: Set<string>
   normalizedSearch: string
@@ -249,6 +256,7 @@ export function CodeSidebar({
   emptyHomeActionRequest,
   activeView,
   searchOpen,
+  agentInventoryComplete,
   displayedProjects,
   collapsedProjectIds,
   normalizedSearch,
@@ -705,6 +713,7 @@ export function CodeSidebar({
           <ProjectSection
             key={project.id}
             project={project}
+            agentInventoryComplete={agentInventoryComplete}
             collapsed={collapsedProjectIds.has(project.id) && !normalizedSearch}
             forceAgentsExpanded={Boolean(normalizedSearch)}
             compactAgents={agentCompressionActive}
@@ -1388,6 +1397,7 @@ function agentWorktreeList(worktree: Agent['gitWorktree']): WorkspaceGitWorktree
 
 interface ProjectSectionProps {
   project: ProjectGroup
+  agentInventoryComplete: boolean
   collapsed: boolean
   forceAgentsExpanded: boolean
   compactAgents: boolean
@@ -1434,8 +1444,88 @@ interface ProjectSectionProps {
   copy: CodeCopy
 }
 
-function ProjectSection({
+function projectHeaderMetrics(
+  project: ProjectGroup,
+  agentInventoryComplete: boolean,
+  liveSummary: ReturnType<typeof projectAgentLiveSummary>,
+  now: number,
+) {
+  const summary = agentInventoryComplete
+    ? (project.hasMain ? null : liveSummary)
+    : (project.agentSummary ?? null)
+  let agentCount = 0
+  let activeCount = 0
+  let unreadCount = 0
+  let zombieCount = 0
+  let maxAttentionScore = 0
+
+  if (summary) {
+    agentCount = summary.agentCount
+    activeCount = summary.activeCount
+    unreadCount = summary.unreadCount
+    zombieCount = summary.zombieCount
+    maxAttentionScore = summary.maxAttentionScore
+  } else if (
+    !agentInventoryComplete
+    || project.hasMain
+    || project.agents.some(agent => !agent.isMain && agent.archived !== true)
+  ) {
+    const agents = project.agents
+      .filter(agent => !agent.isMain && agent.archived !== true)
+      .map(agentWithCurrentLiveState)
+    agentCount = agents.length
+    activeCount = agents.filter(agent => buildAgentRowDisplayState({
+      kind: 'agent',
+      agent,
+    }, now).turnActive).length
+    unreadCount = agents.filter(agent => agent.unread === true).length
+    zombieCount = agents.filter(agent => agent.isZombie === true).length
+    maxAttentionScore = agents.reduce((maximum, agent) => (
+      Math.max(maximum, Number.isFinite(agent.attentionScore) ? agent.attentionScore : 0)
+    ), 0)
+  }
+
+  const sessions = project.agentSessions.filter(session => session.archived !== true)
+  return {
+    activeCount,
+    agentCount: agentCount + sessions.length + (project.hiddenAgentSessionCount ?? 0),
+    maxAttentionScore,
+    unreadCount: unreadCount + sessions.filter(session => session.unread === true).length,
+    zombieCount,
+  }
+}
+
+function ProjectSection(props: ProjectSectionProps) {
+  const { agentInventoryComplete, now, project } = props
+  const projectGroupRef = useRef<HTMLElement | null>(null)
+  const liveSummary = useProjectAgentLiveSummary(
+    agentInventoryComplete && !project.hasMain ? project.workspace : '',
+  )
+  const metrics = projectHeaderMetrics(project, agentInventoryComplete, liveSummary, now)
+
+  return (
+    <section
+      ref={projectGroupRef}
+      className="code-project-group"
+      data-testid="code-project-group"
+      data-project-agent-count={metrics.agentCount}
+      data-project-active-count={metrics.activeCount}
+      data-project-unread-count={metrics.unreadCount}
+      data-project-zombie-count={metrics.zombieCount}
+      data-project-max-attention={metrics.maxAttentionScore}
+    >
+      <ProjectSectionContent {...props} projectGroupRef={projectGroupRef} />
+    </section>
+  )
+}
+
+type ProjectSectionContentProps = ProjectSectionProps & {
+  projectGroupRef: RefObject<HTMLElement | null>
+}
+
+const ProjectSectionContent = memo(function ProjectSectionContent({
   project,
+  agentInventoryComplete,
   collapsed,
   forceAgentsExpanded,
   compactAgents,
@@ -1480,9 +1570,10 @@ function ProjectSection({
   onDeleteWorkspaceEntries,
   onRefreshProjectOpenFiles,
   copy,
-}: ProjectSectionProps) {
+  projectGroupRef,
+}: ProjectSectionContentProps) {
+  recordPerformanceTestRender('projectSectionContent')
   const projectDraggedRef = useRef(false)
-  const projectGroupRef = useRef<HTMLElement | null>(null)
   const projectRowRef = useRef<HTMLDivElement | null>(null)
   const agentsSectionRef = useRef<HTMLDivElement | null>(null)
   const launchButtonRef = useRef<HTMLButtonElement | null>(null)
@@ -1652,6 +1743,7 @@ function ProjectSection({
     project.agentSessionsExpanded,
     project.hiddenAgentSessionCount,
     project.id,
+    projectGroupRef,
     projectAgentsExpanded,
     showAgentsSection,
     visibleAgentSessions.length,
@@ -1693,25 +1785,6 @@ function ProjectSection({
     ? currentWorktree.branch || `detached@${currentWorktree.head.slice(0, 7)}`
     : ''
   const repositoryWorktreeCount = repositoryWorktrees?.items.length || 0
-  const projectAgents = project.agents.filter(agent => !agent.isMain && agent.archived !== true)
-  const projectAgentsWithLiveState = projectAgents.map(agentWithCurrentLiveState)
-  const projectAgentCount = (project.agentSummary?.agentCount ?? projectAgents.length)
-    + project.agentSessions.filter(session => session.archived !== true).length
-    + (project.hiddenAgentSessionCount ?? 0)
-  const projectUnreadCount = (project.agentSummary?.unreadCount
-    ?? projectAgentsWithLiveState.filter(agent => agent.unread === true).length)
-    + project.agentSessions.filter(session => session.archived !== true && session.unread === true).length
-  const projectActiveCount = project.agentSummary?.activeCount
-    ?? projectAgentsWithLiveState.filter(agent => buildAgentRowDisplayState({
-      kind: 'agent',
-      agent,
-    }, now).turnActive).length
-  const projectZombieCount = project.agentSummary?.zombieCount
-    ?? projectAgentsWithLiveState.filter(agent => agent.isZombie === true).length
-  const projectMaxAttention = project.agentSummary?.maxAttentionScore
-    ?? projectAgentsWithLiveState.reduce((maximum, agent) => (
-      Math.max(maximum, Number.isFinite(agent.attentionScore) ? agent.attentionScore : 0)
-    ), 0)
   const openWorktreeMenu = (event: ReactMouseEvent<HTMLButtonElement>) => {
     event.preventDefault()
     event.stopPropagation()
@@ -1725,32 +1798,34 @@ function ProjectSection({
   }
 
   return (
-    <section
-      ref={projectGroupRef}
-      className="code-project-group"
-      data-testid="code-project-group"
-      data-project-agent-count={projectAgentCount}
-      data-project-active-count={projectActiveCount}
-      data-project-unread-count={projectUnreadCount}
-      data-project-zombie-count={projectZombieCount}
-      data-project-max-attention={projectMaxAttention}
-    >
+    <>
       <div
         ref={projectRowRef}
         className={`code-project-row ${dragging ? 'dragging' : ''} ${dropPosition ? `drop-${dropPosition}` : ''}`}
         onDragOver={event => onProjectDragOver(event, project.id)}
         onDrop={event => onProjectDrop(event, project.id)}
-        onMouseEnter={event => onShowProjectPreview(event, {
-          key: `project:${project.id}`,
-          name: project.name,
-          workspace: project.workspace,
-          agentCount: projectAgentCount,
-          unreadCount: projectUnreadCount,
-          runningCount: projectActiveCount,
-          branch: currentWorktreeName,
-          worktreeCount: repositoryWorktreeCount,
-          pinned: project.pinned === true,
-        })}
+        onMouseEnter={event => {
+          const currentSummary = agentInventoryComplete && !project.hasMain
+            ? projectAgentLiveSummary(project.workspace)
+            : null
+          const metrics = projectHeaderMetrics(
+            project,
+            agentInventoryComplete,
+            currentSummary,
+            now,
+          )
+          onShowProjectPreview(event, {
+            key: `project:${project.id}`,
+            name: project.name,
+            workspace: project.workspace,
+            agentCount: metrics.agentCount,
+            unreadCount: metrics.unreadCount,
+            runningCount: metrics.activeCount,
+            branch: currentWorktreeName,
+            worktreeCount: repositoryWorktreeCount,
+            pinned: project.pinned === true,
+          })
+        }}
         onMouseLeave={onHideAgentPreview}
       >
         <span className="code-project-title-content">
@@ -2083,9 +2158,9 @@ function ProjectSection({
           )}
         </div>
       )}
-    </section>
+    </>
   )
-}
+})
 
 function ProjectNewAgentIcon() {
   return (

@@ -531,6 +531,23 @@ test('restores a large Agent inventory through progressive authoritative pages',
     frame.type === 'state-delta' && frame.upsertAgentIds.includes(mutatedAgentId)
   ))
   expect(mutationDelta?.upsertCount).toBeLessThan(first?.statePageAgentCount ?? 32)
+  const secondaryProjectGroup = page.locator(
+    `[data-testid="code-project-title"][data-project-id="${secondaryWorkspace}"]`,
+  ).locator('xpath=ancestor::*[@data-testid="code-project-group"]')
+  const projectContentRenders = await page.evaluate(async agentId => {
+    window.__farmingPerformanceTest?.reset()
+    window.__farmingAgentActivityTest?.update(agentId, {
+      lastActivity: Date.now(),
+      activityLevel: 'hot',
+      attentionScore: 100,
+      isZombie: true,
+    })
+    await new Promise<void>(resolve => window.requestAnimationFrame(() => resolve()))
+    return window.__farmingPerformanceTest?.snapshot().projectSectionContent ?? -1
+  }, secondaryAgentIds[0])
+  expect(projectContentRenders).toBe(0)
+  await expect(secondaryProjectGroup).toHaveAttribute('data-project-zombie-count', '1')
+  await expect(secondaryProjectGroup).toHaveAttribute('data-project-max-attention', '100')
   await expect(page.locator(
     `[data-testid="code-terminal-pane"][data-agent-id="${mutatedAgentId}"]`,
   )).toBeVisible()
