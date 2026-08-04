@@ -216,6 +216,7 @@ interface CrtProtocolAgentCommandClientMessage extends CrtProtocolRecord {
 interface CrtProtocolFocusAgentClientMessage extends CrtProtocolRecord {
   type: 'focus-agent';
   agentId: string | null;
+  activityScope?: 'focused' | 'all' | 'none';
   streamScope?: 'focused' | 'all' | 'none';
   previewScope?: 'focused' | 'all' | 'none';
   refreshState?: boolean;
@@ -374,6 +375,11 @@ interface CrtProtocolAgentActivityServerMessage extends CrtProtocolRecord {
   };
 }
 
+interface CrtProtocolAgentActivitySnapshotServerMessage extends CrtProtocolRecord {
+  type: 'agent-activity-snapshot';
+  activities: CrtProtocolAgentActivityServerMessage['activity'][];
+}
+
 interface CrtProtocolSystemStats extends CrtProtocolRecord {
   cpu?: number | string;
   memory?: CrtProtocolRecord & { percentage?: number | string };
@@ -419,6 +425,7 @@ type CrtWebSocketServerMessage =
   | CrtProtocolSessionPreviewServerMessage
   | CrtProtocolSessionOutputServerMessage
   | CrtProtocolAgentActivityServerMessage
+  | CrtProtocolAgentActivitySnapshotServerMessage
   | CrtProtocolSystemStatsServerMessage
   | CrtProtocolResourceMetadataServerMessage
   | CrtComposerInputResult;

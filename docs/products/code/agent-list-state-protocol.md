@@ -12,6 +12,19 @@ summaries only for changed Agents, removed Agent IDs, and changed list-level
 metadata. Terminal output, Chat transcript changes, previews, and activity
 updates remain on their Agent-scoped streams.
 
+Browser views declare whether Agent activity is relevant for all Agents, only
+the focused Agent, or none. Farming Code keeps all activity while the Projects
+sidebar is visible and suspends it in non-Agent views. Farming CRT keeps all
+activity on its dashboard and only the focused Agent while a Session is open.
+Clients that do not declare a scope retain the compatible `all` behavior.
+
+Activity messages are replaceable absolute projections. A slow `focused`
+client retains one pending Agent checkpoint marker. A slow `all` client retains
+one pending marker and recovers with one compact authoritative activity
+snapshot, without replaying individual updates, the complete Agent state, or
+Agent previews. Returning from `focused` or `none` to `all` requests that
+snapshot only when the connection actually skipped activity.
+
 The backend updates the list projection from exact Agent and collection
 mutations. Mutations within the broadcast window are coalesced by Agent ID, so
 ordinary delta construction is proportional to the changed working set rather

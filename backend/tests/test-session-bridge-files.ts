@@ -24,17 +24,23 @@ function run() {
   );
   assert(sessionBridge.includes('createClient'), 'session bridge should expose client creation');
   assert(sessionBridge.includes('focus-agent'), 'session bridge should handle focus requests');
-  assert(sessionBridge.includes('streamScope') && sessionBridge.includes('previewScope'), 'session bridge should support scoped CRT terminal subscriptions');
+  assert(
+    sessionBridge.includes('streamScope')
+      && sessionBridge.includes('previewScope')
+      && sessionBridge.includes('activityScope'),
+    'session bridge should support scoped CRT terminal and activity subscriptions',
+  );
   const codeFocusAgent = useWebSocket.slice(
     useWebSocket.indexOf('const focusAgent = useCallback'),
     useWebSocket.indexOf('const interruptAgent = useCallback')
   );
   assert(
     codeFocusAgent.includes('focusedAgentIdRef.current = agentId') &&
-      codeFocusAgent.includes("ws.send(JSON.stringify({ type: 'focus-agent', agentId }))") &&
+      codeFocusAgent.includes('agentActivityScopeRef.current = activityScope') &&
+      codeFocusAgent.includes("type: 'focus-agent',\n      agentId,\n      activityScope,") &&
       !codeFocusAgent.includes('streamScope') &&
       !codeFocusAgent.includes('previewScope'),
-    'Farming Code should retain the default all-stream subscription behavior'
+    'Farming Code should retain all terminal streams while declaring its activity view scope',
   );
   assert(
     !useWebSocket.includes('const resizeAgent = useCallback') &&
@@ -83,7 +89,8 @@ function run() {
     'CRT structured Composer should use the shared direct Agent interrupt path',
   );
   assert(
-    app.includes("focusAgent(activeWorkspaceView === 'projects' ? effectiveActiveTerminalId : null)") &&
+    app.includes("const projectsVisible = activeWorkspaceView === 'projects'") &&
+      app.includes("activityScope: projectsVisible ? 'all' : 'none'") &&
       workspace.includes('markAgentReadIfNeeded(agent.id, true)') &&
       workspace.includes('readOutputEpoch: readCut.runtimeEpoch') &&
       workspace.includes('readOutputSeq: readCut.outputSeq') &&
@@ -96,8 +103,21 @@ function run() {
       server.includes('deliverAcpSessionRevision(client, entry.session);') &&
       server.includes('client.acpRevisionCheckpointPending = true;') &&
       server.includes('recoverAcpSessionRevisionIfReady(ws);') &&
-      useWebSocket.includes("ws.send(JSON.stringify({ type: 'focus-agent', agentId: focusedAgentIdRef.current }))"),
+      useWebSocket.includes('agentId: focusedAgentIdRef.current,') &&
+      useWebSocket.includes('activityScope: agentActivityScopeRef.current,'),
     'ACP revisions should follow focused browser interest, recover slow clients with one checkpoint marker, and restore focus after reconnect',
+  );
+  assert(
+    server.includes('deliverAgentActivity(client, activity, message);') &&
+      server.includes('client.activityScopeDeclared !== true') &&
+      server.includes("if (scope === 'all') client.agentActivityAllCheckpointPending = true;") &&
+      server.includes('client.agentActivityCheckpointPending = true;') &&
+      server.includes('recoverAgentActivityIfReady(ws);') &&
+      server.includes('queueAgentActivityRecovery(client);') &&
+      server.includes('agentManager.getAgentActivityPayloads(Date.now())') &&
+      server.includes("type: 'agent-activity-snapshot'") &&
+      useWebSocket.includes("case 'agent-activity-snapshot':"),
+    'Agent activity should follow browser view scope and recover with bounded focused or compact all-scope checkpoints',
   );
   assert(
     !terminalPane.includes('sessionBootstrapStateFromPayload') &&

@@ -330,7 +330,10 @@ export function App() {
     : null
 
   useEffect(() => {
-    focusAgent(activeWorkspaceView === 'projects' ? effectiveActiveTerminalId : null)
+    const projectsVisible = activeWorkspaceView === 'projects'
+    focusAgent(projectsVisible ? effectiveActiveTerminalId : null, {
+      activityScope: projectsVisible ? 'all' : 'none',
+    })
   }, [activeWorkspaceView, effectiveActiveTerminalId, focusAgent])
 
   useLayoutEffect(() => {

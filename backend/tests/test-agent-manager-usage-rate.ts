@@ -47,6 +47,13 @@ async function run() {
     assert.strictEqual(idleRate.estimatedTokensPerMinute, 0);
     assert.strictEqual(manager.outputEvents.has('agent-1'), false);
 
+    manager.agents.set('agent-1', { id: 'agent-1', status: 'running' });
+    manager.lastActivity.set('agent-1', now);
+    const activity = manager.getAgentActivityPayload('agent-1', now + 1000);
+    assert(activity);
+    assert.strictEqual(activity.agentId, 'agent-1');
+    assert.deepStrictEqual(manager.getAgentActivityPayloads(now + 1000), [activity]);
+
     console.log('✓ agent output usage rate caches exact snapshots and expires stale events');
   } finally {
     clearInterval(manager.heartbeatInterval);

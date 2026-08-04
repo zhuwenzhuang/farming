@@ -14,6 +14,7 @@ import {
   reconcileAgentLiveStateDelta,
   resetAgentLiveStates,
   updateAgentAcpSessionRevision,
+  updateAgentLiveActivities,
   updateAgentLiveActivity,
   updateAgentLivePreview,
   updateAgentReadState,
@@ -95,6 +96,7 @@ function normalizeStateAgent(agent: Agent, mainAgentId: string | null, previous?
 export function useWebSocket() {
   const wsRef = useRef<WebSocket | null>(null)
   const focusedAgentIdRef = useRef<string | null>(null)
+  const agentActivityScopeRef = useRef<'all' | 'focused' | 'none'>('all')
   const agentStateSignaturesRef = useRef<Map<string, string>>(new Map())
   const agentStateCursorRef = useRef<AgentStateCursor | null>(null)
   const agentStateResyncPendingRef = useRef(false)
@@ -330,11 +332,20 @@ export function useWebSocket() {
     return promise
   }, [sendMessage, settleComposerRequest])
 
-  const focusAgent = useCallback((agentId: string | null) => {
+  const focusAgent = useCallback((
+    agentId: string | null,
+    options: { activityScope?: 'all' | 'focused' | 'none' } = {},
+  ) => {
+    const activityScope = options.activityScope ?? 'all'
     focusedAgentIdRef.current = agentId
+    agentActivityScopeRef.current = activityScope
     const ws = wsRef.current
     if (!ws || ws.readyState !== WebSocket.OPEN) return false
-    ws.send(JSON.stringify({ type: 'focus-agent', agentId }))
+    ws.send(JSON.stringify({
+      type: 'focus-agent',
+      agentId,
+      activityScope,
+    }))
     return true
   }, [])
 
@@ -498,7 +509,11 @@ export function useWebSocket() {
           businessServerEpoch: '',
         })
         ws.send(JSON.stringify({ type: 'protocol-hello', protocolVersion: PROTOCOL_VERSION }))
-        ws.send(JSON.stringify({ type: 'focus-agent', agentId: focusedAgentIdRef.current }))
+        ws.send(JSON.stringify({
+          type: 'focus-agent',
+          agentId: focusedAgentIdRef.current,
+          activityScope: agentActivityScopeRef.current,
+        }))
         sendBusinessProbe(ws)
         window.dispatchEvent(new Event('farming:backend-connected'))
         workspaceFileListenersRef.current.forEach((listeners, agentId) => {
@@ -775,6 +790,9 @@ export function useWebSocket() {
             }
             case 'agent-activity':
               updateAgentLiveActivity(msg.activity)
+              break
+            case 'agent-activity-snapshot':
+              updateAgentLiveActivities(msg.activities)
               break
             case 'agent-read':
               updateAgentReadState(msg.read)

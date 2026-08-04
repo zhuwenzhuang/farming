@@ -48,6 +48,7 @@ export interface AcpPermissionResponseMessage extends ExtensibleMessage {
 export interface FocusAgentMessage extends ExtensibleMessage {
   type: 'focus-agent'
   agentId: string | null
+  activityScope?: 'all' | 'focused' | 'none'
 }
 
 export interface ResizeAgentMessage extends ExtensibleMessage {
@@ -178,6 +179,11 @@ export interface AgentActivityMessage extends ExtensibleMessage {
   activity: ObjectMessage & { agentId: string }
 }
 
+export interface AgentActivitySnapshotMessage extends ExtensibleMessage {
+  type: 'agent-activity-snapshot'
+  activities: Array<ObjectMessage & { agentId: string }>
+}
+
 export interface AgentUpdatePatch {
   adaptiveTitle?: string
   sessionTitle?: string
@@ -287,6 +293,7 @@ export type ServerMessage =
   | SessionPreviewMessage
   | SystemStatsMessage
   | AgentActivityMessage
+  | AgentActivitySnapshotMessage
   | AgentUpdateMessage
   | AcpSessionRevisionMessage
   | AgentReadMessage
@@ -335,6 +342,7 @@ const SERVER_MESSAGE_TYPES: ReadonlySet<ServerMessage['type']> = new Set([
   'session-preview',
   'system-stats',
   'agent-activity',
+  'agent-activity-snapshot',
   'agent-update',
   'acp-session-revision',
   'agent-read',
@@ -482,7 +490,13 @@ export function validateClientMessage(value: unknown): ValidationResult<ClientMe
         && stringField(value, 'optionId')
         && (!Object.prototype.hasOwnProperty.call(value, 'cancelled') || typeof value.cancelled === 'boolean')
       break
-    case 'focus-agent': valid = value.agentId === null || stringField(value, 'agentId'); break
+    case 'focus-agent':
+      valid = (value.agentId === null || stringField(value, 'agentId'))
+        && (!Object.prototype.hasOwnProperty.call(value, 'activityScope')
+          || value.activityScope === 'all'
+          || value.activityScope === 'focused'
+          || value.activityScope === 'none')
+      break
     case 'resize-agent': valid = stringField(value, 'agentId') && finiteField(value, 'cols') && finiteField(value, 'rows'); break
     case 'unwatch-workspace-files': valid = stringField(value, 'agentId', true); break
     case 'restart-main-agent': valid = stringField(value, 'command'); break
@@ -544,6 +558,7 @@ export function validateServerMessage(value: unknown): ValidationResult<ServerMe
     case 'session-preview': valid = objectMessage(value.preview) && stringField(value.preview, 'agentId'); break
     case 'system-stats': valid = objectMessage(value.stats); break
     case 'agent-activity': valid = objectMessage(value.activity) && stringField(value.activity, 'agentId'); break
+    case 'agent-activity-snapshot': valid = Array.isArray(value.activities) && value.activities.every(activity => objectMessage(activity) && stringField(activity, 'agentId')); break
     case 'agent-update': valid = objectMessage(value.update) && stringField(value.update, 'agentId') && sanitizeAgentUpdatePatch(value.update.patch) !== null; break
     case 'acp-session-revision': valid = objectMessage(value.session) && stringField(value.session, 'agentId') && Number.isInteger(value.session.revision) && typeof value.session.revision === 'number' && value.session.revision >= 0 && stringField(value.session, 'updatedAt'); break
     case 'agent-read': valid = agentReadState(value.read); break

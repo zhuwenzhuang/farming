@@ -10,6 +10,7 @@ interface FarmingComposerResult extends CrtUnknownRecord {
 
 interface FarmingSessionClient {
   focusAgent(agentId: string | null, options?: {
+    activityScope?: 'all' | 'focused' | 'none';
     streamScope?: string;
     previewScope?: string;
     refreshState?: boolean;

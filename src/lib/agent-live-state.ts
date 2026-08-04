@@ -2,6 +2,7 @@ import { useCallback, useMemo, useSyncExternalStore } from 'react'
 import type { Agent } from '@/types/agent'
 import type {
   AcpSessionRevisionMessage,
+  AgentActivitySnapshotMessage,
   AgentReadMessage,
   AgentUpdateMessage,
   SessionPreviewMessage,
@@ -163,6 +164,12 @@ export function updateAgentLiveActivity(
 ) {
   const { agentId, ...patch } = activity
   updateAgentLiveState(agentId, patch)
+}
+
+export function updateAgentLiveActivities(
+  activities: AgentActivitySnapshotMessage['activities'],
+) {
+  activities.forEach(updateAgentLiveActivity)
 }
 
 export function updateAgentReadState(read: AgentReadMessage['read']) {

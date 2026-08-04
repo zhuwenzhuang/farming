@@ -19,6 +19,7 @@
                 return send({
                     type: 'focus-agent',
                     agentId,
+                    ...(options.activityScope ? { activityScope: options.activityScope } : {}),
                     ...(options.streamScope ? { streamScope: options.streamScope } : {}),
                     ...(options.previewScope ? { previewScope: options.previewScope } : {}),
                     ...(options.refreshState === true ? { refreshState: true } : {}),

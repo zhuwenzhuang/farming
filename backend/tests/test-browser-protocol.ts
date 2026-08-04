@@ -43,6 +43,9 @@ assert.strictEqual(validateClientMessage({
 }).ok, false);
 assert.strictEqual(validateClientMessage({ type: 'business-health-probe', requestId: 'health-1' }).ok, true);
 assert.strictEqual(validateClientMessage({ type: 'business-health-probe', requestId: 1 }).ok, false);
+assert.strictEqual(validateClientMessage({ type: 'focus-agent', agentId: 'a', activityScope: 'focused' }).ok, true);
+assert.strictEqual(validateClientMessage({ type: 'focus-agent', agentId: null, activityScope: 'none' }).ok, true);
+assert.strictEqual(validateClientMessage({ type: 'focus-agent', agentId: 'a', activityScope: 'project' }).ok, false);
 assert.strictEqual(validateClientMessage({ type: 'state-resync', generation: 'server-1', afterSequence: 4 }).ok, true);
 assert.strictEqual(validateClientMessage({ type: 'state-resync', afterSequence: -1 }).ok, false);
 assert.strictEqual(validateClientMessage({ type: 'unknown' }).ok, false);
@@ -108,6 +111,11 @@ assert.strictEqual(validateServerMessage({ type: 'composer-input-result', reques
 assert.strictEqual(validateServerMessage({ type: 'composer-input-result', requestId: 'request-1', agentId: 'a', accepted: false, uncertain: true }).ok, true);
 assert.strictEqual(validateServerMessage({ type: 'composer-input-result', requestId: 'request-1', agentId: 'a', accepted: false, uncertain: 'true' }).ok, false);
 assert.strictEqual(validateServerMessage({ type: 'composer-input-result', requestId: 'request-1', agentId: 'a', accepted: 'true' }).ok, false);
+assert.strictEqual(validateServerMessage({
+  type: 'agent-activity-snapshot',
+  activities: [{ agentId: 'a', activityLevel: 'warm' }],
+}).ok, true);
+assert.strictEqual(validateServerMessage({ type: 'agent-activity-snapshot', activities: [{}] }).ok, false);
 assert.strictEqual(validateServerMessage({
   type: 'business-health-result',
   requestId: 'health-1',

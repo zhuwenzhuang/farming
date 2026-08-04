@@ -164,9 +164,9 @@ function run() {
 
   assert(
     webSocketSource.includes('focusedAgentIdRef.current = agentId') &&
-      webSocketSource.includes("ws.send(JSON.stringify({ type: 'focus-agent', agentId }))") &&
-      webSocketSource.includes("ws.send(JSON.stringify({ type: 'focus-agent', agentId: focusedAgentIdRef.current }))") &&
-      appSource.includes("focusAgent(activeWorkspaceView === 'projects' ? effectiveActiveTerminalId : null)") &&
+      webSocketSource.includes('agentActivityScopeRef.current = activityScope') &&
+      webSocketSource.includes('activityScope: agentActivityScopeRef.current') &&
+      appSource.includes("activityScope: projectsVisible ? 'all' : 'none'") &&
       webSocketSource.includes('updateAgentLivePreview(msg.preview)') &&
       webSocketSource.includes('updateAgentLiveState(msg.update.agentId, msg.update.patch)') &&
       messagesSource.includes('refreshState?: boolean'),

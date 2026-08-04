@@ -5964,6 +5964,7 @@ function connect(): void {
     socket.send(JSON.stringify({ type: 'protocol-hello', protocolVersion: CRT_PROTOCOL_VERSION }));
     const activeAgentId = isCrtSessionOpen() ? focusedAgentId : null;
     getSessionClient()?.focusAgent(activeAgentId, {
+      activityScope: activeAgentId ? 'focused' : 'all',
       streamScope: 'focused',
       previewScope: activeAgentId ? 'none' : 'all',
     });
@@ -6115,6 +6116,15 @@ function connect(): void {
         Object.assign(agent, activity);
         if (isCrtSessionOpen()) dashboardRenderDeferred = true;
         else scheduleCrtPreviewCardRender(agent);
+      }
+    } else if (data.type === 'agent-activity-snapshot') {
+      if (state) {
+        const agentsById = new Map(state.agents.map(agent => [agent.id, agent]));
+        data.activities.forEach(activity => {
+          const agent = agentsById.get(activity.agentId);
+          if (agent) Object.assign(agent, activity);
+        });
+        renderCrtDashboardIfNeeded();
       }
     } else if (data.type === 'system-stats') {
       updateSystemStats(data.stats, data.uptime);
@@ -8353,6 +8363,7 @@ async function openSession(agentId: string|null|undefined) {
   const sessionClient = getSessionClient();
   if (sessionClient) {
     sessionClient.focusAgent(agentId, {
+      activityScope: 'focused',
       streamScope: 'focused',
       previewScope: 'none',
     });
@@ -8563,6 +8574,7 @@ function closeSession() {
   currentSessionSkin = null;
   focusedAgentId = null;
   getSessionClient()?.focusAgent(null, {
+    activityScope: 'all',
     streamScope: 'focused',
     previewScope: 'all',
     refreshState: true,

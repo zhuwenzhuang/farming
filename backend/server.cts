@@ -130,6 +130,12 @@ interface ExpressFactory {
 
 interface WebSocketClient {
   agentId?: string;
+  agentActivityAllCheckpointPending?: boolean;
+  agentActivityCheckpointPending?: boolean;
+  agentActivityRecoveryTimer?: ReturnType<typeof setTimeout> | null;
+  agentActivityResyncPending?: boolean;
+  activityScope?: 'all' | 'focused' | 'none';
+  activityScopeDeclared?: boolean;
   bufferedAmount: number;
   acpRevisionCheckpointPending?: boolean;
   acpRevisionSentRevision?: number;
@@ -275,6 +281,10 @@ import {
   resourceClientDelivery,
   type ResourceBroadcastEvent,
 } from './resource-broadcast-protocol.cjs';
+import {
+  agentActivityClientDelivery,
+  normalizeAgentActivityScope,
+} from './agent-activity-delivery.cjs';
 import { acpRevisionClientDelivery } from './acp-revision-delivery.cjs';
 import { QrShareTicketStore, SHARE_TICKET_TTL_MS } from './qr-share-tickets.cjs';
 import { ReviewStateStore } from './review-state-store.cjs';
@@ -3277,6 +3287,7 @@ async function sendBusinessHealthResult(ws: WebSocketClient, requestId: string) 
   if (ws.readyState !== WebSocket.OPEN) return;
   recoverStateSnapshotIfReady(ws);
   recoverResourceSnapshotIfReady(ws);
+  recoverAgentActivityIfReady(ws);
   recoverAcpSessionRevisionIfReady(ws);
   ws.send(JSON.stringify({
     type: 'business-health-result',
@@ -3427,16 +3438,42 @@ function handleMessage(ws: WebSocketClient, data: ServerClientMessage) {
       }
       break;
       
-    case 'focus-agent':
-      if (ws.focusedAgentId !== data.agentId) {
+    case 'focus-agent': {
+      const previousActivityScope = normalizeAgentActivityScope(ws.activityScope);
+      const nextActivityScope = normalizeAgentActivityScope(data.activityScope ?? previousActivityScope);
+      const focusChanged = ws.focusedAgentId !== data.agentId;
+      const scopeChanged = previousActivityScope !== nextActivityScope;
+      if (Object.prototype.hasOwnProperty.call(data, 'activityScope')) {
+        ws.activityScopeDeclared = true;
+      }
+      if (scopeChanged) {
+        if (ws.agentActivityAllCheckpointPending || ws.agentActivityCheckpointPending) {
+          ws.agentActivityResyncPending = true;
+        }
+        ws.agentActivityAllCheckpointPending = false;
+        ws.agentActivityCheckpointPending = false;
+      } else if (focusChanged && ws.agentActivityCheckpointPending) {
+        ws.agentActivityResyncPending = true;
+        ws.agentActivityCheckpointPending = false;
+      }
+      const activitySnapshotRequired = nextActivityScope === 'all'
+        && scopeChanged
+        && ws.activityScopeDeclared === true
+        && ws.agentActivityResyncPending === true;
+      if (focusChanged) {
         ws.acpRevisionCheckpointPending = false;
         ws.acpRevisionSentRevision = -1;
       }
       ws.focusedAgentId = data.agentId;
+      ws.activityScope = nextActivityScope;
       if (data.agentId) {
         agentManager.prioritizeAcpPreparedTranscript(data.agentId);
         const revision = currentAcpSessionRevision(data.agentId);
         if (revision) deliverAcpSessionRevision(ws, revision);
+        if (nextActivityScope === 'focused') {
+          const activity = currentAgentActivity(data.agentId);
+          if (activity) deliverAgentActivity(ws, activity);
+        }
       }
       if (data.streamScope === 'focused' || data.streamScope === 'all') {
         ws.streamScope = data.streamScope;
@@ -3446,8 +3483,11 @@ function handleMessage(ws: WebSocketClient, data: ServerClientMessage) {
       }
       if (data.refreshState === true) {
         sendState(ws);
+      } else if (activitySnapshotRequired) {
+        sendAgentActivitySnapshot(ws);
       }
       break;
+    }
 
     case 'resize-agent':
       if (data.agentId && Number.isFinite(data.cols) && Number.isFinite(data.rows)) {
@@ -3631,6 +3671,8 @@ function sendState(ws: WebSocketClient) {
     sequence: stateBroadcastTracker.sequence,
     state: agentStateBroadcastSnapshot(stateBroadcastTracker),
   }));
+  ws.agentActivityAllCheckpointPending = false;
+  ws.agentActivityResyncPending = false;
   ws.stateSnapshotPending = false;
   agentManager.getPreviewPayloads().forEach((preview: ServerRecord) => {
     sendPreview(ws, preview);
@@ -3676,6 +3718,7 @@ const SESSION_STREAM_BROADCAST_INTERVAL_MS = 33;
 const AGENT_ACTIVITY_BROADCAST_DELAY_MS = SESSION_STREAM_BROADCAST_INTERVAL_MS;
 const MAX_SESSION_STREAM_CLIENT_BUFFERED_AMOUNT = 4 * 1024 * 1024;
 const MAX_STATE_CLIENT_BUFFERED_AMOUNT = 512 * 1024;
+const MAX_AGENT_ACTIVITY_CLIENT_BUFFERED_AMOUNT = 256 * 1024;
 const MAX_ACP_REVISION_CLIENT_BUFFERED_AMOUNT = 256 * 1024;
 const RESOURCE_BROADCAST_INTERVAL_MS = 100;
 const MAX_RESOURCE_CLIENT_BUFFERED_AMOUNT = 512 * 1024;
@@ -3684,6 +3727,98 @@ type AgentScopedServerEvent = Record<string, unknown> & { agentId: string };
 
 function isAgentScopedServerEvent(value: unknown): value is AgentScopedServerEvent {
   return isRecord(value) && typeof value.agentId === 'string' && value.agentId.length > 0;
+}
+
+function currentAgentActivity(agentId: string): AgentScopedServerEvent | null {
+  return agentManager.getAgentActivityPayload(agentId, Date.now()) as AgentScopedServerEvent | null;
+}
+
+function sendAgentActivitySnapshot(client: WebSocketClient) {
+  if (
+    client.readyState !== WebSocket.OPEN
+    || client.protocolVersion !== PROTOCOL_VERSION
+    || client.activityScopeDeclared !== true
+  ) return;
+  if (client.bufferedAmount > MAX_AGENT_ACTIVITY_CLIENT_BUFFERED_AMOUNT) {
+    client.agentActivityAllCheckpointPending = true;
+    queueAgentActivityRecovery(client);
+    return;
+  }
+  const activities = agentManager.getAgentActivityPayloads(Date.now());
+  client.send(JSON.stringify({ type: 'agent-activity-snapshot', activities }));
+  client.agentActivityAllCheckpointPending = false;
+  client.agentActivityResyncPending = false;
+}
+
+function deliverAgentActivity(
+  client: WebSocketClient,
+  activity: AgentScopedServerEvent,
+  message = JSON.stringify({ type: 'agent-activity', activity }),
+) {
+  if (client.readyState !== WebSocket.OPEN) return;
+  if (client.activityScopeDeclared !== true) {
+    client.send(message);
+    return;
+  }
+  if (client.protocolVersion !== PROTOCOL_VERSION) {
+    client.agentActivityResyncPending = true;
+    return;
+  }
+  const scope = normalizeAgentActivityScope(client.activityScope);
+  const delivery = agentActivityClientDelivery(
+    scope,
+    client.focusedAgentId,
+    client.agentActivityAllCheckpointPending === true,
+    client.bufferedAmount,
+    MAX_AGENT_ACTIVITY_CLIENT_BUFFERED_AMOUNT,
+    activity.agentId,
+  );
+  if (delivery === 'skip') {
+    client.agentActivityResyncPending = true;
+    return;
+  }
+  if (delivery === 'defer') {
+    if (scope === 'all') client.agentActivityAllCheckpointPending = true;
+    else client.agentActivityCheckpointPending = true;
+    queueAgentActivityRecovery(client);
+    return;
+  }
+  client.send(message);
+  if (scope === 'focused') client.agentActivityCheckpointPending = false;
+}
+
+function recoverAgentActivityIfReady(client: WebSocketClient) {
+  const scope = normalizeAgentActivityScope(client.activityScope);
+  if (client.agentActivityAllCheckpointPending === true) {
+    if (scope === 'all' && client.bufferedAmount <= MAX_AGENT_ACTIVITY_CLIENT_BUFFERED_AMOUNT) {
+      sendAgentActivitySnapshot(client);
+    } else if (scope !== 'all') {
+      client.agentActivityAllCheckpointPending = false;
+      client.agentActivityResyncPending = true;
+    }
+  }
+  if (client.agentActivityCheckpointPending === true) {
+    if (scope !== 'focused' || !client.focusedAgentId) {
+      client.agentActivityResyncPending = true;
+      client.agentActivityCheckpointPending = false;
+    } else if (client.bufferedAmount <= MAX_AGENT_ACTIVITY_CLIENT_BUFFERED_AMOUNT) {
+      const activity = currentAgentActivity(client.focusedAgentId);
+      if (activity) deliverAgentActivity(client, activity);
+      else client.agentActivityCheckpointPending = false;
+    }
+  }
+  if (client.agentActivityAllCheckpointPending || client.agentActivityCheckpointPending) {
+    queueAgentActivityRecovery(client);
+  }
+}
+
+function queueAgentActivityRecovery(client: WebSocketClient) {
+  if (client.agentActivityRecoveryTimer || client.readyState !== WebSocket.OPEN) return;
+  client.agentActivityRecoveryTimer = setTimeout(() => {
+    client.agentActivityRecoveryTimer = null;
+    if (client.readyState === WebSocket.OPEN) recoverAgentActivityIfReady(client);
+  }, 250);
+  client.agentActivityRecoveryTimer.unref?.();
 }
 
 function currentAcpSessionRevision(agentId: string) {
@@ -3997,9 +4132,7 @@ function broadcastAgentActivity(activity: AgentScopedServerEvent) {
     activity,
   });
   wss.clients.forEach((client) => {
-    if (client.readyState === WebSocket.OPEN) {
-      client.send(message);
-    }
+    deliverAgentActivity(client, activity, message);
   });
 }
 

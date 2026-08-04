@@ -16,6 +16,11 @@ type AcpRevisionFrame = {
   revision: number
 }
 
+type AgentActivityFrame = {
+  agentId: string
+  lastActivity: number
+}
+
 function trackAcpRevisionFrames(page: import('@playwright/test').Page) {
   const frames: AcpRevisionFrame[] = []
   page.on('websocket', socket => {
@@ -43,6 +48,48 @@ function trackAcpRevisionFrames(page: import('@playwright/test').Page) {
     })
   })
   return frames
+}
+
+function trackAgentActivityFrames(page: import('@playwright/test').Page) {
+  const frames: AgentActivityFrame[] = []
+  page.on('websocket', socket => {
+    if (!new URL(socket.url()).pathname.endsWith('/ws')) return
+    socket.on('framereceived', event => {
+      if (typeof event.payload !== 'string') return
+      try {
+        const message = JSON.parse(event.payload) as {
+          type?: string
+          activity?: { agentId?: string; lastActivity?: number }
+        }
+        if (message.type === 'agent-activity' && message.activity?.agentId) {
+          frames.push({
+            agentId: message.activity.agentId,
+            lastActivity: Number(message.activity.lastActivity) || 0,
+          })
+        }
+      } catch {
+        // Ignore non-JSON frames owned by another WebSocket protocol.
+      }
+    })
+  })
+  return frames
+}
+
+function trackServerMessageTypes(page: import('@playwright/test').Page) {
+  const types: string[] = []
+  page.on('websocket', socket => {
+    if (!new URL(socket.url()).pathname.endsWith('/ws')) return
+    socket.on('framereceived', event => {
+      if (typeof event.payload !== 'string') return
+      try {
+        const message = JSON.parse(event.payload) as { type?: string }
+        if (message.type) types.push(message.type)
+      } catch {
+        // Ignore non-JSON frames owned by another WebSocket protocol.
+      }
+    })
+  })
+  return types
 }
 
 async function cleanupControlAgents(request: import('@playwright/test').APIRequestContext) {
@@ -377,6 +424,8 @@ test('routes ACP revisions only to focused browsers and restores focus after rec
   await openFarming(page)
   await page.locator(`[data-testid="code-agent-row"][data-agent-id="${firstAgentId}"]`).click()
   await expect(page.getByTestId('code-acp-composer-input')).toBeEditable()
+  await expect.poll(() => firstFrames.filter(frame => frame.agentId === firstAgentId).length)
+    .toBeGreaterThan(0)
 
   const secondContext = await browser.newContext({ baseURL: new URL(page.url()).origin })
   try {
@@ -386,7 +435,8 @@ test('routes ACP revisions only to focused browsers and restores focus after rec
     await expect(secondPage.getByTestId('app-shell')).toBeVisible()
     await secondPage.locator(`[data-testid="code-agent-row"][data-agent-id="${secondAgentId}"]`).click()
     await expect(secondPage.getByTestId('code-acp-composer-input')).toBeEditable()
-    await page.waitForTimeout(100)
+    await expect.poll(() => secondFrames.filter(frame => frame.agentId === secondAgentId).length)
+      .toBeGreaterThan(0)
     firstFrames.length = 0
     secondFrames.length = 0
 
@@ -442,6 +492,153 @@ test('routes ACP revisions only to focused browsers and restores focus after rec
       .filter(frame => frame.agentId === firstAgentId)).toHaveLength(0)
   } finally {
     await secondContext.close()
+  }
+})
+
+test('routes Agent activity by browser view without hiding Project supervision', async ({ page, browser, workspaceRoot }) => {
+  const workspace = path.join(workspaceRoot, 'agent-activity-interest')
+  fs.mkdirSync(workspace, { recursive: true })
+  const createResponse = await page.request.post('/farming/api/control/agents', {
+    data: { command: 'bash', workspace },
+  })
+  expect(createResponse.ok()).toBeTruthy()
+  const { agentId } = await createResponse.json() as { agentId: string }
+  const firstFrames = trackAgentActivityFrames(page)
+
+  await openFarming(page)
+  await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
+  await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${agentId}"]`)).toBeVisible()
+
+  const secondContext = await browser.newContext({ baseURL: new URL(page.url()).origin })
+  try {
+    const secondPage = await secondContext.newPage()
+    const secondFrames = trackAgentActivityFrames(secondPage)
+    const secondMessageTypes = trackServerMessageTypes(secondPage)
+    await secondPage.goto('/farming/', { waitUntil: 'domcontentloaded' })
+    await expect(secondPage.getByTestId('app-shell')).toBeVisible()
+
+    const triggerActivity = async (marker: string) => {
+      const response = await page.request.post(`/farming/api/control/agents/${agentId}/input`, {
+        data: { input: `printf '${marker}\\n'\r` },
+      })
+      expect(response.ok()).toBeTruthy()
+    }
+
+    await page.waitForTimeout(1_100)
+    firstFrames.length = 0
+    secondFrames.length = 0
+    await triggerActivity('ACTIVITY_SCOPE_PROJECTS')
+    await expect.poll(() => firstFrames.filter(frame => frame.agentId === agentId).length).toBeGreaterThan(0)
+    await expect.poll(() => secondFrames.filter(frame => frame.agentId === agentId).length).toBeGreaterThan(0)
+
+    await secondPage.getByTestId('code-nav-history').click()
+    await expect(secondPage.getByTestId('code-history-panel')).toBeVisible()
+    await page.waitForTimeout(1_100)
+    const firstHistoryStart = firstFrames.length
+    const secondHistoryStart = secondFrames.length
+    await triggerActivity('ACTIVITY_SCOPE_HISTORY')
+    await expect.poll(() => firstFrames.slice(firstHistoryStart)
+      .filter(frame => frame.agentId === agentId).length).toBeGreaterThan(0)
+    await secondPage.waitForTimeout(250)
+    expect(secondFrames.slice(secondHistoryStart)
+      .filter(frame => frame.agentId === agentId)).toHaveLength(0)
+
+    const returnMessageStart = secondMessageTypes.length
+    await secondPage.getByTestId('code-history-back').click()
+    await expect(secondPage.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)).toBeVisible()
+    await expect.poll(() => secondMessageTypes.slice(returnMessageStart)
+      .filter(type => type === 'agent-activity-snapshot').length).toBe(1)
+    expect(secondMessageTypes.slice(returnMessageStart).filter(type => type === 'state')).toHaveLength(0)
+    await page.waitForTimeout(1_100)
+    const firstReturnStart = firstFrames.length
+    const secondReturnStart = secondFrames.length
+    await triggerActivity('ACTIVITY_SCOPE_RETURN')
+    await expect.poll(() => firstFrames.slice(firstReturnStart)
+      .filter(frame => frame.agentId === agentId).length).toBeGreaterThan(0)
+    await expect.poll(() => secondFrames.slice(secondReturnStart)
+      .filter(frame => frame.agentId === agentId).length).toBeGreaterThan(0)
+
+    await page.reload({ waitUntil: 'domcontentloaded' })
+    await expect(page.getByTestId('app-shell')).toBeVisible()
+    await page.waitForTimeout(1_100)
+    const reconnectStart = firstFrames.length
+    await triggerActivity('ACTIVITY_SCOPE_RECONNECT')
+    await expect.poll(() => firstFrames.slice(reconnectStart)
+      .filter(frame => frame.agentId === agentId).length).toBeGreaterThan(0)
+  } finally {
+    await secondContext.close()
+  }
+})
+
+test('scopes CRT Agent activity to the dashboard or open Session', async ({ page, browser, workspaceRoot }) => {
+  test.setTimeout(60_000)
+  const workspace = path.join(workspaceRoot, 'crt-agent-activity-interest')
+  fs.mkdirSync(workspace, { recursive: true })
+  const createAgent = async (name: string) => {
+    const agentWorkspace = path.join(workspace, name)
+    fs.mkdirSync(agentWorkspace, { recursive: true })
+    const response = await page.request.post('/farming/api/control/agents', {
+      data: { command: 'bash', workspace: agentWorkspace },
+    })
+    expect(response.ok()).toBeTruthy()
+    const body = await response.json() as { agentId?: string }
+    expect(body.agentId).toBeTruthy()
+    return body.agentId as string
+  }
+  const firstAgentId = await createAgent('first')
+  const secondAgentId = await createAgent('second')
+  const frames = trackAgentActivityFrames(page)
+  const triggerActivity = async (agentId: string, marker: string) => {
+    const response = await page.request.post(`/farming/api/control/agents/${agentId}/input`, {
+      data: { input: `printf '${marker}\\n'\r` },
+    })
+    expect(response.ok()).toBeTruthy()
+  }
+
+  await page.goto('/farming/crt/', { waitUntil: 'networkidle' })
+  const firstCard = page.locator(`#map-area .agent-block[data-agent-id="${firstAgentId}"]`)
+  await expect(firstCard).toBeVisible({ timeout: 30_000 })
+  await expect(page.locator(`#map-area .agent-block[data-agent-id="${secondAgentId}"]`)).toBeVisible()
+
+  await page.waitForTimeout(1_100)
+  frames.length = 0
+  await triggerActivity(firstAgentId, 'CRT_ACTIVITY_DASHBOARD_FIRST')
+  await expect.poll(() => frames.filter(frame => frame.agentId === firstAgentId).length).toBeGreaterThan(0)
+  await triggerActivity(secondAgentId, 'CRT_ACTIVITY_DASHBOARD_SECOND')
+  await expect.poll(() => frames.filter(frame => frame.agentId === secondAgentId).length).toBeGreaterThan(0)
+
+  const observerContext = await browser.newContext({ baseURL: new URL(page.url()).origin })
+  try {
+    const observerPage = await observerContext.newPage()
+    const observerFrames = trackAgentActivityFrames(observerPage)
+    await observerPage.goto('/farming/crt/', { waitUntil: 'networkidle' })
+    await expect(observerPage.locator(`#map-area .agent-block[data-agent-id="${secondAgentId}"]`)).toBeVisible()
+
+    await firstCard.click()
+    await expect(page.locator('#session-modal')).toHaveClass(/active/)
+    await page.waitForTimeout(1_100)
+    const focusedStart = frames.length
+    const observerStart = observerFrames.length
+    await triggerActivity(secondAgentId, 'CRT_ACTIVITY_OTHER_SESSION')
+    await expect.poll(() => observerFrames.slice(observerStart)
+      .filter(frame => frame.agentId === secondAgentId).length).toBeGreaterThan(0)
+    await page.waitForTimeout(150)
+    expect(frames.slice(focusedStart).filter(frame => frame.agentId === secondAgentId)).toHaveLength(0)
+
+    const focusedAgentStart = frames.length
+    await triggerActivity(firstAgentId, 'CRT_ACTIVITY_FOCUSED_SESSION')
+    await expect.poll(() => frames.slice(focusedAgentStart)
+      .filter(frame => frame.agentId === firstAgentId).length).toBeGreaterThan(0)
+
+    await page.keyboard.press('Control+Escape')
+    await expect(page.locator('#session-modal')).not.toHaveClass(/active/)
+    await page.waitForTimeout(1_100)
+    const dashboardReturnStart = frames.length
+    await triggerActivity(secondAgentId, 'CRT_ACTIVITY_DASHBOARD_RETURN')
+    await expect.poll(() => frames.slice(dashboardReturnStart)
+      .filter(frame => frame.agentId === secondAgentId).length).toBeGreaterThan(0)
+  } finally {
+    await observerContext.close()
   }
 })
 

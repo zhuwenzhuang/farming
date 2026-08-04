@@ -17,6 +17,7 @@ interface ComposerOptions {
 }
 
 interface FocusAgentOptions {
+  activityScope?: 'all' | 'focused' | 'none';
   streamScope?: string;
   previewScope?: string;
   refreshState?: boolean;
@@ -32,7 +33,7 @@ interface SessionBridgeClientOptions {
 }
 
 interface FarmingSessionClient {
-  focusAgent(agentId: string, options?: FocusAgentOptions): boolean;
+  focusAgent(agentId: string | null, options?: FocusAgentOptions): boolean;
   sendTerminalInput(agentId: string, input: string): boolean;
   sendComposerMessage(
     agentId: string,
@@ -78,6 +79,7 @@ interface Window {
         return send({
           type: 'focus-agent',
           agentId,
+          ...(options.activityScope ? { activityScope: options.activityScope } : {}),
           ...(options.streamScope ? { streamScope: options.streamScope } : {}),
           ...(options.previewScope ? { previewScope: options.previewScope } : {}),
           ...(options.refreshState === true ? { refreshState: true } : {}),

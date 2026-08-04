@@ -39,6 +39,7 @@ const SERVER_MESSAGE_TYPES = new Set([
     'session-preview',
     'system-stats',
     'agent-activity',
+    'agent-activity-snapshot',
     'agent-update',
     'acp-session-revision',
     'agent-read',
@@ -178,7 +179,11 @@ function validateClientMessage(value) {
                 && (!Object.prototype.hasOwnProperty.call(value, 'cancelled') || typeof value.cancelled === 'boolean');
             break;
         case 'focus-agent':
-            valid = value.agentId === null || stringField(value, 'agentId');
+            valid = (value.agentId === null || stringField(value, 'agentId'))
+                && (!Object.prototype.hasOwnProperty.call(value, 'activityScope')
+                    || value.activityScope === 'all'
+                    || value.activityScope === 'focused'
+                    || value.activityScope === 'none');
             break;
         case 'resize-agent':
             valid = stringField(value, 'agentId') && finiteField(value, 'cols') && finiteField(value, 'rows');
@@ -263,6 +268,9 @@ function validateServerMessage(value) {
             break;
         case 'agent-activity':
             valid = objectMessage(value.activity) && stringField(value.activity, 'agentId');
+            break;
+        case 'agent-activity-snapshot':
+            valid = Array.isArray(value.activities) && value.activities.every(activity => objectMessage(activity) && stringField(activity, 'agentId'));
             break;
         case 'agent-update':
             valid = objectMessage(value.update) && stringField(value.update, 'agentId') && sanitizeAgentUpdatePatch(value.update.patch) !== null;

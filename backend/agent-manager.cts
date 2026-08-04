@@ -4211,6 +4211,27 @@ class AgentManager extends EventEmitter {
     return true;
   }
 
+  getAgentActivityPayload(sessionId: string, now = Date.now()) {
+    const agent = this.agents.get(sessionId);
+    if (!agent) return null;
+    const isMain = this.isMainAgentRecord(sessionId, agent);
+    const lastActivity = this.lastActivity.get(sessionId) || now;
+    return {
+      agentId: sessionId,
+      lastActivity,
+      activityLevel: isMain ? 'warm' : this.calculateActivityLevel(lastActivity, now),
+      attentionScore: isMain ? 0 : this.calculateAttentionScore(sessionId, now),
+      isZombie: isMain ? false : this.isZombie(sessionId, now),
+      usageRate: this.getAgentUsageRate(sessionId, { now }),
+    };
+  }
+
+  getAgentActivityPayloads(now = Date.now()) {
+    return Array.from(this.agents.keys())
+      .map(agentId => this.getAgentActivityPayload(agentId, now))
+      .filter(activity => activity !== null);
+  }
+
   emitActivityUpdate(sessionId: string, activityAt: number) {
     const now = Number.isFinite(activityAt) ? activityAt : Date.now();
     const lastEmittedAt = this.lastActivityUpdate.get(sessionId) || 0;
@@ -4219,18 +4240,8 @@ class AgentManager extends EventEmitter {
     }
 
     this.lastActivityUpdate.set(sessionId, now);
-    const agent = this.agents.get(sessionId);
-    if (!agent) return;
-    const isMain = this.isMainAgentRecord(sessionId, agent);
-    const lastActivity = this.lastActivity.get(sessionId) || now;
-    this.emit('agent-activity', {
-      agentId: sessionId,
-      lastActivity,
-      activityLevel: isMain ? 'warm' : this.calculateActivityLevel(lastActivity, now),
-      attentionScore: isMain ? 0 : this.calculateAttentionScore(sessionId, now),
-      isZombie: isMain ? false : this.isZombie(sessionId, now),
-      usageRate: this.getAgentUsageRate(sessionId, { now }),
-    });
+    const activity = this.getAgentActivityPayload(sessionId, now);
+    if (activity) this.emit('agent-activity', activity);
   }
 
   updateAgentSessionTitle(agent: TypedAgentRecord, title: string) {

@@ -75,6 +75,7 @@ export type TerminalInputPart = string | PasteInputPart
 export interface FocusAgentMessage {
   type: 'focus-agent'
   agentId: string | null
+  activityScope?: 'all' | 'focused' | 'none'
   refreshState?: boolean
 }
 
@@ -245,6 +246,11 @@ export interface AgentActivityMessage {
   }
 }
 
+export interface AgentActivitySnapshotMessage {
+  type: 'agent-activity-snapshot'
+  activities: AgentActivityMessage['activity'][]
+}
+
 export interface AgentReadMessage {
   type: 'agent-read'
   read: Pick<
@@ -365,6 +371,7 @@ export type ServerMessage =
   | SessionPreviewMessage
   | SystemStatsMessage
   | AgentActivityMessage
+  | AgentActivitySnapshotMessage
   | AgentUpdateMessage
   | AcpSessionRevisionMessage
   | AgentReadMessage
