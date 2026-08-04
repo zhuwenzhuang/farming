@@ -1,5 +1,6 @@
 import {
   agentTurnActiveFromState,
+  PROJECT_ATTENTION_SCORE_MAX,
   projectWorkspaceFromAgentState,
 } from '../shared/agent-state-semantics.js';
 
@@ -45,41 +46,48 @@ interface AgentStateBroadcastTracker {
   initialized: boolean;
   metadata: Record<string, unknown>;
   metadataSignature: string;
+  projectAgentSummaries: ProjectAgentSummary[] | null;
   sequence: number;
 }
 
 type AgentStateClientDelivery = 'defer' | 'delta' | 'snapshot';
 
+function accumulateProjectAgentSummary(
+  summaries: Map<string, ProjectAgentSummary>,
+  agent: AgentStateRecord,
+  maxAttentionScore: number,
+): void {
+  if (agent.isMain === true || agent.archived === true) return;
+  const workspace = projectWorkspaceFromAgentState(agent);
+  if (!workspace) return;
+  const summary = summaries.get(workspace) || {
+    activeCount: 0,
+    agentCount: 0,
+    maxAttentionScore: 0,
+    unreadCount: 0,
+    workspace,
+    zombieCount: 0,
+  };
+  summary.agentCount += 1;
+  if (agentTurnActiveFromState(agent)) summary.activeCount += 1;
+  if (agent.unread === true) summary.unreadCount += 1;
+  if (agent.isZombie === true) summary.zombieCount += 1;
+  const attentionScore = Number(agent.attentionScore);
+  if (Number.isFinite(attentionScore)) {
+    summary.maxAttentionScore = Math.max(
+      summary.maxAttentionScore,
+      Math.min(maxAttentionScore, Math.max(0, Math.round(attentionScore))),
+    );
+  }
+  summaries.set(workspace, summary);
+}
+
 function projectAgentSummaries(
   agents: AgentStateRecord[],
-  maxAttentionScore = 100,
+  maxAttentionScore = PROJECT_ATTENTION_SCORE_MAX,
 ): ProjectAgentSummary[] {
   const summaries = new Map<string, ProjectAgentSummary>();
-  agents.forEach(agent => {
-    if (agent.isMain === true || agent.archived === true) return;
-    const workspace = projectWorkspaceFromAgentState(agent);
-    if (!workspace) return;
-    const summary = summaries.get(workspace) || {
-      activeCount: 0,
-      agentCount: 0,
-      maxAttentionScore: 0,
-      unreadCount: 0,
-      workspace,
-      zombieCount: 0,
-    };
-    summary.agentCount += 1;
-    if (agentTurnActiveFromState(agent)) summary.activeCount += 1;
-    if (agent.unread === true) summary.unreadCount += 1;
-    if (agent.isZombie === true) summary.zombieCount += 1;
-    const attentionScore = Number(agent.attentionScore);
-    if (Number.isFinite(attentionScore)) {
-      summary.maxAttentionScore = Math.max(
-        summary.maxAttentionScore,
-        Math.min(maxAttentionScore, Math.max(0, Math.round(attentionScore))),
-      );
-    }
-    summaries.set(workspace, summary);
-  });
+  agents.forEach(agent => accumulateProjectAgentSummary(summaries, agent, maxAttentionScore));
   return [...summaries.values()];
 }
 
@@ -166,8 +174,15 @@ function createAgentStateBroadcastTracker(): AgentStateBroadcastTracker {
     initialized: false,
     metadata: {},
     metadataSignature: '',
+    projectAgentSummaries: null,
     sequence: 0,
   };
+}
+
+function agentStateBroadcastProjectSummaries(
+  tracker: AgentStateBroadcastTracker,
+): ProjectAgentSummary[] | null {
+  return tracker.projectAgentSummaries;
 }
 
 function agentStateBroadcastSnapshot(
@@ -188,8 +203,14 @@ function advanceAgentStateBroadcast(
   state: AgentStatePayload,
 ): AgentStateBroadcastDelta | null {
   const nextAgentSignatures = new Map<string, string>();
+  const nextProjectAgentSummaries = new Map<string, ProjectAgentSummary>();
   const upserts: AgentStateRecord[] = [];
   for (const agent of state.agents) {
+    accumulateProjectAgentSummary(
+      nextProjectAgentSummaries,
+      agent,
+      PROJECT_ATTENTION_SCORE_MAX,
+    );
     const signature = agentStateSignature(agent);
     nextAgentSignatures.set(agent.id, signature);
     if (tracker.agentSignatures.get(agent.id) !== signature) upserts.push(agent);
@@ -205,6 +226,7 @@ function advanceAgentStateBroadcast(
   tracker.agents = new Map(state.agents.map(agent => [agent.id, agent]));
   tracker.metadata = metadata;
   tracker.metadataSignature = metadataSignature;
+  tracker.projectAgentSummaries = [...nextProjectAgentSummaries.values()];
   tracker.currentState = state;
 
   if (!tracker.initialized) {
@@ -253,6 +275,7 @@ function advanceAgentStateMutation(
   }
 
   tracker.currentState = null;
+  tracker.projectAgentSummaries = null;
   if (upserts.length === 0 && removedAgentIds.length === 0 && !metadataChanged) return null;
 
   tracker.sequence += 1;
@@ -277,6 +300,7 @@ export {
   advanceAgentStateBroadcast,
   advanceAgentStateMutation,
   agentStateClientDelivery,
+  agentStateBroadcastProjectSummaries,
   agentStateBroadcastSnapshot,
   agentStateSnapshotFrames,
   createAgentStateBroadcastTracker,

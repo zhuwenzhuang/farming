@@ -6,6 +6,7 @@ const {
   advanceAgentStateBroadcast,
   advanceAgentStateMutation,
   agentStateClientDelivery,
+  agentStateBroadcastProjectSummaries,
   agentStateBroadcastSnapshot,
   agentStateSnapshotFrames,
   createAgentStateBroadcastTracker,
@@ -26,6 +27,7 @@ assert.strictEqual(
   'The first state establishes the snapshot baseline without emitting a delta',
 );
 assert.strictEqual(tracker.sequence, 0);
+assert.deepStrictEqual(agentStateBroadcastProjectSummaries(tracker), []);
 assert.strictEqual(
   advanceAgentStateBroadcast(tracker, state([{ id: 'a', status: 'running' }])),
   null,
@@ -103,6 +105,11 @@ assert.strictEqual(
   agentStateBroadcastSnapshot(directTracker).agents[1].output,
   'live-only change',
 );
+assert.strictEqual(
+  agentStateBroadcastProjectSummaries(directTracker),
+  null,
+  'An exact mutation invalidates the full-checkpoint Project projection',
+);
 assert.deepStrictEqual(advanceAgentStateMutation(directTracker, {
   removedAgentIds: ['a'],
 }), {
@@ -124,6 +131,7 @@ assert.strictEqual(
   'Exact mutations before the first checkpoint must wait for an authoritative baseline',
 );
 assert.strictEqual(agentStateBroadcastSnapshot(uninitializedTracker), null);
+assert.strictEqual(agentStateBroadcastProjectSummaries(uninitializedTracker), null);
 
 assert.strictEqual(agentStateClientDelivery(0, false, 100), 'delta');
 assert.strictEqual(agentStateClientDelivery(0, true, 100), 'snapshot');
@@ -269,6 +277,91 @@ assert.deepStrictEqual(projectAgentSummaries([
     zombieCount: 0,
   },
 ]);
+
+const summaryTracker = createAgentStateBroadcastTracker();
+const initialSummaryState = state([{
+  id: 'summary-agent',
+  cwd: '/summary',
+  runtimeBinding: { kind: 'acp' },
+  runtimeObservation: { phase: 'idle' },
+  attentionScore: 1,
+}]);
+assert.strictEqual(advanceAgentStateBroadcast(summaryTracker, initialSummaryState), null);
+assert.deepStrictEqual(agentStateBroadcastProjectSummaries(summaryTracker), [{
+  activeCount: 0,
+  agentCount: 1,
+  maxAttentionScore: 1,
+  unreadCount: 0,
+  workspace: '/summary',
+  zombieCount: 0,
+}]);
+const refreshedSummaryState = state([{
+  ...initialSummaryState.agents[0],
+  runtimeObservation: { phase: 'waiting' },
+  attentionScore: 90,
+}]);
+assert.strictEqual(
+  advanceAgentStateBroadcast(summaryTracker, refreshedSummaryState),
+  null,
+  'Live-only summary changes must refresh the projection without consuming a list sequence',
+);
+assert.strictEqual(summaryTracker.sequence, 0);
+assert.deepStrictEqual(agentStateBroadcastProjectSummaries(summaryTracker), [{
+  activeCount: 1,
+  agentCount: 1,
+  maxAttentionScore: 90,
+  unreadCount: 0,
+  workspace: '/summary',
+  zombieCount: 0,
+}]);
+const mutatedSummaryAgent = {
+  ...refreshedSummaryState.agents[0],
+  customTitle: 'updated',
+};
+assert.deepStrictEqual(advanceAgentStateMutation(summaryTracker, {
+  upserts: [mutatedSummaryAgent],
+}), {
+  sequence: 1,
+  upserts: [mutatedSummaryAgent],
+  removedAgentIds: [],
+});
+assert.strictEqual(agentStateBroadcastProjectSummaries(summaryTracker), null);
+assert.strictEqual(
+  advanceAgentStateBroadcast(summaryTracker, state([mutatedSummaryAgent])),
+  null,
+  'The authoritative refresh after a mutation must restore the Project projection without a duplicate delta',
+);
+assert.strictEqual(summaryTracker.sequence, 1);
+assert.deepStrictEqual(
+  agentStateBroadcastProjectSummaries(summaryTracker),
+  projectAgentSummaries([mutatedSummaryAgent]),
+);
+
+let projectedWorkspaceReads = 0;
+const projectedTracker = createAgentStateBroadcastTracker();
+const projectedAgent = { id: 'projected-agent' };
+Object.defineProperty(projectedAgent, 'cwd', {
+  enumerable: true,
+  get() {
+    projectedWorkspaceReads += 1;
+    return '/projected';
+  },
+});
+advanceAgentStateBroadcast(projectedTracker, state([projectedAgent]));
+projectedWorkspaceReads = 0;
+assert.deepStrictEqual(agentStateBroadcastProjectSummaries(projectedTracker), [{
+  activeCount: 0,
+  agentCount: 1,
+  maxAttentionScore: 0,
+  unreadCount: 0,
+  workspace: '/projected',
+  zombieCount: 0,
+}]);
+assert.strictEqual(
+  projectedWorkspaceReads,
+  0,
+  'Reading a snapshot Project projection must not rescan Agent records',
+);
 
 const scaleTracker = createAgentStateBroadcastTracker();
 let unchangedAgentReads = 0;
