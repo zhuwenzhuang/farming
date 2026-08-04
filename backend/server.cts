@@ -409,15 +409,19 @@ const reconcileAgentResourceLifecycle = () => {
   agentResourceReconcileRunning = true;
   void (async () => {
     try {
-      await agentManager.whenRecovered();
       while (agentResourceReconcileRequested) {
         agentResourceReconcileRequested = false;
+        await agentManager.whenRecovered();
         const agents = agentManager.getState().agents;
         await browserResourceManager.reconcileAgentLifecycle(Array.isArray(agents) ? agents : []);
         await computerResourceManager.reconcileAgentLifecycle(Array.isArray(agents) ? agents : []);
       }
     } catch (error) {
-      console.warn('Failed to reconcile Agent-owned resources:', caughtError(error).message || error);
+      agentResourceReconcileRequested = false;
+      const caught = caughtError(error);
+      if (!caught.message.startsWith('Agent lifecycle recovery failed:')) {
+        console.warn('Failed to reconcile Agent-owned resources:', caught.message || error);
+      }
     } finally {
       agentResourceReconcileRunning = false;
       if (agentResourceReconcileRequested) reconcileAgentResourceLifecycle();

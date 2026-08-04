@@ -409,8 +409,17 @@ class AcpRuntimeHostClient extends EventEmitter {
             rotated.code = 'ACP_RUNTIME_HOST_ROTATED';
             throw rotated;
           }
+          const bindingCount = Number(ping.bindingCount) || 0;
+          const hostPid = Number(ping.pid);
+          const stopCommand = process.platform === 'win32'
+            ? `taskkill /PID ${hostPid} /T`
+            : `kill -TERM ${hostPid}`;
+          const sessionLabel = bindingCount === 1 ? 'session' : 'sessions';
           const error = new Error(
-            `ACP runtime Host build is incompatible and still owns ${Number(ping.bindingCount) || 0} binding(s)`,
+            `An older ACP runtime Host (PID ${hostPid}) for config ${JSON.stringify(this.configDir)} `
+            + `is still running and owns ${bindingCount} active Chat ${sessionLabel}. `
+            + `Farming did not stop it automatically. Stopping it will terminate all ${bindingCount} ${sessionLabel}.\n`
+            + `Run:\n  ${stopCommand}\nThen start Farming again.`,
           ) as Error & { code?: string };
           error.code = 'ACP_RUNTIME_HOST_BUILD_MISMATCH_ACTIVE';
           throw error;

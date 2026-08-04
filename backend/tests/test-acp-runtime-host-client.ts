@@ -107,11 +107,19 @@ async function main() {
       expectedBuildId: '0'.repeat(64),
       spawnHost: () => {},
     });
-    await assert.rejects(
-      mismatchedClient.ensureConnected(),
-      /still owns 1 binding/,
-      'an incompatible Host with live bindings must be preserved for an explicit upgrade decision',
-    );
+    await assert.rejects(mismatchedClient.ensureConnected(), error => {
+      assert.match(error.message, /older ACP runtime Host/);
+      assert.match(error.message, new RegExp(`PID ${process.pid}`));
+      assert.match(error.message, /owns 1 active Chat session/);
+      const expectedStopCommand = process.platform === 'win32'
+        ? `taskkill /PID ${process.pid} /T`
+        : `kill -TERM ${process.pid}`;
+      assert.match(error.message, new RegExp(expectedStopCommand.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+      assert.match(error.message, /did not stop it automatically/);
+      assert.match(error.message, /Stopping it will terminate all 1 session/);
+      assert.match(error.message, new RegExp(JSON.stringify(configDir).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+      return true;
+    }, 'an incompatible Host with live bindings must be preserved with an actionable stop command');
     mismatchedClient.disconnect();
     assert.strictEqual(host.disposed, false);
     const original = first.request('submitPrompt', {
