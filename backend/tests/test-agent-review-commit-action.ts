@@ -28,6 +28,7 @@ assert(
     && workspaceSource.includes('sendComposerMessageToAgent(')
     && stylesSource.includes('.code-agent-transcript-result-review.agent-review-commit')
     && stylesSource.includes('display: inline-flex;')
+    && stylesSource.includes('.code-agent-transcript-result-review.agent-review-commit::before')
     && stylesSource.includes('.code-agent-transcript-result-review.agent-review-commit::after'),
   'ACP change cards should render Commit itself as a right-pointing Prompt bubble',
 );

@@ -238,6 +238,9 @@ test('queues a follow-up and explicitly sends negotiated Codex ACP steer', async
     getComputedStyle(element, '::after').animationName
   ))).toBe('code-agent-transcript-latest-activity-sweep')
   await expect.poll(() => liveActivity.evaluate(element => (
+    getComputedStyle(element, '::after').animationDuration
+  ))).toBe('3.2s')
+  await expect.poll(() => liveActivity.evaluate(element => (
     getComputedStyle(element, '::after').zIndex
   ))).toBe('2')
   const processSummary = liveProcessSummary

@@ -6913,12 +6913,18 @@ body.code-mode .code-instance-name {
   z-index: 2;
   background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.8) 46%, transparent 54%);
   transform: translateX(-100%);
-  animation: code-agent-transcript-latest-activity-sweep 1.8s ease-in-out infinite;
+  animation: code-agent-transcript-latest-activity-sweep 3.2s ease-in-out infinite;
   pointer-events: none;
 }
 
 @keyframes code-agent-transcript-latest-activity-sweep {
-  to {
+  0%,
+  24% {
+    transform: translateX(-100%);
+  }
+
+  72%,
+  100% {
     transform: translateX(100%);
   }
 }
@@ -8898,22 +8904,35 @@ button.code-agent-transcript-result-summary:is(:hover, :focus-visible, :focus-wi
   position: relative;
   display: inline-flex;
   align-items: center;
-  margin-right: 5px;
-  border-bottom-right-radius: 5px;
+  margin-right: 8px;
 }
 
+.code-agent-transcript-result-review.agent-review-commit::before,
 .code-agent-transcript-result-review.agent-review-commit::after {
   content: '';
   position: absolute;
-  right: -5px;
-  bottom: 4px;
-  width: 9px;
-  height: 9px;
-  border-right: inherit;
-  border-bottom: inherit;
-  background: inherit;
-  transform: skewX(-22deg) rotate(-12deg);
+  clip-path: polygon(0 0, 100% 50%, 0 100%);
   pointer-events: none;
+}
+
+.code-agent-transcript-result-review.agent-review-commit::before {
+  right: -8px;
+  bottom: 3px;
+  width: 12px;
+  height: 12px;
+  background: rgba(31, 35, 40, 0.14);
+}
+
+.code-agent-transcript-result-review.agent-review-commit::after {
+  right: -6px;
+  bottom: 4px;
+  width: 10px;
+  height: 10px;
+  background: #ffffff;
+}
+
+.code-agent-transcript-result-review.agent-review-commit:is(:hover, :focus-visible)::after {
+  background: #f6f8fa;
 }
 
 .code-agent-transcript-progress {
