@@ -3,6 +3,16 @@ const { AgentManager } = require('../agent-manager.cjs');
 
 async function run() {
   const persisted = [];
+  let failTitleAgentId = '';
+  let holdTitleAgentId = '';
+  let releaseHeldWrite: () => void = () => {};
+  const heldWriteGate = new Promise<void>(resolve => {
+    releaseHeldWrite = resolve;
+  });
+  let observeHeldWrite: () => void = () => {};
+  const heldWriteStarted = new Promise<void>(resolve => {
+    observeHeldWrite = resolve;
+  });
   const manager = new AgentManager({
     getWorkspace: () => process.cwd(),
     getHeartbeatInterval: () => 60_000,
@@ -10,7 +20,16 @@ async function run() {
     getVtBaseUrl: () => 'http://localhost:4020',
     getDangerouslySkipAgentPermissionsByDefault: () => false,
     ensureAgentSessionRecord(agent, patch = {}) {
-      persisted.push({ ...agent, ...patch });
+      throw new Error(`unexpected synchronous title persistence for ${agent.id}: ${JSON.stringify(patch)}`);
+    },
+    async persistAgentAdaptiveTitle(agent, adaptiveTitle) {
+      await new Promise(resolve => setImmediate(resolve));
+      if (agent.id === holdTitleAgentId) {
+        observeHeldWrite();
+        await heldWriteGate;
+      }
+      if (agent.id === failTitleAgentId) throw new Error('simulated asynchronous title failure');
+      persisted.push({ ...agent, adaptiveTitle });
       return agent.agentRecordId || `agent_record_${agent.id}`;
     },
   }, { skipExecutablePreflight: true });
@@ -50,6 +69,8 @@ async function run() {
         providerSessionId: `codex-scale-session-${index}`,
         providerSessionKey: `agent-session:codex:codex-scale-session-${index}`,
         providerSessionTemporary: false,
+        agentRecordId: `agent_record_${id}`,
+        persistentSessionId: `agent_record_${id}`,
         runtimeBinding: { kind: 'terminal' },
         titleUpdateToken: token,
         validated: true,
@@ -92,6 +113,39 @@ async function run() {
     await manager.drainAcceptedAgentOperations();
     assert.strictEqual((await shutdownTitle).adaptiveTitle, 'Durable before shutdown');
     assert.strictEqual(persisted.at(-1).adaptiveTitle, 'Durable before shutdown');
+
+    holdTitleAgentId = 'agent-title-scale-1';
+    let staleRuntimeMetadataUpdates = 0;
+    manager.updateEngineProviderSessionMetadata = () => {
+      staleRuntimeMetadataUpdates += 1;
+    };
+    const acceptedBeforeRuntimeRotation = manager.setAgentAdaptiveTitle(
+      holdTitleAgentId,
+      'Accepted before runtime rotation',
+      'title-token-1',
+    );
+    await heldWriteStarted;
+    manager.agents.get(holdTitleAgentId).titleUpdateToken = 'replacement-title-token';
+    releaseHeldWrite();
+    assert.strictEqual(
+      (await acceptedBeforeRuntimeRotation).adaptiveTitle,
+      'Accepted before runtime rotation',
+    );
+    assert.strictEqual(staleRuntimeMetadataUpdates, 0);
+    assert.strictEqual(persisted.at(-1).adaptiveTitle, 'Accepted before runtime rotation');
+
+    failTitleAgentId = 'agent-title-scale-0';
+    const failedTitle = await manager.setAgentAdaptiveTitle(
+      failTitleAgentId,
+      'Must roll back after failure',
+      'title-token-0',
+    );
+    assert.match(failedTitle.error, /simulated asynchronous title failure/);
+    assert.strictEqual(manager.agents.get(failTitleAgentId).adaptiveTitle, 'Durable before shutdown');
+    assert.strictEqual(
+      persisted.filter(record => record.id === failTitleAgentId).at(-1).adaptiveTitle,
+      'Durable before shutdown',
+    );
 
     console.log('✓ adaptive titles coalesce and stay Agent-scoped during 128-Agent startup fan-out');
   } finally {

@@ -3,7 +3,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const { atomicWriteJson } = require('../atomic-json-store.cjs');
+const { atomicWriteJson, atomicWriteJsonAsync } = require('../atomic-json-store.cjs');
 const { ConfigManager } = require('../config-manager.cjs');
 const { ReviewSessionStore } = require('../review-session-store.cjs');
 const { ReviewStateStore } = require('../review-state-store.cjs');
@@ -27,7 +27,7 @@ function temporaryFiles(directory, baseName) {
   return fs.readdirSync(directory).filter(name => name.startsWith(`${baseName}.`) && name.endsWith('.tmp'));
 }
 
-function run() {
+async function run() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-atomic-json-'));
   try {
     const target = path.join(root, 'state.json');
@@ -43,6 +43,25 @@ function run() {
       assert.strictEqual(fs.readFileSync(target, 'utf8'), originalBytes, `${method} failure must preserve the committed file`);
       assert.deepStrictEqual(temporaryFiles(root, 'state.json'), [], `${method} failure must clean its temporary file`);
     }
+
+    const guardedBytes = fs.readFileSync(target, 'utf8');
+    assert.strictEqual(
+      await atomicWriteJsonAsync(target, { value: 'guarded-out' }, {
+        mode: 0o600,
+        beforeCommit: () => false,
+      }),
+      false,
+    );
+    assert.strictEqual(fs.readFileSync(target, 'utf8'), guardedBytes);
+    assert.deepStrictEqual(temporaryFiles(root, 'state.json'), []);
+    assert.strictEqual(
+      await atomicWriteJsonAsync(target, { value: 'async-committed' }, {
+        mode: 0o600,
+        beforeCommit: () => true,
+      }),
+      true,
+    );
+    assert.deepStrictEqual(JSON.parse(fs.readFileSync(target, 'utf8')), { value: 'async-committed' });
 
     let failWrites = false;
     const writeJson = (file, value) => {
@@ -130,4 +149,7 @@ function run() {
   }
 }
 
-run();
+run().catch(error => {
+  console.error(error);
+  process.exitCode = 1;
+});

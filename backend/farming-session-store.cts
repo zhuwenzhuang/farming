@@ -2,7 +2,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { isDeepStrictEqual } = require('util');
-import { atomicWriteJson } from './atomic-json-store.cjs';
+import { atomicWriteJson, atomicWriteJsonAsync } from './atomic-json-store.cjs';
 import { legacyRuntimeMetadata } from './agent-runtime-binding.cjs';
 import { lifecycleJournal } from './agent-lifecycle-journal.cjs';
 import * as storageLayout from './storage-layout.cjs';
@@ -24,11 +24,18 @@ interface SessionIndex {
 interface FarmingSessionStoreOptions {
   normalizeMainPageSessionKeys?: (keys: unknown) => string[];
   writeJson?: (file: string, value: unknown) => void;
+  writeJsonAsync?: (
+    file: string,
+    value: unknown,
+    options: { beforeCommit: () => boolean },
+  ) => Promise<boolean>;
 }
 
 interface FarmingSessionStoreInitOptions {
   legacyMainPageSessionKeys?: unknown;
 }
+
+type AsyncJsonWriter = NonNullable<FarmingSessionStoreOptions['writeJsonAsync']>;
 
 interface AgentRecord extends JsonRecord {
   id: string;
@@ -49,6 +56,7 @@ function objectRecord(value: unknown): JsonRecord | null {
 const AGENT_RECORD_ID_PREFIX = 'agent';
 const AGENT_RECORD_VERSION = 1;
 const AGENT_STATE_VERSION = 1;
+const MAX_ADAPTIVE_TITLE_PERSISTENCE_ATTEMPTS = 8;
 const SESSION_INDEX_VERSION = 2;
 const MAX_MAIN_PAGE_SESSION_KEYS = 50;
 const AGENT_STATE_FIELDS: string[] = [
@@ -191,6 +199,8 @@ class FarmingSessionStore {
   indexFile: string;
   normalizeMainPageSessionKeys: (keys: unknown) => string[];
   writeJson: (file: string, value: unknown) => void;
+  writeJsonAsync: AsyncJsonWriter;
+  metadataWriteGenerations: Map<string, number>;
   index: SessionIndex | null;
   legacyProviderSessionRecords: Record<string, string>;
   providerSessionRecords: Map<string, string>;
@@ -206,6 +216,13 @@ class FarmingSessionStore {
     this.writeJson = typeof options.writeJson === 'function'
       ? options.writeJson
       : (file: string, value: unknown) => atomicWriteJson(file, value, { mode: 0o600 });
+    this.writeJsonAsync = typeof options.writeJsonAsync === 'function'
+      ? options.writeJsonAsync
+      : (file, value, writeOptions) => atomicWriteJsonAsync(file, value, {
+          ...writeOptions,
+          mode: 0o600,
+        });
+    this.metadataWriteGenerations = new Map();
     this.index = null;
     this.legacyProviderSessionRecords = {};
     this.providerSessionRecords = new Map<string, string>();
@@ -442,10 +459,70 @@ class FarmingSessionStore {
     }
     if (metadataChanged) {
       metadata.updatedAt = now();
+      this.metadataWriteGenerations.set(id, (this.metadataWriteGenerations.get(id) || 0) + 1);
       this.writeJson(this.sessionFile(id), metadata);
     }
     if (promoted) this.promoteIndexRecordId(previousId, id);
     return id;
+  }
+
+  async persistAgentAdaptiveTitle(agent: JsonRecord, title: unknown): Promise<string> {
+    const providerSessionKey = this.providerSessionKeyForAgent(agent);
+    const preferredId = agentRecordIdFor(agent);
+    const adaptiveTitle = titleValue(title, 80);
+    if (!adaptiveTitle) return '';
+
+    for (let attempt = 0; attempt < MAX_ADAPTIVE_TITLE_PERSISTENCE_ATTEMPTS; attempt += 1) {
+      const indexedId = providerSessionKey
+        ? this.providerSessionRecords.get(providerSessionKey)
+        : '';
+      const id = providerSessionKey
+        ? (isAgentRecordId(indexedId) ? String(indexedId) : '')
+        : (isAgentRecordId(preferredId) ? preferredId : '');
+      const file = this.sessionFile(id);
+      if (!id || !file) return '';
+      const generation = this.metadataWriteGenerations.get(id) || 0;
+      let existing: JsonRecord | null = null;
+      try {
+        existing = objectRecord(JSON.parse(await fs.promises.readFile(file, 'utf8')));
+      } catch (error: unknown) {
+        throw new Error(
+          `Failed to read Agent session metadata ${id}: ${error instanceof Error ? error.message : error}`,
+          { cause: error },
+        );
+      }
+      if (!existing || existing.id !== id || existing.kind !== 'agent') {
+        throw new Error(`Agent session metadata ${id} is invalid`);
+      }
+      const currentOwner = String(existing.runtimeAgentId || '').trim();
+      const requestedOwner = String(agent.id || '').trim();
+      if (currentOwner && currentOwner !== requestedOwner) return '';
+      const record: AgentRecord = {
+        ...existing,
+        id,
+        adaptiveTitle,
+        updatedAt: now(),
+      };
+      normalizeTitleMetadata(record);
+      if (
+        (this.metadataWriteGenerations.get(id) || 0) !== generation
+        || (providerSessionKey && this.providerSessionRecords.get(providerSessionKey) !== id)
+      ) {
+        await new Promise<void>(resolve => setImmediate(resolve));
+        continue;
+      }
+      const committed = await this.writeJsonAsync(file, record, {
+        beforeCommit: () => {
+          if ((this.metadataWriteGenerations.get(id) || 0) !== generation) return false;
+          if (providerSessionKey && this.providerSessionRecords.get(providerSessionKey) !== id) return false;
+          this.metadataWriteGenerations.set(id, generation + 1);
+          return true;
+        },
+      });
+      if (committed) return id;
+      await new Promise<void>(resolve => setImmediate(resolve));
+    }
+    throw new Error('Adaptive Agent title persistence exceeded the metadata conflict retry limit');
   }
 
   listStoredAgentRecords(): AgentRecord[] {

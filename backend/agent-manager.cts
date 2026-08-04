@@ -409,6 +409,7 @@ interface AdaptiveTitlePersistenceEntry {
   promise: Promise<UnknownRecord>;
   resolve: (result: UnknownRecord) => void;
   title: string;
+  titleUpdateToken: string;
 }
 
 interface TerminalOutputActivity {
@@ -7422,6 +7423,7 @@ class AgentManager extends EventEmitter {
       promise,
       resolve,
       title: adaptiveTitle,
+      titleUpdateToken: agent.titleUpdateToken || '',
     });
     this.startAdaptiveTitlePersistenceDrain();
     return promise;
@@ -7448,9 +7450,15 @@ class AgentManager extends EventEmitter {
         } else {
           const staged: TypedAgentRecord = { ...current, adaptiveTitle };
           try {
-            this.ensurePersistentAgentSession(staged, { adaptiveTitle });
-            setAgentRecordId(current, staged.agentRecordId || staged.persistentSessionId || '');
-            this.updateEngineProviderSessionMetadata(current);
+            if (!this.configManager) throw new Error('Agent session storage is unavailable');
+            const agentRecordId = await this.configManager.persistAgentAdaptiveTitle(staged, adaptiveTitle);
+            if (!agentRecordId) throw new Error('Agent session record is unavailable or no longer owned by this runtime');
+            setAgentRecordId(staged, agentRecordId);
+            const live = this.agents.get(agentId);
+            if (live === current && live.titleUpdateToken === entry.titleUpdateToken) {
+              setAgentRecordId(live, staged.agentRecordId || staged.persistentSessionId || '');
+              this.updateEngineProviderSessionMetadata(live);
+            }
             entry.resolve({ agentId, adaptiveTitle });
           } catch (caughtError: unknown) {
             const error = caughtError as ErrorRecord;
@@ -7503,6 +7511,9 @@ class AgentManager extends EventEmitter {
     }
     if (!token || token !== agent.titleUpdateToken) {
       return { error: 'Agent title update belongs to an expired runtime' };
+    }
+    if (!agent.agentRecordId && !agent.persistentSessionId) {
+      return { error: 'Agent title update requires a persisted Agent session record' };
     }
 
     const adaptiveTitle = String(title || '').replace(/\s+/g, ' ').trim().slice(0, 80);

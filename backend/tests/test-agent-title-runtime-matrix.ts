@@ -32,6 +32,9 @@ async function run() {
       persisted.push({ ...agent, ...patch });
       return agent.agentRecordId || `agent_record_${agent.id}`;
     },
+    async persistAgentAdaptiveTitle(agent, adaptiveTitle) {
+      return this.ensureAgentSessionRecord(agent, { adaptiveTitle });
+    },
   }, { skipExecutablePreflight: true });
 
   const cases = [
@@ -72,6 +75,8 @@ async function run() {
         providerSessionProvider: testCase.provider,
         providerSessionId: testCase.provider ? `${testCase.provider}-session` : '',
         providerSessionTemporary: false,
+        agentRecordId: `agent_record_${id}`,
+        persistentSessionId: `agent_record_${id}`,
         runtimeBinding: runtimeBinding(testCase.runtime),
         titleUpdateToken: token,
         validated: true,

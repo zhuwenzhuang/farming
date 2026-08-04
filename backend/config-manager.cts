@@ -124,6 +124,7 @@ interface SessionStoreLike {
   rememberMainPageSessionKey(sessionKey: string, patch: JsonRecord): string[];
   removeMainPageSessionKey(sessionKey: string): boolean;
   removeMainPageSessionKeys(keys: unknown): string[];
+  persistAgentAdaptiveTitle(agent: JsonRecord, title: unknown): Promise<string>;
   setMainPageSessionKeys(keys: unknown): string[];
   setProviderSessionDisplayState(sessionKey: string, patch: JsonRecord): string;
 }
@@ -1561,6 +1562,10 @@ class ConfigManager {
     patch: Partial<PersistedAgentPrivateMetadata> = {},
   ): string {
     return this.sessionStore ? this.sessionStore.ensureRecordForAgent(agent, { ...patch }) : '';
+  }
+
+  async persistAgentAdaptiveTitle(agent: AgentRecord, title: string): Promise<string> {
+    return this.sessionStore ? this.sessionStore.persistAgentAdaptiveTitle(agent, title) : '';
   }
 
   getAgentSessionRecordForProviderSessionKey(sessionKey: string): PersistedAgentPrivateMetadata | null {

@@ -25,6 +25,19 @@ snapshot, without replaying individual updates, the complete Agent state, or
 Agent previews. Returning from `focused` or `none` to `all` requests that
 snapshot only when the connection actually skipped activity.
 
+Adaptive Agent titles publish an Agent-scoped optimistic patch, then join one
+pending durability result per Agent. Repeated titles replace the queued value.
+Admission requires the Agent's Create intent to have already established its
+persisted session record; title updates never create or claim one implicitly.
+The durable metadata read, temporary-file write, and `fdatasync` run through
+asynchronous filesystem I/O. A generation check prevents that prepared title
+from overwriting a concurrent lifecycle metadata commit; on conflict it rereads
+the latest record and retries within a bounded budget. Each retry resolves the
+canonical provider-session record again and verifies that its runtime owner is
+still the requesting Agent. The accepted result is acknowledged only after
+atomic publication. Failure rolls the visible title back when that failed
+value is still current, and shutdown drains every accepted title operation.
+
 The backend updates the list projection from exact Agent and collection
 mutations. Mutations within the broadcast window are coalesced by Agent ID, so
 ordinary delta construction is proportional to the changed working set rather

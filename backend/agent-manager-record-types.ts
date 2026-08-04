@@ -561,6 +561,7 @@ export interface AgentManagerConfig {
     projectWorkspaces: string[];
   };
   ensureAgentSessionRecord(agent: AgentRecord, patch?: Partial<PersistedAgentPrivateMetadata>): string;
+  persistAgentAdaptiveTitle(agent: AgentRecord, title: string): Promise<string>;
   farmingDir?: string;
   getAgentSessionRecordForProviderSessionKey(sessionKey: string): PersistedAgentPrivateMetadata | null;
   getMainPageSessionKeys(): string[];

@@ -20,6 +20,12 @@ interface AtomicWriteJsonOptions {
   trailingNewline?: boolean;
 }
 
+interface AtomicWriteJsonAsyncOptions {
+  beforeCommit?: () => boolean;
+  mode?: number;
+  trailingNewline?: boolean;
+}
+
 function atomicWriteJson(
   file: string,
   value: unknown,
@@ -54,6 +60,49 @@ function atomicWriteJson(
   }
 }
 
+async function atomicWriteJsonAsync(
+  file: string,
+  value: unknown,
+  options: AtomicWriteJsonAsyncOptions = {},
+): Promise<boolean> {
+  const temporaryFile = `${file}.${process.pid}.${crypto.randomUUID()}.tmp`;
+  const suffix = options.trailingNewline ? '\n' : '';
+  let handle: fs.promises.FileHandle | null = null;
+  let published = false;
+
+  await fs.promises.mkdir(path.dirname(file), { recursive: true });
+  try {
+    handle = await fs.promises.open(temporaryFile, 'wx', options.mode);
+    await handle.writeFile(`${JSON.stringify(value, null, 2)}${suffix}`, 'utf8');
+    await handle.datasync();
+    await handle.close();
+    handle = null;
+    if (options.beforeCommit && !options.beforeCommit()) return false;
+    // The generation check and atomic publication must be one main-thread turn;
+    // otherwise an existing synchronous lifecycle commit can interleave between
+    // the check and rename and be overwritten by stale title metadata.
+    fs.renameSync(temporaryFile, file);
+    published = true;
+    return true;
+  } finally {
+    if (handle) {
+      try {
+        await handle.close();
+      } catch {
+        // Preserve the original write failure.
+      }
+    }
+    if (!published) {
+      try {
+        await fs.promises.unlink(temporaryFile);
+      } catch {
+        // The temporary file may not have been created before the failure.
+      }
+    }
+  }
+}
+
 export {
   atomicWriteJson,
+  atomicWriteJsonAsync,
 };

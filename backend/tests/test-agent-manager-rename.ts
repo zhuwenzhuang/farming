@@ -30,6 +30,9 @@ async function run() {
       persistedAgentSnapshots.push({ ...agent, ...patch });
       return agent.persistentSessionId || `fsess_${agent.id}`;
     },
+    async persistAgentAdaptiveTitle(agent, adaptiveTitle) {
+      return this.ensureAgentSessionRecord(agent, { adaptiveTitle });
+    },
   }, { skipExecutablePreflight: true });
 
   manager.engineBridge.resolve = () => ({
