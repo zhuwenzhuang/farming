@@ -177,7 +177,13 @@ export interface StateMessage {
   type: 'state'
   generation: string
   sequence: number
-  state: AppState
+  snapshot?: {
+    complete: boolean
+    id: string
+    offset: number
+    total: number
+  }
+  state: Partial<Omit<AppState, 'agents'>> & { agents: Agent[] }
 }
 
 export interface StateDeltaMessage {

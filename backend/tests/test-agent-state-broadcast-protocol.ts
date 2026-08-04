@@ -6,6 +6,7 @@ const {
   advanceAgentStateMutation,
   agentStateClientDelivery,
   agentStateBroadcastSnapshot,
+  agentStateSnapshotFrames,
   createAgentStateBroadcastTracker,
 } = require('../agent-state-broadcast-protocol.cjs');
 
@@ -126,6 +127,66 @@ assert.strictEqual(agentStateClientDelivery(0, false, 100), 'delta');
 assert.strictEqual(agentStateClientDelivery(0, true, 100), 'snapshot');
 assert.strictEqual(agentStateClientDelivery(101, false, 100), 'defer');
 assert.strictEqual(agentStateClientDelivery(101, true, 100), 'defer');
+
+const progressiveFrames = [...agentStateSnapshotFrames(
+  state(Array.from({ length: 1_000 }, (_, index) => ({ id: `paged-${index}` })), {
+    mainAgentId: 'paged-0',
+  }),
+  'snapshot-1',
+  64,
+  256,
+)];
+assert.deepStrictEqual(
+  progressiveFrames.map(frame => ({
+    complete: frame.snapshot.complete,
+    count: frame.state.agents.length,
+    offset: frame.snapshot.offset,
+    total: frame.snapshot.total,
+  })),
+  [
+    { complete: false, count: 64, offset: 0, total: 1_000 },
+    { complete: false, count: 256, offset: 64, total: 1_000 },
+    { complete: false, count: 256, offset: 320, total: 1_000 },
+    { complete: false, count: 256, offset: 576, total: 1_000 },
+    { complete: true, count: 168, offset: 832, total: 1_000 },
+  ],
+);
+assert.strictEqual(progressiveFrames[0].state.mainAgentId, 'paged-0');
+assert.strictEqual(progressiveFrames[1].state.mainAgentId, undefined);
+assert.deepStrictEqual(
+  progressiveFrames.flatMap(frame => frame.state.agents.map(agent => agent.id)),
+  Array.from({ length: 1_000 }, (_, index) => `paged-${index}`),
+);
+assert.deepStrictEqual(
+  [...agentStateSnapshotFrames(state([]), 'snapshot-empty', 64, 256)],
+  [{
+    snapshot: { complete: true, id: 'snapshot-empty', offset: 0, total: 0 },
+    state: state([]),
+  }],
+);
+const lateMainFrames = [...agentStateSnapshotFrames(state(
+  Array.from({ length: 100 }, (_, index) => ({ id: `late-main-${index}` })),
+  { mainAgentId: 'late-main-99' },
+), 'snapshot-late-main', 8, 32)];
+assert.strictEqual(
+  lateMainFrames[0].state.agents[0].id,
+  'late-main-99',
+  'The first progressive page must contain the Main Agent required for safe client startup',
+);
+assert.strictEqual(
+  new Set(lateMainFrames.flatMap(frame => frame.state.agents.map(agent => agent.id))).size,
+  100,
+);
+assert.deepStrictEqual(
+  [...agentStateSnapshotFrames(
+    state(Array.from({ length: 64 }, (_, index) => ({ id: `exact-${index}` }))),
+    'snapshot-exact',
+    32,
+    32,
+  )].map(frame => ({ complete: frame.snapshot.complete, count: frame.state.agents.length })),
+  [{ complete: false, count: 32 }, { complete: true, count: 32 }],
+  'An exact page multiple must not add an empty completion frame',
+);
 
 const scaleTracker = createAgentStateBroadcastTracker();
 let unchangedAgentReads = 0;

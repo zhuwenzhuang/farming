@@ -21,9 +21,11 @@ import {
   updateAgentLiveState,
 } from '@/lib/agent-live-state'
 import {
+  advanceAgentStateSnapshot,
   agentStateDeltaDisposition,
   applyAgentStateDelta,
   type AgentStateCursor,
+  type AgentStateSnapshotCursor,
 } from '@/lib/agent-state-delta'
 import {
   PROTOCOL_VERSION,
@@ -51,9 +53,11 @@ const LAST_MESSAGE_STATE_THROTTLE_MS = 1000
 const BUSINESS_HEALTH_INTERVAL_MS = 10_000
 const BUSINESS_HEALTH_DEADLINE_MS = 8_000
 const BUSINESS_HEALTH_RETRY_MS = 2_000
+const AGENT_STATE_SNAPSHOT_PAGE_DEADLINE_MS = 30_000
 
 export interface WebSocketState {
   agents: Agent[]
+  agentInventoryComplete: boolean
   taskHistory: TaskHistoryEntry[]
   mainPageSessionKeys: string[]
   mainAgentId: string | null
@@ -99,6 +103,8 @@ export function useWebSocket() {
   const agentActivityScopeRef = useRef<'all' | 'focused' | 'none'>('all')
   const agentStateSignaturesRef = useRef<Map<string, string>>(new Map())
   const agentStateCursorRef = useRef<AgentStateCursor | null>(null)
+  const agentStateSnapshotAgentsRef = useRef<Agent[]>([])
+  const agentStateSnapshotCursorRef = useRef<AgentStateSnapshotCursor | null>(null)
   const agentStateResyncPendingRef = useRef(false)
   const composerRequestSequenceRef = useRef(0)
   const composerRequestResolversRef = useRef(new Map<string, {
@@ -111,6 +117,7 @@ export function useWebSocket() {
   const composerAcceptedRequestsRef = useRef(new Set<string>())
   const [state, setState] = useState<WebSocketState>({
     agents: [],
+    agentInventoryComplete: false,
     taskHistory: [],
     mainPageSessionKeys: [],
     mainAgentId: null,
@@ -405,8 +412,42 @@ export function useWebSocket() {
     let lastMessageStateUpdateAt = 0
     let businessProbeTimer: ReturnType<typeof setTimeout> | null = null
     let businessProbeDeadline: ReturnType<typeof setTimeout> | null = null
+    let agentStateSnapshotDeadline: ReturnType<typeof setTimeout> | null = null
     let pendingBusinessProbeId = ''
     let businessProbeSequence = 0
+
+    function clearAgentStateSnapshotDeadline() {
+      if (agentStateSnapshotDeadline) clearTimeout(agentStateSnapshotDeadline)
+      agentStateSnapshotDeadline = null
+    }
+
+    function requestAgentStateResync(ws: WebSocket, snapshotFailed = false) {
+      if (ws.readyState !== WebSocket.OPEN) return
+      const discardSequence = snapshotFailed || Boolean(agentStateSnapshotCursorRef.current)
+      agentStateResyncPendingRef.current = true
+      agentStateSnapshotAgentsRef.current = []
+      agentStateSnapshotCursorRef.current = null
+      clearAgentStateSnapshotDeadline()
+      ws.send(JSON.stringify({
+        type: 'state-resync',
+        generation: discardSequence ? undefined : agentStateCursorRef.current?.generation,
+        afterSequence: discardSequence ? undefined : agentStateCursorRef.current?.sequence,
+      }))
+      armAgentStateSnapshotDeadline(ws)
+    }
+
+    function armAgentStateSnapshotDeadline(ws: WebSocket) {
+      clearAgentStateSnapshotDeadline()
+      agentStateSnapshotDeadline = setTimeout(() => {
+        agentStateSnapshotDeadline = null
+        if (disposed || wsRef.current !== ws) return
+        if (agentStateSnapshotCursorRef.current) {
+          requestAgentStateResync(ws, true)
+        } else if (agentStateResyncPendingRef.current) {
+          ws.close(4000, 'Agent state resync timed out')
+        }
+      }, AGENT_STATE_SNAPSHOT_PAGE_DEADLINE_MS)
+    }
 
     function markBackendMessage(receivedAt = Date.now()) {
       if (receivedAt - lastMessageStateUpdateAt < LAST_MESSAGE_STATE_THROTTLE_MS) return
@@ -562,39 +603,116 @@ export function useWebSocket() {
               break
             case 'command-ack':
               break
-            case 'state':
-              agentStateCursorRef.current = {
-                generation: msg.generation,
-                sequence: msg.sequence,
+            case 'state': {
+              if (
+                agentStateResyncPendingRef.current
+                && msg.snapshot
+                && msg.snapshot.offset !== 0
+              ) break
+              if (
+                msg.snapshot?.offset === 0
+                && (
+                  !Object.prototype.hasOwnProperty.call(msg.state, 'mainAgentId')
+                  || !Array.isArray(msg.state.taskHistory)
+                )
+              ) {
+                requestAgentStateResync(ws, true)
+                break
+              }
+              const snapshotTransition = msg.snapshot
+                ? advanceAgentStateSnapshot(
+                    agentStateSnapshotCursorRef.current,
+                    msg.generation,
+                    msg.sequence,
+                    msg.snapshot,
+                    msg.state.agents.length,
+                  )
+                : { cursor: null, disposition: 'replace' as const }
+              if (snapshotTransition.disposition === 'resync') {
+                requestAgentStateResync(ws, true)
+                break
+              }
+              const previousAgentSignatures = new Map(agentStateSignaturesRef.current)
+              if (
+                snapshotTransition.disposition === 'append'
+                && (
+                  previousAgentSignatures.size !== msg.snapshot?.offset
+                  || msg.state.agents.some(agent => previousAgentSignatures.has(agent.id))
+                )
+              ) {
+                requestAgentStateResync(ws, true)
+                break
+              }
+              agentStateSnapshotCursorRef.current = snapshotTransition.cursor
+              if (!snapshotTransition.cursor) {
+                agentStateCursorRef.current = {
+                  generation: msg.generation,
+                  sequence: msg.sequence,
+                }
               }
               agentStateResyncPendingRef.current = false
+              if (snapshotTransition.cursor) armAgentStateSnapshotDeadline(ws)
+              else clearAgentStateSnapshotDeadline()
               if (msg.state.systemStats !== undefined) {
                 updateBackendSystemStats(msg.state.systemStats ?? null)
               }
-              reconcileAgentLiveStates(msg.state.agents)
+              const snapshotAgents = snapshotTransition.disposition === 'append'
+                ? [...agentStateSnapshotAgentsRef.current, ...msg.state.agents]
+                : [...msg.state.agents]
+              agentStateSnapshotAgentsRef.current = snapshotTransition.cursor ? snapshotAgents : []
+              if (snapshotTransition.disposition === 'append') {
+                msg.state.agents.forEach(agent => {
+                  agentStateSignaturesRef.current.set(agent.id, JSON.stringify(agent))
+                })
+              } else {
+                agentStateSignaturesRef.current = new Map(msg.state.agents.map(agent => [
+                  agent.id,
+                  JSON.stringify(agent),
+                ]))
+              }
+              if (snapshotTransition.disposition === 'append' && snapshotTransition.cursor) {
+                reconcileAgentLiveStateDelta(msg.state.agents, [])
+                setState(prev => {
+                  const previousAgents = new Map(prev.agents.map(agent => [agent.id, agent]))
+                  const normalizedUpserts = msg.state.agents.map(agent => (
+                    normalizeStateAgent(agent, prev.mainAgentId, previousAgents.get(agent.id))
+                  ))
+                  const nextAgents = applyAgentStateDelta(prev.agents, normalizedUpserts, [])
+                  if (nextAgents === prev.agents && prev.agentInventoryComplete === false) return prev
+                  return { ...prev, agents: nextAgents, agentInventoryComplete: false }
+                })
+                break
+              }
+
+              const authoritativeAgents = snapshotTransition.cursor ? msg.state.agents : snapshotAgents
+              if (snapshotTransition.cursor) reconcileAgentLiveStateDelta(msg.state.agents, [])
+              else reconcileAgentLiveStates(authoritativeAgents)
+              const nextAgentSignatures = agentStateSignaturesRef.current
               setState(prev => {
+                const nextMainAgentId = Object.prototype.hasOwnProperty.call(msg.state, 'mainAgentId')
+                  ? msg.state.mainAgentId ?? null
+                  : prev.mainAgentId
                 const previousAgents = new Map(prev.agents.map(agent => [agent.id, agent]))
-                let agentsChanged = prev.agents.length !== msg.state.agents.length
-                const nextAgentSignatures = new Map<string, string>()
-                const reconciledAgents = msg.state.agents.map((agent, index) => {
+                let agentsChanged = prev.agents.length !== authoritativeAgents.length
+                const reconciledAgents = authoritativeAgents.map((agent, index) => {
                   const previous = previousAgents.get(agent.id)
-                  const signature = JSON.stringify(agent)
-                  nextAgentSignatures.set(agent.id, signature)
-                  const isMain = agent.isMain || agent.id === msg.state.mainAgentId || isInternalMainWorkspace(agent.cwd, agent.parentAgentId)
+                  const signature = nextAgentSignatures.get(agent.id)
+                  const isMain = agent.isMain || agent.id === nextMainAgentId || isInternalMainWorkspace(agent.cwd, agent.parentAgentId)
                   if (
                     previous
                     && previous.id === prev.agents[index]?.id
                     && previous.isMain === isMain
-                    && agentStateSignaturesRef.current.get(agent.id) === signature
+                    && previousAgentSignatures.get(agent.id) === signature
                   ) {
                     return previous
                   }
                   agentsChanged = true
-                  return normalizeStateAgent(agent, msg.state.mainAgentId, previous)
+                  return normalizeStateAgent(agent, nextMainAgentId, previous)
                 })
-                agentStateSignaturesRef.current = nextAgentSignatures
 
-                const nextAgents = agentsChanged ? reconciledAgents : prev.agents
+                const nextAgents = snapshotTransition.cursor
+                  ? applyAgentStateDelta(prev.agents, reconciledAgents, [])
+                  : (agentsChanged ? reconciledAgents : prev.agents)
                 const nextTaskHistory = msg.state.taskHistory ?? prev.taskHistory
                 const nextMainPageSessionKeys = Array.isArray(msg.state.mainPageSessionKeys)
                   ? msg.state.mainPageSessionKeys
@@ -620,7 +738,8 @@ export function useWebSocket() {
                   && !mainPageSessionKeysChanged
                   && !projectWorkspacesChanged
                   && !pinnedProjectWorkspacesChanged
-                  && msg.state.mainAgentId === prev.mainAgentId
+                  && nextMainAgentId === prev.mainAgentId
+                  && prev.agentInventoryComplete === !snapshotTransition.cursor
                 ) {
                   return prev
                 }
@@ -628,18 +747,24 @@ export function useWebSocket() {
                 return {
                   ...prev,
                   agents: nextAgents,
+                  agentInventoryComplete: !snapshotTransition.cursor,
                   taskHistory: taskHistoryChanged ? nextTaskHistory : prev.taskHistory,
                   mainPageSessionKeys: mainPageSessionKeysChanged ? nextMainPageSessionKeys : prev.mainPageSessionKeys,
                   projectWorkspaces: projectWorkspacesChanged ? nextProjectWorkspaces : prev.projectWorkspaces,
                   pinnedProjectWorkspaces: pinnedProjectWorkspacesChanged
                     ? nextPinnedProjectWorkspaces
                     : prev.pinnedProjectWorkspaces,
-                  mainAgentId: msg.state.mainAgentId,
+                  mainAgentId: nextMainAgentId,
                 }
               })
               break
+            }
             case 'state-delta': {
               if (agentStateResyncPendingRef.current) break
+              if (agentStateSnapshotCursorRef.current) {
+                requestAgentStateResync(ws)
+                break
+              }
               const disposition = agentStateDeltaDisposition(
                 agentStateCursorRef.current,
                 msg.generation,
@@ -647,12 +772,7 @@ export function useWebSocket() {
               )
               if (disposition === 'ignore') break
               if (disposition === 'resync') {
-                agentStateResyncPendingRef.current = true
-                ws.send(JSON.stringify({
-                  type: 'state-resync',
-                  generation: agentStateCursorRef.current?.generation,
-                  afterSequence: agentStateCursorRef.current?.sequence,
-                }))
+                requestAgentStateResync(ws)
                 break
               }
 
@@ -855,7 +975,13 @@ export function useWebSocket() {
             ? 'Farming frontend and backend versions differ. Refresh this page.'
             : null
         resetBusinessProbeObservation()
+        clearAgentStateSnapshotDeadline()
         wsRef.current = null
+        agentStateCursorRef.current = null
+        agentStateSnapshotAgentsRef.current = []
+        agentStateSnapshotCursorRef.current = null
+        agentStateSignaturesRef.current = new Map()
+        agentStateResyncPendingRef.current = false
         composerRequestResolversRef.current.forEach(({ resolve, timeout }) => {
           window.clearTimeout(timeout)
           resolve(false)
@@ -891,6 +1017,7 @@ export function useWebSocket() {
       clearTimeout(reconnectTimer)
       document.removeEventListener('visibilitychange', handlePageVisibilityChange)
       clearBusinessProbeTimers()
+      clearAgentStateSnapshotDeadline()
       if (wsRef.current === activeSocket) {
         wsRef.current = null
       }

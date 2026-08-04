@@ -1229,6 +1229,7 @@ export function App() {
   }, [displayedAgents])
 
   useEffect(() => {
+    if (!ws.agentInventoryComplete) return
     if (openTerminalIds.length > 0) return
     if (didAutoOpenInitialTerminalRef.current) return
     const fallbackId = displayedAgents.find(agent => !agent.isMain && isOpenableAgent(agent))?.id
@@ -1240,7 +1241,7 @@ export function App() {
     setOpenTerminalIds([fallbackId])
     setRetainedAgentViewIds([fallbackId])
     setActiveTerminalId(fallbackId)
-  }, [displayedAgents, openTerminalIds.length, ws.mainAgentId])
+  }, [displayedAgents, openTerminalIds.length, ws.agentInventoryComplete, ws.mainAgentId])
 
   useEffect(() => {
     const pending = pendingMainRestartRef.current
@@ -1255,7 +1256,11 @@ export function App() {
   }, [openTerminal, ws.agents])
 
   useEffect(() => {
-    if (didApplyAgentDeeplinkRef.current || ws.agents.length === 0) return
+    if (
+      didApplyAgentDeeplinkRef.current
+      || !ws.agentInventoryComplete
+      || ws.agents.length === 0
+    ) return
 
     const agentId = new URLSearchParams(window.location.search).get('agent')
     if (!agentId) {
@@ -1267,7 +1272,7 @@ export function App() {
 
     didApplyAgentDeeplinkRef.current = true
     openTerminal(agentId)
-  }, [openTerminal, ws.agents])
+  }, [openTerminal, ws.agentInventoryComplete, ws.agents])
 
   useLayoutEffect(() => {
     document.body.classList.add('code-mode')

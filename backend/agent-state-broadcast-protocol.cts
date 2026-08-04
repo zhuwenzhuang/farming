@@ -14,6 +14,16 @@ interface AgentStateBroadcastMutation {
   upserts?: AgentStateRecord[];
 }
 
+interface AgentStateSnapshotFrame {
+  snapshot: {
+    complete: boolean;
+    id: string;
+    offset: number;
+    total: number;
+  };
+  state: AgentStatePayload;
+}
+
 interface AgentStateBroadcastTracker {
   agents: Map<string, AgentStateRecord>;
   agentSignatures: Map<string, string>;
@@ -25,6 +35,44 @@ interface AgentStateBroadcastTracker {
 }
 
 type AgentStateClientDelivery = 'defer' | 'delta' | 'snapshot';
+
+function* agentStateSnapshotFrames(
+  state: AgentStatePayload,
+  snapshotId: string,
+  initialPageSize: number,
+  pageSize: number,
+): Iterable<AgentStateSnapshotFrame> {
+  const firstLimit = Math.max(1, Math.floor(initialPageSize));
+  const nextLimit = Math.max(1, Math.floor(pageSize));
+  const { agents, ...metadata } = state;
+  const mainAgentId = typeof metadata.mainAgentId === 'string' ? metadata.mainAgentId : '';
+  const mainAgentIndex = mainAgentId ? agents.findIndex(agent => agent.id === mainAgentId) : -1;
+  const orderedAgents = mainAgentIndex >= firstLimit
+    ? [agents[mainAgentIndex], ...agents.slice(0, mainAgentIndex), ...agents.slice(mainAgentIndex + 1)]
+    : agents;
+  const total = orderedAgents.length;
+  let offset = 0;
+
+  do {
+    const limit = offset === 0 ? firstLimit : nextLimit;
+    const page = orderedAgents.slice(offset, offset + limit);
+    const nextOffset = offset + page.length;
+    const complete = nextOffset >= total;
+    yield {
+      snapshot: {
+        complete,
+        id: snapshotId,
+        offset,
+        total,
+      },
+      state: {
+        ...(offset === 0 ? metadata : {}),
+        agents: page,
+      },
+    };
+    offset = nextOffset;
+  } while (offset < total);
+}
 
 const AGENT_LIVE_STATE_FIELDS = [
   'activityLevel',
@@ -183,6 +231,7 @@ export {
   advanceAgentStateMutation,
   agentStateClientDelivery,
   agentStateBroadcastSnapshot,
+  agentStateSnapshotFrames,
   createAgentStateBroadcastTracker,
 };
 
@@ -191,4 +240,5 @@ export type {
   AgentStateBroadcastMutation,
   AgentStateBroadcastTracker,
   AgentStatePayload,
+  AgentStateSnapshotFrame,
 };

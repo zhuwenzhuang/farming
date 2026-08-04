@@ -13,6 +13,9 @@ let state = null;
 let agentStateGeneration = '';
 let agentStateSequence = -1;
 let agentStateResyncPending = false;
+let agentStateSnapshotAgents = [];
+let agentStateSnapshotDeadlineTimer = null;
+let agentStateSnapshotCursor = null;
 let focusedAgentId = null;
 let keyMap = {};
 let agents = [];
@@ -130,7 +133,8 @@ const terminalPreviewSnapshots = new Map();
 const crtBrandPulseTimers = new Map();
 const SESSION_LINK_LIMIT = 6;
 // Replaced from shared/browser-protocol.ts by build-classic-browser-runtime.ts.
-const CRT_PROTOCOL_VERSION = 7;
+const CRT_PROTOCOL_VERSION = 8;
+const CRT_AGENT_STATE_SNAPSHOT_PAGE_DEADLINE_MS = 30_000;
 const CRT_PREVIEW_RENDER_INTERVAL_MS = 1000;
 const CRT_STRUCTURED_PREVIEW_REFRESH_MS = 240;
 const CRT_STRUCTURED_PREVIEW_MAX_CONCURRENT_READS = 2;
@@ -5333,7 +5337,7 @@ function openCrtAgentDeeplinkIfReady() {
     openSession(agent.id);
     return true;
 }
-function applyCrtWorkspaceState(nextState, previousAgentCount) {
+function applyCrtWorkspaceState(nextState, previousAgentCount, inventoryComplete = true) {
     state = nextState;
     pruneCrtStructuredPreviews(state);
     const activeAgentIds = new Set(state.agents.map((agent) => agent.id));
@@ -5364,7 +5368,7 @@ function applyCrtWorkspaceState(nextState, previousAgentCount) {
         renderCrtSearch();
     generateKeyMap();
     checkMainAgentStatus();
-    if (waitingForAgent && state.agents.length > previousAgentCount) {
+    if (inventoryComplete && waitingForAgent && state.agents.length > previousAgentCount) {
         waitingForAgent = false;
         hideInputDialog();
     }
@@ -5382,7 +5386,8 @@ function applyCrtWorkspaceState(nextState, previousAgentCount) {
         const sessionState = runtime.handleStateMessage(state);
         focusedAgentId = sessionState.focusedAgentId;
     }
-    openCrtAgentDeeplinkIfReady();
+    if (inventoryComplete)
+        openCrtAgentDeeplinkIfReady();
 }
 function applyCrtAgentStateDelta(data) {
     if (!state)
@@ -5408,6 +5413,127 @@ function applyCrtAgentStateDelta(data) {
         ...(data.state || {}),
         agents: nextAgents,
     };
+}
+function applyCrtAgentStateSnapshotPage(data) {
+    const page = data.snapshot;
+    if (!page) {
+        agentStateSnapshotAgents = [];
+        agentStateSnapshotCursor = null;
+        return Array.isArray(data.state.agents)
+            && Object.prototype.hasOwnProperty.call(data.state, 'mainAgentId')
+            && Array.isArray(data.state.taskHistory)
+            ? data.state
+            : null;
+    }
+    const nextOffset = page.offset + data.state.agents.length;
+    const pageAgentIds = data.state.agents.map(agent => agent.id);
+    const validPage = Boolean(page.id)
+        && Number.isInteger(page.offset)
+        && page.offset >= 0
+        && Number.isInteger(page.total)
+        && page.total >= 0
+        && nextOffset <= page.total
+        && pageAgentIds.every(agentId => typeof agentId === 'string' && agentId.length > 0)
+        && new Set(pageAgentIds).size === pageAgentIds.length
+        && page.complete === (nextOffset === page.total);
+    if (!validPage)
+        return null;
+    if (page.offset === 0) {
+        if (!Object.prototype.hasOwnProperty.call(data.state, 'mainAgentId')
+            || !Array.isArray(data.state.taskHistory))
+            return null;
+        agentStateSnapshotAgents = page.complete ? [] : [...data.state.agents];
+        agentStateSnapshotCursor = page.complete ? null : {
+            generation: data.generation,
+            id: page.id,
+            nextOffset,
+            sequence: data.sequence,
+            total: page.total,
+        };
+        if (page.complete || !state)
+            return data.state;
+        const replacements = new Map(data.state.agents.map(agent => [agent.id, agent]));
+        const retainedAgentIds = new Set();
+        const mergedAgents = state.agents.map(agent => {
+            retainedAgentIds.add(agent.id);
+            return replacements.get(agent.id) || agent;
+        });
+        data.state.agents.forEach(agent => {
+            if (!retainedAgentIds.has(agent.id))
+                mergedAgents.push(agent);
+        });
+        return {
+            ...state,
+            ...data.state,
+            agents: mergedAgents,
+        };
+    }
+    if (!state
+        || !agentStateSnapshotCursor
+        || agentStateSnapshotCursor.generation !== data.generation
+        || agentStateSnapshotCursor.sequence !== data.sequence
+        || agentStateSnapshotCursor.id !== page.id
+        || agentStateSnapshotCursor.nextOffset !== page.offset
+        || agentStateSnapshotCursor.total !== page.total
+        || agentStateSnapshotAgents.length !== page.offset)
+        return null;
+    const existingAgentIds = new Set(agentStateSnapshotAgents.map(agent => agent.id));
+    if (data.state.agents.some(agent => existingAgentIds.has(agent.id)))
+        return null;
+    const completedAgents = [...agentStateSnapshotAgents, ...data.state.agents];
+    agentStateSnapshotAgents = page.complete ? [] : completedAgents;
+    agentStateSnapshotCursor = page.complete
+        ? null
+        : { ...agentStateSnapshotCursor, nextOffset };
+    if (page.complete) {
+        return {
+            ...state,
+            agents: completedAgents,
+        };
+    }
+    const pageAgents = new Map(data.state.agents.map(agent => [agent.id, agent]));
+    const mergedAgents = state.agents.map(agent => pageAgents.get(agent.id) || agent);
+    const retainedAgentIds = new Set(state.agents.map(agent => agent.id));
+    data.state.agents.forEach(agent => {
+        if (!retainedAgentIds.has(agent.id))
+            mergedAgents.push(agent);
+    });
+    return {
+        ...state,
+        agents: mergedAgents,
+    };
+}
+function clearCrtAgentStateSnapshotDeadline() {
+    if (agentStateSnapshotDeadlineTimer !== null)
+        clearTimeout(agentStateSnapshotDeadlineTimer);
+    agentStateSnapshotDeadlineTimer = null;
+}
+function requestCrtAgentStateResync(socket, snapshotFailed = false) {
+    if (socket.readyState !== WebSocket.OPEN)
+        return;
+    const discardSequence = snapshotFailed || Boolean(agentStateSnapshotCursor);
+    agentStateResyncPending = true;
+    agentStateSnapshotAgents = [];
+    agentStateSnapshotCursor = null;
+    clearCrtAgentStateSnapshotDeadline();
+    socket.send(JSON.stringify({
+        type: 'state-resync',
+        generation: discardSequence ? undefined : agentStateGeneration || undefined,
+        afterSequence: discardSequence || agentStateSequence < 0 ? undefined : agentStateSequence,
+    }));
+    armCrtAgentStateSnapshotDeadline(socket);
+}
+function armCrtAgentStateSnapshotDeadline(socket) {
+    clearCrtAgentStateSnapshotDeadline();
+    agentStateSnapshotDeadlineTimer = window.setTimeout(() => {
+        agentStateSnapshotDeadlineTimer = null;
+        if (ws !== socket)
+            return;
+        if (agentStateSnapshotCursor)
+            requestCrtAgentStateResync(socket);
+        else if (agentStateResyncPending)
+            socket.close(4000, 'Agent state resync timed out');
+    }, CRT_AGENT_STATE_SNAPSHOT_PAGE_DEADLINE_MS);
 }
 function connect() {
     if (typeof document !== 'undefined' && document.visibilityState === 'hidden')
@@ -5466,33 +5592,43 @@ function connect() {
             return;
         }
         if (data.type === 'state') {
+            if (agentStateResyncPending && data.snapshot && data.snapshot.offset !== 0)
+                return;
             const prevAgentCount = state ? state.agents.length : 0;
+            const nextState = applyCrtAgentStateSnapshotPage(data);
+            if (!nextState) {
+                requestCrtAgentStateResync(socket, true);
+                return;
+            }
             agentStateGeneration = data.generation;
-            agentStateSequence = data.sequence;
+            if (!agentStateSnapshotCursor)
+                agentStateSequence = data.sequence;
             agentStateResyncPending = false;
-            applyCrtWorkspaceState(data.state, prevAgentCount);
+            if (agentStateSnapshotCursor)
+                armCrtAgentStateSnapshotDeadline(socket);
+            else
+                clearCrtAgentStateSnapshotDeadline();
+            applyCrtWorkspaceState(nextState, prevAgentCount, !agentStateSnapshotCursor);
         }
         else if (data.type === 'state-delta') {
             if (agentStateResyncPending)
                 return;
+            if (agentStateSnapshotCursor) {
+                requestCrtAgentStateResync(socket, true);
+                return;
+            }
             if (data.generation === agentStateGeneration && data.sequence <= agentStateSequence)
                 return;
             if (!agentStateGeneration
                 || data.generation !== agentStateGeneration
                 || data.sequence !== agentStateSequence + 1) {
-                agentStateResyncPending = true;
-                socket.send(JSON.stringify({
-                    type: 'state-resync',
-                    generation: agentStateGeneration || undefined,
-                    afterSequence: agentStateSequence >= 0 ? agentStateSequence : undefined,
-                }));
+                requestCrtAgentStateResync(socket);
                 return;
             }
             const prevAgentCount = state ? state.agents.length : 0;
             const nextState = applyCrtAgentStateDelta(data);
             if (!nextState) {
-                agentStateResyncPending = true;
-                socket.send(JSON.stringify({ type: 'state-resync' }));
+                requestCrtAgentStateResync(socket);
                 return;
             }
             agentStateSequence = data.sequence;
@@ -5625,6 +5761,12 @@ function connect() {
         if (ws !== socket)
             return;
         ws = null;
+        agentStateGeneration = '';
+        agentStateSequence = -1;
+        agentStateResyncPending = false;
+        agentStateSnapshotAgents = [];
+        agentStateSnapshotCursor = null;
+        clearCrtAgentStateSnapshotDeadline();
         getSessionClient()?.rejectPendingComposerMessages();
         console.log('Disconnected from server');
         if (crtTerminalReplication) {

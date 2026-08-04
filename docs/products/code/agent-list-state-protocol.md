@@ -7,10 +7,24 @@ metadata. Browser interfaces consume that state through a snapshot plus delta
 protocol; they do not reconstruct missing state from terminal or Chat traffic.
 
 An initial connection, explicit resynchronization, or recovery from delivery
-backpressure receives a complete snapshot. Later list changes carry complete
-summaries only for changed Agents, removed Agent IDs, and changed list-level
-metadata. Terminal output, Chat transcript changes, previews, and activity
-updates remain on their Agent-scoped streams.
+backpressure receives one complete logical snapshot through progressive pages.
+On initial load, the first bounded page can render immediately. During recovery,
+the client retains its last complete inventory while it assembles the replacement
+snapshot, then swaps to the exact authoritative inventory at completion;
+following pages carry the same snapshot ID, generation, and sequence and append
+at an exact offset. A client accepts list deltas only after the page marked
+complete reaches the declared total. A missing, reordered, mismatched, or
+interrupted page requests a new authoritative snapshot whose first page
+replaces the partial result. Each partial page has a bounded next-page deadline.
+The Server yields after the first page and pauses later pages while that
+client's transport buffer is above the state threshold. List mutations during
+delivery are held in a bounded per-client sequence and drain after the final
+page. Overflow falls back to one fresh authoritative snapshot instead of
+allowing unbounded memory growth or sequence gaps. Later list changes carry
+complete summaries only for changed Agents, removed Agent IDs, and changed
+list-level metadata.
+Terminal output, Chat transcript changes, previews, and activity updates remain
+on their Agent-scoped streams.
 
 Browser views declare whether Agent activity is relevant for all Agents, only
 the focused Agent, or none. Farming Code keeps all activity while the Projects
@@ -42,8 +56,10 @@ The backend updates the list projection from exact Agent and collection
 mutations. Mutations within the broadcast window are coalesced by Agent ID, so
 ordinary delta construction is proportional to the changed working set rather
 than the complete Agent inventory. Building the complete Agent payload is
-reserved for initial and recovery snapshots, which replace any possibly missed
-mutation with current authoritative state.
+reserved for initial and recovery snapshots, which are sent in bounded pages
+and replace any possibly missed mutation with current authoritative state. The
+first page includes the Main Agent so client startup cannot mistake a later
+page for a missing Main runtime.
 
 Every snapshot and delta identifies the backend generation and an increasing
 sequence. A client applies only the next sequence in its current generation.

@@ -269,7 +269,13 @@ interface CrtProtocolStateServerMessage extends CrtProtocolRecord {
   type: 'state';
   generation: string;
   sequence: number;
-  state: CrtProtocolWorkspaceState;
+  snapshot?: {
+    complete: boolean;
+    id: string;
+    offset: number;
+    total: number;
+  };
+  state: Partial<Omit<CrtProtocolWorkspaceState, 'agents'>> & { agents: CrtProtocolAgent[] };
 }
 
 interface CrtProtocolStateDeltaServerMessage extends CrtProtocolRecord {

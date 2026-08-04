@@ -145,7 +145,11 @@ interface WebSocketClient {
   protocolVersion?: number;
   readyState: number;
   resourceSnapshotPending?: boolean;
+  stateSnapshotDeltaBytes?: number;
+  stateSnapshotDeltas?: string[];
+  stateSnapshotInProgress?: boolean;
   stateSnapshotPending?: boolean;
+  stateSnapshotRetryTimer?: ReturnType<typeof setTimeout> | null;
   streamScope?: 'focused' | 'all';
   workspaceFileUnsubscribes?: Map<string, WorkspaceFileWatchRecord> | null;
   protocolCompatible?: boolean;
@@ -272,6 +276,7 @@ import {
   advanceAgentStateMutation,
   agentStateClientDelivery,
   agentStateBroadcastSnapshot,
+  agentStateSnapshotFrames,
   createAgentStateBroadcastTracker,
   type AgentStatePayload,
 } from './agent-state-broadcast-protocol.cjs';
@@ -3100,6 +3105,11 @@ wss.on('connection', (ws, req) => {
   
   ws.on('close', (code: number, reason: Buffer) => {
     clearWorkspaceFileWatch(ws);
+    if (ws.stateSnapshotRetryTimer) clearTimeout(ws.stateSnapshotRetryTimer);
+    ws.stateSnapshotDeltaBytes = 0;
+    ws.stateSnapshotDeltas = [];
+    ws.stateSnapshotRetryTimer = null;
+    ws.stateSnapshotInProgress = false;
     console.log('Client disconnected', JSON.stringify({
       connectionId: ws.connectionId,
       remoteAddress,
@@ -3664,19 +3674,108 @@ function currentAgentListMetadata(options: { includeWorkspaceRoots?: boolean } =
 }
 
 function sendState(ws: WebSocketClient) {
+  if (ws.stateSnapshotInProgress) {
+    ws.stateSnapshotPending = true;
+    return;
+  }
   broadcastState(ws, true);
-  ws.send(JSON.stringify({
-    type: 'state',
-    generation: SERVER_EPOCH,
-    sequence: stateBroadcastTracker.sequence,
-    state: agentStateBroadcastSnapshot(stateBroadcastTracker),
-  }));
+  const state = agentStateBroadcastSnapshot(stateBroadcastTracker);
+  if (!state) {
+    ws.stateSnapshotPending = true;
+    ws.send(JSON.stringify({
+      type: 'error',
+      message: 'Agent state snapshot is temporarily unavailable; Farming will retry',
+    }));
+    return;
+  }
+  const snapshotId = `${SERVER_EPOCH}:${stateBroadcastTracker.sequence}:${++stateSnapshotSerial}`;
+  const frames = agentStateSnapshotFrames(
+    state,
+    snapshotId,
+    INITIAL_AGENT_STATE_SNAPSHOT_PAGE_SIZE,
+    AGENT_STATE_SNAPSHOT_PAGE_SIZE,
+  )[Symbol.iterator]();
+  const sequence = stateBroadcastTracker.sequence;
+  ws.stateSnapshotInProgress = true;
+  ws.stateSnapshotPending = false;
+  ws.stateSnapshotDeltaBytes = 0;
+  ws.stateSnapshotDeltas = [];
   ws.agentActivityAllCheckpointPending = false;
   ws.agentActivityResyncPending = false;
-  ws.stateSnapshotPending = false;
-  agentManager.getPreviewPayloads().forEach((preview: ServerRecord) => {
-    sendPreview(ws, preview);
-  });
+
+  const queueNextPage = (delayMs: number, callback: () => void = deliverNextPage) => {
+    if (ws.stateSnapshotRetryTimer) clearTimeout(ws.stateSnapshotRetryTimer);
+    ws.stateSnapshotRetryTimer = setTimeout(callback, delayMs);
+    ws.stateSnapshotRetryTimer.unref?.();
+  };
+  const finishSnapshotDelivery = () => {
+    ws.stateSnapshotInProgress = false;
+    ws.stateSnapshotRetryTimer = null;
+    agentManager.getPreviewPayloads().forEach((preview: ServerRecord) => {
+      sendPreview(ws, preview);
+    });
+  };
+  const drainSnapshotDeltas = () => {
+    ws.stateSnapshotRetryTimer = null;
+    if (ws.readyState !== WebSocket.OPEN) {
+      ws.stateSnapshotInProgress = false;
+      return;
+    }
+    if (ws.stateSnapshotPending) {
+      ws.stateSnapshotDeltaBytes = 0;
+      ws.stateSnapshotDeltas = [];
+      ws.stateSnapshotInProgress = false;
+      sendState(ws);
+      return;
+    }
+    if (ws.bufferedAmount > MAX_STATE_CLIENT_BUFFERED_AMOUNT) {
+      queueNextPage(AGENT_STATE_SNAPSHOT_BACKPRESSURE_RETRY_MS, drainSnapshotDeltas);
+      return;
+    }
+    const queued = ws.stateSnapshotDeltas?.shift();
+    if (!queued) {
+      ws.stateSnapshotDeltaBytes = 0;
+      finishSnapshotDelivery();
+      return;
+    }
+    ws.stateSnapshotDeltaBytes = Math.max(0, (ws.stateSnapshotDeltaBytes || 0) - Buffer.byteLength(queued));
+    ws.send(queued);
+    queueNextPage(0, drainSnapshotDeltas);
+  };
+  const completeSnapshot = () => {
+    ws.stateSnapshotRetryTimer = null;
+    drainSnapshotDeltas();
+  };
+  let sentPages = 0;
+  function deliverNextPage() {
+    ws.stateSnapshotRetryTimer = null;
+    if (ws.readyState !== WebSocket.OPEN) {
+      ws.stateSnapshotInProgress = false;
+      return;
+    }
+    if (sentPages > 0 && ws.bufferedAmount > MAX_STATE_CLIENT_BUFFERED_AMOUNT) {
+      queueNextPage(AGENT_STATE_SNAPSHOT_BACKPRESSURE_RETRY_MS);
+      return;
+    }
+    const next = frames.next();
+    if (next.done) {
+      completeSnapshot();
+      return;
+    }
+    ws.send(JSON.stringify({
+      type: 'state',
+      generation: SERVER_EPOCH,
+      sequence,
+      ...next.value,
+    }));
+    sentPages += 1;
+    if (next.value.snapshot.complete) {
+      completeSnapshot();
+      return;
+    }
+    queueNextPage(sentPages === 1 ? INITIAL_AGENT_STATE_SNAPSHOT_FOLLOWUP_DELAY_MS : 0);
+  }
+  deliverNextPage();
 }
 
 function sendResourceSnapshots(ws: WebSocketClient) {
@@ -3713,6 +3812,12 @@ function sendPreview(ws: WebSocketClient, preview: ServerRecord) {
 }
 
 const STATE_BROADCAST_INTERVAL_MS = 120;
+const INITIAL_AGENT_STATE_SNAPSHOT_PAGE_SIZE = 32;
+const AGENT_STATE_SNAPSHOT_PAGE_SIZE = 128;
+const INITIAL_AGENT_STATE_SNAPSHOT_FOLLOWUP_DELAY_MS = 200;
+const AGENT_STATE_SNAPSHOT_BACKPRESSURE_RETRY_MS = 25;
+const MAX_AGENT_STATE_SNAPSHOT_DELTA_COUNT = 256;
+const MAX_AGENT_STATE_SNAPSHOT_DELTA_BYTES = 1024 * 1024;
 const PREVIEW_BROADCAST_INTERVAL_MS = 500;
 const SESSION_STREAM_BROADCAST_INTERVAL_MS = 33;
 const AGENT_ACTIVITY_BROADCAST_DELAY_MS = SESSION_STREAM_BROADCAST_INTERVAL_MS;
@@ -3864,6 +3969,7 @@ function recoverAcpSessionRevisionIfReady(client: WebSocketClient) {
 let stateBroadcastTimer: ReturnType<typeof setTimeout> | null = null;
 let lastStateBroadcastAt = 0;
 const stateBroadcastTracker = createAgentStateBroadcastTracker();
+let stateSnapshotSerial = 0;
 const pendingStateAgentIds = new Set<string>();
 let pendingMainAgentIdState = false;
 let pendingTaskHistoryState = false;
@@ -3961,6 +4067,25 @@ computerResourceManager.on('resource', (resource: unknown) => scheduleResourceUp
 computerResourceManager.on('deleted', (deletion: unknown) => scheduleResourceDeletion('computer', deletion));
 
 function deliverStateDelta(client: WebSocketClient, message: string) {
+  if (client.stateSnapshotInProgress) {
+    if (client.stateSnapshotPending) return;
+    const messageBytes = Buffer.byteLength(message);
+    const queuedDeltas = client.stateSnapshotDeltas || [];
+    const queuedBytes = client.stateSnapshotDeltaBytes || 0;
+    if (
+      queuedDeltas.length >= MAX_AGENT_STATE_SNAPSHOT_DELTA_COUNT
+      || queuedBytes + messageBytes > MAX_AGENT_STATE_SNAPSHOT_DELTA_BYTES
+    ) {
+      client.stateSnapshotPending = true;
+      client.stateSnapshotDeltaBytes = 0;
+      client.stateSnapshotDeltas = [];
+      return;
+    }
+    queuedDeltas.push(message);
+    client.stateSnapshotDeltas = queuedDeltas;
+    client.stateSnapshotDeltaBytes = queuedBytes + messageBytes;
+    return;
+  }
   const delivery = agentStateClientDelivery(
     client.bufferedAmount,
     client.stateSnapshotPending === true,
@@ -3978,7 +4103,11 @@ function deliverStateDelta(client: WebSocketClient, message: string) {
 }
 
 function recoverStateSnapshotIfReady(client: WebSocketClient) {
-  if (client.readyState !== WebSocket.OPEN || client.stateSnapshotPending !== true) return;
+  if (
+    client.readyState !== WebSocket.OPEN
+    || client.stateSnapshotInProgress
+    || client.stateSnapshotPending !== true
+  ) return;
   if (client.bufferedAmount <= MAX_STATE_CLIENT_BUFFERED_AMOUNT) sendState(client);
 }
 

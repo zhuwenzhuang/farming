@@ -56,6 +56,48 @@ assert.strictEqual(validateServerMessage({
   sequence: 0,
   state: { agents: [] },
 }).ok, true);
+assert.strictEqual(validateServerMessage({
+  type: 'state',
+  generation: 'server-1',
+  sequence: 0,
+  snapshot: { complete: false, id: 'snapshot-1', offset: 0, total: 3 },
+  state: { agents: [{ id: 'a' }, { id: 'b' }] },
+}).ok, true);
+assert.strictEqual(validateServerMessage({
+  type: 'state',
+  generation: 'server-1',
+  sequence: 0,
+  snapshot: { complete: true, id: 'snapshot-1', offset: 0, total: 3 },
+  state: { agents: [{ id: 'a' }, { id: 'b' }] },
+}).ok, false);
+assert.strictEqual(validateServerMessage({
+  type: 'state',
+  generation: 'server-1',
+  sequence: 0,
+  snapshot: { complete: true, id: 'snapshot-1', offset: 2, total: 3 },
+  state: { agents: [{ id: 'c' }] },
+}).ok, true);
+assert.strictEqual(validateServerMessage({
+  type: 'state',
+  generation: 'server-1',
+  sequence: 0,
+  snapshot: { complete: true, id: 'snapshot-1', offset: 0, total: 2 },
+  state: { agents: [{ id: 'a' }, { id: 'a' }] },
+}).ok, false);
+assert.strictEqual(validateServerMessage({
+  type: 'state',
+  generation: 'server-1',
+  sequence: 0,
+  snapshot: { complete: false, id: 'snapshot-1', offset: 3, total: 2 },
+  state: { agents: [] },
+}).ok, false);
+assert.strictEqual(validateServerMessage({
+  type: 'state',
+  generation: 'server-1',
+  sequence: 0,
+  snapshot: { complete: true, id: 'snapshot-1', offset: 2, total: 2 },
+  state: { agents: [{ id: 'c' }] },
+}).ok, false);
 assert.strictEqual(validateServerMessage({ type: 'state', generation: 'server-1', sequence: 0, state: {} }).ok, false);
 assert.strictEqual(validateServerMessage({
   type: 'state-delta',

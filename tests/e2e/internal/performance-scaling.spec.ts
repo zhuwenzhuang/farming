@@ -27,6 +27,10 @@ type WireFrame = {
   bytes: number
   agentId: string
   agentCount: number
+  snapshotComplete: boolean
+  snapshotId: string
+  snapshotOffset: number
+  statePageAgentCount: number
   upsertCount: number
 }
 
@@ -71,6 +75,7 @@ function trackWireFrames(page: Page) {
       const message = JSON.parse(text) as {
         type?: string
         state?: { agents?: Array<{ id?: string; isMain?: boolean }> }
+        snapshot?: { complete?: boolean; id?: string; offset?: number }
         upserts?: Array<{ id?: string; isMain?: boolean }>
         removedAgentIds?: string[]
         preview?: { agentId?: string }
@@ -78,7 +83,7 @@ function trackWireFrames(page: Page) {
         stream?: { agentId?: string }
       }
       if (message.type === 'state' && Array.isArray(message.state?.agents)) {
-        visibleAgentIds.clear()
+        if (!message.snapshot || message.snapshot.offset === 0) visibleAgentIds.clear()
         message.state.agents.forEach(agent => {
           if (agent.id && agent.isMain !== true) visibleAgentIds.add(agent.id)
         })
@@ -98,6 +103,10 @@ function trackWireFrames(page: Page) {
         agentCount: message.type === 'state' || message.type === 'state-delta'
           ? visibleAgentIds.size
           : 0,
+        snapshotComplete: message.snapshot?.complete === true,
+        snapshotId: message.snapshot?.id || '',
+        snapshotOffset: message.snapshot?.offset ?? -1,
+        statePageAgentCount: message.type === 'state' ? message.state?.agents?.length ?? 0 : 0,
         upsertCount: message.type === 'state-delta' ? message.upserts?.length ?? 0 : 0,
       })
     } catch {
@@ -107,6 +116,10 @@ function trackWireFrames(page: Page) {
         bytes: byteLength(payload),
         agentId: '',
         agentCount: 0,
+        snapshotComplete: false,
+        snapshotId: '',
+        snapshotOffset: -1,
+        statePageAgentCount: 0,
         upsertCount: 0,
       })
     }
@@ -298,4 +311,171 @@ test(`characterizes Code workspace scaling through ${AGENT_COUNTS.at(-1)} live A
     body: Buffer.from(`${JSON.stringify({ results }, null, 2)}\n`),
     contentType: 'application/json',
   })
+})
+
+test('restores a large Agent inventory through progressive authoritative pages', async ({ page, workspaceRoot }) => {
+  test.setTimeout(240_000)
+  const workspace = path.join(workspaceRoot, 'progressive-agent-snapshot')
+  fs.mkdirSync(workspace, { recursive: true })
+  const targetCount = 70
+  const initialAgentIds = await createBashAgents(page, workspace, targetCount)
+  const mutatedAgentId = initialAgentIds.at(-1) || ''
+  await page.addInitScript(({ mutationAgentId }) => {
+    type SnapshotProbe = {
+      completeMessageAt: number
+      firstMessageAt: number
+      firstRowAt: number
+      mutationCompletedAt: number
+      mutationRequested: boolean
+      socket: WebSocket | null
+    }
+    const browserWindow = window as typeof window & { __farmingSnapshotProbe?: SnapshotProbe }
+    const probe: SnapshotProbe = {
+      completeMessageAt: 0,
+      firstMessageAt: 0,
+      firstRowAt: 0,
+      mutationCompletedAt: 0,
+      mutationRequested: false,
+      socket: null,
+    }
+    browserWindow.__farmingSnapshotProbe = probe
+    const NativeWebSocket = window.WebSocket
+    class SnapshotWebSocket extends NativeWebSocket {
+      constructor(url: string | URL, protocols?: string | string[]) {
+        super(url, protocols)
+        probe.socket = this
+        this.addEventListener('message', event => {
+          try {
+            const message = JSON.parse(String(event.data)) as {
+              type?: string
+              snapshot?: { complete?: boolean; offset?: number }
+            }
+            if (message.type !== 'state' || !message.snapshot) return
+            if (message.snapshot.offset === 0 && probe.firstMessageAt === 0) {
+              probe.firstMessageAt = performance.now()
+              probe.mutationRequested = true
+              void fetch(`/farming/api/agents/${encodeURIComponent(mutationAgentId)}`, {
+                method: 'PATCH',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ customTitle: 'Progressive snapshot mutation' }),
+              }).then(response => {
+                if (!response.ok) throw new Error(`Mutation failed with ${response.status}`)
+                probe.mutationCompletedAt = performance.now()
+              })
+            }
+            if (message.snapshot.complete === true && probe.completeMessageAt === 0) {
+              probe.completeMessageAt = performance.now()
+            }
+          } catch {
+            // The product protocol validator owns malformed-message handling.
+          }
+        })
+      }
+    }
+    Object.defineProperty(window, 'WebSocket', { configurable: true, value: SnapshotWebSocket })
+    document.addEventListener('DOMContentLoaded', () => {
+      const observer = new MutationObserver(() => {
+        if (probe.firstRowAt !== 0 || !document.querySelector('[data-testid="code-agent-row"]')) return
+        probe.firstRowAt = performance.now()
+        observer.disconnect()
+      })
+      observer.observe(document.documentElement, { childList: true, subtree: true })
+    }, { once: true })
+  }, { mutationAgentId: mutatedAgentId })
+
+  const frames = trackWireFrames(page)
+  await page.goto(`/farming/?agent=${encodeURIComponent(mutatedAgentId)}`, { waitUntil: 'domcontentloaded' })
+  await expect(page.getByTestId('app-shell')).toBeVisible()
+  await expect.poll(() => frames.findLast(frame => (
+    frame.type === 'state'
+    && frame.snapshotComplete
+    && frame.agentCount === targetCount
+  ))?.agentCount ?? -1, { timeout: 60_000 }).toBe(targetCount)
+
+  const first = frames.find(frame => frame.type === 'state' && frame.snapshotOffset === 0)
+  expect(first).toBeTruthy()
+  expect(first?.snapshotComplete).toBe(false)
+  expect(first?.statePageAgentCount).toBe(32)
+  const snapshotFrames = frames.filter(frame => (
+    frame.type === 'state' && frame.snapshotId === first?.snapshotId
+  ))
+  expect(snapshotFrames.length).toBeGreaterThan(1)
+  expect(snapshotFrames.at(-1)?.snapshotComplete).toBe(true)
+  expect(snapshotFrames.at(-1)?.agentCount).toBe(targetCount)
+  const snapshotPayloadBytes = snapshotFrames.reduce((sum, frame) => sum + frame.bytes, 0)
+  expect(first?.bytes ?? 0).toBeLessThan(snapshotPayloadBytes)
+  console.log(`progressive-agent-snapshot ${JSON.stringify({
+    firstPageAgents: first?.statePageAgentCount,
+    firstPageBytes: first?.bytes,
+    frameCount: snapshotFrames.length,
+    snapshotPayloadBytes,
+    wireSpanMs: (snapshotFrames.at(-1)?.at ?? 0) - (first?.at ?? 0),
+  })}`)
+  const paintProbe = await page.evaluate(() => (
+    (window as typeof window & { __farmingSnapshotProbe?: {
+      completeMessageAt: number
+      firstMessageAt: number
+      firstRowAt: number
+      mutationCompletedAt: number
+      mutationRequested: boolean
+    } }).__farmingSnapshotProbe
+  ))
+  expect(paintProbe?.firstMessageAt).toBeGreaterThan(0)
+  expect(paintProbe?.firstRowAt).toBeGreaterThan(paintProbe?.firstMessageAt ?? 0)
+  expect(paintProbe?.firstRowAt).toBeLessThan(paintProbe?.completeMessageAt ?? 0)
+  expect(paintProbe?.mutationRequested).toBe(true)
+  expect(paintProbe?.mutationCompletedAt).toBeGreaterThan(paintProbe?.firstMessageAt ?? 0)
+  expect(paintProbe?.mutationCompletedAt).toBeLessThan(paintProbe?.completeMessageAt ?? 0)
+  await expect.poll(() => frames.findLast(frame => (
+    frame.type === 'state-delta'
+    && frame.agentCount === targetCount
+    && frame.upsertCount === 1
+  ))?.agentCount ?? -1, { timeout: 30_000 }).toBe(targetCount)
+  await expect(page.locator(
+    `[data-testid="code-terminal-pane"][data-agent-id="${mutatedAgentId}"]`,
+  )).toBeVisible()
+  expect(new Set(frames.filter(frame => frame.type === 'state').map(frame => frame.snapshotId)).size).toBe(1)
+
+  await page.evaluate(() => {
+    const socket = (window as typeof window & {
+      __farmingSnapshotProbe?: { socket: WebSocket | null }
+    }).__farmingSnapshotProbe?.socket
+    socket?.send(JSON.stringify({ type: 'state-resync' }))
+  })
+  await expect.poll(() => frames.find(frame => (
+    frame.type === 'state'
+    && frame.snapshotOffset === 0
+    && frame.snapshotId !== first?.snapshotId
+  ))?.snapshotId ?? '', { timeout: 30_000 }).not.toBe('')
+  const resyncSnapshotId = frames.find(frame => (
+    frame.type === 'state'
+    && frame.snapshotOffset === 0
+    && frame.snapshotId !== first?.snapshotId
+  ))?.snapshotId ?? ''
+  await expect.poll(() => frames.findLast(frame => (
+    frame.type === 'state'
+    && frame.snapshotId === resyncSnapshotId
+    && frame.snapshotComplete
+  ))?.agentCount ?? -1, { timeout: 30_000 }).toBe(targetCount)
+
+  const crtPage = await page.context().newPage()
+  const crtFrames = trackWireFrames(crtPage)
+  await crtPage.goto(`/farming/crt/?agent=${encodeURIComponent(mutatedAgentId)}`, { waitUntil: 'domcontentloaded' })
+  await expect.poll(() => crtFrames.findLast(frame => (
+    frame.type === 'state'
+    && frame.snapshotComplete
+    && frame.agentCount === targetCount
+  ))?.agentCount ?? -1, { timeout: 60_000 }).toBe(targetCount)
+  const firstCrtFrame = crtFrames.find(frame => frame.type === 'state' && frame.snapshotOffset === 0)
+  expect(firstCrtFrame?.statePageAgentCount).toBe(32)
+  await expect(crtPage.locator('#session-modal')).toHaveClass(/active/)
+  await expect(crtPage.locator('body')).toContainText(`AGENTS: ${targetCount + 1}/${targetCount + 1}`)
+
+  const showMore = page.getByTestId('code-agent-show-more')
+  for (let attempt = 0; attempt < 20 && await showMore.count(); attempt += 1) {
+    await showMore.first().click()
+  }
+  await expect(showMore).toHaveCount(0)
+  await expect(page.locator(`[data-testid="code-agent-row"][data-agent-id="${mutatedAgentId}"]`)).toBeAttached()
+  await expect(crtPage.locator('body')).toContainText(`AGENTS: ${targetCount + 1}/${targetCount + 1}`)
 })

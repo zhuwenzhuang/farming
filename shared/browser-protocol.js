@@ -6,8 +6,8 @@ exports.sanitizeAgentUpdatePatch = sanitizeAgentUpdatePatch;
 exports.validateClientMessage = validateClientMessage;
 exports.validateServerMessage = validateServerMessage;
 exports.protocolCompatible = protocolCompatible;
-exports.PROTOCOL_VERSION = 7;
-exports.MIN_PROTOCOL_VERSION = 7;
+exports.PROTOCOL_VERSION = 8;
+exports.MIN_PROTOCOL_VERSION = 8;
 const CLIENT_MESSAGE_TYPES = new Set([
     'protocol-hello',
     'business-health-probe',
@@ -88,6 +88,30 @@ function finiteNullableField(value, name) {
 }
 function optionalField(value, name, validate) {
     return value[name] === undefined || validate();
+}
+function stateSnapshotPage(value, agentCount) {
+    if (!objectMessage(value.snapshot))
+        return false;
+    const snapshot = value.snapshot;
+    const nextOffset = Number(snapshot.offset) + agentCount;
+    return stringField(snapshot, 'id')
+        && revisionField(snapshot, 'offset')
+        && revisionField(snapshot, 'total')
+        && typeof snapshot.complete === 'boolean'
+        && nextOffset <= Number(snapshot.total)
+        && snapshot.complete === (nextOffset === Number(snapshot.total));
+}
+function stateMessage(value) {
+    const state = value.state;
+    const agents = objectMessage(state) ? state.agents : null;
+    if (!stringField(value, 'generation')
+        || !revisionField(value, 'sequence')
+        || !objectMessage(state)
+        || !Array.isArray(agents)
+        || !agents.every(agent => objectMessage(agent) && stringField(agent, 'id'))
+        || new Set(agents.map(agent => agent.id)).size !== agents.length)
+        return false;
+    return optionalField(value, 'snapshot', () => stateSnapshotPage(value, agents.length));
 }
 function agentReadState(value) {
     return objectMessage(value)
@@ -236,10 +260,7 @@ function validateServerMessage(value) {
             valid = stringField(value, 'requestId') && stringField(value, 'command');
             break;
         case 'state':
-            valid = stringField(value, 'generation')
-                && revisionField(value, 'sequence')
-                && objectMessage(value.state)
-                && Array.isArray(value.state.agents);
+            valid = stateMessage(value);
             break;
         case 'state-delta':
             valid = stringField(value, 'generation')

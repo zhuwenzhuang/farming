@@ -2,7 +2,26 @@ const WebSocket = require('ws');
 
 const ws = new WebSocket('ws://localhost:3000');
 let state = null;
+let stateGeneration = '';
+let stateSequence = -1;
+let snapshot = null;
 let tests = [];
+
+function applyDelta(agents, upserts, removedAgentIds) {
+  const removals = new Set(removedAgentIds || []);
+  const replacements = new Map((upserts || []).map(agent => [agent.id, agent]));
+  const retained = new Set();
+  const next = [];
+  for (const agent of agents || []) {
+    if (removals.has(agent.id)) continue;
+    next.push(replacements.get(agent.id) || agent);
+    retained.add(agent.id);
+  }
+  for (const agent of upserts || []) {
+    if (!removals.has(agent.id) && !retained.has(agent.id)) next.push(agent);
+  }
+  return next;
+}
 
 ws.on('open', () => {
   console.log('=== Farming Test Suite ===\n');
@@ -10,7 +29,36 @@ ws.on('open', () => {
   ws.on('message', (data) => {
     const msg = JSON.parse(data.toString());
     if (msg.type === 'state') {
-      state = msg.state;
+      if (!msg.snapshot) {
+        state = msg.state;
+      } else if (msg.snapshot.offset === 0) {
+        const { agents, ...metadata } = msg.state;
+        snapshot = { id: msg.snapshot.id, total: msg.snapshot.total, metadata, agents: [...agents] };
+      } else if (snapshot && snapshot.id === msg.snapshot.id && snapshot.agents.length === msg.snapshot.offset) {
+        snapshot.agents.push(...msg.state.agents);
+      } else {
+        snapshot = null;
+        ws.send(JSON.stringify({ type: 'state-resync' }));
+        return;
+      }
+      if (msg.snapshot?.complete && snapshot && snapshot.agents.length === snapshot.total) {
+        state = { ...snapshot.metadata, agents: snapshot.agents };
+        snapshot = null;
+      }
+      stateGeneration = msg.generation;
+      stateSequence = msg.sequence;
+    } else if (
+      msg.type === 'state-delta'
+      && state
+      && msg.generation === stateGeneration
+      && msg.sequence === stateSequence + 1
+    ) {
+      state = {
+        ...state,
+        ...(msg.state || {}),
+        agents: applyDelta(state.agents, msg.upserts, msg.removedAgentIds),
+      };
+      stateSequence = msg.sequence;
     } else if (msg.type === 'error') {
       console.log('ERROR:', msg.message);
     }

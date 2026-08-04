@@ -1,5 +1,5 @@
-export const PROTOCOL_VERSION = 7
-export const MIN_PROTOCOL_VERSION = 7
+export const PROTOCOL_VERSION = 8
+export const MIN_PROTOCOL_VERSION = 8
 
 type ObjectMessage = Record<string, unknown>
 
@@ -133,6 +133,12 @@ export interface StateMessage extends ExtensibleMessage {
   type: 'state'
   generation: string
   sequence: number
+  snapshot?: {
+    complete: boolean
+    id: string
+    offset: number
+    total: number
+  }
   state: ObjectMessage & { agents: unknown[] }
 }
 
@@ -402,6 +408,32 @@ function optionalField(value: ObjectMessage, name: string, validate: () => boole
   return value[name] === undefined || validate()
 }
 
+function stateSnapshotPage(value: ObjectMessage, agentCount: number): boolean {
+  if (!objectMessage(value.snapshot)) return false
+  const snapshot = value.snapshot
+  const nextOffset = Number(snapshot.offset) + agentCount
+  return stringField(snapshot, 'id')
+    && revisionField(snapshot, 'offset')
+    && revisionField(snapshot, 'total')
+    && typeof snapshot.complete === 'boolean'
+    && nextOffset <= Number(snapshot.total)
+    && snapshot.complete === (nextOffset === Number(snapshot.total))
+}
+
+function stateMessage(value: ObjectMessage): boolean {
+  const state = value.state
+  const agents = objectMessage(state) ? state.agents : null
+  if (
+    !stringField(value, 'generation')
+    || !revisionField(value, 'sequence')
+    || !objectMessage(state)
+    || !Array.isArray(agents)
+    || !agents.every(agent => objectMessage(agent) && stringField(agent, 'id'))
+    || new Set(agents.map(agent => agent.id)).size !== agents.length
+  ) return false
+  return optionalField(value, 'snapshot', () => stateSnapshotPage(value, agents.length))
+}
+
 function agentReadState(value: unknown): boolean {
   return objectMessage(value)
     && stringField(value, 'agentId')
@@ -534,12 +566,7 @@ export function validateServerMessage(value: unknown): ValidationResult<ServerMe
     case 'protocol-error':
     case 'error': valid = stringField(value, 'message'); break
     case 'command-ack': valid = stringField(value, 'requestId') && stringField(value, 'command'); break
-    case 'state':
-      valid = stringField(value, 'generation')
-        && revisionField(value, 'sequence')
-        && objectMessage(value.state)
-        && Array.isArray(value.state.agents)
-      break
+    case 'state': valid = stateMessage(value); break
     case 'state-delta':
       valid = stringField(value, 'generation')
         && revisionField(value, 'sequence')

@@ -8,6 +8,13 @@ import os from 'node:os';
 import path from 'node:path';
 import puppeteer, { type Browser, type ElementHandle, type Page, type Viewport } from 'puppeteer';
 import WebSocket from 'ws';
+import {
+  advanceAgentStateSnapshot,
+  agentStateDeltaDisposition,
+  applyAgentStateDelta,
+  type AgentStateCursor,
+  type AgentStateSnapshotCursor,
+} from '../src/lib/agent-state-delta';
 
 const PROJECT_ROOT = path.join(__dirname, '..');
 const DEFAULT_BASE_PATH = '/farming';
@@ -158,6 +165,10 @@ async function fetchJson(baseUrl: string, suffix: string): Promise<Record<string
 class StateTracker {
   baseUrl: string;
   state: AppState | null;
+  stateCursor: AgentStateCursor | null;
+  snapshotAgents: AgentInfo[];
+  snapshotCursor: AgentStateSnapshotCursor | null;
+  snapshotMetadata: Omit<AppState, 'agents'> | null;
   errors: string[];
   previewByAgentId: Map<string, Record<string, unknown>>;
   waiters: Waiter[];
@@ -166,6 +177,10 @@ class StateTracker {
   constructor(baseUrl: string) {
     this.baseUrl = baseUrl;
     this.state = null;
+    this.stateCursor = null;
+    this.snapshotAgents = [];
+    this.snapshotCursor = null;
+    this.snapshotMetadata = null;
     this.errors = [];
     this.previewByAgentId = new Map();
     this.waiters = [];
@@ -176,7 +191,56 @@ class StateTracker {
     this.ws.on('message', (buffer) => {
       const message = JSON.parse(buffer.toString());
       if (message.type === 'state') {
-        this.state = message.state;
+        if (!message.snapshot) {
+          this.state = message.state;
+          this.stateCursor = { generation: message.generation, sequence: message.sequence };
+        } else {
+          const transition = advanceAgentStateSnapshot(
+            this.snapshotCursor,
+            message.generation,
+            message.sequence,
+            message.snapshot,
+            message.state.agents.length,
+          );
+          if (transition.disposition === 'resync') {
+            this.snapshotAgents = [];
+            this.snapshotCursor = null;
+            this.send({ type: 'state-resync' });
+            return;
+          }
+          if (transition.disposition === 'replace') {
+            const { agents: _agents, ...metadata } = message.state;
+            this.snapshotAgents = [...message.state.agents];
+            this.snapshotMetadata = metadata as Omit<AppState, 'agents'>;
+          } else {
+            this.snapshotAgents.push(...message.state.agents);
+          }
+          this.snapshotCursor = transition.cursor;
+          if (!transition.cursor && this.snapshotMetadata) {
+            this.state = { ...this.snapshotMetadata, agents: [...this.snapshotAgents] };
+            this.stateCursor = { generation: message.generation, sequence: message.sequence };
+            this.snapshotAgents = [];
+            this.snapshotMetadata = null;
+          }
+        }
+      } else if (message.type === 'state-delta') {
+        const disposition = agentStateDeltaDisposition(
+          this.stateCursor,
+          message.generation,
+          message.sequence,
+        );
+        if (disposition === 'resync' || !this.state) {
+          this.send({ type: 'state-resync' });
+          return;
+        }
+        if (disposition === 'apply') {
+          this.state = {
+            ...this.state,
+            ...(message.state || {}),
+            agents: applyAgentStateDelta(this.state.agents, message.upserts, message.removedAgentIds),
+          };
+          this.stateCursor = { generation: message.generation, sequence: message.sequence };
+        }
       } else if (message.type === 'error') {
         this.errors.push(message.message);
       } else if (message.type === 'session-preview') {
