@@ -328,13 +328,20 @@ export function App() {
   const effectiveActiveTerminalId = activeTerminalId
     ? observedAgentReplacements.get(activeTerminalId) ?? activeTerminalId
     : null
+  const activeTerminalAgent = useMemo(
+    () => displayedAgents.find(agent => agent.id === effectiveActiveTerminalId) ?? null,
+    [displayedAgents, effectiveActiveTerminalId]
+  )
 
   useEffect(() => {
     const projectsVisible = activeWorkspaceView === 'projects'
     focusAgent(projectsVisible ? effectiveActiveTerminalId : null, {
       activityScope: projectsVisible ? 'all' : 'none',
+      previewScope: projectsVisible && activeTerminalAgent?.runtimeBinding.kind === 'terminal'
+        ? 'focused'
+        : 'none',
     })
-  }, [activeWorkspaceView, effectiveActiveTerminalId, focusAgent])
+  }, [activeTerminalAgent?.runtimeBinding.kind, activeWorkspaceView, effectiveActiveTerminalId, focusAgent])
 
   useLayoutEffect(() => {
     if (!observedAgentReplacement) return
@@ -1060,12 +1067,6 @@ export function App() {
       requestTerminalOpen(agentId)
     }
   }, [handleUpdateAgentFlags, requestTerminalOpen])
-
-  // Focused agent for top-level labels
-  const activeTerminalAgent = useMemo(
-    () => displayedAgents.find(a => a.id === effectiveActiveTerminalId) ?? null,
-    [displayedAgents, effectiveActiveTerminalId]
-  )
 
   useEffect(() => {
     if (!pageVisible) return undefined

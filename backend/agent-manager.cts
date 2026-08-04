@@ -1065,6 +1065,15 @@ function terminalStatusEqual(
   ));
 }
 
+function codexTerminalProfileEqual(left: unknown, right: unknown) {
+  if (left === right) return true;
+  if (!isRecord(left) || !isRecord(right)) return false;
+  return left.model === right.model
+    && left.reasoningEffort === right.reasoningEffort
+    && left.serviceTier === right.serviceTier
+    && left.source === right.source;
+}
+
 function terminalRuntimeStatus(agentStatus: unknown) {
   return agentStatus === 'stopped' || agentStatus === 'dead' ? 'exited' : agentStatus;
 }
@@ -1406,6 +1415,7 @@ class AgentManager extends EventEmitter {
     TypedAgentRecord,
     ReturnType<typeof deriveAgentTerminalStatus>
   >;
+  declare codexTerminalProfileProjections: WeakMap<TypedAgentRecord, object | null>;
   declare outputEvents: Map<AgentId, TerminalOutputActivity[]>;
   declare agentUsageRateCache: Map<AgentId, { sampledAt: number; value: AgentUsageRate; windowMs: number }>;
   declare lastResizeByAgent: Map<AgentId, TerminalSize>;
@@ -1487,6 +1497,7 @@ class AgentManager extends EventEmitter {
     this.lastActivity = new Map();
     this.lastActivityUpdate = new Map();
     this.terminalStatusProjections = new WeakMap();
+    this.codexTerminalProfileProjections = new WeakMap();
     this.outputEvents = new Map(); // Map<agentId, Array<{timestamp, bytes}>> for rate tracking
     this.agentUsageRateCache = new Map();
     this.lastResizeByAgent = new Map();
@@ -2033,6 +2044,9 @@ class AgentManager extends EventEmitter {
             title: agent.sessionTitle || '',
             terminalBusy: typeof agent.terminalBusy === 'boolean' ? agent.terminalBusy : null,
           });
+        const previousCodexTerminalProfile = this.codexTerminalProfileProjections.has(agent)
+          ? this.codexTerminalProfileProjections.get(agent) ?? null
+          : (isRecord(agent.codexTerminalProfile) ? agent.codexTerminalProfile : null);
         const titleChanged = typeof title === 'string'
           ? this.updateAgentSessionTitle(agent, title)
           : false;
@@ -2050,21 +2064,31 @@ class AgentManager extends EventEmitter {
           terminalBusy: typeof agent.terminalBusy === 'boolean' ? agent.terminalBusy : null,
         });
         const runtimeObservation = deriveRuntimeObservation({ ...agent, terminalStatus });
+        const codexTerminalProfile = activeCodexTerminalProfile(agent, agent.previewText) || null;
         this.terminalStatusProjections.set(agent, terminalStatus);
+        this.codexTerminalProfileProjections.set(agent, codexTerminalProfile);
         this.emit('session-preview-update', {
           agentId: sessionId,
           previewText: agent.previewText,
           cols: agent.previewCols || 80,
           rows: agent.previewRows || 30,
           previewSnapshot: agent.previewSnapshot,
-          codexTerminalProfile: activeCodexTerminalProfile(agent, agent.previewText),
+          codexTerminalProfile,
           terminalStatus,
           runtimeObservation,
         });
+        const patch: UnknownRecord = {};
         if (!titleChanged && !terminalStatusEqual(previousTerminalStatus, terminalStatus)) {
+          patch.terminalStatus = terminalStatus;
+          patch.runtimeObservation = runtimeObservation;
+        }
+        if (!titleChanged && !codexTerminalProfileEqual(previousCodexTerminalProfile, codexTerminalProfile)) {
+          patch.codexTerminalProfile = codexTerminalProfile;
+        }
+        if (Object.keys(patch).length > 0) {
           this.emit('agent-update', {
             agentId: sessionId,
-            patch: { terminalStatus, runtimeObservation },
+            patch,
           });
         }
         void this.resolveCodexTerminalIdentityFromPreview(sessionId, agent.previewText);
@@ -10840,7 +10864,9 @@ class AgentManager extends EventEmitter {
       title: agent.sessionTitle || '',
       previewText: agent.previewText || '',
     });
+    const codexTerminalProfile = activeCodexTerminalProfile(agent, agent.previewText || '') || null;
     this.terminalStatusProjections.set(agent, terminalStatus);
+    this.codexTerminalProfileProjections.set(agent, codexTerminalProfile);
 
     return {
       id: agent.id,
@@ -10851,7 +10877,7 @@ class AgentManager extends EventEmitter {
       gitWorktree: publicAgentGitWorktree(agent),
       output: (agent.output || '').slice(-2000),
       previewText: agent.previewText || '',
-      codexTerminalProfile: activeCodexTerminalProfile(agent, agent.previewText || ''),
+      codexTerminalProfile,
       previewCols: agent.previewCols || 80,
       previewRows: agent.previewRows || 30,
       sessionTitle: agent.sessionTitle || '',

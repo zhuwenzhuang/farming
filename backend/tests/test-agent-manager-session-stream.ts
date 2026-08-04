@@ -270,6 +270,43 @@ async function run() {
     assert.strictEqual(titlePreviewState.runtimeObservation.phase, 'working');
     manager.agents.delete('title-preview-agent');
 
+    manager.agents.set('profile-preview-agent', {
+      id: 'profile-preview-agent',
+      command: 'codex',
+      cwd: '/tmp',
+      output: '',
+      previewText: '',
+      engineName: 'local',
+      status: 'running',
+    });
+    const agentUpdatesBeforeProfilePreviews = agentUpdates.length;
+    for (let index = 0; index < 100; index += 1) {
+      manager.engineBridge.router.engines.local.emit('session-preview', {
+        sessionId: 'profile-preview-agent',
+        previewText: `completed output ${index}\ngpt-5.6-sol xhigh · /tmp`,
+        cols: 80,
+        rows: 24,
+        previewSnapshot: null,
+      });
+    }
+    assert.strictEqual(
+      agentUpdates.length,
+      agentUpdatesBeforeProfilePreviews + 1,
+      'a stable Codex profile should publish one lightweight projection',
+    );
+    assert.strictEqual(agentUpdates.at(-1).patch.codexTerminalProfile.model, 'gpt-5.6-sol');
+    manager.engineBridge.router.engines.local.emit('session-preview', {
+      sessionId: 'profile-preview-agent',
+      previewText: 'gpt-5.6-terra high · /tmp',
+      cols: 80,
+      rows: 24,
+      previewSnapshot: null,
+    });
+    assert.strictEqual(agentUpdates.length, agentUpdatesBeforeProfilePreviews + 2);
+    assert.deepStrictEqual(Object.keys(agentUpdates.at(-1).patch), ['codexTerminalProfile']);
+    assert.strictEqual(agentUpdates.at(-1).patch.codexTerminalProfile.model, 'gpt-5.6-terra');
+    manager.agents.delete('profile-preview-agent');
+
     manager.agents.set('busy-preview-agent', {
       id: 'busy-preview-agent',
       command: 'codex',

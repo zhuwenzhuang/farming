@@ -157,8 +157,16 @@ function agentReadState(value) {
         && stringField(value, 'readOutputEpoch')
         && finiteNullableField(value, 'readOutputSeq');
 }
+function codexTerminalProfileState(value) {
+    return value === null || (objectMessage(value)
+        && stringField(value, 'model')
+        && stringField(value, 'reasoningEffort')
+        && stringField(value, 'serviceTier')
+        && stringField(value, 'source'));
+}
 const AGENT_UPDATE_PATCH_VALIDATORS = {
     adaptiveTitle: (value) => typeof value === 'string',
+    codexTerminalProfile: codexTerminalProfileState,
     sessionTitle: (value) => typeof value === 'string',
     runtimeBinding: (value) => (objectMessage(value)
         && (value.kind === 'terminal'

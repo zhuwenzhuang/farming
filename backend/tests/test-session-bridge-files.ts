@@ -10,6 +10,8 @@ function run() {
   const appPath = path.join(__dirname, '../../src/App.tsx');
   const useWebSocketPath = path.join(__dirname, '../../src/hooks/useWebSocket.ts');
   const workspacePath = path.join(__dirname, '../../src/components/CodeWorkspace.tsx');
+  const codeSidebarPath = path.join(__dirname, '../../src/components/code/CodeSidebar.tsx');
+  const agentRowStatePath = path.join(__dirname, '../../src/components/code/agent-row-state.ts');
   const terminalPanePath = path.join(__dirname, '../../src/components/AgentTerminalPane.tsx');
   const sessionBridge = fs.readFileSync(sessionBridgePath, 'utf8');
   const server = fs.readFileSync(serverPath, 'utf8');
@@ -18,6 +20,8 @@ function run() {
   const app = fs.readFileSync(appPath, 'utf8');
   const useWebSocket = fs.readFileSync(useWebSocketPath, 'utf8');
   const workspace = fs.readFileSync(workspacePath, 'utf8');
+  const codeSidebar = fs.readFileSync(codeSidebarPath, 'utf8');
+  const agentRowState = fs.readFileSync(agentRowStatePath, 'utf8');
   const terminalPane = fs.readFileSync(terminalPanePath, 'utf8');
 
   assert(
@@ -39,10 +43,12 @@ function run() {
   assert(
     codeFocusAgent.includes('focusedAgentIdRef.current = agentId') &&
       codeFocusAgent.includes('agentActivityScopeRef.current = activityScope') &&
+      codeFocusAgent.includes('agentPreviewScopeRef.current = previewScope') &&
       codeFocusAgent.includes("type: 'focus-agent',\n      agentId,\n      activityScope,") &&
+      codeFocusAgent.includes('previewScope,') &&
       !codeFocusAgent.includes('streamScope') &&
-      !codeFocusAgent.includes('previewScope'),
-    'Farming Code should retain all terminal streams while declaring its activity view scope',
+      useWebSocket.includes('previewScope: agentPreviewScopeRef.current,'),
+    'Farming Code should retain all terminal streams while restoring its activity and Preview view scopes',
   );
   assert(
     !useWebSocket.includes('const resizeAgent = useCallback') &&
@@ -93,6 +99,7 @@ function run() {
   assert(
     app.includes("const projectsVisible = activeWorkspaceView === 'projects'") &&
       app.includes("activityScope: projectsVisible ? 'all' : 'none'") &&
+      app.includes("previewScope: projectsVisible && activeTerminalAgent?.runtimeBinding.kind === 'terminal'\n        ? 'focused'\n        : 'none',") &&
       workspace.includes('markAgentReadIfNeeded(agent.id, true)') &&
       workspace.includes('readOutputEpoch: readCut.runtimeEpoch') &&
       workspace.includes('readOutputSeq: readCut.outputSeq') &&
@@ -136,12 +143,27 @@ function run() {
       server.includes('sessionPreviewScopeIncludesAgent(ws.previewScope, ws.focusedAgentId, previewAgentId)') &&
       server.includes('sessionPreviewScopeCheckpointRequired(') &&
       server.includes('sendPreviewHydration(ws)') &&
+      server.includes('PREVIEW_SCOPE_DECLARATION_WINDOW_MS') &&
+      server.includes('ws.previewScopeDeclared !== true') &&
+      server.includes('declareSessionPreviewScope(ws)') &&
+      server.includes('queueSessionPreviewHydration(') &&
+      server.includes('cancelSessionPreviewHydration(ws)') &&
       server.includes("if (scope === 'none') return;") &&
       server.includes('agentManager.getPreviewPayload(ws.focusedAgentId)') &&
       server.includes('Ignoring Session preview without an exact Agent identity') &&
       sessionPreviewDelivery.includes("normalizedScope === 'none'") &&
-      sessionPreviewDelivery.includes("normalizedScope !== 'focused'"),
+      sessionPreviewDelivery.includes("normalizedScope !== 'focused'") &&
+      sessionPreviewDelivery.includes('state.previewHydrationPending = true') &&
+      sessionPreviewDelivery.includes('if (state.previewHydrationTimer) clearTimeout(state.previewHydrationTimer)'),
     'server should suppress background streams and previews for a focused CRT terminal'
+  );
+  assert(
+    [workspace, codeSidebar, agentRowState].every(source => (
+      !source.includes('previewText') && !source.includes('previewSnapshot')
+    )) &&
+      agentRowState.includes('agent.codexTerminalProfile?.model') &&
+      agentRowState.includes('agent.terminalStatus?.runningCommand'),
+    'Code Project, History, mobile, and Agent-row presentation must use lightweight Agent state rather than background Preview payloads',
   );
   const agentPatchRoute = server.slice(
     server.indexOf("app.patch(routePath(BASE_PATH, '/api/agents/:agentId')"),

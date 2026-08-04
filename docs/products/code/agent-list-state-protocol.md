@@ -59,10 +59,18 @@ Session previews have an independent compatible `all`, `focused`, or `none`
 scope. The scope applies both to live preview broadcasts and to the absolute
 preview hydration that follows a complete Agent snapshot. A focused CRT Session
 uses `none` because its authoritative live terminal or Chat surface already owns
-the visible content; the CRT Dashboard uses `all`. Clients that do not declare
-the scope retain `all` delivery. Widening preview interest or changing a focused
-target sends the current absolute preview checkpoint; when an Agent snapshot is
-already required or in progress, its completion performs that hydration instead.
+the visible content; the CRT Dashboard uses `all`. Farming Code uses `focused`
+only for its visible Terminal Agent and `none` in Chat or non-Agent views.
+After a complete snapshot, a client has a bounded 100 ms window to declare its
+Preview scope before hydration. Throughout snapshot delivery and that window,
+undeclared live Preview is suppressed. Declaration applies the requested
+hydration immediately, while a legacy client that remains undeclared receives
+compatible `all` hydration at the deadline. Each complete snapshot owns one
+hydration decision; a replacement snapshot or connection close cancels the
+previous pending deadline. Widening preview interest or changing a focused
+target sends the
+current absolute preview checkpoint; when an Agent snapshot is already required
+or in progress, its completion performs that hydration instead.
 A `none` hydration performs no Agent inventory traversal, while `focused` reads
 one exact Agent; only `all` enumerates the complete preview inventory.
 A preview without an exact Agent identity is rejected with one bounded Server
@@ -70,13 +78,15 @@ diagnostic rather than broadcast without an owner.
 Terminal preview text or screen changes remain on that scoped heavy stream.
 When a preview-only change alters the derived terminal status, the backend also
 publishes one deduplicated `agent-update` containing that status and its resulting
-runtime observation. A preview that also changes the Agent title uses the
-authoritative state delta instead of duplicating that lightweight update. This
-keeps Project supervision current when a browser intentionally does not consume
-the heavy preview, without adding an update for every preview frame. The
-lightweight projection follows Agent-state scope, not Preview scope. Terminal
-preview events cannot write runtime observation for an ACP-owned Agent. The
-deduplication baseline is refreshed by authoritative Agent-state projections
+runtime observation. A changed Codex Terminal model, reasoning effort, or service
+tier is published through the same lightweight Agent-state path so background
+rows do not depend on Preview freshness. A preview that also changes the Agent
+title uses the authoritative state delta instead of duplicating that lightweight
+update. This keeps Project supervision current when a browser intentionally does
+not consume the heavy preview, without adding an update for every preview frame.
+The lightweight projection follows Agent-state scope, not Preview scope.
+Terminal preview events cannot write runtime observation for an ACP-owned Agent.
+The deduplication baseline is refreshed by authoritative Agent-state projections
 and structured terminal metadata updates, so alternating sources cannot hide a
 later preview-derived transition.
 

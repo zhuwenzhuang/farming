@@ -277,6 +277,7 @@ export interface AgentUpdateMessage {
     agentId: string
     patch: {
       adaptiveTitle?: string
+      codexTerminalProfile?: CodexTerminalProfile | null
       sessionTitle?: string
       runtimeBinding?: Agent['runtimeBinding']
       terminalInputReceived?: boolean

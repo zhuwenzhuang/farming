@@ -102,6 +102,7 @@ export function useWebSocket() {
   const wsRef = useRef<WebSocket | null>(null)
   const focusedAgentIdRef = useRef<string | null>(null)
   const agentActivityScopeRef = useRef<'all' | 'focused' | 'none'>('all')
+  const agentPreviewScopeRef = useRef<'all' | 'focused' | 'none'>('none')
   const agentStateSignaturesRef = useRef<Map<string, string>>(new Map())
   const agentStateCursorRef = useRef<AgentStateCursor | null>(null)
   const agentStateSnapshotAgentsRef = useRef<Agent[]>([])
@@ -343,17 +344,23 @@ export function useWebSocket() {
 
   const focusAgent = useCallback((
     agentId: string | null,
-    options: { activityScope?: 'all' | 'focused' | 'none' } = {},
+    options: {
+      activityScope?: 'all' | 'focused' | 'none'
+      previewScope?: 'all' | 'focused' | 'none'
+    } = {},
   ) => {
     const activityScope = options.activityScope ?? 'all'
+    const previewScope = options.previewScope ?? agentPreviewScopeRef.current
     focusedAgentIdRef.current = agentId
     agentActivityScopeRef.current = activityScope
+    agentPreviewScopeRef.current = previewScope
     const ws = wsRef.current
     if (!ws || ws.readyState !== WebSocket.OPEN) return false
     ws.send(JSON.stringify({
       type: 'focus-agent',
       agentId,
       activityScope,
+      previewScope,
     }))
     return true
   }, [])
@@ -556,6 +563,7 @@ export function useWebSocket() {
           type: 'focus-agent',
           agentId: focusedAgentIdRef.current,
           activityScope: agentActivityScopeRef.current,
+          previewScope: agentPreviewScopeRef.current,
         }))
         sendBusinessProbe(ws)
         window.dispatchEvent(new Event('farming:backend-connected'))

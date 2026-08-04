@@ -141,7 +141,10 @@ interface WebSocketClient {
   acpRevisionSentRevision?: number;
   connectionId?: string;
   focusedAgentId?: string | null;
+  previewHydrationPending?: boolean;
+  previewHydrationTimer?: ReturnType<typeof setTimeout> | null;
   previewScope?: 'none' | 'focused' | 'all';
+  previewScopeDeclared?: boolean;
   protocolVersion?: number;
   readyState: number;
   resourceSnapshotPending?: boolean;
@@ -298,7 +301,10 @@ import {
 } from './agent-activity-delivery.cjs';
 import { acpRevisionClientDelivery } from './acp-revision-delivery.cjs';
 import {
+  cancelSessionPreviewHydration,
+  declareSessionPreviewScope,
   normalizeSessionPreviewScope,
+  queueSessionPreviewHydration,
   sessionPreviewScopeCheckpointRequired,
   sessionPreviewScopeIncludesAgent,
 } from './session-preview-delivery.cjs';
@@ -3116,6 +3122,7 @@ wss.on('connection', (ws, req) => {
   
   ws.on('close', (code: number, reason: Buffer) => {
     clearWorkspaceFileWatch(ws);
+    cancelSessionPreviewHydration(ws);
     if (ws.stateSnapshotRetryTimer) clearTimeout(ws.stateSnapshotRetryTimer);
     ws.stateSnapshotDeltaBytes = 0;
     ws.stateSnapshotDeltas = [];
@@ -3465,6 +3472,10 @@ function handleMessage(ws: WebSocketClient, data: ServerClientMessage) {
       const previousStateScope = normalizeAgentStateScope(ws.stateScope);
       const previousPreviewScope = normalizeSessionPreviewScope(ws.previewScope);
       const nextPreviewScope = normalizeSessionPreviewScope(data.previewScope ?? previousPreviewScope);
+      const previewScopeDeclared = Object.prototype.hasOwnProperty.call(data, 'previewScope');
+      const initialPreviewHydrationPending = previewScopeDeclared
+        ? declareSessionPreviewScope(ws)
+        : false;
       const previousFocusedAgentId = ws.focusedAgentId;
       const focusChanged = previousFocusedAgentId !== data.agentId;
       const scopeChanged = previousActivityScope !== nextActivityScope;
@@ -3524,7 +3535,10 @@ function handleMessage(ws: WebSocketClient, data: ServerClientMessage) {
         sendState(ws);
       } else {
         if (activitySnapshotRequired) sendAgentActivitySnapshot(ws);
-        if (previewCheckpointRequired && !ws.stateSnapshotInProgress) sendPreviewHydration(ws);
+        if (
+          !ws.stateSnapshotInProgress
+          && (initialPreviewHydrationPending || previewCheckpointRequired)
+        ) sendPreviewHydration(ws);
       }
       break;
     }
@@ -3708,6 +3722,7 @@ function sendState(ws: WebSocketClient) {
     ws.stateSnapshotPending = true;
     return;
   }
+  cancelSessionPreviewHydration(ws);
   broadcastState(ws, true);
   const state = agentStateBroadcastSnapshot(stateBroadcastTracker);
   const summaries = agentStateBroadcastProjectSummaries(stateBroadcastTracker);
@@ -3745,7 +3760,13 @@ function sendState(ws: WebSocketClient) {
   const finishSnapshotDelivery = () => {
     ws.stateSnapshotInProgress = false;
     ws.stateSnapshotRetryTimer = null;
-    sendPreviewHydration(ws);
+    queueSessionPreviewHydration(
+      ws,
+      PREVIEW_SCOPE_DECLARATION_WINDOW_MS,
+      () => {
+        if (ws.readyState === WebSocket.OPEN) sendPreviewHydration(ws);
+      },
+    );
   };
   const drainSnapshotDeltas = () => {
     ws.stateSnapshotRetryTimer = null;
@@ -3847,6 +3868,10 @@ function sendPreviewIfInScope(ws: WebSocketClient, preview: ServerRecord) {
     }
     return false;
   }
+  if (
+    ws.previewScopeDeclared !== true
+    && (ws.stateSnapshotInProgress || ws.previewHydrationPending === true)
+  ) return false;
   if (!sessionPreviewScopeIncludesAgent(ws.previewScope, ws.focusedAgentId, previewAgentId)) return false;
   ws.send(JSON.stringify({
     type: 'session-preview',
@@ -3877,6 +3902,7 @@ const AGENT_STATE_SNAPSHOT_BACKPRESSURE_RETRY_MS = 25;
 const MAX_AGENT_STATE_SNAPSHOT_DELTA_COUNT = 256;
 const MAX_AGENT_STATE_SNAPSHOT_DELTA_BYTES = 1024 * 1024;
 const PREVIEW_BROADCAST_INTERVAL_MS = 500;
+const PREVIEW_SCOPE_DECLARATION_WINDOW_MS = 100;
 const SESSION_STREAM_BROADCAST_INTERVAL_MS = 33;
 const AGENT_ACTIVITY_BROADCAST_DELAY_MS = SESSION_STREAM_BROADCAST_INTERVAL_MS;
 const MAX_SESSION_STREAM_CLIENT_BUFFERED_AMOUNT = 4 * 1024 * 1024;

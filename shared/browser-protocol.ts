@@ -197,6 +197,7 @@ export interface AgentActivitySnapshotMessage extends ExtensibleMessage {
 
 export interface AgentUpdatePatch {
   adaptiveTitle?: string
+  codexTerminalProfile?: ObjectMessage | null
   sessionTitle?: string
   runtimeBinding?: ObjectMessage
   terminalInputReceived?: boolean
@@ -483,8 +484,19 @@ function agentReadState(value: unknown): boolean {
     && finiteNullableField(value, 'readOutputSeq')
 }
 
+function codexTerminalProfileState(value: unknown): boolean {
+  return value === null || (
+    objectMessage(value)
+    && stringField(value, 'model')
+    && stringField(value, 'reasoningEffort')
+    && stringField(value, 'serviceTier')
+    && stringField(value, 'source')
+  )
+}
+
 const AGENT_UPDATE_PATCH_VALIDATORS = {
   adaptiveTitle: (value: unknown) => typeof value === 'string',
+  codexTerminalProfile: codexTerminalProfileState,
   sessionTitle: (value: unknown) => typeof value === 'string',
   runtimeBinding: (value: unknown) => (
     objectMessage(value)

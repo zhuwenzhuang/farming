@@ -257,6 +257,12 @@ async function renderSnapshot(page: Page) {
   )) as Promise<RenderSnapshot>
 }
 
+async function visibleTerminalAgentId(page: Page, label: string) {
+  const terminalPane = page.locator('[data-testid="code-terminal-pane"][data-agent-id]:visible').first()
+  await expect(terminalPane).toHaveAttribute('data-agent-id', /.+/)
+  return requiredAgentId(await terminalPane.getAttribute('data-agent-id') ?? undefined, label)
+}
+
 test(`characterizes Code workspace scaling through ${AGENT_COUNTS.at(-1)} live Agents`, async ({ page, workspaceRoot }, testInfo) => {
   test.setTimeout(Math.max(240_000, (AGENT_COUNTS.at(-1) || 50) * 4_000))
   const workspace = path.join(workspaceRoot, 'performance-scaling')
@@ -312,7 +318,7 @@ test(`characterizes Code workspace scaling through ${AGENT_COUNTS.at(-1)} live A
     const previewFrameStart = frames.length
     const previewMetricsBefore = await browserMetrics(cdp)
     const previewStartedAt = performance.now()
-    const previewAgentId = agentIds[targetCount > 1 ? targetCount - 2 : 0]
+    const previewAgentId = await visibleTerminalAgentId(page, 'Active Preview performance')
     const inputResponse = await page.request.post(`/farming/api/control/agents/${previewAgentId}/input`, {
       data: { input: `printf '__FARMING_SCALE_${targetCount}__\\n'\r` },
     })
@@ -360,14 +366,177 @@ test(`characterizes Code workspace scaling through ${AGENT_COUNTS.at(-1)} live A
     expect(previewWindowMessages.state || 0).toBe(0)
     expect(previewWindowMessages['state-delta'] || 0).toBe(0)
     expect(previewRenders.app).toBe(0)
-    if (targetCount > 1) expect(previewRenders.codeWorkspace).toBe(0)
+    expect(previewRenders.codeWorkspace).toBeLessThanOrEqual(2)
     expect(result.statePayloadBytes).toBeGreaterThan(0)
+
+    if (targetCount > 1) {
+      const unrelatedPreviewAgentId = requiredAgentId(
+        [...agentIds].reverse().find(agentId => agentId !== previewAgentId),
+        'Unrelated Preview performance',
+      )
+      await page.evaluate(() => window.__farmingPerformanceTest?.reset())
+      const unrelatedPreviewStart = frames.length
+      const unrelatedInput = await page.request.post(
+        `/farming/api/control/agents/${unrelatedPreviewAgentId}/input`,
+        { data: { input: `printf '__FARMING_UNRELATED_PREVIEW_${targetCount}__\\n'\r` } },
+      )
+      expect(unrelatedInput.ok()).toBeTruthy()
+      await expect.poll(() => frames.slice(unrelatedPreviewStart).some(frame => (
+        frame.type === 'agent-update' && frame.agentId === unrelatedPreviewAgentId
+      )), { timeout: 15_000 }).toBe(true)
+      await waitForWireQuiet(frames, 700, 5_000)
+      expect(frames.slice(unrelatedPreviewStart).some(frame => (
+        frame.type === 'session-preview' && frame.agentId === unrelatedPreviewAgentId
+      ))).toBe(false)
+      const unrelatedPreviewRenders = await renderSnapshot(page)
+      expect(unrelatedPreviewRenders.app).toBe(0)
+      expect(unrelatedPreviewRenders.codeWorkspace).toBe(0)
+    }
   }
 
   await testInfo.attach('performance-scaling.json', {
     body: Buffer.from(`${JSON.stringify({ results }, null, 2)}\n`),
     contentType: 'application/json',
   })
+})
+
+test('scopes one-page Code Preview hydration and preserves legacy fallback', async ({ page, workspaceRoot }) => {
+  test.setTimeout(120_000)
+  const workspace = path.join(workspaceRoot, 'preview-scope-declaration')
+  fs.mkdirSync(workspace, { recursive: true })
+  await page.addInitScript(() => {
+    const previewWindow = window as typeof window & { __farmingPreviewScopeSockets?: WebSocket[] }
+    previewWindow.__farmingPreviewScopeSockets = []
+    const NativeWebSocket = window.WebSocket
+    class PreviewScopeWebSocket extends NativeWebSocket {
+      constructor(url: string | URL, protocols?: string | string[]) {
+        super(url, protocols)
+        previewWindow.__farmingPreviewScopeSockets?.push(this)
+      }
+    }
+    Object.defineProperty(window, 'WebSocket', {
+      configurable: true,
+      value: PreviewScopeWebSocket,
+      writable: true,
+    })
+  })
+  const agentIds = await createBashAgents(page, workspace, 3)
+
+  for (const [index, agentId] of agentIds.entries()) {
+    const marker = `__FARMING_PREVIEW_DECLARATION_${index}__`
+    const input = await page.request.post(
+      `/farming/api/control/agents/${encodeURIComponent(agentId)}/input`,
+      { data: { input: `printf '${marker}\\n'\r` } },
+    )
+    expect(input.ok()).toBeTruthy()
+    await expect.poll(async () => {
+      const response = await page.request.get(
+        `/farming/api/agents/${encodeURIComponent(agentId)}/session-view`,
+      )
+      if (!response.ok()) return false
+      const body = await response.json() as { session?: { previewText?: string } }
+      return String(body.session?.previewText || '').includes(marker)
+    }, { timeout: 30_000 }).toBe(true)
+  }
+
+  const frames = trackWireFrames(page)
+  await openFarming(page)
+  await expect.poll(() => frames.findLast(frame => (
+    frame.type === 'state' && frame.snapshotComplete
+  ))?.agentCount ?? -1, { timeout: 30_000 }).toBe(3)
+  const activeAgentId = await visibleTerminalAgentId(page, 'Focused one-page Preview')
+  await expect.poll(() => frames.some(frame => (
+    frame.type === 'session-preview' && frame.agentId === activeAgentId
+  )), { timeout: 30_000 }).toBe(true)
+  await waitForWireQuiet(frames, 300, 5_000)
+  const initialPreviewFrames = frames.filter(frame => frame.type === 'session-preview')
+  expect(initialPreviewFrames.length).toBeGreaterThan(0)
+  expect(new Set(initialPreviewFrames.map(frame => frame.agentId))).toEqual(new Set([activeAgentId]))
+
+  const reconnectStart = frames.length
+  await page.evaluate(() => {
+    const sockets = (window as typeof window & { __farmingPreviewScopeSockets?: WebSocket[] })
+      .__farmingPreviewScopeSockets
+    const socket = sockets?.[0]
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      throw new Error('Code Preview scope socket is not open')
+    }
+    socket.close(4000, 'Preview scope reconnect test')
+  })
+  await expect.poll(() => page.evaluate(() => (
+    (window as typeof window & { __farmingPreviewScopeSockets?: WebSocket[] })
+      .__farmingPreviewScopeSockets?.length ?? 0
+  )), { timeout: 30_000 }).toBeGreaterThanOrEqual(2)
+  await expect.poll(() => frames.slice(reconnectStart).some(frame => (
+    frame.type === 'state' && frame.snapshotComplete
+  )), { timeout: 30_000 }).toBe(true)
+  await expect.poll(() => frames.slice(reconnectStart).some(frame => (
+    frame.type === 'session-preview' && frame.agentId === activeAgentId
+  )), { timeout: 30_000 }).toBe(true)
+  await waitForWireQuiet(frames, 300, 5_000)
+  const reconnectPreviewFrames = frames.slice(reconnectStart).filter(frame => frame.type === 'session-preview')
+  expect(new Set(reconnectPreviewFrames.map(frame => frame.agentId))).toEqual(new Set([activeAgentId]))
+
+  await page.getByTestId('code-nav-history').click()
+  await expect(page.getByTestId('code-history-panel')).toBeVisible()
+  const noneScopeStart = frames.length
+  const noneScopeMarker = '__FARMING_PREVIEW_NONE_SCOPE__'
+  const noneScopeInput = await page.request.post(
+    `/farming/api/control/agents/${encodeURIComponent(activeAgentId)}/input`,
+    { data: { input: `printf '${noneScopeMarker}\\n'\r` } },
+  )
+  expect(noneScopeInput.ok()).toBeTruthy()
+  await expect.poll(async () => {
+    const response = await page.request.get(
+      `/farming/api/agents/${encodeURIComponent(activeAgentId)}/session-view`,
+    )
+    if (!response.ok()) return false
+    const body = await response.json() as { session?: { previewText?: string } }
+    return String(body.session?.previewText || '').includes(noneScopeMarker)
+  }, { timeout: 30_000 }).toBe(true)
+  await waitForWireQuiet(frames, 700, 5_000)
+  expect(frames.slice(noneScopeStart).some(frame => frame.type === 'session-preview')).toBe(false)
+
+  const legacyPreviewAgentIds = await page.evaluate(async expectedAgentIds => {
+    return new Promise<string[]>((resolve, reject) => {
+      const wsUrl = new URL('/farming/ws', location.href)
+      wsUrl.protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
+      const socket = new WebSocket(wsUrl)
+      const previewAgentIds = new Set<string>()
+      const timeout = window.setTimeout(() => {
+        socket.close()
+        reject(new Error(`Legacy Preview hydration timed out: ${[...previewAgentIds].join(',')}`))
+      }, 5_000)
+      socket.addEventListener('message', event => {
+        const message = JSON.parse(String(event.data)) as {
+          type?: string
+          protocolVersion?: number
+          preview?: { agentId?: string }
+        }
+        if (message.type === 'protocol-hello' && Number.isInteger(message.protocolVersion)) {
+          socket.send(JSON.stringify({
+            type: 'protocol-hello',
+            protocolVersion: message.protocolVersion,
+          }))
+        }
+        const agentId = message.preview?.agentId
+        if (message.type === 'session-preview' && agentId && expectedAgentIds.includes(agentId)) {
+          previewAgentIds.add(agentId)
+        }
+        if (expectedAgentIds.every(expectedAgentId => previewAgentIds.has(expectedAgentId))) {
+          window.clearTimeout(timeout)
+          socket.close()
+          resolve([...previewAgentIds])
+        }
+      })
+      socket.addEventListener('error', () => {
+        window.clearTimeout(timeout)
+        socket.close()
+        reject(new Error('Legacy Preview WebSocket failed'))
+      }, { once: true })
+    })
+  }, agentIds)
+  expect(new Set(legacyPreviewAgentIds)).toEqual(new Set(agentIds))
 })
 
 test('restores a large Agent inventory through progressive authoritative pages', async ({ page, workspaceRoot }) => {
@@ -718,6 +887,10 @@ test('restores a large Agent inventory through progressive authoritative pages',
   await expect.poll(() => frames.slice(unrelatedUpdateCodeStart).some(frame => (
     frame.type === 'agent-update' && frame.agentId === unrelatedAgentId
   )), { timeout: 30_000 }).toBe(true)
+  await waitForWireQuiet(frames, 300, 5_000)
+  expect(frames.slice(unrelatedUpdateCodeStart).some(frame => (
+    frame.type === 'session-preview' && frame.agentId === unrelatedAgentId
+  ))).toBe(false)
   await waitForWireQuiet(crtFrames, 300, 5_000)
   expect(crtFrames.slice(unrelatedUpdateCrtStart).some(frame => (
     frame.type === 'agent-update' && frame.agentId === unrelatedAgentId

@@ -1,9 +1,18 @@
 const assert = require('assert');
 const {
+  cancelSessionPreviewHydration,
+  declareSessionPreviewScope,
   normalizeSessionPreviewScope,
+  queueSessionPreviewHydration,
   sessionPreviewScopeCheckpointRequired,
   sessionPreviewScopeIncludesAgent,
 } = require('../session-preview-delivery.cjs');
+
+type HydrationState = {
+  previewHydrationPending?: boolean;
+  previewHydrationTimer?: ReturnType<typeof setTimeout> | null;
+  previewScopeDeclared?: boolean;
+};
 
 assert.strictEqual(normalizeSessionPreviewScope(undefined), 'all');
 assert.strictEqual(normalizeSessionPreviewScope('invalid'), 'all');
@@ -60,4 +69,53 @@ assert.strictEqual(
   'narrowing to none should not send a preview checkpoint',
 );
 
-console.log('Session preview delivery tests passed');
+async function runHydrationStateTests() {
+  const waitForTimer = () => new Promise(resolve => setTimeout(resolve, 20));
+
+  const legacy: HydrationState = {};
+  let legacyHydrations = 0;
+  queueSessionPreviewHydration(legacy, 5, () => { legacyHydrations += 1; });
+  assert.strictEqual(legacy.previewHydrationPending, true);
+  await waitForTimer();
+  assert.strictEqual(legacyHydrations, 1, 'an undeclared legacy Client should hydrate once at the deadline');
+  assert.strictEqual(legacy.previewHydrationPending, false);
+  assert.strictEqual(legacy.previewHydrationTimer, null);
+  assert.strictEqual(declareSessionPreviewScope(legacy), false, 'a late declaration must not replay hydration');
+  assert.strictEqual(legacyHydrations, 1);
+
+  const closed: HydrationState = {};
+  let closedHydrations = 0;
+  queueSessionPreviewHydration(closed, 5, () => { closedHydrations += 1; });
+  cancelSessionPreviewHydration(closed);
+  await waitForTimer();
+  assert.strictEqual(closedHydrations, 0, 'closing during the declaration window must cancel hydration');
+
+  const replacedSnapshot: HydrationState = {};
+  let replacementHydrations = 0;
+  queueSessionPreviewHydration(replacedSnapshot, 5, () => { replacementHydrations += 1; });
+  cancelSessionPreviewHydration(replacedSnapshot);
+  queueSessionPreviewHydration(replacedSnapshot, 5, () => { replacementHydrations += 1; });
+  await waitForTimer();
+  assert.strictEqual(replacementHydrations, 1, 'a replacement Snapshot should own exactly one hydration deadline');
+
+  const pendingDeclaration: HydrationState = {};
+  let pendingHydrations = 0;
+  queueSessionPreviewHydration(pendingDeclaration, 50, () => { pendingHydrations += 1; });
+  assert.strictEqual(declareSessionPreviewScope(pendingDeclaration), true);
+  await waitForTimer();
+  assert.strictEqual(pendingHydrations, 0, 'scope declaration should cancel the legacy fallback timer');
+
+  const declaredDuringSnapshot: HydrationState = {};
+  assert.strictEqual(declareSessionPreviewScope(declaredDuringSnapshot), false);
+  let declaredHydrations = 0;
+  queueSessionPreviewHydration(declaredDuringSnapshot, 50, () => { declaredHydrations += 1; });
+  assert.strictEqual(declaredHydrations, 1, 'Snapshot completion should hydrate an already declared Client immediately');
+  assert.strictEqual(declaredDuringSnapshot.previewHydrationTimer, null);
+
+  console.log('Session preview delivery tests passed');
+}
+
+runHydrationStateTests().catch(error => {
+  console.error(error);
+  process.exitCode = 1;
+});
