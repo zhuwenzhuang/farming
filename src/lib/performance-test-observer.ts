@@ -1,4 +1,10 @@
-type PerformanceRenderSurface = 'app' | 'codeWorkspace'
+type PerformanceRenderSurface =
+  | 'app'
+  | 'codeWorkspace'
+  | 'completedTranscriptTurn'
+  | 'liveTranscriptTurn'
+  | 'completedTranscriptMarkdown'
+  | 'liveTranscriptMarkdown'
 
 type PerformanceTestSnapshot = Record<PerformanceRenderSurface, number>
 
@@ -15,6 +21,10 @@ declare global {
 const renderCounts: PerformanceTestSnapshot = {
   app: 0,
   codeWorkspace: 0,
+  completedTranscriptTurn: 0,
+  liveTranscriptTurn: 0,
+  completedTranscriptMarkdown: 0,
+  liveTranscriptMarkdown: 0,
 }
 
 function installPerformanceTestApi() {
@@ -23,6 +33,10 @@ function installPerformanceTestApi() {
     reset() {
       renderCounts.app = 0
       renderCounts.codeWorkspace = 0
+      renderCounts.completedTranscriptTurn = 0
+      renderCounts.liveTranscriptTurn = 0
+      renderCounts.completedTranscriptMarkdown = 0
+      renderCounts.liveTranscriptMarkdown = 0
     },
     snapshot() {
       return { ...renderCounts }

@@ -1,4 +1,4 @@
-import { useCallback } from 'react'
+import { useCallback, useLayoutEffect, useRef } from 'react'
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import type { Agent } from '@/types/agent'
 import { isAcpRuntime } from '@/lib/agent-runtime'
@@ -68,6 +68,10 @@ export function AgentWorkPane({
   copy,
 }: AgentWorkPaneProps) {
   const acpRuntime = isAcpRuntime(agent) ? agent.runtimeBinding : null
+  const reviewAndCommitRef = useRef(onReviewAndCommit)
+  useLayoutEffect(() => {
+    reviewAndCommitRef.current = onReviewAndCommit
+  }, [onReviewAndCommit])
   const acpChat = Boolean(acpRuntime)
   const chatMode = acpChat
   const canSwitchRuntime = canSwitchAgentRuntime(agent)
@@ -89,8 +93,8 @@ export function AgentWorkPane({
     })
   }, [acpRuntime?.sessionRevision, agent.id, onForkAgent])
   const reviewAndCommitChat = useCallback(() => {
-    onReviewAndCommit?.(agent.id)
-  }, [agent.id, onReviewAndCommit])
+    reviewAndCommitRef.current?.(agent.id)
+  }, [agent.id])
 
   const activateChatView = useCallback((event: ReactPointerEvent) => {
     if (event.button !== 0) return

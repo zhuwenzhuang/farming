@@ -173,10 +173,14 @@ transcript settles.
 
 Live transcript revisions coalesce behind an in-flight read instead of
 repeatedly cancelling it, so sustained update streams make visible progress
-without waiting for a quiet period. Newly visible intermediate messages use a
-short, bounded reveal; multiple arrivals reveal in parallel and reduced-motion
-preferences disable the effect. Expanded reasoning omits a leading line that
-already serves as its folded title.
+without waiting for a quiet period. Rapid revision-only refreshes also share a
+short bounded cadence; the latest revision must still run, while reconnect and
+runtime-state transitions remain immediate. Completed Turns retain stable
+render identities across these reads, so unchanged Markdown is not parsed
+again. Newly visible intermediate messages
+use a short, bounded reveal; multiple arrivals reveal in parallel and
+reduced-motion preferences disable the effect. Expanded reasoning omits a
+leading line that already serves as its folded title.
 
 The latest live answer mounts its first authoritative text in full. While its
 Agent remains active, later prefix-extending revisions drain only their new

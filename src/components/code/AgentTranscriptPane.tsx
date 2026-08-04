@@ -60,6 +60,7 @@ import { showUrlOpenMenu } from '@/lib/url-open-menu'
 import { writeClipboardText } from '@/lib/clipboard'
 import { iconForFilePath } from '@/lib/file-icons'
 import { GLOBAL_WORKSPACE_FILES_AGENT_ID, normalizeGlobalWorkspaceFilePath } from '@/lib/global-workspace-files'
+import { recordPerformanceTestRender } from '@/lib/performance-test-observer'
 import { markdownTextContent, mermaidCodeBlockSource } from '@/lib/react-markdown-content'
 import {
   clearReadingAnchor,
@@ -217,6 +218,7 @@ const INITIAL_ACP_TRANSCRIPT_TURN_LIMIT = 5
 const ACP_TRANSCRIPT_TURN_PAGE_SIZE = 10
 const MAX_TRANSCRIPT_TURN_LIMIT = 1000
 const ACP_TRANSCRIPT_FETCH_RETRY_DELAYS_MS = [250, 1000] as const
+const ACP_TRANSCRIPT_REFRESH_COALESCE_MS = 80
 const INITIAL_TRANSCRIPT_REVEAL_QUIET_MS = 120
 const INITIAL_TRANSCRIPT_REVEAL_MAX_MS = 400
 
@@ -2269,6 +2271,31 @@ function AgentTranscriptCollaborationSpace({
   )
 }
 
+function PerformanceObservedTranscriptMarkdown({
+  live,
+  components,
+  children,
+}: {
+  live: boolean
+  components: Components
+  children: string
+}) {
+  recordPerformanceTestRender(live
+    ? 'liveTranscriptMarkdown'
+    : 'completedTranscriptMarkdown')
+  return (
+    <ReactMarkdown
+      remarkPlugins={TRANSCRIPT_REMARK_PLUGINS}
+      rehypePlugins={TRANSCRIPT_REHYPE_PLUGINS}
+      components={components}
+      skipHtml
+      urlTransform={agentTranscriptUrlTransform}
+    >
+      {children}
+    </ReactMarkdown>
+  )
+}
+
 function AgentTranscriptProgressUpdate({
   item,
   markdownComponents,
@@ -2307,15 +2334,10 @@ function AgentTranscriptProgressUpdate({
         )}
       >
         <LocalRenderFault surface="transcript-markdown" identity={item.id}>
-          <ReactMarkdown
-            remarkPlugins={TRANSCRIPT_REMARK_PLUGINS}
-            rehypePlugins={TRANSCRIPT_REHYPE_PLUGINS}
+          <PerformanceObservedTranscriptMarkdown
+            live={item.status === 'inProgress'}
             components={markdownComponents}
-            skipHtml
-            urlTransform={agentTranscriptUrlTransform}
-          >
-            {progressText}
-          </ReactMarkdown>
+          >{progressText}</PerformanceObservedTranscriptMarkdown>
         </LocalRenderFault>
       </LocalErrorBoundary>
     </div>
@@ -2699,6 +2721,9 @@ function AgentTranscriptTurnView({
   showLiveActivity: boolean
   progressivelyRevealAnswer: boolean
 }) {
+  recordPerformanceTestRender(turn.status === 'inProgress'
+    ? 'liveTranscriptTurn'
+    : 'completedTranscriptTurn')
   const turnRef = useRef<HTMLElement | null>(null)
   const [loadedProcessDetails, setLoadedProcessDetails] = useState<Record<string, AgentTranscriptProcessPresentation>>({})
   const loadingProcessDetailsRef = useRef<Set<string>>(new Set())
@@ -3270,15 +3295,10 @@ function AgentTranscriptTurnView({
                 )}
               >
                 <LocalRenderFault surface="transcript-markdown" identity={turn.id}>
-                  <ReactMarkdown
-                    remarkPlugins={TRANSCRIPT_REMARK_PLUGINS}
-                    rehypePlugins={TRANSCRIPT_REHYPE_PLUGINS}
+                  <PerformanceObservedTranscriptMarkdown
+                    live={turn.status === 'inProgress'}
                     components={markdownComponents}
-                    skipHtml
-                    urlTransform={agentTranscriptUrlTransform}
-                  >
-                    {visibleAnswerMessage}
-                  </ReactMarkdown>
+                  >{visibleAnswerMessage}</PerformanceObservedTranscriptMarkdown>
                 </LocalRenderFault>
               </LocalErrorBoundary>
             </div>
@@ -3623,6 +3643,7 @@ export function AgentTranscriptPane({
     let stopped = false
     let pollTimer: number | null = null
     let retryTimer: number | null = null
+    let refreshTimer: number | null = null
     let retryAttempt = 0
     let controller: AbortController | null = null
     let needsReconnectReload = false
@@ -3630,9 +3651,16 @@ export function AgentTranscriptPane({
     let forceCheckpoint = false
     let loadInFlight = false
     let refreshQueued = false
+    let lastLoadStartedAt = Number.NEGATIVE_INFINITY
 
     const load = () => {
+      if (stopped) return
+      if (refreshTimer !== null) {
+        window.clearTimeout(refreshTimer)
+        refreshTimer = null
+      }
       loadInFlight = true
+      lastLoadStartedAt = performance.now()
       const generation = ++requestGeneration
       if (retryTimer !== null) {
         window.clearTimeout(retryTimer)
@@ -3726,16 +3754,43 @@ export function AgentTranscriptPane({
           loadInFlight = false
           if (!refreshQueued) return
           refreshQueued = false
-          load()
+          scheduleRefresh()
         })
     }
 
     const requestRefresh = () => {
+      if (stopped) return
+      if (refreshTimer !== null) {
+        window.clearTimeout(refreshTimer)
+        refreshTimer = null
+      }
+      load()
+    }
+
+    const scheduleRefresh = () => {
+      if (stopped) return
       if (loadInFlight) {
         refreshQueued = true
         return
       }
-      load()
+      const delay = Math.max(
+        0,
+        ACP_TRANSCRIPT_REFRESH_COALESCE_MS - (performance.now() - lastLoadStartedAt),
+      )
+      if (delay === 0) {
+        load()
+        return
+      }
+      if (refreshTimer !== null) return
+      refreshTimer = window.setTimeout(() => {
+        refreshTimer = null
+        if (stopped) return
+        if (loadInFlight) {
+          refreshQueued = true
+          return
+        }
+        load()
+      }, delay)
     }
 
     const handleBackendDisconnected = () => {
@@ -3747,7 +3802,7 @@ export function AgentTranscriptPane({
       requestRefresh()
     }
 
-    transcriptRefreshRef.current = requestRefresh
+    transcriptRefreshRef.current = scheduleRefresh
     load()
     // A bounded transport retry can legitimately finish before a deploy or
     // backend restart has completed. The shared socket reconnect is the
@@ -3765,9 +3820,10 @@ export function AgentTranscriptPane({
       stopped = true
       window.removeEventListener('farming:backend-disconnected', handleBackendDisconnected)
       window.removeEventListener('farming:backend-connected', handleBackendConnected)
-      if (transcriptRefreshRef.current === requestRefresh) transcriptRefreshRef.current = null
+      if (transcriptRefreshRef.current === scheduleRefresh) transcriptRefreshRef.current = null
       controller?.abort()
       if (retryTimer !== null) window.clearTimeout(retryTimer)
+      if (refreshTimer !== null) window.clearTimeout(refreshTimer)
       if (pollTimer !== null) window.clearInterval(pollTimer)
     }
   }, [active, agentId, copy.agentTranscriptUnavailable, expectHistory, revealInitialTranscript, runtimeState, scheduleInitialTranscriptReveal, source, turnLimit])
@@ -4098,8 +4154,12 @@ export function AgentTranscriptPane({
     && sessionPlan?.status !== 'completed'
     ? sessionPlan
     : undefined
+  const turnsRef = useRef(turns)
+  useLayoutEffect(() => {
+    turnsRef.current = turns
+  }, [turns])
   const handleToggleProcess = useCallback((turnId: string) => {
-    const turn = turns.find(candidate => candidate.id === turnId)
+    const turn = turnsRef.current.find(candidate => candidate.id === turnId)
     if (source === 'acp' && turn?.status === 'inProgress') {
       setOpenLiveProcessTurnIds(current => {
         const next = new Set(current)
@@ -4115,7 +4175,7 @@ export function AgentTranscriptPane({
       else next.add(turnId)
       return next
     })
-  }, [source, turns])
+  }, [source])
   const handleJumpToBottom = useCallback(() => {
     const element = scrollRef.current
     if (!element) return
