@@ -121,6 +121,9 @@ timeouts as visible partial results, never as proof of a clean workspace.
 ## Visual And Interaction Rules
 
 - Rows remain compact, stable, keyboard-accessible, and single-line.
+- On pointer layouts, the Files search and refresh controls use progressive
+  disclosure on header hover. A focused or non-empty search remains visible;
+  compact touch layouts keep search visible without requiring hover.
 - Open Editors appears only when needed and stays separate from the tree.
 - Single-child directory chains may compact into one stable row.
 - Dirty, external-change, and Git state remain visible without turning the tree

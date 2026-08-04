@@ -101,6 +101,8 @@ Git Operation 使用确定、Path-safe Input；Truncation 或 Timeout 作为可�
 ## 视觉与交互规则
 
 - Row 保持紧凑、稳定、支持键盘且单行展示。
+- 在 Pointer Layout 中，Files Search 与 Refresh Control 在 Header Hover 时渐进显示；
+  Search 获得焦点或内容非空时继续保持可见，Compact Touch Layout 不依赖 Hover 并常显 Search。
 - Open Editors 只在需要时出现，并与 Tree 分离。
 - 单子目录链可以合并成一个稳定 Row。
 - Dirty、External Change 与 Git State 保持可见，但不把整棵 Tree 变成高噪音警告面。

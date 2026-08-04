@@ -2622,6 +2622,21 @@ body.code-mode:not(.code-compact-layout) .code-agent-row.requires-resume .code-a
   text-transform: none;
 }
 
+@media (hover: hover) and (pointer: fine) {
+  body.code-mode:not(.code-compact-layout) .code-file-search-box {
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 120ms ease;
+  }
+
+  body.code-mode:not(.code-compact-layout) .code-files-header:hover .code-file-search-box,
+  body.code-mode:not(.code-compact-layout) .code-file-search-box:focus-within,
+  body.code-mode:not(.code-compact-layout) .code-file-search-box:has(input:not(:placeholder-shown)) {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
 .code-file-search-box:focus-within {
   border-color: rgba(82, 99, 135, 0.18);
   background: rgba(255, 255, 255, 0.66);
