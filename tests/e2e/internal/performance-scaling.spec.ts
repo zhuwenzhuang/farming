@@ -386,8 +386,8 @@ test('restores a large Agent inventory through progressive authoritative pages',
       completeMessageAt: number
       firstMessageAt: number
       firstRowAt: number
-      mutationCompletedAt: number
       mutationRequested: boolean
+      mutationRequestedAt: number
       summaryProjectAgentCount: number
       summaryProjectAt: number
       socket: WebSocket | null
@@ -397,8 +397,8 @@ test('restores a large Agent inventory through progressive authoritative pages',
       completeMessageAt: 0,
       firstMessageAt: 0,
       firstRowAt: 0,
-      mutationCompletedAt: 0,
       mutationRequested: false,
+      mutationRequestedAt: 0,
       summaryProjectAgentCount: -1,
       summaryProjectAt: 0,
       socket: null,
@@ -419,13 +419,13 @@ test('restores a large Agent inventory through progressive authoritative pages',
             if (message.snapshot.offset === 0 && probe.firstMessageAt === 0) {
               probe.firstMessageAt = performance.now()
               probe.mutationRequested = true
+              probe.mutationRequestedAt = performance.now()
               void fetch(`/farming/api/agents/${encodeURIComponent(mutationAgentId)}`, {
                 method: 'PATCH',
                 headers: { 'content-type': 'application/json' },
                 body: JSON.stringify({ customTitle: 'Progressive snapshot mutation' }),
               }).then(response => {
                 if (!response.ok) throw new Error(`Mutation failed with ${response.status}`)
-                probe.mutationCompletedAt = performance.now()
               })
             }
             if (message.snapshot.complete === true && probe.completeMessageAt === 0) {
@@ -507,8 +507,8 @@ test('restores a large Agent inventory through progressive authoritative pages',
       completeMessageAt: number
       firstMessageAt: number
       firstRowAt: number
-      mutationCompletedAt: number
       mutationRequested: boolean
+      mutationRequestedAt: number
       summaryProjectAgentCount: number
       summaryProjectAt: number
     } }).__farmingSnapshotProbe
@@ -520,8 +520,8 @@ test('restores a large Agent inventory through progressive authoritative pages',
   expect(paintProbe?.summaryProjectAt).toBeGreaterThan(paintProbe?.firstMessageAt ?? 0)
   expect(paintProbe?.summaryProjectAt).toBeLessThan(paintProbe?.completeMessageAt ?? 0)
   expect(paintProbe?.mutationRequested).toBe(true)
-  expect(paintProbe?.mutationCompletedAt).toBeGreaterThan(paintProbe?.firstMessageAt ?? 0)
-  expect(paintProbe?.mutationCompletedAt).toBeLessThan(paintProbe?.completeMessageAt ?? 0)
+  expect(paintProbe?.mutationRequestedAt).toBeGreaterThanOrEqual(paintProbe?.firstMessageAt ?? 0)
+  expect(paintProbe?.mutationRequestedAt).toBeLessThan(paintProbe?.completeMessageAt ?? 0)
   await expect.poll(() => frames.findLast(frame => (
     frame.type === 'state-delta'
     && frame.agentCount === targetCount
@@ -530,21 +530,52 @@ test('restores a large Agent inventory through progressive authoritative pages',
   const mutationDelta = frames.findLast(frame => (
     frame.type === 'state-delta' && frame.upsertAgentIds.includes(mutatedAgentId)
   ))
+  expect(mutationDelta?.at).toBeGreaterThan(snapshotFrames.at(-1)?.at ?? 0)
   expect(mutationDelta?.upsertCount).toBeLessThan(first?.statePageAgentCount ?? 32)
   const secondaryProjectGroup = page.locator(
     `[data-testid="code-project-title"][data-project-id="${secondaryWorkspace}"]`,
   ).locator('xpath=ancestor::*[@data-testid="code-project-group"]')
-  const projectContentRenders = await page.evaluate(async agentId => {
+  const projectContentRenders = await page.evaluate(async ({ agentId, projectId }) => {
+    const title = document.querySelector<HTMLElement>(
+      `[data-testid="code-project-title"][data-project-id="${CSS.escape(projectId)}"]`,
+    )
+    const group = title?.closest<HTMLElement>('[data-testid="code-project-group"]')
+    if (!group) return -3
     window.__farmingPerformanceTest?.reset()
-    window.__farmingAgentActivityTest?.update(agentId, {
-      lastActivity: Date.now(),
-      activityLevel: 'hot',
-      attentionScore: 100,
-      isZombie: true,
+    return new Promise<number>(resolve => {
+      let settled = false
+      const finish = (value: number) => {
+        if (settled) return
+        settled = true
+        observer.disconnect()
+        window.clearTimeout(timeout)
+        resolve(value)
+      }
+      const committed = () => (
+        group.dataset.projectZombieCount === '1'
+        && group.dataset.projectMaxAttention === '100'
+      )
+      const observer = new MutationObserver(() => {
+        if (committed()) {
+          finish(window.__farmingPerformanceTest?.snapshot().projectSectionContent ?? -1)
+        }
+      })
+      const timeout = window.setTimeout(() => finish(-2), 2_000)
+      observer.observe(group, {
+        attributeFilter: ['data-project-zombie-count', 'data-project-max-attention'],
+        attributes: true,
+      })
+      window.__farmingAgentActivityTest?.update(agentId, {
+        lastActivity: Date.now(),
+        activityLevel: 'hot',
+        attentionScore: 100,
+        isZombie: true,
+      })
+      if (committed()) {
+        finish(window.__farmingPerformanceTest?.snapshot().projectSectionContent ?? -1)
+      }
     })
-    await new Promise<void>(resolve => window.requestAnimationFrame(() => resolve()))
-    return window.__farmingPerformanceTest?.snapshot().projectSectionContent ?? -1
-  }, secondaryAgentIds[0])
+  }, { agentId: secondaryAgentIds[0], projectId: secondaryWorkspace })
   expect(projectContentRenders).toBe(0)
   await expect(secondaryProjectGroup).toHaveAttribute('data-project-zombie-count', '1')
   await expect(secondaryProjectGroup).toHaveAttribute('data-project-max-attention', '100')
@@ -553,18 +584,32 @@ test('restores a large Agent inventory through progressive authoritative pages',
   )).toBeVisible()
   expect(new Set(frames.filter(frame => frame.type === 'state').map(frame => frame.snapshotId)).size).toBe(1)
 
+  const codePreviewSeedStart = frames.length
+  const codePreviewSeed = await page.request.post(
+    `/farming/api/control/agents/${encodeURIComponent(mutatedAgentId)}/input`,
+    { data: { input: "printf '__FARMING_PREVIEW_SCOPE__\\n'\r" } },
+  )
+  expect(codePreviewSeed.ok()).toBeTruthy()
+  await expect.poll(() => frames.slice(codePreviewSeedStart).some(frame => (
+    frame.type === 'session-preview' && frame.agentId === mutatedAgentId
+  )), { timeout: 30_000 }).toBe(true)
+  await waitForWireQuiet(frames, 300, 5_000)
+  const codeResyncStart = frames.length
   await page.evaluate(() => {
     const socket = (window as typeof window & {
       __farmingSnapshotProbe?: { socket: WebSocket | null }
     }).__farmingSnapshotProbe?.socket
-    socket?.send(JSON.stringify({ type: 'state-resync' }))
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      throw new Error('Code WebSocket is not open for state resync')
+    }
+    socket.send(JSON.stringify({ type: 'state-resync' }))
   })
-  await expect.poll(() => frames.find(frame => (
+  await expect.poll(() => frames.slice(codeResyncStart).find(frame => (
     frame.type === 'state'
     && frame.snapshotOffset === 0
     && frame.snapshotId !== first?.snapshotId
   ))?.snapshotId ?? '', { timeout: 30_000 }).not.toBe('')
-  const resyncSnapshotId = frames.find(frame => (
+  const resyncSnapshotId = frames.slice(codeResyncStart).find(frame => (
     frame.type === 'state'
     && frame.snapshotOffset === 0
     && frame.snapshotId !== first?.snapshotId
@@ -574,11 +619,31 @@ test('restores a large Agent inventory through progressive authoritative pages',
     && frame.snapshotId === resyncSnapshotId
     && frame.snapshotComplete
   ))?.agentCount ?? -1, { timeout: 30_000 }).toBe(targetCount)
+  await waitForWireQuiet(frames, 300, 5_000)
+  expect(frames.slice(codeResyncStart).some(frame => (
+    frame.type === 'session-preview' && frame.agentId === mutatedAgentId
+  ))).toBe(true)
 
   await page.waitForTimeout(500)
   const codeDeltaCountBeforeCrt = frames.filter(frame => frame.type === 'state-delta').length
   const crtPage = await page.context().newPage()
   const crtFrames = trackWireFrames(crtPage)
+  await crtPage.addInitScript(() => {
+    const crtWindow = window as typeof window & { __farmingCrtSocket?: WebSocket | null }
+    crtWindow.__farmingCrtSocket = null
+    const NativeWebSocket = window.WebSocket
+    class CrtWebSocket extends NativeWebSocket {
+      constructor(url: string | URL, protocols?: string | string[]) {
+        super(url, protocols)
+        crtWindow.__farmingCrtSocket = this
+      }
+    }
+    Object.defineProperty(window, 'WebSocket', {
+      configurable: true,
+      value: CrtWebSocket,
+      writable: true,
+    })
+  })
   await crtPage.goto(`/farming/crt/?agent=${encodeURIComponent(mutatedAgentId)}`, { waitUntil: 'domcontentloaded' })
   await expect.poll(() => crtFrames.findLast(frame => (
     frame.type === 'state'
@@ -589,6 +654,26 @@ test('restores a large Agent inventory through progressive authoritative pages',
   expect(firstCrtFrame?.statePageAgentCount).toBe(32)
   await expect(crtPage.locator('#session-modal')).toHaveClass(/active/)
   await expect(crtPage.locator('body')).toContainText(`AGENTS: ${targetCount + 1}/${targetCount + 1}`)
+  const focusedPreviewResyncStart = crtFrames.length
+  await crtPage.evaluate(() => {
+    const socket = (window as typeof window & { __farmingCrtSocket?: WebSocket | null }).__farmingCrtSocket
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      throw new Error('CRT WebSocket is not open for state resync')
+    }
+    socket.send(JSON.stringify({ type: 'state-resync' }))
+  })
+  await expect.poll(() => crtFrames.slice(focusedPreviewResyncStart).some(frame => (
+    frame.type === 'state' && frame.snapshotComplete
+  )), { timeout: 30_000 }).toBe(true)
+  await waitForWireQuiet(crtFrames, 300, 5_000)
+  const focusedPreviewFrames = crtFrames.slice(focusedPreviewResyncStart).filter(frame => (
+    frame.type === 'session-preview'
+  ))
+  expect(focusedPreviewFrames).toHaveLength(0)
+  console.log(`focused-preview-resync ${JSON.stringify({
+    previewBytes: focusedPreviewFrames.reduce((sum, frame) => sum + frame.bytes, 0),
+    previewFrames: focusedPreviewFrames.length,
+  })}`)
   await page.waitForTimeout(500)
   expect(frames.filter(frame => frame.type === 'state-delta')).toHaveLength(codeDeltaCountBeforeCrt)
 

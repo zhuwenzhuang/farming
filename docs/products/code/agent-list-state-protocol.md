@@ -19,12 +19,12 @@ replaces the partial result. Each partial page has a bounded next-page deadline.
 The first page also carries authoritative per-Project Agent totals, active and
 unread counts, Zombie counts, and maximum attention score for the same snapshot
 sequence. Code uses those aggregates only while the individual inventory is
-incomplete; after completion, ordinary Agent and live-state updates remain the
-authoritative source for continuously changing row state. During recovery, the
-new aggregate header may therefore be shown alongside rows from the previously
-completed inventory until the replacement inventory completes; this bounded
-mixed view preserves supervision coverage without treating stale rows as the
-new snapshot.
+incomplete; after completion, ordinary Agent and live-state updates feed an
+incremental per-Project browser summary and remain the authoritative source for
+continuously changing row state. During recovery, the new aggregate header may
+therefore be shown alongside rows from the previously completed inventory until
+the replacement inventory completes; this bounded mixed view preserves
+supervision coverage without treating stale rows as the new snapshot.
 The Server yields after the first page and pauses later pages while that
 client's transport buffer is above the state threshold. List mutations during
 delivery are held in a bounded per-client sequence and drain after the final
@@ -54,6 +54,17 @@ messages follow the same scope; the authoritative snapshot reconciles updates
 intentionally skipped while focused. Off-target Agent records retained from the
 last complete snapshot are hidden and intentionally stale during focused scope;
 they are not current-state evidence until the next `all` snapshot completes.
+
+Session previews have an independent compatible `all`, `focused`, or `none`
+scope. The scope applies both to live preview broadcasts and to the absolute
+preview hydration that follows a complete Agent snapshot. A focused CRT Session
+uses `none` because its authoritative live terminal or Chat surface already owns
+the visible content; the CRT Dashboard uses `all`. Clients that do not declare
+the scope retain `all` delivery. Widening preview interest or changing a focused
+target sends the current absolute preview checkpoint; when an Agent snapshot is
+already required or in progress, its completion performs that hydration instead.
+A preview without an exact Agent identity is rejected with one bounded Server
+diagnostic rather than broadcast without an owner.
 
 Activity messages are replaceable absolute projections. A slow `focused`
 client retains one pending Agent checkpoint marker. A slow `all` client retains

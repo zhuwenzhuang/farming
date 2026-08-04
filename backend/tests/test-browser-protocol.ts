@@ -46,6 +46,9 @@ assert.strictEqual(validateClientMessage({ type: 'business-health-probe', reques
 assert.strictEqual(validateClientMessage({ type: 'focus-agent', agentId: 'a', activityScope: 'focused' }).ok, true);
 assert.strictEqual(validateClientMessage({ type: 'focus-agent', agentId: null, activityScope: 'none' }).ok, true);
 assert.strictEqual(validateClientMessage({ type: 'focus-agent', agentId: 'a', activityScope: 'project' }).ok, false);
+assert.strictEqual(validateClientMessage({ type: 'focus-agent', agentId: 'a', previewScope: 'none' }).ok, true);
+assert.strictEqual(validateClientMessage({ type: 'focus-agent', agentId: null, previewScope: 'focused' }).ok, false);
+assert.strictEqual(validateClientMessage({ type: 'focus-agent', agentId: 'a', previewScope: 'project' }).ok, false);
 assert.strictEqual(validateClientMessage({ type: 'focus-agent', agentId: 'a', stateScope: 'focused' }).ok, true);
 assert.strictEqual(validateClientMessage({ type: 'focus-agent', agentId: null, stateScope: 'all' }).ok, true);
 assert.strictEqual(validateClientMessage({ type: 'focus-agent', agentId: null, stateScope: 'focused' }).ok, false);

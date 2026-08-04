@@ -297,6 +297,11 @@ import {
   normalizeAgentActivityScope,
 } from './agent-activity-delivery.cjs';
 import { acpRevisionClientDelivery } from './acp-revision-delivery.cjs';
+import {
+  normalizeSessionPreviewScope,
+  sessionPreviewScopeCheckpointRequired,
+  sessionPreviewScopeIncludesAgent,
+} from './session-preview-delivery.cjs';
 import { QrShareTicketStore, SHARE_TICKET_TTL_MS } from './qr-share-tickets.cjs';
 import { ReviewStateStore } from './review-state-store.cjs';
 import { createReviewStateRouter } from './review-state-router.cjs';
@@ -3458,12 +3463,21 @@ function handleMessage(ws: WebSocketClient, data: ServerClientMessage) {
       const previousActivityScope = normalizeAgentActivityScope(ws.activityScope);
       const nextActivityScope = normalizeAgentActivityScope(data.activityScope ?? previousActivityScope);
       const previousStateScope = normalizeAgentStateScope(ws.stateScope);
-      const focusChanged = ws.focusedAgentId !== data.agentId;
+      const previousPreviewScope = normalizeSessionPreviewScope(ws.previewScope);
+      const nextPreviewScope = normalizeSessionPreviewScope(data.previewScope ?? previousPreviewScope);
+      const previousFocusedAgentId = ws.focusedAgentId;
+      const focusChanged = previousFocusedAgentId !== data.agentId;
       const scopeChanged = previousActivityScope !== nextActivityScope;
       const stateScopeTransition = agentStateScopeTransition(
         previousStateScope,
-        ws.focusedAgentId,
+        previousFocusedAgentId,
         normalizeAgentStateScope(data.stateScope ?? previousStateScope),
+        data.agentId,
+      );
+      const previewCheckpointRequired = sessionPreviewScopeCheckpointRequired(
+        previousPreviewScope,
+        previousFocusedAgentId,
+        nextPreviewScope,
         data.agentId,
       );
       if (Object.prototype.hasOwnProperty.call(data, 'activityScope')) {
@@ -3489,6 +3503,7 @@ function handleMessage(ws: WebSocketClient, data: ServerClientMessage) {
       }
       ws.focusedAgentId = data.agentId;
       ws.activityScope = nextActivityScope;
+      ws.previewScope = nextPreviewScope;
       ws.stateScope = stateScopeTransition.scope;
       if (data.agentId) {
         agentManager.prioritizeAcpPreparedTranscript(data.agentId);
@@ -3502,15 +3517,14 @@ function handleMessage(ws: WebSocketClient, data: ServerClientMessage) {
       if (data.streamScope === 'focused' || data.streamScope === 'all') {
         ws.streamScope = data.streamScope;
       }
-      if (data.previewScope === 'none' || data.previewScope === 'focused' || data.previewScope === 'all') {
-        ws.previewScope = data.previewScope;
-      }
-      if (data.refreshState === true || stateScopeTransition.snapshotRequired) {
+      const stateSnapshotRequired = data.refreshState === true || stateScopeTransition.snapshotRequired;
+      if (stateSnapshotRequired) {
         // A full Agent snapshot is also the authoritative checkpoint for
-        // Activity and Agent-scoped patches skipped while focused.
+        // Activity, previews, and Agent-scoped patches skipped while focused.
         sendState(ws);
-      } else if (activitySnapshotRequired) {
-        sendAgentActivitySnapshot(ws);
+      } else {
+        if (activitySnapshotRequired) sendAgentActivitySnapshot(ws);
+        if (previewCheckpointRequired && !ws.stateSnapshotInProgress) sendPreviewHydration(ws);
       }
       break;
     }
@@ -3731,9 +3745,7 @@ function sendState(ws: WebSocketClient) {
   const finishSnapshotDelivery = () => {
     ws.stateSnapshotInProgress = false;
     ws.stateSnapshotRetryTimer = null;
-    agentManager.getPreviewPayloads().forEach((preview: ServerRecord) => {
-      sendPreview(ws, preview);
-    });
+    sendPreviewHydration(ws);
   };
   const drainSnapshotDeltas = () => {
     ws.stateSnapshotRetryTimer = null;
@@ -3824,11 +3836,29 @@ function previewForClient(preview: ServerRecord, client: WebSocketClient) {
   };
 }
 
-function sendPreview(ws: WebSocketClient, preview: ServerRecord) {
+let missingPreviewAgentIdWarningSent = false;
+
+function sendPreviewIfInScope(ws: WebSocketClient, preview: ServerRecord) {
+  const previewAgentId = typeof preview.agentId === 'string' ? preview.agentId : '';
+  if (!previewAgentId) {
+    if (!missingPreviewAgentIdWarningSent) {
+      missingPreviewAgentIdWarningSent = true;
+      console.warn('Ignoring Session preview without an exact Agent identity');
+    }
+    return false;
+  }
+  if (!sessionPreviewScopeIncludesAgent(ws.previewScope, ws.focusedAgentId, previewAgentId)) return false;
   ws.send(JSON.stringify({
     type: 'session-preview',
     preview: previewForClient(preview, ws),
   }));
+  return true;
+}
+
+function sendPreviewHydration(ws: WebSocketClient) {
+  agentManager.getPreviewPayloads().forEach((preview: ServerRecord) => {
+    sendPreviewIfInScope(ws, preview);
+  });
 }
 
 const STATE_BROADCAST_INTERVAL_MS = 120;
@@ -4228,11 +4258,7 @@ function scheduleBroadcastState() {
 
 function broadcastSessionPreview(preview: ServerRecord) {
   wss.clients.forEach((client) => {
-    const previewAllowed = client.previewScope !== 'none'
-      && (client.previewScope !== 'focused' || client.focusedAgentId === preview.agentId);
-    if (client.readyState === WebSocket.OPEN && previewAllowed) {
-      sendPreview(client, preview);
-    }
+    if (client.readyState === WebSocket.OPEN) sendPreviewIfInScope(client, preview);
   });
 }
 

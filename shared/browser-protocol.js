@@ -237,6 +237,12 @@ function validateClientMessage(value) {
                     || value.activityScope === 'all'
                     || value.activityScope === 'focused'
                     || value.activityScope === 'none')
+                && (!Object.prototype.hasOwnProperty.call(value, 'previewScope')
+                    || value.previewScope === 'all'
+                    || value.previewScope === 'none'
+                    || (value.previewScope === 'focused'
+                        && typeof value.agentId === 'string'
+                        && value.agentId.length > 0))
                 && (!Object.prototype.hasOwnProperty.call(value, 'stateScope')
                     || value.stateScope === 'all'
                     || (value.stateScope === 'focused'

@@ -52,6 +52,7 @@ export interface FocusAgentMessage extends ExtensibleMessage {
   type: 'focus-agent'
   agentId: string | null
   activityScope?: 'all' | 'focused' | 'none'
+  previewScope?: 'all' | 'focused' | 'none'
   stateScope?: 'all' | 'focused'
 }
 
@@ -560,6 +561,12 @@ export function validateClientMessage(value: unknown): ValidationResult<ClientMe
           || value.activityScope === 'all'
           || value.activityScope === 'focused'
           || value.activityScope === 'none')
+        && (!Object.prototype.hasOwnProperty.call(value, 'previewScope')
+          || value.previewScope === 'all'
+          || value.previewScope === 'none'
+          || (value.previewScope === 'focused'
+            && typeof value.agentId === 'string'
+            && value.agentId.length > 0))
         && (!Object.prototype.hasOwnProperty.call(value, 'stateScope')
           || value.stateScope === 'all'
           || (value.stateScope === 'focused'

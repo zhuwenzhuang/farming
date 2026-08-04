@@ -6,6 +6,7 @@ function run() {
   const sessionBridgePath = path.join(__dirname, '../../frontend/session-bridge.js');
   const serverPath = path.join(__dirname, '../server.cts');
   const sessionStreamProtocolPath = path.join(__dirname, '../session-stream-protocol.cts');
+  const sessionPreviewDeliveryPath = path.join(__dirname, '../session-preview-delivery.cts');
   const appPath = path.join(__dirname, '../../src/App.tsx');
   const useWebSocketPath = path.join(__dirname, '../../src/hooks/useWebSocket.ts');
   const workspacePath = path.join(__dirname, '../../src/components/CodeWorkspace.tsx');
@@ -13,6 +14,7 @@ function run() {
   const sessionBridge = fs.readFileSync(sessionBridgePath, 'utf8');
   const server = fs.readFileSync(serverPath, 'utf8');
   const sessionStreamProtocol = fs.readFileSync(sessionStreamProtocolPath, 'utf8');
+  const sessionPreviewDelivery = fs.readFileSync(sessionPreviewDeliveryPath, 'utf8');
   const app = fs.readFileSync(appPath, 'utf8');
   const useWebSocket = fs.readFileSync(useWebSocketPath, 'utf8');
   const workspace = fs.readFileSync(workspacePath, 'utf8');
@@ -131,7 +133,12 @@ function run() {
   assert(
     server.includes('deliverSessionStreamToClients(Array.from(wss.clients), stream') &&
       sessionStreamProtocol.includes("client.streamScope === 'focused'") &&
-      server.includes("client.previewScope !== 'none'"),
+      server.includes('sessionPreviewScopeIncludesAgent(ws.previewScope, ws.focusedAgentId, previewAgentId)') &&
+      server.includes('sessionPreviewScopeCheckpointRequired(') &&
+      server.includes('sendPreviewHydration(ws)') &&
+      server.includes('Ignoring Session preview without an exact Agent identity') &&
+      sessionPreviewDelivery.includes("normalizedScope === 'none'") &&
+      sessionPreviewDelivery.includes("normalizedScope !== 'focused'"),
     'server should suppress background streams and previews for a focused CRT terminal'
   );
   const agentPatchRoute = server.slice(
