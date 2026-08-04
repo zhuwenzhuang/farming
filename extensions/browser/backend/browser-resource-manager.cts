@@ -1649,15 +1649,8 @@ class BrowserResourceManager extends EventEmitter {
         owner.archived === true
         || INACTIVE_AGENT_STATUSES.has(String(owner.status || ''))
       );
-      if (
-        ownerStopped
-        && (
-          this.runtimes.has(resource.id)
-          || ['running', 'starting', 'stopping'].includes(resource.status)
-          || Boolean(resource.processIdentity)
-        )
-      ) {
-        await this.stop(resource.id, true);
+      if (ownerStopped) {
+        await this.delete(resource.id, true);
       }
     }
   }

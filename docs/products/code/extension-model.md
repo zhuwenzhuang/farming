@@ -57,14 +57,17 @@ Extension, while Farming core requires:
 - restart reconciliation from authoritative persisted state;
 - deletion of only the Resource and external objects that owner can prove.
 
-Agent-owned Resources may survive Chat/Terminal replacement. Stopping or
-archiving an Agent may stop their runtime while retaining user-visible state;
-deleting the Agent removes only Resources it exactly owns.
+Agent-owned Resources may survive Chat/Terminal replacement. When an Agent is
+stopped or archived, its Browser Resources are deleted by exact id so temporary
+Browser rows and profiles do not accumulate. Other Resource types retain the
+lifecycle defined by their owning Extension. Deleting the Agent removes only
+Resources it exactly owns.
 
 For Browser Resources, `stop` retains the row and persistent profile for later
 reuse, while `delete` stops the runtime and removes both. The Agent-facing CLI
 must expose both operations so temporary verification Resources can be deleted
-by exact id instead of accumulating as stopped inventory.
+by exact id instead of accumulating as stopped inventory. An Agent lifecycle
+stop or archive uses deletion; Chat/Terminal replacement is explicitly exempt.
 
 ## Agent Capability Projection
 

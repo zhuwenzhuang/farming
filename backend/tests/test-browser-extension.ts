@@ -1141,19 +1141,23 @@ async function testAgentOwnedBrowserIsolationAndLifecycle() {
       'running',
       'A Chat/Terminal runtime switch must retain Browser ownership and runtime',
     );
+    await manager.stop(second.id);
+    assert.strictEqual(
+      manager.get(second.id).status,
+      'stopped',
+      'An explicit Browser stop may retain the row while its Agent remains active',
+    );
 
     await manager.reconcileAgentLifecycle([
       { id: 'agent_a', status: 'stopped' },
       { id: 'agent_b', status: 'running' },
     ]);
-    assert.strictEqual(manager.get(first.id).status, 'stopped');
-    assert.strictEqual(manager.get(second.id).status, 'stopped');
+    assert.throws(() => manager.get(first.id), /not found/);
+    assert.throws(() => manager.get(second.id), /not found/);
     assert.strictEqual(manager.get(isolated.id).status, 'running');
-    assert.strictEqual(manager.get(first.id).ownerAgentId, 'agent_a');
 
     await manager.reconcileAgentLifecycle([{ id: 'agent_a', status: 'running' }]);
     assert.throws(() => manager.get(isolated.id), /not found/);
-    assert.strictEqual(manager.get(first.id).status, 'stopped');
   } finally {
     await manager.dispose();
     fs.rmSync(configDir, { recursive: true, force: true });
