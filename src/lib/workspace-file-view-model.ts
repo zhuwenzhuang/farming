@@ -1,4 +1,4 @@
-import { ancestorDirectories, type WorkspaceFileTreeNode } from './workspace-file-tree'
+import { ancestorDirectories, parentDirectory, type WorkspaceFileTreeNode } from './workspace-file-tree'
 
 export const WORKSPACE_FILE_SEARCH_FOCUS_RETRY_DELAYS = [0, 80, 180, 300, 520, 900, 1200]
 export const WORKSPACE_FILE_TREE_FOCUS_RETRY_DELAYS = [80, 180, 360]
@@ -26,6 +26,8 @@ export interface WorkspaceFileViewRect {
 
 export interface WorkspaceFileRowSnapshot extends WorkspaceFileViewRect {
   path: string
+  type?: string
+  depth?: number
 }
 
 export interface WorkspaceFileTreeSelectedRowState {
@@ -199,10 +201,32 @@ export function workspaceStickyDirectoryPathsForViewport(options: {
 }) {
   const rowHeight = Math.max(1, options.rowHeight)
   const stickyBottom = options.stickyTop + rowHeight
-  const firstUncoveredPath = options.rows.find(row => (
+  const firstUncoveredIndex = options.rows.findIndex(row => (
     row.top >= stickyBottom - 1 && row.top < options.scrollerBottom
-  ))?.path ?? ''
-  return workspaceStickyDirectoryPaths(firstUncoveredPath, options.rows, stickyBottom)
+  ))
+  if (firstUncoveredIndex < 0) return []
+
+  const firstUncoveredRow = options.rows[firstUncoveredIndex]!
+  let siblingFileGroupStart = firstUncoveredIndex
+  while (siblingFileGroupStart > 0) {
+    const previousRow = options.rows[siblingFileGroupStart - 1]!
+    if (
+      previousRow.type !== 'file' ||
+      previousRow.depth !== firstUncoveredRow.depth ||
+      parentDirectory(previousRow.path) !== parentDirectory(firstUncoveredRow.path)
+    ) break
+    siblingFileGroupStart -= 1
+  }
+  const precedingSiblingDirectory = firstUncoveredRow.type === 'file'
+    ? options.rows[siblingFileGroupStart - 1]
+    : undefined
+  const usesSiblingDirectoryPrefix = precedingSiblingDirectory?.type === 'directory' &&
+    precedingSiblingDirectory.depth === firstUncoveredRow.depth &&
+    parentDirectory(precedingSiblingDirectory.path) === parentDirectory(firstUncoveredRow.path) &&
+    precedingSiblingDirectory.top < stickyBottom
+  if (usesSiblingDirectoryPrefix) return [precedingSiblingDirectory.path]
+
+  return workspaceStickyDirectoryPaths(firstUncoveredRow.path, options.rows, stickyBottom)
 }
 
 export function workspaceStickyContextItems(options: {

@@ -1220,6 +1220,20 @@ function run() {
     }),
     []
   );
+  assert.deepStrictEqual(
+    workspaceStickyDirectoryPathsForViewport({
+      rows: [
+        { path: 'src/components/code', type: 'directory', depth: 0, top: -4, bottom: 20 },
+        { path: 'src/components/code/acp', type: 'directory', depth: 1, top: 20, bottom: 44 },
+        { path: 'src/components/code/pet', type: 'directory', depth: 1, top: 44, bottom: 68 },
+        { path: 'src/components/code/agent-kind.ts', type: 'file', depth: 1, top: 68, bottom: 92 },
+      ],
+      stickyTop: 40,
+      scrollerBottom: 160,
+      rowHeight: 24,
+    }),
+    ['src/components/code/pet']
+  );
   assert.deepStrictEqual(WORKSPACE_FILE_SEARCH_FOCUS_RETRY_DELAYS, [0, 80, 180, 300, 520, 900, 1200]);
   assert.deepStrictEqual(WORKSPACE_FILE_TREE_FOCUS_RETRY_DELAYS, [80, 180, 360]);
 

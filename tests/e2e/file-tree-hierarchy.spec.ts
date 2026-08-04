@@ -240,3 +240,32 @@ test('preserves every visible directory level across sticky scroll, collapse, re
   await scrollFileRowIntoStickyRange(restoredTarget)
   await expect.poll(() => stickyHierarchyMatchesFirstUncoveredRow(restoredFiles)).toBe(true)
 })
+
+test('uses the last crossed sibling directory as the compact sticky prefix', async ({ page, workspaceRoot }) => {
+  const workspace = path.join(workspaceRoot, 'sibling-directory-sticky-prefix')
+  const codeDirectory = path.join(workspace, 'src', 'components', 'code')
+  fs.mkdirSync(path.join(codeDirectory, 'acp'), { recursive: true })
+  fs.mkdirSync(path.join(codeDirectory, 'pet'), { recursive: true })
+  for (let index = 0; index < 24; index += 1) {
+    fs.writeFileSync(path.join(codeDirectory, `agent-${String(index).padStart(2, '0')}.ts`), `export const value${index} = ${index}\n`)
+  }
+
+  await openFarming(page)
+  await openNewAgentDialog(page)
+  await startAgentFromOpenDialog(page, 'bash', workspace)
+
+  const files = page.getByTestId('code-files-section')
+  const filesTitle = files.getByRole('button', { name: 'Files', exact: true })
+  if (await filesTitle.getAttribute('aria-expanded') !== 'true') await filesTitle.click()
+  const targetPath = 'src/components/code/agent-23.ts'
+  const search = files.getByPlaceholder('Search or path:line')
+  await search.fill(`${targetPath}:1`)
+  await search.press('Enter')
+
+  const target = files.locator(`[data-testid="code-file-row"][data-file-path="${targetPath}"]`)
+  await expect(target).toBeVisible()
+  await scrollFileRowIntoStickyRange(target)
+  const stickyRow = files.getByTestId('code-file-sticky-stack').locator('.code-file-sticky-row')
+  await expect(stickyRow).toHaveAttribute('title', 'src/components/code/pet')
+  await expect(stickyRow.locator('.code-file-name')).toHaveText('pet')
+})

@@ -86,7 +86,14 @@ export function useWorkspaceFileStickyContext({
       const path = row.dataset.filePath
       if (!path) return []
       const rect = row.getBoundingClientRect()
-      return [{ path, top: rect.top, bottom: rect.bottom }]
+      const depth = Number(row.dataset.treeLevel)
+      return [{
+        path,
+        type: row.dataset.fileType,
+        depth: Number.isFinite(depth) ? depth : undefined,
+        top: rect.top,
+        bottom: rect.bottom,
+      }]
     })
     const firstVisiblePath = firstVisibleWorkspaceFilePath(rowSnapshots, stickyTop, scrollerRect.bottom)
     if (!firstVisiblePath) {
