@@ -1336,6 +1336,8 @@ test.describe('ACP human-like browser matrix', () => {
     const summary = turn.getByTestId('code-agent-transcript-result-summary')
     await expect(summary).toHaveText('1 file changed+1-1')
     await expect(summary).not.toHaveAttribute('aria-expanded')
+    await page.locator('body').evaluate(element => { element.dataset.appearance = 'dark' })
+    await expect(summary).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
     await turn.getByRole('button', { name: /^Review:/ }).click()
     const review = page.getByRole('dialog', { name: 'Review' }).getByTestId('code-agent-transcript-result-details')
     await expect(review).toBeVisible()

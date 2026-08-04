@@ -2271,9 +2271,9 @@ body.code-mode[data-appearance='dark'] .code-agent-transcript-plan-driver-summar
 
 body.code-mode[data-appearance='dark'] .code-agent-transcript-result-summary {
   border-color: var(--code-dark-border);
-  background: rgba(22, 27, 34, 0.72);
+  background: transparent;
   color: var(--code-dark-text-muted);
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.03);
+  box-shadow: none;
 }
 
 body.code-mode[data-appearance='dark'] .code-agent-transcript-progress {
