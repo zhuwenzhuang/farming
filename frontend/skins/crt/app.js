@@ -99,6 +99,8 @@ let crtPreviewRenderFrame = null;
 const pendingCrtPreviewRenders = new Map();
 const crtStructuredPreviewCache = new Map();
 const crtStructuredPreviewTimers = new Map();
+const crtStructuredPreviewReadQueue = [];
+let crtStructuredPreviewReadsInFlight = 0;
 let sessionRuntime = null;
 let structuredSessionPoller = null;
 let structuredSessionLoading = false;
@@ -131,6 +133,8 @@ const SESSION_LINK_LIMIT = 6;
 const CRT_PROTOCOL_VERSION = 6;
 const CRT_PREVIEW_RENDER_INTERVAL_MS = 1000;
 const CRT_STRUCTURED_PREVIEW_REFRESH_MS = 240;
+const CRT_STRUCTURED_PREVIEW_MAX_CONCURRENT_READS = 2;
+const CRT_STRUCTURED_PREVIEW_RETRY_DELAYS_MS = [750, 2_000, 5_000];
 const CRT_AGENT_CARD_MIN_WIDTH = 200;
 const CRT_AGENT_CARD_MIN_HEIGHT = 160;
 const CRT_AGENT_GRID_GAP = 15;
@@ -7158,22 +7162,49 @@ function pruneCrtStructuredPreviews(currentState = state) {
         crtStructuredPreviewTimers.delete(agentId);
     });
 }
+function pumpCrtStructuredPreviewReadQueue() {
+    while (crtStructuredPreviewReadsInFlight < CRT_STRUCTURED_PREVIEW_MAX_CONCURRENT_READS
+        && crtStructuredPreviewReadQueue.length > 0) {
+        const start = crtStructuredPreviewReadQueue.shift();
+        if (start)
+            start();
+    }
+}
+function runCrtStructuredPreviewRead(read) {
+    return new Promise((resolve, reject) => {
+        crtStructuredPreviewReadQueue.push(() => {
+            crtStructuredPreviewReadsInFlight += 1;
+            void read().then(resolve, reject).finally(() => {
+                crtStructuredPreviewReadsInFlight -= 1;
+                pumpCrtStructuredPreviewReadQueue();
+            });
+        });
+        pumpCrtStructuredPreviewReadQueue();
+    });
+}
 function scheduleCrtStructuredPreviewRefresh(agent) {
     if (!isCrtLiveAgent(agent) || !isStructuredRuntimeAgent(agent))
         return;
     const revision = crtStructuredPreviewRevision(agent);
     const cached = crtStructuredPreviewCache.get(agent.id);
-    if (cached && cached.revision === revision && (cached.loading || cached.ready))
-        return;
+    if (cached && cached.revision === revision) {
+        if (cached.loading || (cached.ready && !cached.error))
+            return;
+        if (cached.error && Number(cached.retryCount || 0) > CRT_STRUCTURED_PREVIEW_RETRY_DELAYS_MS.length)
+            return;
+    }
     if (crtStructuredPreviewTimers.has(agent.id))
         return;
+    const delay = cached && cached.revision === revision && cached.error
+        ? Math.max(CRT_STRUCTURED_PREVIEW_REFRESH_MS, Number(cached.retryAt || 0) - Date.now())
+        : CRT_STRUCTURED_PREVIEW_REFRESH_MS;
     const timer = setTimeout(() => {
         crtStructuredPreviewTimers.delete(agent.id);
         const currentAgent = state && state.agents.find((candidate) => candidate.id === agent.id);
         if (isCrtLiveAgent(currentAgent) && isStructuredRuntimeAgent(currentAgent)) {
             void refreshCrtStructuredPreview(currentAgent);
         }
-    }, CRT_STRUCTURED_PREVIEW_REFRESH_MS);
+    }, delay);
     crtStructuredPreviewTimers.set(agent.id, timer);
 }
 async function refreshCrtStructuredPreview(agent) {
@@ -7181,22 +7212,42 @@ async function refreshCrtStructuredPreview(agent) {
         return;
     const revision = crtStructuredPreviewRevision(agent);
     const cached = crtStructuredPreviewCache.get(agent.id);
-    if (cached && cached.revision === revision && (cached.loading || cached.ready))
-        return;
+    if (cached && cached.revision === revision) {
+        if (cached.loading || (cached.ready && !cached.error))
+            return;
+        if (cached.error && Number(cached.retryCount || 0) > CRT_STRUCTURED_PREVIEW_RETRY_DELAYS_MS.length)
+            return;
+        if (cached.error && Number(cached.retryAt || 0) > Date.now()) {
+            scheduleCrtStructuredPreviewRefresh(agent);
+            return;
+        }
+    }
     crtStructuredPreviewCache.set(agent.id, {
         revision,
         loading: true,
         ready: false,
         preview: cached && cached.preview || null,
         error: '',
+        retryCount: cached && cached.revision === revision ? Number(cached.retryCount || 0) : 0,
+        retryAt: 0,
     });
     try {
         const endpoint = structuredTranscriptEndpoint(agent);
-        const response = await fetch(farmingApiPath(`/agents/${encodeURIComponent(agent.id)}/${endpoint}?maxTurns=20`));
-        const body = await response.json().catch(() => null);
-        if (!response.ok || !body || !body.transcript) {
-            throw new Error(body && body.error ? body.error : `Conversation preview failed (${response.status})`);
-        }
+        const body = await runCrtStructuredPreviewRead(async () => {
+            const queuedAgent = state && state.agents.find((candidate) => candidate.id === agent.id);
+            if (!isCrtLiveAgent(queuedAgent) || crtStructuredPreviewRevision(queuedAgent) !== revision)
+                return null;
+            const response = await fetch(farmingApiPath(`/agents/${encodeURIComponent(agent.id)}/${endpoint}?maxTurns=20&media=external-v1`));
+            const responseBody = await response.json().catch(() => null);
+            if (!response.ok || !responseBody || !responseBody.transcript) {
+                throw new Error(responseBody && responseBody.error
+                    ? responseBody.error
+                    : `Conversation preview failed (${response.status})`);
+            }
+            return responseBody;
+        });
+        if (!body)
+            return;
         const currentAgent = state && state.agents.find((candidate) => candidate.id === agent.id);
         if (!isCrtLiveAgent(currentAgent) || crtStructuredPreviewRevision(currentAgent) !== revision) {
             if (isCrtLiveAgent(currentAgent))
@@ -7209,6 +7260,8 @@ async function refreshCrtStructuredPreview(agent) {
             ready: true,
             preview: buildCrtStructuredPreview(body.transcript, currentAgent),
             error: '',
+            retryCount: 0,
+            retryAt: 0,
         });
         if (isCrtSessionOpen())
             dashboardRenderDeferred = true;
@@ -7219,17 +7272,22 @@ async function refreshCrtStructuredPreview(agent) {
         const currentAgent = state && state.agents.find((candidate) => candidate.id === agent.id);
         if (!isCrtLiveAgent(currentAgent) || crtStructuredPreviewRevision(currentAgent) !== revision)
             return;
+        const retryCount = Number(cached && cached.revision === revision ? cached.retryCount || 0 : 0) + 1;
+        const retryDelay = CRT_STRUCTURED_PREVIEW_RETRY_DELAYS_MS[retryCount - 1] || 0;
         crtStructuredPreviewCache.set(agent.id, {
             revision,
             loading: false,
-            ready: true,
+            ready: retryCount > CRT_STRUCTURED_PREVIEW_RETRY_DELAYS_MS.length,
             preview: cached && cached.preview || null,
             error: error instanceof Error && error.message ? error.message : 'Conversation preview unavailable',
+            retryCount,
+            retryAt: retryDelay > 0 ? Date.now() + retryDelay : 0,
         });
         if (isCrtSessionOpen())
             dashboardRenderDeferred = true;
         else
             updateCrtAgentPreviewCard(currentAgent);
+        scheduleCrtStructuredPreviewRefresh(currentAgent);
     }
 }
 function renderStructuredTranscript(transcript, force = false, agentId = focusedAgentId) {
@@ -7287,7 +7345,7 @@ async function refreshStructuredSession(agentId = focusedAgentId, force = false,
     structuredSessionLoading = true;
     try {
         const endpoint = structuredTranscriptEndpoint(agent);
-        const response = await fetch(farmingApiPath(`/agents/${encodeURIComponent(agent.id)}/${endpoint}?maxTurns=80`));
+        const response = await fetch(farmingApiPath(`/agents/${encodeURIComponent(agent.id)}/${endpoint}?maxTurns=80&media=external-v1`));
         const body = await response.json().catch(() => null);
         if (!isCurrentStructuredSession(agentId, generation))
             return;

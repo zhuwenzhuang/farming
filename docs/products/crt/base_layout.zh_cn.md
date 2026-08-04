@@ -23,6 +23,7 @@ Dashboard 帮助用户找到需要关注的工作。Backend 拥有 Agent Lifecyc
 
 Card 保持稳定、可读的 Geometry。重要工作可以获得更多面积，但高频 Metadata Update 不能造成
 干扰性的 Reorder 或 Overlap。过多 Preview Content 应裁剪或滚动，不能把文字压缩到不可读。
+当 Card 无法显示完整的有界 Chat Preview 时，必须优先保留最新消息可见。
 
 ## Session
 
@@ -55,6 +56,10 @@ CRT 使用克制的 Monochrome Control-room Style：
 
 Current Capability、Inventory、Usage 与 Health View 都执行 Fresh Authoritative Read，并显示
 Loading 与 Failure。Refresh 期间可以保留上一次完整数据，但不能把 Stale Data 当成新的成功结果。
+
+Dashboard Chat Preview 使用与 Farming Code 相同的外部媒体 Transcript Delivery，对并发读取设界，
+并在有限时间内重试瞬时读取失败。Preview Failure 仍需显式展示，但一次临时 Transport Interruption
+不能永久锁死 Card 状态。
 
 所有 Same-origin Routing 遵循 Server 提供的 Base Path。Routing 缺失、Protocol Incompatibility、
 Renderer Failure 与 Session Recovery Failure 都必须显式展示；CRT 不静默切换到未测试 Fallback。

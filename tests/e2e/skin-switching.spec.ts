@@ -966,7 +966,7 @@ test('previews structured Chat and closes a CRT session when another viewer kill
   expect(previewLayout.overflow).toBe('hidden')
   expect(['', 'none']).toContain(previewLayout.lineClamp)
   expect(previewLayout.panelJustify).toBe('flex-start')
-  expect(previewLayout.trailJustify).toBe('flex-start')
+  expect(previewLayout.trailJustify).toBe('flex-end')
   await expect(chatCard.getByText('No output yet...', { exact: true })).toHaveCount(0)
 
   const killedAgentId = await createControlAgent(page, 'bash', workspaceRoot)

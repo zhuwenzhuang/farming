@@ -408,6 +408,18 @@ function run() {
       && indexHtml.includes('.agent-chat-preview-line'),
     'CRT Chat cards should render a distinct structured conversation preview',
   );
+  assert(
+    crtApp.includes('CRT_STRUCTURED_PREVIEW_MAX_CONCURRENT_READS = 2')
+      && crtApp.includes('CRT_STRUCTURED_PREVIEW_RETRY_DELAYS_MS')
+      && crtApp.includes('media=external-v1'),
+    'CRT Chat previews should use bounded reads, bounded retries, and external transcript media',
+  );
+  assert(
+    indexHtml.includes('.agent-chat-preview-trail')
+      && indexHtml.includes('flex: 1 1 auto;')
+      && indexHtml.includes('justify-content: flex-end;'),
+    'CRT Chat cards should keep the newest preview messages visible',
+  );
   assert(indexHtml.includes('.agent-output-tail') && indexHtml.includes('bottom: 0'), 'CRT live tails should fill cards without compressing text');
   assert(!crtApp.includes('calculateCrtPreviewFontSize'), 'CRT cards should not compress text to fit a full snapshot');
   assert(crtApp.includes('getCrtAgentTitle'), 'CRT cards and sessions should use meaningful agent titles');

@@ -96,9 +96,13 @@ function createHarness(
   vm.createContext(sandbox);
   vm.runInContext(appSource, sandbox, { filename: 'frontend/skins/crt/app.js' });
   sandbox.document = {
+    body: { classList: { contains: () => false } },
     title: '',
     getElementById(id) {
       return id === 'terminal-output' ? terminalOutput : null;
+    },
+    querySelectorAll() {
+      return [];
     },
   };
   sandbox.navigator = {
@@ -134,6 +138,7 @@ async function testLateTranscriptCannotPaintNewAgent() {
   setTwoAcpAgents(harness, 'agent-a', 1);
   const first = harness.evaluate("refreshStructuredSession('agent-a', true, 1)");
   assert.match(harness.requests[0].url, /\/agents\/agent-a\/acp-transcript/);
+  assert.match(harness.requests[0].url, /media=external-v1/);
 
   setTwoAcpAgents(harness, 'agent-b', 2);
   const second = harness.evaluate("refreshStructuredSession('agent-b', true, 2)");
@@ -177,6 +182,81 @@ async function testLateTranscriptCannotPaintNewAgent() {
   await oldSession;
   assert.strictEqual(reopened.renders.length, 1);
   assert.strictEqual(reopened.renders[0][0].finalMessage, 'New A session');
+}
+
+async function testStructuredPreviewUsesExternalMediaAndRetriesTransientFailure() {
+  const harness = createHarness();
+  harness.evaluate(`
+    state = {
+      agents: [
+        {
+          id: 'agent-a',
+          status: 'running',
+          lastActivity: 1,
+          runtimeBinding: { kind: 'acp', state: 'idle', sessionRevision: 1 }
+        }
+      ]
+    };
+  `);
+
+  const first = harness.evaluate("refreshCrtStructuredPreview(state.agents[0])");
+  await new Promise(resolve => setImmediate(resolve));
+  assert.match(harness.requests[0].url, /maxTurns=20/);
+  assert.match(harness.requests[0].url, /media=external-v1/);
+  harness.requests[0].deferred.resolve(response(
+    { error: 'ACP runtime host connection closed' },
+    { ok: false, status: 409 },
+  ));
+  await first;
+  assert.strictEqual(
+    harness.evaluate("crtStructuredPreviewCache.get('agent-a').retryCount"),
+    1,
+  );
+
+  harness.evaluate("crtStructuredPreviewCache.get('agent-a').retryAt = 0");
+  const retry = harness.evaluate("refreshCrtStructuredPreview(state.agents[0])");
+  await new Promise(resolve => setImmediate(resolve));
+  assert.strictEqual(harness.requests.length, 2, 'a transient preview failure should remain retryable');
+  harness.requests[1].deferred.resolve(response({
+    transcript: {
+      updatedAt: 'retry-success',
+      entries: [
+        { type: 'message', role: 'user', content: [{ type: 'text', text: 'latest question' }] },
+        { type: 'message', role: 'assistant', content: [{ type: 'text', text: 'latest answer' }] },
+      ],
+    },
+  }));
+  await retry;
+  assert.strictEqual(
+    harness.evaluate("crtStructuredPreviewCache.get('agent-a').preview.assistantText"),
+    'latest answer',
+  );
+}
+
+async function testStructuredPreviewReadsAreBounded() {
+  const harness = createHarness();
+  harness.evaluate(`
+    state = {
+      agents: ['agent-a', 'agent-b', 'agent-c'].map((id, index) => ({
+        id,
+        status: 'running',
+        lastActivity: index + 1,
+        runtimeBinding: { kind: 'acp', state: 'idle', sessionRevision: 1 }
+      }))
+    };
+  `);
+
+  const reads = harness.evaluate(`Promise.all(state.agents.map(agent => refreshCrtStructuredPreview(agent)))`);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.strictEqual(harness.requests.length, 2, 'CRT should admit at most two transcript reads at once');
+
+  harness.requests[0].deferred.resolve(response({ transcript: { updatedAt: 'a', entries: [] } }));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.strictEqual(harness.requests.length, 3, 'a queued transcript read should start after one slot is released');
+
+  harness.requests[1].deferred.resolve(response({ transcript: { updatedAt: 'b', entries: [] } }));
+  harness.requests[2].deferred.resolve(response({ transcript: { updatedAt: 'c', entries: [] } }));
+  await reads;
 }
 
 async function testLateControlsCannotReplaceNewAgentOrRetargetPatch() {
@@ -280,6 +360,8 @@ async function testSettingsWritesOnlyCarryAndCommitTheirPatch() {
 
 async function run() {
   await testLateTranscriptCannotPaintNewAgent();
+  await testStructuredPreviewUsesExternalMediaAndRetriesTransientFailure();
+  await testStructuredPreviewReadsAreBounded();
   await testLateControlsCannotReplaceNewAgentOrRetargetPatch();
   await testClipboardReadCannotPasteIntoNewAgent();
   await testSettingsWritesOnlyCarryAndCommitTheirPatch();

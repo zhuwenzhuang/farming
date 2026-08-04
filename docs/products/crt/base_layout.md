@@ -27,7 +27,8 @@ emphasis, but must not invent completion, zombie, or health state.
 Cards keep stable readable geometry. More important work may receive more area,
 but rapid metadata updates must not cause distracting reorder or overlap.
 Excess preview content clips or scrolls instead of shrinking text below a
-readable size.
+readable size. Chat previews keep the newest messages visible when the card
+cannot display the complete bounded preview.
 
 ## Sessions
 
@@ -66,6 +67,11 @@ Current capability, inventory, usage, and health views perform fresh
 authoritative reads with visible loading and failure. Existing complete data may
 remain visible during a refresh, but stale data cannot be presented as a new
 successful read.
+
+Dashboard Chat previews use the same external-media transcript delivery as
+Farming Code, use bounded concurrent reads, and retry transient read failures
+for a limited time. A failed preview remains explicit without turning one
+temporary transport interruption into a permanent card state.
 
 All same-origin routing follows the Server-provided base path. Missing routing,
 protocol incompatibility, renderer failure, and Session recovery failure remain
