@@ -93,6 +93,11 @@ Execution environment
   provider-specific discovery, capability, executable, and session behavior at
   that boundary rather than scattering provider-name checks through generic
   lifecycle or UI code.
+- Cross-cutting performance, correctness, reliability, recovery, resource
+  isolation, and observability improvements must apply to every supported
+  Agent and provider through provider-neutral contracts and equivalent
+  acceptance criteria. Provider differences belong in adapters; a
+  provider-specific implementation is not a completed system optimization.
 - Executable ownership is runtime-mode-specific: native Terminals prefer the
   user's system executable, selecting a verified Farming-owned executable only
   when it is strictly newer; ACP uses Farming-owned, pinned adapter/runtime

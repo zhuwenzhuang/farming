@@ -12,6 +12,11 @@ Provider 特有的 Executable Discovery、Environment、Adapter Patch、可选�
 行为都属于 Provider Adapter。通用 Lifecycle 与 Chat 只使用实时协商的 ACP Capability，
 不得根据 Provider 名称猜测支持情况。
 
+性能、正确性、可靠性、恢复、隔离与可观测性都是 Provider-neutral 的 ACP 要求。
+横切改进只有在所有受支持 Provider 都满足同一 Adapter Contract 与等价验收标准后才算
+完成。Provider 集成可以用不同方式实现该 Contract，但不得绕过它，也不能把单一 Provider
+实现描述为通用 ACP 优化。
+
 ACP 与 Native Terminal 使用相互独立的 Executable Policy。ACP 使用 Farming 自有、版本
 锁定的 Runtime Artifact；Terminal 遵循 Native Terminal Policy。更新 ACP Pin 必须验证
 Protocol、Integrity、Recovery 与 Chat/Terminal Compatibility。
@@ -124,7 +129,8 @@ Composer 保留 Draft、IME、Attachment、Queue/Steer、Permission 与协商配
 
 ## 验收标准
 
-验证必须覆盖：Provider Capability Negotiation、精确 Identity 与 Agent Home 隔离、Config
+所有受支持 Provider 都必须针对其实现的 Contract 通过同一套 Provider-neutral 验证。验证
+必须覆盖：Provider Capability Negotiation、精确 Identity 与 Agent Home 隔离、Config
 Fallback、有序 Mutation、结果不确定、Server/Host 重启、Checkpoint/Delta 缺口、阅读位置
 恢复、Chat/Terminal 切换、Fork、Media 与 Tool Evidence，以及大规模 Multi-Agent Workload。
 Scale Test 必须测量 Process 数、Memory、Wire Volume、Browser Render Work 与 Navigation

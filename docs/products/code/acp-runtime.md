@@ -15,6 +15,13 @@ methods, and history behavior belong in Provider Adapters. Generic lifecycle and
 Chat code use negotiated ACP capabilities and must not infer support from a
 provider name.
 
+Performance, correctness, reliability, recovery, isolation, and observability
+are provider-neutral ACP requirements. A cross-cutting improvement is complete
+only when every supported provider satisfies the same adapter contract and
+equivalent acceptance criteria. Provider-specific integration may implement
+that contract differently, but must not bypass it or be presented as a general
+ACP optimization.
+
 ACP and native Terminal have independent executable policies. ACP uses
 Farming-owned, version-pinned runtime artifacts; Terminal follows the native
 Terminal policy. Updating an ACP pin requires protocol, integrity, recovery,
@@ -161,10 +168,11 @@ automatically.
 
 ## Acceptance Criteria
 
-Verification must cover provider capability negotiation, exact identity and
-Agent Home isolation, configuration fallback, ordered mutations, uncertain
-outcomes, Server and Host restart, checkpoint/delta gaps, reading-position
-restore, Chat/Terminal switching, Fork, media and tool evidence, and large
-multi-Agent workloads. Scale tests must measure process count, memory, wire
-volume, browser render work, and navigation latency without imposing a fixed
-concurrency ceiling.
+Every supported provider must pass the same provider-neutral verification for
+the contracts it implements. Verification must cover provider capability
+negotiation, exact identity and Agent Home isolation, configuration fallback,
+ordered mutations, uncertain outcomes, Server and Host restart,
+checkpoint/delta gaps, reading-position restore, Chat/Terminal switching,
+Fork, media and tool evidence, and large multi-Agent workloads. Scale tests
+must measure process count, memory, wire volume, browser render work, and
+navigation latency without imposing a fixed concurrency ceiling.

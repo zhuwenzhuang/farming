@@ -83,6 +83,10 @@ Farming Backend
 - Coding Agent 的结构化 Chat 通过 Provider Adapter 使用 ACP。Provider 特有的
   Discovery、Capability、Executable 与 Session 行为应留在该边界，不要把
   Provider 名称判断散落到通用 Lifecycle 或 UI 代码中。
+- 性能、正确性、可靠性、恢复、资源隔离与可观测性等横切改进，必须通过
+  Provider-neutral Contract 和等价验收标准同时适用于所有受支持的 Agent 与
+  Provider。Provider 差异只能由 Adapter 吸收；只适用于单一 Provider 的实现
+  不能视为已经完成的系统级优化。
 - Executable 的所有权按 Runtime Mode 区分：Native Terminal 优先使用用户的
   系统 Executable，只有在 Farming 自有 Executable 的已验证版本更高时才选择
   自有版本；ACP 独立使用 Farming 自有且锁定版本的 Adapter/Runtime，不得继承
