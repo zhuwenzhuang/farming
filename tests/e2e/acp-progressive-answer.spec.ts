@@ -3,10 +3,12 @@ import path from 'node:path'
 import type { Page } from '@playwright/test'
 import { expect, openFarming, test } from './fixtures'
 
-const PROGRESSIVE_ANSWER = Array.from(
+const PROGRESSIVE_SEGMENTS = Array.from(
   { length: 10 },
   (_, index) => `Visible segment ${String(index + 1).padStart(2, '0')} stays continuous and preserves the exact final transcript.`,
-).join(' ')
+)
+const PROGRESSIVE_INITIAL_ANSWER = PROGRESSIVE_SEGMENTS.slice(0, 2).join(' ')
+const PROGRESSIVE_ANSWER = PROGRESSIVE_SEGMENTS.join(' ')
 
 type AnswerSample = {
   elapsedMs: number
@@ -59,6 +61,15 @@ async function answerSamples(page: Page) {
   })
 }
 
+async function currentAnswerSamples(page: Page) {
+  return page.evaluate(() => {
+    const testWindow = window as typeof window & {
+      __farmingProgressiveAnswerSamples?: AnswerSample[]
+    }
+    return testWindow.__farmingProgressiveAnswerSamples || []
+  })
+}
+
 async function firstAnswerAfterAgentClick(page: Page, agentId: string) {
   return page.evaluate(id => new Promise<string>((resolve, reject) => {
     const row = document.querySelector<HTMLElement>(`[data-testid="code-agent-row"][data-agent-id="${id}"]`)
@@ -94,7 +105,7 @@ async function firstAnswerAfterAgentClick(page: Page, agentId: string) {
   }), agentId)
 }
 
-test('reveals a live ACP answer continuously without delaying send confirmation or replaying settled text', async ({ page, workspaceRoot }) => {
+test('shows authoritative live ACP snapshots without delaying send confirmation or replaying settled text', async ({ page, workspaceRoot }) => {
   const workspace = path.join(workspaceRoot, 'acp-progressive-answer')
   fs.mkdirSync(workspace, { recursive: true })
   const agentId = await createAcpAgent(page, workspace)
@@ -124,19 +135,12 @@ test('reveals a live ACP answer continuously without delaying send confirmation 
   expect(inputClearMs).toBeLessThan(15_000)
 
   const answer = page.locator('.code-agent-transcript-assistant').last()
+  await expect.poll(async () => (await currentAnswerSamples(page))[0]?.text).toBe(PROGRESSIVE_INITIAL_ANSWER)
   await expect(answer).toHaveText(PROGRESSIVE_ANSWER, { timeout: 20_000 })
   const samples = await answerSamples(page)
-  expect(samples.length).toBeGreaterThanOrEqual(20)
-  expect(samples[0]?.text.length).toBeLessThan(PROGRESSIVE_ANSWER.length)
+  expect(samples).toHaveLength(2)
+  expect(samples[0]?.text).toBe(PROGRESSIVE_INITIAL_ANSWER)
   expect(samples[samples.length - 1]?.text).toBe(PROGRESSIVE_ANSWER)
-  for (let index = 1; index < samples.length - 1; index += 1) {
-    const previous = samples[index - 1]!
-    const current = samples[index]!
-    expect(current.text.startsWith(previous.text)).toBe(true)
-    expect(current.text.length - previous.text.length).toBeLessThanOrEqual(24)
-  }
-  expect(PROGRESSIVE_ANSWER.startsWith(samples[samples.length - 2]?.text || '')).toBe(true)
-  expect((samples[samples.length - 1]?.elapsedMs || 0) - (samples[0]?.elapsedMs || 0)).toBeGreaterThan(1_500)
 
   await otherAgentRow.click()
   const firstSwitchText = await firstAnswerAfterAgentClick(page, agentId)
@@ -147,6 +151,48 @@ test('reveals a live ACP answer continuously without delaying send confirmation 
   await expect(otherAgentRow).toBeVisible()
   const firstRestoredText = await firstAnswerAfterAgentClick(page, agentId)
   expect(firstRestoredText).toBe(PROGRESSIVE_ANSWER)
+})
+
+test('does not replay an in-progress ACP answer after switching agents', async ({ page, workspaceRoot }) => {
+  const workspace = path.join(workspaceRoot, 'acp-progressive-answer-switch')
+  fs.mkdirSync(workspace, { recursive: true })
+  const agentId = await createAcpAgent(page, workspace)
+  const otherAgentId = await createAcpAgent(page, workspace)
+  await openFarming(page)
+  const agentRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
+  const otherAgentRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${otherAgentId}"]`)
+  await agentRow.click()
+  await installAnswerSampler(page)
+
+  await page.getByTestId('code-acp-composer-input').fill('progressive answer stream')
+  await page.getByTestId('code-acp-composer-send').click()
+  await expect.poll(async () => (await currentAnswerSamples(page))[0]?.text).toBe(PROGRESSIVE_INITIAL_ANSWER)
+
+  await otherAgentRow.click()
+  await page.waitForTimeout(1_500)
+  const firstInProgressSwitchText = await firstAnswerAfterAgentClick(page, agentId)
+  expect(firstInProgressSwitchText.startsWith(PROGRESSIVE_INITIAL_ANSWER)).toBe(true)
+  expect(firstInProgressSwitchText.length).toBeGreaterThan(PROGRESSIVE_INITIAL_ANSWER.length)
+
+  await expect(page.locator('.code-agent-transcript-assistant').last()).toHaveText(PROGRESSIVE_ANSWER, { timeout: 20_000 })
+  await otherAgentRow.click()
+  expect(await firstAnswerAfterAgentClick(page, agentId)).toBe(PROGRESSIVE_ANSWER)
+})
+
+test('shows a one-shot live ACP answer snapshot in full without replaying it', async ({ page, workspaceRoot }) => {
+  const workspace = path.join(workspaceRoot, 'acp-answer-snapshot')
+  fs.mkdirSync(workspace, { recursive: true })
+  const agentId = await createAcpAgent(page, workspace)
+  await openFarming(page)
+  await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
+  await installAnswerSampler(page)
+
+  await page.getByTestId('code-acp-composer-input').fill('answer snapshot only')
+  await page.getByTestId('code-acp-composer-send').click()
+  await expect(page.locator('.code-agent-transcript-assistant').last()).toHaveText(PROGRESSIVE_ANSWER)
+  const samples = await answerSamples(page)
+  expect(samples).toHaveLength(1)
+  expect(samples[0]?.text).toBe(PROGRESSIVE_ANSWER)
 })
 
 test('shows the authoritative ACP answer immediately when reduced motion is requested', async ({ page, workspaceRoot }) => {
@@ -162,6 +208,7 @@ test('shows the authoritative ACP answer immediately when reduced motion is requ
   await page.getByTestId('code-acp-composer-send').click()
   await expect(page.locator('.code-agent-transcript-assistant').last()).toHaveText(PROGRESSIVE_ANSWER)
   const samples = await answerSamples(page)
-  expect(samples).toHaveLength(1)
-  expect(samples[0]?.text).toBe(PROGRESSIVE_ANSWER)
+  expect(samples[0]?.text).toBe(PROGRESSIVE_INITIAL_ANSWER)
+  expect(samples[samples.length - 1]?.text).toBe(PROGRESSIVE_ANSWER)
+  expect(samples.length).toBeLessThanOrEqual(PROGRESSIVE_SEGMENTS.length - 1)
 })

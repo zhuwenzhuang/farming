@@ -237,7 +237,7 @@ function transcriptAnswerRevealBatchSize(backlog: number) {
 }
 
 function useProgressiveTranscriptText(targetText: string, revealProgressively: boolean) {
-  const initialText = revealProgressively ? '' : targetText
+  const initialText = targetText
   const [visibleText, setVisibleText] = useState(initialText)
   const visibleTextRef = useRef(initialText)
   const targetTextRef = useRef(targetText)
@@ -311,6 +311,7 @@ function useProgressiveTranscriptText(targetText: string, revealProgressively: b
     if (
       reducedMotionRef.current
       || document.visibilityState === 'hidden'
+      || !visible
       || !targetText.startsWith(visible)
       || !revealProgressively
     ) {
@@ -4233,6 +4234,7 @@ export function AgentTranscriptPane({
                     }
                     progressivelyRevealAnswer={
                       source === 'acp'
+                      && active
                       && index === turns.length - 1
                       && turn.status === 'inProgress'
                     }

@@ -1463,7 +1463,7 @@ class FakeAgent implements Agent {
       });
       return { stopReason: 'end_turn' };
     }
-    if (promptText.includes('progressive answer stream')) {
+    if (promptText.includes('answer snapshot only')) {
       const answer = Array.from(
         { length: 10 },
         (_, index) => `Visible segment ${String(index + 1).padStart(2, '0')} stays continuous and preserves the exact final transcript.`,
@@ -1477,6 +1477,36 @@ class FakeAgent implements Agent {
           _meta: { codex: { phase: 'final_answer' } },
         },
       });
+      await new Promise(resolve => setTimeout(resolve, 2_500));
+      return { stopReason: 'end_turn' };
+    }
+    if (promptText.includes('progressive answer stream')) {
+      const segments = Array.from(
+        { length: 10 },
+        (_, index) => `Visible segment ${String(index + 1).padStart(2, '0')} stays continuous and preserves the exact final transcript.`,
+      );
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          messageId: 'progressive-answer-stream',
+          content: { type: 'text', text: segments.slice(0, 2).join(' ') },
+          _meta: { codex: { phase: 'final_answer' } },
+        },
+      });
+      await new Promise(resolve => setTimeout(resolve, 800));
+      for (const segment of segments.slice(2)) {
+        await client.sessionUpdate({
+          sessionId: params.sessionId,
+          update: {
+            sessionUpdate: 'agent_message_chunk',
+            messageId: 'progressive-answer-stream',
+            content: { type: 'text', text: ` ${segment}` },
+            _meta: { codex: { phase: 'final_answer' } },
+          },
+        });
+        await new Promise(resolve => setTimeout(resolve, 300));
+      }
       await new Promise(resolve => setTimeout(resolve, 2_500));
       return { stopReason: 'end_turn' };
     }

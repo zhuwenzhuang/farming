@@ -178,11 +178,11 @@ short, bounded reveal; multiple arrivals reveal in parallel and reduced-motion
 preferences disable the effect. Expanded reasoning omits a leading line that
 already serves as its folded title.
 
-The latest live answer keeps authoritative transcript text separate from its
-visible prefix and drains new text at a bounded reading cadence. Completion
-cancels any remaining reveal and immediately publishes the authoritative
-result. A settled answer mounts in full after navigation or recovery, while
-reduced motion or a hidden page skips the progressive reveal.
+The latest live answer mounts its first authoritative text in full. While its
+Agent remains active, later prefix-extending revisions drain only their new
+suffix at a bounded reading cadence. Navigation, an inactive pane, completion,
+recovery, reduced motion, a hidden page, or a non-prefix correction immediately
+publishes the current authoritative result instead of replaying buffered text.
 
 The Composer preserves drafts, IME behavior, attachments, queue/steer controls,
 permissions, and negotiated configuration. Reload may restore an unresolved
