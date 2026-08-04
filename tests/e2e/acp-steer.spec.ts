@@ -31,6 +31,11 @@ test('renders intermediate commentary promptly during a dense live stream', asyn
   const firstProgress = firstCommentary.locator('xpath=ancestor::*[@data-testid="code-acp-progress-update"]')
   await expect(firstProgress).toHaveCSS('animation-name', 'code-acp-progress-fill')
   expect(Number.parseFloat(await firstProgress.evaluate(element => getComputedStyle(element).animationDuration)) * 1_000).toBeLessThanOrEqual(520)
+  const processingActivity = page.getByTestId('code-agent-transcript-live-activity')
+  await expect(processingActivity.getByTestId('code-agent-transcript-live-activity-icon')).toHaveAttribute('data-kind', 'processing')
+  await expect.poll(() => processingActivity.locator(':scope > span:not(.code-agent-transcript-live-activity-icon)').evaluate(element => (
+    getComputedStyle(element).animationName
+  ))).toBe('none')
 
   await expect.poll(() => page.getByTestId('code-acp-progress-update').count(), { timeout: 1_000 })
     .toBeGreaterThanOrEqual(5)
@@ -234,15 +239,22 @@ test('queues a follow-up and explicitly sends negotiated Codex ACP steer', async
     const previous = element.previousElementSibling
     return !previous || element.getBoundingClientRect().top >= previous.getBoundingClientRect().bottom
   })).toBe(true)
-  await expect.poll(() => liveActivity.evaluate(element => (
-    getComputedStyle(element, '::after').animationName
+  const liveActivityText = liveActivity.locator(':scope > span:not(.code-agent-transcript-live-activity-icon)')
+  await expect.poll(() => liveActivityText.evaluate(element => (
+    getComputedStyle(element).animationName
   ))).toBe('code-agent-transcript-latest-activity-sweep')
+  await expect.poll(() => liveActivityText.evaluate(element => (
+    getComputedStyle(element).animationDuration
+  ))).toBe('2.8s')
+  await expect.poll(() => liveActivityText.evaluate(element => (
+    getComputedStyle(element).animationTimingFunction
+  ))).toBe('linear')
+  await expect.poll(() => liveActivityText.evaluate(element => (
+    getComputedStyle(element).webkitBackgroundClip
+  ))).toBe('text')
   await expect.poll(() => liveActivity.evaluate(element => (
-    getComputedStyle(element, '::after').animationDuration
-  ))).toBe('3.2s')
-  await expect.poll(() => liveActivity.evaluate(element => (
-    getComputedStyle(element, '::after').zIndex
-  ))).toBe('2')
+    getComputedStyle(element, '::after').content
+  ))).toBe('none')
   const processSummary = liveProcessSummary
   await expect(processSummary).toHaveAttribute('aria-expanded', 'false')
   const turn = page.locator('.code-agent-transcript-turn').filter({ hasText: 'hold for steer without user echo with post-steer commentary' })

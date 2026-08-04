@@ -6897,6 +6897,8 @@ body.code-mode .code-instance-name {
 }
 
 .code-agent-transcript-live-activity {
+  --code-agent-transcript-live-activity-text: #8c959f;
+  --code-agent-transcript-live-activity-highlight: #57606a;
   position: relative;
   width: min(620px, 100%);
   min-width: 0;
@@ -6912,13 +6914,26 @@ body.code-mode .code-instance-name {
   gap: 6px;
 }
 
-.code-agent-transcript-live-activity > span {
-  position: relative;
-  z-index: 1;
+.code-agent-transcript-live-activity > span:not(.code-agent-transcript-live-activity-icon) {
   display: block;
   min-width: 0;
   overflow: hidden;
+  color: transparent;
+  background: linear-gradient(
+    90deg,
+    var(--code-agent-transcript-live-activity-text) 0%,
+    var(--code-agent-transcript-live-activity-text) 38%,
+    var(--code-agent-transcript-live-activity-highlight) 50%,
+    var(--code-agent-transcript-live-activity-text) 62%,
+    var(--code-agent-transcript-live-activity-text) 100%
+  );
+  background-position: 100% 0;
+  background-size: 220% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
   text-overflow: ellipsis;
+  animation: code-agent-transcript-latest-activity-sweep 2.8s linear infinite;
 }
 
 .code-agent-transcript-live-activity-icon {
@@ -6947,33 +6962,33 @@ body.code-mode .code-instance-name {
   }
 }
 
-.code-agent-transcript-live-activity::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: 2;
-  background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.8) 46%, transparent 54%);
-  transform: translateX(-100%);
-  animation: code-agent-transcript-latest-activity-sweep 3.2s ease-in-out infinite;
-  pointer-events: none;
+@keyframes code-agent-transcript-latest-activity-sweep {
+  from {
+    background-position: 100% 0;
+  }
+
+  to {
+    background-position: -100% 0;
+  }
 }
 
-@keyframes code-agent-transcript-latest-activity-sweep {
-  0%,
-  24% {
-    transform: translateX(-100%);
-  }
-
-  72%,
-  100% {
-    transform: translateX(100%);
-  }
+.code-agent-transcript-live-activity.kind-processing > span:not(.code-agent-transcript-live-activity-icon) {
+  color: inherit;
+  background: none;
+  -webkit-text-fill-color: currentColor;
+  animation: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .code-agent-transcript-live-activity::after,
+  .code-agent-transcript-live-activity > span:not(.code-agent-transcript-live-activity-icon),
   .code-agent-transcript-live-activity-icon.kind-processing > svg {
     animation: none;
+  }
+
+  .code-agent-transcript-live-activity > span:not(.code-agent-transcript-live-activity-icon) {
+    color: inherit;
+    background: none;
+    -webkit-text-fill-color: currentColor;
   }
 }
 

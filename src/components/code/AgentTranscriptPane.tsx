@@ -3334,7 +3334,7 @@ function AgentTranscriptTurnView({
 
       {showLiveActivity ? (
         <div
-          className="code-agent-transcript-live-activity"
+          className={`code-agent-transcript-live-activity kind-${liveActivityKind}`}
           data-testid="code-agent-transcript-live-activity"
           role="status"
           aria-live="polite"

@@ -1986,11 +1986,9 @@ body.code-mode[data-appearance='dark'] .code-agent-transcript-steer-label {
 }
 
 body.code-mode[data-appearance='dark'] .code-agent-transcript-live-activity {
+  --code-agent-transcript-live-activity-text: var(--code-dark-text-muted);
+  --code-agent-transcript-live-activity-highlight: var(--code-dark-text-soft);
   color: var(--code-dark-text-muted);
-}
-
-body.code-mode[data-appearance='dark'] .code-agent-transcript-live-activity::after {
-  background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.12) 46%, transparent 54%);
 }
 
 body.code-mode[data-appearance='dark'] .code-agent-transcript-collaboration-heading {
