@@ -1088,7 +1088,9 @@ function run() {
       !workspaceSource.includes('code-resource-strip') &&
       !workspaceSource.includes('role="button"') &&
       workspaceSource.includes('code-agent-row') &&
-      workspaceSource.includes('PROJECT_AGENT_VISIBLE_LIMIT = 5') &&
+      workspaceSource.includes('PROJECT_AGENT_INITIAL_VISIBLE_LIMIT = 5') &&
+      workspaceSource.includes('PROJECT_AGENT_FIRST_REVEAL_COUNT = 5') &&
+      workspaceSource.includes('PROJECT_AGENT_NEXT_REVEAL_COUNT = 10') &&
       workspaceSource.includes('const agentCompressionActive = sidebarCollapsed') &&
       workspaceSource.includes('const filesCompressAgents = projectFilesExpanded && isCompactViewport() && sortedAgents.length > 1') &&
       workspaceSource.includes('onFilesCollapsedChange={handleFilesCollapsedChange}') &&
@@ -1103,7 +1105,9 @@ function run() {
       workspaceSource.includes('rowState.statusIndicatorVisible') &&
       workspaceSource.includes('code-project-agent-compact-unread') &&
       workspaceSource.includes('const compactProjectAgents = (compactAgents || filesCompressAgents) && sortedAgents.length > 0') &&
-      workspaceSource.includes('const visibleProjectAgents = compactProjectAgents || projectAgentsExpanded') &&
+      workspaceSource.includes('const visibleProjectAgents = compactProjectAgents') &&
+      workspaceSource.includes('const projectAgentRevealCount = Math.min(') &&
+      workspaceSource.includes('setProjectAgentVisibleLimit(current => Math.min(') &&
       workspaceSource.includes('code-project-expanded') &&
       workspaceSource.includes('code-terminal-grid') &&
       workspaceSource.includes('code-composer') &&

@@ -22,6 +22,9 @@ Project Sidebar 只有一个外层 Scroll Surface。Files、Open Editors、Chang
 Directory Tree 不能创建互相竞争的 Project 级滚动条。深层目录可以显示紧凑 Ancestor Context，
 但不能改变滚动所有权。
 
+Project Agent 行采用渐进展示，避免大型 Agent 分组难以浏览。Project 初始显示 5 个 Agent，
+第一次“显示更多”最多再显示 5 个，之后每次最多再显示 10 个；“显示较少”恢复为初始 5 个。
+
 ## Project 与 Workspace 身份
 
 Project 是持久挂载到 Farming 的 Workspace。Agent 创建、文件打开、恢复的 Project Session

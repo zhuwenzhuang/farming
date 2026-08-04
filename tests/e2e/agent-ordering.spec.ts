@@ -109,6 +109,45 @@ test('distinguishes Agent and session pagination controls for assistive technolo
   await expect(showMoreSessions.locator('.code-agent-name')).toHaveText('Show more')
 })
 
+test('reveals Project Agents in progressive batches', async ({ page, workspaceRoot }) => {
+  const projectDir = path.join(workspaceRoot, 'agent-progressive-pagination')
+  fs.mkdirSync(projectDir, { recursive: true })
+
+  await openFarming(page)
+  for (let offset = 0; offset < 21; offset += 5) {
+    await Promise.all(Array.from({ length: Math.min(5, 21 - offset) }, () => (
+      createControlAgent(page, projectDir)
+    )))
+  }
+
+  const project = page.getByTestId('code-project-group').filter({ hasText: path.basename(projectDir) })
+  const showMore = project.getByTestId('code-agent-show-more')
+  const showLess = project.getByTestId('code-agent-show-less')
+
+  await expect(project.getByTestId('code-agent-row')).toHaveCount(5)
+  await expect(showMore).toHaveAttribute('aria-label', 'Show 5 more Agents')
+  await expect(showMore.locator('.code-agent-age')).toHaveText('5')
+
+  await showMore.click()
+  await expect(project.getByTestId('code-agent-row')).toHaveCount(10)
+  await expect(showMore).toHaveAttribute('aria-label', 'Show 10 more Agents')
+  await expect(showMore.locator('.code-agent-age')).toHaveText('10')
+  await expect(showLess).toBeVisible()
+
+  await showMore.click()
+  await expect(project.getByTestId('code-agent-row')).toHaveCount(20)
+  await expect(showMore).toHaveAttribute('aria-label', 'Show 1 more Agent')
+  await expect(showMore.locator('.code-agent-age')).toHaveText('1')
+
+  await showMore.click()
+  await expect(project.getByTestId('code-agent-row')).toHaveCount(21)
+  await expect(showMore).toHaveCount(0)
+
+  await showLess.click()
+  await expect(project.getByTestId('code-agent-row')).toHaveCount(5)
+  await expect(showMore).toHaveAttribute('aria-label', 'Show 5 more Agents')
+})
+
 test('keeps persistent project and pinned Agent order', async ({ page, workspaceRoot }) => {
   const projectDir = path.join(workspaceRoot, 'agent-ordering')
   fs.mkdirSync(projectDir, { recursive: true })

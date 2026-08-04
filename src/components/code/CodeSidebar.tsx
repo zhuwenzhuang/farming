@@ -73,7 +73,9 @@ import type { UiAppearance, UiLanguage } from '@/lib/ui-preferences'
 declare const __FARMING_PACKAGE_VERSION__: string
 
 const DEFAULT_PROJECT_SESSION_LIMIT = 5
-const PROJECT_AGENT_VISIBLE_LIMIT = 5
+const PROJECT_AGENT_INITIAL_VISIBLE_LIMIT = 5
+const PROJECT_AGENT_FIRST_REVEAL_COUNT = 5
+const PROJECT_AGENT_NEXT_REVEAL_COUNT = 10
 type AgentPreviewAnchorEvent = { currentTarget: HTMLElement }
 type ContextMenuTriggerEvent = ReactMouseEvent<HTMLElement> | ReactKeyboardEvent<HTMLElement>
 
@@ -1479,7 +1481,7 @@ function ProjectSection({
   const [repositoryWorktrees, setRepositoryWorktrees] = useState<WorkspaceGitWorktrees | null>(() => (
     agentWorktreeList(project.gitWorktree)
   ))
-  const [projectAgentsExpanded, setProjectAgentsExpanded] = useState(false)
+  const [projectAgentVisibleLimit, setProjectAgentVisibleLimit] = useState(PROJECT_AGENT_INITIAL_VISIBLE_LIMIT)
   const [projectAgentsCollapsed, setProjectAgentsCollapsed] = useState(false)
   const [projectFilesExpanded, setProjectFilesExpanded] = useState(false)
   const [projectSourceAgentId, setProjectSourceAgentId] = useState<string | null>(() => (
@@ -1523,13 +1525,20 @@ function ProjectSection({
   const showAgentsSection = sortedAgents.length > 0 || visibleAgentSessions.length > 0 || (project.hiddenAgentSessionCount ?? 0) > 0
   const filesCompressAgents = projectFilesExpanded && isCompactViewport() && sortedAgents.length > 1
   const compactProjectAgents = (compactAgents || filesCompressAgents) && sortedAgents.length > 0
-  const visibleProjectAgents = compactProjectAgents || projectAgentsExpanded
+  const visibleProjectAgents = compactProjectAgents
     ? sortedAgents
-    : visibleAgentsWithForcedRows(sortedAgents, PROJECT_AGENT_VISIBLE_LIMIT, [
+    : visibleAgentsWithForcedRows(sortedAgents, projectAgentVisibleLimit, [
       activeTerminalId,
       selectedSearchAgentId,
     ])
   const hiddenProjectAgentCount = Math.max(0, sortedAgents.length - visibleProjectAgents.length)
+  const projectAgentRevealCount = Math.min(
+    hiddenProjectAgentCount,
+    projectAgentVisibleLimit === PROJECT_AGENT_INITIAL_VISIBLE_LIMIT
+      ? PROJECT_AGENT_FIRST_REVEAL_COUNT
+      : PROJECT_AGENT_NEXT_REVEAL_COUNT,
+  )
+  const projectAgentsExpanded = projectAgentVisibleLimit > PROJECT_AGENT_INITIAL_VISIBLE_LIMIT
   const agentListCollapsed = projectAgentsCollapsed && !forceAgentsExpanded
 
   useEffect(() => {
@@ -1581,10 +1590,11 @@ function ProjectSection({
   } = useAgentReorder(sortedAgents, onReorderAgent, onHideAgentPreview)
 
   useEffect(() => {
-    if (sortedAgents.length <= PROJECT_AGENT_VISIBLE_LIMIT && projectAgentsExpanded) {
-      setProjectAgentsExpanded(false)
-    }
-  }, [projectAgentsExpanded, sortedAgents.length])
+    setProjectAgentVisibleLimit(current => {
+      const next = Math.max(PROJECT_AGENT_INITIAL_VISIBLE_LIMIT, Math.min(current, sortedAgents.length))
+      return next === current ? current : next
+    })
+  }, [sortedAgents.length])
 
   useLayoutEffect(() => {
     const projectGroup = projectGroupRef.current
@@ -1943,7 +1953,7 @@ function ProjectSection({
                     )}
                   </>
                 )}
-                {!forceAgentsExpanded && !agentListCollapsed && !compactProjectAgents && sortedAgents.length > PROJECT_AGENT_VISIBLE_LIMIT && (
+                {!forceAgentsExpanded && !agentListCollapsed && !compactProjectAgents && sortedAgents.length > PROJECT_AGENT_INITIAL_VISIBLE_LIMIT && (
                   <div
                     className="code-agent-list-controls"
                     data-testid="code-agent-list-controls"
@@ -1953,8 +1963,15 @@ function ProjectSection({
                         type="button"
                         className={`code-agent-row code-session-show-more ${droppingAtProjectEnd ? 'drop-after' : ''}`}
                         data-testid="code-agent-show-more"
-                        aria-label={copy.showMoreAgents(hiddenProjectAgentCount)}
-                        onClick={() => setProjectAgentsExpanded(true)}
+                        aria-label={copy.showMoreAgents(projectAgentRevealCount)}
+                        onClick={() => setProjectAgentVisibleLimit(current => Math.min(
+                          sortedAgents.length,
+                          current + (
+                            current === PROJECT_AGENT_INITIAL_VISIBLE_LIMIT
+                              ? PROJECT_AGENT_FIRST_REVEAL_COUNT
+                              : PROJECT_AGENT_NEXT_REVEAL_COUNT
+                          ),
+                        ))}
                         onDragOver={updateProjectEndDropTarget}
                         onDrop={dropAgentAtProjectEnd}
                       >
@@ -1962,7 +1979,7 @@ function ProjectSection({
                           <span className="code-agent-name">{copy.showMore}</span>
                         </span>
                         <span className="code-agent-row-trailing">
-                          <span className="code-agent-age">{hiddenProjectAgentCount}</span>
+                          <span className="code-agent-age">{projectAgentRevealCount}</span>
                         </span>
                       </button>
                     )}
@@ -1971,7 +1988,7 @@ function ProjectSection({
                         type="button"
                         className="code-agent-row code-session-show-more"
                         data-testid="code-agent-show-less"
-                        onClick={() => setProjectAgentsExpanded(false)}
+                        onClick={() => setProjectAgentVisibleLimit(PROJECT_AGENT_INITIAL_VISIBLE_LIMIT)}
                       >
                         <span className="code-agent-row-copy">
                           <span className="code-agent-name">{copy.showLess}</span>

@@ -24,6 +24,11 @@ History, and the directory tree must not create competing project-level
 scrollbars. Deep trees may show compact ancestor context without changing that
 ownership.
 
+Project Agent rows use progressive disclosure to keep large Agent groups
+scannable. A Project initially shows five Agents, the first Show more action
+reveals up to five more, later actions reveal up to ten more, and Show less
+returns to the initial five.
+
 ## Project And Workspace Identity
 
 A Project is a persisted workspace mounted in Farming. Agent creation, file
