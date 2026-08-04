@@ -25,7 +25,9 @@ function composerKind(agent: Agent): ComposerAgentKind {
 export function inferAgentTerminalState(agent: Agent | null | undefined): AgentTerminalInference {
   if (!agent) return { kind: null, kindSource: 'none', turnActive: false, terminalBusy: false }
   const phase = agent.runtimeObservation.phase
-  const turnActive = phase === 'starting' || phase === 'working' || phase === 'waiting'
+  const turnActive = phase === 'working'
+    || phase === 'waiting'
+    || (phase === 'starting' && agent.runtimeBinding.kind === 'terminal')
   return {
     kind: composerKind(agent),
     kindSource: 'terminal-status',

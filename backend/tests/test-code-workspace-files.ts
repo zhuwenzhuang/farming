@@ -1288,6 +1288,8 @@ function run() {
       transcriptPaneSource.includes('role="status">{error}</div>') &&
       transcriptPaneSource.includes('&& !error') &&
       transcriptPaneSource.includes("runtimeState === 'connecting' || expectHistory") &&
+      transcriptPaneSource.includes("const showFreshAcpEmpty = source === 'acp'") &&
+      transcriptPaneSource.includes('showFreshAcpEmpty ? (') &&
       transcriptPaneSource.includes('loading || awaitingAcpHistory') &&
       workspaceSource.includes('无法加载此会话的 Chat 历史。') &&
       !workspaceSource.includes('agentTranscriptGoalProgress') &&

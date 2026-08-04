@@ -31,7 +31,6 @@ import {
   AgentSpeechBotGlyph,
   ArrowDownGlyph,
   BookGlyph,
-  ChatBubblesGlyph,
   CheckGlyph,
   ChecklistGlyph,
   ChevronRightGlyph,
@@ -1250,6 +1249,24 @@ function shouldRenderDetailAsProse(item: AgentTranscriptProcessItem) {
   ].includes(item.type)
 }
 
+function transcriptDetailLineLabel(value: string) {
+  return value
+    .trim()
+    .replace(/\[([^\]]+)]\([^)]*\)/g, '$1')
+    .replace(/^[\s>*_`#-]+|[\s*_`]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function detailWithoutRepeatedTitle(item: AgentTranscriptProcessItem, detail: string) {
+  if (item.type !== 'thought' || !detail) return detail
+  const lines = detail.split(/\r?\n/)
+  const firstContentIndex = lines.findIndex(line => line.trim())
+  if (firstContentIndex < 0) return ''
+  if (transcriptDetailLineLabel(lines[firstContentIndex] || '') !== item.title.trim()) return detail
+  return lines.slice(firstContentIndex + 1).join('\n').trimStart()
+}
+
 function isNarrativeProcessItem(item: AgentTranscriptProcessItem) {
   return shouldRenderDetailAsProse(item) || item.type === 'plan' || item.type === 'user-steer'
 }
@@ -1873,9 +1890,10 @@ function AgentTranscriptProcessItemView({
   const detail = copyableDetail && detailDuplicatesTerminalOutcome(copyableDetail, terminals)
     ? ''
     : copyableDetail
+  const displayDetail = detailWithoutRepeatedTitle(item, detail)
   const visibleDetail = terminalOutcomeSyncFailed && item.terminalIds?.length
     ? ''
-    : detail
+    : displayDetail
   const hasCopyableDetail = !!copyableDetail || locations.length > 0
   const hasDetail = !!visibleDetail
   const planItems = item.type === 'plan' && visibleDetail ? planDetailItems(visibleDetail) : null
@@ -2154,16 +2172,23 @@ function AgentTranscriptProgressUpdate({
   item,
   markdownComponents,
   copy,
+  animate = false,
 }: {
   item: AgentTranscriptProcessItem
   markdownComponents: Components
   copy: CodeCopy
+  animate?: boolean
 }) {
   const progressText = String(item.detail || '').trim()
   if (!progressText) return null
+  const revealSpeed = progressText.length > 320
+    ? 'long'
+    : progressText.length > 96
+      ? 'medium'
+      : 'short'
   return (
     <div
-      className="code-acp-progress-update code-markdown-preview"
+      className={`code-acp-progress-update code-markdown-preview ${animate ? `live-fill ${revealSpeed}` : ''}`}
       data-testid="code-acp-progress-update"
     >
       <LocalErrorBoundary
@@ -2451,7 +2476,7 @@ function AgentTranscriptPatchResultCard({
                 title={copy.agentTranscriptReviewAndCommit}
                 onClick={onReviewAndCommit}
               >
-                <ChatBubblesGlyph />
+                <span>{copy.agentTranscriptReviewAndCommit}</span>
               </button>
             ) : null}
           </div>
@@ -3012,6 +3037,7 @@ function AgentTranscriptTurnView({
                     item={item}
                     markdownComponents={markdownComponents}
                     copy={copy}
+                    animate={turn.status === 'inProgress'}
                   />
                 ) : (
                   <SafeAgentTranscriptProcessItemView
@@ -3075,6 +3101,7 @@ function AgentTranscriptTurnView({
                       item={entry.item}
                       markdownComponents={markdownComponents}
                       copy={copy}
+                      animate={turn.status === 'inProgress'}
                     />
                   )
                 }
@@ -3291,6 +3318,10 @@ export function AgentTranscriptPane({
   // it is scoped to this structured Chat scroll surface only.
   const textSelectionGestureRef = useRef(false)
   const textSelectionHadRangeRef = useRef(false)
+  const transcriptRefreshRef = useRef<(() => void) | null>(null)
+  const handledRefreshSignalRef = useRef(refreshSignal)
+  const latestRefreshSignalRef = useRef(refreshSignal)
+  latestRefreshSignalRef.current = refreshSignal
   const openWorkspaceFilePathRef = useRef(onOpenWorkspaceFilePath)
   const revealInitialTranscript = useCallback(() => {
     if (initialRevealTimerRef.current !== null) {
@@ -3407,6 +3438,7 @@ export function AgentTranscriptPane({
     textSelectionGestureRef.current = false
     textSelectionHadRangeRef.current = false
     pendingPrependAnchorRef.current = null
+    handledRefreshSignalRef.current = latestRefreshSignalRef.current
   }, [agentId, readingAnchorAgentId, source])
 
   useEffect(() => () => {
@@ -3492,8 +3524,11 @@ export function AgentTranscriptPane({
     let needsReconnectReload = false
     let requestGeneration = 0
     let forceCheckpoint = false
+    let loadInFlight = false
+    let refreshQueued = false
 
     const load = () => {
+      loadInFlight = true
       const generation = ++requestGeneration
       if (retryTimer !== null) {
         window.clearTimeout(retryTimer)
@@ -3582,6 +3617,21 @@ export function AgentTranscriptPane({
           setLoading(false)
           setLoadingOlder(false)
         })
+        .finally(() => {
+          if (stopped || generation !== requestGeneration) return
+          loadInFlight = false
+          if (!refreshQueued) return
+          refreshQueued = false
+          load()
+        })
+    }
+
+    const requestRefresh = () => {
+      if (loadInFlight) {
+        refreshQueued = true
+        return
+      }
+      load()
     }
 
     const handleBackendDisconnected = () => {
@@ -3590,9 +3640,10 @@ export function AgentTranscriptPane({
     const handleBackendConnected = () => {
       if (!needsReconnectReload) return
       needsReconnectReload = false
-      load()
+      requestRefresh()
     }
 
+    transcriptRefreshRef.current = requestRefresh
     load()
     // A bounded transport retry can legitimately finish before a deploy or
     // backend restart has completed. The shared socket reconnect is the
@@ -3610,11 +3661,18 @@ export function AgentTranscriptPane({
       stopped = true
       window.removeEventListener('farming:backend-disconnected', handleBackendDisconnected)
       window.removeEventListener('farming:backend-connected', handleBackendConnected)
+      if (transcriptRefreshRef.current === requestRefresh) transcriptRefreshRef.current = null
       controller?.abort()
       if (retryTimer !== null) window.clearTimeout(retryTimer)
       if (pollTimer !== null) window.clearInterval(pollTimer)
     }
-  }, [active, agentId, copy.agentTranscriptUnavailable, expectHistory, refreshSignal, revealInitialTranscript, runtimeState, scheduleInitialTranscriptReveal, source, turnLimit])
+  }, [active, agentId, copy.agentTranscriptUnavailable, expectHistory, revealInitialTranscript, runtimeState, scheduleInitialTranscriptReveal, source, turnLimit])
+
+  useEffect(() => {
+    if (!active || handledRefreshSignalRef.current === refreshSignal) return
+    handledRefreshSignalRef.current = refreshSignal
+    transcriptRefreshRef.current?.()
+  }, [active, refreshSignal])
 
   const turns = useMemo(() => transcript?.turns || [], [transcript])
   const latestTurn = turns[turns.length - 1]
@@ -3634,6 +3692,10 @@ export function AgentTranscriptPane({
     && !error
     && turns.length === 0
     && (runtimeState === 'connecting' || expectHistory)
+  const showFreshAcpEmpty = source === 'acp'
+    && !expectHistory
+    && !error
+    && turns.length === 0
   const awaitingInitialReveal = !initialRevealReady
     && !error
     && Boolean(transcript?.available)
@@ -3973,7 +4035,9 @@ export function AgentTranscriptPane({
       {activePlan ? (
         <AgentTranscriptPlanDriver plan={activePlan} />
       ) : null}
-      {loading || awaitingAcpHistory || awaitingInitialReveal ? (
+      {showFreshAcpEmpty ? (
+        <div className="code-agent-transcript-blank" role="status">{copy.agentTranscriptEmpty}</div>
+      ) : loading || awaitingAcpHistory || awaitingInitialReveal ? (
         <div className="code-agent-transcript-state subtle">
           {runtimeState === 'connecting' && !expectHistory
             ? copy.agentChatStarting

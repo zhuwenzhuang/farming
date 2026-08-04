@@ -16,7 +16,8 @@ const stylesSource = read('src/styles/main.css');
 
 assert(
   transcriptPaneSource.includes('data-testid="code-agent-transcript-review-and-commit"')
-    && transcriptPaneSource.includes('<ChatBubblesGlyph />')
+    && transcriptPaneSource.includes('<span>{copy.agentTranscriptReviewAndCommit}</span>')
+    && !transcriptPaneSource.includes('<ChatBubblesGlyph />')
     && transcriptPaneSource.includes('copy.agentTranscriptReviewAndCommit')
     && agentWorkPaneSource.includes('onReviewAndCommit={onReviewAndCommit ? () => onReviewAndCommit(agent.id) : undefined}')
     && codeMainAreaSource.includes('onReviewAndCommit={onReviewAndCommit}')
@@ -25,12 +26,16 @@ assert(
     && workspaceSource.includes('if (!agent || !isStructuredRuntime(agent)) return')
     && workspaceSource.includes('copy.agentTranscriptReviewAndCommitPrompt')
     && workspaceSource.includes('sendComposerMessageToAgent(')
-    && stylesSource.includes('.code-agent-transcript-result-review.agent-review-commit'),
-  'ACP change cards should ask their owning Agent to review and commit through the normal Composer message path',
+    && stylesSource.includes('.code-agent-transcript-result-review.agent-review-commit')
+    && stylesSource.includes('display: inline-flex;')
+    && stylesSource.includes('.code-agent-transcript-result-review.agent-review-commit::after'),
+  'ACP change cards should render Commit itself as a right-pointing Prompt bubble',
 );
 
 const englishCopy = codeCopyForLanguage('en');
 const chineseCopy = codeCopyForLanguage('zh');
+assert.strictEqual(englishCopy.agentTranscriptReviewAndCommit, 'Commit');
+assert.strictEqual(chineseCopy.agentTranscriptReviewAndCommit, 'Commit');
 assert.match(englishCopy.agentTranscriptReviewAndCommitPrompt, /Review/);
 assert.match(englishCopy.agentTranscriptReviewAndCommitPrompt, /Commit/);
 assert.match(chineseCopy.agentTranscriptReviewAndCommitPrompt, /审查/);

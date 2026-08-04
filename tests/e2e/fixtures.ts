@@ -217,6 +217,7 @@ async function resetSettings(page: Page) {
         language: 'en',
         codeContentFontSize: 14,
         crtContentFontSize: 14,
+        composerFollowUpBehavior: 'queue',
         restReminderIntervalSeconds: null,
         codexApprovalMode: 'approve',
         codexModel: 'gpt-5.5',

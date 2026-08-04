@@ -1424,17 +1424,42 @@ class FakeAgent implements Agent {
     if (promptText.includes('streaming thought')) {
       await client.sessionUpdate({
         sessionId: params.sessionId,
-        update: { sessionUpdate: 'agent_thought_chunk', messageId: 'streaming-thought-1', content: { type: 'text', text: 'Comparing the likely causes' } },
+        update: { sessionUpdate: 'agent_thought_chunk', messageId: 'streaming-thought-1', content: { type: 'text', text: '**Comparing the likely causes**\n\n' } },
       });
       await new Promise(resolve => setTimeout(resolve, 700));
       await client.sessionUpdate({
         sessionId: params.sessionId,
-        update: { sessionUpdate: 'agent_thought_chunk', messageId: 'streaming-thought-1', content: { type: 'text', text: ' and checking the strongest one.' } },
+        update: { sessionUpdate: 'agent_thought_chunk', messageId: 'streaming-thought-1', content: { type: 'text', text: 'Checking the strongest one.' } },
       });
       await new Promise(resolve => setTimeout(resolve, 700));
       await client.sessionUpdate({
         sessionId: params.sessionId,
         update: { sessionUpdate: 'agent_message_chunk', messageId: 'streaming-thought-answer', content: { type: 'text', text: 'Streaming thought complete.' } },
+      });
+      return { stopReason: 'end_turn' };
+    }
+    if (promptText.includes('live commentary stream')) {
+      for (let index = 1; index <= 18; index += 1) {
+        await client.sessionUpdate({
+          sessionId: params.sessionId,
+          update: {
+            sessionUpdate: 'agent_message_chunk',
+            messageId: `live-commentary-${index}`,
+            content: { type: 'text', text: `Live commentary ${index}: checking the current implementation.` },
+            _meta: { codex: { phase: 'commentary' } },
+          },
+        });
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      await new Promise(resolve => setTimeout(resolve, 600));
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          messageId: 'live-commentary-answer',
+          content: { type: 'text', text: 'Live commentary stream complete.' },
+          _meta: { codex: { phase: 'final_answer' } },
+        },
       });
       return { stopReason: 'end_turn' };
     }

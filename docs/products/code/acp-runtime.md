@@ -161,6 +161,19 @@ details do not remain as overlapping default summaries. Disclosure controls
 keep stable layout slots and become visually prominent on hover or keyboard
 focus.
 
+A fresh Chat shows the stable empty-conversation state while its Session
+connects. Session startup is not an active Turn and must not enable Steer or
+replace the empty state with transient startup copy. Explicit history restores
+may show bounded synchronization feedback until their first authoritative
+transcript settles.
+
+Live transcript revisions coalesce behind an in-flight read instead of
+repeatedly cancelling it, so sustained update streams make visible progress
+without waiting for a quiet period. Newly visible intermediate messages use a
+short, bounded reveal; multiple arrivals reveal in parallel and reduced-motion
+preferences disable the effect. Expanded reasoning omits a leading line that
+already serves as its folded title.
+
 The Composer preserves drafts, IME behavior, attachments, queue/steer controls,
 permissions, and negotiated configuration. Reload may restore an unresolved
 submission as a visible item requiring reconciliation, but never resubmits it

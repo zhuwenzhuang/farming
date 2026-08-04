@@ -1453,9 +1453,10 @@ test.describe('ACP human-like browser matrix', () => {
     await expect(thoughtChevron).toHaveCSS('opacity', '0.9')
     await thoughtToggle.click()
     await expect(thought.locator('.code-agent-transcript-process-detail')).toContainText(
-      'Comparing the likely causes',
+      'Checking the strongest one.',
       { timeout: 10_000 },
     )
+    await expect(thought.locator('.code-agent-transcript-process-detail')).not.toContainText('Comparing the likely causes')
     await expect(page.getByText('Streaming thought complete.', { exact: true })).toBeVisible({ timeout: 15_000 })
     if (await processSummary.getAttribute('aria-expanded') === 'true') await processSummary.click()
     await expect(processSummary).toHaveAttribute('aria-expanded', 'false')

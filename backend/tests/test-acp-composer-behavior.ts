@@ -76,6 +76,32 @@ async function run() {
   assert.strictEqual(state.draft, '');
   assert.strictEqual(state.submissions, undefined);
 
+  const firstTurnSent = [];
+  state = {
+    ...createDefaultAgentComposerState(),
+    draft: 'start the conversation',
+  };
+  assert.strictEqual(submitAcpDraft({
+    agent,
+    composerKey: 'acp:session-1',
+    draft: state.draft,
+    attachments: [],
+    composerMode: 'default',
+    turnActive: false,
+    followUpBehavior: 'steer',
+    sendMessage: (_agent, text, attachments, requestId, delivery) => {
+      firstTurnSent.push({ text, attachments, requestId, delivery });
+      return true;
+    },
+    updateComposerState,
+  }), true);
+  assert.strictEqual(firstTurnSent.length, 1);
+  assert.strictEqual(
+    firstTurnSent[0].delivery,
+    'prompt',
+    'Steer preference must not turn the first message into a Steer without an active Turn',
+  );
+
   const imageOnlyAttachment = readyImage();
   state = {
     ...createDefaultAgentComposerState(),

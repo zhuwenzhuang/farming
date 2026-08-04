@@ -124,6 +124,14 @@ Chat 展示有序对话、当前 Turn 的一条紧凑 Live Activity，以及可�
 Reasoning 与 Tool Detail 不应在默认阅读面上形成重叠摘要。Disclosure Control 保留稳定布局
 槽位，只在 Hover 或 Keyboard Focus 时视觉浮现。
 
+新建 Chat 在 Session 连接期间持续显示稳定的空对话状态。Session 启动不属于 Active Turn，
+不得启用 Steer，也不应使用短暂的启动文案替换空状态。显式 History Restore 可以在首份权威
+Transcript 稳定前显示有界的同步反馈。
+
+Live Transcript Revision 在已有读取进行中时进入合并队列，而不是反复取消该读取，因此持续
+更新也能不断落屏，不必等待静默窗口。新出现的中间消息使用短促且有上限的揭示动画；多条消息
+并行揭示，Reduced Motion 会关闭动画。Reasoning 展开内容不再重复已经作为折叠标题的首行。
+
 Composer 保留 Draft、IME、Attachment、Queue/Steer、Permission 与协商配置。Reload 可以把
 未完成 Submission 恢复成需要对账的可见条目，但绝不能自动再次提交。
 

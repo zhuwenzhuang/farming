@@ -180,6 +180,17 @@ function run() {
   assert.strictEqual(
     isAgentTurnActive(codexAgent({
       agentRuntimeMode: 'acp',
+      acpState: 'connecting',
+      status: 'pending',
+      previewText: '',
+    })),
+    false,
+    'ACP connection startup is a Session state, not an active Turn'
+  );
+
+  assert.strictEqual(
+    isAgentTurnActive(codexAgent({
+      agentRuntimeMode: 'acp',
       acpState: 'working',
       previewText: '',
     })),

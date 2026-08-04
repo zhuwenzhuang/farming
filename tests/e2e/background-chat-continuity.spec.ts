@@ -160,7 +160,8 @@ test('shows a stable Chat shell for an uncached snapshot and ignores its late re
   const agentRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
   await agentRow.click()
   await expect(page.getByTestId('code-agent-chat-view')).toBeVisible()
-  await expect(page.locator('.code-agent-transcript-state.subtle')).toBeVisible()
+  await expect(page.locator('.code-agent-transcript-blank')).toHaveText('No conversation yet.')
+  await expect(page.locator('.code-agent-transcript-state.subtle')).toHaveCount(0)
   await expect(page.getByText('Late Chat answer must not steal navigation.', { exact: true })).toHaveCount(0)
   await expect.poll(() => transcriptRequests).toBeGreaterThanOrEqual(1)
 

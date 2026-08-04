@@ -2,6 +2,87 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { expect, openFarming, test } from './fixtures'
 
+test('renders intermediate commentary promptly during a dense live stream', async ({ page, workspaceRoot }) => {
+  const workspace = path.join(workspaceRoot, 'codex-acp-live-commentary')
+  fs.mkdirSync(workspace, { recursive: true })
+  const response = await page.request.post('/farming/api/control/agents', {
+    data: { command: 'codex', workspace, agentRuntimeMode: 'chat' },
+  })
+  expect(response.ok()).toBeTruthy()
+  const { agentId } = await response.json() as { agentId: string }
+
+  await page.route(new RegExp(`/farming/api/agents/${agentId}/acp-transcript(?:\\?.*)?$`), async route => {
+    await new Promise(resolve => setTimeout(resolve, 180))
+    await route.continue()
+  })
+  await openFarming(page)
+  await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
+  await expect(page.locator('.code-agent-transcript-blank')).toHaveText('No conversation yet.')
+
+  const input = page.getByTestId('code-acp-composer-input')
+  await input.fill('live commentary stream')
+  const submittedAt = Date.now()
+  await page.getByTestId('code-acp-composer-send').click()
+
+  const firstCommentary = page.getByText('Live commentary 1: checking the current implementation.', { exact: true })
+  await expect(firstCommentary).toBeVisible({ timeout: 1_300 })
+  expect(Date.now() - submittedAt).toBeLessThan(1_300)
+  await expect(page.getByText('Live commentary stream complete.', { exact: true })).toHaveCount(0)
+  const firstProgress = firstCommentary.locator('xpath=ancestor::*[@data-testid="code-acp-progress-update"]')
+  await expect(firstProgress).toHaveCSS('animation-name', 'code-acp-progress-fill')
+  expect(Number.parseFloat(await firstProgress.evaluate(element => getComputedStyle(element).animationDuration)) * 1_000).toBeLessThanOrEqual(520)
+
+  await expect.poll(() => page.getByTestId('code-acp-progress-update').count(), { timeout: 1_000 })
+    .toBeGreaterThanOrEqual(5)
+  await expect(page.getByText('Live commentary stream complete.', { exact: true })).toHaveCount(0)
+  await expect(page.getByText('Live commentary stream complete.', { exact: true })).toBeVisible({ timeout: 5_000 })
+})
+
+test('sends the first Codex Chat message as a Prompt while the Session is connecting', async ({ page, workspaceRoot }) => {
+  const workspace = path.join(workspaceRoot, 'codex-acp-first-prompt')
+  fs.mkdirSync(workspace, { recursive: true })
+
+  const settingsResponse = await page.request.post('/farming/api/settings', {
+    data: { composerFollowUpBehavior: 'steer' },
+  })
+  expect(settingsResponse.ok()).toBeTruthy()
+
+  const response = await page.request.post('/farming/api/control/agents', {
+    data: { command: 'codex', workspace, agentRuntimeMode: 'chat' },
+  })
+  expect(response.ok()).toBeTruthy()
+  const { agentId } = await response.json() as { agentId: string }
+
+  await openFarming(page)
+  await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
+  await expect(page.getByTestId('code-acp-composer-input')).toBeEditable()
+  await page.evaluate(id => {
+    const testWindow = window as typeof window & {
+      __farmingAgentActivityTest?: { update: (agentId: string, patch: unknown) => void }
+    }
+    testWindow.__farmingAgentActivityTest?.update(id, {
+      runtimeObservation: {
+        kind: 'codex',
+        phase: 'starting',
+        confidence: 'authoritative',
+        source: 'structured-runtime',
+        observerVersion: 'structured-v1',
+        observedAt: Date.now(),
+      },
+    })
+  }, agentId)
+
+  const input = page.getByTestId('code-acp-composer-input')
+  await input.fill('rich timeline')
+  await page.getByTestId('code-acp-composer-send').click()
+
+  await expect(page.getByText('Rich ACP timeline complete.', { exact: true })).toBeVisible({ timeout: 20_000 })
+  await expect(page.getByText('No active Codex turn to steer', { exact: true })).toHaveCount(0)
+  const commitPrompt = page.getByTestId('code-agent-transcript-review-and-commit')
+  await expect(commitPrompt).toHaveText('Commit')
+  await expect(commitPrompt.locator('svg')).toHaveCount(0)
+})
+
 test('blocks ACP submission when an image upload fails', async ({ page, workspaceRoot }) => {
   const workspace = path.join(workspaceRoot, 'codex-acp-failed-upload')
   fs.mkdirSync(workspace, { recursive: true })
@@ -96,6 +177,7 @@ test('queues a follow-up and explicitly sends negotiated Codex ACP steer', async
   await expect(page.getByTestId('code-acp-composer-send')).toHaveAttribute('data-action', 'interrupt')
   const liveProcessSummary = page.getByTestId('code-agent-transcript-process-summary')
   await expect(liveProcessSummary).toContainText(/Working for \d+s/, { timeout: 3_000 })
+  await expect(page.getByText('Waiting for steering.', { exact: true })).toBeVisible({ timeout: 3_000 })
   const initialWorkingLabel = await liveProcessSummary.textContent()
   await expect.poll(() => liveProcessSummary.textContent(), { timeout: 3_000 }).not.toBe(initialWorkingLabel)
 
@@ -155,6 +237,9 @@ test('queues a follow-up and explicitly sends negotiated Codex ACP steer', async
   await expect.poll(() => liveActivity.evaluate(element => (
     getComputedStyle(element, '::after').animationName
   ))).toBe('code-agent-transcript-latest-activity-sweep')
+  await expect.poll(() => liveActivity.evaluate(element => (
+    getComputedStyle(element, '::after').zIndex
+  ))).toBe('2')
   const processSummary = liveProcessSummary
   await expect(processSummary).toHaveAttribute('aria-expanded', 'false')
   const turn = page.locator('.code-agent-transcript-turn').filter({ hasText: 'hold for steer without user echo with post-steer commentary' })

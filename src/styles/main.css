@@ -6910,6 +6910,7 @@ body.code-mode .code-instance-name {
   content: '';
   position: absolute;
   inset: 0;
+  z-index: 2;
   background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.8) 46%, transparent 54%);
   transform: translateX(-100%);
   animation: code-agent-transcript-latest-activity-sweep 1.8s ease-in-out infinite;
@@ -7359,6 +7360,37 @@ body.code-mode .code-instance-name {
   font-size: var(--code-content-font-size);
   line-height: var(--code-content-line-height);
   overflow-wrap: anywhere;
+}
+
+.code-acp-progress-update.live-fill {
+  animation: code-acp-progress-fill 220ms ease-out both;
+  will-change: clip-path, opacity;
+}
+
+.code-acp-progress-update.live-fill.medium {
+  animation-duration: 340ms;
+}
+
+.code-acp-progress-update.live-fill.long {
+  animation-duration: 480ms;
+}
+
+@keyframes code-acp-progress-fill {
+  from {
+    clip-path: inset(0 100% 0 0);
+    opacity: 0.35;
+  }
+
+  to {
+    clip-path: inset(0 0 0 0);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .code-acp-progress-update.live-fill {
+    animation: none;
+  }
 }
 
 .code-acp-progress-update > :first-child {
@@ -8863,15 +8895,25 @@ button.code-agent-transcript-result-summary:is(:hover, :focus-visible, :focus-wi
 }
 
 .code-agent-transcript-result-review.agent-review-commit {
-  width: 30px;
-  display: inline-grid;
-  place-items: center;
-  padding: 6px;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  margin-right: 5px;
+  border-bottom-right-radius: 5px;
 }
 
-.code-agent-transcript-result-review.agent-review-commit svg {
-  width: 14px;
-  height: 14px;
+.code-agent-transcript-result-review.agent-review-commit::after {
+  content: '';
+  position: absolute;
+  right: -5px;
+  bottom: 4px;
+  width: 9px;
+  height: 9px;
+  border-right: inherit;
+  border-bottom: inherit;
+  background: inherit;
+  transform: skewX(-22deg) rotate(-12deg);
+  pointer-events: none;
 }
 
 .code-agent-transcript-progress {
