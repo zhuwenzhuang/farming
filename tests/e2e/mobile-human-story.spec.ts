@@ -79,9 +79,13 @@ async function installStateSocket(page: import('@playwright/test').Page, initial
         window.setTimeout(() => {
           this.readyState = MockWebSocket.OPEN
           this.onopen?.(new Event('open'))
-          this.onmessage?.({ data: JSON.stringify({ type: 'state', state }) } as MessageEvent)
+          this.onmessage?.({
+            data: JSON.stringify({ type: 'state', generation: 'mobile-test-server', sequence: 0, state }),
+          } as MessageEvent)
           this.heartbeatTimer = window.setInterval(() => {
-            this.onmessage?.({ data: JSON.stringify({ type: 'state', state }) } as MessageEvent)
+            this.onmessage?.({
+              data: JSON.stringify({ type: 'state', generation: 'mobile-test-server', sequence: 0, state }),
+            } as MessageEvent)
           }, 2_000)
         }, 0)
       }
@@ -99,7 +103,14 @@ async function installStateSocket(page: import('@playwright/test').Page, initial
     window.__farmingEmitState = nextState => {
       for (const socket of sockets) {
         if (socket.readyState === MockWebSocket.OPEN) {
-          socket.onmessage?.({ data: JSON.stringify({ type: 'state', state: nextState }) } as MessageEvent)
+          socket.onmessage?.({
+            data: JSON.stringify({
+              type: 'state',
+              generation: 'mobile-test-server',
+              sequence: 0,
+              state: nextState,
+            }),
+          } as MessageEvent)
         }
       }
     }

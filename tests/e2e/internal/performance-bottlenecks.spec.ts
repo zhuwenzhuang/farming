@@ -170,6 +170,7 @@ test('parked Agent output does not update workspace roots', async ({ page, works
     window.__farmingPerformanceTest?.snapshot() ?? { app: 0, codeWorkspace: 0 }
   )) as RenderSnapshot
   expect(frames.filter(frame => frame.type === 'state')).toHaveLength(0)
+  expect(frames.filter(frame => frame.type === 'state-delta')).toHaveLength(0)
   expect(renders.app).toBe(0)
   expect(renders.codeWorkspace).toBe(0)
 })

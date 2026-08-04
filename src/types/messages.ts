@@ -111,6 +111,12 @@ export interface RestartMainAgentMessage {
   command: 'codex' | 'claude' | 'opencode' | 'qoder' | 'qwen' | 'bash' | 'zsh'
 }
 
+export interface StateResyncMessage {
+  type: 'state-resync'
+  generation?: string
+  afterSequence?: number
+}
+
 export interface WatchWorkspaceFilesMessage {
   type: 'watch-workspace-files'
   agentId: string
@@ -134,6 +140,7 @@ export type ClientMessage =
   | RestartMainAgentMessage
   | WatchWorkspaceFilesMessage
   | UnwatchWorkspaceFilesMessage
+  | StateResyncMessage
 
 // ---- Server → Client messages ----
 
@@ -168,7 +175,18 @@ export interface CommandAckMessage {
 
 export interface StateMessage {
   type: 'state'
+  generation: string
+  sequence: number
   state: AppState
+}
+
+export interface StateDeltaMessage {
+  type: 'state-delta'
+  generation: string
+  sequence: number
+  upserts: Agent[]
+  removedAgentIds: string[]
+  state?: Partial<Omit<AppState, 'agents'>>
 }
 
 export interface ErrorMessage {
@@ -340,6 +358,7 @@ export type ServerMessage =
   | BusinessHealthResultMessage
   | CommandAckMessage
   | StateMessage
+  | StateDeltaMessage
   | ErrorMessage
   | ComposerInputResultMessage
   | AgentStartedMessage

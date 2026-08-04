@@ -43,10 +43,39 @@ assert.strictEqual(validateClientMessage({
 }).ok, false);
 assert.strictEqual(validateClientMessage({ type: 'business-health-probe', requestId: 'health-1' }).ok, true);
 assert.strictEqual(validateClientMessage({ type: 'business-health-probe', requestId: 1 }).ok, false);
+assert.strictEqual(validateClientMessage({ type: 'state-resync', generation: 'server-1', afterSequence: 4 }).ok, true);
+assert.strictEqual(validateClientMessage({ type: 'state-resync', afterSequence: -1 }).ok, false);
 assert.strictEqual(validateClientMessage({ type: 'unknown' }).ok, false);
 assert.strictEqual(validateClientMessage(null).ok, false);
-assert.strictEqual(validateServerMessage({ type: 'state', state: { agents: [] } }).ok, true);
-assert.strictEqual(validateServerMessage({ type: 'state', state: {} }).ok, false);
+assert.strictEqual(validateServerMessage({
+  type: 'state',
+  generation: 'server-1',
+  sequence: 0,
+  state: { agents: [] },
+}).ok, true);
+assert.strictEqual(validateServerMessage({ type: 'state', generation: 'server-1', sequence: 0, state: {} }).ok, false);
+assert.strictEqual(validateServerMessage({
+  type: 'state-delta',
+  generation: 'server-1',
+  sequence: 1,
+  upserts: [{ id: 'a', status: 'running' }],
+  removedAgentIds: [],
+}).ok, true);
+assert.strictEqual(validateServerMessage({
+  type: 'state-delta',
+  generation: 'server-1',
+  sequence: 2,
+  upserts: [{}],
+  removedAgentIds: [],
+}).ok, false);
+assert.strictEqual(validateServerMessage({
+  type: 'state-delta',
+  generation: 'server-1',
+  sequence: 2,
+  upserts: [],
+  removedAgentIds: [],
+  state: { agents: [] },
+}).ok, false);
 assert.strictEqual(validateServerMessage({
   type: 'browser-resource-snapshot',
   snapshot: { collectionRevision: 3, resources: [] },

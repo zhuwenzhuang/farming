@@ -16,6 +16,7 @@
 - [Package 安装与更新生命周期](package-installation-lifecycle.zh_cn.md)
 - [ACP Runtime](../products/code/acp-runtime.zh_cn.md)
 - [Codex Runtime](../products/code/codex-runtime.zh_cn.md)
+- [Agent 列表状态协议](../products/code/agent-list-state-protocol.zh_cn.md)
 - [Terminal State Protocol](../products/code/terminal-state-protocol.zh_cn.md)
 
 ## 产品架构

@@ -137,6 +137,7 @@ interface WebSocketClient {
   protocolVersion?: number;
   readyState: number;
   resourceSnapshotPending?: boolean;
+  stateSnapshotPending?: boolean;
   streamScope?: 'focused' | 'all';
   workspaceFileUnsubscribes?: Map<string, WorkspaceFileWatchRecord> | null;
   protocolCompatible?: boolean;
@@ -262,6 +263,12 @@ import { agentExtensionInventoryCacheFile, agentSessionInventoryCacheFile } from
 import { FarmingUpdateService } from './update-service.cjs';
 import { inputPartsFromMessage } from './input-parts.cjs';
 import { cleanupTerminalRuntime } from './terminal-runtime-cleanup.cjs';
+import {
+  advanceAgentStateBroadcast,
+  agentStateClientDelivery,
+  createAgentStateBroadcastTracker,
+  type AgentStatePayload,
+} from './agent-state-broadcast-protocol.cjs';
 import {
   coalesceResourceBroadcast,
   drainResourceBroadcasts,
@@ -3248,6 +3255,7 @@ async function sendComposerInputMessage(
 async function sendBusinessHealthResult(ws: WebSocketClient, requestId: string) {
   const health = await probeAgentManagerBusinessHealth(agentManager);
   if (ws.readyState !== WebSocket.OPEN) return;
+  recoverStateSnapshotIfReady(ws);
   recoverResourceSnapshotIfReady(ws);
   ws.send(JSON.stringify({
     type: 'business-health-result',
@@ -3279,6 +3287,9 @@ function handleMessage(ws: WebSocketClient, data: ServerClientMessage) {
         return;
       }
       void sendBusinessHealthResult(ws, data.requestId);
+      break;
+    case 'state-resync':
+      sendState(ws);
       break;
     case 'start-agent': {
       const workspace = typeof data.workspace === 'string' ? data.workspace : null;
@@ -3572,8 +3583,17 @@ function buildStatePayload() {
 }
 
 function sendState(ws: WebSocketClient) {
-  const state = buildStatePayload();
-  ws.send(JSON.stringify({ type: 'state', state }));
+  broadcastState(ws);
+  if (!stateBroadcastTracker.currentState) {
+    advanceAgentStateBroadcast(stateBroadcastTracker, buildStatePayload() as AgentStatePayload);
+  }
+  ws.send(JSON.stringify({
+    type: 'state',
+    generation: SERVER_EPOCH,
+    sequence: stateBroadcastTracker.sequence,
+    state: stateBroadcastTracker.currentState,
+  }));
+  ws.stateSnapshotPending = false;
   agentManager.getPreviewPayloads().forEach((preview: ServerRecord) => {
     sendPreview(ws, preview);
   });
@@ -3617,6 +3637,7 @@ const PREVIEW_BROADCAST_INTERVAL_MS = 500;
 const SESSION_STREAM_BROADCAST_INTERVAL_MS = 33;
 const AGENT_ACTIVITY_BROADCAST_DELAY_MS = SESSION_STREAM_BROADCAST_INTERVAL_MS;
 const MAX_SESSION_STREAM_CLIENT_BUFFERED_AMOUNT = 4 * 1024 * 1024;
+const MAX_STATE_CLIENT_BUFFERED_AMOUNT = 512 * 1024;
 const RESOURCE_BROADCAST_INTERVAL_MS = 100;
 const MAX_RESOURCE_CLIENT_BUFFERED_AMOUNT = 512 * 1024;
 
@@ -3628,6 +3649,7 @@ function isAgentScopedServerEvent(value: unknown): value is AgentScopedServerEve
 
 let stateBroadcastTimer: ReturnType<typeof setTimeout> | null = null;
 let lastStateBroadcastAt = 0;
+const stateBroadcastTracker = createAgentStateBroadcastTracker();
 const pendingPreviewBroadcasts = new Map();
 const pendingAgentActivityBroadcasts = new Map();
 const pendingAgentUpdates = new Map();
@@ -3720,15 +3742,44 @@ browserResourceManager.on('deleted', (deletion: unknown) => scheduleResourceDele
 computerResourceManager.on('resource', (resource: unknown) => scheduleResourceUpdate('computer', resource));
 computerResourceManager.on('deleted', (deletion: unknown) => scheduleResourceDeletion('computer', deletion));
 
-function broadcastState() {
+function deliverStateDelta(client: WebSocketClient, message: string) {
+  const delivery = agentStateClientDelivery(
+    client.bufferedAmount,
+    client.stateSnapshotPending === true,
+    MAX_STATE_CLIENT_BUFFERED_AMOUNT,
+  );
+  if (delivery === 'defer') {
+    client.stateSnapshotPending = true;
+    return;
+  }
+  if (delivery === 'snapshot') {
+    sendState(client);
+    return;
+  }
+  client.send(message);
+}
+
+function recoverStateSnapshotIfReady(client: WebSocketClient) {
+  if (client.readyState !== WebSocket.OPEN || client.stateSnapshotPending !== true) return;
+  if (client.bufferedAmount <= MAX_STATE_CLIENT_BUFFERED_AMOUNT) sendState(client);
+}
+
+function broadcastState(excludedClient: WebSocketClient | null = null) {
   lastStateBroadcastAt = Date.now();
   stateBroadcastTimer = null;
-  const state = buildStatePayload();
-  const message = JSON.stringify({ type: 'state', state });
+  const delta = advanceAgentStateBroadcast(
+    stateBroadcastTracker,
+    buildStatePayload() as AgentStatePayload,
+  );
+  if (!delta) return;
+  const message = JSON.stringify({
+    type: 'state-delta',
+    generation: SERVER_EPOCH,
+    ...delta,
+  });
   wss.clients.forEach(client => {
-    if (client.readyState === WebSocket.OPEN) {
-      client.send(message);
-    }
+    if (client === excludedClient || client.readyState !== WebSocket.OPEN) return;
+    deliverStateDelta(client, message);
   });
 }
 

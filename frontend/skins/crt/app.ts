@@ -239,6 +239,9 @@ type CrtSessionKeyboardContext = {
 let ws: WebSocket | null = null;
 let wsReconnectTimer: number | null = null;
 let state: CrtWorkspaceState | null = null;
+let agentStateGeneration = '';
+let agentStateSequence = -1;
+let agentStateResyncPending = false;
 let focusedAgentId: string | null = null;
 let keyMap: Record<string, string> = {};
 let agents: CrtAgent[] = [];
@@ -5859,6 +5862,83 @@ function openCrtAgentDeeplinkIfReady() {
   return true;
 }
 
+function applyCrtWorkspaceState(nextState: CrtWorkspaceState, previousAgentCount: number): void {
+  state = nextState;
+  pruneCrtStructuredPreviews(state);
+  const activeAgentIds = new Set(state.agents.map((agent) => agent.id));
+  terminalPreviewSnapshots.forEach((_snapshot, agentId) => {
+    if (!activeAgentIds.has(agentId)) terminalPreviewSnapshots.delete(agentId);
+  });
+  if (
+    focusedAgentId
+    && !activeAgentIds.has(focusedAgentId)
+    && !runtimeSwitchPending
+    && !pendingRuntimeSwitchAgentId
+  ) {
+    // Another viewer may kill or archive the Agent while this CRT session
+    // is open. Runtime replacement has its own bounded handoff and may
+    // briefly remove the old id, so do not mistake that legal transition
+    // for a dead session.
+    closeSession();
+  }
+  state.agents.forEach((agent) => {
+    if (terminalPreviewSnapshots.has(agent.id)) {
+      agent.previewSnapshot = terminalPreviewSnapshots.get(agent.id);
+    }
+  });
+  const dashboardRendered = renderCrtDashboardIfNeeded();
+  scheduleCrtRenderedStructuredPreviews();
+  if (dashboardRendered && crtMainView === 'history') renderCrtHistory();
+  if (crtMainView === 'search') renderCrtSearch();
+  generateKeyMap();
+  checkMainAgentStatus();
+
+  if (waitingForAgent && state.agents.length > previousAgentCount) {
+    waitingForAgent = false;
+    hideInputDialog();
+  }
+  openPendingProviderSessionAgentIfReady();
+  openPendingRuntimeSwitchAgentIfReady();
+  if (focusedAgentId) {
+    const focusedAgent = state.agents.find((agent) => agent.id === focusedAgentId);
+    updateCrtRuntimeSwitchControl(focusedAgent);
+    if (focusedAgent && isStructuredRuntimeAgent(focusedAgent)) {
+      updateStructuredComposerState(focusedAgent);
+    }
+  }
+  const runtime = getSessionRuntime();
+  if (runtime) {
+    const sessionState = runtime.handleStateMessage(state);
+    focusedAgentId = sessionState.focusedAgentId;
+  }
+  openCrtAgentDeeplinkIfReady();
+}
+
+function applyCrtAgentStateDelta(data: CrtProtocolStateDeltaServerMessage): CrtWorkspaceState | null {
+  if (!state) return null;
+  const removals = new Set(data.removedAgentIds);
+  const replacements = new Map(data.upserts.map((agent) => [agent.id, agent]));
+  const retainedAgentIds = new Set<string>();
+  const nextAgents: CrtAgent[] = [];
+
+  state.agents.forEach((agent) => {
+    if (removals.has(agent.id)) return;
+    const replacement = replacements.get(agent.id);
+    nextAgents.push(replacement || agent);
+    retainedAgentIds.add(agent.id);
+  });
+  data.upserts.forEach((agent) => {
+    if (removals.has(agent.id) || retainedAgentIds.has(agent.id)) return;
+    nextAgents.push(agent);
+  });
+
+  return {
+    ...state,
+    ...(data.state || {}),
+    agents: nextAgents,
+  };
+}
+
 function connect(): void {
   if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
   if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
@@ -5914,55 +5994,35 @@ function connect(): void {
     }
     if (data.type === 'state') {
       const prevAgentCount = state ? state.agents.length : 0;
-      state = data.state;
-      pruneCrtStructuredPreviews(state);
-      const activeAgentIds = new Set(state.agents.map((agent) => agent.id));
-      terminalPreviewSnapshots.forEach((_snapshot, agentId) => {
-        if (!activeAgentIds.has(agentId)) terminalPreviewSnapshots.delete(agentId);
-      });
+      agentStateGeneration = data.generation;
+      agentStateSequence = data.sequence;
+      agentStateResyncPending = false;
+      applyCrtWorkspaceState(data.state, prevAgentCount);
+    } else if (data.type === 'state-delta') {
+      if (agentStateResyncPending) return;
+      if (data.generation === agentStateGeneration && data.sequence <= agentStateSequence) return;
       if (
-        focusedAgentId
-        && !activeAgentIds.has(focusedAgentId)
-        && !runtimeSwitchPending
-        && !pendingRuntimeSwitchAgentId
+        !agentStateGeneration
+        || data.generation !== agentStateGeneration
+        || data.sequence !== agentStateSequence + 1
       ) {
-        // Another viewer may kill or archive the Agent while this CRT session
-        // is open. Runtime replacement has its own bounded handoff and may
-        // briefly remove the old id, so do not mistake that legal transition
-        // for a dead session.
-        closeSession();
+        agentStateResyncPending = true;
+        socket.send(JSON.stringify({
+          type: 'state-resync',
+          generation: agentStateGeneration || undefined,
+          afterSequence: agentStateSequence >= 0 ? agentStateSequence : undefined,
+        } satisfies CrtProtocolStateResyncClientMessage));
+        return;
       }
-      state.agents.forEach((agent) => {
-        if (terminalPreviewSnapshots.has(agent.id)) {
-          agent.previewSnapshot = terminalPreviewSnapshots.get(agent.id);
-        }
-      });
-      const dashboardRendered = renderCrtDashboardIfNeeded();
-      scheduleCrtRenderedStructuredPreviews();
-      if (dashboardRendered && crtMainView === 'history') renderCrtHistory();
-      if (crtMainView === 'search') renderCrtSearch();
-      generateKeyMap();
-      checkMainAgentStatus();
-
-      if (waitingForAgent && state.agents.length > prevAgentCount) {
-        waitingForAgent = false;
-        hideInputDialog();
+      const prevAgentCount = state ? state.agents.length : 0;
+      const nextState = applyCrtAgentStateDelta(data);
+      if (!nextState) {
+        agentStateResyncPending = true;
+        socket.send(JSON.stringify({ type: 'state-resync' } satisfies CrtProtocolStateResyncClientMessage));
+        return;
       }
-      openPendingProviderSessionAgentIfReady();
-      openPendingRuntimeSwitchAgentIfReady();
-      if (focusedAgentId) {
-        const focusedAgent = state.agents.find((agent) => agent.id === focusedAgentId);
-        updateCrtRuntimeSwitchControl(focusedAgent);
-        if (focusedAgent && isStructuredRuntimeAgent(focusedAgent)) {
-          updateStructuredComposerState(focusedAgent);
-        }
-      }
-      const runtime = getSessionRuntime();
-      if (runtime) {
-        const sessionState = runtime.handleStateMessage(state);
-        focusedAgentId = sessionState.focusedAgentId;
-      }
-      openCrtAgentDeeplinkIfReady();
+      agentStateSequence = data.sequence;
+      applyCrtWorkspaceState(nextState, prevAgentCount);
     } else if (data.type === 'agent-started') {
       selectCrtStartedAgent(data.agentId);
     } else if (data.type === 'agent-update') {
@@ -5977,7 +6037,8 @@ function connect(): void {
       const read = data.read;
       const agent = read && state && state.agents.find(candidate => candidate.id === read.agentId);
       if (agent) {
-        const { agentId: _agentId, ...readState } = read;
+        const readState: Partial<typeof read> = { ...read };
+        delete readState.agentId;
         Object.assign(agent, readState);
         renderCrtDashboardIfNeeded();
       }

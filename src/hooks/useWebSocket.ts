@@ -11,6 +11,7 @@ import {
 } from '@/lib/backend-live-status'
 import {
   reconcileAgentLiveStates,
+  reconcileAgentLiveStateDelta,
   resetAgentLiveStates,
   updateAgentAcpSessionRevision,
   updateAgentLiveActivity,
@@ -18,6 +19,11 @@ import {
   updateAgentReadState,
   updateAgentLiveState,
 } from '@/lib/agent-live-state'
+import {
+  agentStateDeltaDisposition,
+  applyAgentStateDelta,
+  type AgentStateCursor,
+} from '@/lib/agent-state-delta'
 import {
   PROTOCOL_VERSION,
   protocolCompatible,
@@ -74,9 +80,23 @@ function sameJsonValue(left: unknown, right: unknown) {
   return JSON.stringify(left) === JSON.stringify(right)
 }
 
+function normalizeStateAgent(agent: Agent, mainAgentId: string | null, previous?: Agent): Agent {
+  const normalizedAgent = {
+    ...agent,
+    isMain: agent.isMain
+      || agent.id === mainAgentId
+      || isInternalMainWorkspace(agent.cwd, agent.parentAgentId),
+  }
+  return previous?.previewSnapshot
+    ? { ...normalizedAgent, previewSnapshot: previous.previewSnapshot }
+    : normalizedAgent
+}
+
 export function useWebSocket() {
   const wsRef = useRef<WebSocket | null>(null)
   const agentStateSignaturesRef = useRef<Map<string, string>>(new Map())
+  const agentStateCursorRef = useRef<AgentStateCursor | null>(null)
+  const agentStateResyncPendingRef = useRef(false)
   const composerRequestSequenceRef = useRef(0)
   const composerRequestResolversRef = useRef(new Map<string, {
     resolve: (accepted: boolean) => void
@@ -535,6 +555,11 @@ export function useWebSocket() {
             case 'command-ack':
               break
             case 'state':
+              agentStateCursorRef.current = {
+                generation: msg.generation,
+                sequence: msg.sequence,
+              }
+              agentStateResyncPendingRef.current = false
               if (msg.state.systemStats !== undefined) {
                 updateBackendSystemStats(msg.state.systemStats ?? null)
               }
@@ -556,14 +581,8 @@ export function useWebSocket() {
                   ) {
                     return previous
                   }
-                  const normalizedAgent = {
-                    ...agent,
-                    isMain,
-                  }
                   agentsChanged = true
-                  return previous?.previewSnapshot
-                    ? { ...normalizedAgent, previewSnapshot: previous.previewSnapshot }
-                    : normalizedAgent
+                  return normalizeStateAgent(agent, msg.state.mainAgentId, previous)
                 })
                 agentStateSignaturesRef.current = nextAgentSignatures
 
@@ -611,6 +630,93 @@ export function useWebSocket() {
                 }
               })
               break
+            case 'state-delta': {
+              if (agentStateResyncPendingRef.current) break
+              const disposition = agentStateDeltaDisposition(
+                agentStateCursorRef.current,
+                msg.generation,
+                msg.sequence,
+              )
+              if (disposition === 'ignore') break
+              if (disposition === 'resync') {
+                agentStateResyncPendingRef.current = true
+                ws.send(JSON.stringify({
+                  type: 'state-resync',
+                  generation: agentStateCursorRef.current?.generation,
+                  afterSequence: agentStateCursorRef.current?.sequence,
+                }))
+                break
+              }
+
+              agentStateCursorRef.current = {
+                generation: msg.generation,
+                sequence: msg.sequence,
+              }
+              if (msg.state?.systemStats !== undefined) {
+                updateBackendSystemStats(msg.state.systemStats ?? null)
+              }
+              reconcileAgentLiveStateDelta(msg.upserts, msg.removedAgentIds)
+              setState(prev => {
+                const hasMainAgentId = msg.state !== undefined
+                  && Object.prototype.hasOwnProperty.call(msg.state, 'mainAgentId')
+                const nextMainAgentId = hasMainAgentId
+                  ? msg.state?.mainAgentId ?? null
+                  : prev.mainAgentId
+                const previousAgents = new Map(prev.agents.map(agent => [agent.id, agent]))
+                const normalizedUpserts = msg.upserts.map(agent => {
+                  agentStateSignaturesRef.current.set(agent.id, JSON.stringify(agent))
+                  return normalizeStateAgent(agent, nextMainAgentId, previousAgents.get(agent.id))
+                })
+                msg.removedAgentIds.forEach(agentId => agentStateSignaturesRef.current.delete(agentId))
+                const nextAgents = applyAgentStateDelta(
+                  prev.agents,
+                  normalizedUpserts,
+                  msg.removedAgentIds,
+                )
+                const nextTaskHistory = msg.state?.taskHistory ?? prev.taskHistory
+                const nextMainPageSessionKeys = Array.isArray(msg.state?.mainPageSessionKeys)
+                  ? msg.state.mainPageSessionKeys
+                  : prev.mainPageSessionKeys
+                const nextProjectWorkspaces = Array.isArray(msg.state?.projectWorkspaces)
+                  ? msg.state.projectWorkspaces
+                  : prev.projectWorkspaces
+                const nextPinnedProjectWorkspaces = Array.isArray(msg.state?.pinnedProjectWorkspaces)
+                  ? msg.state.pinnedProjectWorkspaces
+                  : prev.pinnedProjectWorkspaces
+                const taskHistoryChanged = nextTaskHistory !== prev.taskHistory
+                  && !sameJsonValue(nextTaskHistory, prev.taskHistory)
+                const mainPageSessionKeysChanged = nextMainPageSessionKeys !== prev.mainPageSessionKeys
+                  && !sameStringArray(nextMainPageSessionKeys, prev.mainPageSessionKeys)
+                const projectWorkspacesChanged = nextProjectWorkspaces !== prev.projectWorkspaces
+                  && (prev.projectWorkspaces === null || !sameStringArray(nextProjectWorkspaces ?? [], prev.projectWorkspaces))
+                const pinnedProjectWorkspacesChanged = nextPinnedProjectWorkspaces !== prev.pinnedProjectWorkspaces
+                  && (prev.pinnedProjectWorkspaces === null || !sameStringArray(nextPinnedProjectWorkspaces ?? [], prev.pinnedProjectWorkspaces))
+
+                if (
+                  nextAgents === prev.agents
+                  && !taskHistoryChanged
+                  && !mainPageSessionKeysChanged
+                  && !projectWorkspacesChanged
+                  && !pinnedProjectWorkspacesChanged
+                  && nextMainAgentId === prev.mainAgentId
+                ) {
+                  return prev
+                }
+
+                return {
+                  ...prev,
+                  agents: nextAgents,
+                  taskHistory: taskHistoryChanged ? nextTaskHistory : prev.taskHistory,
+                  mainPageSessionKeys: mainPageSessionKeysChanged ? nextMainPageSessionKeys : prev.mainPageSessionKeys,
+                  projectWorkspaces: projectWorkspacesChanged ? nextProjectWorkspaces : prev.projectWorkspaces,
+                  pinnedProjectWorkspaces: pinnedProjectWorkspacesChanged
+                    ? nextPinnedProjectWorkspaces
+                    : prev.pinnedProjectWorkspaces,
+                  mainAgentId: nextMainAgentId,
+                }
+              })
+              break
+            }
             case 'error':
               setState(prev => ({
                 ...prev,

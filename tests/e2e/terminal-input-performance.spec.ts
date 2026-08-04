@@ -136,6 +136,7 @@ test('terminal typing stays small and direct after switching an existing agent',
   expect(afterFocus.filter(message => message.direction === 'sent' && message.type === 'focus-agent'))
     .toEqual(expect.arrayContaining([expect.objectContaining({ agentId: firstAgentId })]))
   expect(afterFocus.filter(message => message.direction === 'received' && message.type === 'state')).toHaveLength(0)
+  expect(afterFocus.filter(message => message.direction === 'received' && message.type === 'state-delta')).toHaveLength(0)
 
   // Exercise the same path as a person: wait until the authoritative screen
   // has finished installing, click the visible xterm surface, and prove that
@@ -163,6 +164,9 @@ test('terminal typing stays small and direct after switching an existing agent',
     )
     samples.push(output.at - startedAt)
     expect(messages.slice(frameStart).filter(message => message.direction === 'received' && message.type === 'state')).toHaveLength(0)
+    expect(messages.slice(frameStart).filter(message => (
+      message.direction === 'received' && message.type === 'state-delta'
+    ))).toHaveLength(0)
   }
 
   const keyToOutputP95Ms = p95(samples)

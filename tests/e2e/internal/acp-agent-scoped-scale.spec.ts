@@ -70,14 +70,24 @@ function trackWireFrames(page: Page) {
             sessionTitle?: string
           }>
         }
+        upserts?: Array<{
+          attentionSeq?: number
+          id?: string
+          providerSessionId?: string
+          providerSessionTitle?: string
+          runtimeBinding?: { state?: string }
+          sessionTitle?: string
+        }>
       }
       frames.push({
         at: performance.now(),
         type: message.type || 'unknown',
         bytes: byteLength(payload),
         agentId: message.update?.agentId || message.session?.agentId || message.read?.agentId || '',
-        ...(message.type === 'state' ? {
-          stateAgents: (message.state?.agents || []).slice(-3).map(agent => ({
+        ...(message.type === 'state' || message.type === 'state-delta' ? {
+          stateAgents: (message.type === 'state'
+            ? message.state?.agents || []
+            : message.upserts || []).slice(-3).map(agent => ({
             attentionSeq: Number(agent.attentionSeq) || 0,
             id: agent.id || '',
             providerSessionId: agent.providerSessionId || '',
@@ -128,6 +138,7 @@ async function waitForWireQuiet(frames: WireFrame[], quietMs = 750, timeoutMs = 
     if (frames.length !== observedLength) {
       const relevant = frames.slice(observedLength).some(frame => (
         frame.type === 'state'
+        || frame.type === 'state-delta'
         || frame.type === 'agent-update'
         || frame.type === 'acp-session-revision'
         || frame.type === 'agent-read'

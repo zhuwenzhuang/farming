@@ -27,6 +27,7 @@ type WireFrame = {
   bytes: number
   agentId: string
   agentCount: number
+  upsertCount: number
 }
 
 type BrowserMetrics = {
@@ -63,27 +64,51 @@ function byteLength(payload: string | Buffer) {
 
 function trackWireFrames(page: Page) {
   const frames: WireFrame[] = []
+  const visibleAgentIds = new Set<string>()
   const record = (payload: string | Buffer) => {
     const text = Buffer.isBuffer(payload) ? payload.toString('utf8') : payload
     try {
       const message = JSON.parse(text) as {
         type?: string
-        state?: { agents?: Array<{ isMain?: boolean }> }
+        state?: { agents?: Array<{ id?: string; isMain?: boolean }> }
+        upserts?: Array<{ id?: string; isMain?: boolean }>
+        removedAgentIds?: string[]
         preview?: { agentId?: string }
         activity?: { agentId?: string }
         stream?: { agentId?: string }
+      }
+      if (message.type === 'state' && Array.isArray(message.state?.agents)) {
+        visibleAgentIds.clear()
+        message.state.agents.forEach(agent => {
+          if (agent.id && agent.isMain !== true) visibleAgentIds.add(agent.id)
+        })
+      } else if (message.type === 'state-delta') {
+        message.removedAgentIds?.forEach(agentId => visibleAgentIds.delete(agentId))
+        message.upserts?.forEach(agent => {
+          if (!agent.id) return
+          if (agent.isMain === true) visibleAgentIds.delete(agent.id)
+          else visibleAgentIds.add(agent.id)
+        })
       }
       frames.push({
         at: performance.now(),
         type: message.type || 'unknown',
         bytes: byteLength(payload),
         agentId: message.preview?.agentId || message.activity?.agentId || message.stream?.agentId || '',
-        agentCount: Array.isArray(message.state?.agents)
-          ? message.state.agents.filter(agent => agent.isMain !== true).length
+        agentCount: message.type === 'state' || message.type === 'state-delta'
+          ? visibleAgentIds.size
           : 0,
+        upsertCount: message.type === 'state-delta' ? message.upserts?.length ?? 0 : 0,
       })
     } catch {
-      frames.push({ at: performance.now(), type: 'invalid', bytes: byteLength(payload), agentId: '', agentCount: 0 })
+      frames.push({
+        at: performance.now(),
+        type: 'invalid',
+        bytes: byteLength(payload),
+        agentId: '',
+        agentCount: 0,
+        upsertCount: 0,
+      })
     }
   }
   const attach = (socket: WebSocket) => socket.on('framereceived', event => record(event.payload))
@@ -126,7 +151,7 @@ async function waitForWireQuiet(frames: WireFrame[], quietMs = 1_500, timeoutMs 
   while (performance.now() - startedAt < timeoutMs) {
     if (frames.length !== observedLength) {
       const relevantFrames = frames.slice(observedLength).some(frame => (
-        frame.type === 'state' || frame.type === 'session-preview'
+        frame.type === 'state' || frame.type === 'state-delta' || frame.type === 'session-preview'
           || frame.type === 'agent-activity' || frame.type === 'agent-update'
       ))
       observedLength = frames.length
@@ -187,7 +212,9 @@ test(`characterizes Code workspace scaling through ${AGENT_COUNTS.at(-1)} live A
       const body = await response.json() as { agents?: Array<{ isMain?: boolean }> }
       return body.agents?.filter(agent => agent.isMain !== true).length ?? 0
     }, { timeout: 60_000 }).toBe(targetCount)
-    await expect.poll(() => frames.findLast(frame => frame.type === 'state')?.agentCount ?? -1, {
+    await expect.poll(() => frames.findLast(frame => (
+      frame.type === 'state' || frame.type === 'state-delta'
+    ))?.agentCount ?? -1, {
       timeout: 60_000,
     }).toBe(targetCount)
     await page.evaluate(() => window.__farmingPerformanceTest?.reset())
@@ -198,7 +225,10 @@ test(`characterizes Code workspace scaling through ${AGENT_COUNTS.at(-1)} live A
 
     await cdp.send('HeapProfiler.collectGarbage')
     const settledMetrics = await browserMetrics(cdp)
-    const latestState = frames.findLast(frame => frame.type === 'state' && frame.agentCount === targetCount)
+    const latestState = frames.findLast(frame => (
+      (frame.type === 'state' || frame.type === 'state-delta')
+      && frame.agentCount === targetCount
+    ))
     expect(latestState).toBeTruthy()
 
     await page.evaluate(() => window.__farmingPerformanceTest?.reset())
@@ -258,6 +288,7 @@ test(`characterizes Code workspace scaling through ${AGENT_COUNTS.at(-1)} live A
     expect(idleRenders.codeWorkspace).toBeLessThanOrEqual(2)
     expect(previewLatencyMs).toBeLessThan(15_000)
     expect(previewWindowMessages.state || 0).toBe(0)
+    expect(previewWindowMessages['state-delta'] || 0).toBe(0)
     expect(previewRenders.app).toBe(0)
     if (targetCount > 1) expect(previewRenders.codeWorkspace).toBe(0)
     expect(result.statePayloadBytes).toBeGreaterThan(0)

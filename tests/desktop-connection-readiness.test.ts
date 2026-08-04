@@ -84,7 +84,12 @@ async function fakeBackend(mode: BackendMode, options: { hangCapabilities?: bool
       ...(mode === 'healthy-ack-v4' ? { availableExtensions: [] } : {}),
     }))
     if (mode !== 'missing-state') {
-      socket.send(JSON.stringify({ type: 'state', state: { agents: [] } }))
+      socket.send(JSON.stringify({
+        type: 'state',
+        generation: 'desktop-test-server',
+        sequence: 0,
+        state: { agents: [] },
+      }))
     }
     socket.on('message', data => {
       const validation = validateClientMessage(JSON.parse(data.toString()))

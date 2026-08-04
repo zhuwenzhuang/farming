@@ -1,5 +1,5 @@
-export const PROTOCOL_VERSION = 5
-export const MIN_PROTOCOL_VERSION = 5
+export const PROTOCOL_VERSION = 6
+export const MIN_PROTOCOL_VERSION = 6
 
 type ObjectMessage = Record<string, unknown>
 
@@ -78,6 +78,12 @@ export interface RestartMainAgentMessage extends ExtensibleMessage {
   command: string
 }
 
+export interface StateResyncMessage extends ExtensibleMessage {
+  type: 'state-resync'
+  generation?: string
+  afterSequence?: number
+}
+
 export type ClientMessage =
   | ProtocolClientHelloMessage
   | BusinessHealthProbeMessage
@@ -93,6 +99,7 @@ export type ClientMessage =
   | AgentScopedClientMessage<'kill-agent'>
   | UnwatchWorkspaceFilesMessage
   | RestartMainAgentMessage
+  | StateResyncMessage
 
 export interface ProtocolServerHelloMessage extends ExtensibleMessage {
   type: 'protocol-hello'
@@ -123,7 +130,18 @@ export interface CommandAckMessage extends ExtensibleMessage {
 
 export interface StateMessage extends ExtensibleMessage {
   type: 'state'
+  generation: string
+  sequence: number
   state: ObjectMessage & { agents: unknown[] }
+}
+
+export interface StateDeltaMessage extends ExtensibleMessage {
+  type: 'state-delta'
+  generation: string
+  sequence: number
+  upserts: Array<ObjectMessage & { id: string }>
+  removedAgentIds: string[]
+  state?: ObjectMessage
 }
 
 export interface ComposerInputResultMessage extends ExtensibleMessage {
@@ -262,6 +280,7 @@ export type ServerMessage =
   | ErrorServerMessage<'error'>
   | CommandAckMessage
   | StateMessage
+  | StateDeltaMessage
   | ComposerInputResultMessage
   | AgentStartedMessage
   | SessionOutputMessage
@@ -299,6 +318,7 @@ const CLIENT_MESSAGE_TYPES: ReadonlySet<ClientMessage['type']> = new Set([
   'unwatch-workspace-files',
   'kill-agent',
   'restart-main-agent',
+  'state-resync',
 ])
 
 const SERVER_MESSAGE_TYPES: ReadonlySet<ServerMessage['type']> = new Set([
@@ -307,6 +327,7 @@ const SERVER_MESSAGE_TYPES: ReadonlySet<ServerMessage['type']> = new Set([
   'business-health-result',
   'command-ack',
   'state',
+  'state-delta',
   'error',
   'composer-input-result',
   'agent-started',
@@ -465,6 +486,10 @@ export function validateClientMessage(value: unknown): ValidationResult<ClientMe
     case 'resize-agent': valid = stringField(value, 'agentId') && finiteField(value, 'cols') && finiteField(value, 'rows'); break
     case 'unwatch-workspace-files': valid = stringField(value, 'agentId', true); break
     case 'restart-main-agent': valid = stringField(value, 'command'); break
+    case 'state-resync':
+      valid = stringField(value, 'generation', true)
+        && optionalField(value, 'afterSequence', () => revisionField(value, 'afterSequence'))
+      break
     default: valid = stringField(value, 'agentId'); break
   }
   return valid
@@ -495,7 +520,24 @@ export function validateServerMessage(value: unknown): ValidationResult<ServerMe
     case 'protocol-error':
     case 'error': valid = stringField(value, 'message'); break
     case 'command-ack': valid = stringField(value, 'requestId') && stringField(value, 'command'); break
-    case 'state': valid = objectMessage(value.state) && Array.isArray(value.state.agents); break
+    case 'state':
+      valid = stringField(value, 'generation')
+        && revisionField(value, 'sequence')
+        && objectMessage(value.state)
+        && Array.isArray(value.state.agents)
+      break
+    case 'state-delta':
+      valid = stringField(value, 'generation')
+        && revisionField(value, 'sequence')
+        && Array.isArray(value.upserts)
+        && value.upserts.every(agent => objectMessage(agent) && stringField(agent, 'id'))
+        && Array.isArray(value.removedAgentIds)
+        && value.removedAgentIds.every(agentId => typeof agentId === 'string')
+        && optionalField(value, 'state', () => (
+          objectMessage(value.state)
+          && !Object.prototype.hasOwnProperty.call(value.state, 'agents')
+        ))
+      break
     case 'composer-input-result': valid = stringField(value, 'requestId') && stringField(value, 'agentId') && typeof value.accepted === 'boolean' && stringField(value, 'message', true) && (!Object.prototype.hasOwnProperty.call(value, 'uncertain') || typeof value.uncertain === 'boolean'); break
     case 'agent-started': valid = stringField(value, 'agentId'); break
     case 'session-output': valid = objectMessage(value.stream) && stringField(value.stream, 'agentId'); break

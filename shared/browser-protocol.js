@@ -6,8 +6,8 @@ exports.sanitizeAgentUpdatePatch = sanitizeAgentUpdatePatch;
 exports.validateClientMessage = validateClientMessage;
 exports.validateServerMessage = validateServerMessage;
 exports.protocolCompatible = protocolCompatible;
-exports.PROTOCOL_VERSION = 5;
-exports.MIN_PROTOCOL_VERSION = 5;
+exports.PROTOCOL_VERSION = 6;
+exports.MIN_PROTOCOL_VERSION = 6;
 const CLIENT_MESSAGE_TYPES = new Set([
     'protocol-hello',
     'business-health-probe',
@@ -23,6 +23,7 @@ const CLIENT_MESSAGE_TYPES = new Set([
     'unwatch-workspace-files',
     'kill-agent',
     'restart-main-agent',
+    'state-resync',
 ]);
 const SERVER_MESSAGE_TYPES = new Set([
     'protocol-hello',
@@ -30,6 +31,7 @@ const SERVER_MESSAGE_TYPES = new Set([
     'business-health-result',
     'command-ack',
     'state',
+    'state-delta',
     'error',
     'composer-input-result',
     'agent-started',
@@ -187,6 +189,10 @@ function validateClientMessage(value) {
         case 'restart-main-agent':
             valid = stringField(value, 'command');
             break;
+        case 'state-resync':
+            valid = stringField(value, 'generation', true)
+                && optionalField(value, 'afterSequence', () => revisionField(value, 'afterSequence'));
+            break;
         default:
             valid = stringField(value, 'agentId');
             break;
@@ -225,7 +231,20 @@ function validateServerMessage(value) {
             valid = stringField(value, 'requestId') && stringField(value, 'command');
             break;
         case 'state':
-            valid = objectMessage(value.state) && Array.isArray(value.state.agents);
+            valid = stringField(value, 'generation')
+                && revisionField(value, 'sequence')
+                && objectMessage(value.state)
+                && Array.isArray(value.state.agents);
+            break;
+        case 'state-delta':
+            valid = stringField(value, 'generation')
+                && revisionField(value, 'sequence')
+                && Array.isArray(value.upserts)
+                && value.upserts.every(agent => objectMessage(agent) && stringField(agent, 'id'))
+                && Array.isArray(value.removedAgentIds)
+                && value.removedAgentIds.every(agentId => typeof agentId === 'string')
+                && optionalField(value, 'state', () => (objectMessage(value.state)
+                    && !Object.prototype.hasOwnProperty.call(value.state, 'agents')));
             break;
         case 'composer-input-result':
             valid = stringField(value, 'requestId') && stringField(value, 'agentId') && typeof value.accepted === 'boolean' && stringField(value, 'message', true) && (!Object.prototype.hasOwnProperty.call(value, 'uncertain') || typeof value.uncertain === 'boolean');

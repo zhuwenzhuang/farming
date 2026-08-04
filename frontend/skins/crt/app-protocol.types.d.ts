@@ -236,6 +236,12 @@ interface CrtProtocolPermissionResponseClientMessage extends CrtProtocolRecord {
   cancelled?: boolean;
 }
 
+interface CrtProtocolStateResyncClientMessage extends CrtProtocolRecord {
+  type: 'state-resync';
+  generation?: string;
+  afterSequence?: number;
+}
+
 type CrtWebSocketClientMessage =
   | CrtProtocolHelloClientMessage
   | CrtProtocolStartAgentClientMessage
@@ -244,7 +250,8 @@ type CrtWebSocketClientMessage =
   | CrtProtocolAgentCommandClientMessage
   | CrtProtocolFocusAgentClientMessage
   | CrtProtocolResizeAgentClientMessage
-  | CrtProtocolPermissionResponseClientMessage;
+  | CrtProtocolPermissionResponseClientMessage
+  | CrtProtocolStateResyncClientMessage;
 
 interface CrtProtocolHelloServerMessage extends CrtProtocolRecord {
   type: 'protocol-hello';
@@ -259,7 +266,18 @@ interface CrtProtocolErrorServerMessage extends CrtProtocolRecord {
 
 interface CrtProtocolStateServerMessage extends CrtProtocolRecord {
   type: 'state';
+  generation: string;
+  sequence: number;
   state: CrtProtocolWorkspaceState;
+}
+
+interface CrtProtocolStateDeltaServerMessage extends CrtProtocolRecord {
+  type: 'state-delta';
+  generation: string;
+  sequence: number;
+  upserts: CrtProtocolAgent[];
+  removedAgentIds: string[];
+  state?: Partial<Omit<CrtProtocolWorkspaceState, 'agents'>>;
 }
 
 interface CrtProtocolAgentStartedServerMessage extends CrtProtocolRecord {
@@ -393,6 +411,7 @@ type CrtWebSocketServerMessage =
   | CrtProtocolHelloServerMessage
   | CrtProtocolErrorServerMessage
   | CrtProtocolStateServerMessage
+  | CrtProtocolStateDeltaServerMessage
   | CrtProtocolAgentStartedServerMessage
   | CrtProtocolAgentUpdateServerMessage
   | CrtProtocolAgentReadServerMessage

@@ -229,6 +229,14 @@ export function reconcileAgentLiveStates(agents: Agent[]) {
   }
 }
 
+export function reconcileAgentLiveStateDelta(agents: Agent[], removedAgentIds: string[]) {
+  agents.forEach(agent => replaceAgentLiveState(agent.id, liveStateFromAgent(agent)))
+  removedAgentIds.forEach(agentId => {
+    if (!entries.delete(agentId)) return
+    notify(agentId, true)
+  })
+}
+
 export function resetAgentLiveStates() {
   const agentIds = [...entries.keys()]
   entries.clear()
