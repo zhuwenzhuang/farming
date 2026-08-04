@@ -35,6 +35,8 @@ Viewer Access 必须经过同一个已授权 Resource Identity。Preview 或 Str
 
 当同一 Agent 拥有多个同类 Active Resource 时，紧凑 Preview 可以重叠展示，但每个可见
 Preview 都必须标识并打开其精确 Resource。
+只有最前面的重叠 Preview 维持 Live Viewer Stream；被覆盖的 Preview 保留最后一帧，并在
+重新成为前景卡时恢复连接。
 Agent 详情 Preview 使用紧凑图标按类型汇总其拥有的 Resource 数量，让用户无需展开各个
 Resource Section 也能判断资源使用规模。
 

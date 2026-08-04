@@ -43,6 +43,7 @@ export function BrowserActivityPreview({
           resource={resource}
           copy={copy}
           index={index}
+          streaming={index === resources.length - 1}
           onOpen={() => onOpen(resource)}
           onDismiss={() => onDismiss(resource)}
         />
@@ -55,12 +56,14 @@ function BrowserActivityPreviewCard({
   resource,
   copy,
   index,
+  streaming,
   onOpen,
   onDismiss,
 }: {
   resource: BrowserResource
   copy: ReturnType<typeof previewCopy>
   index: number
+  streaming: boolean
   onOpen: () => void
   onDismiss: () => void
 }) {
@@ -68,8 +71,8 @@ function BrowserActivityPreviewCard({
   const title = resource.title || resource.name
 
   useEffect(() => {
-    if (resource.status !== 'running') {
-      setFrame('')
+    if (!streaming || resource.status !== 'running') {
+      if (resource.status !== 'running') setFrame('')
       return undefined
     }
     let cancelled = false
@@ -97,7 +100,7 @@ function BrowserActivityPreviewCard({
       window.clearTimeout(reconnectTimer)
       socket?.close()
     }
-  }, [resource.generation, resource.id, resource.status])
+  }, [resource.generation, resource.id, resource.status, streaming])
 
   return (
     <aside

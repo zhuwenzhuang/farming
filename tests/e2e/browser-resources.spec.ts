@@ -380,6 +380,19 @@ test('stacks active-Agent Browser previews and opens the selected Viewer on dema
   page,
   workspaceRoot,
 }, testInfo) => {
+  const activePreviewSocketCounts = new Map<string, number>()
+  page.on('websocket', socket => {
+    const match = new URL(socket.url()).pathname.match(/\/api\/browsers\/([^/]+)\/viewer$/)
+    if (!match) return
+    const resourceId = decodeURIComponent(match[1])
+    activePreviewSocketCounts.set(resourceId, (activePreviewSocketCounts.get(resourceId) || 0) + 1)
+    socket.on('close', () => {
+      const nextCount = (activePreviewSocketCounts.get(resourceId) || 1) - 1
+      if (nextCount > 0) activePreviewSocketCounts.set(resourceId, nextCount)
+      else activePreviewSocketCounts.delete(resourceId)
+    })
+  })
+  const activePreviewResourceIds = () => [...activePreviewSocketCounts.keys()]
   const workspace = path.join(workspaceRoot, 'agent-browser-activity-preview')
   fs.mkdirSync(workspace, { recursive: true })
   const enableResponse = await page.request.post('/farming/api/settings', {
@@ -439,6 +452,9 @@ test('stacks active-Agent Browser previews and opens the selected Viewer on dema
   await expect(secondBrowserCard).toHaveCount(1)
   await expect(firstBrowserCard.locator('.farming-browser-activity-title')).toHaveText('Browser Interaction Lab')
   await expect(secondBrowserCard.locator('.farming-browser-activity-title')).toHaveText('Popup destination')
+  const frontBrowserId = await previewCards.last().getAttribute('data-browser-resource-id')
+  if (!frontBrowserId) throw new Error('Front Browser preview must expose its Resource identity')
+  await expect.poll(activePreviewResourceIds).toEqual([frontBrowserId])
   const previewBox = await preview.boundingBox()
   expect(previewBox?.width).toBeGreaterThanOrEqual(230)
   expect(previewBox?.width).toBeLessThanOrEqual(250)
@@ -469,8 +485,15 @@ test('stacks active-Agent Browser previews and opens the selected Viewer on dema
   await expect(viewer.getByRole('textbox', { name: 'Browser address' })).toHaveValue(targetUrl)
   await viewer.getByRole('button', { name: 'Back to Agent' }).click()
   await expect(preview).toBeVisible()
-  await firstBrowserCard.getByRole('button', { name: 'Hide browser preview' }).click()
+  const currentFrontBrowserId = await previewCards.last().getAttribute('data-browser-resource-id')
+  if (!currentFrontBrowserId) throw new Error('Front Browser preview must retain its Resource identity')
+  await expect.poll(activePreviewResourceIds).toEqual([currentFrontBrowserId])
+  const frontBrowserCard = preview.locator(`[data-browser-resource-id="${currentFrontBrowserId}"]`)
+  await frontBrowserCard.getByRole('button', { name: 'Hide browser preview' }).click()
   await expect(previewCards).toHaveCount(1)
+  const remainingBrowserId = await previewCards.getAttribute('data-browser-resource-id')
+  if (!remainingBrowserId) throw new Error('Remaining Browser preview must expose its Resource identity')
+  await expect.poll(activePreviewResourceIds).toEqual([remainingBrowserId])
   await previewCards.getByRole('button', { name: 'Hide browser preview' }).click()
   await expect(preview).toHaveCount(0)
 
