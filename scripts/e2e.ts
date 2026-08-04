@@ -268,7 +268,7 @@ async function cleanupCreatedAgents(tracker: StateTracker, initialIds: Set<strin
   const currentAgents = tracker.state?.agents || [];
   currentAgents
     .filter(agent => !initialIds.has(agent.id))
-    .forEach(agent => tracker.send({ type: 'kill-agent', agentId: agent.id }));
+    .forEach(agent => tracker.send({ type: 'archive-agent', agentId: agent.id }));
   await sleep(1000);
 }
 

@@ -136,7 +136,6 @@ export interface CodeCopy {
   archiveAgent: string
   reorderAgentFailed: string
   reorderProjectFailed: string
-  markAsRead: string
   markAsUnread: string
   copyWorkingDirectory: string
   copiedWorkingDirectory: string
@@ -173,8 +172,7 @@ export interface CodeCopy {
   forkNewWorktree: string
   newWorktreeFork: string
   scheduledTask: string
-  killAgent: string
-  killAgentQuestion: string
+  archiveAgentQuestion: string
   openSession: string
   pinChat: string
   unpinChat: string
@@ -190,7 +188,6 @@ export interface CodeCopy {
   retry: string
   reconnect: string
   save: string
-  stopAgentDescription: (title: string) => string
   acknowledgeUnprovenAcpExit: string
   acknowledgeUnprovenAcpExitDescription: (title: string) => string
   permissionModeLabel: (value: string, fallback: string) => string
@@ -658,7 +655,6 @@ const EN_COPY: CodeCopy = {
   archiveAgent: 'Archive',
   reorderAgentFailed: 'Failed to reorder Agent',
   reorderProjectFailed: 'Failed to reorder Project',
-  markAsRead: 'Mark as read',
   markAsUnread: 'Mark as unread',
   copyWorkingDirectory: 'Copy working directory',
   copiedWorkingDirectory: 'Copied working directory',
@@ -695,8 +691,7 @@ const EN_COPY: CodeCopy = {
   forkNewWorktree: 'Fork into new worktree',
   newWorktreeFork: 'Forked to new worktree',
   scheduledTask: 'Scheduled task',
-  killAgent: 'Kill Agent',
-  killAgentQuestion: 'Kill Agent?',
+  archiveAgentQuestion: 'Archive Agent?',
   openSession: 'Open Session',
   pinChat: 'Pin chat',
   unpinChat: 'Unpin chat',
@@ -712,9 +707,8 @@ const EN_COPY: CodeCopy = {
   retry: 'Retry',
   reconnect: 'Reconnect',
   save: 'Save',
-  stopAgentDescription: title => `Stop ${title} and close its terminal.`,
-  acknowledgeUnprovenAcpExit: 'Confirm Exit and Remove',
-  acknowledgeUnprovenAcpExitDescription: title => `Farming cannot prove that ${title}'s legacy ACP process exited during the upgrade. Continue only after verifying it has exited at the operating-system level. This removes Farming metadata and does not stop an unknown process.`,
+  acknowledgeUnprovenAcpExit: 'Confirm Exit and Archive',
+  acknowledgeUnprovenAcpExitDescription: title => `Farming cannot prove that ${title}'s legacy ACP process exited during the upgrade. Continue only after verifying it has exited at the operating-system level. This archives Farming metadata and does not stop an unknown process.`,
   permissionModeLabel: (_value, fallback) => fallback,
   permissionModeDescription: (_value, fallback) => fallback,
   acpModeLabel: (value, fallback) => ({
@@ -1206,7 +1200,6 @@ const ZH_COPY: CodeCopy = {
   archiveAgent: '归档',
   reorderAgentFailed: '调整 Agent 顺序失败',
   reorderProjectFailed: '调整项目顺序失败',
-  markAsRead: '标为已读',
   markAsUnread: '标为未读',
   copyWorkingDirectory: '复制工作目录',
   copiedWorkingDirectory: '已复制工作目录',
@@ -1243,8 +1236,7 @@ const ZH_COPY: CodeCopy = {
   forkNewWorktree: '分叉到新 worktree',
   newWorktreeFork: '已分叉到新 worktree',
   scheduledTask: '周期任务',
-  killAgent: '停止 Agent',
-  killAgentQuestion: '停止 Agent？',
+  archiveAgentQuestion: '归档 Agent？',
   openSession: '打开会话',
   pinChat: '置顶会话',
   unpinChat: '取消置顶会话',
@@ -1260,9 +1252,8 @@ const ZH_COPY: CodeCopy = {
   retry: '重试',
   reconnect: '重新连接',
   save: '保存',
-  stopAgentDescription: title => `停止 ${title} 并关闭它的终端。`,
-  acknowledgeUnprovenAcpExit: '确认已退出并移除',
-  acknowledgeUnprovenAcpExitDescription: title => `Farming 无法证明 ${title} 的旧版 ACP 进程在升级时已经退出。请先在操作系统层确认进程已退出；继续操作只会移除 Farming 元数据，不会停止未知进程。`,
+  acknowledgeUnprovenAcpExit: '确认已退出并归档',
+  acknowledgeUnprovenAcpExitDescription: title => `Farming 无法证明 ${title} 的旧版 ACP 进程在升级时已经退出。请先在操作系统层确认进程已退出；继续操作只会归档 Farming 元数据，不会停止未知进程。`,
   permissionModeLabel: (value, fallback) => ({
     ask: '请求批准',
     approve: '自动批准',

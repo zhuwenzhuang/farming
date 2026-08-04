@@ -95,10 +95,9 @@ export type TerminalSessionClientMessage =
   | ClearTerminalMessage
   | ResizeAgentMessage
 
-export interface KillAgentMessage {
-  type: 'kill-agent'
+export interface ArchiveAgentMessage {
+  type: 'archive-agent'
   agentId: string
-  acknowledgeUnprovenAcpExit?: boolean
 }
 
 export interface InterruptAgentMessage {
@@ -135,7 +134,7 @@ export type ClientMessage =
   | ComposerInputMessage
   | FocusAgentMessage
   | TerminalSessionClientMessage
-  | KillAgentMessage
+  | ArchiveAgentMessage
   | InterruptAgentMessage
   | RestartMainAgentMessage
   | WatchWorkspaceFilesMessage

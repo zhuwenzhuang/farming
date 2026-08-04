@@ -503,7 +503,10 @@ async function run() {
     manager.removeMainPageProviderSessionsForAgents = removeMainPageProviderSessionsForAgents;
 
     assert.strictEqual((await manager.archiveAgent('missing-agent')).error, 'Agent not found');
-    assert.strictEqual((await manager.archiveAgent('main-1')).error, 'Main Agent cannot be archived');
+    const archivedMain = await manager.archiveAgent('main-1');
+    assert.strictEqual(archivedMain.archived, true, 'Main Agent should support explicit Archive');
+    assert.strictEqual(manager.agents.has('main-1'), false);
+    assert.strictEqual(manager.mainAgentId, null);
 
     const state = manager.getState();
     assert.strictEqual(Array.isArray(state.taskHistory), true, 'state payload should include taskHistory');

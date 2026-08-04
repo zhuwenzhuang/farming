@@ -158,6 +158,29 @@ async function mockCodexSessions(page: Page, sessions: MockAgentSession[] = []) 
 }
 
 test.describe('display-backed agent flows', () => {
+  test('keeps an active Agent manually unread until it is opened again', async ({ page, workspaceRoot }) => {
+    const workspace = path.join(workspaceRoot, 'manual-unread-active-agent')
+    fs.mkdirSync(workspace, { recursive: true })
+    const firstAgentId = await createControlAgent(page, 'bash', workspace)
+    const targetAgentId = await createControlAgent(page, 'bash', workspace)
+
+    await openFarming(page)
+    const firstRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${firstAgentId}"]`)
+    const targetRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${targetAgentId}"]`)
+    await targetRow.click()
+    await expect(targetRow).toHaveClass(/active/)
+
+    await targetRow.click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Mark as unread' }).click()
+    await expect(targetRow).toHaveClass(/unread/)
+
+    await firstRow.click()
+    await expect(firstRow).toHaveClass(/active/)
+    await targetRow.click()
+    await expect(targetRow).toHaveClass(/active/)
+    await expect(targetRow).not.toHaveClass(/unread/)
+  })
+
   test('shows a compact product version without raw git suffixes', async ({ page }) => {
     await mockCodexSessions(page)
 
@@ -3753,16 +3776,12 @@ test.describe('display-backed agent flows', () => {
 
 	    await revealMobileSidebar()
 	    await mobileRow.click({ button: 'right' })
-	    const markAsRead = page.getByRole('menuitem', { name: 'Mark as read' })
-	    if (await markAsRead.isVisible().catch(() => false)) {
-	      await markAsRead.click()
-	      await revealMobileSidebar()
-	      await mobileRow.click({ button: 'right' })
-	    }
 	    await page.getByRole('menuitem', { name: 'Mark as unread' }).click()
 	    await expect(mobileRow).toBeFocused()
 	    await revealMobileSidebar()
 	    await mobileRow.click({ button: 'right' })
+	    await expect(page.getByRole('menuitem', { name: 'Mark as read' })).toHaveCount(0)
+	    await expect(page.getByRole('menuitem', { name: 'Mark as unread' })).toHaveCount(0)
 	    await page.getByRole('menuitem', { name: 'Pin Agent' }).click()
 	    await expect(mobileRow).toHaveClass(/pinned/)
 	    await expect(mobileRow).toBeFocused()

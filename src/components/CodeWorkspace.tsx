@@ -375,7 +375,7 @@ interface CodeWorkspaceProps {
   onUpdateAgentFlags: (
     agentId: string,
     flags: Partial<Pick<Agent, 'pinned' | 'unread' | 'archived' | 'launchPermissionMode' | 'readAttentionSeq'>>
-      & { agentRuntimeMode?: 'terminal' | 'chat' | 'acp'; readOutputEpoch?: string; readOutputSeq?: number },
+      & { agentRuntimeMode?: 'terminal' | 'chat' | 'acp'; readOutputEpoch?: string; readOutputSeq?: number; acknowledgeUnprovenAcpExit?: boolean },
   ) => AgentFlagUpdateResponse | Promise<AgentFlagUpdateResponse>
   onOpenArchivedAgent: (agentId: string) => void
   onForkAgent: (
@@ -386,10 +386,6 @@ interface CodeWorkspaceProps {
   onDeleteForkWorktreeProject: (workspace: string, options?: { force?: boolean }) => Promise<DeleteForkWorktreeProjectResult>
   onRestartMainAgent: (command: 'codex' | 'claude' | 'opencode' | 'qoder' | 'qwen' | 'bash' | 'zsh') => void
   onWorkspaceViewChange: (view: WorkspaceView) => void
-  onKill: (
-    agentId: string,
-    options?: { acknowledgeUnprovenAcpExit?: boolean },
-  ) => void
   onInterruptAgent: (agentId: string) => void
   sendComposerInput: (
     message: string,
@@ -623,7 +619,6 @@ export function CodeWorkspace({
   onDeleteForkWorktreeProject,
   onRestartMainAgent,
   onWorkspaceViewChange,
-  onKill,
   onInterruptAgent,
   sendComposerInput,
   onSessionOutput,
@@ -787,10 +782,9 @@ export function CodeWorkspace({
   const [instanceName, setInstanceName] = useState('Farming')
   const [mobileShareUrl, setMobileShareUrl] = useState('')
   const [renameDialog, setRenameDialog] = useState<RenameDialogState | null>(null)
-  const [killDialog, setKillDialog] = useState<{
+  const [archiveExitDialog, setArchiveExitDialog] = useState<{
     agentId: string
     title: string
-    acknowledgeUnprovenAcpExit: boolean
   } | null>(null)
   const [deleteWorktreeDialog, setDeleteWorktreeDialog] = useState<{ projectId: string; workspace: string; sessionHandles: string[] } | null>(null)
   const [copyNotice, setCopyNotice] = useState<{ id: number; kind: 'success' | 'error'; message: string } | null>(null)
@@ -815,8 +809,8 @@ export function CodeWorkspace({
   // Latest rename dialog state for focus effects that must not restart while the title is edited.
   const renameDialogStateRef = useRef(renameDialog)
   renameDialogStateRef.current = renameDialog
-  const killDialogRef = useRef<HTMLDivElement>(null)
-  const killCancelButtonRef = useRef<HTMLButtonElement>(null)
+  const archiveExitDialogRef = useRef<HTMLDivElement>(null)
+  const archiveExitCancelButtonRef = useRef<HTMLButtonElement>(null)
   const deleteWorktreeDialogRef = useRef<HTMLDivElement>(null)
   const deleteWorktreeCancelButtonRef = useRef<HTMLButtonElement>(null)
   const projectListRef = useRef<HTMLDivElement>(null)
@@ -827,6 +821,7 @@ export function CodeWorkspace({
   const codexModelsRetryOnReconnectRef = useRef(false)
   const resumeAgentSessionRef = useRef<(provider: string, sessionId: string, providerHomeId?: string) => void>(() => {})
   const activeTerminalIdRef = useRef<string | null>(activeTerminalId)
+  const manuallyUnreadActiveAgentIdRef = useRef<string | null>(null)
   const workspaceFileCursorRequestRef = useRef(0)
   const workspaceFileDiffRequestRef = useRef(0)
   const workspaceFileRevealRequestRef = useRef(0)
@@ -1224,6 +1219,15 @@ export function CodeWorkspace({
   }, [activeTerminalId, activeView, mainPaneMode, recordWorkspaceNavigationAgent])
 
   useEffect(() => {
+    const manuallyUnreadAgentId = manuallyUnreadActiveAgentIdRef.current
+    if (!manuallyUnreadAgentId) return
+    const visibleAgentId = activeView === 'projects' && mainPaneMode === 'terminal'
+      ? activeTerminalId
+      : null
+    if (visibleAgentId !== manuallyUnreadAgentId) manuallyUnreadActiveAgentIdRef.current = null
+  }, [activeTerminalId, activeView, mainPaneMode])
+
+  useEffect(() => {
     // Guard on the file path instead of the record so the deps stay field-level: the open-file
     // record is rebuilt on every draft edit and would replay navigation entries per keystroke.
     if (!openWorkspaceFile?.file.path || mainPaneMode !== 'editor' || activeView !== 'projects') return
@@ -1349,7 +1353,7 @@ export function CodeWorkspace({
     setSettingsPanelOpen(false)
     setMobileShareUrl('')
     setRenameDialog(null)
-    setKillDialog(null)
+    setArchiveExitDialog(null)
     setDeleteWorktreeDialog(null)
     setMainPaneMode('terminal')
     if (isMobileNavigationViewport()) autoCollapseSidebar()
@@ -2090,8 +2094,16 @@ export function CodeWorkspace({
   }, [])
 
   const markAgentReadLatest = useCallback((agentId: string, readCut: TerminalReadCut | null = null) => {
+    if (manuallyUnreadActiveAgentIdRef.current === agentId) return
     markAgentReadIfNeeded(agentId, false, readCut)
   }, [markAgentReadIfNeeded])
+
+  useEffect(() => {
+    if (!activeTerminalId || activeView !== 'projects' || mainPaneMode !== 'terminal') return
+    const activeAgent = activeAgents.find(agent => agent.id === activeTerminalId)
+    if (!activeAgent?.unread || manuallyUnreadActiveAgentIdRef.current === activeTerminalId) return
+    markAgentReadIfNeeded(activeTerminalId, true)
+  }, [activeAgents, activeTerminalId, activeView, mainPaneMode, markAgentReadIfNeeded])
 
   const handleTerminalFollowOutputChange = useCallback((agentId: string, state: TerminalFollowState) => {
     setTerminalFollowStates(current => {
@@ -2867,7 +2879,10 @@ export function CodeWorkspace({
       .catch(() => {})
   }, [removeMainPageAgentSessions])
 
-  const archiveAgentOptimistically = useCallback((agentId: string) => {
+  const archiveAgentOptimistically = useCallback((
+    agentId: string,
+    options: { acknowledgeUnprovenAcpExit?: boolean } = {},
+  ) => {
     setOptimisticallyArchivedAgentIds(previous => {
       if (previous.has(agentId)) return previous
       return new Set(previous).add(agentId)
@@ -2883,7 +2898,12 @@ export function CodeWorkspace({
         return next
       })
     }
-    const result = onUpdateAgentFlags(agentId, { archived: true })
+    const result = onUpdateAgentFlags(agentId, {
+      archived: true,
+      ...(options.acknowledgeUnprovenAcpExit === true
+        ? { acknowledgeUnprovenAcpExit: true }
+        : {}),
+    })
     syncRemovedMainPageSessionsFromAgentUpdate(result)
     void Promise.resolve(result)
       .then(value => {
@@ -3274,6 +3294,12 @@ export function CodeWorkspace({
   }, [expandSidebar, updateSidebarWidth])
 
   const openTerminalFromWorkspace = useCallback((agentId: string, options?: { focusTerminal?: boolean }) => {
+    if (
+      manuallyUnreadActiveAgentIdRef.current
+      && manuallyUnreadActiveAgentIdRef.current !== agentId
+    ) {
+      manuallyUnreadActiveAgentIdRef.current = null
+    }
     closeContextMenu()
     clearSearch()
     setMainPaneMode('terminal')
@@ -4206,30 +4232,19 @@ export function CodeWorkspace({
     if (focusTarget?.kind === 'agent-session') focusAgentSessionRow(focusTarget.provider, agentSessionId(focusTarget))
   }, [closeContextMenu, copy.copiedWorkingDirectory, copy.copyFailed, focusAgentRow, focusAgentSessionRow])
 
-  const killContextMenuAgent = useCallback(() => {
-    if (!contextMenuAgent) return
-    closeContextMenu()
-    setKillDialog({
-      agentId: contextMenuAgent.id,
-      title: agentTitle(contextMenuAgent),
-      acknowledgeUnprovenAcpExit:
-        contextMenuAgent.requiresProcessExitAcknowledgement === true,
-    })
-  }, [closeContextMenu, contextMenuAgent])
-
-  const closeKillDialog = useCallback(() => {
-    const agentId = killDialog?.agentId
-    setKillDialog(null)
+  const closeArchiveExitDialog = useCallback(() => {
+    const agentId = archiveExitDialog?.agentId
+    setArchiveExitDialog(null)
     if (agentId) focusAgentRow(agentId)
-  }, [focusAgentRow, killDialog?.agentId])
+  }, [archiveExitDialog?.agentId, focusAgentRow])
 
-  const submitKillDialog = useCallback(() => {
-    if (!killDialog) return
-    onKill(killDialog.agentId, {
-      acknowledgeUnprovenAcpExit: killDialog.acknowledgeUnprovenAcpExit,
+  const submitArchiveExitDialog = useCallback(() => {
+    if (!archiveExitDialog) return
+    archiveAgentOptimistically(archiveExitDialog.agentId, {
+      acknowledgeUnprovenAcpExit: true,
     })
-    setKillDialog(null)
-  }, [killDialog, onKill])
+    setArchiveExitDialog(null)
+  }, [archiveAgentOptimistically, archiveExitDialog])
 
   const forkContextMenuAgent = useCallback((mode: 'same-worktree' | 'new-worktree') => {
     if (!contextMenuAgent) return
@@ -4247,6 +4262,20 @@ export function CodeWorkspace({
     if (!contextMenuAgent) return
     const agentId = contextMenuAgent.id
     closeContextMenu()
+    if (flags.archived === true && contextMenuAgent.requiresProcessExitAcknowledgement === true) {
+      setArchiveExitDialog({ agentId, title: agentTitle(contextMenuAgent) })
+      return
+    }
+    if (
+      flags.unread === true
+      && activeView === 'projects'
+      && mainPaneMode === 'terminal'
+      && activeTerminalIdRef.current === agentId
+    ) {
+      manuallyUnreadActiveAgentIdRef.current = agentId
+    } else if (flags.unread === false && manuallyUnreadActiveAgentIdRef.current === agentId) {
+      manuallyUnreadActiveAgentIdRef.current = null
+    }
     if (flags.archived === true) {
       const sessionHandle = contextMenuAgent.providerSessionKey || resumedAgentSessionIdFromSource(contextMenuAgent.source)
       if (sessionHandle) removeMainPageAgentSession(sessionHandle)
@@ -4255,11 +4284,15 @@ export function CodeWorkspace({
     if (flags.archived === true) archiveAgentOptimistically(agentId)
     else onUpdateAgentFlags(agentId, flags)
     if (flags.archived !== true) focusAgentRow(agentId)
-  }, [archiveAgentOptimistically, closeContextMenu, contextMenuAgent, focusAgentRow, onUpdateAgentFlags, removeMainPageAgentSession])
+  }, [activeView, archiveAgentOptimistically, closeContextMenu, contextMenuAgent, focusAgentRow, mainPaneMode, onUpdateAgentFlags, removeMainPageAgentSession])
 
   const updateSidebarAgentFlags = useCallback((agent: Agent, flags: Partial<Pick<Agent, 'pinned' | 'archived'>>) => {
     const agentId = agent.id
     closeContextMenu()
+    if (flags.archived === true && agent.requiresProcessExitAcknowledgement === true) {
+      setArchiveExitDialog({ agentId, title: agentTitle(agent) })
+      return
+    }
     if (flags.archived === true) {
       const sessionHandle = agent.providerSessionKey || resumedAgentSessionIdFromSource(agent.source)
       if (sessionHandle) removeMainPageAgentSession(sessionHandle)
@@ -5065,9 +5098,9 @@ export function CodeWorkspace({
         return
       }
 
-      if (event.key === 'Escape' && killDialog) {
+      if (event.key === 'Escape' && archiveExitDialog) {
         event.preventDefault()
-        closeKillDialog()
+        closeArchiveExitDialog()
         return
       }
 
@@ -5077,7 +5110,7 @@ export function CodeWorkspace({
         return
       }
 
-      if (renameDialog || killDialog || deleteWorktreeDialog) {
+      if (renameDialog || archiveExitDialog || deleteWorktreeDialog) {
         if (!isOverlayShortcutTarget(target)) {
           event.preventDefault()
           event.stopPropagation()
@@ -5110,7 +5143,7 @@ export function CodeWorkspace({
         && !event.altKey
         && !event.shiftKey
         && !renameDialog
-        && !killDialog
+        && !archiveExitDialog
         && !deleteWorktreeDialog
         && !isOverlayShortcutTarget(target)
         && !isNativeTextEditingShortcutTarget(target)
@@ -5176,7 +5209,7 @@ export function CodeWorkspace({
 
     window.addEventListener('keydown', handleKeyDown, true)
     return () => window.removeEventListener('keydown', handleKeyDown, true)
-  }, [activeView, approvalMenuOpen, clearSearch, closeActiveComposerMenus, closeContextMenu, closeContextMenuAndRestoreFocus, closeDeleteWorktreeDialog, closeKillDialog, closeRenameDialog, contextMenu, contextMenuRef, deleteWorktreeDialog, dialogOpen, focusComposerTextarea, focusWorkspaceFilesSearch, handleContextMenuNavigation, keyboardShortcutsEnabled, killDialog, modelMenuOpen, navigateWorkspaceHistory, onWorkspaceViewChange, openSearch, plusMenuOpen, projectFileSearchId, projectFileSearchIdForShortcutTarget, renameDialog, reopenLastClosedWorkspaceFile, toggleSidebar])
+  }, [activeView, approvalMenuOpen, archiveExitDialog, clearSearch, closeActiveComposerMenus, closeArchiveExitDialog, closeContextMenu, closeContextMenuAndRestoreFocus, closeDeleteWorktreeDialog, closeRenameDialog, contextMenu, contextMenuRef, deleteWorktreeDialog, dialogOpen, focusComposerTextarea, focusWorkspaceFilesSearch, handleContextMenuNavigation, keyboardShortcutsEnabled, modelMenuOpen, navigateWorkspaceHistory, onWorkspaceViewChange, openSearch, plusMenuOpen, projectFileSearchId, projectFileSearchIdForShortcutTarget, renameDialog, reopenLastClosedWorkspaceFile, toggleSidebar])
 
   useEffect(() => {
     const dialog = renameDialogStateRef.current
@@ -5204,13 +5237,13 @@ export function CodeWorkspace({
   }, [renameDialogIdentity])
 
   useEffect(() => {
-    if (!killDialog) return
+    if (!archiveExitDialog) return
     const focusCancelButton = () => {
-      if (killDialogRef.current?.contains(document.activeElement)) return
-      killCancelButtonRef.current?.focus()
+      if (archiveExitDialogRef.current?.contains(document.activeElement)) return
+      archiveExitCancelButtonRef.current?.focus()
     }
     return scheduleFocusRetries(focusCancelButton, { runNow: false, delays: [180] })
-  }, [killDialog])
+  }, [archiveExitDialog])
 
   useEffect(() => {
     if (!deleteWorktreeDialog) return
@@ -5555,7 +5588,7 @@ export function CodeWorkspace({
           settingsPanelOpen
           || Boolean(mobileShareUrl)
           || Boolean(renameDialog)
-          || Boolean(killDialog)
+          || Boolean(archiveExitDialog)
           || Boolean(deleteWorktreeDialog)
           || dialogOpen
         }
@@ -6007,14 +6040,14 @@ export function CodeWorkspace({
         projectMenu={projectMenu}
         agentSessionMenu={agentSessionMenu}
         renameDialog={renameDialog}
-        killDialog={killDialog}
+        archiveExitDialog={archiveExitDialog}
         deleteWorktreeDialog={deleteWorktreeDialog}
         copyNotice={copyNotice}
         contextMenuRef={contextMenuRef}
         renameDialogRef={renameDialogRef}
         renameInputRef={renameInputRef}
-        killDialogRef={killDialogRef}
-        killCancelButtonRef={killCancelButtonRef}
+        archiveExitDialogRef={archiveExitDialogRef}
+        archiveExitCancelButtonRef={archiveExitCancelButtonRef}
         deleteWorktreeDialogRef={deleteWorktreeDialogRef}
         deleteWorktreeCancelButtonRef={deleteWorktreeCancelButtonRef}
         onContextMenuKeyDown={handleContextMenuKeyDown}
@@ -6030,6 +6063,7 @@ export function CodeWorkspace({
         onCreateAgentBrowser={createContextMenuAgentBrowser}
         onCreateAgentDesktop={createContextMenuAgentDesktop}
         onUpdateAgentFlags={updateContextMenuAgentFlags}
+        onArchiveAgent={() => updateContextMenuAgentFlags({ archived: true })}
         onRenameAgent={renameContextMenuAgent}
         onRenameProject={renameContextMenuProject}
         onCopyAgentWorkingDirectory={() => {
@@ -6037,7 +6071,6 @@ export function CodeWorkspace({
           copyContextMenuValue(projectWorkspaceForAgent(contextMenuAgent), { kind: 'agent', id: contextMenuAgent.id })
         }}
         onForkAgent={forkContextMenuAgent}
-        onKillAgent={killContextMenuAgent}
         onOpenSession={(provider, sessionId) => {
           closeContextMenu()
           resumeAgentSession(provider, sessionId, contextMenuAgentSession?.providerHomeId)
@@ -6066,8 +6099,8 @@ export function CodeWorkspace({
           ? { ...current, title }
           : current)}
         onSubmitRenameDialog={submitRenameDialog}
-        onCloseKillDialog={closeKillDialog}
-        onSubmitKillDialog={submitKillDialog}
+        onCloseArchiveExitDialog={closeArchiveExitDialog}
+        onSubmitArchiveExitDialog={submitArchiveExitDialog}
         onCloseDeleteWorktreeDialog={closeDeleteWorktreeDialog}
         onSubmitDeleteWorktreeDialog={submitDeleteWorktreeDialog}
         copy={copy}

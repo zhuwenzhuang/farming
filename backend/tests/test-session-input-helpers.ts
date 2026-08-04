@@ -878,13 +878,12 @@ function run() {
     'server should serialize duplicate resume requests for the same agent session'
   );
   assert(
-    serverSource.includes('async function killAgentFromMessage') &&
-      serverSource.includes('const requested = await agentManager.requestKillAgent(agentId, {') &&
-      serverSource.includes("type: 'agent-delete-accepted'") &&
-      serverSource.includes('void requested.completion.then((completed') &&
-      serverSource.includes("case 'kill-agent':") &&
-      serverSource.includes('void killAgentFromMessage(ws, data.agentId, {'),
-    'WebSocket Delete should acknowledge durable admission and broadcast again after asynchronous cleanup'
+    serverSource.includes('async function archiveAgentFromMessage') &&
+      serverSource.includes('const result = await agentManager.archiveAgent(agentId)') &&
+      serverSource.includes("case 'archive-agent':") &&
+      serverSource.includes('void archiveAgentFromMessage(ws, data.agentId)') &&
+      !serverSource.includes("case 'kill-agent':"),
+    'WebSocket Agent termination should expose only the shared Archive lifecycle'
   );
   assert(
     serverSource.includes('async function requireAgentRecoveryForHttp(') &&
@@ -908,8 +907,8 @@ function run() {
   const appSource = fs.readFileSync(path.join(__dirname, '../../src/App.tsx'), 'utf8');
   assert(
     appSource.includes('destroyTerminalSession(agentId)') &&
-      appSource.includes('Failed to destroy killed terminal session'),
-    'killing an agent should immediately destroy its pooled terminal session'
+      appSource.includes('Failed to destroy archived terminal session'),
+    'archiving an agent should immediately destroy its pooled terminal session'
   );
   assert(
     appSource.includes('if (pendingStartRef.current) return') &&

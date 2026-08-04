@@ -107,7 +107,7 @@ Pixel，因此重启与分页后可以恢复上下文，同时避免大量 Front
 
 有业务意义的 Session 状态包括 Connecting、Idle、Working、Waiting for User、Interrupting、
 Recoverable Error 与 Terminal Failure。Idle 是普通 Live State；Session 会一直保持 Live，
-直到用户停止、归档、删除或切换，或精确证明 Runtime 已失败。
+直到用户归档、系统替换或清理它，或精确证明 Runtime 已失败。
 
 Adapter 或 Host 异常退出必须进入明确恢复或失败。恢复需要证明旧进程 Ownership，恢复同一
 Provider Session 与私有 Scope，重新加载权威 History，并保留显式 Config Override。断线时

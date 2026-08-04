@@ -23,7 +23,7 @@ CRT 设置中的 **Content Text Size** 会调整 Chat、输入框、Markdown 与
 | `N` | 启动 Agent |
 | `F` / `H` | Search / History |
 | `Ctrl+Escape` | 关闭当前 Chat 或 Terminal |
-| `Ctrl+K` | 停止当前 Agent |
+| `Ctrl+K` | 归档当前 Agent（CRT 界面仍显示 `KILL`） |
 | `Alt+M` | 在支持的 Agent 上切换 Chat 与 Terminal |
 
 CRT 当前只支持桌面端。

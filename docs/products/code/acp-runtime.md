@@ -138,8 +138,8 @@ without keeping every transcript in frontend memory.
 
 The meaningful Session states are connecting, idle, working, waiting for user
 input, interrupting, recoverable error, and terminal failure. Idle is an
-ordinary live state. A Session remains live until the user stops, archives,
-deletes, or switches it, or until an exact runtime failure is proven.
+ordinary live state. A Session remains live until the user archives it, the
+system replaces or cleans it up, or an exact runtime failure is proven.
 
 Unexpected adapter or Host loss ends in explicit recovery or failure. Recovery
 must prove old-process ownership, restore the same Provider Session and private

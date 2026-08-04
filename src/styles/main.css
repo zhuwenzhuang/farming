@@ -10945,6 +10945,10 @@ body.code-mode .code-file-editor-fallback-textarea {
   display: block;
 }
 
+.code-context-menu-icon .code-context-menu-unread-icon {
+  color: #0969da;
+}
+
 .code-context-menu-icon.trailing {
   margin-left: auto;
 }

@@ -84,13 +84,13 @@ async function runTests() {
       detail: pythonAgent ? 'python3 running and not Main' : 'python3 not found'
     });
     
-    // Test 5: Kill Main Agent
-    console.log('5. Testing kill Main Agent...');
-    ws.send(JSON.stringify({ type: 'kill-agent', agentId: bashAgent.id }));
+    // Test 5: Archive Main Agent
+    console.log('5. Testing archive Main Agent...');
+    ws.send(JSON.stringify({ type: 'archive-agent', agentId: bashAgent.id }));
     await delay(1000);
     const deadBash = state.agents.find(a => a.id === bashAgent.id);
     tests.push({
-      name: 'Main Agent killed',
+      name: 'Main Agent archived',
       ok: !deadBash,
       detail: deadBash ? 'bash still exists' : 'bash removed'
     });

@@ -1,5 +1,5 @@
-export const PROTOCOL_VERSION = 6
-export const MIN_PROTOCOL_VERSION = 6
+export const PROTOCOL_VERSION = 7
+export const MIN_PROTOCOL_VERSION = 7
 
 type ObjectMessage = Record<string, unknown>
 
@@ -61,7 +61,7 @@ type AgentScopedClientMessageType =
   | 'interrupt-agent'
   | 'clear-terminal'
   | 'watch-workspace-files'
-  | 'kill-agent'
+  | 'archive-agent'
 
 export interface AgentScopedClientMessage<Type extends AgentScopedClientMessageType> extends ExtensibleMessage {
   type: Type
@@ -96,7 +96,7 @@ export type ClientMessage =
   | AgentScopedClientMessage<'interrupt-agent'>
   | AgentScopedClientMessage<'clear-terminal'>
   | AgentScopedClientMessage<'watch-workspace-files'>
-  | AgentScopedClientMessage<'kill-agent'>
+  | AgentScopedClientMessage<'archive-agent'>
   | UnwatchWorkspaceFilesMessage
   | RestartMainAgentMessage
   | StateResyncMessage
@@ -316,7 +316,7 @@ const CLIENT_MESSAGE_TYPES: ReadonlySet<ClientMessage['type']> = new Set([
   'clear-terminal',
   'watch-workspace-files',
   'unwatch-workspace-files',
-  'kill-agent',
+  'archive-agent',
   'restart-main-agent',
   'state-resync',
 ])

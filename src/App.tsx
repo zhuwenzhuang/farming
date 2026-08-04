@@ -59,6 +59,7 @@ type AgentFlagPatch = Partial<{
   readOutputEpoch: string
   readOutputSeq: number
   agentRuntimeMode: 'terminal' | 'chat' | 'acp'
+  acknowledgeUnprovenAcpExit: boolean
 }>
 type StartAgentExtras = {
   projectWorkspace?: string
@@ -777,17 +778,6 @@ export function App() {
     setAppNotice({ id: Date.now(), kind: 'error', message })
   }, [])
 
-  const handleKill = useCallback((
-    agentId: string,
-    options: { acknowledgeUnprovenAcpExit?: boolean } = {},
-  ) => {
-    destroyTerminalSession(agentId).catch(error => {
-      console.error('Failed to destroy killed terminal session:', error)
-    })
-    ws.killAgent(agentId, options)
-    closeTerminal(agentId)
-  }, [ws, closeTerminal])
-
   const handleInterruptAgent = useCallback((agentId: string) => {
     ws.interruptAgent(agentId)
   }, [ws])
@@ -945,6 +935,9 @@ export function App() {
       // Archive removes the sidebar row optimistically. Close the matching
       // workspace at the same time so selection moves to its stable neighbor
       // instead of waiting for the HTTP response or a WebSocket update.
+      destroyTerminalSession(agentId).catch(error => {
+        console.error('Failed to destroy archived terminal session:', error)
+      })
       closeTerminal(agentId, { focusNextTerminal: false })
     }
     if (switchingAgent) {
@@ -1359,7 +1352,6 @@ export function App() {
         onDeleteForkWorktreeProject={handleDeleteForkWorktreeProject}
         onRestartMainAgent={handleRestartMainAgent}
         onWorkspaceViewChange={setActiveWorkspaceView}
-        onKill={handleKill}
         onInterruptAgent={handleInterruptAgent}
         sendComposerInput={ws.sendComposerInput}
         onSessionOutput={ws.onSessionOutput}

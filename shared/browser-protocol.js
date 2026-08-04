@@ -6,8 +6,8 @@ exports.sanitizeAgentUpdatePatch = sanitizeAgentUpdatePatch;
 exports.validateClientMessage = validateClientMessage;
 exports.validateServerMessage = validateServerMessage;
 exports.protocolCompatible = protocolCompatible;
-exports.PROTOCOL_VERSION = 6;
-exports.MIN_PROTOCOL_VERSION = 6;
+exports.PROTOCOL_VERSION = 7;
+exports.MIN_PROTOCOL_VERSION = 7;
 const CLIENT_MESSAGE_TYPES = new Set([
     'protocol-hello',
     'business-health-probe',
@@ -21,7 +21,7 @@ const CLIENT_MESSAGE_TYPES = new Set([
     'clear-terminal',
     'watch-workspace-files',
     'unwatch-workspace-files',
-    'kill-agent',
+    'archive-agent',
     'restart-main-agent',
     'state-resync',
 ]);

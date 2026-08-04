@@ -8593,7 +8593,7 @@ function killCurrentAgent() {
 
   const sessionClient = getSessionClient();
   if (sessionClient) {
-    sessionClient.killAgent(killedAgentId);
+    sessionClient.archiveAgent(killedAgentId);
   }
 
   closeSession();

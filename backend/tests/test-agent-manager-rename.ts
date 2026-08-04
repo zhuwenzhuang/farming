@@ -432,7 +432,7 @@ async function run() {
     manager.mainAgentId = mainId;
     assert.strictEqual(
       manager.updateAgentFlags(mainId, { archived: true }).error,
-      'Main Agent cannot be archived'
+      'Use archiveAgent to archive live agents'
     );
     assert.strictEqual(manager.updateAgentFlags('missing-agent', { pinned: true }).error, 'Agent not found');
 

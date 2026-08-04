@@ -130,7 +130,7 @@ const terminalPreviewSnapshots = new Map();
 const crtBrandPulseTimers = new Map();
 const SESSION_LINK_LIMIT = 6;
 // Replaced from shared/browser-protocol.ts by build-classic-browser-runtime.ts.
-const CRT_PROTOCOL_VERSION = 6;
+const CRT_PROTOCOL_VERSION = 7;
 const CRT_PREVIEW_RENDER_INTERVAL_MS = 1000;
 const CRT_STRUCTURED_PREVIEW_REFRESH_MS = 240;
 const CRT_STRUCTURED_PREVIEW_MAX_CONCURRENT_READS = 2;
@@ -8002,7 +8002,7 @@ function killCurrentAgent() {
     crtNavigationKey = fallbackAgentId ? `agent:${fallbackAgentId}` : '';
     const sessionClient = getSessionClient();
     if (sessionClient) {
-        sessionClient.killAgent(killedAgentId);
+        sessionClient.archiveAgent(killedAgentId);
     }
     closeSession();
 }

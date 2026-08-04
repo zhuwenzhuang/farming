@@ -27,7 +27,7 @@ function run() {
   assert(sessionBridge.includes('streamScope') && sessionBridge.includes('previewScope'), 'session bridge should support scoped CRT terminal subscriptions');
   const codeFocusAgent = useWebSocket.slice(
     useWebSocket.indexOf('const focusAgent = useCallback'),
-    useWebSocket.indexOf('const killAgent = useCallback')
+    useWebSocket.indexOf('const interruptAgent = useCallback')
   );
   assert(
     codeFocusAgent.includes("sendMessage({ type: 'focus-agent', agentId") &&
@@ -42,6 +42,12 @@ function run() {
     'Farming Code should not expose the legacy unfenced resize callback'
   );
   assert(sessionBridge.includes('resize-agent'), 'session bridge should handle resize requests');
+  assert(
+    sessionBridge.includes('archiveAgent(agentId)') &&
+      sessionBridge.includes("type: 'archive-agent'") &&
+      !sessionBridge.includes("type: 'kill-agent'"),
+    'CRT KILL should use the shared Archive lifecycle transport',
+  );
   assert(
     server.includes('function previewForClient(') &&
       server.includes('client.focusedAgentId !== preview.agentId') &&

@@ -209,7 +209,7 @@ interface CrtProtocolComposerInputClientMessage extends CrtProtocolRecord {
 }
 
 interface CrtProtocolAgentCommandClientMessage extends CrtProtocolRecord {
-  type: 'interrupt-agent' | 'clear-terminal' | 'watch-workspace-files' | 'kill-agent';
+  type: 'interrupt-agent' | 'clear-terminal' | 'watch-workspace-files' | 'archive-agent';
   agentId: string;
 }
 

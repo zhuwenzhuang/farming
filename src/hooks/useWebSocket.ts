@@ -333,19 +333,6 @@ export function useWebSocket() {
     return sendMessage({ type: 'focus-agent', agentId })
   }, [sendMessage])
 
-  const killAgent = useCallback((
-    agentId: string,
-    options: { acknowledgeUnprovenAcpExit?: boolean } = {},
-  ) => {
-    return sendMessage({
-      type: 'kill-agent',
-      agentId,
-      ...(options.acknowledgeUnprovenAcpExit === true
-        ? { acknowledgeUnprovenAcpExit: true }
-        : {}),
-    })
-  }, [sendMessage])
-
   const interruptAgent = useCallback((agentId: string) => {
     return sendMessage({ type: 'interrupt-agent', agentId })
   }, [sendMessage])
@@ -893,7 +880,6 @@ export function useWebSocket() {
     startAgent,
     sendComposerInput,
     focusAgent,
-    killAgent,
     interruptAgent,
     restartMainAgent,
     onSessionOutput,

@@ -34,7 +34,6 @@ export interface AgentActionCapabilities {
   copyWorkingDirectory: boolean
   forkSameWorktree: boolean
   forkNewWorktree: boolean
-  kill: boolean
 }
 
 export interface AgentCapabilities {
@@ -288,21 +287,14 @@ export function capabilitiesForAgent(agent: Agent | null | undefined): AgentCapa
     actions: {
       pin: Boolean(agent),
       rename: Boolean(agent),
-      archive: Boolean(agent && !agent.isMain),
-      markUnread: Boolean(agent),
+      archive: Boolean(agent),
+      markUnread: Boolean(agent && !agent.unread),
       copyWorkingDirectory: Boolean(agent),
       forkSameWorktree: canForkRuntime,
       forkNewWorktree: canForkRuntime
         && runtimeKind !== 'acp'
         && canForkNewWorktree
         && agent?.canForkNewWorktree === true,
-      kill: Boolean(
-        agent
-        && (
-          agent.isMain
-          || agent.requiresProcessExitAcknowledgement === true
-        )
-      ),
     },
   }
 }
@@ -369,7 +361,6 @@ export function agentMenuShape(agent: Agent | undefined) {
     capabilities.actions.copyWorkingDirectory,
     capabilities.actions.forkSameWorktree,
     capabilities.actions.forkNewWorktree,
-    capabilities.actions.kill,
   ].filter(Boolean).length
 
   return {

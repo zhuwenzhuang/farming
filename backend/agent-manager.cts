@@ -7568,9 +7568,6 @@ class AgentManager extends EventEmitter {
       return { error: 'Agent not found' };
     }
     if (flags.archived === true) {
-      if (agent.id === this.mainAgentId) {
-        return { error: 'Main Agent cannot be archived' };
-      }
       return { error: 'Use archiveAgent to archive live agents' };
     }
 
@@ -9815,10 +9812,6 @@ class AgentManager extends EventEmitter {
     if (!agent) {
       return Promise.resolve({ error: 'Agent not found' });
     }
-    if (agent.id === this.mainAgentId) {
-      return Promise.resolve({ error: 'Main Agent cannot be archived' });
-    }
-
     return this.runAgentLifecycleOperation(
       agentId,
       'archive',

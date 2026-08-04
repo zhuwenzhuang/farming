@@ -3188,6 +3188,10 @@ body.code-mode[data-appearance='dark'] .code-context-menu-icon {
   color: var(--code-dark-text-muted);
 }
 
+body.code-mode[data-appearance='dark'] .code-context-menu-icon .code-context-menu-unread-icon {
+  color: #58a6ff;
+}
+
 body.code-mode[data-appearance='dark'] .code-agent-launch-submenu-arrow {
   color: var(--code-dark-text-muted);
 }

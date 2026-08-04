@@ -28,7 +28,7 @@ keeps this preference separate from Farming Code.
 | `N` | Start an Agent |
 | `F` / `H` | Search / History |
 | `Ctrl+Escape` | Close the current Chat or Terminal |
-| `Ctrl+K` | Stop the current Agent |
+| `Ctrl+K` | Archive the current Agent (`KILL` in the CRT interface) |
 | `Alt+M` | Switch a supported Agent between Chat and Terminal |
 
 CRT is currently desktop-only.

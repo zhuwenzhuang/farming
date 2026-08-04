@@ -45,7 +45,7 @@ interface FarmingSessionClient {
   interruptAgent(agentId: string): boolean;
   resizeAgent(agentId: string, cols: number, rows: number): boolean;
   clearTerminal(agentId: string): boolean;
-  killAgent(agentId: string): boolean;
+  archiveAgent(agentId: string): boolean;
   getSessionView(agentId: string, options?: SessionViewOptions): Promise<unknown>;
 }
 
@@ -130,8 +130,8 @@ interface Window {
         return send({ type: 'clear-terminal', agentId });
       },
 
-      killAgent(agentId) {
-        return send({ type: 'kill-agent', agentId });
+      archiveAgent(agentId) {
+        return send({ type: 'archive-agent', agentId });
       },
 
       async getSessionView(agentId, options = {}) {

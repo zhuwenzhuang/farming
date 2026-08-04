@@ -552,7 +552,7 @@ function run() {
       workspaceSource.includes('Archive') &&
       !workspaceSource.includes('disabled={contextMenuAgent.isMain}') &&
       workspaceSource.includes('Mark as unread') &&
-      workspaceSource.includes('Mark as read') &&
+      !workspaceSource.includes('Mark as read') &&
       workspaceSource.includes('code-history-agents') &&
       workspaceSource.includes('code-archived-run-card') &&
       workspaceSource.includes('code-archived-run-continue') &&
@@ -569,14 +569,14 @@ function run() {
       workspaceSource.includes('Rename project') &&
       workspaceSource.includes('data-testid="code-rename-dialog"') &&
       workspaceSource.includes('data-testid="code-rename-input"') &&
-      workspaceSource.includes('data-testid="code-kill-dialog"') &&
+      workspaceSource.includes('data-testid="code-archive-exit-dialog"') &&
       workspaceSource.includes('data-testid="code-delete-worktree-dialog"') &&
       workspaceSource.includes('trapFocusInContainer') &&
       workspaceSource.includes('renameDialogRef') &&
-      workspaceSource.includes('killDialogRef') &&
+      workspaceSource.includes('archiveExitDialogRef') &&
       workspaceSource.includes('deleteWorktreeDialogRef') &&
       workspaceSource.includes('onKeyDown={event => trapFocusInContainer(event, renameDialogRef.current)}') &&
-      workspaceSource.includes('onKeyDown={event => trapFocusInContainer(event, killDialogRef.current)}') &&
+      workspaceSource.includes('onKeyDown={event => trapFocusInContainer(event, archiveExitDialogRef.current)}') &&
       workspaceSource.includes('onKeyDown={event => trapFocusInContainer(event, deleteWorktreeDialogRef.current)}') &&
       workspaceSource.includes('const target = renameDialog') &&
       workspaceSource.includes("if (target.kind === 'agent') focusAgentRow(target.agentId)") &&
@@ -586,11 +586,11 @@ function run() {
       workspaceSource.includes("if (dialog.kind === 'project')") &&
       workspaceSource.includes('input.setSelectionRange(cursorPosition, cursorPosition)') &&
       workspaceSource.includes('focusAgentRow(renameDialog.agentId)') &&
-      workspaceSource.includes('const agentId = killDialog?.agentId') &&
+      workspaceSource.includes('const agentId = archiveExitDialog?.agentId') &&
       workspaceSource.includes('if (agentId) focusAgentRow(agentId)') &&
-      workspaceSource.includes('killCancelButtonRef') &&
+      workspaceSource.includes('archiveExitCancelButtonRef') &&
       workspaceSource.includes('deleteWorktreeCancelButtonRef') &&
-      workspaceSource.includes('if (renameDialog || killDialog || deleteWorktreeDialog)') &&
+      workspaceSource.includes('if (renameDialog || archiveExitDialog || deleteWorktreeDialog)') &&
       !workspaceSource.includes('window.prompt') &&
       !workspaceSource.includes('window.confirm') &&
       workspaceSource.includes('Copy working directory') &&
@@ -622,7 +622,13 @@ function run() {
       workspaceSource.includes('compactContextMenuEntries') &&
       workspaceSource.includes('function ContextMenuEntries') &&
 	      workspaceSource.includes('type ContextMenuEntry') &&
-	      workspaceSource.includes("export type ContextMenuIconKind = 'pin' | 'unpin' | 'folder' | 'worktree' | 'rename' | 'check' | 'archive' | 'trash'") &&
+	      workspaceSource.includes("'unread' | 'copy' | 'fork' | 'fork-plus'") &&
+	      workspaceSource.includes("icon: contextMenuAgent?.pinned ? 'unpin' : 'pin'") &&
+	      workspaceSource.includes("icon: 'unread'") &&
+	      workspaceSource.includes("icon: 'copy'") &&
+	      workspaceSource.includes("icon: 'fork'") &&
+	      workspaceSource.includes("icon: 'fork-plus'") &&
+	      workspaceSource.includes('className="code-context-menu-unread-icon"') &&
 	      workspaceSource.includes('function ContextMenuIcon') &&
 	      workspaceSource.includes('agent?.canForkNewWorktree === true') &&
 	      workspaceSource.includes('projectCanArchive(contextMenuProject)') &&
@@ -639,7 +645,7 @@ function run() {
       !workspaceSource.includes('Close Terminal') &&
       !workspaceSource.includes("restoreProjectListFocusRef.current = 'active'\n    onCloseTerminal(contextMenuAgent.id)") &&
       !workspaceSource.includes('disabled={!openTerminalIds.includes(contextMenuAgent.id)}') &&
-      workspaceSource.includes('Kill Agent') &&
+      !workspaceSource.includes('Kill Agent') &&
       workspaceSource.includes('ProjectFilesSection') &&
       workspaceSource.includes('FileEditorPane') &&
       workspaceSource.includes("type MainPaneMode = 'terminal' | 'editor'") &&
@@ -863,6 +869,11 @@ function run() {
       workspaceSource.includes('const turnActive = terminalState.turnActive') &&
 	      workspaceSource.includes('statusIndicatorVisible: shouldShowAgentStatusIndicator(agent.status, turnActive)') &&
 	      workspaceSource.includes('const markAgentReadIfNeeded = useCallback') &&
+	      workspaceSource.includes('const manuallyUnreadActiveAgentIdRef = useRef<string | null>(null)') &&
+	      workspaceSource.includes('if (manuallyUnreadActiveAgentIdRef.current === agentId) return') &&
+	      workspaceSource.includes("const visibleAgentId = activeView === 'projects' && mainPaneMode === 'terminal'") &&
+	      workspaceSource.includes('if (visibleAgentId !== manuallyUnreadAgentId) manuallyUnreadActiveAgentIdRef.current = null') &&
+	      workspaceSource.includes('manuallyUnreadActiveAgentIdRef.current = agentId') &&
 	      workspaceSource.includes('markAgentReadIfNeeded(agentId, false, readCut)') &&
 	      workspaceSource.includes('const readCutAdvanced = Boolean(readCut && (') &&
 	      workspaceSource.includes('readOutputEpoch: readCut.runtimeEpoch') &&

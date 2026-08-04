@@ -66,8 +66,8 @@
             clearTerminal(agentId) {
                 return send({ type: 'clear-terminal', agentId });
             },
-            killAgent(agentId) {
-                return send({ type: 'kill-agent', agentId });
+            archiveAgent(agentId) {
+                return send({ type: 'archive-agent', agentId });
             },
             async getSessionView(agentId, options = {}) {
                 const path = global.FarmingRuntimePaths

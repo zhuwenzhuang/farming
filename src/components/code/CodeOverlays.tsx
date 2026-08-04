@@ -24,7 +24,9 @@ import type { AgentSessionHistoryItem, ProjectGroup } from './types'
 import {
   BrowserGlyph,
   ChatBubblesGlyph,
+  CopyGlyph,
   DesktopGlyph,
+  ForkGlyph,
   TerminalSquareGlyph,
 } from '@/components/IconGlyphs'
 
@@ -36,10 +38,9 @@ type RenameDialogState =
   | { kind: 'agent'; agentId: string; title: string }
   | { kind: 'project'; projectId: string; workspace: string; title: string }
 
-interface KillDialogState {
+interface ArchiveExitDialogState {
   agentId: string
   title: string
-  acknowledgeUnprovenAcpExit: boolean
 }
 
 interface DeleteWorktreeDialogState {
@@ -60,14 +61,14 @@ interface CodeOverlaysProps {
   projectMenu: ProjectMenuState
   agentSessionMenu: AgentSessionMenuState
   renameDialog: RenameDialogState | null
-  killDialog: KillDialogState | null
+  archiveExitDialog: ArchiveExitDialogState | null
   deleteWorktreeDialog: DeleteWorktreeDialogState | null
   copyNotice: CopyNoticeState | null
   contextMenuRef: RefObject<HTMLDivElement | null>
   renameDialogRef: RefObject<HTMLFormElement | null>
   renameInputRef: RefObject<HTMLInputElement | null>
-  killDialogRef: RefObject<HTMLDivElement | null>
-  killCancelButtonRef: RefObject<HTMLButtonElement | null>
+  archiveExitDialogRef: RefObject<HTMLDivElement | null>
+  archiveExitCancelButtonRef: RefObject<HTMLButtonElement | null>
   deleteWorktreeDialogRef: RefObject<HTMLDivElement | null>
   deleteWorktreeCancelButtonRef: RefObject<HTMLButtonElement | null>
   onContextMenuKeyDown: (event: ReactKeyboardEvent<HTMLDivElement>) => void
@@ -78,11 +79,11 @@ interface CodeOverlaysProps {
   onCreateAgentBrowser: () => void
   onCreateAgentDesktop: () => void
   onUpdateAgentFlags: (flags: Partial<Pick<Agent, 'pinned' | 'unread' | 'archived'>>) => void
+  onArchiveAgent: () => void
   onRenameAgent: () => void
   onRenameProject: () => void
   onCopyAgentWorkingDirectory: () => void
   onForkAgent: (mode: 'same-worktree' | 'new-worktree') => void
-  onKillAgent: () => void
   onOpenSession: (provider: string, sessionId: string) => void
   onToggleSessionPinned: () => void
   onArchiveSession: () => void
@@ -97,8 +98,8 @@ interface CodeOverlaysProps {
   onCloseRenameDialog: () => void
   onRenameDialogTitleChange: (title: string) => void
   onSubmitRenameDialog: () => void
-  onCloseKillDialog: () => void
-  onSubmitKillDialog: () => void
+  onCloseArchiveExitDialog: () => void
+  onSubmitArchiveExitDialog: () => void
   onCloseDeleteWorktreeDialog: () => void
   onSubmitDeleteWorktreeDialog: () => void
   copy: CodeCopy
@@ -112,14 +113,14 @@ export function CodeOverlays({
   projectMenu,
   agentSessionMenu,
   renameDialog,
-  killDialog,
+  archiveExitDialog,
   deleteWorktreeDialog,
   copyNotice,
   contextMenuRef,
   renameDialogRef,
   renameInputRef,
-  killDialogRef,
-  killCancelButtonRef,
+  archiveExitDialogRef,
+  archiveExitCancelButtonRef,
   deleteWorktreeDialogRef,
   deleteWorktreeCancelButtonRef,
   onContextMenuKeyDown,
@@ -130,11 +131,11 @@ export function CodeOverlays({
   onCreateAgentBrowser,
   onCreateAgentDesktop,
   onUpdateAgentFlags,
+  onArchiveAgent,
   onRenameAgent,
   onRenameProject,
   onCopyAgentWorkingDirectory,
   onForkAgent,
-  onKillAgent,
   onOpenSession,
   onToggleSessionPinned,
   onArchiveSession,
@@ -149,8 +150,8 @@ export function CodeOverlays({
   onCloseRenameDialog,
   onRenameDialogTitleChange,
   onSubmitRenameDialog,
-  onCloseKillDialog,
-  onSubmitKillDialog,
+  onCloseArchiveExitDialog,
+  onSubmitArchiveExitDialog,
   onCloseDeleteWorktreeDialog,
   onSubmitDeleteWorktreeDialog,
   copy,
@@ -165,7 +166,7 @@ export function CodeOverlays({
       type: 'item',
       id: 'switch-agent-runtime',
       label: agentChatMode ? copy.switchToTerminal : copy.switchToChat,
-      trailingIcon: agentChatMode ? 'terminal' : 'chat',
+      icon: agentChatMode ? 'terminal' : 'chat',
       hidden: !canSwitchAgentRuntime(contextMenuAgent),
       disabled: runtimeSwitchDisabled || isAgentTurnActive(contextMenuAgent),
       onSelect: () => {
@@ -178,7 +179,7 @@ export function CodeOverlays({
       type: 'item',
       id: 'create-agent-browser',
       label: copy.createBrowser,
-      trailingIcon: 'browser',
+      icon: 'browser',
       hidden: !canCreateAgentBrowser,
       onSelect: onCreateAgentBrowser,
     },
@@ -186,7 +187,7 @@ export function CodeOverlays({
       type: 'item',
       id: 'create-agent-desktop',
       label: copy.createIsolatedDesktop,
-      trailingIcon: 'desktop',
+      icon: 'desktop',
       hidden: !canCreateAgentDesktop,
       onSelect: onCreateAgentDesktop,
     },
@@ -195,6 +196,7 @@ export function CodeOverlays({
       type: 'item',
       id: 'pin-agent',
       label: contextMenuAgent?.pinned ? copy.unpinAgent : copy.pinAgent,
+      icon: contextMenuAgent?.pinned ? 'unpin' : 'pin',
       hidden: !agentCapabilities.actions.pin,
       onSelect: () => onUpdateAgentFlags({ pinned: !contextMenuAgent?.pinned }),
     },
@@ -202,6 +204,7 @@ export function CodeOverlays({
       type: 'item',
       id: 'rename-agent',
       label: copy.renameAgent,
+      icon: 'rename',
       hidden: !agentCapabilities.actions.rename,
       onSelect: onRenameAgent,
     },
@@ -209,21 +212,24 @@ export function CodeOverlays({
       type: 'item',
       id: 'archive-agent',
       label: copy.archiveAgent,
+      icon: 'archive',
       hidden: !agentCapabilities.actions.archive,
-      onSelect: () => onUpdateAgentFlags({ archived: true }),
+      onSelect: onArchiveAgent,
     },
     {
       type: 'item',
       id: 'toggle-agent-unread',
-      label: contextMenuAgent?.unread ? copy.markAsRead : copy.markAsUnread,
+      label: copy.markAsUnread,
+      icon: 'unread',
       hidden: !agentCapabilities.actions.markUnread,
-      onSelect: () => onUpdateAgentFlags({ unread: !contextMenuAgent?.unread }),
+      onSelect: () => onUpdateAgentFlags({ unread: true }),
     },
     { type: 'separator', id: 'agent-copy-separator' },
     {
       type: 'item',
       id: 'copy-agent-working-directory',
       label: copy.copyWorkingDirectory,
+      icon: 'copy',
       hidden: !agentCapabilities.actions.copyWorkingDirectory,
       onSelect: onCopyAgentWorkingDirectory,
     },
@@ -232,6 +238,7 @@ export function CodeOverlays({
       type: 'item',
       id: 'fork-same-worktree',
       label: copy.forkSameWorktree,
+      icon: 'fork',
       hidden: !agentCapabilities.actions.forkSameWorktree,
       onSelect: () => onForkAgent('same-worktree'),
     },
@@ -239,16 +246,9 @@ export function CodeOverlays({
       type: 'item',
       id: 'fork-new-worktree',
       label: copy.forkNewWorktree,
+      icon: 'fork-plus',
       hidden: !agentCapabilities.actions.forkNewWorktree,
       onSelect: () => onForkAgent('new-worktree'),
-    },
-    {
-      type: 'item',
-      id: 'kill-agent',
-      label: copy.killAgent,
-      danger: true,
-      hidden: !agentCapabilities.actions.kill,
-      onSelect: onKillAgent,
     },
   ])
   const sessionMenuEntries = compactContextMenuEntries([
@@ -451,31 +451,25 @@ export function CodeOverlays({
           </form>
         </div>
       )}
-      {killDialog && (
-        <div className="code-rename-backdrop" data-testid="code-kill-backdrop" onMouseDown={onCloseKillDialog}>
+      {archiveExitDialog && (
+        <div className="code-rename-backdrop" data-testid="code-archive-exit-backdrop" onMouseDown={onCloseArchiveExitDialog}>
           <div
             className="code-rename-dialog code-kill-dialog"
-            data-testid="code-kill-dialog"
+            data-testid="code-archive-exit-dialog"
             role="dialog"
             aria-modal="true"
-            aria-labelledby="code-kill-title"
-            ref={killDialogRef}
+            aria-labelledby="code-archive-exit-title"
+            ref={archiveExitDialogRef}
             onMouseDown={event => event.stopPropagation()}
-            onKeyDownCapture={event => trapFocusInContainer(event, killDialogRef.current)}
-            onKeyDown={event => trapFocusInContainer(event, killDialogRef.current)}
+            onKeyDownCapture={event => trapFocusInContainer(event, archiveExitDialogRef.current)}
+            onKeyDown={event => trapFocusInContainer(event, archiveExitDialogRef.current)}
           >
-            <h2 id="code-kill-title">{copy.killAgentQuestion}</h2>
-            <p>
-              {killDialog.acknowledgeUnprovenAcpExit
-                ? copy.acknowledgeUnprovenAcpExitDescription(killDialog.title)
-                : copy.stopAgentDescription(killDialog.title)}
-            </p>
+            <h2 id="code-archive-exit-title">{copy.archiveAgentQuestion}</h2>
+            <p>{copy.acknowledgeUnprovenAcpExitDescription(archiveExitDialog.title)}</p>
             <div className="code-rename-actions">
-              <button type="button" ref={killCancelButtonRef} onClick={onCloseKillDialog} autoFocus>{copy.cancel}</button>
-              <button type="button" className="danger" onClick={onSubmitKillDialog}>
-                {killDialog.acknowledgeUnprovenAcpExit
-                  ? copy.acknowledgeUnprovenAcpExit
-                  : copy.killAgent}
+              <button type="button" ref={archiveExitCancelButtonRef} onClick={onCloseArchiveExitDialog} autoFocus>{copy.cancel}</button>
+              <button type="button" className="danger" onClick={onSubmitArchiveExitDialog}>
+                {copy.acknowledgeUnprovenAcpExit}
               </button>
             </div>
           </div>
@@ -560,6 +554,28 @@ export function ContextMenuIcon({ kind }: { kind: ContextMenuIconKind }) {
   if (kind === 'desktop') return <DesktopGlyph />
   if (kind === 'chat') return <ChatBubblesGlyph />
   if (kind === 'terminal') return <TerminalSquareGlyph />
+  if (kind === 'copy') return <CopyGlyph />
+  if (kind === 'fork') return <ForkGlyph />
+
+  if (kind === 'unread') {
+    return (
+      <svg className="code-context-menu-unread-icon" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+        <circle cx="8" cy="8" r="4" fill="currentColor" />
+      </svg>
+    )
+  }
+
+  if (kind === 'fork-plus') {
+    return (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+        <circle cx="3.5" cy="3" r="1.5" />
+        <circle cx="10.5" cy="4" r="1.5" />
+        <circle cx="10.5" cy="11.5" r="1.5" />
+        <path d="M3.5 4.5v3A4 4 0 0 0 7.5 11.5H9M5 4h4" />
+        <path d="M13 7.5v3M11.5 9h3" />
+      </svg>
+    )
+  }
 
   if (kind === 'pin') {
     return (

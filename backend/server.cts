@@ -193,10 +193,6 @@ interface ResumeAgentResult {
   status?: number;
 }
 
-interface KillOptions {
-  acknowledgeUnprovenAcpExit?: boolean;
-}
-
 interface WebSocketServer {
   clients: Set<WebSocketClient>;
   close(): void;
@@ -1908,6 +1904,7 @@ app.patch(routePath(BASE_PATH, '/api/agents/:agentId'), express.json(), async (r
     'pinned',
     'unread',
     'archived',
+    'acknowledgeUnprovenAcpExit',
     'readAttentionSeq',
     'readOutputEpoch',
     'readOutputSeq',
@@ -1919,7 +1916,15 @@ app.patch(routePath(BASE_PATH, '/api/agents/:agentId'), express.json(), async (r
     || field === 'agentRuntimeMode'
     || (field === 'archived' && body.archived === true)
   ));
-  if (lifecyclePatchFields.length > 0 && providedPatchFields.length > 1) {
+  if (body.acknowledgeUnprovenAcpExit === true && body.archived !== true) {
+    res.status(400).json({ error: 'Process-exit acknowledgement is only valid for Archive' });
+    return;
+  }
+  const archivePatchFields = new Set(['archived', 'acknowledgeUnprovenAcpExit']);
+  const hasMixedLifecyclePatch = body.archived === true
+    ? providedPatchFields.some(field => !archivePatchFields.has(field))
+    : lifecyclePatchFields.length > 0 && providedPatchFields.length > 1;
+  if (hasMixedLifecyclePatch) {
     res.status(400).json({
       error: 'Archive, permission restart, and runtime switch must be requested separately from other Agent updates',
     });
@@ -1990,7 +1995,9 @@ app.patch(routePath(BASE_PATH, '/api/agents/:agentId'), express.json(), async (r
   }
 
   if (flagPatch.archived === true) {
-    const result = await agentManager.archiveAgent(req.params.agentId) as ServerRecord;
+    const result = await agentManager.archiveAgent(req.params.agentId, {
+      acknowledgeUnprovenAcpExit: body.acknowledgeUnprovenAcpExit === true,
+    }) as ServerRecord;
     if (result.error) {
       const status = result.stopped === true
         ? 409
@@ -3148,37 +3155,17 @@ function restartMainAgent(ws: WebSocketClient, command: string) {
   })();
 }
 
-async function killAgentFromMessage(ws: WebSocketClient, agentId: string, options: KillOptions = {}) {
+async function archiveAgentFromMessage(ws: WebSocketClient, agentId: string) {
   try {
-    const requested = await agentManager.requestKillAgent(agentId, {
-      acknowledgeUnprovenAcpExit: options.acknowledgeUnprovenAcpExit === true,
-    });
-    const result = requested.result;
-    if (result && 'error' in result && result.error) {
+    const result = await agentManager.archiveAgent(agentId) as ServerRecord;
+    if (result?.error) {
       ws.send(JSON.stringify({ type: 'error', message: result.error }));
-    } else if (result?.accepted) {
-      ws.send(JSON.stringify({ type: 'agent-delete-accepted', ...result }));
-      void requested.completion.then((completed: ServerRecord) => {
-        if (completed?.error && ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: 'error', message: completed.error }));
-        }
-      }).catch((error: unknown) => {
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({
-            type: 'error',
-            message: error instanceof Error ? error.message : 'Failed to stop Agent',
-          }));
-        }
-      }).finally(() => {
-        queueStateMetadata(currentAgentListMetadata());
-        broadcastState();
-      });
     }
   } catch (caught) {
     const error = caughtError(caught);
     ws.send(JSON.stringify({
       type: 'error',
-      message: error instanceof Error ? error.message : 'Failed to stop Agent',
+      message: error instanceof Error ? error.message : 'Failed to archive Agent',
     }));
   } finally {
     queueStateMetadata(currentAgentListMetadata());
@@ -3468,10 +3455,8 @@ function handleMessage(ws: WebSocketClient, data: ServerClientMessage) {
       clearWorkspaceFileWatch(ws, data.agentId);
       break;
       
-    case 'kill-agent':
-      void killAgentFromMessage(ws, data.agentId, {
-        acknowledgeUnprovenAcpExit: data.acknowledgeUnprovenAcpExit === true,
-      });
+    case 'archive-agent':
+      void archiveAgentFromMessage(ws, data.agentId);
       break;
 
     case 'restart-main-agent':

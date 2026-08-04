@@ -86,7 +86,7 @@ const path = require('path');
   assert(workspaceSource.includes('settingsPanelOpen'));
   assert(workspaceSource.includes('|| Boolean(mobileShareUrl)'));
   assert(workspaceSource.includes('|| Boolean(renameDialog)'));
-  assert(workspaceSource.includes('|| Boolean(killDialog)'));
+  assert(workspaceSource.includes('|| Boolean(archiveExitDialog)'));
   assert(workspaceSource.includes('|| Boolean(deleteWorktreeDialog)'));
   assert(capabilitySource.includes("window.addEventListener('pointerdown', recordInteraction, true)"));
   assert(capabilitySource.includes('pendingInteractionAtRef'));

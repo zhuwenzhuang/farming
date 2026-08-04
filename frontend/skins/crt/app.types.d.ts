@@ -26,7 +26,7 @@ interface FarmingSessionClient {
   interruptAgent(agentId: string): boolean;
   resizeAgent(agentId: string, cols: number, rows: number): boolean;
   clearTerminal(agentId: string): boolean;
-  killAgent(agentId: string): boolean;
+  archiveAgent(agentId: string): boolean;
   getSessionView(agentId: string, options?: { signal?: AbortSignal }): Promise<Record<string, unknown>>;
 }
 
