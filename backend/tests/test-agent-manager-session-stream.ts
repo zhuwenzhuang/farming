@@ -26,11 +26,15 @@ async function run() {
     });
 
     const streams = [];
+    const previews = [];
     const activityUpdates = [];
     const agentUpdates = [];
     let updateCount = 0;
     manager.onSessionStream((stream) => {
       streams.push(stream);
+    });
+    manager.onSessionPreview((preview) => {
+      previews.push(preview);
     });
     manager.onUpdate(() => {
       updateCount += 1;
@@ -201,10 +205,15 @@ async function run() {
     assert.strictEqual(manager.agents.get('local-agent').terminalBusy, true);
     assert.strictEqual(updateCount, updateCountBeforeBusy);
     assert.strictEqual(agentUpdates.at(-1).patch.terminalBusy, true);
+    assert.strictEqual(agentUpdates.at(-1).patch.terminalStatus.activity, 'busy');
+    assert.strictEqual(agentUpdates.at(-1).patch.runtimeObservation.phase, 'working');
     manager.agents.get('local-agent').command = 'bash';
+    const agentUpdatesBeforePreview = agentUpdates.length;
+    const previewsBeforePrompt = previews.length;
+    const stateUpdatesBeforePreview = updateCount;
     manager.engineBridge.router.engines.local.emit('session-preview', {
       sessionId: 'local-agent',
-      previewText: '/tmp $ ',
+      previewText: 'completed output\n/tmp $ ',
       cols: 80,
       rows: 24,
       previewSnapshot: null,
@@ -214,7 +223,133 @@ async function run() {
       'idle',
       'agent list terminal status should not stay busy when a shell prompt is visible'
     );
+    assert.strictEqual(previews.length, previewsBeforePrompt + 1, 'the heavy preview payload must still be published');
+    assert.strictEqual(agentUpdates.length, agentUpdatesBeforePreview + 1);
+    assert.strictEqual(agentUpdates.at(-1).patch.terminalStatus.activity, 'idle');
+    assert.strictEqual(agentUpdates.at(-1).patch.runtimeObservation.phase, 'idle');
+    for (let index = 0; index < 100; index += 1) {
+      manager.engineBridge.router.engines.local.emit('session-preview', {
+        sessionId: 'local-agent',
+        previewText: `completed output ${index}\n/tmp $ `,
+        cols: 80,
+        rows: 24,
+        previewSnapshot: null,
+      });
+    }
+    assert.strictEqual(previews.length, previewsBeforePrompt + 101, 'preview frames remain independent from state changes');
+    assert.strictEqual(
+      agentUpdates.length,
+      agentUpdatesBeforePreview + 1,
+      'an unchanged derived terminal state must not publish another Agent update',
+    );
+    assert.strictEqual(updateCount, stateUpdatesBeforePreview, 'preview-only changes must not publish full Agent state');
+
+    manager.agents.set('title-preview-agent', {
+      id: 'title-preview-agent',
+      command: 'codex',
+      cwd: '/tmp',
+      output: '',
+      previewText: 'gpt-5 · ~/tmp',
+      engineName: 'local',
+      status: 'running',
+    });
+    const agentUpdatesBeforeTitlePreview = agentUpdates.length;
+    const stateUpdatesBeforeTitlePreview = updateCount;
+    manager.engineBridge.router.engines.local.emit('session-preview', {
+      sessionId: 'title-preview-agent',
+      previewText: 'gpt-5 · ~/tmp',
+      cols: 80,
+      rows: 24,
+      previewSnapshot: null,
+      title: '⠋ Working',
+    });
+    assert.strictEqual(agentUpdates.length, agentUpdatesBeforeTitlePreview, 'the title state delta owns this transition');
+    assert.strictEqual(updateCount, stateUpdatesBeforeTitlePreview + 1);
+    const titlePreviewState = manager.getState().agents.find(agent => agent.id === 'title-preview-agent');
+    assert.strictEqual(titlePreviewState.terminalStatus.activity, 'busy');
+    assert.strictEqual(titlePreviewState.runtimeObservation.phase, 'working');
+    manager.agents.delete('title-preview-agent');
+
+    manager.agents.set('busy-preview-agent', {
+      id: 'busy-preview-agent',
+      command: 'codex',
+      cwd: '/tmp',
+      output: '',
+      previewText: 'gpt-5 · ~/tmp',
+      engineName: 'local',
+      status: 'running',
+    });
+    const agentUpdatesBeforeBusyPreviews = agentUpdates.length;
+    const previewsBeforeBusyFrames = previews.length;
+    for (let index = 0; index < 100; index += 1) {
+      manager.engineBridge.router.engines.local.emit('session-preview', {
+        sessionId: 'busy-preview-agent',
+        previewText: `Working (${index + 1}s • esc to interrupt)`,
+        cols: 80,
+        rows: 24,
+        previewSnapshot: null,
+      });
+    }
+    assert.strictEqual(previews.length, previewsBeforeBusyFrames + 100);
+    assert.strictEqual(
+      agentUpdates.length,
+      agentUpdatesBeforeBusyPreviews + 1,
+      'changing elapsed text in a stable busy state must publish one lightweight transition',
+    );
+    assert.strictEqual(agentUpdates.at(-1).patch.runtimeObservation.phase, 'working');
+    manager.agents.delete('busy-preview-agent');
+
+    manager.agents.set('acp-preview-agent', {
+      id: 'acp-preview-agent',
+      command: 'codex',
+      cwd: '/tmp',
+      output: '',
+      previewText: '',
+      engineName: 'local',
+      runtimeBinding: { kind: 'acp', state: 'idle' },
+      status: 'running',
+    });
+    const previewsBeforeAcpEvent = previews.length;
+    const agentUpdatesBeforeAcpEvent = agentUpdates.length;
+    manager.engineBridge.router.engines.local.emit('session-preview', {
+      sessionId: 'acp-preview-agent',
+      previewText: 'Working (1s • esc to interrupt)',
+      cols: 80,
+      rows: 24,
+      previewSnapshot: null,
+    });
+    assert.strictEqual(previews.length, previewsBeforeAcpEvent, 'Terminal Preview must not enter an ACP runtime');
+    assert.strictEqual(agentUpdates.length, agentUpdatesBeforeAcpEvent);
+    assert.strictEqual(manager.agents.get('acp-preview-agent').previewText, '');
+    manager.agents.delete('acp-preview-agent');
+
+    manager.engineBridge.router.engines.local.emit('session-busy-state', {
+      sessionId: 'local-agent',
+      terminalBusy: false,
+    });
+    manager.agents.get('local-agent').previewText = 'running command output';
+    manager.engineBridge.router.engines.local.emit('session-busy-state', {
+      sessionId: 'local-agent',
+      terminalBusy: true,
+    });
+    assert.strictEqual(agentUpdates.at(-1).patch.terminalStatus.activity, 'busy');
+    const agentUpdatesBeforePromptRecovery = agentUpdates.length;
+    manager.engineBridge.router.engines.local.emit('session-preview', {
+      sessionId: 'local-agent',
+      previewText: '/tmp $ ',
+      cols: 80,
+      rows: 24,
+      previewSnapshot: null,
+    });
+    assert.strictEqual(
+      agentUpdates.length,
+      agentUpdatesBeforePromptRecovery + 1,
+      'a prompt-derived idle transition must follow a separately published busy state',
+    );
+    assert.strictEqual(agentUpdates.at(-1).patch.terminalStatus.activity, 'idle');
+
     const updateCountBeforeStart = updateCount;
+    manager.agents.get('local-agent').previewText = 'running command output';
     manager.engineBridge.router.engines.local.emit('session-busy-state', {
       sessionId: 'local-agent',
       terminalBusy: true,
@@ -254,6 +389,8 @@ async function run() {
       manager.getState().agents.find(agent => agent.id === 'local-agent').terminalStatus.lastCommandDurationMs,
       1000
     );
+    assert.strictEqual(agentUpdates.at(-1).patch.terminalStatus.activity, 'idle');
+    assert.strictEqual(agentUpdates.at(-1).patch.runtimeObservation.phase, 'idle');
     assert.strictEqual(updateCount, updateCountBeforeFinish);
     manager.engineBridge.router.engines.local.emit('session-error', {
       sessionId: 'local-agent',

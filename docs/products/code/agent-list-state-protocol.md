@@ -67,6 +67,18 @@ A `none` hydration performs no Agent inventory traversal, while `focused` reads
 one exact Agent; only `all` enumerates the complete preview inventory.
 A preview without an exact Agent identity is rejected with one bounded Server
 diagnostic rather than broadcast without an owner.
+Terminal preview text or screen changes remain on that scoped heavy stream.
+When a preview-only change alters the derived terminal status, the backend also
+publishes one deduplicated `agent-update` containing that status and its resulting
+runtime observation. A preview that also changes the Agent title uses the
+authoritative state delta instead of duplicating that lightweight update. This
+keeps Project supervision current when a browser intentionally does not consume
+the heavy preview, without adding an update for every preview frame. The
+lightweight projection follows Agent-state scope, not Preview scope. Terminal
+preview events cannot write runtime observation for an ACP-owned Agent. The
+deduplication baseline is refreshed by authoritative Agent-state projections
+and structured terminal metadata updates, so alternating sources cannot hide a
+later preview-derived transition.
 
 Activity messages are replaceable absolute projections. A slow `focused`
 client retains one pending Agent checkpoint marker. A slow `all` client retains

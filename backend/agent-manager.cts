@@ -1052,6 +1052,19 @@ function terminalMetadataPatch(agent: TypedAgentRecord) {
   };
 }
 
+function terminalStatusEqual(
+  left: ReturnType<typeof deriveAgentTerminalStatus>,
+  right: ReturnType<typeof deriveAgentTerminalStatus>,
+) {
+  if (left === right) return true;
+  const leftKeys = Object.keys(left) as Array<keyof typeof left>;
+  if (leftKeys.length !== Object.keys(right).length) return false;
+  return leftKeys.every(key => (
+    Object.prototype.hasOwnProperty.call(right, key)
+    && Object.is(left[key], right[key])
+  ));
+}
+
 function terminalRuntimeStatus(agentStatus: unknown) {
   return agentStatus === 'stopped' || agentStatus === 'dead' ? 'exited' : agentStatus;
 }
@@ -1389,6 +1402,10 @@ class AgentManager extends EventEmitter {
   declare mainAgentStartReservation: AgentStartReservation | null;
   declare lastActivity: Map<AgentId, number>;
   declare lastActivityUpdate: Map<AgentId, number>;
+  declare terminalStatusProjections: WeakMap<
+    TypedAgentRecord,
+    ReturnType<typeof deriveAgentTerminalStatus>
+  >;
   declare outputEvents: Map<AgentId, TerminalOutputActivity[]>;
   declare agentUsageRateCache: Map<AgentId, { sampledAt: number; value: AgentUsageRate; windowMs: number }>;
   declare lastResizeByAgent: Map<AgentId, TerminalSize>;
@@ -1469,6 +1486,7 @@ class AgentManager extends EventEmitter {
     this.mainAgentStartReservation = null;
     this.lastActivity = new Map();
     this.lastActivityUpdate = new Map();
+    this.terminalStatusProjections = new WeakMap();
     this.outputEvents = new Map(); // Map<agentId, Array<{timestamp, bytes}>> for rate tracking
     this.agentUsageRateCache = new Map();
     this.lastResizeByAgent = new Map();
@@ -2003,8 +2021,18 @@ class AgentManager extends EventEmitter {
 
     this.engineBridge.on('session-preview', ({ sessionId, previewText, cols, rows, previewSnapshot, title, runtimeEpoch }: TerminalSessionPreviewEvent) => {
         const agent = this.agents.get(sessionId);
-        if (!agent || !terminalRuntimeEventMatches(agent, runtimeEpoch)) return;
+        if (
+          !agent
+          || runtimeKind(agent) !== 'terminal'
+          || !terminalRuntimeEventMatches(agent, runtimeEpoch)
+        ) return;
 
+        const previousTerminalStatus = this.terminalStatusProjections.get(agent)
+          || deriveAgentTerminalStatus(agent, {
+            previewText: agent.previewText || '',
+            title: agent.sessionTitle || '',
+            terminalBusy: typeof agent.terminalBusy === 'boolean' ? agent.terminalBusy : null,
+          });
         const titleChanged = typeof title === 'string'
           ? this.updateAgentSessionTitle(agent, title)
           : false;
@@ -2021,6 +2049,8 @@ class AgentManager extends EventEmitter {
           title: agent.sessionTitle || '',
           terminalBusy: typeof agent.terminalBusy === 'boolean' ? agent.terminalBusy : null,
         });
+        const runtimeObservation = deriveRuntimeObservation({ ...agent, terminalStatus });
+        this.terminalStatusProjections.set(agent, terminalStatus);
         this.emit('session-preview-update', {
           agentId: sessionId,
           previewText: agent.previewText,
@@ -2029,8 +2059,14 @@ class AgentManager extends EventEmitter {
           previewSnapshot: agent.previewSnapshot,
           codexTerminalProfile: activeCodexTerminalProfile(agent, agent.previewText),
           terminalStatus,
-          runtimeObservation: deriveRuntimeObservation({ ...agent, terminalStatus }),
+          runtimeObservation,
         });
+        if (!titleChanged && !terminalStatusEqual(previousTerminalStatus, terminalStatus)) {
+          this.emit('agent-update', {
+            agentId: sessionId,
+            patch: { terminalStatus, runtimeObservation },
+          });
+        }
         void this.resolveCodexTerminalIdentityFromPreview(sessionId, agent.previewText);
         this.observeAgentAttentionState(sessionId);
         if (titleChanged) {
@@ -2149,7 +2185,9 @@ class AgentManager extends EventEmitter {
           void this.refreshAgentWorktree(sessionId, agent.shellCwd);
         }
         this.observeAgentAttentionState(sessionId);
-        this.emit('agent-update', { agentId: sessionId, patch: terminalMetadataPatch(agent) });
+        const patch = terminalMetadataPatch(agent);
+        this.terminalStatusProjections.set(agent, patch.terminalStatus);
+        this.emit('agent-update', { agentId: sessionId, patch });
       });
 
     this.engineBridge.on('session-notification', ({
@@ -10802,6 +10840,7 @@ class AgentManager extends EventEmitter {
       title: agent.sessionTitle || '',
       previewText: agent.previewText || '',
     });
+    this.terminalStatusProjections.set(agent, terminalStatus);
 
     return {
       id: agent.id,
