@@ -94,6 +94,7 @@ function normalizeStateAgent(agent: Agent, mainAgentId: string | null, previous?
 
 export function useWebSocket() {
   const wsRef = useRef<WebSocket | null>(null)
+  const focusedAgentIdRef = useRef<string | null>(null)
   const agentStateSignaturesRef = useRef<Map<string, string>>(new Map())
   const agentStateCursorRef = useRef<AgentStateCursor | null>(null)
   const agentStateResyncPendingRef = useRef(false)
@@ -329,9 +330,13 @@ export function useWebSocket() {
     return promise
   }, [sendMessage, settleComposerRequest])
 
-  const focusAgent = useCallback((agentId: string) => {
-    return sendMessage({ type: 'focus-agent', agentId })
-  }, [sendMessage])
+  const focusAgent = useCallback((agentId: string | null) => {
+    focusedAgentIdRef.current = agentId
+    const ws = wsRef.current
+    if (!ws || ws.readyState !== WebSocket.OPEN) return false
+    ws.send(JSON.stringify({ type: 'focus-agent', agentId }))
+    return true
+  }, [])
 
   const interruptAgent = useCallback((agentId: string) => {
     return sendMessage({ type: 'interrupt-agent', agentId })
@@ -493,6 +498,7 @@ export function useWebSocket() {
           businessServerEpoch: '',
         })
         ws.send(JSON.stringify({ type: 'protocol-hello', protocolVersion: PROTOCOL_VERSION }))
+        ws.send(JSON.stringify({ type: 'focus-agent', agentId: focusedAgentIdRef.current }))
         sendBusinessProbe(ws)
         window.dispatchEvent(new Event('farming:backend-connected'))
         workspaceFileListenersRef.current.forEach((listeners, agentId) => {

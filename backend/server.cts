@@ -131,6 +131,8 @@ interface ExpressFactory {
 interface WebSocketClient {
   agentId?: string;
   bufferedAmount: number;
+  acpRevisionCheckpointPending?: boolean;
+  acpRevisionSentRevision?: number;
   connectionId?: string;
   focusedAgentId?: string | null;
   previewScope?: 'none' | 'focused' | 'all';
@@ -273,6 +275,7 @@ import {
   resourceClientDelivery,
   type ResourceBroadcastEvent,
 } from './resource-broadcast-protocol.cjs';
+import { acpRevisionClientDelivery } from './acp-revision-delivery.cjs';
 import { QrShareTicketStore, SHARE_TICKET_TTL_MS } from './qr-share-tickets.cjs';
 import { ReviewStateStore } from './review-state-store.cjs';
 import { createReviewStateRouter } from './review-state-router.cjs';
@@ -3274,6 +3277,7 @@ async function sendBusinessHealthResult(ws: WebSocketClient, requestId: string) 
   if (ws.readyState !== WebSocket.OPEN) return;
   recoverStateSnapshotIfReady(ws);
   recoverResourceSnapshotIfReady(ws);
+  recoverAcpSessionRevisionIfReady(ws);
   ws.send(JSON.stringify({
     type: 'business-health-result',
     requestId,
@@ -3424,8 +3428,16 @@ function handleMessage(ws: WebSocketClient, data: ServerClientMessage) {
       break;
       
     case 'focus-agent':
+      if (ws.focusedAgentId !== data.agentId) {
+        ws.acpRevisionCheckpointPending = false;
+        ws.acpRevisionSentRevision = -1;
+      }
       ws.focusedAgentId = data.agentId;
-      if (data.agentId) agentManager.prioritizeAcpPreparedTranscript(data.agentId);
+      if (data.agentId) {
+        agentManager.prioritizeAcpPreparedTranscript(data.agentId);
+        const revision = currentAcpSessionRevision(data.agentId);
+        if (revision) deliverAcpSessionRevision(ws, revision);
+      }
       if (data.streamScope === 'focused' || data.streamScope === 'all') {
         ws.streamScope = data.streamScope;
       }
@@ -3664,6 +3676,7 @@ const SESSION_STREAM_BROADCAST_INTERVAL_MS = 33;
 const AGENT_ACTIVITY_BROADCAST_DELAY_MS = SESSION_STREAM_BROADCAST_INTERVAL_MS;
 const MAX_SESSION_STREAM_CLIENT_BUFFERED_AMOUNT = 4 * 1024 * 1024;
 const MAX_STATE_CLIENT_BUFFERED_AMOUNT = 512 * 1024;
+const MAX_ACP_REVISION_CLIENT_BUFFERED_AMOUNT = 256 * 1024;
 const RESOURCE_BROADCAST_INTERVAL_MS = 100;
 const MAX_RESOURCE_CLIENT_BUFFERED_AMOUNT = 512 * 1024;
 
@@ -3671,6 +3684,46 @@ type AgentScopedServerEvent = Record<string, unknown> & { agentId: string };
 
 function isAgentScopedServerEvent(value: unknown): value is AgentScopedServerEvent {
   return isRecord(value) && typeof value.agentId === 'string' && value.agentId.length > 0;
+}
+
+function currentAcpSessionRevision(agentId: string) {
+  const agent = agentManager.getAgentState(agentId, Date.now()) as ServerRecord | null;
+  const runtimeBinding = isRecord(agent?.runtimeBinding) ? agent.runtimeBinding : null;
+  const revision = Number(runtimeBinding?.sessionRevision);
+  const updatedAt = typeof runtimeBinding?.sessionUpdatedAt === 'string'
+    ? runtimeBinding.sessionUpdatedAt
+    : '';
+  if (runtimeBinding?.kind !== 'acp' || !Number.isInteger(revision) || revision < 0 || !updatedAt) return null;
+  return { agentId, revision, updatedAt };
+}
+
+function deliverAcpSessionRevision(client: WebSocketClient, session: AgentScopedServerEvent) {
+  if (client.readyState !== WebSocket.OPEN || client.protocolVersion !== PROTOCOL_VERSION) return;
+  const delivery = acpRevisionClientDelivery(
+    client.focusedAgentId,
+    client.acpRevisionSentRevision,
+    client.bufferedAmount,
+    MAX_ACP_REVISION_CLIENT_BUFFERED_AMOUNT,
+    { agentId: session.agentId, revision: Number(session.revision) },
+  );
+  if (delivery === 'skip') return;
+  if (delivery === 'defer') {
+    client.acpRevisionCheckpointPending = true;
+    return;
+  }
+  client.send(JSON.stringify({ type: 'acp-session-revision', session }));
+  client.acpRevisionSentRevision = Number(session.revision);
+  client.acpRevisionCheckpointPending = false;
+}
+
+function recoverAcpSessionRevisionIfReady(client: WebSocketClient) {
+  if (client.acpRevisionCheckpointPending !== true || !client.focusedAgentId) return;
+  const revision = currentAcpSessionRevision(client.focusedAgentId);
+  if (!revision) {
+    client.acpRevisionCheckpointPending = false;
+    return;
+  }
+  deliverAcpSessionRevision(client, revision);
 }
 
 let stateBroadcastTimer: ReturnType<typeof setTimeout> | null = null;
@@ -4016,12 +4069,8 @@ function scheduleAcpSessionRevision(session: unknown) {
     session,
     timer: setTimeout(() => {
       pendingAcpSessionRevisions.delete(session.agentId);
-      const message = JSON.stringify({
-        type: 'acp-session-revision',
-        session: entry.session,
-      });
       wss.clients.forEach((client) => {
-        if (client.readyState === WebSocket.OPEN) client.send(message);
+        deliverAcpSessionRevision(client, entry.session);
       });
     }, AGENT_ACTIVITY_BROADCAST_DELAY_MS),
   };

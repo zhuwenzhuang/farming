@@ -113,6 +113,13 @@ Browser delivery uses a strict checkpoint-and-delta contract:
 - a late response for another Agent or older revision cannot take over the
   visible Chat.
 
+Each browser connection explicitly identifies its currently visible Agent.
+ACP revision notifications are delivered only to connections with matching
+interest. Changing focus or reconnecting sends the current absolute revision as
+an Agent-scoped checkpoint. A slow connection retains only one pending
+checkpoint marker and recovers the latest revision after its transport buffer
+drains; it never accumulates one queued notification per Provider update.
+
 Provider replay is authoritative. Local checkpoints accelerate projection and
 preserve reset fences, but cannot replace a full load unless the provider can
 prove freshness. An uncertain Prompt leaves the checkpoint dirty.

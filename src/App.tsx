@@ -164,6 +164,7 @@ function hasBlockingOverlay() {
 export function App() {
   recordPerformanceTestRender('app')
   const ws = useWebSocket()
+  const focusAgent = ws.focusAgent
   const pageVisible = usePageVisibility()
   const { keyMap } = useAgents(ws.agents, ws.mainAgentId)
   const [initialWorkspaceViewState] = useState(() => loadCodeWorkspaceViewState())
@@ -327,6 +328,10 @@ export function App() {
   const effectiveActiveTerminalId = activeTerminalId
     ? observedAgentReplacements.get(activeTerminalId) ?? activeTerminalId
     : null
+
+  useEffect(() => {
+    focusAgent(activeWorkspaceView === 'projects' ? effectiveActiveTerminalId : null)
+  }, [activeWorkspaceView, effectiveActiveTerminalId, focusAgent])
 
   useLayoutEffect(() => {
     if (!observedAgentReplacement) return
@@ -616,9 +621,6 @@ export function App() {
   }, [])
 
   const activateTerminal = useCallback((agentId: string, options?: { focusTerminal?: boolean }) => {
-    if (activeTerminalId !== agentId) {
-      ws.focusAgent(agentId)
-    }
     setOpenTerminalIds(ids => ids.includes(agentId) ? ids : [...ids, agentId])
     setRetainedAgentViewIds(ids => touchAgentViewCache(ids, agentId))
     setActiveTerminalId(agentId)
@@ -630,7 +632,7 @@ export function App() {
       }))
     }
     setDialog('none')
-  }, [activeTerminalId, ws])
+  }, [])
 
   // Keep the user intent separate from the authoritative agent list. A lifecycle
   // response may name an agent before the matching WebSocket state has rendered.

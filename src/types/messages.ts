@@ -74,7 +74,7 @@ export type TerminalInputPart = string | PasteInputPart
 
 export interface FocusAgentMessage {
   type: 'focus-agent'
-  agentId: string
+  agentId: string | null
   refreshState?: boolean
 }
 

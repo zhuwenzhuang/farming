@@ -11,6 +11,40 @@ type RenderSnapshot = {
   liveTranscriptMarkdown: number
 }
 
+type AcpRevisionFrame = {
+  agentId: string
+  revision: number
+}
+
+function trackAcpRevisionFrames(page: import('@playwright/test').Page) {
+  const frames: AcpRevisionFrame[] = []
+  page.on('websocket', socket => {
+    if (!new URL(socket.url()).pathname.endsWith('/ws')) return
+    socket.on('framereceived', event => {
+      if (typeof event.payload !== 'string') return
+      try {
+        const message = JSON.parse(event.payload) as {
+          type?: string
+          session?: { agentId?: string; revision?: number }
+        }
+        if (
+          message.type === 'acp-session-revision'
+          && message.session?.agentId
+          && Number.isInteger(message.session.revision)
+        ) {
+          frames.push({
+            agentId: message.session.agentId,
+            revision: Number(message.session.revision),
+          })
+        }
+      } catch {
+        // Ignore non-JSON frames owned by another WebSocket protocol.
+      }
+    })
+  })
+  return frames
+}
+
 async function cleanupControlAgents(request: import('@playwright/test').APIRequestContext) {
   const response = await request.get('/farming/api/control/agents').catch(() => null)
   if (!response?.ok()) return
@@ -316,6 +350,99 @@ test('dense Chat revisions preserve completed Turns and coalesce transcript work
   expect(renders.liveTranscriptTurn).toBeLessThanOrEqual(40)
   expect(renders.liveTranscriptMarkdown).toBeLessThanOrEqual(40)
   expect(transcriptRequests).toBeLessThanOrEqual(16)
+})
+
+test('routes ACP revisions only to focused browsers and restores focus after reconnect', async ({ page, browser, workspaceRoot }) => {
+  const workspace = path.join(workspaceRoot, 'acp-revision-interest')
+  fs.mkdirSync(workspace, { recursive: true })
+  const createAgent = async (name: string) => {
+    const agentWorkspace = path.join(workspace, name)
+    fs.mkdirSync(agentWorkspace, { recursive: true })
+    const response = await page.request.post('/farming/api/control/agents', {
+      data: {
+        command: 'claude',
+        workspace: agentWorkspace,
+        agentRuntimeMode: 'chat',
+      },
+    })
+    expect(response.ok()).toBeTruthy()
+    const body = await response.json() as { agentId?: string }
+    expect(body.agentId).toBeTruthy()
+    return body.agentId as string
+  }
+  const firstAgentId = await createAgent('first')
+  const secondAgentId = await createAgent('second')
+  const firstFrames = trackAcpRevisionFrames(page)
+
+  await openFarming(page)
+  await page.locator(`[data-testid="code-agent-row"][data-agent-id="${firstAgentId}"]`).click()
+  await expect(page.getByTestId('code-acp-composer-input')).toBeEditable()
+
+  const secondContext = await browser.newContext({ baseURL: new URL(page.url()).origin })
+  try {
+    const secondPage = await secondContext.newPage()
+    const secondFrames = trackAcpRevisionFrames(secondPage)
+    await secondPage.goto('/farming/', { waitUntil: 'domcontentloaded' })
+    await expect(secondPage.getByTestId('app-shell')).toBeVisible()
+    await secondPage.locator(`[data-testid="code-agent-row"][data-agent-id="${secondAgentId}"]`).click()
+    await expect(secondPage.getByTestId('code-acp-composer-input')).toBeEditable()
+    await page.waitForTimeout(100)
+    firstFrames.length = 0
+    secondFrames.length = 0
+
+    const firstPrompt = await page.request.post(
+      `/farming/api/control/agents/${firstAgentId}/messages`,
+      {
+        data: {
+          message: 'live commentary stream',
+          requestId: 'revision-interest-first',
+          delivery: 'prompt',
+        },
+      },
+    )
+    expect(firstPrompt.status()).toBe(202)
+    await expect(page.getByText('Live commentary stream complete.', { exact: true })).toBeVisible()
+    await expect.poll(() => firstFrames.filter(frame => frame.agentId === firstAgentId).length)
+      .toBeGreaterThan(0)
+    await secondPage.waitForTimeout(150)
+    expect(secondFrames.filter(frame => frame.agentId === firstAgentId)).toHaveLength(0)
+
+    const secondCheckpointStart = secondFrames.length
+    await secondPage.locator(`[data-testid="code-agent-row"][data-agent-id="${firstAgentId}"]`).click()
+    await expect.poll(() => secondFrames.slice(secondCheckpointStart)
+      .filter(frame => frame.agentId === firstAgentId).length).toBeGreaterThan(0)
+    await expect(secondPage.getByText('Live commentary stream complete.', { exact: true })).toBeVisible()
+
+    await secondPage.getByTestId('code-nav-history').click()
+    await expect(secondPage.getByTestId('code-history-panel')).toBeVisible()
+    const firstReconnectStart = firstFrames.length
+    await page.reload({ waitUntil: 'domcontentloaded' })
+    await expect(page.getByTestId('app-shell')).toBeVisible()
+    await expect.poll(() => firstFrames.slice(firstReconnectStart)
+      .filter(frame => frame.agentId === firstAgentId).length).toBeGreaterThan(0)
+
+    const firstSecondPromptStart = firstFrames.length
+    const secondSecondPromptStart = secondFrames.length
+    const secondPrompt = await page.request.post(
+      `/farming/api/control/agents/${firstAgentId}/messages`,
+      {
+        data: {
+          message: 'streaming thought',
+          requestId: 'revision-interest-second',
+          delivery: 'prompt',
+        },
+      },
+    )
+    expect(secondPrompt.status()).toBe(202)
+    await expect(page.getByText('Streaming thought complete.', { exact: true })).toBeVisible()
+    await expect.poll(() => firstFrames.slice(firstSecondPromptStart)
+      .filter(frame => frame.agentId === firstAgentId).length).toBeGreaterThan(0)
+    await secondPage.waitForTimeout(150)
+    expect(secondFrames.slice(secondSecondPromptStart)
+      .filter(frame => frame.agentId === firstAgentId)).toHaveLength(0)
+  } finally {
+    await secondContext.close()
+  }
 })
 
 test('parked Agent output does not update workspace roots', async ({ page, workspaceRoot }) => {

@@ -88,6 +88,11 @@ Browser Delivery 使用严格 Checkpoint + Delta 契约：
 - 发现缺口、Identity 变化或 Reset 时必须请求 Replacement Checkpoint；
 - 其它 Agent 或旧 Revision 的迟到响应不能抢回当前 Chat。
 
+每个 Browser Connection 都会显式声明当前可见 Agent。ACP Revision Notification 只投递给
+Interest 匹配的 Connection。切换 Focus 或重连时，会把当前绝对 Revision 作为 Agent-scoped
+Checkpoint 发送。慢连接只保留一个 Pending Checkpoint Marker，并在 Transport Buffer 排空后
+恢复最新 Revision；不会按每次 Provider Update 累积一条待发送通知。
+
 Provider Replay 是权威来源。Local Checkpoint 可以加速投影并保留 Reset Fence，但除非 Provider
 能证明 Freshness，否则不能替代完整 Load。结果不确定的 Prompt 会让 Checkpoint 保持 Dirty。
 

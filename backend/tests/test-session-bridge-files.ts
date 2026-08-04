@@ -30,7 +30,8 @@ function run() {
     useWebSocket.indexOf('const interruptAgent = useCallback')
   );
   assert(
-    codeFocusAgent.includes("sendMessage({ type: 'focus-agent', agentId") &&
+    codeFocusAgent.includes('focusedAgentIdRef.current = agentId') &&
+      codeFocusAgent.includes("ws.send(JSON.stringify({ type: 'focus-agent', agentId }))") &&
       !codeFocusAgent.includes('streamScope') &&
       !codeFocusAgent.includes('previewScope'),
     'Farming Code should retain the default all-stream subscription behavior'
@@ -82,14 +83,21 @@ function run() {
     'CRT structured Composer should use the shared direct Agent interrupt path',
   );
   assert(
-    app.includes('if (activeTerminalId !== agentId)') &&
-      app.includes('ws.focusAgent(agentId)') &&
+    app.includes("focusAgent(activeWorkspaceView === 'projects' ? effectiveActiveTerminalId : null)") &&
       workspace.includes('markAgentReadIfNeeded(agent.id, true)') &&
       workspace.includes('readOutputEpoch: readCut.runtimeEpoch') &&
       workspace.includes('readOutputSeq: readCut.outputSeq') &&
       terminalPane.includes('const readCut = getReadCutNow()') &&
       terminalPane.includes('onReadLatest?.(agent.id, readCut)'),
     'Code should advance the read cursor only after the renderer exposes the latest authoritative output cut'
+  );
+  assert(
+    server.includes('client.focusedAgentId') &&
+      server.includes('deliverAcpSessionRevision(client, entry.session);') &&
+      server.includes('client.acpRevisionCheckpointPending = true;') &&
+      server.includes('recoverAcpSessionRevisionIfReady(ws);') &&
+      useWebSocket.includes("ws.send(JSON.stringify({ type: 'focus-agent', agentId: focusedAgentIdRef.current }))"),
+    'ACP revisions should follow focused browser interest, recover slow clients with one checkpoint marker, and restore focus after reconnect',
   );
   assert(
     !terminalPane.includes('sessionBootstrapStateFromPayload') &&

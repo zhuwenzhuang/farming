@@ -163,8 +163,10 @@ function run() {
   );
 
   assert(
-    webSocketSource.includes("sendMessage({ type: 'focus-agent', agentId })") &&
-      !webSocketSource.includes("sendMessage({ type: 'focus-agent', agentId, refreshState: true })") &&
+    webSocketSource.includes('focusedAgentIdRef.current = agentId') &&
+      webSocketSource.includes("ws.send(JSON.stringify({ type: 'focus-agent', agentId }))") &&
+      webSocketSource.includes("ws.send(JSON.stringify({ type: 'focus-agent', agentId: focusedAgentIdRef.current }))") &&
+      appSource.includes("focusAgent(activeWorkspaceView === 'projects' ? effectiveActiveTerminalId : null)") &&
       webSocketSource.includes('updateAgentLivePreview(msg.preview)') &&
       webSocketSource.includes('updateAgentLiveState(msg.update.agentId, msg.update.patch)') &&
       messagesSource.includes('refreshState?: boolean'),
