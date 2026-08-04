@@ -71,6 +71,13 @@ async function run() {
     screenshotDescription.result.input.positionals.map(field => field.name),
     ['browser-id'],
   );
+  const deleteDescription = JSON.parse((await invoke(browserCli, [
+    'describe', 'delete', '--json',
+  ])).stdout);
+  assert.strictEqual(deleteDescription.result.annotations.readOnly, false);
+  assert.strictEqual(deleteDescription.result.annotations.destructive, true);
+  assert.strictEqual(deleteDescription.result.annotations.idempotent, false);
+  assert.strictEqual(deleteDescription.result.annotations.openWorld, false);
 
   const globalHelp = (await invoke(farmingCli, ['--help'])).stdout;
   assert(globalHelp.includes('farming browser ...'));
@@ -115,6 +122,10 @@ async function run() {
       }
       if (request.method === 'POST' && request.url === '/api/browsers/browser_created/start') {
         response.end(JSON.stringify({ id: 'browser_created', status: 'running' }));
+        return;
+      }
+      if (request.method === 'DELETE' && request.url === '/api/browsers/browser_project') {
+        response.end(JSON.stringify({ id: 'browser_project', deleted: true }));
         return;
       }
       if (request.method === 'POST' && request.url === '/api/browsers/browser_project/action') {
@@ -167,6 +178,16 @@ async function run() {
     assert(requests.every(item => !item.agentId || item.runtimeEpoch === 'runtime-test'));
     assert.strictEqual(requests.find(item => item.url === '/api/browsers').body.agentId, 'agent_test');
     assert(requests.some(item => item.url === '/api/browsers/browser_created/start'));
+
+    const deleted = JSON.parse((await invoke(browserCli, ['delete', 'browser_project'], {
+      ...env,
+      FARMING_AGENT_ID: 'agent_test',
+      FARMING_BROWSER_TOKEN: 'browser-token',
+      FARMING_CAPABILITY_RUNTIME_EPOCH: 'runtime-test',
+      FARMING_PROJECT_WORKSPACE: '/project',
+    })).stdout);
+    assert.strictEqual(deleted.result.deleted, true);
+    assert(requests.some(item => item.method === 'DELETE' && item.url === '/api/browsers/browser_project'));
 
     await assert.rejects(
       invoke(browserCli, ['open', '--workspace', '/other-project'], {

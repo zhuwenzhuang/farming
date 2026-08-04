@@ -55,6 +55,10 @@ Resource Section 也能判断资源使用规模。
 Agent-owned Resource 可以跨 Chat/Terminal Replacement 保留。停止或归档 Agent 可以停止
 Runtime 但保留用户可见状态；删除 Agent 只删除它精确拥有的 Resource。
 
+对于 Browser Resource，`stop` 保留 Row 与持久化 Profile 以便后续复用；`delete` 会先停止
+Runtime，再同时删除 Row 与 Profile。面向 Agent 的 CLI 必须同时暴露这两个操作，使临时验证
+Resource 能按精确 ID 删除，而不是长期累积为 Stopped Inventory。
+
 ## Agent Capability 投影
 
 Extension 通过一份 Farming-owned Capability Contract 发布 Agent Tool，不应分别实现 Codex、

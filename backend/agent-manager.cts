@@ -1418,6 +1418,7 @@ class AgentManager extends EventEmitter {
   declare acpTurnFinalizationTails: Map<string, Promise<void>>;
   declare acpSessionOptionsByKey: Map<string, AcpSessionOptionsRecord>;
   declare acpPreparedTranscriptCache: AcpPreparedTranscriptCache;
+  declare acpTranscriptReads: Map<string, Promise<{ payload?: UnknownRecord; serialized?: string }>>;
   declare transcriptMediaPathPrefix: (agentId: string) => string;
   declare permissionRestartSuppressedAgentIds: Set<AgentId>;
   declare createProviderSessionIdentity: CreateProviderSessionIdentityContract;
@@ -1496,6 +1497,7 @@ class AgentManager extends EventEmitter {
     // copy outside browser-facing Agent records; crash recovery persists it
     // only through the private Farming session store.
     this.acpSessionOptionsByKey = new Map();
+    this.acpTranscriptReads = new Map();
     this.transcriptMediaPathPrefix = typeof options.transcriptMediaPathPrefix === 'function'
       ? options.transcriptMediaPathPrefix
       : (agentId: string) => `/api/agents/${encodeURIComponent(agentId)}/acp-media`;
@@ -4649,6 +4651,7 @@ class AgentManager extends EventEmitter {
     }
     this.providerSessionService.dispose();
     this.acpPreparedTranscriptCache.dispose();
+    this.acpTranscriptReads.clear();
     this.agentWorktreeResolveGeneration.clear();
     this.agentLifecycleOperations.clear();
     this.agentStartAdmissions.clear();
@@ -6850,12 +6853,28 @@ class AgentManager extends EventEmitter {
       const serialized = this.acpPreparedTranscriptCache.getSerialized(identity);
       if (serialized) return { serialized };
     }
-    const payload = await this.buildAcpTranscriptEnvelope(agentId, options);
-    if (preparedProfile && identity.sessionId) {
-      const serialized = this.acpPreparedTranscriptCache.publishOnDemand(identity, payload);
-      if (serialized) return { payload, serialized };
-    }
-    return { payload };
+    const readKey = JSON.stringify({
+      agentId,
+      sessionId: identity.sessionId,
+      runtimeEpoch: identity.runtimeEpoch,
+      maxTurns: Number(options.maxTurns) || 0,
+      sinceRevision: Number.isFinite(Number(options.sinceRevision)) ? Number(options.sinceRevision) : null,
+      mediaPathPrefix: String(options.mediaPathPrefix || ''),
+    });
+    const existing = this.acpTranscriptReads.get(readKey);
+    if (existing) return existing;
+    const read = (async () => {
+      const payload = await this.buildAcpTranscriptEnvelope(agentId, options);
+      if (preparedProfile && identity.sessionId) {
+        const serialized = this.acpPreparedTranscriptCache.publishOnDemand(identity, payload);
+        if (serialized) return { payload, serialized };
+      }
+      return { payload };
+    })().finally(() => {
+      if (this.acpTranscriptReads.get(readKey) === read) this.acpTranscriptReads.delete(readKey);
+    });
+    this.acpTranscriptReads.set(readKey, read);
+    return read;
   }
 
   async buildAcpTranscript(agentId: AgentId, options: Partial<AcpSessionRequestOptions> = {}) {

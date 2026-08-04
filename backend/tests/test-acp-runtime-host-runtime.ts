@@ -364,6 +364,39 @@ async function main() {
     replacedHostFacade.disconnect();
   }
 
+  const cancelFacade = new AcpRuntimeHostRuntime({
+    configDir: os.tmpdir(),
+    socketPath: '/unused-acp-runtime-host-cancel',
+    spawnHost: () => {},
+  });
+  try {
+    cancelFacade.initialize = async () => {};
+    cancelFacade.client.bindings.set('agent-cancel', {
+      agentId: 'agent-cancel',
+      bindingEpoch: 'binding-current',
+      turnHandle: 'turn-current',
+    });
+    let cancelRequest: { method: string; params: Record<string, unknown> } | null = null;
+    cancelFacade.client.request = async (method: string, params: Record<string, unknown>) => {
+      cancelRequest = { method, params };
+      return { cancelled: true };
+    };
+    await cancelFacade.cancel('agent-cancel');
+    assert(cancelRequest);
+    const operationId = cancelRequest.params.operationId;
+    assert.deepStrictEqual(cancelRequest, {
+      method: 'cancelTurn',
+      params: {
+        agentId: 'agent-cancel',
+        bindingEpoch: 'binding-current',
+        turnHandle: 'turn-current',
+        operationId,
+      },
+    }, 'cancellation must use the authoritative recovered Host binding when the facade session mirror is absent');
+  } finally {
+    cancelFacade.disconnect();
+  }
+
   console.log('ACP runtime Host facade tests passed');
 }
 

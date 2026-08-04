@@ -122,6 +122,38 @@ async function run() {
     assert.strictEqual(runtimeChanged.transcript.state, 'error');
     assert.strictEqual(runtimeChanged.transcript.stopReason, 'error');
 
+    binding.state = 'working';
+    runtime.emitRuntime(binding);
+    manager.buildAcpTranscript = originalBuild;
+    let concurrentBuilds = 0;
+    let releaseBuild: () => void = () => {};
+    const buildGate = new Promise<void>(resolve => { releaseBuild = resolve; });
+    manager.buildAcpTranscript = async (...args: unknown[]) => {
+      concurrentBuilds += 1;
+      await buildGate;
+      return originalBuild(...args);
+    };
+    const concurrentOptions = {
+      maxTurns: 5,
+      mediaPathPrefix: `/farming/api/agents/${agentId}/acp-media`,
+    };
+    const firstRead = manager.getAcpTranscript(agentId, concurrentOptions);
+    await waitFor(() => concurrentBuilds === 1, 'concurrent transcript read did not start');
+    binding.sessionState.apply({
+      sessionId: binding.sessionId,
+      update: {
+        sessionUpdate: 'agent_message_chunk',
+        messageId: 'coalesced-live-update',
+        content: { type: 'text', text: 'Live update while the shared read is in flight' },
+      },
+    });
+    runtime.emitSession(binding);
+    const secondRead = manager.getAcpTranscript(agentId, concurrentOptions);
+    releaseBuild();
+    const [firstConcurrent, secondConcurrent] = await Promise.all([firstRead, secondRead]);
+    assert.strictEqual(concurrentBuilds, 1, 'identical transcript reads must share one in-flight build');
+    assert.deepStrictEqual(secondConcurrent, firstConcurrent);
+
     manager.forgetStoppedAgentRecord(agentId, { emitUpdate: false });
     assert.strictEqual(manager.acpPreparedTranscriptCache.stats().entries, 0);
     console.log('test-agent-manager-prepared-transcript passed');

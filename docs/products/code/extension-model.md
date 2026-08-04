@@ -61,6 +61,11 @@ Agent-owned Resources may survive Chat/Terminal replacement. Stopping or
 archiving an Agent may stop their runtime while retaining user-visible state;
 deleting the Agent removes only Resources it exactly owns.
 
+For Browser Resources, `stop` retains the row and persistent profile for later
+reuse, while `delete` stops the runtime and removes both. The Agent-facing CLI
+must expose both operations so temporary verification Resources can be deleted
+by exact id instead of accumulating as stopped inventory.
+
 ## Agent Capability Projection
 
 Extensions publish Agent tools through one Farming-owned capability contract.

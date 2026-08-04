@@ -555,9 +555,11 @@ class AcpRuntimeHostRuntime extends EventEmitter implements AcpRuntimeContract {
 
   async cancel(agentId: string): Promise<unknown> {
     await this.initialize();
+    const binding = this.client.bindings.get(agentId);
     const session = this.sessions.get(agentId);
-    const bindingEpoch = String(session?.bindingEpoch || '');
-    const turnHandle = String(session?.turnHandle || '');
+    const bindingEpoch = this.bindingEpoch(agentId);
+    const turnHandle = String(binding?.turnHandle || session?.turnHandle || '');
+    if (!bindingEpoch) throw new Error('ACP runtime Host binding is unavailable for cancellation');
     const recovered = [...this.client.cancelOperations.values()].find(operation => (
       operation.agentId === agentId
       && operation.bindingEpoch === bindingEpoch
