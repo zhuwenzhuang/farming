@@ -75,6 +75,11 @@ export interface AcpSessionSnapshot extends DataRecord {
   sessionId: string;
 }
 
+interface AcpPromptSuggestion {
+  text: string;
+  promptId: string;
+}
+
 interface AcpNotification {
   sessionId?: unknown;
   update?: unknown;
@@ -345,6 +350,7 @@ class AcpSessionState {
   configOptions: unknown[];
   title: string;
   updatedAt: string;
+  promptSuggestion: AcpPromptSuggestion | null;
   codexSubagents: CodexSubagents | null;
   truncated: boolean;
   sequence: number;
@@ -373,6 +379,7 @@ class AcpSessionState {
     this.configOptions = [];
     this.title = '';
     this.updatedAt = '';
+    this.promptSuggestion = null;
     this.codexSubagents = null;
     this.truncated = false;
     this.sequence = 0;
@@ -453,10 +460,23 @@ class AcpSessionState {
     return this.revision;
   }
 
+  setPromptSuggestion(suggestion: AcpPromptSuggestion): boolean {
+    if (
+      this.promptSuggestion?.promptId === suggestion.promptId
+      && this.promptSuggestion.text === suggestion.text
+    ) {
+      return false;
+    }
+    this.promptSuggestion = clone(suggestion);
+    this.revision += 1;
+    return true;
+  }
+
   beginPrompt(prompt: unknown): AcpEntry {
     const content = Array.isArray(prompt)
       ? clone(prompt)
       : [{ type: 'text', text: String(prompt || '') }];
+    this.promptSuggestion = null;
     this.activePlanEntry = null;
     this.plan = null;
     const startedAt = Date.now();
@@ -909,6 +929,7 @@ class AcpSessionState {
       availableCommands: clone(this.availableCommands),
       currentModeId: this.currentModeId,
       configOptions: clone(this.configOptions),
+      promptSuggestion: clone(this.promptSuggestion),
       codexSubagents: clone(this.codexSubagents),
     };
     if (options.includeUpdates === true) snapshot.updates = clone(this.updates);

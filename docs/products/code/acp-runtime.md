@@ -32,6 +32,13 @@ authentication, elicitation, terminal, media, plan, and fork capabilities when
 the live Agent advertises them. Provider extensions must be versioned,
 negotiated, and confined to the adapter boundary.
 
+Qwen Code's version 1 prompt-suggestion notification is normalized at that
+boundary into ephemeral, provider-neutral Composer state. It can replace the
+empty follow-up placeholder and be copied into the draft with Tab, but it is
+not a transcript entry or a durable checkpoint field. A new Prompt invalidates
+the previous suggestion, and providers that do not emit the extension retain
+the ordinary placeholder.
+
 ## Runtime Ownership
 
 Each Config instance has one ACP Runtime Host. The Farming Server is a

@@ -49,6 +49,27 @@ export function shouldSubmitComposerEnter(
   return true
 }
 
+export function shouldAcceptComposerSuggestion(
+  event: ComposerKeyboardEventLike,
+  options: {
+    compositionActive: boolean
+    draft: string
+    suggestion: string
+    commandMenuOpen: boolean
+    active: boolean
+  },
+) {
+  return (
+    event.key === 'Tab'
+    && event.shiftKey !== true
+    && !isComposerImeCompositionEvent(event, options.compositionActive)
+    && options.active
+    && !options.commandMenuOpen
+    && options.draft.length === 0
+    && options.suggestion.length > 0
+  )
+}
+
 export function composerDraftForSubmit(
   textareaValue: string | null | undefined,
   latestDraft: string,

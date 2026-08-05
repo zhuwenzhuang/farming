@@ -25,6 +25,11 @@ Protocol、Integrity、Recovery 与 Chat/Terminal Compatibility。
 Authentication、Elicitation、Terminal、Media、Plan 与 Fork 能力。Provider Extension 必须
 带版本、可协商，并留在 Adapter 边界。
 
+Qwen Code 的 v1 Prompt Suggestion Notification 会在该边界归一化为临时、Provider-neutral
+的 Composer State。它可以替代空输入框的 Follow-up Placeholder，并通过 Tab 填入草稿，
+但不会成为 Transcript Entry，也不会写入持久 Checkpoint。新 Prompt 会使旧建议失效；没有
+发送该 Extension 的 Provider 继续显示普通 Placeholder。
+
 ## Runtime 所有权
 
 每个 Config Instance 有一个 ACP Runtime Host。Farming Server 是可替换 Controller；Host

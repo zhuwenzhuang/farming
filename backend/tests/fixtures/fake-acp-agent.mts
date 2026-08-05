@@ -498,6 +498,23 @@ class FakeAgent implements Agent {
   async prompt(params: PromptRequest): Promise<PromptResponse> {
     const promptText = params.prompt?.map(block => block.type === 'text' ? block.text : '').join('') || '';
     const imageCount = params.prompt?.filter(block => block.type === 'image').length || 0;
+    if (promptText.includes('prompt suggestion')) {
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          messageId: 'prompt-suggestion-answer',
+          content: { type: 'text', text: 'Prompt suggestion answer complete.' },
+        },
+      });
+      await client.extNotification('qwen/notify/session/prompt-suggestion', {
+        v: 1,
+        sessionId: params.sessionId,
+        suggestion: 'Run the focused regression tests',
+        promptId: `${params.sessionId}########1`,
+      });
+      return { stopReason: 'end_turn' };
+    }
     if (promptText.includes('host sigkill no replay')) {
       const marker = sessionScenarioMarker(params.sessionId, 'host-sigkill-prompt-count');
       if (marker) {

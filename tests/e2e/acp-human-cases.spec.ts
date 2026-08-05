@@ -24,6 +24,16 @@ async function createCodexAcpAgent(page: Page, workspace: string) {
   return payload.agentId as string
 }
 
+async function createQwenAcpAgent(page: Page, workspace: string) {
+  const response = await page.request.post('/farming/api/control/agents', {
+    data: { command: 'qwen', workspace, agentRuntimeMode: 'chat' },
+  })
+  expect(response.ok()).toBeTruthy()
+  const payload = await response.json() as { agentId?: string }
+  expect(payload.agentId).toBeTruthy()
+  return payload.agentId as string
+}
+
 function agentRow(page: Page, agentId: string) {
   return page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
 }
@@ -36,6 +46,29 @@ async function sendAcpMessage(page: Page, text: string) {
 }
 
 test.describe('ACP human-like browser matrix', () => {
+  test('shows a Qwen follow-up suggestion and copies it into the draft with Tab', async ({ page, workspaceRoot }) => {
+    const workspace = path.join(workspaceRoot, 'acp-qwen-prompt-suggestion')
+    fs.mkdirSync(workspace, { recursive: true })
+
+    const agentId = await createQwenAcpAgent(page, workspace)
+    await openFarming(page)
+    await agentRow(page, agentId).click()
+    const input = page.getByTestId('code-acp-composer-input')
+    await expect(input).toBeEditable({ timeout: 20_000 })
+    await sendAcpMessage(page, 'prompt suggestion')
+
+    await expect(page.getByText('Prompt suggestion answer complete.', { exact: true })).toBeVisible({ timeout: 20_000 })
+    await expect(input).toHaveAttribute('placeholder', 'Run the focused regression tests')
+    const userMessages = page.locator('.code-agent-transcript-user')
+    const userMessageCount = await userMessages.count()
+    await input.focus()
+    await input.press('Tab')
+    await expect(input).toHaveValue('Run the focused regression tests')
+    await expect(input).toBeFocused()
+    await expect(userMessages).toHaveCount(userMessageCount)
+    await expect(agentRow(page, agentId)).not.toHaveClass(/turn-active/)
+  })
+
   test('renders a Codex host visualization directly inside the Chat result', async ({ page, workspaceRoot }) => {
     const workspace = path.join(workspaceRoot, 'acp-inline-visualization')
     fs.mkdirSync(workspace, { recursive: true })

@@ -25,6 +25,7 @@ import { patchBlock, rejectPatch } from './acp/patch-decisions.cjs';
 import {
   getProviderAdapter,
   listProviderAdapters,
+  normalizeProviderAcpExtensionNotification,
   providerSupportsSharedAcpRuntime,
 } from './provider-adapters.cjs';
 import { isSafeProviderSessionId } from './provider-session-id.cjs';
@@ -48,7 +49,23 @@ interface ErrorLike {
   runtimeCleanupVerified?: boolean;
 }
 type AcpSdk = typeof import('@agentclientprotocol/sdk');
-interface AcpClientHandlers { [key: string]: (request: UnknownRecord) => unknown }
+type AcpSingleRequestHandler = (request: UnknownRecord) => unknown;
+type AcpExtensionNotificationHandler = (method: string, params: UnknownRecord) => unknown;
+interface AcpClientHandlers {
+  sessionUpdate: AcpSingleRequestHandler;
+  extNotification: AcpExtensionNotificationHandler;
+  requestPermission: AcpSingleRequestHandler;
+  readTextFile: AcpSingleRequestHandler;
+  writeTextFile: AcpSingleRequestHandler;
+  createTerminal: AcpSingleRequestHandler;
+  terminalOutput: AcpSingleRequestHandler;
+  waitForTerminalExit: AcpSingleRequestHandler;
+  killTerminal: AcpSingleRequestHandler;
+  releaseTerminal: AcpSingleRequestHandler;
+  unstable_createElicitation: AcpSingleRequestHandler;
+  unstable_completeElicitation: AcpSingleRequestHandler;
+}
+type AcpSingleRequestHandlerName = Exclude<keyof AcpClientHandlers, 'extNotification'>;
 
 interface PermissionOption { optionId: string; kind?: string }
 interface PermissionRequest extends UnknownRecord { options: PermissionOption[]; sessionId?: string; toolCall?: UnknownRecord }
@@ -2622,17 +2639,21 @@ class AcpRuntime extends EventEmitter {
   }
 
   sharedClientHandlers(runtime: AcpRuntimeProcess) {
-    const handler = (name: string, request: UnknownRecord) => {
+    const handler = (name: AcpSingleRequestHandlerName, request: UnknownRecord) => {
       const binding = this.bindingForRuntimeSession(runtime, String(request?.sessionId || ''));
       return binding ? runtime.handlers.get(binding.agentId)?.[name] : null;
     };
-    const request = (name: string) => async (params: UnknownRecord) => {
+    const request = (name: AcpSingleRequestHandlerName) => async (params: UnknownRecord) => {
       const target = handler(name, params);
       if (!target) throw new Error('ACP request does not match an active Session');
       return target(params);
     };
     return {
       sessionUpdate: (notification: UnknownRecord) => handler('sessionUpdate', notification)?.(notification),
+      extNotification: (method: string, params: UnknownRecord) => {
+        const binding = this.bindingForRuntimeSession(runtime, String(params?.sessionId || ''));
+        return binding ? runtime.handlers.get(binding.agentId)?.extNotification(method, params) : undefined;
+      },
       requestPermission: async (params: UnknownRecord) => {
         const target = handler('requestPermission', params);
         return target ? target(params) : { outcome: { outcome: 'cancelled' } };
@@ -2724,6 +2745,23 @@ class AcpRuntime extends EventEmitter {
         return normalizeCodexHostMessageUpdate(binding, notification).then(normalized => {
           for (const item of normalized) applyNotification(item);
         });
+      },
+      extNotification: (method: string, params: UnknownRecord) => {
+        if (!this.isOpenBinding(binding) || binding.state === 'closed') return;
+        const event = normalizeProviderAcpExtensionNotification(binding.provider, method, params);
+        if (
+          !event
+          || event.kind !== 'prompt-suggestion'
+          || event.sessionId !== binding.sessionId
+          || !binding.sessionState?.setPromptSuggestion({
+            text: event.text,
+            promptId: event.promptId,
+          })
+        ) {
+          return;
+        }
+        binding.updatedAt = new Date().toISOString();
+        this.emitSession(binding);
       },
       requestPermission: (request: UnknownRecord) => this.requestPermission(binding, request),
       readTextFile: openClientRequest((request: UnknownRecord) => this.clientFileSystem.readTextFile(binding, request)),

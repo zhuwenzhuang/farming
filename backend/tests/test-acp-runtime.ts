@@ -370,6 +370,26 @@ async function run() {
       sharedRuntime.getSession(sharedAgents.at(-1)).entries.at(-1).content[0].text,
       'last-agent-answer',
     );
+    const sharedExtensionCalls = [];
+    const sharedExtensionBinding = sharedRuntime.bindings.get(sharedAgents[0]);
+    const sharedExtensionHandlers = sharedExtensionBinding.runtime.handlers.get(sharedAgents[0]);
+    sharedExtensionBinding.runtime.handlers.set(sharedAgents[0], {
+      ...sharedExtensionHandlers,
+      extNotification(method, params) {
+        sharedExtensionCalls.push({ method, params });
+      },
+    });
+    sharedHandlerSets[0].extNotification('provider/notify/example', {
+      sessionId: preparedShared[0].sessionId,
+      value: 'routed-to-exact-owner',
+    });
+    assert.deepStrictEqual(sharedExtensionCalls, [{
+      method: 'provider/notify/example',
+      params: {
+        sessionId: preparedShared[0].sessionId,
+        value: 'routed-to-exact-owner',
+      },
+    }], 'shared ACP extension notifications must route through the exact Session owner');
     await sharedRuntime.setSessionConfigOption(sharedAgents[0], 'fast-mode', true);
     assert.strictEqual(
       sharedRuntime.getSession(sharedAgents[0]).configOptions[0].currentValue,
@@ -903,6 +923,28 @@ async function run() {
   assert.strictEqual(reduced.entries.length, 3);
   assert.strictEqual(reduced.entries[1].content[0].text, 'one two');
   assert.strictEqual(reduced.entries[2].status, 'completed');
+  const suggestionRevision = state.revision;
+  assert.strictEqual(state.setPromptSuggestion({
+    text: 'Run the focused regression tests',
+    promptId: 's1########1',
+  }), true);
+  assert.deepStrictEqual(state.snapshot().promptSuggestion, {
+    text: 'Run the focused regression tests',
+    promptId: 's1########1',
+  });
+  assert.strictEqual(state.revision, suggestionRevision + 1);
+  assert.strictEqual(state.setPromptSuggestion({
+    text: 'Run the focused regression tests',
+    promptId: 's1########1',
+  }), false, 'duplicate suggestions must not advance the Session revision');
+  assert.strictEqual(
+    Object.prototype.hasOwnProperty.call(state.exportCheckpoint(), 'promptSuggestion'),
+    false,
+    'Composer suggestions must not persist into ACP checkpoints',
+  );
+  state.beginPrompt('question after suggestion');
+  assert.strictEqual(state.snapshot().promptSuggestion, null, 'a new Prompt must clear the previous suggestion');
+  state.completePrompt('end_turn');
   state.apply({ sessionId: 's1', update: {
     sessionUpdate: 'usage_update', used: 53_000, size: 200_000, cost: { amount: 0.045, currency: 'USD' },
   } });
@@ -1375,6 +1417,61 @@ async function run() {
     const prepared = await preparing;
     assert.strictEqual(prepared.sessionId, 'acp-new-session');
     assert.strictEqual(prepared.historyMode, 'new');
+
+    const qwenPrepared = await runtime.prepareAgent({
+      agentId: 'agent-acp-qwen-suggestion',
+      provider: 'qwen',
+      cwd: process.cwd(),
+      env: process.env,
+      approvalMode: 'full',
+    });
+    const qwenBinding = runtime.bindings.get('agent-acp-qwen-suggestion');
+    const qwenHandlers = runtime.clientHandlers(qwenBinding);
+    const beforeSuggestionRevision = runtime.getSession('agent-acp-qwen-suggestion').revision;
+    qwenHandlers.extNotification('qwen/notify/session/prompt-suggestion', {
+      v: 1,
+      sessionId: qwenPrepared.sessionId,
+      suggestion: 'Inspect the generated tests',
+      promptId: `${qwenPrepared.sessionId}########1`,
+    });
+    assert.deepStrictEqual(
+      runtime.getSession('agent-acp-qwen-suggestion').promptSuggestion,
+      {
+        text: 'Inspect the generated tests',
+        promptId: `${qwenPrepared.sessionId}########1`,
+      },
+      'Qwen extension notifications should populate provider-neutral Composer state',
+    );
+    assert.strictEqual(
+      runtime.getSession('agent-acp-qwen-suggestion').revision,
+      beforeSuggestionRevision + 1,
+    );
+    qwenHandlers.extNotification('qwen/notify/session/prompt-suggestion', {
+      v: 1,
+      sessionId: 'different-session',
+      suggestion: 'Must be ignored',
+      promptId: 'different-session########1',
+    });
+    assert.strictEqual(
+      runtime.getSession('agent-acp-qwen-suggestion').promptSuggestion.text,
+      'Inspect the generated tests',
+      'suggestions from another Session must not replace the current Composer state',
+    );
+    runtime.clientHandlers(runtime.bindings.get('agent-acp-new')).extNotification(
+      'qwen/notify/session/prompt-suggestion',
+      {
+        v: 1,
+        sessionId: prepared.sessionId,
+        suggestion: 'Must not cross provider boundaries',
+        promptId: `${prepared.sessionId}########1`,
+      },
+    );
+    assert.strictEqual(
+      runtime.getSession('agent-acp-new').promptSuggestion,
+      null,
+      'non-Qwen ACP Sessions must ignore the Qwen extension',
+    );
+
     const spawnedAdapterCountBeforeMissingForkCheckpoint = spawnedAdapters.length;
     await assert.rejects(
       runtime.prepareAgent({

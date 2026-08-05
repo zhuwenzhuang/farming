@@ -74,11 +74,24 @@ interface ProviderAcpLaunch {
   args: string[];
 }
 
+interface ProviderAcpPromptSuggestion {
+  kind: 'prompt-suggestion';
+  sessionId: string;
+  text: string;
+  promptId: string;
+}
+
+type ProviderAcpExtensionEvent = ProviderAcpPromptSuggestion;
+
 interface ProviderAcpContract {
   packageName?: string;
   version: string;
   sharedRuntime?: boolean;
   launch?: (options: ProviderAcpLaunchOptions) => ProviderAcpLaunch;
+  normalizeExtensionNotification?: (
+    method: string,
+    params: Record<string, unknown>,
+  ) => ProviderAcpExtensionEvent | null;
 }
 
 interface ProviderCapabilitiesContract {
@@ -560,6 +573,14 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
           '--acp',
         ],
       }),
+      normalizeExtensionNotification: (method, params) => {
+        if (method !== 'qwen/notify/session/prompt-suggestion' || params.v !== 1) return null;
+        const sessionId = typeof params.sessionId === 'string' ? params.sessionId.trim() : '';
+        const text = typeof params.suggestion === 'string' ? params.suggestion.trim() : '';
+        const promptId = typeof params.promptId === 'string' ? params.promptId.trim() : '';
+        if (!sessionId || !text || text.length > 500 || !promptId) return null;
+        return { kind: 'prompt-suggestion', sessionId, text, promptId };
+      },
     },
     capabilities: {
       runtimeSwitch: true,
@@ -648,12 +669,26 @@ function isFreshAcpSessionSource(provider: unknown, source: string): boolean {
   return getProviderAdapter(provider)?.freshAcpSessionSources.includes(source) === true;
 }
 
+function normalizeProviderAcpExtensionNotification(
+  provider: unknown,
+  method: unknown,
+  params: unknown,
+): ProviderAcpExtensionEvent | null {
+  const adapter = getProviderAdapter(provider);
+  if (!adapter?.acp.normalizeExtensionNotification || !params || typeof params !== 'object') return null;
+  return adapter.acp.normalizeExtensionNotification(
+    String(method || ''),
+    params as Record<string, unknown>,
+  );
+}
+
 export {
   claudeAcpEnvironment,
   getProviderAdapter,
   applyProviderHomeEnvironment,
   isFreshAcpSessionSource,
   listProviderAdapters,
+  normalizeProviderAcpExtensionNotification,
   providerConversationForkCapability,
   providerCapabilities,
   providerForProgram,

@@ -73,6 +73,11 @@ requested only after this explicit choice, older events are not replayed after
 reload or reconnect, and selecting a notification returns to the matching
 Agent. Browser notification support normally requires HTTPS or localhost.
 
+Qwen Code can emit Terminal-native notifications while local subagents are still
+running, and its busy signal can briefly become idle within the same parent turn.
+Farming waits for the parent Terminal turn to remain idle before creating unread
+attention, so transient idle edges do not mark an active Agent unread.
+
 ## More
 
 - [Farming CRT](../crt/README.md)
