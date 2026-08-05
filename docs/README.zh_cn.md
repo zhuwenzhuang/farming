@@ -4,7 +4,7 @@
 
 安装、产品使用、常见工作流和故障排查统一发布在支持中英切换的在线文档站：
 
-- [中文用户文档](https://zhuwenzhuang.github.io/farming/)
+- [中文用户文档](https://zhuwenzhuang.github.io/farming/cn/)
 
 仓库继续保存与代码共同演进的长期工程材料：
 

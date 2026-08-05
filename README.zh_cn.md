@@ -11,7 +11,7 @@
 <p align="center"><a href="./README.md">English</a></p>
 
 <p align="center">
-  <a href="https://zhuwenzhuang.github.io/farming/">在线文档</a> ·
+  <a href="https://zhuwenzhuang.github.io/farming/cn/">在线文档</a> ·
   <a href="https://github.com/zhuwenzhuang/farming/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/zhuwenzhuang/farming/actions/workflows/ci.yml/badge.svg"></a>
   <a href="https://github.com/zhuwenzhuang/farming/releases"><img alt="Release" src="https://img.shields.io/github/v/release/zhuwenzhuang/farming?label=release"></a>
   <a href="https://www.npmjs.com/package/farming-code"><img alt="npm" src="https://img.shields.io/npm/v/farming-code?label=npm"></a>
@@ -95,7 +95,7 @@ Farming 会控制开发机上的真实终端和文件。请只运行在可信主
 
 ## 文档
 
-- [在线中文文档](https://zhuwenzhuang.github.io/farming/)
+- [在线中文文档](https://zhuwenzhuang.github.io/farming/cn/)
 - [仓库架构与开发文档](./docs/README.zh_cn.md)
 - [版本历史](https://github.com/zhuwenzhuang/farming/releases)
 - [参与贡献](./CONTRIBUTING.zh_cn.md)
