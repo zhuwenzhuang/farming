@@ -60,6 +60,11 @@ Connection 相互隔离，一个 Viewer 不能为其它 Viewer 积累无界 Debt
 持续 Output 可以为 Rendering Batch，但每个 Transition 仍保持有序且可检测 Gap。Resize Redraw
 形成 Presentation Boundary，让 Full-screen TUI 稳定后再显示新 Cut。
 
+服务端按 Agent 使用有界的一秒时间桶统计终端输出速率。每个时间桶累计输出字节数和输出片段数，
+只保留最近五分钟。用量速率和注意力评分读取这些时间桶，不再为每个输出片段保存并扫描一个独立
+对象。时间窗口边界最多产生一个时间桶的估算误差；终端输出顺序和实际字节传输仍保持精确，不依赖
+这项诊断统计。
+
 xterm.js WebGL 是 Code 与 CRT 唯一受支持的 Product Renderer。Renderer Failure 显式展示；
 Retry 重建同一支持路径。Diagnostic Renderer 不能成为静默 Production Fallback。
 

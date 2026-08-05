@@ -75,6 +75,14 @@ Sustained output may be batched for rendering, but every transition remains
 ordered and gap-detectable. Resize redraws form a presentation boundary so a
 full-screen TUI settles before the browser paints the new cut.
 
+Server-side output-rate accounting uses bounded one-second buckets per Agent.
+Each bucket accumulates output bytes and chunk count, and only the current
+five-minute estimation window is retained. Usage-rate and attention projections
+read those buckets instead of storing and rescanning one object per output
+chunk. The estimate may differ by at most one bucket at a time-window boundary;
+terminal ordering and byte delivery remain exact and independent of this
+diagnostic projection.
+
 xterm.js WebGL is the supported product renderer for Code and CRT. Renderer
 failure is explicit; retry reconstructs the same supported path. Diagnostic
 renderers do not become silent production fallbacks.

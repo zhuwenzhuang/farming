@@ -4,6 +4,7 @@ const { AgentManager } = require('../../backend/agent-manager.cjs');
 
 const calculateAgentUsageRate = AgentManager.prototype.calculateAgentUsageRate;
 const getAgentUsageRate = AgentManager.prototype.getAgentUsageRate;
+const recordAgentOutputActivity = AgentManager.prototype.recordAgentOutputActivity;
 const NOW = 10_000_000;
 const WINDOW_MS = 5 * 60 * 1000;
 
@@ -13,19 +14,33 @@ function median(values: number[]): number {
 }
 
 function benchmark(eventCount: number) {
-  const events = Array.from({ length: eventCount }, (_, index) => ({
-    timestamp: NOW - (index % WINDOW_MS),
-    bytes: 16 + (index % 64),
-  }));
+  const bucketCount = Math.min(300, eventCount);
   let calculationCount = 0;
   const manager = {
-    outputEvents: new Map([['agent', events]]),
+    outputActivityBuckets: new Map(),
     agentUsageRateCache: new Map(),
     calculateAgentUsageRate(agentId, options) {
       calculationCount += 1;
       return calculateAgentUsageRate.call(this, agentId, options);
     },
   };
+  const aggregationStartedAt = performance.now();
+  for (let index = 0; index < eventCount; index += 1) {
+    const bucketIndex = Math.min(
+      bucketCount - 1,
+      Math.floor((index * bucketCount) / eventCount),
+    );
+    const eventAt = NOW - (bucketCount - 1 - bucketIndex) * 1000;
+    recordAgentOutputActivity.call(manager, 'agent', 32, eventAt);
+  }
+  const aggregationMs = performance.now() - aggregationStartedAt;
+  const buckets = manager.outputActivityBuckets.get('agent');
+  assert.strictEqual(buckets.length, bucketCount);
+  assert.deepStrictEqual(
+    buckets.map(bucket => bucket.bucketStartedAt),
+    [...buckets].sort((left, right) => left.bucketStartedAt - right.bucketStartedAt)
+      .map(bucket => bucket.bucketStartedAt),
+  );
   const iterations = 100_000;
 
   getAgentUsageRate.call(manager, 'agent', { now: NOW, windowMs: WINDOW_MS });
@@ -46,6 +61,8 @@ function benchmark(eventCount: number) {
 
   return {
     eventCount,
+    bucketCount,
+    aggregationMs: Math.round(aggregationMs * 1000) / 1000,
     iterations,
     exactCalculationCount: calculationCount,
     medianMicrosecondsPerCachedCall: Math.round(median(samples) * 1_000_000) / 1000,

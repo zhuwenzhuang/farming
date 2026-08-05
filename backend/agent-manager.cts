@@ -412,9 +412,12 @@ interface AdaptiveTitlePersistenceEntry {
   titleUpdateToken: string;
 }
 
-interface TerminalOutputActivity {
+interface TerminalOutputActivityBucket {
+  bucketStartedAt: number;
   bytes: number;
-  timestamp: number;
+  eventCount: number;
+  firstEventAt: number;
+  lastEventAt: number;
 }
 
 interface UsageRateOptions {
@@ -430,6 +433,93 @@ interface AgentUsageRate {
   sampledAt: number;
   source: string;
   windowMs: number;
+}
+
+function terminalOutputActivityTotals(
+  buckets: TerminalOutputActivityBucket[],
+  options: {
+    cutoff: number;
+    inclusiveCutoff?: boolean;
+    maximumEventAt?: number;
+  },
+): { bytes: number; eventCount: number } {
+  const maximumEventAt = options.maximumEventAt ?? Number.POSITIVE_INFINITY;
+  const inclusiveCutoff = options.inclusiveCutoff !== false;
+  let bytes = 0;
+  let eventCount = 0;
+  for (const bucket of buckets) {
+    const beforeCutoff = inclusiveCutoff
+      ? bucket.lastEventAt < options.cutoff
+      : bucket.lastEventAt <= options.cutoff;
+    if (beforeCutoff || bucket.firstEventAt > maximumEventAt) continue;
+    bytes += Math.max(0, bucket.bytes || 0);
+    eventCount += Math.max(0, bucket.eventCount || 0);
+  }
+  return { bytes, eventCount };
+}
+
+function recordTerminalOutputActivity(
+  buckets: TerminalOutputActivityBucket[],
+  timestamp: number,
+  bytes: number,
+): void {
+  const observedAt = Date.now();
+  const requestedEventAt = Number.isFinite(timestamp) ? Math.floor(timestamp) : observedAt;
+  const eventAt = Math.min(
+    requestedEventAt,
+    observedAt + TERMINAL_OUTPUT_ACTIVITY_FUTURE_TOLERANCE_MS,
+  );
+  const outputBytes = Number.isFinite(bytes) ? Math.max(0, Math.floor(bytes)) : 0;
+  const bucketStartedAt = Math.floor(eventAt / TERMINAL_OUTPUT_ACTIVITY_BUCKET_MS)
+    * TERMINAL_OUTPUT_ACTIVITY_BUCKET_MS;
+  const lastBucket = buckets.at(-1);
+  let bucket = lastBucket?.bucketStartedAt === bucketStartedAt ? lastBucket : undefined;
+  let insertionIndex = buckets.length;
+  if (!bucket && lastBucket && bucketStartedAt < lastBucket.bucketStartedAt) {
+    for (let index = buckets.length - 1; index >= 0; index -= 1) {
+      const candidate = buckets[index];
+      if (candidate.bucketStartedAt === bucketStartedAt) {
+        bucket = candidate;
+        break;
+      }
+      if (candidate.bucketStartedAt < bucketStartedAt) {
+        insertionIndex = index + 1;
+        break;
+      }
+      insertionIndex = index;
+    }
+  }
+  if (!bucket) {
+    bucket = {
+      bucketStartedAt,
+      bytes: 0,
+      eventCount: 0,
+      firstEventAt: eventAt,
+      lastEventAt: eventAt,
+    };
+    if (!lastBucket || bucketStartedAt > lastBucket.bucketStartedAt) {
+      buckets.push(bucket);
+    } else {
+      buckets.splice(insertionIndex, 0, bucket);
+    }
+  }
+  bucket.bytes += outputBytes;
+  bucket.eventCount += 1;
+  bucket.firstEventAt = Math.min(bucket.firstEventAt, eventAt);
+  bucket.lastEventAt = Math.max(bucket.lastEventAt, eventAt);
+
+  const newestEventAt = Math.max(eventAt, buckets.at(-1)?.lastEventAt || eventAt);
+  const retentionCutoff = newestEventAt
+    - AGENT_USAGE_RATE_WINDOW_MS
+    - TERMINAL_OUTPUT_ACTIVITY_BUCKET_MS
+    - TERMINAL_OUTPUT_ACTIVITY_FUTURE_TOLERANCE_MS;
+  while (buckets[0] && buckets[0].lastEventAt < retentionCutoff) buckets.shift();
+}
+
+function agentUsageRateWindowMs(value: unknown): number {
+  const requested = Number(value);
+  if (!Number.isFinite(requested) || requested <= 0) return AGENT_USAGE_RATE_WINDOW_MS;
+  return Math.min(AGENT_USAGE_RATE_WINDOW_MS, Math.max(1, Math.floor(requested)));
 }
 
 export interface AgentPublicState extends UnknownRecord {
@@ -573,6 +663,8 @@ interface TerminalSize {
 const SESSION_OUTPUT_LIMIT = 10000;
 const AGENT_USAGE_RATE_WINDOW_MS = 5 * 60 * 1000;
 const AGENT_USAGE_RATE_REFRESH_MS = 5 * 1000;
+const TERMINAL_OUTPUT_ACTIVITY_BUCKET_MS = 1000;
+const TERMINAL_OUTPUT_ACTIVITY_FUTURE_TOLERANCE_MS = 1000;
 const ACTIVITY_UPDATE_INTERVAL_MS = 1000;
 const ACTIVITY_HOT_SEC = 30 * 60;
 const ACTIVITY_WARM_SEC = 3 * 60 * 60;
@@ -1416,7 +1508,7 @@ class AgentManager extends EventEmitter {
     ReturnType<typeof deriveAgentTerminalStatus>
   >;
   declare codexTerminalProfileProjections: WeakMap<TypedAgentRecord, object | null>;
-  declare outputEvents: Map<AgentId, TerminalOutputActivity[]>;
+  declare outputActivityBuckets: Map<AgentId, TerminalOutputActivityBucket[]>;
   declare agentUsageRateCache: Map<AgentId, { sampledAt: number; value: AgentUsageRate; windowMs: number }>;
   declare lastResizeByAgent: Map<AgentId, TerminalSize>;
   declare pendingResizeByAgent: Map<AgentId, TerminalSize>;
@@ -1498,7 +1590,7 @@ class AgentManager extends EventEmitter {
     this.lastActivityUpdate = new Map();
     this.terminalStatusProjections = new WeakMap();
     this.codexTerminalProfileProjections = new WeakMap();
-    this.outputEvents = new Map(); // Map<agentId, Array<{timestamp, bytes}>> for rate tracking
+    this.outputActivityBuckets = new Map();
     this.agentUsageRateCache = new Map();
     this.lastResizeByAgent = new Map();
     this.pendingResizeByAgent = new Map();
@@ -1900,10 +1992,11 @@ class AgentManager extends EventEmitter {
         agent.lastEngineOutputAt = outputAt;
         this.lastActivity.set(sessionId, outputAt);
 
-        // Track output events for rate calculation
-        const events = this.outputEvents.get(sessionId) || [];
-        events.push({ timestamp: outputAt, bytes: Buffer.byteLength(String(data), 'utf8') });
-        this.outputEvents.set(sessionId, events);
+        this.recordAgentOutputActivity(
+          sessionId,
+          Buffer.byteLength(String(data), 'utf8'),
+          outputAt,
+        );
         this.getAgentUsageRate(sessionId, { now: outputAt });
 
         this.observeAgentAttentionState(sessionId);
@@ -1946,7 +2039,7 @@ class AgentManager extends EventEmitter {
         agent.output = '';
         agent.previewText = '';
         agent.previewSnapshot = null;
-        this.outputEvents.delete(sessionId);
+        this.outputActivityBuckets.delete(sessionId);
         this.agentUsageRateCache.delete(sessionId);
       }
       if (Number.isFinite(cols) && cols > 0) agent.previewCols = cols;
@@ -2263,7 +2356,7 @@ class AgentManager extends EventEmitter {
           this.agents.delete(sessionId);
           this.lastActivity.delete(sessionId);
           this.lastActivityUpdate.delete(sessionId);
-          this.outputEvents.delete(sessionId);
+          this.outputActivityBuckets.delete(sessionId);
           this.agentUsageRateCache.delete(sessionId);
           this.lastResizeByAgent.delete(sessionId);
 
@@ -6213,7 +6306,7 @@ class AgentManager extends EventEmitter {
       this.acpTurnFinalizationTails.delete(agentId);
       this.lastActivity.delete(agentId);
       this.lastActivityUpdate.delete(agentId);
-      this.outputEvents.delete(agentId);
+      this.outputActivityBuckets.delete(agentId);
       this.agentUsageRateCache.delete(agentId);
       this.lastResizeByAgent.delete(agentId);
       this.codexTerminalIdentityAttempts.delete(agentId);
@@ -10537,7 +10630,7 @@ class AgentManager extends EventEmitter {
     this.verifiedStoppedAgentIds.delete(agentId);
     this.lastActivity.delete(agentId);
     this.lastActivityUpdate.delete(agentId);
-    this.outputEvents.delete(agentId);
+    this.outputActivityBuckets.delete(agentId);
     this.agentUsageRateCache.delete(agentId);
     this.lastResizeByAgent.delete(agentId);
     this.codexTerminalIdentityAttempts.delete(agentId);
@@ -10770,9 +10863,15 @@ class AgentManager extends EventEmitter {
     };
   }
 
+  recordAgentOutputActivity(agentId: AgentId, bytes: number, timestamp = Date.now()) {
+    const buckets = this.outputActivityBuckets.get(agentId) || [];
+    recordTerminalOutputActivity(buckets, timestamp, bytes);
+    this.outputActivityBuckets.set(agentId, buckets);
+  }
+
   getAgentUsageRate(agentId: AgentId, options: UsageRateOptions = {}): AgentUsageRate {
     const now = options.now || Date.now();
-    const windowMs = options.windowMs || AGENT_USAGE_RATE_WINDOW_MS;
+    const windowMs = agentUsageRateWindowMs(options.windowMs);
     const cached = this.agentUsageRateCache.get(agentId);
     if (
       cached
@@ -10790,17 +10889,26 @@ class AgentManager extends EventEmitter {
 
   calculateAgentUsageRate(agentId: AgentId, options: UsageRateOptions = {}): AgentUsageRate {
     const now = options.now || Date.now();
-    const windowMs = options.windowMs || AGENT_USAGE_RATE_WINDOW_MS;
+    const windowMs = agentUsageRateWindowMs(options.windowMs);
     const cutoff = now - windowMs;
-    const events = (this.outputEvents.get(agentId) || []).filter((event: TerminalOutputActivity) => (
-      event.timestamp >= cutoff && event.timestamp <= now + 1000
+    const retentionCutoff = now - AGENT_USAGE_RATE_WINDOW_MS;
+    const buckets = (this.outputActivityBuckets.get(agentId) || []).filter((bucket) => (
+      bucket.lastEventAt >= retentionCutoff
+      && bucket.firstEventAt <= now + TERMINAL_OUTPUT_ACTIVITY_FUTURE_TOLERANCE_MS
     ));
-    if (events.length > 0) {
-      this.outputEvents.set(agentId, events);
+    if (buckets.length > 0) {
+      this.outputActivityBuckets.set(agentId, buckets);
     } else {
-      this.outputEvents.delete(agentId);
+      this.outputActivityBuckets.delete(agentId);
     }
-    const outputBytes = events.reduce((sum: number, event: TerminalOutputActivity) => sum + Math.max(0, event.bytes || 0), 0);
+    const activity = terminalOutputActivityTotals(
+      buckets,
+      {
+        cutoff,
+        maximumEventAt: now + TERMINAL_OUTPUT_ACTIVITY_FUTURE_TOLERANCE_MS,
+      },
+    );
+    const outputBytes = activity.bytes;
     const estimatedOutputTokens = Math.ceil(outputBytes / 4);
     const windowMinutes = Math.max(1, windowMs / 60_000);
 
@@ -10809,7 +10917,7 @@ class AgentManager extends EventEmitter {
       outputBytes,
       estimatedOutputTokens,
       estimatedTokensPerMinute: Math.round((estimatedOutputTokens / windowMinutes) * 10) / 10,
-      eventCount: events.length,
+      eventCount: activity.eventCount,
       sampledAt: now,
       source: 'terminal-output-estimate',
     };
@@ -10817,7 +10925,7 @@ class AgentManager extends EventEmitter {
 
   getAgentUsageSnapshots(options: UsageRateOptions = {}) {
     const now = options.now || Date.now();
-    const windowMs = options.windowMs || AGENT_USAGE_RATE_WINDOW_MS;
+    const windowMs = agentUsageRateWindowMs(options.windowMs);
     const agents = Array.from(this.agents.values())
       .filter((value: unknown): value is TypedAgentRecord => isRecord(value) && typeof value.id === 'string')
       .map((agent: TypedAgentRecord) => ({
@@ -11019,13 +11127,17 @@ class AgentManager extends EventEmitter {
     else if (secsSinceActivity < ACTIVITY_WARM_SEC) score += 30;
     else if (secsSinceActivity < ACTIVITY_COOL_SEC) score += 15;
 
-    // Output rate (0-30) — based on events in last 30s
-    const events = this.outputEvents.get(agentId) || [];
-    const recentEvents = events.filter((e: TerminalOutputActivity) => (now - e.timestamp) < 30000);
-    if (recentEvents.length > 0) {
-      const eventsPerSec = recentEvents.length / 30;
-      const totalBytes = recentEvents.reduce((sum: number, e: TerminalOutputActivity) => sum + e.bytes, 0);
-      const bytesPerSec = totalBytes / 30;
+    // Output rate (0-30) — based on bounded one-second buckets from the last 30s
+    const recentOutput = terminalOutputActivityTotals(
+      this.outputActivityBuckets.get(agentId) || [],
+      {
+        cutoff: now - 30_000,
+        inclusiveCutoff: false,
+      },
+    );
+    if (recentOutput.eventCount > 0) {
+      const eventsPerSec = recentOutput.eventCount / 30;
+      const bytesPerSec = recentOutput.bytes / 30;
       score += Math.min(30, Math.round(eventsPerSec * 6 + bytesPerSec / 50));
     }
 
