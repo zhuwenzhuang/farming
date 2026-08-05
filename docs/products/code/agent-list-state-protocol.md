@@ -155,6 +155,9 @@ match the same Agent record and refresh generation before it can publish a
 list update. Git command timeouts or inspection failure leave the authoritative
 Agent lifecycle intact and only omit or clear the optional decoration. This
 resource boundary limits background process bursts, not the number of Agents.
+Repository-wide Worktree enumeration is reused for a short bounded interval by
+the exact normalized Git common directory. Lifecycle postcondition checks use
+a fresh read and do not consume a cached enumeration.
 
 Every snapshot and delta identifies the backend generation and an increasing
 sequence. A client applies only the next sequence in its current generation.

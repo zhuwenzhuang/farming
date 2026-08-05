@@ -57,6 +57,7 @@ interface GitWorktreeInspectOptions {
   cacheMs?: number;
   execFileAsync?: ExecFileAsync;
   timeoutMs?: number;
+  worktreeListCache?: GitWorktreeListCache;
 }
 
 interface GitWorktreeCacheEntry {
@@ -64,9 +65,30 @@ interface GitWorktreeCacheEntry {
   promise: Promise<GitWorktreeInfo | null>;
 }
 
+interface GitWorktreeListCacheEntry {
+  fetchedAt: number;
+  pending: boolean;
+  promise: Promise<GitWorktreeRecord[]>;
+}
+
+interface GitWorktreeListCacheOptions {
+  maxEntries?: number;
+  now?: () => number;
+}
+
+interface GitWorktreeListCache {
+  get(
+    commonDir: string,
+    maxAgeMs: number,
+    load: () => Promise<GitWorktreeRecord[]>,
+  ): Promise<GitWorktreeRecord[]>;
+}
+
 const execFileAsync = promisify(execFile) as unknown as ExecFileAsync;
 const DEFAULT_TIMEOUT_MS = 5000;
 const DEFAULT_CACHE_MS = 3000;
+const MAX_CANDIDATE_CACHE_ENTRIES = 1024;
+const DEFAULT_WORKTREE_LIST_CACHE_ENTRIES = 256;
 const cache = new Map<string, GitWorktreeCacheEntry>();
 
 function normalizePathValue(value: unknown): string {
@@ -85,6 +107,68 @@ function normalizeBranchRef(value: unknown): string {
   const branch = String(value || '').trim();
   return branch.startsWith('refs/heads/') ? branch.slice('refs/heads/'.length) : branch;
 }
+
+function cacheMaxAge(options: GitWorktreeInspectOptions): number {
+  return typeof options.cacheMs === 'number' && Number.isFinite(options.cacheMs)
+    ? Math.max(0, options.cacheMs)
+    : DEFAULT_CACHE_MS;
+}
+
+function createGitWorktreeListCache(
+  options: GitWorktreeListCacheOptions = {},
+): GitWorktreeListCache {
+  const requestedMaxEntries = Number(options.maxEntries ?? DEFAULT_WORKTREE_LIST_CACHE_ENTRIES);
+  const maxEntries = Number.isFinite(requestedMaxEntries)
+    ? Math.max(1, Math.floor(requestedMaxEntries))
+    : DEFAULT_WORKTREE_LIST_CACHE_ENTRIES;
+  const now = typeof options.now === 'function' ? options.now : () => Date.now();
+  const entries = new Map<string, GitWorktreeListCacheEntry>();
+
+  const touch = (commonDir: string, entry: GitWorktreeListCacheEntry) => {
+    entries.delete(commonDir);
+    entries.set(commonDir, entry);
+  };
+
+  return {
+    get(commonDir, maxAgeMs, load) {
+      const existing = entries.get(commonDir);
+      if (
+        maxAgeMs > 0
+        && existing
+        && (existing.pending || now() - existing.fetchedAt <= maxAgeMs)
+      ) {
+        touch(commonDir, existing);
+        return existing.promise;
+      }
+      if (existing) entries.delete(commonDir);
+
+      const entry = {} as GitWorktreeListCacheEntry;
+      const promise = Promise.resolve()
+        .then(load)
+        .then(records => {
+          entry.fetchedAt = now();
+          entry.pending = false;
+          return records;
+        })
+        .catch((error: unknown) => {
+          if (entries.get(commonDir) === entry) entries.delete(commonDir);
+          throw error;
+        });
+      entry.fetchedAt = 0;
+      entry.pending = true;
+      entry.promise = promise;
+      entries.set(commonDir, entry);
+      while (entries.size > maxEntries) {
+        const oldestKey = entries.keys().next().value;
+        if (typeof oldestKey !== 'string') break;
+        entries.delete(oldestKey);
+      }
+      return promise;
+    },
+  };
+}
+
+const worktreeListCache = createGitWorktreeListCache();
 
 function parseGitWorktreeList(output: unknown): GitWorktreeRecord[] {
   const records: GitWorktreeRecord[] = [];
@@ -157,23 +241,34 @@ async function inspectGitWorktreeUncached(
       const value = String(stdout || '').trim();
       return { stdout: path.isAbsolute(value) ? value : path.resolve(candidate, value) };
     });
-    const [{ stdout: topLevelOutput }, { stdout: commonDirOutput }, { stdout: listOutput }] = await Promise.all([
+    const [{ stdout: topLevelOutput }, { stdout: commonDirOutput }] = await Promise.all([
       exec('git', ['-C', candidate, 'rev-parse', '--show-toplevel'], {
         timeout,
         maxBuffer: 1024 * 1024,
       }),
       commonDirPromise,
-      exec('git', ['-C', candidate, 'worktree', 'list', '--porcelain', '-z'], {
-        timeout,
-        maxBuffer: 4 * 1024 * 1024,
-      }),
     ]);
 
     const topLevel = normalizePathValue(topLevelOutput);
     const commonDir = normalizePathValue(commonDirOutput);
-    const worktrees = parseGitWorktreeList(listOutput);
+    if (!topLevel || !commonDir) return null;
+    const loadWorktrees = async () => {
+      const { stdout } = await exec('git', [
+        '--git-dir', commonDir,
+        'worktree', 'list', '--porcelain', '-z',
+      ], {
+        timeout,
+        maxBuffer: 4 * 1024 * 1024,
+      });
+      return parseGitWorktreeList(stdout);
+    };
+    const repositoryCache = options.worktreeListCache
+      || (options.execFileAsync ? null : worktreeListCache);
+    const worktrees = repositoryCache
+      ? await repositoryCache.get(commonDir, cacheMaxAge(options), loadWorktrees)
+      : await loadWorktrees();
     const worktree = matchingWorktree(worktrees, topLevel || candidate);
-    if (!topLevel || !commonDir || !worktree) return null;
+    if (!worktree) return null;
     const mainWorktree = worktrees.find(record => !record.bare) || null;
     const linked = Boolean(mainWorktree && mainWorktree.path !== worktree.path);
     const mainWorkspace = mainWorktree ? mainWorktree.path : worktree.path;
@@ -218,16 +313,24 @@ async function inspectGitWorktree(
   const candidate = normalizePathValue(workspace);
   if (!candidate) return null;
   const now = Date.now();
-  const maxAgeMs = typeof options.cacheMs === 'number' && Number.isFinite(options.cacheMs)
-    ? Math.max(0, options.cacheMs)
-    : DEFAULT_CACHE_MS;
+  const maxAgeMs = cacheMaxAge(options);
   const cached = cache.get(candidate);
-  if (cached && now - cached.createdAt <= maxAgeMs) return cached.promise;
+  if (maxAgeMs > 0 && cached && now - cached.createdAt <= maxAgeMs) {
+    cache.delete(candidate);
+    cache.set(candidate, cached);
+    return cached.promise;
+  }
+  if (cached) cache.delete(candidate);
 
   const promise = inspectGitWorktreeUncached(candidate, options);
   cache.set(candidate, { createdAt: now, promise });
-  promise.catch(() => {
-    if (cache.get(candidate)?.promise === promise) cache.delete(candidate);
+  while (cache.size > MAX_CANDIDATE_CACHE_ENTRIES) {
+    const oldestKey = cache.keys().next().value;
+    if (typeof oldestKey !== 'string') break;
+    cache.delete(oldestKey);
+  }
+  promise.then(result => {
+    if (result === null && cache.get(candidate)?.promise === promise) cache.delete(candidate);
   });
   return promise;
 }
@@ -250,6 +353,7 @@ async function isLinkedWorktreeOf(
 }
 
 export {
+  createGitWorktreeListCache,
   inspectGitWorktree,
   isLinkedWorktreeOf,
   parseGitWorktreeList,

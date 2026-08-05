@@ -25,6 +25,6 @@ Adaptive Agent Title 会先发布 Agent-scoped Optimistic Patch，同一 Agent �
 
 后端根据精确的 Agent 与集合 mutation 更新列表投影。同一广播窗口内的 mutation 按 Agent ID 合并，因此普通 delta 的构造成本与实际变化的工作集成正比，而不是与完整 Agent 数量成正比。只有首次连接和恢复快照才构建完整 Agent payload，并通过有界 Page 发送；恢复快照会用当前权威状态替换任何可能遗漏的 mutation。第一个 Page 必须包含 Main Agent，避免客户端在后续 Page 到达前误判 Main Runtime 缺失。
 
-权威 Agent Row 不会等待可选的 Git Worktree Decoration。Worktree Refresh 通过有界的后台队列执行；同一个精确 Agent 尚未开始的旧请求可以被最新请求替代。删除 Agent 会取消其 Pending Refresh；已经在执行的结果仍必须同时匹配同一 Agent Record 与 Refresh Generation，才能发布列表更新。Git Command Timeout 或探测失败只会省略或清除可选 Decoration，不会改变权威 Agent Lifecycle。这个资源边界限制的是后台进程突发量，而不是 Agent 数量。
+权威 Agent Row 不会等待可选的 Git Worktree Decoration。Worktree Refresh 通过有界的后台队列执行；同一个精确 Agent 尚未开始的旧请求可以被最新请求替代。删除 Agent 会取消其 Pending Refresh；已经在执行的结果仍必须同时匹配同一 Agent Record 与 Refresh Generation，才能发布列表更新。Git Command Timeout 或探测失败只会省略或清除可选 Decoration，不会改变权威 Agent Lifecycle。这个资源边界限制的是后台进程突发量，而不是 Agent 数量。同一精确且规范化 Git Common Directory 的仓库级 Worktree 枚举会在一个短暂且有界的时间窗口内复用；Lifecycle Postcondition Check 使用 Fresh Read，不会消费缓存的枚举结果。
 
 每个快照和增量都带有后端 generation 与递增 sequence。客户端只应用当前 generation 中紧接着的 sequence。遇到后端重启、序号缺口或不确定传输时，客户端请求新的权威快照，而不是自行猜测、重放 mutation 或引入逐消息确认。
