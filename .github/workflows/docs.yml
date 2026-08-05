@@ -34,14 +34,11 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
-          cache: npm
-          cache-dependency-path: docs-site/package-lock.json
-          registry-url: https://registry.npmjs.org
+          node-version: '20'
 
       - name: Install dependencies
         working-directory: docs-site
-        run: npm ci --ignore-scripts --no-audit --no-fund --registry=https://registry.npmjs.org/
+        run: npm ci --ignore-scripts --no-audit --no-fund
 
       - name: Configure Pages
         if: github.event_name != 'pull_request'
