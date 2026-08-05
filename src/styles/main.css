@@ -8687,6 +8687,13 @@ body.code-mode .code-instance-name {
   font-weight: 500;
   line-height: 20px;
   white-space: nowrap;
+  overflow: hidden;
+}
+
+.code-agent-transcript-result-summary > span:not(.added):not(.removed) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 button.code-agent-transcript-result-summary {
@@ -19684,6 +19691,7 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
 
   /* Keep patch summaries centered in the narrower transcript column. */
   body.code-mode.code-compact-layout .code-agent-transcript-result-card {
+    width: 100%;
     margin: 0 auto;
   }
 
