@@ -23,7 +23,6 @@ Browser commands are disclosed gradually through `farming browser --help`.
 - [Security and trusted-network guidance](../../SECURITY.md)
 - [Runtime dependency versions and update bindings](runtime-dependencies.md)
 - [Connect an external CDP browser](../products/code/external-cdp-browser.md)
-- [Farming Net for several deployments](../products/net/README.md)
 
 Use a VPN, SSH tunnel, HTTPS reverse proxy, or equivalent access control when a
 remote connection crosses an untrusted network.

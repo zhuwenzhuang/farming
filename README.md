@@ -87,10 +87,6 @@ Farming CRT is an optional keyboard-first, retro control-room interface for scan
 
 Code and CRT use the same backend Agents and sessions. Switching interfaces does not create a second Agent. Farming Code remains the default interface and the supported phone interface. See the [Farming CRT guide](./docs/products/crt/README.md) for controls and workflows.
 
-## Farming Net
-
-Farming Net is a separate, token-protected directory for Farming deployments. It provides one portal for opening registered instances without storing their target tokens or proxying their traffic. See the [Farming Net guide](./docs/products/net/README.md) for enrollment and security boundaries.
-
 ## Installation And Updates
 
 Install with the Quick Start command above. npm installations can update from

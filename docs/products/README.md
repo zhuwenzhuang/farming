@@ -7,7 +7,6 @@ Choose the interface that fits the task.
 
 - [Farming Code](code/README.md) — focused work, files, review, and intervention.
 - [Farming CRT](crt/README.md) — keyboard-first monitoring and control.
-- [Farming Net](net/README.md) — one directory for several Farming deployments.
 
 Switching between Code and CRT does not create a second Agent.
 

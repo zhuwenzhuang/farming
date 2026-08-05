@@ -78,10 +78,6 @@ Farming CRT 是可选的键盘优先复古控制室，用来扫视多个 Agent�
 
 Code 与 CRT 使用相同的后端 Agent 和 Session，切换界面不会创建第二个 Agent。Farming Code 仍是默认界面，也是受支持的手机界面。控制方式和完整流程见 [Farming CRT 指南](./docs/products/crt/README.zh_cn.md)。
 
-## Farming Net
-
-Farming Net 是独立、带 Token 鉴权的 Farming 部署目录。它提供一个入口打开已登记实例，但不保存目标 Token，也不代理目标流量。登记方式和安全边界见 [Farming Net 指南](./docs/products/net/README.zh_cn.md)。
-
 ## 安装与更新
 
 按上面的快速开始命令安装即可。npm 安装可以从 **Settings → Updates** 更新。
@@ -98,6 +94,7 @@ Farming 会控制开发机上的真实终端和文件。请只运行在可信主
 
 ## 文档
 
+- [在线中文文档](https://zhuwenzhuang.github.io/farming/)
 - [文档首页](./docs/README.zh_cn.md)
 - [快速开始](./docs/getting-started.zh_cn.md)
 - [运行与维护](./docs/operations/README.zh_cn.md)
