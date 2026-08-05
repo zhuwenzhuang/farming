@@ -1257,6 +1257,17 @@ async function main() {
       element.scrollTop = 0;
     });
     await waitForStableUi(page, 500);
+    const mobileResultCard = page.getByTestId('code-agent-transcript-result-card').last();
+    const mobileResultGeometry = await mobileResultCard.evaluate(element => {
+      const summary = element.querySelector('.code-agent-transcript-result-summary')?.getBoundingClientRect();
+      const actions = element.querySelector('.code-agent-transcript-result-actions')?.getBoundingClientRect();
+      return summary && actions
+        ? { summaryRight: summary.right, actionsLeft: actions.left }
+        : null;
+    });
+    if (mobileResultGeometry && mobileResultGeometry.summaryRight > mobileResultGeometry.actionsLeft + 1) {
+      throw new Error('mobile result summary overlaps its actions');
+    }
     await screenshot(page, '05-mobile-agent-chat.png');
     if (requestedScreenshotsComplete()) return;
     await page.setViewportSize({ width: 1440, height: 810 });
