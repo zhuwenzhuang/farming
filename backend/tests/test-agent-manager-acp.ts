@@ -144,6 +144,17 @@ async function run() {
       'Investigate phase-aware Mermaid',
       'a stale ACP revision must not replace the current Agent title',
     );
+    live.sessionTitle = '';
+    runtime.emit('session', {
+      agentId,
+      revision: binding.sessionState.revision,
+      title: 'Investigate phase-aware Mermaid',
+    });
+    assert.strictEqual(
+      live.sessionTitle,
+      'Investigate phase-aware Mermaid',
+      'an authoritative same-revision ACP snapshot should restore a missing Agent title',
+    );
     assert.deepStrictEqual(binding.sessionRequestOptions.additionalDirectories, [path.join(process.cwd(), 'docs')]);
     assert.deepStrictEqual(binding.sessionRequestOptions.mcpServers, [
       { name: 'docs', command: '/bin/docs-mcp', args: [], env: [] },

@@ -1854,21 +1854,29 @@ class AgentManager extends EventEmitter {
       const nextRevision = Number.isFinite(Number(revision))
         ? Number(revision)
         : currentRevision + 1;
-      if (nextRevision <= currentRevision) return;
-      runtime.sessionUpdatedAt = new Date().toISOString();
-      runtime.sessionRevision = nextRevision;
+      const recoversMissingTitle = nextRevision === currentRevision
+        && typeof title === 'string'
+        && isGenericSessionTitle(agent, agent.sessionTitle || '')
+        && !isGenericSessionTitle(agent, title);
+      if (nextRevision < currentRevision || (nextRevision === currentRevision && !recoversMissingTitle)) return;
+      if (nextRevision > currentRevision) {
+        runtime.sessionUpdatedAt = new Date().toISOString();
+        runtime.sessionRevision = nextRevision;
+      }
       const titleChanged = typeof title === 'string'
         ? this.updateAgentSessionTitle(agent, title)
         : false;
-      this.emit('acp-session-revision', {
-        agentId,
-        revision: runtime.sessionRevision,
-        updatedAt: runtime.sessionUpdatedAt,
-      });
+      if (nextRevision > currentRevision) {
+        this.emit('acp-session-revision', {
+          agentId,
+          revision: runtime.sessionRevision,
+          updatedAt: runtime.sessionUpdatedAt,
+        });
+      }
       if (titleChanged) {
         this.emit('agent-update', { agentId, patch: { sessionTitle: agent.sessionTitle || '' } });
       }
-      this.refreshAcpPreparedTranscript(agentId);
+      if (nextRevision > currentRevision) this.refreshAcpPreparedTranscript(agentId);
     });
     this.acpRuntime.on('config-overrides', ({ agentId, sessionId, configOverrides }: AcpConfigOverridesEvent) => {
       const agent = this.agents.get(String(agentId || ''));
