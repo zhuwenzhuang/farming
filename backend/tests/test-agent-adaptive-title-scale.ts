@@ -44,7 +44,6 @@ async function run() {
     const acknowledgements = [];
     for (let index = 0; index < count; index += 1) {
       const id = `agent-title-scale-${index}`;
-      const token = `title-token-${index}`;
       manager.agents.set(id, {
         id,
         command: 'codex',
@@ -72,14 +71,14 @@ async function run() {
         agentRecordId: `agent_record_${id}`,
         persistentSessionId: `agent_record_${id}`,
         runtimeBinding: { kind: 'terminal' },
-        titleUpdateToken: token,
+        runtimeEpoch: `runtime-${index}`,
         validated: true,
         startedAt: Date.now(),
       });
       manager.lastActivity.set(id, Date.now());
 
-      const first = manager.setAgentAdaptiveTitle(id, `Draft scale title ${index}`, token);
-      const latest = manager.setAgentAdaptiveTitle(id, `Final scale title ${index}`, token);
+      const first = manager.setAgentAdaptiveTitle(id, `Draft scale title ${index}`);
+      const latest = manager.setAgentAdaptiveTitle(id, `Final scale title ${index}`);
       assert.strictEqual(first, latest, 'one Agent should expose one joined durability result');
       acknowledgements.push(latest);
     }
@@ -108,7 +107,6 @@ async function run() {
     const shutdownTitle = manager.setAgentAdaptiveTitle(
       'agent-title-scale-0',
       'Durable before shutdown',
-      'title-token-0',
     );
     await manager.drainAcceptedAgentOperations();
     assert.strictEqual((await shutdownTitle).adaptiveTitle, 'Durable before shutdown');
@@ -122,10 +120,9 @@ async function run() {
     const acceptedBeforeRuntimeRotation = manager.setAgentAdaptiveTitle(
       holdTitleAgentId,
       'Accepted before runtime rotation',
-      'title-token-1',
     );
     await heldWriteStarted;
-    manager.agents.get(holdTitleAgentId).titleUpdateToken = 'replacement-title-token';
+    manager.agents.get(holdTitleAgentId).runtimeEpoch = 'replacement-runtime';
     releaseHeldWrite();
     assert.strictEqual(
       (await acceptedBeforeRuntimeRotation).adaptiveTitle,
@@ -138,7 +135,6 @@ async function run() {
     const failedTitle = await manager.setAgentAdaptiveTitle(
       failTitleAgentId,
       'Must roll back after failure',
-      'title-token-0',
     );
     assert.match(failedTitle.error, /simulated asynchronous title failure/);
     assert.strictEqual(manager.agents.get(failTitleAgentId).adaptiveTitle, 'Durable before shutdown');

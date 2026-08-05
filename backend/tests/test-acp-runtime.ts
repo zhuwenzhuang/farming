@@ -5,7 +5,10 @@ const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
 const { AcpRuntime, acpErrorKind, acpSessionRequestOptions, autoPermissionResponse, codexAcpEnvironment, deleteProviderSessionIdentity, normalizeCodexHostMessageUpdate, promptContentForCapabilities, resolveAcpLaunch, supportsCodexSteer } = require('../acp-runtime.cjs');
-const { renderFarmingAgentBootstrap } = require('../farming-agent-bootstrap.cjs');
+const {
+  renderFarmingAgentBootstrap,
+  renderFarmingAgentSessionContext,
+} = require('../farming-agent-bootstrap.cjs');
 const { claudeAcpEnvironment } = require('../provider-adapters.cjs');
 const { AcpSessionState } = require('../acp-session-state.cjs');
 
@@ -14,6 +17,10 @@ async function run() {
     pkg?: { entrypoint?: string };
   };
   const farmingSystemPrompt = renderFarmingAgentBootstrap();
+  const farmingAgentContext = renderFarmingAgentSessionContext('agent-local-name', '/tmp/local project');
+  assert.match(farmingAgentContext, /当前 Farming Agent 名字是 agent-local-name/);
+  assert.match(farmingAgentContext, /FARMING_AGENT_ID='agent-local-name'/);
+  assert.match(farmingAgentContext, /FARMING_PROJECT_WORKSPACE='\/tmp\/local project'/);
   assert.strictEqual(acpErrorKind(new Error('401 Unauthorized: sign in required')), 'authentication');
   assert.strictEqual(acpErrorKind(new Error('Input exceeds the context window')), 'context');
   assert.strictEqual(acpErrorKind(new Error('429 rate limit exceeded')), 'rate-limit');
@@ -535,6 +542,93 @@ async function run() {
     'the shared process must exit after its final Session is released',
   );
 
+  const noCloseHome = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-acp-shared-no-close-home-'));
+  const noCloseChildren = [];
+  const noClosePrompts = [];
+  let noCloseSessionSequence = 0;
+  const noCloseRuntime = new AcpRuntime({
+    spawn(command, args, options) {
+      const child = spawn(command, args, options);
+      noCloseChildren.push(child);
+      return child;
+    },
+    resolveLaunch() {
+      return {
+        command: process.execPath,
+        args: ['-e', "process.stdin.resume(); process.stdin.on('end', () => process.exit(0))"],
+        version: 'shared-no-close-test',
+      };
+    },
+    async createConnection() {
+      const signal = { aborted: false };
+      let resolveClosed;
+      return {
+        signal,
+        closed: new Promise(resolve => {
+          resolveClosed = resolve;
+        }),
+        async initialize() {
+          return {
+            protocolVersion: 1,
+            agentCapabilities: { sessionCapabilities: {} },
+            agentInfo: { name: 'shared-no-close-test', version: '1' },
+          };
+        },
+        async newSession() {
+          noCloseSessionSequence += 1;
+          return { sessionId: `no-close-session-${noCloseSessionSequence}` };
+        },
+        async prompt(request) {
+          noClosePrompts.push(request);
+          return { stopReason: 'end_turn' };
+        },
+        close() {
+          signal.aborted = true;
+          resolveClosed();
+        },
+      };
+    },
+  });
+  try {
+    for (const agentId of ['no-close-agent-1', 'no-close-agent-2']) {
+      await noCloseRuntime.prepareAgent({
+        agentId,
+        provider: 'qwen',
+        providerHomePath: noCloseHome,
+        cwd: process.cwd(),
+        projectWorkspace: process.cwd(),
+        env: { ...process.env, QWEN_HOME: noCloseHome, FARMING_AGENT_ID: agentId },
+        agentContext: `local-resource-name:${agentId}`,
+      });
+    }
+    assert.strictEqual(noCloseChildren.length, 1, 'Sessions must share one Provider connection without session/close');
+    await noCloseRuntime.prompt('no-close-agent-1', 'first prompt');
+    await noCloseRuntime.prompt('no-close-agent-1', 'second prompt');
+    assert.deepStrictEqual(noClosePrompts[0].prompt, [
+      { type: 'text', text: 'local-resource-name:no-close-agent-1' },
+      { type: 'text', text: 'first prompt' },
+    ]);
+    assert.deepStrictEqual(noClosePrompts[1].prompt, [{ type: 'text', text: 'second prompt' }]);
+    assert.strictEqual(
+      noCloseRuntime.getSession('no-close-agent-1').entries[0].content[0].text,
+      'first prompt',
+      'the internal Agent context must not appear as user transcript content',
+    );
+    await noCloseRuntime.unregisterAgentAndWait('no-close-agent-1');
+    assert.strictEqual(
+      noCloseChildren[0].exitCode,
+      null,
+      'releasing a local Session reference must keep the shared Provider connection alive',
+    );
+  } finally {
+    await noCloseRuntime.dispose();
+    fs.rmSync(noCloseHome, { recursive: true, force: true });
+  }
+  assert(
+    noCloseChildren[0].exitCode !== null || noCloseChildren[0].signalCode !== null,
+    'the Provider process must stop when the Project connection releases its final Session',
+  );
+
   const crashHome = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-acp-shared-crash-home-'));
   const crashChildren = [];
   let crashConnectionGeneration = 0;
@@ -747,7 +841,6 @@ async function run() {
     farming: {
       env: {
         FARMING_AGENT_ID: 'agent-session-env',
-        FARMING_BROWSER_TOKEN: 'browser-session-token',
       },
     },
     systemPrompt: {
@@ -759,7 +852,6 @@ async function run() {
       options: {
         env: {
           FARMING_AGENT_ID: 'agent-session-env',
-          FARMING_BROWSER_TOKEN: 'browser-session-token',
         },
       },
     },

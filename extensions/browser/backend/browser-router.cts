@@ -11,12 +11,9 @@ interface WorkspaceRootRegistry {
 }
 
 interface AgentStateReader {
-  authorizeAgentCapability?(
+  resolveAgentResourceBinding?(
     agentId: string,
-    capability: 'browser',
-    token: unknown,
-    runtimeEpoch: unknown,
-  ): { agentId: string; runtimeEpoch: string; workspace: string } | null;
+  ): { agentId: string; workspace: string } | null;
   getState(): { agents?: unknown[] };
 }
 
@@ -75,22 +72,17 @@ function requestAgentId(req: Request): string {
   return String(req.get?.('X-Farming-Agent-Id') || '').trim();
 }
 
-function requestCapabilityAuthorization(
+function requestAgentBinding(
   agentStateReader: AgentStateReader | undefined,
   req: Request,
-): { agentId: string; runtimeEpoch: string; workspace: string } | null {
+): { agentId: string; workspace: string } | null {
   const agentId = requestAgentId(req);
   if (!agentId) return null;
-  const authorization = agentStateReader?.authorizeAgentCapability?.(
-    agentId,
-    'browser',
-    req.get?.('X-Farming-Capability-Token'),
-    req.get?.('X-Farming-Capability-Runtime-Epoch'),
-  );
-  if (authorization) return authorization;
-  throw Object.assign(new Error('Browser CLI credential is missing, expired, or belongs to another Agent runtime'), {
-    status: 401,
-    code: 'BROWSER_AGENT_CREDENTIAL_INVALID',
+  const binding = agentStateReader?.resolveAgentResourceBinding?.(agentId);
+  if (binding) return binding;
+  throw Object.assign(new Error('Browser Agent name is not active'), {
+    status: 404,
+    code: 'BROWSER_AGENT_NOT_FOUND',
   });
 }
 
@@ -135,13 +127,13 @@ function requireRequestOwnership(
   req: Request,
   id: string,
 ): void {
-  const authorization = requestCapabilityAuthorization(agentStateReader, req);
-  if (!authorization) return;
+  const binding = requestAgentBinding(agentStateReader, req);
+  if (!binding) return;
   const resource = manager.get(id);
   if (
     resource.ownerType !== 'agent'
-    || resource.ownerAgentId !== authorization.agentId
-    || resource.workspace !== authorization.workspace
+    || resource.ownerAgentId !== binding.agentId
+    || resource.workspace !== binding.workspace
   ) {
     const error = new Error('Browser Resource is not owned by this Agent') as Error & {
       code?: string;
@@ -163,7 +155,7 @@ function createBrowserRouter(
 
   router.get('/capability', async (_req, res) => {
     try {
-      requestCapabilityAuthorization(agentStateReader, _req);
+      requestAgentBinding(agentStateReader, _req);
       await manager.refreshCapability(undefined, { reuseVerified: true });
       res.json(manager.capability());
     } catch (error) {
@@ -173,7 +165,7 @@ function createBrowserRouter(
 
   router.post('/isolated/prepare', async (req, res) => {
     try {
-      requestCapabilityAuthorization(agentStateReader, req);
+      requestAgentBinding(agentStateReader, req);
       res.json(await manager.prepareIsolatedBrowser());
     } catch (error) {
       sendError(res, error);
@@ -183,8 +175,8 @@ function createBrowserRouter(
   router.get('/', (req, res) => {
     try {
       const snapshot = recordValue(manager.snapshot());
-      const authorization = requestCapabilityAuthorization(agentStateReader, req);
-      const agentId = authorization?.agentId || '';
+      const binding = requestAgentBinding(agentStateReader, req);
+      const agentId = binding?.agentId || '';
       const resources = Array.isArray(snapshot.resources) ? snapshot.resources : [];
       res.json(agentId
         ? {
@@ -207,11 +199,11 @@ function createBrowserRouter(
       if (root.kind === 'global') {
         return res.status(400).json({ error: 'Browsers require a Project workspace' });
       }
-      const authorization = requestCapabilityAuthorization(agentStateReader, req);
-      const callerAgentId = authorization?.agentId || '';
-      if (authorization && root.canonicalPath !== authorization.workspace) {
+      const binding = requestAgentBinding(agentStateReader, req);
+      const callerAgentId = binding?.agentId || '';
+      if (binding && root.canonicalPath !== binding.workspace) {
         return res.status(403).json({
-          error: 'Browser CLI credential is not valid for the selected Project workspace',
+          error: 'Browser Agent is not bound to the selected Project workspace',
           code: 'BROWSER_WORKSPACE_MISMATCH',
         });
       }

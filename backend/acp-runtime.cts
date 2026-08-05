@@ -127,6 +127,7 @@ interface AcpBinding {
   agentId: string; provider: string; providerHomeId: string; providerHomePath: string;
   providerHomeIdentity: string; projectPath: string; cwd: string;
   capabilityRuntimeEpoch: string;
+  agentContext: string; agentContextPending: boolean;
   sessionRequestOptions: AcpSessionRequestOptions; env: NodeJS.ProcessEnv; launch: AcpLaunch;
   restartOptions: PrepareAgentOptions; approvalMode: string; ownsProcessGroup: boolean;
   runtime: AcpRuntimeProcess | null;
@@ -222,6 +223,7 @@ interface PrepareAgentOptions extends UnknownRecord {
   configOverrides?: SessionConfigChange[];
   executable?: string; env?: NodeJS.ProcessEnv; runtimeEnv?: NodeJS.ProcessEnv;
   additionalDirectories?: string[]; mcpServers?: UnknownRecord[]; farmingSystemPrompt?: string;
+  agentContext?: string;
   requireLoad?: boolean; expectedRevision?: number; retainForCleanup?: boolean;
   onProcessStarted?: (identity: ProcessIdentity) => Promise<void> | void;
   onForkSessionCreated?: (sessionId: string) => Promise<void> | void;
@@ -587,12 +589,8 @@ function clone<T>(value: T): T {
 
 const ACP_SESSION_ENV_KEYS = [
   'FARMING_AGENT_ID',
-  'FARMING_AGENT_TITLE_TOKEN',
-  'FARMING_BROWSER_TOKEN',
   'FARMING_CAPABILITIES_COMMAND',
-  'FARMING_CAPABILITY_RUNTIME_EPOCH',
   'FARMING_CLI_BIN_DIR',
-  'FARMING_COMPUTER_TOKEN',
   'FARMING_CONFIG_DIR',
   'FARMING_CONTROL_URL',
   'FARMING_DISABLE_AUTH',
@@ -604,6 +602,19 @@ const ACP_SESSION_ENV_KEYS = [
   'FARMING_SKILLS_FILE',
   'FARMING_STARTUP_PROMPT_FILE',
   'FARMING_TOKEN_FILE',
+] as const;
+
+const ACP_SHARED_PROCESS_EXCLUDED_ENV_KEYS = [
+  'FARMING_AGENT_ID',
+  'FARMING_AGENT_TITLE_TOKEN',
+  'FARMING_BROWSER_TOKEN',
+  'FARMING_CAPABILITY_RUNTIME_EPOCH',
+  'FARMING_COMPUTER_TOKEN',
+  'FARMING_IS_MAIN_AGENT',
+  'FARMING_MAIN_WORKSPACE',
+  'FARMING_PARENT_AGENT_ID',
+  'FARMING_PROJECT_WORKSPACE',
+  'FARMING_SKILLS_FILE',
 ] as const;
 
 function acpSessionEnvironment(env: NodeJS.ProcessEnv = {}) {
@@ -648,7 +659,7 @@ function sharedAcpProcessEnvironment(
   options: PrepareAgentOptions,
 ) {
   const env = { ...(options.env || process.env) };
-  for (const key of ACP_SESSION_ENV_KEYS) delete env[key];
+  for (const key of ACP_SHARED_PROCESS_EXCLUDED_ENV_KEYS) delete env[key];
   delete env.INITIAL_AGENT_MODE;
   const prepare = getProviderAdapter(provider)?.prepareAcpEnvironment;
   return prepare
@@ -1533,6 +1544,7 @@ class AcpRuntime extends EventEmitter {
       throw new Error('ACP capability runtime epoch is invalid');
     }
     const launch = this.resolveLaunch(provider, options);
+    const agentContext = String(options.agentContext || '').trim();
     const cwd = path.resolve(options.cwd || process.cwd());
     const projectPath = path.resolve(String(options.projectWorkspace || cwd).trim() || cwd);
     const requestedSessionId = String(options.sessionId || '').trim();
@@ -1604,6 +1616,8 @@ class AcpRuntime extends EventEmitter {
     const binding: AcpBinding = {
       agentId,
       capabilityRuntimeEpoch,
+      agentContext,
+      agentContextPending: Boolean(agentContext),
       provider,
       providerHomeId: String(options.providerHomeId || 'default'),
       providerHomePath,
@@ -2902,6 +2916,9 @@ class AcpRuntime extends EventEmitter {
       rawContent,
       binding.initializeResponse?.agentCapabilities || {},
     );
+    const providerContent = binding.agentContextPending
+      ? [{ type: 'text', text: binding.agentContext }, ...content]
+      : content;
     const turn = this.beginTurn(binding);
     try {
       options.onTurnAdmitted?.({ previousState: String(turn.previousState || 'idle') });
@@ -2942,7 +2959,7 @@ class AcpRuntime extends EventEmitter {
     this.emitSession(binding);
     let response;
     try {
-      const responsePromise = binding.connection.prompt({ sessionId: binding.sessionId, prompt: content });
+      const responsePromise = binding.connection.prompt({ sessionId: binding.sessionId, prompt: providerContent });
       try {
         options.onSubmitted?.({ steered: false });
       } catch {
@@ -2950,6 +2967,7 @@ class AcpRuntime extends EventEmitter {
       }
       response = await responsePromise;
       turn.providerSettled = true;
+      binding.agentContextPending = false;
     } catch (error) {
       turn.providerSettled = true;
       const runtimeError = new Error(acpErrorMessage(error), { cause: error });
@@ -4563,16 +4581,15 @@ class AcpRuntime extends EventEmitter {
       if (binding.activeTurn) await this.cancel(agentId);
       if (binding.sessionId && binding.state !== 'closed') {
         const capabilities = binding.initializeResponse?.agentCapabilities?.sessionCapabilities;
-        if (!capabilities?.close) {
-          throw new Error(`${binding.provider} ACP Agent cannot release a shared Session`);
-        }
-        await withTimeout(
-          binding.connection.closeSession({ sessionId: binding.sessionId }),
-          this.requestTimeoutMs,
-          'ACP shared session/close',
-        );
-        if (!this.isOpenBinding(binding)) {
-          throw new Error('ACP Agent binding closed before shared Session release completed');
+        if (capabilities?.close) {
+          await withTimeout(
+            binding.connection.closeSession({ sessionId: binding.sessionId }),
+            this.requestTimeoutMs,
+            'ACP shared session/close',
+          );
+          if (!this.isOpenBinding(binding)) {
+            throw new Error('ACP Agent binding closed before shared Session release completed');
+          }
         }
       }
       if (!this.detachAgentBinding(binding, { retainForCleanup: true })) return false;

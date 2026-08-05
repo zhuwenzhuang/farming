@@ -11,9 +11,7 @@ import {
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 
 interface BrowserConnection {
-  capabilityToken: string;
   origin: string;
-  runtimeEpoch: string;
   serverToken: string;
 }
 
@@ -41,9 +39,7 @@ function resolveConnection(env: NodeJS.ProcessEnv = process.env): BrowserConnect
     }
   }
   return {
-    capabilityToken: String(env.FARMING_BROWSER_TOKEN || '').trim(),
     origin: origin.replace(/\/$/, ''),
-    runtimeEpoch: String(env.FARMING_CAPABILITY_RUNTIME_EPOCH || '').trim(),
     serverToken,
   };
 }
@@ -72,12 +68,6 @@ function requestJson(
         ...(payload ? { 'Content-Type': 'application/json', 'Content-Length': String(payload.length) } : {}),
         ...(connection.serverToken ? { Authorization: bearerAuthorizationHeader(connection.serverToken) } : {}),
         ...(env.FARMING_AGENT_ID ? { 'X-Farming-Agent-Id': env.FARMING_AGENT_ID } : {}),
-        ...(connection.capabilityToken
-          ? { 'X-Farming-Capability-Token': connection.capabilityToken }
-          : {}),
-        ...(connection.runtimeEpoch
-          ? { 'X-Farming-Capability-Runtime-Epoch': connection.runtimeEpoch }
-          : {}),
       },
     }, response => {
       const chunks: Buffer[] = [];

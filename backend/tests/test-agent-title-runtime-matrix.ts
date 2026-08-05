@@ -49,9 +49,8 @@ async function run() {
   ]).concat([{ provider: '', command: 'bash', runtime: 'terminal' }]);
 
   try {
-    for (const [index, testCase] of cases.entries()) {
+    for (const testCase of cases) {
       const id = `agent-title-${testCase.provider || 'shell'}-${testCase.runtime}`;
-      const token = `title-token-${index}`;
       manager.agents.set(id, {
         id,
         command: testCase.command,
@@ -78,14 +77,14 @@ async function run() {
         agentRecordId: `agent_record_${id}`,
         persistentSessionId: `agent_record_${id}`,
         runtimeBinding: runtimeBinding(testCase.runtime),
-        titleUpdateToken: token,
+        runtimeEpoch: `runtime-${id}`,
         validated: true,
         startedAt: Date.now(),
       });
       manager.lastActivity.set(id, Date.now());
 
       const title = `${testCase.provider || 'Shell'} ${testCase.runtime} title`;
-      const result = await manager.setAgentAdaptiveTitle(id, title, token);
+      const result = await manager.setAgentAdaptiveTitle(id, title);
       assert.strictEqual(result.error, undefined, `${id} should accept its own runtime title`);
       const publicAgent = manager.getState().agents.find(agent => agent.id === id);
       assert.strictEqual(publicAgent.adaptiveTitle, title);

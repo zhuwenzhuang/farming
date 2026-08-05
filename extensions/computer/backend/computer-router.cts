@@ -11,12 +11,9 @@ interface WorkspaceRootRegistry {
 }
 
 interface AgentStateReader {
-  authorizeAgentCapability?(
+  resolveAgentResourceBinding?(
     agentId: string,
-    capability: 'computer',
-    token: unknown,
-    runtimeEpoch: unknown,
-  ): { agentId: string; runtimeEpoch: string; workspace: string } | null;
+  ): { agentId: string; workspace: string } | null;
   getState(): { agents?: unknown[] };
 }
 
@@ -30,22 +27,17 @@ function requestAgentId(req: { get?(name: string): string | undefined }): string
   return String(req.get?.('X-Farming-Agent-Id') || '').trim();
 }
 
-function requestCapabilityAuthorization(
+function requestAgentBinding(
   agentStateReader: AgentStateReader | undefined,
   req: { get?(name: string): string | undefined },
-): { agentId: string; runtimeEpoch: string; workspace: string } | null {
+): { agentId: string; workspace: string } | null {
   const agentId = requestAgentId(req);
   if (!agentId) return null;
-  const authorization = agentStateReader?.authorizeAgentCapability?.(
-    agentId,
-    'computer',
-    req.get?.('X-Farming-Capability-Token'),
-    req.get?.('X-Farming-Capability-Runtime-Epoch'),
-  );
-  if (authorization) return authorization;
-  throw Object.assign(new Error('Computer CLI credential is missing, expired, or belongs to another Agent runtime'), {
-    status: 401,
-    code: 'COMPUTER_AGENT_CREDENTIAL_INVALID',
+  const binding = agentStateReader?.resolveAgentResourceBinding?.(agentId);
+  if (binding) return binding;
+  throw Object.assign(new Error('Computer Agent name is not active'), {
+    status: 404,
+    code: 'COMPUTER_AGENT_NOT_FOUND',
   });
 }
 
@@ -65,12 +57,12 @@ function assertRequestOwner(
   req: { get?(name: string): string | undefined },
   id: string,
 ): void {
-  const authorization = requestCapabilityAuthorization(agentStateReader, req);
-  if (!authorization) return;
+  const binding = requestAgentBinding(agentStateReader, req);
+  if (!binding) return;
   const resource = manager.get(id);
   if (
-    resource.ownerAgentId !== authorization.agentId
-    || resource.workspace !== authorization.workspace
+    resource.ownerAgentId !== binding.agentId
+    || resource.workspace !== binding.workspace
   ) {
     throw Object.assign(new Error('Computer Resource is not owned by this Agent'), {
       status: 403,
@@ -125,7 +117,7 @@ function createComputerRouter(
 
   router.get('/capability', async (req: any, res: any) => {
     try {
-      requestCapabilityAuthorization(agentStateReader, req);
+      requestAgentBinding(agentStateReader, req);
       res.json(await manager.capability(req.query?.refresh === '1'));
     } catch (caught) {
       sendError(res, caught);
@@ -134,7 +126,7 @@ function createComputerRouter(
 
   router.post('/prepare', async (req: any, res: any) => {
     try {
-      requestCapabilityAuthorization(agentStateReader, req);
+      requestAgentBinding(agentStateReader, req);
       res.json(await manager.prepare());
     } catch (caught) {
       sendError(res, caught);
@@ -144,8 +136,8 @@ function createComputerRouter(
   router.get('/', (req: any, res: any) => {
     try {
       const snapshot = manager.snapshot();
-      const authorization = requestCapabilityAuthorization(agentStateReader, req);
-      const agentId = authorization?.agentId || '';
+      const binding = requestAgentBinding(agentStateReader, req);
+      const agentId = binding?.agentId || '';
       res.json(agentId
         ? {
             ...snapshot,
@@ -161,8 +153,8 @@ function createComputerRouter(
     try {
       manager.requireEnabled();
       const body = recordValue(req.body);
-      const authorization = requestCapabilityAuthorization(agentStateReader, req);
-      const callerAgentId = authorization?.agentId || '';
+      const binding = requestAgentBinding(agentStateReader, req);
+      const callerAgentId = binding?.agentId || '';
       const requestedAgentId = String(body.agentId || '').trim();
       if (callerAgentId && requestedAgentId && callerAgentId !== requestedAgentId) {
         res.status(403).json({ error: 'Agent tools cannot create a Computer for another Agent' });
@@ -183,9 +175,9 @@ function createComputerRouter(
         res.status(404).json({ error: 'Computer Project workspace was not found' });
         return;
       }
-      if (authorization && root.canonicalPath !== authorization.workspace) {
+      if (binding && root.canonicalPath !== binding.workspace) {
         res.status(403).json({
-          error: 'Computer CLI credential is not valid for the selected Project workspace',
+          error: 'Computer Agent is not bound to the selected Project workspace',
           code: 'COMPUTER_WORKSPACE_MISMATCH',
         });
         return;

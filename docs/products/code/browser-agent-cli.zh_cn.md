@@ -58,7 +58,7 @@ Browser Identity。高频 Frame 与 Input 保持有界，避免陈旧工作无�
 Chat/Terminal Replacement 保留 Browser Ownership。停止或归档 Agent 可以停止 Runtime 但
 保留 Resource/Profile；删除 Agent 只删除它精确拥有的 Browser Resource 与 Profile。
 
-Chat 与 Terminal 使用同一套 CLI-backed Browser Contract 和精确 Agent Credential；Farming
+Chat 与 Terminal 使用同一套 CLI-backed Browser Contract 和显式本地 Agent 名字；Farming
 不维护第二套 ACP MCP 实现。
 
 ## 安全与失败

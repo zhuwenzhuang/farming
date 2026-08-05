@@ -65,6 +65,7 @@ interface ProviderEnvironmentOptions {
 interface ProviderAcpLaunchOptions {
   executable?: string;
   cwd?: string;
+  projectWorkspace?: string;
   farmingSystemPrompt?: string;
 }
 
@@ -428,6 +429,7 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
     acp: {
       packageName: '@agentclientprotocol/claude-agent-acp',
       version: '0.59.0',
+      sharedRuntime: true,
     },
     prepareAcpEnvironment: claudeAcpEnvironment,
     capabilities: {
@@ -467,9 +469,10 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
     },
     acp: {
       version: 'native',
+      sharedRuntime: true,
       launch: options => ({
         command: options.executable || 'opencode',
-        args: ['acp', '--cwd', path.resolve(options.cwd || process.cwd())],
+        args: ['acp', '--cwd', path.resolve(options.projectWorkspace || options.cwd || process.cwd())],
       }),
     },
     capabilities: {
@@ -499,6 +502,7 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
     planSession: (rawArgs, launchArgs) => explicitSessionPlan('qoder', rawArgs, launchArgs),
     acp: {
       version: 'native',
+      sharedRuntime: true,
       launch: options => ({
         command: options.executable || 'qodercli',
         args: [
@@ -546,6 +550,7 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
     },
     acp: {
       version: 'native',
+      sharedRuntime: true,
       launch: options => ({
         command: options.executable || 'qwen',
         args: [

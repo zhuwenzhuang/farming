@@ -541,15 +541,14 @@ async function run(argv: string[] = process.argv.slice(2), io: CliIo = process):
 
   if (parsed.command === 'title') {
     const agentId = String(process.env.FARMING_AGENT_ID || '').trim();
-    const token = String(process.env.FARMING_AGENT_TITLE_TOKEN || '').trim();
-    if (!agentId || !token) {
+    if (!agentId) {
       throw new Error('title is available only inside the current Farming Agent runtime');
     }
     const result = await request<{ adaptiveTitle?: string }>(
       `/api/control/agents/${encodeURIComponent(agentId)}/title`,
       {
         method: 'POST',
-        body: { title: parsed.options.title, token },
+        body: { title: parsed.options.title },
       },
     );
     io.stdout.write(`Title updated: ${result.adaptiveTitle || parsed.options.title}\n`);

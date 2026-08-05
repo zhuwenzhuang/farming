@@ -501,13 +501,9 @@ async function run() {
         },
       },
       {
-        authorizeAgentCapability(agentId, capability, token, runtimeEpoch) {
-          if (
-            capability !== 'computer'
-            || token !== `token-${agentId}`
-            || runtimeEpoch !== `runtime-${agentId}`
-          ) return null;
-          return { agentId, runtimeEpoch, workspace };
+        resolveAgentResourceBinding(agentId) {
+          if (!['agent_owner', 'agent_other'].includes(agentId)) return null;
+          return { agentId, workspace };
         },
         getState() {
           return {
@@ -533,13 +529,11 @@ async function run() {
         '/api/computers',
         undefined,
         {
-          'X-Farming-Agent-Id': 'agent_owner',
-          'X-Farming-Capability-Token': 'expired',
-          'X-Farming-Capability-Runtime-Epoch': 'runtime-agent_owner',
+          'X-Farming-Agent-Id': 'agent_missing',
         },
       );
-      assert.strictEqual(expired.status, 401);
-      assert.strictEqual(expired.body.code, 'COMPUTER_AGENT_CREDENTIAL_INVALID');
+      assert.strictEqual(expired.status, 404);
+      assert.strictEqual(expired.body.code, 'COMPUTER_AGENT_NOT_FOUND');
       const forbidden = await requestJson(
         apiPort,
         'POST',
@@ -547,8 +541,6 @@ async function run() {
         undefined,
         {
           'X-Farming-Agent-Id': 'agent_other',
-          'X-Farming-Capability-Token': 'token-agent_other',
-          'X-Farming-Capability-Runtime-Epoch': 'runtime-agent_other',
         },
       );
       assert.strictEqual(forbidden.status, 403);
@@ -561,8 +553,6 @@ async function run() {
         undefined,
         {
           'X-Farming-Agent-Id': 'agent_owner',
-          'X-Farming-Capability-Token': 'token-agent_owner',
-          'X-Farming-Capability-Runtime-Epoch': 'runtime-agent_owner',
         },
       );
       assert.strictEqual(inactive.status, 409);
@@ -575,8 +565,6 @@ async function run() {
         undefined,
         {
           'X-Farming-Agent-Id': 'agent_owner',
-          'X-Farming-Capability-Token': 'token-agent_owner',
-          'X-Farming-Capability-Runtime-Epoch': 'runtime-agent_owner',
         },
       );
       assert.strictEqual(retainedDuringSwitch.status, 200);
@@ -588,8 +576,6 @@ async function run() {
         undefined,
         {
           'X-Farming-Agent-Id': 'agent_other',
-          'X-Farming-Capability-Token': 'token-agent_other',
-          'X-Farming-Capability-Runtime-Epoch': 'runtime-agent_other',
         },
       );
       assert.deepStrictEqual(filtered.body.resources, []);

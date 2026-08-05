@@ -103,7 +103,8 @@ async function run() {
     const binding = runtime.bindings.get(agentId);
     const initialCapabilityRuntimeEpoch = runtime.bindingEpoch(agentId);
     assert.strictEqual(binding.capabilityRuntimeEpoch, initialCapabilityRuntimeEpoch);
-    assert.match(binding.env.FARMING_AGENT_TITLE_TOKEN, /^[A-Za-z0-9_-]{32}$/);
+    assert.strictEqual(binding.env.FARMING_AGENT_TITLE_TOKEN, undefined);
+    assert.match(binding.agentContext, new RegExp(`当前 Farming Agent 名字是 ${agentId}`));
     assert.strictEqual(binding.env.FARMING_CLI_BIN_DIR, '/opt/farming/bin');
     binding.sessionState.revision = nextSessionRevision;
     binding.sessionState.apply({
@@ -693,10 +694,11 @@ async function run() {
       assert.strictEqual(providerAgent.providerSessionProvider, provider);
       assert.strictEqual(providerAgent.runtimeBinding.kind, 'acp');
       const providerBinding = providerRuntime.bindings.get(providerAgentId);
+      assert.strictEqual(providerBinding.env.FARMING_AGENT_TITLE_TOKEN, undefined);
       assert.match(
-        providerBinding.env.FARMING_AGENT_TITLE_TOKEN,
-        /^[A-Za-z0-9_-]{32}$/,
-        `${provider} ACP must receive a runtime-scoped title token`,
+        providerBinding.agentContext,
+        new RegExp(`当前 Farming Agent 名字是 ${providerAgentId}`),
+        `${provider} ACP must receive its Agent name as Session context`,
       );
       assert.strictEqual(
         providerBinding.env.FARMING_CLI_BIN_DIR,

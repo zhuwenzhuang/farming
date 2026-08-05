@@ -124,9 +124,6 @@ function run() {
     providerSessionTemporary: false,
     providerSessionTitle: '看下cron worker怎么加新模块',
     capabilityRuntimeEpoch: 'capability-runtime-1',
-    capabilityWorkspace: '/repo',
-    browserCapabilityTokenHash: `sha256:${'a'.repeat(64)}`,
-    computerCapabilityTokenHash: `sha256:${'b'.repeat(64)}`,
     agentRuntimeMode: 'acp',
     acpState: 'idle',
     engineName: 'native',
@@ -149,10 +146,9 @@ function run() {
   assert.strictEqual(resolvedRecord.title, '看下cron worker怎么加新模块');
   assert.strictEqual(resolvedRecord.titleUserSpecified, false);
   assert.strictEqual(resolvedRecord.capabilityRuntimeEpoch, 'capability-runtime-1');
-  assert.strictEqual(resolvedRecord.capabilityWorkspace, '/repo');
-  assert.strictEqual(resolvedRecord.browserCapabilityTokenHash, `sha256:${'a'.repeat(64)}`);
-  assert.strictEqual(resolvedRecord.computerCapabilityTokenHash, `sha256:${'b'.repeat(64)}`);
-  assert.strictEqual(JSON.stringify(resolvedRecord).includes('FARMING_BROWSER_TOKEN'), false);
+  assert.strictEqual(Object.prototype.hasOwnProperty.call(resolvedRecord, 'capabilityWorkspace'), false);
+  assert.strictEqual(Object.prototype.hasOwnProperty.call(resolvedRecord, 'browserCapabilityTokenHash'), false);
+  assert.strictEqual(Object.prototype.hasOwnProperty.call(resolvedRecord, 'computerCapabilityTokenHash'), false);
   assert.deepStrictEqual(resolvedRecord.acpAdditionalDirectories, ['/shared/docs']);
   assert.deepStrictEqual(resolvedRecord.acpConfigOverrides, [
     { configId: 'fast-mode', value: true },

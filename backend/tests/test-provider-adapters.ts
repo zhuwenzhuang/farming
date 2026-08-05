@@ -27,17 +27,16 @@ function run() {
     assert(adapter.acp, `${adapter.id} must declare its ACP launch contract`);
     assert(adapter.acp.version);
   }
-  assert.strictEqual(providerSupportsSharedAcpRuntime('codex'), true);
-  for (const provider of ['claude', 'opencode', 'qoder', 'qwen']) {
-    assert.strictEqual(
-      providerSupportsSharedAcpRuntime(provider),
-      false,
-      `${provider} must remain process-isolated until its multi-Session contract is verified`,
-    );
+  for (const provider of ['codex', 'claude', 'opencode', 'qoder', 'qwen']) {
+    assert.strictEqual(providerSupportsSharedAcpRuntime(provider), true);
   }
 
   assert.deepStrictEqual(
-    getProviderAdapter('opencode').acp.launch({ executable: '/bin/opencode', cwd: '/tmp/project' }),
+    getProviderAdapter('opencode').acp.launch({
+      executable: '/bin/opencode',
+      cwd: '/tmp/worktree',
+      projectWorkspace: '/tmp/project',
+    }),
     { command: '/bin/opencode', args: ['acp', '--cwd', '/tmp/project'] },
   );
   const codexFresh = getProviderAdapter('codex').planSession([], ['--model', 'gpt-5.5']);

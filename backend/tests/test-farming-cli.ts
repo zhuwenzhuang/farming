@@ -177,10 +177,8 @@ async function test() {
   });
   const titlePort = await listen(titleServer);
   const previousControlUrl = process.env.FARMING_CONTROL_URL;
-  const previousTitleToken = process.env.FARMING_AGENT_TITLE_TOKEN;
   const previousTitleDisableAuth = process.env.FARMING_DISABLE_AUTH;
   process.env.FARMING_CONTROL_URL = `http://127.0.0.1:${titlePort}`;
-  process.env.FARMING_AGENT_TITLE_TOKEN = 'runtime-title-token';
   process.env.FARMING_DISABLE_AUTH = '1';
   let titleOutput = '';
   try {
@@ -190,15 +188,13 @@ async function test() {
     assert.deepStrictEqual(titleRequest, {
       method: 'POST',
       path: '/api/control/agents/agent-main/title',
-      body: { title: 'Fix ACP titles', token: 'runtime-title-token' },
+      body: { title: 'Fix ACP titles' },
     });
     assert.strictEqual(titleOutput, 'Title updated: Fix ACP titles\n');
   } finally {
     titleServer.close();
     if (previousControlUrl === undefined) delete process.env.FARMING_CONTROL_URL;
     else process.env.FARMING_CONTROL_URL = previousControlUrl;
-    if (previousTitleToken === undefined) delete process.env.FARMING_AGENT_TITLE_TOKEN;
-    else process.env.FARMING_AGENT_TITLE_TOKEN = previousTitleToken;
     if (previousTitleDisableAuth === undefined) delete process.env.FARMING_DISABLE_AUTH;
     else process.env.FARMING_DISABLE_AUTH = previousTitleDisableAuth;
   }

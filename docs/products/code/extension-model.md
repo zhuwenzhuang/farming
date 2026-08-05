@@ -112,9 +112,10 @@ Browser and Computer are built-in Extensions over the same Resource contract:
   lifecycles remain distinct.
 
 Browser and Computer share lightweight backend capability services where safe,
-while separate CLI credentials keep Resource identity, authorization, and
-mutable Session state isolated by owner. Farming does not inject or host a
-second Browser/Computer MCP implementation.
+while the Agent name carried by the CLI resolves Resource identity and mutable
+Session state to the current owner. The name is local routing state rather than
+a separate permission credential. Farming does not inject or host a second
+Browser/Computer MCP implementation.
 
 ## Files And Language Server
 
@@ -126,9 +127,10 @@ boundaries rather than introducing a separate editor or remote-execution path.
 ## Security And Failure
 
 Extensions validate all input at their boundary, expose current availability,
-and fail explicitly when prerequisites are missing. A capability token or
-Viewer connection must be scoped to the exact Resource and owner. Transport
-timeouts with uncertain outcomes are reconciled before any replay.
+and fail explicitly when prerequisites are missing. Unknown or inactive Agent
+names fail instead of falling back to another owner's Resource. Viewer
+connections remain scoped to the exact Resource. Transport timeouts with
+uncertain outcomes are reconciled before any replay.
 
 ## Acceptance Criteria
 

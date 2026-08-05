@@ -1407,13 +1407,9 @@ async function testBrowserRouterAgentOwnership() {
     }),
   };
   const agentStateReader = {
-    authorizeAgentCapability(agentId, capability, token, runtimeEpoch) {
-      if (
-        capability !== 'browser'
-        || token !== `token-${agentId}`
-        || runtimeEpoch !== `runtime-${agentId}`
-      ) return null;
-      return { agentId, runtimeEpoch, workspace: '/tmp/project' };
+    resolveAgentResourceBinding(agentId) {
+      if (!['agent_a', 'agent_b'].includes(agentId)) return null;
+      return { agentId, workspace: '/tmp/project' };
     },
     getState: () => ({
       agents: [{
@@ -1441,8 +1437,6 @@ async function testBrowserRouterAgentOwnership() {
       headers: {
         'Content-Type': 'application/json',
         'X-Farming-Agent-Id': 'agent_a',
-        'X-Farming-Capability-Token': 'token-agent_a',
-        'X-Farming-Capability-Runtime-Epoch': 'runtime-agent_a',
         ...options.headers,
       },
     });
@@ -1450,10 +1444,10 @@ async function testBrowserRouterAgentOwnership() {
   };
   try {
     const expired = await request('/api/browsers', {
-      headers: { 'X-Farming-Capability-Token': 'expired' },
+      headers: { 'X-Farming-Agent-Id': 'agent_missing' },
     });
-    assert.strictEqual(expired.status, 401);
-    assert.strictEqual(expired.body.code, 'BROWSER_AGENT_CREDENTIAL_INVALID');
+    assert.strictEqual(expired.status, 404);
+    assert.strictEqual(expired.body.code, 'BROWSER_AGENT_NOT_FOUND');
 
     const listed = await request('/api/browsers');
     assert.strictEqual(listed.status, 200);

@@ -169,21 +169,15 @@ async function run() {
     const opened = JSON.parse((await invoke(browserCli, ['open', '--url', 'https://example.test'], {
       ...env,
       FARMING_AGENT_ID: 'agent_test',
-      FARMING_BROWSER_TOKEN: 'browser-token',
-      FARMING_CAPABILITY_RUNTIME_EPOCH: 'runtime-test',
       FARMING_PROJECT_WORKSPACE: '/project',
     })).stdout);
     assert.strictEqual(opened.result.status, 'running');
-    assert(requests.every(item => !item.agentId || item.capabilityToken === 'browser-token'));
-    assert(requests.every(item => !item.agentId || item.runtimeEpoch === 'runtime-test'));
     assert.strictEqual(requests.find(item => item.url === '/api/browsers').body.agentId, 'agent_test');
     assert(requests.some(item => item.url === '/api/browsers/browser_created/start'));
 
     const deleted = JSON.parse((await invoke(browserCli, ['delete', 'browser_project'], {
       ...env,
       FARMING_AGENT_ID: 'agent_test',
-      FARMING_BROWSER_TOKEN: 'browser-token',
-      FARMING_CAPABILITY_RUNTIME_EPOCH: 'runtime-test',
       FARMING_PROJECT_WORKSPACE: '/project',
     })).stdout);
     assert.strictEqual(deleted.result.deleted, true);
@@ -193,8 +187,6 @@ async function run() {
       invoke(browserCli, ['open', '--workspace', '/other-project'], {
           ...env,
           FARMING_AGENT_ID: 'agent_test',
-          FARMING_BROWSER_TOKEN: 'browser-token',
-          FARMING_CAPABILITY_RUNTIME_EPOCH: 'runtime-test',
           FARMING_PROJECT_WORKSPACE: '/project',
       }),
       error => JSON.parse(error.stderr).message.includes('cannot leave this Agent Project workspace'),
@@ -204,8 +196,6 @@ async function run() {
       invoke(browserCli, ['snapshot', 'browser_other'], {
           ...env,
           FARMING_AGENT_ID: 'agent_test',
-          FARMING_BROWSER_TOKEN: 'browser-token',
-          FARMING_CAPABILITY_RUNTIME_EPOCH: 'runtime-test',
           FARMING_PROJECT_WORKSPACE: '/project',
       }),
       error => JSON.parse(error.stderr).message.includes('not owned by this Agent'),

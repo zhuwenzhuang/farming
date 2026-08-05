@@ -719,15 +719,6 @@ class FarmingSessionStore {
       capabilityRuntimeEpoch: typeof agent.capabilityRuntimeEpoch === 'string'
         ? agent.capabilityRuntimeEpoch
         : '',
-      capabilityWorkspace: typeof agent.capabilityWorkspace === 'string'
-        ? agent.capabilityWorkspace
-        : '',
-      browserCapabilityTokenHash: typeof agent.browserCapabilityTokenHash === 'string'
-        ? agent.browserCapabilityTokenHash
-        : '',
-      computerCapabilityTokenHash: typeof agent.computerCapabilityTokenHash === 'string'
-        ? agent.computerCapabilityTokenHash
-        : '',
       source: typeof agent.source === 'string' ? agent.source : '',
       parentAgentId: typeof agent.parentAgentId === 'string' ? agent.parentAgentId : '',
       forkRequestId: typeof agent.forkRequestId === 'string' ? agent.forkRequestId : '',

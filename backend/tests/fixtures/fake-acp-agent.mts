@@ -37,9 +37,6 @@ function writeCapabilityEnvironment(environment: NodeJS.ProcessEnv) {
   try {
     fs.writeFileSync(process.env.FARMING_TEST_ACP_CAPABILITY_ENV_FILE, JSON.stringify({
       agentId: environment.FARMING_AGENT_ID || '',
-      browserToken: environment.FARMING_BROWSER_TOKEN || '',
-      computerToken: environment.FARMING_COMPUTER_TOKEN || '',
-      runtimeEpoch: environment.FARMING_CAPABILITY_RUNTIME_EPOCH || '',
       workspace: environment.FARMING_PROJECT_WORKSPACE || '',
     }), { flag: 'wx', mode: 0o600 });
   } catch (error: unknown) {

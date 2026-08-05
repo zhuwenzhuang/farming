@@ -302,13 +302,8 @@ async function run(): Promise<void> {
     }, 'captured ACP capability environment');
     assert.strictEqual(capabilityEnv.agentId, agentId);
     assert.strictEqual(capabilityEnv.workspace, fs.realpathSync(workspace));
-    assert.match(String(capabilityEnv.browserToken || ''), /^[A-Za-z0-9_-]{40,}$/);
-    assert.match(String(capabilityEnv.computerToken || ''), /^[A-Za-z0-9_-]{40,}$/);
-    assert.match(String(capabilityEnv.runtimeEpoch || ''), /^[A-Za-z0-9._:-]{1,160}$/);
     const capabilityHeaders = {
       'X-Farming-Agent-Id': agentId,
-      'X-Farming-Capability-Token': String(capabilityEnv.browserToken),
-      'X-Farming-Capability-Runtime-Epoch': String(capabilityEnv.runtimeEpoch),
     };
     const browserBeforeRestart = await fetchJson(firstBaseUrl, '/api/browsers', {
       headers: capabilityHeaders,
@@ -395,24 +390,15 @@ async function run(): Promise<void> {
     assert.strictEqual(
       browserAfterRestart.response.status,
       200,
-      `the surviving ACP process credential must remain valid after Server restart: ${JSON.stringify(browserAfterRestart.body)}`,
+      `the surviving ACP Agent resource route must remain valid after Server restart: ${JSON.stringify(browserAfterRestart.body)}`,
     );
-    const missingCredential = await fetchJson(secondBaseUrl, '/api/browsers', {
+    const unknownAgent = await fetchJson(secondBaseUrl, '/api/browsers', {
       headers: {
-        'X-Farming-Agent-Id': agentId,
-        'X-Farming-Capability-Runtime-Epoch': String(capabilityEnv.runtimeEpoch),
+        'X-Farming-Agent-Id': 'missing-agent',
       },
     });
-    assert.strictEqual(missingCredential.response.status, 401);
-    assert.strictEqual(missingCredential.body.code, 'BROWSER_AGENT_CREDENTIAL_INVALID');
-    const crossCapabilityCredential = await fetchJson(secondBaseUrl, '/api/browsers', {
-      headers: {
-        ...capabilityHeaders,
-        'X-Farming-Capability-Token': String(capabilityEnv.computerToken),
-      },
-    });
-    assert.strictEqual(crossCapabilityCredential.response.status, 401);
-    assert.strictEqual(crossCapabilityCredential.body.code, 'BROWSER_AGENT_CREDENTIAL_INVALID');
+    assert.strictEqual(unknownAgent.response.status, 404);
+    assert.strictEqual(unknownAgent.body.code, 'BROWSER_AGENT_NOT_FOUND');
 
     currentPhase = 'joining duplicate prompt';
     const duplicate = await fetchJson(secondBaseUrl, `/api/control/agents/${agentId}/messages`, {

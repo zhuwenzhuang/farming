@@ -106,11 +106,8 @@ async function run() {
       calls.push({ type: 'clearAgentSessionBuffer', agentId, options });
       return { cleared: true, outputSeq: 7 };
     },
-    setAgentAdaptiveTitle(agentId, title, token) {
-      calls.push({ type: 'setAgentAdaptiveTitle', agentId, title, token });
-      if (token !== `title-token-${agentId}`) {
-        return { error: 'Agent title update belongs to an expired runtime' };
-      }
+    setAgentAdaptiveTitle(agentId, title) {
+      calls.push({ type: 'setAgentAdaptiveTitle', agentId, title });
       const adaptiveTitle = String(title || '').replace(/\s+/g, ' ').trim().slice(0, 80);
       agents.get(agentId).adaptiveTitle = adaptiveTitle;
       return { agentId, adaptiveTitle };
@@ -259,7 +256,6 @@ async function run() {
       method: 'POST',
       body: JSON.stringify({
         title: '  Diagnose ACP titles  ',
-        token: `title-token-${created.body.agentId}`,
       }),
     });
     assert.strictEqual(titled.response.status, 200);
@@ -271,12 +267,12 @@ async function run() {
       'the title endpoint should delegate exact Agent lookup instead of materializing full state',
     );
 
-    const staleTitle = await fetchJson(baseUrl, `/api/control/agents/${created.body.agentId}/title`, {
+    const renamedAgain = await fetchJson(baseUrl, `/api/control/agents/${created.body.agentId}/title`, {
       method: 'POST',
-      body: JSON.stringify({ title: 'Stale title', token: 'expired-token' }),
+      body: JSON.stringify({ title: 'Agent-name routed title', token: 'ignored-legacy-token' }),
     });
-    assert.strictEqual(staleTitle.response.status, 409);
-    assert.match(staleTitle.body.error, /expired runtime/);
+    assert.strictEqual(renamedAgain.response.status, 200);
+    assert.strictEqual(renamedAgain.body.adaptiveTitle, 'Agent-name routed title');
 
     const concurrentInput = await fetchJson(baseUrl, `/api/control/agents/${created.body.agentId}/input`, {
       method: 'POST',

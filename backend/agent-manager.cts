@@ -134,7 +134,11 @@ import {
   resolveTerminalExecutable,
 } from './executable-discovery.cjs';
 import { ensureMainAgentSkillFiles, renderMainAgentBootstrap } from './main-agent-skills.cjs';
-import { appendOpenCodeBootstrap, renderFarmingAgentBootstrap } from './farming-agent-bootstrap.cjs';
+import {
+  appendOpenCodeBootstrap,
+  renderFarmingAgentBootstrap,
+  renderFarmingAgentSessionContext,
+} from './farming-agent-bootstrap.cjs';
 import { mainPageAgentSessionKey, resumedAgentSource } from './main-page-session.cjs';
 import * as storageLayout from './storage-layout.cjs';
 import { isSafeProviderSessionId, isTemporaryProviderSessionId } from './provider-session-id.cjs';
@@ -183,10 +187,6 @@ import { compareNativePtyRuntimeEpochs } from './native-pty-controller-generatio
 import { canonicalWorkspacePath } from './workspace-root-registry.cjs';
 import { configInstanceFingerprint as fingerprintConfigInstance } from './config-instance.cjs';
 import { stripLegacyFarmingCapabilityMcpServers } from './provider-mcp-sanitizer.cjs';
-import {
-  createCapabilityCredential,
-  verifyCapabilityCredential,
-} from './agent-cli-capability-credentials.cjs';
 import { acpLastAssistantNotificationSummary, acpTurnHandleIsNewer, agentNotificationSummary } from './acp-turn-summary.cjs';
 import { TERMINAL_OPERATION_STATES, activeLifecycleOperation, beginLifecycleOperation, latestLifecycleOperation, lifecycleJournal, setLifecycleOperationResult, transitionLifecycleOperation } from './agent-lifecycle-journal.cjs';
 
@@ -196,7 +196,6 @@ type AgentRecord = TypedAgentRecord;
 type AgentId = string;
 type TerminalInput = string | readonly unknown[];
 type RuntimeKind = 'terminal' | 'acp';
-type AgentCliCapability = 'browser' | 'computer';
 type ErrorRecord = Omit<ErrorLike, 'code'> & Record<string, unknown> & {
   code?: string | number;
 };
@@ -412,7 +411,7 @@ interface AdaptiveTitlePersistenceEntry {
   promise: Promise<UnknownRecord>;
   resolve: (result: UnknownRecord) => void;
   title: string;
-  titleUpdateToken: string;
+  runtimeEpoch: string;
 }
 
 interface TerminalOutputActivityBucket {
@@ -594,14 +593,8 @@ interface AgentManagerOptions extends UnknownRecord {
   unarchiveCodexSession?: UnarchiveCodexSessionContract;
 }
 
-interface BuildAgentEnvOptions {
-  issueCapabilityCredentials?: boolean;
-}
-
-interface AgentCapabilityAuthorization {
+interface AgentResourceBinding {
   agentId: string;
-  capability: AgentCliCapability;
-  runtimeEpoch: string;
   workspace: string;
 }
 
@@ -3319,7 +3312,7 @@ class AgentManager extends EventEmitter {
             ? this.configManager.getCodexApprovalMode()
             : 'approve'
         );
-        const launchEnv = this.buildAgentEnv(agentId, agent, { issueCapabilityCredentials: true });
+        const launchEnv = this.buildAgentEnv(agentId, agent);
         const recoveryMcpSource = Array.isArray(record.acpMcpServers)
           ? record.acpMcpServers.filter(isRecord)
           : [];
@@ -3347,6 +3340,10 @@ class AgentManager extends EventEmitter {
           reasoningEffort: 'config',
           serviceTier: 'config',
           farmingSystemPrompt: renderFarmingAgentBootstrap(),
+          agentContext: renderFarmingAgentSessionContext(
+            agentId,
+            effectiveAgentWorkspaceRoot(agent),
+          ),
           additionalDirectories: Array.isArray(record.acpAdditionalDirectories) ? record.acpAdditionalDirectories : [],
           configOverrides: recoveryConfigOverrides,
           capabilityRuntimeEpoch: recoveryProjection.capabilityRuntimeEpoch,
@@ -3780,15 +3777,6 @@ class AgentManager extends EventEmitter {
       adaptiveTitle: metadata.adaptiveTitle || '',
       capabilityRuntimeEpoch: typeof metadata.capabilityRuntimeEpoch === 'string'
         ? metadata.capabilityRuntimeEpoch
-        : '',
-      capabilityWorkspace: typeof metadata.capabilityWorkspace === 'string'
-        ? canonicalWorkspacePath(metadata.capabilityWorkspace)
-        : canonicalWorkspacePath(metadata.projectWorkspace || metadata.cwd || ''),
-      browserCapabilityTokenHash: typeof metadata.browserCapabilityTokenHash === 'string'
-        ? metadata.browserCapabilityTokenHash
-        : '',
-      computerCapabilityTokenHash: typeof metadata.computerCapabilityTokenHash === 'string'
-        ? metadata.computerCapabilityTokenHash
         : '',
       terminalBusy: typeof state.terminalBusy === 'boolean' ? state.terminalBusy : null,
       shellCwd: state.shellCwd || metadata.cwd || '',
@@ -4626,32 +4614,7 @@ class AgentManager extends EventEmitter {
     });
   }
 
-  issueAgentCapabilityCredentials(
-    agentId: AgentId,
-    agent: TypedAgentRecord,
-    env: NodeJS.ProcessEnv,
-  ): void {
-    const workspace = canonicalWorkspacePath(effectiveAgentWorkspaceRoot(agent));
-    if (!workspace) throw new Error('Agent capability CLI requires an exact Project workspace');
-    const browser = createCapabilityCredential();
-    const computer = createCapabilityCredential();
-    agent.capabilityRuntimeEpoch = crypto.randomUUID();
-    agent.capabilityWorkspace = workspace;
-    agent.browserCapabilityTokenHash = browser.digest;
-    agent.computerCapabilityTokenHash = computer.digest;
-    env.FARMING_AGENT_ID = agentId;
-    env.FARMING_PROJECT_WORKSPACE = workspace;
-    env.FARMING_CAPABILITY_RUNTIME_EPOCH = agent.capabilityRuntimeEpoch;
-    env.FARMING_BROWSER_TOKEN = browser.token;
-    env.FARMING_COMPUTER_TOKEN = computer.token;
-  }
-
-  authorizeAgentCapability(
-    agentId: AgentId,
-    capability: AgentCliCapability,
-    token: unknown,
-    runtimeEpoch: unknown,
-  ): AgentCapabilityAuthorization | null {
+  resolveAgentResourceBinding(agentId: AgentId): AgentResourceBinding | null {
     const agent = this.agents.get(String(agentId || '').trim());
     if (!agent || agent.archived === true || agent.status !== 'running') return null;
     if (runtimeKind(agent) === 'acp') {
@@ -4661,20 +4624,10 @@ class AgentManager extends EventEmitter {
         || ['closed', 'error', 'stopped'].includes(state)
       ) return null;
     }
-    const expectedRuntimeEpoch = String(agent.capabilityRuntimeEpoch || '').trim();
-    if (!expectedRuntimeEpoch || String(runtimeEpoch || '').trim() !== expectedRuntimeEpoch) return null;
-    const workspace = canonicalWorkspacePath(agent.capabilityWorkspace || '');
+    const workspace = canonicalWorkspacePath(effectiveAgentWorkspaceRoot(agent));
     if (!workspace) return null;
-    const currentWorkspace = canonicalWorkspacePath(effectiveAgentWorkspaceRoot(agent));
-    if (!currentWorkspace || currentWorkspace !== workspace) return null;
-    const expectedDigest = capability === 'browser'
-      ? agent.browserCapabilityTokenHash
-      : agent.computerCapabilityTokenHash;
-    if (!verifyCapabilityCredential(token, expectedDigest)) return null;
     return {
       agentId: agent.id,
-      capability,
-      runtimeEpoch: expectedRuntimeEpoch,
       workspace,
     };
   }
@@ -4682,11 +4635,14 @@ class AgentManager extends EventEmitter {
   buildAgentEnv(
     agentId: AgentId,
     agent: TypedAgentRecord,
-    options: BuildAgentEnvOptions = {},
   ) {
     const env = this.buildAgentBaseEnv(agent);
     delete env.FARMING_RUN_SERVER;
     delete env.FARMING_RUN_NATIVE_PTY_HOST;
+    delete env.FARMING_AGENT_TITLE_TOKEN;
+    delete env.FARMING_BROWSER_TOKEN;
+    delete env.FARMING_COMPUTER_TOKEN;
+    delete env.FARMING_CAPABILITY_RUNTIME_EPOCH;
     if (agent.category === 'coding') {
       // Prompt policy is meaningful only for shell sessions. Never pass a
       // shell presentation toggle into a directly launched coding CLI.
@@ -4708,18 +4664,11 @@ class AgentManager extends EventEmitter {
     });
     env.FARMING_CLI_BIN_DIR = this.cliBinDir;
     env.FARMING_AGENT_ID = agentId;
-    agent.titleUpdateToken = crypto.randomBytes(24).toString('base64url');
-    env.FARMING_AGENT_TITLE_TOKEN = agent.titleUpdateToken;
     env.FARMING_IS_MAIN_AGENT = agent.wantsMain ? '1' : '0';
     env.FARMING_SKILLS_COMMAND = 'farming skills';
     env.FARMING_CAPABILITIES_COMMAND = 'farming capabilities';
     env.FARMING_MAIN_WORKSPACE = agent.mainWorkspace || '';
-    const capabilityWorkspace = canonicalWorkspacePath(effectiveAgentWorkspaceRoot(agent));
-    agent.capabilityWorkspace = capabilityWorkspace;
-    env.FARMING_PROJECT_WORKSPACE = capabilityWorkspace;
-    if (options.issueCapabilityCredentials === true) {
-      this.issueAgentCapabilityCredentials(agentId, agent, env);
-    }
+    env.FARMING_PROJECT_WORKSPACE = canonicalWorkspacePath(effectiveAgentWorkspaceRoot(agent));
 
     if (agent.parentAgentId) {
       env.FARMING_PARENT_AGENT_ID = agent.parentAgentId;
@@ -5071,9 +5020,6 @@ class AgentManager extends EventEmitter {
       customTitle: agent.customTitle,
       adaptiveTitle: agent.adaptiveTitle,
       capabilityRuntimeEpoch: agent.capabilityRuntimeEpoch || '',
-      capabilityWorkspace: agent.capabilityWorkspace || '',
-      browserCapabilityTokenHash: agent.browserCapabilityTokenHash || '',
-      computerCapabilityTokenHash: agent.computerCapabilityTokenHash || '',
       pinned: agent.pinned,
       projectOrder: finiteOrder(agent.projectOrder),
       pinnedOrder: finiteOrder(agent.pinnedOrder),
@@ -5100,7 +5046,7 @@ class AgentManager extends EventEmitter {
       command: launch.command,
       args: launch.args,
       cwd: launch.cwd,
-      env: this.buildAgentEnv(agent.id, agent, { issueCapabilityCredentials: true }),
+      env: this.buildAgentEnv(agent.id, agent),
       category: launch.category,
       metadata: this.engineSessionMetadata(agent),
       reviveState: launch.reviveState || null,
@@ -5790,11 +5736,7 @@ class AgentManager extends EventEmitter {
       composerCommands: normalizedComposerCommands(options.composerCommands),
       customTitle: typeof options.customTitle === 'string' ? options.customTitle.trim().slice(0, 80) : '',
       adaptiveTitle: typeof options.adaptiveTitle === 'string' ? options.adaptiveTitle.trim().slice(0, 80) : '',
-      titleUpdateToken: '',
       capabilityRuntimeEpoch: '',
-      capabilityWorkspace: '',
-      browserCapabilityTokenHash: '',
-      computerCapabilityTokenHash: '',
       terminalBusy: null,
       shellCwd: '',
       shellLastExitCode: null,
@@ -5983,6 +5925,10 @@ class AgentManager extends EventEmitter {
           reasoningEffort: codexReasoningEffort,
           serviceTier: codexServiceTier,
           farmingSystemPrompt: renderFarmingAgentBootstrap(),
+          agentContext: renderFarmingAgentSessionContext(
+            agentId,
+            effectiveAgentWorkspaceRoot(agentRecord),
+          ),
           additionalDirectories: requestedAdditionalDirectories,
           mcpServers: requestedMcpServers,
         });
@@ -6154,9 +6100,7 @@ class AgentManager extends EventEmitter {
         const requestedMcpServers = Array.isArray(options.mcpServers)
           ? options.mcpServers
           : rememberedSessionOptions.mcpServers || [];
-        const acpEnv = this.buildAgentEnv(agentId, agentRecord, {
-          issueCapabilityCredentials: true,
-        });
+        const acpEnv = this.buildAgentEnv(agentId, agentRecord);
         const capabilityProjection = this.projectAcpMcpServersForRuntime(
           requestedMcpServers.filter(isRecord),
           acpEnv,
@@ -6187,6 +6131,10 @@ class AgentManager extends EventEmitter {
             : codexReasoningEffort,
           serviceTier: codexServiceTier,
           farmingSystemPrompt: renderFarmingAgentBootstrap(),
+          agentContext: renderFarmingAgentSessionContext(
+            agentId,
+            effectiveAgentWorkspaceRoot(agentRecord),
+          ),
           additionalDirectories,
           configOverrides,
           mcpServers,
@@ -7744,7 +7692,7 @@ class AgentManager extends EventEmitter {
       promise,
       resolve,
       title: adaptiveTitle,
-      titleUpdateToken: agent.titleUpdateToken || '',
+      runtimeEpoch: agent.runtimeEpoch || '',
     });
     this.startAdaptiveTitlePersistenceDrain();
     return promise;
@@ -7776,7 +7724,7 @@ class AgentManager extends EventEmitter {
             if (!agentRecordId) throw new Error('Agent session record is unavailable or no longer owned by this runtime');
             setAgentRecordId(staged, agentRecordId);
             const live = this.agents.get(agentId);
-            if (live === current && live.titleUpdateToken === entry.titleUpdateToken) {
+            if (live === current && live.runtimeEpoch === entry.runtimeEpoch) {
               setAgentRecordId(live, staged.agentRecordId || staged.persistentSessionId || '');
               this.updateEngineProviderSessionMetadata(live);
             }
@@ -7816,7 +7764,6 @@ class AgentManager extends EventEmitter {
   setAgentAdaptiveTitle(
     agentId: AgentId,
     title: string,
-    token: string,
   ): UnknownRecord | Promise<UnknownRecord> {
     if (this.disposing) {
       return { error: 'Farming is shutting down; Agent title updates are not accepted' };
@@ -7829,9 +7776,6 @@ class AgentManager extends EventEmitter {
     if (!agent) return { error: 'Agent not found' };
     if (this.isMainAgentRecord(agentId, agent)) {
       return { error: 'Main Agent keeps its fixed title' };
-    }
-    if (!token || token !== agent.titleUpdateToken) {
-      return { error: 'Agent title update belongs to an expired runtime' };
     }
     if (!agent.agentRecordId && !agent.persistentSessionId) {
       return { error: 'Agent title update requires a persisted Agent session record' };

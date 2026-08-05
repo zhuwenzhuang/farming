@@ -155,8 +155,6 @@ async function run() {
     const port = await listen(server);
     const env = {
       FARMING_AGENT_ID: 'agent_test',
-      FARMING_COMPUTER_TOKEN: 'computer-token',
-      FARMING_CAPABILITY_RUNTIME_EPOCH: 'runtime-test',
       FARMING_CONTROL_URL: `http://127.0.0.1:${port}`,
       FARMING_DISABLE_AUTH: '1',
       FARMING_PROJECT_WORKSPACE: '/project',
@@ -165,8 +163,6 @@ async function run() {
     assert.strictEqual(opened.result.status, 'running');
     assert.strictEqual(requests.find(request => request.method === 'POST').body.name, 'Desktop');
     assert(requests.every(request => request.agentId === 'agent_test'));
-    assert(requests.every(request => request.capabilityToken === 'computer-token'));
-    assert(requests.every(request => request.runtimeEpoch === 'runtime-test'));
 
     const observedProcess = await invokeWithInput(
       computerCli,

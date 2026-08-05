@@ -28,7 +28,6 @@ async function run() {
         FARMING_TEST_REQUEST_LOG_FILE: requestLog,
         FARMING_AGENT_ID: agentId,
         FARMING_PROJECT_WORKSPACE: root,
-        FARMING_CAPABILITY_RUNTIME_EPOCH: `epoch-${agentId}`,
       },
     });
     const [first, second] = await Promise.all([
@@ -56,10 +55,6 @@ async function run() {
     );
     for (const request of starts) {
       const environment = request.params.config.shell_environment_policy.set;
-      assert.strictEqual(
-        environment.FARMING_CAPABILITY_RUNTIME_EPOCH,
-        `epoch-${environment.FARMING_AGENT_ID}`,
-      );
       assert.strictEqual(environment.FARMING_PROJECT_WORKSPACE, root);
     }
 

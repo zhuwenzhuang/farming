@@ -67,8 +67,8 @@ Chat/Terminal replacement retains Browser ownership. Stopping or archiving an
 Agent may stop the runtime while retaining the Resource and profile; deleting
 the Agent deletes only the Browser Resources and profiles it exactly owns.
 
-Chat and Terminal use the same CLI-backed Browser contract and exact Agent
-credential; Farming does not maintain a second ACP MCP implementation.
+Chat and Terminal use the same CLI-backed Browser contract and explicit local
+Agent name; Farming does not maintain a second ACP MCP implementation.
 
 ## Safety And Failure
 

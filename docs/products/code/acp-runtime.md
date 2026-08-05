@@ -53,14 +53,18 @@ scope, active Turn, and recovery state. Within one Runtime Host, a Provider
 Session has at most one live owner across all Project pools. Closing or deleting
 one Session must not stop unrelated Sessions in the same pool. A pooled runtime
 failure reconciles every affected Session and never replays an uncertain Prompt.
+Codex, Claude, OpenCode, Qoder, and Qwen use this connection boundary. As in
+Zed, Session release sends `session/close` only when the Provider advertises
+that capability; otherwise Farming releases its local Session reference and the
+Project connection reclaims the Provider process when its final Session ends.
 
 Browser and Computer capabilities use the instance-exact Farming CLI and
 shared backend services rather than one capability subprocess per Agent.
-Separate unguessable credentials are scoped to the exact Agent, capability
-runtime epoch, and authorized workspace, and are revalidated against current
-backend ownership on every request. Farming-owned capability MCP entries are
-not injected into ACP Sessions; provider and user MCP configuration remains a
-private Session input.
+Each ACP Binding receives its Agent name as Session context. CLI calls carry
+that local name, and the backend resolves the current Agent and Project
+workspace directly. The name is routing state, not a separate authorization
+credential. Farming-owned capability MCP entries are not injected into ACP
+Sessions; provider and user MCP configuration remains a private Session input.
 
 ## Session Identity And Configuration
 

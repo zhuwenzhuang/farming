@@ -45,12 +45,6 @@ async function run() {
 
   try {
     const agentId = await startAgent(manager, 'bash', tmpRoot, { wantsMain: false });
-    const titleToken = manager.agents.get(agentId).titleUpdateToken;
-    assert(titleToken, 'each launched runtime should receive a title-update generation token');
-    assert.match(
-      manager.setAgentAdaptiveTitle(agentId, 'Ignored stale title', 'stale-token').error,
-      /expired runtime/,
-    );
     const persistedBeforeAdaptiveTitle = persistedAgentSnapshots.length;
     const fullUpdates = [];
     const scopedTitleUpdates = [];
@@ -61,12 +55,10 @@ async function run() {
     const firstAdaptiveTitle = manager.setAgentAdaptiveTitle(
       agentId,
       'Draft cross-runtime title',
-      titleToken,
     );
     const latestAdaptiveTitle = manager.setAgentAdaptiveTitle(
       agentId,
       '  Fix cross-runtime titles  ',
-      titleToken,
     );
     assert.strictEqual(
       firstAdaptiveTitle,
@@ -107,14 +99,9 @@ async function run() {
       'Fix cross-runtime titles',
       'an acknowledged Agent-managed title must already be durable',
     );
-    const oldTitleToken = manager.agents.get(agentId).titleUpdateToken;
     const replacementEnv = manager.buildAgentEnv(agentId, manager.agents.get(agentId));
-    assert.notStrictEqual(replacementEnv.FARMING_AGENT_TITLE_TOKEN, oldTitleToken);
-    assert.match(
-      manager.setAgentAdaptiveTitle(agentId, 'Late old-runtime title', oldTitleToken).error,
-      /expired runtime/,
-      'a replaced runtime must not publish a late title',
-    );
+    assert.strictEqual(replacementEnv.FARMING_AGENT_ID, agentId);
+    assert.strictEqual(replacementEnv.FARMING_AGENT_TITLE_TOKEN, undefined);
     const restoredTitleAgentId = await startAgent(manager, 'bash', tmpRoot, {
       wantsMain: false,
       customTitle: `  ${'Restored title '.repeat(8)}  `,
@@ -195,7 +182,6 @@ async function run() {
     const failedAdaptiveTitle = await manager.setAgentAdaptiveTitle(
       agentId,
       'Must not remain visible',
-      manager.agents.get(agentId).titleUpdateToken,
     );
     assert.match(failedAdaptiveTitle.error, /Failed to update Agent title/);
     assert.strictEqual(

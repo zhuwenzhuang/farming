@@ -41,12 +41,15 @@ Session ID、配置、权限、身份、MCP Scope、Active Turn 与 Recovery Sta
 Host 内，一个 Provider Session 在全部 Project Pool 中最多只有一个 Live Owner。关闭或删除
 一个 Session 不能停止同 Pool 的无关 Session。共享 Runtime 失败时必须对账全部受影响
 Session，且绝不重放结果不明确的 Prompt。
+Codex、Claude、OpenCode、Qoder 与 Qwen 都使用该 Connection 边界。与 Zed 一致，只有
+Provider 明确声明 `session/close` Capability 时才发送关闭请求；否则 Farming 只释放本地
+Session 引用，并在 Project Connection 的最后一个 Session 结束时回收 Provider Process。
 
 Browser 与 Computer 使用实例精确的 Farming CLI 和共享 Backend Service，不再为每个 Agent
-启动一份 Capability 子进程。两类能力使用独立且不可猜测的 Credential，绑定精确 Agent、
-Capability Runtime Epoch 与授权 Workspace，并在每次请求时根据当前 Backend Ownership
-重新验证。Farming 不向 ACP Session 注入自有 Capability MCP Entry；Provider 与用户 MCP
-配置仍是私有 Session Input。
+启动一份 Capability 子进程。每个 ACP Binding 通过 Session Context 获得自己的 Agent 名字；
+CLI 调用携带该本地名字，Backend 直接解析当前 Agent 与 Project Workspace。Agent 名字只用于
+路由，不是单独的授权 Credential。Farming 不向 ACP Session 注入自有 Capability MCP Entry；
+Provider 与用户 MCP 配置仍是私有 Session Input。
 
 ## Session 身份与配置
 

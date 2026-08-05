@@ -172,7 +172,6 @@ interface AgentManager {
   setAgentAdaptiveTitle(
     agentId: string,
     title: string,
-    token: string,
   ): Promise<Record<string, unknown>> | Record<string, unknown>;
   startAgent(
     command: string,
@@ -647,14 +646,13 @@ function createControlRouter(
   router.post('/agents/:agentId/title', async (req, res) => {
     const agentId = req.params.agentId;
     const title = typeof req.body.title === 'string' ? req.body.title : '';
-    const token = typeof req.body.token === 'string' ? req.body.token : '';
-    const result = await agentManager.setAgentAdaptiveTitle(agentId, title, token);
+    const result = await agentManager.setAgentAdaptiveTitle(agentId, title);
     if (typeof result.error === 'string' && result.error) {
       const status = result.error.includes('not found')
         ? 404
         : result.retryable === true
           ? 500
-          : /expired runtime|lifecycle change|shutting down/.test(result.error)
+          : /lifecycle change|shutting down/.test(result.error)
             ? 409
             : 400;
       res.status(status).json(result);

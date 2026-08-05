@@ -97,8 +97,9 @@ Browser 和 Computer 是同一 Resource Contract 上的 Built-in Extension：
 - Isolated Browser 可以租用 Agent-owned Desktop，但 Browser Tab 与 Desktop Lifecycle 保持独立。
 
 Browser 与 Computer 可以安全共享轻量 Backend Capability Service，同时使用独立 CLI
-Credential 按 Owner 隔离 Resource Identity、Authorization 与 Mutable Session State。Farming
-不注入或托管第二套 Browser/Computer MCP 实现。
+携带的 Agent 名字，把 Resource Identity 与 Mutable Session State 路由到当前 Owner。该名字
+是本地路由状态，不是额外权限 Credential。Farming 不注入或托管第二套 Browser/Computer
+MCP 实现。
 
 ## Files 与 Language Server
 
@@ -108,9 +109,9 @@ Capability，不引入第二套 Editor 或 Remote Execution Path。
 
 ## 安全与失败
 
-Extension 在边界校验输入，展示当前 Availability，并在前置条件缺失时显式失败。Capability
-Token 或 Viewer Connection 必须绑定精确 Resource 与 Owner。Transport Timeout 造成结果不
-确定时，必须先对账，再决定是否允许重试。
+Extension 在边界校验输入，展示当前 Availability，并在前置条件缺失时显式失败。未知或非
+Active Agent 名字必须失败，不能回退到其他 Owner 的 Resource；Viewer Connection 仍绑定
+精确 Resource。Transport Timeout 造成结果不确定时，必须先对账，再决定是否允许重试。
 
 ## 验收标准
 

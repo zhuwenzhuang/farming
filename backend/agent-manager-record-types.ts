@@ -154,14 +154,11 @@ export interface ComposerCommandRecord {
 export interface AgentRecord extends Record<string, unknown>, AgentDisplayState, AgentAttentionState, AgentShellState {
   acpFinalizedTurnHandle?: string;
   agentRecordId?: string;
-  browserCapabilityTokenHash?: string;
   capabilityRuntimeEpoch?: string;
-  capabilityWorkspace?: string;
   category?: string;
   canForkNewWorktree?: boolean;
   command?: string;
   composerCommands?: ComposerCommandRecord[];
-  computerCapabilityTokenHash?: string;
   cwd?: string;
   engineName?: string;
   engineStarted?: boolean;
@@ -210,7 +207,6 @@ export interface AgentRecord extends Record<string, unknown>, AgentDisplayState,
   structuredRuntimeProcess?: StructuredRuntimeProcessIdentity | null;
   terminalInputReceived?: boolean;
   terminalDraftInputReceived?: boolean;
-  titleUpdateToken?: string;
   attentionBaselineOutputAt?: number | null;
   attentionBaselineOutputSeq?: number | null;
   attentionRequiresNewOutput?: boolean;
@@ -224,12 +220,9 @@ export interface PersistedAgentPrivateMetadata extends Record<string, unknown>, 
   acpFinalizedTurnHandle?: string;
   agentRecordId?: string;
   agentRecordVersion?: number;
-  browserCapabilityTokenHash?: string;
   capabilityRuntimeEpoch?: string;
-  capabilityWorkspace?: string;
   category?: string;
   command?: string;
-  computerCapabilityTokenHash?: string;
   cwd?: string;
   forkCommand?: string;
   forkRequestId?: string;
