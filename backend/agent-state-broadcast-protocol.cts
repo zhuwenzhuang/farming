@@ -42,6 +42,9 @@ interface ProjectAgentSummary {
 interface AgentStateBroadcastTracker {
   agents: Map<string, AgentStateRecord>;
   agentSignatures: Map<string, string>;
+  agentInventoryContributions: Map<string, { running: number; total: number }>;
+  agentInventoryRunning: number;
+  agentInventoryTotal: number;
   currentState: AgentStatePayload | null;
   initialized: boolean;
   metadata: Record<string, unknown>;
@@ -56,6 +59,11 @@ type AgentStateClientScope = 'all' | 'focused';
 interface AgentStateScopeTransition {
   scope: AgentStateClientScope;
   snapshotRequired: boolean;
+}
+
+interface AgentStateInventorySummary {
+  agentInventoryRunning: number;
+  agentInventoryTotal: number;
 }
 
 function normalizeAgentStateScope(scope: unknown): AgentStateClientScope {
@@ -100,6 +108,19 @@ function agentStateDeltaForScope(
     removedAgentIds: delta.removedAgentIds.filter(agentId => (
       agentStateScopeIncludesAgent(scope, focusedAgentId, agentId)
     )),
+  };
+}
+
+function agentInventoryContribution(agent: AgentStateRecord | null | undefined) {
+  const live = Boolean(
+    agent
+    && agent.archived !== true
+    && agent.status !== 'dead'
+    && agent.status !== 'stopped'
+  );
+  return {
+    running: live && agent?.status === 'running' ? 1 : 0,
+    total: live ? 1 : 0,
   };
 }
 
@@ -221,12 +242,25 @@ function createAgentStateBroadcastTracker(): AgentStateBroadcastTracker {
   return {
     agents: new Map(),
     agentSignatures: new Map(),
+    agentInventoryContributions: new Map(),
+    agentInventoryRunning: 0,
+    agentInventoryTotal: 0,
     currentState: null,
     initialized: false,
     metadata: {},
     metadataSignature: '',
     projectAgentSummaries: null,
     sequence: 0,
+  };
+}
+
+function agentStateBroadcastInventorySummary(
+  tracker: AgentStateBroadcastTracker,
+): AgentStateInventorySummary | null {
+  if (!tracker.initialized) return null;
+  return {
+    agentInventoryRunning: tracker.agentInventoryRunning,
+    agentInventoryTotal: tracker.agentInventoryTotal,
   };
 }
 
@@ -249,14 +283,55 @@ function agentStateBroadcastSnapshot(
   return tracker.currentState;
 }
 
+function agentStateBroadcastSnapshotForScope(
+  tracker: AgentStateBroadcastTracker,
+  scope: AgentStateClientScope | null | undefined,
+  focusedAgentId: string | null | undefined,
+): AgentStatePayload | null {
+  if (!tracker.initialized) return null;
+  const normalizedScope = normalizeAgentStateScope(scope);
+  const inventory = agentStateBroadcastInventorySummary(tracker);
+  if (!inventory) return null;
+  if (normalizedScope !== 'focused' || !focusedAgentId) {
+    const snapshot = agentStateBroadcastSnapshot(tracker);
+    return snapshot ? {
+      ...snapshot,
+      agentInventoryScope: 'all',
+      ...inventory,
+    } : null;
+  }
+
+  const mainAgentId = typeof tracker.metadata.mainAgentId === 'string'
+    ? tracker.metadata.mainAgentId
+    : '';
+  const agents: AgentStateRecord[] = [];
+  const mainAgent = mainAgentId ? tracker.agents.get(mainAgentId) : null;
+  if (mainAgent) agents.push(mainAgent);
+  const focusedAgent = tracker.agents.get(focusedAgentId);
+  if (focusedAgent && focusedAgent.id !== mainAgent?.id) agents.push(focusedAgent);
+  return {
+    ...tracker.metadata,
+    agentInventoryScope: 'focused',
+    ...inventory,
+    agents,
+  };
+}
+
 function advanceAgentStateBroadcast(
   tracker: AgentStateBroadcastTracker,
   state: AgentStatePayload,
 ): AgentStateBroadcastDelta | null {
   const nextAgentSignatures = new Map<string, string>();
+  const nextAgentInventoryContributions = new Map<string, { running: number; total: number }>();
   const nextProjectAgentSummaries = new Map<string, ProjectAgentSummary>();
+  let nextAgentInventoryRunning = 0;
+  let nextAgentInventoryTotal = 0;
   const upserts: AgentStateRecord[] = [];
   for (const agent of state.agents) {
+    const inventoryContribution = agentInventoryContribution(agent);
+    nextAgentInventoryContributions.set(agent.id, inventoryContribution);
+    nextAgentInventoryRunning += inventoryContribution.running;
+    nextAgentInventoryTotal += inventoryContribution.total;
     accumulateProjectAgentSummary(
       nextProjectAgentSummaries,
       agent,
@@ -275,6 +350,9 @@ function advanceAgentStateBroadcast(
 
   tracker.agentSignatures = nextAgentSignatures;
   tracker.agents = new Map(state.agents.map(agent => [agent.id, agent]));
+  tracker.agentInventoryContributions = nextAgentInventoryContributions;
+  tracker.agentInventoryRunning = nextAgentInventoryRunning;
+  tracker.agentInventoryTotal = nextAgentInventoryTotal;
   tracker.metadata = metadata;
   tracker.metadataSignature = metadataSignature;
   tracker.projectAgentSummaries = [...nextProjectAgentSummaries.values()];
@@ -303,16 +381,27 @@ function advanceAgentStateMutation(
 
   const upserts: AgentStateRecord[] = [];
   for (const agent of mutation.upserts || []) {
+    const previousContribution = tracker.agentInventoryContributions.get(agent.id) || { running: 0, total: 0 };
+    const nextContribution = agentInventoryContribution(agent);
+    tracker.agentInventoryRunning += nextContribution.running - previousContribution.running;
+    tracker.agentInventoryTotal += nextContribution.total - previousContribution.total;
     const signature = agentStateSignature(agent);
     if (tracker.agentSignatures.get(agent.id) !== signature) upserts.push(agent);
     tracker.agents.set(agent.id, agent);
     tracker.agentSignatures.set(agent.id, signature);
+    tracker.agentInventoryContributions.set(agent.id, nextContribution);
   }
 
   const removedAgentIds: string[] = [];
   for (const agentId of mutation.removedAgentIds || []) {
-    if (!tracker.agents.delete(agentId)) continue;
-    tracker.agentSignatures.delete(agentId);
+    const previousContribution = tracker.agentInventoryContributions.get(agentId);
+    const removedAgent = tracker.agents.delete(agentId);
+    const removedSignature = tracker.agentSignatures.delete(agentId);
+    if (!removedAgent && !removedSignature && !previousContribution) continue;
+    const contribution = previousContribution || { running: 0, total: 0 };
+    tracker.agentInventoryRunning -= contribution.running;
+    tracker.agentInventoryTotal -= contribution.total;
+    tracker.agentInventoryContributions.delete(agentId);
     removedAgentIds.push(agentId);
   }
 
@@ -352,10 +441,12 @@ export {
   advanceAgentStateMutation,
   agentStateClientDelivery,
   agentStateDeltaForScope,
+  agentStateBroadcastInventorySummary,
   agentStateBroadcastProjectSummaries,
   agentStateScopeIncludesAgent,
   agentStateScopeTransition,
   agentStateBroadcastSnapshot,
+  agentStateBroadcastSnapshotForScope,
   agentStateSnapshotFrames,
   createAgentStateBroadcastTracker,
   normalizeAgentStateScope,
@@ -369,6 +460,7 @@ export type {
   AgentStateClientScope,
   AgentStateScopeTransition,
   AgentStatePayload,
+  AgentStateInventorySummary,
   AgentStateSnapshotFrame,
   ProjectAgentSummary,
 };

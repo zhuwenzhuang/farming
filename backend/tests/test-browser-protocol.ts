@@ -16,6 +16,24 @@ assert(
 assert.strictEqual(protocolCompatible(PROTOCOL_VERSION), true);
 assert.strictEqual(protocolCompatible(PROTOCOL_VERSION - 1), false);
 assert.strictEqual(protocolCompatible(PROTOCOL_VERSION + 1), false);
+assert.strictEqual(validateClientMessage({ type: 'protocol-hello', protocolVersion: PROTOCOL_VERSION }).ok, true);
+assert.strictEqual(validateClientMessage({
+  type: 'protocol-hello',
+  protocolVersion: PROTOCOL_VERSION,
+  initialStateScope: 'focused',
+  initialFocusedAgentId: 'agent-a',
+}).ok, true);
+assert.strictEqual(validateClientMessage({
+  type: 'protocol-hello',
+  protocolVersion: PROTOCOL_VERSION,
+  initialStateScope: 'focused',
+}).ok, false);
+assert.strictEqual(validateClientMessage({
+  type: 'protocol-hello',
+  protocolVersion: PROTOCOL_VERSION,
+  initialStateScope: 'all',
+  initialFocusedAgentId: 'agent-a',
+}).ok, false);
 assert.strictEqual(validateClientMessage({ type: 'resize-agent', agentId: 'a', cols: 80, rows: 24 }).ok, true);
 assert.strictEqual(validateClientMessage({ type: 'resize-agent', agentId: 'a', cols: '80', rows: 24 }).ok, false);
 assert.strictEqual(validateClientMessage({ type: 'composer-input', agentId: 'a', message: 'steer', requestId: 'request-1' }).ok, true);
@@ -71,6 +89,9 @@ assert.strictEqual(validateServerMessage({
   snapshot: { complete: true, id: 'snapshot-projects', offset: 0, total: 1 },
   state: {
     agents: [{ id: 'a' }],
+    agentInventoryScope: 'focused',
+    agentInventoryRunning: 8,
+    agentInventoryTotal: 10,
     projectAgentSummaries: [{
       workspace: '/alpha',
       agentCount: 9,
@@ -81,6 +102,41 @@ assert.strictEqual(validateServerMessage({
     }],
   },
 }).ok, true);
+assert.strictEqual(validateServerMessage({
+  type: 'state',
+  generation: 'server-1',
+  sequence: 0,
+  snapshot: { complete: true, id: 'snapshot-inventory-invalid', offset: 0, total: 1 },
+  state: {
+    agents: [{ id: 'a' }],
+    agentInventoryScope: 'focused',
+    agentInventoryRunning: 11,
+    agentInventoryTotal: 10,
+  },
+}).ok, false);
+assert.strictEqual(validateServerMessage({
+  type: 'state-delta',
+  generation: 'server-1',
+  sequence: 1,
+  upserts: [],
+  removedAgentIds: [],
+  state: {
+    agentInventoryScope: 'focused',
+    agentInventoryRunning: 8,
+    agentInventoryTotal: 10,
+  },
+}).ok, true);
+assert.strictEqual(validateServerMessage({
+  type: 'state-delta',
+  generation: 'server-1',
+  sequence: 1,
+  upserts: [],
+  removedAgentIds: [],
+  state: {
+    agentInventoryRunning: 8,
+    agentInventoryTotal: 10,
+  },
+}).ok, false);
 assert.strictEqual(validateServerMessage({
   type: 'state',
   generation: 'server-1',

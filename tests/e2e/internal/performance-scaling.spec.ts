@@ -28,6 +28,9 @@ type WireFrame = {
   sequence: number
   agentId: string
   agentCount: number
+  agentInventoryRunning: number
+  agentInventoryScope: string
+  agentInventoryTotal: number
   snapshotComplete: boolean
   snapshotId: string
   snapshotOffset: number
@@ -106,6 +109,9 @@ function trackWireFrames(page: Page) {
             unread?: boolean
           }>
           projectAgentSummaries?: WireFrame['projectAgentSummaries']
+          agentInventoryRunning?: number
+          agentInventoryScope?: string
+          agentInventoryTotal?: number
         }
         snapshot?: { complete?: boolean; id?: string; offset?: number }
         upserts?: Array<{ id?: string; isMain?: boolean }>
@@ -143,6 +149,9 @@ function trackWireFrames(page: Page) {
         agentCount: message.type === 'state' || message.type === 'state-delta'
           ? visibleAgentIds.size
           : 0,
+        agentInventoryRunning: Number(message.state?.agentInventoryRunning ?? -1),
+        agentInventoryScope: String(message.state?.agentInventoryScope || ''),
+        agentInventoryTotal: Number(message.state?.agentInventoryTotal ?? -1),
         snapshotComplete: message.snapshot?.complete === true,
         snapshotId: message.snapshot?.id || '',
         snapshotOffset: message.snapshot?.offset ?? -1,
@@ -169,6 +178,9 @@ function trackWireFrames(page: Page) {
         sequence: -1,
         agentId: '',
         agentCount: 0,
+        agentInventoryRunning: -1,
+        agentInventoryScope: '',
+        agentInventoryTotal: -1,
         snapshotComplete: false,
         snapshotId: '',
         snapshotOffset: -1,
@@ -510,14 +522,7 @@ test('scopes one-page Code Preview hydration and preserves legacy fallback', asy
       socket.addEventListener('message', event => {
         const message = JSON.parse(String(event.data)) as {
           type?: string
-          protocolVersion?: number
           preview?: { agentId?: string }
-        }
-        if (message.type === 'protocol-hello' && Number.isInteger(message.protocolVersion)) {
-          socket.send(JSON.stringify({
-            type: 'protocol-hello',
-            protocolVersion: message.protocolVersion,
-          }))
         }
         const agentId = message.preview?.agentId
         if (message.type === 'session-preview' && agentId && expectedAgentIds.includes(agentId)) {
@@ -817,12 +822,28 @@ test('restores a large Agent inventory through progressive authoritative pages',
   await expect.poll(() => crtFrames.findLast(frame => (
     frame.type === 'state'
     && frame.snapshotComplete
-    && frame.agentCount === targetCount
-  ))?.agentCount ?? -1, { timeout: 60_000 }).toBe(targetCount)
+    && frame.agentInventoryScope === 'focused'
+  ))?.agentCount ?? -1, { timeout: 60_000 }).toBe(1)
   const firstCrtFrame = crtFrames.find(frame => frame.type === 'state' && frame.snapshotOffset === 0)
-  expect(firstCrtFrame?.statePageAgentCount).toBe(32)
+  const authoritativeAgentTotal = firstCrtFrame?.agentInventoryTotal ?? -1
+  const authoritativeRunningTotal = firstCrtFrame?.agentInventoryRunning ?? -1
+  expect([targetCount, targetCount + 1]).toContain(authoritativeAgentTotal)
+  expect(authoritativeRunningTotal).toBeGreaterThanOrEqual(targetCount)
+  expect(authoritativeRunningTotal).toBeLessThanOrEqual(authoritativeAgentTotal)
+  expect(firstCrtFrame?.snapshotComplete).toBe(true)
+  expect(firstCrtFrame?.statePageAgentCount).toBe(1 + authoritativeAgentTotal - targetCount)
+  expect(firstCrtFrame?.agentInventoryScope).toBe('focused')
+  expect(firstCrtFrame?.stateAgentIds).toContain(mutatedAgentId)
+  expect(firstCrtFrame?.stateAgentIds.some(agentId => (
+    agentId !== mutatedAgentId && initialAgentIds.includes(agentId)
+  ))).toBe(false)
+  expect(firstCrtFrame?.bytes ?? Number.MAX_SAFE_INTEGER).toBeLessThan(first?.bytes ?? 0)
   await expect(crtPage.locator('#session-modal')).toHaveClass(/active/)
-  await expect(crtPage.locator('body')).toContainText(`AGENTS: ${targetCount + 1}/${targetCount + 1}`)
+  await expect(crtPage.locator('body')).toContainText(
+    `AGENTS: ${authoritativeRunningTotal}/${authoritativeAgentTotal}`,
+  )
+  await crtPage.waitForTimeout(300)
+  expect(new Set(crtFrames.filter(frame => frame.type === 'state').map(frame => frame.snapshotId)).size).toBe(1)
   const focusedPreviewResyncStart = crtFrames.length
   await crtPage.evaluate(() => {
     const socket = (window as typeof window & { __farmingCrtSocket?: WebSocket | null }).__farmingCrtSocket
@@ -832,7 +853,10 @@ test('restores a large Agent inventory through progressive authoritative pages',
     socket.send(JSON.stringify({ type: 'state-resync' }))
   })
   await expect.poll(() => crtFrames.slice(focusedPreviewResyncStart).some(frame => (
-    frame.type === 'state' && frame.snapshotComplete
+    frame.type === 'state'
+    && frame.snapshotComplete
+    && frame.agentInventoryScope === 'focused'
+    && frame.agentCount === 1
   )), { timeout: 30_000 }).toBe(true)
   await waitForWireQuiet(crtFrames, 300, 5_000)
   const focusedPreviewFrames = crtFrames.slice(focusedPreviewResyncStart).filter(frame => (
@@ -843,6 +867,66 @@ test('restores a large Agent inventory through progressive authoritative pages',
     previewBytes: focusedPreviewFrames.reduce((sum, frame) => sum + frame.bytes, 0),
     previewFrames: focusedPreviewFrames.length,
   })}`)
+  const focusedReconnectStart = crtFrames.length
+  await crtPage.evaluate(() => {
+    const socket = (window as typeof window & { __farmingCrtSocket?: WebSocket | null }).__farmingCrtSocket
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      throw new Error('CRT WebSocket is not open for focused reconnect')
+    }
+    socket.close(4000, 'Focused inventory reconnect test')
+  })
+  await expect.poll(() => crtFrames.slice(focusedReconnectStart).findLast(frame => (
+    frame.type === 'state'
+    && frame.snapshotComplete
+    && frame.agentInventoryScope === 'focused'
+  ))?.agentCount ?? -1, { timeout: 30_000 }).toBe(1)
+  const focusedReconnectFrames = crtFrames.slice(focusedReconnectStart).filter(frame => (
+    frame.type === 'state' && frame.agentInventoryScope === 'focused'
+  ))
+  expect(focusedReconnectFrames.flatMap(frame => frame.stateAgentIds).some(agentId => (
+    agentId !== mutatedAgentId && initialAgentIds.includes(agentId)
+  ))).toBe(false)
+  await expect(crtPage.locator('#session-modal')).toHaveClass(/active/)
+  await expect(crtPage.locator('body')).toContainText(
+    `AGENTS: ${authoritativeRunningTotal}/${authoritativeAgentTotal}`,
+  )
+
+  const invalidCrtPage = await page.context().newPage()
+  const invalidCrtFrames = trackWireFrames(invalidCrtPage)
+  await invalidCrtPage.goto('/farming/crt/?agent=missing-agent-deeplink', { waitUntil: 'domcontentloaded' })
+  await expect.poll(() => invalidCrtFrames.find(frame => (
+    frame.type === 'state'
+    && frame.snapshotComplete
+    && frame.agentInventoryScope === 'focused'
+  ))?.statePageAgentCount ?? -1, { timeout: 30_000 }).toBe(1)
+  const missingTargetSnapshot = invalidCrtFrames.find(frame => (
+    frame.type === 'state'
+    && frame.snapshotComplete
+    && frame.agentInventoryScope === 'focused'
+  ))
+  expect(missingTargetSnapshot?.agentCount).toBe(0)
+  expect(missingTargetSnapshot?.agentInventoryTotal).toBe(authoritativeAgentTotal)
+  await expect.poll(() => invalidCrtFrames.find(frame => (
+    frame.type === 'state'
+    && frame.snapshotOffset === 0
+    && frame.agentInventoryScope === 'all'
+  )), { timeout: 30_000 }).not.toBeUndefined()
+  const invalidFallbackSnapshotId = invalidCrtFrames.find(frame => (
+    frame.type === 'state'
+    && frame.snapshotOffset === 0
+    && frame.agentInventoryScope === 'all'
+  ))?.snapshotId ?? ''
+  await expect.poll(() => invalidCrtFrames.findLast(frame => (
+    frame.type === 'state'
+    && frame.snapshotId === invalidFallbackSnapshotId
+    && frame.snapshotComplete
+  ))?.agentCount ?? -1, { timeout: 30_000 }).toBe(targetCount)
+  await expect(invalidCrtPage.locator('#session-modal')).not.toHaveClass(/active/)
+  await expect(invalidCrtPage.locator('body')).toContainText(
+    `AGENTS: ${authoritativeRunningTotal}/${authoritativeAgentTotal}`,
+  )
+  await invalidCrtPage.close()
+
   await page.waitForTimeout(500)
   expect(frames.filter(frame => frame.type === 'state-delta')).toHaveLength(codeDeltaCountBeforeCrt)
 
@@ -870,6 +954,8 @@ test('restores a large Agent inventory through progressive authoritative pages',
     frame.type === 'state-delta' && frame.sequence === unrelatedCodeDelta?.sequence
   ))
   expect(unrelatedCrtDelta?.upsertAgentIds).toEqual([])
+  expect(unrelatedCrtDelta?.agentInventoryTotal).toBe(authoritativeAgentTotal)
+  expect(unrelatedCrtDelta?.agentInventoryRunning).toBe(authoritativeRunningTotal)
   expect(unrelatedCrtDelta?.bytes ?? Number.MAX_SAFE_INTEGER).toBeLessThan(unrelatedCodeDelta?.bytes ?? 0)
   console.log(`focused-state-delta ${JSON.stringify({
     fullBytes: unrelatedCodeDelta?.bytes,
@@ -927,6 +1013,11 @@ test('restores a large Agent inventory through progressive authoritative pages',
 
   const dashboardSnapshotStart = crtFrames.length
   await crtPage.getByRole('button', { name: 'Close session, Ctrl+Escape' }).click()
+  await expect.poll(() => crtFrames.slice(dashboardSnapshotStart).some(frame => (
+    frame.type === 'state'
+    && frame.snapshotOffset === 0
+    && frame.agentInventoryScope === 'all'
+  )), { timeout: 30_000 }).toBe(true)
   await expect.poll(() => crtFrames.slice(dashboardSnapshotStart).findLast(frame => (
     frame.type === 'state' && frame.snapshotComplete
   ))?.agentCount ?? -1, { timeout: 30_000 }).toBe(targetCount)

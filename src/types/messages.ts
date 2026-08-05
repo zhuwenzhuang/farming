@@ -15,6 +15,8 @@ import type {
 export interface ProtocolClientHelloMessage {
   type: 'protocol-hello'
   protocolVersion: number
+  initialFocusedAgentId?: string
+  initialStateScope?: 'all' | 'focused'
 }
 
 export interface BusinessHealthProbeMessage {

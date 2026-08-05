@@ -7,8 +7,10 @@ const {
   advanceAgentStateMutation,
   agentStateClientDelivery,
   agentStateDeltaForScope,
+  agentStateBroadcastInventorySummary,
   agentStateBroadcastProjectSummaries,
   agentStateBroadcastSnapshot,
+  agentStateBroadcastSnapshotForScope,
   agentStateScopeIncludesAgent,
   agentStateScopeTransition,
   agentStateSnapshotFrames,
@@ -97,6 +99,10 @@ assert.deepStrictEqual(agentStateBroadcastSnapshot(directTracker), state([
   { id: 'a', status: 'running' },
   { id: 'b', status: 'waiting' },
 ], { mainAgentId: 'b' }));
+assert.deepStrictEqual(agentStateBroadcastInventorySummary(directTracker), {
+  agentInventoryRunning: 1,
+  agentInventoryTotal: 2,
+});
 
 assert.strictEqual(
   advanceAgentStateMutation(directTracker, {
@@ -192,6 +198,48 @@ assert.deepStrictEqual(agentStateDeltaForScope(scopedDelta, 'focused', 'missing'
   state: { mainAgentId: 'main' },
 });
 
+const scopedSnapshotTracker = createAgentStateBroadcastTracker();
+advanceAgentStateBroadcast(scopedSnapshotTracker, state([
+  { id: 'main', status: 'running', isMain: true },
+  { id: 'target', status: 'pending' },
+  { id: 'unrelated', status: 'running' },
+  { id: 'stopped', status: 'stopped' },
+  { id: 'archived', status: 'running', archived: true },
+], { mainAgentId: 'main' }));
+assert.deepStrictEqual(
+  agentStateBroadcastSnapshotForScope(scopedSnapshotTracker, 'focused', 'target'),
+  state([
+    { id: 'main', status: 'running', isMain: true },
+    { id: 'target', status: 'pending' },
+  ], {
+    mainAgentId: 'main',
+    agentInventoryScope: 'focused',
+    agentInventoryRunning: 2,
+    agentInventoryTotal: 3,
+  }),
+  'A focused snapshot should project only the Main and exact focused Agent while retaining global counts',
+);
+assert.deepStrictEqual(
+  agentStateBroadcastSnapshotForScope(scopedSnapshotTracker, 'focused', 'missing')?.agents,
+  [{ id: 'main', status: 'running', isMain: true }],
+  'A missing focused Agent should produce a bounded Main-only checkpoint for explicit client fallback',
+);
+assert.deepStrictEqual(
+  agentStateBroadcastSnapshotForScope(scopedSnapshotTracker, 'all', null),
+  state([
+    { id: 'main', status: 'running', isMain: true },
+    { id: 'target', status: 'pending' },
+    { id: 'unrelated', status: 'running' },
+    { id: 'stopped', status: 'stopped' },
+    { id: 'archived', status: 'running', archived: true },
+  ], {
+    mainAgentId: 'main',
+    agentInventoryScope: 'all',
+    agentInventoryRunning: 2,
+    agentInventoryTotal: 3,
+  }),
+);
+
 const progressiveFrames = [...agentStateSnapshotFrames(
   state(Array.from({ length: 1_000 }, (_, index) => ({ id: `paged-${index}` })), {
     mainAgentId: 'paged-0',
@@ -222,6 +270,24 @@ assert.deepStrictEqual(
     { complete: false, count: 256, offset: 576, total: 1_000 },
     { complete: true, count: 168, offset: 832, total: 1_000 },
   ],
+);
+const focusedSnapshotFrames = [...agentStateSnapshotFrames(
+  agentStateBroadcastSnapshotForScope(scopedSnapshotTracker, 'focused', 'target'),
+  'snapshot-focused',
+  32,
+  128,
+)];
+assert.strictEqual(focusedSnapshotFrames.length, 1);
+assert.deepStrictEqual(focusedSnapshotFrames[0].snapshot, {
+  complete: true,
+  id: 'snapshot-focused',
+  offset: 0,
+  total: 2,
+});
+assert.strictEqual(focusedSnapshotFrames[0].state.agentInventoryTotal, 3);
+assert.deepStrictEqual(
+  focusedSnapshotFrames[0].state.agents.map(agent => agent.id),
+  ['main', 'target'],
 );
 assert.strictEqual(progressiveFrames[0].state.mainAgentId, 'paged-0');
 assert.strictEqual(progressiveFrames[1].state.mainAgentId, undefined);
@@ -444,6 +510,48 @@ assert.strictEqual(
   0,
   'A one-Agent mutation must not inspect unchanged Agents in a large inventory',
 );
+
+const inventoryInvariantTracker = createAgentStateBroadcastTracker();
+advanceAgentStateBroadcast(inventoryInvariantTracker, state([
+  { id: 'a', status: 'running' },
+  { id: 'b', status: 'waiting' },
+]));
+const assertInventoryInvariant = () => {
+  const liveAgents = [...inventoryInvariantTracker.agents.values()].filter(agent => (
+    agent.archived !== true && agent.status !== 'dead' && agent.status !== 'stopped'
+  ));
+  assert.deepStrictEqual(agentStateBroadcastInventorySummary(inventoryInvariantTracker), {
+    agentInventoryRunning: liveAgents.filter(agent => agent.status === 'running').length,
+    agentInventoryTotal: liveAgents.length,
+  });
+};
+assertInventoryInvariant();
+advanceAgentStateMutation(inventoryInvariantTracker, { upserts: [{ id: 'a', status: 'waiting' }] });
+assertInventoryInvariant();
+advanceAgentStateMutation(inventoryInvariantTracker, { upserts: [{ id: 'a', status: 'stopped' }] });
+assertInventoryInvariant();
+advanceAgentStateMutation(inventoryInvariantTracker, {
+  upserts: [{ id: 'a', status: 'running', archived: true }],
+});
+assertInventoryInvariant();
+advanceAgentStateMutation(inventoryInvariantTracker, {
+  upserts: [{ id: 'a', status: 'running', archived: false }],
+});
+assertInventoryInvariant();
+assert.strictEqual(
+  advanceAgentStateMutation(inventoryInvariantTracker, { removedAgentIds: ['missing'] }),
+  null,
+);
+assertInventoryInvariant();
+inventoryInvariantTracker.agents.delete('b');
+assert.deepStrictEqual(
+  advanceAgentStateMutation(inventoryInvariantTracker, { removedAgentIds: ['b'] })?.removedAgentIds,
+  ['b'],
+  'Removal should reconcile a stale signature or contribution even if the Agent Map already lost the record',
+);
+assertInventoryInvariant();
+advanceAgentStateMutation(inventoryInvariantTracker, { upserts: [{ id: 'b', status: 'pending' }] });
+assertInventoryInvariant();
 
 const serverSource = fs.readFileSync(path.join(__dirname, '..', 'server.cts'), 'utf8');
 assert.strictEqual(

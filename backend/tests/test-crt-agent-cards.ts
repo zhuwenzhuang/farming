@@ -29,6 +29,7 @@ const {
   formatCrtHistoryAge,
   getCrtHistoryPage,
   getCrtAgentPage,
+  crtAgentInventoryCounts,
   getCrtAgentVerticalPageTarget,
   getCrtLiveAgents,
   getCrtRegularAgents,
@@ -105,6 +106,30 @@ function run() {
     ['agent-live', 'agent-pending'],
     'stopped, dead, and archived Agent records should not occupy CRT dashboard bays',
   );
+  assert.deepStrictEqual(crtAgentInventoryCounts(liveDashboardState), {
+    running: 2,
+    total: 3,
+  });
+  assert.deepStrictEqual(crtAgentInventoryCounts({
+    ...liveDashboardState,
+    agentInventoryScope: 'focused',
+    agentInventoryRunning: 71,
+    agentInventoryTotal: 73,
+    agents: liveDashboardState.agents.slice(0, 2),
+  }), {
+    running: 71,
+    total: 73,
+  }, 'A focused CRT Session should keep authoritative global Agent counts without the full inventory');
+  assert.deepStrictEqual(crtAgentInventoryCounts({
+    ...liveDashboardState,
+    agentInventoryScope: 'all',
+    agentInventoryRunning: 4,
+    agentInventoryTotal: 6,
+    agents: liveDashboardState.agents.slice(0, 2),
+  }), {
+    running: 4,
+    total: 6,
+  }, 'A progressive all-scope Snapshot should use authoritative totals before every row arrives');
   assert.deepStrictEqual(
     buildCrtStructuredPreview({
       state: 'working',

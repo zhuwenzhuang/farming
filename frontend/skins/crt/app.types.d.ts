@@ -248,6 +248,9 @@ interface CrtAgent extends CrtUnknownRecord {
 
 interface CrtWorkspaceState extends CrtUnknownRecord {
   agents: CrtAgent[];
+  agentInventoryRunning?: number;
+  agentInventoryScope?: 'all' | 'focused';
+  agentInventoryTotal?: number;
   mainAgentId?: string | null;
   taskHistory?: CrtHistoryEntry[];
 }

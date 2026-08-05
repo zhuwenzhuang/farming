@@ -127,6 +127,21 @@ function projectAgentSummaries(value) {
     }
     return true;
 }
+function agentInventoryMetadata(value) {
+    const fields = [
+        'agentInventoryScope',
+        'agentInventoryRunning',
+        'agentInventoryTotal',
+    ];
+    const present = fields.filter(field => Object.prototype.hasOwnProperty.call(value, field));
+    if (present.length === 0)
+        return true;
+    return present.length === fields.length
+        && (value.agentInventoryScope === 'all' || value.agentInventoryScope === 'focused')
+        && revisionField(value, 'agentInventoryRunning')
+        && revisionField(value, 'agentInventoryTotal')
+        && Number(value.agentInventoryRunning) <= Number(value.agentInventoryTotal);
+}
 function stateMessage(value) {
     const state = value.state;
     const agents = objectMessage(state) ? state.agents : null;
@@ -137,7 +152,9 @@ function stateMessage(value) {
         || !Array.isArray(agents)
         || !agents.every(agent => objectMessage(agent) && stringField(agent, 'id'))
         || new Set(agents.map(agent => agent.id)).size !== agents.length
+        || !agentInventoryMetadata(state)
         || !optionalField(state, 'projectAgentSummaries', () => projectAgentSummaries(state))
+        || (Object.prototype.hasOwnProperty.call(state, 'agentInventoryScope') && Number(snapshot?.offset) !== 0)
         || (state.projectAgentSummaries !== undefined && Number(snapshot?.offset) !== 0))
         return false;
     return optionalField(value, 'snapshot', () => stateSnapshotPage(value, agents.length));
@@ -216,7 +233,14 @@ function validateClientMessage(value) {
     let valid = true;
     switch (value.type) {
         case 'protocol-hello':
-            valid = Number.isInteger(value.protocolVersion);
+            valid = Number.isInteger(value.protocolVersion)
+                && (!Object.prototype.hasOwnProperty.call(value, 'initialStateScope')
+                    || value.initialStateScope === 'all'
+                    || (value.initialStateScope === 'focused'
+                        && stringField(value, 'initialFocusedAgentId')
+                        && String(value.initialFocusedAgentId).length > 0))
+                && (!Object.prototype.hasOwnProperty.call(value, 'initialFocusedAgentId')
+                    || value.initialStateScope === 'focused');
             break;
         case 'business-health-probe':
             valid = stringField(value, 'requestId');
@@ -318,7 +342,8 @@ function validateServerMessage(value) {
                 && Array.isArray(value.removedAgentIds)
                 && value.removedAgentIds.every(agentId => typeof agentId === 'string')
                 && optionalField(value, 'state', () => (objectMessage(value.state)
-                    && !Object.prototype.hasOwnProperty.call(value.state, 'agents')));
+                    && !Object.prototype.hasOwnProperty.call(value.state, 'agents')
+                    && agentInventoryMetadata(value.state)));
             break;
         case 'composer-input-result':
             valid = stringField(value, 'requestId') && stringField(value, 'agentId') && typeof value.accepted === 'boolean' && stringField(value, 'message', true) && (!Object.prototype.hasOwnProperty.call(value, 'uncertain') || typeof value.uncertain === 'boolean');

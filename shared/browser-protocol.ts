@@ -13,6 +13,8 @@ interface ExtensibleMessage extends ObjectMessage {
 export interface ProtocolClientHelloMessage extends ExtensibleMessage {
   type: 'protocol-hello'
   protocolVersion: number
+  initialFocusedAgentId?: string
+  initialStateScope?: 'all' | 'focused'
 }
 
 export interface BusinessHealthProbeMessage extends ExtensibleMessage {
@@ -451,6 +453,21 @@ function projectAgentSummaries(value: ObjectMessage): boolean {
   return true
 }
 
+function agentInventoryMetadata(value: ObjectMessage): boolean {
+  const fields = [
+    'agentInventoryScope',
+    'agentInventoryRunning',
+    'agentInventoryTotal',
+  ] as const
+  const present = fields.filter(field => Object.prototype.hasOwnProperty.call(value, field))
+  if (present.length === 0) return true
+  return present.length === fields.length
+    && (value.agentInventoryScope === 'all' || value.agentInventoryScope === 'focused')
+    && revisionField(value, 'agentInventoryRunning')
+    && revisionField(value, 'agentInventoryTotal')
+    && Number(value.agentInventoryRunning) <= Number(value.agentInventoryTotal)
+}
+
 function stateMessage(value: ObjectMessage): boolean {
   const state = value.state
   const agents = objectMessage(state) ? state.agents : null
@@ -462,7 +479,9 @@ function stateMessage(value: ObjectMessage): boolean {
     || !Array.isArray(agents)
     || !agents.every(agent => objectMessage(agent) && stringField(agent, 'id'))
     || new Set(agents.map(agent => agent.id)).size !== agents.length
+    || !agentInventoryMetadata(state)
     || !optionalField(state, 'projectAgentSummaries', () => projectAgentSummaries(state))
+    || (Object.prototype.hasOwnProperty.call(state, 'agentInventoryScope') && Number(snapshot?.offset) !== 0)
     || (state.projectAgentSummaries !== undefined && Number(snapshot?.offset) !== 0)
   ) return false
   return optionalField(value, 'snapshot', () => stateSnapshotPage(value, agents.length))
@@ -551,7 +570,16 @@ export function validateClientMessage(value: unknown): ValidationResult<ClientMe
   }
   let valid = true
   switch (value.type) {
-    case 'protocol-hello': valid = Number.isInteger(value.protocolVersion); break
+    case 'protocol-hello':
+      valid = Number.isInteger(value.protocolVersion)
+        && (!Object.prototype.hasOwnProperty.call(value, 'initialStateScope')
+          || value.initialStateScope === 'all'
+          || (value.initialStateScope === 'focused'
+            && stringField(value, 'initialFocusedAgentId')
+            && String(value.initialFocusedAgentId).length > 0))
+        && (!Object.prototype.hasOwnProperty.call(value, 'initialFocusedAgentId')
+          || value.initialStateScope === 'focused')
+      break
     case 'business-health-probe': valid = stringField(value, 'requestId'); break
     case 'start-agent': valid = stringField(value, 'command'); break
     case 'input': valid = stringField(value, 'agentId', true) && (typeof value.input === 'string' || Array.isArray(value.inputParts)); break
@@ -633,6 +661,7 @@ export function validateServerMessage(value: unknown): ValidationResult<ServerMe
         && optionalField(value, 'state', () => (
           objectMessage(value.state)
           && !Object.prototype.hasOwnProperty.call(value.state, 'agents')
+          && agentInventoryMetadata(value.state)
         ))
       break
     case 'composer-input-result': valid = stringField(value, 'requestId') && stringField(value, 'agentId') && typeof value.accepted === 'boolean' && stringField(value, 'message', true) && (!Object.prototype.hasOwnProperty.call(value, 'uncertain') || typeof value.uncertain === 'boolean'); break

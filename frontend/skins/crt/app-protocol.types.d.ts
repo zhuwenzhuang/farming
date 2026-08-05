@@ -172,6 +172,9 @@ interface CrtProtocolTaskHistoryEntry extends CrtProtocolRecord {
 
 interface CrtProtocolWorkspaceState extends CrtProtocolRecord {
   agents: CrtProtocolAgent[];
+  agentInventoryRunning?: number;
+  agentInventoryScope?: 'all' | 'focused';
+  agentInventoryTotal?: number;
   mainAgentId: string | null;
   taskHistory: CrtProtocolTaskHistoryEntry[];
 }
@@ -179,6 +182,8 @@ interface CrtProtocolWorkspaceState extends CrtProtocolRecord {
 interface CrtProtocolHelloClientMessage extends CrtProtocolRecord {
   type: 'protocol-hello';
   protocolVersion: number;
+  initialFocusedAgentId?: string;
+  initialStateScope?: 'all' | 'focused';
 }
 
 interface CrtProtocolStartAgentClientMessage extends CrtProtocolRecord {

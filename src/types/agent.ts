@@ -555,6 +555,9 @@ export interface ProjectAgentSummary {
 export interface AppState {
   mainAgentId: string | null
   agents: Agent[]
+  agentInventoryRunning?: number
+  agentInventoryScope?: 'all' | 'focused'
+  agentInventoryTotal?: number
   taskHistory: TaskHistoryEntry[]
   mainPageSessionKeys?: string[]
   projectWorkspaces?: string[]

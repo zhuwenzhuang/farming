@@ -48,6 +48,7 @@ let pendingAgentLaunchPrefill = null;
 let crtNavigationKey = '';
 let crtMainView = 'agents';
 let didApplyAgentDeeplink = false;
+let crtAgentDeeplinkFallbackPending = false;
 let historyAgentSessions = [];
 let historyLoading = false;
 let historyError = '';
@@ -5326,19 +5327,41 @@ function requestedCrtAgentId(search = typeof window !== 'undefined' ? window.loc
 function openCrtAgentDeeplinkIfReady() {
     if (didApplyAgentDeeplink || !state)
         return false;
-    didApplyAgentDeeplink = true;
     crtReadingAnchorApi()?.importFromSearch(window.location.search);
     const agentId = requestedCrtAgentId();
+    if (!agentId) {
+        didApplyAgentDeeplink = true;
+        return false;
+    }
     const agent = agentId
         ? state.agents.find((candidate) => candidate.id === agentId && isCrtLiveAgent(candidate))
         : null;
-    if (!agent)
+    if (!agent) {
+        if (state.agentInventoryScope === 'focused') {
+            if (!crtAgentDeeplinkFallbackPending) {
+                crtAgentDeeplinkFallbackPending = getSessionClient()?.focusAgent(null, {
+                    activityScope: 'all',
+                    stateScope: 'all',
+                    streamScope: 'focused',
+                    previewScope: 'all',
+                    refreshState: true,
+                }) === true;
+            }
+            return false;
+        }
+        crtAgentDeeplinkFallbackPending = false;
+        didApplyAgentDeeplink = true;
         return false;
+    }
+    crtAgentDeeplinkFallbackPending = false;
+    didApplyAgentDeeplink = true;
     openSession(agent.id);
     return true;
 }
 function applyCrtWorkspaceState(nextState, previousAgentCount, inventoryComplete = true) {
     state = nextState;
+    if (isCrtSessionOpen())
+        updateCrtAgentInventoryStatus(state);
     pruneCrtStructuredPreviews(state);
     const activeAgentIds = new Set(state.agents.map((agent) => agent.id));
     terminalPreviewSnapshots.forEach((_snapshot, agentId) => {
@@ -5554,8 +5577,17 @@ function connect() {
         if (ws !== socket)
             return;
         console.log('Connected to server');
-        socket.send(JSON.stringify({ type: 'protocol-hello', protocolVersion: CRT_PROTOCOL_VERSION }));
-        const activeAgentId = isCrtSessionOpen() ? focusedAgentId : null;
+        const activeAgentId = isCrtSessionOpen()
+            ? focusedAgentId
+            : (!didApplyAgentDeeplink && !crtAgentDeeplinkFallbackPending
+                ? requestedCrtAgentId()
+                : null);
+        socket.send(JSON.stringify({
+            type: 'protocol-hello',
+            protocolVersion: CRT_PROTOCOL_VERSION,
+            initialStateScope: activeAgentId ? 'focused' : 'all',
+            ...(activeAgentId ? { initialFocusedAgentId: activeAgentId } : {}),
+        }));
         getSessionClient()?.focusAgent(activeAgentId, {
             activityScope: activeAgentId ? 'focused' : 'all',
             stateScope: activeAgentId ? 'focused' : 'all',
@@ -5939,6 +5971,26 @@ function getCrtRegularAgents(currentState = state) {
         return [];
     return getCrtLiveAgents(currentState).filter((agent) => (agent.id !== currentState.mainAgentId && agent.isMain !== true));
 }
+function crtAgentInventoryCounts(currentState) {
+    const visibleAgents = getCrtLiveAgents(currentState);
+    if (currentState
+        && Number.isInteger(currentState.agentInventoryRunning)
+        && Number.isInteger(currentState.agentInventoryTotal)) {
+        return {
+            running: Number(currentState.agentInventoryRunning),
+            total: Number(currentState.agentInventoryTotal),
+        };
+    }
+    return {
+        running: visibleAgents.filter(agent => agent.status === 'running').length,
+        total: visibleAgents.length,
+    };
+}
+function updateCrtAgentInventoryStatus(currentState) {
+    const inventory = crtAgentInventoryCounts(currentState);
+    document.getElementById('active-agents').textContent = String(inventory.running);
+    document.getElementById('total-agents').textContent = String(inventory.total);
+}
 function getCrtAgentRemovalFallback(currentState, removedAgentId) {
     const liveAgents = getCrtLiveAgents(currentState);
     const removedIndex = liveAgents.findIndex((agent) => agent.id === removedAgentId);
@@ -5993,10 +6045,7 @@ function renderState() {
     lastCrtDashboardSignature = crtDashboardStateSignature(state);
     // 更新吊顶的 Agent 数量
     const visibleAgents = getCrtLiveAgents(state);
-    const activeAgents = visibleAgents.filter(a => a.status === 'running').length;
-    const totalAgents = visibleAgents.length;
-    document.getElementById('active-agents').textContent = String(activeAgents);
-    document.getElementById('total-agents').textContent = String(totalAgents);
+    updateCrtAgentInventoryStatus(state);
     updateCrtBrandState(state);
     const mapArea = document.getElementById('map-area');
     const emptyState = document.getElementById('empty-state');
@@ -8752,6 +8801,7 @@ if (typeof module !== 'undefined' && module.exports) {
         formatStructuredUsage,
         getCrtHistoryPage,
         getCrtAgentPage,
+        crtAgentInventoryCounts,
         getCrtAgentVerticalPageTarget,
         getCrtLiveAgents,
         getCrtRegularAgents,

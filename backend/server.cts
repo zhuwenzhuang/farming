@@ -148,6 +148,8 @@ interface WebSocketClient {
   protocolVersion?: number;
   readyState: number;
   resourceSnapshotPending?: boolean;
+  initialStateSnapshotSent?: boolean;
+  initialStateSnapshotTimer?: ReturnType<typeof setTimeout> | null;
   stateSnapshotDeltaBytes?: number;
   stateSnapshotDeltas?: string[];
   stateSnapshotInProgress?: boolean;
@@ -280,7 +282,8 @@ import {
   advanceAgentStateMutation,
   agentStateClientDelivery,
   agentStateDeltaForScope,
-  agentStateBroadcastSnapshot,
+  agentStateBroadcastInventorySummary,
+  agentStateBroadcastSnapshotForScope,
   agentStateBroadcastProjectSummaries,
   agentStateScopeIncludesAgent,
   agentStateScopeTransition,
@@ -3123,10 +3126,12 @@ wss.on('connection', (ws, req) => {
   ws.on('close', (code: number, reason: Buffer) => {
     clearWorkspaceFileWatch(ws);
     cancelSessionPreviewHydration(ws);
+    if (ws.initialStateSnapshotTimer) clearTimeout(ws.initialStateSnapshotTimer);
     if (ws.stateSnapshotRetryTimer) clearTimeout(ws.stateSnapshotRetryTimer);
     ws.stateSnapshotDeltaBytes = 0;
     ws.stateSnapshotDeltas = [];
     ws.stateSnapshotRetryTimer = null;
+    ws.initialStateSnapshotTimer = null;
     ws.stateSnapshotInProgress = false;
     console.log('Client disconnected', JSON.stringify({
       connectionId: ws.connectionId,
@@ -3143,7 +3148,7 @@ wss.on('connection', (ws, req) => {
     protocolVersion: PROTOCOL_VERSION,
     minProtocolVersion: MIN_PROTOCOL_VERSION,
   }));
-  sendState(ws);
+  queueInitialStateSnapshot(ws);
 });
 
 const MAIN_AGENT_RESTART_COMMANDS = new Set(['codex', 'claude', 'opencode', 'qoder', 'qwen', 'bash', 'zsh']);
@@ -3334,6 +3339,15 @@ function handleMessage(ws: WebSocketClient, data: ServerClientMessage) {
         return;
       }
       ws.protocolVersion = data.protocolVersion;
+      if (
+        ws.initialStateSnapshotSent !== true
+        && data.initialStateScope === 'focused'
+        && data.initialFocusedAgentId
+      ) {
+        ws.focusedAgentId = data.initialFocusedAgentId;
+        ws.stateScope = 'focused';
+      }
+      if (ws.initialStateSnapshotSent !== true) sendState(ws);
       sendResourceSnapshots(ws);
       break;
     case 'business-health-probe':
@@ -3718,13 +3732,20 @@ function currentAgentListMetadata(options: { includeWorkspaceRoots?: boolean } =
 }
 
 function sendState(ws: WebSocketClient) {
+  ws.initialStateSnapshotSent = true;
+  if (ws.initialStateSnapshotTimer) clearTimeout(ws.initialStateSnapshotTimer);
+  ws.initialStateSnapshotTimer = null;
   if (ws.stateSnapshotInProgress) {
     ws.stateSnapshotPending = true;
     return;
   }
   cancelSessionPreviewHydration(ws);
   broadcastState(ws, true);
-  const state = agentStateBroadcastSnapshot(stateBroadcastTracker);
+  const state = agentStateBroadcastSnapshotForScope(
+    stateBroadcastTracker,
+    normalizeAgentStateScope(ws.stateScope),
+    ws.focusedAgentId,
+  );
   const summaries = agentStateBroadcastProjectSummaries(stateBroadcastTracker);
   if (!state || !summaries) {
     ws.stateSnapshotPending = true;
@@ -3831,6 +3852,15 @@ function sendState(ws: WebSocketClient) {
   deliverNextPage();
 }
 
+function queueInitialStateSnapshot(ws: WebSocketClient) {
+  if (ws.initialStateSnapshotSent === true || ws.initialStateSnapshotTimer) return;
+  ws.initialStateSnapshotTimer = setTimeout(() => {
+    ws.initialStateSnapshotTimer = null;
+    if (ws.readyState === WebSocket.OPEN && ws.initialStateSnapshotSent !== true) sendState(ws);
+  }, INITIAL_STATE_SCOPE_DECLARATION_WINDOW_MS);
+  ws.initialStateSnapshotTimer.unref?.();
+}
+
 function sendResourceSnapshots(ws: WebSocketClient) {
   if (ws.readyState !== WebSocket.OPEN || ws.protocolVersion !== PROTOCOL_VERSION) return;
   ws.send(JSON.stringify({
@@ -3898,6 +3928,7 @@ const STATE_BROADCAST_INTERVAL_MS = 120;
 const INITIAL_AGENT_STATE_SNAPSHOT_PAGE_SIZE = 32;
 const AGENT_STATE_SNAPSHOT_PAGE_SIZE = 128;
 const INITIAL_AGENT_STATE_SNAPSHOT_FOLLOWUP_DELAY_MS = 200;
+const INITIAL_STATE_SCOPE_DECLARATION_WINDOW_MS = 100;
 const AGENT_STATE_SNAPSHOT_BACKPRESSURE_RETRY_MS = 25;
 const MAX_AGENT_STATE_SNAPSHOT_DELTA_COUNT = 256;
 const MAX_AGENT_STATE_SNAPSHOT_DELTA_BYTES = 1024 * 1024;
@@ -4236,10 +4267,21 @@ function broadcastState(
       )
     : advanceAgentStateMutation(stateBroadcastTracker, mutation);
   if (!delta) return;
+  const inventorySummary = agentStateBroadcastInventorySummary(stateBroadcastTracker);
+  const allDelta = inventorySummary
+    ? {
+        ...delta,
+        state: {
+          ...(delta.state || {}),
+          agentInventoryScope: 'all',
+          ...inventorySummary,
+        },
+      }
+    : delta;
   const allClientMessage = JSON.stringify({
     type: 'state-delta',
     generation: SERVER_EPOCH,
-    ...delta,
+    ...allDelta,
   });
   wss.clients.forEach(client => {
     if (client === excludedClient || client.readyState !== WebSocket.OPEN) return;
@@ -4248,12 +4290,23 @@ function broadcastState(
       normalizeAgentStateScope(client.stateScope),
       client.focusedAgentId,
     );
-    const message = scopedDelta === delta
+    const focusedScope = normalizeAgentStateScope(client.stateScope) === 'focused';
+    const clientDelta = focusedScope
+      ? (inventorySummary ? {
+          ...scopedDelta,
+          state: {
+            ...(scopedDelta.state || {}),
+            agentInventoryScope: 'focused',
+            ...inventorySummary,
+          },
+        } : scopedDelta)
+      : allDelta;
+    const message = clientDelta === allDelta
       ? allClientMessage
       : JSON.stringify({
           type: 'state-delta',
           generation: SERVER_EPOCH,
-          ...scopedDelta,
+          ...clientDelta,
         });
     deliverStateDelta(client, message);
   });

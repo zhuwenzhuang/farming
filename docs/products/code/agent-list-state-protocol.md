@@ -7,8 +7,21 @@ metadata. Browser interfaces consume that state through a snapshot plus delta
 protocol; they do not reconstruct missing state from terminal or Chat traffic.
 
 An initial connection, explicit resynchronization, or recovery from delivery
-backpressure receives one complete logical snapshot through progressive pages.
-On initial load, the first bounded page can render immediately. During recovery,
+backpressure receives one logical snapshot through progressive pages. The
+default snapshot contains the complete Agent inventory. A client that already
+has an exact foreground Agent identity may declare `focused` initial state
+interest in its protocol hello; that snapshot contains only the Main Agent and
+the exact focused Agent. Its page `total` is the scoped record count, while page
+zero separately carries the authoritative global live-Agent and running-Agent
+totals. A missing focused target therefore produces a bounded Main-only
+snapshot; the client must explicitly widen to `all` and request a new
+authoritative snapshot rather than treating absence from the scoped projection
+as a complete global result. A legacy client that does not negotiate the hello
+within the bounded declaration window falls back to the compatible complete
+snapshot. Snapshot completion means that the declared projection is complete;
+global Project summaries and inventory totals remain authoritative metadata and
+do not imply that a focused client holds every individual Agent record. On
+initial load, the first bounded page can render immediately. During recovery,
 the client retains its last complete inventory while it assembles the replacement
 snapshot, then swaps to the exact authoritative inventory at completion;
 following pages carry the same snapshot ID, generation, and sequence and append
@@ -41,19 +54,23 @@ sidebar is visible and suspends it in non-Agent views. Farming CRT keeps all
 activity on its dashboard and only the focused Agent while a Session is open.
 Clients that do not declare a scope retain the compatible `all` behavior.
 
-Agent list deltas have an independent per-browser `all` or `focused` scope.
-Farming CRT uses `focused` while one Session is open. The browser still receives
-every global list sequence: a mutation for the focused Agent carries that Agent,
-while an unrelated mutation carries an empty checkpoint plus any changed
-list-level metadata. This preserves exact-predecessor checks without sending or
-applying unrelated Agent records. Changing the focused target or returning to
-`all` requires a fresh authoritative snapshot before broad supervision resumes.
-Initial and recovery snapshots remain complete, and clients that do not declare
-this scope retain `all` delivery. Agent-scoped `agent-update` and `agent-read`
-messages follow the same scope; the authoritative snapshot reconciles updates
-intentionally skipped while focused. Off-target Agent records retained from the
-last complete snapshot are hidden and intentionally stale during focused scope;
-they are not current-state evidence until the next `all` snapshot completes.
+Agent list updates have an independent per-browser scope:
+
+- `all` sends updates for every Agent. Farming Code and the CRT Dashboard use
+  this scope.
+- `focused` sends Agent records only for the open CRT Session.
+
+A focused browser still receives every global list sequence. A change to the
+focused Agent includes that Agent record. An unrelated change sends an empty
+checkpoint plus current list metadata, including the global live-Agent and
+running-Agent totals. This preserves exact sequence checks without transporting
+unrelated Agent records. `agent-update` and `agent-read` follow the same scope.
+
+Reconnect and sequence-gap recovery keep the current scope. Changing the
+focused Agent or returning to `all` requires a new authoritative snapshot.
+Agent records intentionally skipped while focused remain hidden and stale until
+that `all` snapshot completes. Clients that do not declare an initial scope use
+the compatible `all` behavior.
 
 Session previews have an independent compatible `all`, `focused`, or `none`
 scope. The scope applies both to live preview broadcasts and to the absolute
