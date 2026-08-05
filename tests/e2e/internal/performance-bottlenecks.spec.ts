@@ -654,10 +654,11 @@ test('parked Agent output does not update workspace roots', async ({ page, works
           type?: string
           preview?: { agentId?: string }
           update?: { agentId?: string }
+          activity?: { agentId?: string }
         }
         frames.push({
           type: message.type || 'unknown',
-          agentId: message.preview?.agentId || message.update?.agentId || '',
+          agentId: message.preview?.agentId || message.update?.agentId || message.activity?.agentId || '',
         })
       } catch {
         frames.push({ type: 'invalid', agentId: '' })
@@ -690,7 +691,7 @@ test('parked Agent output does not update workspace roots', async ({ page, works
   })
   expect(inputResponse.ok()).toBeTruthy()
   await expect.poll(() => frames.some(frame => (
-    frame.type === 'session-preview' && frame.agentId === parkedAgentId
+    frame.type === 'agent-activity' && frame.agentId === parkedAgentId
   )), { timeout: 15_000 }).toBe(true)
   await page.waitForTimeout(100)
 
@@ -699,6 +700,9 @@ test('parked Agent output does not update workspace roots', async ({ page, works
   )) as RenderSnapshot
   expect(frames.filter(frame => frame.type === 'state')).toHaveLength(0)
   expect(frames.filter(frame => frame.type === 'state-delta')).toHaveLength(0)
+  expect(frames.filter(frame => (
+    frame.type === 'session-preview' && frame.agentId === parkedAgentId
+  ))).toHaveLength(0)
   expect(renders.app).toBe(0)
   expect(renders.codeWorkspace).toBe(0)
 })
