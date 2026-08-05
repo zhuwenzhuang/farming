@@ -9,8 +9,10 @@ const { ConfigManager } = require('../config-manager.cts');
 
 interface ComposerTestAgent {
   acpFinalizedTurnHandle?: string;
+  attentionAutoReadNext?: boolean;
   attentionSummary?: string;
   attentionSeq?: number;
+  composerCommands?: Array<Record<string, unknown>>;
   id: string;
   command: string;
   forkCommand: string;
@@ -211,6 +213,52 @@ async function run() {
 
     await Promise.all([...manager.acpTurnFinalizationTails.values()]);
     const attentionBeforeRapidTurns = Number(agent.attentionSeq || 0);
+    const finalizedHandleBeforeRapidTurns = agent.acpFinalizedTurnHandle || '';
+    const productionStateWriter = configManager.sessionStore.writeJsonAsync.bind(configManager.sessionStore);
+    let releaseFinalizationWrite: () => void = () => {};
+    const finalizationWriteGate = new Promise<void>(resolve => {
+      releaseFinalizationWrite = resolve;
+    });
+    let observeFinalizationWrite: () => void = () => {};
+    const finalizationWriteStarted = new Promise<void>(resolve => {
+      observeFinalizationWrite = resolve;
+    });
+    let gateFinalizationWrite = true;
+    let postCommitInjectionStep = 0;
+    let finalizationStateWriteCount = 0;
+    const finalizationStateFileSuffix = `${path.sep}${agent.persistentSessionId}.state.json`;
+    configManager.sessionStore.writeJsonAsync = async (file, value, options) => {
+      if (!String(file).endsWith(finalizationStateFileSuffix)) {
+        return productionStateWriter(file, value, options);
+      }
+      finalizationStateWriteCount += 1;
+      if (gateFinalizationWrite) {
+        gateFinalizationWrite = false;
+        observeFinalizationWrite();
+        await finalizationWriteGate;
+      }
+      const committed = await productionStateWriter(file, value, options);
+      if (committed && postCommitInjectionStep === 0) {
+        postCommitInjectionStep = 1;
+        agent.composerCommands = [
+          ...(agent.composerCommands || []),
+          {
+            contentHash: 'post-commit-race',
+            createdAt: 1,
+            error: '',
+            requestId: 'post-commit-race',
+            result: null,
+            state: 'accepted',
+            updatedAt: 1,
+          },
+        ];
+        configManager.sessionStore.ensureRecordForAgent(agent);
+      } else if (committed && postCommitInjectionStep === 1) {
+        postCommitInjectionStep = 2;
+        agent.attentionAutoReadNext = true;
+      }
+      return committed;
+    };
     runtime.emit('agent-runtime', {
       agentId: agent.id,
       sessionId: agent.providerSessionId,
@@ -219,6 +267,29 @@ async function run() {
       lastSettledTurnHandle: 'binding-1:1',
       lastSettledTurnSummary: 'First exact summary',
     });
+    await finalizationWriteStarted;
+    let finalizationDrainResolved = false;
+    const finalizationDrain = manager.drainAcceptedAgentOperations().then(() => {
+      finalizationDrainResolved = true;
+    });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.strictEqual(
+      finalizationDrainResolved,
+      false,
+      'shutdown drain must wait for an accepted Turn finalization state commit',
+    );
+    releaseFinalizationWrite();
+    assert.strictEqual(
+      agent.acpFinalizedTurnHandle || '',
+      finalizedHandleBeforeRapidTurns,
+      'an in-flight durable Turn must not expose its finalized handle early',
+    );
+    assert.strictEqual(
+      Number(agent.attentionSeq || 0),
+      attentionBeforeRapidTurns,
+      'an in-flight durable Turn must not expose unread attention early',
+    );
+    await finalizationDrain;
     runtime.emit('agent-runtime', {
       agentId: agent.id,
       sessionId: agent.providerSessionId,
@@ -229,16 +300,25 @@ async function run() {
     });
     await new Promise(resolve => setImmediate(resolve));
     assert.strictEqual(manager.acpFinalizedTurns.get(agent.id), 'binding-1:2');
-    const finalizeDeadline = Date.now() + 1000;
-    while (agent.acpFinalizedTurnHandle !== 'binding-1:2' && Date.now() < finalizeDeadline) {
-      await new Promise(resolve => setTimeout(resolve, 5));
-    }
+    await Promise.allSettled([...manager.acpTurnFinalizationTails.values()]);
     assert.strictEqual(agent.acpFinalizedTurnHandle, 'binding-1:2');
     assert.strictEqual(agent.attentionSummary, 'Second exact summary');
     assert.strictEqual(agent.attentionSeq, attentionBeforeRapidTurns + 2);
+    assert.strictEqual(
+      finalizationStateWriteCount,
+      4,
+      'post-rename disk and live mutations must each force the first Turn to re-stage before the next Turn commits',
+    );
+    assert.strictEqual(agent.attentionAutoReadNext, false, 'the re-staged Turn must consume the newer auto-read intent');
     const finalizedAttentionSeq = agent.attentionSeq;
     const finalizedRecord = configManager.sessionStore.readRecord(agent.persistentSessionId);
     assert.strictEqual(finalizedRecord.acpFinalizedTurnHandle, 'binding-1:2');
+    assert.strictEqual(finalizedRecord.acpStopReason, 'end_turn');
+    assert(
+      finalizedRecord.composerCommands.some(command => command.requestId === 'post-commit-race'),
+      'a full state write after rename must survive the retried scoped finalization patch',
+    );
+    configManager.sessionStore.writeJsonAsync = productionStateWriter;
     runtime.emit('agent-runtime', {
       agentId: agent.id,
       sessionId: agent.providerSessionId,
@@ -255,18 +335,26 @@ async function run() {
       lastSettledTurnHandle: 'binding-1:2',
       lastSettledTurnSummary: 'Second exact summary',
     });
-    await new Promise(resolve => setTimeout(resolve, 20));
+    await Promise.allSettled([...manager.acpTurnFinalizationTails.values()]);
     assert.strictEqual(agent.acpFinalizedTurnHandle, 'binding-1:2');
     assert.strictEqual(agent.attentionSummary, 'Second exact summary');
     assert.strictEqual(agent.attentionSeq, finalizedAttentionSeq, 'stale or duplicate settled Turns must not increment attention');
 
-    const originalEnsureFinalization = configManager.ensureAgentSessionRecord.bind(configManager);
-    let failFinalizationPersistence = true;
-    configManager.ensureAgentSessionRecord = (candidate, patch) => {
-      if (failFinalizationPersistence && candidate.acpFinalizedTurnHandle === 'binding-1:3') {
-        throw new Error('simulated atomic Turn finalization failure');
+    const originalConflictPersist = configManager.persistAgentStatePatch.bind(configManager);
+    const originalConflictEnsure = configManager.ensureAgentSessionRecord.bind(configManager);
+    let postCommitLiveConflicts = 0;
+    let boundedConflictFallbacks = 0;
+    configManager.persistAgentStatePatch = async (candidate, patch, options) => {
+      const result = await originalConflictPersist(candidate, patch, options);
+      if (patch.acpFinalizedTurnHandle === 'binding-1:3' && result.status === 'committed') {
+        postCommitLiveConflicts += 1;
+        agent.attentionAutoReadNext = agent.attentionAutoReadNext !== true;
       }
-      return originalEnsureFinalization(candidate, patch);
+      return result;
+    };
+    configManager.ensureAgentSessionRecord = (candidate, patch) => {
+      if (candidate.acpFinalizedTurnHandle === 'binding-1:3') boundedConflictFallbacks += 1;
+      return originalConflictEnsure(candidate, patch);
     };
     runtime.emit('agent-runtime', {
       agentId: agent.id,
@@ -274,15 +362,57 @@ async function run() {
       state: 'idle',
       stopReason: 'end_turn',
       lastSettledTurnHandle: 'binding-1:3',
-      lastSettledTurnSummary: 'Third exact summary',
+      lastSettledTurnSummary: 'Conflict fallback summary',
     });
-    await new Promise(resolve => setTimeout(resolve, 20));
-    assert.strictEqual(agent.acpFinalizedTurnHandle, 'binding-1:2');
-    assert.strictEqual(agent.attentionSummary, 'Second exact summary');
-    assert.strictEqual(agent.attentionSeq, finalizedAttentionSeq);
+    await Promise.allSettled([...manager.acpTurnFinalizationTails.values()]);
+    assert.strictEqual(postCommitLiveConflicts, 8);
+    assert.strictEqual(boundedConflictFallbacks, 1);
+    assert.strictEqual(agent.acpFinalizedTurnHandle, 'binding-1:3');
+    assert.strictEqual(agent.attentionSummary, 'Conflict fallback summary');
+    assert.strictEqual(agent.attentionSeq, finalizedAttentionSeq + 1);
     assert.strictEqual(
       configManager.sessionStore.readRecord(agent.persistentSessionId).acpFinalizedTurnHandle,
-      'binding-1:2',
+      'binding-1:3',
+      'retry exhaustion must converge disk and live state through the bounded synchronous fallback',
+    );
+    configManager.persistAgentStatePatch = originalConflictPersist;
+    configManager.ensureAgentSessionRecord = originalConflictEnsure;
+    const attentionAfterConflictFallback = agent.attentionSeq;
+
+    const originalPersistFinalization = configManager.persistAgentStatePatch.bind(configManager);
+    const originalEnsureFinalization = configManager.ensureAgentSessionRecord.bind(configManager);
+    let unexpectedCompatibilityFallbacks = 0;
+    configManager.ensureAgentSessionRecord = (candidate, patch) => {
+      unexpectedCompatibilityFallbacks += 1;
+      return originalEnsureFinalization(candidate, patch);
+    };
+    let failFinalizationPersistence = true;
+    configManager.persistAgentStatePatch = async (candidate, patch, options) => {
+      if (failFinalizationPersistence && patch.acpFinalizedTurnHandle === 'binding-1:4') {
+        return { status: 'record-missing' } as const;
+      }
+      return originalPersistFinalization(candidate, patch, options);
+    };
+    runtime.emit('agent-runtime', {
+      agentId: agent.id,
+      sessionId: agent.providerSessionId,
+      state: 'idle',
+      stopReason: 'end_turn',
+      lastSettledTurnHandle: 'binding-1:4',
+      lastSettledTurnSummary: 'Fourth exact summary',
+    });
+    await Promise.allSettled([...manager.acpTurnFinalizationTails.values()]);
+    assert.strictEqual(agent.acpFinalizedTurnHandle, 'binding-1:3');
+    assert.strictEqual(agent.attentionSummary, 'Conflict fallback summary');
+    assert.strictEqual(agent.attentionSeq, attentionAfterConflictFallback);
+    assert.strictEqual(
+      configManager.sessionStore.readRecord(agent.persistentSessionId).acpFinalizedTurnHandle,
+      'binding-1:3',
+    );
+    assert.strictEqual(
+      unexpectedCompatibilityFallbacks,
+      0,
+      'a missing indexed record must fail instead of falling back to a full synchronous rewrite',
     );
     failFinalizationPersistence = false;
     runtime.emit('agent-runtime', {
@@ -290,20 +420,18 @@ async function run() {
       sessionId: agent.providerSessionId,
       state: 'idle',
       stopReason: 'end_turn',
-      lastSettledTurnHandle: 'binding-1:3',
-      lastSettledTurnSummary: 'Third exact summary',
+      lastSettledTurnHandle: 'binding-1:4',
+      lastSettledTurnSummary: 'Fourth exact summary',
     });
-    const thirdFinalizeDeadline = Date.now() + 1000;
-    while (agent.acpFinalizedTurnHandle !== 'binding-1:3' && Date.now() < thirdFinalizeDeadline) {
-      await new Promise(resolve => setTimeout(resolve, 5));
-    }
-    assert.strictEqual(agent.acpFinalizedTurnHandle, 'binding-1:3');
-    assert.strictEqual(agent.attentionSummary, 'Third exact summary');
-    assert.strictEqual(agent.attentionSeq, finalizedAttentionSeq + 1);
+    await Promise.allSettled([...manager.acpTurnFinalizationTails.values()]);
+    assert.strictEqual(agent.acpFinalizedTurnHandle, 'binding-1:4');
+    assert.strictEqual(agent.attentionSummary, 'Fourth exact summary');
+    assert.strictEqual(agent.attentionSeq, attentionAfterConflictFallback + 1);
     assert.strictEqual(
       configManager.sessionStore.readRecord(agent.persistentSessionId).acpFinalizedTurnHandle,
-      'binding-1:3',
+      'binding-1:4',
     );
+    configManager.persistAgentStatePatch = originalPersistFinalization;
     configManager.ensureAgentSessionRecord = originalEnsureFinalization;
     manager.acpFinalizedTurns.clear();
     runtime.emit('agent-runtime', {
@@ -311,11 +439,15 @@ async function run() {
       sessionId: agent.providerSessionId,
       state: 'idle',
       stopReason: 'end_turn',
-      lastSettledTurnHandle: 'binding-1:3',
-      lastSettledTurnSummary: 'Third exact summary',
+      lastSettledTurnHandle: 'binding-1:4',
+      lastSettledTurnSummary: 'Fourth exact summary',
     });
     await new Promise(resolve => setTimeout(resolve, 20));
-    assert.strictEqual(agent.attentionSeq, finalizedAttentionSeq + 1, 'persisted finalized handle must fence restart replay');
+    assert.strictEqual(
+      agent.attentionSeq,
+      attentionAfterConflictFallback + 1,
+      'persisted finalized handle must fence restart replay',
+    );
 
     console.log('test-composer-admission-idempotency passed');
   } finally {

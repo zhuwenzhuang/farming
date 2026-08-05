@@ -47,6 +47,17 @@ interface AgentStateRecord extends JsonRecord {
   agentStateVersion: number;
 }
 
+type AgentStatePersistenceResult =
+  | {
+    status: 'committed';
+    id: string;
+    commit: { metadataGeneration: number; stateGeneration: number };
+  }
+  | { status: 'fenced' }
+  | { status: 'legacy-record' }
+  | { status: 'record-missing' }
+  | { status: 'owner-mismatch' };
+
 function objectRecord(value: unknown): JsonRecord | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
     ? value as JsonRecord
@@ -57,6 +68,7 @@ const AGENT_RECORD_ID_PREFIX = 'agent';
 const AGENT_RECORD_VERSION = 1;
 const AGENT_STATE_VERSION = 1;
 const MAX_ADAPTIVE_TITLE_PERSISTENCE_ATTEMPTS = 8;
+const MAX_AGENT_STATE_PERSISTENCE_ATTEMPTS = 8;
 const SESSION_INDEX_VERSION = 2;
 const MAX_MAIN_PAGE_SESSION_KEYS = 50;
 const AGENT_STATE_FIELDS: string[] = [
@@ -201,6 +213,7 @@ class FarmingSessionStore {
   writeJson: (file: string, value: unknown) => void;
   writeJsonAsync: AsyncJsonWriter;
   metadataWriteGenerations: Map<string, number>;
+  stateWriteGenerations: Map<string, number>;
   index: SessionIndex | null;
   legacyProviderSessionRecords: Record<string, string>;
   providerSessionRecords: Map<string, string>;
@@ -223,6 +236,7 @@ class FarmingSessionStore {
           mode: 0o600,
         });
     this.metadataWriteGenerations = new Map();
+    this.stateWriteGenerations = new Map();
     this.index = null;
     this.legacyProviderSessionRecords = {};
     this.providerSessionRecords = new Map<string, string>();
@@ -455,6 +469,7 @@ class FarmingSessionStore {
       || !sameJson(withoutUpdatedAt(existingState), withoutUpdatedAt(state));
     if (stateChanged) {
       state.updatedAt = now();
+      this.stateWriteGenerations.set(id, (this.stateWriteGenerations.get(id) || 0) + 1);
       this.writeJson(this.agentStateFile(id), state);
     }
     if (metadataChanged) {
@@ -464,6 +479,129 @@ class FarmingSessionStore {
     }
     if (promoted) this.promoteIndexRecordId(previousId, id);
     return id;
+  }
+
+  async persistAgentStatePatch(
+    agent: JsonRecord,
+    patch: JsonRecord,
+    options: { beforeCommit?: () => boolean } = {},
+  ): Promise<AgentStatePersistenceResult> {
+    const providerSessionKey = this.providerSessionKeyForAgent(agent);
+    const preferredId = agentRecordIdFor(agent);
+    const requestedOwner = String(agent?.id || '').trim();
+    if (!requestedOwner) return { status: 'record-missing' };
+
+    const statePatch: JsonRecord = {};
+    AGENT_STATE_FIELDS.forEach(field => {
+      if (Object.prototype.hasOwnProperty.call(patch, field)) statePatch[field] = cloneJson(patch[field]);
+    });
+
+    for (let attempt = 0; attempt < MAX_AGENT_STATE_PERSISTENCE_ATTEMPTS; attempt += 1) {
+      const indexedId = providerSessionKey
+        ? this.providerSessionRecords.get(providerSessionKey)
+        : '';
+      const candidateId = providerSessionKey ? String(indexedId || '') : preferredId;
+      if (isLegacySessionId(candidateId)) return { status: 'legacy-record' };
+      if (!isAgentRecordId(candidateId)) return { status: 'record-missing' };
+      const id = candidateId;
+      const metadataFile = this.sessionFile(id);
+      const stateFile = this.agentStateFile(id);
+      if (!metadataFile || !stateFile) return { status: 'record-missing' };
+
+      const metadataGeneration = this.metadataWriteGenerations.get(id) || 0;
+      const stateGeneration = this.stateWriteGenerations.get(id) || 0;
+      let metadata: JsonRecord | null = null;
+      let existingState: JsonRecord | null = null;
+      try {
+        metadata = objectRecord(JSON.parse(await fs.promises.readFile(metadataFile, 'utf8')));
+        try {
+          existingState = objectRecord(JSON.parse(await fs.promises.readFile(stateFile, 'utf8')));
+        } catch (error: unknown) {
+          if (!(error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT')) throw error;
+        }
+      } catch (error: unknown) {
+        if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
+          return { status: 'record-missing' };
+        }
+        throw new Error(
+          `Failed to read Agent session state ${id}: ${error instanceof Error ? error.message : error}`,
+          { cause: error },
+        );
+      }
+      if (!metadata || metadata.id !== id || metadata.kind !== 'agent') {
+        throw new Error(`Agent session metadata ${id} is invalid`);
+      }
+      const currentOwner = String(metadata.runtimeAgentId || '').trim();
+      if (currentOwner && currentOwner !== requestedOwner) return { status: 'owner-mismatch' };
+
+      const state: AgentStateRecord = {
+        ...(existingState || {}),
+        ...statePatch,
+        agentRecordId: id,
+        agentStateVersion: AGENT_STATE_VERSION,
+        kind: 'agent-state',
+      };
+      const stateChanged = !existingState
+        || !sameJson(withoutUpdatedAt(existingState), withoutUpdatedAt(state));
+      let rejectedByCaller = false;
+      const canCommit = () => {
+        if ((this.metadataWriteGenerations.get(id) || 0) !== metadataGeneration) return false;
+        if ((this.stateWriteGenerations.get(id) || 0) !== stateGeneration) return false;
+        if (providerSessionKey && this.providerSessionRecords.get(providerSessionKey) !== id) return false;
+        if (options.beforeCommit && !options.beforeCommit()) {
+          rejectedByCaller = true;
+          return false;
+        }
+        return true;
+      };
+
+      if (!stateChanged) {
+        if (canCommit()) {
+          return {
+            status: 'committed',
+            id,
+            commit: { metadataGeneration, stateGeneration },
+          };
+        }
+        if (rejectedByCaller) return { status: 'fenced' };
+        await new Promise<void>(resolve => setImmediate(resolve));
+        continue;
+      }
+
+      state.updatedAt = now();
+      const committed = await this.writeJsonAsync(stateFile, state, {
+        beforeCommit: () => {
+          if (!canCommit()) return false;
+          this.stateWriteGenerations.set(id, stateGeneration + 1);
+          return true;
+        },
+      });
+      if (committed) {
+        return {
+          status: 'committed',
+          id,
+          commit: { metadataGeneration, stateGeneration: stateGeneration + 1 },
+        };
+      }
+      if (rejectedByCaller) return { status: 'fenced' };
+      await new Promise<void>(resolve => setImmediate(resolve));
+    }
+    throw new Error('Agent state persistence exceeded the conflict retry limit');
+  }
+
+  isAgentStateCommitCurrent(
+    agent: JsonRecord,
+    id: string,
+    commit: { metadataGeneration: number; stateGeneration: number },
+  ): boolean {
+    const providerSessionKey = this.providerSessionKeyForAgent(agent);
+    if (providerSessionKey) {
+      if (this.providerSessionRecords.get(providerSessionKey) !== id) return false;
+    } else if (agentRecordIdFor(agent) !== id) {
+      return false;
+    }
+    return (this.metadataWriteGenerations.get(id) || 0) === commit.metadataGeneration
+      && (this.stateWriteGenerations.get(id) || 0) === commit.stateGeneration;
   }
 
   async persistAgentAdaptiveTitle(agent: JsonRecord, title: unknown): Promise<string> {

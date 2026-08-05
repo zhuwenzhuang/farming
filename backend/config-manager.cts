@@ -125,6 +125,26 @@ interface SessionStoreLike {
   removeMainPageSessionKey(sessionKey: string): boolean;
   removeMainPageSessionKeys(keys: unknown): string[];
   persistAgentAdaptiveTitle(agent: JsonRecord, title: unknown): Promise<string>;
+  persistAgentStatePatch?(
+    agent: JsonRecord,
+    patch: JsonRecord,
+    options?: { beforeCommit?: () => boolean },
+  ): Promise<
+    | {
+      status: 'committed';
+      id: string;
+      commit: { metadataGeneration: number; stateGeneration: number };
+    }
+    | { status: 'fenced' }
+    | { status: 'legacy-record' }
+    | { status: 'record-missing' }
+    | { status: 'owner-mismatch' }
+  >;
+  isAgentStateCommitCurrent?(
+    agent: JsonRecord,
+    id: string,
+    commit: { metadataGeneration: number; stateGeneration: number },
+  ): boolean;
   setMainPageSessionKeys(keys: unknown): string[];
   setProviderSessionDisplayState(sessionKey: string, patch: JsonRecord): string;
 }
@@ -1566,6 +1586,34 @@ class ConfigManager {
 
   async persistAgentAdaptiveTitle(agent: AgentRecord, title: string): Promise<string> {
     return this.sessionStore ? this.sessionStore.persistAgentAdaptiveTitle(agent, title) : '';
+  }
+
+  async persistAgentStatePatch(
+    agent: AgentRecord,
+    patch: JsonRecord,
+    options: { beforeCommit?: () => boolean } = {},
+  ): Promise<
+    | {
+      status: 'committed';
+      id: string;
+      commit: { metadataGeneration: number; stateGeneration: number };
+    }
+    | { status: 'fenced' }
+    | { status: 'legacy-record' }
+    | { status: 'record-missing' }
+    | { status: 'owner-mismatch' }
+  > {
+    return this.sessionStore?.persistAgentStatePatch
+      ? this.sessionStore.persistAgentStatePatch(agent, patch, options)
+      : { status: 'record-missing' };
+  }
+
+  isAgentStateCommitCurrent(
+    agent: AgentRecord,
+    id: string,
+    commit: { metadataGeneration: number; stateGeneration: number },
+  ): boolean {
+    return this.sessionStore?.isAgentStateCommitCurrent?.(agent, id, commit) === true;
   }
 
   getAgentSessionRecordForProviderSessionKey(sessionKey: string): PersistedAgentPrivateMetadata | null {

@@ -69,6 +69,7 @@ import type {
   TerminalSessionState,
 } from './agent-manager-engine-types.js';
 import type {
+  AcpRuntimeBinding,
   AgentManagerConfig,
   AgentRecord as TypedAgentRecord,
   CreatePermanentWorktreeOptions,
@@ -1537,6 +1538,7 @@ class AgentManager extends EventEmitter {
   declare adaptiveTitlePersistenceDrain: Promise<void> | null;
   declare acpFinalizedTurns: Map<string, string>;
   declare acpTurnFinalizationTails: Map<string, Promise<void>>;
+  declare activeAcpTurnFinalizations: Set<Promise<void>>;
   declare acpSessionOptionsByKey: Map<string, AcpSessionOptionsRecord>;
   declare acpPreparedTranscriptCache: AcpPreparedTranscriptCache;
   declare acpTranscriptReads: Map<string, Promise<{ payload?: UnknownRecord; serialized?: string }>>;
@@ -1631,6 +1633,7 @@ class AgentManager extends EventEmitter {
     this.adaptiveTitlePersistenceDrain = null;
     this.acpFinalizedTurns = new Map();
     this.acpTurnFinalizationTails = new Map();
+    this.activeAcpTurnFinalizations = new Set();
     // Standard ACP session inputs may contain MCP credentials. Keep the live
     // copy outside browser-facing Agent records; crash recovery persists it
     // only through the private Farming session store.
@@ -1816,6 +1819,7 @@ class AgentManager extends EventEmitter {
           )
         ));
         this.acpTurnFinalizationTails.set(agentId, finalization);
+        this.activeAcpTurnFinalizations.add(finalization);
         void finalization.catch(finalizeError => {
           if (this.acpFinalizedTurns.get(agentId) === settledTurnHandle) {
             this.acpFinalizedTurns.delete(agentId);
@@ -1824,6 +1828,7 @@ class AgentManager extends EventEmitter {
           }
           console.warn('Failed to finalize ACP Turn:', finalizeError);
         }).finally(() => {
+          this.activeAcpTurnFinalizations.delete(finalization);
           if (this.acpTurnFinalizationTails.get(agentId) === finalization) {
             this.acpTurnFinalizationTails.delete(agentId);
           }
@@ -1906,54 +1911,164 @@ class AgentManager extends EventEmitter {
       }
     }
     if (this.agents.get(agentId) !== agent || this.acpRuntime.bindingEpoch(agentId) !== runtimeEpoch) return;
-    const previous = {
-      acpFinalizedTurnHandle: agent.acpFinalizedTurnHandle,
-      attentionAutoReadNext: agent.attentionAutoReadNext,
-      attentionOutputEpoch: agent.attentionOutputEpoch,
-      attentionOutputSeq: agent.attentionOutputSeq,
-      attentionReason: agent.attentionReason,
-      attentionSeq: agent.attentionSeq,
-      attentionSummary: agent.attentionSummary,
-      attentionUpdatedAt: agent.attentionUpdatedAt,
-      readAttentionAt: agent.readAttentionAt,
-      readAttentionSeq: agent.readAttentionSeq,
-      runtimeStopReason: runtime.stopReason,
-      unread: agent.unread,
+    const attentionInputSignature = () => JSON.stringify([
+      agent.attentionAutoReadNext === true,
+      agent.attentionOutputEpoch || '',
+      finiteNumberOrNull(agent.attentionOutputSeq),
+      agent.attentionReason || '',
+      finiteNonNegativeInteger(agent.attentionSeq),
+      finiteNumberOrNull(agent.attentionUpdatedAt),
+      finiteNumberOrNull(agent.readAttentionAt),
+      finiteNonNegativeInteger(agent.readAttentionSeq),
+      agent.readOutputEpoch || '',
+      finiteNumberOrNull(agent.readOutputSeq),
+      agent.runtimeEpoch || '',
+      agent.unread === true,
+    ]);
+    const stageFinalizedAgent = (currentRuntime: AcpRuntimeBinding) => {
+      const staged = {
+        ...agent,
+        runtimeBinding: { ...currentRuntime },
+        acpFinalizedTurnHandle: settledTurnHandle,
+      } as TypedAgentRecord;
+      let attentionUpdate: UnknownRecord | null = null;
+      if (ACP_ATTENTION_STOP_REASONS.has(effectiveStopReason)) {
+        staged.attentionSummary = attentionSummary;
+        attentionUpdate = this.recordAgentAttentionEvent(staged, 'turn-complete', {
+          persist: false,
+          publish: false,
+        });
+      }
+      return { attentionUpdate, staged };
     };
-    let attentionUpdate: UnknownRecord | null = null;
-    runtime.stopReason = effectiveStopReason;
-    agent.acpFinalizedTurnHandle = settledTurnHandle;
-    if (ACP_ATTENTION_STOP_REASONS.has(runtime.stopReason)) {
-      agent.attentionSummary = attentionSummary;
-      attentionUpdate = this.recordAgentAttentionEvent(agent, 'turn-complete', {
-        persist: false,
-        publish: false,
-      });
-    }
-    try {
-      this.ensurePersistentAgentSession(agent);
-    } catch (error) {
+    const publishFinalizedAgent = (
+      staged: TypedAgentRecord,
+      attentionUpdate: UnknownRecord | null,
+    ) => {
       Object.assign(agent, {
-        acpFinalizedTurnHandle: previous.acpFinalizedTurnHandle,
-        attentionAutoReadNext: previous.attentionAutoReadNext,
-        attentionOutputEpoch: previous.attentionOutputEpoch,
-        attentionOutputSeq: previous.attentionOutputSeq,
-        attentionReason: previous.attentionReason,
-        attentionSeq: previous.attentionSeq,
-        attentionSummary: previous.attentionSummary,
-        attentionUpdatedAt: previous.attentionUpdatedAt,
-        readAttentionAt: previous.readAttentionAt,
-        readAttentionSeq: previous.readAttentionSeq,
-        unread: previous.unread,
+        acpFinalizedTurnHandle: staged.acpFinalizedTurnHandle,
+        attentionAutoReadNext: staged.attentionAutoReadNext,
+        attentionOutputEpoch: staged.attentionOutputEpoch,
+        attentionOutputSeq: staged.attentionOutputSeq,
+        attentionReason: staged.attentionReason,
+        attentionSeq: staged.attentionSeq,
+        attentionSummary: staged.attentionSummary,
+        attentionUpdatedAt: staged.attentionUpdatedAt,
+        readAttentionAt: staged.readAttentionAt,
+        readAttentionSeq: staged.readAttentionSeq,
+        unread: staged.unread,
       });
-      runtime.stopReason = previous.runtimeStopReason;
-      throw error;
+      if (attentionUpdate) {
+        this.updateEngineProviderSessionMetadata(agent);
+        this.emitAgentReadState(agent);
+      }
+      this.providerSessionService.observe(agentId, { force: true });
+    };
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const currentRuntime = runtimeBindingOf(agent, 'acp');
+      if (
+        this.agents.get(agentId) !== agent
+        || !currentRuntime
+        || this.acpRuntime.bindingEpoch(agentId) !== runtimeEpoch
+      ) return;
+      const inputSignature = attentionInputSignature();
+      let { attentionUpdate, staged } = stageFinalizedAgent(currentRuntime);
+      const statePatch = {
+        // The runtime event stored this stop reason before scheduling the
+        // finalization. If a newer Turn has since changed it, do not restore
+        // the older settled-Turn reason over the current runtime state.
+        ...(currentRuntime.stopReason === effectiveStopReason
+          ? { acpStopReason: effectiveStopReason }
+          : {}),
+        acpFinalizedTurnHandle: settledTurnHandle,
+        attentionSeq: finiteNonNegativeInteger(staged.attentionSeq),
+        readAttentionSeq: finiteNonNegativeInteger(staged.readAttentionSeq),
+        attentionUpdatedAt: finiteNumberOrNull(staged.attentionUpdatedAt),
+        readAttentionAt: finiteNumberOrNull(staged.readAttentionAt),
+        attentionReason: staged.attentionReason || '',
+        attentionOutputEpoch: staged.attentionOutputEpoch || '',
+        attentionOutputSeq: finiteNumberOrNull(staged.attentionOutputSeq),
+        readOutputEpoch: staged.readOutputEpoch || '',
+        readOutputSeq: finiteNumberOrNull(staged.readOutputSeq),
+        unread: staged.unread === true,
+      };
+      const beforeCommit = () => Boolean(
+        this.agents.get(agentId) === agent
+        && this.acpRuntime.bindingEpoch(agentId) === runtimeEpoch
+        && attentionInputSignature() === inputSignature
+      );
+
+      if (typeof this.configManager?.persistAgentStatePatch === 'function') {
+        this.assertPersistentAgentRuntimeOwner(agent);
+        const result = await this.configManager.persistAgentStatePatch(agent, statePatch, { beforeCommit });
+        if (result.status === 'fenced') {
+          if (
+            this.agents.get(agentId) !== agent
+            || this.acpRuntime.bindingEpoch(agentId) !== runtimeEpoch
+          ) return;
+          await new Promise<void>(resolve => setImmediate(resolve));
+          continue;
+        }
+        if (result.status === 'owner-mismatch') {
+          throw new Error(`Agent ${agentId} state owner changed before Turn finalization commit`);
+        }
+        if (result.status === 'record-missing') {
+          throw new Error(`Agent ${agentId} state record disappeared before Turn finalization commit`);
+        }
+        if (result.status === 'legacy-record') {
+          // Legacy fsess records do not have a split Agent state file. Preserve
+          // the existing synchronous durable barrier for that bounded path,
+          // but re-stage from live state after the asynchronous capability
+          // check so unrelated fields cannot be written from a stale snapshot.
+          const legacyRuntime = runtimeBindingOf(agent, 'acp');
+          if (
+            this.agents.get(agentId) !== agent
+            || !legacyRuntime
+            || this.acpRuntime.bindingEpoch(agentId) !== runtimeEpoch
+          ) return;
+          ({ attentionUpdate, staged } = stageFinalizedAgent(legacyRuntime));
+          this.assertPersistentAgentRuntimeOwner(agent);
+          const agentRecordId = this.ensurePersistentAgentSession(staged);
+          if (agentRecordId) setAgentRecordId(agent, agentRecordId);
+        } else {
+          // A newer read/output mutation can land after the atomic rename but
+          // before this async continuation resumes. A full synchronous state
+          // write can also supersede the durable patch without changing those
+          // live attention inputs. Require both the store generation token and
+          // the caller fence before publishing the staged state.
+          const durableCommitIsCurrent = typeof this.configManager.isAgentStateCommitCurrent === 'function'
+            && this.configManager.isAgentStateCommitCurrent(agent, result.id, result.commit);
+          if (!durableCommitIsCurrent || !beforeCommit()) {
+            await new Promise<void>(resolve => setImmediate(resolve));
+            continue;
+          }
+          setAgentRecordId(agent, result.id);
+        }
+      } else {
+        const agentRecordId = this.ensurePersistentAgentSession(staged);
+        if (agentRecordId) setAgentRecordId(agent, agentRecordId);
+      }
+
+      if (this.agents.get(agentId) !== agent) return;
+      publishFinalizedAgent(staged, attentionUpdate);
+      return;
     }
-    if (attentionUpdate) {
-      this.updateEngineProviderSessionMetadata(agent);
-      this.emitAgentReadState(agent);
-    }
-    this.providerSessionService.observe(agentId, { force: true });
+    // Repeated user read mutations can keep invalidating the small async
+    // publication window. After the bounded async retries, converge once with
+    // the existing synchronous durable barrier so disk and live state cannot
+    // remain permanently split. This is a pathological conflict fallback, not
+    // the normal Turn-finalization path.
+    const currentRuntime = runtimeBindingOf(agent, 'acp');
+    if (
+      this.agents.get(agentId) !== agent
+      || !currentRuntime
+      || this.acpRuntime.bindingEpoch(agentId) !== runtimeEpoch
+    ) return;
+    const { attentionUpdate, staged } = stageFinalizedAgent(currentRuntime);
+    this.assertPersistentAgentRuntimeOwner(agent);
+    const agentRecordId = this.ensurePersistentAgentSession(staged);
+    if (agentRecordId) setAgentRecordId(agent, agentRecordId);
+    publishFinalizedAgent(staged, attentionUpdate);
   }
 
   bindEngineEvents() {
@@ -4779,6 +4894,10 @@ class AgentManager extends EventEmitter {
         runtimeCleanupFailures.push(error);
       }
     }
+    // Runtime shutdown can surface a final settled Turn after the initial
+    // operation drain. Keep the Agent owner alive until that accepted durable
+    // state commit has finished or failed explicitly.
+    await this.drainAcceptedAgentOperations();
 
     let agentStateChanged = false;
     const forgetStoppedStructuredAgents = (
@@ -4851,6 +4970,7 @@ class AgentManager extends EventEmitter {
     this.codexTerminalStartQueues.clear();
     this.codexTerminalStartOutput.clear();
     this.adaptiveTitlePersistenceEntries.clear();
+    this.activeAcpTurnFinalizations.clear();
     this.acpSessionOptionsByKey.clear();
     this.disposed = true;
   }
@@ -4869,6 +4989,7 @@ class AgentManager extends EventEmitter {
       for (const operation of this.activeInputOperations) pending.add(operation);
       for (const operation of this.resizeDrains.values()) pending.add(operation);
       if (this.adaptiveTitlePersistenceDrain) pending.add(this.adaptiveTitlePersistenceDrain);
+      for (const finalization of this.activeAcpTurnFinalizations) pending.add(finalization);
       if (pending.size === 0) return;
       await Promise.allSettled([...pending]);
     }

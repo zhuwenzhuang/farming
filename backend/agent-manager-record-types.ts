@@ -562,6 +562,26 @@ export interface AgentManagerConfig {
   };
   ensureAgentSessionRecord(agent: AgentRecord, patch?: Partial<PersistedAgentPrivateMetadata>): string;
   persistAgentAdaptiveTitle(agent: AgentRecord, title: string): Promise<string>;
+  persistAgentStatePatch?(
+    agent: AgentRecord,
+    patch: Record<string, unknown>,
+    options?: { beforeCommit?: () => boolean },
+  ): Promise<
+    | {
+      status: 'committed';
+      id: string;
+      commit: { metadataGeneration: number; stateGeneration: number };
+    }
+    | { status: 'fenced' }
+    | { status: 'legacy-record' }
+    | { status: 'record-missing' }
+    | { status: 'owner-mismatch' }
+  >;
+  isAgentStateCommitCurrent?(
+    agent: AgentRecord,
+    id: string,
+    commit: { metadataGeneration: number; stateGeneration: number },
+  ): boolean;
   farmingDir?: string;
   getAgentSessionRecordForProviderSessionKey(sessionKey: string): PersistedAgentPrivateMetadata | null;
   getMainPageSessionKeys(): string[];
