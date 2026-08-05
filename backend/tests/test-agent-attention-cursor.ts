@@ -12,6 +12,10 @@ function createManager() {
   });
 }
 
+function wait(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 async function run() {
   const manager = createManager();
 
@@ -335,7 +339,6 @@ async function run() {
       { provider: 'claude', command: 'claude', method: 'osc9', summary: 'Claude is ready to review.' },
       { provider: 'opencode', command: 'opencode', method: 'osc99', summary: 'OpenCode finished the requested edit.' },
       { provider: 'qoder', command: 'qodercli', method: 'osc99', summary: 'Qoder completed the task.' },
-      { provider: 'qwen', command: 'qwen', method: 'osc777', summary: 'Qwen has a result.' },
     ]) {
       const agentId = `terminal-notification-${provider}`;
       const runtimeEpoch = `${agentId}-epoch`;
@@ -370,6 +373,95 @@ async function run() {
       assert.strictEqual(agent.attentionSummary, summary);
       assert.strictEqual(agent.unread, true);
     }
+
+    const qwenAgentId = 'terminal-notification-qwen';
+    const qwenRuntimeEpoch = `${qwenAgentId}-epoch`;
+    manager.agents.set(qwenAgentId, {
+      id: qwenAgentId,
+      command: 'qwen',
+      providerSessionProvider: 'qwen',
+      cwd: '/tmp',
+      output: '',
+      previewText: '',
+      engineName: 'local',
+      status: 'running',
+      runtimeEpoch: qwenRuntimeEpoch,
+      terminalBusy: true,
+      attentionSeq: 0,
+      readAttentionSeq: 0,
+      unread: false,
+      attentionTrackingReady: true,
+      lastObservedTurnActive: true,
+      attentionBaselineOutputSeq: 3,
+      attentionRequiresNewOutput: true,
+      lastOutputSeq: 3,
+      attentionSuppressUntil: 0,
+    });
+    manager.engineBridge.router.engines.local.emit('session-output', {
+      sessionId: qwenAgentId,
+      data: 'A local agent completed while the parent turn continues.\n',
+      runtimeEpoch: qwenRuntimeEpoch,
+      outputSeq: 4,
+    });
+    manager.engineBridge.router.engines.local.emit('session-notification', {
+      sessionId: qwenAgentId,
+      method: 'osc777',
+      title: '',
+      message: 'Qwen has a result.',
+      runtimeEpoch: qwenRuntimeEpoch,
+      outputSeq: 4,
+    });
+    agent = manager.agents.get(qwenAgentId);
+    assert.strictEqual(agent.attentionSeq, 0, 'Qwen notifications must not mark an active parent turn unread');
+    assert.strictEqual(agent.unread, false);
+    assert.strictEqual(agent.pendingTerminalNotificationSummary, 'Qwen has a result.');
+
+    manager.engineBridge.router.engines.local.emit('session-busy-state', {
+      sessionId: qwenAgentId,
+      terminalBusy: false,
+      runtimeEpoch: qwenRuntimeEpoch,
+    });
+    agent = manager.agents.get(qwenAgentId);
+    assert.strictEqual(agent.attentionSeq, 0, 'the first Qwen idle edge should only start stability confirmation');
+    assert.strictEqual(agent.unread, false);
+    assert.strictEqual(agent.pendingTerminalNotificationSummary, 'Qwen has a result.');
+
+    manager.engineBridge.router.engines.local.emit('session-busy-state', {
+      sessionId: qwenAgentId,
+      terminalBusy: true,
+      runtimeEpoch: qwenRuntimeEpoch,
+    });
+    agent = manager.agents.get(qwenAgentId);
+    assert.strictEqual(agent.attentionSeq, 0, 'Qwen becoming active again must cancel same-turn idle flicker');
+    assert.strictEqual(agent.unread, false);
+    assert.strictEqual(agent.pendingTerminalNotificationSummary, 'Qwen has a result.');
+
+    manager.engineBridge.router.engines.local.emit('session-busy-state', {
+      sessionId: qwenAgentId,
+      terminalBusy: false,
+      runtimeEpoch: qwenRuntimeEpoch,
+    });
+    await wait(3200);
+    agent = manager.agents.get(qwenAgentId);
+    assert.strictEqual(agent.attentionSeq, 1, 'Qwen notifications should become attention after sustained parent idle');
+    assert.strictEqual(agent.attentionReason, 'terminal-notification');
+    assert.strictEqual(agent.attentionSummary, 'Qwen has a result.');
+    assert.strictEqual(agent.unread, true);
+    assert.strictEqual(agent.pendingTerminalNotificationSummary, undefined);
+
+    manager.engineBridge.router.engines.local.emit('session-busy-state', {
+      sessionId: qwenAgentId,
+      terminalBusy: true,
+      runtimeEpoch: qwenRuntimeEpoch,
+    });
+    agent = manager.agents.get(qwenAgentId);
+    assert.strictEqual(manager.isAgentAttentionTurnActive(agent), true);
+    assert.strictEqual(
+      agent.unread,
+      true,
+      'a genuine unread completion must remain visible when a later Qwen turn starts',
+    );
+
     manager.engineBridge.router.engines.local.emit('session-busy-state', {
       sessionId: 'terminal-notification-codex',
       terminalBusy: false,
